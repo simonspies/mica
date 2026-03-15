@@ -318,7 +318,7 @@ where
         if peek st' == .comma then do
           let (e2, st') ← parseExpr (advance st')
           let st' ← expect .rparen st'
-          .ok (.binop .pair e e2, st')
+          .ok (.tuple [e, e2], st')
         else do
           let st' ← expect .rparen st'
           .ok (e, st')
