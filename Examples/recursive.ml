@@ -46,3 +46,27 @@ let rec triangle (n: int) : int =
     bind (isint v) @@ fun r ->
     assert (r = n * (n + 1) / 2);
     ret ())];;
+
+
+let rec sum_squares (n: int) : int =
+  if n <= 0 then 0
+  else sum_squares (n - 1) + n * n
+[@@spec fun x ->
+  bind (isint x) @@ fun n ->
+  assert (n >= 0);
+  ret (fun v ->
+    bind (isint v) @@ fun r ->
+    assert (r = (n * (n + 1) * (2 * n + 1)) / 6);
+    ret ())];;
+
+
+let rec sum_cubes (n: int) : int =
+  if n <= 0 then 0
+  else sum_cubes (n - 1) + n * n * n
+[@@spec fun x ->
+  bind (isint x) @@ fun n ->
+  assert (n >= 0);
+  ret (fun v ->
+    bind (isint v) @@ fun r ->
+    assert (r = (n * n * (n + 1) * (n + 1)) / 4);
+    ret ())];;
