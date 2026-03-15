@@ -9,6 +9,13 @@ These axioms encode the semantics of various expression forms.
 
 axiom wp : TinyML.Expr → (TinyML.Val → Prop) → Prop
 
+/-- Weakest precondition for a list of expressions, evaluated right-to-left.
+    `wps [e1, e2, e3] Q` first evaluates `e3`, then `e2`, then `e1`,
+    and passes `[v1, v2, v3]` (in original order) to `Q`. -/
+def wps : TinyML.Exprs → (TinyML.Vals → Prop) → Prop
+  | [], Q => Q []
+  | e :: es, Q => wps es (fun vs => wp e (fun v => Q (v :: vs)))
+
 axiom wp.val {v : TinyML.Val} {Q : TinyML.Val → Prop} : Q v → wp (.val v) Q
 axiom wp.binop {op : TinyML.BinOp} {l r : TinyML.Expr} {Q : TinyML.Val → Prop} :
     wp l (fun vl => wp r (fun vr => ∃ r, TinyML.evalBinOp op vl vr = some r ∧ Q r)) →
@@ -59,12 +66,6 @@ axiom wp.assert {e : TinyML.Expr} {P : TinyML.Val → Prop} :
 axiom wp.tuple {es : TinyML.Exprs} {Q : TinyML.Val → Prop} :
   wps es (fun vs => Q (.tuple vs)) → wp (.tuple es) Q
 
-/-- Weakest precondition for a list of expressions, evaluated right-to-left.
-    `wps [e1, e2, e3] Q` first evaluates `e3`, then `e2`, then `e1`,
-    and passes `[v1, v2, v3]` (in original order) to `Q`. -/
-def wps : TinyML.Exprs → (TinyML.Vals → Prop) → Prop
-  | [], Q => Q []
-  | e :: es, Q => wps es (fun vs => wp e (fun v => Q (v :: vs)))
 
 @[simp] theorem wps_nil {Q : TinyML.Vals → Prop} : wps [] Q = Q [] := rfl
 @[simp] theorem wps_cons {e : TinyML.Expr} {es : TinyML.Exprs} {Q : TinyML.Vals → Prop} :
