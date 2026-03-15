@@ -204,6 +204,8 @@ end
 
 /-! ### Correctness -/
 
+mutual
+
 theorem compile_correct (e : TinyML.Expr) (S : SpecMap) (B : Bindings) (Γ : TinyML.TyCtx) (st : TransState) (ρ : Env) (γ : TinyML.Subst)
     (Ψ : TinyML.Type_ × Term .value → TransState → Env → Prop) (Φ : TinyML.Val → Prop) :
     VerifM.eval (compile S B Γ e) st ρ Ψ →
@@ -216,20 +218,8 @@ theorem compile_correct (e : TinyML.Expr) (S : SpecMap) (B : Bindings) (Γ : Tin
       TinyML.ValHasType v ty → Φ v) →
     wp (e.subst γ) Φ := by
   intro heval hagree hbwf hts hspec hSwf hpost
-  induction e using TinyML.Expr.rec
-    (motive_1 := fun _ => True)
-    (motive_3 := fun _ => True)
-    (motive_4 := fun es => ∀ (S : SpecMap) (B : Bindings) (Γ : TinyML.TyCtx) (st : TransState) (ρ : Env) (γ : TinyML.Subst)
-        (Ψ : List TinyML.Type_ × Term .vallist → TransState → Env → Prop) (Φ : List TinyML.Val → Prop),
-        VerifM.eval (compileExprs S B Γ es) st ρ Ψ →
-        B.agreeOnLinked ρ γ → B.wf st.decls → B.typedSubst Γ γ →
-        S.satisfiedBy γ → S.wfIn [] →
-        (∀ vs ρ' st' ts slist, Ψ (ts, slist) st' ρ' → slist.wfIn st'.decls →
-          Term.eval ρ' slist = vs → TinyML.ValsHaveTypes vs ts → Φ vs) →
-        wps (es.map (TinyML.Expr.subst γ)) Φ)
-    generalizing S B Γ st γ ρ Ψ Φ
-  all_goals try trivial
-  case val v _ =>
+  cases e with
+  | val v =>
     cases v with
     | int n =>
       simp; apply wp.val
@@ -252,9 +242,9 @@ theorem compile_correct (e : TinyML.Expr) (S : SpecMap) (B : Bindings) (Γ : Tin
         (by intro w hw; simp [Term.freeVars] at hw)
         (by simp [Term.eval])
         .unit
-    | inl _ | inr _ | loc _ | fix _ _ _ | tuple _ =>
+    | inl _ | inr _ | loc _ | fix _ _ _ _ _ | tuple _ =>
       simp; exact (VerifM.eval_fatal heval).elim
-  case var x =>
+  | var x =>
     simp only [compile] at heval
     cases hbind : List.lookup x B with
     | none =>
@@ -282,11 +272,11 @@ theorem compile_correct (e : TinyML.Expr) (S : SpecMap) (B : Bindings) (Γ : Tin
           rw [hγ] at hw
           exact (Option.some.inj hw).symm ▸ hwt
       exact hpost _ ρ st _ _ heval hwfv (by simp [Term.eval]) htyping
-  case unop op e ih =>
+  | unop op e =>
     simp only [TinyML.Expr.subst]
     apply wp.unop
     have heval_e : (compile S B Γ e).eval st ρ _ := VerifM.eval_bind _ _ _ _ heval
-    refine ih S B Γ st ρ γ _ _ (VerifM.eval.decls_grow ρ heval_e) hagree hbwf hts hspec hSwf ?_
+    refine compile_correct e S B Γ st ρ γ _ _ (VerifM.eval.decls_grow ρ heval_e) hagree hbwf hts hspec hSwf ?_
     intro v_e ρ_e st₁ te se hΨ_e hse_wf heval_se htype_e
     obtain ⟨hdecls_e, hagreeOn_e, hΨ_e⟩ := hΨ_e
     cases htypeOf : TinyML.UnOp.typeOf op te with
@@ -307,18 +297,18 @@ theorem compile_correct (e : TinyML.Expr) (S : SpecMap) (B : Bindings) (Γ : Tin
           compileUnop_eval heval_se heval_op hcompUnop
         exact ⟨w, heval_op, hpost w ρ_e st₁ ty t hΨ_e
           (compileUnop_wfIn hse_wf hcompUnop) ht_eval hwt⟩
-  case binop op l r ihl ihr =>
+  | binop op l r =>
     simp only [TinyML.Expr.subst]
     apply wp.binop
     have heval_l : (compile S B Γ l).eval st ρ _ := VerifM.eval_bind _ _ _ _ heval
-    refine ihl S B Γ st ρ γ _ _ (VerifM.eval.decls_grow ρ heval_l) hagree hbwf hts hspec hSwf ?_
+    refine compile_correct l S B Γ st ρ γ _ _ (VerifM.eval.decls_grow ρ heval_l) hagree hbwf hts hspec hSwf ?_
     intro vl ρ_l st₁ tyl sl hΨ_l hsl_wf heval_l htyl
     obtain ⟨hdecls_l, hagreeOn_l, hΨ_l⟩ := hΨ_l
     have hagree_l : B.agreeOnLinked ρ_l γ :=
       Bindings.agreeOnLinked_env_agree hagree hagreeOn_l hbwf
     have hbwf_l : B.wf st₁.decls := fun p hp => hdecls_l (hbwf p hp)
     have heval_r : (compile S B Γ r).eval st₁ ρ_l _ := VerifM.eval_bind _ _ _ _ hΨ_l
-    refine ihr S B Γ st₁ ρ_l γ _ _ (VerifM.eval.decls_grow ρ_l heval_r) hagree_l hbwf_l hts hspec hSwf ?_
+    refine compile_correct r S B Γ st₁ ρ_l γ _ _ (VerifM.eval.decls_grow ρ_l heval_r) hagree_l hbwf_l hts hspec hSwf ?_
     intro vr ρ_r st₂ tyr sr hΨ_r hsr_wf heval_r htyr
     obtain ⟨hdecls_r, hagreeOn_r, hΨ_r⟩ := hΨ_r
     simp only [] at hΨ_r
@@ -342,23 +332,23 @@ theorem compile_correct (e : TinyML.Expr) (S : SpecMap) (B : Bindings) (Γ : Tin
         have ht_eval : t.eval ρ_r = w := compileOp_eval hsl_ρ_r heval_r heval_op hcompOp
         exact ⟨w, heval_op, hpost w ρ_r st₂ ty t hΨ_r
           (compileOp_wfIn (sl.wfIn_mono hsl_wf hdecls_r) hsr_wf hcompOp) ht_eval hwt⟩
-  case letIn b e body ihe ihbody =>
+  | letIn b e body =>
     simp only [TinyML.Expr.subst]
     apply wp.letIn
     cases b with
     | none =>
       have heval_e_outer : (compile S B Γ e).eval st ρ _ := VerifM.eval_bind _ _ _ _ heval
-      refine ihe S B Γ st ρ γ _ _ (VerifM.eval.decls_grow ρ heval_e_outer) hagree hbwf hts hspec hSwf ?_
+      refine compile_correct e S B Γ st ρ γ _ _ (VerifM.eval.decls_grow ρ heval_e_outer) hagree hbwf hts hspec hSwf ?_
       intro v_e ρ_e st₁ _ sube hΨ_e _ _ _
       obtain ⟨hdecls_e, hagreeOn_e, hΨ_e⟩ := hΨ_e
       simp only [TinyML.Expr.subst_none]
       have hagree_e := Bindings.agreeOnLinked_env_agree hagree hagreeOn_e hbwf
       have hbwf_e : B.wf st₁.decls := fun p hp => hdecls_e (hbwf p hp)
-      refine ihbody S B Γ st₁ ρ_e γ _ _ (VerifM.eval.decls_grow ρ_e hΨ_e) hagree_e hbwf_e hts hspec hSwf ?_
+      refine compile_correct body S B Γ st₁ ρ_e γ _ _ (VerifM.eval.decls_grow ρ_e hΨ_e) hagree_e hbwf_e hts hspec hSwf ?_
       grind
     | named x =>
       have heval_e_outer : (compile S B Γ e).eval st ρ _ := VerifM.eval_bind _ _ _ _ heval
-      refine ihe S B Γ st ρ γ _ _ (VerifM.eval.decls_grow ρ heval_e_outer) hagree hbwf hts hspec hSwf ?_
+      refine compile_correct e S B Γ st ρ γ _ _ (VerifM.eval.decls_grow ρ heval_e_outer) hagree hbwf hts hspec hSwf ?_
       intro v_e ρ_e st₁ te sube hΨ_e hsube_wf heval_e htyping_e
       obtain ⟨hdecls_e, hagreeOn_e, hΨ_e⟩ := hΨ_e
       set base := x
@@ -418,13 +408,13 @@ theorem compile_correct (e : TinyML.Expr) (S : SpecMap) (B : Bindings) (Γ : Tin
         rwa [hρ_body_lookup] at h
       have hts_body : Bindings.typedSubst ((x, v) :: B) (Γ.extend x te) γ_body :=
         Bindings.typedSubst_cons hts htyping_e
-      refine ihbody (Finmap.erase x S) ((x, v) :: B) (Γ.extend x te) st₂ ρ_body γ_body _ _ (VerifM.eval.decls_grow ρ_body hΨ_body) hagree_body hbwf₂ hts_body (SpecMap.satisfiedBy_erase hspec) (SpecMap.wfIn_erase hSwf) ?_
+      refine compile_correct body (Finmap.erase x S) ((x, v) :: B) (Γ.extend x te) st₂ ρ_body γ_body _ _ (VerifM.eval.decls_grow ρ_body hΨ_body) hagree_body hbwf₂ hts_body (SpecMap.satisfiedBy_erase hspec) (SpecMap.wfIn_erase hSwf) ?_
       grind
-  case assert e ih =>
+  | assert e =>
     simp only [TinyML.Expr.subst]
     apply wp.assert
     have heval_e : (compile S B Γ e).eval st ρ _ := VerifM.eval_bind _ _ _ _ heval
-    refine ih S B Γ st ρ γ _ _ (VerifM.eval.decls_grow ρ heval_e) hagree hbwf hts hspec hSwf ?_
+    refine compile_correct e S B Γ st ρ γ _ _ (VerifM.eval.decls_grow ρ heval_e) hagree hbwf hts hspec hSwf ?_
     intro v_e ρ_e st₁ te se hΨ_e hse_wf heval_se _
     obtain ⟨hdecls_e, hagreeOn_e, hΨ_e⟩ := hΨ_e
     let φ := Formula.eq .bool (Term.unop .toBool se) (Term.const (.b true))
@@ -440,45 +430,45 @@ theorem compile_correct (e : TinyML.Expr) (S : SpecMap) (B : Bindings) (Γ : Tin
       (by intro w hw; simp [Term.freeVars] at hw)
       (by simp [Term.eval])
       .unit
-  case ifThenElse cond thn els ihcond ihthn ihels =>
-      simp only [TinyML.Expr.subst]
-      apply wp.ifThenElse
-      have heval_cond : (compile S B Γ cond).eval st ρ _ := VerifM.eval_bind _ _ _ _ heval
-      refine ihcond S B Γ st ρ γ _ _ (VerifM.eval.decls_grow ρ heval_cond) hagree hbwf hts hspec hSwf ?_
-      intro v_c ρ_c st₁ _ sc hΨ_c hsc_wf heval_c _
-      obtain ⟨hdecls_c, hagreeOn_c, hΨ_c⟩ := hΨ_c
-      have hagree_c := Bindings.agreeOnLinked_env_agree hagree hagreeOn_c hbwf
-      have hbwf_c : B.wf st₁.decls := fun p hp => hdecls_c (hbwf p hp)
-      have heval_branches : (VerifM.all [true, false]).eval st₁ ρ_c _ := VerifM.eval_bind _ _ _ _ hΨ_c
-      have hall := VerifM.eval_all heval_branches
-      have htrue := hall true (by simp)
-      have hfalse := hall false (by simp)
-      have hwf_ne : (Formula.not (Formula.eq .value sc (.unop .ofBool (.const (.b false))))).wfIn st₁.decls := by
-        intro v hv
-        simp only [Formula.freeVars, List.mem_append, Term.freeVars, List.not_mem_nil, or_false] at hv
-        exact hsc_wf v hv
-      have hwf_eq : (Formula.eq .value sc (.unop .ofBool (.const (.b false) : Term .bool))).wfIn st₁.decls := by
-        intro v hv
-        simp only [Formula.freeVars, List.mem_append, Term.freeVars, List.not_mem_nil, or_false] at hv
-        exact hsc_wf v hv
-      have htrue_cont := VerifM.eval_assume (VerifM.eval_bind _ _ _ _ htrue)
-      have hfalse_cont := VerifM.eval_assume (VerifM.eval_bind _ _ _ _ hfalse)
-      constructor
-      · intro hvc_ne
-        have heval_ne : sc.eval ρ_c ≠ TinyML.Val.bool false := heval_c ▸ hvc_ne
-        have heval_thn : (compile S B Γ thn).eval _ ρ_c Ψ :=
-          htrue_cont hwf_ne (by
-            simp only [Formula.eval, Term.eval, UnOp.eval, Const.denote]
-            exact heval_ne)
-        exact ihthn S B Γ _ ρ_c γ Ψ Φ heval_thn hagree_c hbwf_c hts hspec hSwf hpost
-      · intro hvc_eq
-        have heval_eq : sc.eval ρ_c = TinyML.Val.bool false := heval_c ▸ hvc_eq
-        have heval_els : (compile S B Γ els).eval _ ρ_c Ψ :=
-          hfalse_cont hwf_eq (by
-            simp only [Formula.eval, Term.eval, UnOp.eval, Const.denote]
-            exact heval_eq)
-        exact ihels S B Γ _ ρ_c γ Ψ Φ heval_els hagree_c hbwf_c hts hspec hSwf hpost
-  case app fn arg ihfn iharg =>
+  | ifThenElse cond thn els =>
+    simp only [TinyML.Expr.subst]
+    apply wp.ifThenElse
+    have heval_cond : (compile S B Γ cond).eval st ρ _ := VerifM.eval_bind _ _ _ _ heval
+    refine compile_correct cond S B Γ st ρ γ _ _ (VerifM.eval.decls_grow ρ heval_cond) hagree hbwf hts hspec hSwf ?_
+    intro v_c ρ_c st₁ _ sc hΨ_c hsc_wf heval_c _
+    obtain ⟨hdecls_c, hagreeOn_c, hΨ_c⟩ := hΨ_c
+    have hagree_c := Bindings.agreeOnLinked_env_agree hagree hagreeOn_c hbwf
+    have hbwf_c : B.wf st₁.decls := fun p hp => hdecls_c (hbwf p hp)
+    have heval_branches : (VerifM.all [true, false]).eval st₁ ρ_c _ := VerifM.eval_bind _ _ _ _ hΨ_c
+    have hall := VerifM.eval_all heval_branches
+    have htrue := hall true (by simp)
+    have hfalse := hall false (by simp)
+    have hwf_ne : (Formula.not (Formula.eq .value sc (.unop .ofBool (.const (.b false))))).wfIn st₁.decls := by
+      intro v hv
+      simp only [Formula.freeVars, List.mem_append, Term.freeVars, List.not_mem_nil, or_false] at hv
+      exact hsc_wf v hv
+    have hwf_eq : (Formula.eq .value sc (.unop .ofBool (.const (.b false) : Term .bool))).wfIn st₁.decls := by
+      intro v hv
+      simp only [Formula.freeVars, List.mem_append, Term.freeVars, List.not_mem_nil, or_false] at hv
+      exact hsc_wf v hv
+    have htrue_cont := VerifM.eval_assume (VerifM.eval_bind _ _ _ _ htrue)
+    have hfalse_cont := VerifM.eval_assume (VerifM.eval_bind _ _ _ _ hfalse)
+    constructor
+    · intro hvc_ne
+      have heval_ne : sc.eval ρ_c ≠ TinyML.Val.bool false := heval_c ▸ hvc_ne
+      have heval_thn : (compile S B Γ thn).eval _ ρ_c Ψ :=
+        htrue_cont hwf_ne (by
+          simp only [Formula.eval, Term.eval, UnOp.eval, Const.denote]
+          exact heval_ne)
+      exact compile_correct thn S B Γ _ ρ_c γ Ψ Φ heval_thn hagree_c hbwf_c hts hspec hSwf hpost
+    · intro hvc_eq
+      have heval_eq : sc.eval ρ_c = TinyML.Val.bool false := heval_c ▸ hvc_eq
+      have heval_els : (compile S B Γ els).eval _ ρ_c Ψ :=
+        hfalse_cont hwf_eq (by
+          simp only [Formula.eval, Term.eval, UnOp.eval, Const.denote]
+          exact heval_eq)
+      exact compile_correct els S B Γ _ ρ_c γ Ψ Φ heval_els hagree_c hbwf_c hts hspec hSwf hpost
+  | app fn arg =>
     simp only [TinyML.Expr.subst]
     cases fn with
     | var f =>
@@ -493,7 +483,7 @@ theorem compile_correct (e : TinyML.Expr) (S : SpecMap) (B : Bindings) (Γ : Tin
         simp [TinyML.Expr.subst, hγf]
         apply wp.app
         have heval_arg : (compile S B Γ arg).eval st ρ _ := VerifM.eval_bind _ _ _ _ heval
-        refine iharg S B Γ st ρ γ _ _ (VerifM.eval.decls_grow ρ heval_arg) hagree hbwf hts hspec hSwf ?_
+        refine compile_correct arg S B Γ st ρ γ _ _ (VerifM.eval.decls_grow ρ heval_arg) hagree hbwf hts hspec hSwf ?_
         intro varg ρ_arg st_arg targ sarg hΨ_arg hsarg_wf heval_sarg htarg
         apply wp.val
         obtain ⟨hdecls_arg, hagreeOn_arg, hΨ_arg⟩ := hΨ_arg
@@ -519,11 +509,11 @@ theorem compile_correct (e : TinyML.Expr) (S : SpecMap) (B : Bindings) (Γ : Tin
     | _ =>
       simp only [compile] at heval
       exact (VerifM.eval_fatal heval).elim
-  case tuple es ihes =>
+  | tuple es =>
     simp only [TinyML.Expr.subst]
     apply wp.tuple
     have heval_es : (compileExprs S B Γ es).eval st ρ _ := VerifM.eval_bind _ _ _ _ heval
-    refine ihes S B Γ st ρ γ _ _ (VerifM.eval.decls_grow ρ heval_es) hagree hbwf hts hspec hSwf ?_
+    refine compileExprs_correct es S B Γ st ρ γ _ _ (VerifM.eval.decls_grow ρ heval_es) hagree hbwf hts hspec hSwf ?_
     intro vs ρ' st' ts slist hΨ hslist_wf heval_slist htyping
     obtain ⟨hdecls, hagreeOn, hΨ⟩ := hΨ
     simp only at hΨ
@@ -534,8 +524,21 @@ theorem compile_correct (e : TinyML.Expr) (S : SpecMap) (B : Bindings) (Γ : Tin
       intro w hw; simp [Term.freeVars] at hw; exact hslist_wf w hw
     exact hpost (TinyML.Val.tuple vs) ρ' st' (.tuple ts) (.unop .ofValList slist)
       hΨ hwf_tuple heval_tuple (.tuple htyping)
-  case nil =>
-    intro S B Γ st ρ γ Ψ Φ heval hagree hbwf hts hspec hSwf hpost
+  | fix _ _ _ _ _ | ref _ | deref _ | store _ _ =>
+    simp only [compile] at heval
+    exact (VerifM.eval_fatal heval).elim
+
+theorem compileExprs_correct (es : List TinyML.Expr) (S : SpecMap) (B : Bindings) (Γ : TinyML.TyCtx) (st : TransState) (ρ : Env) (γ : TinyML.Subst)
+    (Ψ : List TinyML.Type_ × Term .vallist → TransState → Env → Prop) (Φ : List TinyML.Val → Prop) :
+    VerifM.eval (compileExprs S B Γ es) st ρ Ψ →
+    B.agreeOnLinked ρ γ → B.wf st.decls → B.typedSubst Γ γ →
+    S.satisfiedBy γ → S.wfIn [] →
+    (∀ vs ρ' st' ts slist, Ψ (ts, slist) st' ρ' → slist.wfIn st'.decls →
+      Term.eval ρ' slist = vs → TinyML.ValsHaveTypes vs ts → Φ vs) →
+    wps (es.map (TinyML.Expr.subst γ)) Φ := by
+  intro heval hagree hbwf hts hspec hSwf hpost
+  match es with
+  | [] =>
     simp only [compileExprs] at heval
     simp only [List.map, wps]
     obtain heval := VerifM.eval_ret heval
@@ -543,23 +546,18 @@ theorem compile_correct (e : TinyML.Expr) (S : SpecMap) (B : Bindings) (Γ : Tin
       (by intro w hw; simp [Term.freeVars] at hw)
       (by simp [Term.eval, Const.denote])
       .nil
-  case cons e es ihe ihes =>
-    intro S B Γ st ρ γ Ψ Φ heval hagree hbwf hts hspec hSwf hpost
+  | e :: rest =>
     simp only [compileExprs] at heval
     simp only [List.map, wps_cons]
-    -- compileExprs (e :: es) = do let (ts, ses) ← compileExprs es; let (te, se) ← compile e; pure ...
-    -- wps (e :: es) Φ = wps es (fun vs => wp e (fun v => Φ (v :: vs)))
-    -- Step 1: peel off compileExprs es from bind
-    have heval_es : (compileExprs S B Γ es).eval st ρ _ := VerifM.eval_bind _ _ _ _ heval
-    refine ihes S B Γ st ρ γ _ _ (VerifM.eval.decls_grow ρ heval_es) hagree hbwf hts hspec hSwf ?_
+    have heval_rest : (compileExprs S B Γ rest).eval st ρ _ := VerifM.eval_bind _ _ _ _ heval
+    refine compileExprs_correct rest S B Γ st ρ γ _ _ (VerifM.eval.decls_grow ρ heval_rest) hagree hbwf hts hspec hSwf ?_
     intro vs ρ_vs st_vs ts_vs slist hΨ_vs hslist_wf heval_slist htyping_vs
     obtain ⟨hdecls_vs, hagreeOn_vs, hΨ_vs⟩ := hΨ_vs
     have hagree_vs : B.agreeOnLinked ρ_vs γ :=
       Bindings.agreeOnLinked_env_agree hagree hagreeOn_vs hbwf
     have hbwf_vs : B.wf st_vs.decls := fun p hp => hdecls_vs (hbwf p hp)
-    -- Step 2: peel off compile e from bind
     have heval_e : (compile S B Γ e).eval st_vs ρ_vs _ := VerifM.eval_bind _ _ _ _ hΨ_vs
-    refine ihe S B Γ st_vs ρ_vs γ _ _ (VerifM.eval.decls_grow ρ_vs heval_e) hagree_vs hbwf_vs hts hspec hSwf ?_
+    refine compile_correct e S B Γ st_vs ρ_vs γ _ _ (VerifM.eval.decls_grow ρ_vs heval_e) hagree_vs hbwf_vs hts hspec hSwf ?_
     intro v ρ' st' te se hΨ_e hse_wf heval_se htyping_e
     obtain ⟨hdecls_e, hagreeOn_e, hΨ_e⟩ := hΨ_e
     simp only at hΨ_e
@@ -577,6 +575,5 @@ theorem compile_correct (e : TinyML.Expr) (S : SpecMap) (B : Bindings) (Γ : Tin
       · exact hdecls_e (hslist_wf w hw)
     exact hpost (v :: vs) ρ' st' (te :: ts_vs) (.binop .vcons se slist)
       hΨ_e hwf_cons heval_cons (.cons htyping_e htyping_vs)
-  all_goals
-      simp only [compile] at heval
-      exact (VerifM.eval_fatal heval).elim
+
+end
