@@ -171,33 +171,33 @@ theorem compile_correct (e : TinyML.Expr) (S : SpecMap) (B : Bindings) (Γ : Tin
       TinyML.ValHasType v ty → Φ v) →
     wp (e.subst γ) Φ := by
   intro heval hagree hbwf hts hspec hSwf hpost
-  induction e using TinyML.Expr.rec (motive_1 := fun _ => True) generalizing S B Γ st γ ρ Ψ Φ
+  induction e using TinyML.Expr.rec (motive_1 := fun _ => True) (motive_3 := fun _ => True) (motive_4 := fun _ => True) generalizing S B Γ st γ ρ Ψ Φ
   all_goals try trivial
   case val v _ =>
     cases v with
     | int n =>
-      apply wp.val
+      simp [TinyML.Expr.subst]; apply wp.val
       obtain heval := VerifM.eval_ret heval
       exact hpost (.int n) ρ st .int _ heval
         (by intro w hw; simp [Term.freeVars] at hw)
         (by simp [Term.eval, UnOp.eval, Const.denote])
         (.int n)
     | bool b =>
-      apply wp.val
+      simp [TinyML.Expr.subst]; apply wp.val
       obtain heval := VerifM.eval_ret heval
       exact hpost (.bool b) ρ st .bool _ heval
         (by intro w hw; simp [Term.freeVars] at hw)
         (by simp [Term.eval, UnOp.eval, Const.denote])
         (.bool b)
     | unit =>
-      apply wp.val
+      simp [TinyML.Expr.subst]; apply wp.val
       obtain heval := VerifM.eval_ret heval
       exact hpost .unit ρ st .unit _ heval
         (by intro w hw; simp [Term.freeVars] at hw)
         (by simp [Term.eval])
         .unit
-    | pair _ _ | inl _ | inr _ | loc _ | fix _ _ _ =>
-      exact (VerifM.eval_fatal heval).elim
+    | pair _ _ | inl _ | inr _ | loc _ | fix _ _ _ | tuple _ =>
+      simp [TinyML.Expr.subst]; exact (VerifM.eval_fatal heval).elim
   case var x =>
     simp only [compile] at heval
     cases hbind : List.lookup x B with

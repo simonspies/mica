@@ -343,6 +343,9 @@ def Expr.subst (σ : Subst) : Expr → Expr
     Subst.remove' (fun _ => none) b = fun _ => none := by
   cases b <;> simp [Subst.remove', Subst.remove_none]
 
+@[simp] theorem Expr.subst_val (σ : Subst) (v : Val) : (Expr.val v).subst σ = .val v := by
+  simp [Expr.subst]
+
 theorem Expr.subst_none (e : Expr) : e.subst (fun _ => none) = e := by
   induction e using Expr.rec
     (motive_1 := fun _ => True)
