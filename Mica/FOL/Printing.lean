@@ -44,8 +44,9 @@ def BinOp.toSMTLIB : BinOp τ₁ τ₂ τ₃ → String
   | .vcons => "vcons"
 
 def UnPred.toSMTLIB : UnPred τ → String
-  | .isInt  => "is-of_int"
-  | .isBool => "is-of_bool"
+  | .isInt   => "is-of_int"
+  | .isBool  => "is-of_bool"
+  | .isTuple => "is-of_tuple"
 
 def BinPred.toSMTLIB : BinPred τ₁ τ₂ → String
   | .lt => "<"
@@ -134,8 +135,9 @@ private def formulaStr (p : Prec) : Formula → String
   | .true_           => "true"
   | .false_          => "false"
   | .unpred pred v   => match pred with
-    | .isInt  => s!"isInt({termStr .bottom v})"
-    | .isBool => s!"isBool({termStr .bottom v})"
+    | .isInt   => s!"isInt({termStr .bottom v})"
+    | .isBool  => s!"isBool({termStr .bottom v})"
+    | .isTuple => s!"isTuple({termStr .bottom v})"
   | .binpred pred a b => match pred with
     | .lt => parens (Prec.lt .cmp p) s!"{termStr .add a} < {termStr .add b}"
     | .le => parens (Prec.lt .cmp p) s!"{termStr .add a} <= {termStr .add b}"

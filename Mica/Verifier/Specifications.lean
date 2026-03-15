@@ -64,6 +64,103 @@ theorem Spec.wfIn_mono {spec : Spec} {decls decls' : List Var}
   PredTrans.wfIn_mono h (List.cons_subset_cons _ hsub)
 
 -- ---------------------------------------------------------------------------
+-- Type constraints
+-- ---------------------------------------------------------------------------
+
+/-- Generate SMT formulas asserting that a value-sorted term has a given TinyML type.
+    For `int`: `is-of_int(t)`, for `bool`: `is-of_bool(t)`,
+    for `tuple ts`: `is-of_tuple(t)` plus recursive constraints on elements. -/
+def typeConstraints (ty : TinyML.Type_) (t : Term .value) : List Formula :=
+  match ty with
+  | .int   => [.unpred .isInt t]
+  | .bool  => [.unpred .isBool t]
+  | .tuple ts =>
+      .unpred .isTuple t ::
+      typeConstraintsList ts (.unop .toValList t)
+  | _ => []
+where
+  typeConstraintsList (ts : List TinyML.Type_) (tl : Term .vallist) : List Formula :=
+    match ts with
+    | [] => []
+    | ty :: rest =>
+        typeConstraints ty (.unop .vhead tl) ++
+        typeConstraintsList rest (.unop .vtail tl)
+
+mutual
+  /-- All formulas in `typeConstraints ty t` only reference free variables of `t`. -/
+  theorem typeConstraints_wfIn {ty : TinyML.Type_} {t : Term .value} {Δ : List Var}
+      (ht : t.wfIn Δ) : ∀ φ ∈ typeConstraints ty t, φ.wfIn Δ := by
+    cases ty with
+    | int =>
+      simp [typeConstraints]
+      intro w hw; simp [Formula.freeVars] at hw; exact ht w hw
+    | bool =>
+      simp [typeConstraints]
+      intro w hw; simp [Formula.freeVars] at hw; exact ht w hw
+    | tuple ts =>
+      simp only [typeConstraints]
+      intro φ hφ
+      cases hφ with
+      | head =>
+        intro w hw; simp [Formula.freeVars] at hw; exact ht w hw
+      | tail _ hφ =>
+        exact typeConstraintsList_wfIn (by intro w hw; simp [Term.freeVars] at hw; exact ht w hw) φ hφ
+    | _ => simp [typeConstraints]
+
+  theorem typeConstraintsList_wfIn {ts : List TinyML.Type_} {tl : Term .vallist} {Δ : List Var}
+      (htl : tl.wfIn Δ) : ∀ φ ∈ typeConstraints.typeConstraintsList ts tl, φ.wfIn Δ := by
+    cases ts with
+    | nil => simp [typeConstraints.typeConstraintsList]
+    | cons ty rest =>
+      simp only [typeConstraints.typeConstraintsList]
+      intro φ hφ
+      cases List.mem_append.mp hφ with
+      | inl h =>
+        exact typeConstraints_wfIn (by intro w hw; simp [Term.freeVars] at hw; exact htl w hw) φ h
+      | inr h =>
+        exact typeConstraintsList_wfIn (by intro w hw; simp [Term.freeVars] at hw; exact htl w hw) φ h
+end
+
+mutual
+  /-- If `ValHasType v ty` and `t.eval ρ = v`, then all formulas in `typeConstraints ty t` hold. -/
+  theorem typeConstraints_hold {ty : TinyML.Type_} {t : Term .value} {ρ : Env}
+      {v : TinyML.Val} (ht : t.eval ρ = v) (hty : TinyML.ValHasType v ty) :
+      ∀ φ ∈ typeConstraints ty t, φ.eval ρ := by
+    cases hty with
+    | int n =>
+      intro φ hφ; simp [typeConstraints] at hφ; subst hφ
+      simp [Formula.eval, ht]
+    | bool b =>
+      intro φ hφ; simp [typeConstraints] at hφ; subst hφ
+      simp [Formula.eval, ht]
+    | tuple hvs =>
+      simp only [typeConstraints]
+      intro φ hφ
+      cases hφ with
+      | head =>
+        simp [Formula.eval, ht]
+      | tail _ hφ =>
+        exact typeConstraintsList_hold
+          (by simp [Term.eval, UnOp.eval, ht]) hvs φ hφ
+    | any => simp [typeConstraints]
+    | _ => simp [typeConstraints]
+
+  theorem typeConstraintsList_hold {ts : List TinyML.Type_} {tl : Term .vallist} {ρ : Env}
+      {vs : List TinyML.Val} (htl : tl.eval ρ = vs) (hty : TinyML.ValsHaveTypes vs ts) :
+      ∀ φ ∈ typeConstraints.typeConstraintsList ts tl, φ.eval ρ := by
+    cases hty with
+    | nil => simp [typeConstraints.typeConstraintsList]
+    | cons hv hvs =>
+      simp only [typeConstraints.typeConstraintsList]
+      intro φ hφ
+      cases List.mem_append.mp hφ with
+      | inl h =>
+        exact typeConstraints_hold (by simp [Term.eval, UnOp.eval, htl]) hv φ h
+      | inr h =>
+        exact typeConstraintsList_hold (by simp [Term.eval, UnOp.eval, htl]) hvs φ h
+end
+
+-- ---------------------------------------------------------------------------
 -- Spec verifier operations
 -- ---------------------------------------------------------------------------
 
@@ -82,6 +179,7 @@ def Spec.call (σ : FiniteSubst) (s : Spec) (sarg : Term .value) (targ : TinyML.
     then invoke `PredTrans.implement`. Dual to `Spec.call`. -/
 def Spec.implement (s : Spec) (body : Var → VerifM (Term .value)) : VerifM Unit := do
   let argVar ← VerifM.decl (some s.argName) .value
+  VerifM.assumeAll (typeConstraints s.argTy (.var .value argVar.name))
   let σ₀ := FiniteSubst.id.rename ⟨s.argName, .value⟩ argVar.name
   PredTrans.implement σ₀ s.pred (body argVar)
 
@@ -233,6 +331,7 @@ theorem Spec.call_correct (s : Spec) (σ : FiniteSubst) (sarg : Term .value) (ta
 theorem Spec.implement_correct (s : Spec) (body : Var → VerifM (Term .value))
     (st : TransState) (ρ : Env) (v : TinyML.Val) (Φ : TinyML.Val → Prop) (R : Prop) :
     s.wfIn [] →
+    TinyML.ValHasType v s.argTy →
     VerifM.eval (Spec.implement s body) st ρ (fun _ _ _ => True) →
     PredTrans.apply Φ s.pred (Env.empty.update .value s.argName v) →
     (∀ argVar st' ρ',
@@ -242,26 +341,32 @@ theorem Spec.implement_correct (s : Spec) (body : Var → VerifM (Term .value))
       VerifM.eval (body argVar) st' ρ'
         (fun result st'' ρ'' => result.wfIn st''.decls → Φ (result.eval ρ'')) → R) →
     R := by
-  intro hswf heval happly hR
-  simp only [Spec.implement] at heval
+  intro hswf htyped heval happly hR
   have hb := VerifM.eval_bind _ _ _ _ heval
   have hdecl := VerifM.eval_decl hb
   set argVar := st.freshVar (some s.argName) .value
   specialize hdecl v
-  -- hdecl : PredTrans.implement σ₀ s.pred (body argVar) eval at updated state
+  -- hdecl now includes assumeAll + PredTrans.implement
   set σ₀ := FiniteSubst.id.rename ⟨s.argName, .value⟩ argVar.name
   set st₁ : TransState := { st with decls := argVar :: st.decls }
   set ρ₁ := ρ.update .value argVar.name v
-  -- σ₀.wf st₁.decls
   have hfresh_decls : argVar.name ∉ st.decls.map Var.name :=
     fresh_not_mem (addNumbers s.argName) (st.decls.map Var.name) (addNumbers_injective _)
   have hfresh_range : ⟨argVar.name, Srt.value⟩ ∉ FiniteSubst.id.range := by
     simp [FiniteSubst.id]
   have hσ₀wf : σ₀.wf st₁.decls := FiniteSubst.rename_wf (FiniteSubst.id_wf st.decls) hfresh_range
+  -- Peel off assumeAll from hdecl
+  have hvar_wf : (Term.var Srt.value argVar.name).wfIn st₁.decls := by
+    intro w hw; simp [Term.freeVars] at hw; subst hw; exact List.mem_cons_self ..
+  have hvar_eval : (Term.var Srt.value argVar.name).eval ρ₁ = v := by
+    simp [Term.eval, ρ₁]
+  have hassume_bind := VerifM.eval_bind _ _ _ _ hdecl
+  obtain ⟨st₂, hst₂_decls, hdecl₂⟩ := VerifM.eval_assumeAll hassume_bind
+    (fun φ hφ => typeConstraints_wfIn hvar_wf φ hφ)
+    (fun φ hφ => typeConstraints_hold hvar_eval htyped φ hφ)
   -- Transport apply from Env.empty.update to σ₀.subst.eval ρ₁
   have hag_rename := @FiniteSubst.rename_agreeOn FiniteSubst.id ⟨s.argName, .value⟩ argVar.name
     ρ v (FiniteSubst.id_wf st.decls).1 hfresh_range
-  -- hag_rename : agreeOn [⟨s.argName, .value⟩] (σ₀.subst.eval ρ₁) ((Subst.id.eval ρ).update .value s.argName v)
   have hag_empty : Env.agreeOn [⟨s.argName, .value⟩]
       (Env.empty.update .value s.argName v)
       ((Subst.id.eval ρ).update .value s.argName v) := by
@@ -271,14 +376,15 @@ theorem Spec.implement_correct (s : Spec) (body : Var → VerifM (Term .value))
     simp [Env.lookup_update_same]
   have happly' : PredTrans.apply Φ s.pred (σ₀.subst.eval ρ₁) :=
     PredTrans.apply_env_agree hswf (Env.agreeOn_trans hag_empty (Env.agreeOn_symm hag_rename)) happly
-  -- Apply PredTrans.implement_correct
-  apply PredTrans.implement_correct s.pred σ₀ (body argVar) st₁ ρ₁ Φ R hswf hσ₀wf hdecl happly'
+  -- Apply PredTrans.implement_correct (st₂ has same decls as st₁)
+  have hσ₀wf₂ : σ₀.wf st₂.decls := hst₂_decls ▸ hσ₀wf
+  apply PredTrans.implement_correct s.pred σ₀ (body argVar) st₂ ρ₁ Φ R hswf hσ₀wf₂ hdecl₂ happly'
   -- Callback: given body eval with decls/agree info, derive R
   intro st' ρ' hdsub hragree hbody_eval
   apply hR argVar st' ρ'
-  · exact hdsub (List.mem_cons_self ..)
+  · exact hdsub (hst₂_decls ▸ List.mem_cons_self ..)
   · rfl
-  · have := hragree ⟨argVar.name, .value⟩ (List.mem_cons_self ..)
+  · have := hragree ⟨argVar.name, .value⟩ (hst₂_decls ▸ List.mem_cons_self ..)
     simp [ρ₁, Env.lookup_update_same] at this
     exact this.symm
   · exact hbody_eval

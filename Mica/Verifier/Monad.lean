@@ -45,6 +45,11 @@ instance : Monad VerifM where
   pure := VerifM.ret
   bind := VerifM.bind
 
+/-- Assume all formulas in a list via `VerifM.assume`. -/
+def VerifM.assumeAll : List Formula → VerifM Unit
+  | [] => pure ()
+  | φ :: φs => do VerifM.assume φ; VerifM.assumeAll φs
+
 /-! ### Translation to ScopedM -/
 
 -- We will revisit the trans state in the future. For now, we keep it simply as an alias.
@@ -517,6 +522,31 @@ theorem VerifM.eval_seq {m : VerifM Unit} {m2 : VerifM β} {st : TransState} {ρ
   exact ⟨⟨hwf, hholds, (eval_rec_preserves_wf m st ρ hm hholds hwf).mono
     fun () _ _ ⟨hg', hwf', _⟩ => ⟨hwf', hg', trivial⟩⟩,
    ⟨hwf, hholds, hm2⟩⟩
+
+theorem VerifM.eval_assumeAll {φs : List Formula}
+    {st : TransState} {ρ : Env} {P : Unit → TransState → Env → Prop}
+    (h : VerifM.eval (VerifM.assumeAll φs) st ρ P) :
+    (∀ φ ∈ φs, φ.wfIn st.decls) →
+    (∀ φ ∈ φs, φ.eval ρ) →
+    ∃ st', st'.decls = st.decls ∧ P () st' ρ := by
+  induction φs generalizing st with
+  | nil =>
+    intro _ _
+    simp only [VerifM.assumeAll] at h
+    exact ⟨st, rfl, VerifM.eval_ret h⟩
+  | cons φ φs ih =>
+    intro hwf heval
+    simp only [VerifM.assumeAll] at h
+    have hb := VerifM.eval_bind _ _ _ _ h
+    have hassume := VerifM.eval_assume hb
+    have hcont := hassume
+      (hwf φ (List.mem_cons_self ..))
+      (heval φ (List.mem_cons_self ..))
+    obtain ⟨st', hst', hp⟩ := ih hcont
+      (fun ψ hψ => hwf ψ (List.mem_cons_of_mem _ hψ))
+      (fun ψ hψ => heval ψ (List.mem_cons_of_mem _ hψ))
+    exact ⟨st', by rw [hst'], hp⟩
+
 
 /-! ### Top-level corollary -/
 
