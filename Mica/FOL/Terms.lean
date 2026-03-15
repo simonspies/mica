@@ -4,12 +4,14 @@ inductive Srt where
   | int
   | bool
   | value
+  | vallist
   deriving DecidableEq, Repr
 
 @[reducible] def Srt.denote : Srt → Type
   | .int => Int
   | .bool => Bool
   | .value => TinyML.Val
+  | .vallist => List TinyML.Val
 
 instance : DecidableEq (Srt.denote τ) := by
   cases τ <;> simp [Srt.denote] <;> infer_instance
@@ -25,36 +27,44 @@ def VarCtx.disjoint (C : VarCtx) :=
   ∀ x x' t t', ⟨x, t⟩ ∈ C → ⟨x', t'⟩ ∈ C → x = x' → t = t'
 
 inductive UnOp : Srt → Srt → Type where
-  | ofInt  : UnOp .int   .value
-  | ofBool : UnOp .bool  .value
-  | toInt  : UnOp .value .int
-  | toBool : UnOp .value .bool
-  | neg    : UnOp .int   .int
-  | not    : UnOp .bool  .bool
+  | ofInt      : UnOp .int     .value
+  | ofBool     : UnOp .bool    .value
+  | toInt      : UnOp .value   .int
+  | toBool     : UnOp .value   .bool
+  | neg        : UnOp .int     .int
+  | not        : UnOp .bool    .bool
+  | ofValList  : UnOp .vallist .value
+  | toValList  : UnOp .value   .vallist
+  | vhead      : UnOp .vallist .value
+  | vtail      : UnOp .vallist .vallist
+  | visnil     : UnOp .vallist .bool
   deriving DecidableEq, Repr
 
 inductive BinOp : Srt → Srt → Srt → Type where
-  | add  : BinOp .int .int .int
-  | sub  : BinOp .int .int .int
-  | mul  : BinOp .int .int .int
-  | div  : BinOp .int .int .int
-  | mod  : BinOp .int .int .int
-  | less : BinOp .int .int .bool
-  | gt   : BinOp .int .int .bool
-  | ge   : BinOp .int .int .bool
-  | eq   : BinOp τ τ .bool
+  | add  : BinOp .int   .int     .int
+  | sub  : BinOp .int   .int     .int
+  | mul  : BinOp .int   .int     .int
+  | div  : BinOp .int   .int     .int
+  | mod  : BinOp .int   .int     .int
+  | less : BinOp .int   .int     .bool
+  | gt   : BinOp .int   .int     .bool
+  | ge   : BinOp .int   .int     .bool
+  | eq   : BinOp τ      τ        .bool
+  | vcons : BinOp .value .vallist .vallist
   deriving DecidableEq, Repr
 
 inductive Const : Srt → Type where
-  | i : Int  → Const .int
-  | b : Bool → Const .bool
-  | unit     : Const .value
+  | i    : Int  → Const .int
+  | b    : Bool → Const .bool
+  | unit : Const .value
+  | vnil : Const .vallist
   deriving DecidableEq, Repr
 
 @[simp] def Const.denote : Const τ → τ.denote
   | .i n  => n
   | .b v  => v
   | .unit => TinyML.Val.unit
+  | .vnil => []
 
 inductive Term : Srt → Type where
   | var   : (τ : Srt) → String → Term τ
@@ -98,26 +108,30 @@ theorem Term.wfIn_mono (t : Term τ) (h : t.wfIn Δ) (hsub : Δ ⊆ Δ') : t.wfI
 
 
 structure Subst where
-  intSubst : String → Term .int
-  boolSubst : String → Term .bool
-  valSubst : String → Term .value
+  intSubst     : String → Term .int
+  boolSubst    : String → Term .bool
+  valSubst     : String → Term .value
+  vallistSubst : String → Term .vallist
 
 def Subst.id : Subst where
-  intSubst := .var .int
-  boolSubst := .var .bool
-  valSubst := .var .value
+  intSubst     := .var .int
+  boolSubst    := .var .bool
+  valSubst     := .var .value
+  vallistSubst := .var .vallist
 
 def Subst.apply (σ : Subst) (τ : Srt) (x : String) : Term τ :=
   match τ with
-  | .int => σ.intSubst x
-  | .bool => σ.boolSubst x
-  | .value => σ.valSubst x
+  | .int     => σ.intSubst x
+  | .bool    => σ.boolSubst x
+  | .value   => σ.valSubst x
+  | .vallist => σ.vallistSubst x
 
 def Subst.update (σ : Subst) (τ : Srt) (x : String) (s : Term τ) : Subst :=
   match τ with
-  | .int => { σ with intSubst := fun y => if y == x then s else σ.intSubst y }
-  | .bool => { σ with boolSubst := fun y => if y == x then s else σ.boolSubst y }
-  | .value => { σ with valSubst := fun y => if y == x then s else σ.valSubst y }
+  | .int     => { σ with intSubst     := fun y => if y == x then s else σ.intSubst y }
+  | .bool    => { σ with boolSubst    := fun y => if y == x then s else σ.boolSubst y }
+  | .value   => { σ with valSubst     := fun y => if y == x then s else σ.valSubst y }
+  | .vallist => { σ with vallistSubst := fun y => if y == x then s else σ.vallistSubst y }
 
 def Subst.single (τ : Srt) (x : String) (s : Term τ) : Subst :=
   Subst.id.update τ x s
@@ -269,24 +283,28 @@ theorem Term.wfIn_of_subst_wfIn {t : Term τ} {σ : Subst} {Δ Δ' : VarCtx} :
   exact hsubst w (hsub hw)
 
 structure Env where
-  intEnv : String → Int
-  boolEnv : String → Bool
-  valEnv : String → TinyML.Val
+  intEnv     : String → Int
+  boolEnv    : String → Bool
+  valEnv     : String → TinyML.Val
+  vallistEnv : String → List TinyML.Val
 
 def Env.lookup (ρ : Env) (τ : Srt) (x : String) : τ.denote :=
   match τ with
-  | .int => ρ.intEnv x
-  | .bool => ρ.boolEnv x
-  | .value => ρ.valEnv x
+  | .int     => ρ.intEnv x
+  | .bool    => ρ.boolEnv x
+  | .value   => ρ.valEnv x
+  | .vallist => ρ.vallistEnv x
 
 def Env.update (ρ : Env) (τ : Srt) (x : String) (v : τ.denote) : Env :=
   match τ with
-  | .int => { ρ with intEnv := fun y => if y == x then v else ρ.intEnv y }
-  | .bool => { ρ with boolEnv := fun y => if y == x then v else ρ.boolEnv y }
-  | .value => { ρ with valEnv := fun y => if y == x then v else ρ.valEnv y }
+  | .int     => { ρ with intEnv     := fun y => if y == x then v else ρ.intEnv y }
+  | .bool    => { ρ with boolEnv    := fun y => if y == x then v else ρ.boolEnv y }
+  | .value   => { ρ with valEnv     := fun y => if y == x then v else ρ.valEnv y }
+  | .vallist => { ρ with vallistEnv := fun y => if y == x then v else ρ.vallistEnv y }
 
 def Env.empty : Env :=
-  { intEnv := λ _ => default, boolEnv := λ _ => default, valEnv := λ _ => default }
+  { intEnv := λ _ => default, boolEnv := λ _ => default, valEnv := λ _ => default,
+    vallistEnv := λ _ => default }
 
 instance : Inhabited Env :=  { default := Env.empty }
 
@@ -339,6 +357,7 @@ theorem Env.agreeOn_update {ρ ρ' : Env} {Δ : VarCtx} {τ : Srt} {x : String} 
   · congr 1; funext y; simp only [beq_iff_eq]; split <;> rfl
   · congr 1; funext y; simp only [beq_iff_eq]; split <;> rfl
   · congr 1; funext y; simp only [beq_iff_eq]; split <;> rfl
+  · congr 1; funext y; simp only [beq_iff_eq]; split <;> rfl
 
 /-- Updates to different variables commute. -/
 theorem Env.update_comm {ρ : Env} {τ : Srt} {x y : String} {v w : τ.denote}
@@ -349,23 +368,29 @@ theorem Env.update_comm {ρ : Env} {τ : Srt} {x y : String} {v w : τ.denote}
     by_cases hzx : z = x <;> by_cases hzy : z = y <;> simp_all
 
 @[simp] def UnOp.eval : UnOp τ₁ τ₂ → τ₁.denote → τ₂.denote
-  | .ofInt,  n => TinyML.Val.int n
-  | .ofBool, b => TinyML.Val.bool b
-  | .toInt,  v => match v with | .int n => n | _ => 0
-  | .toBool, v => match v with | .bool b => b | _ => false
-  | .neg,    n => -n
-  | .not,    b => !b
+  | .ofInt,   n  => TinyML.Val.int n
+  | .ofBool,  b  => TinyML.Val.bool b
+  | .toInt,   v  => match v with | .int n => n | _ => 0
+  | .toBool,  v  => match v with | .bool b => b | _ => false
+  | .neg,     n  => -n
+  | .not,     b  => !b
+  | .ofValList, vs => TinyML.Val.tuple vs
+  | .toValList, v  => match v with | .tuple vs => vs | _ => []
+  | .vhead,   vs => vs.headD .unit
+  | .vtail,   vs => vs.tail
+  | .visnil,  vs => vs.isEmpty
 
 @[simp] def BinOp.eval : BinOp τ₁ τ₂ τ₃ → τ₁.denote → τ₂.denote → τ₃.denote
-  | .add,  a, b => a + b
-  | .sub,  a, b => a - b
-  | .mul,  a, b => a * b
-  | .div,  a, b => a / b
-  | .mod,  a, b => a % b
-  | .less, a, b => decide (a < b)
-  | .gt,   a, b => decide (a > b)
-  | .ge,   a, b => decide (a ≥ b)
-  | .eq,   a, b => decide (a = b)
+  | .add,   a, b  => a + b
+  | .sub,   a, b  => a - b
+  | .mul,   a, b  => a * b
+  | .div,   a, b  => a / b
+  | .mod,   a, b  => a % b
+  | .less,  a, b  => decide (a < b)
+  | .gt,    a, b  => decide (a > b)
+  | .ge,    a, b  => decide (a ≥ b)
+  | .eq,    a, b  => decide (a = b)
+  | .vcons, v, vs => v :: vs
 
 def Term.eval (ρ : Env) : Term τ → τ.denote
   | .var τ y      => ρ.lookup τ y
@@ -375,9 +400,10 @@ def Term.eval (ρ : Env) : Term τ → τ.denote
   | .ite c t e    => bif Term.eval ρ c then Term.eval ρ t else Term.eval ρ e
 
 def Subst.eval (σ : Subst) (ρ : Env) : Env where
-  intEnv x := Term.eval ρ (σ.intSubst x)
-  boolEnv x := Term.eval ρ (σ.boolSubst x)
-  valEnv x := Term.eval ρ (σ.valSubst x)
+  intEnv x     := Term.eval ρ (σ.intSubst x)
+  boolEnv x    := Term.eval ρ (σ.boolSubst x)
+  valEnv x     := Term.eval ρ (σ.valSubst x)
+  vallistEnv x := Term.eval ρ (σ.vallistSubst x)
 
 theorem Subst.eval_lookup (σ : Subst) (ρ : Env) (τ : Srt) (x : String) :
     (σ.eval ρ).lookup τ x = Term.eval ρ (σ.apply τ x) := by

@@ -44,7 +44,12 @@ def Parser α := SpecEnv → TinyML.Expr → Except String α
 
 namespace SpecParser
 
-mutual  -- infer / check / formula
+/-- Apply `vtail` n times to a vallist term. -/
+private def vtailN (t : Term .vallist) : Nat → Term .vallist
+  | 0     => t
+  | n + 1 => .unop .vtail (vtailN t n)
+
+mutual  -- infer / check / formula / checkValList
 
 /-- Infer the type and value of an expression as a `Term`. -/
 def infer (env : SpecEnv) : TinyML.Expr → Except String (Σ t, Term t)
@@ -62,6 +67,12 @@ def infer (env : SpecEnv) : TinyML.Expr → Except String (Σ t, Term t)
     .ok ⟨.int, .binop .div (← check env .int l) (← check env .int r)⟩
   | .unop .neg e => do
     .ok ⟨.int, .unop .neg (← check env .int e)⟩
+  | .unop (.proj n) e => do
+    let inner ← check env .value e
+    .ok ⟨.value, .unop .vhead (vtailN (.unop .toValList inner) n)⟩
+  | .tuple es => do
+    let vlist ← checkValList env es
+    .ok ⟨.value, .unop .ofValList vlist⟩
   | .ifThenElse c th el => do
     let ⟨t, th'⟩ ← infer env th
     .ok ⟨t, .ite (← check env .bool c) th' (← check env t el)⟩
@@ -75,13 +86,15 @@ def check (env : SpecEnv) (t : Srt) : TinyML.Expr → Except String (Term t)
       if h : sort = t then .ok (h ▸ .var sort x)
       else .error s!"variable '{x}' has type {repr sort}, expected {repr t}"
   | .val (.int n) => match t with
-    | .int   => .ok (.const (.i n))
-    | .value => .ok (.unop .ofInt (.const (.i n)))
-    | .bool  => .error s!"integer literal cannot be a bool term"
+    | .int     => .ok (.const (.i n))
+    | .value   => .ok (.unop .ofInt (.const (.i n)))
+    | .bool    => .error s!"integer literal cannot be a bool term"
+    | .vallist => .error s!"integer literal cannot be a vallist term"
   | .val (.bool b) => match t with
-    | .bool  => .ok (.const (.b b))
-    | .value => .ok (.unop .ofBool (.const (.b b)))
-    | .int   => .error s!"boolean literal cannot be an int term"
+    | .bool    => .ok (.const (.b b))
+    | .value   => .ok (.unop .ofBool (.const (.b b)))
+    | .int     => .error s!"boolean literal cannot be an int term"
+    | .vallist => .error s!"boolean literal cannot be a vallist term"
   | .binop .add l r => match t with
     | .int => do .ok (.binop .add (← check env .int l) (← check env .int r))
     | _    => .error s!"add produces .int, expected {repr t}"
@@ -97,6 +110,16 @@ def check (env : SpecEnv) (t : Srt) : TinyML.Expr → Except String (Term t)
   | .unop .neg e => match t with
     | .int => do .ok (.unop .neg (← check env .int e))
     | _    => .error s!"neg produces .int, expected {repr t}"
+  | .unop (.proj n) e => match t with
+    | .value => do
+      let inner ← check env .value e
+      .ok (.unop .vhead (vtailN (.unop .toValList inner) n))
+    | _ => .error s!"projection produces .value, expected {repr t}"
+  | .tuple es => match t with
+    | .value => do
+      let vlist ← checkValList env es
+      .ok (.unop .ofValList vlist)
+    | _ => .error s!"tuple produces .value, expected {repr t}"
   | .ifThenElse c th el => do
     .ok (.ite (← check env .bool c) (← check env t th) (← check env t el))
   | e =>
@@ -124,6 +147,14 @@ def formula (env : SpecEnv) : TinyML.Expr → Except String Formula
   | .binop .or  l r => do .ok (.or  (← formula env l) (← formula env r))
   | .unop .not e    => do .ok (.not (← formula env e))
   | e => .error s!"cannot convert {repr e} to a formula"
+
+/-- Check a list of expressions as value terms, building a vallist via vcons/vnil. -/
+def checkValList (env : SpecEnv) : List TinyML.Expr → Except String (Term .vallist)
+  | [] => .ok (.const .vnil)
+  | e :: es => do
+    let se ← check env .value e
+    let ses ← checkValList env es
+    .ok (.binop .vcons se ses)
 
 end  -- mutual
 

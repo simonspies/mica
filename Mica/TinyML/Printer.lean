@@ -6,12 +6,11 @@ def BinOp.toString : BinOp → String
   | .add => "+" | .sub => "-" | .mul => "*" | .div => "/"
   | .eq => "=" | .lt => "<" | .le => "<=" | .gt => ">" | .ge => ">="
   | .and => "&&" | .or => "||"
-  | .pair => ","
 
 def UnOp.toString : UnOp → String
   | .neg => "-" | .not => "not"
-  | .fst => "fst" | .snd => "snd"
   | .inl => "Either.Left" | .inr => "Either.Right"
+  | .proj n => s!".{n}"
 
 def Binder.print : Binder → String
   | .none => "_"
@@ -91,8 +90,6 @@ partial def printMul : Expr → String
 partial def printApp : Expr → String
   | .app fn arg        => s!"{printApp fn} {printUnary arg}"
   | .unop .not e       => s!"not {printAtom e}"
-  | .unop .fst e       => s!"fst {printAtom e}"
-  | .unop .snd e       => s!"snd {printAtom e}"
   | .ref e             => s!"ref {printAtom e}"
   | .unop .inl e       => s!"Either.Left {printAtom e}"
   | .unop .inr e       => s!"Either.Right {printAtom e}"
@@ -103,20 +100,21 @@ partial def printApp : Expr → String
 partial def printUnary : Expr → String
   | .unop .neg e => s!"-{printAtom e}"
   | .deref e     => s!"!{printAtom e}"
+  | .unop (.proj n) e => s!"{printAtom e}.{n}"
   | e => printAtom e
 
 partial def printAtom : Expr → String
   | .val v              => printVal v
   | .var name           => name
   | .fix self arg _ _ body  => printFix self arg body
-  | .binop .pair l r    => s!"({printOr l}, {printOr r})"
+  | .tuple es           => s!"({", ".intercalate (es.map printOr)})"
   | e                   => s!"({printExpr e})"
 
 partial def printVal : Val → String
   | .int n         => if n < 0 then s!"({n})" else s!"{n}"
   | .bool b        => if b then "true" else "false"
   | .unit          => "()"
-  | .pair a b      => s!"({printVal a}, {printVal b})"
+  | .tuple vs      => s!"({", ".intercalate (vs.map printVal)})"
   | .inl v         => s!"Either.Left {printValAtom v}"
   | .inr v         => s!"Either.Right {printValAtom v}"
   | .loc l         => s!"(assert false (* loc:{l} *))"
