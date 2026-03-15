@@ -25,7 +25,7 @@ inductive Type_ where
   | empty   -- bottom type (uninhabited)
   | value   -- top type (all runtime values)
   | tuple (ts : List Type_)
-  deriving Repr, BEq
+  deriving Repr
 
 def Type_.decEq : (a b : Type_) → Decidable (a = b)
   | .unit, .unit | .bool, .bool | .int, .int | .empty, .empty | .value, .value => isTrue rfl
@@ -71,6 +71,10 @@ where
       | _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
 
 instance : DecidableEq Type_ := Type_.decEq
+instance : BEq Type_ := ⟨fun a b => decide (a = b)⟩
+instance : LawfulBEq Type_ where
+  eq_of_beq h := of_decide_eq_true h
+  rfl := by simp [BEq.beq]
 
 inductive BinOp where
   | add | sub | mul | div

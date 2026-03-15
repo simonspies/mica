@@ -133,6 +133,33 @@ TinyML source file
 - Before writing a new lemma, search for existing ones.
 - Prefer general lemmas over specific instantiations.
 
+### Mututal Inductives 
+
+When an inductive in `Prop` references itself through `List.Forall₂` (or similar), it becomes a *nested* inductive. This causes two problems (e.g., `sizeOf` is always 0 for `Prop` terms, so well-founded recursion via `termination_by sizeOf` on proof terms is impossible and structural recursion fails). 
+
+**Fix:** Use an explicit mutual inductive block. For example, instead of:
+
+```lean
+inductive Type_.Sub : Type_ → Type_ → Prop where
+  | tuple : List.Forall₂ Type_.Sub ss ts → Type_.Sub (.tuple ss) (.tuple ts)
+  ...
+```
+
+Define:
+
+```lean
+mutual
+  inductive Type_.Sub : Type_ → Type_ → Prop where
+    | tuple : Type_.SubList ss ts → Type_.Sub (Type_.tuple ss) (Type_.tuple ts)
+    ...
+  inductive Type_.SubList : List Type_ → List Type_ → Prop where
+    | nil  : Type_.SubList [] []
+    | cons : Type_.Sub s t → Type_.SubList ss ts → Type_.SubList (s :: ss) (t :: ts)
+end
+```
+
+Theorems that recurse over these mutual inductives should themselves be mutual, matching the structure of the types.
+
 ---
 
 ## Development Guidelines
