@@ -1,0 +1,82 @@
+import Mica.TinyML.Expr
+import Mica.TinyML.OpSem
+
+/-! ## WP Calculus
+
+Weakest precondition axioms for the TinyML expression language.
+These axioms encode the semantics of various expression forms.
+-/
+
+axiom wp : TinyML.Expr → (TinyML.Val → Prop) → Prop
+
+axiom wp.val {v : TinyML.Val} {Q : TinyML.Val → Prop} : Q v → wp (.val v) Q
+axiom wp.binop {op : TinyML.BinOp} {l r : TinyML.Expr} {Q : TinyML.Val → Prop} :
+    wp l (fun vl => wp r (fun vr => ∃ r, TinyML.evalBinOp op vl vr = some r ∧ Q r)) →
+    wp (.binop op l r) Q
+axiom wp.letIn {b : TinyML.Binder} {e body : TinyML.Expr} {Q : TinyML.Val → Prop} :
+    wp e (fun v => wp (body.subst (fun z => match b with
+      | .named x => if z == x then some v else none
+      | .none => none)) Q) →
+    wp (.letIn b e body) Q
+axiom wp.mono {e : TinyML.Expr} {P Q : TinyML.Val → Prop} :
+    (∀ v, P v → Q v) → wp e P → wp e Q
+
+axiom wp.ifThenElse {cond thn els : TinyML.Expr} {Q : TinyML.Val → Prop} :
+    wp cond (fun vc =>
+      (vc ≠ TinyML.Val.bool false → wp thn Q) ∧
+      (vc = TinyML.Val.bool false → wp els Q)) →
+    wp (.ifThenElse cond thn els) Q
+
+axiom wp.fix {f x: TinyML.Binder} P t1 t2 e (Φ: TinyML.Val → Prop):
+  (
+    (∀ v, Φ v → wp (.app (.val (.fix f x t1 t2 e)) (.val v)) P) →
+    ∀ v, Φ v → wp (e.subst ((TinyML.Subst.id.update' f (.fix f x t1 t2 e)).update' x v)) P
+  ) → ∀ v, Φ v → wp (.app (.val (.fix f x t1 t2 e)) (.val v)) P
+
+axiom wp.app e1 e2 P:
+  wp e2 (fun v2 => wp e1 (fun v1 => wp (.app (.val v1) (.val v2)) P)) →
+  wp (.app e1 e2) P
+
+axiom wp.func (P: TinyML.Val → Prop):
+  P (.fix f x t1 t2 e) → wp (.fix f x t1 t2 e) P
+
+axiom wp.fix' {f x: TinyML.Binder} t1 t2 e (Φ: (TinyML.Val → Prop) → (TinyML.Val → Prop)) :
+  (
+    (∀ v P, Φ P v → wp (.app (.val (.fix f x t1 t2 e)) (.val v)) P) →
+    ∀ v P, Φ P v → wp (e.subst ((TinyML.Subst.id.update' f (.fix f x t1 t2 e)).update' x v)) P
+  ) → ∀ v P, Φ P v → wp (.app (.val (.fix f x t1 t2 e)) (.val v)) P
+
+
+axiom wp.unop {op : TinyML.UnOp} {e : TinyML.Expr} {Q : TinyML.Val → Prop} :
+    wp e (fun v => ∃ r, TinyML.evalUnOp op v = some r ∧ Q r) →
+    wp (.unop op e) Q
+
+/-- `assert e` evaluates `e`; if the result is not `false` it returns unit, otherwise traps. -/
+axiom wp.assert {e : TinyML.Expr} {P : TinyML.Val → Prop} :
+  wp e (fun v => v ≠ TinyML.Val.bool false → P .unit) → wp (.assert e) P
+
+/-- Weakest precondition for a list of expressions, evaluated right-to-left.
+    `wps [e1, e2, e3] Q` first evaluates `e3`, then `e2`, then `e1`,
+    and passes `[v1, v2, v3]` (in original order) to `Q`. -/
+def wps : TinyML.Exprs → (TinyML.Vals → Prop) → Prop
+  | [], Q => Q []
+  | e :: es, Q => wps es (fun vs => wp e (fun v => Q (v :: vs)))
+
+@[simp] theorem wps_nil {Q : TinyML.Vals → Prop} : wps [] Q = Q [] := rfl
+@[simp] theorem wps_cons {e : TinyML.Expr} {es : TinyML.Exprs} {Q : TinyML.Vals → Prop} :
+    wps (e :: es) Q = wps es (fun vs => wp e (fun v => Q (v :: vs))) := rfl
+
+theorem wps.mono {es : TinyML.Exprs} {P Q : TinyML.Vals → Prop}
+    (h : ∀ vs, P vs → Q vs) : wps es P → wps es Q := by
+  induction es generalizing P Q with
+  | nil => exact h []
+  | cons e es ih =>
+    simp only [wps_cons]
+    exact ih (fun vs hv => wp.mono (fun v hp => h (v :: vs) (hp)) hv)
+
+/-- Program-level weakest precondition: every declaration evaluates safely,
+    and each result is substituted into the remaining program. -/
+def pwp : TinyML.Program → Prop
+  | [] => True
+  | ⟨b, e, _⟩ :: rest => wp e (fun v => pwp (TinyML.Program.subst rest (TinyML.Subst.update' b v .id)))
+termination_by prog => prog.length

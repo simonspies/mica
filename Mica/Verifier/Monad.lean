@@ -1,0 +1,554 @@
+import Mica.Engine.Driver
+import Mica.Verifier.Scoped
+import Mica.Verifier.Atoms
+import Mica.Base.Fresh
+
+
+/-! ## Verification Monad
+
+A free monad over verification-relevant SMT operations,
+with branching (all/any) for exploring multiple verification paths. -/
+
+inductive VerifError where
+  /-- Recoverable failure: this verification path didn't work out.
+      Can be caught by `any`. -/
+  | failed : String → VerifError
+  /-- Fatal error: something is fundamentally wrong (e.g. unimplemented feature).
+      Always propagates. -/
+  | fatal : String → VerifError
+
+inductive VerifM : Type → Type 1 where
+  | ret : α → VerifM α
+  | bind : VerifM α → (α → VerifM β) → VerifM β
+  /-- Declare a fresh SMT constant. -/
+  | decl : Option String → Srt → VerifM Var
+  /-- Add a formula to the assertion context (permanent, no check). -/
+  | assume : Formula → VerifM Unit
+  /-- Assert-and-check: bracket, assert ¬φ, check-sat, expect unsat. -/
+  | assert : Formula → VerifM Unit
+  /-- Abort with a fatal error. -/
+  | fatal : String → VerifM α
+  /-- Abort with a recoverable failure. -/
+  | failed : String → VerifM α
+  /-- Execute all branches; succeed only if every branch succeeds. -/
+  | all : List α → VerifM α
+  /-- Try branches in order; succeed if any branch succeeds (non-fatally). -/
+  | any : List α → VerifM α
+  /-- Look up an atom in the assertion context.
+      Returns `some t` if a matching assertion is found, `none` otherwise. -/
+  | resolve : Atom τ → VerifM (Option (Term τ))
+  /-- Run a scoped computation: declarations and assertions from the body
+      are discarded after it completes. Only the return value is kept. -/
+  | seq : VerifM Unit → VerifM β → VerifM β
+
+instance : Monad VerifM where
+  pure := VerifM.ret
+  bind := VerifM.bind
+
+/-! ### Translation to ScopedM -/
+
+-- We will revisit the trans state in the future. For now, we keep it simply as an alias.
+abbrev TransState := FlatCtx
+def TransState.toFlatCtx (x : TransState) := x
+def TransState.holdsFor (st : TransState) (ρ : Env) := ∀ φ ∈ st.asserts, φ.eval ρ
+
+theorem TransState.holdsFor_mono {st st' : TransState} {ρ : Env}
+    (hsub : st.asserts ⊆ st'.asserts) (h : st'.holdsFor ρ) : st.holdsFor ρ :=
+  fun φ hφ => h φ (hsub hφ)
+
+structure TransState.wf (st : TransState) : Prop where
+  assertsWf : st.asserts.wfIn st.decls
+  declsDisjoint : st.decls.disjoint
+
+def TransState.freshVar (hint : Option String) (t : Srt) (st : TransState) :=
+  let base := hint.getD "_v"
+  let x' := fresh (addNumbers base) (st.decls.map Var.name)
+  ({ name := x', sort := t}: Var)
+
+theorem TransState.freshVar.wf {hint t} (st : TransState) :
+  TransState.wf st →
+  TransState.wf { st with decls := (st.freshVar hint t) :: st.decls } := by
+  intro hwf
+  constructor
+  · exact Context.wfIn_mono _ hwf.assertsWf (List.subset_cons_of_subset _ (List.Subset.refl _))
+  · have hfresh := fresh_not_mem (addNumbers (hint.getD "_v")) (st.decls.map Var.name) (addNumbers_injective _)
+    intro x x' sort sort' hmem hmem' hname
+    simp only [List.mem_cons, TransState.freshVar, Var.mk.injEq] at hmem hmem'
+    rcases hmem with ⟨rfl, rfl⟩ | hmem <;> rcases hmem' with ⟨rfl, rfl⟩ | hmem'
+    · rfl
+    · exact absurd (hname ▸ List.mem_map.mpr ⟨⟨x', sort'⟩, hmem', rfl⟩) hfresh
+    · exact absurd (hname.symm ▸ List.mem_map.mpr ⟨⟨x, sort⟩, hmem, rfl⟩) hfresh
+    · exact hwf.declsDisjoint x x' sort sort' hmem hmem' hname
+
+theorem TransState.addAssert.wf (st : TransState) :
+  TransState.wf st →
+  φ.wfIn st.decls →
+  TransState.wf { st with asserts := φ :: st.asserts } := by
+  intro hwf hφ
+  constructor
+  · intro ψ hψ
+    simp only [List.mem_cons] at hψ
+    rcases hψ with rfl | hψ
+    · exact hφ
+    · exact hwf.assertsWf ψ hψ
+  · exact hwf.declsDisjoint
+
+
+def TransCont α := α → TransState → ScopedM (Except VerifError Unit)
+
+def translateAll (items : List α) (st : TransState) (k : TransCont (Except VerifError α)) :
+    ScopedM (Except VerifError Unit) :=
+  match items with
+  | [] => ScopedM.ret (.ok ())
+  | a :: as =>
+      .bracket (k (.ok a) st) (fun
+        | .error e => ScopedM.ret (.error e)
+        | .ok () => translateAll as st k)
+
+def translateAny (items : List α) (st : TransState) (k : TransCont (Except VerifError α)) :
+    ScopedM (Except VerifError Unit) :=
+  match items with
+  | [] => k (.error (.failed "no alternative")) st
+  | a :: as =>
+      .bracket (k (.ok a) st) (fun
+        | .ok () => ScopedM.ret (.ok ())
+        | .error (.failed _) => translateAny as st k
+        | .error (.fatal msg) => ScopedM.ret (.error (.fatal msg)))
+
+def VerifM.translate :
+  VerifM α → TransState → TransCont (Except VerifError α) →
+  ScopedM (Except VerifError Unit)
+  | .ret a, st, k => k (.ok a) st
+  | .bind m f, st, k =>
+      m.translate st fun
+        | (.ok a), st' => (f a).translate st' k
+        | (.error e), st' => k (.error e) st'
+  | .decl hint t, st, k =>
+      let v := st.freshVar hint t
+      .declareConst v.name t (fun () =>
+        k (.ok v) { st with decls := v :: st.decls })
+  | .assume φ, st, k =>
+      ScopedM.assert φ (fun () =>
+        k (.ok ()) { st with asserts := φ :: st.asserts })
+  | .assert φ, st, k =>
+      .bracket
+        (ScopedM.assert (.not φ) (fun () =>
+          .checkSat (fun
+            | .unsat => .ret true
+            | _ => .ret false)))
+        (fun
+          | true => k (.ok ()) st
+          | false => k (.error (.failed "assertion failed")) st)
+  | .fatal msg, st, k => k (.error (.fatal msg)) st
+  | .failed msg, st, k => k (.error (.failed msg)) st
+  | .all items, st, k => translateAll items st k
+  | .any items, st, k => translateAny items st k
+  | .resolve pred, st, k =>
+      k (.ok (pred.resolve st.asserts)) st
+  | .seq m m2, st, k =>
+      .bracket
+        (m.translate st (fun a _ => ScopedM.ret a))
+        (fun
+          | .ok () => m2.translate st k
+          | .error e => k (.error e) st)
+
+/-! ### Eval_rec: postcondition-based semantics (raw) -/
+
+def VerifM.eval_rec : VerifM α → TransState → Env → (α → TransState → Env → Prop) → Prop
+  | .ret a, st, ρ, P => P a st ρ
+  | .bind m k, st, ρ, P => m.eval_rec st ρ (fun r st' ρ' => (k r).eval_rec st' ρ' P)
+  | .decl hint t, st, ρ, P =>
+      let v := st.freshVar hint t
+      ∀ u, P v { st with decls := v :: st.decls } (ρ.update t v.name u)
+  | .assume φ, st, ρ, P => φ.wfIn st.decls → φ.eval ρ → P () { st with asserts := φ :: st.asserts } ρ
+  | .assert φ, st, ρ, P => φ.wfIn st.decls → φ.eval ρ ∧ P () st ρ
+  | .fatal _, _, _, _ => False
+  | .failed _, _, _, _ => False
+  | .all items, st, ρ, P => ∀ a ∈ items, P a st ρ
+  | .any items, st, ρ, P => ∃ a ∈ items, P a st ρ
+  | .resolve pred, st, ρ, P => P (pred.resolve st.asserts) st ρ
+  | .seq m m2, st, ρ, P =>
+      m.eval_rec st ρ (fun () _ _ => True) ∧ m2.eval_rec st ρ P
+
+theorem VerifM.eval_rec.mono' {m : VerifM α} (ρ : Env) (st : TransState) (h : m.eval_rec st ρ P)
+    (hPQ : ∀ a st' ρ', st.decls ⊆ st'.decls → ρ.agreeOn st.decls ρ' → P a st' ρ' → Q a st' ρ') :
+    m.eval_rec st ρ Q := by
+  induction m generalizing st ρ with
+  | ret => exact hPQ _ _ _ (List.Subset.refl _) (Env.agreeOn_refl) h
+  | bind m k ihm ihk =>
+    exact ihm ρ st h fun r st' ρ' hsub hag hr =>
+      ihk r ρ' st' hr fun a st'' ρ'' hsub' hag' hp =>
+        hPQ a st'' ρ'' (hsub.trans hsub') (Env.agreeOn_trans hag (Env.agreeOn_mono hsub hag')) hp
+  | decl hint t =>
+    intro u
+    refine hPQ _ _ _ (List.subset_cons_of_subset _ (List.Subset.refl _)) ?_ (h u)
+    intro v hv
+    have hfresh := fresh_not_mem (addNumbers (hint.getD "_v")) (st.decls.map Var.name) (addNumbers_injective _)
+    have hne : v.name ≠ fresh (addNumbers (hint.getD "_v")) (st.decls.map Var.name) :=
+      fun heq => hfresh (heq ▸ List.mem_map.mpr ⟨v, hv, rfl⟩)
+    exact (Env.lookup_update_ne (Or.inl hne)).symm
+  | assume =>
+    intro hwf hφ
+    exact hPQ _ _ _ (List.Subset.refl _) (Env.agreeOn_refl) (h hwf hφ)
+  | assert =>
+    intro hwf
+    obtain ⟨hφ, hp⟩ := (h hwf)
+    exact ⟨hφ, hPQ _ _ _ (List.Subset.refl _) (Env.agreeOn_refl) hp⟩
+  | fatal => exact h.elim
+  | failed => exact h.elim
+  | all items =>
+    intro a ha
+    exact hPQ _ _ _ (List.Subset.refl _) (Env.agreeOn_refl) (h a ha)
+  | any items =>
+    obtain ⟨a, ha, hp⟩ := h
+    exact ⟨a, ha, hPQ _ _ _ (List.Subset.refl _) (Env.agreeOn_refl) hp⟩
+  | resolve =>
+    exact hPQ _ _ _ (List.Subset.refl _) (Env.agreeOn_refl) h
+  | seq m m2 ihm ihf =>
+    exact ⟨ihm ρ st h.1 fun () _ _ _ _ ha => trivial,
+           ihf ρ st h.2 hPQ⟩
+
+theorem VerifM.eval_rec.mono {m : VerifM α} (h : m.eval_rec st ρ P) (hPQ : ∀ a st' ρ', P a st' ρ' → Q a st' ρ') :
+    m.eval_rec st ρ Q :=
+  h.mono' ρ st fun a st' ρ' _ _ => hPQ a st' ρ'
+
+theorem VerifM.eval_rec.decls_grow {m : VerifM α} ρ (h : m.eval_rec st ρ P) :
+    m.eval_rec st ρ (fun a st' ρ' => st.decls ⊆ st'.decls ∧ ρ.agreeOn st.decls ρ' ∧ P a st' ρ') :=
+  h.mono' ρ st fun _ _ _ hsub hag hp => ⟨hsub, hag, hp⟩
+
+/-! ### Adequacy: translate success implies eval -/
+
+
+theorem VerifM.eval_rec_preserves_wf (m : VerifM α) (st : TransState) (ρ: Env)
+    (h : VerifM.eval_rec m st ρ P) (g : st.holdsFor ρ) (hwf : st.wf) :
+    VerifM.eval_rec m st ρ (fun a st' ρ' => st'.holdsFor ρ' ∧ st'.wf ∧ P a st' ρ') := by
+  induction m generalizing st ρ with
+  | ret a => exact ⟨g, hwf, h⟩
+  | bind m k ihm ihk =>
+    have hm := ihm st ρ h g hwf
+    simp only [VerifM.eval_rec]
+    exact hm.mono fun r st' ρ' ⟨g', hwf', hr⟩ =>
+      ihk r st' ρ' hr g' hwf'
+  | decl hint t =>
+    simp only [VerifM.eval_rec] at h
+    simp only [VerifM.eval_rec]
+    intro u
+    specialize (h u)
+    let w := fresh (addNumbers (hint.getD "_v")) (st.decls.map Var.name)
+    have hfresh := fresh_not_mem (addNumbers (hint.getD "_v")) (st.decls.map Var.name) (addNumbers_injective _)
+    have hagree : Env.agreeOn st.decls ρ (ρ.update t w u) := by
+      intro v hv
+      have hne : v.name ≠ w := by
+        intro heq
+        unfold w at heq
+        exact (hfresh (heq ▸ List.mem_map.mpr ⟨v, hv, rfl⟩))
+      exact (Env.lookup_update_ne (Or.inl hne)).symm
+    constructor
+    · intro φ hφ
+      exact (Formula.eval_env_agree (hwf.assertsWf φ hφ) hagree).mp (g φ hφ)
+    · exact ⟨TransState.freshVar.wf _ hwf, h⟩
+  | assume φ =>
+    simp only [VerifM.eval_rec] at h ⊢
+    intro hwf' hφ
+    refine ⟨?_, TransState.addAssert.wf _ hwf hwf', h hwf' hφ⟩
+    intro ψ hψ
+    cases hψ with
+    | head => exact hφ
+    | tail _ hψ => exact g ψ hψ
+  | assert φ =>
+    simp only [VerifM.eval_rec] at h ⊢
+    intro hwf'
+    obtain ⟨hφ, hp⟩ := h hwf'
+    exact ⟨hφ, g, hwf, hp⟩
+  | fatal msg => exact h.elim
+  | failed msg => exact h.elim
+  | all items =>
+    simp only [VerifM.eval_rec] at h ⊢
+    intro a ha
+    exact ⟨g, hwf, h a ha⟩
+  | any items =>
+    simp only [VerifM.eval_rec] at h ⊢
+    obtain ⟨a, ha, hp⟩ := h
+    exact ⟨a, ha, g, hwf, hp⟩
+  | resolve =>
+    simp only [VerifM.eval_rec] at h ⊢
+    exact ⟨g, hwf, h⟩
+  | seq m m2 ihm ihf =>
+    simp only [VerifM.eval_rec] at h ⊢
+    exact ⟨(ihm st ρ h.1 g hwf).mono fun () _ _ _ => trivial,
+           ihf st ρ h.2 g hwf⟩
+
+private theorem translateAll_eval (items : List α) (st : TransState)
+    (f : TransCont (Except VerifError α))
+    (_hf : ∀ e st', ¬∃ Δ, ScopedM.eval (f (.error e) st') st'.toFlatCtx (.ok ()) Δ)
+    (Δ : FlatCtx)
+    (h : ScopedM.eval (translateAll items st f) st.toFlatCtx (.ok ()) Δ) :
+    ∀ a ∈ items, ∃ Δ', ScopedM.eval (f (.ok a) st) st.toFlatCtx (.ok ()) Δ' := by
+  induction items with
+  | nil => intro _ hmem; simp at hmem
+  | cons x xs ih =>
+    simp only [translateAll] at h
+    obtain ⟨r1, _, hbody1, hk1⟩ := ScopedM.eval_bracket h
+    match r1 with
+    | .error _ =>
+      simp only [ScopedM.eval_ret] at hk1
+      exact absurd hk1.1 (by simp)
+    | .ok () =>
+      intro a ha
+      cases ha with
+      | head => exact ⟨_, hbody1⟩
+      | tail _ ha => exact ih hk1 a ha
+
+private theorem translateAny_eval (items : List α) (st : TransState)
+    (f : TransCont (Except VerifError α))
+    (hf : ∀ e st', ¬∃ Δ, ScopedM.eval (f (.error e) st') st'.toFlatCtx (.ok ()) Δ)
+    (Δ : FlatCtx)
+    (h : ScopedM.eval (translateAny items st f) st.toFlatCtx (.ok ()) Δ) :
+    ∃ a ∈ items, ∃ Δ', ScopedM.eval (f (.ok a) st) st.toFlatCtx (.ok ()) Δ' := by
+  induction items with
+  | nil =>
+    simp only [translateAny] at h
+    exact absurd ⟨Δ, h⟩ (hf (.failed "no alternative") st)
+  | cons x xs ih =>
+    simp only [translateAny] at h
+    obtain ⟨r1, _, hbody1, hk1⟩ := ScopedM.eval_bracket h
+    match r1 with
+    | .ok () =>
+      simp only [ScopedM.eval_ret] at hk1
+      exact ⟨x, .head _, _, hbody1⟩
+    | .error (.failed _) =>
+      obtain ⟨a, ha, Δ', heval⟩ := ih hk1
+      exact ⟨a, .tail _ ha, Δ', heval⟩
+    | .error (.fatal _) =>
+      simp only [ScopedM.eval_ret] at hk1
+      exact absurd hk1.1 (by simp)
+
+theorem VerifM.translate_eval_rec (m : VerifM α) (st : TransState) (ρ: Env)
+    (f : TransCont (Except VerifError α))
+    (hf : ∀ e st', ¬∃ Δ, ScopedM.eval (f (.error e) st') st'.toFlatCtx (.ok ()) Δ)
+    (Δ : FlatCtx)
+    (h : ScopedM.eval (m.translate st f) st.toFlatCtx (.ok ()) Δ)
+    (g : st.holdsFor ρ)
+    (hwf : st.wf)
+    :
+    VerifM.eval_rec m st ρ (fun a st' _ => ∃ Δ', ScopedM.eval (f (.ok a) st') st'.toFlatCtx (.ok ()) Δ') := by
+  induction m generalizing st Δ ρ with
+  | ret a => exact ⟨Δ, h⟩
+  | bind m k ihm ihk =>
+    simp only [VerifM.translate] at h
+    let f' : TransCont (Except VerifError _) := fun
+      | .ok a, st' => (k a).translate st' f
+      | .error e, st' => f (.error e) st'
+    have hf' : ∀ e st', ¬∃ Δ, ScopedM.eval (f' (.error e) st') st'.toFlatCtx (.ok ()) Δ := hf
+    have hm := ihm st ρ f' hf' Δ h g hwf
+    exact (eval_rec_preserves_wf m st ρ hm g hwf).mono fun r st' ρ' ⟨g', hwf', Δ', hr⟩ =>
+      ihk r st' ρ' f hf Δ' hr g' hwf'
+  | decl hint t =>
+    simp only [VerifM.translate] at h
+    have h := ScopedM.eval_declareConst h
+    simp only [VerifM.eval_rec]
+    intro u
+    exact ⟨_, h⟩
+  | assume φ =>
+    simp only [VerifM.translate] at h
+    have h := ScopedM.eval_assert h
+    intro hwf' hφ
+    exact ⟨_, h⟩
+  | assert φ =>
+    simp only [VerifM.translate] at h
+    obtain ⟨b, _, hxx, hk⟩ := ScopedM.eval_bracket h
+    cases b with
+    | true =>
+      intro hwf'
+      apply ScopedM.eval_assert at hxx
+      apply ScopedM.eval_checkSat at hxx
+      simp at hxx
+      rcases hxx with ⟨hunsat, _⟩ | hfalse
+      · have hunsat' : ¬Satisfiable st.decls (Formula.not φ :: st.asserts) := by
+          simp only [FlatCtx.addAssert] at hunsat; exact hunsat
+        exact ⟨Satisfiable.to_impl' st.decls st.asserts hunsat' ρ g, _, hk⟩
+      · simp [ScopedM.eval_ret] at hfalse
+    | false => exact absurd ⟨_, hk⟩ (hf (.failed "assertion failed") st)
+  | fatal msg =>
+    simp only [VerifM.translate] at h
+    exact absurd ⟨Δ, h⟩ (hf (.fatal msg) st)
+  | failed msg =>
+    simp only [VerifM.translate] at h
+    exact absurd ⟨Δ, h⟩ (hf (.failed msg) st)
+  | all items =>
+    simp only [VerifM.translate] at h
+    have hall := translateAll_eval items st f hf Δ h
+    intro a ha
+    exact hall a ha
+  | any items =>
+    simp only [VerifM.translate] at h
+    obtain ⟨a, ha, Δ', heval⟩ := translateAny_eval items st f hf Δ h
+    exact ⟨a, ha, _, heval⟩
+  | resolve pred =>
+    simp only [VerifM.translate] at h
+    exact ⟨_, h⟩
+  | seq m m2 ihm ihk =>
+    simp only [VerifM.translate] at h
+    obtain ⟨r1, _, hbody, hk⟩ := ScopedM.eval_bracket h
+    let seqCont : TransCont (Except VerifError Unit) := fun a _ => ScopedM.ret a
+    have hf' : ∀ e st', ¬∃ Δ', ScopedM.eval (seqCont (.error e) st') st'.toFlatCtx (.ok ()) Δ' := by
+      intro e' st' ⟨Δ', h'⟩
+      simp only [seqCont, ScopedM.eval_ret] at h'
+      exact absurd h'.1 (by cases e' <;> simp)
+    match r1 with
+    | .ok () =>
+      have hm := ihm st ρ seqCont hf' _ hbody g hwf
+      exact ⟨(eval_rec_preserves_wf m st ρ hm g hwf).mono fun () _ _ _ => trivial,
+             ihk st ρ f hf _ hk g hwf⟩
+    | .error e =>
+      exact absurd ⟨_, hk⟩ (hf e st)
+
+
+
+/-! ### Eval: wf/holdsFor-aware postcondition semantics -/
+
+/-- The main verification predicate. Requires `st` to be well-formed and satisfy `ρ`,
+    and guarantees the same for every reachable `st'`. -/
+def VerifM.eval (m : VerifM α) (st : TransState) (ρ : Env) (Q : α → TransState → Env → Prop) : Prop :=
+  st.wf ∧ st.holdsFor ρ ∧
+  m.eval_rec st ρ (fun a st' ρ' => st'.wf ∧ st'.holdsFor ρ' ∧ Q a st' ρ')
+
+/-! ### Structural properties -/
+
+theorem VerifM.eval.wf {m : VerifM α} {st : TransState} {ρ : Env} {Q : α → TransState → Env → Prop}
+    (h : m.eval st ρ Q) : st.wf := h.1
+
+theorem VerifM.eval.holdsFor {m : VerifM α} {st : TransState} {ρ : Env} {Q : α → TransState → Env → Prop}
+    (h : m.eval st ρ Q) : st.holdsFor ρ := h.2.1
+
+theorem VerifM.eval.mono' {m : VerifM α} (ρ : Env) (st : TransState) (h : m.eval st ρ P)
+    (hPQ : ∀ a st' ρ', st.decls ⊆ st'.decls → ρ.agreeOn st.decls ρ' →
+      st'.wf → st'.holdsFor ρ' → P a st' ρ' → Q a st' ρ') :
+    m.eval st ρ Q :=
+  ⟨h.1, h.2.1, h.2.2.mono' ρ st fun a st' ρ' hsub hag ⟨hwf', hg', hp⟩ =>
+    ⟨hwf', hg', hPQ a st' ρ' hsub hag hwf' hg' hp⟩⟩
+
+theorem VerifM.eval.mono {m : VerifM α} (h : m.eval st ρ P) (hPQ : ∀ a st' ρ', P a st' ρ' → Q a st' ρ') :
+    m.eval st ρ Q :=
+  h.mono' ρ st fun a st' ρ' _ _ _ _ => hPQ a st' ρ'
+
+theorem VerifM.eval.decls_grow {m : VerifM α} ρ (h : m.eval st ρ P) :
+    m.eval st ρ (fun a st' ρ' => st.decls ⊆ st'.decls ∧ ρ.agreeOn st.decls ρ' ∧ P a st' ρ') :=
+  h.mono' ρ st fun _ _ _ hsub hag _ _ hp => ⟨hsub, hag, hp⟩
+
+/-! ### Inversion lemmas for VerifM.eval (forward direction) -/
+
+theorem VerifM.eval_ret {a : α} {st : TransState} {ρ : Env} {Q : α → TransState → Env → Prop}
+    (h : VerifM.eval (.ret a) st ρ Q) : Q a st ρ :=
+  h.2.2.2.2
+
+theorem VerifM.eval_bind (m : VerifM α) (k : α → VerifM β) st ρ :
+  (m.bind k).eval st ρ P →
+  m.eval st ρ (fun r st' ρ' => (k r).eval st' ρ' P) := by
+  intros hev
+  obtain ⟨hwf, hholds, hev⟩ := hev
+  simp [VerifM.eval_rec] at hev
+  refine ⟨hwf, hholds, ?_⟩
+  apply VerifM.eval_rec_preserves_wf at hev
+  apply (VerifM.eval_rec.mono (hev hholds hwf))
+  intro a st' ρ' ⟨hholds', hwf', hev⟩
+  refine ⟨hwf', hholds', ?_⟩
+  refine ⟨hwf', hholds', ?_⟩
+  trivial
+
+
+
+theorem VerifM.eval_failed {st : TransState} {ρ : Env} {Q : α → TransState → Env → Prop}
+    (h : VerifM.eval (.failed msg) st ρ Q) : False :=
+  h.2.2
+
+theorem VerifM.eval_fatal {st : TransState} {ρ : Env} {Q : α → TransState → Env → Prop}
+    (h : VerifM.eval (.fatal msg) st ρ Q) : False :=
+  h.2.2
+
+theorem VerifM.eval_decl {hint : Option String} {t : Srt} {st : TransState} {ρ : Env}
+    {Q : Var → TransState → Env → Prop}
+    (h : VerifM.eval (.decl hint t) st ρ Q) :
+    let v := st.freshVar hint t
+    ∀ u, Q v { st with decls := v :: st.decls } (ρ.update t v.name u) :=
+  fun u => (h.2.2 u).2.2
+
+theorem VerifM.eval_assume {φ : Formula} {st : TransState} {ρ : Env}
+    {Q : Unit → TransState → Env → Prop}
+    (h : VerifM.eval (.assume φ) st ρ Q) :
+    φ.wfIn st.decls → φ.eval ρ → Q () { st with asserts := φ :: st.asserts } ρ :=
+  fun hwf hφ => (h.2.2 hwf hφ).2.2
+
+theorem VerifM.eval_assert {φ : Formula} {st : TransState} {ρ : Env}
+    {Q : Unit → TransState → Env → Prop}
+    (h : VerifM.eval (.assert φ) st ρ Q) :
+    φ.wfIn st.decls → φ.eval ρ ∧ Q () st ρ :=
+  fun hwf => let ⟨hφ, _, _, hq⟩ := h.2.2 hwf; ⟨hφ, hq⟩
+
+theorem VerifM.eval_all {items : List α} {st : TransState} {ρ : Env}
+    {Q : α → TransState → Env → Prop}
+    (h : VerifM.eval (.all items) st ρ Q) :
+    ∀ a ∈ items, Q a st ρ :=
+  fun a ha => (h.2.2 a ha).2.2
+
+theorem VerifM.eval_any {items : List α} {st : TransState} {ρ : Env}
+    {Q : α → TransState → Env → Prop}
+    (h : VerifM.eval (.any items) st ρ Q) :
+    ∃ a ∈ items, Q a st ρ :=
+  let ⟨a, ha, _, _, hq⟩ := h.2.2; ⟨a, ha, hq⟩
+
+
+theorem VerifM.eval_resolve {pred : Atom τ} {st : TransState} {ρ : Env}
+    {Q : Option (Term τ) → TransState → Env → Prop}
+    (h : VerifM.eval (.resolve pred) st ρ Q) :
+    ∃ result : Option (Term τ),
+      Q result st ρ
+      ∧ (∀ t, result = some t → (pred.toFormula t).eval ρ)
+      ∧ (∀ t, result = some t → t.wfIn st.decls) := by
+  refine ⟨_, h.2.2.2.2, fun t ht => ?_, fun t ht => ?_⟩
+  · exact Atom.resolve_correct ht ρ h.2.1
+  · exact Atom.resolve_wfIn ht h.1.assertsWf
+
+theorem VerifM.eval_seq {m : VerifM Unit} {m2 : VerifM β} {st : TransState} {ρ : Env}
+    {Q : β → TransState → Env → Prop}
+    (h : VerifM.eval (.seq m m2) st ρ Q) :
+    VerifM.eval m st ρ (fun () _ _ => True) ∧ VerifM.eval m2 st ρ Q := by
+  obtain ⟨hwf, hholds, hm, hm2⟩ := h
+  exact ⟨⟨hwf, hholds, (eval_rec_preserves_wf m st ρ hm hholds hwf).mono
+    fun () _ _ ⟨hg', hwf', _⟩ => ⟨hwf', hg', trivial⟩⟩,
+   ⟨hwf, hholds, hm2⟩⟩
+
+/-! ### Top-level corollary -/
+
+def VerifM.topCont : TransCont (Except VerifError Unit) :=
+  fun x _ => ScopedM.ret x
+
+theorem VerifM.topCont_error_propagates :
+    ∀ e st', ¬∃ Δ, ScopedM.eval (VerifM.topCont (.error e) st') st'.toFlatCtx (.ok ()) Δ := by
+  intro e st' ⟨Δ, h⟩
+  simp only [topCont, ScopedM.eval_ret] at h
+  exact absurd h.1 (by cases e <;> simp)
+
+theorem VerifM.translate_eval (m : VerifM α) (st : TransState) (ρ : Env)
+    (f : TransCont (Except VerifError α))
+    (hf : ∀ e st', ¬∃ Δ, ScopedM.eval (f (.error e) st') st'.toFlatCtx (.ok ()) Δ)
+    (Δ : FlatCtx)
+    (h : ScopedM.eval (m.translate st f) st.toFlatCtx (.ok ()) Δ)
+    (g : st.holdsFor ρ) (hwf : st.wf) :
+    VerifM.eval m st ρ (fun a st' _ => ∃ Δ', ScopedM.eval (f (.ok a) st') st'.toFlatCtx (.ok ()) Δ') :=
+  ⟨hwf, g, (eval_rec_preserves_wf m st ρ (translate_eval_rec m st ρ f hf Δ h g hwf) g hwf).mono
+    fun _ _ _ ⟨hg', hwf', hΔ'⟩ => ⟨hwf', hg', hΔ'⟩⟩
+
+theorem VerifM.eval_of_translate (m : VerifM Unit) (st : TransState) (ρ : Env) (Δ : FlatCtx)
+    (h : ScopedM.eval (m.translate st topCont) st.toFlatCtx (.ok ()) Δ)
+    (g : st.holdsFor ρ) (hwf : st.wf) :
+    VerifM.eval m st ρ (fun _ _ _ => True) :=
+  (translate_eval m st ρ topCont topCont_error_propagates Δ h g hwf).mono fun _ _ _ _ => trivial
+
+def VerifM.strategy (m : VerifM Unit) :=
+  let verif := VerifM.translate m { decls := [], asserts := [] } VerifM.topCont
+  let verif' := ScopedM.bind verif fun
+    | .ok () => ScopedM.ret (Except.ok ())
+    | .error (.failed msg) => ScopedM.ret (Except.error msg)
+    | .error (.fatal msg) => ScopedM.ret (Except.error msg)
+  ScopedM.translate verif'
