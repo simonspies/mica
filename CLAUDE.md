@@ -95,24 +95,6 @@ TinyML source file
         → VerifM → ScopedM.translate → Strategy → run via Z3
 ```
 
-**Proof flow (correctness):**
-```
-Program.verify succeeds
-  → Program.check_correct
-  → checkSpec_correct
-  → compile_correct
-  → wp e Φ
-```
-
-**`wp`** (weakest precondition) is axiomatized in `TinyML/WeakestPre.lean`.
-
-**`Bindings`** (in `Verifier/Utils.lean`) track the correspondence between TinyML variables and FOL variables: `agreeOnLinked` states that the Lean environment and TinyML substitution agree on the values of linked variables.
-
-**`VerifM.eval`** is the key semantic predicate: "given a well-formed `TransState` that holds in `ρ`, running `m` produces states that are also well-formed and hold, and the postcondition `Q` is satisfied."
-
-**`VerifM.seq`** is used in `Program.check` to isolate each declaration's verification in a push/pop bracket, preventing declarations and assertions from leaking between functions.
-
----
 
 ## Style Guide
 
