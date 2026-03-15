@@ -99,61 +99,75 @@ theorem compileOp_eval {op : TinyML.BinOp} {sl sr : Term .value} {ρ : Env}
 
 /-! ### Compiler and Top-Level Verifier -/
 
-def compile (S : SpecMap) (B : Bindings) (Γ : TinyML.TyCtx) : TinyML.Expr → VerifM (TinyML.Type_ × Term .value)
-  | .val (.int n)  => pure (.int,  .unop .ofInt  (.const (.i n)))
-  | .val (.bool b) => pure (.bool, .unop .ofBool (.const (.b b)))
-  | .val .unit     => pure (.unit, Term.const .unit)
-  | .var x => do
-      match B.lookup x with
-      | some x' => pure (Γ x |>.getD .value, .var .value x'.name)
-      | none => VerifM.fatal s!"undefined variable: {x}"
-  | .unop op e => do
+mutual
+  def compile (S : SpecMap) (B : Bindings) (Γ : TinyML.TyCtx) : TinyML.Expr → VerifM (TinyML.Type_ × Term .value)
+    | .val (.int n)  => pure (.int,  .unop .ofInt  (.const (.i n)))
+    | .val (.bool b) => pure (.bool, .unop .ofBool (.const (.b b)))
+    | .val .unit     => pure (.unit, Term.const .unit)
+    | .var x => do
+        match B.lookup x with
+        | some x' => pure (Γ x |>.getD .value, .var .value x'.name)
+        | none => VerifM.fatal s!"undefined variable: {x}"
+    | .unop op e => do
+        let (te, se) ← compile S B Γ e
+        let ty ← match TinyML.UnOp.typeOf op te with
+          | some ty => pure ty
+          | none => VerifM.fatal s!"type error: operator {repr op} cannot be applied to {repr te}"
+        let t ← match compileUnop op se with
+          | some t => pure t
+          | none => VerifM.fatal s!"unsupported unary operator: {repr op}"
+        pure (ty, t)
+    | .assert e => do
+        let (_, sl) ← compile S B Γ e
+        VerifM.assert (Formula.eq .bool (Term.unop .toBool sl) (Term.const (.b true)))
+        pure (.unit, Term.const .unit)
+    | .binop op l r => do
+        let (tl, sl) ← compile S B Γ l
+        let (tr, sr) ← compile S B Γ r
+        let ty ← match TinyML.BinOp.typeOf op tl tr with
+          | some ty => pure ty
+          | none => VerifM.fatal s!"type error: operator {repr op} cannot be applied to {repr tl} and {repr tr}"
+        let t ← match compileOp op sl sr with
+          | some t => pure t
+          | none => VerifM.fatal s!"unsupported binary operator: {repr op}"
+        pure (ty, t)
+    | .letIn b e body => do
+        let (te, se) ← compile S B Γ e
+        match b with
+        | .none => compile S B Γ body
+        | .named x =>
+          let x' ← VerifM.decl (some x) .value
+          VerifM.assume (Formula.eq .value (.var .value x'.name) se)
+          compile (Finmap.erase x S) ((x, x') :: B) (Γ.extend x te) body
+    | .ifThenElse cond thn els => do
+        let (_, sc) ← compile S B Γ cond
+        let branch ← VerifM.all [true, false]
+        if branch then do
+          VerifM.assume (.not (.eq .value sc (.unop .ofBool (.const (.b false)))))
+          compile S B Γ thn
+        else do
+          VerifM.assume (.eq .value sc (.unop .ofBool (.const (.b false))))
+          compile S B Γ els
+    | .app (.var f) arg => do
+        match S.lookup f with
+        | some spec => do
+          let (targ, sarg) ← compile S B Γ arg
+          Spec.call FiniteSubst.id spec sarg targ
+        | none => VerifM.fatal s!"no spec for function {f}"
+    | .tuple es => do
+        let (ts, slist) ← compileExprs S B Γ es
+        pure (.tuple ts, .unop .ofValList slist)
+    | .val (.pair _ _) | .val (.inl _) | .val (.inr _) | .val (.loc _)
+    | .val (.fix _ _ _ _ _) | .val (.tuple _)
+    | .app _ _ | .fix _ _ _ _ _ | .ref _ | .deref _ | .store _ _ => VerifM.fatal "unsupported expression"
+
+  def compileExprs (S : SpecMap) (B : Bindings) (Γ : TinyML.TyCtx) : List TinyML.Expr → VerifM (List TinyML.Type_ × Term .vallist)
+    | [] => pure ([], .const .vnil)
+    | e :: es => do
+      let (ts, ses) ← compileExprs S B Γ es
       let (te, se) ← compile S B Γ e
-      let ty ← match TinyML.UnOp.typeOf op te with
-        | some ty => pure ty
-        | none => VerifM.fatal s!"type error: operator {repr op} cannot be applied to {repr te}"
-      let t ← match compileUnop op se with
-        | some t => pure t
-        | none => VerifM.fatal s!"unsupported unary operator: {repr op}"
-      pure (ty, t)
-  | .assert e => do
-      let (_, sl) ← compile S B Γ e
-      VerifM.assert (Formula.eq .bool (Term.unop .toBool sl) (Term.const (.b true)))
-      pure (.unit, Term.const .unit)
-  | .binop op l r => do
-      let (tl, sl) ← compile S B Γ l
-      let (tr, sr) ← compile S B Γ r
-      let ty ← match TinyML.BinOp.typeOf op tl tr with
-        | some ty => pure ty
-        | none => VerifM.fatal s!"type error: operator {repr op} cannot be applied to {repr tl} and {repr tr}"
-      let t ← match compileOp op sl sr with
-        | some t => pure t
-        | none => VerifM.fatal s!"unsupported binary operator: {repr op}"
-      pure (ty, t)
-  | .letIn b e body => do
-      let (te, se) ← compile S B Γ e
-      match b with
-      | .none => compile S B Γ body
-      | .named x =>
-        let x' ← VerifM.decl (some x) .value
-        VerifM.assume (Formula.eq .value (.var .value x'.name) se)
-        compile (Finmap.erase x S) ((x, x') :: B) (Γ.extend x te) body
-  | .ifThenElse cond thn els => do
-      let (_, sc) ← compile S B Γ cond
-      let branch ← VerifM.all [true, false]
-      if branch then do
-        VerifM.assume (.not (.eq .value sc (.unop .ofBool (.const (.b false)))))
-        compile S B Γ thn
-      else do
-        VerifM.assume (.eq .value sc (.unop .ofBool (.const (.b false))))
-        compile S B Γ els
-  | .app (.var f) arg => do
-      match S.lookup f with
-      | some spec => do
-        let (targ, sarg) ← compile S B Γ arg
-        Spec.call FiniteSubst.id spec sarg targ
-      | none => VerifM.fatal s!"no spec for function {f}"
-  | _ => VerifM.fatal "unsupported expression"
+      pure (te :: ts, .binop .vcons se ses)
+end
 
 
 
@@ -171,7 +185,18 @@ theorem compile_correct (e : TinyML.Expr) (S : SpecMap) (B : Bindings) (Γ : Tin
       TinyML.ValHasType v ty → Φ v) →
     wp (e.subst γ) Φ := by
   intro heval hagree hbwf hts hspec hSwf hpost
-  induction e using TinyML.Expr.rec (motive_1 := fun _ => True) (motive_3 := fun _ => True) (motive_4 := fun _ => True) generalizing S B Γ st γ ρ Ψ Φ
+  induction e using TinyML.Expr.rec
+    (motive_1 := fun _ => True)
+    (motive_3 := fun _ => True)
+    (motive_4 := fun es => ∀ (S : SpecMap) (B : Bindings) (Γ : TinyML.TyCtx) (st : TransState) (ρ : Env) (γ : TinyML.Subst)
+        (Ψ : List TinyML.Type_ × Term .vallist → TransState → Env → Prop) (Φ : List TinyML.Val → Prop),
+        VerifM.eval (compileExprs S B Γ es) st ρ Ψ →
+        B.agreeOnLinked ρ γ → B.wf st.decls → B.typedSubst Γ γ →
+        S.satisfiedBy γ → S.wfIn [] →
+        (∀ vs ρ' st' ts slist, Ψ (ts, slist) st' ρ' → slist.wfIn st'.decls →
+          Term.eval ρ' slist = vs → TinyML.ValsHaveTypes vs ts → Φ vs) →
+        wps (es.map (TinyML.Expr.subst γ)) Φ)
+    generalizing S B Γ st γ ρ Ψ Φ
   all_goals try trivial
   case val v _ =>
     cases v with
@@ -463,6 +488,64 @@ theorem compile_correct (e : TinyML.Expr) (S : SpecMap) (B : Bindings) (Γ : Tin
     | _ =>
       simp only [compile] at heval
       exact (VerifM.eval_fatal heval).elim
+  case tuple es ihes =>
+    simp only [TinyML.Expr.subst]
+    apply wp.tuple
+    have heval_es : (compileExprs S B Γ es).eval st ρ _ := VerifM.eval_bind _ _ _ _ heval
+    refine ihes S B Γ st ρ γ _ _ (VerifM.eval.decls_grow ρ heval_es) hagree hbwf hts hspec hSwf ?_
+    intro vs ρ' st' ts slist hΨ hslist_wf heval_slist htyping
+    obtain ⟨hdecls, hagreeOn, hΨ⟩ := hΨ
+    simp only at hΨ
+    obtain hΨ := VerifM.eval_ret hΨ
+    have heval_tuple : (Term.unop .ofValList slist).eval ρ' = TinyML.Val.tuple vs := by
+      simp [Term.eval, UnOp.eval, heval_slist]
+    have hwf_tuple : (Term.unop UnOp.ofValList slist).wfIn st'.decls := by
+      intro w hw; simp [Term.freeVars] at hw; exact hslist_wf w hw
+    exact hpost (TinyML.Val.tuple vs) ρ' st' (.tuple ts) (.unop .ofValList slist)
+      hΨ hwf_tuple heval_tuple (.tuple htyping)
+  case nil =>
+    intro S B Γ st ρ γ Ψ Φ heval hagree hbwf hts hspec hSwf hpost
+    simp only [compileExprs] at heval
+    simp only [List.map, wps]
+    obtain heval := VerifM.eval_ret heval
+    exact hpost [] ρ st [] (.const .vnil) heval
+      (by intro w hw; simp [Term.freeVars] at hw)
+      (by simp [Term.eval, Const.denote])
+      .nil
+  case cons e es ihe ihes =>
+    intro S B Γ st ρ γ Ψ Φ heval hagree hbwf hts hspec hSwf hpost
+    simp only [compileExprs] at heval
+    simp only [List.map, wps_cons]
+    -- compileExprs (e :: es) = do let (ts, ses) ← compileExprs es; let (te, se) ← compile e; pure ...
+    -- wps (e :: es) Φ = wps es (fun vs => wp e (fun v => Φ (v :: vs)))
+    -- Step 1: peel off compileExprs es from bind
+    have heval_es : (compileExprs S B Γ es).eval st ρ _ := VerifM.eval_bind _ _ _ _ heval
+    refine ihes S B Γ st ρ γ _ _ (VerifM.eval.decls_grow ρ heval_es) hagree hbwf hts hspec hSwf ?_
+    intro vs ρ_vs st_vs ts_vs slist hΨ_vs hslist_wf heval_slist htyping_vs
+    obtain ⟨hdecls_vs, hagreeOn_vs, hΨ_vs⟩ := hΨ_vs
+    have hagree_vs : B.agreeOnLinked ρ_vs γ :=
+      Bindings.agreeOnLinked_env_agree hagree hagreeOn_vs hbwf
+    have hbwf_vs : B.wf st_vs.decls := fun p hp => hdecls_vs (hbwf p hp)
+    -- Step 2: peel off compile e from bind
+    have heval_e : (compile S B Γ e).eval st_vs ρ_vs _ := VerifM.eval_bind _ _ _ _ hΨ_vs
+    refine ihe S B Γ st_vs ρ_vs γ _ _ (VerifM.eval.decls_grow ρ_vs heval_e) hagree_vs hbwf_vs hts hspec hSwf ?_
+    intro v ρ' st' te se hΨ_e hse_wf heval_se htyping_e
+    obtain ⟨hdecls_e, hagreeOn_e, hΨ_e⟩ := hΨ_e
+    simp only at hΨ_e
+    obtain hΨ_e := VerifM.eval_ret hΨ_e
+    have heval_cons : (Term.binop .vcons se slist).eval ρ' = v :: vs := by
+      have hsl_ρ' : slist.eval ρ' = vs := by
+        rw [Term.eval_env_agree hslist_wf (Env.agreeOn_symm hagreeOn_e)]
+        exact heval_slist
+      simp [Term.eval, BinOp.eval, heval_se, hsl_ρ']
+    have hwf_cons : (Term.binop .vcons se slist).wfIn st'.decls := by
+      intro w hw
+      simp [Term.freeVars] at hw
+      rcases hw with hw | hw
+      · exact hse_wf w hw
+      · exact hdecls_e (hslist_wf w hw)
+    exact hpost (v :: vs) ρ' st' (te :: ts_vs) (.binop .vcons se slist)
+      hΨ_e hwf_cons heval_cons (.cons htyping_e htyping_vs)
   all_goals
       simp only [compile] at heval
       exact (VerifM.eval_fatal heval).elim
