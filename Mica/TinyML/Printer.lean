@@ -110,6 +110,7 @@ partial def printAtom : Expr → String
   | .var name           => name
   | .fix self arg _ _ body  => printFix self arg body
   | .binop .pair l r    => s!"({printOr l}, {printOr r})"
+  | .tuple es           => s!"({", ".intercalate (es.map printOr)})"
   | e                   => s!"({printExpr e})"
 
 partial def printVal : Val → String
@@ -117,6 +118,7 @@ partial def printVal : Val → String
   | .bool b        => if b then "true" else "false"
   | .unit          => "()"
   | .pair a b      => s!"({printVal a}, {printVal b})"
+  | .tuple vs      => s!"({", ".intercalate (vs.map printVal)})"
   | .inl v         => s!"Either.Left {printValAtom v}"
   | .inr v         => s!"Either.Right {printValAtom v}"
   | .loc l         => s!"(assert false (* loc:{l} *))"
