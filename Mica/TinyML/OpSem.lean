@@ -47,6 +47,7 @@ inductive K where
   | storeR (loc : Expr) (k : K)                 -- val in focus (eval first)
   | storeL (k : K)      (v : Val)               -- loc in focus, val done
   | assert (k : K)
+  | tupleK (left : Exprs) (k : K) (right : Vals)
 
 def K.fill : K → Expr → Expr
   | .hole,              e => e
@@ -62,6 +63,7 @@ def K.fill : K → Expr → Expr
   | .storeR loc k,      e => .store loc (k.fill e)
   | .storeL k v,        e => .store (k.fill e) (.val v)
   | .assert k,          e => .assert (k.fill e)
+  | .tupleK left k right, e => .tuple (left ++ [k.fill e] ++ right.map Expr.val)
 
 /-- Compose two contexts: `(k1.comp k2).fill e = k1.fill (k2.fill e)`. -/
 def K.comp : K → K → K
@@ -78,6 +80,7 @@ def K.comp : K → K → K
   | .storeR loc k1,     k2 => .storeR loc (k1.comp k2)
   | .storeL k1 v,       k2 => .storeL (k1.comp k2) v
   | .assert k1,         k2 => .assert (k1.comp k2)
+  | .tupleK left k1 right, k2 => .tupleK left (k1.comp k2) right
 
 theorem K.comp_fill (k1 k2 : K) (e : Expr) :
     (k1.comp k2).fill e = k1.fill (k2.fill e) := by
@@ -124,6 +127,9 @@ inductive Head : Expr → Heap → Expr → Heap → Prop where
 
   /-- Assert succeeds on true; false is stuck (no rule). -/
   | assertOk : Head (.assert (.val (.bool true))) μ (.val .unit) μ
+
+  /-- A tuple of values reduces to a tuple value. -/
+  | tuple : Head (.tuple (vs.map Expr.val)) μ (.val (.tuple vs)) μ
 
 /-! ## Contextual step -/
 

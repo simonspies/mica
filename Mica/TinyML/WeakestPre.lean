@@ -55,6 +55,10 @@ axiom wp.unop {op : TinyML.UnOp} {e : TinyML.Expr} {Q : TinyML.Val → Prop} :
 axiom wp.assert {e : TinyML.Expr} {P : TinyML.Val → Prop} :
   wp e (fun v => v ≠ TinyML.Val.bool false → P .unit) → wp (.assert e) P
 
+/-- A tuple expression evaluates each component (right-to-left) and wraps the results. -/
+axiom wp.tuple {es : TinyML.Exprs} {Q : TinyML.Val → Prop} :
+  wps es (fun vs => Q (.tuple vs)) → wp (.tuple es) Q
+
 /-- Weakest precondition for a list of expressions, evaluated right-to-left.
     `wps [e1, e2, e3] Q` first evaluates `e3`, then `e2`, then `e1`,
     and passes `[v1, v2, v3]` (in original order) to `Q`. -/
