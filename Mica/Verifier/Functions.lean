@@ -55,7 +55,7 @@ theorem checkSpec_correct (S : SpecMap) (e : TinyML.Expr) (s : Spec)
         suffices ∀ v P, Φ_inv P v → wp (TinyML.Expr.app (.val fval) (.val v)) P from
           this v_arg Φ ⟨htyped, happly⟩
         exact wp.fix' (.some at_) retTy (body.subst γ') Φ_inv (fun ih_rec v_arg P ⟨htyped_arg, happly_arg⟩ => by
-        apply Spec.implement_correct s _ _ _ v_arg _ (wp ((body.subst γ').subst _) P) hswf hbody happly_arg
+        apply Spec.implement_correct s _ _ _ v_arg _ (wp ((body.subst γ').subst _) P) hswf htyped_arg hbody happly_arg
         intro argVar st' ρ' hargVar_mem hargVar_sort hargVar_val hbody_eval
         set γ_body := γ.update' fb fval |>.update' (.named arg) v_arg
         rw [TinyML.Expr.subst_fix_comp body fb arg γ fval v_arg]

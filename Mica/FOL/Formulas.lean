@@ -2,8 +2,9 @@ import Mica.FOL.Terms
 import Mica.Base.Fresh
 
 inductive UnPred : Srt → Type where
-  | isInt  : UnPred .value
-  | isBool : UnPred .value
+  | isInt   : UnPred .value
+  | isBool  : UnPred .value
+  | isTuple : UnPred .value
   deriving DecidableEq, Repr
 
 inductive BinPred : Srt → Srt → Type where
@@ -103,8 +104,9 @@ def Formula.subst (σ : Subst) (free : List Var) : Formula → Formula
     .exists_ y' τ (φ.subst (σ.update τ y (.var τ y')) (⟨y', τ⟩ :: free))
 
 @[simp] def UnPred.eval : UnPred τ → τ.denote → Prop
-  | .isInt,  v => match v with | .int _ => True | _ => False
-  | .isBool, v => match v with | .bool _ => True | _ => False
+  | .isInt,   v => match v with | .int _ => True | _ => False
+  | .isBool,  v => match v with | .bool _ => True | _ => False
+  | .isTuple, v => match v with | .tuple _ => True | _ => False
 
 @[simp] def BinPred.eval : BinPred τ₁ τ₂ → τ₁.denote → τ₂.denote → Prop
   | .lt, a, b => a < b
