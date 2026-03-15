@@ -301,7 +301,11 @@ where
         .ok (.deref e, st)
       | _ => parseAtom st
 
-  parseAtom : Parser Expr := fun st =>
+  parseAtom : Parser Expr := fun st => do
+    let (e, st) ← parseAtomBase st
+    parsePostfix e st
+
+  parseAtomBase : Parser Expr := fun st =>
     match peek st with
     | .intLit n  => .ok (.val (.int n), advance st)
     | .kw_true   => .ok (.val (.bool true), advance st)
@@ -314,15 +318,39 @@ where
         .ok (.val .unit, advance st')
       else do
         let (e, st') ← parseExpr st'
-        -- `(e1, e2)` is a pair
         if peek st' == .comma then do
-          let (e2, st') ← parseExpr (advance st')
+          let (rest, st') ← parseTupleRest st'
           let st' ← expect .rparen st'
-          .ok (.tuple [e, e2], st')
+          .ok (.tuple (e :: rest), st')
         else do
           let st' ← expect .rparen st'
           .ok (e, st')
     | t => .error s!"unexpected token: {t}"
+
+  -- Parse `, e2, e3, ...` after the first element of a tuple
+  parseTupleRest : Parser (List Expr) := fun st =>
+    match peek st with
+    | .comma => do
+      let (e, st) ← parseExpr (advance st)
+      if peek st == .comma then do
+        let (rest, st) ← parseTupleRest st
+        .ok (e :: rest, st)
+      else
+        .ok ([e], st)
+    | _ => .ok ([], st)
+
+  -- Parse postfix `.n` projection
+  parsePostfix (e : Expr) : Parser Expr := fun st =>
+    match peek st with
+    | .dot =>
+      match peek (advance st) with
+      | .intLit n =>
+        if n ≥ 0 then
+          parsePostfix (.unop (.proj n.toNat) e) (advance (advance st))
+        else
+          .error s!"projection index must be non-negative, got {n}"
+      | _ => .ok (e, st)  -- dot not followed by int, leave it
+    | _ => .ok (e, st)
 
 /-- Parse a top-level declaration. -/
 partial def parseDecl : Parser (Decl Expr) := fun st => do

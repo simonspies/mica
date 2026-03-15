@@ -41,20 +41,47 @@ def compileOp (op : TinyML.BinOp) (sl sr : Term .value) : Option (Term .value) :
   | .or   => some (Term.unop .ofBool (Term.ite (b sl) (.const (.b true)) (b sr)))
   | _     => none
 
-/-- Lift a `TinyML.UnOp` to operate on `Term .value`. Returns `none` for unsupported ops. -/
+/-- Apply `vtail` n times to a vallist term. -/
+def vtailN (t : Term .vallist) : Nat → Term .vallist
+  | 0     => t
+  | n + 1 => .unop .vtail (vtailN t n)
+
+@[simp] theorem vtailN_freeVars (t : Term .vallist) (n : Nat) :
+    (vtailN t n).freeVars = t.freeVars := by
+  induction n with
+  | zero => simp [vtailN]
+  | succ n ih => simp [vtailN, Term.freeVars, ih]
+
+theorem vtailN_wfIn {t : Term .vallist} {Δ : VarCtx} (ht : t.wfIn Δ) (n : Nat) :
+    (vtailN t n).wfIn Δ := by
+  intro v hv; rw [vtailN_freeVars] at hv; exact ht v hv
+
+@[simp] theorem vtailN_eval (t : Term .vallist) (ρ : Env) :
+    ∀ n, (vtailN t n).eval ρ = List.drop n (t.eval ρ)
+  | 0 => by simp [vtailN]
+  | n + 1 => by
+    simp only [vtailN, Term.eval, UnOp.eval, vtailN_eval t ρ n]
+    rw [List.tail_drop]
+
+theorem vhead_vtailN_eval {vs : List TinyML.Val} {w : TinyML.Val} {n : Nat}
+    (h : vs[n]? = some w) (t : Term .vallist) (ρ : Env) (ht : t.eval ρ = vs) :
+    (Term.unop .vhead (vtailN t n)).eval ρ = w := by
+  simp [Term.eval, UnOp.eval, ht, h]
+
 def compileUnop (op : TinyML.UnOp) (s : Term .value) : Option (Term .value) :=
   let i t := Term.unop UnOp.toInt  t
   let b t := Term.unop UnOp.toBool t
   match op with
   | .neg => some (Term.unop .ofInt  (Term.unop .neg (i s)))
   | .not => some (Term.unop .ofBool (Term.unop .not (b s)))
+  | .proj n => some (.unop .vhead (vtailN (.unop .toValList s) n))
   | _    => none
 
 theorem compileUnop_wfIn {op : TinyML.UnOp} {s : Term .value} {Δ : VarCtx}
     (hs : s.wfIn Δ) {t : Term .value} (heq : compileUnop op s = some t) :
     t.wfIn Δ := by
   cases op <;> simp [compileUnop] at heq <;> subst heq <;>
-    intro v hv <;> simp [Term.freeVars] at hv <;>
+    intro v hv <;> simp [Term.freeVars, vtailN_freeVars] at hv <;>
     simp_all [hs v]
 
 theorem compileUnop_eval {op : TinyML.UnOp} {s : Term .value} {ρ : Env}
@@ -63,12 +90,17 @@ theorem compileUnop_eval {op : TinyML.UnOp} {s : Term .value} {ρ : Env}
     (hcomp : compileUnop op s = some t) :
     t.eval ρ = w := by
   subst hs
-  cases op <;>
-    simp only [compileUnop, Option.some.injEq] at hcomp <;>
-    (try simp at hcomp) <;>
-    subst hcomp <;>
+  cases op with
+  | proj n =>
+    simp only [compileUnop, Option.some.injEq] at hcomp; subst hcomp
+    cases h : s.eval ρ <;> simp_all [TinyML.evalUnOp]
+    exact vhead_vtailN_eval heval _ ρ (by simp [Term.eval, UnOp.eval, h])
+  | neg | not =>
+    simp only [compileUnop, Option.some.injEq] at hcomp
+    subst hcomp
     cases h : s.eval ρ <;>
     simp_all [TinyML.evalUnOp, Term.eval, UnOp.eval]
+  | fst | snd | inl | inr => simp [compileUnop] at hcomp
 
 theorem compileOp_wfIn {op : TinyML.BinOp} {sl sr : Term .value} {Δ : VarCtx}
     (hl : sl.wfIn Δ) (hr : sr.wfIn Δ) {t : Term .value} (heq : compileOp op sl sr = some t) :

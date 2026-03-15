@@ -12,6 +12,7 @@ def UnOp.toString : UnOp → String
   | .neg => "-" | .not => "not"
   | .fst => "fst" | .snd => "snd"
   | .inl => "Either.Left" | .inr => "Either.Right"
+  | .proj n => s!".{n}"
 
 def Binder.print : Binder → String
   | .none => "_"
@@ -103,6 +104,7 @@ partial def printApp : Expr → String
 partial def printUnary : Expr → String
   | .unop .neg e => s!"-{printAtom e}"
   | .deref e     => s!"!{printAtom e}"
+  | .unop (.proj n) e => s!"{printAtom e}.{n}"
   | e => printAtom e
 
 partial def printAtom : Expr → String

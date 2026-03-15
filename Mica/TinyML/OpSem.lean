@@ -13,6 +13,7 @@ def evalUnOp (op : UnOp) (v : Val) : Option Val :=
   | .snd, .pair _ b => some b
   | .inl, v         => some (.inl v)
   | .inr, v         => some (.inr v)
+  | .proj n, .tuple vs => vs[n]?
   | _, _            => none
 
 def evalBinOp (op : BinOp) (v1 v2 : Val) : Option Val :=

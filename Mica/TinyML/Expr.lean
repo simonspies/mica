@@ -87,6 +87,7 @@ inductive UnOp where
   | neg | not
   | fst | snd
   | inl | inr
+  | proj (n : Nat)
   deriving Repr, BEq, Inhabited, DecidableEq
 
 mutual

@@ -309,6 +309,7 @@ def UnOp.typeOf : UnOp → Type_ → Option Type_
   | .snd, .prod _ t2 => some t2
   | .inl, t          => some (.sum t .empty)
   | .inr, t          => some (.sum .empty t)
+  | .proj n, .tuple ts => ts[n]?
   | _, _             => none
 
 mutual
@@ -391,6 +392,20 @@ theorem evalBinOp_typed {op : TinyML.BinOp} {v1 v2 : TinyML.Val} {t1 t2 ty : Tin
     simp_all
     first | exact .int _ | exact .bool _
 
+private theorem evalUnOp_proj_typed {n : Nat} {vs : List TinyML.Val} {ts : List TinyML.Type_} {ty : TinyML.Type_}
+    (hty : ts[n]? = some ty) (hvs : TinyML.ValsHaveTypes vs ts) :
+    ∃ w, vs[n]? = some w ∧ TinyML.ValHasType w ty := by
+  induction n generalizing vs ts with
+  | zero =>
+    cases hvs with
+    | nil => simp at hty
+    | cons hv _ =>
+      simp at hty ⊢; subst hty; exact hv
+  | succ n ih =>
+    cases hvs with
+    | nil => simp at hty
+    | cons _ hvs => simp at hty ⊢; exact ih hty hvs
+
 theorem evalUnOp_typed {op : TinyML.UnOp} {v : TinyML.Val} {t ty : TinyML.Type_}
     (hty : TinyML.UnOp.typeOf op t = some ty)
     (ht : TinyML.ValHasType v t) :
@@ -403,6 +418,14 @@ theorem evalUnOp_typed {op : TinyML.UnOp} {v : TinyML.Val} {t ty : TinyML.Type_}
   case inr =>
     simp only [TinyML.UnOp.typeOf, Option.some.injEq] at hty; subst hty
     exact ⟨_, rfl, .inr ht⟩
+  case proj n =>
+    cases ht with
+    | tuple hvs =>
+      simp only [TinyML.UnOp.typeOf] at hty
+      simp only [TinyML.evalUnOp]
+      exact evalUnOp_proj_typed hty hvs
+    | any => simp [TinyML.UnOp.typeOf] at hty
+    | _ => simp [TinyML.UnOp.typeOf] at hty
   -- Remaining ops require specific value shapes; eliminate incompatible ht branches via hty
   all_goals (cases ht <;>
     simp only [TinyML.UnOp.typeOf, TinyML.evalUnOp, Option.some.injEq] at * <;>
