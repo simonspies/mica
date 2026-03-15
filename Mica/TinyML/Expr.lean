@@ -18,7 +18,6 @@ inductive Type_ where
   | unit
   | bool
   | int
-  | prod (t1 t2 : Type_)
   | sum (t1 t2 : Type_)
   | arrow (t1 t2 : Type_)
   | ref (t: Type_)
@@ -29,7 +28,7 @@ inductive Type_ where
 
 def Type_.decEq : (a b : Type_) → Decidable (a = b)
   | .unit, .unit | .bool, .bool | .int, .int | .empty, .empty | .value, .value => isTrue rfl
-  | .prod s1 s2, .prod t1 t2 | .sum s1 s2, .sum t1 t2 | .arrow s1 s2, .arrow t1 t2 =>
+  | .sum s1 s2, .sum t1 t2 | .arrow s1 s2, .arrow t1 t2 =>
     match s1.decEq t1, s2.decEq t2 with
     | isTrue h1, isTrue h2 => isTrue (by subst h1; subst h2; rfl)
     | isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
@@ -40,25 +39,23 @@ def Type_.decEq : (a b : Type_) → Decidable (a = b)
   | .tuple ss, .tuple ts => match typesDecEq ss ts with
     | isTrue h => isTrue (by subst h; rfl)
     | isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
-  | .unit, .bool | .unit, .int | .unit, .prod .. | .unit, .sum .. | .unit, .arrow ..
+  | .unit, .bool | .unit, .int | .unit, .sum .. | .unit, .arrow ..
   | .unit, .ref .. | .unit, .empty | .unit, .value | .unit, .tuple ..
-  | .bool, .unit | .bool, .int | .bool, .prod .. | .bool, .sum .. | .bool, .arrow ..
+  | .bool, .unit | .bool, .int | .bool, .sum .. | .bool, .arrow ..
   | .bool, .ref .. | .bool, .empty | .bool, .value | .bool, .tuple ..
-  | .int, .unit | .int, .bool | .int, .prod .. | .int, .sum .. | .int, .arrow ..
+  | .int, .unit | .int, .bool | .int, .sum .. | .int, .arrow ..
   | .int, .ref .. | .int, .empty | .int, .value | .int, .tuple ..
-  | .prod .., .unit | .prod .., .bool | .prod .., .int | .prod .., .sum ..
-  | .prod .., .arrow .. | .prod .., .ref .. | .prod .., .empty | .prod .., .value | .prod .., .tuple ..
-  | .sum .., .unit | .sum .., .bool | .sum .., .int | .sum .., .prod ..
+  | .sum .., .unit | .sum .., .bool | .sum .., .int
   | .sum .., .arrow .. | .sum .., .ref .. | .sum .., .empty | .sum .., .value | .sum .., .tuple ..
-  | .arrow .., .unit | .arrow .., .bool | .arrow .., .int | .arrow .., .prod ..
+  | .arrow .., .unit | .arrow .., .bool | .arrow .., .int
   | .arrow .., .sum .. | .arrow .., .ref .. | .arrow .., .empty | .arrow .., .value | .arrow .., .tuple ..
-  | .ref .., .unit | .ref .., .bool | .ref .., .int | .ref .., .prod ..
+  | .ref .., .unit | .ref .., .bool | .ref .., .int
   | .ref .., .sum .. | .ref .., .arrow .. | .ref .., .empty | .ref .., .value | .ref .., .tuple ..
-  | .empty, .unit | .empty, .bool | .empty, .int | .empty, .prod .. | .empty, .sum ..
+  | .empty, .unit | .empty, .bool | .empty, .int | .empty, .sum ..
   | .empty, .arrow .. | .empty, .ref .. | .empty, .value | .empty, .tuple ..
-  | .value, .unit | .value, .bool | .value, .int | .value, .prod .. | .value, .sum ..
+  | .value, .unit | .value, .bool | .value, .int | .value, .sum ..
   | .value, .arrow .. | .value, .ref .. | .value, .empty | .value, .tuple ..
-  | .tuple .., .unit | .tuple .., .bool | .tuple .., .int | .tuple .., .prod ..
+  | .tuple .., .unit | .tuple .., .bool | .tuple .., .int
   | .tuple .., .sum .. | .tuple .., .arrow .. | .tuple .., .ref .. | .tuple .., .empty
   | .tuple .., .value => isFalse (by intro h; cases h)
 where
@@ -80,12 +77,10 @@ inductive BinOp where
   | add | sub | mul | div
   | eq | lt | le | gt | ge
   | and | or
-  | pair
   deriving Repr, BEq, Inhabited, DecidableEq
 
 inductive UnOp where
   | neg | not
-  | fst | snd
   | inl | inr
   | proj (n : Nat)
   deriving Repr, BEq, Inhabited, DecidableEq
@@ -95,7 +90,6 @@ mutual
     | int (n : Int)
     | bool (b : Bool)
     | unit
-    | pair (fst snd : Val)
     | inl (v : Val)
     | inr (v : Val)
     | loc (l : Location)
@@ -133,10 +127,6 @@ mutual
       | isTrue h => isTrue (by subst h; rfl)
       | isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
     case unit.unit => exact isTrue rfl
-    case pair.pair a1 a2 b1 b2 => exact match a1.decEq b1, a2.decEq b2 with
-      | isTrue h1, isTrue h2 => isTrue (by subst h1; subst h2; rfl)
-      | isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
-      | _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
     case inl.inl a b => exact match a.decEq b with
       | isTrue h => isTrue (by subst h; rfl)
       | isFalse h => isFalse (by intro heq; cases heq; exact h rfl)

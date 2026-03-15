@@ -39,7 +39,6 @@ def compileOp (op : TinyML.BinOp) (sl sr : Term .value) : Option (Term .value) :
   | .ge   => some (Term.unop .ofBool (Term.binop .ge   (i sl) (i sr)))
   | .and  => some (Term.unop .ofBool (Term.ite (b sl) (b sr) (.const (.b false))))
   | .or   => some (Term.unop .ofBool (Term.ite (b sl) (.const (.b true)) (b sr)))
-  | _     => none
 
 /-- Apply `vtail` n times to a vallist term. -/
 def vtailN (t : Term .vallist) : Nat → Term .vallist
@@ -100,7 +99,7 @@ theorem compileUnop_eval {op : TinyML.UnOp} {s : Term .value} {ρ : Env}
     subst hcomp
     cases h : s.eval ρ <;>
     simp_all [TinyML.evalUnOp, Term.eval, UnOp.eval]
-  | fst | snd | inl | inr => simp [compileUnop] at hcomp
+  | inl | inr => simp [compileUnop] at hcomp
 
 theorem compileOp_wfIn {op : TinyML.BinOp} {sl sr : Term .value} {Δ : VarCtx}
     (hl : sl.wfIn Δ) (hr : sr.wfIn Δ) {t : Term .value} (heq : compileOp op sl sr = some t) :
@@ -189,7 +188,7 @@ mutual
     | .tuple es => do
         let (ts, slist) ← compileExprs S B Γ es
         pure (.tuple ts, .unop .ofValList slist)
-    | .val (.pair _ _) | .val (.inl _) | .val (.inr _) | .val (.loc _)
+    | .val (.inl _) | .val (.inr _) | .val (.loc _)
     | .val (.fix _ _ _ _ _) | .val (.tuple _)
     | .app _ _ | .fix _ _ _ _ _ | .ref _ | .deref _ | .store _ _ => VerifM.fatal "unsupported expression"
 
@@ -253,7 +252,7 @@ theorem compile_correct (e : TinyML.Expr) (S : SpecMap) (B : Bindings) (Γ : Tin
         (by intro w hw; simp [Term.freeVars] at hw)
         (by simp [Term.eval])
         .unit
-    | pair _ _ | inl _ | inr _ | loc _ | fix _ _ _ | tuple _ =>
+    | inl _ | inr _ | loc _ | fix _ _ _ | tuple _ =>
       simp; exact (VerifM.eval_fatal heval).elim
   case var x =>
     simp only [compile] at heval

@@ -9,8 +9,6 @@ def evalUnOp (op : UnOp) (v : Val) : Option Val :=
   match op, v with
   | .neg, .int n    => some (.int (-n))
   | .not, .bool b   => some (.bool (!b))
-  | .fst, .pair a _ => some a
-  | .snd, .pair _ b => some b
   | .inl, v         => some (.inl v)
   | .inr, v         => some (.inr v)
   | .proj n, .tuple vs => vs[n]?
@@ -29,7 +27,6 @@ def evalBinOp (op : BinOp) (v1 v2 : Val) : Option Val :=
   | .ge,  .int a, .int b  => some (.bool (a ≥ b))
   | .and, .bool a, .bool b => some (.bool (a && b))
   | .or,  .bool a, .bool b => some (.bool (a || b))
-  | .pair, a, b            => some (.pair a b)
   | _, _, _                => none
 
 /-! ## Evaluation contexts -/

@@ -54,8 +54,6 @@ mutual
     | bot   : Type_.Sub (Type_.empty) t
     | top   : Type_.Sub t (Type_.value)
     | trans : Type_.Sub s t → Type_.Sub t u → Type_.Sub s u
-    | prod  : Type_.Sub s1 t1 → Type_.Sub s2 t2
-            → Type_.Sub (Type_.prod s1 s2) (Type_.prod t1 t2)
     | sum   : Type_.Sub s1 t1 → Type_.Sub s2 t2
             → Type_.Sub (Type_.sum s1 s2) (Type_.sum t1 t2)
     | arrow : Type_.Sub t1 s1 → Type_.Sub s2 t2
@@ -72,7 +70,6 @@ mutual
   def Type_.join : Type_ → Type_ → Type_
     | .empty, t | t, .empty => t
     | .value, _ | _, .value => .value
-    | .prod s1 s2,  .prod t1 t2  => .prod (Type_.join s1 t1) (Type_.join s2 t2)
     | .sum  s1 s2,  .sum  t1 t2  => .sum  (Type_.join s1 t1) (Type_.join s2 t2)
     | .arrow s1 s2, .arrow t1 t2 => .arrow (Type_.meet s1 t1) (Type_.join s2 t2)
     | .ref s,       .ref t       => if s == t then .ref s else .value
@@ -84,7 +81,6 @@ mutual
   def Type_.meet : Type_ → Type_ → Type_
     | .value, t | t, .value => t
     | .empty, _ | _, .empty => .empty
-    | .prod s1 s2,  .prod t1 t2  => .prod (Type_.meet s1 t1) (Type_.meet s2 t2)
     | .sum  s1 s2,  .sum  t1 t2  => .sum  (Type_.meet s1 t1) (Type_.meet s2 t2)
     | .arrow s1 s2, .arrow t1 t2 => .arrow (Type_.join s1 t1) (Type_.meet s2 t2)
     | .ref s,       .ref t       => if s == t then .ref s else .empty
@@ -107,7 +103,6 @@ mutual
     match s, t with
     | .empty, _      => true
     | _, .value      => true
-    | .prod s1 s2,  .prod t1 t2  => Type_.sub s1 t1 && Type_.sub s2 t2
     | .sum  s1 s2,  .sum  t1 t2  => Type_.sub s1 t1 && Type_.sub s2 t2
     | .arrow s1 s2, .arrow t1 t2 => Type_.sub t1 s1 && Type_.sub s2 t2
     | .tuple ss,    .tuple ts    => Type_.subList ss ts
@@ -129,13 +124,6 @@ mutual
   private theorem Type_.sub_sound {s t : Type_} (h : Type_.sub s t = true) : Type_.Sub s t := by
     cases s with
     | empty => exact .bot
-    | prod s1 s2 =>
-        cases t with
-        | value => exact .top
-        | prod t1 t2 =>
-            simp [Type_.sub, Bool.and_eq_true] at h
-            exact .prod (sub_sound h.1) (sub_sound h.2)
-        | _ => exact absurd h (by simp [Type_.sub])
     | sum s1 s2 =>
         cases t with
         | value => exact .top
@@ -180,7 +168,6 @@ end
 mutual
   private theorem Type_.sub_refl : ∀ (t : Type_), Type_.sub t t = true
     | .unit | .bool | .int | .empty | .value => by simp [Type_.sub]
-    | .prod t1 t2  => by simp [Type_.sub, sub_refl t1, sub_refl t2]
     | .sum  t1 t2  => by simp [Type_.sub, sub_refl t1, sub_refl t2]
     | .arrow t1 t2 => by simp [Type_.sub, sub_refl t1, sub_refl t2]
     | .ref t       => by simp [Type_.sub]
@@ -200,17 +187,6 @@ mutual
     match t with
     | .empty | .value | .unit | .bool | .int => cases s <;> cases u <;> simp_all [Type_.sub, beq_iff_eq]
     | .ref _ => cases s <;> cases u <;> simp_all [Type_.sub, beq_iff_eq]
-    | .prod t1 t2 =>
-        cases s with
-        | empty => simp [Type_.sub]
-        | prod ss1 ss2 =>
-            cases u with
-            | value => simp [Type_.sub]
-            | prod u1 u2 =>
-                simp [Type_.sub, Bool.and_eq_true] at h1 h2 ⊢
-                exact ⟨sub_trans h1.1 h2.1, sub_trans h1.2 h2.2⟩
-            | _ => simp [Type_.sub] at h2
-        | _ => simp [Type_.sub] at h1
     | .sum t1 t2 =>
         cases s with
         | empty => simp [Type_.sub]
@@ -270,7 +246,6 @@ mutual
     | .bot         => cases t <;> simp [Type_.sub]
     | .top         => cases s <;> simp [Type_.sub]
     | .trans h1 h2 => exact sub_trans (Sub_complete h1) (Sub_complete h2)
-    | .prod h1 h2  => simp [Type_.sub, Sub_complete h1, Sub_complete h2]
     | .sum  h1 h2  => simp [Type_.sub, Sub_complete h1, Sub_complete h2]
     | .arrow h1 h2 => simp [Type_.sub, Sub_complete h1, Sub_complete h2]
     | .tuple h     => simp [Type_.sub]; exact SubList_complete h
@@ -299,14 +274,11 @@ def BinOp.typeOf : BinOp → Type_ → Type_ → Option Type_
   | .ge,   .int,  .int  => some .bool
   | .and,  .bool, .bool => some .bool
   | .or,   .bool, .bool => some .bool
-  | .pair, t1, t2       => some (.prod t1 t2)
   | _, _, _             => none
 
 def UnOp.typeOf : UnOp → Type_ → Option Type_
   | .neg, .int       => some .int
   | .not, .bool      => some .bool
-  | .fst, .prod t1 _ => some t1
-  | .snd, .prod _ t2 => some t2
   | .inl, t          => some (.sum t .empty)
   | .inr, t          => some (.sum .empty t)
   | .proj n, .tuple ts => ts[n]?
@@ -317,8 +289,6 @@ mutual
     | int  (n : Int)  : ValHasType (.int n)  .int
     | bool (b : Bool) : ValHasType (.bool b) .bool
     | unit            : ValHasType .unit      .unit
-    | pair : ValHasType v1 t1 → ValHasType v2 t2
-            → ValHasType (.pair v1 v2) (.prod t1 t2)
     | inl  : ValHasType v t1
             → ValHasType (.inl v) (.sum t1 t2)
     | inr  : ValHasType v t2
@@ -342,9 +312,6 @@ mutual
     | .bot => cases h
     | .top => exact .any
     | .trans h1 h2 => exact ValHasType_sub (ValHasType_sub h h1) h2
-    | .prod h1 h2 =>
-      cases h with
-      | pair hv1 hv2 => exact .pair (ValHasType_sub hv1 h1) (ValHasType_sub hv2 h2)
     | .sum h1 h2 =>
       cases h with
       | inl hv => exact .inl (ValHasType_sub hv h1)
@@ -376,13 +343,9 @@ theorem evalBinOp_typed {op : TinyML.BinOp} {v1 v2 : TinyML.Val} {t1 t2 ty : Tin
     (ht1 : TinyML.ValHasType v1 t1)
     (ht2 : TinyML.ValHasType v2 t2) :
     ∃ w, TinyML.evalBinOp op v1 v2 = some w ∧ TinyML.ValHasType w ty := by
-  -- `.div` is excluded by hypothesis; `.pair` preserves ht1/ht2 so handle separately.
   cases op
   case div => exact absurd rfl hndiv
-  case pair =>
-    simp only [TinyML.BinOp.typeOf, Option.some.injEq] at hty
-    exact ⟨.pair v1 v2, by simp [TinyML.evalBinOp], hty ▸ .pair ht1 ht2⟩
-  -- All remaining ops (add/sub/mul/eq/lt/le/gt/ge/and/or) require specific input types.
+  -- All ops (add/sub/mul/eq/lt/le/gt/ge/and/or) require specific input types.
   -- Case-split on the ValHasType witnesses; simp_all eliminates contradictions from typeOf
   -- and substitutes the result type, leaving simple ValHasType goals.
   all_goals
@@ -426,11 +389,10 @@ theorem evalUnOp_typed {op : TinyML.UnOp} {v : TinyML.Val} {t ty : TinyML.Type_}
       exact evalUnOp_proj_typed hty hvs
     | any => simp [TinyML.UnOp.typeOf] at hty
     | _ => simp [TinyML.UnOp.typeOf] at hty
-  -- Remaining ops require specific value shapes; eliminate incompatible ht branches via hty
+  -- Remaining ops (neg, not) require specific value shapes.
   all_goals (cases ht <;>
     simp only [TinyML.UnOp.typeOf, TinyML.evalUnOp, Option.some.injEq] at * <;>
     first
     | (obtain rfl := hty; exact ⟨_, rfl, .int _⟩)
     | (obtain rfl := hty; exact ⟨_, rfl, .bool _⟩)
-    | (obtain ⟨rfl, rfl⟩ := hty; exact ⟨_, rfl, ‹_›⟩)  -- fst.pair, snd.pair
     | simp_all)
