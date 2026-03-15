@@ -176,28 +176,28 @@ theorem compile_correct (e : TinyML.Expr) (S : SpecMap) (B : Bindings) (Γ : Tin
   case val v _ =>
     cases v with
     | int n =>
-      simp [TinyML.Expr.subst]; apply wp.val
+      simp; apply wp.val
       obtain heval := VerifM.eval_ret heval
       exact hpost (.int n) ρ st .int _ heval
         (by intro w hw; simp [Term.freeVars] at hw)
         (by simp [Term.eval, UnOp.eval, Const.denote])
         (.int n)
     | bool b =>
-      simp [TinyML.Expr.subst]; apply wp.val
+      simp; apply wp.val
       obtain heval := VerifM.eval_ret heval
       exact hpost (.bool b) ρ st .bool _ heval
         (by intro w hw; simp [Term.freeVars] at hw)
         (by simp [Term.eval, UnOp.eval, Const.denote])
         (.bool b)
     | unit =>
-      simp [TinyML.Expr.subst]; apply wp.val
+      simp; apply wp.val
       obtain heval := VerifM.eval_ret heval
       exact hpost .unit ρ st .unit _ heval
         (by intro w hw; simp [Term.freeVars] at hw)
         (by simp [Term.eval])
         .unit
     | pair _ _ | inl _ | inr _ | loc _ | fix _ _ _ | tuple _ =>
-      simp [TinyML.Expr.subst]; exact (VerifM.eval_fatal heval).elim
+      simp; exact (VerifM.eval_fatal heval).elim
   case var x =>
     simp only [compile] at heval
     cases hbind : List.lookup x B with

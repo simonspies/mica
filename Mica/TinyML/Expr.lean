@@ -413,7 +413,7 @@ theorem Expr.freeVars_subst (γ1 γ2 : Var → Option Val) (e : Expr) :
       es.map (Expr.subst γ1) = es.map (Expr.subst γ2))
     generalizing γ1 γ2
   all_goals try trivial  -- closes all Val cases
-  case val => intro; simp [Expr.subst]
+  case val => intro; simp
   case var x =>
     intro h
     simp only [Expr.freeVars, List.mem_singleton, forall_eq] at h
