@@ -75,13 +75,15 @@ def check (env : SpecEnv) (t : Srt) : TinyML.Expr → Except String (Term t)
       if h : sort = t then .ok (h ▸ .var sort x)
       else .error s!"variable '{x}' has type {repr sort}, expected {repr t}"
   | .val (.int n) => match t with
-    | .int   => .ok (.const (.i n))
-    | .value => .ok (.unop .ofInt (.const (.i n)))
-    | .bool  => .error s!"integer literal cannot be a bool term"
+    | .int     => .ok (.const (.i n))
+    | .value   => .ok (.unop .ofInt (.const (.i n)))
+    | .bool    => .error s!"integer literal cannot be a bool term"
+    | .vallist => .error s!"integer literal cannot be a vallist term"
   | .val (.bool b) => match t with
-    | .bool  => .ok (.const (.b b))
-    | .value => .ok (.unop .ofBool (.const (.b b)))
-    | .int   => .error s!"boolean literal cannot be an int term"
+    | .bool    => .ok (.const (.b b))
+    | .value   => .ok (.unop .ofBool (.const (.b b)))
+    | .int     => .error s!"boolean literal cannot be an int term"
+    | .vallist => .error s!"boolean literal cannot be a vallist term"
   | .binop .add l r => match t with
     | .int => do .ok (.binop .add (← check env .int l) (← check env .int r))
     | _    => .error s!"add produces .int, expected {repr t}"

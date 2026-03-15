@@ -13,28 +13,35 @@ Two serialization targets:
 -- ---------------------------------------------------------------------------
 
 def Srt.toSMTLIB : Srt → String
-  | .int => "Int"
-  | .bool => "Bool"
-  | .value => "Value"
+  | .int     => "Int"
+  | .bool    => "Bool"
+  | .value   => "Value"
+  | .vallist => "ValueList"
 
 def UnOp.toSMTLIB : UnOp τ₁ τ₂ → String
-  | .ofInt  => "of_int"
-  | .ofBool => "of_bool"
-  | .toInt  => "to_int"
-  | .toBool => "to_bool"
-  | .neg    => "-"
-  | .not    => "not"
+  | .ofInt   => "of_int"
+  | .ofBool  => "of_bool"
+  | .toInt   => "to_int"
+  | .toBool  => "to_bool"
+  | .neg     => "-"
+  | .not     => "not"
+  | .ofValList => "of_tuple"
+  | .toValList => "to_tuple"
+  | .vhead   => "vhd"
+  | .vtail   => "vtl"
+  | .visnil  => "is-vnil"
 
 def BinOp.toSMTLIB : BinOp τ₁ τ₂ τ₃ → String
-  | .add  => "+"
-  | .sub  => "-"
-  | .mul  => "*"
-  | .div  => "div"
-  | .mod  => "mod"
-  | .less => "<"
-  | .gt   => ">"
-  | .ge   => ">="
-  | .eq   => "="
+  | .add   => "+"
+  | .sub   => "-"
+  | .mul   => "*"
+  | .div   => "div"
+  | .mod   => "mod"
+  | .less  => "<"
+  | .gt    => ">"
+  | .ge    => ">="
+  | .eq    => "="
+  | .vcons => "vcons"
 
 def UnPred.toSMTLIB : UnPred τ → String
   | .isInt  => "is-of_int"
@@ -49,6 +56,7 @@ def Term.toSMTLIB : Term τ → String
   | .const (.i n)   => if n ≥ 0 then s!"{n}" else s!"(- {-n})"
   | .const (.b b)   => if b then "true" else "false"
   | .const .unit    => "(of_other unit_val)"
+  | .const .vnil    => "vnil"
   | .unop op a    => s!"({op.toSMTLIB} {a.toSMTLIB})"
   | .binop op a b => s!"({op.toSMTLIB} {a.toSMTLIB} {b.toSMTLIB})"
   | .ite c t e    => s!"(ite {c.toSMTLIB} {t.toSMTLIB} {e.toSMTLIB})"
@@ -90,27 +98,34 @@ private def parens (wrap : Bool) (s : String) : String :=
   if wrap then s!"({s})" else s
 
 private def termStr (p : Prec) : {τ : Srt} → Term τ → String
-  | _, .var _ x    => x
+  | _, .var _ x        => x
   | _, .const (.i n)   => if n < 0 then s!"({n})" else s!"{n}"
   | _, .const (.b b)   => if b then "true" else "false"
   | _, .const .unit    => "()"
+  | _, .const .vnil    => "[]"
   | _, .unop op a  => match op with
-    | .ofInt  => termStr p a     -- transparent coercion
-    | .ofBool => termStr p a     -- transparent coercion
-    | .toInt  => s!"toInt({termStr .bottom a})"
-    | .toBool => s!"toBool({termStr .bottom a})"
-    | .neg    => parens (Prec.lt .mul p) s!"-{termStr .top a}"
-    | .not    => parens (Prec.lt .not_ p) s!"!{termStr .top a}"
+    | .ofInt   => termStr p a     -- transparent coercion
+    | .ofBool  => termStr p a     -- transparent coercion
+    | .toInt   => s!"toInt({termStr .bottom a})"
+    | .toBool  => s!"toBool({termStr .bottom a})"
+    | .neg     => parens (Prec.lt .mul p) s!"-{termStr .top a}"
+    | .not     => parens (Prec.lt .not_ p) s!"!{termStr .top a}"
+    | .ofValList => s!"tuple({termStr .bottom a})"
+    | .toValList => s!"untuple({termStr .bottom a})"
+    | .vhead   => s!"hd({termStr .bottom a})"
+    | .vtail   => s!"tl({termStr .bottom a})"
+    | .visnil  => s!"isnil({termStr .bottom a})"
   | _, .binop op a b => match op with
-    | .add  => parens (Prec.lt .add p) s!"{termStr .add a} + {termStr .mul b}"
-    | .sub  => parens (Prec.lt .add p) s!"{termStr .add a} - {termStr .mul b}"
-    | .mul  => parens (Prec.lt .mul p) s!"{termStr .mul a} * {termStr .top b}"
-    | .div  => parens (Prec.lt .mul p) s!"{termStr .mul a} / {termStr .top b}"
-    | .mod  => parens (Prec.lt .mul p) s!"{termStr .mul a} % {termStr .top b}"
-    | .less => parens (Prec.lt .cmp p) s!"{termStr .add a} < {termStr .add b}"
-    | .gt   => parens (Prec.lt .cmp p) s!"{termStr .add a} > {termStr .add b}"
-    | .ge   => parens (Prec.lt .cmp p) s!"{termStr .add a} >= {termStr .add b}"
-    | .eq   => parens (Prec.lt .cmp p) s!"{termStr .add a} = {termStr .add b}"
+    | .add   => parens (Prec.lt .add p) s!"{termStr .add a} + {termStr .mul b}"
+    | .sub   => parens (Prec.lt .add p) s!"{termStr .add a} - {termStr .mul b}"
+    | .mul   => parens (Prec.lt .mul p) s!"{termStr .mul a} * {termStr .top b}"
+    | .div   => parens (Prec.lt .mul p) s!"{termStr .mul a} / {termStr .top b}"
+    | .mod   => parens (Prec.lt .mul p) s!"{termStr .mul a} % {termStr .top b}"
+    | .less  => parens (Prec.lt .cmp p) s!"{termStr .add a} < {termStr .add b}"
+    | .gt    => parens (Prec.lt .cmp p) s!"{termStr .add a} > {termStr .add b}"
+    | .ge    => parens (Prec.lt .cmp p) s!"{termStr .add a} >= {termStr .add b}"
+    | .eq    => parens (Prec.lt .cmp p) s!"{termStr .add a} = {termStr .add b}"
+    | .vcons => parens (Prec.lt .top p) s!"{termStr .top a} :: {termStr .top b}"
   | _, .ite c t e  => parens (Prec.lt .bottom p) s!"if {termStr .bottom c} then {termStr .bottom t} else {termStr .bottom e}"
 
 def Term.toStringHum {τ : Srt} (t : Term τ) : String := termStr .bottom t
