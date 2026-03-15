@@ -24,11 +24,11 @@ let rec triangle (n: int) : int =
 Build it and run it with:
 ```
 $ lake build
-$ .lake/build/bin/mica examples/recursive.ml
+$ .lake/build/bin/mica Examples/recursive.ml
 Status: all declarations verified
 ```
 
-More examples are in the [`examples/`](examples/) directory.
+More examples are in the [`Examples/`](Examples/) directory.
 
 ## How it works
 
@@ -69,4 +69,4 @@ lake build Exploration  # build experimental scratch files (optional)
 | `Verifier/` | The verifier and its correctness proof |
 | `Base/` | Shared utilities (fresh name generation) |
 | `Exploration/` | Experimental scratch work (not built by default) |
-| `examples/` | OCaml programs with spec annotations |
+| `Examples/` | OCaml programs with spec annotations |
