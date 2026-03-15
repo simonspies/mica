@@ -92,8 +92,6 @@ partial def printMul : Expr → String
 partial def printApp : Expr → String
   | .app fn arg        => s!"{printApp fn} {printUnary arg}"
   | .unop .not e       => s!"not {printAtom e}"
-  | .unop .fst e       => s!"fst {printAtom e}"
-  | .unop .snd e       => s!"snd {printAtom e}"
   | .ref e             => s!"ref {printAtom e}"
   | .unop .inl e       => s!"Either.Left {printAtom e}"
   | .unop .inr e       => s!"Either.Right {printAtom e}"
@@ -111,7 +109,6 @@ partial def printAtom : Expr → String
   | .val v              => printVal v
   | .var name           => name
   | .fix self arg _ _ body  => printFix self arg body
-  | .binop .pair l r    => s!"({printOr l}, {printOr r})"
   | .tuple es           => s!"({", ".intercalate (es.map printOr)})"
   | e                   => s!"({printExpr e})"
 

@@ -63,9 +63,17 @@ where
     let (t, st) ← parseTypeApp st
     match peek st with
     | .star => do
-      let (t2, st) ← parseTypeProd (advance st)
-      .ok (.prod t t2, st)
+      let (rest, st) ← parseTypeProdRest (advance st)
+      .ok (.tuple (t :: rest), st)
     | _ => .ok (t, st)
+
+  parseTypeProdRest : Parser (List Type_) := fun st => do
+    let (t, st) ← parseTypeApp st
+    match peek st with
+    | .star => do
+      let (rest, st) ← parseTypeProdRest (advance st)
+      .ok (t :: rest, st)
+    | _ => .ok ([t], st)
 
   parseTypeApp : Parser Type_ := fun st => do
     let (t, st) ← parseTypeAtom st
@@ -272,14 +280,14 @@ where
   parseAppRest (fn : Expr) : Parser Expr := fun st =>
     match peek st with
     | .intLit _ | .ident _ | .lparen | .kw_true | .kw_false
-    | .bang | .kw_not | .kw_fst | .kw_snd | .kw_ref | .kw_inl | .kw_inr => do
+    | .bang | .kw_not | .kw_ref | .kw_inl | .kw_inr => do
       let (arg, st) ← parseUnary st
       parseAppRest (.app fn arg) st
     | _ => .ok (fn, st)
 
   parseUnary : Parser Expr := fun st =>
     let kwUnary : List (Token × UnOp) :=
-      [(Token.kw_not, UnOp.not), (Token.kw_fst, UnOp.fst), (Token.kw_snd, UnOp.snd),
+      [(Token.kw_not, UnOp.not),
        (Token.kw_inl, UnOp.inl), (Token.kw_inr, UnOp.inr)]
     match kwUnary.find? (·.1 == peek st) with
     | some (_, op) => do
