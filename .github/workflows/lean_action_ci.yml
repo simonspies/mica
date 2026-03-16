@@ -1,4 +1,4 @@
-name: Lean Action CI
+name: CI
 
 on:
   push:
@@ -6,9 +6,15 @@ on:
   workflow_dispatch:
 
 jobs:
-  build:
+  build-and-test:
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/checkout@v5
       - uses: leanprover/lean-action@v1
+      - run: sudo apt-get update && sudo apt-get install -y z3
+      - name: Test examples
+        run: |
+          for f in Examples/*.ml; do
+            echo "=== $f ==="
+            lake exe mica "$f"
+          done

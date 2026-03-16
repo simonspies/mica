@@ -11,7 +11,9 @@ def main (args : List String) : IO Unit := do
   | [filename] =>
     let contents ← IO.FS.readFile filename
     match TinyML.parseFile contents with
-    | .error msg => IO.eprintln s!"parse error: {msg}"
+    | .error msg => do
+        IO.eprintln s!"parse error: {msg}"
+        IO.Process.exit 1
     | .ok prog =>
       let strategy := Program.verify prog
       let session ← SmtSession.create
@@ -19,5 +21,9 @@ def main (args : List String) : IO Unit := do
       session.close
       match outcome with
       | .ok () => IO.println s!"{bold "Status:"} all declarations verified"
-      | .error msg => IO.println s!"{bold "Status:"} failed: {msg}"
-  | _ => IO.eprintln "usage: mica [-v|--verbose] <file.ml>"
+      | .error msg => do
+          IO.println s!"{bold "Status:"} failed: {msg}"
+          IO.Process.exit 1
+  | _ => do
+      IO.eprintln "usage: mica [-v|--verbose] <file.ml>"
+      IO.Process.exit 1
