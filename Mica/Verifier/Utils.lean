@@ -2,6 +2,7 @@ import Mica.TinyML.Expr
 import Mica.TinyML.Typing
 import Mica.TinyML.OpSem
 import Mica.FOL.Printing
+import Mica.FOL.Subst
 import Mica.Base.Fresh
 import Mica.Base.Except
 import Mathlib.Data.Finmap
