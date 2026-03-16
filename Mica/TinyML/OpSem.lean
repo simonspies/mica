@@ -91,7 +91,7 @@ inductive Head : Expr → Heap → Expr → Heap → Prop where
   | fixIntro : Head (.fix f args rt body) μ (.val (.fix f args rt body)) μ
 
   /-- Beta reduction: apply a fixpoint to a list of argument values. -/
-  | beta : (args.map Prod.fst).length = vs.length →
+  | beta : args.length = vs.length →
            Head (.app (.val (.fix f args rt body)) (vs.map Expr.val)) μ
                 (body.subst ((Subst.id.update' f (.fix f args rt body)).updateAll' (args.map Prod.fst) vs)) μ
 
