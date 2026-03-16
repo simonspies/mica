@@ -177,20 +177,18 @@ theorem Term.wfIn_of_subst_wfIn {t : Term τ} {σ : Subst} {Δ Δ' : VarCtx} :
     Term.apply_freeVars_subset_subst_freeVars hv
   exact hsubst w (hsub hw)
 
-def Subst.eval (σ : Subst) (ρ : Env) : Env where
-  intEnv x     := Term.eval ρ (σ.intSubst x)
-  boolEnv x    := Term.eval ρ (σ.boolSubst x)
-  valEnv x     := Term.eval ρ (σ.valSubst x)
-  vallistEnv x := Term.eval ρ (σ.vallistSubst x)
+def Subst.eval (σ : Subst) (ρ : Env) : Env := fun τ x =>
+  Term.eval ρ (σ.apply τ x)
 
 theorem Subst.eval_lookup (σ : Subst) (ρ : Env) (τ : Srt) (x : String) :
     (σ.eval ρ).lookup τ x = Term.eval ρ (σ.apply τ x) := by
-  cases τ <;> simp [Subst.eval, Env.lookup, Subst.apply]
+  simp [Subst.eval, Env.lookup]
 
 theorem Subst.eval_single {τ : Srt} {x : String} {t : Term τ} {ρ : Env} :
     (Subst.single τ x t).eval ρ = ρ.update τ x (t.eval ρ) := by
-  cases τ <;> simp only [Subst.eval, Subst.single, Subst.id, Subst.update, Env.update] <;>
-    (congr 1; funext y; split <;> simp [Term.eval, Env.lookup])
+  funext τ' y; simp only [Subst.eval, Env.update, Subst.apply]
+  cases τ <;> cases τ' <;> simp [Subst.single, Subst.id, Subst.update, Term.eval, Env.lookup]
+  all_goals split <;> simp_all [Term.eval, Env.lookup]
 
 theorem Term.eval_subst {σ : Subst} {ρ : Env} {t : Term τ} :
     Term.eval ρ (t.subst σ) = Term.eval (σ.eval ρ) t := by

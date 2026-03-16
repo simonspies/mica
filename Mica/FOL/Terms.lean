@@ -16,6 +16,9 @@ inductive Srt where
 instance : DecidableEq (Srt.denote τ) := by
   cases τ <;> simp [Srt.denote] <;> infer_instance
 
+instance : Inhabited (Srt.denote τ) := by
+  cases τ <;> simp [Srt.denote] <;> infer_instance
+
 structure Var where
   name : String
   sort : Srt
@@ -107,44 +110,33 @@ theorem Term.wfIn_mono (t : Term τ) (h : t.wfIn Δ) (hsub : Δ ⊆ Δ') : t.wfI
   exact hsub (h v hv)
 
 
-structure Env where
-  intEnv     : String → Int
-  boolEnv    : String → Bool
-  valEnv     : String → TinyML.Val
-  vallistEnv : String → List TinyML.Val
+def Env := (τ : Srt) → String → τ.denote
 
-def Env.lookup (ρ : Env) (τ : Srt) (x : String) : τ.denote :=
-  match τ with
-  | .int     => ρ.intEnv x
-  | .bool    => ρ.boolEnv x
-  | .value   => ρ.valEnv x
-  | .vallist => ρ.vallistEnv x
+def Env.lookup (ρ : Env) (τ : Srt) (x : String) : τ.denote := ρ τ x
 
-def Env.update (ρ : Env) (τ : Srt) (x : String) (v : τ.denote) : Env :=
-  match τ with
-  | .int     => { ρ with intEnv     := fun y => if y == x then v else ρ.intEnv y }
-  | .bool    => { ρ with boolEnv    := fun y => if y == x then v else ρ.boolEnv y }
-  | .value   => { ρ with valEnv     := fun y => if y == x then v else ρ.valEnv y }
-  | .vallist => { ρ with vallistEnv := fun y => if y == x then v else ρ.vallistEnv y }
+def Env.update (ρ : Env) (τ : Srt) (x : String) (v : τ.denote) : Env := fun τ' y =>
+  if h : τ' = τ ∧ y = x then h.1 ▸ v else ρ τ' y
 
-def Env.empty : Env :=
-  { intEnv := λ _ => default, boolEnv := λ _ => default, valEnv := λ _ => default,
-    vallistEnv := λ _ => default }
+def Env.empty : Env := fun _ _ => default
 
-instance : Inhabited Env :=  { default := Env.empty }
+instance : Inhabited Env := { default := Env.empty }
 
 @[simp] theorem Env.lookup_update_same {ρ : Env} {τ : Srt} {x : String} {v : τ.denote} :
     (ρ.update τ x v).lookup τ x = v := by
-  cases τ <;> simp [Env.update, Env.lookup]
+  simp [Env.update, Env.lookup]
 
 @[simp] theorem Env.lookup_update_ne' {ρ : Env} {τ : Srt} {x y : String} {v : τ.denote} (h : y ≠ x) :
     (Env.update ρ τ x v).lookup τ y = ρ.lookup τ y := by
-  cases τ <;> simp [Env.update, Env.lookup, h]
+  simp [Env.update, Env.lookup, h]
 
 theorem Env.lookup_update_ne {ρ : Env} {τ τ' : Srt} {x y : String} {v : τ.denote}
     (h : y ≠ x ∨ τ' ≠ τ) : (ρ.update τ x v).lookup τ' y = ρ.lookup τ' y := by
-  cases τ <;> cases τ' <;> simp [Env.update, Env.lookup]
-  all_goals (cases h with | inl h => simp [h] | inr h => exact absurd rfl h)
+  simp only [Env.update, Env.lookup]
+  split
+  · next heq => cases h with
+    | inl h => exact absurd heq.2 h
+    | inr h => exact absurd heq.1 h
+  · rfl
 
 def Env.agreeOn (Δ : VarCtx) (ρ ρ' : Env) : Prop :=
   ∀ v ∈ Δ, ρ.lookup v.sort v.name = ρ'.lookup v.sort v.name
@@ -178,19 +170,17 @@ theorem Env.agreeOn_update {ρ ρ' : Env} {Δ : VarCtx} {τ : Srt} {x : String} 
 /-- Double update with the same variable - second update wins. -/
 @[simp] theorem Env.update_update_same {ρ : Env} {τ : Srt} {x : String} {v w : τ.denote} :
     (ρ.update τ x v).update τ x w = ρ.update τ x w := by
-  cases τ <;> simp only [Env.update]
-  · congr 1; funext y; simp only [beq_iff_eq]; split <;> rfl
-  · congr 1; funext y; simp only [beq_iff_eq]; split <;> rfl
-  · congr 1; funext y; simp only [beq_iff_eq]; split <;> rfl
-  · congr 1; funext y; simp only [beq_iff_eq]; split <;> rfl
+  funext τ' y; simp only [Env.update]
+  split
+  · simp
+  · simp
 
 /-- Updates to different variables commute. -/
 theorem Env.update_comm {ρ : Env} {τ : Srt} {x y : String} {v w : τ.denote}
     (h : x ≠ y) : (ρ.update τ x v).update τ y w = (ρ.update τ y w).update τ x v := by
-  cases τ <;> simp only [Env.update]
-  all_goals
-    congr 1; funext z; simp only [beq_iff_eq]
-    by_cases hzx : z = x <;> by_cases hzy : z = y <;> simp_all
+  funext τ' z; simp only [Env.update]
+  split <;> split <;> simp_all
+  · next h1 h2 => exact absurd (h2.2 ▸ h1.2) h
 
 @[simp] def UnOp.eval : UnOp τ₁ τ₂ → τ₁.denote → τ₂.denote
   | .ofInt,   n  => TinyML.Val.int n
@@ -256,5 +246,4 @@ theorem Term.eval_update_fresh {t : Term τ'} {x : String} {τ : Srt} {v : τ.de
     by_cases hn : w.name = x
     · subst hn; cases w; simp_all
     · exact (Env.lookup_update_ne' hn).symm
-  · cases w; rename_i wn wt
-    cases wt <;> cases τ <;> simp only [Env.lookup, Env.update] <;> try (exfalso; exact ht rfl)
+  · exact (Env.lookup_update_ne (Or.inr ht)).symm
