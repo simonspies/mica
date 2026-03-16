@@ -2,31 +2,14 @@ import Mica.FOL.Terms
 import Mica.FOL.Formulas
 import Mica.Base.Fresh
 
-structure Subst where
-  intSubst     : String → Term .int
-  boolSubst    : String → Term .bool
-  valSubst     : String → Term .value
-  vallistSubst : String → Term .vallist
+def Subst := (τ : Srt) → String → Term τ
 
-def Subst.id : Subst where
-  intSubst     := .var .int
-  boolSubst    := .var .bool
-  valSubst     := .var .value
-  vallistSubst := .var .vallist
+def Subst.id : Subst := fun τ x => .var τ x
 
-def Subst.apply (σ : Subst) (τ : Srt) (x : String) : Term τ :=
-  match τ with
-  | .int     => σ.intSubst x
-  | .bool    => σ.boolSubst x
-  | .value   => σ.valSubst x
-  | .vallist => σ.vallistSubst x
+def Subst.apply (σ : Subst) (τ : Srt) (x : String) : Term τ := σ τ x
 
-def Subst.update (σ : Subst) (τ : Srt) (x : String) (s : Term τ) : Subst :=
-  match τ with
-  | .int     => { σ with intSubst     := fun y => if y == x then s else σ.intSubst y }
-  | .bool    => { σ with boolSubst    := fun y => if y == x then s else σ.boolSubst y }
-  | .value   => { σ with valSubst     := fun y => if y == x then s else σ.valSubst y }
-  | .vallist => { σ with vallistSubst := fun y => if y == x then s else σ.vallistSubst y }
+def Subst.update (σ : Subst) (τ : Srt) (x : String) (s : Term τ) : Subst := fun τ' y =>
+  if h : τ' = τ ∧ y = x then h.1 ▸ s else σ τ' y
 
 def Subst.single (τ : Srt) (x : String) (s : Term τ) : Subst :=
   Subst.id.update τ x s
@@ -47,12 +30,16 @@ theorem Subst.wfIn_mono {σ : Subst} {Δ Δ' Δ'' : VarCtx} (hσ : σ.wfIn Δ Δ
 
 theorem Subst.apply_update_same {σ : Subst} {τ : Srt} {x : String} {t : Term τ} :
     (σ.update τ x t).apply τ x = t := by
-  cases τ <;> simp [Subst.update, Subst.apply]
+  simp [Subst.update, Subst.apply]
 
 theorem Subst.apply_update_ne {σ : Subst} {τ τ' : Srt} {x y : String} {t : Term τ}
     (h : y ≠ x ∨ τ' ≠ τ) : (σ.update τ x t).apply τ' y = σ.apply τ' y := by
-  cases τ <;> cases τ' <;> simp [Subst.update, Subst.apply]
-  all_goals (cases h with | inl h => simp [h] | inr h => exact absurd rfl h)
+  simp only [Subst.update, Subst.apply]
+  split
+  · next heq => cases h with
+    | inl h => exact absurd heq.2 h
+    | inr h => exact absurd heq.1 h
+  · rfl
 
 theorem Subst.wfIn_update {σ : Subst} {τ : Srt} {x : String} {t : Term τ} {Δ Δ' : VarCtx}
     (hσ : σ.wfIn Δ Δ') (ht : t.wfIn Δ') :
@@ -69,9 +56,8 @@ theorem Subst.wfIn_update {σ : Subst} {τ : Srt} {x : String} {t : Term τ} {Δ
     · simp only [Subst.apply_update_ne (Or.inl hname), hσ v hmem]
 
 theorem Subst.id_wfIn {Δ : VarCtx} : Subst.id.wfIn Δ Δ := fun v hv w hw => by
-  obtain ⟨vname, vty⟩ := v
-  cases vty <;> simp only [Subst.id, Subst.apply, Term.freeVars, List.mem_singleton] at hw
-  all_goals (subst hw; exact hv)
+  simp only [Subst.id, Subst.apply, Term.freeVars, List.mem_singleton] at hw
+  subst hw; exact hv
 
 theorem Subst.single_wfIn {τ : Srt} {x : String} {t : Term τ} {Δ : VarCtx} (ht : t.wfIn Δ) :
     (Subst.single τ x t).wfIn (⟨x, τ⟩ :: Δ) Δ := by
@@ -130,7 +116,7 @@ theorem Term.subst_wfIn {t : Term τ} {σ : Subst} {Δ Δ' : VarCtx} :
 
 theorem Term.subst_id {t : Term τ} : t.subst Subst.id = t := by
   induction t with
-  | var τ x => cases τ <;> rfl
+  | var τ x => rfl
   | const _ => rfl
   | unop op a iha => simp [Term.subst, iha]
   | binop op a b iha ihb => simp [Term.subst, iha, ihb]
@@ -186,9 +172,10 @@ theorem Subst.eval_lookup (σ : Subst) (ρ : Env) (τ : Srt) (x : String) :
 
 theorem Subst.eval_single {τ : Srt} {x : String} {t : Term τ} {ρ : Env} :
     (Subst.single τ x t).eval ρ = ρ.update τ x (t.eval ρ) := by
-  funext τ' y; simp only [Subst.eval, Env.update, Subst.apply]
-  cases τ <;> cases τ' <;> simp [Subst.single, Subst.id, Subst.update, Term.eval, Env.lookup]
-  all_goals split <;> simp_all [Term.eval, Env.lookup]
+  funext τ' y; simp only [Subst.eval, Env.update, Subst.apply, Subst.single, Subst.update, Subst.id]
+  split
+  · next h => obtain ⟨rfl, rfl⟩ := h; simp
+  · next h => simp [Term.eval, Env.lookup]
 
 theorem Term.eval_subst {σ : Subst} {ρ : Env} {t : Term τ} :
     Term.eval ρ (t.subst σ) = Term.eval (σ.eval ρ) t := by
