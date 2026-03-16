@@ -36,8 +36,8 @@ inductive K where
   | unop   (op : UnOp)  (k : K)
   | binopR (op : BinOp) (lhs : Expr) (k : K)   -- rhs in focus (eval first)
   | binopL (op : BinOp) (k : K)      (v : Val)  -- lhs in focus, rhs done
-  | appR   (fn : Expr)  (k : K)                 -- arg in focus (eval first)
-  | appL   (k : K)      (v : Val)               -- fn in focus, arg done
+  | appArgs (fn : Expr) (left : Exprs) (k : K) (right : Vals)  -- evaluating one arg in a list
+  | appFn   (k : K)    (vs : Vals)                             -- fn in focus, all args are values
   | ifCond (k : K) (thn els : Expr)
   | letIn  (name : Binder) (k : K) (body : Expr)
   | ref    (k : K)
@@ -52,8 +52,8 @@ def K.fill : K → Expr → Expr
   | .unop op k,         e => .unop op (k.fill e)
   | .binopR op lhs k,   e => .binop op lhs (k.fill e)
   | .binopL op k v,     e => .binop op (k.fill e) (.val v)
-  | .appR fn k,         e => .app fn (k.fill e)
-  | .appL k v,          e => .app (k.fill e) (.val v)
+  | .appArgs fn left k right, e => .app fn (left ++ [k.fill e] ++ right.map Expr.val)
+  | .appFn k vs,              e => .app (k.fill e) (vs.map Expr.val)
   | .ifCond k thn els,  e => .ifThenElse (k.fill e) thn els
   | .letIn b k body,    e => .letIn b (k.fill e) body
   | .ref k,             e => .ref (k.fill e)
@@ -69,8 +69,8 @@ def K.comp : K → K → K
   | .unop op k1,        k2 => .unop op (k1.comp k2)
   | .binopR op lhs k1,  k2 => .binopR op lhs (k1.comp k2)
   | .binopL op k1 v,    k2 => .binopL op (k1.comp k2) v
-  | .appR fn k1,        k2 => .appR fn (k1.comp k2)
-  | .appL k1 v,         k2 => .appL (k1.comp k2) v
+  | .appArgs fn left k1 right, k2 => .appArgs fn left (k1.comp k2) right
+  | .appFn k1 vs,              k2 => .appFn (k1.comp k2) vs
   | .ifCond k1 thn els, k2 => .ifCond (k1.comp k2) thn els
   | .letIn b k1 body,   k2 => .letIn b (k1.comp k2) body
   | .ref k1,            k2 => .ref (k1.comp k2)
@@ -88,11 +88,12 @@ theorem K.comp_fill (k1 k2 : K) (e : Expr) :
 
 inductive Head : Expr → Heap → Expr → Heap → Prop where
   /-- A `fix` expression wraps itself as a value. -/
-  | fixIntro : Head (.fix f x at_ rt body) μ (.val (.fix f x at_ rt body)) μ
+  | fixIntro : Head (.fix f args rt body) μ (.val (.fix f args rt body)) μ
 
-  /-- Beta reduction: apply a fixpoint to an argument value. -/
-  | beta : Head (.app (.val (.fix f x at_ rt body)) (.val v)) μ
-                (body.subst ((Subst.id.update' f (.fix f x at_ rt body)).update' x v)) μ
+  /-- Beta reduction: apply a fixpoint to a list of argument values. -/
+  | beta : (args.map Prod.fst).length = vs.length →
+           Head (.app (.val (.fix f args rt body)) (vs.map Expr.val)) μ
+                (body.subst ((Subst.id.update' f (.fix f args rt body)).updateAll' (args.map Prod.fst) vs)) μ
 
   /-- Unary operator applied to a value. -/
   | unop : evalUnOp op v = some w →

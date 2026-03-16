@@ -132,10 +132,11 @@ where
       | .named name => if isRec then Binder.named name else Binder.none
       | .none => Binder.none
     -- wrap bound in fix for each argument (right to left), retTy on innermost
-    let bound := wrapFix self args retTy bound
-    -- if no args and recursive, wrap in a fix with no arg
-    let bound := if args.isEmpty && isRec then Expr.fix self .none none retTy bound else bound
-    .ok (.letIn binder bound body, st)
+    if args.isEmpty && isRec then
+      .error "let rec without arguments is not supported"
+    else
+      let bound := wrapFix self args retTy bound
+      .ok (.letIn binder bound body, st)
 
   parseLetArgs (st : ParserState) : Except String (List (Binder × Option Type_) × ParserState) :=
     match peek st with
@@ -203,14 +204,12 @@ where
       .ok (some ty, st)
     | _ => .ok (none, st)
 
-  -- Fold a list of (binder, argTy) pairs into nested fix nodes.
-  -- The retTy is placed on the innermost fix.
+  -- Produce a single fix node with the full args list.
   wrapFix (self : Binder) (args : List (Binder × Option Type_)) (retTy : Option Type_)
       (body : Expr) : Expr :=
     match args with
     | [] => body
-    | [(arg, argTy)] => .fix self arg argTy retTy body
-    | (arg, argTy) :: rest => .fix self arg argTy none (wrapFix self rest retTy body)
+    | _ => .fix self args retTy body
 
   parseIf : Parser Expr := fun st => do
     let st ← expect .kw_if st
@@ -242,7 +241,7 @@ where
     match peek st with
     | .pipe_gt => do
       let (rhs, st) ← parseAtAt (advance st)
-      parsePipeGtRest (.app rhs lhs) st
+      parsePipeGtRest (.app rhs [lhs]) st
     | _ => .ok (lhs, st)
 
   -- `@@` application (right-assoc): `f @@ x` → `f x`
@@ -252,7 +251,7 @@ where
     match peek st with
     | .atat => do
       let (rhs, st) ← parseExpr (advance st)
-      .ok (.app lhs rhs, st)
+      .ok (.app lhs [rhs], st)
     | _ => .ok (lhs, st)
 
   -- `:=` store (right-assoc)
@@ -277,13 +276,19 @@ where
     let (e, st) ← parseUnary st
     parseAppRest e st
 
-  parseAppRest (fn : Expr) : Parser Expr := fun st =>
+  parseAppRest (fn : Expr) : Parser Expr := fun st => do
+    let (args, st) ← collectArgs st
+    if args.isEmpty then .ok (fn, st)
+    else .ok (.app fn args, st)
+
+  collectArgs : Parser (List Expr) := fun st =>
     match peek st with
     | .intLit _ | .ident _ | .lparen | .kw_true | .kw_false
     | .bang | .kw_not | .kw_ref | .kw_inl | .kw_inr => do
       let (arg, st) ← parseUnary st
-      parseAppRest (.app fn arg) st
-    | _ => .ok (fn, st)
+      let (rest, st) ← collectArgs st
+      .ok (arg :: rest, st)
+    | _ => .ok ([], st)
 
   parseUnary : Parser Expr := fun st =>
     let kwUnary : List (Token × UnOp) :=
@@ -375,8 +380,10 @@ partial def parseDecl : Parser (Decl Expr) := fun st => do
   let self := match b with
     | .named name => if isRec then Binder.named name else Binder.none
     | .none => Binder.none
+  if args.isEmpty && isRec then
+    .error "let rec without arguments is not supported"
+  else
   let body := wrapFix self args retTy body
-  let body := if args.isEmpty && isRec then Expr.fix self .none none retTy body else body
   -- Optional `[@@spec e]` postfix attribute (takes priority over prefix)
   let (postSpec, st) ← parsePostSpec st
   let spec := postSpec.orElse (fun _ => preSpec)
@@ -417,8 +424,7 @@ where
       (body : Expr) : Expr :=
     match args with
     | [] => body
-    | [(arg, argTy)] => .fix self arg argTy retTy body
-    | (arg, argTy) :: rest => .fix self arg argTy none (wrapFix self rest retTy body)
+    | _ => .fix self args retTy body
 
   -- `[@spec e]` before the `let`
   parsePreSpec (st : ParserState) : Except String (Option Expr × ParserState) := do
