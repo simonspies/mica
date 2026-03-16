@@ -1,4 +1,5 @@
 import Mica.FOL.Printing
+import Mica.FOL.Subst
 
 /-! ## State
 
