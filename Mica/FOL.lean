@@ -1,3 +1,4 @@
+import Mica.FOL.Variables
 import Mica.FOL.Terms
 import Mica.FOL.Formulas
 import Mica.FOL.Subst
