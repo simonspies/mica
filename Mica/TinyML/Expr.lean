@@ -93,7 +93,7 @@ mutual
     | inl (v : Val)
     | inr (v : Val)
     | loc (l : Location)
-    | fix (self : Binder) (arg : Binder) (argTy retTy : Option Type_) (body : Expr)
+    | fix (self : Binder) (args : List (Binder × Option Type_)) (retTy : Option Type_) (body : Expr)
     | tuple (vs : List Val)
 
   inductive Expr where
@@ -101,8 +101,8 @@ mutual
     | var (name : Var)
     | unop (op : UnOp) (e : Expr)
     | binop (op : BinOp) (lhs rhs : Expr)
-    | fix (self : Binder) (arg : Binder) (argTy retTy : Option Type_) (body : Expr)
-    | app (fn arg : Expr)
+    | fix (self : Binder) (args : List (Binder × Option Type_)) (retTy : Option Type_) (body : Expr)
+    | app (fn : Expr) (args : List Expr)
     | ifThenElse (cond thn els : Expr)
     | letIn (name : Binder) (bound body : Expr)
     | ref    (e : Expr)
@@ -136,15 +136,14 @@ mutual
     case loc.loc a b => exact match decEq a b with
       | isTrue h => isTrue (by subst h; rfl)
       | isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
-    case fix.fix s1 a1 at1 rt1 b1 s2 a2 at2 rt2 b2 =>
-      exact match decEq s1 s2, decEq a1 a2, decEq at1 at2, decEq rt1 rt2, b1.decEq b2 with
-      | isTrue h1, isTrue h2, isTrue h3, isTrue h4, isTrue h5 =>
-        isTrue (by subst h1; subst h2; subst h3; subst h4; subst h5; rfl)
-      | isFalse h, _, _, _, _ => isFalse (by intro heq; cases heq; exact h rfl)
-      | _, isFalse h, _, _, _ => isFalse (by intro heq; cases heq; exact h rfl)
-      | _, _, isFalse h, _, _ => isFalse (by intro heq; cases heq; exact h rfl)
-      | _, _, _, isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
-      | _, _, _, _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
+    case fix.fix s1 args1 rt1 b1 s2 args2 rt2 b2 =>
+      exact match decEq s1 s2, decEq args1 args2, decEq rt1 rt2, b1.decEq b2 with
+      | isTrue h1, isTrue h2, isTrue h3, isTrue h4 =>
+        isTrue (by subst h1; subst h2; subst h3; subst h4; rfl)
+      | isFalse h, _, _, _ => isFalse (by intro heq; cases heq; exact h rfl)
+      | _, isFalse h, _, _ => isFalse (by intro heq; cases heq; exact h rfl)
+      | _, _, isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
+      | _, _, _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
     case tuple.tuple vs1 vs2 =>
       exact match valsDecEq vs1 vs2 with
       | isTrue h => isTrue (by subst h; rfl)
@@ -169,16 +168,15 @@ mutual
       | isFalse h, _, _ => isFalse (by intro heq; cases heq; exact h rfl)
       | _, isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
       | _, _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
-    case fix.fix s1 a1 at1 rt1 b1 s2 a2 at2 rt2 b2 =>
-      exact match decEq s1 s2, decEq a1 a2, decEq at1 at2, decEq rt1 rt2, b1.decEq b2 with
-      | isTrue h1, isTrue h2, isTrue h3, isTrue h4, isTrue h5 =>
-        isTrue (by subst h1; subst h2; subst h3; subst h4; subst h5; rfl)
-      | isFalse h, _, _, _, _ => isFalse (by intro heq; cases heq; exact h rfl)
-      | _, isFalse h, _, _, _ => isFalse (by intro heq; cases heq; exact h rfl)
-      | _, _, isFalse h, _, _ => isFalse (by intro heq; cases heq; exact h rfl)
-      | _, _, _, isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
-      | _, _, _, _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
-    case app.app f1 a1 f2 a2 => exact match f1.decEq f2, a1.decEq a2 with
+    case fix.fix s1 args1 rt1 b1 s2 args2 rt2 b2 =>
+      exact match decEq s1 s2, decEq args1 args2, decEq rt1 rt2, b1.decEq b2 with
+      | isTrue h1, isTrue h2, isTrue h3, isTrue h4 =>
+        isTrue (by subst h1; subst h2; subst h3; subst h4; rfl)
+      | isFalse h, _, _, _ => isFalse (by intro heq; cases heq; exact h rfl)
+      | _, isFalse h, _, _ => isFalse (by intro heq; cases heq; exact h rfl)
+      | _, _, isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
+      | _, _, _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
+    case app.app f1 args1 f2 args2 => exact match f1.decEq f2, exprsDecEq args1 args2 with
       | isTrue h1, isTrue h2 => isTrue (by subst h1; subst h2; rfl)
       | isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
       | _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
@@ -314,9 +312,9 @@ def Expr.subst (σ : Subst) : Expr → Expr
   | .var y => match σ y with | some v => .val v | none => .var y
   | .unop op e => .unop op (e.subst σ)
   | .binop op l r => .binop op (l.subst σ) (r.subst σ)
-  | .fix f y at_ rt body =>
-    .fix f y at_ rt (body.subst (σ.remove' f |>.remove' y))
-  | .app fn arg => .app (fn.subst σ) (arg.subst σ)
+  | .fix f args rt body =>
+    .fix f args rt (body.subst (σ.remove' f |>.removeAll' (args.map Prod.fst)))
+  | .app fn args => .app (fn.subst σ) (args.map (Expr.subst σ))
   | .ifThenElse c t e => .ifThenElse (c.subst σ) (t.subst σ) (e.subst σ)
   | .letIn b bound body =>
     .letIn b (bound.subst σ) (body.subst (σ.remove' b))
@@ -334,8 +332,30 @@ def Expr.subst (σ : Subst) : Expr → Expr
     Subst.remove' (fun _ => none) b = fun _ => none := by
   cases b <;> simp [Subst.remove', Subst.remove_none]
 
+@[simp] theorem Binder.named_beq (x z : Var) : (Binder.named x == Binder.named z) = (x == z) := by
+  simp [BEq.beq, instBEqBinder.beq]
+
+theorem Subst.removeAll'_eq (γ : Subst) (bs : Binders) (z : Var) :
+    γ.removeAll' bs z = if bs.any (· == .named z) then none else γ z := by
+  induction bs generalizing γ with
+  | nil => simp
+  | cons b bs ih =>
+    simp only [Subst.removeAll'_cons, List.any_cons]
+    cases b with
+    | none => simp [Subst.remove', ih]
+    | named x =>
+      simp only [Subst.remove'_named, Binder.named_beq]
+      rw [ih]; simp only [BEq.comm (a := x) (b := z)]
+      split <;> simp_all
+
 @[simp] theorem Expr.subst_val (σ : Subst) (v : Val) : (Expr.val v).subst σ = .val v := by
   simp [Expr.subst]
+
+@[simp] private theorem Subst.removeAll'_none_subst_list (bs : Binders) :
+    Subst.removeAll' (fun _ => none) bs = fun _ => none := by
+  induction bs with
+  | nil => simp
+  | cons b bs ih => simp only [Subst.removeAll'_cons, Subst.remove'_none_subst, ih]
 
 theorem Expr.subst_none (e : Expr) : e.subst (fun _ => none) = e := by
   induction e using Expr.rec
@@ -358,9 +378,11 @@ theorem Expr.subst_comp (e : Expr) (σ ρ : Subst) :
   all_goals simp_all [Expr.subst]
   case var y =>
     split <;> simp_all [Expr.subst]
-  case fix f y at_ rt body ih =>
+  case fix f args rt body ih =>
     congr 1; funext z
-    cases f <;> cases y <;> simp [Subst.remove', Subst.remove] <;> split <;> simp_all
+    simp only [Subst.removeAll'_eq]
+    cases f <;> simp [Subst.remove', Subst.remove] <;> split <;> simp_all
+    all_goals (split <;> simp_all)
   case letIn b bound body ihbound ihbd =>
     congr 1; funext z
     cases b <;> simp [Subst.remove', Subst.remove] <;> split <;> simp_all
@@ -381,9 +403,9 @@ def Expr.freeVars : Expr → List Var
   | .var y => [y]
   | .unop _ e => e.freeVars
   | .binop _ l r => l.freeVars ++ r.freeVars
-  | .fix f y _ _ body =>
-    body.freeVars.filter (fun v => f != .named v && y != .named v)
-  | .app fn arg => fn.freeVars ++ arg.freeVars
+  | .fix f args _ body =>
+    body.freeVars.filter (fun v => f != .named v && !(args.map Prod.fst).any (· == .named v))
+  | .app fn args => fn.freeVars ++ args.flatMap Expr.freeVars
   | .ifThenElse c t e => c.freeVars ++ t.freeVars ++ e.freeVars
   | .letIn b bound body =>
     bound.freeVars ++
@@ -416,19 +438,36 @@ theorem Expr.freeVars_subst (γ1 γ2 : Var → Option Val) (e : Expr) :
     intro h; simp only [Expr.freeVars, List.mem_append] at h
     simp [Expr.subst, ihl γ1 γ2 (fun x hx => h x (Or.inl hx)),
                        ihr γ1 γ2 (fun x hx => h x (Or.inr hx))]
-  case fix f y at_ rt body ih =>
+  case fix f args rt body ih =>
     intro h; simp only [Expr.freeVars, List.mem_filter] at h
     simp only [Expr.subst]; congr 1; apply ih
     intro x hx
-    cases f <;> cases y <;> simp only [Subst.remove', Subst.remove] <;>
-      (try exact h x ⟨hx, by simp⟩) <;>
-      (split <;> (try rfl) <;> (try (split <;> (try rfl)))) <;>
-      (refine h x ⟨hx, ?_⟩; simp only [bne, Bool.and_eq_true, Bool.not_eq_true',
-        beq_eq_false_iff_ne, ne_eq, Binder.named.injEq] at *; constructor <;> intro <;> simp_all)
-  case app fn arg ihf iha =>
+    simp only [Subst.removeAll'_eq]
+    -- The filter condition in h guarantees x is not bound by f or args
+    cases f <;> simp only [Subst.remove', Subst.remove]
+    · -- f = .none: only args matter
+      split
+      · rfl
+      · rename_i hany
+        refine h x ⟨hx, ?_⟩
+        simp only [bne, BEq.beq, instBEqBinder.beq, Bool.not_eq_true', Bool.and_eq_true]
+        exact ⟨trivial, by simpa [BEq.beq, instBEqBinder.beq, Bool.not_eq_true'] using hany⟩
+    · -- f = .named name
+      rename_i name
+      split
+      · rfl
+      · split
+        · rfl
+        · rename_i hany hne
+          refine h x ⟨hx, ?_⟩
+          simp only [bne, BEq.beq, instBEqBinder.beq, Bool.not_eq_true', Bool.and_eq_true]
+          exact ⟨by simpa [BEq.beq, instBEqBinder.beq, beq_iff_eq, ne_comm] using hne,
+                 by simpa [BEq.beq, instBEqBinder.beq, Bool.not_eq_true'] using hany⟩
+  case app fn args ihf ihargs =>
     intro h; simp only [Expr.freeVars, List.mem_append] at h
-    simp [Expr.subst, ihf γ1 γ2 (fun x hx => h x (Or.inl hx)),
-                       iha γ1 γ2 (fun x hx => h x (Or.inr hx))]
+    simp only [Expr.subst]; congr 1
+    · exact ihf γ1 γ2 (fun x hx => h x (Or.inl hx))
+    · exact ihargs γ1 γ2 (fun x hx => h x (Or.inr hx))
   case ifThenElse c t e ihc iht ihe =>
     intro h; simp only [Expr.freeVars, List.mem_append] at h
     simp [Expr.subst, ihc γ1 γ2 (fun x hx => h x (by simp [hx])),
@@ -472,25 +511,6 @@ theorem Expr.freeVars_subst (γ1 γ2 : Var → Option Val) (e : Expr) :
     simp only [List.flatMap_cons, List.mem_append] at h
     simp [ihe γ1 γ2 (fun x hx => h x (Or.inl hx)),
           ihes γ1 γ2 (fun x hx => h x (Or.inr hx))]
-
--- Substitution composition lemma for the fix body.
--- (body.subst γ').subst (id.update' fb fval |>.update' (.named arg) v_arg)
--- = body.subst (γ.update' fb fval |>.update' (.named arg) v_arg)
--- where γ' masks fb and arg from γ.
-theorem Expr.subst_fix_comp (body : TinyML.Expr)
-    (fb : TinyML.Binder) (arg : TinyML.Var) (γ : TinyML.Subst)
-    (fval v_arg : TinyML.Val) :
-    let γ' := (γ.remove' fb).remove' (.named arg)
-    (body.subst γ').subst (TinyML.Subst.id.update' fb fval |>.update' (.named arg) v_arg) =
-    body.subst (γ.update' fb fval |>.update' (.named arg) v_arg) := by
-  simp only []
-  rw [TinyML.Expr.subst_comp]
-  congr 1; funext z
-  cases fb <;>
-    simp [TinyML.Subst.remove', TinyML.Subst.remove, TinyML.Subst.update',
-          TinyML.Subst.update, TinyML.Subst.id] <;>
-    (split <;> split <;> simp_all)
-
 
 structure Decl (S : Type) where
   name : Binder
@@ -592,22 +612,6 @@ theorem Exprs.freeVars_subst (γ1 γ2 : Var → Option Val) (es : Exprs) :
     · exact Expr.freeVars_subst γ1 γ2 e (fun x hx => h x (Or.inl hx))
     · exact ih (fun x hx => h x (Or.inr hx))
 
-@[simp] theorem Binder.named_beq (x z : Var) : (Binder.named x == Binder.named z) = (x == z) := by
-  simp [BEq.beq, instBEqBinder.beq]
-
-theorem Subst.removeAll'_eq (γ : Subst) (bs : Binders) (z : Var) :
-    γ.removeAll' bs z = if bs.any (· == .named z) then none else γ z := by
-  induction bs generalizing γ with
-  | nil => simp
-  | cons b bs ih =>
-    simp only [Subst.removeAll'_cons, List.any_cons]
-    cases b with
-    | none => simp [Subst.remove', ih]
-    | named x =>
-      simp only [Subst.remove'_named, Binder.named_beq]
-      rw [ih]; simp only [BEq.comm (a := x) (b := z)]
-      split <;> simp_all
-
 /-- Look up the value bound to variable `z` in a binder/value list.
     Last matching binder wins (matching left-fold semantics of `updateAll'`).
     Equivalent to `(bs.zip vs).reverse.findSome? fun (b, v) => if b == .named z then some v else none`. -/
@@ -682,6 +686,32 @@ private theorem Subst.removeAll'_updateAll'_comp (γ : Subst) (bs : Binders) (vs
     = (γ.updateAll' bs vs) z := by
   rw [removeAll'_updateAll'_gen _ _ hlen]
   congr 1; funext w; simp [Subst.id]; split <;> simp_all
+
+-- Substitution composition lemma for the fix body.
+-- (body.subst γ').subst (id.update' fb fval |>.updateAll' bs vs)
+-- = body.subst (γ.update' fb fval |>.updateAll' bs vs)
+-- where γ' masks fb and bs from γ.
+theorem Expr.subst_fix_comp (body : TinyML.Expr)
+    (fb : TinyML.Binder) (bs : TinyML.Binders) (γ : TinyML.Subst)
+    (fval : TinyML.Val) (vs : TinyML.Vals)
+    (hlen : bs.length = vs.length) :
+    let γ' := (γ.remove' fb).removeAll' bs
+    (body.subst γ').subst (TinyML.Subst.id.update' fb fval |>.updateAll' bs vs) =
+    body.subst (γ.update' fb fval |>.updateAll' bs vs) := by
+  simp only []; rw [TinyML.Expr.subst_comp]; congr 1; funext z
+  -- Use the general composition lemma: removeAll' + updateAll' = merged.updateAll'
+  have hgen := Subst.removeAll'_updateAll'_gen bs vs hlen
+                 (γ.remove' fb) (Subst.id.update' fb fval) z
+  simp only [] at hgen
+  rw [hgen]
+  -- Now show the merged substitution equals γ.update' fb fval
+  congr 1; funext w
+  cases fb with
+  | none => simp only [Subst.remove', Subst.update', Subst.id]; cases γ w <;> rfl
+  | named f =>
+    simp only [Subst.remove'_named, Subst.update', Subst.update_eq,
+               Subst.remove_eq, Subst.id]
+    split <;> simp_all
 
 theorem Exprs.subst_removeAll'_updateAll' (es : Exprs) (γ : Subst) (bs : Binders) (vs : Vals)
     (hlen : bs.length = vs.length) :
