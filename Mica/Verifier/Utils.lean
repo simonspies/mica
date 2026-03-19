@@ -352,7 +352,6 @@ theorem val_typed_of_last_wins
     (hΓ : (args.foldl (fun ctx a => ctx.extend a.1 a.2) Γ₀) x = some t)
     (hlookups : List.Forall₂ (fun av val => ρ.lookup .value av.name = val) vars vals)
     (htyped : TinyML.ValsHaveTypes vals (args.map Prod.snd))
-    -- If x is not found in args, Γ₀ is irrelevant because hlookup guarantees x IS in args.
     : TinyML.ValHasType (ρ.lookup .value x'.name) t := by
   induction args generalizing vars vals Γ₀ with
   | nil => simp at hlookup
@@ -373,25 +372,15 @@ theorem val_typed_of_last_wins
             simp only [List.foldl_cons] at hΓ
             cases hlk_inner : List.lookup x ((as.map Prod.fst).zip vrs).reverse with
             | some v' =>
-              -- Found in the tail — IH handles it
               simp [hlk_inner] at hlookup; subst hlookup
               exact ih vrs vls (Γ₀.extend a.1 a.2) (by simp; omega) (by simp; omega) hlk_inner hΓ hlk_tail htype_tail
             | none =>
-              -- Not in the tail — must be from the head entry [(a.1, vr)]
               simp [hlk_inner] at hlookup
               by_cases hxa : x == a.1
               · simp [List.lookup, hxa] at hlookup; subst hlookup
-                -- x = a.1, x' = vr, t comes from foldl extend.
-                -- Since x not in tail (hlk_inner = none), and the tail's foldl
-                -- doesn't add x back, Γ x = a.2 (from the initial extend of a).
-                -- Need: foldl extend (Γ₀.extend a.1 a.2) as x = some t
-                -- and x ∉ as.map fst (from hlk_inner), so foldl doesn't overwrite.
                 have hx_notin := not_mem_of_lookup_zip_reverse_none
                   (as.map Prod.fst) vrs x (by simp; omega) hlk_inner
                 simp [List.mem_map] at hx_notin
-                -- hΓ : (as.foldl ... (Γ₀.extend a.1 a.2)) x = some t
-                -- Since x ∉ as.map fst, foldl doesn't overwrite the initial extend.
-                -- So t = a.2 and we need ValHasType (ρ.lookup .value vr.name) a.2.
                 have hΓ_stable : (as.foldl (fun ctx a => ctx.extend a.1 a.2) (Γ₀.extend a.1 a.2)) x =
                     (Γ₀.extend a.1 a.2) x := by
                   apply TinyML.TyCtx.foldl_extend_stable
