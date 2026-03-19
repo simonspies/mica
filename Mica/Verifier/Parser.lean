@@ -161,24 +161,29 @@ end  -- mutual
 
 -- Recognises `isint e` and `isbool e`; argument checked at `.value`.
 def typePred (env : SpecEnv) : TinyML.Expr → Except String (Σ t, Atom t)
-  | .app (.var "isint")  e => do .ok ⟨.int,  .isint  (← check env .value e)⟩
-  | .app (.var "isbool") e => do .ok ⟨.bool, .isbool (← check env .value e)⟩
+  | .app (.var "isint")  [e] => do .ok ⟨.int,  .isint  (← check env .value e)⟩
+  | .app (.var "isbool") [e] => do .ok ⟨.bool, .isbool (← check env .value e)⟩
   | e => .error s!"expected isint or isbool application, got {repr e}"
 
 -- Recognises exactly one `fun x -> e` binder; adds `x : .value` to env.
 def pred (inner : Parser α) : Parser (Pred α)
-  | env, .fix .none (.named x) _ _ body => do
+  | env, .fix .none [(.named x, _)] _ body => do
     .ok (x, ← inner ((x, .value) :: env) body)
   | _, e => .error s!"expected λ x -> ..., got {repr e}"
 
 -- Greedily strips `fun x ->` binders, adding each as `x : .value`.
+-- Handles both single-arg `fun x -> ...` and multi-arg `fun x y z -> ...`.
 def multiPred (inner : Parser α) : Parser (MultiPred α) := fun env e =>
-  let rec go : SpecEnv → TinyML.Expr → Except String (List String × α)
-    | env, .fix .none (.named x) _ _ body =>
+  -- Peel binders from a list, then parse the body with `inner`.
+  let rec goBinders : SpecEnv → List (TinyML.Binder × Option TinyML.Type_) → Option TinyML.Type_ → TinyML.Expr → Except String (List String × α)
+    | env, (.named x, _) :: rest, retTy, body =>
       let env' := (x, .value) :: env
-      match go env' body with
+      match goBinders env' rest retTy body with
       | .ok (xs, a) => .ok (x :: xs, a)
-      | .error _    => do .ok ([], ← inner env (.fix .none (.named x) none none body))
+      | .error _ => do .ok ([], ← inner env (.fix .none ((.named x, none) :: rest) retTy body))
+    | env, _, _, body => do .ok ([], ← inner env body)
+  let rec go : SpecEnv → TinyML.Expr → Except String (List String × α)
+    | env, .fix .none args retTy body => goBinders env args retTy body
     | env, e => do .ok ([], ← inner env e)
   go env e
 
@@ -191,9 +196,9 @@ def unit : Parser Unit
 -- `bind e1 (fun x -> e2)`: type of `x` comes from the typePred in `e1`.
 -- `let x = e in body`: type of `x` inferred from `e`.
 def assertion (inner : Parser α) : Parser (Assertion α)
-  | env, .app (.var "ret") e => do
+  | env, .app (.var "ret") [e] => do
     .ok (.ret (← inner env e))
-  | env, .app (.app (.var "bind") e1) (.fix .none (.named x) _ _ e2) => do
+  | env, .app (.app (.var "bind") [e1]) [.fix .none [(.named x, _)] _ e2] => do
     let ⟨t, p⟩ ← typePred env e1
     .ok (.pred ⟨x, t⟩ p (← assertion inner ((x, t) :: env) e2))
   | env, .letIn (.named x) bound body => do
@@ -209,6 +214,6 @@ def assertion (inner : Parser α) : Parser (Assertion α)
 
 def predtrans : Parser PredTrans := assertion (pred (assertion unit))
 
-def spec : Parser SpecPredicate := pred predtrans
+def spec : Parser SpecPredicate := multiPred predtrans
 
 end SpecParser

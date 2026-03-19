@@ -15,12 +15,24 @@ and accumulating the spec map for use by subsequent declarations. -/
 private def parseSpec (e : TinyML.Expr) : Except String SpecPredicate :=
   SpecParser.spec [] e
 
+/-- Extract typed argument names from a function's argument list. -/
+private def extractArgs : List (TinyML.Binder × Option TinyML.Type_) → List String → Except String (List (String × TinyML.Type_))
+  | [], names =>
+    if names.isEmpty then .ok []
+    else .error s!"spec has more arguments than function"
+  | (_, _) :: _, [] => .ok []  -- spec may bind fewer args than the function has
+  | (.named _, .some ty) :: rest, n :: ns => do
+    let tail ← extractArgs rest ns
+    .ok ((n, ty) :: tail)
+  | (_, _) :: _, _ :: _ => .error "Spec.complete: all spec arguments must have type annotations"
+
 /-- Complete a raw spec predicate with type information from a function expression. -/
 def Spec.complete (sp : SpecPredicate) (e : TinyML.Expr) : Except String Spec :=
   match e with
-  | .fix _ (.named _) (.some argTy) (.some retTy) _ =>
-    .ok { argName := sp.1, argTy, retTy, pred := sp.2 }
-  | _ => .error "Spec.complete: expected single-argument function with type annotations"
+  | .fix _ argBinders (.some retTy) _ => do
+    let args ← extractArgs argBinders sp.1
+    .ok { args, retTy, pred := sp.2 }
+  | _ => .error "Spec.complete: expected function with return type annotation"
 
 /-- Check an individual declaration. Each declaration's `checkSpec` runs inside a `seq` bracket so its
     declarations and assertions don't pollute subsequent verifications. -/

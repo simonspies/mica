@@ -66,6 +66,10 @@ mutual
     | cons : Type_.Sub s t → Type_.SubList ss ts → Type_.SubList (s :: ss) (t :: ts)
 end
 
+theorem Type_.SubList.length_eq : Type_.SubList ss ts → ss.length = ts.length
+  | .nil => rfl
+  | .cons _ h => by simp [List.length_cons, h.length_eq]
+
 mutual
   def Type_.join : Type_ → Type_ → Type_
     | .empty, t | t, .empty => t
@@ -330,6 +334,10 @@ mutual
       cases h with
       | cons hv hvs => exact .cons (ValHasType_sub hv hs) (ValsHaveTypes_sub hvs hss)
 end
+
+theorem ValsHaveTypes.length_eq : ValsHaveTypes vs ts → vs.length = ts.length
+  | .nil => rfl
+  | .cons _ h => congrArg (· + 1) h.length_eq
 
 end TinyML
 

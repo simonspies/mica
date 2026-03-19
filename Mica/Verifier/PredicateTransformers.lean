@@ -20,8 +20,7 @@ Defines `PredTrans` and `SpecPredicate`.
 -- ---------------------------------------------------------------------------
 
 def PredTrans := Assertion (Pred (Assertion Unit))
--- TODO: For now, we only support single argument specs. We will improve on this in the future.
-abbrev SpecPredicate := Pred PredTrans
+abbrev SpecPredicate := MultiPred PredTrans
 
 -- ---------------------------------------------------------------------------
 -- Well-formedness
