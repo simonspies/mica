@@ -80,6 +80,158 @@ theorem Bindings.agreeOnLinked_cons {B : Bindings} {ρ ρ' : Env} {γ : TinyML.S
     rw [hsort] at hρ
     exact ⟨hsort, by simp [TinyML.Subst.update, hyx]; exact hγ.trans (congrArg some hρ.symm)⟩
 
+-- If agreeOnLinked holds and values at each binding are well-typed, then typedSubst holds.
+theorem Bindings.typedSubst_of_agreeOnLinked
+    {B : Bindings} {Γ : TinyML.TyCtx} {γ : TinyML.Subst} {ρ : Env}
+    (hagree : B.agreeOnLinked ρ γ)
+    (htyped_vals : ∀ x x' t, B.lookup x = some x' → Γ x = some t →
+      TinyML.ValHasType (ρ.lookup .value x'.name) t) :
+    B.typedSubst Γ γ := by
+  intro x x' t hmem hΓ
+  obtain ⟨_, hval⟩ := hagree x x' hmem
+  exact ⟨_, hval, htyped_vals x x' t hmem hΓ⟩
+
+theorem findVal_none_of_not_mem
+    (ns : List String) (vs : List TinyML.Val) (x : String)
+    (hlen : ns.length = vs.length) (hx : x ∉ ns) :
+    TinyML.Binders.findVal (ns.map TinyML.Binder.named) vs x = none := by
+  induction ns generalizing vs with
+  | nil => simp
+  | cons n ns ih =>
+    cases vs with
+    | nil => simp at hlen
+    | cons v vs =>
+      simp at hlen hx
+      simp only [List.map_cons, TinyML.Binders.findVal_cons, ih vs hlen hx.2]
+      simp [TinyML.Binder.named_beq, beq_iff_eq, Ne.symm hx.1]
+
+theorem not_mem_of_lookup_zip_reverse_none
+    (ns : List String) (avs : List Var) (x : String)
+    (hlen : ns.length = avs.length)
+    (h : List.lookup x (ns.zip avs).reverse = none) :
+    x ∉ ns := by
+  rw [List.lookup_eq_none_iff] at h
+  intro hx
+  obtain ⟨i, hi, hni⟩ := List.getElem_of_mem hx
+  have hi' : i < avs.length := by omega
+  have hmem : (ns[i], avs[i]) ∈ ns.zip avs := by
+    have hiz : i < (ns.zip avs).length := by simp [List.length_zip]; omega
+    have : (ns.zip avs)[i]'hiz = (ns[i], avs[i]) := List.getElem_zip
+    rw [← this]; exact List.getElem_mem hiz
+  have hmem' : (ns[i], avs[i]) ∈ (ns.zip avs).reverse := List.mem_reverse.mpr hmem
+  have := h _ hmem'
+  simp [hni] at this
+
+-- For lists with "last wins" semantics: if the reversed-zip lookup finds x' at x,
+-- and the foldl-Γ lookup finds type t at x, and Forall₂ relates vars to vals
+-- with ValsHaveTypes, then the value at x' has type t.
+-- All three structures agree on the "last occurrence" of x.
+theorem val_typed_of_last_wins
+    (args : List (String × TinyML.Type_))
+    (vars : List Var) (vals : List TinyML.Val)
+    (ρ : Env) (Γ₀ : TinyML.TyCtx)
+    (x : String) (x' : Var) (t : TinyML.Type_)
+    (hlen_v : (args.map Prod.fst).length = vars.length)
+    (hlen_vl : (args.map Prod.fst).length = vals.length)
+    (hlookup : List.lookup x ((args.map Prod.fst).zip vars).reverse = some x')
+    (hΓ : (args.foldl (fun ctx a => ctx.extend a.1 a.2) Γ₀) x = some t)
+    (hlookups : List.Forall₂ (fun av val => ρ.lookup .value av.name = val) vars vals)
+    (htyped : TinyML.ValsHaveTypes vals (args.map Prod.snd))
+    -- If x is not found in args, Γ₀ is irrelevant because hlookup guarantees x IS in args.
+    : TinyML.ValHasType (ρ.lookup .value x'.name) t := by
+  induction args generalizing vars vals Γ₀ with
+  | nil => simp at hlookup
+  | cons a as ih =>
+    cases vars with
+    | nil => simp at hlen_v
+    | cons vr vrs =>
+      cases vals with
+      | nil => simp at hlen_vl
+      | cons vl vls =>
+        simp [List.map_cons, List.length_cons] at hlen_v hlen_vl
+        cases hlookups with
+        | cons hlk_head hlk_tail =>
+          cases htyped with
+          | cons htype_head htype_tail =>
+            simp only [List.map_cons, List.zip_cons_cons, List.reverse_cons] at hlookup
+            rw [List.lookup_append] at hlookup
+            simp only [List.foldl_cons] at hΓ
+            cases hlk_inner : List.lookup x ((as.map Prod.fst).zip vrs).reverse with
+            | some v' =>
+              -- Found in the tail — IH handles it
+              simp [hlk_inner] at hlookup; subst hlookup
+              exact ih vrs vls (Γ₀.extend a.1 a.2) (by simp; omega) (by simp; omega) hlk_inner hΓ hlk_tail htype_tail
+            | none =>
+              -- Not in the tail — must be from the head entry [(a.1, vr)]
+              simp [hlk_inner] at hlookup
+              by_cases hxa : x == a.1
+              · simp [List.lookup, hxa] at hlookup; subst hlookup
+                -- x = a.1, x' = vr, t comes from foldl extend.
+                -- Since x not in tail (hlk_inner = none), and the tail's foldl
+                -- doesn't add x back, Γ x = a.2 (from the initial extend of a).
+                -- Need: foldl extend (Γ₀.extend a.1 a.2) as x = some t
+                -- and x ∉ as.map fst (from hlk_inner), so foldl doesn't overwrite.
+                have hx_notin := not_mem_of_lookup_zip_reverse_none
+                  (as.map Prod.fst) vrs x (by simp; omega) hlk_inner
+                simp [List.mem_map] at hx_notin
+                -- hΓ : (as.foldl ... (Γ₀.extend a.1 a.2)) x = some t
+                -- Since x ∉ as.map fst, foldl doesn't overwrite the initial extend.
+                -- So t = a.2 and we need ValHasType (ρ.lookup .value vr.name) a.2.
+                have hΓ_stable : (as.foldl (fun ctx a => ctx.extend a.1 a.2) (Γ₀.extend a.1 a.2)) x =
+                    (Γ₀.extend a.1 a.2) x := by
+                  apply TinyML.TyCtx.foldl_extend_stable
+                  intro ⟨n, t⟩ hmem heq; exact hx_notin t (heq ▸ hmem)
+                rw [hΓ_stable] at hΓ
+                have hxa' : x = a.1 := by exact beq_iff_eq.mp hxa
+                subst hxa'
+                simp [TinyML.TyCtx.extend] at hΓ; subst hΓ
+                rw [← hlk_head] at htype_head; exact htype_head
+              · simp [List.lookup, hxa] at hlookup
+
+theorem Bindings.agreeOnLinked_zip_reverse
+    (names : List String) (vars : List Var) (vals : List TinyML.Val)
+    (γ : TinyML.Subst) (ρ : Env)
+    (hlen_nv : names.length = vars.length)
+    (hlen_nvl : names.length = vals.length)
+    (hsorts : ∀ v ∈ vars, v.sort = .value)
+    (hlookups : List.Forall₂ (fun av val => ρ.lookup .value av.name = val) vars vals) :
+    Bindings.agreeOnLinked (names.zip vars).reverse ρ
+      (γ.updateAll' (names.map TinyML.Binder.named) vals) := by
+  induction names generalizing vars vals γ with
+  | nil => intro x x' hmem; simp at hmem
+  | cons n ns ih =>
+    cases vars with
+    | nil => simp at hlen_nv
+    | cons av avs =>
+      cases vals with
+      | nil => simp at hlen_nvl
+      | cons v vs =>
+        simp at hlen_nv hlen_nvl
+        cases hlookups with
+        | cons hlk htail =>
+          simp only [List.map_cons, TinyML.Subst.updateAll'_cons, List.zip_cons_cons, List.reverse_cons]
+          have ih' := ih avs vs (γ.update' (.named n) v) (by omega) (by omega)
+            (fun v' hv' => hsorts v' (.tail _ hv')) htail
+          intro x x' hmem
+          -- hmem : List.lookup x ((ns.zip avs).reverse ++ [(n, av)]) = some x'
+          rw [List.lookup_append] at hmem
+          cases hlk_inner : List.lookup x (ns.zip avs).reverse with
+          | some v' =>
+            simp [hlk_inner] at hmem; subst hmem
+            exact ih' x v' hlk_inner
+          | none =>
+            simp [hlk_inner] at hmem
+            by_cases hxn : x == n
+            · simp [List.lookup, hxn] at hmem; subst hmem
+              constructor
+              · exact hsorts av (.head _)
+              · -- Need: updateAll' (ns.map .named) vs (update' (.named n) v γ) x = some v
+                rw [TinyML.Subst.updateAll'_eq _ _ _ _ (by simp; omega)]
+                have hx_notin := not_mem_of_lookup_zip_reverse_none ns avs x hlen_nv hlk_inner
+                suffices TinyML.Binders.findVal (ns.map TinyML.Binder.named) vs x = none by
+                  simp [this, TinyML.Subst.update', hxn, ← hlk]
+                exact findVal_none_of_not_mem ns vs x hlen_nvl hx_notin
+            · simp [List.lookup, hxn] at hmem
 
 -- ---------------------------------------------------------------------------
 -- FiniteSubst

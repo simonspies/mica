@@ -240,6 +240,50 @@ theorem SpecMap.wfIn_erase {S : SpecMap} {x : TinyML.Var} {decls : List Var}
   · rw [Finmap.lookup_erase_ne hfx] at hlookup
     exact h f spec hlookup
 
+/-- Erase multiple keys from a SpecMap. -/
+def SpecMap.eraseAll (keys : List String) (S : SpecMap) : SpecMap :=
+  keys.foldl (fun acc k => Finmap.erase k acc) S
+
+@[simp] theorem SpecMap.eraseAll_nil (S : SpecMap) : SpecMap.eraseAll [] S = S := rfl
+
+@[simp] theorem SpecMap.eraseAll_cons (k : String) (ks : List String) (S : SpecMap) :
+    SpecMap.eraseAll (k :: ks) S = SpecMap.eraseAll ks (Finmap.erase k S) := by
+  simp [SpecMap.eraseAll, List.foldl_cons]
+
+theorem SpecMap.eraseAll_lookup_none_of_none {keys : List String} {S : SpecMap} {y : String}
+    (h : S.lookup y = none) : (SpecMap.eraseAll keys S).lookup y = none := by
+  induction keys generalizing S with
+  | nil => exact h
+  | cons k ks ih =>
+    rw [eraseAll_cons]; apply ih
+    by_cases hky : k = y
+    · subst hky; simp [Finmap.lookup_erase]
+    · rw [Finmap.lookup_erase_ne (Ne.symm hky)]; exact h
+
+theorem SpecMap.eraseAll_lookup_none {keys : List String} {S : SpecMap} {y : String}
+    (hy : y ∈ keys) : (SpecMap.eraseAll keys S).lookup y = none := by
+  induction keys generalizing S with
+  | nil => simp at hy
+  | cons k ks ih =>
+    rw [eraseAll_cons]; cases List.mem_cons.mp hy with
+    | inl heq => subst heq; exact eraseAll_lookup_none_of_none (by simp [Finmap.lookup_erase])
+    | inr hmem => exact ih hmem
+
+theorem SpecMap.eraseAll_lookup_of_notin {keys : List String} {y : String}
+    (hy : y ∉ keys) (S : SpecMap) :
+    (SpecMap.eraseAll keys S).lookup y = S.lookup y := by
+  induction keys generalizing S with
+  | nil => rfl
+  | cons k ks ih =>
+    simp at hy
+    rw [eraseAll_cons, ih hy.2, Finmap.lookup_erase_ne hy.1]
+
+theorem SpecMap.wfIn_eraseAll {keys : List String} {S : SpecMap} {decls : List Var}
+    (h : S.wfIn decls) : (SpecMap.eraseAll keys S).wfIn decls := by
+  induction keys generalizing S with
+  | nil => exact h
+  | cons k ks ih => exact ih (SpecMap.wfIn_erase h)
+
 def SpecMap.insert' (S : SpecMap) (b : TinyML.Binder) (spec : Spec) : SpecMap :=
   match b with
   | .named x => S.insert x spec
