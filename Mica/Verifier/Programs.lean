@@ -15,12 +15,24 @@ and accumulating the spec map for use by subsequent declarations. -/
 private def parseSpec (e : TinyML.Expr) : Except String SpecPredicate :=
   SpecParser.spec [] e
 
+/-- Extract typed argument names from a function's argument list. -/
+private def extractArgs : List (TinyML.Binder × Option TinyML.Type_) → List String → Except String (List (String × TinyML.Type_))
+  | [], names =>
+    if names.isEmpty then .ok []
+    else .error s!"spec has more arguments than function"
+  | (_, _) :: _, [] => .ok []  -- spec may bind fewer args than the function has
+  | (.named _, .some ty) :: rest, n :: ns => do
+    let tail ← extractArgs rest ns
+    .ok ((n, ty) :: tail)
+  | (_, _) :: _, _ :: _ => .error "Spec.complete: all spec arguments must have type annotations"
+
 /-- Complete a raw spec predicate with type information from a function expression. -/
 def Spec.complete (sp : SpecPredicate) (e : TinyML.Expr) : Except String Spec :=
   match e with
-  | .fix _ (.named _) (.some argTy) (.some retTy) _ =>
-    .ok { argName := sp.1, argTy, retTy, pred := sp.2 }
-  | _ => .error "Spec.complete: expected single-argument function with type annotations"
+  | .fix _ argBinders (.some retTy) _ => do
+    let args ← extractArgs argBinders sp.1
+    .ok { args, retTy, pred := sp.2 }
+  | _ => .error "Spec.complete: expected function with return type annotation"
 
 /-- Check an individual declaration. Each declaration's `checkSpec` runs inside a `seq` bracket so its
     declarations and assertions don't pollute subsequent verifications. -/
@@ -62,27 +74,6 @@ def Program.verify (prog : TinyML.Program) : Strategy Outcome :=
   VerifM.strategy (Program.check ∅ prog)
 
 /-! ## Correctness -/
-
-
-theorem SpecMap.satisfiedBy_insert_update {S : SpecMap} {γ : TinyML.Subst}
-    {x : TinyML.Var} {v : TinyML.Val} {spec : Spec}
-    (hS : S.satisfiedBy γ) (hf : spec.isPrecondFor v) :
-    SpecMap.satisfiedBy (Finmap.insert x spec S) (γ.update x v) := by
-  intro y s' hlookup
-  by_cases hyx : y = x
-  · subst hyx; rw [Finmap.lookup_insert] at hlookup; simp at hlookup; subst hlookup
-    exact ⟨v, by simp [TinyML.Subst.update], hf⟩
-  · rw [Finmap.lookup_insert_of_ne _ hyx] at hlookup
-    obtain ⟨f, hγf, hprecond⟩ := hS y s' hlookup
-    exact ⟨f, by simp [TinyML.Subst.update, beq_false_of_ne hyx, hγf], hprecond⟩
-
-theorem SpecMap.satisfiedBy_insert'_update' {S : SpecMap} {γ : TinyML.Subst}
-    {b : TinyML.Binder} {v : TinyML.Val} {spec : Spec}
-    (hS : S.satisfiedBy γ) (hf : spec.isPrecondFor v) :
-    SpecMap.satisfiedBy (S.insert' b spec) (TinyML.Subst.update' b v γ) := by
-  cases b with
-  | named x => exact SpecMap.satisfiedBy_insert_update hS hf
-  | none => exact hS
 
 
 theorem Decl.checkExpr_correct (S : SpecMap) (d : TinyML.Decl TinyML.Expr) (γ : TinyML.Subst)

@@ -46,6 +46,20 @@ theorem TyCtx.le_extendBinder_congr {Γ Γ' : TyCtx} (b : Binder) (t : Type_)
     · simp [h] at hy ⊢; exact hy
     · simp [h] at hy ⊢; exact hle y ty hy
 
+-- foldl extend doesn't change the value at x if x doesn't appear in the list.
+theorem TyCtx.foldl_extend_stable
+    (args : List (Var × Type_)) (Γ : TyCtx) (x : Var)
+    (hx : ∀ a ∈ args, a.1 ≠ x) :
+    (args.foldl (fun ctx a => ctx.extend a.1 a.2) Γ) x = Γ x := by
+  induction args generalizing Γ with
+  | nil => rfl
+  | cons a as ih =>
+    simp only [List.foldl_cons]
+    have := ih (Γ.extend a.1 a.2) (fun a' ha' => hx a' (.tail _ ha'))
+    rw [this]
+    have hne := hx a (.head _)
+    simp [TyCtx.extend, beq_iff_eq, Ne.symm hne]
+
 /-! ## Subtyping -/
 
 mutual
@@ -65,6 +79,10 @@ mutual
     | nil  : Type_.SubList [] []
     | cons : Type_.Sub s t → Type_.SubList ss ts → Type_.SubList (s :: ss) (t :: ts)
 end
+
+theorem Type_.SubList.length_eq : Type_.SubList ss ts → ss.length = ts.length
+  | .nil => rfl
+  | .cons _ h => by simp [List.length_cons, h.length_eq]
 
 mutual
   def Type_.join : Type_ → Type_ → Type_
@@ -330,6 +348,10 @@ mutual
       cases h with
       | cons hv hvs => exact .cons (ValHasType_sub hv hs) (ValsHaveTypes_sub hvs hss)
 end
+
+theorem ValsHaveTypes.length_eq : ValsHaveTypes vs ts → vs.length = ts.length
+  | .nil => rfl
+  | .cons _ h => congrArg (· + 1) h.length_eq
 
 end TinyML
 

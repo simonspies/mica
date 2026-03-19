@@ -13,14 +13,18 @@ import Mica.Base.Fresh
 import Mathlib.Data.Finmap
 
 
-
 def checkSpec (S : SpecMap) (e : TinyML.Expr) (s : Spec) : VerifM Unit := do
-  let (fb, argName, body) ← match e with
-    | .fix fb (.named arg) (.some _) _ body => pure (fb, arg, body)
-    | _ => VerifM.fatal "checkSpec: expected single-argument function"
-  let S' := (S.insert' fb s).erase argName
-  Spec.implement s fun argVar => do
-    let (retTy, se) ← compile S' [(argName, argVar)] (TinyML.TyCtx.empty.extend argName s.argTy) body
+  let (fb, argNames, body) ← match e with
+    | .fix fb argBinders _ body => do
+      match extractArgNames argBinders s.args with
+      | .ok names => pure (fb, names, body)
+      | .error msg => VerifM.fatal msg
+    | _ => VerifM.fatal "checkSpec: expected function"
+  let S' := SpecMap.eraseAll argNames (S.insert' fb s)
+  Spec.implement s fun argVars => do
+    let B : Bindings := Bindings.empty ++ (argNames.zip argVars).reverse
+    let Γ := (argNames.zip (s.args.map Prod.snd)).foldl (fun ctx (name, ty) => ctx.extend name ty) TinyML.TyCtx.empty
+    let (retTy, se) ← compile S' B Γ body
     if retTy.sub s.retTy then pure ()
     else VerifM.fatal s!"checkSpec: return type mismatch"
     pure se
@@ -34,88 +38,99 @@ theorem checkSpec_correct (S : SpecMap) (e : TinyML.Expr) (s : Spec)
     wp (e.subst γ) (fun v => s.isPrecondFor v) := by
   intro heval
   cases e with
-  | fix fb xb argTy retTy body =>
-    cases xb with
-    | named arg =>
-      cases argTy with
-      | some at_ =>
-        simp only [checkSpec] at heval
-        have hbody := VerifM.eval_ret (VerifM.eval_bind _ _ _ _ heval)
-        dsimp only at hbody
-        let γ' := (γ.remove' fb).remove' (.named arg)
-        set fval := TinyML.Val.fix fb (.named arg) (.some at_) retTy (body.subst γ')
-        set S' : SpecMap := (SpecMap.insert' S fb s).erase arg
-        simp only [TinyML.Expr.subst]
-        apply wp.func
-        intro v_arg htyped Φ happly
-        set Φ_inv : (TinyML.Val → Prop) → TinyML.Val → Prop := fun P v =>
-          TinyML.ValHasType v s.argTy ∧
-            PredTrans.apply (fun r => TinyML.ValHasType r s.retTy → P r) s.pred
-              (Env.empty.update .value s.argName v)
-        suffices ∀ v P, Φ_inv P v → wp (TinyML.Expr.app (.val fval) (.val v)) P from
-          this v_arg Φ ⟨htyped, happly⟩
-        exact wp.fix' (.some at_) retTy (body.subst γ') Φ_inv (fun ih_rec v_arg P ⟨htyped_arg, happly_arg⟩ => by
-        apply Spec.implement_correct s _ _ _ v_arg _ (wp ((body.subst γ').subst _) P) hswf htyped_arg hbody happly_arg
-        intro argVar st' ρ' hargVar_mem hargVar_sort hargVar_val hbody_eval
-        set γ_body := γ.update' fb fval |>.update' (.named arg) v_arg
-        rw [TinyML.Expr.subst_fix_comp body fb arg γ fval v_arg]
-        have hγ_arg : γ_body arg = some v_arg := by simp [γ_body, TinyML.Subst.update']
+  | fix fb argBinders retTy body =>
+    simp only [checkSpec] at heval
+    -- Case split on extractArgNames result
+    cases hext : extractArgNames argBinders s.args with
+    | error msg =>
+      simp [hext] at heval
+      exact (VerifM.eval_fatal (VerifM.eval_bind _ _ _ _ heval)).elim
+    | ok argNames =>
+      simp [hext] at heval
+      have hbody := VerifM.eval_ret (VerifM.eval_bind _ _ _ _ heval)
+      dsimp only at hbody
+      set bs := argBinders.map Prod.fst
+      let γ' := (γ.remove' fb).removeAll' bs
+      set fval := TinyML.Val.fix fb argBinders retTy (body.subst γ')
+      set S' : SpecMap := SpecMap.eraseAll argNames (S.insert' fb s)
+      simp only [TinyML.Expr.subst]
+      apply wp.func
+      intro vs htyped Φ happly
+      set Φ_inv : (TinyML.Val → Prop) → List TinyML.Val → Prop := fun P vs =>
+        TinyML.ValsHaveTypes vs (s.args.map Prod.snd) ∧
+          PredTrans.apply (fun r => TinyML.ValHasType r s.retTy → P r) s.pred
+            (Spec.argsEnv Env.empty s.args vs)
+      suffices ∀ vs P, Φ_inv P vs → wp (TinyML.Expr.app (.val fval) (vs.map TinyML.Expr.val)) P from
+        this vs Φ ⟨htyped, happly⟩
+      exact wp.fix' (body.subst γ') Φ_inv (fun ih_rec vs P ⟨htyped_args, happly_args⟩ => by
+        -- Rewrite the double substitution into a single one
+        obtain ⟨hlen1, hlen2, hbs_eq⟩ := extractArgNames_spec hext
+        have hlen_nv0 : argNames.length = vs.length := by
+          have := htyped_args.length_eq; simp at this; omega
+        have hlen : bs.length = vs.length := by simp [bs, hbs_eq]; omega
+        rw [TinyML.Expr.subst_fix_comp body fb bs γ fval vs hlen]
+        set γ_body :=  γ.update' fb fval |>.updateAll' bs vs
+        -- Use implement_correct to get into the body
+        apply Spec.implement_correct s _ _ _ vs _ (wp (body.subst γ_body) P) hswf htyped_args hbody happly_args
+        intro argVars st' ρ' hargVars_mem hargVars_sort hargVars_lookup hbody_eval
+        -- Key facts about fval and the spec map
         have isPrecond : s.isPrecondFor fval := by
-          intro v' htyped' Φ' happly'
-          exact ih_rec v' Φ' ⟨htyped', happly'⟩
-        have hS'_sat : S'.satisfiedBy γ_body := by
-          intro y s' hlookup
-          simp only [S'] at hlookup
-          by_cases hya : y = arg
-          · subst hya; simp [Finmap.lookup_erase] at hlookup
-          · rw [Finmap.lookup_erase_ne hya] at hlookup
-            cases hfb : fb with
-            | none =>
-              simp [SpecMap.insert', hfb] at hlookup
-              obtain ⟨f, hγf, hprecond⟩ := hS y s' hlookup
-              refine ⟨f, ?_, hprecond⟩
-              simp [γ_body, TinyML.Subst.update', hfb, TinyML.Subst.update_eq,
-                beq_false_of_ne hya, hγf]
-            | named fx =>
-              simp only [SpecMap.insert', hfb] at hlookup
-              by_cases hyfx : y = fx
-              · subst hyfx
-                rw [Finmap.lookup_insert] at hlookup; simp at hlookup; subst hlookup
-                refine ⟨fval, ?_, isPrecond⟩
-                simp [γ_body, TinyML.Subst.update', hfb, TinyML.Subst.update_eq,
-                  beq_false_of_ne hya]
-              · rw [Finmap.lookup_insert_of_ne _ hyfx] at hlookup
-                obtain ⟨f, hγf, hprecond⟩ := hS y s' hlookup
-                refine ⟨f, ?_, hprecond⟩
-                simp [γ_body, TinyML.Subst.update', hfb, TinyML.Subst.update_eq,
-                  beq_false_of_ne hya, beq_false_of_ne hyfx, hγf]
+          intro vs' htyped' Φ' happly'
+          exact ih_rec vs' Φ' ⟨htyped', happly'⟩
         have hS'wf : S'.wfIn [] :=
-          SpecMap.wfIn_erase (SpecMap.wfIn_insert' hSwf hswf)
-        have hagree : Bindings.agreeOnLinked [(arg, argVar)] ρ' γ_body := by
-          intro x x' hmem
-          simp only [List.lookup] at hmem
-          split at hmem
-          · next heq =>
-            have hxa : x = arg := by simpa using heq
-            subst hxa; simp at hmem; subst hmem
-            exact ⟨hargVar_sort, by simp [hargVar_val, hγ_arg]⟩
-          · simp at hmem
-        have hbwf : Bindings.wf [(arg, argVar)] st'.decls := by
-          intro p hp; simp at hp; subst hp; exact hargVar_mem
-        have hts : Bindings.typedSubst [(arg, argVar)]
-            (TinyML.TyCtx.empty.extend arg s.argTy) γ_body := by
+          SpecMap.wfIn_eraseAll (SpecMap.wfIn_insert' hSwf hswf)
+        have hS'_sat : S'.satisfiedBy γ_body := by
+          -- Simplified using the new lemma
+          have hS_ext : (S.insert' fb s).satisfiedBy (γ.update' fb fval) := by
+            apply SpecMap.satisfiedBy_insert'_update' hS isPrecond
+          have hsat := SpecMap.satisfiedBy_eraseAll_updateAll' hS_ext hlen_nv0
+          -- hsat : (eraseAll argNames (insert' S fb s)).satisfiedBy ((γ.update' fb fval).updateAll' (argNames.map .named) vs)
+          -- γ_body : (γ.update' fb fval).updateAll' bs vs
+          -- and bs = argNames.map .named (from hbs_eq)
+          change (SpecMap.eraseAll argNames (S.insert' fb s)).satisfiedBy ((γ.update' fb fval).updateAll' bs vs)
+          unfold bs; rw [hbs_eq]; exact hsat
+        set Γ := (argNames.zip (s.args.map Prod.snd)).foldl (fun ctx (x : String × TinyML.Type_) => ctx.extend x.1 x.2) TinyML.TyCtx.empty
+        set B : Bindings := Bindings.empty ++ (argNames.zip argVars).reverse
+        have hlen_avs : argNames.length = argVars.length := by
+          have := hargVars_lookup.length_eq
+          have := htyped_args.length_eq; simp at this; omega
+        have hlen_vals : argNames.length = vs.length := by
+          have := htyped_args.length_eq; simp at this; omega
+        have hagree : Bindings.agreeOnLinked B ρ' γ_body := by
+          show Bindings.agreeOnLinked (Bindings.empty ++ (argNames.zip argVars).reverse) ρ'
+            ((γ.update' fb fval).updateAll' bs vs)
+          rw [show Bindings.empty ++ (argNames.zip argVars).reverse =
+              (argNames.zip argVars).reverse ++ Bindings.empty from by simp [Bindings.empty]]
+          unfold bs; rw [hbs_eq]
+          apply Bindings.agreeOnLinked_updateAll' Bindings.empty argNames argVars vs
+            (γ.update' fb fval) ρ'
+          · intro x x' h; simp [Bindings.empty] at h
+          · exact hlen_avs
+          · exact hlen_vals
+          · exact hargVars_sort
+          · exact hargVars_lookup
+        have hbwf : Bindings.wf B st'.decls := by
+          intro ⟨n, v⟩ hp
+          apply hargVars_mem v
+          have hmem : (n, v) ∈ (argNames.zip argVars) := by simp [B, Bindings.empty] at hp; exact hp
+          exact List.of_mem_zip hmem |>.2
+        have hts : Bindings.typedSubst B Γ γ_body := by
+          apply Bindings.typedSubst_of_agreeOnLinked hagree
           intro x x' t hmem hΓ
-          simp only [List.lookup] at hmem
-          split at hmem
-          · next heq =>
-            have hxa : x = arg := by simpa using heq
-            subst hxa; simp at hmem; subst hmem
-            simp [TinyML.TyCtx.extend] at hΓ; subst hΓ
-            exact ⟨v_arg, hγ_arg, htyped_arg⟩
-          · simp at hmem
+          show TinyML.ValHasType (ρ'.lookup .value x'.name) t
+          set args' := argNames.zip (s.args.map Prod.snd)
+          have hfst : args'.map Prod.fst = argNames := by
+            simp [args']; exact List.map_fst_zip (by simp; omega)
+          have hsnd : args'.map Prod.snd = s.args.map Prod.snd := by
+            simp [args']; exact List.map_snd_zip (by simp; omega)
+          exact val_typed_of_last_wins args' argVars vs ρ' TinyML.TyCtx.empty x x' t
+            (by rw [hfst]; exact hlen_avs)
+            (by rw [hfst]; exact hlen_vals)
+            (by rw [hfst]; simp [B, Bindings.empty] at hmem; exact hmem)
+            hΓ hargVars_lookup
+            (by rw [hsnd]; exact htyped_args)
         have hcompile := VerifM.eval_bind _ _ _ _ hbody_eval
-        apply compile_correct body S' [(arg, argVar)]
-          (TinyML.TyCtx.empty.extend arg s.argTy) st' ρ' γ_body _ P
+        apply compile_correct body S' B Γ st' ρ' γ_body _ P
           hcompile hagree hbwf hts hS'_sat hS'wf
         intro result ρ'' st'' retTy' se hΨ hse_wf hse_eval htyped_result
         by_cases hsub : retTy'.sub s.retTy
@@ -126,12 +141,6 @@ theorem checkSpec_correct (S : SpecMap) (e : TinyML.Expr) (s : Spec)
           exact hret' hse_wf (TinyML.ValHasType_sub htyped_result (TinyML.Type_.sub_iff.mp hsub))
         · simp [hsub] at hΨ
           exact (VerifM.eval_fatal (VerifM.eval_bind _ _ _ _ hΨ)).elim)
-      | none =>
-        simp only [checkSpec] at heval
-        exact (VerifM.eval_fatal (VerifM.eval_bind _ _ _ _ heval)).elim
-    | none =>
-      simp only [checkSpec] at heval
-      exact (VerifM.eval_fatal (VerifM.eval_bind _ _ _ _ heval)).elim
   | _ =>
     simp only [checkSpec] at heval
     exact (VerifM.eval_fatal (VerifM.eval_bind _ _ _ _ heval)).elim
