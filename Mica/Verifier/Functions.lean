@@ -22,7 +22,7 @@ def checkSpec (S : SpecMap) (e : TinyML.Expr) (s : Spec) : VerifM Unit := do
     | _ => VerifM.fatal "checkSpec: expected function"
   let S' := SpecMap.eraseAll argNames (S.insert' fb s)
   Spec.implement s fun argVars => do
-    let B : Bindings := (argNames.zip argVars).reverse
+    let B : Bindings := Bindings.empty ++ (argNames.zip argVars).reverse
     let Γ := (argNames.zip (s.args.map Prod.snd)).foldl (fun ctx (name, ty) => ctx.extend name ty) TinyML.TyCtx.empty
     let (retTy, se) ← compile S' B Γ body
     if retTy.sub s.retTy then pure ()
@@ -69,7 +69,7 @@ theorem checkSpec_correct (S : SpecMap) (e : TinyML.Expr) (s : Spec)
           have := htyped_args.length_eq; simp at this; omega
         have hlen : bs.length = vs.length := by simp [bs, hbs_eq]; omega
         rw [TinyML.Expr.subst_fix_comp body fb bs γ fval vs hlen]
-        set γ_body := γ.update' fb fval |>.updateAll' bs vs
+        set γ_body :=  γ.update' fb fval |>.updateAll' bs vs
         -- Use implement_correct to get into the body
         apply Spec.implement_correct s _ _ _ vs _ (wp (body.subst γ_body) P) hswf htyped_args hbody happly_args
         intro argVars st' ρ' hargVars_mem hargVars_sort hargVars_lookup hbody_eval
@@ -90,23 +90,29 @@ theorem checkSpec_correct (S : SpecMap) (e : TinyML.Expr) (s : Spec)
           change (SpecMap.eraseAll argNames (S.insert' fb s)).satisfiedBy ((γ.update' fb fval).updateAll' bs vs)
           unfold bs; rw [hbs_eq]; exact hsat
         set Γ := (argNames.zip (s.args.map Prod.snd)).foldl (fun ctx (x : String × TinyML.Type_) => ctx.extend x.1 x.2) TinyML.TyCtx.empty
-        set B : Bindings := (argNames.zip argVars).reverse
+        set B : Bindings := Bindings.empty ++ (argNames.zip argVars).reverse
         have hlen_avs : argNames.length = argVars.length := by
           have := hargVars_lookup.length_eq
           have := htyped_args.length_eq; simp at this; omega
         have hlen_vals : argNames.length = vs.length := by
           have := htyped_args.length_eq; simp at this; omega
         have hagree : Bindings.agreeOnLinked B ρ' γ_body := by
-          show Bindings.agreeOnLinked (argNames.zip argVars).reverse ρ'
+          show Bindings.agreeOnLinked (Bindings.empty ++ (argNames.zip argVars).reverse) ρ'
             ((γ.update' fb fval).updateAll' bs vs)
-          simp only [bs, hbs_eq]
-          exact Bindings.agreeOnLinked_zip_reverse argNames argVars vs
-            (γ.update' fb fval) ρ' hlen_avs hlen_vals
-            hargVars_sort hargVars_lookup
+          rw [show Bindings.empty ++ (argNames.zip argVars).reverse =
+              (argNames.zip argVars).reverse ++ Bindings.empty from by simp [Bindings.empty]]
+          unfold bs; rw [hbs_eq]
+          apply Bindings.agreeOnLinked_updateAll' Bindings.empty argNames argVars vs
+            (γ.update' fb fval) ρ'
+          · intro x x' h; simp [Bindings.empty] at h
+          · exact hlen_avs
+          · exact hlen_vals
+          · exact hargVars_sort
+          · exact hargVars_lookup
         have hbwf : Bindings.wf B st'.decls := by
           intro ⟨n, v⟩ hp
           apply hargVars_mem v
-          have hmem : (n, v) ∈ (argNames.zip argVars) := List.mem_reverse.mp hp
+          have hmem : (n, v) ∈ (argNames.zip argVars) := by simp [B, Bindings.empty] at hp; exact hp
           exact List.of_mem_zip hmem |>.2
         have hts : Bindings.typedSubst B Γ γ_body := by
           apply Bindings.typedSubst_of_agreeOnLinked hagree
@@ -120,7 +126,7 @@ theorem checkSpec_correct (S : SpecMap) (e : TinyML.Expr) (s : Spec)
           exact val_typed_of_last_wins args' argVars vs ρ' TinyML.TyCtx.empty x x' t
             (by rw [hfst]; exact hlen_avs)
             (by rw [hfst]; exact hlen_vals)
-            (by rw [hfst]; exact hmem)
+            (by rw [hfst]; simp [B, Bindings.empty] at hmem; exact hmem)
             hΓ hargVars_lookup
             (by rw [hsnd]; exact htyped_args)
         have hcompile := VerifM.eval_bind _ _ _ _ hbody_eval

@@ -67,7 +67,7 @@ theorem Spec.checkWf_ok {spec : Spec} {decls : List Var}
   PredTrans.checkWf_ok h
 
 theorem Spec.wfIn_mono {spec : Spec} {decls decls' : List Var}
-    (h : spec.wfIn decls) (hsub : decls ⊆ decls') : spec.wfIn decls' :=
+    (h : spec.wfIn decls) (hsub : decls ⊆ decls') : Spec.wfIn spec decls' :=
   PredTrans.wfIn_mono h (by
     intro x hx; cases List.mem_append.mp hx with
     | inl h => exact List.mem_append_left _ h
@@ -548,7 +548,7 @@ theorem Spec.declareImplArgs_correct :
         (Spec.argsEnv (σ.subst.eval ρ) args vs) ∧
       (∀ v ∈ argVars, v ∈ st'.decls) ∧
       (∀ v ∈ argVars, v.sort = .value) ∧
-      List.Forall₂ (fun av val => ρ'.lookup .value av.name = val) argVars vs := by
+      Terms.Eval ρ' (argVars.map (fun av => .var .value av.name)) vs := by
   intro args
   induction args with
   | nil =>
@@ -670,19 +670,13 @@ theorem Spec.implement_correct (s : Spec) (body : List Var → VerifM (Term .val
   apply hR argVars st'' ρ''
   · intro v hv; exact hdsub' (hmem_decls v hv)
   · exact hsorts
-  · suffices ∀ (avs : List Var) (vals : List TinyML.Val),
-        List.Forall₂ (fun av val => ρ'.lookup .value av.name = val) avs vals →
-        (∀ v ∈ avs, v ∈ st'.decls) →
-        (∀ v ∈ avs, v.sort = .value) →
-        List.Forall₂ (fun av val => ρ''.lookup .value av.name = val) avs vals by
-      exact this argVars vs hlookups hmem_decls hsorts
-    intro avs vals hf
-    induction hf with
-    | nil => intros; exact .nil
-    | cons hlk _ ih =>
-      intro hmem hsrt
-      constructor
-      · have := hragree' _ (hmem _ (.head ..))
-        rw [hsrt _ (.head ..)] at this; rw [← this]; exact hlk
-      · exact ih (fun v hv => hmem v (.tail _ hv)) (fun v hv => hsrt v (.tail _ hv))
+  · apply Terms.Eval.lookup_var
+    apply Terms.Eval.env_agree (ρ := ρ')
+    · intro t ht; obtain ⟨av, hav, rfl⟩ := List.mem_map.mp ht
+      intro w hw; simp [Term.freeVars] at hw; subst hw
+      have hav_eq : av = ⟨av.name, .value⟩ := by
+        have h := hsorts av hav; cases av; simp_all
+      exact hav_eq ▸ hmem_decls av hav
+    · exact hragree'
+    · exact hlookups
   · exact hbody_eval

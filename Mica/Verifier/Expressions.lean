@@ -130,33 +130,6 @@ theorem compileOp_eval {op : TinyML.BinOp} {sl sr : Term .value} {ρ : Env}
 
 /-! ### Compiler and Top-Level Verifier -/
 
-/-- Build a `Term .vallist` from a list of `(Type_ × Term .value)` pairs. -/
-def pairsToValList : List (TinyML.Type_ × Term .value) → Term .vallist
-  | [] => .const .vnil
-  | (_, t) :: rest => .binop .vcons t (pairsToValList rest)
-
-@[simp] theorem pairsToValList_nil : pairsToValList [] = .const .vnil := rfl
-@[simp] theorem pairsToValList_cons (t : TinyML.Type_) (s : Term .value) (rest : List (TinyML.Type_ × Term .value)) :
-    pairsToValList ((t, s) :: rest) = .binop .vcons s (pairsToValList rest) := rfl
-
-theorem pairsToValList_wfIn {pairs : List (TinyML.Type_ × Term .value)} {Δ : VarCtx}
-    (h : ∀ p ∈ pairs, (p.2).wfIn Δ) : (pairsToValList pairs).wfIn Δ := by
-  induction pairs with
-  | nil => intro w hw; simp [pairsToValList, Term.freeVars] at hw
-  | cons p rest ih =>
-    simp only [pairsToValList]
-    intro w hw; simp [Term.freeVars] at hw
-    rcases hw with hw | hw
-    · exact h p (.head _) w hw
-    · exact ih (fun q hq => h q (.tail _ hq)) w hw
-
-theorem pairsToValList_eval {pairs : List (TinyML.Type_ × Term .value)} {vs : List TinyML.Val} {ρ : Env}
-    (h : List.Forall₂ (fun p v => p.2.eval ρ = v) pairs vs) :
-    (pairsToValList pairs).eval ρ = vs := by
-  induction h with
-  | nil => simp [pairsToValList, Term.eval, Const.denote]
-  | cons hhead _ ih => simp [pairsToValList, Term.eval, BinOp.eval, hhead, ih]
-
 mutual
   def compile (S : SpecMap) (B : Bindings) (Γ : TinyML.TyCtx) : TinyML.Expr → VerifM (TinyML.Type_ × Term .value)
     | .val (.int n)  => pure (.int,  .unop .ofInt  (.const (.i n)))
@@ -214,7 +187,7 @@ mutual
         | none => VerifM.fatal s!"no spec for function {f}"
     | .tuple es => do
         let pairs ← compileExprs S B Γ es
-        pure (.tuple (pairs.map Prod.fst), .unop .ofValList (pairsToValList pairs))
+        pure (.tuple (pairs.map Prod.fst), .unop .ofValList (Terms.toValList (pairs.map Prod.snd)))
     | .val (.inl _) | .val (.inr _) | .val (.loc _)
     | .val (.fix _ _ _ _) | .val (.tuple _)
     | .app _ _ | .fix _ _ _ _ | .ref _ | .deref _ | .store _ _ => VerifM.fatal "unsupported expression"
@@ -528,8 +501,8 @@ theorem compile_correct (e : TinyML.Expr) (S : SpecMap) (B : Bindings) (Γ : Tin
           TinyML.ValsHaveTypes_sub htyping_args hsub_ty
         apply hisPrecond vs htyped
         -- Transport happly from argsEnv (id.subst.eval ρ_args) to argsEnv Env.empty
-        have heval_sargs_map : sargs.map (fun p => p.2.eval ρ_args) = vs :=
-          Forall₂.eval_map heval_sargs
+        have heval_sargs_map : sargs.map (fun p => p.2.eval ρ_args) = vs := by
+          have h := heval_sargs.map_eval; simp [List.map_map] at h; exact h
         rw [heval_sargs_map] at happly
         apply PredTrans.apply_env_agree hwf_pred _ happly
         apply Spec.argsEnv_agreeOn
@@ -545,12 +518,15 @@ theorem compile_correct (e : TinyML.Expr) (S : SpecMap) (B : Bindings) (Γ : Tin
     refine compileExprs_correct es S B Γ st ρ γ _ _ (VerifM.eval.decls_grow ρ heval_es) hagree hbwf hts hspec hSwf ?_
     intro vs ρ' st' pairs hΨ hwf_pairs heval_pairs htyping
     obtain ⟨hdecls, hagreeOn, hΨ⟩ := hΨ
+    obtain hdecls := hdecls
     obtain hΨ := VerifM.eval_ret hΨ
-    have heval_tuple : (Term.unop .ofValList (pairsToValList pairs)).eval ρ' = TinyML.Val.tuple vs := by
-      simp [Term.eval, UnOp.eval, pairsToValList_eval heval_pairs]
-    have hwf_tuple : (Term.unop UnOp.ofValList (pairsToValList pairs)).wfIn st'.decls := by
-      intro w hw; simp [Term.freeVars] at hw; exact pairsToValList_wfIn hwf_pairs w hw
-    exact hpost (TinyML.Val.tuple vs) ρ' st' (.tuple (pairs.map Prod.fst)) (.unop .ofValList (pairsToValList pairs))
+    have heval_tuple : (Term.unop .ofValList (Terms.toValList (pairs.map Prod.snd))).eval ρ' = TinyML.Val.tuple vs := by
+      simp [Term.eval, UnOp.eval, Terms.toValList_eval heval_pairs]
+    have hwf_tuple : (Term.unop UnOp.ofValList (Terms.toValList (pairs.map Prod.snd))).wfIn st'.decls := by
+      intro w hw; simp [Term.freeVars] at hw; exact Terms.toValList_wfIn (fun t ht => by
+        obtain ⟨p, hp, rfl⟩ := List.mem_map.mp ht
+        exact hwf_pairs p hp) w hw
+    exact hpost (TinyML.Val.tuple vs) ρ' st' (.tuple (pairs.map Prod.fst)) (.unop .ofValList (Terms.toValList (pairs.map Prod.snd)))
       hΨ hwf_tuple heval_tuple (.tuple htyping)
   | fix _ _ _ _ | ref _ | deref _ | store _ _ =>
     simp only [compile] at heval
@@ -563,7 +539,7 @@ theorem compileExprs_correct (es : List TinyML.Expr) (S : SpecMap) (B : Bindings
     S.satisfiedBy γ → S.wfIn [] →
     (∀ vs ρ' st' pairs, Ψ pairs st' ρ' →
       (∀ p ∈ pairs, (p.2).wfIn st'.decls) →
-      List.Forall₂ (fun p v => p.2.eval ρ' = v) pairs vs →
+      Terms.Eval ρ' (pairs.map Prod.snd) vs →
       TinyML.ValsHaveTypes vs (pairs.map Prod.fst) → Φ vs) →
     wps (es.map (TinyML.Expr.subst γ)) Φ := by
   intro heval hagree hbwf hts hspec hSwf hpost
@@ -595,10 +571,11 @@ theorem compileExprs_correct (es : List TinyML.Expr) (S : SpecMap) (B : Bindings
       rcases hp with rfl | hp
       · exact hse_wf
       · exact fun v hv => hdecls_e (hwf_rest p hp v hv)
-    have heval_cons : List.Forall₂ (fun p v => p.2.eval ρ' = v) ((te, se) :: rest_pairs) (v :: vs) := by
-      constructor
-      · exact heval_se
-      · exact Forall₂.eval_env_agree hwf_rest hagreeOn_e heval_rest
+    have heval_cons : Terms.Eval ρ' (((te, se) :: rest_pairs).map Prod.snd) (v :: vs) :=
+      Terms.Eval.cons heval_se
+        (heval_rest.env_agree
+          (fun t ht => by obtain ⟨p, hp, rfl⟩ := List.mem_map.mp ht; exact hwf_rest p hp)
+          hagreeOn_e)
     exact hpost (v :: vs) ρ' st' ((te, se) :: rest_pairs)
       hΨ_e hwf_cons heval_cons (.cons htyping_e htyping_vs)
 
