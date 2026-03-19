@@ -300,6 +300,18 @@ theorem SpecMap.satisfiedBy_insert {S : SpecMap} {γ : TinyML.Subst}
   · rw [Finmap.lookup_insert_of_ne _ hyx] at hlookup
     exact hS y s' hlookup
 
+theorem SpecMap.satisfiedBy_insert_update {S : SpecMap} {γ : TinyML.Subst}
+    {x : TinyML.Var} {v : TinyML.Val} {spec : Spec}
+    (hS : S.satisfiedBy γ) (hf : spec.isPrecondFor v) :
+    SpecMap.satisfiedBy (Finmap.insert x spec S) (γ.update x v) := by
+  intro y s' hlookup
+  by_cases hyx : y = x
+  · subst hyx; rw [Finmap.lookup_insert] at hlookup; simp at hlookup; subst hlookup
+    exact ⟨v, by simp [TinyML.Subst.update], hf⟩
+  · rw [Finmap.lookup_insert_of_ne _ hyx] at hlookup
+    obtain ⟨f, hγf, hprecond⟩ := hS y s' hlookup
+    exact ⟨f, by simp [TinyML.Subst.update, beq_false_of_ne hyx, hγf], hprecond⟩
+
 theorem SpecMap.wfIn_insert {S : SpecMap} {x : TinyML.Var} {spec : Spec} {decls : List Var}
     (hS : S.wfIn decls) (hs : spec.wfIn decls) : SpecMap.wfIn (Finmap.insert x spec S) decls := by
   intro y s' hlookup
@@ -317,11 +329,34 @@ theorem SpecMap.satisfiedBy_insert' {S : SpecMap} {γ : TinyML.Subst}
   | named x => exact SpecMap.satisfiedBy_insert hS (hγ x rfl) hf
   | none => exact hS
 
+theorem SpecMap.satisfiedBy_insert'_update' {S : SpecMap} {γ : TinyML.Subst}
+    {b : TinyML.Binder} {v : TinyML.Val} {spec : Spec}
+    (hS : S.satisfiedBy γ) (hf : spec.isPrecondFor v) :
+    SpecMap.satisfiedBy (S.insert' b spec) (TinyML.Subst.update' b v γ) := by
+  cases b with
+  | named x => exact SpecMap.satisfiedBy_insert_update hS hf
+  | none => exact hS
+
 theorem SpecMap.wfIn_insert' {S : SpecMap} {b : TinyML.Binder} {spec : Spec} {decls : List Var}
     (hS : S.wfIn decls) (hs : spec.wfIn decls) : SpecMap.wfIn (S.insert' b spec) decls := by
   cases b with
   | named x => exact SpecMap.wfIn_insert hS hs
   | none => exact hS
+
+theorem SpecMap.satisfiedBy_eraseAll_updateAll' {keys : List String} {S : SpecMap} {γ : TinyML.Subst}
+    {vs : List TinyML.Val} (hS : S.satisfiedBy γ) (hlen : keys.length = vs.length) :
+    (SpecMap.eraseAll keys S).satisfiedBy (γ.updateAll' (keys.map TinyML.Binder.named) vs) := by
+  intro y s hlookup
+  have hy_notin : y ∉ keys := by
+    intro hmem
+    have := SpecMap.eraseAll_lookup_none hmem (S := S)
+    rw [this] at hlookup; exact absurd hlookup (by simp)
+  have hγ_eq : (γ.updateAll' (keys.map TinyML.Binder.named) vs) y = γ y := by
+    rw [TinyML.Subst.updateAll'_eq _ _ _ _ (by simp; omega)]
+    rw [findVal_none_of_not_mem keys vs y (by omega) hy_notin]
+  rw [hγ_eq]
+  apply hS
+  rwa [SpecMap.eraseAll_lookup_of_notin hy_notin] at hlookup
 
 theorem SpecMap.empty_satisfiedBy (γ : TinyML.Subst) :
     SpecMap.satisfiedBy (∅ : SpecMap) γ := by
@@ -343,17 +378,6 @@ theorem SpecMap.satisfiedBy_erase {S : SpecMap} {γ : TinyML.Subst} {x : TinyML.
 -- ---------------------------------------------------------------------------
 -- Spec correctness
 -- ---------------------------------------------------------------------------
-
-private theorem argVars_cons_perm {name : String}
-    {rest : List (String × TinyML.Type_)} {dom : List Var} {x : Var}
-    (hx : x ∈ (⟨name, .value⟩ :: Spec.argVars rest ++ dom)) :
-    x ∈ (Spec.argVars rest ++ ⟨name, .value⟩ :: dom) := by
-  simp only [Spec.argVars, List.cons_append, List.mem_cons,
-    List.mem_append, List.mem_map] at hx ⊢
-  rcases hx with rfl | ⟨a, ha, rfl⟩ | hmem
-  · exact Or.inr (Or.inl rfl)
-  · exact Or.inl ⟨a, ha, rfl⟩
-  · exact Or.inr (Or.inr hmem)
 
 /-- `argsEnv` preserves `agreeOn`: if two base envs agree on `Δ`,
     then after applying the same updates, they agree on `argVars args ++ Δ`. -/

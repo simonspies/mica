@@ -76,27 +76,6 @@ def Program.verify (prog : TinyML.Program) : Strategy Outcome :=
 /-! ## Correctness -/
 
 
-theorem SpecMap.satisfiedBy_insert_update {S : SpecMap} {γ : TinyML.Subst}
-    {x : TinyML.Var} {v : TinyML.Val} {spec : Spec}
-    (hS : S.satisfiedBy γ) (hf : spec.isPrecondFor v) :
-    SpecMap.satisfiedBy (Finmap.insert x spec S) (γ.update x v) := by
-  intro y s' hlookup
-  by_cases hyx : y = x
-  · subst hyx; rw [Finmap.lookup_insert] at hlookup; simp at hlookup; subst hlookup
-    exact ⟨v, by simp [TinyML.Subst.update], hf⟩
-  · rw [Finmap.lookup_insert_of_ne _ hyx] at hlookup
-    obtain ⟨f, hγf, hprecond⟩ := hS y s' hlookup
-    exact ⟨f, by simp [TinyML.Subst.update, beq_false_of_ne hyx, hγf], hprecond⟩
-
-theorem SpecMap.satisfiedBy_insert'_update' {S : SpecMap} {γ : TinyML.Subst}
-    {b : TinyML.Binder} {v : TinyML.Val} {spec : Spec}
-    (hS : S.satisfiedBy γ) (hf : spec.isPrecondFor v) :
-    SpecMap.satisfiedBy (S.insert' b spec) (TinyML.Subst.update' b v γ) := by
-  cases b with
-  | named x => exact SpecMap.satisfiedBy_insert_update hS hf
-  | none => exact hS
-
-
 theorem Decl.checkExpr_correct (S : SpecMap) (d : TinyML.Decl TinyML.Expr) (γ : TinyML.Subst)
     (hS : S.satisfiedBy γ) (hSwf : S.wfIn [])
     (st : TransState) (ρ : Env)

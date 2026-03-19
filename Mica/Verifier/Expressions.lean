@@ -157,27 +157,6 @@ theorem pairsToValList_eval {pairs : List (TinyML.Type_ × Term .value)} {vs : L
   | nil => simp [pairsToValList, Term.eval, Const.denote]
   | cons hhead _ ih => simp [pairsToValList, Term.eval, BinOp.eval, hhead, ih]
 
-private theorem forall₂_eval_map
-    {pairs : List (TinyML.Type_ × Term .value)} {vs : List TinyML.Val} {ρ : Env}
-    (h : List.Forall₂ (fun p v => p.2.eval ρ = v) pairs vs) :
-    pairs.map (fun p => p.2.eval ρ) = vs := by
-  induction h with
-  | nil => rfl
-  | cons h _ ih => simp [h, ih]
-
-private theorem forall₂_eval_env_agree
-    {pairs : List (TinyML.Type_ × Term .value)} {vs : List TinyML.Val} {ρ ρ' : Env} {Δ : VarCtx}
-    (hwf : ∀ p ∈ pairs, (p.2).wfIn Δ)
-    (hagree : Env.agreeOn Δ ρ ρ')
-    (h : List.Forall₂ (fun p v => p.2.eval ρ = v) pairs vs) :
-    List.Forall₂ (fun p v => p.2.eval ρ' = v) pairs vs := by
-  induction h with
-  | nil => exact .nil
-  | @cons p v ps vs' hpv _ ih =>
-    constructor
-    · rw [Term.eval_env_agree (hwf p (.head _)) (Env.agreeOn_symm hagree)]; exact hpv
-    · exact ih (fun q hq => hwf q (.tail _ hq))
-
 mutual
   def compile (S : SpecMap) (B : Bindings) (Γ : TinyML.TyCtx) : TinyML.Expr → VerifM (TinyML.Type_ × Term .value)
     | .val (.int n)  => pure (.int,  .unop .ofInt  (.const (.i n)))
@@ -550,7 +529,7 @@ theorem compile_correct (e : TinyML.Expr) (S : SpecMap) (B : Bindings) (Γ : Tin
         apply hisPrecond vs htyped
         -- Transport happly from argsEnv (id.subst.eval ρ_args) to argsEnv Env.empty
         have heval_sargs_map : sargs.map (fun p => p.2.eval ρ_args) = vs :=
-          forall₂_eval_map heval_sargs
+          Forall₂.eval_map heval_sargs
         rw [heval_sargs_map] at happly
         apply PredTrans.apply_env_agree hwf_pred _ happly
         apply Spec.argsEnv_agreeOn
@@ -619,7 +598,7 @@ theorem compileExprs_correct (es : List TinyML.Expr) (S : SpecMap) (B : Bindings
     have heval_cons : List.Forall₂ (fun p v => p.2.eval ρ' = v) ((te, se) :: rest_pairs) (v :: vs) := by
       constructor
       · exact heval_se
-      · exact forall₂_eval_env_agree hwf_rest hagreeOn_e heval_rest
+      · exact Forall₂.eval_env_agree hwf_rest hagreeOn_e heval_rest
     exact hpost (v :: vs) ρ' st' ((te, se) :: rest_pairs)
       hΨ_e hwf_cons heval_cons (.cons htyping_e htyping_vs)
 

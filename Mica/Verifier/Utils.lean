@@ -122,6 +122,77 @@ theorem not_mem_of_lookup_zip_reverse_none
   have := h _ hmem'
   simp [hni] at this
 
+theorem argVars_cons_perm {name : String}
+    {rest : List (String × TinyML.Type_)} {dom : List Var} {x : Var}
+    (hx : x ∈ (⟨name, .value⟩ :: rest.map (fun (name, _) => ⟨name, .value⟩) ++ dom)) :
+    x ∈ (rest.map (fun (name, _) => ⟨name, .value⟩) ++ ⟨name, .value⟩ :: dom) := by
+  simp only [List.cons_append, List.mem_cons,
+    List.mem_append, List.mem_map] at hx ⊢
+  rcases hx with rfl | ⟨a, ha, rfl⟩ | hmem
+  · exact Or.inr (Or.inl rfl)
+  · exact Or.inl ⟨a, ha, rfl⟩
+  · exact Or.inr (Or.inr hmem)
+
+/-- Extract argument names from binders, pairing with spec arg info.
+    Requires exact length match. -/
+def extractArgNames : List (TinyML.Binder × Option TinyML.Type_) → List (String × TinyML.Type_) →
+    Except String (List String)
+  | [], [] => .ok []
+  | (.named x, _) :: rest, _ :: specRest => do
+    let tail ← extractArgNames rest specRest
+    .ok (x :: tail)
+  | _, _ => .error "argument mismatch"
+
+theorem extractArgNames_spec {argBinders : List (TinyML.Binder × Option TinyML.Type_)}
+    {specArgs : List (String × TinyML.Type_)} {names : List String}
+    (h : extractArgNames argBinders specArgs = .ok names) :
+    names.length = specArgs.length ∧
+    argBinders.length = specArgs.length ∧
+    argBinders.map Prod.fst = names.map TinyML.Binder.named := by
+  induction specArgs generalizing argBinders names with
+  | nil =>
+    cases argBinders with
+    | nil => simp [extractArgNames] at h; subst h; simp
+    | cons _ _ => simp [extractArgNames] at h
+  | cons sa sas ih =>
+    cases argBinders with
+    | nil => simp [extractArgNames] at h
+    | cons ab abs =>
+      obtain ⟨b, ty⟩ := ab
+      cases b with
+      | none => simp [extractArgNames] at h
+      | named x =>
+        unfold extractArgNames at h
+        cases hrec : extractArgNames abs sas with
+        | error => rw [hrec] at h; exact absurd h (by intro hc; cases hc)
+        | ok tail =>
+          rw [hrec] at h
+          have h' : names = x :: tail := by cases h; rfl
+          subst h'
+          obtain ⟨h1, h2, h3⟩ := ih hrec
+          exact ⟨by simp [h1], by simp [h2], by simp [h3]⟩
+
+theorem Forall₂.eval_map
+    {pairs : List (TinyML.Type_ × Term .value)} {vs : List TinyML.Val} {ρ : Env}
+    (h : List.Forall₂ (fun p v => p.2.eval ρ = v) pairs vs) :
+    pairs.map (fun p => p.2.eval ρ) = vs := by
+  induction h with
+  | nil => rfl
+  | cons h _ ih => simp [h, ih]
+
+theorem Forall₂.eval_env_agree
+    {pairs : List (TinyML.Type_ × Term .value)} {vs : List TinyML.Val} {ρ ρ' : Env} {Δ : VarCtx}
+    (hwf : ∀ p ∈ pairs, (p.2).wfIn Δ)
+    (hagree : Env.agreeOn Δ ρ ρ')
+    (h : List.Forall₂ (fun p v => p.2.eval ρ = v) pairs vs) :
+    List.Forall₂ (fun p v => p.2.eval ρ' = v) pairs vs := by
+  induction h with
+  | nil => exact .nil
+  | @cons p v ps vs' hpv _ ih =>
+    constructor
+    · rw [Term.eval_env_agree (hwf p (.head _)) (Env.agreeOn_symm hagree)]; exact hpv
+    · exact ih (fun q hq => hwf q (.tail _ hq))
+
 -- For lists with "last wins" semantics: if the reversed-zip lookup finds x' at x,
 -- and the foldl-Γ lookup finds type t at x, and Forall₂ relates vars to vals
 -- with ValsHaveTypes, then the value at x' has type t.

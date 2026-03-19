@@ -13,45 +13,6 @@ import Mica.Base.Fresh
 import Mathlib.Data.Finmap
 
 
-/-- Extract argument names from binders, pairing with spec arg info.
-    Requires exact length match. -/
-private def extractArgNames : List (TinyML.Binder × Option TinyML.Type_) → List (String × TinyML.Type_) →
-    Except String (List String)
-  | [], [] => .ok []
-  | (.named x, _) :: rest, _ :: specRest => do
-    let tail ← extractArgNames rest specRest
-    .ok (x :: tail)
-  | _, _ => .error "checkSpec: argument mismatch"
-
-private theorem extractArgNames_spec {argBinders : List (TinyML.Binder × Option TinyML.Type_)}
-    {specArgs : List (String × TinyML.Type_)} {names : List String}
-    (h : extractArgNames argBinders specArgs = .ok names) :
-    names.length = specArgs.length ∧
-    argBinders.length = specArgs.length ∧
-    argBinders.map Prod.fst = names.map TinyML.Binder.named := by
-  induction specArgs generalizing argBinders names with
-  | nil =>
-    cases argBinders with
-    | nil => simp [extractArgNames] at h; subst h; simp
-    | cons _ _ => simp [extractArgNames] at h
-  | cons sa sas ih =>
-    cases argBinders with
-    | nil => simp [extractArgNames] at h
-    | cons ab abs =>
-      obtain ⟨b, ty⟩ := ab
-      cases b with
-      | none => simp [extractArgNames] at h
-      | named x =>
-        unfold extractArgNames at h
-        cases hrec : extractArgNames abs sas with
-        | error => rw [hrec] at h; exact absurd h (by intro hc; cases hc)
-        | ok tail =>
-          rw [hrec] at h
-          have h' : names = x :: tail := by cases h; rfl
-          subst h'
-          obtain ⟨h1, h2, h3⟩ := ih hrec
-          exact ⟨by simp [h1], by simp [h2], by simp [h3]⟩
-
 def checkSpec (S : SpecMap) (e : TinyML.Expr) (s : Spec) : VerifM Unit := do
   let (fb, argNames, body) ← match e with
     | .fix fb argBinders _ body => do
@@ -119,42 +80,15 @@ theorem checkSpec_correct (S : SpecMap) (e : TinyML.Expr) (s : Spec)
         have hS'wf : S'.wfIn [] :=
           SpecMap.wfIn_eraseAll (SpecMap.wfIn_insert' hSwf hswf)
         have hS'_sat : S'.satisfiedBy γ_body := by
-          intro y s' hlookup
-          -- y is in S' = eraseAll argNames (insert' S fb s)
-          -- so y ∉ argNames (erased) and y is in insert' S fb s
-          -- Since y ∉ argNames and bs = argNames.map .named, updateAll' doesn't touch y
-          have hy_notin : y ∉ argNames := by
-            intro hmem
-            have := SpecMap.eraseAll_lookup_none hmem (S := S.insert' fb s)
-            rw [this] at hlookup; exact absurd hlookup (by simp)
-          have hlen_nv : argNames.length = vs.length := by
-            have := htyped_args.length_eq; simp at this; omega
-          have hγ_body_y : γ_body y = (γ.update' fb fval) y := by
-            show ((γ.update' fb fval).updateAll' bs vs) y = _
-            simp only [bs, hbs_eq]
-            rw [TinyML.Subst.updateAll'_eq _ _ _ _ (by simp; omega)]
-            rw [findVal_none_of_not_mem argNames vs y (by omega) hy_notin]
-          -- Now case split on whether y = fb name
-          have hlookup' : (S.insert' fb s).lookup y = some s' := by
-            rwa [← SpecMap.eraseAll_lookup_of_notin hy_notin]
-          cases hfb : fb with
-          | none =>
-            simp [SpecMap.insert', hfb] at hlookup'
-            obtain ⟨f, hγf, hprecond⟩ := hS y s' hlookup'
-            refine ⟨f, ?_, hprecond⟩
-            rw [hγ_body_y]; simp [TinyML.Subst.update', hfb, hγf]
-          | named fx =>
-            simp only [SpecMap.insert', hfb] at hlookup'
-            by_cases hyfx : y = fx
-            · subst hyfx
-              rw [Finmap.lookup_insert] at hlookup'; simp at hlookup'; subst hlookup'
-              refine ⟨fval, ?_, isPrecond⟩
-              rw [hγ_body_y]; simp [TinyML.Subst.update', hfb, TinyML.Subst.update_eq]
-            · rw [Finmap.lookup_insert_of_ne _ hyfx] at hlookup'
-              obtain ⟨f, hγf, hprecond⟩ := hS y s' hlookup'
-              refine ⟨f, ?_, hprecond⟩
-              rw [hγ_body_y]
-              simp [TinyML.Subst.update', hfb, TinyML.Subst.update_eq, beq_false_of_ne hyfx, hγf]
+          -- Simplified using the new lemma
+          have hS_ext : (S.insert' fb s).satisfiedBy (γ.update' fb fval) := by
+            apply SpecMap.satisfiedBy_insert'_update' hS isPrecond
+          have hsat := SpecMap.satisfiedBy_eraseAll_updateAll' hS_ext hlen_nv0
+          -- hsat : (eraseAll argNames (insert' S fb s)).satisfiedBy ((γ.update' fb fval).updateAll' (argNames.map .named) vs)
+          -- γ_body : (γ.update' fb fval).updateAll' bs vs
+          -- and bs = argNames.map .named (from hbs_eq)
+          change (SpecMap.eraseAll argNames (S.insert' fb s)).satisfiedBy ((γ.update' fb fval).updateAll' bs vs)
+          unfold bs; rw [hbs_eq]; exact hsat
         set Γ := (argNames.zip (s.args.map Prod.snd)).foldl (fun ctx (x : String × TinyML.Type_) => ctx.extend x.1 x.2) TinyML.TyCtx.empty
         set B : Bindings := (argNames.zip argVars).reverse
         have hlen_avs : argNames.length = argVars.length := by
