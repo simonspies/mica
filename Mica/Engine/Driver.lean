@@ -25,6 +25,12 @@ def preamble : String := s!"
 ))
 (declare-const unit_val Other)
 
+;; division and modulo with zero-divisor semantics matching Lean
+(define-fun zdiv ((a Int) (b Int)) Int
+  (ite (= b 0) 0 (div a b)))
+(define-fun zmod ((a Int) (b Int)) Int
+  (ite (= b 0) a (mod a b)))
+
 ;; verification
 "
 

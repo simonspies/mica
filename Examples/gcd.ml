@@ -6,10 +6,11 @@ let rec gcd (a: int) (b: int) : int =
   bind (isint y) @@ fun b ->
   assert (b >= 0);
   assert (a >= 0);
+  assert (a + b > 0);
   ret (fun v ->
     bind (isint v) @@ fun r ->
-    assert (r >= 0);
+    assert (r >= 1);
     assert (r <= a + b);
     ret ())]
 ;;
-let _ = assert (gcd 12 8 >= 0)
+let _ = assert (gcd 12 8 >= 1)
