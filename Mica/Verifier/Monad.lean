@@ -37,6 +37,8 @@ inductive VerifM : Type → Type 1 where
   /-- Look up an atom in the assertion context.
       Returns `some t` if a matching assertion is found, `none` otherwise. -/
   | resolve : Atom τ → VerifM (Option (Term τ))
+  /-- Read the current assertion context. -/
+  | ctx : (List Formula → α) → VerifM α
   /-- Run a scoped computation: declarations and assertions from the body
       are discarded after it completes. Only the return value is kept. -/
   | seq : VerifM Unit → VerifM β → VerifM β
@@ -148,6 +150,8 @@ def VerifM.translate :
   | .failed msg, st, k => k (.error (.failed msg)) st
   | .all items, st, k => translateAll items st k
   | .any items, st, k => translateAny items st k
+  | .ctx f, st, k =>
+      k (.ok (f st.asserts)) st
   | .resolve pred, st, k =>
       k (.ok (pred.resolve st.asserts)) st
   | .seq m m2, st, k =>
@@ -171,6 +175,7 @@ def VerifM.eval_rec : VerifM α → TransState → Env → (α → TransState �
   | .failed _, _, _, _ => False
   | .all items, st, ρ, P => ∀ a ∈ items, P a st ρ
   | .any items, st, ρ, P => ∃ a ∈ items, P a st ρ
+  | .ctx f, st, ρ, P => P (f st.asserts) st ρ
   | .resolve pred, st, ρ, P => P (pred.resolve st.asserts) st ρ
   | .seq m m2, st, ρ, P =>
       m.eval_rec st ρ (fun () _ _ => True) ∧ m2.eval_rec st ρ P
@@ -207,6 +212,8 @@ theorem VerifM.eval_rec.mono' {m : VerifM α} (ρ : Env) (st : TransState) (h : 
   | any items =>
     obtain ⟨a, ha, hp⟩ := h
     exact ⟨a, ha, hPQ _ _ _ (List.Subset.refl _) (Env.agreeOn_refl) hp⟩
+  | ctx =>
+    exact hPQ _ _ _ (List.Subset.refl _) (Env.agreeOn_refl) h
   | resolve =>
     exact hPQ _ _ _ (List.Subset.refl _) (Env.agreeOn_refl) h
   | seq m m2 ihm ihf =>
@@ -275,6 +282,9 @@ theorem VerifM.eval_rec_preserves_wf (m : VerifM α) (st : TransState) (ρ: Env)
     simp only [VerifM.eval_rec] at h ⊢
     obtain ⟨a, ha, hp⟩ := h
     exact ⟨a, ha, g, hwf, hp⟩
+  | ctx =>
+    simp only [VerifM.eval_rec] at h ⊢
+    exact ⟨g, hwf, h⟩
   | resolve =>
     simp only [VerifM.eval_rec] at h ⊢
     exact ⟨g, hwf, h⟩
@@ -389,6 +399,9 @@ theorem VerifM.translate_eval_rec (m : VerifM α) (st : TransState) (ρ: Env)
     simp only [VerifM.translate] at h
     obtain ⟨a, ha, Δ', heval⟩ := translateAny_eval items st f hf Δ h
     exact ⟨a, ha, _, heval⟩
+  | ctx f =>
+    simp only [VerifM.translate] at h
+    exact ⟨_, h⟩
   | resolve pred =>
     simp only [VerifM.translate] at h
     exact ⟨_, h⟩
@@ -502,6 +515,14 @@ theorem VerifM.eval_any {items : List α} {st : TransState} {ρ : Env}
     ∃ a ∈ items, Q a st ρ :=
   let ⟨a, ha, _, _, hq⟩ := h.2.2; ⟨a, ha, hq⟩
 
+
+theorem VerifM.eval_ctx {f : List Formula → α} {st : TransState} {ρ : Env}
+    {Q : α → TransState → Env → Prop}
+    (h : VerifM.eval (.ctx f) st ρ Q) :
+    Q (f st.asserts) st ρ
+    ∧ st.holdsFor ρ
+    ∧ st.asserts.wfIn st.decls :=
+  ⟨h.2.2.2.2, h.2.1, h.1.assertsWf⟩
 
 theorem VerifM.eval_resolve {pred : Atom τ} {st : TransState} {ρ : Env}
     {Q : Option (Term τ) → TransState → Env → Prop}
