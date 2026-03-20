@@ -23,8 +23,9 @@ inductive VerifM : Type → Type 1 where
   | decl : Option String → Srt → VerifM Var
   /-- Add a formula to the assertion context (permanent, no check). -/
   | assume : Formula → VerifM Unit
-  /-- Assert-and-check: bracket, assert ¬φ, check-sat, expect unsat. -/
-  | assert : Formula → VerifM Unit
+  /-- Check whether φ is provable from the current context.
+      Returns `true` if UNSAT (provable), `false` otherwise. Never fails. -/
+  | check : Formula → VerifM Bool
   /-- Abort with a fatal error. -/
   | fatal : String → VerifM α
   /-- Abort with a recoverable failure. -/
@@ -42,6 +43,11 @@ inductive VerifM : Type → Type 1 where
 instance : Monad VerifM where
   pure := VerifM.ret
   bind := VerifM.bind
+
+/-- Assert-and-check: check φ is provable, fail if not. -/
+def VerifM.assert (φ : Formula) : VerifM Unit := do
+  if ← VerifM.check φ then pure ()
+  else VerifM.failed s!"assertion failed"
 
 /-- Assume all formulas in a list via `VerifM.assume`. -/
 def VerifM.assumeAll : List Formula → VerifM Unit
@@ -133,15 +139,13 @@ def VerifM.translate :
   | .assume φ, st, k =>
       ScopedM.assert φ (fun () =>
         k (.ok ()) { st with asserts := φ :: st.asserts })
-  | .assert φ, st, k =>
+  | .check φ, st, k =>
       .bracket
         (ScopedM.assert (.not φ) (fun () =>
           .checkSat (fun
             | .unsat => .ret true
             | _ => .ret false)))
-        (fun
-          | true => k (.ok ()) st
-          | false => k (.error (.failed "assertion failed")) st)
+        (fun b => k (.ok b) st)
   | .fatal msg, st, k => k (.error (.fatal msg)) st
   | .failed msg, st, k => k (.error (.failed msg)) st
   | .all items, st, k => translateAll items st k
@@ -164,7 +168,7 @@ def VerifM.eval_rec : VerifM α → TransState → Env → (α → TransState �
       let v := st.freshVar hint t
       ∀ u, P v { st with decls := v :: st.decls } (ρ.update t v.name u)
   | .assume φ, st, ρ, P => φ.wfIn st.decls → φ.eval ρ → P () { st with asserts := φ :: st.asserts } ρ
-  | .assert φ, st, ρ, P => φ.wfIn st.decls → φ.eval ρ ∧ P () st ρ
+  | .check φ, st, ρ, P => φ.wfIn st.decls → ∃ b, (b = true → φ.eval ρ) ∧ P b st ρ
   | .fatal _, _, _, _ => False
   | .failed _, _, _, _ => False
   | .all items, st, ρ, P => ∀ a ∈ items, P a st ρ
@@ -193,10 +197,10 @@ theorem VerifM.eval_rec.mono' {m : VerifM α} (ρ : Env) (st : TransState) (h : 
   | assume =>
     intro hwf hφ
     exact hPQ _ _ _ (List.Subset.refl _) (Env.agreeOn_refl) (h hwf hφ)
-  | assert =>
+  | check =>
     intro hwf
-    obtain ⟨hφ, hp⟩ := (h hwf)
-    exact ⟨hφ, hPQ _ _ _ (List.Subset.refl _) (Env.agreeOn_refl) hp⟩
+    obtain ⟨b, hb, hp⟩ := h hwf
+    exact ⟨b, hb, hPQ _ _ _ (List.Subset.refl _) (Env.agreeOn_refl) hp⟩
   | fatal => exact h.elim
   | failed => exact h.elim
   | all items =>
@@ -258,11 +262,11 @@ theorem VerifM.eval_rec_preserves_wf (m : VerifM α) (st : TransState) (ρ: Env)
     cases hψ with
     | head => exact hφ
     | tail _ hψ => exact g ψ hψ
-  | assert φ =>
+  | check φ =>
     simp only [VerifM.eval_rec] at h ⊢
     intro hwf'
-    obtain ⟨hφ, hp⟩ := h hwf'
-    exact ⟨hφ, g, hwf, hp⟩
+    obtain ⟨b, hb, hp⟩ := h hwf'
+    exact ⟨b, hb, g, hwf, hp⟩
   | fatal msg => exact h.elim
   | failed msg => exact h.elim
   | all items =>
@@ -357,21 +361,21 @@ theorem VerifM.translate_eval_rec (m : VerifM α) (st : TransState) (ρ: Env)
     have h := ScopedM.eval_assert h
     intro hwf' hφ
     exact ⟨_, h⟩
-  | assert φ =>
+  | check φ =>
     simp only [VerifM.translate] at h
     obtain ⟨b, _, hxx, hk⟩ := ScopedM.eval_bracket h
-    cases b with
-    | true =>
-      intro hwf'
-      apply ScopedM.eval_assert at hxx
-      apply ScopedM.eval_checkSat at hxx
-      simp at hxx
-      rcases hxx with ⟨hunsat, _⟩ | hfalse
-      · have hunsat' : ¬Satisfiable st.decls (Formula.not φ :: st.asserts) := by
-          simp only [FlatCtx.addAssert] at hunsat; exact hunsat
-        exact ⟨Satisfiable.to_impl' st.decls st.asserts hunsat' ρ g, _, hk⟩
-      · simp [ScopedM.eval_ret] at hfalse
-    | false => exact absurd ⟨_, hk⟩ (hf (.failed "assertion failed") st)
+    intro hwf'
+    refine ⟨b, ?_, ⟨_, hk⟩⟩
+    intro hb
+    subst hb
+    apply ScopedM.eval_assert at hxx
+    apply ScopedM.eval_checkSat at hxx
+    simp at hxx
+    rcases hxx with ⟨hunsat, _⟩ | hfalse
+    · have hunsat' : ¬Satisfiable st.decls (Formula.not φ :: st.asserts) := by
+        simp only [FlatCtx.addAssert] at hunsat; exact hunsat
+      exact Satisfiable.to_impl' st.decls st.asserts hunsat' ρ g
+    · simp [ScopedM.eval_ret] at hfalse
   | fatal msg =>
     simp only [VerifM.translate] at h
     exact absurd ⟨Δ, h⟩ (hf (.fatal msg) st)
@@ -482,11 +486,30 @@ theorem VerifM.eval_assume {φ : Formula} {st : TransState} {ρ : Env}
     φ.wfIn st.decls → φ.eval ρ → Q () { st with asserts := φ :: st.asserts } ρ :=
   fun hwf hφ => (h.2.2 hwf hφ).2.2
 
+theorem VerifM.eval_check {φ : Formula} {st : TransState} {ρ : Env}
+    {Q : Bool → TransState → Env → Prop}
+    (h : VerifM.eval (.check φ) st ρ Q) :
+    φ.wfIn st.decls →
+    ∃ b, (b = true → φ.eval ρ) ∧ Q b st ρ :=
+  fun hwf =>
+    let ⟨b, hb, _, _, hq⟩ := h.2.2 hwf
+    ⟨b, hb, hq⟩
+
 theorem VerifM.eval_assert {φ : Formula} {st : TransState} {ρ : Env}
     {Q : Unit → TransState → Env → Prop}
-    (h : VerifM.eval (.assert φ) st ρ Q) :
-    φ.wfIn st.decls → φ.eval ρ ∧ Q () st ρ :=
-  fun hwf => let ⟨hφ, _, _, hq⟩ := h.2.2 hwf; ⟨hφ, hq⟩
+    (h : VerifM.eval (VerifM.assert φ) st ρ Q) :
+    φ.wfIn st.decls → φ.eval ρ ∧ Q () st ρ := by
+  intro hwf
+  simp only [VerifM.assert] at h
+  have hb := VerifM.eval_bind _ _ _ _ h
+  have ⟨b, hb_sound, hq⟩ := VerifM.eval_check hb hwf
+  cases b with
+  | true =>
+    simp at hq
+    exact ⟨hb_sound rfl, VerifM.eval_ret hq⟩
+  | false =>
+    simp at hq
+    exact (VerifM.eval_failed hq).elim
 
 theorem VerifM.eval_all {items : List α} {st : TransState} {ρ : Env}
     {Q : α → TransState → Env → Prop}
