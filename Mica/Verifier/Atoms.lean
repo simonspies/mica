@@ -192,21 +192,104 @@ theorem Atom.subst_wfIn {p : Atom τ} {σ : Subst} {Δ Δ' : VarCtx}
 
 
 -- ---------------------------------------------------------------------------
+-- Candidates: guarded resolution alternatives
+-- ---------------------------------------------------------------------------
+
+/-- Candidate resolutions for an atom, each guarded by a provability condition.
+    Each pair `(φ, t)` means: if `φ` is provable, then `t` resolves the atom. -/
+def Atom.candidates : Atom τ → List (Formula × Term τ)
+  | .isint  v => [(.unpred .isInt v, .unop .toInt v)]
+  | .isbool v => [(.unpred .isBool v, .unop .toBool v)]
+
+theorem Atom.candidates_correct {a : Atom τ} {φ : Formula} {t : Term τ} {ρ : Env}
+    (hmem : (φ, t) ∈ a.candidates) (h : φ.eval ρ) : (a.toFormula t).eval ρ := by
+  cases a with
+  | isint v =>
+    simp [candidates] at hmem; obtain ⟨rfl, rfl⟩ := hmem
+    simp [Formula.eval, UnPred.eval] at h
+    simp [toFormula, Formula.eval, Term.eval, UnOp.eval]
+    cases hv : v.eval ρ <;> simp_all
+  | isbool v =>
+    simp [candidates] at hmem; obtain ⟨rfl, rfl⟩ := hmem
+    simp [Formula.eval, UnPred.eval] at h
+    simp [toFormula, Formula.eval, Term.eval, UnOp.eval]
+    cases hv : v.eval ρ <;> simp_all
+
+theorem Atom.candidates_wfIn {a : Atom τ} {φ : Formula} {t : Term τ} {decls : List Var}
+    (hmem : (φ, t) ∈ a.candidates) (h : a.wfIn decls) : φ.wfIn decls ∧ t.wfIn decls := by
+  cases a with
+  | isint v  => simp [candidates] at hmem; obtain ⟨rfl, rfl⟩ := hmem; exact ⟨h, h⟩
+  | isbool v => simp [candidates] at hmem; obtain ⟨rfl, rfl⟩ := hmem; exact ⟨h, h⟩
+
+
+-- ---------------------------------------------------------------------------
 -- VerifM integration
 -- ---------------------------------------------------------------------------
 
-/-- Look up an atom in the assertion context via `VerifM.ctx`. -/
-def VerifM.resolve (a : Atom τ) : VerifM (Option (Term τ)) :=
-  .ctx (a.resolve ·)
+/-- Try candidate resolutions in order, checking each guard via the SMT solver. -/
+def VerifM.tryCandidates : List (Formula × Term τ) → VerifM (Option (Term τ))
+  | [] => pure none
+  | (φ, t) :: rest => do
+    if ← VerifM.check φ then pure (some t)
+    else VerifM.tryCandidates rest
+
+private theorem VerifM.eval_tryCandidates
+    {candidates : List (Formula × Term τ)} {a : Atom τ}
+    {st : TransState} {ρ : Env} {Q : Option (Term τ) → TransState → Env → Prop}
+    (h : VerifM.eval (VerifM.tryCandidates candidates) st ρ Q)
+    (hcands : ∀ p ∈ candidates, p ∈ a.candidates)
+    (hpwf : a.wfIn st.decls) :
+    ∃ result : Option (Term τ),
+      Q result st ρ
+      ∧ (∀ t, result = some t → (a.toFormula t).eval ρ)
+      ∧ (∀ t, result = some t → t.wfIn st.decls) := by
+  induction candidates with
+  | nil =>
+    simp [tryCandidates] at h
+    exact ⟨none, VerifM.eval_ret h,
+           fun _ ht => absurd ht (by simp), fun _ ht => absurd ht (by simp)⟩
+  | cons c rest ih =>
+    obtain ⟨φ, t⟩ := c
+    simp [tryCandidates] at h
+    have hb := VerifM.eval_bind _ _ _ _ h
+    have hmem := hcands (φ, t) (List.mem_cons_self ..)
+    have ⟨φwf, twf⟩ := Atom.candidates_wfIn hmem hpwf
+    have ⟨b, hb_sound, hq⟩ := VerifM.eval_check hb φwf
+    cases b with
+    | true =>
+      simp at hq
+      exact ⟨some t, VerifM.eval_ret hq,
+             fun t' ht' => by cases ht'; exact Atom.candidates_correct hmem (hb_sound rfl),
+             fun t' ht' => by cases ht'; exact twf⟩
+    | false =>
+      simp at hq
+      exact ih hq (fun p hp => hcands p (List.mem_cons_of_mem _ hp))
+
+/-- Look up an atom in the assertion context.
+    Tier 1: syntactic search through the context.
+    Tier 2: try candidate resolutions via the SMT solver. -/
+def VerifM.resolve (a : Atom τ) : VerifM (Option (Term τ)) := do
+  match ← VerifM.ctx (a.resolve ·) with
+  | some t => pure (some t)
+  | none => VerifM.tryCandidates a.candidates
 
 theorem VerifM.eval_resolve {pred : Atom τ} {st : TransState} {ρ : Env}
     {Q : Option (Term τ) → TransState → Env → Prop}
-    (h : VerifM.eval (VerifM.resolve pred) st ρ Q) :
+    (h : VerifM.eval (VerifM.resolve pred) st ρ Q)
+    (hpwf : pred.wfIn st.decls) :
     ∃ result : Option (Term τ),
       Q result st ρ
       ∧ (∀ t, result = some t → (pred.toFormula t).eval ρ)
       ∧ (∀ t, result = some t → t.wfIn st.decls) := by
-  have ⟨hq, hholds, hwf⟩ := VerifM.eval_ctx h
-  refine ⟨_, hq, fun t ht => ?_, fun t ht => ?_⟩
-  · exact Atom.resolve_correct ht ρ hholds
-  · exact Atom.resolve_wfIn ht hwf
+  unfold VerifM.resolve at h
+  have hb1 := VerifM.eval_bind _ _ _ _ h
+  have ⟨hctx_q, hholds, hwfAsserts⟩ := VerifM.eval_ctx hb1
+  cases hres : pred.resolve st.asserts with
+  | some t =>
+    simp [hres] at hctx_q
+    exact ⟨some t, VerifM.eval_ret hctx_q,
+           fun t' ht' => by cases ht'; exact Atom.resolve_correct hres ρ hholds,
+           fun t' ht' => by cases ht'; exact Atom.resolve_wfIn hres hwfAsserts⟩
+  | none =>
+    simp [hres] at hctx_q
+    exact eval_tryCandidates hctx_q (fun p hp => hp) hpwf
