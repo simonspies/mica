@@ -1,14 +1,15 @@
-(* Single-argument functions with type annotations for the verifier.        *)
-(* Multi-argument functions are not yet supported (Spec.complete requires   *)
-(* exactly one argument with full type annotation).                         *)
-(*                                                                           *)
-(* Known limitation: if a function may return the raw input value (not      *)
-(* wrapped in an arithmetic expression), the postcondition `bind (isint v)` *)
-(* cannot resolve the integer term and the verifier will report             *)
-(* "could not resolve type predicate for r". The examples below are chosen  *)
-(* to avoid this: every code path produces a fresh arithmetic result.       *)
+(* Single-argument functions with type annotations for the verifier. *)
 
-(* 1. Increment: result is exactly one more than the input *)
+(* 1. Identity: returns the input unchanged *)
+let id (x: int) : int = x
+[@@spec fun x ->
+  bind (isint x) @@ fun n ->
+  ret (fun v ->
+    bind (isint v) @@ fun r ->
+    assert (r = n);
+    ret ())];;
+
+(* 2. Increment: result is exactly one more than the input *)
 let incr (x: int) : int = x + 1
 [@@spec fun x ->
   bind (isint x) @@ fun n ->
@@ -17,7 +18,7 @@ let incr (x: int) : int = x + 1
     assert (r = n + 1);
     ret ())];;
 
-(* 2. Double: result is exactly twice the input *)
+(* 3. Double: result is exactly twice the input *)
 let double (x: int) : int = x * 2
 [@@spec fun x ->
   bind (isint x) @@ fun n ->
@@ -26,7 +27,7 @@ let double (x: int) : int = x * 2
     assert (r = n * 2);
     ret ())];;
 
-(* 3. Predecessor: result is exactly one less than the input *)
+(* 4. Predecessor: result is exactly one less than the input *)
 let pred_ (x: int) : int = x - 1
 [@@spec fun x ->
   bind (isint x) @@ fun n ->
@@ -35,7 +36,7 @@ let pred_ (x: int) : int = x - 1
     assert (r = n - 1);
     ret ())];;
 
-(* 4. Square: result is exactly the square of the input *)
+(* 5. Square: result is exactly the square of the input *)
 let square (x: int) : int = x * x
 [@@spec fun x ->
   bind (isint x) @@ fun n ->
@@ -44,8 +45,7 @@ let square (x: int) : int = x * x
     assert (r = n * n);
     ret ())];;
 
-(* 5. Sign: result is -1, 0, or 1 according to the sign of the input.    *)
-(*    Every branch produces a fresh arithmetic value, so isint resolves.  *)
+(* 6. Sign: result is -1, 0, or 1 according to the sign of the input. *)
 let sign (x: int) : int = if x < 0 then 0 - 1 else if x = 0 then 0 else 1
 [@@spec fun x ->
   bind (isint x) @@ fun n ->
@@ -55,7 +55,7 @@ let sign (x: int) : int = if x < 0 then 0 - 1 else if x = 0 then 0 else 1
     else if n = 0 then assert (r = 0); ret ()
     else assert (r = 1); ret ())];;
 
-(* 6. Let-binding: compute (x + 1) * 2 using an intermediate let.       *)
+(* 7. Let-binding: compute (x + 1) * 2 using an intermediate let.       *)
 (*    Tests that let-bound variables in the body are compiled correctly.  *)
 let double_succ (x: int) : int =
   let y = x + 1 in
@@ -67,7 +67,7 @@ let double_succ (x: int) : int =
     assert (r = (n + 1) * 2);
     ret ())];;
 
-(* 7. Cube: result is n*n*n *)
+(* 8. Cube: result is n*n*n *)
 let cube (x: int) : int = x * x * x
 [@@spec fun x ->
   bind (isint x) @@ fun n ->

@@ -244,11 +244,6 @@ def Assertion.prove (σ : FiniteSubst) : Assertion α → VerifM (FiniteSubst ×
     let σ' := σ.rename v v'.name
     VerifM.assume (.eq v.sort (.var v.sort v'.name) (t.subst σ.subst))
     Assertion.prove σ' k
-  -- CR: `resolve` only finds type predicates that were explicitly asserted (e.g., from
-  -- `compile` emitting `ofInt`/`ofBool` wrappers). When the compiled term is a raw `.value`
-  -- variable (e.g., the function returns its argument directly), no such assertion exists
-  -- and resolution fails. We should use the type information from `Spec.retTy` to handle
-  -- this case, or teach `resolve` to look through variable equalities.
   | .pred v p k => do
     match ← VerifM.resolve (p.subst σ.subst) with
     | some t =>
@@ -450,7 +445,9 @@ theorem Assertion.prove_correct (m : Assertion α) (σ : FiniteSubst)
     obtain ⟨hpwf, hkwf⟩ := hwf
     simp only [Assertion.prove] at heval
     have hb := VerifM.eval_bind _ _ _ _ heval
-    obtain ⟨result, hq, hresult_eval, hresult_wf⟩ := VerifM.eval_resolve hb
+    have hpwf_decls : (p.subst σ.subst).wfIn st.decls :=
+      Atom.wfIn_mono (Atom.subst_wfIn hpwf hσwf.1) hσwf.2
+    obtain ⟨result, hq, hresult_eval, hresult_wf⟩ := VerifM.eval_resolve hb hpwf_decls
     cases hr : result with
     | none =>
       simp [hr] at hq
