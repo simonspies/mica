@@ -1,5 +1,6 @@
 import Mica.FOL.Printing
 import Mica.FOL.Subst
+import Mica.Verifier.Monad
 
 /-!
 # Atoms
@@ -188,3 +189,24 @@ theorem Atom.subst_wfIn {p : Atom τ} {σ : Subst} {Δ Δ' : VarCtx}
   cases p with
   | isint t  => exact Term.subst_wfIn hp hσ
   | isbool t => exact Term.subst_wfIn hp hσ
+
+
+-- ---------------------------------------------------------------------------
+-- VerifM integration
+-- ---------------------------------------------------------------------------
+
+/-- Look up an atom in the assertion context via `VerifM.ctx`. -/
+def VerifM.resolve (a : Atom τ) : VerifM (Option (Term τ)) :=
+  .ctx (a.resolve ·)
+
+theorem VerifM.eval_resolve {pred : Atom τ} {st : TransState} {ρ : Env}
+    {Q : Option (Term τ) → TransState → Env → Prop}
+    (h : VerifM.eval (VerifM.resolve pred) st ρ Q) :
+    ∃ result : Option (Term τ),
+      Q result st ρ
+      ∧ (∀ t, result = some t → (pred.toFormula t).eval ρ)
+      ∧ (∀ t, result = some t → t.wfIn st.decls) := by
+  have ⟨hq, hholds, hwf⟩ := VerifM.eval_ctx h
+  refine ⟨_, hq, fun t ht => ?_, fun t ht => ?_⟩
+  · exact Atom.resolve_correct ht ρ hholds
+  · exact Atom.resolve_wfIn ht hwf
