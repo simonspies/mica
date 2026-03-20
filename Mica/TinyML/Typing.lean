@@ -285,6 +285,7 @@ def BinOp.typeOf : BinOp → Type_ → Type_ → Option Type_
   | .sub,  .int,  .int  => some .int
   | .mul,  .int,  .int  => some .int
   | .div,  .int,  .int  => some .int
+  | .mod,  .int,  .int  => some .int
   | .eq,   .int,  .int  => some .bool
   | .lt,   .int,  .int  => some .bool
   | .le,   .int,  .int  => some .bool
@@ -360,13 +361,14 @@ end TinyML
 /-- Type preservation for `evalBinOp`: if the inputs are well-typed, the operation returns
     `some w` for a well-typed result `w`. -/
 theorem evalBinOp_typed {op : TinyML.BinOp} {v1 v2 : TinyML.Val} {t1 t2 ty : TinyML.Type_}
-    (hndiv : op ≠ .div)
+    (hndiv : op ≠ .div) (hnmod : op ≠ .mod)
     (hty : TinyML.BinOp.typeOf op t1 t2 = some ty)
     (ht1 : TinyML.ValHasType v1 t1)
     (ht2 : TinyML.ValHasType v2 t2) :
     ∃ w, TinyML.evalBinOp op v1 v2 = some w ∧ TinyML.ValHasType w ty := by
   cases op
   case div => exact absurd rfl hndiv
+  case mod => exact absurd rfl hnmod
   -- All ops (add/sub/mul/eq/lt/le/gt/ge/and/or) require specific input types.
   -- Case-split on the ValHasType witnesses; simp_all eliminates contradictions from typeOf
   -- and substitutes the result type, leaving simple ValHasType goals.

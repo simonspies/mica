@@ -31,3 +31,9 @@ root = "Exploration.DynamicGoal"
 [[lean_exe]]
 name = "smt-query"
 root = "Exploration.SMTQuery"
+
+# Tests
+
+[[lean_exe]]
+name = "test-semantics"
+root = "Test.Semantics"

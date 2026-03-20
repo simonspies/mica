@@ -74,7 +74,7 @@ instance : LawfulBEq Type_ where
   rfl := by simp [BEq.beq]
 
 inductive BinOp where
-  | add | sub | mul | div
+  | add | sub | mul | div | mod
   | eq | lt | le | gt | ge
   | and | or
   deriving Repr, BEq, Inhabited, DecidableEq

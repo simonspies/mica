@@ -7,6 +7,7 @@ inductive Token where
   | minus
   | star
   | slash
+  | kw_mod
   | lparen
   | rparen
   | eq
@@ -48,6 +49,7 @@ def Token.toString : Token → String
   | .minus => "MINUS"
   | .star => "STAR"
   | .slash => "SLASH"
+  | .kw_mod => "MOD"
   | .lparen => "LPAREN"
   | .rparen => "RPAREN"
   | .eq => "EQ"
@@ -92,6 +94,7 @@ private def keyword : String → Token
   | "ref" => .kw_ref
   | "inl" => .kw_inl | "inr" => .kw_inr
   | "spec" => .kw_spec
+  | "mod" => .kw_mod
   | "_" => .underscore
   | s => .ident s
 
