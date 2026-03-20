@@ -20,6 +20,7 @@ def evalBinOp (op : BinOp) (v1 v2 : Val) : Option Val :=
   | .sub, .int a, .int b  => some (.int (a - b))
   | .mul, .int a, .int b  => some (.int (a * b))
   | .div, .int a, .int b  => if b = 0 then none else some (.int (a / b))
+  | .mod, .int a, .int b  => if b = 0 then none else some (.int (a % b))
   | .eq,  .int a, .int b  => some (.bool (a == b))
   | .lt,  .int a, .int b  => some (.bool (a < b))
   | .le,  .int a, .int b  => some (.bool (a ≤ b))

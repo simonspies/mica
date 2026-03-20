@@ -27,9 +27,10 @@ def compileOp (op : TinyML.BinOp) (sl sr : Term .value) : Option (Term .value) :
   | .add  => some (Term.unop .ofInt  (Term.binop .add  (i sl) (i sr)))
   | .sub  => some (Term.unop .ofInt  (Term.binop .sub  (i sl) (i sr)))
   | .mul  => some (Term.unop .ofInt  (Term.binop .mul  (i sl) (i sr)))
-  -- Division is handled directly in `compile` with a non-zero divisor assertion,
-  -- so it does not go through `compileOp`.
+  -- Division and modulo are handled directly in `compile` with a non-zero divisor
+  -- assertion, so they do not go through `compileOp`.
   | .div  => none
+  | .mod  => none
   | .eq   => some (Term.unop .ofBool (Term.binop .eq   (i sl) (i sr)))
   | .lt   => some (Term.unop .ofBool (Term.binop .less (i sl) (i sr)))
   | .le   => some (Term.unop .ofBool (Term.binop .ge   (i sr) (i sl)))
@@ -156,10 +157,11 @@ mutual
         let ty ← match TinyML.BinOp.typeOf op tl tr with
           | some ty => pure ty
           | none => VerifM.fatal s!"type error: operator {repr op} cannot be applied to {repr tl} and {repr tr}"
-        if op == .div then do
+        if op = .div ∨ op = .mod then do
           let i t := Term.unop UnOp.toInt t
+          let fol_op := if op == .div then BinOp.div else BinOp.mod
           VerifM.assert (.not (.eq .int (i sr) (.const (.i 0))))
-          pure (.int, Term.unop .ofInt (Term.binop .div (i sl) (i sr)))
+          pure (.int, Term.unop .ofInt (Term.binop fol_op (i sl) (i sr)))
         else do
           let t ← match compileOp op sl sr with
             | some t => pure t
@@ -322,50 +324,56 @@ theorem compile_correct (e : TinyML.Expr) (S : SpecMap) (B : Bindings) (Γ : Tin
     | some ty =>
       simp only [htypeOf] at hΨ_r
       /- Split on whether op is division -/
-      by_cases hdiv : op = .div
-      · subst hdiv
-        simp only [show (TinyML.BinOp.div == TinyML.BinOp.div) = true from by decide,
-                    ite_true] at hΨ_r
-        -- hΨ_r : (do pure ty; assert ...; pure ...).eval st₂ ρ_r Ψ
+      by_cases hdivmod : op = .div ∨ op = .mod
+      · -- Division or modulo: both have the non-zero divisor assertion
+        have hite : (op = TinyML.BinOp.div ∨ op = TinyML.BinOp.mod) = True := by simp [hdivmod]
+        simp only [hite] at hΨ_r
         -- Extract past the `pure ty` bind
         have hΨ_body := VerifM.eval_ret (VerifM.eval_bind _ _ _ _ hΨ_r)
-        -- Now hΨ_body : (assert ...; pure ...).eval st₂ ρ_r Ψ
         -- From typeOf: tyl = tyr = .int, ty = .int
-        simp only [TinyML.BinOp.typeOf] at htypeOf
-        -- Extract integers from the ValHasType witnesses
-        cases htyl with
-        | int a =>
-          cases htyr with
-          | int b =>
-            simp at htypeOf
-            -- Extract the non-zero assertion
-            have hassert_wf : (Formula.not (.eq .int (.unop .toInt sr) (.const (.i 0)))).wfIn st₂.decls := by
-              intro v hv; simp [Formula.freeVars, Term.freeVars] at hv; exact hsr_wf v hv
-            have heval_assert := VerifM.eval_bind _ _ _ _ hΨ_body
-            have ⟨hne_zero, hΨ_post⟩ := VerifM.eval_assert heval_assert hassert_wf
-            simp [Formula.eval, Term.eval, Const.denote] at hne_zero
-            -- hne_zero now contains: toInt(sr.eval ρ_r) ≠ 0, i.e., b ≠ 0
-            have hsr_eval : sr.eval ρ_r = TinyML.Val.int b := heval_r
-            rw [hsr_eval] at hne_zero
-            simp at hne_zero
-            -- Construct the result
-            refine ⟨.int (a / b), ?_, ?_⟩
-            · simp [TinyML.evalBinOp, hne_zero]
-            · obtain hΨ_post := VerifM.eval_ret hΨ_post
+        rcases hdivmod with rfl | rfl <;> simp only [TinyML.BinOp.typeOf] at htypeOf
+        all_goals
+          cases htyl with
+          | int a =>
+            cases htyr with
+            | int b =>
+              simp at htypeOf
+              have hassert_wf : (Formula.not (.eq .int (.unop .toInt sr) (.const (.i 0)))).wfIn st₂.decls := by
+                intro v hv; simp [Formula.freeVars, Term.freeVars] at hv; exact hsr_wf v hv
+              have heval_assert := VerifM.eval_bind _ _ _ _ hΨ_body
+              have ⟨hne_zero, hΨ_post⟩ := VerifM.eval_assert heval_assert hassert_wf
+              simp [Formula.eval, Term.eval, Const.denote] at hne_zero
+              have hsr_eval : sr.eval ρ_r = TinyML.Val.int b := heval_r
+              rw [hsr_eval] at hne_zero
+              simp at hne_zero
+              obtain hΨ_post := VerifM.eval_ret hΨ_post
               have hsl_ρ_r : sl.eval ρ_r = TinyML.Val.int a := by
                 rw [Term.eval_env_agree hsl_wf (Env.agreeOn_symm hagreeOn_r)]; exact heval_l
-              exact hpost (.int (a / b)) ρ_r st₂ .int _ hΨ_post
-                (by intro v hv; simp [Term.freeVars] at hv
-                    rcases hv with hv | hv
-                    · exact (sl.wfIn_mono hsl_wf hdecls_r) v hv
-                    · exact hsr_wf v hv)
-                (by simp [Term.eval, UnOp.eval, BinOp.eval, hsl_ρ_r, hsr_eval])
-                (.int _)
+              -- Reduce the `fol_op` definition (the inner `if op == .div`)
+              simp (config := { decide := true }) only [] at hΨ_post ⊢
+              first
+              | (refine ⟨.int (a / b), ?_, ?_⟩
+                 · simp [TinyML.evalBinOp, hne_zero]
+                 · exact hpost (.int (a / b)) ρ_r st₂ .int _ hΨ_post
+                     (by intro v hv; simp [Term.freeVars] at hv
+                         rcases hv with hv | hv
+                         · exact (sl.wfIn_mono hsl_wf hdecls_r) v hv
+                         · exact hsr_wf v hv)
+                     (by simp [Term.eval, UnOp.eval, BinOp.eval, hsl_ρ_r, hsr_eval])
+                     (.int _))
+              | (refine ⟨.int (a % b), ?_, ?_⟩
+                 · simp [TinyML.evalBinOp, hne_zero]
+                 · exact hpost (.int (a % b)) ρ_r st₂ .int _ hΨ_post
+                     (by intro v hv; simp [Term.freeVars] at hv
+                         rcases hv with hv | hv
+                         · exact (sl.wfIn_mono hsl_wf hdecls_r) v hv
+                         · exact hsr_wf v hv)
+                     (by simp [Term.eval, UnOp.eval, BinOp.eval, hsl_ρ_r, hsr_eval])
+                     (.int _))
+            | _ => simp at htypeOf
           | _ => simp at htypeOf
-        | _ => simp at htypeOf
-      · have hbeq : (op == TinyML.BinOp.div) = false := by
-          cases op <;> first | rfl | exact absurd rfl hdiv
-        simp only [hbeq, Bool.false_eq_true, ↓reduceIte] at hΨ_r
+      · have hndivmod : ¬(op = TinyML.BinOp.div ∨ op = TinyML.BinOp.mod) := hdivmod
+        simp only [show (op = TinyML.BinOp.div ∨ op = TinyML.BinOp.mod) = False from by simp [hndivmod]] at hΨ_r
         cases hcompOp : compileOp op sl sr with
         | none =>
           simp only [hcompOp] at hΨ_r
@@ -373,7 +381,9 @@ theorem compile_correct (e : TinyML.Expr) (S : SpecMap) (B : Bindings) (Γ : Tin
         | some t =>
           simp only [hcompOp] at hΨ_r
           obtain hΨ_r := VerifM.eval_ret hΨ_r
-          obtain ⟨w, heval_op, hwt⟩ := evalBinOp_typed hdiv htypeOf htyl htyr
+          have hdiv : op ≠ .div := fun h => hndivmod (Or.inl h)
+          have hmod : op ≠ .mod := fun h => hndivmod (Or.inr h)
+          obtain ⟨w, heval_op, hwt⟩ := evalBinOp_typed hdiv hmod htypeOf htyl htyr
           have hsl_ρ_r : sl.eval ρ_r = vl := by
             rw [Term.eval_env_agree hsl_wf (Env.agreeOn_symm hagreeOn_r)]; exact heval_l
           have ht_eval : t.eval ρ_r = w := compileOp_eval hsl_ρ_r heval_r heval_op hcompOp

@@ -3,7 +3,7 @@ import Mica.TinyML.Expr
 namespace TinyML
 
 def BinOp.toString : BinOp → String
-  | .add => "+" | .sub => "-" | .mul => "*" | .div => "/"
+  | .add => "+" | .sub => "-" | .mul => "*" | .div => "/" | .mod => "mod"
   | .eq => "=" | .lt => "<" | .le => "<=" | .gt => ">" | .ge => ">="
   | .and => "&&" | .or => "||"
 
@@ -92,6 +92,7 @@ partial def printAdd : Expr → String
 partial def printMul : Expr → String
   | .binop .mul lhs rhs => s!"{printMul lhs} * {printApp rhs}"
   | .binop .div lhs rhs => s!"{printMul lhs} / {printApp rhs}"
+  | .binop .mod lhs rhs => s!"{printMul lhs} mod {printApp rhs}"
   | e => printApp e
 
 -- Function-application-level unary operators.
