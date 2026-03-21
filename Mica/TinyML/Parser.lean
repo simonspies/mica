@@ -270,7 +270,7 @@ where
     [(.eq, .eq), (.lt, .lt), (.le, .le), (.gt, .gt), (.ge, .ge)] parseAdd
 
   parseAdd := parseLAssoc [(.plus, .add), (.minus, .sub)] parseMul
-  parseMul := parseLAssoc [(.star, .mul), (.slash, .div)] parseApp
+  parseMul := parseLAssoc [(.star, .mul), (.slash, .div), (.kw_mod, .mod)] parseApp
 
   parseApp : Parser Expr := fun st => do
     let (e, st) ← parseUnary st

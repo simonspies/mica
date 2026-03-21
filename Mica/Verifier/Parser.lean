@@ -65,6 +65,8 @@ def infer (env : SpecEnv) : TinyML.Expr → Except String (Σ t, Term t)
     .ok ⟨.int, .binop .mul (← check env .int l) (← check env .int r)⟩
   | .binop .div l r => do
     .ok ⟨.int, .binop .div (← check env .int l) (← check env .int r)⟩
+  | .binop .mod l r => do
+    .ok ⟨.int, .binop .mod (← check env .int l) (← check env .int r)⟩
   | .unop .neg e => do
     .ok ⟨.int, .unop .neg (← check env .int e)⟩
   | .unop (.proj n) e => do
@@ -107,6 +109,9 @@ def check (env : SpecEnv) (t : Srt) : TinyML.Expr → Except String (Term t)
   | .binop .div l r => match t with
     | .int => do .ok (.binop .div (← check env .int l) (← check env .int r))
     | _    => .error s!"div produces .int, expected {repr t}"
+  | .binop .mod l r => match t with
+    | .int => do .ok (.binop .mod (← check env .int l) (← check env .int r))
+    | _    => .error s!"mod produces .int, expected {repr t}"
   | .unop .neg e => match t with
     | .int => do .ok (.unop .neg (← check env .int e))
     | _    => .error s!"neg produces .int, expected {repr t}"
