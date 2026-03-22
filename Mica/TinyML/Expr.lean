@@ -18,7 +18,7 @@ inductive Type_ where
   | unit
   | bool
   | int
-  | sum (t1 t2 : Type_)
+  | sum (ts : List Type_)
   | arrow (t1 t2 : Type_)
   | ref (t: Type_)
   | empty   -- bottom type (uninhabited)
@@ -28,7 +28,10 @@ inductive Type_ where
 
 def Type_.decEq : (a b : Type_) → Decidable (a = b)
   | .unit, .unit | .bool, .bool | .int, .int | .empty, .empty | .value, .value => isTrue rfl
-  | .sum s1 s2, .sum t1 t2 | .arrow s1 s2, .arrow t1 t2 =>
+  | .sum ss, .sum ts => match typesDecEq ss ts with
+    | isTrue h => isTrue (by subst h; rfl)
+    | isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
+  | .arrow s1 s2, .arrow t1 t2 =>
     match s1.decEq t1, s2.decEq t2 with
     | isTrue h1, isTrue h2 => isTrue (by subst h1; subst h2; rfl)
     | isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
@@ -81,7 +84,6 @@ inductive BinOp where
 
 inductive UnOp where
   | neg | not
-  | inl | inr
   | proj (n : Nat)
   deriving Repr, BEq, Inhabited, DecidableEq
 
@@ -90,8 +92,7 @@ mutual
     | int (n : Int)
     | bool (b : Bool)
     | unit
-    | inl (v : Val)
-    | inr (v : Val)
+    | inj (tag : Nat) (arity : Nat) (payload : Val)
     | loc (l : Location)
     | fix (self : Binder) (args : List (Binder × Option Type_)) (retTy : Option Type_) (body : Expr)
     | tuple (vs : List Val)
@@ -110,6 +111,8 @@ mutual
     | store  (loc val : Expr)
     | assert (e : Expr)
     | tuple (es : List Expr)
+    | inj (tag : Nat) (arity : Nat) (payload : Expr)
+    | match_ (scrutinee : Expr) (branches : List Expr)
 end
 
 instance : Inhabited Val := ⟨.unit⟩
@@ -127,12 +130,11 @@ mutual
       | isTrue h => isTrue (by subst h; rfl)
       | isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
     case unit.unit => exact isTrue rfl
-    case inl.inl a b => exact match a.decEq b with
-      | isTrue h => isTrue (by subst h; rfl)
-      | isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
-    case inr.inr a b => exact match a.decEq b with
-      | isTrue h => isTrue (by subst h; rfl)
-      | isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
+    case inj.inj t1 a1 p1 t2 a2 p2 => exact match decEq t1 t2, decEq a1 a2, p1.decEq p2 with
+      | isTrue h1, isTrue h2, isTrue h3 => isTrue (by subst h1; subst h2; subst h3; rfl)
+      | isFalse h, _, _ => isFalse (by intro heq; cases heq; exact h rfl)
+      | _, isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
+      | _, _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
     case loc.loc a b => exact match decEq a b with
       | isTrue h => isTrue (by subst h; rfl)
       | isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
@@ -208,6 +210,15 @@ mutual
       exact match exprsDecEq es1 es2 with
       | isTrue h => isTrue (by subst h; rfl)
       | isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
+    case inj.inj t1 a1 p1 t2 a2 p2 => exact match decEq t1 t2, decEq a1 a2, p1.decEq p2 with
+      | isTrue h1, isTrue h2, isTrue h3 => isTrue (by subst h1; subst h2; subst h3; rfl)
+      | isFalse h, _, _ => isFalse (by intro heq; cases heq; exact h rfl)
+      | _, isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
+      | _, _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
+    case match_.match_ s1 bs1 s2 bs2 => exact match s1.decEq s2, exprsDecEq bs1 bs2 with
+      | isTrue h1, isTrue h2 => isTrue (by subst h1; subst h2; rfl)
+      | isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
+      | _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
 
   def valsDecEq : (as bs : List Val) → Decidable (as = bs)
     | [], [] => isTrue rfl
@@ -323,6 +334,8 @@ def Expr.subst (σ : Subst) : Expr → Expr
   | .store loc v => .store (loc.subst σ) (v.subst σ)
   | .assert e => .assert (e.subst σ)
   | .tuple es => .tuple (es.map (Expr.subst σ))
+  | .inj tag arity payload => .inj tag arity (payload.subst σ)
+  | .match_ scrut branches => .match_ (scrut.subst σ) (branches.map (Expr.subst σ))
 
 @[simp] private theorem Subst.remove_none (x : Var) :
     Subst.remove (fun _ => none) x = fun _ => none := by
@@ -415,6 +428,8 @@ def Expr.freeVars : Expr → List Var
   | .store loc v => loc.freeVars ++ v.freeVars
   | .assert e => e.freeVars
   | .tuple es => es.flatMap Expr.freeVars
+  | .inj _ _ payload => payload.freeVars
+  | .match_ scrut branches => scrut.freeVars ++ branches.flatMap Expr.freeVars
 
 theorem Expr.freeVars_subst (γ1 γ2 : Var → Option Val) (e : Expr) :
     (∀ x ∈ e.freeVars, γ1 x = γ2 x) → e.subst γ1 = e.subst γ2 := by
@@ -505,6 +520,16 @@ theorem Expr.freeVars_subst (γ1 γ2 : Var → Option Val) (e : Expr) :
     apply ih
     intro x hx
     exact h x (by simp [Expr.freeVars]; exact List.mem_flatMap.mp hx)
+  case inj tag arity payload ih =>
+    intro h; simp only [Expr.freeVars] at h
+    simp [Expr.subst, ih γ1 γ2 h]
+  case match_ scrut branches ihscrut ihbranches =>
+    intro h; simp only [Expr.freeVars, List.mem_append] at h
+    simp only [Expr.subst]; congr 1
+    · exact ihscrut γ1 γ2 (fun x hx => h x (Or.inl hx))
+    · apply ihbranches
+      intro x hx
+      exact h x (Or.inr hx)
   case nil => intros; rfl
   case cons e es ihe ihes =>
     intro γ1 γ2 h
