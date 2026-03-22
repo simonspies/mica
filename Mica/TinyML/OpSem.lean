@@ -9,8 +9,6 @@ def evalUnOp (op : UnOp) (v : Val) : Option Val :=
   match op, v with
   | .neg, .int n    => some (.int (-n))
   | .not, .bool b   => some (.bool (!b))
-  | .inl, v         => some (.inl v)
-  | .inr, v         => some (.inr v)
   | .proj n, .tuple vs => vs[n]?
   | _, _            => none
 
