@@ -173,6 +173,7 @@ Theorems that recurse over these mutual inductives should themselves be mutual, 
 - A proof is done only when diagnostics (filtered to the declaration) show no errors and no `sorry` exists anywhere in the dependency chain.
 - If a proof attempt fails or is abandoned, **delete** the sorried helper lemmas immediately. Do not leave dead code.
 - When completing sorries in an existing proof (or adjusting an existing proof), do not sorry out the proof structure.
+- A considerable amount of work has gone into the existing proofs in the code base. When they require changing, especially large ones, **ABSOLUTELY AVOID** sorrying out the entire proof, since it means it will have to be proven from scratch again. Consider whether there is a less invasive change like locally sorrying out a case or an assumption initially. 
 
 ### Top-down vs bottom-up
 - **Top-down (exploration):** Sketch a proof to discover what helpers are needed.
