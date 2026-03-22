@@ -4,6 +4,7 @@ inductive UnPred : Srt → Type where
   | isInt   : UnPred .value
   | isBool  : UnPred .value
   | isTuple : UnPred .value
+  | isInj (tag : Nat) (arity : Nat) : UnPred .value
   deriving DecidableEq, Repr
 
 inductive BinPred : Srt → Srt → Type where
@@ -80,6 +81,7 @@ theorem Context.wfIn_mono (Γ : Context) (h : Γ.wfIn Δ) (hsub : Δ ⊆ Δ') : 
   | .isInt,   v => match v with | .int _ => True | _ => False
   | .isBool,  v => match v with | .bool _ => True | _ => False
   | .isTuple, v => match v with | .tuple _ => True | _ => False
+  | .isInj tag arity, v => match v with | .inj t a _ => t = tag ∧ a = arity | _ => False
 
 @[simp] def BinPred.eval : BinPred τ₁ τ₂ → τ₁.denote → τ₂.denote → Prop
   | .lt, a, b => a < b

@@ -45,6 +45,8 @@ inductive K where
   | storeL (k : K)      (v : Val)               -- loc in focus, val done
   | assert (k : K)
   | tupleK (left : Exprs) (k : K) (right : Vals)
+  | injK   (tag : Nat) (arity : Nat) (k : K)
+  | matchK (branches : List Expr) (k : K)
 
 def K.fill : K → Expr → Expr
   | .hole,              e => e
@@ -61,6 +63,8 @@ def K.fill : K → Expr → Expr
   | .storeL k v,        e => .store (k.fill e) (.val v)
   | .assert k,          e => .assert (k.fill e)
   | .tupleK left k right, e => .tuple (left ++ [k.fill e] ++ right.map Expr.val)
+  | .injK tag arity k,    e => .inj tag arity (k.fill e)
+  | .matchK branches k,   e => .match_ (k.fill e) branches
 
 /-- Compose two contexts: `(k1.comp k2).fill e = k1.fill (k2.fill e)`. -/
 def K.comp : K → K → K
@@ -78,6 +82,8 @@ def K.comp : K → K → K
   | .storeL k1 v,       k2 => .storeL (k1.comp k2) v
   | .assert k1,         k2 => .assert (k1.comp k2)
   | .tupleK left k1 right, k2 => .tupleK left (k1.comp k2) right
+  | .injK tag arity k1,    k2 => .injK tag arity (k1.comp k2)
+  | .matchK branches k1,   k2 => .matchK branches (k1.comp k2)
 
 theorem K.comp_fill (k1 k2 : K) (e : Expr) :
     (k1.comp k2).fill e = k1.fill (k2.fill e) := by
@@ -128,6 +134,13 @@ inductive Head : Expr → Heap → Expr → Heap → Prop where
 
   /-- A tuple of values reduces to a tuple value. -/
   | tuple : Head (.tuple (vs.map Expr.val)) μ (.val (.tuple vs)) μ
+
+  /-- Injection of a value becomes a value. -/
+  | injVal : Head (.inj tag arity (.val v)) μ (.val (.inj tag arity v)) μ
+
+  /-- Match on an injected value: select the branch and apply it to the payload. -/
+  | match_ : (h : i < branches.length) → n = branches.length →
+             Head (.match_ (.val (.inj i n v)) branches) μ (.app (branches[i]) [.val v]) μ
 
 /-! ## Contextual step -/
 

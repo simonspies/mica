@@ -28,7 +28,6 @@ inductive Token where
   | kw_assert
   | kw_true | kw_false
   | kw_not | kw_fst | kw_snd | kw_ref
-  | kw_inl | kw_inr
   | kw_spec
   | lbracket | rbracket  -- [ ]
   | underscore          -- _
@@ -61,7 +60,6 @@ def Token.toString : Token → String
   | .semi => "SEMI" | .semisemi => "SEMISEMI"
   | .kw_assert => "ASSERT" | .kw_true => "TRUE" | .kw_false => "FALSE"
   | .kw_not => "NOT" | .kw_fst => "FST" | .kw_snd => "SND" | .kw_ref => "REF"
-  | .kw_inl => "INL" | .kw_inr => "INR"
   | .kw_spec => "SPEC"
   | .lbracket => "LBRACKET" | .rbracket => "RBRACKET"
   | .underscore => "UNDERSCORE"
@@ -92,7 +90,6 @@ private def keyword : String → Token
   | "true" => .kw_true | "false" => .kw_false
   | "not" => .kw_not | "fst" => .kw_fst | "snd" => .kw_snd
   | "ref" => .kw_ref
-  | "inl" => .kw_inl | "inr" => .kw_inr
   | "spec" => .kw_spec
   | "mod" => .kw_mod
   | "_" => .underscore

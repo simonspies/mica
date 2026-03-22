@@ -102,7 +102,7 @@ where
           let st' ← expect (.ident "Either") st'
           let st' ← expect .dot st'
           let st' ← expect (.ident "t") st'
-          .ok (.sum t1 t2, st')
+          .ok (.sum [t1, t2], st')
         | t => .error s!"expected ')' or ',' in type, got {t}"
     | t => .error s!"expected type, got {t}"
 
@@ -284,7 +284,7 @@ where
   collectArgs : Parser (List Expr) := fun st =>
     match peek st with
     | .intLit _ | .ident _ | .lparen | .kw_true | .kw_false
-    | .bang | .kw_not | .kw_ref | .kw_inl | .kw_inr => do
+    | .bang | .kw_not | .kw_ref => do
       let (arg, st) ← parseUnary st
       let (rest, st) ← collectArgs st
       .ok (arg :: rest, st)
@@ -292,8 +292,7 @@ where
 
   parseUnary : Parser Expr := fun st =>
     let kwUnary : List (Token × UnOp) :=
-      [(Token.kw_not, UnOp.not),
-       (Token.kw_inl, UnOp.inl), (Token.kw_inr, UnOp.inr)]
+      [(Token.kw_not, UnOp.not)]
     match kwUnary.find? (·.1 == peek st) with
     | some (_, op) => do
       let (e, st) ← parseUnary (advance st)

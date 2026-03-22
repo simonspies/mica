@@ -73,7 +73,6 @@ def compileUnop (op : TinyML.UnOp) (s : Term .value) : Option (Term .value) :=
   | .neg => some (Term.unop .ofInt  (Term.unop .neg (i s)))
   | .not => some (Term.unop .ofBool (Term.unop .not (b s)))
   | .proj n => some (.unop .vhead (vtailN (.unop .toValList s) n))
-  | _    => none
 
 theorem compileUnop_wfIn {op : TinyML.UnOp} {s : Term .value} {Δ : VarCtx}
     (hs : s.wfIn Δ) {t : Term .value} (heq : compileUnop op s = some t) :
@@ -98,7 +97,6 @@ theorem compileUnop_eval {op : TinyML.UnOp} {s : Term .value} {ρ : Env}
     subst hcomp
     cases h : s.eval ρ <;>
     simp_all [TinyML.evalUnOp, Term.eval, UnOp.eval]
-  | inl | inr => simp [compileUnop] at hcomp
 
 theorem compileOp_wfIn {op : TinyML.BinOp} {sl sr : Term .value} {Δ : VarCtx}
     (hl : sl.wfIn Δ) (hr : sr.wfIn Δ) {t : Term .value} (heq : compileOp op sl sr = some t) :
@@ -193,7 +191,8 @@ mutual
     | .tuple es => do
         let pairs ← compileExprs S B Γ es
         pure (.tuple (pairs.map Prod.fst), .unop .ofValList (Terms.toValList (pairs.map Prod.snd)))
-    | .val (.inl _) | .val (.inr _) | .val (.loc _)
+    | .inj _ _ _ | .match_ _ _ => VerifM.fatal "unsupported expression"
+    | .val (.inj _ _ _) | .val (.loc _)
     | .val (.fix _ _ _ _) | .val (.tuple _)
     | .app _ _ | .fix _ _ _ _ | .ref _ | .deref _ | .store _ _ => VerifM.fatal "unsupported expression"
 
@@ -227,6 +226,7 @@ theorem compile_correct (e : TinyML.Expr) (S : SpecMap) (B : Bindings) (Γ : Tin
   | val v =>
     cases v with
     | int n =>
+      simp only [compile] at heval
       simp; apply wp.val
       obtain heval := VerifM.eval_ret heval
       exact hpost (.int n) ρ st .int _ heval
@@ -234,6 +234,7 @@ theorem compile_correct (e : TinyML.Expr) (S : SpecMap) (B : Bindings) (Γ : Tin
         (by simp [Term.eval, UnOp.eval, Const.denote])
         (.int n)
     | bool b =>
+      simp only [compile] at heval
       simp; apply wp.val
       obtain heval := VerifM.eval_ret heval
       exact hpost (.bool b) ρ st .bool _ heval
@@ -241,14 +242,18 @@ theorem compile_correct (e : TinyML.Expr) (S : SpecMap) (B : Bindings) (Γ : Tin
         (by simp [Term.eval, UnOp.eval, Const.denote])
         (.bool b)
     | unit =>
+      simp only [compile] at heval
       simp; apply wp.val
       obtain heval := VerifM.eval_ret heval
       exact hpost .unit ρ st .unit _ heval
         (by intro w hw; simp [Term.freeVars] at hw)
         (by simp [Term.eval])
         .unit
-    | inl _ | inr _ | loc _ | fix _ _ _ _ | tuple _ =>
+    | inj _ _ _ | loc _ | fix _ _ _ _ | tuple _ =>
+      simp only [compile] at heval
       simp; exact (VerifM.eval_fatal heval).elim
+  | inj tag arity payload => sorry
+  | match_ scrut branches => sorry
   | var x =>
     simp only [compile] at heval
     cases hbind : List.lookup x B with
@@ -280,6 +285,7 @@ theorem compile_correct (e : TinyML.Expr) (S : SpecMap) (B : Bindings) (Γ : Tin
   | unop op e =>
     simp only [TinyML.Expr.subst]
     apply wp.unop
+    simp only [compile] at heval
     have heval_e : (compile S B Γ e).eval st ρ _ := VerifM.eval_bind _ _ _ _ heval
     refine compile_correct e S B Γ st ρ γ _ _ (VerifM.eval.decls_grow ρ heval_e) hagree hbwf hts hspec hSwf ?_
     intro v_e ρ_e st₁ te se hΨ_e hse_wf heval_se htype_e
@@ -305,6 +311,7 @@ theorem compile_correct (e : TinyML.Expr) (S : SpecMap) (B : Bindings) (Γ : Tin
   | binop op l r =>
     simp only [TinyML.Expr.subst]
     apply wp.binop
+    simp only [compile] at heval
     have heval_l : (compile S B Γ l).eval st ρ _ := VerifM.eval_bind _ _ _ _ heval
     refine compile_correct l S B Γ st ρ γ _ _ (VerifM.eval.decls_grow ρ heval_l) hagree hbwf hts hspec hSwf ?_
     intro vl ρ_l st₁ tyl sl hΨ_l hsl_wf heval_l htyl
@@ -392,6 +399,7 @@ theorem compile_correct (e : TinyML.Expr) (S : SpecMap) (B : Bindings) (Γ : Tin
   | letIn b e body =>
     simp only [TinyML.Expr.subst]
     apply wp.letIn
+    simp only [compile] at heval
     cases b with
     | none =>
       have heval_e_outer : (compile S B Γ e).eval st ρ _ := VerifM.eval_bind _ _ _ _ heval
@@ -470,6 +478,7 @@ theorem compile_correct (e : TinyML.Expr) (S : SpecMap) (B : Bindings) (Γ : Tin
   | assert e =>
     simp only [TinyML.Expr.subst]
     apply wp.assert
+    simp only [compile] at heval
     have heval_e : (compile S B Γ e).eval st ρ _ := VerifM.eval_bind _ _ _ _ heval
     refine compile_correct e S B Γ st ρ γ _ _ (VerifM.eval.decls_grow ρ heval_e) hagree hbwf hts hspec hSwf ?_
     intro v_e ρ_e st₁ te se hΨ_e hse_wf heval_se _
@@ -490,6 +499,7 @@ theorem compile_correct (e : TinyML.Expr) (S : SpecMap) (B : Bindings) (Γ : Tin
   | ifThenElse cond thn els =>
     simp only [TinyML.Expr.subst]
     apply wp.ifThenElse
+    simp only [compile] at heval
     have heval_cond : (compile S B Γ cond).eval st ρ _ := VerifM.eval_bind _ _ _ _ heval
     refine compile_correct cond S B Γ st ρ γ _ _ (VerifM.eval.decls_grow ρ heval_cond) hagree hbwf hts hspec hSwf ?_
     intro v_c ρ_c st₁ _ sc hΨ_c hsc_wf heval_c _
@@ -571,6 +581,7 @@ theorem compile_correct (e : TinyML.Expr) (S : SpecMap) (B : Bindings) (Γ : Tin
   | tuple es =>
     simp only [TinyML.Expr.subst]
     apply wp.tuple
+    simp only [compile] at heval
     have heval_es : (compileExprs S B Γ es).eval st ρ _ := VerifM.eval_bind _ _ _ _ heval
     refine compileExprs_correct es S B Γ st ρ γ _ _ (VerifM.eval.decls_grow ρ heval_es) hagree hbwf hts hspec hSwf ?_
     intro vs ρ' st' pairs hΨ hwf_pairs heval_pairs htyping

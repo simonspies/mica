@@ -12,6 +12,10 @@ inductive UnOp : Srt → Srt → Type where
   | vhead      : UnOp .vallist .value
   | vtail      : UnOp .vallist .vallist
   | visnil     : UnOp .vallist .bool
+  | mkInj (tag : Nat) (arity : Nat) : UnOp .value .value
+  | tagOf                           : UnOp .value .int
+  | arityOf                         : UnOp .value .int
+  | payloadOf                       : UnOp .value .value
   deriving DecidableEq, Repr
 
 inductive BinOp : Srt → Srt → Srt → Type where
@@ -92,6 +96,10 @@ theorem Term.wfIn_mono (t : Term τ) (h : t.wfIn Δ) (hsub : Δ ⊆ Δ') : t.wfI
   | .vhead,   vs => vs.headD .unit
   | .vtail,   vs => vs.tail
   | .visnil,  vs => vs.isEmpty
+  | .mkInj tag arity, v => TinyML.Val.inj tag arity v
+  | .tagOf,   v => match v with | .inj tag _ _ => (tag : Int) | _ => 0
+  | .arityOf, v => match v with | .inj _ arity _ => (arity : Int) | _ => 0
+  | .payloadOf, v => match v with | .inj _ _ payload => payload | _ => TinyML.Val.unit
 
 @[simp] def BinOp.eval : BinOp τ₁ τ₂ τ₃ → τ₁.denote → τ₂.denote → τ₃.denote
   | .add,   a, b  => a + b
