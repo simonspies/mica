@@ -375,6 +375,15 @@ theorem SpecMap.satisfiedBy_erase {S : SpecMap} {γ : TinyML.Subst} {x : TinyML.
     obtain ⟨fval, hγ, hisPrecond⟩ := h y s hlookup
     exact ⟨fval, by simp [TinyML.Subst.update, hyx, hγ], hisPrecond⟩
 
+theorem SpecMap.satisfiedBy_update_of_not_mem {S : SpecMap} {γ : TinyML.Subst}
+    {x : TinyML.Var} {v : TinyML.Val}
+    (h : S.satisfiedBy γ) (hx : S.lookup x = none) :
+    S.satisfiedBy (γ.update x v) := by
+  intro y s hlookup
+  have hyx : y ≠ x := by intro heq; subst heq; rw [hx] at hlookup; exact absurd hlookup (by simp)
+  obtain ⟨fval, hγ, hisPrecond⟩ := h y s hlookup
+  exact ⟨fval, by simp [TinyML.Subst.update, hyx, hγ], hisPrecond⟩
+
 -- ---------------------------------------------------------------------------
 -- Spec correctness
 -- ---------------------------------------------------------------------------

@@ -118,6 +118,19 @@ end
 instance : Inhabited Val := ⟨.unit⟩
 instance : Inhabited Expr := ⟨.val .unit⟩
 
+/-- Is the expression a function (fix) node? -/
+def Expr.isFunc : Expr → Bool
+  | .fix .. => true
+  | _ => false
+
+@[simp] theorem Expr.isFunc_fix : (Expr.fix self args retTy body).isFunc = true := rfl
+
+theorem Expr.isFunc_elim {e : Expr} (h : e.isFunc = true) :
+    ∃ self args retTy body, e = .fix self args retTy body := by
+  cases e <;> simp [isFunc] at h
+  exact ⟨_, _, _, _, rfl⟩
+
+
 mutual
   def Val.decEq (a b : Val) : Decidable (a = b) := by
     cases a <;> cases b
@@ -336,6 +349,15 @@ def Expr.subst (σ : Subst) : Expr → Expr
   | .tuple es => .tuple (es.map (Expr.subst σ))
   | .inj tag arity payload => .inj tag arity (payload.subst σ)
   | .match_ scrut branches => .match_ (scrut.subst σ) (branches.map (Expr.subst σ))
+
+@[simp] theorem Expr.subst_fix (σ : Subst) (self : Binder) (args : List (Binder × Option Type_)) (retTy : Option Type_) (body : Expr) :
+    (Expr.fix self args retTy body).subst σ = .fix self args retTy (body.subst (σ.remove' self |>.removeAll' (args.map Prod.fst))) := by
+  simp [Expr.subst]
+
+theorem Expr.isFunc_subst {e : Expr} {σ : Subst} (h : e.isFunc = true) :
+    (e.subst σ).isFunc = true := by
+  obtain ⟨self, args, retTy, body, rfl⟩ := isFunc_elim h
+  simp [subst_fix]
 
 @[simp] private theorem Subst.remove_none (x : Var) :
     Subst.remove (fun _ => none) x = fun _ => none := by
