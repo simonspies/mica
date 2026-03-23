@@ -38,6 +38,11 @@ inductive Token where
   | kw_if
   | kw_then
   | kw_else
+  | kw_match
+  | kw_with
+  | kw_type
+  | kw_of
+  | pipe                -- |
   | eof
   deriving Repr, BEq, Inhabited
 
@@ -65,6 +70,8 @@ def Token.toString : Token → String
   | .underscore => "UNDERSCORE"
   | .kw_let => "LET" | .kw_rec => "REC" | .kw_in => "IN"
   | .kw_fun => "FUN" | .kw_if => "IF" | .kw_then => "THEN" | .kw_else => "ELSE"
+  | .kw_match => "MATCH" | .kw_with => "WITH" | .kw_type => "TYPE" | .kw_of => "OF"
+  | .pipe => "PIPE"
   | .eof => "EOF"
 
 instance : ToString Token := ⟨Token.toString⟩
@@ -92,6 +99,10 @@ private def keyword : String → Token
   | "ref" => .kw_ref
   | "spec" => .kw_spec
   | "mod" => .kw_mod
+  | "match" => .kw_match
+  | "with" => .kw_with
+  | "type" => .kw_type
+  | "of" => .kw_of
   | "_" => .underscore
   | s => .ident s
 
@@ -109,6 +120,7 @@ where
   | '@' :: cs, acc => lex cs (.at :: acc)
   | '|' :: '>' :: cs, acc => lex cs (.pipe_gt :: acc)
   | '|' :: '|' :: cs, acc => lex cs (.pipepipe :: acc)
+  | '|' :: cs, acc => lex cs (.pipe :: acc)
   | '&' :: '&' :: cs, acc => lex cs (.ampamp :: acc)
   | '<' :: '=' :: cs, acc => lex cs (.le :: acc)
   | '>' :: '=' :: cs, acc => lex cs (.ge :: acc)
