@@ -109,15 +109,7 @@ where
         let (t1, st') ← parseType st'
         match peek st' with
         | .rparen => .ok (t1, advance st')
-        | .comma => do
-          -- `(T1, T2) Either.t`
-          let (t2, st') ← parseType (advance st')
-          let st' ← expect .rparen st'
-          let st' ← expect (.ident "Either") st'
-          let st' ← expect .dot st'
-          let st' ← expect (.ident "t") st'
-          .ok (.sum [t1, t2], st')
-        | t => .error s!"expected ')' or ',' in type, got {t}"
+        | t => .error s!"expected ')' in type, got {t}"
     | .ident name =>
       match typeAliasLookup st.typeAliases name with
       | .some t => .ok (t, advance st)
@@ -281,7 +273,7 @@ where
       | .some (tag, arity) =>
         -- Optional binder for the payload
         let (binder, st) ← match peek st with
-          | .ident _ | .underscore | .lparen => parseBinder st
+          | .ident _ | .underscore => parseBinder st
           | _ => .ok (Binder.none, st)  -- nullary constructor
         let st ← expect .arrow st
         let (body, st) ← parseExpr st
