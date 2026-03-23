@@ -223,6 +223,7 @@ mutual
       | .none => do
         let xv ← VerifM.decl (match binder with | .named x => some x | .none => none) .value
         VerifM.assume (.eq .value sc (.unop (.mkInj i n) (.var .value xv.name)))
+        VerifM.assumeAll (typeConstraints ty_i (.var .value xv.name))
         match binder with
         | .named x =>
           compile (Finmap.erase x S) ((x, xv) :: B) (Γ.extendBinder (.named x) ty_i) body
@@ -821,7 +822,16 @@ theorem compileBranch_correct (branch : TinyML.Expr) (S : SpecMap) (B : Bindings
           simp [Formula.eval, Term.eval, UnOp.eval]
           rw [hsc_eval_ρ₁, hsc_eval]
           simp [ρ₁, Env.lookup_update_same]
-        have heval_body := hassume hformula_wf hformula_eval
+        have heval_assumeAll := hassume hformula_wf hformula_eval
+        -- Peel off assumeAll (typeConstraints)
+        have hxv_wf : (Term.var Srt.value xv.name).wfIn st₁.decls := by
+          intro w hw; simp [Term.freeVars] at hw; subst hw; exact List.mem_cons_self ..
+        have hxv_eval : (Term.var Srt.value xv.name).eval ρ₁ = payload := by
+          simp [Term.eval, ρ₁, Env.lookup_update_same]
+        have hassume_bind₂ := VerifM.eval_bind _ _ _ _ heval_assumeAll
+        obtain ⟨st₂, hst₂_decls, heval_body'⟩ := VerifM.eval_assumeAll hassume_bind₂
+          (fun φ hφ => typeConstraints_wfIn hxv_wf φ hφ)
+          (fun φ hφ => typeConstraints_hold hxv_eval htype_payload φ hφ)
         simp only [TinyML.Expr.subst]
         simp only [TinyML.Subst.remove'_none]
         apply wp_app_lambda_single
@@ -841,14 +851,14 @@ theorem compileBranch_correct (branch : TinyML.Expr) (S : SpecMap) (B : Bindings
         | none =>
           have hagree₁ : B.agreeOnLinked ρ₁ γ :=
             Bindings.agreeOnLinked_env_agree hagree hagreeOn_st hbwf
-          have hbwf₁ : B.wf st₁.decls := fun p hp => List.Mem.tail _ (hbwf p hp)
-          exact compile_correct body S B Γ _ ρ₁ γ Ψ Φ heval_body hagree₁ hbwf₁ hts hspec hSwf hpost
+          have hbwf₁ : B.wf st₂.decls := hst₂_decls ▸ fun p hp => List.Mem.tail _ (hbwf p hp)
+          exact compile_correct body S B Γ _ ρ₁ γ Ψ Φ heval_body' hagree₁ hbwf₁ hts hspec hSwf hpost
         | named x =>
           have hagreeOn_B : Env.agreeOn (B.map Prod.snd) ρ₁ ρ := by
             intro w hw
             obtain ⟨p, hp, rfl⟩ := List.mem_map.mp hw
             exact Env.agreeOn_symm hagreeOn_st p.2 (hbwf p hp)
-          have hbwf₂ : Bindings.wf ((x, xv) :: B) st₁.decls := Bindings.wf_cons hbwf
+          have hbwf₂ : Bindings.wf ((x, xv) :: B) st₂.decls := hst₂_decls ▸ Bindings.wf_cons hbwf
           have hρ₁_lookup : ρ₁.lookup .value xv.name = payload := by
             simp [ρ₁, Env.lookup_update_same]
           have hagree₁ : Bindings.agreeOnLinked ((x, xv) :: B) ρ₁ (TinyML.Subst.update γ x payload) := by
@@ -857,7 +867,7 @@ theorem compileBranch_correct (branch : TinyML.Expr) (S : SpecMap) (B : Bindings
           have hts₁ : Bindings.typedSubst ((x, xv) :: B) (Γ.extend x ty_i) (TinyML.Subst.update γ x payload) :=
             Bindings.typedSubst_cons hts htype_payload
           exact compile_correct body (Finmap.erase x S) ((x, xv) :: B) (Γ.extend x ty_i) _ ρ₁
-            (TinyML.Subst.update γ x payload) Ψ Φ heval_body hagree₁ hbwf₂ hts₁
+            (TinyML.Subst.update γ x payload) Ψ Φ heval_body' hagree₁ hbwf₂ hts₁
             (SpecMap.satisfiedBy_erase hspec) (SpecMap.wfIn_erase hSwf) hpost
     | _ :: _ :: _ => simp [compileBranch] at heval; exact (VerifM.eval_fatal heval).elim
   | _ => simp [compileBranch] at heval; exact (VerifM.eval_fatal heval).elim
