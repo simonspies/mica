@@ -30,6 +30,10 @@ def UnOp.toSMTLIB : UnOp τ₁ τ₂ → String
   | .vhead   => "vhd"
   | .vtail   => "vtl"
   | .visnil  => "is-vnil"
+  | .mkInj tag arity => s!"of_inj {tag} {arity}"
+  | .tagOf   => "tag_of"
+  | .arityOf => "arity_of"
+  | .payloadOf => "payload_of"
 
 def BinOp.toSMTLIB : BinOp τ₁ τ₂ τ₃ → String
   | .add   => "+"
@@ -47,6 +51,7 @@ def UnPred.toSMTLIB : UnPred τ → String
   | .isInt   => "is-of_int"
   | .isBool  => "is-of_bool"
   | .isTuple => "is-of_tuple"
+  | .isInj _ _ => ""  -- handled specially in Formula.toSMTLIB
 
 def BinPred.toSMTLIB : BinPred τ₁ τ₂ → String
   | .lt => "<"
@@ -66,7 +71,9 @@ def Formula.toSMTLIB : Formula → String
   | .true_          => "true"
   | .false_         => "false"
   | .eq _τ a b      => s!"(= {a.toSMTLIB} {b.toSMTLIB})"
-  | .unpred p v     => s!"({p.toSMTLIB} {v.toSMTLIB})"
+  | .unpred p v     => match p with
+    | .isInj tag arity => s!"(and (is-of_inj {v.toSMTLIB}) (= (tag_of {v.toSMTLIB}) {tag}) (= (arity_of {v.toSMTLIB}) {arity}))"
+    | _ => s!"({p.toSMTLIB} {v.toSMTLIB})"
   | .binpred p a b  => s!"({p.toSMTLIB} {a.toSMTLIB} {b.toSMTLIB})"
   | .not φ          => s!"(not {φ.toSMTLIB})"
   | .and φ ψ        => s!"(and {φ.toSMTLIB} {ψ.toSMTLIB})"
@@ -116,6 +123,10 @@ private def termStr (p : Prec) : {τ : Srt} → Term τ → String
     | .vhead   => s!"hd({termStr .bottom a})"
     | .vtail   => s!"tl({termStr .bottom a})"
     | .visnil  => s!"isnil({termStr .bottom a})"
+    | .mkInj tag arity => s!"inj({tag}/{arity}, {termStr .bottom a})"
+    | .tagOf   => s!"tag({termStr .bottom a})"
+    | .arityOf => s!"arity({termStr .bottom a})"
+    | .payloadOf => s!"payload({termStr .bottom a})"
   | _, .binop op a b => match op with
     | .add   => parens (Prec.lt .add p) s!"{termStr .add a} + {termStr .mul b}"
     | .sub   => parens (Prec.lt .add p) s!"{termStr .add a} - {termStr .mul b}"
@@ -138,6 +149,7 @@ private def formulaStr (p : Prec) : Formula → String
     | .isInt   => s!"isInt({termStr .bottom v})"
     | .isBool  => s!"isBool({termStr .bottom v})"
     | .isTuple => s!"isTuple({termStr .bottom v})"
+    | .isInj tag arity => s!"isInj({tag}/{arity}, {termStr .bottom v})"
   | .binpred pred a b => match pred with
     | .lt => parens (Prec.lt .cmp p) s!"{termStr .add a} < {termStr .add b}"
     | .le => parens (Prec.lt .cmp p) s!"{termStr .add a} <= {termStr .add b}"

@@ -3,10 +3,24 @@ import Mica.TinyML.Expr
 
 namespace TinyML
 
+/-- Maps constructor name to (tag, total number of constructors). -/
+abbrev CtorMap := List (String × Nat × Nat)
+
+private def ctorLookup : CtorMap → String → Option (Nat × Nat)
+  | [], _ => none
+  | (n, v) :: rest, name => if n == name then some v else ctorLookup rest name
+
+abbrev TypeAliasMap := List (String × Type_)
+
+private def typeAliasLookup : TypeAliasMap → String → Option Type_
+  | [], _ => none
+  | (n, t) :: rest, name => if n == name then some t else typeAliasLookup rest name
+
 structure ParserState where
   tokens : Array Token
   pos : Nat
-  deriving Repr
+  ctors : CtorMap := []
+  typeAliases : TypeAliasMap := []
 
 abbrev Parser (α : Type) := ParserState → Except String (α × ParserState)
 
@@ -95,15 +109,11 @@ where
         let (t1, st') ← parseType st'
         match peek st' with
         | .rparen => .ok (t1, advance st')
-        | .comma => do
-          -- `(T1, T2) Either.t`
-          let (t2, st') ← parseType (advance st')
-          let st' ← expect .rparen st'
-          let st' ← expect (.ident "Either") st'
-          let st' ← expect .dot st'
-          let st' ← expect (.ident "t") st'
-          .ok (.sum t1 t2, st')
-        | t => .error s!"expected ')' or ',' in type, got {t}"
+        | t => .error s!"expected ')' in type, got {t}"
+    | .ident name =>
+      match typeAliasLookup st.typeAliases name with
+      | .some t => .ok (t, advance st)
+      | .none => .error s!"expected type, got {repr (Token.ident name)}"
     | t => .error s!"expected type, got {t}"
 
 /-- Parse an expression. -/
@@ -112,6 +122,7 @@ partial def parseExpr : Parser Expr := fun st =>
   | .kw_let => parseLet st
   | .kw_fun => parseFun st
   | .kw_if => parseIf st
+  | .kw_match => parseMatch st
   | _ => parseSemi st
 
 where
@@ -220,6 +231,56 @@ where
     let (els, st) ← parseExpr st
     .ok (.ifThenElse cond thn els, st)
 
+  -- `match e with | C1 x -> e1 | C2 y -> e2 | ...`
+  -- Desugars each arm into a lambda at the constructor's tag position.
+  parseMatch : Parser Expr := fun st => do
+    let st ← expect .kw_match st
+    let (scrut, st) ← parseExpr st
+    let st ← expect .kw_with st
+    let (arms, st) ← parseMatchArms st
+    -- arms is a list of (tag, arity, binder, body)
+    match arms with
+    | [] => .error "match with no arms"
+    | (_, arity, _, _) :: _ =>
+      -- Build branches array indexed by tag, fill with lambdas
+      let branches := buildBranches arms arity
+      match branches with
+      | .error msg => .error msg
+      | .ok bs => .ok (.match_ scrut bs, st)
+
+  buildBranches (arms : List (Nat × Nat × Binder × Expr)) (arity : Nat)
+      : Except String (List Expr) :=
+    -- Build a list of length `arity` with branches at their tag positions
+    let init : List (Option Expr) := List.replicate arity .none
+    let filled := arms.foldl (fun acc (tag, _, binder, body) =>
+      acc.set tag (.some (.fix .none [(binder, .none)] .none body))) init
+    let rec collect : List (Option Expr) → Except String (List Expr)
+      | [] => .ok []
+      | .some e :: rest => do let rs ← collect rest; .ok (e :: rs)
+      | .none :: _ => .error "incomplete match: missing branch for some constructor"
+    collect filled
+
+  -- Parse `| CtorName binder -> expr` arms
+  parseMatchArms (st : ParserState) :
+      Except String (List (Nat × Nat × Binder × Expr) × ParserState) :=
+    match peek st with
+    | .pipe => do
+      let st := advance st
+      -- Expect a constructor name
+      let (ctorName, st) ← expectIdent st
+      match ctorLookup st.ctors ctorName with
+      | .none => .error s!"unknown constructor '{ctorName}'"
+      | .some (tag, arity) =>
+        -- Optional binder for the payload
+        let (binder, st) ← match peek st with
+          | .ident _ | .underscore => parseBinder st
+          | _ => .ok (Binder.none, st)  -- nullary constructor
+        let st ← expect .arrow st
+        let (body, st) ← parseExpr st
+        let (rest, st) ← parseMatchArms st
+        .ok ((tag, arity, binder, body) :: rest, st)
+    | _ => .ok ([], st)
+
   -- `;` sequences: `e1; e2` → `let _ = e1 in e2`
   parseSemi : Parser Expr := fun st => do
     let (lhs, st) ← parsePipeGt st
@@ -284,7 +345,7 @@ where
   collectArgs : Parser (List Expr) := fun st =>
     match peek st with
     | .intLit _ | .ident _ | .lparen | .kw_true | .kw_false
-    | .bang | .kw_not | .kw_ref | .kw_inl | .kw_inr => do
+    | .bang | .kw_not | .kw_ref => do
       let (arg, st) ← parseUnary st
       let (rest, st) ← collectArgs st
       .ok (arg :: rest, st)
@@ -292,8 +353,7 @@ where
 
   parseUnary : Parser Expr := fun st =>
     let kwUnary : List (Token × UnOp) :=
-      [(Token.kw_not, UnOp.not),
-       (Token.kw_inl, UnOp.inl), (Token.kw_inr, UnOp.inr)]
+      [(Token.kw_not, UnOp.not)]
     match kwUnary.find? (·.1 == peek st) with
     | some (_, op) => do
       let (e, st) ← parseUnary (advance st)
@@ -323,7 +383,32 @@ where
     | .intLit n  => .ok (.val (.int n), advance st)
     | .kw_true   => .ok (.val (.bool true), advance st)
     | .kw_false  => .ok (.val (.bool false), advance st)
-    | .ident name => .ok (.var name, advance st)
+    | .ident "inj" =>
+      -- `inj <tag:int> <arity:int> <payload>` — explicit injection syntax (used in specs)
+      let st := advance st
+      match peek st with
+      | .intLit tag =>
+        let st := advance st
+        match peek st with
+        | .intLit arity => do
+          let st := advance st
+          let (payload, st) ← parseAtom st
+          .ok (.inj tag.toNat arity.toNat payload, st)
+        | t => .error s!"expected arity after 'inj {tag}', got {t}"
+      | t => .error s!"expected tag after 'inj', got {t}"
+    | .ident name =>
+      match ctorLookup st.ctors name with
+      | .some (tag, arity) =>
+        let st := advance st
+        -- Try to parse an argument for the constructor
+        match peek st with
+        | .intLit _ | .ident _ | .lparen | .kw_true | .kw_false => do
+          let (arg, st) ← parseAtom st
+          .ok (.inj tag arity arg, st)
+        | _ =>
+          -- Nullary constructor: payload is unit
+          .ok (.inj tag arity (.val .unit), st)
+      | .none => .ok (.var name, advance st)
     | .lparen => do
       let st' := advance st
       -- `()` is unit
@@ -450,19 +535,60 @@ where
     else
       .ok (.none, st)
 
+/-- Parse `type foo = A | B of int | C of int * int`.
+    Returns the updated parser state with constructors registered. -/
+partial def parseTypeDecl (st : ParserState) : Except String ParserState := do
+  let st ← expect .kw_type st
+  let (typeName, st) ← expectIdent st
+  let st ← expect .eq st
+  -- Parse constructors: `A | B of int | C of int * int`
+  let (ctorDefs, st) ← parseCtors st
+  -- Assign tags 0..n-1, arity = total number of constructors
+  let arity := ctorDefs.length
+  let ctors := ctorDefs.foldl (fun (acc, i) (name, _) => ((name, i, arity) :: acc, i + 1))
+    (st.ctors, 0) |>.1
+  -- Register the type alias using parsed payload types
+  let sumTy := Type_.sum (ctorDefs.map (fun (_, ty) => ty.getD .unit))
+  .ok { st with ctors := ctors, typeAliases := (typeName, sumTy) :: st.typeAliases }
+where
+  parseCtors (st : ParserState) : Except String (List (String × Option Type_) × ParserState) := do
+    -- Optional leading pipe
+    let st := if peek st == .pipe then advance st else st
+    let (name, st) ← expectIdent st
+    let (payloadTy, st) ← parseOfType st
+    match peek st with
+    | .pipe => do
+      let (rest, st) ← parseCtors (advance st)
+      .ok ((name, payloadTy) :: rest, st)
+    | _ => .ok ([(name, payloadTy)], st)
+  parseOfType (st : ParserState) : Except String (Option Type_ × ParserState) := do
+    if peek st == .kw_of then
+      let st' := advance st  -- skip `of`
+      let (ty, st'') ← parseType st'
+      .ok (.some ty, st'')
+    else
+      .ok (.none, st)
+
 /-- Parse a program: a sequence of declarations separated by `;;`. -/
 partial def parseProgram : Parser Program := fun st => do
-  let startsDecl := peek st == .kw_let ||
-    (peek st == .lbracket && peek (advance st) == .at)
-  match startsDecl with
-  | true => do
-    let (decl, st) ← parseDecl st
+  match peek st with
+  | .kw_type => do
+    let st ← parseTypeDecl st
     match peek st with
-    | .semisemi =>
-      let (rest, st) ← parseProgram (advance st)
-      .ok (decl :: rest, st)
-    | _ => .ok ([decl], st)
-  | false => .ok ([], st)
+    | .semisemi => parseProgram (advance st)
+    | _ => parseProgram st
+  | _ =>
+    let startsDecl := peek st == .kw_let ||
+      (peek st == .lbracket && peek (advance st) == .at)
+    match startsDecl with
+    | true => do
+      let (decl, st) ← parseDecl st
+      match peek st with
+      | .semisemi =>
+        let (rest, st) ← parseProgram (advance st)
+        .ok (decl :: rest, st)
+      | _ => .ok ([decl], st)
+    | false => .ok ([], st)
 
 def parse (input : String) : Except String Expr := do
   let tokens ← tokenize input

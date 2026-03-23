@@ -75,6 +75,15 @@ def infer (env : SpecEnv) : TinyML.Expr → Except String (Σ t, Term t)
   | .tuple es => do
     let vlist ← checkValList env es
     .ok ⟨.value, .unop .ofValList vlist⟩
+  | .inj tag arity payload => do
+    let inner ← check env .value payload
+    .ok ⟨.value, .unop (.mkInj tag arity) inner⟩
+  | .app (.var "tagof") [e] => do
+    .ok ⟨.int, .unop .tagOf (← check env .value e)⟩
+  | .app (.var "arityof") [e] => do
+    .ok ⟨.int, .unop .arityOf (← check env .value e)⟩
+  | .app (.var "payloadof") [e] => do
+    .ok ⟨.value, .unop .payloadOf (← check env .value e)⟩
   | .ifThenElse c th el => do
     let ⟨t, th'⟩ ← infer env th
     .ok ⟨t, .ite (← check env .bool c) th' (← check env t el)⟩
@@ -125,6 +134,11 @@ def check (env : SpecEnv) (t : Srt) : TinyML.Expr → Except String (Term t)
       let vlist ← checkValList env es
       .ok (.unop .ofValList vlist)
     | _ => .error s!"tuple produces .value, expected {repr t}"
+  | .inj tag arity payload => match t with
+    | .value => do
+      let inner ← check env .value payload
+      .ok (.unop (.mkInj tag arity) inner)
+    | _ => .error s!"inj produces .value, expected {repr t}"
   | .ifThenElse c th el => do
     .ok (.ite (← check env .bool c) (← check env t th) (← check env t el))
   | e =>
@@ -164,11 +178,13 @@ def checkValList (env : SpecEnv) : List TinyML.Expr → Except String (Term .val
 end  -- mutual
 
 
--- Recognises `isint e` and `isbool e`; argument checked at `.value`.
+-- Recognises `isint e`, `isbool e`, and `isinj <tag> <arity> e`; argument checked at `.value`.
 def typePred (env : SpecEnv) : TinyML.Expr → Except String (Σ t, Atom t)
   | .app (.var "isint")  [e] => do .ok ⟨.int,  .isint  (← check env .value e)⟩
   | .app (.var "isbool") [e] => do .ok ⟨.bool, .isbool (← check env .value e)⟩
-  | e => .error s!"expected isint or isbool application, got {repr e}"
+  | .app (.var "isinj") [.val (.int tag), .val (.int arity), e] => do
+    .ok ⟨.value, .isinj tag.toNat arity.toNat (← check env .value e)⟩
+  | e => .error s!"expected isint, isbool, or isinj application, got {repr e}"
 
 -- Recognises exactly one `fun x -> e` binder; adds `x : .value` to env.
 def pred (inner : Parser α) : Parser (Pred α)

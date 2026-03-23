@@ -68,6 +68,18 @@ axiom wp.assert {e : TinyML.Expr} {P : TinyML.Val → Prop} :
 axiom wp.tuple {es : TinyML.Exprs} {Q : TinyML.Val → Prop} :
   wps es (fun vs => Q (.tuple vs)) → wp (.tuple es) Q
 
+/-- An injection expression evaluates its payload and wraps it with the given tag and arity. -/
+axiom wp.inj {tag arity : Nat} {payload : TinyML.Expr} {Q : TinyML.Val → Prop} :
+  wp payload (fun v => Q (.inj tag arity v)) → wp (.inj tag arity payload) Q
+
+/-- A match expression evaluates the scrutinee, then dispatches to the appropriate branch. -/
+axiom wp.match_ {scrut : TinyML.Expr} {branches : TinyML.Exprs} {Q : TinyML.Val → Prop} :
+  wp scrut (fun v =>
+    ∃ (tag : Nat) (arity : Nat) (payload : TinyML.Val) (branch : TinyML.Expr),
+      v = .inj tag arity payload ∧ branches[tag]? = some branch ∧
+      wp (.app branch [.val payload]) Q) →
+  wp (.match_ scrut branches) Q
+
 
 @[simp] theorem wps_nil {Q : TinyML.Vals → Prop} : wps [] Q = Q [] := rfl
 @[simp] theorem wps_cons {e : TinyML.Expr} {es : TinyML.Exprs} {Q : TinyML.Vals → Prop} :

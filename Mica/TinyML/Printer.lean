@@ -9,7 +9,6 @@ def BinOp.toString : BinOp → String
 
 def UnOp.toString : UnOp → String
   | .neg => "-" | .not => "not"
-  | .inl => "Either.Left" | .inr => "Either.Right"
   | .proj n => s!".{n}"
 
 def Binder.print : Binder → String
@@ -50,6 +49,9 @@ partial def printExpr : Expr → String
   | .letIn name bound body => printLetIn name bound body
   | .ifThenElse cond thn els =>
     s!"if {printExpr cond} then {printExpr thn} else {printExpr els}"
+  | .match_ scrut branches =>
+    let arms := (List.range branches.length).zip branches |>.map fun ⟨i, b⟩ => s!"| {i} -> {printExpr b}"
+    s!"match {printExpr scrut} with {" ".intercalate arms}"
   | .store l r => s!"{printOr l} := {printOr r}"
   | e => printOr e
 
@@ -100,8 +102,7 @@ partial def printApp : Expr → String
   | .app fn args       => s!"{printApp fn} {" ".intercalate (args.map printUnary)}"
   | .unop .not e       => s!"not {printAtom e}"
   | .ref e             => s!"ref {printAtom e}"
-  | .unop .inl e       => s!"Either.Left {printAtom e}"
-  | .unop .inr e       => s!"Either.Right {printAtom e}"
+  | .inj tag arity e   => s!"(inj {tag}/{arity} {printAtom e})"
   | .assert e          => s!"assert {printAtom e}"
   | e => printUnary e
 
@@ -124,8 +125,7 @@ partial def printVal : Val → String
   | .bool b        => if b then "true" else "false"
   | .unit          => "()"
   | .tuple vs      => s!"({", ".intercalate (vs.map printVal)})"
-  | .inl v         => s!"Either.Left {printValAtom v}"
-  | .inr v         => s!"Either.Right {printValAtom v}"
+  | .inj tag arity v => s!"(inj {tag}/{arity} {printValAtom v})"
   | .loc l         => s!"(assert false (* loc:{l} *))"
   | .fix self args _ body => printFix self args body
 

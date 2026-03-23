@@ -28,7 +28,6 @@ inductive Token where
   | kw_assert
   | kw_true | kw_false
   | kw_not | kw_fst | kw_snd | kw_ref
-  | kw_inl | kw_inr
   | kw_spec
   | lbracket | rbracket  -- [ ]
   | underscore          -- _
@@ -39,6 +38,11 @@ inductive Token where
   | kw_if
   | kw_then
   | kw_else
+  | kw_match
+  | kw_with
+  | kw_type
+  | kw_of
+  | pipe                -- |
   | eof
   deriving Repr, BEq, Inhabited
 
@@ -61,12 +65,13 @@ def Token.toString : Token → String
   | .semi => "SEMI" | .semisemi => "SEMISEMI"
   | .kw_assert => "ASSERT" | .kw_true => "TRUE" | .kw_false => "FALSE"
   | .kw_not => "NOT" | .kw_fst => "FST" | .kw_snd => "SND" | .kw_ref => "REF"
-  | .kw_inl => "INL" | .kw_inr => "INR"
   | .kw_spec => "SPEC"
   | .lbracket => "LBRACKET" | .rbracket => "RBRACKET"
   | .underscore => "UNDERSCORE"
   | .kw_let => "LET" | .kw_rec => "REC" | .kw_in => "IN"
   | .kw_fun => "FUN" | .kw_if => "IF" | .kw_then => "THEN" | .kw_else => "ELSE"
+  | .kw_match => "MATCH" | .kw_with => "WITH" | .kw_type => "TYPE" | .kw_of => "OF"
+  | .pipe => "PIPE"
   | .eof => "EOF"
 
 instance : ToString Token := ⟨Token.toString⟩
@@ -92,9 +97,12 @@ private def keyword : String → Token
   | "true" => .kw_true | "false" => .kw_false
   | "not" => .kw_not | "fst" => .kw_fst | "snd" => .kw_snd
   | "ref" => .kw_ref
-  | "inl" => .kw_inl | "inr" => .kw_inr
   | "spec" => .kw_spec
   | "mod" => .kw_mod
+  | "match" => .kw_match
+  | "with" => .kw_with
+  | "type" => .kw_type
+  | "of" => .kw_of
   | "_" => .underscore
   | s => .ident s
 
@@ -112,6 +120,7 @@ where
   | '@' :: cs, acc => lex cs (.at :: acc)
   | '|' :: '>' :: cs, acc => lex cs (.pipe_gt :: acc)
   | '|' :: '|' :: cs, acc => lex cs (.pipepipe :: acc)
+  | '|' :: cs, acc => lex cs (.pipe :: acc)
   | '&' :: '&' :: cs, acc => lex cs (.ampamp :: acc)
   | '<' :: '=' :: cs, acc => lex cs (.le :: acc)
   | '>' :: '=' :: cs, acc => lex cs (.ge :: acc)
