@@ -722,8 +722,7 @@ theorem compile_correct (e : TinyML.Expr) (S : SpecMap) (B : Bindings) (Γ : Tin
           constructor
           · intro v hv; simp [FiniteSubst.id] at hv
           · exact List.nil_subset _
-        have hcall := Spec.call_correct spec FiniteSubst.id sargs st_args ρ_args Ψ
-          (fun r => TinyML.ValHasType r spec.retTy → Φ r)
+        have hcall := Spec.call_correct spec FiniteSubst.id sargs st_args ρ_args Ψ Φ
           hwf_pred hid_wf hsargs_wf hΨ_args
           (fun v st' ρ' t hΨ hwf heval hty => hpost v ρ' st' spec.retTy t hΨ hwf heval hty)
         obtain ⟨hsub_ty, happly⟩ := hcall

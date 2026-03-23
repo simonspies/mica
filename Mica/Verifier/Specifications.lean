@@ -194,6 +194,7 @@ def Spec.call (σ : FiniteSubst) (s : Spec) (sargs : List (TinyML.Type_ × Term 
     VerifM (TinyML.Type_ × Term .value) := do
   let σ' ← Spec.declareArgs σ s.args sargs
   let result ← PredTrans.call σ' s.pred
+  VerifM.assumeAll (typeConstraints s.retTy result)
   pure (s.retTy, result)
 
 /-- Declare implementation argument variables: for each `(name, ty)` in `args`,
@@ -519,9 +520,10 @@ theorem Spec.call_correct (s : Spec) (σ : FiniteSubst) (sargs : List (TinyML.Ty
     σ.wf st.decls →
     (∀ p ∈ sargs, (p : TinyML.Type_ × Term .value).2.wfIn st.decls) →
     VerifM.eval (Spec.call σ s sargs) st ρ Ψ →
-    (∀ v st' ρ' t, Ψ (s.retTy, t) st' ρ' → t.wfIn st'.decls → t.eval ρ' = v → Φ v) →
+    (∀ v st' ρ' t, Ψ (s.retTy, t) st' ρ' → t.wfIn st'.decls → t.eval ρ' = v →
+      TinyML.ValHasType v s.retTy → Φ v) →
     TinyML.Type_.SubList (sargs.map Prod.fst) (s.args.map Prod.snd) ∧
-    PredTrans.apply Φ s.pred
+    PredTrans.apply (fun r => TinyML.ValHasType r s.retTy → Φ r) s.pred
       (Spec.argsEnv (σ.subst.eval ρ) s.args (sargs.map fun p => p.2.eval ρ)) := by
   intro hwf hσwf hsargs heval hΨ
   simp only [Spec.call] at heval
@@ -531,11 +533,17 @@ theorem Spec.call_correct (s : Spec) (σ : FiniteSubst) (sargs : List (TinyML.Ty
   constructor
   · exact hsublist
   · have hb2 := VerifM.eval_bind _ _ _ _ hΨ'
-    have hcall := PredTrans.call_correct s.pred σ' st' ρ' _ Φ
+    have hcall := PredTrans.call_correct s.pred σ' st' ρ'
+      _ (fun r => TinyML.ValHasType r s.retTy → Φ r)
       (PredTrans.wfIn_mono hwf hdom_sub) hσ'wf hb2
       (fun v st'' ρ'' t hΨ'' htwf hteval => by
-        have hret := VerifM.eval_ret hΨ''
-        exact hΨ v st'' ρ'' t hret htwf hteval)
+        intro hty
+        have hbind := VerifM.eval_bind _ _ _ _ hΨ''
+        obtain ⟨st₃, hst₃_decls, heval_pure⟩ := VerifM.eval_assumeAll hbind
+          (fun φ hφ => typeConstraints_wfIn htwf φ hφ)
+          (fun φ hφ => typeConstraints_hold hteval hty φ hφ)
+        have hret := VerifM.eval_ret heval_pure
+        exact hΨ v st₃ ρ'' t hret (hst₃_decls ▸ htwf) hteval hty)
     exact PredTrans.apply_env_agree hwf hagree hcall
 
 /-- Correctness of `declareImplArgs`: after processing all arguments, the resulting
