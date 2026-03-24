@@ -327,8 +327,16 @@ where
   parseOr  := parseLAssoc [(.pipepipe, .or)]  parseAnd
   parseAnd := parseLAssoc [(.ampamp,   .and)] parseCmp
 
-  parseCmp := parseLAssoc
-    [(.eq, .eq), (.lt, .lt), (.le, .le), (.gt, .gt), (.ge, .ge)] parseAdd
+  parseCmp : Parser Expr := fun st => do
+    let (e, st) ← parseLAssoc
+      [(.eq, .eq), (.lt, .lt), (.le, .le), (.gt, .gt), (.ge, .ge)] parseAdd st
+    -- Desugar `<>`: `a <> b` → `not (a = b)`
+    match peek st with
+    | .ltgt => do
+      let (rhs, st) ← parseAdd (advance st)
+      let eq := Expr.binop .eq e rhs
+      .ok (.unop .not eq, st)
+    | _ => .ok (e, st)
 
   parseAdd := parseLAssoc [(.plus, .add), (.minus, .sub)] parseMul
   parseMul := parseLAssoc [(.star, .mul), (.slash, .div), (.kw_mod, .mod)] parseApp

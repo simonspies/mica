@@ -12,6 +12,7 @@ inductive Token where
   | rparen
   | eq
   | lt | le | gt | ge   -- < <= > >=
+  | ltgt                -- <>
   | ampamp              -- &&
   | pipepipe            -- ||
   | dot                 -- .
@@ -57,7 +58,7 @@ def Token.toString : Token → String
   | .lparen => "LPAREN"
   | .rparen => "RPAREN"
   | .eq => "EQ"
-  | .lt => "LT" | .le => "LE" | .gt => "GT" | .ge => "GE"
+  | .lt => "LT" | .le => "LE" | .gt => "GT" | .ge => "GE" | .ltgt => "LTGT"
   | .ampamp => "AMPAMP" | .pipepipe => "PIPEPIPE"
   | .dot => "DOT" | .colon => "COLON"
   | .colonEq => "COLONEQ" | .bang => "BANG" | .comma => "COMMA"
@@ -123,6 +124,7 @@ where
   | '|' :: cs, acc => lex cs (.pipe :: acc)
   | '&' :: '&' :: cs, acc => lex cs (.ampamp :: acc)
   | '<' :: '=' :: cs, acc => lex cs (.le :: acc)
+  | '<' :: '>' :: cs, acc => lex cs (.ltgt :: acc)
   | '>' :: '=' :: cs, acc => lex cs (.ge :: acc)
   | '<' :: cs, acc => lex cs (.lt :: acc)
   | '>' :: cs, acc => lex cs (.gt :: acc)
