@@ -341,24 +341,24 @@ private partial def parseOptRetTy : Parser (Option Typ) := fun st =>
 -- Expression parsing
 
 -- Forward declaration for mutual recursion via partial
-partial def parseExpr : Parser Expr := fun st =>
+partial def parseExpr : Parser Expr := fun st => do
+  let (lhs, st) ← parseExprNoSemi st
   match peekTok st with
-  | .kw_let   => parseLet st
-  | .kw_fun   => parseFun st
-  | .kw_if    => parseIf st
-  | .kw_match => parseMatch st
-  | _         => parseSemi st
+  | .semi => do
+    let (rhs, st) ← parseExpr (advance st)
+    let loc : Location := { start := lhs.loc.start, stop := rhs.loc.stop }
+    .ok ({ loc, kind := .binop .semi lhs rhs }, st)
+  | _ => .ok (lhs, st)
 
 where
-  -- `;` right-assoc
-  parseSemi : Parser Expr := fun st => do
-    let (lhs, st) ← parseAssign st
+  -- Expression without top-level `;` — keywords and operators, but not `;`.
+  parseExprNoSemi : Parser Expr := fun st =>
     match peekTok st with
-    | .semi => do
-      let (rhs, st) ← parseSemi (advance st)
-      let loc : Location := { start := lhs.loc.start, stop := rhs.loc.stop }
-      .ok ({ loc, kind := .binop .semi lhs rhs }, st)
-    | _ => .ok (lhs, st)
+    | .kw_let   => parseLet st
+    | .kw_fun   => parseFun st
+    | .kw_if    => parseIf st
+    | .kw_match => parseMatch st
+    | _         => parseAssign st
 
   -- `:=` right-assoc
   parseAssign : Parser Expr := fun st => do
@@ -604,14 +604,16 @@ where
     .ok (mkExpr p st (.fun_ args retTy body), st)
 
   -- `if c then t else e`
+  -- Sub-expressions use parseExprNoSemi because `;` binds less tightly
+  -- than if/then/else in OCaml.
   parseIf : Parser Expr := fun st => do
     let p := peekLoc st
     let st ← expect .kw_if st
-    let (cond, st) ← parseExpr st
+    let (cond, st) ← parseExprNoSemi st
     let st ← expect .kw_then st
-    let (thn, st) ← parseExpr st
+    let (thn, st) ← parseExprNoSemi st
     let st ← expect .kw_else st
-    let (els, st) ← parseExpr st
+    let (els, st) ← parseExprNoSemi st
     .ok (mkExpr p st (.ite cond thn els), st)
 
   -- `match e with | P -> e | ...`

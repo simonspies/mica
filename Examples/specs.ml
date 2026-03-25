@@ -51,9 +51,9 @@ let sign (x: int) : int = if x < 0 then 0 - 1 else if x = 0 then 0 else 1
   bind (isint x) @@ fun n ->
   ret (fun v ->
     bind (isint v) @@ fun r ->
-    if n < 0 then assert (r = 0 - 1); ret ()
-    else if n = 0 then assert (r = 0); ret ()
-    else assert (r = 1); ret ())];;
+    if n < 0 then (assert (r = 0 - 1); ret ())
+    else if n = 0 then (assert (r = 0); ret ())
+    else (assert (r = 1); ret ()))];;
 
 (* 7. Let-binding: compute (x + 1) * 2 using an intermediate let.       *)
 (*    Tests that let-bound variables in the body are compiled correctly.  *)
