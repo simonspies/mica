@@ -78,6 +78,9 @@ def infer (env : SpecEnv) : TinyML.Expr → Except String (Σ t, Term t)
   | .inj tag arity payload => do
     let inner ← check env .value payload
     .ok ⟨.value, .unop (.mkInj tag arity) inner⟩
+  | .app (.var "inj") [.val (.int tag), .val (.int arity), payload] => do
+    let inner ← check env .value payload
+    .ok ⟨.value, .unop (.mkInj tag.toNat arity.toNat) inner⟩
   | .app (.var "tagof") [e] => do
     .ok ⟨.int, .unop .tagOf (← check env .value e)⟩
   | .app (.var "arityof") [e] => do
@@ -138,6 +141,11 @@ def check (env : SpecEnv) (t : Srt) : TinyML.Expr → Except String (Term t)
     | .value => do
       let inner ← check env .value payload
       .ok (.unop (.mkInj tag arity) inner)
+    | _ => .error s!"inj produces .value, expected {repr t}"
+  | .app (.var "inj") [.val (.int tag), .val (.int arity), payload] => match t with
+    | .value => do
+      let inner ← check env .value payload
+      .ok (.unop (.mkInj tag.toNat arity.toNat) inner)
     | _ => .error s!"inj produces .value, expected {repr t}"
   | .ifThenElse c th el => do
     .ok (.ite (← check env .bool c) (← check env t th) (← check env t el))
