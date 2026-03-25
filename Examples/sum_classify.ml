@@ -6,5 +6,5 @@ let classify (x : int) : result =
 [@@spec fun x ->
   bind (isint x) @@ fun n ->
   ret (fun v ->
-    if n >= 0 then (assert (v = inj 0 2 x); ret ())
-    else (assert (v = Err x); ret ()))];;
+    if n >= 0 then assert (v = inj 0 2 x)
+    else assert (v = Err x))];;

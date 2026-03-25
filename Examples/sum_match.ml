@@ -21,7 +21,7 @@ let double_or_zero (opt : option_int) : int =
   bind (isint payload) @@ fun n ->
   ret (fun v ->
     bind (isint v) @@ fun r ->
-    assert (r = n + n); ret ())];;
+    assert (r = n + n))];;
 
 (* Negate the payload if Some, return 0 if None *)
 let negate_or_zero (opt : option_int) : int =
@@ -33,4 +33,4 @@ let negate_or_zero (opt : option_int) : int =
   bind (isint payload) @@ fun n ->
   ret (fun v ->
     bind (isint v) @@ fun r ->
-    assert (r = 0 - n); ret ())];;
+    assert (r = 0 - n))];;

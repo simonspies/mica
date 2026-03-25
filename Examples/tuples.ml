@@ -8,5 +8,4 @@ let swap_pair (p: int * int) : int * int =
 [@@spec fun p ->
   ret (fun v ->
     assert (p.0 = v.1);
-    assert (p.1 = v.0);
-    ret ())];;
+    assert (p.1 = v.0))];;
