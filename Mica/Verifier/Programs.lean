@@ -2,6 +2,8 @@ import Mica.TinyML.Expr
 import Mica.TinyML.WeakestPre
 import Mica.Verifier.Functions
 import Mica.Verifier.Parser
+import Mica.Frontend.SpecParser
+import Mica.Verifier.SpecTranslation
 import Mica.Verifier.PredicateTransformers
 import Mica.Verifier.Specifications
 import Mica.Engine.Driver
@@ -12,8 +14,9 @@ Iterates over a list of declarations, verifying each one against its spec
 and accumulating the spec map for use by subsequent declarations. -/
 
 /-- Parse a spec expression into a `SpecPredicate`. -/
-private def parseSpec (e : TinyML.Expr) : Except String SpecPredicate :=
-  SpecParser.spec [] e
+private def parseSpec (e : TinyML.Expr) : Except String SpecPredicate := do
+  let spec ← Spec.parse e
+  SpecTranslation.translate spec
 
 /-- Extract typed argument names from a function's argument list. -/
 private def extractArgs : List (TinyML.Binder × Option TinyML.Type_) → List String → Except String (List (String × TinyML.Type_))
