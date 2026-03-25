@@ -1,7 +1,6 @@
 import Mica.TinyML.Expr
 import Mica.TinyML.WeakestPre
 import Mica.Verifier.Functions
-import Mica.Verifier.Parser
 import Mica.Frontend.SpecParser
 import Mica.Verifier.SpecTranslation
 import Mica.Verifier.PredicateTransformers
