@@ -465,6 +465,7 @@ def TypeDecl.elaborate (env : ElabEnv) (loc : Location) (decl : TypeDecl)
 
 def ValDecl.elaborate (env : ElabEnv) (loc : Location)
     (isRec : Bool) (binders : List Pattern) (retTy : Option Typ) (body : Expr)
+    (spec : Option TinyML.Expr)
     : ElabM (TinyML.Decl TinyML.Expr) := do
   match binders with
   | [] => err loc (.unsupportedFeature "declaration with no binders")
@@ -474,17 +475,25 @@ def ValDecl.elaborate (env : ElabEnv) (loc : Location)
     if isRec then
       err loc (.unsupportedFeature "let rec requires function arguments")
     else
-      .ok { name, body := body', spec := none }
+      .ok { name, body := body', spec }
   | pat :: args =>
     let name ← patternToBinder pat
     let self := if isRec then name else .none
     let args' ← PatternList.toBindersTyped env args
     let retTy' ← elaborateOptTyp env retTy
     let body' ← Expr.elaborate env body
-    .ok { name, body := .fix self args' retTy' body', spec := none }
+    .ok { name, body := .fix self args' retTy' body', spec }
 
 -- ---------------------------------------------------------------------------
 -- Program elaboration
+
+private def elaborateSpec (env : ElabEnv) (attrs : List Attribute)
+    : ElabM (Option TinyML.Expr) :=
+  match attrs.find? (·.name == "spec") with
+  | none => .ok none
+  | some attr => do
+    let e ← Expr.elaborate env attr.payload
+    .ok (some e)
 
 def Decl.elaborate (env : ElabEnv) (decl : Decl)
     : ElabM (ElabEnv × Option (TinyML.Decl TinyML.Expr)) := do
@@ -493,7 +502,8 @@ def Decl.elaborate (env : ElabEnv) (decl : Decl)
     let env' ← TypeDecl.elaborate env decl.loc tdecl
     .ok (env', none)
   | .val_ isRec binders retTy body => do
-    let d ← ValDecl.elaborate env decl.loc isRec binders retTy body
+    let spec ← elaborateSpec env decl.attrs
+    let d ← ValDecl.elaborate env decl.loc isRec binders retTy body spec
     .ok (env, some d)
 
 private def elaborateDecls (env : ElabEnv) :
