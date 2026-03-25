@@ -18,6 +18,10 @@ name = "Mica"
 name = "mica"
 root = "Main"
 
+[[lean_exe]]
+name = "frontend"
+root = "Mica.Frontend.Main"
+
 # Exploration (not built by default)
 
 [[lean_lib]]
