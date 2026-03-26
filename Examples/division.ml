@@ -5,8 +5,7 @@ let half (x: int) : int =
   ret (fun r ->
     bind (isint r) @@ fun q ->
     assert (q * 2 <= n);
-    assert (n < (q + 1) * 2);
-    ret ())]
+    assert (n < (q + 1) * 2))]
 ;;
 let _ = assert (half 10 = 5)
 ;;

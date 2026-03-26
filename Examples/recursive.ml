@@ -14,8 +14,7 @@ let rec double_rec (n: int) : int =
   assert (n >= 0);
   ret (fun v ->
     bind (isint v) @@ fun r ->
-    assert (r = n * 2);
-    ret ())];;
+    assert (r = n * 2))];;
 
 (* 2. Power of 2: computes 2^n.
       We cannot express 2^n in linear arithmetic, so we prove the weaker
@@ -29,8 +28,7 @@ let rec pow2 (n: int) : int =
   assert (n >= 0);
   ret (fun v ->
     bind (isint v) @@ fun r ->
-    assert (r >= 1);
-    ret ())];;
+    assert (r >= 1))];;
 
 (* 3. Triangle numbers: computes 1 + 2 + ... + n.
       Exact spec: r = n*(n+1)/2. Z3's nonlinear arithmetic handles this —
@@ -44,8 +42,7 @@ let rec triangle (n: int) : int =
   assert (n >= 0);
   ret (fun v ->
     bind (isint v) @@ fun r ->
-    assert (r = n * (n + 1) / 2);
-    ret ())];;
+    assert (r = n * (n + 1) / 2))];;
 
 
 let rec sum_squares (n: int) : int =
@@ -56,8 +53,7 @@ let rec sum_squares (n: int) : int =
   assert (n >= 0);
   ret (fun v ->
     bind (isint v) @@ fun r ->
-    assert (r = (n * (n + 1) * (2 * n + 1)) / 6);
-    ret ())];;
+    assert (r = (n * (n + 1) * (2 * n + 1)) / 6))];;
 
 
 let rec sum_cubes (n: int) : int =
@@ -68,5 +64,4 @@ let rec sum_cubes (n: int) : int =
   assert (n >= 0);
   ret (fun v ->
     bind (isint v) @@ fun r ->
-    assert (r = (n * n * (n + 1) * (n + 1)) / 4);
-    ret ())];;
+    assert (r = (n * n * (n + 1) * (n + 1)) / 4))];;

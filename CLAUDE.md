@@ -8,16 +8,17 @@ It has both an executable binary (`mica`) that verifies programs via Z3, and mec
 The project lives under `Mica/` and consists of:
 
 1. **FOL/** — First-order logic with Tarski semantics, designed for SMT solver integration.
-2. **TinyML/** — Lexer, parser, pretty-printer, type system, and operational semantics for a minimal ML-like language.
-3. **Engine/** — Generic interaction-tree infrastructure for SMT solver communication.
-4. **Verifier/** — The verifier implementation, stratified into monadic layers with correctness proofs.
-5. **Base/** — Shared utilities (fresh variable generation, `Except` helpers).
+2. **Frontend/** — Lexer, parser, AST, elaborator, pretty-printer, and spec parser for the OCaml-like surface syntax.
+3. **TinyML/** — Core IR: expression AST, type system, operational semantics, and weakest preconditions.
+4. **Engine/** — Generic interaction-tree infrastructure for SMT solver communication.
+5. **Verifier/** — The verifier implementation, stratified into monadic layers with correctness proofs.
+6. **Base/** — Shared utilities (fresh variable generation, `Except` helpers).
 
 All modules have complete proofs except: `FOL/Deduction.lean` (2 sorries in the natural deduction soundness proof).
 
 **Exploration/** contains experimental scratch work where sorries and incomplete proofs are acceptable.
 
-**Main.lean** is the CLI entry point: parses a TinyML source file, runs `Program.verify` via a Z3 subprocess, and reports results.
+**Main.lean** is the CLI entry point: parses an OCaml source file via the Frontend, elaborates into TinyML, runs `Program.verify` via a Z3 subprocess, and reports results.
 
 ---
 
@@ -31,6 +32,20 @@ All modules have complete proofs except: `FOL/Deduction.lean` (2 sorries in the 
 - **`FOL/Deduction.lean`** — Natural deduction proof system (`Proof sig Γ φ`). Soundness w.r.t. `Formula.eval`. Contains 2 sorries.
 
 The FOL layer has no knowledge of the Engine or Verifier layers.
+
+### Frontend/ — Surface Language Frontend
+
+Parses OCaml-like source into a standalone AST, then elaborates into the `TinyML.Expr` IR.
+
+- **`Frontend/AST.lean`** — `Frontend.AST`: the surface-level expression type, distinct from `TinyML.Expr`.
+- **`Frontend/Lexer.lean`** — Lexer for the OCaml-like surface syntax.
+- **`Frontend/Parser.lean`** — Recursive descent parser producing `Frontend.AST`. `Frontend.parseFile : String → String → Except String Frontend.Program`.
+- **`Frontend/Elaborate.lean`** — Elaboration from `Frontend.AST` to `TinyML.Expr`/`TinyML.Program`. `Frontend.Program.elaborate`.
+- **`Frontend/Printer.lean`** — Pretty-printer for the frontend AST (targets OCaml syntax). `Frontend.Program.print`.
+- **`Frontend/Spec.lean`** — Untyped spec AST (`Spec.Term`, `Spec.Pred`, `Spec.Assert`, `Spec.Pre`, `Spec.Post`, `Spec.Body`).
+- **`Frontend/SpecParser.lean`** — Parses elaborated `TinyML.Expr` spec attributes into `Spec.Body`. `Spec.parse`.
+
+The Frontend has no knowledge of the Verifier or Engine layers.
 
 ### Engine/ — Strategy Infrastructure
 
@@ -56,7 +71,7 @@ Stratified into layers, from low-level SMT interaction to high-level program ver
 
 - **`Verifier/Specifications.lean`** — `Spec` (complete specification pairing `PredTrans` with argument/return types), `SpecMap`, `Spec.isPrecondFor`, `Spec.complete`, `declareExpected`.
 
-- **`Verifier/Parser.lean`** — `SpecParser` namespace: bidirectional type inference for spec expressions. Parses TinyML expressions into `Assertion`/`SpecPredicate` values.
+- **`Verifier/SpecTranslation.lean`** — Translates untyped `Spec.Body` (from the frontend spec parser) into typed `Assertion`/`SpecPredicate` values for the verifier.
 
 - **`Verifier/Utils.lean`** — `Bindings` (association list `TinyML.Var × Var`), `Bindings.agreeOnLinked`, `Bindings.wf`, `Bindings.typedSubst`, and associated lemmas.
 
@@ -66,10 +81,12 @@ Stratified into layers, from low-level SMT interaction to high-level program ver
 
 - **`Verifier/Programs.lean`** — `Program.check` (iterates over declarations, parses specs, verifies each via `checkSpec` using `seq` for scoping). `Program.verify` (wraps as `Strategy Outcome`). Uses explicit recursion for provability.
 
-### TinyML/ — The Surface Language
+### TinyML/ — Core IR
+
+The intermediate representation that the Frontend elaborates into. No lexer or parser — those live in `Frontend/`.
 
 - **`TinyML/Expr.lean`** — `TinyML.Expr` AST and `TinyML.Val` (runtime values), `mutual` inductive. `Type_`, `Binder`, `BinOp`, `UnOp`, `Subst`, `Decl`, `Program`.
-- **`TinyML/Lexer.lean`**, **`TinyML/Parser.lean`**, **`TinyML/Printer.lean`** — Lexer, recursive descent parser, pretty-printer (targets OCaml syntax). `parseFile : String → Except String Program`.
+- **`TinyML/Printer.lean`** — Pretty-printer for TinyML expressions.
 - **`TinyML/Typing.lean`** — Type system with subtyping. `Type_.Sub`, bidirectional checker (`Val.synth`, `Expr.synth`, `Expr.check`).
 - **`TinyML/OpSem.lean`** — Small-step operational semantics. Evaluation contexts (`K`), `Head`, `Step`, `Steps`.
 - **`TinyML/Heap.lean`** — `Heap = Finmap Location Val`. Standard heap operations and lemmas.
@@ -84,11 +101,13 @@ Stratified into layers, from low-level SMT interaction to high-level program ver
 
 **Data flow:**
 ```
-TinyML source file
-  → parseFile (TinyML/Parser.lean) → TinyML.Program
+OCaml source file
+  → Frontend.parseFile (Frontend/Parser.lean) → Frontend.Program
+  → Frontend.Program.elaborate (Frontend/Elaborate.lean) → TinyML.Program
   → Program.verify (Verifier/Programs.lean) → Strategy Outcome
     per declaration:
-      → SpecParser.spec (Verifier/Parser.lean) → SpecPredicate
+      → Spec.parse (Frontend/SpecParser.lean) → Spec.Body
+      → SpecTranslation (Verifier/SpecTranslation.lean) → SpecPredicate
       → Spec.complete → Spec
       → checkSpec (Verifier/Functions.lean) → VerifM Unit
         → compile (Verifier/Expressions.lean) → VerifM (Type_ × Term .value)

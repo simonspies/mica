@@ -6,7 +6,6 @@ let rec fib (n: int) : int =
   bind (isint x) @@ fun n ->
   ret (fun v ->
     bind (isint v) @@ fun r ->
-    assert (r >= 0);
-    ret ())]
+    assert (r >= 0))]
 ;;
 let _ = assert (0 <= fib 10)

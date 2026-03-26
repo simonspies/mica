@@ -6,8 +6,7 @@ let id (x: int) : int = x
   bind (isint x) @@ fun n ->
   ret (fun v ->
     bind (isint v) @@ fun r ->
-    assert (r = n);
-    ret ())];;
+    assert (r = n))];;
 
 (* 2. Increment: result is exactly one more than the input *)
 let incr (x: int) : int = x + 1
@@ -15,8 +14,7 @@ let incr (x: int) : int = x + 1
   bind (isint x) @@ fun n ->
   ret (fun v ->
     bind (isint v) @@ fun r ->
-    assert (r = n + 1);
-    ret ())];;
+    assert (r = n + 1))];;
 
 (* 3. Double: result is exactly twice the input *)
 let double (x: int) : int = x * 2
@@ -24,8 +22,7 @@ let double (x: int) : int = x * 2
   bind (isint x) @@ fun n ->
   ret (fun v ->
     bind (isint v) @@ fun r ->
-    assert (r = n * 2);
-    ret ())];;
+    assert (r = n * 2))];;
 
 (* 4. Predecessor: result is exactly one less than the input *)
 let pred_ (x: int) : int = x - 1
@@ -33,8 +30,7 @@ let pred_ (x: int) : int = x - 1
   bind (isint x) @@ fun n ->
   ret (fun v ->
     bind (isint v) @@ fun r ->
-    assert (r = n - 1);
-    ret ())];;
+    assert (r = n - 1))];;
 
 (* 5. Square: result is exactly the square of the input *)
 let square (x: int) : int = x * x
@@ -42,8 +38,7 @@ let square (x: int) : int = x * x
   bind (isint x) @@ fun n ->
   ret (fun v ->
     bind (isint v) @@ fun r ->
-    assert (r = n * n);
-    ret ())];;
+    assert (r = n * n))];;
 
 (* 6. Sign: result is -1, 0, or 1 according to the sign of the input. *)
 let sign (x: int) : int = if x < 0 then 0 - 1 else if x = 0 then 0 else 1
@@ -51,9 +46,9 @@ let sign (x: int) : int = if x < 0 then 0 - 1 else if x = 0 then 0 else 1
   bind (isint x) @@ fun n ->
   ret (fun v ->
     bind (isint v) @@ fun r ->
-    if n < 0 then assert (r = 0 - 1); ret ()
-    else if n = 0 then assert (r = 0); ret ()
-    else assert (r = 1); ret ())];;
+    if n < 0 then assert (r = 0 - 1)
+    else if n = 0 then assert (r = 0)
+    else assert (r = 1))];;
 
 (* 7. Let-binding: compute (x + 1) * 2 using an intermediate let.       *)
 (*    Tests that let-bound variables in the body are compiled correctly.  *)
@@ -64,8 +59,7 @@ let double_succ (x: int) : int =
   bind (isint x) @@ fun n ->
   ret (fun v ->
     bind (isint v) @@ fun r ->
-    assert (r = (n + 1) * 2);
-    ret ())];;
+    assert (r = (n + 1) * 2))];;
 
 (* 8. Cube: result is n*n*n *)
 let cube (x: int) : int = x * x * x
@@ -73,16 +67,14 @@ let cube (x: int) : int = x * x * x
   bind (isint x) @@ fun n ->
   ret (fun v ->
     bind (isint v) @@ fun r ->
-    assert (r = n * n * n);
-    ret ())];;
+    assert (r = n * n * n))];;
 (* 9. Subtract ten: result is x - 10 *)
 let sub10 (x: int) : int = x - 10
 [@@spec fun x ->
   bind (isint x) @@ fun n ->
   ret (fun v ->
     bind (isint v) @@ fun r ->
-    assert (r = n - 10);
-    ret ())];;
+    assert (r = n - 10))];;
 
 (* 10. Conditional lower bound: either branch produces 0+something or 0-something, *)
 (*     so we can only assert a weaker property. Here: result is non-negative        *)
@@ -92,8 +84,7 @@ let nonneg_floor (x: int) : int = if x >= 0 then x + 0 else 0 - x
   bind (isint x) @@ fun n ->
   ret (fun v ->
     bind (isint v) @@ fun r ->
-    assert (r >= 0);
-    ret ())];;
+    assert (r >= 0))];;
 
 (* 11. Weaker spec: result is a multiple of 2 (r = n * 2 implies r >= n * 2 - 1, *)
 (*     but here we just assert r >= 0 assuming n >= 0).                            *)
@@ -104,8 +95,7 @@ let double_nonneg (x: int) : int = x * 2
   assert (n >= 0);
   ret (fun v ->
     bind (isint v) @@ fun r ->
-    assert (r >= 0);
-    ret ())];;
+    assert (r >= 0))];;
 
 (* SHOULD FAIL: wrong spec — claims result = n + 2 but body computes n + 1 *)
 (* let wrong_incr (x: int) : int = x + 1
