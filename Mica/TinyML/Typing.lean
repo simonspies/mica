@@ -1,4 +1,5 @@
 import Mica.TinyML.Expr
+import Mica.TinyML.RuntimeExpr
 import Mica.TinyML.OpSem
 
 namespace TinyML

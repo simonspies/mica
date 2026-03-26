@@ -1,18 +1,19 @@
 import Mica.TinyML.Expr
+import Mica.TinyML.RuntimeExpr
 import Mica.TinyML.Heap
 
 namespace TinyML
 
 /-! ## Pure evaluation functions -/
 
-def evalUnOp (op : UnOp) (v : Val) : Option Val :=
+def evalUnOp (op : TinyML.UnOp) (v : Runtime.Val) : Option Runtime.Val :=
   match op, v with
   | .neg, .int n    => some (.int (-n))
   | .not, .bool b   => some (.bool (!b))
   | .proj n, .tuple vs => vs[n]?
   | _, _            => none
 
-def evalBinOp (op : BinOp) (v1 v2 : Val) : Option Val :=
+def evalBinOp (op : TinyML.BinOp) (v1 v2 : Runtime.Val) : Option Runtime.Val :=
   match op, v1, v2 with
   | .add, .int a, .int b  => some (.int (a + b))
   | .sub, .int a, .int b  => some (.int (a - b))
@@ -32,29 +33,29 @@ def evalBinOp (op : BinOp) (v1 v2 : Val) : Option Val :=
 
 inductive K where
   | hole
-  | unop   (op : UnOp)  (k : K)
-  | binopR (op : BinOp) (lhs : Expr) (k : K)   -- rhs in focus (eval first)
-  | binopL (op : BinOp) (k : K)      (v : Val)  -- lhs in focus, rhs done
-  | appArgs (fn : Expr) (left : Exprs) (k : K) (right : Vals)  -- evaluating one arg in a list
-  | appFn   (k : K)    (vs : Vals)                             -- fn in focus, all args are values
-  | ifCond (k : K) (thn els : Expr)
-  | letIn  (name : Binder) (k : K) (body : Expr)
+  | unop   (op : TinyML.UnOp)  (k : K)
+  | binopR (op : TinyML.BinOp) (lhs : Runtime.Expr) (k : K)   -- rhs in focus (eval first)
+  | binopL (op : TinyML.BinOp) (k : K)      (v : Runtime.Val)  -- lhs in focus, rhs done
+  | appArgs (fn : Runtime.Expr) (left : Runtime.Exprs) (k : K) (right : Runtime.Vals)  -- evaluating one arg in a list
+  | appFn   (k : K)    (vs : Runtime.Vals)                             -- fn in focus, all args are values
+  | ifCond (k : K) (thn els : Runtime.Expr)
+  | letIn  (name : Runtime.Binder) (k : K) (body : Runtime.Expr)
   | ref    (k : K)
   | deref  (k : K)
-  | storeR (loc : Expr) (k : K)                 -- val in focus (eval first)
-  | storeL (k : K)      (v : Val)               -- loc in focus, val done
+  | storeR (loc : Runtime.Expr) (k : K)                 -- val in focus (eval first)
+  | storeL (k : K)      (v : Runtime.Val)               -- loc in focus, val done
   | assert (k : K)
-  | tupleK (left : Exprs) (k : K) (right : Vals)
+  | tupleK (left : Runtime.Exprs) (k : K) (right : Runtime.Vals)
   | injK   (tag : Nat) (arity : Nat) (k : K)
-  | matchK (branches : List Expr) (k : K)
+  | matchK (branches : List Runtime.Expr) (k : K)
 
-def K.fill : K → Expr → Expr
+def K.fill : K → Runtime.Expr → Runtime.Expr
   | .hole,              e => e
   | .unop op k,         e => .unop op (k.fill e)
   | .binopR op lhs k,   e => .binop op lhs (k.fill e)
   | .binopL op k v,     e => .binop op (k.fill e) (.val v)
-  | .appArgs fn left k right, e => .app fn (left ++ [k.fill e] ++ right.map Expr.val)
-  | .appFn k vs,              e => .app (k.fill e) (vs.map Expr.val)
+  | .appArgs fn left k right, e => .app fn (left ++ [k.fill e] ++ right.map Runtime.Expr.val)
+  | .appFn k vs,              e => .app (k.fill e) (vs.map Runtime.Expr.val)
   | .ifCond k thn els,  e => .ifThenElse (k.fill e) thn els
   | .letIn b k body,    e => .letIn b (k.fill e) body
   | .ref k,             e => .ref (k.fill e)
@@ -62,7 +63,7 @@ def K.fill : K → Expr → Expr
   | .storeR loc k,      e => .store loc (k.fill e)
   | .storeL k v,        e => .store (k.fill e) (.val v)
   | .assert k,          e => .assert (k.fill e)
-  | .tupleK left k right, e => .tuple (left ++ [k.fill e] ++ right.map Expr.val)
+  | .tupleK left k right, e => .tuple (left ++ [k.fill e] ++ right.map Runtime.Expr.val)
   | .injK tag arity k,    e => .inj tag arity (k.fill e)
   | .matchK branches k,   e => .match_ (k.fill e) branches
 
@@ -85,20 +86,20 @@ def K.comp : K → K → K
   | .injK tag arity k1,    k2 => .injK tag arity (k1.comp k2)
   | .matchK branches k1,   k2 => .matchK branches (k1.comp k2)
 
-theorem K.comp_fill (k1 k2 : K) (e : Expr) :
+theorem K.comp_fill (k1 k2 : K) (e : Runtime.Expr) :
     (k1.comp k2).fill e = k1.fill (k2.fill e) := by
   induction k1 <;> simp_all [K.comp, K.fill]
 
 /-! ## Head reduction -/
 
-inductive Head : Expr → Heap → Expr → Heap → Prop where
+inductive Head : Runtime.Expr → Heap → Runtime.Expr → Heap → Prop where
   /-- A `fix` expression wraps itself as a value. -/
   | fixIntro : Head (.fix f args rt body) μ (.val (.fix f args rt body)) μ
 
   /-- Beta reduction: apply a fixpoint to a list of argument values. -/
   | beta : args.length = vs.length →
-           Head (.app (.val (.fix f args rt body)) (vs.map Expr.val)) μ
-                (body.subst ((Subst.id.update' f (.fix f args rt body)).updateAll' (args.map Prod.fst) vs)) μ
+           Head (.app (.val (.fix f args rt body)) (vs.map Runtime.Expr.val)) μ
+                (body.subst ((Runtime.Subst.id.update' f (.fix f args rt body)).updateAll' (args.map Prod.fst) vs)) μ
 
   /-- Unary operator applied to a value. -/
   | unop : evalUnOp op v = some w →
@@ -114,7 +115,7 @@ inductive Head : Expr → Heap → Expr → Heap → Prop where
   | ifFalse : Head (.ifThenElse (.val (.bool false)) thn els) μ els μ
 
   /-- Let-binding with a value: substitute and continue. -/
-  | letVal : Head (.letIn b (.val v) body) μ (body.subst (Subst.id.update' b v)) μ
+  | letVal : Head (.letIn b (.val v) body) μ (body.subst (Runtime.Subst.id.update' b v)) μ
 
   /-- Allocate a fresh location. -/
   | ref : Heap.Fresh l μ →
@@ -133,7 +134,7 @@ inductive Head : Expr → Heap → Expr → Heap → Prop where
   | assertOk : Head (.assert (.val (.bool true))) μ (.val .unit) μ
 
   /-- A tuple of values reduces to a tuple value. -/
-  | tuple : Head (.tuple (vs.map Expr.val)) μ (.val (.tuple vs)) μ
+  | tuple : Head (.tuple (vs.map Runtime.Expr.val)) μ (.val (.tuple vs)) μ
 
   /-- Injection of a value becomes a value. -/
   | injVal : Head (.inj tag arity (.val v)) μ (.val (.inj tag arity v)) μ
@@ -144,7 +145,7 @@ inductive Head : Expr → Heap → Expr → Heap → Prop where
 
 /-! ## Contextual step -/
 
-inductive Step : Expr → Heap → Expr → Heap → Prop where
+inductive Step : Runtime.Expr → Heap → Runtime.Expr → Heap → Prop where
   | ctx : ∀ (k : K), Head e μ e' μ' → Step (k.fill e) μ (k.fill e') μ'
 
 /-- A single step can be lifted into any surrounding context. -/
@@ -156,7 +157,7 @@ theorem Step.lift_ctx (k : K) (h : Step e μ e' μ') : Step (k.fill e) μ (k.fil
 
 /-! ## Multi-step reduction -/
 
-inductive Steps : Expr → Heap → Expr → Heap → Prop where
+inductive Steps : Runtime.Expr → Heap → Runtime.Expr → Heap → Prop where
   | refl : Steps e μ e μ
   | step : Step e μ e'' μ'' → Steps e'' μ'' e' μ' → Steps e μ e' μ'
 
@@ -179,25 +180,25 @@ theorem Steps.lift_ctx (k : K) (h : Steps e μ e' μ') :
     `left` contains unevaluated expressions to the left of the focus,
     `right` contains already-evaluated values to the right. -/
 structure ListK where
-  left : Exprs
-  right : Vals
+  left : Runtime.Exprs
+  right : Runtime.Vals
 
 /-- Reconstruct the full list by placing the focused expression between
     the unevaluated left and the already-evaluated right. -/
-def ListK.fill (lk : ListK) (e : Expr) : Exprs :=
-  lk.left ++ [e] ++ lk.right.map Expr.val
+def ListK.fill (lk : ListK) (e : Runtime.Expr) : Runtime.Exprs :=
+  lk.left ++ [e] ++ lk.right.map Runtime.Expr.val
 
-@[simp] theorem ListK.fill_mk (left : Exprs) (right : Vals) (e : Expr) :
-    ListK.fill ⟨left, right⟩ e = left ++ [e] ++ right.map Expr.val := rfl
+@[simp] theorem ListK.fill_mk (left : Runtime.Exprs) (right : Runtime.Vals) (e : Runtime.Expr) :
+    ListK.fill ⟨left, right⟩ e = left ++ [e] ++ right.map Runtime.Expr.val := rfl
 
-theorem ListK.fill_length (lk : ListK) (e : Expr) :
+theorem ListK.fill_length (lk : ListK) (e : Runtime.Expr) :
     (lk.fill e).length = lk.left.length + 1 + lk.right.length := by
   simp [ListK.fill, List.length_append, List.length_map]; omega
 
 /-- An empty list context: no expressions evaluated yet, none waiting. -/
 def ListK.empty : ListK := ⟨[], []⟩
 
-@[simp] theorem ListK.fill_empty (e : Expr) :
+@[simp] theorem ListK.fill_empty (e : Runtime.Expr) :
     ListK.empty.fill e = [e] := rfl
 
 end TinyML
