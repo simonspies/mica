@@ -1,7 +1,6 @@
 namespace TinyML
 
 abbrev Var := String
-abbrev Location := Nat
 
 inductive Binder where
   | none
@@ -93,7 +92,7 @@ mutual
     | bool (b : Bool)
     | unit
     | inj (tag : Nat) (arity : Nat) (payload : Val)
-    | loc (l : Location)
+    | loc (l : Nat)
     | fix (self : Binder) (args : List (Binder × Option Type_)) (retTy : Option Type_) (body : Expr)
     | tuple (vs : List Val)
 

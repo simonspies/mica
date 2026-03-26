@@ -2,7 +2,9 @@ import Mica.TinyML.Expr
 
 namespace Runtime
 
-open TinyML (Var Location Type_ BinOp UnOp)
+abbrev Location := Nat
+
+open TinyML (Var Type_ BinOp UnOp)
 
 inductive Binder where
   | none
