@@ -87,12 +87,12 @@ def Program.verify (prog : TinyML.Program) : Strategy Outcome :=
 /-! ## Correctness -/
 
 
-theorem Decl.checkExpr_correct (S : SpecMap) (d : TinyML.Decl TinyML.Expr) (γ : TinyML.Subst)
+theorem Decl.checkExpr_correct (S : SpecMap) (d : TinyML.Decl TinyML.Expr) (γ : Runtime.Subst)
     (hS : S.satisfiedBy γ) (hSwf : S.wfIn [])
     (st : TransState) (ρ : Env)
     {Q : Unit → TransState → Env → Prop}
     (heval : VerifM.eval (Decl.checkExpr S d) st ρ Q) :
-    wp (d.body.subst γ) (fun _ => True) := by
+    wp (d.body.runtime.subst γ) (fun _ => True) := by
   simp only [Decl.checkExpr] at heval
   have ⟨hinner, _⟩ := VerifM.eval_seq heval
   -- hinner : VerifM.eval (compile ... >>= fun _ => pure ()) st ρ (fun _ _ _ => True)
@@ -108,13 +108,13 @@ theorem Decl.checkExpr_correct (S : SpecMap) (d : TinyML.Decl TinyML.Expr) (γ :
     hS hSwf
     (fun _ _ _ _ _ _ _ _ _ => trivial)
 
-theorem Decl.check_correct (S : SpecMap) (d : TinyML.Decl TinyML.Expr) (γ : TinyML.Subst)
+theorem Decl.check_correct (S : SpecMap) (d : TinyML.Decl TinyML.Expr) (γ : Runtime.Subst)
     (hS : S.satisfiedBy γ) (hSwf : S.wfIn [])
     (st : TransState) (ρ : Env)
     {Q : Spec → TransState → Env → Prop}
     (heval : VerifM.eval (Decl.check S d) st ρ Q) :
     ∃ spec, spec.wfIn [] ∧
-            wp (d.body.subst γ) (spec.isPrecondFor ·) ∧
+            wp (d.body.runtime.subst γ) (spec.isPrecondFor ·) ∧
             Q spec st ρ := by
   simp only [Decl.check] at heval
   cases hspec : d.spec with
@@ -150,18 +150,26 @@ theorem Decl.check_correct (S : SpecMap) (d : TinyML.Decl TinyML.Expr) (γ : Tin
           exact ⟨spec, hswf, checkSpec_correct S d.body spec γ hswf hSwf hS st ρ hcheckSpec,
                  VerifM.eval_ret hpure⟩
 
-theorem Program.check_correct (S : SpecMap) (prog : TinyML.Program) (γ : TinyML.Subst)
+theorem Program.check_correct (S : SpecMap) (prog : TinyML.Program) (γ : Runtime.Subst)
     (hS : S.satisfiedBy γ) (hSwf : S.wfIn [])
     (st : TransState) (ρ : Env) :
     VerifM.eval (Program.check S prog) st ρ (fun _ _ _ => True) →
-    pwp (prog.subst γ) := by
+    pwp ((TinyML.Program.runtime prog).subst γ) := by
   induction prog generalizing S γ st ρ with
   | nil =>
     intro _
-    simp [TinyML.Program.subst, pwp]
+    simp [TinyML.Program.runtime, Runtime.Program.subst, pwp]
   | cons d ds ih =>
     intro heval
-    simp only [TinyML.Program.subst, TinyML.Decl.subst, pwp]
+    -- Unfold pwp for the cons case
+    have hpwp_unfold : pwp ((TinyML.Program.runtime (d :: ds)).subst γ) ↔
+        wp (d.body.runtime.subst γ) (fun v =>
+          pwp ((TinyML.Program.runtime ds).subst (Runtime.Subst.update' d.name.runtime v γ))) := by
+      conv_lhs =>
+        unfold TinyML.Program.runtime List.map Runtime.Program.subst pwp
+        simp only [TinyML.Decl.runtime, Runtime.Decl.subst, Runtime.Program.subst_remove_update]
+      simp only [TinyML.Program.runtime]
+    rw [hpwp_unfold]
     simp only [Program.check] at heval
     -- Case-split to match the branching in Program.check
     cases hname : d.name
@@ -174,9 +182,9 @@ theorem Program.check_correct (S : SpecMap) (prog : TinyML.Program) (γ : TinyML
         have ⟨_, hcont⟩ := VerifM.eval_seq hbind
         apply wp.mono _ hwp
         intro v _
-        rw [TinyML.Program.subst_remove_update]
-        -- Subst.update' .none v γ = γ by definition
-        show pwp (TinyML.Program.subst ds γ)
+        -- Runtime.Subst.update' .none v γ = γ
+        simp only [TinyML.Binder.runtime, Runtime.Subst.update']
+        show pwp ((TinyML.Program.runtime ds).subst γ)
         exact ih S γ hS hSwf st ρ (VerifM.eval_ret hcont)
       -- Subcase: let _ = e with spec → Decl.check path
       · simp only [hname, hspec] at heval
@@ -184,8 +192,8 @@ theorem Program.check_correct (S : SpecMap) (prog : TinyML.Program) (γ : TinyML
           Decl.check_correct S d γ hS hSwf st ρ (VerifM.eval_bind _ _ _ _ heval)
         apply wp.mono (fun v hprecond => _) hwp
         intro v hprecond
-        rw [TinyML.Program.subst_remove_update]
-        show pwp (TinyML.Program.subst ds γ)
+        simp only [TinyML.Binder.runtime, Runtime.Subst.update']
+        show pwp ((TinyML.Program.runtime ds).subst γ)
         exact ih S γ hS hSwf st ρ hcont
     -- Case: d.name = .named n
     · rename_i n
@@ -196,21 +204,29 @@ theorem Program.check_correct (S : SpecMap) (prog : TinyML.Program) (γ : TinyML
         -- Sub-subcase: body is a function → skip
         · rename_i hfunc
           obtain ⟨self, args, retTy, body, hbody⟩ := TinyML.Expr.isFunc_elim hfunc
-          simp only [hbody, TinyML.Expr.subst_fix]
+          -- d.body.runtime.subst γ = Runtime.Expr.fix ...
+          have hbody_rt : d.body.runtime.subst γ =
+              Runtime.Expr.fix self.runtime (args.map (fun (b, t) => (b.runtime, t))) retTy
+                (body.runtime.subst ((γ.remove' self.runtime).removeAll'
+                  (args.map (fun (b,t) => b.runtime)))) := by
+            rw [hbody]
+            conv_lhs => unfold TinyML.Expr.runtime
+            simp only [Runtime.Expr.subst_fix, List.map_map]
+            congr 1
+          rw [hbody_rt]
           apply wp.func
-          rw [TinyML.Program.subst_remove_update]
-          show pwp (TinyML.Program.subst ds (γ.update n _))
+          simp only [TinyML.Binder.runtime, Runtime.Subst.update']
+          show pwp ((TinyML.Program.runtime ds).subst (γ.update n _))
           exact ih (S.erase n) (γ.update n _)
             (SpecMap.satisfiedBy_erase hS) (SpecMap.wfIn_erase hSwf) st ρ heval
         -- Sub-subcase: non-function → checkExpr path
         · have hbind := VerifM.eval_bind _ _ _ _ heval
           have hwp := Decl.checkExpr_correct S d γ hS hSwf st ρ hbind
           have ⟨_, hcont⟩ := VerifM.eval_seq hbind
-          simp only [] at hwp ⊢
           apply wp.mono _ hwp
           intro v _
-          rw [TinyML.Program.subst_remove_update]
-          show pwp (TinyML.Program.subst ds (γ.update n v))
+          simp only [TinyML.Binder.runtime, Runtime.Subst.update']
+          show pwp ((TinyML.Program.runtime ds).subst (γ.update n v))
           exact ih (S.erase n) (γ.update n v)
             (SpecMap.satisfiedBy_erase hS) (SpecMap.wfIn_erase hSwf) st ρ (VerifM.eval_ret hcont)
       -- Subcase: named decl, has spec → Decl.check path
@@ -219,15 +235,15 @@ theorem Program.check_correct (S : SpecMap) (prog : TinyML.Program) (γ : TinyML
           Decl.check_correct S d γ hS hSwf st ρ (VerifM.eval_bind _ _ _ _ heval)
         apply wp.mono (fun v hprecond => _) hwp
         intro v hprecond
-        rw [TinyML.Program.subst_remove_update]
-        show pwp (TinyML.Program.subst ds (γ.update n v))
+        simp only [TinyML.Binder.runtime, Runtime.Subst.update']
+        show pwp ((TinyML.Program.runtime ds).subst (γ.update n v))
         apply ih (Finmap.insert n spec S) (γ.update n v)
         · exact SpecMap.satisfiedBy_insert_update hS hprecond
         · exact SpecMap.wfIn_insert hSwf hswf
         · exact hcont
 
 theorem Program.verify_correct p :
-  Strategy.checks (Program.verify p) (pwp p) := by
+  Strategy.checks (Program.verify p) (pwp (TinyML.Program.runtime p)) := by
   simp only [Strategy.checks, Program.verify, VerifM.strategy]
   intro st' heval
   -- Translate the Strategy.eval into a ScopedM.eval
@@ -250,7 +266,7 @@ theorem Program.verify_correct p :
     have hverifM := VerifM.eval_of_translate (Program.check ∅ p)
                       FlatCtx.empty default ctx_mid hverif hholdsFor hwf
     -- Apply the main correctness theorem with empty SpecMap
-    have hcorrect := Program.check_correct ∅ p TinyML.Subst.id
+    have hcorrect := Program.check_correct ∅ p Runtime.Subst.id
                        (SpecMap.empty_satisfiedBy _) (SpecMap.empty_wfIn _)
                        FlatCtx.empty default hverifM
-    rwa [TinyML.Program.subst_id] at hcorrect
+    rwa [Runtime.Program.subst_id] at hcorrect
