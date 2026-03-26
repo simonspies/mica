@@ -13,6 +13,7 @@ private structure Options where
   printOcaml  : Bool := false
   printTinyML : Bool := false
   file        : Option String := none
+  error       : Option String := none
 
 private def parseArgs : List String → Options → Options
   | [], opts => opts
@@ -25,10 +26,16 @@ private def parseArgs : List String → Options → Options
   | "--print-tiny-ml" :: rest, opts =>
     parseArgs rest { opts with printTinyML := true }
   | arg :: rest, opts =>
-    parseArgs rest { opts with file := some arg }
+    if opts.error.isSome then opts
+    else if arg.startsWith "-" then { opts with error := some s!"unknown option: {arg}" }
+    else if opts.file.isSome then { opts with error := some "multiple files provided" }
+    else parseArgs rest { opts with file := some arg }
 
 def main (args : List String) : IO Unit := do
   let opts := parseArgs args {}
+  if let some e := opts.error then
+    IO.eprintln s!"error: {e}"
+    IO.Process.exit 1
   match opts.file with
   | none => do
     IO.eprintln "usage: mica [--verbose] [--no-check] [--print-ocaml] [--print-tiny-ml] <file.ml>"

@@ -82,22 +82,17 @@ private def parsePre : TinyML.Expr → M Pre :=
 
 private def peelBinders : TinyML.Expr → M Body
   | .fix .none args _ body => do
-    let (names, rest) ← go args body
+    let names ← getNames args
     if names.isEmpty then .error "spec must bind at least one argument"
-    else .ok (names, rest)
+    else do
+      let pre ← parsePre body
+      .ok (names, pre)
   | e => .error s!"expected fun x -> ..., got {repr e}"
 where
-  go : List (TinyML.Binder × Option TinyML.Type_) → TinyML.Expr
-      → M (List String × Pre)
-    | (.named x, _) :: rest, body => do
-      match go rest body with
-      | .ok (names, pre) => .ok (x :: names, pre)
-      | .error _ =>
-        let pre ← parsePre (.fix .none ((.named x, none) :: rest) none body)
-        .ok ([], pre)
-    | _, body => do
-      let pre ← parsePre body
-      .ok ([], pre)
+  getNames : List (TinyML.Binder × Option TinyML.Type_) → M (List String)
+    | [] => .ok []
+    | (.named x, _) :: rest => do let xs ← getNames rest; .ok (x :: xs)
+    | (.none, _) :: _ => .error "unnamed binder in spec is not allowed"
 
 def parse (e : TinyML.Expr) : M Body :=
   peelBinders e
