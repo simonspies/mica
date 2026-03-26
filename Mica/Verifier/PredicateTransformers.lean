@@ -47,9 +47,9 @@ theorem PredTrans.checkWf_ok {pt : PredTrans} {decls : List Var}
 -- Semantics
 -- ---------------------------------------------------------------------------
 
-def PredTrans.apply (Φ : TinyML.Val → Prop) (m : PredTrans) (ρ : Env) : Prop :=
+def PredTrans.apply (Φ : Runtime.Val → Prop) (m : PredTrans) (ρ : Env) : Prop :=
   Assertion.pre (fun post ρ' =>
-    ∀ v : TinyML.Val, Assertion.post (fun () _ => Φ v) post.2 (ρ'.update .value post.1 v)
+    ∀ v : Runtime.Val, Assertion.post (fun () _ => Φ v) post.2 (ρ'.update .value post.1 v)
   ) m ρ
 
 -- ---------------------------------------------------------------------------
@@ -91,7 +91,7 @@ theorem PredTrans.wfIn_mono {pt : PredTrans} {decls decls' : List Var}
         (List.cons_subset_cons ⟨post.1, .value⟩ hsub'))
     h hsub
 
-theorem PredTrans.apply_env_agree {pt : PredTrans} {Φ : TinyML.Val → Prop}
+theorem PredTrans.apply_env_agree {pt : PredTrans} {Φ : Runtime.Val → Prop}
     {ρ ρ' : Env} {Δ : List Var}
     (hwf : pt.wfIn Δ) (hagree : Env.agreeOn Δ ρ ρ')
     (h : PredTrans.apply Φ pt ρ) : PredTrans.apply Φ pt ρ' := by
@@ -107,7 +107,7 @@ theorem PredTrans.apply_env_agree {pt : PredTrans} {Φ : TinyML.Val → Prop}
 
 theorem PredTrans.call_correct (pt : PredTrans) (σ : FiniteSubst)
     (st : TransState) (ρ : Env)
-    (Ψ : Term .value → TransState → Env → Prop) (Φ : TinyML.Val → Prop) :
+    (Ψ : Term .value → TransState → Env → Prop) (Φ : Runtime.Val → Prop) :
     pt.wfIn σ.dom →
     σ.wf st.decls →
     VerifM.eval (PredTrans.call σ pt) st ρ Ψ →
@@ -160,7 +160,7 @@ theorem PredTrans.call_correct (pt : PredTrans) (σ : FiniteSubst)
 
 theorem PredTrans.implement_correct (pt : PredTrans) (σ : FiniteSubst)
     (body : VerifM (Term .value))
-    (st : TransState) (ρ : Env) (Φ : TinyML.Val → Prop) (R : Prop) :
+    (st : TransState) (ρ : Env) (Φ : Runtime.Val → Prop) (R : Prop) :
     pt.wfIn σ.dom →
     σ.wf st.decls →
     VerifM.eval (PredTrans.implement σ pt body) st ρ (fun _ _ _ => True) →

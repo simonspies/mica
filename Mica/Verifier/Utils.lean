@@ -14,14 +14,14 @@ abbrev Bindings := List (TinyML.Var × Var)
 def Bindings.empty : Bindings := []
 
 -- Every variable in Bindings is now declared at sort `.value`.
-def Bindings.agreeOnLinked (B : Bindings) (ρ : Env) (γ : TinyML.Subst) :=
+def Bindings.agreeOnLinked (B : Bindings) (ρ : Env) (γ : Runtime.Subst) :=
   ∀ x x', B.lookup x = some x' →
     x'.sort = .value ∧ γ x = .some (ρ.lookup .value x'.name)
 
 def Bindings.wf (B : Bindings) (decls : VarCtx) : Prop :=
   ∀ p ∈ B, p.2 ∈ decls
 
-theorem Bindings.agreeOnLinked_env_agree {B : Bindings} {decls : VarCtx} {ρ ρ' : Env} {γ : TinyML.Subst}
+theorem Bindings.agreeOnLinked_env_agree {B : Bindings} {decls : VarCtx} {ρ ρ' : Env} {γ : Runtime.Subst}
     (hagr : B.agreeOnLinked ρ γ) (henv : Env.agreeOn decls ρ ρ')
     (hwf : B.wf decls) : B.agreeOnLinked ρ' γ := by
   intro x x' hmem
@@ -43,7 +43,7 @@ theorem Bindings.wf_cons {B : Bindings} {decls : VarCtx} {x : TinyML.Var} {v : V
   · exact List.Mem.tail _ (hbwf p hp)
 
 /-- The substitution `γ` maps every binding to a value well-typed by `Γ`. -/
-def Bindings.typedSubst (B : Bindings) (Γ : TinyML.TyCtx) (γ : TinyML.Subst) : Prop :=
+def Bindings.typedSubst (B : Bindings) (Γ : TinyML.TyCtx) (γ : Runtime.Subst) : Prop :=
   ∀ x x' t, B.lookup x = some x' → Γ x = some t → ∃ v, γ x = some v ∧ TinyML.ValHasType v t
 
 /-! ### Term List Evaluation -/
@@ -70,23 +70,23 @@ theorem Terms.toValList_wfIn {ts : List (Term .value)} {Δ : VarCtx}
     · exact ih (fun q hq => h q (.tail _ hq)) w hw
 
 /-- A list of terms evaluates to a list of values. -/
-def Terms.Eval (ρ : Env) (ts : List (Term .value)) (vs : List TinyML.Val) : Prop :=
+def Terms.Eval (ρ : Env) (ts : List (Term .value)) (vs : List Runtime.Val) : Prop :=
   List.Forall₂ (fun t v => t.eval ρ = v) ts vs
 
-theorem Terms.Eval.map_eval {ρ : Env} {ts : List (Term .value)} {vs : List TinyML.Val}
+theorem Terms.Eval.map_eval {ρ : Env} {ts : List (Term .value)} {vs : List Runtime.Val}
     (h : Terms.Eval ρ ts vs) : ts.map (fun t => t.eval ρ) = vs := by
   induction h with
   | nil => rfl
   | cons h _ ih => simp [h, ih]
 
-theorem Terms.toValList_eval {ρ : Env} {ts : List (Term .value)} {vs : List TinyML.Val}
+theorem Terms.toValList_eval {ρ : Env} {ts : List (Term .value)} {vs : List Runtime.Val}
     (h : Terms.Eval ρ ts vs) : (Terms.toValList ts).eval ρ = vs := by
   induction h with
   | nil => simp [Terms.toValList, Term.eval, Const.denote]
   | cons hhead _ ih => simp [Terms.toValList, Term.eval, BinOp.eval, hhead, ih]
 
 theorem Terms.Eval.env_agree {ρ ρ' : Env} {Δ : VarCtx}
-    {ts : List (Term .value)} {vs : List TinyML.Val}
+    {ts : List (Term .value)} {vs : List Runtime.Val}
     (hwf : ∀ t ∈ ts, t.wfIn Δ)
     (hagree : Env.agreeOn Δ ρ ρ')
     (h : Terms.Eval ρ ts vs) : Terms.Eval ρ' ts vs := by
@@ -97,21 +97,21 @@ theorem Terms.Eval.env_agree {ρ ρ' : Env} {Δ : VarCtx}
     · rw [Term.eval_env_agree (hwf t (.head _)) (Env.agreeOn_symm hagree)]; exact htv
     · exact ih (fun q hq => hwf q (.tail _ hq))
 
-theorem Terms.Eval.cons {ρ : Env} {t : Term .value} {v : TinyML.Val}
-    {ts : List (Term .value)} {vs : List TinyML.Val}
+theorem Terms.Eval.cons {ρ : Env} {t : Term .value} {v : Runtime.Val}
+    {ts : List (Term .value)} {vs : List Runtime.Val}
     (hhead : t.eval ρ = v)
     (htail : Terms.Eval ρ ts vs) :
     Terms.Eval ρ (t :: ts) (v :: vs) :=
   List.Forall₂.cons hhead htail
 
-theorem Terms.Eval.of_pairs {ρ : Env} {pairs : List (TinyML.Type_ × Term .value)} {vs : List TinyML.Val}
+theorem Terms.Eval.of_pairs {ρ : Env} {pairs : List (TinyML.Type_ × Term .value)} {vs : List Runtime.Val}
     (h : List.Forall₂ (fun p v => p.2.eval ρ = v) pairs vs) :
     Terms.Eval ρ (pairs.map Prod.snd) vs := by
   induction h with
   | nil => exact .nil
   | cons h _ ih => exact .cons h ih
 
-theorem Terms.Eval.lookup_var {ρ : Env} {avs : List Var} {vs : List TinyML.Val}
+theorem Terms.Eval.lookup_var {ρ : Env} {avs : List Var} {vs : List Runtime.Val}
     (h : Terms.Eval ρ (avs.map (fun av => .var .value av.name)) vs) :
     List.Forall₂ (fun av val => ρ.lookup .value av.name = val) avs vs := by
   generalize hts : avs.map (fun av => Term.var .value av.name) = ts at h
@@ -132,33 +132,33 @@ theorem Terms.Eval.lookup_var {ρ : Env} {avs : List Var} {vs : List TinyML.Val}
 
 /-! ### Helpers for Multi-Argument Bindings -/
 
-theorem Bindings.typedSubst_cons {B : Bindings} {Γ : TinyML.TyCtx} {γ : TinyML.Subst}
-    {x : TinyML.Var} {v : Var} {te : TinyML.Type_} {w : TinyML.Val}
+theorem Bindings.typedSubst_cons {B : Bindings} {Γ : TinyML.TyCtx} {γ : Runtime.Subst}
+    {x : TinyML.Var} {v : Var} {te : TinyML.Type_} {w : Runtime.Val}
     (hts  : B.typedSubst Γ γ)
     (hval : TinyML.ValHasType w te) :
-    Bindings.typedSubst ((x, v) :: B) (Γ.extend x te) (TinyML.Subst.update γ x w) := by
+    Bindings.typedSubst ((x, v) :: B) (Γ.extend x te) (Runtime.Subst.update γ x w) := by
   intro y y' t hmem hΓ
   by_cases hyx : y == x
   · -- head case: y = x
     simp [List.lookup, hyx] at hmem; subst hmem
     simp [TinyML.TyCtx.extend, hyx] at hΓ; subst hΓ
-    exact ⟨w, by simp [TinyML.Subst.update, hyx], hval⟩
+    exact ⟨w, by simp [Runtime.Subst.update, hyx], hval⟩
   · -- tail case: y ≠ x
     simp [List.lookup, hyx] at hmem
     have hΓ' : Γ y = some t := by simp [TinyML.TyCtx.extend, hyx] at hΓ; exact hΓ
     obtain ⟨w', hw', hwt'⟩ := hts y y' t hmem hΓ'
-    exact ⟨w', by simp [TinyML.Subst.update, hyx, hw'], hwt'⟩
+    exact ⟨w', by simp [Runtime.Subst.update, hyx, hw'], hwt'⟩
 
-theorem Bindings.agreeOnLinked_cons {B : Bindings} {ρ ρ' : Env} {γ : TinyML.Subst}
+theorem Bindings.agreeOnLinked_cons {B : Bindings} {ρ ρ' : Env} {γ : Runtime.Subst}
     {x : TinyML.Var} {v : Var}
     (hagree : B.agreeOnLinked ρ γ)
     (hρ_agree : Env.agreeOn (B.map Prod.snd) ρ' ρ)
     (hvty : v.sort = .value) :
-    Bindings.agreeOnLinked ((x, v) :: B) ρ' (TinyML.Subst.update γ x (ρ'.lookup .value v.name)) := by
+    Bindings.agreeOnLinked ((x, v) :: B) ρ' (Runtime.Subst.update γ x (ρ'.lookup .value v.name)) := by
   intro y y' hmem
   by_cases hyx : y == x
   · simp [List.lookup, hyx] at hmem; subst hmem
-    exact ⟨hvty, by simp [TinyML.Subst.update, hyx]⟩
+    exact ⟨hvty, by simp [Runtime.Subst.update, hyx]⟩
   · simp [List.lookup, hyx] at hmem
     obtain ⟨hsort, hγ⟩ := hagree y y' hmem
     have hmem_snd : y' ∈ B.map Prod.snd := by
@@ -166,11 +166,11 @@ theorem Bindings.agreeOnLinked_cons {B : Bindings} {ρ ρ' : Env} {γ : TinyML.S
       exact List.mem_map.mpr ⟨(y, y'), by rw [heq]; simp, rfl⟩
     have hρ := hρ_agree y' hmem_snd
     rw [hsort] at hρ
-    exact ⟨hsort, by simp [TinyML.Subst.update, hyx]; exact hγ.trans (congrArg some hρ.symm)⟩
+    exact ⟨hsort, by simp [Runtime.Subst.update, hyx]; exact hγ.trans (congrArg some hρ.symm)⟩
 
 -- If agreeOnLinked holds and values at each binding are well-typed, then typedSubst holds.
 theorem Bindings.typedSubst_of_agreeOnLinked
-    {B : Bindings} {Γ : TinyML.TyCtx} {γ : TinyML.Subst} {ρ : Env}
+    {B : Bindings} {Γ : TinyML.TyCtx} {γ : Runtime.Subst} {ρ : Env}
     (hagree : B.agreeOnLinked ρ γ)
     (htyped_vals : ∀ x x' t, B.lookup x = some x' → Γ x = some t →
       TinyML.ValHasType (ρ.lookup .value x'.name) t) :
@@ -180,9 +180,9 @@ theorem Bindings.typedSubst_of_agreeOnLinked
   exact ⟨_, hval, htyped_vals x x' t hmem hΓ⟩
 
 theorem findVal_none_of_not_mem
-    (ns : List String) (vs : List TinyML.Val) (x : String)
+    (ns : List String) (vs : List Runtime.Val) (x : String)
     (hlen : ns.length = vs.length) (hx : x ∉ ns) :
-    TinyML.Binders.findVal (ns.map TinyML.Binder.named) vs x = none := by
+    Runtime.Binders.findVal (ns.map Runtime.Binder.named) vs x = none := by
   induction ns generalizing vs with
   | nil => simp
   | cons n ns ih =>
@@ -190,8 +190,8 @@ theorem findVal_none_of_not_mem
     | nil => simp at hlen
     | cons v vs =>
       simp at hlen hx
-      simp only [List.map_cons, TinyML.Binders.findVal_cons, ih vs hlen hx.2]
-      simp [TinyML.Binder.named_beq, beq_iff_eq, Ne.symm hx.1]
+      simp only [List.map_cons, Runtime.Binders.findVal_cons, ih vs hlen hx.2]
+      simp [Runtime.Binder.named_beq, beq_iff_eq, Ne.symm hx.1]
 
 theorem not_mem_of_lookup_zip_reverse_none
     (ns : List String) (avs : List Var) (x : String)
@@ -261,14 +261,14 @@ theorem extractArgNames_spec {argBinders : List (TinyML.Binder × Option TinyML.
           exact ⟨by simp [h1], by simp [h2], by simp [h3]⟩
 
 theorem Bindings.agreeOnLinked_zip_reverse
-    (names : List String) (vars : List Var) (vals : List TinyML.Val)
-    (γ : TinyML.Subst) (ρ : Env)
+    (names : List String) (vars : List Var) (vals : List Runtime.Val)
+    (γ : Runtime.Subst) (ρ : Env)
     (hlen_nv : names.length = vars.length)
     (hlen_nvl : names.length = vals.length)
     (hsorts : ∀ v ∈ vars, v.sort = .value)
     (hlookups : List.Forall₂ (fun av val => ρ.lookup .value av.name = val) vars vals) :
     Bindings.agreeOnLinked (names.zip vars).reverse ρ
-      (γ.updateAll' (names.map TinyML.Binder.named) vals) := by
+      (γ.updateAll' (names.map Runtime.Binder.named) vals) := by
   induction names generalizing vars vals γ with
   | nil => intro x x' hmem; simp at hmem
   | cons n ns ih =>
@@ -281,7 +281,7 @@ theorem Bindings.agreeOnLinked_zip_reverse
         simp at hlen_nv hlen_nvl
         cases hlookups with
         | cons hlk htail =>
-          simp only [List.map_cons, TinyML.Subst.updateAll'_cons, List.zip_cons_cons, List.reverse_cons]
+          simp only [List.map_cons, Runtime.Subst.updateAll'_cons, List.zip_cons_cons, List.reverse_cons]
           have ih' := ih avs vs (γ.update' (.named n) v) (by omega) (by omega)
             (fun v' hv' => hsorts v' (.tail _ hv')) htail
           intro x x' hmem
@@ -298,10 +298,10 @@ theorem Bindings.agreeOnLinked_zip_reverse
               constructor
               · exact hsorts av (.head _)
               · -- Need: updateAll' (ns.map .named) vs (update' (.named n) v γ) x = some v
-                rw [TinyML.Subst.updateAll'_eq _ _ _ _ (by simp; omega)]
+                rw [Runtime.Subst.updateAll'_eq _ _ _ _ (by simp; omega)]
                 have hx_notin := not_mem_of_lookup_zip_reverse_none ns avs x hlen_nv hlk_inner
-                suffices TinyML.Binders.findVal (ns.map TinyML.Binder.named) vs x = none by
-                  simp [this, TinyML.Subst.update', hxn, ← hlk]
+                suffices Runtime.Binders.findVal (ns.map Runtime.Binder.named) vs x = none by
+                  simp [this, Runtime.Subst.update', hxn, ← hlk]
                 exact findVal_none_of_not_mem ns vs x hlen_nvl hx_notin
             · simp [List.lookup, hxn] at hmem
 
@@ -311,15 +311,15 @@ theorem Bindings.lookup_reverse_zip_append {keys : List String} {vars : List Var
   rw [List.lookup_append]
 
 theorem Bindings.agreeOnLinked_updateAll'
-    (B : Bindings) (names : List String) (vars : List Var) (vals : List TinyML.Val)
-    (γ : TinyML.Subst) (ρ : Env)
+    (B : Bindings) (names : List String) (vars : List Var) (vals : List Runtime.Val)
+    (γ : Runtime.Subst) (ρ : Env)
     (hB : B.agreeOnLinked ρ γ)
     (hlen_nv : names.length = vars.length)
     (hlen_nvl : names.length = vals.length)
     (hsorts : ∀ v ∈ vars, v.sort = .value)
     (hlookups : List.Forall₂ (fun av val => ρ.lookup .value av.name = val) vars vals) :
     Bindings.agreeOnLinked ((names.zip vars).reverse ++ B) ρ
-      (γ.updateAll' (names.map TinyML.Binder.named) vals) := by
+      (γ.updateAll' (names.map Runtime.Binder.named) vals) := by
   intro x x' hmem
   rw [lookup_reverse_zip_append B] at hmem
   cases hlk : (names.zip vars).reverse.lookup x with
@@ -332,7 +332,7 @@ theorem Bindings.agreeOnLinked_updateAll'
     obtain ⟨hsort, hγ⟩ := hB x x' hmem
     constructor
     · exact hsort
-    · rw [TinyML.Subst.updateAll'_eq _ _ _ _ (by simp; omega)]
+    · rw [Runtime.Subst.updateAll'_eq _ _ _ _ (by simp; omega)]
       have hx_notin := not_mem_of_lookup_zip_reverse_none names vars x hlen_nv hlk
       rw [findVal_none_of_not_mem names vals x (by omega) hx_notin]
       exact hγ
@@ -343,7 +343,7 @@ theorem Bindings.agreeOnLinked_updateAll'
 -- All three structures agree on the "last occurrence" of x.
 theorem val_typed_of_last_wins
     (args : List (String × TinyML.Type_))
-    (vars : List Var) (vals : List TinyML.Val)
+    (vars : List Var) (vals : List Runtime.Val)
     (ρ : Env) (Γ₀ : TinyML.TyCtx)
     (x : String) (x' : Var) (t : TinyML.Type_)
     (hlen_v : (args.map Prod.fst).length = vars.length)

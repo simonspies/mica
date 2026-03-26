@@ -728,4 +728,10 @@ mutual
     | .match_ scrut branches => .match_ scrut.runtime (branches.map Expr.runtime)
 end
 
+def Decl.runtime (d : TinyML.Decl TinyML.Expr) : Runtime.Decl Runtime.Expr :=
+  { name := d.name.runtime, body := d.body.runtime, spec := d.spec.map Expr.runtime }
+
+def Program.runtime (prog : TinyML.Program) : Runtime.Program :=
+  prog.map Decl.runtime
+
 end TinyML
