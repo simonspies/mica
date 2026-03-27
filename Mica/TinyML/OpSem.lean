@@ -39,7 +39,6 @@ inductive K where
   | appArgs (fn : Runtime.Expr) (left : Runtime.Exprs) (k : K) (right : Runtime.Vals)  -- evaluating one arg in a list
   | appFn   (k : K)    (vs : Runtime.Vals)                             -- fn in focus, all args are values
   | ifCond (k : K) (thn els : Runtime.Expr)
-  | letIn  (name : Runtime.Binder) (k : K) (body : Runtime.Expr)
   | ref    (k : K)
   | deref  (k : K)
   | storeR (loc : Runtime.Expr) (k : K)                 -- val in focus (eval first)
@@ -57,7 +56,6 @@ def K.fill : K → Runtime.Expr → Runtime.Expr
   | .appArgs fn left k right, e => .app fn (left ++ [k.fill e] ++ right.map Runtime.Expr.val)
   | .appFn k vs,              e => .app (k.fill e) (vs.map Runtime.Expr.val)
   | .ifCond k thn els,  e => .ifThenElse (k.fill e) thn els
-  | .letIn b k body,    e => .letIn b (k.fill e) body
   | .ref k,             e => .ref (k.fill e)
   | .deref k,           e => .deref (k.fill e)
   | .storeR loc k,      e => .store loc (k.fill e)
@@ -76,7 +74,6 @@ def K.comp : K → K → K
   | .appArgs fn left k1 right, k2 => .appArgs fn left (k1.comp k2) right
   | .appFn k1 vs,              k2 => .appFn (k1.comp k2) vs
   | .ifCond k1 thn els, k2 => .ifCond (k1.comp k2) thn els
-  | .letIn b k1 body,   k2 => .letIn b (k1.comp k2) body
   | .ref k1,            k2 => .ref (k1.comp k2)
   | .deref k1,          k2 => .deref (k1.comp k2)
   | .storeR loc k1,     k2 => .storeR loc (k1.comp k2)
@@ -113,9 +110,6 @@ inductive Head : Runtime.Expr → Heap → Runtime.Expr → Heap → Prop where
   | ifTrue  : Head (.ifThenElse (.val (.bool true))  thn els) μ thn μ
   /-- Conditional on false. -/
   | ifFalse : Head (.ifThenElse (.val (.bool false)) thn els) μ els μ
-
-  /-- Let-binding with a value: substitute and continue. -/
-  | letVal : Head (.letIn b (.val v) body) μ (body.subst (Runtime.Subst.id.update' b v)) μ
 
   /-- Allocate a fresh location. -/
   | ref : Heap.Fresh l μ →

@@ -35,7 +35,6 @@ mutual
     | fix (self : Binder) (args : List Binder) (body : Expr)
     | app (fn : Expr) (args : List Expr)
     | ifThenElse (cond thn els : Expr)
-    | letIn (name : Binder) (bound body : Expr)
     | ref    (e : Expr)
     | deref  (e : Expr)
     | store  (loc val : Expr)
@@ -47,6 +46,10 @@ end
 
 instance : Inhabited Val := ⟨.unit⟩
 instance : Inhabited Expr := ⟨.val .unit⟩
+
+/-- `let x = e1 in e2` is desugared to `(fix _ [x] e2) e1`. -/
+def Expr.letIn (name : Binder) (bound body : Expr) : Expr :=
+  .app (.fix .none [name] body) [bound]
 
 /-- Is the expression a function (fix) node? -/
 def Expr.isFunc : Expr → Bool
@@ -125,11 +128,6 @@ mutual
       | _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
     case ifThenElse.ifThenElse c1 t1 e1 c2 t2 e2 =>
       exact match c1.decEq c2, t1.decEq t2, e1.decEq e2 with
-      | isTrue h1, isTrue h2, isTrue h3 => isTrue (by subst h1; subst h2; subst h3; rfl)
-      | isFalse h, _, _ => isFalse (by intro heq; cases heq; exact h rfl)
-      | _, isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
-      | _, _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
-    case letIn.letIn b1 d1 y1 b2 d2 y2 => exact match decEq b1 b2, d1.decEq d2, y1.decEq y2 with
       | isTrue h1, isTrue h2, isTrue h3 => isTrue (by subst h1; subst h2; subst h3; rfl)
       | isFalse h, _, _ => isFalse (by intro heq; cases heq; exact h rfl)
       | _, isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
@@ -268,8 +266,6 @@ def Expr.subst (σ : Subst) : Expr → Expr
     .fix f args (body.subst (σ.remove' f |>.removeAll' args))
   | .app fn args => .app (fn.subst σ) (args.map (Expr.subst σ))
   | .ifThenElse c t e => .ifThenElse (c.subst σ) (t.subst σ) (e.subst σ)
-  | .letIn b bound body =>
-    .letIn b (bound.subst σ) (body.subst (σ.remove' b))
   | .ref e => .ref (e.subst σ)
   | .deref e => .deref (e.subst σ)
   | .store loc v => .store (loc.subst σ) (v.subst σ)
@@ -281,6 +277,10 @@ def Expr.subst (σ : Subst) : Expr → Expr
 @[simp] theorem Expr.subst_fix (σ : Subst) (self : Binder) (args : List Binder) (body : Expr) :
     (Expr.fix self args body).subst σ = .fix self args (body.subst (σ.remove' self |>.removeAll' args)) := by
   simp [Expr.subst]
+
+@[simp] theorem Expr.letIn_subst (σ : Subst) (name : Binder) (bound body : Expr) :
+    (Expr.letIn name bound body).subst σ = Expr.letIn name (bound.subst σ) (body.subst (σ.remove' name)) := by
+  simp [Expr.letIn, Expr.subst, Subst.remove'_none, Subst.removeAll'_cons, Subst.removeAll'_nil]
 
 theorem Expr.isFunc_subst {e : Expr} {σ : Subst} (h : e.isFunc = true) :
     (e.subst σ).isFunc = true := by
@@ -346,10 +346,6 @@ theorem Expr.subst_comp (e : Expr) (σ ρ : Subst) :
     simp only [Subst.removeAll'_eq]
     cases f <;> simp [Subst.remove', Subst.remove] <;> split <;> simp_all
     all_goals (split <;> simp_all)
-  case letIn b bound body ihbound ihbd =>
-    congr 1; funext z
-    cases b <;> simp [Subst.remove', Subst.remove] <;> split <;> simp_all
-
 /-- Removing a binder from γ and then substituting it back yields the same as just updating γ.
     Used to prove Program.subst_remove_update. -/
 theorem Expr.subst_remove'_update' (e : Expr) (γ : Subst) (b : Binder) (v : Val) :
@@ -370,9 +366,6 @@ def Expr.freeVars : Expr → List Var
     body.freeVars.filter (fun v => f != .named v && !args.any (· == .named v))
   | .app fn args => fn.freeVars ++ args.flatMap Expr.freeVars
   | .ifThenElse c t e => c.freeVars ++ t.freeVars ++ e.freeVars
-  | .letIn b bound body =>
-    bound.freeVars ++
-    body.freeVars.filter (fun v => match b with | .named y => y != v | .none => true)
   | .ref e => e.freeVars
   | .deref e => e.freeVars
   | .store loc v => loc.freeVars ++ v.freeVars
@@ -438,20 +431,6 @@ theorem Expr.freeVars_subst (γ1 γ2 : Var → Option Val) (e : Expr) :
     simp [Expr.subst, ihc γ1 γ2 (fun x hx => h x (by simp [hx])),
                        iht γ1 γ2 (fun x hx => h x (by simp [hx])),
                        ihe γ1 γ2 (fun x hx => h x (by simp [hx]))]
-  case letIn b bound body ihbound ihbd =>
-    intro h; simp only [Expr.freeVars, List.mem_append, List.mem_filter] at h
-    simp only [Expr.subst]; congr 1
-    · exact ihbound γ1 γ2 (fun x hx => h x (Or.inl hx))
-    · apply ihbd
-      intro x hx
-      simp only [Subst.remove']
-      cases b with
-      | none => exact h x (Or.inr (by simp [hx]))
-      | named y =>
-        by_cases hxy : (x == y) = true
-        · simp [hxy]
-        · simp only [Bool.not_eq_true] at hxy; simp [hxy]
-          exact h x (Or.inr (And.intro hx (by simp [bne, (beq_eq_false_iff_ne.mp hxy).symm])))
   case ref e ih =>
     intro h; simp only [Expr.freeVars] at h
     simp [Expr.subst, ih γ1 γ2 h]

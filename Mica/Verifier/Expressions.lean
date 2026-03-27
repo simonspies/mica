@@ -555,19 +555,20 @@ theorem compile_correct (e : TinyML.Expr) (S : SpecMap) (B : Bindings) (Γ : Tin
     simp only [compile] at heval
     cases b with
     | none =>
-      unfold TinyML.Expr.runtime TinyML.Binder.runtime; simp only [Runtime.Expr.subst]
+      unfold TinyML.Expr.runtime TinyML.Binder.runtime; simp only [Runtime.Expr.letIn_subst]
       apply wp.letIn
       have heval_e_outer : (compile S B Γ e).eval st ρ _ := VerifM.eval_bind _ _ _ _ heval
       refine compile_correct e S B Γ st ρ γ _ _ (VerifM.eval.decls_grow ρ heval_e_outer) hagree hbwf hts hspec hSwf ?_
       intro v_e ρ_e st₁ _ sube hΨ_e _ _ _
       obtain ⟨hdecls_e, hagreeOn_e, hΨ_e⟩ := hΨ_e
-      simp only [Runtime.Expr.subst_none]
+      simp only [Runtime.Subst.update']
+      rw [show Runtime.Subst.id = (fun _ => @none Runtime.Val) from rfl, Runtime.Expr.subst_none]
       have hagree_e := Bindings.agreeOnLinked_env_agree hagree hagreeOn_e hbwf
       have hbwf_e : B.wf st₁.decls := fun p hp => hdecls_e (hbwf p hp)
       refine compile_correct body S B Γ st₁ ρ_e γ _ _ (VerifM.eval.decls_grow ρ_e hΨ_e) hagree_e hbwf_e hts hspec hSwf ?_
       grind
     | named x ty =>
-      unfold TinyML.Expr.runtime TinyML.Binder.runtime; simp only [Runtime.Expr.subst]
+      unfold TinyML.Expr.runtime TinyML.Binder.runtime; simp only [Runtime.Expr.letIn_subst]
       apply wp.letIn
       have heval_e_outer : (compile S B Γ e).eval st ρ _ := VerifM.eval_bind _ _ _ _ heval
       refine compile_correct e S B Γ st ρ γ _ _ (VerifM.eval.decls_grow ρ heval_e_outer) hagree hbwf hts hspec hSwf ?_
@@ -586,10 +587,8 @@ theorem compile_correct (e : TinyML.Expr) (S : SpecMap) (B : Bindings) (Γ : Tin
       set γ_body : Runtime.Subst := Runtime.Subst.update γ x v_e
       suffices wp (body.runtime.subst γ_body) Φ by
         convert this using 1
-        rw [Runtime.Expr.subst_comp]
-        congr 1; funext z
-        simp only [γ_body, Runtime.Subst.update_eq, Runtime.Subst.remove'_named, Runtime.Subst.remove_eq]
-        split_ifs <;> first | rfl | (cases (γ z) <;> rfl)
+        rw [Runtime.Expr.subst_remove'_update']
+        rfl
       have hname_fresh : ∀ w ∈ st₁.decls, w.name ≠ v.name :=
         fun w hw h => hfresh (List.mem_map.mpr ⟨w, hw, h⟩)
       have hagreeOn_body_e : Env.agreeOn st₁.decls ρ_e ρ_body := by

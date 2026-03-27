@@ -21,11 +21,6 @@ axiom wp.val {v : Runtime.Val} {Q : Runtime.Val → Prop} : Q v → wp (.val v) 
 axiom wp.binop {op : TinyML.BinOp} {l r : Runtime.Expr} {Q : Runtime.Val → Prop} :
     wp l (fun vl => wp r (fun vr => ∃ r, TinyML.evalBinOp op vl vr = some r ∧ Q r)) →
     wp (.binop op l r) Q
-axiom wp.letIn {b : Runtime.Binder} {e body : Runtime.Expr} {Q : Runtime.Val → Prop} :
-    wp e (fun v => wp (body.subst (fun z => match b with
-      | .named x => if z == x then some v else none
-      | .none => none)) Q) →
-    wp (.letIn b e body) Q
 axiom wp.mono {e : Runtime.Expr} {P Q : Runtime.Val → Prop} :
     (∀ v, P v → Q v) → wp e P → wp e Q
 
@@ -98,3 +93,22 @@ def pwp : Runtime.Program → Prop
   | [] => True
   | ⟨b, e, _⟩ :: rest => wp e (fun v => pwp (Runtime.Program.subst rest (Runtime.Subst.update' b v .id)))
 termination_by prog => prog.length
+
+/-- Derived wp rule for let-bindings (desugared to immediately-applied fix). -/
+theorem wp.letIn {b : Runtime.Binder} {bound body : Runtime.Expr} {Q : Runtime.Val → Prop} :
+    wp bound (fun v => wp (body.subst (Runtime.Subst.id.update' b v)) Q) →
+    wp (Runtime.Expr.letIn b bound body) Q := by
+  intro h
+  unfold Runtime.Expr.letIn
+  apply wp.app
+  simp only [wps_cons, wps_nil]
+  apply wp.mono _ h
+  intro v hv
+  apply wp.func
+  exact wp.fix Q body (fun vs => ∃ v, vs = [v] ∧ wp (body.subst (Runtime.Subst.id.update' b v)) Q)
+    (fun _ih vs ⟨v, hvs, hwp⟩ => by
+      subst hvs
+      simp only [Runtime.Subst.updateAll'_cons, Runtime.Subst.updateAll'_nil_left,
+                  Runtime.Subst.update']
+      exact hwp)
+    [v] ⟨v, rfl, hv⟩
