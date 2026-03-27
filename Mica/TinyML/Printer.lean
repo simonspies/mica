@@ -48,7 +48,8 @@ partial def printExpr : Expr → String
   | .ifThenElse cond thn els =>
     s!"if {printExpr cond} then {printExpr thn} else {printExpr els}"
   | .match_ scrut branches =>
-    let arms := (List.range branches.length).zip branches |>.map fun ⟨i, b⟩ => s!"| {i} -> {printExpr b}"
+    let arms := (List.range branches.length).zip branches |>.map fun ⟨i, (binder, body)⟩ =>
+      s!"| {i} {binder.print} -> {printExpr body}"
     s!"match {printExpr scrut} with {" ".intercalate arms}"
   | .store l r => s!"{printOr l} := {printOr r}"
   | e => printOr e

@@ -107,7 +107,7 @@ inductive Expr where
   | assert (e : Expr)
   | tuple (es : List Expr)
   | inj (tag : Nat) (arity : Nat) (payload : Expr)
-  | match_ (scrutinee : Expr) (branches : List Expr)
+  | match_ (scrutinee : Expr) (branches : List (Binder × Expr))
 
 instance : Inhabited Expr := ⟨.const .unit⟩
 
@@ -189,7 +189,7 @@ mutual
       | isFalse h, _, _ => isFalse (by intro heq; cases heq; exact h rfl)
       | _, isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
       | _, _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
-    case match_.match_ s1 bs1 s2 bs2 => exact match s1.decEq s2, exprsDecEq bs1 bs2 with
+    case match_.match_ s1 bs1 s2 bs2 => exact match s1.decEq s2, branchesDecEq bs1 bs2 with
       | isTrue h1, isTrue h2 => isTrue (by subst h1; subst h2; rfl)
       | isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
       | _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
@@ -199,6 +199,21 @@ mutual
     | [], _ :: _ => isFalse (by intro h; cases h)
     | _ :: _, [] => isFalse (by intro h; cases h)
     | a :: as, b :: bs => match a.decEq b, exprsDecEq as bs with
+      | isTrue h1, isTrue h2 => isTrue (by subst h1; subst h2; rfl)
+      | isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
+      | _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
+
+  def branchDecEq : (a b : Binder × Expr) → Decidable (a = b)
+    | (b1, e1), (b2, e2) => match decEq b1 b2, e1.decEq e2 with
+      | isTrue h1, isTrue h2 => isTrue (by subst h1; subst h2; rfl)
+      | isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
+      | _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
+
+  def branchesDecEq : (as bs : List (Binder × Expr)) → Decidable (as = bs)
+    | [], [] => isTrue rfl
+    | [], _ :: _ => isFalse (by intro h; cases h)
+    | _ :: _, [] => isFalse (by intro h; cases h)
+    | a :: as, b :: bs => match branchDecEq a b, branchesDecEq as bs with
       | isTrue h1, isTrue h2 => isTrue (by subst h1; subst h2; rfl)
       | isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
       | _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)

@@ -214,11 +214,8 @@ mutual
   /-- Compile a single match branch: assume the scrutinee is `mkInj i n payload`, then compile the body. -/
   def compileBranch (S : SpecMap) (B : Bindings) (Γ : TinyML.TyCtx)
       (sc : Term .value) (n : Nat) (i : Nat) (ty_i : TinyML.Type_)
-      : TinyML.Expr → VerifM (TinyML.Type_ × Term .value)
-    | .fix self [binder] _ body =>
-      match self with
-      | .named _ _ => VerifM.fatal "recursive match branch not supported"
-      | .none => do
+      : TinyML.Binder × TinyML.Expr → VerifM (TinyML.Type_ × Term .value)
+    | (binder, body) => do
         let xv ← VerifM.decl (match binder with | .named x _ => some x | .none => none) .value
         VerifM.assume (.eq .value sc (.unop (.mkInj i n) (.var .value xv.name)))
         VerifM.assumeAll (typeConstraints ty_i (.var .value xv.name))
@@ -227,11 +224,10 @@ mutual
           compile (Finmap.erase x S) ((x, xv) :: B) (Γ.extendBinder (.named x ty) ty_i) body
         | .none =>
           compile S B (Γ.extendBinder .none ty_i) body
-    | _ => VerifM.fatal "match branch is not a single-argument function"
 
   def compileBranches (S : SpecMap) (B : Bindings) (Γ : TinyML.TyCtx)
       (sc : Term .value) (ts : List TinyML.Type_) :
-      List TinyML.Expr → Nat → List (VerifM (TinyML.Type_ × Term .value))
+      List (TinyML.Binder × TinyML.Expr) → Nat → List (VerifM (TinyML.Type_ × Term .value))
     | [], _ => []
     | branch :: rest, i =>
       compileBranch S B Γ sc ts.length i (ts[i]?.getD .value) branch
@@ -266,7 +262,7 @@ theorem wp_app_lambda_single {b : Runtime.Binder} {body : Runtime.Expr} {v : Run
 
 theorem compileBranches_spec (S : SpecMap) (B : Bindings) (Γ : TinyML.TyCtx)
     (sc : Term .value) (ts : List TinyML.Type_)
-    (branches : List TinyML.Expr) (idx : Nat) :
+    (branches : List (TinyML.Binder × TinyML.Expr)) (idx : Nat) :
     (compileBranches S B Γ sc ts branches idx).length = branches.length ∧
     ∀ j, j < branches.length →
       (compileBranches S B Γ sc ts branches idx)[j]? =
@@ -352,7 +348,8 @@ theorem compile_correct (e : TinyML.Expr) (S : SpecMap) (B : Bindings) (Γ : Tin
             .inj (ts := ts) (by simp [ts, htag]) htype_p
           rwa [hlen_ts] at this)
   | match_ scrut branches =>
-    unfold TinyML.Expr.runtime; simp only [Runtime.Expr.subst, List.map_map]
+    unfold TinyML.Expr.runtime
+    simp only [TinyML.Expr.branchListRuntime_eq_map, Runtime.Expr.subst, List.map_map]
     apply wp.match_
     -- Step 1: compile scrutinee (IH)
     simp only [compile] at heval
@@ -386,7 +383,7 @@ theorem compile_correct (e : TinyML.Expr) (S : SpecMap) (B : Bindings) (Γ : Tin
             exact (List.getElem?_eq_some_iff.mp ht_tag).choose
           have htag_branches : tag < branches.length := hlen ▸ htag_bound
           refine ⟨tag, ts.length, v_payload, ?branch, ?_, ?_, ?_⟩
-          case branch => exact (branches[tag]).runtime.subst γ
+          case branch => exact (Runtime.Expr.fix .none [(branches[tag]).1.runtime] (branches[tag]).2.runtime).subst γ
           · rfl
           · simp [htag_branches]
           -- From hall, get the eval for branch `tag`
@@ -759,7 +756,7 @@ theorem compile_correct (e : TinyML.Expr) (S : SpecMap) (B : Bindings) (Γ : Tin
     simp only [compile] at heval
     exact (VerifM.eval_fatal heval).elim
 
-theorem compileBranch_correct (branch : TinyML.Expr) (S : SpecMap) (B : Bindings)
+theorem compileBranch_correct (branch : TinyML.Binder × TinyML.Expr) (S : SpecMap) (B : Bindings)
     (Γ : TinyML.TyCtx) (sc : Term .value) (n i : Nat) (ty_i : TinyML.Type_)
     (st : TransState) (ρ : Env) (γ : Runtime.Subst)
     (Ψ : TinyML.Type_ × Term .value → TransState → Env → Prop)
@@ -775,99 +772,89 @@ theorem compileBranch_correct (branch : TinyML.Expr) (S : SpecMap) (B : Bindings
       se.eval ρ' = v → TinyML.ValHasType v ty → Φ v) →
     ∀ payload, sc.eval ρ = Runtime.Val.inj i n payload →
       TinyML.ValHasType payload ty_i →
-      wp (.app (branch.runtime.subst γ) [.val payload]) Φ := by
+      wp (.app ((Runtime.Expr.fix .none [branch.1.runtime] branch.2.runtime).subst γ) [.val payload]) Φ := by
   intro heval hagree hbwf hts hspec hSwf hsc_wf hpost payload hsc_eval htype_payload
-  cases branch with
-  | fix self args rt body =>
-    match args with
-    | [] => simp [compileBranch] at heval; exact (VerifM.eval_fatal heval).elim
-    | [binder] =>
-      -- Case split on self: only .none (lambda) is supported
-      cases self with
-      | named _ _ => simp [compileBranch] at heval; exact (VerifM.eval_fatal heval).elim
-      | none =>
-        simp only [compileBranch] at heval
-        -- decl gives fresh variable xv
-        have heval_decl := VerifM.eval_bind _ _ _ _ heval
-        have hdecl := VerifM.eval_decl heval_decl
-        let hint := match binder with | .named x _ => some x | .none => none
-        let xv := TransState.freshVar hint .value st
-        have heval_inst := hdecl payload
-        -- assume sc = mkInj i n xv
-        have heval_assume := VerifM.eval_bind _ _ _ _ heval_inst
-        have hassume := VerifM.eval_assume heval_assume
-        let st₁ : TransState := { decls := xv :: st.decls, asserts := st.asserts }
-        let ρ₁ := ρ.update .value xv.name payload
-        have hxv_fresh : xv.name ∉ st.decls.map Var.name :=
-          fresh_not_mem _ _ (addNumbers_injective _)
-        have hname_fresh : ∀ w ∈ st.decls, w.name ≠ xv.name :=
-          fun w hw h => hxv_fresh (List.mem_map.mpr ⟨w, hw, h⟩)
-        have hformula_wf : (Formula.eq .value sc (.unop (.mkInj i n) (.var .value xv.name))).wfIn st₁.decls := by
-          intro w hw
-          simp [Formula.freeVars, Term.freeVars] at hw
-          rcases hw with hw | hw
-          · exact List.Mem.tail _ (hsc_wf w hw)
-          · subst hw; exact List.Mem.head _
-        have hsc_eval_ρ₁ : sc.eval ρ₁ = sc.eval ρ := by
-          apply Term.eval_env_agree hsc_wf
-          intro w hw; apply Env.lookup_update_ne; left
-          intro heq
-          exact absurd (heq ▸ List.mem_map_of_mem (f := Var.name) hw) hxv_fresh
-        have hformula_eval : Formula.eval ρ₁
-            (Formula.eq .value sc (.unop (.mkInj i n) (.var .value xv.name))) := by
-          simp [Formula.eval, Term.eval, UnOp.eval]
-          rw [hsc_eval_ρ₁, hsc_eval]
-          simp [ρ₁, Env.lookup_update_same]
-        have heval_assumeAll := hassume hformula_wf hformula_eval
-        -- Peel off assumeAll (typeConstraints)
-        have hxv_wf : (Term.var Srt.value xv.name).wfIn st₁.decls := by
-          intro w hw; simp [Term.freeVars] at hw; subst hw; exact List.mem_cons_self ..
-        have hxv_eval : (Term.var Srt.value xv.name).eval ρ₁ = payload := by
-          simp [Term.eval, ρ₁, Env.lookup_update_same]
-        have hassume_bind₂ := VerifM.eval_bind _ _ _ _ heval_assumeAll
-        obtain ⟨st₂, hst₂_decls, heval_body'⟩ := VerifM.eval_assumeAll hassume_bind₂
-          (fun φ hφ => typeConstraints_wfIn hxv_wf φ hφ)
-          (fun φ hφ => typeConstraints_hold hxv_eval htype_payload φ hφ)
-        unfold TinyML.Expr.runtime TinyML.Binder.runtime; simp only [Runtime.Expr.subst_fix, Runtime.Subst.remove'_none]
-        apply wp_app_lambda_single
-        show wp (Runtime.Expr.subst
-          ((Runtime.Subst.update' .none Runtime.Val.unit Runtime.Subst.id).updateAll' [binder.runtime] [payload])
-          (Runtime.Expr.subst ((γ.remove' .none).removeAll' [binder.runtime]) body.runtime)) Φ
-        rw [Runtime.Expr.subst_fix_comp body.runtime .none [binder.runtime] γ Runtime.Val.unit [payload] rfl]
-        simp only [Runtime.Subst.update']
-        -- Now apply compile_correct on body (mutual recursion)
-        have hagreeOn_st : Env.agreeOn st.decls ρ ρ₁ := by
-          intro w hw
-          cases w with | mk name sort =>
-          simp [Env.lookup, ρ₁, Env.update]
-          have hne := hname_fresh _ hw
-          cases sort <;> simp [hne]
-        cases binder with
-        | none =>
-          have hagree₁ : B.agreeOnLinked ρ₁ γ :=
-            Bindings.agreeOnLinked_env_agree hagree hagreeOn_st hbwf
-          have hbwf₁ : B.wf st₂.decls := hst₂_decls ▸ fun p hp => List.Mem.tail _ (hbwf p hp)
-          exact compile_correct body S B Γ _ ρ₁ γ Ψ Φ heval_body' hagree₁ hbwf₁ hts hspec hSwf hpost
-        | named x =>
-          have hagreeOn_B : Env.agreeOn (B.map Prod.snd) ρ₁ ρ := by
-            intro w hw
-            obtain ⟨p, hp, rfl⟩ := List.mem_map.mp hw
-            exact Env.agreeOn_symm hagreeOn_st p.2 (hbwf p hp)
-          have hbwf₂ : Bindings.wf ((x, xv) :: B) st₂.decls := hst₂_decls ▸ Bindings.wf_cons hbwf
-          have hρ₁_lookup : ρ₁.lookup .value xv.name = payload := by
-            simp [ρ₁, Env.lookup_update_same]
-          have hagree₁ : Bindings.agreeOnLinked ((x, xv) :: B) ρ₁ (Runtime.Subst.update γ x payload) := by
-            have h := Bindings.agreeOnLinked_cons (x := x) (v := xv) (γ := γ) hagree hagreeOn_B (hvty := rfl)
-            rwa [hρ₁_lookup] at h
-          have hts₁ : Bindings.typedSubst ((x, xv) :: B) (Γ.extend x ty_i) (Runtime.Subst.update γ x payload) :=
-            Bindings.typedSubst_cons hts htype_payload
-          exact compile_correct body (Finmap.erase x S) ((x, xv) :: B) (Γ.extend x ty_i) _ ρ₁
-            (Runtime.Subst.update γ x payload) Ψ Φ heval_body' hagree₁ hbwf₂ hts₁
-            (SpecMap.satisfiedBy_erase hspec) (SpecMap.wfIn_erase hSwf) hpost
-    | _ :: _ :: _ => simp [compileBranch] at heval; exact (VerifM.eval_fatal heval).elim
-  | _ => simp [compileBranch] at heval; exact (VerifM.eval_fatal heval).elim
+  obtain ⟨binder, body⟩ := branch
+  simp only [compileBranch] at heval
+  -- decl gives fresh variable xv
+  have heval_decl := VerifM.eval_bind _ _ _ _ heval
+  have hdecl := VerifM.eval_decl heval_decl
+  let hint := match binder with | .named x _ => some x | .none => none
+  let xv := TransState.freshVar hint .value st
+  have heval_inst := hdecl payload
+  -- assume sc = mkInj i n xv
+  have heval_assume := VerifM.eval_bind _ _ _ _ heval_inst
+  have hassume := VerifM.eval_assume heval_assume
+  let st₁ : TransState := { decls := xv :: st.decls, asserts := st.asserts }
+  let ρ₁ := ρ.update .value xv.name payload
+  have hxv_fresh : xv.name ∉ st.decls.map Var.name :=
+    fresh_not_mem _ _ (addNumbers_injective _)
+  have hname_fresh : ∀ w ∈ st.decls, w.name ≠ xv.name :=
+    fun w hw h => hxv_fresh (List.mem_map.mpr ⟨w, hw, h⟩)
+  have hformula_wf : (Formula.eq .value sc (.unop (.mkInj i n) (.var .value xv.name))).wfIn st₁.decls := by
+    intro w hw
+    simp [Formula.freeVars, Term.freeVars] at hw
+    rcases hw with hw | hw
+    · exact List.Mem.tail _ (hsc_wf w hw)
+    · subst hw; exact List.Mem.head _
+  have hsc_eval_ρ₁ : sc.eval ρ₁ = sc.eval ρ := by
+    apply Term.eval_env_agree hsc_wf
+    intro w hw; apply Env.lookup_update_ne; left
+    intro heq
+    exact absurd (heq ▸ List.mem_map_of_mem (f := Var.name) hw) hxv_fresh
+  have hformula_eval : Formula.eval ρ₁
+      (Formula.eq .value sc (.unop (.mkInj i n) (.var .value xv.name))) := by
+    simp [Formula.eval, Term.eval, UnOp.eval]
+    rw [hsc_eval_ρ₁, hsc_eval]
+    simp [ρ₁, Env.lookup_update_same]
+  have heval_assumeAll := hassume hformula_wf hformula_eval
+  -- Peel off assumeAll (typeConstraints)
+  have hxv_wf : (Term.var Srt.value xv.name).wfIn st₁.decls := by
+    intro w hw; simp [Term.freeVars] at hw; subst hw; exact List.mem_cons_self ..
+  have hxv_eval : (Term.var Srt.value xv.name).eval ρ₁ = payload := by
+    simp [Term.eval, ρ₁, Env.lookup_update_same]
+  have hassume_bind₂ := VerifM.eval_bind _ _ _ _ heval_assumeAll
+  obtain ⟨st₂, hst₂_decls, heval_body'⟩ := VerifM.eval_assumeAll hassume_bind₂
+    (fun φ hφ => typeConstraints_wfIn hxv_wf φ hφ)
+    (fun φ hφ => typeConstraints_hold hxv_eval htype_payload φ hφ)
+  simp only [Runtime.Expr.subst_fix, Runtime.Subst.remove'_none]
+  apply wp_app_lambda_single
+  show wp (Runtime.Expr.subst
+    ((Runtime.Subst.update' .none Runtime.Val.unit Runtime.Subst.id).updateAll' [binder.runtime] [payload])
+    (Runtime.Expr.subst ((γ.remove' .none).removeAll' [binder.runtime]) body.runtime)) Φ
+  rw [Runtime.Expr.subst_fix_comp body.runtime .none [binder.runtime] γ Runtime.Val.unit [payload] rfl]
+  simp only [Runtime.Subst.update']
+  -- Now apply compile_correct on body (mutual recursion)
+  have hagreeOn_st : Env.agreeOn st.decls ρ ρ₁ := by
+    intro w hw
+    cases w with | mk name sort =>
+    simp [Env.lookup, ρ₁, Env.update]
+    have hne := hname_fresh _ hw
+    cases sort <;> simp [hne]
+  cases binder with
+  | none =>
+    have hagree₁ : B.agreeOnLinked ρ₁ γ :=
+      Bindings.agreeOnLinked_env_agree hagree hagreeOn_st hbwf
+    have hbwf₁ : B.wf st₂.decls := hst₂_decls ▸ fun p hp => List.Mem.tail _ (hbwf p hp)
+    exact compile_correct body S B Γ _ ρ₁ γ Ψ Φ heval_body' hagree₁ hbwf₁ hts hspec hSwf hpost
+  | named x =>
+    have hagreeOn_B : Env.agreeOn (B.map Prod.snd) ρ₁ ρ := by
+      intro w hw
+      obtain ⟨p, hp, rfl⟩ := List.mem_map.mp hw
+      exact Env.agreeOn_symm hagreeOn_st p.2 (hbwf p hp)
+    have hbwf₂ : Bindings.wf ((x, xv) :: B) st₂.decls := hst₂_decls ▸ Bindings.wf_cons hbwf
+    have hρ₁_lookup : ρ₁.lookup .value xv.name = payload := by
+      simp [ρ₁, Env.lookup_update_same]
+    have hagree₁ : Bindings.agreeOnLinked ((x, xv) :: B) ρ₁ (Runtime.Subst.update γ x payload) := by
+      have h := Bindings.agreeOnLinked_cons (x := x) (v := xv) (γ := γ) hagree hagreeOn_B (hvty := rfl)
+      rwa [hρ₁_lookup] at h
+    have hts₁ : Bindings.typedSubst ((x, xv) :: B) (Γ.extend x ty_i) (Runtime.Subst.update γ x payload) :=
+      Bindings.typedSubst_cons hts htype_payload
+    exact compile_correct body (Finmap.erase x S) ((x, xv) :: B) (Γ.extend x ty_i) _ ρ₁
+      (Runtime.Subst.update γ x payload) Ψ Φ heval_body' hagree₁ hbwf₂ hts₁
+      (SpecMap.satisfiedBy_erase hspec) (SpecMap.wfIn_erase hSwf) hpost
 
-theorem compileBranches_correct (branches : List TinyML.Expr) (S : SpecMap) (B : Bindings)
+theorem compileBranches_correct (branches : List (TinyML.Binder × TinyML.Expr)) (S : SpecMap) (B : Bindings)
     (Γ : TinyML.TyCtx) (sc : Term .value) (n : Nat) (ts : List TinyML.Type_)
     (idx : Nat)
     (st : TransState) (ρ : Env) (γ : Runtime.Subst)
@@ -885,7 +872,7 @@ theorem compileBranches_correct (branches : List TinyML.Expr) (S : SpecMap) (B :
       VerifM.eval (compileBranch S B Γ sc n (idx + j) (ts[idx + j]?.getD .value) branches[j]) st ρ Ψ →
       ∀ payload, sc.eval ρ = Runtime.Val.inj (idx + j) n payload →
         TinyML.ValHasType payload (ts[idx + j]?.getD .value) →
-        wp (.app ((branches[j]).runtime.subst γ) [.val payload]) Φ := by
+        wp (.app ((Runtime.Expr.fix .none [(branches[j]).1.runtime] (branches[j]).2.runtime).subst γ) [.val payload]) Φ := by
   intro hagree hbwf hts hspec hSwf hsc_wf hpost
   match branches with
   | [] => intro j hj; exact absurd hj (Nat.not_lt_zero _)

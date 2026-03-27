@@ -145,7 +145,7 @@ private def patternToBinderTyped (env : ElabEnv) (pat : Pattern) : ElabM TinyML.
 -- Match branch assembly
 
 private def checkAllBranches (loc : Location) :
-    List (Option TinyML.Expr) → Nat → Nat → ElabM (List TinyML.Expr)
+    List (Option (TinyML.Binder × TinyML.Expr)) → Nat → Nat → ElabM (List (TinyML.Binder × TinyML.Expr))
   | [], _, _ => .ok []
   | none :: _, arity, tag => err loc (.missingMatchBranch tag arity)
   | some branch :: rest, arity, tag => do
@@ -159,9 +159,9 @@ private def listSet (l : List α) (idx : Nat) (val : α) : List α :=
   | x :: rest, n + 1 => x :: listSet rest n val
 
 private def insertBranch (env : ElabEnv) (loc : Location) (arity : Nat)
-    (acc : List (Option TinyML.Expr))
+    (acc : List (Option (TinyML.Binder × TinyML.Expr)))
     (name : Constructor) (binder : Option TinyML.Binder) (body : TinyML.Expr)
-    : ElabM (List (Option TinyML.Expr)) :=
+    : ElabM (List (Option (TinyML.Binder × TinyML.Expr))) :=
   match alookup name env.ctors with
   | none => .error { loc, kind := .unknownConstructor name }
   | some (tag, arity', _) =>
@@ -169,8 +169,7 @@ private def insertBranch (env : ElabEnv) (loc : Location) (arity : Nat)
       .error { loc, kind := .arityMismatch arity arity' }
     else
       let b := binder.getD .none
-      let branch := TinyML.Expr.fix .none [b] none body
-      .ok (listSet acc tag (some branch))
+      .ok (listSet acc tag (some (b, body)))
 
 -- ---------------------------------------------------------------------------
 -- Record helpers (outside mutual block — no recursion into Expr)
@@ -322,7 +321,7 @@ def ExprKind.elaborate (env : ElabEnv) (loc : Location) : ExprKind → ElabM Tin
       match alookup ctorName env.ctors with
       | none => err loc (.unknownConstructor ctorName)
       | some (_, arity, _) => do
-        let init : List (Option TinyML.Expr) := List.replicate arity none
+        let init : List (Option (TinyML.Binder × TinyML.Expr)) := List.replicate arity none
         let filled ← arms'.foldlM
           (fun acc (name, binder, body) => insertBranch env loc arity acc name binder body)
           init

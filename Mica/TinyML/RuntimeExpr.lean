@@ -720,12 +720,28 @@ def Expr.runtime : TinyML.Expr → Runtime.Expr
   | .assert e => .assert e.runtime
   | .tuple es => .tuple (es.map Expr.runtime)
   | .inj tag arity payload => .inj tag arity payload.runtime
-  | .match_ scrut branches => .match_ scrut.runtime (branches.map Expr.runtime)
+  | .match_ scrut branches => .match_ scrut.runtime (branchListRuntime branches)
+where
+  branchListRuntime : List (TinyML.Binder × TinyML.Expr) → List Runtime.Expr
+    | [] => []
+    | (b, e) :: rest => Runtime.Expr.fix .none [b.runtime] e.runtime :: branchListRuntime rest
 
 def Decl.runtime (d : TinyML.Decl TinyML.Expr) : Runtime.Decl Runtime.Expr :=
   { name := d.name.runtime, body := d.body.runtime, spec := d.spec.map Expr.runtime }
 
 def Program.runtime (prog : TinyML.Program) : Runtime.Program :=
   prog.map Decl.runtime
+
+
+theorem Expr.branchListRuntime_eq_map (branches : List (TinyML.Binder × TinyML.Expr)) :
+    Expr.runtime.branchListRuntime branches =
+      branches.map fun p => Runtime.Expr.fix .none [p.1.runtime] p.2.runtime := by
+  induction branches with
+  | nil => unfold Expr.runtime.branchListRuntime; rfl
+  | cons hd rest ih =>
+    obtain ⟨b, e⟩ := hd
+    unfold Expr.runtime.branchListRuntime
+    simp only [List.map_cons]
+    congr 1
 
 end TinyML
