@@ -2,17 +2,6 @@ namespace TinyML
 
 abbrev Var := String
 
-inductive Binder where
-  | none
-  | named (name : Var)
-  deriving Repr, BEq, Inhabited, DecidableEq
-
-instance : LawfulBEq Binder where
-  eq_of_beq {a b} h := by
-    cases a <;> cases b <;> simp_all [BEq.beq, instBEqBinder.beq]
-  rfl {a} := by
-    cases a <;> simp [BEq.beq, instBEqBinder.beq]
-
 inductive Type_ where
   | unit
   | bool
@@ -75,6 +64,17 @@ instance : LawfulBEq Type_ where
   eq_of_beq h := of_decide_eq_true h
   rfl := by simp [BEq.beq]
 
+inductive Binder where
+  | none
+  | named (name : Var) (ty : Option Type_)
+  deriving Repr, Inhabited, DecidableEq
+
+instance : BEq Binder := ⟨fun a b => decide (a = b)⟩
+
+instance : LawfulBEq Binder where
+  eq_of_beq h := of_decide_eq_true h
+  rfl := by simp [BEq.beq]
+
 inductive BinOp where
   | add | sub | mul | div | mod
   | eq | lt | le | gt | ge
@@ -93,7 +93,7 @@ mutual
     | unit
     | inj (tag : Nat) (arity : Nat) (payload : Val)
     | loc (l : Nat)
-    | fix (self : Binder) (args : List (Binder × Option Type_)) (retTy : Option Type_) (body : Expr)
+    | fix (self : Binder) (args : List Binder) (retTy : Option Type_) (body : Expr)
     | tuple (vs : List Val)
 
   inductive Expr where
@@ -101,7 +101,7 @@ mutual
     | var (name : Var)
     | unop (op : UnOp) (e : Expr)
     | binop (op : BinOp) (lhs rhs : Expr)
-    | fix (self : Binder) (args : List (Binder × Option Type_)) (retTy : Option Type_) (body : Expr)
+    | fix (self : Binder) (args : List Binder) (retTy : Option Type_) (body : Expr)
     | app (fn : Expr) (args : List Expr)
     | ifThenElse (cond thn els : Expr)
     | letIn (name : Binder) (bound body : Expr)
@@ -264,8 +264,11 @@ abbrev Vals := List Val
 abbrev Exprs := List Expr
 abbrev Binders := List Binder
 
-@[simp] theorem Binder.named_beq (x z : Var) : (Binder.named x == Binder.named z) = (x == z) := by
-  simp [BEq.beq, instBEqBinder.beq]
+@[simp] theorem Binder.named_beq (x z : Var) (tx tz : Option Type_) :
+    (Binder.named x tx == Binder.named z tz) = (x == z && tx == tz) := by
+  apply Bool.eq_iff_iff.mpr
+  simp only [BEq.beq, Bool.and_eq_true, Binder.named.injEq, decide_eq_true_iff]
+  exact and_congr Iff.rfl beq_iff_eq.symm
 
 structure Decl (S : Type) where
   name : Binder

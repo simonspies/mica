@@ -698,7 +698,7 @@ namespace TinyML
 
 def Binder.runtime : TinyML.Binder → Runtime.Binder
   | .none => .none
-  | .named x => .named x
+  | .named x _ty => .named x
 
 mutual
   def Val.runtime : TinyML.Val → Runtime.Val
@@ -707,7 +707,7 @@ mutual
     | .unit => .unit
     | .inj tag arity payload => .inj tag arity payload.runtime
     | .loc l => .loc l
-    | .fix self args _ body => .fix (self.runtime) (args.map (fun (b, _t) => b.runtime)) body.runtime
+    | .fix self args _ body => .fix (self.runtime) (args.map (·.runtime)) body.runtime
     | .tuple vs => .tuple (vs.map Val.runtime)
 
   def Expr.runtime : TinyML.Expr → Runtime.Expr
@@ -715,7 +715,7 @@ mutual
     | .var x => .var x
     | .unop op e => .unop op e.runtime
     | .binop op l r => .binop op l.runtime r.runtime
-    | .fix self args _ body => .fix (self.runtime) (args.map (fun (b, _t) => b.runtime)) body.runtime
+    | .fix self args _ body => .fix (self.runtime) (args.map (·.runtime)) body.runtime
     | .app fn args => .app fn.runtime (args.map Expr.runtime)
     | .ifThenElse c t e => .ifThenElse c.runtime t.runtime e.runtime
     | .letIn b bound body => .letIn (b.runtime) bound.runtime body.runtime

@@ -127,18 +127,18 @@ private def elaborateOptTyp (env : ElabEnv) : Option Typ → ElabM (Option TinyM
 private def patternToBinder (pat : Pattern) : ElabM TinyML.Binder :=
   match pat.kind with
   | .wildcard => .ok .none
-  | .binder (some name) _ => .ok (.named name)
+  | .binder (some name) _ => .ok (.named name none)
   | .binder none _ => .ok .none
   | _ => err pat.loc (.unsupportedPattern "expected a simple binder (variable or wildcard)")
 
-private def patternToBinderTyped (env : ElabEnv) (pat : Pattern)
-    : ElabM (TinyML.Binder × Option TinyML.Type_) :=
+private def patternToBinderTyped (env : ElabEnv) (pat : Pattern) : ElabM TinyML.Binder :=
   match pat.kind with
-  | .wildcard => .ok (.none, none)
+  | .wildcard => .ok .none
   | .binder name ty => do
-    let binder := match name with | some n => TinyML.Binder.named n | none => .none
     let ty' ← elaborateOptTyp env ty
-    .ok (binder, ty')
+    match name with
+    | some n => .ok (.named n ty')
+    | none => .ok .none
   | _ => err pat.loc (.unsupportedPattern "expected a simple binder (variable or wildcard)")
 
 -- ---------------------------------------------------------------------------
@@ -169,7 +169,7 @@ private def insertBranch (env : ElabEnv) (loc : Location) (arity : Nat)
       .error { loc, kind := .arityMismatch arity arity' }
     else
       let b := binder.getD .none
-      let branch := TinyML.Expr.fix .none [(b, none)] none body
+      let branch := TinyML.Expr.fix .none [b] none body
       .ok (listSet acc tag (some branch))
 
 -- ---------------------------------------------------------------------------
@@ -386,7 +386,7 @@ def MatchArmList.elaborate (env : ElabEnv)
     .ok ((ctorName, binder, body') :: rest)
 
 def PatternList.toBindersTyped (env : ElabEnv)
-    : List Pattern → ElabM (List (TinyML.Binder × Option TinyML.Type_))
+    : List Pattern → ElabM (List TinyML.Binder)
   | [] => .ok []
   | p :: ps => do
     let b ← patternToBinderTyped env p

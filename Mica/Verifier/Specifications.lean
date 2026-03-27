@@ -287,7 +287,7 @@ theorem SpecMap.wfIn_eraseAll {keys : List String} {S : SpecMap} {decls : List V
 
 def SpecMap.insert' (S : SpecMap) (b : TinyML.Binder) (spec : Spec) : SpecMap :=
   match b with
-  | .named x => S.insert x spec
+  | .named x _ => S.insert x spec
   | .none => S
 
 theorem SpecMap.satisfiedBy_insert {S : SpecMap} {γ : Runtime.Subst}
@@ -323,11 +323,11 @@ theorem SpecMap.wfIn_insert {S : SpecMap} {x : TinyML.Var} {spec : Spec} {decls 
 theorem SpecMap.satisfiedBy_insert' {S : SpecMap} {γ : Runtime.Subst}
     {b : TinyML.Binder} {fval : Runtime.Val} {spec : Spec}
     (hS : S.satisfiedBy γ)
-    (hγ : ∀ x, b = .named x → γ x = some fval)
+    (hγ : ∀ x ty, b = .named x ty → γ x = some fval)
     (hf : spec.isPrecondFor fval) :
     SpecMap.satisfiedBy (S.insert' b spec) γ := by
   cases b with
-  | named x => exact SpecMap.satisfiedBy_insert hS (hγ x rfl) hf
+  | named x ty => exact SpecMap.satisfiedBy_insert hS (hγ x ty rfl) hf
   | none => exact hS
 
 theorem SpecMap.satisfiedBy_insert'_update' {S : SpecMap} {γ : Runtime.Subst}
@@ -335,13 +335,13 @@ theorem SpecMap.satisfiedBy_insert'_update' {S : SpecMap} {γ : Runtime.Subst}
     (hS : S.satisfiedBy γ) (hf : spec.isPrecondFor v) :
     SpecMap.satisfiedBy (S.insert' b spec) (Runtime.Subst.update' b.runtime v γ) := by
   cases b with
-  | named x => exact SpecMap.satisfiedBy_insert_update hS hf
+  | named x _ => exact SpecMap.satisfiedBy_insert_update hS hf
   | none => exact hS
 
 theorem SpecMap.wfIn_insert' {S : SpecMap} {b : TinyML.Binder} {spec : Spec} {decls : List Var}
     (hS : S.wfIn decls) (hs : spec.wfIn decls) : SpecMap.wfIn (S.insert' b spec) decls := by
   cases b with
-  | named x => exact SpecMap.wfIn_insert hS hs
+  | named x _ => exact SpecMap.wfIn_insert hS hs
   | none => exact hS
 
 theorem SpecMap.satisfiedBy_eraseAll_updateAll' {keys : List String} {S : SpecMap} {γ : Runtime.Subst}

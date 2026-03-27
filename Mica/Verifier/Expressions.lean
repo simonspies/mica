@@ -169,7 +169,7 @@ mutual
         let (te, se) ← compile S B Γ e
         match b with
         | .none => compile S B Γ body
-        | .named x =>
+        | .named x _ =>
           let x' ← VerifM.decl (some x) .value
           VerifM.assume (Formula.eq .value (.var .value x'.name) se)
           compile (Finmap.erase x S) ((x, x') :: B) (Γ.extend x te) body
@@ -217,16 +217,16 @@ mutual
   def compileBranch (S : SpecMap) (B : Bindings) (Γ : TinyML.TyCtx)
       (sc : Term .value) (n : Nat) (i : Nat) (ty_i : TinyML.Type_)
       : TinyML.Expr → VerifM (TinyML.Type_ × Term .value)
-    | .fix self [(binder, _)] _ body =>
+    | .fix self [binder] _ body =>
       match self with
-      | .named _ => VerifM.fatal "recursive match branch not supported"
+      | .named _ _ => VerifM.fatal "recursive match branch not supported"
       | .none => do
-        let xv ← VerifM.decl (match binder with | .named x => some x | .none => none) .value
+        let xv ← VerifM.decl (match binder with | .named x _ => some x | .none => none) .value
         VerifM.assume (.eq .value sc (.unop (.mkInj i n) (.var .value xv.name)))
         VerifM.assumeAll (typeConstraints ty_i (.var .value xv.name))
         match binder with
-        | .named x =>
-          compile (Finmap.erase x S) ((x, xv) :: B) (Γ.extendBinder (.named x) ty_i) body
+        | .named x ty =>
+          compile (Finmap.erase x S) ((x, xv) :: B) (Γ.extendBinder (.named x ty) ty_i) body
         | .none =>
           compile S B (Γ.extendBinder .none ty_i) body
     | _ => VerifM.fatal "match branch is not a single-argument function"
@@ -574,7 +574,7 @@ theorem compile_correct (e : TinyML.Expr) (S : SpecMap) (B : Bindings) (Γ : Tin
       have hbwf_e : B.wf st₁.decls := fun p hp => hdecls_e (hbwf p hp)
       refine compile_correct body S B Γ st₁ ρ_e γ _ _ (VerifM.eval.decls_grow ρ_e hΨ_e) hagree_e hbwf_e hts hspec hSwf ?_
       grind
-    | named x =>
+    | named x ty =>
       unfold TinyML.Expr.runtime TinyML.Binder.runtime; simp only [Runtime.Expr.subst]
       apply wp.letIn
       have heval_e_outer : (compile S B Γ e).eval st ρ _ := VerifM.eval_bind _ _ _ _ heval
@@ -786,16 +786,16 @@ theorem compileBranch_correct (branch : TinyML.Expr) (S : SpecMap) (B : Bindings
   | fix self args rt body =>
     match args with
     | [] => simp [compileBranch] at heval; exact (VerifM.eval_fatal heval).elim
-    | [(binder, bty)] =>
+    | [binder] =>
       -- Case split on self: only .none (lambda) is supported
       cases self with
-      | named _ => simp [compileBranch] at heval; exact (VerifM.eval_fatal heval).elim
+      | named _ _ => simp [compileBranch] at heval; exact (VerifM.eval_fatal heval).elim
       | none =>
         simp only [compileBranch] at heval
         -- decl gives fresh variable xv
         have heval_decl := VerifM.eval_bind _ _ _ _ heval
         have hdecl := VerifM.eval_decl heval_decl
-        let hint := match binder with | .named x => some x | .none => none
+        let hint := match binder with | .named x _ => some x | .none => none
         let xv := TransState.freshVar hint .value st
         have heval_inst := hdecl payload
         -- assume sc = mkInj i n xv

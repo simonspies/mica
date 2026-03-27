@@ -13,34 +13,32 @@ def UnOp.toString : UnOp → String
 
 def Binder.print : Binder → String
   | .none => "_"
-  | .named name => name
+  | .named name _ => name
 
 private def argsStr (args : List Binder) : String :=
   " ".intercalate (args.map Binder.print)
 
 -- Collect fix args from the current node, plus any continuation if the body
 -- is another fix with the same named self binder.
-private partial def collectFixArgs (f : String) (args : List (Binder × Option Type_)) (body : Expr)
+private partial def collectFixArgs (f : String) (args : List Binder) (body : Expr)
     : List Binder × Expr :=
-  let myArgs := args.map Prod.fst
   match body with
-  | .fix (.named f') args' _ inner =>
+  | .fix (.named f' _) args' _ inner =>
     if f == f' then
       let (moreArgs, finalBody) := collectFixArgs f args' inner
-      (myArgs ++ moreArgs, finalBody)
-    else (myArgs, body)
-  | _ => (myArgs, body)
+      (args ++ moreArgs, finalBody)
+    else (args, body)
+  | _ => (args, body)
 
 -- Collect anonymous fix args from the current node, plus any continuation if
 -- the body is another anonymous fix.
-private partial def collectAnonArgs (args : List (Binder × Option Type_)) (body : Expr)
+private partial def collectAnonArgs (args : List Binder) (body : Expr)
     : List Binder × Expr :=
-  let myArgs := args.map Prod.fst
   match body with
   | .fix .none args' _ inner =>
     let (moreArgs, finalBody) := collectAnonArgs args' inner
-    (myArgs ++ moreArgs, finalBody)
-  | _ => (myArgs, body)
+    (args ++ moreArgs, finalBody)
+  | _ => (args, body)
 
 mutual
 
@@ -58,9 +56,10 @@ partial def printExpr : Expr → String
 -- Print a let binding, recognising recursive and eta-contracted forms.
 partial def printLetIn (name : Binder) (bound body : Expr) : String :=
   match bound with
-  | .fix (.named f) args _ inner =>
+  | .fix (.named f _) args _ inner =>
     let (allArgs, innerBody) := collectFixArgs f args inner
-    if name == .named f then
+    let nameMatchesF := match name with | .named n _ => n == f | .none => false
+    if nameMatchesF then
       s!"let rec {f} {argsStr allArgs} = {printExpr innerBody} in\n{printExpr body}"
     else
       s!"let {name.print} = (let rec {f} {argsStr allArgs} = {printExpr innerBody} in {f}) in\n{printExpr body}"
@@ -136,15 +135,14 @@ partial def printValAtom : Val → String
   | .unit     => "()"
   | v         => s!"({printVal v})"
 
--- CR claude: type annotations on `fix` nodes (args types, retTy) are currently not
--- printed. The printer needs to be extended to emit `(x : T)` and `: T` syntax
--- for annotated binders and return types.
-partial def printFix (self : Binder) (args : List (Binder × Option Type_)) (body : Expr) : String :=
+-- Note: type annotations on `fix` nodes (args types, retTy) are not currently
+-- printed. The printer would need to emit `(x : T)` and `: T` syntax for those.
+partial def printFix (self : Binder) (args : List Binder) (body : Expr) : String :=
   match self with
   | .none =>
     let (allArgs, inner) := collectAnonArgs args body
     s!"fun {argsStr allArgs} -> {printExpr inner}"
-  | .named f =>
+  | .named f _ =>
     let (allArgs, inner) := collectFixArgs f args body
     s!"(let rec {f} {argsStr allArgs} = {printExpr inner} in {f})"
 
@@ -154,9 +152,10 @@ def Expr.print (e : Expr) : String := printExpr e
 
 def Decl.print (d : Decl Expr) : String :=
   let decl := match d.body with
-    | .fix (.named f) args _ inner =>
+    | .fix (.named f _) args _ inner =>
       let (allArgs, innerBody) := collectFixArgs f args inner
-      if d.name == .named f then
+      let nameMatchesF := match d.name with | .named n _ => n == f | .none => false
+      if nameMatchesF then
         s!"let rec {f} {argsStr allArgs} = {printExpr innerBody}"
       else
         s!"let {d.name.print} = (let rec {f} {argsStr allArgs} = {printExpr innerBody} in {f})"

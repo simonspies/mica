@@ -15,8 +15,8 @@ def TyCtx.extend (Γ : TyCtx) (x : Var) (t : Type_) : TyCtx :=
 
 def TyCtx.extendBinder (Γ : TyCtx) (b : Binder) (t : Type_) : TyCtx :=
   match b with
-  | .none    => Γ
-  | .named x => Γ.extend x t
+  | .none      => Γ
+  | .named x _ => Γ.extend x t
 
 @[simp] theorem TyCtx.extend_eq (Γ : TyCtx) (x : Var) (t : Type_) :
     (Γ.extend x t) x = some t := by simp [TyCtx.extend]
@@ -41,7 +41,7 @@ theorem TyCtx.le_extendBinder_congr {Γ Γ' : TyCtx} (b : Binder) (t : Type_)
   intro y ty hy
   cases b with
   | none => exact hle y ty hy
-  | named x =>
+  | named x _ =>
     simp only [TyCtx.extendBinder, TyCtx.extend] at hy ⊢
     by_cases h : y == x
     · simp [h] at hy ⊢; exact hy

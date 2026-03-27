@@ -49,16 +49,16 @@ theorem checkSpec_correct (S : SpecMap) (e : TinyML.Expr) (s : Spec)
       simp [hext] at heval
       have hbody := VerifM.eval_ret (VerifM.eval_bind _ _ _ _ heval)
       dsimp only at hbody
-      set bs := argBinders.map (fun p => p.1.runtime)
+      set bs := argBinders.map (·.runtime)
       set γ' := (γ.remove' fb.runtime).removeAll' bs with hγ'_def
       set S' : SpecMap := SpecMap.eraseAll argNames (S.insert' fb s)
       have hgoal : (TinyML.Expr.fix fb argBinders retTy body).runtime.subst γ =
-          Runtime.Expr.fix fb.runtime (argBinders.map (fun (b, _t) => b.runtime))
+          Runtime.Expr.fix fb.runtime (argBinders.map (·.runtime))
             (body.runtime.subst γ') := by
         conv_lhs => unfold TinyML.Expr.runtime
         simp only [Runtime.Expr.subst_fix, hγ'_def, bs]
       rw [hgoal]
-      set fval := Runtime.Val.fix fb.runtime (argBinders.map (fun (b, _t) => b.runtime))
+      set fval := Runtime.Val.fix fb.runtime (argBinders.map (·.runtime))
         (body.runtime.subst γ') with hfval_def
       apply wp.func
       intro vs htyped Φ happly
@@ -75,10 +75,7 @@ theorem checkSpec_correct (S : SpecMap) (e : TinyML.Expr) (s : Spec)
           have := htyped_args.length_eq; simp at this; omega
         have hbs_runtime : bs = argNames.map Runtime.Binder.named := by
           simp only [bs]
-          rw [show (fun p : TinyML.Binder × Option TinyML.Type_ => p.1.runtime) =
-              (TinyML.Binder.runtime ∘ Prod.fst) from rfl]
-          rw [← List.map_map, hbs_eq]
-          simp [TinyML.Binder.runtime]
+          exact hbs_eq
         have hlen : bs.length = vs.length := by simp [hbs_runtime]; omega
         rw [Runtime.Expr.subst_fix_comp body.runtime fb.runtime bs γ fval vs hlen]
         set γ_body := γ.update' fb.runtime fval |>.updateAll' bs vs

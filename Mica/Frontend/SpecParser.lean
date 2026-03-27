@@ -48,11 +48,11 @@ private def parsePred : TinyML.Expr → M Pred
 private def parseAssert (inner : TinyML.Expr → M α)
     (bareAssert : TinyML.Expr → M (Assert α)) : TinyML.Expr → M (Assert α)
   | .app (.var "ret") [e] => do .ok (.ret (← inner e))
-  | .app (.app (.var "bind") [e1]) [.fix .none [(.named x, _)] _ e2] => do
+  | .app (.app (.var "bind") [e1]) [.fix .none [.named x _] _ e2] => do
     let pred ← parsePred e1
     let rest ← parseAssert inner bareAssert e2
     .ok (.bind pred x rest)
-  | .letIn (.named x) bound body => do
+  | .letIn (.named x _) bound body => do
     let t ← parseTerm bound
     let rest ← parseAssert inner bareAssert body
     .ok (.let_ x t rest)
@@ -74,7 +74,7 @@ private def parsePost : TinyML.Expr → M Post :=
 
 private def parsePre : TinyML.Expr → M Pre :=
   parseAssert
-    (fun | .fix .none [(.named x, _)] _ body => do
+    (fun | .fix .none [.named x _] _ body => do
            let post ← parsePost body
            .ok (x, post)
          | e => .error s!"expected fun v -> ..., got {repr e}")
@@ -89,10 +89,10 @@ private def peelBinders : TinyML.Expr → M Body
       .ok (names, pre)
   | e => .error s!"expected fun x -> ..., got {repr e}"
 where
-  getNames : List (TinyML.Binder × Option TinyML.Type_) → M (List String)
+  getNames : List TinyML.Binder → M (List String)
     | [] => .ok []
-    | (.named x, _) :: rest => do let xs ← getNames rest; .ok (x :: xs)
-    | (.none, _) :: _ => .error "unnamed binder in spec is not allowed"
+    | .named x _ :: rest => do let xs ← getNames rest; .ok (x :: xs)
+    | .none :: _ => .error "unnamed binder in spec is not allowed"
 
 def parse (e : TinyML.Expr) : M Body :=
   peelBinders e
