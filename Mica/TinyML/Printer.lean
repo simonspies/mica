@@ -113,27 +113,16 @@ partial def printUnary : Expr → String
   | e => printAtom e
 
 partial def printAtom : Expr → String
-  | .val v              => printVal v
+  | .const c            => printConst c
   | .var name           => name
   | .fix self args _ body  => printFix self args body
   | .tuple es           => s!"({", ".intercalate (es.map printOr)})"
   | e                   => s!"({printExpr e})"
 
-partial def printVal : Val → String
-  | .int n         => if n < 0 then s!"({n})" else s!"{n}"
-  | .bool b        => if b then "true" else "false"
-  | .unit          => "()"
-  | .tuple vs      => s!"({", ".intercalate (vs.map printVal)})"
-  | .inj tag arity v => s!"(inj {tag}/{arity} {printValAtom v})"
-  | .loc l         => s!"(assert false (* loc:{l} *))"
-  | .fix self args _ body => printFix self args body
-
--- Atom-level Val printer (adds parens for compound values).
-partial def printValAtom : Val → String
-  | .int n    => if n < 0 then s!"({n})" else s!"{n}"
-  | .bool b   => if b then "true" else "false"
-  | .unit     => "()"
-  | v         => s!"({printVal v})"
+partial def printConst : Const → String
+  | .int n  => if n < 0 then s!"({n})" else s!"{n}"
+  | .bool b => if b then "true" else "false"
+  | .unit   => "()"
 
 -- Note: type annotations on `fix` nodes (args types, retTy) are not currently
 -- printed. The printer would need to emit `(x : T)` and `: T` syntax for those.

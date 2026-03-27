@@ -86,36 +86,30 @@ inductive UnOp where
   | proj (n : Nat)
   deriving Repr, BEq, Inhabited, DecidableEq
 
-mutual
-  inductive Val where
-    | int (n : Int)
-    | bool (b : Bool)
-    | unit
-    | inj (tag : Nat) (arity : Nat) (payload : Val)
-    | loc (l : Nat)
-    | fix (self : Binder) (args : List Binder) (retTy : Option Type_) (body : Expr)
-    | tuple (vs : List Val)
+inductive Const where
+  | int  (n : Int)
+  | bool (b : Bool)
+  | unit
+  deriving Repr, BEq, DecidableEq
 
-  inductive Expr where
-    | val (v : Val)
-    | var (name : Var)
-    | unop (op : UnOp) (e : Expr)
-    | binop (op : BinOp) (lhs rhs : Expr)
-    | fix (self : Binder) (args : List Binder) (retTy : Option Type_) (body : Expr)
-    | app (fn : Expr) (args : List Expr)
-    | ifThenElse (cond thn els : Expr)
-    | letIn (name : Binder) (bound body : Expr)
-    | ref    (e : Expr)
-    | deref  (e : Expr)
-    | store  (loc val : Expr)
-    | assert (e : Expr)
-    | tuple (es : List Expr)
-    | inj (tag : Nat) (arity : Nat) (payload : Expr)
-    | match_ (scrutinee : Expr) (branches : List Expr)
-end
+inductive Expr where
+  | const (c : Const)
+  | var (name : Var)
+  | unop (op : UnOp) (e : Expr)
+  | binop (op : BinOp) (lhs rhs : Expr)
+  | fix (self : Binder) (args : List Binder) (retTy : Option Type_) (body : Expr)
+  | app (fn : Expr) (args : List Expr)
+  | ifThenElse (cond thn els : Expr)
+  | letIn (name : Binder) (bound body : Expr)
+  | ref    (e : Expr)
+  | deref  (e : Expr)
+  | store  (loc val : Expr)
+  | assert (e : Expr)
+  | tuple (es : List Expr)
+  | inj (tag : Nat) (arity : Nat) (payload : Expr)
+  | match_ (scrutinee : Expr) (branches : List Expr)
 
-instance : Inhabited Val := ⟨.unit⟩
-instance : Inhabited Expr := ⟨.val .unit⟩
+instance : Inhabited Expr := ⟨.const .unit⟩
 
 /-- Is the expression a function (fix) node? -/
 def Expr.isFunc : Expr → Bool
@@ -131,43 +125,11 @@ theorem Expr.isFunc_elim {e : Expr} (h : e.isFunc = true) :
 
 
 mutual
-  def Val.decEq (a b : Val) : Decidable (a = b) := by
-    cases a <;> cases b
-    all_goals first | exact isFalse (by omega) | skip
-    all_goals first | exact isFalse Val.noConfusion | skip
-    case int.int a b => exact match decEq a b with
-      | isTrue h => isTrue (by subst h; rfl)
-      | isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
-    case bool.bool a b => exact match decEq a b with
-      | isTrue h => isTrue (by subst h; rfl)
-      | isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
-    case unit.unit => exact isTrue rfl
-    case inj.inj t1 a1 p1 t2 a2 p2 => exact match decEq t1 t2, decEq a1 a2, p1.decEq p2 with
-      | isTrue h1, isTrue h2, isTrue h3 => isTrue (by subst h1; subst h2; subst h3; rfl)
-      | isFalse h, _, _ => isFalse (by intro heq; cases heq; exact h rfl)
-      | _, isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
-      | _, _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
-    case loc.loc a b => exact match decEq a b with
-      | isTrue h => isTrue (by subst h; rfl)
-      | isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
-    case fix.fix s1 args1 rt1 b1 s2 args2 rt2 b2 =>
-      exact match decEq s1 s2, decEq args1 args2, decEq rt1 rt2, b1.decEq b2 with
-      | isTrue h1, isTrue h2, isTrue h3, isTrue h4 =>
-        isTrue (by subst h1; subst h2; subst h3; subst h4; rfl)
-      | isFalse h, _, _, _ => isFalse (by intro heq; cases heq; exact h rfl)
-      | _, isFalse h, _, _ => isFalse (by intro heq; cases heq; exact h rfl)
-      | _, _, isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
-      | _, _, _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
-    case tuple.tuple vs1 vs2 =>
-      exact match valsDecEq vs1 vs2 with
-      | isTrue h => isTrue (by subst h; rfl)
-      | isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
-
   def Expr.decEq (a b : Expr) : Decidable (a = b) := by
     cases a <;> cases b
     all_goals first | exact isFalse (by omega) | skip
     all_goals first | exact isFalse Expr.noConfusion | skip
-    case val.val v1 v2 => exact match v1.decEq v2 with
+    case const.const c1 c2 => exact match decEq c1 c2 with
       | isTrue h => isTrue (by subst h; rfl)
       | isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
     case var.var n1 n2 => exact match decEq n1 n2 with
@@ -232,15 +194,6 @@ mutual
       | isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
       | _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
 
-  def valsDecEq : (as bs : List Val) → Decidable (as = bs)
-    | [], [] => isTrue rfl
-    | [], _ :: _ => isFalse (by intro h; cases h)
-    | _ :: _, [] => isFalse (by intro h; cases h)
-    | a :: as, b :: bs => match a.decEq b, valsDecEq as bs with
-      | isTrue h1, isTrue h2 => isTrue (by subst h1; subst h2; rfl)
-      | isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
-      | _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
-
   def exprsDecEq : (as bs : List Expr) → Decidable (as = bs)
     | [], [] => isTrue rfl
     | [], _ :: _ => isFalse (by intro h; cases h)
@@ -251,16 +204,12 @@ mutual
       | _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
 end
 
-instance : DecidableEq Val := Val.decEq
 instance : DecidableEq Expr := Expr.decEq
 
-deriving instance Repr for Val
 deriving instance Repr for Expr
-deriving instance BEq for Val
 deriving instance BEq for Expr
 
 abbrev Vars := List Var
-abbrev Vals := List Val
 abbrev Exprs := List Expr
 abbrev Binders := List Binder
 

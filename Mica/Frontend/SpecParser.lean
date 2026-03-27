@@ -19,9 +19,9 @@ private def parseBinOp : TinyML.BinOp → BinOp
 
 private def parseTerm : TinyML.Expr → M Term
   | .var x => .ok (.var x)
-  | .val (.int n) => .ok (.int n)
-  | .val (.bool b) => .ok (.bool b)
-  | .val .unit => .ok .unit
+  | .const (.int n) => .ok (.int n)
+  | .const (.bool b) => .ok (.bool b)
+  | .const .unit => .ok .unit
   | .binop op l r => do
     .ok (.binop (parseBinOp op) (← parseTerm l) (← parseTerm r))
   | .unop .neg e => do .ok (.unop .neg (← parseTerm e))
@@ -29,7 +29,7 @@ private def parseTerm : TinyML.Expr → M Term
   | .unop (.proj n) e => do .ok (.unop (.proj n) (← parseTerm e))
   | .tuple es => do .ok (.tuple (← es.mapM parseTerm))
   | .inj tag arity payload => do .ok (.unop (.inj tag arity) (← parseTerm payload))
-  | .app (.var "inj") [.val (.int tag), .val (.int arity), payload] => do
+  | .app (.var "inj") [.const (.int tag), .const (.int arity), payload] => do
     .ok (.unop (.inj tag.toNat arity.toNat) (← parseTerm payload))
   | .app (.var "tagof") [e] => do .ok (.unop .tagof (← parseTerm e))
   | .app (.var "arityof") [e] => do .ok (.unop .arityof (← parseTerm e))
@@ -41,7 +41,7 @@ private def parseTerm : TinyML.Expr → M Term
 private def parsePred : TinyML.Expr → M Pred
   | .app (.var "isint") [e] => do .ok (.isint (← parseTerm e))
   | .app (.var "isbool") [e] => do .ok (.isbool (← parseTerm e))
-  | .app (.var "isinj") [.val (.int tag), .val (.int arity), e] => do
+  | .app (.var "isinj") [.const (.int tag), .const (.int arity), e] => do
     .ok (.isinj tag.toNat arity.toNat (← parseTerm e))
   | e => .error s!"expected type predicate (isint, isbool, isinj), got {repr e}"
 
@@ -68,7 +68,7 @@ private def parseAssert (inner : TinyML.Expr → M α)
 
 private def parsePost : TinyML.Expr → M Post :=
   parseAssert
-    (fun | .val .unit => .ok ()
+    (fun | .const .unit => .ok ()
          | e => .error s!"expected (), got {repr e}")
     (fun cond => do .ok (.assert (← parseTerm cond) (.ret ())))
 

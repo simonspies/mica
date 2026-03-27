@@ -700,33 +700,27 @@ def Binder.runtime : TinyML.Binder → Runtime.Binder
   | .none => .none
   | .named x _ty => .named x
 
-mutual
-  def Val.runtime : TinyML.Val → Runtime.Val
-    | .int n => .int n
-    | .bool b => .bool b
-    | .unit => .unit
-    | .inj tag arity payload => .inj tag arity payload.runtime
-    | .loc l => .loc l
-    | .fix self args _ body => .fix (self.runtime) (args.map (·.runtime)) body.runtime
-    | .tuple vs => .tuple (vs.map Val.runtime)
+def Const.runtime : TinyML.Const → Runtime.Val
+  | .int n  => .int n
+  | .bool b => .bool b
+  | .unit   => .unit
 
-  def Expr.runtime : TinyML.Expr → Runtime.Expr
-    | .val v => .val v.runtime
-    | .var x => .var x
-    | .unop op e => .unop op e.runtime
-    | .binop op l r => .binop op l.runtime r.runtime
-    | .fix self args _ body => .fix (self.runtime) (args.map (·.runtime)) body.runtime
-    | .app fn args => .app fn.runtime (args.map Expr.runtime)
-    | .ifThenElse c t e => .ifThenElse c.runtime t.runtime e.runtime
-    | .letIn b bound body => .letIn (b.runtime) bound.runtime body.runtime
-    | .ref e => .ref e.runtime
-    | .deref e => .deref e.runtime
-    | .store loc val => .store loc.runtime val.runtime
-    | .assert e => .assert e.runtime
-    | .tuple es => .tuple (es.map Expr.runtime)
-    | .inj tag arity payload => .inj tag arity payload.runtime
-    | .match_ scrut branches => .match_ scrut.runtime (branches.map Expr.runtime)
-end
+def Expr.runtime : TinyML.Expr → Runtime.Expr
+  | .const c => .val c.runtime
+  | .var x => .var x
+  | .unop op e => .unop op e.runtime
+  | .binop op l r => .binop op l.runtime r.runtime
+  | .fix self args _ body => .fix (self.runtime) (args.map (·.runtime)) body.runtime
+  | .app fn args => .app fn.runtime (args.map Expr.runtime)
+  | .ifThenElse c t e => .ifThenElse c.runtime t.runtime e.runtime
+  | .letIn b bound body => .letIn (b.runtime) bound.runtime body.runtime
+  | .ref e => .ref e.runtime
+  | .deref e => .deref e.runtime
+  | .store loc val => .store loc.runtime val.runtime
+  | .assert e => .assert e.runtime
+  | .tuple es => .tuple (es.map Expr.runtime)
+  | .inj tag arity payload => .inj tag arity payload.runtime
+  | .match_ scrut branches => .match_ scrut.runtime (branches.map Expr.runtime)
 
 def Decl.runtime (d : TinyML.Decl TinyML.Expr) : Runtime.Decl Runtime.Expr :=
   { name := d.name.runtime, body := d.body.runtime, spec := d.spec.map Expr.runtime }

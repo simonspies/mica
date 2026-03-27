@@ -200,14 +200,14 @@ private def elaborateBinOp (loc : Location) : BinOp → ElabM TinyML.BinOp
 private def elaborateCtorLookup (env : ElabEnv) (loc : Location) (name : String)
     (arg : Option TinyML.Expr) : ElabM TinyML.Expr :=
   match alookup name env.ctors with
-  | some (tag, arity, _) => .ok (.inj tag arity (arg.getD (.val .unit)))
+  | some (tag, arity, _) => .ok (.inj tag arity (arg.getD (.const .unit)))
   | none => err loc (.unknownConstructor name)
 
 mutual
 def ExprKind.elaborate (env : ElabEnv) (loc : Location) : ExprKind → ElabM TinyML.Expr
-  | .const (.int n)  => .ok (.val (.int n))
-  | .const (.bool b) => .ok (.val (.bool b))
-  | .const .unit     => .ok (.val .unit)
+  | .const (.int n)  => .ok (.const (.int n))
+  | .const (.bool b) => .ok (.const (.bool b))
+  | .const .unit     => .ok (.const .unit)
   | .const (.char _) => err loc .unsupportedChar
 
   | .var name =>
@@ -215,7 +215,7 @@ def ExprKind.elaborate (env : ElabEnv) (loc : Location) : ExprKind → ElabM Tin
     | "ref" | "not" => err loc (.bareSpecialIdentifier name)
     | _ =>
       match alookup name env.ctors with
-      | some (tag, arity, _) => .ok (.inj tag arity (.val .unit))
+      | some (tag, arity, _) => .ok (.inj tag arity (.const .unit))
       | none => .ok (.var name)
 
   | .ctor name => elaborateCtorLookup env loc name none

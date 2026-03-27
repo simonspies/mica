@@ -129,9 +129,9 @@ theorem compileOp_eval {op : TinyML.BinOp} {sl sr : Term .value} {ρ : Env}
 
 mutual
   def compile (S : SpecMap) (B : Bindings) (Γ : TinyML.TyCtx) : TinyML.Expr → VerifM (TinyML.Type_ × Term .value)
-    | .val (.int n)  => pure (.int,  .unop .ofInt  (.const (.i n)))
-    | .val (.bool b) => pure (.bool, .unop .ofBool (.const (.b b)))
-    | .val .unit     => pure (.unit, Term.const .unit)
+    | .const (.int n)  => pure (.int,  .unop .ofInt  (.const (.i n)))
+    | .const (.bool b) => pure (.bool, .unop .ofBool (.const (.b b)))
+    | .const .unit     => pure (.unit, Term.const .unit)
     | .var x => do
         match B.lookup x with
         | some x' => pure (Γ x |>.getD .value, .var .value x'.name)
@@ -209,8 +209,6 @@ mutual
             | some m => m
             | none => VerifM.fatal "match branch index out of range"
         | _ => VerifM.fatal "match on non-sum type"
-    | .val (.inj _ _ _) | .val (.loc _)
-    | .val (.fix _ _ _ _) | .val (.tuple _)
     | .app _ _ | .fix _ _ _ _ | .ref _ | .deref _ | .store _ _ => VerifM.fatal "unsupported expression"
 
   /-- Compile a single match branch: assume the scrutinee is `mkInj i n payload`, then compile the body. -/
@@ -305,11 +303,11 @@ theorem compile_correct (e : TinyML.Expr) (S : SpecMap) (B : Bindings) (Γ : Tin
     wp (e.runtime.subst γ) Φ := by
   intro heval hagree hbwf hts hspec hSwf hpost
   cases e with
-  | val v =>
-    cases v with
+  | const c =>
+    cases c with
     | int n =>
       simp only [compile] at heval
-      simp only [TinyML.Expr.runtime, TinyML.Val.runtime, Runtime.Expr.subst_val]; apply wp.val
+      simp only [TinyML.Expr.runtime, TinyML.Const.runtime, Runtime.Expr.subst_val]; apply wp.val
       obtain heval := VerifM.eval_ret heval
       exact hpost (.int n) ρ st .int _ heval
         (by intro w hw; simp [Term.freeVars] at hw)
@@ -317,7 +315,7 @@ theorem compile_correct (e : TinyML.Expr) (S : SpecMap) (B : Bindings) (Γ : Tin
         (.int n)
     | bool b =>
       simp only [compile] at heval
-      simp only [TinyML.Expr.runtime, TinyML.Val.runtime, Runtime.Expr.subst_val]; apply wp.val
+      simp only [TinyML.Expr.runtime, TinyML.Const.runtime, Runtime.Expr.subst_val]; apply wp.val
       obtain heval := VerifM.eval_ret heval
       exact hpost (.bool b) ρ st .bool _ heval
         (by intro w hw; simp [Term.freeVars] at hw)
@@ -325,15 +323,12 @@ theorem compile_correct (e : TinyML.Expr) (S : SpecMap) (B : Bindings) (Γ : Tin
         (.bool b)
     | unit =>
       simp only [compile] at heval
-      simp only [TinyML.Expr.runtime, TinyML.Val.runtime, Runtime.Expr.subst_val]; apply wp.val
+      simp only [TinyML.Expr.runtime, TinyML.Const.runtime, Runtime.Expr.subst_val]; apply wp.val
       obtain heval := VerifM.eval_ret heval
       exact hpost .unit ρ st .unit _ heval
         (by intro w hw; simp [Term.freeVars] at hw)
         (by simp [Term.eval])
         .unit
-    | inj _ _ _ | loc _ | fix _ _ _ _ | tuple _ =>
-      simp only [compile] at heval
-      simp only [TinyML.Expr.runtime, TinyML.Val.runtime, Runtime.Expr.subst_val]; exact (VerifM.eval_fatal heval).elim
   | inj tag arity payload =>
     unfold TinyML.Expr.runtime; simp only [Runtime.Expr.subst]
     apply wp.inj
