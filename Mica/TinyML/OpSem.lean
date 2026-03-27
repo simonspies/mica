@@ -94,12 +94,12 @@ theorem K.comp_fill (k1 k2 : K) (e : Runtime.Expr) :
 
 inductive Head : Runtime.Expr → Heap → Runtime.Expr → Heap → Prop where
   /-- A `fix` expression wraps itself as a value. -/
-  | fixIntro : Head (.fix f args rt body) μ (.val (.fix f args rt body)) μ
+  | fixIntro : Head (.fix f args body) μ (.val (.fix f args body)) μ
 
   /-- Beta reduction: apply a fixpoint to a list of argument values. -/
   | beta : args.length = vs.length →
-           Head (.app (.val (.fix f args rt body)) (vs.map Runtime.Expr.val)) μ
-                (body.subst ((Runtime.Subst.id.update' f (.fix f args rt body)).updateAll' (args.map Prod.fst) vs)) μ
+           Head (.app (.val (.fix f args body)) (vs.map Runtime.Expr.val)) μ
+                (body.subst ((Runtime.Subst.id.update' f (.fix f args body)).updateAll' args vs)) μ
 
   /-- Unary operator applied to a value. -/
   | unop : evalUnOp op v = some w →

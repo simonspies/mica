@@ -24,7 +24,7 @@ mutual
     | unit
     | inj (tag : Nat) (arity : Nat) (payload : Val)
     | loc (l : Location)
-    | fix (self : Binder) (args : List (Binder × Option Type_)) (retTy : Option Type_) (body : Expr)
+    | fix (self : Binder) (args : List Binder) (body : Expr)
     | tuple (vs : List Val)
 
   inductive Expr where
@@ -32,7 +32,7 @@ mutual
     | var (name : Var)
     | unop (op : UnOp) (e : Expr)
     | binop (op : BinOp) (lhs rhs : Expr)
-    | fix (self : Binder) (args : List (Binder × Option Type_)) (retTy : Option Type_) (body : Expr)
+    | fix (self : Binder) (args : List Binder) (body : Expr)
     | app (fn : Expr) (args : List Expr)
     | ifThenElse (cond thn els : Expr)
     | letIn (name : Binder) (bound body : Expr)
@@ -53,12 +53,12 @@ def Expr.isFunc : Expr → Bool
   | .fix .. => true
   | _ => false
 
-@[simp] theorem Expr.isFunc_fix : (Expr.fix self args retTy body).isFunc = true := rfl
+@[simp] theorem Expr.isFunc_fix : (Expr.fix self args body).isFunc = true := rfl
 
 theorem Expr.isFunc_elim {e : Expr} (h : e.isFunc = true) :
-    ∃ self args retTy body, e = .fix self args retTy body := by
+    ∃ self args body, e = .fix self args body := by
   cases e <;> simp [isFunc] at h
-  exact ⟨_, _, _, _, rfl⟩
+  exact ⟨_, _, _, rfl⟩
 
 
 mutual
@@ -81,14 +81,13 @@ mutual
     case loc.loc a b => exact match decEq a b with
       | isTrue h => isTrue (by subst h; rfl)
       | isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
-    case fix.fix s1 args1 rt1 b1 s2 args2 rt2 b2 =>
-      exact match decEq s1 s2, decEq args1 args2, decEq rt1 rt2, b1.decEq b2 with
-      | isTrue h1, isTrue h2, isTrue h3, isTrue h4 =>
-        isTrue (by subst h1; subst h2; subst h3; subst h4; rfl)
-      | isFalse h, _, _, _ => isFalse (by intro heq; cases heq; exact h rfl)
-      | _, isFalse h, _, _ => isFalse (by intro heq; cases heq; exact h rfl)
-      | _, _, isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
-      | _, _, _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
+    case fix.fix s1 args1 b1 s2 args2 b2 =>
+      exact match decEq s1 s2, decEq args1 args2, b1.decEq b2 with
+      | isTrue h1, isTrue h2, isTrue h3 =>
+        isTrue (by subst h1; subst h2; subst h3; rfl)
+      | isFalse h, _, _ => isFalse (by intro heq; cases heq; exact h rfl)
+      | _, isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
+      | _, _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
     case tuple.tuple vs1 vs2 =>
       exact match valsDecEq vs1 vs2 with
       | isTrue h => isTrue (by subst h; rfl)
@@ -113,14 +112,13 @@ mutual
       | isFalse h, _, _ => isFalse (by intro heq; cases heq; exact h rfl)
       | _, isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
       | _, _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
-    case fix.fix s1 args1 rt1 b1 s2 args2 rt2 b2 =>
-      exact match decEq s1 s2, decEq args1 args2, decEq rt1 rt2, b1.decEq b2 with
-      | isTrue h1, isTrue h2, isTrue h3, isTrue h4 =>
-        isTrue (by subst h1; subst h2; subst h3; subst h4; rfl)
-      | isFalse h, _, _, _ => isFalse (by intro heq; cases heq; exact h rfl)
-      | _, isFalse h, _, _ => isFalse (by intro heq; cases heq; exact h rfl)
-      | _, _, isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
-      | _, _, _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
+    case fix.fix s1 args1 b1 s2 args2 b2 =>
+      exact match decEq s1 s2, decEq args1 args2, b1.decEq b2 with
+      | isTrue h1, isTrue h2, isTrue h3 =>
+        isTrue (by subst h1; subst h2; subst h3; rfl)
+      | isFalse h, _, _ => isFalse (by intro heq; cases heq; exact h rfl)
+      | _, isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
+      | _, _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
     case app.app f1 args1 f2 args2 => exact match f1.decEq f2, exprsDecEq args1 args2 with
       | isTrue h1, isTrue h2 => isTrue (by subst h1; subst h2; rfl)
       | isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
@@ -266,8 +264,8 @@ def Expr.subst (σ : Subst) : Expr → Expr
   | .var y => match σ y with | some v => .val v | none => .var y
   | .unop op e => .unop op (e.subst σ)
   | .binop op l r => .binop op (l.subst σ) (r.subst σ)
-  | .fix f args rt body =>
-    .fix f args rt (body.subst (σ.remove' f |>.removeAll' (args.map Prod.fst)))
+  | .fix f args body =>
+    .fix f args (body.subst (σ.remove' f |>.removeAll' args))
   | .app fn args => .app (fn.subst σ) (args.map (Expr.subst σ))
   | .ifThenElse c t e => .ifThenElse (c.subst σ) (t.subst σ) (e.subst σ)
   | .letIn b bound body =>
@@ -280,13 +278,13 @@ def Expr.subst (σ : Subst) : Expr → Expr
   | .inj tag arity payload => .inj tag arity (payload.subst σ)
   | .match_ scrut branches => .match_ (scrut.subst σ) (branches.map (Expr.subst σ))
 
-@[simp] theorem Expr.subst_fix (σ : Subst) (self : Binder) (args : List (Binder × Option Type_)) (retTy : Option Type_) (body : Expr) :
-    (Expr.fix self args retTy body).subst σ = .fix self args retTy (body.subst (σ.remove' self |>.removeAll' (args.map Prod.fst))) := by
+@[simp] theorem Expr.subst_fix (σ : Subst) (self : Binder) (args : List Binder) (body : Expr) :
+    (Expr.fix self args body).subst σ = .fix self args (body.subst (σ.remove' self |>.removeAll' args)) := by
   simp [Expr.subst]
 
 theorem Expr.isFunc_subst {e : Expr} {σ : Subst} (h : e.isFunc = true) :
     (e.subst σ).isFunc = true := by
-  obtain ⟨self, args, retTy, body, rfl⟩ := isFunc_elim h
+  obtain ⟨self, args, body, rfl⟩ := isFunc_elim h
   simp [subst_fix]
 
 @[simp] private theorem Subst.remove_none (x : Var) :
@@ -343,7 +341,7 @@ theorem Expr.subst_comp (e : Expr) (σ ρ : Subst) :
   all_goals simp_all [Expr.subst]
   case var y =>
     split <;> simp_all [Expr.subst]
-  case fix f args rt body ih =>
+  case fix f args body ih =>
     congr 1; funext z
     simp only [Subst.removeAll'_eq]
     cases f <;> simp [Subst.remove', Subst.remove] <;> split <;> simp_all
@@ -368,8 +366,8 @@ def Expr.freeVars : Expr → List Var
   | .var y => [y]
   | .unop _ e => e.freeVars
   | .binop _ l r => l.freeVars ++ r.freeVars
-  | .fix f args _ body =>
-    body.freeVars.filter (fun v => f != .named v && !(args.map Prod.fst).any (· == .named v))
+  | .fix f args body =>
+    body.freeVars.filter (fun v => f != .named v && !args.any (· == .named v))
   | .app fn args => fn.freeVars ++ args.flatMap Expr.freeVars
   | .ifThenElse c t e => c.freeVars ++ t.freeVars ++ e.freeVars
   | .letIn b bound body =>
@@ -405,7 +403,7 @@ theorem Expr.freeVars_subst (γ1 γ2 : Var → Option Val) (e : Expr) :
     intro h; simp only [Expr.freeVars, List.mem_append] at h
     simp [Expr.subst, ihl γ1 γ2 (fun x hx => h x (Or.inl hx)),
                        ihr γ1 γ2 (fun x hx => h x (Or.inr hx))]
-  case fix f args rt body ih =>
+  case fix f args body ih =>
     intro h; simp only [Expr.freeVars, List.mem_filter] at h
     simp only [Expr.subst]; congr 1; apply ih
     intro x hx
@@ -709,7 +707,7 @@ mutual
     | .unit => .unit
     | .inj tag arity payload => .inj tag arity payload.runtime
     | .loc l => .loc l
-    | .fix self args retTy body => .fix (self.runtime) (args.map (fun (b, t) => (b.runtime, t))) retTy body.runtime
+    | .fix self args _ body => .fix (self.runtime) (args.map (fun (b, _t) => b.runtime)) body.runtime
     | .tuple vs => .tuple (vs.map Val.runtime)
 
   def Expr.runtime : TinyML.Expr → Runtime.Expr
@@ -717,7 +715,7 @@ mutual
     | .var x => .var x
     | .unop op e => .unop op e.runtime
     | .binop op l r => .binop op l.runtime r.runtime
-    | .fix self args retTy body => .fix (self.runtime) (args.map (fun (b, t) => (b.runtime, t))) retTy body.runtime
+    | .fix self args _ body => .fix (self.runtime) (args.map (fun (b, _t) => b.runtime)) body.runtime
     | .app fn args => .app fn.runtime (args.map Expr.runtime)
     | .ifThenElse c t e => .ifThenElse c.runtime t.runtime e.runtime
     | .letIn b bound body => .letIn (b.runtime) bound.runtime body.runtime

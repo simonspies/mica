@@ -53,13 +53,12 @@ theorem checkSpec_correct (S : SpecMap) (e : TinyML.Expr) (s : Spec)
       set γ' := (γ.remove' fb.runtime).removeAll' bs with hγ'_def
       set S' : SpecMap := SpecMap.eraseAll argNames (S.insert' fb s)
       have hgoal : (TinyML.Expr.fix fb argBinders retTy body).runtime.subst γ =
-          Runtime.Expr.fix fb.runtime (argBinders.map (fun (b, t) => (b.runtime, t))) retTy
+          Runtime.Expr.fix fb.runtime (argBinders.map (fun (b, _t) => b.runtime))
             (body.runtime.subst γ') := by
         conv_lhs => unfold TinyML.Expr.runtime
-        simp only [Runtime.Expr.subst_fix, hγ'_def, bs, List.map_map]
-        congr 1
+        simp only [Runtime.Expr.subst_fix, hγ'_def, bs]
       rw [hgoal]
-      set fval := Runtime.Val.fix fb.runtime (argBinders.map (fun (b, t) => (b.runtime, t))) retTy
+      set fval := Runtime.Val.fix fb.runtime (argBinders.map (fun (b, _t) => b.runtime))
         (body.runtime.subst γ') with hfval_def
       apply wp.func
       intro vs htyped Φ happly
@@ -81,10 +80,6 @@ theorem checkSpec_correct (S : SpecMap) (e : TinyML.Expr) (s : Spec)
           rw [← List.map_map, hbs_eq]
           simp [TinyML.Binder.runtime]
         have hlen : bs.length = vs.length := by simp [hbs_runtime]; omega
-        -- The goal has (args.map Prod.fst) expanded; normalize to bs before rewiting
-        have hbs_eq_fst : (argBinders.map (fun p : TinyML.Binder × Option TinyML.Type_ => (p.1.runtime, p.2))).map Prod.fst = bs := by
-          simp [bs, List.map_map, Function.comp]
-        conv_lhs => rw [show (argBinders.map (fun p : TinyML.Binder × Option TinyML.Type_ => (p.1.runtime, p.2))).map Prod.fst = bs from hbs_eq_fst]
         rw [Runtime.Expr.subst_fix_comp body.runtime fb.runtime bs γ fval vs hlen]
         set γ_body := γ.update' fb.runtime fval |>.updateAll' bs vs
         -- Use implement_correct to get into the body

@@ -206,13 +206,12 @@ theorem Program.check_correct (S : SpecMap) (prog : TinyML.Program) (γ : Runtim
           obtain ⟨self, args, retTy, body, hbody⟩ := TinyML.Expr.isFunc_elim hfunc
           -- d.body.runtime.subst γ = Runtime.Expr.fix ...
           have hbody_rt : d.body.runtime.subst γ =
-              Runtime.Expr.fix self.runtime (args.map (fun (b, t) => (b.runtime, t))) retTy
+              Runtime.Expr.fix self.runtime (args.map (fun (b, _t) => b.runtime))
                 (body.runtime.subst ((γ.remove' self.runtime).removeAll'
-                  (args.map (fun (b,t) => b.runtime)))) := by
+                  (args.map (fun (b, _t) => b.runtime)))) := by
             rw [hbody]
             conv_lhs => unfold TinyML.Expr.runtime
-            simp only [Runtime.Expr.subst_fix, List.map_map]
-            congr 1
+            simp only [Runtime.Expr.subst_fix]
           rw [hbody_rt]
           apply wp.func
           simp only [TinyML.Binder.runtime, Runtime.Subst.update']

@@ -35,26 +35,24 @@ axiom wp.ifThenElse {cond thn els : Runtime.Expr} {Q : Runtime.Val → Prop} :
       (vc = Runtime.Val.bool false → wp els Q)) →
     wp (.ifThenElse cond thn els) Q
 
-axiom wp.fix {f : Runtime.Binder} {args : List (Runtime.Binder × Option TinyML.Type_)}
-    {rt : Option TinyML.Type_} P e (Φ: List Runtime.Val → Prop):
+axiom wp.fix {f : Runtime.Binder} {args : List Runtime.Binder} P e (Φ: List Runtime.Val → Prop):
   (
-    (∀ vs, Φ vs → wp (.app (.val (.fix f args rt e)) (vs.map Runtime.Expr.val)) P) →
-    ∀ vs, Φ vs → wp (e.subst ((Runtime.Subst.id.update' f (.fix f args rt e)).updateAll' (args.map Prod.fst) vs)) P
-  ) → ∀ vs, Φ vs → wp (.app (.val (.fix f args rt e)) (vs.map Runtime.Expr.val)) P
+    (∀ vs, Φ vs → wp (.app (.val (.fix f args e)) (vs.map Runtime.Expr.val)) P) →
+    ∀ vs, Φ vs → wp (e.subst ((Runtime.Subst.id.update' f (.fix f args e)).updateAll' args vs)) P
+  ) → ∀ vs, Φ vs → wp (.app (.val (.fix f args e)) (vs.map Runtime.Expr.val)) P
 
 axiom wp.app fn args P:
   wps args (fun vs => wp fn (fun fv => wp (.app (.val fv) (vs.map Runtime.Expr.val)) P)) →
   wp (.app fn args) P
 
 axiom wp.func (P: Runtime.Val → Prop):
-  P (.fix f args rt e) → wp (.fix f args rt e) P
+  P (.fix f args e) → wp (.fix f args e) P
 
-axiom wp.fix' {f : Runtime.Binder} {args : List (Runtime.Binder × Option TinyML.Type_)}
-    {rt : Option TinyML.Type_} e (Φ: (Runtime.Val → Prop) → List Runtime.Val → Prop) :
+axiom wp.fix' {f : Runtime.Binder} {args : List Runtime.Binder} e (Φ: (Runtime.Val → Prop) → List Runtime.Val → Prop) :
   (
-    (∀ vs P, Φ P vs → wp (.app (.val (.fix f args rt e)) (vs.map Runtime.Expr.val)) P) →
-    ∀ vs P, Φ P vs → wp (e.subst ((Runtime.Subst.id.update' f (.fix f args rt e)).updateAll' (args.map Prod.fst) vs)) P
-  ) → ∀ vs P, Φ P vs → wp (.app (.val (.fix f args rt e)) (vs.map Runtime.Expr.val)) P
+    (∀ vs P, Φ P vs → wp (.app (.val (.fix f args e)) (vs.map Runtime.Expr.val)) P) →
+    ∀ vs P, Φ P vs → wp (e.subst ((Runtime.Subst.id.update' f (.fix f args e)).updateAll' args vs)) P
+  ) → ∀ vs P, Φ P vs → wp (.app (.val (.fix f args e)) (vs.map Runtime.Expr.val)) P
 
 
 axiom wp.unop {op : TinyML.UnOp} {e : Runtime.Expr} {Q : Runtime.Val → Prop} :

@@ -252,17 +252,17 @@ end
 /-! ### Helper lemmas for match compilation -/
 
 /-- Applying a single-argument lambda `(fun b -> body)` to a value reduces to substituting. -/
-theorem wp_app_lambda_single {b : Runtime.Binder} {t : Option TinyML.Type_}
-    {rt : Option TinyML.Type_} {body : Runtime.Expr} {v : Runtime.Val} {Φ : Runtime.Val → Prop} :
+theorem wp_app_lambda_single {b : Runtime.Binder} {body : Runtime.Expr} {v : Runtime.Val}
+    {Φ : Runtime.Val → Prop} :
     wp (body.subst (Runtime.Subst.id.update' b v)) Φ →
-    wp (.app (.fix .none [(b, t)] rt body) [.val v]) Φ := by
+    wp (.app (.fix .none [b] body) [.val v]) Φ := by
   intro h
   apply wp.app
   simp only [wps_cons, wps_nil]
   apply wp.val; apply wp.func
   exact (wp.fix Φ body (fun vs => vs = [v]) (by
     intro _ vs hvs; subst hvs
-    simp only [List.map, Runtime.Subst.updateAll'_cons, Runtime.Subst.updateAll'_nil_left,
+    simp only [Runtime.Subst.updateAll'_cons, Runtime.Subst.updateAll'_nil_left,
                Runtime.Subst.update']
     exact h)) [v] rfl
 
@@ -833,7 +833,7 @@ theorem compileBranch_correct (branch : TinyML.Expr) (S : SpecMap) (B : Bindings
         obtain ⟨st₂, hst₂_decls, heval_body'⟩ := VerifM.eval_assumeAll hassume_bind₂
           (fun φ hφ => typeConstraints_wfIn hxv_wf φ hφ)
           (fun φ hφ => typeConstraints_hold hxv_eval htype_payload φ hφ)
-        unfold TinyML.Expr.runtime TinyML.Binder.runtime; simp only [Runtime.Expr.subst_fix, List.map_map, Runtime.Subst.remove'_none]
+        unfold TinyML.Expr.runtime TinyML.Binder.runtime; simp only [Runtime.Expr.subst_fix, Runtime.Subst.remove'_none]
         apply wp_app_lambda_single
         show wp (Runtime.Expr.subst
           ((Runtime.Subst.update' .none Runtime.Val.unit Runtime.Subst.id).updateAll' [binder.runtime] [payload])
