@@ -30,12 +30,12 @@ def checkSpec (S : SpecMap) (e : TinyML.Expr) (s : Spec) : VerifM Unit := do
     pure se
 
 theorem checkSpec_correct (S : SpecMap) (e : TinyML.Expr) (s : Spec)
-    (γ : TinyML.Subst)
+    (γ : Runtime.Subst)
     (hswf : s.wfIn []) (hSwf : S.wfIn [])
     (hS : S.satisfiedBy γ)
     (st : TransState) (ρ : Env) :
     VerifM.eval (checkSpec S e s) st ρ (fun _ _ _ => True) →
-    wp (e.subst γ) (fun v => s.isPrecondFor v) := by
+    wp (e.runtime.subst γ) (fun v => s.isPrecondFor v) := by
   intro heval
   cases e with
   | fix fb argBinders retTy body =>
@@ -49,29 +49,38 @@ theorem checkSpec_correct (S : SpecMap) (e : TinyML.Expr) (s : Spec)
       simp [hext] at heval
       have hbody := VerifM.eval_ret (VerifM.eval_bind _ _ _ _ heval)
       dsimp only at hbody
-      set bs := argBinders.map Prod.fst
-      let γ' := (γ.remove' fb).removeAll' bs
-      set fval := TinyML.Val.fix fb argBinders retTy (body.subst γ')
+      set bs := argBinders.map (·.runtime)
+      set γ' := (γ.remove' fb.runtime).removeAll' bs with hγ'_def
       set S' : SpecMap := SpecMap.eraseAll argNames (S.insert' fb s)
-      simp only [TinyML.Expr.subst]
+      have hgoal : (TinyML.Expr.fix fb argBinders retTy body).runtime.subst γ =
+          Runtime.Expr.fix fb.runtime (argBinders.map (·.runtime))
+            (body.runtime.subst γ') := by
+        conv_lhs => unfold TinyML.Expr.runtime
+        simp only [Runtime.Expr.subst_fix, hγ'_def, bs]
+      rw [hgoal]
+      set fval := Runtime.Val.fix fb.runtime (argBinders.map (·.runtime))
+        (body.runtime.subst γ') with hfval_def
       apply wp.func
       intro vs htyped Φ happly
-      set Φ_inv : (TinyML.Val → Prop) → List TinyML.Val → Prop := fun P vs =>
+      set Φ_inv : (Runtime.Val → Prop) → List Runtime.Val → Prop := fun P vs =>
         TinyML.ValsHaveTypes vs (s.args.map Prod.snd) ∧
           PredTrans.apply (fun r => TinyML.ValHasType r s.retTy → P r) s.pred
             (Spec.argsEnv Env.empty s.args vs)
-      suffices ∀ vs P, Φ_inv P vs → wp (TinyML.Expr.app (.val fval) (vs.map TinyML.Expr.val)) P from
+      suffices ∀ vs P, Φ_inv P vs → wp (Runtime.Expr.app (.val fval) (vs.map Runtime.Expr.val)) P from
         this vs Φ ⟨htyped, happly⟩
-      exact wp.fix' (body.subst γ') Φ_inv (fun ih_rec vs P ⟨htyped_args, happly_args⟩ => by
+      exact wp.fix' (body.runtime.subst γ') Φ_inv (fun ih_rec vs P ⟨htyped_args, happly_args⟩ => by
         -- Rewrite the double substitution into a single one
         obtain ⟨hlen1, hlen2, hbs_eq⟩ := extractArgNames_spec hext
         have hlen_nv0 : argNames.length = vs.length := by
           have := htyped_args.length_eq; simp at this; omega
-        have hlen : bs.length = vs.length := by simp [bs, hbs_eq]; omega
-        rw [TinyML.Expr.subst_fix_comp body fb bs γ fval vs hlen]
-        set γ_body :=  γ.update' fb fval |>.updateAll' bs vs
+        have hbs_runtime : bs = argNames.map Runtime.Binder.named := by
+          simp only [bs]
+          exact hbs_eq
+        have hlen : bs.length = vs.length := by simp [hbs_runtime]; omega
+        rw [Runtime.Expr.subst_fix_comp body.runtime fb.runtime bs γ fval vs hlen]
+        set γ_body := γ.update' fb.runtime fval |>.updateAll' bs vs
         -- Use implement_correct to get into the body
-        apply Spec.implement_correct s _ _ _ vs _ (wp (body.subst γ_body) P) hswf htyped_args hbody happly_args
+        apply Spec.implement_correct s _ _ _ vs _ (wp (body.runtime.subst γ_body) P) hswf htyped_args hbody happly_args
         intro argVars st' ρ' hargVars_mem hargVars_sort hargVars_lookup hbody_eval
         -- Key facts about fval and the spec map
         have isPrecond : s.isPrecondFor fval := by
@@ -81,14 +90,14 @@ theorem checkSpec_correct (S : SpecMap) (e : TinyML.Expr) (s : Spec)
           SpecMap.wfIn_eraseAll (SpecMap.wfIn_insert' hSwf hswf)
         have hS'_sat : S'.satisfiedBy γ_body := by
           -- Simplified using the new lemma
-          have hS_ext : (S.insert' fb s).satisfiedBy (γ.update' fb fval) := by
+          have hS_ext : (S.insert' fb s).satisfiedBy (γ.update' fb.runtime fval) := by
             apply SpecMap.satisfiedBy_insert'_update' hS isPrecond
           have hsat := SpecMap.satisfiedBy_eraseAll_updateAll' hS_ext hlen_nv0
-          -- hsat : (eraseAll argNames (insert' S fb s)).satisfiedBy ((γ.update' fb fval).updateAll' (argNames.map .named) vs)
-          -- γ_body : (γ.update' fb fval).updateAll' bs vs
+          -- hsat : (eraseAll argNames (insert' S fb s)).satisfiedBy ((γ.update' fb.runtime fval).updateAll' (argNames.map .named) vs)
+          -- γ_body : (γ.update' fb.runtime fval).updateAll' bs vs
           -- and bs = argNames.map .named (from hbs_eq)
-          change (SpecMap.eraseAll argNames (S.insert' fb s)).satisfiedBy ((γ.update' fb fval).updateAll' bs vs)
-          unfold bs; rw [hbs_eq]; exact hsat
+          change (SpecMap.eraseAll argNames (S.insert' fb s)).satisfiedBy ((γ.update' fb.runtime fval).updateAll' bs vs)
+          rw [hbs_runtime]; exact hsat
         set Γ := (argNames.zip (s.args.map Prod.snd)).foldl (fun ctx (x : String × TinyML.Type_) => ctx.extend x.1 x.2) TinyML.TyCtx.empty
         set B : Bindings := Bindings.empty ++ (argNames.zip argVars).reverse
         have hlen_avs : argNames.length = argVars.length := by
@@ -98,12 +107,12 @@ theorem checkSpec_correct (S : SpecMap) (e : TinyML.Expr) (s : Spec)
           have := htyped_args.length_eq; simp at this; omega
         have hagree : Bindings.agreeOnLinked B ρ' γ_body := by
           show Bindings.agreeOnLinked (Bindings.empty ++ (argNames.zip argVars).reverse) ρ'
-            ((γ.update' fb fval).updateAll' bs vs)
+            ((γ.update' fb.runtime fval).updateAll' bs vs)
           rw [show Bindings.empty ++ (argNames.zip argVars).reverse =
               (argNames.zip argVars).reverse ++ Bindings.empty from by simp [Bindings.empty]]
-          unfold bs; rw [hbs_eq]
+          rw [hbs_runtime]
           apply Bindings.agreeOnLinked_updateAll' Bindings.empty argNames argVars vs
-            (γ.update' fb fval) ρ'
+            (γ.update' fb.runtime fval) ρ'
           · intro x x' h; simp [Bindings.empty] at h
           · exact hlen_avs
           · exact hlen_vals

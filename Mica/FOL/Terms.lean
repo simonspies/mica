@@ -41,7 +41,7 @@ inductive Const : Srt → Type where
 @[simp] def Const.denote : Const τ → τ.denote
   | .i n  => n
   | .b v  => v
-  | .unit => TinyML.Val.unit
+  | .unit => Runtime.Val.unit
   | .vnil => []
 
 inductive Term : Srt → Type where
@@ -85,21 +85,21 @@ theorem Term.wfIn_mono (t : Term τ) (h : t.wfIn Δ) (hsub : Δ ⊆ Δ') : t.wfI
   exact hsub (h v hv)
 
 @[simp] def UnOp.eval : UnOp τ₁ τ₂ → τ₁.denote → τ₂.denote
-  | .ofInt,   n  => TinyML.Val.int n
-  | .ofBool,  b  => TinyML.Val.bool b
+  | .ofInt,   n  => Runtime.Val.int n
+  | .ofBool,  b  => Runtime.Val.bool b
   | .toInt,   v  => match v with | .int n => n | _ => 0
   | .toBool,  v  => match v with | .bool b => b | _ => false
   | .neg,     n  => -n
   | .not,     b  => !b
-  | .ofValList, vs => TinyML.Val.tuple vs
+  | .ofValList, vs => Runtime.Val.tuple vs
   | .toValList, v  => match v with | .tuple vs => vs | _ => []
   | .vhead,   vs => vs.headD .unit
   | .vtail,   vs => vs.tail
   | .visnil,  vs => vs.isEmpty
-  | .mkInj tag arity, v => TinyML.Val.inj tag arity v
+  | .mkInj tag arity, v => Runtime.Val.inj tag arity v
   | .tagOf,   v => match v with | .inj tag _ _ => (tag : Int) | _ => 0
   | .arityOf, v => match v with | .inj _ arity _ => (arity : Int) | _ => 0
-  | .payloadOf, v => match v with | .inj _ _ payload => payload | _ => TinyML.Val.unit
+  | .payloadOf, v => match v with | .inj _ _ payload => payload | _ => Runtime.Val.unit
 
 @[simp] def BinOp.eval : BinOp τ₁ τ₂ τ₃ → τ₁.denote → τ₂.denote → τ₃.denote
   | .add,   a, b  => a + b

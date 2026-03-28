@@ -1,4 +1,4 @@
-import Mica.TinyML.Expr
+import Mica.TinyML.RuntimeExpr
 
 -- ---------------------------------------------------------------------------
 -- Sorts
@@ -14,8 +14,8 @@ inductive Srt where
 @[reducible] def Srt.denote : Srt → Type
   | .int => Int
   | .bool => Bool
-  | .value => TinyML.Val
-  | .vallist => List TinyML.Val
+  | .value => Runtime.Val
+  | .vallist => List Runtime.Val
 
 instance : DecidableEq (Srt.denote τ) := by
   cases τ <;> simp [Srt.denote] <;> infer_instance

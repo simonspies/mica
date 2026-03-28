@@ -1,4 +1,5 @@
 import Mica.TinyML.Expr
+import Mica.TinyML.RuntimeExpr
 import Mica.TinyML.OpSem
 
 namespace TinyML
@@ -14,8 +15,8 @@ def TyCtx.extend (Γ : TyCtx) (x : Var) (t : Type_) : TyCtx :=
 
 def TyCtx.extendBinder (Γ : TyCtx) (b : Binder) (t : Type_) : TyCtx :=
   match b with
-  | .none    => Γ
-  | .named x => Γ.extend x t
+  | .none      => Γ
+  | .named x _ => Γ.extend x t
 
 @[simp] theorem TyCtx.extend_eq (Γ : TyCtx) (x : Var) (t : Type_) :
     (Γ.extend x t) x = some t := by simp [TyCtx.extend]
@@ -40,7 +41,7 @@ theorem TyCtx.le_extendBinder_congr {Γ Γ' : TyCtx} (b : Binder) (t : Type_)
   intro y ty hy
   cases b with
   | none => exact hle y ty hy
-  | named x =>
+  | named x _ =>
     simp only [TyCtx.extendBinder, TyCtx.extend] at hy ⊢
     by_cases h : y == x
     · simp [h] at hy ⊢; exact hy
@@ -306,7 +307,7 @@ def UnOp.typeOf : UnOp → Type_ → Option Type_
   | _, _             => none
 
 mutual
-  inductive ValHasType : Val → Type_ → Prop where
+  inductive ValHasType : Runtime.Val → Type_ → Prop where
     | int  (n : Int)  : ValHasType (.int n)  .int
     | bool (b : Bool) : ValHasType (.bool b) .bool
     | unit            : ValHasType .unit      .unit
@@ -314,18 +315,18 @@ mutual
             → ValHasType payload t
             → ValHasType (.inj tag ts.length payload) (.sum ts)
     | tuple : ValsHaveTypes vs ts
-            → ValHasType (Val.tuple vs) (Type_.tuple ts)
+            → ValHasType (Runtime.Val.tuple vs) (Type_.tuple ts)
     -- Any value has type .value
     | any : ValHasType v .value
 
-  inductive ValsHaveTypes : List Val → List Type_ → Prop where
+  inductive ValsHaveTypes : List Runtime.Val → List Type_ → Prop where
     | nil  : ValsHaveTypes [] []
     | cons : ValHasType v t → ValsHaveTypes vs ts → ValsHaveTypes (v :: vs) (t :: ts)
 end
 
 
 mutual
-  theorem ValHasType_sub {v : Val} {t t' : Type_} (h : ValHasType v t) (hsub : Type_.Sub t t') :
+  theorem ValHasType_sub {v : Runtime.Val} {t t' : Type_} (h : ValHasType v t) (hsub : Type_.Sub t t') :
       ValHasType v t' := by
     match hsub with
     | .refl => exact h
@@ -343,7 +344,7 @@ mutual
       cases h with
       | tuple hvs => exact .tuple (ValsHaveTypes_sub hvs hsub)
 
-  theorem ValsHaveTypes_sub {vs : List Val} {ts ts' : List Type_}
+  theorem ValsHaveTypes_sub {vs : List Runtime.Val} {ts ts' : List Type_}
       (h : ValsHaveTypes vs ts) (hsub : Type_.SubList ts ts') :
       ValsHaveTypes vs ts' := by
     match hsub with
@@ -354,7 +355,7 @@ mutual
 
   /-- Lift a payload through a `SubList`: if `ss[tag]? = some s` and `payload : s`,
       find `ts[tag]? = some t` and produce `ValHasType payload t`. -/
-  theorem ValHasType_subList {payload : Val} {s : Type_} {ss ts : List Type_}
+  theorem ValHasType_subList {payload : Runtime.Val} {s : Type_} {ss ts : List Type_}
       (hpayload : ValHasType payload s) (hlist : Type_.SubList ss ts)
       {tag : Nat} (hs : ss[tag]? = some s) :
       ∃ t, ts[tag]? = some t ∧ ValHasType payload t :=
@@ -374,7 +375,7 @@ end TinyML
 
 /-- Type preservation for `evalBinOp`: if the inputs are well-typed, the operation returns
     `some w` for a well-typed result `w`. -/
-theorem evalBinOp_typed {op : TinyML.BinOp} {v1 v2 : TinyML.Val} {t1 t2 ty : TinyML.Type_}
+theorem evalBinOp_typed {op : TinyML.BinOp} {v1 v2 : Runtime.Val} {t1 t2 ty : TinyML.Type_}
     (hndiv : op ≠ .div) (hnmod : op ≠ .mod)
     (hty : TinyML.BinOp.typeOf op t1 t2 = some ty)
     (ht1 : TinyML.ValHasType v1 t1)
@@ -393,7 +394,7 @@ theorem evalBinOp_typed {op : TinyML.BinOp} {v1 v2 : TinyML.Val} {t1 t2 ty : Tin
     simp_all
     first | exact .int _ | exact .bool _
 
-private theorem evalUnOp_proj_typed {n : Nat} {vs : List TinyML.Val} {ts : List TinyML.Type_} {ty : TinyML.Type_}
+private theorem evalUnOp_proj_typed {n : Nat} {vs : List Runtime.Val} {ts : List TinyML.Type_} {ty : TinyML.Type_}
     (hty : ts[n]? = some ty) (hvs : TinyML.ValsHaveTypes vs ts) :
     ∃ w, vs[n]? = some w ∧ TinyML.ValHasType w ty := by
   induction n generalizing vs ts with
@@ -407,7 +408,7 @@ private theorem evalUnOp_proj_typed {n : Nat} {vs : List TinyML.Val} {ts : List 
     | nil => simp at hty
     | cons _ hvs => simp at hty ⊢; exact ih hty hvs
 
-theorem evalUnOp_typed {op : TinyML.UnOp} {v : TinyML.Val} {t ty : TinyML.Type_}
+theorem evalUnOp_typed {op : TinyML.UnOp} {v : Runtime.Val} {t ty : TinyML.Type_}
     (hty : TinyML.UnOp.typeOf op t = some ty)
     (ht : TinyML.ValHasType v t) :
     ∃ w, TinyML.evalUnOp op v = some w ∧ TinyML.ValHasType w ty := by

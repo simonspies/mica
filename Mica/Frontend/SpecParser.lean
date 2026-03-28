@@ -19,9 +19,9 @@ private def parseBinOp : TinyML.BinOp → BinOp
 
 private def parseTerm : TinyML.Expr → M Term
   | .var x => .ok (.var x)
-  | .val (.int n) => .ok (.int n)
-  | .val (.bool b) => .ok (.bool b)
-  | .val .unit => .ok .unit
+  | .const (.int n) => .ok (.int n)
+  | .const (.bool b) => .ok (.bool b)
+  | .const .unit => .ok .unit
   | .binop op l r => do
     .ok (.binop (parseBinOp op) (← parseTerm l) (← parseTerm r))
   | .unop .neg e => do .ok (.unop .neg (← parseTerm e))
@@ -29,7 +29,7 @@ private def parseTerm : TinyML.Expr → M Term
   | .unop (.proj n) e => do .ok (.unop (.proj n) (← parseTerm e))
   | .tuple es => do .ok (.tuple (← es.mapM parseTerm))
   | .inj tag arity payload => do .ok (.unop (.inj tag arity) (← parseTerm payload))
-  | .app (.var "inj") [.val (.int tag), .val (.int arity), payload] => do
+  | .app (.var "inj") [.const (.int tag), .const (.int arity), payload] => do
     .ok (.unop (.inj tag.toNat arity.toNat) (← parseTerm payload))
   | .app (.var "tagof") [e] => do .ok (.unop .tagof (← parseTerm e))
   | .app (.var "arityof") [e] => do .ok (.unop .arityof (← parseTerm e))
@@ -41,18 +41,18 @@ private def parseTerm : TinyML.Expr → M Term
 private def parsePred : TinyML.Expr → M Pred
   | .app (.var "isint") [e] => do .ok (.isint (← parseTerm e))
   | .app (.var "isbool") [e] => do .ok (.isbool (← parseTerm e))
-  | .app (.var "isinj") [.val (.int tag), .val (.int arity), e] => do
+  | .app (.var "isinj") [.const (.int tag), .const (.int arity), e] => do
     .ok (.isinj tag.toNat arity.toNat (← parseTerm e))
   | e => .error s!"expected type predicate (isint, isbool, isinj), got {repr e}"
 
 private def parseAssert (inner : TinyML.Expr → M α)
     (bareAssert : TinyML.Expr → M (Assert α)) : TinyML.Expr → M (Assert α)
   | .app (.var "ret") [e] => do .ok (.ret (← inner e))
-  | .app (.app (.var "bind") [e1]) [.fix .none [(.named x, _)] _ e2] => do
+  | .app (.app (.var "bind") [e1]) [.fix .none [.named x _] _ e2] => do
     let pred ← parsePred e1
     let rest ← parseAssert inner bareAssert e2
     .ok (.bind pred x rest)
-  | .letIn (.named x) bound body => do
+  | .letIn (.named x _) bound body => do
     let t ← parseTerm bound
     let rest ← parseAssert inner bareAssert body
     .ok (.let_ x t rest)
@@ -68,13 +68,13 @@ private def parseAssert (inner : TinyML.Expr → M α)
 
 private def parsePost : TinyML.Expr → M Post :=
   parseAssert
-    (fun | .val .unit => .ok ()
+    (fun | .const .unit => .ok ()
          | e => .error s!"expected (), got {repr e}")
     (fun cond => do .ok (.assert (← parseTerm cond) (.ret ())))
 
 private def parsePre : TinyML.Expr → M Pre :=
   parseAssert
-    (fun | .fix .none [(.named x, _)] _ body => do
+    (fun | .fix .none [.named x _] _ body => do
            let post ← parsePost body
            .ok (x, post)
          | e => .error s!"expected fun v -> ..., got {repr e}")
@@ -89,10 +89,10 @@ private def peelBinders : TinyML.Expr → M Body
       .ok (names, pre)
   | e => .error s!"expected fun x -> ..., got {repr e}"
 where
-  getNames : List (TinyML.Binder × Option TinyML.Type_) → M (List String)
+  getNames : List TinyML.Binder → M (List String)
     | [] => .ok []
-    | (.named x, _) :: rest => do let xs ← getNames rest; .ok (x :: xs)
-    | (.none, _) :: _ => .error "unnamed binder in spec is not allowed"
+    | .named x _ :: rest => do let xs ← getNames rest; .ok (x :: xs)
+    | .none :: _ => .error "unnamed binder in spec is not allowed"
 
 def parse (e : TinyML.Expr) : M Body :=
   peelBinders e
