@@ -39,15 +39,15 @@ def Formula.freeVars : Formula → List Var
   | .forall_ y τ φ => φ.freeVars.filter (· != ⟨y, τ⟩)
   | .exists_ y τ φ => φ.freeVars.filter (· != ⟨y, τ⟩)
 
-def Formula.wfIn (φ : Formula) (Δ : VarCtx) : Prop :=
-  ∀ v ∈ φ.freeVars, v ∈ Δ
+def Formula.wfIn (φ : Formula) (Δ : Signature) : Prop :=
+  ∀ v ∈ φ.freeVars, v ∈ Δ.vars
 
-def Formula.checkWf (φ : Formula) (Δ : VarCtx) : Except String Unit :=
-  match φ.freeVars.find? (· ∉ Δ) with
+def Formula.checkWf (φ : Formula) (Δ : Signature) : Except String Unit :=
+  match φ.freeVars.find? (· ∉ Δ.vars) with
   | some v => .error s!"variable {repr v.name} : {repr v.sort} not in scope"
   | none => .ok ()
 
-theorem Formula.checkWf_ok {φ : Formula} {Δ : VarCtx} (h : φ.checkWf Δ = .ok ()) : φ.wfIn Δ := by
+theorem Formula.checkWf_ok {φ : Formula} {Δ : Signature} (h : φ.checkWf Δ = .ok ()) : φ.wfIn Δ := by
   simp only [Formula.checkWf] at h
   split at h <;> simp at h
   rename_i heq
@@ -56,25 +56,25 @@ theorem Formula.checkWf_ok {φ : Formula} {Δ : VarCtx} (h : φ.checkWf Δ = .ok
   simp at this
   exact this
 
-theorem Formula.wfIn_freeVars (φ : Formula) : φ.wfIn φ.freeVars :=
+theorem Formula.wfIn_freeVars (φ : Formula) : φ.wfIn (Signature.ofVars φ.freeVars) :=
   fun _ hv => hv
 
-theorem Formula.wfIn_mono (φ : Formula) (h : φ.wfIn Δ) (hsub : Δ ⊆ Δ') : φ.wfIn Δ' :=
-  fun v hv => hsub (h v hv)
+theorem Formula.wfIn_mono (φ : Formula) (h : φ.wfIn Δ) (hsub : Δ.Subset Δ') : φ.wfIn Δ' :=
+  fun v hv => hsub.vars v (h v hv)
 
-theorem Formula.wfIn_body_of_wfIn_quant {φ : Formula} {x : String} {τ : Srt} {Δ : VarCtx}
-    (hwf : (∀ v ∈ φ.freeVars.filter (· != ⟨x, τ⟩), v ∈ Δ)) : φ.wfIn (⟨x, τ⟩ :: Δ) := fun w hw => by
+theorem Formula.wfIn_body_of_wfIn_quant {φ : Formula} {x : String} {τ : Srt} {Δ : Signature}
+    (hwf : (∀ v ∈ φ.freeVars.filter (· != ⟨x, τ⟩), v ∈ Δ.vars)) :
+    φ.wfIn (Δ.addVar ⟨x, τ⟩) := fun w hw => by
   by_cases heq : w = ⟨x, τ⟩
-  · simp [heq]
+  · simp [Signature.addVar, heq]
   · right; exact hwf w (List.mem_filter.mpr ⟨hw, by simp [bne_iff_ne, heq]⟩)
 
 abbrev Context := List Formula
-abbrev Signature := VarCtx
 
-def Context.wfIn (Γ : Context) (Δ : VarCtx) : Prop :=
+def Context.wfIn (Γ : Context) (Δ : Signature) : Prop :=
   ∀ φ ∈ Γ, φ.wfIn Δ
 
-theorem Context.wfIn_mono (Γ : Context) (h : Γ.wfIn Δ) (hsub : Δ ⊆ Δ') : Γ.wfIn Δ' :=
+theorem Context.wfIn_mono (Γ : Context) (h : Γ.wfIn Δ) (hsub : Δ.Subset Δ') : Γ.wfIn Δ' :=
   fun φ hφ => Formula.wfIn_mono φ (h φ hφ) hsub
 
 @[simp] def UnPred.eval : UnPred τ → τ.denote → Prop
@@ -103,7 +103,7 @@ def Formula.eval (ρ : Env) : Formula → Prop
 def entails (Γ : Context) (φ : Formula) : Prop :=
   ∀ ρ : Env, (∀ ψ ∈ Γ, ψ.eval ρ) → φ.eval ρ
 
-theorem Formula.eval_env_agree {φ : Formula} {ρ ρ' : Env} {Δ : VarCtx} :
+theorem Formula.eval_env_agree {φ : Formula} {ρ ρ' : Env} {Δ : Signature} :
     φ.wfIn Δ → Env.agreeOn Δ ρ ρ' → (φ.eval ρ ↔ φ.eval ρ') := by
   intro hwf hagree
   induction φ generalizing Δ ρ ρ' with
@@ -144,19 +144,23 @@ theorem Formula.eval_env_agree {φ : Formula} {ρ ρ' : Env} {Δ : VarCtx} :
 
 
 theorem Formula.eval_update_not_in_sig {φ : Formula} {x : String} {τ : Srt} {v : τ.denote} {ρ : Env}
-    {sig : VarCtx} (hwf : φ.wfIn sig) (hnotin : ⟨x, τ⟩ ∉ sig) :
+    {sig : Signature} (hwf : φ.wfIn sig) (hnotin : ⟨x, τ⟩ ∉ sig.vars) :
     (φ.eval (ρ.update τ x v) ↔ φ.eval ρ) :=
-  Formula.eval_env_agree hwf fun w hw => by
-    by_cases heq : w = ⟨x, τ⟩
-    · subst heq; exact absurd hw hnotin
-    · have hne : w.name ≠ x ∨ w.sort ≠ τ := by
-        obtain ⟨wname, wtype⟩ := w
-        by_cases h : wname = x <;> by_cases ht : wtype = τ
-        · exfalso; apply heq; simp [h, ht]
-        · exact Or.inr ht
-        · exact Or.inl h
-        · exact Or.inl h
-      exact Env.lookup_update_ne hne
+  Formula.eval_env_agree hwf
+    ⟨fun w hw => by
+      by_cases heq : w = ⟨x, τ⟩
+      · subst heq; exact absurd hw hnotin
+      · have hne : w.name ≠ x ∨ w.sort ≠ τ := by
+          obtain ⟨wname, wtype⟩ := w
+          by_cases h : wname = x <;> by_cases ht : wtype = τ
+          · exfalso; apply heq; simp [h, ht]
+          · exact Or.inr ht
+          · exact Or.inl h
+          · exact Or.inl h
+        exact Env.lookup_update_ne hne,
+     fun _ _ => rfl,
+     fun _ _ => rfl,
+     fun _ _ => rfl⟩
 
 
 /-- A predicate with one named bound variable: `λ x -> body`. -/

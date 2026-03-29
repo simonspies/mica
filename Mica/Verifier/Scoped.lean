@@ -31,15 +31,15 @@ A flat (non-stacked) view of the SMT state: just declarations and assertions.
 The stacked SmtState is an implementation detail of the Strategy layer. -/
 
 structure FlatCtx where
-  decls : VarCtx
+  decls : Signature
   asserts : Context
 
 namespace FlatCtx
 
-def empty : FlatCtx := ⟨[], []⟩
+def empty : FlatCtx := ⟨Signature.empty, []⟩
 
 def addDecl (ctx : FlatCtx) (n : String) (sort : Srt) : FlatCtx :=
-  ⟨⟨n, sort⟩ :: ctx.decls, ctx.asserts⟩
+  ⟨ctx.decls.addVar ⟨n, sort⟩, ctx.asserts⟩
 
 def addAssert (ctx : FlatCtx) (φ : Formula) : FlatCtx :=
   ⟨ctx.decls, φ :: ctx.asserts⟩
@@ -55,8 +55,12 @@ theorem SmtState.flatten_addDecl (s : SmtState) (v : Var) :
   simp only [SmtState.flatten, SmtState.allDecls, SmtState.allAsserts,
              SmtState.addDecl, FlatCtx.addDecl]
   cases s.frames with
-  | nil => rfl
-  | cons hd tl => cases hd; simp [List.flatMap]
+  | nil => simp [Signature.addVar]
+  | cons hd tl =>
+    cases hd with
+    | mk decls asserts =>
+      cases decls
+      simp [Signature.addVar, List.flatMap, List.cons_append]
 
 theorem SmtState.flatten_addAssert (s : SmtState) (φ : Formula) :
     (s.addAssert φ).flatten = s.flatten.addAssert φ := by
@@ -86,7 +90,7 @@ theorem ScopedM.translate_preservesFrames {m : ScopedM α} {f : SmtFrame} {fs : 
     cases resp
     dsimp only at hrest
     have ⟨f', hext, hfin⟩ := ih () hrest
-      (f := ⟨⟨n, s⟩ :: f.decls, f.asserts⟩) (fs := fs)
+      (f := ⟨{ f.decls with vars := ⟨n, s⟩ :: f.decls.vars }, f.asserts⟩) (fs := fs)
     refine ⟨f', (SmtFrame.Extends.addDecl f ⟨n, s⟩).trans hext, ?_⟩
     simp [Trace.finalState, SmtState.step, SmtState.addDecl]; exact hfin
   | assert e k ih =>
@@ -110,7 +114,7 @@ theorem ScopedM.translate_preservesFrames {m : ScopedM α} {f : SmtFrame} {fs : 
       Strategy.bind_generates_decompose hgen_outer
     cases hgen_cont; rename_i tk_k hgen_k
     dsimp only at hgen_k
-    have hpf_body := @ih_body ⟨[], []⟩ (f :: fs) ts_body hgen_body
+    have hpf_body := @ih_body ⟨Signature.empty, []⟩ (f :: fs) ts_body hgen_body
     obtain ⟨fbody, _, hfin_body⟩ := hpf_body
     have hpf_k := ih_k a hgen_k (f := f) (fs := fs)
     obtain ⟨f', hext_k, hfin_k⟩ := hpf_k
@@ -216,7 +220,7 @@ theorem ScopedM.eval_bracket {body : ScopedM β} {k : β → ScopedM α}
   dsimp only at hgen_k
   -- Frame preservation: body only extends the pushed frame
   obtain ⟨fbody, _, hfin_body⟩ := @translate_preservesFrames _ body
-    (f := ⟨[], []⟩) (fs := st.frames) (t := ts_body) hgen_body
+    (f := ⟨Signature.empty, []⟩) (fs := st.frames) (t := ts_body) hgen_body
   refine ⟨ts_body.result, (ts_body.finalState st.push).flatten, ?_, ?_⟩
   · -- Witness for body: st.push (flattens to ctx)
     refine ⟨st.push, ts_body.finalState st.push, ?_, rfl, ts_body, hgen_body, hsound_body, rfl, rfl⟩
@@ -287,7 +291,7 @@ theorem ScopedM.eval_bind {m : ScopedM α} {k : α → ScopedM β}
 
 
 def FlatCtx.subset (Δ Δ': FlatCtx) :=
-  Δ.decls ⊆ Δ'.decls ∧ Δ.asserts ⊆ Δ'.asserts
+  Δ.decls.vars ⊆ Δ'.decls.vars ∧ Δ.asserts ⊆ Δ'.asserts
 
 instance : HasSubset FlatCtx where
   Subset := FlatCtx.subset
