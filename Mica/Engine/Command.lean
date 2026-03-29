@@ -135,25 +135,22 @@ def pop (s : SmtState) : SmtState :=
   | [] => s  -- underflow: no-op
   | _ :: rest => ⟨rest⟩
 
-def addVar (s : SmtState) (v : Var) : SmtState :=
+def modifyDecls (s : SmtState) (f : Signature → Signature) : SmtState :=
   match s.frames with
-  | [] => ⟨[⟨Signature.empty.addVar v, []⟩]⟩
-  | ⟨decls, asserts⟩ :: rest => ⟨⟨decls.addVar v, asserts⟩ :: rest⟩
+  | [] => ⟨[⟨f Signature.empty, []⟩]⟩
+  | ⟨decls, asserts⟩ :: rest => ⟨⟨f decls, asserts⟩ :: rest⟩
+
+def addVar (s : SmtState) (v : Var) : SmtState :=
+  s.modifyDecls (·.addVar v)
 
 def addConst (s : SmtState) (c : FOL.Const) : SmtState :=
-  match s.frames with
-  | [] => ⟨[⟨Signature.empty.addConst c, []⟩]⟩
-  | ⟨decls, asserts⟩ :: rest => ⟨⟨decls.addConst c, asserts⟩ :: rest⟩
+  s.modifyDecls (·.addConst c)
 
 def addUnary (s : SmtState) (u : FOL.Unary) : SmtState :=
-  match s.frames with
-  | [] => ⟨[⟨Signature.empty.addUnary u, []⟩]⟩
-  | ⟨decls, asserts⟩ :: rest => ⟨⟨decls.addUnary u, asserts⟩ :: rest⟩
+  s.modifyDecls (·.addUnary u)
 
 def addBinary (s : SmtState) (b : FOL.Binary) : SmtState :=
-  match s.frames with
-  | [] => ⟨[⟨Signature.empty.addBinary b, []⟩]⟩
-  | ⟨decls, asserts⟩ :: rest => ⟨⟨decls.addBinary b, asserts⟩ :: rest⟩
+  s.modifyDecls (·.addBinary b)
 
 def addAssert (s : SmtState) (φ : Formula) : SmtState :=
   match s.frames with

@@ -63,7 +63,7 @@ def SmtState.flatten (s : SmtState) : FlatCtx :=
 theorem SmtState.flatten_addVar (s : SmtState) (v : Var) :
     (s.addVar v).flatten = s.flatten.addDecl v.name v.sort := by
   simp only [SmtState.flatten, SmtState.allDecls, SmtState.allAsserts,
-             SmtState.addVar, FlatCtx.addDecl]
+             SmtState.modifyDecls, SmtState.addVar, FlatCtx.addDecl]
   cases s.frames with
   | nil => simp [Signature.addVar]
   | cons hd tl =>
@@ -75,7 +75,7 @@ theorem SmtState.flatten_addVar (s : SmtState) (v : Var) :
 theorem SmtState.flatten_addUnary (s : SmtState) (u : FOL.Unary) :
     (s.addUnary u).flatten = s.flatten.addUnary u.name u.arg u.ret := by
   simp only [SmtState.flatten, SmtState.allDecls, SmtState.allAsserts,
-             SmtState.addUnary, FlatCtx.addUnary]
+             SmtState.modifyDecls, SmtState.addUnary, FlatCtx.addUnary]
   cases s.frames with
   | nil => simp [Signature.addUnary]
   | cons hd tl =>
@@ -87,7 +87,7 @@ theorem SmtState.flatten_addUnary (s : SmtState) (u : FOL.Unary) :
 theorem SmtState.flatten_addBinary (s : SmtState) (b : FOL.Binary) :
     (s.addBinary b).flatten = s.flatten.addBinary b.name b.arg1 b.arg2 b.ret := by
   simp only [SmtState.flatten, SmtState.allDecls, SmtState.allAsserts,
-             SmtState.addBinary, FlatCtx.addBinary]
+             SmtState.modifyDecls, SmtState.addBinary, FlatCtx.addBinary]
   cases s.frames with
   | nil => simp [Signature.addBinary]
   | cons hd tl =>

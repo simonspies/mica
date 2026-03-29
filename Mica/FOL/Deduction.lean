@@ -226,7 +226,7 @@ theorem sound_eq_trans : entails Γ (.eq τ a b) → entails Γ (.eq τ b c) →
 theorem sound_forall_intro (y : String) (hnotin : ⟨y, τ⟩ ∉ sig.vars) :
     entails Γ (φ.subst (Subst.single τ x (.var τ y)) (⟨y, τ⟩ :: sig.vars)) →
     Γ.wfIn sig →
-    φ.wfIn { sig with vars := ⟨x, τ⟩ :: sig.vars } →
+    φ.wfIn (sig.addVar (Var.mk x τ)) →
     entails Γ (.forall_ x τ φ) := by
   intro hφ hwfΓ hwfφ ρ hΓ v
   let ρ' := ρ.update τ y v
@@ -266,7 +266,7 @@ theorem sound_exists_elim (y : String) (hnotin : ⟨y, τ⟩ ∉ sig.vars) :
     entails (φ.subst (Subst.single τ x (.var τ y)) (⟨y, τ⟩ :: sig.vars) :: Γ) ψ →
     Γ.wfIn sig →
     ψ.wfIn sig →
-    φ.wfIn { sig with vars := ⟨x, τ⟩ :: sig.vars } →
+    φ.wfIn (sig.addVar (Var.mk x τ)) →
     entails Γ ψ := by
   intro hφ hψ hwfΓ hwfψ hwfφ ρ hΓ
   -- From hφ ρ hΓ we get ∃ v, φ.eval (ρ.update τ x v)
