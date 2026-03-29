@@ -59,15 +59,15 @@ def Term.freeVars : Term τ → List Var
   | .binop _ a b => a.freeVars ++ b.freeVars
   | .ite c t e => c.freeVars ++ t.freeVars ++ e.freeVars
 
-def Term.wfIn (t : Term τ) (Δ : VarCtx) : Prop :=
-  ∀ v ∈ t.freeVars, v ∈ Δ
+def Term.wfIn (t : Term τ) (Δ : Signature) : Prop :=
+  ∀ v ∈ t.freeVars, v ∈ Δ.vars
 
-def Term.checkWf (t : Term τ) (Δ : VarCtx) : Except String Unit :=
-  match t.freeVars.find? (· ∉ Δ) with
+def Term.checkWf (t : Term τ) (Δ : Signature) : Except String Unit :=
+  match t.freeVars.find? (· ∉ Δ.vars) with
   | some v => .error s!"variable {repr v.name} : {repr v.sort} not in scope"
   | none => .ok ()
 
-theorem Term.checkWf_ok {t : Term τ} {Δ : VarCtx} (h : t.checkWf Δ = .ok ()) : t.wfIn Δ := by
+theorem Term.checkWf_ok {t : Term τ} {Δ : Signature} (h : t.checkWf Δ = .ok ()) : t.wfIn Δ := by
   simp only [Term.checkWf] at h
   split at h <;> simp at h
   rename_i heq
@@ -76,13 +76,13 @@ theorem Term.checkWf_ok {t : Term τ} {Δ : VarCtx} (h : t.checkWf Δ = .ok ()) 
   simp at this
   exact this
 
-theorem Term.wfIn_freeVars (t : Term τ) : t.wfIn t.freeVars := by
+theorem Term.wfIn_freeVars (t : Term τ) : t.wfIn (Signature.ofVars t.freeVars) := by
   intro v hv
   exact hv
 
-theorem Term.wfIn_mono (t : Term τ) (h : t.wfIn Δ) (hsub : Δ ⊆ Δ') : t.wfIn Δ' := by
+theorem Term.wfIn_mono (t : Term τ) (h : t.wfIn Δ) (hsub : Δ.Subset Δ') : t.wfIn Δ' := by
   intro v hv
-  exact hsub (h v hv)
+  exact hsub.vars v (h v hv)
 
 @[simp] def UnOp.eval : UnOp τ₁ τ₂ → τ₁.denote → τ₂.denote
   | .ofInt,   n  => Runtime.Val.int n
@@ -120,13 +120,13 @@ def Term.eval (ρ : Env) : Term τ → τ.denote
   | .binop op a b => op.eval (Term.eval ρ a) (Term.eval ρ b)
   | .ite c t e    => bif Term.eval ρ c then Term.eval ρ t else Term.eval ρ e
 
-theorem Term.eval_env_agree {t : Term τ} {ρ ρ' : Env} {Δ : VarCtx} :
+theorem Term.eval_env_agree {t : Term τ} {ρ ρ' : Env} {Δ : Signature} :
     t.wfIn Δ → Env.agreeOn Δ ρ ρ' → Term.eval ρ t = Term.eval ρ' t := by
   intro hwf hagree
   induction t with
   | var τ y =>
-    simp [Term.eval]
-    exact hagree ⟨y, τ⟩ (hwf ⟨y, τ⟩ (by simp [Term.freeVars]))
+    simp [Term.eval, Env.lookup]
+    exact hagree.1 ⟨y, τ⟩ (hwf ⟨y, τ⟩ (by simp [Term.freeVars]))
   | const _ => rfl
   | unop op a iha =>
     simp only [Term.eval]
@@ -146,10 +146,12 @@ theorem Term.eval_update_fresh {t : Term τ'} {x : String} {τ : Srt} {v : τ.de
   intro hfree
   symm
   apply Term.eval_env_agree t.wfIn_freeVars
-  intro w hw
-  by_cases ht : w.sort = τ
-  · subst ht
-    by_cases hn : w.name = x
-    · subst hn; cases w; simp_all
-    · exact (Env.lookup_update_ne' hn).symm
-  · exact (Env.lookup_update_ne (Or.inr ht)).symm
+  constructor
+  · intro w hw
+    by_cases ht : w.sort = τ
+    · subst ht
+      by_cases hn : w.name = x
+      · subst hn; cases w; simp_all
+      · exact (Env.lookup_update_ne' hn).symm
+    · exact (Env.lookup_update_ne (Or.inr ht)).symm
+  · exact ⟨fun _ _ => rfl, fun _ _ => rfl, fun _ _ => rfl⟩

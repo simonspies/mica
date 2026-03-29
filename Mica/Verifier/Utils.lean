@@ -18,10 +18,10 @@ def Bindings.agreeOnLinked (B : Bindings) (ρ : Env) (γ : Runtime.Subst) :=
   ∀ x x', B.lookup x = some x' →
     x'.sort = .value ∧ γ x = .some (ρ.lookup .value x'.name)
 
-def Bindings.wf (B : Bindings) (decls : VarCtx) : Prop :=
-  ∀ p ∈ B, p.2 ∈ decls
+def Bindings.wf (B : Bindings) (decls : Signature) : Prop :=
+  ∀ p ∈ B, p.2 ∈ decls.vars
 
-theorem Bindings.agreeOnLinked_env_agree {B : Bindings} {decls : VarCtx} {ρ ρ' : Env} {γ : Runtime.Subst}
+theorem Bindings.agreeOnLinked_env_agree {B : Bindings} {decls : Signature} {ρ ρ' : Env} {γ : Runtime.Subst}
     (hagr : B.agreeOnLinked ρ γ) (henv : Env.agreeOn decls ρ ρ')
     (hwf : B.wf decls) : B.agreeOnLinked ρ' γ := by
   intro x x' hmem
@@ -29,13 +29,13 @@ theorem Bindings.agreeOnLinked_env_agree {B : Bindings} {decls : VarCtx} {ρ ρ'
   obtain ⟨l₁, l₂, heq, _⟩ := List.lookup_eq_some_iff.mp hmem
   have hmem' : (x, x') ∈ B := by rw [heq]; simp
   have hdecl := hwf _ hmem'
-  have henv' := henv x' hdecl
+  have henv' := henv.1 x' hdecl
   rw [hsort] at henv'
   exact ⟨hsort, hγ.trans (congrArg some henv')⟩
 
-theorem Bindings.wf_cons {B : Bindings} {decls : VarCtx} {x : TinyML.Var} {v : Var}
+theorem Bindings.wf_cons {B : Bindings} {decls : Signature} {x : TinyML.Var} {v : Var}
     (hbwf : B.wf decls) :
-    Bindings.wf ((x, v) :: B) (v :: decls) := by
+    Bindings.wf ((x, v) :: B) (decls.addVar v) := by
   intro p hp
   simp [List.mem_cons] at hp
   rcases hp with rfl | hp
@@ -58,7 +58,7 @@ def Terms.toValList : List (Term .value) → Term .vallist
     toValList (t :: ts) = .binop .vcons t (toValList ts) := rfl
 
 /-- If all terms in `ts` are well-formed in `Δ`, then `toValList ts` is well-formed in `Δ`. -/
-theorem Terms.toValList_wfIn {ts : List (Term .value)} {Δ : VarCtx}
+theorem Terms.toValList_wfIn {ts : List (Term .value)} {Δ : Signature}
     (h : ∀ t ∈ ts, t.wfIn Δ) : (toValList ts).wfIn Δ := by
   induction ts with
   | nil => intro w hw; simp [toValList, Term.freeVars] at hw
@@ -85,7 +85,7 @@ theorem Terms.toValList_eval {ρ : Env} {ts : List (Term .value)} {vs : List Run
   | nil => simp [Terms.toValList, Term.eval, Const.denote]
   | cons hhead _ ih => simp [Terms.toValList, Term.eval, BinOp.eval, hhead, ih]
 
-theorem Terms.Eval.env_agree {ρ ρ' : Env} {Δ : VarCtx}
+theorem Terms.Eval.env_agree {ρ ρ' : Env} {Δ : Signature}
     {ts : List (Term .value)} {vs : List Runtime.Val}
     (hwf : ∀ t ∈ ts, t.wfIn Δ)
     (hagree : Env.agreeOn Δ ρ ρ')
@@ -152,7 +152,7 @@ theorem Bindings.typedSubst_cons {B : Bindings} {Γ : TinyML.TyCtx} {γ : Runtim
 theorem Bindings.agreeOnLinked_cons {B : Bindings} {ρ ρ' : Env} {γ : Runtime.Subst}
     {x : TinyML.Var} {v : Var}
     (hagree : B.agreeOnLinked ρ γ)
-    (hρ_agree : Env.agreeOn (B.map Prod.snd) ρ' ρ)
+    (hρ_agree : Env.agreeOn (Signature.ofVars (B.map Prod.snd)) ρ' ρ)
     (hvty : v.sort = .value) :
     Bindings.agreeOnLinked ((x, v) :: B) ρ' (Runtime.Subst.update γ x (ρ'.lookup .value v.name)) := by
   intro y y' hmem
@@ -164,7 +164,7 @@ theorem Bindings.agreeOnLinked_cons {B : Bindings} {ρ ρ' : Env} {γ : Runtime.
     have hmem_snd : y' ∈ B.map Prod.snd := by
       obtain ⟨l₁, l₂, heq, _⟩ := List.lookup_eq_some_iff.mp hmem
       exact List.mem_map.mpr ⟨(y, y'), by rw [heq]; simp, rfl⟩
-    have hρ := hρ_agree y' hmem_snd
+    have hρ := hρ_agree.1 y' hmem_snd
     rw [hsort] at hρ
     exact ⟨hsort, by simp [Runtime.Subst.update, hyx]; exact hγ.trans (congrArg some hρ.symm)⟩
 
@@ -406,7 +406,7 @@ def FiniteSubst.id : FiniteSubst where
   range := []
 
 def FiniteSubst.wf (σ : FiniteSubst) (decls : List Var) : Prop :=
-  σ.subst.wfIn σ.dom σ.range ∧ σ.range ⊆ decls
+  σ.subst.wfIn (Signature.ofVars σ.dom) (Signature.ofVars σ.range) ∧ σ.range ⊆ decls
 
 def FiniteSubst.rename (σ : FiniteSubst) (v : Var) (name' : String) : FiniteSubst where
   subst := σ.subst.update v.sort v.name (.var v.sort name')
@@ -414,46 +414,54 @@ def FiniteSubst.rename (σ : FiniteSubst) (v : Var) (name' : String) : FiniteSub
   range := ⟨name', v.sort⟩ :: σ.range
 
 theorem agreeOn_update_fresh {ρ : Env} {v : Var} {u : v.sort.denote}
-    {decls : List Var} (hfresh : v.name ∉ decls.map Var.name) :
-    Env.agreeOn decls ρ (ρ.update v.sort v.name u) := by
-  intro w hw
-  have hne : w.name ≠ v.name := by
-    intro heq; exact hfresh (heq ▸ List.mem_map.mpr ⟨w, hw, rfl⟩)
-  exact (Env.lookup_update_ne (Or.inl hne)).symm
+    {Δ : Signature} (hfresh : v.name ∉ Δ.vars.map Var.name) :
+    Env.agreeOn Δ ρ (ρ.update v.sort v.name u) := by
+  constructor
+  · intro w hw
+    have hne : w.name ≠ v.name := by
+      intro heq; exact hfresh (heq ▸ List.mem_map.mpr ⟨w, hw, rfl⟩)
+    exact (Env.lookup_update_ne (Or.inl hne)).symm
+  · exact ⟨fun _ _ => rfl, fun _ _ => rfl, fun _ _ => rfl⟩
 
 theorem FiniteSubst.rename_wf {σ : FiniteSubst} {v : Var} {name' : String} {decls : List Var}
     (hσ : σ.wf decls) (_hfresh : ⟨name', v.sort⟩ ∉ σ.range) :
     (σ.rename v name').wf (⟨name', v.sort⟩ :: decls) := by
   refine ⟨?_, List.cons_subset_cons _ hσ.2⟩
   -- (σ.rename v name').subst.wfIn (v :: σ.dom) (⟨name', v.sort⟩ :: σ.range)
-  apply Subst.wfIn_update (Subst.wfIn_mono hσ.1 (List.subset_cons_of_subset _ (List.Subset.refl _)))
+  apply Subst.wfIn_update (Subst.wfIn_mono hσ.1 (Signature.Subset.of_vars_subset_ofVars (List.subset_cons_of_subset _ (List.Subset.refl _))))
   intro w hw
   simp [Term.freeVars] at hw
   exact hw ▸ List.mem_cons_self ..
 
 theorem FiniteSubst.rename_agreeOn {σ : FiniteSubst} {v : Var} {name' : String}
     {ρ : Env} {u : v.sort.denote}
-    (hσwf : σ.subst.wfIn σ.dom σ.range) (hfresh : ⟨name', v.sort⟩ ∉ σ.range) :
-    Env.agreeOn (v :: σ.dom)
+    (hσwf : σ.subst.wfIn (Signature.ofVars σ.dom) (Signature.ofVars σ.range)) (hfresh : ⟨name', v.sort⟩ ∉ σ.range) :
+    Env.agreeOn (Signature.ofVars (v :: σ.dom))
       ((σ.rename v name').subst.eval (ρ.update v.sort name' u))
       ((σ.subst.eval ρ).update v.sort v.name u) :=
   Subst.eval_update_agreeOn hσwf hfresh
 
 theorem FiniteSubst.eval_update_fresh {σ : FiniteSubst} {ρ : Env} {τ : Srt} {name' : String}
-    {u : τ.denote} (hσ : σ.subst.wfIn σ.dom σ.range) (hfresh : ⟨name', τ⟩ ∉ σ.range) :
-    Env.agreeOn σ.dom (σ.subst.eval ρ) (σ.subst.eval (ρ.update τ name' u)) := by
-  intro w hw
-  simp only [Subst.eval_lookup]
-  exact (Term.eval_update_fresh (fun hfv => hfresh (hσ w hw _ hfv))).symm
+    {u : τ.denote} (hσ : σ.subst.wfIn (Signature.ofVars σ.dom) (Signature.ofVars σ.range)) (hfresh : ⟨name', τ⟩ ∉ σ.range) :
+    Env.agreeOn (Signature.ofVars σ.dom) (σ.subst.eval ρ) (σ.subst.eval (ρ.update τ name' u)) := by
+  constructor
+  · intro w hw
+    simp only [Subst.eval_lookup]
+    exact (Term.eval_update_fresh (fun hfv => hfresh (hσ w hw _ hfv))).symm
+  · constructor
+    · intro c hc; cases hc
+    · constructor
+      · intro u hu; cases hu
+      · intro b hb; cases hb
 
 theorem FiniteSubst.subst_wfIn_formula {σ : FiniteSubst} {φ : Formula} {decls : List Var}
-    (hσ : σ.wf decls) (hφ : φ.wfIn σ.dom) : (φ.subst σ.subst σ.range).wfIn decls := by
-  have h1 : σ.subst.wfIn σ.dom σ.range := hσ.1
-  have h2 : (φ.subst σ.subst σ.range).wfIn σ.range := Formula.subst_wfIn hφ h1
-  exact Formula.wfIn_mono _ h2 hσ.2
+    (hσ : σ.wf decls) (hφ : φ.wfIn (Signature.ofVars σ.dom)) : (φ.subst σ.subst σ.range).wfIn (Signature.ofVars decls) := by
+  have h1 : σ.subst.wfIn (Signature.ofVars σ.dom) (Signature.ofVars σ.range) := hσ.1
+  have h2 : (φ.subst σ.subst σ.range).wfIn (Signature.ofVars σ.range) := Formula.subst_wfIn hφ h1
+  exact Formula.wfIn_mono _ h2 (Signature.Subset.of_vars_subset_ofVars hσ.2)
 
 theorem FiniteSubst.eval_subst_formula {σ : FiniteSubst} {φ : Formula} {ρ : Env}
-    (hφ : φ.wfIn σ.dom) (hσ : σ.subst.wfIn σ.dom σ.range) :
+    (hφ : φ.wfIn (Signature.ofVars σ.dom)) (hσ : σ.subst.wfIn (Signature.ofVars σ.dom) (Signature.ofVars σ.range)) :
     (φ.subst σ.subst σ.range).eval ρ ↔ φ.eval (σ.subst.eval ρ) :=
   Formula.eval_subst hφ hσ
 
@@ -463,8 +471,14 @@ theorem FiniteSubst.id_wf (decls : List Var) : FiniteSubst.id.wf decls := by
   · intro v hv; simp [FiniteSubst.id] at hv
 
 theorem FiniteSubst.eval_agreeOn {σ : FiniteSubst} {ρ ρ' : Env}
-    (hσ : σ.subst.wfIn σ.dom σ.range) (hagree : Env.agreeOn σ.range ρ ρ') :
-    Env.agreeOn σ.dom (σ.subst.eval ρ) (σ.subst.eval ρ') := by
-  intro v hv
-  simp only [Subst.eval_lookup]
-  exact Term.eval_env_agree (hσ v hv) hagree
+    (hσ : σ.subst.wfIn (Signature.ofVars σ.dom) (Signature.ofVars σ.range)) (hagree : Env.agreeOn (Signature.ofVars σ.range) ρ ρ') :
+    Env.agreeOn (Signature.ofVars σ.dom) (σ.subst.eval ρ) (σ.subst.eval ρ') := by
+  constructor
+  · intro v hv
+    simp only [Subst.eval_lookup]
+    exact Term.eval_env_agree (hσ v hv) hagree
+  · constructor
+    · intro c hc; cases hc
+    · constructor
+      · intro u hu; cases hu
+      · intro b hb; cases hb

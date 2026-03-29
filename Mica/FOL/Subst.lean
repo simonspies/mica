@@ -21,10 +21,10 @@ def Term.subst (σ : Subst) : Term τ → Term τ
   | .binop op a b => .binop op (a.subst σ) (b.subst σ)
   | .ite c t e => .ite (c.subst σ) (t.subst σ) (e.subst σ)
 
-def Subst.wfIn (σ : Subst) (Δ Δ' : VarCtx) : Prop :=
-  ∀ v ∈ Δ, (σ.apply v.sort v.name).wfIn Δ'
+def Subst.wfIn (σ : Subst) (Δ Δ' : Signature) : Prop :=
+  ∀ v ∈ Δ.vars, (σ.apply v.sort v.name).wfIn Δ'
 
-theorem Subst.wfIn_mono {σ : Subst} {Δ Δ' Δ'' : VarCtx} (hσ : σ.wfIn Δ Δ') (hsub : Δ' ⊆ Δ'') :
+theorem Subst.wfIn_mono {σ : Subst} {Δ Δ' Δ'' : Signature} (hσ : σ.wfIn Δ Δ') (hsub : Δ'.Subset Δ'') :
     σ.wfIn Δ Δ'' :=
   fun v hv => Term.wfIn_mono _ (hσ v hv) hsub
 
@@ -41,13 +41,12 @@ theorem Subst.apply_update_ne {σ : Subst} {τ τ' : Srt} {x y : String} {t : Te
     | inr h => exact absurd heq.1 h
   · rfl
 
-theorem Subst.wfIn_update {σ : Subst} {τ : Srt} {x : String} {t : Term τ} {Δ Δ' : VarCtx}
+theorem Subst.wfIn_update {σ : Subst} {τ : Srt} {x : String} {t : Term τ} {Δ Δ' : Signature}
     (hσ : σ.wfIn Δ Δ') (ht : t.wfIn Δ') :
-    (σ.update τ x t).wfIn (⟨x, τ⟩ :: Δ) Δ' := fun v hv => by
-  simp only [List.mem_cons] at hv
+    (σ.update τ x t).wfIn (Δ.addVar ⟨x, τ⟩) Δ' := fun v hv => by
   cases hv with
-  | inl heq => subst heq; simp only [Subst.apply_update_same, ht]
-  | inr hmem =>
+  | head => simp [Subst.apply_update_same, ht]
+  | tail _ hmem =>
     by_cases hname : v.name = x <;> by_cases hty : v.sort = τ
     · cases v; simp only at hname hty; subst hname hty
       simp only [Subst.apply_update_same, ht]
@@ -55,19 +54,19 @@ theorem Subst.wfIn_update {σ : Subst} {τ : Srt} {x : String} {t : Term τ} {Δ
     · simp only [Subst.apply_update_ne (Or.inl hname), hσ v hmem]
     · simp only [Subst.apply_update_ne (Or.inl hname), hσ v hmem]
 
-theorem Subst.id_wfIn {Δ : VarCtx} : Subst.id.wfIn Δ Δ := fun v hv w hw => by
+theorem Subst.id_wfIn {Δ : Signature} : Subst.id.wfIn Δ Δ := fun v hv w hw => by
   simp only [Subst.id, Subst.apply, Term.freeVars, List.mem_singleton] at hw
   subst hw; exact hv
 
-theorem Subst.single_wfIn {τ : Srt} {x : String} {t : Term τ} {Δ : VarCtx} (ht : t.wfIn Δ) :
-    (Subst.single τ x t).wfIn (⟨x, τ⟩ :: Δ) Δ := by
+theorem Subst.single_wfIn {τ : Srt} {x : String} {t : Term τ} {Δ : Signature} (ht : t.wfIn Δ) :
+    (Subst.single τ x t).wfIn (Δ.addVar ⟨x, τ⟩) Δ := by
   unfold Subst.single
   exact Subst.wfIn_update Subst.id_wfIn ht
 
-def Subst.agreeOn (σ σ' : Subst) (Δ : VarCtx) : Prop :=
-  ∀ v ∈ Δ, σ.apply v.sort v.name = σ'.apply v.sort v.name
+def Subst.agreeOn (σ σ' : Subst) (Δ : Signature) : Prop :=
+  ∀ v ∈ Δ.vars, σ.apply v.sort v.name = σ'.apply v.sort v.name
 
-theorem Term.subst_agreeOn {t : Term τ} {σ σ' : Subst} {Δ : VarCtx} :
+theorem Term.subst_agreeOn {t : Term τ} {σ σ' : Subst} {Δ : Signature} :
     t.wfIn Δ → σ.agreeOn σ' Δ → t.subst σ = t.subst σ' := by
   intro hwf hagree
   induction t with
@@ -86,7 +85,7 @@ theorem Term.subst_agreeOn {t : Term τ} {σ σ' : Subst} {Δ : VarCtx} :
           iht (fun v hv => hwf v (by simp [Term.freeVars]; right; left; exact hv)),
           ihe (fun v hv => hwf v (by simp [Term.freeVars]; right; right; exact hv))]
 
-theorem Term.subst_wfIn {t : Term τ} {σ : Subst} {Δ Δ' : VarCtx} :
+theorem Term.subst_wfIn {t : Term τ} {σ : Subst} {Δ Δ' : Signature} :
     t.wfIn Δ → σ.wfIn Δ Δ' → (t.subst σ).wfIn Δ' := by
   intro hwf hσ
   induction t with
@@ -152,9 +151,9 @@ theorem Term.apply_freeVars_subset_subst_freeVars {t : Term τ} {σ : Subst} {v 
       | inl ht => intro w hw; right; left; exact iht ht hw
       | inr he => intro w hw; right; right; exact ihe he hw
 
-theorem Term.wfIn_of_subst_wfIn {t : Term τ} {σ : Subst} {Δ Δ' : VarCtx} :
+theorem Term.wfIn_of_subst_wfIn {t : Term τ} {σ : Subst} {Δ Δ' : Signature} :
     (t.subst σ).wfIn Δ' →
-    (∀ (x : String) (τ' : Srt), (σ.apply τ' x).wfIn Δ' → ⟨x, τ'⟩ ∈ Δ) →
+    (∀ (x : String) (τ' : Srt), (σ.apply τ' x).wfIn Δ' → ⟨x, τ'⟩ ∈ Δ.vars) →
     t.wfIn Δ := by
   intro hsubst himpl v hv
   apply himpl
@@ -163,8 +162,8 @@ theorem Term.wfIn_of_subst_wfIn {t : Term τ} {σ : Subst} {Δ Δ' : VarCtx} :
     Term.apply_freeVars_subset_subst_freeVars hv
   exact hsubst w (hsub hw)
 
-def Subst.eval (σ : Subst) (ρ : Env) : Env := fun τ x =>
-  Term.eval ρ (σ.apply τ x)
+def Subst.eval (σ : Subst) (ρ : Env) : Env :=
+  { ρ with vars := fun τ x => Term.eval ρ (σ.apply τ x) }
 
 theorem Subst.eval_lookup (σ : Subst) (ρ : Env) (τ : Srt) (x : String) :
     (σ.eval ρ).lookup τ x = Term.eval ρ (σ.apply τ x) := by
@@ -172,10 +171,13 @@ theorem Subst.eval_lookup (σ : Subst) (ρ : Env) (τ : Srt) (x : String) :
 
 theorem Subst.eval_single {τ : Srt} {x : String} {t : Term τ} {ρ : Env} :
     (Subst.single τ x t).eval ρ = ρ.update τ x (t.eval ρ) := by
-  funext τ' y; simp only [Subst.eval, Env.update, Subst.apply, Subst.single, Subst.update, Subst.id]
-  split
-  · next h => obtain ⟨rfl, rfl⟩ := h; simp
-  · next h => simp [Term.eval, Env.lookup]
+  apply Env.ext
+  · funext τ' y
+    simp only [Subst.eval, Env.update, Subst.apply, Subst.single, Subst.update, Subst.id]
+    split
+    · next h => obtain ⟨rfl, rfl⟩ := h; simp
+    · next h => simp [Term.eval, Env.lookup]
+  all_goals rfl
 
 theorem Term.eval_subst {σ : Subst} {ρ : Env} {t : Term τ} :
     Term.eval ρ (t.subst σ) = Term.eval (σ.eval ρ) t := by
@@ -213,22 +215,27 @@ def Formula.subst (σ : Subst) (free : List Var) : Formula → Formula
     .exists_ y' τ (φ.subst (σ.update τ y (.var τ y')) (⟨y', τ⟩ :: free))
 
 theorem Subst.eval_update_agreeOn {σ : Subst} {ρ : Env} {τ : Srt} {x name' : String} {v : τ.denote}
-    {Δ Δ' : VarCtx} (hσ : σ.wfIn Δ Δ') (hfresh : ⟨name', τ⟩ ∉ Δ') :
-    Env.agreeOn (⟨x, τ⟩ :: Δ)
+    {Δ Δ' : Signature} (hσ : σ.wfIn Δ Δ') (hfresh : ⟨name', τ⟩ ∉ Δ'.vars) :
+    Env.agreeOn (Δ.addVar ⟨x, τ⟩)
       ((σ.update τ x (.var τ name')).eval (ρ.update τ name' v))
-      ((σ.eval ρ).update τ x v) := fun w hw => by
-  simp only [List.mem_cons] at hw
-  by_cases heq : w = ⟨x, τ⟩
-  · subst heq; simp [Subst.eval_lookup, Subst.apply_update_same, Term.eval, Env.lookup_update_same]
-  · have hmem : w ∈ Δ := hw.resolve_left heq
-    have hne : w.name ≠ x ∨ w.sort ≠ τ := by
-      by_contra h; push_neg at h; exact heq (by cases w; simp_all)
-    simp only [Subst.eval_lookup, Subst.apply_update_ne hne, Env.lookup_update_ne hne]
-    exact Term.eval_update_fresh (fun hfv => hfresh (hσ w hmem _ hfv))
+      ((σ.eval ρ).update τ x v) := by
+  constructor
+  · intro w hw
+    by_cases heq : w = ⟨x, τ⟩
+    · subst heq; simp [Subst.eval, Env.lookup, Subst.apply, Subst.update, Term.eval, Env.update]
+    · have hmem : w ∈ Δ.vars := by
+        cases hw with
+        | head => contradiction
+        | tail _ h => exact h
+      have hne : ¬(w.sort = τ ∧ w.name = x) := by
+        intro h; obtain ⟨rfl, rfl⟩ := h; cases w; contradiction
+      simp only [Subst.eval, Env.lookup, Subst.apply, Subst.update, Env.update, hne, ↓reduceDIte]
+      exact Term.eval_update_fresh (fun hfv => hfresh (hσ w hmem _ hfv))
+  · exact ⟨fun _ _ => rfl, fun _ _ => rfl, fun _ _ => rfl⟩
 
-theorem Formula.eval_subst {σ : Subst} {ρ : Env} {φ : Formula} {Δ Δ' : VarCtx}
+theorem Formula.eval_subst {σ : Subst} {ρ : Env} {φ : Formula} {Δ Δ' : Signature}
     (hφ : φ.wfIn Δ) (hσ : σ.wfIn Δ Δ') :
-    (φ.subst σ Δ').eval ρ ↔ φ.eval (σ.eval ρ) := by
+    (φ.subst σ Δ'.vars).eval ρ ↔ φ.eval (σ.eval ρ) := by
   induction φ generalizing σ ρ Δ Δ' with
   | true_ | false_ => rfl
   | eq _ _ _ | binpred _ _ _ | unpred _ _ => simp only [Formula.subst, Formula.eval, Term.eval_subst]
@@ -243,9 +250,12 @@ theorem Formula.eval_subst {σ : Subst} {ρ : Env} {φ : Formula} {Δ Δ' : VarC
   | forall_ x τ φ ih | exists_ x τ φ ih =>
     simp only [Formula.subst, Formula.eval]
     have hwfφ := Formula.wfIn_body_of_wfIn_quant hφ
-    have hfresh := freshName_not_in_avoid Δ' x τ
-    have hwfσ' : (σ.update τ x (.var τ (freshName Δ' x))).wfIn (⟨x, τ⟩ :: Δ) (⟨freshName Δ' x, τ⟩ :: Δ') :=
-      Subst.wfIn_update (Subst.wfIn_mono hσ (by grind)) (by simp [Term.wfIn, Term.freeVars])
+    let y' := freshName Δ'.vars x
+    have hfresh := freshName_not_in_avoid Δ'.vars x τ
+    have hσ_mono : σ.wfIn Δ (Δ'.addVar ⟨y', τ⟩) :=
+      Subst.wfIn_mono hσ (Signature.Subset.subset_addVar Δ' ⟨y', τ⟩)
+    have hwfσ' : (σ.update τ x (.var τ y')).wfIn (Δ.addVar ⟨x, τ⟩) (Δ'.addVar ⟨y', τ⟩) :=
+      Subst.wfIn_update hσ_mono (by intro v hv; simp [Term.freeVars] at hv; subst hv; exact List.Mem.head _)
     first
     | constructor <;> intro h v
       · exact (Formula.eval_env_agree hwfφ (Subst.eval_update_agreeOn hσ hfresh)).mp
@@ -261,12 +271,17 @@ theorem Formula.eval_subst {σ : Subst} {ρ : Env} {φ : Formula} {Δ Δ' : VarC
           ((Formula.eval_env_agree hwfφ (Subst.eval_update_agreeOn hσ hfresh)).mpr hv)⟩
 
 theorem Formula.eval_subst_single {φ : Formula} {τ : Srt} {x : String} {t : Term τ} {ρ : Env}
-    {Δ : VarCtx} (hφ : φ.wfIn (⟨x, τ⟩ :: Δ)) (ht : t.wfIn Δ) :
-    (φ.subst (Subst.single τ x t) Δ).eval ρ ↔ φ.eval (ρ.update τ x (t.eval ρ)) := by
-  rw [Formula.eval_subst hφ (Subst.single_wfIn ht), Subst.eval_single]
+    {Δ : Signature} (hφ : φ.wfIn (Δ.addVar ⟨x, τ⟩)) (ht : t.wfIn Δ) :
+    (φ.subst (Subst.single τ x t) Δ.vars).eval ρ ↔ φ.eval (ρ.update τ x (t.eval ρ)) := by
+  have hσ : (Subst.single τ x t).wfIn (Δ.addVar ⟨x, τ⟩) Δ := by
+    unfold Subst.single
+    apply Subst.wfIn_update
+    · exact Subst.wfIn_mono Subst.id_wfIn (Signature.Subset.refl Δ)
+    · exact ht
+  rw [Formula.eval_subst hφ hσ, Subst.eval_single]
 
-theorem Formula.subst_wfIn {φ : Formula} {σ : Subst} {Δ Δ' : VarCtx} :
-    φ.wfIn Δ → σ.wfIn Δ Δ' → (φ.subst σ Δ').wfIn Δ' := by
+theorem Formula.subst_wfIn {φ : Formula} {σ : Subst} {Δ Δ' : Signature} :
+    φ.wfIn Δ → σ.wfIn Δ Δ' → (φ.subst σ Δ'.vars).wfIn Δ' := by
   intro hwf hσ
   induction φ generalizing Δ Δ' σ with
   | true_ | false_ => intro v hv; cases hv
@@ -295,12 +310,14 @@ theorem Formula.subst_wfIn {φ : Formula} {σ : Subst} {Δ Δ' : VarCtx} :
     intro v hv
     simp [Formula.subst, Formula.freeVars, List.mem_filter] at hv
     obtain ⟨hv_in, hv_ne⟩ := hv
-    set y' := freshName Δ' y
+    let y'_name := freshName Δ'.vars y
     -- Apply IH with extended context and updated substitution
-    have hwf' : φ.wfIn (⟨y, τ⟩ :: Δ) := Formula.wfIn_body_of_wfIn_quant hwf
-    have hσ' : (σ.update τ y (.var τ y')).wfIn (⟨y, τ⟩ :: Δ) (⟨y', τ⟩ :: Δ') :=
-      Subst.wfIn_update (Subst.wfIn_mono hσ (by intro w hw; right; exact hw)) (by simp [Term.wfIn, Term.freeVars])
-    have := ih (σ := σ.update τ y (.var τ y')) hwf' hσ' v hv_in
+    have hwf' : φ.wfIn (Δ.addVar ⟨y, τ⟩) := Formula.wfIn_body_of_wfIn_quant hwf
+    have hσ_mono : σ.wfIn Δ (Δ'.addVar ⟨y'_name, τ⟩) :=
+      Subst.wfIn_mono hσ (Signature.Subset.subset_addVar Δ' ⟨y'_name, τ⟩)
+    have hσ' : (σ.update τ y (.var τ y'_name)).wfIn (Δ.addVar ⟨y, τ⟩) (Δ'.addVar ⟨y'_name, τ⟩) :=
+      Subst.wfIn_update hσ_mono (by intro v hv; simp [Term.freeVars] at hv; subst hv; exact List.Mem.head _)
+    have := ih (σ := σ.update τ y (.var τ y'_name)) hwf' hσ' v hv_in
     cases this with
-    | head => exact absurd hv_ne (by simp)
+    | head => contradiction
     | tail _ h => exact h

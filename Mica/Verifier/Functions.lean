@@ -31,7 +31,7 @@ def checkSpec (S : SpecMap) (e : TinyML.Expr) (s : Spec) : VerifM Unit := do
 
 theorem checkSpec_correct (S : SpecMap) (e : TinyML.Expr) (s : Spec)
     (γ : Runtime.Subst)
-    (hswf : s.wfIn []) (hSwf : S.wfIn [])
+    (hswf : s.wfIn Signature.empty) (hSwf : S.wfIn Signature.empty)
     (hS : S.satisfiedBy γ)
     (st : TransState) (ρ : Env) :
     VerifM.eval (checkSpec S e s) st ρ (fun _ _ _ => True) →
@@ -86,7 +86,7 @@ theorem checkSpec_correct (S : SpecMap) (e : TinyML.Expr) (s : Spec)
         have isPrecond : s.isPrecondFor fval := by
           intro vs' htyped' Φ' happly'
           exact ih_rec vs' Φ' ⟨htyped', happly'⟩
-        have hS'wf : S'.wfIn [] :=
+        have hS'wf : S'.wfIn Signature.empty :=
           SpecMap.wfIn_eraseAll (SpecMap.wfIn_insert' hSwf hswf)
         have hS'_sat : S'.satisfiedBy γ_body := by
           -- Simplified using the new lemma

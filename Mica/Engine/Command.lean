@@ -8,7 +8,7 @@ added at that push level. -/
 
 /-- A single scope frame: declarations and assertions added in this push level. -/
 structure SmtFrame where
-  decls : VarCtx
+  decls : Signature
   asserts : List Formula
 
 /-- The solver state: a stack of frames. -/
@@ -19,13 +19,15 @@ structure SmtState where
 
 /-- One frame extends another: same fields with possible prepended elements. -/
 def SmtFrame.Extends (f f' : SmtFrame) : Prop :=
-  ∃ ds as, f'.decls = ds ++ f.decls ∧ f'.asserts = as ++ f.asserts
+  -- @claude: just extending the variables will not be enough in the long run
+  ∃ ds as, f'.decls.vars = ds ++ f.decls.vars ∧ f'.asserts = as ++ f.asserts
 
 theorem SmtFrame.Extends.refl (f : SmtFrame) : f.Extends f :=
   ⟨[], [], rfl, rfl⟩
 
+-- @claude: just adding a single declaration will not be enough in the long run
 theorem SmtFrame.Extends.addDecl (f : SmtFrame) (v : Var) :
-    f.Extends ⟨v :: f.decls, f.asserts⟩ :=
+    f.Extends ⟨f.decls.addVar v, f.asserts⟩ :=
   ⟨[v], [], rfl, rfl⟩
 
 theorem SmtFrame.Extends.addAssert (f : SmtFrame) (φ : Formula) :
@@ -87,18 +89,21 @@ def Command.parseResponse : (cmd : Command α) → String → Option α
 
 namespace SmtState
 
-def initial : SmtState := ⟨[⟨[], []⟩]⟩
+def initial : SmtState := ⟨[⟨Signature.empty, []⟩]⟩
 
 /-- All declarations visible in the current state (from all frames). -/
-def allDecls (s : SmtState) : VarCtx :=
-  s.frames.flatMap (·.decls)
+def allDecls (s : SmtState) : Signature :=
+  ⟨s.frames.flatMap (·.decls.vars),
+   s.frames.flatMap (·.decls.consts),
+   s.frames.flatMap (·.decls.unary),
+   s.frames.flatMap (·.decls.binary)⟩
 
 /-- All assertions active in the current state (from all frames). -/
 def allAsserts (s : SmtState) : List Formula :=
   s.frames.flatMap (·.asserts)
 
 def push (s : SmtState) : SmtState :=
-  ⟨⟨[], []⟩ :: s.frames⟩
+  ⟨⟨Signature.empty, []⟩ :: s.frames⟩
 
 def pop (s : SmtState) : SmtState :=
   match s.frames with
@@ -107,12 +112,12 @@ def pop (s : SmtState) : SmtState :=
 
 def addDecl (s : SmtState) (v : Var) : SmtState :=
   match s.frames with
-  | [] => ⟨[⟨[v], []⟩]⟩
-  | ⟨decls, asserts⟩ :: rest => ⟨⟨v :: decls, asserts⟩ :: rest⟩
+  | [] => ⟨[⟨Signature.empty.addVar v, []⟩]⟩
+  | ⟨decls, asserts⟩ :: rest => ⟨⟨decls.addVar v, asserts⟩ :: rest⟩
 
 def addAssert (s : SmtState) (φ : Formula) : SmtState :=
   match s.frames with
-  | [] => ⟨[⟨[], [φ]⟩]⟩
+  | [] => ⟨[⟨Signature.empty, [φ]⟩]⟩
   | ⟨decls, asserts⟩ :: rest => ⟨⟨decls, φ :: asserts⟩ :: rest⟩
 
 /-- Advance the state by one command (only on success). -/
@@ -129,7 +134,7 @@ end SmtState
 
 /-- The conjunction of `asserts` is satisfiable under the given declarations.
     That is, there exists an environment making all assertions true simultaneously. -/
-def Satisfiable (_decls : VarCtx) (asserts : List Formula) : Prop :=
+def Satisfiable (_decls : Signature) (asserts : List Formula) : Prop :=
   ∃ ρ : Env, ∀ φ ∈ asserts, φ.eval ρ
 
 theorem Satisfiable.to_impl decls asserts :
