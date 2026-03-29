@@ -61,13 +61,10 @@ def Terms.toValList : List (Term .value) → Term .vallist
 theorem Terms.toValList_wfIn {ts : List (Term .value)} {Δ : Signature}
     (h : ∀ t ∈ ts, t.wfIn Δ) : (toValList ts).wfIn Δ := by
   induction ts with
-  | nil => intro w hw; simp [toValList, Term.freeVars] at hw
+  | nil => trivial
   | cons t ts ih =>
-    simp only [toValList]
-    intro w hw; simp [Term.freeVars] at hw
-    rcases hw with hw | hw
-    · exact h t (.head _) w hw
-    · exact ih (fun q hq => h q (.tail _ hq)) w hw
+    simp only [toValList, Term.wfIn]
+    exact ⟨h t (.head _), ih (fun q hq => h q (.tail _ hq))⟩
 
 /-- A list of terms evaluates to a list of values. -/
 def Terms.Eval (ρ : Env) (ts : List (Term .value)) (vs : List Runtime.Val) : Prop :=
@@ -429,9 +426,7 @@ theorem FiniteSubst.rename_wf {σ : FiniteSubst} {v : Var} {name' : String} {dec
   refine ⟨?_, List.cons_subset_cons _ hσ.2⟩
   -- (σ.rename v name').subst.wfIn (v :: σ.dom) (⟨name', v.sort⟩ :: σ.range)
   apply Subst.wfIn_update (Subst.wfIn_mono hσ.1 (Signature.Subset.of_vars_subset_ofVars (List.subset_cons_of_subset _ (List.Subset.refl _))))
-  intro w hw
-  simp [Term.freeVars] at hw
-  exact hw ▸ List.mem_cons_self ..
+  simp [Term.wfIn]
 
 theorem FiniteSubst.rename_agreeOn {σ : FiniteSubst} {v : Var} {name' : String}
     {ρ : Env} {u : v.sort.denote}
@@ -447,7 +442,7 @@ theorem FiniteSubst.eval_update_fresh {σ : FiniteSubst} {ρ : Env} {τ : Srt} {
   constructor
   · intro w hw
     simp only [Subst.eval_lookup]
-    exact (Term.eval_update_fresh (fun hfv => hfresh (hσ w hw _ hfv))).symm
+    exact (Term.eval_update_not_in_sig (hσ w hw) (by simp [hfresh])).symm
   · constructor
     · intro c hc; cases hc
     · constructor

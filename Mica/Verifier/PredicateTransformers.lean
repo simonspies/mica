@@ -145,10 +145,7 @@ theorem PredTrans.call_correct (pt : PredTrans) (σ : FiniteSubst)
     (fun _ () st₂ ρ₂ ⟨hsub, hagree, hcont'⟩ _ _ => by
       have hret := VerifM.eval_ret hcont'
       apply hΨ _ st₂ ρ₂ (.var .value resVar.name) hret
-      · intro w hw
-        simp only [Term.freeVars, List.mem_singleton] at hw
-        subst hw
-        exact hsub.vars ⟨resVar.name, .value⟩ (List.Mem.head _)
+      · exact hsub.vars ⟨resVar.name, .value⟩ (List.Mem.head _)
       · simp only [Term.eval]
         have := hagree.1 ⟨resVar.name, .value⟩ (List.Mem.head _)
         simp only [Env.lookup_update_same] at this
@@ -214,11 +211,8 @@ theorem PredTrans.implement_correct (pt : PredTrans) (σ : FiniteSubst)
         -- The eq formula
         have heq_wf : (Formula.eq Srt.value (Term.var .value resVar.name) result).wfIn
             (st_b.decls.addVar resVar) := by
-          intro w hw
-          simp only [Formula.freeVars, Term.freeVars] at hw
-          cases hw with
-          | head => exact .head _
-          | tail _ hw => exact .tail _ (hwf_result w hw)
+          simp only [Formula.wfIn, Term.wfIn]
+          exact ⟨List.Mem.head _, Term.wfIn_mono result hwf_result (Signature.Subset.subset_addVar _ _)⟩
         have heq_holds : (Formula.eq Srt.value (Term.var .value resVar.name) result).eval
             (ρ_b.update .value resVar.name (result.eval ρ_b)) := by
           simp only [Formula.eval, Term.eval]

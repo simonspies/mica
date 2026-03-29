@@ -96,18 +96,17 @@ theorem Atom.resolve_wfIn {a : Atom τ} {C : List Formula} {t : Term τ} {Δ : S
   obtain ⟨φ, hφ_mem, hφ_match⟩ := List.exists_of_findSome?_eq_some h
   have heq := Formula.matchAtom_correct hφ_match
   subst heq
-  intro v hv
-  apply hwf _ hφ_mem
+  have hφwf := hwf _ hφ_mem
   cases a with
   | isint u =>
-    simp only [Atom.toFormula, Formula.freeVars, Term.freeVars] at hv ⊢
-    exact List.mem_append_right _ hv
+    simp only [Atom.toFormula, Formula.wfIn, Term.wfIn] at hφwf
+    exact hφwf.2
   | isbool u =>
-    simp only [Atom.toFormula, Formula.freeVars, Term.freeVars] at hv ⊢
-    exact List.mem_append_right _ hv
+    simp only [Atom.toFormula, Formula.wfIn, Term.wfIn] at hφwf
+    exact hφwf.2
   | isinj tag arity u =>
-    simp only [Atom.toFormula, Formula.freeVars, Term.freeVars] at hv ⊢
-    exact List.mem_append_right _ hv
+    simp only [Atom.toFormula, Formula.wfIn, Term.wfIn] at hφwf
+    exact hφwf.2
 
 
 -- ---------------------------------------------------------------------------
@@ -172,14 +171,14 @@ theorem Atom.toFormula_wfIn {p : Atom τ} {t : Term τ} {Δ : Signature}
     (p.toFormula t).wfIn Δ := by
   cases p with
   | isint v =>
-    simp only [Atom.toFormula, Formula.wfIn, Formula.freeVars, Term.freeVars, List.mem_append]
-    intro w hw; exact hw.elim (hp w ·) (ht w ·)
+    simp only [Atom.toFormula, Formula.wfIn, Term.wfIn]
+    exact ⟨hp, ht⟩
   | isbool v =>
-    simp only [Atom.toFormula, Formula.wfIn, Formula.freeVars, Term.freeVars, List.mem_append]
-    intro w hw; exact hw.elim (hp w ·) (ht w ·)
+    simp only [Atom.toFormula, Formula.wfIn, Term.wfIn]
+    exact ⟨hp, ht⟩
   | isinj tag arity v =>
-    simp only [Atom.toFormula, Formula.wfIn, Formula.freeVars, Term.freeVars, List.mem_append]
-    intro w hw; exact hw.elim (hp w ·) (ht w ·)
+    simp only [Atom.toFormula, Formula.wfIn, Term.wfIn]
+    exact ⟨hp, ht⟩
 
 theorem Atom.toFormula_eval_iff {p : Atom τ} {t : Term τ} {ρ : Env} :
     (p.toFormula t).eval ρ ↔ p.eval ρ (t.eval ρ) := by

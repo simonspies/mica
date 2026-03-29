@@ -54,9 +54,7 @@ theorem Subst.wfIn_update {σ : Subst} {τ : Srt} {x : String} {t : Term τ} {Δ
     · simp only [Subst.apply_update_ne (Or.inl hname), hσ v hmem]
     · simp only [Subst.apply_update_ne (Or.inl hname), hσ v hmem]
 
-theorem Subst.id_wfIn {Δ : Signature} : Subst.id.wfIn Δ Δ := fun v hv w hw => by
-  simp only [Subst.id, Subst.apply, Term.freeVars, List.mem_singleton] at hw
-  subst hw; exact hv
+theorem Subst.id_wfIn {Δ : Signature} : Subst.id.wfIn Δ Δ := fun _ hv => hv
 
 theorem Subst.single_wfIn {τ : Srt} {x : String} {t : Term τ} {Δ : Signature} (ht : t.wfIn Δ) :
     (Subst.single τ x t).wfIn (Δ.addVar ⟨x, τ⟩) Δ := by
@@ -70,48 +68,25 @@ theorem Term.subst_agreeOn {t : Term τ} {σ σ' : Subst} {Δ : Signature} :
     t.wfIn Δ → σ.agreeOn σ' Δ → t.subst σ = t.subst σ' := by
   intro hwf hagree
   induction t with
-  | var τ x =>
-    simp [Term.subst]
-    exact hagree ⟨x, τ⟩ (hwf ⟨x, τ⟩ (by simp [Term.freeVars]))
+  | var τ x => simp only [Term.subst]; exact hagree ⟨x, τ⟩ hwf
   | const _ => rfl
-  | unop op a iha =>
-    simp [Term.subst, iha (fun v hv => hwf v (by simp [Term.freeVars]; exact hv))]
-  | binop op a b iha ihb =>
-    simp [Term.subst, iha (fun v hv => hwf v (by simp [Term.freeVars]; left; exact hv)),
-                       ihb (fun v hv => hwf v (by simp [Term.freeVars]; right; exact hv))]
-  | ite c t e ihc iht ihe =>
-    simp [Term.subst,
-          ihc (fun v hv => hwf v (by simp [Term.freeVars]; left; exact hv)),
-          iht (fun v hv => hwf v (by simp [Term.freeVars]; right; left; exact hv)),
-          ihe (fun v hv => hwf v (by simp [Term.freeVars]; right; right; exact hv))]
+  | unop op a iha => simp only [Term.subst, iha hwf]
+  | binop op a b iha ihb => simp only [Term.subst, iha hwf.1, ihb hwf.2]
+  | ite c t e ihc iht ihe => simp only [Term.subst, ihc hwf.1, iht hwf.2.1, ihe hwf.2.2]
 
 theorem Term.subst_wfIn {t : Term τ} {σ : Subst} {Δ Δ' : Signature} :
     t.wfIn Δ → σ.wfIn Δ Δ' → (t.subst σ).wfIn Δ' := by
   intro hwf hσ
   induction t with
-  | var τ x =>
-    simp [Term.subst]
-    exact hσ ⟨x, τ⟩ (hwf ⟨x, τ⟩ (by simp [Term.freeVars]))
-  | const _  => simp [Term.subst, Term.wfIn, Term.freeVars]
-  | unop op a iha =>
-    intro v hv
-    simp [Term.subst, Term.freeVars] at hv
-    exact iha (fun v hv => hwf v (by simp [Term.freeVars]; exact hv)) v hv
+  | var τ x => simp only [Term.subst]; exact hσ ⟨x, τ⟩ hwf
+  | const _ => trivial
+  | unop op a iha => simp only [Term.subst, Term.wfIn]; exact iha hwf
   | binop op a b iha ihb =>
-    intro v hv
-    simp [Term.subst, Term.freeVars] at hv
-    cases hv with
-    | inl h => exact iha (fun v hv => hwf v (by simp [Term.freeVars]; left; exact hv)) v h
-    | inr h => exact ihb (fun v hv => hwf v (by simp [Term.freeVars]; right; exact hv)) v h
+    simp only [Term.subst, Term.wfIn]
+    exact ⟨iha hwf.1, ihb hwf.2⟩
   | ite c t e ihc iht ihe =>
-    intro v hv
-    simp [Term.subst, Term.freeVars] at hv
-    cases hv with
-    | inl h => exact ihc (fun v hv => hwf v (by simp [Term.freeVars]; left; exact hv)) v h
-    | inr hv =>
-      cases hv with
-      | inl h => exact iht (fun v hv => hwf v (by simp [Term.freeVars]; right; left; exact hv)) v h
-      | inr h => exact ihe (fun v hv => hwf v (by simp [Term.freeVars]; right; right; exact hv)) v h
+    simp only [Term.subst, Term.wfIn]
+    exact ⟨ihc hwf.1, iht hwf.2.1, ihe hwf.2.2⟩
 
 theorem Term.subst_id {t : Term τ} : t.subst Subst.id = t := by
   induction t with
@@ -151,16 +126,22 @@ theorem Term.apply_freeVars_subset_subst_freeVars {t : Term τ} {σ : Subst} {v 
       | inl ht => intro w hw; right; left; exact iht ht hw
       | inr he => intro w hw; right; right; exact ihe he hw
 
-theorem Term.wfIn_of_subst_wfIn {t : Term τ} {σ : Subst} {Δ Δ' : Signature} :
-    (t.subst σ).wfIn Δ' →
-    (∀ (x : String) (τ' : Srt), (σ.apply τ' x).wfIn Δ' → ⟨x, τ'⟩ ∈ Δ.vars) →
+theorem Term.wfIn_of_subst_wfIn {t : Term τ} {σ : Subst} {Δ Δ' : Signature}
+    (hsubst : (t.subst σ).wfIn Δ')
+    (himpl : ∀ (x : String) (τ' : Srt), (σ.apply τ' x).wfIn Δ' → ⟨x, τ'⟩ ∈ Δ.vars) :
     t.wfIn Δ := by
-  intro hsubst himpl v hv
-  apply himpl
-  intro w hw
-  have hsub : (σ.apply v.sort v.name).freeVars ⊆ (t.subst σ).freeVars :=
-    Term.apply_freeVars_subset_subst_freeVars hv
-  exact hsubst w (hsub hw)
+  induction t with
+  | var τ' x => simp only [Term.subst] at hsubst; exact himpl x τ' hsubst
+  | const _ => trivial
+  | unop op a iha =>
+    simp only [Term.subst, Term.wfIn] at hsubst
+    exact iha hsubst
+  | binop op a b iha ihb =>
+    simp only [Term.subst, Term.wfIn] at hsubst
+    exact ⟨iha hsubst.1, ihb hsubst.2⟩
+  | ite c t e ihc iht ihe =>
+    simp only [Term.subst, Term.wfIn] at hsubst
+    exact ⟨ihc hsubst.1, iht hsubst.2.1, ihe hsubst.2.2⟩
 
 def Subst.eval (σ : Subst) (ρ : Env) : Env :=
   { ρ with vars := fun τ x => Term.eval ρ (σ.apply τ x) }
@@ -230,45 +211,36 @@ theorem Subst.eval_update_agreeOn {σ : Subst} {ρ : Env} {τ : Srt} {x name' : 
       have hne : ¬(w.sort = τ ∧ w.name = x) := by
         intro h; obtain ⟨rfl, rfl⟩ := h; cases w; contradiction
       simp only [Subst.eval, Env.lookup, Subst.apply, Subst.update, Env.update, hne, ↓reduceDIte]
-      exact Term.eval_update_fresh (fun hfv => hfresh (hσ w hmem _ hfv))
+      exact Term.eval_update_not_in_sig (hσ w hmem) hfresh
   · exact ⟨fun _ _ => rfl, fun _ _ => rfl, fun _ _ => rfl⟩
 
 theorem Formula.eval_subst {σ : Subst} {ρ : Env} {φ : Formula} {Δ Δ' : Signature}
     (hφ : φ.wfIn Δ) (hσ : σ.wfIn Δ Δ') :
     (φ.subst σ Δ'.vars).eval ρ ↔ φ.eval (σ.eval ρ) := by
-  induction φ generalizing σ ρ Δ Δ' with
+  induction φ generalizing σ ρ Δ Δ' hσ with
   | true_ | false_ => rfl
   | eq _ _ _ | binpred _ _ _ | unpred _ _ => simp only [Formula.subst, Formula.eval, Term.eval_subst]
   | not φ ih => simp only [Formula.subst, Formula.eval]; exact not_congr (ih hφ hσ)
   | and φ ψ ihφ ihψ | or φ ψ ihφ ihψ | implies φ ψ ihφ ihψ =>
     simp only [Formula.subst, Formula.eval]
-    have hφl : φ.wfIn Δ := fun v hv => hφ v (by simp [Formula.freeVars]; left; exact hv)
-    have hψr : ψ.wfIn Δ := fun v hv => hφ v (by simp [Formula.freeVars]; right; exact hv)
-    first | exact and_congr (ihφ hφl hσ) (ihψ hψr hσ)
-          | exact or_congr (ihφ hφl hσ) (ihψ hψr hσ)
-          | exact imp_congr (ihφ hφl hσ) (ihψ hψr hσ)
+    first | exact and_congr (ihφ hφ.1 hσ) (ihψ hφ.2 hσ)
+          | exact or_congr (ihφ hφ.1 hσ) (ihψ hφ.2 hσ)
+          | exact imp_congr (ihφ hφ.1 hσ) (ihψ hφ.2 hσ)
   | forall_ x τ φ ih | exists_ x τ φ ih =>
     simp only [Formula.subst, Formula.eval]
-    have hwfφ := Formula.wfIn_body_of_wfIn_quant hφ
     let y' := freshName Δ'.vars x
     have hfresh := freshName_not_in_avoid Δ'.vars x τ
     have hσ_mono : σ.wfIn Δ (Δ'.addVar ⟨y', τ⟩) :=
       Subst.wfIn_mono hσ (Signature.Subset.subset_addVar Δ' ⟨y', τ⟩)
     have hwfσ' : (σ.update τ x (.var τ y')).wfIn (Δ.addVar ⟨x, τ⟩) (Δ'.addVar ⟨y', τ⟩) :=
-      Subst.wfIn_update hσ_mono (by intro v hv; simp [Term.freeVars] at hv; subst hv; exact List.Mem.head _)
+      Subst.wfIn_update hσ_mono (List.Mem.head _)
+    have key : ∀ v : τ.denote,
+        (φ.subst (σ.update τ x (.var τ y')) (⟨y', τ⟩ :: Δ'.vars)).eval (ρ.update τ y' v) ↔
+        φ.eval ((σ.eval ρ).update τ x v) := fun v =>
+      (ih hφ hwfσ').trans (Formula.eval_env_agree hφ (Subst.eval_update_agreeOn hσ hfresh))
     first
-    | constructor <;> intro h v
-      · exact (Formula.eval_env_agree hwfφ (Subst.eval_update_agreeOn hσ hfresh)).mp
-          ((ih hwfφ hwfσ').mp (h v))
-      · exact (ih hwfφ hwfσ').mpr
-          ((Formula.eval_env_agree hwfφ (Subst.eval_update_agreeOn hσ hfresh)).mpr (h v))
-    | constructor
-      · intro ⟨v, hv⟩
-        exact ⟨v, (Formula.eval_env_agree hwfφ (Subst.eval_update_agreeOn hσ hfresh)).mp
-          ((ih hwfφ hwfσ').mp hv)⟩
-      · intro ⟨v, hv⟩
-        exact ⟨v, (ih hwfφ hwfσ').mpr
-          ((Formula.eval_env_agree hwfφ (Subst.eval_update_agreeOn hσ hfresh)).mpr hv)⟩
+    | exact forall_congr' key
+    | exact exists_congr key
 
 theorem Formula.eval_subst_single {φ : Formula} {τ : Srt} {x : String} {t : Term τ} {ρ : Env}
     {Δ : Signature} (hφ : φ.wfIn (Δ.addVar ⟨x, τ⟩)) (ht : t.wfIn Δ) :
@@ -280,44 +252,22 @@ theorem Formula.eval_subst_single {φ : Formula} {τ : Srt} {x : String} {t : Te
     · exact ht
   rw [Formula.eval_subst hφ hσ, Subst.eval_single]
 
-theorem Formula.subst_wfIn {φ : Formula} {σ : Subst} {Δ Δ' : Signature} :
-    φ.wfIn Δ → σ.wfIn Δ Δ' → (φ.subst σ Δ'.vars).wfIn Δ' := by
-  intro hwf hσ
-  induction φ generalizing Δ Δ' σ with
-  | true_ | false_ => intro v hv; cases hv
-  | eq τ a b | binpred _ a b =>
-    intro v hv
-    simp [Formula.subst, Formula.freeVars, List.mem_append] at hv
-    cases hv with
-    | inl ha =>
-      exact Term.subst_wfIn (fun u hu => hwf u (by simp [Formula.freeVars]; left; exact hu)) hσ v ha
-    | inr hb =>
-      exact Term.subst_wfIn (fun u hu => hwf u (by simp [Formula.freeVars]; right; exact hu)) hσ v hb
-  | unpred _ v =>
-    intro u hu
-    simp [Formula.subst, Formula.freeVars] at hu
-    exact Term.subst_wfIn (fun w hw => hwf w (by simp [Formula.freeVars]; exact hw)) hσ u hu
-  | not φ ih =>
-    simp [Formula.subst]
-    exact ih hwf hσ
+theorem Formula.subst_wfIn {φ : Formula} {σ : Subst} {Δ Δ' : Signature}
+    (hwf : φ.wfIn Δ) (hσ : σ.wfIn Δ Δ') :
+    (φ.subst σ Δ'.vars).wfIn Δ' := by
+  induction φ generalizing Δ Δ' σ hσ with
+  | true_ | false_ => trivial
+  | eq _ a b => exact ⟨Term.subst_wfIn hwf.1 hσ, Term.subst_wfIn hwf.2 hσ⟩
+  | unpred _ a => exact Term.subst_wfIn hwf hσ
+  | binpred _ a b => exact ⟨Term.subst_wfIn hwf.1 hσ, Term.subst_wfIn hwf.2 hσ⟩
+  | not φ ih => exact ih hwf hσ
   | and φ ψ ihφ ihψ | or φ ψ ihφ ihψ | implies φ ψ ihφ ihψ =>
-    intro v hv
-    simp [Formula.subst, Formula.freeVars, List.mem_append] at hv
-    cases hv with
-    | inl ha => exact ihφ (fun u hu => hwf u (by simp [Formula.freeVars]; left; exact hu)) hσ v ha
-    | inr hb => exact ihψ (fun u hu => hwf u (by simp [Formula.freeVars]; right; exact hu)) hσ v hb
+    exact ⟨ihφ hwf.1 hσ, ihψ hwf.2 hσ⟩
   | forall_ y τ φ ih | exists_ y τ φ ih =>
-    intro v hv
-    simp [Formula.subst, Formula.freeVars, List.mem_filter] at hv
-    obtain ⟨hv_in, hv_ne⟩ := hv
-    let y'_name := freshName Δ'.vars y
-    -- Apply IH with extended context and updated substitution
-    have hwf' : φ.wfIn (Δ.addVar ⟨y, τ⟩) := Formula.wfIn_body_of_wfIn_quant hwf
-    have hσ_mono : σ.wfIn Δ (Δ'.addVar ⟨y'_name, τ⟩) :=
-      Subst.wfIn_mono hσ (Signature.Subset.subset_addVar Δ' ⟨y'_name, τ⟩)
-    have hσ' : (σ.update τ y (.var τ y'_name)).wfIn (Δ.addVar ⟨y, τ⟩) (Δ'.addVar ⟨y'_name, τ⟩) :=
-      Subst.wfIn_update hσ_mono (by intro v hv; simp [Term.freeVars] at hv; subst hv; exact List.Mem.head _)
-    have := ih (σ := σ.update τ y (.var τ y'_name)) hwf' hσ' v hv_in
-    cases this with
-    | head => contradiction
-    | tail _ h => exact h
+    simp only [Formula.subst, Formula.wfIn]
+    let y' := freshName Δ'.vars y
+    have hσ_mono : σ.wfIn Δ (Δ'.addVar ⟨y', τ⟩) :=
+      Subst.wfIn_mono hσ (Signature.Subset.subset_addVar Δ' ⟨y', τ⟩)
+    have hσ' : (σ.update τ y (.var τ y')).wfIn (Δ.addVar ⟨y, τ⟩) (Δ'.addVar ⟨y', τ⟩) :=
+      Subst.wfIn_update hσ_mono (List.Mem.head _)
+    exact ih hwf hσ'

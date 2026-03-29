@@ -285,7 +285,10 @@ theorem Assertion.assume_correct (m : Assertion α) (σ : FiniteSubst)
     have hb := VerifM.eval_bind _ _ _ _ heval
     simp only [Assertion.post]
     intro hφ
-    have hsubst_wf := FiniteSubst.subst_wfIn_formula hσwf hφwf
+    have hsubst_wf' := FiniteSubst.subst_wfIn_formula hσwf hφwf
+    have hsubst_wf : (φ.subst σ.subst σ.range).wfIn st.decls :=
+      Formula.wfIn_mono _ hsubst_wf' ⟨fun x hx => hx, fun _ h => absurd h List.not_mem_nil,
+        fun _ h => absurd h List.not_mem_nil, fun _ h => absurd h List.not_mem_nil⟩
     have hsubst_eval := (FiniteSubst.eval_subst_formula hφwf hσwf.1).mpr hφ
     have hassume := VerifM.eval_assume hb hsubst_wf hsubst_eval
     exact ih σ { st with asserts := _ :: st.asserts } ρ Ψ hσwf hkwf hassume hpost
@@ -307,11 +310,14 @@ theorem Assertion.assume_correct (m : Assertion α) (σ : FiniteSubst)
     have ht_subst_wf : (t.subst σ.subst).wfIn (Signature.ofVars σ.range) := Term.subst_wfIn htwf hσwf.1
     have heq_wf : (Formula.eq v.sort (.var v.sort v'.name) (t.subst σ.subst)).wfIn
         (st.decls.addVar v') := by
-      intro w hw
-      simp only [Formula.freeVars, Term.freeVars] at hw
-      cases hw with
-      | head => exact .head _
-      | tail _ hw => exact .tail _ (hσwf.2 (ht_subst_wf w hw))
+      simp only [Formula.wfIn, Term.wfIn]
+      refine ⟨List.mem_cons_self, ?_⟩
+      have hsub : (Signature.ofVars σ.range).Subset (st.decls.addVar v') :=
+        Signature.Subset.trans
+          ⟨fun x hx => hσwf.2 hx, fun _ h => absurd h List.not_mem_nil,
+           fun _ h => absurd h List.not_mem_nil, fun _ h => absurd h List.not_mem_nil⟩
+          (Signature.Subset.subset_addVar _ _)
+      exact Term.wfIn_mono _ ht_subst_wf hsub
     have heq_holds : (Formula.eq v.sort (.var v.sort v'.name) (t.subst σ.subst)).eval
         (ρ.update v.sort v'.name u) := by
       simp only [Formula.eval, Term.eval, Env.lookup_update_same, u, Term.eval_subst]
@@ -345,7 +351,7 @@ theorem Assertion.assume_correct (m : Assertion α) (σ : FiniteSubst)
     -- Show the atom formula is well-formed and holds
     have hp_subst_wf : (p.subst σ.subst).wfIn (Signature.ofVars σ.range) := Atom.subst_wfIn hpwf hσwf.1
     have hvar_wf : (Term.var v.sort v'.name).wfIn (st.decls.addVar v') := by
-      intro w hw; simp [Term.freeVars] at hw; exact hw ▸ .head _
+      simp only [Term.wfIn]; exact List.mem_cons_self
     have hformula_wf : ((p.subst σ.subst).toFormula (.var v.sort v'.name)).wfIn
         (st.decls.addVar v') :=
       Atom.toFormula_wfIn (Atom.wfIn_mono hp_subst_wf (by
@@ -378,7 +384,10 @@ theorem Assertion.assume_correct (m : Assertion α) (σ : FiniteSubst)
       have htrue := hall true (List.mem_cons_self ..)
       simp at htrue
       have hb2 := VerifM.eval_bind _ _ _ _ htrue
-      have hsubst_wf := FiniteSubst.subst_wfIn_formula hσwf hφwf
+      have hsubst_wf' := FiniteSubst.subst_wfIn_formula hσwf hφwf
+      have hsubst_wf : (φ.subst σ.subst σ.range).wfIn st.decls :=
+        Formula.wfIn_mono _ hsubst_wf' ⟨fun x hx => hx, fun _ h => absurd h List.not_mem_nil,
+          fun _ h => absurd h List.not_mem_nil, fun _ h => absurd h List.not_mem_nil⟩
       have hsubst_eval := (FiniteSubst.eval_subst_formula hφwf hσwf.1).mpr hφ
       have hassume := VerifM.eval_assume hb2 hsubst_wf hsubst_eval
       exact iht σ { st with asserts := _ :: st.asserts } ρ Ψ hσwf hktwf hassume hpost
@@ -387,8 +396,11 @@ theorem Assertion.assume_correct (m : Assertion α) (σ : FiniteSubst)
       simp at hfalse
       have hb2 := VerifM.eval_bind _ _ _ _ hfalse
       have hnot_wf : (Formula.not φ).wfIn (Signature.ofVars σ.dom) := by
-        intro w hw; simp only [Formula.freeVars] at hw; exact hφwf w hw
-      have hsubst_wf := FiniteSubst.subst_wfIn_formula hσwf hnot_wf
+        simp only [Formula.wfIn]; exact hφwf
+      have hsubst_wf' := FiniteSubst.subst_wfIn_formula hσwf hnot_wf
+      have hsubst_wf : (φ.not.subst σ.subst σ.range).wfIn st.decls :=
+        Formula.wfIn_mono _ hsubst_wf' ⟨fun x hx => hx, fun _ h => absurd h List.not_mem_nil,
+          fun _ h => absurd h List.not_mem_nil, fun _ h => absurd h List.not_mem_nil⟩
       have hsubst_eval := (FiniteSubst.eval_subst_formula hnot_wf hσwf.1).mpr hnφ
       have hassume := VerifM.eval_assume hb2 hsubst_wf hsubst_eval
       exact ihe σ { st with asserts := _ :: st.asserts } ρ Ψ hσwf hkewf hassume hpost
@@ -411,7 +423,10 @@ theorem Assertion.prove_correct (m : Assertion α) (σ : FiniteSubst)
     obtain ⟨hφwf, hkwf⟩ := hwf
     simp only [Assertion.prove] at heval
     have hb := VerifM.eval_bind _ _ _ _ heval
-    have hsubst_wf := FiniteSubst.subst_wfIn_formula hσwf hφwf
+    have hsubst_wf' := FiniteSubst.subst_wfIn_formula hσwf hφwf
+    have hsubst_wf : (φ.subst σ.subst σ.range).wfIn st.decls :=
+      Formula.wfIn_mono _ hsubst_wf' ⟨fun x hx => hx, fun _ h => absurd h List.not_mem_nil,
+        fun _ h => absurd h List.not_mem_nil, fun _ h => absurd h List.not_mem_nil⟩
     have hassert := VerifM.eval_assert hb hsubst_wf
     have hφ_holds := (FiniteSubst.eval_subst_formula hφwf hσwf.1).mp hassert.1
     exact ⟨hφ_holds, ih σ st ρ Ψ hσwf hkwf hassert.2 hpost⟩
@@ -432,11 +447,14 @@ theorem Assertion.prove_correct (m : Assertion α) (σ : FiniteSubst)
     have ht_subst_wf : (t.subst σ.subst).wfIn (Signature.ofVars σ.range) := Term.subst_wfIn htwf hσwf.1
     have heq_wf : (Formula.eq v.sort (.var v.sort v'.name) (t.subst σ.subst)).wfIn
         (st.decls.addVar v') := by
-      intro w hw
-      simp only [Formula.freeVars, Term.freeVars] at hw
-      cases hw with
-      | head => exact .head _
-      | tail _ hw => exact .tail _ (hσwf.2 (ht_subst_wf w hw))
+      simp only [Formula.wfIn, Term.wfIn]
+      refine ⟨List.mem_cons_self, ?_⟩
+      have hsub : (Signature.ofVars σ.range).Subset (st.decls.addVar v') :=
+        Signature.Subset.trans
+          ⟨fun x hx => hσwf.2 hx, fun _ h => absurd h List.not_mem_nil,
+           fun _ h => absurd h List.not_mem_nil, fun _ h => absurd h List.not_mem_nil⟩
+          (Signature.Subset.subset_addVar _ _)
+      exact Term.wfIn_mono _ ht_subst_wf hsub
     have heq_holds : (Formula.eq v.sort (.var v.sort v'.name) (t.subst σ.subst)).eval
         (ρ.update v.sort v'.name u) := by
       simp only [Formula.eval, Term.eval, Env.lookup_update_same, u, Term.eval_subst]
@@ -485,11 +503,9 @@ theorem Assertion.prove_correct (m : Assertion α) (σ : FiniteSubst)
       have hb3 := VerifM.eval_bind _ _ _ _ hdecl
       have heq_wf : (Formula.eq v.sort (.var v.sort v'.name) t).wfIn
           (st.decls.addVar v') := by
-        intro w hw
-        simp only [Formula.freeVars, Term.freeVars] at hw
-        cases hw with
-        | head => exact .head _
-        | tail _ hw => exact .tail _ (hresult_wf w hw)
+        simp only [Formula.wfIn, Term.wfIn]
+        exact ⟨List.mem_cons_self,
+               Term.wfIn_mono _ hresult_wf (Signature.Subset.subset_addVar _ _)⟩
       have heq_holds : (Formula.eq v.sort (.var v.sort v'.name) t).eval
           (ρ.update v.sort v'.name (t.eval ρ)) := by
         simp only [Formula.eval, Term.eval, Env.lookup_update_same]
@@ -512,7 +528,10 @@ theorem Assertion.prove_correct (m : Assertion α) (σ : FiniteSubst)
       have htrue := hall true (List.mem_cons_self ..)
       simp at htrue
       have hb2 := VerifM.eval_bind _ _ _ _ htrue
-      have hsubst_wf := FiniteSubst.subst_wfIn_formula hσwf hφwf
+      have hsubst_wf' := FiniteSubst.subst_wfIn_formula hσwf hφwf
+      have hsubst_wf : (φ.subst σ.subst σ.range).wfIn st.decls :=
+        Formula.wfIn_mono _ hsubst_wf' ⟨fun x hx => hx, fun _ h => absurd h List.not_mem_nil,
+          fun _ h => absurd h List.not_mem_nil, fun _ h => absurd h List.not_mem_nil⟩
       have hsubst_eval := (FiniteSubst.eval_subst_formula hφwf hσwf.1).mpr hφ
       have hassume := VerifM.eval_assume hb2 hsubst_wf hsubst_eval
       exact iht σ { st with asserts := _ :: st.asserts } ρ Ψ hσwf hktwf hassume hpost
@@ -521,8 +540,11 @@ theorem Assertion.prove_correct (m : Assertion α) (σ : FiniteSubst)
       simp at hfalse
       have hb2 := VerifM.eval_bind _ _ _ _ hfalse
       have hnot_wf : (Formula.not φ).wfIn (Signature.ofVars σ.dom) := by
-        intro w hw; simp only [Formula.freeVars] at hw; exact hφwf w hw
-      have hsubst_wf := FiniteSubst.subst_wfIn_formula hσwf hnot_wf
+        simp only [Formula.wfIn]; exact hφwf
+      have hsubst_wf' := FiniteSubst.subst_wfIn_formula hσwf hnot_wf
+      have hsubst_wf : (φ.not.subst σ.subst σ.range).wfIn st.decls :=
+        Formula.wfIn_mono _ hsubst_wf' ⟨fun x hx => hx, fun _ h => absurd h List.not_mem_nil,
+          fun _ h => absurd h List.not_mem_nil, fun _ h => absurd h List.not_mem_nil⟩
       have hsubst_eval := (FiniteSubst.eval_subst_formula hnot_wf hσwf.1).mpr hnφ
       have hassume := VerifM.eval_assume hb2 hsubst_wf hsubst_eval
       exact ihe σ { st with asserts := _ :: st.asserts } ρ Ψ hσwf hkewf hassume hpost
