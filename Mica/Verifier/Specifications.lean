@@ -100,18 +100,18 @@ mutual
     cases ty with
     | int =>
       simp [typeConstraints]
-      intro w hw; simp [Formula.freeVars] at hw; exact ht w hw
+      simp only [Formula.wfIn]; exact ht
     | bool =>
       simp [typeConstraints]
-      intro w hw; simp [Formula.freeVars] at hw; exact ht w hw
+      simp only [Formula.wfIn]; exact ht
     | tuple ts =>
       simp only [typeConstraints]
       intro φ hφ
       cases hφ with
       | head =>
-        intro w hw; simp [Formula.freeVars] at hw; exact ht w hw
+        simp only [Formula.wfIn]; exact ht
       | tail _ hφ =>
-        exact typeConstraintsList_wfIn (by intro w hw; simp [Term.freeVars] at hw; exact ht w hw) φ hφ
+        exact typeConstraintsList_wfIn (by simp only [Term.wfIn]; exact ht) φ hφ
     | _ => simp [typeConstraints]
 
   theorem typeConstraintsList_wfIn {ts : List TinyML.Type_} {tl : Term .vallist} {Δ : Signature}
@@ -123,9 +123,9 @@ mutual
       intro φ hφ
       cases List.mem_append.mp hφ with
       | inl h =>
-        exact typeConstraints_wfIn (by intro w hw; simp [Term.freeVars] at hw; exact htl w hw) φ h
+        exact typeConstraints_wfIn (by simp only [Term.wfIn]; exact htl) φ h
       | inr h =>
-        exact typeConstraintsList_wfIn (by intro w hw; simp [Term.freeVars] at hw; exact htl w hw) φ h
+        exact typeConstraintsList_wfIn (by simp only [Term.wfIn]; exact htl) φ h
 end
 
 mutual
@@ -463,11 +463,8 @@ theorem Spec.declareArgs_correct :
         have hsarg_wf : sarg.wfIn st.decls := hsargs (targ, sarg) (List.mem_cons_self ..)
         have heq_wf : (Formula.eq Srt.value (Term.var .value argVar.name) sarg).wfIn
             (st.decls.addVar argVar) := by
-          intro w hw
-          simp only [Formula.freeVars, Term.freeVars] at hw
-          cases hw with
-          | head => exact .head _
-          | tail _ hw => exact .tail _ (hsarg_wf w hw)
+          simp only [Formula.wfIn, Term.wfIn]
+          exact ⟨List.Mem.head _, Term.wfIn_mono sarg hsarg_wf (Signature.Subset.subset_addVar _ _)⟩
         have heq_holds : (Formula.eq Srt.value (Term.var .value argVar.name) sarg).eval
             (ρ.update .value argVar.name (sarg.eval ρ)) := by
           simp only [Formula.eval, Term.eval]
@@ -596,7 +593,7 @@ theorem Spec.declareImplArgs_correct :
       set ρ₁ := ρ.update .value argVar.name v
       -- Peel off assumeAll
       have hvar_wf : (Term.var Srt.value argVar.name).wfIn st₁.decls := by
-        intro w hw; simp [Term.freeVars] at hw; subst hw; exact List.mem_cons_self ..
+        simp only [Term.wfIn]; exact List.mem_cons_self ..
       have hvar_eval : (Term.var Srt.value argVar.name).eval ρ₁ = v := by
         simp [Term.eval, ρ₁]
       have hassume_bind := VerifM.eval_bind _ _ _ _ hdecl
@@ -687,7 +684,7 @@ theorem Spec.implement_correct (s : Spec) (body : List Var → VerifM (Term .val
   · apply Terms.Eval.lookup_var
     apply Terms.Eval.env_agree (ρ := ρ')
     · intro t ht; obtain ⟨av, hav, rfl⟩ := List.mem_map.mp ht
-      intro w hw; simp [Term.freeVars] at hw; subst hw
+      simp only [Term.wfIn]
       have hav_eq : av = ⟨av.name, .value⟩ := by
         have h := hsorts av hav; cases av; simp_all
       exact hav_eq ▸ hmem_decls av hav

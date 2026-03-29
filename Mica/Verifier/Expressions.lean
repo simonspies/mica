@@ -52,7 +52,9 @@ def vtailN (t : Term .vallist) : Nat → Term .vallist
 
 theorem vtailN_wfIn {t : Term .vallist} {Δ : Signature} (ht : t.wfIn Δ) (n : Nat) :
     (vtailN t n).wfIn Δ := by
-  intro v hv; rw [vtailN_freeVars] at hv; exact ht v hv
+  induction n with
+  | zero => simpa [vtailN]
+  | succ n ih => simp only [vtailN, Term.wfIn]; exact ih
 
 @[simp] theorem vtailN_eval (t : Term .vallist) (ρ : Env) :
     ∀ n, (vtailN t n).eval ρ = List.drop n (t.eval ρ)
@@ -78,8 +80,8 @@ theorem compileUnop_wfIn {op : TinyML.UnOp} {s : Term .value} {Δ : Signature}
     (hs : s.wfIn Δ) {t : Term .value} (heq : compileUnop op s = some t) :
     t.wfIn Δ := by
   cases op <;> simp [compileUnop] at heq <;> subst heq <;>
-    intro v hv <;> simp [Term.freeVars, vtailN_freeVars] at hv <;>
-    simp_all [hs v]
+    simp only [Term.wfIn] <;>
+    first | exact hs | exact vtailN_wfIn hs _
 
 theorem compileUnop_eval {op : TinyML.UnOp} {s : Term .value} {ρ : Env}
     {v w : Runtime.Val} {t : Term .value}
@@ -102,9 +104,8 @@ theorem compileOp_wfIn {op : TinyML.BinOp} {sl sr : Term .value} {Δ : Signature
     (hl : sl.wfIn Δ) (hr : sr.wfIn Δ) {t : Term .value} (heq : compileOp op sl sr = some t) :
     t.wfIn Δ := by
   cases op <;> simp [compileOp] at heq <;> subst heq <;>
-    intro v hv <;> simp [Term.freeVars] at hv <;>
-    (try cases hv) <;>
-    simp_all [hl v, hr v]
+    simp only [Term.wfIn, and_true, true_and] <;>
+    tauto
 
 /-- If `evalBinOp op v1 v2 = some w` and the input terms evaluate to `v1`, `v2`,
     then the compiled SMT term evaluates to `w`.
@@ -306,7 +307,7 @@ theorem compile_correct (e : TinyML.Expr) (S : SpecMap) (B : Bindings) (Γ : Tin
       simp only [TinyML.Expr.runtime, TinyML.Const.runtime, Runtime.Expr.subst_val]; apply wp.val
       obtain heval := VerifM.eval_ret heval
       exact hpost (.int n) ρ st .int _ heval
-        (by intro w hw; simp [Term.freeVars] at hw)
+        (by trivial)
         (by simp [Term.eval, UnOp.eval, Const.denote])
         (.int n)
     | bool b =>
@@ -314,7 +315,7 @@ theorem compile_correct (e : TinyML.Expr) (S : SpecMap) (B : Bindings) (Γ : Tin
       simp only [TinyML.Expr.runtime, TinyML.Const.runtime, Runtime.Expr.subst_val]; apply wp.val
       obtain heval := VerifM.eval_ret heval
       exact hpost (.bool b) ρ st .bool _ heval
-        (by intro w hw; simp [Term.freeVars] at hw)
+        (by trivial)
         (by simp [Term.eval, UnOp.eval, Const.denote])
         (.bool b)
     | unit =>
@@ -322,7 +323,7 @@ theorem compile_correct (e : TinyML.Expr) (S : SpecMap) (B : Bindings) (Γ : Tin
       simp only [TinyML.Expr.runtime, TinyML.Const.runtime, Runtime.Expr.subst_val]; apply wp.val
       obtain heval := VerifM.eval_ret heval
       exact hpost .unit ρ st .unit _ heval
-        (by intro w hw; simp [Term.freeVars] at hw)
+        (by trivial)
         (by simp [Term.eval])
         .unit
   | inj tag arity payload =>
@@ -339,7 +340,7 @@ theorem compile_correct (e : TinyML.Expr) (S : SpecMap) (B : Bindings) (Γ : Tin
       obtain ⟨hdecls_p, hagreeOn_p, hΨ_p⟩ := hΨ_p
       obtain hΨ_p := VerifM.eval_ret hΨ_p
       exact hpost (.inj tag arity v_p) ρ_p st_p (.sum ((List.replicate arity .empty).set tag ty_p)) (.unop (.mkInj tag arity) se_p) hΨ_p
-        (by intro w hw; simp [Term.freeVars] at hw; exact hse_wf_p w hw)
+        (by simp only [Term.wfIn]; exact hse_wf_p)
         (by simp [Term.eval, UnOp.eval, heval_se_p])
         (by
           let ts := (List.replicate arity TinyML.Type_.empty).set tag ty_p
@@ -426,7 +427,7 @@ theorem compile_correct (e : TinyML.Expr) (S : SpecMap) (B : Bindings) (Γ : Tin
         rw [heq]; simp
       obtain heval := VerifM.eval_ret heval
       have hwfv : (Term.var Srt.value x'.name).wfIn st.decls := by
-        intro w hw; simp [Term.freeVars] at hw; subst hw
+        simp only [Term.wfIn]
         have h := hbwf _ hmem
         cases x' with | mk n s => simp only at hsort; subst hsort; exact h
       have htyping : TinyML.ValHasType (ρ.lookup .value x'.name) (Γ x |>.getD .value) := by
@@ -501,7 +502,7 @@ theorem compile_correct (e : TinyML.Expr) (S : SpecMap) (B : Bindings) (Γ : Tin
             | int b =>
               simp at htypeOf
               have hassert_wf : (Formula.not (.eq .int (.unop .toInt sr) (.const (.i 0)))).wfIn st₂.decls := by
-                intro v hv; simp [Formula.freeVars, Term.freeVars] at hv; exact hsr_wf v hv
+                simp only [Formula.wfIn, Term.wfIn, and_true]; exact hsr_wf
               have heval_assert := VerifM.eval_bind _ _ _ _ hΨ_body
               have ⟨hne_zero, hΨ_post⟩ := VerifM.eval_assert heval_assert hassert_wf
               simp [Formula.eval, Term.eval, Const.denote] at hne_zero
@@ -517,19 +518,15 @@ theorem compile_correct (e : TinyML.Expr) (S : SpecMap) (B : Bindings) (Γ : Tin
               | (refine ⟨.int (a / b), ?_, ?_⟩
                  · simp [TinyML.evalBinOp, hne_zero]
                  · exact hpost (.int (a / b)) ρ_r st₂ .int _ hΨ_post
-                     (by intro v hv; simp [Term.freeVars] at hv
-                         rcases hv with hv | hv
-                         · exact (sl.wfIn_mono hsl_wf hdecls_r) v hv
-                         · exact hsr_wf v hv)
+                     (by simp only [Term.wfIn]
+                         exact ⟨Term.wfIn_mono sl hsl_wf hdecls_r, hsr_wf⟩)
                      (by simp [Term.eval, UnOp.eval, BinOp.eval, hsl_ρ_r, hsr_eval])
                      (.int _))
               | (refine ⟨.int (a % b), ?_, ?_⟩
                  · simp [TinyML.evalBinOp, hne_zero]
                  · exact hpost (.int (a % b)) ρ_r st₂ .int _ hΨ_post
-                     (by intro v hv; simp [Term.freeVars] at hv
-                         rcases hv with hv | hv
-                         · exact (sl.wfIn_mono hsl_wf hdecls_r) v hv
-                         · exact hsr_wf v hv)
+                     (by simp only [Term.wfIn]
+                         exact ⟨Term.wfIn_mono sl hsl_wf hdecls_r, hsr_wf⟩)
                      (by simp [Term.eval, UnOp.eval, BinOp.eval, hsl_ρ_r, hsr_eval])
                      (.int _))
             | _ => simp at htypeOf
@@ -600,11 +597,8 @@ theorem compile_correct (e : TinyML.Expr) (S : SpecMap) (B : Bindings) (Γ : Tin
         obtain h := VerifM.eval_bind _ _ _ _ h
         obtain h := VerifM.eval_assume h
         apply h
-        · intro w hw
-          simp only [Formula.freeVars, List.mem_append] at hw
-          rcases hw with hw | hw
-          · simp [Term.freeVars] at hw; subst hw; exact List.mem_cons_self
-          · exact List.mem_cons.mpr (Or.inr (hsube_wf w hw))
+        · simp only [Formula.wfIn, Term.wfIn]
+          exact ⟨List.mem_cons_self .., Term.wfIn_mono sube hsube_wf (Signature.Subset.subset_addVar _ _)⟩
         · simp only [Formula.eval, Term.eval, Env.lookup_update_same]
           show v_e = Term.eval ρ_body sube
           rw [Term.eval_env_agree hsube_wf (Env.agreeOn_symm hagreeOn_body_e)]
@@ -636,15 +630,13 @@ theorem compile_correct (e : TinyML.Expr) (S : SpecMap) (B : Bindings) (Γ : Tin
     obtain ⟨hdecls_e, hagreeOn_e, hΨ_e⟩ := hΨ_e
     let φ := Formula.eq .bool (Term.unop .toBool se) (Term.const (.b true))
     have hwf_φ : φ.wfIn st₁.decls := by
-      intro v hv
-      simp only [φ, Formula.freeVars, List.mem_append, Term.freeVars, List.mem_nil_iff, or_false] at hv
-      exact hse_wf v hv
+      simp only [φ, Formula.wfIn, Term.wfIn, and_true]; exact hse_wf
     have heval_assert : (VerifM.assert φ).eval st₁ ρ_e _ := VerifM.eval_bind _ _ _ _ hΨ_e
     obtain ⟨_, hcont⟩ := VerifM.eval_assert heval_assert hwf_φ
     have hΨ_pure := VerifM.eval_ret hcont
     intro _
     exact hpost .unit ρ_e st₁ .unit (Term.const .unit) hΨ_pure
-      (by intro w hw; simp [Term.freeVars] at hw)
+      trivial
       (by simp [Term.eval])
       .unit
   | ifThenElse cond thn els =>
@@ -662,13 +654,9 @@ theorem compile_correct (e : TinyML.Expr) (S : SpecMap) (B : Bindings) (Γ : Tin
     have htrue := hall true (by simp)
     have hfalse := hall false (by simp)
     have hwf_ne : (Formula.not (Formula.eq .value sc (.unop .ofBool (.const (.b false))))).wfIn st₁.decls := by
-      intro v hv
-      simp only [Formula.freeVars, List.mem_append, Term.freeVars, List.not_mem_nil, or_false] at hv
-      exact hsc_wf v hv
+      simp only [Formula.wfIn, Term.wfIn, and_true]; exact hsc_wf
     have hwf_eq : (Formula.eq .value sc (.unop .ofBool (.const (.b false) : Term .bool))).wfIn st₁.decls := by
-      intro v hv
-      simp only [Formula.freeVars, List.mem_append, Term.freeVars, List.not_mem_nil, or_false] at hv
-      exact hsc_wf v hv
+      simp only [Formula.wfIn, Term.wfIn, and_true]; exact hsc_wf
     have htrue_cont := VerifM.eval_assume (VerifM.eval_bind _ _ _ _ htrue)
     have hfalse_cont := VerifM.eval_assume (VerifM.eval_bind _ _ _ _ hfalse)
     constructor
@@ -740,9 +728,9 @@ theorem compile_correct (e : TinyML.Expr) (S : SpecMap) (B : Bindings) (Γ : Tin
     have heval_tuple : (Term.unop .ofValList (Terms.toValList (pairs.map Prod.snd))).eval ρ' = Runtime.Val.tuple vs := by
       simp [Term.eval, UnOp.eval, Terms.toValList_eval heval_pairs]
     have hwf_tuple : (Term.unop UnOp.ofValList (Terms.toValList (pairs.map Prod.snd))).wfIn st'.decls := by
-      intro w hw; simp [Term.freeVars] at hw; exact Terms.toValList_wfIn (fun t ht => by
-        obtain ⟨p, hp, rfl⟩ := List.mem_map.mp ht
-        exact hwf_pairs p hp) w hw
+      simp only [Term.wfIn]
+      exact Terms.toValList_wfIn (fun t ht => by
+        obtain ⟨p, hp, rfl⟩ := List.mem_map.mp ht; exact hwf_pairs p hp)
     exact hpost (Runtime.Val.tuple vs) ρ' st' (.tuple (pairs.map Prod.fst)) (.unop .ofValList (Terms.toValList (pairs.map Prod.snd)))
       hΨ hwf_tuple heval_tuple (.tuple htyping)
   | fix _ _ _ _ | ref _ | deref _ | store _ _ =>
@@ -785,11 +773,8 @@ theorem compileBranch_correct (branch : TinyML.Binder × TinyML.Expr) (S : SpecM
   have hname_fresh : ∀ w ∈ st.decls.vars, w.name ≠ xv.name :=
     fun w hw h => hxv_fresh (List.mem_map.mpr ⟨w, hw, h⟩)
   have hformula_wf : (Formula.eq .value sc (.unop (.mkInj i n) (.var .value xv.name))).wfIn st₁.decls := by
-    intro w hw
-    simp [Formula.freeVars, Term.freeVars] at hw
-    rcases hw with hw | hw
-    · exact List.Mem.tail _ (hsc_wf w hw)
-    · subst hw; exact List.Mem.head _
+    simp only [Formula.wfIn, Term.wfIn]
+    exact ⟨Term.wfIn_mono sc hsc_wf (Signature.Subset.subset_addVar _ _), List.mem_cons_self ..⟩
   have hsc_eval_ρ₁ : sc.eval ρ₁ = sc.eval ρ :=
     Term.eval_env_agree hsc_wf (Env.agreeOn_symm (agreeOn_update_fresh hxv_fresh))
   have hformula_eval : Formula.eval ρ₁
@@ -800,7 +785,7 @@ theorem compileBranch_correct (branch : TinyML.Binder × TinyML.Expr) (S : SpecM
   have heval_assumeAll := hassume hformula_wf hformula_eval
   -- Peel off assumeAll (typeConstraints)
   have hxv_wf : (Term.var Srt.value xv.name).wfIn st₁.decls := by
-    intro w hw; simp [Term.freeVars] at hw; subst hw; exact List.mem_cons_self ..
+    simp only [Term.wfIn]; exact List.mem_cons_self ..
   have hxv_eval : (Term.var Srt.value xv.name).eval ρ₁ = payload := by
     simp [Term.eval, ρ₁, Env.lookup_update_same]
   have hassume_bind₂ := VerifM.eval_bind _ _ _ _ heval_assumeAll
@@ -916,7 +901,7 @@ theorem compileExprs_correct (es : List TinyML.Expr) (S : SpecMap) (B : Bindings
       simp only [List.mem_cons] at hp
       rcases hp with rfl | hp
       · exact hse_wf
-      · exact fun v hv => hdecls_e.vars _ (hwf_rest p hp v hv)
+      · exact Term.wfIn_mono _ (hwf_rest p hp) hdecls_e
     have heval_cons : Terms.Eval ρ' (((te, se) :: rest_pairs).map Prod.snd) (v :: vs) :=
       Terms.Eval.cons heval_se
         (heval_rest.env_agree
