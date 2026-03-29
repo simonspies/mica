@@ -164,9 +164,9 @@ theorem Term.eval_subst {σ : Subst} {ρ : Env} {t : Term τ} :
     Term.eval ρ (t.subst σ) = Term.eval (σ.eval ρ) t := by
   induction t with
   | var τ y => simp [Term.subst, Term.eval, Subst.eval_lookup]
-  | const _ => simp [Term.subst, Term.eval]
-  | unop op a iha => simp [Term.subst, Term.eval, iha]
-  | binop op a b iha ihb => simp [Term.subst, Term.eval, iha, ihb]
+  | const c => simp only [Term.subst, Term.eval]; cases c <;> rfl
+  | unop op a iha => simp only [Term.subst, Term.eval, iha]; cases op <;> rfl
+  | binop op a b iha ihb => simp only [Term.subst, Term.eval, iha, ihb]; cases op <;> rfl
   | ite c t e ihc iht ihe => simp [Term.subst, Term.eval, ihc, iht, ihe]
 
 def freshName (avoid : List Var) (base : String) : String :=
