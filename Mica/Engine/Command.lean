@@ -19,26 +19,45 @@ structure SmtState where
 
 /-- One frame extends another: same fields with possible prepended elements. -/
 def SmtFrame.Extends (f f' : SmtFrame) : Prop :=
-  -- @claude: just extending the variables will not be enough in the long run
-  ∃ ds as, f'.decls.vars = ds ++ f.decls.vars ∧ f'.asserts = as ++ f.asserts
+  ∃ vs cs us bs as,
+    f'.decls.vars   = vs ++ f.decls.vars ∧
+    f'.decls.consts = cs ++ f.decls.consts ∧
+    f'.decls.unary  = us ++ f.decls.unary ∧
+    f'.decls.binary = bs ++ f.decls.binary ∧
+    f'.asserts = as ++ f.asserts
 
 theorem SmtFrame.Extends.refl (f : SmtFrame) : f.Extends f :=
-  ⟨[], [], rfl, rfl⟩
+  ⟨[], [], [], [], [], rfl, rfl, rfl, rfl, rfl⟩
 
--- @claude: just adding a single declaration will not be enough in the long run
-theorem SmtFrame.Extends.addDecl (f : SmtFrame) (v : Var) :
+theorem SmtFrame.Extends.addVar (f : SmtFrame) (v : Var) :
     f.Extends ⟨f.decls.addVar v, f.asserts⟩ :=
-  ⟨[v], [], rfl, rfl⟩
+  ⟨[v], [], [], [], [], rfl, rfl, rfl, rfl, rfl⟩
+
+theorem SmtFrame.Extends.addConst (f : SmtFrame) (c : FOL.Const) :
+    f.Extends ⟨f.decls.addConst c, f.asserts⟩ :=
+  ⟨[], [c], [], [], [], rfl, rfl, rfl, rfl, rfl⟩
+
+theorem SmtFrame.Extends.addUnary (f : SmtFrame) (u : FOL.Unary) :
+    f.Extends ⟨f.decls.addUnary u, f.asserts⟩ :=
+  ⟨[], [], [u], [], [], rfl, rfl, rfl, rfl, rfl⟩
+
+theorem SmtFrame.Extends.addBinary (f : SmtFrame) (b : FOL.Binary) :
+    f.Extends ⟨f.decls.addBinary b, f.asserts⟩ :=
+  ⟨[], [], [], [b], [], rfl, rfl, rfl, rfl, rfl⟩
 
 theorem SmtFrame.Extends.addAssert (f : SmtFrame) (φ : Formula) :
     f.Extends ⟨f.decls, φ :: f.asserts⟩ :=
-  ⟨[], [φ], rfl, rfl⟩
+  ⟨[], [], [], [], [φ], rfl, rfl, rfl, rfl, rfl⟩
 
 theorem SmtFrame.Extends.trans {f₁ f₂ f₃ : SmtFrame}
     (h₁₂ : f₁.Extends f₂) (h₂₃ : f₂.Extends f₃) : f₁.Extends f₃ := by
-  obtain ⟨ds₁, as₁, hd₁, ha₁⟩ := h₁₂
-  obtain ⟨ds₂, as₂, hd₂, ha₂⟩ := h₂₃
-  exact ⟨ds₂ ++ ds₁, as₂ ++ as₁, by simp [hd₂, hd₁, List.append_assoc],
+  obtain ⟨vs₁, cs₁, us₁, bs₁, as₁, hv₁, hc₁, hu₁, hb₁, ha₁⟩ := h₁₂
+  obtain ⟨vs₂, cs₂, us₂, bs₂, as₂, hv₂, hc₂, hu₂, hb₂, ha₂⟩ := h₂₃
+  exact ⟨vs₂ ++ vs₁, cs₂ ++ cs₁, us₂ ++ us₁, bs₂ ++ bs₁, as₂ ++ as₁,
+    by simp [hv₂, hv₁, List.append_assoc],
+    by simp [hc₂, hc₁, List.append_assoc],
+    by simp [hu₂, hu₁, List.append_assoc],
+    by simp [hb₂, hb₁, List.append_assoc],
     by simp [ha₂, ha₁, List.append_assoc]⟩
 
 /-! ## SMT Results -/
@@ -60,6 +79,8 @@ inductive Command : Type → Type where
   | push : Command Unit
   | pop : Command Unit
   | declareConst (name : String) (sort : Srt) : Command Unit
+  | declareUnary (name : String) (arg ret : Srt) : Command Unit
+  | declareBinary (name : String) (arg1 arg2 ret : Srt) : Command Unit
   | assert (expr : Formula) : Command Unit
   | checkSat : Command SmtResult
 
@@ -70,6 +91,8 @@ def Command.query : Command α → String
   | .push => "(push)"
   | .pop => "(pop)"
   | .declareConst n s => s!"(declare-const {n} {s.toSMTLIB})"
+  | .declareUnary n a r => s!"(declare-fun {n} ({a.toSMTLIB}) {r.toSMTLIB})"
+  | .declareBinary n a1 a2 r => s!"(declare-fun {n} ({a1.toSMTLIB} {a2.toSMTLIB}) {r.toSMTLIB})"
   | .assert e => s!"(assert {e.toSMTLIB})"
   | .checkSat => "(check-sat)"
 
@@ -78,6 +101,8 @@ def Command.parseResponse : (cmd : Command α) → String → Option α
   | .push, s => if s == "success" then some () else none
   | .pop, s => if s == "success" then some () else none
   | .declareConst _ _, s => if s == "success" then some () else none
+  | .declareUnary _ _ _, s => if s == "success" then some () else none
+  | .declareBinary _ _ _ _, s => if s == "success" then some () else none
   | .assert _, s => if s == "success" then some () else none
   | .checkSat, s =>
     if s == "sat" then some .sat
@@ -110,10 +135,25 @@ def pop (s : SmtState) : SmtState :=
   | [] => s  -- underflow: no-op
   | _ :: rest => ⟨rest⟩
 
-def addDecl (s : SmtState) (v : Var) : SmtState :=
+def addVar (s : SmtState) (v : Var) : SmtState :=
   match s.frames with
   | [] => ⟨[⟨Signature.empty.addVar v, []⟩]⟩
   | ⟨decls, asserts⟩ :: rest => ⟨⟨decls.addVar v, asserts⟩ :: rest⟩
+
+def addConst (s : SmtState) (c : FOL.Const) : SmtState :=
+  match s.frames with
+  | [] => ⟨[⟨Signature.empty.addConst c, []⟩]⟩
+  | ⟨decls, asserts⟩ :: rest => ⟨⟨decls.addConst c, asserts⟩ :: rest⟩
+
+def addUnary (s : SmtState) (u : FOL.Unary) : SmtState :=
+  match s.frames with
+  | [] => ⟨[⟨Signature.empty.addUnary u, []⟩]⟩
+  | ⟨decls, asserts⟩ :: rest => ⟨⟨decls.addUnary u, asserts⟩ :: rest⟩
+
+def addBinary (s : SmtState) (b : FOL.Binary) : SmtState :=
+  match s.frames with
+  | [] => ⟨[⟨Signature.empty.addBinary b, []⟩]⟩
+  | ⟨decls, asserts⟩ :: rest => ⟨⟨decls.addBinary b, asserts⟩ :: rest⟩
 
 def addAssert (s : SmtState) (φ : Formula) : SmtState :=
   match s.frames with
@@ -124,7 +164,10 @@ def addAssert (s : SmtState) (φ : Formula) : SmtState :=
 def step : Command β → β → SmtState → SmtState
   | .push, (), s => s.push
   | .pop, (), s => s.pop
-  | .declareConst n sort, (), s => s.addDecl ⟨n, sort⟩
+  -- @claude: We will need to change this in the future to declare a constant instead of a variable
+  | .declareConst n sort, (), s => s.addVar ⟨n, sort⟩
+  | .declareUnary n arg ret, (), s => s.addUnary ⟨n, arg, ret⟩
+  | .declareBinary n arg1 arg2 ret, (), s => s.addBinary ⟨n, arg1, arg2, ret⟩
   | .assert e, (), s => s.addAssert e
   | .checkSat, _, s => s
 
