@@ -100,13 +100,13 @@ theorem Atom.resolve_wfIn {a : Atom τ} {C : List Formula} {t : Term τ} {Δ : S
   cases a with
   | isint u =>
     simp only [Atom.toFormula, Formula.wfIn, Term.wfIn] at hφwf
-    exact hφwf.2
+    exact hφwf.2.2
   | isbool u =>
     simp only [Atom.toFormula, Formula.wfIn, Term.wfIn] at hφwf
-    exact hφwf.2
+    exact hφwf.2.2
   | isinj tag arity u =>
     simp only [Atom.toFormula, Formula.wfIn, Term.wfIn] at hφwf
-    exact hφwf.2
+    exact hφwf.2.2
 
 
 -- ---------------------------------------------------------------------------
@@ -172,13 +172,13 @@ theorem Atom.toFormula_wfIn {p : Atom τ} {t : Term τ} {Δ : Signature}
   cases p with
   | isint v =>
     simp only [Atom.toFormula, Formula.wfIn, Term.wfIn]
-    exact ⟨hp, ht⟩
+    exact ⟨hp, trivial, ht⟩
   | isbool v =>
     simp only [Atom.toFormula, Formula.wfIn, Term.wfIn]
-    exact ⟨hp, ht⟩
+    exact ⟨hp, trivial, ht⟩
   | isinj tag arity v =>
     simp only [Atom.toFormula, Formula.wfIn, Term.wfIn]
-    exact ⟨hp, ht⟩
+    exact ⟨hp, trivial, ht⟩
 
 theorem Atom.toFormula_eval_iff {p : Atom τ} {t : Term τ} {ρ : Env} :
     (p.toFormula t).eval ρ ↔ p.eval ρ (t.eval ρ) := by
@@ -251,9 +251,9 @@ theorem Atom.candidates_correct {a : Atom τ} {φ : Formula} {t : Term τ} {ρ :
 theorem Atom.candidates_wfIn {a : Atom τ} {φ : Formula} {t : Term τ} {Δ : Signature}
     (hmem : (φ, t) ∈ a.candidates) (h : a.wfIn Δ) : φ.wfIn Δ ∧ t.wfIn Δ := by
   cases a with
-  | isint v  => simp [candidates] at hmem; obtain ⟨rfl, rfl⟩ := hmem; exact ⟨h, h⟩
-  | isbool v => simp [candidates] at hmem; obtain ⟨rfl, rfl⟩ := hmem; exact ⟨h, h⟩
-  | isinj tag arity v => simp [candidates] at hmem; obtain ⟨rfl, rfl⟩ := hmem; exact ⟨h, h⟩
+  | isint v  => simp [candidates] at hmem; obtain ⟨rfl, rfl⟩ := hmem; exact ⟨h, trivial, h⟩
+  | isbool v => simp [candidates] at hmem; obtain ⟨rfl, rfl⟩ := hmem; exact ⟨h, trivial, h⟩
+  | isinj tag arity v => simp [candidates] at hmem; obtain ⟨rfl, rfl⟩ := hmem; exact ⟨h, trivial, h⟩
 
 
 -- ---------------------------------------------------------------------------

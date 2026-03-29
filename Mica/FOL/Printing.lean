@@ -34,6 +34,7 @@ def UnOp.toSMTLIB : UnOp τ₁ τ₂ → String
   | .tagOf   => "tag_of"
   | .arityOf => "arity_of"
   | .payloadOf => "payload_of"
+  | .uninterpreted name _ _ => name
 
 def BinOp.toSMTLIB : BinOp τ₁ τ₂ τ₃ → String
   | .add   => "+"
@@ -46,6 +47,7 @@ def BinOp.toSMTLIB : BinOp τ₁ τ₂ τ₃ → String
   | .ge    => ">="
   | .eq    => "="
   | .vcons => "vcons"
+  | .uninterpreted name _ _ _ => name
 
 def UnPred.toSMTLIB : UnPred τ → String
   | .isInt   => "is-of_int"
@@ -63,6 +65,7 @@ def Term.toSMTLIB : Term τ → String
   | .const (.b b)   => if b then "true" else "false"
   | .const .unit    => "(of_other unit_val)"
   | .const .vnil    => "vnil"
+  | .const (.uninterpreted name _) => name
   | .unop op a    => s!"({op.toSMTLIB} {a.toSMTLIB})"
   | .binop op a b => s!"({op.toSMTLIB} {a.toSMTLIB} {b.toSMTLIB})"
   | .ite c t e    => s!"(ite {c.toSMTLIB} {t.toSMTLIB} {e.toSMTLIB})"
@@ -111,6 +114,7 @@ private def termStr (p : Prec) : {τ : Srt} → Term τ → String
   | _, .const (.b b)   => if b then "true" else "false"
   | _, .const .unit    => "()"
   | _, .const .vnil    => "[]"
+  | _, .const (.uninterpreted name _) => name
   | _, .unop op a  => match op with
     | .ofInt   => termStr p a     -- transparent coercion
     | .ofBool  => termStr p a     -- transparent coercion
@@ -127,6 +131,7 @@ private def termStr (p : Prec) : {τ : Srt} → Term τ → String
     | .tagOf   => s!"tag({termStr .bottom a})"
     | .arityOf => s!"arity({termStr .bottom a})"
     | .payloadOf => s!"payload({termStr .bottom a})"
+    | .uninterpreted name _ _ => s!"{name}({termStr .bottom a})"
   | _, .binop op a b => match op with
     | .add   => parens (Prec.lt .add p) s!"{termStr .add a} + {termStr .mul b}"
     | .sub   => parens (Prec.lt .add p) s!"{termStr .add a} - {termStr .mul b}"
@@ -138,6 +143,7 @@ private def termStr (p : Prec) : {τ : Srt} → Term τ → String
     | .ge    => parens (Prec.lt .cmp p) s!"{termStr .add a} >= {termStr .add b}"
     | .eq    => parens (Prec.lt .cmp p) s!"{termStr .add a} = {termStr .add b}"
     | .vcons => parens (Prec.lt .top p) s!"{termStr .top a} :: {termStr .top b}"
+    | .uninterpreted name _ _ _ => s!"{name}({termStr .bottom a}, {termStr .bottom b})"
   | _, .ite c t e  => parens (Prec.lt .bottom p) s!"if {termStr .bottom c} then {termStr .bottom t} else {termStr .bottom e}"
 
 def Term.toStringHum {τ : Srt} (t : Term τ) : String := termStr .bottom t
