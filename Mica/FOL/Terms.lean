@@ -39,11 +39,11 @@ inductive Const : Srt → Type where
   | vnil : Const .vallist
   deriving DecidableEq, Repr
 
-@[simp] def Const.denote : Const τ → τ.denote
-  | .i n  => n
-  | .b v  => v
-  | .unit => Runtime.Val.unit
-  | .vnil => []
+@[simp] def Const.denote : Env → Const τ → τ.denote
+  | _, .i n  => n
+  | _, .b v  => v
+  | _, .unit => Runtime.Val.unit
+  | _, .vnil => []
 
 inductive Term : Srt → Type where
   | var   : (τ : Srt) → String → Term τ
@@ -101,40 +101,40 @@ theorem Term.wfIn_mono (t : Term τ) (h : t.wfIn Δ) (hsub : Δ.Subset Δ') : t.
   | binop _ a b iha ihb => exact ⟨iha h.1 hsub, ihb h.2 hsub⟩
   | ite c t e ihc iht ihe => exact ⟨ihc h.1 hsub, iht h.2.1 hsub, ihe h.2.2 hsub⟩
 
-@[simp] def UnOp.eval : UnOp τ₁ τ₂ → τ₁.denote → τ₂.denote
-  | .ofInt,   n  => Runtime.Val.int n
-  | .ofBool,  b  => Runtime.Val.bool b
-  | .toInt,   v  => match v with | .int n => n | _ => 0
-  | .toBool,  v  => match v with | .bool b => b | _ => false
-  | .neg,     n  => -n
-  | .not,     b  => !b
-  | .ofValList, vs => Runtime.Val.tuple vs
-  | .toValList, v  => match v with | .tuple vs => vs | _ => []
-  | .vhead,   vs => vs.headD .unit
-  | .vtail,   vs => vs.tail
-  | .visnil,  vs => vs.isEmpty
-  | .mkInj tag arity, v => Runtime.Val.inj tag arity v
-  | .tagOf,   v => match v with | .inj tag _ _ => (tag : Int) | _ => 0
-  | .arityOf, v => match v with | .inj _ arity _ => (arity : Int) | _ => 0
-  | .payloadOf, v => match v with | .inj _ _ payload => payload | _ => Runtime.Val.unit
+@[simp] def UnOp.eval : Env → UnOp τ₁ τ₂ → τ₁.denote → τ₂.denote
+  | _, .ofInt,   n  => Runtime.Val.int n
+  | _, .ofBool,  b  => Runtime.Val.bool b
+  | _, .toInt,   v  => match v with | .int n => n | _ => 0
+  | _, .toBool,  v  => match v with | .bool b => b | _ => false
+  | _, .neg,     n  => -n
+  | _, .not,     b  => !b
+  | _, .ofValList, vs => Runtime.Val.tuple vs
+  | _, .toValList, v  => match v with | .tuple vs => vs | _ => []
+  | _, .vhead,   vs => vs.headD .unit
+  | _, .vtail,   vs => vs.tail
+  | _, .visnil,  vs => vs.isEmpty
+  | _, .mkInj tag arity, v => Runtime.Val.inj tag arity v
+  | _, .tagOf,   v => match v with | .inj tag _ _ => (tag : Int) | _ => 0
+  | _, .arityOf, v => match v with | .inj _ arity _ => (arity : Int) | _ => 0
+  | _, .payloadOf, v => match v with | .inj _ _ payload => payload | _ => Runtime.Val.unit
 
-@[simp] def BinOp.eval : BinOp τ₁ τ₂ τ₃ → τ₁.denote → τ₂.denote → τ₃.denote
-  | .add,   a, b  => a + b
-  | .sub,   a, b  => a - b
-  | .mul,   a, b  => a * b
-  | .div,   a, b  => a / b
-  | .mod,   a, b  => a % b
-  | .less,  a, b  => decide (a < b)
-  | .gt,    a, b  => decide (a > b)
-  | .ge,    a, b  => decide (a ≥ b)
-  | .eq,    a, b  => decide (a = b)
-  | .vcons, v, vs => v :: vs
+@[simp] def BinOp.eval : Env → BinOp τ₁ τ₂ τ₃ → τ₁.denote → τ₂.denote → τ₃.denote
+  | _, .add,   a, b  => a + b
+  | _, .sub,   a, b  => a - b
+  | _, .mul,   a, b  => a * b
+  | _, .div,   a, b  => a / b
+  | _, .mod,   a, b  => a % b
+  | _, .less,  a, b  => decide (a < b)
+  | _, .gt,    a, b  => decide (a > b)
+  | _, .ge,    a, b  => decide (a ≥ b)
+  | _, .eq,    a, b  => decide (a = b)
+  | _, .vcons, v, vs => v :: vs
 
 def Term.eval (ρ : Env) : Term τ → τ.denote
   | .var τ y      => ρ.lookup τ y
-  | .const c      => c.denote
-  | .unop op a    => op.eval (Term.eval ρ a)
-  | .binop op a b => op.eval (Term.eval ρ a) (Term.eval ρ b)
+  | .const c      => c.denote ρ
+  | .unop op a    => op.eval ρ (Term.eval ρ a)
+  | .binop op a b => op.eval ρ (Term.eval ρ a) (Term.eval ρ b)
   | .ite c t e    => bif Term.eval ρ c then Term.eval ρ t else Term.eval ρ e
 
 theorem Term.eval_env_agree {t : Term τ} {ρ ρ' : Env} {Δ : Signature} :
@@ -142,11 +142,11 @@ theorem Term.eval_env_agree {t : Term τ} {ρ ρ' : Env} {Δ : Signature} :
   intro hwf hagree
   induction t with
   | var τ y => simp [Term.eval, Env.lookup]; exact hagree.1 ⟨y, τ⟩ hwf
-  | const _ => rfl
-  | unop op a iha => simp only [Term.eval]; rw [iha hwf]
+  | const c => simp only [Term.eval]; cases c <;> rfl
+  | unop op a iha => simp only [Term.eval]; rw [iha hwf]; cases op <;> rfl
   | binop op a b iha ihb =>
     simp only [Term.eval]
-    rw [iha hwf.1, ihb hwf.2]
+    rw [iha hwf.1, ihb hwf.2]; cases op <;> rfl
   | ite c t e ihc iht ihe =>
     simp [Term.eval]
     rw [ihc hwf.1, iht hwf.2.1, ihe hwf.2.2]
@@ -180,13 +180,13 @@ theorem Term.eval_update_fresh {t : Term τ'} {x : String} {τ : Srt} {v : τ.de
       · subst h1; subst h2; exact absurd rfl hfree
       · exact Env.lookup_update_ne (Or.inr h2)
     · exact Env.lookup_update_ne (Or.inl h1)
-  | const _ => rfl
+  | const c => simp only [Term.eval]; cases c <;> rfl
   | unop op a iha =>
     simp only [Term.freeVars] at hfree
-    simp only [Term.eval, iha hfree]
+    simp only [Term.eval, iha hfree]; cases op <;> rfl
   | binop op a b iha ihb =>
     simp only [Term.freeVars, List.mem_append, not_or] at hfree
-    simp only [Term.eval, iha hfree.1, ihb hfree.2]
+    simp only [Term.eval, iha hfree.1, ihb hfree.2]; cases op <;> rfl
   | ite c t e ihc iht ihe =>
     simp only [Term.freeVars, List.mem_append, not_or] at hfree
     obtain ⟨⟨hc, ht'⟩, he⟩ := hfree
