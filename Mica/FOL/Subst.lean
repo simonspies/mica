@@ -22,11 +22,17 @@ def Term.subst (σ : Subst) : Term τ → Term τ
   | .ite c t e => .ite (c.subst σ) (t.subst σ) (e.subst σ)
 
 def Subst.wfIn (σ : Subst) (Δ Δ' : Signature) : Prop :=
-  ∀ v ∈ Δ.vars, (σ.apply v.sort v.name).wfIn Δ'
+  (∀ v ∈ Δ.vars,   (σ.apply v.sort v.name).wfIn Δ') ∧
+  (∀ c ∈ Δ.consts, c ∈ Δ'.consts) ∧
+  (∀ u ∈ Δ.unary,  u ∈ Δ'.unary) ∧
+  (∀ b ∈ Δ.binary, b ∈ Δ'.binary)
 
 theorem Subst.wfIn_mono {σ : Subst} {Δ Δ' Δ'' : Signature} (hσ : σ.wfIn Δ Δ') (hsub : Δ'.Subset Δ'') :
     σ.wfIn Δ Δ'' :=
-  fun v hv => Term.wfIn_mono _ (hσ v hv) hsub
+  ⟨fun v hv  => Term.wfIn_mono _ (hσ.1 v hv) hsub,
+   fun c hc  => hsub.consts c (hσ.2.1 c hc),
+   fun u hu  => hsub.unary  u (hσ.2.2.1 u hu),
+   fun b hb  => hsub.binary b (hσ.2.2.2 b hb)⟩
 
 theorem Subst.apply_update_same {σ : Subst} {τ : Srt} {x : String} {t : Term τ} :
     (σ.update τ x t).apply τ x = t := by
@@ -43,18 +49,21 @@ theorem Subst.apply_update_ne {σ : Subst} {τ τ' : Srt} {x y : String} {t : Te
 
 theorem Subst.wfIn_update {σ : Subst} {τ : Srt} {x : String} {t : Term τ} {Δ Δ' : Signature}
     (hσ : σ.wfIn Δ Δ') (ht : t.wfIn Δ') :
-    (σ.update τ x t).wfIn (Δ.addVar ⟨x, τ⟩) Δ' := fun v hv => by
-  cases hv with
-  | head => simp [Subst.apply_update_same, ht]
-  | tail _ hmem =>
-    by_cases hname : v.name = x <;> by_cases hty : v.sort = τ
-    · cases v; simp only at hname hty; subst hname hty
-      simp only [Subst.apply_update_same, ht]
-    · simp only [Subst.apply_update_ne (Or.inr hty), hσ v hmem]
-    · simp only [Subst.apply_update_ne (Or.inl hname), hσ v hmem]
-    · simp only [Subst.apply_update_ne (Or.inl hname), hσ v hmem]
+    (σ.update τ x t).wfIn (Δ.addVar ⟨x, τ⟩) Δ' :=
+  ⟨fun v hv => by
+    cases hv with
+    | head => simp [Subst.apply_update_same, ht]
+    | tail _ hmem =>
+      by_cases hname : v.name = x <;> by_cases hty : v.sort = τ
+      · cases v; simp only at hname hty; subst hname hty
+        simp only [Subst.apply_update_same, ht]
+      · simp only [Subst.apply_update_ne (Or.inr hty), hσ.1 v hmem]
+      · simp only [Subst.apply_update_ne (Or.inl hname), hσ.1 v hmem]
+      · simp only [Subst.apply_update_ne (Or.inl hname), hσ.1 v hmem],
+   hσ.2.1, hσ.2.2.1, hσ.2.2.2⟩
 
-theorem Subst.id_wfIn {Δ : Signature} : Subst.id.wfIn Δ Δ := fun _ hv => hv
+theorem Subst.id_wfIn {Δ : Signature} : Subst.id.wfIn Δ Δ :=
+  ⟨fun _ hv => hv, fun _ h => h, fun _ h => h, fun _ h => h⟩
 
 theorem Subst.single_wfIn {τ : Srt} {x : String} {t : Term τ} {Δ : Signature} (ht : t.wfIn Δ) :
     (Subst.single τ x t).wfIn (Δ.addVar ⟨x, τ⟩) Δ := by
@@ -70,20 +79,32 @@ theorem Term.subst_agreeOn {t : Term τ} {σ σ' : Subst} {Δ : Signature} :
   induction t with
   | var τ x => simp only [Term.subst]; exact hagree ⟨x, τ⟩ hwf
   | const _ => rfl
-  | unop op a iha => simp only [Term.subst, iha hwf]
-  | binop op a b iha ihb => simp only [Term.subst, iha hwf.1, ihb hwf.2]
+  | unop op a iha => simp only [Term.subst, iha hwf.2]
+  | binop op a b iha ihb => simp only [Term.subst, iha hwf.2.1, ihb hwf.2.2]
   | ite c t e ihc iht ihe => simp only [Term.subst, ihc hwf.1, iht hwf.2.1, ihe hwf.2.2]
 
 theorem Term.subst_wfIn {t : Term τ} {σ : Subst} {Δ Δ' : Signature} :
     t.wfIn Δ → σ.wfIn Δ Δ' → (t.subst σ).wfIn Δ' := by
   intro hwf hσ
   induction t with
-  | var τ x => simp only [Term.subst]; exact hσ ⟨x, τ⟩ hwf
-  | const _ => trivial
-  | unop op a iha => simp only [Term.subst, Term.wfIn]; exact iha hwf
+  | var τ x => simp only [Term.subst]; exact hσ.1 ⟨x, τ⟩ hwf
+  | const c =>
+    simp only [Term.subst, Term.wfIn]
+    cases c with
+    | uninterpreted name _ => exact hσ.2.1 _ hwf
+    | _ => trivial
+  | unop op a iha =>
+    simp only [Term.subst, Term.wfIn]
+    refine ⟨?_, iha hwf.2⟩
+    cases op with
+    | uninterpreted name _ _ => exact hσ.2.2.1 _ hwf.1
+    | _ => trivial
   | binop op a b iha ihb =>
     simp only [Term.subst, Term.wfIn]
-    exact ⟨iha hwf.1, ihb hwf.2⟩
+    refine ⟨?_, iha hwf.2.1, ihb hwf.2.2⟩
+    cases op with
+    | uninterpreted name _ _ _ => exact hσ.2.2.2 _ hwf.1
+    | _ => trivial
   | ite c t e ihc iht ihe =>
     simp only [Term.subst, Term.wfIn]
     exact ⟨ihc hwf.1, iht hwf.2.1, ihe hwf.2.2⟩
@@ -128,17 +149,30 @@ theorem Term.apply_freeVars_subset_subst_freeVars {t : Term τ} {σ : Subst} {v 
 
 theorem Term.wfIn_of_subst_wfIn {t : Term τ} {σ : Subst} {Δ Δ' : Signature}
     (hsubst : (t.subst σ).wfIn Δ')
-    (himpl : ∀ (x : String) (τ' : Srt), (σ.apply τ' x).wfIn Δ' → ⟨x, τ'⟩ ∈ Δ.vars) :
+    (himpl : ∀ (x : String) (τ' : Srt), (σ.apply τ' x).wfIn Δ' → ⟨x, τ'⟩ ∈ Δ.vars)
+    (hconsts : ∀ c ∈ Δ'.consts, c ∈ Δ.consts)
+    (hunary  : ∀ u ∈ Δ'.unary,  u ∈ Δ.unary)
+    (hbinary : ∀ b ∈ Δ'.binary, b ∈ Δ.binary) :
     t.wfIn Δ := by
   induction t with
   | var τ' x => simp only [Term.subst] at hsubst; exact himpl x τ' hsubst
-  | const _ => trivial
+  | const c =>
+    simp only [Term.subst, Term.wfIn] at hsubst ⊢
+    cases c with
+    | uninterpreted name _ => exact hconsts _ hsubst
+    | _ => trivial
   | unop op a iha =>
     simp only [Term.subst, Term.wfIn] at hsubst
-    exact iha hsubst
+    refine ⟨?_, iha hsubst.2⟩
+    cases op with
+    | uninterpreted name _ _ => exact hunary _ hsubst.1
+    | _ => trivial
   | binop op a b iha ihb =>
     simp only [Term.subst, Term.wfIn] at hsubst
-    exact ⟨iha hsubst.1, ihb hsubst.2⟩
+    refine ⟨?_, iha hsubst.2.1, ihb hsubst.2.2⟩
+    cases op with
+    | uninterpreted name _ _ _ => exact hbinary _ hsubst.1
+    | _ => trivial
   | ite c t e ihc iht ihe =>
     simp only [Term.subst, Term.wfIn] at hsubst
     exact ⟨ihc hsubst.1, iht hsubst.2.1, ihe hsubst.2.2⟩
@@ -211,7 +245,7 @@ theorem Subst.eval_update_agreeOn {σ : Subst} {ρ : Env} {τ : Srt} {x name' : 
       have hne : ¬(w.sort = τ ∧ w.name = x) := by
         intro h; obtain ⟨rfl, rfl⟩ := h; cases w; contradiction
       simp only [Subst.eval, Env.lookup, Subst.apply, Subst.update, Env.update, hne, ↓reduceDIte]
-      exact Term.eval_update_not_in_sig (hσ w hmem) hfresh
+      exact Term.eval_update_not_in_sig (hσ.1 w hmem) hfresh
   · exact ⟨fun _ _ => rfl, fun _ _ => rfl, fun _ _ => rfl⟩
 
 theorem Formula.eval_subst {σ : Subst} {ρ : Env} {φ : Formula} {Δ Δ' : Signature}

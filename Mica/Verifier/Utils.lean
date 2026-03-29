@@ -64,7 +64,7 @@ theorem Terms.toValList_wfIn {ts : List (Term .value)} {Δ : Signature}
   | nil => trivial
   | cons t ts ih =>
     simp only [toValList, Term.wfIn]
-    exact ⟨h t (.head _), ih (fun q hq => h q (.tail _ hq))⟩
+    exact ⟨trivial, h t (.head _), ih (fun q hq => h q (.tail _ hq))⟩
 
 /-- A list of terms evaluates to a list of values. -/
 def Terms.Eval (ρ : Env) (ts : List (Term .value)) (vs : List Runtime.Val) : Prop :=
@@ -442,7 +442,7 @@ theorem FiniteSubst.eval_update_fresh {σ : FiniteSubst} {ρ : Env} {τ : Srt} {
   constructor
   · intro w hw
     simp only [Subst.eval_lookup]
-    exact (Term.eval_update_not_in_sig (hσ w hw) (by simp [hfresh])).symm
+    exact (Term.eval_update_not_in_sig (hσ.1 w hw) (by simp [hfresh])).symm
   · constructor
     · intro c hc; cases hc
     · constructor
@@ -460,10 +460,8 @@ theorem FiniteSubst.eval_subst_formula {σ : FiniteSubst} {φ : Formula} {ρ : E
     (φ.subst σ.subst σ.range).eval ρ ↔ φ.eval (σ.subst.eval ρ) :=
   Formula.eval_subst hφ hσ
 
-theorem FiniteSubst.id_wf (decls : List Var) : FiniteSubst.id.wf decls := by
-  constructor
-  · intro v hv; simp [FiniteSubst.id] at hv
-  · intro v hv; simp [FiniteSubst.id] at hv
+theorem FiniteSubst.id_wf (decls : List Var) : FiniteSubst.id.wf decls :=
+  ⟨Subst.id_wfIn, List.nil_subset _⟩
 
 theorem FiniteSubst.eval_agreeOn {σ : FiniteSubst} {ρ ρ' : Env}
     (hσ : σ.subst.wfIn (Signature.ofVars σ.dom) (Signature.ofVars σ.range)) (hagree : Env.agreeOn (Signature.ofVars σ.range) ρ ρ') :
@@ -471,7 +469,7 @@ theorem FiniteSubst.eval_agreeOn {σ : FiniteSubst} {ρ ρ' : Env}
   constructor
   · intro v hv
     simp only [Subst.eval_lookup]
-    exact Term.eval_env_agree (hσ v hv) hagree
+    exact Term.eval_env_agree (hσ.1 v hv) hagree
   · constructor
     · intro c hc; cases hc
     · constructor

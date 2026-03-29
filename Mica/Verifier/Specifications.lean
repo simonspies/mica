@@ -111,7 +111,7 @@ mutual
       | head =>
         simp only [Formula.wfIn]; exact ht
       | tail _ hφ =>
-        exact typeConstraintsList_wfIn (by simp only [Term.wfIn]; exact ht) φ hφ
+        exact typeConstraintsList_wfIn (by simp only [Term.wfIn]; exact ⟨trivial, ht⟩) φ hφ
     | _ => simp [typeConstraints]
 
   theorem typeConstraintsList_wfIn {ts : List TinyML.Type_} {tl : Term .vallist} {Δ : Signature}
@@ -123,9 +123,9 @@ mutual
       intro φ hφ
       cases List.mem_append.mp hφ with
       | inl h =>
-        exact typeConstraints_wfIn (by simp only [Term.wfIn]; exact htl) φ h
+        exact typeConstraints_wfIn (by simp only [Term.wfIn]; exact ⟨trivial, htl⟩) φ h
       | inr h =>
-        exact typeConstraintsList_wfIn (by simp only [Term.wfIn]; exact htl) φ h
+        exact typeConstraintsList_wfIn (by simp only [Term.wfIn]; exact ⟨trivial, htl⟩) φ h
 end
 
 mutual

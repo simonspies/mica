@@ -17,6 +17,7 @@ inductive UnOp : Srt → Srt → Type where
   | tagOf                           : UnOp .value .int
   | arityOf                         : UnOp .value .int
   | payloadOf                       : UnOp .value .value
+  | uninterpreted : String → (τ₁ τ₂ : Srt) → UnOp τ₁ τ₂
   deriving DecidableEq, Repr
 
 inductive BinOp : Srt → Srt → Srt → Type where
@@ -30,6 +31,7 @@ inductive BinOp : Srt → Srt → Srt → Type where
   | ge   : BinOp .int   .int     .bool
   | eq   : BinOp τ      τ        .bool
   | vcons : BinOp .value .vallist .vallist
+  | uninterpreted : String → (τ₁ τ₂ τ₃ : Srt) → BinOp τ₁ τ₂ τ₃
   deriving DecidableEq, Repr
 
 inductive Const : Srt → Type where
@@ -37,6 +39,7 @@ inductive Const : Srt → Type where
   | b    : Bool → Const .bool
   | unit : Const .value
   | vnil : Const .vallist
+  | uninterpreted : String → (τ : Srt) → Const τ
   deriving DecidableEq, Repr
 
 @[simp] def Const.denote : Env → Const τ → τ.denote
@@ -44,6 +47,7 @@ inductive Const : Srt → Type where
   | _, .b v  => v
   | _, .unit => Runtime.Val.unit
   | _, .vnil => []
+  | ρ, .uninterpreted name _ => ρ.consts τ name
 
 inductive Term : Srt → Type where
   | var   : (τ : Srt) → String → Term τ
@@ -60,19 +64,67 @@ def Term.freeVars : Term τ → List Var
   | .binop _ a b => a.freeVars ++ b.freeVars
   | .ite c t e => c.freeVars ++ t.freeVars ++ e.freeVars
 
+def Const.wfIn : Const τ → Signature → Prop
+  | .uninterpreted name τ, Δ => ⟨name, τ⟩ ∈ Δ.consts
+  | _, _                     => True
+
+def UnOp.wfIn : UnOp τ₁ τ₂ → Signature → Prop
+  | .uninterpreted name τ₁ τ₂, Δ => ⟨name, τ₁, τ₂⟩ ∈ Δ.unary
+  | _, _                          => True
+
+def BinOp.wfIn : BinOp τ₁ τ₂ τ₃ → Signature → Prop
+  | .uninterpreted name τ₁ τ₂ τ₃, Δ => ⟨name, τ₁, τ₂, τ₃⟩ ∈ Δ.binary
+  | _, _                              => True
+
+def Const.checkWf : Const τ → Signature → Except String Unit
+  | .uninterpreted name τ, Δ =>
+    if ⟨name, τ⟩ ∈ Δ.consts then .ok () else .error s!"constant {name} not in signature"
+  | _, _ => .ok ()
+
+def UnOp.checkWf : UnOp τ₁ τ₂ → Signature → Except String Unit
+  | .uninterpreted name τ₁ τ₂, Δ =>
+    if ⟨name, τ₁, τ₂⟩ ∈ Δ.unary then .ok () else .error s!"unary op {name} not in signature"
+  | _, _ => .ok ()
+
+def BinOp.checkWf : BinOp τ₁ τ₂ τ₃ → Signature → Except String Unit
+  | .uninterpreted name τ₁ τ₂ τ₃, Δ =>
+    if ⟨name, τ₁, τ₂, τ₃⟩ ∈ Δ.binary then .ok () else .error s!"binary op {name} not in signature"
+  | _, _ => .ok ()
+
 def Term.wfIn : Term τ → Signature → Prop
-  | .var τ x, Δ    => ⟨x, τ⟩ ∈ Δ.vars
-  | .const _, _    => True
-  | .unop _ a, Δ   => a.wfIn Δ
-  | .binop _ a b, Δ => a.wfIn Δ ∧ b.wfIn Δ
-  | .ite c t e, Δ  => c.wfIn Δ ∧ t.wfIn Δ ∧ e.wfIn Δ
+  | .var τ x, Δ     => ⟨x, τ⟩ ∈ Δ.vars
+  | .const c, Δ     => c.wfIn Δ
+  | .unop op a, Δ   => op.wfIn Δ ∧ a.wfIn Δ
+  | .binop op a b, Δ => op.wfIn Δ ∧ a.wfIn Δ ∧ b.wfIn Δ
+  | .ite c t e, Δ   => c.wfIn Δ ∧ t.wfIn Δ ∧ e.wfIn Δ
 
 def Term.checkWf : Term τ → Signature → Except String Unit
-  | .var τ x, Δ    => if ⟨x, τ⟩ ∈ Δ.vars then .ok () else .error s!"variable {repr x} not in scope"
-  | .const _, _    => .ok ()
-  | .unop _ a, Δ   => a.checkWf Δ
-  | .binop _ a b, Δ => do a.checkWf Δ; b.checkWf Δ
-  | .ite c t e, Δ  => do c.checkWf Δ; t.checkWf Δ; e.checkWf Δ
+  | .var τ x, Δ     => if ⟨x, τ⟩ ∈ Δ.vars then .ok () else .error s!"variable {repr x} not in scope"
+  | .const c, Δ     => c.checkWf Δ
+  | .unop op a, Δ   => do op.checkWf Δ; a.checkWf Δ
+  | .binop op a b, Δ => do op.checkWf Δ; a.checkWf Δ; b.checkWf Δ
+  | .ite c t e, Δ   => do c.checkWf Δ; t.checkWf Δ; e.checkWf Δ
+
+private theorem Const.checkWf_ok {c : Const τ} {Δ : Signature} (h : c.checkWf Δ = .ok ()) :
+    c.wfIn Δ := by
+  cases c with
+  | uninterpreted name τ =>
+    simp only [Const.checkWf] at h; split at h; assumption; simp at h
+  | _ => trivial
+
+private theorem UnOp.checkWf_ok {op : UnOp τ₁ τ₂} {Δ : Signature} (h : op.checkWf Δ = .ok ()) :
+    op.wfIn Δ := by
+  cases op with
+  | uninterpreted name τ₁ τ₂ =>
+    simp only [UnOp.checkWf] at h; split at h; assumption; simp at h
+  | _ => trivial
+
+private theorem BinOp.checkWf_ok {op : BinOp τ₁ τ₂ τ₃} {Δ : Signature}
+    (h : op.checkWf Δ = .ok ()) : op.wfIn Δ := by
+  cases op with
+  | uninterpreted name τ₁ τ₂ τ₃ =>
+    simp only [BinOp.checkWf] at h; split at h; assumption; simp at h
+  | _ => trivial
 
 theorem Term.checkWf_ok {t : Term τ} {Δ : Signature} (h : t.checkWf Δ = .ok ()) : t.wfIn Δ := by
   induction t generalizing Δ with
@@ -81,24 +133,46 @@ theorem Term.checkWf_ok {t : Term τ} {Δ : Signature} (h : t.checkWf Δ = .ok (
     split at h
     · assumption
     · simp at h
-  | const _ => trivial
-  | unop _ a iha => exact iha h
-  | binop _ a b iha ihb =>
+  | const c => exact Const.checkWf_ok h
+  | unop op a iha =>
     simp only [Term.checkWf] at h
     have ⟨h1, h2⟩ := bind_ok h
-    exact ⟨iha h1, ihb h2⟩
+    exact ⟨UnOp.checkWf_ok h1, iha h2⟩
+  | binop op a b iha ihb =>
+    simp only [Term.checkWf] at h
+    have ⟨h1, h23⟩ := bind_ok h
+    have ⟨h2, h3⟩ := bind_ok h23
+    exact ⟨BinOp.checkWf_ok h1, iha h2, ihb h3⟩
   | ite c t e ihc iht ihe =>
     simp only [Term.checkWf] at h
     have ⟨h1, h23⟩ := bind_ok h
     have ⟨h2, h3⟩ := bind_ok h23
     exact ⟨ihc h1, iht h2, ihe h3⟩
 
+private theorem Const.wfIn_mono {c : Const τ} {Δ Δ' : Signature} (h : c.wfIn Δ)
+    (hsub : Δ.Subset Δ') : c.wfIn Δ' := by
+  cases c with
+  | uninterpreted name τ => exact hsub.consts _ h
+  | _ => trivial
+
+private theorem UnOp.wfIn_mono {op : UnOp τ₁ τ₂} {Δ Δ' : Signature} (h : op.wfIn Δ)
+    (hsub : Δ.Subset Δ') : op.wfIn Δ' := by
+  cases op with
+  | uninterpreted name τ₁ τ₂ => exact hsub.unary _ h
+  | _ => trivial
+
+private theorem BinOp.wfIn_mono {op : BinOp τ₁ τ₂ τ₃} {Δ Δ' : Signature} (h : op.wfIn Δ)
+    (hsub : Δ.Subset Δ') : op.wfIn Δ' := by
+  cases op with
+  | uninterpreted name τ₁ τ₂ τ₃ => exact hsub.binary _ h
+  | _ => trivial
+
 theorem Term.wfIn_mono (t : Term τ) (h : t.wfIn Δ) (hsub : Δ.Subset Δ') : t.wfIn Δ' := by
   induction t generalizing Δ Δ' with
   | var τ x => exact hsub.vars _ h
-  | const _ => trivial
-  | unop _ a iha => exact iha h hsub
-  | binop _ a b iha ihb => exact ⟨iha h.1 hsub, ihb h.2 hsub⟩
+  | const c => exact Const.wfIn_mono h hsub
+  | unop op a iha => exact ⟨UnOp.wfIn_mono h.1 hsub, iha h.2 hsub⟩
+  | binop op a b iha ihb => exact ⟨BinOp.wfIn_mono h.1 hsub, iha h.2.1 hsub, ihb h.2.2 hsub⟩
   | ite c t e ihc iht ihe => exact ⟨ihc h.1 hsub, iht h.2.1 hsub, ihe h.2.2 hsub⟩
 
 @[simp] def UnOp.eval : Env → UnOp τ₁ τ₂ → τ₁.denote → τ₂.denote
@@ -117,6 +191,7 @@ theorem Term.wfIn_mono (t : Term τ) (h : t.wfIn Δ) (hsub : Δ.Subset Δ') : t.
   | _, .tagOf,   v => match v with | .inj tag _ _ => (tag : Int) | _ => 0
   | _, .arityOf, v => match v with | .inj _ arity _ => (arity : Int) | _ => 0
   | _, .payloadOf, v => match v with | .inj _ _ payload => payload | _ => Runtime.Val.unit
+  | ρ, .uninterpreted name _ _, x => ρ.unary τ₁ τ₂ name x
 
 @[simp] def BinOp.eval : Env → BinOp τ₁ τ₂ τ₃ → τ₁.denote → τ₂.denote → τ₃.denote
   | _, .add,   a, b  => a + b
@@ -129,6 +204,7 @@ theorem Term.wfIn_mono (t : Term τ) (h : t.wfIn Δ) (hsub : Δ.Subset Δ') : t.
   | _, .ge,    a, b  => decide (a ≥ b)
   | _, .eq,    a, b  => decide (a = b)
   | _, .vcons, v, vs => v :: vs
+  | ρ, .uninterpreted name _ _ _, x, y => ρ.binary τ₁ τ₂ τ₃ name x y
 
 def Term.eval (ρ : Env) : Term τ → τ.denote
   | .var τ y      => ρ.lookup τ y
@@ -142,11 +218,27 @@ theorem Term.eval_env_agree {t : Term τ} {ρ ρ' : Env} {Δ : Signature} :
   intro hwf hagree
   induction t with
   | var τ y => simp [Term.eval, Env.lookup]; exact hagree.1 ⟨y, τ⟩ hwf
-  | const c => simp only [Term.eval]; cases c <;> rfl
-  | unop op a iha => simp only [Term.eval]; rw [iha hwf]; cases op <;> rfl
+  | const c =>
+    simp only [Term.eval]
+    cases c with
+    | uninterpreted name _ => exact hagree.2.1 ⟨name, _⟩ hwf
+    | _ => rfl
+  | unop op a iha =>
+    simp only [Term.eval]
+    rw [iha hwf.2]
+    cases op with
+    | uninterpreted name _ _ =>
+      simp only [UnOp.eval]
+      exact congrFun (hagree.2.2.1 ⟨name, _, _⟩ hwf.1) _
+    | _ => rfl
   | binop op a b iha ihb =>
     simp only [Term.eval]
-    rw [iha hwf.1, ihb hwf.2]; cases op <;> rfl
+    rw [iha hwf.2.1, ihb hwf.2.2]
+    cases op with
+    | uninterpreted name _ _ _ =>
+      simp only [BinOp.eval]
+      exact congrFun (congrFun (hagree.2.2.2 ⟨name, _, _, _⟩ hwf.1) _) _
+    | _ => rfl
   | ite c t e ihc iht ihe =>
     simp [Term.eval]
     rw [ihc hwf.1, iht hwf.2.1, ihe hwf.2.2]
@@ -183,10 +275,12 @@ theorem Term.eval_update_fresh {t : Term τ'} {x : String} {τ : Srt} {v : τ.de
   | const c => simp only [Term.eval]; cases c <;> rfl
   | unop op a iha =>
     simp only [Term.freeVars] at hfree
-    simp only [Term.eval, iha hfree]; cases op <;> rfl
+    simp only [Term.eval, iha hfree]
+    cases op <;> rfl
   | binop op a b iha ihb =>
     simp only [Term.freeVars, List.mem_append, not_or] at hfree
-    simp only [Term.eval, iha hfree.1, ihb hfree.2]; cases op <;> rfl
+    simp only [Term.eval, iha hfree.1, ihb hfree.2]
+    cases op <;> rfl
   | ite c t e ihc iht ihe =>
     simp only [Term.freeVars, List.mem_append, not_or] at hfree
     obtain ⟨⟨hc, ht'⟩, he⟩ := hfree
