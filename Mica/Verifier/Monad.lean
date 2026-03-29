@@ -67,22 +67,23 @@ theorem TransState.holdsFor_mono {st st' : TransState} {ρ : Env}
 
 structure TransState.wf (st : TransState) : Prop where
   assertsWf : st.asserts.wfIn st.decls
-  declsDisjoint : st.decls.disjoint
+  -- @claude: This will need to change to all names, not just the variables, being disjoint
+  declsDisjoint : st.decls.vars.disjoint
 
 def TransState.freshVar (hint : Option String) (t : Srt) (st : TransState) :=
   let base := hint.getD "_v"
-  let x' := fresh (addNumbers base) (st.decls.map Var.name)
+  let x' := fresh (addNumbers base) (st.decls.vars.map Var.name)
   ({ name := x', sort := t}: Var)
 
 theorem TransState.freshVar.wf {hint t} (st : TransState) :
   TransState.wf st →
-  TransState.wf { st with decls := (st.freshVar hint t) :: st.decls } := by
+  TransState.wf { st with decls := st.decls.addVar (st.freshVar hint t) } := by
   intro hwf
   constructor
-  · exact Context.wfIn_mono _ hwf.assertsWf (List.subset_cons_of_subset _ (List.Subset.refl _))
-  · have hfresh := fresh_not_mem (addNumbers (hint.getD "_v")) (st.decls.map Var.name) (addNumbers_injective _)
+  · exact Context.wfIn_mono _ hwf.assertsWf (Signature.Subset.subset_addVar _ _)
+  · have hfresh := fresh_not_mem (addNumbers (hint.getD "_v")) (st.decls.vars.map Var.name) (addNumbers_injective _)
     intro x x' sort sort' hmem hmem' hname
-    simp only [List.mem_cons, TransState.freshVar, Var.mk.injEq] at hmem hmem'
+    simp only [Signature.addVar, List.mem_cons, TransState.freshVar, Var.mk.injEq] at hmem hmem'
     rcases hmem with ⟨rfl, rfl⟩ | hmem <;> rcases hmem' with ⟨rfl, rfl⟩ | hmem'
     · rfl
     · exact absurd (hname ▸ List.mem_map.mpr ⟨⟨x', sort'⟩, hmem', rfl⟩) hfresh
@@ -135,7 +136,7 @@ def VerifM.translate :
   | .decl hint t, st, k =>
       let v := st.freshVar hint t
       .declareConst v.name t (fun () =>
-        k (.ok v) { st with decls := v :: st.decls })
+        k (.ok v) { st with decls := st.decls.addVar v })
   | .assume φ, st, k =>
       ScopedM.assert φ (fun () =>
         k (.ok ()) { st with asserts := φ :: st.asserts })
@@ -166,7 +167,7 @@ def VerifM.eval_rec : VerifM α → TransState → Env → (α → TransState �
   | .bind m k, st, ρ, P => m.eval_rec st ρ (fun r st' ρ' => (k r).eval_rec st' ρ' P)
   | .decl hint t, st, ρ, P =>
       let v := st.freshVar hint t
-      ∀ u, P v { st with decls := v :: st.decls } (ρ.update t v.name u)
+      ∀ u, P v { st with decls := st.decls.addVar v } (ρ.update t v.name u)
   | .assume φ, st, ρ, P => φ.wfIn st.decls → φ.eval ρ → P () { st with asserts := φ :: st.asserts } ρ
   | .check φ, st, ρ, P => φ.wfIn st.decls → ∃ b, (b = true → φ.eval ρ) ∧ P b st ρ
   | .fatal _, _, _, _ => False
@@ -178,39 +179,41 @@ def VerifM.eval_rec : VerifM α → TransState → Env → (α → TransState �
       m.eval_rec st ρ (fun () _ _ => True) ∧ m2.eval_rec st ρ P
 
 theorem VerifM.eval_rec.mono' {m : VerifM α} (ρ : Env) (st : TransState) (h : m.eval_rec st ρ P)
-    (hPQ : ∀ a st' ρ', st.decls ⊆ st'.decls → ρ.agreeOn st.decls ρ' → P a st' ρ' → Q a st' ρ') :
+    (hPQ : ∀ a st' ρ', st.decls.Subset st'.decls → Env.agreeOn st.decls ρ ρ' → P a st' ρ' → Q a st' ρ') :
     m.eval_rec st ρ Q := by
   induction m generalizing st ρ with
-  | ret => exact hPQ _ _ _ (List.Subset.refl _) (Env.agreeOn_refl) h
+  | ret => exact hPQ _ _ _ (Signature.Subset.refl _) (Env.agreeOn_refl) h
   | bind m k ihm ihk =>
     exact ihm ρ st h fun r st' ρ' hsub hag hr =>
       ihk r ρ' st' hr fun a st'' ρ'' hsub' hag' hp =>
         hPQ a st'' ρ'' (hsub.trans hsub') (Env.agreeOn_trans hag (Env.agreeOn_mono hsub hag')) hp
   | decl hint t =>
     intro u
-    refine hPQ _ _ _ (List.subset_cons_of_subset _ (List.Subset.refl _)) ?_ (h u)
-    intro v hv
-    have hfresh := fresh_not_mem (addNumbers (hint.getD "_v")) (st.decls.map Var.name) (addNumbers_injective _)
-    have hne : v.name ≠ fresh (addNumbers (hint.getD "_v")) (st.decls.map Var.name) :=
-      fun heq => hfresh (heq ▸ List.mem_map.mpr ⟨v, hv, rfl⟩)
-    exact (Env.lookup_update_ne (Or.inl hne)).symm
+    refine hPQ _ _ _ (Signature.Subset.subset_addVar _ _) ?_ (h u)
+    constructor
+    · intro v hv
+      have hfresh := fresh_not_mem (addNumbers (hint.getD "_v")) (st.decls.vars.map Var.name) (addNumbers_injective _)
+      have hne : v.name ≠ fresh (addNumbers (hint.getD "_v")) (st.decls.vars.map Var.name) :=
+        fun heq => hfresh (heq ▸ List.mem_map.mpr ⟨v, hv, rfl⟩)
+      exact (Env.lookup_update_ne (Or.inl hne)).symm
+    · exact ⟨fun _ _ => rfl, fun _ _ => rfl, fun _ _ => rfl⟩
   | assume =>
     intro hwf hφ
-    exact hPQ _ _ _ (List.Subset.refl _) (Env.agreeOn_refl) (h hwf hφ)
+    exact hPQ _ _ _ (Signature.Subset.refl _) (Env.agreeOn_refl) (h hwf hφ)
   | check =>
     intro hwf
     obtain ⟨b, hb, hp⟩ := h hwf
-    exact ⟨b, hb, hPQ _ _ _ (List.Subset.refl _) (Env.agreeOn_refl) hp⟩
+    exact ⟨b, hb, hPQ _ _ _ (Signature.Subset.refl _) (Env.agreeOn_refl) hp⟩
   | fatal => exact h.elim
   | failed => exact h.elim
   | all items =>
     intro a ha
-    exact hPQ _ _ _ (List.Subset.refl _) (Env.agreeOn_refl) (h a ha)
+    exact hPQ _ _ _ (Signature.Subset.refl _) (Env.agreeOn_refl) (h a ha)
   | any items =>
     obtain ⟨a, ha, hp⟩ := h
-    exact ⟨a, ha, hPQ _ _ _ (List.Subset.refl _) (Env.agreeOn_refl) hp⟩
+    exact ⟨a, ha, hPQ _ _ _ (Signature.Subset.refl _) (Env.agreeOn_refl) hp⟩
   | ctx =>
-    exact hPQ _ _ _ (List.Subset.refl _) (Env.agreeOn_refl) h
+    exact hPQ _ _ _ (Signature.Subset.refl _) (Env.agreeOn_refl) h
   | seq m m2 ihm ihf =>
     exact ⟨ihm ρ st h.1 fun () _ _ _ _ ha => trivial,
            ihf ρ st h.2 hPQ⟩
@@ -220,7 +223,7 @@ theorem VerifM.eval_rec.mono {m : VerifM α} (h : m.eval_rec st ρ P) (hPQ : ∀
   h.mono' ρ st fun a st' ρ' _ _ => hPQ a st' ρ'
 
 theorem VerifM.eval_rec.decls_grow {m : VerifM α} ρ (h : m.eval_rec st ρ P) :
-    m.eval_rec st ρ (fun a st' ρ' => st.decls ⊆ st'.decls ∧ ρ.agreeOn st.decls ρ' ∧ P a st' ρ') :=
+    m.eval_rec st ρ (fun a st' ρ' => st.decls.Subset st'.decls ∧ Env.agreeOn st.decls ρ ρ' ∧ P a st' ρ') :=
   h.mono' ρ st fun _ _ _ hsub hag hp => ⟨hsub, hag, hp⟩
 
 /-! ### Adequacy: translate success implies eval -/
@@ -241,15 +244,17 @@ theorem VerifM.eval_rec_preserves_wf (m : VerifM α) (st : TransState) (ρ: Env)
     simp only [VerifM.eval_rec]
     intro u
     specialize (h u)
-    let w := fresh (addNumbers (hint.getD "_v")) (st.decls.map Var.name)
-    have hfresh := fresh_not_mem (addNumbers (hint.getD "_v")) (st.decls.map Var.name) (addNumbers_injective _)
+    let w := fresh (addNumbers (hint.getD "_v")) (st.decls.vars.map Var.name)
+    have hfresh := fresh_not_mem (addNumbers (hint.getD "_v")) (st.decls.vars.map Var.name) (addNumbers_injective _)
     have hagree : Env.agreeOn st.decls ρ (ρ.update t w u) := by
-      intro v hv
-      have hne : v.name ≠ w := by
-        intro heq
-        unfold w at heq
-        exact (hfresh (heq ▸ List.mem_map.mpr ⟨v, hv, rfl⟩))
-      exact (Env.lookup_update_ne (Or.inl hne)).symm
+      constructor
+      · intro v hv
+        have hne : v.name ≠ w := by
+          intro heq
+          unfold w at heq
+          exact (hfresh (heq ▸ List.mem_map.mpr ⟨v, hv, rfl⟩))
+        exact (Env.lookup_update_ne (Or.inl hne)).symm
+      · exact ⟨fun _ _ => rfl, fun _ _ => rfl, fun _ _ => rfl⟩
     constructor
     · intro φ hφ
       exact (Formula.eval_env_agree (hwf.assertsWf φ hφ) hagree).mp (g φ hφ)
@@ -429,7 +434,7 @@ theorem VerifM.eval.holdsFor {m : VerifM α} {st : TransState} {ρ : Env} {Q : �
     (h : m.eval st ρ Q) : st.holdsFor ρ := h.2.1
 
 theorem VerifM.eval.mono' {m : VerifM α} (ρ : Env) (st : TransState) (h : m.eval st ρ P)
-    (hPQ : ∀ a st' ρ', st.decls ⊆ st'.decls → ρ.agreeOn st.decls ρ' →
+    (hPQ : ∀ a st' ρ', st.decls.Subset st'.decls → Env.agreeOn st.decls ρ ρ' →
       st'.wf → st'.holdsFor ρ' → P a st' ρ' → Q a st' ρ') :
     m.eval st ρ Q :=
   ⟨h.1, h.2.1, h.2.2.mono' ρ st fun a st' ρ' hsub hag ⟨hwf', hg', hp⟩ =>
@@ -440,7 +445,7 @@ theorem VerifM.eval.mono {m : VerifM α} (h : m.eval st ρ P) (hPQ : ∀ a st' �
   h.mono' ρ st fun a st' ρ' _ _ _ _ => hPQ a st' ρ'
 
 theorem VerifM.eval.decls_grow {m : VerifM α} ρ (h : m.eval st ρ P) :
-    m.eval st ρ (fun a st' ρ' => st.decls ⊆ st'.decls ∧ ρ.agreeOn st.decls ρ' ∧ P a st' ρ') :=
+    m.eval st ρ (fun a st' ρ' => st.decls.Subset st'.decls ∧ Env.agreeOn st.decls ρ ρ' ∧ P a st' ρ') :=
   h.mono' ρ st fun _ _ _ hsub hag _ _ hp => ⟨hsub, hag, hp⟩
 
 /-! ### Inversion lemmas for VerifM.eval (forward direction) -/
@@ -477,7 +482,7 @@ theorem VerifM.eval_decl {hint : Option String} {t : Srt} {st : TransState} {ρ 
     {Q : Var → TransState → Env → Prop}
     (h : VerifM.eval (.decl hint t) st ρ Q) :
     let v := st.freshVar hint t
-    ∀ u, Q v { st with decls := v :: st.decls } (ρ.update t v.name u) :=
+    ∀ u, Q v { st with decls := st.decls.addVar v } (ρ.update t v.name u) :=
   fun u => (h.2.2 u).2.2
 
 theorem VerifM.eval_assume {φ : Formula} {st : TransState} {ρ : Env}
@@ -594,7 +599,7 @@ theorem VerifM.eval_of_translate (m : VerifM Unit) (st : TransState) (ρ : Env) 
   (translate_eval m st ρ topCont topCont_error_propagates Δ h g hwf).mono fun _ _ _ _ => trivial
 
 def VerifM.strategy (m : VerifM Unit) :=
-  let verif := VerifM.translate m { decls := [], asserts := [] } VerifM.topCont
+  let verif := VerifM.translate m { decls := Signature.empty, asserts := [] } VerifM.topCont
   let verif' := ScopedM.bind verif fun
     | .ok () => ScopedM.ret (Except.ok ())
     | .error (.failed msg) => ScopedM.ret (Except.error msg)

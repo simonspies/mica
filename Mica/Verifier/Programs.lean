@@ -48,7 +48,7 @@ def Decl.check (S : SpecMap) (d : TinyML.Decl TinyML.Expr) : VerifM Spec := do
   let spec ← match Spec.complete sp d.body with
     | .ok s => .ret s
     | .error e => .fatal e
-  let () ← match Spec.checkWf spec [] with
+  let () ← match Spec.checkWf spec Signature.empty with
     | .ok () => .ret ()
     | .error msg => .fatal msg
   VerifM.seq (checkSpec S d.body spec) (pure spec)
@@ -88,7 +88,7 @@ def Program.verify (prog : TinyML.Program) : Strategy Outcome :=
 
 
 theorem Decl.checkExpr_correct (S : SpecMap) (d : TinyML.Decl TinyML.Expr) (γ : Runtime.Subst)
-    (hS : S.satisfiedBy γ) (hSwf : S.wfIn [])
+    (hS : S.satisfiedBy γ) (hSwf : S.wfIn Signature.empty)
     (st : TransState) (ρ : Env)
     {Q : Unit → TransState → Env → Prop}
     (heval : VerifM.eval (Decl.checkExpr S d) st ρ Q) :
@@ -109,11 +109,11 @@ theorem Decl.checkExpr_correct (S : SpecMap) (d : TinyML.Decl TinyML.Expr) (γ :
     (fun _ _ _ _ _ _ _ _ _ => trivial)
 
 theorem Decl.check_correct (S : SpecMap) (d : TinyML.Decl TinyML.Expr) (γ : Runtime.Subst)
-    (hS : S.satisfiedBy γ) (hSwf : S.wfIn [])
+    (hS : S.satisfiedBy γ) (hSwf : S.wfIn Signature.empty)
     (st : TransState) (ρ : Env)
     {Q : Spec → TransState → Env → Prop}
     (heval : VerifM.eval (Decl.check S d) st ρ Q) :
-    ∃ spec, spec.wfIn [] ∧
+    ∃ spec, spec.wfIn Signature.empty ∧
             wp (d.body.runtime.subst γ) (spec.isPrecondFor ·) ∧
             Q spec st ρ := by
   simp only [Decl.check] at heval
@@ -138,20 +138,20 @@ theorem Decl.check_correct (S : SpecMap) (d : TinyML.Decl TinyML.Expr) (γ : Run
       | ok spec =>
         simp only [hcomplete] at h2
         have h3 := VerifM.eval_ret (VerifM.eval_bind _ _ _ _ h2)
-        cases hwf : Spec.checkWf spec [] with
+        cases hwf : Spec.checkWf spec Signature.empty with
         | error msg =>
           simp only [hwf] at h3
           exact (VerifM.eval_fatal (VerifM.eval_bind _ _ _ _ h3)).elim
         | ok u =>
           simp only [hwf] at h3
           have h4 := VerifM.eval_ret (VerifM.eval_bind _ _ _ _ h3)
-          have hswf : spec.wfIn [] := Spec.checkWf_ok (by cases u; exact hwf)
+          have hswf : spec.wfIn Signature.empty := Spec.checkWf_ok (by cases u; exact hwf)
           have ⟨hcheckSpec, hpure⟩ := VerifM.eval_seq h4
           exact ⟨spec, hswf, checkSpec_correct S d.body spec γ hswf hSwf hS st ρ hcheckSpec,
                  VerifM.eval_ret hpure⟩
 
 theorem Program.check_correct (S : SpecMap) (prog : TinyML.Program) (γ : Runtime.Subst)
-    (hS : S.satisfiedBy γ) (hSwf : S.wfIn [])
+    (hS : S.satisfiedBy γ) (hSwf : S.wfIn Signature.empty)
     (st : TransState) (ρ : Env) :
     VerifM.eval (Program.check S prog) st ρ (fun _ _ _ => True) →
     pwp ((TinyML.Program.runtime prog).subst γ) := by

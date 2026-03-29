@@ -1,11 +1,12 @@
 import Mica.FOL.Formulas
+import Mica.FOL.Subst
 
 /-- Natural deduction proof system for first-order logic, tracking a signature. -/
 inductive Proof : Signature → Context → Formula → Prop where
   -- Structural
   | ax : φ ∈ Γ → Proof sig Γ φ
   | weaken : Proof sig Γ φ → Proof sig (ψ :: Γ) φ
-  | sigWeaken : Γ.wfIn sig → Proof sig Γ φ → Proof (v :: sig) Γ φ
+  | sigWeaken : Γ.wfIn sig → Proof sig Γ φ → Proof (sig.addVar v) Γ φ
 
   -- Truth
   | true_intro : Proof sig Γ .true_
@@ -36,20 +37,22 @@ inductive Proof : Signature → Context → Formula → Prop where
 
   -- Quantifiers (eigenvariable-based)
   | forall_intro (y : String) :
-      ⟨y, τ⟩ ∉ sig →
-      φ.wfIn (⟨x, τ⟩ :: sig) →
-      Proof (⟨y, τ⟩ :: sig) Γ (φ.subst (Subst.single τ x (.var τ y)) (⟨y, τ⟩ :: sig)) →
+      ⟨y, τ⟩ ∉ sig.vars →
+      φ.wfIn (sig.addVar (Var.mk x τ)) →
+      Proof (sig.addVar (Var.mk y τ)) Γ
+        (φ.subst (Subst.single τ x (.var τ y)) (⟨y, τ⟩ :: sig.vars)) →
       Proof sig Γ (.forall_ x τ φ)
-  | forall_elim : t.wfIn sig → φ.wfIn (⟨x, τ⟩ :: sig) →
-      Proof sig Γ (.forall_ x τ φ) → Proof sig Γ (φ.subst (Subst.single τ x t) sig)
-  | exists_intro : t.wfIn sig → φ.wfIn (⟨x, τ⟩ :: sig) →
-      Proof sig Γ (φ.subst (Subst.single τ x t) sig) → Proof sig Γ (.exists_ x τ φ)
+  | forall_elim : t.wfIn sig → φ.wfIn (sig.addVar (Var.mk x τ)) →
+      Proof sig Γ (.forall_ x τ φ) → Proof sig Γ (φ.subst (Subst.single τ x t) sig.vars)
+  | exists_intro : t.wfIn sig → φ.wfIn (sig.addVar (Var.mk x τ)) →
+      Proof sig Γ (φ.subst (Subst.single τ x t) sig.vars) → Proof sig Γ (.exists_ x τ φ)
   | exists_elim (y : String) :
-      ⟨y, τ⟩ ∉ sig →
-      φ.wfIn (⟨x, τ⟩ :: sig) →
+      ⟨y, τ⟩ ∉ sig.vars →
+      φ.wfIn (sig.addVar (Var.mk x τ)) →
       ψ.wfIn sig →
       Proof sig Γ (.exists_ x τ φ) →
-      Proof (⟨y, τ⟩ :: sig) (φ.subst (Subst.single τ x (.var τ y)) (⟨y, τ⟩ :: sig) :: Γ) ψ →
+      Proof (sig.addVar (Var.mk y τ))
+        (φ.subst (Subst.single τ x (.var τ y)) (⟨y, τ⟩ :: sig.vars) :: Γ) ψ →
       Proof sig Γ ψ
 
 /-- Proofs preserve well-formedness: if the context is well-formed, so is the conclusion. -/
@@ -220,10 +223,10 @@ theorem sound_eq_trans : entails Γ (.eq τ a b) → entails Γ (.eq τ b c) →
   intro h₁ h₂ ρ hΓ; simp [Formula.eval] at *; exact (h₁ ρ hΓ).trans (h₂ ρ hΓ)
 
 -- Quantifiers
-theorem sound_forall_intro (y : String) (hnotin : ⟨y, τ⟩ ∉ sig) :
-    entails Γ (φ.subst (Subst.single τ x (.var τ y)) (⟨y, τ⟩ :: sig)) →
+theorem sound_forall_intro (y : String) (hnotin : ⟨y, τ⟩ ∉ sig.vars) :
+    entails Γ (φ.subst (Subst.single τ x (.var τ y)) (⟨y, τ⟩ :: sig.vars)) →
     Γ.wfIn sig →
-    φ.wfIn (⟨x, τ⟩ :: sig) →
+    φ.wfIn (sig.addVar (Var.mk x τ)) →
     entails Γ (.forall_ x τ φ) := by
   intro hφ hwfΓ hwfφ ρ hΓ v
   let ρ' := ρ.update τ y v
@@ -238,32 +241,32 @@ theorem sound_forall_intro (y : String) (hnotin : ⟨y, τ⟩ ∉ sig) :
     change Formula.eval ((ρ.update τ y v).update τ y v) φ at heval
     simp only [Env.update_update_same] at heval
     exact heval
-  · have hnotin' : ⟨y, τ⟩ ∉ (⟨x, τ⟩ :: sig) := by
+  · have hnotin' : ⟨y, τ⟩ ∉ (⟨x, τ⟩ :: sig.vars) := by
       simp only [List.mem_cons, not_or]
       exact ⟨fun h => hyx (congrArg Var.name h), hnotin⟩
     rw [Env.update_comm hyx] at heval
     exact (Formula.eval_update_not_in_sig hwfφ hnotin').mp heval
 
 theorem sound_forall_elim (_hwf : t.wfIn sig) :
-    entails Γ (.forall_ x τ φ) → entails Γ (φ.subst (Subst.single τ x t) sig) := by
+    entails Γ (.forall_ x τ φ) → entails Γ (φ.subst (Subst.single τ x t) sig.vars) := by
   intro h ρ hΓ
   have := h ρ hΓ (Term.eval ρ t)
   rw [Formula.eval_subst_single_sig]
   exact this
 
 theorem sound_exists_intro (_hwf : t.wfIn sig) :
-    entails Γ (φ.subst (Subst.single τ x t) sig) → entails Γ (.exists_ x τ φ) := by
+    entails Γ (φ.subst (Subst.single τ x t) sig.vars) → entails Γ (.exists_ x τ φ) := by
   intro h ρ hΓ
   use Term.eval ρ t
   rw [← Formula.eval_subst_single_sig]
   exact h ρ hΓ
 
-theorem sound_exists_elim (y : String) (hnotin : ⟨y, τ⟩ ∉ sig) :
+theorem sound_exists_elim (y : String) (hnotin : ⟨y, τ⟩ ∉ sig.vars) :
     entails Γ (.exists_ x τ φ) →
-    entails (φ.subst (Subst.single τ x (.var τ y)) (⟨y, τ⟩ :: sig) :: Γ) ψ →
+    entails (φ.subst (Subst.single τ x (.var τ y)) (⟨y, τ⟩ :: sig.vars) :: Γ) ψ →
     Γ.wfIn sig →
     ψ.wfIn sig →
-    φ.wfIn (⟨x, τ⟩ :: sig) →
+    φ.wfIn (sig.addVar (Var.mk x τ)) →
     entails Γ ψ := by
   intro hφ hψ hwfΓ hwfψ hwfφ ρ hΓ
   -- From hφ ρ hΓ we get ∃ v, φ.eval (ρ.update τ x v)
@@ -284,7 +287,7 @@ theorem sound_exists_elim (y : String) (hnotin : ⟨y, τ⟩ ∉ sig) :
         change Formula.eval ((ρ.update τ y v).update τ y v) φ
         simp only [Env.update_update_same]
         exact hv
-      · have hnotin' : ⟨y, τ⟩ ∉ (⟨x, τ⟩ :: sig) := by
+      · have hnotin' : ⟨y, τ⟩ ∉ (⟨x, τ⟩ :: sig.vars) := by
           simp only [List.mem_cons, not_or]
           exact ⟨fun h => hyx (congrArg Var.name h), hnotin⟩
         change Formula.eval ((ρ.update τ y v).update τ x v) φ

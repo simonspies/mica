@@ -8,7 +8,7 @@ added at that push level. -/
 
 /-- A single scope frame: declarations and assertions added in this push level. -/
 structure SmtFrame where
-  decls : VarCtx
+  decls : Signature
   asserts : List Formula
 
 /-- The solver state: a stack of frames. -/
@@ -19,24 +19,45 @@ structure SmtState where
 
 /-- One frame extends another: same fields with possible prepended elements. -/
 def SmtFrame.Extends (f f' : SmtFrame) : Prop :=
-  ∃ ds as, f'.decls = ds ++ f.decls ∧ f'.asserts = as ++ f.asserts
+  ∃ vs cs us bs as,
+    f'.decls.vars   = vs ++ f.decls.vars ∧
+    f'.decls.consts = cs ++ f.decls.consts ∧
+    f'.decls.unary  = us ++ f.decls.unary ∧
+    f'.decls.binary = bs ++ f.decls.binary ∧
+    f'.asserts = as ++ f.asserts
 
 theorem SmtFrame.Extends.refl (f : SmtFrame) : f.Extends f :=
-  ⟨[], [], rfl, rfl⟩
+  ⟨[], [], [], [], [], rfl, rfl, rfl, rfl, rfl⟩
 
-theorem SmtFrame.Extends.addDecl (f : SmtFrame) (v : Var) :
-    f.Extends ⟨v :: f.decls, f.asserts⟩ :=
-  ⟨[v], [], rfl, rfl⟩
+theorem SmtFrame.Extends.addVar (f : SmtFrame) (v : Var) :
+    f.Extends ⟨f.decls.addVar v, f.asserts⟩ :=
+  ⟨[v], [], [], [], [], rfl, rfl, rfl, rfl, rfl⟩
+
+theorem SmtFrame.Extends.addConst (f : SmtFrame) (c : FOL.Const) :
+    f.Extends ⟨f.decls.addConst c, f.asserts⟩ :=
+  ⟨[], [c], [], [], [], rfl, rfl, rfl, rfl, rfl⟩
+
+theorem SmtFrame.Extends.addUnary (f : SmtFrame) (u : FOL.Unary) :
+    f.Extends ⟨f.decls.addUnary u, f.asserts⟩ :=
+  ⟨[], [], [u], [], [], rfl, rfl, rfl, rfl, rfl⟩
+
+theorem SmtFrame.Extends.addBinary (f : SmtFrame) (b : FOL.Binary) :
+    f.Extends ⟨f.decls.addBinary b, f.asserts⟩ :=
+  ⟨[], [], [], [b], [], rfl, rfl, rfl, rfl, rfl⟩
 
 theorem SmtFrame.Extends.addAssert (f : SmtFrame) (φ : Formula) :
     f.Extends ⟨f.decls, φ :: f.asserts⟩ :=
-  ⟨[], [φ], rfl, rfl⟩
+  ⟨[], [], [], [], [φ], rfl, rfl, rfl, rfl, rfl⟩
 
 theorem SmtFrame.Extends.trans {f₁ f₂ f₃ : SmtFrame}
     (h₁₂ : f₁.Extends f₂) (h₂₃ : f₂.Extends f₃) : f₁.Extends f₃ := by
-  obtain ⟨ds₁, as₁, hd₁, ha₁⟩ := h₁₂
-  obtain ⟨ds₂, as₂, hd₂, ha₂⟩ := h₂₃
-  exact ⟨ds₂ ++ ds₁, as₂ ++ as₁, by simp [hd₂, hd₁, List.append_assoc],
+  obtain ⟨vs₁, cs₁, us₁, bs₁, as₁, hv₁, hc₁, hu₁, hb₁, ha₁⟩ := h₁₂
+  obtain ⟨vs₂, cs₂, us₂, bs₂, as₂, hv₂, hc₂, hu₂, hb₂, ha₂⟩ := h₂₃
+  exact ⟨vs₂ ++ vs₁, cs₂ ++ cs₁, us₂ ++ us₁, bs₂ ++ bs₁, as₂ ++ as₁,
+    by simp [hv₂, hv₁, List.append_assoc],
+    by simp [hc₂, hc₁, List.append_assoc],
+    by simp [hu₂, hu₁, List.append_assoc],
+    by simp [hb₂, hb₁, List.append_assoc],
     by simp [ha₂, ha₁, List.append_assoc]⟩
 
 /-! ## SMT Results -/
@@ -58,6 +79,8 @@ inductive Command : Type → Type where
   | push : Command Unit
   | pop : Command Unit
   | declareConst (name : String) (sort : Srt) : Command Unit
+  | declareUnary (name : String) (arg ret : Srt) : Command Unit
+  | declareBinary (name : String) (arg1 arg2 ret : Srt) : Command Unit
   | assert (expr : Formula) : Command Unit
   | checkSat : Command SmtResult
 
@@ -68,6 +91,8 @@ def Command.query : Command α → String
   | .push => "(push)"
   | .pop => "(pop)"
   | .declareConst n s => s!"(declare-const {n} {s.toSMTLIB})"
+  | .declareUnary n a r => s!"(declare-fun {n} ({a.toSMTLIB}) {r.toSMTLIB})"
+  | .declareBinary n a1 a2 r => s!"(declare-fun {n} ({a1.toSMTLIB} {a2.toSMTLIB}) {r.toSMTLIB})"
   | .assert e => s!"(assert {e.toSMTLIB})"
   | .checkSat => "(check-sat)"
 
@@ -76,6 +101,8 @@ def Command.parseResponse : (cmd : Command α) → String → Option α
   | .push, s => if s == "success" then some () else none
   | .pop, s => if s == "success" then some () else none
   | .declareConst _ _, s => if s == "success" then some () else none
+  | .declareUnary _ _ _, s => if s == "success" then some () else none
+  | .declareBinary _ _ _ _, s => if s == "success" then some () else none
   | .assert _, s => if s == "success" then some () else none
   | .checkSat, s =>
     if s == "sat" then some .sat
@@ -87,39 +114,57 @@ def Command.parseResponse : (cmd : Command α) → String → Option α
 
 namespace SmtState
 
-def initial : SmtState := ⟨[⟨[], []⟩]⟩
+def initial : SmtState := ⟨[⟨Signature.empty, []⟩]⟩
 
 /-- All declarations visible in the current state (from all frames). -/
-def allDecls (s : SmtState) : VarCtx :=
-  s.frames.flatMap (·.decls)
+def allDecls (s : SmtState) : Signature :=
+  ⟨s.frames.flatMap (·.decls.vars),
+   s.frames.flatMap (·.decls.consts),
+   s.frames.flatMap (·.decls.unary),
+   s.frames.flatMap (·.decls.binary)⟩
 
 /-- All assertions active in the current state (from all frames). -/
 def allAsserts (s : SmtState) : List Formula :=
   s.frames.flatMap (·.asserts)
 
 def push (s : SmtState) : SmtState :=
-  ⟨⟨[], []⟩ :: s.frames⟩
+  ⟨⟨Signature.empty, []⟩ :: s.frames⟩
 
 def pop (s : SmtState) : SmtState :=
   match s.frames with
   | [] => s  -- underflow: no-op
   | _ :: rest => ⟨rest⟩
 
-def addDecl (s : SmtState) (v : Var) : SmtState :=
+def modifyDecls (s : SmtState) (f : Signature → Signature) : SmtState :=
   match s.frames with
-  | [] => ⟨[⟨[v], []⟩]⟩
-  | ⟨decls, asserts⟩ :: rest => ⟨⟨v :: decls, asserts⟩ :: rest⟩
+  | [] => ⟨[⟨f Signature.empty, []⟩]⟩
+  | ⟨decls, asserts⟩ :: rest => ⟨⟨f decls, asserts⟩ :: rest⟩
+
+def addVar (s : SmtState) (v : Var) : SmtState :=
+  s.modifyDecls (·.addVar v)
+
+def addConst (s : SmtState) (c : FOL.Const) : SmtState :=
+  s.modifyDecls (·.addConst c)
+
+def addUnary (s : SmtState) (u : FOL.Unary) : SmtState :=
+  s.modifyDecls (·.addUnary u)
+
+def addBinary (s : SmtState) (b : FOL.Binary) : SmtState :=
+  s.modifyDecls (·.addBinary b)
 
 def addAssert (s : SmtState) (φ : Formula) : SmtState :=
   match s.frames with
-  | [] => ⟨[⟨[], [φ]⟩]⟩
+  | [] => ⟨[⟨Signature.empty, [φ]⟩]⟩
   | ⟨decls, asserts⟩ :: rest => ⟨⟨decls, φ :: asserts⟩ :: rest⟩
 
 /-- Advance the state by one command (only on success). -/
 def step : Command β → β → SmtState → SmtState
   | .push, (), s => s.push
   | .pop, (), s => s.pop
-  | .declareConst n sort, (), s => s.addDecl ⟨n, sort⟩
+  -- @claude: We will need to change this in the future to declare a constant instead of a variable
+  | .declareConst n sort, (), s => s.addVar ⟨n, sort⟩
+  | .declareUnary n arg ret, (), s => s.addUnary ⟨n, arg, ret⟩
+  | .declareBinary n arg1 arg2 ret, (), s => s.addBinary ⟨n, arg1, arg2, ret⟩
   | .assert e, (), s => s.addAssert e
   | .checkSat, _, s => s
 
@@ -129,7 +174,7 @@ end SmtState
 
 /-- The conjunction of `asserts` is satisfiable under the given declarations.
     That is, there exists an environment making all assertions true simultaneously. -/
-def Satisfiable (_decls : VarCtx) (asserts : List Formula) : Prop :=
+def Satisfiable (_decls : Signature) (asserts : List Formula) : Prop :=
   ∃ ρ : Env, ∀ φ ∈ asserts, φ.eval ρ
 
 theorem Satisfiable.to_impl decls asserts :

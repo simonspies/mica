@@ -90,24 +90,23 @@ theorem Atom.resolve_correct {a : Atom τ} {C : List Formula} {t : Term τ}
   subst heq
   exact hC _ hφ_mem
 
-theorem Atom.resolve_wfIn {a : Atom τ} {C : List Formula} {t : Term τ} {decls : List Var}
-    (h : a.resolve C = some t) (hwf : ∀ φ ∈ C, φ.wfIn decls) :
-    t.wfIn decls := by
+theorem Atom.resolve_wfIn {a : Atom τ} {C : List Formula} {t : Term τ} {Δ : Signature}
+    (h : a.resolve C = some t) (hwf : ∀ φ ∈ C, φ.wfIn Δ) :
+    t.wfIn Δ := by
   obtain ⟨φ, hφ_mem, hφ_match⟩ := List.exists_of_findSome?_eq_some h
   have heq := Formula.matchAtom_correct hφ_match
   subst heq
-  intro v hv
-  apply hwf _ hφ_mem
+  have hφwf := hwf _ hφ_mem
   cases a with
   | isint u =>
-    simp only [Atom.toFormula, Formula.freeVars, Term.freeVars] at hv ⊢
-    exact List.mem_append_right _ hv
+    simp only [Atom.toFormula, Formula.wfIn, Term.wfIn] at hφwf
+    exact hφwf.2.2
   | isbool u =>
-    simp only [Atom.toFormula, Formula.freeVars, Term.freeVars] at hv ⊢
-    exact List.mem_append_right _ hv
+    simp only [Atom.toFormula, Formula.wfIn, Term.wfIn] at hφwf
+    exact hφwf.2.2
   | isinj tag arity u =>
-    simp only [Atom.toFormula, Formula.freeVars, Term.freeVars] at hv ⊢
-    exact List.mem_append_right _ hv
+    simp only [Atom.toFormula, Formula.wfIn, Term.wfIn] at hφwf
+    exact hφwf.2.2
 
 
 -- ---------------------------------------------------------------------------
@@ -135,51 +134,51 @@ def Atom.eval {τ : Srt} (p : Atom τ) (ρ : Env) : τ.denote → Prop :=
 -- Well-formedness
 -- ---------------------------------------------------------------------------
 
-/-- An atom is well-formed in a list of declared variables. -/
-def Atom.wfIn (decls : List Var) : Atom τ → Prop
-  | .isint t  => t.wfIn decls
-  | .isbool t => t.wfIn decls
-  | .isinj _ _ t => t.wfIn decls
+/-- An atom is well-formed in a signature. -/
+def Atom.wfIn (Δ : Signature) : Atom τ → Prop
+  | .isint t  => t.wfIn Δ
+  | .isbool t => t.wfIn Δ
+  | .isinj _ _ t => t.wfIn Δ
 
-def Atom.checkWf (p : Atom τ) (Δ : VarCtx) : Except String Unit :=
+def Atom.checkWf (p : Atom τ) (Δ : Signature) : Except String Unit :=
   match p with
   | .isint t  => t.checkWf Δ
   | .isbool t => t.checkWf Δ
   | .isinj _ _ t => t.checkWf Δ
 
-theorem Atom.checkWf_ok {p : Atom τ} {Δ : VarCtx} (h : p.checkWf Δ = .ok ()) : p.wfIn Δ := by
+theorem Atom.checkWf_ok {p : Atom τ} {Δ : Signature} (h : p.checkWf Δ = .ok ()) : p.wfIn Δ := by
   cases p with
   | isint t  => exact Term.checkWf_ok h
   | isbool t => exact Term.checkWf_ok h
   | isinj tag arity t => exact Term.checkWf_ok h
 
-theorem Atom.wfIn_mono {p : Atom τ} {decls decls' : List Var}
-    (h : p.wfIn decls) (hmono : ∀ v ∈ decls, v ∈ decls') : p.wfIn decls' := by
+theorem Atom.wfIn_mono {p : Atom τ} {Δ Δ' : Signature}
+    (h : p.wfIn Δ) (hmono : Δ.Subset Δ') : p.wfIn Δ' := by
   cases p with
-  | isint t  => exact fun w hw => hmono _ (h w hw)
-  | isbool t => exact fun w hw => hmono _ (h w hw)
-  | isinj tag arity t => exact fun w hw => hmono _ (h w hw)
+  | isint t  => exact Term.wfIn_mono t h hmono
+  | isbool t => exact Term.wfIn_mono t h hmono
+  | isinj tag arity t => exact Term.wfIn_mono t h hmono
 
-theorem Atom.eval_env_agree {p : Atom τ} {ρ ρ' : Env} {Δ : VarCtx}
+theorem Atom.eval_env_agree {p : Atom τ} {ρ ρ' : Env} {Δ : Signature}
     (hwf : p.wfIn Δ) (hagree : Env.agreeOn Δ ρ ρ') : p.eval ρ = p.eval ρ' := by
   cases p with
   | isint t  => simp [Atom.eval, Term.eval_env_agree hwf hagree]
   | isbool t => simp [Atom.eval, Term.eval_env_agree hwf hagree]
   | isinj tag arity t => simp [Atom.eval, Term.eval_env_agree hwf hagree]
 
-theorem Atom.toFormula_wfIn {p : Atom τ} {t : Term τ} {decls : List Var}
-    (hp : p.wfIn decls) (ht : t.wfIn decls) :
-    (p.toFormula t).wfIn decls := by
+theorem Atom.toFormula_wfIn {p : Atom τ} {t : Term τ} {Δ : Signature}
+    (hp : p.wfIn Δ) (ht : t.wfIn Δ) :
+    (p.toFormula t).wfIn Δ := by
   cases p with
   | isint v =>
-    simp only [Atom.toFormula, Formula.wfIn, Formula.freeVars, Term.freeVars, List.mem_append]
-    intro w hw; exact hw.elim (hp w ·) (ht w ·)
+    simp only [Atom.toFormula, Formula.wfIn, Term.wfIn]
+    exact ⟨hp, trivial, ht⟩
   | isbool v =>
-    simp only [Atom.toFormula, Formula.wfIn, Formula.freeVars, Term.freeVars, List.mem_append]
-    intro w hw; exact hw.elim (hp w ·) (ht w ·)
+    simp only [Atom.toFormula, Formula.wfIn, Term.wfIn]
+    exact ⟨hp, trivial, ht⟩
   | isinj tag arity v =>
-    simp only [Atom.toFormula, Formula.wfIn, Formula.freeVars, Term.freeVars, List.mem_append]
-    intro w hw; exact hw.elim (hp w ·) (ht w ·)
+    simp only [Atom.toFormula, Formula.wfIn, Term.wfIn]
+    exact ⟨hp, trivial, ht⟩
 
 theorem Atom.toFormula_eval_iff {p : Atom τ} {t : Term τ} {ρ : Env} :
     (p.toFormula t).eval ρ ↔ p.eval ρ (t.eval ρ) := by
@@ -211,7 +210,7 @@ theorem Atom.eval_subst {p : Atom τ} {σ : Subst} {ρ : Env} :
   | isbool t => simp [Atom.subst, Atom.eval, Term.eval_subst]
   | isinj tag arity t => simp [Atom.subst, Atom.eval, Term.eval_subst]
 
-theorem Atom.subst_wfIn {p : Atom τ} {σ : Subst} {Δ Δ' : VarCtx}
+theorem Atom.subst_wfIn {p : Atom τ} {σ : Subst} {Δ Δ' : Signature}
     (hp : p.wfIn Δ) (hσ : σ.wfIn Δ Δ') : (p.subst σ).wfIn Δ' := by
   cases p with
   | isint t  => exact Term.subst_wfIn hp hσ
@@ -249,12 +248,12 @@ theorem Atom.candidates_correct {a : Atom τ} {φ : Formula} {t : Term τ} {ρ :
     simp [toFormula, Formula.eval, Term.eval, UnOp.eval]
     cases hv : v.eval ρ <;> simp_all
 
-theorem Atom.candidates_wfIn {a : Atom τ} {φ : Formula} {t : Term τ} {decls : List Var}
-    (hmem : (φ, t) ∈ a.candidates) (h : a.wfIn decls) : φ.wfIn decls ∧ t.wfIn decls := by
+theorem Atom.candidates_wfIn {a : Atom τ} {φ : Formula} {t : Term τ} {Δ : Signature}
+    (hmem : (φ, t) ∈ a.candidates) (h : a.wfIn Δ) : φ.wfIn Δ ∧ t.wfIn Δ := by
   cases a with
-  | isint v  => simp [candidates] at hmem; obtain ⟨rfl, rfl⟩ := hmem; exact ⟨h, h⟩
-  | isbool v => simp [candidates] at hmem; obtain ⟨rfl, rfl⟩ := hmem; exact ⟨h, h⟩
-  | isinj tag arity v => simp [candidates] at hmem; obtain ⟨rfl, rfl⟩ := hmem; exact ⟨h, h⟩
+  | isint v  => simp [candidates] at hmem; obtain ⟨rfl, rfl⟩ := hmem; exact ⟨h, trivial, h⟩
+  | isbool v => simp [candidates] at hmem; obtain ⟨rfl, rfl⟩ := hmem; exact ⟨h, trivial, h⟩
+  | isinj tag arity v => simp [candidates] at hmem; obtain ⟨rfl, rfl⟩ := hmem; exact ⟨h, trivial, h⟩
 
 
 -- ---------------------------------------------------------------------------
