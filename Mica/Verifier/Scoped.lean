@@ -9,6 +9,8 @@ corresponds to a single SMT command with a continuation receiving the response. 
 inductive ScopedM : Type → Type 1 where
   | ret : α → ScopedM α
   | declareConst : String → Srt → (Unit → ScopedM α) → ScopedM α
+  | declareUnary : String → Srt → Srt → (Unit → ScopedM α) → ScopedM α
+  | declareBinary : String → Srt → Srt → Srt → (Unit → ScopedM α) → ScopedM α
   | assert : Formula → (Unit → ScopedM α) → ScopedM α
   | checkSat : (SmtResult → ScopedM α) → ScopedM α
   | bracket : ScopedM β → (β → ScopedM α) → ScopedM α
@@ -18,6 +20,8 @@ inductive ScopedM : Type → Type 1 where
 def ScopedM.translate : ScopedM α → Strategy α
   | .ret a => .done a
   | .declareConst n s k => .exec (.declareConst n s) (fun r => translate (k r))
+  | .declareUnary n a r k => .exec (.declareUnary n a r) (fun resp => translate (k resp))
+  | .declareBinary n a1 a2 r k => .exec (.declareBinary n a1 a2 r) (fun resp => translate (k resp))
   | .assert e k => .exec (.assert e) (fun r => translate (k r))
   | .checkSat k => .exec .checkSat (fun r => translate (k r))
   | .bracket body k =>
@@ -41,6 +45,12 @@ def empty : FlatCtx := ⟨Signature.empty, []⟩
 def addDecl (ctx : FlatCtx) (n : String) (sort : Srt) : FlatCtx :=
   ⟨ctx.decls.addVar ⟨n, sort⟩, ctx.asserts⟩
 
+def addUnary (ctx : FlatCtx) (n : String) (arg ret : Srt) : FlatCtx :=
+  ⟨ctx.decls.addUnary ⟨n, arg, ret⟩, ctx.asserts⟩
+
+def addBinary (ctx : FlatCtx) (n : String) (arg1 arg2 ret : Srt) : FlatCtx :=
+  ⟨ctx.decls.addBinary ⟨n, arg1, arg2, ret⟩, ctx.asserts⟩
+
 def addAssert (ctx : FlatCtx) (φ : Formula) : FlatCtx :=
   ⟨ctx.decls, φ :: ctx.asserts⟩
 
@@ -50,10 +60,10 @@ end FlatCtx
 def SmtState.flatten (s : SmtState) : FlatCtx :=
   ⟨s.allDecls, s.allAsserts⟩
 
-theorem SmtState.flatten_addDecl (s : SmtState) (v : Var) :
-    (s.addDecl v).flatten = s.flatten.addDecl v.name v.sort := by
+theorem SmtState.flatten_addVar (s : SmtState) (v : Var) :
+    (s.addVar v).flatten = s.flatten.addDecl v.name v.sort := by
   simp only [SmtState.flatten, SmtState.allDecls, SmtState.allAsserts,
-             SmtState.addDecl, FlatCtx.addDecl]
+             SmtState.addVar, FlatCtx.addDecl]
   cases s.frames with
   | nil => simp [Signature.addVar]
   | cons hd tl =>
@@ -61,6 +71,30 @@ theorem SmtState.flatten_addDecl (s : SmtState) (v : Var) :
     | mk decls asserts =>
       cases decls
       simp [Signature.addVar, List.flatMap, List.cons_append]
+
+theorem SmtState.flatten_addUnary (s : SmtState) (u : FOL.Unary) :
+    (s.addUnary u).flatten = s.flatten.addUnary u.name u.arg u.ret := by
+  simp only [SmtState.flatten, SmtState.allDecls, SmtState.allAsserts,
+             SmtState.addUnary, FlatCtx.addUnary]
+  cases s.frames with
+  | nil => simp [Signature.addUnary]
+  | cons hd tl =>
+    cases hd with
+    | mk decls asserts =>
+      cases decls
+      simp [Signature.addUnary, List.flatMap, List.cons_append]
+
+theorem SmtState.flatten_addBinary (s : SmtState) (b : FOL.Binary) :
+    (s.addBinary b).flatten = s.flatten.addBinary b.name b.arg1 b.arg2 b.ret := by
+  simp only [SmtState.flatten, SmtState.allDecls, SmtState.allAsserts,
+             SmtState.addBinary, FlatCtx.addBinary]
+  cases s.frames with
+  | nil => simp [Signature.addBinary]
+  | cons hd tl =>
+    cases hd with
+    | mk decls asserts =>
+      cases decls
+      simp [Signature.addBinary, List.flatMap, List.cons_append]
 
 theorem SmtState.flatten_addAssert (s : SmtState) (φ : Formula) :
     (s.addAssert φ).flatten = s.flatten.addAssert φ := by
@@ -91,8 +125,24 @@ theorem ScopedM.translate_preservesFrames {m : ScopedM α} {f : SmtFrame} {fs : 
     dsimp only at hrest
     have ⟨f', hext, hfin⟩ := ih () hrest
       (f := ⟨{ f.decls with vars := ⟨n, s⟩ :: f.decls.vars }, f.asserts⟩) (fs := fs)
-    refine ⟨f', (SmtFrame.Extends.addDecl f ⟨n, s⟩).trans hext, ?_⟩
-    simp [Trace.finalState, SmtState.step, SmtState.addDecl]; exact hfin
+    refine ⟨f', (SmtFrame.Extends.addVar f ⟨n, s⟩).trans hext, ?_⟩
+    simp [Trace.finalState, SmtState.step, SmtState.addVar]; exact hfin
+  | declareUnary n a r k ih =>
+    cases hgen; rename_i rest resp hrest
+    cases resp
+    dsimp only at hrest
+    have ⟨f', hext, hfin⟩ := ih () hrest
+      (f := ⟨f.decls.addUnary ⟨n, a, r⟩, f.asserts⟩) (fs := fs)
+    refine ⟨f', (SmtFrame.Extends.addUnary f ⟨n, a, r⟩).trans hext, ?_⟩
+    simp [Trace.finalState, SmtState.step, SmtState.addUnary]; exact hfin
+  | declareBinary n a1 a2 r k ih =>
+    cases hgen; rename_i rest resp hrest
+    cases resp
+    dsimp only at hrest
+    have ⟨f', hext, hfin⟩ := ih () hrest
+      (f := ⟨f.decls.addBinary ⟨n, a1, a2, r⟩, f.asserts⟩) (fs := fs)
+    refine ⟨f', (SmtFrame.Extends.addBinary f ⟨n, a1, a2, r⟩).trans hext, ?_⟩
+    simp [Trace.finalState, SmtState.step, SmtState.addBinary]; exact hfin
   | assert e k ih =>
     cases hgen; rename_i rest resp hrest
     cases resp
@@ -165,8 +215,32 @@ theorem ScopedM.eval_declareConst {n : String} {s : Srt}
   cases hgen; rename_i rest resp hrest
   cases resp
   simp only [Trace.finalState, SmtState.step, Trace.result] at hsound hst' hret
-  refine ⟨st.addDecl ⟨n, s⟩, st', ?_, hflat', rest, hrest, hsound, hst', hret⟩
-  simp only [SmtState.flatten_addDecl, hflat]
+  refine ⟨st.addVar ⟨n, s⟩, st', ?_, hflat', rest, hrest, hsound, hst', hret⟩
+  simp only [SmtState.flatten_addVar, hflat]
+
+theorem ScopedM.eval_declareUnary {n : String} {arg ret : Srt}
+    {k : Unit → ScopedM α} {ctx : FlatCtx} {r : α} {ctx' : FlatCtx} :
+    ScopedM.eval (.declareUnary n arg ret k) ctx r ctx' →
+      ScopedM.eval (k ()) (ctx.addUnary n arg ret) r ctx' := by
+  simp only [ScopedM.eval, translate, Strategy.eval]
+  rintro ⟨st, st', hflat, hflat', t, hgen, hsound, hst', hret⟩
+  cases hgen; rename_i rest resp hrest
+  cases resp
+  simp only [Trace.finalState, SmtState.step, Trace.result] at hsound hst' hret
+  refine ⟨st.addUnary ⟨n, arg, ret⟩, st', ?_, hflat', rest, hrest, hsound, hst', hret⟩
+  simp only [SmtState.flatten_addUnary, hflat]
+
+theorem ScopedM.eval_declareBinary {n : String} {arg1 arg2 ret : Srt}
+    {k : Unit → ScopedM α} {ctx : FlatCtx} {r : α} {ctx' : FlatCtx} :
+    ScopedM.eval (.declareBinary n arg1 arg2 ret k) ctx r ctx' →
+      ScopedM.eval (k ()) (ctx.addBinary n arg1 arg2 ret) r ctx' := by
+  simp only [ScopedM.eval, translate, Strategy.eval]
+  rintro ⟨st, st', hflat, hflat', t, hgen, hsound, hst', hret⟩
+  cases hgen; rename_i rest resp hrest
+  cases resp
+  simp only [Trace.finalState, SmtState.step, Trace.result] at hsound hst' hret
+  refine ⟨st.addBinary ⟨n, arg1, arg2, ret⟩, st', ?_, hflat', rest, hrest, hsound, hst', hret⟩
+  simp only [SmtState.flatten_addBinary, hflat]
 
 theorem ScopedM.eval_assert {e : Formula}
     {k : Unit → ScopedM α} {ctx : FlatCtx} {ret : α} {ctx' : FlatCtx} :
@@ -247,6 +321,8 @@ theorem ScopedM.eval_bracket {body : ScopedM β} {k : β → ScopedM α}
 def ScopedM.bind : ScopedM α → (α → ScopedM β) → ScopedM β
   | .ret a, k => k a
   | .declareConst n s cont, k => .declareConst n s (fun r => (cont r).bind k)
+  | .declareUnary n a r cont, k => .declareUnary n a r (fun resp => (cont resp).bind k)
+  | .declareBinary n a1 a2 r cont, k => .declareBinary n a1 a2 r (fun resp => (cont resp).bind k)
   | .assert e cont, k => .assert e (fun r => (cont r).bind k)
   | .checkSat cont, k => .checkSat (fun r => (cont r).bind k)
   | .bracket body cont, k => .bracket body (fun x => (cont x).bind k)
@@ -257,6 +333,10 @@ theorem ScopedM.translate_bind (m : ScopedM α) (k : α → ScopedM β) :
   | ret a => simp [ScopedM.bind, translate, Strategy.bind]
   | declareConst n s cont ih =>
     simp only [ScopedM.bind, translate, Strategy.bind]; congr 1; funext r; exact ih r k
+  | declareUnary n a r cont ih =>
+    simp only [ScopedM.bind, translate, Strategy.bind]; congr 1; funext resp; exact ih resp k
+  | declareBinary n a1 a2 r cont ih =>
+    simp only [ScopedM.bind, translate, Strategy.bind]; congr 1; funext resp; exact ih resp k
   | assert e cont ih =>
     simp only [ScopedM.bind, translate, Strategy.bind]; congr 1; funext r; exact ih r k
   | checkSat cont ih =>
@@ -308,6 +388,14 @@ theorem ScopedM.eval_extends {α} s Δ (r : α) Δ' :
     have h := ScopedM.eval_declareConst h
     have := ih () _ _ _ h
     exact ⟨fun x hx => this.1 (List.mem_cons_of_mem _ hx), this.2⟩
+  | declareUnary n arg ret k ih =>
+    intro h
+    have h' := ScopedM.eval_declareUnary h
+    exact ih () (Δ.addUnary n arg ret) r Δ' h'
+  | declareBinary n arg1 arg2 ret k ih =>
+    intro h
+    have h' := ScopedM.eval_declareBinary h
+    exact ih () (Δ.addBinary n arg1 arg2 ret) r Δ' h'
   | assert φ k ih =>
     intro h
     have h := ScopedM.eval_assert h

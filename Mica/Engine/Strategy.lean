@@ -71,7 +71,9 @@ def TraceSound : SmtState → Trace α → Prop
   | _, .done _ => True
   | s, .step .push () rest => TraceSound s.push rest
   | s, .step .pop () rest => TraceSound s.pop rest
-  | s, .step (.declareConst n sort) () rest => TraceSound (s.addDecl ⟨n, sort⟩) rest
+  | s, .step (.declareConst n sort) () rest => TraceSound (s.addVar ⟨n, sort⟩) rest
+  | s, .step (.declareUnary n arg ret) () rest => TraceSound (s.addUnary ⟨n, arg, ret⟩) rest
+  | s, .step (.declareBinary n arg1 arg2 ret) () rest => TraceSound (s.addBinary ⟨n, arg1, arg2, ret⟩) rest
   | s, .step (.assert e) () rest => TraceSound (s.addAssert e) rest
   | s, .step .checkSat .unsat rest =>
       ¬ Satisfiable s.allDecls s.allAsserts ∧ TraceSound s rest
@@ -89,6 +91,8 @@ theorem TraceSound.step_rest {cmd : Command β} {r : β} {rest : Trace α} {st :
   | push => exact h
   | pop => exact h
   | declareConst n sort => cases r; exact h
+  | declareUnary n arg ret => cases r; exact h
+  | declareBinary n arg1 arg2 ret => cases r; exact h
   | assert e => cases r; exact h
   | checkSat => cases r with | sat => exact h | unsat => exact h.2 | unknown => exact h
 
@@ -103,6 +107,8 @@ theorem TraceSound.step_cons {cmd : Command β} {r : β} {rest : Trace α} {st :
   | push => exact hrest
   | pop => exact hrest
   | declareConst n sort => cases r; exact hrest
+  | declareUnary n arg ret => cases r; exact hrest
+  | declareBinary n arg1 arg2 ret => cases r; exact hrest
   | assert e => cases r; exact hrest
   | checkSat => cases r with | sat => exact hrest | unsat => exact ⟨hstep, hrest⟩ | unknown => exact hrest
 
@@ -151,6 +157,8 @@ theorem Strategy.bind_traceSound {s : Strategy α} {k : α → Strategy β}
         cases cmd with
         | push => trivial | pop => trivial
         | declareConst => cases r; trivial
+        | declareUnary => cases r; trivial
+        | declareBinary => cases r; trivial
         | assert => cases r; trivial
         | checkSat => cases r with
           | sat => trivial
