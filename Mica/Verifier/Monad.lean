@@ -20,7 +20,7 @@ inductive VerifM : Type → Type 1 where
   | ret : α → VerifM α
   | bind : VerifM α → (α → VerifM β) → VerifM β
   /-- Declare a fresh SMT constant. -/
-  | decl : Option String → Srt → VerifM Var
+  | decl : Option String → Srt → VerifM FOL.Const
   /-- Add a formula to the assertion context (permanent, no check). -/
   | assume : Formula → VerifM Unit
   /-- Check whether φ is provable from the current context.
@@ -67,28 +67,23 @@ theorem TransState.holdsFor_mono {st st' : TransState} {ρ : Env}
 
 structure TransState.wf (st : TransState) : Prop where
   assertsWf : st.asserts.wfIn st.decls
-  -- @claude: This will need to change to all names, not just the variables, being disjoint
-  declsDisjoint : st.decls.vars.disjoint
+  namesDisjoint : st.decls.allNames.Nodup
 
-def TransState.freshVar (hint : Option String) (t : Srt) (st : TransState) :=
+def TransState.freshConst (hint : Option String) (t : Srt) (st : TransState) : FOL.Const :=
   let base := hint.getD "_v"
-  let x' := fresh (addNumbers base) (st.decls.vars.map Var.name)
-  ({ name := x', sort := t}: Var)
+  let x' := fresh (addNumbers base) st.decls.allNames
+  ⟨x', t⟩
 
-theorem TransState.freshVar.wf {hint t} (st : TransState) :
+theorem TransState.freshConst.wf {hint t} (st : TransState) :
   TransState.wf st →
-  TransState.wf { st with decls := st.decls.addVar (st.freshVar hint t) } := by
+  TransState.wf { st with decls := st.decls.addConst (st.freshConst hint t) } := by
   intro hwf
   constructor
-  · exact Context.wfIn_mono _ hwf.assertsWf (Signature.Subset.subset_addVar _ _)
-  · have hfresh := fresh_not_mem (addNumbers (hint.getD "_v")) (st.decls.vars.map Var.name) (addNumbers_injective _)
-    intro x x' sort sort' hmem hmem' hname
-    simp only [Signature.addVar, List.mem_cons, TransState.freshVar, Var.mk.injEq] at hmem hmem'
-    rcases hmem with ⟨rfl, rfl⟩ | hmem <;> rcases hmem' with ⟨rfl, rfl⟩ | hmem'
-    · rfl
-    · exact absurd (hname ▸ List.mem_map.mpr ⟨⟨x', sort'⟩, hmem', rfl⟩) hfresh
-    · exact absurd (hname.symm ▸ List.mem_map.mpr ⟨⟨x, sort⟩, hmem, rfl⟩) hfresh
-    · exact hwf.declsDisjoint x x' sort sort' hmem hmem' hname
+  · exact Context.wfIn_mono _ hwf.assertsWf (Signature.Subset.subset_addConst _ _)
+      (Signature.wf_addConst hwf.namesDisjoint
+        (fresh_not_mem (addNumbers (hint.getD "_v")) st.decls.allNames (addNumbers_injective _)))
+  · have hfresh := fresh_not_mem (addNumbers (hint.getD "_v")) st.decls.allNames (addNumbers_injective _)
+    exact Signature.nodup_allNames_addConst hwf.namesDisjoint hfresh
 
 theorem TransState.addAssert.wf (st : TransState) :
   TransState.wf st →
@@ -101,7 +96,7 @@ theorem TransState.addAssert.wf (st : TransState) :
     rcases hψ with rfl | hψ
     · exact hφ
     · exact hwf.assertsWf ψ hψ
-  · exact hwf.declsDisjoint
+  · exact hwf.namesDisjoint
 
 
 def TransCont α := α → TransState → ScopedM (Except VerifError Unit)
@@ -134,9 +129,9 @@ def VerifM.translate :
         | (.ok a), st' => (f a).translate st' k
         | (.error e), st' => k (.error e) st'
   | .decl hint t, st, k =>
-      let v := st.freshVar hint t
-      .declareConst v.name t (fun () =>
-        k (.ok v) { st with decls := st.decls.addVar v })
+      let c := st.freshConst hint t
+      .declareConst c.name t (fun () =>
+        k (.ok c) { st with decls := st.decls.addConst c })
   | .assume φ, st, k =>
       ScopedM.assert φ (fun () =>
         k (.ok ()) { st with asserts := φ :: st.asserts })
@@ -166,8 +161,8 @@ def VerifM.eval_rec : VerifM α → TransState → Env → (α → TransState �
   | .ret a, st, ρ, P => P a st ρ
   | .bind m k, st, ρ, P => m.eval_rec st ρ (fun r st' ρ' => (k r).eval_rec st' ρ' P)
   | .decl hint t, st, ρ, P =>
-      let v := st.freshVar hint t
-      ∀ u, P v { st with decls := st.decls.addVar v } (ρ.update t v.name u)
+      let c := st.freshConst hint t
+      ∀ u, P c { st with decls := st.decls.addConst c } (ρ.updateConst t c.name u)
   | .assume φ, st, ρ, P => φ.wfIn st.decls → φ.eval ρ → P () { st with asserts := φ :: st.asserts } ρ
   | .check φ, st, ρ, P => φ.wfIn st.decls → ∃ b, (b = true → φ.eval ρ) ∧ P b st ρ
   | .fatal _, _, _, _ => False
@@ -189,14 +184,17 @@ theorem VerifM.eval_rec.mono' {m : VerifM α} (ρ : Env) (st : TransState) (h : 
         hPQ a st'' ρ'' (hsub.trans hsub') (Env.agreeOn_trans hag (Env.agreeOn_mono hsub hag')) hp
   | decl hint t =>
     intro u
-    refine hPQ _ _ _ (Signature.Subset.subset_addVar _ _) ?_ (h u)
+    refine hPQ _ _ _ (Signature.Subset.subset_addConst _ _) ?_ (h u)
     constructor
     · intro v hv
-      have hfresh := fresh_not_mem (addNumbers (hint.getD "_v")) (st.decls.vars.map Var.name) (addNumbers_injective _)
-      have hne : v.name ≠ fresh (addNumbers (hint.getD "_v")) (st.decls.vars.map Var.name) :=
-        fun heq => hfresh (heq ▸ List.mem_map.mpr ⟨v, hv, rfl⟩)
-      exact (Env.lookup_update_ne (Or.inl hne)).symm
-    · exact ⟨fun _ _ => rfl, fun _ _ => rfl, fun _ _ => rfl⟩
+      simp [Env.lookup_updateConst]
+    · constructor
+      · intro c hc
+        have hfresh := fresh_not_mem (addNumbers (hint.getD "_v")) st.decls.allNames (addNumbers_injective _)
+        have hne : c.name ≠ fresh (addNumbers (hint.getD "_v")) st.decls.allNames :=
+          fun heq => hfresh (heq ▸ Signature.mem_allNames_of_const hc)
+        exact (Env.consts_updateConst_ne (Or.inl hne)).symm
+      · exact ⟨fun _ _ => rfl, fun _ _ => rfl⟩
   | assume =>
     intro hwf hφ
     exact hPQ _ _ _ (Signature.Subset.refl _) (Env.agreeOn_refl) (h hwf hφ)
@@ -244,21 +242,23 @@ theorem VerifM.eval_rec_preserves_wf (m : VerifM α) (st : TransState) (ρ: Env)
     simp only [VerifM.eval_rec]
     intro u
     specialize (h u)
-    let w := fresh (addNumbers (hint.getD "_v")) (st.decls.vars.map Var.name)
-    have hfresh := fresh_not_mem (addNumbers (hint.getD "_v")) (st.decls.vars.map Var.name) (addNumbers_injective _)
-    have hagree : Env.agreeOn st.decls ρ (ρ.update t w u) := by
+    let w := fresh (addNumbers (hint.getD "_v")) st.decls.allNames
+    have hfresh := fresh_not_mem (addNumbers (hint.getD "_v")) st.decls.allNames (addNumbers_injective _)
+    have hagree : Env.agreeOn st.decls ρ (ρ.updateConst t w u) := by
       constructor
-      · intro v hv
-        have hne : v.name ≠ w := by
-          intro heq
-          unfold w at heq
-          exact (hfresh (heq ▸ List.mem_map.mpr ⟨v, hv, rfl⟩))
-        exact (Env.lookup_update_ne (Or.inl hne)).symm
-      · exact ⟨fun _ _ => rfl, fun _ _ => rfl, fun _ _ => rfl⟩
+      · intro v hv; simp [Env.lookup_updateConst]
+      · constructor
+        · intro c hc
+          have hne : c.name ≠ w := by
+            intro heq
+            unfold w at heq
+            exact (hfresh (heq ▸ Signature.mem_allNames_of_const hc))
+          exact (Env.consts_updateConst_ne (Or.inl hne)).symm
+        · exact ⟨fun _ _ => rfl, fun _ _ => rfl⟩
     constructor
     · intro φ hφ
       exact (Formula.eval_env_agree (hwf.assertsWf φ hφ) hagree).mp (g φ hφ)
-    · exact ⟨TransState.freshVar.wf _ hwf, h⟩
+    · exact ⟨TransState.freshConst.wf _ hwf, h⟩
   | assume φ =>
     simp only [VerifM.eval_rec] at h ⊢
     intro hwf' hφ
@@ -479,10 +479,10 @@ theorem VerifM.eval_fatal {st : TransState} {ρ : Env} {Q : α → TransState �
   h.2.2
 
 theorem VerifM.eval_decl {hint : Option String} {t : Srt} {st : TransState} {ρ : Env}
-    {Q : Var → TransState → Env → Prop}
+    {Q : FOL.Const → TransState → Env → Prop}
     (h : VerifM.eval (.decl hint t) st ρ Q) :
-    let v := st.freshVar hint t
-    ∀ u, Q v { st with decls := st.decls.addVar v } (ρ.update t v.name u) :=
+    let c := st.freshConst hint t
+    ∀ u, Q c { st with decls := st.decls.addConst c } (ρ.updateConst t c.name u) :=
   fun u => (h.2.2 u).2.2
 
 theorem VerifM.eval_assume {φ : Formula} {st : TransState} {ρ : Env}

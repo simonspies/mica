@@ -260,7 +260,7 @@ theorem Program.verify_correct p :
       fun φ hφ => by simp [FlatCtx.empty] at hφ
     have hwf : TransState.wf FlatCtx.empty :=
       ⟨fun φ hφ => by simp [FlatCtx.empty] at hφ,
-       fun _ _ _ _ h => by simp [FlatCtx.empty] at h⟩
+       by simp [FlatCtx.empty, Signature.empty, Signature.allNames]⟩
     -- Lift ScopedM.eval to VerifM.eval
     have hverifM := VerifM.eval_of_translate (Program.check ∅ p)
                       FlatCtx.empty default ctx_mid hverif hholdsFor hwf
