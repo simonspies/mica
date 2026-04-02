@@ -132,10 +132,9 @@ partial def discoverTests (path : FilePath) : IO (Array FilePath) := do
       throw <| IO.userError s!"test path must be a .ml file or directory: {path}"
 
 def printOutputBlock (output : String) : IO Unit := do
-  if !output.isEmpty then
+  unless output.isEmpty do
     IO.print output
-    if !output.endsWith "\n" then
-      IO.println ""
+    unless output.endsWith "\n" do IO.println ""
 
 def printCapturedOutput (test : TestOutcome) : IO Unit := do
   match test.result with
@@ -146,24 +145,22 @@ def printCapturedOutput (test : TestOutcome) : IO Unit := do
       if !output.stdout.isEmpty || !output.stderr.isEmpty then
         IO.println ""
 
+def isFailure (result : ProcessResult) : Bool :=
+  match result with
+  | .timeout _ => true
+  | .terminated out => out.exitCode != 0
+
 def resultSuffix (result : ProcessResult) : String :=
   match result with
   | .timeout ms => s!" timed out after {ms}ms"
   | .terminated output => if output.exitCode == 0 then " ✓" else " ⨯"
 
 def recordFailure (failed : List TestOutcome) (test : TestOutcome) : List TestOutcome :=
-  match test.result with
-  | .timeout _ => test :: failed
-  | .terminated output =>
-      if output.exitCode == 0 then
-        failed
-      else
-        test :: failed
+  if isFailure test.result then test :: failed else failed
 
 def printTestHeader (filename : String) : IO Unit := do
-  let stdout ← IO.getStdout
   IO.print s!"Checking {filename} ..."
-  stdout.flush
+  (← IO.getStdout).flush
 
 private def bold (s : String) : String := s!"\x1b[1m{s}\x1b[0m"
 
@@ -190,10 +187,7 @@ script testsuite (args) := do
     let test <- runTest mica file
     IO.println (resultSuffix test.result)
     failed := recordFailure failed test
-    let isFailure := match test.result with
-      | .timeout .. => true
-      | .terminated out => out.exitCode != 0
-    if !options.summaryOnly || isFailure then
+    if !options.summaryOnly || isFailure test.result then
       printCapturedOutput test
 
   IO.println ""
