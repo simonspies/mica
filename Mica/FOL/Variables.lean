@@ -484,21 +484,23 @@ end Signature
 -- Environments
 -- ---------------------------------------------------------------------------
 
+/-- An interpretation environment for evaluation.
+
+There is intentionally no separate variable environment. SMT-LIB and Z3 see only a
+nullary symbol name like `x`; they do not distinguish, at evaluation time, between
+`Term.var τ x` and an uninterpreted constant printed as `x`. We therefore interpret both
+through the same `consts` map so the Lean semantics matches the SMT semantics. -/
 structure Env where
-  vars   : (τ : Srt) → String → τ.denote
   consts : (τ : Srt) → String → τ.denote
   unary  : (τ₁ τ₂ : Srt) → String → τ₁.denote → τ₂.denote
   binary : (τ₁ τ₂ τ₃ : Srt) → String → τ₁.denote → τ₂.denote → τ₃.denote
 
 theorem Env.ext {e1 e2 : Env}
-    (h1 : e1.vars = e2.vars) (h2 : e1.consts = e2.consts)
-    (h3 : e1.unary = e2.unary) (h4 : e1.binary = e2.binary) : e1 = e2 := by
+    (h1 : e1.consts = e2.consts)
+    (h2 : e1.unary = e2.unary) (h3 : e1.binary = e2.binary) : e1 = e2 := by
   cases e1; cases e2; congr
 
-def Env.lookup (ρ : Env) (τ : Srt) (x : String) : τ.denote := ρ.vars τ x
-
-def Env.update (ρ : Env) (τ : Srt) (x : String) (v : τ.denote) : Env :=
-  { ρ with vars := fun τ' y => if h : τ' = τ ∧ y = x then h.1 ▸ v else ρ.vars τ' y }
+def Env.lookupConst (ρ : Env) (τ : Srt) (x : String) : τ.denote := ρ.consts τ x
 
 def Env.updateConst (ρ : Env) (τ : Srt) (x : String) (v : τ.denote) : Env :=
   { ρ with consts := fun τ' y => if h : τ' = τ ∧ y = x then h.1 ▸ v else ρ.consts τ' y }
@@ -514,42 +516,26 @@ def Env.updateBinary (ρ : Env) (τ₁ τ₂ τ₃ : Srt) (x : String)
     else ρ.binary τ₁' τ₂' τ₃' y }
 
 def Env.empty : Env :=
-  ⟨fun _ _ => default, fun _ _ => default, fun _ _ _ _ => default, fun _ _ _ _ _ => default⟩
+  ⟨fun _ _ => default, fun _ _ _ _ => default, fun _ _ _ _ _ => default⟩
 
 instance : Inhabited Env := { default := Env.empty }
 
-@[simp] theorem Env.lookup_update_same {ρ : Env} {τ : Srt} {x : String} {v : τ.denote} :
-    (ρ.update τ x v).lookup τ x = v := by
-  simp [Env.update, Env.lookup]
+@[simp] theorem Env.lookupConst_updateConst_same {ρ : Env} {τ : Srt} {x : String} {v : τ.denote} :
+    (ρ.updateConst τ x v).lookupConst τ x = v := by
+  simp [Env.updateConst, Env.lookupConst]
 
-@[simp] theorem Env.lookup_update_ne' {ρ : Env} {τ : Srt} {x y : String} {v : τ.denote} (h : y ≠ x) :
-    (Env.update ρ τ x v).lookup τ y = ρ.lookup τ y := by
-  simp [Env.update, Env.lookup, h]
+@[simp] theorem Env.lookupConst_updateConst_ne' {ρ : Env} {τ : Srt} {x y : String} {v : τ.denote} (h : y ≠ x) :
+    (Env.updateConst ρ τ x v).lookupConst τ y = ρ.lookupConst τ y := by
+  simp [Env.updateConst, Env.lookupConst, h]
 
-theorem Env.lookup_update_ne {ρ : Env} {τ τ' : Srt} {x y : String} {v : τ.denote}
-    (h : y ≠ x ∨ τ' ≠ τ) : (ρ.update τ x v).lookup τ' y = ρ.lookup τ' y := by
-  simp only [Env.update, Env.lookup]
+theorem Env.lookupConst_updateConst_ne {ρ : Env} {τ τ' : Srt} {x y : String} {v : τ.denote}
+    (h : y ≠ x ∨ τ' ≠ τ) : (ρ.updateConst τ x v).lookupConst τ' y = ρ.lookupConst τ' y := by
+  simp only [Env.updateConst, Env.lookupConst]
   split
   · next heq => cases h with
     | inl h => exact absurd heq.2 h
     | inr h => exact absurd heq.1 h
   · rfl
-
-@[simp] theorem Env.consts_updateConst_same {ρ : Env} {τ : Srt} {x : String} {v : τ.denote} :
-    (ρ.updateConst τ x v).consts τ x = v := by
-  simp [Env.updateConst]
-
-theorem Env.consts_updateConst_ne {ρ : Env} {τ τ' : Srt} {x y : String} {v : τ.denote}
-    (h : y ≠ x ∨ τ' ≠ τ) : (ρ.updateConst τ x v).consts τ' y = ρ.consts τ' y := by
-  simp only [Env.updateConst]
-  split
-  · next heq => cases h with
-    | inl h => exact absurd heq.2 h
-    | inr h => exact absurd heq.1 h
-  · rfl
-
-theorem Env.lookup_updateConst {ρ : Env} {τ : Srt} {x : String} {v : τ.denote} :
-    (ρ.updateConst τ x v).lookup = ρ.lookup := rfl
 
 theorem Env.updateConst_unary {ρ : Env} {τ : Srt} {x : String} {v : τ.denote} :
     (ρ.updateConst τ x v).unary = ρ.unary := rfl
@@ -558,7 +544,7 @@ theorem Env.updateConst_binary {ρ : Env} {τ : Srt} {x : String} {v : τ.denote
     (ρ.updateConst τ x v).binary = ρ.binary := rfl
 
 def Env.agreeOn (Δ : Signature) (ρ ρ' : Env) : Prop :=
-  (∀ v ∈ Δ.vars, ρ.lookup v.sort v.name = ρ'.lookup v.sort v.name) ∧
+  (∀ v ∈ Δ.vars, ρ.consts v.sort v.name = ρ'.consts v.sort v.name) ∧
   (∀ c ∈ Δ.consts, ρ.consts c.sort c.name = ρ'.consts c.sort c.name) ∧
   (∀ u ∈ Δ.unary, ρ.unary u.arg u.ret u.name = ρ'.unary u.arg u.ret u.name) ∧
   (∀ b ∈ Δ.binary, ρ.binary b.arg1 b.arg2 b.ret b.name = ρ'.binary b.arg1 b.arg2 b.ret b.name)
@@ -596,45 +582,51 @@ theorem Env.agreeOn_addVars_cons (Δ : Signature) (v : Var) (vs : List Var) (ρ 
 
 theorem Env.agreeOn_update {ρ ρ' : Env} {Δ : Signature} {τ : Srt} {x : String} {v : τ.denote} :
     Env.agreeOn Δ ρ ρ' →
-    Env.agreeOn (Δ.addVar ⟨x, τ⟩) (ρ.update τ x v) (ρ'.update τ x v) :=
+    Env.agreeOn (Δ.addVar ⟨x, τ⟩) (ρ.updateConst τ x v) (ρ'.updateConst τ x v) :=
   fun hagree =>
   ⟨fun w hw => by
     cases hw with
-    | head => simp [Env.lookup_update_same]
+    | head => simp [Env.updateConst]
     | tail _ hw =>
       by_cases hn : w.name = x <;> by_cases ht : w.sort = τ
       · cases w; simp only at hn ht; subst hn ht
-        simp only [Env.lookup_update_same]
-      · simp only [Env.lookup_update_ne (Or.inr ht), hagree.1 w hw]
-      · simp only [Env.lookup_update_ne (Or.inl hn), hagree.1 w hw]
-      · simp only [Env.lookup_update_ne (Or.inl hn), hagree.1 w hw],
-   fun c hc => by simp [Env.update]; exact hagree.2.1 c hc,
-   fun u hu => by simp [Env.update]; exact hagree.2.2.1 u hu,
-   fun b hb => by simp [Env.update]; exact hagree.2.2.2 b hb⟩
+        simp [Env.updateConst]
+      · simp [Env.updateConst, ht, hagree.1 w hw]
+      · simp [Env.updateConst, hn, hagree.1 w hw]
+      · simp [Env.updateConst, hn, hagree.1 w hw],
+   fun c hc => by
+     by_cases hn : c.name = x <;> by_cases ht : c.sort = τ
+     · cases c; simp only at hn ht; subst hn ht
+       simp [Env.updateConst]
+     · simp [Env.updateConst, ht, hagree.2.1 c hc]
+     · simp [Env.updateConst, hn, hagree.2.1 c hc]
+     · simp [Env.updateConst, hn, hagree.2.1 c hc],
+   fun u hu => by rw [Env.updateConst_unary]; exact hagree.2.2.1 u hu,
+   fun b hb => by rw [Env.updateConst_binary]; exact hagree.2.2.2 b hb⟩
 
 theorem Env.agreeOn_declVar {ρ ρ' : Env} {Δ : Signature} {τ : Srt} {x : String} {v : τ.denote} :
     Env.agreeOn Δ ρ ρ' →
-    Env.agreeOn (Δ.declVar ⟨x, τ⟩) (ρ.update τ x v) (ρ'.update τ x v) := by
+    Env.agreeOn (Δ.declVar ⟨x, τ⟩) (ρ.updateConst τ x v) (ρ'.updateConst τ x v) := by
   intro hagree
   simpa [Signature.declVar] using (Env.agreeOn_update (Env.agreeOn_remove hagree))
 
 /-- Double update with the same variable - second update wins. -/
-@[simp] theorem Env.update_update_same {ρ : Env} {τ : Srt} {x : String} {v w : τ.denote} :
-    (ρ.update τ x v).update τ x w = ρ.update τ x w := by
+@[simp] theorem Env.updateConst_updateConst_same {ρ : Env} {τ : Srt} {x : String} {v w : τ.denote} :
+    (ρ.updateConst τ x v).updateConst τ x w = ρ.updateConst τ x w := by
   apply Env.ext
   · funext τ' y
-    simp only [Env.update]
+    simp only [Env.updateConst]
     split
     · simp
     · simp
   all_goals rfl
 
 /-- Updates to different variables commute. -/
-theorem Env.update_comm {ρ : Env} {τ : Srt} {x y : String} {v w : τ.denote}
-    (h : x ≠ y) : (ρ.update τ x v).update τ y w = (ρ.update τ y w).update τ x v := by
+theorem Env.updateConst_comm {ρ : Env} {τ : Srt} {x y : String} {v w : τ.denote}
+    (h : x ≠ y) : (ρ.updateConst τ x v).updateConst τ y w = (ρ.updateConst τ y w).updateConst τ x v := by
   apply Env.ext
   · funext τ' z
-    simp only [Env.update]
+    simp only [Env.updateConst]
     split <;> split <;> simp_all
     · next h1 h2 => exact absurd (h2.2 ▸ h1.2) h
   all_goals rfl

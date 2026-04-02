@@ -1,5 +1,6 @@
 import Mica.Engine.Driver
 import Mica.Verifier.Scoped
+import Mica.Verifier.Utils
 import Mica.Base.Fresh
 
 
@@ -185,16 +186,9 @@ theorem VerifM.eval_rec.mono' {m : VerifM α} (ρ : Env) (st : TransState) (h : 
   | decl hint t =>
     intro u
     refine hPQ _ _ _ (Signature.Subset.subset_addConst _ _) ?_ (h u)
-    constructor
-    · intro v hv
-      simp [Env.lookup_updateConst]
-    · constructor
-      · intro c hc
-        have hfresh := fresh_not_mem (addNumbers (hint.getD "_v")) st.decls.allNames (addNumbers_injective _)
-        have hne : c.name ≠ fresh (addNumbers (hint.getD "_v")) st.decls.allNames :=
-          fun heq => hfresh (heq ▸ Signature.mem_allNames_of_const hc)
-        exact (Env.consts_updateConst_ne (Or.inl hne)).symm
-      · exact ⟨fun _ _ => rfl, fun _ _ => rfl⟩
+    exact agreeOn_update_fresh_const
+      (c := ⟨fresh (addNumbers (hint.getD "_v")) st.decls.allNames, t⟩)
+      (fresh_not_mem (addNumbers (hint.getD "_v")) st.decls.allNames (addNumbers_injective _))
   | assume =>
     intro hwf hφ
     exact hPQ _ _ _ (Signature.Subset.refl _) (Env.agreeOn_refl) (h hwf hφ)
@@ -245,16 +239,7 @@ theorem VerifM.eval_rec_preserves_wf (m : VerifM α) (st : TransState) (ρ: Env)
     let w := fresh (addNumbers (hint.getD "_v")) st.decls.allNames
     have hfresh := fresh_not_mem (addNumbers (hint.getD "_v")) st.decls.allNames (addNumbers_injective _)
     have hagree : Env.agreeOn st.decls ρ (ρ.updateConst t w u) := by
-      constructor
-      · intro v hv; simp [Env.lookup_updateConst]
-      · constructor
-        · intro c hc
-          have hne : c.name ≠ w := by
-            intro heq
-            unfold w at heq
-            exact (hfresh (heq ▸ Signature.mem_allNames_of_const hc))
-          exact (Env.consts_updateConst_ne (Or.inl hne)).symm
-        · exact ⟨fun _ _ => rfl, fun _ _ => rfl⟩
+      exact agreeOn_update_fresh_const (c := ⟨w, t⟩) hfresh
     constructor
     · intro φ hφ
       exact (Formula.eval_env_agree (hwf.assertsWf φ hφ) hagree).mp (g φ hφ)

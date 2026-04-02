@@ -128,8 +128,8 @@ def Formula.eval (ρ : Env) : Formula → Prop
   | .and φ ψ       => φ.eval ρ ∧ ψ.eval ρ
   | .or φ ψ        => φ.eval ρ ∨ ψ.eval ρ
   | .implies φ ψ   => φ.eval ρ → ψ.eval ρ
-  | .forall_ x τ φ => ∀ v : τ.denote, φ.eval (ρ.update τ x v)
-  | .exists_ x τ φ => ∃ v : τ.denote, φ.eval (ρ.update τ x v)
+  | .forall_ x τ φ => ∀ v : τ.denote, φ.eval (ρ.updateConst τ x v)
+  | .exists_ x τ φ => ∃ v : τ.denote, φ.eval (ρ.updateConst τ x v)
 
 def entails (Γ : Context) (φ : Formula) : Prop :=
   ∀ ρ : Env, (∀ ψ ∈ Γ, ψ.eval ρ) → φ.eval ρ
@@ -166,21 +166,19 @@ theorem Formula.eval_env_agree {φ : Formula} {ρ ρ' : Env} {Δ : Signature} :
 
 
 theorem Formula.eval_update_not_in_sig {φ : Formula} {x : String} {τ : Srt} {v : τ.denote} {ρ : Env}
-    {sig : Signature} (hwf : φ.wfIn sig) (hnotin : ⟨x, τ⟩ ∉ sig.vars) :
-    (φ.eval (ρ.update τ x v) ↔ φ.eval ρ) :=
+    {sig : Signature} (hwf : φ.wfIn sig) (hnotin : x ∉ sig.allNames) :
+    (φ.eval (ρ.updateConst τ x v) ↔ φ.eval ρ) :=
   Formula.eval_env_agree hwf
     ⟨fun w hw => by
-      by_cases heq : w = ⟨x, τ⟩
-      · subst heq; exact absurd hw hnotin
-      · have hne : w.name ≠ x ∨ w.sort ≠ τ := by
-          obtain ⟨wname, wtype⟩ := w
-          by_cases h : wname = x <;> by_cases ht : wtype = τ
-          · exfalso; apply heq; simp [h, ht]
-          · exact Or.inr ht
-          · exact Or.inl h
-          · exact Or.inl h
-        exact Env.lookup_update_ne hne,
-     fun _ _ => rfl,
+      have hne : w.name ≠ x := by
+        intro heq
+        exact hnotin (heq ▸ Signature.mem_allNames_of_var hw)
+      exact Env.lookupConst_updateConst_ne (Or.inl hne),
+     fun c hc => by
+      have hne : c.name ≠ x := by
+        intro heq
+        exact hnotin (heq ▸ Signature.mem_allNames_of_const hc)
+      exact Env.lookupConst_updateConst_ne (Or.inl hne),
      fun _ _ => rfl,
      fun _ _ => rfl⟩
 

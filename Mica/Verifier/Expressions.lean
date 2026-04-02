@@ -612,10 +612,11 @@ theorem compile_correct (e : TinyML.Expr) (S : SpecMap) (B : Bindings) (Γ : Tin
                   (List.mem_cons_self ..) hvar⟩,
             Term.wfIn_mono sube hsube_wf (Signature.Subset.subset_addConst _ _)
               (TransState.freshConst.wf _ (VerifM.eval.wf hdecl_eval)).namesDisjoint⟩
-        · simp only [Formula.eval, Term.eval, Const.denote, Env.consts_updateConst_same]
-          show v_e = Term.eval ρ_body sube
-          rw [Term.eval_env_agree hsube_wf (Env.agreeOn_symm hagreeOn_body_e)]
-          exact heval_e.symm
+        · simp only [Formula.eval, Term.eval, Const.denote]
+          have : v_e = Term.eval ρ_body sube := by
+            rw [Term.eval_env_agree hsube_wf (Env.agreeOn_symm hagreeOn_body_e)]
+            exact heval_e.symm
+          simpa [ρ_body, Env.updateConst] using this
       have hbwf₁ : B.wf st₁.decls := fun p hp => hdecls_e.consts _ (hbwf p hp)
       have hbwf₂ : Bindings.wf ((x, v) :: B) st₂.decls := Bindings.wf_cons hbwf₁
       have hρ_agree : Env.agreeOn (Signature.ofConsts (B.map Prod.snd)) ρ_body ρ := by
@@ -629,7 +630,7 @@ theorem compile_correct (e : TinyML.Expr) (S : SpecMap) (B : Bindings) (Γ : Tin
               (hagreeOn_body_e.2.1 p.2 (hbwf₁ p hp))).symm
           · constructor <;> intro z hz <;> cases hz
       have hρ_body_lookup : ρ_body.consts .value v.name = v_e := by
-        simp [ρ_body, Env.consts_updateConst_same]
+        simp [ρ_body, Env.updateConst]
       have hagree_body : Bindings.agreeOnLinked ((x, v) :: B) ρ_body γ_body := by
         have h := Bindings.agreeOnLinked_cons (x := x) (γ := γ) hagree hρ_agree (hvty := (rfl : v.sort = .value))
         rwa [hρ_body_lookup] at h
@@ -805,7 +806,7 @@ theorem compileBranch_correct (branch : TinyML.Binder × TinyML.Expr) (S : SpecM
       (Formula.eq .value sc (.unop (.mkInj i n) (.const (.uninterpreted xv.name .value)))) := by
     simp [Formula.eval, Term.eval, UnOp.eval]
     rw [hsc_eval_ρ₁, hsc_eval]
-    simp [ρ₁, Env.consts_updateConst_same]
+    simp [ρ₁, Env.updateConst]
   have heval_assumeAll := hassume hformula_wf hformula_eval
   -- Peel off assumeAll (typeConstraints)
   have hxv_wf : (Term.const (.uninterpreted xv.name .value)).wfIn st₁.decls := by
@@ -816,7 +817,7 @@ theorem compileBranch_correct (branch : TinyML.Binder × TinyML.Expr) (S : SpecM
       (TransState.freshConst.wf _ (VerifM.eval.wf heval_decl)).namesDisjoint
       (List.mem_cons_self ..) hvar
   have hxv_eval : (Term.const (.uninterpreted xv.name .value)).eval ρ₁ = payload := by
-    simp [Term.eval, Const.denote, ρ₁, Env.consts_updateConst_same]
+    simp [Term.eval, Const.denote, ρ₁, Env.updateConst]
   have hassume_bind₂ := VerifM.eval_bind _ _ _ _ heval_assumeAll
   obtain ⟨st₂, hst₂_decls, heval_body'⟩ := VerifM.eval_assumeAll hassume_bind₂
     (fun φ hφ => typeConstraints_wfIn hxv_wf φ hφ)
@@ -849,7 +850,7 @@ theorem compileBranch_correct (branch : TinyML.Binder × TinyML.Expr) (S : SpecM
         · constructor <;> intro z hz <;> cases hz
     have hbwf₂ : Bindings.wf ((x, xv) :: B) st₂.decls := hst₂_decls ▸ Bindings.wf_cons hbwf
     have hρ₁_lookup : ρ₁.consts .value xv.name = payload := by
-      simp [ρ₁, Env.consts_updateConst_same]
+      simp [ρ₁, Env.updateConst]
     have hagree₁ : Bindings.agreeOnLinked ((x, xv) :: B) ρ₁ (Runtime.Subst.update γ x payload) := by
       have h := Bindings.agreeOnLinked_cons (x := x) (v := xv) (γ := γ) hagree hagreeOn_B (hvty := rfl)
       rwa [hρ₁_lookup] at h
