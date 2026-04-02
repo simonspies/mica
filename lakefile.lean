@@ -113,7 +113,7 @@ def isMlFile (path : FilePath) : IO Bool := do
   let metadata ← path.metadata
   return metadata.type == .file
 
-def discoverTests (path : FilePath) : IO (Array FilePath) := do
+partial def discoverTests (path : FilePath) : IO (Array FilePath) := do
   let metadata ← path.metadata
   match metadata.type with
   | .file =>
@@ -125,8 +125,8 @@ def discoverTests (path : FilePath) : IO (Array FilePath) := do
       let entries ← path.readDir
       let mut tests := #[]
       for entry in entries do
-        if ← isMlFile entry.path then
-          tests := tests.push entry.path
+        let entryTests ← discoverTests entry.path
+        tests := tests ++ entryTests
       pure <| tests.qsort (fun a b => a.toString < b.toString)
   | _ =>
       throw <| IO.userError s!"test path must be a .ml file or directory: {path}"
@@ -173,7 +173,7 @@ def printFailureSummary (failed : List TestOutcome) : IO Unit := do
     let suffix := match test.result with
       | .timeout _ => " (timed out)"
       | .terminated _ => ""
-    IO.println s!"- {test.path.fileName.get!}{suffix}"
+    IO.println s!"- {test.path.fileName.getD test.path.toString}{suffix}"
 
 script testsuite (args) := do
   let some mica <- Lake.findLeanExe? `mica
@@ -185,12 +185,15 @@ script testsuite (args) := do
   let tests ← discoverTests inputPath
   let mut failed : List TestOutcome := []
   for file in tests do
-    let filename := file.fileName.get!
+    let filename := file.fileName.getD file.toString
     printTestHeader filename
     let test <- runTest mica file
     IO.println (resultSuffix test.result)
     failed := recordFailure failed test
-    if !options.summaryOnly then
+    let isFailure := match test.result with
+      | .timeout .. => true
+      | .terminated out => out.exitCode != 0
+    if !options.summaryOnly || isFailure then
       printCapturedOutput test
 
   IO.println ""
