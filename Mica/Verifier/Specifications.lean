@@ -45,7 +45,7 @@ def Spec.argVars (args : List (String × TinyML.Type_)) : List Var :=
     Later arguments shadow earlier ones with the same name. -/
 def Spec.argsEnv (ρ : Env) : List (String × TinyML.Type_) → List Runtime.Val → Env
   | [], _ | _, [] => ρ
-  | (name, _) :: rest, v :: vs => Spec.argsEnv (ρ.update .value name v) rest vs
+  | (name, _) :: rest, v :: vs => Spec.argsEnv (ρ.updateConst .value name v) rest vs
 
 def Spec.isPrecondFor (f : Runtime.Val) (s : Spec) : Prop :=
   ∀ (vs : List Runtime.Val), TinyML.ValsHaveTypes vs (s.args.map Prod.snd) →
@@ -477,8 +477,9 @@ theorem Spec.declareArgs_correct :
           · exact (TransState.freshConst.wf _ (VerifM.eval.wf heval)).namesDisjoint
         have heq_holds : (Formula.eq Srt.value (Term.const (.uninterpreted argVar.name .value)) sarg).eval
             (ρ.updateConst .value argVar.name (sarg.eval ρ)) := by
-          simp only [Formula.eval, Term.eval, Const.denote, Env.consts_updateConst_same]
-          exact Term.eval_env_agree hsarg_wf (agreeOn_update_fresh_const hfresh_decls)
+          simp only [Formula.eval, Term.eval, Const.denote]
+          simpa [Env.lookupConst, Env.updateConst] using
+            (Term.eval_env_agree hsarg_wf (agreeOn_update_fresh_const hfresh_decls))
         have hb3 := VerifM.eval_bind _ _ _ _ hdecl
         have hassume := VerifM.eval_assume hb3 heq_wf heq_holds
         set ρ₁ := ρ.updateConst .value argVar.name (sarg.eval ρ)
@@ -503,9 +504,9 @@ theorem Spec.declareArgs_correct :
           .cons (TinyML.Type_.sub_iff.mp hsub_ty) hsublist, ?_, ?_⟩
         · simpa [σ', FiniteSubst.rename, Signature.ofVars, Spec.argVars, Signature.declVars, Signature.declVar]
             using hdom_sub
-        · have hag_rename := @FiniteSubst.rename_agreeOn_declVar σ (Signature.ofVars σ.dom) st.decls
-            ⟨name, .value⟩ argVar ρ (sarg.eval ρ) hσwf
-            (by intro x hx; exact hx) (Signature.SymbolSubset.ofVars _ _) hfresh_decls rfl
+        · have hag_rename := FiniteSubst.rename_agreeOn_declVar
+            (σ := σ) (decls := st.decls) (v := ⟨name, .value⟩) (c := argVar) (ρ := ρ) (u := sarg.eval ρ)
+            hσwf hfresh_decls rfl
           have hlen : rest.length ≤ sargs_rest.length := by
             have := TinyML.Type_.SubList.length_eq hsublist
             simp [List.length_map] at this; omega
@@ -547,7 +548,7 @@ theorem Spec.call_correct (s : Spec) (σ : FiniteSubst) (sargs : List (TinyML.Ty
           by intro c hc; simp at hc,
           by intro u hu; simp at hu,
           by intro b hb; simp at hb⟩
-        hσ'domwf) hσ'wf hb2
+        hσ'domwf) hσ'domwf hσ'wf hb2
       (fun v st'' ρ'' t hΨ'' htwf hteval => by
         intro hty
         have hbind := VerifM.eval_bind _ _ _ _ hΨ''
@@ -618,7 +619,7 @@ theorem Spec.declareImplArgs_correct :
         intro τ' hvar
         exact hfresh_decls (Signature.mem_allNames_of_var hvar)
       have hvar_eval : (Term.const (.uninterpreted argVar.name .value)).eval ρ₁ = v := by
-        simp [ρ₁, Term.eval, Const.denote]
+        simp [ρ₁, Term.eval, Const.denote, Env.updateConst]
       have hassume_bind := VerifM.eval_bind _ _ _ _ hdecl
       obtain ⟨st₂, hst₂_decls, hdecl₂⟩ := VerifM.eval_assumeAll hassume_bind
         (fun φ hφ => typeConstraints_wfIn hvar_wf φ hφ)
@@ -645,9 +646,9 @@ theorem Spec.declareImplArgs_correct :
       · simpa [σ', FiniteSubst.rename, Signature.ofVars, Spec.argVars, Signature.declVars, Signature.declVar]
           using hdom_sub
       -- env agree
-      · have hag_rename := @FiniteSubst.rename_agreeOn_declVar σ (Signature.ofVars σ.dom) st.decls
-            ⟨name, .value⟩ argVar ρ v hσwf
-            (by intro x hx; exact hx) (Signature.SymbolSubset.ofVars _ _) hfresh_decls rfl
+      · have hag_rename := FiniteSubst.rename_agreeOn_declVar
+            (σ := σ) (decls := st.decls) (v := ⟨name, .value⟩) (c := argVar) (ρ := ρ) (u := v)
+            hσwf hfresh_decls rfl
         have hag_env := Spec.argsEnv_agreeOn hag_rename rest vs' (by
             have := hvs_rest.length_eq
             simp [List.length_map] at this; omega)
@@ -666,8 +667,10 @@ theorem Spec.declareImplArgs_correct :
       -- lookups
       · constructor
         · have h1 := hragree'.2.1 argVar (hst₂_decls ▸ List.mem_cons_self ..)
-          rw [show argVar.sort = .value from rfl, Env.consts_updateConst_same] at h1
-          exact h1.symm
+          have h1' : Term.eval ρ' (Term.const (.uninterpreted argVar.name .value)) =
+              Term.eval ρ₁ (Term.const (.uninterpreted argVar.name .value)) := by
+            simpa [Term.eval, Const.denote, Env.lookupConst] using h1.symm
+          exact h1'.trans hvar_eval
         · exact hlookups
 
 theorem Spec.implement_correct (s : Spec) (body : List FOL.Const → VerifM (Term .value))
@@ -716,7 +719,7 @@ theorem Spec.implement_correct (s : Spec) (body : List FOL.Const → VerifM (Ter
           intro b hb
           change b ∈ ((Signature.ofVars ([] : List Var)).declVars (Spec.argVars s.args)).binary at hb
           simp at hb⟩
-      hσ'domwf) hσ'wf hΨ happly'
+      hσ'domwf) hσ'domwf hσ'wf hΨ happly'
   -- Callback
   intro st'' ρ'' hdsub' hragree' hbody_eval
   apply hR argVars st'' ρ''

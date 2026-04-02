@@ -203,12 +203,22 @@ theorem Atom.toFormula_eval_2 {p : Atom τ} {t : Term τ} {ρ : Env}
 -- Substitution lemmas
 -- ---------------------------------------------------------------------------
 
-theorem Atom.eval_subst {p : Atom τ} {σ : Subst} {ρ : Env} :
+theorem Atom.eval_subst {p : Atom τ} {σ : Subst} {ρ : Env} {Δ Δ' : Signature}
+    (hp : p.wfIn Δ) (hσ : σ.wfIn Δ.vars Δ') (hwfΔ' : Δ'.wf) :
     (p.subst σ).eval ρ = p.eval (σ.eval ρ) := by
   cases p with
-  | isint t  => simp [Atom.subst, Atom.eval, Term.eval_subst]
-  | isbool t => simp [Atom.subst, Atom.eval, Term.eval_subst]
-  | isinj tag arity t => simp [Atom.subst, Atom.eval, Term.eval_subst]
+  | isint t =>
+    funext v
+    simp only [Atom.subst, Atom.eval]
+    rw [Term.eval_subst hp hσ hwfΔ']
+  | isbool t =>
+    funext v
+    simp only [Atom.subst, Atom.eval]
+    rw [Term.eval_subst hp hσ hwfΔ']
+  | isinj tag arity t =>
+    funext v
+    simp only [Atom.subst, Atom.eval]
+    rw [Term.eval_subst hp hσ hwfΔ']
 
 theorem Atom.subst_wfIn {p : Atom τ} {σ : Subst} {dom : VarCtx} {Δ Δ' : Signature}
     (hp : p.wfIn Δ) (hσ : σ.wfIn dom Δ') (hdom : Δ.vars ⊆ dom)

@@ -149,7 +149,7 @@ theorem Proof.wfIn : Γ.wfIn sig → Proof sig Γ φ → φ.wfIn sig := by
     TODO: Replace usages with Formula.eval_subst_single once soundness tracks well-formedness. -/
 theorem Formula.eval_subst_single_sig (τ : Srt) (x : String) (t : Term τ) (ρ : Env)
     (φ : Formula) (sig : VarCtx) :
-    (φ.subst (Subst.single τ x t) sig).eval ρ = φ.eval (ρ.update τ x (t.eval ρ)) := by
+    (φ.subst (Subst.single τ x t) sig).eval ρ = φ.eval (ρ.updateConst τ x (t.eval ρ)) := by
   sorry
 
 private theorem entails_extend {ρ : Env} {Γ : Context} {φ : Formula}
@@ -230,22 +230,22 @@ theorem sound_forall_intro (y : String) (hnotin : ⟨y, τ⟩ ∉ sig.vars) :
     φ.wfIn (sig.addVar (Var.mk x τ)) →
     entails Γ (.forall_ x τ φ) := by
   intro hφ hwfΓ hwfφ ρ hΓ v
-  let ρ' := ρ.update τ y v
+  let ρ' := ρ.updateConst τ y v
   have hΓ' : ∀ ψ ∈ Γ, ψ.eval ρ' := fun ψ hψ =>
     (Formula.eval_update_not_in_sig (hwfΓ ψ hψ) hnotin).mpr (hΓ ψ hψ)
   have heval := hφ ρ' hΓ'
   rw [Formula.eval_subst_single_sig] at heval
-  have heq : Term.eval ρ' (.var τ y) = v := Env.lookup_update_same
+  have heq : Term.eval ρ' (.var τ y) = v := Env.lookupConst_updateConst_same
   rw [heq] at heval
   by_cases hyx : y = x
   · subst hyx
-    change Formula.eval ((ρ.update τ y v).update τ y v) φ at heval
-    simp only [Env.update_update_same] at heval
+    change Formula.eval ((ρ.updateConst τ y v).updateConst τ y v) φ at heval
+    simp only [Env.updateConst_updateConst_same] at heval
     exact heval
   · have hnotin' : ⟨y, τ⟩ ∉ (⟨x, τ⟩ :: sig.vars) := by
       simp only [List.mem_cons, not_or]
       exact ⟨fun h => hyx (congrArg Var.name h), hnotin⟩
-    rw [Env.update_comm hyx] at heval
+    rw [Env.updateConst_comm hyx] at heval
     exact (Formula.eval_update_not_in_sig hwfφ hnotin').mp heval
 
 theorem sound_forall_elim (_hwf : t.wfIn sig) :
@@ -270,32 +270,32 @@ theorem sound_exists_elim (y : String) (hnotin : ⟨y, τ⟩ ∉ sig.vars) :
     φ.wfIn (sig.addVar (Var.mk x τ)) →
     entails Γ ψ := by
   intro hφ hψ hwfΓ hwfψ hwfφ ρ hΓ
-  -- From hφ ρ hΓ we get ∃ v, φ.eval (ρ.update τ x v)
+  -- From hφ ρ hΓ we get ∃ v, φ.eval (ρ.updateConst τ x v)
   obtain ⟨v, hv⟩ := hφ ρ hΓ
-  -- Let ρ' = ρ.update τ y v
-  let ρ' := ρ.update τ y v
+  -- Let ρ' = ρ.updateConst τ y v
+  let ρ' := ρ.updateConst τ y v
   -- Apply hψ to ρ' to get ψ.eval ρ', then use freshness to get ψ.eval ρ
   have hψρ' : ψ.eval ρ' := hψ ρ' fun χ hχ => by
     rcases List.eq_or_mem_of_mem_cons hχ with rfl | hχ'
     · -- χ = φ[x ↦ y], need to show it holds in ρ'
       rw [Formula.eval_subst_single_sig]
-      show Formula.eval (ρ'.update τ x (ρ'.lookup τ y)) φ
-      have heq : ρ'.lookup τ y = v := Env.lookup_update_same
+      show Formula.eval (ρ'.updateConst τ x (ρ'.lookupConst τ y)) φ
+      have heq : ρ'.lookupConst τ y = v := Env.lookupConst_updateConst_same
       rw [heq]
-      -- Need: φ.eval ((ρ.update τ y v).update τ x v), have: hv : φ.eval (ρ.update τ x v)
+      -- Need: φ.eval ((ρ.updateConst τ y v).updateConst τ x v), have: hv : φ.eval (ρ.updateConst τ x v)
       by_cases hyx : y = x
       · subst hyx
-        change Formula.eval ((ρ.update τ y v).update τ y v) φ
-        simp only [Env.update_update_same]
+        change Formula.eval ((ρ.updateConst τ y v).updateConst τ y v) φ
+        simp only [Env.updateConst_updateConst_same]
         exact hv
       · have hnotin' : ⟨y, τ⟩ ∉ (⟨x, τ⟩ :: sig.vars) := by
           simp only [List.mem_cons, not_or]
           exact ⟨fun h => hyx (congrArg Var.name h), hnotin⟩
-        change Formula.eval ((ρ.update τ y v).update τ x v) φ
-        rw [Env.update_comm hyx]
+        change Formula.eval ((ρ.updateConst τ y v).updateConst τ x v) φ
+        rw [Env.updateConst_comm hyx]
         exact (Formula.eval_update_not_in_sig hwfφ hnotin').mpr hv
     · -- χ ∈ Γ, need to show it holds in ρ'
-      show Formula.eval (ρ.update τ y v) χ
+      show Formula.eval (ρ.updateConst τ y v) χ
       exact (Formula.eval_update_not_in_sig (hwfΓ χ hχ') hnotin).mpr (hΓ χ hχ')
   -- Convert ψ.eval ρ' to ψ.eval ρ using freshness
   exact (Formula.eval_update_not_in_sig hwfψ hnotin).mp hψρ'

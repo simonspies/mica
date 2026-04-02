@@ -110,7 +110,7 @@ theorem Terms.Eval.of_pairs {ρ : Env} {pairs : List (TinyML.Type_ × Term .valu
 
 theorem Terms.Eval.lookup_var {ρ : Env} {avs : List Var} {vs : List Runtime.Val}
     (h : Terms.Eval ρ (avs.map (fun av => .var .value av.name)) vs) :
-    List.Forall₂ (fun av val => ρ.lookup .value av.name = val) avs vs := by
+    List.Forall₂ (fun av val => ρ.lookupConst .value av.name = val) avs vs := by
   generalize hts : avs.map (fun av => Term.var .value av.name) = ts at h
   induction h generalizing avs with
   | nil =>
@@ -425,7 +425,7 @@ def FiniteSubst.wf (σ : FiniteSubst) (Δ : Signature) : Prop :=
   σ.subst.wfIn σ.dom σ.range ∧ σ.range.Subset Δ ∧ σ.range.wf
 
 def FiniteSubst.rename (σ : FiniteSubst) (v : Var) (name' : String) : FiniteSubst where
-  subst := σ.subst.update v.sort v.name (.const (.uninterpreted name' v.sort))
+  subst := (σ.subst.eraseName v.name).update v.sort v.name (.const (.uninterpreted name' v.sort))
   dom   := v :: σ.dom.filter (·.name != v.name)
   range := σ.range.addConst ⟨name', v.sort⟩
 
@@ -436,49 +436,76 @@ theorem FiniteSubst.rename_dom_wf {σ : FiniteSubst} {v : Var} {name' : String}
     (Signature.wf_declVar (Δ := Signature.ofVars σ.dom) (v := v) hdomwf)
 
 theorem agreeOn_update_fresh {ρ : Env} {v : Var} {u : v.sort.denote}
-    {Δ : Signature} (hfresh : v.name ∉ Δ.vars.map Var.name) :
-    Env.agreeOn Δ ρ (ρ.update v.sort v.name u) := by
+    {Δ : Signature} (hfresh : v.name ∉ Δ.allNames) :
+    Env.agreeOn Δ ρ (ρ.updateConst v.sort v.name u) := by
   constructor
   · intro w hw
     have hne : w.name ≠ v.name := by
-      intro heq; exact hfresh (heq ▸ List.mem_map.mpr ⟨w, hw, rfl⟩)
-    exact (Env.lookup_update_ne (Or.inl hne)).symm
-  · exact ⟨fun _ _ => rfl, fun _ _ => rfl, fun _ _ => rfl⟩
+      intro heq
+      apply hfresh
+      rw [← heq]
+      exact Signature.mem_allNames_of_var hw
+    exact (Env.lookupConst_updateConst_ne (Or.inl hne)).symm
+  · constructor
+    · intro c hc
+      have hne : c.name ≠ v.name := by
+        intro heq
+        apply hfresh
+        rw [← heq]
+        exact Signature.mem_allNames_of_const hc
+      exact (Env.lookupConst_updateConst_ne (Or.inl hne)).symm
+    · constructor
+      · intro u' hu'
+        rw [Env.updateConst_unary]
+      · intro b' hb'
+        rw [Env.updateConst_binary]
 
 theorem agreeOn_update_fresh_const {ρ : Env} {c : FOL.Const} {u : c.sort.denote}
     {Δ : Signature} (hfresh : c.name ∉ Δ.allNames) :
     Env.agreeOn Δ ρ (ρ.updateConst c.sort c.name u) := by
   constructor
-  · intro w hw; simp [Env.lookup_updateConst]
+  · intro w hw
+    have hne : w.name ≠ c.name := by
+      intro heq
+      apply hfresh
+      rw [← heq]
+      exact Signature.mem_allNames_of_var hw
+    exact (Env.lookupConst_updateConst_ne (Or.inl hne)).symm
   · constructor
     · intro c' hc'
       have hne : c'.name ≠ c.name := by
-        intro heq; exact hfresh (heq ▸ Signature.mem_allNames_of_const hc')
-      exact (Env.consts_updateConst_ne (Or.inl hne)).symm
+        intro heq
+        apply hfresh
+        rw [← heq]
+        exact Signature.mem_allNames_of_const hc'
+      exact (Env.lookupConst_updateConst_ne (Or.inl hne)).symm
     · constructor
-      · intro u' hu'; rw [Env.updateConst_unary]
-      · intro b' hb'; rw [Env.updateConst_binary]
+      · intro u' hu'
+        rw [Env.updateConst_unary]
+      · intro b' hb'
+        rw [Env.updateConst_binary]
 
 theorem FiniteSubst.rename_wf {σ : FiniteSubst} {v : Var} {name' : String} {Δ : Signature}
     (hσ : σ.wf Δ) (hfresh : name' ∉ σ.range.allNames) :
     (σ.rename v name').wf (Δ.addConst ⟨name', v.sort⟩) := by
   rcases hσ with ⟨hsubst, hrange, hwfRange⟩
   constructor
-  · have hsubst' : σ.subst.wfIn σ.dom (σ.range.addConst ⟨name', v.sort⟩) :=
-      Subst.wfIn_mono hsubst (Signature.Subset.subset_addConst _ _)
-        (Signature.wf_addConst hwfRange hfresh)
-    refine Subst.wfIn_of_subset_dom (dom := v :: σ.dom) ?_ ?_
-    · simpa using
-        (Subst.wfIn_update hsubst' (by
-        refine ⟨?_, ?_⟩
-        · exact List.Mem.head _
-        · intro τ' hvar
-          exact Signature.wf_no_var_of_const (Signature.wf_addConst hwfRange hfresh) (List.Mem.head _) hvar))
-    · intro w hw
-      simp [FiniteSubst.rename] at hw
-      rcases hw with rfl | ⟨hw, _⟩
-      · exact List.Mem.head _
-      · exact List.Mem.tail _ hw
+  · have hrangeWf : (σ.range.addConst ⟨name', v.sort⟩).wf :=
+      Signature.wf_addConst hwfRange hfresh
+    have hsubst' : σ.subst.wfIn σ.dom (σ.range.addConst ⟨name', v.sort⟩) :=
+      Subst.wfIn_mono hsubst (Signature.Subset.subset_addConst _ _) hrangeWf
+    have herase :
+        (σ.subst.eraseName v.name).wfIn (σ.dom.filter (fun w => w.name != v.name))
+          (σ.range.addConst ⟨name', v.sort⟩) :=
+      Subst.wfIn_eraseName hsubst'
+    have hconstwf : (Term.const (.uninterpreted name' v.sort)).wfIn (σ.range.addConst ⟨name', v.sort⟩) := by
+      refine ⟨List.Mem.head _, ?_⟩
+      intro τ' hvar
+      exact Signature.wf_no_var_of_const hrangeWf (List.Mem.head _) hvar
+    simpa [FiniteSubst.rename] using
+      (Subst.wfIn_update (σ := σ.subst.eraseName v.name)
+        (dom := σ.dom.filter (fun w => w.name != v.name))
+        (τ := v.sort) (x := v.name) herase hconstwf)
   · constructor
     · constructor
       · intro x hx
@@ -499,29 +526,29 @@ theorem FiniteSubst.rename_agreeOn {σ : FiniteSubst} {v : Var} {c : FOL.Const}
     (hsort : c.sort = v.sort) :
     Env.agreeOn (Signature.ofVars (σ.rename v c.name).dom)
       ((σ.rename v c.name).subst.eval (ρ.updateConst v.sort c.name u))
-      ((σ.subst.eval ρ).update v.sort v.name u) := by
+      ((σ.subst.eval ρ).updateConst v.sort v.name u) := by
   constructor
   · intro w hw
     simp [FiniteSubst.rename, Signature.ofVars] at hw
     rcases hw with rfl | ⟨hwdom, hneq⟩
-    ·
-      simp [FiniteSubst.rename, Subst.eval_lookup, Subst.apply_update_same, Term.eval, Const.denote]
-    · have hne : w.name ≠ v.name ∨ w.sort ≠ v.sort := Or.inl hneq
+    · change
+        Term.eval (ρ.updateConst w.sort c.name u)
+          (((σ.subst.eraseName w.name).update w.sort w.name
+            (Term.const (Const.uninterpreted c.name w.sort))).apply w.sort w.name) =
+          (((σ.subst.eval ρ).updateConst w.sort w.name u).lookupConst w.sort w.name)
+      simp [Subst.eval, Env.updateConst, Env.lookupConst, Subst.apply, Subst.update,
+        Term.eval, Const.denote]
+    · have hne : w.name ≠ v.name := hneq
       change
         Term.eval (ρ.updateConst v.sort c.name u)
-            ((σ.subst.update v.sort v.name (Term.const (Const.uninterpreted c.name v.sort))).apply w.sort w.name) =
-          ((σ.subst.eval ρ).update v.sort v.name u).lookup w.sort w.name
-      rw [Subst.apply_update_ne hne, Env.lookup_update_ne hne, Subst.eval_lookup]
-      exact (Term.eval_env_agree (hσwf w hwdom)
+            (((σ.subst.eraseName v.name).update v.sort v.name
+              (Term.const (Const.uninterpreted c.name v.sort))).apply w.sort w.name) =
+          ((σ.subst.eval ρ).updateConst v.sort v.name u).lookupConst w.sort w.name
+      rw [Subst.apply_update_ne (Or.inl hne), Subst.apply_eraseName_ne hne,
+        Env.lookupConst_updateConst_ne (Or.inl hne), Subst.eval_lookup]
+      exact (Term.eval_env_agree (hσwf.1 w hwdom)
         (agreeOn_update_fresh_const (c := ⟨c.name, v.sort⟩) hfresh)).symm
-  · constructor
-    · intro c' hc'
-      cases hc'
-    · constructor
-      · intro u' hu'
-        cases hu'
-      · intro b' hb'
-        cases hb'
+  · simp [Signature.ofVars]
 
 theorem FiniteSubst.rename_dom_declVar {σ : FiniteSubst} {Δ : Signature} {v : Var} {name' : String}
     (hdom : Δ.vars ⊆ σ.dom) :
@@ -532,13 +559,13 @@ theorem FiniteSubst.rename_dom_declVar {σ : FiniteSubst} {Δ : Signature} {v : 
   · exact Or.inl rfl
   · exact Or.inr ⟨hdom hw, hneq⟩
 
-theorem FiniteSubst.rename_agreeOn_declVar {σ : FiniteSubst} {Δ decls : Signature}
+theorem FiniteSubst.rename_agreeOn_declVar {σ : FiniteSubst} {decls : Signature}
     {v : Var} {c : FOL.Const} {ρ : Env} {u : v.sort.denote}
-    (hσwf : σ.wf decls) (hdom : Δ.vars ⊆ σ.dom) (hsymbols : Δ.SymbolSubset decls)
+    (hσwf : σ.wf decls)
     (hfresh : c.name ∉ decls.allNames) (hsort : c.sort = v.sort) :
-    Env.agreeOn (Δ.declVar v)
+    Env.agreeOn ((Signature.ofVars σ.dom).declVar v)
       ((σ.rename v c.name).subst.eval (ρ.updateConst v.sort c.name u))
-      ((σ.subst.eval ρ).update v.sort v.name u) := by
+      ((σ.subst.eval ρ).updateConst v.sort v.name u) := by
   have hfresh_range : c.name ∉ σ.range.allNames := by
     intro h
     exact hfresh (Signature.allNames_subset hσwf.2.1 _ h)
@@ -546,38 +573,16 @@ theorem FiniteSubst.rename_agreeOn_declVar {σ : FiniteSubst} {Δ decls : Signat
     hσwf.1 hfresh_range hsort
   constructor
   · intro w hw
-    exact hrename.1 w (FiniteSubst.rename_dom_declVar (σ := σ) (Δ := Δ) (v := v) (name' := c.name) hdom hw)
-  · constructor
-    · intro c' hc'
-      have hc0 : c' ∈ (Δ.remove v.name).consts := by
-        simpa [Signature.declVar, Signature.addVar] using hc'
-      rcases Signature.mem_remove_consts.mp hc0 with ⟨hcΔ, _⟩
-      have hcDecl : c' ∈ decls.consts := hsymbols.consts c' hcΔ
-      have hne : c'.name ≠ c.name := by
-        intro hname
-        exact hfresh (hname ▸ Signature.mem_allNames_of_const hcDecl)
-      simp [Subst.eval, Env.update, Env.consts_updateConst_ne (Or.inl hne)]
-    · constructor
-      · intro u' hu'
-        simp [Subst.eval, Env.update, Env.updateConst_unary]
-      · intro b' hb'
-        simp [Subst.eval, Env.update, Env.updateConst_binary]
+    exact hrename.1 w (FiniteSubst.rename_dom_declVar (σ := σ) (Δ := Signature.ofVars σ.dom) (v := v) (name' := c.name) (by intro x hx; exact hx) hw)
+  · simp [Signature.declVar, Signature.ofVars, Signature.addVar, Signature.remove]
 
 theorem FiniteSubst.eval_update_fresh {σ : FiniteSubst} {ρ : Env} {τ : Srt} {name' : String}
     {u : τ.denote} (hσ : σ.subst.wfIn σ.dom σ.range) (hfresh : name' ∉ σ.range.allNames) :
     Env.agreeOn (Signature.ofVars σ.dom) (σ.subst.eval ρ) (σ.subst.eval (ρ.updateConst τ name' u)) := by
   constructor
   · intro v hv
-    simp only [Subst.eval_lookup]
-    exact Term.eval_env_agree (hσ v hv) (agreeOn_update_fresh_const (c := ⟨name', τ⟩) hfresh)
-  · constructor
-    · intro c hc
-      cases hc
-    · constructor
-      · intro u hu
-        cases hu
-      · intro b hb
-        cases hb
+    exact Term.eval_env_agree (hσ.1 v hv) (agreeOn_update_fresh_const (c := ⟨name', τ⟩) hfresh)
+  · simp [Signature.ofVars]
 
 theorem FiniteSubst.subst_wfIn_formula {σ : FiniteSubst} {φ : Formula} {Δ : Signature}
     (hσ : σ.wf Δ) (hφ : φ.wfIn (Signature.ofVars σ.dom)) (hwfΔ : Δ.wf) :
@@ -590,10 +595,12 @@ theorem FiniteSubst.subst_wfIn_formula {σ : FiniteSubst} {φ : Formula} {Δ : S
   exact Formula.wfIn_mono _ hwf_range hrange hwfΔ
 
 theorem FiniteSubst.eval_subst_formula {σ : FiniteSubst} {φ : Formula} {ρ : Env}
-    (hφ : φ.wfIn (Signature.ofVars σ.dom)) (hσ : σ.subst.wfIn σ.dom σ.range) :
+    (hφ : φ.wfIn (Signature.ofVars σ.dom)) (hσ : σ.subst.wfIn σ.dom σ.range)
+    (hdomwf : (Signature.ofVars σ.dom).wf) :
     σ.range.wf →
     ((φ.subst σ.subst σ.range.allNames).eval ρ ↔ φ.eval (σ.subst.eval ρ)) := by
-  exact Formula.eval_subst (ρ := ρ) hφ hσ
+  intro hwf
+  exact Formula.eval_subst (ρ := ρ) hφ hσ (Signature.SymbolSubset.ofVars _ _) hdomwf hwf
 
 theorem FiniteSubst.id_wf (Δ : Signature) : FiniteSubst.id.wf Δ := by
   constructor
@@ -613,10 +620,5 @@ theorem FiniteSubst.eval_agreeOn {σ : FiniteSubst} {ρ ρ' : Env}
     Env.agreeOn (Signature.ofVars σ.dom) (σ.subst.eval ρ) (σ.subst.eval ρ') := by
   constructor
   · intro v hv
-    simp only [Env.lookup]
-    exact Term.eval_env_agree (hσ v hv) hagree
-  · constructor
-    · intro c hc; cases hc
-    · constructor
-      · intro u hu; cases hu
-      · intro b hb; cases hb
+    exact Term.eval_env_agree (hσ.1 v hv) hagree
+  · simp [Signature.ofVars]

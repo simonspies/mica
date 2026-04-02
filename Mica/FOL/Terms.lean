@@ -226,7 +226,7 @@ theorem Term.wfIn_mono (t : Term τ) (h : t.wfIn Δ) (hsub : Δ.Subset Δ') (hwf
   | ρ, .uninterpreted name _ _ _, x, y => ρ.binary τ₁ τ₂ τ₃ name x y
 
 def Term.eval (ρ : Env) : Term τ → τ.denote
-  | .var τ y      => ρ.lookup τ y
+  | .var τ y      => ρ.lookupConst τ y
   | .const c      => c.denote ρ
   | .unop op a    => op.eval ρ (Term.eval ρ a)
   | .binop op a b => op.eval ρ (Term.eval ρ a) (Term.eval ρ b)
@@ -236,7 +236,7 @@ theorem Term.eval_env_agree {t : Term τ} {ρ ρ' : Env} {Δ : Signature} :
     t.wfIn Δ → Env.agreeOn Δ ρ ρ' → Term.eval ρ t = Term.eval ρ' t := by
   intro hwf hagree
   induction t with
-  | var τ y => simp [Term.eval, Env.lookup]; exact hagree.1 ⟨y, τ⟩ hwf.1
+  | var τ y => simp [Term.eval, Env.lookupConst]; exact hagree.1 ⟨y, τ⟩ hwf.1
   | const c =>
     simp only [Term.eval]
     cases c with
@@ -262,45 +262,18 @@ theorem Term.eval_env_agree {t : Term τ} {ρ ρ' : Env} {Δ : Signature} :
     simp [Term.eval]
     rw [ihc hwf.1, iht hwf.2.1, ihe hwf.2.2]
 
-theorem Term.eval_update_not_in_sig {t : Term τ'} {x : String} {τ : Srt} {v : τ.denote} {ρ : Env}
-    {Δ : Signature} (hwf : t.wfIn Δ) (hnotin : ⟨x, τ⟩ ∉ Δ.vars) :
-    Term.eval (ρ.update τ x v) t = Term.eval ρ t :=
+theorem Term.eval_update_fresh {t : Term τ'} {x : String} {τ : Srt} {v : τ.denote} {ρ : Env}
+    {Δ : Signature} (hwf : t.wfIn Δ) (hfresh : x ∉ Δ.allNames) :
+    Term.eval (ρ.updateConst τ x v) t = Term.eval ρ t :=
   Term.eval_env_agree hwf
     ⟨fun w hw => by
-      by_cases heq : w = ⟨x, τ⟩
-      · subst heq; exact absurd hw hnotin
-      · have hne : w.name ≠ x ∨ w.sort ≠ τ := by
-          obtain ⟨wname, wtype⟩ := w
-          by_cases h : wname = x <;> by_cases ht : wtype = τ
-          · exfalso; apply heq; simp [h, ht]
-          · exact Or.inr ht
-          · exact Or.inl h
-          · exact Or.inl h
-        exact Env.lookup_update_ne hne,
-     fun _ _ => rfl, fun _ _ => rfl, fun _ _ => rfl⟩
-
-theorem Term.eval_update_fresh {t : Term τ'} {x : String} {τ : Srt} {v : τ.denote} {ρ : Env} :
-    ⟨x, τ⟩ ∉ t.freeVars → Term.eval (ρ.update τ x v) t = Term.eval ρ t := by
-  intro hfree
-  induction t with
-  | var τ_v y =>
-    simp only [Term.freeVars, List.mem_singleton] at hfree
-    simp only [Term.eval]
-    by_cases h1 : y = x
-    · by_cases h2 : τ_v = τ
-      · subst h1; subst h2; exact absurd rfl hfree
-      · exact Env.lookup_update_ne (Or.inr h2)
-    · exact Env.lookup_update_ne (Or.inl h1)
-  | const c => simp only [Term.eval]; cases c <;> rfl
-  | unop op a iha =>
-    simp only [Term.freeVars] at hfree
-    simp only [Term.eval, iha hfree]
-    cases op <;> rfl
-  | binop op a b iha ihb =>
-    simp only [Term.freeVars, List.mem_append, not_or] at hfree
-    simp only [Term.eval, iha hfree.1, ihb hfree.2]
-    cases op <;> rfl
-  | ite c t e ihc iht ihe =>
-    simp only [Term.freeVars, List.mem_append, not_or] at hfree
-    obtain ⟨⟨hc, ht'⟩, he⟩ := hfree
-    simp only [Term.eval, ihc hc, iht ht', ihe he]
+      have hne : w.name ≠ x := by
+        intro heq
+        exact hfresh (heq ▸ Signature.mem_allNames_of_var hw)
+      exact Env.lookupConst_updateConst_ne (Or.inl hne),
+     fun c hc => by
+      have hne : c.name ≠ x := by
+        intro heq
+        exact hfresh (heq ▸ Signature.mem_allNames_of_const hc)
+      exact Env.lookupConst_updateConst_ne (Or.inl hne),
+     fun _ _ => rfl, fun _ _ => rfl⟩
