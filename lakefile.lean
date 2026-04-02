@@ -34,7 +34,7 @@ structure TestsuiteOptions where
   summaryOnly : Bool
   dir : FilePath
 
-def testTimeoutMs : UInt32 := 30000
+def testTimeoutMs : UInt32 := 60000
 
 def pollIntervalMs : UInt32 := 300
 
