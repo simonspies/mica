@@ -484,6 +484,12 @@ end Signature
 -- Environments
 -- ---------------------------------------------------------------------------
 
+/-- An interpretation environment for evaluation.
+
+There is intentionally no separate variable environment. SMT-LIB and Z3 see only a
+nullary symbol name like `x`; they do not distinguish, at evaluation time, between
+`Term.var τ x` and an uninterpreted constant printed as `x`. We therefore interpret both
+through the same `consts` map so the Lean semantics matches the SMT semantics. -/
 structure Env where
   consts : (τ : Srt) → String → τ.denote
   unary  : (τ₁ τ₂ : Srt) → String → τ₁.denote → τ₂.denote
