@@ -17,45 +17,187 @@ lean_exe «dynamic-goal» where root := `Exploration.DynamicGoal
 lean_exe «smt-query» where root := `Exploration.SMTQuery
 
 
-def check (mica: LeanExe) (file : FilePath) : ScriptM UInt32 := do
-  let process ← IO.Process.spawn {
-    cmd := mica.file.toString
-    args := #[file.toString]
-    stdin := .null
-    stdout := .null
-    stderr := .null
-  }
-  return <- process.wait
+structure ProcessOutput where
+  exitCode : UInt32
+  stdout : String
+  stderr : String
 
-script test := do
+inductive ProcessResult where
+  | timeout (ms : UInt32)
+  | terminated (output : ProcessOutput)
+
+structure TestOutcome where
+  path : FilePath
+  result : ProcessResult
+
+structure TestsuiteOptions where
+  summaryOnly : Bool
+  dir : FilePath
+
+def testTimeoutMs : UInt32 := 30000
+
+def pollIntervalMs : UInt32 := 300
+
+def testsuiteUsage : String :=
+  "usage: lake run testsuite [--summary-only] PATH"
+
+partial def waitForExitOrTimeout {cfg : IO.Process.StdioConfig}
+    (child : IO.Process.Child cfg) (remainingMs : Nat) : IO (Option UInt32) := do
+  match ← child.tryWait with
+  | some exitCode => pure (some exitCode)
+  | none =>
+      if remainingMs <= 0 then
+        pure none
+      else
+        let sleepMs := min pollIntervalMs.toNat remainingMs
+        IO.sleep (UInt32.ofNat sleepMs)
+        waitForExitOrTimeout child (remainingMs - sleepMs)
+
+def runProcessWithTimeout (cmd : String) (args : Array String) (timeoutMs : UInt32) :
+    IO ProcessResult := do
+  let child ← IO.Process.spawn {
+    cmd := cmd
+    args := args
+    stdin := .null
+    stdout := .piped
+    stderr := .piped
+  }
+  let stdoutTask ← IO.asTask child.stdout.readToEnd Task.Priority.dedicated
+  let stderrTask ← IO.asTask child.stderr.readToEnd Task.Priority.dedicated
+  let exitCode? ← waitForExitOrTimeout child timeoutMs.toNat
+  match exitCode? with
+  | none =>
+      child.kill
+      discard <| child.wait
+      discard <| IO.ofExcept stdoutTask.get
+      discard <| IO.ofExcept stderrTask.get
+      pure (.timeout timeoutMs)
+  | some exitCode =>
+      let stdout ← IO.ofExcept stdoutTask.get
+      let stderr ← IO.ofExcept stderrTask.get
+      pure (.terminated { exitCode, stdout, stderr })
+
+def runTest (mica : LeanExe) (file : FilePath) : ScriptM TestOutcome := do
+  let result ← runProcessWithTimeout mica.file.toString #[file.toString] testTimeoutMs
+  return { path := file, result := result }
+
+def parseTestsuiteArgs (args : List String) : ScriptM TestsuiteOptions := do
+  let mut summaryOnly := false
+  let mut dir? : Option FilePath := none
+  for arg in args do
+    if arg == "--summary-only" then
+      summaryOnly := true
+    else if arg.startsWith "-" then
+      error s!"unknown option '{arg}'"
+    else
+      match dir? with
+      | none => dir? := some arg
+      | some _ => error testsuiteUsage
+  let some dir := dir?
+    | error testsuiteUsage
+  return {
+    summaryOnly := summaryOnly
+    dir := dir
+  }
+
+def resolveInputPath (path : FilePath) : ScriptM FilePath := do
+  let cwd ← IO.currentDir
+  let inputPath := if path.isAbsolute then path else cwd / path
+  if !(← inputPath.pathExists) then
+    error s!"test path does not exist: {inputPath}"
+  pure inputPath
+
+def isMlFile (path : FilePath) : IO Bool := do
+  if path.extension != some "ml" then
+    return false
+  let metadata ← path.metadata
+  return metadata.type == .file
+
+def discoverTests (path : FilePath) : IO (Array FilePath) := do
+  let metadata ← path.metadata
+  match metadata.type with
+  | .file =>
+      if ← isMlFile path then
+        pure #[path]
+      else
+        throw <| IO.userError s!"test file must end in .ml: {path}"
+  | .dir =>
+      let entries ← path.readDir
+      let mut tests := #[]
+      for entry in entries do
+        if ← isMlFile entry.path then
+          tests := tests.push entry.path
+      pure <| tests.qsort (fun a b => a.toString < b.toString)
+  | _ =>
+      throw <| IO.userError s!"test path must be a .ml file or directory: {path}"
+
+def printOutputBlock (output : String) : IO Unit := do
+  if !output.isEmpty then
+    IO.print output
+    if !output.endsWith "\n" then
+      IO.println ""
+
+def printCapturedOutput (test : TestOutcome) : IO Unit := do
+  match test.result with
+  | .timeout _ => pure ()
+  | .terminated output =>
+      printOutputBlock output.stdout
+      printOutputBlock output.stderr
+      if !output.stdout.isEmpty || !output.stderr.isEmpty then
+        IO.println ""
+
+def resultSuffix (result : ProcessResult) : String :=
+  match result with
+  | .timeout ms => s!" timed out after {ms}ms"
+  | .terminated output => if output.exitCode == 0 then " ✓" else " ⨯"
+
+def recordFailure (failed : List TestOutcome) (test : TestOutcome) : List TestOutcome :=
+  match test.result with
+  | .timeout _ => test :: failed
+  | .terminated output =>
+      if output.exitCode == 0 then
+        failed
+      else
+        test :: failed
+
+def printTestHeader (filename : String) : IO Unit := do
+  let stdout ← IO.getStdout
+  IO.print s!"Checking {filename} ..."
+  stdout.flush
+
+private def bold (s : String) : String := s!"\x1b[1m{s}\x1b[0m"
+
+def printFailureSummary (failed : List TestOutcome) : IO Unit := do
+  IO.println (bold s!"{failed.length} {if failed.length = 1 then "test" else "tests"} failed")
+  for test in failed.reverse do
+    let suffix := match test.result with
+      | .timeout _ => " (timed out)"
+      | .terminated _ => ""
+    IO.println s!"- {test.path.fileName.get!}{suffix}"
+
+script testsuite (args) := do
   let some mica <- Lake.findLeanExe? `mica
     | error "mica executable undefined"
   if not (<- mica.file.pathExists) then
     error "mica executable has not been built"
-  IO.println "starting ..."
-  let app <- IO.currentDir
-  let examples_dir := app / "Examples"
-  let examples <- examples_dir.readDir
-  let stdout <- IO.getStdout
-  let mut failed : List FilePath := []
-  for file in examples do
-    let filename := file.path.fileName.get!
-    IO.print ("checking " ++ filename ++ " ...")
-    stdout.flush
-    let res <- check mica file.path
-    if res != 0 then
-      IO.println " ⨯"
-      failed := file.path :: failed
-    else
-      IO.println " ✓"
+  let options ← parseTestsuiteArgs args
+  let inputPath ← resolveInputPath options.dir
+  let tests ← discoverTests inputPath
+  let mut failed : List TestOutcome := []
+  for file in tests do
+    let filename := file.fileName.get!
+    printTestHeader filename
+    let test <- runTest mica file
+    IO.println (resultSuffix test.result)
+    failed := recordFailure failed test
+    if !options.summaryOnly then
+      printCapturedOutput test
 
   IO.println ""
 
   if List.isEmpty failed then
-    IO.println "all tests pased"
+    IO.println (bold "all tests passed")
     return 0
   else
-      IO.println s!"{failed.length} {if failed.length = 1 then "test" else "tests"} failed"
-    for test in failed do
-      IO.println s!"- {test.fileName.get!}"
+    printFailureSummary failed
     return 1
