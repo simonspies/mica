@@ -132,6 +132,7 @@ theorem Proof.wfIn : Γ.wfIn sig → Proof sig Γ φ → φ.wfIn sig := by
     · exact hmem
   | forall_elim hwft hwfφ _ ih =>
     apply Formula.subst_wfIn hwfφ (Subst.single_wfIn hwft)
+      (Signature.SymbolSubset.refl _)
   | exists_intro hwft hwfφ _ ih =>
     intro v hv; simp only [Formula.freeVars, List.mem_filter] at hv
     obtain ⟨hv_in, hv_ne⟩ := hv

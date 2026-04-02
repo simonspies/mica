@@ -71,7 +71,7 @@ def TraceSound : SmtState → Trace α → Prop
   | _, .done _ => True
   | s, .step .push () rest => TraceSound s.push rest
   | s, .step .pop () rest => TraceSound s.pop rest
-  | s, .step (.declareConst n sort) () rest => TraceSound (s.addVar ⟨n, sort⟩) rest
+  | s, .step (.declareConst n sort) () rest => TraceSound (s.addConst ⟨n, sort⟩) rest
   | s, .step (.declareUnary n arg ret) () rest => TraceSound (s.addUnary ⟨n, arg, ret⟩) rest
   | s, .step (.declareBinary n arg1 arg2 ret) () rest => TraceSound (s.addBinary ⟨n, arg1, arg2, ret⟩) rest
   | s, .step (.assert e) () rest => TraceSound (s.addAssert e) rest

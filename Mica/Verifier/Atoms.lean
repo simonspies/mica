@@ -153,11 +153,11 @@ theorem Atom.checkWf_ok {p : Atom τ} {Δ : Signature} (h : p.checkWf Δ = .ok (
   | isinj tag arity t => exact Term.checkWf_ok h
 
 theorem Atom.wfIn_mono {p : Atom τ} {Δ Δ' : Signature}
-    (h : p.wfIn Δ) (hmono : Δ.Subset Δ') : p.wfIn Δ' := by
+    (h : p.wfIn Δ) (hmono : Δ.Subset Δ') (hwf : Δ'.wf) : p.wfIn Δ' := by
   cases p with
-  | isint t  => exact Term.wfIn_mono t h hmono
-  | isbool t => exact Term.wfIn_mono t h hmono
-  | isinj tag arity t => exact Term.wfIn_mono t h hmono
+  | isint t  => exact Term.wfIn_mono t h hmono hwf
+  | isbool t => exact Term.wfIn_mono t h hmono hwf
+  | isinj tag arity t => exact Term.wfIn_mono t h hmono hwf
 
 theorem Atom.eval_env_agree {p : Atom τ} {ρ ρ' : Env} {Δ : Signature}
     (hwf : p.wfIn Δ) (hagree : Env.agreeOn Δ ρ ρ') : p.eval ρ = p.eval ρ' := by
@@ -210,12 +210,15 @@ theorem Atom.eval_subst {p : Atom τ} {σ : Subst} {ρ : Env} :
   | isbool t => simp [Atom.subst, Atom.eval, Term.eval_subst]
   | isinj tag arity t => simp [Atom.subst, Atom.eval, Term.eval_subst]
 
-theorem Atom.subst_wfIn {p : Atom τ} {σ : Subst} {Δ Δ' : Signature}
-    (hp : p.wfIn Δ) (hσ : σ.wfIn Δ Δ') : (p.subst σ).wfIn Δ' := by
+theorem Atom.subst_wfIn {p : Atom τ} {σ : Subst} {dom : VarCtx} {Δ Δ' : Signature}
+    (hp : p.wfIn Δ) (hσ : σ.wfIn dom Δ') (hdom : Δ.vars ⊆ dom)
+    (hsymbols : Δ.SymbolSubset Δ')
+    (hwf : Δ'.wf) :
+    (p.subst σ).wfIn Δ' := by
   cases p with
-  | isint t  => exact Term.subst_wfIn hp hσ
-  | isbool t => exact Term.subst_wfIn hp hσ
-  | isinj tag arity t => exact Term.subst_wfIn hp hσ
+  | isint t  => exact Term.subst_wfIn hp hσ hdom hsymbols hwf
+  | isbool t => exact Term.subst_wfIn hp hσ hdom hsymbols hwf
+  | isinj tag arity t => exact Term.subst_wfIn hp hσ hdom hsymbols hwf
 
 
 -- ---------------------------------------------------------------------------

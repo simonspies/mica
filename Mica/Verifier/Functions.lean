@@ -126,7 +126,7 @@ theorem checkSpec_correct (S : SpecMap) (e : TinyML.Expr) (s : Spec)
         have hts : Bindings.typedSubst B Γ γ_body := by
           apply Bindings.typedSubst_of_agreeOnLinked hagree
           intro x x' t hmem hΓ
-          show TinyML.ValHasType (ρ'.lookup .value x'.name) t
+          show TinyML.ValHasType (ρ'.consts .value x'.name) t
           set args' := argNames.zip (s.args.map Prod.snd)
           have hfst : args'.map Prod.fst = argNames := by
             simp [args']; exact List.map_fst_zip (by simp; omega)

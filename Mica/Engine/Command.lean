@@ -29,10 +29,6 @@ def SmtFrame.Extends (f f' : SmtFrame) : Prop :=
 theorem SmtFrame.Extends.refl (f : SmtFrame) : f.Extends f :=
   ⟨[], [], [], [], [], rfl, rfl, rfl, rfl, rfl⟩
 
-theorem SmtFrame.Extends.addVar (f : SmtFrame) (v : Var) :
-    f.Extends ⟨f.decls.addVar v, f.asserts⟩ :=
-  ⟨[v], [], [], [], [], rfl, rfl, rfl, rfl, rfl⟩
-
 theorem SmtFrame.Extends.addConst (f : SmtFrame) (c : FOL.Const) :
     f.Extends ⟨f.decls.addConst c, f.asserts⟩ :=
   ⟨[], [c], [], [], [], rfl, rfl, rfl, rfl, rfl⟩
@@ -140,9 +136,6 @@ def modifyDecls (s : SmtState) (f : Signature → Signature) : SmtState :=
   | [] => ⟨[⟨f Signature.empty, []⟩]⟩
   | ⟨decls, asserts⟩ :: rest => ⟨⟨f decls, asserts⟩ :: rest⟩
 
-def addVar (s : SmtState) (v : Var) : SmtState :=
-  s.modifyDecls (·.addVar v)
-
 def addConst (s : SmtState) (c : FOL.Const) : SmtState :=
   s.modifyDecls (·.addConst c)
 
@@ -161,8 +154,7 @@ def addAssert (s : SmtState) (φ : Formula) : SmtState :=
 def step : Command β → β → SmtState → SmtState
   | .push, (), s => s.push
   | .pop, (), s => s.pop
-  -- @claude: We will need to change this in the future to declare a constant instead of a variable
-  | .declareConst n sort, (), s => s.addVar ⟨n, sort⟩
+  | .declareConst n sort, (), s => s.addConst ⟨n, sort⟩
   | .declareUnary n arg ret, (), s => s.addUnary ⟨n, arg, ret⟩
   | .declareBinary n arg1 arg2 ret, (), s => s.addBinary ⟨n, arg1, arg2, ret⟩
   | .assert e, (), s => s.addAssert e
