@@ -362,9 +362,9 @@ theorem VerifM.translate_eval_rec (m : VerifM α) (st : TransState) (ρ: Env)
     apply ScopedM.eval_checkSat at hxx
     simp at hxx
     rcases hxx with ⟨hunsat, _⟩ | hfalse
-    · have hunsat' : ¬Satisfiable st.decls (Formula.not φ :: st.asserts) := by
+    · have hunsat' : ¬Smt.State.satisfiable st.decls (Formula.not φ :: st.asserts) := by
         simp only [FlatCtx.addAssert] at hunsat; exact hunsat
-      exact Satisfiable.to_impl' st.decls st.asserts hunsat' ρ g
+      exact Smt.State.satisfiable.to_impl' st.decls st.asserts hunsat' ρ g
     · simp [ScopedM.eval_ret] at hfalse
   | fatal msg =>
     simp only [VerifM.translate] at h

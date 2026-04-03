@@ -59,8 +59,8 @@ def main (args : List String) : IO Unit := do
     if opts.noCheck then
       return
     let strategy := Program.verify prog
-    let session ← SmtSession.create
-    let outcome ← run (log := opts.verbose) strategy session
+    let session ← Smt.Session.create
+    let outcome ← Smt.Strategy.run (log := opts.verbose) strategy session
     session.close
     match outcome with
     | .ok () => IO.println s!"{bold "Status:"} all declarations verified"
