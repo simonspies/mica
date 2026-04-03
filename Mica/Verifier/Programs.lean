@@ -81,7 +81,7 @@ def Program.check : SpecMap → TinyML.Program → VerifM Unit
         | .none => S
       Program.check S' ds
 
-def Program.verify (prog : TinyML.Program) : Strategy Outcome :=
+def Program.verify (prog : TinyML.Program) : Smt.Strategy Smt.Strategy.Outcome :=
   VerifM.strategy (Program.check ∅ prog)
 
 /-! ## Correctness -/
@@ -242,8 +242,8 @@ theorem Program.check_correct (S : SpecMap) (prog : TinyML.Program) (γ : Runtim
         · exact hcont
 
 theorem Program.verify_correct p :
-  Strategy.checks (Program.verify p) (pwp (TinyML.Program.runtime p)) := by
-  simp only [Strategy.checks, Program.verify, VerifM.strategy]
+  Smt.Strategy.checks (Program.verify p) (pwp (TinyML.Program.runtime p)) := by
+  simp only [Smt.Strategy.checks, Program.verify, VerifM.strategy]
   intro st' heval
   -- Translate the Strategy.eval into a ScopedM.eval
   have h1 := ScopedM.strategy_eval_initial_implies_ScopedM_eval heval
