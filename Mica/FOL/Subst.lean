@@ -92,9 +92,11 @@ theorem Subst.wfIn_update {σ : Subst} {dom : VarCtx} {τ : Srt} {x : String} {t
 theorem Subst.id_wfIn {dom : VarCtx} {Δ : Signature} (hsub : dom ⊆ Δ.vars) (hwf : Δ.wf) :
     Subst.id.wfIn dom Δ :=
   ⟨fun v hv => by
-      refine ⟨hsub hv, ?_⟩
-      intro τ' hconst
-      exact Signature.wf_no_const_of_var hwf (hsub hv) hconst,
+      refine ⟨hsub hv, ?_, ?_⟩
+      · intro τ' hconst
+        exact Signature.wf_no_const_of_var hwf (hsub hv) hconst
+      · intro τ' hv'
+        exact Signature.wf_unique_var hwf (hsub hv) hv',
     fun _ _ => rfl⟩
 
 theorem Subst.single_wfIn {τ : Srt} {x : String} {t : Term τ} {Δ : Signature} (ht : t.wfIn Δ) :
@@ -140,9 +142,11 @@ theorem Term.subst_wfIn {t : Term τ} {σ : Subst} {dom : VarCtx} {Δ Δ' : Sign
     simp only [Term.subst, Term.wfIn]
     cases c with
     | uninterpreted name τ =>
-      refine ⟨hsymbols.consts _ ht.1, ?_⟩
-      intro τ' hvar
-      exact Signature.wf_no_var_of_const hwf (hsymbols.consts _ ht.1) hvar
+      refine ⟨hsymbols.consts _ ht.1, ?_, ?_⟩
+      · intro τ' hvar
+        exact Signature.wf_no_var_of_const hwf (hsymbols.consts _ ht.1) hvar
+      · intro τ' hc'
+        exact Signature.wf_unique_const hwf (hsymbols.consts _ ht.1) hc'
     | _ => trivial
   | unop op a iha =>
     simp only [Term.subst, Term.wfIn]
@@ -231,7 +235,7 @@ theorem Term.eval_subst {σ : Subst} {ρ : Env} {t : Term τ} {Δ Δ' : Signatur
       rename_i τ1
       simp [Const.denote, Subst.eval]
       symm
-      have hvar : σ.apply τ1 name = .var τ1 name := hσ.2 ⟨name, τ1⟩ (ht.2 τ1)
+      have hvar : σ.apply τ1 name = .var τ1 name := hσ.2 ⟨name, τ1⟩ (ht.2.1 τ1)
       rw [hvar]
       simp [Term.eval, Env.lookupConst]
     | _ => rfl
@@ -391,9 +395,11 @@ theorem Formula.eval_subst {σ : Subst} {ρ : Env} {φ : Formula} {Δ Δ' : Sign
         Subst.wfIn_mono hσ (Signature.Subset.subset_addVar _ _) (Signature.wf_addVar hwfΔ' hy'_fresh)
       simpa [hremove] using hσ_add
     have hvarwf : (Term.var τ y').wfIn ((Δ'.remove y').addVar ⟨y', τ⟩) := by
-      refine ⟨List.Mem.head _, ?_⟩
-      intro τ'' hc
-      exact Signature.wf_no_const_of_var hwf_target (List.Mem.head _) hc
+      refine ⟨List.Mem.head _, ?_, ?_⟩
+      · intro τ'' hc
+        exact Signature.wf_no_const_of_var hwf_target (List.Mem.head _) hc
+      · intro τ'' hv
+        exact Signature.wf_unique_var hwf_target (List.Mem.head _) hv
     have hσ' :
         (σ.bind y τ y').wfIn ((Δ.remove y).addVar ⟨y, τ⟩).vars ((Δ'.remove y').addVar ⟨y', τ⟩) :=
       Subst.wfIn_bind (Δ := Δ) (Δ'' := ((Δ'.remove y').addVar ⟨y', τ⟩)) hσ_ext hvarwf
@@ -440,9 +446,11 @@ theorem Formula.eval_subst {σ : Subst} {ρ : Env} {φ : Formula} {Δ Δ' : Sign
         Subst.wfIn_mono hσ (Signature.Subset.subset_addVar _ _) (Signature.wf_addVar hwfΔ' hy'_fresh)
       simpa [hremove] using hσ_add
     have hvarwf : (Term.var τ y').wfIn ((Δ'.remove y').addVar ⟨y', τ⟩) := by
-      refine ⟨List.Mem.head _, ?_⟩
-      intro τ'' hc
-      exact Signature.wf_no_const_of_var hwf_target (List.Mem.head _) hc
+      refine ⟨List.Mem.head _, ?_, ?_⟩
+      · intro τ'' hc
+        exact Signature.wf_no_const_of_var hwf_target (List.Mem.head _) hc
+      · intro τ'' hv
+        exact Signature.wf_unique_var hwf_target (List.Mem.head _) hv
     have hσ' :
         (σ.bind y τ y').wfIn ((Δ.remove y).addVar ⟨y, τ⟩).vars ((Δ'.remove y').addVar ⟨y', τ⟩) :=
       Subst.wfIn_bind (Δ := Δ) (Δ'' := ((Δ'.remove y').addVar ⟨y', τ⟩)) hσ_ext hvarwf
@@ -554,9 +562,11 @@ theorem Formula.subst_wfIn {φ : Formula} {σ : Subst} {Δ Δ' : Signature}
         Subst.wfIn_mono hσ (Signature.Subset.subset_addVar _ _) (Signature.wf_addVar hwfΔ' hy'_fresh)
       simpa [hremove] using hσ_add
     have hvarwf : (Term.var τ y').wfIn ((Δ'.remove y').addVar ⟨y', τ⟩) := by
-      refine ⟨List.Mem.head _, ?_⟩
-      intro τ'' hc
-      exact Signature.wf_no_const_of_var hwf_target (List.Mem.head _) hc
+      refine ⟨List.Mem.head _, ?_, ?_⟩
+      · intro τ'' hc
+        exact Signature.wf_no_const_of_var hwf_target (List.Mem.head _) hc
+      · intro τ'' hv
+        exact Signature.wf_unique_var hwf_target (List.Mem.head _) hv
     have hσ' :
         (σ.bind y τ y').wfIn ((Δ.remove y).addVar ⟨y, τ⟩).vars ((Δ'.remove y').addVar ⟨y', τ⟩) :=
       Subst.wfIn_bind (Δ := Δ) (Δ'' := ((Δ'.remove y').addVar ⟨y', τ⟩)) hσ_ext hvarwf

@@ -434,6 +434,46 @@ theorem allNames_remove_addVar_of_not_in {Δ : Signature} {x : String} {τ : Srt
   rw [remove_eq_of_not_in h]
   simp [allNames, addVar]
 
+private theorem unique_sort_of_nodup_map_name {l : List Var} {x : String} {τ τ' : Srt}
+    (hnd : (l.map Var.name).Nodup) (hv : ⟨x, τ⟩ ∈ l) (hv' : ⟨x, τ'⟩ ∈ l) : τ' = τ := by
+  induction l with
+  | nil => simp at hv
+  | cons v vs ih =>
+    rw [List.map, List.nodup_cons] at hnd
+    rcases List.mem_cons.mp hv with rfl | hmem
+    · rcases List.mem_cons.mp hv' with heq | hmem'
+      · exact (Var.mk.inj heq).2
+      · exact absurd (List.mem_map_of_mem hmem') hnd.1
+    · rcases List.mem_cons.mp hv' with rfl | hmem'
+      · exact absurd (List.mem_map_of_mem hmem) hnd.1
+      · exact ih hnd.2 hmem hmem'
+
+private theorem unique_sort_of_nodup_map_const_name {l : List FOL.Const} {x : String} {τ τ' : Srt}
+    (hnd : (l.map FOL.Const.name).Nodup) (hc : ⟨x, τ⟩ ∈ l) (hc' : ⟨x, τ'⟩ ∈ l) : τ' = τ := by
+  induction l with
+  | nil => simp at hc
+  | cons v vs ih =>
+    rw [List.map, List.nodup_cons] at hnd
+    rcases List.mem_cons.mp hc with rfl | hmem
+    · rcases List.mem_cons.mp hc' with heq | hmem'
+      · exact (FOL.Const.mk.inj heq).2
+      · exact absurd (List.mem_map_of_mem hmem') hnd.1
+    · rcases List.mem_cons.mp hc' with rfl | hmem'
+      · exact absurd (List.mem_map_of_mem hmem) hnd.1
+      · exact ih hnd.2 hmem hmem'
+
+theorem wf_unique_var {Δ : Signature} {x : String} {τ τ' : Srt}
+    (hΔ : Δ.wf) (hv : ⟨x, τ⟩ ∈ Δ.vars) (hv' : ⟨x, τ'⟩ ∈ Δ.vars) : τ' = τ :=
+  unique_sort_of_nodup_map_name
+    (List.nodup_append.mp (List.nodup_append.mp (List.nodup_append.mp hΔ).1).1).1
+    hv hv'
+
+theorem wf_unique_const {Δ : Signature} {x : String} {τ τ' : Srt}
+    (hΔ : Δ.wf) (hc : ⟨x, τ⟩ ∈ Δ.consts) (hc' : ⟨x, τ'⟩ ∈ Δ.consts) : τ' = τ :=
+  unique_sort_of_nodup_map_const_name
+    (List.nodup_append.mp (List.nodup_append.mp (List.nodup_append.mp hΔ).1).1).2.1
+    hc hc'
+
 theorem wf_no_const_of_var {Δ : Signature} {x : String} {τ τ' : Srt}
     (hΔ : Δ.wf) (hv : ⟨x, τ⟩ ∈ Δ.vars) : ⟨x, τ'⟩ ∉ Δ.consts := by
   intro hc
