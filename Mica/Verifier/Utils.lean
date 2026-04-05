@@ -499,9 +499,11 @@ theorem FiniteSubst.rename_wf {σ : FiniteSubst} {v : Var} {name' : String} {Δ 
           (σ.range.addConst ⟨name', v.sort⟩) :=
       Subst.wfIn_eraseName hsubst'
     have hconstwf : (Term.const (.uninterpreted name' v.sort)).wfIn (σ.range.addConst ⟨name', v.sort⟩) := by
-      refine ⟨List.Mem.head _, ?_⟩
-      intro τ' hvar
-      exact Signature.wf_no_var_of_const hrangeWf (List.Mem.head _) hvar
+      refine ⟨List.Mem.head _, ?_, ?_⟩
+      · intro τ' hvar
+        exact Signature.wf_no_var_of_const hrangeWf (List.Mem.head _) hvar
+      · intro τ' hc'
+        exact Signature.wf_unique_const hrangeWf (List.Mem.head _) hc'
     simpa [FiniteSubst.rename] using
       (Subst.wfIn_update (σ := σ.subst.eraseName v.name)
         (dom := σ.dom.filter (fun w => w.name != v.name))

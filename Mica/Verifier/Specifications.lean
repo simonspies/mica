@@ -471,9 +471,13 @@ theorem Spec.declareArgs_correct :
             (st.decls.addConst argVar) := by
           refine ⟨?_, Term.wfIn_mono sarg hsarg_wf (Signature.Subset.subset_addConst _ _) ?_⟩
           · simp only [Term.wfIn, Const.wfIn, Signature.addConst]
-            refine ⟨List.Mem.head _, ?_⟩
-            intro τ' hvar
-            exact hfresh_decls (Signature.mem_allNames_of_var hvar)
+            have hwf_add : (st.decls.addConst argVar).wf :=
+              Signature.wf_addConst (VerifM.eval.wf heval).namesDisjoint hfresh_decls
+            refine ⟨List.Mem.head _, ?_, ?_⟩
+            · intro τ' hvar
+              exact hfresh_decls (Signature.mem_allNames_of_var hvar)
+            · intro τ' hc'
+              exact Signature.wf_unique_const hwf_add (List.Mem.head _) hc'
           · exact (TransState.freshConst.wf _ (VerifM.eval.wf heval)).namesDisjoint
         have heq_holds : (Formula.eq Srt.value (Term.const (.uninterpreted argVar.name .value)) sarg).eval
             (ρ.updateConst .value argVar.name (sarg.eval ρ)) := by
@@ -613,11 +617,14 @@ theorem Spec.declareImplArgs_correct :
       set st₁ : TransState := { st with decls := st.decls.addConst argVar }
       set ρ₁ := ρ.updateConst .value argVar.name v
       -- Peel off assumeAll
+      have hwfst₁ : st₁.decls.wf := (VerifM.eval.wf hdecl).namesDisjoint
       have hvar_wf : (Term.const (.uninterpreted argVar.name .value)).wfIn st₁.decls := by
         simp only [Term.wfIn, Const.wfIn, st₁, Signature.addConst]
-        refine ⟨List.Mem.head _, ?_⟩
-        intro τ' hvar
-        exact hfresh_decls (Signature.mem_allNames_of_var hvar)
+        refine ⟨List.Mem.head _, ?_, ?_⟩
+        · intro τ' hvar
+          exact hfresh_decls (Signature.mem_allNames_of_var hvar)
+        · intro τ' hc'
+          exact Signature.wf_unique_const hwfst₁ (List.Mem.head _) hc'
       have hvar_eval : (Term.const (.uninterpreted argVar.name .value)).eval ρ₁ = v := by
         simp [ρ₁, Term.eval, Const.denote, Env.updateConst]
       have hassume_bind := VerifM.eval_bind _ _ _ _ hdecl
@@ -733,10 +740,12 @@ theorem Spec.implement_correct (s : Spec) (body : List FOL.Const → VerifM (Ter
       | mk name sort =>
         have hsort : sort = .value := hsorts ⟨name, sort⟩ hav
         subst hsort
-        refine ⟨hmem_decls ⟨name, .value⟩ hav, ?_⟩
-        intro τ' hvar
         have hwfst' : st'.decls.wf := (VerifM.eval.wf hΨ).namesDisjoint
-        exact Signature.wf_no_var_of_const hwfst' (hmem_decls ⟨name, .value⟩ hav) hvar
+        refine ⟨hmem_decls ⟨name, .value⟩ hav, ?_, ?_⟩
+        · intro τ' hvar
+          exact Signature.wf_no_var_of_const hwfst' (hmem_decls ⟨name, .value⟩ hav) hvar
+        · intro τ' hc'
+          exact Signature.wf_unique_const hwfst' (hmem_decls ⟨name, .value⟩ hav) hc'
     · exact hragree'
     · exact hlookups
   · exact hbody_eval

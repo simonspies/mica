@@ -434,9 +434,11 @@ theorem compile_correct (e : TinyML.Expr) (S : SpecMap) (B : Bindings) (Γ : Tin
         | mk n s =>
           simp only at hsort
           subst hsort
-          refine ⟨h, ?_⟩
-          intro τ' hvar
-          exact Signature.wf_no_var_of_const hwfst h hvar
+          refine ⟨h, ?_, ?_⟩
+          · intro τ' hvar
+            exact Signature.wf_no_var_of_const hwfst h hvar
+          · intro τ' hc'
+            exact Signature.wf_unique_const hwfst h hc'
       have htyping : TinyML.ValHasType (ρ.consts .value x'.name) (Γ x |>.getD .value) := by
         cases hΓ : Γ x with
         | none => exact .any
@@ -609,7 +611,12 @@ theorem compile_correct (e : TinyML.Expr) (S : SpecMap) (B : Bindings) (Γ : Tin
                 intro τ' hvar
                 exact Signature.wf_no_var_of_const
                   (TransState.freshConst.wf _ (VerifM.eval.wf hdecl_eval)).namesDisjoint
-                  (List.mem_cons_self ..) hvar⟩,
+                  (List.mem_cons_self ..) hvar,
+              by
+                intro τ' hc'
+                exact Signature.wf_unique_const
+                  (TransState.freshConst.wf _ (VerifM.eval.wf hdecl_eval)).namesDisjoint
+                  (List.mem_cons_self ..) hc'⟩,
             Term.wfIn_mono sube hsube_wf (Signature.Subset.subset_addConst _ _)
               (TransState.freshConst.wf _ (VerifM.eval.wf hdecl_eval)).namesDisjoint⟩
         · simp only [Formula.eval, Term.eval, Const.denote]
@@ -795,11 +802,15 @@ theorem compileBranch_correct (branch : TinyML.Binder × TinyML.Expr) (S : SpecM
     simp only [Formula.wfIn, Term.wfIn, Const.wfIn]
     refine ⟨Term.wfIn_mono sc hsc_wf (Signature.Subset.subset_addConst _ _)
       (TransState.freshConst.wf _ (VerifM.eval.wf heval_decl)).namesDisjoint, trivial, ?_⟩
-    refine ⟨List.mem_cons_self .., ?_⟩
-    intro τ' hvar
-    exact Signature.wf_no_var_of_const
-      (TransState.freshConst.wf _ (VerifM.eval.wf heval_decl)).namesDisjoint
-      (List.mem_cons_self ..) hvar
+    refine ⟨List.mem_cons_self .., ?_, ?_⟩
+    · intro τ' hvar
+      exact Signature.wf_no_var_of_const
+        (TransState.freshConst.wf _ (VerifM.eval.wf heval_decl)).namesDisjoint
+        (List.mem_cons_self ..) hvar
+    · intro τ' hc'
+      exact Signature.wf_unique_const
+        (TransState.freshConst.wf _ (VerifM.eval.wf heval_decl)).namesDisjoint
+        (List.mem_cons_self ..) hc'
   have hsc_eval_ρ₁ : sc.eval ρ₁ = sc.eval ρ :=
     Term.eval_env_agree hsc_wf (Env.agreeOn_symm (agreeOn_update_fresh_const hxv_fresh))
   have hformula_eval : Formula.eval ρ₁
@@ -811,11 +822,15 @@ theorem compileBranch_correct (branch : TinyML.Binder × TinyML.Expr) (S : SpecM
   -- Peel off assumeAll (typeConstraints)
   have hxv_wf : (Term.const (.uninterpreted xv.name .value)).wfIn st₁.decls := by
     simp only [Term.wfIn, Const.wfIn]
-    refine ⟨List.mem_cons_self .., ?_⟩
-    intro τ' hvar
-    exact Signature.wf_no_var_of_const
-      (TransState.freshConst.wf _ (VerifM.eval.wf heval_decl)).namesDisjoint
-      (List.mem_cons_self ..) hvar
+    refine ⟨List.mem_cons_self .., ?_, ?_⟩
+    · intro τ' hvar
+      exact Signature.wf_no_var_of_const
+        (TransState.freshConst.wf _ (VerifM.eval.wf heval_decl)).namesDisjoint
+        (List.mem_cons_self ..) hvar
+    · intro τ' hc'
+      exact Signature.wf_unique_const
+        (TransState.freshConst.wf _ (VerifM.eval.wf heval_decl)).namesDisjoint
+        (List.mem_cons_self ..) hc'
   have hxv_eval : (Term.const (.uninterpreted xv.name .value)).eval ρ₁ = payload := by
     simp [Term.eval, Const.denote, ρ₁, Env.updateConst]
   have hassume_bind₂ := VerifM.eval_bind _ _ _ _ heval_assumeAll

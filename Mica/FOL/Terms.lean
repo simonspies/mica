@@ -65,7 +65,9 @@ def Term.freeVars : Term τ → List Var
   | .ite c t e => c.freeVars ++ t.freeVars ++ e.freeVars
 
 def Const.wfIn : Const τ → Signature → Prop
-  | .uninterpreted name τ, Δ => ⟨name, τ⟩ ∈ Δ.consts ∧ ∀ τ', ⟨name, τ'⟩ ∉ Δ.vars
+  | .uninterpreted name τ, Δ => ⟨name, τ⟩ ∈ Δ.consts
+                               ∧ (∀ τ', ⟨name, τ'⟩ ∉ Δ.vars)
+                               ∧ (∀ τ', ⟨name, τ'⟩ ∈ Δ.consts → τ' = τ)
   | _, _                     => True
 
 def UnOp.wfIn : UnOp τ₁ τ₂ → Signature → Prop
@@ -80,6 +82,8 @@ def Const.checkWf : Const τ → Signature → Except String Unit
   | .uninterpreted name τ, Δ =>
     if ⟨name, τ⟩ ∈ Δ.consts then
       if name ∈ Δ.vars.map Var.name then .error s!"constant {name} conflicts with a variable"
+      else if Δ.consts.any (fun c => c.name == name && c.sort != τ) then
+        .error s!"constant {name} has multiple sorts in signature"
       else .ok ()
     else .error s!"constant {name} not in signature"
   | _, _ => .ok ()
@@ -95,7 +99,9 @@ def BinOp.checkWf : BinOp τ₁ τ₂ τ₃ → Signature → Except String Unit
   | _, _ => .ok ()
 
 def Term.wfIn : Term τ → Signature → Prop
-  | .var τ x, Δ     => ⟨x, τ⟩ ∈ Δ.vars ∧ ∀ τ', ⟨x, τ'⟩ ∉ Δ.consts
+  | .var τ x, Δ     => ⟨x, τ⟩ ∈ Δ.vars
+                     ∧ (∀ τ', ⟨x, τ'⟩ ∉ Δ.consts)
+                     ∧ (∀ τ', ⟨x, τ'⟩ ∈ Δ.vars → τ' = τ)
   | .const c, Δ     => c.wfIn Δ
   | .unop op a, Δ   => op.wfIn Δ ∧ a.wfIn Δ
   | .binop op a b, Δ => op.wfIn Δ ∧ a.wfIn Δ ∧ b.wfIn Δ
@@ -105,6 +111,8 @@ def Term.checkWf : Term τ → Signature → Except String Unit
   | .var τ x, Δ     =>
     if ⟨x, τ⟩ ∈ Δ.vars then
       if x ∈ Δ.consts.map FOL.Const.name then .error s!"variable {repr x} conflicts with a constant"
+      else if Δ.vars.any (fun v => v.name == x && v.sort != τ) then
+        .error s!"variable {repr x} has multiple sorts in scope"
       else .ok ()
     else .error s!"variable {repr x} not in scope"
   | .const c, Δ     => c.checkWf Δ
@@ -117,10 +125,23 @@ private theorem Const.checkWf_ok {c : Const τ} {Δ : Signature} (h : c.checkWf 
   cases c with
   | uninterpreted name τ =>
     simp only [Const.checkWf] at h
-    split at h <;> simp at h
-    refine ⟨‹_›, ?_⟩
-    intro τ' hvar
-    exact h ⟨name, τ'⟩ hvar rfl
+    split at h
+    · rename_i hmem
+      split at h
+      · simp at h
+      · rename_i hvar
+        split at h
+        · simp at h
+        · rename_i hdup
+          refine ⟨hmem, ?_, ?_⟩
+          · intro τ' hv
+            exact hvar (List.mem_map_of_mem hv)
+          · intro τ' hc'
+            rcases decEq τ' τ with hne | h
+            · exfalso; apply hdup; apply List.any_eq_true.mpr
+              refine ⟨⟨name, τ'⟩, hc', ?_⟩; simp [hne]
+            · exact h
+    · simp at h
   | _ => trivial
 
 private theorem UnOp.checkWf_ok {op : UnOp τ₁ τ₂} {Δ : Signature} (h : op.checkWf Δ = .ok ()) :
@@ -141,10 +162,23 @@ theorem Term.checkWf_ok {t : Term τ} {Δ : Signature} (h : t.checkWf Δ = .ok (
   induction t generalizing Δ with
   | var τ x =>
     simp only [Term.checkWf] at h
-    split at h <;> simp at h
-    refine ⟨‹_›, ?_⟩
-    intro τ' hconst
-    exact h ⟨x, τ'⟩ hconst rfl
+    split at h
+    · rename_i hmem
+      split at h
+      · simp at h
+      · rename_i hconst
+        split at h
+        · simp at h
+        · rename_i hdup
+          refine ⟨hmem, ?_, ?_⟩
+          · intro τ' hc
+            exact hconst (List.mem_map_of_mem hc)
+          · intro τ' hv'
+            rcases decEq τ' τ with hne | h
+            · exfalso; apply hdup; apply List.any_eq_true.mpr
+              refine ⟨⟨x, τ'⟩, hv', ?_⟩; simp [hne]
+            · exact h
+    · simp at h
   | const c =>
     simpa [Term.checkWf] using (Const.checkWf_ok h)
   | unop op a iha =>
@@ -166,9 +200,11 @@ private theorem Const.wfIn_mono {c : Const τ} {Δ Δ' : Signature} (h : c.wfIn 
     (hsub : Δ.Subset Δ') (hwf : Δ'.wf) : c.wfIn Δ' := by
   cases c with
   | uninterpreted name τ =>
-    refine ⟨hsub.consts _ h.1, ?_⟩
-    intro τ' hvar
-    exact Signature.wf_no_var_of_const hwf (hsub.consts _ h.1) hvar
+    refine ⟨hsub.consts _ h.1, ?_, ?_⟩
+    · intro τ' hvar
+      exact Signature.wf_no_var_of_const hwf (hsub.consts _ h.1) hvar
+    · intro τ' hc'
+      exact Signature.wf_unique_const hwf (hsub.consts _ h.1) hc'
   | _ => trivial
 
 private theorem UnOp.wfIn_mono {op : UnOp τ₁ τ₂} {Δ Δ' : Signature} (h : op.wfIn Δ)
@@ -186,9 +222,11 @@ private theorem BinOp.wfIn_mono {op : BinOp τ₁ τ₂ τ₃} {Δ Δ' : Signatu
 theorem Term.wfIn_mono (t : Term τ) (h : t.wfIn Δ) (hsub : Δ.Subset Δ') (hwf : Δ'.wf) : t.wfIn Δ' := by
   induction t generalizing Δ Δ' with
   | var τ x =>
-    refine ⟨hsub.vars _ h.1, ?_⟩
-    intro τ' hconst
-    exact Signature.wf_no_const_of_var hwf (hsub.vars _ h.1) hconst
+    refine ⟨hsub.vars _ h.1, ?_, ?_⟩
+    · intro τ' hconst
+      exact Signature.wf_no_const_of_var hwf (hsub.vars _ h.1) hconst
+    · intro τ' hv'
+      exact Signature.wf_unique_var hwf (hsub.vars _ h.1) hv'
   | const c => exact Const.wfIn_mono h hsub hwf
   | unop op a iha => exact ⟨UnOp.wfIn_mono h.1 hsub, iha h.2 hsub hwf⟩
   | binop op a b iha ihb => exact ⟨BinOp.wfIn_mono h.1 hsub, iha h.2.1 hsub hwf, ihb h.2.2 hsub hwf⟩

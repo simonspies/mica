@@ -323,9 +323,12 @@ theorem Assertion.assume_correct (m : Assertion α) (σ : FiniteSubst)
         (st.decls.addConst v') := by
       refine ⟨?_, ?_⟩
       · simp only [Term.wfIn, Const.wfIn, Signature.addConst]
-        refine ⟨List.Mem.head _, ?_⟩
-        intro τ' hvar
-        exact hv'_fresh_decls (Signature.mem_allNames_of_var hvar)
+        have hwf_add : (st.decls.addConst v').wf := Signature.wf_addConst hwfst hv'_fresh_decls
+        refine ⟨List.Mem.head _, ?_, ?_⟩
+        · intro τ' hvar
+          exact hv'_fresh_decls (Signature.mem_allNames_of_var hvar)
+        · intro τ' hc'
+          exact Signature.wf_unique_const hwf_add (List.Mem.head _) hc'
       · exact Term.wfIn_mono _ ht_subst_wf (Signature.Subset.subset_addConst _ _) (TransState.freshConst.wf _ (VerifM.eval.wf heval)).namesDisjoint
     have heq_holds : (Formula.eq v.sort (.const (.uninterpreted v'.name v.sort)) (t.subst σ.subst)).eval
         (ρ.updateConst v.sort v'.name u) := by
@@ -373,9 +376,12 @@ theorem Assertion.assume_correct (m : Assertion α) (σ : FiniteSubst)
       Atom.wfIn_mono hp_subst_wf_range hσwf.2.1 hwfst
     have hvar_wf : (Term.const (.uninterpreted v'.name v.sort)).wfIn (st.decls.addConst v') := by
       simp only [Term.wfIn, Const.wfIn, Signature.addConst]
-      refine ⟨List.Mem.head _, ?_⟩
-      intro τ' hvar
-      exact hv'_fresh_decls (Signature.mem_allNames_of_var hvar)
+      have hwf_add : (st.decls.addConst v').wf := Signature.wf_addConst hwfst hv'_fresh_decls
+      refine ⟨List.Mem.head _, ?_, ?_⟩
+      · intro τ' hvar
+        exact hv'_fresh_decls (Signature.mem_allNames_of_var hvar)
+      · intro τ' hc'
+        exact Signature.wf_unique_const hwf_add (List.Mem.head _) hc'
     have hformula_wf : ((p.subst σ.subst).toFormula (.const (.uninterpreted v'.name v.sort))).wfIn
         (st.decls.addConst v') :=
       Atom.toFormula_wfIn
@@ -481,9 +487,12 @@ theorem Assertion.prove_correct (m : Assertion α) (σ : FiniteSubst)
         (st.decls.addConst v') := by
       refine ⟨?_, ?_⟩
       · simp only [Term.wfIn, Const.wfIn, Signature.addConst]
-        refine ⟨List.Mem.head _, ?_⟩
-        intro τ' hvar
-        exact hv'_fresh_decls (Signature.mem_allNames_of_var hvar)
+        have hwf_add : (st.decls.addConst v').wf := Signature.wf_addConst hwfst hv'_fresh_decls
+        refine ⟨List.Mem.head _, ?_, ?_⟩
+        · intro τ' hvar
+          exact hv'_fresh_decls (Signature.mem_allNames_of_var hvar)
+        · intro τ' hc'
+          exact Signature.wf_unique_const hwf_add (List.Mem.head _) hc'
       · exact Term.wfIn_mono _ ht_subst_wf (Signature.Subset.subset_addConst _ _) (TransState.freshConst.wf _ (VerifM.eval.wf heval)).namesDisjoint
     have heq_holds : (Formula.eq v.sort (.const (.uninterpreted v'.name v.sort)) (t.subst σ.subst)).eval
         (ρ.updateConst v.sort v'.name u) := by
@@ -546,9 +555,12 @@ theorem Assertion.prove_correct (m : Assertion α) (σ : FiniteSubst)
           (st.decls.addConst v') := by
         refine ⟨?_, ?_⟩
         · simp only [Term.wfIn, Const.wfIn, Signature.addConst]
-          refine ⟨List.Mem.head _, ?_⟩
-          intro τ' hvar
-          exact hv'_fresh_decls (Signature.mem_allNames_of_var hvar)
+          have hwf_add : (st.decls.addConst v').wf := Signature.wf_addConst hwfst hv'_fresh_decls
+          refine ⟨List.Mem.head _, ?_, ?_⟩
+          · intro τ' hvar
+            exact hv'_fresh_decls (Signature.mem_allNames_of_var hvar)
+          · intro τ' hc'
+            exact Signature.wf_unique_const hwf_add (List.Mem.head _) hc'
         · exact Term.wfIn_mono _ hresult_wf (Signature.Subset.subset_addConst _ _)
             (TransState.freshConst.wf _ (VerifM.eval.wf heval)).namesDisjoint
       have heq_holds : (Formula.eq v.sort (.const (.uninterpreted v'.name v.sort)) t).eval

@@ -163,9 +163,11 @@ theorem PredTrans.call_correct (pt : PredTrans) (σ : FiniteSubst)
       have hwfst₂ : st₂.decls.wf := (VerifM.eval.wf hcont').namesDisjoint
       apply hΨ _ st₂ ρ₂ (.const (.uninterpreted resVar.name .value)) hret
       · simp only [Term.wfIn, Const.wfIn]
-        refine ⟨hsub.consts resVar (List.Mem.head _), ?_⟩
-        intro τ' hvar
-        exact Signature.wf_no_var_of_const hwfst₂ (hsub.consts resVar (List.Mem.head _)) hvar
+        refine ⟨hsub.consts resVar (List.Mem.head _), ?_, ?_⟩
+        · intro τ' hvar
+          exact Signature.wf_no_var_of_const hwfst₂ (hsub.consts resVar (List.Mem.head _)) hvar
+        · intro τ' hc'
+          exact Signature.wf_unique_const hwfst₂ (hsub.consts resVar (List.Mem.head _)) hc'
       · simp only [Term.eval, Const.denote]
         have := hagree.2.1 resVar (List.Mem.head _)
         simpa [Env.lookupConst, Env.updateConst] using this.symm
@@ -237,9 +239,11 @@ theorem PredTrans.implement_correct (pt : PredTrans) (σ : FiniteSubst)
             (TransState.freshConst.wf _ (VerifM.eval.wf hrest)).namesDisjoint
           refine ⟨?_, Term.wfIn_mono result hwf_result (Signature.Subset.subset_addConst _ _) hwfst_b'⟩
           · simp only [Term.wfIn, Const.wfIn, Signature.addConst]
-            refine ⟨List.Mem.head _, ?_⟩
-            intro τ' hvar
-            exact hfresh_decls_b (Signature.mem_allNames_of_var hvar)
+            refine ⟨List.Mem.head _, ?_, ?_⟩
+            · intro τ' hvar
+              exact hfresh_decls_b (Signature.mem_allNames_of_var hvar)
+            · intro τ' hc'
+              exact Signature.wf_unique_const hwfst_b' (List.Mem.head _) hc'
         have heq_holds : (Formula.eq Srt.value (Term.const (.uninterpreted resVar.name .value)) result).eval
             (ρ_b.updateConst .value resVar.name (result.eval ρ_b)) := by
           simp only [Formula.eval, Term.eval, Const.denote]
