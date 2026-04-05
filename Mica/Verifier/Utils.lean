@@ -101,7 +101,7 @@ theorem Terms.Eval.cons {ρ : Env} {t : Term .value} {v : Runtime.Val}
     Terms.Eval ρ (t :: ts) (v :: vs) :=
   List.Forall₂.cons hhead htail
 
-theorem Terms.Eval.of_pairs {ρ : Env} {pairs : List (TinyML.Type_ × Term .value)} {vs : List Runtime.Val}
+theorem Terms.Eval.of_pairs {ρ : Env} {pairs : List (TinyML.Typ × Term .value)} {vs : List Runtime.Val}
     (h : List.Forall₂ (fun p v => p.2.eval ρ = v) pairs vs) :
     Terms.Eval ρ (pairs.map Prod.snd) vs := by
   induction h with
@@ -149,7 +149,7 @@ theorem Terms.Eval.lookup_const {ρ : Env} {avs : List FOL.Const} {vs : List Run
 /-! ### Helpers for Multi-Argument Bindings -/
 
 theorem Bindings.typedSubst_cons {B : Bindings} {Γ : TinyML.TyCtx} {γ : Runtime.Subst}
-    {x : TinyML.Var} {v : FOL.Const} {te : TinyML.Type_} {w : Runtime.Val}
+    {x : TinyML.Var} {v : FOL.Const} {te : TinyML.Typ} {w : Runtime.Val}
     (hts  : B.typedSubst Γ γ)
     (hval : TinyML.ValHasType w te) :
     Bindings.typedSubst ((x, v) :: B) (Γ.extend x te) (Runtime.Subst.update γ x w) := by
@@ -227,7 +227,7 @@ theorem not_mem_of_lookup_zip_reverse_none
   simp [hni] at this
 
 theorem argVars_cons_perm {name : String}
-    {rest : List (String × TinyML.Type_)} {dom : List Var} {x : Var}
+    {rest : List (String × TinyML.Typ)} {dom : List Var} {x : Var}
     (hx : x ∈ (⟨name, .value⟩ :: rest.map (fun (name, _) => ⟨name, .value⟩) ++ dom)) :
     x ∈ (rest.map (fun (name, _) => ⟨name, .value⟩) ++ ⟨name, .value⟩ :: dom) := by
   simp only [List.cons_append, List.mem_cons,
@@ -239,7 +239,7 @@ theorem argVars_cons_perm {name : String}
 
 /-- Extract argument names from binders, pairing with spec arg info.
     Requires exact length match. -/
-def extractArgNames : List TinyML.Binder → List (String × TinyML.Type_) →
+def extractArgNames : List TinyML.Binder → List (String × TinyML.Typ) →
     Except String (List String)
   | [], [] => .ok []
   | .named x _ :: rest, _ :: specRest => do
@@ -248,7 +248,7 @@ def extractArgNames : List TinyML.Binder → List (String × TinyML.Type_) →
   | _, _ => .error "argument mismatch"
 
 theorem extractArgNames_spec {argBinders : List TinyML.Binder}
-    {specArgs : List (String × TinyML.Type_)} {names : List String}
+    {specArgs : List (String × TinyML.Typ)} {names : List String}
     (h : extractArgNames argBinders specArgs = .ok names) :
     names.length = specArgs.length ∧
     argBinders.length = specArgs.length ∧
@@ -357,10 +357,10 @@ theorem Bindings.agreeOnLinked_updateAll'
 -- with ValsHaveTypes, then the value at x' has type t.
 -- All three structures agree on the "last occurrence" of x.
 theorem val_typed_of_last_wins
-    (args : List (String × TinyML.Type_))
+    (args : List (String × TinyML.Typ))
     (vars : List FOL.Const) (vals : List Runtime.Val)
     (ρ : Env) (Γ₀ : TinyML.TyCtx)
-    (x : String) (x' : FOL.Const) (t : TinyML.Type_)
+    (x : String) (x' : FOL.Const) (t : TinyML.Typ)
     (hlen_v : (args.map Prod.fst).length = vars.length)
     (hlen_vl : (args.map Prod.fst).length = vals.length)
     (hlookup : List.lookup x ((args.map Prod.fst).zip vars).reverse = some x')

@@ -2,19 +2,19 @@ namespace TinyML
 
 abbrev Var := String
 
-inductive Type_ where
+inductive Typ where
   | unit
   | bool
   | int
-  | sum (ts : List Type_)
-  | arrow (t1 t2 : Type_)
-  | ref (t: Type_)
+  | sum (ts : List Typ)
+  | arrow (t1 t2 : Typ)
+  | ref (t: Typ)
   | empty   -- bottom type (uninhabited)
   | value   -- top type (all runtime values)
-  | tuple (ts : List Type_)
+  | tuple (ts : List Typ)
   deriving Repr
 
-def Type_.decEq : (a b : Type_) → Decidable (a = b)
+def Typ.decEq : (a b : Typ) → Decidable (a = b)
   | .unit, .unit | .bool, .bool | .int, .int | .empty, .empty | .value, .value => isTrue rfl
   | .sum ss, .sum ts => match typesDecEq ss ts with
     | isTrue h => isTrue (by subst h; rfl)
@@ -50,7 +50,7 @@ def Type_.decEq : (a b : Type_) → Decidable (a = b)
   | .tuple .., .sum .. | .tuple .., .arrow .. | .tuple .., .ref .. | .tuple .., .empty
   | .tuple .., .value => isFalse (by intro h; cases h)
 where
-  typesDecEq : (as bs : List Type_) → Decidable (as = bs)
+  typesDecEq : (as bs : List Typ) → Decidable (as = bs)
     | [], [] => isTrue rfl
     | [], _ :: _ | _ :: _, [] => isFalse (by intro h; cases h)
     | a :: as, b :: bs => match a.decEq b, typesDecEq as bs with
@@ -58,15 +58,15 @@ where
       | isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
       | _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
 
-instance : DecidableEq Type_ := Type_.decEq
-instance : BEq Type_ := ⟨fun a b => decide (a = b)⟩
-instance : LawfulBEq Type_ where
+instance : DecidableEq Typ := Typ.decEq
+instance : BEq Typ := ⟨fun a b => decide (a = b)⟩
+instance : LawfulBEq Typ where
   eq_of_beq h := of_decide_eq_true h
   rfl := by simp [BEq.beq]
 
 inductive Binder where
   | none
-  | named (name : Var) (ty : Option Type_)
+  | named (name : Var) (ty : Option Typ)
   deriving Repr, Inhabited, DecidableEq
 
 instance : BEq Binder := ⟨fun a b => decide (a = b)⟩
@@ -97,7 +97,7 @@ inductive Expr where
   | var (name : Var)
   | unop (op : UnOp) (e : Expr)
   | binop (op : BinOp) (lhs rhs : Expr)
-  | fix (self : Binder) (args : List Binder) (retTy : Option Type_) (body : Expr)
+  | fix (self : Binder) (args : List Binder) (retTy : Option Typ) (body : Expr)
   | app (fn : Expr) (args : List Expr)
   | ifThenElse (cond thn els : Expr)
   | letIn (name : Binder) (bound body : Expr)
@@ -228,7 +228,7 @@ abbrev Vars := List Var
 abbrev Exprs := List Expr
 abbrev Binders := List Binder
 
-@[simp] theorem Binder.named_beq (x z : Var) (tx tz : Option Type_) :
+@[simp] theorem Binder.named_beq (x z : Var) (tx tz : Option Typ) :
     (Binder.named x tx == Binder.named z tz) = (x == z && tx == tz) := by
   apply Bool.eq_iff_iff.mpr
   simp only [BEq.beq, Bool.and_eq_true, Binder.named.injEq, decide_eq_true_iff]

@@ -67,8 +67,8 @@ private def acontains [BEq α] (key : α) (m : List (α × β)) : Bool :=
   (alookup key m).isSome
 
 structure ElabEnv where
-  types   : List (TypeConstructor × TinyML.Type_)                      := []
-  ctors   : List (Constructor × (Nat × Nat × Option TinyML.Type_))    := []
+  types   : List (TypeConstructor × TinyML.Typ)                      := []
+  ctors   : List (Constructor × (Nat × Nat × Option TinyML.Typ))    := []
   fields  : List (FieldName × (TypeConstructor × Nat))                 := []
   records : List (TypeConstructor × List FieldName)                    := []
 
@@ -84,7 +84,7 @@ private def err (loc : Location) (kind : ElaborateErrorKind) : ElabM α :=
 -- Type elaboration
 
 mutual
-def TypKind.elaborate (env : ElabEnv) (loc : Location) : TypKind → ElabM TinyML.Type_
+def TypKind.elaborate (env : ElabEnv) (loc : Location) : TypKind → ElabM TinyML.Typ
   | .var _ => err loc (.polymorphicTypeDecl "type variable")
   | .con name args =>
     match args with
@@ -106,7 +106,7 @@ def TypKind.elaborate (env : ElabEnv) (loc : Location) : TypKind → ElabM TinyM
     let ts' ← TypList.elaborate env ts
     .ok (.tuple ts')
 
-def TypList.elaborate (env : ElabEnv) : List Typ → ElabM (List TinyML.Type_)
+def TypList.elaborate (env : ElabEnv) : List Typ → ElabM (List TinyML.Typ)
   | [] => .ok []
   | ⟨loc, kind⟩ :: ts => do
     let t' ← TypKind.elaborate env loc kind
@@ -114,10 +114,10 @@ def TypList.elaborate (env : ElabEnv) : List Typ → ElabM (List TinyML.Type_)
     .ok (t' :: ts')
 end
 
-def Typ.elaborate (env : ElabEnv) (ty : Typ) : ElabM TinyML.Type_ :=
+def Typ.elaborate (env : ElabEnv) (ty : Typ) : ElabM TinyML.Typ :=
   TypKind.elaborate env ty.loc ty.kind
 
-private def elaborateOptTyp (env : ElabEnv) : Option Typ → ElabM (Option TinyML.Type_)
+private def elaborateOptTyp (env : ElabEnv) : Option Typ → ElabM (Option TinyML.Typ)
   | none => .ok none
   | some ty => do let ty' ← Typ.elaborate env ty; .ok (some ty')
 
@@ -401,7 +401,7 @@ def Expr.elaborate (env : ElabEnv) (e : Expr) : ElabM TinyML.Expr :=
 
 private def elaborateCtorDefs (env : ElabEnv) (loc : Location)
     (ctorDefs : List (Constructor × Option Typ)) (tag : Nat) (arity : Nat)
-    : ElabM (List TinyML.Type_ × List (Constructor × (Nat × Nat × Option TinyML.Type_))) :=
+    : ElabM (List TinyML.Typ × List (Constructor × (Nat × Nat × Option TinyML.Typ))) :=
   match ctorDefs with
   | [] => .ok ([], [])
   | (ctorName, payloadTy) :: rest => do
@@ -421,14 +421,14 @@ private def elaborateVariant (env : ElabEnv) (loc : Location) (name : TypeConstr
     return ← err loc (.duplicateType name)
   let arity := ctorDefs.length
   let (payloadTypes, newCtors) ← elaborateCtorDefs env loc ctorDefs 0 arity
-  let sumTy := TinyML.Type_.sum payloadTypes
+  let sumTy := TinyML.Typ.sum payloadTypes
   .ok { env with
     types := (name, sumTy) :: env.types
     ctors := newCtors ++ env.ctors }
 
 private def elaborateFieldDefs (env : ElabEnv) (loc : Location) (tyName : TypeConstructor)
     (fieldDefs : List (FieldName × Typ)) (idx : Nat)
-    : ElabM (List TinyML.Type_ × List (FieldName × (TypeConstructor × Nat))) :=
+    : ElabM (List TinyML.Typ × List (FieldName × (TypeConstructor × Nat))) :=
   match fieldDefs with
   | [] => .ok ([], [])
   | (fieldName, ty) :: rest => do
@@ -444,7 +444,7 @@ private def elaborateRecordDecl (env : ElabEnv) (loc : Location) (name : TypeCon
   if acontains name env.types then
     return ← err loc (.duplicateType name)
   let (fieldTypes, newFields) ← elaborateFieldDefs env loc name fieldDefs 0
-  let tupleTy := TinyML.Type_.tuple fieldTypes
+  let tupleTy := TinyML.Typ.tuple fieldTypes
   let fieldNames := fieldDefs.map Prod.fst
   .ok { env with
     types := (name, tupleTy) :: env.types

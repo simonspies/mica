@@ -6,22 +6,22 @@ namespace TinyML
 
 /-! ## Type contexts -/
 
-abbrev TyCtx := Var → Option Type_
+abbrev TyCtx := Var → Option Typ
 
 def TyCtx.empty : TyCtx := fun _ => none
 
-def TyCtx.extend (Γ : TyCtx) (x : Var) (t : Type_) : TyCtx :=
+def TyCtx.extend (Γ : TyCtx) (x : Var) (t : Typ) : TyCtx :=
   fun y => if y == x then some t else Γ y
 
-def TyCtx.extendBinder (Γ : TyCtx) (b : Binder) (t : Type_) : TyCtx :=
+def TyCtx.extendBinder (Γ : TyCtx) (b : Binder) (t : Typ) : TyCtx :=
   match b with
   | .none      => Γ
   | .named x _ => Γ.extend x t
 
-@[simp] theorem TyCtx.extend_eq (Γ : TyCtx) (x : Var) (t : Type_) :
+@[simp] theorem TyCtx.extend_eq (Γ : TyCtx) (x : Var) (t : Typ) :
     (Γ.extend x t) x = some t := by simp [TyCtx.extend]
 
-@[simp] theorem TyCtx.extend_ne (Γ : TyCtx) (x y : Var) (t : Type_) (h : y ≠ x) :
+@[simp] theorem TyCtx.extend_ne (Γ : TyCtx) (x y : Var) (t : Typ) (h : y ≠ x) :
     (Γ.extend x t) y = Γ y := by
   simp [TyCtx.extend, h]
 
@@ -36,7 +36,7 @@ theorem TyCtx.le_trans {Γ₁ Γ₂ Γ₃ : TyCtx} (h12 : Γ₁ ≤ Γ₂) (h23 
   fun x t h => h23 x t (h12 x t h)
 
 /-- Monotonicity of `extendBinder` w.r.t. context ordering. -/
-theorem TyCtx.le_extendBinder_congr {Γ Γ' : TyCtx} (b : Binder) (t : Type_)
+theorem TyCtx.le_extendBinder_congr {Γ Γ' : TyCtx} (b : Binder) (t : Typ)
     (hle : Γ ≤ Γ') : Γ.extendBinder b t ≤ Γ'.extendBinder b t := by
   intro y ty hy
   cases b with
@@ -49,7 +49,7 @@ theorem TyCtx.le_extendBinder_congr {Γ Γ' : TyCtx} (b : Binder) (t : Type_)
 
 -- foldl extend doesn't change the value at x if x doesn't appear in the list.
 theorem TyCtx.foldl_extend_stable
-    (args : List (Var × Type_)) (Γ : TyCtx) (x : Var)
+    (args : List (Var × Typ)) (Γ : TyCtx) (x : Var)
     (hx : ∀ a ∈ args, a.1 ≠ x) :
     (args.foldl (fun ctx a => ctx.extend a.1 a.2) Γ) x = Γ x := by
   induction args generalizing Γ with
@@ -64,79 +64,79 @@ theorem TyCtx.foldl_extend_stable
 /-! ## Subtyping -/
 
 mutual
-  inductive Type_.Sub : Type_ → Type_ → Prop where
-    | refl  : Type_.Sub t t
-    | bot   : Type_.Sub (Type_.empty) t
-    | top   : Type_.Sub t (Type_.value)
-    | trans : Type_.Sub s t → Type_.Sub t u → Type_.Sub s u
-    | sum   : Type_.SubList ss ts
-            → Type_.Sub (Type_.sum ss) (Type_.sum ts)
-    | arrow : Type_.Sub t1 s1 → Type_.Sub s2 t2
-            → Type_.Sub (Type_.arrow s1 s2) (Type_.arrow t1 t2)
-    | tuple : Type_.SubList ss ts
-            → Type_.Sub (Type_.tuple ss) (Type_.tuple ts)
+  inductive Typ.Sub : Typ → Typ → Prop where
+    | refl  : Typ.Sub t t
+    | bot   : Typ.Sub (Typ.empty) t
+    | top   : Typ.Sub t (Typ.value)
+    | trans : Typ.Sub s t → Typ.Sub t u → Typ.Sub s u
+    | sum   : Typ.SubList ss ts
+            → Typ.Sub (Typ.sum ss) (Typ.sum ts)
+    | arrow : Typ.Sub t1 s1 → Typ.Sub s2 t2
+            → Typ.Sub (Typ.arrow s1 s2) (Typ.arrow t1 t2)
+    | tuple : Typ.SubList ss ts
+            → Typ.Sub (Typ.tuple ss) (Typ.tuple ts)
 
-  inductive Type_.SubList : List Type_ → List Type_ → Prop where
-    | nil  : Type_.SubList [] []
-    | cons : Type_.Sub s t → Type_.SubList ss ts → Type_.SubList (s :: ss) (t :: ts)
+  inductive Typ.SubList : List Typ → List Typ → Prop where
+    | nil  : Typ.SubList [] []
+    | cons : Typ.Sub s t → Typ.SubList ss ts → Typ.SubList (s :: ss) (t :: ts)
 end
 
-theorem Type_.SubList.length_eq : Type_.SubList ss ts → ss.length = ts.length
+theorem Typ.SubList.length_eq : Typ.SubList ss ts → ss.length = ts.length
   | .nil => rfl
   | .cons _ h => by simp [List.length_cons, h.length_eq]
 
 mutual
-  def Type_.join : Type_ → Type_ → Type_
+  def Typ.join : Typ → Typ → Typ
     | .empty, t | t, .empty => t
     | .value, _ | _, .value => .value
     | .sum  ss,     .sum  ts     => if ss.length == ts.length
-                                    then .sum (Type_.joinList ss ts)
+                                    then .sum (Typ.joinList ss ts)
                                     else .value
-    | .arrow s1 s2, .arrow t1 t2 => .arrow (Type_.meet s1 t1) (Type_.join s2 t2)
+    | .arrow s1 s2, .arrow t1 t2 => .arrow (Typ.meet s1 t1) (Typ.join s2 t2)
     | .ref s,       .ref t       => if s == t then .ref s else .value
     | .tuple ss,    .tuple ts    => if ss.length == ts.length
-                                    then .tuple (Type_.joinList ss ts)
+                                    then .tuple (Typ.joinList ss ts)
                                     else .value
     | t, t'                      => if t == t' then t else .value
 
-  def Type_.meet : Type_ → Type_ → Type_
+  def Typ.meet : Typ → Typ → Typ
     | .value, t | t, .value => t
     | .empty, _ | _, .empty => .empty
     | .sum  ss,     .sum  ts     => if ss.length == ts.length
-                                    then .sum (Type_.meetList ss ts)
+                                    then .sum (Typ.meetList ss ts)
                                     else .empty
-    | .arrow s1 s2, .arrow t1 t2 => .arrow (Type_.join s1 t1) (Type_.meet s2 t2)
+    | .arrow s1 s2, .arrow t1 t2 => .arrow (Typ.join s1 t1) (Typ.meet s2 t2)
     | .ref s,       .ref t       => if s == t then .ref s else .empty
     | .tuple ss,    .tuple ts    => if ss.length == ts.length
-                                    then .tuple (Type_.meetList ss ts)
+                                    then .tuple (Typ.meetList ss ts)
                                     else .empty
     | t, t'                      => if t == t' then t else .empty
 
-  def Type_.joinList : List Type_ → List Type_ → List Type_
-    | s :: ss, t :: ts => Type_.join s t :: Type_.joinList ss ts
+  def Typ.joinList : List Typ → List Typ → List Typ
+    | s :: ss, t :: ts => Typ.join s t :: Typ.joinList ss ts
     | _, _             => []
 
-  def Type_.meetList : List Type_ → List Type_ → List Type_
-    | s :: ss, t :: ts => Type_.meet s t :: Type_.meetList ss ts
+  def Typ.meetList : List Typ → List Typ → List Typ
+    | s :: ss, t :: ts => Typ.meet s t :: Typ.meetList ss ts
     | _, _             => []
 end
 
 mutual
-  def Type_.sub (s t : Type_) : Bool :=
+  def Typ.sub (s t : Typ) : Bool :=
     match s, t with
     | .empty, _      => true
     | _, .value      => true
-    | .sum  ss,     .sum  ts     => Type_.subList ss ts
-    | .arrow s1 s2, .arrow t1 t2 => Type_.sub t1 s1 && Type_.sub s2 t2
-    | .tuple ss,    .tuple ts    => Type_.subList ss ts
+    | .sum  ss,     .sum  ts     => Typ.subList ss ts
+    | .arrow s1 s2, .arrow t1 t2 => Typ.sub t1 s1 && Typ.sub s2 t2
+    | .tuple ss,    .tuple ts    => Typ.subList ss ts
     | t, t'                      => t == t'
   termination_by sizeOf s + sizeOf t
   decreasing_by all_goals simp +arith [*]
 
-  def Type_.subList (ss ts : List Type_) : Bool :=
+  def Typ.subList (ss ts : List Typ) : Bool :=
     match ss, ts with
     | [], [] => true
-    | s :: ss, t :: ts => Type_.sub s t && Type_.subList ss ts
+    | s :: ss, t :: ts => Typ.sub s t && Typ.subList ss ts
     | _, _ => false
   termination_by sizeOf ss + sizeOf ts
   decreasing_by all_goals simp +arith [*]
@@ -144,44 +144,44 @@ end
 
 -- Forward direction: decision procedure is sound.
 mutual
-  private theorem Type_.sub_sound {s t : Type_} (h : Type_.sub s t = true) : Type_.Sub s t := by
+  private theorem Typ.sub_sound {s t : Typ} (h : Typ.sub s t = true) : Typ.Sub s t := by
     cases s with
     | empty => exact .bot
     | sum ss =>
         cases t with
         | value => exact .top
         | sum ts =>
-            simp [Type_.sub] at h
+            simp [Typ.sub] at h
             exact .sum (subList_sound h)
-        | _ => exact absurd h (by simp [Type_.sub])
+        | _ => exact absurd h (by simp [Typ.sub])
     | arrow s1 s2 =>
         cases t with
         | value => exact .top
         | arrow t1 t2 =>
-            simp [Type_.sub, Bool.and_eq_true] at h
+            simp [Typ.sub, Bool.and_eq_true] at h
             exact .arrow (sub_sound h.1) (sub_sound h.2)
-        | _ => exact absurd h (by simp [Type_.sub])
+        | _ => exact absurd h (by simp [Typ.sub])
     | tuple ss =>
         cases t with
         | value => exact .top
         | tuple ts =>
-            simp [Type_.sub] at h
+            simp [Typ.sub] at h
             exact .tuple (subList_sound h)
-        | _ => exact absurd h (by simp [Type_.sub])
+        | _ => exact absurd h (by simp [Typ.sub])
     | _ =>
         cases t with
         | value => exact .top
-        | _ => simp_all [Type_.sub] <;> exact .refl
+        | _ => simp_all [Typ.sub] <;> exact .refl
   termination_by sizeOf s + sizeOf t
   decreasing_by all_goals simp +arith [*]
 
-  private theorem Type_.subList_sound {ss ts : List Type_}
-      (h : Type_.subList ss ts = true) : Type_.SubList ss ts := by
+  private theorem Typ.subList_sound {ss ts : List Typ}
+      (h : Typ.subList ss ts = true) : Typ.SubList ss ts := by
     match ss, ts with
     | [], [] => exact .nil
-    | [], _ :: _ | _ :: _, [] => simp [Type_.subList] at h
+    | [], _ :: _ | _ :: _, [] => simp [Typ.subList] at h
     | s :: ss, t :: ts =>
-      simp [Type_.subList, Bool.and_eq_true] at h
+      simp [Typ.subList, Bool.and_eq_true] at h
       exact .cons (sub_sound h.1) (subList_sound h.2)
   termination_by sizeOf ss + sizeOf ts
   decreasing_by all_goals simp +arith [*]
@@ -189,73 +189,73 @@ end
 
 -- Reflexivity of the decision procedure (needed for completeness)
 mutual
-  private theorem Type_.sub_refl : ∀ (t : Type_), Type_.sub t t = true
-    | .unit | .bool | .int | .empty | .value => by simp [Type_.sub]
-    | .sum  ts     => by simp [Type_.sub, subList_refl ts]
-    | .arrow t1 t2 => by simp [Type_.sub, sub_refl t1, sub_refl t2]
-    | .ref t       => by simp [Type_.sub]
-    | .tuple ts    => by simp [Type_.sub, subList_refl ts]
+  private theorem Typ.sub_refl : ∀ (t : Typ), Typ.sub t t = true
+    | .unit | .bool | .int | .empty | .value => by simp [Typ.sub]
+    | .sum  ts     => by simp [Typ.sub, subList_refl ts]
+    | .arrow t1 t2 => by simp [Typ.sub, sub_refl t1, sub_refl t2]
+    | .ref t       => by simp [Typ.sub]
+    | .tuple ts    => by simp [Typ.sub, subList_refl ts]
 
-  private theorem Type_.subList_refl : ∀ (ts : List Type_), Type_.subList ts ts = true
-    | [] => by simp [Type_.subList]
-    | t :: ts => by simp [Type_.subList, sub_refl t, subList_refl ts]
+  private theorem Typ.subList_refl : ∀ (ts : List Typ), Typ.subList ts ts = true
+    | [] => by simp [Typ.subList]
+    | t :: ts => by simp [Typ.subList, sub_refl t, subList_refl ts]
 end
 
 -- Transitivity of the decision procedure (needed for completeness of trans rule).
 -- Proved by recursion on t (the middle type).
 mutual
-  private theorem Type_.sub_trans {s t u : Type_}
-      (h1 : Type_.sub s t = true) (h2 : Type_.sub t u = true) :
-      Type_.sub s u = true := by
+  private theorem Typ.sub_trans {s t u : Typ}
+      (h1 : Typ.sub s t = true) (h2 : Typ.sub t u = true) :
+      Typ.sub s u = true := by
     match t with
-    | .empty | .value | .unit | .bool | .int => cases s <;> cases u <;> simp_all [Type_.sub, beq_iff_eq]
-    | .ref _ => cases s <;> cases u <;> simp_all [Type_.sub, beq_iff_eq]
+    | .empty | .value | .unit | .bool | .int => cases s <;> cases u <;> simp_all [Typ.sub, beq_iff_eq]
+    | .ref _ => cases s <;> cases u <;> simp_all [Typ.sub, beq_iff_eq]
     | .sum ts =>
         cases s with
-        | empty => simp [Type_.sub]
+        | empty => simp [Typ.sub]
         | sum ss =>
             cases u with
-            | value => simp [Type_.sub]
+            | value => simp [Typ.sub]
             | sum us =>
-                simp [Type_.sub] at h1 h2 ⊢
+                simp [Typ.sub] at h1 h2 ⊢
                 exact subList_trans h1 h2
-            | _ => simp [Type_.sub] at h2
-        | _ => simp [Type_.sub] at h1
+            | _ => simp [Typ.sub] at h2
+        | _ => simp [Typ.sub] at h1
     | .arrow t1 t2 =>
         cases s with
-        | empty => simp [Type_.sub]
+        | empty => simp [Typ.sub]
         | arrow ss1 ss2 =>
             cases u with
-            | value => simp [Type_.sub]
+            | value => simp [Typ.sub]
             | arrow u1 u2 =>
-                simp [Type_.sub, Bool.and_eq_true] at h1 h2 ⊢
+                simp [Typ.sub, Bool.and_eq_true] at h1 h2 ⊢
                 exact ⟨sub_trans h2.1 h1.1, sub_trans h1.2 h2.2⟩
-            | _ => simp [Type_.sub] at h2
-        | _ => simp [Type_.sub] at h1
+            | _ => simp [Typ.sub] at h2
+        | _ => simp [Typ.sub] at h1
     | .tuple ts =>
         cases s with
-        | empty => simp [Type_.sub]
+        | empty => simp [Typ.sub]
         | tuple ss =>
             cases u with
-            | value => simp [Type_.sub]
+            | value => simp [Typ.sub]
             | tuple us =>
-                simp [Type_.sub] at h1 h2 ⊢
+                simp [Typ.sub] at h1 h2 ⊢
                 exact subList_trans h1 h2
-            | _ => simp [Type_.sub] at h2
-        | _ => simp [Type_.sub] at h1
+            | _ => simp [Typ.sub] at h2
+        | _ => simp [Typ.sub] at h1
   termination_by sizeOf t
   decreasing_by all_goals simp +arith [*]
 
-  private theorem Type_.subList_trans {ss ts us : List Type_}
-      (h1 : Type_.subList ss ts = true) (h2 : Type_.subList ts us = true) :
-      Type_.subList ss us = true := by
+  private theorem Typ.subList_trans {ss ts us : List Typ}
+      (h1 : Typ.subList ss ts = true) (h2 : Typ.subList ts us = true) :
+      Typ.subList ss us = true := by
     match ss, ts, us with
-    | [], [], [] => simp [Type_.subList]
-    | [], [], _ :: _ => simp [Type_.subList] at h2
-    | [], _ :: _, _ | _ :: _, [], _ => simp [Type_.subList] at h1
-    | _ :: _, _ :: _, [] => simp [Type_.subList] at h2
+    | [], [], [] => simp [Typ.subList]
+    | [], [], _ :: _ => simp [Typ.subList] at h2
+    | [], _ :: _, _ | _ :: _, [], _ => simp [Typ.subList] at h1
+    | _ :: _, _ :: _, [] => simp [Typ.subList] at h2
     | s :: ss, t :: ts, u :: us =>
-      simp [Type_.subList, Bool.and_eq_true] at h1 h2 ⊢
+      simp [Typ.subList, Bool.and_eq_true] at h1 h2 ⊢
       exact ⟨sub_trans h1.1 h2.1, subList_trans h1.2 h2.2⟩
   termination_by sizeOf ts
   decreasing_by all_goals simp +arith [*]
@@ -263,29 +263,29 @@ end
 
 -- Backward direction: derivable subtyping is decided
 mutual
-  private theorem Type_.Sub_complete {s t : Type_} (p : Type_.Sub s t) : Type_.sub s t = true := by
+  private theorem Typ.Sub_complete {s t : Typ} (p : Typ.Sub s t) : Typ.sub s t = true := by
     match p with
     | .refl        => exact sub_refl _
-    | .bot         => cases t <;> simp [Type_.sub]
-    | .top         => cases s <;> simp [Type_.sub]
+    | .bot         => cases t <;> simp [Typ.sub]
+    | .top         => cases s <;> simp [Typ.sub]
     | .trans h1 h2 => exact sub_trans (Sub_complete h1) (Sub_complete h2)
-    | .sum  h      => simp [Type_.sub, SubList_complete h]
-    | .arrow h1 h2 => simp [Type_.sub, Sub_complete h1, Sub_complete h2]
-    | .tuple h     => simp [Type_.sub]; exact SubList_complete h
+    | .sum  h      => simp [Typ.sub, SubList_complete h]
+    | .arrow h1 h2 => simp [Typ.sub, Sub_complete h1, Sub_complete h2]
+    | .tuple h     => simp [Typ.sub]; exact SubList_complete h
 
-  private theorem Type_.SubList_complete {ss ts : List Type_}
-      (ps : Type_.SubList ss ts) : Type_.subList ss ts = true := by
+  private theorem Typ.SubList_complete {ss ts : List Typ}
+      (ps : Typ.SubList ss ts) : Typ.subList ss ts = true := by
     match ps with
-    | .nil => simp [Type_.subList]
-    | .cons h hs => simp [Type_.subList, Sub_complete h, SubList_complete hs]
+    | .nil => simp [Typ.subList]
+    | .cons h hs => simp [Typ.subList, Sub_complete h, SubList_complete hs]
 end
 
-theorem Type_.sub_iff {s t : Type_} : Type_.sub s t = true ↔ Type_.Sub s t :=
+theorem Typ.sub_iff {s t : Typ} : Typ.sub s t = true ↔ Typ.Sub s t :=
   ⟨sub_sound, Sub_complete⟩
 
 /-! ## Operator typing -/
 
-def BinOp.typeOf : BinOp → Type_ → Type_ → Option Type_
+def BinOp.typeOf : BinOp → Typ → Typ → Option Typ
   | .add,  .int,  .int  => some .int
   | .sub,  .int,  .int  => some .int
   | .mul,  .int,  .int  => some .int
@@ -300,14 +300,14 @@ def BinOp.typeOf : BinOp → Type_ → Type_ → Option Type_
   | .or,   .bool, .bool => some .bool
   | _, _, _             => none
 
-def UnOp.typeOf : UnOp → Type_ → Option Type_
+def UnOp.typeOf : UnOp → Typ → Option Typ
   | .neg, .int       => some .int
   | .not, .bool      => some .bool
   | .proj n, .tuple ts => ts[n]?
   | _, _             => none
 
 mutual
-  inductive ValHasType : Runtime.Val → Type_ → Prop where
+  inductive ValHasType : Runtime.Val → Typ → Prop where
     | int  (n : Int)  : ValHasType (.int n)  .int
     | bool (b : Bool) : ValHasType (.bool b) .bool
     | unit            : ValHasType .unit      .unit
@@ -315,18 +315,18 @@ mutual
             → ValHasType payload t
             → ValHasType (.inj tag ts.length payload) (.sum ts)
     | tuple : ValsHaveTypes vs ts
-            → ValHasType (Runtime.Val.tuple vs) (Type_.tuple ts)
+            → ValHasType (Runtime.Val.tuple vs) (Typ.tuple ts)
     -- Any value has type .value
     | any : ValHasType v .value
 
-  inductive ValsHaveTypes : List Runtime.Val → List Type_ → Prop where
+  inductive ValsHaveTypes : List Runtime.Val → List Typ → Prop where
     | nil  : ValsHaveTypes [] []
     | cons : ValHasType v t → ValsHaveTypes vs ts → ValsHaveTypes (v :: vs) (t :: ts)
 end
 
 
 mutual
-  theorem ValHasType_sub {v : Runtime.Val} {t t' : Type_} (h : ValHasType v t) (hsub : Type_.Sub t t') :
+  theorem ValHasType_sub {v : Runtime.Val} {t t' : Typ} (h : ValHasType v t) (hsub : Typ.Sub t t') :
       ValHasType v t' := by
     match hsub with
     | .refl => exact h
@@ -336,7 +336,7 @@ mutual
     | .sum hlist =>
       cases h with
       | inj ht hpayload =>
-        obtain ⟨t', ht', hvt'⟩ := ValHasType_subList hpayload hlist ht
+        obtain ⟨t', ht', hvt'⟩ := ValHasTypsubList hpayload hlist ht
         rw [hlist.length_eq]
         exact .inj ht' hvt'
     | .arrow _ _ => cases h
@@ -344,8 +344,8 @@ mutual
       cases h with
       | tuple hvs => exact .tuple (ValsHaveTypes_sub hvs hsub)
 
-  theorem ValsHaveTypes_sub {vs : List Runtime.Val} {ts ts' : List Type_}
-      (h : ValsHaveTypes vs ts) (hsub : Type_.SubList ts ts') :
+  theorem ValsHaveTypes_sub {vs : List Runtime.Val} {ts ts' : List Typ}
+      (h : ValsHaveTypes vs ts) (hsub : Typ.SubList ts ts') :
       ValsHaveTypes vs ts' := by
     match hsub with
     | .nil => cases h; exact .nil
@@ -355,14 +355,14 @@ mutual
 
   /-- Lift a payload through a `SubList`: if `ss[tag]? = some s` and `payload : s`,
       find `ts[tag]? = some t` and produce `ValHasType payload t`. -/
-  theorem ValHasType_subList {payload : Runtime.Val} {s : Type_} {ss ts : List Type_}
-      (hpayload : ValHasType payload s) (hlist : Type_.SubList ss ts)
+  theorem ValHasTypsubList {payload : Runtime.Val} {s : Typ} {ss ts : List Typ}
+      (hpayload : ValHasType payload s) (hlist : Typ.SubList ss ts)
       {tag : Nat} (hs : ss[tag]? = some s) :
       ∃ t, ts[tag]? = some t ∧ ValHasType payload t :=
     match hlist, tag with
     | .nil, _ => absurd hs (by simp)
     | .cons hsub _, 0 => by simp at hs; exact ⟨_, rfl, ValHasType_sub (hs ▸ hpayload) hsub⟩
-    | .cons _ hss, n + 1 => ValHasType_subList hpayload hss (by simpa using hs)
+    | .cons _ hss, n + 1 => ValHasTypsubList hpayload hss (by simpa using hs)
 end
 
 theorem ValsHaveTypes.length_eq : ValsHaveTypes vs ts → vs.length = ts.length
@@ -375,7 +375,7 @@ end TinyML
 
 /-- Type preservation for `evalBinOp`: if the inputs are well-typed, the operation returns
     `some w` for a well-typed result `w`. -/
-theorem evalBinOp_typed {op : TinyML.BinOp} {v1 v2 : Runtime.Val} {t1 t2 ty : TinyML.Type_}
+theorem evalBinOp_typed {op : TinyML.BinOp} {v1 v2 : Runtime.Val} {t1 t2 ty : TinyML.Typ}
     (hndiv : op ≠ .div) (hnmod : op ≠ .mod)
     (hty : TinyML.BinOp.typeOf op t1 t2 = some ty)
     (ht1 : TinyML.ValHasType v1 t1)
@@ -394,7 +394,7 @@ theorem evalBinOp_typed {op : TinyML.BinOp} {v1 v2 : Runtime.Val} {t1 t2 ty : Ti
     simp_all
     first | exact .int _ | exact .bool _
 
-private theorem evalUnOp_proj_typed {n : Nat} {vs : List Runtime.Val} {ts : List TinyML.Type_} {ty : TinyML.Type_}
+private theorem evalUnOp_proj_typed {n : Nat} {vs : List Runtime.Val} {ts : List TinyML.Typ} {ty : TinyML.Typ}
     (hty : ts[n]? = some ty) (hvs : TinyML.ValsHaveTypes vs ts) :
     ∃ w, vs[n]? = some w ∧ TinyML.ValHasType w ty := by
   induction n generalizing vs ts with
@@ -408,7 +408,7 @@ private theorem evalUnOp_proj_typed {n : Nat} {vs : List Runtime.Val} {ts : List
     | nil => simp at hty
     | cons _ hvs => simp at hty ⊢; exact ih hty hvs
 
-theorem evalUnOp_typed {op : TinyML.UnOp} {v : Runtime.Val} {t ty : TinyML.Type_}
+theorem evalUnOp_typed {op : TinyML.UnOp} {v : Runtime.Val} {t ty : TinyML.Typ}
     (hty : TinyML.UnOp.typeOf op t = some ty)
     (ht : TinyML.ValHasType v t) :
     ∃ w, TinyML.evalUnOp op v = some w ∧ TinyML.ValHasType w ty := by
