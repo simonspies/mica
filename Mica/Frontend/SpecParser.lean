@@ -1,10 +1,10 @@
 import Mica.Frontend.Spec
-import Mica.TinyML.Expr
+import Mica.TinyML.Typed
 
 /-!
 # Spec Parser
 
-Translates `TinyML.Expr` (from elaborated `[@@spec ...]` attributes) into the
+Translates `Typed.Expr` (from elaborated `[@@spec ...]` attributes) into the
 untyped `Spec` AST. This is purely structural recognition — no sort checking.
 -/
 
@@ -17,7 +17,7 @@ private def parseBinOp : TinyML.BinOp → BinOp
   | .eq => .eq | .lt => .lt | .le => .le | .gt => .gt | .ge => .ge
   | .and => .and | .or => .or
 
-private def parseTerm : TinyML.Expr → M Term
+private def parseTerm : Typed.Expr → M Term
   | .var x => .ok (.var x)
   | .const (.int n) => .ok (.int n)
   | .const (.bool b) => .ok (.bool b)
@@ -38,21 +38,21 @@ private def parseTerm : TinyML.Expr → M Term
     .ok (.ite (← parseTerm c) (← parseTerm t) (← parseTerm e))
   | e => .error s!"unexpected term in spec: {repr e}"
 
-private def parsePred : TinyML.Expr → M Pred
+private def parsePred : Typed.Expr → M Pred
   | .app (.var "isint") [e] => do .ok (.isint (← parseTerm e))
   | .app (.var "isbool") [e] => do .ok (.isbool (← parseTerm e))
   | .app (.var "isinj") [.const (.int tag), .const (.int arity), e] => do
     .ok (.isinj tag.toNat arity.toNat (← parseTerm e))
   | e => .error s!"expected type predicate (isint, isbool, isinj), got {repr e}"
 
-private def parseAssert (inner : TinyML.Expr → M α)
-    (bareAssert : TinyML.Expr → M (Assert α)) : TinyML.Expr → M (Assert α)
+private def parseAssert (inner : Typed.Expr → M α)
+    (bareAssert : Typed.Expr → M (Assert α)) : Typed.Expr → M (Assert α)
   | .app (.var "ret") [e] => do .ok (.ret (← inner e))
-  | .app (.app (.var "bind") [e1]) [.fix .none [.named x _] _ e2] => do
+  | .app (.app (.var "bind") [e1]) [.fix .none [Typed.Binder.named x _] _ e2] => do
     let pred ← parsePred e1
     let rest ← parseAssert inner bareAssert e2
     .ok (.bind pred x rest)
-  | .letIn (.named x _) bound body => do
+  | .letIn (Typed.Binder.named x _) bound body => do
     let t ← parseTerm bound
     let rest ← parseAssert inner bareAssert body
     .ok (.let_ x t rest)
@@ -66,22 +66,22 @@ private def parseAssert (inner : TinyML.Expr → M α)
     .ok (.ite c (← parseAssert inner bareAssert thn) (← parseAssert inner bareAssert els))
   | e => .error s!"expected assertion, got {repr e}"
 
-private def parsePost : TinyML.Expr → M Post :=
+private def parsePost : Typed.Expr → M Post :=
   parseAssert
     (fun | .const .unit => .ok ()
          | e => .error s!"expected (), got {repr e}")
     (fun cond => do .ok (.assert (← parseTerm cond) (.ret ())))
 
-private def parsePre : TinyML.Expr → M Pre :=
+private def parsePre : Typed.Expr → M Pre :=
   parseAssert
-    (fun | .fix .none [.named x _] _ body => do
+    (fun | .fix .none [Typed.Binder.named x _] _ body => do
            let post ← parsePost body
            .ok (x, post)
          | e => .error s!"expected fun v -> ..., got {repr e}")
     (fun _ => .error "bare assert is only allowed in postconditions")
 
-private def peelBinders : TinyML.Expr → M Body
-  | .fix .none args _ body => do
+private def peelBinders : Typed.Expr → M Body
+  | Typed.Expr.fix .none args _ body => do
     let names ← getNames args
     if names.isEmpty then .error "spec must bind at least one argument"
     else do
@@ -89,12 +89,12 @@ private def peelBinders : TinyML.Expr → M Body
       .ok (names, pre)
   | e => .error s!"expected fun x -> ..., got {repr e}"
 where
-  getNames : List TinyML.Binder → M (List String)
+  getNames : List Typed.Binder → M (List String)
     | [] => .ok []
-    | .named x _ :: rest => do let xs ← getNames rest; .ok (x :: xs)
-    | .none :: _ => .error "unnamed binder in spec is not allowed"
+    | Typed.Binder.named x _ :: rest => do let xs ← getNames rest; .ok (x :: xs)
+    | Typed.Binder.none :: _ => .error "unnamed binder in spec is not allowed"
 
-def parse (e : TinyML.Expr) : M Body :=
+def parse (e : Typed.Expr) : M Body :=
   peelBinders e
 
 end Spec

@@ -1,4 +1,4 @@
-import Mica.TinyML.Expr
+import Mica.TinyML.Typed
 import Mica.TinyML.Typing
 import Mica.TinyML.OpSem
 import Mica.TinyML.WeakestPre
@@ -12,8 +12,10 @@ import Mica.Engine.Driver
 import Mica.Base.Fresh
 import Mathlib.Data.Finmap
 
+open Typed
 
-def checkSpec (S : SpecMap) (e : TinyML.Expr) (s : Spec) : VerifM Unit := do
+
+def checkSpec (S : SpecMap) (e : Expr) (s : Spec) : VerifM Unit := do
   let (fb, argNames, body) ← match e with
     | .fix fb argBinders _ body => do
       match extractArgNames argBinders s.args with
@@ -29,7 +31,7 @@ def checkSpec (S : SpecMap) (e : TinyML.Expr) (s : Spec) : VerifM Unit := do
     else VerifM.fatal s!"checkSpec: return type mismatch"
     pure se
 
-theorem checkSpec_correct (S : SpecMap) (e : TinyML.Expr) (s : Spec)
+theorem checkSpec_correct (S : SpecMap) (e : Expr) (s : Spec)
     (γ : Runtime.Subst)
     (hswf : s.wfIn Signature.empty) (hSwf : S.wfIn Signature.empty)
     (hS : S.satisfiedBy γ)
@@ -52,10 +54,10 @@ theorem checkSpec_correct (S : SpecMap) (e : TinyML.Expr) (s : Spec)
       set bs := argBinders.map (·.runtime)
       set γ' := (γ.remove' fb.runtime).removeAll' bs with hγ'_def
       set S' : SpecMap := SpecMap.eraseAll argNames (S.insert' fb s)
-      have hgoal : (TinyML.Expr.fix fb argBinders retTy body).runtime.subst γ =
+      have hgoal : (Expr.fix fb argBinders retTy body).runtime.subst γ =
           Runtime.Expr.fix fb.runtime (argBinders.map (·.runtime))
             (body.runtime.subst γ') := by
-        conv_lhs => unfold TinyML.Expr.runtime
+        conv_lhs => unfold Expr.runtime
         simp only [Runtime.Expr.subst_fix, hγ'_def, bs]
       rw [hgoal]
       set fval := Runtime.Val.fix fb.runtime (argBinders.map (·.runtime))

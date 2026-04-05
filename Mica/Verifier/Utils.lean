@@ -1,4 +1,4 @@
-import Mica.TinyML.Expr
+import Mica.TinyML.Typed
 import Mica.TinyML.Typing
 import Mica.TinyML.OpSem
 import Mica.FOL.Printing
@@ -239,7 +239,7 @@ theorem argVars_cons_perm {name : String}
 
 /-- Extract argument names from binders, pairing with spec arg info.
     Requires exact length match. -/
-def extractArgNames : List TinyML.Binder → List (String × TinyML.Typ) →
+def extractArgNames : List Typed.Binder → List (String × TinyML.Typ) →
     Except String (List String)
   | [], [] => .ok []
   | .named x _ :: rest, _ :: specRest => do
@@ -247,12 +247,12 @@ def extractArgNames : List TinyML.Binder → List (String × TinyML.Typ) →
     .ok (x :: tail)
   | _, _ => .error "argument mismatch"
 
-theorem extractArgNames_spec {argBinders : List TinyML.Binder}
+theorem extractArgNames_spec {argBinders : List Typed.Binder}
     {specArgs : List (String × TinyML.Typ)} {names : List String}
     (h : extractArgNames argBinders specArgs = .ok names) :
     names.length = specArgs.length ∧
     argBinders.length = specArgs.length ∧
-    argBinders.map TinyML.Binder.runtime = names.map Runtime.Binder.named := by
+    argBinders.map Typed.Binder.runtime = names.map Runtime.Binder.named := by
   induction specArgs generalizing argBinders names with
   | nil =>
     cases argBinders with
@@ -273,7 +273,7 @@ theorem extractArgNames_spec {argBinders : List TinyML.Binder}
           have h' : names = x :: tail := by cases h; rfl
           subst h'
           obtain ⟨h1, h2, h3⟩ := ih hrec
-          exact ⟨by simp [h1], by simp [h2], by simp [TinyML.Binder.runtime, h3]⟩
+          exact ⟨by simp [h1], by simp [h2], by simp [Typed.Binder.runtime, h3]⟩
 
 theorem Bindings.agreeOnLinked_zip_reverse
     (names : List String) (vars : List FOL.Const) (vals : List Runtime.Val)

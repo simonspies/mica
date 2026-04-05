@@ -1,4 +1,4 @@
-import Mica.TinyML.Expr
+import Mica.TinyML.Typed
 import Mica.TinyML.Typing
 import Mica.TinyML.WeakestPre
 import Mica.FOL.Printing
@@ -285,7 +285,7 @@ theorem SpecMap.wfIn_eraseAll {keys : List String} {S : SpecMap} {Δ : Signature
   | nil => exact h
   | cons k ks ih => exact ih (SpecMap.wfIn_erase h)
 
-def SpecMap.insert' (S : SpecMap) (b : TinyML.Binder) (spec : Spec) : SpecMap :=
+def SpecMap.insert' (S : SpecMap) (b : Typed.Binder) (spec : Spec) : SpecMap :=
   match b with
   | .named x _ => S.insert x spec
   | .none => S
@@ -321,7 +321,7 @@ theorem SpecMap.wfIn_insert {S : SpecMap} {x : TinyML.Var} {spec : Spec} {Δ : S
   · rw [Finmap.lookup_insert_of_ne _ hyx] at hlookup; exact hS y s' hlookup
 
 theorem SpecMap.satisfiedBy_insert' {S : SpecMap} {γ : Runtime.Subst}
-    {b : TinyML.Binder} {fval : Runtime.Val} {spec : Spec}
+    {b : Typed.Binder} {fval : Runtime.Val} {spec : Spec}
     (hS : S.satisfiedBy γ)
     (hγ : ∀ x ty, b = .named x ty → γ x = some fval)
     (hf : spec.isPrecondFor fval) :
@@ -331,14 +331,14 @@ theorem SpecMap.satisfiedBy_insert' {S : SpecMap} {γ : Runtime.Subst}
   | none => exact hS
 
 theorem SpecMap.satisfiedBy_insert'_update' {S : SpecMap} {γ : Runtime.Subst}
-    {b : TinyML.Binder} {v : Runtime.Val} {spec : Spec}
+    {b : Typed.Binder} {v : Runtime.Val} {spec : Spec}
     (hS : S.satisfiedBy γ) (hf : spec.isPrecondFor v) :
     SpecMap.satisfiedBy (S.insert' b spec) (Runtime.Subst.update' b.runtime v γ) := by
   cases b with
   | named x _ => exact SpecMap.satisfiedBy_insert_update hS hf
   | none => exact hS
 
-theorem SpecMap.wfIn_insert' {S : SpecMap} {b : TinyML.Binder} {spec : Spec} {Δ : Signature}
+theorem SpecMap.wfIn_insert' {S : SpecMap} {b : Typed.Binder} {spec : Spec} {Δ : Signature}
     (hS : S.wfIn Δ) (hs : spec.wfIn Δ) : SpecMap.wfIn (S.insert' b spec) Δ := by
   cases b with
   | named x _ => exact SpecMap.wfIn_insert hS hs
