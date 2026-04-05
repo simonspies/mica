@@ -129,7 +129,7 @@ theorem compileOp_eval {op : TinyML.BinOp} {sl sr : Term .value} {ρ : Env}
 /-! ### Compiler and Top-Level Verifier -/
 
 mutual
-  def compile (S : SpecMap) (B : Bindings) (Γ : TinyML.TyCtx) : TinyML.Expr → VerifM (TinyML.Type_ × Term .value)
+  def compile (S : SpecMap) (B : Bindings) (Γ : TinyML.TyCtx) : TinyML.Expr → VerifM (TinyML.Typ × Term .value)
     | .const (.int n)  => pure (.int,  .unop .ofInt  (.const (.i n)))
     | .const (.bool b) => pure (.bool, .unop .ofBool (.const (.b b)))
     | .const .unit     => pure (.unit, Term.const .unit)
@@ -214,8 +214,8 @@ mutual
 
   /-- Compile a single match branch: assume the scrutinee is `mkInj i n payload`, then compile the body. -/
   def compileBranch (S : SpecMap) (B : Bindings) (Γ : TinyML.TyCtx)
-      (sc : Term .value) (n : Nat) (i : Nat) (ty_i : TinyML.Type_)
-      : TinyML.Binder × TinyML.Expr → VerifM (TinyML.Type_ × Term .value)
+      (sc : Term .value) (n : Nat) (i : Nat) (ty_i : TinyML.Typ)
+      : TinyML.Binder × TinyML.Expr → VerifM (TinyML.Typ × Term .value)
     | (binder, body) => do
         let xv ← VerifM.decl (match binder with | .named x _ => some x | .none => none) .value
         VerifM.assume (.eq .value sc (.unop (.mkInj i n) (.const (.uninterpreted xv.name .value))))
@@ -227,14 +227,14 @@ mutual
           compile S B (Γ.extendBinder .none ty_i) body
 
   def compileBranches (S : SpecMap) (B : Bindings) (Γ : TinyML.TyCtx)
-      (sc : Term .value) (ts : List TinyML.Type_) :
-      List (TinyML.Binder × TinyML.Expr) → Nat → List (VerifM (TinyML.Type_ × Term .value))
+      (sc : Term .value) (ts : List TinyML.Typ) :
+      List (TinyML.Binder × TinyML.Expr) → Nat → List (VerifM (TinyML.Typ × Term .value))
     | [], _ => []
     | branch :: rest, i =>
       compileBranch S B Γ sc ts.length i (ts[i]?.getD .value) branch
         :: compileBranches S B Γ sc ts rest (i + 1)
 
-  def compileExprs (S : SpecMap) (B : Bindings) (Γ : TinyML.TyCtx) : List TinyML.Expr → VerifM (List (TinyML.Type_ × Term .value))
+  def compileExprs (S : SpecMap) (B : Bindings) (Γ : TinyML.TyCtx) : List TinyML.Expr → VerifM (List (TinyML.Typ × Term .value))
     | [] => pure []
     | e :: es => do
       let rest ← compileExprs S B Γ es
@@ -262,7 +262,7 @@ theorem wp_app_lambda_single {b : Runtime.Binder} {body : Runtime.Expr} {v : Run
     exact h)) [v] rfl
 
 theorem compileBranches_spec (S : SpecMap) (B : Bindings) (Γ : TinyML.TyCtx)
-    (sc : Term .value) (ts : List TinyML.Type_)
+    (sc : Term .value) (ts : List TinyML.Typ)
     (branches : List (TinyML.Binder × TinyML.Expr)) (idx : Nat) :
     (compileBranches S B Γ sc ts branches idx).length = branches.length ∧
     ∀ j, j < branches.length →
@@ -288,7 +288,7 @@ theorem compileBranches_spec (S : SpecMap) (B : Bindings) (Γ : TinyML.TyCtx)
 mutual
 
 theorem compile_correct (e : TinyML.Expr) (S : SpecMap) (B : Bindings) (Γ : TinyML.TyCtx) (st : TransState) (ρ : Env) (γ : Runtime.Subst)
-    (Ψ : TinyML.Type_ × Term .value → TransState → Env → Prop) (Φ : Runtime.Val → Prop) :
+    (Ψ : TinyML.Typ × Term .value → TransState → Env → Prop) (Φ : Runtime.Val → Prop) :
     VerifM.eval (compile S B Γ e) st ρ Ψ →
     B.agreeOnLinked ρ γ →
     B.wf st.decls →
@@ -343,7 +343,7 @@ theorem compile_correct (e : TinyML.Expr) (S : SpecMap) (B : Bindings) (Γ : Tin
         (by simp only [Term.wfIn]; exact ⟨trivial, hse_wf_p⟩)
         (by simp [Term.eval, UnOp.eval, heval_se_p])
         (by
-          let ts := (List.replicate arity TinyML.Type_.empty).set tag ty_p
+          let ts := (List.replicate arity TinyML.Typ.empty).set tag ty_p
           have hlen_ts : ts.length = arity := by simp [ts]
           have : TinyML.ValHasType (.inj tag ts.length v_p) (.sum ts) :=
             .inj (ts := ts) (by simp [ts, htag]) htype_p
@@ -374,7 +374,7 @@ theorem compile_correct (e : TinyML.Expr) (S : SpecMap) (B : Bindings) (Γ : Tin
         have heval_all := VerifM.eval_bind _ _ _ _ hΨ_scrut
         have hall := VerifM.eval_all heval_all
         -- Invert ValHasType v_scrut (.sum ts) to get tag, payload
-        -- After cases: tag : Nat, payload : Type_ (the type at tag), t : Val (the actual payload)
+        -- After cases: tag : Nat, payload : Typ (the type at tag), t : Val (the actual payload)
         -- ht_tag : ts[tag]? = some payload, htype_payload : ValHasType t payload
         -- heval_se : se_scrut.eval ρ_scrut = Val.inj tag ts.length t
         cases htype_scrut with
@@ -765,9 +765,9 @@ theorem compile_correct (e : TinyML.Expr) (S : SpecMap) (B : Bindings) (Γ : Tin
     exact (VerifM.eval_fatal heval).elim
 
 theorem compileBranch_correct (branch : TinyML.Binder × TinyML.Expr) (S : SpecMap) (B : Bindings)
-    (Γ : TinyML.TyCtx) (sc : Term .value) (n i : Nat) (ty_i : TinyML.Type_)
+    (Γ : TinyML.TyCtx) (sc : Term .value) (n i : Nat) (ty_i : TinyML.Typ)
     (st : TransState) (ρ : Env) (γ : Runtime.Subst)
-    (Ψ : TinyML.Type_ × Term .value → TransState → Env → Prop)
+    (Ψ : TinyML.Typ × Term .value → TransState → Env → Prop)
     (Φ : Runtime.Val → Prop) :
     VerifM.eval (compileBranch S B Γ sc n i ty_i branch) st ρ Ψ →
     B.agreeOnLinked ρ γ →
@@ -876,10 +876,10 @@ theorem compileBranch_correct (branch : TinyML.Binder × TinyML.Expr) (S : SpecM
       (SpecMap.satisfiedBy_erase hspec) (SpecMap.wfIn_erase hSwf) hpost
 
 theorem compileBranches_correct (branches : List (TinyML.Binder × TinyML.Expr)) (S : SpecMap) (B : Bindings)
-    (Γ : TinyML.TyCtx) (sc : Term .value) (n : Nat) (ts : List TinyML.Type_)
+    (Γ : TinyML.TyCtx) (sc : Term .value) (n : Nat) (ts : List TinyML.Typ)
     (idx : Nat)
     (st : TransState) (ρ : Env) (γ : Runtime.Subst)
-    (Ψ : TinyML.Type_ × Term .value → TransState → Env → Prop)
+    (Ψ : TinyML.Typ × Term .value → TransState → Env → Prop)
     (Φ : Runtime.Val → Prop) :
     B.agreeOnLinked ρ γ →
     B.wf st.decls →
@@ -913,7 +913,7 @@ theorem compileBranches_correct (branches : List (TinyML.Binder × TinyML.Expr))
         hagree hbwf hts hspec hSwf hsc_wf hpost k hk
 
 theorem compileExprs_correct (es : List TinyML.Expr) (S : SpecMap) (B : Bindings) (Γ : TinyML.TyCtx) (st : TransState) (ρ : Env) (γ : Runtime.Subst)
-    (Ψ : List (TinyML.Type_ × Term .value) → TransState → Env → Prop) (Φ : List Runtime.Val → Prop) :
+    (Ψ : List (TinyML.Typ × Term .value) → TransState → Env → Prop) (Φ : List Runtime.Val → Prop) :
     VerifM.eval (compileExprs S B Γ es) st ρ Ψ →
     B.agreeOnLinked ρ γ → B.wf st.decls → B.typedSubst Γ γ →
     S.satisfiedBy γ → S.wfIn Signature.empty →

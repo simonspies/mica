@@ -4,7 +4,7 @@ namespace Runtime
 
 abbrev Location := Nat
 
-open TinyML (Var Type_ BinOp UnOp)
+open TinyML (Var Typ BinOp UnOp)
 
 inductive Binder where
   | none
