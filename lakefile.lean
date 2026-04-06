@@ -4,7 +4,10 @@ open System Lake DSL
 package mica where version := v!"0.1.0"
 
 require mathlib from git
-  "https://github.com/leanprover-community/mathlib4.git"@"13214706190da5a7c4f634733c8895396cb0a121"
+  "https://github.com/leanprover-community/mathlib4.git"@"8f9d9cff6bd728b17a24e163c9402775d9e6a365"
+
+require iris from git
+  "https://github.com/leanprover-community/iris-lean.git"@"2156ed266bcae27ab8fd00a1ecf0fa9209d4d330"
 
 lean_lib Mica
 
