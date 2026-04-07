@@ -650,6 +650,31 @@ theorem Env.agreeOn_declVar {ρ ρ' : Env} {Δ : Signature} {τ : Srt} {x : Stri
   intro hagree
   simpa [Signature.declVar] using (Env.agreeOn_update (Env.agreeOn_remove hagree))
 
+theorem agreeOn_update_fresh_const {ρ : Env} {c : FOL.Const} {u : c.sort.denote}
+    {Δ : Signature} (hfresh : c.name ∉ Δ.allNames) :
+    Env.agreeOn Δ ρ (ρ.updateConst c.sort c.name u) := by
+  constructor
+  · intro w hw
+    have hne : w.name ≠ c.name := by
+      intro heq
+      apply hfresh
+      rw [← heq]
+      exact Signature.mem_allNames_of_var hw
+    exact (Env.lookupConst_updateConst_ne (Or.inl hne)).symm
+  · constructor
+    · intro c' hc'
+      have hne : c'.name ≠ c.name := by
+        intro heq
+        apply hfresh
+        rw [← heq]
+        exact Signature.mem_allNames_of_const hc'
+      exact (Env.lookupConst_updateConst_ne (Or.inl hne)).symm
+    · constructor
+      · intro u' hu'
+        rw [Env.updateConst_unary]
+      · intro b' hb'
+        rw [Env.updateConst_binary]
+
 /-- Double update with the same variable - second update wins. -/
 @[simp] theorem Env.updateConst_updateConst_same {ρ : Env} {τ : Srt} {x : String} {v w : τ.denote} :
     (ρ.updateConst τ x v).updateConst τ x w = ρ.updateConst τ x w := by
