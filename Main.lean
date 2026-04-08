@@ -1,12 +1,11 @@
 import Mica.TinyML.Typed
+import Mica.TinyML.Untyped
 import Mica.TinyML.Printer
 import Mica.Frontend.Parser
 import Mica.Frontend.Printer
 import Mica.Frontend.Elaborate
 import Mica.Verifier.Programs
 import Mica.Engine.Driver
-
-open Typed
 
 private def bold (s : String) : String := s!"\x1b[1m{s}\x1b[0m"
 
@@ -57,9 +56,8 @@ def main (args : List String) : IO Unit := do
       | .error e => do
         IO.eprintln s!"elaboration error: {e}"
         IO.Process.exit 1
-    let prog := Typed.Program.elaborate untypedProg
     if opts.printTinyML then
-      IO.println (Program.print prog)
+      IO.println (Untyped.Program.print untypedProg)
     if opts.noCheck then
       return
     let strategy := Program.verify prog
