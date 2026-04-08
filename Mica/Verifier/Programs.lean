@@ -8,7 +8,7 @@ import Mica.Verifier.PredicateTransformers
 import Mica.Verifier.Specifications
 import Mica.Engine.Driver
 
-open Typed
+open Untyped
 
 /-! ## Program-level verification
 
@@ -54,11 +54,14 @@ def Decl.check (S : SpecMap) (d : Decl Expr) : VerifM Spec := do
   let () ← match Spec.checkWf spec Signature.empty with
     | .ok () => .ret ()
     | .error msg => .fatal msg
-  VerifM.seq (checkSpec S d.body spec) (pure spec)
+  let body := Typed.Expr.elaborate d.body
+  VerifM.seq (checkSpec S body spec) (pure spec)
 
 /-- Check a `let _ = e` declaration: just compile `e` for safety, no spec. -/
 def Decl.checkExpr (S : SpecMap) (d : Decl Expr) : VerifM Unit :=
-  VerifM.seq (do let _ ← compile S [] TinyML.TyCtx.empty d.body; pure ()) (pure ())
+  VerifM.seq (do
+      let _ ← compile S [] TinyML.TyCtx.empty (Typed.Expr.elaborate d.body)
+      pure ()) (pure ())
 
 /-- Verify all declarations in a program, accumulating specs as we go. -/
 def Program.check : SpecMap → Program → VerifM Unit
@@ -101,7 +104,7 @@ theorem Decl.checkExpr_correct (S : SpecMap) (d : Decl Expr) (γ : Runtime.Subst
   -- hinner : VerifM.eval (compile ... >>= fun _ => pure ()) st ρ (fun _ _ _ => True)
   have hcompile := VerifM.eval_bind _ _ _ _ hinner
   -- hcompile : VerifM.eval (compile ...) st ρ (fun x st' ρ' => (pure ()).eval ...)
-  exact compile_correct d.body S [] TinyML.TyCtx.empty st ρ γ
+  have hwp := compile_correct (Typed.Expr.elaborate d.body) S [] TinyML.TyCtx.empty st ρ γ
     (fun x st' ρ' => VerifM.eval (pure ()) st' ρ' (fun _ _ _ => True))
     (fun _ => True)
     hcompile
@@ -110,6 +113,7 @@ theorem Decl.checkExpr_correct (S : SpecMap) (d : Decl Expr) (γ : Runtime.Subst
     (fun _ _ _ h _ => by simp at h)
     hS hSwf
     (fun _ _ _ _ _ _ _ _ _ => trivial)
+  simpa [Typed.Expr.elaborate_runtime] using hwp
 
 theorem Decl.check_correct (S : SpecMap) (d : Decl Expr) (γ : Runtime.Subst)
     (hS : S.satisfiedBy γ) (hSwf : S.wfIn Signature.empty)
@@ -150,7 +154,8 @@ theorem Decl.check_correct (S : SpecMap) (d : Decl Expr) (γ : Runtime.Subst)
           have h4 := VerifM.eval_ret (VerifM.eval_bind _ _ _ _ h3)
           have hswf : spec.wfIn Signature.empty := Spec.checkWf_ok (by cases u; exact hwf)
           have ⟨hcheckSpec, hpure⟩ := VerifM.eval_seq h4
-          exact ⟨spec, hswf, checkSpec_correct S d.body spec γ hswf hSwf hS st ρ hcheckSpec,
+          have hwp := checkSpec_correct S (Typed.Expr.elaborate d.body) spec γ hswf hSwf hS st ρ hcheckSpec
+          exact ⟨spec, hswf, by simpa [Typed.Expr.elaborate_runtime] using hwp,
                  VerifM.eval_ret hpure⟩
 
 theorem Program.check_correct (S : SpecMap) (prog : Program) (γ : Runtime.Subst)

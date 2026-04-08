@@ -1,4 +1,3 @@
-import Mica.TinyML.Typed
 import Mica.TinyML.Untyped
 import Mica.TinyML.Printer
 import Mica.Frontend.Parser
@@ -60,7 +59,7 @@ def main (args : List String) : IO Unit := do
       IO.println (Untyped.Program.print untypedProg)
     if opts.noCheck then
       return
-    let strategy := Program.verify prog
+    let strategy := Program.verify untypedProg
     let session ← Smt.Session.create
     let outcome ← Smt.Strategy.run (log := opts.verbose) strategy session
     session.close
