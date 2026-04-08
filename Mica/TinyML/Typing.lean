@@ -336,7 +336,7 @@ mutual
     | .sum hlist =>
       cases h with
       | inj ht hpayload =>
-        obtain ⟨t', ht', hvt'⟩ := ValHasTypsubList hpayload hlist ht
+        obtain ⟨t', ht', hvt'⟩ := ValHasType_subList hpayload hlist ht
         rw [hlist.length_eq]
         exact .inj ht' hvt'
     | .arrow _ _ => cases h
@@ -355,14 +355,14 @@ mutual
 
   /-- Lift a payload through a `SubList`: if `ss[tag]? = some s` and `payload : s`,
       find `ts[tag]? = some t` and produce `ValHasType payload t`. -/
-  theorem ValHasTypsubList {payload : Runtime.Val} {s : Typ} {ss ts : List Typ}
+  theorem ValHasType_subList {payload : Runtime.Val} {s : Typ} {ss ts : List Typ}
       (hpayload : ValHasType payload s) (hlist : Typ.SubList ss ts)
       {tag : Nat} (hs : ss[tag]? = some s) :
       ∃ t, ts[tag]? = some t ∧ ValHasType payload t :=
     match hlist, tag with
     | .nil, _ => absurd hs (by simp)
     | .cons hsub _, 0 => by simp at hs; exact ⟨_, rfl, ValHasType_sub (hs ▸ hpayload) hsub⟩
-    | .cons _ hss, n + 1 => ValHasTypsubList hpayload hss (by simpa using hs)
+    | .cons _ hss, n + 1 => ValHasType_subList hpayload hss (by simpa using hs)
 end
 
 theorem ValsHaveTypes.length_eq : ValsHaveTypes vs ts → vs.length = ts.length
