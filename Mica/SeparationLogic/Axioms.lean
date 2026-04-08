@@ -37,20 +37,11 @@ axiom pointsTo.exclusive (l : Runtime.Location) (v1 v2 : Runtime.Val) :
 axiom wp.val {v : Runtime.Val} {Q : Runtime.Val → iProp} :
     Q v ⊢ wp (.val v) Q
 
-axiom wp.binop {op : TinyML.BinOp} {l r : Runtime.Expr} {Q : Runtime.Val → iProp} :
-    wp l (fun vl => wp r (fun vr =>
-      ∃ (res : Runtime.Val), ⌜TinyML.evalBinOp op vl vr = some res⌝ ∗ Q res)) ⊢
-    wp (.binop op l r) Q
+axiom wp.bind {k : TinyML.K} {e : Runtime.Expr} {Q : Runtime.Val → iProp} :
+    wp e (fun v => wp (k.fill (.val v)) Q) ⊢ wp (k.fill e) Q
 
 axiom wp.mono {e : Runtime.Expr} {P Q : Runtime.Val → iProp} :
     (∀ v, P v -∗ Q v) ∗ wp e P ⊢ wp e Q
-
-axiom wp.ifThenElse {cond thn els : Runtime.Expr} {Q : Runtime.Val → iProp} :
-    wp cond (fun vc =>
-      BIBase.and
-        (⌜vc ≠ Runtime.Val.bool false⌝ -∗ wp thn Q)
-        (⌜vc = Runtime.Val.bool false⌝ -∗ wp els Q)) ⊢
-    wp (.ifThenElse cond thn els) Q
 
 axiom wp.fix {f : Runtime.Binder} {args : List Runtime.Binder} {e : Runtime.Expr}
     {P : Runtime.Val → iProp} {Φ : List Runtime.Val → iProp} :
@@ -76,52 +67,53 @@ axiom wp.fix' {f : Runtime.Binder} {args : List Runtime.Binder} {e : Runtime.Exp
     ⊢ (∀ (vs : List Runtime.Val) (P : Runtime.Val → iProp),
         Φ P vs -∗ wp (.app (.val (.fix f args e)) (vs.map Runtime.Expr.val)) P)
 
-axiom wp.unop {op : TinyML.UnOp} {e : Runtime.Expr} {Q : Runtime.Val → iProp} :
-    wp e (fun v =>
-      ∃ (res : Runtime.Val), ⌜TinyML.evalUnOp op v = some res⌝ ∗ Q res) ⊢
-    wp (.unop op e) Q
+axiom wp.unop {op : TinyML.UnOp} {v res : Runtime.Val} {Q : Runtime.Val → iProp} :
+    TinyML.evalUnOp op v = some res →
+    Q res ⊢ wp (.unop op (.val v)) Q
 
-/-- `assert e` evaluates `e`; if the result is not `false` it returns unit, otherwise traps. -/
-axiom wp.assert {e : Runtime.Expr} {P : Runtime.Val → iProp} :
-    wp e (fun v => ⌜v ≠ Runtime.Val.bool false⌝ -∗ P .unit) ⊢
-    wp (.assert e) P
+axiom wp.binop {op : TinyML.BinOp} {vl vr res : Runtime.Val} {Q : Runtime.Val → iProp} :
+    TinyML.evalBinOp op vl vr = some res →
+    Q res ⊢ wp (.binop op (.val vl) (.val vr)) Q
+
+axiom wp.if_true {thn els : Runtime.Expr} {Q : Runtime.Val → iProp} :
+    wp thn Q ⊢ wp (.ifThenElse (.val (.bool true)) thn els) Q
+
+axiom wp.if_false {thn els : Runtime.Expr} {Q : Runtime.Val → iProp} :
+    wp els Q ⊢ wp (.ifThenElse (.val (.bool false)) thn els) Q
+
+/-- `assert true` returns unit; `assert false` is stuck. -/
+axiom wp.assert {P : Runtime.Val → iProp} :
+    P .unit ⊢ wp (.assert (.val (.bool true))) P
 
 /-- A tuple expression evaluates each component (right-to-left) and wraps the results. -/
-axiom wp.tuple {es : Runtime.Exprs} {Q : Runtime.Val → iProp} :
-    wps es (fun vs => Q (.tuple vs)) ⊢ wp (.tuple es) Q
+axiom wp.tuple {vs : Runtime.Vals} {Q : Runtime.Val → iProp} :
+    Q (.tuple vs) ⊢ wp (.tuple (vs.map Runtime.Expr.val)) Q
 
 /-- An injection expression evaluates its payload and wraps it with the given tag and arity. -/
-axiom wp.inj {tag arity : Nat} {payload : Runtime.Expr} {Q : Runtime.Val → iProp} :
-    wp payload (fun v => Q (.inj tag arity v)) ⊢ wp (.inj tag arity payload) Q
+axiom wp.inj {tag arity : Nat} {payload : Runtime.Val} {Q : Runtime.Val → iProp} :
+    Q (.inj tag arity payload) ⊢ wp (.inj tag arity (.val payload)) Q
 
 /-- A match expression evaluates the scrutinee, then dispatches to the appropriate branch. -/
-axiom wp.match_ {scrut : Runtime.Expr} {branches : Runtime.Exprs} {Q : Runtime.Val → iProp} :
-    wp scrut (fun v =>
-      ∃ (tag : Nat) (arity : Nat) (payload : Runtime.Val) (branch : Runtime.Expr),
-        ⌜v = .inj tag arity payload⌝ ∗ ⌜branches[tag]? = some branch⌝ ∗
-        wp (.app branch [.val payload]) Q) ⊢
-    wp (.match_ scrut branches) Q
+axiom wp.match_ {tag arity : Nat} {payload : Runtime.Val} {branches : Runtime.Exprs}
+    {branch : Runtime.Expr} {Q : Runtime.Val → iProp} :
+    branches[tag]? = some branch →
+    wp (.app branch [.val payload]) Q ⊢
+    wp (.match_ (.val (.inj tag arity payload)) branches) Q
 
 /-! ## Heap operations -/
 
 /-- `ref e` allocates a fresh location, stores the value, and returns the location. -/
-axiom wp.ref {e : Runtime.Expr} {Q : Runtime.Val → iProp} :
-    wp e (fun v => BIBase.forall fun (l : Runtime.Location) => l ↦ v -∗ Q (.loc l)) ⊢
-    wp (.ref e) Q
+axiom wp.ref {v : Runtime.Val} {Q : Runtime.Val → iProp} :
+    (BIBase.forall fun (l : Runtime.Location) => l ↦ v -∗ Q (.loc l)) ⊢
+    wp (.ref (.val v)) Q
 
 /-- `deref e` reads the value stored at the location. Reading preserves ownership. -/
-axiom wp.deref {e : Runtime.Expr} {Q : Runtime.Val → iProp} :
-    wp e (fun vloc =>
-      ∃ (l : Runtime.Location) (v : Runtime.Val),
-        ⌜vloc = .loc l⌝ ∗ l ↦ v ∗ (l ↦ v -∗ Q v)) ⊢
-    wp (.deref e) Q
+axiom wp.deref {l : Runtime.Location} {v : Runtime.Val} {Q : Runtime.Val → iProp} :
+    l ↦ v ∗ (l ↦ v -∗ Q v) ⊢ wp (.deref (.val (.loc l))) Q
 
 /-- `store loc val` updates the value at the location. -/
-axiom wp.store {loc val : Runtime.Expr} {Q : Runtime.Val → iProp} :
-    wp loc (fun vloc => wp val (fun vval =>
-      ∃ (l : Runtime.Location) (old : Runtime.Val),
-        ⌜vloc = .loc l⌝ ∗ l ↦ old ∗ (l ↦ vval -∗ Q .unit))) ⊢
-    wp (.store loc val) Q
+axiom wp.store {l : Runtime.Location} {old v : Runtime.Val} {Q : Runtime.Val → iProp} :
+    l ↦ old ∗ (l ↦ v -∗ Q .unit) ⊢ wp (.store (.val (.loc l)) (.val v)) Q
 
 /-! ## Derived lemmas -/
 
@@ -151,6 +143,14 @@ noncomputable def pwp : Runtime.Program → iProp
 termination_by prog => prog.length
 decreasing_by
   simp [Runtime.Program.subst_length]
+
+@[simp] theorem pwp_nil : pwp [] = (emp : iProp) := by
+  simp [pwp]
+
+@[simp] theorem pwp_cons {b : Runtime.Binder} {e : Runtime.Expr} {rest : Runtime.Program} :
+    pwp ({ name := b, body := e } :: rest) =
+      wp e (fun v => pwp (Runtime.Program.subst rest (Runtime.Subst.update' b v .id))) := by
+  simp [pwp]
 
 /-- Derived wp rule for let-bindings (desugared to immediately-applied fix). -/
 theorem wp.letIn {b : Runtime.Binder} {bound body : Runtime.Expr} {Q : Runtime.Val → iProp} :
