@@ -18,7 +18,7 @@ private def parseSpec (e : TinyML.Expr) : Except String SpecPredicate := do
   SpecTranslation.translate spec
 
 /-- Extract typed argument names from a function's argument list. -/
-private def extractArgs : List TinyML.Binder → List String → Except String (List (String × TinyML.Type_))
+private def extractArgs : List TinyML.Binder → List String → Except String (List (String × TinyML.Typ))
   | [], names =>
     if names.isEmpty then .ok []
     else .error s!"spec has more arguments than function"

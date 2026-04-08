@@ -98,7 +98,7 @@ theorem checkSpec_correct (S : SpecMap) (e : TinyML.Expr) (s : Spec)
           -- and bs = argNames.map .named (from hbs_eq)
           change (SpecMap.eraseAll argNames (S.insert' fb s)).satisfiedBy ((γ.update' fb.runtime fval).updateAll' bs vs)
           rw [hbs_runtime]; exact hsat
-        set Γ := (argNames.zip (s.args.map Prod.snd)).foldl (fun ctx (x : String × TinyML.Type_) => ctx.extend x.1 x.2) TinyML.TyCtx.empty
+        set Γ := (argNames.zip (s.args.map Prod.snd)).foldl (fun ctx (x : String × TinyML.Typ) => ctx.extend x.1 x.2) TinyML.TyCtx.empty
         set B : Bindings := Bindings.empty ++ (argNames.zip argVars).reverse
         have hlen_avs : argNames.length = argVars.length := by
           have := hargVars_lookup.length_eq
@@ -147,7 +147,7 @@ theorem checkSpec_correct (S : SpecMap) (e : TinyML.Expr) (s : Spec)
           have hret := VerifM.eval_ret (VerifM.eval_bind _ _ _ _ hΨ)
           have hret' := VerifM.eval_ret hret
           rw [hse_eval] at hret'
-          exact hret' hse_wf (TinyML.ValHasType_sub htyped_result (TinyML.Type_.sub_iff.mp hsub))
+          exact hret' hse_wf (TinyML.ValHasType_sub htyped_result (TinyML.Typ.sub_iff.mp hsub))
         · simp [hsub] at hΨ
           exact (VerifM.eval_fatal (VerifM.eval_bind _ _ _ _ hΨ)).elim)
   | _ =>
