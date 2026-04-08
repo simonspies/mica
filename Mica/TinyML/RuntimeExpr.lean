@@ -474,7 +474,7 @@ structure Decl where
 abbrev Program := List Decl
 
 
-/-- Substitute values into a declaration body (not the spec). -/
+/-- Substitute values into a declaration body. -/
 def Decl.subst (d : Decl) (σ : Subst) : Decl :=
   { d with body := d.body.subst σ }
 
