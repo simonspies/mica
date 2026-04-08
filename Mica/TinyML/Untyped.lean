@@ -166,6 +166,6 @@ structure Decl (S : Type) where
 def Decl.mapSpec {S T : Type} (f : S → Option T) (d : Decl S) : Decl T :=
   { name := d.name, body := d.body, spec := d.spec.bind f }
 
-abbrev Program := List (Decl Expr)
+abbrev Program (S : Type) := List (Decl S)
 
 end Untyped

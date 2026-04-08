@@ -38,10 +38,10 @@ where
     | [] => []
     | (b, e) :: rest => Runtime.Expr.fix .none [b.runtime] e.runtime :: branchListRuntime rest
 
-def Decl.runtime (d : Typed.Decl Typed.Expr) : Runtime.Decl :=
+def Decl.runtime {S : Type} (d : Typed.Decl S) : Runtime.Decl :=
   { name := d.name.runtime, body := d.body.runtime }
 
-def Program.runtime (prog : Typed.Program) : Runtime.Program :=
+def Program.runtime {S : Type} (prog : Typed.Program S) : Runtime.Program :=
   prog.map Decl.runtime
 
 theorem Expr.branchListRuntime_eq_map (branches : List (Typed.Binder × Typed.Expr)) :
@@ -84,10 +84,10 @@ where
     | [] => []
     | (b, e) :: rest => Runtime.Expr.fix .none [b.runtime] e.runtime :: branchListRuntime rest
 
-def Decl.runtime (d : Untyped.Decl Untyped.Expr) : Runtime.Decl :=
+def Decl.runtime {S : Type} (d : Untyped.Decl S) : Runtime.Decl :=
   { name := d.name.runtime, body := d.body.runtime }
 
-def Program.runtime (prog : Untyped.Program) : Runtime.Program :=
+def Program.runtime {S : Type} (prog : Untyped.Program S) : Runtime.Program :=
   prog.map Decl.runtime
 
 end Untyped
@@ -195,7 +195,7 @@ theorem Typed.Expr.elaborate_runtime (e : Untyped.Expr) :
     (Typed.Expr.elaborate e).runtime = e.runtime :=
   elaborate_runtime_expr e
 
-theorem Typed.Program.elaborate_runtime (prog : Untyped.Program) :
+theorem Typed.Program.elaborate_runtime {S : Type} (prog : Untyped.Program S) :
     (Typed.Program.elaborate prog).runtime = prog.runtime := by
   simp only [Typed.Program.elaborate, Typed.Program.runtime, Untyped.Program.runtime,
              List.map_map]

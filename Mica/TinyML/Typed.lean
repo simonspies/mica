@@ -167,7 +167,7 @@ structure Decl (S : Type) where
 def Decl.mapSpec {S T : Type} (f : S → Option T) (d : Decl S) : Decl T :=
   { name := d.name, body := d.body, spec := d.spec.bind f }
 
-abbrev Program := List (Decl Expr)
+abbrev Program (S : Type) := List (Decl S)
 
 /-! ### Trivial elaboration from Untyped to Typed -/
 
@@ -204,11 +204,10 @@ mutual
     | [] => []
     | (b, e) :: rest => (Binder.elaborate b, Expr.elaborate e) :: Branches.elaborate rest
 end
-def Decl.elaborate (d : Untyped.Decl Untyped.Expr) : Typed.Decl Typed.Expr :=
-  { name := Binder.elaborate d.name, body := Expr.elaborate d.body,
-    spec := d.spec.map Expr.elaborate }
+def Decl.elaborate {S : Type} (d : Untyped.Decl S) : Typed.Decl S :=
+  { name := Binder.elaborate d.name, body := Expr.elaborate d.body, spec := d.spec }
 
-def Program.elaborate (prog : Untyped.Program) : Typed.Program :=
+def Program.elaborate {S : Type} (prog : Untyped.Program S) : Typed.Program S :=
   prog.map Decl.elaborate
 
 end Typed

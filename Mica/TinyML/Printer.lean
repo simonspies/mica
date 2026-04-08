@@ -151,7 +151,7 @@ def Decl.print (d : Untyped.Decl Untyped.Expr) : String :=
   | .none => decl
   | .some e => s!"{decl} [@@spec {printExpr e}]"
 
-def Program.print (p : Untyped.Program) : String :=
+def Program.print (p : Untyped.Program Untyped.Expr) : String :=
   "\n;;\n".intercalate (p.map Decl.print)
 
 end Untyped

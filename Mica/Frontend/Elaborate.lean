@@ -515,7 +515,7 @@ private def elaborateDecls (env : ElabEnv) :
     | some decl => .ok (decl :: rest)
     | none => .ok rest
 
-def Program.elaborate (prog : Frontend.Program) : ElabM Untyped.Program :=
+def Program.elaborate (prog : Frontend.Program) : ElabM (Untyped.Program Untyped.Expr) :=
   elaborateDecls {} prog
 
 end Frontend
