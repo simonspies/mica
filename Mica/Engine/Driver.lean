@@ -17,9 +17,11 @@ def preamble : String := s!"
 (set-logic ALL)
 
 (declare-sort Other 0)
+(declare-sort Loc 0)
 (declare-datatypes ((Value 0) (ValueList 0)) (
   ((of_int (to_int Int))
    (of_bool (to_bool Bool))
+   (of_loc (to_loc Loc))
    (of_other (to_other Other))
    (of_tuple (to_tuple ValueList))
    (of_inj (tag_of Int) (arity_of Int) (payload_of Value)))
