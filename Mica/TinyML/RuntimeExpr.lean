@@ -701,8 +701,8 @@ where
     | [] => []
     | (b, e) :: rest => Runtime.Expr.fix .none [b.runtime] e.runtime :: branchListRuntime rest
 
-def Decl.runtime (d : TinyML.Decl TinyML.Expr) : Runtime.Decl Runtime.Expr :=
-  { name := d.name.runtime, body := d.body.runtime, spec := d.spec.map Expr.runtime }
+def Decl.runtime (d : TinyML.Decl TinyML.Expr) : Runtime.Decl :=
+  { name := d.name.runtime, body := d.body.runtime }
 
 def Program.runtime (prog : TinyML.Program) : Runtime.Program :=
   prog.map Decl.runtime
