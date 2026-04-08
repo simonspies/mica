@@ -287,9 +287,14 @@ theorem SpecMap.wfIn_eraseAll {keys : List String} {S : SpecMap} {Δ : Signature
   | cons k ks ih => exact ih (SpecMap.wfIn_erase h)
 
 def SpecMap.insert' (S : SpecMap) (b : Typed.Binder) (spec : Spec) : SpecMap :=
-  match b with
-  | .named x _ => S.insert x spec
-  | .none => S
+  match b.name with
+  | some x => S.insert x spec
+  | none => S
+
+def SpecMap.erase' (S : SpecMap) (b : Typed.Binder) : SpecMap :=
+  match b.name with
+  | some x => S.erase x
+  | none => S
 
 theorem SpecMap.satisfiedBy_insert {S : SpecMap} {γ : Runtime.Subst}
     {x : TinyML.Var} {fval : Runtime.Val} {spec : Spec}
@@ -324,26 +329,40 @@ theorem SpecMap.wfIn_insert {S : SpecMap} {x : TinyML.Var} {spec : Spec} {Δ : S
 theorem SpecMap.satisfiedBy_insert' {S : SpecMap} {γ : Runtime.Subst}
     {b : Typed.Binder} {fval : Runtime.Val} {spec : Spec}
     (hS : S.satisfiedBy γ)
-    (hγ : ∀ x ty, b = .named x ty → γ x = some fval)
+    (hγ : ∀ x ty, b = Typed.Binder.named x ty → γ x = some fval)
     (hf : spec.isPrecondFor fval) :
     SpecMap.satisfiedBy (S.insert' b spec) γ := by
   cases b with
-  | named x ty => exact SpecMap.satisfiedBy_insert hS (hγ x ty rfl) hf
-  | none => exact hS
+  | mk name ty =>
+    cases name with
+    | none => exact hS
+    | some x => exact SpecMap.satisfiedBy_insert hS (hγ x ty rfl) hf
 
 theorem SpecMap.satisfiedBy_insert'_update' {S : SpecMap} {γ : Runtime.Subst}
     {b : Typed.Binder} {v : Runtime.Val} {spec : Spec}
     (hS : S.satisfiedBy γ) (hf : spec.isPrecondFor v) :
     SpecMap.satisfiedBy (S.insert' b spec) (Runtime.Subst.update' b.runtime v γ) := by
   cases b with
-  | named x _ => exact SpecMap.satisfiedBy_insert_update hS hf
-  | none => exact hS
+  | mk name _ =>
+    cases name with
+    | none => exact hS
+    | some _ => exact SpecMap.satisfiedBy_insert_update hS hf
 
 theorem SpecMap.wfIn_insert' {S : SpecMap} {b : Typed.Binder} {spec : Spec} {Δ : Signature}
     (hS : S.wfIn Δ) (hs : spec.wfIn Δ) : SpecMap.wfIn (S.insert' b spec) Δ := by
   cases b with
-  | named x _ => exact SpecMap.wfIn_insert hS hs
-  | none => exact hS
+  | mk name _ =>
+    cases name with
+    | none => exact hS
+    | some x => exact SpecMap.wfIn_insert hS hs
+
+theorem SpecMap.wfIn_erase' {S : SpecMap} {b : Typed.Binder} {Δ : Signature}
+    (hS : S.wfIn Δ) : SpecMap.wfIn (S.erase' b) Δ := by
+  cases b with
+  | mk name _ =>
+    cases name with
+    | none => exact hS
+    | some _ => exact SpecMap.wfIn_erase hS
 
 theorem SpecMap.satisfiedBy_eraseAll_updateAll' {keys : List String} {S : SpecMap} {γ : Runtime.Subst}
     {vs : List Runtime.Val} (hS : S.satisfiedBy γ) (hlen : keys.length = vs.length) :
@@ -376,6 +395,16 @@ theorem SpecMap.satisfiedBy_erase {S : SpecMap} {γ : Runtime.Subst} {x : TinyML
   · rw [Finmap.lookup_erase_ne hyx] at hlookup
     obtain ⟨fval, hγ, hisPrecond⟩ := h y s hlookup
     exact ⟨fval, by simp [Runtime.Subst.update, hyx, hγ], hisPrecond⟩
+
+theorem SpecMap.satisfiedBy_erase' {S : SpecMap} {γ : Runtime.Subst}
+    {b : Typed.Binder} {v : Runtime.Val}
+    (hS : S.satisfiedBy γ) :
+    SpecMap.satisfiedBy (S.erase' b) (Runtime.Subst.update' b.runtime v γ) := by
+  cases b with
+  | mk name _ =>
+    cases name with
+    | none => exact hS
+    | some _ => exact SpecMap.satisfiedBy_erase hS
 
 theorem SpecMap.satisfiedBy_update_of_not_mem {S : SpecMap} {γ : Runtime.Subst}
     {x : TinyML.Var} {v : Runtime.Val}
