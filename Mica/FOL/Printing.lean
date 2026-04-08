@@ -52,6 +52,7 @@ def BinOp.toSMTLIB : BinOp τ₁ τ₂ τ₃ → String
 def UnPred.toSMTLIB : UnPred τ → String
   | .isInt   => "is-of_int"
   | .isBool  => "is-of_bool"
+  | .isLoc   => "is-of_loc"
   | .isTuple => "is-of_tuple"
   | .isInj _ _ => ""  -- handled specially in Formula.toSMTLIB
 
@@ -154,6 +155,7 @@ private def formulaStr (p : Prec) : Formula → String
   | .unpred pred v   => match pred with
     | .isInt   => s!"isInt({termStr .bottom v})"
     | .isBool  => s!"isBool({termStr .bottom v})"
+    | .isLoc   => s!"isLoc({termStr .bottom v})"
     | .isTuple => s!"isTuple({termStr .bottom v})"
     | .isInj tag arity => s!"isInj({tag}/{arity}, {termStr .bottom v})"
   | .binpred pred a b => match pred with
