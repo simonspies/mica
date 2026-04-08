@@ -91,7 +91,7 @@ theorem wps.mono {es : Runtime.Exprs} {P Q : Runtime.Vals → Prop}
     and each result is substituted into the remaining program. -/
 def pwp : Runtime.Program → Prop
   | [] => True
-  | ⟨b, e, _⟩ :: rest => wp e (fun v => pwp (Runtime.Program.subst rest (Runtime.Subst.update' b v .id)))
+  | ⟨b, e⟩ :: rest => wp e (fun v => pwp (Runtime.Program.subst rest (Runtime.Subst.update' b v .id)))
 termination_by prog => prog.length
 
 /-- Derived wp rule for let-bindings (desugared to immediately-applied fix). -/

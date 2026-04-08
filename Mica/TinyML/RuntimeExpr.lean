@@ -466,20 +466,16 @@ theorem Expr.freeVars_subst (γ1 γ2 : Var → Option Val) (e : Expr) :
     simp [ihe γ1 γ2 (fun x hx => h x (Or.inl hx)),
           ihes γ1 γ2 (fun x hx => h x (Or.inr hx))]
 
-structure Decl (S : Type) where
+structure Decl where
   name : Binder
   body : Expr
-  spec : Option S
   deriving Repr, BEq, Inhabited
 
-def Decl.mapSpec {S T : Type} (f : S → Option T) (d : Decl S) : Decl T :=
-  { name := d.name, body := d.body, spec := d.spec.bind f }
-
-abbrev Program := List (Decl Expr)
+abbrev Program := List Decl
 
 
 /-- Substitute values into a declaration body (not the spec). -/
-def Decl.subst (d : Decl Expr) (σ : Subst) : Decl Expr :=
+def Decl.subst (d : Decl) (σ : Subst) : Decl :=
   { d with body := d.body.subst σ }
 
 /-- Substitute values into a program, respecting shadowing by binders. -/

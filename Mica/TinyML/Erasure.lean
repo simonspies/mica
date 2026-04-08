@@ -38,8 +38,8 @@ where
     | [] => []
     | (b, e) :: rest => Runtime.Expr.fix .none [b.runtime] e.runtime :: branchListRuntime rest
 
-def Decl.runtime (d : Typed.Decl Typed.Expr) : Runtime.Decl Runtime.Expr :=
-  { name := d.name.runtime, body := d.body.runtime, spec := d.spec.map Expr.runtime }
+def Decl.runtime (d : Typed.Decl Typed.Expr) : Runtime.Decl :=
+  { name := d.name.runtime, body := d.body.runtime }
 
 def Program.runtime (prog : Typed.Program) : Runtime.Program :=
   prog.map Decl.runtime
@@ -84,8 +84,8 @@ where
     | [] => []
     | (b, e) :: rest => Runtime.Expr.fix .none [b.runtime] e.runtime :: branchListRuntime rest
 
-def Decl.runtime (d : Untyped.Decl Untyped.Expr) : Runtime.Decl Runtime.Expr :=
-  { name := d.name.runtime, body := d.body.runtime, spec := d.spec.map Expr.runtime }
+def Decl.runtime (d : Untyped.Decl Untyped.Expr) : Runtime.Decl :=
+  { name := d.name.runtime, body := d.body.runtime }
 
 def Program.runtime (prog : Untyped.Program) : Runtime.Program :=
   prog.map Decl.runtime
@@ -202,9 +202,4 @@ theorem Typed.Program.elaborate_runtime (prog : Untyped.Program) :
   apply List.map_congr_left
   intro d _
   simp only [Function.comp, Typed.Decl.elaborate, Typed.Decl.runtime, Untyped.Decl.runtime,
-             Typed.Binder.elaborate_runtime, Typed.Expr.elaborate_runtime,
-             Option.map_map]
-  congr 1
-  cases d.spec with
-  | none => rfl
-  | some e => simp [Function.comp, Typed.Expr.elaborate_runtime]
+             Typed.Binder.elaborate_runtime, Typed.Expr.elaborate_runtime]
