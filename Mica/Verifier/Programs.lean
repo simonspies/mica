@@ -128,7 +128,7 @@ theorem Decl.checkExpr_correct (S : SpecMap) (d : Typed.Decl Untyped.Expr) (γ :
     (fun _ h => by simp at h)
     (fun _ _ _ h _ => by simp at h)
     hS hSwf
-    (fun _ _ _ _ _ _ _ _ _ => trivial)
+    (fun _ _ _ _ _ _ _ _ => trivial)
 
 theorem Decl.check_correct (S : SpecMap) (d : Typed.Decl Untyped.Expr) (γ : Runtime.Subst)
     (hS : S.satisfiedBy γ) (hSwf : S.wfIn Signature.empty)
