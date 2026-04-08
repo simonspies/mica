@@ -1,4 +1,4 @@
-import Mica.TinyML.Expr
+import Mica.TinyML.Common
 
 namespace Runtime
 
@@ -668,55 +668,3 @@ theorem Exprs.subst_removeAll'_updateAll' (es : Exprs) (γ : Subst) (bs : Binder
   exact Subst.removeAll'_updateAll'_comp γ bs vs hlen z
 
 end Runtime
-
-namespace TinyML
-
-def Binder.runtime : TinyML.Binder → Runtime.Binder
-  | .none => .none
-  | .named x _ty => .named x
-
-def Const.runtime : TinyML.Const → Runtime.Val
-  | .int n  => .int n
-  | .bool b => .bool b
-  | .unit   => .unit
-
-def Expr.runtime : TinyML.Expr → Runtime.Expr
-  | .const c => .val c.runtime
-  | .var x => .var x
-  | .unop op e => .unop op e.runtime
-  | .binop op l r => .binop op l.runtime r.runtime
-  | .fix self args _ body => .fix (self.runtime) (args.map (·.runtime)) body.runtime
-  | .app fn args => .app fn.runtime (args.map Expr.runtime)
-  | .ifThenElse c t e => .ifThenElse c.runtime t.runtime e.runtime
-  | .letIn b bound body => .letIn (b.runtime) bound.runtime body.runtime
-  | .ref e => .ref e.runtime
-  | .deref e => .deref e.runtime
-  | .store loc val => .store loc.runtime val.runtime
-  | .assert e => .assert e.runtime
-  | .tuple es => .tuple (es.map Expr.runtime)
-  | .inj tag arity payload => .inj tag arity payload.runtime
-  | .match_ scrut branches => .match_ scrut.runtime (branchListRuntime branches)
-where
-  branchListRuntime : List (TinyML.Binder × TinyML.Expr) → List Runtime.Expr
-    | [] => []
-    | (b, e) :: rest => Runtime.Expr.fix .none [b.runtime] e.runtime :: branchListRuntime rest
-
-def Decl.runtime (d : TinyML.Decl TinyML.Expr) : Runtime.Decl :=
-  { name := d.name.runtime, body := d.body.runtime }
-
-def Program.runtime (prog : TinyML.Program) : Runtime.Program :=
-  prog.map Decl.runtime
-
-
-theorem Expr.branchListRuntime_eq_map (branches : List (TinyML.Binder × TinyML.Expr)) :
-    Expr.runtime.branchListRuntime branches =
-      branches.map fun p => Runtime.Expr.fix .none [p.1.runtime] p.2.runtime := by
-  induction branches with
-  | nil => unfold Expr.runtime.branchListRuntime; rfl
-  | cons hd rest ih =>
-    obtain ⟨b, e⟩ := hd
-    unfold Expr.runtime.branchListRuntime
-    simp only [List.map_cons]
-    congr 1
-
-end TinyML

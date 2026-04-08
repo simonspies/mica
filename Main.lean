@@ -1,3 +1,4 @@
+import Mica.TinyML.Untyped
 import Mica.TinyML.Printer
 import Mica.Frontend.Parser
 import Mica.Frontend.Printer
@@ -49,16 +50,16 @@ def main (args : List String) : IO Unit := do
         IO.Process.exit 1
     if opts.printOcaml then
       IO.println (Frontend.Program.print frontendProg)
-    let prog ← match Frontend.Program.elaborate frontendProg with
+    let untypedProg ← match Frontend.Program.elaborate frontendProg with
       | .ok prog => pure prog
       | .error e => do
         IO.eprintln s!"elaboration error: {e}"
         IO.Process.exit 1
     if opts.printTinyML then
-      IO.println (TinyML.Program.print prog)
+      IO.println (Untyped.Program.print untypedProg)
     if opts.noCheck then
       return
-    let strategy := Program.verify prog
+    let strategy := Program.verify untypedProg
     let session ← Smt.Session.create
     let outcome ← Smt.Strategy.run (log := opts.verbose) strategy session
     session.close

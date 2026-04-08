@@ -1,4 +1,4 @@
-import Mica.TinyML.Expr
+import Mica.TinyML.Typed
 import Mica.TinyML.RuntimeExpr
 import Mica.TinyML.OpSem
 
@@ -13,7 +13,7 @@ def TyCtx.empty : TyCtx := fun _ => none
 def TyCtx.extend (Γ : TyCtx) (x : Var) (t : Typ) : TyCtx :=
   fun y => if y == x then some t else Γ y
 
-def TyCtx.extendBinder (Γ : TyCtx) (b : Binder) (t : Typ) : TyCtx :=
+def TyCtx.extendBinder (Γ : TyCtx) (b : Typed.Binder) (t : Typ) : TyCtx :=
   match b with
   | .none      => Γ
   | .named x _ => Γ.extend x t
@@ -36,7 +36,7 @@ theorem TyCtx.le_trans {Γ₁ Γ₂ Γ₃ : TyCtx} (h12 : Γ₁ ≤ Γ₂) (h23 
   fun x t h => h23 x t (h12 x t h)
 
 /-- Monotonicity of `extendBinder` w.r.t. context ordering. -/
-theorem TyCtx.le_extendBinder_congr {Γ Γ' : TyCtx} (b : Binder) (t : Typ)
+theorem TyCtx.le_extendBinder_congr {Γ Γ' : TyCtx} (b : Typed.Binder) (t : Typ)
     (hle : Γ ≤ Γ') : Γ.extendBinder b t ≤ Γ'.extendBinder b t := by
   intro y ty hy
   cases b with

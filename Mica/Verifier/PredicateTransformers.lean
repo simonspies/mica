@@ -1,4 +1,4 @@
-import Mica.TinyML.Expr
+import Mica.TinyML.Typed
 import Mica.TinyML.Typing
 import Mica.TinyML.WeakestPre
 import Mica.FOL.Printing
