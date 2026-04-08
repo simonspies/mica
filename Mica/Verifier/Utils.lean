@@ -461,31 +461,6 @@ theorem agreeOn_update_fresh {ρ : Env} {v : Var} {u : v.sort.denote}
       · intro b' hb'
         rw [Env.updateConst_binary]
 
-theorem agreeOn_update_fresh_const {ρ : Env} {c : FOL.Const} {u : c.sort.denote}
-    {Δ : Signature} (hfresh : c.name ∉ Δ.allNames) :
-    Env.agreeOn Δ ρ (ρ.updateConst c.sort c.name u) := by
-  constructor
-  · intro w hw
-    have hne : w.name ≠ c.name := by
-      intro heq
-      apply hfresh
-      rw [← heq]
-      exact Signature.mem_allNames_of_var hw
-    exact (Env.lookupConst_updateConst_ne (Or.inl hne)).symm
-  · constructor
-    · intro c' hc'
-      have hne : c'.name ≠ c.name := by
-        intro heq
-        apply hfresh
-        rw [← heq]
-        exact Signature.mem_allNames_of_const hc'
-      exact (Env.lookupConst_updateConst_ne (Or.inl hne)).symm
-    · constructor
-      · intro u' hu'
-        rw [Env.updateConst_unary]
-      · intro b' hb'
-        rw [Env.updateConst_binary]
-
 theorem FiniteSubst.rename_wf {σ : FiniteSubst} {v : Var} {name' : String} {Δ : Signature}
     (hσ : σ.wf Δ) (hfresh : name' ∉ σ.range.allNames) :
     (σ.rename v name').wf (Δ.addConst ⟨name', v.sort⟩) := by

@@ -1,0 +1,179 @@
+import Iris.Examples.IProp
+import Mica.TinyML.RuntimeExpr
+import Mica.TinyML.OpSem
+
+open Iris Iris.BI
+
+-- Top-level elaboration for Iris connectives (the Iris library only provides
+-- these inside `iprop(...)` blocks).
+macro_rules
+  | `($P ∗ $Q)  => ``(BIBase.sep $P $Q)
+  | `($P -∗ $Q) => ``(BIBase.wand $P $Q)
+  | `(⌜$φ⌝)     => ``(BIBase.pure $φ)
+
+-- Signature axiomatized for now; eventually we will say there is a heap
+-- resource algebra that is part of it.
+axiom Sig : BundledGFunctors
+abbrev iProp := IProp Sig
+
+-- Points-to axiomatized for now.
+axiom pointsTo : Runtime.Location → Runtime.Val → iProp
+notation:50 l " ↦ " v:51 => pointsTo l v
+
+axiom wp : Runtime.Expr → (Runtime.Val → iProp) → iProp
+
+/-- Weakest precondition for a list of expressions, evaluated right-to-left.
+    `wps [e1, e2, e3] Q` first evaluates `e3`, then `e2`, then `e1`,
+    and passes `[v1, v2, v3]` (in original order) to `Q`. -/
+noncomputable def wps : Runtime.Exprs → (Runtime.Vals → iProp) → iProp
+  | [], Q => Q []
+  | e :: es, Q => wps es (fun vs => wp e (fun v => Q (v :: vs)))
+
+/-! ## Core axioms -/
+
+axiom pointsTo.exclusive (l : Runtime.Location) (v1 v2 : Runtime.Val) :
+    l ↦ v1 ∗ l ↦ v2 ⊢ (False : iProp)
+
+axiom wp.val {v : Runtime.Val} {Q : Runtime.Val → iProp} :
+    Q v ⊢ wp (.val v) Q
+
+axiom wp.bind {k : TinyML.K} {e : Runtime.Expr} {Q : Runtime.Val → iProp} :
+    wp e (fun v => wp (k.fill (.val v)) Q) ⊢ wp (k.fill e) Q
+
+axiom wp.mono {e : Runtime.Expr} {P Q : Runtime.Val → iProp} :
+    (∀ v, P v -∗ Q v) ∗ wp e P ⊢ wp e Q
+
+axiom wp.fix {f : Runtime.Binder} {args : List Runtime.Binder} {e : Runtime.Expr}
+    {P : Runtime.Val → iProp} {Φ : List Runtime.Val → iProp} :
+    ((∀ vs, Φ vs -∗ wp (.app (.val (.fix f args e)) (vs.map Runtime.Expr.val)) P) -∗
+      ∀ vs, Φ vs -∗ wp (e.subst ((Runtime.Subst.id.update' f (.fix f args e)).updateAll' args vs)) P)
+    ⊢ (∀ (vs : List Runtime.Val), Φ vs -∗ wp (.app (.val (.fix f args e)) (vs.map Runtime.Expr.val)) P)
+
+axiom wp.app {fn : Runtime.Expr} {args : Runtime.Exprs} {P : Runtime.Val → iProp} :
+    wps args (fun vs => wp fn (fun fv =>
+      wp (.app (.val fv) (vs.map Runtime.Expr.val)) P)) ⊢
+    wp (.app fn args) P
+
+axiom wp.func {f : Runtime.Binder} {args : List Runtime.Binder} {e : Runtime.Expr}
+    (P : Runtime.Val → iProp) :
+    P (.fix f args e) ⊢ wp (.fix f args e) P
+
+axiom wp.fix' {f : Runtime.Binder} {args : List Runtime.Binder} {e : Runtime.Expr}
+    {Φ : (Runtime.Val → iProp) → List Runtime.Val → iProp} :
+    ((∀ (vs : List Runtime.Val) (P : Runtime.Val → iProp),
+        Φ P vs -∗ wp (.app (.val (.fix f args e)) (vs.map Runtime.Expr.val)) P) -∗
+      ∀ (vs : List Runtime.Val) (P : Runtime.Val → iProp),
+        Φ P vs -∗ wp (e.subst ((Runtime.Subst.id.update' f (.fix f args e)).updateAll' args vs)) P)
+    ⊢ (∀ (vs : List Runtime.Val) (P : Runtime.Val → iProp),
+        Φ P vs -∗ wp (.app (.val (.fix f args e)) (vs.map Runtime.Expr.val)) P)
+
+axiom wp.unop {op : TinyML.UnOp} {v res : Runtime.Val} {Q : Runtime.Val → iProp} :
+    TinyML.evalUnOp op v = some res →
+    Q res ⊢ wp (.unop op (.val v)) Q
+
+axiom wp.binop {op : TinyML.BinOp} {vl vr res : Runtime.Val} {Q : Runtime.Val → iProp} :
+    TinyML.evalBinOp op vl vr = some res →
+    Q res ⊢ wp (.binop op (.val vl) (.val vr)) Q
+
+axiom wp.if_true {thn els : Runtime.Expr} {Q : Runtime.Val → iProp} :
+    wp thn Q ⊢ wp (.ifThenElse (.val (.bool true)) thn els) Q
+
+axiom wp.if_false {thn els : Runtime.Expr} {Q : Runtime.Val → iProp} :
+    wp els Q ⊢ wp (.ifThenElse (.val (.bool false)) thn els) Q
+
+/-- `assert true` returns unit; `assert false` is stuck. -/
+axiom wp.assert {P : Runtime.Val → iProp} :
+    P .unit ⊢ wp (.assert (.val (.bool true))) P
+
+/-- A tuple expression evaluates each component (right-to-left) and wraps the results. -/
+axiom wp.tuple {vs : Runtime.Vals} {Q : Runtime.Val → iProp} :
+    Q (.tuple vs) ⊢ wp (.tuple (vs.map Runtime.Expr.val)) Q
+
+/-- An injection expression evaluates its payload and wraps it with the given tag and arity. -/
+axiom wp.inj {tag arity : Nat} {payload : Runtime.Val} {Q : Runtime.Val → iProp} :
+    Q (.inj tag arity payload) ⊢ wp (.inj tag arity (.val payload)) Q
+
+/-- A match expression evaluates the scrutinee, then dispatches to the appropriate branch. -/
+axiom wp.match_ {tag arity : Nat} {payload : Runtime.Val} {branches : Runtime.Exprs}
+    {branch : Runtime.Expr} {Q : Runtime.Val → iProp} :
+    branches[tag]? = some branch →
+    wp (.app branch [.val payload]) Q ⊢
+    wp (.match_ (.val (.inj tag arity payload)) branches) Q
+
+/-! ## Heap operations -/
+
+/-- `ref e` allocates a fresh location, stores the value, and returns the location. -/
+axiom wp.ref {v : Runtime.Val} {Q : Runtime.Val → iProp} :
+    (BIBase.forall fun (l : Runtime.Location) => l ↦ v -∗ Q (.loc l)) ⊢
+    wp (.ref (.val v)) Q
+
+/-- `deref e` reads the value stored at the location. Reading preserves ownership. -/
+axiom wp.deref {l : Runtime.Location} {v : Runtime.Val} {Q : Runtime.Val → iProp} :
+    l ↦ v ∗ (l ↦ v -∗ Q v) ⊢ wp (.deref (.val (.loc l))) Q
+
+/-- `store loc val` updates the value at the location. -/
+axiom wp.store {l : Runtime.Location} {old v : Runtime.Val} {Q : Runtime.Val → iProp} :
+    l ↦ old ∗ (l ↦ v -∗ Q .unit) ⊢ wp (.store (.val (.loc l)) (.val v)) Q
+
+/-! ## Derived lemmas -/
+
+@[simp] theorem wps_nil {Q : Runtime.Vals → iProp} : wps [] Q = Q [] := rfl
+@[simp] theorem wps_cons {e : Runtime.Expr} {es : Runtime.Exprs} {Q : Runtime.Vals → iProp} :
+    wps (e :: es) Q = wps es (fun vs => wp e (fun v => Q (v :: vs))) := rfl
+
+-- Derived monotonicity as an entailment
+theorem wp.mono' {e : Runtime.Expr} {P Q : Runtime.Val → iProp}
+    (h : ∀ v, P v ⊢ Q v) : wp e P ⊢ wp e Q :=
+  emp_sep.2.trans (sep_mono_l (forall_intro fun v => wand_intro (emp_sep.1.trans (h v)))) |>.trans wp.mono
+
+theorem wps.mono {es : Runtime.Exprs} {P Q : Runtime.Vals → iProp}
+    (h : ∀ vs, P vs ⊢ Q vs) : wps es P ⊢ wps es Q := by
+  induction es generalizing P Q with
+  | nil => exact h []
+  | cons e es ih =>
+    simp only [wps_cons]
+    exact ih (fun vs => wp.mono' (fun v => h (v :: vs)))
+
+/-- Program-level weakest precondition: every declaration evaluates safely,
+    and each result is substituted into the remaining program. -/
+noncomputable def pwp : Runtime.Program → iProp
+  | [] => emp
+  | ⟨b, e⟩ :: rest =>
+    wp e (fun v => pwp (Runtime.Program.subst rest (Runtime.Subst.update' b v .id)))
+termination_by prog => prog.length
+decreasing_by
+  simp [Runtime.Program.subst_length]
+
+@[simp] theorem pwp_nil : pwp [] = (emp : iProp) := by
+  simp [pwp]
+
+@[simp] theorem pwp_cons {b : Runtime.Binder} {e : Runtime.Expr} {rest : Runtime.Program} :
+    pwp ({ name := b, body := e } :: rest) =
+      wp e (fun v => pwp (Runtime.Program.subst rest (Runtime.Subst.update' b v .id))) := by
+  simp [pwp]
+
+/-- Derived wp rule for let-bindings (desugared to immediately-applied fix). -/
+theorem wp.letIn {b : Runtime.Binder} {bound body : Runtime.Expr} {Q : Runtime.Val → iProp} :
+    wp bound (fun v => wp (body.subst (Runtime.Subst.id.update' b v)) Q) ⊢
+    wp (Runtime.Expr.letIn b bound body) Q := by
+  simp only [Runtime.Expr.letIn]
+  istart
+  iintro Hbound
+  iapply wp.app
+  simp only [wps_cons, wps_nil]
+  iapply (wp.mono (P := fun v => wp (body.subst (Runtime.Subst.id.update' b v)) Q))
+  isplitl []
+  · iintro %v Hv
+    iapply wp.func
+    iapply (@wp.fix .none [b] body Q
+      (fun vs => ∃ v', ⌜vs = [v']⌝ ∗ wp (body.subst (Runtime.Subst.id.update' b v')) Q))
+    · iintro _IH %vs ⟨%v', %Heq, Hwp⟩
+      subst Heq
+      simp only [Runtime.Subst.updateAll'_cons, Runtime.Subst.updateAll'_nil_left,
+                  Runtime.Subst.update']
+      iexact Hwp
+    · iexists v
+      isplitr
+      · ipure_intro; rfl
+      · iexact Hv
+  · iexact Hbound
