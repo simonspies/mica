@@ -1,4 +1,4 @@
-import Mica.TinyML.Expr
+import Mica.TinyML.Typed
 import Mica.TinyML.RuntimeExpr
 import Mica.TinyML.OpSem
 

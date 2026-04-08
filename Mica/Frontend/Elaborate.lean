@@ -1,5 +1,5 @@
 import Mica.Frontend.AST
-import Mica.TinyML.Expr
+import Mica.TinyML.Untyped
 
 namespace Frontend
 
@@ -124,14 +124,14 @@ private def elaborateOptTyp (env : ElabEnv) : Option Typ → ElabM (Option TinyM
 -- ---------------------------------------------------------------------------
 -- Pattern helpers
 
-private def patternToBinder (pat : Pattern) : ElabM TinyML.Binder :=
+private def patternToBinder (pat : Pattern) : ElabM Untyped.Binder :=
   match pat.kind with
   | .wildcard => .ok .none
   | .binder (some name) _ => .ok (.named name none)
   | .binder none _ => .ok .none
   | _ => err pat.loc (.unsupportedPattern "expected a simple binder (variable or wildcard)")
 
-private def patternToBinderTyped (env : ElabEnv) (pat : Pattern) : ElabM TinyML.Binder :=
+private def patternToBinderTyped (env : ElabEnv) (pat : Pattern) : ElabM Untyped.Binder :=
   match pat.kind with
   | .wildcard => .ok .none
   | .binder name ty => do
@@ -145,7 +145,7 @@ private def patternToBinderTyped (env : ElabEnv) (pat : Pattern) : ElabM TinyML.
 -- Match branch assembly
 
 private def checkAllBranches (loc : Location) :
-    List (Option (TinyML.Binder × TinyML.Expr)) → Nat → Nat → ElabM (List (TinyML.Binder × TinyML.Expr))
+    List (Option (Untyped.Binder × Untyped.Expr)) → Nat → Nat → ElabM (List (Untyped.Binder × Untyped.Expr))
   | [], _, _ => .ok []
   | none :: _, arity, tag => err loc (.missingMatchBranch tag arity)
   | some branch :: rest, arity, tag => do
@@ -159,9 +159,9 @@ private def listSet (l : List α) (idx : Nat) (val : α) : List α :=
   | x :: rest, n + 1 => x :: listSet rest n val
 
 private def insertBranch (env : ElabEnv) (loc : Location) (arity : Nat)
-    (acc : List (Option (TinyML.Binder × TinyML.Expr)))
-    (name : Constructor) (binder : Option TinyML.Binder) (body : TinyML.Expr)
-    : ElabM (List (Option (TinyML.Binder × TinyML.Expr))) :=
+    (acc : List (Option (Untyped.Binder × Untyped.Expr)))
+    (name : Constructor) (binder : Option Untyped.Binder) (body : Untyped.Expr)
+    : ElabM (List (Option (Untyped.Binder × Untyped.Expr))) :=
   match alookup name env.ctors with
   | none => .error { loc, kind := .unknownConstructor name }
   | some (tag, arity', _) =>
@@ -174,8 +174,8 @@ private def insertBranch (env : ElabEnv) (loc : Location) (arity : Nat)
 -- ---------------------------------------------------------------------------
 -- Record helpers (outside mutual block — no recursion into Expr)
 
-private def reorderElaborated (loc : Location) (elaborated : List (FieldName × TinyML.Expr))
-    : List FieldName → ElabM (List TinyML.Expr)
+private def reorderElaborated (loc : Location) (elaborated : List (FieldName × Untyped.Expr))
+    : List FieldName → ElabM (List Untyped.Expr)
   | [] => .ok []
   | fieldName :: rest => do
     match elaborated.find? (fun (n, _) => n == fieldName) with
@@ -197,13 +197,13 @@ private def elaborateBinOp (loc : Location) : BinOp → ElabM TinyML.BinOp
 
 -- Helper to elaborate a constructor lookup (not recursive)
 private def elaborateCtorLookup (env : ElabEnv) (loc : Location) (name : String)
-    (arg : Option TinyML.Expr) : ElabM TinyML.Expr :=
+    (arg : Option Untyped.Expr) : ElabM Untyped.Expr :=
   match alookup name env.ctors with
   | some (tag, arity, _) => .ok (.inj tag arity (arg.getD (.const .unit)))
   | none => err loc (.unknownConstructor name)
 
 mutual
-def ExprKind.elaborate (env : ElabEnv) (loc : Location) : ExprKind → ElabM TinyML.Expr
+def ExprKind.elaborate (env : ElabEnv) (loc : Location) : ExprKind → ElabM Untyped.Expr
   | .const (.int n)  => .ok (.const (.int n))
   | .const (.bool b) => .ok (.const (.bool b))
   | .const .unit     => .ok (.const .unit)
@@ -321,7 +321,7 @@ def ExprKind.elaborate (env : ElabEnv) (loc : Location) : ExprKind → ElabM Tin
       match alookup ctorName env.ctors with
       | none => err loc (.unknownConstructor ctorName)
       | some (_, arity, _) => do
-        let init : List (Option (TinyML.Binder × TinyML.Expr)) := List.replicate arity none
+        let init : List (Option (Untyped.Binder × Untyped.Expr)) := List.replicate arity none
         let filled ← arms'.foldlM
           (fun acc (name, binder, body) => insertBranch env loc arity acc name binder body)
           init
@@ -352,7 +352,7 @@ def ExprKind.elaborate (env : ElabEnv) (loc : Location) : ExprKind → ElabM Tin
     let _ ← Typ.elaborate env ty
     ExprKind.elaborate env il ik
 
-def ExprList.elaborate (env : ElabEnv) : List Expr → ElabM (List TinyML.Expr)
+def ExprList.elaborate (env : ElabEnv) : List Expr → ElabM (List Untyped.Expr)
   | [] => .ok []
   | ⟨l, k⟩ :: es => do
     let e' ← ExprKind.elaborate env l k
@@ -360,7 +360,7 @@ def ExprList.elaborate (env : ElabEnv) : List Expr → ElabM (List TinyML.Expr)
     .ok (e' :: es')
 
 def RecordFieldList.elaborate (env : ElabEnv)
-    : List (FieldName × Expr) → ElabM (List (FieldName × TinyML.Expr))
+    : List (FieldName × Expr) → ElabM (List (FieldName × Untyped.Expr))
   | [] => .ok []
   | (name, ⟨l, k⟩) :: rest => do
     let e' ← ExprKind.elaborate env l k
@@ -368,7 +368,7 @@ def RecordFieldList.elaborate (env : ElabEnv)
     .ok ((name, e') :: rest')
 
 def MatchArmList.elaborate (env : ElabEnv)
-    : List MatchArm → ElabM (List (Constructor × Option TinyML.Binder × TinyML.Expr))
+    : List MatchArm → ElabM (List (Constructor × Option Untyped.Binder × Untyped.Expr))
   | [] => .ok []
   | ⟨pat, ⟨bl, bk⟩⟩ :: arms => do
     let body' ← ExprKind.elaborate env bl bk
@@ -385,7 +385,7 @@ def MatchArmList.elaborate (env : ElabEnv)
     .ok ((ctorName, binder, body') :: rest)
 
 def PatternList.toBindersTyped (env : ElabEnv)
-    : List Pattern → ElabM (List TinyML.Binder)
+    : List Pattern → ElabM (List Untyped.Binder)
   | [] => .ok []
   | p :: ps => do
     let b ← patternToBinderTyped env p
@@ -393,7 +393,7 @@ def PatternList.toBindersTyped (env : ElabEnv)
     .ok (b :: bs)
 end
 
-def Expr.elaborate (env : ElabEnv) (e : Expr) : ElabM TinyML.Expr :=
+def Expr.elaborate (env : ElabEnv) (e : Expr) : ElabM Untyped.Expr :=
   ExprKind.elaborate env e.loc e.kind
 
 -- ---------------------------------------------------------------------------
@@ -464,8 +464,8 @@ def TypeDecl.elaborate (env : ElabEnv) (loc : Location) (decl : TypeDecl)
 
 def ValDecl.elaborate (env : ElabEnv) (loc : Location)
     (isRec : Bool) (binders : List Pattern) (retTy : Option Typ) (body : Expr)
-    (spec : Option TinyML.Expr)
-    : ElabM (TinyML.Decl TinyML.Expr) := do
+    (spec : Option Untyped.Expr)
+    : ElabM (Untyped.Decl Untyped.Expr) := do
   match binders with
   | [] => err loc (.unsupportedFeature "declaration with no binders")
   | [pat] =>
@@ -487,7 +487,7 @@ def ValDecl.elaborate (env : ElabEnv) (loc : Location)
 -- Program elaboration
 
 private def elaborateSpec (env : ElabEnv) (attrs : List Attribute)
-    : ElabM (Option TinyML.Expr) :=
+    : ElabM (Option Untyped.Expr) :=
   match attrs.find? (·.name == "spec") with
   | none => .ok none
   | some attr => do
@@ -495,7 +495,7 @@ private def elaborateSpec (env : ElabEnv) (attrs : List Attribute)
     .ok (some e)
 
 def Decl.elaborate (env : ElabEnv) (decl : Decl)
-    : ElabM (ElabEnv × Option (TinyML.Decl TinyML.Expr)) := do
+    : ElabM (ElabEnv × Option (Untyped.Decl Untyped.Expr)) := do
   match decl.kind with
   | .type_ tdecl => do
     let env' ← TypeDecl.elaborate env decl.loc tdecl
@@ -506,7 +506,7 @@ def Decl.elaborate (env : ElabEnv) (decl : Decl)
     .ok (env, some d)
 
 private def elaborateDecls (env : ElabEnv) :
-    List Decl → ElabM (List (TinyML.Decl TinyML.Expr))
+    List Decl → ElabM (List (Untyped.Decl Untyped.Expr))
   | [] => .ok []
   | d :: ds => do
     let (env', optDecl) ← Decl.elaborate env d
@@ -515,7 +515,7 @@ private def elaborateDecls (env : ElabEnv) :
     | some decl => .ok (decl :: rest)
     | none => .ok rest
 
-def Program.elaborate (prog : Frontend.Program) : ElabM TinyML.Program :=
+def Program.elaborate (prog : Frontend.Program) : ElabM (Untyped.Program Untyped.Expr) :=
   elaborateDecls {} prog
 
 end Frontend
