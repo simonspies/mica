@@ -1,4 +1,5 @@
 import Mica.TinyML.Typed
+import Mica.TinyML.Erasure
 import Mica.TinyML.WeakestPre
 import Mica.Verifier.Functions
 import Mica.Frontend.SpecParser
