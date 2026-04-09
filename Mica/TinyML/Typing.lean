@@ -68,79 +68,79 @@ theorem TyCtx.foldl_extend_stable
 /-! ## Subtyping -/
 
 mutual
-  inductive Typ.Sub : Typ → Typ → Prop where
-    | refl  : Typ.Sub t t
-    | bot   : Typ.Sub (Typ.empty) t
-    | top   : Typ.Sub t (Typ.value)
-    | trans : Typ.Sub s t → Typ.Sub t u → Typ.Sub s u
-    | sum   : Typ.SubList ss ts
-            → Typ.Sub (Typ.sum ss) (Typ.sum ts)
-    | arrow : Typ.Sub t1 s1 → Typ.Sub s2 t2
-            → Typ.Sub (Typ.arrow s1 s2) (Typ.arrow t1 t2)
-    | tuple : Typ.SubList ss ts
-            → Typ.Sub (Typ.tuple ss) (Typ.tuple ts)
+  inductive Typ.Sub (Θ : TypeEnv) : Typ → Typ → Prop where
+    | refl  : Typ.Sub Θ t t
+    | bot   : Typ.Sub Θ (Typ.empty) t
+    | top   : Typ.Sub Θ t (Typ.value)
+    | trans : Typ.Sub Θ s t → Typ.Sub Θ t u → Typ.Sub Θ s u
+    | sum   : Typ.SubList Θ ss ts
+            → Typ.Sub Θ (Typ.sum ss) (Typ.sum ts)
+    | arrow : Typ.Sub Θ t1 s1 → Typ.Sub Θ s2 t2
+            → Typ.Sub Θ (Typ.arrow s1 s2) (Typ.arrow t1 t2)
+    | tuple : Typ.SubList Θ ss ts
+            → Typ.Sub Θ (Typ.tuple ss) (Typ.tuple ts)
 
-  inductive Typ.SubList : List Typ → List Typ → Prop where
-    | nil  : Typ.SubList [] []
-    | cons : Typ.Sub s t → Typ.SubList ss ts → Typ.SubList (s :: ss) (t :: ts)
+  inductive Typ.SubList (Θ : TypeEnv) : List Typ → List Typ → Prop where
+    | nil  : Typ.SubList Θ [] []
+    | cons : Typ.Sub Θ s t → Typ.SubList Θ ss ts → Typ.SubList Θ (s :: ss) (t :: ts)
 end
 
-theorem Typ.SubList.length_eq : Typ.SubList ss ts → ss.length = ts.length
+theorem Typ.SubList.length_eq : Typ.SubList Θ ss ts → ss.length = ts.length
   | .nil => rfl
   | .cons _ h => by simp [List.length_cons, h.length_eq]
 
 mutual
-  def Typ.join : Typ → Typ → Typ
+  def Typ.join (_Θ : TypeEnv) : Typ → Typ → Typ
     | .empty, t | t, .empty => t
     | .value, _ | _, .value => .value
     | .sum  ss,     .sum  ts     => if ss.length == ts.length
-                                    then .sum (Typ.joinList ss ts)
+                                    then .sum (Typ.joinList _Θ ss ts)
                                     else .value
-    | .arrow s1 s2, .arrow t1 t2 => .arrow (Typ.meet s1 t1) (Typ.join s2 t2)
+    | .arrow s1 s2, .arrow t1 t2 => .arrow (Typ.meet _Θ s1 t1) (Typ.join _Θ s2 t2)
     | .ref s,       .ref t       => if s == t then .ref s else .value
     | .tuple ss,    .tuple ts    => if ss.length == ts.length
-                                    then .tuple (Typ.joinList ss ts)
+                                    then .tuple (Typ.joinList _Θ ss ts)
                                     else .value
     | t, t'                      => if t == t' then t else .value
 
-  def Typ.meet : Typ → Typ → Typ
+  def Typ.meet (_Θ : TypeEnv) : Typ → Typ → Typ
     | .value, t | t, .value => t
     | .empty, _ | _, .empty => .empty
     | .sum  ss,     .sum  ts     => if ss.length == ts.length
-                                    then .sum (Typ.meetList ss ts)
+                                    then .sum (Typ.meetList _Θ ss ts)
                                     else .empty
-    | .arrow s1 s2, .arrow t1 t2 => .arrow (Typ.join s1 t1) (Typ.meet s2 t2)
+    | .arrow s1 s2, .arrow t1 t2 => .arrow (Typ.join _Θ s1 t1) (Typ.meet _Θ s2 t2)
     | .ref s,       .ref t       => if s == t then .ref s else .empty
     | .tuple ss,    .tuple ts    => if ss.length == ts.length
-                                    then .tuple (Typ.meetList ss ts)
+                                    then .tuple (Typ.meetList _Θ ss ts)
                                     else .empty
     | t, t'                      => if t == t' then t else .empty
 
-  def Typ.joinList : List Typ → List Typ → List Typ
-    | s :: ss, t :: ts => Typ.join s t :: Typ.joinList ss ts
+  def Typ.joinList (_Θ : TypeEnv) : List Typ → List Typ → List Typ
+    | s :: ss, t :: ts => Typ.join _Θ s t :: Typ.joinList _Θ ss ts
     | _, _             => []
 
-  def Typ.meetList : List Typ → List Typ → List Typ
-    | s :: ss, t :: ts => Typ.meet s t :: Typ.meetList ss ts
+  def Typ.meetList (_Θ : TypeEnv) : List Typ → List Typ → List Typ
+    | s :: ss, t :: ts => Typ.meet _Θ s t :: Typ.meetList _Θ ss ts
     | _, _             => []
 end
 
 mutual
-  def Typ.sub (s t : Typ) : Bool :=
+  def Typ.sub (_Θ : TypeEnv) (s t : Typ) : Bool :=
     match s, t with
     | .empty, _      => true
     | _, .value      => true
-    | .sum  ss,     .sum  ts     => Typ.subList ss ts
-    | .arrow s1 s2, .arrow t1 t2 => Typ.sub t1 s1 && Typ.sub s2 t2
-    | .tuple ss,    .tuple ts    => Typ.subList ss ts
+    | .sum  ss,     .sum  ts     => Typ.subList _Θ ss ts
+    | .arrow s1 s2, .arrow t1 t2 => Typ.sub _Θ t1 s1 && Typ.sub _Θ s2 t2
+    | .tuple ss,    .tuple ts    => Typ.subList _Θ ss ts
     | t, t'                      => t == t'
   termination_by sizeOf s + sizeOf t
   decreasing_by all_goals simp +arith [*]
 
-  def Typ.subList (ss ts : List Typ) : Bool :=
+  def Typ.subList (_Θ : TypeEnv) (ss ts : List Typ) : Bool :=
     match ss, ts with
     | [], [] => true
-    | s :: ss, t :: ts => Typ.sub s t && Typ.subList ss ts
+    | s :: ss, t :: ts => Typ.sub _Θ s t && Typ.subList _Θ ss ts
     | _, _ => false
   termination_by sizeOf ss + sizeOf ts
   decreasing_by all_goals simp +arith [*]
@@ -148,7 +148,7 @@ end
 
 -- Forward direction: decision procedure is sound.
 mutual
-  private theorem Typ.sub_sound {s t : Typ} (h : Typ.sub s t = true) : Typ.Sub s t := by
+  private theorem Typ.sub_sound {Θ : TypeEnv} {s t : Typ} (h : Typ.sub Θ s t = true) : Typ.Sub Θ s t := by
     cases s with
     | empty => exact .bot
     | sum ss =>
@@ -179,8 +179,8 @@ mutual
   termination_by sizeOf s + sizeOf t
   decreasing_by all_goals simp +arith [*]
 
-  private theorem Typ.subList_sound {ss ts : List Typ}
-      (h : Typ.subList ss ts = true) : Typ.SubList ss ts := by
+  private theorem Typ.subList_sound {Θ : TypeEnv} {ss ts : List Typ}
+      (h : Typ.subList Θ ss ts = true) : Typ.SubList Θ ss ts := by
     match ss, ts with
     | [], [] => exact .nil
     | [], _ :: _ | _ :: _, [] => simp [Typ.subList] at h
@@ -193,24 +193,24 @@ end
 
 -- Reflexivity of the decision procedure (needed for completeness)
 mutual
-  private theorem Typ.sub_refl : ∀ (t : Typ), Typ.sub t t = true
+  private theorem Typ.sub_refl (Θ : TypeEnv) : ∀ (t : Typ), Typ.sub Θ t t = true
     | .unit | .bool | .int | .empty | .value => by simp [Typ.sub]
-    | .sum  ts     => by simp [Typ.sub, subList_refl ts]
-    | .arrow t1 t2 => by simp [Typ.sub, sub_refl t1, sub_refl t2]
+    | .sum  ts     => by simp [Typ.sub, subList_refl Θ ts]
+    | .arrow t1 t2 => by simp [Typ.sub, sub_refl Θ t1, sub_refl Θ t2]
     | .ref t       => by simp [Typ.sub]
-    | .tuple ts    => by simp [Typ.sub, subList_refl ts]
+    | .tuple ts    => by simp [Typ.sub, subList_refl Θ ts]
 
-  private theorem Typ.subList_refl : ∀ (ts : List Typ), Typ.subList ts ts = true
+  private theorem Typ.subList_refl (Θ : TypeEnv) : ∀ (ts : List Typ), Typ.subList Θ ts ts = true
     | [] => by simp [Typ.subList]
-    | t :: ts => by simp [Typ.subList, sub_refl t, subList_refl ts]
+    | t :: ts => by simp [Typ.subList, sub_refl Θ t, subList_refl Θ ts]
 end
 
 -- Transitivity of the decision procedure (needed for completeness of trans rule).
 -- Proved by recursion on t (the middle type).
 mutual
-  private theorem Typ.sub_trans {s t u : Typ}
-      (h1 : Typ.sub s t = true) (h2 : Typ.sub t u = true) :
-      Typ.sub s u = true := by
+  private theorem Typ.sub_trans {Θ : TypeEnv} {s t u : Typ}
+      (h1 : Typ.sub Θ s t = true) (h2 : Typ.sub Θ t u = true) :
+      Typ.sub Θ s u = true := by
     match t with
     | .empty | .value | .unit | .bool | .int => cases s <;> cases u <;> simp_all [Typ.sub, beq_iff_eq]
     | .ref _ => cases s <;> cases u <;> simp_all [Typ.sub, beq_iff_eq]
@@ -250,9 +250,9 @@ mutual
   termination_by sizeOf t
   decreasing_by all_goals simp +arith [*]
 
-  private theorem Typ.subList_trans {ss ts us : List Typ}
-      (h1 : Typ.subList ss ts = true) (h2 : Typ.subList ts us = true) :
-      Typ.subList ss us = true := by
+  private theorem Typ.subList_trans {Θ : TypeEnv} {ss ts us : List Typ}
+      (h1 : Typ.subList Θ ss ts = true) (h2 : Typ.subList Θ ts us = true) :
+      Typ.subList Θ ss us = true := by
     match ss, ts, us with
     | [], [], [] => simp [Typ.subList]
     | [], [], _ :: _ => simp [Typ.subList] at h2
@@ -267,25 +267,25 @@ end
 
 -- Backward direction: derivable subtyping is decided
 mutual
-  private theorem Typ.Sub_complete {s t : Typ} (p : Typ.Sub s t) : Typ.sub s t = true := by
+  private theorem Typ.Sub_complete (Θ : TypeEnv) {s t : Typ} (p : Typ.Sub Θ s t) : Typ.sub Θ s t = true := by
     match p with
-    | .refl        => exact sub_refl _
+    | .refl        => exact sub_refl Θ _
     | .bot         => cases t <;> simp [Typ.sub]
     | .top         => cases s <;> simp [Typ.sub]
-    | .trans h1 h2 => exact sub_trans (Sub_complete h1) (Sub_complete h2)
-    | .sum  h      => simp [Typ.sub, SubList_complete h]
-    | .arrow h1 h2 => simp [Typ.sub, Sub_complete h1, Sub_complete h2]
-    | .tuple h     => simp [Typ.sub]; exact SubList_complete h
+    | .trans h1 h2 => exact sub_trans (Sub_complete Θ h1) (Sub_complete Θ h2)
+    | .sum  h      => simp [Typ.sub, SubList_complete Θ h]
+    | .arrow h1 h2 => simp [Typ.sub, Sub_complete Θ h1, Sub_complete Θ h2]
+    | .tuple h     => simp [Typ.sub]; exact SubList_complete Θ h
 
-  private theorem Typ.SubList_complete {ss ts : List Typ}
-      (ps : Typ.SubList ss ts) : Typ.subList ss ts = true := by
+  private theorem Typ.SubList_complete (Θ : TypeEnv) {ss ts : List Typ}
+      (ps : Typ.SubList Θ ss ts) : Typ.subList Θ ss ts = true := by
     match ps with
     | .nil => simp [Typ.subList]
-    | .cons h hs => simp [Typ.subList, Sub_complete h, SubList_complete hs]
+    | .cons h hs => simp [Typ.subList, Sub_complete Θ h, SubList_complete Θ hs]
 end
 
-theorem Typ.sub_iff {s t : Typ} : Typ.sub s t = true ↔ Typ.Sub s t :=
-  ⟨sub_sound, Sub_complete⟩
+theorem Typ.sub_iff {Θ : TypeEnv} {s t : Typ} : Typ.sub Θ s t = true ↔ Typ.Sub Θ s t :=
+  ⟨sub_sound, Sub_complete Θ⟩
 
 /-! ## Operator typing -/
 
@@ -311,27 +311,27 @@ def UnOp.typeOf : UnOp → Typ → Option Typ
   | _, _             => none
 
 mutual
-  inductive ValHasType : Runtime.Val → Typ → Prop where
-    | int  (n : Int)  : ValHasType (.int n)  .int
-    | bool (b : Bool) : ValHasType (.bool b) .bool
-    | unit            : ValHasType .unit      .unit
+  inductive ValHasType (Θ : TypeEnv) : Runtime.Val → Typ → Prop where
+    | int  (n : Int)  : ValHasType Θ (.int n)  .int
+    | bool (b : Bool) : ValHasType Θ (.bool b) .bool
+    | unit            : ValHasType Θ .unit      .unit
     | inj  : (ht : ts[tag]? = some t)
-            → ValHasType payload t
-            → ValHasType (.inj tag ts.length payload) (.sum ts)
-    | tuple : ValsHaveTypes vs ts
-            → ValHasType (Runtime.Val.tuple vs) (Typ.tuple ts)
+            → ValHasType Θ payload t
+            → ValHasType Θ (.inj tag ts.length payload) (.sum ts)
+    | tuple : ValsHaveTypes Θ vs ts
+            → ValHasType Θ (Runtime.Val.tuple vs) (Typ.tuple ts)
     -- Any value has type .value
-    | any : ValHasType v .value
+    | any : ValHasType Θ v .value
 
-  inductive ValsHaveTypes : List Runtime.Val → List Typ → Prop where
-    | nil  : ValsHaveTypes [] []
-    | cons : ValHasType v t → ValsHaveTypes vs ts → ValsHaveTypes (v :: vs) (t :: ts)
+  inductive ValsHaveTypes (Θ : TypeEnv) : List Runtime.Val → List Typ → Prop where
+    | nil  : ValsHaveTypes Θ [] []
+    | cons : ValHasType Θ v t → ValsHaveTypes Θ vs ts → ValsHaveTypes Θ (v :: vs) (t :: ts)
 end
 
 
 mutual
-  theorem ValHasType_sub {v : Runtime.Val} {t t' : Typ} (h : ValHasType v t) (hsub : Typ.Sub t t') :
-      ValHasType v t' := by
+  theorem ValHasType_sub {Θ : TypeEnv} {v : Runtime.Val} {t t' : Typ} (h : ValHasType Θ v t) (hsub : Typ.Sub Θ t t') :
+      ValHasType Θ v t' := by
     match hsub with
     | .refl => exact h
     | .bot => cases h
@@ -348,9 +348,9 @@ mutual
       cases h with
       | tuple hvs => exact .tuple (ValsHaveTypes_sub hvs hsub)
 
-  theorem ValsHaveTypes_sub {vs : List Runtime.Val} {ts ts' : List Typ}
-      (h : ValsHaveTypes vs ts) (hsub : Typ.SubList ts ts') :
-      ValsHaveTypes vs ts' := by
+  theorem ValsHaveTypes_sub {Θ : TypeEnv} {vs : List Runtime.Val} {ts ts' : List Typ}
+      (h : ValsHaveTypes Θ vs ts) (hsub : Typ.SubList Θ ts ts') :
+      ValsHaveTypes Θ vs ts' := by
     match hsub with
     | .nil => cases h; exact .nil
     | .cons hs hss =>
@@ -359,17 +359,17 @@ mutual
 
   /-- Lift a payload through a `SubList`: if `ss[tag]? = some s` and `payload : s`,
       find `ts[tag]? = some t` and produce `ValHasType payload t`. -/
-  theorem ValHasType_subList {payload : Runtime.Val} {s : Typ} {ss ts : List Typ}
-      (hpayload : ValHasType payload s) (hlist : Typ.SubList ss ts)
+  theorem ValHasType_subList {Θ : TypeEnv} {payload : Runtime.Val} {s : Typ} {ss ts : List Typ}
+      (hpayload : ValHasType Θ payload s) (hlist : Typ.SubList Θ ss ts)
       {tag : Nat} (hs : ss[tag]? = some s) :
-      ∃ t, ts[tag]? = some t ∧ ValHasType payload t :=
+      ∃ t, ts[tag]? = some t ∧ ValHasType Θ payload t :=
     match hlist, tag with
     | .nil, _ => absurd hs (by simp)
     | .cons hsub _, 0 => by simp at hs; exact ⟨_, rfl, ValHasType_sub (hs ▸ hpayload) hsub⟩
     | .cons _ hss, n + 1 => ValHasType_subList hpayload hss (by simpa using hs)
 end
 
-theorem ValsHaveTypes.length_eq : ValsHaveTypes vs ts → vs.length = ts.length
+theorem ValsHaveTypes.length_eq {Θ : TypeEnv} : ValsHaveTypes Θ vs ts → vs.length = ts.length
   | .nil => rfl
   | .cons _ h => congrArg (· + 1) h.length_eq
 
@@ -379,12 +379,12 @@ end TinyML
 
 /-- Type preservation for `evalBinOp`: if the inputs are well-typed, the operation returns
     `some w` for a well-typed result `w`. -/
-theorem evalBinOp_typed {op : TinyML.BinOp} {v1 v2 : Runtime.Val} {t1 t2 ty : TinyML.Typ}
+theorem evalBinOp_typed {Θ : TinyML.TypeEnv} {op : TinyML.BinOp} {v1 v2 : Runtime.Val} {t1 t2 ty : TinyML.Typ}
     (hndiv : op ≠ .div) (hnmod : op ≠ .mod)
     (hty : TinyML.BinOp.typeOf op t1 t2 = some ty)
-    (ht1 : TinyML.ValHasType v1 t1)
-    (ht2 : TinyML.ValHasType v2 t2) :
-    ∃ w, TinyML.evalBinOp op v1 v2 = some w ∧ TinyML.ValHasType w ty := by
+    (ht1 : TinyML.ValHasType Θ v1 t1)
+    (ht2 : TinyML.ValHasType Θ v2 t2) :
+    ∃ w, TinyML.evalBinOp op v1 v2 = some w ∧ TinyML.ValHasType Θ w ty := by
   cases op
   case div => exact absurd rfl hndiv
   case mod => exact absurd rfl hnmod
@@ -398,9 +398,9 @@ theorem evalBinOp_typed {op : TinyML.BinOp} {v1 v2 : Runtime.Val} {t1 t2 ty : Ti
     simp_all
     first | exact .int _ | exact .bool _
 
-private theorem evalUnOp_proj_typed {n : Nat} {vs : List Runtime.Val} {ts : List TinyML.Typ} {ty : TinyML.Typ}
-    (hty : ts[n]? = some ty) (hvs : TinyML.ValsHaveTypes vs ts) :
-    ∃ w, vs[n]? = some w ∧ TinyML.ValHasType w ty := by
+private theorem evalUnOp_proj_typed {Θ : TinyML.TypeEnv} {n : Nat} {vs : List Runtime.Val} {ts : List TinyML.Typ} {ty : TinyML.Typ}
+    (hty : ts[n]? = some ty) (hvs : TinyML.ValsHaveTypes Θ vs ts) :
+    ∃ w, vs[n]? = some w ∧ TinyML.ValHasType Θ w ty := by
   induction n generalizing vs ts with
   | zero =>
     cases hvs with
@@ -414,8 +414,8 @@ private theorem evalUnOp_proj_typed {n : Nat} {vs : List Runtime.Val} {ts : List
 
 theorem evalUnOp_typed {op : TinyML.UnOp} {v : Runtime.Val} {t ty : TinyML.Typ}
     (hty : TinyML.UnOp.typeOf op t = some ty)
-    (ht : TinyML.ValHasType v t) :
-    ∃ w, TinyML.evalUnOp op v = some w ∧ TinyML.ValHasType w ty := by
+    (ht : TinyML.ValHasType Θ v t) :
+    ∃ w, TinyML.evalUnOp op v = some w ∧ TinyML.ValHasType Θ w ty := by
   cases op
   case proj n =>
     cases ht with
@@ -484,25 +484,25 @@ def extendTyped (Γ : TinyML.TyCtx) (b : Typed.Binder) : TinyML.TyCtx :=
   | none => Γ
   | some x => Γ.extend x b.ty
 
-def joinAll : List Typ → Typ
+def joinAll (Θ : TypeEnv) : List Typ → Typ
   | [] => .value
-  | t :: ts => ts.foldl Typ.join t
+  | t :: ts => ts.foldl (Typ.join Θ) t
 
 mutual
-  def infer (Γ : TinyML.TyCtx) : Untyped.Expr → Except TypeError (Typ × Typed.Expr)
+  def infer (Θ : TypeEnv) (Γ : TinyML.TyCtx) : Untyped.Expr → Except TypeError (Typ × Typed.Expr)
     | .const c => .ok (Typed.Const.ty c, .const c)
     | .var x =>
         match Γ x with
         | some ty => .ok (ty, .var x ty)
         | none => .error (.undefinedVar x)
     | .unop op e => do
-        let (argTy, e') ← infer Γ e
+        let (argTy, e') ← infer Θ Γ e
         match TinyML.UnOp.typeOf op argTy with
         | some ty => .ok (ty, .unop op e' ty)
         | none => .error (.unaryMismatch op argTy)
     | .binop op lhs rhs => do
-        let (lhsTy, lhs') ← infer Γ lhs
-        let (rhsTy, rhs') ← infer Γ rhs
+        let (lhsTy, lhs') ← infer Θ Γ lhs
+        let (rhsTy, rhs') ← infer Θ Γ rhs
         match TinyML.BinOp.typeOf op lhsTy rhsTy with
         | some ty => .ok (ty, .binop op lhs' rhs' ty)
         | none => .error (.operatorMismatch op lhsTy rhsTy)
@@ -512,59 +512,59 @@ mutual
         let selfTy := Typed.arrowOfArgs typedArgs retTy
         let typedSelf := Typed.Binder.ofUntyped self selfTy
         let Γ' := typedArgs.foldl extendTyped (extendTyped Γ typedSelf)
-        let body' ← check Γ' body retTy
+        let body' ← check Θ Γ' body retTy
         .ok (selfTy, .fix typedSelf typedArgs retTy body')
     | .app fn args => do
-        let (fnTy, fn') ← infer Γ fn
-        let (args', retTy) ← checkArgs Γ fnTy args
+        let (fnTy, fn') ← infer Θ Γ fn
+        let (args', retTy) ← checkArgs Θ Γ fnTy args
         .ok (retTy, .app fn' args' retTy)
     | .ifThenElse cond thn els => do
-        let cond' ← check Γ cond .bool
-        let (thnTy, thn') ← infer Γ thn
-        let (elsTy, els') ← infer Γ els
-        let ty := Typ.join thnTy elsTy
+        let cond' ← check Θ Γ cond .bool
+        let (thnTy, thn') ← infer Θ Γ thn
+        let (elsTy, els') ← infer Θ Γ els
+        let ty := Typ.join Θ thnTy elsTy
         let thn'' := if thnTy == ty then thn' else .cast thn' ty
         let els'' := if elsTy == ty then els' else .cast els' ty
         .ok (ty, .ifThenElse cond' thn'' els'' ty)
     | .letIn name bound body => do
         let (boundTy, bound') ←
           match name with
-          | .named _ (some ty) => do let e' ← check Γ bound ty; .ok (ty, e')
-          | _ => infer Γ bound
+          | .named _ (some ty) => do let e' ← check Θ Γ bound ty; .ok (ty, e')
+          | _ => infer Θ Γ bound
         let typedName := Typed.Binder.ofUntyped name (match name with | .named _ (some ty) => ty | _ => boundTy)
-        let (bodyTy, body') ← infer (extendTyped Γ typedName) body
+        let (bodyTy, body') ← infer Θ (extendTyped Γ typedName) body
         .ok (bodyTy, .letIn typedName bound' body')
     | .ref e => do
-        let (ty, e') ← infer Γ e
+        let (ty, e') ← infer Θ Γ e
         .ok (.ref ty, .ref e')
     | .deref e => do
-        let (ty, e') ← infer Γ e
+        let (ty, e') ← infer Θ Γ e
         match ty with
         | .ref inner => .ok (inner, .deref e' inner)
         | _ => .error (.notARef ty)
     | .store loc val => do
-        let (locTy, loc') ← infer Γ loc
+        let (locTy, loc') ← infer Θ Γ loc
         match locTy with
         | .ref inner =>
-            let val' ← check Γ val inner
+            let val' ← check Θ Γ val inner
             .ok (.unit, .store loc' val')
         | _ => .error (.notARef locTy)
     | .assert e => do
-        let e' ← check Γ e .bool
+        let e' ← check Θ Γ e .bool
         .ok (.unit, .assert e')
     | .tuple es => do
-        let pairs ← inferList Γ es
+        let pairs ← inferList Θ Γ es
         .ok (.tuple (pairs.map Prod.fst), .tuple (pairs.map Prod.snd))
     | .inj tag arity payload => do
-        let (ty, payload') ← infer Γ payload
+        let (ty, payload') ← infer Θ Γ payload
         .ok (.sum ((List.replicate arity .empty).set tag ty), .inj tag arity payload')
     | .match_ scrutinee branches => do
-        let (scrutTy, scrut') ← infer Γ scrutinee
+        let (scrutTy, scrut') ← infer Θ Γ scrutinee
         match scrutTy with
         | .sum ts =>
             if _h : ts.length = branches.length then
-              let branches' ← inferBranches Γ ts branches
-              let ty := joinAll (branches'.map (fun p => p.2.ty))
+              let branches' ← inferBranches Θ Γ ts branches
+              let ty := joinAll Θ (branches'.map (fun p => p.2.ty))
               let branches'' := branches'.map fun
                 | (binder, body) =>
                     (binder, if body.ty == ty then body else .cast body ty)
@@ -573,39 +573,39 @@ mutual
               .error (.arityMismatch ts.length branches.length)
         | _ => .error (.notASum scrutTy)
 
-  def check (Γ : TinyML.TyCtx) (e : Untyped.Expr) (expected : Typ) : Except TypeError Typed.Expr := do
-    let (actual, e') ← infer Γ e
+  def check (Θ : TypeEnv) (Γ : TinyML.TyCtx) (e : Untyped.Expr) (expected : Typ) : Except TypeError Typed.Expr := do
+    let (actual, e') ← infer Θ Γ e
     if actual == expected then
       .ok e'
-    else if Typ.sub actual expected then
+    else if Typ.sub Θ actual expected then
       .ok (.cast e' expected)
     else
       .error (.subsumptionFailure actual expected)
 
-  def inferList (Γ : TinyML.TyCtx) : List Untyped.Expr → Except TypeError (List (Typ × Typed.Expr))
+  def inferList (Θ : TypeEnv) (Γ : TinyML.TyCtx) : List Untyped.Expr → Except TypeError (List (Typ × Typed.Expr))
     | [] => .ok []
     | e :: es => do
-        let head ← infer Γ e
-        let tail ← inferList Γ es
+        let head ← infer Θ Γ e
+        let tail ← inferList Θ Γ es
         .ok (head :: tail)
 
-  def checkArgs (Γ : TinyML.TyCtx) : Typ → List Untyped.Expr → Except TypeError (List Typed.Expr × Typ)
+  def checkArgs (Θ : TypeEnv) (Γ : TinyML.TyCtx) : Typ → List Untyped.Expr → Except TypeError (List Typed.Expr × Typ)
     | ty, [] => .ok ([], ty)
     | .arrow dom cod, arg :: args => do
-        let arg' ← check Γ arg dom
-        let (args', retTy) ← checkArgs Γ cod args
+        let arg' ← check Θ Γ arg dom
+        let (args', retTy) ← checkArgs Θ Γ cod args
         .ok (arg' :: args', retTy)
     | _ty, args => .error (.arityMismatch 0 args.length)
 
-  def inferBranches (Γ : TinyML.TyCtx) :
+  def inferBranches (Θ : TypeEnv) (Γ : TinyML.TyCtx) :
       List Typ → List (Untyped.Binder × Untyped.Expr) → Except TypeError (List (Typed.Binder × Typed.Expr))
     | [], [] => .ok []
     | ty :: tys, (binder, body) :: rest => do
         let binderTy := Typed.Binder.expectedTy binder ty
-        if Typ.sub ty binderTy then
+        if Typ.sub Θ ty binderTy then
           let typedBinder := Typed.Binder.ofUntyped binder binderTy
-          let (_bodyTy, body') ← infer (extendTyped Γ typedBinder) body
-          let rest' ← inferBranches Γ tys rest
+          let (_bodyTy, body') ← infer Θ (extendTyped Γ typedBinder) body
+          let rest' ← inferBranches Θ Γ tys rest
           .ok ((typedBinder, body') :: rest')
         else
           .error (.subsumptionFailure ty binderTy)
@@ -616,27 +616,27 @@ theorem Binder.ofUntyped_runtime (b : Untyped.Binder) (ty : Typ) :
     (Typed.Binder.ofUntyped b ty).runtime = b.runtime := by
   cases b <;> rfl
 
-def Decl.elaborate {S : Type} (Γ : TinyML.TyCtx) (d : Untyped.Decl S) :
+def Decl.elaborate {S : Type} (Θ : TypeEnv) (Γ : TinyML.TyCtx) (d : Untyped.Decl S) :
     Except TypeError (Typed.Decl S) := do
   let (bodyTy, body') ←
     match d.name with
     | .named _ (some ty) => do
-        let body' ← check Γ d.body ty
+        let body' ← check Θ Γ d.body ty
         .ok (ty, body')
-    | _ => infer Γ d.body
+    | _ => infer Θ Γ d.body
   let nameTy := match d.name with
     | .named _ (some ty) => ty
     | _ => bodyTy
   .ok { name := Typed.Binder.ofUntyped d.name nameTy, body := body', spec := d.spec }
 
-def Program.elaborate {S : Type} (Γ : TinyML.TyCtx) : Untyped.Program S → Except TypeError (Typed.Program S)
+def Program.elaborate {S : Type} (Θ : TypeEnv) (Γ : TinyML.TyCtx) : Untyped.Program S → Except TypeError (Typed.Program S)
   | [] => .ok []
   | d :: ds => do
-      let d' ← Decl.elaborate Γ d
+      let d' ← Decl.elaborate Θ Γ d
       let Γ' := match d'.name.name with
         | some x => Γ.extend x d'.name.ty
         | none => Γ
-      let ds' ← Program.elaborate Γ' ds
+      let ds' ← Program.elaborate Θ Γ' ds
       .ok (d' :: ds')
 
 -- The main issue in this block is not the mathematical argument, but convincing
@@ -655,8 +655,8 @@ def Program.elaborate {S : Type} (Γ : TinyML.TyCtx) : Untyped.Program S → Exc
 -- over successful elaboration results. Once those recursive implications have
 -- been obtained in the branch, they can be used freely afterward.
 mutual
-  theorem infer_runtime (Γ : TinyML.TyCtx) :
-      (e : Untyped.Expr) → ∀ result, Typed.infer Γ e = .ok result → result.2.runtime = e.runtime
+  theorem infer_runtime (Θ : TypeEnv) (Γ : TinyML.TyCtx) :
+      (e : Untyped.Expr) → ∀ result, Typed.infer Θ Γ e = .ok result → result.2.runtime = e.runtime
     | .const c => by
         intro result h
         simp [Typed.infer] at h
@@ -668,7 +668,7 @@ mutual
         split at h <;> cases h
         simp [Expr.runtime, Untyped.Expr.runtime]
     | .unop op e => by
-        let ih := infer_runtime Γ e
+        let ih := infer_runtime Θ Γ e
         intro result h
         unfold Typed.infer at h
         have ⟨p, hinfer, hcont⟩ := Except.bind_ok h
@@ -681,8 +681,8 @@ mutual
             rcases (by simpa [hty] using hcont) with ⟨rfl, rfl⟩
             simp [Expr.runtime, Untyped.Expr.runtime, ih _ hinfer]
     | .binop op lhs rhs => by
-        let ihL := infer_runtime Γ lhs
-        let ihR := infer_runtime Γ rhs
+        let ihL := infer_runtime Θ Γ lhs
+        let ihR := infer_runtime Θ Γ rhs
         intro result h
         unfold Typed.infer at h
         have ⟨lp, hlhs, hcont⟩ := Except.bind_ok h
@@ -703,15 +703,15 @@ mutual
         let selfTy := Typed.arrowOfArgs typedArgs retTy'
         let typedSelf := Typed.Binder.ofUntyped self selfTy
         let Γ' := typedArgs.foldl extendTyped (extendTyped Γ typedSelf)
-        let ih := check_runtime Γ' body retTy'
+        let ih := check_runtime Θ Γ' body retTy'
         intro result h
         unfold Typed.infer at h
         have ⟨body', hbody, hcont⟩ := Except.bind_ok h
         rcases (by simpa [retTy', typedArgs, selfTy, typedSelf, Γ', hbody] using hcont) with ⟨rfl, rfl⟩
         simp [Expr.runtime, Untyped.Expr.runtime, ih _ hbody, Binder.ofUntyped_runtime]
     | .app fn args => by
-        let ihFn := infer_runtime Γ fn
-        let ihArgs := checkArgs_runtime Γ args
+        let ihFn := infer_runtime Θ Γ fn
+        let ihArgs := checkArgs_runtime Θ Γ args
         intro result h
         unfold Typed.infer at h
         have ⟨fp, hfn, hcont⟩ := Except.bind_ok h
@@ -723,9 +723,9 @@ mutual
             rcases (by simpa [hargs] using hcont) with ⟨rfl, rfl⟩
             simp [Expr.runtime, Untyped.Expr.runtime, ihFn _ hfn, ihArgs fnTy _ hargs]
     | .ifThenElse cond thn els => by
-        let ihCond := check_runtime Γ cond .bool
-        let ihThn := infer_runtime Γ thn
-        let ihEls := infer_runtime Γ els
+        let ihCond := check_runtime Θ Γ cond .bool
+        let ihThn := infer_runtime Θ Γ thn
+        let ihEls := infer_runtime Θ Γ els
         intro result h
         unfold Typed.infer at h
         have ⟨cond', hcond, hcont⟩ := Except.bind_ok h
@@ -738,12 +738,12 @@ mutual
             rcases (by simpa [hels] using hcont) with ⟨rfl, rfl⟩
             simp [Expr.runtime, Untyped.Expr.runtime, ihCond _ hcond]
             constructor
-            · by_cases h : thnTy = thnTy.join elsTy
+            · by_cases h : thnTy = Typ.join Θ thnTy elsTy
               · rw [if_pos h]
                 exact ihThn _ hthn
               · rw [if_neg h]
                 simpa [Typed.Expr.runtime] using ihThn _ hthn
-            · by_cases h : elsTy = thnTy.join elsTy
+            · by_cases h : elsTy = Typ.join Θ thnTy elsTy
               · rw [if_pos h]
                 exact ihEls _ hels
               · rw [if_neg h]
@@ -757,8 +757,8 @@ mutual
           cases p with
           | mk boundTy bound' =>
             let typedName := Typed.Binder.ofUntyped .none boundTy
-            let ihBound := infer_runtime Γ bound
-            let ihBody := infer_runtime (extendTyped Γ typedName) body
+            let ihBound := infer_runtime Θ Γ bound
+            let ihBody := infer_runtime Θ (extendTyped Γ typedName) body
             have ⟨p, hbody, hcont⟩ := Except.bind_ok hcont
             cases p with
             | mk bodyTy body' =>
@@ -773,8 +773,8 @@ mutual
             cases p with
             | mk boundTy bound' =>
               let typedName := Typed.Binder.ofUntyped (.named x .none) boundTy
-              let ihBound := infer_runtime Γ bound
-              let ihBody := infer_runtime (extendTyped Γ typedName) body
+              let ihBound := infer_runtime Θ Γ bound
+              let ihBody := infer_runtime Θ (extendTyped Γ typedName) body
               have ⟨p, hbody, hcont⟩ := Except.bind_ok hcont
               cases p with
               | mk bodyTy body' =>
@@ -785,11 +785,11 @@ mutual
             unfold Typed.infer at h
             have ⟨bound', hbound, hcont⟩ := Except.bind_ok h
             let typedName := Typed.Binder.ofUntyped (.named x (.some ty)) ty
-            let ihBound := check_runtime Γ bound ty
-            let ihBody := infer_runtime (extendTyped Γ typedName) body
+            let ihBound := check_runtime Θ Γ bound ty
+            let ihBody := infer_runtime Θ (extendTyped Γ typedName) body
             have hcont' :
                 (do
-                  let p ← infer (extendTyped Γ typedName) body
+                  let p ← infer Θ (extendTyped Γ typedName) body
                   Except.ok (p.1, Expr.letIn typedName bound' p.2)) = .ok result := by
               simpa [typedName] using hcont
             have ⟨p, hbody, hcont⟩ := Except.bind_ok hcont'
@@ -802,7 +802,7 @@ mutual
               simp [Expr.runtime, Untyped.Expr.runtime, ihBound _ hbound, ihBody _ hbody,
                 hname_rt]
     | .ref e => by
-        let ih := infer_runtime Γ e
+        let ih := infer_runtime Θ Γ e
         intro result h
         unfold Typed.infer at h
         have ⟨p, hinfer, hcont⟩ := Except.bind_ok h
@@ -811,7 +811,7 @@ mutual
           rcases (by simpa using hcont) with ⟨rfl, rfl⟩
           simp [Expr.runtime, Untyped.Expr.runtime, ih _ hinfer]
     | .deref e => by
-        let ih := infer_runtime Γ e
+        let ih := infer_runtime Θ Γ e
         intro result h
         unfold Typed.infer at h
         have ⟨p, hinfer, hcont⟩ := Except.bind_ok h
@@ -822,7 +822,7 @@ mutual
             rcases (by simpa using hcont) with ⟨rfl, rfl⟩
             simp [Expr.runtime, Untyped.Expr.runtime, ih _ hinfer]
     | .store loc val => by
-        let ihLoc := infer_runtime Γ loc
+        let ihLoc := infer_runtime Θ Γ loc
         intro result h
         unfold Typed.infer at h
         have ⟨p, hloc, hcont⟩ := Except.bind_ok h
@@ -830,26 +830,26 @@ mutual
         | mk locTy loc' =>
           cases locTy <;> simp at hcont
           case ref inner =>
-            let ihVal := check_runtime Γ val inner
+            let ihVal := check_runtime Θ Γ val inner
             have ⟨val', hval, hcont⟩ := Except.bind_ok hcont
             rcases (by simpa using hcont) with ⟨rfl, rfl⟩
             simp [Expr.runtime, Untyped.Expr.runtime, ihLoc _ hloc, ihVal _ hval]
     | .assert e => by
-        let ih := check_runtime Γ e .bool
+        let ih := check_runtime Θ Γ e .bool
         intro result h
         unfold Typed.infer at h
         have ⟨e1, he, hcont⟩ := Except.bind_ok h
         rcases (by simpa using hcont) with ⟨rfl, rfl⟩
         simp [Expr.runtime, Untyped.Expr.runtime, ih _ he]
     | .tuple es => by
-        let ih := inferList_runtime Γ es
+        let ih := inferList_runtime Θ Γ es
         intro result h
         unfold Typed.infer at h
         have ⟨pairs, hpairs, hcont⟩ := Except.bind_ok h
         rcases (by simpa [hpairs] using hcont) with ⟨rfl, rfl⟩
         simp [Expr.runtime, Untyped.Expr.runtime, ih _ hpairs]
     | .inj tag arity payload => by
-        let ih := infer_runtime Γ payload
+        let ih := infer_runtime Θ Γ payload
         intro result h
         unfold Typed.infer at h
         have ⟨p, hpayload, hcont⟩ := Except.bind_ok h
@@ -858,8 +858,8 @@ mutual
           rcases (by simpa using hcont) with ⟨rfl, rfl⟩
           simp [Expr.runtime, Untyped.Expr.runtime, ih _ hpayload]
     | .match_ scrutinee branches => by
-        let ihScrut := infer_runtime Γ scrutinee
-        let ihBranches := inferBranches_runtime Γ branches
+        let ihScrut := infer_runtime Θ Γ scrutinee
+        let ihBranches := inferBranches_runtime Θ Γ branches
         intro result h
         unfold Typed.infer at h
         have ⟨p, hscrut, hcont⟩ := Except.bind_ok h
@@ -876,13 +876,13 @@ mutual
                     (List.map
                       (fun x =>
                         (x.1,
-                          if x.2.ty = joinAll (List.map (fun p => p.2.ty) branches') then x.2
-                          else x.2.cast (joinAll (List.map (fun p => p.2.ty) branches'))))
+                          if x.2.ty = joinAll Θ (List.map (fun p => p.2.ty) branches') then x.2
+                          else x.2.cast (joinAll Θ (List.map (fun p => p.2.ty) branches'))))
                       branches') =
                   Expr.runtime.branchListRuntime branches' := by
                 simpa [BEq.beq] using
                   Typed.Expr.branchListRuntime_castBodies
-                    (joinAll (List.map (fun p => p.2.ty) branches')) branches'
+                    (joinAll Θ (List.map (fun p => p.2.ty) branches')) branches'
               simp [Expr.runtime, Untyped.Expr.runtime]
               constructor
               · exact ihScrut _ hscrut
@@ -891,8 +891,8 @@ mutual
           | _ =>
             simp at hcont
 
-  theorem check_runtime (Γ : TinyML.TyCtx) (e : Untyped.Expr) (expected : Typ) :
-      ∀ e', Typed.check Γ e expected = .ok e' → e'.runtime = e.runtime := by
+  theorem check_runtime (Θ : TypeEnv) (Γ : TinyML.TyCtx) (e : Untyped.Expr) (expected : Typ) :
+      ∀ e', Typed.check Θ Γ e expected = .ok e' → e'.runtime = e.runtime := by
       intro e' h
       unfold Typed.check at h
       have ⟨p, hinfer, hcont⟩ := Except.bind_ok h
@@ -901,15 +901,15 @@ mutual
         by_cases heq : actual == expected
         · simp [heq] at hcont
           cases hcont
-          simpa using infer_runtime Γ e _ hinfer
-        · by_cases hsub : Typ.sub actual expected
+          simpa using infer_runtime Θ Γ e _ hinfer
+        · by_cases hsub : Typ.sub Θ actual expected
           · simp [heq, hsub] at hcont
             cases hcont
-            simp [Expr.runtime, infer_runtime Γ e _ hinfer]
+            simp [Expr.runtime, infer_runtime Θ Γ e _ hinfer]
           · simp [heq, hsub] at hcont
 
-  theorem inferList_runtime (Γ : TinyML.TyCtx) :
-      (es : List Untyped.Expr) → ∀ pairs, Typed.inferList Γ es = .ok pairs →
+  theorem inferList_runtime (Θ : TypeEnv) (Γ : TinyML.TyCtx) :
+      (es : List Untyped.Expr) → ∀ pairs, Typed.inferList Θ Γ es = .ok pairs →
         (pairs.map Prod.snd).map Expr.runtime = es.map Untyped.Expr.runtime
     | [] => by
         intro pairs h
@@ -917,8 +917,8 @@ mutual
         cases h
         rfl
     | e :: es => by
-        let ihHead := infer_runtime Γ e
-        let ihTail := inferList_runtime Γ es
+        let ihHead := infer_runtime Θ Γ e
+        let ihTail := inferList_runtime Θ Γ es
         intro pairs h
         unfold Typed.inferList at h
         have ⟨head, hinfer, hcont⟩ := Except.bind_ok h
@@ -929,8 +929,8 @@ mutual
           cases hcont
           simp [ihHead _ hinfer, ihTail _ htail]
 
-  theorem checkArgs_runtime (Γ : TinyML.TyCtx) :
-      (args : List Untyped.Expr) → ∀ ty result, Typed.checkArgs Γ ty args = .ok result →
+  theorem checkArgs_runtime (Θ : TypeEnv) (Γ : TinyML.TyCtx) :
+      (args : List Untyped.Expr) → ∀ ty result, Typed.checkArgs Θ Γ ty args = .ok result →
         result.1.map Expr.runtime = args.map Untyped.Expr.runtime
     | [] => by
         intro ty result h
@@ -938,7 +938,7 @@ mutual
         cases h
         rfl
     | arg :: args => by
-        let ihRest := checkArgs_runtime Γ args
+        let ihRest := checkArgs_runtime Θ Γ args
         intro ty result h
         cases ty <;> simp [Typed.checkArgs] at h
         case arrow dom cod =>
@@ -949,11 +949,11 @@ mutual
             simp at hcont
             cases hcont
             simp only [List.map]
-            rw [check_runtime Γ arg dom _ harg, ihRest cod _ hrest]
+            rw [check_runtime Θ Γ arg dom _ harg, ihRest cod _ hrest]
 
-  theorem inferBranches_runtime (Γ : TinyML.TyCtx) :
+  theorem inferBranches_runtime (Θ : TypeEnv) (Γ : TinyML.TyCtx) :
       (branches : List (Untyped.Binder × Untyped.Expr)) →
-      ∀ tys branches', Typed.inferBranches Γ tys branches = .ok branches' →
+      ∀ tys branches', Typed.inferBranches Θ Γ tys branches = .ok branches' →
         Expr.runtime.branchListRuntime branches' =
           Untyped.Expr.runtime.branchListRuntime branches
     | [] => by
@@ -963,7 +963,7 @@ mutual
           cases h
           simp [Expr.runtime.branchListRuntime, Untyped.Expr.runtime.branchListRuntime]
     | br :: rest => by
-        let ihRest := inferBranches_runtime Γ rest
+        let ihRest := inferBranches_runtime Θ Γ rest
         intro tys branches' h
         cases tys with
         | nil =>
@@ -971,11 +971,11 @@ mutual
         | cons ty tys =>
           obtain ⟨binder, body⟩ := br
           let binderTy := Typed.Binder.expectedTy binder ty
-          by_cases hsub : Typ.sub ty binderTy
+          by_cases hsub : Typ.sub Θ ty binderTy
           · unfold Typed.inferBranches at h
             simp [binderTy, hsub] at h
             let typedBinder := Typed.Binder.ofUntyped binder binderTy
-            let ihBody := infer_runtime (extendTyped Γ typedBinder) body
+            let ihBody := infer_runtime Θ (extendTyped Γ typedBinder) body
             have ⟨p, hbody, hcont⟩ := Except.bind_ok h
             cases p with
             | mk bodyTy body' =>
@@ -987,14 +987,14 @@ mutual
           · simp [Typed.inferBranches, binderTy, hsub] at h
 end
 
-theorem Decl.elaborate_runtime {S : Type} (Γ : TinyML.TyCtx) (d : Untyped.Decl S) :
+theorem Decl.elaborate_runtime {S : Type} (Θ : TypeEnv) (Γ : TinyML.TyCtx) (d : Untyped.Decl S) :
     ∀ {d' : Typed.Decl S},
-      Typed.Decl.elaborate Γ d = .ok d' →
+      Typed.Decl.elaborate Θ Γ d = .ok d' →
       d'.runtime = d.runtime := by
   intro d' h
   cases hname : d.name with
   | none =>
-    cases hinfer : Typed.infer Γ d.body with
+    cases hinfer : Typed.infer Θ Γ d.body with
     | error err =>
       simp [Typed.Decl.elaborate, hname] at h
       have ⟨p, hinfer', _⟩ := Except.bind_ok h
@@ -1005,12 +1005,12 @@ theorem Decl.elaborate_runtime {S : Type} (Γ : TinyML.TyCtx) (d : Untyped.Decl 
       | mk bodyTy body' =>
         simp [Typed.Decl.elaborate, hname, hinfer] at h
         cases h
-        simp [Typed.Decl.runtime, Untyped.Decl.runtime, infer_runtime Γ d.body _ hinfer,
+        simp [Typed.Decl.runtime, Untyped.Decl.runtime, infer_runtime Θ Γ d.body _ hinfer,
           Binder.ofUntyped_runtime, hname]
   | named x ann =>
     cases hann : ann with
     | none =>
-      cases hinfer : Typed.infer Γ d.body with
+      cases hinfer : Typed.infer Θ Γ d.body with
       | error err =>
         simp [Typed.Decl.elaborate, hname, hann] at h
         have ⟨p, hinfer', _⟩ := Except.bind_ok h
@@ -1021,10 +1021,10 @@ theorem Decl.elaborate_runtime {S : Type} (Γ : TinyML.TyCtx) (d : Untyped.Decl 
         | mk bodyTy body' =>
           simp [Typed.Decl.elaborate, hname, hann, hinfer] at h
           cases h
-          simp [Typed.Decl.runtime, Untyped.Decl.runtime, infer_runtime Γ d.body _ hinfer,
+          simp [Typed.Decl.runtime, Untyped.Decl.runtime, infer_runtime Θ Γ d.body _ hinfer,
             Binder.ofUntyped_runtime, hname, hann]
     | some ty =>
-      cases hcheck : Typed.check Γ d.body ty with
+      cases hcheck : Typed.check Θ Γ d.body ty with
       | error err =>
         simp [Typed.Decl.elaborate, hname, hann] at h
         have ⟨body', hcheck', _⟩ := Except.bind_ok h
@@ -1033,12 +1033,12 @@ theorem Decl.elaborate_runtime {S : Type} (Γ : TinyML.TyCtx) (d : Untyped.Decl 
       | ok body' =>
         simp [Typed.Decl.elaborate, hname, hann, hcheck] at h
         cases h
-        simp [Typed.Decl.runtime, Untyped.Decl.runtime, check_runtime Γ d.body ty _ hcheck,
+        simp [Typed.Decl.runtime, Untyped.Decl.runtime, check_runtime Θ Γ d.body ty _ hcheck,
           Binder.ofUntyped_runtime, hname, hann]
 
-theorem Program.elaborate_runtime {S : Type} (Γ : TinyML.TyCtx) (prog : Untyped.Program S) :
+theorem Program.elaborate_runtime {S : Type} (Θ : TypeEnv) (Γ : TinyML.TyCtx) (prog : Untyped.Program S) :
     ∀ {prog' : Typed.Program S},
-      Typed.Program.elaborate Γ prog = .ok prog' →
+      Typed.Program.elaborate Θ Γ prog = .ok prog' →
       prog'.runtime = prog.runtime := by
   induction prog generalizing Γ with
   | nil =>
@@ -1056,7 +1056,7 @@ theorem Program.elaborate_runtime {S : Type} (Γ : TinyML.TyCtx) (prog : Untyped
     have ⟨ds', htail, hcont⟩ := Except.bind_ok hcont
     simp at hcont
     cases hcont
-    simp [Typed.Program.runtime, Untyped.Program.runtime, Decl.elaborate_runtime Γ d hdecl]
+    simp [Typed.Program.runtime, Untyped.Program.runtime, Decl.elaborate_runtime Θ Γ d hdecl]
     exact ih Γ' htail
 
 end Typed

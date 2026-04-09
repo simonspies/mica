@@ -48,10 +48,10 @@ def Spec.argsEnv (ρ : Env) : List (String × TinyML.Typ) → List Runtime.Val �
   | [], _ | _, [] => ρ
   | (name, _) :: rest, v :: vs => Spec.argsEnv (ρ.updateConst .value name v) rest vs
 
-def Spec.isPrecondFor (f : Runtime.Val) (s : Spec) : Prop :=
-  ∀ (vs : List Runtime.Val), TinyML.ValsHaveTypes vs (s.args.map Prod.snd) →
+def Spec.isPrecondFor (Θ : TinyML.TypeEnv) (f : Runtime.Val) (s : Spec) : Prop :=
+  ∀ (vs : List Runtime.Val), TinyML.ValsHaveTypes Θ vs (s.args.map Prod.snd) →
     ∀ (Φ : Runtime.Val → Prop),
-      PredTrans.apply (fun r => TinyML.ValHasType r s.retTy → Φ r) s.pred
+      PredTrans.apply (fun r => TinyML.ValHasType Θ r s.retTy → Φ r) s.pred
         (Spec.argsEnv Env.empty s.args vs) →
       wp (Runtime.Expr.app (.val f) (vs.map fun v => .val v)) Φ
 
@@ -134,7 +134,7 @@ end
 mutual
   /-- If `ValHasType v ty` and `t.eval ρ = v`, then all formulas in `typeConstraints ty t` hold. -/
   theorem typeConstraints_hold {ty : TinyML.Typ} {t : Term .value} {ρ : Env}
-      {v : Runtime.Val} (ht : t.eval ρ = v) (hty : TinyML.ValHasType v ty) :
+      {Θ : TinyML.TypeEnv} {v : Runtime.Val} (ht : t.eval ρ = v) (hty : TinyML.ValHasType Θ v ty) :
       ∀ φ ∈ typeConstraints ty t, φ.eval ρ := by
     cases hty with
     | int n =>
@@ -156,7 +156,7 @@ mutual
     | _ => simp [typeConstraints]
 
   theorem typeConstraintsList_hold {ts : List TinyML.Typ} {tl : Term .vallist} {ρ : Env}
-      {vs : List Runtime.Val} (htl : tl.eval ρ = vs) (hty : TinyML.ValsHaveTypes vs ts) :
+      {Θ : TinyML.TypeEnv} {vs : List Runtime.Val} (htl : tl.eval ρ = vs) (hty : TinyML.ValsHaveTypes Θ vs ts) :
       ∀ φ ∈ typeConstraints.typeConstraintsList ts tl, φ.eval ρ := by
     cases hty with
     | nil => simp [typeConstraints.typeConstraintsList]
@@ -176,23 +176,23 @@ end
 
 /-- Declare argument variables, check types, and assume equalities for a spec call.
     Returns the updated substitution. -/
-def Spec.declareArgs (σ : FiniteSubst) :
+def Spec.declareArgs (Θ : TinyML.TypeEnv) (σ : FiniteSubst) :
     List (String × TinyML.Typ) → List (TinyML.Typ × Term .value) → VerifM FiniteSubst
   | [], [] => pure σ
   | (name, ty) :: rest, (targ, sarg) :: sargs => do
-    if targ.sub ty then pure ()
+    if targ.sub Θ ty then pure ()
     else VerifM.fatal s!"type mismatch in call to spec"
     let argVar ← VerifM.decl (some name) .value
     let σ' := σ.rename ⟨name, .value⟩ argVar.name
     VerifM.assume (.eq .value (.const (.uninterpreted argVar.name .value)) sarg)
-    Spec.declareArgs σ' rest sargs
+    Spec.declareArgs Θ σ' rest sargs
   | _, _ => VerifM.fatal "wrong number of arguments"
 
 /-- Full call protocol for a spec: declare argument variables, assume they equal the
     compiled argument terms, check argument types, then invoke `PredTrans.call`. -/
-def Spec.call (σ : FiniteSubst) (s : Spec) (sargs : List (TinyML.Typ × Term .value)) :
+def Spec.call (Θ : TinyML.TypeEnv) (σ : FiniteSubst) (s : Spec) (sargs : List (TinyML.Typ × Term .value)) :
     VerifM (TinyML.Typ × Term .value) := do
-  let σ' ← Spec.declareArgs σ s.args sargs
+  let σ' ← Spec.declareArgs Θ σ s.args sargs
   let result ← PredTrans.call σ' s.pred
   VerifM.assumeAll (typeConstraints s.retTy result)
   pure (s.retTy, result)
@@ -222,9 +222,9 @@ def Spec.implement (s : Spec) (body : List FOL.Const → VerifM (Term .value)) :
 
 abbrev SpecMap := Finmap (fun _ : TinyML.Var => Spec)
 
-def SpecMap.satisfiedBy (S : SpecMap) (γ : Runtime.Subst) : Prop :=
+def SpecMap.satisfiedBy (Θ : TinyML.TypeEnv) (S : SpecMap) (γ : Runtime.Subst) : Prop :=
   ∀ x s, S.lookup x = some s →
-    ∃ f, γ x = some f ∧ s.isPrecondFor f
+    ∃ f, γ x = some f ∧ s.isPrecondFor Θ f
 
 def SpecMap.wfIn (S : SpecMap) (Δ : Signature) : Prop :=
   ∀ f spec, S.lookup f = some spec → spec.wfIn Δ
@@ -296,10 +296,10 @@ def SpecMap.erase' (S : SpecMap) (b : Typed.Binder) : SpecMap :=
   | some x => S.erase x
   | none => S
 
-theorem SpecMap.satisfiedBy_insert {S : SpecMap} {γ : Runtime.Subst}
+theorem SpecMap.satisfiedBy_insert {Θ : TinyML.TypeEnv} {S : SpecMap} {γ : Runtime.Subst}
     {x : TinyML.Var} {fval : Runtime.Val} {spec : Spec}
-    (hS : S.satisfiedBy γ) (hγ : γ x = some fval) (hf : spec.isPrecondFor fval) :
-    SpecMap.satisfiedBy (Finmap.insert x spec S) γ := by
+    (hS : S.satisfiedBy Θ γ) (hγ : γ x = some fval) (hf : spec.isPrecondFor Θ fval) :
+    SpecMap.satisfiedBy Θ (Finmap.insert x spec S) γ := by
   intro y s' hlookup
   by_cases hyx : y = x
   · subst hyx; rw [Finmap.lookup_insert] at hlookup; simp at hlookup; subst hlookup
@@ -307,10 +307,10 @@ theorem SpecMap.satisfiedBy_insert {S : SpecMap} {γ : Runtime.Subst}
   · rw [Finmap.lookup_insert_of_ne _ hyx] at hlookup
     exact hS y s' hlookup
 
-theorem SpecMap.satisfiedBy_insert_update {S : SpecMap} {γ : Runtime.Subst}
+theorem SpecMap.satisfiedBy_insert_update {Θ : TinyML.TypeEnv} {S : SpecMap} {γ : Runtime.Subst}
     {x : TinyML.Var} {v : Runtime.Val} {spec : Spec}
-    (hS : S.satisfiedBy γ) (hf : spec.isPrecondFor v) :
-    SpecMap.satisfiedBy (Finmap.insert x spec S) (γ.update x v) := by
+    (hS : S.satisfiedBy Θ γ) (hf : spec.isPrecondFor Θ v) :
+    SpecMap.satisfiedBy Θ (Finmap.insert x spec S) (γ.update x v) := by
   intro y s' hlookup
   by_cases hyx : y = x
   · subst hyx; rw [Finmap.lookup_insert] at hlookup; simp at hlookup; subst hlookup
@@ -326,22 +326,22 @@ theorem SpecMap.wfIn_insert {S : SpecMap} {x : TinyML.Var} {spec : Spec} {Δ : S
   · subst hyx; rw [Finmap.lookup_insert] at hlookup; simp at hlookup; subst hlookup; exact hs
   · rw [Finmap.lookup_insert_of_ne _ hyx] at hlookup; exact hS y s' hlookup
 
-theorem SpecMap.satisfiedBy_insert' {S : SpecMap} {γ : Runtime.Subst}
+theorem SpecMap.satisfiedBy_insert' {Θ : TinyML.TypeEnv} {S : SpecMap} {γ : Runtime.Subst}
     {b : Typed.Binder} {fval : Runtime.Val} {spec : Spec}
-    (hS : S.satisfiedBy γ)
+    (hS : S.satisfiedBy Θ γ)
     (hγ : ∀ x ty, b = Typed.Binder.named x ty → γ x = some fval)
-    (hf : spec.isPrecondFor fval) :
-    SpecMap.satisfiedBy (S.insert' b spec) γ := by
+    (hf : spec.isPrecondFor Θ fval) :
+    SpecMap.satisfiedBy Θ (S.insert' b spec) γ := by
   cases b with
   | mk name ty =>
     cases name with
     | none => exact hS
     | some x => exact SpecMap.satisfiedBy_insert hS (hγ x ty rfl) hf
 
-theorem SpecMap.satisfiedBy_insert'_update' {S : SpecMap} {γ : Runtime.Subst}
+theorem SpecMap.satisfiedBy_insert'_update' {Θ : TinyML.TypeEnv} {S : SpecMap} {γ : Runtime.Subst}
     {b : Typed.Binder} {v : Runtime.Val} {spec : Spec}
-    (hS : S.satisfiedBy γ) (hf : spec.isPrecondFor v) :
-    SpecMap.satisfiedBy (S.insert' b spec) (Runtime.Subst.update' b.runtime v γ) := by
+    (hS : S.satisfiedBy Θ γ) (hf : spec.isPrecondFor Θ v) :
+    SpecMap.satisfiedBy Θ (S.insert' b spec) (Runtime.Subst.update' b.runtime v γ) := by
   cases b with
   | mk name _ =>
     cases name with
@@ -364,9 +364,9 @@ theorem SpecMap.wfIn_erase' {S : SpecMap} {b : Typed.Binder} {Δ : Signature}
     | none => exact hS
     | some _ => exact SpecMap.wfIn_erase hS
 
-theorem SpecMap.satisfiedBy_eraseAll_updateAll' {keys : List String} {S : SpecMap} {γ : Runtime.Subst}
-    {vs : List Runtime.Val} (hS : S.satisfiedBy γ) (hlen : keys.length = vs.length) :
-    (SpecMap.eraseAll keys S).satisfiedBy (γ.updateAll' (keys.map Runtime.Binder.named) vs) := by
+theorem SpecMap.satisfiedBy_eraseAll_updateAll' {Θ : TinyML.TypeEnv} {keys : List String} {S : SpecMap} {γ : Runtime.Subst}
+    {vs : List Runtime.Val} (hS : S.satisfiedBy Θ γ) (hlen : keys.length = vs.length) :
+    (SpecMap.eraseAll keys S).satisfiedBy Θ (γ.updateAll' (keys.map Runtime.Binder.named) vs) := by
   intro y s hlookup
   have hy_notin : y ∉ keys := by
     intro hmem
@@ -380,15 +380,15 @@ theorem SpecMap.satisfiedBy_eraseAll_updateAll' {keys : List String} {S : SpecMa
   rwa [SpecMap.eraseAll_lookup_of_notin hy_notin] at hlookup
 
 theorem SpecMap.empty_satisfiedBy (γ : Runtime.Subst) :
-    SpecMap.satisfiedBy (∅ : SpecMap) γ := by
+    SpecMap.satisfiedBy Θ (∅ : SpecMap) γ := by
   intro x s h; simp [Finmap.lookup_empty] at h
 
 theorem SpecMap.empty_wfIn (Δ : Signature) :
     SpecMap.wfIn (∅ : SpecMap) Δ := by
   intro f spec h; simp [Finmap.lookup_empty] at h
 
-theorem SpecMap.satisfiedBy_erase {S : SpecMap} {γ : Runtime.Subst} {x : TinyML.Var} {v : Runtime.Val}
-    (h : S.satisfiedBy γ) : SpecMap.satisfiedBy (Finmap.erase x S) (Runtime.Subst.update γ x v) := by
+theorem SpecMap.satisfiedBy_erase {Θ : TinyML.TypeEnv} {S : SpecMap} {γ : Runtime.Subst} {x : TinyML.Var} {v : Runtime.Val}
+    (h : S.satisfiedBy Θ γ) : SpecMap.satisfiedBy Θ (Finmap.erase x S) (Runtime.Subst.update γ x v) := by
   intro y s hlookup
   by_cases hyx : y = x
   · subst hyx; rw [Finmap.lookup_erase] at hlookup; exact absurd hlookup (by simp)
@@ -396,20 +396,20 @@ theorem SpecMap.satisfiedBy_erase {S : SpecMap} {γ : Runtime.Subst} {x : TinyML
     obtain ⟨fval, hγ, hisPrecond⟩ := h y s hlookup
     exact ⟨fval, by simp [Runtime.Subst.update, hyx, hγ], hisPrecond⟩
 
-theorem SpecMap.satisfiedBy_erase' {S : SpecMap} {γ : Runtime.Subst}
+theorem SpecMap.satisfiedBy_erase' {Θ : TinyML.TypeEnv} {S : SpecMap} {γ : Runtime.Subst}
     {b : Typed.Binder} {v : Runtime.Val}
-    (hS : S.satisfiedBy γ) :
-    SpecMap.satisfiedBy (S.erase' b) (Runtime.Subst.update' b.runtime v γ) := by
+    (hS : S.satisfiedBy Θ γ) :
+    SpecMap.satisfiedBy Θ (S.erase' b) (Runtime.Subst.update' b.runtime v γ) := by
   cases b with
   | mk name _ =>
     cases name with
     | none => exact hS
     | some _ => exact SpecMap.satisfiedBy_erase hS
 
-theorem SpecMap.satisfiedBy_update_of_not_mem {S : SpecMap} {γ : Runtime.Subst}
+theorem SpecMap.satisfiedBy_update_of_not_mem {Θ : TinyML.TypeEnv} {S : SpecMap} {γ : Runtime.Subst}
     {x : TinyML.Var} {v : Runtime.Val}
-    (h : S.satisfiedBy γ) (hx : S.lookup x = none) :
-    S.satisfiedBy (γ.update x v) := by
+    (h : S.satisfiedBy Θ γ) (hx : S.lookup x = none) :
+    S.satisfiedBy Θ (γ.update x v) := by
   intro y s hlookup
   have hyx : y ≠ x := by intro heq; subst heq; rw [hx] at hlookup; exact absurd hlookup (by simp)
   obtain ⟨fval, hγ, hisPrecond⟩ := h y s hlookup
@@ -442,18 +442,18 @@ theorem Spec.argsEnv_agreeOn {Δ : Signature} {ρ₁ ρ₂ : Env}
 
 /-- Correctness of `declareArgs`: after processing all arguments, the resulting
     substitution is well-formed, types match, and the env agrees with `argsEnv`. -/
-theorem Spec.declareArgs_correct :
+theorem Spec.declareArgs_correct (Θ : TinyML.TypeEnv) :
     ∀ (args : List (String × TinyML.Typ)) (sargs : List (TinyML.Typ × Term .value))
       (σ : FiniteSubst) (st : TransState) (ρ : Env)
       (Ψ : FiniteSubst → TransState → Env → Prop),
     σ.wf st.decls →
     (Signature.ofVars σ.dom).wf →
     (∀ p ∈ sargs, (p : TinyML.Typ × Term .value).2.wfIn st.decls) →
-    VerifM.eval (Spec.declareArgs σ args sargs) st ρ Ψ →
+    VerifM.eval (Spec.declareArgs Θ σ args sargs) st ρ Ψ →
     ∃ σ' st' ρ', Ψ σ' st' ρ' ∧
       σ'.wf st'.decls ∧
       (Signature.ofVars σ'.dom).wf ∧
-      TinyML.Typ.SubList (sargs.map Prod.fst) (args.map Prod.snd) ∧
+      @TinyML.Typ.SubList Θ (sargs.map Prod.fst) (args.map Prod.snd) ∧
       (((Signature.ofVars σ.dom).declVars (Spec.argVars args)).vars ⊆ σ'.dom) ∧
       Env.agreeOn ((Signature.ofVars σ.dom).declVars (Spec.argVars args)) (σ'.subst.eval ρ')
         (Spec.argsEnv (σ.subst.eval ρ) args (sargs.map fun p => p.2.eval ρ)) := by
@@ -480,7 +480,7 @@ theorem Spec.declareArgs_correct :
     | cons sarg_hd sargs_rest =>
       obtain ⟨targ, sarg⟩ := sarg_hd
       simp only [Spec.declareArgs] at heval
-      by_cases hsub_ty : targ.sub ty = true
+      by_cases hsub_ty : targ.sub Θ ty = true
       · simp [hsub_ty] at heval
         have hbind := VerifM.eval_bind _ _ _ _ heval
         have hret := VerifM.eval_ret hbind
@@ -553,7 +553,7 @@ theorem Spec.declareArgs_correct :
         have hb := VerifM.eval_bind _ _ _ _ heval
         exact (VerifM.eval_fatal hb).elim
 
-theorem Spec.call_correct (s : Spec) (σ : FiniteSubst) (sargs : List (TinyML.Typ × Term .value))
+theorem Spec.call_correct (Θ : TinyML.TypeEnv) (s : Spec) (σ : FiniteSubst) (sargs : List (TinyML.Typ × Term .value))
     (st : TransState) (ρ : Env)
     (Ψ : (TinyML.Typ × Term .value) → TransState → Env → Prop)
     (Φ : Runtime.Val → Prop) :
@@ -561,22 +561,22 @@ theorem Spec.call_correct (s : Spec) (σ : FiniteSubst) (sargs : List (TinyML.Ty
     (Signature.ofVars σ.dom).wf →
     σ.wf st.decls →
     (∀ p ∈ sargs, (p : TinyML.Typ × Term .value).2.wfIn st.decls) →
-    VerifM.eval (Spec.call σ s sargs) st ρ Ψ →
+    VerifM.eval (Spec.call Θ σ s sargs) st ρ Ψ →
     (∀ v st' ρ' t, Ψ (s.retTy, t) st' ρ' → t.wfIn st'.decls → t.eval ρ' = v →
-      TinyML.ValHasType v s.retTy → Φ v) →
-    TinyML.Typ.SubList (sargs.map Prod.fst) (s.args.map Prod.snd) ∧
-    PredTrans.apply (fun r => TinyML.ValHasType r s.retTy → Φ r) s.pred
+      TinyML.ValHasType Θ v s.retTy → Φ v) →
+    @TinyML.Typ.SubList Θ (sargs.map Prod.fst) (s.args.map Prod.snd) ∧
+    PredTrans.apply (fun r => TinyML.ValHasType Θ r s.retTy → Φ r) s.pred
       (Spec.argsEnv (σ.subst.eval ρ) s.args (sargs.map fun p => p.2.eval ρ)) := by
   intro hwf hσdomwf hσwf hsargs heval hΨ
   simp only [Spec.call] at heval
   have hb := VerifM.eval_bind _ _ _ _ heval
   obtain ⟨σ', st', ρ', hΨ', hσ'wf, hσ'domwf, hsublist, hdom_sub, hagree⟩ :=
-    Spec.declareArgs_correct s.args sargs σ st ρ _ hσwf hσdomwf hsargs hb
+    Spec.declareArgs_correct Θ s.args sargs σ st ρ _ hσwf hσdomwf hsargs hb
   constructor
   · exact hsublist
   · have hb2 := VerifM.eval_bind _ _ _ _ hΨ'
     have hcall := PredTrans.call_correct s.pred σ' st' ρ'
-      _ (fun r => TinyML.ValHasType r s.retTy → Φ r)
+      _ (fun r => TinyML.ValHasType Θ r s.retTy → Φ r)
       (PredTrans.wfIn_mono hwf
         ⟨hdom_sub,
           by intro c hc; simp at hc,
@@ -596,13 +596,13 @@ theorem Spec.call_correct (s : Spec) (σ : FiniteSubst) (sargs : List (TinyML.Ty
 /-- Correctness of `declareImplArgs`: after processing all arguments, the resulting
     substitution is well-formed, all argVars are in decls with sort `.value`,
     and the env agrees with `argsEnv`. -/
-theorem Spec.declareImplArgs_correct :
+theorem Spec.declareImplArgs_correct (Θ : TinyML.TypeEnv) :
     ∀ (args : List (String × TinyML.Typ)) (vs : List Runtime.Val)
       (σ : FiniteSubst) (st : TransState) (ρ : Env)
       (Ψ : (FiniteSubst × List FOL.Const) → TransState → Env → Prop),
     σ.wf st.decls →
     (Signature.ofVars σ.dom).wf →
-    TinyML.ValsHaveTypes vs (args.map Prod.snd) →
+    TinyML.ValsHaveTypes Θ vs (args.map Prod.snd) →
     VerifM.eval (Spec.declareImplArgs σ args) st ρ Ψ →
     ∃ σ' argVars st' ρ', Ψ (σ', argVars) st' ρ' ∧
       σ'.wf st'.decls ∧
@@ -710,10 +710,10 @@ theorem Spec.declareImplArgs_correct :
           exact h1'.trans hvar_eval
         · exact hlookups
 
-theorem Spec.implement_correct (s : Spec) (body : List FOL.Const → VerifM (Term .value))
+theorem Spec.implement_correct (Θ : TinyML.TypeEnv) (s : Spec) (body : List FOL.Const → VerifM (Term .value))
     (st : TransState) (ρ : Env) (vs : List Runtime.Val) (Φ : Runtime.Val → Prop) (R : Prop) :
     s.wfIn Signature.empty →
-    TinyML.ValsHaveTypes vs (s.args.map Prod.snd) →
+    TinyML.ValsHaveTypes Θ vs (s.args.map Prod.snd) →
     VerifM.eval (Spec.implement s body) st ρ (fun _ _ _ => True) →
     PredTrans.apply Φ s.pred (Spec.argsEnv Env.empty s.args vs) →
     (∀ argVars st' ρ',
@@ -728,7 +728,7 @@ theorem Spec.implement_correct (s : Spec) (body : List FOL.Const → VerifM (Ter
   have hb := VerifM.eval_bind _ _ _ _ heval
   obtain ⟨σ', argVars, st', ρ', hΨ, hσ'wf, hσ'domwf, hdsub, hragree, hdom_sub, hagree,
     hmem_decls, hsorts, hlookups⟩ :=
-    Spec.declareImplArgs_correct s.args vs FiniteSubst.id st ρ _ (FiniteSubst.id_wf st.decls)
+    Spec.declareImplArgs_correct Θ s.args vs FiniteSubst.id st ρ _ (FiniteSubst.id_wf st.decls)
       (by simpa [Signature.ofVars] using Signature.wf_empty) hvs hb
   -- Transport apply from argsEnv Env.empty to σ'.subst.eval ρ'
   have hag_empty : Env.agreeOn ((Signature.ofVars FiniteSubst.id.dom).declVars (Spec.argVars s.args))
