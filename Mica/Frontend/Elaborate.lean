@@ -416,15 +416,17 @@ private def elaborateCtorDefs (env : ElabEnv) (loc : Location)
          (ctorName, (tag, arity, some payloadTy')) :: restCtors)
 
 private def elaborateVariant (env : ElabEnv) (loc : Location) (name : TypeConstructor)
-    (ctorDefs : List (Constructor × Option Typ)) : ElabM ElabEnv := do
+    (ctorDefs : List (Constructor × Option Typ)) : ElabM (ElabEnv × Untyped.TypeDecl) := do
   if acontains name env.types then
     return ← err loc (.duplicateType name)
   let arity := ctorDefs.length
   let (payloadTypes, newCtors) ← elaborateCtorDefs env loc ctorDefs 0 arity
   let sumTy := TinyML.Typ.sum payloadTypes
-  .ok { env with
+  let env' := { env with
     types := (name, sumTy) :: env.types
     ctors := newCtors ++ env.ctors }
+  let decl : Untyped.TypeDecl := { name, body := { tparams := [], payloads := payloadTypes } }
+  .ok (env', decl)
 
 private def elaborateFieldDefs (env : ElabEnv) (loc : Location) (tyName : TypeConstructor)
     (fieldDefs : List (FieldName × Typ)) (idx : Nat)
@@ -452,12 +454,16 @@ private def elaborateRecordDecl (env : ElabEnv) (loc : Location) (name : TypeCon
     fields := newFields ++ env.fields }
 
 def TypeDecl.elaborate (env : ElabEnv) (loc : Location) (decl : TypeDecl)
-    : ElabM ElabEnv := do
+    : ElabM (ElabEnv × Option Untyped.TypeDecl) := do
   if !decl.params.isEmpty then
     return ← err loc (.polymorphicTypeDecl decl.name)
   match decl.body with
-  | .variant ctors => elaborateVariant env loc decl.name ctors
-  | .record fields => elaborateRecordDecl env loc decl.name fields
+  | .variant ctors => do
+      let (env', decl') ← elaborateVariant env loc decl.name ctors
+      .ok (env', some decl')
+  | .record fields => do
+      let env' ← elaborateRecordDecl env loc decl.name fields
+      .ok (env', none)
 
 -- ---------------------------------------------------------------------------
 -- Value declaration elaboration
@@ -465,7 +471,7 @@ def TypeDecl.elaborate (env : ElabEnv) (loc : Location) (decl : TypeDecl)
 def ValDecl.elaborate (env : ElabEnv) (loc : Location)
     (isRec : Bool) (binders : List Pattern) (retTy : Option Typ) (body : Expr)
     (spec : Option Untyped.Expr)
-    : ElabM (Untyped.Decl Untyped.Expr) := do
+    : ElabM (Untyped.ValDecl Untyped.Expr) := do
   match binders with
   | [] => err loc (.unsupportedFeature "declaration with no binders")
   | [pat] =>
@@ -498,12 +504,12 @@ def Decl.elaborate (env : ElabEnv) (decl : Decl)
     : ElabM (ElabEnv × Option (Untyped.Decl Untyped.Expr)) := do
   match decl.kind with
   | .type_ tdecl => do
-    let env' ← TypeDecl.elaborate env decl.loc tdecl
-    .ok (env', none)
+    let (env', tdecl') ← TypeDecl.elaborate env decl.loc tdecl
+    .ok (env', tdecl'.map Untyped.Decl.type_)
   | .val_ isRec binders retTy body => do
     let spec ← elaborateSpec env decl.attrs
     let d ← ValDecl.elaborate env decl.loc isRec binders retTy body spec
-    .ok (env, some d)
+    .ok (env, some (.val_ d))
 
 private def elaborateDecls (env : ElabEnv) :
     List Decl → ElabM (List (Untyped.Decl Untyped.Expr))

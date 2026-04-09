@@ -61,11 +61,15 @@ where
     | [] => []
     | (b, e) :: rest => Runtime.Expr.fix .none [b.runtime] e.runtime :: branchListRuntime rest
 
-def Decl.runtime {S : Type} (d : Typed.Decl S) : Runtime.Decl :=
+def ValDecl.runtime {S : Type} (d : Typed.ValDecl S) : Runtime.Decl :=
   { name := d.name.runtime, body := d.body.runtime }
 
+def Decl.runtime {S : Type} : Typed.Decl S → Option Runtime.Decl
+  | .val_ d => some d.runtime
+  | .type_ _ => none
+
 def Program.runtime {S : Type} (prog : Typed.Program S) : Runtime.Program :=
-  prog.map Decl.runtime
+  prog.filterMap Decl.runtime
 
 theorem Expr.branchListRuntime_eq_map (branches : List (Typed.Binder × Typed.Expr)) :
     Expr.runtime.branchListRuntime branches =
@@ -122,10 +126,14 @@ where
     | [] => []
     | (b, e) :: rest => Runtime.Expr.fix .none [b.runtime] e.runtime :: branchListRuntime rest
 
-def Decl.runtime {S : Type} (d : Untyped.Decl S) : Runtime.Decl :=
+def ValDecl.runtime {S : Type} (d : Untyped.ValDecl S) : Runtime.Decl :=
   { name := d.name.runtime, body := d.body.runtime }
 
+def Decl.runtime {S : Type} : Untyped.Decl S → Option Runtime.Decl
+  | .val_ d => some d.runtime
+  | .type_ _ => none
+
 def Program.runtime {S : Type} (prog : Untyped.Program S) : Runtime.Program :=
-  prog.map Decl.runtime
+  prog.filterMap Decl.runtime
 
 end Untyped
