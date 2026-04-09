@@ -243,9 +243,9 @@ theorem argVars_cons_perm {name : String}
 def extractArgNames : List Typed.Binder → List (String × TinyML.Typ) →
     Except String (List String)
   | [], [] => .ok []
-  | .named x _ :: rest, _ :: specRest => do
-    let tail ← extractArgNames rest specRest
-    .ok (x :: tail)
+  | ⟨some x, _⟩ :: rest, _ :: specRest => do
+      let tail ← extractArgNames rest specRest
+      .ok (x :: tail)
   | _, _ => .error "argument mismatch"
 
 theorem extractArgNames_spec {argBinders : List Typed.Binder}
@@ -264,17 +264,21 @@ theorem extractArgNames_spec {argBinders : List Typed.Binder}
     | nil => simp [extractArgNames] at h
     | cons ab abs =>
       cases ab with
-      | none => simp [extractArgNames] at h
-      | named x ty =>
-        unfold extractArgNames at h
-        cases hrec : extractArgNames abs sas with
-        | error => rw [hrec] at h; exact absurd h (by intro hc; cases hc)
-        | ok tail =>
-          rw [hrec] at h
-          have h' : names = x :: tail := by cases h; rfl
-          subst h'
-          obtain ⟨h1, h2, h3⟩ := ih hrec
-          exact ⟨by simp [h1], by simp [h2], by simp [Typed.Binder.runtime, h3]⟩
+      | mk name ty =>
+        cases name with
+        | none =>
+          simp [extractArgNames] at h
+        | some x =>
+          simp [extractArgNames] at h
+          cases hrec : extractArgNames abs sas with
+          | error =>
+              simp [hrec] at h
+              cases h
+          | ok tail =>
+              simp [hrec] at h
+              cases h
+              obtain ⟨h1, h2, h3⟩ := ih hrec
+              exact ⟨by simp [h1], by simp [h2], by simp [Typed.Binder.runtime, h3]⟩
 
 theorem Bindings.agreeOnLinked_zip_reverse
     (names : List String) (vars : List FOL.Const) (vals : List Runtime.Val)

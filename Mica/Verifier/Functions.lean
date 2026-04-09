@@ -27,8 +27,8 @@ def checkSpec (S : SpecMap) (e : Expr) (s : Spec) : VerifM Unit := do
   Spec.implement s fun argVars => do
     let B : Bindings := Bindings.empty ++ (argNames.zip argVars).reverse
     let Γ := (argNames.zip (s.args.map Prod.snd)).foldl (fun ctx (name, ty) => ctx.extend name ty) TinyML.TyCtx.empty
-    let (retTy, se) ← compile S' B Γ body
-    if retTy.sub s.retTy then pure ()
+    let se ← compile S' B Γ body
+    if body.ty.sub s.retTy then pure ()
     else VerifM.fatal s!"checkSpec: return type mismatch"
     pure se
 
@@ -144,8 +144,8 @@ theorem checkSpec_correct (S : SpecMap) (e : Expr) (s : Spec)
         have hcompile := VerifM.eval_bind _ _ _ _ hbody_eval
         apply compile_correct body S' B Γ st' ρ' γ_body _ P
           hcompile hagree hbwf hts hS'_sat hS'wf
-        intro result ρ'' st'' retTy' se hΨ hse_wf hse_eval htyped_result
-        by_cases hsub : retTy'.sub s.retTy
+        intro result ρ'' st'' se hΨ hse_wf hse_eval htyped_result
+        by_cases hsub : body.ty.sub s.retTy
         · simp [hsub] at hΨ
           have hret := VerifM.eval_ret (VerifM.eval_bind _ _ _ _ hΨ)
           have hret' := VerifM.eval_ret hret

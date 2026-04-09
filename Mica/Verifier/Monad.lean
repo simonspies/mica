@@ -50,6 +50,17 @@ def VerifM.assert (φ : Formula) : VerifM Unit := do
   if ← VerifM.check φ then pure ()
   else VerifM.failed s!"assertion failed"
 
+/-- Check that two elaboration-time values match exactly, otherwise abort fatally. -/
+def VerifM.expectEq [DecidableEq α] [Repr α] (msg : String) (actual expected : α) : VerifM Unit := do
+  if actual = expected then pure ()
+  else VerifM.fatal s!"{msg}: expected {repr expected}, got {repr actual}"
+
+/-- Unwrap an `Option`, otherwise abort fatally. -/
+def VerifM.expectSome (msg : String) (x : Option α) : VerifM α := do
+  match x with
+  | some x => pure x
+  | none => VerifM.fatal msg
+
 /-- Assume all formulas in a list via `VerifM.assume`. -/
 def VerifM.assumeAll : List Formula → VerifM Unit
   | [] => pure ()
@@ -500,6 +511,50 @@ theorem VerifM.eval_assert {φ : Formula} {st : TransState} {ρ : Env}
   | false =>
     simp at hq
     exact (VerifM.eval_failed hq).elim
+
+theorem VerifM.eval_expectEq [DecidableEq α] [Repr α]
+    {msg : String} {actual expected : α} {st : TransState} {ρ : Env}
+    {Q : Unit → TransState → Env → Prop}
+    (h : VerifM.eval (VerifM.expectEq msg actual expected) st ρ Q) :
+    actual = expected ∧ Q () st ρ := by
+  unfold VerifM.expectEq at h
+  by_cases heq : actual = expected
+  · simp [heq] at h
+    exact ⟨heq, VerifM.eval_ret h⟩
+  · simp [heq] at h
+    exact (VerifM.eval_fatal h).elim
+
+theorem VerifM.eval_expectSome
+    {msg : String} {x : Option α} {st : TransState} {ρ : Env}
+    {Q : α → TransState → Env → Prop}
+    (h : VerifM.eval (VerifM.expectSome msg x) st ρ Q) :
+    ∃ y, x = some y ∧ Q y st ρ := by
+  unfold VerifM.expectSome at h
+  cases hx : x with
+  | none =>
+    simp [hx] at h
+    exact (VerifM.eval_fatal h).elim
+  | some y =>
+    simp [hx] at h
+    exact ⟨y, rfl, VerifM.eval_ret h⟩
+
+theorem VerifM.eval_bind_expectEq [DecidableEq α] [Repr α]
+    {msg : String} {actual expected : α} {β : Type _} {k : Unit → VerifM β}
+    {st : TransState} {ρ : Env} {Q : β → TransState → Env → Prop}
+    (h : VerifM.eval ((VerifM.expectEq msg actual expected).bind k) st ρ Q) :
+    actual = expected ∧ VerifM.eval (k ()) st ρ Q := by
+  have hb := VerifM.eval_bind _ _ _ _ h
+  obtain ⟨heq, hk⟩ := VerifM.eval_expectEq hb
+  exact ⟨heq, hk⟩
+
+theorem VerifM.eval_bind_expectSome
+    {msg : String} {x : Option α} {β : Type _} {k : α → VerifM β}
+    {st : TransState} {ρ : Env} {Q : β → TransState → Env → Prop}
+    (h : VerifM.eval ((VerifM.expectSome msg x).bind k) st ρ Q) :
+    ∃ y, x = some y ∧ VerifM.eval (k y) st ρ Q := by
+  have hb := VerifM.eval_bind _ _ _ _ h
+  obtain ⟨y, hx, hk⟩ := VerifM.eval_expectSome hb
+  exact ⟨y, hx, hk⟩
 
 theorem VerifM.eval_all {items : List α} {st : TransState} {ρ : Env}
     {Q : α → TransState → Env → Prop}
