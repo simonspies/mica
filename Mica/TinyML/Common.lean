@@ -1,6 +1,8 @@
 namespace TinyML
 
 abbrev Var := String
+abbrev TyVar := String
+abbrev TypeName := String
 
 inductive Typ where
   | unit
@@ -63,6 +65,46 @@ instance : BEq Typ := ⟨fun a b => decide (a = b)⟩
 instance : LawfulBEq Typ where
   eq_of_beq h := of_decide_eq_true h
   rfl := by simp [BEq.beq]
+
+/--
+Substitution over `Typ`.
+
+This is currently structural-only scaffolding. It becomes meaningfully
+variable-sensitive once `Typ` grows `tvar`/`named`.
+-/
+def Typ.subst (_σ : TyVar → Typ) : Typ → Typ
+  | .unit => .unit
+  | .bool => .bool
+  | .int => .int
+  | .sum ts => .sum (ts.map (Typ.subst _σ))
+  | .arrow t1 t2 => .arrow (Typ.subst _σ t1) (Typ.subst _σ t2)
+  | .ref t => .ref (Typ.subst _σ t)
+  | .empty => .empty
+  | .value => .value
+  | .tuple ts => .tuple (ts.map (Typ.subst _σ))
+
+structure DataDecl where
+  tparams : List TyVar
+  payloads : List Typ
+  deriving Repr, Inhabited, DecidableEq
+
+abbrev TypeEnv := TypeName → Option DataDecl
+
+def TypeEnv.empty : TypeEnv := fun _ => none
+
+/--
+Instantiation is also scaffolding for now: until `Typ` can contain type
+variables, substitution has no observable effect.
+-/
+def DataDecl.instantiate (d : DataDecl) (args : List Typ) : Typ :=
+  let σ := fun v =>
+    match (d.tparams.zip args).find? (fun p => p.1 == v) with
+    | some (_, ty) => ty
+    | none => .value
+  .sum (d.payloads.map (Typ.subst σ))
+
+def TypeName.unfold (Θ : TypeEnv) (T : TypeName) (args : List Typ) : Option Typ :=
+  (Θ T).map (·.instantiate args)
 
 inductive BinOp where
   | add | sub | mul | div | mod
