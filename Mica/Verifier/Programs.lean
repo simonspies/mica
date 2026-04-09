@@ -39,9 +39,10 @@ def Spec.complete (sp : SpecPredicate) (e : Expr) : Except String Spec :=
 Iterates over a list of declarations, verifying each one against its spec
 and accumulating the spec map for use by subsequent declarations. -/
 
-def Program.prepare (Θ : TinyML.TypeEnv) (prog : Untyped.Program Untyped.Expr) : VerifM (Typed.Program Untyped.Expr) :=
-  match Typed.Program.elaborate Θ TinyML.TyCtx.empty prog with
-  | .ok typed => .ret typed
+def Program.prepare (prog : Untyped.Program Untyped.Expr) :
+    VerifM (TinyML.TypeEnv × Typed.Program Untyped.Expr) :=
+  match Typed.Program.elaborate TinyML.TypeEnv.empty TinyML.TyCtx.empty prog with
+  | .ok prepared => .ret prepared
   | .error err => .fatal (toString err)
 
 /-- Check an individual declaration. Each declaration's `checkSpec` runs inside a `seq` bracket so its
@@ -69,49 +70,46 @@ def ValDecl.checkExpr (Θ : TinyML.TypeEnv) (S : SpecMap) (d : Typed.ValDecl Unt
 def Program.check (Θ : TinyML.TypeEnv) : SpecMap → Typed.Program Untyped.Expr → VerifM Unit
   | _, [] => pure ()
   | S, d :: ds => do
-    match d with
-    | .type_ _ =>
+    match d.name.name, d.spec with
+    | none, none =>
+      ValDecl.checkExpr Θ S d
       Program.check Θ S ds
-    | .val_ d =>
-      match d.name.name, d.spec with
-      | none, none =>
+    | some n, none =>
+    -- Named declaration without a spec: skip if it's a function definition
+    -- (no code executes), otherwise check it. Erase any old spec for this
+    -- name since the new binding shadows it.
+      if d.body.isFunc then
+        Program.check Θ (S.erase n) ds
+      else
         ValDecl.checkExpr Θ S d
-        Program.check Θ S ds
-      | some n, none =>
-      -- Named declaration without a spec: skip if it's a function definition
-      -- (no code executes), otherwise check it. Erase any old spec for this
-      -- name since the new binding shadows it.
-        if d.body.isFunc then
-          Program.check Θ (S.erase n) ds
-        else
-          ValDecl.checkExpr Θ S d
-          Program.check Θ (S.erase n) ds
-      | _, _ =>
-        let spec ← ValDecl.check Θ S d
-        let S' := match d.name.name with
-          | some name => S.insert name spec
-          | none => S
-        Program.check Θ S' ds
+        Program.check Θ (S.erase n) ds
+    | _, _ =>
+      let spec ← ValDecl.check Θ S d
+      let S' := match d.name.name with
+        | some name => S.insert name spec
+        | none => S
+      Program.check Θ S' ds
 
 def Program.verify (prog : Untyped.Program Untyped.Expr) : Smt.Strategy Smt.Strategy.Outcome :=
   VerifM.strategy do
-    let typed ← Program.prepare TinyML.TypeEnv.empty prog
-    Program.check TinyML.TypeEnv.empty ∅ typed
+    let (Θ, typed) ← Program.prepare prog
+    Program.check Θ ∅ typed
 
 /-! ## Correctness -/
 
-theorem Program.prepare_correct (Θ : TinyML.TypeEnv) (prog : Untyped.Program Untyped.Expr)
+theorem Program.prepare_correct (prog : Untyped.Program Untyped.Expr)
     (st : TransState) (ρ : Env)
-    {Q : Typed.Program Untyped.Expr → TransState → Env → Prop}
-    (heval : VerifM.eval (Program.prepare Θ prog) st ρ Q) :
-    ∃ typed, Typed.Program.runtime typed = Untyped.Program.runtime prog ∧ Q typed st ρ := by
+    {Q : (TinyML.TypeEnv × Typed.Program Untyped.Expr) → TransState → Env → Prop}
+    (heval : VerifM.eval (Program.prepare prog) st ρ Q) :
+    ∃ Θ typed, Typed.Program.runtime typed = Untyped.Program.runtime prog ∧ Q (Θ, typed) st ρ := by
   unfold Program.prepare at heval
-  cases helab : Typed.Program.elaborate Θ TinyML.TyCtx.empty prog with
+  cases helab : Typed.Program.elaborate TinyML.TypeEnv.empty TinyML.TyCtx.empty prog with
   | error err =>
     simp [helab] at heval
     exact (VerifM.eval_fatal heval).elim
-  | ok typed =>
-    refine ⟨typed, Typed.Program.elaborate_runtime Θ TinyML.TyCtx.empty prog helab, ?_⟩
+  | ok prepared =>
+    rcases prepared with ⟨Θ, typed⟩
+    refine ⟨Θ, typed, Typed.Program.elaborate_runtime TinyML.TypeEnv.empty TinyML.TyCtx.empty prog helab, ?_⟩
     simp [helab] at heval
     exact VerifM.eval_ret heval
 
@@ -187,77 +185,72 @@ theorem Program.check_correct (Θ : TinyML.TypeEnv) (S : SpecMap) (prog : Typed.
     simp [Typed.Program.runtime, Runtime.Program.subst, pwp]
   | cons d ds ih =>
     intro heval
-    cases d with
-    | type_ td =>
-      simp [Program.check, Typed.Program.runtime] at heval ⊢
-      exact ih S γ hS hSwf st ρ heval
-    | val_ d =>
-      have hpwp_unfold : pwp ((Typed.Program.runtime (.val_ d :: ds)).subst γ) ↔
-          wp (d.body.runtime.subst γ) (fun v =>
-            pwp ((Typed.Program.runtime ds).subst (Runtime.Subst.update' d.name.runtime v γ))) := by
-        simp [Typed.Program.runtime, pwp, Typed.Decl.runtime, Typed.ValDecl.runtime,
-          Runtime.Program.subst, Runtime.Decl.subst, Runtime.Program.subst_remove_update]
-      rw [hpwp_unfold]
-      simp only [Program.check] at heval
-      cases hname : d.name.name
-      · cases hspec : d.spec
-        · simp only [hname, hspec] at heval
-          have hbind := VerifM.eval_bind _ _ _ _ heval
+    have hpwp_unfold : pwp ((Typed.Program.runtime (d :: ds)).subst γ) ↔
+        wp (d.body.runtime.subst γ) (fun v =>
+          pwp ((Typed.Program.runtime ds).subst (Runtime.Subst.update' d.name.runtime v γ))) := by
+      simp [Typed.Program.runtime, pwp, Typed.ValDecl.runtime,
+        Runtime.Program.subst, Runtime.Decl.subst, Runtime.Program.subst_remove_update]
+    rw [hpwp_unfold]
+    simp only [Program.check] at heval
+    cases hname : d.name.name
+    · cases hspec : d.spec
+      · simp only [hname, hspec] at heval
+        have hbind := VerifM.eval_bind _ _ _ _ heval
+        have hwp := ValDecl.checkExpr_correct Θ S d γ hS hSwf st ρ hbind
+        have ⟨_, hcont⟩ := VerifM.eval_seq hbind
+        apply wp.mono _ hwp
+        intro v _
+        simp only [Binder.runtime_of_name_none hname, Runtime.Subst.update']
+        exact ih S γ hS hSwf st ρ (VerifM.eval_ret hcont)
+      · simp only [hname, hspec] at heval
+        obtain ⟨spec, hswf, hwp, hcont⟩ :=
+          ValDecl.check_correct Θ S d γ hS hSwf st ρ (VerifM.eval_bind _ _ _ _ heval)
+        apply wp.mono (fun v hprecond => _) hwp
+        intro v hprecond
+        simp only [Binder.runtime_of_name_none hname, Runtime.Subst.update']
+        exact ih S γ hS hSwf st ρ hcont
+    · rename_i n
+      cases hspec : d.spec
+      · simp only [hname, hspec] at heval
+        split at heval
+        · rename_i hfunc
+          obtain ⟨self, args, retTy, body, hbody⟩ := Expr.isFunc_elim hfunc
+          have hbody_rt : d.body.runtime.subst γ =
+              Runtime.Expr.fix self.runtime (args.map (·.runtime))
+                (body.runtime.subst ((γ.remove' self.runtime).removeAll'
+                  (args.map (·.runtime)))) := by
+            rw [hbody]
+            conv_lhs => unfold Expr.runtime
+            simp only [Runtime.Expr.subst_fix]
+          rw [hbody_rt]
+          apply wp.func
+          simp only [Binder.runtime_of_name_some hname, Runtime.Subst.update']
+          simpa [SpecMap.erase', hname, Binder.runtime_of_name_some hname, Runtime.Subst.update'] using
+            ih (S.erase' d.name) (Runtime.Subst.update' d.name.runtime _ γ)
+            (SpecMap.satisfiedBy_erase' hS) (SpecMap.wfIn_erase' hSwf) st ρ (by
+              simpa [SpecMap.erase', hname, Binder.runtime_of_name_some hname, Runtime.Subst.update'] using heval)
+        · have hbind := VerifM.eval_bind _ _ _ _ heval
           have hwp := ValDecl.checkExpr_correct Θ S d γ hS hSwf st ρ hbind
           have ⟨_, hcont⟩ := VerifM.eval_seq hbind
           apply wp.mono _ hwp
           intro v _
-          simp only [Binder.runtime_of_name_none hname, Runtime.Subst.update']
-          exact ih S γ hS hSwf st ρ (VerifM.eval_ret hcont)
-        · simp only [hname, hspec] at heval
-          obtain ⟨spec, hswf, hwp, hcont⟩ :=
-            ValDecl.check_correct Θ S d γ hS hSwf st ρ (VerifM.eval_bind _ _ _ _ heval)
-          apply wp.mono (fun v hprecond => _) hwp
-          intro v hprecond
-          simp only [Binder.runtime_of_name_none hname, Runtime.Subst.update']
-          exact ih S γ hS hSwf st ρ hcont
-      · rename_i n
-        cases hspec : d.spec
-        · simp only [hname, hspec] at heval
-          split at heval
-          · rename_i hfunc
-            obtain ⟨self, args, retTy, body, hbody⟩ := Expr.isFunc_elim hfunc
-            have hbody_rt : d.body.runtime.subst γ =
-                Runtime.Expr.fix self.runtime (args.map (·.runtime))
-                  (body.runtime.subst ((γ.remove' self.runtime).removeAll'
-                    (args.map (·.runtime)))) := by
-              rw [hbody]
-              conv_lhs => unfold Expr.runtime
-              simp only [Runtime.Expr.subst_fix]
-            rw [hbody_rt]
-            apply wp.func
-            simp only [Binder.runtime_of_name_some hname, Runtime.Subst.update']
-            simpa [SpecMap.erase', hname, Binder.runtime_of_name_some hname, Runtime.Subst.update'] using
-              ih (S.erase' d.name) (Runtime.Subst.update' d.name.runtime _ γ)
-              (SpecMap.satisfiedBy_erase' hS) (SpecMap.wfIn_erase' hSwf) st ρ (by
-                simpa [SpecMap.erase', hname, Binder.runtime_of_name_some hname, Runtime.Subst.update'] using heval)
-          · have hbind := VerifM.eval_bind _ _ _ _ heval
-            have hwp := ValDecl.checkExpr_correct Θ S d γ hS hSwf st ρ hbind
-            have ⟨_, hcont⟩ := VerifM.eval_seq hbind
-            apply wp.mono _ hwp
-            intro v _
-            simp only [Binder.runtime_of_name_some hname, Runtime.Subst.update']
-            simpa [SpecMap.erase', hname, Binder.runtime_of_name_some hname, Runtime.Subst.update'] using
-              ih (S.erase' d.name) (Runtime.Subst.update' d.name.runtime v γ)
-              (SpecMap.satisfiedBy_erase' hS) (SpecMap.wfIn_erase' hSwf) st ρ (by
-                simpa [SpecMap.erase', hname, Binder.runtime_of_name_some hname, Runtime.Subst.update'] using
-                  (VerifM.eval_ret hcont))
-        · simp only [hname, hspec] at heval
-          obtain ⟨spec, hswf, hwp, hcont⟩ :=
-            ValDecl.check_correct Θ S d γ hS hSwf st ρ (VerifM.eval_bind _ _ _ _ heval)
-          apply wp.mono (fun v hprecond => _) hwp
-          intro v hprecond
           simp only [Binder.runtime_of_name_some hname, Runtime.Subst.update']
-          simpa [SpecMap.insert', hname, Binder.runtime_of_name_some hname, Runtime.Subst.update'] using
-            ih (S.insert' d.name spec) (Runtime.Subst.update' d.name.runtime v γ)
-              (SpecMap.satisfiedBy_insert'_update' hS hprecond) (SpecMap.wfIn_insert' hSwf hswf) st ρ
-              (by
-                simpa [SpecMap.insert', hname, Binder.runtime_of_name_some hname, Runtime.Subst.update'] using hcont)
+          simpa [SpecMap.erase', hname, Binder.runtime_of_name_some hname, Runtime.Subst.update'] using
+            ih (S.erase' d.name) (Runtime.Subst.update' d.name.runtime v γ)
+            (SpecMap.satisfiedBy_erase' hS) (SpecMap.wfIn_erase' hSwf) st ρ (by
+              simpa [SpecMap.erase', hname, Binder.runtime_of_name_some hname, Runtime.Subst.update'] using
+                (VerifM.eval_ret hcont))
+      · simp only [hname, hspec] at heval
+        obtain ⟨spec, hswf, hwp, hcont⟩ :=
+          ValDecl.check_correct Θ S d γ hS hSwf st ρ (VerifM.eval_bind _ _ _ _ heval)
+        apply wp.mono (fun v hprecond => _) hwp
+        intro v hprecond
+        simp only [Binder.runtime_of_name_some hname, Runtime.Subst.update']
+        simpa [SpecMap.insert', hname, Binder.runtime_of_name_some hname, Runtime.Subst.update'] using
+          ih (S.insert' d.name spec) (Runtime.Subst.update' d.name.runtime v γ)
+            (SpecMap.satisfiedBy_insert'_update' hS hprecond) (SpecMap.wfIn_insert' hSwf hswf) st ρ
+            (by
+              simpa [SpecMap.insert', hname, Binder.runtime_of_name_some hname, Runtime.Subst.update'] using hcont)
 
 theorem Program.verify_correct (p : Untyped.Program Untyped.Expr) :
   Smt.Strategy.checks (Program.verify p) (pwp (Untyped.Program.runtime p)) := by
@@ -276,12 +269,12 @@ theorem Program.verify_correct (p : Untyped.Program Untyped.Expr) :
        by simp [FlatCtx.empty, Signature.empty, Signature.allNames]⟩
     have hverifM := VerifM.eval_of_translate
                       (do
-                        let typed ← Program.prepare TinyML.TypeEnv.empty p
-                        Program.check TinyML.TypeEnv.empty ∅ typed)
+                        let (Θ, typed) ← Program.prepare p
+                        Program.check Θ ∅ typed)
                       FlatCtx.empty default ctx_mid hverif hholdsFor hwf
     have hbind := VerifM.eval_bind _ _ _ _ hverifM
-    obtain ⟨typed, hrt, hcheck⟩ := Program.prepare_correct TinyML.TypeEnv.empty p FlatCtx.empty default hbind
-    have hcorrect := Program.check_correct TinyML.TypeEnv.empty ∅ typed Runtime.Subst.id
+    obtain ⟨Θ, typed, hrt, hcheck⟩ := Program.prepare_correct p FlatCtx.empty default hbind
+    have hcorrect := Program.check_correct Θ ∅ typed Runtime.Subst.id
                        (SpecMap.empty_satisfiedBy _) (SpecMap.empty_wfIn _)
                        FlatCtx.empty default hcheck
     rw [Runtime.Program.subst_id] at hcorrect

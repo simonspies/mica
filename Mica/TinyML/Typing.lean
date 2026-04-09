@@ -439,6 +439,7 @@ open TinyML
 
 inductive TypeError where
   | undefinedVar (name : Var)
+  | duplicateType (name : TypeName)
   | operatorMismatch (op : BinOp) (lhs rhs : Typ)
   | unaryMismatch (op : UnOp) (arg : Typ)
   | notAFunction (ty : Typ)
@@ -453,6 +454,7 @@ inductive TypeError where
 instance : ToString TypeError where
   toString
     | .undefinedVar name => s!"undefined variable: {name}"
+    | .duplicateType name => s!"duplicate type: {name}"
     | .operatorMismatch op lhs rhs =>
         s!"operator {repr op} cannot be applied to {repr lhs} and {repr rhs}"
     | .unaryMismatch op arg =>
@@ -487,6 +489,11 @@ def extendTyped (Γ : TinyML.TyCtx) (b : Typed.Binder) : TinyML.TyCtx :=
 def joinAll (Θ : TypeEnv) : List Typ → Typ
   | [] => .value
   | t :: ts => ts.foldl (Typ.join Θ) t
+
+def extendTypeEnv (Θ : TypeEnv) (name : TypeName) (body : DataDecl) : Except TypeError TypeEnv :=
+  match Θ name with
+  | some _ => .error (.duplicateType name)
+  | none => .ok (fun query => if query == name then some body else Θ query)
 
 mutual
   def infer (Θ : TypeEnv) (Γ : TinyML.TyCtx) : Untyped.Expr → Except TypeError (Typ × Typed.Expr)
@@ -629,26 +636,21 @@ def ValDecl.elaborate {S : Type} (Θ : TypeEnv) (Γ : TinyML.TyCtx) (d : Untyped
     | _ => bodyTy
   .ok { name := Typed.Binder.ofUntyped d.name nameTy, body := body', spec := d.spec }
 
-def Decl.elaborate {S : Type} (Θ : TypeEnv) (Γ : TinyML.TyCtx) (d : Untyped.Decl S) :
-    Except TypeError (Typed.Decl S) := do
-  match d with
-  | .val_ d =>
-      return .val_ (← ValDecl.elaborate Θ Γ d)
-  | .type_ d =>
-      return .type_ { name := d.name, body := d.body }
-
-def Program.elaborate {S : Type} (Θ : TypeEnv) (Γ : TinyML.TyCtx) : Untyped.Program S → Except TypeError (Typed.Program S)
-  | [] => .ok []
+def Program.elaborate {S : Type} (Θ : TypeEnv) (Γ : TinyML.TyCtx) :
+    Untyped.Program S → Except TypeError (TypeEnv × Typed.Program S)
+  | [] => .ok (Θ, [])
   | d :: ds => do
-      let d' ← Decl.elaborate Θ Γ d
-      let Γ' := match d' with
-        | .val_ d =>
-            match d.name.name with
-            | some x => Γ.extend x d.name.ty
+      match d with
+      | .type_ dty =>
+          let Θ' ← extendTypeEnv Θ dty.name dty.body
+          Program.elaborate Θ' Γ ds
+      | .val_ dval =>
+          let d' ← ValDecl.elaborate Θ Γ dval
+          let Γ' := match d'.name.name with
+            | some x => Γ.extend x d'.name.ty
             | none => Γ
-        | .type_ _ => Γ
-      let ds' ← Program.elaborate Θ Γ' ds
-      .ok (d' :: ds')
+          let (Θ', ds') ← Program.elaborate Θ Γ' ds
+          .ok (Θ', d' :: ds')
 
 -- The main issue in this block is not the mathematical argument, but convincing
 -- Lean's termination checker that the mutual proof recursion is well-founded.
@@ -998,102 +1000,84 @@ mutual
           · simp [Typed.inferBranches, binderTy, hsub] at h
 end
 
-theorem Decl.elaborate_runtime {S : Type} (Θ : TypeEnv) (Γ : TinyML.TyCtx) (d : Untyped.Decl S) :
-    ∀ {d' : Typed.Decl S},
-      Typed.Decl.elaborate Θ Γ d = .ok d' →
+theorem ValDecl.elaborate_runtime {S : Type} (Θ : TypeEnv) (Γ : TinyML.TyCtx) (d : Untyped.ValDecl S) :
+    ∀ {d' : Typed.ValDecl S},
+      Typed.ValDecl.elaborate Θ Γ d = .ok d' →
       d'.runtime = d.runtime := by
-  intro d' h
-  cases d with
-  | val_ dval =>
-    simp [Decl.elaborate] at h
-    have ⟨dval', helab, hret⟩ := Except.bind_ok h
-    cases hret
-    cases hname : dval.name with
-    | none =>
-      cases hinfer : Typed.infer Θ Γ dval.body with
-      | error err =>
+  intro d' helab
+  cases hname : d.name with
+  | none =>
+    cases hinfer : Typed.infer Θ Γ d.body with
+    | error err =>
+      simp [ValDecl.elaborate, hname, hinfer] at helab
+      cases helab
+    | ok p =>
+      cases p with
+      | mk bodyTy body' =>
         simp [ValDecl.elaborate, hname, hinfer] at helab
+        cases helab
+        simp [Typed.ValDecl.runtime, Untyped.ValDecl.runtime,
+          infer_runtime Θ Γ d.body _ hinfer, Binder.ofUntyped_runtime, hname]
+  | named x ann =>
+    cases hann : ann with
+    | none =>
+      cases hinfer : Typed.infer Θ Γ d.body with
+      | error err =>
+        simp [ValDecl.elaborate, hname, hann, hinfer] at helab
         cases helab
       | ok p =>
         cases p with
         | mk bodyTy body' =>
-          simp [ValDecl.elaborate, hname, hinfer] at helab
-          cases helab
-          simp [Typed.Decl.runtime, Untyped.Decl.runtime, Typed.ValDecl.runtime, Untyped.ValDecl.runtime,
-            infer_runtime Θ Γ dval.body _ hinfer, Binder.ofUntyped_runtime, hname]
-    | named x ann =>
-      cases hann : ann with
-      | none =>
-        cases hinfer : Typed.infer Θ Γ dval.body with
-        | error err =>
           simp [ValDecl.elaborate, hname, hann, hinfer] at helab
           cases helab
-        | ok p =>
-          cases p with
-          | mk bodyTy body' =>
-            simp [ValDecl.elaborate, hname, hann, hinfer] at helab
-            cases helab
-            simp [Typed.Decl.runtime, Untyped.Decl.runtime, Typed.ValDecl.runtime, Untyped.ValDecl.runtime,
-              infer_runtime Θ Γ dval.body _ hinfer, Binder.ofUntyped_runtime, hname, hann]
-      | some ty =>
-        cases hcheck : Typed.check Θ Γ dval.body ty with
-        | error err =>
-          simp [ValDecl.elaborate, hname, hann, hcheck] at helab
-          cases helab
-        | ok body' =>
-          simp [ValDecl.elaborate, hname, hann, hcheck] at helab
-          cases helab
-          simp [Typed.Decl.runtime, Untyped.Decl.runtime, Typed.ValDecl.runtime, Untyped.ValDecl.runtime,
-            check_runtime Θ Γ dval.body ty _ hcheck, Binder.ofUntyped_runtime, hname, hann]
-  | type_ dty =>
-    simp [Decl.elaborate] at h
-    cases h
-    simp [Typed.Decl.runtime, Untyped.Decl.runtime]
+          simp [Typed.ValDecl.runtime, Untyped.ValDecl.runtime,
+            infer_runtime Θ Γ d.body _ hinfer, Binder.ofUntyped_runtime, hname, hann]
+    | some ty =>
+      cases hcheck : Typed.check Θ Γ d.body ty with
+      | error err =>
+        simp [ValDecl.elaborate, hname, hann, hcheck] at helab
+        cases helab
+      | ok body' =>
+        simp [ValDecl.elaborate, hname, hann, hcheck] at helab
+        cases helab
+        simp [Typed.ValDecl.runtime, Untyped.ValDecl.runtime,
+          check_runtime Θ Γ d.body ty _ hcheck, Binder.ofUntyped_runtime, hname, hann]
 
 theorem Program.elaborate_runtime {S : Type} (Θ : TypeEnv) (Γ : TinyML.TyCtx) (prog : Untyped.Program S) :
-    ∀ {prog' : Typed.Program S},
-      Typed.Program.elaborate Θ Γ prog = .ok prog' →
+    ∀ {Θ' : TypeEnv} {prog' : Typed.Program S},
+      Typed.Program.elaborate Θ Γ prog = .ok (Θ', prog') →
       prog'.runtime = prog.runtime := by
-  induction prog generalizing Γ with
+  induction prog generalizing Θ Γ with
   | nil =>
-    intro prog' h
+    intro Θ' prog' h
     simp [Typed.Program.elaborate] at h
-    cases h
-    rfl
+    rcases h with ⟨rfl, rfl⟩
+    simp [Typed.Program.runtime, Untyped.Program.runtime]
   | cons d ds ih =>
-    intro prog' h
+    intro Θ' prog' h
     cases d with
-    | val_ dval =>
-      unfold Typed.Program.elaborate at h
-      have ⟨d', hdecl, hcont⟩ := Except.bind_ok h
-      cases d' with
-      | val_ dval' =>
-        let Γ' := match dval'.name.name with
-          | some x => Γ.extend x dval'.name.ty
-          | none => Γ
-        have ⟨ds', htail, hcont⟩ := Except.bind_ok hcont
-        simp at hcont
-        cases hcont
-        have hdecl_rt : dval'.runtime = dval.runtime := by
-          simpa [Typed.Decl.runtime, Untyped.Decl.runtime] using
-            (Decl.elaborate_runtime Θ Γ (.val_ dval) hdecl)
-        simp [Typed.Program.runtime, Typed.Decl.runtime, Untyped.Program.runtime, Untyped.Decl.runtime]
-        constructor
-        · exact hdecl_rt
-        · exact ih Γ' htail
-      | type_ dty =>
-        cases hval : ValDecl.elaborate Θ Γ dval <;> simp [Decl.elaborate, hval] at hdecl
     | type_ dty =>
       unfold Typed.Program.elaborate at h
-      have ⟨d', hdecl, hcont⟩ := Except.bind_ok h
-      cases d' with
-      | val_ dval' =>
-        cases hdecl
-      | type_ dty' =>
-        have ⟨ds', htail, hcont⟩ := Except.bind_ok hcont
-        simp at hcont
-        cases hcont
-        simpa [Typed.Program.runtime, Typed.Decl.runtime, Untyped.Program.runtime, Untyped.Decl.runtime]
-          using ih Γ htail
+      cases hext : extendTypeEnv Θ dty.name dty.body with
+      | error err =>
+        simp [hext] at h
+        cases h
+      | ok Θ1 =>
+        simp [hext] at h
+        exact ih Θ1 Γ h
+    | val_ dval =>
+      unfold Typed.Program.elaborate at h
+      have ⟨dval', hdecl, hcont⟩ := Except.bind_ok h
+      let Γ' := match dval'.name.name with
+        | some x => Γ.extend x dval'.name.ty
+        | none => Γ
+      have ⟨tail, htail, hcont⟩ := Except.bind_ok hcont
+      rcases tail with ⟨Θ'', ds'⟩
+      simp at hcont
+      cases hcont
+      have hdecl_rt : dval'.runtime = dval.runtime := ValDecl.elaborate_runtime Θ Γ dval hdecl
+      subst prog'
+      simp [Typed.Program.runtime, Untyped.Program.runtime, hdecl_rt]
+      exact congrArg (List.cons dval.runtime) (ih Θ Γ' htail)
 
 end Typed

@@ -64,12 +64,8 @@ where
 def ValDecl.runtime {S : Type} (d : Typed.ValDecl S) : Runtime.Decl :=
   { name := d.name.runtime, body := d.body.runtime }
 
-def Decl.runtime {S : Type} : Typed.Decl S → Option Runtime.Decl
-  | .val_ d => some d.runtime
-  | .type_ _ => none
-
 def Program.runtime {S : Type} (prog : Typed.Program S) : Runtime.Program :=
-  prog.filterMap Decl.runtime
+  prog.map ValDecl.runtime
 
 theorem Expr.branchListRuntime_eq_map (branches : List (Typed.Binder × Typed.Expr)) :
     Expr.runtime.branchListRuntime branches =

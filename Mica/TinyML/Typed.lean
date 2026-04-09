@@ -226,20 +226,6 @@ instance [Inhabited S] : Inhabited (ValDecl S) := ⟨{ name := default, body := 
 def ValDecl.mapSpec {S T : Type} (f : S → Option T) (d : ValDecl S) : ValDecl T :=
   { name := d.name, body := d.body, spec := d.spec.bind f }
 
-structure TypeDecl where
-  name : TypeName
-  body : DataDecl
-  deriving Repr, BEq, Inhabited
-
-inductive Decl (S : Type) where
-  | val_ (d : ValDecl S)
-  | type_ (d : TypeDecl)
-  deriving Repr, BEq, Inhabited
-
-def Decl.mapSpec {S T : Type} (f : S → Option T) : Decl S → Decl T
-  | .val_ d => .val_ (d.mapSpec f)
-  | .type_ d => .type_ d
-
-abbrev Program (S : Type) := List (Decl S)
+abbrev Program (S : Type) := List (ValDecl S)
 
 end Typed
