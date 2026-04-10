@@ -5,7 +5,7 @@ import Mica.FOL.Terms
 A `SpatialAtom` is a syntactic ownership item stored in the verifier state.
 A `SpatialContext` is a list of such items. We define their well-formedness
 and basic operations (insert = cons, lookup+remove). The Iris interpretation
-lives in `Mica.SeparationLogic.Contexts`. -/
+lives in `Mica.SeparationLogic.Interpretation`. -/
 
 /-- A syntactic ownership item. Initially, only points-to assertions. -/
 inductive SpatialAtom where
