@@ -316,7 +316,7 @@ private theorem VerifM.eval_tryCandidates
     Tier 1: syntactic search through the context.
     Tier 2: try candidate resolutions via the SMT solver. -/
 def VerifM.resolve (a : Atom τ) : VerifM (Option (Term τ)) := do
-  match ← VerifM.ctx (a.resolve ·) with
+  match ← VerifM.ctxPure (a.resolve ·) with
   | some t => pure (some t)
   | none => VerifM.tryCandidates a.candidates
 
