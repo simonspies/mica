@@ -176,11 +176,11 @@ end
 
 /-- Declare argument variables, check types, and assume equalities for a spec call.
     Returns the updated substitution. -/
-def Spec.declareArgs (Θ : TinyML.TypeEnv) (σ : FiniteSubst) :
-    List (String × TinyML.Typ) → List (TinyML.Typ × Term .value) → VerifM FiniteSubst
+  def Spec.declareArgs (Θ : TinyML.TypeEnv) (σ : FiniteSubst) :
+      List (String × TinyML.Typ) → List (TinyML.Typ × Term .value) → VerifM FiniteSubst
   | [], [] => pure σ
   | (name, ty) :: rest, (targ, sarg) :: sargs => do
-    if targ.sub Θ ty then pure ()
+    if TinyML.Typ.sub Θ .left targ ty || TinyML.Typ.sub Θ .right targ ty then pure ()
     else VerifM.fatal s!"type mismatch in call to spec"
     let argVar ← VerifM.decl (some name) .value
     let σ' := σ.rename ⟨name, .value⟩ argVar.name
@@ -480,12 +480,30 @@ theorem Spec.declareArgs_correct (Θ : TinyML.TypeEnv) :
     | cons sarg_hd sargs_rest =>
       obtain ⟨targ, sarg⟩ := sarg_hd
       simp only [Spec.declareArgs] at heval
-      by_cases hsub_ty : targ.sub Θ ty = true
-      · simp [hsub_ty] at heval
+      by_cases hsub_ty : TinyML.Typ.sub Θ .left targ ty || TinyML.Typ.sub Θ .right targ ty = true
+      · have hsub_ty_prop :
+            TinyML.Typ.sub Θ .left targ ty = true ∨ TinyML.Typ.sub Θ .right targ ty = true := by
+            simpa [Bool.or_eq_true] using hsub_ty
+        simp [hsub_ty_prop] at heval
         have hbind := VerifM.eval_bind _ _ _ _ heval
         have hret := VerifM.eval_ret hbind
-        have hb2 := VerifM.eval_bind _ _ _ _ hret
-        have hdecl := VerifM.eval_decl hb2
+        have hbind' :
+            (VerifM.decl (some name) .value).eval st ρ
+              (fun argVar st' ρ' =>
+                (do
+                  VerifM.assume
+                    (Formula.eq Srt.value (Term.const (.uninterpreted argVar.name .value)) sarg)
+                  Spec.declareArgs Θ (σ.rename ⟨name, .value⟩ argVar.name) rest sargs_rest).eval
+                    st' ρ' Ψ) := by
+          simpa using
+            (VerifM.eval_bind
+              (m := VerifM.decl (some name) .value)
+              (k := fun argVar => do
+                VerifM.assume
+                  (Formula.eq Srt.value (Term.const (.uninterpreted argVar.name .value)) sarg)
+                Spec.declareArgs Θ (σ.rename ⟨name, .value⟩ argVar.name) rest sargs_rest)
+              (st := st) (ρ := ρ) hret)
+        have hdecl := VerifM.eval_decl hbind'
         set argVar := st.freshConst (some name) .value
         have hfresh_decls : argVar.name ∉ st.decls.allNames :=
           fresh_not_mem (addNumbers name) st.decls.allNames (addNumbers_injective _)
@@ -514,8 +532,8 @@ theorem Spec.declareArgs_correct (Θ : TinyML.TypeEnv) :
           simp only [Formula.eval, Term.eval, Const.denote]
           simpa [Env.lookupConst, Env.updateConst] using
             (Term.eval_env_agree hsarg_wf (agreeOn_update_fresh_const hfresh_decls))
-        have hb3 := VerifM.eval_bind _ _ _ _ hdecl
-        have hassume := VerifM.eval_assume hb3 heq_wf heq_holds
+        have hbind'' := VerifM.eval_bind _ _ _ _ hdecl
+        have hassume := VerifM.eval_assume hbind'' heq_wf heq_holds
         set ρ₁ := ρ.updateConst .value argVar.name (sarg.eval ρ)
         have hsargs_rest : ∀ p ∈ sargs_rest, (p : TinyML.Typ × Term .value).2.wfIn
             (st.decls.addConst argVar) := by
@@ -534,8 +552,12 @@ theorem Spec.declareArgs_correct (Θ : TinyML.TypeEnv) :
           simpa [σ'] using (FiniteSubst.rename_dom_wf (σ := σ) (v := ⟨name, .value⟩) (name' := argVar.name) hσdomwf)
         obtain ⟨σ'', st'', ρ'', hΨ, hσ''wf, hσ''domwf, hsublist, hdom_sub, hagree⟩ :=
           ih sargs_rest σ' _ ρ₁ Ψ hσ'wf hσ'domwf hsargs_rest hassume
+        have hsub_ty' : TinyML.Typ.Sub Θ targ ty := by
+          cases hsub_ty_prop with
+          | inl h => exact TinyML.Typ.sub_sound h
+          | inr h => exact TinyML.Typ.sub_sound h
         refine ⟨σ'', st'', ρ'', hΨ, hσ''wf, hσ''domwf,
-          .cons (TinyML.Typ.sub_iff.mp hsub_ty) hsublist, ?_, ?_⟩
+          .cons hsub_ty' hsublist, ?_, ?_⟩
         · simpa [σ', FiniteSubst.rename, Signature.ofVars, Spec.argVars, Signature.declVars, Signature.declVar]
             using hdom_sub
         · have hag_rename := FiniteSubst.rename_agreeOn_declVar
@@ -549,7 +571,10 @@ theorem Spec.declareArgs_correct (Θ : TinyML.TypeEnv) :
           rw [hsargs_eval] at hagree
           simpa [σ', FiniteSubst.rename, Spec.argsEnv, Spec.argVars, Signature.declVars, Signature.declVar] using
             (Env.agreeOn_trans hagree hag_env)
-      · rw [if_neg hsub_ty] at heval
+      · have hsub_ty_prop :
+            ¬(TinyML.Typ.sub Θ .left targ ty = true ∨ TinyML.Typ.sub Θ .right targ ty = true) := by
+            simpa [Bool.or_eq_true] using hsub_ty
+        simp [hsub_ty_prop] at heval
         have hb := VerifM.eval_bind _ _ _ _ heval
         exact (VerifM.eval_fatal hb).elim
 

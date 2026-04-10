@@ -680,7 +680,7 @@ mutual
     let (actual, e') ← infer Θ Γ e
     if actual == expected then
       .ok e'
-    else if Typ.sub Θ actual expected then
+    else if Typ.sub Θ .left actual expected || Typ.sub Θ .right actual expected then
       .ok (.cast e' expected)
     else
       .error (.subsumptionFailure actual expected)
@@ -705,7 +705,7 @@ mutual
     | [], [] => .ok []
     | ty :: tys, (binder, body) :: rest => do
         let binderTy := Typed.Binder.expectedTy binder ty
-        if Typ.sub Θ ty binderTy then
+        if Typ.sub Θ .left ty binderTy || Typ.sub Θ .right ty binderTy then
           let typedBinder := Typed.Binder.ofUntyped binder binderTy
           let (_bodyTy, body') ← infer Θ (extendTyped Γ typedBinder) body
           let rest' ← inferBranches Θ Γ tys rest
@@ -1011,7 +1011,7 @@ mutual
         · simp [heq] at hcont
           cases hcont
           simpa using infer_runtime Θ Γ e _ hinfer
-        · by_cases hsub : Typ.sub Θ actual expected
+        · by_cases hsub : Typ.sub Θ .left actual expected || Typ.sub Θ .right actual expected
           · simp [heq, hsub] at hcont
             cases hcont
             simp [Expr.runtime, infer_runtime Θ Γ e _ hinfer]
@@ -1080,7 +1080,7 @@ mutual
         | cons ty tys =>
           obtain ⟨binder, body⟩ := br
           let binderTy := Typed.Binder.expectedTy binder ty
-          by_cases hsub : Typ.sub Θ ty binderTy
+          by_cases hsub : Typ.sub Θ .left ty binderTy || Typ.sub Θ .right ty binderTy
           · unfold Typed.inferBranches at h
             simp [binderTy, hsub] at h
             let typedBinder := Typed.Binder.ofUntyped binder binderTy

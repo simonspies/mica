@@ -224,7 +224,7 @@ mutual
         | _ => VerifM.fatal "match on non-sum type"
     | .cast e ty => do
         let se ← compile Θ S B Γ e
-        if e.ty.sub Θ ty then pure se
+        if TinyML.Typ.sub Θ .left e.ty ty || TinyML.Typ.sub Θ .right e.ty ty then pure se
         else VerifM.fatal s!"cast type mismatch"
     | .app _ _ _ | .fix _ _ _ _ | .ref _ | .deref _ _ | .store _ _ => VerifM.fatal "unsupported expression"
 
@@ -414,12 +414,20 @@ theorem compile_correct (Θ : TinyML.TypeEnv) (e : Expr) (S : SpecMap) (B : Bind
     refine compile_correct Θ e S B Γ st ρ γ _ _ (VerifM.eval.decls_grow ρ heval_e) hagree hbwf hts hspec hSwf ?_
     intro v ρ' st' se hΨ hse_wf heval_se htype_v
     obtain ⟨_, _, hΨ⟩ := hΨ
-    by_cases hsub : e.ty.sub Θ ty
-    · simp [hsub] at hΨ
-      obtain hΨ := VerifM.eval_ret hΨ
-      exact hpost v ρ' st' se hΨ hse_wf heval_se (TinyML.ValHasType_sub htype_v (TinyML.Typ.sub_iff.mp hsub))
+    cases hsub : (TinyML.Typ.sub Θ .left e.ty ty || TinyML.Typ.sub Θ .right e.ty ty)
     · simp [hsub] at hΨ
       exact (VerifM.eval_fatal hΨ).elim
+    · simp [hsub] at hΨ
+      obtain hΨ := VerifM.eval_ret hΨ
+      have hsub' :
+          TinyML.Typ.Sub Θ e.ty ty := by
+        have hsub_prop :
+            TinyML.Typ.sub Θ .left e.ty ty = true ∨ TinyML.Typ.sub Θ .right e.ty ty = true := by
+          simpa [Bool.or_eq_true] using hsub
+        cases hsub_prop with
+        | inl h => exact TinyML.Typ.sub_sound h
+        | inr h => exact TinyML.Typ.sub_sound h
+      exact hpost v ρ' st' se hΨ hse_wf heval_se (TinyML.ValHasType_sub htype_v hsub')
   | assert e =>
     unfold Expr.runtime; simp only [Runtime.Expr.subst]
     apply wp.assert
