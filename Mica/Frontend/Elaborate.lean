@@ -420,7 +420,10 @@ private def elaborateVariant (env : ElabEnv) (loc : Location) (name : TypeConstr
   if acontains name env.types then
     return ← err loc (.duplicateType name)
   let arity := ctorDefs.length
-  let (payloadTypes, newCtors) ← elaborateCtorDefs env loc ctorDefs 0 arity
+  -- Pre-register the type name as a named reference so recursive self-references in
+  -- constructor payloads (e.g. `Cons of int * ilist`) resolve correctly.
+  let envWithSelf := { env with types := (name, .named name []) :: env.types }
+  let (payloadTypes, newCtors) ← elaborateCtorDefs envWithSelf loc ctorDefs 0 arity
   let sumTy := TinyML.Typ.sum payloadTypes
   let env' := { env with
     types := (name, sumTy) :: env.types
