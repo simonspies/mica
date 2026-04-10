@@ -330,7 +330,7 @@ theorem VerifM.eval_resolve {pred : Atom τ} {st : TransState} {ρ : Env}
       ∧ (∀ t, result = some t → t.wfIn st.decls) := by
   unfold VerifM.resolve at h
   have hb1 := VerifM.eval_bind _ _ _ _ h
-  have ⟨hctx_q, hholds, hwfAsserts⟩ := VerifM.eval_ctx hb1
+  have ⟨hctx_q, hholds, hwfAsserts⟩ := VerifM.eval_ctxPure hb1
   cases hres : pred.resolve st.asserts with
   | some t =>
     simp [hres] at hctx_q
