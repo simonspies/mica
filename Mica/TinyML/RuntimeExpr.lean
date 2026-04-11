@@ -4,7 +4,7 @@ namespace Runtime
 
 abbrev Location := Nat
 
-open TinyML (Var Typ BinOp UnOp)
+open TinyML (Var BinOp UnOp)
 
 inductive Binder where
   | none
@@ -64,6 +64,8 @@ theorem Expr.isFunc_elim {e : Expr} (h : e.isFunc = true) :
   exact ⟨_, _, _, rfl⟩
 
 
+-- `deriving DecidableEq` does not support mutual inductives with `List`-nested
+-- recursion, so we define the instances by hand.
 mutual
   def Val.decEq (a b : Val) : Decidable (a = b) := by
     cases a <;> cases b
@@ -668,3 +670,12 @@ theorem Exprs.subst_removeAll'_updateAll' (es : Exprs) (γ : Subst) (bs : Binder
   exact Subst.removeAll'_updateAll'_comp γ bs vs hlen z
 
 end Runtime
+
+namespace TinyML
+
+def Const.runtime : TinyML.Const → Runtime.Val
+  | .int n  => .int n
+  | .bool b => .bool b
+  | .unit   => .unit
+
+end TinyML

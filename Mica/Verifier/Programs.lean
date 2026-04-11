@@ -1,7 +1,6 @@
 import Mica.TinyML.Typed
 import Mica.TinyML.Untyped
 import Mica.TinyML.Typing
-import Mica.TinyML.Erasure
 import Mica.TinyML.WeakestPre
 import Mica.Verifier.Functions
 import Mica.Frontend.SpecParser

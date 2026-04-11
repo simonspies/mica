@@ -1,7 +1,8 @@
+import Mica.TinyML.Types
+import Mica.TinyML.Untyped
 import Mica.TinyML.Typed
 import Mica.TinyML.RuntimeExpr
-import Mica.TinyML.OpSem
-import Mica.TinyML.Erasure
+import Mica.TinyML.LogicalRelation
 import Mica.Base.Except
 
 namespace TinyML
@@ -65,447 +66,7 @@ theorem TyCtx.foldl_extend_stable
     have hne := hx a (.head _)
     simp [TyCtx.extend, beq_iff_eq, Ne.symm hne]
 
-/-! ## Subtyping -/
-
-mutual
-  @[reducible]
-  def Typ.weight : Typ → Nat
-    | .unit | .bool | .int | .empty | .value | .tvar _ => 1
-    | .sum ts => 1 + Typ.weights ts
-    | .arrow t1 t2 => 1 + Typ.weight t1 + Typ.weight t2
-    | .ref t => 1 + Typ.weight t
-    | .tuple ts => 1 + Typ.weights ts
-    | .named _ args => 1 + Typ.weights args
-
-  @[reducible]
-  def Typ.weights : List Typ → Nat
-    | [] => 0
-    | t :: ts => Typ.weight t + Typ.weights ts
-end
-
-mutual
-  @[reducible]
-  def Typ.depth : Typ → Nat
-    | .unit | .bool | .int | .empty | .value | .tvar _ => 1
-    | .sum ts => 1 + Typ.depths ts
-    | .arrow t1 t2 => 1 + max (Typ.depth t1) (Typ.depth t2)
-    | .ref t => 1 + Typ.depth t
-    | .tuple ts => 1 + Typ.depths ts
-    | .named _ args => 1 + Typ.depths args
-
-  @[reducible]
-  def Typ.depths : List Typ → Nat
-    | [] => 0
-    | t :: ts => max (Typ.depth t) (Typ.depths ts)
-end
-
-theorem Typ.weight_pos (t : Typ) : 0 < Typ.weight t := by
-  cases t <;> simp [Typ.weight] <;> omega
-
-theorem Typ.weight_pair_lt_sum (ss ts : List Typ) :
-    1 + Typ.weights ss + Typ.weights ts < Typ.weight (.sum ss) + Typ.weight (.sum ts) := by
-  simp [Typ.weight]
-
-theorem Typ.weight_pair_lt_arrow_dom (s1 s2 t1 t2 : Typ) :
-    Typ.weight t1 + Typ.weight s1 <
-      Typ.weight (.arrow s1 s2) + Typ.weight (.arrow t1 t2) := by
-  simp [Typ.weight]
-  omega
-
-theorem Typ.weight_pair_lt_arrow_codom (s1 s2 t1 t2 : Typ) :
-    Typ.weight s2 + Typ.weight t2 <
-      Typ.weight (.arrow s1 s2) + Typ.weight (.arrow t1 t2) := by
-  simp [Typ.weight]
-  omega
-
-theorem Typ.weight_pair_lt_list_head (s : Typ) (ss : List Typ) (t : Typ) (ts : List Typ) :
-    Typ.weight s + Typ.weight t < 1 + Typ.weights (s :: ss) + Typ.weights (t :: ts) := by
-  simp [Typ.weights]
-  omega
-
-theorem Typ.weight_pair_lt_list_tail (s : Typ) (ss : List Typ) (t : Typ) (ts : List Typ) :
-    1 + Typ.weights ss + Typ.weights ts < 1 + Typ.weights (s :: ss) + Typ.weights (t :: ts) := by
-  have hs : 0 < Typ.weight s := Typ.weight_pos s
-  have ht : 0 < Typ.weight t := Typ.weight_pos t
-  simp [Typ.weights]
-  omega
-
-set_option linter.unnecessarySimpa false in
-mutual
-
-  def Typ.subBody (Θ : TypeEnv) (recur : Typ → Typ → Bool) : Typ → Typ → Bool :=
-      fun s t =>
-        match s, t with
-        | .empty, _ => true
-        | _, .value => true
-        | .sum ss, .sum ts => Typ.subListBody Θ recur ss ts
-        | .arrow s1 s2, .arrow t1 t2 =>
-            Typ.subBody Θ recur t1 s1 && Typ.subBody Θ recur s2 t2
-        | .tuple ss, .tuple ts => Typ.subListBody Θ recur ss ts
-        | _, _ =>
-            if s == t then true
-            else match s, t with
-              | .named T args, _ => match TypeName.unfold Θ T args with
-                  | some s' => recur s' t
-                  | none => false
-              | _, .named T args => match TypeName.unfold Θ T args with
-                  | some t' => recur s t'
-                  | none => false
-              | _, _ => false
-  termination_by s t => Typ.weight s + Typ.weight t
-  decreasing_by
-    all_goals
-      first
-        | simpa [Typ.weight] using Typ.weight_pair_lt_sum _ _
-        | simpa [Typ.weight] using Typ.weight_pair_lt_arrow_dom _ _ _ _
-        | simpa [Typ.weight] using Typ.weight_pair_lt_arrow_codom _ _ _ _
-
-  def Typ.subListBody (Θ : TypeEnv) (recur : Typ → Typ → Bool) : List Typ → List Typ → Bool
-    | [], [] => true
-    | s :: ss, t :: ts => Typ.subBody Θ recur s t && Typ.subListBody Θ recur ss ts
-    | _, _ => false
-  termination_by ss ts => 1 + Typ.weights ss + Typ.weights ts
-  decreasing_by
-    all_goals
-      first
-        | exact Typ.weight_pair_lt_list_head _ _ _ _
-        | exact Typ.weight_pair_lt_list_tail _ _ _ _
-end
-
-def Typ.subi (Θ : TypeEnv) (steps : Nat) : Typ → Typ → Bool :=
-  match steps with
-  | 0 => fun _ _ => false
-  | n + 1 => Typ.subBody Θ (Typ.subi Θ n)
-
-def Typ.subListi (Θ : TypeEnv) (steps : Nat) : List Typ → List Typ → Bool :=
-  match steps with
-  | 0 => fun _ _ => false
-  | n + 1 => Typ.subListBody Θ (Typ.subi Θ n)
-
-def Typ.sub (Θ : TypeEnv) : Typ → Typ → Bool :=
-  fun s t => Typ.subi Θ (max (Typ.depth s) (Typ.depth t)) s t
-
-def Typ.subList (Θ : TypeEnv) : List Typ → List Typ → Bool :=
-  fun ss ts => Typ.subListi Θ (max (Typ.depths ss) (Typ.depths ts)) ss ts
-
-mutual
-  inductive Typ.Sub (Θ : TypeEnv) : Typ → Typ → Prop where
-    | refl  : Typ.Sub Θ t t
-    | bot   : Typ.Sub Θ .empty t
-    | top   : Typ.Sub Θ t .value
-    | trans : Typ.Sub Θ s t → Typ.Sub Θ t u → Typ.Sub Θ s u
-    | sum   : Typ.SubList Θ ss ts
-            → Typ.Sub Θ (.sum ss) (.sum ts)
-    | arrow : Typ.Sub Θ t1 s1
-            → Typ.Sub Θ s2 t2
-            → Typ.Sub Θ (.arrow s1 s2) (.arrow t1 t2)
-    | tuple : Typ.SubList Θ ss ts
-            → Typ.Sub Θ (.tuple ss) (.tuple ts)
-    | named_left : TypeName.unfold Θ T args = some ty
-                 → Typ.Sub Θ ty t
-                 → Typ.Sub Θ (.named T args) t
-    | named_right : TypeName.unfold Θ T args = some ty
-                  → Typ.Sub Θ s ty
-                  → Typ.Sub Θ s (.named T args)
-
-  inductive Typ.SubList (Θ : TypeEnv) : List Typ → List Typ → Prop where
-    | nil  : Typ.SubList Θ [] []
-    | cons : Typ.Sub Θ s t → Typ.SubList Θ ss ts → Typ.SubList Θ (s :: ss) (t :: ts)
-end
-
-theorem Typ.SubList.length_eq : Typ.SubList Θ ss ts → ss.length = ts.length
-  | .nil => rfl
-  | .cons _ h => by simp [List.length_cons, h.length_eq]
-
--- Forward direction: decision procedure is sound.
-set_option linter.unnecessarySimpa false in
-mutual
-  private theorem Typ.subBody_sound {Θ : TypeEnv} {recur : Typ → Typ → Bool}
-      (hrecur : ∀ {s t}, recur s t = true → Typ.Sub Θ s t)
-      {s t : Typ} (h : Typ.subBody Θ recur s t = true) : Typ.Sub Θ s t := by
-    unfold Typ.subBody at h
-    split at h
-    · exact .bot
-    · exact .top
-    · exact .sum (subListBody_sound hrecur h)
-    · simp [Bool.and_eq_true] at h
-      exact .arrow (subBody_sound hrecur h.1) (subBody_sound hrecur h.2)
-    · exact .tuple (subListBody_sound hrecur h)
-    · -- catchall: if s == t then true else match (s, t) for named
-      split at h
-      · -- s == t
-        rename_i hbeq
-        have heq : s = t := by simpa using hbeq
-        subst heq; exact .refl
-      · -- s ≠ t, check if either side is named
-        split at h
-        · -- s = .named T args
-          rename_i T args hneq
-          split at h
-          · rename_i s' hunfold
-            exact .named_left hunfold (hrecur h)
-          · cases h
-        · -- t = .named T args (s is not named)
-          rename_i T args hneq
-          split at h
-          · rename_i t' hunfold
-            exact .named_right hunfold (hrecur h)
-          · cases h
-        · -- neither named
-          cases h
-  termination_by Typ.weight s + Typ.weight t
-  decreasing_by
-    all_goals
-      subst_vars
-      try simp [Typ.weight]
-      try omega
-
-  private theorem Typ.subListBody_sound {Θ : TypeEnv} {recur : Typ → Typ → Bool}
-      (hrecur : ∀ {s t}, recur s t = true → Typ.Sub Θ s t)
-      {ss ts : List Typ}
-      (h : Typ.subListBody Θ recur ss ts = true) : Typ.SubList Θ ss ts := by
-    match ss, ts with
-    | [], [] =>
-        exact .nil
-    | s :: ss, t :: ts =>
-        simp [Typ.subListBody, Bool.and_eq_true] at h
-        exact .cons (subBody_sound hrecur h.1) (subListBody_sound hrecur h.2)
-    | [], _ :: _ | _ :: _, [] =>
-        simp [Typ.subListBody] at h
-  termination_by 1 + Typ.weights ss + Typ.weights ts
-  decreasing_by
-    all_goals
-      first
-        | exact Typ.weight_pair_lt_list_head _ _ _ _
-        | exact Typ.weight_pair_lt_list_tail _ _ _ _
-
-  private theorem Typ.subi_sound {Θ : TypeEnv} {steps : Nat} {s t : Typ}
-      (h : Typ.subi Θ steps s t = true) : Typ.Sub Θ s t := by
-    induction steps generalizing s t with
-    | zero =>
-      simp [Typ.subi] at h
-    | succ n ih =>
-      simpa [Typ.subi] using
-        (Typ.subBody_sound (Θ := Θ) (recur := Typ.subi Θ n) (hrecur := fun {s t} h => ih h) h)
-
-  private theorem Typ.subListi_sound {Θ : TypeEnv} {steps : Nat}
-      {ss ts : List Typ} (h : Typ.subListi Θ steps ss ts = true) : Typ.SubList Θ ss ts := by
-    induction steps generalizing ss ts with
-    | zero =>
-      simp [Typ.subListi] at h
-    | succ n ih =>
-      simpa [Typ.subListi] using
-        (Typ.subListBody_sound (Θ := Θ) (recur := Typ.subi Θ n) (hrecur := fun {s t} h => Typ.subi_sound h) h)
-end
-
-theorem Typ.sub_sound {Θ : TypeEnv} {s t : Typ}
-    (h : Typ.sub Θ s t = true) : Typ.Sub Θ s t := by
-  exact Typ.subi_sound (Θ := Θ) (steps := max (Typ.depth s) (Typ.depth t)) h
-
-theorem Typ.subList_sound {Θ : TypeEnv} {ss ts : List Typ}
-    (h : Typ.subList Θ ss ts = true) : Typ.SubList Θ ss ts := by
-  exact Typ.subListi_sound (Θ := Θ) (steps := max (Typ.depths ss) (Typ.depths ts)) h
-
-mutual
-  def Typ.join (Θ : TypeEnv) : Typ → Typ → Typ
-    | .empty, t | t, .empty => t
-    | .value, _ | _, .value => .value
-    | .sum  ss,     .sum  ts     => if ss.length == ts.length
-                                    then .sum (Typ.joinList Θ ss ts)
-                                    else .value
-    | .arrow s1 s2, .arrow t1 t2 => .arrow (Typ.meet Θ s1 t1) (Typ.join Θ s2 t2)
-    | .ref s,       .ref t       => if s == t then .ref s else .value
-    | .tuple ss,    .tuple ts    => if ss.length == ts.length
-                                    then .tuple (Typ.joinList Θ ss ts)
-                                    else .value
-    | s, t =>
-        if Typ.sub Θ s t then t
-        else if Typ.sub Θ t s then s
-        else .value
-
-  def Typ.meet (Θ : TypeEnv) : Typ → Typ → Typ
-    | .value, t | t, .value => t
-    | .empty, _ | _, .empty => .empty
-    | .sum  ss,     .sum  ts     => if ss.length == ts.length
-                                    then .sum (Typ.meetList Θ ss ts)
-                                    else .empty
-    | .arrow s1 s2, .arrow t1 t2 => .arrow (Typ.join Θ s1 t1) (Typ.meet Θ s2 t2)
-    | .ref s,       .ref t       => if s == t then .ref s else .empty
-    | .tuple ss,    .tuple ts    => if ss.length == ts.length
-                                    then .tuple (Typ.meetList Θ ss ts)
-                                    else .empty
-    | s, t =>
-        if Typ.sub Θ s t then s
-        else if Typ.sub Θ t s then t
-        else .empty
-
-  def Typ.joinList (Θ : TypeEnv) : List Typ → List Typ → List Typ
-    | s :: ss, t :: ts => Typ.join Θ s t :: Typ.joinList Θ ss ts
-    | _, _             => []
-
-  def Typ.meetList (Θ : TypeEnv) : List Typ → List Typ → List Typ
-    | s :: ss, t :: ts => Typ.meet Θ s t :: Typ.meetList Θ ss ts
-    | _, _             => []
-end
-
-
-/-! ## Operator typing -/
-
-def BinOp.typeOf : BinOp → Typ → Typ → Option Typ
-  | .add,  .int,  .int  => some .int
-  | .sub,  .int,  .int  => some .int
-  | .mul,  .int,  .int  => some .int
-  | .div,  .int,  .int  => some .int
-  | .mod,  .int,  .int  => some .int
-  | .eq,   .int,  .int  => some .bool
-  | .lt,   .int,  .int  => some .bool
-  | .le,   .int,  .int  => some .bool
-  | .gt,   .int,  .int  => some .bool
-  | .ge,   .int,  .int  => some .bool
-  | .and,  .bool, .bool => some .bool
-  | .or,   .bool, .bool => some .bool
-  | _, _, _             => none
-
-def UnOp.typeOf : UnOp → Typ → Option Typ
-  | .neg, .int       => some .int
-  | .not, .bool      => some .bool
-  | .proj n, .tuple ts => ts[n]?
-  | _, _             => none
-
-mutual
-  inductive ValHasType (Θ : TypeEnv) : Runtime.Val → Typ → Prop where
-    | int  (n : Int)  : ValHasType Θ (.int n)  .int
-    | bool (b : Bool) : ValHasType Θ (.bool b) .bool
-    | unit            : ValHasType Θ .unit      .unit
-    | inj  : (ht : ts[tag]? = some t)
-            → ValHasType Θ payload t
-            → ValHasType Θ (.inj tag ts.length payload) (.sum ts)
-    | tuple : ValsHaveTypes Θ vs ts
-            → ValHasType Θ (Runtime.Val.tuple vs) (Typ.tuple ts)
-    | named : TypeName.unfold Θ T args = some ty
-            → ValHasType Θ v ty
-            → ValHasType Θ v (.named T args)
-    -- Any value has type .value
-    | any : ValHasType Θ v .value
-
-  inductive ValsHaveTypes (Θ : TypeEnv) : List Runtime.Val → List Typ → Prop where
-    | nil  : ValsHaveTypes Θ [] []
-    | cons : ValHasType Θ v t → ValsHaveTypes Θ vs ts → ValsHaveTypes Θ (v :: vs) (t :: ts)
-end
-
-
-mutual
-  theorem ValHasType_sub {Θ : TypeEnv} {v : Runtime.Val} {t t' : Typ} (h : ValHasType Θ v t) (hsub : Typ.Sub Θ t t') :
-      ValHasType Θ v t' := by
-    match hsub with
-    | .refl => exact h
-    | .bot => cases h
-    | .top => exact .any
-    | .trans h1 h2 => exact ValHasType_sub (ValHasType_sub h h1) h2
-    | .sum hlist =>
-      cases h with
-      | inj ht hpayload =>
-        obtain ⟨t', ht', hvt'⟩ := ValHasType_subList hpayload hlist ht
-        rw [hlist.length_eq]
-        exact .inj ht' hvt'
-    | .arrow _ _ => cases h
-    | .tuple hsub =>
-      cases h with
-      | tuple hvs => exact .tuple (ValsHaveTypes_sub hvs hsub)
-    | .named_left hunfold hsub =>
-      cases h with
-      | named hunfold' hv =>
-        rw [hunfold] at hunfold'
-        injection hunfold' with hty
-        subst hty
-        exact ValHasType_sub hv hsub
-    | .named_right hunfold hsub =>
-        exact .named hunfold (ValHasType_sub h hsub)
-
-  theorem ValsHaveTypes_sub {Θ : TypeEnv} {vs : List Runtime.Val} {ts ts' : List Typ}
-      (h : ValsHaveTypes Θ vs ts) (hsub : Typ.SubList Θ ts ts') :
-      ValsHaveTypes Θ vs ts' := by
-    match hsub with
-    | .nil => cases h; exact .nil
-    | .cons hs hss =>
-      cases h with
-      | cons hv hvs => exact .cons (ValHasType_sub hv hs) (ValsHaveTypes_sub hvs hss)
-
-  /-- Lift a payload through a `SubList`: if `ss[tag]? = some s` and `payload : s`,
-      find `ts[tag]? = some t` and produce `ValHasType payload t`. -/
-  theorem ValHasType_subList {Θ : TypeEnv} {payload : Runtime.Val} {s : Typ} {ss ts : List Typ}
-      (hpayload : ValHasType Θ payload s) (hlist : Typ.SubList Θ ss ts)
-      {tag : Nat} (hs : ss[tag]? = some s) :
-      ∃ t, ts[tag]? = some t ∧ ValHasType Θ payload t :=
-    match hlist, tag with
-    | .nil, _ => absurd hs (by simp)
-    | .cons hsub _, 0 => by simp at hs; exact ⟨_, rfl, ValHasType_sub (hs ▸ hpayload) hsub⟩
-    | .cons _ hss, n + 1 => ValHasType_subList hpayload hss (by simpa using hs)
-end
-
-theorem ValsHaveTypes.length_eq {Θ : TypeEnv} : ValsHaveTypes Θ vs ts → vs.length = ts.length
-  | .nil => rfl
-  | .cons _ h => congrArg (· + 1) h.length_eq
-
 end TinyML
-
-
-
-/-- Type preservation for `evalBinOp`: if the inputs are well-typed, the operation returns
-    `some w` for a well-typed result `w`. -/
-theorem evalBinOp_typed {Θ : TinyML.TypeEnv} {op : TinyML.BinOp} {v1 v2 : Runtime.Val} {t1 t2 ty : TinyML.Typ}
-    (hndiv : op ≠ .div) (hnmod : op ≠ .mod)
-    (hty : TinyML.BinOp.typeOf op t1 t2 = some ty)
-    (ht1 : TinyML.ValHasType Θ v1 t1)
-    (ht2 : TinyML.ValHasType Θ v2 t2) :
-    ∃ w, TinyML.evalBinOp op v1 v2 = some w ∧ TinyML.ValHasType Θ w ty := by
-  cases op
-  case div => exact absurd rfl hndiv
-  case mod => exact absurd rfl hnmod
-  -- All ops (add/sub/mul/eq/lt/le/gt/ge/and/or) require specific input types.
-  -- Case-split on the ValHasType witnesses; simp_all eliminates contradictions from typeOf
-  -- and substitutes the result type, leaving simple ValHasType goals.
-  all_goals
-    cases ht1 <;> cases ht2 <;>
-    simp only [TinyML.BinOp.typeOf, TinyML.evalBinOp,
-               Option.some.injEq, eq_comm] at * <;>
-    simp_all
-    first | exact .int _ | exact .bool _
-
-private theorem evalUnOp_proj_typed {Θ : TinyML.TypeEnv} {n : Nat} {vs : List Runtime.Val} {ts : List TinyML.Typ} {ty : TinyML.Typ}
-    (hty : ts[n]? = some ty) (hvs : TinyML.ValsHaveTypes Θ vs ts) :
-    ∃ w, vs[n]? = some w ∧ TinyML.ValHasType Θ w ty := by
-  induction n generalizing vs ts with
-  | zero =>
-    cases hvs with
-    | nil => simp at hty
-    | cons hv _ =>
-      simp at hty ⊢; subst hty; exact hv
-  | succ n ih =>
-    cases hvs with
-    | nil => simp at hty
-    | cons _ hvs => simp at hty ⊢; exact ih hty hvs
-
-theorem evalUnOp_typed {op : TinyML.UnOp} {v : Runtime.Val} {t ty : TinyML.Typ}
-    (hty : TinyML.UnOp.typeOf op t = some ty)
-    (ht : TinyML.ValHasType Θ v t) :
-    ∃ w, TinyML.evalUnOp op v = some w ∧ TinyML.ValHasType Θ w ty := by
-  cases op
-  case proj n =>
-    cases ht with
-    | tuple hvs =>
-      simp only [TinyML.UnOp.typeOf] at hty
-      simp only [TinyML.evalUnOp]
-      exact evalUnOp_proj_typed hty hvs
-    | any => simp [TinyML.UnOp.typeOf] at hty
-    | _ => simp [TinyML.UnOp.typeOf] at hty
-  -- Remaining ops (neg, not) require specific value shapes.
-  all_goals (cases ht <;>
-    simp only [TinyML.UnOp.typeOf, TinyML.evalUnOp, Option.some.injEq] at * <;>
-    first
-    | (obtain rfl := hty; exact ⟨_, rfl, .int _⟩)
-    | (obtain rfl := hty; exact ⟨_, rfl, .bool _⟩)
-    | simp_all)
 
 namespace Typed
 
@@ -741,6 +302,17 @@ def Program.elaborate {S : Type} (Θ : TypeEnv) (Γ : TinyML.TyCtx) :
           let (Θ', ds') ← Program.elaborate Θ Γ' ds
           .ok (Θ', d' :: ds')
 
+private theorem branchListRuntime_cast_joinAll
+    (Θ : TypeEnv) (branches' : List (Typed.Binder × Typed.Expr)) :
+    Expr.runtime.branchListRuntime
+      (branches'.map fun x =>
+        (x.1, if x.2.ty = joinAll Θ (branches'.map (fun p => p.2.ty)) then x.2
+              else x.2.cast (joinAll Θ (branches'.map (fun p => p.2.ty))))) =
+    Expr.runtime.branchListRuntime branches' := by
+  simpa [BEq.beq] using
+    Typed.Expr.branchListRuntime_castBodies
+      (joinAll Θ (branches'.map (fun p => p.2.ty))) branches'
+
 -- The main issue in this block is not the mathematical argument, but convincing
 -- Lean's termination checker that the mutual proof recursion is well-founded.
 -- The right high-level strategy is to follow the structure of the recursive
@@ -973,22 +545,10 @@ mutual
             · simp [hlen] at hcont
               have ⟨branches', hbranches, hcont⟩ := Except.bind_ok hcont
               rcases (by simpa [hbranches] using hcont) with ⟨rfl, rfl⟩
-              have hcast_branches :
-                  Expr.runtime.branchListRuntime
-                    (List.map
-                      (fun x =>
-                        (x.1,
-                          if x.2.ty = joinAll Θ (List.map (fun p => p.2.ty) branches') then x.2
-                          else x.2.cast (joinAll Θ (List.map (fun p => p.2.ty) branches'))))
-                      branches') =
-                  Expr.runtime.branchListRuntime branches' := by
-                simpa [BEq.beq] using
-                  Typed.Expr.branchListRuntime_castBodies
-                    (joinAll Θ (List.map (fun p => p.2.ty) branches')) branches'
               simp [Expr.runtime, Untyped.Expr.runtime]
               constructor
               · exact ihScrut _ hscrut
-              · exact hcast_branches.trans (ihBranches ts _ hbranches)
+              · exact (branchListRuntime_cast_joinAll Θ branches').trans (ihBranches ts _ hbranches)
             · simp [hlen] at hcont
           | named T args =>
             cases hunfold : TypeName.unfold Θ T args with
@@ -1001,20 +561,8 @@ mutual
                 · simp [hlen] at hcont
                   have ⟨branches', hbranches, hcont⟩ := Except.bind_ok hcont
                   rcases (by simpa [hbranches] using hcont) with ⟨rfl, rfl⟩
-                  have hcast_branches :
-                      Expr.runtime.branchListRuntime
-                        (List.map
-                          (fun x =>
-                            (x.1,
-                              if x.2.ty = joinAll Θ (List.map (fun p => p.2.ty) branches') then x.2
-                              else x.2.cast (joinAll Θ (List.map (fun p => p.2.ty) branches'))))
-                          branches') =
-                      Expr.runtime.branchListRuntime branches' := by
-                    simpa [BEq.beq] using
-                      Typed.Expr.branchListRuntime_castBodies
-                        (joinAll Θ (List.map (fun p => p.2.ty) branches')) branches'
                   simp [Expr.runtime, Untyped.Expr.runtime, ihScrut _ hscrut]
-                  exact hcast_branches.trans (ihBranches ts _ hbranches)
+                  exact (branchListRuntime_cast_joinAll Θ branches').trans (ihBranches ts _ hbranches)
                 · simp [hlen] at hcont
               | _ => simp [hunfold] at hcont
           | _ =>
@@ -1121,12 +669,19 @@ theorem ValDecl.elaborate_runtime {S : Type} (Θ : TypeEnv) (Γ : TinyML.TyCtx) 
       Typed.ValDecl.elaborate Θ Γ d = .ok d' →
       d'.runtime = d.runtime := by
   intro d' helab
-  cases hname : d.name with
-  | none =>
-    cases hinfer : Typed.infer Θ Γ d.body with
-    | error err =>
-      simp [ValDecl.elaborate, hname, hinfer] at helab
+  -- Split only on whether there is an annotation; the unannotated cases are identical.
+  match hname : d.name with
+  | .named x (some ty) =>
+    cases hcheck : Typed.check Θ Γ d.body ty with
+    | error err => simp [ValDecl.elaborate, hname, hcheck] at helab; cases helab
+    | ok body' =>
+      simp [ValDecl.elaborate, hname, hcheck] at helab
       cases helab
+      simp [Typed.ValDecl.runtime, Untyped.ValDecl.runtime,
+        check_runtime Θ Γ d.body ty _ hcheck, Binder.ofUntyped_runtime, hname]
+  | .none | .named _ none =>
+    cases hinfer : Typed.infer Θ Γ d.body with
+    | error err => simp [ValDecl.elaborate, hname, hinfer] at helab; cases helab
     | ok p =>
       cases p with
       | mk bodyTy body' =>
@@ -1134,30 +689,6 @@ theorem ValDecl.elaborate_runtime {S : Type} (Θ : TypeEnv) (Γ : TinyML.TyCtx) 
         cases helab
         simp [Typed.ValDecl.runtime, Untyped.ValDecl.runtime,
           infer_runtime Θ Γ d.body _ hinfer, Binder.ofUntyped_runtime, hname]
-  | named x ann =>
-    cases hann : ann with
-    | none =>
-      cases hinfer : Typed.infer Θ Γ d.body with
-      | error err =>
-        simp [ValDecl.elaborate, hname, hann, hinfer] at helab
-        cases helab
-      | ok p =>
-        cases p with
-        | mk bodyTy body' =>
-          simp [ValDecl.elaborate, hname, hann, hinfer] at helab
-          cases helab
-          simp [Typed.ValDecl.runtime, Untyped.ValDecl.runtime,
-            infer_runtime Θ Γ d.body _ hinfer, Binder.ofUntyped_runtime, hname, hann]
-    | some ty =>
-      cases hcheck : Typed.check Θ Γ d.body ty with
-      | error err =>
-        simp [ValDecl.elaborate, hname, hann, hcheck] at helab
-        cases helab
-      | ok body' =>
-        simp [ValDecl.elaborate, hname, hann, hcheck] at helab
-        cases helab
-        simp [Typed.ValDecl.runtime, Untyped.ValDecl.runtime,
-          check_runtime Θ Γ d.body ty _ hcheck, Binder.ofUntyped_runtime, hname, hann]
 
 theorem Program.elaborate_runtime {S : Type} (Θ : TypeEnv) (Γ : TinyML.TyCtx) (prog : Untyped.Program S) :
     ∀ {Θ' : TypeEnv} {prog' : Typed.Program S},
@@ -1195,5 +726,3 @@ theorem Program.elaborate_runtime {S : Type} (Θ : TypeEnv) (Γ : TinyML.TyCtx) 
       subst prog'
       simp [Typed.Program.runtime, Untyped.Program.runtime, hdecl_rt]
       exact congrArg (List.cons dval.runtime) (ih Θ Γ' htail)
-
-end Typed

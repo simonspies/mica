@@ -1,4 +1,6 @@
 import Mica.TinyML.Common
+import Mica.TinyML.Types
+import Mica.TinyML.RuntimeExpr
 
 namespace Untyped
 
@@ -47,6 +49,8 @@ theorem Expr.isFunc_elim {e : Expr} (h : e.isFunc = true) :
   exact ⟨_, _, _, _, rfl⟩
 
 
+-- `deriving DecidableEq` does not support mutual inductives with `List`-nested
+-- recursion, so we define the instance by hand.
 mutual
   def Expr.decEq (a b : Expr) : Decidable (a = b) := by
     cases a <;> cases b
@@ -181,5 +185,40 @@ def Decl.mapSpec {S T : Type} (f : S → Option T) : Decl S → Decl T
   | .type_ d => .type_ d
 
 abbrev Program (S : Type) := List (Decl S)
+
+def Binder.runtime : Untyped.Binder → Runtime.Binder
+  | .none => .none
+  | .named x _ty => .named x
+
+def Expr.runtime : Untyped.Expr → Runtime.Expr
+  | .const c => .val c.runtime
+  | .var x => .var x
+  | .unop op e => .unop op e.runtime
+  | .binop op l r => .binop op l.runtime r.runtime
+  | .fix self args _ body => .fix (self.runtime) (args.map (·.runtime)) body.runtime
+  | .app fn args => .app fn.runtime (args.map Expr.runtime)
+  | .ifThenElse c t e => .ifThenElse c.runtime t.runtime e.runtime
+  | .letIn b bound body => .letIn (b.runtime) bound.runtime body.runtime
+  | .ref e => .ref e.runtime
+  | .deref e => .deref e.runtime
+  | .store loc val => .store loc.runtime val.runtime
+  | .assert e => .assert e.runtime
+  | .tuple es => .tuple (es.map Expr.runtime)
+  | .inj tag arity payload => .inj tag arity payload.runtime
+  | .match_ scrut branches => .match_ scrut.runtime (branchListRuntime branches)
+where
+  branchListRuntime : List (Untyped.Binder × Untyped.Expr) → List Runtime.Expr
+    | [] => []
+    | (b, e) :: rest => Runtime.Expr.fix .none [b.runtime] e.runtime :: branchListRuntime rest
+
+def ValDecl.runtime {S : Type} (d : Untyped.ValDecl S) : Runtime.Decl :=
+  { name := d.name.runtime, body := d.body.runtime }
+
+def Decl.runtime {S : Type} : Untyped.Decl S → Option Runtime.Decl
+  | .val_ d => some d.runtime
+  | .type_ _ => none
+
+def Program.runtime {S : Type} (prog : Untyped.Program S) : Runtime.Program :=
+  prog.filterMap Decl.runtime
 
 end Untyped

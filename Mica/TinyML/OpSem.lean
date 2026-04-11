@@ -1,4 +1,4 @@
-import Mica.TinyML.Typed
+import Mica.TinyML.Common
 import Mica.TinyML.RuntimeExpr
 import Mica.TinyML.Heap
 

@@ -1,6 +1,11 @@
 import Mica.TinyML.Common
+import Mica.TinyML.Types
+import Mica.TinyML.RuntimeExpr
+import Mica.TinyML.Heap
 import Mica.TinyML.Untyped
 import Mica.TinyML.Typed
-import Mica.TinyML.Erasure
-import Mica.TinyML.Printer
+import Mica.TinyML.OpSem
+import Mica.TinyML.LogicalRelation
 import Mica.TinyML.WeakestPre
+import Mica.TinyML.Typing
+import Mica.TinyML.Printer
