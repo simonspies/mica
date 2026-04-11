@@ -42,73 +42,6 @@ def Atom.toFormula : Atom τ → Term τ → Formula
   | .isbool v, t => .eq .value v (.unop .ofBool t)
   | .isinj tag arity v, t => .eq .value v (.unop (.mkInj tag arity) t)
 
-/-- Try to match a formula against an atom, returning the extracted term if it matches. -/
-def Formula.matchAtom (φ : Formula) (a : Atom τ) : Option (Term τ) :=
-  match a with
-  | .isint v =>
-    match φ with
-    | .eq .value v' (.unop .ofInt t) => if v' = v then some t else none
-    | _ => none
-  | .isbool v =>
-    match φ with
-    | .eq .value v' (.unop .ofBool t) => if v' = v then some t else none
-    | _ => none
-  | .isinj tag arity v =>
-    match φ with
-    | .eq .value v' (.unop (.mkInj tag' arity') t) =>
-      if v' = v ∧ tag = tag' ∧ arity = arity' then some t else none
-    | _ => none
-
-theorem Formula.matchAtom_correct {φ : Formula} {a : Atom τ} {t : Term τ}
-    (h : φ.matchAtom a = some t) : φ = a.toFormula t := by
-  cases a with
-  | isint v =>
-    simp only [Formula.matchAtom] at h
-    split at h <;> simp_all; obtain ⟨rfl, rfl⟩ := h; rfl
-  | isbool v =>
-    simp only [Formula.matchAtom] at h
-    split at h <;> simp_all; obtain ⟨rfl, rfl⟩ := h; rfl
-  | isinj tag arity v =>
-    simp only [Formula.matchAtom] at h
-    split at h <;> simp_all
-    obtain ⟨⟨rfl, rfl, rfl⟩, rfl⟩ := h; rfl
-
-
--- ---------------------------------------------------------------------------
--- Resolution
--- ---------------------------------------------------------------------------
-
-/-- Resolve an atom against a list of formulas. -/
-def Atom.resolve (a : Atom τ) (C : List Formula) : Option (Term τ) :=
-  C.findSome? (·.matchAtom a)
-
-theorem Atom.resolve_correct {a : Atom τ} {C : List Formula} {t : Term τ}
-    (h : a.resolve C = some t) (ρ : Env) (hC : ∀ φ ∈ C, φ.eval ρ) :
-    (a.toFormula t).eval ρ := by
-  obtain ⟨φ, hφ_mem, hφ_match⟩ := List.exists_of_findSome?_eq_some h
-  have heq := Formula.matchAtom_correct hφ_match
-  subst heq
-  exact hC _ hφ_mem
-
-theorem Atom.resolve_wfIn {a : Atom τ} {C : List Formula} {t : Term τ} {Δ : Signature}
-    (h : a.resolve C = some t) (hwf : ∀ φ ∈ C, φ.wfIn Δ) :
-    t.wfIn Δ := by
-  obtain ⟨φ, hφ_mem, hφ_match⟩ := List.exists_of_findSome?_eq_some h
-  have heq := Formula.matchAtom_correct hφ_match
-  subst heq
-  have hφwf := hwf _ hφ_mem
-  cases a with
-  | isint u =>
-    simp only [Atom.toFormula, Formula.wfIn, Term.wfIn] at hφwf
-    exact hφwf.2.2
-  | isbool u =>
-    simp only [Atom.toFormula, Formula.wfIn, Term.wfIn] at hφwf
-    exact hφwf.2.2
-  | isinj tag arity u =>
-    simp only [Atom.toFormula, Formula.wfIn, Term.wfIn] at hφwf
-    exact hφwf.2.2
-
-
 -- ---------------------------------------------------------------------------
 -- Printer
 -- ---------------------------------------------------------------------------
@@ -313,12 +246,9 @@ private theorem VerifM.eval_tryCandidates
       exact ih hq (fun p hp => hcands p (List.mem_cons_of_mem _ hp))
 
 /-- Look up an atom in the assertion context.
-    Tier 1: syntactic search through the context.
-    Tier 2: try candidate resolutions via the SMT solver. -/
+    Try candidate resolutions via the SMT solver. -/
 def VerifM.resolve (a : Atom τ) : VerifM (Option (Term τ)) := do
-  match ← VerifM.ctxPure (a.resolve ·) with
-  | some t => pure (some t)
-  | none => VerifM.tryCandidates a.candidates
+  VerifM.tryCandidates a.candidates
 
 theorem VerifM.eval_resolve {pred : Atom τ} {st : TransState} {ρ : Env}
     {Q : Option (Term τ) → TransState → Env → Prop}
@@ -328,15 +258,4 @@ theorem VerifM.eval_resolve {pred : Atom τ} {st : TransState} {ρ : Env}
       Q result st ρ
       ∧ (∀ t, result = some t → (pred.toFormula t).eval ρ)
       ∧ (∀ t, result = some t → t.wfIn st.decls) := by
-  unfold VerifM.resolve at h
-  have hb1 := VerifM.eval_bind _ _ _ _ h
-  have ⟨hctx_q, hholds, hwfAsserts⟩ := VerifM.eval_ctxPure hb1
-  cases hres : pred.resolve st.asserts with
-  | some t =>
-    simp [hres] at hctx_q
-    exact ⟨some t, VerifM.eval_ret hctx_q,
-           fun t' ht' => by cases ht'; exact Atom.resolve_correct hres ρ hholds,
-           fun t' ht' => by cases ht'; exact Atom.resolve_wfIn hres hwfAsserts⟩
-  | none =>
-    simp [hres] at hctx_q
-    exact eval_tryCandidates hctx_q (fun p hp => hp) hpwf
+    exact eval_tryCandidates h (fun p hp => hp) hpwf
