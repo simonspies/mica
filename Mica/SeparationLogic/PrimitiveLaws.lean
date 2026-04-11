@@ -1,4 +1,4 @@
-import Mica.SeparationLogic.Contexts
+import Mica.SeparationLogic.Interpretations
 
 open Iris Iris.BI
 

@@ -2,6 +2,7 @@ import Mica.Engine.Driver
 import Mica.Verifier.Scoped
 import Mica.Verifier.Utils
 import Mica.Base.Fresh
+import Mica.SeparationLogic.SpatialAtom
 
 
 /-! ## Verification Monad
@@ -68,9 +69,32 @@ def VerifM.assumeAll : List Formula → VerifM Unit
 
 /-! ### Translation to ScopedM -/
 
--- We will revisit the trans state in the future. For now, we keep it simply as an alias.
-abbrev TransState := FlatCtx
-def TransState.toFlatCtx (x : TransState) := x
+structure TransState where
+  decls   : Signature
+  asserts : Context
+  owns    : SpatialContext
+
+def TransState.toFlatCtx (st : TransState) : FlatCtx :=
+  ⟨st.decls, st.asserts⟩
+
+@[simp] theorem TransState.toFlatCtx_decls (st : TransState) :
+    st.toFlatCtx.decls = st.decls := rfl
+
+@[simp] theorem TransState.toFlatCtx_asserts (st : TransState) :
+    st.toFlatCtx.asserts = st.asserts := rfl
+
+@[simp] theorem TransState.toFlatCtx_addConst (st : TransState) (c : FOL.Const) :
+    { st with decls := st.decls.addConst c }.toFlatCtx = st.toFlatCtx.addConst c.name c.sort := by
+  simp [toFlatCtx, FlatCtx.addConst]
+
+@[simp] theorem TransState.toFlatCtx_addAssert (st : TransState) (φ : Formula) :
+    { st with asserts := φ :: st.asserts }.toFlatCtx = st.toFlatCtx.addAssert φ := by
+  simp [toFlatCtx, FlatCtx.addAssert]
+
+def TransState.empty : TransState := ⟨Signature.empty, [], []⟩
+
+@[simp] theorem TransState.empty_toFlatCtx : TransState.empty.toFlatCtx = FlatCtx.empty := rfl
+
 def TransState.holdsFor (st : TransState) (ρ : Env) := ∀ φ ∈ st.asserts, φ.eval ρ
 
 theorem TransState.holdsFor_mono {st st' : TransState} {ρ : Env}
@@ -80,6 +104,7 @@ theorem TransState.holdsFor_mono {st st' : TransState} {ρ : Env}
 structure TransState.wf (st : TransState) : Prop where
   assertsWf : st.asserts.wfIn st.decls
   namesDisjoint : st.decls.allNames.Nodup
+  ownsWf : st.owns.wfIn st.decls
 
 def TransState.freshConst (hint : Option String) (t : Srt) (st : TransState) : FOL.Const :=
   let base := hint.getD "_v"
@@ -90,12 +115,13 @@ theorem TransState.freshConst.wf {hint t} (st : TransState) :
   TransState.wf st →
   TransState.wf { st with decls := st.decls.addConst (st.freshConst hint t) } := by
   intro hwf
+  have hfresh : (st.freshConst hint t).name ∉ st.decls.allNames :=
+    fresh_not_mem (addNumbers (hint.getD "_v")) st.decls.allNames (addNumbers_injective _)
+  have hwf' := Signature.wf_addConst hwf.namesDisjoint hfresh
   constructor
-  · exact Context.wfIn_mono _ hwf.assertsWf (Signature.Subset.subset_addConst _ _)
-      (Signature.wf_addConst hwf.namesDisjoint
-        (fresh_not_mem (addNumbers (hint.getD "_v")) st.decls.allNames (addNumbers_injective _)))
-  · have hfresh := fresh_not_mem (addNumbers (hint.getD "_v")) st.decls.allNames (addNumbers_injective _)
-    exact Signature.nodup_allNames_addConst hwf.namesDisjoint hfresh
+  · exact Context.wfIn_mono _ hwf.assertsWf (Signature.Subset.subset_addConst _ _) hwf'
+  · exact Signature.nodup_allNames_addConst hwf.namesDisjoint hfresh
+  · exact SpatialContext.wfIn_mono hwf.ownsWf (Signature.Subset.subset_addConst _ _) hwf'
 
 theorem TransState.addAssert.wf (st : TransState) :
   TransState.wf st →
@@ -109,6 +135,7 @@ theorem TransState.addAssert.wf (st : TransState) :
     · exact hφ
     · exact hwf.assertsWf ψ hψ
   · exact hwf.namesDisjoint
+  · exact hwf.ownsWf
 
 
 def TransCont α := α → TransState → ScopedM (Except VerifError Unit)
@@ -117,19 +144,19 @@ def translateAll (items : List α) (st : TransState) (k : TransCont (Except Veri
     ScopedM (Except VerifError Unit) :=
   match items with
   | [] => ScopedM.ret (.ok ())
-  | a :: as =>
+  | a :: rest =>
       .bracket (k (.ok a) st) (fun
         | .error e => ScopedM.ret (.error e)
-        | .ok () => translateAll as st k)
+        | .ok () => translateAll rest st k)
 
 def translateAny (items : List α) (st : TransState) (k : TransCont (Except VerifError α)) :
     ScopedM (Except VerifError Unit) :=
   match items with
   | [] => k (.error (.failed "no alternative")) st
-  | a :: as =>
+  | a :: rest =>
       .bracket (k (.ok a) st) (fun
         | .ok () => ScopedM.ret (.ok ())
-        | .error (.failed _) => translateAny as st k
+        | .error (.failed _) => translateAny rest st k
         | .error (.fatal msg) => ScopedM.ret (.error (.fatal msg)))
 
 def VerifM.translate :
@@ -639,7 +666,7 @@ theorem VerifM.eval_of_translate (m : VerifM Unit) (st : TransState) (ρ : Env) 
   (translate_eval m st ρ topCont topCont_error_propagates Δ h g hwf).mono fun _ _ _ _ => trivial
 
 def VerifM.strategy (m : VerifM Unit) :=
-  let verif := VerifM.translate m { decls := Signature.empty, asserts := [] } VerifM.topCont
+  let verif := VerifM.translate m TransState.empty VerifM.topCont
   let verif' := ScopedM.bind verif fun
     | .ok () => ScopedM.ret (Except.ok ())
     | .error (.failed msg) => ScopedM.ret (Except.error msg)
