@@ -201,7 +201,6 @@ theorem Typ.weight_pair_lt_list_tail (s : Typ) (ss : List Typ) (t : Typ) (ts : L
 
 /-! ## Subtyping decision procedure -/
 
-set_option linter.unnecessarySimpa false in
 mutual
 
   def Typ.subBody (Θ : TypeEnv) (recur : Typ → Typ → Bool) : Typ → Typ → Bool :=
@@ -226,10 +225,7 @@ mutual
   termination_by s t => Typ.weight s + Typ.weight t
   decreasing_by
     all_goals
-      first
-        | simpa [Typ.weight] using Typ.weight_pair_lt_sum _ _
-        | simpa [Typ.weight] using Typ.weight_pair_lt_arrow_dom _ _ _ _
-        | simpa [Typ.weight] using Typ.weight_pair_lt_arrow_codom _ _ _ _
+      simp [Typ.weight]; try omega
 
   def Typ.subListBody (Θ : TypeEnv) (recur : Typ → Typ → Bool) : List Typ → List Typ → Bool
     | [], [] => true
@@ -291,7 +287,6 @@ theorem Typ.SubList.length_eq : Typ.SubList Θ ss ts → ss.length = ts.length
   | .cons _ h => by simp [List.length_cons, h.length_eq]
 
 -- Forward direction: decision procedure is sound.
-set_option linter.unnecessarySimpa false in
 mutual
   private theorem Typ.subBody_sound {Θ : TypeEnv} {recur : Typ → Typ → Bool}
       (hrecur : ∀ {s t}, recur s t = true → Typ.Sub Θ s t)
