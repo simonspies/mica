@@ -215,17 +215,17 @@ def Expr.ty : Expr → Typ
   | .match_ _ _ ty => ty
   | .cast _ ty => ty
 
-structure Decl (S : Type) where
+structure ValDecl (S : Type) where
   name : Binder
   body : Expr
   spec : Option S
   deriving Repr, BEq
 
-instance [Inhabited S] : Inhabited (Decl S) := ⟨{ name := default, body := default, spec := default }⟩
+instance [Inhabited S] : Inhabited (ValDecl S) := ⟨{ name := default, body := default, spec := default }⟩
 
-def Decl.mapSpec {S T : Type} (f : S → Option T) (d : Decl S) : Decl T :=
+def ValDecl.mapSpec {S T : Type} (f : S → Option T) (d : ValDecl S) : ValDecl T :=
   { name := d.name, body := d.body, spec := d.spec.bind f }
 
-abbrev Program (S : Type) := List (Decl S)
+abbrev Program (S : Type) := List (ValDecl S)
 
 end Typed

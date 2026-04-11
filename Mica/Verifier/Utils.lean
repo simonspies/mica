@@ -44,8 +44,8 @@ theorem Bindings.wf_cons {B : Bindings} {decls : Signature} {x : TinyML.Var} {v 
   · exact List.Mem.tail _ (hbwf p hp)
 
 /-- The substitution `γ` maps every binding to a value well-typed by `Γ`. -/
-def Bindings.typedSubst (B : Bindings) (Γ : TinyML.TyCtx) (γ : Runtime.Subst) : Prop :=
-  ∀ x x' t, B.lookup x = some x' → Γ x = some t → ∃ v, γ x = some v ∧ TinyML.ValHasType v t
+def Bindings.typedSubst (Θ : TinyML.TypeEnv) (B : Bindings) (Γ : TinyML.TyCtx) (γ : Runtime.Subst) : Prop :=
+  ∀ x x' t, B.lookup x = some x' → Γ x = some t → ∃ v, γ x = some v ∧ TinyML.ValHasType Θ v t
 
 /-! ### Term List Evaluation -/
 
@@ -151,9 +151,9 @@ theorem Terms.Eval.lookup_const {ρ : Env} {avs : List FOL.Const} {vs : List Run
 
 theorem Bindings.typedSubst_cons {B : Bindings} {Γ : TinyML.TyCtx} {γ : Runtime.Subst}
     {x : TinyML.Var} {v : FOL.Const} {te : TinyML.Typ} {w : Runtime.Val}
-    (hts  : B.typedSubst Γ γ)
-    (hval : TinyML.ValHasType w te) :
-    Bindings.typedSubst ((x, v) :: B) (Γ.extend x te) (Runtime.Subst.update γ x w) := by
+    (hts  : B.typedSubst Θ Γ γ)
+    (hval : TinyML.ValHasType Θ w te) :
+    Bindings.typedSubst Θ ((x, v) :: B) (Γ.extend x te) (Runtime.Subst.update γ x w) := by
   intro y y' t hmem hΓ
   by_cases hyx : y == x
   · -- head case: y = x
@@ -190,8 +190,8 @@ theorem Bindings.typedSubst_of_agreeOnLinked
     {B : Bindings} {Γ : TinyML.TyCtx} {γ : Runtime.Subst} {ρ : Env}
     (hagree : B.agreeOnLinked ρ γ)
     (htyped_vals : ∀ x x' t, B.lookup x = some x' → Γ x = some t →
-      TinyML.ValHasType (ρ.consts .value x'.name) t) :
-    B.typedSubst Γ γ := by
+      TinyML.ValHasType Θ (ρ.consts .value x'.name) t) :
+    B.typedSubst Θ Γ γ := by
   intro x x' t hmem hΓ
   obtain ⟨_, hval⟩ := hagree x x' hmem
   exact ⟨_, hval, htyped_vals x x' t hmem hΓ⟩
@@ -371,8 +371,8 @@ theorem val_typed_of_last_wins
     (hlookup : List.lookup x ((args.map Prod.fst).zip vars).reverse = some x')
     (hΓ : (args.foldl (fun ctx a => ctx.extend a.1 a.2) Γ₀) x = some t)
     (hlookups : List.Forall₂ (fun av val => ρ.consts .value av.name = val) vars vals)
-    (htyped : TinyML.ValsHaveTypes vals (args.map Prod.snd))
-    : TinyML.ValHasType (ρ.consts .value x'.name) t := by
+    (htyped : TinyML.ValsHaveTypes Θ vals (args.map Prod.snd))
+    : TinyML.ValHasType Θ (ρ.consts .value x'.name) t := by
   induction args generalizing vars vals Γ₀ with
   | nil => simp at hlookup
   | cons a as ih =>

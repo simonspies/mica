@@ -1,6 +1,8 @@
 namespace TinyML
 
 abbrev Var := String
+abbrev TyVar := String
+abbrev TypeName := String
 
 inductive Typ where
   | unit
@@ -12,6 +14,8 @@ inductive Typ where
   | empty   -- bottom type (uninhabited)
   | value   -- top type (all runtime values)
   | tuple (ts : List Typ)
+  | tvar (v : TyVar)
+  | named (T : TypeName) (args : List Typ)
   deriving Repr
 
 def Typ.decEq : (a b : Typ) → Decidable (a = b)
@@ -30,25 +34,47 @@ def Typ.decEq : (a b : Typ) → Decidable (a = b)
   | .tuple ss, .tuple ts => match typesDecEq ss ts with
     | isTrue h => isTrue (by subst h; rfl)
     | isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
+  | .tvar v, .tvar w => match (inferInstance : DecidableEq TyVar) v w with
+    | isTrue h => isTrue (by subst h; rfl)
+    | isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
+  | .named T args, .named U params =>
+    match (inferInstance : DecidableEq TypeName) T U, typesDecEq args params with
+    | isTrue h1, isTrue h2 => isTrue (by subst h1; subst h2; rfl)
+    | isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
+    | _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
   | .unit, .bool | .unit, .int | .unit, .sum .. | .unit, .arrow ..
   | .unit, .ref .. | .unit, .empty | .unit, .value | .unit, .tuple ..
+  | .unit, .tvar .. | .unit, .named ..
   | .bool, .unit | .bool, .int | .bool, .sum .. | .bool, .arrow ..
   | .bool, .ref .. | .bool, .empty | .bool, .value | .bool, .tuple ..
+  | .bool, .tvar .. | .bool, .named ..
   | .int, .unit | .int, .bool | .int, .sum .. | .int, .arrow ..
   | .int, .ref .. | .int, .empty | .int, .value | .int, .tuple ..
+  | .int, .tvar .. | .int, .named ..
   | .sum .., .unit | .sum .., .bool | .sum .., .int
   | .sum .., .arrow .. | .sum .., .ref .. | .sum .., .empty | .sum .., .value | .sum .., .tuple ..
+  | .sum .., .tvar .. | .sum .., .named ..
   | .arrow .., .unit | .arrow .., .bool | .arrow .., .int
   | .arrow .., .sum .. | .arrow .., .ref .. | .arrow .., .empty | .arrow .., .value | .arrow .., .tuple ..
+  | .arrow .., .tvar .. | .arrow .., .named ..
   | .ref .., .unit | .ref .., .bool | .ref .., .int
   | .ref .., .sum .. | .ref .., .arrow .. | .ref .., .empty | .ref .., .value | .ref .., .tuple ..
+  | .ref .., .tvar .. | .ref .., .named ..
   | .empty, .unit | .empty, .bool | .empty, .int | .empty, .sum ..
   | .empty, .arrow .. | .empty, .ref .. | .empty, .value | .empty, .tuple ..
+  | .empty, .tvar .. | .empty, .named ..
   | .value, .unit | .value, .bool | .value, .int | .value, .sum ..
   | .value, .arrow .. | .value, .ref .. | .value, .empty | .value, .tuple ..
+  | .value, .tvar .. | .value, .named ..
   | .tuple .., .unit | .tuple .., .bool | .tuple .., .int
   | .tuple .., .sum .. | .tuple .., .arrow .. | .tuple .., .ref .. | .tuple .., .empty
-  | .tuple .., .value => isFalse (by intro h; cases h)
+  | .tuple .., .value | .tuple .., .tvar .. | .tuple .., .named ..
+  | .tvar .., .unit | .tvar .., .bool | .tvar .., .int | .tvar .., .sum ..
+  | .tvar .., .arrow .. | .tvar .., .ref .. | .tvar .., .empty | .tvar .., .value | .tvar .., .tuple ..
+  | .tvar .., .named ..
+  | .named .., .unit | .named .., .bool | .named .., .int | .named .., .sum ..
+  | .named .., .arrow .. | .named .., .ref .. | .named .., .empty | .named .., .value | .named .., .tuple ..
+  | .named .., .tvar .. => isFalse (by intro h; cases h)
 where
   typesDecEq : (as bs : List Typ) → Decidable (as = bs)
     | [], [] => isTrue rfl
@@ -59,10 +85,53 @@ where
       | _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
 
 instance : DecidableEq Typ := Typ.decEq
+
 instance : BEq Typ := ⟨fun a b => decide (a = b)⟩
 instance : LawfulBEq Typ where
   eq_of_beq h := of_decide_eq_true h
   rfl := by simp [BEq.beq]
+
+/--
+Substitution over `Typ`.
+
+This is currently structural-only scaffolding. It becomes meaningfully
+variable-sensitive once `Typ` grows `tvar`/`named`.
+-/
+def Typ.subst (_σ : TyVar → Typ) : Typ → Typ
+  | .unit => .unit
+  | .bool => .bool
+  | .int => .int
+  | .sum ts => .sum (ts.map (Typ.subst _σ))
+  | .arrow t1 t2 => .arrow (Typ.subst _σ t1) (Typ.subst _σ t2)
+  | .ref t => .ref (Typ.subst _σ t)
+  | .empty => .empty
+  | .value => .value
+  | .tuple ts => .tuple (ts.map (Typ.subst _σ))
+  | .tvar v => _σ v
+  | .named T args => .named T (args.map (Typ.subst _σ))
+
+structure DataDecl where
+  tparams : List TyVar
+  payloads : List Typ
+  deriving Repr, Inhabited, DecidableEq
+
+abbrev TypeEnv := TypeName → Option DataDecl
+
+def TypeEnv.empty : TypeEnv := fun _ => none
+
+/--
+Instantiation is also scaffolding for now: until `Typ` can contain type
+variables, substitution has no observable effect.
+-/
+def DataDecl.instantiate (d : DataDecl) (args : List Typ) : Typ :=
+  let σ := fun v =>
+    match (d.tparams.zip args).find? (fun p => p.1 == v) with
+    | some (_, ty) => ty
+    | none => .tvar v
+  .sum (d.payloads.map (Typ.subst σ))
+
+def TypeName.unfold (Θ : TypeEnv) (T : TypeName) (args : List Typ) : Option Typ :=
+  (Θ T).map (·.instantiate args)
 
 inductive BinOp where
   | add | sub | mul | div | mod

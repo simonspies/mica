@@ -157,14 +157,28 @@ abbrev Binders := List Binder
   simp only [BEq.beq, Bool.and_eq_true, Binder.named.injEq, decide_eq_true_iff]
   exact and_congr Iff.rfl beq_iff_eq.symm
 
-structure Decl (S : Type) where
+structure ValDecl (S : Type) where
   name : Binder
   body : Expr
   spec : Option S
   deriving Repr, BEq, Inhabited
 
-def Decl.mapSpec {S T : Type} (f : S → Option T) (d : Decl S) : Decl T :=
+def ValDecl.mapSpec {S T : Type} (f : S → Option T) (d : ValDecl S) : ValDecl T :=
   { name := d.name, body := d.body, spec := d.spec.bind f }
+
+structure TypeDecl where
+  name : TypeName
+  body : DataDecl
+  deriving Repr, BEq, Inhabited
+
+inductive Decl (S : Type) where
+  | val_ (d : ValDecl S)
+  | type_ (d : TypeDecl)
+  deriving Repr, BEq, Inhabited
+
+def Decl.mapSpec {S T : Type} (f : S → Option T) : Decl S → Decl T
+  | .val_ d => .val_ (d.mapSpec f)
+  | .type_ d => .type_ d
 
 abbrev Program (S : Type) := List (Decl S)
 

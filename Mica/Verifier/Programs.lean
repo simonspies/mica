@@ -39,14 +39,15 @@ def Spec.complete (sp : SpecPredicate) (e : Expr) : Except String Spec :=
 Iterates over a list of declarations, verifying each one against its spec
 and accumulating the spec map for use by subsequent declarations. -/
 
-def Program.prepare (prog : Untyped.Program Untyped.Expr) : VerifM (Typed.Program Untyped.Expr) :=
-  match Typed.Program.elaborate TinyML.TyCtx.empty prog with
-  | .ok typed => .ret typed
+def Program.prepare (prog : Untyped.Program Untyped.Expr) :
+    VerifM (TinyML.TypeEnv × Typed.Program Untyped.Expr) :=
+  match Typed.Program.elaborate TinyML.TypeEnv.empty TinyML.TyCtx.empty prog with
+  | .ok prepared => .ret prepared
   | .error err => .fatal (toString err)
 
 /-- Check an individual declaration. Each declaration's `checkSpec` runs inside a `seq` bracket so its
     declarations and assertions don't pollute subsequent verifications. -/
-def Decl.check (S : SpecMap) (d : Typed.Decl Untyped.Expr) : VerifM Spec := do
+def ValDecl.check (Θ : TinyML.TypeEnv) (S : SpecMap) (d : Typed.ValDecl Untyped.Expr) : VerifM Spec := do
   let specExpr ← match d.spec with
     | some e => .ret e
     | none => .fatal "declaration has no spec"
@@ -59,68 +60,69 @@ def Decl.check (S : SpecMap) (d : Typed.Decl Untyped.Expr) : VerifM Spec := do
   let () ← match Spec.checkWf spec Signature.empty with
     | .ok () => .ret ()
     | .error msg => .fatal msg
-  VerifM.seq (checkSpec S d.body spec) (pure spec)
+  VerifM.seq (checkSpec Θ S d.body spec) (pure spec)
 
 /-- Check a `let _ = e` declaration: just compile `e` for safety, no spec. -/
-def Decl.checkExpr (S : SpecMap) (d : Typed.Decl Untyped.Expr) : VerifM Unit :=
-  VerifM.seq (do let _ ← compile S [] TinyML.TyCtx.empty d.body; pure ()) (pure ())
+def ValDecl.checkExpr (Θ : TinyML.TypeEnv) (S : SpecMap) (d : Typed.ValDecl Untyped.Expr) : VerifM Unit :=
+  VerifM.seq (do let _ ← compile Θ S [] TinyML.TyCtx.empty d.body; pure ()) (pure ())
 
 /-- Verify all declarations in a program, accumulating specs as we go. -/
-def Program.check : SpecMap → Typed.Program Untyped.Expr → VerifM Unit
+def Program.check (Θ : TinyML.TypeEnv) : SpecMap → Typed.Program Untyped.Expr → VerifM Unit
   | _, [] => pure ()
   | S, d :: ds => do
     match d.name.name, d.spec with
     | none, none =>
-      Decl.checkExpr S d
-      Program.check S ds
+      ValDecl.checkExpr Θ S d
+      Program.check Θ S ds
     | some n, none =>
-      -- Named declaration without a spec: skip if it's a function definition
-      -- (no code executes), otherwise check it. Erase any old spec for this
-      -- name since the new binding shadows it.
+    -- Named declaration without a spec: skip if it's a function definition
+    -- (no code executes), otherwise check it. Erase any old spec for this
+    -- name since the new binding shadows it.
       if d.body.isFunc then
-        Program.check (S.erase n) ds
+        Program.check Θ (S.erase n) ds
       else
-        Decl.checkExpr S d
-        Program.check (S.erase n) ds
+        ValDecl.checkExpr Θ S d
+        Program.check Θ (S.erase n) ds
     | _, _ =>
-      let spec ← Decl.check S d
+      let spec ← ValDecl.check Θ S d
       let S' := match d.name.name with
         | some name => S.insert name spec
         | none => S
-      Program.check S' ds
+      Program.check Θ S' ds
 
 def Program.verify (prog : Untyped.Program Untyped.Expr) : Smt.Strategy Smt.Strategy.Outcome :=
   VerifM.strategy do
-    let typed ← Program.prepare prog
-    Program.check ∅ typed
+    let (Θ, typed) ← Program.prepare prog
+    Program.check Θ ∅ typed
 
 /-! ## Correctness -/
 
 theorem Program.prepare_correct (prog : Untyped.Program Untyped.Expr)
     (st : TransState) (ρ : Env)
-    {Q : Typed.Program Untyped.Expr → TransState → Env → Prop}
+    {Q : (TinyML.TypeEnv × Typed.Program Untyped.Expr) → TransState → Env → Prop}
     (heval : VerifM.eval (Program.prepare prog) st ρ Q) :
-    ∃ typed, Typed.Program.runtime typed = Untyped.Program.runtime prog ∧ Q typed st ρ := by
+    ∃ Θ typed, Typed.Program.runtime typed = Untyped.Program.runtime prog ∧ Q (Θ, typed) st ρ := by
   unfold Program.prepare at heval
-  cases helab : Typed.Program.elaborate TinyML.TyCtx.empty prog with
+  cases helab : Typed.Program.elaborate TinyML.TypeEnv.empty TinyML.TyCtx.empty prog with
   | error err =>
     simp [helab] at heval
     exact (VerifM.eval_fatal heval).elim
-  | ok typed =>
-    refine ⟨typed, Typed.Program.elaborate_runtime TinyML.TyCtx.empty prog helab, ?_⟩
+  | ok prepared =>
+    rcases prepared with ⟨Θ, typed⟩
+    refine ⟨Θ, typed, Typed.Program.elaborate_runtime TinyML.TypeEnv.empty TinyML.TyCtx.empty prog helab, ?_⟩
     simp [helab] at heval
     exact VerifM.eval_ret heval
 
-theorem Decl.checkExpr_correct (S : SpecMap) (d : Typed.Decl Untyped.Expr) (γ : Runtime.Subst)
-    (hS : S.satisfiedBy γ) (hSwf : S.wfIn Signature.empty)
+theorem ValDecl.checkExpr_correct (Θ : TinyML.TypeEnv) (S : SpecMap) (d : Typed.ValDecl Untyped.Expr) (γ : Runtime.Subst)
+    (hS : S.satisfiedBy Θ γ) (hSwf : S.wfIn Signature.empty)
     (st : TransState) (ρ : Env)
     {Q : Unit → TransState → Env → Prop}
-    (heval : VerifM.eval (Decl.checkExpr S d) st ρ Q) :
+    (heval : VerifM.eval (ValDecl.checkExpr Θ S d) st ρ Q) :
     wp (d.body.runtime.subst γ) (fun _ => True) := by
-  simp only [Decl.checkExpr] at heval
+  simp only [ValDecl.checkExpr] at heval
   have ⟨hinner, _⟩ := VerifM.eval_seq heval
   have hcompile := VerifM.eval_bind _ _ _ _ hinner
-  exact compile_correct d.body S [] TinyML.TyCtx.empty st ρ γ
+  exact compile_correct Θ d.body S [] TinyML.TyCtx.empty st ρ γ
     (fun x st' ρ' => VerifM.eval (pure ()) st' ρ' (fun _ _ _ => True))
     (fun _ => True)
     hcompile
@@ -130,15 +132,15 @@ theorem Decl.checkExpr_correct (S : SpecMap) (d : Typed.Decl Untyped.Expr) (γ :
     hS hSwf
     (fun _ _ _ _ _ _ _ _ => trivial)
 
-theorem Decl.check_correct (S : SpecMap) (d : Typed.Decl Untyped.Expr) (γ : Runtime.Subst)
-    (hS : S.satisfiedBy γ) (hSwf : S.wfIn Signature.empty)
+theorem ValDecl.check_correct (Θ : TinyML.TypeEnv) (S : SpecMap) (d : Typed.ValDecl Untyped.Expr) (γ : Runtime.Subst)
+    (hS : S.satisfiedBy Θ γ) (hSwf : S.wfIn Signature.empty)
     (st : TransState) (ρ : Env)
     {Q : Spec → TransState → Env → Prop}
-    (heval : VerifM.eval (Decl.check S d) st ρ Q) :
+    (heval : VerifM.eval (ValDecl.check Θ S d) st ρ Q) :
     ∃ spec, spec.wfIn Signature.empty ∧
-            wp (d.body.runtime.subst γ) (spec.isPrecondFor ·) ∧
+            wp (d.body.runtime.subst γ) (spec.isPrecondFor Θ ·) ∧
             Q spec st ρ := by
-  simp only [Decl.check] at heval
+  simp only [ValDecl.check] at heval
   cases hspec : d.spec with
   | none =>
     simp only [hspec] at heval
@@ -169,13 +171,13 @@ theorem Decl.check_correct (S : SpecMap) (d : Typed.Decl Untyped.Expr) (γ : Run
           have h4 := VerifM.eval_ret (VerifM.eval_bind _ _ _ _ h3)
           have hswf : spec.wfIn Signature.empty := Spec.checkWf_ok (by cases u; exact hwf)
           have ⟨hcheckSpec, hpure⟩ := VerifM.eval_seq h4
-          exact ⟨spec, hswf, checkSpec_correct S d.body spec γ hswf hSwf hS st ρ hcheckSpec,
+          exact ⟨spec, hswf, checkSpec_correct Θ S d.body spec γ hswf hSwf hS st ρ hcheckSpec,
                  VerifM.eval_ret hpure⟩
 
-theorem Program.check_correct (S : SpecMap) (prog : Typed.Program Untyped.Expr) (γ : Runtime.Subst)
-    (hS : S.satisfiedBy γ) (hSwf : S.wfIn Signature.empty)
+theorem Program.check_correct (Θ : TinyML.TypeEnv) (S : SpecMap) (prog : Typed.Program Untyped.Expr) (γ : Runtime.Subst)
+    (hS : S.satisfiedBy Θ γ) (hSwf : S.wfIn Signature.empty)
     (st : TransState) (ρ : Env) :
-    VerifM.eval (Program.check S prog) st ρ (fun _ _ _ => True) →
+    VerifM.eval (Program.check Θ S prog) st ρ (fun _ _ _ => True) →
     pwp ((Typed.Program.runtime prog).subst γ) := by
   induction prog generalizing S γ st ρ with
   | nil =>
@@ -183,23 +185,18 @@ theorem Program.check_correct (S : SpecMap) (prog : Typed.Program Untyped.Expr) 
     simp [Typed.Program.runtime, Runtime.Program.subst, pwp]
   | cons d ds ih =>
     intro heval
-    -- Unfold pwp for the cons case
     have hpwp_unfold : pwp ((Typed.Program.runtime (d :: ds)).subst γ) ↔
         wp (d.body.runtime.subst γ) (fun v =>
           pwp ((Typed.Program.runtime ds).subst (Runtime.Subst.update' d.name.runtime v γ))) := by
-      conv_lhs =>
-        unfold Typed.Program.runtime List.map Runtime.Program.subst pwp
-        simp only [Typed.Decl.runtime, Runtime.Decl.subst, Runtime.Program.subst_remove_update]
-      simp only [Typed.Program.runtime]
+      simp [Typed.Program.runtime, pwp, Typed.ValDecl.runtime,
+        Runtime.Program.subst, Runtime.Decl.subst, Runtime.Program.subst_remove_update]
     rw [hpwp_unfold]
     simp only [Program.check] at heval
-    -- Case-split to match the branching in Program.check
     cases hname : d.name.name
-    -- Case: d.name = .none
     · cases hspec : d.spec
       · simp only [hname, hspec] at heval
         have hbind := VerifM.eval_bind _ _ _ _ heval
-        have hwp := Decl.checkExpr_correct S d γ hS hSwf st ρ hbind
+        have hwp := ValDecl.checkExpr_correct Θ S d γ hS hSwf st ρ hbind
         have ⟨_, hcont⟩ := VerifM.eval_seq hbind
         apply wp.mono _ hwp
         intro v _
@@ -207,12 +204,11 @@ theorem Program.check_correct (S : SpecMap) (prog : Typed.Program Untyped.Expr) 
         exact ih S γ hS hSwf st ρ (VerifM.eval_ret hcont)
       · simp only [hname, hspec] at heval
         obtain ⟨spec, hswf, hwp, hcont⟩ :=
-          Decl.check_correct S d γ hS hSwf st ρ (VerifM.eval_bind _ _ _ _ heval)
+          ValDecl.check_correct Θ S d γ hS hSwf st ρ (VerifM.eval_bind _ _ _ _ heval)
         apply wp.mono (fun v hprecond => _) hwp
         intro v hprecond
         simp only [Binder.runtime_of_name_none hname, Runtime.Subst.update']
         exact ih S γ hS hSwf st ρ hcont
-    -- Case: d.name = .named n
     · rename_i n
       cases hspec : d.spec
       · simp only [hname, hspec] at heval
@@ -234,7 +230,7 @@ theorem Program.check_correct (S : SpecMap) (prog : Typed.Program Untyped.Expr) 
             (SpecMap.satisfiedBy_erase' hS) (SpecMap.wfIn_erase' hSwf) st ρ (by
               simpa [SpecMap.erase', hname, Binder.runtime_of_name_some hname, Runtime.Subst.update'] using heval)
         · have hbind := VerifM.eval_bind _ _ _ _ heval
-          have hwp := Decl.checkExpr_correct S d γ hS hSwf st ρ hbind
+          have hwp := ValDecl.checkExpr_correct Θ S d γ hS hSwf st ρ hbind
           have ⟨_, hcont⟩ := VerifM.eval_seq hbind
           apply wp.mono _ hwp
           intro v _
@@ -246,7 +242,7 @@ theorem Program.check_correct (S : SpecMap) (prog : Typed.Program Untyped.Expr) 
                 (VerifM.eval_ret hcont))
       · simp only [hname, hspec] at heval
         obtain ⟨spec, hswf, hwp, hcont⟩ :=
-          Decl.check_correct S d γ hS hSwf st ρ (VerifM.eval_bind _ _ _ _ heval)
+          ValDecl.check_correct Θ S d γ hS hSwf st ρ (VerifM.eval_bind _ _ _ _ heval)
         apply wp.mono (fun v hprecond => _) hwp
         intro v hprecond
         simp only [Binder.runtime_of_name_some hname, Runtime.Subst.update']
@@ -273,12 +269,12 @@ theorem Program.verify_correct (p : Untyped.Program Untyped.Expr) :
        by simp [FlatCtx.empty, Signature.empty, Signature.allNames]⟩
     have hverifM := VerifM.eval_of_translate
                       (do
-                        let typed ← Program.prepare p
-                        Program.check ∅ typed)
+                        let (Θ, typed) ← Program.prepare p
+                        Program.check Θ ∅ typed)
                       FlatCtx.empty default ctx_mid hverif hholdsFor hwf
     have hbind := VerifM.eval_bind _ _ _ _ hverifM
-    obtain ⟨typed, hrt, hcheck⟩ := Program.prepare_correct p FlatCtx.empty default hbind
-    have hcorrect := Program.check_correct ∅ typed Runtime.Subst.id
+    obtain ⟨Θ, typed, hrt, hcheck⟩ := Program.prepare_correct p FlatCtx.empty default hbind
+    have hcorrect := Program.check_correct Θ ∅ typed Runtime.Subst.id
                        (SpecMap.empty_satisfiedBy _) (SpecMap.empty_wfIn _)
                        FlatCtx.empty default hcheck
     rw [Runtime.Program.subst_id] at hcorrect

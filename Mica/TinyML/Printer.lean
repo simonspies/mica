@@ -134,7 +134,7 @@ end
 
 def Expr.print (e : Untyped.Expr) : String := printExpr e
 
-def Decl.print (d : Untyped.Decl Untyped.Expr) : String :=
+def ValDecl.print (d : Untyped.ValDecl Untyped.Expr) : String :=
   let decl := match d.body with
     | .fix (.named f _) args _ inner =>
       let (allArgs, innerBody) := collectFixArgs f args inner
@@ -150,6 +150,15 @@ def Decl.print (d : Untyped.Decl Untyped.Expr) : String :=
   match d.spec with
   | .none => decl
   | .some e => s!"{decl} [@@spec {printExpr e}]"
+
+def TypeDecl.print (d : Untyped.TypeDecl) : String :=
+  let payloads := (List.range d.body.payloads.length).zip d.body.payloads |>.map
+    (fun (i, ty) => s!"C{i} of {repr ty}")
+  s!"type {d.name} = {" | ".intercalate payloads}"
+
+def Decl.print : Untyped.Decl Untyped.Expr → String
+  | .val_ d => d.print
+  | .type_ d => d.print
 
 def Program.print (p : Untyped.Program Untyped.Expr) : String :=
   "\n;;\n".intercalate (p.map Decl.print)
