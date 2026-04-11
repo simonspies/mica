@@ -1,3 +1,5 @@
+/-! # Common vocabulary shared across all TinyML IRs: variables, operators, constants. -/
+
 namespace TinyML
 
 abbrev Var := String
