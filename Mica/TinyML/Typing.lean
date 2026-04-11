@@ -302,6 +302,17 @@ def Program.elaborate {S : Type} (Θ : TypeEnv) (Γ : TinyML.TyCtx) :
           let (Θ', ds') ← Program.elaborate Θ Γ' ds
           .ok (Θ', d' :: ds')
 
+private theorem branchListRuntime_cast_joinAll
+    (Θ : TypeEnv) (branches' : List (Typed.Binder × Typed.Expr)) :
+    Expr.runtime.branchListRuntime
+      (branches'.map fun x =>
+        (x.1, if x.2.ty = joinAll Θ (branches'.map (fun p => p.2.ty)) then x.2
+              else x.2.cast (joinAll Θ (branches'.map (fun p => p.2.ty))))) =
+    Expr.runtime.branchListRuntime branches' := by
+  simpa [BEq.beq] using
+    Typed.Expr.branchListRuntime_castBodies
+      (joinAll Θ (branches'.map (fun p => p.2.ty))) branches'
+
 -- The main issue in this block is not the mathematical argument, but convincing
 -- Lean's termination checker that the mutual proof recursion is well-founded.
 -- The right high-level strategy is to follow the structure of the recursive
@@ -534,22 +545,10 @@ mutual
             · simp [hlen] at hcont
               have ⟨branches', hbranches, hcont⟩ := Except.bind_ok hcont
               rcases (by simpa [hbranches] using hcont) with ⟨rfl, rfl⟩
-              have hcast_branches :
-                  Expr.runtime.branchListRuntime
-                    (List.map
-                      (fun x =>
-                        (x.1,
-                          if x.2.ty = joinAll Θ (List.map (fun p => p.2.ty) branches') then x.2
-                          else x.2.cast (joinAll Θ (List.map (fun p => p.2.ty) branches'))))
-                      branches') =
-                  Expr.runtime.branchListRuntime branches' := by
-                simpa [BEq.beq] using
-                  Typed.Expr.branchListRuntime_castBodies
-                    (joinAll Θ (List.map (fun p => p.2.ty) branches')) branches'
               simp [Expr.runtime, Untyped.Expr.runtime]
               constructor
               · exact ihScrut _ hscrut
-              · exact hcast_branches.trans (ihBranches ts _ hbranches)
+              · exact (branchListRuntime_cast_joinAll Θ branches').trans (ihBranches ts _ hbranches)
             · simp [hlen] at hcont
           | named T args =>
             cases hunfold : TypeName.unfold Θ T args with
@@ -562,20 +561,8 @@ mutual
                 · simp [hlen] at hcont
                   have ⟨branches', hbranches, hcont⟩ := Except.bind_ok hcont
                   rcases (by simpa [hbranches] using hcont) with ⟨rfl, rfl⟩
-                  have hcast_branches :
-                      Expr.runtime.branchListRuntime
-                        (List.map
-                          (fun x =>
-                            (x.1,
-                              if x.2.ty = joinAll Θ (List.map (fun p => p.2.ty) branches') then x.2
-                              else x.2.cast (joinAll Θ (List.map (fun p => p.2.ty) branches'))))
-                          branches') =
-                      Expr.runtime.branchListRuntime branches' := by
-                    simpa [BEq.beq] using
-                      Typed.Expr.branchListRuntime_castBodies
-                        (joinAll Θ (List.map (fun p => p.2.ty) branches')) branches'
                   simp [Expr.runtime, Untyped.Expr.runtime, ihScrut _ hscrut]
-                  exact hcast_branches.trans (ihBranches ts _ hbranches)
+                  exact (branchListRuntime_cast_joinAll Θ branches').trans (ihBranches ts _ hbranches)
                 · simp [hlen] at hcont
               | _ => simp [hunfold] at hcont
           | _ =>
@@ -682,12 +669,19 @@ theorem ValDecl.elaborate_runtime {S : Type} (Θ : TypeEnv) (Γ : TinyML.TyCtx) 
       Typed.ValDecl.elaborate Θ Γ d = .ok d' →
       d'.runtime = d.runtime := by
   intro d' helab
-  cases hname : d.name with
-  | none =>
-    cases hinfer : Typed.infer Θ Γ d.body with
-    | error err =>
-      simp [ValDecl.elaborate, hname, hinfer] at helab
+  -- Split only on whether there is an annotation; the unannotated cases are identical.
+  match hname : d.name with
+  | .named x (some ty) =>
+    cases hcheck : Typed.check Θ Γ d.body ty with
+    | error err => simp [ValDecl.elaborate, hname, hcheck] at helab; cases helab
+    | ok body' =>
+      simp [ValDecl.elaborate, hname, hcheck] at helab
       cases helab
+      simp [Typed.ValDecl.runtime, Untyped.ValDecl.runtime,
+        check_runtime Θ Γ d.body ty _ hcheck, Binder.ofUntyped_runtime, hname]
+  | .none | .named _ none =>
+    cases hinfer : Typed.infer Θ Γ d.body with
+    | error err => simp [ValDecl.elaborate, hname, hinfer] at helab; cases helab
     | ok p =>
       cases p with
       | mk bodyTy body' =>
@@ -695,30 +689,6 @@ theorem ValDecl.elaborate_runtime {S : Type} (Θ : TypeEnv) (Γ : TinyML.TyCtx) 
         cases helab
         simp [Typed.ValDecl.runtime, Untyped.ValDecl.runtime,
           infer_runtime Θ Γ d.body _ hinfer, Binder.ofUntyped_runtime, hname]
-  | named x ann =>
-    cases hann : ann with
-    | none =>
-      cases hinfer : Typed.infer Θ Γ d.body with
-      | error err =>
-        simp [ValDecl.elaborate, hname, hann, hinfer] at helab
-        cases helab
-      | ok p =>
-        cases p with
-        | mk bodyTy body' =>
-          simp [ValDecl.elaborate, hname, hann, hinfer] at helab
-          cases helab
-          simp [Typed.ValDecl.runtime, Untyped.ValDecl.runtime,
-            infer_runtime Θ Γ d.body _ hinfer, Binder.ofUntyped_runtime, hname, hann]
-    | some ty =>
-      cases hcheck : Typed.check Θ Γ d.body ty with
-      | error err =>
-        simp [ValDecl.elaborate, hname, hann, hcheck] at helab
-        cases helab
-      | ok body' =>
-        simp [ValDecl.elaborate, hname, hann, hcheck] at helab
-        cases helab
-        simp [Typed.ValDecl.runtime, Untyped.ValDecl.runtime,
-          check_runtime Θ Γ d.body ty _ hcheck, Binder.ofUntyped_runtime, hname, hann]
 
 theorem Program.elaborate_runtime {S : Type} (Θ : TypeEnv) (Γ : TinyML.TyCtx) (prog : Untyped.Program S) :
     ∀ {Θ' : TypeEnv} {prog' : Typed.Program S},
