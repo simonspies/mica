@@ -621,7 +621,8 @@ theorem compile_correct (Θ : TinyML.TypeEnv) (e : Expr) (S : SpecMap) (B : Bind
         fresh_not_mem _ _ (addNumbers_injective _)
       set st₂ : TransState :=
         { decls := st₁.decls.addConst v,
-          asserts := (Formula.eq .value (.const (.uninterpreted v.name .value)) se) :: st₁.asserts }
+          asserts := (Formula.eq .value (.const (.uninterpreted v.name .value)) se) :: st₁.asserts,
+          owns := st₁.owns }
       set ρ_body := ρ_e.updateConst .value v.name v_e
       set γ_body : Runtime.Subst := Runtime.Subst.update γ x v_e
       suffices wp (body.runtime.subst γ_body) Φ by
@@ -909,7 +910,7 @@ theorem compileBranch_correct (Θ : TinyML.TypeEnv) (branch : Binder × Expr) (S
     have heval_inst := hdecl payload
     have heval_assume := VerifM.eval_bind _ _ _ _ heval_inst
     have hassume := VerifM.eval_assume heval_assume
-    let st₁ : TransState := { decls := st.decls.addConst xv, asserts := st.asserts }
+    let st₁ : TransState := { decls := st.decls.addConst xv, asserts := st.asserts, owns := st.owns }
     let ρ₁ := ρ.updateConst .value xv.name payload
     have hxv_fresh : xv.name ∉ st.decls.allNames :=
       fresh_not_mem _ _ (addNumbers_injective _)

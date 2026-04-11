@@ -262,20 +262,21 @@ theorem Program.verify_correct (p : Untyped.Program Untyped.Expr) :
   | .error e =>
     cases e <;> simp [ScopedM.eval_ret] at hcont
   | .ok () =>
-    have hholdsFor : TransState.holdsFor FlatCtx.empty default :=
-      fun φ hφ => by simp [FlatCtx.empty] at hφ
-    have hwf : TransState.wf FlatCtx.empty :=
-      ⟨fun φ hφ => by simp [FlatCtx.empty] at hφ,
-       by simp [FlatCtx.empty, Signature.empty, Signature.allNames]⟩
+    have hholdsFor : TransState.holdsFor TransState.empty default :=
+      fun φ hφ => by simp [TransState.empty] at hφ
+    have hwf : TransState.wf TransState.empty :=
+      ⟨fun φ hφ => by simp [TransState.empty] at hφ,
+       by simp [TransState.empty, Signature.empty, Signature.allNames],
+       fun a ha => by simp [TransState.empty] at ha⟩
     have hverifM := VerifM.eval_of_translate
                       (do
                         let (Θ, typed) ← Program.prepare p
                         Program.check Θ ∅ typed)
-                      FlatCtx.empty default ctx_mid hverif hholdsFor hwf
+                      TransState.empty default ctx_mid hverif hholdsFor hwf
     have hbind := VerifM.eval_bind _ _ _ _ hverifM
-    obtain ⟨Θ, typed, hrt, hcheck⟩ := Program.prepare_correct p FlatCtx.empty default hbind
+    obtain ⟨Θ, typed, hrt, hcheck⟩ := Program.prepare_correct p TransState.empty default hbind
     have hcorrect := Program.check_correct Θ ∅ typed Runtime.Subst.id
                        (SpecMap.empty_satisfiedBy _) (SpecMap.empty_wfIn _)
-                       FlatCtx.empty default hcheck
+                       TransState.empty default hcheck
     rw [Runtime.Program.subst_id] at hcorrect
     simpa [hrt] using hcorrect

@@ -316,7 +316,7 @@ private theorem VerifM.eval_tryCandidates
     Tier 1: syntactic search through the context.
     Tier 2: try candidate resolutions via the SMT solver. -/
 def VerifM.resolve (a : Atom τ) : VerifM (Option (Term τ)) := do
-  match ← VerifM.ctx (a.resolve ·) with
+  match ← VerifM.ctxPure (a.resolve ·) with
   | some t => pure (some t)
   | none => VerifM.tryCandidates a.candidates
 
@@ -330,7 +330,7 @@ theorem VerifM.eval_resolve {pred : Atom τ} {st : TransState} {ρ : Env}
       ∧ (∀ t, result = some t → t.wfIn st.decls) := by
   unfold VerifM.resolve at h
   have hb1 := VerifM.eval_bind _ _ _ _ h
-  have ⟨hctx_q, hholds, hwfAsserts⟩ := VerifM.eval_ctx hb1
+  have ⟨hctx_q, hholds, hwfAsserts⟩ := VerifM.eval_ctxPure hb1
   cases hres : pred.resolve st.asserts with
   | some t =>
     simp [hres] at hctx_q

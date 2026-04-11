@@ -1,1 +1,3 @@
 import Mica.SeparationLogic.Axioms
+import Mica.SeparationLogic.SpatialAtom
+import Mica.SeparationLogic.Interpretations
