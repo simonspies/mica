@@ -28,7 +28,7 @@ def checkSpec (Θ : TinyML.TypeEnv) (S : SpecMap) (e : Expr) (s : Spec) : VerifM
     let B : Bindings := Bindings.empty ++ (argNames.zip argVars).reverse
     let Γ := (argNames.zip (s.args.map Prod.snd)).foldl (fun ctx (name, ty) => ctx.extend name ty) TinyML.TyCtx.empty
     let se ← compile Θ S' B Γ body
-    if TinyML.Typ.sub Θ .left body.ty s.retTy || TinyML.Typ.sub Θ .right body.ty s.retTy then pure ()
+    if TinyML.Typ.sub Θ body.ty s.retTy then pure ()
     else VerifM.fatal s!"checkSpec: return type mismatch"
     pure se
 
@@ -149,10 +149,7 @@ theorem checkSpec_correct (Θ : TinyML.TypeEnv) (S : SpecMap) (e : Expr) (s : Sp
         · rename_i hsub
           have hret := VerifM.eval_ret (VerifM.eval_bind _ _ _ _ hΨ)
           have hret' := VerifM.eval_ret hret
-          have hsub' : TinyML.Typ.Sub Θ body.ty s.retTy := by
-            cases hsub with
-            | inl h => exact TinyML.Typ.sub_sound h
-            | inr h => exact TinyML.Typ.sub_sound h
+          have hsub' : TinyML.Typ.Sub Θ body.ty s.retTy := TinyML.Typ.sub_sound hsub
           rw [hse_eval] at hret'
           exact hret' hse_wf (TinyML.ValHasType_sub htyped_result hsub')
         · have hcheck := VerifM.eval_bind _ _ _ _ hΨ

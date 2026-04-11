@@ -67,15 +67,6 @@ theorem TyCtx.foldl_extend_stable
 
 /-! ## Subtyping -/
 
-inductive UnfoldSide where
-  | left
-  | right
-  deriving Repr, DecidableEq
-
-def UnfoldSide.flip : UnfoldSide → UnfoldSide
-  | .left => .right
-  | .right => .left
-
 mutual
   @[reducible]
   def Typ.weight : Typ → Nat
@@ -142,30 +133,26 @@ theorem Typ.weight_pair_lt_list_tail (s : Typ) (ss : List Typ) (t : Typ) (ts : L
 set_option linter.unnecessarySimpa false in
 mutual
 
-  def Typ.subBody (Θ : TypeEnv) (recur : UnfoldSide → Typ → Typ → Bool) :
-      UnfoldSide → Typ → Typ → Bool :=
-      fun side s t =>
+  def Typ.subBody (Θ : TypeEnv) (recur : Typ → Typ → Bool) : Typ → Typ → Bool :=
+      fun s t =>
         match s, t with
         | .empty, _ => true
         | _, .value => true
-        | .sum ss, .sum ts => Typ.subListBody Θ recur side ss ts
+        | .sum ss, .sum ts => Typ.subListBody Θ recur ss ts
         | .arrow s1 s2, .arrow t1 t2 =>
-            Typ.subBody Θ recur side.flip t1 s1 && Typ.subBody Θ recur side s2 t2
-        | .tuple ss, .tuple ts => Typ.subListBody Θ recur side ss ts
-        | .named T args, t =>
-            if .named T args == t then true
-            else if side ≠ .left then false
-            else match TypeName.unfold Θ T args with
-              | some s => recur .left s t
+            Typ.subBody Θ recur t1 s1 && Typ.subBody Θ recur s2 t2
+        | .tuple ss, .tuple ts => Typ.subListBody Θ recur ss ts
+        | _, _ =>
+            if s == t then true
+            else match s, t with
+              | .named T args, _ => match TypeName.unfold Θ T args with
+                  | some s' => recur s' t
               | none => false
-        | s, .named T args =>
-            if s == .named T args then true
-            else if side ≠ .right then false
-            else match TypeName.unfold Θ T args with
-              | some t => recur .right s t
+              | _, .named T args => match TypeName.unfold Θ T args with
+                  | some t' => recur s t'
               | none => false
-        | s, t => s == t
-  termination_by _ s t => Typ.weight s + Typ.weight t
+              | _, _ => false
+  termination_by s t => Typ.weight s + Typ.weight t
   decreasing_by
     all_goals
       first
@@ -173,12 +160,11 @@ mutual
         | simpa [Typ.weight] using Typ.weight_pair_lt_arrow_dom _ _ _ _
         | simpa [Typ.weight] using Typ.weight_pair_lt_arrow_codom _ _ _ _
 
-  def Typ.subListBody (Θ : TypeEnv) (recur : UnfoldSide → Typ → Typ → Bool) :
-      UnfoldSide → List Typ → List Typ → Bool
-    | _, [], [] => true
-    | side, s :: ss, t :: ts => Typ.subBody Θ recur side s t && Typ.subListBody Θ recur side ss ts
-    | _, _, _ => false
-  termination_by _ ss ts => 1 + Typ.weights ss + Typ.weights ts
+  def Typ.subListBody (Θ : TypeEnv) (recur : Typ → Typ → Bool) : List Typ → List Typ → Bool
+    | [], [] => true
+    | s :: ss, t :: ts => Typ.subBody Θ recur s t && Typ.subListBody Θ recur ss ts
+    | _, _ => false
+  termination_by ss ts => 1 + Typ.weights ss + Typ.weights ts
   decreasing_by
     all_goals
       first
@@ -186,21 +172,21 @@ mutual
         | exact Typ.weight_pair_lt_list_tail _ _ _ _
 end
 
-def Typ.subi (Θ : TypeEnv) (steps : Nat) : UnfoldSide → Typ → Typ → Bool :=
+def Typ.subi (Θ : TypeEnv) (steps : Nat) : Typ → Typ → Bool :=
   match steps with
-  | 0 => fun _ _ _ => false
+  | 0 => fun _ _ => false
   | n + 1 => Typ.subBody Θ (Typ.subi Θ n)
 
-def Typ.subListi (Θ : TypeEnv) (steps : Nat) : UnfoldSide → List Typ → List Typ → Bool :=
+def Typ.subListi (Θ : TypeEnv) (steps : Nat) : List Typ → List Typ → Bool :=
   match steps with
-  | 0 => fun _ _ _ => false
+  | 0 => fun _ _ => false
   | n + 1 => Typ.subListBody Θ (Typ.subi Θ n)
 
-def Typ.sub (Θ : TypeEnv) : UnfoldSide → Typ → Typ → Bool :=
-  fun side s t => Typ.subi Θ (max (Typ.depth s) (Typ.depth t)) side s t
+def Typ.sub (Θ : TypeEnv) : Typ → Typ → Bool :=
+  fun s t => Typ.subi Θ (max (Typ.depth s) (Typ.depth t)) s t
 
-def Typ.subList (Θ : TypeEnv) : UnfoldSide → List Typ → List Typ → Bool :=
-  fun side ss ts => Typ.subListi Θ (max (Typ.depths ss) (Typ.depths ts)) side ss ts
+def Typ.subList (Θ : TypeEnv) : List Typ → List Typ → Bool :=
+  fun ss ts => Typ.subListi Θ (max (Typ.depths ss) (Typ.depths ts)) ss ts
 
 mutual
   inductive Typ.Sub (Θ : TypeEnv) : Typ → Typ → Prop where
@@ -234,9 +220,9 @@ theorem Typ.SubList.length_eq : Typ.SubList Θ ss ts → ss.length = ts.length
 -- Forward direction: decision procedure is sound.
 set_option linter.unnecessarySimpa false in
 mutual
-  private theorem Typ.subBody_sound {Θ : TypeEnv} {recur : UnfoldSide → Typ → Typ → Bool}
-      (hrecur : ∀ {side s t}, recur side s t = true → Typ.Sub Θ s t)
-      {side : UnfoldSide} {s t : Typ} (h : Typ.subBody Θ recur side s t = true) : Typ.Sub Θ s t := by
+  private theorem Typ.subBody_sound {Θ : TypeEnv} {recur : Typ → Typ → Bool}
+      (hrecur : ∀ {s t}, recur s t = true → Typ.Sub Θ s t)
+      {s t : Typ} (h : Typ.subBody Θ recur s t = true) : Typ.Sub Θ s t := by
     unfold Typ.subBody at h
     split at h
     · exact .bot
@@ -245,36 +231,28 @@ mutual
     · simp [Bool.and_eq_true] at h
       exact .arrow (subBody_sound hrecur h.1) (subBody_sound hrecur h.2)
     · exact .tuple (subListBody_sound hrecur h)
-    · split at h
-      · rename_i T args _ hbeq
-        have heq : .named T args = t := by simpa using hbeq
-        cases heq
-        exact .refl
-      · split at h
-        · rename_i T args _ hneq hside
-          simp at h
-        · split at h
-          · rename_i T args _ hneq hside ty hunfold
+    · -- catchall: if s == t then true else match (s, t) for named
+      split at h
+      · -- s == t
+        rename_i hbeq
+        have heq : s = t := by simpa using hbeq
+        subst heq; exact .refl
+      · -- s ≠ t, check if either side is named
+        split at h
+        · -- s = .named T args
+          rename_i T args hneq
+          split at h
+          · rename_i s' hunfold
             exact .named_left hunfold (hrecur h)
-          · rename_i T args _ hneq hside hunfold
-            cases h
-    · split at h
-      · rename_i T args _ _ hbeq
-        have heq : s = .named T args := by simpa using hbeq
-        cases heq
-        exact .refl
-      · split at h
-        · rename_i T args _ _ hneq hside
-          simp at h
-        · split at h
-          · rename_i T args _ _ hneq hside ty hunfold
+          · cases h
+        · -- t = .named T args (s is not named)
+          rename_i T args hneq
+          split at h
+          · rename_i t' hunfold
             exact .named_right hunfold (hrecur h)
-          · rename_i T args _ _ hneq hside hunfold
+          · cases h
+        · -- neither named
             cases h
-    · have hst : s = t := by
-        simpa using h
-      subst hst
-      exact .refl
   termination_by Typ.weight s + Typ.weight t
   decreasing_by
     all_goals
@@ -282,10 +260,10 @@ mutual
       try simp [Typ.weight]
       try omega
 
-  private theorem Typ.subListBody_sound {Θ : TypeEnv} {recur : UnfoldSide → Typ → Typ → Bool}
-      (hrecur : ∀ {side s t}, recur side s t = true → Typ.Sub Θ s t)
-      {side : UnfoldSide} {ss ts : List Typ}
-      (h : Typ.subListBody Θ recur side ss ts = true) : Typ.SubList Θ ss ts := by
+  private theorem Typ.subListBody_sound {Θ : TypeEnv} {recur : Typ → Typ → Bool}
+      (hrecur : ∀ {s t}, recur s t = true → Typ.Sub Θ s t)
+      {ss ts : List Typ}
+      (h : Typ.subListBody Θ recur ss ts = true) : Typ.SubList Θ ss ts := by
     match ss, ts with
     | [], [] =>
         exact .nil
@@ -301,31 +279,31 @@ mutual
         | exact Typ.weight_pair_lt_list_head _ _ _ _
         | exact Typ.weight_pair_lt_list_tail _ _ _ _
 
-  private theorem Typ.subi_sound {Θ : TypeEnv} {steps : Nat} {side : UnfoldSide} {s t : Typ}
-      (h : Typ.subi Θ steps side s t = true) : Typ.Sub Θ s t := by
-    induction steps generalizing side s t with
+  private theorem Typ.subi_sound {Θ : TypeEnv} {steps : Nat} {s t : Typ}
+      (h : Typ.subi Θ steps s t = true) : Typ.Sub Θ s t := by
+    induction steps generalizing s t with
     | zero =>
       simp [Typ.subi] at h
     | succ n ih =>
       simpa [Typ.subi] using
-        (Typ.subBody_sound (Θ := Θ) (recur := Typ.subi Θ n) (hrecur := fun {side s t} h => ih h) h)
+        (Typ.subBody_sound (Θ := Θ) (recur := Typ.subi Θ n) (hrecur := fun {s t} h => ih h) h)
 
-  private theorem Typ.subListi_sound {Θ : TypeEnv} {steps : Nat} {side : UnfoldSide}
-      {ss ts : List Typ} (h : Typ.subListi Θ steps side ss ts = true) : Typ.SubList Θ ss ts := by
-    induction steps generalizing side ss ts with
+  private theorem Typ.subListi_sound {Θ : TypeEnv} {steps : Nat}
+      {ss ts : List Typ} (h : Typ.subListi Θ steps ss ts = true) : Typ.SubList Θ ss ts := by
+    induction steps generalizing ss ts with
     | zero =>
       simp [Typ.subListi] at h
     | succ n ih =>
       simpa [Typ.subListi] using
-        (Typ.subListBody_sound (Θ := Θ) (recur := Typ.subi Θ n) (hrecur := fun {side s t} h => Typ.subi_sound h) h)
+        (Typ.subListBody_sound (Θ := Θ) (recur := Typ.subi Θ n) (hrecur := fun {s t} h => Typ.subi_sound h) h)
 end
 
-theorem Typ.sub_sound {Θ : TypeEnv} {side : UnfoldSide} {s t : Typ}
-    (h : Typ.sub Θ side s t = true) : Typ.Sub Θ s t := by
+theorem Typ.sub_sound {Θ : TypeEnv} {s t : Typ}
+    (h : Typ.sub Θ s t = true) : Typ.Sub Θ s t := by
   exact Typ.subi_sound (Θ := Θ) (steps := max (Typ.depth s) (Typ.depth t)) h
 
-theorem Typ.subList_sound {Θ : TypeEnv} {side : UnfoldSide} {ss ts : List Typ}
-    (h : Typ.subList Θ side ss ts = true) : Typ.SubList Θ ss ts := by
+theorem Typ.subList_sound {Θ : TypeEnv} {ss ts : List Typ}
+    (h : Typ.subList Θ ss ts = true) : Typ.SubList Θ ss ts := by
   exact Typ.subListi_sound (Θ := Θ) (steps := max (Typ.depths ss) (Typ.depths ts)) h
 
 mutual
@@ -341,8 +319,8 @@ mutual
                                     then .tuple (Typ.joinList Θ ss ts)
                                     else .value
     | s, t =>
-        if Typ.sub Θ .left s t || Typ.sub Θ .right s t then t
-        else if Typ.sub Θ .left t s || Typ.sub Θ .right t s then s
+        if Typ.sub Θ s t then t
+        else if Typ.sub Θ t s then s
         else .value
 
   def Typ.meet (Θ : TypeEnv) : Typ → Typ → Typ
@@ -357,8 +335,8 @@ mutual
                                     then .tuple (Typ.meetList Θ ss ts)
                                     else .empty
     | s, t =>
-        if Typ.sub Θ .left s t || Typ.sub Θ .right s t then s
-        else if Typ.sub Θ .left t s || Typ.sub Θ .right t s then t
+        if Typ.sub Θ s t then s
+        else if Typ.sub Θ t s then t
         else .empty
 
   def Typ.joinList (Θ : TypeEnv) : List Typ → List Typ → List Typ
@@ -680,7 +658,7 @@ mutual
     let (actual, e') ← infer Θ Γ e
     if actual == expected then
       .ok e'
-    else if Typ.sub Θ .left actual expected || Typ.sub Θ .right actual expected then
+    else if Typ.sub Θ actual expected then
       .ok (.cast e' expected)
     else
       .error (.subsumptionFailure actual expected)
@@ -705,7 +683,7 @@ mutual
     | [], [] => .ok []
     | ty :: tys, (binder, body) :: rest => do
         let binderTy := Typed.Binder.expectedTy binder ty
-        if Typ.sub Θ .left ty binderTy || Typ.sub Θ .right ty binderTy then
+        if Typ.sub Θ ty binderTy then
           let typedBinder := Typed.Binder.ofUntyped binder binderTy
           let (_bodyTy, body') ← infer Θ (extendTyped Γ typedBinder) body
           let rest' ← inferBranches Θ Γ tys rest
@@ -1011,7 +989,7 @@ mutual
         · simp [heq] at hcont
           cases hcont
           simpa using infer_runtime Θ Γ e _ hinfer
-        · by_cases hsub : Typ.sub Θ .left actual expected || Typ.sub Θ .right actual expected
+        · by_cases hsub : Typ.sub Θ actual expected
           · simp [heq, hsub] at hcont
             cases hcont
             simp [Expr.runtime, infer_runtime Θ Γ e _ hinfer]
@@ -1080,7 +1058,7 @@ mutual
         | cons ty tys =>
           obtain ⟨binder, body⟩ := br
           let binderTy := Typed.Binder.expectedTy binder ty
-          by_cases hsub : Typ.sub Θ .left ty binderTy || Typ.sub Θ .right ty binderTy
+          by_cases hsub : Typ.sub Θ ty binderTy
           · unfold Typed.inferBranches at h
             simp [binderTy, hsub] at h
             let typedBinder := Typed.Binder.ofUntyped binder binderTy
