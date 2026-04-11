@@ -1,5 +1,7 @@
-import Mica.TinyML.Typed
+import Mica.TinyML.Common
+import Mica.TinyML.Types
 import Mica.TinyML.Untyped
+import Mica.TinyML.Typed
 
 open TinyML
 

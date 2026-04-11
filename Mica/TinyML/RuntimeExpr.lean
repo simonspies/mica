@@ -4,7 +4,7 @@ namespace Runtime
 
 abbrev Location := Nat
 
-open TinyML (Var Typ BinOp UnOp)
+open TinyML (Var BinOp UnOp)
 
 inductive Binder where
   | none
@@ -668,3 +668,12 @@ theorem Exprs.subst_removeAll'_updateAll' (es : Exprs) (γ : Subst) (bs : Binder
   exact Subst.removeAll'_updateAll'_comp γ bs vs hlen z
 
 end Runtime
+
+namespace TinyML
+
+def Const.runtime : TinyML.Const → Runtime.Val
+  | .int n  => .int n
+  | .bool b => .bool b
+  | .unit   => .unit
+
+end TinyML
