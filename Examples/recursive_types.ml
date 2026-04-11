@@ -29,14 +29,14 @@ let rec list_length (l: ilist) : int =
 let result = list_length (Cons (1, Cons (2, Cons (3, Cons (4, Cons (5, Nil))))));;
 
 (* Requires matching on x.1, which has type Typ.named "ilist" []. *)
-(* let second_or_zero (l: ilist) : int =
+let second_or_zero (l: ilist) : int =
   match l with
   | Nil -> 0
   | Cons x ->
     match x.1 with
     | Nil -> 0
-    | Cons y -> y.0
+    | Cons y -> if y.0 <= 0 then 0 else y.0
 [@@spec fun l ->
   ret (fun v ->
     bind (isint v) @@ fun r ->
-    assert (r >= 0))];; *)
+    assert (r >= 0))];; 
