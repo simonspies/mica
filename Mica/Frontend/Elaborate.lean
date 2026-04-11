@@ -13,7 +13,6 @@ inductive ElaborateErrorKind where
   | duplicateConstructor (name : String)
   | duplicateType (name : String)
   | duplicateField (name : String)
-  | polymorphicTypeDecl (name : String)
   | unsupportedChar
   | unsupportedRecordUpdate
   | unsupportedPattern (desc : String)
@@ -38,7 +37,6 @@ def ElaborateErrorKind.toString : ElaborateErrorKind → String
   | .duplicateType name => s!"duplicate type name '{name}'"
   | .duplicateField name =>
     s!"duplicate field '{name}' (shadowing fields from a previous type is not supported)"
-  | .polymorphicTypeDecl name => s!"polymorphic type declarations are not supported: '{name}'"
   | .unsupportedChar => "char literals are not supported"
   | .unsupportedRecordUpdate => "record update expressions are not supported"
   | .unsupportedPattern desc => s!"unsupported pattern: {desc}"
@@ -59,12 +57,6 @@ instance : ToString ElaborateError := ⟨ElaborateError.toString⟩
 -- ---------------------------------------------------------------------------
 -- Elaboration environment (association lists)
 
-private def alookup [BEq α] (key : α) : List (α × β) → Option β
-  | [] => none
-  | (k, v) :: rest => if k == key then some v else alookup key rest
-
-private def acontains [BEq α] (key : α) (m : List (α × β)) : Bool :=
-  (alookup key m).isSome
 
 structure ElabEnv where
   types   : List TypeConstructor                             := []
@@ -131,11 +123,10 @@ private def patternToBinder (pat : Pattern) : ElabM Untyped.Binder :=
 private def patternToBinderTyped (env : ElabEnv) (pat : Pattern) : ElabM Untyped.Binder :=
   match pat.kind with
   | .wildcard => .ok .none
-  | .binder name ty => do
+  | .binder none _ => .ok .none
+  | .binder (some n) ty => do
     let ty' ← elaborateOptTyp env ty
-    match name with
-    | some n => .ok (.named n ty')
-    | none => .ok .none
+    .ok (.named n ty')
   | _ => err pat.loc (.unsupportedPattern "expected a simple binder (variable or wildcard)")
 
 -- ---------------------------------------------------------------------------
@@ -159,7 +150,7 @@ private def insertBranch (env : ElabEnv) (loc : Location) (arity : Nat)
     (acc : List (Option (Untyped.Binder × Untyped.Expr)))
     (name : Constructor) (binder : Option Untyped.Binder) (body : Untyped.Expr)
     : ElabM (List (Option (Untyped.Binder × Untyped.Expr))) :=
-  match alookup name env.ctors with
+  match List.lookup name env.ctors with
   | none => .error { loc, kind := .unknownConstructor name }
   | some (tag, arity') =>
     if arity' != arity then
@@ -195,7 +186,7 @@ private def elaborateBinOp (loc : Location) : BinOp → ElabM TinyML.BinOp
 -- Helper to elaborate a constructor lookup (not recursive)
 private def elaborateCtorLookup (env : ElabEnv) (loc : Location) (name : String)
     (arg : Option Untyped.Expr) : ElabM Untyped.Expr :=
-  match alookup name env.ctors with
+  match List.lookup name env.ctors with
   | some (tag, arity) => .ok (.inj tag arity (arg.getD (.const .unit)))
   | none => err loc (.unknownConstructor name)
 
@@ -210,7 +201,7 @@ def ExprKind.elaborate (env : ElabEnv) (loc : Location) : ExprKind → ElabM Unt
     match name with
     | "ref" | "not" => err loc (.bareSpecialIdentifier name)
     | _ =>
-      match alookup name env.ctors with
+      match List.lookup name env.ctors with
       | some (tag, arity) => .ok (.inj tag arity (.const .unit))
       | none => .ok (.var name)
 
@@ -228,7 +219,7 @@ def ExprKind.elaborate (env : ElabEnv) (loc : Location) : ExprKind → ElabM Unt
     let arg' ← ExprKind.elaborate env al ak
     elaborateCtorLookup env loc name (some arg')
   | .app ⟨_, .ctor name⟩ args =>
-    match alookup name env.ctors with
+    match List.lookup name env.ctors with
     | some _ => err loc (.arityMismatch 1 args.length)
     | none => err loc (.unknownConstructor name)
   | .app ⟨fnLoc, fnKind⟩ args => do
@@ -272,7 +263,7 @@ def ExprKind.elaborate (env : ElabEnv) (loc : Location) : ExprKind → ElabM Unt
     let e' ← ExprKind.elaborate env el ek
     .ok (.unop (.proj n) e')
   | .unop (.field name) ⟨el, ek⟩ =>
-    match alookup name env.fields with
+    match List.lookup name env.fields with
     | some (_, idx) => do
       let e' ← ExprKind.elaborate env el ek
       .ok (.unop (.proj idx) e')
@@ -315,7 +306,7 @@ def ExprKind.elaborate (env : ElabEnv) (loc : Location) : ExprKind → ElabM Unt
     match arms' with
     | [] => err loc .emptyMatch
     | (ctorName, _, _) :: _ =>
-      match alookup ctorName env.ctors with
+      match List.lookup ctorName env.ctors with
       | none => err loc (.unknownConstructor ctorName)
       | some (_, arity) => do
         let init : List (Option (Untyped.Binder × Untyped.Expr)) := List.replicate arity none
@@ -333,10 +324,10 @@ def ExprKind.elaborate (env : ElabEnv) (loc : Location) : ExprKind → ElabM Unt
     match flds with
     | [] => err loc (.unsupportedFeature "empty record")
     | (name, _) :: _ =>
-      match alookup name env.fields with
+      match List.lookup name env.fields with
       | none => err loc (.unknownField name)
       | some (tyName, _) =>
-        match alookup tyName env.records with
+        match List.lookup tyName env.records with
         | none => err loc (.unknownType tyName)
         | some fieldOrder => do
           let elaborated ← RecordFieldList.elaborate env flds
@@ -345,9 +336,7 @@ def ExprKind.elaborate (env : ElabEnv) (loc : Location) : ExprKind → ElabM Unt
 
   | .recordUpdate _ _ => err loc .unsupportedRecordUpdate
 
-  | .annot ⟨il, ik⟩ ty => do
-    let _ ← Typ.elaborate env ty
-    ExprKind.elaborate env il ik
+  | .annot ⟨il, ik⟩ _ => ExprKind.elaborate env il ik
 
 def ExprList.elaborate (env : ElabEnv) : List Expr → ElabM (List Untyped.Expr)
   | [] => .ok []
@@ -402,7 +391,7 @@ private def elaborateCtorDefs (env : ElabEnv) (loc : Location)
   match ctorDefs with
   | [] => .ok ([], [])
   | (ctorName, payloadTy) :: rest => do
-    if acontains ctorName env.ctors then
+    if (List.lookup ctorName env.ctors).isSome then
       err loc (.duplicateConstructor ctorName)
     else do
     let payloadTy' ← match payloadTy with
@@ -428,22 +417,21 @@ private def elaborateVariant (env : ElabEnv) (loc : Location) (name : TypeConstr
 
 private def elaborateFieldDefs (env : ElabEnv) (loc : Location) (tyName : TypeConstructor)
     (fieldDefs : List (FieldName × Typ)) (idx : Nat)
-    : ElabM (List TinyML.Typ × List (FieldName × (TypeConstructor × Nat))) :=
+    : ElabM (List (FieldName × (TypeConstructor × Nat))) :=
   match fieldDefs with
-  | [] => .ok ([], [])
-  | (fieldName, ty) :: rest => do
-    if acontains fieldName env.fields then
+  | [] => .ok []
+  | (fieldName, _) :: rest => do
+    if (List.lookup fieldName env.fields).isSome then
       err loc (.duplicateField fieldName)
     else do
-    let ty' ← Typ.elaborate env ty
-    let (restTypes, restFields) ← elaborateFieldDefs env loc tyName rest (idx + 1)
-    .ok (ty' :: restTypes, (fieldName, (tyName, idx)) :: restFields)
+    let restFields ← elaborateFieldDefs env loc tyName rest (idx + 1)
+    .ok ((fieldName, (tyName, idx)) :: restFields)
 
 private def elaborateRecordDecl (env : ElabEnv) (loc : Location) (name : TypeConstructor)
     (fieldDefs : List (FieldName × Typ)) : ElabM ElabEnv := do
   if env.types.elem name then
     return ← err loc (.duplicateType name)
-  let (_, newFields) ← elaborateFieldDefs env loc name fieldDefs 0
+  let newFields ← elaborateFieldDefs env loc name fieldDefs 0
   let fieldNames := fieldDefs.map Prod.fst
   .ok { env with
     types := name :: env.types
