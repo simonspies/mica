@@ -83,14 +83,34 @@ Stratified into layers, from low-level SMT interaction to high-level program ver
 
 ### TinyML/ — Core IR
 
-The intermediate representation that the Frontend elaborates into. No lexer or parser — those live in `Frontend/`.
+The intermediate representation that the Frontend elaborates into. Three independent ASTs (Untyped, Typed, Runtime) sharing a common vocabulary, with erasure functions mapping the surface IRs down to the runtime IR.
 
-- **`TinyML/Expr.lean`** — `TinyML.Expr` AST and `TinyML.Val` (runtime values), `mutual` inductive. `Type_`, `Binder`, `BinOp`, `UnOp`, `Subst`, `Decl`, `Program`.
-- **`TinyML/Printer.lean`** — Pretty-printer for TinyML expressions.
-- **`TinyML/Typing.lean`** — Type system with subtyping. `Type_.Sub`, bidirectional checker (`Val.synth`, `Expr.synth`, `Expr.check`).
-- **`TinyML/OpSem.lean`** — Small-step operational semantics. Evaluation contexts (`K`), `Head`, `Step`, `Steps`.
-- **`TinyML/Heap.lean`** — `Heap = Finmap Location Val`. Standard heap operations and lemmas.
-- **`TinyML/WeakestPre.lean`** — Axiomatized weakest precondition calculus (`wp`).
+**Dependency structure:**
+```
+Common  (Var, BinOp, UnOp, Const)
+├── RuntimeExpr   
+│   ├── Heap      
+│   ├── OpSem     
+│   └── WeakestPre 
+├── Types         
+│   ├── Untyped   
+│   ├── Typed     
+│   ├── LogicalRelation 
+│   └── Typing    
+└── Printer       
+```
+
+- **`TinyML/Common.lean`** — Shared non-type vocabulary: `Var`, `BinOp`, `UnOp`, `Const`.
+- **`TinyML/Types.lean`** — `Typ` (types), `TyVar`, `TypeName`, `DataDecl`, `TypeEnv`. Subtyping (`Typ.Sub`, `Typ.SubList`), decision procedure (`Typ.sub`), `Typ.join`/`Typ.meet`, `BinOp.typeOf`, `UnOp.typeOf`.
+- **`TinyML/Untyped.lean`** — `Untyped.Binder`, `Untyped.Expr`, `Untyped.Program`. Erasure to `Runtime.Expr` via `.runtime`.
+- **`TinyML/Typed.lean`** — `Typed.Binder`, `Typed.Expr` (all nodes carry types, includes `cast`), `Typed.Program`. Erasure to `Runtime.Expr` via `.runtime`.
+- **`TinyML/RuntimeExpr.lean`** — `Runtime.Val`, `Runtime.Expr`, `Runtime.Subst` (substitution with `update`, `removeAll`, `freeVars`). No type dependencies.
+- **`TinyML/OpSem.lean`** — Small-step operational semantics. `evalBinOp`, `evalUnOp`, evaluation contexts (`K`), `Head`, `Step`, `Steps`.
+- **`TinyML/Heap.lean`** — `Heap = Finmap Location Val`. `lookup`, `update`, `dom`, `Fresh`.
+- **`TinyML/WeakestPre.lean`** — Axiomatized weakest precondition calculus (`wp`, `pwp`).
+- **`TinyML/LogicalRelation.lean`** — `ValHasType`, `ValsHaveTypes` (logical relation between runtime values and types). Subsumption lemmas, type preservation for operators.
+- **`TinyML/Typing.lean`** — `TyCtx`, `TypeError`, bidirectional type inference (`infer`, `check`), program elaboration (`Program.elaborate`). Runtime correctness proofs (`infer_runtime`, `elaborate_runtime`).
+- **`TinyML/Printer.lean`** — Precedence-aware pretty-printer for the Untyped AST.
 
 ### Base/ — Shared Utilities
 
