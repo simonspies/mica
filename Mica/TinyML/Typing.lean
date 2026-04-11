@@ -147,10 +147,10 @@ mutual
             else match s, t with
               | .named T args, _ => match TypeName.unfold Θ T args with
                   | some s' => recur s' t
-              | none => false
+                  | none => false
               | _, .named T args => match TypeName.unfold Θ T args with
                   | some t' => recur s t'
-              | none => false
+                  | none => false
               | _, _ => false
   termination_by s t => Typ.weight s + Typ.weight t
   decreasing_by
@@ -252,7 +252,7 @@ mutual
             exact .named_right hunfold (hrecur h)
           · cases h
         · -- neither named
-            cases h
+          cases h
   termination_by Typ.weight s + Typ.weight t
   decreasing_by
     all_goals
@@ -641,6 +641,7 @@ mutual
         .ok (.sum ((List.replicate arity .empty).set tag ty), .inj tag arity payload')
     | .match_ scrutinee branches => do
         let (scrutTy, scrut') ← infer Θ Γ scrutinee
+        -- Resolve the scrutinee type: accept sum directly, or unfold a named type and insert a cast.
         match scrutTy with
         | .sum ts =>
                 if _h : ts.length = branches.length then
@@ -652,6 +653,20 @@ mutual
                   .ok (ty, .match_ scrut' branches'' ty)
                 else
                   .error (.arityMismatch ts.length branches.length)
+        | .named T args =>
+                match TypeName.unfold Θ T args with
+                | some (.sum ts) =>
+                    if _h : ts.length = branches.length then
+                      let branches' ← inferBranches Θ Γ ts branches
+                      let ty := joinAll Θ (branches'.map (fun p => p.2.ty))
+                      let branches'' := branches'.map fun
+                        | (binder, body) =>
+                            (binder, if body.ty == ty then body else .cast body ty)
+                      -- Insert a cast to unfold the named type before matching.
+                      .ok (ty, .match_ (.cast scrut' (.sum ts)) branches'' ty)
+                    else
+                      .error (.arityMismatch ts.length branches.length)
+                | _ => .error (.notASum scrutTy)
         | _ => .error (.notASum scrutTy)
 
   def check (Θ : TypeEnv) (Γ : TinyML.TyCtx) (e : Untyped.Expr) (expected : Typ) : Except TypeError Typed.Expr := do
@@ -975,6 +990,33 @@ mutual
               · exact ihScrut _ hscrut
               · exact hcast_branches.trans (ihBranches ts _ hbranches)
             · simp [hlen] at hcont
+          | named T args =>
+            cases hunfold : TypeName.unfold Θ T args with
+            | none => simp [hunfold] at hcont
+            | some body =>
+              cases body with
+              | sum ts =>
+                simp only [hunfold] at hcont
+                by_cases hlen : ts.length = branches.length
+                · simp [hlen] at hcont
+                  have ⟨branches', hbranches, hcont⟩ := Except.bind_ok hcont
+                  rcases (by simpa [hbranches] using hcont) with ⟨rfl, rfl⟩
+                  have hcast_branches :
+                      Expr.runtime.branchListRuntime
+                        (List.map
+                          (fun x =>
+                            (x.1,
+                              if x.2.ty = joinAll Θ (List.map (fun p => p.2.ty) branches') then x.2
+                              else x.2.cast (joinAll Θ (List.map (fun p => p.2.ty) branches'))))
+                          branches') =
+                      Expr.runtime.branchListRuntime branches' := by
+                    simpa [BEq.beq] using
+                      Typed.Expr.branchListRuntime_castBodies
+                        (joinAll Θ (List.map (fun p => p.2.ty) branches')) branches'
+                  simp [Expr.runtime, Untyped.Expr.runtime, ihScrut _ hscrut]
+                  exact hcast_branches.trans (ihBranches ts _ hbranches)
+                · simp [hlen] at hcont
+              | _ => simp [hunfold] at hcont
           | _ =>
             simp at hcont
 
