@@ -85,19 +85,16 @@ private def err (loc : Location) (kind : ElaborateErrorKind) : ElabM α :=
 
 mutual
 def TypKind.elaborate (env : ElabEnv) (loc : Location) : TypKind → ElabM TinyML.Typ
-  | .var _ => err loc (.polymorphicTypeDecl "type variable")
-  | .con name args =>
-    match args with
-    | [] =>
-      match name with
-      | "int"  => .ok .int
-      | "bool" => .ok .bool
-      | "unit" => .ok .unit
-      | _      =>
-        match alookup name env.types with
-        | some ty => .ok ty
-        | none => err loc (.unknownType name)
-    | _ => err loc (.polymorphicTypeDecl name)
+  | .var v => .ok (.tvar v)
+  | .con name args => do
+    let args' ← TypList.elaborate env args
+    match name with
+    | "int"  => if args'.isEmpty then .ok .int  else err loc (.arityMismatch 0 args'.length)
+    | "bool" => if args'.isEmpty then .ok .bool else err loc (.arityMismatch 0 args'.length)
+    | "unit" => if args'.isEmpty then .ok .unit else err loc (.arityMismatch 0 args'.length)
+    | _ =>
+      if acontains name env.types then .ok (.named name args')
+      else err loc (.unknownType name)
   | .arrow ⟨dloc, dkind⟩ ⟨cloc, ckind⟩ => do
     let dom' ← TypKind.elaborate env dloc dkind
     let cod' ← TypKind.elaborate env cloc ckind
@@ -416,19 +413,17 @@ private def elaborateCtorDefs (env : ElabEnv) (loc : Location)
          (ctorName, (tag, arity, some payloadTy')) :: restCtors)
 
 private def elaborateVariant (env : ElabEnv) (loc : Location) (name : TypeConstructor)
-    (ctorDefs : List (Constructor × Option Typ)) : ElabM (ElabEnv × Untyped.TypeDecl) := do
+    (tparams : List TinyML.TyVar) (ctorDefs : List (Constructor × Option Typ))
+    : ElabM (ElabEnv × Untyped.TypeDecl) := do
   if acontains name env.types then
     return ← err loc (.duplicateType name)
   let arity := ctorDefs.length
-  -- Pre-register the type name as a named reference so recursive self-references in
-  -- constructor payloads (e.g. `Cons of int * ilist`) resolve correctly.
+  -- Register the type name as a named reference so both recursive self-references in
+  -- constructor payloads and later uses resolve to the named type (not the inlined sum).
   let envWithSelf := { env with types := (name, .named name []) :: env.types }
   let (payloadTypes, newCtors) ← elaborateCtorDefs envWithSelf loc ctorDefs 0 arity
-  let sumTy := TinyML.Typ.sum payloadTypes
-  let env' := { env with
-    types := (name, sumTy) :: env.types
-    ctors := newCtors ++ env.ctors }
-  let decl : Untyped.TypeDecl := { name, body := { tparams := [], payloads := payloadTypes } }
+  let env' := { envWithSelf with ctors := newCtors ++ env.ctors }
+  let decl : Untyped.TypeDecl := { name, body := { tparams, payloads := payloadTypes } }
   .ok (env', decl)
 
 private def elaborateFieldDefs (env : ElabEnv) (loc : Location) (tyName : TypeConstructor)
@@ -457,12 +452,10 @@ private def elaborateRecordDecl (env : ElabEnv) (loc : Location) (name : TypeCon
     fields := newFields ++ env.fields }
 
 def TypeDecl.elaborate (env : ElabEnv) (loc : Location) (decl : TypeDecl)
-    : ElabM (ElabEnv × Option Untyped.TypeDecl) := do
-  if !decl.params.isEmpty then
-    return ← err loc (.polymorphicTypeDecl decl.name)
+    : ElabM (ElabEnv × Option Untyped.TypeDecl) :=
   match decl.body with
   | .variant ctors => do
-      let (env', decl') ← elaborateVariant env loc decl.name ctors
+      let (env', decl') ← elaborateVariant env loc decl.name decl.params ctors
       .ok (env', some decl')
   | .record fields => do
       let env' ← elaborateRecordDecl env loc decl.name fields
