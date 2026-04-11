@@ -349,7 +349,7 @@ mutual
 end
 
 
--- /-! ## Operator typing -/
+/-! ## Operator typing -/
 
 def BinOp.typeOf : BinOp → Typ → Typ → Option Typ
   | .add,  .int,  .int  => some .int
