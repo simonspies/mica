@@ -49,6 +49,8 @@ theorem Expr.isFunc_elim {e : Expr} (h : e.isFunc = true) :
   exact ⟨_, _, _, _, rfl⟩
 
 
+-- `deriving DecidableEq` does not support mutual inductives with `List`-nested
+-- recursion, so we define the instance by hand.
 mutual
   def Expr.decEq (a b : Expr) : Decidable (a = b) := by
     cases a <;> cases b
