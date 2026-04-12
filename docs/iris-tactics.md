@@ -20,7 +20,7 @@ Patterns:
 | `H` | Introduce into the spatial context as `H` |
 | `□H` | Introduce into the intuitionistic context as `H` (proposition must be persistent) |
 | `%x` | Introduce a universally quantified variable `x` into Lean's context |
-| `⌜h⌝` | Introduce a pure hypothesis `⌜φ⌝` as Lean hypothesis `h` (requires affine BI) |
+| `%h` | Introduce a pure hypothesis `⌜φ⌝` as Lean hypothesis `h` (requires affine BI) |
 | `-` | Drop / discard the hypothesis |
 | `⟨H1, H2⟩` | Destruct a conjunction or separating conjunction |
 | `(H1 \| H2)` | Destruct a disjunction (creates separate goals) |
