@@ -58,6 +58,7 @@ axiom wp.func {f : Runtime.Binder} {args : List Runtime.Binder} {e : Runtime.Exp
     (P : Runtime.Val → iProp) :
     P (.fix f args e) ⊢ wp (.fix f args e) P
 
+-- @agent: wp.fix' needs several persistency modalities that are currently missing
 axiom wp.fix' {f : Runtime.Binder} {args : List Runtime.Binder} {e : Runtime.Expr}
     {Φ : (Runtime.Val → iProp) → List Runtime.Val → iProp} :
     ((∀ (vs : List Runtime.Val) (P : Runtime.Val → iProp),
@@ -177,3 +178,26 @@ theorem wp.letIn {b : Runtime.Binder} {bound body : Runtime.Expr} {Q : Runtime.V
       · ipure_intro; rfl
       · iexact Hv
   · iexact Hbound
+
+/-- Applying a single-argument lambda `(fun b -> body)` to a value reduces to substituting. -/
+theorem wp.app_lambda_single {b : Runtime.Binder} {body : Runtime.Expr} {v : Runtime.Val}
+    {Φ : Runtime.Val → iProp} :
+    wp (body.subst (Runtime.Subst.id.update' b v)) Φ ⊢
+    wp (.app (.fix .none [b] body) [.val v]) Φ := by
+  istart
+  iintro Hwp
+  iapply wp.app
+  simp only [wps_cons, wps_nil]
+  iapply wp.val
+  iapply wp.func
+  iapply (@wp.fix .none [b] body Φ
+    (fun vs => ∃ v', ⌜vs = [v']⌝ ∗ wp (body.subst (Runtime.Subst.id.update' b v')) Φ))
+  · iintro _IH %vs ⟨%v', %Heq, Hwp'⟩
+    subst Heq
+    simp only [Runtime.Subst.updateAll'_cons, Runtime.Subst.updateAll'_nil_left,
+               Runtime.Subst.update']
+    iexact Hwp'
+  · iexists v
+    isplitr
+    · ipure_intro; rfl
+    · iexact Hwp

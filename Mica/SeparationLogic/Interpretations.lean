@@ -20,11 +20,11 @@ def interp (ρ : Env) : SpatialAtom → iProp
     symbols in the ambient signature. -/
 theorem interp_env_agree {a : SpatialAtom} {Δ : Signature} {ρ ρ' : Env}
     (hwf : a.wfIn Δ) (hagree : Env.agreeOn Δ ρ ρ') :
-    interp ρ a = interp ρ' a := by
+    interp ρ a ⊣⊢ interp ρ' a := by
   cases a with
   | pointsTo l v =>
-    simp only [interp]
-    rw [Term.eval_env_agree hwf.1 hagree, Term.eval_env_agree hwf.2 hagree]
+    simp only [interp, Term.eval_env_agree hwf.1 hagree, Term.eval_env_agree hwf.2 hagree]
+    exact ⟨BIBase.Entails.rfl, BIBase.Entails.rfl⟩
 
 /-- If a points-to atom's location term evaluates to `loc`, its interpretation
     is equivalent to the raw points-to assertion for `loc`. -/
@@ -60,16 +60,16 @@ def interp (ρ : Env) : SpatialContext → iProp
     symbols in the ambient signature. -/
 theorem interp_env_agree {ctx : SpatialContext} {Δ : Signature} {ρ ρ' : Env}
     (hwf : wfIn ctx Δ) (hagree : Env.agreeOn Δ ρ ρ') :
-    interp ρ ctx = interp ρ' ctx := by
+    interp ρ ctx ⊣⊢ interp ρ' ctx := by
   induction ctx with
   | nil => simp [interp]
   | cons a ctx ih =>
-    have ha : SpatialAtom.interp ρ a = SpatialAtom.interp ρ' a :=
+    have ha : SpatialAtom.interp ρ a ⊣⊢ SpatialAtom.interp ρ' a :=
       SpatialAtom.interp_env_agree (hwf a (by simp)) hagree
     have htail : wfIn ctx Δ := (wfIn_cons a ctx Δ).1 hwf |>.2
-    have hctx : interp ρ ctx = interp ρ' ctx :=
-      ih htail
-    simp [interp, ha, hctx]
+    have hctx : interp ρ ctx ⊣⊢ interp ρ' ctx := ih htail
+    simp only [interp]
+    exact ⟨sep_mono ha.1 hctx.1, sep_mono ha.2 hctx.2⟩
 
 @[simp] theorem interp_nil (ρ : Env) : interp ρ [] = emp := rfl
 @[simp] theorem interp_cons (ρ : Env) (a : SpatialAtom) (Γ : SpatialContext) :
