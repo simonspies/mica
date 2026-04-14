@@ -1,6 +1,9 @@
 import Mica.FOL.Printing
 import Mica.FOL.Subst
+import Mica.SeparationLogic
 import Mica.Verifier.Monad
+
+open Iris Iris.BI
 
 /-!
 # Atoms
@@ -123,11 +126,11 @@ def Atom.toStringHum : {τ : Srt} → Atom τ → String
 -- Semantics
 -- ---------------------------------------------------------------------------
 
-def Atom.eval {τ : Srt} (p : Atom τ) (ρ : Env) : τ.denote → Prop :=
+def Atom.eval {τ : Srt} (p : Atom τ) (ρ : Env) : τ.denote → iProp :=
   match p with
-  | isint t  => λ v => .int v = t.eval ρ
-  | isbool t => λ v => .bool v = t.eval ρ
-  | isinj tag arity t => λ v => .inj tag arity v = t.eval ρ
+  | isint t  => λ v => ⌜.int v = t.eval ρ⌝
+  | isbool t => λ v => ⌜.bool v = t.eval ρ⌝
+  | isinj tag arity t => λ v => ⌜.inj tag arity v = t.eval ρ⌝
 
 
 -- ---------------------------------------------------------------------------
@@ -180,8 +183,8 @@ theorem Atom.toFormula_wfIn {p : Atom τ} {t : Term τ} {Δ : Signature}
     simp only [Atom.toFormula, Formula.wfIn, Term.wfIn]
     exact ⟨hp, trivial, ht⟩
 
-theorem Atom.toFormula_eval_iff {p : Atom τ} {t : Term τ} {ρ : Env} :
-    (p.toFormula t).eval ρ ↔ p.eval ρ (t.eval ρ) := by
+theorem Atom.eval_pure {p : Atom τ} {t : Term τ} {ρ : Env} :
+    p.eval ρ (t.eval ρ) ⊣⊢ ⌜(p.toFormula t).eval ρ⌝ := by
   cases p with
   | isint v  => simp [Atom.toFormula, Atom.eval, Formula.eval, Term.eval, eq_comm]
   | isbool v => simp [Atom.toFormula, Atom.eval, Formula.eval, Term.eval, eq_comm]
@@ -189,20 +192,21 @@ theorem Atom.toFormula_eval_iff {p : Atom τ} {t : Term τ} {ρ : Env} :
 
 /-- If `p.eval ρ u` holds and `p` is wfIn fresh decls, then `p.toFormula (.var τ x)` holds
     after updating `ρ` with `x ↦ u`. -/
-theorem Atom.toFormula_eval_1 {p : Atom τ} {ρ : Env}  :
-     p.eval ρ (t.eval ρ) → (p.toFormula t).eval ρ :=
-  Atom.toFormula_eval_iff.mpr
+theorem Atom.toFormula_eval_1 {p : Atom τ} {t : Term τ} {ρ : Env} :
+     p.eval ρ (t.eval ρ) ⊢ ⌜(p.toFormula t).eval ρ⌝ := by
+  exact Atom.eval_pure.1
 
 /-- If `(p.toFormula t).eval ρ` holds, then `p.eval ρ (t.eval ρ)`. -/
 theorem Atom.toFormula_eval_2 {p : Atom τ} {t : Term τ} {ρ : Env}
-    (h : (p.toFormula t).eval ρ) : p.eval ρ (t.eval ρ) :=
-  Atom.toFormula_eval_iff.mp h
+    : ⌜(p.toFormula t).eval ρ⌝ ⊢ p.eval ρ (t.eval ρ) := by
+  exact Atom.eval_pure.2
 
 
 -- ---------------------------------------------------------------------------
 -- Substitution lemmas
 -- ---------------------------------------------------------------------------
 
+-- @agent: change eval_subst to a bi-entailment in the future.
 theorem Atom.eval_subst {p : Atom τ} {σ : Subst} {ρ : Env} {Δ Δ' : Signature}
     (hp : p.wfIn Δ) (hσ : σ.wfIn Δ.vars Δ') (hwfΔ' : Δ'.wf) :
     (p.subst σ).eval ρ = p.eval (σ.eval ρ) := by

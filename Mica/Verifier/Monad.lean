@@ -639,12 +639,12 @@ theorem VerifM.eval_assumeAll {φs : List Formula}
     (h : VerifM.eval (VerifM.assumeAll φs) st ρ P) :
     (∀ φ ∈ φs, φ.wfIn st.decls) →
     (∀ φ ∈ φs, φ.eval ρ) →
-    ∃ st', st'.decls = st.decls ∧ P () st' ρ := by
+    ∃ st', st'.decls = st.decls ∧ st'.owns = st.owns ∧ P () st' ρ := by
   induction φs generalizing st with
   | nil =>
     intro _ _
     simp only [VerifM.assumeAll] at h
-    exact ⟨st, rfl, VerifM.eval_ret h⟩
+    exact ⟨st, rfl, rfl, VerifM.eval_ret h⟩
   | cons φ φs ih =>
     intro hwf heval
     simp only [VerifM.assumeAll] at h
@@ -653,10 +653,10 @@ theorem VerifM.eval_assumeAll {φs : List Formula}
     have hcont := hassume
       (hwf φ (List.mem_cons_self ..))
       (heval φ (List.mem_cons_self ..))
-    obtain ⟨st', hst', hp⟩ := ih hcont
+    obtain ⟨st', hst', howns, hp⟩ := ih hcont
       (fun ψ hψ => hwf ψ (List.mem_cons_of_mem _ hψ))
       (fun ψ hψ => heval ψ (List.mem_cons_of_mem _ hψ))
-    exact ⟨st', by rw [hst'], hp⟩
+    exact ⟨st', by rw [hst'], by rw [howns], hp⟩
 
 
 /-! ### Top-level corollary -/
