@@ -218,8 +218,18 @@ example (P : Nat → iProp) : (∀ n, P n) ⊢ P 42 := by
   ispecialize Hall $$ %42
   iexact Hall
 
+/-! ## 10. Persistency -/
 
-/-! ## 10. Hypothesis management -/
+/-- Introduce a persistent assertion, cross a persistency modality, and use it twice. -/
+example (R Q : iProp): R ∗ □ Q ⊢ □ (Q ∗ Q) := by
+  iintro ⟨HR, □HQ⟩
+  imodintro
+  isplitl
+  . iexact HQ
+  . iexact HQ
+
+
+/-! ## 11. Hypothesis management -/
 
 /-- `irevert` moves a hypothesis back into the goal as a wand. -/
 example (P Q : iProp) : P ∗ Q ⊢ Q ∗ P := by
@@ -233,7 +243,7 @@ example (P Q : iProp) : P ∗ Q ⊢ Q ∗ P := by
   · iexact HP
 
 
-/-! ## 11. Combining Iris and Lean reasoning
+/-! ## 12. Combining Iris and Lean reasoning
 
 Often the best approach is to use Lean term mode for simple entailment chains
 and only enter proof mode for the parts that need hypothesis management.
