@@ -159,21 +159,19 @@ Once `isPrecondFor` is migrated to a persistent separation logic assertion, this
 a direct consequence of the hypothesis. -/
 theorem isPrecondFor_of_wp_rec (Θ : TinyML.TypeEnv) (s : Spec)
     (f : Runtime.Val) :
-    (∀ (vs : List Runtime.Val) (P : Runtime.Val → iProp),
+    iprop(□(∀ (P : Runtime.Val → iProp),(∀ (vs : List Runtime.Val),
       ⌜TinyML.ValsHaveTypes Θ vs (s.args.map Prod.snd)⌝ ∗
         PredTrans.apply (fun r => ⌜TinyML.ValHasType Θ r s.retTy⌝ -∗ P r) s.pred
           (Spec.argsEnv Env.empty s.args vs) -∗
-        wp (Runtime.Expr.app (.val f) (vs.map Runtime.Expr.val)) P) ⊢
-    ⌜s.isPrecondFor Θ f⌝ := by
+        wp (Runtime.Expr.app (.val f) (vs.map Runtime.Expr.val)) P))) ⊢ s.isPrecondFor Θ f := by
   sorry
 
 theorem checkSpec_correct (Θ : TinyML.TypeEnv) (S : SpecMap) (e : Expr) (s : Spec)
     (γ : Runtime.Subst)
     (hswf : s.wfIn Signature.empty) (hSwf : S.wfIn Signature.empty)
-    (hS : S.satisfiedBy Θ γ)
     (st : TransState) (ρ : Env) :
     VerifM.eval (checkSpec Θ S e s) st ρ (fun _ _ _ => True) →
-    st.owns.interp ρ ⊢ wp (e.runtime.subst γ) (fun v => ⌜s.isPrecondFor Θ v⌝) := by
+    st.owns.interp ρ ∗ S.satisfiedBy Θ γ ⊢ wp (e.runtime.subst γ) (fun v => s.isPrecondFor Θ v) := by
   intro heval
   cases e
   case fix fb argBinders retTy body =>

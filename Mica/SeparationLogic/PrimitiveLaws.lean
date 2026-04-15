@@ -342,10 +342,9 @@ theorem wp_fix {f : Runtime.Binder} {args : List Runtime.Binder} {e : Runtime.Ex
     {P : Runtime.Val → iProp} {Φ : List Runtime.Val → iProp}
     R
     (h : R ⊢
-      ((∀ vs, Φ vs -∗ wp (.app (.val (.fix f args e)) (vs.map Runtime.Expr.val)) P) -∗
-        ∀ vs, Φ vs -∗ wp (e.subst ((Runtime.Subst.id.update' f (.fix f args e)).updateAll' args vs)) P)) :
+      (wp (e.subst ((Runtime.Subst.id.update' f (.fix f args e)).updateAll' args vs)) P)) :
     R ⊢
-      (∀ vs, Φ vs -∗ wp (.app (.val (.fix f args e)) (vs.map Runtime.Expr.val)) P) :=
+      (wp (.app (.val (.fix f args e)) (vs.map Runtime.Expr.val)) P) :=
   h.trans wp.fix
 
 /-- Fixpoint unfolding with a continuation-indexed invariant. -/
@@ -353,12 +352,11 @@ theorem wp_fix' {f : Runtime.Binder} {args : List Runtime.Binder} {e : Runtime.E
     {Φ : (Runtime.Val → iProp) → List Runtime.Val → iProp}
     {R : iProp}
     (h : R ⊢
-      ((∀ (vs : List Runtime.Val) (P : Runtime.Val → iProp),
+      □ (□ (∀ (vs : List Runtime.Val) (P : Runtime.Val → iProp),
           Φ P vs -∗ wp (.app (.val (.fix f args e)) (vs.map Runtime.Expr.val)) P) -∗
         ∀ (vs : List Runtime.Val) (P : Runtime.Val → iProp),
           Φ P vs -∗ wp (e.subst ((Runtime.Subst.id.update' f (.fix f args e)).updateAll' args vs)) P)) :
-    R ⊢
-      (∀ (vs : List Runtime.Val) (P : Runtime.Val → iProp),
+    R ⊢ □ (∀ (vs : List Runtime.Val) (P : Runtime.Val → iProp),
           Φ P vs -∗ wp (.app (.val (.fix f args e)) (vs.map Runtime.Expr.val)) P) :=
   h.trans wp.fix'
 

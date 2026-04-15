@@ -113,11 +113,11 @@ theorem Program.prepare_correct (prog : Untyped.Program Untyped.Expr)
     exact VerifM.eval_ret heval
 
 theorem ValDecl.checkExpr_correct (Θ : TinyML.TypeEnv) (S : SpecMap) (d : Typed.ValDecl Untyped.Expr) (γ : Runtime.Subst)
-    (hS : S.satisfiedBy Θ γ) (hSwf : S.wfIn Signature.empty)
+    (hSwf : S.wfIn Signature.empty)
     (st : TransState) (ρ : Env)
     {Q : Unit → TransState → Env → Prop}
     (heval : VerifM.eval (ValDecl.checkExpr Θ S d) st ρ Q) :
-    st.owns.interp ρ ⊢ wp (d.body.runtime.subst γ) (fun _ => iprop(True)) := by
+    st.owns.interp ρ ∗ S.satisfiedBy Θ γ ⊢ wp (d.body.runtime.subst γ) (fun _ => iprop(True)) := by
   simp only [ValDecl.checkExpr] at heval
   have ⟨hinner, _⟩ := VerifM.eval_seq heval
   have hcompile := VerifM.eval_bind _ _ _ _ hinner
@@ -143,12 +143,11 @@ theorem ValDecl.checkExpr_correct (Θ : TinyML.TypeEnv) (S : SpecMap) (d : Typed
       trivial)
 
 theorem ValDecl.check_correct (Θ : TinyML.TypeEnv) (S : SpecMap) (d : Typed.ValDecl Untyped.Expr) (γ : Runtime.Subst)
-    (hS : S.satisfiedBy Θ γ) (hSwf : S.wfIn Signature.empty)
-    (st : TransState) (ρ : Env)
+    (hSwf : S.wfIn Signature.empty) (st : TransState) (ρ : Env)
     {Q : Spec → TransState → Env → Prop}
     (heval : VerifM.eval (ValDecl.check Θ S d) st ρ Q) :
     ∃ spec, spec.wfIn Signature.empty ∧
-            (st.owns.interp ρ ⊢ wp (d.body.runtime.subst γ) (fun v => ⌜spec.isPrecondFor Θ v⌝)) ∧
+            (st.owns.interp ρ ∗ S.satisfiedBy Θ γ ⊢ wp (d.body.runtime.subst γ) (fun v => spec.isPrecondFor Θ v)) ∧
             Q spec st ρ := by
   simp only [ValDecl.check] at heval
   cases hspec : d.spec with
@@ -185,9 +184,9 @@ theorem ValDecl.check_correct (Θ : TinyML.TypeEnv) (S : SpecMap) (d : Typed.Val
                  VerifM.eval_ret hpure⟩
 
 theorem Program.check_correct (Θ : TinyML.TypeEnv) (S : SpecMap) (prog : Typed.Program Untyped.Expr) (γ : Runtime.Subst)
-    (hS : S.satisfiedBy Θ γ) (hSwf : S.wfIn Signature.empty) (ρ : Env) :
+    (hSwf : S.wfIn Signature.empty) (ρ : Env) :
     VerifM.eval (Program.check Θ S prog) TransState.empty ρ (fun _ _ _ => True) →
-    emp ⊢ pwp ((Typed.Program.runtime prog).subst γ) := by
+    S.satisfiedBy Θ γ ⊢ pwp ((Typed.Program.runtime prog).subst γ) := by
   induction prog generalizing S γ ρ with
   | nil =>
     intro _

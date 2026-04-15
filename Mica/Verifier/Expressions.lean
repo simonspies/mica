@@ -296,11 +296,10 @@ theorem compile_correct (Θ : TinyML.TypeEnv) (R : iProp) (e : Expr) (S : SpecMa
     B.agreeOnLinked ρ γ →
     B.wf st.decls →
     B.typedSubst Θ Γ γ →
-    S.satisfiedBy Θ γ →
     S.wfIn Signature.empty →
     (∀ v ρ' st' se, Ψ se st' ρ' → se.wfIn st'.decls → Term.eval ρ' se = v →
-      TinyML.ValHasType Θ v e.ty → st'.owns.interp ρ' ∗ R ⊢ Φ v) →
-    st.owns.interp ρ ∗ R ⊢ wp (e.runtime.subst γ) Φ := by
+      TinyML.ValHasType Θ v e.ty → st'.owns.interp ρ' ∗ (S.satisfiedBy Θ γ ∗ R) ⊢ Φ v) →
+    st.owns.interp ρ ∗ (S.satisfiedBy Θ γ ∗ R) ⊢ wp (e.runtime.subst γ) Φ := by
   intro heval hagree hbwf hts hspec hSwf hpost
   cases e with
   | const c =>
@@ -902,14 +901,13 @@ theorem compileBranch_correct (Θ : TinyML.TypeEnv) (R : iProp) (branch : Binder
     B.agreeOnLinked ρ γ →
     B.wf st.decls →
     B.typedSubst Θ Γ γ →
-    S.satisfiedBy Θ γ →
     S.wfIn Signature.empty →
     sc.wfIn st.decls →
     (∀ v ρ' st' se, Ψ se st' ρ' → se.wfIn st'.decls →
-      se.eval ρ' = v → TinyML.ValHasType Θ v branch.2.ty → st'.owns.interp ρ' ∗ R ⊢ Φ v) →
+      se.eval ρ' = v → TinyML.ValHasType Θ v branch.2.ty → st'.owns.interp ρ' ∗ (S.satisfiedBy Θ γ ∗ R) ⊢ Φ v) →
     ∀ payload, sc.eval ρ = Runtime.Val.inj i n payload →
       TinyML.ValHasType Θ payload ty_i →
-      st.owns.interp ρ ∗ R ⊢ wp (.app ((Runtime.Expr.fix .none [branch.1.runtime] branch.2.runtime).subst γ) [.val payload]) Φ := by
+      st.owns.interp ρ ∗ (S.satisfiedBy Θ γ ∗ R) ⊢ wp (.app ((Runtime.Expr.fix .none [branch.1.runtime] branch.2.runtime).subst γ) [.val payload]) Φ := by
   intro heval hagree hbwf hts hspec hSwf hsc_wf hpost payload hsc_eval htype_payload
   obtain ⟨binder, body⟩ := branch
   simp only [compileBranch] at heval
@@ -1045,16 +1043,15 @@ theorem compileBranches_correct (Θ : TinyML.TypeEnv) (R : iProp) (branches : Li
     B.agreeOnLinked ρ γ →
     B.wf st.decls →
     B.typedSubst Θ Γ γ →
-    S.satisfiedBy Θ γ →
     S.wfIn Signature.empty →
     sc.wfIn st.decls →
     (∀ (j : Nat) (hj : j < branches.length) v ρ' st' se, Ψ se st' ρ' → se.wfIn st'.decls →
-      se.eval ρ' = v → TinyML.ValHasType Θ v (branches[j]).2.ty → st'.owns.interp ρ' ∗ R ⊢ Φ v) →
+      se.eval ρ' = v → TinyML.ValHasType Θ v (branches[j]).2.ty → st'.owns.interp ρ' ∗ (S.satisfiedBy Θ γ ∗ R) ⊢ Φ v) →
     ∀ (j : Nat) (hj : j < branches.length),
       VerifM.eval (compileBranch Θ S B Γ sc n (idx + j) (ts[idx + j]?.getD .value) branches[j]) st ρ Ψ →
       ∀ payload, sc.eval ρ = Runtime.Val.inj (idx + j) n payload →
         TinyML.ValHasType Θ payload (ts[idx + j]?.getD .value) →
-        st.owns.interp ρ ∗ R ⊢ wp (.app ((Runtime.Expr.fix .none [(branches[j]).1.runtime] (branches[j]).2.runtime).subst γ) [.val payload]) Φ := by
+        st.owns.interp ρ ∗ (S.satisfiedBy Θ γ ∗ R) ⊢ wp (.app ((Runtime.Expr.fix .none [(branches[j]).1.runtime] (branches[j]).2.runtime).subst γ) [.val payload]) Φ := by
   intro hagree hbwf hts hspec hSwf hsc_wf hpost
   match branches with
   | [] =>
@@ -1083,12 +1080,12 @@ theorem compileExprs_correct (Θ : TinyML.TypeEnv) (R : iProp) (es : List Expr) 
     (Ψ : List (Term .value) → TransState → Env → Prop) (Φ : List Runtime.Val → iProp) :
     VerifM.eval (compileExprs Θ S B Γ es) st ρ Ψ →
     B.agreeOnLinked ρ γ → B.wf st.decls → B.typedSubst Θ Γ γ →
-    S.satisfiedBy Θ γ → S.wfIn Signature.empty →
+    S.wfIn Signature.empty →
     (∀ vs ρ' st' terms, Ψ terms st' ρ' →
       (∀ t ∈ terms, t.wfIn st'.decls) →
       Terms.Eval ρ' terms vs →
-      TinyML.ValsHaveTypes Θ vs (es.map Expr.ty) → st'.owns.interp ρ' ∗ R ⊢ Φ vs) →
-    st.owns.interp ρ ∗ R ⊢ wps (es.map (fun e => e.runtime.subst γ)) Φ := by
+      TinyML.ValsHaveTypes Θ vs (es.map Expr.ty) → st'.owns.interp ρ' ∗ (S.satisfiedBy Θ γ ∗ R) ⊢ Φ vs) →
+    st.owns.interp ρ ∗ (S.satisfiedBy Θ γ ∗ R) ⊢ wps (es.map (fun e => e.runtime.subst γ)) Φ := by
   intro heval hagree hbwf hts hspec hSwf hpost
   match es with
   | [] =>
