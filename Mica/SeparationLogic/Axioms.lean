@@ -52,7 +52,7 @@ axiom wp.func {f : Runtime.Binder} {args : List Runtime.Binder} {e : Runtime.Exp
     (P : Runtime.Val → iProp) :
     P (.fix f args e) ⊢ wp (.fix f args e) P
 
-axiom wp.fix {f : Runtime.Binder} {args : List Runtime.Binder} {e : Runtime.Expr}
+axiom wp.fix {vs : List Runtime.Val} {f : Runtime.Binder} {args : List Runtime.Binder} {e : Runtime.Expr}
     {P : Runtime.Val → iProp} {Φ : List Runtime.Val → iProp} :
       wp (e.subst ((Runtime.Subst.id.update' f (.fix f args e)).updateAll' args vs)) P
     ⊢ wp (.app (.val (.fix f args e)) (vs.map Runtime.Expr.val)) P

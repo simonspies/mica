@@ -281,7 +281,7 @@ def SpecMap.satisfiedBy (Θ : TinyML.TypeEnv) (S : SpecMap) (γ : Runtime.Subst)
 instance : Iris.BI.Persistent (SpecMap.satisfiedBy Θ S γ) := by
   unfold SpecMap.satisfiedBy; infer_instance
 
-theorem SpecMap.project (P : iProp) (Θ : TinyML.TypeEnv) (S : SpecMap) (γ : Runtime.Subst) :
+theorem SpecMap.project {x : TinyML.Var} {s : Spec} {Q : iProp} (P : iProp) (Θ : TinyML.TypeEnv) (S : SpecMap) (γ : Runtime.Subst) :
   (P ⊢ S.satisfiedBy Θ γ) →
   S.lookup x = some s →
   (∀ fval, γ x = some fval → s.isPrecondFor Θ fval ∗ P ⊢ Q) →
