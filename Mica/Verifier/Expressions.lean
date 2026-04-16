@@ -262,7 +262,7 @@ end
 
 
 
-/-! ### Helper lemma for match compilation -/
+/-! ### Helper lemmas -/
 
 theorem compileBranches_spec (Θ : TinyML.TypeEnv) (S : SpecMap) (B : Bindings) (Γ : TinyML.TyCtx)
     (sc : Term .value) (ts : List TinyML.Typ)
@@ -286,33 +286,30 @@ theorem compileBranches_spec (Θ : TinyML.TypeEnv) (S : SpecMap) (B : Bindings) 
         have : idx + 1 + k = idx + (k + 1) := by omega
         rw [ih_get k hk, this]
 
-theorem SpecMap.project (P : iProp) (Θ : TinyML.TypeEnv) (S : SpecMap) (γ : Runtime.Subst) :
-  (P ⊢ S.satisfiedBy Θ γ) →
-  S.lookup x = some s →
-  (∀ fval, γ x = some fval → s.isPrecondFor Θ fval ∗ P ⊢ Q) →
-  (P ⊢ Q) := by
-  intro hsat hlook hcont
-  simp only [SpecMap.satisfiedBy] at hsat
-  have hstep : P ⊢ (∃ fval, ⌜γ x = some fval⌝ ∗ s.isPrecondFor Θ fval) ∗ P := by
-    refine (persistent_entails_r hsat).trans ?_
-    istart
-    iintro ⟨□Hall, HP⟩
-    ispecialize Hall $$ %x
-    ispecialize Hall $$ %s
-    isplitl []
-    · iapply Hall
-      ipure_intro
-      exact hlook
-    · iexact HP
-  refine hstep.trans ?_
-  istart
-  iintro ⟨⟨%fval, Hγ, Hpre⟩, HP⟩
-  ipure Hγ
-  iapply (hcont fval Hγ)
-  isplitl [Hpre]
-  · iexact Hpre
-  · iexact HP
 
+/-- Drop `satisfiedBy` from the resource. -/
+theorem SpecMap.satisfiedBy_drop {A R : iProp} {Θ : TinyML.TypeEnv} {S : SpecMap} {γ : Runtime.Subst} :
+    A ∗ (SpecMap.satisfiedBy Θ S γ ∗ R) ⊢ A ∗ R :=
+  sep_mono_r sep_elim_r
+
+/-- Duplicate `satisfiedBy` (persistent) in the resource. -/
+theorem SpecMap.satisfiedBy_dup {A R : iProp} {Θ : TinyML.TypeEnv} {S : SpecMap} {γ : Runtime.Subst} :
+    A ∗ (SpecMap.satisfiedBy Θ S γ ∗ R) ⊢ A ∗ (SpecMap.satisfiedBy Θ S γ ∗ (SpecMap.satisfiedBy Θ S γ ∗ R)) :=
+  by
+    iintro ⟨HA, □HS, HR⟩
+    isplitl [HA]
+    · iexact HA
+    · isplitl []
+      · iexact HS
+      · isplitl []
+        · iexact HS
+        · iexact HR
+
+/-- Weaken `satisfiedBy` in the resource via an entailment. -/
+theorem SpecMap.satisfiedBy_weaken {A R : iProp}
+    (h : SpecMap.satisfiedBy Θ S γ ⊢ SpecMap.satisfiedBy Θ' S' γ') :
+    A ∗ (SpecMap.satisfiedBy Θ S γ ∗ R) ⊢ A ∗ (SpecMap.satisfiedBy Θ' S' γ' ∗ R) :=
+  sep_mono_r (sep_mono_l h)
 
 /-! ### Correctness -/
 

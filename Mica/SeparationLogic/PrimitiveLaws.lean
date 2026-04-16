@@ -375,4 +375,21 @@ theorem wp_app_lambda_single {b : Runtime.Binder} {body : Runtime.Expr} {v : Run
     R ⊢ wp (.app (.fix .none [b] body) [.val v]) Φ :=
   h.trans wp.app_lambda_single
 
+
+/-- Strengthen the postcondition of a `wp` using a persistent resource:
+    if `R` (persistent) entails `wp e P`, and `R` together with `P v` entails `Q v`,
+    then `R` entails `wp e Q`. -/
+theorem wp_strengthen_persistent
+    {R : iProp} [Iris.BI.Persistent R] {e : Runtime.Expr}
+    {P Q : Runtime.Val → iProp}
+    (hwp : R ⊢ wp e P) (hpost : ∀ v, R ⊢ P v -∗ Q v) :
+    R ⊢ wp e Q := by
+  iintro □HR
+  iapply wp.mono
+  isplitr
+  · iintro %v
+    iapply (hpost v)
+    iexact HR
+  · iapply hwp; iexact HR
+
 end SpatialContext

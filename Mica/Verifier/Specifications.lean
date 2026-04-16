@@ -58,6 +58,56 @@ def Spec.isPrecondFor (Θ : TinyML.TypeEnv) (f : Runtime.Val) (s : Spec) : iProp
 instance : Iris.BI.Persistent (Spec.isPrecondFor Θ f s) := by
   unfold Spec.isPrecondFor; infer_instance
 
+
+/-- Fold `wp_fix'`'s tupled recursive obligation into a spec precondition;
+    the two differ only by currying the typing hypothesis and the predicate transformer. -/
+theorem Spec.isPrecondFor_fold (Θ : TinyML.TypeEnv) (s : Spec)
+    (f : Runtime.Val) :
+    iprop(□ ∀ (vs : List Runtime.Val) (P : Runtime.Val → iProp),
+      (⌜TinyML.ValsHaveTypes Θ vs (s.args.map Prod.snd)⌝ ∗
+        PredTrans.apply (fun r => ⌜TinyML.ValHasType Θ r s.retTy⌝ -∗ P r) s.pred
+          (Spec.argsEnv Env.empty s.args vs)) -∗
+        wp (Runtime.Expr.app (.val f) (vs.map Runtime.Expr.val)) P) ⊢ s.isPrecondFor Θ f := by
+  unfold Spec.isPrecondFor
+  iintro □H
+  imodintro
+  iintro %Φ %vs Htyped Hpred
+  ispecialize H $$ %vs
+  ispecialize H $$ %Φ
+  iapply H
+  isplitl [Htyped]
+  · iexact Htyped
+  · iexact Hpred
+
+/-- Löb-style rule for spec preconditions on `fix`: to prove
+    `s.isPrecondFor Θ (.fix f args e)`, assume it as the recursive hypothesis and
+    prove the `wp` of the body (after the usual fix-substitution). -/
+theorem Spec.isPrecondFor_fix {Θ : TinyML.TypeEnv} {s : Spec}
+    {f : Runtime.Binder} {args : List Runtime.Binder} {e : Runtime.Expr}
+    {R : iProp}
+    (h : R ⊢ □ (s.isPrecondFor Θ (.fix f args e) -∗
+        ∀ (vs : List Runtime.Val) (P : Runtime.Val → iProp),
+          ⌜TinyML.ValsHaveTypes Θ vs (s.args.map Prod.snd)⌝ -∗
+          PredTrans.apply (fun r => ⌜TinyML.ValHasType Θ r s.retTy⌝ -∗ P r) s.pred
+              (Spec.argsEnv Env.empty s.args vs) -∗
+          wp (e.subst ((Runtime.Subst.id.update' f (.fix f args e)).updateAll' args vs)) P)) :
+    R ⊢ s.isPrecondFor Θ (.fix f args e) := by
+  refine (SpatialContext.wp_fix' (Φ := fun P vs =>
+      iprop(⌜TinyML.ValsHaveTypes Θ vs (s.args.map Prod.snd)⌝ ∗
+        PredTrans.apply (fun r => ⌜TinyML.ValHasType Θ r s.retTy⌝ -∗ P r) s.pred
+            (Spec.argsEnv Env.empty s.args vs))) (h.trans ?_)).trans
+    (Spec.isPrecondFor_fold Θ s _)
+  istart
+  iintro □HR
+  imodintro
+  iintro IH %vs %P ⟨%htyped, Hpred⟩
+  ispecialize HR $$ [IH]
+  · iapply (Spec.isPrecondFor_fold Θ s (.fix f args e)); iexact IH
+  ispecialize HR $$ %vs %P
+  iapply HR
+  · ipure_intro; exact htyped
+  · iexact Hpred
+
 /-- A spec is well-formed when its predicate transformer is well-formed in the
     context extended with all argument variables. -/
 def Spec.wfIn (spec : Spec) (Δ : Signature) : Prop :=
@@ -231,29 +281,33 @@ def SpecMap.satisfiedBy (Θ : TinyML.TypeEnv) (S : SpecMap) (γ : Runtime.Subst)
 instance : Iris.BI.Persistent (SpecMap.satisfiedBy Θ S γ) := by
   unfold SpecMap.satisfiedBy; infer_instance
 
-/-- Drop `satisfiedBy` from the resource. -/
-theorem SpecMap.satisfiedBy_drop {A R : iProp} {Θ : TinyML.TypeEnv} {S : SpecMap} {γ : Runtime.Subst} :
-    A ∗ (SpecMap.satisfiedBy Θ S γ ∗ R) ⊢ A ∗ R :=
-  sep_mono_r sep_elim_r
+theorem SpecMap.project (P : iProp) (Θ : TinyML.TypeEnv) (S : SpecMap) (γ : Runtime.Subst) :
+  (P ⊢ S.satisfiedBy Θ γ) →
+  S.lookup x = some s →
+  (∀ fval, γ x = some fval → s.isPrecondFor Θ fval ∗ P ⊢ Q) →
+  (P ⊢ Q) := by
+  intro hsat hlook hcont
+  simp only [SpecMap.satisfiedBy] at hsat
+  have hstep : P ⊢ (∃ fval, ⌜γ x = some fval⌝ ∗ s.isPrecondFor Θ fval) ∗ P := by
+    refine (persistent_entails_r hsat).trans ?_
+    istart
+    iintro ⟨□Hall, HP⟩
+    ispecialize Hall $$ %x
+    ispecialize Hall $$ %s
+    isplitl []
+    · iapply Hall
+      ipure_intro
+      exact hlook
+    · iexact HP
+  refine hstep.trans ?_
+  istart
+  iintro ⟨⟨%fval, Hγ, Hpre⟩, HP⟩
+  ipure Hγ
+  iapply (hcont fval Hγ)
+  isplitl [Hpre]
+  · iexact Hpre
+  · iexact HP
 
-/-- Duplicate `satisfiedBy` (persistent) in the resource. -/
-theorem SpecMap.satisfiedBy_dup {A R : iProp} {Θ : TinyML.TypeEnv} {S : SpecMap} {γ : Runtime.Subst} :
-    A ∗ (SpecMap.satisfiedBy Θ S γ ∗ R) ⊢ A ∗ (SpecMap.satisfiedBy Θ S γ ∗ (SpecMap.satisfiedBy Θ S γ ∗ R)) :=
-  by
-    iintro ⟨HA, □HS, HR⟩
-    isplitl [HA]
-    · iexact HA
-    · isplitl []
-      · iexact HS
-      · isplitl []
-        · iexact HS
-        · iexact HR
-
-/-- Weaken `satisfiedBy` in the resource via an entailment. -/
-theorem SpecMap.satisfiedBy_weaken {A R : iProp}
-    (h : SpecMap.satisfiedBy Θ S γ ⊢ SpecMap.satisfiedBy Θ' S' γ') :
-    A ∗ (SpecMap.satisfiedBy Θ S γ ∗ R) ⊢ A ∗ (SpecMap.satisfiedBy Θ' S' γ' ∗ R) :=
-  sep_mono_r (sep_mono_l h)
 
 def SpecMap.wfIn (S : SpecMap) (Δ : Signature) : Prop :=
   ∀ f spec, S.lookup f = some spec → spec.wfIn Δ

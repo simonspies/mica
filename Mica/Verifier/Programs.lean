@@ -1,6 +1,7 @@
 import Mica.TinyML.Typed
 import Mica.TinyML.Untyped
 import Mica.TinyML.Typing
+import Mica.SeparationLogic.PrimitiveLaws
 import Mica.Verifier.Functions
 import Mica.Frontend.SpecParser
 import Mica.Verifier.SpecTranslation
@@ -187,22 +188,6 @@ theorem ValDecl.check_correct (Θ : TinyML.TypeEnv) (S : SpecMap) (d : Typed.Val
           exact ⟨spec, hswf, checkSpec_correct Θ S d.body spec γ hswf hSwf ρ hcheckSpec,
                  VerifM.eval_ret hpure⟩
 
-/-- Strengthen the postcondition of a `wp` using a persistent resource:
-    if `R` (persistent) entails `wp e P`, and `R` together with `P v` entails `Q v`,
-    then `R` entails `wp e Q`. -/
-private theorem wp_strengthen_persistent
-    {R : iProp} [Iris.BI.Persistent R] {e : Runtime.Expr}
-    {P Q : Runtime.Val → iProp}
-    (hwp : R ⊢ wp e P) (hpost : ∀ v, R ⊢ P v -∗ Q v) :
-    R ⊢ wp e Q := by
-  iintro □HR
-  iapply wp.mono
-  isplitr
-  · iintro %v
-    iapply (hpost v)
-    iexact HR
-  · iapply hwp; iexact HR
-
 theorem Program.check_correct (Θ : TinyML.TypeEnv) (S : SpecMap) (prog : Typed.Program Untyped.Expr) (γ : Runtime.Subst)
     (hSwf : S.wfIn Signature.empty) (ρ : Env) :
     VerifM.eval (Program.check Θ S prog) TransState.empty ρ (fun _ _ _ => True) →
@@ -242,7 +227,7 @@ theorem Program.check_correct (Θ : TinyML.TypeEnv) (S : SpecMap) (prog : Typed.
         obtain ⟨spec, _, hwp, hcont⟩ :=
           ValDecl.check_correct Θ S d γ hSwf ρ (VerifM.eval_bind _ _ _ _ heval)
         have hih := ih S γ hSwf ρ hcont
-        refine wp_strengthen_persistent hwp ?_
+        refine SpatialContext.wp_strengthen_persistent hwp ?_
         intro v
         rw [hupd v]
         exact wand_intro (sep_elim_l.trans hih)
@@ -284,7 +269,7 @@ theorem Program.check_correct (Θ : TinyML.TypeEnv) (S : SpecMap) (prog : Typed.
             VerifM.eval_ret hcont
           have hwp := ValDecl.checkExpr_correct Θ S d γ hSwf ρ hbind
             (Φ := iprop(emp)) (by istart; iintro _; iemp_intro)
-          refine wp_strengthen_persistent hwp ?_
+          refine SpatialContext.wp_strengthen_persistent hwp ?_
           intro v
           rw [hupd v]
           have hih := ih (S.erase n) (γ.update n v) (SpecMap.wfIn_erase hSwf) ρ hcont'
@@ -296,7 +281,7 @@ theorem Program.check_correct (Θ : TinyML.TypeEnv) (S : SpecMap) (prog : Typed.
           ValDecl.check_correct Θ S d γ hSwf ρ (VerifM.eval_bind _ _ _ _ heval)
         have hcont' : VerifM.eval (Program.check Θ (S.insert n spec) ds) TransState.empty ρ (fun _ _ _ => True) := by
           convert hcont
-        refine wp_strengthen_persistent hwp ?_
+        refine SpatialContext.wp_strengthen_persistent hwp ?_
         intro v
         rw [hupd v]
         have hih := ih (S.insert n spec) (γ.update n v)
