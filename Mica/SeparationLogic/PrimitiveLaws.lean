@@ -345,7 +345,7 @@ theorem wp_fix {f : Runtime.Binder} {args : List Runtime.Binder} {e : Runtime.Ex
       (wp (e.subst ((Runtime.Subst.id.update' f (.fix f args e)).updateAll' args vs)) P)) :
     R ⊢
       (wp (.app (.val (.fix f args e)) (vs.map Runtime.Expr.val)) P) :=
-  h.trans wp.fix
+  h.trans (wp.fix (Φ := Φ))
 
 /-- Fixpoint unfolding with a continuation-indexed invariant. -/
 theorem wp_fix' {f : Runtime.Binder} {args : List Runtime.Binder} {e : Runtime.Expr}
@@ -358,7 +358,7 @@ theorem wp_fix' {f : Runtime.Binder} {args : List Runtime.Binder} {e : Runtime.E
           Φ P vs -∗ wp (e.subst ((Runtime.Subst.id.update' f (.fix f args e)).updateAll' args vs)) P)) :
     R ⊢ □ (∀ (vs : List Runtime.Val) (P : Runtime.Val → iProp),
           Φ P vs -∗ wp (.app (.val (.fix f args e)) (vs.map Runtime.Expr.val)) P) :=
-  h.trans wp.fix'
+  h.trans (wp.fix' (Φ := Φ))
 
 /-- Let-bindings: evaluate the bound expression, then continue in the body with
     the resulting value substituted. -/
