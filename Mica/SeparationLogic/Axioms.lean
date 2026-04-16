@@ -43,12 +43,6 @@ axiom wp.bind {k : TinyML.K} {e : Runtime.Expr} {Q : Runtime.Val → iProp} :
 axiom wp.mono {e : Runtime.Expr} {P Q : Runtime.Val → iProp} :
     (∀ v, P v -∗ Q v) ∗ wp e P ⊢ wp e Q
 
-axiom wp.fix {f : Runtime.Binder} {args : List Runtime.Binder} {e : Runtime.Expr}
-    {P : Runtime.Val → iProp} {Φ : List Runtime.Val → iProp} :
-    ((∀ vs, Φ vs -∗ wp (.app (.val (.fix f args e)) (vs.map Runtime.Expr.val)) P) -∗
-      ∀ vs, Φ vs -∗ wp (e.subst ((Runtime.Subst.id.update' f (.fix f args e)).updateAll' args vs)) P)
-    ⊢ (∀ (vs : List Runtime.Val), Φ vs -∗ wp (.app (.val (.fix f args e)) (vs.map Runtime.Expr.val)) P)
-
 axiom wp.app {fn : Runtime.Expr} {args : Runtime.Exprs} {P : Runtime.Val → iProp} :
     wps args (fun vs => wp fn (fun fv =>
       wp (.app (.val fv) (vs.map Runtime.Expr.val)) P)) ⊢
@@ -58,15 +52,18 @@ axiom wp.func {f : Runtime.Binder} {args : List Runtime.Binder} {e : Runtime.Exp
     (P : Runtime.Val → iProp) :
     P (.fix f args e) ⊢ wp (.fix f args e) P
 
--- @agent: wp.fix' needs several persistency modalities that are currently missing
+axiom wp.fix {vs : List Runtime.Val} {f : Runtime.Binder} {args : List Runtime.Binder} {e : Runtime.Expr}
+    {P : Runtime.Val → iProp} {Φ : List Runtime.Val → iProp} :
+      wp (e.subst ((Runtime.Subst.id.update' f (.fix f args e)).updateAll' args vs)) P
+    ⊢ wp (.app (.val (.fix f args e)) (vs.map Runtime.Expr.val)) P
+
 axiom wp.fix' {f : Runtime.Binder} {args : List Runtime.Binder} {e : Runtime.Expr}
     {Φ : (Runtime.Val → iProp) → List Runtime.Val → iProp} :
-    ((∀ (vs : List Runtime.Val) (P : Runtime.Val → iProp),
+    □ (□ (∀ (vs : List Runtime.Val) (P : Runtime.Val → iProp),
         Φ P vs -∗ wp (.app (.val (.fix f args e)) (vs.map Runtime.Expr.val)) P) -∗
       ∀ (vs : List Runtime.Val) (P : Runtime.Val → iProp),
         Φ P vs -∗ wp (e.subst ((Runtime.Subst.id.update' f (.fix f args e)).updateAll' args vs)) P)
-    ⊢ (∀ (vs : List Runtime.Val) (P : Runtime.Val → iProp),
-        Φ P vs -∗ wp (.app (.val (.fix f args e)) (vs.map Runtime.Expr.val)) P)
+    ⊢ □ (∀ (vs : List Runtime.Val) (P : Runtime.Val → iProp), Φ P vs -∗ wp (.app (.val (.fix f args e)) (vs.map Runtime.Expr.val)) P)
 
 axiom wp.unop {op : TinyML.UnOp} {v res : Runtime.Val} {Q : Runtime.Val → iProp} :
     TinyML.evalUnOp op v = some res →
@@ -166,17 +163,10 @@ theorem wp.letIn {b : Runtime.Binder} {bound body : Runtime.Expr} {Q : Runtime.V
   isplitl []
   · iintro %v Hv
     iapply wp.func
-    iapply (@wp.fix .none [b] body Q
-      (fun vs => ∃ v', ⌜vs = [v']⌝ ∗ wp (body.subst (Runtime.Subst.id.update' b v')) Q))
-    · iintro _IH %vs ⟨%v', %Heq, Hwp⟩
-      subst Heq
-      simp only [Runtime.Subst.updateAll'_cons, Runtime.Subst.updateAll'_nil_left,
-                  Runtime.Subst.update']
-      iexact Hwp
-    · iexists v
-      isplitr
-      · ipure_intro; rfl
-      · iexact Hv
+    iapply (wp.fix (Φ := fun _ => emp) (vs := [v]))
+    simp only [Runtime.Subst.update', Runtime.Subst.updateAll'_cons,
+               Runtime.Subst.updateAll'_nil_left]
+    iexact Hv
   · iexact Hbound
 
 /-- Applying a single-argument lambda `(fun b -> body)` to a value reduces to substituting. -/
@@ -190,14 +180,7 @@ theorem wp.app_lambda_single {b : Runtime.Binder} {body : Runtime.Expr} {v : Run
   simp only [wps_cons, wps_nil]
   iapply wp.val
   iapply wp.func
-  iapply (@wp.fix .none [b] body Φ
-    (fun vs => ∃ v', ⌜vs = [v']⌝ ∗ wp (body.subst (Runtime.Subst.id.update' b v')) Φ))
-  · iintro _IH %vs ⟨%v', %Heq, Hwp'⟩
-    subst Heq
-    simp only [Runtime.Subst.updateAll'_cons, Runtime.Subst.updateAll'_nil_left,
-               Runtime.Subst.update']
-    iexact Hwp'
-  · iexists v
-    isplitr
-    · ipure_intro; rfl
-    · iexact Hwp
+  iapply (wp.fix (Φ := fun _ => emp) (vs := [v]))
+  simp only [Runtime.Subst.update', Runtime.Subst.updateAll'_cons,
+             Runtime.Subst.updateAll'_nil_left]
+  iexact Hwp
