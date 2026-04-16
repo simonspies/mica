@@ -342,25 +342,23 @@ theorem wp_fix {f : Runtime.Binder} {args : List Runtime.Binder} {e : Runtime.Ex
     {P : Runtime.Val → iProp} {Φ : List Runtime.Val → iProp}
     R
     (h : R ⊢
-      ((∀ vs, Φ vs -∗ wp (.app (.val (.fix f args e)) (vs.map Runtime.Expr.val)) P) -∗
-        ∀ vs, Φ vs -∗ wp (e.subst ((Runtime.Subst.id.update' f (.fix f args e)).updateAll' args vs)) P)) :
+      (wp (e.subst ((Runtime.Subst.id.update' f (.fix f args e)).updateAll' args vs)) P)) :
     R ⊢
-      (∀ vs, Φ vs -∗ wp (.app (.val (.fix f args e)) (vs.map Runtime.Expr.val)) P) :=
-  h.trans wp.fix
+      (wp (.app (.val (.fix f args e)) (vs.map Runtime.Expr.val)) P) :=
+  h.trans (wp.fix (Φ := Φ))
 
 /-- Fixpoint unfolding with a continuation-indexed invariant. -/
 theorem wp_fix' {f : Runtime.Binder} {args : List Runtime.Binder} {e : Runtime.Expr}
     {Φ : (Runtime.Val → iProp) → List Runtime.Val → iProp}
     {R : iProp}
     (h : R ⊢
-      ((∀ (vs : List Runtime.Val) (P : Runtime.Val → iProp),
+      □ (□ (∀ (vs : List Runtime.Val) (P : Runtime.Val → iProp),
           Φ P vs -∗ wp (.app (.val (.fix f args e)) (vs.map Runtime.Expr.val)) P) -∗
         ∀ (vs : List Runtime.Val) (P : Runtime.Val → iProp),
           Φ P vs -∗ wp (e.subst ((Runtime.Subst.id.update' f (.fix f args e)).updateAll' args vs)) P)) :
-    R ⊢
-      (∀ (vs : List Runtime.Val) (P : Runtime.Val → iProp),
+    R ⊢ □ (∀ (vs : List Runtime.Val) (P : Runtime.Val → iProp),
           Φ P vs -∗ wp (.app (.val (.fix f args e)) (vs.map Runtime.Expr.val)) P) :=
-  h.trans wp.fix'
+  h.trans (wp.fix' (Φ := Φ))
 
 /-- Let-bindings: evaluate the bound expression, then continue in the body with
     the resulting value substituted. -/
@@ -376,5 +374,22 @@ theorem wp_app_lambda_single {b : Runtime.Binder} {body : Runtime.Expr} {v : Run
     (h : R ⊢ wp (body.subst (Runtime.Subst.id.update' b v)) Φ) :
     R ⊢ wp (.app (.fix .none [b] body) [.val v]) Φ :=
   h.trans wp.app_lambda_single
+
+
+/-- Strengthen the postcondition of a `wp` using a persistent resource:
+    if `R` (persistent) entails `wp e P`, and `R` together with `P v` entails `Q v`,
+    then `R` entails `wp e Q`. -/
+theorem wp_strengthen_persistent
+    {R : iProp} [Iris.BI.Persistent R] {e : Runtime.Expr}
+    {P Q : Runtime.Val → iProp}
+    (hwp : R ⊢ wp e P) (hpost : ∀ v, R ⊢ P v -∗ Q v) :
+    R ⊢ wp e Q := by
+  iintro □HR
+  iapply wp.mono
+  isplitr
+  · iintro %v
+    iapply (hpost v)
+    iexact HR
+  · iapply hwp; iexact HR
 
 end SpatialContext
