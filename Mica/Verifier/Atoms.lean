@@ -344,3 +344,184 @@ theorem VerifM.eval_resolve {pred : Atom τ} {st : TransState} {ρ : Env}
   | none =>
     simp [hres] at hctx_q
     exact eval_tryCandidates hctx_q (fun p hp => hp) hpwf
+
+
+-- ---------------------------------------------------------------------------
+-- Spatial resolution (linear search over st.owns)
+-- ---------------------------------------------------------------------------
+
+namespace SpatialAtom
+
+/-- Two points-to atoms with semantically equal locations have equal Iris
+    interpretations. -/
+theorem interp_pointsTo_loc_congr {ρ : Env} {l l' v : Term .value}
+    (h : Term.eval ρ l = Term.eval ρ l') :
+    interp ρ (.pointsTo l v) ⊣⊢ interp ρ (.pointsTo l' v) := by
+  simp only [interp, h]
+  exact ⟨BIBase.Entails.rfl, BIBase.Entails.rfl⟩
+
+end SpatialAtom
+
+/-- Walk a spatial context and return the index and stored value at the first
+    `pointsTo` whose location the SMT solver can prove equal to `lq`. The
+    returned index is into the input list; consumption is the caller's job. -/
+def VerifM.findMatchIn (lq : Term .value) :
+    SpatialContext → VerifM (Option (Nat × Term .value))
+  | [] => pure none
+  | .pointsTo l v :: rest => do
+      if ← VerifM.check (.eq .value lq l) then
+        pure (some (0, v))
+      else
+        return (← VerifM.findMatchIn lq rest).map fun (n, v') => (n + 1, v')
+
+/-- Search the current ownership context for a `pointsTo` at location `lq`,
+    returning the stored value and consuming the matched entry from `st.owns`. -/
+def VerifM.findMatch (lq : Term .value) : VerifM (Option (Term .value)) := do
+  let owns ← VerifM.ctx (fun st => (st.owns, st.owns))
+  match ← VerifM.findMatchIn lq owns with
+  | none => pure none
+  | some (n, v) =>
+      match SpatialContext.remove owns n with
+      | none => VerifM.fatal "findMatch: returned index out of range"
+      | some (_, rest) => do
+          let _ ← VerifM.ctx (fun _ => ((), rest))
+          pure (some v)
+
+/-- Correctness of `findMatchIn`: on a `some (n, v)` result, `remove ctx n`
+    extracts a points-to whose location the solver has proved equal to `lq`. -/
+theorem VerifM.eval_findMatchIn {lq : Term .value} {ctx : SpatialContext}
+    {st : TransState} {ρ : Env}
+    {Q : Option (Nat × Term .value) → TransState → Env → Prop}
+    (h : VerifM.eval (VerifM.findMatchIn lq ctx) st ρ Q)
+    (hlq : lq.wfIn st.decls) (hctx : ctx.wfIn st.decls) :
+    ∃ result,
+      Q result st ρ ∧
+      (∀ n v, result = some (n, v) →
+        ∃ l rest,
+          SpatialContext.remove ctx n = some (.pointsTo l v, rest) ∧
+          Term.eval ρ lq = Term.eval ρ l) := by
+  induction ctx generalizing Q with
+  | nil =>
+    simp only [VerifM.findMatchIn] at h
+    refine ⟨none, VerifM.eval_ret h, ?_⟩
+    intros n v hvr; simp at hvr
+  | cons a ctx ih =>
+    cases a with
+    | pointsTo l v =>
+      simp only [VerifM.findMatchIn] at h
+      have hb := VerifM.eval_bind _ _ _ _ h
+      have hcons := (SpatialContext.wfIn_cons _ _ _).1 hctx
+      have hatom := hcons.1
+      have hrest := hcons.2
+      have hwfeq : (Formula.eq .value lq l).wfIn st.decls := ⟨hlq, hatom.1⟩
+      obtain ⟨b, hb_sound, hq⟩ := VerifM.eval_check hb hwfeq
+      cases b with
+      | true =>
+        simp at hq
+        refine ⟨some (0, v), VerifM.eval_ret hq, ?_⟩
+        intros n' v' hnv
+        simp at hnv
+        obtain ⟨rfl, rfl⟩ := hnv
+        have heq : Term.eval ρ lq = Term.eval ρ l := by
+          have := hb_sound rfl
+          simpa [Formula.eval] using this
+        exact ⟨l, ctx, rfl, heq⟩
+      | false =>
+        simp at hq
+        have hb' := VerifM.eval_bind _ _ _ _ hq
+        obtain ⟨result', hres', hsome'⟩ := ih hb' hrest
+        cases result' with
+        | none =>
+          simp at hres'
+          refine ⟨none, VerifM.eval_ret hres', ?_⟩
+          intros n' v' hnv; simp at hnv
+        | some pair =>
+          obtain ⟨n₀, v₀⟩ := pair
+          simp at hres'
+          refine ⟨some (n₀ + 1, v₀), VerifM.eval_ret hres', ?_⟩
+          intros n' v' hnv
+          simp at hnv
+          obtain ⟨rfl, rfl⟩ := hnv
+          obtain ⟨l', rest', hrem, heq⟩ := hsome' n₀ v₀ rfl
+          refine ⟨l', .pointsTo l v :: rest', ?_, heq⟩
+          simp [SpatialContext.remove, hrem]
+
+/-- Correctness of `findMatch` in CPS style: the caller supplies Iris-level
+    continuations for the `some` and `none` branches. On `some v`, the
+    postcondition state has the matched points-to consumed from `st.owns`, and
+    the caller receives separate ownership of `lq ↦ v`. -/
+theorem VerifM.eval_findMatch {lq : Term .value}
+    {st : TransState} {ρ : Env}
+    {Q : Option (Term .value) → TransState → Env → Prop}
+    {R Φ : iProp}
+    (h : VerifM.eval (VerifM.findMatch lq) st ρ Q)
+    (hlq : lq.wfIn st.decls)
+    (hsome : ∀ v st', Q (some v) st' ρ →
+        st'.decls = st.decls → v.wfIn st.decls →
+        SpatialAtom.interp ρ (.pointsTo lq v) ∗ SpatialContext.interp ρ st'.owns ∗ R ⊢ Φ)
+    (hnone : Q none st ρ → SpatialContext.interp ρ st.owns ∗ R ⊢ Φ) :
+    SpatialContext.interp ρ st.owns ∗ R ⊢ Φ := by
+  unfold VerifM.findMatch at h
+  have hb := VerifM.eval_bind _ _ _ _ h
+  have ⟨hk, howns, _, _⟩ := VerifM.eval_ctx hb
+  have hst_eq : ({ st with owns := st.owns } : TransState) = st := rfl
+  rw [hst_eq] at hk
+  have hk' := hk howns
+  have hb2 := VerifM.eval_bind _ _ _ _ hk'
+  obtain ⟨result, hres, hprop⟩ := eval_findMatchIn hb2 hlq howns
+  cases result with
+  | none =>
+    simp at hres
+    exact hnone (VerifM.eval_ret hres)
+  | some pair =>
+    obtain ⟨n, v⟩ := pair
+    obtain ⟨l, rest, hrem, heq⟩ := hprop n v rfl
+    have hrest_wf : SpatialContext.wfIn rest st.decls :=
+      (SpatialContext.wfIn_remove howns hrem).2
+    have hatom_wf : SpatialAtom.wfIn (.pointsTo l v) st.decls :=
+      (SpatialContext.wfIn_remove howns hrem).1
+    have hv_wf : v.wfIn st.decls := hatom_wf.2
+    simp [hrem] at hres
+    -- hres : (VerifM.ctx (fun _ => ((), rest)) >>= fun _ => pure (some v)).eval st ρ Q
+    have hb3 := VerifM.eval_bind _ _ _ _ hres
+    have ⟨hk3, _, _, _⟩ := VerifM.eval_ctx hb3
+    have hk3' := hk3 hrest_wf
+    have hQ : Q (some v) { st with owns := rest } ρ := VerifM.eval_ret hk3'
+    have hsplit := SpatialContext.interp_remove ρ st.owns n _ _ hrem
+    have hcong := SpatialAtom.interp_pointsTo_loc_congr (v := v) heq.symm
+    -- goal: st.owns.interp ρ ∗ R ⊢ Φ
+    -- st.owns.interp ρ ⊣⊢ (pointsTo l v).interp ρ ∗ rest.interp ρ
+    --                ⊣⊢ (pointsTo lq v).interp ρ ∗ rest.interp ρ
+    refine (Iris.BI.sep_mono hsplit.1 BIBase.Entails.rfl).trans ?_
+    refine (Iris.BI.sep_mono (Iris.BI.sep_mono hcong.1 BIBase.Entails.rfl) BIBase.Entails.rfl).trans ?_
+    refine Iris.BI.sep_assoc.1.trans ?_
+    exact hsome v { st with owns := rest } hQ rfl hv_wf
+
+/-- Like `findMatch`, but aborts with a fatal error if no matching points-to
+    is found in the current ownership context. -/
+def VerifM.findMatchForce (lq : Term .value) : VerifM (Term .value) := do
+  match ← VerifM.findMatch lq with
+  | some v => pure v
+  | none => VerifM.fatal s!"no matching points-to for location"
+
+/-- CPS correctness for `findMatchForce`: only a `some`-style continuation is
+    required, since the `none` branch is discharged by the fatal error. -/
+theorem VerifM.eval_findMatchForce {lq : Term .value}
+    {st : TransState} {ρ : Env}
+    {Q : Term .value → TransState → Env → Prop}
+    {R Φ : iProp}
+    (h : VerifM.eval (VerifM.findMatchForce lq) st ρ Q)
+    (hlq : lq.wfIn st.decls)
+    (hsome : ∀ v st', Q v st' ρ →
+        st'.decls = st.decls → v.wfIn st.decls →
+        SpatialAtom.interp ρ (.pointsTo lq v) ∗ SpatialContext.interp ρ st'.owns ∗ R ⊢ Φ) :
+    SpatialContext.interp ρ st.owns ∗ R ⊢ Φ := by
+  unfold VerifM.findMatchForce at h
+  have hb := VerifM.eval_bind _ _ _ _ h
+  refine eval_findMatch (R := R) (Φ := Φ) hb hlq ?_ ?_
+  · intros v st' hQ hdecls hv
+    simp at hQ
+    exact hsome v st' (VerifM.eval_ret hQ) hdecls hv
+  · intro hQ
+    simp at hQ
+    exact (VerifM.eval_fatal hQ).elim
