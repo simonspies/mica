@@ -313,25 +313,25 @@ theorem Assertion.pre_post_combine {α : Type}
 def Assertion.assume (σ : FiniteSubst) : Assertion α → VerifM (FiniteSubst × α)
   | .ret a => pure (σ, a)
   | .assert φ k => do
-    VerifM.assume (φ.subst σ.subst σ.range.allNames)
+    VerifM.assume (.pure (φ.subst σ.subst σ.range.allNames))
     Assertion.assume σ k
   | .let_ v t k => do
     let v' ← VerifM.decl (some v.name) v.sort
     let σ' := σ.rename v v'.name
-    VerifM.assume (.eq v.sort (.const (.uninterpreted v'.name v.sort)) (t.subst σ.subst))
+    VerifM.assume (.pure (.eq v.sort (.const (.uninterpreted v'.name v.sort)) (t.subst σ.subst)))
     Assertion.assume σ' k
   | .pred v p k => do
     let v' ← VerifM.decl (some v.name) v.sort
     let σ' := σ.rename v v'.name
-    VerifM.assume ((p.subst σ.subst).toFormula (.const (.uninterpreted v'.name v.sort)))
+    VerifM.assume ((p.subst σ.subst).toItem (.const (.uninterpreted v'.name v.sort)))
     Assertion.assume σ' k
   | .ite φ kt ke => do
     let branch ← VerifM.all [true, false]
     if branch then do
-      VerifM.assume (φ.subst σ.subst σ.range.allNames)
+      VerifM.assume (.pure (φ.subst σ.subst σ.range.allNames))
       Assertion.assume σ kt
     else do
-      VerifM.assume (.not (φ.subst σ.subst σ.range.allNames))
+      VerifM.assume (.pure (.not (φ.subst σ.subst σ.range.allNames)))
       Assertion.assume σ ke
 
 /-- Assert postconditions: assert formulas, declare and bind let-variables.
@@ -344,23 +344,23 @@ def Assertion.prove (σ : FiniteSubst) : Assertion α → VerifM (FiniteSubst ×
   | .let_ v t k => do
     let v' ← VerifM.decl (some v.name) v.sort
     let σ' := σ.rename v v'.name
-    VerifM.assume (.eq v.sort (.const (.uninterpreted v'.name v.sort)) (t.subst σ.subst))
+    VerifM.assume (.pure (.eq v.sort (.const (.uninterpreted v'.name v.sort)) (t.subst σ.subst)))
     Assertion.prove σ' k
   | .pred v p k => do
     match ← VerifM.resolve (p.subst σ.subst) with
     | some t =>
       let v' ← VerifM.decl (some v.name) v.sort
       let σ' := σ.rename v v'.name
-      VerifM.assume (.eq v.sort (.const (.uninterpreted v'.name v.sort)) t)
+      VerifM.assume (.pure (.eq v.sort (.const (.uninterpreted v'.name v.sort)) t))
       Assertion.prove σ' k
     | none => VerifM.fatal s!"could not resolve type predicate for {v.name}"
   | .ite φ kt ke => do
     let branch ← VerifM.all [true, false]
     if branch then do
-      VerifM.assume (φ.subst σ.subst σ.range.allNames)
+      VerifM.assume (.pure (φ.subst σ.subst σ.range.allNames))
       Assertion.prove σ kt
     else do
-      VerifM.assume (.not (φ.subst σ.subst σ.range.allNames))
+      VerifM.assume (.pure (.not (φ.subst σ.subst σ.range.allNames)))
       Assertion.prove σ ke
 
 
@@ -394,7 +394,7 @@ theorem Assertion.assume_correct (m : Assertion α) (σ : FiniteSubst)
     have hsubst_wf : (φ.subst σ.subst σ.range.allNames).wfIn st.decls :=
       FiniteSubst.subst_wfIn_formula hσwf hφwf hwfst
     have hsubst_eval := (FiniteSubst.eval_subst_formula hφwf hσwf.1 hdomwf hσwf.2.2).mpr hφ
-    have hassume := VerifM.eval_assume hb hsubst_wf hsubst_eval
+    have hassume := VerifM.eval_assumePure hb hsubst_wf hsubst_eval
     iapply (ih σ { st with asserts := _ :: st.asserts } ρ Ψ hσwf hdomwf hkwf hassume hpost hwfst)
     iexact Howns
   | let_ v t k ih =>
@@ -435,7 +435,7 @@ theorem Assertion.assume_correct (m : Assertion α) (σ : FiniteSubst)
       rw [Term.eval_subst htwf hσwf.1 hσwf.2.2]
       simpa [u, Env.lookupConst, Env.updateConst] using
         (Term.eval_env_agree htwf (FiniteSubst.eval_update_fresh hσwf.1 hv'_fresh_range))
-    have hassume := VerifM.eval_assume hb2 heq_wf heq_holds
+    have hassume := VerifM.eval_assumePure hb2 heq_wf heq_holds
     -- Apply IH with σ' = σ.rename v v'.name
     set σ' := σ.rename v v'.name
     have hσ'wf : σ'.wf (st.decls.addConst v') :=
@@ -472,7 +472,7 @@ theorem Assertion.assume_correct (m : Assertion α) (σ : FiniteSubst)
       have hsubst_wf : (φ.subst σ.subst σ.range.allNames).wfIn st.decls :=
         FiniteSubst.subst_wfIn_formula hσwf hφwf hwfst
       have hsubst_eval := (FiniteSubst.eval_subst_formula hφwf hσwf.1 hdomwf hσwf.2.2).mpr hφ
-      have hassume := VerifM.eval_assume hb2 hsubst_wf hsubst_eval
+      have hassume := VerifM.eval_assumePure hb2 hsubst_wf hsubst_eval
       iapply (iht σ { st with asserts := _ :: st.asserts } ρ Ψ hσwf hdomwf hktwf hassume hpost hwfst)
       iexact Howns
     · iintro Howns %hnφ
@@ -484,7 +484,7 @@ theorem Assertion.assume_correct (m : Assertion α) (σ : FiniteSubst)
       have hsubst_wf : (φ.not.subst σ.subst σ.range.allNames).wfIn st.decls :=
         FiniteSubst.subst_wfIn_formula hσwf hnot_wf hwfst
       have hsubst_eval := (FiniteSubst.eval_subst_formula hnot_wf hσwf.1 hdomwf hσwf.2.2).mpr hnφ
-      have hassume := VerifM.eval_assume hb2 hsubst_wf hsubst_eval
+      have hassume := VerifM.eval_assumePure hb2 hsubst_wf hsubst_eval
       iapply (ihe σ { st with asserts := _ :: st.asserts } ρ Ψ hσwf hdomwf hkewf hassume hpost hwfst)
       iexact Howns
   | pred v p k ih =>
@@ -545,7 +545,7 @@ theorem Assertion.assume_correct (m : Assertion α) (σ : FiniteSubst)
       iapply hpu'
       iexact Hpu
     icases Hformula with %hformula_holds
-    have hassume := VerifM.eval_assume hb2 hformula_wf hformula_holds
+    have hassume := VerifM.eval_assumePure hb2 hformula_wf hformula_holds
     set σ' := σ.rename v v'.name
     have hσ'wf : σ'.wf (st.decls.addConst v') :=
       by simpa [σ'] using (FiniteSubst.rename_wf (σ := σ) (v := v) (name' := v'.name) hσwf hv'_fresh_range)
@@ -644,7 +644,7 @@ theorem Assertion.prove_correct (m : Assertion α) (σ : FiniteSubst)
       rw [Term.eval_subst htwf hσwf.1 hσwf.2.2]
       simpa [u, Env.lookupConst, Env.updateConst] using
         (Term.eval_env_agree htwf (FiniteSubst.eval_update_fresh hσwf.1 hv'_fresh_range))
-    have hassume := VerifM.eval_assume hb2 heq_wf heq_holds
+    have hassume := VerifM.eval_assumePure hb2 heq_wf heq_holds
     set σ' := σ.rename v v'.name
     have hσ'wf : σ'.wf (st.decls.addConst v') :=
       by simpa [σ'] using (FiniteSubst.rename_wf (σ := σ) (v := v) (name' := v'.name) hσwf hv'_fresh_range)
@@ -723,7 +723,7 @@ theorem Assertion.prove_correct (m : Assertion α) (σ : FiniteSubst)
           simp only [Formula.eval, Term.eval, Const.denote]
           simpa [Env.lookupConst, Env.updateConst] using
             (Term.eval_env_agree hresult_wf (agreeOn_update_fresh_const hv'_fresh_decls))
-        have hassume := VerifM.eval_assume hb3 heq_wf heq_holds
+        have hassume := VerifM.eval_assumePure hb3 heq_wf heq_holds
         set σ' := σ.rename v v'.name
         have hσ'wf : σ'.wf (st.decls.addConst v') :=
           by simpa [σ'] using (FiniteSubst.rename_wf (σ := σ) (v := v) (name' := v'.name) hσwf hv'_fresh_range)
@@ -765,7 +765,7 @@ theorem Assertion.prove_correct (m : Assertion α) (σ : FiniteSubst)
       have hsubst_wf : (φ.subst σ.subst σ.range.allNames).wfIn st.decls :=
         FiniteSubst.subst_wfIn_formula hσwf hφwf hwfst
       have hsubst_eval := (FiniteSubst.eval_subst_formula hφwf hσwf.1 hdomwf hσwf.2.2).mpr hφ
-      have hassume := VerifM.eval_assume hb2 hsubst_wf hsubst_eval
+      have hassume := VerifM.eval_assumePure hb2 hsubst_wf hsubst_eval
       iapply (iht σ { st with asserts := _ :: st.asserts } ρ Ψ hσwf hdomwf hktwf hassume hpost hwfst)
       iexact Howns
     · apply wand_intro
@@ -779,6 +779,6 @@ theorem Assertion.prove_correct (m : Assertion α) (σ : FiniteSubst)
       have hsubst_wf : (φ.not.subst σ.subst σ.range.allNames).wfIn st.decls :=
         FiniteSubst.subst_wfIn_formula hσwf hnot_wf hwfst
       have hsubst_eval := (FiniteSubst.eval_subst_formula hnot_wf hσwf.1 hdomwf hσwf.2.2).mpr hnφ
-      have hassume := VerifM.eval_assume hb2 hsubst_wf hsubst_eval
+      have hassume := VerifM.eval_assumePure hb2 hsubst_wf hsubst_eval
       iapply (ihe σ { st with asserts := _ :: st.asserts } ρ Ψ hσwf hdomwf hkewf hassume hpost hwfst)
       iexact Howns

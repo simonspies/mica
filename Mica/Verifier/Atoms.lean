@@ -36,7 +36,7 @@ def Atom.subst (σ : Subst) : Atom τ → Atom τ
 
 
 -- ---------------------------------------------------------------------------
--- Conversion to formula
+-- Conversion to context items
 -- ---------------------------------------------------------------------------
 
 /-- Convert an atom applied to a typed term into a formula. -/
@@ -44,6 +44,10 @@ def Atom.toFormula : Atom τ → Term τ → Formula
   | .isint  v, t => .eq .value v (.unop .ofInt t)
   | .isbool v, t => .eq .value v (.unop .ofBool t)
   | .isinj tag arity v, t => .eq .value v (.unop (.mkInj tag arity) t)
+
+/-- Convert an instantiated atom into the corresponding verifier context item. -/
+def Atom.toItem (a : Atom τ) (t : Term τ) : CtxItem :=
+  .pure (a.toFormula t)
 
 /-- Try to match a formula against an atom, returning the extracted term if it matches. -/
 def Formula.matchAtom (φ : Formula) (a : Atom τ) : Option (Term τ) :=
