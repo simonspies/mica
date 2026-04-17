@@ -551,34 +551,61 @@ def VerifM.resolve (a : Atom τ) : VerifM (Option (Term τ)) := do
   else
     VerifM.fatal "here will be the points-to case"
 
--- theorem VerifM.eval_resolve {pred : Atom τ} {st : TransState} {ρ : Env}
---     {Q : Option (Term τ) → TransState → Env → Prop}
---     (h : VerifM.eval (VerifM.resolve pred) st ρ Q)
---     (hpwf : pred.wfIn st.decls) :
---     ∃ result : Option (Term τ),
---       Q result st ρ
---       ∧ (∀ t, result = some t → (pred.toFormula t).eval ρ)
---       ∧ (∀ t, result = some t → t.wfIn st.decls) := by
---   unfold VerifM.resolve at h
---   have hb1 := VerifM.eval_bind _ _ _ _ h
---   have ⟨hctx_q, hholds, hwfAsserts⟩ := VerifM.eval_ctxPure hb1
---   cases hres : pred.resolve st.asserts with
---   | some t =>
---     simp [hres] at hctx_q
---     exact ⟨some t, VerifM.eval_ret hctx_q,
---            fun t' ht' => by cases ht'; exact Atom.resolve_correct hres ρ hholds,
---            fun t' ht' => by cases ht'; exact Atom.resolve_wfIn hres hwfAsserts⟩
---   | none =>
---     simp [hres] at hctx_q
---     exact eval_tryCandidates hctx_q (fun p hp => hp) hpwf
-
-
 theorem VerifM.eval_resolve {pred : Atom τ} {st : TransState} {ρ : Env}
     {Q : Option (Term τ) → TransState → Env → Prop}
     {R Φ : iProp}
     (h : VerifM.eval (VerifM.resolve pred) st ρ Q)
     (hwf : pred.wfIn st.decls)
     (hnone : ∀ st', Q .none st' ρ → st'.decls = st.decls → SpatialContext.interp ρ st'.owns ∗ R ⊢ Φ)
-    (hsome : ∀ v st', Q (.some v) st' ρ → st'.decls = st.decls → v.wfIn st.decls → Atom.eval p ρ (v.eval ρ) ∗ SpatialContext.interp ρ st'.owns ∗ R ⊢ Φ) :
-    SpatialContext.interp ρ st.owns ∗ R ⊢ Φ  := by
-  sorry
+    (hsome : ∀ v st', Q (.some v) st' ρ → st'.decls = st.decls → v.wfIn st.decls →
+      Atom.eval pred ρ (v.eval ρ) ∗ SpatialContext.interp ρ st'.owns ∗ R ⊢ Φ) :
+    SpatialContext.interp ρ st.owns ∗ R ⊢ Φ := by
+  unfold VerifM.resolve at h
+  cases hpure : pred.pure with
+  | false =>
+    simp [hpure] at h
+    exact (VerifM.eval_fatal h).elim
+  | true =>
+    simp [hpure] at h
+    have hb1 := VerifM.eval_bind _ _ _ _ h
+    have ⟨hctx_q, hholds, hwfAsserts⟩ := VerifM.eval_ctxPure hb1
+    cases hres : pred.resolve st.asserts with
+    | some t =>
+      simp [hres] at hctx_q
+      have hq := VerifM.eval_ret hctx_q
+      have htwf : t.wfIn st.decls := Atom.resolve_wfIn hres hwfAsserts
+      have hpred : ⊢ Atom.eval pred ρ (t.eval ρ) := by
+        iapply Atom.toFormula_eval_2
+        ipure_intro
+        exact Atom.resolve_correct hres ρ hholds
+      have hframe : SpatialContext.interp ρ st.owns ∗ R ⊢
+          Atom.eval pred ρ (t.eval ρ) ∗ SpatialContext.interp ρ st.owns ∗ R := by
+        istart
+        iintro H
+        isplitr [H]
+        · iapply hpred
+        · iexact H
+      exact hframe.trans (hsome t st hq rfl htwf)
+    | none =>
+      simp [hres] at hctx_q
+      obtain ⟨result, hq, hresult_eval, hresult_wf⟩ :=
+        eval_tryCandidates hctx_q (fun p hp => hp) hwf
+      cases hr : result with
+      | none =>
+        have hqnone : Q .none st ρ := by simpa [hr] using hq
+        exact hnone st hqnone rfl
+      | some t =>
+        have htwf : t.wfIn st.decls := hresult_wf t hr
+        have hqsome : Q (.some t) st ρ := by simpa [hr] using hq
+        have hpred : ⊢ Atom.eval pred ρ (t.eval ρ) := by
+          iapply Atom.toFormula_eval_2
+          ipure_intro
+          exact hresult_eval t hr
+        have hframe : SpatialContext.interp ρ st.owns ∗ R ⊢
+            Atom.eval pred ρ (t.eval ρ) ∗ SpatialContext.interp ρ st.owns ∗ R := by
+          istart
+          iintro H
+          isplitr [H]
+          · iapply hpred
+          · iexact H
+        exact hframe.trans (hsome t st hqsome rfl htwf)
