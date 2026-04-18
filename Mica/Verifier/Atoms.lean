@@ -209,32 +209,12 @@ theorem Atom.toItem_wfIn {p : Atom τ} {t : Term τ} {Δ : Signature}
     simp only [Atom.toItem, CtxItem.wfIn]
     exact ⟨hp, trivial, ht⟩
 
-theorem Atom.toFormula_wfIn {p : Atom τ} {t : Term τ} {Δ : Signature}
-    (hp : p.wfIn Δ) (ht : t.wfIn Δ) :
-    (p.toFormula t).wfIn Δ := by
-  cases p with
-  | isint v =>
-    simp only [Atom.toFormula, Formula.wfIn, Term.wfIn]
-    exact ⟨hp, trivial, ht⟩
-  | isbool v =>
-    simp only [Atom.toFormula, Formula.wfIn, Term.wfIn]
-    exact ⟨hp, trivial, ht⟩
-  | isinj tag arity v =>
-    simp only [Atom.toFormula, Formula.wfIn, Term.wfIn]
-    exact ⟨hp, trivial, ht⟩
-
 theorem Atom.eval_pure {p : Atom τ} {t : Term τ} {ρ : Env} :
     p.eval ρ (t.eval ρ) ⊣⊢ ⌜(p.toFormula t).eval ρ⌝ := by
   cases p with
   | isint v  => simp [Atom.toFormula, Atom.eval, Formula.eval, Term.eval, eq_comm]
   | isbool v => simp [Atom.toFormula, Atom.eval, Formula.eval, Term.eval, eq_comm]
   | isinj tag arity v => simp [Atom.toFormula, Atom.eval, Formula.eval, Term.eval, eq_comm]
-
-/-- If `p.eval ρ u` holds and `p` is wfIn fresh decls, then `p.toFormula (.var τ x)` holds
-    after updating `ρ` with `x ↦ u`. -/
-theorem Atom.toFormula_eval_1 {p : Atom τ} {t : Term τ} {ρ : Env} :
-     p.eval ρ (t.eval ρ) ⊢ ⌜(p.toFormula t).eval ρ⌝ := by
-  exact Atom.eval_pure.1
 
 /-- If `(p.toFormula t).eval ρ` holds, then `p.eval ρ (t.eval ρ)`. -/
 theorem Atom.toFormula_eval_2 {p : Atom τ} {t : Term τ} {ρ : Env}
