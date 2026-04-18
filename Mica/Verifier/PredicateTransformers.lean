@@ -79,7 +79,7 @@ def PredTrans.implement (σ : FiniteSubst) (pt : PredTrans) (body : VerifM (Term
   let result ← body
   let resVar ← VerifM.decl (some postName) .value
   let σ₂ := σ₁.rename ⟨postName, .value⟩ resVar.name
-  VerifM.assume (.eq .value (.const (.uninterpreted resVar.name .value)) result)
+  VerifM.assume (.pure (.eq .value (.const (.uninterpreted resVar.name .value)) result))
   let (_, ()) ← Assertion.prove σ₂ postBody
   pure ()
 
@@ -288,7 +288,7 @@ theorem PredTrans.implement_correct (pt : PredTrans) (σ : FiniteSubst)
         simp only [Formula.eval, Term.eval, Const.denote]
         simpa [Env.lookupConst, Env.updateConst] using
           (Term.eval_env_agree hwf_result (agreeOn_update_fresh_const hfresh_decls))
-      have hassume := VerifM.eval_assume hb3 heq_wf heq_holds
+      have hassume := VerifM.eval_assumePure hb3 heq_wf heq_holds
       set σ₂ := σ₁.rename ⟨postName, .value⟩ resVar.name
       have hσ₂wf : σ₂.wf (st₂.decls.addConst resVar) := by
         simpa [σ₂] using
