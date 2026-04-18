@@ -144,6 +144,7 @@ def translatePred (env : Env) : Spec.Pred → M (Σ t, Atom t)
   | .isbool e => do .ok ⟨.bool, .isbool (← checkTerm env .value e)⟩
   | .isinj tag arity e => do
     .ok ⟨.value, .isinj tag arity (← checkTerm env .value e)⟩
+  | .own e => do .ok ⟨.value, .own (← checkTerm env .value e)⟩
 
 -- ---------------------------------------------------------------------------
 -- Assertions
