@@ -797,13 +797,6 @@ theorem Assertion.prove_correct (m : Assertion α) (σ : FiniteSubst)
             exact sep_mono hinterp_bi.1 (by
               iintro HR
               iexact HR)
-          have hdrop : Atom.eval (p.subst σ.subst) ρ (t.eval ρ) ∗
-              SpatialContext.interp ρ st'.owns ∗ R ⊢ SpatialContext.interp ρ st'.owns ∗ R := by
-            istart
-            iintro ⟨_Hpred, Howns, HR⟩
-            isplitl [Howns]
-            · iexact Howns
-            · iexact HR
           iapply (hframe.trans <| hih.trans <| Assertion.pre_env_agree hkwf'
             (by
               simpa [σ', FiniteSubst.rename, Signature.ofVars, Signature.remove, Signature.addVar] using
