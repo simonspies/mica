@@ -178,7 +178,7 @@ mutual
         | none => compile Θ S B Γ body
         | some x =>
           let x' ← VerifM.decl (some x) .value
-          VerifM.assume (Formula.eq .value (.const (.uninterpreted x'.name .value)) se)
+          VerifM.assume (.pure (Formula.eq .value (.const (.uninterpreted x'.name .value)) se))
           compile Θ (Finmap.erase x S) ((x, x') :: B) (Γ.extend x e.ty) body
     | .ifThenElse cond thn els ty => do
         let sc ← compile Θ S B Γ cond
@@ -187,10 +187,10 @@ mutual
         VerifM.expectEq "if branch type annotation mismatch" els.ty ty
         let branch ← VerifM.all [true, false]
         if branch then do
-          VerifM.assume (.not (.eq .value sc (.unop .ofBool (.const (.b false)))))
+          VerifM.assume (.pure (.not (.eq .value sc (.unop .ofBool (.const (.b false))))))
           compile Θ S B Γ thn
         else do
-          VerifM.assume (.eq .value sc (.unop .ofBool (.const (.b false))))
+          VerifM.assume (.pure (.eq .value sc (.unop .ofBool (.const (.b false)))))
           compile Θ S B Γ els
     | .app (.var f fty) args aty => do
         let spec ← VerifM.expectSome s!"no spec for function {f}" (S.lookup f)
@@ -236,7 +236,7 @@ mutual
     | (binder, body) => do
         VerifM.expectEq "match binder type annotation mismatch" binder.ty ty_i
         let xv ← VerifM.decl binder.name .value
-        VerifM.assume (.eq .value sc (.unop (.mkInj i n) (.const (.uninterpreted xv.name .value))))
+        VerifM.assume (.pure (.eq .value sc (.unop (.mkInj i n) (.const (.uninterpreted xv.name .value)))))
         VerifM.assumeAll (typeConstraints ty_i (.const (.uninterpreted xv.name .value)))
         match binder.name with
         | some x =>
@@ -675,7 +675,7 @@ theorem compile_correct (Θ : TinyML.TypeEnv) (R : iProp) (e : Expr) (S : SpecMa
         have hdecl := VerifM.eval_decl hdecl_eval
         have h := hdecl v_e
         obtain h := VerifM.eval_bind _ _ _ _ h
-        obtain h := VerifM.eval_assume h
+        obtain h := VerifM.eval_assumePure h
         apply h
         · simp only [Formula.wfIn, Term.wfIn, Const.wfIn]
           refine ⟨?_, Term.wfIn_mono se hse_wf (Signature.Subset.subset_addConst _ _)
@@ -742,8 +742,8 @@ theorem compile_correct (Θ : TinyML.TypeEnv) (R : iProp) (e : Expr) (S : SpecMa
       simp only [Formula.wfIn, Term.wfIn, Const.wfIn, UnOp.wfIn, _root_.and_true]; exact hsc_wf
     have hwf_eq : (Formula.eq .value sc (.unop .ofBool (.const (.b false) : Term .bool))).wfIn st₁.decls := by
       simp only [Formula.wfIn, Term.wfIn, Const.wfIn, UnOp.wfIn, _root_.and_true]; exact hsc_wf
-    have htrue_cont := VerifM.eval_assume (VerifM.eval_bind _ _ _ _ htrue)
-    have hfalse_cont := VerifM.eval_assume (VerifM.eval_bind _ _ _ _ hfalse)
+    have htrue_cont := VerifM.eval_assumePure (VerifM.eval_bind _ _ _ _ htrue)
+    have hfalse_cont := VerifM.eval_assumePure (VerifM.eval_bind _ _ _ _ hfalse)
     let φ_eq : Formula := .eq .value sc (.unop .ofBool (.const (.b false) : Term .bool))
     let st_thn : TransState := { st₁ with asserts := φ_eq.not :: st₁.asserts }
     let st_els : TransState := { st₁ with asserts := φ_eq :: st₁.asserts }
@@ -1004,7 +1004,7 @@ theorem compileBranch_correct (Θ : TinyML.TypeEnv) (R : iProp) (branch : Binder
     let xv := TransState.freshConst hint .value st
     have heval_inst := hdecl payload
     have heval_assume := VerifM.eval_bind _ _ _ _ heval_inst
-    have hassume := VerifM.eval_assume heval_assume
+    have hassume := VerifM.eval_assumePure heval_assume
     let st₁ : TransState := { decls := st.decls.addConst xv, asserts := st.asserts, owns := st.owns }
     let ρ₁ := ρ.updateConst .value xv.name payload
     have hxv_fresh : xv.name ∉ st.decls.allNames :=

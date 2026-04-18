@@ -237,7 +237,7 @@ end
     else VerifM.fatal s!"type mismatch in call to spec"
     let argVar ← VerifM.decl (some name) .value
     let σ' := σ.rename ⟨name, .value⟩ argVar.name
-    VerifM.assume (.eq .value (.const (.uninterpreted argVar.name .value)) sarg)
+    VerifM.assume (.pure (.eq .value (.const (.uninterpreted argVar.name .value)) sarg))
     Spec.declareArgs Θ σ' rest sargs
   | _, _ => VerifM.fatal "wrong number of arguments"
 
@@ -617,7 +617,7 @@ theorem Spec.declareArgs_correct (Θ : TinyML.TypeEnv) :
               (fun argVar st' ρ' =>
                 (do
                   VerifM.assume
-                    (Formula.eq Srt.value (Term.const (.uninterpreted argVar.name .value)) sarg)
+                    (.pure (Formula.eq Srt.value (Term.const (.uninterpreted argVar.name .value)) sarg))
                   Spec.declareArgs Θ (σ.rename ⟨name, .value⟩ argVar.name) rest sargs_rest).eval
                     st' ρ' Ψ) := by
           simpa using
@@ -625,7 +625,7 @@ theorem Spec.declareArgs_correct (Θ : TinyML.TypeEnv) :
               (m := VerifM.decl (some name) .value)
               (k := fun argVar => do
                 VerifM.assume
-                  (Formula.eq Srt.value (Term.const (.uninterpreted argVar.name .value)) sarg)
+                  (.pure (Formula.eq Srt.value (Term.const (.uninterpreted argVar.name .value)) sarg))
                 Spec.declareArgs Θ (σ.rename ⟨name, .value⟩ argVar.name) rest sargs_rest)
               (st := st) (ρ := ρ) hret)
         have hdecl := VerifM.eval_decl hbind'
@@ -658,7 +658,7 @@ theorem Spec.declareArgs_correct (Θ : TinyML.TypeEnv) :
           simpa [Env.lookupConst, Env.updateConst] using
             (Term.eval_env_agree hsarg_wf (agreeOn_update_fresh_const hfresh_decls))
         have hbind'' := VerifM.eval_bind _ _ _ _ hdecl
-        have hassume := VerifM.eval_assume hbind'' heq_wf heq_holds
+        have hassume := VerifM.eval_assumePure hbind'' heq_wf heq_holds
         set ρ₁ := ρ.updateConst .value argVar.name (sarg.eval ρ)
         have hsargs_rest : ∀ p ∈ sargs_rest, (p : TinyML.Typ × Term .value).2.wfIn
             (st.decls.addConst argVar) := by

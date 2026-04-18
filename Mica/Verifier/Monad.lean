@@ -23,13 +23,25 @@ structure TransState where
   asserts : Context
   owns    : SpatialContext
 
+inductive CtxItem where
+  | pure : Formula → CtxItem
+  | spatial : SpatialAtom → CtxItem
+
+namespace CtxItem
+
+def wfIn : CtxItem → Signature → Prop
+  | .pure φ, Δ => φ.wfIn Δ
+  | .spatial a, Δ => a.wfIn Δ
+
+end CtxItem
+
 inductive VerifM : Type → Type 1 where
   | ret : α → VerifM α
   | bind : VerifM α → (α → VerifM β) → VerifM β
   /-- Declare a fresh SMT constant. -/
   | decl : Option String → Srt → VerifM FOL.Const
-  /-- Add a formula to the assertion context (permanent, no check). -/
-  | assume : Formula → VerifM Unit
+  /-- Add a context item to the verifier state (permanent, no check). -/
+  | assume : CtxItem → VerifM Unit
   /-- Check whether φ is provable from the current context.
       Returns `true` if UNSAT (provable), `false` otherwise. Never fails. -/
   | check : Formula → VerifM Bool
@@ -74,7 +86,7 @@ def VerifM.expectSome (msg : String) (x : Option α) : VerifM α := do
 /-- Assume all formulas in a list via `VerifM.assume`. -/
 def VerifM.assumeAll : List Formula → VerifM Unit
   | [] => pure ()
-  | φ :: φs => do VerifM.assume φ; VerifM.assumeAll φs
+  | φ :: φs => do VerifM.assume (.pure φ); VerifM.assumeAll φs
 
 /-! ### Translation to ScopedM -/
 
@@ -115,6 +127,11 @@ def TransState.freshConst (hint : Option String) (t : Srt) (st : TransState) : F
   let x' := fresh (addNumbers base) st.decls.allNames
   ⟨x', t⟩
 
+def TransState.addItem (st: TransState) (item: CtxItem) :=
+  match item with
+  | .pure φ =>  { st with asserts := φ :: st.asserts }
+  | .spatial p => { st with owns := p :: st.owns }
+
 theorem TransState.freshConst.wf {hint t} (st : TransState) :
   TransState.wf st →
   TransState.wf { st with decls := st.decls.addConst (st.freshConst hint t) } := by
@@ -140,6 +157,16 @@ theorem TransState.addAssert.wf (st : TransState) :
     · exact hwf.assertsWf ψ hψ
   · exact hwf.namesDisjoint
   · exact hwf.ownsWf
+
+theorem TransState.addSpatial.wf (st : TransState) :
+  TransState.wf st →
+  a.wfIn st.decls →
+  TransState.wf { st with owns := a :: st.owns } := by
+  intro hwf ha
+  constructor
+  · exact hwf.assertsWf
+  · exact hwf.namesDisjoint
+  · simpa [SpatialContext.wfIn_cons] using And.intro ha hwf.ownsWf
 
 
 def TransCont α := α → TransState → ScopedM (Except VerifError Unit)
@@ -175,9 +202,13 @@ def VerifM.translate :
       let c := st.freshConst hint t
       .declareConst c.name t (fun () =>
         k (.ok c) { st with decls := st.decls.addConst c })
-  | .assume φ, st, k =>
-      ScopedM.assert φ (fun () =>
-        k (.ok ()) { st with asserts := φ :: st.asserts })
+  | .assume item, st, k =>
+      match item with
+      | .pure φ =>
+          ScopedM.assert φ (fun () =>
+            k (.ok ()) { st with asserts := φ :: st.asserts })
+      | .spatial a =>
+          k (.ok ()) { st with owns := a :: st.owns }
   | .check φ, st, k =>
       .bracket
         (ScopedM.assert (.not φ) (fun () =>
@@ -207,7 +238,10 @@ def VerifM.eval_rec : VerifM α → TransState → Env → (α → TransState �
   | .decl hint t, st, ρ, P =>
       let c := st.freshConst hint t
       ∀ u, P c { st with decls := st.decls.addConst c } (ρ.updateConst t c.name u)
-  | .assume φ, st, ρ, P => φ.wfIn st.decls → φ.eval ρ → P () { st with asserts := φ :: st.asserts } ρ
+  | .assume item, st, ρ, P =>
+      match item with
+      | .pure φ => φ.wfIn st.decls → φ.eval ρ → P () { st with asserts := φ :: st.asserts } ρ
+      | .spatial a => a.wfIn st.decls → P () { st with owns := a :: st.owns } ρ
   | .check φ, st, ρ, P => φ.wfIn st.decls → ∃ b, (b = true → φ.eval ρ) ∧ P b st ρ
   | .fatal _, _, _, _ => False
   | .failed _, _, _, _ => False
@@ -234,9 +268,14 @@ theorem VerifM.eval_rec.mono' {m : VerifM α} (ρ : Env) (st : TransState) (h : 
     exact agreeOn_update_fresh_const
       (c := ⟨fresh (addNumbers (hint.getD "_v")) st.decls.allNames, t⟩)
       (fresh_not_mem (addNumbers (hint.getD "_v")) st.decls.allNames (addNumbers_injective _))
-  | assume =>
-    intro hwf hφ
-    exact hPQ _ _ _ (Signature.Subset.refl _) (Env.agreeOn_refl) (h hwf hφ)
+  | assume item =>
+    cases item with
+    | pure φ =>
+      intro hwf hφ
+      exact hPQ _ _ _ (Signature.Subset.refl _) (Env.agreeOn_refl) (h hwf hφ)
+    | spatial a =>
+      intro hwf
+      exact hPQ _ _ _ (Signature.Subset.refl _) (Env.agreeOn_refl) (h hwf)
   | check =>
     intro hwf
     obtain ⟨b, hb, hp⟩ := h hwf
@@ -290,14 +329,20 @@ theorem VerifM.eval_rec_preserves_wf (m : VerifM α) (st : TransState) (ρ: Env)
     · intro φ hφ
       exact (Formula.eval_env_agree (hwf.assertsWf φ hφ) hagree).mp (g φ hφ)
     · exact ⟨TransState.freshConst.wf _ hwf, h⟩
-  | assume φ =>
-    simp only [VerifM.eval_rec] at h ⊢
-    intro hwf' hφ
-    refine ⟨?_, TransState.addAssert.wf _ hwf hwf', h hwf' hφ⟩
-    intro ψ hψ
-    cases hψ with
-    | head => exact hφ
-    | tail _ hψ => exact g ψ hψ
+  | assume item =>
+    cases item with
+    | pure φ =>
+      simp only [VerifM.eval_rec] at h ⊢
+      intro hwf' hφ
+      refine ⟨?_, TransState.addAssert.wf _ hwf hwf', h hwf' hφ⟩
+      intro ψ hψ
+      cases hψ with
+      | head => exact hφ
+      | tail _ hψ => exact g ψ hψ
+    | spatial a =>
+      simp only [VerifM.eval_rec] at h ⊢
+      intro hwf'
+      exact ⟨g, TransState.addSpatial.wf _ hwf hwf', h hwf'⟩
   | check φ =>
     simp only [VerifM.eval_rec] at h ⊢
     intro hwf'
@@ -393,11 +438,17 @@ theorem VerifM.translate_eval_rec (m : VerifM α) (st : TransState) (ρ: Env)
     simp only [VerifM.eval_rec]
     intro u
     exact ⟨_, h⟩
-  | assume φ =>
-    simp only [VerifM.translate] at h
-    have h := ScopedM.eval_assert h
-    intro hwf' hφ
-    exact ⟨_, h⟩
+  | assume item =>
+    cases item with
+    | pure φ =>
+      simp only [VerifM.translate] at h
+      have h := ScopedM.eval_assert h
+      intro hwf' hφ
+      exact ⟨_, h⟩
+    | spatial a =>
+      simp only [VerifM.translate] at h
+      intro hwf'
+      exact ⟨_, h⟩
   | check φ =>
     simp only [VerifM.translate] at h
     obtain ⟨b, _, hxx, hk⟩ := ScopedM.eval_bracket h
@@ -518,11 +569,30 @@ theorem VerifM.eval_decl {hint : Option String} {t : Srt} {st : TransState} {ρ 
     ∀ u, Q c { st with decls := st.decls.addConst c } (ρ.updateConst t c.name u) :=
   fun u => (h.2.2 u).2.2
 
-theorem VerifM.eval_assume {φ : Formula} {st : TransState} {ρ : Env}
+theorem VerifM.eval_assumePure {φ : Formula} {st : TransState} {ρ : Env}
     {Q : Unit → TransState → Env → Prop}
-    (h : VerifM.eval (.assume φ) st ρ Q) :
+    (h : VerifM.eval (.assume (.pure φ)) st ρ Q) :
     φ.wfIn st.decls → φ.eval ρ → Q () { st with asserts := φ :: st.asserts } ρ :=
   fun hwf hφ => (h.2.2 hwf hφ).2.2
+
+theorem VerifM.eval_assumeSpatial {a : SpatialAtom} {st : TransState} {ρ : Env}
+    {Q : Unit → TransState → Env → Prop}
+    (h : VerifM.eval (.assume (.spatial a)) st ρ Q) :
+    a.wfIn st.decls → Q () { st with owns := a :: st.owns } ρ :=
+  fun hwf => (h.2.2 hwf).2.2
+
+theorem VerifM.eval_assume {item : CtxItem} {st : TransState} {ρ : Env}
+    {Q : Unit → TransState → Env → Prop}
+    (h : VerifM.eval (.assume item) st ρ Q) :
+    item.wfIn st.decls → (match item with | .pure φ => φ.eval ρ | .spatial _ => True) → Q () (st.addItem item) ρ :=
+  by
+    cases item with
+    | pure φ =>
+      simp [TransState.addItem]
+      exact VerifM.eval_assumePure h
+    | spatial a =>
+      simp [TransState.addItem]
+      exact VerifM.eval_assumeSpatial h
 
 theorem VerifM.eval_check {φ : Formula} {st : TransState} {ρ : Env}
     {Q : Bool → TransState → Env → Prop}
@@ -649,7 +719,7 @@ theorem VerifM.eval_assumeAll {φs : List Formula}
     intro hwf heval
     simp only [VerifM.assumeAll] at h
     have hb := VerifM.eval_bind _ _ _ _ h
-    have hassume := VerifM.eval_assume hb
+    have hassume := VerifM.eval_assumePure hb
     have hcont := hassume
       (hwf φ (List.mem_cons_self ..))
       (heval φ (List.mem_cons_self ..))
