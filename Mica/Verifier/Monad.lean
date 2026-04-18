@@ -127,6 +127,11 @@ def TransState.freshConst (hint : Option String) (t : Srt) (st : TransState) : F
   let x' := fresh (addNumbers base) st.decls.allNames
   ⟨x', t⟩
 
+def TransState.addItem (st: TransState) (item: CtxItem) :=
+  match item with
+  | .pure φ =>  { st with asserts := φ :: st.asserts }
+  | .spatial p => { st with owns := p :: st.owns }
+
 theorem TransState.freshConst.wf {hint t} (st : TransState) :
   TransState.wf st →
   TransState.wf { st with decls := st.decls.addConst (st.freshConst hint t) } := by
@@ -575,6 +580,19 @@ theorem VerifM.eval_assumeSpatial {a : SpatialAtom} {st : TransState} {ρ : Env}
     (h : VerifM.eval (.assume (.spatial a)) st ρ Q) :
     a.wfIn st.decls → Q () { st with owns := a :: st.owns } ρ :=
   fun hwf => (h.2.2 hwf).2.2
+
+theorem VerifM.eval_assume {item : CtxItem} {st : TransState} {ρ : Env}
+    {Q : Unit → TransState → Env → Prop}
+    (h : VerifM.eval (.assume item) st ρ Q) :
+    item.wfIn st.decls → (match item with | .pure φ => φ.eval ρ | .spatial _ => True) → Q () (st.addItem item) ρ :=
+  by
+    cases item with
+    | pure φ =>
+      simp [TransState.addItem]
+      exact VerifM.eval_assumePure h
+    | spatial a =>
+      simp [TransState.addItem]
+      exact VerifM.eval_assumeSpatial h
 
 theorem VerifM.eval_check {φ : Formula} {st : TransState} {ρ : Env}
     {Q : Bool → TransState → Env → Prop}

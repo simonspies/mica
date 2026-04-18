@@ -59,6 +59,11 @@ def interp (ρ : Env) : CtxItem → iProp
   | .pure φ => ⌜φ.eval ρ⌝
   | .spatial a => a.interp ρ
 
+def purePart (i : CtxItem) (ρ : Env) : Prop :=
+  match i with
+  | .pure φ => φ.eval ρ
+  | .spatial _ => True
+
 end CtxItem
 
 /-- Convert an instantiated atom into the corresponding verifier context item. -/
@@ -242,6 +247,16 @@ theorem Atom.eval_toItem {p : Atom τ} {t : Term τ} {ρ : Env} :
   | isint v  => simp [Atom.eval, Atom.toFormula, Atom.toItem, CtxItem.interp, Formula.eval, Term.eval, eq_comm]
   | isbool v => simp [Atom.eval, Atom.toFormula, Atom.toItem, CtxItem.interp, Formula.eval, Term.eval, eq_comm]
   | isinj tag arity v => simp [Atom.eval, Atom.toFormula, Atom.toItem, CtxItem.interp, Formula.eval, Term.eval, eq_comm]
+
+theorem Atom.eval_purePart {p : Atom τ} {t : Term τ} {ρ : Env} :
+    p.eval ρ (t.eval ρ) ⊢ ⌜(p.toItem t).purePart ρ⌝ := by
+  cases p with
+  | isint v =>
+    simp [Atom.eval, CtxItem.purePart, Atom.toFormula, Atom.toItem, Formula.eval, Term.eval, eq_comm]
+  | isbool v =>
+    simp [Atom.eval, CtxItem.purePart, Atom.toFormula, Atom.toItem, Formula.eval, Term.eval, eq_comm]
+  | isinj tag arity v =>
+    simp [Atom.eval, CtxItem.purePart, Atom.toFormula, Atom.toItem, Formula.eval, Term.eval, eq_comm]
 
 
 -- ---------------------------------------------------------------------------
