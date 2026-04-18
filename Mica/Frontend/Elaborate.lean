@@ -84,6 +84,10 @@ def TypKind.elaborate (env : ElabEnv) (loc : Location) : TypKind → ElabM TinyM
     | "int"  => if args'.isEmpty then .ok .int  else err loc (.arityMismatch 0 args'.length)
     | "bool" => if args'.isEmpty then .ok .bool else err loc (.arityMismatch 0 args'.length)
     | "unit" => if args'.isEmpty then .ok .unit else err loc (.arityMismatch 0 args'.length)
+    | "ref" =>
+      match args' with
+      | [arg] => .ok (.ref arg)
+      | _ => err loc (.arityMismatch 1 args'.length)
     | _ =>
       if env.types.elem name then .ok (.named name args')
       else err loc (.unknownType name)
