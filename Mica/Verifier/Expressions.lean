@@ -227,7 +227,29 @@ mutual
         let se ← compile Θ S B Γ e
         if TinyML.Typ.sub Θ e.ty ty then pure se
         else VerifM.fatal s!"cast type mismatch"
-    | .app _ _ _ | .fix _ _ _ _ | .ref _ | .deref _ _ | .store _ _ => VerifM.fatal "unsupported expression"
+    | .ref e => do
+        let sv ← compile Θ S B Γ e
+        let l ← VerifM.decl none .value
+        VerifM.assume (.spatial (.pointsTo (.const (.uninterpreted l.name .value)) sv))
+        pure (.const (.uninterpreted l.name .value))
+    | .deref e ty => do
+        VerifM.expectEq "deref type annotation mismatch" e.ty (.ref ty)
+        let sl ← compile Θ S B Γ e
+        match ← VerifM.resolve (.own sl) with
+        | some sv =>
+          VerifM.assume (.spatial (.pointsTo sl sv))
+          pure sv
+        | none => VerifM.failed "could not resolve points-to assertion"
+    | .store loc val => do
+        VerifM.expectEq "store location type mismatch" loc.ty (.ref val.ty)
+        let sv ← compile Θ S B Γ val
+        let sl ← compile Θ S B Γ loc
+        match ← VerifM.resolve (.own sl) with
+        | some _ =>
+          VerifM.assume (.spatial (.pointsTo sl sv))
+          pure (Term.const .unit)
+        | none => VerifM.failed "could not resolve points-to assertion"
+    | .app _ _ _ | .fix _ _ _ _ => VerifM.fatal "unsupported expression"
 
   /-- Compile a single match branch: assume the scrutinee is `mkInj i n payload`, then compile the body. -/
   def compileBranch (Θ : TinyML.TypeEnv) (S : SpecMap) (B : Bindings) (Γ : TinyML.TyCtx)
@@ -455,9 +477,179 @@ theorem compile_correct (Θ : TinyML.TypeEnv) (R : iProp) (e : Expr) (S : SpecMa
       trivial
       (by simp [Term.eval])
       .unit
-  | fix _ _ _ _ | ref _ | deref _ _ | store _ _ =>
+  | fix _ _ _ _ =>
     simp only [compile] at heval
     exact (VerifM.eval_fatal heval).elim
+  | ref e =>
+    unfold Expr.runtime; simp only [Runtime.Expr.subst]
+    simp only [compile] at heval
+    simp only [Expr.ty] at hpost
+    have heval_e : (compile Θ S B Γ e).eval st ρ _ := VerifM.eval_bind _ _ _ _ heval
+    refine SpatialContext.wp_bind_ref <| compile_correct Θ R e S B Γ st ρ γ _ _
+      (VerifM.eval.decls_grow ρ heval_e) hagree hbwf hts hSwf ?_
+    intro v_e ρ_e st₁ se hΨ_e hse_wf heval_se _htype_e
+    obtain ⟨_hdecls_e, _hagreeOn_e, hΨ_e⟩ := hΨ_e
+    have hwf_st₁ := VerifM.eval.wf hΨ_e
+    set c : FOL.Const := st₁.freshConst none .value
+    have hfresh : c.name ∉ st₁.decls.allNames :=
+      fresh_not_mem _ _ (addNumbers_injective _)
+    have hwf_addConst : TransState.wf { st₁ with decls := st₁.decls.addConst c } :=
+      TransState.freshConst.wf _ hwf_st₁
+    refine SpatialContext.wp_ref (ctx := st₁.owns) (Δ := st₁.decls) (vt := se)
+      (name := c.name)
+      (newctx := .pointsTo (.const (.uninterpreted c.name .value)) se :: st₁.owns)
+      hwf_st₁.ownsWf hse_wf heval_se hfresh rfl ?_
+    intro loc
+    have hdecl_eval := VerifM.eval_bind _ _ _ _ hΨ_e
+    have hdecl := VerifM.eval_decl hdecl_eval (.loc loc)
+    have hassume_eval := VerifM.eval_bind _ _ _ _ hdecl
+    set ρ_e' : Env := ρ_e.updateConst .value c.name (.loc loc)
+    set st₂ : TransState := { st₁ with decls := st₁.decls.addConst c }
+    have hc_wf : (Term.const (.uninterpreted c.name .value)).wfIn st₂.decls := by
+      simp only [Term.wfIn, Const.wfIn]
+      refine ⟨List.Mem.head _, ?_, ?_⟩
+      · intro τ' hvar
+        exact Signature.wf_no_var_of_const hwf_addConst.namesDisjoint
+          (List.Mem.head _) hvar
+      · intro τ' hc'
+        exact Signature.wf_unique_const hwf_addConst.namesDisjoint (List.Mem.head _) hc'
+    have hse_wf_st₂ : se.wfIn st₂.decls :=
+      Term.wfIn_mono se hse_wf (Signature.Subset.subset_addConst _ _) hwf_addConst.namesDisjoint
+    have hatom_wf : SpatialAtom.wfIn
+        (.pointsTo (.const (.uninterpreted c.name .value)) se) st₂.decls :=
+      ⟨hc_wf, hse_wf_st₂⟩
+    have hassume_res := VerifM.eval_assumeSpatial hassume_eval hatom_wf
+    have hret := VerifM.eval_ret hassume_res
+    have hval_eval : Term.eval ρ_e' (Term.const (.uninterpreted c.name .value)) = .loc loc := by
+      simp [ρ_e', Term.eval, Const.denote, Env.updateConst]
+    have hty : TinyML.ValHasType Θ (Runtime.Val.loc loc) (TinyML.Typ.ref e.ty) := by
+      exact TinyML.ValHasType.ref e.ty
+    exact hpost (.loc loc) ρ_e' _ _ hret hc_wf hval_eval hty
+  | deref e ty =>
+    unfold Expr.runtime; simp only [Runtime.Expr.subst]
+    simp only [compile] at heval
+    simp only [Expr.ty] at hpost
+    obtain ⟨_hannot, heval⟩ := VerifM.eval_bind_expectEq heval
+    have heval_e : (compile Θ S B Γ e).eval st ρ _ := VerifM.eval_bind _ _ _ _ heval
+    refine SpatialContext.wp_bind_deref <| compile_correct Θ R e S B Γ st ρ γ _ _
+      (VerifM.eval.decls_grow ρ heval_e) hagree hbwf hts hSwf ?_
+    intro v_e ρ_e st₁ se hΨ_e hse_wf heval_se _htype_e
+    obtain ⟨_hdecls_e, _hagreeOn_e, hΨ_e⟩ := hΨ_e
+    have hres_bind := VerifM.eval_bind _ _ _ _ hΨ_e
+    refine VerifM.eval_resolve (pred := .own se) (R := R)
+      (Φ := wp (.deref (.val v_e)) Φ) hres_bind hse_wf ?_ ?_
+    · intro st' hQ _
+      exact (VerifM.eval_failed hQ).elim
+    · intro v st' hQ hdecls hvwf
+      have hassume_bind := VerifM.eval_bind _ _ _ _ hQ
+      have hse_wf_st' : se.wfIn st'.decls := hdecls ▸ hse_wf
+      have hv_wf_st' : v.wfIn st'.decls := hdecls ▸ hvwf
+      have hatom_wf : SpatialAtom.wfIn (.pointsTo se v) st'.decls :=
+        ⟨hse_wf_st', hv_wf_st'⟩
+      have hassume_res := VerifM.eval_assumeSpatial hassume_bind hatom_wf
+      have hret := VerifM.eval_ret hassume_res
+      have hv_wf_final : v.wfIn (TransState.addItem st' (.spatial (.pointsTo se v))).decls := by
+        simpa [TransState.addItem] using hv_wf_st'
+      have htype : TinyML.ValHasType Θ (v.eval ρ_e) ty := by
+        -- The value read from the heap has type `ty` by the deref annotation;
+        -- we do not track this in the spatial context, so sorry for now.
+        sorry
+      let st'' := TransState.addItem st' (.spatial (.pointsTo se v))
+      have hgoal : st''.owns.interp ρ_e ∗ R ⊢ Φ (v.eval ρ_e) :=
+        hpost (v.eval ρ_e) ρ_e st'' _ hret hv_wf_final rfl htype
+      simp only [Atom.eval]
+      istart
+      iintro H
+      icases H with ⟨Hex, Hrest, HR⟩
+      icases Hex with ⟨%loc, Hpt'⟩
+      icases Hpt' with ⟨%Hloc, Hpt⟩
+      have hv_e : v_e = .loc loc := heval_se.symm.trans Hloc
+      subst hv_e
+      have hptIntro : loc ↦ v.eval ρ_e ⊢ SpatialAtom.interp ρ_e (.pointsTo se v) := by
+        simpa [Hloc] using
+          (SpatialAtom.interp_pointsTo (ρ := ρ_e) (lt := se) (vt := v) (loc := loc) Hloc).2
+      have hctx : (loc ↦ v.eval ρ_e) ∗ SpatialContext.interp ρ_e st'.owns ∗ R ⊢ Φ (v.eval ρ_e) := by
+        have hcons : (loc ↦ v.eval ρ_e) ∗ SpatialContext.interp ρ_e st'.owns ⊢ st''.owns.interp ρ_e := by
+          simpa [st'', TransState.addItem, SpatialContext.interp] using (sep_mono_l hptIntro)
+        exact sep_assoc.2.trans ((sep_mono_l hcons).trans hgoal)
+      iapply (wp.deref (l := loc) (v := v.eval ρ_e))
+      isplitl [Hpt]
+      · iexact Hpt
+      · iintro Hpt
+        iapply hctx
+        isplitl [Hpt]
+        · iexact Hpt
+        · isplitl [Hrest]
+          · iexact Hrest
+          · iexact HR
+  | store loc val =>
+    unfold Expr.runtime; simp only [Runtime.Expr.subst]
+    simp only [compile] at heval
+    simp only [Expr.ty] at hpost
+    obtain ⟨_hannot, heval⟩ := VerifM.eval_bind_expectEq heval
+    have heval_v : (compile Θ S B Γ val).eval st ρ _ := VerifM.eval_bind _ _ _ _ heval
+    refine SpatialContext.wp_bind_store <| (SpecMap.satisfiedBy_dup.trans <|
+      compile_correct Θ (S.satisfiedBy Θ γ ∗ R) val S B Γ st ρ γ _ _
+        (VerifM.eval.decls_grow ρ heval_v) hagree hbwf hts hSwf ?_)
+    intro v_v ρ_v st₁ sv hΨ_v hsv_wf heval_sv htyv
+    obtain ⟨hdecls_v, hagreeOn_v, hΨ_v⟩ := hΨ_v
+    have hagree_v : B.agreeOnLinked ρ_v γ :=
+      Bindings.agreeOnLinked_env_agree hagree hagreeOn_v hbwf
+    have hbwf_v : B.wf st₁.decls := fun p hp => hdecls_v.consts _ (hbwf p hp)
+    have heval_l : (compile Θ S B Γ loc).eval st₁ ρ_v _ := VerifM.eval_bind _ _ _ _ hΨ_v
+    refine compile_correct Θ R loc S B Γ st₁ ρ_v γ _ _
+      (VerifM.eval.decls_grow ρ_v heval_l) hagree_v hbwf_v hts hSwf ?_
+    intro v_l ρ_l st₂ sl hΨ_l hsl_wf heval_sl htyl
+    obtain ⟨hdecls_l, hagreeOn_l, hΨ_l⟩ := hΨ_l
+    have hsv_ρ_l : sv.eval ρ_l = v_v := by
+      rw [Term.eval_env_agree hsv_wf (Env.agreeOn_symm hagreeOn_l)]
+      exact heval_sv
+    have hres_bind := VerifM.eval_bind _ _ _ _ hΨ_l
+    refine VerifM.eval_resolve (pred := .own sl) (R := R)
+      (Φ := wp (.store (.val v_l) (.val v_v)) Φ) hres_bind hsl_wf ?_ ?_
+    · intro st' hQ _
+      exact (VerifM.eval_failed hQ).elim
+    · intro old st' hQ hdecls hold_wf
+      have hassume_bind := VerifM.eval_bind _ _ _ _ hQ
+      have hsl_wf_st' : sl.wfIn st'.decls := hdecls ▸ hsl_wf
+      have hsv_wf_st₂ : sv.wfIn st₂.decls :=
+        Term.wfIn_mono sv hsv_wf hdecls_l (VerifM.eval.wf hΨ_l).namesDisjoint
+      have hsv_wf_st' : sv.wfIn st'.decls := hdecls ▸ hsv_wf_st₂
+      have hatom_wf : SpatialAtom.wfIn (.pointsTo sl sv) st'.decls :=
+        ⟨hsl_wf_st', hsv_wf_st'⟩
+      have hassume_res := VerifM.eval_assumeSpatial hassume_bind hatom_wf
+      have hret := VerifM.eval_ret hassume_res
+      have hunit_wf : (Term.const .unit).wfIn
+          (TransState.addItem st' (.spatial (.pointsTo sl sv))).decls := by
+        simp [Term.wfIn, Const.wfIn]
+      let st'' := TransState.addItem st' (.spatial (.pointsTo sl sv))
+      have hgoal : st''.owns.interp ρ_l ∗ R ⊢ Φ .unit :=
+        hpost .unit ρ_l st'' _ hret hunit_wf (by simp [Term.eval]) (.unit)
+      simp only [Atom.eval]
+      istart
+      iintro H
+      icases H with ⟨Hex, Hrest, HR⟩
+      icases Hex with ⟨%loc, Hold'⟩
+      icases Hold' with ⟨%Hloc, Hold⟩
+      have hv_l : v_l = .loc loc := heval_sl.symm.trans Hloc
+      subst hv_l
+      have hnewIntro : loc ↦ v_v ⊢ SpatialAtom.interp ρ_l (.pointsTo sl sv) := by
+        simpa [Hloc, hsv_ρ_l] using
+          (SpatialAtom.interp_pointsTo (ρ := ρ_l) (lt := sl) (vt := sv) (loc := loc) Hloc).2
+      have hctx : (loc ↦ v_v) ∗ SpatialContext.interp ρ_l st'.owns ∗ R ⊢ Φ .unit := by
+        have hcons : (loc ↦ v_v) ∗ SpatialContext.interp ρ_l st'.owns ⊢ st''.owns.interp ρ_l := by
+          simpa [st'', TransState.addItem, SpatialContext.interp] using (sep_mono_l hnewIntro)
+        exact sep_assoc.2.trans ((sep_mono_l hcons).trans hgoal)
+      iapply (wp.store (l := loc) (old := old.eval ρ_l) (v := v_v))
+      isplitl [Hold]
+      · iexact Hold
+      · iintro Hnew
+        iapply hctx
+        isplitl [Hnew]
+        · iexact Hnew
+        · isplitl [Hrest]
+          · iexact Hrest
+          · iexact HR
   | unop op e uty =>
     unfold Expr.runtime; simp only [Runtime.Expr.subst]
     simp only [compile] at heval
@@ -524,8 +716,8 @@ theorem compile_correct (Θ : TinyML.TypeEnv) (R : iProp) (e : Expr) (S : SpecMa
           cases htyr with
           | int b =>
             have hassert_wf : (Formula.not (.eq .int (.unop .toInt sr) (.const (.i 0)))).wfIn st₂.decls := by
-              simp only [Formula.wfIn, Term.wfIn, Const.wfIn, UnOp.wfIn, and_true, true_and]
-              exact Term.wfIn_mono sr hsr_wf hdecls_l (VerifM.eval.wf hΨ_div).namesDisjoint
+              simpa [Formula.wfIn, Term.wfIn, Const.wfIn, UnOp.wfIn] using
+                (Term.wfIn_mono sr hsr_wf hdecls_l (VerifM.eval.wf hΨ_div).namesDisjoint)
             have heval_assert := VerifM.eval_bind _ _ _ _ hΨ_div
             have ⟨hne_zero, hΨ_post⟩ := VerifM.eval_assert heval_assert hassert_wf
             simp [Formula.eval, Term.eval, Const.denote] at hne_zero
@@ -539,8 +731,7 @@ theorem compile_correct (Θ : TinyML.TypeEnv) (R : iProp) (e : Expr) (S : SpecMa
             have hwf_sr_l : sr.wfIn st₂.decls :=
               Term.wfIn_mono sr hsr_wf hdecls_l (VerifM.eval.wf hΨ_div).namesDisjoint
             have hwf_bin : (Term.unop .ofInt (Term.binop BinOp.div (Term.unop .toInt sl) (Term.unop .toInt sr))).wfIn st₂.decls := by
-              simp only [Term.wfIn, BinOp.wfIn, UnOp.wfIn, true_and]
-              exact ⟨hsl_wf, hwf_sr_l⟩
+              simpa [Term.wfIn, BinOp.wfIn, UnOp.wfIn] using And.intro hsl_wf hwf_sr_l
             have hΨ_post' : Ψ (Term.unop .ofInt (Term.binop BinOp.div (Term.unop .toInt sl) (Term.unop .toInt sr))) st₂ ρ_l := by
               simpa using hΨ_post
             exact SpatialContext.wp_binop
@@ -559,8 +750,8 @@ theorem compile_correct (Θ : TinyML.TypeEnv) (R : iProp) (e : Expr) (S : SpecMa
           cases htyr with
           | int b =>
             have hassert_wf : (Formula.not (.eq .int (.unop .toInt sr) (.const (.i 0)))).wfIn st₂.decls := by
-              simp only [Formula.wfIn, Term.wfIn, Const.wfIn, UnOp.wfIn, and_true, true_and]
-              exact Term.wfIn_mono sr hsr_wf hdecls_l (VerifM.eval.wf hΨ_div).namesDisjoint
+              simpa [Formula.wfIn, Term.wfIn, Const.wfIn, UnOp.wfIn] using
+                (Term.wfIn_mono sr hsr_wf hdecls_l (VerifM.eval.wf hΨ_div).namesDisjoint)
             have heval_assert := VerifM.eval_bind _ _ _ _ hΨ_div
             have ⟨hne_zero, hΨ_post⟩ := VerifM.eval_assert heval_assert hassert_wf
             simp [Formula.eval, Term.eval, Const.denote] at hne_zero
@@ -574,8 +765,7 @@ theorem compile_correct (Θ : TinyML.TypeEnv) (R : iProp) (e : Expr) (S : SpecMa
             have hwf_sr_l : sr.wfIn st₂.decls :=
               Term.wfIn_mono sr hsr_wf hdecls_l (VerifM.eval.wf hΨ_div).namesDisjoint
             have hwf_bin : (Term.unop .ofInt (Term.binop BinOp.mod (Term.unop .toInt sl) (Term.unop .toInt sr))).wfIn st₂.decls := by
-              simp only [Term.wfIn, BinOp.wfIn, UnOp.wfIn, true_and]
-              exact ⟨hsl_wf, hwf_sr_l⟩
+              simpa [Term.wfIn, BinOp.wfIn, UnOp.wfIn] using And.intro hsl_wf hwf_sr_l
             have hΨ_post' : Ψ (Term.unop .ofInt (Term.binop BinOp.mod (Term.unop .toInt sl) (Term.unop .toInt sr))) st₂ ρ_l := by
               simpa using hΨ_post
             exact SpatialContext.wp_binop
