@@ -42,16 +42,6 @@ def Atom.subst (σ : Subst) : Atom τ → Atom τ
   | .isinj tag arity t => .isinj tag arity (t.subst σ)
 
 
--- ---------------------------------------------------------------------------
--- Conversion to context items
--- ---------------------------------------------------------------------------
-
-/-- Convert an atom applied to a typed term into a formula. -/
-def Atom.toFormula : Atom τ → Term τ → Formula
-  | .isint  v, t => .eq .value v (.unop .ofInt t)
-  | .isbool v, t => .eq .value v (.unop .ofBool t)
-  | .isinj tag arity v, t => .eq .value v (.unop (.mkInj tag arity) t)
-
 namespace CtxItem
 
 /-- Semantic interpretation of a verifier context item. -/
@@ -68,7 +58,10 @@ end CtxItem
 
 /-- Convert an instantiated atom into the corresponding verifier context item. -/
 def Atom.toItem (a : Atom τ) (t : Term τ) : CtxItem :=
-  .pure (a.toFormula t)
+  match a with
+  | .isint v => .pure (.eq .value v (.unop .ofInt t))
+  | .isbool v => .pure (.eq .value v (.unop .ofBool t))
+  | .isinj tag arity v => .pure (.eq .value v (.unop (.mkInj tag arity) t))
 
 -- ---------------------------------------------------------------------------
 -- Semantics
@@ -113,7 +106,7 @@ theorem Formula.matchAtom_wfIn {φ : Formula} {a : Atom τ} {t : Term τ} {Δ : 
 
 
 theorem Formula.matchAtom_correct {φ : Formula} {a : Atom τ} {t : Term τ}
-    (h : φ.matchAtom a = some t) : φ = a.toFormula t := by
+    (h : φ.matchAtom a = some t) : a.toItem t = .pure φ := by
   cases a with
   | isint v =>
     simp only [Formula.matchAtom] at h
@@ -137,11 +130,11 @@ def Atom.resolve (a : Atom τ) (C : List Formula) : Option (Term τ) :=
 
 theorem Atom.resolve_correct {a : Atom τ} {C : List Formula} {t : Term τ}
     (h : a.resolve C = some t) (ρ : Env) (hC : ∀ φ ∈ C, φ.eval ρ) :
-    (a.toFormula t).eval ρ := by
+    ⊢ (a.toItem t).interp ρ := by
   obtain ⟨φ, hφ_mem, hφ_match⟩ := List.exists_of_findSome?_eq_some h
-  have heq := Formula.matchAtom_correct hφ_match
-  subst heq
-  exact hC _ hφ_mem
+  rw [Formula.matchAtom_correct hφ_match]
+  simp [CtxItem.interp, hC _ hφ_mem]
+  exact (pure_intro (PROP := iProp) trivial).trans true_emp.1
 
 theorem Atom.resolve_wfIn {a : Atom τ} {C : List Formula} {t : Term τ} {Δ : Signature}
     (h : a.resolve C = some t) (hwf : ∀ φ ∈ C, φ.wfIn Δ) :
@@ -210,33 +203,33 @@ theorem Atom.toItem_wfIn {p : Atom τ} {t : Term τ} {Δ : Signature}
     exact ⟨hp, trivial, ht⟩
 
 theorem Atom.eval_pure {p : Atom τ} {t : Term τ} {ρ : Env} :
-    p.eval ρ (t.eval ρ) ⊣⊢ ⌜(p.toFormula t).eval ρ⌝ := by
+    p.eval ρ (t.eval ρ) ⊣⊢ CtxItem.interp ρ (p.toItem t) := by
   cases p with
-  | isint v  => simp [Atom.toFormula, Atom.eval, Formula.eval, Term.eval, eq_comm]
-  | isbool v => simp [Atom.toFormula, Atom.eval, Formula.eval, Term.eval, eq_comm]
-  | isinj tag arity v => simp [Atom.toFormula, Atom.eval, Formula.eval, Term.eval, eq_comm]
+  | isint v  => simp [Atom.eval, Atom.toItem, CtxItem.interp, Formula.eval, Term.eval, eq_comm]
+  | isbool v => simp [Atom.eval, Atom.toItem, CtxItem.interp, Formula.eval, Term.eval, eq_comm]
+  | isinj tag arity v => simp [Atom.eval, Atom.toItem, CtxItem.interp, Formula.eval, Term.eval, eq_comm]
 
-/-- If `(p.toFormula t).eval ρ` holds, then `p.eval ρ (t.eval ρ)`. -/
-theorem Atom.toFormula_eval_2 {p : Atom τ} {t : Term τ} {ρ : Env}
-    : ⌜(p.toFormula t).eval ρ⌝ ⊢ p.eval ρ (t.eval ρ) := by
+/-- If `p.toItem t` holds semantically, then `p.eval ρ (t.eval ρ)`. -/
+theorem Atom.toItem_eval {p : Atom τ} {t : Term τ} {ρ : Env}
+    : CtxItem.interp ρ (p.toItem t) ⊢ p.eval ρ (t.eval ρ) := by
   exact Atom.eval_pure.2
 
 theorem Atom.eval_toItem {p : Atom τ} {t : Term τ} {ρ : Env} :
     p.eval ρ (t.eval ρ) ⊢ CtxItem.interp ρ (p.toItem t) := by
   cases p with
-  | isint v  => simp [Atom.eval, Atom.toFormula, Atom.toItem, CtxItem.interp, Formula.eval, Term.eval, eq_comm]
-  | isbool v => simp [Atom.eval, Atom.toFormula, Atom.toItem, CtxItem.interp, Formula.eval, Term.eval, eq_comm]
-  | isinj tag arity v => simp [Atom.eval, Atom.toFormula, Atom.toItem, CtxItem.interp, Formula.eval, Term.eval, eq_comm]
+  | isint v  => simp [Atom.eval, Atom.toItem, CtxItem.interp, Formula.eval, Term.eval, eq_comm]
+  | isbool v => simp [Atom.eval, Atom.toItem, CtxItem.interp, Formula.eval, Term.eval, eq_comm]
+  | isinj tag arity v => simp [Atom.eval, Atom.toItem, CtxItem.interp, Formula.eval, Term.eval, eq_comm]
 
 theorem Atom.eval_purePart {p : Atom τ} {t : Term τ} {ρ : Env} :
     p.eval ρ (t.eval ρ) ⊢ ⌜(p.toItem t).purePart ρ⌝ := by
   cases p with
   | isint v =>
-    simp [Atom.eval, CtxItem.purePart, Atom.toFormula, Atom.toItem, Formula.eval, Term.eval, eq_comm]
+    simp [Atom.eval, CtxItem.purePart, Atom.toItem, Formula.eval, Term.eval, eq_comm]
   | isbool v =>
-    simp [Atom.eval, CtxItem.purePart, Atom.toFormula, Atom.toItem, Formula.eval, Term.eval, eq_comm]
+    simp [Atom.eval, CtxItem.purePart, Atom.toItem, Formula.eval, Term.eval, eq_comm]
   | isinj tag arity v =>
-    simp [Atom.eval, CtxItem.purePart, Atom.toFormula, Atom.toItem, Formula.eval, Term.eval, eq_comm]
+    simp [Atom.eval, CtxItem.purePart, Atom.toItem, Formula.eval, Term.eval, eq_comm]
 
 
 -- ---------------------------------------------------------------------------
@@ -284,23 +277,26 @@ def Atom.candidates : Atom τ → List (Formula × Term τ)
   | .isinj tag arity v => [(.unpred (.isInj tag arity) v, .unop .payloadOf v)]
 
 theorem Atom.candidates_correct {a : Atom τ} {φ : Formula} {t : Term τ} {ρ : Env}
-    (hmem : (φ, t) ∈ a.candidates) (h : φ.eval ρ) : (a.toFormula t).eval ρ := by
+    (hmem : (φ, t) ∈ a.candidates) (h : φ.eval ρ) : ⊢ (a.toItem t).interp ρ := by
   cases a with
   | isint v =>
     simp [candidates] at hmem; obtain ⟨rfl, rfl⟩ := hmem
     simp [Formula.eval, UnPred.eval] at h
-    simp [toFormula, Formula.eval, Term.eval, UnOp.eval]
+    simp [toItem, CtxItem.interp, Formula.eval, Term.eval, UnOp.eval]
     cases hv : v.eval ρ <;> simp_all
+    · exact (pure_intro (PROP := iProp) trivial).trans true_emp.1
   | isbool v =>
     simp [candidates] at hmem; obtain ⟨rfl, rfl⟩ := hmem
     simp [Formula.eval, UnPred.eval] at h
-    simp [toFormula, Formula.eval, Term.eval, UnOp.eval]
+    simp [toItem, CtxItem.interp, Formula.eval, Term.eval, UnOp.eval]
     cases hv : v.eval ρ <;> simp_all
+    · exact (pure_intro (PROP := iProp) trivial).trans true_emp.1
   | isinj tag arity v =>
     simp [candidates] at hmem; obtain ⟨rfl, rfl⟩ := hmem
     simp [Formula.eval, UnPred.eval] at h
-    simp [toFormula, Formula.eval, Term.eval, UnOp.eval]
+    simp [toItem, CtxItem.interp, Formula.eval, Term.eval, UnOp.eval]
     cases hv : v.eval ρ <;> simp_all
+    · exact (pure_intro (PROP := iProp) trivial).trans true_emp.1
 
 theorem Atom.candidates_wfIn {a : Atom τ} {φ : Formula} {t : Term τ} {Δ : Signature}
     (hmem : (φ, t) ∈ a.candidates) (h : a.wfIn Δ) : φ.wfIn Δ ∧ t.wfIn Δ := by
@@ -329,7 +325,7 @@ private theorem VerifM.eval_tryCandidates
     (hpwf : a.wfIn st.decls) :
     ∃ result : Option (Term τ),
       Q result st ρ
-      ∧ (∀ t, result = some t → (a.toFormula t).eval ρ)
+      ∧ (∀ t, result = some t → ⊢ (a.toItem t).interp ρ)
       ∧ (∀ t, result = some t → t.wfIn st.decls) := by
   induction candidates with
   | nil =>
@@ -570,9 +566,7 @@ theorem VerifM.eval_resolve {pred : Atom τ} {st : TransState} {ρ : Env}
       have hq := VerifM.eval_ret hctx_q
       have htwf : t.wfIn st.decls := Atom.resolve_wfIn hres hwfAsserts
       have hpred : ⊢ Atom.eval pred ρ (t.eval ρ) := by
-        iapply Atom.toFormula_eval_2
-        ipure_intro
-        exact Atom.resolve_correct hres ρ hholds
+        exact (Atom.resolve_correct hres ρ hholds).trans Atom.toItem_eval
       have hframe : SpatialContext.interp ρ st.owns ∗ R ⊢
           Atom.eval pred ρ (t.eval ρ) ∗ SpatialContext.interp ρ st.owns ∗ R := by
         istart
@@ -593,9 +587,7 @@ theorem VerifM.eval_resolve {pred : Atom τ} {st : TransState} {ρ : Env}
         have htwf : t.wfIn st.decls := hresult_wf t hr
         have hqsome : Q (.some t) st ρ := by simpa [hr] using hq
         have hpred : ⊢ Atom.eval pred ρ (t.eval ρ) := by
-          iapply Atom.toFormula_eval_2
-          ipure_intro
-          exact hresult_eval t hr
+          exact (hresult_eval t hr).trans Atom.toItem_eval
         have hframe : SpatialContext.interp ρ st.owns ∗ R ⊢
             Atom.eval pred ρ (t.eval ρ) ∗ SpatialContext.interp ρ st.owns ∗ R := by
           istart
