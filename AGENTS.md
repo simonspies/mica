@@ -50,6 +50,7 @@ lake run testsuite Examples/      # run the test suite
 ### Proof discipline
 
 - Never sorry out an existing proof — locally sorry a case or assumption instead. Deleting a working proof means re-proving from scratch.
+- Address Lean's linter warnings.
 - If a proof attempt is abandoned, delete the sorried helpers. No dead code.
 - If a top-down attempt needs more than 4 helper lemmas, stop and consult the user.
 - Before induction, generalize any argument that changes in recursive calls.
@@ -57,7 +58,8 @@ lake run testsuite Examples/      # run the test suite
 ### Iris proof mode
 
 - Tactic reference: `docs/iris-tactics.md`. Worked examples: `Mica/SeparationLogic/ProofModePatterns.lean`.
-- Spatial hypotheses must be distributed when splitting `∗` — use `isplitl`/`isplitr`.
+- Spatial hypotheses must be distributed when splitting `∗` — use `isplitl [...]`/`isplitr [...]`. Always specify via the brackets which assumptions you want to take on the left/right side unless they are persistent.
+- We are working with an affine version of Iris.
 - For simple entailment chains, prefer term mode (`sep_mono`, `sep_comm`, `.trans`).
 
 ### Search tools (when available)
