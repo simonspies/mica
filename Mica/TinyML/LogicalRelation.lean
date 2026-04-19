@@ -10,6 +10,7 @@ mutual
     | int  (n : Int)  : ValHasType Θ (.int n)  .int
     | bool (b : Bool) : ValHasType Θ (.bool b) .bool
     | unit            : ValHasType Θ .unit      .unit
+    | ref l τ         : ValHasType Θ (.loc l)   (.ref τ)
     | inj  : (ht : ts[tag]? = some t)
             → ValHasType Θ payload t
             → ValHasType Θ (.inj tag ts.length payload) (.sum ts)
