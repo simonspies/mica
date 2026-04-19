@@ -234,12 +234,16 @@ mutual
         pure (.const (.uninterpreted l.name .value))
     | .deref e ty => do
         VerifM.expectEq "deref type annotation mismatch" e.ty (.ref ty)
-        let sl ← compile Θ S B Γ e
-        match ← VerifM.resolve (.own sl) with
-        | some sv =>
-          VerifM.assume (.spatial (.pointsTo sl sv))
-          pure sv
-        | none => VerifM.failed "could not resolve points-to assertion"
+        match ty with
+        | .int =>
+          let sl ← compile Θ S B Γ e
+          match ← VerifM.resolve (.own sl) with
+          | some sv =>
+            VerifM.assert (.unpred .isInt sv)
+            VerifM.assume (.spatial (.pointsTo sl sv))
+            pure sv
+          | none => VerifM.failed "could not resolve points-to assertion"
+        | _ => VerifM.fatal "only int references are supported"
     | .store loc val => do
         VerifM.expectEq "store location type mismatch" loc.ty (.ref val.ty)
         let sv ← compile Θ S B Γ val
@@ -530,58 +534,68 @@ theorem compile_correct (Θ : TinyML.TypeEnv) (R : iProp) (e : Expr) (S : SpecMa
     simp only [compile] at heval
     simp only [Expr.ty] at hpost
     obtain ⟨_hannot, heval⟩ := VerifM.eval_bind_expectEq heval
-    have heval_e : (compile Θ S B Γ e).eval st ρ _ := VerifM.eval_bind _ _ _ _ heval
-    refine SpatialContext.wp_bind_deref <| compile_correct Θ R e S B Γ st ρ γ _ _
-      (VerifM.eval.decls_grow ρ heval_e) hagree hbwf hts hSwf ?_
-    intro v_e ρ_e st₁ se hΨ_e hse_wf heval_se _htype_e
-    obtain ⟨_hdecls_e, _hagreeOn_e, hΨ_e⟩ := hΨ_e
-    have hres_bind := VerifM.eval_bind _ _ _ _ hΨ_e
-    refine VerifM.eval_resolve (pred := .own se) (R := R)
-      (Φ := wp (.deref (.val v_e)) Φ) hres_bind hse_wf ?_ ?_
-    · intro st' hQ _
-      exact (VerifM.eval_failed hQ).elim
-    · intro v st' hQ hdecls hvwf
-      have hassume_bind := VerifM.eval_bind _ _ _ _ hQ
-      have hse_wf_st' : se.wfIn st'.decls := hdecls ▸ hse_wf
-      have hv_wf_st' : v.wfIn st'.decls := hdecls ▸ hvwf
-      have hatom_wf : SpatialAtom.wfIn (.pointsTo se v) st'.decls :=
-        ⟨hse_wf_st', hv_wf_st'⟩
-      have hassume_res := VerifM.eval_assumeSpatial hassume_bind hatom_wf
-      have hret := VerifM.eval_ret hassume_res
-      have hv_wf_final : v.wfIn (TransState.addItem st' (.spatial (.pointsTo se v))).decls := by
-        simpa [TransState.addItem] using hv_wf_st'
-      have htype : TinyML.ValHasType Θ (v.eval ρ_e) ty := by
-        -- The value read from the heap has type `ty` by the deref annotation;
-        -- we do not track this in the spatial context, so sorry for now.
-        sorry
-      let st'' := TransState.addItem st' (.spatial (.pointsTo se v))
-      have hgoal : st''.owns.interp ρ_e ∗ R ⊢ Φ (v.eval ρ_e) :=
-        hpost (v.eval ρ_e) ρ_e st'' _ hret hv_wf_final rfl htype
-      simp only [Atom.eval]
-      istart
-      iintro H
-      icases H with ⟨Hex, Hrest, HR⟩
-      icases Hex with ⟨%loc, Hpt'⟩
-      icases Hpt' with ⟨%Hloc, Hpt⟩
-      have hv_e : v_e = .loc loc := heval_se.symm.trans Hloc
-      subst hv_e
-      have hptIntro : loc ↦ v.eval ρ_e ⊢ SpatialAtom.interp ρ_e (.pointsTo se v) := by
-        simpa [Hloc] using
-          (SpatialAtom.interp_pointsTo (ρ := ρ_e) (lt := se) (vt := v) (loc := loc) Hloc).2
-      have hctx : (loc ↦ v.eval ρ_e) ∗ SpatialContext.interp ρ_e st'.owns ∗ R ⊢ Φ (v.eval ρ_e) := by
-        have hcons : (loc ↦ v.eval ρ_e) ∗ SpatialContext.interp ρ_e st'.owns ⊢ st''.owns.interp ρ_e := by
-          simpa [st'', TransState.addItem, SpatialContext.interp] using (sep_mono_l hptIntro)
-        exact sep_assoc.2.trans ((sep_mono_l hcons).trans hgoal)
-      iapply (wp.deref (l := loc) (v := v.eval ρ_e))
-      isplitl [Hpt]
-      · iexact Hpt
-      · iintro Hpt
-        iapply hctx
+    cases hty : ty with
+    | int =>
+      simp [hty] at heval hpost
+      have heval_e : (compile Θ S B Γ e).eval st ρ _ := VerifM.eval_bind _ _ _ _ heval
+      refine SpatialContext.wp_bind_deref <| compile_correct Θ R e S B Γ st ρ γ _ _
+        (VerifM.eval.decls_grow ρ heval_e) hagree hbwf hts hSwf ?_
+      intro v_e ρ_e st₁ se hΨ_e hse_wf heval_se _htype_e
+      obtain ⟨_hdecls_e, _hagreeOn_e, hΨ_e⟩ := hΨ_e
+      have hres_bind := VerifM.eval_bind _ _ _ _ hΨ_e
+      refine VerifM.eval_resolve (pred := .own se) (R := R)
+        (Φ := wp (.deref (.val v_e)) Φ) hres_bind hse_wf ?_ ?_
+      · intro st' hQ _
+        exact (VerifM.eval_failed hQ).elim
+      · intro v st' hQ hdecls hvwf
+        have hassert_bind := VerifM.eval_bind _ _ _ _ hQ
+        have hse_wf_st' : se.wfIn st'.decls := hdecls ▸ hse_wf
+        have hv_wf_st' : v.wfIn st'.decls := hdecls ▸ hvwf
+        have hassert_wf : (Formula.unpred .isInt v).wfIn st'.decls := hv_wf_st'
+        have ⟨hv_int, hQ⟩ := VerifM.eval_assert hassert_bind hassert_wf
+        have hassume_bind := VerifM.eval_bind _ _ _ _ hQ
+        have hatom_wf : SpatialAtom.wfIn (.pointsTo se v) st'.decls :=
+          ⟨hse_wf_st', hv_wf_st'⟩
+        have hassume_res := VerifM.eval_assumeSpatial hassume_bind hatom_wf
+        have hret := VerifM.eval_ret hassume_res
+        have hv_wf_final : v.wfIn (TransState.addItem st' (.spatial (.pointsTo se v))).decls := by
+          simpa [TransState.addItem] using hv_wf_st'
+        have htype : TinyML.ValHasType Θ (v.eval ρ_e) .int := by
+          cases hv : v.eval ρ_e with
+          | int n => exact TinyML.ValHasType.int n
+          | bool _ | unit | inj _ _ _ | loc _ | fix _ _ _ | tuple _ =>
+              simp [Formula.eval, hv] at hv_int
+        let st'' := TransState.addItem st' (.spatial (.pointsTo se v))
+        have hgoal : st''.owns.interp ρ_e ∗ R ⊢ Φ (v.eval ρ_e) :=
+          hpost (v.eval ρ_e) ρ_e st'' _ hret hv_wf_final rfl htype
+        simp only [Atom.eval]
+        istart
+        iintro H
+        icases H with ⟨Hex, Hrest, HR⟩
+        icases Hex with ⟨%loc, Hpt'⟩
+        icases Hpt' with ⟨%Hloc, Hpt⟩
+        have hv_e : v_e = .loc loc := heval_se.symm.trans Hloc
+        subst hv_e
+        have hptIntro : loc ↦ v.eval ρ_e ⊢ SpatialAtom.interp ρ_e (.pointsTo se v) := by
+          simpa [Hloc] using
+            (SpatialAtom.interp_pointsTo (ρ := ρ_e) (lt := se) (vt := v) (loc := loc) Hloc).2
+        have hctx : (loc ↦ v.eval ρ_e) ∗ SpatialContext.interp ρ_e st'.owns ∗ R ⊢ Φ (v.eval ρ_e) := by
+          have hcons : (loc ↦ v.eval ρ_e) ∗ SpatialContext.interp ρ_e st'.owns ⊢ st''.owns.interp ρ_e := by
+            simpa [st'', TransState.addItem, SpatialContext.interp] using (sep_mono_l hptIntro)
+          exact sep_assoc.2.trans ((sep_mono_l hcons).trans hgoal)
+        iapply (wp.deref (l := loc) (v := v.eval ρ_e))
         isplitl [Hpt]
         · iexact Hpt
-        · isplitl [Hrest]
-          · iexact Hrest
-          · iexact HR
+        · iintro Hpt
+          iapply hctx
+          isplitl [Hpt]
+          · iexact Hpt
+          · isplitl [Hrest]
+            · iexact Hrest
+            · iexact HR
+    | bool | unit | arrow _ _ | ref _ | sum _ | empty | value | tuple _ | tvar _ | named _ _ =>
+      simp [hty] at heval
+      exact (VerifM.eval_fatal heval).elim
   | store loc val =>
     unfold Expr.runtime; simp only [Runtime.Expr.subst]
     simp only [compile] at heval
