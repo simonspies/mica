@@ -564,8 +564,7 @@ theorem VerifM.eval_findMatchForce {lq : Term .value}
     Tier 2: try candidate resolutions via the SMT solver. -/
 def VerifM.resolve : {τ : Srt} → Atom τ → VerifM (Option (Term τ))
   | _, .own l => do
-      let v ← VerifM.findMatchForce l
-      pure (some v)
+      VerifM.findMatch l
   | _, a => do
       match ← VerifM.ctxPure (a.resolve ·) with
       | some t => pure (some t)
@@ -635,15 +634,15 @@ theorem VerifM.eval_resolve {pred : Atom τ} {st : TransState} {ρ : Env}
   match pred, hwf, hsome, h with
   | .own l, hwf, hsome, h =>
     simp only [VerifM.resolve] at h
-    have hb := VerifM.eval_bind _ _ _ _ h
-    refine VerifM.eval_findMatchForce (R := R) (Φ := Φ) hb hwf ?_
-    intros v st' hQv hdecls hvwf
-    have hqsome : Q (.some v) st' ρ := VerifM.eval_ret hQv
-    have hsome' := hsome v st' hqsome hdecls hvwf
-    have heq : SpatialAtom.interp ρ (.pointsTo l v) ⊢ Atom.eval (Atom.own l) ρ (v.eval ρ) := by
-      simp only [Atom.eval, SpatialAtom.interp]
-      exact BIBase.Entails.rfl
-    exact (sep_mono heq BIBase.Entails.rfl).trans hsome'
+    refine VerifM.eval_findMatch (R := R) (Φ := Φ) h hwf ?_ ?_
+    · intros v st' hqsome hdecls hvwf
+      have hsome' := hsome v st' hqsome hdecls hvwf
+      have heq : SpatialAtom.interp ρ (.pointsTo l v) ⊢ Atom.eval (Atom.own l) ρ (v.eval ρ) := by
+        simp only [Atom.eval, SpatialAtom.interp]
+        exact BIBase.Entails.rfl
+      exact (sep_mono heq BIBase.Entails.rfl).trans hsome'
+    · intros hqnone
+      exact hnone st hqnone rfl
   | .isint t, hwf, hsome, h =>
     simp only [VerifM.resolve] at h
     exact VerifM.eval_resolve_pure (pred := .isint t) h hwf hnone hsome
