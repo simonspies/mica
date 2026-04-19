@@ -8,6 +8,8 @@ import Mica.Base.Except
 import Mica.SeparationLogic.LogicalRelation
 import Mathlib.Data.Finmap
 
+open Iris Iris.BI
+
 /-! ### Bindings -/
 
 abbrev Bindings := List (TinyML.Var × FOL.Const)
@@ -44,8 +46,13 @@ theorem Bindings.wf_cons {B : Bindings} {decls : Signature} {x : TinyML.Var} {v 
   · exact List.Mem.tail _ (hbwf p hp)
 
 /-- The substitution `γ` maps every binding to a value well-typed by `Γ`. -/
-def Bindings.typedSubst (Θ : TinyML.TypeEnv) (B : Bindings) (Γ : TinyML.TyCtx) (γ : Runtime.Subst) : Prop :=
-  ∀ x x' t, B.lookup x = some x' → Γ x = some t → ∃ v, γ x = some v ∧ TinyML.ValHasType Θ v t
+def Bindings.typedSubst (Θ : TinyML.TypeEnv) (B : Bindings) (Γ : TinyML.TyCtx) (γ : Runtime.Subst) : iProp :=
+  iprop(□ ∀ x x' t, ⌜B.lookup x = some x'⌝ -∗ ⌜Γ x = some t⌝ -∗ ∃ v, ⌜γ x = some v⌝ ∗ TinyML.ValHasType Θ v t)
+
+instance Bindings.typedSubst_persistent {B Γ γ} (Θ : TinyML.TypeEnv) : Persistent (Bindings.typedSubst Θ B Γ γ) :=
+  by
+    unfold Bindings.typedSubst
+    infer_instance
 
 /-! ### Term List Evaluation -/
 
@@ -151,20 +158,35 @@ theorem Terms.Eval.lookup_const {ρ : Env} {avs : List FOL.Const} {vs : List Run
 
 theorem Bindings.typedSubst_cons {B : Bindings} {Γ : TinyML.TyCtx} {γ : Runtime.Subst}
     {x : TinyML.Var} {v : FOL.Const} {te : TinyML.Typ} {w : Runtime.Val}
-    (hts  : B.typedSubst Θ Γ γ)
-    (hval : TinyML.ValHasType Θ w te) :
-    Bindings.typedSubst Θ ((x, v) :: B) (Γ.extend x te) (Runtime.Subst.update γ x w) := by
-  intro y y' t hmem hΓ
+    : ⊢ B.typedSubst Θ Γ γ -∗ TinyML.ValHasType Θ w te -∗
+      Bindings.typedSubst Θ ((x, v) :: B) (Γ.extend x te) (Runtime.Subst.update γ x w) := by
+  iintro #Hts #Hw
+  unfold Bindings.typedSubst
+  imodintro
+  iintro %y
+  iintro %y'
+  iintro %t
+  iintro %hmem
+  iintro %hΓ
   by_cases hyx : y == x
   · -- head case: y = x
     simp [List.lookup, hyx] at hmem; subst hmem
     simp [TinyML.TyCtx.extend, hyx] at hΓ; subst hΓ
-    exact ⟨w, by simp [Runtime.Subst.update, hyx], hval⟩
+    iexists w
+    isplitr
+    · ipure_intro
+      simp [Runtime.Subst.update, hyx]
+    · iexact Hw
   · -- tail case: y ≠ x
     simp [List.lookup, hyx] at hmem
     have hΓ' : Γ y = some t := by simp [TinyML.TyCtx.extend, hyx] at hΓ; exact hΓ
-    obtain ⟨w', hw', hwt'⟩ := hts y y' t hmem hΓ'
-    exact ⟨w', by simp [Runtime.Subst.update, hyx, hw'], hwt'⟩
+    ispecialize Hts $$ %y %y' %t %hmem %hΓ'
+    icases Hts with ⟨%w', %hw', Hw'⟩
+    iexists w'
+    isplitr
+    · ipure_intro
+      simp [Runtime.Subst.update, hyx, hw']
+    · iexact Hw'
 
 theorem Bindings.agreeOnLinked_cons {B : Bindings} {ρ ρ' : Env} {γ : Runtime.Subst}
     {x : TinyML.Var} {v : FOL.Const}
@@ -189,12 +211,26 @@ theorem Bindings.agreeOnLinked_cons {B : Bindings} {ρ ρ' : Env} {γ : Runtime.
 theorem Bindings.typedSubst_of_agreeOnLinked
     {B : Bindings} {Γ : TinyML.TyCtx} {γ : Runtime.Subst} {ρ : Env}
     (hagree : B.agreeOnLinked ρ γ)
-    (htyped_vals : ∀ x x' t, B.lookup x = some x' → Γ x = some t →
-      TinyML.ValHasType Θ (ρ.consts .value x'.name) t) :
-    B.typedSubst Θ Γ γ := by
-  intro x x' t hmem hΓ
+    : ⊢ □ (∀ x x' t, ⌜B.lookup x = some x'⌝ -∗ ⌜Γ x = some t⌝ -∗
+        TinyML.ValHasType Θ (ρ.consts .value x'.name) t) -∗
+      B.typedSubst Θ Γ γ := by
+  iintro #Htyped
+  unfold Bindings.typedSubst
+  imodintro
+  iintro %x
+  iintro %x'
+  iintro %t
+  iintro %hmem
+  iintro %hΓ
   obtain ⟨_, hval⟩ := hagree x x' hmem
-  exact ⟨_, hval, htyped_vals x x' t hmem hΓ⟩
+  iexists (ρ.consts .value x'.name)
+  isplitr
+  · ipure_intro
+    exact hval
+  · ispecialize Htyped $$ %x %x' %t
+    iapply Htyped
+    · ipure_intro; exact hmem
+    · ipure_intro; exact hΓ
 
 theorem findVal_none_of_not_mem
     (ns : List String) (vs : List Runtime.Val) (x : String)
@@ -371,8 +407,8 @@ theorem val_typed_of_last_wins
     (hlookup : List.lookup x ((args.map Prod.fst).zip vars).reverse = some x')
     (hΓ : (args.foldl (fun ctx a => ctx.extend a.1 a.2) Γ₀) x = some t)
     (hlookups : List.Forall₂ (fun av val => ρ.consts .value av.name = val) vars vals)
-    (htyped : TinyML.ValsHaveTypes Θ vals (args.map Prod.snd))
-    : TinyML.ValHasType Θ (ρ.consts .value x'.name) t := by
+    : ⊢ TinyML.ValsHaveTypes Θ vals (args.map Prod.snd) -∗
+        TinyML.ValHasType Θ (ρ.consts .value x'.name) t := by
   induction args generalizing vars vals Γ₀ with
   | nil => simp at hlookup
   | cons a as' ih =>
@@ -385,32 +421,37 @@ theorem val_typed_of_last_wins
         simp [List.map_cons, List.length_cons] at hlen_v hlen_vl
         cases hlookups with
         | cons hlk_head hlk_tail =>
-          cases htyped with
-          | cons htype_head htype_tail =>
-            simp only [List.map_cons, List.zip_cons_cons, List.reverse_cons] at hlookup
-            rw [List.lookup_append] at hlookup
-            simp only [List.foldl_cons] at hΓ
-            cases hlk_inner : List.lookup x ((as'.map Prod.fst).zip vrs).reverse with
-            | some v' =>
-              simp [hlk_inner] at hlookup; subst hlookup
-              exact ih vrs vls (Γ₀.extend a.1 a.2) (by simp; omega) (by simp; omega) hlk_inner hΓ hlk_tail htype_tail
-            | none =>
-              simp [hlk_inner] at hlookup
-              by_cases hxa : x == a.1
-              · simp [List.lookup, hxa] at hlookup; subst hlookup
-                have hx_notin := not_mem_of_lookup_zip_reverse_none
-                  (as'.map Prod.fst) vrs x (by simp; omega) hlk_inner
-                simp [List.mem_map] at hx_notin
-                have hΓ_stable : (as'.foldl (fun ctx a => ctx.extend a.1 a.2) (Γ₀.extend a.1 a.2)) x =
-                    (Γ₀.extend a.1 a.2) x := by
-                  apply TinyML.TyCtx.foldl_extend_stable
-                  intro ⟨n, t⟩ hmem heq; exact hx_notin t (heq ▸ hmem)
-                rw [hΓ_stable] at hΓ
-                have hxa' : x = a.1 := by exact beq_iff_eq.mp hxa
-                subst hxa'
-                simp [TinyML.TyCtx.extend] at hΓ; subst hΓ
-                rw [← hlk_head] at htype_head; exact htype_head
-              · simp [List.lookup, hxa] at hlookup
+          simpa [TinyML.ValsHaveTypes, TinyML.ValsRel] using
+            (show ⊢ (TinyML.ValHasType Θ vl a.2 ∗
+                TinyML.ValsHaveTypes Θ vls (as'.map Prod.snd)) -∗
+                TinyML.ValHasType Θ (ρ.consts .value x'.name) t by
+              iintro ⟨Htype_head, Htype_tail⟩
+              simp only [List.map_cons, List.zip_cons_cons, List.reverse_cons] at hlookup
+              rw [List.lookup_append] at hlookup
+              simp only [List.foldl_cons] at hΓ
+              cases hlk_inner : List.lookup x ((as'.map Prod.fst).zip vrs).reverse with
+              | some v' =>
+                simp [hlk_inner] at hlookup; subst hlookup
+                iapply (ih vrs vls (Γ₀.extend a.1 a.2) (by simp; omega) (by simp; omega) hlk_inner hΓ hlk_tail)
+                iexact Htype_tail
+              | none =>
+                simp [hlk_inner] at hlookup
+                by_cases hxa : x == a.1
+                · simp [List.lookup, hxa] at hlookup; subst hlookup
+                  have hx_notin := not_mem_of_lookup_zip_reverse_none
+                    (as'.map Prod.fst) vrs x (by simp; omega) hlk_inner
+                  simp [List.mem_map] at hx_notin
+                  have hΓ_stable : (as'.foldl (fun ctx a => ctx.extend a.1 a.2) (Γ₀.extend a.1 a.2)) x =
+                      (Γ₀.extend a.1 a.2) x := by
+                    apply TinyML.TyCtx.foldl_extend_stable
+                    intro ⟨n, t⟩ hmem heq; exact hx_notin t (heq ▸ hmem)
+                  rw [hΓ_stable] at hΓ
+                  have hxa' : x = a.1 := by exact beq_iff_eq.mp hxa
+                  subst hxa'
+                  simp [TinyML.TyCtx.extend] at hΓ; subst hΓ
+                  rw [← hlk_head]
+                  iexact Htype_head
+                · simp [List.lookup, hxa] at hlookup)
 
 -- ---------------------------------------------------------------------------
 -- FiniteSubst
