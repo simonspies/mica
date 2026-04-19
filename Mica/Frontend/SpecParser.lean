@@ -43,7 +43,8 @@ private def parsePred : Untyped.Expr → M Pred
   | .app (.var "isbool") [e] => do .ok (.isbool (← parseTerm e))
   | .app (.var "isinj") [.const (.int tag), .const (.int arity), e] => do
     .ok (.isinj tag.toNat arity.toNat (← parseTerm e))
-  | e => .error s!"expected type predicate (isint, isbool, isinj), got {repr e}"
+  | .app (.var "own") [e] => do .ok (.own (← parseTerm e))
+  | e => .error s!"expected type predicate (isint, isbool, isinj, own), got {repr e}"
 
 private def parseAssert (inner : Untyped.Expr → M α)
     (bareAssert : Untyped.Expr → M (Assert α)) : Untyped.Expr → M (Assert α)
