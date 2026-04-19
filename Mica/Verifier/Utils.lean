@@ -5,6 +5,7 @@ import Mica.FOL.Printing
 import Mica.FOL.Subst
 import Mica.Base.Fresh
 import Mica.Base.Except
+import Mica.SeparationLogic.LogicalRelation
 import Mathlib.Data.Finmap
 
 /-! ### Bindings -/

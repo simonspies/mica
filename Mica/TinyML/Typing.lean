@@ -2,7 +2,6 @@ import Mica.TinyML.Types
 import Mica.TinyML.Untyped
 import Mica.TinyML.Typed
 import Mica.TinyML.RuntimeExpr
-import Mica.TinyML.LogicalRelation
 import Mica.Base.Except
 
 namespace TinyML
