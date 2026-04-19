@@ -47,26 +47,26 @@ def Assertion.toStringHum {α : Type} (showA : α → String) : Assertion α →
 -- Semantics
 -- ---------------------------------------------------------------------------
 
-def Assertion.pre (Φ : α → Env → iProp) (m : Assertion α) (ρ : Env) : iProp :=
+def Assertion.pre (Φ : α → VerifM.Env → iProp) (m : Assertion α) (ρ : VerifM.Env) : iProp :=
   (match m with
   | .ret a        => Φ a ρ
-  | .assert φ k   => ⌜φ.eval ρ⌝ ∗ Assertion.pre Φ k ρ
-  | .let_ x t k   => let v := t.eval ρ; Assertion.pre Φ k (ρ.updateConst x.sort x.name v)
+  | .assert φ k   => ⌜φ.eval ρ.env⌝ ∗ Assertion.pre Φ k ρ
+  | .let_ x t k   => let v := t.eval ρ.env; Assertion.pre Φ k (ρ.updateConst x.sort x.name v)
   | .pred x p k   => ∃ (v : x.sort.denote), p.eval ρ v ∗ Assertion.pre Φ k (ρ.updateConst x.sort x.name v)
   | .ite φ kt ke  =>
-      iprop((⌜φ.eval ρ⌝ -∗ Assertion.pre Φ kt ρ) ∧
-            (⌜¬ φ.eval ρ⌝ -∗ Assertion.pre Φ ke ρ)))
+      iprop((⌜φ.eval ρ.env⌝ -∗ Assertion.pre Φ kt ρ) ∧
+            (⌜¬ φ.eval ρ.env⌝ -∗ Assertion.pre Φ ke ρ)))
 
-def Assertion.post {α} (Φ : α → Env → iProp) (m : Assertion α) (ρ : Env) : iProp :=
+def Assertion.post {α} (Φ : α → VerifM.Env → iProp) (m : Assertion α) (ρ : VerifM.Env) : iProp :=
   match m with
   | .ret a        => Φ a ρ
-  | .assert φ k   => ⌜φ.eval ρ⌝ -∗ Assertion.post Φ k ρ
-  | .let_ x t k   => let v := t.eval ρ; Assertion.post Φ k (ρ.updateConst x.sort x.name v)
+  | .assert φ k   => ⌜φ.eval ρ.env⌝ -∗ Assertion.post Φ k ρ
+  | .let_ x t k   => let v := t.eval ρ.env; Assertion.post Φ k (ρ.updateConst x.sort x.name v)
   | .pred x p k   => iprop(∀ (v : x.sort.denote),
       p.eval ρ v -∗ Assertion.post Φ k (ρ.updateConst x.sort x.name v))
   | .ite φ kt ke  =>
-      iprop((⌜φ.eval ρ⌝ -∗ Assertion.post Φ kt ρ) ∧
-            (⌜¬ φ.eval ρ⌝ -∗ Assertion.post Φ ke ρ))
+      iprop((⌜φ.eval ρ.env⌝ -∗ Assertion.post Φ kt ρ) ∧
+            (⌜¬ φ.eval ρ.env⌝ -∗ Assertion.post Φ ke ρ))
 
 
 -- ---------------------------------------------------------------------------
@@ -134,9 +134,9 @@ theorem Assertion.wfIn_mono (m : Assertion α) (retWf : α → Signature → Pro
 -- ---------------------------------------------------------------------------
 
 theorem Assertion.pre_env_agree {m : Assertion α} {retWf : α → Signature → Prop}
-    {Φ : α → Env → iProp} {ρ ρ' : Env} {Δ : Signature}
-    (hwf : m.wfIn retWf Δ) (hagree : Env.agreeOn Δ ρ ρ')
-    (hΦ : ∀ a Δ ρ₁ ρ₂, retWf a Δ → Env.agreeOn Δ ρ₁ ρ₂ → Φ a ρ₁ ⊢ Φ a ρ₂) :
+    {Φ : α → VerifM.Env → iProp} {ρ ρ' : VerifM.Env} {Δ : Signature}
+    (hwf : m.wfIn retWf Δ) (hagree : VerifM.Env.agreeOn Δ ρ ρ')
+    (hΦ : ∀ a Δ ρ₁ ρ₂, retWf a Δ → VerifM.Env.agreeOn Δ ρ₁ ρ₂ → Φ a ρ₁ ⊢ Φ a ρ₂) :
     Assertion.pre Φ m ρ ⊢ Assertion.pre Φ m ρ' := by
   induction m generalizing Δ ρ ρ' with
   | ret a => exact hΦ a Δ ρ ρ' hwf hagree
@@ -154,7 +154,7 @@ theorem Assertion.pre_env_agree {m : Assertion α} {retWf : α → Signature →
     obtain ⟨htwf, hkwf⟩ := hwf
     simp only [Assertion.pre]
     rw [← Term.eval_env_agree htwf hagree]
-    exact ih hkwf (Env.agreeOn_declVar hagree)
+    exact ih hkwf (VerifM.Env.agreeOn_declVar hagree)
   | pred v p k ih =>
     obtain ⟨hpwf, hkwf⟩ := hwf
     simp only [Assertion.pre]
@@ -164,7 +164,7 @@ theorem Assertion.pre_env_agree {m : Assertion α} {retWf : α → Signature →
     iapply (sep_mono
       (show p.eval ρ w ⊢ p.eval ρ' w by
         simp [(Atom.eval_env_agree hpwf hagree)])
-      (ih hkwf (Env.agreeOn_declVar hagree)))
+      (ih hkwf (VerifM.Env.agreeOn_declVar hagree)))
     iexact Hsep
   | ite φ kt ke iht ihe =>
     obtain ⟨hφwf, hktwf, hkewf⟩ := hwf
@@ -173,7 +173,7 @@ theorem Assertion.pre_env_agree {m : Assertion α} {retWf : α → Signature →
     · apply BI.and_elim_l.trans
       iintro Hkt
       iintro Hφ
-      have hφ : BIBase.Entails (⌜φ.eval ρ'⌝ : iProp) ⌜φ.eval ρ⌝ := by
+      have hφ : BIBase.Entails (⌜φ.eval ρ'.env⌝ : iProp) ⌜φ.eval ρ.env⌝ := by
         iintro %hφ
         ipure_intro
         exact (Formula.eval_env_agree hφwf hagree).mpr hφ
@@ -184,7 +184,7 @@ theorem Assertion.pre_env_agree {m : Assertion α} {retWf : α → Signature →
     · apply BI.and_elim_r.trans
       iintro Hke
       iintro Hnφ
-      have hnφ : BIBase.Entails (⌜¬ φ.eval ρ'⌝ : iProp) ⌜¬ φ.eval ρ⌝ := by
+      have hnφ : BIBase.Entails (⌜¬ φ.eval ρ'.env⌝ : iProp) ⌜¬ φ.eval ρ.env⌝ := by
         iintro %hnφ
         ipure_intro
         exact mt (Formula.eval_env_agree hφwf hagree).mp hnφ
@@ -194,9 +194,9 @@ theorem Assertion.pre_env_agree {m : Assertion α} {retWf : α → Signature →
       iapply Hnφ
 
 theorem Assertion.post_env_agree {m : Assertion α} {retWf : α → Signature → Prop}
-    {Φ : α → Env → iProp} {ρ ρ' : Env} {Δ : Signature}
-    (hwf : m.wfIn retWf Δ) (hagree : Env.agreeOn Δ ρ ρ')
-    (hΦ : ∀ a Δ ρ₁ ρ₂, retWf a Δ → Env.agreeOn Δ ρ₁ ρ₂ → Φ a ρ₁ ⊢ Φ a ρ₂) :
+    {Φ : α → VerifM.Env → iProp} {ρ ρ' : VerifM.Env} {Δ : Signature}
+    (hwf : m.wfIn retWf Δ) (hagree : VerifM.Env.agreeOn Δ ρ ρ')
+    (hΦ : ∀ a Δ ρ₁ ρ₂, retWf a Δ → VerifM.Env.agreeOn Δ ρ₁ ρ₂ → Φ a ρ₁ ⊢ Φ a ρ₂) :
     Assertion.post Φ m ρ ⊢ Assertion.post Φ m ρ' := by
   induction m generalizing Δ ρ ρ' with
   | ret a => exact hΦ a Δ ρ ρ' hwf hagree
@@ -205,7 +205,7 @@ theorem Assertion.post_env_agree {m : Assertion α} {retWf : α → Signature �
     simp only [Assertion.post]
     iintro H
     iintro %hφ
-    have hφ' : φ.eval ρ := (Formula.eval_env_agree hφwf hagree).mpr hφ
+    have hφ' : φ.eval ρ.env := (Formula.eval_env_agree hφwf hagree).mpr hφ
     iapply (ih hkwf hagree)
     iapply H
     ipure_intro
@@ -214,13 +214,13 @@ theorem Assertion.post_env_agree {m : Assertion α} {retWf : α → Signature �
     obtain ⟨htwf, hkwf⟩ := hwf
     simp only [Assertion.post]
     rw [← Term.eval_env_agree htwf hagree]
-    exact ih hkwf (Env.agreeOn_declVar hagree)
+    exact ih hkwf (VerifM.Env.agreeOn_declVar hagree)
   | pred v p k ih =>
     obtain ⟨hpwf, hkwf⟩ := hwf
     simp only [Assertion.post]
     iintro H
     iintro %w Hw
-    iapply (ih hkwf (Env.agreeOn_declVar hagree))
+    iapply (ih hkwf (VerifM.Env.agreeOn_declVar hagree))
     iapply H
     iapply (show p.eval ρ' w ⊢ p.eval ρ w by simp [(Atom.eval_env_agree hpwf hagree)])
     iexact Hw
@@ -231,7 +231,7 @@ theorem Assertion.post_env_agree {m : Assertion α} {retWf : α → Signature �
     · apply BI.and_elim_l.trans
       iintro Hkt
       iintro %hφ
-      have hφ' : φ.eval ρ := (Formula.eval_env_agree hφwf hagree).mpr hφ
+      have hφ' : φ.eval ρ.env := (Formula.eval_env_agree hφwf hagree).mpr hφ
       iapply (iht hktwf hagree)
       iapply Hkt
       ipure_intro
@@ -239,7 +239,7 @@ theorem Assertion.post_env_agree {m : Assertion α} {retWf : α → Signature �
     · apply BI.and_elim_r.trans
       iintro Hke
       iintro %hnφ
-      have hnφ' : ¬ φ.eval ρ := mt (Formula.eval_env_agree hφwf hagree).mp hnφ
+      have hnφ' : ¬ φ.eval ρ.env := mt (Formula.eval_env_agree hφwf hagree).mp hnφ
       iapply (ihe hkewf hagree)
       iapply Hke
       ipure_intro
@@ -248,10 +248,10 @@ theorem Assertion.post_env_agree {m : Assertion α} {retWf : α → Signature �
 /-- Combining caller-side `pre` with verifier-side `post`. -/
 theorem Assertion.pre_post_combine {α : Type}
     {m : Assertion α}
-    {Φ Ψ : α → Env → iProp}
-    {ρ : Env}
+    {Φ : α → VerifM.Env → iProp} {Ψ : α → VerifM.Env → iProp}
+    {ρ : VerifM.Env}
     {R : iProp}
-    (hR : ∀ (a : α) (ρ0 : Env), Φ a ρ0 ∗ Ψ a ρ0 ⊢ R)
+    (hR : ∀ (a : α) (ρ0 : VerifM.Env), Φ a ρ0 ∗ Ψ a ρ0 ⊢ R)
     : (Assertion.pre Φ m ρ ∗ Assertion.post Ψ m ρ) ⊢ R := by
   induction m generalizing ρ R with
   | ret a =>
@@ -269,7 +269,7 @@ theorem Assertion.pre_post_combine {α : Type}
       exact hφ
   | let_ v t k ih =>
     simp only [Assertion.pre, Assertion.post]
-    simpa using ih (ρ := ρ.updateConst v.sort v.name (t.eval ρ)) (R := R) hR
+    simpa using ih (ρ := ρ.updateConst v.sort v.name (t.eval ρ.env)) (R := R) hR
   | pred v p k ih =>
     simp only [Assertion.pre, Assertion.post]
     istart
@@ -282,7 +282,7 @@ theorem Assertion.pre_post_combine {α : Type}
       iexact Hpre1
   | ite φ kt ke iht ihe =>
     simp only [Assertion.pre, Assertion.post]
-    by_cases hφ : φ.eval ρ
+    by_cases hφ : φ.eval ρ.env
     · istart
       iintro ⟨Hpre, Hpost⟩
       iapply (iht (ρ := ρ) (R := R) hR)
@@ -370,16 +370,17 @@ def Assertion.prove (σ : FiniteSubst) : Assertion α → VerifM (FiniteSubst ×
 
 theorem Assertion.assume_correct (m : Assertion α) (σ : FiniteSubst)
     (retWf : α → Signature → Prop)
-    (st : TransState) (ρ : Env)
-    (Ψ : (FiniteSubst × α) → TransState → Env → Prop) (Φ : α → Env → iProp) (R : iProp)
-    (hΦ : ∀ a Δ ρ₁ ρ₂, retWf a Δ → Env.agreeOn Δ ρ₁ ρ₂ → Φ a ρ₁ ⊢ Φ a ρ₂) :
+    (st : TransState) (ρ : VerifM.Env)
+    (Ψ : (FiniteSubst × α) → TransState → VerifM.Env → Prop) (Φ : α → VerifM.Env → iProp) (R : iProp)
+    (hΦ : ∀ a Δ ρ₁ ρ₂, retWf a Δ → VerifM.Env.agreeOn Δ ρ₁ ρ₂ → Φ a ρ₁ ⊢ Φ a ρ₂) :
     σ.wf st.decls →
     (Signature.ofVars σ.dom).wf →
     m.wfIn retWf (Signature.ofVars σ.dom) →
     VerifM.eval (Assertion.assume σ m) st ρ Ψ →
     (∀ σ' a st' ρ', Ψ (σ', a) st' ρ' → σ'.wf st'.decls → (Signature.ofVars σ'.dom).wf →
-      retWf a (Signature.ofVars σ'.dom) → st'.owns.interp ρ' ∗ R ⊢ Φ a (σ'.subst.eval ρ')) →
-    st.owns.interp ρ ∗ R ⊢ Assertion.post Φ m (σ.subst.eval ρ) := by
+      retWf a (Signature.ofVars σ'.dom) →
+      st'.sl ρ' ∗ R ⊢ Φ a (ρ'.withEnv (σ'.subst.eval ρ'.env))) →
+    st.sl ρ ∗ R ⊢ Assertion.post Φ m (ρ.withEnv (σ.subst.eval ρ.env)) := by
   intro hσwf hdomwf hwf heval hpost
   have hwfst : st.decls.wf := (VerifM.eval.wf heval).namesDisjoint
   induction m generalizing σ st ρ Ψ with
@@ -396,7 +397,7 @@ theorem Assertion.assume_correct (m : Assertion α) (σ : FiniteSubst)
     have hsubst_eval := (FiniteSubst.eval_subst_formula hφwf hσwf.1 hdomwf hσwf.2.2).mpr hφ
     have hassume := VerifM.eval_assumePure hb hsubst_wf hsubst_eval
     iapply (ih σ { st with asserts := _ :: st.asserts } ρ Ψ hσwf hdomwf hkwf hassume hpost hwfst)
-    iexact Howns
+    simp [TransState.sl]
   | let_ v t k ih =>
     obtain ⟨htwf, hkwf⟩ := hwf
     simp only [Assertion.assume] at heval
@@ -408,7 +409,7 @@ theorem Assertion.assume_correct (m : Assertion α) (σ : FiniteSubst)
       fresh_not_mem (addNumbers (v.name)) (st.decls.allNames) (addNumbers_injective _)
     have hv'_fresh_range : v'.name ∉ σ.range.allNames :=
       fun h => hv'_fresh_decls (Signature.allNames_subset hσwf.2.1 _ h)
-    set u := t.eval (σ.subst.eval ρ)
+    set u := t.eval (σ.subst.eval ρ.env)
     specialize hdecl u
     have hb2 := VerifM.eval_bind _ _ _ _ hdecl
     -- Show the equality formula is well-formed and holds
@@ -430,7 +431,7 @@ theorem Assertion.assume_correct (m : Assertion α) (σ : FiniteSubst)
           exact Signature.wf_unique_const hwf_add (List.Mem.head _) hc'
       · exact Term.wfIn_mono _ ht_subst_wf (Signature.Subset.subset_addConst _ _) (TransState.freshConst.wf _ (VerifM.eval.wf heval)).namesDisjoint
     have heq_holds : (Formula.eq v.sort (.const (.uninterpreted v'.name v.sort)) (t.subst σ.subst)).eval
-        (ρ.updateConst v.sort v'.name u) := by
+        (ρ.updateConst v.sort v'.name u).env := by
       rw [Formula.eval, Term.eval, Const.denote]
       rw [Term.eval_subst htwf hσwf.1 hσwf.2.2]
       simpa [u, Env.lookupConst, Env.updateConst] using
@@ -447,8 +448,7 @@ theorem Assertion.assume_correct (m : Assertion α) (σ : FiniteSubst)
     have hih := ih σ' { st with decls := st.decls.addConst v', asserts := _ :: st.asserts }
       (ρ.updateConst v.sort v'.name u) Ψ hσ'wf hσ'domwf hkwf' hassume hpost
         (TransState.freshConst.wf _ (VerifM.eval.wf heval)).namesDisjoint
-    have hinterp_bi : SpatialContext.interp ρ st.owns ⊣⊢
-        SpatialContext.interp (ρ.updateConst v.sort v'.name u) st.owns :=
+    have hinterp_bi : st.sl ρ ⊣⊢ st.sl (ρ.updateConst v.sort v'.name u) :=
       SpatialContext.interp_env_agree (VerifM.eval.wf heval).ownsWf
         (agreeOn_update_fresh_const (c := v') hv'_fresh_decls)
     exact (sep_mono hinterp_bi.1 (by
@@ -474,7 +474,7 @@ theorem Assertion.assume_correct (m : Assertion α) (σ : FiniteSubst)
       have hsubst_eval := (FiniteSubst.eval_subst_formula hφwf hσwf.1 hdomwf hσwf.2.2).mpr hφ
       have hassume := VerifM.eval_assumePure hb2 hsubst_wf hsubst_eval
       iapply (iht σ { st with asserts := _ :: st.asserts } ρ Ψ hσwf hdomwf hktwf hassume hpost hwfst)
-      iexact Howns
+      simp [TransState.sl]
     · iintro Howns %hnφ
       have hfalse := hall false (List.mem_cons.mpr (Or.inr (List.mem_cons_self ..)))
       simp at hfalse
@@ -486,7 +486,7 @@ theorem Assertion.assume_correct (m : Assertion α) (σ : FiniteSubst)
       have hsubst_eval := (FiniteSubst.eval_subst_formula hnot_wf hσwf.1 hdomwf hσwf.2.2).mpr hnφ
       have hassume := VerifM.eval_assumePure hb2 hsubst_wf hsubst_eval
       iapply (ihe σ { st with asserts := _ :: st.asserts } ρ Ψ hσwf hdomwf hkewf hassume hpost hwfst)
-      iexact Howns
+      simp [TransState.sl]
   | pred v p k ih =>
     obtain ⟨hpwf, hkwf⟩ := hwf
     simp only [Assertion.post]
@@ -523,20 +523,25 @@ theorem Assertion.assume_correct (m : Assertion α) (σ : FiniteSubst)
       Atom.toItem_wfIn
         (Atom.wfIn_mono hp_subst_wf (Signature.Subset.subset_addConst _ _)
           (TransState.freshConst.wf _ (VerifM.eval.wf heval)).namesDisjoint) hvar_wf
-    have hpu' : p.eval (σ.subst.eval ρ) u ⊢ (p.subst σ.subst).eval (ρ.updateConst v.sort v'.name u)
-        ((.const (.uninterpreted v'.name v.sort) : Term v.sort).eval (ρ.updateConst v.sort v'.name u)) := by
+    have hpu' : p.eval (ρ.withEnv (σ.subst.eval ρ.env)) u ⊢ (p.subst σ.subst).eval (ρ.updateConst v.sort v'.name u)
+        ((.const (.uninterpreted v'.name v.sort) : Term v.sort).eval (ρ.updateConst v.sort v'.name u).env) := by
       have hconst : ((.const (.uninterpreted v'.name v.sort) : Term v.sort).eval
-          (ρ.updateConst v.sort v'.name u)) = u := by
+          (ρ.updateConst v.sort v'.name u).env) = u := by
         simp [Term.eval, Const.denote, Env.updateConst]
       rw [hconst]
       rw [Atom.eval_subst hpwf hσwf.1 hσwf.2.2]
-      have hagree := FiniteSubst.eval_update_fresh (σ := σ) (ρ := ρ)
+      have hagree := FiniteSubst.eval_update_fresh (σ := σ) (ρ := ρ.env)
         (τ := v.sort) (name' := v'.name) (u := u) hσwf.1 hv'_fresh_range
       have heval_agree :
-          p.eval (σ.subst.eval ρ) = p.eval (σ.subst.eval (ρ.updateConst v.sort v'.name u)) :=
-        Atom.eval_env_agree (p := p) (ρ := σ.subst.eval ρ)
-          (ρ' := σ.subst.eval (ρ.updateConst v.sort v'.name u))
-          (Δ := Signature.ofVars σ.dom) hpwf hagree
+          p.eval (ρ.withEnv (σ.subst.eval ρ.env)) =
+            p.eval ((ρ.updateConst v.sort v'.name u).withEnv
+              (σ.subst.eval (ρ.updateConst v.sort v'.name u).env)) :=
+        Atom.eval_env_agree (p := p)
+          (ρ := ρ.withEnv (σ.subst.eval ρ.env))
+          (ρ' := (ρ.updateConst v.sort v'.name u).withEnv
+            (σ.subst.eval (ρ.updateConst v.sort v'.name u).env))
+          (Δ := Signature.ofVars σ.dom) hpwf (by
+            simpa [VerifM.Env.agreeOn, VerifM.Env.withEnv_env] using hagree)
       rw [heval_agree]
       exact .rfl
     set item := (p.subst σ.subst).toItem (.const (.uninterpreted v'.name v.sort))
@@ -549,14 +554,15 @@ theorem Assertion.assume_correct (m : Assertion α) (σ : FiniteSubst)
       simpa [σ', FiniteSubst.rename, Signature.ofVars, Signature.remove, Signature.addVar] using hkwf
     cases hitem : item with
     | pure φ =>
-      have hφ_entail : p.eval (σ.subst.eval ρ) u ⊢ ⌜φ.eval (ρ.updateConst v.sort v'.name u)⌝ := by
+      have hφ_entail : p.eval (ρ.withEnv (σ.subst.eval ρ.env)) u ⊢
+          ⌜φ.eval (ρ.updateConst v.sort v'.name u).env⌝ := by
         simpa [item, hitem] using
           (hpu'.trans (Atom.eval_purePart (p := p.subst σ.subst)
             (t := .const (.uninterpreted v'.name v.sort))
-            (ρ := ρ.updateConst v.sort v'.name u)))
-      ihave Hφ : ⌜φ.eval (ρ.updateConst v.sort v'.name u)⌝ $$ [Hpu]
+            (ρ := (ρ.updateConst v.sort v'.name u))))
+      ihave Hφ : ⌜φ.eval (ρ.updateConst v.sort v'.name u).env⌝ $$ [Hpu]
       · iapply hφ_entail
-        iexact Hpu
+        simp [VerifM.Env.withEnv]
       icases Hφ with %hφ
       have hb2' : (VerifM.assume (.pure φ)).eval
           { st with decls := st.decls.addConst v' } (ρ.updateConst v.sort v'.name u)
@@ -569,8 +575,8 @@ theorem Assertion.assume_correct (m : Assertion α) (σ : FiniteSubst)
         (ρ.updateConst v.sort v'.name u) Ψ hσ'wf hσ'domwf hkwf' hassume hpost
           (TransState.freshConst.wf _ (VerifM.eval.wf heval)).namesDisjoint
       have hframe :
-          st.owns.interp ρ ∗ R ⊢
-            (TransState.addItem { st with decls := st.decls.addConst v' } (.pure φ)).owns.interp
+          st.sl ρ ∗ R ⊢
+            (TransState.addItem { st with decls := st.decls.addConst v' } (.pure φ)).sl
               (ρ.updateConst v.sort v'.name u) ∗ R := by
         simp [TransState.addItem]
         exact sep_mono
@@ -597,19 +603,19 @@ theorem Assertion.assume_correct (m : Assertion α) (σ : FiniteSubst)
         (ρ.updateConst v.sort v'.name u) Ψ hσ'wf hσ'domwf hkwf' hassume hpost
           (TransState.freshConst.wf _ (VerifM.eval.wf heval)).namesDisjoint
       have hitem_interp :
-          p.eval (σ.subst.eval ρ) u ⊢
+          p.eval (ρ.withEnv (σ.subst.eval ρ.env)) u ⊢
             CtxItem.interp (ρ.updateConst v.sort v'.name u) item := by
         simpa [item] using
           (hpu'.trans (Atom.eval_toItem (p := p.subst σ.subst)
             (t := .const (.uninterpreted v'.name v.sort))
-            (ρ := ρ.updateConst v.sort v'.name u)))
+            (ρ := (ρ.updateConst v.sort v'.name u))))
       have hspatial_interp :
-          p.eval (σ.subst.eval ρ) u ⊢
-            SpatialAtom.interp (ρ.updateConst v.sort v'.name u) a := by
+          p.eval (ρ.withEnv (σ.subst.eval ρ.env)) u ⊢
+            SpatialAtom.interp (ρ.updateConst v.sort v'.name u).env a := by
         simpa [item, hitem, CtxItem.interp] using hitem_interp
       have howns_agree :
-          SpatialContext.interp ρ st.owns ⊢
-            SpatialContext.interp (ρ.updateConst v.sort v'.name u) st.owns :=
+          st.sl ρ ⊢
+            st.sl (ρ.updateConst v.sort v'.name u) :=
         (SpatialContext.interp_env_agree (VerifM.eval.wf heval).ownsWf
           (agreeOn_update_fresh_const (c := v') hv'_fresh_decls)).1
       iapply (hih.trans <| Assertion.post_env_agree hkwf'
@@ -621,24 +627,32 @@ theorem Assertion.assume_correct (m : Assertion α) (σ : FiniteSubst)
       icases Howns with ⟨HS, HR⟩
       isplitr [HR]
       · isplitr [HS]
-        · iapply hspatial_interp
-          iexact Hpu
-        · iapply howns_agree
-          iexact HS
+        · have hspatial_interp' :
+            p.eval (ρ.withEnv (σ.subst.eval ρ.env)) u ⊢
+              SpatialAtom.interp (Env.updateConst ρ.env v.sort v'.name u) a := by
+            simpa [VerifM.Env.updateConst] using hspatial_interp
+          iapply hspatial_interp'
+          simp [VerifM.Env.withEnv]
+        · have howns_agree' :
+            st.sl ρ ⊢ SpatialContext.interp (Env.updateConst ρ.env v.sort v'.name u) st.owns := by
+            simpa [TransState.sl, VerifM.Env.updateConst] using howns_agree
+          iapply howns_agree'
+          simp [TransState.sl]
       · iexact HR
 
 theorem Assertion.prove_correct (m : Assertion α) (σ : FiniteSubst)
     (retWf : α → Signature → Prop)
-    (st : TransState) (ρ : Env)
-    (Ψ : (FiniteSubst × α) → TransState → Env → Prop) (Φ : α → Env → iProp) (R : iProp)
-    (hΦ : ∀ a Δ ρ₁ ρ₂, retWf a Δ → Env.agreeOn Δ ρ₁ ρ₂ → Φ a ρ₁ ⊢ Φ a ρ₂) :
+    (st : TransState) (ρ : VerifM.Env)
+    (Ψ : (FiniteSubst × α) → TransState → VerifM.Env → Prop) (Φ : α → VerifM.Env → iProp) (R : iProp)
+    (hΦ : ∀ a Δ ρ₁ ρ₂, retWf a Δ → VerifM.Env.agreeOn Δ ρ₁ ρ₂ → Φ a ρ₁ ⊢ Φ a ρ₂) :
     σ.wf st.decls →
     (Signature.ofVars σ.dom).wf →
     m.wfIn retWf (Signature.ofVars σ.dom) →
     VerifM.eval (Assertion.prove σ m) st ρ Ψ →
     (∀ σ' a st' ρ', Ψ (σ', a) st' ρ' → σ'.wf st'.decls → (Signature.ofVars σ'.dom).wf →
-      retWf a (Signature.ofVars σ'.dom) → st'.owns.interp ρ' ∗ R ⊢ Φ a (σ'.subst.eval ρ')) →
-    st.owns.interp ρ ∗ R ⊢ Assertion.pre Φ m (σ.subst.eval ρ) := by
+      retWf a (Signature.ofVars σ'.dom) →
+      st'.sl ρ' ∗ R ⊢ Φ a (ρ'.withEnv (σ'.subst.eval ρ'.env))) →
+    st.sl ρ ∗ R ⊢ Assertion.pre Φ m (ρ.withEnv (σ.subst.eval ρ.env)) := by
   intro hσwf hdomwf hwf heval hpost
   have hwfst : st.decls.wf := (VerifM.eval.wf heval).namesDisjoint
   induction m generalizing σ st ρ Ψ with
@@ -652,8 +666,8 @@ theorem Assertion.prove_correct (m : Assertion α) (σ : FiniteSubst)
       FiniteSubst.subst_wfIn_formula hσwf hφwf hwfst
     have hassert := VerifM.eval_assert hb hsubst_wf
     have hφ_holds := (FiniteSubst.eval_subst_formula hφwf hσwf.1 hdomwf hσwf.2.2).mp hassert.1
-    show SpatialContext.interp ρ st.owns ∗ R ⊢
-      (⌜φ.eval (σ.subst.eval ρ)⌝ ∗ Assertion.pre Φ k (σ.subst.eval ρ) : iProp)
+    show st.sl ρ ∗ R ⊢
+      (⌜φ.eval (σ.subst.eval ρ.env)⌝ ∗ Assertion.pre Φ k (ρ.withEnv (σ.subst.eval ρ.env)) : iProp)
     istart
     iintro ⟨Howns, HR⟩
     isplitr [Howns HR]
@@ -674,7 +688,7 @@ theorem Assertion.prove_correct (m : Assertion α) (σ : FiniteSubst)
       fresh_not_mem (addNumbers (v.name)) (st.decls.allNames) (addNumbers_injective _)
     have hv'_fresh_range : v'.name ∉ σ.range.allNames :=
       fun h => hv'_fresh_decls (Signature.allNames_subset hσwf.2.1 _ h)
-    set u := t.eval (σ.subst.eval ρ)
+    set u := t.eval (σ.subst.eval ρ.env)
     specialize hdecl u
     have hb2 := VerifM.eval_bind _ _ _ _ hdecl
     have ht_subst_wf_range : (t.subst σ.subst).wfIn σ.range :=
@@ -695,7 +709,7 @@ theorem Assertion.prove_correct (m : Assertion α) (σ : FiniteSubst)
           exact Signature.wf_unique_const hwf_add (List.Mem.head _) hc'
       · exact Term.wfIn_mono _ ht_subst_wf (Signature.Subset.subset_addConst _ _) (TransState.freshConst.wf _ (VerifM.eval.wf heval)).namesDisjoint
     have heq_holds : (Formula.eq v.sort (.const (.uninterpreted v'.name v.sort)) (t.subst σ.subst)).eval
-        (ρ.updateConst v.sort v'.name u) := by
+        (ρ.updateConst v.sort v'.name u).env := by
       rw [Formula.eval, Term.eval, Const.denote]
       rw [Term.eval_subst htwf hσwf.1 hσwf.2.2]
       simpa [u, Env.lookupConst, Env.updateConst] using
@@ -711,8 +725,7 @@ theorem Assertion.prove_correct (m : Assertion α) (σ : FiniteSubst)
     have hih := ih σ' { st with decls := st.decls.addConst v', asserts := _ :: st.asserts }
       (ρ.updateConst v.sort v'.name u) Ψ hσ'wf hσ'domwf hkwf' hassume hpost
         (TransState.freshConst.wf _ (VerifM.eval.wf heval)).namesDisjoint
-    have hinterp_bi : SpatialContext.interp ρ st.owns ⊣⊢
-        SpatialContext.interp (ρ.updateConst v.sort v'.name u) st.owns :=
+    have hinterp_bi : st.sl ρ ⊣⊢ st.sl (ρ.updateConst v.sort v'.name u) :=
       SpatialContext.interp_env_agree (VerifM.eval.wf heval).ownsWf
         (agreeOn_update_fresh_const (c := v') hv'_fresh_decls)
     exact (sep_mono hinterp_bi.1 (by
@@ -737,15 +750,23 @@ theorem Assertion.prove_correct (m : Assertion α) (σ : FiniteSubst)
         simp at hq
         exact (VerifM.eval_fatal hq).elim)
       (fun t st' hq hdecls htwf => by
-        simp only [Assertion.pre]
+        simp [Assertion.pre]
         have hwfst' : st'.decls.wf := by simpa [hdecls] using hwfst
         have htwf' : t.wfIn st'.decls := by simpa [hdecls] using htwf
         istart
         iintro H
         icases H with ⟨Hpred, Howns, HR⟩
-        iexists (t.eval ρ)
+        iexists (t.eval ρ.env)
         isplitr [Howns HR]
-        · rw [← Atom.eval_subst hpwf hσwf.1 hσwf.2.2]
+        · have hpred_subst :
+              (p.subst σ.subst).eval ρ (t.eval ρ.env) ⊢
+                p.eval (ρ.withEnv (σ.subst.eval ρ.env)) (t.eval ρ.env) := by
+              simpa [VerifM.Env.withEnv] using
+                (show (p.subst σ.subst).eval ρ (t.eval ρ.env) ⊢
+                    p.eval (ρ.withEnv (σ.subst.eval ρ.env)) (t.eval ρ.env) by
+                  rw [Atom.eval_subst hpwf hσwf.1 hσwf.2.2]
+                  exact BIBase.Entails.rfl)
+          iapply hpred_subst
           iexact Hpred
         · have hb2 := VerifM.eval_bind _ _ _ _ hq
           have hdecl := VerifM.eval_decl hb2
@@ -757,7 +778,7 @@ theorem Assertion.prove_correct (m : Assertion α) (σ : FiniteSubst)
             apply hv'_fresh_decls
             rw [hdecls]
             exact Signature.allNames_subset hσwf.2.1 _ h
-          specialize hdecl (t.eval ρ)
+          specialize hdecl (t.eval ρ.env)
           have hb3 := VerifM.eval_bind _ _ _ _ hdecl
           have heq_wf : (Formula.eq v.sort (.const (.uninterpreted v'.name v.sort)) t).wfIn
               (st'.decls.addConst v') := by
@@ -772,7 +793,7 @@ theorem Assertion.prove_correct (m : Assertion α) (σ : FiniteSubst)
             · exact Term.wfIn_mono _ htwf' (Signature.Subset.subset_addConst _ _)
                 (TransState.freshConst.wf _ (VerifM.eval.wf hq)).namesDisjoint
           have heq_holds : (Formula.eq v.sort (.const (.uninterpreted v'.name v.sort)) t).eval
-              (ρ.updateConst v.sort v'.name (t.eval ρ)) := by
+              (ρ.updateConst v.sort v'.name (t.eval ρ.env)).env := by
             simp only [Formula.eval, Term.eval, Const.denote]
             simpa [Env.lookupConst, Env.updateConst] using
               (Term.eval_env_agree htwf' (agreeOn_update_fresh_const hv'_fresh_decls))
@@ -786,14 +807,13 @@ theorem Assertion.prove_correct (m : Assertion α) (σ : FiniteSubst)
           have hkwf' : k.wfIn retWf (Signature.ofVars σ'.dom) := by
             simpa [σ', FiniteSubst.rename, Signature.ofVars, Signature.remove, Signature.addVar] using hkwf
           have hih := ih σ' { st' with decls := st'.decls.addConst v', asserts := _ :: st'.asserts }
-            (ρ.updateConst v.sort v'.name (t.eval ρ)) Ψ hσ'wf hσ'domwf hkwf' hassume hpost
-              (TransState.freshConst.wf _ (VerifM.eval.wf hq)).namesDisjoint
-          have hinterp_bi : SpatialContext.interp ρ st'.owns ⊣⊢
-              SpatialContext.interp (ρ.updateConst v.sort v'.name (t.eval ρ)) st'.owns :=
+            (ρ.updateConst v.sort v'.name (t.eval ρ.env)) Ψ hσ'wf hσ'domwf hkwf' hassume hpost
+            (TransState.freshConst.wf _ (VerifM.eval.wf hq)).namesDisjoint
+          have hinterp_bi : st'.sl ρ ⊣⊢ st'.sl (ρ.updateConst v.sort v'.name (t.eval ρ.env)) :=
             SpatialContext.interp_env_agree (VerifM.eval.wf hq).ownsWf
               (agreeOn_update_fresh_const (c := v') hv'_fresh_decls)
-          have hframe : SpatialContext.interp ρ st'.owns ∗ R ⊢
-              SpatialContext.interp (ρ.updateConst v.sort v'.name (t.eval ρ)) st'.owns ∗ R := by
+          have hframe : st'.sl ρ ∗ R ⊢
+              st'.sl (ρ.updateConst v.sort v'.name (t.eval ρ.env)) ∗ R := by
             exact sep_mono hinterp_bi.1 (by
               iintro HR
               iexact HR)
@@ -803,7 +823,7 @@ theorem Assertion.prove_correct (m : Assertion α) (σ : FiniteSubst)
                 (FiniteSubst.rename_agreeOn (σ := σ) (v := v) (c := v') hσwf.1 hv'_fresh_range rfl))
             hΦ)
           isplitl [Howns]
-          · iexact Howns
+          · simp [TransState.sl]
           · iexact HR)
   | ite φ kt ke iht ihe =>
     obtain ⟨hφwf, hktwf, hkewf⟩ := hwf
@@ -824,7 +844,7 @@ theorem Assertion.prove_correct (m : Assertion α) (σ : FiniteSubst)
       have hsubst_eval := (FiniteSubst.eval_subst_formula hφwf hσwf.1 hdomwf hσwf.2.2).mpr hφ
       have hassume := VerifM.eval_assumePure hb2 hsubst_wf hsubst_eval
       iapply (iht σ { st with asserts := _ :: st.asserts } ρ Ψ hσwf hdomwf hktwf hassume hpost hwfst)
-      iexact Howns
+      simp [TransState.sl]
     · apply wand_intro
       iintro H
       icases H with ⟨Howns, %hnφ⟩
@@ -838,4 +858,4 @@ theorem Assertion.prove_correct (m : Assertion α) (σ : FiniteSubst)
       have hsubst_eval := (FiniteSubst.eval_subst_formula hnot_wf hσwf.1 hdomwf hσwf.2.2).mpr hnφ
       have hassume := VerifM.eval_assumePure hb2 hsubst_wf hsubst_eval
       iapply (ihe σ { st with asserts := _ :: st.asserts } ρ Ψ hσwf hdomwf hkewf hassume hpost hwfst)
-      iexact Howns
+      simp [TransState.sl]
