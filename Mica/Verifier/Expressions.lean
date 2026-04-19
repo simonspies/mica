@@ -523,7 +523,7 @@ theorem compile_correct (Θ : TinyML.TypeEnv) (R : iProp) (e : Expr) (S : SpecMa
     have hval_eval : Term.eval ρ_e' (Term.const (.uninterpreted c.name .value)) = .loc loc := by
       simp [ρ_e', Term.eval, Const.denote, Env.updateConst]
     have hty : TinyML.ValHasType Θ (Runtime.Val.loc loc) (TinyML.Typ.ref e.ty) := by
-      exact TinyML.ValHasType.ref e.ty
+      exact TinyML.ValHasType.ref loc e.ty
     exact hpost (.loc loc) ρ_e' _ _ hret hc_wf hval_eval hty
   | deref e ty =>
     unfold Expr.runtime; simp only [Runtime.Expr.subst]
