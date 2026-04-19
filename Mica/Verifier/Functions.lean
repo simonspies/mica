@@ -52,17 +52,17 @@ theorem checkBody_correct (Θ : TinyML.TypeEnv) (S : SpecMap) (s : Spec)
     (vs : List Runtime.Val)
     (htyped_args : TinyML.ValsHaveTypes Θ vs (s.args.map Prod.snd))
     (P : Runtime.Val → iProp)
-    {argVars : List FOL.Const} {st' : TransState} {ρ' : Env} {Q : iProp}
+    {argVars : List FOL.Const} {st' : TransState} {ρ' : VerifM.Env} {Q : iProp}
     (hargVars_mem : ∀ v ∈ argVars, v ∈ st'.decls.consts)
     (hargVars_sort : ∀ v ∈ argVars, v.sort = .value)
-    (hargVars_lookup : List.Forall₂ (fun av val => ρ'.consts .value av.name = val) argVars vs)
+    (hargVars_lookup : List.Forall₂ (fun av val => ρ'.env.consts .value av.name = val) argVars vs)
     (hbody_eval : VerifM.eval
         (checkBody Θ (SpecMap.eraseAll argNames (S.insert' fb s)) s argNames body argVars)
         st' ρ'
         (fun result st'' ρ'' => ∀ S, result.wfIn st''.decls →
-          st''.owns.interp ρ'' ∗ Q ∗
-            ((⌜TinyML.ValHasType Θ (result.eval ρ'') s.retTy⌝ -∗ P (result.eval ρ'')) -∗ S) ⊢ S)) :
-    st'.owns.interp ρ' ∗ Q ⊢
+          st''.sl ρ'' ∗ Q ∗
+            ((⌜TinyML.ValHasType Θ (result.eval ρ''.env) s.retTy⌝ -∗ P (result.eval ρ''.env)) -∗ S) ⊢ S)) :
+    st'.sl ρ' ∗ Q ⊢
       (S.satisfiedBy Θ γ ∗ s.isPrecondFor Θ fval) -∗
         wp (body.runtime.subst (γ.update' fb.runtime fval |>.updateAll' bs vs)) P := by
   simp only [checkBody] at hbody_eval
@@ -80,14 +80,14 @@ theorem checkBody_correct (Θ : TinyML.TypeEnv) (S : SpecMap) (s : Spec)
   have hlen_avs : argNames.length = argVars.length := by
     have := hargVars_lookup.length_eq
     have := htyped_args.length_eq; simp at this; omega
-  have hagree : Bindings.agreeOnLinked B ρ' γ_body := by
-    show Bindings.agreeOnLinked (Bindings.empty ++ (argNames.zip argVars).reverse) ρ'
+  have hagree : Bindings.agreeOnLinked B ρ'.env γ_body := by
+    show Bindings.agreeOnLinked (Bindings.empty ++ (argNames.zip argVars).reverse) ρ'.env
       ((γ.update' fb.runtime fval).updateAll' bs vs)
     rw [show Bindings.empty ++ (argNames.zip argVars).reverse =
         (argNames.zip argVars).reverse ++ Bindings.empty from by simp [Bindings.empty]]
     rw [hbs_runtime]
     apply Bindings.agreeOnLinked_updateAll' Bindings.empty argNames argVars vs
-      (γ.update' fb.runtime fval) ρ'
+      (γ.update' fb.runtime fval) ρ'.env
     · intro x x' h; simp [Bindings.empty] at h
     · exact hlen_avs
     · exact hlen_nv
@@ -101,13 +101,13 @@ theorem checkBody_correct (Θ : TinyML.TypeEnv) (S : SpecMap) (s : Spec)
   have hts : Bindings.typedSubst Θ B Γ γ_body := by
     apply Bindings.typedSubst_of_agreeOnLinked hagree
     intro x x' t hmem hΓ
-    show TinyML.ValHasType Θ (ρ'.consts .value x'.name) t
+    show TinyML.ValHasType Θ (ρ'.env.consts .value x'.name) t
     set args' := argNames.zip (s.args.map Prod.snd)
     have hfst : args'.map Prod.fst = argNames := by
       simp [args']; exact List.map_fst_zip (by simp; omega)
     have hsnd : args'.map Prod.snd = s.args.map Prod.snd := by
       simp [args']; exact List.map_snd_zip (by simp; omega)
-    exact val_typed_of_last_wins args' argVars vs ρ' TinyML.TyCtx.empty x x' t
+    exact val_typed_of_last_wins args' argVars vs ρ'.env TinyML.TyCtx.empty x x' t
       (by rw [hfst]; exact hlen_avs)
       (by rw [hfst]; exact hlen_nv)
       (by rw [hfst]; simp [B, Bindings.empty] at hmem; exact hmem)
@@ -127,7 +127,7 @@ theorem checkBody_correct (Θ : TinyML.TypeEnv) (S : SpecMap) (s : Spec)
       SpecMap.satisfiedBy_eraseAll_updateAll' hlen_nv
     exact hinsert.trans <| by simpa [S', γ_body, hbs_runtime] using herase
   have hbody_wp :
-      st'.owns.interp ρ' ∗ (S'.satisfiedBy Θ γ_body ∗ Q) ⊢
+      st'.sl ρ' ∗ (S'.satisfiedBy Θ γ_body ∗ Q) ⊢
         wp (body.runtime.subst γ_body) P := by
     refine compile_correct Θ Q body S' B Γ st' ρ' γ_body _ _
       (VerifM.eval.decls_grow ρ' hcompile) hagree hbwf hts hS'wf ?_
@@ -141,12 +141,12 @@ theorem checkBody_correct (Θ : TinyML.TypeEnv) (S : SpecMap) (s : Spec)
     have hΨ' := VerifM.eval_ret hΨ
     dsimp only at hΨ'
     subst heval_se
-    have hret : TinyML.ValHasType Θ (se.eval ρ'') s.retTy :=
+    have hret : TinyML.ValHasType Θ (se.eval ρ''.env) s.retTy :=
       TinyML.ValHasType_sub htyped (TinyML.Typ.sub_sound hsub)
-    refine (show st''.owns.interp ρ'' ∗ Q ⊢
-        st''.owns.interp ρ'' ∗ Q ∗
-          ((⌜TinyML.ValHasType Θ (se.eval ρ'') s.retTy⌝ -∗ P (se.eval ρ'')) -∗
-            P (se.eval ρ'')) from ?_).trans (hΨ' _ hse_wf)
+    refine (show st''.sl ρ'' ∗ Q ⊢
+        st''.sl ρ'' ∗ Q ∗
+          ((⌜TinyML.ValHasType Θ (se.eval ρ''.env) s.retTy⌝ -∗ P (se.eval ρ''.env)) -∗
+            P (se.eval ρ''.env)) from ?_).trans (hΨ' _ hse_wf)
     istart
     iintro ⟨Howns, HQ⟩
     isplitl [Howns]
@@ -170,7 +170,7 @@ theorem checkBody_correct (Θ : TinyML.TypeEnv) (S : SpecMap) (s : Spec)
 theorem checkSpec_correct (Θ : TinyML.TypeEnv) (S : SpecMap) (e : Expr) (s : Spec)
     (γ : Runtime.Subst)
     (hswf : s.wfIn Signature.empty) (hSwf : S.wfIn Signature.empty)
-    (ρ : Env) :
+    (ρ : VerifM.Env) :
     VerifM.eval (checkSpec Θ S e s) TransState.empty ρ (fun _ _ _ => True) →
     S.satisfiedBy Θ γ ⊢ wp (e.runtime.subst γ) (fun v => s.isPrecondFor Θ v) := by
   intro heval
@@ -216,7 +216,7 @@ theorem checkSpec_correct (Θ : TinyML.TypeEnv) (S : SpecMap) (e : Expr) (s : Sp
       have hsub := Runtime.Expr.subst_fix_comp body.runtime fb.runtime bs γ fval vs hlen_vs
       simp only [] at hsub; rw [hsub]
       have hbody' : PredTrans.apply (fun r => iprop(⌜TinyML.ValHasType Θ r s.retTy⌝ -∗ P r)) s.pred
-          (Spec.argsEnv Env.empty s.args vs) ⊢
+          (Spec.argsEnv VerifM.Env.empty s.args vs) ⊢
           SpecMap.satisfiedBy Θ S γ ∗ s.isPrecondFor Θ fval -∗
             wp (Runtime.Expr.subst ((Runtime.Subst.update' fb.runtime fval γ).updateAll' bs vs) body.runtime) P := by
         refine emp_sep.2.trans ?_

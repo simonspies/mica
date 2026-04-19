@@ -98,8 +98,8 @@ def Program.verify (prog : Untyped.Program Untyped.Expr) : Smt.Strategy Smt.Stra
 /-! ## Correctness -/
 
 theorem Program.prepare_correct (prog : Untyped.Program Untyped.Expr)
-    (st : TransState) (ρ : Env)
-    {Q : (TinyML.TypeEnv × Typed.Program Untyped.Expr) → TransState → Env → Prop}
+    (st : TransState) (ρ : VerifM.Env)
+    {Q : (TinyML.TypeEnv × Typed.Program Untyped.Expr) → TransState → VerifM.Env → Prop}
     (heval : VerifM.eval (Program.prepare prog) st ρ Q) :
     ∃ Θ typed, Typed.Program.runtime typed = Untyped.Program.runtime prog ∧ Q (Θ, typed) st ρ := by
   unfold Program.prepare at heval
@@ -114,8 +114,8 @@ theorem Program.prepare_correct (prog : Untyped.Program Untyped.Expr)
     exact VerifM.eval_ret heval
 
 theorem ValDecl.checkExpr_correct (Θ : TinyML.TypeEnv) (S : SpecMap) (d : Typed.ValDecl Untyped.Expr) (γ : Runtime.Subst)
-    (hSwf : S.wfIn Signature.empty) (ρ : Env)
-    {Q : Unit → TransState → Env → Prop}
+    (hSwf : S.wfIn Signature.empty) (ρ : VerifM.Env)
+    {Q : Unit → TransState → VerifM.Env → Prop}
     (heval : VerifM.eval (ValDecl.checkExpr Θ S d) TransState.empty ρ Q) :
     (S.satisfiedBy Θ γ ⊢ Φ) →
     S.satisfiedBy Θ γ ⊢ wp (d.body.runtime.subst γ) (fun _ => Φ) := by
@@ -148,8 +148,8 @@ theorem ValDecl.checkExpr_correct (Θ : TinyML.TypeEnv) (S : SpecMap) (d : Typed
     . iexact Hspec
 
 theorem ValDecl.check_correct (Θ : TinyML.TypeEnv) (S : SpecMap) (d : Typed.ValDecl Untyped.Expr) (γ : Runtime.Subst)
-    (hSwf : S.wfIn Signature.empty) (ρ : Env)
-    {Q : Spec → TransState → Env → Prop}
+    (hSwf : S.wfIn Signature.empty) (ρ : VerifM.Env)
+    {Q : Spec → TransState → VerifM.Env → Prop}
     (heval : VerifM.eval (ValDecl.check Θ S d) TransState.empty ρ Q) :
     ∃ spec, spec.wfIn Signature.empty ∧
             (S.satisfiedBy Θ γ ⊢ wp (d.body.runtime.subst γ) (fun v => spec.isPrecondFor Θ v)) ∧
@@ -189,7 +189,7 @@ theorem ValDecl.check_correct (Θ : TinyML.TypeEnv) (S : SpecMap) (d : Typed.Val
                  VerifM.eval_ret hpure⟩
 
 theorem Program.check_correct (Θ : TinyML.TypeEnv) (S : SpecMap) (prog : Typed.Program Untyped.Expr) (γ : Runtime.Subst)
-    (hSwf : S.wfIn Signature.empty) (ρ : Env) :
+    (hSwf : S.wfIn Signature.empty) (ρ : VerifM.Env) :
     VerifM.eval (Program.check Θ S prog) TransState.empty ρ (fun _ _ _ => True) →
     S.satisfiedBy Θ γ ⊢ pwp ((Typed.Program.runtime prog).subst γ) := by
   induction prog generalizing S γ ρ with
@@ -299,7 +299,7 @@ theorem Program.verify_correct (p : Untyped.Program Untyped.Expr) :
   | .error e =>
     cases e <;> simp [ScopedM.eval_ret] at hcont
   | .ok () =>
-    have hholdsFor : TransState.holdsFor TransState.empty default :=
+    have hholdsFor : TransState.holdsFor TransState.empty VerifM.Env.empty :=
       fun φ hφ => by simp [TransState.empty] at hφ
     have hwf : TransState.wf TransState.empty :=
       ⟨fun φ hφ => by simp [TransState.empty] at hφ,
@@ -309,11 +309,11 @@ theorem Program.verify_correct (p : Untyped.Program Untyped.Expr) :
                       (do
                         let (Θ, typed) ← Program.prepare p
                         Program.check Θ ∅ typed)
-                      TransState.empty default ctx_mid hverif hholdsFor hwf
+                      TransState.empty VerifM.Env.empty ctx_mid hverif hholdsFor hwf
     have hbind := VerifM.eval_bind _ _ _ _ hverifM
-    obtain ⟨Θ, typed, hrt, hcheck⟩ := Program.prepare_correct p TransState.empty default hbind
+    obtain ⟨Θ, typed, hrt, hcheck⟩ := Program.prepare_correct p TransState.empty VerifM.Env.empty hbind
     have hcorrect := Program.check_correct Θ ∅ typed Runtime.Subst.id
-                       (SpecMap.empty_wfIn _) default hcheck
+                       (SpecMap.empty_wfIn _) VerifM.Env.empty hcheck
     rw [Runtime.Program.subst_id] at hcorrect
     have hsat : (⊢ SpecMap.satisfiedBy Θ (∅ : SpecMap) Runtime.Subst.id) :=
       SpecMap.empty_satisfiedBy _

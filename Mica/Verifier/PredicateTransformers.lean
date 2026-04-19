@@ -52,9 +52,10 @@ theorem PredTrans.checkWf_ok {pt : PredTrans} {Δ : Signature}
 -- Semantics
 -- ---------------------------------------------------------------------------
 
-def PredTrans.apply (Φ : Runtime.Val → iProp) (m : PredTrans) (ρ : Env) : iProp :=
+def PredTrans.apply (Φ : Runtime.Val → iProp) (m : PredTrans) (ρ : VerifM.Env) : iProp :=
   Assertion.pre (fun post ρ' =>
-    BIBase.forall fun v : Runtime.Val => Assertion.post (fun () _ => Φ v) post.2 (ρ'.updateConst .value post.1 v)
+    BIBase.forall fun v : Runtime.Val =>
+      Assertion.post (fun () _ => Φ v) post.2 (ρ'.updateConst .value post.1 v)
   ) m ρ
 
 -- ---------------------------------------------------------------------------
@@ -98,8 +99,8 @@ theorem PredTrans.wfIn_mono {pt : PredTrans} {Δ Δ' : Signature}
     h hsub hwf
 
 theorem PredTrans.apply_env_agree {pt : PredTrans} {Φ : Runtime.Val → iProp}
-    {ρ ρ' : Env} {Δ : Signature}
-    (hwf : pt.wfIn Δ) (hagree : Env.agreeOn Δ ρ ρ') :
+    {ρ ρ' : VerifM.Env} {Δ : Signature}
+    (hwf : pt.wfIn Δ) (hagree : VerifM.Env.agreeOn Δ ρ ρ') :
     PredTrans.apply Φ pt ρ ⊢ PredTrans.apply Φ pt ρ' := by
   unfold PredTrans.apply at ⊢
   apply Assertion.pre_env_agree hwf hagree
@@ -108,7 +109,7 @@ theorem PredTrans.apply_env_agree {pt : PredTrans} {Φ : Runtime.Val → iProp}
   intro v
   exact (forall_elim v).trans <|
     Assertion.post_env_agree hwf_post
-      (Env.agreeOn_declVar hagree_post)
+      (VerifM.Env.agreeOn_declVar hagree_post)
       (fun _ _ _ _ _ _ => .rfl)
 
 -- ---------------------------------------------------------------------------
@@ -116,38 +117,38 @@ theorem PredTrans.apply_env_agree {pt : PredTrans} {Φ : Runtime.Val → iProp}
 -- ---------------------------------------------------------------------------
 
 theorem PredTrans.call_correct (pt : PredTrans) (σ : FiniteSubst)
-    (st : TransState) (ρ : Env)
-    (Ψ : Term .value → TransState → Env → Prop) (Φ : Runtime.Val → iProp) R :
+    (st : TransState) (ρ : VerifM.Env)
+    (Ψ : Term .value → TransState → VerifM.Env → Prop) (Φ : Runtime.Val → iProp) R :
     pt.wfIn (Signature.ofVars σ.dom) →
     (Signature.ofVars σ.dom).wf →
     σ.wf st.decls →
     VerifM.eval (PredTrans.call σ pt) st ρ Ψ →
-    (∀ v st' ρ' t, Ψ t st' ρ' → t.wfIn st'.decls → t.eval ρ' = v →
-      (st'.owns.interp ρ' ∗ R ⊢ Φ v)) →
-    st.owns.interp ρ ∗ R ⊢ PredTrans.apply Φ pt (σ.subst.eval ρ) := by
+    (∀ v st' ρ' t, Ψ t st' ρ' → t.wfIn st'.decls → t.eval ρ'.env = v →
+      (st'.sl ρ' ∗ R ⊢ Φ v)) →
+    st.sl ρ ∗ R ⊢ PredTrans.apply Φ pt (VerifM.Env.withEnv ρ (σ.subst.eval ρ.env)) := by
   intro hwf hdomwf hσwf heval hΨ
   simp only [PredTrans.call] at heval
   have hb := VerifM.eval_bind _ _ _ _ heval
   let retWf : (String × Assertion Unit) → Signature → Prop :=
     fun post Δ' => Assertion.wfIn (fun _ _ => True) (Δ'.declVar ⟨post.1, .value⟩) post.2
-  let Φpost : (String × Assertion Unit) → Env → iProp :=
+  let Φpost : (String × Assertion Unit) → VerifM.Env → iProp :=
     fun post ρ' =>
       BIBase.forall fun v : Runtime.Val =>
         Assertion.post (fun () _ => Φ v) post.2 (ρ'.updateConst .value post.1 v)
-  let Ψcall : (FiniteSubst × (String × Assertion Unit)) → TransState → Env → Prop :=
+  let Ψcall : (FiniteSubst × (String × Assertion Unit)) → TransState → VerifM.Env → Prop :=
     fun r st' ρ' =>
       match r with
       | (σ₁, postName, postBody) => (do
           let resVar ← VerifM.decl (some postName) Srt.value
           let _ ← Assertion.assume (σ₁.rename ⟨postName, .value⟩ resVar.name) postBody
           Pure.pure (Term.const (.uninterpreted resVar.name .value))).eval st' ρ' Ψ
-  have hpre : st.owns.interp ρ ∗ R ⊢ Assertion.pre Φpost pt (σ.subst.eval ρ) := by
+  have hpre : st.sl ρ ∗ R ⊢ Assertion.pre Φpost pt (VerifM.Env.withEnv ρ (σ.subst.eval ρ.env)) := by
     exact Assertion.prove_correct pt σ retWf st ρ Ψcall Φpost R
       (fun ⟨postName, postBody⟩ Δ' ρ₁ ρ₂ hwf_post hagree =>
         forall_intro fun v =>
           (forall_elim v).trans <|
             Assertion.post_env_agree hwf_post
-              (Env.agreeOn_declVar hagree)
+              (VerifM.Env.agreeOn_declVar hagree)
               (fun _ _ _ _ _ _ => .rfl))
       hσwf hdomwf hwf hb
       (fun σ₁ ⟨postName, postBody⟩ st₁ ρ₁ hcont hσ₁wf hσ₁domwf hwf₁ => by
@@ -177,7 +178,7 @@ theorem PredTrans.call_correct (pt : PredTrans) (σ : FiniteSubst)
           (ρ₁.updateConst .value resVar.name v)
           (fun a st' ρ' =>
             { st₁ with decls := st₁.decls.addConst resVar }.decls.Subset st'.decls ∧
-              Env.agreeOn { st₁ with decls := st₁.decls.addConst resVar }.decls
+              VerifM.Env.agreeOn { st₁ with decls := st₁.decls.addConst resVar }.decls
                 (ρ₁.updateConst .value resVar.name v) ρ' ∧
               (Pure.pure (Term.const (.uninterpreted resVar.name .value)) : VerifM (Term .value)).eval st' ρ' Ψ)
           (fun () _ => Φ v) R
@@ -196,8 +197,8 @@ theorem PredTrans.call_correct (pt : PredTrans) (σ : FiniteSubst)
             · simp only [Term.eval, Const.denote]
               have := hagree.2.1 resVar (List.Mem.head _)
               simpa [Env.lookupConst, Env.updateConst] using this.symm)
-        have hinterp_bi : SpatialContext.interp ρ₁ st₁.owns ⊣⊢
-            SpatialContext.interp (ρ₁.updateConst .value resVar.name v) st₁.owns :=
+        have hinterp_bi :
+            st₁.sl ρ₁ ⊣⊢ st₁.sl (ρ₁.updateConst .value resVar.name v) :=
           SpatialContext.interp_env_agree (VerifM.eval.wf hcont).ownsWf
             (agreeOn_update_fresh_const (c := resVar) hfresh_decls)
         exact (sep_mono hinterp_bi.1 (by
@@ -213,32 +214,32 @@ theorem PredTrans.call_correct (pt : PredTrans) (σ : FiniteSubst)
 
 theorem PredTrans.implement_correct (pt : PredTrans) (σ : FiniteSubst)
     (body : VerifM (Term .value))
-    (st : TransState) (ρ : Env) (Φ : Runtime.Val → iProp) (R : iProp) :
+    (st : TransState) (ρ : VerifM.Env) (Φ : Runtime.Val → iProp) (R : iProp) :
     pt.wfIn (Signature.ofVars σ.dom) →
     (Signature.ofVars σ.dom).wf →
     σ.wf st.decls →
     VerifM.eval (PredTrans.implement σ pt body) st ρ (fun _ _ _ => True) →
     (∀ st' ρ' (Q : iProp),
       st.decls.Subset st'.decls →
-      Env.agreeOn st.decls ρ ρ' →
+      VerifM.Env.agreeOn st.decls ρ ρ' →
       VerifM.eval body st' ρ'
       (fun result st'' ρ'' =>
         ∀ (S : iProp),
         result.wfIn st''.decls →
-        (st''.owns.interp ρ'' ∗ Q ∗ (Φ (result.eval ρ'') -∗ S) ⊢ S)) →
-      st'.owns.interp ρ' ∗ Q ⊢ R) →
-    st.owns.interp ρ ∗ PredTrans.apply Φ pt (σ.subst.eval ρ) ⊢ R := by
+        (st''.sl ρ'' ∗ Q ∗ (Φ (result.eval ρ''.env) -∗ S) ⊢ S)) →
+      st'.sl ρ' ∗ Q ⊢ R) →
+    st.sl ρ ∗ PredTrans.apply Φ pt (VerifM.Env.withEnv ρ (σ.subst.eval ρ.env)) ⊢ R := by
   intro hwf hdomwf hσwf heval hbody
   simp only [PredTrans.implement] at heval
   have hb := VerifM.eval_bind _ _ _ _ heval
   have hb_grow := VerifM.eval.decls_grow ρ hb
   let retWf : (String × Assertion Unit) → Signature → Prop :=
     fun post Δ' => Assertion.wfIn (fun _ _ => True) (Δ'.declVar ⟨post.1, .value⟩) post.2
-  let OuterQ : (String × Assertion Unit) → Env → iProp :=
+  let OuterQ : (String × Assertion Unit) → VerifM.Env → iProp :=
     fun ⟨postName, postBody⟩ ρ' =>
       BIBase.forall fun v : Runtime.Val =>
         Assertion.post (fun () _ => Φ v) postBody (ρ'.updateConst .value postName v)
-  let Φpost : (String × Assertion Unit) → Env → iProp :=
+  let Φpost : (String × Assertion Unit) → VerifM.Env → iProp :=
     fun a ρ' => OuterQ a ρ' -∗ R
   have hpost := Assertion.assume_correct pt σ retWf
     st ρ _ Φpost emp
@@ -258,7 +259,7 @@ theorem PredTrans.implement_correct (pt : PredTrans) (σ : FiniteSubst)
       apply BIBase.Entails.trans sep_comm.1
       apply BIBase.Entails.trans emp_sep.1
       have hcont_body := VerifM.eval_bind _ _ _ _ hcont
-      change st₁.owns.interp ρ₁ ⊢ OuterQ (postName, postBody) (σ₁.subst.eval ρ₁) -∗ R
+      change st₁.sl ρ₁ ⊢ OuterQ (postName, postBody) (VerifM.Env.withEnv ρ₁ (σ₁.subst.eval ρ₁.env)) -∗ R
       refine wand_intro ?_
       refine hbody st₁ ρ₁ _ hdsub_st hagree_st ?_
       refine (VerifM.eval.decls_grow ρ₁ hcont_body).mono ?_
@@ -270,7 +271,7 @@ theorem PredTrans.implement_correct (pt : PredTrans) (σ : FiniteSubst)
         fresh_not_mem (addNumbers postName) st₂.decls.allNames (addNumbers_injective _)
       have hfresh_range : resVar.name ∉ σ₁.range.allNames :=
         fun hmem => hfresh_decls (Signature.allNames_subset (Signature.Subset.trans hσ₁wf.2.1 hdsub_body) _ hmem)
-      specialize hdecl (result.eval ρ₂)
+      specialize hdecl (result.eval ρ₂.env)
       have hb3 := VerifM.eval_bind _ _ _ _ hdecl
       have heq_wf : (Formula.eq Srt.value (Term.const (.uninterpreted resVar.name .value)) result).wfIn
           (st₂.decls.addConst resVar) := by
@@ -284,7 +285,7 @@ theorem PredTrans.implement_correct (pt : PredTrans) (σ : FiniteSubst)
         · intro τ' hc'
           exact Signature.wf_unique_const hwf' (List.Mem.head _) hc'
       have heq_holds : (Formula.eq Srt.value (Term.const (.uninterpreted resVar.name .value)) result).eval
-          (ρ₂.updateConst .value resVar.name (result.eval ρ₂)) := by
+          (ρ₂.updateConst .value resVar.name (result.eval ρ₂.env)).env := by
         simp only [Formula.eval, Term.eval, Const.denote]
         simpa [Env.lookupConst, Env.updateConst] using
           (Term.eval_env_agree hwf_result (agreeOn_update_fresh_const hfresh_decls))
@@ -306,8 +307,8 @@ theorem PredTrans.implement_correct (pt : PredTrans) (σ : FiniteSubst)
           asserts := Formula.eq Srt.value (Term.const (.uninterpreted resVar.name .value)) result :: st₂.asserts }
       have hpre := @Assertion.prove_correct Unit postBody σ₂ (fun _ _ => True)
         st₃
-        (ρ₂.updateConst .value resVar.name (result.eval ρ₂))
-        _ (fun () _ => Φ (result.eval ρ₂) -∗ S) (Φ (result.eval ρ₂) -∗ S)
+        (ρ₂.updateConst .value resVar.name (result.eval ρ₂.env))
+        _ (fun () _ => Φ (result.eval ρ₂.env) -∗ S) (Φ (result.eval ρ₂.env) -∗ S)
         (fun _ _ _ _ _ _ => .rfl)
         hσ₂wf hσ₂domwf hwf_postBody' hb4
         (fun _ () st' ρ' hret _ _ _ => by
@@ -315,12 +316,12 @@ theorem PredTrans.implement_correct (pt : PredTrans) (σ : FiniteSubst)
           icases H with ⟨_, HR⟩
           iexact HR)
       have hag_rename := @FiniteSubst.rename_agreeOn σ₁ ⟨postName, .value⟩ resVar
-        ρ₂ (result.eval ρ₂) hσ₁wf.1 hfresh_range rfl
+        ρ₂.env (result.eval ρ₂.env) hσ₁wf.1 hfresh_range rfl
       have hag_eval := FiniteSubst.eval_agreeOn hσ₁wf.1
         (Env.agreeOn_mono hσ₁wf.2.1 (Env.agreeOn_symm hagree_body))
       have hag_eval' : Env.agreeOn (Signature.ofVars σ₂.dom)
-          ((σ₁.subst.eval ρ₂).updateConst .value postName (result.eval ρ₂))
-          ((σ₁.subst.eval ρ₁).updateConst .value postName (result.eval ρ₂)) := by
+          ((σ₁.subst.eval ρ₂.env).updateConst .value postName (result.eval ρ₂.env))
+          ((σ₁.subst.eval ρ₁.env).updateConst .value postName (result.eval ρ₂.env)) := by
         apply Env.agreeOn_mono
           (Δ₁ := Signature.ofVars σ₂.dom)
           (Δ₂ := Signature.ofVars (⟨postName, .value⟩ :: σ₁.dom))
@@ -331,46 +332,52 @@ theorem PredTrans.implement_correct (pt : PredTrans) (σ : FiniteSubst)
               · exact Or.inl rfl
               · exact Or.inr hx))
         exact Env.agreeOn_update hag_eval
-      have hpost_transport : Assertion.post (fun () _ => Φ (result.eval ρ₂)) postBody
-          ((σ₁.subst.eval ρ₁).updateConst .value postName (result.eval ρ₂)) ⊢
-          Assertion.post (fun () _ => Φ (result.eval ρ₂)) postBody
-            (σ₂.subst.eval (ρ₂.updateConst .value resVar.name (result.eval ρ₂))) := by
+      have hpost_transport : Assertion.post (fun () _ => Φ (result.eval ρ₂.env)) postBody
+          (VerifM.Env.withEnv ρ₁ ((σ₁.subst.eval ρ₁.env).updateConst .value postName (result.eval ρ₂.env))) ⊢
+          Assertion.post (fun () _ => Φ (result.eval ρ₂.env)) postBody
+            (VerifM.Env.withEnv (ρ₂.updateConst .value resVar.name (result.eval ρ₂.env))
+              (σ₂.subst.eval (ρ₂.updateConst .value resVar.name (result.eval ρ₂.env)).env)) := by
         exact Assertion.post_env_agree hwf_postBody'
-          (Env.agreeOn_symm (Env.agreeOn_trans hag_rename hag_eval'))
+          (by
+            simpa [VerifM.Env.agreeOn, VerifM.Env.withEnv]
+              using (Env.agreeOn_symm (Env.agreeOn_trans hag_rename hag_eval')))
           (fun _ _ _ _ _ _ => .rfl)
-      have howns_agree : st₃.owns.interp ρ₂
+      have howns_agree : st₃.sl ρ₂
             ⊢
-          st₃.owns.interp (ρ₂.updateConst .value resVar.name (result.eval ρ₂)) := by
+          st₃.sl (ρ₂.updateConst .value resVar.name (result.eval ρ₂.env)) := by
         simpa using
           (SpatialContext.interp_env_agree (VerifM.eval.wf hrest).ownsWf
             (agreeOn_update_fresh_const hfresh_decls)).1
       have hpre_final :
-          st₂.owns.interp ρ₂ ∗ (Φ (result.eval ρ₂) -∗ S) ⊢
-            Assertion.pre (fun () _ => Φ (result.eval ρ₂) -∗ S) postBody
-              (σ₂.subst.eval (ρ₂.updateConst .value resVar.name (result.eval ρ₂))) := by
+          st₂.sl ρ₂ ∗ (Φ (result.eval ρ₂.env) -∗ S) ⊢
+            Assertion.pre (fun () _ => Φ (result.eval ρ₂.env) -∗ S) postBody
+              (VerifM.Env.withEnv (ρ₂.updateConst .value resVar.name (result.eval ρ₂.env))
+                (σ₂.subst.eval (ρ₂.updateConst .value resVar.name (result.eval ρ₂.env)).env)) := by
         have hinput :
-            st₂.owns.interp ρ₂ ∗ (Φ (result.eval ρ₂) -∗ S) ⊢
-              st₃.owns.interp (ρ₂.updateConst .value resVar.name (result.eval ρ₂)) ∗
-                (Φ (result.eval ρ₂) -∗ S) := by
+            st₂.sl ρ₂ ∗ (Φ (result.eval ρ₂.env) -∗ S) ⊢
+              st₃.sl (ρ₂.updateConst .value resVar.name (result.eval ρ₂.env)) ∗
+                (Φ (result.eval ρ₂.env) -∗ S) := by
           iintro H
           icases H with ⟨Howns, Hwand⟩
           isplitl [Howns]
           · iapply howns_agree
-            iexact Howns
+            simp [st₃, TransState.sl]
           · iexact Hwand
         exact hinput.trans hpre
       have hpost_final :
-          OuterQ (postName, postBody) (σ₁.subst.eval ρ₁) ⊢
-            Assertion.post (fun () _ => Φ (result.eval ρ₂)) postBody
-              (σ₂.subst.eval (ρ₂.updateConst .value resVar.name (result.eval ρ₂))) := by
-        exact (forall_elim (result.eval ρ₂)).trans hpost_transport
+          OuterQ (postName, postBody) (VerifM.Env.withEnv ρ₁ (σ₁.subst.eval ρ₁.env)) ⊢
+            Assertion.post (fun () _ => Φ (result.eval ρ₂.env)) postBody
+              (VerifM.Env.withEnv (ρ₂.updateConst .value resVar.name (result.eval ρ₂.env))
+                (σ₂.subst.eval (ρ₂.updateConst .value resVar.name (result.eval ρ₂.env)).env)) := by
+        exact (forall_elim (result.eval ρ₂.env)).trans hpost_transport
       iintro H
       icases H with ⟨Howns, HQ, Hwand⟩
       iapply (Assertion.pre_post_combine
-        (ρ := σ₂.subst.eval (ρ₂.updateConst .value resVar.name (result.eval ρ₂)))
+        (ρ := VerifM.Env.withEnv (ρ₂.updateConst .value resVar.name (result.eval ρ₂.env))
+          (σ₂.subst.eval (ρ₂.updateConst .value resVar.name (result.eval ρ₂.env)).env))
         (m := postBody)
-        (Φ := fun () _ => Φ (result.eval ρ₂) -∗ S)
-        (Ψ := fun () _ => Φ (result.eval ρ₂))
+        (Φ := fun () _ => Φ (result.eval ρ₂.env) -∗ S)
+        (Ψ := fun () _ => Φ (result.eval ρ₂.env))
         (R := S)
         (fun () _ => by
           iintro H
@@ -385,7 +392,9 @@ theorem PredTrans.implement_correct (pt : PredTrans) (σ : FiniteSubst)
       · iapply hpost_final
         iexact HQ
       )
-  have hpre : PredTrans.apply Φ pt (σ.subst.eval ρ) = Assertion.pre OuterQ pt (σ.subst.eval ρ) := rfl
+  have hpre :
+      PredTrans.apply Φ pt (VerifM.Env.withEnv ρ (σ.subst.eval ρ.env)) =
+      Assertion.pre OuterQ pt (VerifM.Env.withEnv ρ (σ.subst.eval ρ.env)) := rfl
   rw [hpre]
   exact BIBase.Entails.trans
     (by
@@ -393,12 +402,14 @@ theorem PredTrans.implement_correct (pt : PredTrans) (σ : FiniteSubst)
       icases H with ⟨Howns, Happ⟩
       isplitr [Howns]
       · iexact Happ
-      · iapply hpost
+      · have hpost' : st.sl ρ ∗ emp ⊢ Assertion.post Φpost pt (VerifM.Env.withEnv ρ (σ.subst.eval ρ.env)) := by
+          simpa [VerifM.Env.withEnv] using hpost
+        iapply hpost'
         isplitl
         . iexact Howns
         . iemp_intro)
     (Assertion.pre_post_combine
-      (ρ := σ.subst.eval ρ)
+      (ρ := VerifM.Env.withEnv ρ (σ.subst.eval ρ.env))
       (m := pt)
       (Φ := OuterQ)
       (Ψ := Φpost)
