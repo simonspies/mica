@@ -375,7 +375,7 @@ theorem val_typed_of_last_wins
     : TinyML.ValHasType Θ (ρ.consts .value x'.name) t := by
   induction args generalizing vars vals Γ₀ with
   | nil => simp at hlookup
-  | cons a as ih =>
+  | cons a as' ih =>
     cases vars with
     | nil => simp at hlen_v
     | cons vr vrs =>
@@ -390,7 +390,7 @@ theorem val_typed_of_last_wins
             simp only [List.map_cons, List.zip_cons_cons, List.reverse_cons] at hlookup
             rw [List.lookup_append] at hlookup
             simp only [List.foldl_cons] at hΓ
-            cases hlk_inner : List.lookup x ((as.map Prod.fst).zip vrs).reverse with
+            cases hlk_inner : List.lookup x ((as'.map Prod.fst).zip vrs).reverse with
             | some v' =>
               simp [hlk_inner] at hlookup; subst hlookup
               exact ih vrs vls (Γ₀.extend a.1 a.2) (by simp; omega) (by simp; omega) hlk_inner hΓ hlk_tail htype_tail
@@ -399,9 +399,9 @@ theorem val_typed_of_last_wins
               by_cases hxa : x == a.1
               · simp [List.lookup, hxa] at hlookup; subst hlookup
                 have hx_notin := not_mem_of_lookup_zip_reverse_none
-                  (as.map Prod.fst) vrs x (by simp; omega) hlk_inner
+                  (as'.map Prod.fst) vrs x (by simp; omega) hlk_inner
                 simp [List.mem_map] at hx_notin
-                have hΓ_stable : (as.foldl (fun ctx a => ctx.extend a.1 a.2) (Γ₀.extend a.1 a.2)) x =
+                have hΓ_stable : (as'.foldl (fun ctx a => ctx.extend a.1 a.2) (Γ₀.extend a.1 a.2)) x =
                     (Γ₀.extend a.1 a.2) x := by
                   apply TinyML.TyCtx.foldl_extend_stable
                   intro ⟨n, t⟩ hmem heq; exact hx_notin t (heq ▸ hmem)

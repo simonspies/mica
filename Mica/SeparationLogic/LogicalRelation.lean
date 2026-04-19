@@ -2,6 +2,13 @@ import Mica.TinyML.Common
 import Mica.TinyML.Types
 import Mica.TinyML.RuntimeExpr
 import Mica.TinyML.OpSem
+import Mica.SeparationLogic.Axioms
+
+open Iris Iris.BI
+
+axiom locinv : Runtime.Location → iProp
+axiom locinv_persistent l : Persistent (locinv l)
+axiom locinv_from_pointsto l v : l ↦ v ⊢ locinv l
 
 namespace TinyML
 
