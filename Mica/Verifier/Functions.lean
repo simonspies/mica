@@ -129,7 +129,7 @@ theorem checkBody_correct (Θ : TinyML.TypeEnv) (S : SpecMap) (s : Spec)
   have hbody_wp :
       st'.sl ρ' ∗ (S'.satisfiedBy Θ γ_body ∗ Q) ⊢
         wp (body.runtime.subst γ_body) P := by
-    refine compile_correct Θ Q body S' B Γ st' ρ' γ_body _ _
+    refine compile_correct body Θ Q S' B Γ st' ρ' γ_body _ _
       (VerifM.eval.decls_grow ρ' hcompile) hagree hbwf hts hS'wf ?_
     intro v ρ'' st'' se hΨ hse_wf heval_se htyped
     obtain ⟨_, _, hΨ⟩ := hΨ

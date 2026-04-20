@@ -124,7 +124,7 @@ theorem ValDecl.checkExpr_correct (Θ : TinyML.TypeEnv) (S : SpecMap) (d : Typed
   have ⟨hinner, _⟩ := VerifM.eval_seq heval
   have hcompile := VerifM.eval_bind _ _ _ _ hinner
   have hcomp :=
-    compile_correct Θ iprop(S.satisfiedBy Θ γ) d.body S [] TinyML.TyCtx.empty TransState.empty ρ γ
+    compile_correct d.body Θ iprop(S.satisfiedBy Θ γ) S [] TinyML.TyCtx.empty TransState.empty ρ γ
     (fun x st' ρ' => VerifM.eval (pure ()) st' ρ' (fun _ _ _ => True))
     (fun _ => Φ)
     hcompile
