@@ -1484,46 +1484,46 @@ theorem compileExprsCons_correct (e : Expr) (rest : List Expr)
 /-! #### Correctness Theorem -/
 
 mutual
-theorem compile_correct_core (e : Expr) : correctExpr e := by
+theorem compile_correct (e : Expr) : correctExpr e := by
   cases e with
   | const c =>
     simpa using compileConst_correct c
   | var x vty =>
     simpa using compileVar_correct x vty
   | inj tag arity payload =>
-    simpa using compileInj_correct tag arity payload (compile_correct_core payload)
+    simpa using compileInj_correct tag arity payload (compile_correct payload)
   | cast e ty =>
-    simpa using compileCast_correct e ty (compile_correct_core e)
+    simpa using compileCast_correct e ty (compile_correct e)
   | assert e =>
-    simpa using compileAssert_correct e (compile_correct_core e)
+    simpa using compileAssert_correct e (compile_correct e)
   | fix self args retTy body =>
     simpa using compileFix_correct self args retTy body
   | ref e =>
-    simpa using compileRef_correct e (compile_correct_core e)
+    simpa using compileRef_correct e (compile_correct e)
   | deref e ty =>
-    simpa using compileDeref_correct e ty (compile_correct_core e)
+    simpa using compileDeref_correct e ty (compile_correct e)
   | store loc val =>
-    simpa using compileStore_correct loc val (compile_correct_core val) (compile_correct_core loc)
+    simpa using compileStore_correct loc val (compile_correct val) (compile_correct loc)
   | unop op e uty =>
-    simpa using compileUnop_correct op e uty (compile_correct_core e)
+    simpa using compileUnop_correct op e uty (compile_correct e)
   | binop op l r bty =>
-    simpa using compileBinop_correct op l r bty (compile_correct_core r) (compile_correct_core l)
+    simpa using compileBinop_correct op l r bty (compile_correct r) (compile_correct l)
   | letIn b e body =>
-    simpa using compileLetIn_correct b e body (compile_correct_core e) (compile_correct_core body)
+    simpa using compileLetIn_correct b e body (compile_correct e) (compile_correct body)
   | ifThenElse cond thn els ty =>
     simpa using compileIfThenElse_correct cond thn els ty
-      (compile_correct_core cond) (compile_correct_core thn) (compile_correct_core els)
+      (compile_correct cond) (compile_correct thn) (compile_correct els)
   | app fn args aty =>
     simpa using compileApp_correct fn args aty (compileExprs_correct args)
   | tuple es =>
     simpa using compileTuple_correct es (compileExprs_correct es)
   | match_ scrut branches ty =>
     simpa using compileMatch_correct scrut branches ty
-      (compile_correct_core scrut) (compileBranches_correct branches)
+      (compile_correct scrut) (compileBranches_correct branches)
 
 theorem compileBranch_correct (branch : Binder × Expr) : correctBranch branch := by
   obtain ⟨binder, body⟩ := branch
-  simpa using compileSingleBranch_correct binder body (compile_correct_core body)
+  simpa using compileSingleBranch_correct binder body (compile_correct body)
 
 theorem compileBranches_correct (branches : List (Binder × Expr)) : correctBranches branches := by
   match branches with
@@ -1544,5 +1544,5 @@ theorem compileExprs_correct (es : List Expr) : correctExprs es := by
     exact hpost [] ρ st [] heval (by simp) .nil .nil
   | e :: rest =>
     simpa using compileExprsCons_correct e rest
-      (compile_correct_core e) (compileExprs_correct rest)
+      (compile_correct e) (compileExprs_correct rest)
 end
