@@ -54,6 +54,14 @@ instance Bindings.typedSubst_persistent {B Γ γ} (Θ : TinyML.TypeEnv) : Persis
     unfold Bindings.typedSubst
     infer_instance
 
+theorem Bindings.typedSubst_nil (Θ : TinyML.TypeEnv) (γ : Runtime.Subst) :
+    ⊢ Bindings.typedSubst Θ [] TinyML.TyCtx.empty γ := by
+  unfold Bindings.typedSubst
+  imodintro
+  iintro %x %x' %t
+  iintro %hlookup
+  simp at hlookup
+
 /-! ### Term List Evaluation -/
 
 /-- Pack a list of value-sorted terms into a `vallist`-sorted term using `.vcons` and `.vnil`. -/

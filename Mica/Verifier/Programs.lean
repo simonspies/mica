@@ -130,11 +130,11 @@ theorem ValDecl.checkExpr_correct (Θ : TinyML.TypeEnv) (S : SpecMap) (d : Typed
     hcompile
     (fun _ _ h => by simp at h)
     (fun _ h => by simp at h)
-    (fun _ _ _ h _ => by simp at h)
     hSwf
-    (fun _ _ _ _ _ _ _ _ => by
+    (fun _ _ _ _ _ _ _ => by
       istart
       iintro ⟨_, Hsat⟩
+      icases Hsat with ⟨_, Hsat⟩
       iapply Hent
       iexact Hsat)
   refine (BIBase.Entails.trans ?_ hcomp)
@@ -145,7 +145,9 @@ theorem ValDecl.checkExpr_correct (Θ : TinyML.TypeEnv) (S : SpecMap) (d : Typed
     iemp_intro
   . isplitl []
     . iexact Hspec
-    . iexact Hspec
+    . isplitl []
+      · iapply Bindings.typedSubst_nil
+      · iexact Hspec
 
 theorem ValDecl.check_correct (Θ : TinyML.TypeEnv) (S : SpecMap) (d : Typed.ValDecl Untyped.Expr) (γ : Runtime.Subst)
     (hSwf : S.wfIn Signature.empty) (ρ : VerifM.Env)

@@ -286,6 +286,12 @@ instance (Θ v t) : Persistent (ValHasType Θ v t) :=
 instance (Θ vs ts) : Persistent (ValsHaveTypes Θ vs ts) :=
   ValsRel.persistent ts vs (fun _ _ _ => inferInstance)
 
+theorem ValsHaveTypes.cons {Θ : TypeEnv} {v : Runtime.Val} {vs : List Runtime.Val}
+    {t : Typ} {ts : List Typ} :
+    ValsHaveTypes Θ (v :: vs) (t :: ts) ⊣⊢ ValHasType Θ v t ∗ ValsHaveTypes Θ vs ts := by
+  unfold ValsHaveTypes ValHasType
+  simp [ValsRel]
+
 /-! ### Subtyping (entailments). `Typ.Sub` stays in `Prop`. -/
 
 /-- `ValSumRel tag payload ts k` is defined by navigating to `ts[tag]`. This
