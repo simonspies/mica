@@ -7,10 +7,6 @@ import Iris.BI.Lib.Fixpoint
 
 open Iris Iris.BI Iris.OFE
 
-axiom locinv : Runtime.Location → iProp
-axiom locinv_persistent l : Persistent (locinv l)
-axiom locinv_from_pointsto l v : l ↦ v ⊢ locinv l
-
 namespace TinyML
 
 /-- Continuation type for the recursive interpretation of named types. -/
@@ -27,7 +23,7 @@ mutual
     | .empty      => iprop(False)
     | .arrow _ _  => iprop(False)
     | .tvar _     => iprop(False)
-    | .ref _      => iprop(∃ l, ⌜v = .loc l⌝ ∗ locinv l)
+    | .ref t      => iprop(∃ l, ⌜v = .loc l⌝ ∗ locinv l (fun w => ValRel w t k))
     | .named T args => k v T args
     | .tuple ts   => iprop(∃ vs, ⌜v = .tuple vs⌝ ∗ ValsRel vs ts k)
     | .sum ts     =>
