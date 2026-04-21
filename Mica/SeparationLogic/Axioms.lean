@@ -2,7 +2,7 @@ import Iris.Examples.IProp
 import Mica.TinyML.RuntimeExpr
 import Mica.TinyML.OpSem
 
-open Iris Iris.BI
+open Iris Iris.BI Iris.OFE
 
 -- Top-level elaboration for Iris connectives (the Iris library only provides
 -- these inside `iprop(...)` blocks).
@@ -23,12 +23,20 @@ notation:50 l " ↦ " v:51 => pointsTo l v
 axiom wp : Runtime.Expr → (Runtime.Val → iProp) → iProp
 
 axiom locinv : Runtime.Location → (Runtime.Val → iProp) → iProp
--- We don't have invariants yet, but the idea is the encoding of locinv is
---    locinv l I := inv N (∃ v, l ↦ v * I v)
--- We don't give out access to the points-to direcly in the rules below and,
--- instead, the invariant on the value I has to be persistent.
+/- We don't have invariants yet, but the idea is the encoding of locinv is
+        locinv l I := inv N (∃ v, l ↦ v * I v)
+We don't give out access to the points-to direcly in the rules below and,
+instead, the invariant on the value I has to be persistent. -/
 axiom locinv_persistent l I : Persistent (locinv l I)
 
+attribute [instance] locinv_persistent
+
+/- In Iris, invariants are contractive in their body. `locinv` is currently
+axiomatized in Mica, so this experiment records the corresponding local axiom. -/
+axiom locinv_contractive (l : Runtime.Location) :
+  Contractive (fun I : Runtime.Val → iProp => locinv l I)
+
+attribute [instance] locinv_contractive
 
 /-- Weakest precondition for a list of expressions, evaluated right-to-left.
     `wps [e1, e2, e3] Q` first evaluates `e3`, then `e2`, then `e1`,

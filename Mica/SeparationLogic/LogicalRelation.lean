@@ -9,12 +9,37 @@ open Iris Iris.BI Iris.OFE
 
 namespace TinyML
 
-/-- Continuation type for the recursive interpretation of named types. -/
+/-!
+The logical relation in this file mixes two kinds of recursion:
+
+* an outer guarded/step-indexed fixpoint for references; and
+* an inner order-theoretic least fixpoint for recursive type names.
+
+The point is to keep recursive type unfolding immediate while putting the
+non-monotone invariant boundary in the outer, contractive recursion.
+-/
+
+/-- Continuation type for the inner recursive interpretation of named types. -/
 abbrev RecCont := Runtime.Val → TypeName → List Typ → iProp
 
--- Value relation, parametric in a continuation `k` for named types.
+/-- Index of the inner recursive type environment fixpoint. -/
+abbrev RecIdx := LeibnizO (Runtime.Val × TypeName × List Typ)
+
+/-- Reinterpret a predicate over `RecIdx` as a curried continuation. -/
+@[reducible] def RecCont.ofPred (Φ : RecIdx → iProp) : RecCont :=
+  fun v T args => Φ ⟨(v, T, args)⟩
+
+/-- The outer approximation ranges over closed value relations. -/
+abbrev ValShape := Runtime.Val → Typ → iProp
+
+/- One structural layer of the value relation.
+
+References use the outer approximation `R`; named types use the inner
+continuation `k`. Tuples and sums are structural and mutually recursive with
+the list/sum helpers below.
+-/
 mutual
-  def ValRel (v : Runtime.Val) (t : Typ) (k : RecCont) : iProp :=
+  def ValRelBody (R : ValShape) (v : Runtime.Val) (t : Typ) (k : RecCont) : iProp :=
     match t with
     | .unit       => iprop(⌜v = .unit⌝)
     | .bool       => iprop(⌜∃ b, v = .bool b⌝)
@@ -23,115 +48,32 @@ mutual
     | .empty      => iprop(False)
     | .arrow _ _  => iprop(False)
     | .tvar _     => iprop(False)
-    | .ref t      => iprop(∃ l, ⌜v = .loc l⌝ ∗ locinv l (fun w => ValRel w t k))
+    | .ref t      => iprop(∃ l, ⌜v = .loc l⌝ ∗ locinv l (fun w => R w t))
     | .named T args => k v T args
-    | .tuple ts   => iprop(∃ vs, ⌜v = .tuple vs⌝ ∗ ValsRel vs ts k)
+    | .tuple ts   => iprop(∃ vs, ⌜v = .tuple vs⌝ ∗ ValsRelBody R vs ts k)
     | .sum ts     =>
         iprop(∃ tag payload, ⌜v = .inj tag ts.length payload⌝ ∗
-              ValSumRel tag payload ts k)
+          ValSumRelBody R tag payload ts k)
 
-  def ValsRel : List Runtime.Val → List Typ → RecCont → iProp
-    | [], [], _ => iprop(emp)
-    | v :: vs, t :: ts, k => iprop(ValRel v t k ∗ ValsRel vs ts k)
-    | _, _, _ => iprop(False)
+  def ValsRelBody : ValShape → List Runtime.Val → List Typ → RecCont → iProp
+    | _, [], [], _ => iprop(emp)
+    | R, v :: vs, t :: ts, k => iprop(ValRelBody R v t k ∗ ValsRelBody R vs ts k)
+    | _, _, _, _ => iprop(False)
 
-  def ValSumRel : Nat → Runtime.Val → List Typ → RecCont → iProp
-    | _, _, [], _ => iprop(False)
-    | 0, payload, t :: _, k => ValRel payload t k
-    | n + 1, payload, _ :: ts, k => ValSumRel n payload ts k
+  def ValSumRelBody : ValShape → Nat → Runtime.Val → List Typ → RecCont → iProp
+    | _, _, _, [], _ => iprop(False)
+    | R, 0, payload, t :: _, k => ValRelBody R payload t k
+    | R, n + 1, payload, _ :: ts, k => ValSumRelBody R n payload ts k
 end
 
-mutual
-  theorem ValRel.persistent (t : Typ) (v : Runtime.Val) {k : RecCont}
-      (hk : ∀ v T args, Persistent (k v T args)) : Persistent (ValRel v t k) := by
-    unfold ValRel
-    match t with
-    | .unit | .bool | .int | .value | .empty
-    | .arrow _ _ | .tvar _ => infer_instance
-    | .ref _ =>
-        have := locinv_persistent
-        infer_instance
-    | .named T args => exact hk v T args
-    | .tuple ts =>
-        have : ∀ vs, Persistent (ValsRel vs ts k) := fun vs => ValsRel.persistent ts vs hk
-        infer_instance
-    | .sum ts =>
-        have : ∀ n payload, Persistent (ValSumRel n payload ts k) :=
-          fun n payload => ValSumRel.persistent ts n payload hk
-        infer_instance
-
-  theorem ValsRel.persistent (ts : List Typ) (vs : List Runtime.Val) {k : RecCont}
-      (hk : ∀ v T args, Persistent (k v T args)) : Persistent (ValsRel vs ts k) := by
-    unfold ValsRel
-    match vs, ts with
-    | [], [] => infer_instance
-    | v :: vs, t :: ts =>
-        have := ValRel.persistent t v hk
-        have := ValsRel.persistent ts vs hk
-        infer_instance
-    | [], _ :: _ | _ :: _, [] => infer_instance
-
-  theorem ValSumRel.persistent (ts : List Typ) (n : Nat) (payload : Runtime.Val) {k : RecCont}
-      (hk : ∀ v T args, Persistent (k v T args)) : Persistent (ValSumRel n payload ts k) := by
-    unfold ValSumRel
-    match n, ts with
-    | _, [] => infer_instance
-    | 0, t :: _ => exact ValRel.persistent t payload hk
-    | n + 1, _ :: ts => exact ValSumRel.persistent ts n payload hk
-end
-
-/-! ### Monotonicity in the continuation -/
+/-! Monotonicity in the inner continuation. -/
 
 mutual
-  theorem ValRel.mono (t : Typ) (v : Runtime.Val) {k k' : RecCont}
-      (hkk : ∀ v T args, k v T args ⊢ k' v T args) :
-      ValRel v t k ⊢ ValRel v t k' := by
-    unfold ValRel
-    match t with
-    | .unit | .bool | .int | .value | .empty
-    | .arrow _ _ | .tvar _ | .ref _ => exact .rfl
-    | .named T args => exact hkk v T args
-    | .tuple ts =>
-        refine exists_mono fun vs => ?_
-        refine sep_mono_r ?_
-        exact ValsRel.mono ts vs hkk
-    | .sum ts =>
-        refine exists_mono fun tag => ?_
-        refine exists_mono fun payload => ?_
-        refine sep_mono_r ?_
-        exact ValSumRel.mono ts tag payload hkk
-
-  theorem ValsRel.mono (ts : List Typ) (vs : List Runtime.Val) {k k' : RecCont}
-      (hkk : ∀ v T args, k v T args ⊢ k' v T args) :
-      ValsRel vs ts k ⊢ ValsRel vs ts k' := by
-    unfold ValsRel
-    match vs, ts with
-    | [], [] => exact .rfl
-    | v :: vs, t :: ts =>
-        exact sep_mono (ValRel.mono t v hkk) (ValsRel.mono ts vs hkk)
-    | [], _ :: _ | _ :: _, [] => exact .rfl
-
-  theorem ValSumRel.mono (ts : List Typ) (n : Nat) (payload : Runtime.Val) {k k' : RecCont}
-      (hkk : ∀ v T args, k v T args ⊢ k' v T args) :
-      ValSumRel n payload ts k ⊢ ValSumRel n payload ts k' := by
-    unfold ValSumRel
-    match n, ts with
-    | _, [] => exact .rfl
-    | 0, t :: _ => exact ValRel.mono t payload hkk
-    | n + 1, _ :: ts => exact ValSumRel.mono ts n payload hkk
-end
-
-/-! ### Internalized monotonicity in the continuation -/
-
-mutual
-  theorem ValRel.mono_int (t : Typ) (v : Runtime.Val) {k k' : RecCont} :
+  theorem ValRelBody.mono_int (R : ValShape) (t : Typ) (v : Runtime.Val) {k k' : RecCont} :
       ⊢ □ (∀ v T args, k v T args -∗ k' v T args) -∗
-        (ValRel v t k -∗ ValRel v t k' : iProp) := by
-    unfold ValRel
+        (ValRelBody R v t k -∗ ValRelBody R v t k' : iProp) := by
+    unfold ValRelBody
     match t with
-    | .unit | .bool | .int | .value | .empty
-    | .arrow _ _ | .tvar _ | .ref _ =>
-        iintro _ H; iexact H
     | .named T args =>
         iintro #Hk Hv
         iapply Hk
@@ -140,300 +82,594 @@ mutual
         iintro #Hk ⟨%vs, %heq, Hvs⟩
         iexists vs
         isplitr
-        · ipure_intro; exact heq
-        · iapply (ValsRel.mono_int ts vs)
+        · ipure_intro
+          exact heq
+        · iapply (ValsRelBody.mono_int R ts vs)
           · iexact Hk
           · iexact Hvs
     | .sum ts =>
         iintro #Hk ⟨%tag, %payload, %heq, Hsum⟩
         iexists tag, payload
         isplitr
-        · ipure_intro; exact heq
-        · iapply (ValSumRel.mono_int ts tag payload)
+        · ipure_intro
+          exact heq
+        · iapply (ValSumRelBody.mono_int R ts tag payload)
           · iexact Hk
           · iexact Hsum
+    | .unit | .bool | .int | .value | .empty | .arrow _ _ | .tvar _ | .ref _ =>
+        iintro _ H
+        iexact H
 
-  theorem ValsRel.mono_int (ts : List Typ) (vs : List Runtime.Val) {k k' : RecCont} :
+  theorem ValsRelBody.mono_int (R : ValShape) (ts : List Typ) (vs : List Runtime.Val)
+      {k k' : RecCont} :
       ⊢ □ (∀ v T args, k v T args -∗ k' v T args) -∗
-        (ValsRel vs ts k -∗ ValsRel vs ts k' : iProp) := by
-    unfold ValsRel
+        (ValsRelBody R vs ts k -∗ ValsRelBody R vs ts k' : iProp) := by
+    unfold ValsRelBody
     match vs, ts with
     | [], [] =>
-        iintro _ H; iexact H
+        iintro _ H
+        iexact H
     | v :: vs, t :: ts =>
-        iintro #Hk ⟨H1, H2⟩
-        isplitl [H1]
-        · iapply (ValRel.mono_int t v)
+        iintro #Hk ⟨Hv, Hvs⟩
+        isplitl [Hv]
+        · iapply (ValRelBody.mono_int R t v)
           · iexact Hk
-          · iexact H1
-        · iapply (ValsRel.mono_int ts vs)
+          · iexact Hv
+        · iapply (ValsRelBody.mono_int R ts vs)
           · iexact Hk
-          · iexact H2
+          · iexact Hvs
     | [], _ :: _ | _ :: _, [] =>
-        iintro _ H; iexact H
+        iintro _ H
+        iexact H
 
-  theorem ValSumRel.mono_int (ts : List Typ) (n : Nat) (payload : Runtime.Val) {k k' : RecCont} :
+  theorem ValSumRelBody.mono_int (R : ValShape) (ts : List Typ) (tag : Nat)
+      (payload : Runtime.Val) {k k' : RecCont} :
       ⊢ □ (∀ v T args, k v T args -∗ k' v T args) -∗
-        (ValSumRel n payload ts k -∗ ValSumRel n payload ts k' : iProp) := by
-    unfold ValSumRel
-    match n, ts with
+        (ValSumRelBody R tag payload ts k -∗ ValSumRelBody R tag payload ts k' : iProp) := by
+    unfold ValSumRelBody
+    match tag, ts with
     | _, [] =>
-        iintro _ H; iexact H
+        iintro _ H
+        iexact H
     | 0, t :: _ =>
         iintro #Hk Hv
-        iapply (ValRel.mono_int t payload)
+        iapply (ValRelBody.mono_int R t payload)
         · iexact Hk
         · iexact Hv
     | n + 1, _ :: ts =>
         iintro #Hk Hv
-        iapply (ValSumRel.mono_int ts n payload)
+        iapply (ValSumRelBody.mono_int R ts n payload)
         · iexact Hk
         · iexact Hv
 end
 
-/-! ### RecEnv as a least fixpoint -/
+/-! Mixed OFE continuity in the outer approximation and inner continuation. -/
 
-/-- Index of the recursive type environment fixpoint. Wrapped with `LeibnizO`
-    so that `NonExpansive` constraints on functions out of it are trivial. -/
-abbrev RecIdx := LeibnizO (Runtime.Val × TypeName × List Typ)
+mutual
+  theorem ValRelBody.dist {n : Nat} {R S : ValShape} {k k' : RecCont}
+      (hR : DistLater n R S) (hk : k ≡{n}≡ k') (t : Typ) (v : Runtime.Val) :
+      ValRelBody R v t k ≡{n}≡ ValRelBody S v t k' := by
+    unfold ValRelBody
+    match t with
+    | .ref t =>
+        refine exists_ne fun l => ?_
+        refine sep_ne.ne (.of_eq rfl) ?_
+        apply Contractive.distLater_dist (f := fun I : Runtime.Val → iProp => locinv l I)
+        intro m hm w
+        exact hR m hm w t
+    | .named T args =>
+        exact hk v T args
+    | .tuple ts =>
+        refine exists_ne fun vs => ?_
+        refine sep_ne.ne (.of_eq rfl) ?_
+        exact ValsRelBody.dist hR hk ts vs
+    | .sum ts =>
+        refine exists_ne fun tag => ?_
+        refine exists_ne fun payload => ?_
+        refine sep_ne.ne (.of_eq rfl) ?_
+        exact ValSumRelBody.dist hR hk ts tag payload
+    | .unit | .bool | .int | .value | .empty | .arrow _ _ | .tvar _ =>
+        exact Dist.rfl
 
-/-- Reinterpret a predicate over `RecIdx` as a curried `RecCont`. -/
-@[reducible] def RecCont.ofPred (Φ : RecIdx → iProp) : RecCont :=
-  fun v T args => Φ ⟨(v, T, args)⟩
+  theorem ValsRelBody.dist {n : Nat} {R S : ValShape} {k k' : RecCont}
+      (hR : DistLater n R S) (hk : k ≡{n}≡ k') (ts : List Typ) (vs : List Runtime.Val) :
+      ValsRelBody R vs ts k ≡{n}≡ ValsRelBody S vs ts k' := by
+    unfold ValsRelBody
+    match vs, ts with
+    | [], [] =>
+        exact Dist.rfl
+    | v :: vs, t :: ts =>
+        refine sep_ne.ne ?_ ?_
+        · exact ValRelBody.dist hR hk t v
+        · exact ValsRelBody.dist hR hk ts vs
+    | [], _ :: _ | _ :: _, [] =>
+        exact Dist.rfl
 
-/-- One unfolding of the recursive type environment: at index `(v, T, args)`,
-    look up the unfolded type `ty` and assert that `v` has type `ty` under the
-    interpretation `Φ` for nested named types. -/
-def RecEnvF (Θ : TypeEnv) (Φ : RecIdx → iProp) (x : RecIdx) : iProp :=
+  theorem ValSumRelBody.dist {n : Nat} {R S : ValShape} {k k' : RecCont}
+      (hR : DistLater n R S) (hk : k ≡{n}≡ k') (ts : List Typ) (tag : Nat)
+      (payload : Runtime.Val) :
+      ValSumRelBody R tag payload ts k ≡{n}≡ ValSumRelBody S tag payload ts k' := by
+    unfold ValSumRelBody
+    match tag, ts with
+    | _, [] =>
+        exact Dist.rfl
+    | 0, t :: _ =>
+        exact ValRelBody.dist hR hk t payload
+    | n + 1, _ :: ts =>
+        exact ValSumRelBody.dist hR hk ts n payload
+end
+
+instance ValRelBody.contractive (k : RecCont) (v : Runtime.Val) (t : Typ) :
+    Contractive (fun R : ValShape => ValRelBody R v t k) where
+  distLater_dist hR := ValRelBody.dist hR Dist.rfl t v
+
+/-- One unfolding of the inner recursive type interpretation. -/
+def ValRelIndF (Θ : TypeEnv) (R : ValShape) (Φ : RecIdx → iProp) (x : RecIdx) : iProp :=
   match x with
   | ⟨(v, T, args)⟩ =>
       iprop(∃ ty, ⌜TypeName.unfold Θ T args = some ty⌝ ∗
-            ValRel v ty (RecCont.ofPred Φ))
+        ValRelBody R v ty (RecCont.ofPred Φ))
 
-instance (Θ Φ) : Iris.OFE.NonExpansive (RecEnvF Θ Φ) where
+instance (Θ : TypeEnv) (R : ValShape) (Φ : RecIdx → iProp) :
+    NonExpansive (ValRelIndF Θ R Φ) where
   ne {_ x y} h := by
-    obtain ⟨x⟩ := x; obtain ⟨y⟩ := y
+    obtain ⟨x⟩ := x
+    obtain ⟨y⟩ := y
     cases LeibnizO.dist_inj h
-    exact Iris.OFE.Dist.of_eq rfl
+    exact Dist.of_eq rfl
 
-instance (Θ : TypeEnv) : Iris.BIMonoPred (RecEnvF Θ) where
+theorem ValRelIndF.contractive (Θ : TypeEnv) (Φ : RecIdx → iProp) (x : RecIdx) :
+    Contractive (fun R : ValShape => ValRelIndF Θ R Φ x) where
+  distLater_dist {n R S} hR := by
+    obtain ⟨v, T, args⟩ := x
+    simp only [ValRelIndF]
+    refine exists_ne fun ty => ?_
+    refine sep_ne.ne (.of_eq rfl) ?_
+    exact Contractive.distLater_dist
+      (f := fun R : ValShape => ValRelBody R v ty (RecCont.ofPred Φ)) hR
+
+instance (Θ : TypeEnv) (R : ValShape) : BIMonoPred (ValRelIndF Θ R) where
   mono_pred := by
     intro Φ Ψ _ _
     iintro #HΦΨ %x HF
     obtain ⟨v, T, args⟩ := x
-    simp only [RecEnvF]
+    simp only [ValRelIndF]
     icases HF with ⟨%ty, %hunfold, Hv⟩
     iexists ty
     isplitr
-    · ipure_intro; exact hunfold
-    · iapply (ValRel.mono_int ty v (k := RecCont.ofPred _) (k' := RecCont.ofPred _))
+    · ipure_intro
+      exact hunfold
+    · iapply (ValRelBody.mono_int R ty v
+        (k := RecCont.ofPred Φ) (k' := RecCont.ofPred Ψ))
       · imodintro
         iintro %v' %T' %args'
         iapply HΦΨ
       · iexact Hv
   mono_pred_ne.ne {_ x y} h := by
-    obtain ⟨x⟩ := x; obtain ⟨y⟩ := y
+    obtain ⟨x⟩ := x
+    obtain ⟨y⟩ := y
     cases LeibnizO.dist_inj h
-    exact Iris.OFE.Dist.of_eq rfl
+    exact Dist.of_eq rfl
 
-/-- The fixpoint interpretation of named types under the type environment `Θ`. -/
-def RecEnv (Θ : TypeEnv) (v : Runtime.Val) (T : TypeName) (args : List Typ) : iProp :=
-  Iris.bi_least_fixpoint (RecEnvF Θ) ⟨(v, T, args)⟩
+/-- The inner least fixpoint for named types, with the outer approximation fixed. -/
+def ValRelInd (Θ : TypeEnv) (R : ValShape) : RecCont :=
+  fun v T args => Iris.bi_least_fixpoint (ValRelIndF Θ R) ⟨(v, T, args)⟩
 
-/-- The unfolding equation of `RecEnv`. Follows from
-    `Iris.least_fixpoint_unfold` once the BIMonoPred instance is real. -/
-theorem RecEnv.unfold {Θ : TypeEnv} {v : Runtime.Val} {T : TypeName} {args : List Typ} :
-    RecEnv Θ v T args ⊣⊢
+theorem ValRelInd.unfold {Θ : TypeEnv} {R : ValShape}
+    {v : Runtime.Val} {T : TypeName} {args : List Typ} :
+    ValRelInd Θ R v T args ⊣⊢
       iprop(∃ ty, ⌜TypeName.unfold Θ T args = some ty⌝ ∗
-            ValRel v ty (RecEnv Θ)) := by
-  have h := Iris.least_fixpoint_unfold (RecEnvF Θ) (x := ⟨(v, T, args)⟩)
-  simp only [RecEnvF] at h
-  exact Iris.BI.equiv_iff.mp h
+        ValRelBody R v ty (ValRelInd Θ R)) := by
+  have h := Iris.least_fixpoint_unfold (ValRelIndF Θ R) (x := ⟨(v, T, args)⟩)
+  simp only [ValRelIndF] at h
+  exact equiv_iff.mp h
 
-/-! ### Final value typing -/
+instance ValRelInd.contractive (Θ : TypeEnv) :
+    Contractive (fun R : ValShape => ValRelInd Θ R) where
+  distLater_dist {n R S} hR v T args := by
+    unfold ValRelInd Iris.bi_least_fixpoint
+    refine forall_ne fun Φ => ?_
+    refine wand_ne.ne ?_ (.of_eq rfl)
+    refine intuitionistically_ne.ne ?_
+    refine forall_ne fun x => ?_
+    refine wand_ne.ne ?_ (.of_eq rfl)
+    exact (ValRelIndF.contractive Θ (fun x => Φ x) x).distLater_dist hR
 
-def ValHasType (Θ : TypeEnv) (v : Runtime.Val) (t : Typ) : iProp :=
-  ValRel v t (RecEnv Θ)
+/-- The outer functional. It closes the named-type continuation using `ValRelInd`. -/
+def ValRelF (Θ : TypeEnv) (R : ValShape) : ValShape :=
+  fun v t => ValRelBody R v t (ValRelInd Θ R)
 
+instance ValRelF.contractive (Θ : TypeEnv) : Contractive (ValRelF Θ) where
+  distLater_dist {n R S} hR v t := by
+    unfold ValRelF
+    have hk : ValRelInd Θ R ≡{n}≡ ValRelInd Θ S :=
+      Contractive.distLater_dist (f := fun R : ValShape => ValRelInd Θ R) hR
+    exact ValRelBody.dist hR hk t v
+
+/-- The mixed recursive value relation. -/
+def ValHasType (Θ : TypeEnv) : ValShape :=
+  fixpoint (ValRelF Θ)
+
+/-- Final tuple/list relation induced by the mixed recursive value relation. -/
 def ValsHaveTypes (Θ : TypeEnv) (vs : List Runtime.Val) (ts : List Typ) : iProp :=
-  ValsRel vs ts (RecEnv Θ)
+  ValsRelBody (ValHasType Θ) vs ts (ValRelInd Θ (ValHasType Θ))
 
-instance RecEnvF.persistent (Θ : TypeEnv) (Φ : RecIdx → iProp)
-    [∀ x, Persistent (Φ x)] (x : RecIdx) : Persistent (RecEnvF Θ Φ x) := by
-  obtain ⟨v, T, args⟩ := x
-  simp only [RecEnvF]
-  have : ∀ ty, Persistent (ValRel v ty (RecCont.ofPred Φ)) :=
-    fun ty => ValRel.persistent ty v (fun _ _ _ => inferInstance)
-  infer_instance
+/-- Final sum-payload relation induced by the mixed recursive value relation. -/
+def ValSumRel (Θ : TypeEnv) (tag : Nat) (payload : Runtime.Val)
+    (ts : List Typ) : iProp :=
+  ValSumRelBody (ValHasType Θ) tag payload ts (ValRelInd Θ (ValHasType Θ))
 
-instance RecEnvF.absorbing (Θ : TypeEnv) (Φ : RecIdx → iProp)
-    [∀ x, Absorbing (Φ x)] (x : RecIdx) : Absorbing (RecEnvF Θ Φ x) := by
-  obtain ⟨v, T, args⟩ := x
-  simp only [RecEnvF]
-  infer_instance
+theorem ValHasType.unfold (Θ : TypeEnv) (v : Runtime.Val) (t : Typ) :
+    ValHasType Θ v t ≡ ValRelBody (ValHasType Θ) v t (ValRelInd Θ (ValHasType Θ)) := by
+  let F : ValShape -c> ValShape := {
+    f := ValRelF Θ
+    contractive := inferInstance
+  }
+  exact (fixpoint_unfold F) v t
 
-instance (Θ v T args) : Persistent (RecEnv Θ v T args) :=
-  @Iris.least_fixpoint_persistent_absorbing iProp RecIdx _ _ (RecEnvF Θ) _
-    (fun _ _ _ => inferInstance) (fun _ _ _ => inferInstance) ⟨(v, T, args)⟩
 
-instance (Θ v t) : Persistent (ValHasType Θ v t) :=
-  ValRel.persistent t v (fun _ _ _ => inferInstance)
-
-instance (Θ vs ts) : Persistent (ValsHaveTypes Θ vs ts) :=
-  ValsRel.persistent ts vs (fun _ _ _ => inferInstance)
-
-theorem ValsHaveTypes.cons {Θ : TypeEnv} {v : Runtime.Val} {vs : List Runtime.Val}
-    {t : Typ} {ts : List Typ} :
-    ValsHaveTypes Θ (v :: vs) (t :: ts) ⊣⊢ ValHasType Θ v t ∗ ValsHaveTypes Θ vs ts := by
-  unfold ValsHaveTypes ValHasType
-  simp [ValsRel]
-
-/-! ### Subtyping (entailments). `Typ.Sub` stays in `Prop`. -/
-
-/-- `ValSumRel tag payload ts k` is defined by navigating to `ts[tag]`. This
-    lemma exposes that characterization from one direction. -/
-theorem ValSumRel.of_getElem? {k : RecCont} {payload : Runtime.Val} :
-    ∀ {ts : List Typ} {tag : Nat} {s : Typ}, ts[tag]? = some s →
-      ValSumRel tag payload ts k ⊢ ValRel payload s k
-  | [], _, _, h => by simp at h
-  | _ :: _, 0, _, h => by
-      unfold ValSumRel; simp at h; subst h; exact .rfl
-  | _ :: ts, n + 1, _, h => by
-      unfold ValSumRel
-      exact ValSumRel.of_getElem? (ts := ts) (by simpa using h)
-
-theorem ValSumRel.to_getElem? {k : RecCont} {payload : Runtime.Val} :
-    ∀ {ts : List Typ} {tag : Nat} {s : Typ}, ts[tag]? = some s →
-      ValRel payload s k ⊢ ValSumRel tag payload ts k
-  | [], _, _, h => by simp at h
-  | _ :: _, 0, _, h => by
-      unfold ValSumRel; simp at h; subst h; exact .rfl
-  | _ :: ts, n + 1, _, h => by
-      unfold ValSumRel
-      exact ValSumRel.to_getElem? (ts := ts) (by simpa using h)
+/-! Persistence of the mixed value relation. -/
 
 mutual
-  theorem ValHasType_sub {Θ : TypeEnv} {v : Runtime.Val} {t t' : Typ}
+  theorem ValRelBody.persistent (R : ValShape) (t : Typ) (v : Runtime.Val) {k : RecCont}
+      (hk : ∀ v T args, Persistent (k v T args)) : Persistent (ValRelBody R v t k) := by
+    unfold ValRelBody
+    match t with
+    | .unit | .bool | .int | .value | .empty | .arrow _ _ | .tvar _ =>
+        infer_instance
+    | .ref _ =>
+        have := locinv_persistent
+        infer_instance
+    | .named T args =>
+        exact hk v T args
+    | .tuple ts =>
+        have : ∀ vs, Persistent (ValsRelBody R vs ts k) :=
+          fun vs => ValsRelBody.persistent R ts vs hk
+        infer_instance
+    | .sum ts =>
+        have : ∀ n payload, Persistent (ValSumRelBody R n payload ts k) :=
+          fun n payload => ValSumRelBody.persistent R ts n payload hk
+        infer_instance
+
+  theorem ValsRelBody.persistent (R : ValShape) (ts : List Typ) (vs : List Runtime.Val)
+      {k : RecCont} (hk : ∀ v T args, Persistent (k v T args)) :
+      Persistent (ValsRelBody R vs ts k) := by
+    unfold ValsRelBody
+    match vs, ts with
+    | [], [] =>
+        infer_instance
+    | v :: vs, t :: ts =>
+        have := ValRelBody.persistent R t v hk
+        have := ValsRelBody.persistent R ts vs hk
+        infer_instance
+    | [], _ :: _ | _ :: _, [] =>
+        infer_instance
+
+  theorem ValSumRelBody.persistent (R : ValShape) (ts : List Typ) (n : Nat)
+      (payload : Runtime.Val) {k : RecCont} (hk : ∀ v T args, Persistent (k v T args)) :
+      Persistent (ValSumRelBody R n payload ts k) := by
+    unfold ValSumRelBody
+    match n, ts with
+    | _, [] =>
+        infer_instance
+    | 0, t :: _ =>
+        exact ValRelBody.persistent R t payload hk
+    | n + 1, _ :: ts =>
+        exact ValSumRelBody.persistent R ts n payload hk
+end
+
+instance ValRelIndF.persistent (Θ : TypeEnv) (R : ValShape) (Φ : RecIdx → iProp)
+    [∀ x, Persistent (Φ x)] (x : RecIdx) : Persistent (ValRelIndF Θ R Φ x) := by
+  obtain ⟨v, T, args⟩ := x
+  simp only [ValRelIndF]
+  have : ∀ ty, Persistent (ValRelBody R v ty (RecCont.ofPred Φ)) :=
+    fun ty => ValRelBody.persistent R ty v (fun _ _ _ => inferInstance)
+  infer_instance
+
+instance ValRelIndF.absorbing (Θ : TypeEnv) (R : ValShape) (Φ : RecIdx → iProp)
+    [∀ x, Absorbing (Φ x)] (x : RecIdx) : Absorbing (ValRelIndF Θ R Φ x) := by
+  obtain ⟨v, T, args⟩ := x
+  simp only [ValRelIndF]
+  infer_instance
+
+instance (Θ : TypeEnv) (R : ValShape) (v : Runtime.Val) (T : TypeName)
+    (args : List Typ) : Persistent (ValRelInd Θ R v T args) :=
+  @Iris.least_fixpoint_persistent_absorbing iProp RecIdx _ _ (ValRelIndF Θ R) _
+    (fun _ _ _ => inferInstance) (fun _ _ _ => inferInstance) ⟨(v, T, args)⟩
+
+instance (Θ : TypeEnv) (v : Runtime.Val) (t : Typ) : Persistent (ValHasType Θ v t) :=
+  (persistent_congr (equiv_iff.mp (ValHasType.unfold Θ v t))).mpr
+    (ValRelBody.persistent (ValHasType Θ) t v (fun _ _ _ => inferInstance))
+
+instance (Θ : TypeEnv) (vs : List Runtime.Val) (ts : List Typ) :
+    Persistent (ValsHaveTypes Θ vs ts) :=
+  ValsRelBody.persistent (ValHasType Θ) ts vs (fun _ _ _ => inferInstance)
+
+instance (Θ : TypeEnv) (tag : Nat) (payload : Runtime.Val) (ts : List Typ) :
+    Persistent (ValSumRel Θ tag payload ts) :=
+  ValSumRelBody.persistent (ValHasType Θ) ts tag payload (fun _ _ _ => inferInstance)
+
+
+/-! Per-type unfoldings -/
+
+theorem ValHasType.unit (Θ : TypeEnv) (v : Runtime.Val) :
+    ValHasType Θ v .unit ⊣⊢ iprop(⌜v = .unit⌝) := by
+  exact equiv_iff.mp (ValHasType.unfold Θ v .unit)
+
+theorem ValHasType.bool (Θ : TypeEnv) (v : Runtime.Val) :
+    ValHasType Θ v .bool ⊣⊢ iprop(⌜∃ b, v = .bool b⌝) := by
+  exact equiv_iff.mp (ValHasType.unfold Θ v .bool)
+
+theorem ValHasType.int (Θ : TypeEnv) (v : Runtime.Val) :
+    ValHasType Θ v .int ⊣⊢ iprop(⌜∃ n, v = .int n⌝) := by
+  exact equiv_iff.mp (ValHasType.unfold Θ v .int)
+
+theorem ValHasType.value (Θ : TypeEnv) (v : Runtime.Val) :
+    ValHasType Θ v .value ⊣⊢ iprop(True) := by
+  exact equiv_iff.mp (ValHasType.unfold Θ v .value)
+
+theorem ValHasType.empty (Θ : TypeEnv) (v : Runtime.Val) :
+    ValHasType Θ v .empty ⊣⊢ iprop(False) := by
+  exact equiv_iff.mp (ValHasType.unfold Θ v .empty)
+
+theorem ValHasType.arrow (Θ : TypeEnv) (v : Runtime.Val) (t1 t2 : Typ) :
+    ValHasType Θ v (.arrow t1 t2) ⊣⊢ iprop(False) := by
+  exact equiv_iff.mp (ValHasType.unfold Θ v (.arrow t1 t2))
+
+theorem ValHasType.tvar (Θ : TypeEnv) (v : Runtime.Val) (x : TyVar) :
+    ValHasType Θ v (.tvar x) ⊣⊢ iprop(False) := by
+  exact equiv_iff.mp (ValHasType.unfold Θ v (.tvar x))
+
+theorem ValHasType.ref (Θ : TypeEnv) (v : Runtime.Val) (t : Typ) :
+    ValHasType Θ v (.ref t) ⊣⊢
+      iprop(∃ l, ⌜v = .loc l⌝ ∗ locinv l (fun w => ValHasType Θ w t)) := by
+  exact equiv_iff.mp (ValHasType.unfold Θ v (.ref t))
+
+theorem ValHasType.tuple (Θ : TypeEnv) (v : Runtime.Val) (ts : List Typ) :
+    ValHasType Θ v (.tuple ts) ⊣⊢
+      iprop(∃ vs, ⌜v = .tuple vs⌝ ∗ ValsHaveTypes Θ vs ts) := by
+  exact equiv_iff.mp (ValHasType.unfold Θ v (.tuple ts))
+
+theorem ValHasType.sum (Θ : TypeEnv) (v : Runtime.Val) (ts : List Typ) :
+    ValHasType Θ v (.sum ts) ⊣⊢
+      iprop(∃ tag payload, ⌜v = .inj tag ts.length payload⌝ ∗
+        ValSumRel Θ tag payload ts) := by
+  exact equiv_iff.mp (ValHasType.unfold Θ v (.sum ts))
+
+theorem ValHasType.named (Θ : TypeEnv) (v : Runtime.Val) (T : TypeName) (args : List Typ) :
+    ValHasType Θ v (.named T args) ⊣⊢
+      iprop(∃ ty, ⌜TypeName.unfold Θ T args = some ty⌝ ∗ ValHasType Θ v ty) := by
+  refine (equiv_iff.mp (ValHasType.unfold Θ v (.named T args))).trans ?_
+  refine ValRelInd.unfold.trans ?_
+  apply equiv_iff.mp
+  refine equiv_dist.mpr fun _ => ?_
+  refine exists_ne fun ty => ?_
+  refine sep_ne.ne (.of_eq rfl) ?_
+  exact (ValHasType.unfold Θ v ty).symm.dist
+
+theorem ValHasType.named_of_unfold {Θ : TypeEnv} {v : Runtime.Val}
+    {T : TypeName} {args : List Typ} {ty : Typ}
+    (hunfold : TypeName.unfold Θ T args = some ty) :
+    ValHasType Θ v (.named T args) ⊣⊢ ValHasType Θ v ty := by
+  refine (ValHasType.named Θ v T args).trans ?_
+  constructor
+  · iintro H
+    icases H with ⟨%ty', %hunfold', Hty⟩
+    rw [hunfold] at hunfold'
+    cases hunfold'
+    iexact Hty
+  · iintro Hty
+    iexists ty
+    isplitr
+    · ipure_intro
+      exact hunfold
+    · iexact Hty
+
+theorem ValsHaveTypes.nil (Θ : TypeEnv) :
+    ValsHaveTypes Θ [] [] ⊣⊢ iprop(emp) := by
+  unfold ValsHaveTypes ValsRelBody
+  exact .rfl
+
+theorem ValsHaveTypes.cons (Θ : TypeEnv) (v : Runtime.Val) (vs : List Runtime.Val)
+    (t : Typ) (ts : List Typ) :
+    ValsHaveTypes Θ (v :: vs) (t :: ts) ⊣⊢ ValHasType Θ v t ∗ ValsHaveTypes Θ vs ts := by
+  unfold ValsHaveTypes
+  change iprop(ValRelBody (ValHasType Θ) v t (ValRelInd Θ (ValHasType Θ)) ∗
+      ValsRelBody (ValHasType Θ) vs ts (ValRelInd Θ (ValHasType Θ))) ⊣⊢
+    iprop(ValHasType Θ v t ∗ ValsRelBody (ValHasType Θ) vs ts (ValRelInd Θ (ValHasType Θ)))
+  exact sep_congr (equiv_iff.mp (ValHasType.unfold Θ v t).symm) .rfl
+
+theorem ValsHaveTypes.nil_cons (Θ : TypeEnv) (t : Typ) (ts : List Typ) :
+    ValsHaveTypes Θ [] (t :: ts) ⊣⊢ iprop(False) := by
+  unfold ValsHaveTypes ValsRelBody
+  exact .rfl
+
+theorem ValsHaveTypes.cons_nil (Θ : TypeEnv) (v : Runtime.Val) (vs : List Runtime.Val) :
+    ValsHaveTypes Θ (v :: vs) [] ⊣⊢ iprop(False) := by
+  unfold ValsHaveTypes ValsRelBody
+  exact .rfl
+
+theorem ValSumRel.nil (Θ : TypeEnv) (tag : Nat) (payload : Runtime.Val) :
+    ValSumRel Θ tag payload [] ⊣⊢ iprop(False) := by
+  unfold ValSumRel ValSumRelBody
+  exact .rfl
+
+theorem ValSumRel.zero (Θ : TypeEnv) (payload : Runtime.Val) (t : Typ) (ts : List Typ) :
+    ValSumRel Θ 0 payload (t :: ts) ⊣⊢ ValHasType Θ payload t := by
+  unfold ValSumRel ValSumRelBody
+  exact equiv_iff.mp (ValHasType.unfold Θ payload t).symm
+
+theorem ValSumRel.succ (Θ : TypeEnv) (tag : Nat) (payload : Runtime.Val)
+    (t : Typ) (ts : List Typ) :
+    ValSumRel Θ (tag + 1) payload (t :: ts) ⊣⊢ ValSumRel Θ tag payload ts := by
+  unfold ValSumRel
+  change ValSumRelBody (ValHasType Θ) tag payload ts (ValRelInd Θ (ValHasType Θ)) ⊣⊢
+    ValSumRelBody (ValHasType Θ) tag payload ts (ValRelInd Θ (ValHasType Θ))
+  exact .rfl
+
+/-! Indexing and subtyping compatibility. -/
+
+/-- `ValSumRel Θ tag payload ts` is the value relation at `ts[tag]`, when that
+index exists. -/
+theorem ValSumRel.of_getElem? {Θ : TypeEnv} {payload : Runtime.Val} :
+    ∀ {ts : List Typ} {tag : Nat} {s : Typ}, ts[tag]? = some s →
+      ValSumRel Θ tag payload ts ⊢ ValHasType Θ payload s
+  | [], _, _, h => by
+      simp at h
+  | _ :: _, 0, _, h => by
+      simp at h
+      subst h
+      exact (ValSumRel.zero Θ payload _ _).1
+  | _ :: ts, n + 1, _, h => by
+      exact (ValSumRel.succ Θ n payload _ ts).1.trans
+        (ValSumRel.of_getElem? (Θ := Θ) (payload := payload) (ts := ts) (by simpa using h))
+
+theorem ValSumRel.to_getElem? {Θ : TypeEnv} {payload : Runtime.Val} :
+    ∀ {ts : List Typ} {tag : Nat} {s : Typ}, ts[tag]? = some s →
+      ValHasType Θ payload s ⊢ ValSumRel Θ tag payload ts
+  | [], _, _, h => by
+      simp at h
+  | _ :: _, 0, _, h => by
+      simp at h
+      subst h
+      exact (ValSumRel.zero Θ payload _ _).2
+  | _ :: ts, n + 1, _, h => by
+      exact (ValSumRel.to_getElem? (Θ := Θ) (payload := payload) (ts := ts) (by simpa using h)).trans
+        (ValSumRel.succ Θ n payload _ ts).2
+
+mutual
+  theorem ValHasType.sub {Θ : TypeEnv} {v : Runtime.Val} {t t' : Typ}
       (hsub : Typ.Sub Θ t t') :
       ValHasType Θ v t ⊢ ValHasType Θ v t' := by
     match hsub with
-    | .refl => exact .rfl
-    | .bot => unfold ValHasType ValRel; exact false_elim
-    | .top => unfold ValHasType ValRel; exact true_intro
-    | .trans h1 h2 => exact (ValHasType_sub h1).trans (ValHasType_sub h2)
+    | .refl =>
+        exact .rfl
+    | .bot =>
+        exact (ValHasType.empty Θ v).1.trans false_elim
+    | .top =>
+        exact true_intro.trans (ValHasType.value Θ v).2
+    | .trans h1 h2 =>
+        exact (ValHasType.sub h1).trans (ValHasType.sub h2)
     | .sum hlist =>
-        unfold ValHasType ValRel
         have hlen := hlist.length_eq
-        iintro ⟨%tag, %payload, %heq, Hsum⟩
+        refine (ValHasType.sum Θ v _).1.trans ?_
+        refine .trans ?_ (ValHasType.sum Θ v _).2
+        iintro H
+        icases H with ⟨%tag, %payload, %heq, Hsum⟩
         iexists tag, payload
         isplitr
-        · ipure_intro; rw [heq, hlen]
-        · iapply (ValsHaveTypes_sub_sum hlist payload tag); iexact Hsum
-    | .arrow _ _ => unfold ValHasType ValRel; exact false_elim
+        · ipure_intro
+          rw [heq, hlen]
+        · iapply (ValSumRel.sub hlist payload tag)
+          iexact Hsum
+    | .arrow _ _ =>
+        exact (ValHasType.arrow Θ v _ _).1.trans false_elim
     | .tuple hlist =>
-        unfold ValHasType ValRel
-        refine exists_mono fun vs => ?_
-        refine sep_mono_r ?_
-        exact ValsHaveTypes_sub (vs := vs) hlist
-    | .named_left hunfold hsub' =>
-        refine .trans ?_ (ValHasType_sub hsub')
-        unfold ValHasType
-        change RecEnv _ v _ _ ⊢ _
-        refine RecEnv.unfold.1.trans ?_
-        iintro ⟨%ty', %hunfold', Hv⟩
-        rw [hunfold] at hunfold'
-        cases hunfold'
-        iexact Hv
-    | .named_right hunfold hsub' =>
-        refine (ValHasType_sub hsub').trans ?_
-        unfold ValHasType
-        change _ ⊢ RecEnv _ v _ _
-        refine .trans ?_ RecEnv.unfold.2
-        iintro Hv
-        iexists _
+        refine (ValHasType.tuple Θ v _).1.trans ?_
+        refine .trans ?_ (ValHasType.tuple Θ v _).2
+        iintro H
+        icases H with ⟨%vs, %heq, Hvs⟩
+        iexists vs
         isplitr
-        · ipure_intro; exact hunfold
-        · iexact Hv
+        · ipure_intro
+          exact heq
+        · iapply (ValsHaveTypes.sub (vs := vs) hlist)
+          iexact Hvs
+    | .named_left hunfold hsub' =>
+        exact (ValHasType.named_of_unfold (v := v) hunfold).1.trans (ValHasType.sub hsub')
+    | .named_right hunfold hsub' =>
+        exact (ValHasType.sub hsub').trans (ValHasType.named_of_unfold (v := v) hunfold).2
 
-  theorem ValsHaveTypes_sub {Θ : TypeEnv} {vs : List Runtime.Val} {ts ts' : List Typ}
+  theorem ValsHaveTypes.sub {Θ : TypeEnv} {vs : List Runtime.Val} {ts ts' : List Typ}
       (hsub : Typ.SubList Θ ts ts') :
       ValsHaveTypes Θ vs ts ⊢ ValsHaveTypes Θ vs ts' := by
     match hsub, vs with
-    | .nil, _ => exact .rfl
-    | .cons _ _, [] => unfold ValsHaveTypes ValsRel; exact .rfl
-    | .cons hst hrest, v :: vs =>
-        unfold ValsHaveTypes ValsRel
-        exact sep_mono (ValHasType_sub hst) (ValsHaveTypes_sub (vs := vs) hrest)
+    | .nil, _ =>
+        exact .rfl
+    | .cons (s := s) (ss := ss) _ _, [] =>
+        exact (ValsHaveTypes.nil_cons Θ s ss).1.trans false_elim
+    | .cons (s := s) (t := t) (ss := ss) (ts := ts) hst hrest, v :: vs =>
+        refine (ValsHaveTypes.cons Θ v vs s ss).1.trans ?_
+        refine .trans ?_ (ValsHaveTypes.cons Θ v vs t ts).2
+        exact sep_mono (ValHasType.sub hst) (ValsHaveTypes.sub (vs := vs) hrest)
 
-  theorem ValsHaveTypes_sub_sum {Θ : TypeEnv} {ss ts : List Typ}
-      (hlist : Typ.SubList Θ ss ts) (payload : Runtime.Val) (tag : Nat) :
-      ValSumRel tag payload ss (RecEnv Θ) ⊢ ValSumRel tag payload ts (RecEnv Θ) := by
-    match hlist, tag with
-    | .nil, _ => exact .rfl
-    | .cons hst _, 0 =>
-        unfold ValSumRel; exact ValHasType_sub (v := payload) hst
-    | .cons _ hrest, n + 1 =>
-        unfold ValSumRel; exact ValsHaveTypes_sub_sum hrest payload n
+  theorem ValSumRel.sub {Θ : TypeEnv} {ss ts : List Typ}
+      (hsub : Typ.SubList Θ ss ts) (payload : Runtime.Val) (tag : Nat) :
+      ValSumRel Θ tag payload ss ⊢ ValSumRel Θ tag payload ts := by
+    match hsub, tag with
+    | .nil, _ =>
+        exact .rfl
+    | .cons (s := s) (t := t) (ss := ss) (ts := ts) hst _, 0 =>
+        exact (ValSumRel.zero Θ payload s ss).1.trans
+          ((ValHasType.sub hst).trans (ValSumRel.zero Θ payload t ts).2)
+    | .cons (s := s) (t := t) (ss := ss) (ts := ts) _ hrest, n + 1 =>
+        exact (ValSumRel.succ Θ n payload s ss).1.trans
+          ((ValSumRel.sub hrest payload n).trans (ValSumRel.succ Θ n payload t ts).2)
 
-  theorem ValHasType_subList {Θ : TypeEnv} {payload : Runtime.Val} {s : Typ}
-      {ss ts : List Typ}
-      (hlist : Typ.SubList Θ ss ts) {tag : Nat} (hs : ss[tag]? = some s) :
+  theorem ValHasType.subList {Θ : TypeEnv} {payload : Runtime.Val} {s : Typ}
+      {ss ts : List Typ} (hsub : Typ.SubList Θ ss ts) {tag : Nat}
+      (hs : ss[tag]? = some s) :
       ValHasType Θ payload s ⊢
         iprop(∃ t, ⌜ts[tag]? = some t⌝ ∗ ValHasType Θ payload t) := by
-    match hlist, tag, hs with
-    | .nil, _, h => simp at h
+    match hsub, tag, hs with
+    | .nil, _, h =>
+        simp at h
     | .cons (t := t') hst _, 0, h =>
-        simp at h; subst h
+        simp at h
+        subst h
         iintro Hv
         iexists t'
         isplitr
-        · ipure_intro; simp
-        · iapply (ValHasType_sub hst); iexact Hv
-    | .cons (ss := ss') hst hrest, n + 1, h =>
-        have h' : ss'[n]? = some s := by simpa using h
-        refine (ValHasType_subList hrest h').trans ?_
-        iintro ⟨%t, %hget, Hv⟩
+        · ipure_intro
+          simp
+        · iapply (ValHasType.sub hst)
+          iexact Hv
+    | .cons (ss := ss') _ hrest, n + 1, h =>
+        have h' : ss'[n]? = some s := by
+          simpa using h
+        refine (ValHasType.subList hrest h').trans ?_
+        iintro H
+        icases H with ⟨%t, %hget, Ht⟩
         iexists t
         isplitr
-        · ipure_intro; simpa using hget
-        · iexact Hv
+        · ipure_intro
+          simpa using hget
+        · iexact Ht
 end
 
 /-- Length agreement for `ValsHaveTypes`, as an entailment. -/
 theorem ValsHaveTypes.length_eq {Θ : TypeEnv} {vs : List Runtime.Val} {ts : List Typ} :
     ValsHaveTypes Θ vs ts ⊢ iprop(⌜vs.length = ts.length⌝) := by
-  unfold ValsHaveTypes
   match vs, ts with
-  | [], [] => exact pure_intro rfl
+  | [], [] =>
+      exact (ValsHaveTypes.nil Θ).1.trans (pure_intro rfl)
   | v :: vs, t :: ts =>
-      unfold ValsRel
-      have ih := ValsHaveTypes.length_eq (Θ := Θ) (vs := vs) (ts := ts)
-      unfold ValsHaveTypes at ih
-      iintro ⟨_, H⟩
-      iapply (ih.trans (pure_mono (fun h => by simp [h])))
-      iexact H
-  | [], _ :: _ | _ :: _, [] => unfold ValsRel; exact false_elim
+      exact ((ValsHaveTypes.cons Θ v vs t ts).1.trans sep_elim_r).trans
+        ((ValsHaveTypes.length_eq (Θ := Θ) (vs := vs) (ts := ts)).trans
+          (pure_mono (fun h => by simp [h])))
+  | [], t :: ts =>
+      exact (ValsHaveTypes.nil_cons Θ t ts).1.trans false_elim
+  | v :: vs, [] =>
+      exact (ValsHaveTypes.cons_nil Θ v vs).1.trans false_elim
 
 /-- If `ts[n]? = some t`, then a related list of values contains a value at
-    index `n` related at type `t`. -/
-theorem ValsRel.of_getElem? {Θ : TypeEnv} :
+index `n` related at type `t`. -/
+theorem ValsHaveTypes.of_getElem? {Θ : TypeEnv} :
     ∀ {vs : List Runtime.Val} {ts : List Typ} {n : Nat} {t : Typ},
       ts[n]? = some t →
-      ValsRel vs ts (RecEnv Θ) ⊢ iprop(∃ v, ⌜vs[n]? = some v⌝ ∗ ValRel v t (RecEnv Θ))
+      ValsHaveTypes Θ vs ts ⊢ iprop(∃ v, ⌜vs[n]? = some v⌝ ∗ ValHasType Θ v t)
   | [], [], _, _, h => by
       simp at h
-  | [], _ :: _, _, _, _ => by
-      unfold ValsRel
-      exact false_elim
-  | _ :: _, [], _, _, _ => by
-      unfold ValsRel
-      exact false_elim
+  | [], t :: ts, _, _, _ => by
+      exact (ValsHaveTypes.nil_cons Θ t ts).1.trans false_elim
+  | v :: vs, [], _, _, _ => by
+      exact (ValsHaveTypes.cons_nil Θ v vs).1.trans false_elim
   | v :: vs, t :: ts, 0, t', h => by
       simp at h
       subst h
-      unfold ValsRel
+      refine (ValsHaveTypes.cons Θ v vs t ts).1.trans ?_
       iintro H
-      icases H with ⟨Hv, Htail⟩
+      icases H with ⟨Hv, _⟩
       iexists v
       isplitr
       · ipure_intro
@@ -442,244 +678,262 @@ theorem ValsRel.of_getElem? {Θ : TypeEnv} :
   | v :: vs, t :: ts, n + 1, t', h => by
       have h' : ts[n]? = some t' := by
         simpa using h
-      refine (show ValsRel (v :: vs) (t :: ts) (RecEnv Θ) ⊢
-          iprop(∃ w, ⌜(v :: vs)[n + 1]? = some w⌝ ∗ ValRel w t' (RecEnv Θ)) by
-        unfold ValsRel
-        iintro H
-        icases H with ⟨Hhead, Hvs⟩
-        iapply
-          (show iprop(∃ w, ⌜vs[n]? = some w⌝ ∗ ValRel w t' (RecEnv Θ)) ⊢
-              iprop(∃ w, ⌜(v :: vs)[n + 1]? = some w⌝ ∗ ValRel w t' (RecEnv Θ)) by
-            iintro H'
-            icases H' with ⟨%w, %hget, Hwitness⟩
-            iexists w
-            isplitr
-            · ipure_intro
-              simpa using hget
-            · iexact Hwitness)
-        iapply (ValsRel.of_getElem? (Θ := Θ) (vs := vs) (ts := ts) (n := n) (t := t') h')
-        iexact Hvs)
+      refine (ValsHaveTypes.cons Θ v vs t ts).1.trans ?_
+      iintro H
+      icases H with ⟨_, Hvs⟩
+      iapply
+        (show iprop(∃ w, ⌜vs[n]? = some w⌝ ∗ ValHasType Θ w t') ⊢
+            iprop(∃ w, ⌜(v :: vs)[n + 1]? = some w⌝ ∗ ValHasType Θ w t') by
+          iintro H'
+          icases H' with ⟨%w, %hget, Hwitness⟩
+          iexists w
+          isplitr
+          · ipure_intro
+            simpa using hget
+          · iexact Hwitness)
+      iapply (ValsHaveTypes.of_getElem? (Θ := Θ) (vs := vs) (ts := ts) (n := n) (t := t') h')
+      iexact Hvs
 
-end TinyML
 
-/-! ### Type preservation for primitive operations (entailments). -/
+/-! Type preservation for primitive operations. -/
 
-theorem evalBinOp_typed {Θ : TinyML.TypeEnv} {op : TinyML.BinOp}
-    {v1 v2 : Runtime.Val} {t1 t2 ty : TinyML.Typ}
+theorem evalBinOp_typed {Θ : TypeEnv} {op : BinOp}
+    {v1 v2 : Runtime.Val} {t1 t2 ty : Typ}
     (hndiv : op ≠ .div) (hnmod : op ≠ .mod)
-    (hty : TinyML.BinOp.typeOf op t1 t2 = some ty) :
-    iprop(TinyML.ValHasType Θ v1 t1 ∗ TinyML.ValHasType Θ v2 t2) ⊢
-      iprop(∃ w, ⌜TinyML.evalBinOp op v1 v2 = some w⌝ ∗ TinyML.ValHasType Θ w ty) := by
+    (hty : BinOp.typeOf op t1 t2 = some ty) :
+    iprop(ValHasType Θ v1 t1 ∗ ValHasType Θ v2 t2) ⊢
+      iprop(∃ w, ⌜evalBinOp op v1 v2 = some w⌝ ∗ ValHasType Θ w ty) := by
   cases op with
   | add =>
-      cases t1 <;> cases t2 <;> simp [TinyML.BinOp.typeOf] at hty
+      cases t1 <;> cases t2 <;> simp [BinOp.typeOf] at hty
       subst hty
-      unfold TinyML.ValHasType TinyML.ValRel
+      refine (sep_mono (ValHasType.int Θ v1).1 (ValHasType.int Θ v2).1).trans ?_
       iintro H
       icases H with ⟨H1, H2⟩
       icases H1 with ⟨%a, %hv1⟩
       icases H2 with ⟨%b, %hv2⟩
-      subst v1; subst v2
+      subst v1
+      subst v2
       iexists Runtime.Val.int (a + b)
       isplitr
       · ipure_intro
-        simp [TinyML.evalBinOp]
-      · ipure_intro
+        simp [evalBinOp]
+      · iapply (ValHasType.int Θ (Runtime.Val.int (a + b))).2
+        ipure_intro
         exact ⟨a + b, rfl⟩
   | sub =>
-      cases t1 <;> cases t2 <;> simp [TinyML.BinOp.typeOf] at hty
+      cases t1 <;> cases t2 <;> simp [BinOp.typeOf] at hty
       subst hty
-      unfold TinyML.ValHasType TinyML.ValRel
+      refine (sep_mono (ValHasType.int Θ v1).1 (ValHasType.int Θ v2).1).trans ?_
       iintro H
       icases H with ⟨H1, H2⟩
       icases H1 with ⟨%a, %hv1⟩
       icases H2 with ⟨%b, %hv2⟩
-      subst v1; subst v2
+      subst v1
+      subst v2
       iexists Runtime.Val.int (a - b)
       isplitr
       · ipure_intro
-        simp [TinyML.evalBinOp]
-      · ipure_intro
+        simp [evalBinOp]
+      · iapply (ValHasType.int Θ (Runtime.Val.int (a - b))).2
+        ipure_intro
         exact ⟨a - b, rfl⟩
   | mul =>
-      cases t1 <;> cases t2 <;> simp [TinyML.BinOp.typeOf] at hty
+      cases t1 <;> cases t2 <;> simp [BinOp.typeOf] at hty
       subst hty
-      unfold TinyML.ValHasType TinyML.ValRel
+      refine (sep_mono (ValHasType.int Θ v1).1 (ValHasType.int Θ v2).1).trans ?_
       iintro H
       icases H with ⟨H1, H2⟩
       icases H1 with ⟨%a, %hv1⟩
       icases H2 with ⟨%b, %hv2⟩
-      subst v1; subst v2
+      subst v1
+      subst v2
       iexists Runtime.Val.int (a * b)
       isplitr
       · ipure_intro
-        simp [TinyML.evalBinOp]
-      · ipure_intro
+        simp [evalBinOp]
+      · iapply (ValHasType.int Θ (Runtime.Val.int (a * b))).2
+        ipure_intro
         exact ⟨a * b, rfl⟩
   | div =>
       cases (hndiv rfl)
   | mod =>
       cases (hnmod rfl)
   | eq =>
-      cases t1 <;> cases t2 <;> simp [TinyML.BinOp.typeOf] at hty
+      cases t1 <;> cases t2 <;> simp [BinOp.typeOf] at hty
       subst hty
-      unfold TinyML.ValHasType TinyML.ValRel
+      refine (sep_mono (ValHasType.int Θ v1).1 (ValHasType.int Θ v2).1).trans ?_
       iintro H
       icases H with ⟨H1, H2⟩
       icases H1 with ⟨%a, %hv1⟩
       icases H2 with ⟨%b, %hv2⟩
-      subst v1; subst v2
+      subst v1
+      subst v2
       iexists Runtime.Val.bool (a == b)
       isplitr
       · ipure_intro
-        simp [TinyML.evalBinOp]
-      · ipure_intro
+        simp [evalBinOp]
+      · iapply (ValHasType.bool Θ (Runtime.Val.bool (a == b))).2
+        ipure_intro
         exact ⟨a == b, rfl⟩
   | lt =>
-      cases t1 <;> cases t2 <;> simp [TinyML.BinOp.typeOf] at hty
+      cases t1 <;> cases t2 <;> simp [BinOp.typeOf] at hty
       subst hty
-      unfold TinyML.ValHasType TinyML.ValRel
+      refine (sep_mono (ValHasType.int Θ v1).1 (ValHasType.int Θ v2).1).trans ?_
       iintro H
       icases H with ⟨H1, H2⟩
       icases H1 with ⟨%a, %hv1⟩
       icases H2 with ⟨%b, %hv2⟩
-      subst v1; subst v2
+      subst v1
+      subst v2
       iexists Runtime.Val.bool (a < b)
       isplitr
       · ipure_intro
-        simp [TinyML.evalBinOp]
-      · ipure_intro
+        simp [evalBinOp]
+      · iapply (ValHasType.bool Θ (Runtime.Val.bool (a < b))).2
+        ipure_intro
         exact ⟨a < b, rfl⟩
   | le =>
-      cases t1 <;> cases t2 <;> simp [TinyML.BinOp.typeOf] at hty
+      cases t1 <;> cases t2 <;> simp [BinOp.typeOf] at hty
       subst hty
-      unfold TinyML.ValHasType TinyML.ValRel
+      refine (sep_mono (ValHasType.int Θ v1).1 (ValHasType.int Θ v2).1).trans ?_
       iintro H
       icases H with ⟨H1, H2⟩
       icases H1 with ⟨%a, %hv1⟩
       icases H2 with ⟨%b, %hv2⟩
-      subst v1; subst v2
+      subst v1
+      subst v2
       iexists Runtime.Val.bool (a ≤ b)
       isplitr
       · ipure_intro
-        simp [TinyML.evalBinOp]
-      · ipure_intro
+        simp [evalBinOp]
+      · iapply (ValHasType.bool Θ (Runtime.Val.bool (a ≤ b))).2
+        ipure_intro
         exact ⟨a ≤ b, rfl⟩
   | gt =>
-      cases t1 <;> cases t2 <;> simp [TinyML.BinOp.typeOf] at hty
+      cases t1 <;> cases t2 <;> simp [BinOp.typeOf] at hty
       subst hty
-      unfold TinyML.ValHasType TinyML.ValRel
+      refine (sep_mono (ValHasType.int Θ v1).1 (ValHasType.int Θ v2).1).trans ?_
       iintro H
       icases H with ⟨H1, H2⟩
       icases H1 with ⟨%a, %hv1⟩
       icases H2 with ⟨%b, %hv2⟩
-      subst v1; subst v2
+      subst v1
+      subst v2
       iexists Runtime.Val.bool (a > b)
       isplitr
       · ipure_intro
-        simp [TinyML.evalBinOp]
-      · ipure_intro
+        simp [evalBinOp]
+      · iapply (ValHasType.bool Θ (Runtime.Val.bool (a > b))).2
+        ipure_intro
         exact ⟨a > b, rfl⟩
   | ge =>
-      cases t1 <;> cases t2 <;> simp [TinyML.BinOp.typeOf] at hty
+      cases t1 <;> cases t2 <;> simp [BinOp.typeOf] at hty
       subst hty
-      unfold TinyML.ValHasType TinyML.ValRel
+      refine (sep_mono (ValHasType.int Θ v1).1 (ValHasType.int Θ v2).1).trans ?_
       iintro H
       icases H with ⟨H1, H2⟩
       icases H1 with ⟨%a, %hv1⟩
       icases H2 with ⟨%b, %hv2⟩
-      subst v1; subst v2
+      subst v1
+      subst v2
       iexists Runtime.Val.bool (a ≥ b)
       isplitr
       · ipure_intro
-        simp [TinyML.evalBinOp]
-      · ipure_intro
+        simp [evalBinOp]
+      · iapply (ValHasType.bool Θ (Runtime.Val.bool (a ≥ b))).2
+        ipure_intro
         exact ⟨a ≥ b, rfl⟩
   | and =>
-      cases t1 <;> cases t2 <;> simp [TinyML.BinOp.typeOf] at hty
+      cases t1 <;> cases t2 <;> simp [BinOp.typeOf] at hty
       subst hty
-      unfold TinyML.ValHasType TinyML.ValRel
+      refine (sep_mono (ValHasType.bool Θ v1).1 (ValHasType.bool Θ v2).1).trans ?_
       iintro H
       icases H with ⟨H1, H2⟩
       icases H1 with ⟨%a, %hv1⟩
       icases H2 with ⟨%b, %hv2⟩
-      subst v1; subst v2
+      subst v1
+      subst v2
       iexists Runtime.Val.bool (a && b)
       isplitr
       · ipure_intro
-        simp [TinyML.evalBinOp]
-      · ipure_intro
+        simp [evalBinOp]
+      · iapply (ValHasType.bool Θ (Runtime.Val.bool (a && b))).2
+        ipure_intro
         exact ⟨a && b, rfl⟩
   | or =>
-      cases t1 <;> cases t2 <;> simp [TinyML.BinOp.typeOf] at hty
+      cases t1 <;> cases t2 <;> simp [BinOp.typeOf] at hty
       subst hty
-      unfold TinyML.ValHasType TinyML.ValRel
+      refine (sep_mono (ValHasType.bool Θ v1).1 (ValHasType.bool Θ v2).1).trans ?_
       iintro H
       icases H with ⟨H1, H2⟩
       icases H1 with ⟨%a, %hv1⟩
       icases H2 with ⟨%b, %hv2⟩
-      subst v1; subst v2
+      subst v1
+      subst v2
       iexists Runtime.Val.bool (a || b)
       isplitr
       · ipure_intro
-        simp [TinyML.evalBinOp]
-      · ipure_intro
+        simp [evalBinOp]
+      · iapply (ValHasType.bool Θ (Runtime.Val.bool (a || b))).2
+        ipure_intro
         exact ⟨a || b, rfl⟩
 
-theorem evalUnOp_typed {Θ : TinyML.TypeEnv} {op : TinyML.UnOp}
-    {v : Runtime.Val} {t ty : TinyML.Typ}
-    (hty : TinyML.UnOp.typeOf op t = some ty) :
-    TinyML.ValHasType Θ v t ⊢
-      iprop(∃ w, ⌜TinyML.evalUnOp op v = some w⌝ ∗ TinyML.ValHasType Θ w ty) := by
+theorem evalUnOp_typed {Θ : TypeEnv} {op : UnOp}
+    {v : Runtime.Val} {t ty : Typ}
+    (hty : UnOp.typeOf op t = some ty) :
+    ValHasType Θ v t ⊢
+      iprop(∃ w, ⌜evalUnOp op v = some w⌝ ∗ ValHasType Θ w ty) := by
   cases op with
   | neg =>
-      cases t <;> simp [TinyML.UnOp.typeOf] at hty
+      cases t <;> simp [UnOp.typeOf] at hty
       subst hty
-      unfold TinyML.ValHasType TinyML.ValRel
+      refine (ValHasType.int Θ v).1.trans ?_
       iintro Hv
       icases Hv with ⟨%n, %hv⟩
       subst v
       iexists Runtime.Val.int (-n)
       isplitr
       · ipure_intro
-        simp [TinyML.evalUnOp]
-      · ipure_intro
+        simp [evalUnOp]
+      · iapply (ValHasType.int Θ (Runtime.Val.int (-n))).2
+        ipure_intro
         exact ⟨-n, rfl⟩
   | not =>
-      cases t <;> simp [TinyML.UnOp.typeOf] at hty
+      cases t <;> simp [UnOp.typeOf] at hty
       subst hty
-      unfold TinyML.ValHasType TinyML.ValRel
+      refine (ValHasType.bool Θ v).1.trans ?_
       iintro Hv
       icases Hv with ⟨%b, %hv⟩
       subst v
       iexists Runtime.Val.bool (!b)
       isplitr
       · ipure_intro
-        simp [TinyML.evalUnOp]
-      · ipure_intro
+        simp [evalUnOp]
+      · iapply (ValHasType.bool Θ (Runtime.Val.bool (!b))).2
+        ipure_intro
         exact ⟨!b, rfl⟩
   | proj n =>
       cases t with
       | tuple ts =>
-          simp [TinyML.UnOp.typeOf] at hty
-          have hproj :
-              iprop(∃ vs, ⌜v = Runtime.Val.tuple vs⌝ ∗ TinyML.ValsRel vs ts (TinyML.RecEnv Θ)) ⊢
-                iprop(∃ w, ⌜TinyML.evalUnOp (.proj n) v = some w⌝ ∗ TinyML.ValHasType Θ w ty) := by
-            iintro H
-            icases H with ⟨%vs, %hv, Hvs⟩
-            subst v
-            iapply
-              (show iprop(∃ w, ⌜vs[n]? = some w⌝ ∗ TinyML.ValRel w ty (TinyML.RecEnv Θ)) ⊢
-                  iprop(∃ w, ⌜TinyML.evalUnOp (.proj n) (.tuple vs) = some w⌝ ∗ TinyML.ValHasType Θ w ty) by
-                iintro H'
-                icases H' with ⟨%w, %hget, Hwitness⟩
-                iexists w
-                isplitr
-                · ipure_intro
-                  simpa [TinyML.evalUnOp] using hget
-                · simp [TinyML.ValHasType])
-            iapply (TinyML.ValsRel.of_getElem? (Θ := Θ) (vs := vs) (ts := ts) (n := n) (t := ty) hty)
-            iexact Hvs
-          simpa [TinyML.ValHasType, TinyML.ValRel] using hproj
+          simp [UnOp.typeOf] at hty
+          refine (ValHasType.tuple Θ v ts).1.trans ?_
+          iintro H
+          icases H with ⟨%vs, %hv, Hvs⟩
+          subst v
+          iapply
+            (show iprop(∃ w, ⌜vs[n]? = some w⌝ ∗ ValHasType Θ w ty) ⊢
+                iprop(∃ w, ⌜evalUnOp (.proj n) (.tuple vs) = some w⌝ ∗ ValHasType Θ w ty) by
+              iintro H'
+              icases H' with ⟨%w, %hget, Hwitness⟩
+              iexists w
+              isplitr
+              · ipure_intro
+                simpa [evalUnOp] using hget
+              · iexact Hwitness)
+          iapply (ValsHaveTypes.of_getElem? (Θ := Θ) (vs := vs) (ts := ts) (n := n) (t := ty) hty)
+          iexact Hvs
       | unit | bool | int | sum _ | arrow _ _ | ref _ | empty | value | tvar _ | named _ _ =>
-          simp [TinyML.UnOp.typeOf] at hty
+          simp [UnOp.typeOf] at hty
+
+end TinyML
