@@ -195,7 +195,7 @@ mutual
       TinyML.ValHasType Θ v ty ⊢ ⌜∀ φ ∈ typeConstraints ty t, φ.eval ρ.env⌝ := by
     cases ty with
     | int =>
-      unfold TinyML.ValHasType TinyML.ValRel
+      refine (TinyML.ValHasType.int Θ v).1.trans ?_
       iintro %h
       rcases h with ⟨n, rfl⟩
       ipure_intro
@@ -204,7 +204,7 @@ mutual
       subst hφ
       simp [Formula.eval, ht]
     | bool =>
-      unfold TinyML.ValHasType TinyML.ValRel
+      refine (TinyML.ValHasType.bool Θ v).1.trans ?_
       iintro %h
       rcases h with ⟨b, rfl⟩
       ipure_intro
@@ -213,8 +213,7 @@ mutual
       subst hφ
       simp [Formula.eval, ht]
     | tuple ts =>
-      change (iprop((∃ vs, ⌜v = Runtime.Val.tuple vs⌝ ∗ TinyML.ValsHaveTypes Θ vs ts) ⊢
-        ⌜∀ φ ∈ typeConstraints (.tuple ts) t, Formula.eval ρ.env φ⌝))
+      refine (TinyML.ValHasType.tuple Θ v ts).1.trans ?_
       iintro Hty
       icases Hty with ⟨%vs, Hty'⟩
       icases Hty' with ⟨%hv, hvs⟩
@@ -229,46 +228,48 @@ mutual
       | tail _ hφ =>
         exact htail φ hφ
     | unit =>
-      unfold TinyML.ValHasType TinyML.ValRel
+      refine (TinyML.ValHasType.unit Θ v).1.trans ?_
       iintro _
       ipure_intro
       simp [typeConstraints]
     | sum _ =>
-      unfold TinyML.ValHasType TinyML.ValRel
+      refine (TinyML.ValHasType.sum Θ v _).1.trans ?_
       iintro _
       ipure_intro
       simp [typeConstraints]
     | ref _ =>
-      unfold TinyML.ValHasType TinyML.ValRel
+      refine (TinyML.ValHasType.ref Θ v _).1.trans ?_
       iintro _
       ipure_intro
       simp [typeConstraints]
     | value =>
-      unfold TinyML.ValHasType TinyML.ValRel
+      refine (TinyML.ValHasType.value Θ v).1.trans ?_
       iintro _
       ipure_intro
       simp [typeConstraints]
     | named _ _ =>
-      unfold TinyML.ValHasType TinyML.ValRel
+      refine (TinyML.ValHasType.named Θ v _ _).1.trans ?_
       iintro _
       ipure_intro
       simp [typeConstraints]
-    | arrow _ _ | empty | tvar _ =>
-      unfold TinyML.ValHasType TinyML.ValRel
-      exact false_elim
+    | arrow t1 t2 =>
+      exact (TinyML.ValHasType.arrow Θ v t1 t2).1.trans false_elim
+    | empty =>
+      exact (TinyML.ValHasType.empty Θ v).1.trans false_elim
+    | tvar x =>
+      exact (TinyML.ValHasType.tvar Θ v x).1.trans false_elim
 
   theorem typeConstraintsList_hold {ts : List TinyML.Typ} {tl : Term .vallist} {ρ : VerifM.Env}
       {Θ : TinyML.TypeEnv} {vs : List Runtime.Val} (htl : tl.eval ρ.env = vs) :
       TinyML.ValsHaveTypes Θ vs ts ⊢ ⌜∀ φ ∈ typeConstraints.typeConstraintsList ts tl, φ.eval ρ.env⌝ := by
     match vs, ts with
     | [], [] =>
-        unfold TinyML.ValsHaveTypes TinyML.ValsRel
+        refine (TinyML.ValsHaveTypes.nil Θ).1.trans ?_
         iintro _
         ipure_intro
         simp [typeConstraints.typeConstraintsList]
     | v :: vs, ty :: ts =>
-        change (iprop((TinyML.ValHasType Θ v ty ∗ TinyML.ValsHaveTypes Θ vs ts) ⊢
-          ⌜∀ φ ∈ typeConstraints.typeConstraintsList (ty :: ts) tl, Formula.eval ρ.env φ⌝))
+        refine (TinyML.ValsHaveTypes.cons Θ v vs ty ts).1.trans ?_
         iintro hvals
         icases hvals with ⟨hv, hvs⟩
         ihave %hhead := (typeConstraints_hold (ty := ty) (t := .unop .vhead tl)
@@ -281,9 +282,10 @@ mutual
         cases List.mem_append.mp hφ with
         | inl h => exact hhead φ h
         | inr h => exact htail φ h
-    | [], _ :: _ | _ :: _, [] =>
-        unfold TinyML.ValsHaveTypes TinyML.ValsRel
-        exact false_elim
+    | [], ty :: ts =>
+        exact (TinyML.ValsHaveTypes.nil_cons Θ ty ts).1.trans false_elim
+    | v :: vs, [] =>
+        exact (TinyML.ValsHaveTypes.cons_nil Θ v vs).1.trans false_elim
 end
 
 -- ---------------------------------------------------------------------------
@@ -889,10 +891,9 @@ theorem Spec.declareImplArgs_correct (Θ : TinyML.TypeEnv) :
     obtain ⟨name, ty⟩ := arg
     cases vs with
     | nil =>
-      unfold TinyML.ValsHaveTypes TinyML.ValsRel
-      exact false_elim
+      exact (TinyML.ValsHaveTypes.nil_cons Θ ty (rest.map Prod.snd)).1.trans false_elim
     | cons v vs' =>
-      refine TinyML.ValsHaveTypes.cons.1.trans ?_
+      refine (TinyML.ValsHaveTypes.cons Θ v vs' ty (rest.map Prod.snd)).1.trans ?_
       iintro Hvs
       icases Hvs with ⟨Hv, Hvs_rest⟩
       simp only [Spec.declareImplArgs] at heval

@@ -158,7 +158,7 @@ theorem checkBody_correct (Θ : TinyML.TypeEnv) (S : SpecMap) (s : Spec)
       · iexact HQ
       · iintro Hwand
         iapply Hwand
-        iapply (TinyML.ValHasType_sub (TinyML.Typ.sub_sound hsub))
+        iapply (TinyML.ValHasType.sub (TinyML.Typ.sub_sound hsub))
         iexact Hty
   iintro HSat
   iapply hbody_wp

@@ -429,11 +429,11 @@ theorem val_typed_of_last_wins
         simp [List.map_cons, List.length_cons] at hlen_v hlen_vl
         cases hlookups with
         | cons hlk_head hlk_tail =>
-          simpa [TinyML.ValsHaveTypes, TinyML.ValsRel] using
-            (show ⊢ (TinyML.ValHasType Θ vl a.2 ∗
-                TinyML.ValsHaveTypes Θ vls (as'.map Prod.snd)) -∗
+          exact (show ⊢ TinyML.ValsHaveTypes Θ (vl :: vls) (a.2 :: as'.map Prod.snd) -∗
                 TinyML.ValHasType Θ (ρ.consts .value x'.name) t by
-              iintro ⟨Htype_head, Htype_tail⟩
+              iintro Hvals
+              ihave Hpair := (TinyML.ValsHaveTypes.cons Θ vl vls a.2 (as'.map Prod.snd)).1 $$ Hvals
+              icases Hpair with ⟨Htype_head, Htype_tail⟩
               simp only [List.map_cons, List.zip_cons_cons, List.reverse_cons] at hlookup
               rw [List.lookup_append] at hlookup
               simp only [List.foldl_cons] at hΓ
