@@ -58,7 +58,7 @@ lake run testsuite Examples/      # run the test suite
 ### Iris proof mode
 
 - Tactic reference: `docs/iris-tactics.md`. Worked examples: `Mica/SeparationLogic/ProofModePatterns.lean`.
-- There is a persistent and a spatial context. Persistent assertions can be duplicated. Spatial assertion behave linear (_affine_ to be precise).
+- There is a persistent and a spatial context. Persistent assertions can be duplicated. Spatial assertions behave linearly (_affine_ to be precise).
 - Spatial hypotheses must be distributed when splitting `∗` — use `isplitl [H1 ... Hn]`/`isplitr [H1 ... Hn]`. Always specify via the brackets which assumptions you want to take on the left/right side.
 - Persistent hypotheses (when in the persistent context) remain accessible in both branches. Introduce them with `□` to add to the persistent context. (Works only for persistent assertions.) 
 - In `... $$ h` the assumption `h` must match the goal exactly, and `... $$ [h]` spawns a new subgoal where `h` is accessible to prove the goal.
