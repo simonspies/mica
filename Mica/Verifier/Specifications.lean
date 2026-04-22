@@ -28,13 +28,6 @@ structure Spec where
   pred    : PredTrans
 
 -- ---------------------------------------------------------------------------
--- Printers
--- ---------------------------------------------------------------------------
-
-def SpecPredicate.toStringHum (s : SpecPredicate) : String :=
-  MultiPred.toStringHum (Assertion.toStringHum (Pred.toStringHum (Assertion.toStringHum (fun () => "()")))) s
-
--- ---------------------------------------------------------------------------
 -- Well-formedness
 -- ---------------------------------------------------------------------------
 
@@ -227,37 +220,11 @@ mutual
         simp [Formula.eval, ht, hv]
       | tail _ hφ =>
         exact htail φ hφ
-    | unit =>
-      refine (TinyML.ValHasType.unit Θ v).1.trans ?_
-      iintro _
-      ipure_intro
-      simp [typeConstraints]
-    | sum _ =>
-      refine (TinyML.ValHasType.sum Θ v _).1.trans ?_
-      iintro _
-      ipure_intro
-      simp [typeConstraints]
-    | ref _ =>
-      refine (TinyML.ValHasType.ref Θ v _).1.trans ?_
-      iintro _
-      ipure_intro
-      simp [typeConstraints]
-    | value =>
-      refine (TinyML.ValHasType.value Θ v).1.trans ?_
-      iintro _
-      ipure_intro
-      simp [typeConstraints]
-    | named _ _ =>
-      refine (TinyML.ValHasType.named Θ v _ _).1.trans ?_
-      iintro _
-      ipure_intro
-      simp [typeConstraints]
-    | arrow t1 t2 =>
-      exact (TinyML.ValHasType.arrow Θ v t1 t2).1.trans false_elim
-    | empty =>
-      exact (TinyML.ValHasType.empty Θ v).1.trans false_elim
-    | tvar x =>
-      exact (TinyML.ValHasType.tvar Θ v x).1.trans false_elim
+    | unit | sum _ | ref _ | value | named _ _ =>
+      iintro _; ipure_intro; simp [typeConstraints]
+    | arrow t1 t2 => exact (TinyML.ValHasType.arrow Θ v t1 t2).1.trans false_elim
+    | empty => exact (TinyML.ValHasType.empty Θ v).1.trans false_elim
+    | tvar x => exact (TinyML.ValHasType.tvar Θ v x).1.trans false_elim
 
   theorem typeConstraintsList_hold {ts : List TinyML.Typ} {tl : Term .vallist} {ρ : VerifM.Env}
       {Θ : TinyML.TypeEnv} {vs : List Runtime.Val} (htl : tl.eval ρ.env = vs) :
@@ -400,33 +367,25 @@ def SpecMap.eraseAll (keys : List String) (S : SpecMap) : SpecMap :=
     SpecMap.eraseAll (k :: ks) S = SpecMap.eraseAll ks (Finmap.erase k S) := by
   simp [SpecMap.eraseAll, List.foldl_cons]
 
-theorem SpecMap.eraseAll_lookup_none_of_none {keys : List String} {S : SpecMap} {y : String}
-    (h : S.lookup y = none) : (SpecMap.eraseAll keys S).lookup y = none := by
+theorem SpecMap.lookup_eraseAll {keys : List String} {S : SpecMap} {y : String} :
+    (SpecMap.eraseAll keys S).lookup y = if y ∈ keys then none else S.lookup y := by
   induction keys generalizing S with
-  | nil => exact h
+  | nil => simp
   | cons k ks ih =>
-    rw [eraseAll_cons]; apply ih
+    rw [eraseAll_cons, ih]
     by_cases hky : k = y
     · subst hky; simp [Finmap.lookup_erase]
-    · rw [Finmap.lookup_erase_ne (Ne.symm hky)]; exact h
+    · rw [Finmap.lookup_erase_ne (Ne.symm hky)]
+      by_cases hmem : y ∈ ks <;> simp [hmem, Ne.symm hky]
 
 theorem SpecMap.eraseAll_lookup_none {keys : List String} {S : SpecMap} {y : String}
     (hy : y ∈ keys) : (SpecMap.eraseAll keys S).lookup y = none := by
-  induction keys generalizing S with
-  | nil => simp at hy
-  | cons k ks ih =>
-    rw [eraseAll_cons]; cases List.mem_cons.mp hy with
-    | inl heq => subst heq; exact eraseAll_lookup_none_of_none (by simp [Finmap.lookup_erase])
-    | inr hmem => exact ih hmem
+  simp [lookup_eraseAll, hy]
 
 theorem SpecMap.eraseAll_lookup_of_notin {keys : List String} {y : String}
     (hy : y ∉ keys) (S : SpecMap) :
     (SpecMap.eraseAll keys S).lookup y = S.lookup y := by
-  induction keys generalizing S with
-  | nil => rfl
-  | cons k ks ih =>
-    simp at hy
-    rw [eraseAll_cons, ih hy.2, Finmap.lookup_erase_ne hy.1]
+  simp [lookup_eraseAll, hy]
 
 theorem SpecMap.wfIn_eraseAll {keys : List String} {S : SpecMap} {Δ : Signature}
     (h : S.wfIn Δ) : (SpecMap.eraseAll keys S).wfIn Δ := by
@@ -439,10 +398,26 @@ def SpecMap.insert' (S : SpecMap) (b : Typed.Binder) (spec : Spec) : SpecMap :=
   | some x => S.insert x spec
   | none => S
 
+@[simp] theorem SpecMap.insert'_none {S : SpecMap} {b : Typed.Binder} {spec : Spec}
+    (h : b.name = none) : S.insert' b spec = S := by
+  simp [SpecMap.insert', h]
+
+@[simp] theorem SpecMap.insert'_some {S : SpecMap} {b : Typed.Binder} {spec : Spec}
+    {x : TinyML.Var} (h : b.name = some x) : S.insert' b spec = S.insert x spec := by
+  simp [SpecMap.insert', h]
+
 def SpecMap.erase' (S : SpecMap) (b : Typed.Binder) : SpecMap :=
   match b.name with
   | some x => S.erase x
   | none => S
+
+@[simp] theorem SpecMap.erase'_none {S : SpecMap} {b : Typed.Binder}
+    (h : b.name = none) : S.erase' b = S := by
+  simp [SpecMap.erase', h]
+
+@[simp] theorem SpecMap.erase'_some {S : SpecMap} {b : Typed.Binder} {x : TinyML.Var}
+    (h : b.name = some x) : S.erase' b = S.erase x := by
+  simp [SpecMap.erase', h]
 
 theorem SpecMap.satisfiedBy_insert {Θ : TinyML.TypeEnv} {S : SpecMap} {γ : Runtime.Subst}
     {x : TinyML.Var} {fval : Runtime.Val} {spec : Spec} (hγ : γ x = some fval) :
@@ -497,36 +472,31 @@ theorem SpecMap.satisfiedBy_insert' {Θ : TinyML.TypeEnv} {S : SpecMap} {γ : Ru
     {b : Typed.Binder} {fval : Runtime.Val} {spec : Spec}
     (hγ : ∀ x ty, b = Typed.Binder.named x ty → γ x = some fval) :
     S.satisfiedBy Θ γ ∗ spec.isPrecondFor Θ fval ⊢ SpecMap.satisfiedBy Θ (S.insert' b spec) γ := by
-  cases b with
-  | mk name ty =>
-    cases name with
-    | none => simp [SpecMap.insert']; iintro ⟨HS, _⟩; iexact HS
-    | some x => exact SpecMap.satisfiedBy_insert (hγ x ty rfl)
+  rcases hb : b.name with _ | x
+  · rw [SpecMap.insert'_none hb]; iintro ⟨HS, _⟩; iexact HS
+  · obtain ⟨_, ty⟩ := b; cases hb
+    rw [SpecMap.insert'_some rfl]; exact SpecMap.satisfiedBy_insert (hγ x ty rfl)
 
 theorem SpecMap.satisfiedBy_insert'_update' {Θ : TinyML.TypeEnv} {S : SpecMap} {γ : Runtime.Subst}
     {b : Typed.Binder} {v : Runtime.Val} {spec : Spec} :
     S.satisfiedBy Θ γ ∗ spec.isPrecondFor Θ v ⊢ SpecMap.satisfiedBy Θ (S.insert' b spec) (Runtime.Subst.update' b.runtime v γ) := by
-  cases b with
-  | mk name _ =>
-    cases name with
-    | none => simp [SpecMap.insert', Runtime.Subst.update']; iintro ⟨HS, _⟩; iexact HS
-    | some _ => exact SpecMap.satisfiedBy_insert_update
+  rcases hb : b.name with _ | _
+  · rw [SpecMap.insert'_none hb, Typed.Binder.runtime_of_name_none hb]
+    simp [Runtime.Subst.update']; iintro ⟨HS, _⟩; iexact HS
+  · rw [SpecMap.insert'_some hb, Typed.Binder.runtime_of_name_some hb]
+    exact SpecMap.satisfiedBy_insert_update
 
 theorem SpecMap.wfIn_insert' {S : SpecMap} {b : Typed.Binder} {spec : Spec} {Δ : Signature}
     (hS : S.wfIn Δ) (hs : spec.wfIn Δ) : SpecMap.wfIn (S.insert' b spec) Δ := by
-  cases b with
-  | mk name _ =>
-    cases name with
-    | none => exact hS
-    | some x => exact SpecMap.wfIn_insert hS hs
+  rcases hb : b.name with _ | _
+  · rwa [SpecMap.insert'_none hb]
+  · rw [SpecMap.insert'_some hb]; exact SpecMap.wfIn_insert hS hs
 
 theorem SpecMap.wfIn_erase' {S : SpecMap} {b : Typed.Binder} {Δ : Signature}
     (hS : S.wfIn Δ) : SpecMap.wfIn (S.erase' b) Δ := by
-  cases b with
-  | mk name _ =>
-    cases name with
-    | none => exact hS
-    | some _ => exact SpecMap.wfIn_erase hS
+  rcases hb : b.name with _ | _
+  · rwa [SpecMap.erase'_none hb]
+  · rw [SpecMap.erase'_some hb]; exact SpecMap.wfIn_erase hS
 
 theorem SpecMap.satisfiedBy_eraseAll_updateAll' {Θ : TinyML.TypeEnv} {keys : List String} {S : SpecMap} {γ : Runtime.Subst}
     {vs : List Runtime.Val} (hlen : keys.length = vs.length) :
@@ -584,11 +554,11 @@ theorem SpecMap.satisfiedBy_erase {Θ : TinyML.TypeEnv} {S : SpecMap} {γ : Runt
 theorem SpecMap.satisfiedBy_erase' {Θ : TinyML.TypeEnv} {S : SpecMap} {γ : Runtime.Subst}
     {b : Typed.Binder} {v : Runtime.Val} :
     S.satisfiedBy Θ γ ⊢ SpecMap.satisfiedBy Θ (S.erase' b) (Runtime.Subst.update' b.runtime v γ) := by
-  cases b with
-  | mk name _ =>
-    cases name with
-    | none => simp [SpecMap.erase', Runtime.Subst.update']
-    | some _ => exact SpecMap.satisfiedBy_erase
+  rcases hb : b.name with _ | _
+  · rw [SpecMap.erase'_none hb, Typed.Binder.runtime_of_name_none hb]
+    simp [Runtime.Subst.update']
+  · rw [SpecMap.erase'_some hb, Typed.Binder.runtime_of_name_some hb]
+    exact SpecMap.satisfiedBy_erase
 
 theorem SpecMap.satisfiedBy_update_of_not_mem {Θ : TinyML.TypeEnv} {S : SpecMap} {γ : Runtime.Subst}
     {x : TinyML.Var} {v : Runtime.Val} (hx : S.lookup x = none) :
