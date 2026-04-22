@@ -1,96 +1,108 @@
-(* Examples that exercise allocation, dereference, assignment, and sequencing. *)
+(* References combined with recursive datatypes, matching, recursion, integers,
+   and booleans.
 
-(* Swap the contents of two integer references. *)
-let swap (x : int ref) (y : int ref) : unit =
-  let tmp = !x in
-  x := !y;
-  y := tmp
-[@@spec fun x y ->
-  bind (own x) @@ fun vx ->
-  bind (isint vx) @@ fun a ->
-  bind (own y) @@ fun vy ->
-  bind (isint vy) @@ fun b ->
-  ret (fun r ->
-    assert (r = ());
-    bind (own x) @@ fun vx2 ->
-    bind (isint vx2) @@ fun a2 ->
-    bind (own y) @@ fun vy2 ->
-    bind (isint vy2) @@ fun b2 ->
-    assert (a2 = b);
-    assert (b2 = a))];;
+   References are currently managed by the logical relation, so the specs below
+   deliberately avoid describing the values stored in cells.  The example 
+   implements a small mutable stack and a bounded worklist transfer over a 
+   recursive integer-list datatype. *)
 
-(* Swap two local cells and return the observed pair. *)
-let swap_pair_via_refs (a : int) (b : int) : int * int =
-  let x = ref a in
-  let y = ref b in
-  swap x y;
-  (!x, !y)
-[@@spec fun a b ->
-  bind (isint a) @@ fun n ->
-  bind (isint b) @@ fun m ->
+type ilist = Nil | Cons of int * ilist
+
+(* A pure helper can still get a meaningful non-reference spec. *)
+let rec length (xs : ilist) : int =
+  match xs with
+  | Nil -> 0
+  | Cons p -> 1 + length p.1
+[@@spec fun xs ->
   ret (fun v ->
-    bind (isint v.0) @@ fun fst ->
-    bind (isint v.1) @@ fun snd ->
-    assert (fst = m);
-    assert (snd = n))];;
-
-(* Reuse swap twice; the state returns to the start. *)
-let id_by_swapping_twice (a : int) (b : int) : int * int =
-  let x = ref a in
-  let y = ref b in
-  swap x y;
-  swap x y;
-  (!x, !y)
-[@@spec fun a b ->
-  bind (isint a) @@ fun n ->
-  bind (isint b) @@ fun m ->
-  ret (fun v ->
-    bind (isint v.0) @@ fun fst ->
-    bind (isint v.1) @@ fun snd ->
-    assert (fst = n);
-    assert (snd = m))];;
-
-(* Sum into the left cell while keeping the right one unchanged. *)
-let sum_into_left_local (a : int) (b : int) : int * int =
-  let x = ref a in
-  let y = ref b in
-  x := !x + !y;
-  (!x, !y)
-[@@spec fun a b ->
-  bind (isint a) @@ fun n ->
-  bind (isint b) @@ fun m ->
-  ret (fun v ->
-    bind (isint v.0) @@ fun left ->
-    bind (isint v.1) @@ fun right ->
-    assert (left = n + m);
-    assert (right = m))];;
-
-(* A slightly more creative reference program: conditionally normalize order by swapping. *)
-let sort2_via_swap (a : int) (b : int) : int * int =
-  let x = ref a in
-  let y = ref b in
-  if !x > !y then swap x y else ();
-  (!x, !y)
-[@@spec fun a b ->
-  bind (isint a) @@ fun n ->
-  bind (isint b) @@ fun m ->
-  ret (fun v ->
-    bind (isint v.0) @@ fun fst ->
-    bind (isint v.1) @@ fun snd ->
-    assert (fst <= snd);
-    if n > m then
-      assert (fst = m && snd = n)
+    bind (isint v) @@ fun n ->
+    assert (n >= 0);
+    if tagof xs = 0 then
+      assert (n = 0)
     else
-      assert (fst = n && snd = m))];;
+      assert (n >= 1))];;
 
-(* Two increments through the same local cell. *)
-let bump_twice (n : int) : int =
-  let x = ref n in
-  x := !x + 1;
-  x := !x + 1;
-  !x
-[@@spec fun n ->
-  bind (isint n) @@ fun m ->
+let push (stack : ilist ref) (x : int) : unit =
+  stack := Cons (x, !stack)
+[@@spec fun stack x ->
+  ret (fun r ->
+    assert (r = ()))];;
+
+let singleton (x : int) : ilist =
+  Cons (x, Nil)
+[@@spec fun x ->
+  bind (isint x) @@ fun m ->
+  ret (fun r ->
+    bind (isinj 1 2 r) @@ fun payload ->
+    bind (isint payload.0) @@ fun n ->
+    bind (isinj 0 2 payload.1) @@ fun tail_payload ->
+    assert (n = m);
+    assert (tail_payload = ()))];;
+
+let pop_or_zero (stack : ilist ref) : int =
+  match !stack with
+  | Nil -> 0
+  | Cons p ->
+    stack := p.1;
+    p.0
+[@@spec fun stack ->
+  ret (fun r ->
+    bind (isint r) @@ fun n ->
+    assert (n = n))];;
+
+let top_is_positive (stack : ilist ref) : bool =
+  match !stack with
+  | Nil -> false
+  | Cons p -> p.0 > 0
+[@@spec fun stack ->
+  ret (fun r ->
+    bind (isbool r) @@ fun b ->
+    assert (b = b))];;
+
+let rec transfer (fuel : int) (src : ilist ref) (dst : ilist ref) : unit =
+  if fuel <= 0 then
+    ()
+  else
+    match !src with
+    | Nil -> ()
+    | Cons p ->
+      src := p.1;
+      dst := Cons (p.0, !dst);
+      transfer (fuel - 1) src dst
+[@@spec fun fuel src dst ->
+  ret (fun r ->
+    assert (r = ()))];;
+
+let choose_and_push (prefer_left : bool) (left : ilist ref) (right : ilist ref)
+    (x : int) : unit =
+  if prefer_left then
+    push left x
+  else
+    push right x
+[@@spec fun prefer_left left right x ->
+  ret (fun r ->
+    assert (r = ()))];;
+
+let worklist_demo (a : int) (b : int) (c : int) (prefer_left : bool) : unit =
+  let todo = ref (singleton a) in
+  let done_ = ref (singleton b) in
+  push todo a;
+  push todo b;
+  choose_and_push prefer_left todo done_ c;
+  if top_is_positive todo then
+    transfer 3 todo done_
+  else
+    transfer 1 done_ todo;
+  let dropped_todo = pop_or_zero todo in
+  let dropped_done = pop_or_zero done_ in
+  ()
+[@@spec fun a b c prefer_left ->
+  ret (fun r ->
+    assert (r = ()))];;
+
+let build_and_measure (a : int) (b : int) (c : int) : int =
+  length (Cons (a, Cons (b, Cons (c, Nil))))
+[@@spec fun a b c ->
   ret (fun v ->
-    bind (isint v) @@ fun r ->
-    assert (r = m + 2))];;
+    bind (isint v) @@ fun n ->
+    assert (n >= 1))];;

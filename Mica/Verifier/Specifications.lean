@@ -50,8 +50,8 @@ def Spec.argsEnv (ρ : VerifM.Env) : List (String × TinyML.Typ) → List Runtim
 
 def Spec.isPrecondFor (Θ : TinyML.TypeEnv) (f : Runtime.Val) (s : Spec) : iProp :=
   iprop(□ ∀ (Φ : Runtime.Val → iProp) (vs : List Runtime.Val),
-      ⌜TinyML.ValsHaveTypes Θ vs (s.args.map Prod.snd)⌝ -∗
-        PredTrans.apply (fun r => ⌜TinyML.ValHasType Θ r s.retTy⌝ -∗ Φ r) s.pred
+      TinyML.ValsHaveTypes Θ vs (s.args.map Prod.snd) -∗
+        PredTrans.apply (fun r => TinyML.ValHasType Θ r s.retTy -∗ Φ r) s.pred
           (Spec.argsEnv VerifM.Env.empty s.args vs) -∗
         wp (Runtime.Expr.app (.val f) (vs.map fun v => .val v)) Φ)
 
@@ -64,8 +64,8 @@ instance : Iris.BI.Persistent (Spec.isPrecondFor Θ f s) := by
 theorem Spec.isPrecondFor_fold (Θ : TinyML.TypeEnv) (s : Spec)
     (f : Runtime.Val) :
     iprop(□ ∀ (vs : List Runtime.Val) (P : Runtime.Val → iProp),
-      (⌜TinyML.ValsHaveTypes Θ vs (s.args.map Prod.snd)⌝ ∗
-        PredTrans.apply (fun r => ⌜TinyML.ValHasType Θ r s.retTy⌝ -∗ P r) s.pred
+      (TinyML.ValsHaveTypes Θ vs (s.args.map Prod.snd) ∗
+        PredTrans.apply (fun r => TinyML.ValHasType Θ r s.retTy -∗ P r) s.pred
           (Spec.argsEnv VerifM.Env.empty s.args vs)) -∗
         wp (Runtime.Expr.app (.val f) (vs.map Runtime.Expr.val)) P) ⊢ s.isPrecondFor Θ f := by
   unfold Spec.isPrecondFor
@@ -87,26 +87,30 @@ theorem Spec.isPrecondFor_fix {Θ : TinyML.TypeEnv} {s : Spec}
     {R : iProp}
     (h : R ⊢ □ (s.isPrecondFor Θ (.fix f args e) -∗
         ∀ (vs : List Runtime.Val) (P : Runtime.Val → iProp),
-          ⌜TinyML.ValsHaveTypes Θ vs (s.args.map Prod.snd)⌝ -∗
-          PredTrans.apply (fun r => ⌜TinyML.ValHasType Θ r s.retTy⌝ -∗ P r) s.pred
+          TinyML.ValsHaveTypes Θ vs (s.args.map Prod.snd) -∗
+          PredTrans.apply (fun r => TinyML.ValHasType Θ r s.retTy -∗ P r) s.pred
               (Spec.argsEnv VerifM.Env.empty s.args vs) -∗
           wp (e.subst ((Runtime.Subst.id.update' f (.fix f args e)).updateAll' args vs)) P)) :
     R ⊢ s.isPrecondFor Θ (.fix f args e) := by
   refine (SpatialContext.wp_fix' (Φ := fun P vs =>
-      iprop(⌜TinyML.ValsHaveTypes Θ vs (s.args.map Prod.snd)⌝ ∗
-        PredTrans.apply (fun r => ⌜TinyML.ValHasType Θ r s.retTy⌝ -∗ P r) s.pred
+      iprop(TinyML.ValsHaveTypes Θ vs (s.args.map Prod.snd) ∗
+        PredTrans.apply (fun r => TinyML.ValHasType Θ r s.retTy -∗ P r) s.pred
             (Spec.argsEnv VerifM.Env.empty s.args vs))) (h.trans ?_)).trans
     (Spec.isPrecondFor_fold Θ s _)
   istart
   iintro □HR
   imodintro
-  iintro IH %vs %P ⟨%htyped, Hpred⟩
+  iintro IH
+  iintro %vs
+  iintro %P
+  iintro h
+  icases h with ⟨htyped, hpred⟩
   ispecialize HR $$ [IH]
   · iapply (Spec.isPrecondFor_fold Θ s (.fix f args e)); iexact IH
-  ispecialize HR $$ %vs %P
-  iapply HR
-  · ipure_intro; exact htyped
-  · iexact Hpred
+  ihave Hres := HR $$ %vs %P [htyped] [hpred]
+  · iexact htyped
+  · iexact hpred
+  iexact Hres
 
 /-- A spec is well-formed when its predicate transformer is well-formed in the
     context extended with all argument variables. -/
@@ -187,40 +191,101 @@ end
 mutual
   /-- If `ValHasType v ty` and `t.eval ρ = v`, then all formulas in `typeConstraints ty t` hold. -/
   theorem typeConstraints_hold {ty : TinyML.Typ} {t : Term .value} {ρ : VerifM.Env}
-      {Θ : TinyML.TypeEnv} {v : Runtime.Val} (ht : t.eval ρ.env = v) (hty : TinyML.ValHasType Θ v ty) :
-      ∀ φ ∈ typeConstraints ty t, φ.eval ρ.env := by
-    cases hty with
-    | int n =>
-      intro φ hφ; simp [typeConstraints] at hφ; subst hφ
+      {Θ : TinyML.TypeEnv} {v : Runtime.Val} (ht : t.eval ρ.env = v) :
+      TinyML.ValHasType Θ v ty ⊢ ⌜∀ φ ∈ typeConstraints ty t, φ.eval ρ.env⌝ := by
+    cases ty with
+    | int =>
+      refine (TinyML.ValHasType.int Θ v).1.trans ?_
+      iintro %h
+      rcases h with ⟨n, rfl⟩
+      ipure_intro
+      intro φ hφ
+      simp [typeConstraints] at hφ
+      subst hφ
       simp [Formula.eval, ht]
-    | bool b =>
-      intro φ hφ; simp [typeConstraints] at hφ; subst hφ
+    | bool =>
+      refine (TinyML.ValHasType.bool Θ v).1.trans ?_
+      iintro %h
+      rcases h with ⟨b, rfl⟩
+      ipure_intro
+      intro φ hφ
+      simp [typeConstraints] at hφ
+      subst hφ
       simp [Formula.eval, ht]
-    | tuple hvs =>
-      simp only [typeConstraints]
+    | tuple ts =>
+      refine (TinyML.ValHasType.tuple Θ v ts).1.trans ?_
+      iintro Hty
+      icases Hty with ⟨%vs, Hty'⟩
+      icases Hty' with ⟨%hv, hvs⟩
+      ihave %htail := (typeConstraintsList_hold (ts := ts) (tl := .unop .toValList t)
+        (ρ := ρ) (Θ := Θ) (vs := vs) (by simp [Term.eval, UnOp.eval, ht, hv])) $$ hvs
+      iclear hvs
+      ipure_intro
       intro φ hφ
       cases hφ with
       | head =>
-        simp [Formula.eval, ht]
+        simp [Formula.eval, ht, hv]
       | tail _ hφ =>
-        exact typeConstraintsList_hold
-          (by simp [Term.eval, UnOp.eval, ht]) hvs φ hφ
-    | any => simp [typeConstraints]
-    | _ => simp [typeConstraints]
+        exact htail φ hφ
+    | unit =>
+      refine (TinyML.ValHasType.unit Θ v).1.trans ?_
+      iintro _
+      ipure_intro
+      simp [typeConstraints]
+    | sum _ =>
+      refine (TinyML.ValHasType.sum Θ v _).1.trans ?_
+      iintro _
+      ipure_intro
+      simp [typeConstraints]
+    | ref _ =>
+      refine (TinyML.ValHasType.ref Θ v _).1.trans ?_
+      iintro _
+      ipure_intro
+      simp [typeConstraints]
+    | value =>
+      refine (TinyML.ValHasType.value Θ v).1.trans ?_
+      iintro _
+      ipure_intro
+      simp [typeConstraints]
+    | named _ _ =>
+      refine (TinyML.ValHasType.named Θ v _ _).1.trans ?_
+      iintro _
+      ipure_intro
+      simp [typeConstraints]
+    | arrow t1 t2 =>
+      exact (TinyML.ValHasType.arrow Θ v t1 t2).1.trans false_elim
+    | empty =>
+      exact (TinyML.ValHasType.empty Θ v).1.trans false_elim
+    | tvar x =>
+      exact (TinyML.ValHasType.tvar Θ v x).1.trans false_elim
 
   theorem typeConstraintsList_hold {ts : List TinyML.Typ} {tl : Term .vallist} {ρ : VerifM.Env}
-      {Θ : TinyML.TypeEnv} {vs : List Runtime.Val} (htl : tl.eval ρ.env = vs) (hty : TinyML.ValsHaveTypes Θ vs ts) :
-      ∀ φ ∈ typeConstraints.typeConstraintsList ts tl, φ.eval ρ.env := by
-    cases hty with
-    | nil => simp [typeConstraints.typeConstraintsList]
-    | cons hv hvs =>
-      simp only [typeConstraints.typeConstraintsList]
-      intro φ hφ
-      cases List.mem_append.mp hφ with
-      | inl h =>
-        exact typeConstraints_hold (by simp [Term.eval, UnOp.eval, htl]) hv φ h
-      | inr h =>
-        exact typeConstraintsList_hold (by simp [Term.eval, UnOp.eval, htl]) hvs φ h
+      {Θ : TinyML.TypeEnv} {vs : List Runtime.Val} (htl : tl.eval ρ.env = vs) :
+      TinyML.ValsHaveTypes Θ vs ts ⊢ ⌜∀ φ ∈ typeConstraints.typeConstraintsList ts tl, φ.eval ρ.env⌝ := by
+    match vs, ts with
+    | [], [] =>
+        refine (TinyML.ValsHaveTypes.nil Θ).1.trans ?_
+        iintro _
+        ipure_intro
+        simp [typeConstraints.typeConstraintsList]
+    | v :: vs, ty :: ts =>
+        refine (TinyML.ValsHaveTypes.cons Θ v vs ty ts).1.trans ?_
+        iintro hvals
+        icases hvals with ⟨hv, hvs⟩
+        ihave %hhead := (typeConstraints_hold (ty := ty) (t := .unop .vhead tl)
+          (ρ := ρ) (Θ := Θ) (v := v) (by simp [Term.eval, UnOp.eval, htl])) $$ hv
+        ihave %htail := (typeConstraintsList_hold (ts := ts) (tl := .unop .vtail tl)
+          (ρ := ρ) (Θ := Θ) (vs := vs) (by simp [Term.eval, UnOp.eval, htl])) $$ hvs
+        iclear hv hvs
+        ipure_intro
+        intro φ hφ
+        cases List.mem_append.mp hφ with
+        | inl h => exact hhead φ h
+        | inr h => exact htail φ h
+    | [], ty :: ts =>
+        exact (TinyML.ValsHaveTypes.nil_cons Θ ty ts).1.trans false_elim
+    | v :: vs, [] =>
+        exact (TinyML.ValsHaveTypes.cons_nil Θ v vs).1.trans false_elim
 end
 
 -- ---------------------------------------------------------------------------
@@ -714,9 +779,9 @@ theorem Spec.call_correct (Θ : TinyML.TypeEnv) (s : Spec) (σ : FiniteSubst) (s
     (∀ p ∈ sargs, (p : TinyML.Typ × Term .value).2.wfIn st.decls) →
     VerifM.eval (Spec.call Θ σ s sargs) st ρ Ψ →
     (∀ v st' ρ' t, Ψ (s.retTy, t) st' ρ' → t.wfIn st'.decls → t.eval ρ'.env = v →
-      TinyML.ValHasType Θ v s.retTy → st'.sl ρ' ∗ R ⊢ Φ v) →
+      st'.sl ρ' ∗ R ∗ TinyML.ValHasType Θ v s.retTy ⊢ Φ v) →
     @TinyML.Typ.SubList Θ (sargs.map Prod.fst) (s.args.map Prod.snd) ∧
-    (st.sl ρ ∗ R ⊢ PredTrans.apply (fun r => ⌜TinyML.ValHasType Θ r s.retTy⌝ -∗ Φ r) s.pred
+    (st.sl ρ ∗ R ⊢ PredTrans.apply (fun r => TinyML.ValHasType Θ r s.retTy -∗ Φ r) s.pred
       (Spec.argsEnv (VerifM.Env.withEnv ρ (σ.subst.eval ρ.env)) s.args
         (sargs.map fun p => p.2.eval ρ.env))) := by
   intro hwf hσdomwf hσwf hsargs heval hΨ
@@ -738,29 +803,36 @@ theorem Spec.call_correct (Θ : TinyML.TypeEnv) (s : Spec) (σ : FiniteSubst) (s
           by intro b hb; simp at hb⟩
         hσ'domwf
     have hcall := PredTrans.call_correct s.pred σ' st' ρ'
-      _ (fun r => ⌜TinyML.ValHasType Θ r s.retTy⌝ -∗ Φ r) R
+      _ (fun r => TinyML.ValHasType Θ r s.retTy -∗ Φ r) R
       hwf'' hσ'domwf hσ'wf hb2
       (fun v st'' ρ'' t hΨ'' htwf hteval => by
         apply wand_intro
         iintro H
-        icases H with ⟨⟨Howns, HR⟩, %hty⟩
+        icases H with ⟨⟨Howns, HR⟩, Hty⟩
+        iintuitionistic Hty
+        ihave Hpure := (typeConstraints_hold (ty := s.retTy) (t := t) (ρ := ρ'') (Θ := Θ) (v := v) hteval) $$ Hty
+        ipure Hpure
         have hbind := VerifM.eval_bind _ _ _ _ hΨ''
         have hassumeAll :
             ∃ st₃, st₃.decls = st''.decls ∧ st₃.owns = st''.owns ∧
               VerifM.eval (Pure.pure (s.retTy, t)) st₃ ρ'' Ψ :=
           VerifM.eval_assumeAll hbind
           (fun φ hφ => typeConstraints_wfIn htwf φ hφ)
-          (fun φ hφ => typeConstraints_hold hteval hty φ hφ)
+          (fun φ hφ => Hpure φ hφ)
         rcases hassumeAll with ⟨st₃, hst₃_decls, hrest⟩
         have hst₃_owns : st₃.owns = st''.owns := hrest.1
         have heval_pure : VerifM.eval (Pure.pure (s.retTy, t)) st₃ ρ'' Ψ := hrest.2
         have hret := VerifM.eval_ret heval_pure
-        iapply (hΨ v st₃ ρ'' t hret (hst₃_decls ▸ htwf) hteval hty)
-        isplitl [Howns]
-        · simp [hst₃_owns]
-        · iexact HR)
+        ihave Harg : (st₃.sl ρ'' ∗ R ∗ TinyML.ValHasType Θ v s.retTy) $$ [HR Howns Hty]
+        · isplitr [Hty HR]
+          · simp [TransState.sl, hst₃_owns]
+            iassumption
+          · isplitl [HR]
+            · iexact HR
+            · iexact Hty
+        iapply (hΨ v st₃ ρ'' t hret (hst₃_decls ▸ htwf) hteval) $$ Harg)
     have hcall' : st.sl ρ' ∗ R ⊢
-        PredTrans.apply (fun r => ⌜TinyML.ValHasType Θ r s.retTy⌝ -∗ Φ r) s.pred
+        PredTrans.apply (fun r => TinyML.ValHasType Θ r s.retTy -∗ Φ r) s.pred
           (VerifM.Env.withEnv ρ' (σ'.subst.eval ρ'.env)) := by
       simpa [howns] using hcall
     exact (sep_mono_l (SpatialContext.interp_env_agree (VerifM.eval.wf heval).ownsWf hragree).1).trans <|
@@ -769,47 +841,61 @@ theorem Spec.call_correct (Θ : TinyML.TypeEnv) (s : Spec) (σ : FiniteSubst) (s
 /-- Correctness of `declareImplArgs`: after processing all arguments, the resulting
     substitution is well-formed, all argVars are in decls with sort `.value`,
     and the env agrees with `argsEnv`. -/
+def Spec.DeclareImplArgs.Result (args : List (String × TinyML.Typ)) (vs : List Runtime.Val)
+    (σ : FiniteSubst) (st : TransState) (ρ : VerifM.Env)
+    (Ψ : (FiniteSubst × List FOL.Const) → TransState → VerifM.Env → Prop) : Prop :=
+  ∃ σ' argVars st' ρ', Ψ (σ', argVars) st' ρ' ∧
+    σ'.wf st'.decls ∧
+    (Signature.ofVars σ'.dom).wf ∧
+    st.decls.Subset st'.decls ∧
+    VerifM.Env.agreeOn st.decls ρ ρ' ∧
+    st'.owns = st.owns ∧
+    (((Signature.ofVars σ.dom).declVars (Spec.argVars args)).vars ⊆ σ'.dom) ∧
+    VerifM.Env.agreeOn ((Signature.ofVars σ.dom).declVars (Spec.argVars args))
+      (VerifM.Env.withEnv ρ' (σ'.subst.eval ρ'.env))
+      (Spec.argsEnv (VerifM.Env.withEnv ρ (σ.subst.eval ρ.env)) args vs) ∧
+    (∀ v ∈ argVars, v ∈ st'.decls.consts) ∧
+    (∀ v ∈ argVars, v.sort = .value) ∧
+    Terms.Eval ρ'.env (argVars.map (fun av => .const (.uninterpreted av.name .value))) vs
+
 theorem Spec.declareImplArgs_correct (Θ : TinyML.TypeEnv) :
     ∀ (args : List (String × TinyML.Typ)) (vs : List Runtime.Val)
       (σ : FiniteSubst) (st : TransState) (ρ : VerifM.Env)
       (Ψ : (FiniteSubst × List FOL.Const) → TransState → VerifM.Env → Prop),
     σ.wf st.decls →
     (Signature.ofVars σ.dom).wf →
-    TinyML.ValsHaveTypes Θ vs (args.map Prod.snd) →
     VerifM.eval (Spec.declareImplArgs σ args) st ρ Ψ →
-    ∃ σ' argVars st' ρ', Ψ (σ', argVars) st' ρ' ∧
-      σ'.wf st'.decls ∧
-      (Signature.ofVars σ'.dom).wf ∧
-      st.decls.Subset st'.decls ∧
-      VerifM.Env.agreeOn st.decls ρ ρ' ∧
-      st'.owns = st.owns ∧
-      (((Signature.ofVars σ.dom).declVars (Spec.argVars args)).vars ⊆ σ'.dom) ∧
-      VerifM.Env.agreeOn ((Signature.ofVars σ.dom).declVars (Spec.argVars args))
-        (VerifM.Env.withEnv ρ' (σ'.subst.eval ρ'.env))
-        (Spec.argsEnv (VerifM.Env.withEnv ρ (σ.subst.eval ρ.env)) args vs) ∧
-      (∀ v ∈ argVars, v ∈ st'.decls.consts) ∧
-      (∀ v ∈ argVars, v.sort = .value) ∧
-      Terms.Eval ρ'.env (argVars.map (fun av => .const (.uninterpreted av.name .value))) vs := by
+    TinyML.ValsHaveTypes Θ vs (args.map Prod.snd) ⊢
+      ⌜Spec.DeclareImplArgs.Result args vs σ st ρ Ψ⌝ := by
   intro args
   induction args with
   | nil =>
-    intro vs σ st ρ Ψ hσwf hσdomwf hvs heval
-    cases hvs with
+    intro vs σ st ρ Ψ hσwf hσdomwf heval
+    iintro Hvs
+    ihave %hlen := TinyML.ValsHaveTypes.length_eq $$ Hvs
+    cases vs with
     | nil =>
       simp [Spec.declareImplArgs] at heval
       have := VerifM.eval_ret heval
+      ipure_intro
       exact ⟨σ, [], st, ρ, this, hσwf, hσdomwf,
         Signature.Subset.refl _, VerifM.Env.agreeOn_refl, rfl, fun x hx => hx,
         by simp [Spec.argVars, Spec.argsEnv]; exact VerifM.Env.agreeOn_refl,
         nofun,
         nofun,
         .nil⟩
+    | cons _ _ =>
+      simp at hlen
   | cons arg rest ih =>
-    intro vs σ st ρ Ψ hσwf hσdomwf hvs heval
+    intro vs σ st ρ Ψ hσwf hσdomwf heval
     obtain ⟨name, ty⟩ := arg
-    cases hvs with
-    | cons hv hvs_rest =>
-      rename_i v vs'
+    cases vs with
+    | nil =>
+      exact (TinyML.ValsHaveTypes.nil_cons Θ ty (rest.map Prod.snd)).1.trans false_elim
+    | cons v vs' =>
+      refine (TinyML.ValsHaveTypes.cons Θ v vs' ty (rest.map Prod.snd)).1.trans ?_
+      iintro Hvs
+      icases Hvs with ⟨Hv, Hvs_rest⟩
       simp only [Spec.declareImplArgs] at heval
       have hb := VerifM.eval_bind _ _ _ _ heval
       have hdecl := VerifM.eval_decl hb
@@ -834,6 +920,9 @@ theorem Spec.declareImplArgs_correct (Θ : TinyML.TypeEnv) :
         simp [ρ₁, Term.eval, Const.denote, Env.updateConst]
       have hassume_bind := VerifM.eval_bind _ _ _ _ hdecl
       set σ' := σ.rename ⟨name, .value⟩ argVar.name
+      ihave %htyped_formulas := typeConstraints_hold (ty := ty)
+          (t := .const (.uninterpreted argVar.name .value))
+          (ρ := ρ₁) (Θ := Θ) (v := v) hvar_eval $$ Hv
       have hassumeAll :
           ∃ st₂, st₂.decls = st₁.decls ∧ st₂.owns = st₁.owns ∧
             VerifM.eval
@@ -841,8 +930,8 @@ theorem Spec.declareImplArgs_correct (Θ : TinyML.TypeEnv) :
                 let (σ'', vars) ← Spec.declareImplArgs σ' rest
                 pure (σ'', argVar :: vars)) st₂ ρ₁ Ψ :=
         VerifM.eval_assumeAll hassume_bind
-        (fun φ hφ => typeConstraints_wfIn hvar_wf φ hφ)
-        (fun φ hφ => typeConstraints_hold hvar_eval hv φ hφ)
+          (fun φ hφ => typeConstraints_wfIn hvar_wf φ hφ)
+          (fun φ hφ => htyped_formulas φ hφ)
       rcases hassumeAll with ⟨st₂, hst₂_decls, hrest⟩
       have hst₂_owns : st₂.owns = st₁.owns := hrest.1
       have hdecl₂ : VerifM.eval
@@ -863,6 +952,9 @@ theorem Spec.declareImplArgs_correct (Θ : TinyML.TypeEnv) :
         apply VerifM.eval.mono hbind₂
         intro p st' ρ' hp
         exact VerifM.eval_ret hp
+      ihave %hih' := ih vs' σ' st₂ ρ₁
+        (fun p st' ρ' => Ψ (p.1, argVar :: p.2) st' ρ')
+        hσ'wf₂ hσ'domwf hbind₂' $$ Hvs_rest
       have hih :
           ∃ σ'' argVars' st' ρ', Ψ (σ'', argVar :: argVars') st' ρ' ∧
             σ''.wf st'.decls ∧
@@ -877,9 +969,7 @@ theorem Spec.declareImplArgs_correct (Θ : TinyML.TypeEnv) :
             (∀ v ∈ argVars', v ∈ st'.decls.consts) ∧
             (∀ v ∈ argVars', v.sort = .value) ∧
             Terms.Eval ρ'.env (argVars'.map (fun av => .const (.uninterpreted av.name .value))) vs' :=
-        ih vs' σ' st₂ ρ₁
-          (fun p st' ρ' => Ψ (p.1, argVar :: p.2) st' ρ')
-          hσ'wf₂ hσ'domwf hvs_rest hbind₂'
+        hih'
       rcases hih with ⟨σ'', argVars', st', ρ', hΨ, hrest⟩
       rcases hrest with ⟨hσ''wf, hrest⟩
       rcases hrest with ⟨hσ''domwf, hrest⟩
@@ -890,8 +980,6 @@ theorem Spec.declareImplArgs_correct (Θ : TinyML.TypeEnv) :
       rcases hrest with ⟨hagree, hrest⟩
       rcases hrest with ⟨hmem_decls, hrest⟩
       rcases hrest with ⟨hsorts, hlookups⟩
-      refine ⟨σ'', argVar :: argVars', st', ρ', hΨ, hσ''wf, hσ''domwf,
-        Signature.Subset.trans hst_st₂ hdsub', ?_⟩
       have hst_st₂_sig : st.decls.Subset st₂.decls :=
         hst₂_decls ▸ Signature.Subset.subset_addConst st.decls argVar
       have hragree_final : VerifM.Env.agreeOn st.decls ρ ρ' :=
@@ -909,13 +997,13 @@ theorem Spec.declareImplArgs_correct (Θ : TinyML.TypeEnv) :
       have hag_rename := FiniteSubst.rename_agreeOn_declVar
           (σ := σ) (decls := st.decls) (v := ⟨name, .value⟩) (c := argVar) (ρ := ρ.env) (u := v)
           hσwf hfresh_decls rfl
+      ihave %hlen_rest := TinyML.ValsHaveTypes.length_eq $$ Hvs_rest
       have hag_env := Spec.argsEnv_agreeOn
           (ρ₁ := VerifM.Env.withEnv ρ₁ (σ'.subst.eval ρ₁.env))
           (ρ₂ := VerifM.Env.withEnv ρ ((σ.subst.eval ρ.env).updateConst .value name v))
           (by simpa [VerifM.Env.agreeOn, VerifM.Env.withEnv, σ', FiniteSubst.rename] using hag_rename)
           rest vs' (by
-          have := hvs_rest.length_eq
-          simp [List.length_map] at this; omega)
+          simp [List.length_map] at hlen_rest; omega)
       have hagree_final :
           VerifM.Env.agreeOn ((Signature.ofVars σ.dom).declVars (Spec.argVars ((name, ty) :: rest)))
             (VerifM.Env.withEnv ρ' (σ''.subst.eval ρ'.env))
@@ -942,12 +1030,14 @@ theorem Spec.declareImplArgs_correct (Θ : TinyML.TypeEnv) :
             simpa [Term.eval, Const.denote, Env.lookupConst] using h1.symm
           exact h1'.trans hvar_eval
         · exact hlookups
-      exact ⟨hragree_final, howns_final, hdom_sub_final, hagree_final, hmem_final, hsorts_final, hlookups_final⟩
+      ipure_intro
+      exact ⟨σ'', argVar :: argVars', st', ρ', hΨ, hσ''wf, hσ''domwf,
+        Signature.Subset.trans hst_st₂ hdsub', hragree_final, howns_final, hdom_sub_final,
+        hagree_final, hmem_final, hsorts_final, hlookups_final⟩
 
 theorem Spec.implement_correct (Θ : TinyML.TypeEnv) (s : Spec) (body : List FOL.Const → VerifM (Term .value))
     (st : TransState) (ρ : VerifM.Env) (vs : List Runtime.Val) (Φ : Runtime.Val → iProp) (R : iProp) :
     s.wfIn Signature.empty →
-    TinyML.ValsHaveTypes Θ vs (s.args.map Prod.snd) →
     VerifM.eval (Spec.implement s body) st ρ (fun _ _ _ => True) →
     (∀ (argVars : List FOL.Const) (st' : TransState) (ρ' : VerifM.Env) (Q : iProp),
       (∀ v ∈ argVars, v ∈ st'.decls.consts) →
@@ -956,18 +1046,23 @@ theorem Spec.implement_correct (Θ : TinyML.TypeEnv) (s : Spec) (body : List FOL
       VerifM.eval (body argVars) st' ρ'
         (fun result st'' ρ'' =>
           ∀ (S : iProp), result.wfIn st''.decls →
-            st''.sl ρ'' ∗ Q ∗ ((⌜TinyML.ValHasType Θ (result.eval ρ''.env) s.retTy⌝ -∗ Φ (result.eval ρ''.env)) -∗ S) ⊢ S) →
+            st''.sl ρ'' ∗ Q ∗ ((TinyML.ValHasType Θ (result.eval ρ''.env) s.retTy -∗ Φ (result.eval ρ''.env)) -∗ S) ⊢ S) →
       st'.sl ρ' ∗ Q ⊢ R) →
-    st.sl ρ ∗ PredTrans.apply (fun r => ⌜TinyML.ValHasType Θ r s.retTy⌝ -∗ Φ r) s.pred
+    st.sl ρ ∗ TinyML.ValsHaveTypes Θ vs (s.args.map Prod.snd) ∗ PredTrans.apply (fun r => TinyML.ValHasType Θ r s.retTy -∗ Φ r) s.pred
       (Spec.argsEnv VerifM.Env.empty s.args vs) ⊢ R := by
-  intro hswf hvs heval hR
+  intro hswf heval hbody
   simp only [Spec.implement] at heval
   have hb := VerifM.eval_bind _ _ _ _ heval
+  iintro H
+  icases H with ⟨Howns, Hvals, Happ⟩
+  iintuitionistic Hvals
+  ihave %hlen_vals := TinyML.ValsHaveTypes.length_eq $$ Hvals
+  ihave Hdecl := Spec.declareImplArgs_correct Θ s.args vs FiniteSubst.id st ρ _
+      (FiniteSubst.id_wf st.decls)
+      (by simpa [Signature.ofVars] using Signature.wf_empty) hb $$ Hvals
+  ipure Hdecl
   obtain ⟨σ', argVars, st', ρ', hΨ, hσ'wf, hσ'domwf, hdsub, hragree, howns, hdom_sub, hagree,
-    hmem_decls, hsorts, hlookups⟩ :=
-    Spec.declareImplArgs_correct Θ s.args vs FiniteSubst.id st ρ _ (FiniteSubst.id_wf st.decls)
-      (by simpa [Signature.ofVars] using Signature.wf_empty) hvs hb
-  -- Transport apply from argsEnv Env.empty to σ'.subst.eval ρ'
+    hmem_decls, hsorts, hlookups⟩ := Hdecl
   have hag_empty : VerifM.Env.agreeOn ((Signature.ofVars FiniteSubst.id.dom).declVars (Spec.argVars s.args))
       (Spec.argsEnv VerifM.Env.empty s.args vs)
       (Spec.argsEnv (VerifM.Env.withEnv ρ (FiniteSubst.id.subst.eval ρ.env)) s.args vs) :=
@@ -975,25 +1070,14 @@ theorem Spec.implement_correct (Θ : TinyML.TypeEnv) (s : Spec) (body : List FOL
       (ρ₁ := VerifM.Env.empty)
       (ρ₂ := VerifM.Env.withEnv ρ (FiniteSubst.id.subst.eval ρ.env))
       (by exact ⟨nofun, nofun, nofun, nofun⟩) s.args vs
-      (by have := hvs.length_eq; simp [List.length_map] at this; omega)
-  refine (show st.sl ρ ∗
-      PredTrans.apply (fun r => ⌜TinyML.ValHasType Θ r s.retTy⌝ -∗ Φ r) s.pred
-        (Spec.argsEnv VerifM.Env.empty s.args vs) ⊢
-      st'.sl ρ' ∗
-        PredTrans.apply (fun r => ⌜TinyML.ValHasType Θ r s.retTy⌝ -∗ Φ r) s.pred
-          (VerifM.Env.withEnv ρ' (σ'.subst.eval ρ'.env)) from by
-      iintro H
-      icases H with ⟨Howns, Happ⟩
-      isplitr [Happ]
-      · iapply (show st.sl ρ' ⊢ st'.sl ρ' by simp [howns, TransState.sl])
-        iapply (show st.sl ρ ⊢ st.sl ρ' by
-          simpa [TransState.sl] using
-            (SpatialContext.interp_env_agree (VerifM.eval.wf heval).ownsWf hragree).1)
-        iexact Howns
-      · iapply (PredTrans.apply_env_agree hswf (VerifM.Env.agreeOn_trans hag_empty (VerifM.Env.agreeOn_symm hagree)))
-        iexact Happ).trans
+      (by
+        simp [List.length_map] at hlen_vals
+        omega)
+  iapply (show st'.sl ρ' ∗
+        PredTrans.apply (fun r => TinyML.ValHasType Θ r s.retTy -∗ Φ r) s.pred
+          (VerifM.Env.withEnv ρ' (σ'.subst.eval ρ'.env)) ⊢ R from
     (PredTrans.implement_correct s.pred σ' (body argVars) st' ρ'
-      (fun r => ⌜TinyML.ValHasType Θ r s.retTy⌝ -∗ Φ r) R
+      (fun r => TinyML.ValHasType Θ r s.retTy -∗ Φ r) R
       (PredTrans.wfIn_mono hswf
         ⟨hdom_sub,
           by
@@ -1010,7 +1094,7 @@ theorem Spec.implement_correct (Θ : TinyML.TypeEnv) (s : Spec) (body : List FOL
             simp at hb⟩
         hσ'domwf) hσ'domwf hσ'wf hΨ
         (fun st'' ρ'' Q hdsub' hragree' hbody_eval => by
-          apply hR argVars st'' ρ'' Q
+          apply hbody argVars st'' ρ'' Q
           · intro v hv
             exact hdsub'.consts v (hmem_decls v hv)
           · exact hsorts
@@ -1031,4 +1115,12 @@ theorem Spec.implement_correct (Θ : TinyML.TypeEnv) (s : Spec) (body : List FOL
                   exact Signature.wf_unique_const hwfst' (hmem_decls ⟨name, .value⟩ hav) hc'
             · exact hragree'
             · exact hlookups
-          · exact hbody_eval))
+          · exact hbody_eval)))
+  isplitr [Happ]
+  · iapply (show st.sl ρ' ⊢ st'.sl ρ' by simp [howns, TransState.sl])
+    iapply (show st.sl ρ ⊢ st.sl ρ' by
+      simpa [TransState.sl] using
+        (SpatialContext.interp_env_agree (VerifM.eval.wf heval).ownsWf hragree).1)
+    iexact Howns
+  · iapply (PredTrans.apply_env_agree hswf (VerifM.Env.agreeOn_trans hag_empty (VerifM.Env.agreeOn_symm hagree)))
+    iexact Happ

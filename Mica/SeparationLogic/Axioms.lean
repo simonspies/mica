@@ -2,7 +2,7 @@ import Iris.Examples.IProp
 import Mica.TinyML.RuntimeExpr
 import Mica.TinyML.OpSem
 
-open Iris Iris.BI
+open Iris Iris.BI Iris.OFE
 
 -- Top-level elaboration for Iris connectives (the Iris library only provides
 -- these inside `iprop(...)` blocks).
@@ -21,6 +21,22 @@ axiom pointsTo : Runtime.Location → Runtime.Val → iProp
 notation:50 l " ↦ " v:51 => pointsTo l v
 
 axiom wp : Runtime.Expr → (Runtime.Val → iProp) → iProp
+
+axiom locinv : Runtime.Location → (Runtime.Val → iProp) → iProp
+/- We don't have invariants yet, but the idea is the encoding of locinv is
+        locinv l I := inv N (∃ v, l ↦ v * I v)
+We don't give out access to the points-to direcly in the rules below and,
+instead, the invariant on the value I has to be persistent. -/
+axiom locinv_persistent l I : Persistent (locinv l I)
+
+attribute [instance] locinv_persistent
+
+/- In Iris, invariants are contractive in their body. `locinv` is currently
+axiomatized in Mica, so this experiment records the corresponding local axiom. -/
+axiom locinv_contractive (l : Runtime.Location) :
+  Contractive (fun I : Runtime.Val → iProp => locinv l I)
+
+attribute [instance] locinv_contractive
 
 /-- Weakest precondition for a list of expressions, evaluated right-to-left.
     `wps [e1, e2, e3] Q` first evaluates `e3`, then `e2`, then `e1`,
@@ -102,7 +118,7 @@ axiom wp.match_ {tag arity : Nat} {payload : Runtime.Val} {branches : Runtime.Ex
 
 /-- `ref e` allocates a fresh location, stores the value, and returns the location. -/
 axiom wp.ref {v : Runtime.Val} {Q : Runtime.Val → iProp} :
-    (BIBase.forall fun (l : Runtime.Location) => l ↦ v -∗ Q (.loc l)) ⊢
+    iprop(∀ (l : Runtime.Location), l ↦ v -∗ Q (.loc l)) ⊢
     wp (.ref (.val v)) Q
 
 /-- `deref e` reads the value stored at the location. Reading preserves ownership. -/
@@ -112,6 +128,21 @@ axiom wp.deref {l : Runtime.Location} {v : Runtime.Val} {Q : Runtime.Val → iPr
 /-- `store loc val` updates the value at the location. -/
 axiom wp.store {l : Runtime.Location} {old v : Runtime.Val} {Q : Runtime.Val → iProp} :
     l ↦ old ∗ (l ↦ v -∗ Q .unit) ⊢ wp (.store (.val (.loc l)) (.val v)) Q
+
+
+/-- `ref e` allocates a fresh location, stores the value, and returns the location. -/
+axiom wp.ref_inv {v : Runtime.Val} {I: Runtime.Val → iProp} {Q : Runtime.Val → iProp} :
+    iprop((□ I v) ∗ ∀ (l : Runtime.Location), locinv l I -∗ Q (.loc l)) ⊢
+    wp (.ref (.val v)) Q
+
+/-- `deref e` reads the value stored at the location. Reading preserves ownership. -/
+axiom wp.deref_inv {l : Runtime.Location} {I: Runtime.Val → iProp} {Q : Runtime.Val → iProp} :
+    locinv l I ∗ (∀ v, I v -∗ Q v) ⊢ wp (.deref (.val (.loc l))) Q
+
+/-- `store loc val` updates the value at the location. -/
+axiom wp.store_inv {l : Runtime.Location} {v: Runtime.Val} {Q : Runtime.Val → iProp} :
+    locinv l I ∗ (□ I v) ∗ Q .unit ⊢ wp (.store (.val (.loc l)) (.val v)) Q
+
 
 /-! ## Derived lemmas -/
 
