@@ -65,8 +65,7 @@ theorem Spec.isPrecondFor_fold (Θ : TinyML.TypeEnv) (s : Spec)
   iintro □H
   imodintro
   iintro %Φ %vs Htyped Hpred
-  ispecialize H $$ %vs
-  ispecialize H $$ %Φ
+  ispecialize H $$ %vs %Φ
   iapply H
   isplitl [Htyped]
   · iexact Htyped
@@ -93,11 +92,7 @@ theorem Spec.isPrecondFor_fix {Θ : TinyML.TypeEnv} {s : Spec}
   istart
   iintro □HR
   imodintro
-  iintro IH
-  iintro %vs
-  iintro %P
-  iintro h
-  icases h with ⟨htyped, hpred⟩
+  iintro IH %vs %P ⟨htyped, hpred⟩
   ispecialize HR $$ [IH]
   · iapply (Spec.isPrecondFor_fold Θ s (.fix f args e)); iexact IH
   ihave Hres := HR $$ %vs %P [htyped] [hpred]
@@ -419,47 +414,64 @@ def SpecMap.erase' (S : SpecMap) (b : Typed.Binder) : SpecMap :=
     (h : b.name = some x) : S.erase' b = S.erase x := by
   simp [SpecMap.erase', h]
 
-theorem SpecMap.satisfiedBy_insert {Θ : TinyML.TypeEnv} {S : SpecMap} {γ : Runtime.Subst}
-    {x : TinyML.Var} {fval : Runtime.Val} {spec : Spec} (hγ : γ x = some fval) :
-    S.satisfiedBy Θ γ ∗ spec.isPrecondFor Θ fval ⊢ SpecMap.satisfiedBy Θ (Finmap.insert x spec S) γ := by
+/-- Generic preservation: if every `y` in the domain of `S'` has the same spec in `S` and
+    its value is preserved from `γ` to `γ'`, then satisfiedness transfers. -/
+theorem SpecMap.satisfiedBy_preserved {Θ : TinyML.TypeEnv} {S S' : SpecMap} {γ γ' : Runtime.Subst}
+    (h : ∀ y s, S'.lookup y = some s →
+      S.lookup y = some s ∧ (∀ f, γ y = some f → γ' y = some f)) :
+    S.satisfiedBy Θ γ ⊢ S'.satisfiedBy Θ γ' := by
+  simp only [SpecMap.satisfiedBy]
+  iintro □HS
+  imodintro
+  iintro %y %s %hlookup
+  obtain ⟨hlookup', hγ⟩ := h y s hlookup
+  ispecialize HS $$ %y %s %hlookup'
+  icases HS with ⟨%f, %hγf, Hpre⟩
+  iexists f
+  isplitl [Hpre]
+  · ipure_intro; exact hγ f hγf
+  · iexact Hpre
+
+/-- Generic insert: fresh precondition for `x ↦ fval` plus preservation elsewhere. -/
+theorem SpecMap.satisfiedBy_insert_generic {Θ : TinyML.TypeEnv} {S : SpecMap}
+    {γ γ' : Runtime.Subst} {x : TinyML.Var} {fval : Runtime.Val} {spec : Spec}
+    (hγ' : γ' x = some fval)
+    (hγ : ∀ y f, y ≠ x → γ y = some f → γ' y = some f) :
+    S.satisfiedBy Θ γ ∗ spec.isPrecondFor Θ fval ⊢
+      SpecMap.satisfiedBy Θ (Finmap.insert x spec S) γ' := by
   simp only [SpecMap.satisfiedBy, Spec.isPrecondFor]
   iintro ⟨□HS, □Hf⟩
   imodintro
   iintro %y %s' %hlookup
   by_cases hyx : y = x
-  · subst hyx; rw [Finmap.lookup_insert] at hlookup; simp at hlookup; subst hlookup
+  · subst hyx
+    have : s' = spec := by rw [Finmap.lookup_insert] at hlookup; simpa using hlookup.symm
+    subst this
     iexists fval
     isplitr
-    · ipure_intro; exact hγ
+    · ipure_intro; exact hγ'
     · iexact Hf
   · rw [Finmap.lookup_insert_of_ne _ hyx] at hlookup
-    ispecialize HS $$ %y
-    ispecialize HS $$ %s'
-    ispecialize HS $$ %hlookup
-    iexact HS
+    ispecialize HS $$ %y %s' %hlookup
+    icases HS with ⟨%f, %hγf, Hpre⟩
+    iexists f
+    isplitl [Hpre]
+    · ipure_intro; exact hγ y f hyx hγf
+    · iexact Hpre
+
+theorem SpecMap.satisfiedBy_insert {Θ : TinyML.TypeEnv} {S : SpecMap} {γ : Runtime.Subst}
+    {x : TinyML.Var} {fval : Runtime.Val} {spec : Spec} (hγ : γ x = some fval) :
+    S.satisfiedBy Θ γ ∗ spec.isPrecondFor Θ fval ⊢
+      SpecMap.satisfiedBy Θ (Finmap.insert x spec S) γ :=
+  SpecMap.satisfiedBy_insert_generic hγ (fun _ _ _ hf => hf)
 
 theorem SpecMap.satisfiedBy_insert_update {Θ : TinyML.TypeEnv} {S : SpecMap} {γ : Runtime.Subst}
     {x : TinyML.Var} {v : Runtime.Val} {spec : Spec} :
-    S.satisfiedBy Θ γ ∗ spec.isPrecondFor Θ v ⊢ SpecMap.satisfiedBy Θ (Finmap.insert x spec S) (γ.update x v) := by
-  simp only [SpecMap.satisfiedBy, Spec.isPrecondFor]
-  iintro ⟨□HS, □Hf⟩
-  imodintro
-  iintro %y %s' %hlookup
-  by_cases hyx : y = x
-  · subst hyx; rw [Finmap.lookup_insert] at hlookup; simp at hlookup; subst hlookup
-    iexists v
-    isplitr
-    · ipure_intro; simp [Runtime.Subst.update]
-    · iexact Hf
-  · rw [Finmap.lookup_insert_of_ne _ hyx] at hlookup
-    ispecialize HS $$ %y
-    ispecialize HS $$ %s'
-    ispecialize HS $$ %hlookup
-    icases HS with ⟨%f, %hγf, Hprecond⟩
-    iexists f
-    isplitl [Hprecond]
-    · ipure_intro; simp [Runtime.Subst.update, beq_false_of_ne hyx, hγf]
-    · iexact Hprecond
+    S.satisfiedBy Θ γ ∗ spec.isPrecondFor Θ v ⊢
+      SpecMap.satisfiedBy Θ (Finmap.insert x spec S) (γ.update x v) :=
+  SpecMap.satisfiedBy_insert_generic
+    (by simp [Runtime.Subst.update])
+    (fun y f hyx hf => by simp [Runtime.Subst.update, beq_false_of_ne hyx, hf])
 
 theorem SpecMap.wfIn_insert {S : SpecMap} {x : TinyML.Var} {spec : Spec} {Δ : Signature}
     (hS : S.wfIn Δ) (hs : spec.wfIn Δ) : SpecMap.wfIn (Finmap.insert x spec S) Δ := by
@@ -501,26 +513,14 @@ theorem SpecMap.wfIn_erase' {S : SpecMap} {b : Typed.Binder} {Δ : Signature}
 theorem SpecMap.satisfiedBy_eraseAll_updateAll' {Θ : TinyML.TypeEnv} {keys : List String} {S : SpecMap} {γ : Runtime.Subst}
     {vs : List Runtime.Val} (hlen : keys.length = vs.length) :
     S.satisfiedBy Θ γ ⊢ (SpecMap.eraseAll keys S).satisfiedBy Θ (γ.updateAll' (keys.map Runtime.Binder.named) vs) := by
-  simp only [SpecMap.satisfiedBy]
-  iintro □HS
-  imodintro
-  iintro %y %s %hlookup
+  apply SpecMap.satisfiedBy_preserved
+  intro y s hlookup
   have hy_notin : y ∉ keys := by
-    intro hmem
-    have := SpecMap.eraseAll_lookup_none hmem (S := S)
-    rw [this] at hlookup; exact absurd hlookup (by simp)
-  have hγ_eq : (γ.updateAll' (keys.map Runtime.Binder.named) vs) y = γ y := by
-    rw [Runtime.Subst.updateAll'_eq _ _ _ _ (by simp; omega)]
-    rw [findVal_none_of_not_mem keys vs y (by omega) hy_notin]
-  have hlookup' : S.lookup y = some s := by rwa [SpecMap.eraseAll_lookup_of_notin hy_notin] at hlookup
-  ispecialize HS $$ %y
-  ispecialize HS $$ %s
-  ispecialize HS $$ %hlookup'
-  icases HS with ⟨%f, %hγf, Hprecond⟩
-  iexists f
-  isplitl [Hprecond]
-  · ipure_intro; rw [hγ_eq]; exact hγf
-  · iexact Hprecond
+    intro hmem; rw [eraseAll_lookup_none hmem] at hlookup; exact absurd hlookup (by simp)
+  refine ⟨by rwa [eraseAll_lookup_of_notin hy_notin] at hlookup, fun f hf => ?_⟩
+  rw [Runtime.Subst.updateAll'_eq _ _ _ _ (by simp; omega),
+      findVal_none_of_not_mem keys vs y (by omega) hy_notin]
+  exact hf
 
 theorem SpecMap.empty_satisfiedBy (γ : Runtime.Subst) :
     ⊢ SpecMap.satisfiedBy Θ (∅ : SpecMap) γ := by
@@ -535,21 +535,12 @@ theorem SpecMap.empty_wfIn (Δ : Signature) :
 
 theorem SpecMap.satisfiedBy_erase {Θ : TinyML.TypeEnv} {S : SpecMap} {γ : Runtime.Subst} {x : TinyML.Var} {v : Runtime.Val} :
     S.satisfiedBy Θ γ ⊢ SpecMap.satisfiedBy Θ (Finmap.erase x S) (Runtime.Subst.update γ x v) := by
-  simp only [SpecMap.satisfiedBy]
-  iintro □HS
-  imodintro
-  iintro %y %s %hlookup
-  by_cases hyx : y = x
-  · subst hyx; rw [Finmap.lookup_erase] at hlookup; exact absurd hlookup (by simp)
-  · rw [Finmap.lookup_erase_ne hyx] at hlookup
-    ispecialize HS $$ %y
-    ispecialize HS $$ %s
-    ispecialize HS $$ %hlookup
-    icases HS with ⟨%fval, %hγ, Hprecond⟩
-    iexists fval
-    isplitl [Hprecond]
-    · ipure_intro; simp [Runtime.Subst.update, hyx, hγ]
-    · iexact Hprecond
+  apply SpecMap.satisfiedBy_preserved
+  intro y s hlookup
+  have hyx : y ≠ x := fun heq => by
+    subst heq; rw [Finmap.lookup_erase] at hlookup; exact absurd hlookup (by simp)
+  exact ⟨by rwa [Finmap.lookup_erase_ne hyx] at hlookup,
+    fun f hf => by simp [Runtime.Subst.update, hyx, hf]⟩
 
 theorem SpecMap.satisfiedBy_erase' {Θ : TinyML.TypeEnv} {S : SpecMap} {γ : Runtime.Subst}
     {b : Typed.Binder} {v : Runtime.Val} :
@@ -563,19 +554,10 @@ theorem SpecMap.satisfiedBy_erase' {Θ : TinyML.TypeEnv} {S : SpecMap} {γ : Run
 theorem SpecMap.satisfiedBy_update_of_not_mem {Θ : TinyML.TypeEnv} {S : SpecMap} {γ : Runtime.Subst}
     {x : TinyML.Var} {v : Runtime.Val} (hx : S.lookup x = none) :
     S.satisfiedBy Θ γ ⊢ S.satisfiedBy Θ (γ.update x v) := by
-  simp only [SpecMap.satisfiedBy]
-  iintro □HS
-  imodintro
-  iintro %y %s %hlookup
-  have hyx : y ≠ x := by intro heq; subst heq; rw [hx] at hlookup; exact absurd hlookup (by simp)
-  ispecialize HS $$ %y
-  ispecialize HS $$ %s
-  ispecialize HS $$ %hlookup
-  icases HS with ⟨%fval, %hγ, Hprecond⟩
-  iexists fval
-  isplitl [Hprecond]
-  · ipure_intro; simp [Runtime.Subst.update, hyx, hγ]
-  · iexact Hprecond
+  apply SpecMap.satisfiedBy_preserved
+  intro y s hlookup
+  have hyx : y ≠ x := fun heq => by subst heq; rw [hx] at hlookup; exact absurd hlookup (by simp)
+  exact ⟨hlookup, fun f hf => by simp [Runtime.Subst.update, hyx, hf]⟩
 
 -- ---------------------------------------------------------------------------
 -- Spec correctness
