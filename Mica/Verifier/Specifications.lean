@@ -27,41 +27,137 @@ structure Spec where
   retTy   : TinyML.Typ
   pred    : PredTrans
 
--- ---------------------------------------------------------------------------
--- Well-formedness
--- ---------------------------------------------------------------------------
+/-! ## Helpers -/
+section Helpers
+
+namespace FiniteSubst
+
+/-! Renaming helpers from freshness assumptions. -/
+
+/-- Generic bundle for renaming `σ` on `v` to a fresh name `name'`. -/
+theorem rename_bundle_of_fresh {σ : FiniteSubst} {decls : Signature}
+    {v : Var} {name' : String}
+    (hσwf : σ.wf decls) (hσdomwf : (Signature.ofVars σ.dom).wf)
+    (_hfresh_decls : name' ∉ decls.allNames)
+    (hfresh_range : name' ∉ σ.range.allNames) :
+    let c : FOL.Const := ⟨name', v.sort⟩
+    let σ' := σ.rename v name'
+    σ'.wf (decls.addConst c) ∧
+    (Signature.ofVars σ'.dom).wf := by
+  exact ⟨FiniteSubst.rename_wf hσwf hfresh_range,
+    FiniteSubst.rename_dom_wf hσdomwf⟩
+
+/-- Standard bundle after declaring a fresh constant of `v.sort` and renaming `σ` on `v`:
+    freshness facts and well-formedness of the renamed substitution in the extended
+    signature. -/
+theorem rename_bundle_of_freshConst {σ : FiniteSubst} {st : TransState}
+    {hint : Option String} {v : Var}
+    (hσwf : σ.wf st.decls) (hσdomwf : (Signature.ofVars σ.dom).wf) :
+    let c := st.freshConst hint v.sort
+    let σ' := σ.rename v c.name
+    c.name ∉ st.decls.allNames ∧
+    c.name ∉ σ.range.allNames ∧
+    σ'.wf (st.decls.addConst c) ∧
+    (Signature.ofVars σ'.dom).wf := by
+  have hfresh_decls := TransState.freshConst_fresh st hint v.sort
+  have hfresh_range : (st.freshConst hint v.sort).name ∉ σ.range.allNames :=
+    fun h => hfresh_decls (Signature.allNames_subset hσwf.2.1 _ h)
+  have hrename :=
+    rename_bundle_of_fresh (v := v) (name' := (st.freshConst hint v.sort).name)
+      hσwf hσdomwf hfresh_decls hfresh_range
+  exact ⟨hfresh_decls, hfresh_range, hrename.1, hrename.2⟩
+
+end FiniteSubst
+end Helpers
+
+namespace Spec
+
+/-! ## Definitions -/
 
 /-- The list of SMT variables corresponding to a spec's arguments. -/
-def Spec.argVars (args : List (String × TinyML.Typ)) : List Var :=
+def argVars (args : List (String × TinyML.Typ)) : List Var :=
   args.map fun (name, _) => ⟨name, .value⟩
 
 /-- Build an environment binding each argument name to its value, left-to-right.
     Later arguments shadow earlier ones with the same name. -/
-def Spec.argsEnv (ρ : VerifM.Env) : List (String × TinyML.Typ) → List Runtime.Val → VerifM.Env
+def argsEnv (ρ : VerifM.Env) : List (String × TinyML.Typ) → List Runtime.Val → VerifM.Env
   | [], _ | _, [] => ρ
-  | (name, _) :: rest, v :: vs => Spec.argsEnv (ρ.updateConst .value name v) rest vs
+  | (name, _) :: rest, v :: vs => argsEnv (ρ.updateConst .value name v) rest vs
 
-def Spec.isPrecondFor (Θ : TinyML.TypeEnv) (f : Runtime.Val) (s : Spec) : iProp :=
+def isPrecondFor (Θ : TinyML.TypeEnv) (f : Runtime.Val) (s : Spec) : iProp :=
   iprop(□ ∀ (Φ : Runtime.Val → iProp) (vs : List Runtime.Val),
       TinyML.ValsHaveTypes Θ vs (s.args.map Prod.snd) -∗
         PredTrans.apply (fun r => TinyML.ValHasType Θ r s.retTy -∗ Φ r) s.pred
-          (Spec.argsEnv VerifM.Env.empty s.args vs) -∗
+          (argsEnv VerifM.Env.empty s.args vs) -∗
         wp (Runtime.Expr.app (.val f) (vs.map fun v => .val v)) Φ)
 
-instance : Iris.BI.Persistent (Spec.isPrecondFor Θ f s) := by
-  unfold Spec.isPrecondFor; infer_instance
+/-- A spec is well-formed when its predicate transformer is well-formed in the
+    context extended with all argument variables. -/
+def wfIn (spec : Spec) (Δ : Signature) : Prop :=
+  PredTrans.wfIn (Δ.declVars (argVars spec.args)) spec.pred
 
+def checkWf (spec : Spec) (Δ : Signature) : Except String Unit :=
+  PredTrans.checkWf (Δ.declVars (argVars spec.args)) spec.pred
+
+/-- Declare argument variables, check types, and assume equalities for a spec call.
+    Returns the updated substitution. -/
+def declareArgs (Θ : TinyML.TypeEnv) (σ : FiniteSubst) :
+    List (String × TinyML.Typ) → List (TinyML.Typ × Term .value) → VerifM FiniteSubst
+  | [], [] => pure σ
+  | (name, ty) :: rest, (targ, sarg) :: sargs => do
+    if TinyML.Typ.sub Θ targ ty then pure ()
+    else VerifM.fatal s!"type mismatch in call to spec"
+    let argVar ← VerifM.decl (some name) .value
+    let σ' := σ.rename ⟨name, .value⟩ argVar.name
+    VerifM.assume (.pure (.eq .value (.const (.uninterpreted argVar.name .value)) sarg))
+    declareArgs Θ σ' rest sargs
+  | _, _ => VerifM.fatal "wrong number of arguments"
+
+/-- Full call protocol for a spec: declare argument variables, assume they equal the
+    compiled argument terms, check argument types, then invoke `PredTrans.call`. -/
+def call (Θ : TinyML.TypeEnv) (σ : FiniteSubst) (s : Spec) (sargs : List (TinyML.Typ × Term .value)) :
+    VerifM (TinyML.Typ × Term .value) := do
+  let σ' ← declareArgs Θ σ s.args sargs
+  let result ← PredTrans.call σ' s.pred
+  VerifM.assumeAll (typeConstraints s.retTy result)
+  pure (s.retTy, result)
+
+/-- Declare implementation argument variables: for each `(name, ty)` in `args`,
+    declare a fresh variable, assume its type constraints, and rename in `σ`.
+    Returns the final substitution and the list of declared argument variables. -/
+def declareImplArgs (σ : FiniteSubst) :
+    List (String × TinyML.Typ) → VerifM (FiniteSubst × List FOL.Const)
+  | [] => pure (σ, [])
+  | (name, ty) :: rest => do
+    let argVar ← VerifM.decl (some name) .value
+    VerifM.assumeAll (typeConstraints ty (.const (.uninterpreted argVar.name .value)))
+    let σ' := σ.rename ⟨name, .value⟩ argVar.name
+    let (σ'', vars) ← declareImplArgs σ' rest
+    pure (σ'', argVar :: vars)
+
+/-- Full implementation protocol for a spec: declare argument variables,
+    assume type constraints, then invoke `PredTrans.implement`. Dual to `call`. -/
+def implement (s : Spec) (body : List FOL.Const → VerifM (Term .value)) : VerifM Unit := do
+  let (σ, argVars) ← declareImplArgs FiniteSubst.id s.args
+  PredTrans.implement σ s.pred (body argVars)
+
+/-! ## Precondition Proofs -/
+section Precondition
+
+instance : Iris.BI.Persistent (isPrecondFor Θ f s) := by
+  unfold isPrecondFor
+  infer_instance
 
 /-- Fold `wp_fix'`'s tupled recursive obligation into a spec precondition;
     the two differ only by currying the typing hypothesis and the predicate transformer. -/
-theorem Spec.isPrecondFor_fold (Θ : TinyML.TypeEnv) (s : Spec)
+theorem isPrecondFor_fold (Θ : TinyML.TypeEnv) (s : Spec)
     (f : Runtime.Val) :
     iprop(□ ∀ (vs : List Runtime.Val) (P : Runtime.Val → iProp),
       (TinyML.ValsHaveTypes Θ vs (s.args.map Prod.snd) ∗
         PredTrans.apply (fun r => TinyML.ValHasType Θ r s.retTy -∗ P r) s.pred
-          (Spec.argsEnv VerifM.Env.empty s.args vs)) -∗
+          (argsEnv VerifM.Env.empty s.args vs)) -∗
         wp (Runtime.Expr.app (.val f) (vs.map Runtime.Expr.val)) P) ⊢ s.isPrecondFor Θ f := by
-  unfold Spec.isPrecondFor
+  unfold isPrecondFor
   iintro □H
   imodintro
   iintro %Φ %vs Htyped Hpred
@@ -74,186 +170,136 @@ theorem Spec.isPrecondFor_fold (Θ : TinyML.TypeEnv) (s : Spec)
 /-- Löb-style rule for spec preconditions on `fix`: to prove
     `s.isPrecondFor Θ (.fix f args e)`, assume it as the recursive hypothesis and
     prove the `wp` of the body (after the usual fix-substitution). -/
-theorem Spec.isPrecondFor_fix {Θ : TinyML.TypeEnv} {s : Spec}
+theorem isPrecondFor_fix {Θ : TinyML.TypeEnv} {s : Spec}
     {f : Runtime.Binder} {args : List Runtime.Binder} {e : Runtime.Expr}
     {R : iProp}
     (h : R ⊢ □ (s.isPrecondFor Θ (.fix f args e) -∗
         ∀ (vs : List Runtime.Val) (P : Runtime.Val → iProp),
           TinyML.ValsHaveTypes Θ vs (s.args.map Prod.snd) -∗
           PredTrans.apply (fun r => TinyML.ValHasType Θ r s.retTy -∗ P r) s.pred
-              (Spec.argsEnv VerifM.Env.empty s.args vs) -∗
+              (argsEnv VerifM.Env.empty s.args vs) -∗
           wp (e.subst ((Runtime.Subst.id.update' f (.fix f args e)).updateAll' args vs)) P)) :
     R ⊢ s.isPrecondFor Θ (.fix f args e) := by
   refine (SpatialContext.wp_fix' (Φ := fun P vs =>
       iprop(TinyML.ValsHaveTypes Θ vs (s.args.map Prod.snd) ∗
         PredTrans.apply (fun r => TinyML.ValHasType Θ r s.retTy -∗ P r) s.pred
-            (Spec.argsEnv VerifM.Env.empty s.args vs))) (h.trans ?_)).trans
-    (Spec.isPrecondFor_fold Θ s _)
+            (argsEnv VerifM.Env.empty s.args vs))) (h.trans ?_)).trans
+    (isPrecondFor_fold Θ s _)
   istart
   iintro □HR
   imodintro
   iintro IH %vs %P ⟨htyped, hpred⟩
   ispecialize HR $$ [IH]
-  · iapply (Spec.isPrecondFor_fold Θ s (.fix f args e)); iexact IH
+  · iapply (isPrecondFor_fold Θ s (.fix f args e))
+    iexact IH
   ihave Hres := HR $$ %vs %P [htyped] [hpred]
   · iexact htyped
   · iexact hpred
   iexact Hres
 
-/-- A spec is well-formed when its predicate transformer is well-formed in the
-    context extended with all argument variables. -/
-def Spec.wfIn (spec : Spec) (Δ : Signature) : Prop :=
-  PredTrans.wfIn (Δ.declVars (Spec.argVars spec.args)) spec.pred
+end Precondition
 
-def Spec.checkWf (spec : Spec) (Δ : Signature) : Except String Unit :=
-  PredTrans.checkWf (Δ.declVars (Spec.argVars spec.args)) spec.pred
+/-! ## Well-Formedness Proofs -/
+section WellFormedness
 
-theorem Spec.checkWf_ok {spec : Spec} {Δ : Signature}
+theorem checkWf_ok {spec : Spec} {Δ : Signature}
     (h : spec.checkWf Δ = .ok ()) : spec.wfIn Δ :=
   PredTrans.checkWf_ok h
 
-theorem Spec.wfIn_mono {spec : Spec} {Δ Δ' : Signature}
+theorem wfIn_mono {spec : Spec} {Δ Δ' : Signature}
     (h : spec.wfIn Δ) (hsub : Δ.Subset Δ') (hwf : Δ'.wf) :
-    Spec.wfIn spec Δ' :=
-  PredTrans.wfIn_mono h (Signature.Subset.declVars hsub (Spec.argVars spec.args))
+    spec.wfIn Δ' :=
+  PredTrans.wfIn_mono h (Signature.Subset.declVars hsub (argVars spec.args))
     (Signature.wf_declVars hwf)
 
+end WellFormedness
 
--- ---------------------------------------------------------------------------
--- Spec verifier operations
--- ---------------------------------------------------------------------------
+/-! ## Fresh Helpers -/
+section FreshHelpers
 
-/-- Declare argument variables, check types, and assume equalities for a spec call.
-    Returns the updated substitution. -/
-  def Spec.declareArgs (Θ : TinyML.TypeEnv) (σ : FiniteSubst) :
-      List (String × TinyML.Typ) → List (TinyML.Typ × Term .value) → VerifM FiniteSubst
-  | [], [] => pure σ
-  | (name, ty) :: rest, (targ, sarg) :: sargs => do
-    if TinyML.Typ.sub Θ targ ty then pure ()
-    else VerifM.fatal s!"type mismatch in call to spec"
-    let argVar ← VerifM.decl (some name) .value
-    let σ' := σ.rename ⟨name, .value⟩ argVar.name
-    VerifM.assume (.pure (.eq .value (.const (.uninterpreted argVar.name .value)) sarg))
-    Spec.declareArgs Θ σ' rest sargs
-  | _, _ => VerifM.fatal "wrong number of arguments"
+/-- A fresh uninterpreted constant is wf in a signature extended by itself. -/
+theorem const_wfIn_addConst_of_fresh {Δ : Signature} {c : FOL.Const}
+    (hΔwf : Δ.wf) (hfresh : c.name ∉ Δ.allNames) :
+    (Term.const (.uninterpreted c.name c.sort)).wfIn (Δ.addConst c) :=
+  Term.const_wfIn_of_mem (Signature.wf_addConst hΔwf hfresh) (List.Mem.head _)
 
-/-- Full call protocol for a spec: declare argument variables, assume they equal the
-    compiled argument terms, check argument types, then invoke `PredTrans.call`. -/
-def Spec.call (Θ : TinyML.TypeEnv) (σ : FiniteSubst) (s : Spec) (sargs : List (TinyML.Typ × Term .value)) :
-    VerifM (TinyML.Typ × Term .value) := do
-  let σ' ← Spec.declareArgs Θ σ s.args sargs
-  let result ← PredTrans.call σ' s.pred
-  VerifM.assumeAll (typeConstraints s.retTy result)
-  pure (s.retTy, result)
+/-- If `t` is wf in `Δ` and `c` is fresh for `Δ`, then `c = t` is wf in `Δ.addConst c`. -/
+theorem eq_wfIn_addConst_of_fresh {Δ : Signature} {c : FOL.Const}
+    {t : Term c.sort} (hΔwf : Δ.wf) (ht : t.wfIn Δ)
+    (hfresh : c.name ∉ Δ.allNames) :
+    (Formula.eq c.sort (.const (.uninterpreted c.name c.sort)) t).wfIn (Δ.addConst c) :=
+  ⟨const_wfIn_addConst_of_fresh hΔwf hfresh,
+   Term.wfIn_mono t ht (Signature.Subset.subset_addConst _ _)
+     (Signature.wf_addConst hΔwf hfresh)⟩
 
-/-- Declare implementation argument variables: for each `(name, ty)` in `args`,
-    declare a fresh variable, assume its type constraints, and rename in `σ`.
-    Returns the final substitution and the list of declared argument variables. -/
-def Spec.declareImplArgs (σ : FiniteSubst) :
-    List (String × TinyML.Typ) → VerifM (FiniteSubst × List FOL.Const)
-  | [] => pure (σ, [])
-  | (name, ty) :: rest => do
-    let argVar ← VerifM.decl (some name) .value
-    VerifM.assumeAll (typeConstraints ty (.const (.uninterpreted argVar.name .value)))
-    let σ' := σ.rename ⟨name, .value⟩ argVar.name
-    let (σ'', vars) ← Spec.declareImplArgs σ' rest
-    pure (σ'', argVar :: vars)
+/-- Updating the env at a fresh name makes the equality `c = t` hold. -/
+theorem eq_eval_updateConst_of_fresh {Δ : Signature} {ρ : VerifM.Env}
+    {c : FOL.Const} {t : Term c.sort} (ht : t.wfIn Δ)
+    (hfresh : c.name ∉ Δ.allNames) :
+    (Formula.eq c.sort (.const (.uninterpreted c.name c.sort)) t).eval
+      (ρ.updateConst c.sort c.name (t.eval ρ.env)).env := by
+  simp only [Formula.eval, VerifM.Env.updateConst_env, Term.eval_const_updateConst]
+  exact Term.eval_env_agree ht (agreeOn_update_fresh_const hfresh)
 
-/-- Full implementation protocol for a spec: declare argument variables,
-    assume type constraints, then invoke `PredTrans.implement`. Dual to `Spec.call`. -/
-def Spec.implement (s : Spec) (body : List FOL.Const → VerifM (Term .value)) : VerifM Unit := do
-  let (σ, argVars) ← Spec.declareImplArgs FiniteSubst.id s.args
-  PredTrans.implement σ s.pred (body argVars)
+/-- Specialization of `const_wfIn_addConst_of_fresh` to `freshConst`. -/
+theorem freshConst_wfIn {st : TransState} {hint : Option String} {τ : Srt}
+    (hstwf : st.decls.wf)
+    (hfresh : (st.freshConst hint τ).name ∉ st.decls.allNames) :
+    let c := st.freshConst hint τ
+    (Term.const (.uninterpreted c.name τ)).wfIn (st.decls.addConst c) :=
+  const_wfIn_addConst_of_fresh hstwf hfresh
 
--- ---------------------------------------------------------------------------
--- Spec correctness
--- ---------------------------------------------------------------------------
+/-- Specialization of `eq_wfIn_addConst_of_fresh` to `freshConst`. -/
+theorem freshConst_eq_wfIn {st : TransState} {hint : Option String} {τ : Srt}
+    {t : Term τ} (hstwf : st.decls.wf) (ht : t.wfIn st.decls)
+    (hfresh : (st.freshConst hint τ).name ∉ st.decls.allNames) :
+    let c := st.freshConst hint τ
+    (Formula.eq τ (.const (.uninterpreted c.name τ)) t).wfIn (st.decls.addConst c) :=
+  eq_wfIn_addConst_of_fresh hstwf ht hfresh
+
+/-- Specialization of `eq_eval_updateConst_of_fresh` to `freshConst`. -/
+theorem freshConst_eq_eval {st : TransState} {ρ : VerifM.Env}
+    {hint : Option String} {τ : Srt} {t : Term τ} (ht : t.wfIn st.decls)
+    (hfresh : (st.freshConst hint τ).name ∉ st.decls.allNames) :
+    let c := st.freshConst hint τ
+    (Formula.eq τ (.const (.uninterpreted c.name τ)) t).eval
+      (ρ.updateConst τ c.name (t.eval ρ.env)).env :=
+  eq_eval_updateConst_of_fresh (Δ := st.decls) (ρ := ρ) (c := st.freshConst hint τ) ht hfresh
+
+end FreshHelpers
+
+/-! ## Environment Agreement -/
+section EnvironmentAgreement
 
 /-- `argsEnv` preserves `agreeOn`: if two envs agree on `Δ`,
     then after applying the same updates, they agree on `argVars args ++ Δ`. -/
-theorem Spec.argsEnv_agreeOn {Δ : Signature} {ρ₁ ρ₂ : VerifM.Env}
+theorem argsEnv_agreeOn {Δ : Signature} {ρ₁ ρ₂ : VerifM.Env}
     (h : VerifM.Env.agreeOn Δ ρ₁ ρ₂) :
     ∀ (args : List (String × TinyML.Typ)) (vals : List Runtime.Val),
     args.length ≤ vals.length →
-    VerifM.Env.agreeOn (Δ.declVars (Spec.argVars args))
-      (Spec.argsEnv ρ₁ args vals) (Spec.argsEnv ρ₂ args vals) := by
+    VerifM.Env.agreeOn (Δ.declVars (argVars args))
+      (argsEnv ρ₁ args vals) (argsEnv ρ₂ args vals) := by
   intro args
   induction args generalizing Δ ρ₁ ρ₂ with
-  | nil => intro vals _; simp only [Spec.argVars, List.map, Spec.argsEnv, Signature.declVars]; exact h
+  | nil => intro vals _; simp only [argVars, List.map, argsEnv, Signature.declVars]; exact h
   | cons arg rest ih =>
     intro vals hlen
     obtain ⟨name, ty⟩ := arg
     cases vals with
     | nil => simp at hlen
     | cons v vs =>
-      simp only [Spec.argsEnv, Spec.argVars, List.map]
+      simp only [argsEnv, argVars, List.map]
       simpa [Signature.declVars] using
         ih (VerifM.Env.agreeOn_declVar h) vs (by simp [List.length] at hlen ⊢; omega)
 
-/-! ### Fresh-declaration helpers
+end EnvironmentAgreement
 
-Both `declareArgs_correct` and `declareImplArgs_correct` declare a fresh constant
-matching some variable's sort and rename `σ` accordingly. These helpers package the
-standard facts that follow. -/
-
-namespace FiniteSubst
-
-/-- Standard bundle after declaring a fresh constant of `v.sort` and renaming `σ` on `v`:
-    freshness facts and well-formedness of the renamed substitution in the extended
-    signature. -/
-theorem rename_fresh_bundle {σ : FiniteSubst} {st : TransState}
-    {hint : Option String} {v : Var}
-    (hσwf : σ.wf st.decls) (hσdomwf : (Signature.ofVars σ.dom).wf) :
-    let c := st.freshConst hint v.sort
-    let σ' := σ.rename v c.name
-    c.name ∉ st.decls.allNames ∧
-    c.name ∉ σ.range.allNames ∧
-    σ'.wf (st.decls.addConst c) ∧
-    (Signature.ofVars σ'.dom).wf := by
-  have hfresh_decls := TransState.freshConst_fresh st hint v.sort
-  have hfresh_range : (st.freshConst hint v.sort).name ∉ σ.range.allNames :=
-    fun h => hfresh_decls (Signature.allNames_subset hσwf.2.1 _ h)
-  exact ⟨hfresh_decls, hfresh_range,
-    FiniteSubst.rename_wf hσwf hfresh_range,
-    FiniteSubst.rename_dom_wf hσdomwf⟩
-
-end FiniteSubst
-
-namespace Spec
-
-/-- The fresh constant is wf as a term in the extended signature. -/
-theorem fresh_const_term_wfIn {st : TransState} {hint : Option String} {τ : Srt}
-    (hstwf : st.decls.wf)
-    (hfresh : (st.freshConst hint τ).name ∉ st.decls.allNames) :
-    let c := st.freshConst hint τ
-    (Term.const (.uninterpreted c.name τ)).wfIn (st.decls.addConst c) :=
-  Term.const_wfIn_of_mem (Signature.wf_addConst hstwf hfresh) (List.Mem.head _)
-
-/-- The equality `freshConst = t` is well-formed in the extended signature. -/
-theorem fresh_const_eq_wfIn {st : TransState} {hint : Option String} {τ : Srt}
-    {t : Term τ} (hstwf : st.decls.wf) (ht : t.wfIn st.decls)
-    (hfresh : (st.freshConst hint τ).name ∉ st.decls.allNames) :
-    let c := st.freshConst hint τ
-    (Formula.eq τ (.const (.uninterpreted c.name τ)) t).wfIn (st.decls.addConst c) :=
-  ⟨fresh_const_term_wfIn hstwf hfresh,
-   Term.wfIn_mono t ht (Signature.Subset.subset_addConst _ _)
-     (Signature.wf_addConst hstwf hfresh)⟩
-
-/-- Extending the env with the fresh constant makes `freshConst = t` hold. -/
-theorem fresh_const_eq_eval {st : TransState} {ρ : VerifM.Env}
-    {hint : Option String} {τ : Srt} {t : Term τ} (ht : t.wfIn st.decls)
-    (hfresh : (st.freshConst hint τ).name ∉ st.decls.allNames) :
-    let c := st.freshConst hint τ
-    (Formula.eq τ (.const (.uninterpreted c.name τ)) t).eval
-      (ρ.updateConst τ c.name (t.eval ρ.env)).env := by
-  simp only [Formula.eval, VerifM.Env.updateConst_env, Term.eval_const_updateConst]
-  exact Term.eval_env_agree ht (agreeOn_update_fresh_const hfresh)
-
-end Spec
+/-! ## Call Protocol Correctness -/
+section CallCorrectness
 
 /-- Correctness of `declareArgs`: after processing all arguments, the resulting
     substitution is well-formed, types match, and the env agrees with `argsEnv`. -/
-theorem Spec.declareArgs_correct (Θ : TinyML.TypeEnv) :
+theorem declareArgs_correct (Θ : TinyML.TypeEnv) :
     ∀ (args : List (String × TinyML.Typ)) (sargs : List (TinyML.Typ × Term .value))
       (σ : FiniteSubst) (st : TransState) (ρ : VerifM.Env)
       (Ψ : FiniteSubst → TransState → VerifM.Env → Prop),
@@ -302,12 +348,12 @@ theorem Spec.declareArgs_correct (Θ : TinyML.TypeEnv) :
         set ρ₁ := ρ.updateConst .value argVar.name (sarg.eval ρ.env)
         have hstwf : st.decls.wf := (VerifM.eval.wf heval).namesDisjoint
         obtain ⟨hfresh_decls, _hfresh_range, hσ'wf, hσ'domwf⟩ :=
-          FiniteSubst.rename_fresh_bundle (hint := some name) (v := ⟨name, .value⟩) hσwf hσdomwf
+          FiniteSubst.rename_bundle_of_freshConst (hint := some name) (v := ⟨name, .value⟩) hσwf hσdomwf
         have hsarg_wf : sarg.wfIn st.decls := hsargs _ (List.mem_cons_self ..)
         have hassume := VerifM.eval_assumePure
           (VerifM.eval_bind _ _ _ _ (hdecl (sarg.eval ρ.env)))
-          (Spec.fresh_const_eq_wfIn hstwf hsarg_wf hfresh_decls)
-          (Spec.fresh_const_eq_eval (ρ := ρ) hsarg_wf hfresh_decls)
+          (Spec.freshConst_eq_wfIn hstwf hsarg_wf hfresh_decls)
+          (Spec.freshConst_eq_eval (ρ := ρ) hsarg_wf hfresh_decls)
         have hstwf_add : (st.decls.addConst argVar).wf := Signature.wf_addConst hstwf hfresh_decls
         have hsargs_rest : ∀ p ∈ sargs_rest, (p : TinyML.Typ × Term .value).2.wfIn
             (st.decls.addConst argVar) := fun p hp =>
@@ -342,7 +388,7 @@ theorem Spec.declareArgs_correct (Θ : TinyML.TypeEnv) :
       · simp [hsub_ty] at heval
         exact (VerifM.eval_fatal (VerifM.eval_bind _ _ _ _ heval)).elim
 
-theorem Spec.call_correct (Θ : TinyML.TypeEnv) (s : Spec) (σ : FiniteSubst) (sargs : List (TinyML.Typ × Term .value))
+theorem call_correct (Θ : TinyML.TypeEnv) (s : Spec) (σ : FiniteSubst) (sargs : List (TinyML.Typ × Term .value))
     (st : TransState) (ρ : VerifM.Env)
     (Ψ : (TinyML.Typ × Term .value) → TransState → VerifM.Env → Prop)
     (Φ : Runtime.Val → iProp) (R : iProp) :
@@ -361,7 +407,7 @@ theorem Spec.call_correct (Θ : TinyML.TypeEnv) (s : Spec) (σ : FiniteSubst) (s
   simp only [Spec.call] at heval
   have hb_grow := VerifM.eval.decls_grow ρ (VerifM.eval_bind _ _ _ _ heval)
   obtain ⟨σ', st', ρ', ⟨hdsub, hragree, hΨ'⟩, hσ'wf, hσ'domwf, howns, hsublist, hdom_sub, hagree⟩ :=
-    Spec.declareArgs_correct Θ s.args sargs σ st ρ _ hσwf hσdomwf hsargs hb_grow
+    declareArgs_correct Θ s.args sargs σ st ρ _ hσwf hσdomwf hsargs hb_grow
   refine ⟨hsublist, ?_⟩
   have hwf'' : s.pred.wfIn (Signature.ofVars σ'.dom) :=
     PredTrans.wfIn_mono hwf (Signature.Substset.ofVars hdom_sub) hσ'domwf
@@ -390,27 +436,30 @@ theorem Spec.call_correct (Θ : TinyML.TypeEnv) (s : Spec) (σ : FiniteSubst) (s
     (by simpa [howns] using hcall : st.sl ρ' ∗ R ⊢ _).trans <|
     PredTrans.apply_env_agree hwf hagree
 
-/-- Correctness of `declareImplArgs`: after processing all arguments, the resulting
-    substitution is well-formed, all argVars are in decls with sort `.value`,
-    and the env agrees with `argsEnv`. -/
-def Spec.DeclareImplArgs.Result (args : List (String × TinyML.Typ)) (vs : List Runtime.Val)
+end CallCorrectness
+
+/-! ## Implementation Protocol Correctness -/
+section ImplementCorrectness
+
+/-- Correctness payload for `declareImplArgs`. -/
+def DeclareImplArgs.Result (args : List (String × TinyML.Typ)) (vs : List Runtime.Val)
     (σ : FiniteSubst) (st : TransState) (ρ : VerifM.Env)
     (Ψ : (FiniteSubst × List FOL.Const) → TransState → VerifM.Env → Prop) : Prop :=
-  ∃ σ' argVars st' ρ', Ψ (σ', argVars) st' ρ' ∧
+  ∃ σ' implVars st' ρ', Ψ (σ', implVars) st' ρ' ∧
     σ'.wf st'.decls ∧
     (Signature.ofVars σ'.dom).wf ∧
     st.decls.Subset st'.decls ∧
     VerifM.Env.agreeOn st.decls ρ ρ' ∧
     st'.owns = st.owns ∧
-    (((Signature.ofVars σ.dom).declVars (Spec.argVars args)).vars ⊆ σ'.dom) ∧
-    VerifM.Env.agreeOn ((Signature.ofVars σ.dom).declVars (Spec.argVars args))
+    (((Signature.ofVars σ.dom).declVars (argVars args)).vars ⊆ σ'.dom) ∧
+    VerifM.Env.agreeOn ((Signature.ofVars σ.dom).declVars (argVars args))
       (VerifM.Env.withEnv ρ' (σ'.subst.eval ρ'.env))
-      (Spec.argsEnv (VerifM.Env.withEnv ρ (σ.subst.eval ρ.env)) args vs) ∧
-    (∀ v ∈ argVars, v ∈ st'.decls.consts) ∧
-    (∀ v ∈ argVars, v.sort = .value) ∧
-    Terms.Eval ρ'.env (argVars.map (fun av => .const (.uninterpreted av.name .value))) vs
+      (argsEnv (VerifM.Env.withEnv ρ (σ.subst.eval ρ.env)) args vs) ∧
+    (∀ v ∈ implVars, v ∈ st'.decls.consts) ∧
+    (∀ v ∈ implVars, v.sort = .value) ∧
+    Terms.Eval ρ'.env (implVars.map (fun av => .const (.uninterpreted av.name .value))) vs
 
-theorem Spec.declareImplArgs_correct (Θ : TinyML.TypeEnv) :
+theorem declareImplArgs_correct (Θ : TinyML.TypeEnv) :
     ∀ (args : List (String × TinyML.Typ)) (vs : List Runtime.Val)
       (σ : FiniteSubst) (st : TransState) (ρ : VerifM.Env)
       (Ψ : (FiniteSubst × List FOL.Const) → TransState → VerifM.Env → Prop),
@@ -456,8 +505,8 @@ theorem Spec.declareImplArgs_correct (Θ : TinyML.TypeEnv) :
       specialize hdecl v
       have hstwf : st.decls.wf := (VerifM.eval.wf heval).namesDisjoint
       obtain ⟨hfresh_decls, _hfresh_range, hσ'wf, hσ'domwf⟩ :=
-        FiniteSubst.rename_fresh_bundle (hint := some name) (v := ⟨name, .value⟩) hσwf hσdomwf
-      have hvar_wf := Spec.fresh_const_term_wfIn (hint := some name) hstwf hfresh_decls
+        FiniteSubst.rename_bundle_of_freshConst (hint := some name) (v := ⟨name, .value⟩) hσwf hσdomwf
+      have hvar_wf := Spec.freshConst_wfIn (hint := some name) hstwf hfresh_decls
       have hvar_eval : (Term.const (.uninterpreted argVar.name .value)).eval ρ₁.env = v := by
         simp [ρ₁]
       ihave %htyped_formulas := typeConstraints_hold (ty := ty)
@@ -512,7 +561,7 @@ theorem Spec.declareImplArgs_correct (Θ : TinyML.TypeEnv) :
           simpa [Term.eval, Const.denote, Env.lookupConst] using h1.symm
         exact h1'.trans hvar_eval
 
-theorem Spec.implement_correct (Θ : TinyML.TypeEnv) (s : Spec) (body : List FOL.Const → VerifM (Term .value))
+theorem implement_correct (Θ : TinyML.TypeEnv) (s : Spec) (body : List FOL.Const → VerifM (Term .value))
     (st : TransState) (ρ : VerifM.Env) (vs : List Runtime.Val) (Φ : Runtime.Val → iProp) (R : iProp) :
     s.wfIn Signature.empty →
     VerifM.eval (Spec.implement s body) st ρ (fun _ _ _ => True) →
@@ -534,7 +583,7 @@ theorem Spec.implement_correct (Θ : TinyML.TypeEnv) (s : Spec) (body : List FOL
   icases H with ⟨Howns, Hvals, Happ⟩
   iintuitionistic Hvals
   ihave %hlen_vals := TinyML.ValsHaveTypes.length_eq $$ Hvals
-  ihave Hdecl := Spec.declareImplArgs_correct Θ s.args vs FiniteSubst.id st ρ _
+  ihave Hdecl := declareImplArgs_correct Θ s.args vs FiniteSubst.id st ρ _
       (FiniteSubst.id_wf st.decls)
       (by simpa [Signature.ofVars] using Signature.wf_empty) hb $$ Hvals
   ipure Hdecl
@@ -577,3 +626,6 @@ theorem Spec.implement_correct (Θ : TinyML.TypeEnv) (s : Spec) (body : List FOL
     iexact Howns
   · iapply (PredTrans.apply_env_agree hswf (VerifM.Env.agreeOn_trans hag_empty (VerifM.Env.agreeOn_symm hagree)))
     iexact Happ
+
+end ImplementCorrectness
+end Spec
