@@ -313,7 +313,7 @@ theorem call_correct (Θ : TinyML.TypeEnv) (s : Spec) (σ : FiniteSubst) (sargs 
     declareArgs_correct Θ s.args sargs σ st ρ _ hσwf hσdomwf hsargs hb_grow
   refine ⟨hsublist, ?_⟩
   have hwf'' : s.pred.wfIn (Signature.ofVars σ'.dom) :=
-    PredTrans.wfIn_mono hwf (Signature.Substset.ofVars hdom_sub) hσ'domwf
+    PredTrans.wfIn_mono hwf (Signature.Subset.ofVars hdom_sub) hσ'domwf
   have hcall := PredTrans.call_correct s.pred σ' st' ρ'
     _ (fun r => TinyML.ValHasType Θ r s.retTy -∗ Φ r) R
     hwf'' hσ'domwf hσ'wf (VerifM.eval_bind _ _ _ _ hΨ')
@@ -508,7 +508,7 @@ theorem implement_correct (Θ : TinyML.TypeEnv) (s : Spec) (body : List FOL.Cons
           (VerifM.Env.withEnv ρ' (σ'.subst.eval ρ'.env)) ⊢ R from
     PredTrans.implement_correct s.pred σ' (body argVars) st' ρ'
       (fun r => TinyML.ValHasType Θ r s.retTy -∗ Φ r) R
-      (PredTrans.wfIn_mono hswf (Signature.Substset.ofVars hdom_sub) hσ'domwf)
+      (PredTrans.wfIn_mono hswf (Signature.Subset.ofVars hdom_sub) hσ'domwf)
       hσ'domwf hσ'wf hΨ
       (fun st'' ρ'' Q hdsub' hragree' hbody_eval => by
         apply hbody argVars st'' ρ'' Q

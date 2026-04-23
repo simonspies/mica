@@ -520,7 +520,7 @@ theorem Subset.declVars {Δ Δ' : Signature} (h : Δ.Subset Δ') (vs : List Var)
 
 /-- A `Signature.ofVars _ |>.declVars _` signature has no consts/unary/binary, so
     `Subset Δ` reduces to just the vars inclusion. -/
-theorem Substset.ofVars {vars vs : List Var} {Δ : Signature}
+theorem Subset.ofVars {vars vs : List Var} {Δ : Signature}
     (hvars : ((Signature.ofVars vars).declVars vs).vars ⊆ Δ.vars) :
     ((Signature.ofVars vars).declVars vs).Subset Δ :=
   ⟨hvars, fun _ hc => by simp at hc, fun _ hu => by simp at hu, fun _ hb => by simp at hb⟩
