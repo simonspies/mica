@@ -537,6 +537,37 @@ theorem ValSumRel.to_getElem? {Θ : TypeEnv} {payload : Runtime.Val} :
       exact (ValSumRel.to_getElem? (Θ := Θ) (payload := payload) (ts := ts) (by simpa using h)).trans
         (ValSumRel.succ Θ n payload _ ts).2
 
+/-- `ValSumRel` implies the tag is in range. -/
+theorem ValSumRel.bound {Θ : TypeEnv} {payload : Runtime.Val} :
+    ∀ {ts : List Typ} {tag : Nat},
+      ValSumRel Θ tag payload ts ⊢ iprop(⌜tag < ts.length⌝)
+  | [], tag => (ValSumRel.nil Θ tag payload).1.trans false_elim
+  | _ :: _, 0 => true_intro.trans <| pure_intro (by simp)
+  | _ :: ts, tag + 1 =>
+      (ValSumRel.succ Θ tag payload _ ts).1.trans <|
+        (ValSumRel.bound (Θ := Θ) (payload := payload) (ts := ts) (tag := tag)).trans <|
+        pure_mono (by simp)
+
+/-- Inject a typed payload at tag `tag` into a sum type whose `tag`-th component matches. -/
+theorem ValHasType.inj {Θ : TypeEnv} {payload : Runtime.Val}
+    {tag arity : Nat} {ts : List Typ} {s : Typ}
+    (hlen : ts.length = arity) (hget : ts[tag]? = some s) :
+    ValHasType Θ payload s ⊢ ValHasType Θ (.inj tag arity payload) (.sum ts) := by
+  refine Entails.trans ?_ (ValHasType.sum Θ (.inj tag arity payload) ts).2
+  iintro Hpayload
+  iexists tag, payload
+  isplitr
+  · ipure_intro; simp [hlen]
+  · iapply (ValSumRel.to_getElem? (Θ := Θ) (payload := payload) (ts := ts)
+      (tag := tag) (s := s) hget)
+    iexact Hpayload
+
+/-- The canonical proof that `unit` has type `unit`. -/
+theorem ValHasType.unit_intro (Θ : TypeEnv) :
+    ⊢ ValHasType Θ .unit .unit := by
+  iapply (ValHasType.unit Θ .unit).2
+  ipure_intro; rfl
+
 mutual
   theorem ValHasType.sub {Θ : TypeEnv} {v : Runtime.Val} {t t' : Typ}
       (hsub : Typ.Sub Θ t t') :
