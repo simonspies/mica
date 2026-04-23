@@ -1,5 +1,6 @@
 import Mica.Engine.Driver
 import Mica.Verifier.Scoped
+import Mica.Verifier.State
 import Mica.Verifier.Utils
 import Mica.Base.Fresh
 import Mica.SeparationLogic.SpatialAtom
@@ -17,23 +18,6 @@ inductive VerifError where
   /-- Fatal error: something is fundamentally wrong (e.g. unimplemented feature).
       Always propagates. -/
   | fatal : String → VerifError
-
-structure TransState where
-  decls   : Signature
-  asserts : Context
-  owns    : SpatialContext
-
-inductive CtxItem where
-  | pure : Formula → CtxItem
-  | spatial : SpatialAtom → CtxItem
-
-namespace CtxItem
-
-def wfIn : CtxItem → Signature → Prop
-  | .pure φ, Δ => φ.wfIn Δ
-  | .spatial a, Δ => a.wfIn Δ
-
-end CtxItem
 
 inductive VerifM : Type → Type 1 where
   | ret : α → VerifM α
@@ -63,59 +47,6 @@ instance : Monad VerifM where
   pure := VerifM.ret
   bind := VerifM.bind
 
-structure VerifM.Env where
-  env : _root_.Env
-
-def VerifM.Env.empty : VerifM.Env :=
-  { env := _root_.Env.empty }
-
-@[simp] theorem VerifM.Env.empty_env : VerifM.Env.empty.env = _root_.Env.empty := rfl
-
-def VerifM.Env.updateConst (ρ : VerifM.Env) (t : Srt) (x : String) (u : t.denote) : VerifM.Env :=
-  { ρ with env := _root_.Env.updateConst ρ.env t x u }
-
-@[simp] theorem VerifM.Env.updateConst_env (ρ : VerifM.Env) (t : Srt) (x : String) (u : t.denote) :
-    (ρ.updateConst t x u).env = ρ.env.updateConst t x u := rfl
-
-def VerifM.Env.withEnv (ρ : VerifM.Env) (env' : _root_.Env) : VerifM.Env :=
-  { ρ with env := env' }
-
-@[simp] theorem VerifM.Env.withEnv_env (ρ : VerifM.Env) (env' : _root_.Env) :
-    (ρ.withEnv env').env = env' := rfl
-
-def VerifM.Env.agreeOn (Δ : Signature) (ρ ρ' : VerifM.Env) : Prop :=
-  _root_.Env.agreeOn Δ ρ.env ρ'.env
-
-theorem VerifM.Env.agreeOn_refl : VerifM.Env.agreeOn Δ ρ ρ :=
-  _root_.Env.agreeOn_refl
-
-theorem VerifM.Env.agreeOn_mono {Δ₁ Δ₂ : Signature} (hsub : Δ₁.Subset Δ₂)
-    (h : VerifM.Env.agreeOn Δ₂ ρ ρ') : VerifM.Env.agreeOn Δ₁ ρ ρ' :=
-  _root_.Env.agreeOn_mono hsub h
-
-theorem VerifM.Env.agreeOn_symm {Δ : Signature} (h : VerifM.Env.agreeOn Δ ρ ρ') :
-    VerifM.Env.agreeOn Δ ρ' ρ :=
-  _root_.Env.agreeOn_symm h
-
-theorem VerifM.Env.agreeOn_trans {Δ : Signature}
-    (h₁₂ : VerifM.Env.agreeOn Δ ρ₁ ρ₂) (h₂₃ : VerifM.Env.agreeOn Δ ρ₂ ρ₃) :
-    VerifM.Env.agreeOn Δ ρ₁ ρ₃ :=
-  _root_.Env.agreeOn_trans h₁₂ h₂₃
-
-theorem VerifM.Env.agreeOn_declVar {ρ ρ' : VerifM.Env} {Δ : Signature} {τ : Srt} {x : String} {v : τ.denote} :
-    VerifM.Env.agreeOn Δ ρ ρ' →
-    VerifM.Env.agreeOn (Δ.declVar ⟨x, τ⟩) (ρ.updateConst τ x v) (ρ'.updateConst τ x v) := by
-  intro hagree
-  simpa [VerifM.Env.agreeOn, VerifM.Env.updateConst] using
-    (_root_.Env.agreeOn_declVar (ρ := ρ.env) (ρ' := ρ'.env) (Δ := Δ) (τ := τ) (x := x) (v := v) hagree)
-
-theorem VerifM.Env.agreeOn_update_fresh {ρ : VerifM.Env} {c : FOL.Const} {u : c.sort.denote}
-    {Δ : Signature} (hfresh : c.name ∉ Δ.allNames) :
-    VerifM.Env.agreeOn Δ ρ (ρ.updateConst c.sort c.name u) := by
-  simpa [VerifM.Env.agreeOn, VerifM.Env.updateConst] using
-    (agreeOn_update_fresh_const (ρ := ρ.env) (c := c) (u := u) (Δ := Δ) hfresh)
-
-
 
 /-- Read the current pure assertion context (backwards-compatible wrapper around `ctx`). -/
 def VerifM.ctxPure (f : List Formula → α) : VerifM α :=
@@ -141,92 +72,6 @@ def VerifM.expectSome (msg : String) (x : Option α) : VerifM α := do
 def VerifM.assumeAll : List Formula → VerifM Unit
   | [] => pure ()
   | φ :: φs => do VerifM.assume (.pure φ); VerifM.assumeAll φs
-
-/-! ### Translation to ScopedM -/
-
-def TransState.toFlatCtx (st : TransState) : FlatCtx :=
-  ⟨st.decls, st.asserts⟩
-
-@[simp] theorem TransState.toFlatCtx_decls (st : TransState) :
-    st.toFlatCtx.decls = st.decls := rfl
-
-@[simp] theorem TransState.toFlatCtx_asserts (st : TransState) :
-    st.toFlatCtx.asserts = st.asserts := rfl
-
-@[simp] theorem TransState.toFlatCtx_addConst (st : TransState) (c : FOL.Const) :
-    { st with decls := st.decls.addConst c }.toFlatCtx = st.toFlatCtx.addConst c.name c.sort := by
-  simp [toFlatCtx, FlatCtx.addConst]
-
-@[simp] theorem TransState.toFlatCtx_addAssert (st : TransState) (φ : Formula) :
-    { st with asserts := φ :: st.asserts }.toFlatCtx = st.toFlatCtx.addAssert φ := by
-  simp [toFlatCtx, FlatCtx.addAssert]
-
-def TransState.empty : TransState := ⟨Signature.empty, [], []⟩
-
-@[simp] theorem TransState.empty_toFlatCtx : TransState.empty.toFlatCtx = FlatCtx.empty := rfl
-
-def TransState.holdsFor (st : TransState) (ρ : VerifM.Env) := ∀ φ ∈ st.asserts, φ.eval ρ.env
-
-theorem TransState.holdsFor_mono {st st' : TransState} {ρ : VerifM.Env}
-    (hsub : st.asserts ⊆ st'.asserts) (h : st'.holdsFor ρ) : st.holdsFor ρ :=
-  fun φ hφ => h φ (hsub hφ)
-
-structure TransState.wf (st : TransState) : Prop where
-  assertsWf : st.asserts.wfIn st.decls
-  namesDisjoint : st.decls.allNames.Nodup
-  ownsWf : st.owns.wfIn st.decls
-
-def TransState.freshConst (hint : Option String) (t : Srt) (st : TransState) : FOL.Const :=
-  let base := hint.getD "_v"
-  let x' := fresh (addNumbers base) st.decls.allNames
-  ⟨x', t⟩
-
-def TransState.addItem (st: TransState) (item: CtxItem) :=
-  match item with
-  | .pure φ =>  { st with asserts := φ :: st.asserts }
-  | .spatial p => { st with owns := p :: st.owns }
-
-theorem TransState.freshConst.wf {hint t} (st : TransState) :
-  TransState.wf st →
-  TransState.wf { st with decls := st.decls.addConst (st.freshConst hint t) } := by
-  intro hwf
-  have hfresh : (st.freshConst hint t).name ∉ st.decls.allNames :=
-    fresh_not_mem (addNumbers (hint.getD "_v")) st.decls.allNames (addNumbers_injective _)
-  have hwf' := Signature.wf_addConst hwf.namesDisjoint hfresh
-  constructor
-  · exact Context.wfIn_mono _ hwf.assertsWf (Signature.Subset.subset_addConst _ _) hwf'
-  · exact Signature.nodup_allNames_addConst hwf.namesDisjoint hfresh
-  · exact SpatialContext.wfIn_mono hwf.ownsWf (Signature.Subset.subset_addConst _ _) hwf'
-
-/-- The name produced by `freshConst` is not in the existing decls. -/
-theorem TransState.freshConst_fresh (st : TransState) (hint : Option String) (τ : Srt) :
-    (st.freshConst hint τ).name ∉ st.decls.allNames :=
-  fresh_not_mem (addNumbers (hint.getD "_v")) st.decls.allNames (addNumbers_injective _)
-
-theorem TransState.addAssert.wf (st : TransState) :
-  TransState.wf st →
-  φ.wfIn st.decls →
-  TransState.wf { st with asserts := φ :: st.asserts } := by
-  intro hwf hφ
-  constructor
-  · intro ψ hψ
-    simp only [List.mem_cons] at hψ
-    rcases hψ with rfl | hψ
-    · exact hφ
-    · exact hwf.assertsWf ψ hψ
-  · exact hwf.namesDisjoint
-  · exact hwf.ownsWf
-
-theorem TransState.addSpatial.wf (st : TransState) :
-  TransState.wf st →
-  a.wfIn st.decls →
-  TransState.wf { st with owns := a :: st.owns } := by
-  intro hwf ha
-  constructor
-  · exact hwf.assertsWf
-  · exact hwf.namesDisjoint
-  · simpa [SpatialContext.wfIn_cons] using And.intro ha hwf.ownsWf
-
 
 def TransCont α := α → TransState → ScopedM (Except VerifError Unit)
 

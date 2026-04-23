@@ -326,6 +326,12 @@ theorem Term.const_wfIn_of_mem {Δ : Signature} {name : String} {τ : Srt}
     fun _ hvar => Signature.wf_no_var_of_const hwf hmem hvar,
     fun _ hc' => Signature.wf_unique_const hwf hmem hc'⟩
 
+/-- A fresh uninterpreted constant is well-formed in a signature extended by itself. -/
+theorem Term.const_wfIn_addConst_of_fresh {Δ : Signature} {c : FOL.Const}
+    (hΔwf : Δ.wf) (hfresh : c.name ∉ Δ.allNames) :
+    (Term.const (.uninterpreted c.name c.sort)).wfIn (Δ.addConst c) :=
+  Term.const_wfIn_of_mem (Signature.wf_addConst hΔwf hfresh) (List.Mem.head _)
+
 /-- Evaluating a constant term at an updated env yields the updated value. -/
 @[simp] theorem Term.eval_const_updateConst {ρ : Env} {τ : Srt} {x : String}
     {v : τ.denote} :

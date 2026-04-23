@@ -607,7 +607,7 @@ theorem compileRef_correct (e : Expr)
         owns := st₁.owns
       }
       have hc_wf : (Term.const (.uninterpreted c.name .value)).wfIn st₂.decls :=
-        Spec.freshConst_wfIn hwf_st₁.namesDisjoint hfresh
+        TransState.freshConst_wfIn hwf_st₁.namesDisjoint hfresh
       have hval_eval : Term.eval ρ_e'.env (Term.const (.uninterpreted c.name .value)) = .loc loc := by
         simp [Term.eval, Const.denote, ρ_e', VerifM.Env.updateConst, Env.updateConst]
       have hlocTy : locinv loc (fun w => TinyML.ValHasType Θ w e.ty) ⊢
@@ -655,7 +655,7 @@ theorem compileDeref_correct (e : Expr) (ty : TinyML.Typ)
   have hc_fresh : c.name ∉ st₁.decls.allNames :=
     fresh_not_mem _ _ (addNumbers_injective _)
   have hc_wf : sv.wfIn (st₁.decls.addConst c) :=
-    Spec.freshConst_wfIn (VerifM.eval.wf hdecl_eval).namesDisjoint hc_fresh
+    TransState.freshConst_wfIn (VerifM.eval.wf hdecl_eval).namesDisjoint hc_fresh
   have hwp :
       st₁.sl ρ_e ∗ TinyML.ValHasType Θ v_e e.ty ∗ R ⊢ wp (.deref (.val v_e)) Φ := by
     rw [hannot]
@@ -1167,7 +1167,7 @@ theorem compileLetIn_correct (b : Binder) (e body : Expr)
       obtain h := VerifM.eval_assumePure h
       apply h
       · have hstwf : st₁.decls.wf := (VerifM.eval.wf hdecl_eval).namesDisjoint
-        exact Spec.freshConst_eq_wfIn (hint := some base) hstwf hse_wf hfresh
+        exact TransState.freshConst_eq_wfIn (hint := some base) hstwf hse_wf hfresh
       · simp only [Formula.eval, Term.eval, Const.denote]
         have : v_e = Term.eval ρ_body.env se := by
           rw [Term.eval_env_agree hse_wf (Env.agreeOn_symm hagreeOn_body_e)]
@@ -1660,7 +1660,7 @@ theorem compileSingleBranch_correct (binder : Binder) (body : Expr)
       fresh_not_mem _ _ (addNumbers_injective _)
     have hstwf : st.decls.wf := (VerifM.eval.wf heval_decl).namesDisjoint
     have hxv_wf : (Term.const (.uninterpreted xv.name .value)).wfIn st₁.decls :=
-      Spec.freshConst_wfIn (hint := hint) hstwf hxv_fresh
+      TransState.freshConst_wfIn (hint := hint) hstwf hxv_fresh
     have hformula_wf : (Formula.eq .value sc
         (.unop (.mkInj i n) (.const (.uninterpreted xv.name .value)))).wfIn st₁.decls := by
       refine ⟨Term.wfIn_mono sc hsc_wf (Signature.Subset.subset_addConst _ _)

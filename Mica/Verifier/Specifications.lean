@@ -27,49 +27,6 @@ structure Spec where
   retTy   : TinyML.Typ
   pred    : PredTrans
 
-/-! ## Helpers -/
-section Helpers
-
-namespace FiniteSubst
-
-/-! Renaming helpers from freshness assumptions. -/
-
-/-- Generic bundle for renaming `σ` on `v` to a fresh name `name'`. -/
-theorem rename_bundle_of_fresh {σ : FiniteSubst} {decls : Signature}
-    {v : Var} {name' : String}
-    (hσwf : σ.wf decls) (hσdomwf : (Signature.ofVars σ.dom).wf)
-    (_hfresh_decls : name' ∉ decls.allNames)
-    (hfresh_range : name' ∉ σ.range.allNames) :
-    let c : FOL.Const := ⟨name', v.sort⟩
-    let σ' := σ.rename v name'
-    σ'.wf (decls.addConst c) ∧
-    (Signature.ofVars σ'.dom).wf := by
-  exact ⟨FiniteSubst.rename_wf hσwf hfresh_range,
-    FiniteSubst.rename_dom_wf hσdomwf⟩
-
-/-- Standard bundle after declaring a fresh constant of `v.sort` and renaming `σ` on `v`:
-    freshness facts and well-formedness of the renamed substitution in the extended
-    signature. -/
-theorem rename_bundle_of_freshConst {σ : FiniteSubst} {st : TransState}
-    {hint : Option String} {v : Var}
-    (hσwf : σ.wf st.decls) (hσdomwf : (Signature.ofVars σ.dom).wf) :
-    let c := st.freshConst hint v.sort
-    let σ' := σ.rename v c.name
-    c.name ∉ st.decls.allNames ∧
-    c.name ∉ σ.range.allNames ∧
-    σ'.wf (st.decls.addConst c) ∧
-    (Signature.ofVars σ'.dom).wf := by
-  have hfresh_decls := TransState.freshConst_fresh st hint v.sort
-  have hfresh_range : (st.freshConst hint v.sort).name ∉ σ.range.allNames :=
-    fun h => hfresh_decls (Signature.allNames_subset hσwf.2.1 _ h)
-  have hrename :=
-    rename_bundle_of_fresh (v := v) (name' := (st.freshConst hint v.sort).name)
-      hσwf hσdomwf hfresh_decls hfresh_range
-  exact ⟨hfresh_decls, hfresh_range, hrename.1, hrename.2⟩
-
-end FiniteSubst
-end Helpers
-
 namespace Spec
 
 /-! ## Definitions -/
@@ -214,60 +171,6 @@ theorem wfIn_mono {spec : Spec} {Δ Δ' : Signature}
 
 end WellFormedness
 
-/-! ## Fresh Helpers -/
-section FreshHelpers
-
-/-- A fresh uninterpreted constant is wf in a signature extended by itself. -/
-theorem const_wfIn_addConst_of_fresh {Δ : Signature} {c : FOL.Const}
-    (hΔwf : Δ.wf) (hfresh : c.name ∉ Δ.allNames) :
-    (Term.const (.uninterpreted c.name c.sort)).wfIn (Δ.addConst c) :=
-  Term.const_wfIn_of_mem (Signature.wf_addConst hΔwf hfresh) (List.Mem.head _)
-
-/-- If `t` is wf in `Δ` and `c` is fresh for `Δ`, then `c = t` is wf in `Δ.addConst c`. -/
-theorem eq_wfIn_addConst_of_fresh {Δ : Signature} {c : FOL.Const}
-    {t : Term c.sort} (hΔwf : Δ.wf) (ht : t.wfIn Δ)
-    (hfresh : c.name ∉ Δ.allNames) :
-    (Formula.eq c.sort (.const (.uninterpreted c.name c.sort)) t).wfIn (Δ.addConst c) :=
-  ⟨const_wfIn_addConst_of_fresh hΔwf hfresh,
-   Term.wfIn_mono t ht (Signature.Subset.subset_addConst _ _)
-     (Signature.wf_addConst hΔwf hfresh)⟩
-
-/-- Updating the env at a fresh name makes the equality `c = t` hold. -/
-theorem eq_eval_updateConst_of_fresh {Δ : Signature} {ρ : VerifM.Env}
-    {c : FOL.Const} {t : Term c.sort} (ht : t.wfIn Δ)
-    (hfresh : c.name ∉ Δ.allNames) :
-    (Formula.eq c.sort (.const (.uninterpreted c.name c.sort)) t).eval
-      (ρ.updateConst c.sort c.name (t.eval ρ.env)).env := by
-  simp only [Formula.eval, VerifM.Env.updateConst_env, Term.eval_const_updateConst]
-  exact Term.eval_env_agree ht (agreeOn_update_fresh_const hfresh)
-
-/-- Specialization of `const_wfIn_addConst_of_fresh` to `freshConst`. -/
-theorem freshConst_wfIn {st : TransState} {hint : Option String} {τ : Srt}
-    (hstwf : st.decls.wf)
-    (hfresh : (st.freshConst hint τ).name ∉ st.decls.allNames) :
-    let c := st.freshConst hint τ
-    (Term.const (.uninterpreted c.name τ)).wfIn (st.decls.addConst c) :=
-  const_wfIn_addConst_of_fresh hstwf hfresh
-
-/-- Specialization of `eq_wfIn_addConst_of_fresh` to `freshConst`. -/
-theorem freshConst_eq_wfIn {st : TransState} {hint : Option String} {τ : Srt}
-    {t : Term τ} (hstwf : st.decls.wf) (ht : t.wfIn st.decls)
-    (hfresh : (st.freshConst hint τ).name ∉ st.decls.allNames) :
-    let c := st.freshConst hint τ
-    (Formula.eq τ (.const (.uninterpreted c.name τ)) t).wfIn (st.decls.addConst c) :=
-  eq_wfIn_addConst_of_fresh hstwf ht hfresh
-
-/-- Specialization of `eq_eval_updateConst_of_fresh` to `freshConst`. -/
-theorem freshConst_eq_eval {st : TransState} {ρ : VerifM.Env}
-    {hint : Option String} {τ : Srt} {t : Term τ} (ht : t.wfIn st.decls)
-    (hfresh : (st.freshConst hint τ).name ∉ st.decls.allNames) :
-    let c := st.freshConst hint τ
-    (Formula.eq τ (.const (.uninterpreted c.name τ)) t).eval
-      (ρ.updateConst τ c.name (t.eval ρ.env)).env :=
-  eq_eval_updateConst_of_fresh (Δ := st.decls) (ρ := ρ) (c := st.freshConst hint τ) ht hfresh
-
-end FreshHelpers
-
 /-! ## Environment Agreement -/
 section EnvironmentAgreement
 
@@ -352,8 +255,8 @@ theorem declareArgs_correct (Θ : TinyML.TypeEnv) :
         have hsarg_wf : sarg.wfIn st.decls := hsargs _ (List.mem_cons_self ..)
         have hassume := VerifM.eval_assumePure
           (VerifM.eval_bind _ _ _ _ (hdecl (sarg.eval ρ.env)))
-          (Spec.freshConst_eq_wfIn hstwf hsarg_wf hfresh_decls)
-          (Spec.freshConst_eq_eval (ρ := ρ) hsarg_wf hfresh_decls)
+          (TransState.freshConst_eq_wfIn hstwf hsarg_wf hfresh_decls)
+          (TransState.freshConst_eq_eval (ρ := ρ) hsarg_wf hfresh_decls)
         have hstwf_add : (st.decls.addConst argVar).wf := Signature.wf_addConst hstwf hfresh_decls
         have hsargs_rest : ∀ p ∈ sargs_rest, (p : TinyML.Typ × Term .value).2.wfIn
             (st.decls.addConst argVar) := fun p hp =>
@@ -506,7 +409,7 @@ theorem declareImplArgs_correct (Θ : TinyML.TypeEnv) :
       have hstwf : st.decls.wf := (VerifM.eval.wf heval).namesDisjoint
       obtain ⟨hfresh_decls, _hfresh_range, hσ'wf, hσ'domwf⟩ :=
         FiniteSubst.rename_bundle_of_freshConst (hint := some name) (v := ⟨name, .value⟩) hσwf hσdomwf
-      have hvar_wf := Spec.freshConst_wfIn (hint := some name) hstwf hfresh_decls
+      have hvar_wf := TransState.freshConst_wfIn (hint := some name) hstwf hfresh_decls
       have hvar_eval : (Term.const (.uninterpreted argVar.name .value)).eval ρ₁.env = v := by
         simp [ρ₁]
       ihave %htyped_formulas := typeConstraints_hold (ty := ty)
