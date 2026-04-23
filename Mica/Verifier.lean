@@ -5,4 +5,5 @@ import Mica.Verifier.Assertions
 import Mica.Verifier.Expressions
 import Mica.Verifier.Functions
 import Mica.Verifier.Specifications
+import Mica.Verifier.SpecMaps
 import Mica.Verifier.Programs

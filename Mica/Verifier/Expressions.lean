@@ -7,6 +7,7 @@ import Mica.Verifier.Monad
 import Mica.Verifier.Assertions
 import Mica.Verifier.PredicateTransformers
 import Mica.Verifier.Specifications
+import Mica.Verifier.SpecMaps
 import Mica.Engine.Driver
 import Mica.Base.Fresh
 import Mathlib.Data.Finmap
@@ -674,7 +675,7 @@ theorem compileDeref_correct (e : Expr) (ty : TinyML.Typ)
       have hsv_eval : sv.eval ρ₂.env = w := by
         simp [sv, ρ₂, Term.eval, Const.denote, VerifM.Env.updateConst, Env.updateConst]
       ihave Hcheck := typeConstraints_hold (ty := ty) (t := sv)
-        (ρ := ρ₂) (Θ := Θ) (v := w) hsv_eval $$ Hw
+        (ρ := ρ₂.env) (Θ := Θ) (v := w) hsv_eval $$ Hw
       ipure Hcheck
       obtain ⟨st₃, hst₃_decls, hst₃_owns, heval_ret⟩ := VerifM.eval_assumeAll hassume_eval
         (fun φ hφ => typeConstraints_wfIn hc_wf φ hφ)
@@ -1687,7 +1688,7 @@ theorem compileSingleBranch_correct (binder : Binder) (body : Expr)
     iintuitionistic Hpay
     ihave Hcheck := typeConstraints_hold (ty := ty_i)
         (t := Term.const (.uninterpreted xv.name .value))
-        (ρ := ρ₁) (Θ := Θ) (v := payload) hxv_eval $$ Hpay
+        (ρ := ρ₁.env) (Θ := Θ) (v := payload) hxv_eval $$ Hpay
     ipure Hcheck
     obtain ⟨st₂, hst₂_decls, hst₂_owns, heval_body'⟩ := VerifM.eval_assumeAll hassume_bind₂
       (fun φ hφ => typeConstraints_wfIn hxv_wf φ hφ)
