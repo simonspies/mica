@@ -198,6 +198,11 @@ theorem TransState.freshConst.wf {hint t} (st : TransState) :
   · exact Signature.nodup_allNames_addConst hwf.namesDisjoint hfresh
   · exact SpatialContext.wfIn_mono hwf.ownsWf (Signature.Subset.subset_addConst _ _) hwf'
 
+/-- The name produced by `freshConst` is not in the existing decls. -/
+theorem TransState.freshConst_fresh (st : TransState) (hint : Option String) (τ : Srt) :
+    (st.freshConst hint τ).name ∉ st.decls.allNames :=
+  fresh_not_mem (addNumbers (hint.getD "_v")) st.decls.allNames (addNumbers_injective _)
+
 theorem TransState.addAssert.wf (st : TransState) :
   TransState.wf st →
   φ.wfIn st.decls →

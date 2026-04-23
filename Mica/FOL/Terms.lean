@@ -315,3 +315,19 @@ theorem Term.eval_update_fresh {t : Term τ'} {x : String} {τ : Srt} {v : τ.de
         exact hfresh (heq ▸ Signature.mem_allNames_of_const hc)
       exact Env.lookupConst_updateConst_ne (Or.inl hne),
      fun _ _ => rfl, fun _ _ => rfl⟩
+
+/-! simple helper lemmas -/
+
+/-- A constant-term is well-formed whenever it is in the signature's consts. -/
+theorem Term.const_wfIn_of_mem {Δ : Signature} {name : String} {τ : Srt}
+    (hwf : Δ.wf) (hmem : ⟨name, τ⟩ ∈ Δ.consts) :
+    (Term.const (.uninterpreted name τ)).wfIn Δ :=
+  ⟨hmem,
+    fun _ hvar => Signature.wf_no_var_of_const hwf hmem hvar,
+    fun _ hc' => Signature.wf_unique_const hwf hmem hc'⟩
+
+/-- Evaluating a constant term at an updated env yields the updated value. -/
+@[simp] theorem Term.eval_const_updateConst {ρ : Env} {τ : Srt} {x : String}
+    {v : τ.denote} :
+    (Term.const (.uninterpreted x τ)).eval (ρ.updateConst τ x v) = v := by
+  simp [Term.eval, Const.denote, Env.updateConst]
