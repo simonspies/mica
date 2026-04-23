@@ -6,6 +6,7 @@ import Mica.FOL.Subst
 import Mica.Base.Fresh
 import Mica.Base.Except
 import Mica.SeparationLogic.LogicalRelation
+import Mica.Verifier.State
 import Mathlib.Data.Finmap
 
 open Iris Iris.BI
@@ -550,6 +551,39 @@ theorem FiniteSubst.rename_wf {σ : FiniteSubst} {v : Var} {name' : String} {Δ 
       · intro b hb
         exact hrange.binary b hb
     · exact Signature.wf_addConst hwfRange hfresh
+
+/-- Generic bundle for renaming `σ` on `v` to a fresh name `name'`. -/
+theorem FiniteSubst.rename_bundle_of_fresh {σ : FiniteSubst} {decls : Signature}
+    {v : Var} {name' : String}
+    (hσwf : σ.wf decls) (hσdomwf : (Signature.ofVars σ.dom).wf)
+    (_hfresh_decls : name' ∉ decls.allNames)
+    (hfresh_range : name' ∉ σ.range.allNames) :
+    let c : FOL.Const := ⟨name', v.sort⟩
+    let σ' := σ.rename v name'
+    σ'.wf (decls.addConst c) ∧
+    (Signature.ofVars σ'.dom).wf := by
+  exact ⟨FiniteSubst.rename_wf hσwf hfresh_range,
+    FiniteSubst.rename_dom_wf hσdomwf⟩
+
+/-- Standard bundle after declaring a fresh constant of `v.sort` and renaming `σ` on `v`:
+    freshness facts and well-formedness of the renamed substitution in the extended
+    signature. -/
+theorem FiniteSubst.rename_bundle_of_freshConst {σ : FiniteSubst} {st : TransState}
+    {hint : Option String} {v : Var}
+    (hσwf : σ.wf st.decls) (hσdomwf : (Signature.ofVars σ.dom).wf) :
+    let c := st.freshConst hint v.sort
+    let σ' := σ.rename v c.name
+    c.name ∉ st.decls.allNames ∧
+    c.name ∉ σ.range.allNames ∧
+    σ'.wf (st.decls.addConst c) ∧
+    (Signature.ofVars σ'.dom).wf := by
+  have hfresh_decls := TransState.freshConst_fresh st hint v.sort
+  have hfresh_range : (st.freshConst hint v.sort).name ∉ σ.range.allNames :=
+    fun h => hfresh_decls (Signature.allNames_subset hσwf.2.1 _ h)
+  have hrename :=
+    rename_bundle_of_fresh (v := v) (name' := (st.freshConst hint v.sort).name)
+      hσwf hσdomwf hfresh_decls hfresh_range
+  exact ⟨hfresh_decls, hfresh_range, hrename.1, hrename.2⟩
 
 theorem FiniteSubst.rename_agreeOn {σ : FiniteSubst} {v : Var} {c : FOL.Const}
     {ρ : Env} {u : v.sort.denote}

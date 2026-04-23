@@ -2,6 +2,7 @@ import Mica.TinyML.Common
 import Mica.TinyML.Types
 import Mica.TinyML.RuntimeExpr
 import Mica.TinyML.OpSem
+import Mica.FOL.Formulas
 import Mica.SeparationLogic.Axioms
 import Iris.BI.Lib.Fixpoint
 
@@ -537,6 +538,37 @@ theorem ValSumRel.to_getElem? {Θ : TypeEnv} {payload : Runtime.Val} :
       exact (ValSumRel.to_getElem? (Θ := Θ) (payload := payload) (ts := ts) (by simpa using h)).trans
         (ValSumRel.succ Θ n payload _ ts).2
 
+/-- `ValSumRel` implies the tag is in range. -/
+theorem ValSumRel.bound {Θ : TypeEnv} {payload : Runtime.Val} :
+    ∀ {ts : List Typ} {tag : Nat},
+      ValSumRel Θ tag payload ts ⊢ iprop(⌜tag < ts.length⌝)
+  | [], tag => (ValSumRel.nil Θ tag payload).1.trans false_elim
+  | _ :: _, 0 => true_intro.trans <| pure_intro (by simp)
+  | _ :: ts, tag + 1 =>
+      (ValSumRel.succ Θ tag payload _ ts).1.trans <|
+        (ValSumRel.bound (Θ := Θ) (payload := payload) (ts := ts) (tag := tag)).trans <|
+        pure_mono (by simp)
+
+/-- Inject a typed payload at tag `tag` into a sum type whose `tag`-th component matches. -/
+theorem ValHasType.inj {Θ : TypeEnv} {payload : Runtime.Val}
+    {tag arity : Nat} {ts : List Typ} {s : Typ}
+    (hlen : ts.length = arity) (hget : ts[tag]? = some s) :
+    ValHasType Θ payload s ⊢ ValHasType Θ (.inj tag arity payload) (.sum ts) := by
+  refine Entails.trans ?_ (ValHasType.sum Θ (.inj tag arity payload) ts).2
+  iintro Hpayload
+  iexists tag, payload
+  isplitr
+  · ipure_intro; simp [hlen]
+  · iapply (ValSumRel.to_getElem? (Θ := Θ) (payload := payload) (ts := ts)
+      (tag := tag) (s := s) hget)
+    iexact Hpayload
+
+/-- The canonical proof that `unit` has type `unit`. -/
+theorem ValHasType.unit_intro (Θ : TypeEnv) :
+    ⊢ ValHasType Θ .unit .unit := by
+  iapply (ValHasType.unit Θ .unit).2
+  ipure_intro; rfl
+
 mutual
   theorem ValHasType.sub {Θ : TypeEnv} {v : Runtime.Val} {t t' : Typ}
       (hsub : Typ.Sub Θ t t') :
@@ -937,3 +969,139 @@ theorem evalUnOp_typed {Θ : TypeEnv} {op : UnOp}
           simp [UnOp.typeOf] at hty
 
 end TinyML
+
+
+-- ---------------------------------------------------------------------------
+-- Type constraints
+-- ---------------------------------------------------------------------------
+
+mutual
+/-- Generate SMT formulas asserting that a value-sorted term has a given TinyML type.
+    For `int`: `is-of_int(t)`, for `bool`: `is-of_bool(t)`,
+    for `tuple ts`: `is-of_tuple(t)` plus recursive constraints on elements. -/
+def typeConstraints (ty : TinyML.Typ) (t : Term .value) : List Formula :=
+  match ty with
+  | .int   => [.unpred .isInt t]
+  | .bool  => [.unpred .isBool t]
+  | .tuple ts =>
+      .unpred .isTuple t ::
+      typeConstraintsList ts (.unop .toValList t)
+  | _ => []
+
+def typeConstraintsList (ts : List TinyML.Typ) (tl : Term .vallist) : List Formula :=
+    match ts with
+    | [] => []
+    | ty :: rest =>
+        typeConstraints ty (.unop .vhead tl) ++
+        typeConstraintsList rest (.unop .vtail tl)
+end
+
+
+mutual
+  /-- All formulas in `typeConstraints ty t` only reference free variables of `t`. -/
+  theorem typeConstraints_wfIn {ty : TinyML.Typ} {t : Term .value} {Δ : Signature}
+      (ht : t.wfIn Δ) : ∀ φ ∈ typeConstraints ty t, φ.wfIn Δ := by
+    cases ty with
+    | int =>
+      simp [typeConstraints]
+      simp only [Formula.wfIn]; exact ht
+    | bool =>
+      simp [typeConstraints]
+      simp only [Formula.wfIn]; exact ht
+    | tuple ts =>
+      simp only [typeConstraints]
+      intro φ hφ
+      cases hφ with
+      | head =>
+        simp only [Formula.wfIn]; exact ht
+      | tail _ hφ =>
+        exact typeConstraintsList_wfIn (by simp only [Term.wfIn]; exact ⟨trivial, ht⟩) φ hφ
+    | _ => simp [typeConstraints]
+
+  theorem typeConstraintsList_wfIn {ts : List TinyML.Typ} {tl : Term .vallist} {Δ : Signature}
+      (htl : tl.wfIn Δ) : ∀ φ ∈ typeConstraintsList ts tl, φ.wfIn Δ := by
+    cases ts with
+    | nil => simp [typeConstraintsList]
+    | cons ty rest =>
+      simp only [typeConstraintsList]
+      intro φ hφ
+      cases List.mem_append.mp hφ with
+      | inl h =>
+        exact typeConstraints_wfIn (by simp only [Term.wfIn]; exact ⟨trivial, htl⟩) φ h
+      | inr h =>
+        exact typeConstraintsList_wfIn (by simp only [Term.wfIn]; exact ⟨trivial, htl⟩) φ h
+end
+
+mutual
+  /-- If `ValHasType v ty` and `t.eval ρ = v`, then all formulas in `typeConstraints ty t` hold. -/
+  theorem typeConstraints_hold {ty : TinyML.Typ} {t : Term .value} {ρ : Env}
+      {Θ : TinyML.TypeEnv} {v : Runtime.Val} (ht : t.eval ρ = v) :
+      TinyML.ValHasType Θ v ty ⊢ ⌜∀ φ ∈ typeConstraints ty t, φ.eval ρ⌝ := by
+    cases ty with
+    | int =>
+      refine (TinyML.ValHasType.int Θ v).1.trans ?_
+      iintro %h
+      rcases h with ⟨n, rfl⟩
+      ipure_intro
+      intro φ hφ
+      simp [typeConstraints] at hφ
+      subst hφ
+      simp [Formula.eval, ht]
+    | bool =>
+      refine (TinyML.ValHasType.bool Θ v).1.trans ?_
+      iintro %h
+      rcases h with ⟨b, rfl⟩
+      ipure_intro
+      intro φ hφ
+      simp [typeConstraints] at hφ
+      subst hφ
+      simp [Formula.eval, ht]
+    | tuple ts =>
+      refine (TinyML.ValHasType.tuple Θ v ts).1.trans ?_
+      iintro Hty
+      icases Hty with ⟨%vs, Hty'⟩
+      icases Hty' with ⟨%hv, hvs⟩
+      ihave %htail := (typeConstraintsList_hold (ts := ts) (tl := .unop .toValList t)
+        (ρ := ρ) (Θ := Θ) (vs := vs) (by simp [Term.eval, UnOp.eval, ht, hv])) $$ hvs
+      iclear hvs
+      ipure_intro
+      intro φ hφ
+      cases hφ with
+      | head =>
+        simp [Formula.eval, ht, hv]
+      | tail _ hφ =>
+        exact htail φ hφ
+    | unit | sum _ | ref _ | value | named _ _ =>
+      iintro _; ipure_intro; simp [typeConstraints]
+    | arrow t1 t2 => exact (TinyML.ValHasType.arrow Θ v t1 t2).1.trans false_elim
+    | empty => exact (TinyML.ValHasType.empty Θ v).1.trans false_elim
+    | tvar x => exact (TinyML.ValHasType.tvar Θ v x).1.trans false_elim
+
+  theorem typeConstraintsList_hold {ts : List TinyML.Typ} {tl : Term .vallist} {ρ : Env}
+      {Θ : TinyML.TypeEnv} {vs : List Runtime.Val} (htl : tl.eval ρ = vs) :
+      TinyML.ValsHaveTypes Θ vs ts ⊢ ⌜∀ φ ∈ typeConstraintsList ts tl, φ.eval ρ⌝ := by
+    match vs, ts with
+    | [], [] =>
+        refine (TinyML.ValsHaveTypes.nil Θ).1.trans ?_
+        iintro _
+        ipure_intro
+        simp [typeConstraintsList]
+    | v :: vs, ty :: ts =>
+        refine (TinyML.ValsHaveTypes.cons Θ v vs ty ts).1.trans ?_
+        iintro hvals
+        icases hvals with ⟨hv, hvs⟩
+        ihave %hhead := (typeConstraints_hold (ty := ty) (t := .unop .vhead tl)
+          (ρ := ρ) (Θ := Θ) (v := v) (by simp [Term.eval, UnOp.eval, htl])) $$ hv
+        ihave %htail := (typeConstraintsList_hold (ts := ts) (tl := .unop .vtail tl)
+          (ρ := ρ) (Θ := Θ) (vs := vs) (by simp [Term.eval, UnOp.eval, htl])) $$ hvs
+        iclear hv hvs
+        ipure_intro
+        intro φ hφ
+        cases List.mem_append.mp hφ with
+        | inl h => exact hhead φ h
+        | inr h => exact htail φ h
+    | [], ty :: ts =>
+        exact (TinyML.ValsHaveTypes.nil_cons Θ ty ts).1.trans false_elim
+    | v :: vs, [] =>
+        exact (TinyML.ValsHaveTypes.cons_nil Θ v vs).1.trans false_elim
+end

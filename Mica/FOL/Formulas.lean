@@ -184,6 +184,24 @@ theorem Formula.eval_update_not_in_sig {φ : Formula} {x : String} {τ : Srt} {v
      fun _ _ => rfl,
      fun _ _ => rfl⟩
 
+/-- If `t` is wf in `Δ` and `c` is fresh for `Δ`, then `c = t` is wf in `Δ.addConst c`. -/
+theorem Formula.eq_wfIn_addConst_of_fresh {Δ : Signature} {c : FOL.Const}
+    {t : Term c.sort} (hΔwf : Δ.wf) (ht : t.wfIn Δ)
+    (hfresh : c.name ∉ Δ.allNames) :
+    (Formula.eq c.sort (.const (.uninterpreted c.name c.sort)) t).wfIn (Δ.addConst c) :=
+  ⟨Term.const_wfIn_addConst_of_fresh hΔwf hfresh,
+   Term.wfIn_mono t ht (Signature.Subset.subset_addConst _ _)
+     (Signature.wf_addConst hΔwf hfresh)⟩
+
+/-- Updating the env at a fresh name makes the equality `c = t` hold. -/
+theorem Formula.eq_eval_updateConst_of_fresh {Δ : Signature} {ρ : Env}
+    {c : FOL.Const} {t : Term c.sort} (ht : t.wfIn Δ)
+    (hfresh : c.name ∉ Δ.allNames) :
+    (Formula.eq c.sort (.const (.uninterpreted c.name c.sort)) t).eval
+      (ρ.updateConst c.sort c.name (t.eval ρ)) := by
+  simp only [Formula.eval, Term.eval_const_updateConst]
+  exact Term.eval_env_agree ht (agreeOn_update_fresh_const hfresh)
+
 
 /-- A predicate with one named bound variable: `λ x -> body`. -/
 def Pred α      := String × α

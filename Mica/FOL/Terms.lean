@@ -315,3 +315,54 @@ theorem Term.eval_update_fresh {t : Term τ'} {x : String} {τ : Srt} {v : τ.de
         exact hfresh (heq ▸ Signature.mem_allNames_of_const hc)
       exact Env.lookupConst_updateConst_ne (Or.inl hne),
      fun _ _ => rfl, fun _ _ => rfl⟩
+
+/-! simple helper lemmas -/
+
+/-- A constant-term is well-formed whenever it is in the signature's consts. -/
+theorem Term.const_wfIn_of_mem {Δ : Signature} {name : String} {τ : Srt}
+    (hwf : Δ.wf) (hmem : ⟨name, τ⟩ ∈ Δ.consts) :
+    (Term.const (.uninterpreted name τ)).wfIn Δ :=
+  ⟨hmem,
+    fun _ hvar => Signature.wf_no_var_of_const hwf hmem hvar,
+    fun _ hc' => Signature.wf_unique_const hwf hmem hc'⟩
+
+/-- A fresh uninterpreted constant is well-formed in a signature extended by itself. -/
+theorem Term.const_wfIn_addConst_of_fresh {Δ : Signature} {c : FOL.Const}
+    (hΔwf : Δ.wf) (hfresh : c.name ∉ Δ.allNames) :
+    (Term.const (.uninterpreted c.name c.sort)).wfIn (Δ.addConst c) :=
+  Term.const_wfIn_of_mem (Signature.wf_addConst hΔwf hfresh) (List.Mem.head _)
+
+/-- Evaluating a constant term at an updated env yields the updated value. -/
+@[simp] theorem Term.eval_const_updateConst {ρ : Env} {τ : Srt} {x : String}
+    {v : τ.denote} :
+    (Term.const (.uninterpreted x τ)).eval (ρ.updateConst τ x v) = v := by
+  simp [Term.eval, Const.denote, Env.updateConst]
+
+/-- Apply `vtail` n times to a vallist term. -/
+def vtailN (t : Term .vallist) : Nat → Term .vallist
+  | 0     => t
+  | n + 1 => .unop .vtail (vtailN t n)
+
+@[simp] theorem vtailN_freeVars (t : Term .vallist) (n : Nat) :
+    (vtailN t n).freeVars = t.freeVars := by
+  induction n with
+  | zero => simp [vtailN]
+  | succ n ih => simp [vtailN, Term.freeVars, ih]
+
+theorem vtailN_wfIn {t : Term .vallist} {Δ : Signature} (ht : t.wfIn Δ) (n : Nat) :
+    (vtailN t n).wfIn Δ := by
+  induction n with
+  | zero => simpa [vtailN]
+  | succ n ih => simp only [vtailN, Term.wfIn]; exact ⟨trivial, ih⟩
+
+@[simp] theorem vtailN_eval (t : Term .vallist) (ρ : Env) :
+    ∀ n, (vtailN t n).eval ρ = List.drop n (t.eval ρ)
+  | 0 => by simp [vtailN]
+  | n + 1 => by
+    simp only [vtailN, Term.eval, UnOp.eval, vtailN_eval t ρ n]
+    rw [List.tail_drop]
+
+theorem vhead_vtailN_eval {vs : List Runtime.Val} {w : Runtime.Val} {n : Nat}
+    (h : vs[n]? = some w) (t : Term .vallist) (ρ : Env) (ht : t.eval ρ = vs) :
+    (Term.unop .vhead (vtailN t n)).eval ρ = w := by
+  simp [Term.eval, UnOp.eval, ht, h]
