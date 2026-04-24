@@ -15,3 +15,12 @@ jobs:
       - name: Test examples
         run: |
           lake run testsuite Examples/
+
+  check-outlines:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Regenerate directory outlines
+        run: python3 scripts/file_overview.py Mica
+      - name: Fail if outlines are stale
+        run: git diff --exit-code
