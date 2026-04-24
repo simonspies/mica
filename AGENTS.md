@@ -4,26 +4,21 @@
 
 Mica is a program verifier for a fragment of OCaml, implemented in Lean 4. It uses the separation logic framework Iris (via iris-lean) for heap reasoning, Mathlib for mathematical infrastructure, and the SMT solver Z3 as a backend to discharge proof obligations. The core verifier components have mechanized correctness proofs.
 
-**Main.lean** is the CLI entry point. The implementation lives under `Mica/`.
+**Main.lean** is the CLI entry point.
 
 @Mica/OUTLINE.md
-
-**Exploration/** contains experimental scratch work.
-
-**Examples/** contains the test suite of OCaml programs.
 
 ### Navigating the codebase
 
 Two layers of generated documentation help you find your way around:
 
-- **`OUTLINE.md`** (one per directory under `Mica/`) — a list of files with a one-line summary each. These are auto-included in the context, so you already have the overview.
+- **`OUTLINE.md`** — a list of files in directory with a one-line summary each. These are auto-included in the context.
 - **`<file>.lean.md`** — per-file outline of declarations (names, signatures, docstrings), derived from the Lean LSP. Use these to see concisely what a file provides.
 
 Two lake scripts govern regeneration:
 
-- `lake run generate-file-summaries` — regenerates `<file>.lean.md`. Incremental and does not affect agent caching. Slow to build. These files are not checked in. 
-- `lake run generate-overviews` — regenerates `OUTLINE.md`. These *are* checked in and CI-enforced. Ask for user confirmation before regenerating, as they invalidate the cache.
-
+- `lake run generate-file-summaries` — regenerates `<file>.lean.md`. Incremental and does not invalidate the agent's cached session. Slow to build. These files are not checked in. 
+- `lake run generate-overviews` — regenerates `OUTLINE.md`. These *are* checked in. Ask for user confirmation before regenerating, as they invalidate the cache.
 
 ---
 
@@ -53,8 +48,8 @@ lake run testsuite Examples/      # run the test suite
 
 When adding or renaming declarations, keep the outlines meaningful:
 
-- Add a docstring (`/-- ... -/`) to public definition, theorem, and structure unless self-explanatory. These flow into `<file>.lean.md` and are an agent's first read on what a thing does.
-- Add or update the `-- SUMMARY: <one line>` comment at the top of the file if the file's purpose has shifted. Keep it concise (one line); it lands verbatim in the directory `OUTLINE.md`.
+- Add a docstring (`/-- ... -/`) to public definition, theorem, and structure unless self-explanatory. These flow into `<file>.lean.md`.
+- Add or update the `-- SUMMARY: <one line>` comment at the top of the file if the file's purpose has shifted. Keep it concise (one line); flows into `OUTLINE.md`.
 
 ### Iris proof mode
 
