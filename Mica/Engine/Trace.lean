@@ -1,3 +1,4 @@
+-- SUMMARY: Execution traces and the soundness condition imposed on solver replies.
 import Mica.Engine.Command
 
 /-! ## Smt.Trace

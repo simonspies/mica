@@ -1,3 +1,4 @@
+-- SUMMARY: Operational semantics for the TinyML runtime IR.
 import Mica.TinyML.Common
 import Mica.TinyML.RuntimeExpr
 import Mica.TinyML.Heap

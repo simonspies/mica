@@ -1,3 +1,4 @@
+-- SUMMARY: Pretty-printing for the untyped TinyML IR and declarations.
 import Mica.TinyML.Common
 import Mica.TinyML.Types
 import Mica.TinyML.Untyped

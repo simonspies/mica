@@ -1,3 +1,4 @@
+-- SUMMARY: Common TinyML vocabulary for variables, primitive operators, and constants.
 /-! # Common vocabulary shared across all TinyML IRs: variables, operators, constants. -/
 
 namespace TinyML

@@ -1,3 +1,4 @@
+-- SUMMARY: Runtime TinyML IR, values, and substitution machinery.
 import Mica.TinyML.Common
 
 namespace Runtime

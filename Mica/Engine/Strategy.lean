@@ -1,3 +1,4 @@
+-- SUMMARY: Interactive SMT strategies and their relative semantics.
 import Mica.Engine.Trace
 
 /-! ## Smt.Strategy (Interaction Trees)
