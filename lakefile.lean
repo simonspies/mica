@@ -176,11 +176,17 @@ def printFailureSummary (failed : List TestOutcome) : IO Unit := do
     IO.println s!"- {test.path.fileName.getD test.path.toString}{suffix}"
 
 script outlines (args) := do
-  let child ← IO.Process.spawn {
+  let outline ← IO.Process.spawn {
     cmd := "python3"
     args := #["scripts/lean_outline.py", "--all"] ++ args.toArray
   }
-  return (← child.wait)
+  let rc ← outline.wait
+  if rc ≠ 0 then return rc
+  let overview ← IO.Process.spawn {
+    cmd := "python3"
+    args := #["scripts/file_overview.py", "Mica"]
+  }
+  return (← overview.wait)
 
 script testsuite (args) := do
   let some mica <- Lake.findLeanExe? `mica
