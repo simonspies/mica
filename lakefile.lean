@@ -175,18 +175,28 @@ def printFailureSummary (failed : List TestOutcome) : IO Unit := do
       | .terminated _ => ""
     IO.println s!"- {test.path.fileName.getD test.path.toString}{suffix}"
 
-script outlines (args) := do
-  let outline ← IO.Process.spawn {
+def runFileSummaries (extraArgs : Array String) : IO UInt32 := do
+  let child ← IO.Process.spawn {
     cmd := "python3"
-    args := #["scripts/lean_outline.py", "--all"] ++ args.toArray
+    args := #["scripts/lean_outline.py", "--all"] ++ extraArgs
   }
-  let rc ← outline.wait
-  if rc ≠ 0 then return rc
-  let overview ← IO.Process.spawn {
+  child.wait
+
+def runOverviews : IO UInt32 := do
+  let child ← IO.Process.spawn {
     cmd := "python3"
     args := #["scripts/file_overview.py", "Mica"]
   }
-  return (← overview.wait)
+  child.wait
+
+script «generate-file-summaries» (args) := runFileSummaries args.toArray
+
+script «generate-overviews» (_args) := runOverviews
+
+script «generate-docs» (args) := do
+  let rc ← runFileSummaries args.toArray
+  if rc ≠ 0 then return rc
+  runOverviews
 
 script testsuite (args) := do
   let some mica <- Lake.findLeanExe? `mica
