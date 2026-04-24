@@ -79,10 +79,30 @@ INSTANCE_KEYWORD = "instance"
 
 DECL_KEYWORDS = HOVER_KEYWORDS | BODY_KEYWORDS | VERBATIM_KEYWORDS | {INSTANCE_KEYWORD}
 
+# Modifiers that can appear between `private` and the declaration keyword.
+MODIFIER_KEYWORDS = {"noncomputable", "partial", "unsafe", "protected", "local", "scoped"}
+
 # After a decl keyword, the identifier starts at the first non-whitespace
 # character that isn't `:`, `(`, `{`, or `[` (which would mark an anonymous
 # decl or a binder before the name).
 IDENT_AFTER_KEYWORD = re.compile(r"\s*[^\s:({\[]")
+
+MODULE_DOC_RE = re.compile(r"/-!\s*\n?(.*?)\s*-/", re.DOTALL)
+
+
+def extract_module_doc(text: str, first_decl_line: int | None) -> str | None:
+    """Return the body of the first `/-! ... -/` block that appears before
+    the first declaration, or None if there isn't one."""
+    if first_decl_line is not None:
+        cutoff = sum(len(l) + 1 for l in text.splitlines()[:first_decl_line])
+        haystack = text[:cutoff]
+    else:
+        haystack = text
+    m = MODULE_DOC_RE.search(haystack)
+    if not m:
+        return None
+    body = m.group(1).strip()
+    return body or None
 
 
 # ---------- LSP transport ----------
@@ -147,16 +167,29 @@ def decode_tokens(data: list[int], token_types: list[str]) -> list[tuple[int, in
 def find_decls(
     text: str, tokens: list[tuple[int, int, int, str]]
 ) -> list[tuple[int, str, int | None]]:
-    """For each declaration-keyword token, return (line, keyword,
+    """For each non-private declaration-keyword token, return (line, keyword,
     identifier_column). identifier_column is None when the decl is
-    anonymous (e.g. `instance : BEq Foo`)."""
+    anonymous (e.g. `instance : BEq Foo`).
+
+    Skips private decls by tracking whether the current modifier run includes
+    `private`."""
     lines = text.splitlines()
     out: list[tuple[int, str, int | None]] = []
+    private_next = False
     for line_idx, col, length, ttype in tokens:
         if ttype != "keyword" or line_idx >= len(lines):
             continue
         kw = lines[line_idx][col:col + length]
+        if kw == "private":
+            private_next = True
+            continue
         if kw not in DECL_KEYWORDS:
+            if kw not in MODIFIER_KEYWORDS:
+                private_next = False
+            continue
+        is_private = private_next
+        private_next = False
+        if is_private:
             continue
         m = IDENT_AFTER_KEYWORD.match(lines[line_idx], col + length)
         ident_col = (m.end() - 1) if m else None
@@ -172,8 +205,13 @@ def parse_hover(result: dict[str, Any] | None) -> tuple[str, str | None] | None:
     rather than a fenced signature)."""
     if not result:
         return None
-    contents = result.get("contents") or {}
-    value = contents.get("value") if isinstance(contents, dict) else None
+    contents = result.get("contents")
+    if isinstance(contents, str):
+        value = contents
+    elif isinstance(contents, dict):
+        value = contents.get("value")
+    else:
+        value = None
     if not isinstance(value, str):
         return None
     sig_block, _, doc = value.partition("\n***\n")
@@ -301,9 +339,18 @@ class LeanServer:
             title = str(path.resolve().relative_to(pathlib.Path.cwd().resolve()))
         except ValueError:
             title = path.name
-        return f"# {title}\n\n{render(entries)}"
+        first_decl = decls[0][0] if decls else None
+        doc = extract_module_doc(text, first_decl)
+        prelude = f"# {title}\n\n"
+        if doc:
+            prelude += f"{doc}\n\n"
+        return prelude + render(entries)
 
     def close(self) -> None:
+        try:
+            request(self.proc, self.next_id(), "shutdown", {})
+        except Exception:
+            pass
         try:
             notify(self.proc, "exit", {})
             self.proc.stdin.close()
