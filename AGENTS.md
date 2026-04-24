@@ -4,32 +4,26 @@
 
 Mica is a program verifier for a fragment of OCaml, implemented in Lean 4. It uses the separation logic framework Iris (via iris-lean) for heap reasoning, Mathlib for mathematical infrastructure, and the SMT solver Z3 as a backend to discharge proof obligations. The core verifier components have mechanized correctness proofs.
 
-**Main.lean** is the CLI entry point. The implementation lives under `Mica/`, roughly in dependency order:
+**Main.lean** is the CLI entry point. The implementation lives under `Mica/`.
 
-1. **Base/** — Shared utilities.
-2. **TinyML/** — Core IR in three stages: `Untyped` (surface), `Typed` (elaborated), `Runtime` (operational semantics).
-3. **FOL/** — First-order logic with Tarski semantics, targeting SMT encoding.
-4. **Engine/** — Defines the interaction protocol with the SMT solver and implements it via Z3. The protocol is what correctness proofs are stated against.
-5. **SeparationLogic/** — Iris-based separation logic reasoning principles for TinyML.
-6. **Verifier/** — The verifier itself, stratified into monadic layers with correctness proofs.
-7. **Frontend/** — Lexer, parser, elaborator, and spec parser for the OCaml surface syntax.
+@Mica/OUTLINE.md
 
-**Exploration/** contains experimental scratch work where sorries are acceptable.
+**Exploration/** contains experimental scratch work.
 
 **Examples/** contains the test suite of OCaml programs.
 
----
+### Navigating the codebase
 
-## Style Guide
+Two layers of generated documentation help you find your way around:
 
-**Naming:**
-- Prefer elegant single-word names for definitions (e.g., `eval`, `translate`, `correct`), not multi-word camelCase.
-- Theorems: namespaced under the definition with dots. Suffixes: `_refl`, `_symm`, `_trans`, `_mono`, `_injective`, `_iff`, `_of_X` (from X), `X_of_` (to X).
-- One word per concept everywhere: `eval` (semantics), `translate` (IR compilation), `correct` (soundness linking translate to eval).
-- Prefer composing `eval_bind`, `eval_decl` over fused names like `eval_bind_decl_assume`.
+- **`OUTLINE.md`** (one per directory under `Mica/`) — a list of files with a one-line summary each. These are auto-included in the context, so you already have the overview.
+- **`<file>.lean.md`** — per-file outline of declarations (names, signatures, docstrings), derived from the Lean LSP. Use these to see concisely what a file provides.
 
-**File organization:**
-- One definition + its API per section. Importing a definition should give you its basic API.
+Two lake scripts govern regeneration:
+
+- `lake run generate-file-summaries` — regenerates `<file>.lean.md`. Incremental and does not affect agent caching. Slow to build. These files are not checked in. 
+- `lake run generate-overviews` — regenerates `OUTLINE.md`. These *are* checked in and CI-enforced. Ask for user confirmation before regenerating, as they invalidate the cache.
+
 
 ---
 
@@ -55,6 +49,13 @@ lake run testsuite Examples/      # run the test suite
 - If a top-down attempt needs more than 4 helper lemmas, stop and consult the user.
 - Before induction, generalize any argument that changes in recursive calls.
 
+### Writing for discoverability
+
+When adding or renaming declarations, keep the outlines meaningful:
+
+- Add a docstring (`/-- ... -/`) to public definition, theorem, and structure unless self-explanatory. These flow into `<file>.lean.md` and are an agent's first read on what a thing does.
+- Add or update the `-- SUMMARY: <one line>` comment at the top of the file if the file's purpose has shifted. Keep it concise (one line); it lands verbatim in the directory `OUTLINE.md`.
+
 ### Iris proof mode
 
 - Tactic reference: `docs/iris-tactics.md`. Worked examples: `Mica/SeparationLogic/ProofModePatterns.lean`.
@@ -70,3 +71,16 @@ lake run testsuite Examples/      # run the test suite
 - `lean_loogle` — use rarely.
 - `lean_leansearch` — do not use.
 - `lean_leanfinder`, `lean_state_search`, `lean_hammer_premise` — do not use.
+
+---
+
+## Style Guide
+
+**Naming:**
+- Prefer elegant single-word names for definitions (e.g., `eval`, `translate`, `correct`), not multi-word camelCase.
+- Theorems: namespaced under the definition with dots. Suffixes: `_refl`, `_symm`, `_trans`, `_mono`, `_injective`, `_iff`, `_of_X` (from X), `X_of_` (to X).
+- One word per concept everywhere: `eval` (semantics), `translate` (IR compilation), `correct` (soundness linking translate to eval).
+- Prefer composing `eval_bind`, `eval_decl` over fused names like `eval_bind_decl_assume`.
+
+**File organization:**
+- One definition + its API per section. Importing a definition should give you its basic API.
