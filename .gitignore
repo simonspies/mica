@@ -4,6 +4,7 @@
 *.ilean
 *.trace
 *.hash
+*.lean.md
 
 # OCaml
 *.cmx

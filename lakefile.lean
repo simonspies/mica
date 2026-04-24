@@ -175,6 +175,13 @@ def printFailureSummary (failed : List TestOutcome) : IO Unit := do
       | .terminated _ => ""
     IO.println s!"- {test.path.fileName.getD test.path.toString}{suffix}"
 
+script outlines (args) := do
+  let child ← IO.Process.spawn {
+    cmd := "python3"
+    args := #["scripts/lean_outline.py", "--all"] ++ args.toArray
+  }
+  return (← child.wait)
+
 script testsuite (args) := do
   let some mica <- Lake.findLeanExe? `mica
     | error "mica executable undefined"
