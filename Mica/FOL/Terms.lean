@@ -185,17 +185,17 @@ theorem Term.checkWf_ok {t : Term τ} {Δ : Signature} (h : t.checkWf Δ = .ok (
     simpa [Term.checkWf] using (Const.checkWf_ok h)
   | unop op a iha =>
     simp only [Term.checkWf] at h
-    have ⟨h1, h2⟩ := bind_ok h
+    have ⟨_, h1, h2⟩ := Except.bind_ok h
     exact ⟨UnOp.checkWf_ok h1, iha h2⟩
   | binop op a b iha ihb =>
     simp only [Term.checkWf] at h
-    have ⟨h1, h23⟩ := bind_ok h
-    have ⟨h2, h3⟩ := bind_ok h23
+    have ⟨_, h1, h23⟩ := Except.bind_ok h
+    have ⟨_, h2, h3⟩ := Except.bind_ok h23
     exact ⟨BinOp.checkWf_ok h1, iha h2, ihb h3⟩
   | ite c t e ihc iht ihe =>
     simp only [Term.checkWf] at h
-    have ⟨h1, h23⟩ := bind_ok h
-    have ⟨h2, h3⟩ := bind_ok h23
+    have ⟨_, h1, h23⟩ := Except.bind_ok h
+    have ⟨_, h2, h3⟩ := Except.bind_ok h23
     exact ⟨ihc h1, iht h2, ihe h3⟩
 
 private theorem Const.wfIn_mono {c : Const τ} {Δ Δ' : Signature} (h : c.wfIn Δ)

@@ -101,17 +101,17 @@ theorem Assertion.checkWf_ok {m : Assertion α} {retCheck : α → Signature →
   induction m generalizing Δ with
   | ret a => exact hret a Δ h
   | assert φ k ih =>
-    have ⟨h1, h2⟩ := bind_ok h
+    have ⟨_, h1, h2⟩ := Except.bind_ok h
     exact ⟨Formula.checkWf_ok h1, ih h2⟩
   | let_ v t k ih =>
-    have ⟨h1, h2⟩ := bind_ok h
+    have ⟨_, h1, h2⟩ := Except.bind_ok h
     exact ⟨Term.checkWf_ok h1, ih h2⟩
   | pred v p k ih =>
-    have ⟨h1, h2⟩ := bind_ok h
+    have ⟨_, h1, h2⟩ := Except.bind_ok h
     exact ⟨Atom.checkWf_ok h1, ih h2⟩
   | ite φ kt ke iht ihe =>
-    have ⟨h1, h23⟩ := bind_ok h
-    have ⟨h2, h3⟩ := bind_ok h23
+    have ⟨_, h1, h23⟩ := Except.bind_ok h
+    have ⟨_, h2, h3⟩ := Except.bind_ok h23
     exact ⟨Formula.checkWf_ok h1, iht h2, ihe h3⟩
 
 theorem Assertion.wfIn_mono (m : Assertion α) (retWf : α → Signature → Prop)

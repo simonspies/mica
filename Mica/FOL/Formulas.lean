@@ -73,17 +73,17 @@ theorem Formula.checkWf_ok {φ : Formula} {Δ : Signature} (h : φ.checkWf Δ = 
   | true_ | false_ => trivial
   | eq _ t₁ t₂ =>
     simp only [Formula.checkWf] at h
-    have ⟨h1, h2⟩ := bind_ok h
+    have ⟨_, h1, h2⟩ := Except.bind_ok h
     exact ⟨Term.checkWf_ok h1, Term.checkWf_ok h2⟩
   | unpred _ t => exact Term.checkWf_ok h
   | binpred _ t₁ t₂ =>
     simp only [Formula.checkWf] at h
-    have ⟨h1, h2⟩ := bind_ok h
+    have ⟨_, h1, h2⟩ := Except.bind_ok h
     exact ⟨Term.checkWf_ok h1, Term.checkWf_ok h2⟩
   | not φ ih => exact ih h
   | and φ ψ ihφ ihψ | or φ ψ ihφ ihψ | implies φ ψ ihφ ihψ =>
     simp only [Formula.checkWf] at h
-    have ⟨h1, h2⟩ := bind_ok h
+    have ⟨_, h1, h2⟩ := Except.bind_ok h
     exact ⟨ihφ h1, ihψ h2⟩
   | forall_ x τ φ ih | exists_ x τ φ ih =>
     simp only [Formula.checkWf] at h
