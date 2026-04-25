@@ -7,15 +7,11 @@ open Iris Iris.BI
 /-! # Spatial Atoms and Contexts — Iris Interpretation
 
 The syntactic definitions (`SpatialAtom`, `SpatialContext`, `wfIn`, `find`,
-`remove`) live in `Mica.SeparationLogic.SpatialAtom`. This file adds the
-Iris-level interpretation and related lemmas. -/
+`remove`, and single-atom `SpatialAtom.interp`) live in
+`Mica.SeparationLogic.SpatialAtom`. This file adds context-level
+interpretation and related lemmas. -/
 
 namespace SpatialAtom
-
-/-- Iris interpretation of a single spatial atom. -/
-def interp (ρ : Env) : SpatialAtom → iProp
-  | .pointsTo l v => ∃ (loc : Runtime.Location),
-      ⌜Term.eval ρ l = .loc loc⌝ ∗ loc ↦ Term.eval ρ v
 
 /-- Interpreting a well-formed atom only depends on the environment values of
     symbols in the ambient signature. -/

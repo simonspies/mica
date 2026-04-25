@@ -368,18 +368,6 @@ private theorem VerifM.eval_tryCandidates
 -- Spatial resolution (linear search over st.owns)
 -- ---------------------------------------------------------------------------
 
-namespace SpatialAtom
-
-/-- Two points-to atoms with semantically equal locations have equal Iris
-    interpretations. -/
-theorem interp_pointsTo_loc_congr {ρ : Env} {l l' v : Term .value}
-    (h : Term.eval ρ l = Term.eval ρ l') :
-    interp ρ (.pointsTo l v) ⊣⊢ interp ρ (.pointsTo l' v) := by
-  simp only [interp, h]
-  exact ⟨BIBase.Entails.rfl, BIBase.Entails.rfl⟩
-
-end SpatialAtom
-
 /-- Walk a spatial context and return the index and stored value at the first
     `pointsTo` whose location the SMT solver can prove equal to `lq`. The
     returned index is into the input list; consumption is the caller's job. -/
@@ -506,7 +494,7 @@ theorem VerifM.eval_findMatch {lq : Term .value}
     have hk3' := hk3 hrest_wf
     have hQ : Q (some v) { st with owns := rest } ρ := VerifM.eval_ret hk3'
     have hsplit := SpatialContext.interp_remove ρ.env st.owns n _ _ hrem
-    have hcong := SpatialAtom.interp_pointsTo_loc_congr (v := v) heq.symm
+    have hcong := SpatialAtom.pointsTo_congr (l := l) (l' := lq) (v := v) (v' := v) heq.symm rfl
     -- goal: st.owns.interp ρ ∗ R ⊢ Φ
     -- st.owns.interp ρ ⊣⊢ (pointsTo l v).interp ρ ∗ rest.interp ρ
     --                ⊣⊢ (pointsTo lq v).interp ρ ∗ rest.interp ρ
