@@ -14,7 +14,8 @@ open Iris Iris.BI
 /-!
 # Specifications
 
-Defines `Spec`, `SpecMap`, and related operations built on top of `PredTrans`.
+Defines `Spec` and its call/implementation operations built on top of
+`PredTrans`.
 -/
 
 -- ---------------------------------------------------------------------------
@@ -77,7 +78,7 @@ def call (Θ : TinyML.TypeEnv) (σ : FiniteSubst) (s : Spec) (sargs : List (Tiny
     VerifM (TinyML.Typ × Term .value) := do
   let σ' ← declareArgs Θ σ s.args sargs
   let result ← PredTrans.call σ' s.pred
-  VerifM.assumeAll (typeConstraints s.retTy result)
+  VerifM.assumeAll (TinyML.typeConstraints s.retTy result)
   pure (s.retTy, result)
 
 /-- Declare implementation argument variables: for each `(name, ty)` in `args`,
@@ -88,7 +89,7 @@ def declareImplArgs (σ : FiniteSubst) :
   | [] => pure (σ, [])
   | (name, ty) :: rest => do
     let argVar ← VerifM.decl (some name) .value
-    VerifM.assumeAll (typeConstraints ty (.const (.uninterpreted argVar.name .value)))
+    VerifM.assumeAll (TinyML.typeConstraints ty (.const (.uninterpreted argVar.name .value)))
     let σ' := σ.rename ⟨name, .value⟩ argVar.name
     let (σ'', vars) ← declareImplArgs σ' rest
     pure (σ'', argVar :: vars)
@@ -108,7 +109,7 @@ instance : Iris.BI.Persistent (isPrecondFor Θ f s) := by
 
 /-- Fold `wp_fix'`'s tupled recursive obligation into a spec precondition;
     the two differ only by currying the typing hypothesis and the predicate transformer. -/
-theorem isPrecondFor_fold (Θ : TinyML.TypeEnv) (s : Spec)
+theorem isPrecondFor_intro (Θ : TinyML.TypeEnv) (s : Spec)
     (f : Runtime.Val) :
     iprop(□ ∀ (vs : List Runtime.Val) (P : Runtime.Val → iProp),
       (TinyML.ValsHaveTypes Θ vs (s.args.map Prod.snd) ∗
@@ -136,19 +137,19 @@ theorem isPrecondFor_fix {Θ : TinyML.TypeEnv} {s : Spec}
           TinyML.ValsHaveTypes Θ vs (s.args.map Prod.snd) -∗
           PredTrans.apply (fun r => TinyML.ValHasType Θ r s.retTy -∗ P r) s.pred
               (argsEnv VerifM.Env.empty s.args vs) -∗
-          wp (e.subst ((Runtime.Subst.id.update' f (.fix f args e)).updateAll' args vs)) P)) :
+          wp (e.subst ((Runtime.Subst.id.updateBinder f (.fix f args e)).updateAllBinder args vs)) P)) :
     R ⊢ s.isPrecondFor Θ (.fix f args e) := by
   refine (SpatialContext.wp_fix' (Φ := fun P vs =>
       iprop(TinyML.ValsHaveTypes Θ vs (s.args.map Prod.snd) ∗
         PredTrans.apply (fun r => TinyML.ValHasType Θ r s.retTy -∗ P r) s.pred
             (argsEnv VerifM.Env.empty s.args vs))) (h.trans ?_)).trans
-    (isPrecondFor_fold Θ s _)
+    (isPrecondFor_intro Θ s _)
   istart
   iintro □HR
   imodintro
   iintro IH %vs %P ⟨htyped, hpred⟩
   ispecialize HR $$ [IH]
-  · iapply (isPrecondFor_fold Θ s (.fix f args e))
+  · iapply (isPrecondFor_intro Θ s (.fix f args e))
     iexact IH
   ihave Hres := HR $$ %vs %P [htyped] [hpred]
   · iexact htyped
@@ -256,8 +257,14 @@ theorem declareArgs_correct (Θ : TinyML.TypeEnv) :
         have hsarg_wf : sarg.wfIn st.decls := hsargs _ (List.mem_cons_self ..)
         have hassume := VerifM.eval_assumePure
           (VerifM.eval_bind _ _ _ _ (hdecl (sarg.eval ρ.env)))
-          (TransState.freshConst_eq_wfIn hstwf hsarg_wf hfresh_decls)
-          (TransState.freshConst_eq_eval (ρ := ρ) hsarg_wf hfresh_decls)
+          (by
+            simpa [argVar] using
+              (Formula.eq_wfIn_addConst_of_fresh
+                (Δ := st.decls) (c := argVar) hstwf hsarg_wf hfresh_decls))
+          (by
+            simpa [argVar, VerifM.Env.updateConst_env] using
+              (Formula.eq_eval_updateConst_of_fresh
+                (Δ := st.decls) (ρ := ρ.env) (c := argVar) hsarg_wf hfresh_decls))
         have hstwf_add : (st.decls.addConst argVar).wf := Signature.wf_addConst hstwf hfresh_decls
         have hsargs_rest : ∀ p ∈ sargs_rest, (p : TinyML.Typ × Term .value).2.wfIn
             (st.decls.addConst argVar) := fun p hp =>
@@ -267,7 +274,7 @@ theorem declareArgs_correct (Θ : TinyML.TypeEnv) :
             sargs_rest.map (fun p => p.2.eval ρ.env) :=
           List.map_congr_left fun p hp => Term.eval_env_agree
             (hsargs p (List.mem_cons_of_mem _ hp))
-            (Env.agreeOn_symm (agreeOn_update_fresh_const hfresh_decls))
+            (Env.agreeOn_symm (Env.agreeOn_update_fresh_const hfresh_decls))
         obtain ⟨σ'', st'', ρ'', hΨ, hσ''wf, hσ''domwf, howns, hsublist, hdom_sub, hagree⟩ :=
           ih sargs_rest σ' _ ρ₁ Ψ hσ'wf hσ'domwf hsargs_rest hassume
         refine ⟨σ'', st'', ρ'', hΨ, hσ''wf, hσ''domwf, howns,
@@ -323,11 +330,11 @@ theorem call_correct (Θ : TinyML.TypeEnv) (s : Spec) (σ : FiniteSubst) (sargs 
       iintro H
       icases H with ⟨⟨Howns, HR⟩, Hty⟩
       iintuitionistic Hty
-      ihave Hpure := (typeConstraints_hold (ty := s.retTy) (t := t) (ρ := ρ''.env) (Θ := Θ) (v := v) hteval) $$ Hty
+      ihave Hpure := (TinyML.typeConstraints_hold (ty := s.retTy) (t := t) (ρ := ρ''.env) (Θ := Θ) (v := v) hteval) $$ Hty
       ipure Hpure
       obtain ⟨st₃, hst₃_decls, hst₃_owns, hret⟩ :=
         VerifM.eval_assumeAll (VerifM.eval_bind _ _ _ _ hΨ'')
-          (fun φ hφ => typeConstraints_wfIn htwf φ hφ)
+          (fun φ hφ => TinyML.typeConstraints_wfIn htwf φ hφ)
           (fun φ hφ => Hpure φ hφ)
       ihave Harg : (st₃.sl ρ'' ∗ R ∗ TinyML.ValHasType Θ v s.retTy) $$ [HR Howns Hty]
       · isplitr [Hty HR]
@@ -410,15 +417,17 @@ theorem declareImplArgs_correct (Θ : TinyML.TypeEnv) :
       have hstwf : st.decls.wf := (VerifM.eval.wf heval).namesDisjoint
       obtain ⟨hfresh_decls, _hfresh_range, hσ'wf, hσ'domwf⟩ :=
         FiniteSubst.rename_bundle_of_freshConst (hint := some name) (v := ⟨name, .value⟩) hσwf hσdomwf
-      have hvar_wf := TransState.freshConst_wfIn (hint := some name) hstwf hfresh_decls
+      have hvar_wf : (Term.const (.uninterpreted argVar.name .value)).wfIn (st.decls.addConst argVar) := by
+        simpa using
+          (Term.const_wfIn_addConst_of_fresh (Δ := st.decls) (c := argVar) hstwf hfresh_decls)
       have hvar_eval : (Term.const (.uninterpreted argVar.name .value)).eval ρ₁.env = v := by
         simp [ρ₁]
-      ihave %htyped_formulas := typeConstraints_hold (ty := ty)
+      ihave %htyped_formulas := TinyML.typeConstraints_hold (ty := ty)
           (t := .const (.uninterpreted argVar.name .value))
           (ρ := ρ₁.env) (Θ := Θ) (v := v) hvar_eval $$ Hv
       obtain ⟨st₂, hst₂_decls, hst₂_owns, hdecl₂⟩ :=
         VerifM.eval_assumeAll (VerifM.eval_bind _ _ _ _ hdecl)
-          (fun φ hφ => typeConstraints_wfIn hvar_wf φ hφ)
+          (fun φ hφ => TinyML.typeConstraints_wfIn hvar_wf φ hφ)
           (fun φ hφ => htyped_formulas φ hφ)
       have hst_st₂ : st.decls.Subset st₂.decls :=
         hst₂_decls ▸ Signature.Subset.subset_addConst _ _

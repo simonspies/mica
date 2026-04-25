@@ -304,11 +304,11 @@ def Program.elaborate {S : Type} (Θ : TypeEnv) (Γ : TinyML.TyCtx) :
 
 private theorem branchListRuntime_cast_joinAll
     (Θ : TypeEnv) (branches' : List (Typed.Binder × Typed.Expr)) :
-    Expr.runtime.branchListRuntime
+    Expr.branchListRuntime
       (branches'.map fun x =>
         (x.1, if x.2.ty = joinAll Θ (branches'.map (fun p => p.2.ty)) then x.2
               else x.2.cast (joinAll Θ (branches'.map (fun p => p.2.ty))))) =
-    Expr.runtime.branchListRuntime branches' := by
+    Expr.branchListRuntime branches' := by
   simpa [BEq.beq] using
     Typed.Expr.branchListRuntime_castBodies
       (joinAll Θ (branches'.map (fun p => p.2.ty))) branches'
@@ -631,14 +631,14 @@ mutual
   theorem inferBranches_runtime (Θ : TypeEnv) (Γ : TinyML.TyCtx) :
       (branches : List (Untyped.Binder × Untyped.Expr)) →
       ∀ tys branches', Typed.inferBranches Θ Γ tys branches = .ok branches' →
-        Expr.runtime.branchListRuntime branches' =
+        Expr.branchListRuntime branches' =
           Untyped.Expr.runtime.branchListRuntime branches
     | [] => by
         intro tys branches' h
         cases tys <;> simp [Typed.inferBranches] at h
         case nil =>
           cases h
-          simp [Expr.runtime.branchListRuntime, Untyped.Expr.runtime.branchListRuntime]
+          simp [Expr.branchListRuntime, Untyped.Expr.runtime.branchListRuntime]
     | br :: rest => by
         let ihRest := inferBranches_runtime Θ Γ rest
         intro tys branches' h
@@ -659,7 +659,7 @@ mutual
               have ⟨rest', hrest, hcont⟩ := Except.bind_ok hcont
               simp at hcont
               cases hcont
-              simp [Expr.runtime.branchListRuntime, Untyped.Expr.runtime.branchListRuntime,
+              simp [Expr.branchListRuntime, Untyped.Expr.runtime.branchListRuntime,
                 Binder.ofUntyped_runtime, ihBody _ hbody, ihRest tys _ hrest]
           · simp [Typed.inferBranches, binderTy, hsub] at h
 end

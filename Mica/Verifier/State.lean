@@ -2,6 +2,9 @@
 import Mica.Verifier.Scoped
 import Mica.Base.Fresh
 import Mica.SeparationLogic.SpatialAtom
+import Mica.SeparationLogic
+
+open Iris Iris.BI
 
 structure TransState where
   decls   : Signature
@@ -72,9 +75,25 @@ theorem Env.agreeOn_update_fresh {ρ : Env} {c : FOL.Const} {u : c.sort.denote}
     {Δ : Signature} (hfresh : c.name ∉ Δ.allNames) :
     Env.agreeOn Δ ρ (ρ.updateConst c.sort c.name u) := by
   simpa [Env.agreeOn, Env.updateConst] using
-    (agreeOn_update_fresh_const (ρ := ρ.env) (c := c) (u := u) (Δ := Δ) hfresh)
+    (Env.agreeOn_update_fresh_const (ρ := ρ.env) (c := c) (u := u) (Δ := Δ) hfresh)
 
 end VerifM
+
+/-- Semantic interpretation of a verifier context item. -/
+def CtxItem.interp (ρ : VerifM.Env) : CtxItem → iProp
+  | .pure φ => ⌜φ.eval ρ.env⌝
+  | .spatial a => a.interp ρ.env
+
+def CtxItem.purePart (i : CtxItem) (ρ : VerifM.Env) : Prop :=
+  match i with
+  | .pure φ => φ.eval ρ.env
+  | .spatial _ => True
+
+def TransState.sl (st : TransState) (ρ : VerifM.Env) : iProp :=
+  SpatialContext.interp ρ.env st.owns
+
+@[simp] theorem TransState.sl_eq (st : TransState) (ρ : VerifM.Env) :
+    st.sl ρ = SpatialContext.interp ρ.env st.owns := rfl
 
 /-- Translation to `ScopedM`'s flat context. -/
 def TransState.toFlatCtx (st : TransState) : FlatCtx :=
@@ -111,7 +130,7 @@ structure TransState.wf (st : TransState) : Prop where
 
 def TransState.freshConst (hint : Option String) (t : Srt) (st : TransState) : FOL.Const :=
   let base := hint.getD "_v"
-  let x' := fresh (addNumbers base) st.decls.allNames
+  let x' := Fresh.freshNumbers base st.decls.allNames
   ⟨x', t⟩
 
 def TransState.addItem (st : TransState) (item : CtxItem) :=
@@ -124,7 +143,7 @@ theorem TransState.freshConst.wf {hint t} (st : TransState) :
     TransState.wf { st with decls := st.decls.addConst (st.freshConst hint t) } := by
   intro hwf
   have hfresh : (st.freshConst hint t).name ∉ st.decls.allNames :=
-    fresh_not_mem (addNumbers (hint.getD "_v")) st.decls.allNames (addNumbers_injective _)
+    Fresh.freshNumbers_not_mem (hint.getD "_v") st.decls.allNames
   have hwf' := Signature.wf_addConst hwf.namesDisjoint hfresh
   constructor
   · exact Context.wfIn_mono _ hwf.assertsWf (Signature.Subset.subset_addConst _ _) hwf'
@@ -134,7 +153,7 @@ theorem TransState.freshConst.wf {hint t} (st : TransState) :
 /-- The name produced by `freshConst` is not in the existing decls. -/
 theorem TransState.freshConst_fresh (st : TransState) (hint : Option String) (τ : Srt) :
     (st.freshConst hint τ).name ∉ st.decls.allNames :=
-  fresh_not_mem (addNumbers (hint.getD "_v")) st.decls.allNames (addNumbers_injective _)
+  Fresh.freshNumbers_not_mem (hint.getD "_v") st.decls.allNames
 
 theorem TransState.addAssert.wf (st : TransState) :
     TransState.wf st →
@@ -159,30 +178,3 @@ theorem TransState.addSpatial.wf (st : TransState) :
   · exact hwf.assertsWf
   · exact hwf.namesDisjoint
   · simpa [SpatialContext.wfIn_cons] using And.intro ha hwf.ownsWf
-
-/-- Specialization of `Term.const_wfIn_addConst_of_fresh` to `freshConst`. -/
-theorem TransState.freshConst_wfIn {st : TransState} {hint : Option String} {τ : Srt}
-    (hstwf : st.decls.wf)
-    (hfresh : (st.freshConst hint τ).name ∉ st.decls.allNames) :
-    let c := st.freshConst hint τ
-    (Term.const (.uninterpreted c.name τ)).wfIn (st.decls.addConst c) :=
-  Term.const_wfIn_addConst_of_fresh hstwf hfresh
-
-/-- Specialization of `Formula.eq_wfIn_addConst_of_fresh` to `freshConst`. -/
-theorem TransState.freshConst_eq_wfIn {st : TransState} {hint : Option String} {τ : Srt}
-    {t : Term τ} (hstwf : st.decls.wf) (ht : t.wfIn st.decls)
-    (hfresh : (st.freshConst hint τ).name ∉ st.decls.allNames) :
-    let c := st.freshConst hint τ
-    (Formula.eq τ (.const (.uninterpreted c.name τ)) t).wfIn (st.decls.addConst c) :=
-  Formula.eq_wfIn_addConst_of_fresh hstwf ht hfresh
-
-/-- Specialization of `Formula.eq_eval_updateConst_of_fresh` to `freshConst`. -/
-theorem TransState.freshConst_eq_eval {st : TransState} {ρ : VerifM.Env}
-    {hint : Option String} {τ : Srt} {t : Term τ} (ht : t.wfIn st.decls)
-    (hfresh : (st.freshConst hint τ).name ∉ st.decls.allNames) :
-    let c := st.freshConst hint τ
-    (Formula.eq τ (.const (.uninterpreted c.name τ)) t).eval
-      (ρ.updateConst τ c.name (t.eval ρ.env)).env := by
-  simpa [VerifM.Env.updateConst_env] using
-    (Formula.eq_eval_updateConst_of_fresh
-      (Δ := st.decls) (ρ := ρ.env) (c := st.freshConst hint τ) ht hfresh)

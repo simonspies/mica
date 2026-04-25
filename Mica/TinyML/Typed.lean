@@ -72,7 +72,7 @@ theorem Expr.isFunc_elim {e : Expr} (h : e.isFunc = true) :
 -- `deriving DecidableEq` does not support mutual inductives with `List`-nested
 -- recursion, so we define the instance by hand.
 mutual
-  def Expr.decEq (a b : Expr) : Decidable (a = b) := by
+  private def Expr.decEq (a b : Expr) : Decidable (a = b) := by
     cases a <;> cases b
     all_goals first | exact isFalse (by omega) | skip
     all_goals first | exact isFalse Expr.noConfusion | skip
@@ -158,7 +158,7 @@ mutual
       | isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
       | _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
 
-  def exprsDecEq : (as bs : List Expr) → Decidable (as = bs)
+  private def exprsDecEq : (as bs : List Expr) → Decidable (as = bs)
     | [], [] => isTrue rfl
     | [], _ :: _ => isFalse (by intro h; cases h)
     | _ :: _, [] => isFalse (by intro h; cases h)
@@ -167,13 +167,13 @@ mutual
       | isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
       | _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
 
-  def branchDecEq : (a b : Binder × Expr) → Decidable (a = b)
+  private def branchDecEq : (a b : Binder × Expr) → Decidable (a = b)
     | (b1, e1), (b2, e2) => match decEq b1 b2, e1.decEq e2 with
       | isTrue h1, isTrue h2 => isTrue (by subst h1; subst h2; rfl)
       | isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
       | _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
 
-  def branchesDecEq : (as bs : List (Binder × Expr)) → Decidable (as = bs)
+  private def branchesDecEq : (as bs : List (Binder × Expr)) → Decidable (as = bs)
     | [], [] => isTrue rfl
     | [], _ :: _ => isFalse (by intro h; cases h)
     | _ :: _, [] => isFalse (by intro h; cases h)
@@ -258,27 +258,30 @@ def Binder.runtime : Typed.Binder → Runtime.Binder
       subst h
       simp [Binder.runtime]
 
-def Expr.runtime : Typed.Expr → Runtime.Expr
-  | .const c => .val c.runtime
-  | .var x _ => .var x
-  | .unop op e _ => .unop op e.runtime
-  | .binop op l r _ => .binop op l.runtime r.runtime
-  | .fix self args _ body => .fix (self.runtime) (args.map (·.runtime)) body.runtime
-  | .app fn args _ => .app fn.runtime (args.map Expr.runtime)
-  | .ifThenElse c t e _ => .ifThenElse c.runtime t.runtime e.runtime
-  | .letIn b bound body => .letIn (b.runtime) bound.runtime body.runtime
-  | .ref e => .ref e.runtime
-  | .deref e _ => .deref e.runtime
-  | .store loc val => .store loc.runtime val.runtime
-  | .assert e => .assert e.runtime
-  | .tuple es => .tuple (es.map Expr.runtime)
-  | .inj tag arity payload => .inj tag arity payload.runtime
-  | .match_ scrut branches _ => .match_ scrut.runtime (branchListRuntime branches)
-  | .cast e _ => e.runtime
-where
-  branchListRuntime : List (Typed.Binder × Typed.Expr) → List Runtime.Expr
+mutual
+  def Expr.runtime : Typed.Expr → Runtime.Expr
+    | .const c => .val (Runtime.Val.ofConst c)
+    | .var x _ => .var x
+    | .unop op e _ => .unop op e.runtime
+    | .binop op l r _ => .binop op l.runtime r.runtime
+    | .fix self args _ body => .fix (self.runtime) (args.map (·.runtime)) body.runtime
+    | .app fn args _ => .app fn.runtime (args.map Expr.runtime)
+    | .ifThenElse c t e _ => .ifThenElse c.runtime t.runtime e.runtime
+    | .letIn b bound body => .letIn (b.runtime) bound.runtime body.runtime
+    | .ref e => .ref e.runtime
+    | .deref e _ => .deref e.runtime
+    | .store loc val => .store loc.runtime val.runtime
+    | .assert e => .assert e.runtime
+    | .tuple es => .tuple (es.map Expr.runtime)
+    | .inj tag arity payload => .inj tag arity payload.runtime
+    | .match_ scrut branches _ => .match_ scrut.runtime (Expr.branchListRuntime branches)
+    | .cast e _ => e.runtime
+
+  /-- Erase `match_` branches to their runtime closures used by `Expr.runtime`. -/
+  def Expr.branchListRuntime : List (Typed.Binder × Typed.Expr) → List Runtime.Expr
     | [] => []
-    | (b, e) :: rest => Runtime.Expr.fix .none [b.runtime] e.runtime :: branchListRuntime rest
+    | (b, e) :: rest => Runtime.Expr.fix .none [b.runtime] e.runtime :: Expr.branchListRuntime rest
+end
 
 def ValDecl.runtime {S : Type} (d : Typed.ValDecl S) : Runtime.Decl :=
   { name := d.name.runtime, body := d.body.runtime }
@@ -287,26 +290,26 @@ def Program.runtime {S : Type} (prog : Typed.Program S) : Runtime.Program :=
   prog.map ValDecl.runtime
 
 theorem Expr.branchListRuntime_eq_map (branches : List (Typed.Binder × Typed.Expr)) :
-    Expr.runtime.branchListRuntime branches =
+    Expr.branchListRuntime branches =
       branches.map fun p => Runtime.Expr.fix .none [p.1.runtime] p.2.runtime := by
   induction branches with
-  | nil => unfold Expr.runtime.branchListRuntime; rfl
+  | nil => unfold Expr.branchListRuntime; rfl
   | cons hd rest ih =>
     obtain ⟨b, e⟩ := hd
-    unfold Expr.runtime.branchListRuntime
+    unfold Expr.branchListRuntime
     simp only [List.map_cons]
     congr 1
 
 theorem Expr.branchListRuntime_castBodies (ty : TinyML.Typ) (branches : List (Typed.Binder × Typed.Expr)) :
-    Expr.runtime.branchListRuntime
+    Expr.branchListRuntime
       (branches.map fun p => (p.1, if p.2.ty = ty then p.2 else .cast p.2 ty)) =
-    Expr.runtime.branchListRuntime branches := by
+    Expr.branchListRuntime branches := by
   induction branches with
   | nil =>
-    simp [Expr.runtime.branchListRuntime]
+    simp [Expr.branchListRuntime]
   | cons hd rest ih =>
     obtain ⟨b, e⟩ := hd
-    unfold Expr.runtime.branchListRuntime
+    unfold Expr.branchListRuntime
     simp only [List.map_cons]
     by_cases h : e.ty = ty
     · simp [h, ih]

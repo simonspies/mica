@@ -53,7 +53,7 @@ theorem Expr.isFunc_elim {e : Expr} (h : e.isFunc = true) :
 -- `deriving DecidableEq` does not support mutual inductives with `List`-nested
 -- recursion, so we define the instance by hand.
 mutual
-  def Expr.decEq (a b : Expr) : Decidable (a = b) := by
+  private def Expr.decEq (a b : Expr) : Decidable (a = b) := by
     cases a <;> cases b
     all_goals first | exact isFalse (by omega) | skip
     all_goals first | exact isFalse Expr.noConfusion | skip
@@ -122,7 +122,7 @@ mutual
       | isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
       | _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
 
-  def exprsDecEq : (as bs : List Expr) → Decidable (as = bs)
+  private def exprsDecEq : (as bs : List Expr) → Decidable (as = bs)
     | [], [] => isTrue rfl
     | [], _ :: _ => isFalse (by intro h; cases h)
     | _ :: _, [] => isFalse (by intro h; cases h)
@@ -131,13 +131,13 @@ mutual
       | isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
       | _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
 
-  def branchDecEq : (a b : Binder × Expr) → Decidable (a = b)
+  private def branchDecEq : (a b : Binder × Expr) → Decidable (a = b)
     | (b1, e1), (b2, e2) => match decEq b1 b2, e1.decEq e2 with
       | isTrue h1, isTrue h2 => isTrue (by subst h1; subst h2; rfl)
       | isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
       | _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
 
-  def branchesDecEq : (as bs : List (Binder × Expr)) → Decidable (as = bs)
+  private def branchesDecEq : (as bs : List (Binder × Expr)) → Decidable (as = bs)
     | [], [] => isTrue rfl
     | [], _ :: _ => isFalse (by intro h; cases h)
     | _ :: _, [] => isFalse (by intro h; cases h)
@@ -155,12 +155,6 @@ deriving instance BEq for Expr
 abbrev Vars := List Var
 abbrev Exprs := List Expr
 abbrev Binders := List Binder
-
-@[simp] theorem Binder.named_beq (x z : Var) (tx tz : Option Typ) :
-    (Binder.named x tx == Binder.named z tz) = (x == z && tx == tz) := by
-  apply Bool.eq_iff_iff.mpr
-  simp only [BEq.beq, Bool.and_eq_true, Binder.named.injEq, decide_eq_true_iff]
-  exact and_congr Iff.rfl beq_iff_eq.symm
 
 structure ValDecl (S : Type) where
   name : Binder
@@ -192,7 +186,7 @@ def Binder.runtime : Untyped.Binder → Runtime.Binder
   | .named x _ty => .named x
 
 def Expr.runtime : Untyped.Expr → Runtime.Expr
-  | .const c => .val c.runtime
+  | .const c => .val (Runtime.Val.ofConst c)
   | .var x => .var x
   | .unop op e => .unop op e.runtime
   | .binop op l r => .binop op l.runtime r.runtime

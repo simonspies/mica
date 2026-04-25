@@ -73,17 +73,17 @@ theorem Formula.checkWf_ok {φ : Formula} {Δ : Signature} (h : φ.checkWf Δ = 
   | true_ | false_ => trivial
   | eq _ t₁ t₂ =>
     simp only [Formula.checkWf] at h
-    have ⟨h1, h2⟩ := bind_ok h
+    have ⟨_, h1, h2⟩ := Except.bind_ok h
     exact ⟨Term.checkWf_ok h1, Term.checkWf_ok h2⟩
   | unpred _ t => exact Term.checkWf_ok h
   | binpred _ t₁ t₂ =>
     simp only [Formula.checkWf] at h
-    have ⟨h1, h2⟩ := bind_ok h
+    have ⟨_, h1, h2⟩ := Except.bind_ok h
     exact ⟨Term.checkWf_ok h1, Term.checkWf_ok h2⟩
   | not φ ih => exact ih h
   | and φ ψ ihφ ihψ | or φ ψ ihφ ihψ | implies φ ψ ihφ ihψ =>
     simp only [Formula.checkWf] at h
-    have ⟨h1, h2⟩ := bind_ok h
+    have ⟨_, h1, h2⟩ := Except.bind_ok h
     exact ⟨ihφ h1, ihψ h2⟩
   | forall_ x τ φ ih | exists_ x τ φ ih =>
     simp only [Formula.checkWf] at h
@@ -167,24 +167,6 @@ theorem Formula.eval_env_agree {φ : Formula} {ρ ρ' : Env} {Δ : Signature} :
     · intro ⟨v, hv⟩; exact ⟨v, (ih hwf (Env.agreeOn_declVar hagree)).mp hv⟩
     · intro ⟨v, hv⟩; exact ⟨v, (ih hwf (Env.agreeOn_declVar hagree)).mpr hv⟩
 
-
-theorem Formula.eval_update_not_in_sig {φ : Formula} {x : String} {τ : Srt} {v : τ.denote} {ρ : Env}
-    {sig : Signature} (hwf : φ.wfIn sig) (hnotin : x ∉ sig.allNames) :
-    (φ.eval (ρ.updateConst τ x v) ↔ φ.eval ρ) :=
-  Formula.eval_env_agree hwf
-    ⟨fun w hw => by
-      have hne : w.name ≠ x := by
-        intro heq
-        exact hnotin (heq ▸ Signature.mem_allNames_of_var hw)
-      exact Env.lookupConst_updateConst_ne (Or.inl hne),
-     fun c hc => by
-      have hne : c.name ≠ x := by
-        intro heq
-        exact hnotin (heq ▸ Signature.mem_allNames_of_const hc)
-      exact Env.lookupConst_updateConst_ne (Or.inl hne),
-     fun _ _ => rfl,
-     fun _ _ => rfl⟩
-
 /-- If `t` is wf in `Δ` and `c` is fresh for `Δ`, then `c = t` is wf in `Δ.addConst c`. -/
 theorem Formula.eq_wfIn_addConst_of_fresh {Δ : Signature} {c : FOL.Const}
     {t : Term c.sort} (hΔwf : Δ.wf) (ht : t.wfIn Δ)
@@ -201,11 +183,17 @@ theorem Formula.eq_eval_updateConst_of_fresh {Δ : Signature} {ρ : Env}
     (Formula.eq c.sort (.const (.uninterpreted c.name c.sort)) t).eval
       (ρ.updateConst c.sort c.name (t.eval ρ)) := by
   simp only [Formula.eval, Term.eval_const_updateConst]
-  exact Term.eval_env_agree ht (agreeOn_update_fresh_const hfresh)
+  exact Term.eval_env_agree ht (Env.agreeOn_update_fresh_const hfresh)
 
 
-/-- A predicate with one named bound variable: `λ x -> body`. -/
+/-- A single-argument named predicate, represented as `(argName, body)`.
+
+Used by the verifier's predicate-transformer layer to carry binder names for
+human-readable output while keeping the body representation generic over `α`. -/
 def Pred α      := String × α
 
-/-- A predicate with zero or more named bound variables: `λ x₁ x₂ … -> body`. -/
+/-- A multi-argument named predicate, represented as `(argNames, body)`.
+
+This is the n-ary generalization of `Pred`, used for specification predicates
+whose printed form is `λ x₁ x₂ … -> body`. -/
 def MultiPred α := List String × α

@@ -46,30 +46,6 @@ def Atom.subst (σ : Subst) : Atom τ → Atom τ
   | .own t    => .own (t.subst σ)
 
 
-namespace CtxItem
-
-/-- Semantic interpretation of a verifier context item. -/
-def interp (ρ : VerifM.Env) : CtxItem → iProp
-  | .pure φ => ⌜φ.eval ρ.env⌝
-  | .spatial a => a.interp ρ.env
-
-def purePart (i : CtxItem) (ρ : VerifM.Env) : Prop :=
-  match i with
-  | .pure φ => φ.eval ρ.env
-  | .spatial _ => True
-
-end CtxItem
-
-namespace TransState
-
-def sl (st : TransState) (ρ : VerifM.Env) : iProp :=
-  SpatialContext.interp ρ.env st.owns
-
-@[simp] theorem sl_eq (st : TransState) (ρ : VerifM.Env) :
-    st.sl ρ = SpatialContext.interp ρ.env st.owns := rfl
-
-end TransState
-
 /-- Convert an instantiated atom into the corresponding verifier context item. -/
 def Atom.toItem (a : Atom τ) (t : Term τ) : CtxItem :=
   match a with
@@ -229,8 +205,8 @@ theorem Atom.toItem_wfIn {p : Atom τ} {t : Term τ} {Δ : Signature}
     simp only [Atom.toItem, CtxItem.wfIn, SpatialAtom.wfIn]
     exact ⟨hp, ht⟩
 
-theorem Atom.eval_pure {p : Atom τ} {t : Term τ} {ρ : VerifM.Env} :
-    p.eval ρ (t.eval ρ.env) ⊣⊢ CtxItem.interp ρ (p.toItem t) := by
+theorem Atom.toItem_eval {p : Atom τ} {t : Term τ} {ρ : VerifM.Env} :
+    CtxItem.interp ρ (p.toItem t) ⊣⊢ p.eval ρ (t.eval ρ.env) := by
   cases p with
   | isint v  => simp [Atom.eval, Atom.toItem, CtxItem.interp, Formula.eval, Term.eval, eq_comm]
   | isbool v => simp [Atom.eval, Atom.toItem, CtxItem.interp, Formula.eval, Term.eval, eq_comm]
@@ -238,15 +214,6 @@ theorem Atom.eval_pure {p : Atom τ} {t : Term τ} {ρ : VerifM.Env} :
   | own l =>
     simp only [Atom.eval, Atom.toItem, CtxItem.interp, SpatialAtom.interp]
     exact ⟨BIBase.Entails.rfl, BIBase.Entails.rfl⟩
-
-/-- If `p.toItem t` holds semantically, then `p.eval ρ (t.eval ρ)`. -/
-theorem Atom.toItem_eval {p : Atom τ} {t : Term τ} {ρ : VerifM.Env}
-    : CtxItem.interp ρ (p.toItem t) ⊢ p.eval ρ (t.eval ρ.env) := by
-  exact Atom.eval_pure.2
-
-theorem Atom.eval_toItem {p : Atom τ} {t : Term τ} {ρ : VerifM.Env} :
-    p.eval ρ (t.eval ρ.env) ⊢ CtxItem.interp ρ (p.toItem t) := by
-  exact Atom.eval_pure.1
 
 theorem Atom.eval_purePart {p : Atom τ} {t : Term τ} {ρ : VerifM.Env} :
     p.eval ρ (t.eval ρ.env) ⊢ ⌜(p.toItem t).purePart ρ⌝ := by
@@ -392,18 +359,6 @@ private theorem VerifM.eval_tryCandidates
 -- Spatial resolution (linear search over st.owns)
 -- ---------------------------------------------------------------------------
 
-namespace SpatialAtom
-
-/-- Two points-to atoms with semantically equal locations have equal Iris
-    interpretations. -/
-theorem interp_pointsTo_loc_congr {ρ : Env} {l l' v : Term .value}
-    (h : Term.eval ρ l = Term.eval ρ l') :
-    interp ρ (.pointsTo l v) ⊣⊢ interp ρ (.pointsTo l' v) := by
-  simp only [interp, h]
-  exact ⟨BIBase.Entails.rfl, BIBase.Entails.rfl⟩
-
-end SpatialAtom
-
 /-- Walk a spatial context and return the index and stored value at the first
     `pointsTo` whose location the SMT solver can prove equal to `lq`. The
     returned index is into the input list; consumption is the caller's job. -/
@@ -530,7 +485,7 @@ theorem VerifM.eval_findMatch {lq : Term .value}
     have hk3' := hk3 hrest_wf
     have hQ : Q (some v) { st with owns := rest } ρ := VerifM.eval_ret hk3'
     have hsplit := SpatialContext.interp_remove ρ.env st.owns n _ _ hrem
-    have hcong := SpatialAtom.interp_pointsTo_loc_congr (v := v) heq.symm
+    have hcong := SpatialAtom.pointsTo_congr (l := l) (l' := lq) (v := v) (v' := v) heq.symm rfl
     -- goal: st.owns.interp ρ ∗ R ⊢ Φ
     -- st.owns.interp ρ ⊣⊢ (pointsTo l v).interp ρ ∗ rest.interp ρ
     --                ⊣⊢ (pointsTo lq v).interp ρ ∗ rest.interp ρ
@@ -601,7 +556,7 @@ private theorem VerifM.eval_resolve_pure {pred : Atom τ} {st : TransState} {ρ 
       have hq := VerifM.eval_ret hctx_q
       have htwf : t.wfIn st.decls := Atom.resolve_wfIn hres hwfAsserts
       have hpred : ⊢ Atom.eval pred ρ (t.eval ρ.env) := by
-        exact (Atom.resolve_correct hres ρ hholds).trans Atom.toItem_eval
+        exact (Atom.resolve_correct hres ρ hholds).trans Atom.toItem_eval.1
       have hframe : st.sl ρ ∗ R ⊢
           Atom.eval pred ρ (t.eval ρ.env) ∗ st.sl ρ ∗ R := by
         istart
@@ -622,7 +577,7 @@ private theorem VerifM.eval_resolve_pure {pred : Atom τ} {st : TransState} {ρ 
         have htwf : t.wfIn st.decls := hresult_wf t hr
         have hqsome : Q (.some t) st ρ := by simpa [hr] using hq
         have hpred : ⊢ Atom.eval pred ρ (t.eval ρ.env) := by
-          exact (hresult_eval t hr).trans Atom.toItem_eval
+          exact (hresult_eval t hr).trans Atom.toItem_eval.1
         have hframe : st.sl ρ ∗ R ⊢
             Atom.eval pred ρ (t.eval ρ.env) ∗ st.sl ρ ∗ R := by
           istart

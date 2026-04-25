@@ -5,6 +5,18 @@ import Mica.TinyML.OpSem
 
 open Iris Iris.BI Iris.OFE
 
+/-!
+This module is the axiomatization boundary between TinyML and Iris. It fixes a
+global Iris signature and exposes the core BI interface (`iProp`, `∗`, `-∗`,
+`⌜_⌝`), weakest preconditions (`wp`/`wps`/`pwp`), and heap predicates
+(`pointsTo`, `locinv`) used by the verifier.
+
+Heap reasoning is provided in two parallel styles: explicit ownership rules
+(`wp.ref`/`wp.deref`/`wp.store` over `l ↦ v`) and invariant-based rules
+(`wp.ref_inv`/`wp.deref_inv`/`wp.store_inv` over `locinv`). Later files prove
+derived proof rules against this common axiomatic interface.
+-/
+
 -- Top-level elaboration for Iris connectives (the Iris library only provides
 -- these inside `iprop(...)` blocks).
 macro_rules
@@ -57,7 +69,7 @@ axiom wp.val {v : Runtime.Val} {Q : Runtime.Val → iProp} :
 axiom wp.bind {k : TinyML.K} {e : Runtime.Expr} {Q : Runtime.Val → iProp} :
     wp e (fun v => wp (k.fill (.val v)) Q) ⊢ wp (k.fill e) Q
 
-axiom wp.mono {e : Runtime.Expr} {P Q : Runtime.Val → iProp} :
+axiom wp.wand {e : Runtime.Expr} {P Q : Runtime.Val → iProp} :
     (∀ v, P v -∗ Q v) ∗ wp e P ⊢ wp e Q
 
 axiom wp.app {fn : Runtime.Expr} {args : Runtime.Exprs} {P : Runtime.Val → iProp} :
@@ -71,7 +83,7 @@ axiom wp.func {f : Runtime.Binder} {args : List Runtime.Binder} {e : Runtime.Exp
 
 axiom wp.fix {vs : List Runtime.Val} {f : Runtime.Binder} {args : List Runtime.Binder} {e : Runtime.Expr}
     {P : Runtime.Val → iProp} {Φ : List Runtime.Val → iProp} :
-      wp (e.subst ((Runtime.Subst.id.update' f (.fix f args e)).updateAll' args vs)) P
+      wp (e.subst ((Runtime.Subst.id.updateBinder f (.fix f args e)).updateAllBinder args vs)) P
     ⊢ wp (.app (.val (.fix f args e)) (vs.map Runtime.Expr.val)) P
 
 axiom wp.fix' {f : Runtime.Binder} {args : List Runtime.Binder} {e : Runtime.Expr}
@@ -79,7 +91,7 @@ axiom wp.fix' {f : Runtime.Binder} {args : List Runtime.Binder} {e : Runtime.Exp
     □ (□ (∀ (vs : List Runtime.Val) (P : Runtime.Val → iProp),
         Φ P vs -∗ wp (.app (.val (.fix f args e)) (vs.map Runtime.Expr.val)) P) -∗
       ∀ (vs : List Runtime.Val) (P : Runtime.Val → iProp),
-        Φ P vs -∗ wp (e.subst ((Runtime.Subst.id.update' f (.fix f args e)).updateAll' args vs)) P)
+        Φ P vs -∗ wp (e.subst ((Runtime.Subst.id.updateBinder f (.fix f args e)).updateAllBinder args vs)) P)
     ⊢ □ (∀ (vs : List Runtime.Val) (P : Runtime.Val → iProp), Φ P vs -∗ wp (.app (.val (.fix f args e)) (vs.map Runtime.Expr.val)) P)
 
 axiom wp.unop {op : TinyML.UnOp} {v res : Runtime.Val} {Q : Runtime.Val → iProp} :
@@ -152,9 +164,9 @@ axiom wp.store_inv {l : Runtime.Location} {v: Runtime.Val} {Q : Runtime.Val → 
     wps (e :: es) Q = wps es (fun vs => wp e (fun v => Q (v :: vs))) := rfl
 
 -- Derived monotonicity as an entailment
-theorem wp.mono' {e : Runtime.Expr} {P Q : Runtime.Val → iProp}
+theorem wp.mono {e : Runtime.Expr} {P Q : Runtime.Val → iProp}
     (h : ∀ v, P v ⊢ Q v) : wp e P ⊢ wp e Q :=
-  emp_sep.2.trans (sep_mono_l (forall_intro fun v => wand_intro (emp_sep.1.trans (h v)))) |>.trans wp.mono
+  emp_sep.2.trans (sep_mono_l (forall_intro fun v => wand_intro (emp_sep.1.trans (h v)))) |>.trans wp.wand
 
 theorem wps.mono {es : Runtime.Exprs} {P Q : Runtime.Vals → iProp}
     (h : ∀ vs, P vs ⊢ Q vs) : wps es P ⊢ wps es Q := by
@@ -162,14 +174,14 @@ theorem wps.mono {es : Runtime.Exprs} {P Q : Runtime.Vals → iProp}
   | nil => exact h []
   | cons e es ih =>
     simp only [wps_cons]
-    exact ih (fun vs => wp.mono' (fun v => h (v :: vs)))
+    exact ih (fun vs => wp.mono (fun v => h (v :: vs)))
 
 /-- Program-level weakest precondition: every declaration evaluates safely,
     and each result is substituted into the remaining program. -/
 noncomputable def pwp : Runtime.Program → iProp
   | [] => emp
   | ⟨b, e⟩ :: rest =>
-    wp e (fun v => pwp (Runtime.Program.subst rest (Runtime.Subst.update' b v .id)))
+    wp e (fun v => pwp (Runtime.Program.subst rest (Runtime.Subst.updateBinder b v .id)))
 termination_by prog => prog.length
 decreasing_by
   simp [Runtime.Program.subst_length]
@@ -179,32 +191,32 @@ decreasing_by
 
 @[simp] theorem pwp_cons {b : Runtime.Binder} {e : Runtime.Expr} {rest : Runtime.Program} :
     pwp ({ name := b, body := e } :: rest) =
-      wp e (fun v => pwp (Runtime.Program.subst rest (Runtime.Subst.update' b v .id))) := by
+      wp e (fun v => pwp (Runtime.Program.subst rest (Runtime.Subst.updateBinder b v .id))) := by
   simp [pwp]
 
 /-- Derived wp rule for let-bindings (desugared to immediately-applied fix). -/
 theorem wp.letIn {b : Runtime.Binder} {bound body : Runtime.Expr} {Q : Runtime.Val → iProp} :
-    wp bound (fun v => wp (body.subst (Runtime.Subst.id.update' b v)) Q) ⊢
+    wp bound (fun v => wp (body.subst (Runtime.Subst.id.updateBinder b v)) Q) ⊢
     wp (Runtime.Expr.letIn b bound body) Q := by
   simp only [Runtime.Expr.letIn]
   istart
   iintro Hbound
   iapply wp.app
   simp only [wps_cons, wps_nil]
-  iapply (wp.mono (P := fun v => wp (body.subst (Runtime.Subst.id.update' b v)) Q))
+  iapply (wp.wand (P := fun v => wp (body.subst (Runtime.Subst.id.updateBinder b v)) Q))
   isplitl []
   · iintro %v Hv
     iapply wp.func
     iapply (wp.fix (Φ := fun _ => emp) (vs := [v]))
-    simp only [Runtime.Subst.update', Runtime.Subst.updateAll'_cons,
-               Runtime.Subst.updateAll'_nil_left]
+    simp only [Runtime.Subst.updateBinder, Runtime.Subst.updateAllBinder_cons,
+               Runtime.Subst.updateAllBinder_nil_left]
     iexact Hv
   · iexact Hbound
 
 /-- Applying a single-argument lambda `(fun b -> body)` to a value reduces to substituting. -/
 theorem wp.app_lambda_single {b : Runtime.Binder} {body : Runtime.Expr} {v : Runtime.Val}
     {Φ : Runtime.Val → iProp} :
-    wp (body.subst (Runtime.Subst.id.update' b v)) Φ ⊢
+    wp (body.subst (Runtime.Subst.id.updateBinder b v)) Φ ⊢
     wp (.app (.fix .none [b] body) [.val v]) Φ := by
   istart
   iintro Hwp
@@ -213,6 +225,6 @@ theorem wp.app_lambda_single {b : Runtime.Binder} {body : Runtime.Expr} {v : Run
   iapply wp.val
   iapply wp.func
   iapply (wp.fix (Φ := fun _ => emp) (vs := [v]))
-  simp only [Runtime.Subst.update', Runtime.Subst.updateAll'_cons,
-             Runtime.Subst.updateAll'_nil_left]
+  simp only [Runtime.Subst.updateBinder, Runtime.Subst.updateAllBinder_cons,
+             Runtime.Subst.updateAllBinder_nil_left]
   iexact Hwp

@@ -9,4 +9,3 @@
 - `Types.lean` — TinyML types, type declarations, and subtyping structure.
 - `Typing.lean` — Elaboration and typechecking from the untyped IR to the typed IR.
 - `Untyped.lean` — Untyped TinyML IR, with annotations carried where available.
-- `WeakestPre.lean` — Weakest-precondition interface for the TinyML runtime IR.

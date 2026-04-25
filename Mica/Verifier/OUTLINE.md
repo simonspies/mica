@@ -2,6 +2,7 @@
 
 - `Assertions.lean` — Assertion language for specifications, together with its semantics, well-formedness conditions, and verifier operations.
 - `Atoms.lean` — Verifier atoms for pure and spatial facts, together with their interpretations, resolution procedures, and correctness lemmas.
+- `Bindings.lean` — Verifier variable-to-constant bindings, their semantic linkage to runtime substitutions, and typing/lookup lemmas.
 - `Expressions.lean` — Compilation of typed TinyML expressions into verifier terms, with weakest-precondition correctness proofs.
 - `Functions.lean` — Verification of function bodies against specifications, including the soundness of specification checking.
 - `Monad.lean` — Verification monad with SMT operations, branching, and its operational and semantic correctness interfaces.
@@ -12,4 +13,4 @@
 - `SpecTranslation.lean` — Sort-checked translation from frontend specifications into verifier terms, formulas, assertions, and predicate transformers.
 - `Specifications.lean` — Function specifications, their semantics, and the protocols for specification calls and implementations.
 - `State.lean` — Verifier state and environments, together with their well-formedness conditions and fresh-name infrastructure.
-- `Utils.lean` — Supporting infrastructure for verifier bindings, substitutions, argument handling, and term-list evaluation.
+- `Utils.lean` — Supporting infrastructure for verifier finite substitutions and argument-handling helpers.

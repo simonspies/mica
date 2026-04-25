@@ -71,7 +71,7 @@ end
 /-! Monotonicity in the inner continuation. -/
 
 mutual
-  theorem ValRelBody.mono_int (R : ValShape) (t : Typ) (v : Runtime.Val) {k k' : RecCont} :
+  private theorem ValRelBody.mono_int (R : ValShape) (t : Typ) (v : Runtime.Val) {k k' : RecCont} :
       ⊢ □ (∀ v T args, k v T args -∗ k' v T args) -∗
         (ValRelBody R v t k -∗ ValRelBody R v t k' : iProp) := by
     unfold ValRelBody
@@ -102,7 +102,7 @@ mutual
         iintro _ H
         iexact H
 
-  theorem ValsRelBody.mono_int (R : ValShape) (ts : List Typ) (vs : List Runtime.Val)
+  private theorem ValsRelBody.mono_int (R : ValShape) (ts : List Typ) (vs : List Runtime.Val)
       {k k' : RecCont} :
       ⊢ □ (∀ v T args, k v T args -∗ k' v T args) -∗
         (ValsRelBody R vs ts k -∗ ValsRelBody R vs ts k' : iProp) := by
@@ -124,7 +124,7 @@ mutual
         iintro _ H
         iexact H
 
-  theorem ValSumRelBody.mono_int (R : ValShape) (ts : List Typ) (tag : Nat)
+  private theorem ValSumRelBody.mono_int (R : ValShape) (ts : List Typ) (tag : Nat)
       (payload : Runtime.Val) {k k' : RecCont} :
       ⊢ □ (∀ v T args, k v T args -∗ k' v T args) -∗
         (ValSumRelBody R tag payload ts k -∗ ValSumRelBody R tag payload ts k' : iProp) := by
@@ -148,7 +148,7 @@ end
 /-! Mixed OFE continuity in the outer approximation and inner continuation. -/
 
 mutual
-  theorem ValRelBody.dist {n : Nat} {R S : ValShape} {k k' : RecCont}
+  private theorem ValRelBody.dist {n : Nat} {R S : ValShape} {k k' : RecCont}
       (hR : DistLater n R S) (hk : k ≡{n}≡ k') (t : Typ) (v : Runtime.Val) :
       ValRelBody R v t k ≡{n}≡ ValRelBody S v t k' := by
     unfold ValRelBody
@@ -173,7 +173,7 @@ mutual
     | .unit | .bool | .int | .value | .empty | .arrow _ _ | .tvar _ =>
         exact Dist.rfl
 
-  theorem ValsRelBody.dist {n : Nat} {R S : ValShape} {k k' : RecCont}
+  private theorem ValsRelBody.dist {n : Nat} {R S : ValShape} {k k' : RecCont}
       (hR : DistLater n R S) (hk : k ≡{n}≡ k') (ts : List Typ) (vs : List Runtime.Val) :
       ValsRelBody R vs ts k ≡{n}≡ ValsRelBody S vs ts k' := by
     unfold ValsRelBody
@@ -187,7 +187,7 @@ mutual
     | [], _ :: _ | _ :: _, [] =>
         exact Dist.rfl
 
-  theorem ValSumRelBody.dist {n : Nat} {R S : ValShape} {k k' : RecCont}
+  private theorem ValSumRelBody.dist {n : Nat} {R S : ValShape} {k k' : RecCont}
       (hR : DistLater n R S) (hk : k ≡{n}≡ k') (ts : List Typ) (tag : Nat)
       (payload : Runtime.Val) :
       ValSumRelBody R tag payload ts k ≡{n}≡ ValSumRelBody S tag payload ts k' := by
@@ -201,18 +201,18 @@ mutual
         exact ValSumRelBody.dist hR hk ts n payload
 end
 
-instance ValRelBody.contractive (k : RecCont) (v : Runtime.Val) (t : Typ) :
+private instance ValRelBody.contractive (k : RecCont) (v : Runtime.Val) (t : Typ) :
     Contractive (fun R : ValShape => ValRelBody R v t k) where
   distLater_dist hR := ValRelBody.dist hR Dist.rfl t v
 
 /-- One unfolding of the inner recursive type interpretation. -/
-def ValRelIndF (Θ : TypeEnv) (R : ValShape) (Φ : RecIdx → iProp) (x : RecIdx) : iProp :=
+private def ValRelIndF (Θ : TypeEnv) (R : ValShape) (Φ : RecIdx → iProp) (x : RecIdx) : iProp :=
   match x with
   | ⟨(v, T, args)⟩ =>
       iprop(∃ ty, ⌜TypeName.unfold Θ T args = some ty⌝ ∗
         ValRelBody R v ty (RecCont.ofPred Φ))
 
-instance (Θ : TypeEnv) (R : ValShape) (Φ : RecIdx → iProp) :
+private instance (Θ : TypeEnv) (R : ValShape) (Φ : RecIdx → iProp) :
     NonExpansive (ValRelIndF Θ R Φ) where
   ne {_ x y} h := by
     obtain ⟨x⟩ := x
@@ -220,7 +220,7 @@ instance (Θ : TypeEnv) (R : ValShape) (Φ : RecIdx → iProp) :
     cases LeibnizO.dist_inj h
     exact Dist.of_eq rfl
 
-theorem ValRelIndF.contractive (Θ : TypeEnv) (Φ : RecIdx → iProp) (x : RecIdx) :
+private theorem ValRelIndF.contractive (Θ : TypeEnv) (Φ : RecIdx → iProp) (x : RecIdx) :
     Contractive (fun R : ValShape => ValRelIndF Θ R Φ x) where
   distLater_dist {n R S} hR := by
     obtain ⟨v, T, args⟩ := x
@@ -230,7 +230,7 @@ theorem ValRelIndF.contractive (Θ : TypeEnv) (Φ : RecIdx → iProp) (x : RecId
     exact Contractive.distLater_dist
       (f := fun R : ValShape => ValRelBody R v ty (RecCont.ofPred Φ)) hR
 
-instance (Θ : TypeEnv) (R : ValShape) : BIMonoPred (ValRelIndF Θ R) where
+private instance (Θ : TypeEnv) (R : ValShape) : BIMonoPred (ValRelIndF Θ R) where
   mono_pred := by
     intro Φ Ψ _ _
     iintro #HΦΨ %x HF
@@ -254,10 +254,10 @@ instance (Θ : TypeEnv) (R : ValShape) : BIMonoPred (ValRelIndF Θ R) where
     exact Dist.of_eq rfl
 
 /-- The inner least fixpoint for named types, with the outer approximation fixed. -/
-def ValRelInd (Θ : TypeEnv) (R : ValShape) : RecCont :=
+private def ValRelInd (Θ : TypeEnv) (R : ValShape) : RecCont :=
   fun v T args => Iris.bi_least_fixpoint (ValRelIndF Θ R) ⟨(v, T, args)⟩
 
-theorem ValRelInd.unfold {Θ : TypeEnv} {R : ValShape}
+private theorem ValRelInd.unfold {Θ : TypeEnv} {R : ValShape}
     {v : Runtime.Val} {T : TypeName} {args : List Typ} :
     ValRelInd Θ R v T args ⊣⊢
       iprop(∃ ty, ⌜TypeName.unfold Θ T args = some ty⌝ ∗
@@ -266,7 +266,7 @@ theorem ValRelInd.unfold {Θ : TypeEnv} {R : ValShape}
   simp only [ValRelIndF] at h
   exact equiv_iff.mp h
 
-instance ValRelInd.contractive (Θ : TypeEnv) :
+private instance ValRelInd.contractive (Θ : TypeEnv) :
     Contractive (fun R : ValShape => ValRelInd Θ R) where
   distLater_dist {n R S} hR v T args := by
     unfold ValRelInd Iris.bi_least_fixpoint
@@ -278,10 +278,10 @@ instance ValRelInd.contractive (Θ : TypeEnv) :
     exact (ValRelIndF.contractive Θ (fun x => Φ x) x).distLater_dist hR
 
 /-- The outer functional. It closes the named-type continuation using `ValRelInd`. -/
-def ValRelF (Θ : TypeEnv) (R : ValShape) : ValShape :=
+private def ValRelF (Θ : TypeEnv) (R : ValShape) : ValShape :=
   fun v t => ValRelBody R v t (ValRelInd Θ R)
 
-instance ValRelF.contractive (Θ : TypeEnv) : Contractive (ValRelF Θ) where
+private instance ValRelF.contractive (Θ : TypeEnv) : Contractive (ValRelF Θ) where
   distLater_dist {n R S} hR v t := by
     unfold ValRelF
     have hk : ValRelInd Θ R ≡{n}≡ ValRelInd Θ S :=
@@ -360,7 +360,7 @@ mutual
         exact ValSumRelBody.persistent R ts n payload hk
 end
 
-instance ValRelIndF.persistent (Θ : TypeEnv) (R : ValShape) (Φ : RecIdx → iProp)
+private instance ValRelIndF.persistent (Θ : TypeEnv) (R : ValShape) (Φ : RecIdx → iProp)
     [∀ x, Persistent (Φ x)] (x : RecIdx) : Persistent (ValRelIndF Θ R Φ x) := by
   obtain ⟨v, T, args⟩ := x
   simp only [ValRelIndF]
@@ -368,7 +368,7 @@ instance ValRelIndF.persistent (Θ : TypeEnv) (R : ValShape) (Φ : RecIdx → iP
     fun ty => ValRelBody.persistent R ty v (fun _ _ _ => inferInstance)
   infer_instance
 
-instance ValRelIndF.absorbing (Θ : TypeEnv) (R : ValShape) (Φ : RecIdx → iProp)
+private instance ValRelIndF.absorbing (Θ : TypeEnv) (R : ValShape) (Φ : RecIdx → iProp)
     [∀ x, Absorbing (Φ x)] (x : RecIdx) : Absorbing (ValRelIndF Θ R Φ x) := by
   obtain ⟨v, T, args⟩ := x
   simp only [ValRelIndF]
@@ -976,6 +976,12 @@ end TinyML
 -- Type constraints
 -- ---------------------------------------------------------------------------
 
+/-! ### SMT type constraints -/
+-- These formulas encode `ValHasType` checks as first-order constraints and
+-- stay in this file because their proofs depend on `ValHasType`.
+
+namespace TinyML
+
 mutual
 /-- Generate SMT formulas asserting that a value-sorted term has a given TinyML type.
     For `int`: `is-of_int(t)`, for `bool`: `is-of_bool(t)`,
@@ -1106,3 +1112,5 @@ mutual
     | v :: vs, [] =>
         exact (TinyML.ValsHaveTypes.cons_nil Θ v vs).1.trans false_elim
 end
+
+end TinyML

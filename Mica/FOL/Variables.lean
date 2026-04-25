@@ -214,9 +214,6 @@ def ofConsts (consts : List FOL.Const) : Signature := ⟨[], consts, [], []⟩
 
 @[simp] theorem ofConsts_consts (consts : List FOL.Const) : (ofConsts consts).consts = consts := rfl
 
-@[simp] theorem eta (s : Signature) :
-    ⟨s.vars, s.consts, s.unary, s.binary⟩ = s := by cases s; rfl
-
 structure Subset (Δ₁ Δ₂ : Signature) : Prop where
   vars   : ∀ x ∈ Δ₁.vars, x ∈ Δ₂.vars
   consts : ∀ c ∈ Δ₁.consts, c ∈ Δ₂.consts
@@ -573,11 +570,11 @@ instance : Inhabited Env := { default := Env.empty }
     (ρ.updateConst τ x v).lookupConst τ x = v := by
   simp [Env.updateConst, Env.lookupConst]
 
-@[simp] theorem Env.lookupConst_updateConst_ne' {ρ : Env} {τ : Srt} {x y : String} {v : τ.denote} (h : y ≠ x) :
+@[simp] theorem Env.lookupConst_updateConst_ne {ρ : Env} {τ : Srt} {x y : String} {v : τ.denote} (h : y ≠ x) :
     (Env.updateConst ρ τ x v).lookupConst τ y = ρ.lookupConst τ y := by
   simp [Env.updateConst, Env.lookupConst, h]
 
-theorem Env.lookupConst_updateConst_ne {ρ : Env} {τ τ' : Srt} {x y : String} {v : τ.denote}
+theorem Env.lookupConst_updateConst_ne' {ρ : Env} {τ τ' : Srt} {x y : String} {v : τ.denote}
     (h : y ≠ x ∨ τ' ≠ τ) : (ρ.updateConst τ x v).lookupConst τ' y = ρ.lookupConst τ' y := by
   simp only [Env.updateConst, Env.lookupConst]
   split
@@ -659,7 +656,7 @@ theorem Env.agreeOn_declVar {ρ ρ' : Env} {Δ : Signature} {τ : Srt} {x : Stri
   intro hagree
   simpa [Signature.declVar] using (Env.agreeOn_update (Env.agreeOn_remove hagree))
 
-theorem agreeOn_update_fresh_const {ρ : Env} {c : FOL.Const} {u : c.sort.denote}
+theorem Env.agreeOn_update_fresh_const {ρ : Env} {c : FOL.Const} {u : c.sort.denote}
     {Δ : Signature} (hfresh : c.name ∉ Δ.allNames) :
     Env.agreeOn Δ ρ (ρ.updateConst c.sort c.name u) := by
   constructor
@@ -669,7 +666,7 @@ theorem agreeOn_update_fresh_const {ρ : Env} {c : FOL.Const} {u : c.sort.denote
       apply hfresh
       rw [← heq]
       exact Signature.mem_allNames_of_var hw
-    exact (Env.lookupConst_updateConst_ne (Or.inl hne)).symm
+    exact (Env.lookupConst_updateConst_ne' (Or.inl hne)).symm
   · constructor
     · intro c' hc'
       have hne : c'.name ≠ c.name := by
@@ -677,7 +674,7 @@ theorem agreeOn_update_fresh_const {ρ : Env} {c : FOL.Const} {u : c.sort.denote
         apply hfresh
         rw [← heq]
         exact Signature.mem_allNames_of_const hc'
-      exact (Env.lookupConst_updateConst_ne (Or.inl hne)).symm
+      exact (Env.lookupConst_updateConst_ne' (Or.inl hne)).symm
     · constructor
       · intro u' hu'
         rw [Env.updateConst_unary]

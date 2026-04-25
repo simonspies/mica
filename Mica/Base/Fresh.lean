@@ -5,6 +5,8 @@ import Mathlib.Data.List.Nodup
 import Mathlib.Data.Nat.Digits.Defs
 import Mathlib.Tactic.IntervalCases
 
+namespace Fresh
+
 /-- Helper function to search for a fresh element.
     `n` is the fuel (decreases), `m` is the current index to try.
     Returns `some (f m)` if `f m ∉ xs`, otherwise recurses with `n-1, m+1`. -/
@@ -209,3 +211,22 @@ theorem addNumbers_injective (base: String) :
         (ofList_map_digitChar_ne_empty n.succ_ne_zero)
     | succ m =>
       exact alwaysAddNumbers_injective base heq
+
+/-- Generate a fresh string by trying `base`, then `base0`, `base1`, ... until
+    a name not in `avoid` is found. -/
+def freshNumbers (base : String) (avoid : List String) : String :=
+  fresh (addNumbers base) avoid
+
+/-- The numbered fresh name generated from `base` is not in `avoid`. -/
+theorem freshNumbers_not_mem (base : String) (avoid : List String) :
+    freshNumbers base avoid ∉ avoid := by
+  exact fresh_not_mem (addNumbers base) avoid (addNumbers_injective base)
+
+def freshName (avoid : List String) (base : String) : String :=
+  fresh (addPrimes base) avoid
+
+theorem freshName_not_in_avoid (avoid : List String) (base : String) :
+    freshName avoid base ∉ avoid := by
+  exact fresh_not_mem (addPrimes base) avoid (addPrimes_injective base)
+
+end Fresh

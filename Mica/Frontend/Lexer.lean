@@ -1,6 +1,12 @@
 -- SUMMARY: Lexical analysis for the OCaml frontend, including tokens and lexer errors.
 import Mica.Frontend.AST
 
+/-!
+This file tokenizes frontend source text into `Token`s with precise source
+locations and frontend-specific lexer errors. It is the first stage in the
+pipeline, turning raw text into parser input.
+-/
+
 namespace Frontend
 
 -- ---------------------------------------------------------------------------

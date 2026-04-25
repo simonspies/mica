@@ -1,6 +1,12 @@
 -- SUMMARY: Pretty-printing of frontend syntax back into OCaml-like concrete syntax.
 import Mica.Frontend.AST
 
+/-!
+This file renders frontend AST nodes back to OCaml-like concrete syntax with
+precedence-aware formatting for expressions, types, and declarations. It is
+used for user-facing output and debugging of frontend transformations.
+-/
+
 namespace Frontend
 
 -- ---------------------------------------------------------------------------
@@ -49,13 +55,13 @@ partial def BinOp.print : BinOp → String
   | .and => "&&" | .or => "||"
   | .semi => ";" | .pipeRight => "|>" | .atAt => "@@" | .assign => ":="
 
-partial def BinOp.prec : BinOp → Nat
+private partial def BinOp.prec : BinOp → Nat
   | .semi => 1 | .assign => 2 | .or => 3 | .and => 4
   | .pipeRight => 5 | .atAt => 6
   | .eq | .neq | .lt | .le | .gt | .ge => 7
   | .add | .sub => 8 | .mul | .div | .mod => 9
 
-partial def BinOp.rightAssoc : BinOp → Bool
+private partial def BinOp.rightAssoc : BinOp → Bool
   | .semi | .assign | .or | .and | .atAt => true
   | _ => false
 
@@ -85,7 +91,7 @@ where
 -- ---------------------------------------------------------------------------
 -- Pattern printing
 
-partial def Pattern.isAtom (p : Pattern) : Bool :=
+private partial def Pattern.isAtom (p : Pattern) : Bool :=
   match p.kind with
   | .ctor _ (some _) => false
   | _ => true
@@ -105,17 +111,17 @@ partial def Pattern.print (p : Pattern) : String :=
 -- ---------------------------------------------------------------------------
 -- Expression printing
 
-partial def Expr.isAtom (e : Expr) : Bool :=
+private partial def Expr.isAtom (e : Expr) : Bool :=
   match e.kind with
   | .const _ | .var _ | .ctor _ | .tuple _ | .record _ | .annot _ _ => true
   | _ => false
 
-partial def Expr.isKeywordExpr (e : Expr) : Bool :=
+private partial def Expr.isKeywordExpr (e : Expr) : Bool :=
   match e.kind with
   | .letIn _ _ _ _ | .fun_ _ _ _ | .ite _ _ _ | .match_ _ _ => true
   | _ => false
 
-partial def Expr.printPrec (e : Expr) (outerPrec : Nat) : String :=
+private partial def Expr.printPrec (e : Expr) (outerPrec : Nat) : String :=
   match e.kind with
   | .const c => Const.print c
   | .var name => name

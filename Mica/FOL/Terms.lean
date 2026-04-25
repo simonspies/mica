@@ -1,6 +1,7 @@
 -- SUMMARY: Typed first-order terms, their Tarski semantics, and their well-formedness conditions.
 import Mica.FOL.Variables
 import Mica.Base.Except
+import Batteries.Data.List.Basic
 
 inductive UnOp : Srt → Srt → Type where
   | ofInt      : UnOp .int     .value
@@ -184,17 +185,17 @@ theorem Term.checkWf_ok {t : Term τ} {Δ : Signature} (h : t.checkWf Δ = .ok (
     simpa [Term.checkWf] using (Const.checkWf_ok h)
   | unop op a iha =>
     simp only [Term.checkWf] at h
-    have ⟨h1, h2⟩ := bind_ok h
+    have ⟨_, h1, h2⟩ := Except.bind_ok h
     exact ⟨UnOp.checkWf_ok h1, iha h2⟩
   | binop op a b iha ihb =>
     simp only [Term.checkWf] at h
-    have ⟨h1, h23⟩ := bind_ok h
-    have ⟨h2, h3⟩ := bind_ok h23
+    have ⟨_, h1, h23⟩ := Except.bind_ok h
+    have ⟨_, h2, h3⟩ := Except.bind_ok h23
     exact ⟨BinOp.checkWf_ok h1, iha h2, ihb h3⟩
   | ite c t e ihc iht ihe =>
     simp only [Term.checkWf] at h
-    have ⟨h1, h23⟩ := bind_ok h
-    have ⟨h2, h3⟩ := bind_ok h23
+    have ⟨_, h1, h23⟩ := Except.bind_ok h
+    have ⟨_, h2, h3⟩ := Except.bind_ok h23
     exact ⟨ihc h1, iht h2, ihe h3⟩
 
 private theorem Const.wfIn_mono {c : Const τ} {Δ Δ' : Signature} (h : c.wfIn Δ)
@@ -309,12 +310,12 @@ theorem Term.eval_update_fresh {t : Term τ'} {x : String} {τ : Srt} {v : τ.de
       have hne : w.name ≠ x := by
         intro heq
         exact hfresh (heq ▸ Signature.mem_allNames_of_var hw)
-      exact Env.lookupConst_updateConst_ne (Or.inl hne),
+      exact Env.lookupConst_updateConst_ne' (Or.inl hne),
      fun c hc => by
       have hne : c.name ≠ x := by
         intro heq
         exact hfresh (heq ▸ Signature.mem_allNames_of_const hc)
-      exact Env.lookupConst_updateConst_ne (Or.inl hne),
+      exact Env.lookupConst_updateConst_ne' (Or.inl hne),
      fun _ _ => rfl, fun _ _ => rfl⟩
 
 /-! simple helper lemmas -/
@@ -339,6 +340,9 @@ theorem Term.const_wfIn_addConst_of_fresh {Δ : Signature} {c : FOL.Const}
     (Term.const (.uninterpreted x τ)).eval (ρ.updateConst τ x v) = v := by
   simp [Term.eval, Const.denote, Env.updateConst]
 
+/-! ### Vallist projections -/
+
+-- Projection helpers for repeated `vtail` and indexed `vhead` access on `vallist` terms.
 /-- Apply `vtail` n times to a vallist term. -/
 def vtailN (t : Term .vallist) : Nat → Term .vallist
   | 0     => t
@@ -367,3 +371,105 @@ theorem vhead_vtailN_eval {vs : List Runtime.Val} {w : Runtime.Val} {n : Nat}
     (h : vs[n]? = some w) (t : Term .vallist) (ρ : Env) (ht : t.eval ρ = vs) :
     (Term.unop .vhead (vtailN t n)).eval ρ = w := by
   simp [Term.eval, UnOp.eval, ht, h]
+
+/-! ### Lists of value terms -/
+
+/-- Pack a list of value-sorted terms into a `vallist`-sorted term using
+    `.vcons` and `.vnil`. -/
+def Terms.toValList : List (Term .value) → Term .vallist
+  | [] => .const .vnil
+  | t :: ts => .binop .vcons t (toValList ts)
+
+@[simp] theorem Terms.toValList_nil : toValList [] = .const .vnil := rfl
+@[simp] theorem Terms.toValList_cons (t : Term .value) (ts : List (Term .value)) :
+    toValList (t :: ts) = .binop .vcons t (toValList ts) := rfl
+
+/-- If all terms in `ts` are well-formed in `Δ`, then `toValList ts` is
+    well-formed in `Δ`. -/
+theorem Terms.toValList_wfIn {ts : List (Term .value)} {Δ : Signature}
+    (h : ∀ t ∈ ts, t.wfIn Δ) : (toValList ts).wfIn Δ := by
+  induction ts with
+  | nil => trivial
+  | cons t ts ih =>
+    simp only [toValList, Term.wfIn]
+    exact ⟨trivial, h t (.head _), ih (fun q hq => h q (.tail _ hq))⟩
+
+/-- A list of terms evaluates to a list of values. -/
+def Terms.Eval (ρ : Env) (ts : List (Term .value)) (vs : List Runtime.Val) : Prop :=
+  List.Forall₂ (fun t v => t.eval ρ = v) ts vs
+
+theorem Terms.Eval.map_eval {ρ : Env} {ts : List (Term .value)} {vs : List Runtime.Val}
+    (h : Terms.Eval ρ ts vs) : ts.map (fun t => t.eval ρ) = vs := by
+  induction h with
+  | nil => rfl
+  | cons h _ ih => simp [h, ih]
+
+theorem Terms.toValList_eval {ρ : Env} {ts : List (Term .value)} {vs : List Runtime.Val}
+    (h : Terms.Eval ρ ts vs) : (Terms.toValList ts).eval ρ = vs := by
+  induction h with
+  | nil => simp [Terms.toValList, Term.eval, Const.denote]
+  | cons hhead _ ih => simp [Terms.toValList, Term.eval, BinOp.eval, hhead, ih]
+
+theorem Terms.Eval.env_agree {ρ ρ' : Env} {Δ : Signature}
+    {ts : List (Term .value)} {vs : List Runtime.Val}
+    (hwf : ∀ t ∈ ts, t.wfIn Δ)
+    (hagree : Env.agreeOn Δ ρ ρ')
+    (h : Terms.Eval ρ ts vs) : Terms.Eval ρ' ts vs := by
+  induction h with
+  | nil => exact .nil
+  | @cons t v ts' vs' htv _ ih =>
+    constructor
+    · rw [Term.eval_env_agree (hwf t (.head _)) (Env.agreeOn_symm hagree)]; exact htv
+    · exact ih (fun q hq => hwf q (.tail _ hq))
+
+theorem Terms.Eval.cons {ρ : Env} {t : Term .value} {v : Runtime.Val}
+    {ts : List (Term .value)} {vs : List Runtime.Val}
+    (hhead : t.eval ρ = v)
+    (htail : Terms.Eval ρ ts vs) :
+    Terms.Eval ρ (t :: ts) (v :: vs) :=
+  List.Forall₂.cons hhead htail
+
+theorem Terms.Eval.of_pairs {ρ : Env} {pairs : List (α × Term .value)} {vs : List Runtime.Val}
+    (h : List.Forall₂ (fun p v => p.2.eval ρ = v) pairs vs) :
+    Terms.Eval ρ (pairs.map Prod.snd) vs := by
+  induction h with
+  | nil => exact .nil
+  | cons h _ ih => exact .cons h ih
+
+theorem Terms.Eval.lookup_var {ρ : Env} {avs : List Var} {vs : List Runtime.Val}
+    (h : Terms.Eval ρ (avs.map (fun av => .var .value av.name)) vs) :
+    List.Forall₂ (fun av val => ρ.lookupConst .value av.name = val) avs vs := by
+  generalize hts : avs.map (fun av => Term.var .value av.name) = ts at h
+  induction h generalizing avs with
+  | nil =>
+    cases avs with
+    | nil => exact .nil
+    | cons _ _ => simp at hts
+  | cons hhead htail ih =>
+    cases avs with
+    | nil => simp at hts
+    | cons av avs' =>
+      simp only [List.map_cons, List.cons.injEq] at hts
+      obtain ⟨rfl, rfl⟩ := hts
+      constructor
+      · exact hhead
+      · exact ih rfl
+
+theorem Terms.Eval.lookup_const {ρ : Env} {avs : List FOL.Const} {vs : List Runtime.Val}
+    (h : Terms.Eval ρ (avs.map (fun av => .const (.uninterpreted av.name .value))) vs) :
+    List.Forall₂ (fun av val => ρ.consts .value av.name = val) avs vs := by
+  generalize hts : avs.map (fun av => Term.const (.uninterpreted av.name .value)) = ts at h
+  induction h generalizing avs with
+  | nil =>
+    cases avs with
+    | nil => exact .nil
+    | cons _ _ => simp at hts
+  | cons hhead htail ih =>
+    cases avs with
+    | nil => simp at hts
+    | cons av avs' =>
+      simp only [List.map_cons, List.cons.injEq] at hts
+      obtain ⟨rfl, rfl⟩ := hts
+      constructor
+      · simp [Term.eval, Const.denote] at hhead; exact hhead
+      · exact ih rfl

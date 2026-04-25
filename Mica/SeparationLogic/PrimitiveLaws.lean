@@ -72,7 +72,7 @@ theorem wp_bind_binop {op : TinyML.BinOp} {l r : Runtime.Expr} {Q : Runtime.Val 
   have hr :
       wp r (fun vr => wp l (fun vl => wp (.binop op (.val vl) (.val vr)) Q)) ⊢
       wp r (fun vr => wp (.binop op l (.val vr)) Q) := by
-    apply wp.mono'
+    apply wp.mono
     intro vr
     exact wp.bind (k := TinyML.K.binopL op .hole vr)
   exact h.trans (hr.trans (wp.bind (k := TinyML.K.binopR op l .hole)))
@@ -138,7 +138,7 @@ theorem wp_ref {v : Runtime.Val} {Q : Runtime.Val → iProp}
     -- goal: (ctx.interp ρ ∗ R) ∗ (loc ↦ v) ⊢ Q (.loc loc)
     let ρ' := ρ.updateConst .value name (.loc loc)
     let a : SpatialAtom := .pointsTo (.const (.uninterpreted name .value)) vt
-    have hagree : Env.agreeOn Δ ρ ρ' := agreeOn_update_fresh_const (c := ⟨name, .value⟩) hfresh
+    have hagree : Env.agreeOn Δ ρ ρ' := Env.agreeOn_update_fresh_const (c := ⟨name, .value⟩) hfresh
     have hctxeq : ctx.interp ρ ⊢ ctx.interp ρ' := by
       exact (SpatialContext.interp_env_agree hctx hagree).1
     have hveq : Term.eval ρ' vt = v := by
@@ -218,7 +218,7 @@ theorem wp_bind_store {loc val : Runtime.Expr} {Q : Runtime.Val → iProp}
   have hloc :
       wp val (fun vv => wp loc (fun vl => wp (.store (.val vl) (.val vv)) Q)) ⊢
       wp val (fun vv => wp (.store loc (.val vv)) Q) := by
-    apply wp.mono'
+    apply wp.mono
     intro vv
     exact wp.bind (k := TinyML.K.storeL .hole vv)
   exact h.trans (hloc.trans (wp.bind (k := TinyML.K.storeR loc .hole)))
@@ -343,7 +343,7 @@ theorem wp_fix {f : Runtime.Binder} {args : List Runtime.Binder} {e : Runtime.Ex
     {P : Runtime.Val → iProp} {Φ : List Runtime.Val → iProp}
     R
     (h : R ⊢
-      (wp (e.subst ((Runtime.Subst.id.update' f (.fix f args e)).updateAll' args vs)) P)) :
+      (wp (e.subst ((Runtime.Subst.id.updateBinder f (.fix f args e)).updateAllBinder args vs)) P)) :
     R ⊢
       (wp (.app (.val (.fix f args e)) (vs.map Runtime.Expr.val)) P) :=
   h.trans (wp.fix (Φ := Φ))
@@ -356,7 +356,7 @@ theorem wp_fix' {f : Runtime.Binder} {args : List Runtime.Binder} {e : Runtime.E
       □ (□ (∀ (vs : List Runtime.Val) (P : Runtime.Val → iProp),
           Φ P vs -∗ wp (.app (.val (.fix f args e)) (vs.map Runtime.Expr.val)) P) -∗
         ∀ (vs : List Runtime.Val) (P : Runtime.Val → iProp),
-          Φ P vs -∗ wp (e.subst ((Runtime.Subst.id.update' f (.fix f args e)).updateAll' args vs)) P)) :
+          Φ P vs -∗ wp (e.subst ((Runtime.Subst.id.updateBinder f (.fix f args e)).updateAllBinder args vs)) P)) :
     R ⊢ □ (∀ (vs : List Runtime.Val) (P : Runtime.Val → iProp),
           Φ P vs -∗ wp (.app (.val (.fix f args e)) (vs.map Runtime.Expr.val)) P) :=
   h.trans (wp.fix' (Φ := Φ))
@@ -365,14 +365,14 @@ theorem wp_fix' {f : Runtime.Binder} {args : List Runtime.Binder} {e : Runtime.E
     the resulting value substituted. -/
 theorem wp_letIn {b : Runtime.Binder} {bound body : Runtime.Expr} {Q : Runtime.Val → iProp}
     {R : iProp}
-    (h : R ⊢ wp bound (fun v => wp (body.subst (Runtime.Subst.id.update' b v)) Q)) :
+    (h : R ⊢ wp bound (fun v => wp (body.subst (Runtime.Subst.id.updateBinder b v)) Q)) :
     R ⊢ wp (Runtime.Expr.letIn b bound body) Q :=
   h.trans wp.letIn
 
 
 theorem wp_app_lambda_single {b : Runtime.Binder} {body : Runtime.Expr} {v : Runtime.Val}
     {Φ : Runtime.Val → iProp} {R : iProp}
-    (h : R ⊢ wp (body.subst (Runtime.Subst.id.update' b v)) Φ) :
+    (h : R ⊢ wp (body.subst (Runtime.Subst.id.updateBinder b v)) Φ) :
     R ⊢ wp (.app (.fix .none [b] body) [.val v]) Φ :=
   h.trans wp.app_lambda_single
 
@@ -386,7 +386,7 @@ theorem wp_strengthen_persistent
     (hwp : R ⊢ wp e P) (hpost : ∀ v, R ⊢ P v -∗ Q v) :
     R ⊢ wp e Q := by
   iintro □HR
-  iapply wp.mono
+  iapply wp.wand
   isplitr
   · iintro %v
     iapply (hpost v)

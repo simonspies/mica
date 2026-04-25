@@ -1,12 +1,15 @@
 -- SUMMARY: Syntactic spatial atoms and contexts for verifier state, together with their well-formedness conditions and basic operations.
 import Mica.FOL.Terms
+import Mica.SeparationLogic.Axioms
+
+open Iris Iris.BI
 
 /-! # Spatial Atoms and Contexts (Syntactic)
 
 A `SpatialAtom` is a syntactic ownership item stored in the verifier state.
 A `SpatialContext` is a list of such items. We define their well-formedness
-and basic operations (insert = cons, lookup+remove). The Iris interpretation
-lives in `Mica.SeparationLogic.Interpretation`. -/
+and basic operations (insert = cons, lookup+remove), plus interpretation of a
+single atom. -/
 
 /-- A syntactic ownership item. Initially, only points-to assertions. -/
 inductive SpatialAtom where
@@ -27,6 +30,19 @@ theorem wfIn_mono {a : SpatialAtom} {Δ Δ' : Signature}
     (h : a.wfIn Δ) (hsub : Δ.Subset Δ') (hwf : Δ'.wf) : a.wfIn Δ' := by
   cases a with
   | pointsTo l v => exact ⟨Term.wfIn_mono l h.1 hsub hwf, Term.wfIn_mono v h.2 hsub hwf⟩
+
+/-- Iris interpretation of a single spatial atom. -/
+def interp (ρ : Env) : SpatialAtom → iProp
+  | .pointsTo l v => ∃ (loc : Runtime.Location),
+      ⌜Term.eval ρ l = .loc loc⌝ ∗ loc ↦ Term.eval ρ v
+
+/-- Congruence for points-to interpretation under equal location and value evaluation. -/
+theorem pointsTo_congr {ρ : Env} {l l' v v' : Term .value}
+    (hl : Term.eval ρ l = Term.eval ρ l')
+    (hv : Term.eval ρ v = Term.eval ρ v') :
+    interp ρ (.pointsTo l v) ⊣⊢ interp ρ (.pointsTo l' v') := by
+  simp only [interp, hl, hv]
+  exact ⟨BIBase.Entails.rfl, BIBase.Entails.rfl⟩
 
 end SpatialAtom
 

@@ -1,4 +1,11 @@
 -- SUMMARY: Surface syntax trees and source locations for the OCaml frontend.
+
+/-!
+This file defines the frontend surface AST and source-location types used across
+lexing, parsing, pretty-printing, and elaboration. The structures here preserve
+source-level shape and metadata before lowering to TinyML core syntax.
+-/
+
 namespace Frontend
 
 -- Name types
