@@ -76,23 +76,23 @@ def VerifM.assumeAll : List Formula → VerifM Unit
 
 def TransCont α := α → TransState → ScopedM (Except VerifError Unit)
 
-def translateAll (items : List α) (st : TransState) (k : TransCont (Except VerifError α)) :
+def VerifM.translateAll (items : List α) (st : TransState) (k : TransCont (Except VerifError α)) :
     ScopedM (Except VerifError Unit) :=
   match items with
   | [] => ScopedM.ret (.ok ())
   | a :: rest =>
       .bracket (k (.ok a) st) (fun
         | .error e => ScopedM.ret (.error e)
-        | .ok () => translateAll rest st k)
+        | .ok () => VerifM.translateAll rest st k)
 
-def translateAny (items : List α) (st : TransState) (k : TransCont (Except VerifError α)) :
+def VerifM.translateAny (items : List α) (st : TransState) (k : TransCont (Except VerifError α)) :
     ScopedM (Except VerifError Unit) :=
   match items with
   | [] => k (.error (.failed "no alternative")) st
   | a :: rest =>
       .bracket (k (.ok a) st) (fun
         | .ok () => ScopedM.ret (.ok ())
-        | .error (.failed _) => translateAny rest st k
+        | .error (.failed _) => VerifM.translateAny rest st k
         | .error (.fatal msg) => ScopedM.ret (.error (.fatal msg)))
 
 def VerifM.translate :
@@ -123,8 +123,8 @@ def VerifM.translate :
         (fun b => k (.ok b) st)
   | .fatal msg, st, k => k (.error (.fatal msg)) st
   | .failed msg, st, k => k (.error (.failed msg)) st
-  | .all items, st, k => translateAll items st k
-  | .any items, st, k => translateAny items st k
+  | .all items, st, k => VerifM.translateAll items st k
+  | .any items, st, k => VerifM.translateAny items st k
   | .ctx f, st, k =>
       let (a, owns') := f st
       k (.ok a) { st with owns := owns' }
@@ -277,12 +277,12 @@ private theorem translateAll_eval (items : List α) (st : TransState)
     (f : TransCont (Except VerifError α))
     (_hf : ∀ e st', ¬∃ Δ, ScopedM.eval (f (.error e) st') st'.toFlatCtx (.ok ()) Δ)
     (Δ : FlatCtx)
-    (h : ScopedM.eval (translateAll items st f) st.toFlatCtx (.ok ()) Δ) :
+    (h : ScopedM.eval (VerifM.translateAll items st f) st.toFlatCtx (.ok ()) Δ) :
     ∀ a ∈ items, ∃ Δ', ScopedM.eval (f (.ok a) st) st.toFlatCtx (.ok ()) Δ' := by
   induction items with
   | nil => intro _ hmem; simp at hmem
   | cons x xs ih =>
-    simp only [translateAll] at h
+    simp only [VerifM.translateAll] at h
     obtain ⟨r1, _, hbody1, hk1⟩ := ScopedM.eval_bracket h
     match r1 with
     | .error _ =>
@@ -298,14 +298,14 @@ private theorem translateAny_eval (items : List α) (st : TransState)
     (f : TransCont (Except VerifError α))
     (hf : ∀ e st', ¬∃ Δ, ScopedM.eval (f (.error e) st') st'.toFlatCtx (.ok ()) Δ)
     (Δ : FlatCtx)
-    (h : ScopedM.eval (translateAny items st f) st.toFlatCtx (.ok ()) Δ) :
+    (h : ScopedM.eval (VerifM.translateAny items st f) st.toFlatCtx (.ok ()) Δ) :
     ∃ a ∈ items, ∃ Δ', ScopedM.eval (f (.ok a) st) st.toFlatCtx (.ok ()) Δ' := by
   induction items with
   | nil =>
-    simp only [translateAny] at h
+    simp only [VerifM.translateAny] at h
     exact absurd ⟨Δ, h⟩ (hf (.failed "no alternative") st)
   | cons x xs ih =>
-    simp only [translateAny] at h
+    simp only [VerifM.translateAny] at h
     obtain ⟨r1, _, hbody1, hk1⟩ := ScopedM.eval_bracket h
     match r1 with
     | .ok () =>
