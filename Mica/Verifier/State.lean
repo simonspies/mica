@@ -178,30 +178,3 @@ theorem TransState.addSpatial.wf (st : TransState) :
   · exact hwf.assertsWf
   · exact hwf.namesDisjoint
   · simpa [SpatialContext.wfIn_cons] using And.intro ha hwf.ownsWf
-
-/-- Specialization of `Term.const_wfIn_addConst_of_fresh` to `freshConst`. -/
-theorem TransState.freshConst_wfIn {st : TransState} {hint : Option String} {τ : Srt}
-    (hstwf : st.decls.wf)
-    (hfresh : (st.freshConst hint τ).name ∉ st.decls.allNames) :
-    let c := st.freshConst hint τ
-    (Term.const (.uninterpreted c.name τ)).wfIn (st.decls.addConst c) :=
-  Term.const_wfIn_addConst_of_fresh hstwf hfresh
-
-/-- Specialization of `Formula.eq_wfIn_addConst_of_fresh` to `freshConst`. -/
-theorem TransState.freshConst_eq_wfIn {st : TransState} {hint : Option String} {τ : Srt}
-    {t : Term τ} (hstwf : st.decls.wf) (ht : t.wfIn st.decls)
-    (hfresh : (st.freshConst hint τ).name ∉ st.decls.allNames) :
-    let c := st.freshConst hint τ
-    (Formula.eq τ (.const (.uninterpreted c.name τ)) t).wfIn (st.decls.addConst c) :=
-  Formula.eq_wfIn_addConst_of_fresh hstwf ht hfresh
-
-/-- Specialization of `Formula.eq_eval_updateConst_of_fresh` to `freshConst`. -/
-theorem TransState.freshConst_eq_eval {st : TransState} {ρ : VerifM.Env}
-    {hint : Option String} {τ : Srt} {t : Term τ} (ht : t.wfIn st.decls)
-    (hfresh : (st.freshConst hint τ).name ∉ st.decls.allNames) :
-    let c := st.freshConst hint τ
-    (Formula.eq τ (.const (.uninterpreted c.name τ)) t).eval
-      (ρ.updateConst τ c.name (t.eval ρ.env)).env := by
-  simpa [VerifM.Env.updateConst_env] using
-    (Formula.eq_eval_updateConst_of_fresh
-      (Δ := st.decls) (ρ := ρ.env) (c := st.freshConst hint τ) ht hfresh)

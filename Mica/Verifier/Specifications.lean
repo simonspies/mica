@@ -257,8 +257,14 @@ theorem declareArgs_correct (Θ : TinyML.TypeEnv) :
         have hsarg_wf : sarg.wfIn st.decls := hsargs _ (List.mem_cons_self ..)
         have hassume := VerifM.eval_assumePure
           (VerifM.eval_bind _ _ _ _ (hdecl (sarg.eval ρ.env)))
-          (TransState.freshConst_eq_wfIn hstwf hsarg_wf hfresh_decls)
-          (TransState.freshConst_eq_eval (ρ := ρ) hsarg_wf hfresh_decls)
+          (by
+            simpa [argVar] using
+              (Formula.eq_wfIn_addConst_of_fresh
+                (Δ := st.decls) (c := argVar) hstwf hsarg_wf hfresh_decls))
+          (by
+            simpa [argVar, VerifM.Env.updateConst_env] using
+              (Formula.eq_eval_updateConst_of_fresh
+                (Δ := st.decls) (ρ := ρ.env) (c := argVar) hsarg_wf hfresh_decls))
         have hstwf_add : (st.decls.addConst argVar).wf := Signature.wf_addConst hstwf hfresh_decls
         have hsargs_rest : ∀ p ∈ sargs_rest, (p : TinyML.Typ × Term .value).2.wfIn
             (st.decls.addConst argVar) := fun p hp =>
@@ -411,7 +417,9 @@ theorem declareImplArgs_correct (Θ : TinyML.TypeEnv) :
       have hstwf : st.decls.wf := (VerifM.eval.wf heval).namesDisjoint
       obtain ⟨hfresh_decls, _hfresh_range, hσ'wf, hσ'domwf⟩ :=
         FiniteSubst.rename_bundle_of_freshConst (hint := some name) (v := ⟨name, .value⟩) hσwf hσdomwf
-      have hvar_wf := TransState.freshConst_wfIn (hint := some name) hstwf hfresh_decls
+      have hvar_wf : (Term.const (.uninterpreted argVar.name .value)).wfIn (st.decls.addConst argVar) := by
+        simpa using
+          (Term.const_wfIn_addConst_of_fresh (Δ := st.decls) (c := argVar) hstwf hfresh_decls)
       have hvar_eval : (Term.const (.uninterpreted argVar.name .value)).eval ρ₁.env = v := by
         simp [ρ₁]
       ihave %htyped_formulas := typeConstraints_hold (ty := ty)
