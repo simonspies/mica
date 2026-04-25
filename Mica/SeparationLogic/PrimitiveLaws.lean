@@ -343,7 +343,7 @@ theorem wp_fix {f : Runtime.Binder} {args : List Runtime.Binder} {e : Runtime.Ex
     {P : Runtime.Val → iProp} {Φ : List Runtime.Val → iProp}
     R
     (h : R ⊢
-      (wp (e.subst ((Runtime.Subst.id.update' f (.fix f args e)).updateAll' args vs)) P)) :
+      (wp (e.subst ((Runtime.Subst.id.updateBinder f (.fix f args e)).updateAllBinder args vs)) P)) :
     R ⊢
       (wp (.app (.val (.fix f args e)) (vs.map Runtime.Expr.val)) P) :=
   h.trans (wp.fix (Φ := Φ))
@@ -356,7 +356,7 @@ theorem wp_fix' {f : Runtime.Binder} {args : List Runtime.Binder} {e : Runtime.E
       □ (□ (∀ (vs : List Runtime.Val) (P : Runtime.Val → iProp),
           Φ P vs -∗ wp (.app (.val (.fix f args e)) (vs.map Runtime.Expr.val)) P) -∗
         ∀ (vs : List Runtime.Val) (P : Runtime.Val → iProp),
-          Φ P vs -∗ wp (e.subst ((Runtime.Subst.id.update' f (.fix f args e)).updateAll' args vs)) P)) :
+          Φ P vs -∗ wp (e.subst ((Runtime.Subst.id.updateBinder f (.fix f args e)).updateAllBinder args vs)) P)) :
     R ⊢ □ (∀ (vs : List Runtime.Val) (P : Runtime.Val → iProp),
           Φ P vs -∗ wp (.app (.val (.fix f args e)) (vs.map Runtime.Expr.val)) P) :=
   h.trans (wp.fix' (Φ := Φ))
@@ -365,14 +365,14 @@ theorem wp_fix' {f : Runtime.Binder} {args : List Runtime.Binder} {e : Runtime.E
     the resulting value substituted. -/
 theorem wp_letIn {b : Runtime.Binder} {bound body : Runtime.Expr} {Q : Runtime.Val → iProp}
     {R : iProp}
-    (h : R ⊢ wp bound (fun v => wp (body.subst (Runtime.Subst.id.update' b v)) Q)) :
+    (h : R ⊢ wp bound (fun v => wp (body.subst (Runtime.Subst.id.updateBinder b v)) Q)) :
     R ⊢ wp (Runtime.Expr.letIn b bound body) Q :=
   h.trans wp.letIn
 
 
 theorem wp_app_lambda_single {b : Runtime.Binder} {body : Runtime.Expr} {v : Runtime.Val}
     {Φ : Runtime.Val → iProp} {R : iProp}
-    (h : R ⊢ wp (body.subst (Runtime.Subst.id.update' b v)) Φ) :
+    (h : R ⊢ wp (body.subst (Runtime.Subst.id.updateBinder b v)) Φ) :
     R ⊢ wp (.app (.fix .none [b] body) [.val v]) Φ :=
   h.trans wp.app_lambda_single
 

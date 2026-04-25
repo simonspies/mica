@@ -175,7 +175,7 @@ theorem Bindings.agreeOnLinked_zip_reverse
     (hsorts : ∀ v ∈ vars, v.sort = .value)
     (hlookups : List.Forall₂ (fun av val => ρ.consts .value av.name = val) vars vals) :
     Bindings.agreeOnLinked (names.zip vars).reverse ρ
-      (γ.updateAll' (names.map Runtime.Binder.named) vals) := by
+      (γ.updateAllBinder (names.map Runtime.Binder.named) vals) := by
   induction names generalizing vars vals γ with
   | nil => intro x x' hmem; simp at hmem
   | cons n ns ih =>
@@ -188,8 +188,8 @@ theorem Bindings.agreeOnLinked_zip_reverse
         simp at hlen_nv hlen_nvl
         cases hlookups with
         | cons hlk htail =>
-          simp only [List.map_cons, Runtime.Subst.updateAll'_cons, List.zip_cons_cons, List.reverse_cons]
-          have ih' := ih avs vs (γ.update' (.named n) v) (by omega) (by omega)
+          simp only [List.map_cons, Runtime.Subst.updateAllBinder_cons, List.zip_cons_cons, List.reverse_cons]
+          have ih' := ih avs vs (γ.updateBinder (.named n) v) (by omega) (by omega)
             (fun v' hv' => hsorts v' (.tail _ hv')) htail
           intro x x' hmem
           rw [List.lookup_append] at hmem
@@ -203,10 +203,10 @@ theorem Bindings.agreeOnLinked_zip_reverse
             · simp [List.lookup, hxn] at hmem; subst hmem
               constructor
               · exact hsorts av (.head _)
-              · rw [Runtime.Subst.updateAll'_eq _ _ _ _ (by simp; omega)]
+              · rw [Runtime.Subst.updateAllBinder_eq _ _ _ _ (by simp; omega)]
                 have hx_notin := not_mem_of_lookup_zip_reverse_none ns avs x hlen_nv hlk_inner
                 suffices Runtime.Binders.findVal (ns.map Runtime.Binder.named) vs x = none by
-                  simp [this, Runtime.Subst.update', hxn, ← hlk]
+                  simp [this, Runtime.Subst.updateBinder, hxn, ← hlk]
                 exact findVal_none_of_not_mem ns vs x hlen_nvl hx_notin
             · simp [List.lookup, hxn] at hmem
 
@@ -215,7 +215,7 @@ theorem Bindings.lookup_reverse_zip_append {keys : List String} {vars : List FOL
       ((keys.zip vars).reverse.lookup x).or (B.lookup x) := by
   rw [List.lookup_append]
 
-theorem Bindings.agreeOnLinked_updateAll'
+theorem Bindings.agreeOnLinked_updateAllBinder
     (B : Bindings) (names : List String) (vars : List FOL.Const) (vals : List Runtime.Val)
     (γ : Runtime.Subst) (ρ : Env)
     (hB : B.agreeOnLinked ρ γ)
@@ -224,7 +224,7 @@ theorem Bindings.agreeOnLinked_updateAll'
     (hsorts : ∀ v ∈ vars, v.sort = .value)
     (hlookups : List.Forall₂ (fun av val => ρ.consts .value av.name = val) vars vals) :
     Bindings.agreeOnLinked ((names.zip vars).reverse ++ B) ρ
-      (γ.updateAll' (names.map Runtime.Binder.named) vals) := by
+      (γ.updateAllBinder (names.map Runtime.Binder.named) vals) := by
   intro x x' hmem
   rw [lookup_reverse_zip_append B] at hmem
   cases hlk : (names.zip vars).reverse.lookup x with
@@ -237,7 +237,7 @@ theorem Bindings.agreeOnLinked_updateAll'
     obtain ⟨hsort, hγ⟩ := hB x x' hmem
     constructor
     · exact hsort
-    · rw [Runtime.Subst.updateAll'_eq _ _ _ _ (by simp; omega)]
+    · rw [Runtime.Subst.updateAllBinder_eq _ _ _ _ (by simp; omega)]
       have hx_notin := not_mem_of_lookup_zip_reverse_none names vars x hlen_nv hlk
       rw [findVal_none_of_not_mem names vals x (by omega) hx_notin]
       exact hγ

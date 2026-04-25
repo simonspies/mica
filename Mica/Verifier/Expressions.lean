@@ -1139,17 +1139,17 @@ theorem compileLetIn_correct (b : Binder) (e body : Expr)
       (fun v ρ' st' se hΨ hs hw =>
         let ⟨_, _, hΨ'⟩ := hΨ
         hpost v ρ' st' se hΨ' hs hw)
-    have hsubst := Runtime.Expr.subst_remove'_update' body.runtime γ Runtime.Binder.none v_e
+    have hsubst := Runtime.Expr.subst_remove'_updateBinder body.runtime γ Runtime.Binder.none v_e
     have hbody' : st₁.sl ρ_e ∗
           (TinyML.ValHasType Θ v_e e.ty ∗ (S.satisfiedBy Θ γ ∗ Bindings.typedSubst Θ B Γ γ ∗ R)) ⊢
             wp
               (Runtime.Expr.subst
-                (Runtime.Subst.update' Runtime.Binder.none v_e Runtime.Subst.id)
+                (Runtime.Subst.updateBinder Runtime.Binder.none v_e Runtime.Subst.id)
                 (Runtime.Expr.subst (γ.remove' Runtime.Binder.none) body.runtime))
               Φ :=
       hsubst.symm ▸ hbody
     rw [Binder.runtime_of_name_none hname]
-    simpa [Runtime.Subst.update'] using hbody'
+    simpa [Runtime.Subst.updateBinder] using hbody'
   | some x =>
     simp [hname] at hΨ_e
     set base := x
@@ -1167,12 +1167,12 @@ theorem compileLetIn_correct (b : Binder) (e body : Expr)
     suffices st₂.sl ρ_body ∗
         (TinyML.ValHasType Θ v_e e.ty ∗ (S.satisfiedBy Θ γ ∗ Bindings.typedSubst Θ B Γ γ ∗ R)) ⊢
           wp (body.runtime.subst γ_body) Φ by
-      have hsubst := Runtime.Expr.subst_remove'_update' body.runtime γ (.named x) v_e
+      have hsubst := Runtime.Expr.subst_remove'_updateBinder body.runtime γ (.named x) v_e
       have hbody' : st₂.sl ρ_body ∗
             (TinyML.ValHasType Θ v_e e.ty ∗ (S.satisfiedBy Θ γ ∗ Bindings.typedSubst Θ B Γ γ ∗ R)) ⊢
               wp
                 (Runtime.Expr.subst
-                  (Runtime.Subst.update' (.named x) v_e Runtime.Subst.id)
+                  (Runtime.Subst.updateBinder (.named x) v_e Runtime.Subst.id)
                   (Runtime.Expr.subst (γ.remove' (.named x)) body.runtime))
                 Φ :=
         hsubst.symm ▸ this
@@ -1181,7 +1181,7 @@ theorem compileLetIn_correct (b : Binder) (e body : Expr)
           (agreeOn_update_fresh_const hfresh)).1
       rw [Binder.runtime_of_name_some hname]
       exact (sep_mono_l hinterp_eq).trans <|
-        by simpa [st₂, γ_body, base, Runtime.Subst.update', Runtime.Subst.update, Runtime.Subst.id]
+        by simpa [st₂, γ_body, base, Runtime.Subst.updateBinder, Runtime.Subst.update, Runtime.Subst.id]
           using hbody'
     have hagreeOn_body_e : Env.agreeOn st₁.decls ρ_e.env ρ_body.env :=
       agreeOn_update_fresh_const hfresh
@@ -1718,8 +1718,8 @@ theorem compileSingleBranch_correct (binder : Binder) (body : Expr)
       simp only [Runtime.Expr.subst_fix]
       refine BIBase.Entails.trans ?_ wp.app_lambda_single
       simp only [Runtime.Subst.removeAll'_cons, Runtime.Subst.removeAll'_nil]
-      rw [Runtime.Expr.subst_remove'_update' body.runtime (γ.remove' .none) .none payload]
-      simp only [Runtime.Subst.update', Runtime.Subst.remove'_none]
+      rw [Runtime.Expr.subst_remove'_updateBinder body.runtime (γ.remove' .none) .none payload]
+      simp only [Runtime.Subst.updateBinder, Runtime.Subst.remove'_none]
       refine BIBase.Entails.trans ?_ hBodyWp
       istart
       iintro ⟨⟨⟨⟨Howns, □HS⟩, □HT⟩, HR⟩, □Hpay⟩
@@ -1772,8 +1772,8 @@ theorem compileSingleBranch_correct (binder : Binder) (body : Expr)
       simp only [Runtime.Expr.subst_fix]
       refine BIBase.Entails.trans ?_ wp.app_lambda_single
       simp only [Runtime.Subst.removeAll'_cons, Runtime.Subst.removeAll'_nil, Runtime.Subst.remove'_none]
-      rw [Runtime.Expr.subst_remove'_update' body.runtime γ (.named x) payload]
-      simp only [Runtime.Subst.update']
+      rw [Runtime.Expr.subst_remove'_updateBinder body.runtime γ (.named x) payload]
+      simp only [Runtime.Subst.updateBinder]
       refine BIBase.Entails.trans ?_ hBodyWp
       istart
       iintro ⟨⟨⟨⟨Howns, □HS⟩, □HT⟩, HR⟩, □Hpay⟩

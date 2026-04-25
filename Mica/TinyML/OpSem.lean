@@ -97,7 +97,7 @@ inductive Head : Runtime.Expr → Heap → Runtime.Expr → Heap → Prop where
   /-- Beta reduction: apply a fixpoint to a list of argument values. -/
   | beta : args.length = vs.length →
            Head (.app (.val (.fix f args body)) (vs.map Runtime.Expr.val)) μ
-                (body.subst ((Runtime.Subst.id.update' f (.fix f args body)).updateAll' args vs)) μ
+                (body.subst ((Runtime.Subst.id.updateBinder f (.fix f args body)).updateAllBinder args vs)) μ
 
   /-- Unary operator applied to a value. -/
   | unop : evalUnOp op v = some w →

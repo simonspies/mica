@@ -36,7 +36,7 @@ def checkSpec (Θ : TinyML.TypeEnv) (S : SpecMap) (e : Expr) (s : Spec) : VerifM
       | .ok names => pure (fb, names, body)
       | .error msg => VerifM.fatal msg
     | _ => VerifM.fatal "checkSpec: expected function"
-  let S' := SpecMap.eraseAll argNames (S.insert' fb s)
+  let S' := SpecMap.eraseAll argNames (S.insertBinder fb s)
   Spec.implement s (checkBody Θ S' s argNames body)
 
 /-- Soundness of `checkBody`: given argument variables supplied by
@@ -57,21 +57,21 @@ theorem checkBody_correct (Θ : TinyML.TypeEnv) (S : SpecMap) (s : Spec)
     (hargVars_sort : ∀ v ∈ argVars, v.sort = .value)
     (hargVars_lookup : List.Forall₂ (fun av val => ρ'.env.consts .value av.name = val) argVars vs)
     (hbody_eval : VerifM.eval
-        (checkBody Θ (SpecMap.eraseAll argNames (S.insert' fb s)) s argNames body argVars)
+        (checkBody Θ (SpecMap.eraseAll argNames (S.insertBinder fb s)) s argNames body argVars)
         st' ρ'
         (fun result st'' ρ'' => ∀ S, result.wfIn st''.decls →
           st''.sl ρ'' ∗ Q ∗
             ((TinyML.ValHasType Θ (result.eval ρ''.env) s.retTy -∗ P (result.eval ρ''.env)) -∗ S) ⊢ S)) :
     st'.sl ρ' ∗ TinyML.ValsHaveTypes Θ vs (s.args.map Prod.snd) ∗ Q ⊢
       (S.satisfiedBy Θ γ ∗ s.isPrecondFor Θ fval) -∗
-        wp (body.runtime.subst (γ.update' fb.runtime fval |>.updateAll' bs vs)) P := by
+        wp (body.runtime.subst (γ.updateBinder fb.runtime fval |>.updateAllBinder bs vs)) P := by
   simp only [checkBody] at hbody_eval
   obtain ⟨hargNames_len, _, hbs_eq⟩ := extractArgNames_spec hext
   have hbs_runtime : bs = argNames.map Runtime.Binder.named := hbs_def ▸ hbs_eq
-  set γ_body := γ.update' fb.runtime fval |>.updateAll' bs vs
-  set S' : SpecMap := SpecMap.eraseAll argNames (S.insert' fb s)
+  set γ_body := γ.updateBinder fb.runtime fval |>.updateAllBinder bs vs
+  set S' : SpecMap := SpecMap.eraseAll argNames (S.insertBinder fb s)
   have hS'wf : S'.wfIn Signature.empty :=
-    SpecMap.wfIn_eraseAll (SpecMap.wfIn_insert' hSwf hswf)
+    SpecMap.wfIn_eraseAll (SpecMap.wfIn_insertBinder hSwf hswf)
   set Γ := (argNames.zip (s.args.map Prod.snd)).foldl
     (fun ctx (x : String × TinyML.Typ) => ctx.extend x.1 x.2) TinyML.TyCtx.empty
   set B : Bindings := Bindings.empty ++ (argNames.zip argVars).reverse
@@ -92,12 +92,12 @@ theorem checkBody_correct (Θ : TinyML.TypeEnv) (S : SpecMap) (s : Spec)
     omega
   have hagree : Bindings.agreeOnLinked B ρ'.env γ_body := by
     show Bindings.agreeOnLinked (Bindings.empty ++ (argNames.zip argVars).reverse) ρ'.env
-      ((γ.update' fb.runtime fval).updateAll' bs vs)
+      ((γ.updateBinder fb.runtime fval).updateAllBinder bs vs)
     rw [show Bindings.empty ++ (argNames.zip argVars).reverse =
         (argNames.zip argVars).reverse ++ Bindings.empty from by simp [Bindings.empty]]
     rw [hbs_runtime]
-    apply Bindings.agreeOnLinked_updateAll' Bindings.empty argNames argVars vs
-      (γ.update' fb.runtime fval) ρ'.env
+    apply Bindings.agreeOnLinked_updateAllBinder Bindings.empty argNames argVars vs
+      (γ.updateBinder fb.runtime fval) ρ'.env
     · intro x x' h; simp [Bindings.empty] at h
     · exact hlen_avs
     · exact hlen_nv
@@ -126,12 +126,12 @@ theorem checkBody_correct (Θ : TinyML.TypeEnv) (S : SpecMap) (s : Spec)
       S.satisfiedBy Θ γ ∗ s.isPrecondFor Θ fval ⊢ S'.satisfiedBy Θ γ_body := by
     have hinsert :
         S.satisfiedBy Θ γ ∗ s.isPrecondFor Θ fval ⊢
-          (S.insert' fb s).satisfiedBy Θ (γ.update' fb.runtime fval) :=
-      SpecMap.satisfiedBy_insert'_update'
+          (S.insertBinder fb s).satisfiedBy Θ (γ.updateBinder fb.runtime fval) :=
+      SpecMap.satisfiedBy_insertBinder_updateBinder
     have herase :
-        (S.insert' fb s).satisfiedBy Θ (γ.update' fb.runtime fval) ⊢
-          S'.satisfiedBy Θ ((γ.update' fb.runtime fval).updateAll' (argNames.map Runtime.Binder.named) vs) :=
-      SpecMap.satisfiedBy_eraseAll_updateAll' hlen_nv
+        (S.insertBinder fb s).satisfiedBy Θ (γ.updateBinder fb.runtime fval) ⊢
+          S'.satisfiedBy Θ ((γ.updateBinder fb.runtime fval).updateAllBinder (argNames.map Runtime.Binder.named) vs) :=
+      SpecMap.satisfiedBy_eraseAll_updateAllBinder hlen_nv
     exact hinsert.trans <| by simpa [S', γ_body, hbs_runtime] using herase
   have hbody_wp :
       st'.sl ρ' ∗ (S'.satisfiedBy Θ γ_body ∗ Bindings.typedSubst Θ B Γ γ_body ∗ Q) ⊢
@@ -198,7 +198,7 @@ theorem checkSpec_correct (Θ : TinyML.TypeEnv) (S : SpecMap) (e : Expr) (s : Sp
       dsimp only at himpl
       set bs := argBinders.map (·.runtime)
       set γ' := (γ.remove' fb.runtime).removeAll' bs with hγ'_def
-      set S' : SpecMap := SpecMap.eraseAll argNames (S.insert' fb s)
+      set S' : SpecMap := SpecMap.eraseAll argNames (S.insertBinder fb s)
       have hgoal : (Expr.fix fb argBinders retTy body).runtime.subst γ =
           Runtime.Expr.fix fb.runtime (argBinders.map (·.runtime))
             (body.runtime.subst γ') := by
@@ -215,7 +215,7 @@ theorem checkSpec_correct (Θ : TinyML.TypeEnv) (S : SpecMap) (e : Expr) (s : Sp
       iintro □Hspec
       imodintro
       iintro Hrec %vs %P #Htyped Hpred
-      -- `isPrecondFor_fix` hands us the body's subst as `id.update' ... |>.updateAll' ...`;
+      -- `isPrecondFor_fix` hands us the body's subst as `id.updateBinder ... |>.updateAllBinder ...`;
       -- fuse it with γ via `subst_fix_comp` so it matches `body_correct`.
       ihave %hlen_typed := TinyML.ValsHaveTypes.length_eq $$ Htyped
       have hlen_vs : bs.length = vs.length := by
@@ -227,14 +227,14 @@ theorem checkSpec_correct (Θ : TinyML.TypeEnv) (S : SpecMap) (e : Expr) (s : Sp
           PredTrans.apply (fun r => TinyML.ValHasType Θ r s.retTy -∗ P r) s.pred
           (Spec.argsEnv VerifM.Env.empty s.args vs) ⊢
           SpecMap.satisfiedBy Θ S γ ∗ s.isPrecondFor Θ fval -∗
-            wp (Runtime.Expr.subst ((Runtime.Subst.update' fb.runtime fval γ).updateAll' bs vs) body.runtime) P := by
+            wp (Runtime.Expr.subst ((Runtime.Subst.updateBinder fb.runtime fval γ).updateAllBinder bs vs) body.runtime) P := by
         iintro H
         icases H with ⟨Htyped', Hpred'⟩
         iintuitionistic Htyped'
         ihave Hwand := Spec.implement_correct Θ s _ TransState.empty ρ vs P
           (TinyML.ValsHaveTypes Θ vs (s.args.map Prod.snd) -∗
             (S.satisfiedBy Θ γ ∗ s.isPrecondFor Θ fval) -∗
-              wp (body.runtime.subst (γ.update' fb.runtime fval |>.updateAll' bs vs)) P)
+              wp (body.runtime.subst (γ.updateBinder fb.runtime fval |>.updateAllBinder bs vs)) P)
           hswf himpl
           (fun argVars st' ρ' Q hargVars_mem hargVars_sort hargVars_lookup hbody_eval => by
             iintro ⟨Hsl, HQ⟩ Htyped''

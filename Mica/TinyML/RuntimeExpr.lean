@@ -219,7 +219,7 @@ def Subst.remove' (γ : Subst) (b : Binder) : Subst :=
 @[simp] theorem Subst.remove'_named (γ : Subst) (x : Var) :
     γ.remove' (.named x) = γ.remove x := rfl
 
-def Subst.update' (b : Binder) (v : Val) (σ : Subst) : Subst :=
+def Subst.updateBinder (b : Binder) (v : Val) (σ : Subst) : Subst :=
   match b with
   | .none    => σ
   | .named x => σ.update x v
@@ -249,16 +249,16 @@ def Subst.updateAll (γ : Subst) : List Var → List Val → Subst
 @[simp] theorem Subst.updateAll_cons (γ : Subst) (x : Var) (xs : List Var) (v : Val) (vs : List Val) :
     γ.updateAll (x :: xs) (v :: vs) = (γ.update x v).updateAll xs vs := rfl
 
-def Subst.updateAll' (γ : Subst) : List Binder → List Val → Subst
+def Subst.updateAllBinder (γ : Subst) : List Binder → List Val → Subst
   | [], _ => γ
   | _, [] => γ
-  | b :: bs, v :: vs => (γ.update' b v).updateAll' bs vs
+  | b :: bs, v :: vs => (γ.updateBinder b v).updateAllBinder bs vs
 
-@[simp] theorem Subst.updateAll'_nil_left (γ : Subst) (vs : List Val) : γ.updateAll' [] vs = γ := rfl
-@[simp] theorem Subst.updateAll'_nil_right (γ : Subst) (bs : List Binder) : γ.updateAll' bs [] = γ := by
+@[simp] theorem Subst.updateAllBinder_nil_left (γ : Subst) (vs : List Val) : γ.updateAllBinder [] vs = γ := rfl
+@[simp] theorem Subst.updateAllBinder_nil_right (γ : Subst) (bs : List Binder) : γ.updateAllBinder bs [] = γ := by
   cases bs <;> rfl
-@[simp] theorem Subst.updateAll'_cons (γ : Subst) (b : Binder) (bs : List Binder) (v : Val) (vs : List Val) :
-    γ.updateAll' (b :: bs) (v :: vs) = (γ.update' b v).updateAll' bs vs := rfl
+@[simp] theorem Subst.updateAllBinder_cons (γ : Subst) (b : Binder) (bs : List Binder) (v : Val) (vs : List Val) :
+    γ.updateAllBinder (b :: bs) (v :: vs) = (γ.updateBinder b v).updateAllBinder bs vs := rfl
 
 def Expr.subst (σ : Subst) : Expr → Expr
   | .val w => .val w
@@ -351,12 +351,12 @@ theorem Expr.subst_comp (e : Expr) (σ ρ : Subst) :
     all_goals (split <;> simp_all)
 /-- Removing a binder from γ and then substituting it back yields the same as just updating γ.
     Used to prove Program.subst_remove_update. -/
-theorem Expr.subst_remove'_update' (e : Expr) (γ : Subst) (b : Binder) (v : Val) :
-    (e.subst (γ.remove' b)).subst (Subst.id.update' b v) =
-    e.subst (γ.update' b v) := by
+theorem Expr.subst_remove'_updateBinder (e : Expr) (γ : Subst) (b : Binder) (v : Val) :
+    (e.subst (γ.remove' b)).subst (Subst.id.updateBinder b v) =
+    e.subst (γ.updateBinder b v) := by
   rw [Expr.subst_comp]
   congr 1; funext z
-  cases b <;> simp [Subst.remove', Subst.remove, Subst.update', Subst.update, Subst.id]
+  cases b <;> simp [Subst.remove', Subst.remove, Subst.updateBinder, Subst.update, Subst.id]
   all_goals (split <;> simp_all)
 
 
@@ -507,12 +507,12 @@ theorem Program.subst_comp (ds : Program) (σ τ : Subst) :
 theorem Program.subst_remove_update (ds : Program) (b : Binder) (v : Val)
     (γ : Subst) :
     Program.subst (Program.subst ds (Subst.remove' γ b))
-      (Subst.update' b v .id) =
-    Program.subst ds (Subst.update' b v γ) := by
+      (Subst.updateBinder b v .id) =
+    Program.subst ds (Subst.updateBinder b v γ) := by
   rw [Program.subst_comp]
   congr 1; funext z
   cases b <;>
-    simp [Subst.remove', Subst.remove, Subst.update',
+    simp [Subst.remove', Subst.remove, Subst.updateBinder,
           Subst.update, Subst.id] <;>
     all_goals (split <;> simp_all)
 
@@ -566,7 +566,7 @@ theorem Exprs.freeVars_subst (γ1 γ2 : Var → Option Val) (es : Exprs) :
     · exact ih (fun x hx => h x (Or.inr hx))
 
 /-- Look up the value bound to variable `z` in a binder/value list.
-    Last matching binder wins (matching left-fold semantics of `updateAll'`).
+    Last matching binder wins (matching left-fold semantics of `updateAllBinder`).
     Equivalent to `(bs.zip vs).reverse.findSome? fun (b, v) => if b == .named z then some v else none`. -/
 def Binders.findVal : Binders → Vals → Var → Option Val
   | [], _, _ | _, [], _ => none
@@ -584,9 +584,9 @@ def Binders.findVal : Binders → Vals → Var → Option Val
     | some w => some w
     | none => if b == .named z then some v else none := rfl
 
-theorem Subst.updateAll'_eq (γ : Subst) (bs : Binders) (vs : Vals) (z : Var)
+theorem Subst.updateAllBinder_eq (γ : Subst) (bs : Binders) (vs : Vals) (z : Var)
     (hlen : bs.length = vs.length) :
-    γ.updateAll' bs vs z =
+    γ.updateAllBinder bs vs z =
     match Binders.findVal bs vs z with
     | some v => some v
     | none => γ z := by
@@ -597,47 +597,47 @@ theorem Subst.updateAll'_eq (γ : Subst) (bs : Binders) (vs : Vals) (z : Var)
     | nil => simp at hlen
     | cons v vs =>
       simp only [List.length_cons, Nat.succ.injEq] at hlen
-      simp only [Subst.updateAll'_cons, Binders.findVal_cons]
+      simp only [Subst.updateAllBinder_cons, Binders.findVal_cons]
       rw [ih _ _ hlen]
       rcases h : Binders.findVal bs vs z with _ | w
       · cases b with
-        | none => simp [Subst.update']
+        | none => simp [Subst.updateBinder]
         | named x =>
-          simp only [Subst.update', Subst.update_eq, Binder.named_beq]
+          simp only [Subst.updateBinder, Subst.update_eq, Binder.named_beq]
           by_cases hzx : z = x
           · simp_all
           · simp [beq_iff_eq, hzx, Ne.symm hzx]
       · simp
 
-/-- The composition of `removeAll'` followed by `updateAll'` is just `updateAll'`.
+/-- The composition of `removeAll'` followed by `updateAllBinder` is just `updateAllBinder`.
     Generalized: the "base" substitution `σ` is arbitrary (instantiate with `σ = id` for the main use). -/
-private theorem Subst.removeAll'_updateAll'_gen (bs : Binders) (vs : Vals)
+private theorem Subst.removeAll'_updateAllBinder_gen (bs : Binders) (vs : Vals)
     (hlen : bs.length = vs.length) (γ σ : Subst) (z : Var) :
     let merged : Subst := fun w => match γ w with | some v => some v | none => σ w
-    (match (γ.removeAll' bs) z with | some v => some v | none => (σ.updateAll' bs vs) z)
-    = (merged.updateAll' bs vs) z := by
+    (match (γ.removeAll' bs) z with | some v => some v | none => (σ.updateAllBinder bs vs) z)
+    = (merged.updateAllBinder bs vs) z := by
   simp only []
   induction bs generalizing γ σ vs with
-  | nil => simp only [Subst.removeAll'_nil, Subst.updateAll'_nil_left]
+  | nil => simp only [Subst.removeAll'_nil, Subst.updateAllBinder_nil_left]
   | cons b bs ih =>
     cases vs with
     | nil => simp at hlen
     | cons v vs =>
       simp only [List.length_cons, Nat.succ.injEq] at hlen
-      simp only [Subst.removeAll'_cons, Subst.updateAll'_cons]
-      rw [ih vs hlen (γ.remove' b) (Subst.update' b v σ)]
+      simp only [Subst.removeAll'_cons, Subst.updateAllBinder_cons]
+      rw [ih vs hlen (γ.remove' b) (Subst.updateBinder b v σ)]
       congr 1; funext w
       cases b with
-      | none => simp [Subst.remove', Subst.update']
+      | none => simp [Subst.remove', Subst.updateBinder]
       | named x =>
-        simp only [Subst.remove', Subst.remove_eq, Subst.update', Subst.update_eq]
+        simp only [Subst.remove', Subst.remove_eq, Subst.updateBinder, Subst.update_eq]
         by_cases hwx : w = x <;> simp_all
 
-private theorem Subst.removeAll'_updateAll'_comp (γ : Subst) (bs : Binders) (vs : Vals)
+private theorem Subst.removeAll'_updateAllBinder_comp (γ : Subst) (bs : Binders) (vs : Vals)
     (hlen : bs.length = vs.length) (z : Var) :
-    (match (γ.removeAll' bs) z with | some v => some v | none => (Subst.id.updateAll' bs vs) z)
-    = (γ.updateAll' bs vs) z := by
-  rw [removeAll'_updateAll'_gen _ _ hlen]
+    (match (γ.removeAll' bs) z with | some v => some v | none => (Subst.id.updateAllBinder bs vs) z)
+    = (γ.updateAllBinder bs vs) z := by
+  rw [removeAll'_updateAllBinder_gen _ _ hlen]
   congr 1; funext w; simp [Subst.id]; split <;> simp_all
 
 -- Substitution composition lemma for the fix body.
@@ -646,29 +646,29 @@ theorem Expr.subst_fix_comp (body : Expr)
     (fval : Val) (vs : Vals)
     (hlen : bs.length = vs.length) :
     let γ' := (γ.remove' fb).removeAll' bs
-    (body.subst γ').subst (Subst.id.update' fb fval |>.updateAll' bs vs) =
-    body.subst (γ.update' fb fval |>.updateAll' bs vs) := by
+    (body.subst γ').subst (Subst.id.updateBinder fb fval |>.updateAllBinder bs vs) =
+    body.subst (γ.updateBinder fb fval |>.updateAllBinder bs vs) := by
   simp only []; rw [Expr.subst_comp]; congr 1; funext z
-  have hgen := Subst.removeAll'_updateAll'_gen bs vs hlen
-                 (γ.remove' fb) (Subst.id.update' fb fval) z
+  have hgen := Subst.removeAll'_updateAllBinder_gen bs vs hlen
+                 (γ.remove' fb) (Subst.id.updateBinder fb fval) z
   simp only [] at hgen
   rw [hgen]
   congr 1; funext w
   cases fb with
-  | none => simp only [Subst.remove', Subst.update', Subst.id]; cases γ w <;> rfl
+  | none => simp only [Subst.remove', Subst.updateBinder, Subst.id]; cases γ w <;> rfl
   | named f =>
-    simp only [Subst.remove'_named, Subst.update', Subst.update_eq,
+    simp only [Subst.remove'_named, Subst.updateBinder, Subst.update_eq,
                Subst.remove_eq, Subst.id]
     split <;> simp_all
 
-theorem Exprs.subst_removeAll'_updateAll' (es : Exprs) (γ : Subst) (bs : Binders) (vs : Vals)
+theorem Exprs.subst_removeAll'_updateAllBinder (es : Exprs) (γ : Subst) (bs : Binders) (vs : Vals)
     (hlen : bs.length = vs.length) :
-    Exprs.subst (Subst.id.updateAll' bs vs) (Exprs.subst (γ.removeAll' bs) es) =
-    Exprs.subst (γ.updateAll' bs vs) es := by
+    Exprs.subst (Subst.id.updateAllBinder bs vs) (Exprs.subst (γ.removeAll' bs) es) =
+    Exprs.subst (γ.updateAllBinder bs vs) es := by
   rw [Exprs.subst_comp]
   congr 1
   funext z
-  exact Subst.removeAll'_updateAll'_comp γ bs vs hlen z
+  exact Subst.removeAll'_updateAllBinder_comp γ bs vs hlen z
 
 end Runtime
 

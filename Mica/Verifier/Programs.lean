@@ -204,7 +204,7 @@ theorem Program.check_correct (Θ : TinyML.TypeEnv) (S : SpecMap) (prog : Typed.
     intro heval
     have hpwp_unfold : pwp ((Typed.Program.runtime (d :: ds)).subst γ) ⊣⊢
         wp (d.body.runtime.subst γ) (fun v =>
-          pwp ((Typed.Program.runtime ds).subst (Runtime.Subst.update' d.name.runtime v γ))) := by
+          pwp ((Typed.Program.runtime ds).subst (Runtime.Subst.updateBinder d.name.runtime v γ))) := by
       simp [Typed.Program.runtime, Typed.ValDecl.runtime,
         Runtime.Program.subst, Runtime.Decl.subst, Runtime.Program.subst_remove_update]
     refine BIBase.Entails.trans ?_ hpwp_unfold.2
@@ -212,8 +212,8 @@ theorem Program.check_correct (Θ : TinyML.TypeEnv) (S : SpecMap) (prog : Typed.
     cases hname : d.name.name with
     | none =>
       -- unnamed: pwp continuation does not depend on `v`
-      have hupd : ∀ v, Runtime.Subst.update' d.name.runtime v γ = γ := by
-        intro v; simp [Binder.runtime_of_name_none hname, Runtime.Subst.update']
+      have hupd : ∀ v, Runtime.Subst.updateBinder d.name.runtime v γ = γ := by
+        intro v; simp [Binder.runtime_of_name_none hname, Runtime.Subst.updateBinder]
       cases hspec : d.spec with
       | none =>
         -- unnamed, no spec
@@ -236,11 +236,11 @@ theorem Program.check_correct (Θ : TinyML.TypeEnv) (S : SpecMap) (prog : Typed.
         exact wand_intro (sep_elim_l.trans hih)
     | some n =>
       have hname_rt : d.name.runtime = .named n := Binder.runtime_of_name_some hname
-      have herase : S.erase' d.name = S.erase n := by simp [SpecMap.erase', hname]
-      have hinsert : ∀ s, S.insert' d.name s = S.insert n s := by
-        intro s; simp [SpecMap.insert', hname]
-      have hupd : ∀ v, Runtime.Subst.update' d.name.runtime v γ = γ.update n v := by
-        intro v; simp [hname_rt, Runtime.Subst.update']
+      have herase : S.eraseBinder d.name = S.erase n := by simp [SpecMap.eraseBinder, hname]
+      have hinsert : ∀ s, S.insertBinder d.name s = S.insert n s := by
+        intro s; simp [SpecMap.insertBinder, hname]
+      have hupd : ∀ v, Runtime.Subst.updateBinder d.name.runtime v γ = γ.update n v := by
+        intro v; simp [hname_rt, Runtime.Subst.updateBinder]
       cases hspec : d.spec with
       | none =>
         simp only [hname, hspec] at heval

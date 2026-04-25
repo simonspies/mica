@@ -34,7 +34,7 @@ axiom wp.ifThenElse {cond thn els : Runtime.Expr} {Q : Runtime.Val → Prop} :
 axiom wp.fix {f : Runtime.Binder} {args : List Runtime.Binder} P e (Φ: List Runtime.Val → Prop):
   (
     (∀ vs, Φ vs → wp (.app (.val (.fix f args e)) (vs.map Runtime.Expr.val)) P) →
-    ∀ vs, Φ vs → wp (e.subst ((Runtime.Subst.id.update' f (.fix f args e)).updateAll' args vs)) P
+    ∀ vs, Φ vs → wp (e.subst ((Runtime.Subst.id.updateBinder f (.fix f args e)).updateAllBinder args vs)) P
   ) → ∀ vs, Φ vs → wp (.app (.val (.fix f args e)) (vs.map Runtime.Expr.val)) P
 
 axiom wp.app fn args P:
@@ -47,7 +47,7 @@ axiom wp.func (P: Runtime.Val → Prop):
 axiom wp.fix' {f : Runtime.Binder} {args : List Runtime.Binder} e (Φ: (Runtime.Val → Prop) → List Runtime.Val → Prop) :
   (
     (∀ vs P, Φ P vs → wp (.app (.val (.fix f args e)) (vs.map Runtime.Expr.val)) P) →
-    ∀ vs P, Φ P vs → wp (e.subst ((Runtime.Subst.id.update' f (.fix f args e)).updateAll' args vs)) P
+    ∀ vs P, Φ P vs → wp (e.subst ((Runtime.Subst.id.updateBinder f (.fix f args e)).updateAllBinder args vs)) P
   ) → ∀ vs P, Φ P vs → wp (.app (.val (.fix f args e)) (vs.map Runtime.Expr.val)) P
 
 
@@ -92,12 +92,12 @@ theorem wps.mono {es : Runtime.Exprs} {P Q : Runtime.Vals → Prop}
     and each result is substituted into the remaining program. -/
 def pwp : Runtime.Program → Prop
   | [] => True
-  | ⟨b, e⟩ :: rest => wp e (fun v => pwp (Runtime.Program.subst rest (Runtime.Subst.update' b v .id)))
+  | ⟨b, e⟩ :: rest => wp e (fun v => pwp (Runtime.Program.subst rest (Runtime.Subst.updateBinder b v .id)))
 termination_by prog => prog.length
 
 /-- Derived wp rule for let-bindings (desugared to immediately-applied fix). -/
 theorem wp.letIn {b : Runtime.Binder} {bound body : Runtime.Expr} {Q : Runtime.Val → Prop} :
-    wp bound (fun v => wp (body.subst (Runtime.Subst.id.update' b v)) Q) →
+    wp bound (fun v => wp (body.subst (Runtime.Subst.id.updateBinder b v)) Q) →
     wp (Runtime.Expr.letIn b bound body) Q := by
   intro h
   unfold Runtime.Expr.letIn
@@ -106,10 +106,10 @@ theorem wp.letIn {b : Runtime.Binder} {bound body : Runtime.Expr} {Q : Runtime.V
   apply wp.mono _ h
   intro v hv
   apply wp.func
-  exact wp.fix Q body (fun vs => ∃ v, vs = [v] ∧ wp (body.subst (Runtime.Subst.id.update' b v)) Q)
+  exact wp.fix Q body (fun vs => ∃ v, vs = [v] ∧ wp (body.subst (Runtime.Subst.id.updateBinder b v)) Q)
     (fun _ih vs ⟨v, hvs, hwp⟩ => by
       subst hvs
-      simp only [Runtime.Subst.updateAll'_cons, Runtime.Subst.updateAll'_nil_left,
-                  Runtime.Subst.update']
+      simp only [Runtime.Subst.updateAllBinder_cons, Runtime.Subst.updateAllBinder_nil_left,
+                  Runtime.Subst.updateBinder]
       exact hwp)
     [v] ⟨v, rfl, hv⟩

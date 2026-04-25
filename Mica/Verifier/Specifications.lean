@@ -137,7 +137,7 @@ theorem isPrecondFor_fix {Θ : TinyML.TypeEnv} {s : Spec}
           TinyML.ValsHaveTypes Θ vs (s.args.map Prod.snd) -∗
           PredTrans.apply (fun r => TinyML.ValHasType Θ r s.retTy -∗ P r) s.pred
               (argsEnv VerifM.Env.empty s.args vs) -∗
-          wp (e.subst ((Runtime.Subst.id.update' f (.fix f args e)).updateAll' args vs)) P)) :
+          wp (e.subst ((Runtime.Subst.id.updateBinder f (.fix f args e)).updateAllBinder args vs)) P)) :
     R ⊢ s.isPrecondFor Θ (.fix f args e) := by
   refine (SpatialContext.wp_fix' (Φ := fun P vs =>
       iprop(TinyML.ValsHaveTypes Θ vs (s.args.map Prod.snd) ∗
