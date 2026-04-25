@@ -1,3 +1,4 @@
+-- SUMMARY: Structural translation from elaborated frontend terms into the specification language.
 import Mica.Frontend.Spec
 import Mica.TinyML.Untyped
 

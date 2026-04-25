@@ -1,3 +1,4 @@
+-- SUMMARY: Verifier state and environments, together with their well-formedness conditions and fresh-name infrastructure.
 import Mica.Verifier.Scoped
 import Mica.Base.Fresh
 import Mica.SeparationLogic.SpatialAtom

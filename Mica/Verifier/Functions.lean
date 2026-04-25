@@ -1,3 +1,4 @@
+-- SUMMARY: Verification of function bodies against specifications, including the soundness of specification checking.
 import Mica.TinyML.Typed
 import Mica.TinyML.Typing
 import Mica.TinyML.OpSem

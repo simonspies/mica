@@ -1,3 +1,4 @@
+-- SUMMARY: Elaboration of surface syntax into the verifier's core language, with frontend-specific checks.
 import Mica.Frontend.AST
 import Mica.TinyML.Untyped
 

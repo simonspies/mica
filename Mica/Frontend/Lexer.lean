@@ -1,3 +1,4 @@
+-- SUMMARY: Lexical analysis for the OCaml frontend, including tokens and lexer errors.
 import Mica.Frontend.AST
 
 namespace Frontend

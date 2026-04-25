@@ -1,3 +1,4 @@
+-- SUMMARY: Worked examples of Iris proof mode patterns used in the project.
 import Mica.SeparationLogic.Axioms
 
 /-! # Iris Proof Mode — Tactic Patterns

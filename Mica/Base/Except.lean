@@ -1,3 +1,4 @@
+-- SUMMARY: Auxiliary lemmas for reasoning about successful computations in the `Except` monad.
 -- Base/Except.lean — Auxiliary lemmas for Except
 
 namespace Except

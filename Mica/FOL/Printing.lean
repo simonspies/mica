@@ -1,3 +1,4 @@
+-- SUMMARY: Serialization of first-order syntax to SMT-LIB and human-readable notation.
 import Mica.FOL.Formulas
 
 /-! ## Printing for FOL Types

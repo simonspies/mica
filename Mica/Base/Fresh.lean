@@ -1,3 +1,4 @@
+-- SUMMARY: Generic fresh-name generation utilities and their injectivity and freshness proofs.
 -- Base/Fresh.lean — Generic fresh element generation from an injective function
 import Mathlib.Data.List.Perm.Subperm
 import Mathlib.Data.List.Nodup

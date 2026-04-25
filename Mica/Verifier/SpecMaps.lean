@@ -1,3 +1,4 @@
+-- SUMMARY: Finite maps of function specifications, together with satisfaction, update, and well-formedness lemmas.
 import Mica.TinyML.Typed
 import Mica.TinyML.Typing
 import Mica.FOL.Printing

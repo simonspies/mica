@@ -1,3 +1,4 @@
+-- SUMMARY: Spatially lifted weakest-precondition laws for TinyML primitive operations.
 import Mica.SeparationLogic.Interpretations
 
 open Iris Iris.BI

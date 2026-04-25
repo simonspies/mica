@@ -1,3 +1,4 @@
+-- SUMMARY: Supporting infrastructure for verifier bindings, substitutions, argument handling, and term-list evaluation.
 import Mica.TinyML.Typed
 import Mica.TinyML.Typing
 import Mica.TinyML.OpSem

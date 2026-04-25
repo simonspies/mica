@@ -1,3 +1,4 @@
+-- SUMMARY: Surface syntax trees and source locations for the OCaml frontend.
 namespace Frontend
 
 -- Name types

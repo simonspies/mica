@@ -1,3 +1,4 @@
+-- SUMMARY: Sort-checked translation from frontend specifications into verifier terms, formulas, assertions, and predicate transformers.
 import Mica.Frontend.Spec
 import Mica.FOL.Printing
 import Mica.Verifier.Assertions
