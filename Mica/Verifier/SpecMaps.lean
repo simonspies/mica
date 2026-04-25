@@ -148,7 +148,7 @@ theorem SpecMap.satisfiedBy_preserved {Θ : TinyML.TypeEnv} {S S' : SpecMap} {γ
   · iexact Hpre
 
 /-- Generic insert: fresh precondition for `x ↦ fval` plus preservation elsewhere. -/
-theorem SpecMap.satisfiedBy_insert_generic {Θ : TinyML.TypeEnv} {S : SpecMap}
+theorem SpecMap.satisfiedBy_insert_of_preserved {Θ : TinyML.TypeEnv} {S : SpecMap}
     {γ γ' : Runtime.Subst} {x : TinyML.Var} {fval : Runtime.Val} {spec : Spec}
     (hγ' : γ' x = some fval)
     (hγ : ∀ y f, y ≠ x → γ y = some f → γ' y = some f) :
@@ -178,13 +178,13 @@ theorem SpecMap.satisfiedBy_insert {Θ : TinyML.TypeEnv} {S : SpecMap} {γ : Run
     {x : TinyML.Var} {fval : Runtime.Val} {spec : Spec} (hγ : γ x = some fval) :
     S.satisfiedBy Θ γ ∗ spec.isPrecondFor Θ fval ⊢
       SpecMap.satisfiedBy Θ (Finmap.insert x spec S) γ :=
-  SpecMap.satisfiedBy_insert_generic hγ (fun _ _ _ hf => hf)
+  SpecMap.satisfiedBy_insert_of_preserved hγ (fun _ _ _ hf => hf)
 
 theorem SpecMap.satisfiedBy_insert_update {Θ : TinyML.TypeEnv} {S : SpecMap} {γ : Runtime.Subst}
     {x : TinyML.Var} {v : Runtime.Val} {spec : Spec} :
     S.satisfiedBy Θ γ ∗ spec.isPrecondFor Θ v ⊢
       SpecMap.satisfiedBy Θ (Finmap.insert x spec S) (γ.update x v) :=
-  SpecMap.satisfiedBy_insert_generic
+  SpecMap.satisfiedBy_insert_of_preserved
     (by simp [Runtime.Subst.update])
     (fun y f hyx hf => by simp [Runtime.Subst.update, beq_false_of_ne hyx, hf])
 
