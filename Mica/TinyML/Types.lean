@@ -172,34 +172,6 @@ end
 theorem Typ.weight_pos (t : Typ) : 0 < Typ.weight t := by
   cases t <;> simp [Typ.weight] <;> omega
 
-theorem Typ.weight_pair_lt_sum (ss ts : List Typ) :
-    1 + Typ.weights ss + Typ.weights ts < Typ.weight (.sum ss) + Typ.weight (.sum ts) := by
-  simp [Typ.weight]
-
-theorem Typ.weight_pair_lt_arrow_dom (s1 s2 t1 t2 : Typ) :
-    Typ.weight t1 + Typ.weight s1 <
-      Typ.weight (.arrow s1 s2) + Typ.weight (.arrow t1 t2) := by
-  simp [Typ.weight]
-  omega
-
-theorem Typ.weight_pair_lt_arrow_codom (s1 s2 t1 t2 : Typ) :
-    Typ.weight s2 + Typ.weight t2 <
-      Typ.weight (.arrow s1 s2) + Typ.weight (.arrow t1 t2) := by
-  simp [Typ.weight]
-  omega
-
-theorem Typ.weight_pair_lt_list_head (s : Typ) (ss : List Typ) (t : Typ) (ts : List Typ) :
-    Typ.weight s + Typ.weight t < 1 + Typ.weights (s :: ss) + Typ.weights (t :: ts) := by
-  simp [Typ.weights]
-  omega
-
-theorem Typ.weight_pair_lt_list_tail (s : Typ) (ss : List Typ) (t : Typ) (ts : List Typ) :
-    1 + Typ.weights ss + Typ.weights ts < 1 + Typ.weights (s :: ss) + Typ.weights (t :: ts) := by
-  have hs : 0 < Typ.weight s := Typ.weight_pos s
-  have ht : 0 < Typ.weight t := Typ.weight_pos t
-  simp [Typ.weights]
-  omega
-
 /-! ## Subtyping decision procedure -/
 
 mutual
@@ -226,7 +198,8 @@ mutual
   termination_by s t => Typ.weight s + Typ.weight t
   decreasing_by
     all_goals
-      simp [Typ.weight]; try omega
+      simp [Typ.weight]
+      try omega
 
   def Typ.subListBody (Θ : TypeEnv) (recur : Typ → Typ → Bool) : List Typ → List Typ → Bool
     | [], [] => true
@@ -235,9 +208,10 @@ mutual
   termination_by ss ts => 1 + Typ.weights ss + Typ.weights ts
   decreasing_by
     all_goals
-      first
-        | exact Typ.weight_pair_lt_list_head _ _ _ _
-        | exact Typ.weight_pair_lt_list_tail _ _ _ _
+      have hs : 0 < Typ.weight s := Typ.weight_pos s
+      have ht : 0 < Typ.weight t := Typ.weight_pos t
+      simp [Typ.weights]
+      omega
 end
 
 def Typ.subi (Θ : TypeEnv) (steps : Nat) : Typ → Typ → Bool :=
@@ -344,9 +318,10 @@ mutual
   termination_by 1 + Typ.weights ss + Typ.weights ts
   decreasing_by
     all_goals
-      first
-        | exact Typ.weight_pair_lt_list_head _ _ _ _
-        | exact Typ.weight_pair_lt_list_tail _ _ _ _
+      have hs : 0 < Typ.weight s := Typ.weight_pos s
+      have ht : 0 < Typ.weight t := Typ.weight_pos t
+      simp [Typ.weights]
+      omega
 
   private theorem Typ.subi_sound {Θ : TypeEnv} {steps : Nat} {s t : Typ}
       (h : Typ.subi Θ steps s t = true) : Typ.Sub Θ s t := by
