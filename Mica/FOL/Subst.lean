@@ -255,13 +255,6 @@ theorem Term.eval_subst {σ : Subst} {ρ : Env} {t : Term τ} {Δ Δ' : Signatur
   | ite c t e ihc iht ihe =>
     simp [Term.subst, Term.eval, ihc ht.1 hσ hwfΔ', iht ht.2.1 hσ hwfΔ', ihe ht.2.2 hσ hwfΔ']
 
-def freshName (avoid : List String) (base : String) : String :=
-  fresh (addPrimes base) avoid
-
-theorem freshName_not_in_avoid (avoid : List String) (base : String) :
-    freshName avoid base ∉ avoid := by
-  exact fresh_not_mem (addPrimes base) avoid (addPrimes_injective base)
-
 def Formula.subst (σ : Subst) (avoid : List String) : Formula → Formula
   | .true_  => .true_
   | .false_ => .false_

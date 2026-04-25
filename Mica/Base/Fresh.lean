@@ -209,3 +209,10 @@ theorem addNumbers_injective (base: String) :
         (ofList_map_digitChar_ne_empty n.succ_ne_zero)
     | succ m =>
       exact alwaysAddNumbers_injective base heq
+
+def freshName (avoid : List String) (base : String) : String :=
+  fresh (addPrimes base) avoid
+
+theorem freshName_not_in_avoid (avoid : List String) (base : String) :
+    freshName avoid base ∉ avoid := by
+  exact fresh_not_mem (addPrimes base) avoid (addPrimes_injective base)
