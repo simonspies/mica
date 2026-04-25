@@ -14,7 +14,8 @@ open Iris Iris.BI
 /-!
 # Specifications
 
-Defines `Spec`, `SpecMap`, and related operations built on top of `PredTrans`.
+Defines `Spec` and its call/implementation operations built on top of
+`PredTrans`.
 -/
 
 -- ---------------------------------------------------------------------------
