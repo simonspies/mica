@@ -75,7 +75,7 @@ theorem checkBody_correct (Θ : TinyML.TypeEnv) (S : SpecMap) (s : Spec)
   set Γ := (argNames.zip (s.args.map Prod.snd)).foldl
     (fun ctx (x : String × TinyML.Typ) => ctx.extend x.1 x.2) TinyML.TyCtx.empty
   set B : Bindings := Bindings.empty ++ (argNames.zip argVars).reverse
-  have hbwf : Bindings.wf B st'.decls := by
+  have hbwf : Bindings.wfIn B st'.decls := by
     intro ⟨n, v⟩ hp
     apply hargVars_mem v
     have hmem : (n, v) ∈ (argNames.zip argVars) := by simp [B, Bindings.empty] at hp; exact hp

@@ -23,12 +23,12 @@ def Bindings.agreeOnLinked (B : Bindings) (ρ : Env) (γ : Runtime.Subst) :=
   ∀ x x', B.lookup x = some x' →
     x'.sort = .value ∧ γ x = .some (ρ.consts .value x'.name)
 
-def Bindings.wf (B : Bindings) (decls : Signature) : Prop :=
+def Bindings.wfIn (B : Bindings) (decls : Signature) : Prop :=
   ∀ p ∈ B, p.2 ∈ decls.consts
 
 theorem Bindings.agreeOnLinked_env_agree {B : Bindings} {decls : Signature} {ρ ρ' : Env} {γ : Runtime.Subst}
     (hagr : B.agreeOnLinked ρ γ) (henv : Env.agreeOn decls ρ ρ')
-    (hwf : B.wf decls) : B.agreeOnLinked ρ' γ := by
+    (hwf : B.wfIn decls) : B.agreeOnLinked ρ' γ := by
   intro x x' hmem
   obtain ⟨hsort, hγ⟩ := hagr x x' hmem
   obtain ⟨l₁, l₂, heq, _⟩ := List.lookup_eq_some_iff.mp hmem
@@ -38,9 +38,9 @@ theorem Bindings.agreeOnLinked_env_agree {B : Bindings} {decls : Signature} {ρ 
   rw [hsort] at henv'
   exact ⟨hsort, hγ.trans (congrArg some henv')⟩
 
-theorem Bindings.wf_cons {B : Bindings} {decls : Signature} {x : TinyML.Var} {v : FOL.Const}
-    (hbwf : B.wf decls) :
-    Bindings.wf ((x, v) :: B) (decls.addConst v) := by
+theorem Bindings.wfIn_cons {B : Bindings} {decls : Signature} {x : TinyML.Var} {v : FOL.Const}
+    (hbwf : B.wfIn decls) :
+    Bindings.wfIn ((x, v) :: B) (decls.addConst v) := by
   intro p hp
   simp [List.mem_cons] at hp
   rcases hp with rfl | hp
