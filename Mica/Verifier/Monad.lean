@@ -172,8 +172,8 @@ private theorem VerifM.eval_rec.mono' {m : VerifM α} (ρ : VerifM.Env) (st : Tr
     intro u
     refine hPQ _ _ _ (Signature.Subset.subset_addConst _ _) ?_ (h u)
     exact VerifM.Env.agreeOn_update_fresh
-      (c := ⟨Fresh.fresh (Fresh.addNumbers (hint.getD "_v")) st.decls.allNames, t⟩)
-      (Fresh.fresh_not_mem (Fresh.addNumbers (hint.getD "_v")) st.decls.allNames (Fresh.addNumbers_injective _))
+      (c := ⟨Fresh.freshNumbers (hint.getD "_v") st.decls.allNames, t⟩)
+      (Fresh.freshNumbers_not_mem (hint.getD "_v") st.decls.allNames)
   | assume item =>
     cases item with
     | pure φ =>
@@ -227,8 +227,8 @@ private theorem VerifM.eval_rec_preserves_wf (m : VerifM α) (st : TransState) (
     simp only [VerifM.eval_rec]
     intro u
     specialize (h u)
-    let w := Fresh.fresh (Fresh.addNumbers (hint.getD "_v")) st.decls.allNames
-    have hfresh := Fresh.fresh_not_mem (Fresh.addNumbers (hint.getD "_v")) st.decls.allNames (Fresh.addNumbers_injective _)
+    let w := Fresh.freshNumbers (hint.getD "_v") st.decls.allNames
+    have hfresh := Fresh.freshNumbers_not_mem (hint.getD "_v") st.decls.allNames
     have hagree : VerifM.Env.agreeOn st.decls ρ (ρ.updateConst t w u) := by
       exact VerifM.Env.agreeOn_update_fresh (c := ⟨w, t⟩) hfresh
     constructor

@@ -130,7 +130,7 @@ structure TransState.wf (st : TransState) : Prop where
 
 def TransState.freshConst (hint : Option String) (t : Srt) (st : TransState) : FOL.Const :=
   let base := hint.getD "_v"
-  let x' := Fresh.fresh (Fresh.addNumbers base) st.decls.allNames
+  let x' := Fresh.freshNumbers base st.decls.allNames
   ⟨x', t⟩
 
 def TransState.addItem (st : TransState) (item : CtxItem) :=
@@ -143,7 +143,7 @@ theorem TransState.freshConst.wf {hint t} (st : TransState) :
     TransState.wf { st with decls := st.decls.addConst (st.freshConst hint t) } := by
   intro hwf
   have hfresh : (st.freshConst hint t).name ∉ st.decls.allNames :=
-    Fresh.fresh_not_mem (Fresh.addNumbers (hint.getD "_v")) st.decls.allNames (Fresh.addNumbers_injective _)
+    Fresh.freshNumbers_not_mem (hint.getD "_v") st.decls.allNames
   have hwf' := Signature.wf_addConst hwf.namesDisjoint hfresh
   constructor
   · exact Context.wfIn_mono _ hwf.assertsWf (Signature.Subset.subset_addConst _ _) hwf'
@@ -153,7 +153,7 @@ theorem TransState.freshConst.wf {hint t} (st : TransState) :
 /-- The name produced by `freshConst` is not in the existing decls. -/
 theorem TransState.freshConst_fresh (st : TransState) (hint : Option String) (τ : Srt) :
     (st.freshConst hint τ).name ∉ st.decls.allNames :=
-  Fresh.fresh_not_mem (Fresh.addNumbers (hint.getD "_v")) st.decls.allNames (Fresh.addNumbers_injective _)
+  Fresh.freshNumbers_not_mem (hint.getD "_v") st.decls.allNames
 
 theorem TransState.addAssert.wf (st : TransState) :
     TransState.wf st →

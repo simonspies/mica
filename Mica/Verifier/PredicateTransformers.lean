@@ -159,7 +159,7 @@ theorem PredTrans.call_correct (pt : PredTrans) (σ : FiniteSubst)
         have hdecl := VerifM.eval_decl hb2
         set resVar := st₁.freshConst (some postName) .value
         have hfresh_decls : resVar.name ∉ st₁.decls.allNames :=
-          Fresh.fresh_not_mem (Fresh.addNumbers postName) st₁.decls.allNames (Fresh.addNumbers_injective _)
+          Fresh.freshNumbers_not_mem postName st₁.decls.allNames
         have hfresh_range : resVar.name ∉ σ₁.range.allNames :=
           fun h => hfresh_decls (Signature.allNames_subset hσ₁wf.2.1 _ h)
         specialize hdecl v
@@ -269,7 +269,7 @@ theorem PredTrans.implement_correct (pt : PredTrans) (σ : FiniteSubst)
       have hdecl := VerifM.eval_decl hb2
       set resVar := st₂.freshConst (some postName) .value
       have hfresh_decls : resVar.name ∉ st₂.decls.allNames :=
-        Fresh.fresh_not_mem (Fresh.addNumbers postName) st₂.decls.allNames (Fresh.addNumbers_injective _)
+        Fresh.freshNumbers_not_mem postName st₂.decls.allNames
       have hfresh_range : resVar.name ∉ σ₁.range.allNames :=
         fun hmem => hfresh_decls (Signature.allNames_subset (Signature.Subset.trans hσ₁wf.2.1 hdsub_body) _ hmem)
       specialize hdecl (result.eval ρ₂.env)

@@ -212,6 +212,16 @@ theorem addNumbers_injective (base: String) :
     | succ m =>
       exact alwaysAddNumbers_injective base heq
 
+/-- Generate a fresh string by trying `base`, then `base0`, `base1`, ... until
+    a name not in `avoid` is found. -/
+def freshNumbers (base : String) (avoid : List String) : String :=
+  fresh (addNumbers base) avoid
+
+/-- The numbered fresh name generated from `base` is not in `avoid`. -/
+theorem freshNumbers_not_mem (base : String) (avoid : List String) :
+    freshNumbers base avoid ∉ avoid := by
+  exact fresh_not_mem (addNumbers base) avoid (addNumbers_injective base)
+
 def freshName (avoid : List String) (base : String) : String :=
   fresh (addPrimes base) avoid
 
