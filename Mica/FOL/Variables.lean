@@ -214,9 +214,6 @@ def ofConsts (consts : List FOL.Const) : Signature := ⟨[], consts, [], []⟩
 
 @[simp] theorem ofConsts_consts (consts : List FOL.Const) : (ofConsts consts).consts = consts := rfl
 
-@[simp] theorem eta (s : Signature) :
-    ⟨s.vars, s.consts, s.unary, s.binary⟩ = s := by cases s; rfl
-
 structure Subset (Δ₁ Δ₂ : Signature) : Prop where
   vars   : ∀ x ∈ Δ₁.vars, x ∈ Δ₂.vars
   consts : ∀ c ∈ Δ₁.consts, c ∈ Δ₂.consts
