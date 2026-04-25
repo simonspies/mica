@@ -2,6 +2,9 @@
 import Mica.Verifier.Scoped
 import Mica.Base.Fresh
 import Mica.SeparationLogic.SpatialAtom
+import Mica.SeparationLogic
+
+open Iris Iris.BI
 
 structure TransState where
   decls   : Signature
@@ -75,6 +78,22 @@ theorem Env.agreeOn_update_fresh {ρ : Env} {c : FOL.Const} {u : c.sort.denote}
     (agreeOn_update_fresh_const (ρ := ρ.env) (c := c) (u := u) (Δ := Δ) hfresh)
 
 end VerifM
+
+/-- Semantic interpretation of a verifier context item. -/
+def CtxItem.interp (ρ : VerifM.Env) : CtxItem → iProp
+  | .pure φ => ⌜φ.eval ρ.env⌝
+  | .spatial a => a.interp ρ.env
+
+def CtxItem.purePart (i : CtxItem) (ρ : VerifM.Env) : Prop :=
+  match i with
+  | .pure φ => φ.eval ρ.env
+  | .spatial _ => True
+
+def TransState.sl (st : TransState) (ρ : VerifM.Env) : iProp :=
+  SpatialContext.interp ρ.env st.owns
+
+@[simp] theorem TransState.sl_eq (st : TransState) (ρ : VerifM.Env) :
+    st.sl ρ = SpatialContext.interp ρ.env st.owns := rfl
 
 /-- Translation to `ScopedM`'s flat context. -/
 def TransState.toFlatCtx (st : TransState) : FlatCtx :=

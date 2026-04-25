@@ -46,30 +46,6 @@ def Atom.subst (σ : Subst) : Atom τ → Atom τ
   | .own t    => .own (t.subst σ)
 
 
-namespace CtxItem
-
-/-- Semantic interpretation of a verifier context item. -/
-def interp (ρ : VerifM.Env) : CtxItem → iProp
-  | .pure φ => ⌜φ.eval ρ.env⌝
-  | .spatial a => a.interp ρ.env
-
-def purePart (i : CtxItem) (ρ : VerifM.Env) : Prop :=
-  match i with
-  | .pure φ => φ.eval ρ.env
-  | .spatial _ => True
-
-end CtxItem
-
-namespace TransState
-
-def sl (st : TransState) (ρ : VerifM.Env) : iProp :=
-  SpatialContext.interp ρ.env st.owns
-
-@[simp] theorem sl_eq (st : TransState) (ρ : VerifM.Env) :
-    st.sl ρ = SpatialContext.interp ρ.env st.owns := rfl
-
-end TransState
-
 /-- Convert an instantiated atom into the corresponding verifier context item. -/
 def Atom.toItem (a : Atom τ) (t : Term τ) : CtxItem :=
   match a with
