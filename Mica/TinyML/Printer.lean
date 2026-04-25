@@ -71,15 +71,15 @@ partial def printLetIn (name : Untyped.Binder) (bound body : Untyped.Expr) : Str
   | _ =>
     s!"let {name.print} = {printExpr bound} in\n{printExpr body}"
 
-partial def printOr : Untyped.Expr → String
+private partial def printOr : Untyped.Expr → String
   | .binop .or lhs rhs => s!"{printAnd lhs} || {printOr rhs}"
   | e => printAnd e
 
-partial def printAnd : Untyped.Expr → String
+private partial def printAnd : Untyped.Expr → String
   | .binop .and lhs rhs => s!"{printCmp lhs} && {printAnd rhs}"
   | e => printCmp e
 
-partial def printCmp : Untyped.Expr → String
+private partial def printCmp : Untyped.Expr → String
   | .binop .eq lhs rhs => s!"{printAdd lhs} = {printAdd rhs}"
   | .binop .lt lhs rhs => s!"{printAdd lhs} < {printAdd rhs}"
   | .binop .le lhs rhs => s!"{printAdd lhs} <= {printAdd rhs}"
@@ -87,18 +87,18 @@ partial def printCmp : Untyped.Expr → String
   | .binop .ge lhs rhs => s!"{printAdd lhs} >= {printAdd rhs}"
   | e => printAdd e
 
-partial def printAdd : Untyped.Expr → String
+private partial def printAdd : Untyped.Expr → String
   | .binop .add lhs rhs => s!"{printAdd lhs} + {printMul rhs}"
   | .binop .sub lhs rhs => s!"{printAdd lhs} - {printMul rhs}"
   | e => printMul e
 
-partial def printMul : Untyped.Expr → String
+private partial def printMul : Untyped.Expr → String
   | .binop .mul lhs rhs => s!"{printMul lhs} * {printApp rhs}"
   | .binop .div lhs rhs => s!"{printMul lhs} / {printApp rhs}"
   | .binop .mod lhs rhs => s!"{printMul lhs} mod {printApp rhs}"
   | e => printApp e
 
-partial def printApp : Untyped.Expr → String
+private partial def printApp : Untyped.Expr → String
   | .app fn args => s!"{printApp fn} {" ".intercalate (args.map printUnary)}"
   | .unop .not e => s!"not {printAtom e}"
   | .ref e => s!"ref {printAtom e}"
@@ -106,13 +106,13 @@ partial def printApp : Untyped.Expr → String
   | .assert e => s!"assert {printAtom e}"
   | e => printUnary e
 
-partial def printUnary : Untyped.Expr → String
+private partial def printUnary : Untyped.Expr → String
   | .unop .neg e => s!"-{printAtom e}"
   | .deref e => s!"!{printAtom e}"
   | .unop (.proj n) e => s!"{printAtom e}.{n}"
   | e => printAtom e
 
-partial def printAtom : Untyped.Expr → String
+private partial def printAtom : Untyped.Expr → String
   | .const c => printConst c
   | .var name => name
   | .fix self args _ body => printFix self args body
