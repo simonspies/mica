@@ -659,7 +659,7 @@ theorem Env.agreeOn_declVar {ρ ρ' : Env} {Δ : Signature} {τ : Srt} {x : Stri
   intro hagree
   simpa [Signature.declVar] using (Env.agreeOn_update (Env.agreeOn_remove hagree))
 
-theorem agreeOn_update_fresh_const {ρ : Env} {c : FOL.Const} {u : c.sort.denote}
+theorem Env.agreeOn_update_fresh_const {ρ : Env} {c : FOL.Const} {u : c.sort.denote}
     {Δ : Signature} (hfresh : c.name ∉ Δ.allNames) :
     Env.agreeOn Δ ρ (ρ.updateConst c.sort c.name u) := by
   constructor

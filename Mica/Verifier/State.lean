@@ -75,7 +75,7 @@ theorem Env.agreeOn_update_fresh {ρ : Env} {c : FOL.Const} {u : c.sort.denote}
     {Δ : Signature} (hfresh : c.name ∉ Δ.allNames) :
     Env.agreeOn Δ ρ (ρ.updateConst c.sort c.name u) := by
   simpa [Env.agreeOn, Env.updateConst] using
-    (agreeOn_update_fresh_const (ρ := ρ.env) (c := c) (u := u) (Δ := Δ) hfresh)
+    (Env.agreeOn_update_fresh_const (ρ := ρ.env) (c := c) (u := u) (Δ := Δ) hfresh)
 
 end VerifM
 

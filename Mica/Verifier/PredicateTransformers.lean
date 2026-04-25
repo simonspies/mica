@@ -201,7 +201,7 @@ theorem PredTrans.call_correct (pt : PredTrans) (σ : FiniteSubst)
         have hinterp_bi :
             st₁.sl ρ₁ ⊣⊢ st₁.sl (ρ₁.updateConst .value resVar.name v) :=
           SpatialContext.interp_env_agree (VerifM.eval.wf hcont).ownsWf
-            (agreeOn_update_fresh_const (c := resVar) hfresh_decls)
+            (Env.agreeOn_update_fresh_const (c := resVar) hfresh_decls)
         exact (sep_mono hinterp_bi.1 (by
           iintro HR
           iexact HR)).trans <| hassume.trans <| Assertion.post_env_agree hwf₁'
@@ -289,7 +289,7 @@ theorem PredTrans.implement_correct (pt : PredTrans) (σ : FiniteSubst)
           (ρ₂.updateConst .value resVar.name (result.eval ρ₂.env)).env := by
         simp only [Formula.eval, Term.eval, Const.denote]
         simpa [Env.lookupConst, Env.updateConst] using
-          (Term.eval_env_agree hwf_result (agreeOn_update_fresh_const hfresh_decls))
+          (Term.eval_env_agree hwf_result (Env.agreeOn_update_fresh_const hfresh_decls))
       have hassume := VerifM.eval_assumePure hb3 heq_wf heq_holds
       set σ₂ := σ₁.rename ⟨postName, .value⟩ resVar.name
       have hσ₂wf : σ₂.wf (st₂.decls.addConst resVar) := by
@@ -348,7 +348,7 @@ theorem PredTrans.implement_correct (pt : PredTrans) (σ : FiniteSubst)
           st₃.sl (ρ₂.updateConst .value resVar.name (result.eval ρ₂.env)) := by
         simpa using
           (SpatialContext.interp_env_agree (VerifM.eval.wf hrest).ownsWf
-            (agreeOn_update_fresh_const hfresh_decls)).1
+            (Env.agreeOn_update_fresh_const hfresh_decls)).1
       have hpre_final :
           st₂.sl ρ₂ ∗ (Φ (result.eval ρ₂.env) -∗ S) ⊢
             Assertion.pre (fun () _ => Φ (result.eval ρ₂.env) -∗ S) postBody

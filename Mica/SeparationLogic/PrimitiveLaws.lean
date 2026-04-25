@@ -138,7 +138,7 @@ theorem wp_ref {v : Runtime.Val} {Q : Runtime.Val → iProp}
     -- goal: (ctx.interp ρ ∗ R) ∗ (loc ↦ v) ⊢ Q (.loc loc)
     let ρ' := ρ.updateConst .value name (.loc loc)
     let a : SpatialAtom := .pointsTo (.const (.uninterpreted name .value)) vt
-    have hagree : Env.agreeOn Δ ρ ρ' := agreeOn_update_fresh_const (c := ⟨name, .value⟩) hfresh
+    have hagree : Env.agreeOn Δ ρ ρ' := Env.agreeOn_update_fresh_const (c := ⟨name, .value⟩) hfresh
     have hctxeq : ctx.interp ρ ⊢ ctx.interp ρ' := by
       exact (SpatialContext.interp_env_agree hctx hagree).1
     have hveq : Term.eval ρ' vt = v := by

@@ -189,7 +189,7 @@ theorem FiniteSubst.rename_agreeOn {σ : FiniteSubst} {v : Var} {c : FOL.Const}
       rw [Subst.apply_update_ne (Or.inl hne), Subst.apply_eraseName_ne hne,
         Env.lookupConst_updateConst_ne (Or.inl hne), Subst.eval_lookup]
       exact (Term.eval_env_agree (hσwf.1 w hwdom)
-        (agreeOn_update_fresh_const (c := ⟨c.name, v.sort⟩) hfresh)).symm
+        (Env.agreeOn_update_fresh_const (c := ⟨c.name, v.sort⟩) hfresh)).symm
   · simp [Signature.ofVars]
 
 theorem FiniteSubst.rename_dom_declVar {σ : FiniteSubst} {Δ : Signature} {v : Var} {name' : String}
@@ -223,7 +223,7 @@ theorem FiniteSubst.eval_update_fresh {σ : FiniteSubst} {ρ : Env} {τ : Srt} {
     Env.agreeOn (Signature.ofVars σ.dom) (σ.subst.eval ρ) (σ.subst.eval (ρ.updateConst τ name' u)) := by
   constructor
   · intro v hv
-    exact Term.eval_env_agree (hσ.1 v hv) (agreeOn_update_fresh_const (c := ⟨name', τ⟩) hfresh)
+    exact Term.eval_env_agree (hσ.1 v hv) (Env.agreeOn_update_fresh_const (c := ⟨name', τ⟩) hfresh)
   · simp [Signature.ofVars]
 
 theorem FiniteSubst.subst_wfIn_formula {σ : FiniteSubst} {φ : Formula} {Δ : Signature}

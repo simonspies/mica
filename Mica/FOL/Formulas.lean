@@ -201,7 +201,7 @@ theorem Formula.eq_eval_updateConst_of_fresh {Δ : Signature} {ρ : Env}
     (Formula.eq c.sort (.const (.uninterpreted c.name c.sort)) t).eval
       (ρ.updateConst c.sort c.name (t.eval ρ)) := by
   simp only [Formula.eval, Term.eval_const_updateConst]
-  exact Term.eval_env_agree ht (agreeOn_update_fresh_const hfresh)
+  exact Term.eval_env_agree ht (Env.agreeOn_update_fresh_const hfresh)
 
 
 /-- A predicate with one named bound variable: `λ x -> body`. -/

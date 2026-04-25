@@ -274,7 +274,7 @@ theorem declareArgs_correct (Θ : TinyML.TypeEnv) :
             sargs_rest.map (fun p => p.2.eval ρ.env) :=
           List.map_congr_left fun p hp => Term.eval_env_agree
             (hsargs p (List.mem_cons_of_mem _ hp))
-            (Env.agreeOn_symm (agreeOn_update_fresh_const hfresh_decls))
+            (Env.agreeOn_symm (Env.agreeOn_update_fresh_const hfresh_decls))
         obtain ⟨σ'', st'', ρ'', hΨ, hσ''wf, hσ''domwf, howns, hsublist, hdom_sub, hagree⟩ :=
           ih sargs_rest σ' _ ρ₁ Ψ hσ'wf hσ'domwf hsargs_rest hassume
         refine ⟨σ'', st'', ρ'', hΨ, hσ''wf, hσ''domwf, howns,

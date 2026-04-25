@@ -702,7 +702,7 @@ theorem compileRef_correct (e : Expr)
       have hsl_agree : st₁.sl ρ_e ⊢ st₂.sl ρ_e' := by
         simp only [TransState.sl_eq, st₂]
         apply (SpatialContext.interp_env_agree hwf_st₁.ownsWf ?_).1
-        exact agreeOn_update_fresh_const (c := c) hfresh
+        exact Env.agreeOn_update_fresh_const (c := c) hfresh
       iapply (hpost (.loc loc) ρ_e' st₂ (Term.const (.uninterpreted c.name .value))
         hret hc_wf hval_eval)
       isplitl [Howns]
@@ -768,7 +768,7 @@ theorem compileDeref_correct (e : Expr) (ty : TinyML.Typ)
       have hsl_agree : st₁.sl ρ_e ⊢ st₃.sl ρ₂ := by
         simp [TransState.sl_eq, st₂, hst₃_owns]
         exact (SpatialContext.interp_env_agree (VerifM.eval.wf hdecl_eval).ownsWf
-          (agreeOn_update_fresh_const (c := c) hc_fresh)).1
+          (Env.agreeOn_update_fresh_const (c := c) hc_fresh)).1
       iapply (hpost w ρ₂ st₃ sv hΨ_ret hsv_wf hsv_eval)
       isplitl [Howns]
       · iapply hsl_agree
@@ -1184,13 +1184,13 @@ theorem compileLetIn_correct (b : Binder) (e body : Expr)
         hsubst.symm ▸ this
       have hinterp_eq : SpatialContext.interp ρ_e.env st₁.owns ⊢ SpatialContext.interp ρ_body.env st₁.owns :=
         (SpatialContext.interp_env_agree (VerifM.eval.wf hΨ_e).ownsWf
-          (agreeOn_update_fresh_const hfresh)).1
+          (Env.agreeOn_update_fresh_const hfresh)).1
       rw [Binder.runtime_of_name_some hname]
       exact (sep_mono_l hinterp_eq).trans <|
         by simpa [st₂, γ_body, base, Runtime.Subst.updateBinder, Runtime.Subst.update, Runtime.Subst.id]
           using hbody'
     have hagreeOn_body_e : Env.agreeOn st₁.decls ρ_e.env ρ_body.env :=
-      agreeOn_update_fresh_const hfresh
+      Env.agreeOn_update_fresh_const hfresh
     have hΨ_body : (compile Θ (Finmap.erase x S) ((x, v) :: B) (Γ.extend x e.ty) body).eval st₂ ρ_body Ψ := by
       have hdecl_eval := VerifM.eval_bind _ _ _ _ hΨ_e
       have hdecl := VerifM.eval_decl hdecl_eval
@@ -1679,7 +1679,7 @@ theorem compileSingleBranch_correct (binder : Binder) (body : Expr)
       refine ⟨Term.wfIn_mono sc hsc_wf (Signature.Subset.subset_addConst _ _)
         (Signature.wf_addConst hstwf hxv_fresh), trivial, hxv_wf⟩
     have hsc_eval_ρ₁ : sc.eval ρ₁.env = sc.eval ρ.env :=
-      Term.eval_env_agree hsc_wf (Env.agreeOn_symm (agreeOn_update_fresh_const hxv_fresh))
+      Term.eval_env_agree hsc_wf (Env.agreeOn_symm (Env.agreeOn_update_fresh_const hxv_fresh))
     have hformula_eval : Formula.eval ρ₁.env
         (Formula.eq .value sc (.unop (.mkInj i n) (.const (.uninterpreted xv.name .value)))) := by
       simp [Formula.eval, Term.eval, UnOp.eval]
@@ -1691,9 +1691,9 @@ theorem compileSingleBranch_correct (binder : Binder) (body : Expr)
     have hassume_bind₂ := VerifM.eval_bind _ _ _ _ heval_assumeAll
     have hinterp_eq : SpatialContext.interp ρ.env st.owns ⊢ SpatialContext.interp ρ₁.env st.owns :=
       (SpatialContext.interp_env_agree (VerifM.eval.wf heval_decl).ownsWf
-        (agreeOn_update_fresh_const hxv_fresh)).1
+        (Env.agreeOn_update_fresh_const hxv_fresh)).1
     have hagreeOn_st : Env.agreeOn st.decls ρ.env ρ₁.env :=
-      agreeOn_update_fresh_const hxv_fresh
+      Env.agreeOn_update_fresh_const hxv_fresh
     -- Extract the type-constraints Prop from the iProp `ValHasType Θ payload ty_i`
     -- assumption, then dispatch into iproof mode to build the final entailment.
     istart

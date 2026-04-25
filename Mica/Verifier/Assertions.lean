@@ -451,7 +451,7 @@ theorem Assertion.assume_correct (m : Assertion α) (σ : FiniteSubst)
         (TransState.freshConst.wf _ (VerifM.eval.wf heval)).namesDisjoint
     have hinterp_bi : st.sl ρ ⊣⊢ st.sl (ρ.updateConst v.sort v'.name u) :=
       SpatialContext.interp_env_agree (VerifM.eval.wf heval).ownsWf
-        (agreeOn_update_fresh_const (c := v') hv'_fresh_decls)
+        (Env.agreeOn_update_fresh_const (c := v') hv'_fresh_decls)
     exact (sep_mono hinterp_bi.1 (by
       iintro HR
       iexact HR)).trans <| hih.trans <| Assertion.post_env_agree hkwf
@@ -582,7 +582,7 @@ theorem Assertion.assume_correct (m : Assertion α) (σ : FiniteSubst)
         simp [TransState.addItem]
         exact sep_mono
           (SpatialContext.interp_env_agree (VerifM.eval.wf heval).ownsWf
-            (agreeOn_update_fresh_const (c := v') hv'_fresh_decls)).1
+            (Env.agreeOn_update_fresh_const (c := v') hv'_fresh_decls)).1
           (by
             iintro HR
             iexact HR)
@@ -618,7 +618,7 @@ theorem Assertion.assume_correct (m : Assertion α) (σ : FiniteSubst)
           st.sl ρ ⊢
             st.sl (ρ.updateConst v.sort v'.name u) :=
         (SpatialContext.interp_env_agree (VerifM.eval.wf heval).ownsWf
-          (agreeOn_update_fresh_const (c := v') hv'_fresh_decls)).1
+          (Env.agreeOn_update_fresh_const (c := v') hv'_fresh_decls)).1
       iapply (hih.trans <| Assertion.post_env_agree hkwf'
         (by
           simpa [σ', FiniteSubst.rename, Signature.ofVars, Signature.remove, Signature.addVar] using
@@ -728,7 +728,7 @@ theorem Assertion.prove_correct (m : Assertion α) (σ : FiniteSubst)
         (TransState.freshConst.wf _ (VerifM.eval.wf heval)).namesDisjoint
     have hinterp_bi : st.sl ρ ⊣⊢ st.sl (ρ.updateConst v.sort v'.name u) :=
       SpatialContext.interp_env_agree (VerifM.eval.wf heval).ownsWf
-        (agreeOn_update_fresh_const (c := v') hv'_fresh_decls)
+        (Env.agreeOn_update_fresh_const (c := v') hv'_fresh_decls)
     exact (sep_mono hinterp_bi.1 (by
       iintro HR
       iexact HR)).trans <| hih.trans <| Assertion.pre_env_agree hkwf'
@@ -797,7 +797,7 @@ theorem Assertion.prove_correct (m : Assertion α) (σ : FiniteSubst)
               (ρ.updateConst v.sort v'.name (t.eval ρ.env)).env := by
             simp only [Formula.eval, Term.eval, Const.denote]
             simpa [Env.lookupConst, Env.updateConst] using
-              (Term.eval_env_agree htwf' (agreeOn_update_fresh_const hv'_fresh_decls))
+              (Term.eval_env_agree htwf' (Env.agreeOn_update_fresh_const hv'_fresh_decls))
           have hassume := VerifM.eval_assumePure hb3 heq_wf heq_holds
           set σ' := σ.rename v v'.name
           have hσ'wf : σ'.wf (st'.decls.addConst v') := by
@@ -812,7 +812,7 @@ theorem Assertion.prove_correct (m : Assertion α) (σ : FiniteSubst)
             (TransState.freshConst.wf _ (VerifM.eval.wf hq)).namesDisjoint
           have hinterp_bi : st'.sl ρ ⊣⊢ st'.sl (ρ.updateConst v.sort v'.name (t.eval ρ.env)) :=
             SpatialContext.interp_env_agree (VerifM.eval.wf hq).ownsWf
-              (agreeOn_update_fresh_const (c := v') hv'_fresh_decls)
+              (Env.agreeOn_update_fresh_const (c := v') hv'_fresh_decls)
           have hframe : st'.sl ρ ∗ R ⊢
               st'.sl (ρ.updateConst v.sort v'.name (t.eval ρ.env)) ∗ R := by
             exact sep_mono hinterp_bi.1 (by
