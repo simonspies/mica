@@ -114,6 +114,7 @@ theorem eval_done {a : α} {st : State} {ret : α} {st' : State} :
 
 def Outcome := Except String Unit
 
+/-- `s.checks φ` holds when every successful execution of `s` from `State.initial` establishes `φ`. -/
 def checks (s : Strategy Outcome) (φ : Prop) :=
   ∀ st', eval s State.initial (.ok ()) st' → φ
 
