@@ -88,15 +88,6 @@ theorem SpecMap.lookup_eraseAll {keys : List String} {S : SpecMap} {y : String} 
     · rw [Finmap.lookup_erase_ne (Ne.symm hky)]
       by_cases hmem : y ∈ ks <;> simp [hmem, Ne.symm hky]
 
-theorem SpecMap.eraseAll_lookup_none {keys : List String} {S : SpecMap} {y : String}
-    (hy : y ∈ keys) : (SpecMap.eraseAll keys S).lookup y = none := by
-  simp [lookup_eraseAll, hy]
-
-theorem SpecMap.eraseAll_lookup_of_notin {keys : List String} {y : String}
-    (hy : y ∉ keys) (S : SpecMap) :
-    (SpecMap.eraseAll keys S).lookup y = S.lookup y := by
-  simp [lookup_eraseAll, hy]
-
 theorem SpecMap.wfIn_eraseAll {keys : List String} {S : SpecMap} {Δ : Signature}
     (h : S.wfIn Δ) : (SpecMap.eraseAll keys S).wfIn Δ := by
   induction keys generalizing S with
@@ -231,8 +222,12 @@ theorem SpecMap.satisfiedBy_eraseAll_updateAllBinder {Θ : TinyML.TypeEnv} {keys
   apply SpecMap.satisfiedBy_preserved
   intro y s hlookup
   have hy_notin : y ∉ keys := by
-    intro hmem; rw [eraseAll_lookup_none hmem] at hlookup; exact absurd hlookup (by simp)
-  refine ⟨by rwa [eraseAll_lookup_of_notin hy_notin] at hlookup, fun f hf => ?_⟩
+    intro hmem
+    rw [lookup_eraseAll] at hlookup
+    simp [hmem] at hlookup
+  refine ⟨by
+    rw [lookup_eraseAll] at hlookup
+    simpa [hy_notin] using hlookup, fun f hf => ?_⟩
   rw [Runtime.Subst.updateAllBinder_eq _ _ _ _ (by simp; omega),
       findVal_none_of_not_mem keys vs y (by omega) hy_notin]
   exact hf
