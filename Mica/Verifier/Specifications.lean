@@ -78,7 +78,7 @@ def call (Θ : TinyML.TypeEnv) (σ : FiniteSubst) (s : Spec) (sargs : List (Tiny
     VerifM (TinyML.Typ × Term .value) := do
   let σ' ← declareArgs Θ σ s.args sargs
   let result ← PredTrans.call σ' s.pred
-  VerifM.assumeAll (typeConstraints s.retTy result)
+  VerifM.assumeAll (TinyML.typeConstraints s.retTy result)
   pure (s.retTy, result)
 
 /-- Declare implementation argument variables: for each `(name, ty)` in `args`,
@@ -89,7 +89,7 @@ def declareImplArgs (σ : FiniteSubst) :
   | [] => pure (σ, [])
   | (name, ty) :: rest => do
     let argVar ← VerifM.decl (some name) .value
-    VerifM.assumeAll (typeConstraints ty (.const (.uninterpreted argVar.name .value)))
+    VerifM.assumeAll (TinyML.typeConstraints ty (.const (.uninterpreted argVar.name .value)))
     let σ' := σ.rename ⟨name, .value⟩ argVar.name
     let (σ'', vars) ← declareImplArgs σ' rest
     pure (σ'', argVar :: vars)
@@ -330,11 +330,11 @@ theorem call_correct (Θ : TinyML.TypeEnv) (s : Spec) (σ : FiniteSubst) (sargs 
       iintro H
       icases H with ⟨⟨Howns, HR⟩, Hty⟩
       iintuitionistic Hty
-      ihave Hpure := (typeConstraints_hold (ty := s.retTy) (t := t) (ρ := ρ''.env) (Θ := Θ) (v := v) hteval) $$ Hty
+      ihave Hpure := (TinyML.typeConstraints_hold (ty := s.retTy) (t := t) (ρ := ρ''.env) (Θ := Θ) (v := v) hteval) $$ Hty
       ipure Hpure
       obtain ⟨st₃, hst₃_decls, hst₃_owns, hret⟩ :=
         VerifM.eval_assumeAll (VerifM.eval_bind _ _ _ _ hΨ'')
-          (fun φ hφ => typeConstraints_wfIn htwf φ hφ)
+          (fun φ hφ => TinyML.typeConstraints_wfIn htwf φ hφ)
           (fun φ hφ => Hpure φ hφ)
       ihave Harg : (st₃.sl ρ'' ∗ R ∗ TinyML.ValHasType Θ v s.retTy) $$ [HR Howns Hty]
       · isplitr [Hty HR]
@@ -422,12 +422,12 @@ theorem declareImplArgs_correct (Θ : TinyML.TypeEnv) :
           (Term.const_wfIn_addConst_of_fresh (Δ := st.decls) (c := argVar) hstwf hfresh_decls)
       have hvar_eval : (Term.const (.uninterpreted argVar.name .value)).eval ρ₁.env = v := by
         simp [ρ₁]
-      ihave %htyped_formulas := typeConstraints_hold (ty := ty)
+      ihave %htyped_formulas := TinyML.typeConstraints_hold (ty := ty)
           (t := .const (.uninterpreted argVar.name .value))
           (ρ := ρ₁.env) (Θ := Θ) (v := v) hvar_eval $$ Hv
       obtain ⟨st₂, hst₂_decls, hst₂_owns, hdecl₂⟩ :=
         VerifM.eval_assumeAll (VerifM.eval_bind _ _ _ _ hdecl)
-          (fun φ hφ => typeConstraints_wfIn hvar_wf φ hφ)
+          (fun φ hφ => TinyML.typeConstraints_wfIn hvar_wf φ hφ)
           (fun φ hφ => htyped_formulas φ hφ)
       have hst_st₂ : st.decls.Subset st₂.decls :=
         hst₂_decls ▸ Signature.Subset.subset_addConst _ _

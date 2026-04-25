@@ -209,7 +209,7 @@ mutual
         let _ ← compile Θ S B Γ e
         let v ← VerifM.decl none .value
         let sv := Term.const (.uninterpreted v.name .value)
-        VerifM.assumeAll (typeConstraints ty sv)
+        VerifM.assumeAll (TinyML.typeConstraints ty sv)
         pure sv
     | .store loc val => do
         VerifM.expectEq "store location type mismatch" loc.ty (.ref val.ty)
@@ -226,7 +226,7 @@ mutual
         VerifM.expectEq "match binder type annotation mismatch" binder.ty ty_i
         let xv ← VerifM.decl binder.name .value
         VerifM.assume (.pure (.eq .value sc (.unop (.mkInj i n) (.const (.uninterpreted xv.name .value)))))
-        VerifM.assumeAll (typeConstraints ty_i (.const (.uninterpreted xv.name .value)))
+        VerifM.assumeAll (TinyML.typeConstraints ty_i (.const (.uninterpreted xv.name .value)))
         match binder.name with
         | some x =>
           compile Θ (Finmap.erase x S) ((x, xv) :: B) (Γ.extendBinder binder ty_i) body
@@ -757,11 +757,11 @@ theorem compileDeref_correct (e : Expr) (ty : TinyML.Typ)
       set st₂ : TransState := { st₁ with decls := st₁.decls.addConst c }
       have hsv_eval : sv.eval ρ₂.env = w := by
         simp [sv, ρ₂, Term.eval, Const.denote, VerifM.Env.updateConst, Env.updateConst]
-      ihave Hcheck := typeConstraints_hold (ty := ty) (t := sv)
+      ihave Hcheck := TinyML.typeConstraints_hold (ty := ty) (t := sv)
         (ρ := ρ₂.env) (Θ := Θ) (v := w) hsv_eval $$ Hw
       ipure Hcheck
       obtain ⟨st₃, hst₃_decls, hst₃_owns, heval_ret⟩ := VerifM.eval_assumeAll hassume_eval
-        (fun φ hφ => typeConstraints_wfIn hc_wf φ hφ)
+        (fun φ hφ => TinyML.typeConstraints_wfIn hc_wf φ hφ)
         (fun φ hφ => Hcheck φ hφ)
       have hΨ_ret := VerifM.eval_ret heval_ret
       have hsv_wf : sv.wfIn st₃.decls := hst₃_decls ▸ hc_wf
@@ -1699,12 +1699,12 @@ theorem compileSingleBranch_correct (binder : Binder) (body : Expr)
     istart
     iintro ⟨Howns, Hpay, □HS, □HT, HR⟩
     iintuitionistic Hpay
-    ihave Hcheck := typeConstraints_hold (ty := ty_i)
+    ihave Hcheck := TinyML.typeConstraints_hold (ty := ty_i)
         (t := Term.const (.uninterpreted xv.name .value))
         (ρ := ρ₁.env) (Θ := Θ) (v := payload) hxv_eval $$ Hpay
     ipure Hcheck
     obtain ⟨st₂, hst₂_decls, hst₂_owns, heval_body'⟩ := VerifM.eval_assumeAll hassume_bind₂
-      (fun φ hφ => typeConstraints_wfIn hxv_wf φ hφ)
+      (fun φ hφ => TinyML.typeConstraints_wfIn hxv_wf φ hφ)
       (fun φ hφ => Hcheck φ hφ)
     have hst₂_owns_eq : st₂.owns = st.owns := hst₂_owns
     cases hname : binder.name with

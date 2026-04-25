@@ -976,6 +976,12 @@ end TinyML
 -- Type constraints
 -- ---------------------------------------------------------------------------
 
+/-! ### SMT type constraints -/
+-- These formulas encode `ValHasType` checks as first-order constraints and
+-- stay in this file because their proofs depend on `ValHasType`.
+
+namespace TinyML
+
 mutual
 /-- Generate SMT formulas asserting that a value-sorted term has a given TinyML type.
     For `int`: `is-of_int(t)`, for `bool`: `is-of_bool(t)`,
@@ -1106,3 +1112,5 @@ mutual
     | v :: vs, [] =>
         exact (TinyML.ValsHaveTypes.cons_nil Θ v vs).1.trans false_elim
 end
+
+end TinyML
