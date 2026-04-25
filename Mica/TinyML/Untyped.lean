@@ -156,12 +156,6 @@ abbrev Vars := List Var
 abbrev Exprs := List Expr
 abbrev Binders := List Binder
 
-@[simp] theorem Binder.named_beq (x z : Var) (tx tz : Option Typ) :
-    (Binder.named x tx == Binder.named z tz) = (x == z && tx == tz) := by
-  apply Bool.eq_iff_iff.mpr
-  simp only [BEq.beq, Bool.and_eq_true, Binder.named.injEq, decide_eq_true_iff]
-  exact and_congr Iff.rfl beq_iff_eq.symm
-
 structure ValDecl (S : Type) where
   name : Binder
   body : Expr

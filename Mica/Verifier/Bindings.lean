@@ -148,7 +148,7 @@ theorem findVal_none_of_not_mem
     | cons v vs =>
       simp at hlen hx
       simp only [List.map_cons, Runtime.Binders.findVal_cons, ih vs hlen hx.2]
-      simp [Runtime.Binder.named_beq, beq_iff_eq, Ne.symm hx.1]
+      simp [BEq.beq, Runtime.instBEqBinder.beq, Ne.symm hx.1]
 
 theorem not_mem_of_lookup_zip_reverse_none
     (ns : List String) (avs : List FOL.Const) (x : String)

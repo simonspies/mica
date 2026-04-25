@@ -304,7 +304,8 @@ theorem Expr.isFunc_subst {e : Expr} {σ : Subst} (h : e.isFunc = true) :
     Subst.remove' (fun _ => none) b = fun _ => none := by
   cases b <;> simp [Subst.remove', Subst.remove_none]
 
-@[simp] theorem Binder.named_beq (x z : Var) : (Binder.named x == Binder.named z) = (x == z) := by
+@[simp] private theorem Binder.named_beq (x z : Var) :
+    (Binder.named x == Binder.named z) = (x == z) := by
   simp [BEq.beq, instBEqBinder.beq]
 
 theorem Subst.removeAll'_eq (γ : Subst) (bs : Binders) (z : Var) :
@@ -317,7 +318,8 @@ theorem Subst.removeAll'_eq (γ : Subst) (bs : Binders) (z : Var) :
     | none => simp [Subst.remove', ih]
     | named x =>
       simp only [Subst.remove'_named, Binder.named_beq]
-      rw [ih]; simp only [BEq.comm (a := x) (b := z)]
+      rw [ih]
+      simp only [BEq.comm (a := x) (b := z)]
       split <;> simp_all
 
 @[simp] theorem Expr.subst_val (σ : Subst) (v : Val) : (Expr.val v).subst σ = .val v := by
