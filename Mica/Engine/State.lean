@@ -113,9 +113,12 @@ end State
 
 /-! ## Smt.State.satisfiable -/
 
-/-- The conjunction of `asserts` is satisfiable under the given declarations.
-    That is, there exists an environment making all assertions true simultaneously. -/
-def State.satisfiable (_decls : Signature) (asserts : List Formula) : Prop :=
+/-- `State.satisfiable decls asserts` means the assertions have a satisfying assignment:
+    there exists an environment making every formula in `asserts` true.
+    The `decls` argument is currently informational (environments are total), but
+    it tracks in-scope declarations and would matter if assignments become partial. -/
+def State.satisfiable (decls : Signature) (asserts : List Formula) : Prop :=
+  let _ := decls
   ∃ ρ : Env, ∀ φ ∈ asserts, φ.eval ρ
 
 theorem State.satisfiable.to_impl decls asserts :
