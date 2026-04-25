@@ -55,6 +55,20 @@ def write_outline(directory: pathlib.Path, root: pathlib.Path) -> None:
     print(f"wrote {out}")
 
 
+def walk_dirs(root: pathlib.Path) -> list[pathlib.Path]:
+    """Return directories under root, pruning hidden subdirectories."""
+    dirs = [root]
+    stack = [root]
+    while stack:
+        directory = stack.pop()
+        children = sorted(
+            p for p in directory.iterdir() if p.is_dir() and not p.name.startswith(".")
+        )
+        dirs.extend(children)
+        stack.extend(reversed(children))
+    return dirs
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("directory", type=pathlib.Path)
@@ -65,7 +79,7 @@ def main() -> int:
         print(f"error: {root} is not a directory", file=sys.stderr)
         return 1
 
-    for d in sorted({root, *(p for p in root.rglob("*") if p.is_dir() and not p.name.startswith('.'))}):
+    for d in walk_dirs(root):
         write_outline(d, root)
     return 0
 
