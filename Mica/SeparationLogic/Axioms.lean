@@ -5,6 +5,18 @@ import Mica.TinyML.OpSem
 
 open Iris Iris.BI Iris.OFE
 
+/-!
+This module is the axiomatization boundary between TinyML and Iris. It fixes a
+global Iris signature and exposes the core BI interface (`iProp`, `∗`, `-∗`,
+`⌜_⌝`), weakest preconditions (`wp`/`wps`/`pwp`), and heap predicates
+(`pointsTo`, `locinv`) used by the verifier.
+
+Heap reasoning is provided in two parallel styles: explicit ownership rules
+(`wp.ref`/`wp.deref`/`wp.store` over `l ↦ v`) and invariant-based rules
+(`wp.ref_inv`/`wp.deref_inv`/`wp.store_inv` over `locinv`). Later files prove
+derived proof rules against this common axiomatic interface.
+-/
+
 -- Top-level elaboration for Iris connectives (the Iris library only provides
 -- these inside `iprop(...)` blocks).
 macro_rules
