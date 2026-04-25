@@ -205,8 +205,8 @@ theorem Atom.toItem_wfIn {p : Atom τ} {t : Term τ} {Δ : Signature}
     simp only [Atom.toItem, CtxItem.wfIn, SpatialAtom.wfIn]
     exact ⟨hp, ht⟩
 
-theorem Atom.eval_pure {p : Atom τ} {t : Term τ} {ρ : VerifM.Env} :
-    p.eval ρ (t.eval ρ.env) ⊣⊢ CtxItem.interp ρ (p.toItem t) := by
+theorem Atom.toItem_eval {p : Atom τ} {t : Term τ} {ρ : VerifM.Env} :
+    CtxItem.interp ρ (p.toItem t) ⊣⊢ p.eval ρ (t.eval ρ.env) := by
   cases p with
   | isint v  => simp [Atom.eval, Atom.toItem, CtxItem.interp, Formula.eval, Term.eval, eq_comm]
   | isbool v => simp [Atom.eval, Atom.toItem, CtxItem.interp, Formula.eval, Term.eval, eq_comm]
@@ -214,15 +214,6 @@ theorem Atom.eval_pure {p : Atom τ} {t : Term τ} {ρ : VerifM.Env} :
   | own l =>
     simp only [Atom.eval, Atom.toItem, CtxItem.interp, SpatialAtom.interp]
     exact ⟨BIBase.Entails.rfl, BIBase.Entails.rfl⟩
-
-/-- If `p.toItem t` holds semantically, then `p.eval ρ (t.eval ρ)`. -/
-theorem Atom.toItem_eval {p : Atom τ} {t : Term τ} {ρ : VerifM.Env}
-    : CtxItem.interp ρ (p.toItem t) ⊢ p.eval ρ (t.eval ρ.env) := by
-  exact Atom.eval_pure.2
-
-theorem Atom.eval_toItem {p : Atom τ} {t : Term τ} {ρ : VerifM.Env} :
-    p.eval ρ (t.eval ρ.env) ⊢ CtxItem.interp ρ (p.toItem t) := by
-  exact Atom.eval_pure.1
 
 theorem Atom.eval_purePart {p : Atom τ} {t : Term τ} {ρ : VerifM.Env} :
     p.eval ρ (t.eval ρ.env) ⊢ ⌜(p.toItem t).purePart ρ⌝ := by
@@ -565,7 +556,7 @@ private theorem VerifM.eval_resolve_pure {pred : Atom τ} {st : TransState} {ρ 
       have hq := VerifM.eval_ret hctx_q
       have htwf : t.wfIn st.decls := Atom.resolve_wfIn hres hwfAsserts
       have hpred : ⊢ Atom.eval pred ρ (t.eval ρ.env) := by
-        exact (Atom.resolve_correct hres ρ hholds).trans Atom.toItem_eval
+        exact (Atom.resolve_correct hres ρ hholds).trans Atom.toItem_eval.1
       have hframe : st.sl ρ ∗ R ⊢
           Atom.eval pred ρ (t.eval ρ.env) ∗ st.sl ρ ∗ R := by
         istart
@@ -586,7 +577,7 @@ private theorem VerifM.eval_resolve_pure {pred : Atom τ} {st : TransState} {ρ 
         have htwf : t.wfIn st.decls := hresult_wf t hr
         have hqsome : Q (.some t) st ρ := by simpa [hr] using hq
         have hpred : ⊢ Atom.eval pred ρ (t.eval ρ.env) := by
-          exact (hresult_eval t hr).trans Atom.toItem_eval
+          exact (hresult_eval t hr).trans Atom.toItem_eval.1
         have hframe : st.sl ρ ∗ R ⊢
             Atom.eval pred ρ (t.eval ρ.env) ∗ st.sl ρ ∗ R := by
           istart

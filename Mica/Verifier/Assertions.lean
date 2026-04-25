@@ -607,9 +607,9 @@ theorem Assertion.assume_correct (m : Assertion α) (σ : FiniteSubst)
           p.eval (ρ.withEnv (σ.subst.eval ρ.env)) u ⊢
             CtxItem.interp (ρ.updateConst v.sort v'.name u) item := by
         simpa [item] using
-          (hpu'.trans (Atom.eval_toItem (p := p.subst σ.subst)
+          (hpu'.trans (Atom.toItem_eval (p := p.subst σ.subst)
             (t := .const (.uninterpreted v'.name v.sort))
-            (ρ := (ρ.updateConst v.sort v'.name u))))
+            (ρ := (ρ.updateConst v.sort v'.name u))).2)
       have hspatial_interp :
           p.eval (ρ.withEnv (σ.subst.eval ρ.env)) u ⊢
             SpatialAtom.interp (ρ.updateConst v.sort v'.name u).env a := by
