@@ -1,6 +1,12 @@
 -- SUMMARY: Pretty-printing of frontend syntax back into OCaml-like concrete syntax.
 import Mica.Frontend.AST
 
+/-!
+This file renders frontend AST nodes back to OCaml-like concrete syntax with
+precedence-aware formatting for expressions, types, and declarations. It is
+used for user-facing output and debugging of frontend transformations.
+-/
+
 namespace Frontend
 
 -- ---------------------------------------------------------------------------

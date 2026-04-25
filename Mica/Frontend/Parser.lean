@@ -2,6 +2,12 @@
 import Mica.Frontend.AST
 import Mica.Frontend.Lexer
 
+/-!
+This file parses lexer tokens into the frontend AST while preserving source
+locations and producing parse diagnostics in frontend terms. It is the syntax
+analysis stage between tokenization and elaboration.
+-/
+
 namespace Frontend
 
 -- ---------------------------------------------------------------------------

@@ -2,6 +2,12 @@
 import Mica.Frontend.AST
 import Mica.TinyML.Untyped
 
+/-!
+This file elaborates frontend AST programs into TinyML untyped core terms and
+declarations, resolving constructors and record metadata from an elaboration
+environment. It is the semantic lowering step after parsing.
+-/
+
 namespace Frontend
 
 -- ---------------------------------------------------------------------------
