@@ -69,7 +69,7 @@ axiom wp.val {v : Runtime.Val} {Q : Runtime.Val → iProp} :
 axiom wp.bind {k : TinyML.K} {e : Runtime.Expr} {Q : Runtime.Val → iProp} :
     wp e (fun v => wp (k.fill (.val v)) Q) ⊢ wp (k.fill e) Q
 
-axiom wp.mono {e : Runtime.Expr} {P Q : Runtime.Val → iProp} :
+axiom wp.wand {e : Runtime.Expr} {P Q : Runtime.Val → iProp} :
     (∀ v, P v -∗ Q v) ∗ wp e P ⊢ wp e Q
 
 axiom wp.app {fn : Runtime.Expr} {args : Runtime.Exprs} {P : Runtime.Val → iProp} :
@@ -164,9 +164,9 @@ axiom wp.store_inv {l : Runtime.Location} {v: Runtime.Val} {Q : Runtime.Val → 
     wps (e :: es) Q = wps es (fun vs => wp e (fun v => Q (v :: vs))) := rfl
 
 -- Derived monotonicity as an entailment
-theorem wp.mono' {e : Runtime.Expr} {P Q : Runtime.Val → iProp}
+theorem wp.mono {e : Runtime.Expr} {P Q : Runtime.Val → iProp}
     (h : ∀ v, P v ⊢ Q v) : wp e P ⊢ wp e Q :=
-  emp_sep.2.trans (sep_mono_l (forall_intro fun v => wand_intro (emp_sep.1.trans (h v)))) |>.trans wp.mono
+  emp_sep.2.trans (sep_mono_l (forall_intro fun v => wand_intro (emp_sep.1.trans (h v)))) |>.trans wp.wand
 
 theorem wps.mono {es : Runtime.Exprs} {P Q : Runtime.Vals → iProp}
     (h : ∀ vs, P vs ⊢ Q vs) : wps es P ⊢ wps es Q := by
@@ -174,7 +174,7 @@ theorem wps.mono {es : Runtime.Exprs} {P Q : Runtime.Vals → iProp}
   | nil => exact h []
   | cons e es ih =>
     simp only [wps_cons]
-    exact ih (fun vs => wp.mono' (fun v => h (v :: vs)))
+    exact ih (fun vs => wp.mono (fun v => h (v :: vs)))
 
 /-- Program-level weakest precondition: every declaration evaluates safely,
     and each result is substituted into the remaining program. -/
@@ -203,7 +203,7 @@ theorem wp.letIn {b : Runtime.Binder} {bound body : Runtime.Expr} {Q : Runtime.V
   iintro Hbound
   iapply wp.app
   simp only [wps_cons, wps_nil]
-  iapply (wp.mono (P := fun v => wp (body.subst (Runtime.Subst.id.updateBinder b v)) Q))
+  iapply (wp.wand (P := fun v => wp (body.subst (Runtime.Subst.id.updateBinder b v)) Q))
   isplitl []
   · iintro %v Hv
     iapply wp.func

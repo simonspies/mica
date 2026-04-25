@@ -222,7 +222,7 @@ theorem Program.check_correct (Θ : TinyML.TypeEnv) (S : SpecMap) (prog : Typed.
         have ⟨_, hcont⟩ := VerifM.eval_seq hbind
         have hih := ih S γ hSwf ρ (VerifM.eval_ret hcont)
         have hwp := ValDecl.checkExpr_correct Θ S d γ hSwf ρ hbind hih
-        refine hwp.trans (wp.mono' ?_)
+        refine hwp.trans (wp.mono ?_)
         intro v; rw [hupd v]; exact .rfl
       | some _ =>
         -- unnamed, with spec
