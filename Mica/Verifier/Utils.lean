@@ -82,7 +82,7 @@ def FiniteSubst.wf (σ : FiniteSubst) (Δ : Signature) : Prop :=
   σ.subst.wfIn σ.dom σ.range ∧ σ.range.Subset Δ ∧ σ.range.wf
 
 def FiniteSubst.rename (σ : FiniteSubst) (v : Var) (name' : String) : FiniteSubst where
-  subst := (σ.subst.eraseName v.name).update v.sort v.name (.const (.uninterpreted name' v.sort))
+  subst := (σ.subst.remove v.name).update v.sort v.name (.const (.uninterpreted name' v.sort))
   dom   := v :: σ.dom.filter (·.name != v.name)
   range := σ.range.addConst ⟨name', v.sort⟩
 
@@ -102,9 +102,9 @@ theorem FiniteSubst.rename_wf {σ : FiniteSubst} {v : Var} {name' : String} {Δ 
     have hsubst' : σ.subst.wfIn σ.dom (σ.range.addConst ⟨name', v.sort⟩) :=
       Subst.wfIn_mono hsubst (Signature.Subset.subset_addConst _ _) hrangeWf
     have herase :
-        (σ.subst.eraseName v.name).wfIn (σ.dom.filter (fun w => w.name != v.name))
+        (σ.subst.remove v.name).wfIn (σ.dom.filter (fun w => w.name != v.name))
           (σ.range.addConst ⟨name', v.sort⟩) :=
-      Subst.wfIn_eraseName hsubst'
+      Subst.wfIn_remove hsubst'
     have hconstwf : (Term.const (.uninterpreted name' v.sort)).wfIn (σ.range.addConst ⟨name', v.sort⟩) := by
       refine ⟨List.Mem.head _, ?_, ?_⟩
       · intro τ' hvar
@@ -112,7 +112,7 @@ theorem FiniteSubst.rename_wf {σ : FiniteSubst} {v : Var} {name' : String} {Δ 
       · intro τ' hc'
         exact Signature.wf_unique_const hrangeWf (List.Mem.head _) hc'
     simpa [FiniteSubst.rename] using
-      (Subst.wfIn_update (σ := σ.subst.eraseName v.name)
+      (Subst.wfIn_update (σ := σ.subst.remove v.name)
         (dom := σ.dom.filter (fun w => w.name != v.name))
         (τ := v.sort) (x := v.name) herase hconstwf)
   · constructor
@@ -175,7 +175,7 @@ theorem FiniteSubst.rename_agreeOn {σ : FiniteSubst} {v : Var} {c : FOL.Const}
     rcases hw with rfl | ⟨hwdom, hneq⟩
     · change
         Term.eval (ρ.updateConst w.sort c.name u)
-          (((σ.subst.eraseName w.name).update w.sort w.name
+          (((σ.subst.remove w.name).update w.sort w.name
             (Term.const (Const.uninterpreted c.name w.sort))).apply w.sort w.name) =
           (((σ.subst.eval ρ).updateConst w.sort w.name u).lookupConst w.sort w.name)
       simp [Subst.eval, Env.updateConst, Env.lookupConst, Subst.apply, Subst.update,
@@ -183,10 +183,10 @@ theorem FiniteSubst.rename_agreeOn {σ : FiniteSubst} {v : Var} {c : FOL.Const}
     · have hne : w.name ≠ v.name := hneq
       change
         Term.eval (ρ.updateConst v.sort c.name u)
-            (((σ.subst.eraseName v.name).update v.sort v.name
+            (((σ.subst.remove v.name).update v.sort v.name
               (Term.const (Const.uninterpreted c.name v.sort))).apply w.sort w.name) =
           ((σ.subst.eval ρ).updateConst v.sort v.name u).lookupConst w.sort w.name
-      rw [Subst.apply_update_ne (Or.inl hne), Subst.apply_eraseName_ne hne,
+      rw [Subst.apply_update_ne (Or.inl hne), Subst.apply_remove_ne hne,
         Env.lookupConst_updateConst_ne' (Or.inl hne), Subst.eval_lookup]
       exact (Term.eval_env_agree (hσwf.1 w hwdom)
         (Env.agreeOn_update_fresh_const (c := ⟨c.name, v.sort⟩) hfresh)).symm

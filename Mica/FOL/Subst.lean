@@ -12,11 +12,11 @@ def Subst.apply (σ : Subst) (τ : Srt) (x : String) : Term τ := σ τ x
 def Subst.update (σ : Subst) (τ : Srt) (x : String) (s : Term τ) : Subst := fun τ' y =>
   if h : τ' = τ ∧ y = x then h.1 ▸ s else σ τ' y
 
-def Subst.eraseName (σ : Subst) (x : String) : Subst := fun τ y =>
+def Subst.remove (σ : Subst) (x : String) : Subst := fun τ y =>
   if y = x then .var τ y else σ τ y
 
 def Subst.bind (σ : Subst) (y : String) (τ : Srt) (y' : String) : Subst :=
-  (σ.eraseName y).update τ y (.var τ y')
+  (σ.remove y).update τ y (.var τ y')
 
 def Subst.single (τ : Srt) (x : String) (s : Term τ) : Subst :=
   Subst.id.update τ x s
@@ -50,13 +50,13 @@ theorem Subst.apply_update_ne {σ : Subst} {τ τ' : Srt} {x y : String} {t : Te
     | inr h => exact absurd heq.1 h
   · rfl
 
-theorem Subst.apply_eraseName_same {σ : Subst} {τ : Srt} {x : String} :
-    (σ.eraseName x).apply τ x = .var τ x := by
-  simp [Subst.eraseName, Subst.apply]
+theorem Subst.apply_remove_same {σ : Subst} {τ : Srt} {x : String} :
+    (σ.remove x).apply τ x = .var τ x := by
+  simp [Subst.remove, Subst.apply]
 
-theorem Subst.apply_eraseName_ne {σ : Subst} {τ : Srt} {x y : String}
-    (h : y ≠ x) : (σ.eraseName x).apply τ y = σ.apply τ y := by
-  simp [Subst.eraseName, Subst.apply, h]
+theorem Subst.apply_remove_ne {σ : Subst} {τ : Srt} {x y : String}
+    (h : y ≠ x) : (σ.remove x).apply τ y = σ.apply τ y := by
+  simp [Subst.remove, Subst.apply, h]
 
 theorem Subst.wfIn_update {σ : Subst} {dom : VarCtx} {τ : Srt} {x : String} {t : Term τ} {Δ : Signature}
     (hσ : σ.wfIn dom Δ) (ht : t.wfIn Δ) :
@@ -105,19 +105,19 @@ theorem Subst.single_wfIn {τ : Srt} {x : String} {t : Term τ} {Δ : Signature}
   unfold Subst.single
   exact Subst.wfIn_update ⟨fun _ h => absurd h (by simp), fun _ h => rfl⟩ ht
 
-theorem Subst.wfIn_eraseName {σ : Subst} {dom : VarCtx} {Δ : Signature} {x : String}
+theorem Subst.wfIn_remove {σ : Subst} {dom : VarCtx} {Δ : Signature} {x : String}
     (hσ : σ.wfIn dom Δ) :
-    (σ.eraseName x).wfIn (dom.filter (fun v => v.name != x)) Δ := by
+    (σ.remove x).wfIn (dom.filter (fun v => v.name != x)) Δ := by
   refine ⟨?_, ?_⟩
   · intro v hv
     have hv' : v ∈ dom ∧ v.name ≠ x := by
       simpa using hv
-    rw [Subst.apply_eraseName_ne hv'.2]
+    rw [Subst.apply_remove_ne hv'.2]
     exact hσ.1 v hv'.1
   · intro v hv
     by_cases hname : v.name = x
-    · simp [Subst.eraseName, Subst.apply, hname]
-    · rw [Subst.apply_eraseName_ne hname]
+    · simp [Subst.remove, Subst.apply, hname]
+    · rw [Subst.apply_remove_ne hname]
       apply hσ.2
       intro hvdom
       apply hv
@@ -126,11 +126,11 @@ theorem Subst.wfIn_eraseName {σ : Subst} {dom : VarCtx} {Δ : Signature} {x : S
 theorem Subst.wfIn_bind {σ : Subst} {Δ Δ'' : Signature} {y y' : String} {τ : Srt}
     (hσ : σ.wfIn Δ.vars Δ'') (hvarwf : (Term.var τ y').wfIn Δ'') :
     (σ.bind y τ y').wfIn ((Δ.remove y).addVar ⟨y, τ⟩).vars Δ'' := by
-  have hσ_erase : (σ.eraseName y).wfIn (Δ.remove y).vars Δ'' := by
+  have hσ_erase : (σ.remove y).wfIn (Δ.remove y).vars Δ'' := by
     simpa [Signature.remove] using
-      (Subst.wfIn_eraseName (σ := σ) (dom := Δ.vars) (Δ := Δ'') (x := y) hσ)
+      (Subst.wfIn_remove (σ := σ) (dom := Δ.vars) (Δ := Δ'') (x := y) hσ)
   simpa [Subst.bind, Signature.addVar] using
-    (Subst.wfIn_update (σ := σ.eraseName y) (dom := (Δ.remove y).vars) (x := y) hσ_erase hvarwf)
+    (Subst.wfIn_update (σ := σ.remove y) (dom := (Δ.remove y).vars) (x := y) hσ_erase hvarwf)
 
 theorem Term.subst_wfIn {t : Term τ} {σ : Subst} {dom : VarCtx} {Δ Δ' : Signature}
     (ht : t.wfIn Δ) (hσ : σ.wfIn dom Δ') (hdom : Δ.vars ⊆ dom)
@@ -325,11 +325,11 @@ theorem Subst.eval_bind_agreeOn {σ : Subst} {ρ : Env} {τ : Srt} {y y' : Strin
     | inl hEq =>
       subst hEq
       simp [Subst.eval, Subst.bind, Env.updateConst, Env.lookupConst, Subst.apply,
-        Subst.update, Subst.eraseName, Term.eval]
+        Subst.update, Subst.remove, Term.eval]
     | inr hrest =>
       change Term.eval (ρ.updateConst τ y' v) ((σ.bind y τ y').apply w.sort w.name) =
         (((σ.eval ρ).updateConst τ y v).lookupConst w.sort w.name)
-      rw [Subst.bind, Subst.apply_update_ne (Or.inl hrest.2), Subst.apply_eraseName_ne hrest.2,
+      rw [Subst.bind, Subst.apply_update_ne (Or.inl hrest.2), Subst.apply_remove_ne hrest.2,
         Env.lookupConst_updateConst_ne' (Or.inl hrest.2)]
       simpa [Subst.eval, Env.updateConst, Env.lookupConst] using
         (Term.eval_update_fresh (ρ := ρ) (τ' := w.sort) (x := y') (τ := τ)
@@ -347,7 +347,7 @@ theorem Subst.eval_bind_agreeOn {σ : Subst} {ρ : Env} {τ : Srt} {y y' : Strin
         exact Signature.mem_allNames_of_const (hsymbols.consts c hc'.1)
       change Term.eval (ρ.updateConst τ y' v) ((σ.bind y τ y').apply c.sort c.name) =
         (((σ.eval ρ).updateConst τ y v).lookupConst c.sort c.name)
-      rw [Subst.bind, Subst.apply_update_ne (Or.inl hc'.2), Subst.apply_eraseName_ne hc'.2,
+      rw [Subst.bind, Subst.apply_update_ne (Or.inl hc'.2), Subst.apply_remove_ne hc'.2,
         Env.lookupConst_updateConst_ne' (Or.inl hc'.2), Subst.eval_lookup]
       rw [hσ.2 ⟨c.name, c.sort⟩ hc_not_var]
       simpa [Term.eval, Env.lookupConst] using
