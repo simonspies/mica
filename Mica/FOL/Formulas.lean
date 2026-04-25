@@ -167,24 +167,6 @@ theorem Formula.eval_env_agree {φ : Formula} {ρ ρ' : Env} {Δ : Signature} :
     · intro ⟨v, hv⟩; exact ⟨v, (ih hwf (Env.agreeOn_declVar hagree)).mp hv⟩
     · intro ⟨v, hv⟩; exact ⟨v, (ih hwf (Env.agreeOn_declVar hagree)).mpr hv⟩
 
-
-theorem Formula.eval_update_not_in_sig {φ : Formula} {x : String} {τ : Srt} {v : τ.denote} {ρ : Env}
-    {sig : Signature} (hwf : φ.wfIn sig) (hnotin : x ∉ sig.allNames) :
-    (φ.eval (ρ.updateConst τ x v) ↔ φ.eval ρ) :=
-  Formula.eval_env_agree hwf
-    ⟨fun w hw => by
-      have hne : w.name ≠ x := by
-        intro heq
-        exact hnotin (heq ▸ Signature.mem_allNames_of_var hw)
-      exact Env.lookupConst_updateConst_ne (Or.inl hne),
-     fun c hc => by
-      have hne : c.name ≠ x := by
-        intro heq
-        exact hnotin (heq ▸ Signature.mem_allNames_of_const hc)
-      exact Env.lookupConst_updateConst_ne (Or.inl hne),
-     fun _ _ => rfl,
-     fun _ _ => rfl⟩
-
 /-- If `t` is wf in `Δ` and `c` is fresh for `Δ`, then `c = t` is wf in `Δ.addConst c`. -/
 theorem Formula.eq_wfIn_addConst_of_fresh {Δ : Signature} {c : FOL.Const}
     {t : Term c.sort} (hΔwf : Δ.wf) (ht : t.wfIn Δ)
