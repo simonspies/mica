@@ -188,7 +188,11 @@ theorem ValDecl.check_correct (Θ : TinyML.TypeEnv) (S : SpecMap) (d : Typed.Val
           have h4 := VerifM.eval_ret (VerifM.eval_bind _ _ _ _ h3)
           have hswf : spec.wfIn Signature.empty := Spec.checkWf_ok (by cases u; exact hwf)
           have ⟨hcheckSpec, hpure⟩ := VerifM.eval_seq h4
-          exact ⟨spec, hswf, checkSpec_correct Θ S d.body spec γ hswf hSwf ρ hcheckSpec,
+          exact ⟨spec, hswf,
+            by
+              have hcheck :=
+                checkSpec_correct Θ S d.body spec γ hswf hSwf TransState.empty ρ hcheckSpec
+              simpa [TransState.sl, TransState.empty] using emp_sep.2.trans hcheck,
                  VerifM.eval_ret hpure⟩
 
 theorem Program.check_correct (Θ : TinyML.TypeEnv) (S : SpecMap) (prog : Typed.Program Untyped.Expr) (γ : Runtime.Subst)

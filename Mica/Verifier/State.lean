@@ -95,6 +95,23 @@ def TransState.sl (st : TransState) (ρ : VerifM.Env) : iProp :=
 @[simp] theorem TransState.sl_eq (st : TransState) (ρ : VerifM.Env) :
     st.sl ρ = SpatialContext.interp ρ.env st.owns := rfl
 
+/-- Drop the non-persistent spatial part of the verifier state. -/
+def TransState.persist (st : TransState) : TransState :=
+  { st with owns := [] }
+
+@[simp] theorem TransState.persist_decls (st : TransState) :
+    st.persist.decls = st.decls := rfl
+
+@[simp] theorem TransState.persist_asserts (st : TransState) :
+    st.persist.asserts = st.asserts := rfl
+
+theorem TransState.sl_entails_persist (st : TransState) (ρ : VerifM.Env) :
+    st.sl ρ ⊢ □ st.persist.sl ρ := by
+  istart
+  iintro _
+  imodintro
+  simp [TransState.persist]
+
 /-- Translation to `ScopedM`'s flat context. -/
 def TransState.toFlatCtx (st : TransState) : FlatCtx :=
   ⟨st.decls, st.asserts⟩
@@ -178,3 +195,12 @@ theorem TransState.addSpatial.wf (st : TransState) :
   · exact hwf.assertsWf
   · exact hwf.namesDisjoint
   · simpa [SpatialContext.wfIn_cons] using And.intro ha hwf.ownsWf
+
+theorem TransState.persist_wf (st : TransState) :
+    TransState.wf st →
+    TransState.wf st.persist := by
+  intro hwf
+  constructor
+  · exact hwf.assertsWf
+  · exact hwf.namesDisjoint
+  · simp [TransState.persist]
