@@ -124,7 +124,7 @@ private partial def parseLAssoc (ops : List (Token × BinOp)) (sub : Parser Expr
 -- Type parsing
 
 mutual
-partial def parseTypeAtom : Parser Typ := fun st =>
+private partial def parseTypeAtom : Parser Typ := fun st =>
   let p := peekLoc st
   match peekTok st with
   | .ident name =>
@@ -157,7 +157,7 @@ partial def parseTypeAtom : Parser Typ := fun st =>
   | t =>
     .error { loc := peekLoc st, kind := .unexpectedToken "type" t }
 
-partial def parseTypeAppSuffix (arg : Typ) : Parser Typ := fun st =>
+private partial def parseTypeAppSuffix (arg : Typ) : Parser Typ := fun st =>
   match peekTok st with
   | .ident name =>
     if !name.front.isUpper && name.front != '\'' then
@@ -168,11 +168,11 @@ partial def parseTypeAppSuffix (arg : Typ) : Parser Typ := fun st =>
     else .ok (arg, st)
   | _ => .ok (arg, st)
 
-partial def parseTypeApp : Parser Typ := fun st => do
+private partial def parseTypeApp : Parser Typ := fun st => do
   let (t, st) ← parseTypeAtom st
   parseTypeAppSuffix t st
 
-partial def parseTypeProdRest : Parser (List Typ) := fun st => do
+private partial def parseTypeProdRest : Parser (List Typ) := fun st => do
   let (t, st) ← parseTypeApp st
   match peekTok st with
   | .star =>
@@ -180,7 +180,7 @@ partial def parseTypeProdRest : Parser (List Typ) := fun st => do
     .ok (t :: rest, st)
   | _ => .ok ([t], st)
 
-partial def parseTypeProd : Parser Typ := fun st => do
+private partial def parseTypeProd : Parser Typ := fun st => do
   let (t, st) ← parseTypeApp st
   match peekTok st with
   | .star =>
@@ -190,7 +190,7 @@ partial def parseTypeProd : Parser Typ := fun st => do
     .ok ({ loc, kind := .tuple components }, st)
   | _ => .ok (t, st)
 
-partial def parseTypeArgList : Parser (List Typ) := fun st =>
+private partial def parseTypeArgList : Parser (List Typ) := fun st =>
   match peekTok st with
   | .comma => do
     let (t, st) ← parseType (advance st)
@@ -199,7 +199,7 @@ partial def parseTypeArgList : Parser (List Typ) := fun st =>
   | _ => .ok ([], st)
 
 /-- Parse a type expression (including arrows). -/
-partial def parseType : Parser Typ := fun st => do
+private partial def parseType : Parser Typ := fun st => do
   let (t, st) ← parseTypeProd st
   match peekTok st with
   | .arrow =>
@@ -211,12 +211,12 @@ end
 
 /-- Parse a type expression, excluding arrows.
     Used for return type annotations where `->` is ambiguous with the function arrow. -/
-def parseTypeNoArrow : Parser Typ := parseTypeProd
+private def parseTypeNoArrow : Parser Typ := parseTypeProd
 
 -- ---------------------------------------------------------------------------
 -- Pattern parsing
 
-partial def parsePattern : Parser Pattern := fun st =>
+private partial def parsePattern : Parser Pattern := fun st =>
   let p := peekLoc st
   match peekTok st with
   | .underscore =>
@@ -342,7 +342,7 @@ private partial def parseOptRetTy : Parser (Option Typ) := fun st =>
 -- Expression parsing
 
 -- Forward declaration for mutual recursion via partial
-partial def parseExpr : Parser Expr := fun st => do
+private partial def parseExpr : Parser Expr := fun st => do
   let (lhs, st) ← parseExprNoSemi st
   match peekTok st with
   | .semi => do
@@ -641,7 +641,7 @@ where
 -- Declaration parsing
 
 /-- Parse a single top-level declaration. -/
-partial def parseDecl : Parser Decl := fun st =>
+private partial def parseDecl : Parser Decl := fun st =>
   let p := peekLoc st
   match peekTok st with
   | .kw_type => parseTypeDecl p st
@@ -775,7 +775,7 @@ where
 -- Top-level program parsing
 
 /-- Parse a sequence of top-level declarations. -/
-partial def parseProgram : Parser Program := fun st =>
+private partial def parseProgram : Parser Program := fun st =>
   match peekTok st with
   | .eof => .ok ([], st)
   | .semisemi => parseProgram (advance st)
