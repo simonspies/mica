@@ -92,31 +92,6 @@ theorem FiniteSubst.rename_dom_wf {σ : FiniteSubst} {v : Var} {name' : String}
   simpa [FiniteSubst.rename, Signature.ofVars, Signature.declVar, Signature.remove] using
     (Signature.wf_declVar (Δ := Signature.ofVars σ.dom) (v := v) hdomwf)
 
-theorem agreeOn_update_fresh {ρ : Env} {v : Var} {u : v.sort.denote}
-    {Δ : Signature} (hfresh : v.name ∉ Δ.allNames) :
-    Env.agreeOn Δ ρ (ρ.updateConst v.sort v.name u) := by
-  constructor
-  · intro w hw
-    have hne : w.name ≠ v.name := by
-      intro heq
-      apply hfresh
-      rw [← heq]
-      exact Signature.mem_allNames_of_var hw
-    exact (Env.lookupConst_updateConst_ne (Or.inl hne)).symm
-  · constructor
-    · intro c hc
-      have hne : c.name ≠ v.name := by
-        intro heq
-        apply hfresh
-        rw [← heq]
-        exact Signature.mem_allNames_of_const hc
-      exact (Env.lookupConst_updateConst_ne (Or.inl hne)).symm
-    · constructor
-      · intro u' hu'
-        rw [Env.updateConst_unary]
-      · intro b' hb'
-        rw [Env.updateConst_binary]
-
 theorem FiniteSubst.rename_wf {σ : FiniteSubst} {v : Var} {name' : String} {Δ : Signature}
     (hσ : σ.wf Δ) (hfresh : name' ∉ σ.range.allNames) :
     (σ.rename v name').wf (Δ.addConst ⟨name', v.sort⟩) := by
