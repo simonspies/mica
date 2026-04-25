@@ -259,7 +259,7 @@ def Binder.runtime : Typed.Binder → Runtime.Binder
       simp [Binder.runtime]
 
 def Expr.runtime : Typed.Expr → Runtime.Expr
-  | .const c => .val c.runtime
+  | .const c => .val (Runtime.Val.ofConst c)
   | .var x _ => .var x
   | .unop op e _ => .unop op e.runtime
   | .binop op l r _ => .binop op l.runtime r.runtime

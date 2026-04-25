@@ -64,6 +64,12 @@ theorem Expr.isFunc_elim {e : Expr} (h : e.isFunc = true) :
   cases e <;> simp [isFunc] at h
   exact ⟨_, _, _, rfl⟩
 
+/-- Runtime erasure of `TinyML.Const` -/
+def Val.ofConst : TinyML.Const → Val
+  | .int n  => .int n
+  | .bool b => .bool b
+  | .unit   => .unit
+
 
 -- `deriving DecidableEq` does not support mutual inductives with `List`-nested
 -- recursion, so we define the instances by hand.
@@ -671,12 +677,3 @@ theorem Exprs.subst_removeAll'_updateAllBinder (es : Exprs) (γ : Subst) (bs : B
   exact Subst.removeAll'_updateAllBinder_comp γ bs vs hlen z
 
 end Runtime
-
-namespace TinyML
-
-def Const.runtime : TinyML.Const → Runtime.Val
-  | .int n  => .int n
-  | .bool b => .bool b
-  | .unit   => .unit
-
-end TinyML

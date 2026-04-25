@@ -423,7 +423,7 @@ theorem compileConst_correct (c : TinyML.Const) :
   cases c with
   | int n =>
     simp only [compile] at heval
-    simp only [Expr.runtime, TinyML.Const.runtime, Runtime.Expr.subst_val]
+    simp only [Expr.runtime, Runtime.Val.ofConst, Runtime.Expr.subst_val]
     obtain heval := VerifM.eval_ret heval
     simp only [Expr.ty, Const.ty] at hpost
     refine SpatialContext.wp_val ?_
@@ -441,7 +441,7 @@ theorem compileConst_correct (c : TinyML.Const) :
       · iexact HR
   | bool b =>
     simp only [compile] at heval
-    simp only [Expr.runtime, TinyML.Const.runtime, Runtime.Expr.subst_val]
+    simp only [Expr.runtime, Runtime.Val.ofConst, Runtime.Expr.subst_val]
     obtain heval := VerifM.eval_ret heval
     simp only [Expr.ty, Const.ty] at hpost
     refine SpatialContext.wp_val ?_
@@ -459,7 +459,7 @@ theorem compileConst_correct (c : TinyML.Const) :
       · iexact HR
   | unit =>
     simp only [compile] at heval
-    simp only [Expr.runtime, TinyML.Const.runtime, Runtime.Expr.subst_val]
+    simp only [Expr.runtime, Runtime.Val.ofConst, Runtime.Expr.subst_val]
     obtain heval := VerifM.eval_ret heval
     simp only [Expr.ty, Const.ty] at hpost
     refine SpatialContext.wp_val ?_

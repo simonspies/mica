@@ -192,7 +192,7 @@ def Binder.runtime : Untyped.Binder → Runtime.Binder
   | .named x _ty => .named x
 
 def Expr.runtime : Untyped.Expr → Runtime.Expr
-  | .const c => .val c.runtime
+  | .const c => .val (Runtime.Val.ofConst c)
   | .var x => .var x
   | .unop op e => .unop op e.runtime
   | .binop op l r => .binop op l.runtime r.runtime
