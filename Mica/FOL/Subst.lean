@@ -298,21 +298,21 @@ theorem Subst.eval_update_agreeOn {σ : Subst} {ρ : Env} {τ : Srt} {x name' : 
       · change
           Term.eval (ρ.updateConst τ name' v) ((σ.update τ x (.var τ name')).apply w.sort w.name) =
             (((σ.eval ρ).updateConst τ x v).lookupConst w.sort w.name)
-        rw [Subst.apply_update_ne (Or.inr hsort), Env.lookupConst_updateConst_ne (Or.inr hsort)]
+        rw [Subst.apply_update_ne (Or.inr hsort), Env.lookupConst_updateConst_ne' (Or.inr hsort)]
         simpa [Subst.eval, Env.updateConst, Env.lookupConst] using
           (Term.eval_update_fresh (ρ := ρ) (τ' := w.sort) (x := name') (τ := τ)
             (v := v) (Δ := Δ) (hwf := hσ.1 w hw) hfresh)
       · change
           Term.eval (ρ.updateConst τ name' v) ((σ.update τ x (.var τ name')).apply w.sort w.name) =
             (((σ.eval ρ).updateConst τ x v).lookupConst w.sort w.name)
-        rw [Subst.apply_update_ne (Or.inl hname), Env.lookupConst_updateConst_ne (Or.inl hname)]
+        rw [Subst.apply_update_ne (Or.inl hname), Env.lookupConst_updateConst_ne' (Or.inl hname)]
         simpa [Subst.eval, Env.updateConst, Env.lookupConst] using
           (Term.eval_update_fresh (ρ := ρ) (τ' := w.sort) (x := name') (τ := τ)
             (v := v) (Δ := Δ) (hwf := hσ.1 w hw) hfresh)
       · change
           Term.eval (ρ.updateConst τ name' v) ((σ.update τ x (.var τ name')).apply w.sort w.name) =
             (((σ.eval ρ).updateConst τ x v).lookupConst w.sort w.name)
-        rw [Subst.apply_update_ne (Or.inl hname), Env.lookupConst_updateConst_ne (Or.inl hname)]
+        rw [Subst.apply_update_ne (Or.inl hname), Env.lookupConst_updateConst_ne' (Or.inl hname)]
         simpa [Subst.eval, Env.updateConst, Env.lookupConst] using
           (Term.eval_update_fresh (ρ := ρ) (τ' := w.sort) (x := name') (τ := τ)
             (v := v) (Δ := Δ) (hwf := hσ.1 w hw) hfresh)
@@ -337,7 +337,7 @@ theorem Subst.eval_bind_agreeOn {σ : Subst} {ρ : Env} {τ : Srt} {y y' : Strin
       change Term.eval (ρ.updateConst τ y' v) ((σ.bind y τ y').apply w.sort w.name) =
         (((σ.eval ρ).updateConst τ y v).lookupConst w.sort w.name)
       rw [Subst.bind, Subst.apply_update_ne (Or.inl hrest.2), Subst.apply_eraseName_ne hrest.2,
-        Env.lookupConst_updateConst_ne (Or.inl hrest.2)]
+        Env.lookupConst_updateConst_ne' (Or.inl hrest.2)]
       simpa [Subst.eval, Env.updateConst, Env.lookupConst] using
         (Term.eval_update_fresh (ρ := ρ) (τ' := w.sort) (x := y') (τ := τ)
           (v := v) (Δ := Δ') (hwf := hσ.1 w hrest.1) hy'_fresh)
@@ -355,10 +355,10 @@ theorem Subst.eval_bind_agreeOn {σ : Subst} {ρ : Env} {τ : Srt} {y y' : Strin
       change Term.eval (ρ.updateConst τ y' v) ((σ.bind y τ y').apply c.sort c.name) =
         (((σ.eval ρ).updateConst τ y v).lookupConst c.sort c.name)
       rw [Subst.bind, Subst.apply_update_ne (Or.inl hc'.2), Subst.apply_eraseName_ne hc'.2,
-        Env.lookupConst_updateConst_ne (Or.inl hc'.2), Subst.eval_lookup]
+        Env.lookupConst_updateConst_ne' (Or.inl hc'.2), Subst.eval_lookup]
       rw [hσ.2 ⟨c.name, c.sort⟩ hc_not_var]
       simpa [Term.eval, Env.lookupConst] using
-        (Env.lookupConst_updateConst_ne (ρ := ρ) (τ := τ) (τ' := c.sort) (x := y')
+        (Env.lookupConst_updateConst_ne' (ρ := ρ) (τ := τ) (τ' := c.sort) (x := y')
           (y := c.name) (v := v) (Or.inl hc_not_fresh))
     · constructor
       · intro u hu

@@ -310,12 +310,12 @@ theorem Term.eval_update_fresh {t : Term τ'} {x : String} {τ : Srt} {v : τ.de
       have hne : w.name ≠ x := by
         intro heq
         exact hfresh (heq ▸ Signature.mem_allNames_of_var hw)
-      exact Env.lookupConst_updateConst_ne (Or.inl hne),
+      exact Env.lookupConst_updateConst_ne' (Or.inl hne),
      fun c hc => by
       have hne : c.name ≠ x := by
         intro heq
         exact hfresh (heq ▸ Signature.mem_allNames_of_const hc)
-      exact Env.lookupConst_updateConst_ne (Or.inl hne),
+      exact Env.lookupConst_updateConst_ne' (Or.inl hne),
      fun _ _ => rfl, fun _ _ => rfl⟩
 
 /-! simple helper lemmas -/

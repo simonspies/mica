@@ -573,11 +573,11 @@ instance : Inhabited Env := { default := Env.empty }
     (ρ.updateConst τ x v).lookupConst τ x = v := by
   simp [Env.updateConst, Env.lookupConst]
 
-@[simp] theorem Env.lookupConst_updateConst_ne' {ρ : Env} {τ : Srt} {x y : String} {v : τ.denote} (h : y ≠ x) :
+@[simp] theorem Env.lookupConst_updateConst_ne {ρ : Env} {τ : Srt} {x y : String} {v : τ.denote} (h : y ≠ x) :
     (Env.updateConst ρ τ x v).lookupConst τ y = ρ.lookupConst τ y := by
   simp [Env.updateConst, Env.lookupConst, h]
 
-theorem Env.lookupConst_updateConst_ne {ρ : Env} {τ τ' : Srt} {x y : String} {v : τ.denote}
+theorem Env.lookupConst_updateConst_ne' {ρ : Env} {τ τ' : Srt} {x y : String} {v : τ.denote}
     (h : y ≠ x ∨ τ' ≠ τ) : (ρ.updateConst τ x v).lookupConst τ' y = ρ.lookupConst τ' y := by
   simp only [Env.updateConst, Env.lookupConst]
   split
@@ -669,7 +669,7 @@ theorem Env.agreeOn_update_fresh_const {ρ : Env} {c : FOL.Const} {u : c.sort.de
       apply hfresh
       rw [← heq]
       exact Signature.mem_allNames_of_var hw
-    exact (Env.lookupConst_updateConst_ne (Or.inl hne)).symm
+    exact (Env.lookupConst_updateConst_ne' (Or.inl hne)).symm
   · constructor
     · intro c' hc'
       have hne : c'.name ≠ c.name := by
@@ -677,7 +677,7 @@ theorem Env.agreeOn_update_fresh_const {ρ : Env} {c : FOL.Const} {u : c.sort.de
         apply hfresh
         rw [← heq]
         exact Signature.mem_allNames_of_const hc'
-      exact (Env.lookupConst_updateConst_ne (Or.inl hne)).symm
+      exact (Env.lookupConst_updateConst_ne' (Or.inl hne)).symm
     · constructor
       · intro u' hu'
         rw [Env.updateConst_unary]

@@ -187,7 +187,7 @@ theorem FiniteSubst.rename_agreeOn {σ : FiniteSubst} {v : Var} {c : FOL.Const}
               (Term.const (Const.uninterpreted c.name v.sort))).apply w.sort w.name) =
           ((σ.subst.eval ρ).updateConst v.sort v.name u).lookupConst w.sort w.name
       rw [Subst.apply_update_ne (Or.inl hne), Subst.apply_eraseName_ne hne,
-        Env.lookupConst_updateConst_ne (Or.inl hne), Subst.eval_lookup]
+        Env.lookupConst_updateConst_ne' (Or.inl hne), Subst.eval_lookup]
       exact (Term.eval_env_agree (hσwf.1 w hwdom)
         (Env.agreeOn_update_fresh_const (c := ⟨c.name, v.sort⟩) hfresh)).symm
   · simp [Signature.ofVars]
