@@ -2,6 +2,7 @@
 
 import Mica.Verifier.Scoped
 import Mica.Verifier.Monad
+import Mica.Verifier.Bindings
 import Mica.Verifier.Utils
 import Mica.Verifier.Assertions
 import Mica.Verifier.Expressions
