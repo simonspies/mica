@@ -1,3 +1,4 @@
+-- SUMMARY: Parsing of frontend tokens into surface syntax trees, with integrated frontend errors.
 import Mica.Frontend.AST
 import Mica.Frontend.Lexer
 

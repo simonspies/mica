@@ -1,3 +1,4 @@
+-- SUMMARY: Pretty-printing of frontend syntax back into OCaml-like concrete syntax.
 import Mica.Frontend.AST
 
 namespace Frontend

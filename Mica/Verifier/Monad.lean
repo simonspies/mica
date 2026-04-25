@@ -1,3 +1,4 @@
+-- SUMMARY: Verification monad with SMT operations, branching, and its operational and semantic correctness interfaces.
 import Mica.Engine.Driver
 import Mica.Verifier.Scoped
 import Mica.Verifier.State

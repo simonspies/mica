@@ -1,3 +1,4 @@
+-- SUMMARY: Heap operations and basic facts for TinyML runtime locations and values.
 import Mathlib.Data.Finmap
 import Mica.TinyML.RuntimeExpr
 

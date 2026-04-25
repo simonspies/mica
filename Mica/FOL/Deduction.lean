@@ -1,3 +1,4 @@
+-- SUMMARY: Unused natural deduction development for first-order logic and its connection to semantic entailment.
 import Mica.FOL.Formulas
 import Mica.FOL.Subst
 

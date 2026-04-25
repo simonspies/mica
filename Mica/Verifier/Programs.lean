@@ -1,3 +1,4 @@
+-- SUMMARY: End-to-end preparation and verification of programs, from typed elaboration to program-level soundness.
 import Mica.TinyML.Typed
 import Mica.TinyML.Untyped
 import Mica.TinyML.Typing

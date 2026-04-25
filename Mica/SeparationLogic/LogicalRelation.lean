@@ -1,3 +1,4 @@
+-- SUMMARY: Iris logical relations for TinyML values and types, together with formula generation for type constraints.
 import Mica.TinyML.Common
 import Mica.TinyML.Types
 import Mica.TinyML.RuntimeExpr

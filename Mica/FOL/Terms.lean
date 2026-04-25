@@ -1,3 +1,4 @@
+-- SUMMARY: Typed first-order terms, their Tarski semantics, and their well-formedness conditions.
 import Mica.FOL.Variables
 import Mica.Base.Except
 

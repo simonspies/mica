@@ -1,3 +1,4 @@
+-- SUMMARY: Scoped SMT command language and its translation to solver strategies and flat contexts.
 import Mica.Engine.Strategy
 
 open Smt

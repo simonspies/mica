@@ -1,3 +1,4 @@
+-- SUMMARY: Execution of SMT strategies against a live Z3 process.
 import Mica.Engine.Strategy
 
 /-! ## Smt.Session (Z3 session) -/

@@ -1,3 +1,4 @@
+-- SUMMARY: Abstract SMT states and the satisfiability notion used in the solver interface.
 import Mica.FOL.Printing
 import Mica.FOL.Subst
 

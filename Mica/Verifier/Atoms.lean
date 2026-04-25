@@ -1,3 +1,4 @@
+-- SUMMARY: Verifier atoms for pure and spatial facts, together with their interpretations, resolution procedures, and correctness lemmas.
 import Mica.FOL.Printing
 import Mica.FOL.Subst
 import Mica.SeparationLogic

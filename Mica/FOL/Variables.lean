@@ -1,3 +1,4 @@
+-- SUMMARY: Sorts, variables, and signatures for the first-order logic layer.
 import Mica.TinyML.RuntimeExpr
 
 -- ---------------------------------------------------------------------------

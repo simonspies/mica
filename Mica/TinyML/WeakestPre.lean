@@ -1,3 +1,4 @@
+-- SUMMARY: Weakest-precondition interface for the TinyML runtime IR.
 import Mica.TinyML.Common
 import Mica.TinyML.RuntimeExpr
 import Mica.TinyML.OpSem

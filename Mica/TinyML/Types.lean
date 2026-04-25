@@ -1,3 +1,4 @@
+-- SUMMARY: TinyML types, type declarations, and subtyping structure.
 import Mica.TinyML.Common
 
 namespace TinyML

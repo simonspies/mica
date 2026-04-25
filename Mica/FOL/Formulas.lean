@@ -1,3 +1,4 @@
+-- SUMMARY: First-order formulas together with their Tarski semantics and well-formedness conditions.
 import Mica.FOL.Terms
 import Mica.Base.Except
 

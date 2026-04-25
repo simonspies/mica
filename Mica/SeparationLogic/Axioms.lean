@@ -1,3 +1,4 @@
+-- SUMMARY: Axiomatized Iris connectives and weakest-precondition rules for TinyML programs and heap operations.
 import Iris.Examples.IProp
 import Mica.TinyML.RuntimeExpr
 import Mica.TinyML.OpSem

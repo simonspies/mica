@@ -1,3 +1,4 @@
+-- SUMMARY: Syntactic spatial atoms and contexts for verifier state, together with their well-formedness conditions and basic operations.
 import Mica.FOL.Terms
 
 /-! # Spatial Atoms and Contexts (Syntactic)

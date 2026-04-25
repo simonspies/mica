@@ -1,3 +1,4 @@
+-- SUMMARY: Elaboration and typechecking from the untyped IR to the typed IR.
 import Mica.TinyML.Types
 import Mica.TinyML.Untyped
 import Mica.TinyML.Typed

@@ -1,3 +1,4 @@
+-- SUMMARY: Untyped abstract syntax for specifications embedded in frontend programs.
 /-!
 # Specification Language
 

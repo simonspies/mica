@@ -1,3 +1,4 @@
+-- SUMMARY: Assertion language for specifications, together with its semantics, well-formedness conditions, and verifier operations.
 import Mica.TinyML.Typed
 import Mica.TinyML.Typing
 import Mica.SeparationLogic

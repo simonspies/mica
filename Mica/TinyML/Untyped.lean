@@ -1,3 +1,4 @@
+-- SUMMARY: Untyped TinyML IR, with annotations carried where available.
 import Mica.TinyML.Common
 import Mica.TinyML.Types
 import Mica.TinyML.RuntimeExpr
