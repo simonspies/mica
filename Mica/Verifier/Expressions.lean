@@ -662,7 +662,7 @@ theorem compileRef_correct (e : Expr)
   have hwf_st₁ := VerifM.eval.wf hΨ_e
   set c : FOL.Const := st₁.freshConst none .value
   have hfresh : c.name ∉ st₁.decls.allNames :=
-    fresh_not_mem _ _ (addNumbers_injective _)
+    Fresh.fresh_not_mem _ _ (Fresh.addNumbers_injective _)
   have hwf_addConst : TransState.wf { st₁ with decls := st₁.decls.addConst c } :=
     TransState.freshConst.wf _ hwf_st₁
   have hwp :
@@ -733,7 +733,7 @@ theorem compileDeref_correct (e : Expr) (ty : TinyML.Typ)
   set c : FOL.Const := st₁.freshConst none .value
   set sv : Term .value := .const (.uninterpreted c.name .value)
   have hc_fresh : c.name ∉ st₁.decls.allNames :=
-    fresh_not_mem _ _ (addNumbers_injective _)
+    Fresh.fresh_not_mem _ _ (Fresh.addNumbers_injective _)
   have hc_wf : sv.wfIn (st₁.decls.addConst c) :=
     by
       simpa [sv] using
@@ -1159,11 +1159,11 @@ theorem compileLetIn_correct (b : Binder) (e body : Expr)
   | some x =>
     simp [hname] at hΨ_e
     set base := x
-    set x' := fresh (addNumbers base) st₁.decls.allNames
+    set x' := Fresh.fresh (Fresh.addNumbers base) st₁.decls.allNames
     set v : FOL.Const := ⟨x', .value⟩
     have _hvty : v.sort = .value := rfl
     have hfresh : v.name ∉ st₁.decls.allNames :=
-      fresh_not_mem _ _ (addNumbers_injective _)
+      Fresh.fresh_not_mem _ _ (Fresh.addNumbers_injective _)
     set st₂ : TransState :=
       { decls := st₁.decls.addConst v,
         asserts := (Formula.eq .value (.const (.uninterpreted v.name .value)) se) :: st₁.asserts,
@@ -1668,7 +1668,7 @@ theorem compileSingleBranch_correct (binder : Binder) (body : Expr)
     let st₁ : TransState := { decls := st.decls.addConst xv, asserts := st.asserts, owns := st.owns }
     let ρ₁ := ρ.updateConst .value xv.name payload
     have hxv_fresh : xv.name ∉ st.decls.allNames :=
-      fresh_not_mem _ _ (addNumbers_injective _)
+      Fresh.fresh_not_mem _ _ (Fresh.addNumbers_injective _)
     have hstwf : st.decls.wf := (VerifM.eval.wf heval_decl).namesDisjoint
     have hxv_wf : (Term.const (.uninterpreted xv.name .value)).wfIn st₁.decls :=
       by

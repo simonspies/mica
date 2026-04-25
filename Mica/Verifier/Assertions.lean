@@ -407,7 +407,7 @@ theorem Assertion.assume_correct (m : Assertion α) (σ : FiniteSubst)
     simp only [Assertion.post]
     set v' := st.freshConst (some v.name) v.sort
     have hv'_fresh_decls : v'.name ∉ st.decls.allNames :=
-      fresh_not_mem (addNumbers (v.name)) (st.decls.allNames) (addNumbers_injective _)
+      Fresh.fresh_not_mem (Fresh.addNumbers (v.name)) (st.decls.allNames) (Fresh.addNumbers_injective _)
     have hv'_fresh_range : v'.name ∉ σ.range.allNames :=
       fun h => hv'_fresh_decls (Signature.allNames_subset hσwf.2.1 _ h)
     set u := t.eval (σ.subst.eval ρ.env)
@@ -499,7 +499,7 @@ theorem Assertion.assume_correct (m : Assertion α) (σ : FiniteSubst)
     have hdecl := VerifM.eval_decl hb
     set v' := st.freshConst (some v.name) v.sort
     have hv'_fresh_decls : v'.name ∉ st.decls.allNames :=
-      fresh_not_mem (addNumbers (v.name)) (st.decls.allNames) (addNumbers_injective _)
+      Fresh.fresh_not_mem (Fresh.addNumbers (v.name)) (st.decls.allNames) (Fresh.addNumbers_injective _)
     have hv'_fresh_range : v'.name ∉ σ.range.allNames :=
       fun h => hv'_fresh_decls (Signature.allNames_subset hσwf.2.1 _ h)
     specialize hdecl u
@@ -686,7 +686,7 @@ theorem Assertion.prove_correct (m : Assertion α) (σ : FiniteSubst)
     simp only [Assertion.pre]
     set v' := st.freshConst (some v.name) v.sort
     have hv'_fresh_decls : v'.name ∉ st.decls.allNames :=
-      fresh_not_mem (addNumbers (v.name)) (st.decls.allNames) (addNumbers_injective _)
+      Fresh.fresh_not_mem (Fresh.addNumbers (v.name)) (st.decls.allNames) (Fresh.addNumbers_injective _)
     have hv'_fresh_range : v'.name ∉ σ.range.allNames :=
       fun h => hv'_fresh_decls (Signature.allNames_subset hσwf.2.1 _ h)
     set u := t.eval (σ.subst.eval ρ.env)
@@ -773,7 +773,7 @@ theorem Assertion.prove_correct (m : Assertion α) (σ : FiniteSubst)
           have hdecl := VerifM.eval_decl hb2
           set v' := st'.freshConst (some v.name) v.sort
           have hv'_fresh_decls : v'.name ∉ st'.decls.allNames :=
-            fresh_not_mem (addNumbers (v.name)) (st'.decls.allNames) (addNumbers_injective _)
+            Fresh.fresh_not_mem (Fresh.addNumbers (v.name)) (st'.decls.allNames) (Fresh.addNumbers_injective _)
           have hv'_fresh_range : v'.name ∉ σ.range.allNames := by
             intro h
             apply hv'_fresh_decls

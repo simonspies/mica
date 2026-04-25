@@ -5,6 +5,8 @@ import Mathlib.Data.List.Nodup
 import Mathlib.Data.Nat.Digits.Defs
 import Mathlib.Tactic.IntervalCases
 
+namespace Fresh
+
 /-- Helper function to search for a fresh element.
     `n` is the fuel (decreases), `m` is the current index to try.
     Returns `some (f m)` if `f m ∉ xs`, otherwise recurses with `n-1, m+1`. -/
@@ -216,3 +218,5 @@ def freshName (avoid : List String) (base : String) : String :=
 theorem freshName_not_in_avoid (avoid : List String) (base : String) :
     freshName avoid base ∉ avoid := by
   exact fresh_not_mem (addPrimes base) avoid (addPrimes_injective base)
+
+end Fresh

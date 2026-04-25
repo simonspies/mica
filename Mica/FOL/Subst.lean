@@ -266,10 +266,10 @@ def Formula.subst (σ : Subst) (avoid : List String) : Formula → Formula
   | .or φ ψ        => .or (Formula.subst σ avoid φ) (Formula.subst σ avoid ψ)
   | .implies φ ψ   => .implies (Formula.subst σ avoid φ) (Formula.subst σ avoid ψ)
   | .forall_ y τ φ =>
-    let y' := freshName avoid y
+    let y' := Fresh.freshName avoid y
     .forall_ y' τ (Formula.subst (σ.bind y τ y') (y' :: avoid) φ)
   | .exists_ y τ φ =>
-    let y' := freshName avoid y
+    let y' := Fresh.freshName avoid y
     .exists_ y' τ (Formula.subst (σ.bind y τ y') (y' :: avoid) φ)
 
 theorem Subst.eval_update_agreeOn {σ : Subst} {ρ : Env} {τ : Srt} {x name' : String} {v : τ.denote}
@@ -378,8 +378,8 @@ theorem Formula.eval_subst {σ : Subst} {ρ : Env} {φ : Formula} {Δ Δ' : Sign
       ihψ hφ.2 hσ hsymbols hwfΔ hwfΔ']
   | forall_ y τ φ ih =>
     simp only [Formula.subst, Formula.eval]
-    let y' := freshName Δ'.allNames y
-    have hy'_fresh : y' ∉ Δ'.allNames := freshName_not_in_avoid Δ'.allNames y
+    let y' := Fresh.freshName Δ'.allNames y
+    have hy'_fresh : y' ∉ Δ'.allNames := Fresh.freshName_not_in_avoid Δ'.allNames y
     have hremove : Δ'.remove y' = Δ' := Signature.remove_eq_of_not_in hy'_fresh
     have hwf_body : φ.wfIn ((Δ.remove y).addVar ⟨y, τ⟩) := hφ
     have hwf_body_sig : ((Δ.remove y).addVar ⟨y, τ⟩).wf := Signature.wf_remove_addVar hwfΔ
@@ -429,8 +429,8 @@ theorem Formula.eval_subst {σ : Subst} {ρ : Env} {φ : Formula} {Δ Δ' : Sign
             hsymbols_body hwf_body_sig hwf_target).mpr h1)
   | exists_ y τ φ ih =>
     simp only [Formula.subst, Formula.eval]
-    let y' := freshName Δ'.allNames y
-    have hy'_fresh : y' ∉ Δ'.allNames := freshName_not_in_avoid Δ'.allNames y
+    let y' := Fresh.freshName Δ'.allNames y
+    have hy'_fresh : y' ∉ Δ'.allNames := Fresh.freshName_not_in_avoid Δ'.allNames y
     have hremove : Δ'.remove y' = Δ' := Signature.remove_eq_of_not_in hy'_fresh
     have hwf_body : φ.wfIn ((Δ.remove y).addVar ⟨y, τ⟩) := hφ
     have hwf_body_sig : ((Δ.remove y).addVar ⟨y, τ⟩).wf := Signature.wf_remove_addVar hwfΔ
@@ -546,8 +546,8 @@ theorem Formula.subst_wfIn {φ : Formula} {σ : Subst} {Δ Δ' : Signature}
         (ihψ hwf.2 hσ hsymbols hwfΔ')
   | forall_ y τ φ ih | exists_ y τ φ ih =>
     simp only [Formula.subst, Formula.wfIn]
-    let y' := freshName Δ'.allNames y
-    have hy'_fresh : y' ∉ Δ'.allNames := freshName_not_in_avoid Δ'.allNames y
+    let y' := Fresh.freshName Δ'.allNames y
+    have hy'_fresh : y' ∉ Δ'.allNames := Fresh.freshName_not_in_avoid Δ'.allNames y
     have hremove : Δ'.remove y' = Δ' := Signature.remove_eq_of_not_in hy'_fresh
     have hwf_target : ((Δ'.remove y').addVar ⟨y', τ⟩).wf := Signature.wf_remove_addVar hwfΔ'
     have hσ_ext :
