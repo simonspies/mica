@@ -340,6 +340,9 @@ theorem Term.const_wfIn_addConst_of_fresh {Δ : Signature} {c : FOL.Const}
     (Term.const (.uninterpreted x τ)).eval (ρ.updateConst τ x v) = v := by
   simp [Term.eval, Const.denote, Env.updateConst]
 
+/-! ### Vallist projections -/
+
+-- Projection helpers for repeated `vtail` and indexed `vhead` access on `vallist` terms.
 /-- Apply `vtail` n times to a vallist term. -/
 def vtailN (t : Term .vallist) : Nat → Term .vallist
   | 0     => t
