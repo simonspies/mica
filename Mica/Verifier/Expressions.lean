@@ -251,7 +251,7 @@ end
 
 /-! ### Helper lemmas -/
 
-theorem compileBranches_spec (Θ : TinyML.TypeEnv) (S : SpecMap) (B : Bindings) (Γ : TinyML.TyCtx)
+theorem compileBranches_length_get (Θ : TinyML.TypeEnv) (S : SpecMap) (B : Bindings) (Γ : TinyML.TyCtx)
     (sc : Term .value) (ts : List TinyML.Typ)
     (branches : List (Binder × Expr)) (idx : Nat) :
     (compileBranches Θ S B Γ sc ts branches idx).length = branches.length ∧
@@ -1551,7 +1551,7 @@ theorem compileMatch_correct (scrut : Expr) (branches : List (Binder × Expr)) (
               | some m => m
               | none => VerifM.fatal "match branch index out of range").eval st_scrut ρ_scrut Ψ := by
           simpa [if_pos hlen, if_pos htys] using hΨ_scrut
-        have hcb := compileBranches_spec Θ S B Γ se_scrut ts branches 0
+        have hcb := compileBranches_length_get Θ S B Γ se_scrut ts branches 0
         have hactions_len := hcb.1
         have heval_all := VerifM.eval_bind _ _ _ _ hΨ_scrut'
         have hall := VerifM.eval_all heval_all
