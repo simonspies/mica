@@ -74,7 +74,7 @@ def Val.ofConst : TinyML.Const → Val
 -- `deriving DecidableEq` does not support mutual inductives with `List`-nested
 -- recursion, so we define the instances by hand.
 mutual
-  def Val.decEq (a b : Val) : Decidable (a = b) := by
+  private def Val.decEq (a b : Val) : Decidable (a = b) := by
     cases a <;> cases b
     all_goals first | exact isFalse (by omega) | skip
     all_goals first | exact isFalse Val.noConfusion | skip
@@ -105,7 +105,7 @@ mutual
       | isTrue h => isTrue (by subst h; rfl)
       | isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
 
-  def Expr.decEq (a b : Expr) : Decidable (a = b) := by
+  private def Expr.decEq (a b : Expr) : Decidable (a = b) := by
     cases a <;> cases b
     all_goals first | exact isFalse (by omega) | skip
     all_goals first | exact isFalse Expr.noConfusion | skip
@@ -168,7 +168,7 @@ mutual
       | isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
       | _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
 
-  def valsDecEq : (as bs : List Val) → Decidable (as = bs)
+  private def valsDecEq : (as bs : List Val) → Decidable (as = bs)
     | [], [] => isTrue rfl
     | [], _ :: _ => isFalse (by intro h; cases h)
     | _ :: _, [] => isFalse (by intro h; cases h)
@@ -177,7 +177,7 @@ mutual
       | isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
       | _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
 
-  def exprsDecEq : (as bs : List Expr) → Decidable (as = bs)
+  private def exprsDecEq : (as bs : List Expr) → Decidable (as = bs)
     | [], [] => isTrue rfl
     | [], _ :: _ => isFalse (by intro h; cases h)
     | _ :: _, [] => isFalse (by intro h; cases h)
