@@ -293,14 +293,14 @@ def ExprKind.elaborate (env : ElabEnv) (loc : Location) : ExprKind → ElabM Unt
         .ok (.letIn name bound' body')
     | pat :: args => do
       let name ← patternToBinder pat
-      let args' ← PatternList.toBindersTyped env args
+      let args' ← PatternList.toAnnotatedBinders env args
       let self := if isRec then name else .none
       let bound' ← ExprKind.elaborate env bl bk
       let body' ← ExprKind.elaborate env dl dk
       .ok (.letIn name (.fix self args' none bound') body')
 
   | .fun_ args retTy ⟨bl, bk⟩ => do
-    let args' ← PatternList.toBindersTyped env args
+    let args' ← PatternList.toAnnotatedBinders env args
     let retTy' ← elaborateOptTyp env retTy
     let body' ← ExprKind.elaborate env bl bk
     .ok (.fix .none args' retTy' body')
@@ -375,12 +375,12 @@ def MatchArmList.elaborate (env : ElabEnv)
     let rest ← MatchArmList.elaborate env arms
     .ok ((ctorName, binder, body') :: rest)
 
-def PatternList.toBindersTyped (env : ElabEnv)
+def PatternList.toAnnotatedBinders (env : ElabEnv)
     : List Pattern → ElabM (List Untyped.Binder)
   | [] => .ok []
   | p :: ps => do
     let b ← patternToBinderTyped env p
-    let bs ← PatternList.toBindersTyped env ps
+    let bs ← PatternList.toAnnotatedBinders env ps
     .ok (b :: bs)
 end
 
@@ -472,7 +472,7 @@ def ValDecl.elaborate (env : ElabEnv) (loc : Location)
   | pat :: args =>
     let name ← patternToBinder pat
     let self := if isRec then name else .none
-    let args' ← PatternList.toBindersTyped env args
+    let args' ← PatternList.toAnnotatedBinders env args
     let retTy' ← elaborateOptTyp env retTy
     let body' ← Expr.elaborate env body
     .ok { name, body := .fix self args' retTy' body', spec }
