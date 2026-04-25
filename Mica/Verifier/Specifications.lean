@@ -109,7 +109,7 @@ instance : Iris.BI.Persistent (isPrecondFor Θ f s) := by
 
 /-- Fold `wp_fix'`'s tupled recursive obligation into a spec precondition;
     the two differ only by currying the typing hypothesis and the predicate transformer. -/
-theorem isPrecondFor_fold (Θ : TinyML.TypeEnv) (s : Spec)
+theorem isPrecondFor_intro (Θ : TinyML.TypeEnv) (s : Spec)
     (f : Runtime.Val) :
     iprop(□ ∀ (vs : List Runtime.Val) (P : Runtime.Val → iProp),
       (TinyML.ValsHaveTypes Θ vs (s.args.map Prod.snd) ∗
@@ -143,13 +143,13 @@ theorem isPrecondFor_fix {Θ : TinyML.TypeEnv} {s : Spec}
       iprop(TinyML.ValsHaveTypes Θ vs (s.args.map Prod.snd) ∗
         PredTrans.apply (fun r => TinyML.ValHasType Θ r s.retTy -∗ P r) s.pred
             (argsEnv VerifM.Env.empty s.args vs))) (h.trans ?_)).trans
-    (isPrecondFor_fold Θ s _)
+    (isPrecondFor_intro Θ s _)
   istart
   iintro □HR
   imodintro
   iintro IH %vs %P ⟨htyped, hpred⟩
   ispecialize HR $$ [IH]
-  · iapply (isPrecondFor_fold Θ s (.fix f args e))
+  · iapply (isPrecondFor_intro Θ s (.fix f args e))
     iexact IH
   ihave Hres := HR $$ %vs %P [htyped] [hpred]
   · iexact htyped
