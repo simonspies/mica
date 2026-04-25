@@ -137,7 +137,7 @@ def VerifM.translate :
 
 /-! ### Eval_rec: postcondition-based semantics (raw) -/
 
-def VerifM.eval_rec : VerifM α → TransState → VerifM.Env → (α → TransState → VerifM.Env → Prop) → Prop
+private def VerifM.eval_rec : VerifM α → TransState → VerifM.Env → (α → TransState → VerifM.Env → Prop) → Prop
   | .ret a, st, ρ, P => P a st ρ
   | .bind m k, st, ρ, P => m.eval_rec st ρ (fun r st' ρ' => (k r).eval_rec st' ρ' P)
   | .decl hint t, st, ρ, P =>
@@ -158,7 +158,7 @@ def VerifM.eval_rec : VerifM α → TransState → VerifM.Env → (α → TransS
   | .seq m m2, st, ρ, P =>
       m.eval_rec st ρ (fun () _ _ => True) ∧ m2.eval_rec st ρ P
 
-theorem VerifM.eval_rec.mono' {m : VerifM α} (ρ : VerifM.Env) (st : TransState) (h : m.eval_rec st ρ P)
+private theorem VerifM.eval_rec.mono' {m : VerifM α} (ρ : VerifM.Env) (st : TransState) (h : m.eval_rec st ρ P)
     (hPQ : ∀ a st' (ρ' : VerifM.Env),
       st.decls.Subset st'.decls → VerifM.Env.agreeOn st.decls ρ ρ' → P a st' ρ' → Q a st' ρ') :
     m.eval_rec st ρ Q := by
@@ -201,18 +201,18 @@ theorem VerifM.eval_rec.mono' {m : VerifM α} (ρ : VerifM.Env) (st : TransState
     exact ⟨ihm ρ st h.1 fun () _ _ _ _ ha => trivial,
            ihf ρ st h.2 hPQ⟩
 
-theorem VerifM.eval_rec.mono {m : VerifM α} (h : m.eval_rec st ρ P) (hPQ : ∀ a st' ρ', P a st' ρ' → Q a st' ρ') :
+private theorem VerifM.eval_rec.mono {m : VerifM α} (h : m.eval_rec st ρ P) (hPQ : ∀ a st' ρ', P a st' ρ' → Q a st' ρ') :
     m.eval_rec st ρ Q :=
   h.mono' ρ st fun a st' ρ' _ _ => hPQ a st' ρ'
 
-theorem VerifM.eval_rec.decls_grow {m : VerifM α} ρ (h : m.eval_rec st ρ P) :
+private theorem VerifM.eval_rec.decls_grow {m : VerifM α} ρ (h : m.eval_rec st ρ P) :
     m.eval_rec st ρ (fun a st' ρ' => st.decls.Subset st'.decls ∧ VerifM.Env.agreeOn st.decls ρ ρ' ∧ P a st' ρ') :=
   h.mono' ρ st fun _ _ _ hsub hag hp => ⟨hsub, hag, hp⟩
 
 /-! ### Adequacy: translate success implies eval -/
 
 
-theorem VerifM.eval_rec_preserves_wf (m : VerifM α) (st : TransState) (ρ: VerifM.Env)
+private theorem VerifM.eval_rec_preserves_wf (m : VerifM α) (st : TransState) (ρ: VerifM.Env)
     (h : VerifM.eval_rec m st ρ P) (g : st.holdsFor ρ) (hwf : st.wf) :
     VerifM.eval_rec m st ρ (fun a st' ρ' => st'.holdsFor ρ' ∧ st'.wf ∧ P a st' ρ') := by
   induction m generalizing st ρ with
@@ -318,7 +318,7 @@ private theorem translateAny_eval (items : List α) (st : TransState)
       simp only [ScopedM.eval_ret] at hk1
       exact absurd hk1.1 (by simp)
 
-theorem VerifM.translate_eval_rec (m : VerifM α) (st : TransState) (ρ: VerifM.Env)
+private theorem VerifM.translate_eval_rec (m : VerifM α) (st : TransState) (ρ: VerifM.Env)
     (f : TransCont (Except VerifError α))
     (hf : ∀ e st', ¬∃ Δ, ScopedM.eval (f (.error e) st') st'.toFlatCtx (.ok ()) Δ)
     (Δ : FlatCtx)
