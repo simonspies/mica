@@ -26,7 +26,7 @@ theorem lookup_fresh (μ : Heap) (l : Runtime.Location) (h : μ.Fresh l) :
   simp [Fresh, dom, lookup] at *
   exact Finmap.lookup_eq_none.mpr h
 
-theorem dom_update (μ : Heap) (l : Runtime.Location) (v : Runtime.Val) :
+theorem update_dom (μ : Heap) (l : Runtime.Location) (v : Runtime.Val) :
     (μ.update l v).dom = μ.dom ∪ {l} := by
   ext a
   simp [dom, update, Finmap.mem_keys, Finmap.mem_insert]
