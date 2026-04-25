@@ -80,7 +80,7 @@ mutual
 def TypKind.elaborate (env : ElabEnv) (loc : Location) : TypKind → ElabM TinyML.Typ
   | .var v => .ok (.tvar v)
   | .con name args => do
-    let args' ← TypList.elaborate env args
+    let args' ← Typ.elaborateList env args
     match name with
     | "int"  => if args'.isEmpty then .ok .int  else err loc (.arityMismatch 0 args'.length)
     | "bool" => if args'.isEmpty then .ok .bool else err loc (.arityMismatch 0 args'.length)
@@ -97,14 +97,14 @@ def TypKind.elaborate (env : ElabEnv) (loc : Location) : TypKind → ElabM TinyM
     let cod' ← TypKind.elaborate env cloc ckind
     .ok (.arrow dom' cod')
   | .tuple ts => do
-    let ts' ← TypList.elaborate env ts
+    let ts' ← Typ.elaborateList env ts
     .ok (.tuple ts')
 
-def TypList.elaborate (env : ElabEnv) : List Typ → ElabM (List TinyML.Typ)
+def Typ.elaborateList (env : ElabEnv) : List Typ → ElabM (List TinyML.Typ)
   | [] => .ok []
   | ⟨loc, kind⟩ :: ts => do
     let t' ← TypKind.elaborate env loc kind
-    let ts' ← TypList.elaborate env ts
+    let ts' ← Typ.elaborateList env ts
     .ok (t' :: ts')
 end
 
@@ -229,7 +229,7 @@ def ExprKind.elaborate (env : ElabEnv) (loc : Location) : ExprKind → ElabM Unt
     | none => err loc (.unknownConstructor name)
   | .app ⟨fnLoc, fnKind⟩ args => do
     let fn' ← ExprKind.elaborate env fnLoc fnKind
-    let args' ← ExprList.elaborate env args
+    let args' ← Expr.elaborateList env args
     .ok (.app fn' args')
 
   | .binop .semi ⟨ll, lk⟩ ⟨rl, rk⟩ => do
@@ -293,21 +293,21 @@ def ExprKind.elaborate (env : ElabEnv) (loc : Location) : ExprKind → ElabM Unt
         .ok (.letIn name bound' body')
     | pat :: args => do
       let name ← patternToBinder pat
-      let args' ← PatternList.toAnnotatedBinders env args
+      let args' ← Pattern.toAnnotatedBinders env args
       let self := if isRec then name else .none
       let bound' ← ExprKind.elaborate env bl bk
       let body' ← ExprKind.elaborate env dl dk
       .ok (.letIn name (.fix self args' none bound') body')
 
   | .fun_ args retTy ⟨bl, bk⟩ => do
-    let args' ← PatternList.toAnnotatedBinders env args
+    let args' ← Pattern.toAnnotatedBinders env args
     let retTy' ← elaborateOptTyp env retTy
     let body' ← ExprKind.elaborate env bl bk
     .ok (.fix .none args' retTy' body')
 
   | .match_ ⟨sl, sk⟩ arms => do
     let scrut' ← ExprKind.elaborate env sl sk
-    let arms' ← MatchArmList.elaborate env arms
+    let arms' ← MatchArm.elaborateList env arms
     match arms' with
     | [] => err loc .emptyMatch
     | (ctorName, _, _) :: _ =>
@@ -322,7 +322,7 @@ def ExprKind.elaborate (env : ElabEnv) (loc : Location) : ExprKind → ElabM Unt
         .ok (.match_ scrut' branches)
 
   | .tuple es => do
-    let es' ← ExprList.elaborate env es
+    let es' ← Expr.elaborateList env es
     .ok (.tuple es')
 
   | .record flds =>
@@ -335,7 +335,7 @@ def ExprKind.elaborate (env : ElabEnv) (loc : Location) : ExprKind → ElabM Unt
         match List.lookup tyName env.records with
         | none => err loc (.unknownType tyName)
         | some fieldOrder => do
-          let elaborated ← RecordFieldList.elaborate env flds
+          let elaborated ← Expr.elaborateRecordFields env flds
           let es' ← reorderElaborated loc elaborated fieldOrder
           .ok (.tuple es')
 
@@ -343,22 +343,22 @@ def ExprKind.elaborate (env : ElabEnv) (loc : Location) : ExprKind → ElabM Unt
 
   | .annot ⟨il, ik⟩ _ => ExprKind.elaborate env il ik
 
-def ExprList.elaborate (env : ElabEnv) : List Expr → ElabM (List Untyped.Expr)
+def Expr.elaborateList (env : ElabEnv) : List Expr → ElabM (List Untyped.Expr)
   | [] => .ok []
   | ⟨l, k⟩ :: es => do
     let e' ← ExprKind.elaborate env l k
-    let es' ← ExprList.elaborate env es
+    let es' ← Expr.elaborateList env es
     .ok (e' :: es')
 
-def RecordFieldList.elaborate (env : ElabEnv)
+def Expr.elaborateRecordFields (env : ElabEnv)
     : List (FieldName × Expr) → ElabM (List (FieldName × Untyped.Expr))
   | [] => .ok []
   | (name, ⟨l, k⟩) :: rest => do
     let e' ← ExprKind.elaborate env l k
-    let rest' ← RecordFieldList.elaborate env rest
+    let rest' ← Expr.elaborateRecordFields env rest
     .ok ((name, e') :: rest')
 
-def MatchArmList.elaborate (env : ElabEnv)
+def MatchArm.elaborateList (env : ElabEnv)
     : List MatchArm → ElabM (List (Constructor × Option Untyped.Binder × Untyped.Expr))
   | [] => .ok []
   | ⟨pat, ⟨bl, bk⟩⟩ :: arms => do
@@ -372,15 +372,15 @@ def MatchArmList.elaborate (env : ElabEnv)
           | none => pure none
         pure (name, binder)
       | _ => err pat.loc (.unsupportedPattern "only constructor patterns are allowed in match")
-    let rest ← MatchArmList.elaborate env arms
+    let rest ← MatchArm.elaborateList env arms
     .ok ((ctorName, binder, body') :: rest)
 
-def PatternList.toAnnotatedBinders (env : ElabEnv)
+def Pattern.toAnnotatedBinders (env : ElabEnv)
     : List Pattern → ElabM (List Untyped.Binder)
   | [] => .ok []
   | p :: ps => do
     let b ← patternToBinderTyped env p
-    let bs ← PatternList.toAnnotatedBinders env ps
+    let bs ← Pattern.toAnnotatedBinders env ps
     .ok (b :: bs)
 end
 
@@ -472,7 +472,7 @@ def ValDecl.elaborate (env : ElabEnv) (loc : Location)
   | pat :: args =>
     let name ← patternToBinder pat
     let self := if isRec then name else .none
-    let args' ← PatternList.toAnnotatedBinders env args
+    let args' ← Pattern.toAnnotatedBinders env args
     let retTy' ← elaborateOptTyp env retTy
     let body' ← Expr.elaborate env body
     .ok { name, body := .fix self args' retTy' body', spec }
