@@ -246,7 +246,7 @@ theorem Bindings.agreeOnLinked_updateAll'
 -- and the foldl-Γ lookup finds type t at x, and Forall₂ relates vars to vals
 -- with ValsHaveTypes, then the value at x' has type t.
 -- All three structures agree on the "last occurrence" of x.
-theorem val_typed_of_last_wins
+theorem valHasType_lookup_zip_reverse
     (args : List (String × TinyML.Typ))
     (vars : List FOL.Const) (vals : List Runtime.Val)
     (ρ : Env) (Γ₀ : TinyML.TyCtx)

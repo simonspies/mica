@@ -115,7 +115,7 @@ theorem checkBody_correct (Θ : TinyML.TypeEnv) (S : SpecMap) (s : Spec)
       simp [args']; exact List.map_fst_zip (by simp; omega)
     have hsnd : args'.map Prod.snd = s.args.map Prod.snd := by
       simp [args']; exact List.map_snd_zip (by simp; omega)
-    iapply (val_typed_of_last_wins args' argVars vs ρ'.env TinyML.TyCtx.empty x x' t
+    iapply (valHasType_lookup_zip_reverse args' argVars vs ρ'.env TinyML.TyCtx.empty x x' t
       (by rw [hfst]; exact hlen_avs)
       (by rw [hfst]; exact hlen_nv)
       (by rw [hfst]; simp [B, Bindings.empty] at hmem; exact hmem)
