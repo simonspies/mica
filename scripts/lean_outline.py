@@ -289,10 +289,10 @@ class LeanServer:
     """One `lake env lean --server` process reused across many files."""
 
     def __init__(self, root: pathlib.Path) -> None:
-        root_uri = "file://" + quote(str(root.resolve()), safe="/:")
+        root_uri = root.resolve().as_uri()
         self.proc = subprocess.Popen(
             ["lake", "env", "lean", "--server"],
-            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=sys.stderr,
         )
         init = request(self.proc, 1, "initialize",
                        {"processId": None, "rootUri": root_uri, "capabilities": {}})
@@ -306,7 +306,7 @@ class LeanServer:
 
     def outline(self, path: pathlib.Path) -> str:
         text = path.read_text(encoding="utf-8")
-        uri = "file://" + quote(str(path.resolve()), safe="/:")
+        uri = path.resolve().as_uri()
 
         notify(self.proc, "textDocument/didOpen", {
             "textDocument": {"uri": uri, "languageId": "lean", "version": 1, "text": text},

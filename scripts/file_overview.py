@@ -65,7 +65,7 @@ def main() -> int:
         print(f"error: {root} is not a directory", file=sys.stderr)
         return 1
 
-    for d in sorted({root, *(p for p in root.rglob("*") if p.is_dir())}):
+    for d in sorted({root, *(p for p in root.rglob("*") if p.is_dir() and not p.name.startswith('.'))}):
         write_outline(d, root)
     return 0
 
