@@ -18,12 +18,9 @@ The continuation receives the current `Signature` so it can produce a formula
 well-formed under the binders that `encode` introduces.
 -/
 
-/-- Uninterpreted relation `rel : value × value → bool` applied to `arg, res`,
-encoded as `rel(arg, res) = true`. -/
+/-- Uninterpreted binary predicate `rel ⊆ value × value` applied to `arg, res`. -/
 def Formula.funcall (rel : String) (arg res : Term .value) : Formula :=
-  .eq .bool
-    (.binop (.uninterpreted rel .value .value .bool) arg res)
-    (.const (.b true))
+  .binpred (.uninterpreted rel .value .value) arg res
 
 /-- Boolean-conditioned ite at the formula level: requires `cond = true → φ`
 and `cond = false → ψ`. -/
@@ -39,10 +36,10 @@ abbrev FunCtx := List (TinyML.Var × String)
 def FunCtx.lookup (Γ : FunCtx) (x : TinyML.Var) : Option String :=
   (Γ.find? (·.1 == x)).map (·.2)
 
-/-- Every relation in `Γ` is registered in `Δ` as a binary uninterpreted symbol
-of sort `value × value → bool`. -/
+/-- Every relation in `Γ` is registered in `Δ` as a binary uninterpreted predicate
+on `value × value`. -/
 def FunCtx.wfIn (Γ : FunCtx) (Δ : Signature) : Prop :=
-  ∀ x rel, (x, rel) ∈ Γ → (⟨rel, .value, .value, .bool⟩ : FOL.Binary) ∈ Δ.binary
+  ∀ x rel, (x, rel) ∈ Γ → (⟨rel, .value, .value⟩ : FOL.BinaryRel) ∈ Δ.binaryRel
 
 /-- Encode a TinyML constant into a value-sorted FOL term. -/
 def encodeConst : TinyML.Const → Term .value
@@ -149,11 +146,10 @@ theorem encodeBinOp_wfIn {op : TinyML.BinOp} {v1 v2 v : Term .value} {Δ : Signa
   case le | and | or => simp [encodeBinOp] at h
 
 theorem funcall_wfIn {rel : String} {arg res : Term .value} {Δ : Signature}
-    (hrel : (⟨rel, .value, .value, .bool⟩ : FOL.Binary) ∈ Δ.binary)
+    (hrel : (⟨rel, .value, .value⟩ : FOL.BinaryRel) ∈ Δ.binaryRel)
     (harg : arg.wfIn Δ) (hres : res.wfIn Δ) :
-    (Formula.funcall rel arg res).wfIn Δ := by
-  simp [Formula.funcall, Formula.wfIn, Term.wfIn, BinOp.wfIn, Const.wfIn,
-        hrel, harg, hres]
+    (Formula.funcall rel arg res).wfIn Δ :=
+  ⟨hrel, harg, hres⟩
 
 theorem iteBool_wfIn {cond : Term .bool} {φ ψ : Formula} {Δ : Signature}
     (hc : cond.wfIn Δ) (hφ : φ.wfIn Δ) (hψ : ψ.wfIn Δ) :
@@ -162,7 +158,7 @@ theorem iteBool_wfIn {cond : Term .bool} {φ ψ : Formula} {Δ : Signature}
 
 theorem FunCtx.wfIn_mono {Γ : FunCtx} {Δ Δ' : Signature}
     (h : Γ.wfIn Δ) (hsub : Δ.Subset Δ') : Γ.wfIn Δ' :=
-  fun x rel hxr => hsub.binary _ (h x rel hxr)
+  fun x rel hxr => hsub.binaryRel _ (h x rel hxr)
 
 theorem var_value_wfIn {x : String} {Δ : Signature}
     (hΔ : Δ.wf) (hmem : (⟨x, .value⟩ : Var) ∈ Δ.vars) :
@@ -263,7 +259,7 @@ theorem encode_wfIn {Γ : FunCtx} (Δ : Signature) (e : Typed.Expr)
     have hsub' : Δ'.Subset Δ'' := subset_declVar_of_fresh hfresh
     have hΓ'' : Γ.wfIn Δ'' := FunCtx.wfIn_mono hΓ' hsub'
     have hv'  : v.wfIn Δ'' := Term.wfIn_mono _ hv hsub' hΔ''wf
-    have hrelΔ' : (⟨rel, .value, .value, .bool⟩ : FOL.Binary) ∈ Δ'.binary := by
+    have hrelΔ' : (⟨rel, .value, .value⟩ : FOL.BinaryRel) ∈ Δ'.binaryRel := by
       have hmem : (f, rel) ∈ Γ := by
         simp only [FunCtx.lookup, Option.map_eq_some_iff] at hlk
         obtain ⟨⟨x', rel'⟩, hfind, hsnd⟩ := hlk
@@ -272,7 +268,7 @@ theorem encode_wfIn {Γ : FunCtx} (Δ : Signature) (e : Typed.Expr)
         simp at hp; subst hp
         exact List.mem_of_find?_eq_some hfind
       exact hΓ' f rel hmem
-    have hrelΔ'' := hsub'.binary _ hrelΔ'
+    have hrelΔ'' := hsub'.binaryRel _ hrelΔ'
     have hvarR : (Term.var .value r).wfIn Δ'' :=
       var_value_wfIn hΔ''wf (var_mem_declVar Δ' ⟨r, .value⟩)
     simp [bind, Except.bind] at hpost
@@ -299,24 +295,17 @@ theorem encode_wfIn {Γ : FunCtx} (Δ : Signature) (e : Typed.Expr)
 /-- A binary relation on `value.denote`. -/
 abbrev ValRel : Type := Srt.value.denote → Srt.value.denote → Prop
 
-/-- Coerce a `Prop`-valued binary relation on `value` to the `Bool`-valued
-binary function expected by `Env.binary` for `rel : value × value → bool`,
-using classical decidability. -/
-noncomputable def ValRel.toBin (R : ValRel) :
-    Srt.value.denote → Srt.value.denote → Bool :=
-  fun a b => @decide _ (Classical.propDecidable (R a b))
-
 /-- Continuation that pins the produced value to a designated result variable
 `r`: `k _ v := v = r`. Used to thread the output of the encoded body. -/
 def kPin (r : String) : Signature → Term .value → Except String Formula :=
   fun _ v => .ok (.eq .value v (.var .value r))
 
 /-- Signature extended for encoding the body of `rec f x := e`: adds the input
-variable `x : value`, the binary symbol `rel : value × value → bool`, and the
+variable `x : value`, the binary predicate `rel ⊆ value × value`, and the
 result variable `r : value`. -/
 def relSig (Δ : Signature) (rel : String) (x r : TinyML.Var) : Signature :=
   Signature.declVar
-    ((Δ.declVar ⟨x, .value⟩).addBinary ⟨rel, .value, .value, .bool⟩)
+    ((Δ.declVar ⟨x, .value⟩).addBinaryRel ⟨rel, .value, .value⟩)
     ⟨r, .value⟩
 
 /-- Function context extended with `(f, rel)` so recursive calls to `f` resolve
@@ -340,9 +329,9 @@ def encodeFunc (Γ : FunCtx) (Δ : Signature)
 /-- Environment update used when evaluating the encoded body for `rel f x := e`
 on input `vin` and output `vout`: interpret `rel` as `self`, `x` as `vin`, and
 `r` as `vout`. -/
-noncomputable def relEnv (ρ : Env) (rel : String) (x r : TinyML.Var)
+def relEnv (ρ : Env) (rel : String) (x r : TinyML.Var)
     (self : ValRel) (vin vout : Srt.value.denote) : Env :=
-  let ρ1 := ρ.updateBinary .value .value .bool rel self.toBin
+  let ρ1 := ρ.updateBinaryRel .value .value rel self
   let ρ2 := ρ1.updateConst .value x vin
   ρ2.updateConst .value r vout
 
@@ -468,34 +457,30 @@ theorem relAxiom_eval
     (henc : encodeFunc Γ Δ f rel x res e = .ok φ)
     (hmono : ValRel.Mono (relBody ρ rel x res φ)) :
     Formula.eval
-      (ρ.updateBinary .value .value .bool rel
-        (relation Γ Δ ρ f rel x res e).toBin)
+      (ρ.updateBinaryRel .value .value rel
+        (relation Γ Δ ρ f rel x res e))
       (relAxiom rel x res φ) := by
   set R : ValRel := relation Γ Δ ρ f rel x res e with hR
   simp only [relAxiom, Formula.eval]
   intro vx vres
   -- The env we end up evaluating the body under after both `forall_`s.
   set env : Env :=
-    ((ρ.updateBinary .value .value .bool rel R.toBin).updateConst
+    ((ρ.updateBinaryRel .value .value rel R).updateConst
       .value x vx).updateConst .value res vres with henv
-  -- Compute the `funcall` side: it reduces to `R vx vres`.
+  -- The `funcall` side reduces to `R vx vres`.
   have hcall :
       (Formula.funcall rel (.var .value x) (.var .value res)).eval env
       ↔ R vx vres := by
-    have hbinary : env.binary = (ρ.updateBinary .value .value .bool rel
-                                    R.toBin).binary := by
-      simp [henv, Env.updateConst_binary]
+    have hbinaryRel : env.binaryRel = (ρ.updateBinaryRel .value .value rel R).binaryRel := by
+      simp [henv, Env.updateConst_binaryRel]
     have hres : env.lookupConst .value res = vres := by
       simp [henv]
     have hx : env.lookupConst .value x = vx := by
       simp [henv, Env.lookupConst_updateConst_ne hxres]
-    simp only [Formula.funcall, Formula.eval, Term.eval, BinOp.eval,
-               Const.denote, hbinary, hres, hx]
-    show (((ρ.updateBinary .value .value .bool rel R.toBin).binary
-            .value .value .bool rel) vx vres = true) ↔ R vx vres
-    simp only [Env.updateBinary]
-    show (R.toBin vx vres = true) ↔ R vx vres
-    simp [ValRel.toBin]
+    simp only [Formula.funcall, Formula.eval, BinPred.eval, Term.eval,
+               hbinaryRel, hres, hx]
+    show ((ρ.updateBinaryRel .value .value rel R).binaryRel .value .value rel) vx vres ↔ R vx vres
+    simp [Env.updateBinaryRel]
   -- Evaluating φ under our env equals `relBody … R …` definitionally.
   have hbody : φ.eval env = relBody ρ rel x res φ R vx vres := rfl
   -- Apply the lfp unfolding via `relation_unfold`.
@@ -533,10 +518,10 @@ def fibBody : Expr :=
 /-- Function context: `fib` is encoded as the relation `fib_rel`. -/
 def Γfib : FunCtx := [("fib", "fib_rel")]
 
-/-- Signature with `n : value` and `fib_rel : value × value → bool`. -/
+/-- Signature with `n : value` and `fib_rel : value × value` (binary predicate). -/
 def Δfib : Signature :=
-  ((Signature.empty.addVar ⟨"n", .value⟩).addBinary
-    ⟨"fib_rel", .value, .value, .bool⟩)
+  ((Signature.empty.addVar ⟨"n", .value⟩).addBinaryRel
+    ⟨"fib_rel", .value, .value⟩)
 
 /-- Continuation that equates the produced value with a fresh `result` variable. -/
 def kResult : Signature → Term .value → Except String Formula :=
