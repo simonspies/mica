@@ -1011,16 +1011,16 @@ mutual
     cases ty with
     | int =>
       simp [typeConstraints]
-      simp only [Formula.wfIn]; exact ht
+      simp only [Formula.wfIn]; exact ⟨trivial, ht⟩
     | bool =>
       simp [typeConstraints]
-      simp only [Formula.wfIn]; exact ht
+      simp only [Formula.wfIn]; exact ⟨trivial, ht⟩
     | tuple ts =>
       simp only [typeConstraints]
       intro φ hφ
       cases hφ with
       | head =>
-        simp only [Formula.wfIn]; exact ht
+        simp only [Formula.wfIn]; exact ⟨trivial, ht⟩
       | tail _ hφ =>
         exact typeConstraintsList_wfIn (by simp only [Term.wfIn]; exact ⟨trivial, ht⟩) φ hφ
     | _ => simp [typeConstraints]

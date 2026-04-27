@@ -56,10 +56,12 @@ def UnPred.toSMTLIB : UnPred τ → String
   | .isLoc   => "is-of_loc"
   | .isTuple => "is-of_tuple"
   | .isInj _ _ => ""  -- handled specially in Formula.toSMTLIB
+  | .uninterpreted name _ => name
 
 def BinPred.toSMTLIB : BinPred τ₁ τ₂ → String
   | .lt => "<"
   | .le => "<="
+  | .uninterpreted name _ _ => name
 
 def Term.toSMTLIB : Term τ → String
   | .var _ name   => name
@@ -159,9 +161,11 @@ private def formulaStr (p : Prec) : Formula → String
     | .isLoc   => s!"isLoc({termStr .bottom v})"
     | .isTuple => s!"isTuple({termStr .bottom v})"
     | .isInj tag arity => s!"isInj({tag}/{arity}, {termStr .bottom v})"
+    | .uninterpreted name _ => s!"{name}({termStr .bottom v})"
   | .binpred pred a b => match pred with
     | .lt => parens (Prec.lt .cmp p) s!"{termStr .add a} < {termStr .add b}"
     | .le => parens (Prec.lt .cmp p) s!"{termStr .add a} <= {termStr .add b}"
+    | .uninterpreted name _ _ => s!"{name}({termStr .bottom a}, {termStr .bottom b})"
   | .eq _ a b        => parens (Prec.lt .cmp     p) s!"{termStr .add a} = {termStr .add b}"
   | .not φ           => parens (Prec.lt .not_    p) s!"not {formulaStr .cmp φ}"
   | .and φ ψ         => parens (Prec.lt .and_    p) s!"{formulaStr .and_ φ} && {formulaStr .not_ ψ}"

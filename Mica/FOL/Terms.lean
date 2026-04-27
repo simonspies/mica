@@ -296,7 +296,7 @@ theorem Term.eval_env_agree {t : Term τ} {ρ ρ' : Env} {Δ : Signature} :
     cases op with
     | uninterpreted name _ _ _ =>
       simp only [BinOp.eval]
-      exact congrFun (congrFun (hagree.2.2.2 ⟨name, _, _, _⟩ hwf.1) _) _
+      exact congrFun (congrFun (hagree.2.2.2.1 ⟨name, _, _, _⟩ hwf.1) _) _
     | _ => rfl
   | ite c t e ihc iht ihe =>
     simp [Term.eval]
@@ -306,17 +306,27 @@ theorem Term.eval_update_fresh {t : Term τ'} {x : String} {τ : Srt} {v : τ.de
     {Δ : Signature} (hwf : t.wfIn Δ) (hfresh : x ∉ Δ.allNames) :
     Term.eval (ρ.updateConst τ x v) t = Term.eval ρ t :=
   Term.eval_env_agree hwf
-    ⟨fun w hw => by
-      have hne : w.name ≠ x := by
-        intro heq
-        exact hfresh (heq ▸ Signature.mem_allNames_of_var hw)
-      exact Env.lookupConst_updateConst_ne' (Or.inl hne),
-     fun c hc => by
-      have hne : c.name ≠ x := by
-        intro heq
-        exact hfresh (heq ▸ Signature.mem_allNames_of_const hc)
-      exact Env.lookupConst_updateConst_ne' (Or.inl hne),
-     fun _ _ => rfl, fun _ _ => rfl⟩
+    ⟨
+      (fun w hw => by
+        have hne : w.name ≠ x := by
+          intro heq
+          exact hfresh (heq ▸ Signature.mem_allNames_of_var hw)
+        exact Env.lookupConst_updateConst_ne' (Or.inl hne)),
+      ⟨
+        (fun c hc => by
+          have hne : c.name ≠ x := by
+            intro heq
+            exact hfresh (heq ▸ Signature.mem_allNames_of_const hc)
+          exact Env.lookupConst_updateConst_ne' (Or.inl hne)),
+        ⟨
+          (fun _ _ => rfl),
+          ⟨
+            (fun _ _ => rfl),
+            ⟨(fun _ _ => rfl), (fun _ _ => rfl)⟩
+          ⟩
+        ⟩
+      ⟩
+    ⟩
 
 /-! simple helper lemmas -/
 

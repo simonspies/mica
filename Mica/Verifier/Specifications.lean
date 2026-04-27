@@ -508,7 +508,7 @@ theorem implement_correct (Θ : TinyML.TypeEnv) (s : Spec) (body : List FOL.Cons
     Spec.argsEnv_agreeOn (Δ := Signature.empty)
       (ρ₁ := VerifM.Env.empty)
       (ρ₂ := VerifM.Env.withEnv ρ (FiniteSubst.id.subst.eval ρ.env))
-      (by exact ⟨nofun, nofun, nofun, nofun⟩) s.args vs
+      (by exact ⟨nofun, nofun, nofun, nofun, nofun, nofun⟩) s.args vs
       (by
         simp [List.length_map] at hlen_vals
         omega)

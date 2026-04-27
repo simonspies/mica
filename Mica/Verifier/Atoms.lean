@@ -305,9 +305,18 @@ theorem Atom.candidates_correct {a : Atom τ} {φ : Formula} {t : Term τ} {ρ :
 theorem Atom.candidates_wfIn {a : Atom τ} {φ : Formula} {t : Term τ} {Δ : Signature}
     (hmem : (φ, t) ∈ a.candidates) (h : a.wfIn Δ) : φ.wfIn Δ ∧ t.wfIn Δ := by
   cases a with
-  | isint v  => simp [candidates] at hmem; obtain ⟨rfl, rfl⟩ := hmem; exact ⟨h, trivial, h⟩
-  | isbool v => simp [candidates] at hmem; obtain ⟨rfl, rfl⟩ := hmem; exact ⟨h, trivial, h⟩
-  | isinj tag arity v => simp [candidates] at hmem; obtain ⟨rfl, rfl⟩ := hmem; exact ⟨h, trivial, h⟩
+  | isint v =>
+    simp [candidates] at hmem
+    obtain ⟨rfl, rfl⟩ := hmem
+    exact ⟨⟨trivial, h⟩, ⟨trivial, h⟩⟩
+  | isbool v =>
+    simp [candidates] at hmem
+    obtain ⟨rfl, rfl⟩ := hmem
+    exact ⟨⟨trivial, h⟩, ⟨trivial, h⟩⟩
+  | isinj tag arity v =>
+    simp [candidates] at hmem
+    obtain ⟨rfl, rfl⟩ := hmem
+    exact ⟨⟨trivial, h⟩, ⟨trivial, h⟩⟩
   | own l => simp [candidates] at hmem
 
 

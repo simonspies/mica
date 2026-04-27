@@ -1216,7 +1216,13 @@ theorem compileLetIn_correct (b : Binder) (e body : Expr)
           obtain ⟨p, hp, rfl⟩ := List.mem_map.mp hy'
           exact ((hagreeOn_e.2.1 p.2 (hbwf p hp)).trans
             (hagreeOn_body_e.2.1 p.2 (hbwf_e p hp))).symm
-        · constructor <;> intro z hz <;> cases hz
+        · constructor
+          · intro z hz; cases hz
+          · constructor
+            · intro z hz; cases hz
+            · constructor
+              · intro z hz; cases hz
+              · intro z hz; cases hz
     have hρ_body_lookup : ρ_body.env.consts .value v.name = v_e := by
       simp [ρ_body, VerifM.Env.updateConst, Env.updateConst]
     have hagree_body : Bindings.agreeOnLinked ((x, v) :: B) ρ_body.env γ_body := by
@@ -1510,7 +1516,7 @@ theorem compileApp_correct (fn : Expr) (args : List Expr) (aty : TinyML.Typ)
           Spec.argsEnv_agreeOn (Δ := Signature.empty)
             (ρ₁ := VerifM.Env.withEnv ρ_args (FiniteSubst.id.subst.eval ρ_args.env))
             (ρ₂ := VerifM.Env.empty)
-            (by exact ⟨nofun, nofun, nofun, nofun⟩) spec.args vs
+            (by exact ⟨nofun, nofun, nofun, nofun, nofun, nofun⟩) spec.args vs
             (by simp [List.length_map] at hlen_vs; omega)
       ispecialize Hspec $$ %Φ
       ispecialize Hspec $$ %vs
@@ -1758,7 +1764,13 @@ theorem compileSingleBranch_correct (binder : Binder) (body : Expr)
           · intro c hc
             obtain ⟨p, hp, rfl⟩ := List.mem_map.mp hc
             exact (hagreeOn_st.2.1 p.2 (hbwf p hp)).symm
-          · constructor <;> intro z hz <;> cases hz
+          · constructor
+            · intro z hz; cases hz
+            · constructor
+              · intro z hz; cases hz
+              · constructor
+                · intro z hz; cases hz
+                · intro z hz; cases hz
       have hbwf₂ : Bindings.wfIn ((x, xv) :: B) st₂.decls := hst₂_decls ▸ Bindings.wfIn_cons hbwf
       have hρ₁_lookup : ρ₁.env.consts .value xv.name = payload := by
         simp [ρ₁, VerifM.Env.updateConst, Env.updateConst]

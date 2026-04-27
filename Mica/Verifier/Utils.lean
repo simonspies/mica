@@ -127,6 +127,10 @@ theorem FiniteSubst.rename_wf {σ : FiniteSubst} {v : Var} {name' : String} {Δ 
         exact hrange.unary u hu
       · intro b hb
         exact hrange.binary b hb
+      · intro u hu
+        exact hrange.unaryRel u hu
+      · intro b hb
+        exact hrange.binaryRel b hb
     · exact Signature.wf_addConst hwfRange hfresh
 
 /-- Generic bundle for renaming `σ` on `v` to a fresh name `name'`. -/
@@ -251,6 +255,8 @@ theorem FiniteSubst.id_wf (Δ : Signature) : FiniteSubst.id.wf Δ := by
     · exact Signature.wf_empty
   · constructor
     · constructor
+      · intro _ h; cases h
+      · intro _ h; cases h
       · intro _ h; cases h
       · intro _ h; cases h
       · intro _ h; cases h

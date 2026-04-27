@@ -356,8 +356,14 @@ theorem Subst.eval_bind_agreeOn {σ : Subst} {ρ : Env} {τ : Srt} {y y' : Strin
     · constructor
       · intro u hu
         rfl
-      · intro b hb
-        rfl
+      · constructor
+        · intro b hb
+          rfl
+        · constructor
+          · intro u hu
+            rfl
+          · intro b hb
+            rfl
 
 theorem Formula.eval_subst {σ : Subst} {ρ : Env} {φ : Formula} {Δ Δ' : Signature}
     (hφ : φ.wfIn Δ) (hσ : σ.wfIn Δ.vars Δ') (hsymbols : Δ.SymbolSubset Δ')
@@ -368,9 +374,12 @@ theorem Formula.eval_subst {σ : Subst} {ρ : Env} {φ : Formula} {Δ Δ' : Sign
   | eq τ a b =>
     simp [Formula.subst, Formula.eval, Term.eval_subst hφ.1 hσ hwfΔ', Term.eval_subst hφ.2 hσ hwfΔ']
   | unpred p t =>
-    simp [Formula.subst, Formula.eval, Term.eval_subst hφ hσ hwfΔ']
+    simp [Formula.subst, Formula.eval, Term.eval_subst hφ.2 hσ hwfΔ']
+    cases p <;> simp [Subst.eval]
   | binpred p a b =>
-    simp [Formula.subst, Formula.eval, Term.eval_subst hφ.1 hσ hwfΔ', Term.eval_subst hφ.2 hσ hwfΔ']
+    simp [Formula.subst, Formula.eval, Term.eval_subst hφ.2.1 hσ hwfΔ',
+      Term.eval_subst hφ.2.2 hσ hwfΔ']
+    cases p <;> simp [Subst.eval]
   | not φ ih =>
     simp [Formula.subst, Formula.eval, ih hφ hσ hsymbols hwfΔ hwfΔ']
   | and φ ψ ihφ ihψ | or φ ψ ihφ ihψ | implies φ ψ ihφ ihψ =>
@@ -410,6 +419,14 @@ theorem Formula.eval_subst {σ : Subst} {ρ : Env} {φ : Formula} {Δ Δ' : Sign
       · intro b hb
         simpa [hremove, Signature.addVar] using
           (Signature.SymbolSubset.declVar hsymbols ⟨y, τ⟩).binary b
+            (by simpa [Signature.declVar, Signature.addVar] using hb)
+      · intro u hu
+        simpa [hremove, Signature.addVar] using
+          (Signature.SymbolSubset.declVar hsymbols ⟨y, τ⟩).unaryRel u
+            (by simpa [Signature.declVar, Signature.addVar] using hu)
+      · intro b hb
+        simpa [hremove, Signature.addVar] using
+          (Signature.SymbolSubset.declVar hsymbols ⟨y, τ⟩).binaryRel b
             (by simpa [Signature.declVar, Signature.addVar] using hb)
     have hagree (v : τ.denote) : Env.agreeOn ((Δ.remove y).addVar ⟨y, τ⟩)
         ((σ.bind y τ y').eval (ρ.updateConst τ y' v))
@@ -461,6 +478,14 @@ theorem Formula.eval_subst {σ : Subst} {ρ : Env} {φ : Formula} {Δ Δ' : Sign
       · intro b hb
         simpa [hremove, Signature.addVar] using
           (Signature.SymbolSubset.declVar hsymbols ⟨y, τ⟩).binary b
+            (by simpa [Signature.declVar, Signature.addVar] using hb)
+      · intro u hu
+        simpa [hremove, Signature.addVar] using
+          (Signature.SymbolSubset.declVar hsymbols ⟨y, τ⟩).unaryRel u
+            (by simpa [Signature.declVar, Signature.addVar] using hu)
+      · intro b hb
+        simpa [hremove, Signature.addVar] using
+          (Signature.SymbolSubset.declVar hsymbols ⟨y, τ⟩).binaryRel b
             (by simpa [Signature.declVar, Signature.addVar] using hb)
     have hagree (v : τ.denote) : Env.agreeOn ((Δ.remove y).addVar ⟨y, τ⟩)
         ((σ.bind y τ y').eval (ρ.updateConst τ y' v))
@@ -533,11 +558,17 @@ theorem Formula.subst_wfIn {φ : Formula} {σ : Subst} {Δ Δ' : Signature}
       Term.subst_wfIn hwf.2 hσ (by intro x hx; exact hx) hsymbols hwfΔ'⟩
   | unpred p t =>
     simp [Formula.subst, Formula.wfIn]
-    exact Term.subst_wfIn hwf hσ (by intro x hx; exact hx) hsymbols hwfΔ'
+    refine ⟨?_, Term.subst_wfIn hwf.2 hσ (by intro x hx; exact hx) hsymbols hwfΔ'⟩
+    cases p with
+    | uninterpreted name τ => exact hsymbols.unaryRel _ hwf.1
+    | _ => trivial
   | binpred p a b =>
     simp [Formula.subst, Formula.wfIn]
-    exact ⟨Term.subst_wfIn hwf.1 hσ (by intro x hx; exact hx) hsymbols hwfΔ',
-      Term.subst_wfIn hwf.2 hσ (by intro x hx; exact hx) hsymbols hwfΔ'⟩
+    refine ⟨?_, Term.subst_wfIn hwf.2.1 hσ (by intro x hx; exact hx) hsymbols hwfΔ',
+      Term.subst_wfIn hwf.2.2 hσ (by intro x hx; exact hx) hsymbols hwfΔ'⟩
+    cases p with
+    | uninterpreted name τ₁ τ₂ => exact hsymbols.binaryRel _ hwf.1
+    | _ => trivial
   | not φ ih =>
     simpa [Formula.subst, Formula.wfIn] using ih hwf hσ hsymbols hwfΔ'
   | and φ ψ ihφ ihψ | or φ ψ ihφ ihψ | implies φ ψ ihφ ihψ =>
@@ -582,8 +613,20 @@ theorem Formula.subst_wfIn {φ : Formula} {σ : Subst} {Δ Δ' : Signature}
       refine Signature.mem_remove_binary.mpr ⟨hsymbols.binary _ hb, ?_⟩
       intro hbeq
       exact hy'_fresh (hbeq ▸ Signature.mem_allNames_of_binary (hsymbols.binary _ hb))
+    have hunaryRel' : ((Δ.remove y).addVar ⟨y, τ⟩).unaryRel ⊆ ((Δ'.remove y').addVar ⟨y', τ⟩).unaryRel := by
+      intro u hu
+      rcases Signature.mem_remove_unaryRel.mp hu with ⟨hu, huy⟩
+      refine Signature.mem_remove_unaryRel.mpr ⟨hsymbols.unaryRel _ hu, ?_⟩
+      intro hueq
+      exact hy'_fresh (hueq ▸ Signature.mem_allNames_of_unaryRel (hsymbols.unaryRel _ hu))
+    have hbinaryRel' : ((Δ.remove y).addVar ⟨y, τ⟩).binaryRel ⊆ ((Δ'.remove y').addVar ⟨y', τ⟩).binaryRel := by
+      intro b hb
+      rcases Signature.mem_remove_binaryRel.mp hb with ⟨hb, hby⟩
+      refine Signature.mem_remove_binaryRel.mpr ⟨hsymbols.binaryRel _ hb, ?_⟩
+      intro hbeq
+      exact hy'_fresh (hbeq ▸ Signature.mem_allNames_of_binaryRel (hsymbols.binaryRel _ hb))
     have hsymbols' : ((Δ.remove y).addVar ⟨y, τ⟩).SymbolSubset ((Δ'.remove y').addVar ⟨y', τ⟩) :=
-      ⟨hconsts', hunary', hbinary'⟩
+      ⟨hconsts', hunary', hbinary', hunaryRel', hbinaryRel'⟩
     exact (by
       simpa [y', Signature.allNames_remove_addVar_of_not_in hy'_fresh] using
         ih hwf hσ' hsymbols' hwf_target)
