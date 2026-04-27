@@ -6,6 +6,9 @@ import Mica.Frontend.Elaborate
 import Mica.Verifier.Programs
 import Mica.Engine.Driver
 
+-- dependency on the relational encoding to ensure it builds
+import Exploration.RelationalEncoding
+
 private def bold (s : String) : String := s!"\x1b[1m{s}\x1b[0m"
 
 private structure Options where

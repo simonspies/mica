@@ -147,9 +147,15 @@ theorem encodeBinOp_wfIn {op : TinyML.BinOp} {v1 v2 v : Term .value} {Δ : Signa
 
 theorem funcall_wfIn {rel : String} {arg res : Term .value} {Δ : Signature}
     (hrel : (⟨rel, .value, .value⟩ : FOL.BinaryRel) ∈ Δ.binaryRel)
+    (hΔ : Δ.wf)
     (harg : arg.wfIn Δ) (hres : res.wfIn Δ) :
-    (Formula.funcall rel arg res).wfIn Δ :=
-  ⟨hrel, harg, hres⟩
+    (Formula.funcall rel arg res).wfIn Δ := by
+  refine ⟨?_, harg, hres⟩
+  refine ⟨hrel, ?_, ?_⟩
+  · intro τ₁ τ₂ τ₃ hb
+    exact Signature.wf_no_binaryRel_of_binary hΔ hb hrel
+  · intro τ₁ τ₂ hb
+    exact Signature.wf_unique_binaryRel hΔ hrel hb
 
 theorem iteBool_wfIn {cond : Term .bool} {φ ψ : Formula} {Δ : Signature}
     (hc : cond.wfIn Δ) (hφ : φ.wfIn Δ) (hψ : ψ.wfIn Δ) :
@@ -278,7 +284,7 @@ theorem encode_wfIn {Γ : FunCtx} (Δ : Signature) (e : Typed.Expr)
     cases hpost
     have hφinner :=
       hk Δ'' (.var .value r) φinner (hsub.trans hsub') hΔ''wf hΓ'' hvarR hinner
-    exact ⟨funcall_wfIn hrelΔ'' hv' hvarR, hφinner⟩
+    exact ⟨funcall_wfIn hrelΔ'' hΔ''wf hv' hvarR, hφinner⟩
   -- cast
   case _ Δ k e ty ih =>
     rw [encode] at henc
