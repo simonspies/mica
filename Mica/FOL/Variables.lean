@@ -600,6 +600,37 @@ private theorem unique_sig_of_nodup_map_binary_name {l : List FOL.Binary} {x : S
       · exact absurd (List.mem_map_of_mem hmem) hnd.1
       · exact ih hnd.2 hmem hmem'
 
+private theorem unique_sort_of_nodup_map_unaryRel_name {l : List FOL.UnaryRel} {x : String}
+    {τ τ' : Srt} (hnd : (l.map FOL.UnaryRel.name).Nodup)
+    (hu : ⟨x, τ⟩ ∈ l) (hu' : ⟨x, τ'⟩ ∈ l) : τ' = τ := by
+  induction l with
+  | nil => simp at hu
+  | cons u us ih =>
+    rw [List.map, List.nodup_cons] at hnd
+    rcases List.mem_cons.mp hu with rfl | hmem
+    · rcases List.mem_cons.mp hu' with heq | hmem'
+      · exact (FOL.UnaryRel.mk.inj heq).2
+      · exact absurd (List.mem_map_of_mem hmem') hnd.1
+    · rcases List.mem_cons.mp hu' with rfl | hmem'
+      · exact absurd (List.mem_map_of_mem hmem) hnd.1
+      · exact ih hnd.2 hmem hmem'
+
+private theorem unique_sig_of_nodup_map_binaryRel_name {l : List FOL.BinaryRel} {x : String}
+    {τ₁ τ₂ τ₁' τ₂' : Srt} (hnd : (l.map FOL.BinaryRel.name).Nodup)
+    (hb : ⟨x, τ₁, τ₂⟩ ∈ l) (hb' : ⟨x, τ₁', τ₂'⟩ ∈ l) : τ₁' = τ₁ ∧ τ₂' = τ₂ := by
+  induction l with
+  | nil => simp at hb
+  | cons b bs ih =>
+    rw [List.map, List.nodup_cons] at hnd
+    rcases List.mem_cons.mp hb with rfl | hmem
+    · rcases List.mem_cons.mp hb' with heq | hmem'
+      · rcases FOL.BinaryRel.mk.inj heq with ⟨_, harg1, harg2⟩
+        exact ⟨harg1, harg2⟩
+      · exact absurd (List.mem_map_of_mem hmem') hnd.1
+    · rcases List.mem_cons.mp hb' with rfl | hmem'
+      · exact absurd (List.mem_map_of_mem hmem) hnd.1
+      · exact ih hnd.2 hmem hmem'
+
 theorem wf_unique_var {Δ : Signature} {x : String} {τ τ' : Srt}
     (hΔ : Δ.wf) (hv : ⟨x, τ⟩ ∈ Δ.vars) (hv' : ⟨x, τ'⟩ ∈ Δ.vars) : τ' = τ :=
   by
@@ -634,6 +665,18 @@ theorem wf_unique_binary {Δ : Signature} {x : String} {τ₁ τ₂ τ₃ τ₁'
   have hABCD := (List.nodup_append.mp hABCDE).1
   exact unique_sig_of_nodup_map_binary_name (l := Δ.binary) (x := x)
     (List.nodup_append.mp hABCD).2.1 hb hb'
+
+theorem wf_unique_unaryRel {Δ : Signature} {x : String} {τ τ' : Srt}
+    (hΔ : Δ.wf) (hu : ⟨x, τ⟩ ∈ Δ.unaryRel) (hu' : ⟨x, τ'⟩ ∈ Δ.unaryRel) : τ' = τ := by
+  have hABCDE := (List.nodup_append.mp hΔ).1
+  exact unique_sort_of_nodup_map_unaryRel_name (l := Δ.unaryRel) (x := x)
+    (List.nodup_append.mp hABCDE).2.1 hu hu'
+
+theorem wf_unique_binaryRel {Δ : Signature} {x : String} {τ₁ τ₂ τ₁' τ₂' : Srt}
+    (hΔ : Δ.wf) (hb : ⟨x, τ₁, τ₂⟩ ∈ Δ.binaryRel) (hb' : ⟨x, τ₁', τ₂'⟩ ∈ Δ.binaryRel) :
+    τ₁' = τ₁ ∧ τ₂' = τ₂ := by
+  exact unique_sig_of_nodup_map_binaryRel_name (l := Δ.binaryRel) (x := x)
+    (List.nodup_append.mp hΔ).2.1 hb hb'
 
 theorem wf_no_const_of_var {Δ : Signature} {x : String} {τ τ' : Srt}
     (hΔ : Δ.wf) (hv : ⟨x, τ⟩ ∈ Δ.vars) : ⟨x, τ'⟩ ∉ Δ.consts := by

@@ -570,14 +570,24 @@ theorem Formula.subst_wfIn {φ : Formula} {σ : Subst} {Δ Δ' : Signature}
     simp [Formula.subst, Formula.wfIn]
     refine ⟨?_, Term.subst_wfIn hwf.2 hσ (by intro x hx; exact hx) hsymbols hwfΔ'⟩
     cases p with
-    | uninterpreted name τ => exact hsymbols.unaryRel _ hwf.1
+    | uninterpreted name τ =>
+      refine ⟨hsymbols.unaryRel _ hwf.1.1, ?_, ?_⟩
+      · intro τ₁ τ₂ hu
+        exact Signature.wf_no_unaryRel_of_unary hwfΔ' hu (hsymbols.unaryRel _ hwf.1.1)
+      · intro τ' hu'
+        exact Signature.wf_unique_unaryRel hwfΔ' (hsymbols.unaryRel _ hwf.1.1) hu'
     | _ => trivial
   | binpred p a b =>
     simp [Formula.subst, Formula.wfIn]
     refine ⟨?_, Term.subst_wfIn hwf.2.1 hσ (by intro x hx; exact hx) hsymbols hwfΔ',
       Term.subst_wfIn hwf.2.2 hσ (by intro x hx; exact hx) hsymbols hwfΔ'⟩
     cases p with
-    | uninterpreted name τ₁ τ₂ => exact hsymbols.binaryRel _ hwf.1
+    | uninterpreted name τ₁ τ₂ =>
+      refine ⟨hsymbols.binaryRel _ hwf.1.1, ?_, ?_⟩
+      · intro τ₁' τ₂' τ₃' hb
+        exact Signature.wf_no_binaryRel_of_binary hwfΔ' hb (hsymbols.binaryRel _ hwf.1.1)
+      · intro τ₁' τ₂' hb'
+        exact Signature.wf_unique_binaryRel hwfΔ' (hsymbols.binaryRel _ hwf.1.1) hb'
     | _ => trivial
   | not φ ih =>
     simpa [Formula.subst, Formula.wfIn] using ih hwf hσ hsymbols hwfΔ'
