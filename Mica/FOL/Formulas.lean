@@ -8,11 +8,13 @@ inductive UnPred : Srt → Type where
   | isLoc   : UnPred .value
   | isTuple : UnPred .value
   | isInj (tag : Nat) (arity : Nat) : UnPred .value
+  | uninterpreted : String → (τ : Srt) → UnPred τ
   deriving DecidableEq, Repr
 
 inductive BinPred : Srt → Srt → Type where
   | lt : BinPred .int .int
   | le : BinPred .int .int
+  | uninterpreted : String → (τ₁ τ₂ : Srt) → BinPred τ₁ τ₂
   deriving DecidableEq, Repr
 
 inductive Formula where
@@ -42,12 +44,47 @@ def Formula.freeVars : Formula → List Var
   | .forall_ y τ φ => φ.freeVars.filter (· != ⟨y, τ⟩)
   | .exists_ y τ φ => φ.freeVars.filter (· != ⟨y, τ⟩)
 
+def UnPred.wfIn : UnPred τ → Signature → Prop
+  | .uninterpreted name τ, Δ => ⟨name, τ⟩ ∈ Δ.unaryRel
+                                   ∧ (∀ τ₁ τ₂, ⟨name, τ₁, τ₂⟩ ∉ Δ.unary)
+                                   ∧ (∀ τ', ⟨name, τ'⟩ ∈ Δ.unaryRel → τ' = τ)
+  | _, _                      => True
+
+def BinPred.wfIn : BinPred τ₁ τ₂ → Signature → Prop
+  | .uninterpreted name τ₁ τ₂, Δ => ⟨name, τ₁, τ₂⟩ ∈ Δ.binaryRel
+                                      ∧ (∀ τ₁' τ₂' τ₃', ⟨name, τ₁', τ₂', τ₃'⟩ ∉ Δ.binary)
+                                      ∧ (∀ τ₁' τ₂', ⟨name, τ₁', τ₂'⟩ ∈ Δ.binaryRel →
+                                          τ₁' = τ₁ ∧ τ₂' = τ₂)
+  | _, _                          => True
+
+def UnPred.checkWf : UnPred τ → Signature → Except String Unit
+  | .uninterpreted name τ, Δ =>
+    if ⟨name, τ⟩ ∈ Δ.unaryRel then
+      if Δ.unary.any (·.name == name) then
+        .error s!"unary predicate {name} conflicts with a unary operator"
+      else if Δ.unaryRel.any (fun u => u.name == name && u.arg != τ) then
+        .error s!"unary predicate {name} has multiple signatures in signature"
+      else .ok ()
+    else .error s!"unary predicate {name} not in signature"
+  | _, _ => .ok ()
+
+def BinPred.checkWf : BinPred τ₁ τ₂ → Signature → Except String Unit
+  | .uninterpreted name τ₁ τ₂, Δ =>
+    if ⟨name, τ₁, τ₂⟩ ∈ Δ.binaryRel then
+      if Δ.binary.any (·.name == name) then
+        .error s!"binary predicate {name} conflicts with a binary operator"
+      else if Δ.binaryRel.any (fun b => b.name == name && (b.arg1 != τ₁ || b.arg2 != τ₂)) then
+        .error s!"binary predicate {name} has multiple signatures in signature"
+      else .ok ()
+    else .error s!"binary predicate {name} not in signature"
+  | _, _ => .ok ()
+
 def Formula.wfIn : Formula → Signature → Prop
   | .true_, _            => True
   | .false_, _           => True
   | .eq _ t₁ t₂, Δ      => t₁.wfIn Δ ∧ t₂.wfIn Δ
-  | .unpred _ t, Δ       => t.wfIn Δ
-  | .binpred _ t₁ t₂, Δ => t₁.wfIn Δ ∧ t₂.wfIn Δ
+  | .unpred p t, Δ       => p.wfIn Δ ∧ t.wfIn Δ
+  | .binpred p t₁ t₂, Δ => p.wfIn Δ ∧ t₁.wfIn Δ ∧ t₂.wfIn Δ
   | .not φ, Δ            => φ.wfIn Δ
   | .and φ ψ, Δ          => φ.wfIn Δ ∧ ψ.wfIn Δ
   | .or φ ψ, Δ           => φ.wfIn Δ ∧ ψ.wfIn Δ
@@ -59,14 +96,82 @@ def Formula.checkWf : Formula → Signature → Except String Unit
   | .true_, _            => .ok ()
   | .false_, _           => .ok ()
   | .eq _ t₁ t₂, Δ      => do t₁.checkWf Δ; t₂.checkWf Δ
-  | .unpred _ t, Δ       => t.checkWf Δ
-  | .binpred _ t₁ t₂, Δ => do t₁.checkWf Δ; t₂.checkWf Δ
+  | .unpred p t, Δ       => do p.checkWf Δ; t.checkWf Δ
+  | .binpred p t₁ t₂, Δ => do p.checkWf Δ; t₁.checkWf Δ; t₂.checkWf Δ
   | .not φ, Δ            => φ.checkWf Δ
   | .and φ ψ, Δ          => do φ.checkWf Δ; ψ.checkWf Δ
   | .or φ ψ, Δ           => do φ.checkWf Δ; ψ.checkWf Δ
   | .implies φ ψ, Δ      => do φ.checkWf Δ; ψ.checkWf Δ
   | .forall_ x τ φ, Δ    => φ.checkWf (Δ.declVar ⟨x, τ⟩)
   | .exists_ x τ φ, Δ    => φ.checkWf (Δ.declVar ⟨x, τ⟩)
+
+private theorem UnPred.checkWf_ok {p : UnPred τ} {Δ : Signature}
+    (h : p.checkWf Δ = .ok ()) : p.wfIn Δ := by
+  cases p with
+  | uninterpreted name τ =>
+    simp only [UnPred.checkWf] at h
+    split at h
+    · rename_i hmem
+      split at h
+      · simp at h
+      · rename_i hunary
+        split at h
+        · simp at h
+        · rename_i hdup
+          refine ⟨hmem, ?_, ?_⟩
+          · intro τ₁ τ₂ hu
+            have hany : (Δ.unary.any fun x => x.name == name) = true := by
+              apply List.any_eq_true.mpr
+              refine ⟨⟨name, τ₁, τ₂⟩, hu, ?_⟩
+              simp
+            exact hunary hany
+          · intro τ' hu'
+            by_cases hs : τ' = τ
+            · exact hs
+            · exfalso
+              apply hdup
+              apply List.any_eq_true.mpr
+              refine ⟨⟨name, τ'⟩, hu', ?_⟩
+              simp [hs]
+    · simp at h
+  | _ => trivial
+
+private theorem BinPred.checkWf_ok {p : BinPred τ₁ τ₂} {Δ : Signature}
+    (h : p.checkWf Δ = .ok ()) : p.wfIn Δ := by
+  cases p with
+  | uninterpreted name τ₁ τ₂ =>
+    simp only [BinPred.checkWf] at h
+    split at h
+    · rename_i hmem
+      split at h
+      · simp at h
+      · rename_i hbinary
+        split at h
+        · simp at h
+        · rename_i hdup
+          refine ⟨hmem, ?_, ?_⟩
+          · intro τ₁' τ₂' τ₃' hb
+            have hany : (Δ.binary.any fun x => x.name == name) = true := by
+              apply List.any_eq_true.mpr
+              refine ⟨⟨name, τ₁', τ₂', τ₃'⟩, hb, ?_⟩
+              simp
+            exact hbinary hany
+          · intro τ₁' τ₂' hb'
+            by_cases harg1 : τ₁' = τ₁
+            · by_cases harg2 : τ₂' = τ₂
+              · exact ⟨harg1, harg2⟩
+              · exfalso
+                apply hdup
+                apply List.any_eq_true.mpr
+                refine ⟨⟨name, τ₁', τ₂'⟩, hb', ?_⟩
+                simp [harg1, harg2]
+            · exfalso
+              apply hdup
+              apply List.any_eq_true.mpr
+              refine ⟨⟨name, τ₁', τ₂'⟩, hb', ?_⟩
+              simp [harg1]
+    · simp at h
+  | _ => trivial
 
 theorem Formula.checkWf_ok {φ : Formula} {Δ : Signature} (h : φ.checkWf Δ = .ok ()) : φ.wfIn Δ := by
   induction φ generalizing Δ with
@@ -75,11 +180,15 @@ theorem Formula.checkWf_ok {φ : Formula} {Δ : Signature} (h : φ.checkWf Δ = 
     simp only [Formula.checkWf] at h
     have ⟨_, h1, h2⟩ := Except.bind_ok h
     exact ⟨Term.checkWf_ok h1, Term.checkWf_ok h2⟩
-  | unpred _ t => exact Term.checkWf_ok h
-  | binpred _ t₁ t₂ =>
+  | unpred p t =>
     simp only [Formula.checkWf] at h
-    have ⟨_, h1, h2⟩ := Except.bind_ok h
-    exact ⟨Term.checkWf_ok h1, Term.checkWf_ok h2⟩
+    have ⟨_, hp, ht⟩ := Except.bind_ok h
+    exact ⟨UnPred.checkWf_ok hp, Term.checkWf_ok ht⟩
+  | binpred p t₁ t₂ =>
+    simp only [Formula.checkWf] at h
+    have ⟨_, hp, h12⟩ := Except.bind_ok h
+    have ⟨_, h1, h2⟩ := Except.bind_ok h12
+    exact ⟨BinPred.checkWf_ok hp, Term.checkWf_ok h1, Term.checkWf_ok h2⟩
   | not φ ih => exact ih h
   | and φ ψ ihφ ihψ | or φ ψ ihφ ihψ | implies φ ψ ihφ ihψ =>
     simp only [Formula.checkWf] at h
@@ -89,12 +198,35 @@ theorem Formula.checkWf_ok {φ : Formula} {Δ : Signature} (h : φ.checkWf Δ = 
     simp only [Formula.checkWf] at h
     exact ih h
 
+private theorem UnPred.wfIn_mono {p : UnPred τ} {Δ Δ' : Signature}
+    (h : p.wfIn Δ) (hsub : Δ.Subset Δ') (hwf : Δ'.wf) : p.wfIn Δ' := by
+  cases p with
+  | uninterpreted name τ =>
+    refine ⟨hsub.unaryRel _ h.1, ?_, ?_⟩
+    · intro τ₁ τ₂ hu
+      exact Signature.wf_no_unaryRel_of_unary hwf hu (hsub.unaryRel _ h.1)
+    · intro τ' hu'
+      exact Signature.wf_unique_unaryRel hwf (hsub.unaryRel _ h.1) hu'
+  | _ => trivial
+
+private theorem BinPred.wfIn_mono {p : BinPred τ₁ τ₂} {Δ Δ' : Signature}
+    (h : p.wfIn Δ) (hsub : Δ.Subset Δ') (hwf : Δ'.wf) : p.wfIn Δ' := by
+  cases p with
+  | uninterpreted name τ₁ τ₂ =>
+    refine ⟨hsub.binaryRel _ h.1, ?_, ?_⟩
+    · intro τ₁' τ₂' τ₃' hb
+      exact Signature.wf_no_binaryRel_of_binary hwf hb (hsub.binaryRel _ h.1)
+    · intro τ₁' τ₂' hb'
+      exact Signature.wf_unique_binaryRel hwf (hsub.binaryRel _ h.1) hb'
+  | _ => trivial
+
 theorem Formula.wfIn_mono (φ : Formula) (h : φ.wfIn Δ) (hsub : Δ.Subset Δ') (hwf : Δ'.wf) : φ.wfIn Δ' := by
   induction φ generalizing Δ Δ' with
   | true_ | false_ => trivial
   | eq _ t₁ t₂ => exact ⟨Term.wfIn_mono t₁ h.1 hsub hwf, Term.wfIn_mono t₂ h.2 hsub hwf⟩
-  | unpred _ t => exact Term.wfIn_mono t h hsub hwf
-  | binpred _ t₁ t₂ => exact ⟨Term.wfIn_mono t₁ h.1 hsub hwf, Term.wfIn_mono t₂ h.2 hsub hwf⟩
+  | unpred p t => exact ⟨UnPred.wfIn_mono h.1 hsub hwf, Term.wfIn_mono t h.2 hsub hwf⟩
+  | binpred p t₁ t₂ =>
+    exact ⟨BinPred.wfIn_mono h.1 hsub hwf, Term.wfIn_mono t₁ h.2.1 hsub hwf, Term.wfIn_mono t₂ h.2.2 hsub hwf⟩
   | not φ ih => exact ih h hsub hwf
   | and φ ψ ihφ ihψ | or φ ψ ihφ ihψ | implies φ ψ ihφ ihψ =>
     exact ⟨ihφ h.1 hsub hwf, ihψ h.2 hsub hwf⟩
@@ -110,23 +242,25 @@ def Context.wfIn (Γ : Context) (Δ : Signature) : Prop :=
 theorem Context.wfIn_mono (Γ : Context) (h : Γ.wfIn Δ) (hsub : Δ.Subset Δ') (hwf : Δ'.wf) : Γ.wfIn Δ' :=
   fun φ hφ => Formula.wfIn_mono φ (h φ hφ) hsub hwf
 
-@[simp] def UnPred.eval : UnPred τ → τ.denote → Prop
-  | .isInt,   v => match v with | .int _ => True | _ => False
-  | .isBool,  v => match v with | .bool _ => True | _ => False
-  | .isLoc,   v => match v with | .loc _ => True | _ => False
-  | .isTuple, v => match v with | .tuple _ => True | _ => False
-  | .isInj tag arity, v => match v with | .inj t a _ => t = tag ∧ a = arity | _ => False
+@[simp] def UnPred.eval : Env → UnPred τ → τ.denote → Prop
+  | _, .isInt,   v => match v with | .int _ => True | _ => False
+  | _, .isBool,  v => match v with | .bool _ => True | _ => False
+  | _, .isLoc,   v => match v with | .loc _ => True | _ => False
+  | _, .isTuple, v => match v with | .tuple _ => True | _ => False
+  | _, .isInj tag arity, v => match v with | .inj t a _ => t = tag ∧ a = arity | _ => False
+  | ρ, .uninterpreted name _, v => ρ.unaryRel τ name v
 
-@[simp] def BinPred.eval : BinPred τ₁ τ₂ → τ₁.denote → τ₂.denote → Prop
-  | .lt, a, b => a < b
-  | .le, a, b => a ≤ b
+@[simp] def BinPred.eval : Env → BinPred τ₁ τ₂ → τ₁.denote → τ₂.denote → Prop
+  | _, .lt, a, b => a < b
+  | _, .le, a, b => a ≤ b
+  | ρ, .uninterpreted name _ _, a, b => ρ.binaryRel τ₁ τ₂ name a b
 
 def Formula.eval (ρ : Env) : Formula → Prop
   | .true_         => True
   | .false_        => False
   | .eq _τ a b     => a.eval ρ = b.eval ρ
-  | .unpred p v    => p.eval (v.eval ρ)
-  | .binpred p a b => p.eval (a.eval ρ) (b.eval ρ)
+  | .unpred p v    => p.eval ρ (v.eval ρ)
+  | .binpred p a b => p.eval ρ (a.eval ρ) (b.eval ρ)
   | .not φ         => ¬ φ.eval ρ
   | .and φ ψ       => φ.eval ρ ∧ ψ.eval ρ
   | .or φ ψ        => φ.eval ρ ∨ ψ.eval ρ
@@ -147,10 +281,22 @@ theorem Formula.eval_env_agree {φ : Formula} {ρ ρ' : Env} {Δ : Signature} :
     rw [Term.eval_env_agree hwf.1 hagree, Term.eval_env_agree hwf.2 hagree]
   | unpred p v =>
     simp only [Formula.eval]
-    rw [Term.eval_env_agree hwf hagree]
+    rw [Term.eval_env_agree hwf.2 hagree]
+    cases p with
+    | uninterpreted name τ =>
+      simp only [UnPred.eval]
+      have hrel := hagree.2.2.2.2.1 ⟨name, _⟩ hwf.1.1
+      simp [hrel]
+    | _ => rfl
   | binpred p a b =>
     simp only [Formula.eval]
-    rw [Term.eval_env_agree hwf.1 hagree, Term.eval_env_agree hwf.2 hagree]
+    rw [Term.eval_env_agree hwf.2.1 hagree, Term.eval_env_agree hwf.2.2 hagree]
+    cases p with
+    | uninterpreted name τ₁ τ₂ =>
+      simp only [BinPred.eval]
+      have hrel := hagree.2.2.2.2.2 ⟨name, _, _⟩ hwf.1.1
+      simp [hrel]
+    | _ => rfl
   | not φ ih =>
     simp only [Formula.eval]; rw [ih hwf hagree]
   | and φ ψ ihφ ihψ | or φ ψ ihφ ihψ | implies φ ψ ihφ ihψ =>
