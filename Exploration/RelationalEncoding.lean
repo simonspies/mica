@@ -395,6 +395,191 @@ theorem ValRel.lfp_unfold {F : ValRel → ValRel} (hmono : ValRel.Mono F)
     ValRel.lfp F a b ↔ F (ValRel.lfp F) a b :=
   ⟨ValRel.lfp_postfixed hmono a b, ValRel.lfp_prefixed hmono a b⟩
 
+/-! ## Monotonicity of encoded formulas -/
+
+/-- Pointwise extension order on environments: equal on the components that
+`Term.eval` reads (`consts`/`unary`/`binary`); unary and binary predicates
+may grow. This is the order in which `Formula.eval` of an `encode`-produced
+formula is monotone. -/
+def Env.le (ρ ρ' : Env) : Prop :=
+  ρ.consts = ρ'.consts ∧ ρ.unary = ρ'.unary ∧ ρ.binary = ρ'.binary ∧
+  (∀ τ name a, ρ.unaryRel τ name a → ρ'.unaryRel τ name a) ∧
+  ∀ τ₁ τ₂ name a b, ρ.binaryRel τ₁ τ₂ name a b → ρ'.binaryRel τ₁ τ₂ name a b
+
+theorem Env.le.refl (ρ : Env) : Env.le ρ ρ :=
+  ⟨rfl, rfl, rfl, fun _ _ _ h => h, fun _ _ _ _ _ h => h⟩
+
+theorem Env.le.updateConst {ρ ρ' : Env} (h : Env.le ρ ρ')
+    (τ : Srt) (x : String) (v : τ.denote) :
+    Env.le (ρ.updateConst τ x v) (ρ'.updateConst τ x v) := by
+  refine ⟨?_, h.2.1, h.2.2.1, h.2.2.2.1, h.2.2.2.2⟩
+  simp only [Env.updateConst, h.1]
+
+/-- Term evaluation only reads `consts`, `unary`, `binary`, all of which are
+fixed under `Env.le`, so terms evaluate identically on both sides. -/
+theorem Term.eval_le {τ : Srt} {ρ ρ' : Env} (h : Env.le ρ ρ') (t : Term τ) :
+    t.eval ρ = t.eval ρ' := by
+  induction t with
+  | var τ y => simp [Term.eval, Env.lookupConst, h.1]
+  | const c =>
+    cases c <;> simp [Term.eval, Const.denote, h.1]
+  | unop op a iha =>
+    simp only [Term.eval]; rw [iha]
+    cases op <;> simp [UnOp.eval, h.2.1]
+  | binop op a b iha ihb =>
+    simp only [Term.eval]; rw [iha, ihb]
+    cases op <;> simp [BinOp.eval, h.2.2.1]
+  | ite c t e ihc iht ihe =>
+    simp only [Term.eval]; rw [ihc, iht, ihe]
+
+/-- A continuation `k` is `Env.le`-monotone if every formula it produces is. -/
+def MonoCont (k : Signature → Term .value → Except String Formula) : Prop :=
+  ∀ Δ' t ψ ρ ρ', Env.le ρ ρ' → k Δ' t = .ok ψ → ψ.eval ρ → ψ.eval ρ'
+
+/-- Every formula produced by `encode` is monotone under `Env.le`, provided
+its continuation is. The only formula constructor that is sensitive to
+`Env.le` is the uninterpreted `binpred` introduced by `funcall`, which is
+monotone by construction; `iteBool`'s implications have term-only LHS, hence
+are unaffected by `Env.le` in either direction. -/
+theorem encode_monoLe {Γ : FunCtx} (Δ : Signature) (e : Typed.Expr)
+    (k : Signature → Term .value → Except String Formula)
+    {φ : Formula} (henc : encode Γ Δ e k = .ok φ) (hk : MonoCont k)
+    {ρ ρ' : Env} (hle : Env.le ρ ρ') : φ.eval ρ → φ.eval ρ' := by
+  induction Δ, e, k using encode.induct (Γ := Γ) generalizing φ ρ ρ'
+  -- const
+  case _ Δ k c =>
+    rw [encode] at henc; exact hk Δ _ _ ρ ρ' hle henc
+  -- var, in vars
+  case _ Δ k x ty hmem =>
+    rw [encode, if_pos hmem] at henc; exact hk Δ _ _ ρ ρ' hle henc
+  -- var, not in vars
+  case _ Δ k x ty hmem =>
+    rw [encode, if_neg hmem] at henc; cases henc
+  -- unop
+  case _ Δ k op e ty ih =>
+    rw [encode] at henc
+    refine ih henc ?_ hle
+    intro Δ' v ψ ρ₁ ρ₂ hle₁₂ hbind
+    simp [bind, Except.bind] at hbind
+    split at hbind
+    · cases hbind
+    · rename_i v' hu
+      exact hk Δ' v' ψ ρ₁ ρ₂ hle₁₂ hbind
+  -- binop
+  case _ Δ k op e1 e2 ty ih2 ih1 =>
+    rw [encode] at henc
+    refine ih1 henc ?_ hle
+    intro Δ' v1 ψ ρ₁ ρ₂ hle₁₂ hen2
+    refine ih2 Δ' v1 hen2 ?_ hle₁₂
+    intro Δ'' v2 ψ' ρ₃ ρ₄ hle₃₄ hbind
+    simp [bind, Except.bind] at hbind
+    split at hbind
+    · cases hbind
+    · rename_i v hb
+      exact hk Δ'' v ψ' ρ₃ ρ₄ hle₃₄ hbind
+  -- ifThenElse
+  case _ Δ k c t e ty iht ihe ihc =>
+    rw [encode] at henc
+    refine ihc henc ?_ hle
+    intro Δ' b ψ ρ₁ ρ₂ hle₁₂ hpost
+    simp [bind, Except.bind] at hpost
+    split at hpost
+    · cases hpost
+    rename_i φt hent
+    split at hpost
+    · cases hpost
+    rename_i φe hene
+    cases hpost
+    -- The iteBool's implication LHS is a term equality, hence Env.le-invariant.
+    intro ⟨ht, he⟩
+    refine ⟨?_, ?_⟩
+    · intro hcond
+      have hcond' : ((Term.unop UnOp.toBool b).eval ρ₁) = true := by
+        rw [Term.eval_le hle₁₂]; exact hcond
+      exact iht Δ' hent hk hle₁₂ (ht hcond')
+    · intro hcond
+      have hcond' : ((Term.unop UnOp.toBool b).eval ρ₁) = false := by
+        rw [Term.eval_le hle₁₂]; exact hcond
+      exact ihe Δ' hene hk hle₁₂ (he hcond')
+  -- app, lookup = none
+  case _ Δ k f ty arg ty' hlk =>
+    rw [encode, hlk] at henc; cases henc
+  -- app, lookup = some rel
+  case _ Δ k f ty arg ty' rel hlk ih =>
+    rw [encode, hlk] at henc
+    refine ih henc ?_ hle
+    intro Δ' v ψ ρ₁ ρ₂ hle₁₂ hpost
+    simp [bind, Except.bind] at hpost
+    split at hpost
+    · cases hpost
+    rename_i φinner hinner
+    cases hpost
+    -- Goal: `(∃ r, funcall ∧ φinner).eval ρ₁ → … ρ₂`.
+    set rname : String := Fresh.freshName Δ'.allNames "r" with hrname
+    intro ⟨w, hcall, hφ⟩
+    refine ⟨w, ?_, ?_⟩
+    · -- funcall = binpred (uninterpreted ...) v r; monotone in binaryRel.
+      simp only [Formula.funcall, Formula.eval, BinPred.eval] at hcall ⊢
+      have hleU : Env.le (ρ₁.updateConst .value rname w)
+                          (ρ₂.updateConst .value rname w) :=
+        hle₁₂.updateConst .value rname w
+      rw [← Term.eval_le hleU, ← Term.eval_le hleU]
+      exact hleU.2.2.2.2 _ _ _ _ _ hcall
+    · exact hk _ _ _ _ _ (hle₁₂.updateConst .value rname w) hinner hφ
+  -- cast
+  case _ Δ k e ty ih =>
+    rw [encode] at henc; exact ih henc hk hle
+  -- app catch-all
+  case _ Δ k fn args ty hne =>
+    cases fn <;> simp only [encode] at henc <;> cases henc
+  -- fix, letIn, ref, deref, store, assert, tuple, inj, match_
+  all_goals (simp only [encode] at henc; cases henc)
+
+/-- The pin-to-result continuation is `Env.le`-monotone. -/
+theorem kPin_monoCont (r : String) : MonoCont (kPin r) := by
+  intro Δ' t ψ ρ ρ' hle hk
+  simp only [kPin, Except.ok.injEq] at hk
+  subst hk
+  intro h
+  simp only [Formula.eval] at h ⊢
+  rw [← Term.eval_le hle, ← Term.eval_le hle]; exact h
+
+/-- The encoded body of `rec f x := e` evaluates monotonically under
+`Env.le`. -/
+theorem encodeFunc_monoLe {Γ : FunCtx} {Δ : Signature}
+    {f : TinyML.Var} {rel : String} {x res : TinyML.Var} {e : Typed.Expr}
+    {φ : Formula} (henc : encodeFunc Γ Δ f rel x res e = .ok φ)
+    {ρ ρ' : Env} (hle : Env.le ρ ρ') : φ.eval ρ → φ.eval ρ' :=
+  encode_monoLe _ _ _ henc (kPin_monoCont _) hle
+
+/-- The body operator `relBody` is monotone whenever the underlying φ is
+`Env.le`-monotone — which `encode` always delivers. -/
+theorem relBody_mono_of_monoLe {ρ : Env} {rel : String}
+    {x r : TinyML.Var} {φ : Formula}
+    (hφ : ∀ {ρ ρ' : Env}, Env.le ρ ρ' → φ.eval ρ → φ.eval ρ') :
+    ValRel.Mono (relBody ρ rel x r φ) := by
+  intro S S' hSS' vin vout hF
+  -- relBody _ φ S vin vout = φ.eval (relEnv … S vin vout); same for S'.
+  -- Show Env.le between the two relEnvs.
+  have hle : Env.le (relEnv ρ rel x r S vin vout)
+                    (relEnv ρ rel x r S' vin vout) := by
+    refine Env.le.updateConst (Env.le.updateConst ?_ _ _ _) _ _ _
+    refine ⟨rfl, rfl, rfl, fun _ _ _ h => h, ?_⟩
+    intro τ₁ τ₂ name a b
+    simp only [Env.updateBinaryRel]
+    split
+    · rename_i heq; rcases heq with ⟨rfl, rfl, rfl⟩
+      intro h; exact hSS' a b h
+    · intro h; exact h
+  exact hφ hle hF
+
+/-- Specialisation: for any encoded recursive body, `relBody` is monotone. -/
+theorem relBody_mono_of_encode {Γ : FunCtx} {Δ : Signature} {ρ : Env}
+    {f : TinyML.Var} {rel : String} {x res : TinyML.Var} {e : Typed.Expr}
+    {φ : Formula} (henc : encodeFunc Γ Δ f rel x res e = .ok φ) :
+    ValRel.Mono (relBody ρ rel x res φ) :=
+  relBody_mono_of_monoLe (fun hle => encodeFunc_monoLe henc hle)
+
 /-! ## Unfolding lemma for the encoded relation -/
 
 /-- Unfolding for the lfp of `relBody`, assuming the body operator is monotone
@@ -454,12 +639,12 @@ theorem relAxiom_eval
     {f : TinyML.Var} {rel : String} {x res : TinyML.Var} {e : Typed.Expr}
     {φ : Formula}
     (hxres : x ≠ res)
-    (henc : encodeFunc Γ Δ f rel x res e = .ok φ)
-    (hmono : ValRel.Mono (relBody ρ rel x res φ)) :
+    (henc : encodeFunc Γ Δ f rel x res e = .ok φ) :
     Formula.eval
       (ρ.updateBinaryRel .value .value rel
         (relation Γ Δ ρ f rel x res e))
       (relAxiom rel x res φ) := by
+  have hmono : ValRel.Mono (relBody ρ rel x res φ) := relBody_mono_of_encode henc
   set R : ValRel := relation Γ Δ ρ f rel x res e with hR
   simp only [relAxiom, Formula.eval]
   intro vx vres
