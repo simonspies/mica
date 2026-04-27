@@ -153,14 +153,24 @@ theorem Term.subst_wfIn {t : Term τ} {σ : Subst} {dom : VarCtx} {Δ Δ' : Sign
     simp only [Term.subst, Term.wfIn]
     refine ⟨?_, iha ht.2 hσ hdom hsymbols hwf⟩
     cases op with
-    | uninterpreted name _ _ => exact hsymbols.unary _ ht.1
+    | uninterpreted name _ _ =>
+      refine ⟨hsymbols.unary _ ht.1.1, ?_, ?_⟩
+      · intro τ' hrel
+        exact Signature.wf_no_unaryRel_of_unary hwf (hsymbols.unary _ ht.1.1) hrel
+      · intro τ₁' τ₂' hu'
+        exact Signature.wf_unique_unary hwf (hsymbols.unary _ ht.1.1) hu'
     | _ => trivial
   | binop op a b iha ihb =>
     simp only [Term.subst, Term.wfIn]
     refine ⟨?_, iha ht.2.1 hσ hdom hsymbols hwf,
       ihb ht.2.2 hσ hdom hsymbols hwf⟩
     cases op with
-    | uninterpreted name _ _ _ => exact hsymbols.binary _ ht.1
+    | uninterpreted name _ _ _ =>
+      refine ⟨hsymbols.binary _ ht.1.1, ?_, ?_⟩
+      · intro τ₁' τ₂' hrel
+        exact Signature.wf_no_binaryRel_of_binary hwf (hsymbols.binary _ ht.1.1) hrel
+      · intro τ₁' τ₂' τ₃' hb'
+        exact Signature.wf_unique_binary hwf (hsymbols.binary _ ht.1.1) hb'
     | _ => trivial
   | ite c t e ihc iht ihe =>
     simp only [Term.subst, Term.wfIn]
