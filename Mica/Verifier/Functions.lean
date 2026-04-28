@@ -37,6 +37,7 @@ def checkSpec (Θ : TinyML.TypeEnv) (S : SpecMap) (e : Expr) (s : Spec) : VerifM
       | .error msg => VerifM.fatal msg
     | _ => VerifM.fatal "checkSpec: expected function"
   let S' := SpecMap.eraseAll argNames (S.insertBinder fb s)
+  VerifM.persist
   Spec.implement s (checkBody Θ S' s argNames body)
 
 /-- Soundness of `checkBody`: given argument variables supplied by
@@ -176,9 +177,9 @@ theorem checkBody_correct (Θ : TinyML.TypeEnv) (S : SpecMap) (s : Spec)
 theorem checkSpec_correct (Θ : TinyML.TypeEnv) (S : SpecMap) (e : Expr) (s : Spec)
     (γ : Runtime.Subst)
     (hswf : s.wfIn Signature.empty) (hSwf : S.wfIn Signature.empty)
-    (ρ : VerifM.Env) :
-    VerifM.eval (checkSpec Θ S e s) TransState.empty ρ (fun _ _ _ => True) →
-    S.satisfiedBy Θ γ ⊢ wp (e.runtime.subst γ) (fun v => s.isPrecondFor Θ v) := by
+    (st : TransState) (ρ : VerifM.Env) :
+    VerifM.eval (checkSpec Θ S e s) st ρ (fun _ _ _ => True) →
+    st.sl ρ ∗ S.satisfiedBy Θ γ ⊢ wp (e.runtime.subst γ) (fun v => s.isPrecondFor Θ v) := by
   intro heval
   -- All non-`fix` shapes (and bad `extractArgNames`) discharge the same way.
   have elim_bind_fatal : ∀ {α β} {msg} {k : α → VerifM β} {st ρ Ψ},
@@ -194,7 +195,9 @@ theorem checkSpec_correct (Θ : TinyML.TypeEnv) (S : SpecMap) (e : Expr) (s : Sp
       exact (elim_bind_fatal heval).elim
     | ok argNames =>
       simp [hext] at heval
-      have himpl := VerifM.eval_ret (VerifM.eval_bind _ _ _ _ heval)
+      have hcont := VerifM.eval_ret (VerifM.eval_bind _ _ _ _ heval)
+      have hpersist := VerifM.eval_persist (VerifM.eval_bind _ _ _ _ hcont)
+      have himpl := hpersist
       dsimp only at himpl
       set bs := argBinders.map (·.runtime)
       set γ' := (γ.remove' fb.runtime).removeAll' bs with hγ'_def
@@ -212,7 +215,8 @@ theorem checkSpec_correct (Θ : TinyML.TypeEnv) (S : SpecMap) (e : Expr) (s : Sp
       apply SpatialContext.wp_func
       apply Spec.isPrecondFor_fix
       istart
-      iintro □Hspec
+      iintro H
+      icases H with ⟨Hsl, #Hspec⟩
       imodintro
       iintro Hrec %vs %P #Htyped Hpred
       -- `isPrecondFor_fix` hands us the body's subst as `id.updateBinder ... |>.updateAllBinder ...`;
@@ -231,7 +235,7 @@ theorem checkSpec_correct (Θ : TinyML.TypeEnv) (S : SpecMap) (e : Expr) (s : Sp
         iintro H
         icases H with ⟨Htyped', Hpred'⟩
         iintuitionistic Htyped'
-        ihave Hwand := Spec.implement_correct Θ s _ TransState.empty ρ vs P
+        ihave Hwand := Spec.implement_correct Θ s _ (TransState.persist st) ρ vs P
           (TinyML.ValsHaveTypes Θ vs (s.args.map Prod.snd) -∗
             (S.satisfiedBy Θ γ ∗ s.isPrecondFor Θ fval) -∗
               wp (body.runtime.subst (γ.updateBinder fb.runtime fval |>.updateAllBinder bs vs)) P)
@@ -246,18 +250,18 @@ theorem checkSpec_correct (Θ : TinyML.TypeEnv) (S : SpecMap) (e : Expr) (s : Sp
               · iexact Htyped''
               · iexact HQ) $$ [Htyped' Hpred']
         · isplitl []
-          · simp [TransState.sl]
+          · simp
             iemp_intro
           · isplitl [Htyped']
             · iexact Htyped'
             · iexact Hpred'
         iapply Hwand
         iexact Htyped'
-      iapply hbody' $$ [Htyped Hpred] [Hrec]
+      iapply hbody' $$ [Htyped Hpred] [Hspec Hrec]
       · isplitl [Htyped]
         · iexact Htyped
         · iexact Hpred
-      · isplitl []
+      · isplitl [Hspec]
         · iexact Hspec
         · iexact Hrec
   all_goals
