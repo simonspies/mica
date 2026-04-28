@@ -53,6 +53,10 @@ instance : Monad VerifM where
 def VerifM.ctxPure (f : List Formula → α) : VerifM α :=
   VerifM.ctx (fun st => (f st.asserts, st.owns))
 
+/-- Drop the current spatial context, keeping only the persistent verifier state. -/
+def VerifM.persist : VerifM Unit :=
+  VerifM.ctx (fun st => ((), (TransState.persist st).owns))
+
 /-- Assert-and-check: check φ is provable, fail if not. -/
 def VerifM.assert (φ : Formula) : VerifM Unit := do
   if ← VerifM.check φ then pure ()
@@ -602,6 +606,14 @@ theorem VerifM.eval_ctxPure {f : List Formula → α} {st : TransState} {ρ : Ve
     ∧ st.asserts.wfIn st.decls :=
   let ⟨hq, howns, hg, hwf⟩ := VerifM.eval_ctx h
   ⟨hq howns, hg, hwf⟩
+
+theorem VerifM.eval_persist {st : TransState} {ρ : VerifM.Env}
+    {Q : Unit → TransState → VerifM.Env → Prop}
+    (h : VerifM.eval VerifM.persist st ρ Q) :
+    Q () (TransState.persist st) ρ := by
+  let ⟨hq, howns, _, _⟩ := VerifM.eval_ctx h
+  apply hq
+  simp [TransState.persist]
 
 theorem VerifM.eval_seq {m : VerifM Unit} {m2 : VerifM β} {st : TransState} {ρ : VerifM.Env}
     {Q : β → TransState → VerifM.Env → Prop}
