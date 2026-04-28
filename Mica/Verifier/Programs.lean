@@ -48,7 +48,7 @@ def Program.prepare (prog : Untyped.Program Untyped.Expr) :
 
 /-- Check an individual declaration. Each declaration's `checkSpec` runs inside a `seq` bracket so its
     declarations and assertions don't pollute subsequent verifications. -/
-def ValDecl.check (Θ : TinyML.TypeEnv) (S : SpecMap) (d : Typed.ValDecl Untyped.Expr) : VerifM Spec := do
+def ValDecl.check (Θ : TinyML.TypeEnv) (Δ_spec : Signature) (S : SpecMap) (d : Typed.ValDecl Untyped.Expr) : VerifM Spec := do
   let specExpr ← match d.spec with
     | some e => .ret e
     | none => .fatal "declaration has no spec"
@@ -58,43 +58,49 @@ def ValDecl.check (Θ : TinyML.TypeEnv) (S : SpecMap) (d : Typed.ValDecl Untyped
   let spec ← match Spec.complete sp d.body with
     | .ok s => .ret s
     | .error e => .fatal e
-  let () ← match Spec.checkWf spec Signature.empty with
+  let () ← match Spec.checkWf spec Δ_spec with
     | .ok () => .ret ()
     | .error msg => .fatal msg
-  VerifM.seq (checkSpec Θ S d.body spec) (pure spec)
+  VerifM.seq (checkSpec Θ Δ_spec S d.body spec) (pure spec)
 
 /-- Check a `let _ = e` declaration: just compile `e` for safety, no spec. -/
-def ValDecl.checkExpr (Θ : TinyML.TypeEnv) (S : SpecMap) (d : Typed.ValDecl Untyped.Expr) : VerifM Unit :=
-  VerifM.seq (do let _ ← compile Θ S [] TinyML.TyCtx.empty d.body; pure ()) (pure ())
+def ValDecl.checkExpr (Θ : TinyML.TypeEnv) (Δ_spec : Signature) (S : SpecMap) (d : Typed.ValDecl Untyped.Expr) : VerifM Unit :=
+  VerifM.seq (do let _ ← compile Θ Δ_spec S [] TinyML.TyCtx.empty d.body; pure ()) (pure ())
 
 /-- Verify all declarations in a program, accumulating specs as we go. -/
-def Program.check (Θ : TinyML.TypeEnv) : SpecMap → Typed.Program Untyped.Expr → VerifM Unit
+def Program.check (Θ : TinyML.TypeEnv) (Δ_spec : Signature) : SpecMap → Typed.Program Untyped.Expr → VerifM Unit
   | _, [] => pure ()
   | S, d :: ds => do
     match d.name.name, d.spec with
     | none, none =>
-      ValDecl.checkExpr Θ S d
-      Program.check Θ S ds
+      ValDecl.checkExpr Θ Δ_spec S d
+      Program.check Θ Δ_spec S ds
     | some n, none =>
     -- Named declaration without a spec: skip if it's a function definition
     -- (no code executes), otherwise check it. Erase any old spec for this
     -- name since the new binding shadows it.
       if d.body.isFunc then
-        Program.check Θ (S.erase n) ds
+        Program.check Θ Δ_spec (S.erase n) ds
       else
-        ValDecl.checkExpr Θ S d
-        Program.check Θ (S.erase n) ds
+        ValDecl.checkExpr Θ Δ_spec S d
+        Program.check Θ Δ_spec (S.erase n) ds
     | _, _ =>
-      let spec ← ValDecl.check Θ S d
+      let spec ← ValDecl.check Θ Δ_spec S d
       let S' := match d.name.name with
         | some name => S.insert name spec
         | none => S
-      Program.check Θ S' ds
+      Program.check Θ Δ_spec S' ds
+
+/-- Initial signature threaded through program verification. -/
+def Δ_spec : Signature := Signature.empty
+
+/-- Initial verifier environment threaded through program verification. -/
+def ρ_spec : VerifM.Env := VerifM.Env.empty
 
 def Program.verify (prog : Untyped.Program Untyped.Expr) : Smt.Strategy Smt.Strategy.Outcome :=
   VerifM.strategy do
     let (Θ, typed) ← Program.prepare prog
-    Program.check Θ ∅ typed
+    Program.check Θ Δ_spec ∅ typed
 
 /-! ## Correctness -/
 
@@ -114,24 +120,29 @@ theorem Program.prepare_correct (prog : Untyped.Program Untyped.Expr)
     simp [helab] at heval
     exact VerifM.eval_ret heval
 
-theorem ValDecl.checkExpr_correct (Θ : TinyML.TypeEnv) (S : SpecMap) (d : Typed.ValDecl Untyped.Expr) (γ : Runtime.Subst)
-    (hSwf : S.wfIn Signature.empty) (st : TransState) (ρ : VerifM.Env)
+theorem ValDecl.checkExpr_correct (Θ : TinyML.TypeEnv) (Δ_spec : Signature) (ρ_spec : VerifM.Env)
+    (S : SpecMap) (d : Typed.ValDecl Untyped.Expr) (γ : Runtime.Subst)
+    (hSwf : S.wfIn Δ_spec) (hΔwf : Δ_spec.wf) (hΔvars : Δ_spec.vars = [])
+    (st : TransState) (ρ : VerifM.Env)
+    (hΔspec : Δ_spec.Subset st.decls) (hρspec : VerifM.Env.agreeOn Δ_spec ρ_spec ρ)
     {Q : Unit → TransState → VerifM.Env → Prop}
-    (heval : VerifM.eval (ValDecl.checkExpr Θ S d) st ρ Q) :
-    (□ st.sl ρ ∗ S.satisfiedBy Θ γ ⊢ Φ) →
-    □ st.sl ρ ∗ S.satisfiedBy Θ γ ⊢ wp (d.body.runtime.subst γ) (fun _ => Φ) := by
+    (heval : VerifM.eval (ValDecl.checkExpr Θ Δ_spec S d) st ρ Q) :
+    (□ st.sl ρ ∗ S.satisfiedBy Θ Δ_spec ρ_spec γ ⊢ Φ) →
+    □ st.sl ρ ∗ S.satisfiedBy Θ Δ_spec ρ_spec γ ⊢ wp (d.body.runtime.subst γ) (fun _ => Φ) := by
   intro Hent
   simp only [ValDecl.checkExpr] at heval
   have ⟨hinner, _⟩ := VerifM.eval_seq heval
   have hcompile := VerifM.eval_bind _ _ _ _ hinner
   have hcomp :=
-    compile_correct d.body Θ iprop(□ st.sl ρ ∗ Φ) S [] TinyML.TyCtx.empty st ρ γ
+    compile_correct d.body Θ iprop(□ st.sl ρ ∗ Φ) S [] TinyML.TyCtx.empty st ρ γ Δ_spec ρ_spec
     (fun x st' ρ' => VerifM.eval (pure ()) st' ρ' (fun _ _ _ => True))
     (fun _ => Φ)
     hcompile
     (fun _ _ h => by simp at h)
     (fun _ h => by simp at h)
-    hSwf
+    hSwf hΔwf hΔvars
+    hΔspec
+    hρspec
     (fun _ _ _ _ _ _ _ => by
       istart
       iintro ⟨_, _, Hctx⟩
@@ -153,12 +164,15 @@ theorem ValDecl.checkExpr_correct (Θ : TinyML.TypeEnv) (S : SpecMap) (d : Typed
           · iexact Hsl
           · iexact Hspec
 
-theorem ValDecl.check_correct (Θ : TinyML.TypeEnv) (S : SpecMap) (d : Typed.ValDecl Untyped.Expr) (γ : Runtime.Subst)
-    (hSwf : S.wfIn Signature.empty) (st : TransState) (ρ : VerifM.Env)
+theorem ValDecl.check_correct (Θ : TinyML.TypeEnv) (Δ_spec : Signature) (ρ_spec : VerifM.Env)
+    (S : SpecMap) (d : Typed.ValDecl Untyped.Expr) (γ : Runtime.Subst)
+    (hSwf : S.wfIn Δ_spec) (hΔwf : Δ_spec.wf) (hΔvars : Δ_spec.vars = [])
+    (st : TransState) (ρ : VerifM.Env)
+    (hΔspec : Δ_spec.Subset st.decls) (hρspec : VerifM.Env.agreeOn Δ_spec ρ_spec ρ)
     {Q : Spec → TransState → VerifM.Env → Prop}
-    (heval : VerifM.eval (ValDecl.check Θ S d) st ρ Q) :
-    ∃ spec, spec.wfIn Signature.empty ∧
-            (□ st.sl ρ ∗ S.satisfiedBy Θ γ ⊢ wp (d.body.runtime.subst γ) (fun v => spec.isPrecondFor Θ v)) ∧
+    (heval : VerifM.eval (ValDecl.check Θ Δ_spec S d) st ρ Q) :
+    ∃ spec, spec.wfIn Δ_spec ∧
+            (□ st.sl ρ ∗ S.satisfiedBy Θ Δ_spec ρ_spec γ ⊢ wp (d.body.runtime.subst γ) (fun v => spec.isPrecondFor Θ Δ_spec ρ_spec v)) ∧
             Q spec st ρ := by
   simp only [ValDecl.check] at heval
   cases hspec : d.spec with
@@ -182,19 +196,20 @@ theorem ValDecl.check_correct (Θ : TinyML.TypeEnv) (S : SpecMap) (d : Typed.Val
       | ok spec =>
         simp only [hcomplete] at h2
         have h3 := VerifM.eval_ret (VerifM.eval_bind _ _ _ _ h2)
-        cases hwf : Spec.checkWf spec Signature.empty with
+        cases hwf : Spec.checkWf spec Δ_spec with
         | error msg =>
           simp only [hwf] at h3
           exact (VerifM.eval_fatal (VerifM.eval_bind _ _ _ _ h3)).elim
         | ok u =>
           simp only [hwf] at h3
           have h4 := VerifM.eval_ret (VerifM.eval_bind _ _ _ _ h3)
-          have hswf : spec.wfIn Signature.empty := Spec.checkWf_ok (by cases u; exact hwf)
+          have hswf : spec.wfIn Δ_spec := Spec.checkWf_ok (by cases u; exact hwf)
           have ⟨hcheckSpec, hpure⟩ := VerifM.eval_seq h4
           exact ⟨spec, hswf,
             by
               have hcheck :=
-                checkSpec_correct Θ S d.body spec γ hswf hSwf st ρ hcheckSpec
+                checkSpec_correct Θ S d.body spec γ Δ_spec ρ_spec
+                  hswf hSwf hΔwf hΔvars st ρ hΔspec hρspec hcheckSpec
               refine BIBase.Entails.trans ?_ hcheck
               istart
               iintro ⟨□Hsl, □Hspec⟩
@@ -203,10 +218,13 @@ theorem ValDecl.check_correct (Θ : TinyML.TypeEnv) (S : SpecMap) (d : Typed.Val
               · iexact Hspec,
                  VerifM.eval_ret hpure⟩
 
-theorem Program.check_correct (Θ : TinyML.TypeEnv) (S : SpecMap) (prog : Typed.Program Untyped.Expr) (γ : Runtime.Subst)
-    (hSwf : S.wfIn Signature.empty) (st : TransState) (ρ : VerifM.Env) :
-    VerifM.eval (Program.check Θ S prog) st ρ (fun _ _ _ => True) →
-    □ st.sl ρ ∗ S.satisfiedBy Θ γ ⊢ pwp ((Typed.Program.runtime prog).subst γ) := by
+theorem Program.check_correct (Θ : TinyML.TypeEnv) (Δ_spec : Signature) (ρ_spec : VerifM.Env)
+    (S : SpecMap) (prog : Typed.Program Untyped.Expr) (γ : Runtime.Subst)
+    (hSwf : S.wfIn Δ_spec) (hΔwf : Δ_spec.wf) (hΔvars : Δ_spec.vars = [])
+    (st : TransState) (ρ : VerifM.Env)
+    (hΔspec : Δ_spec.Subset st.decls) (hρspec : VerifM.Env.agreeOn Δ_spec ρ_spec ρ) :
+    VerifM.eval (Program.check Θ Δ_spec S prog) st ρ (fun _ _ _ => True) →
+    □ st.sl ρ ∗ S.satisfiedBy Θ Δ_spec ρ_spec γ ⊢ pwp ((Typed.Program.runtime prog).subst γ) := by
   induction prog generalizing S γ st ρ with
   | nil =>
     intro _
@@ -234,16 +252,16 @@ theorem Program.check_correct (Θ : TinyML.TypeEnv) (S : SpecMap) (prog : Typed.
         simp only [hname, hspec] at heval
         have hbind := VerifM.eval_bind _ _ _ _ heval
         have ⟨_, hcont⟩ := VerifM.eval_seq hbind
-        have hih := ih S γ hSwf st ρ (VerifM.eval_ret hcont)
-        have hwp := ValDecl.checkExpr_correct Θ S d γ hSwf st ρ hbind hih
+        have hih := ih S γ hSwf st ρ hΔspec hρspec (VerifM.eval_ret hcont)
+        have hwp := ValDecl.checkExpr_correct Θ Δ_spec ρ_spec S d γ hSwf hΔwf hΔvars st ρ hΔspec hρspec hbind hih
         refine hwp.trans (wp.mono ?_)
         intro v; rw [hupd v]; exact .rfl
       | some _ =>
         -- unnamed, with spec
         simp only [hname, hspec] at heval
         obtain ⟨spec, _, hwp, hcont⟩ :=
-          ValDecl.check_correct Θ S d γ hSwf st ρ (VerifM.eval_bind _ _ _ _ heval)
-        have hih := ih S γ hSwf st ρ hcont
+          ValDecl.check_correct Θ Δ_spec ρ_spec S d γ hSwf hΔwf hΔvars st ρ hΔspec hρspec (VerifM.eval_bind _ _ _ _ heval)
+        have hih := ih S γ hSwf st ρ hΔspec hρspec hcont
         refine SpatialContext.wp_strengthen_persistent hwp ?_
         intro v
         rw [hupd v]
@@ -274,10 +292,10 @@ theorem Program.check_correct (Θ : TinyML.TypeEnv) (S : SpecMap) (prog : Typed.
               (args.map (·.runtime))))
           apply SpatialContext.wp_func
           rw [hupd fval]
-          have heval' : VerifM.eval (Program.check Θ (S.erase n) ds) st ρ (fun _ _ _ => True) := by
+          have heval' : VerifM.eval (Program.check Θ Δ_spec (S.erase n) ds) st ρ (fun _ _ _ => True) := by
             convert heval
           have hih := ih (S.erase n) (γ.update n fval)
-            (SpecMap.wfIn_erase hSwf) st ρ heval'
+            (SpecMap.wfIn_erase hSwf) st ρ hΔspec hρspec heval'
           refine BIBase.Entails.trans ?_ hih
           istart
           iintro ⟨□Hsl, □Hspec⟩
@@ -288,14 +306,14 @@ theorem Program.check_correct (Θ : TinyML.TypeEnv) (S : SpecMap) (prog : Typed.
         · -- named, no spec, not a function
           have hbind := VerifM.eval_bind _ _ _ _ heval
           have ⟨_, hcont⟩ := VerifM.eval_seq hbind
-          have hcont' : VerifM.eval (Program.check Θ (S.erase n) ds) st ρ (fun _ _ _ => True) :=
+          have hcont' : VerifM.eval (Program.check Θ Δ_spec (S.erase n) ds) st ρ (fun _ _ _ => True) :=
             VerifM.eval_ret hcont
-          have hwp := ValDecl.checkExpr_correct Θ S d γ hSwf st ρ hbind
+          have hwp := ValDecl.checkExpr_correct Θ Δ_spec ρ_spec S d γ hSwf hΔwf hΔvars st ρ hΔspec hρspec hbind
             (Φ := iprop(emp)) (by istart; iintro _; iemp_intro)
           refine SpatialContext.wp_strengthen_persistent hwp ?_
           intro v
           rw [hupd v]
-          have hih := ih (S.erase n) (γ.update n v) (SpecMap.wfIn_erase hSwf) st ρ hcont'
+          have hih := ih (S.erase n) (γ.update n v) (SpecMap.wfIn_erase hSwf) st ρ hΔspec hρspec hcont'
           exact wand_intro (sep_elim_l.trans <| by
             refine BIBase.Entails.trans ?_ hih
             istart
@@ -307,15 +325,15 @@ theorem Program.check_correct (Θ : TinyML.TypeEnv) (S : SpecMap) (prog : Typed.
       | some _ =>
         simp only [hname, hspec] at heval
         obtain ⟨spec, hswf, hwp, hcont⟩ :=
-          ValDecl.check_correct Θ S d γ hSwf st ρ (VerifM.eval_bind _ _ _ _ heval)
-        have hcont' : VerifM.eval (Program.check Θ (S.insert n spec) ds) st ρ (fun _ _ _ => True) := by
+          ValDecl.check_correct Θ Δ_spec ρ_spec S d γ hSwf hΔwf hΔvars st ρ hΔspec hρspec (VerifM.eval_bind _ _ _ _ heval)
+        have hcont' : VerifM.eval (Program.check Θ Δ_spec (S.insert n spec) ds) st ρ (fun _ _ _ => True) := by
           convert hcont
         refine SpatialContext.wp_strengthen_persistent hwp ?_
         intro v
         rw [hupd v]
         have hih := ih (S.insert n spec) (γ.update n v)
-          (SpecMap.wfIn_insert hSwf hswf) st ρ hcont'
-        have hstep : (□ st.sl ρ ∗ S.satisfiedBy Θ γ) ∗ spec.isPrecondFor Θ v ⊢
+          (SpecMap.wfIn_insert hSwf hswf) st ρ hΔspec hρspec hcont'
+        have hstep : (□ st.sl ρ ∗ S.satisfiedBy Θ Δ_spec ρ_spec γ) ∗ spec.isPrecondFor Θ Δ_spec ρ_spec v ⊢
             pwp ((Typed.Program.runtime ds).subst (γ.update n v)) := by
           refine BIBase.Entails.trans ?_ hih
           istart
@@ -348,14 +366,24 @@ theorem Program.verify_correct (p : Untyped.Program Untyped.Expr) :
     have hverifM := VerifM.eval_of_translate
                       (do
                         let (Θ, typed) ← Program.prepare p
-                        Program.check Θ ∅ typed)
+                        Program.check Θ Δ_spec ∅ typed)
                       TransState.empty VerifM.Env.empty ctx_mid hverif hholdsFor hwf
     have hbind := VerifM.eval_bind _ _ _ _ hverifM
     obtain ⟨Θ, typed, hrt, hcheck⟩ := Program.prepare_correct p TransState.empty VerifM.Env.empty hbind
-    have hcorrect := Program.check_correct Θ ∅ typed Runtime.Subst.id
-                       (SpecMap.empty_wfIn _) TransState.empty VerifM.Env.empty hcheck
+    have hcorrect := Program.check_correct Θ Δ_spec ρ_spec ∅ typed Runtime.Subst.id
+                       (SpecMap.empty_wfIn _)
+                       (by simp [Δ_spec, Signature.wf_empty])
+                       (by simp [Δ_spec, Signature.empty])
+                       TransState.empty VerifM.Env.empty
+                       (by
+                         constructor <;> intro x hx <;> simp [Δ_spec] at hx)
+                       (by
+                         change VerifM.Env.agreeOn Signature.empty VerifM.Env.empty VerifM.Env.empty
+                         exact ⟨nofun, nofun, nofun, nofun, nofun, nofun⟩)
+                       hcheck
     rw [Runtime.Program.subst_id] at hcorrect
-    have hctx : (⊢ □ TransState.empty.sl VerifM.Env.empty ∗ SpecMap.satisfiedBy Θ (∅ : SpecMap) Runtime.Subst.id) := by
+    have hctx : (⊢ □ TransState.empty.sl VerifM.Env.empty ∗
+        SpecMap.satisfiedBy Θ Δ_spec ρ_spec (∅ : SpecMap) Runtime.Subst.id) := by
       istart
       isplitl []
       · simp [TransState.sl, TransState.empty]
