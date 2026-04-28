@@ -246,15 +246,6 @@ theorem FiniteSubst.subst_wfIn_formula_range {σ : FiniteSubst} {φ : Formula}
   exact Formula.subst_wfIn hφ hsubst
     (Signature.SymbolSubset.trans declVars_symbolSubset hbase) hrangewf
 
-theorem FiniteSubst.subst_wfIn_formula {σ : FiniteSubst} {φ : Formula}
-    {Δ_base Δ_use : Signature}
-    (hσ : σ.wfIn Δ_base Δ_use)
-    (hφ : φ.wfIn (Δ_base.declVars σ.dom)) :
-    (φ.subst σ.subst σ.range.allNames).wfIn Δ_use := by
-  have hrange := FiniteSubst.subst_wfIn_formula_range hσ hφ
-  rcases hσ with ⟨_hsubst, _hbase, huse, _hsrcwf, _hrangewf, husewf, _hbasevars⟩
-  exact Formula.wfIn_mono _ hrange huse husewf
-
 theorem FiniteSubst.subst_wfIn_term_range {σ : FiniteSubst} {t : Term τ}
     {Δ_base Δ_use : Signature}
     (hσ : σ.wfIn Δ_base Δ_use)
@@ -432,40 +423,6 @@ theorem FiniteSubst.rename_agreeOn {σ : FiniteSubst} {Δ_base Δ_use : Signatur
             · intro binaryRel hbinaryRel
               simp [Subst.eval, Env.updateConst]
   exact Env.agreeOn_mono (FiniteSubst.rename_source_subset_rev σ Δ_base v name') hlarge
-
-theorem FiniteSubst.id_wf {Δ_use : Signature}
-    (husewf : Δ_use.wf) :
-    FiniteSubst.id.wfIn Signature.empty Δ_use := by
-  refine ⟨?_, ?_, ?_, ?_, Signature.wf_empty, husewf, rfl⟩
-  · apply Subst.id_wfIn
-    · intro x hx
-      cases hx
-    · exact Signature.wf_empty
-  · constructor
-    · intro c hc
-      cases hc
-    · intro u hu
-      cases hu
-    · intro b hb
-      cases hb
-    · intro u hu
-      cases hu
-    · intro b hb
-      cases hb
-  · constructor
-    · intro x hx
-      cases hx
-    · intro c hc
-      cases hc
-    · intro u hu
-      cases hu
-    · intro b hb
-      cases hb
-    · intro u hu
-      cases hu
-    · intro b hb
-      cases hb
-  · simp [FiniteSubst.id, Signature.empty, Signature.declVars, Signature.wf, Signature.allNames]
 
 theorem FiniteSubst.base_wfIn {Δ_base Δ_use : Signature}
     (hbase : Δ_base.Subset Δ_use) (hbasewf : Δ_base.wf) (husewf : Δ_use.wf)
