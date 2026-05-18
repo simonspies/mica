@@ -39,6 +39,34 @@ def Env.updateConst (ρ : Env) (t : Srt) (x : String) (u : t.denote) : Env :=
 @[simp] theorem Env.updateConst_env (ρ : Env) (t : Srt) (x : String) (u : t.denote) :
     (ρ.updateConst t x u).env = ρ.env.updateConst t x u := rfl
 
+def Env.updateUnary (ρ : Env) (τ₁ τ₂ : Srt) (x : String) (f : τ₁.denote → τ₂.denote) : Env :=
+  { ρ with env := _root_.Env.updateUnary ρ.env τ₁ τ₂ x f }
+
+@[simp] theorem Env.updateUnary_env (ρ : Env) (τ₁ τ₂ : Srt) (x : String) (f : τ₁.denote → τ₂.denote) :
+    (ρ.updateUnary τ₁ τ₂ x f).env = ρ.env.updateUnary τ₁ τ₂ x f := rfl
+
+def Env.updateBinary (ρ : Env) (τ₁ τ₂ τ₃ : Srt) (x : String)
+    (f : τ₁.denote → τ₂.denote → τ₃.denote) : Env :=
+  { ρ with env := _root_.Env.updateBinary ρ.env τ₁ τ₂ τ₃ x f }
+
+@[simp] theorem Env.updateBinary_env (ρ : Env) (τ₁ τ₂ τ₃ : Srt) (x : String)
+    (f : τ₁.denote → τ₂.denote → τ₃.denote) :
+    (ρ.updateBinary τ₁ τ₂ τ₃ x f).env = ρ.env.updateBinary τ₁ τ₂ τ₃ x f := rfl
+
+def Env.updateUnaryRel (ρ : Env) (τ : Srt) (x : String) (f : τ.denote → Prop) : Env :=
+  { ρ with env := _root_.Env.updateUnaryRel ρ.env τ x f }
+
+@[simp] theorem Env.updateUnaryRel_env (ρ : Env) (τ : Srt) (x : String) (f : τ.denote → Prop) :
+    (ρ.updateUnaryRel τ x f).env = ρ.env.updateUnaryRel τ x f := rfl
+
+def Env.updateBinaryRel (ρ : Env) (τ₁ τ₂ : Srt) (x : String)
+    (f : τ₁.denote → τ₂.denote → Prop) : Env :=
+  { ρ with env := _root_.Env.updateBinaryRel ρ.env τ₁ τ₂ x f }
+
+@[simp] theorem Env.updateBinaryRel_env (ρ : Env) (τ₁ τ₂ : Srt) (x : String)
+    (f : τ₁.denote → τ₂.denote → Prop) :
+    (ρ.updateBinaryRel τ₁ τ₂ x f).env = ρ.env.updateBinaryRel τ₁ τ₂ x f := rfl
+
 def Env.withEnv (ρ : Env) (env' : _root_.Env) : Env :=
   { ρ with env := env' }
 
@@ -76,6 +104,34 @@ theorem Env.agreeOn_update_fresh {ρ : Env} {c : FOL.Const} {u : c.sort.denote}
     Env.agreeOn Δ ρ (ρ.updateConst c.sort c.name u) := by
   simpa [Env.agreeOn, Env.updateConst] using
     (Env.agreeOn_update_fresh_const (ρ := ρ.env) (c := c) (u := u) (Δ := Δ) hfresh)
+
+theorem Env.agreeOn_update_fresh_unary {ρ : Env} {u : FOL.Unary}
+    {f : u.arg.denote → u.ret.denote}
+    {Δ : Signature} (hfresh : u.name ∉ Δ.allNames) :
+    Env.agreeOn Δ ρ (ρ.updateUnary u.arg u.ret u.name f) := by
+  simpa [Env.agreeOn, Env.updateUnary] using
+    (_root_.Env.agreeOn_update_fresh_unary (ρ := ρ.env) (u := u) (f := f) (Δ := Δ) hfresh)
+
+theorem Env.agreeOn_update_fresh_binary {ρ : Env} {b : FOL.Binary}
+    {f : b.arg1.denote → b.arg2.denote → b.ret.denote}
+    {Δ : Signature} (hfresh : b.name ∉ Δ.allNames) :
+    Env.agreeOn Δ ρ (ρ.updateBinary b.arg1 b.arg2 b.ret b.name f) := by
+  simpa [Env.agreeOn, Env.updateBinary] using
+    (_root_.Env.agreeOn_update_fresh_binary (ρ := ρ.env) (b := b) (f := f) (Δ := Δ) hfresh)
+
+theorem Env.agreeOn_update_fresh_unaryRel {ρ : Env} {u : FOL.UnaryRel}
+    {f : u.arg.denote → Prop}
+    {Δ : Signature} (hfresh : u.name ∉ Δ.allNames) :
+    Env.agreeOn Δ ρ (ρ.updateUnaryRel u.arg u.name f) := by
+  simpa [Env.agreeOn, Env.updateUnaryRel] using
+    (_root_.Env.agreeOn_update_fresh_unaryRel (ρ := ρ.env) (u := u) (f := f) (Δ := Δ) hfresh)
+
+theorem Env.agreeOn_update_fresh_binaryRel {ρ : Env} {b : FOL.BinaryRel}
+    {f : b.arg1.denote → b.arg2.denote → Prop}
+    {Δ : Signature} (hfresh : b.name ∉ Δ.allNames) :
+    Env.agreeOn Δ ρ (ρ.updateBinaryRel b.arg1 b.arg2 b.name f) := by
+  simpa [Env.agreeOn, Env.updateBinaryRel] using
+    (_root_.Env.agreeOn_update_fresh_binaryRel (ρ := ρ.env) (b := b) (f := f) (Δ := Δ) hfresh)
 
 end VerifM
 
@@ -126,6 +182,26 @@ def TransState.toFlatCtx (st : TransState) : FlatCtx :=
     { st with decls := st.decls.addConst c }.toFlatCtx = st.toFlatCtx.addConst c.name c.sort := by
   simp [toFlatCtx, FlatCtx.addConst]
 
+@[simp] theorem TransState.toFlatCtx_addUnary (st : TransState) (u : FOL.Unary) :
+    { st with decls := st.decls.addUnary u }.toFlatCtx =
+      st.toFlatCtx.addUnary u.name u.arg u.ret := by
+  simp [toFlatCtx, FlatCtx.addUnary]
+
+@[simp] theorem TransState.toFlatCtx_addBinary (st : TransState) (b : FOL.Binary) :
+    { st with decls := st.decls.addBinary b }.toFlatCtx =
+      st.toFlatCtx.addBinary b.name b.arg1 b.arg2 b.ret := by
+  simp [toFlatCtx, FlatCtx.addBinary]
+
+@[simp] theorem TransState.toFlatCtx_addUnaryRel (st : TransState) (u : FOL.UnaryRel) :
+    { st with decls := st.decls.addUnaryRel u }.toFlatCtx =
+      st.toFlatCtx.addUnaryRel u.name u.arg := by
+  simp [toFlatCtx, FlatCtx.addUnaryRel]
+
+@[simp] theorem TransState.toFlatCtx_addBinaryRel (st : TransState) (b : FOL.BinaryRel) :
+    { st with decls := st.decls.addBinaryRel b }.toFlatCtx =
+      st.toFlatCtx.addBinaryRel b.name b.arg1 b.arg2 := by
+  simp [toFlatCtx, FlatCtx.addBinaryRel]
+
 @[simp] theorem TransState.toFlatCtx_addAssert (st : TransState) (φ : Formula) :
     { st with asserts := φ :: st.asserts }.toFlatCtx = st.toFlatCtx.addAssert φ := by
   simp [toFlatCtx, FlatCtx.addAssert]
@@ -166,6 +242,50 @@ theorem TransState.freshConst.wf {hint t} (st : TransState) :
   · exact Context.wfIn_mono _ hwf.assertsWf (Signature.Subset.subset_addConst _ _) hwf'
   · exact Signature.nodup_allNames_addConst hwf.namesDisjoint hfresh
   · exact SpatialContext.wfIn_mono hwf.ownsWf (Signature.Subset.subset_addConst _ _) hwf'
+
+theorem TransState.addUnary.wf (st : TransState) (u : FOL.Unary) :
+    TransState.wf st →
+    u.name ∉ st.decls.allNames →
+    TransState.wf { st with decls := st.decls.addUnary u } := by
+  intro hwf hfresh
+  have hwf' := Signature.wf_addUnary hwf.namesDisjoint hfresh
+  constructor
+  · exact Context.wfIn_mono _ hwf.assertsWf (Signature.Subset.subset_addUnary _ _) hwf'
+  · exact hwf'
+  · exact SpatialContext.wfIn_mono hwf.ownsWf (Signature.Subset.subset_addUnary _ _) hwf'
+
+theorem TransState.addBinary.wf (st : TransState) (b : FOL.Binary) :
+    TransState.wf st →
+    b.name ∉ st.decls.allNames →
+    TransState.wf { st with decls := st.decls.addBinary b } := by
+  intro hwf hfresh
+  have hwf' := Signature.wf_addBinary hwf.namesDisjoint hfresh
+  constructor
+  · exact Context.wfIn_mono _ hwf.assertsWf (Signature.Subset.subset_addBinary _ _) hwf'
+  · exact hwf'
+  · exact SpatialContext.wfIn_mono hwf.ownsWf (Signature.Subset.subset_addBinary _ _) hwf'
+
+theorem TransState.addUnaryRel.wf (st : TransState) (u : FOL.UnaryRel) :
+    TransState.wf st →
+    u.name ∉ st.decls.allNames →
+    TransState.wf { st with decls := st.decls.addUnaryRel u } := by
+  intro hwf hfresh
+  have hwf' := Signature.wf_addUnaryRel hwf.namesDisjoint hfresh
+  constructor
+  · exact Context.wfIn_mono _ hwf.assertsWf (Signature.Subset.subset_addUnaryRel _ _) hwf'
+  · exact hwf'
+  · exact SpatialContext.wfIn_mono hwf.ownsWf (Signature.Subset.subset_addUnaryRel _ _) hwf'
+
+theorem TransState.addBinaryRel.wf (st : TransState) (b : FOL.BinaryRel) :
+    TransState.wf st →
+    b.name ∉ st.decls.allNames →
+    TransState.wf { st with decls := st.decls.addBinaryRel b } := by
+  intro hwf hfresh
+  have hwf' := Signature.wf_addBinaryRel hwf.namesDisjoint hfresh
+  constructor
+  · exact Context.wfIn_mono _ hwf.assertsWf (Signature.Subset.subset_addBinaryRel _ _) hwf'
+  · exact hwf'
+  · exact SpatialContext.wfIn_mono hwf.ownsWf (Signature.Subset.subset_addBinaryRel _ _) hwf'
 
 /-- The name produced by `freshConst` is not in the existing decls. -/
 theorem TransState.freshConst_fresh (st : TransState) (hint : Option String) (τ : Srt) :

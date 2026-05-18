@@ -14,6 +14,8 @@ inductive ScopedM : Type → Type 1 where
   | declareConst : String → Srt → (Unit → ScopedM α) → ScopedM α
   | declareUnary : String → Srt → Srt → (Unit → ScopedM α) → ScopedM α
   | declareBinary : String → Srt → Srt → Srt → (Unit → ScopedM α) → ScopedM α
+  | declareUnaryRel : String → Srt → (Unit → ScopedM α) → ScopedM α
+  | declareBinaryRel : String → Srt → Srt → (Unit → ScopedM α) → ScopedM α
   | assert : Formula → (Unit → ScopedM α) → ScopedM α
   | checkSat : (Result → ScopedM α) → ScopedM α
   | bracket : ScopedM β → (β → ScopedM α) → ScopedM α
@@ -25,6 +27,8 @@ def ScopedM.translate : ScopedM α → Strategy α
   | .declareConst n s k => .exec (.declareConst n s) (fun r => translate (k r))
   | .declareUnary n a r k => .exec (.declareUnary n a r) (fun resp => translate (k resp))
   | .declareBinary n a1 a2 r k => .exec (.declareBinary n a1 a2 r) (fun resp => translate (k resp))
+  | .declareUnaryRel n a k => .exec (.declareUnaryRel n a) (fun resp => translate (k resp))
+  | .declareBinaryRel n a1 a2 k => .exec (.declareBinaryRel n a1 a2) (fun resp => translate (k resp))
   | .assert e k => .exec (.assert e) (fun r => translate (k r))
   | .checkSat k => .exec .checkSat (fun r => translate (k r))
   | .bracket body k =>
@@ -53,6 +57,12 @@ def addUnary (ctx : FlatCtx) (n : String) (arg ret : Srt) : FlatCtx :=
 
 def addBinary (ctx : FlatCtx) (n : String) (arg1 arg2 ret : Srt) : FlatCtx :=
   ⟨ctx.decls.addBinary ⟨n, arg1, arg2, ret⟩, ctx.asserts⟩
+
+def addUnaryRel (ctx : FlatCtx) (n : String) (arg : Srt) : FlatCtx :=
+  ⟨ctx.decls.addUnaryRel ⟨n, arg⟩, ctx.asserts⟩
+
+def addBinaryRel (ctx : FlatCtx) (n : String) (arg1 arg2 : Srt) : FlatCtx :=
+  ⟨ctx.decls.addBinaryRel ⟨n, arg1, arg2⟩, ctx.asserts⟩
 
 def addAssert (ctx : FlatCtx) (φ : Formula) : FlatCtx :=
   ⟨ctx.decls, φ :: ctx.asserts⟩
@@ -99,6 +109,30 @@ theorem flatten_addBinary (s : State) (b : FOL.Binary) :
     | mk decls asserts =>
       cases decls
       simp [Signature.addBinary, List.flatMap, List.cons_append]
+
+theorem flatten_addUnaryRel (s : State) (u : FOL.UnaryRel) :
+    (s.addUnaryRel u).flatten = s.flatten.addUnaryRel u.name u.arg := by
+  simp only [State.flatten, State.allDecls, State.allAsserts,
+             State.modifyDecls, State.addUnaryRel, FlatCtx.addUnaryRel]
+  cases s.frames with
+  | nil => simp [Signature.addUnaryRel]
+  | cons hd tl =>
+    cases hd with
+    | mk decls asserts =>
+      cases decls
+      simp [Signature.addUnaryRel, List.flatMap, List.cons_append]
+
+theorem flatten_addBinaryRel (s : State) (b : FOL.BinaryRel) :
+    (s.addBinaryRel b).flatten = s.flatten.addBinaryRel b.name b.arg1 b.arg2 := by
+  simp only [State.flatten, State.allDecls, State.allAsserts,
+             State.modifyDecls, State.addBinaryRel, FlatCtx.addBinaryRel]
+  cases s.frames with
+  | nil => simp [Signature.addBinaryRel]
+  | cons hd tl =>
+    cases hd with
+    | mk decls asserts =>
+      cases decls
+      simp [Signature.addBinaryRel, List.flatMap, List.cons_append]
 
 theorem flatten_addAssert (s : State) (φ : Formula) :
     (s.addAssert φ).flatten = s.flatten.addAssert φ := by
@@ -149,6 +183,22 @@ theorem ScopedM.translate_preservesFrames {m : ScopedM α} {f : Frame} {fs : Lis
       (f := ⟨f.decls.addBinary ⟨n, a1, a2, r⟩, f.asserts⟩) (fs := fs)
     refine ⟨f', (Frame.Extends.addBinary f ⟨n, a1, a2, r⟩).trans hext, ?_⟩
     simp [Trace.finalState, State.step, State.addBinary]; exact hfin
+  | declareUnaryRel n a k ih =>
+    cases hgen; rename_i rest resp hrest
+    cases resp
+    dsimp only at hrest
+    have ⟨f', hext, hfin⟩ := ih () hrest
+      (f := ⟨f.decls.addUnaryRel ⟨n, a⟩, f.asserts⟩) (fs := fs)
+    refine ⟨f', (Frame.Extends.addUnaryRel f ⟨n, a⟩).trans hext, ?_⟩
+    simp [Trace.finalState, State.step, State.addUnaryRel]; exact hfin
+  | declareBinaryRel n a1 a2 k ih =>
+    cases hgen; rename_i rest resp hrest
+    cases resp
+    dsimp only at hrest
+    have ⟨f', hext, hfin⟩ := ih () hrest
+      (f := ⟨f.decls.addBinaryRel ⟨n, a1, a2⟩, f.asserts⟩) (fs := fs)
+    refine ⟨f', (Frame.Extends.addBinaryRel f ⟨n, a1, a2⟩).trans hext, ?_⟩
+    simp [Trace.finalState, State.step, State.addBinaryRel]; exact hfin
   | assert e k ih =>
     cases hgen; rename_i rest resp hrest
     cases resp
@@ -248,6 +298,30 @@ theorem ScopedM.eval_declareBinary {n : String} {arg1 arg2 ret : Srt}
   refine ⟨st.addBinary ⟨n, arg1, arg2, ret⟩, st', ?_, hflat', rest, hrest, hsound, hst', hret⟩
   simp only [State.flatten_addBinary, hflat]
 
+theorem ScopedM.eval_declareUnaryRel {n : String} {arg : Srt}
+    {k : Unit → ScopedM α} {ctx : FlatCtx} {r : α} {ctx' : FlatCtx} :
+    ScopedM.eval (.declareUnaryRel n arg k) ctx r ctx' →
+      ScopedM.eval (k ()) (ctx.addUnaryRel n arg) r ctx' := by
+  simp only [ScopedM.eval, translate, Strategy.eval]
+  rintro ⟨st, st', hflat, hflat', t, hgen, hsound, hst', hret⟩
+  cases hgen; rename_i rest resp hrest
+  cases resp
+  simp only [Trace.finalState, State.step, Trace.result] at hsound hst' hret
+  refine ⟨st.addUnaryRel ⟨n, arg⟩, st', ?_, hflat', rest, hrest, hsound, hst', hret⟩
+  simp only [State.flatten_addUnaryRel, hflat]
+
+theorem ScopedM.eval_declareBinaryRel {n : String} {arg1 arg2 : Srt}
+    {k : Unit → ScopedM α} {ctx : FlatCtx} {r : α} {ctx' : FlatCtx} :
+    ScopedM.eval (.declareBinaryRel n arg1 arg2 k) ctx r ctx' →
+      ScopedM.eval (k ()) (ctx.addBinaryRel n arg1 arg2) r ctx' := by
+  simp only [ScopedM.eval, translate, Strategy.eval]
+  rintro ⟨st, st', hflat, hflat', t, hgen, hsound, hst', hret⟩
+  cases hgen; rename_i rest resp hrest
+  cases resp
+  simp only [Trace.finalState, State.step, Trace.result] at hsound hst' hret
+  refine ⟨st.addBinaryRel ⟨n, arg1, arg2⟩, st', ?_, hflat', rest, hrest, hsound, hst', hret⟩
+  simp only [State.flatten_addBinaryRel, hflat]
+
 theorem ScopedM.eval_assert {e : Formula}
     {k : Unit → ScopedM α} {ctx : FlatCtx} {ret : α} {ctx' : FlatCtx} :
     ScopedM.eval (.assert e k) ctx ret ctx' →
@@ -329,6 +403,8 @@ def ScopedM.bind : ScopedM α → (α → ScopedM β) → ScopedM β
   | .declareConst n s cont, k => .declareConst n s (fun r => (cont r).bind k)
   | .declareUnary n a r cont, k => .declareUnary n a r (fun resp => (cont resp).bind k)
   | .declareBinary n a1 a2 r cont, k => .declareBinary n a1 a2 r (fun resp => (cont resp).bind k)
+  | .declareUnaryRel n a cont, k => .declareUnaryRel n a (fun resp => (cont resp).bind k)
+  | .declareBinaryRel n a1 a2 cont, k => .declareBinaryRel n a1 a2 (fun resp => (cont resp).bind k)
   | .assert e cont, k => .assert e (fun r => (cont r).bind k)
   | .checkSat cont, k => .checkSat (fun r => (cont r).bind k)
   | .bracket body cont, k => .bracket body (fun x => (cont x).bind k)
@@ -342,6 +418,10 @@ theorem ScopedM.translate_bind (m : ScopedM α) (k : α → ScopedM β) :
   | declareUnary n a r cont ih =>
     simp only [ScopedM.bind, translate, Strategy.bind]; congr 1; funext resp; exact ih resp k
   | declareBinary n a1 a2 r cont ih =>
+    simp only [ScopedM.bind, translate, Strategy.bind]; congr 1; funext resp; exact ih resp k
+  | declareUnaryRel n a cont ih =>
+    simp only [ScopedM.bind, translate, Strategy.bind]; congr 1; funext resp; exact ih resp k
+  | declareBinaryRel n a1 a2 cont ih =>
     simp only [ScopedM.bind, translate, Strategy.bind]; congr 1; funext resp; exact ih resp k
   | assert e cont ih =>
     simp only [ScopedM.bind, translate, Strategy.bind]; congr 1; funext r; exact ih r k
@@ -404,6 +484,16 @@ theorem ScopedM.eval_extends {α} s Δ (r : α) Δ' :
     have h' := ScopedM.eval_declareBinary h
     have ⟨hdecls, hasserts⟩ := ih () (Δ.addBinary n arg1 arg2 ret) r Δ' h'
     exact ⟨(Signature.Subset.subset_addBinary _ _).trans hdecls, hasserts⟩
+  | declareUnaryRel n arg k ih =>
+    intro h
+    have h' := ScopedM.eval_declareUnaryRel h
+    have ⟨hdecls, hasserts⟩ := ih () (Δ.addUnaryRel n arg) r Δ' h'
+    exact ⟨(Signature.Subset.subset_addUnaryRel _ _).trans hdecls, hasserts⟩
+  | declareBinaryRel n arg1 arg2 k ih =>
+    intro h
+    have h' := ScopedM.eval_declareBinaryRel h
+    have ⟨hdecls, hasserts⟩ := ih () (Δ.addBinaryRel n arg1 arg2) r Δ' h'
+    exact ⟨(Signature.Subset.subset_addBinaryRel _ _).trans hdecls, hasserts⟩
   | assert φ k ih =>
     intro h
     have h := ScopedM.eval_assert h
