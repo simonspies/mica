@@ -42,6 +42,8 @@ def isSound : State → Trace α → Prop
   | s, .step (.declareConst n sort) () rest => isSound (s.addConst ⟨n, sort⟩) rest
   | s, .step (.declareUnary n arg ret) () rest => isSound (s.addUnary ⟨n, arg, ret⟩) rest
   | s, .step (.declareBinary n arg1 arg2 ret) () rest => isSound (s.addBinary ⟨n, arg1, arg2, ret⟩) rest
+  | s, .step (.declareUnaryRel n arg) () rest => isSound (s.addUnaryRel ⟨n, arg⟩) rest
+  | s, .step (.declareBinaryRel n arg1 arg2) () rest => isSound (s.addBinaryRel ⟨n, arg1, arg2⟩) rest
   | s, .step (.assert e) () rest => isSound (s.addAssert e) rest
   | s, .step .checkSat .unsat rest =>
       ¬ State.satisfiable s.allDecls s.allAsserts ∧ isSound s rest
@@ -58,6 +60,8 @@ theorem isSound.step_rest {cmd : Command β} {r : β} {rest : Trace α} {st : St
   | declareConst n sort => cases r; exact h
   | declareUnary n arg ret => cases r; exact h
   | declareBinary n arg1 arg2 ret => cases r; exact h
+  | declareUnaryRel n arg => cases r; exact h
+  | declareBinaryRel n arg1 arg2 => cases r; exact h
   | assert e => cases r; exact h
   | checkSat => cases r with | sat => exact h | unsat => exact h.2 | unknown => exact h
 
@@ -74,6 +78,8 @@ theorem isSound.step_cons {cmd : Command β} {r : β} {rest : Trace α} {st : St
   | declareConst n sort => cases r; exact hrest
   | declareUnary n arg ret => cases r; exact hrest
   | declareBinary n arg1 arg2 ret => cases r; exact hrest
+  | declareUnaryRel n arg => cases r; exact hrest
+  | declareBinaryRel n arg1 arg2 => cases r; exact hrest
   | assert e => cases r; exact hrest
   | checkSat => cases r with | sat => exact hrest | unsat => exact ⟨hstep, hrest⟩ | unknown => exact hrest
 

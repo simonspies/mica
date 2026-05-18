@@ -6,6 +6,7 @@ import Mica.Engine.State
 An SMT command, indexed by its response type -- Unit for no meaningful response
 - push, pop, assert: Unit
 - declareConst, declareUnary, declareBinary : Unit
+- declareUnaryRel, declareBinaryRel : Unit
 - checkSat: returns sat/unsat/unknown — Smt.Result -/
 
 namespace Smt
@@ -16,6 +17,8 @@ inductive Command : Type → Type where
   | declareConst (name : String) (sort : Srt) : Command Unit
   | declareUnary (name : String) (arg ret : Srt) : Command Unit
   | declareBinary (name : String) (arg1 arg2 ret : Srt) : Command Unit
+  | declareUnaryRel (name : String) (arg : Srt) : Command Unit
+  | declareBinaryRel (name : String) (arg1 arg2 : Srt) : Command Unit
   | assert (expr : Formula) : Command Unit
   | checkSat : Command Result
 
@@ -30,6 +33,8 @@ def toSMTLIB : Command α → String
   | .declareConst n s => s!"(declare-const {n} {s.toSMTLIB})"
   | .declareUnary n a r => s!"(declare-fun {n} ({a.toSMTLIB}) {r.toSMTLIB})"
   | .declareBinary n a1 a2 r => s!"(declare-fun {n} ({a1.toSMTLIB} {a2.toSMTLIB}) {r.toSMTLIB})"
+  | .declareUnaryRel n a => s!"(declare-fun {n} ({a.toSMTLIB}) Bool)"
+  | .declareBinaryRel n a1 a2 => s!"(declare-fun {n} ({a1.toSMTLIB} {a2.toSMTLIB}) Bool)"
   | .assert e => s!"(assert {e.toSMTLIB})"
   | .checkSat => "(check-sat)"
 
@@ -40,6 +45,8 @@ def parse : (cmd : Command α) → String → Option α
   | .declareConst _ _, s => if s == "success" then some () else none
   | .declareUnary _ _ _, s => if s == "success" then some () else none
   | .declareBinary _ _ _ _, s => if s == "success" then some () else none
+  | .declareUnaryRel _ _, s => if s == "success" then some () else none
+  | .declareBinaryRel _ _ _, s => if s == "success" then some () else none
   | .assert _, s => if s == "success" then some () else none
   | .checkSat, s =>
     if s == "sat" then some .sat
@@ -60,6 +67,8 @@ def step : Command β → β → State → State
   | .declareConst n sort, (), s => s.addConst ⟨n, sort⟩
   | .declareUnary n arg ret, (), s => s.addUnary ⟨n, arg, ret⟩
   | .declareBinary n arg1 arg2 ret, (), s => s.addBinary ⟨n, arg1, arg2, ret⟩
+  | .declareUnaryRel n arg, (), s => Smt.State.addUnaryRel s ⟨n, arg⟩
+  | .declareBinaryRel n arg1 arg2, (), s => Smt.State.addBinaryRel s ⟨n, arg1, arg2⟩
   | .assert e, (), s => s.addAssert e
   | .checkSat, _, s => s
 

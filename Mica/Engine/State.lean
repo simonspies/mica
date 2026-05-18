@@ -20,41 +20,53 @@ structure State where
 /-! ## Frame Extension -/
 
 def Frame.Extends (f f' : Frame) : Prop :=
-  ∃ vs cs us bs as,
+  ∃ vs cs us bs urs brs as,
     f'.decls.vars   = vs ++ f.decls.vars ∧
     f'.decls.consts = cs ++ f.decls.consts ∧
     f'.decls.unary  = us ++ f.decls.unary ∧
     f'.decls.binary = bs ++ f.decls.binary ∧
+    f'.decls.unaryRel = urs ++ f.decls.unaryRel ∧
+    f'.decls.binaryRel = brs ++ f.decls.binaryRel ∧
     f'.asserts = as ++ f.asserts
 
 theorem Frame.Extends.refl (f : Frame) : f.Extends f :=
-  ⟨[], [], [], [], [], rfl, rfl, rfl, rfl, rfl⟩
+  ⟨[], [], [], [], [], [], [], rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
 
 theorem Frame.Extends.addConst (f : Frame) (c : FOL.Const) :
     f.Extends ⟨f.decls.addConst c, f.asserts⟩ :=
-  ⟨[], [c], [], [], [], rfl, rfl, rfl, rfl, rfl⟩
+  ⟨[], [c], [], [], [], [], [], rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
 
 theorem Frame.Extends.addUnary (f : Frame) (u : FOL.Unary) :
     f.Extends ⟨f.decls.addUnary u, f.asserts⟩ :=
-  ⟨[], [], [u], [], [], rfl, rfl, rfl, rfl, rfl⟩
+  ⟨[], [], [u], [], [], [], [], rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
 
 theorem Frame.Extends.addBinary (f : Frame) (b : FOL.Binary) :
     f.Extends ⟨f.decls.addBinary b, f.asserts⟩ :=
-  ⟨[], [], [], [b], [], rfl, rfl, rfl, rfl, rfl⟩
+  ⟨[], [], [], [b], [], [], [], rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
+
+theorem Frame.Extends.addUnaryRel (f : Frame) (u : FOL.UnaryRel) :
+    f.Extends ⟨f.decls.addUnaryRel u, f.asserts⟩ :=
+  ⟨[], [], [], [], [u], [], [], rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
+
+theorem Frame.Extends.addBinaryRel (f : Frame) (b : FOL.BinaryRel) :
+    f.Extends ⟨f.decls.addBinaryRel b, f.asserts⟩ :=
+  ⟨[], [], [], [], [], [b], [], rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
 
 theorem Frame.Extends.addAssert (f : Frame) (φ : Formula) :
     f.Extends ⟨f.decls, φ :: f.asserts⟩ :=
-  ⟨[], [], [], [], [φ], rfl, rfl, rfl, rfl, rfl⟩
+  ⟨[], [], [], [], [], [], [φ], rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
 
 theorem Frame.Extends.trans {f₁ f₂ f₃ : Frame}
     (h₁₂ : f₁.Extends f₂) (h₂₃ : f₂.Extends f₃) : f₁.Extends f₃ := by
-  obtain ⟨vs₁, cs₁, us₁, bs₁, as₁, hv₁, hc₁, hu₁, hb₁, ha₁⟩ := h₁₂
-  obtain ⟨vs₂, cs₂, us₂, bs₂, as₂, hv₂, hc₂, hu₂, hb₂, ha₂⟩ := h₂₃
-  exact ⟨vs₂ ++ vs₁, cs₂ ++ cs₁, us₂ ++ us₁, bs₂ ++ bs₁, as₂ ++ as₁,
+  obtain ⟨vs₁, cs₁, us₁, bs₁, urs₁, brs₁, as₁, hv₁, hc₁, hu₁, hb₁, hur₁, hbr₁, ha₁⟩ := h₁₂
+  obtain ⟨vs₂, cs₂, us₂, bs₂, urs₂, brs₂, as₂, hv₂, hc₂, hu₂, hb₂, hur₂, hbr₂, ha₂⟩ := h₂₃
+  exact ⟨vs₂ ++ vs₁, cs₂ ++ cs₁, us₂ ++ us₁, bs₂ ++ bs₁, urs₂ ++ urs₁, brs₂ ++ brs₁, as₂ ++ as₁,
     by simp [hv₂, hv₁, List.append_assoc],
     by simp [hc₂, hc₁, List.append_assoc],
     by simp [hu₂, hu₁, List.append_assoc],
     by simp [hb₂, hb₁, List.append_assoc],
+    by simp [hur₂, hur₁, List.append_assoc],
+    by simp [hbr₂, hbr₁, List.append_assoc],
     by simp [ha₂, ha₁, List.append_assoc]⟩
 
 /-! ## Smt.Result -/
@@ -105,6 +117,12 @@ def addUnary (s : State) (u : FOL.Unary) : State :=
 
 def addBinary (s : State) (b : FOL.Binary) : State :=
   s.modifyDecls (·.addBinary b)
+
+def addUnaryRel (s : State) (u : FOL.UnaryRel) : State :=
+  s.modifyDecls (·.addUnaryRel u)
+
+def addBinaryRel (s : State) (b : FOL.BinaryRel) : State :=
+  s.modifyDecls (·.addBinaryRel b)
 
 def addAssert (s : State) (φ : Formula) : State :=
   match s.frames with
