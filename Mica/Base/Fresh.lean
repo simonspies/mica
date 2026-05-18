@@ -223,10 +223,10 @@ theorem freshNumbers_not_mem (base : String) (avoid : List String) :
   exact fresh_not_mem (addNumbers base) avoid (addNumbers_injective base)
 
 def freshName (avoid : List String) (base : String) : String :=
-  fresh (addPrimes base) avoid
+  fresh (addNumbers base) avoid
 
 theorem freshName_not_in_avoid (avoid : List String) (base : String) :
     freshName avoid base ∉ avoid := by
-  exact fresh_not_mem (addPrimes base) avoid (addPrimes_injective base)
+  exact fresh_not_mem (addNumbers base) avoid (addNumbers_injective base)
 
 end Fresh

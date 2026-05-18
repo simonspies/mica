@@ -16,6 +16,7 @@ namespace Session
 def preamble : String := s!"
 ;; preamble
 (set-logic ALL)
+(set-option :timeout 3000)
 
 (declare-sort Other 0)
 (declare-sort Loc 0)
