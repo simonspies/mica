@@ -81,10 +81,10 @@ end Fix
 Pointwise least fixpoints on unary predicates. The relational `Fix` development
 above could in principle be derived from this unary case at the pair sort
 `α × β → Prop`; for now the two are kept as parallel constructions.
-
-TODO: derive `Fix` (binary, on `α × β → Prop`) as an instance of `UnaryFix`
-at the pair sort, instead of duplicating the development.
 -/
+
+-- @agent: derive `Fix` (binary, on `α × β → Prop`) as an instance of `UnaryFix`
+-- at the pair sort, instead of duplicating the development. Then rename to `Fix`.
 
 namespace UnaryFix
 
