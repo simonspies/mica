@@ -390,6 +390,92 @@ theorem Term.eval_env_agree {t : Term τ} {ρ ρ' : Env} {Δ : Signature} :
     simp [Term.eval]
     rw [ihc hwf.1, iht hwf.2.1, ihe hwf.2.2]
 
+/-- A variable's value depends only on the environment components named by a
+signature it belongs to. -/
+theorem Term.eval_var_agreeOn {τ : Srt} {x : String} {Δ : Signature} {ρ ρ' : Env}
+    (hmem : (⟨x, τ⟩ : Var) ∈ Δ.vars) (hag : Env.agreeOn Δ ρ ρ') :
+    Term.eval ρ (.var τ x) = Term.eval ρ' (.var τ x) := by
+  simp [Term.eval, Env.lookupConst]
+  exact hag.1 ⟨x, τ⟩ hmem
+
+/-- Agreement on the environment components used by term evaluation. Relation
+interpretations are intentionally ignored. -/
+def Env.termAgree (Δ : Signature) (ρ₁ ρ₂ : Env) : Prop :=
+  (∀ v ∈ Δ.vars, ρ₁.consts v.sort v.name = ρ₂.consts v.sort v.name) ∧
+  (∀ c ∈ Δ.consts, ρ₁.consts c.sort c.name = ρ₂.consts c.sort c.name) ∧
+  (∀ u ∈ Δ.unary, ρ₁.unary u.arg u.ret u.name = ρ₂.unary u.arg u.ret u.name) ∧
+  (∀ b ∈ Δ.binary, ρ₁.binary b.arg1 b.arg2 b.ret b.name =
+    ρ₂.binary b.arg1 b.arg2 b.ret b.name)
+
+theorem Env.termAgree_of_agreeOn {Δ : Signature} {ρ₁ ρ₂ : Env}
+    (h : Env.agreeOn Δ ρ₁ ρ₂) : Env.termAgree Δ ρ₁ ρ₂ :=
+  ⟨h.1, h.2.1, h.2.2.1, h.2.2.2.1⟩
+
+theorem Env.termAgree_declVar {Δ : Signature} {ρ₁ ρ₂ : Env}
+    {x : String} {τ : Srt} {v : τ.denote}
+    (h : Env.termAgree Δ ρ₁ ρ₂) :
+    Env.termAgree (Δ.declVar ⟨x, τ⟩)
+      (ρ₁.updateConst τ x v) (ρ₂.updateConst τ x v) := by
+  refine ⟨?_, ?_, ?_, ?_⟩
+  · intro w hw
+    have hw' : w ∈ ⟨x, τ⟩ :: (Δ.remove x).vars := by
+      simpa [Signature.declVar, Signature.addVar] using hw
+    cases hw' with
+    | head => simp [Env.updateConst]
+    | tail _ htail =>
+      by_cases hn : w.name = x <;> by_cases ht : w.sort = τ
+      · cases w; simp only at hn ht; subst hn ht; simp [Env.updateConst]
+      · simp [Env.updateConst, ht, h.1 w (Signature.remove_subset Δ x |>.vars w htail)]
+      · simp [Env.updateConst, hn, h.1 w (Signature.remove_subset Δ x |>.vars w htail)]
+      · simp [Env.updateConst, hn, h.1 w (Signature.remove_subset Δ x |>.vars w htail)]
+  · intro c hc
+    have hcΔ : c ∈ Δ.consts :=
+      Signature.remove_subset Δ x |>.consts c (by
+        simpa [Signature.declVar, Signature.addVar] using hc)
+    by_cases hn : c.name = x <;> by_cases ht : c.sort = τ
+    · cases c; simp only at hn ht; subst hn ht; simp [Env.updateConst]
+    · simp [Env.updateConst, ht, h.2.1 c hcΔ]
+    · simp [Env.updateConst, hn, h.2.1 c hcΔ]
+    · simp [Env.updateConst, hn, h.2.1 c hcΔ]
+  · intro u hu
+    rw [Env.updateConst_unary, Env.updateConst_unary]
+    exact h.2.2.1 u (Signature.remove_subset Δ x |>.unary u (by
+      simpa [Signature.declVar, Signature.addVar] using hu))
+  · intro b hb
+    rw [Env.updateConst_binary, Env.updateConst_binary]
+    exact h.2.2.2 b (Signature.remove_subset Δ x |>.binary b (by
+      simpa [Signature.declVar, Signature.addVar] using hb))
+
+theorem Term.eval_termAgree {t : Term τ} {ρ₁ ρ₂ : Env} {Δ : Signature} :
+    t.wfIn Δ → Env.termAgree Δ ρ₁ ρ₂ → Term.eval ρ₁ t = Term.eval ρ₂ t := by
+  intro hwf hagree
+  induction t with
+  | var τ y => simp [Term.eval, Env.lookupConst]; exact hagree.1 ⟨y, τ⟩ hwf.1
+  | const c =>
+    simp only [Term.eval]
+    cases c with
+    | uninterpreted name _ => exact hagree.2.1 ⟨name, _⟩ hwf.1
+    | _ => rfl
+  | unop op a iha =>
+    simp only [Term.eval]
+    rw [iha hwf.2]
+    cases op with
+    | uninterpreted name _ _ =>
+      simp only [UnOp.eval]
+      exact congrFun (hagree.2.2.1 ⟨name, _, _⟩ hwf.1.1) _
+    | _ => rfl
+  | binop op a b iha ihb =>
+    simp only [Term.eval]
+    rw [iha hwf.2.1, ihb hwf.2.2]
+    cases op with
+    | uninterpreted name _ _ _ =>
+      simp only [BinOp.eval]
+      exact congrFun (congrFun (hagree.2.2.2 ⟨name, _, _, _⟩ hwf.1.1) _) _
+    | _ => rfl
+  | ite c t e ihc iht ihe =>
+    simp [Term.eval]
+    rw [ihc hwf.1, iht hwf.2.1, ihe hwf.2.2]
+
 theorem Term.eval_update_fresh {t : Term τ'} {x : String} {τ : Srt} {v : τ.denote} {ρ : Env}
     {Δ : Signature} (hwf : t.wfIn Δ) (hfresh : x ∉ Δ.allNames) :
     Term.eval (ρ.updateConst τ x v) t = Term.eval ρ t :=
