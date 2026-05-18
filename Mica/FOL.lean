@@ -3,5 +3,6 @@
 import Mica.FOL.Variables
 import Mica.FOL.Terms
 import Mica.FOL.Formulas
+import Mica.FOL.Fixpoint
 import Mica.FOL.Subst
 import Mica.FOL.Printing
