@@ -645,40 +645,30 @@ remains absent after adding that unary function. -/
 theorem not_mem_allNames_addUnary {Δ : Signature} {u : FOL.Unary} {x : String}
     (hΔ : x ∉ Δ.allNames) (hu : x ≠ u.name) :
     x ∉ (Δ.addUnary u).allNames := by
-  intro hmem
-  have : x ∈ Δ.allNames := by
-    simp only [Signature.allNames, Signature.addUnary,
-      List.map_cons, List.append_assoc, List.mem_append, List.mem_cons] at hmem ⊢
-    rcases hmem with h | h | h | h | h | h
-    · exact Or.inl h
-    · exact Or.inr (Or.inl h)
-    · rcases h with h | h
-      · exact (hu h).elim
-      · exact Or.inr (Or.inr (Or.inl h))
-    · exact Or.inr (Or.inr (Or.inr (Or.inl h)))
-    · exact Or.inr (Or.inr (Or.inr (Or.inr (Or.inl h))))
-    · exact Or.inr (Or.inr (Or.inr (Or.inr (Or.inr h))))
-  exact hΔ this
+  intro h
+  simp [Signature.allNames, Signature.addUnary] at h
+  rcases h with h | h | h | h | h | h
+  · exact hΔ (by simp [Signature.allNames, h])
+  · exact hΔ (by simp [Signature.allNames, h])
+  · exact hu h
+  · exact hΔ (by simp [Signature.allNames, h])
+  · exact hΔ (by simp [Signature.allNames, h])
+  · exact hΔ (by simp [Signature.allNames, h])
 
 /-- A name absent from a signature and distinct from a new unary relation name
 remains absent after adding that unary relation. -/
 theorem not_mem_allNames_addUnaryRel {Δ : Signature} {u : FOL.UnaryRel} {x : String}
     (hΔ : x ∉ Δ.allNames) (hu : x ≠ u.name) :
     x ∉ (Δ.addUnaryRel u).allNames := by
-  intro hmem
-  have : x ∈ Δ.allNames := by
-    simp only [Signature.allNames, Signature.addUnaryRel,
-      List.map_cons, List.append_assoc, List.mem_append, List.mem_cons] at hmem ⊢
-    rcases hmem with h | h | h | h | h | h
-    · exact Or.inl h
-    · exact Or.inr (Or.inl h)
-    · exact Or.inr (Or.inr (Or.inl h))
-    · exact Or.inr (Or.inr (Or.inr (Or.inl h)))
-    · rcases h with h | h
-      · exact (hu h).elim
-      · exact Or.inr (Or.inr (Or.inr (Or.inr (Or.inl h))))
-    · exact Or.inr (Or.inr (Or.inr (Or.inr (Or.inr h))))
-  exact hΔ this
+  intro h
+  simp [Signature.allNames, Signature.addUnaryRel] at h
+  rcases h with h | h | h | h | h | h
+  · exact hΔ (by simp [Signature.allNames, h])
+  · exact hΔ (by simp [Signature.allNames, h])
+  · exact hΔ (by simp [Signature.allNames, h])
+  · exact hΔ (by simp [Signature.allNames, h])
+  · exact hu h
+  · exact hΔ (by simp [Signature.allNames, h])
 
 /-- Declaring a variable whose name is fresh for the signature extends it. -/
 theorem subset_declVar_of_fresh {Δ : Signature} {v : Var}
