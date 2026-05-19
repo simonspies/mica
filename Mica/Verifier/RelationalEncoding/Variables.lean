@@ -151,23 +151,34 @@ theorem FunCtx.mem_of_lookup {Γ : FunCtx} {x : TinyML.Var} {fn : SpecFn}
 
 /-- Every relation in `Γ` is registered in `Δ` as a binary uninterpreted predicate
 on `value × value`. -/
-def FunCtx.wfIn (Γ : FunCtx) (Δ : Signature) : Prop :=
+def FunCtx.relWfIn (Γ : FunCtx) (Δ : Signature) : Prop :=
   ∀ x (fn : SpecFn), (x, fn) ∈ Γ → (⟨fn, .value, .value⟩ : FOL.BinaryRel) ∈ Δ.binaryRel
 
-theorem FunCtx.wfIn_mono {Γ : FunCtx} {Δ Δ' : Signature}
-    (h : Γ.wfIn Δ) (hsub : Δ.Subset Δ') : Γ.wfIn Δ' :=
+theorem FunCtx.relWfIn_mono {Γ : FunCtx} {Δ Δ' : Signature}
+    (h : Γ.relWfIn Δ) (hsub : Δ.Subset Δ') : Γ.relWfIn Δ' :=
   fun x fn hxr => hsub.binaryRel _ (h x fn hxr)
 
 /-- Every relation in `Γ` has its solver-facing value function and definedness
 predicate registered in `Δ`. -/
-def FunCtx.defWfIn (Γ : FunCtx) (Δ : Signature) : Prop :=
+def FunCtx.splitWfIn (Γ : FunCtx) (Δ : Signature) : Prop :=
   ∀ x (fn : SpecFn), (x, fn) ∈ Γ →
     fn.func ∈ Δ.unary ∧ fn.defined ∈ Δ.unaryRel
 
-theorem FunCtx.defWfIn_mono {Γ : FunCtx} {Δ Δ' : Signature}
-    (h : Γ.defWfIn Δ) (hsub : Δ.Subset Δ') : Γ.defWfIn Δ' := by
+theorem FunCtx.splitWfIn_mono {Γ : FunCtx} {Δ Δ' : Signature}
+    (h : Γ.splitWfIn Δ) (hsub : Δ.Subset Δ') : Γ.splitWfIn Δ' := by
   intro x fn hxr
   exact ⟨hsub.unary _ (h x fn hxr).1, hsub.unaryRel _ (h x fn hxr).2⟩
+
+/-- Bundled well-formedness: every relation in `Γ` has all three solver-facing
+symbols (the binary relation, the value function, and the definedness predicate)
+registered in `Δ`. -/
+structure FunCtx.wfIn (Γ : FunCtx) (Δ : Signature) : Prop where
+  rel : Γ.relWfIn Δ
+  split : Γ.splitWfIn Δ
+
+theorem FunCtx.wfIn_mono {Γ : FunCtx} {Δ Δ' : Signature}
+    (h : Γ.wfIn Δ) (hsub : Δ.Subset Δ') : Γ.wfIn Δ' :=
+  ⟨FunCtx.relWfIn_mono h.rel hsub, FunCtx.splitWfIn_mono h.split hsub⟩
 
 /-! ## Value-variable well-formedness -/
 

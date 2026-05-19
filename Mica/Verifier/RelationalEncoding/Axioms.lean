@@ -5,7 +5,7 @@ import Mica.Verifier.RelationalEncoding.SkolemizeCompleteness
 /-!
 # Split Encoding Axioms
 
-For each fn-œmarked recursive function, Skolemization exposes the
+For each relation-marked recursive function, Skolemization exposes the
 relational graph through two solver-facing symbols:
 
 * `f_def(x)` says the function is defined on input `x`;
@@ -53,36 +53,36 @@ open Relation
 -- Axioms
 
 /-- If the encoded body is defined on input `x`, the function is defined on `x`. -/
-def definedIntroAxiom (rel x : TinyML.Var) (body : DefVal) : Formula :=
+def definedIntroAxiom (fn x : TinyML.Var) (body : DefVal) : Formula :=
   .forall_ x .value
-    (.implies body.defined (SpecFn.isDefined rel (.var .value x)))
+    (.implies body.defined (SpecFn.isDefined fn (.var .value x)))
 
 /-- If the function is defined on input `x`, its solver-facing value equals the
 encoded body value. -/
-def valueAxiom (rel x : TinyML.Var) (body : DefVal) : Formula :=
+def valueAxiom (fn x : TinyML.Var) (body : DefVal) : Formula :=
   .forall_ x .value
     (.implies
-      (SpecFn.isDefined rel (.var .value x))
-      (.eq .value (SpecFn.call rel (.var .value x)) body.value))
+      (SpecFn.isDefined fn (.var .value x))
+      (.eq .value (SpecFn.call fn (.var .value x)) body.value))
 
 /-- Converse of `definedIntroAxiom`: if the function is defined on `x`, then the
 encoded body is defined on `x`.  Experimental — exposing this lets the SMT
 backend propagate definedness from a parent call into its recursive subterms. -/
-def definedElimAxiom (rel x : TinyML.Var) (body : DefVal) : Formula :=
+def definedElimAxiom (fn x : TinyML.Var) (body : DefVal) : Formula :=
   .forall_ x .value
-    (.implies (SpecFn.isDefined rel (.var .value x)) body.defined)
+    (.implies (SpecFn.isDefined fn (.var .value x)) body.defined)
 
 /-- The solver-facing axioms emitted for a relation-marked function. -/
-def axioms (rel x : TinyML.Var) (body : DefVal) : List Formula :=
-  [definedIntroAxiom rel x body, valueAxiom rel x body,
-   definedElimAxiom rel x body]
+def axioms (fn x : TinyML.Var) (body : DefVal) : List Formula :=
+  [definedIntroAxiom fn x body, valueAxiom fn x body,
+   definedElimAxiom fn x body]
 
-theorem axioms_wfIn {Δ : Signature} {rel x : String} {body : DefVal}
+theorem axioms_wfIn {Δ : Signature} {fn x : String} {body : DefVal}
     (hΔx : (Δ.declVar ⟨x, .value⟩).wf)
     (hbody : body.wfIn (Δ.declVar ⟨x, .value⟩))
-    (hfun : SpecFn.func rel ∈ (Δ.declVar ⟨x, .value⟩).unary)
-    (hrel : SpecFn.defined rel ∈ (Δ.declVar ⟨x, .value⟩).unaryRel) :
-    ∀ ax ∈ axioms rel x body, ax.wfIn Δ := by
+    (hfun : SpecFn.func fn ∈ (Δ.declVar ⟨x, .value⟩).unary)
+    (hrel : SpecFn.defined fn ∈ (Δ.declVar ⟨x, .value⟩).unaryRel) :
+    ∀ ax ∈ axioms fn x body, ax.wfIn Δ := by
   intro ax hmem
   simp [axioms] at hmem
   rcases hmem with rfl | rfl | rfl
@@ -105,12 +105,12 @@ theorem axioms_wfIn {Δ : Signature} {rel x : String} {body : DefVal}
 of the split definedness predicate and the epsilon-selected value function. -/
 def GraphCompatible
     (Γ : FunCtx) (Δ : Signature) (ρ : Env)
-    (f : TinyML.Var) (rel : String) (x res : TinyML.Var) (e : Typed.Expr)
+    (f : TinyML.Var) (fn : SpecFn) (x res : TinyML.Var) (e : Typed.Expr)
     (body : DefVal) : Prop :=
   ∀ vin vout,
-    semrel Γ Δ ρ f rel x res e vin vout ↔
-      semdef Γ Δ ρ f rel x res e body vin ∧
-        semFunc (semrel Γ Δ ρ f rel x res e) vin = vout
+    semrel Γ Δ ρ f fn x res e vin vout ↔
+      semdef Γ Δ ρ f fn x res e body vin ∧
+        semFunc (semrel Γ Δ ρ f fn x res e) vin = vout
 
 
 /-- The definedness-introduction axiom is valid under the semantic definedness
@@ -118,17 +118,17 @@ least fixpoint. This is the first solver-facing axiom and does not require the
 eventual relation/graph equivalence. -/
 theorem definedIntroAxiom_eval
     {Γ : FunCtx} {Δ : Signature} {ρ : Env}
-    {f : TinyML.Var} {rel : String} {x res : TinyML.Var} {e : Typed.Expr}
-    {body : DefVal} (henc : encodeBody Γ Δ f rel x res e = .ok body) :
-    (definedIntroAxiom rel x body).eval
-      (defInterpEnv Γ Δ ρ f rel x res e body) := by
+    {f : TinyML.Var} {fn : SpecFn} {x res : TinyML.Var} {e : Typed.Expr}
+    {body : DefVal} (henc : encodeBody Γ Δ f fn x res e = .ok body) :
+    (definedIntroAxiom fn x body).eval
+      (defInterpEnv Γ Δ ρ f fn x res e body) := by
   simp only [definedIntroAxiom, Formula.eval]
   intro vin hbody
   have hsem :
-      semdef Γ Δ ρ f rel x res e body vin := by
+      semdef Γ Δ ρ f fn x res e body vin := by
     exact (semdef_unfold_of_encode (ρ := ρ) (x := x) (res := res) henc vin).mpr hbody
   exact (definedCall_eval_defInterpEnv (Γ := Γ) (Δ := Δ) (ρ := ρ)
-    (f := f) (fn := rel) (x := x) (res := res) (e := e) (body := body) vin).mpr hsem
+    (f := f) (fn := fn) (x := x) (res := res) (e := e) (body := body) vin).mpr hsem
 
 /-- The semantic relation induced by the relational encoding agrees with the
 graph induced by the split definedness fixpoint and epsilon-selected value
@@ -138,103 +138,103 @@ symbols from clobbering them, and the paired-encoding completeness/soundness pro
 recursive body. -/
 theorem semrel_compatible
     {Γ : FunCtx} {Δ : Signature} {ρ : Env}
-    {f : TinyML.Var} {rel : String} {x res : TinyML.Var} {e : Typed.Expr}
-    {body : DefVal} (henc : encodeBody Γ Δ f rel x res e = .ok body)
+    {f : TinyML.Var} {fn : SpecFn} {x res : TinyML.Var} {e : Typed.Expr}
+    {body : DefVal} (henc : encodeBody Γ Δ f fn x res e = .ok body)
     (hΓ : Γ.splitCompatible ρ)
-    (hΓrel : Γ.wfIn Δ) (hΓdef : Γ.defWfIn Δ)
-    (hΔ : Δ.wf) (hheadFresh : HeadFresh Δ rel x res)
+    (hΓwf : Γ.wfIn Δ)
+    (hΔ : Δ.wf) (hheadFresh : HeadFresh Δ fn x res)
     (hρdet : Relation.BinaryRelDet Γ ρ ρ) :
-    GraphCompatible Γ Δ ρ f rel x res e body := by
+    GraphCompatible Γ Δ ρ f fn x res e body := by
   intro vin vout
   constructor
   · intro hrel
     have hsplit :=
-      semrel_complete henc hΓ hΓrel hΓdef hΔ hheadFresh hρdet
+      semrel_complete henc hΓ hΓwf hΔ hheadFresh hρdet
         vin vout hrel
-    have hdefined : semDefined (semrel Γ Δ ρ f rel x res e) vin := ⟨vout, hrel⟩
+    have hdefined : semDefined (semrel Γ Δ ρ f fn x res e) vin := ⟨vout, hrel⟩
     have hfun :
-      semFunc (semrel Γ Δ ρ f rel x res e) vin = vout :=
-      relation_semrel_functional_of_encodeBody henc hΔ hΓrel hΓdef hheadFresh hρdet vin
-        (semFunc (semrel Γ Δ ρ f rel x res e) vin) vout
+      semFunc (semrel Γ Δ ρ f fn x res e) vin = vout :=
+      relation_semrel_functional_of_encodeBody henc hΔ hΓwf hheadFresh hρdet vin
+        (semFunc (semrel Γ Δ ρ f fn x res e) vin) vout
         (semFunc_spec hdefined) hrel
     exact ⟨hsplit.1, hfun⟩
   · intro hgraph
     rcases hgraph with ⟨hdef, hfun⟩
     let vbody :=
       body.value.eval
-        ((defInterpEnv Γ Δ ρ f rel x res e body).updateConst .value x vin)
+        ((defInterpEnv Γ Δ ρ f fn x res e body).updateConst .value x vin)
     have hrelBody :
-        semrel Γ Δ ρ f rel x res e vin vbody :=
-      semrel_sound henc hΓ hΓrel hΓdef hΔ hheadFresh vin vbody
+        semrel Γ Δ ρ f fn x res e vin vbody :=
+      semrel_sound henc hΓ hΓwf hΔ hheadFresh vin vbody
         hdef rfl
-    have hdefined : semDefined (semrel Γ Δ ρ f rel x res e) vin := ⟨vbody, hrelBody⟩
+    have hdefined : semDefined (semrel Γ Δ ρ f fn x res e) vin := ⟨vbody, hrelBody⟩
     have hchosen :
-        vbody = semFunc (semrel Γ Δ ρ f rel x res e) vin :=
-      relation_semrel_functional_of_encodeBody henc hΔ hΓrel hΓdef hheadFresh hρdet vin vbody
-        (semFunc (semrel Γ Δ ρ f rel x res e) vin)
+        vbody = semFunc (semrel Γ Δ ρ f fn x res e) vin :=
+      relation_semrel_functional_of_encodeBody henc hΔ hΓwf hheadFresh hρdet vin vbody
+        (semFunc (semrel Γ Δ ρ f fn x res e) vin)
         hrelBody (semFunc_spec hdefined)
-    exact semrel_sound henc hΓ hΓrel hΓdef hΔ hheadFresh vin vout
+    exact semrel_sound henc hΓ hΓwf hΔ hheadFresh vin vout
       hdef (hchosen.trans hfun)
 
 /-- The value axiom is valid under the canonical split interpretation extracted
 from the relational semantics. -/
 theorem valueAxiom_eval
     {Γ : FunCtx} {Δ : Signature} {ρ : Env}
-    {f : TinyML.Var} {rel : String} {x res : TinyML.Var} {e : Typed.Expr}
-    {body : DefVal} (henc : encodeBody Γ Δ f rel x res e = .ok body)
+    {f : TinyML.Var} {fn : SpecFn} {x res : TinyML.Var} {e : Typed.Expr}
+    {body : DefVal} (henc : encodeBody Γ Δ f fn x res e = .ok body)
     (hΓ : Γ.splitCompatible ρ)
-    (hΓrel : Γ.wfIn Δ) (hΓdef : Γ.defWfIn Δ)
-    (hΔ : Δ.wf) (hheadFresh : HeadFresh Δ rel x res)
+    (hΓwf : Γ.wfIn Δ)
+    (hΔ : Δ.wf) (hheadFresh : HeadFresh Δ fn x res)
     (hρdet : Relation.BinaryRelDet Γ ρ ρ) :
-    (valueAxiom rel x body).eval
-      (defInterpEnv Γ Δ ρ f rel x res e body) := by
+    (valueAxiom fn x body).eval
+      (defInterpEnv Γ Δ ρ f fn x res e body) := by
   simp only [valueAxiom, Formula.eval]
   intro vin hdef
   have hsem := (definedCall_eval_defInterpEnv (Γ := Γ) (Δ := Δ) (ρ := ρ)
-    (f := f) (fn := rel) (x := x) (res := res) (e := e) (body := body) vin).mp hdef
+    (f := f) (fn := fn) (x := x) (res := res) (e := e) (body := body) vin).mp hdef
   rw [valueCall_eval_defInterpEnv (Γ := Γ) (Δ := Δ) (ρ := ρ)
-    (f := f) (fn := rel) (x := x) (res := res) (e := e) (body := body) vin]
-  have hgraph := semrel_compatible henc hΓ hΓrel hΓdef hΔ hheadFresh hρdet
+    (f := f) (fn := fn) (x := x) (res := res) (e := e) (body := body) vin]
+  have hgraph := semrel_compatible henc hΓ hΓwf hΔ hheadFresh hρdet
   have hrel :
-      semrel Γ Δ ρ f rel x res e vin
-        (semFunc (semrel Γ Δ ρ f rel x res e) vin) :=
-    (hgraph vin (semFunc (semrel Γ Δ ρ f rel x res e) vin)).mpr ⟨hsem, rfl⟩
-  exact (semrel_complete henc hΓ hΓrel hΓdef hΔ hheadFresh hρdet
-    vin (semFunc (semrel Γ Δ ρ f rel x res e) vin) hrel).2.symm
+      semrel Γ Δ ρ f fn x res e vin
+        (semFunc (semrel Γ Δ ρ f fn x res e) vin) :=
+    (hgraph vin (semFunc (semrel Γ Δ ρ f fn x res e) vin)).mpr ⟨hsem, rfl⟩
+  exact (semrel_complete henc hΓ hΓwf hΔ hheadFresh hρdet
+    vin (semFunc (semrel Γ Δ ρ f fn x res e) vin) hrel).2.symm
 
 /-- Semantic validity of the converse definedness axiom: under the least
 fixpoint of `semdef`, the `semdef`/`defBody` unfolding goes both ways, so
-`isDefined rel x` implies `body.defined` on `x`. -/
+`isDefined fn x` implies `body.defined` on `x`. -/
 theorem definedElimAxiom_eval
     {Γ : FunCtx} {Δ : Signature} {ρ : Env}
-    {f : TinyML.Var} {rel : String} {x res : TinyML.Var} {e : Typed.Expr}
-    {body : DefVal} (henc : encodeBody Γ Δ f rel x res e = .ok body) :
-    (definedElimAxiom rel x body).eval
-      (defInterpEnv Γ Δ ρ f rel x res e body) := by
+    {f : TinyML.Var} {fn : SpecFn} {x res : TinyML.Var} {e : Typed.Expr}
+    {body : DefVal} (henc : encodeBody Γ Δ f fn x res e = .ok body) :
+    (definedElimAxiom fn x body).eval
+      (defInterpEnv Γ Δ ρ f fn x res e body) := by
   simp only [definedElimAxiom, Formula.eval]
   intro vin hdef
-  have hsem : semdef Γ Δ ρ f rel x res e body vin :=
+  have hsem : semdef Γ Δ ρ f fn x res e body vin :=
     (definedCall_eval_defInterpEnv (Γ := Γ) (Δ := Δ) (ρ := ρ)
-      (f := f) (fn := rel) (x := x) (res := res) (e := e) (body := body) vin).mp hdef
+      (f := f) (fn := fn) (x := x) (res := res) (e := e) (body := body) vin).mp hdef
   exact (semdef_unfold_of_encode (ρ := ρ) (x := x) (res := res) henc vin).mp hsem
 
 /-- Semantic validity of the split axioms under the canonical split
 interpretation. -/
 theorem axioms_eval
     {Γ : FunCtx} {Δ : Signature} {ρ : Env}
-    {f : TinyML.Var} {rel : String} {x res : TinyML.Var} {e : Typed.Expr}
-    {body : DefVal} (henc : encodeBody Γ Δ f rel x res e = .ok body)
+    {f : TinyML.Var} {fn : SpecFn} {x res : TinyML.Var} {e : Typed.Expr}
+    {body : DefVal} (henc : encodeBody Γ Δ f fn x res e = .ok body)
     (hΓ : Γ.splitCompatible ρ)
-    (hΓrel : Γ.wfIn Δ) (hΓdef : Γ.defWfIn Δ)
-    (hΔ : Δ.wf) (hheadFresh : HeadFresh Δ rel x res)
+    (hΓwf : Γ.wfIn Δ)
+    (hΔ : Δ.wf) (hheadFresh : HeadFresh Δ fn x res)
     (hρdet : Relation.BinaryRelDet Γ ρ ρ) :
-    ∀ ax ∈ axioms rel x body,
-      ax.eval (defInterpEnv Γ Δ ρ f rel x res e body) := by
+    ∀ ax ∈ axioms fn x body,
+      ax.eval (defInterpEnv Γ Δ ρ f fn x res e body) := by
   intro ax hmem
   simp [axioms] at hmem
   rcases hmem with rfl | rfl | rfl
   · exact definedIntroAxiom_eval henc
-  · exact valueAxiom_eval henc hΓ hΓrel hΓdef hΔ hheadFresh hρdet
+  · exact valueAxiom_eval henc hΓ hΓwf hΔ hheadFresh hρdet
   · exact definedElimAxiom_eval henc
 
 /-! ## Verifier-facing bundle
@@ -252,23 +252,23 @@ level. -/
 /-- Bundle of independent freshness premises sufficient to derive
 `HeadFresh` once a fresh result variable is chosen. The verifier discharges
 these per step. -/
-structure InfoFresh (Δ : Signature) (rel arg : String) : Prop where
-  relFresh : rel ∉ Δ.allNames
-  funFresh : SpecFn.funcName rel ∉ Δ.allNames
-  defFresh : SpecFn.defName rel ∉ Δ.allNames
-  argFresh : arg ∉ Δ.allNames
-  argNeRel : arg ≠ rel
-  argNeFun : arg ≠ SpecFn.funcName rel
-  argNeDef : arg ≠ SpecFn.defName rel
+structure InfoFresh (Δ : Signature) (fn x : String) : Prop where
+  relFresh : fn ∉ Δ.allNames
+  funFresh : SpecFn.funcName fn ∉ Δ.allNames
+  defFresh : SpecFn.defName fn ∉ Δ.allNames
+  argFresh : x ∉ Δ.allNames
+  argNeRel : x ≠ fn
+  argNeFun : x ≠ SpecFn.funcName fn
+  argNeDef : x ≠ SpecFn.defName fn
 
 theorem freshName_avoid_props
-    (Δ : Signature) (arg rel : String) :
+    (Δ : Signature) (x fn : SpecFn) :
     let res := Fresh.freshName
-      (Δ.allNames ++ [arg, rel, SpecFn.funcName rel, SpecFn.defName rel]) "r"
-    res ∉ Δ.allNames ∧ res ≠ arg ∧ res ≠ rel ∧
-      res ≠ SpecFn.funcName rel ∧ res ≠ SpecFn.defName rel := by
+      (Δ.allNames ++ [x, fn, SpecFn.funcName fn, SpecFn.defName fn]) "r"
+    res ∉ Δ.allNames ∧ res ≠ x ∧ res ≠ fn ∧
+      res ≠ SpecFn.funcName fn ∧ res ≠ SpecFn.defName fn := by
   have hres := Fresh.freshName_not_in_avoid
-    (Δ.allNames ++ [arg, rel, SpecFn.funcName rel, SpecFn.defName rel]) "r"
+    (Δ.allNames ++ [x, fn, SpecFn.funcName fn, SpecFn.defName fn]) "r"
   refine ⟨?_, ?_, ?_, ?_, ?_⟩
   · intro h; exact hres (List.mem_append_left _ h)
   · intro h; apply hres; rw [h]; simp
@@ -279,22 +279,22 @@ theorem freshName_avoid_props
 /-- Derive `HeadFresh` from independent freshness hypotheses on each of the
 solver-facing names. -/
 theorem headFresh_of_fresh
-    {Δ : Signature} {rel x res : String}
-    (hf : InfoFresh Δ rel x)
+    {Δ : Signature} {fn x res : String}
+    (hf : InfoFresh Δ fn x)
     (hresΔ : res ∉ Δ.allNames)
-    (hresRel : res ≠ rel) (hresFun : res ≠ SpecFn.funcName rel)
-    (hresDef : res ≠ SpecFn.defName rel) (hresx : res ≠ x) :
-    HeadFresh Δ rel x res := by
+    (hresRel : res ≠ fn) (hresFun : res ≠ SpecFn.funcName fn)
+    (hresDef : res ≠ SpecFn.defName fn) (hresx : res ≠ x) :
+    HeadFresh Δ fn x res := by
   refine
     { relFresh := hf.relFresh
       funFresh := ?_
       defFresh := ?_
       argFresh := ?_
       resFresh := ?_ }
-  · exact Signature.not_mem_allNames_addBinaryRel hf.funFresh (SpecFn.funcName_ne_fn rel)
+  · exact Signature.not_mem_allNames_addBinaryRel hf.funFresh (SpecFn.funcName_ne_fn fn)
   · exact Signature.not_mem_allNames_addUnary
-      (Signature.not_mem_allNames_addBinaryRel hf.defFresh (SpecFn.defName_ne_fn rel))
-      (SpecFn.defName_ne_funcName rel)
+      (Signature.not_mem_allNames_addBinaryRel hf.defFresh (SpecFn.defName_ne_fn fn))
+      (SpecFn.defName_ne_funcName fn)
   · exact Signature.not_mem_allNames_addUnaryRel
       (Signature.not_mem_allNames_addUnary
         (Signature.not_mem_allNames_addBinaryRel hf.argFresh hf.argNeRel)
@@ -314,36 +314,36 @@ level), the solver-facing value function, the definedness predicate, the
 canonical pinned-result variable, the encoded body, and the list of
 solver-emitted axioms. -/
 def bundle
-    (Γ : FunCtx) (Δ : Signature) (name rel arg : String) (body : Typed.Expr) :
+    (Γ : FunCtx) (Δ : Signature) (f fn x : String) (e : Typed.Expr) :
     Except String
       (FOL.BinaryRel × FOL.Unary × FOL.UnaryRel × String × DefVal × List Formula) := do
   let res := Fresh.freshName
-    (Δ.allNames ++ [arg, rel, SpecFn.funcName rel, SpecFn.defName rel]) "r"
-  let bv ← encodeBody Γ Δ name rel arg res body
-  pure (⟨rel, .value, .value⟩, SpecFn.func rel, SpecFn.defined rel, res, bv,
-        axioms rel arg bv)
+    (Δ.allNames ++ [x, fn, SpecFn.funcName fn, SpecFn.defName fn]) "r"
+  let bv ← encodeBody Γ Δ f fn x res e
+  pure (⟨fn, .value, .value⟩, SpecFn.func fn, SpecFn.defined fn, res, bv,
+        axioms fn x bv)
 
 theorem bundle_headFresh
-    {Δ : Signature} {arg rel : String}
-    (hf : InfoFresh Δ rel arg) :
-    HeadFresh Δ rel arg
+    {Δ : Signature} {x fn : SpecFn}
+    (hf : InfoFresh Δ fn x) :
+    HeadFresh Δ fn x
       (Fresh.freshName
-        (Δ.allNames ++ [arg, rel, SpecFn.funcName rel, SpecFn.defName rel]) "r") := by
+        (Δ.allNames ++ [x, fn, SpecFn.funcName fn, SpecFn.defName fn]) "r") := by
   obtain ⟨hresΔ, hresArg, hresRel, hresFun, hresDef⟩ :=
-    freshName_avoid_props Δ arg rel
+    freshName_avoid_props Δ x fn
   exact headFresh_of_fresh hf hresΔ hresRel hresFun hresDef hresArg
 
 theorem bundle_wfIn
-    {Γ : FunCtx} {Δ : Signature} {name rel arg : String} {body : Typed.Expr}
-    {sym : FOL.BinaryRel} {fn : FOL.Unary} {drel : FOL.UnaryRel}
+    {Γ : FunCtx} {Δ : Signature} {f fn x : String} {e : Typed.Expr}
+    {sym : FOL.BinaryRel} {fnSym : FOL.Unary} {drel : FOL.UnaryRel}
     {res : String} {bv : DefVal} {axs : List Formula}
-    (hinfo : bundle Γ Δ name rel arg body
-              = .ok (sym, fn, drel, res, bv, axs))
-    (hΔ : Δ.wf) (hΓdef : Γ.defWfIn Δ)
-    (hf : InfoFresh Δ rel arg) :
-    sym = ⟨rel, .value, .value⟩ ∧ fn = SpecFn.func rel ∧ drel = SpecFn.defined rel ∧
+    (hinfo : bundle Γ Δ f fn x e
+              = .ok (sym, fnSym, drel, res, bv, axs))
+    (hΔ : Δ.wf) (hΓwf : Γ.wfIn Δ)
+    (hf : InfoFresh Δ fn x) :
+    sym = ⟨fn, .value, .value⟩ ∧ fnSym = SpecFn.func fn ∧ drel = SpecFn.defined fn ∧
       ∀ ax ∈ axs,
-        ax.wfIn (((Δ.addBinaryRel sym).addUnary fn).addUnaryRel drel) := by
+        ax.wfIn (((Δ.addBinaryRel sym).addUnary fnSym).addUnaryRel drel) := by
   unfold bundle at hinfo
   simp only [bind, Except.bind] at hinfo
   split at hinfo
@@ -351,93 +351,93 @@ theorem bundle_wfIn
   rename_i bv' henc
   cases hinfo
   refine ⟨rfl, rfl, rfl, ?_⟩
-  have hheadFresh := bundle_headFresh (Δ := Δ) (arg := arg) (rel := rel) hf
+  have hheadFresh := bundle_headFresh (Δ := Δ) (x := x) (fn := fn) hf
   set Δext : Signature :=
-    ((Δ.addBinaryRel ⟨rel, .value, .value⟩).addUnary (SpecFn.func rel)).addUnaryRel
-      (SpecFn.defined rel) with hΔext_def
-  have hΔx_wf : (Δext.declVar ⟨arg, .value⟩).wf := by
+    ((Δ.addBinaryRel ⟨fn, .value, .value⟩).addUnary (SpecFn.func fn)).addUnaryRel
+      (SpecFn.defined fn) with hΔext_def
+  have hΔx_wf : (Δext.declVar ⟨x, .value⟩).wf := by
     simpa [Δext, bodySig] using bodySig_wf_of_headFresh hΔ hheadFresh
-  have hbody_x : bv.wfIn (Δext.declVar ⟨arg, .value⟩) := by
-    show bv.wfIn (bodySig Δ rel arg)
-    exact encode_wfIn (Γ := Relation.ctx Γ name rel)
-      (Δ := bodySig Δ rel arg) body
+  have hbody_x : bv.wfIn (Δext.declVar ⟨x, .value⟩) := by
+    show bv.wfIn (bodySig Δ fn x)
+    exact encode_wfIn (Γ := Relation.ctx Γ f fn)
+      (Δ := bodySig Δ fn x) e
       (bodySig_wf_of_headFresh hΔ hheadFresh)
-      (ctx_defWfIn_bodySig_of_headFresh hΓdef hheadFresh)
+      (ctx_splitWfIn_bodySig_of_headFresh hΓwf.split hheadFresh)
       (encodeBody_def_bodySig henc)
-  have hfun_mem : SpecFn.func rel ∈ (Δext.declVar ⟨arg, .value⟩).unary :=
+  have hfun_mem : SpecFn.func fn ∈ (Δext.declVar ⟨x, .value⟩).unary :=
     Signature.mem_remove_unary.mpr ⟨List.Mem.head _, fun heq => hf.argNeFun heq.symm⟩
-  have hrel_mem : SpecFn.defined rel ∈ (Δext.declVar ⟨arg, .value⟩).unaryRel :=
+  have hrel_mem : SpecFn.defined fn ∈ (Δext.declVar ⟨x, .value⟩).unaryRel :=
     Signature.mem_remove_unaryRel.mpr ⟨List.Mem.head _, fun heq => hf.argNeDef heq.symm⟩
   intro ax hmem
   exact axioms_wfIn (Δ := Δext) hΔx_wf hbody_x hfun_mem hrel_mem ax hmem
 
 
 /-- The split axioms remain valid under any choice of binary relation
-interpretation for `rel`. The body and axiom shapes only mention the
-solver-facing split symbols, never `rel` as a binary predicate, so updating
-`rel`'s binary interpretation is irrelevant. -/
+interpretation for `fn`. The body and axiom shapes only mention the
+solver-facing split symbols, never `fn` as a binary predicate, so updating
+`fn`'s binary interpretation is irrelevant. -/
 theorem axioms_eval_updateBinaryRel
     {Γ : FunCtx} {Δ : Signature} {ρ : Env}
-    {f : TinyML.Var} {rel : String} {x res : TinyML.Var} {e : Typed.Expr}
-    {body : DefVal} (henc : encodeBody Γ Δ f rel x res e = .ok body)
+    {f : TinyML.Var} {fn : SpecFn} {x res : TinyML.Var} {e : Typed.Expr}
+    {body : DefVal} (henc : encodeBody Γ Δ f fn x res e = .ok body)
     (hΓ : Γ.splitCompatible ρ)
-    (hΓrel : Γ.wfIn Δ) (hΓdef : Γ.defWfIn Δ)
-    (hΔ : Δ.wf) (hheadFresh : HeadFresh Δ rel x res)
+    (hΓwf : Γ.wfIn Δ)
+    (hΔ : Δ.wf) (hheadFresh : HeadFresh Δ fn x res)
     (hρdet : Relation.BinaryRelDet Γ ρ ρ)
     (R : ValRel) :
-    ∀ ax ∈ axioms rel x body,
-      ax.eval ((defInterpEnv Γ Δ ρ f rel x res e body).updateBinaryRel
-        .value .value rel R) := by
+    ∀ ax ∈ axioms fn x body,
+      ax.eval ((defInterpEnv Γ Δ ρ f fn x res e body).updateBinaryRel
+        .value .value fn R) := by
   intro ax hmem
-  have hbase := axioms_eval henc hΓ hΓrel hΓdef hΔ hheadFresh hρdet ax hmem
+  have hbase := axioms_eval henc hΓ hΓwf hΔ hheadFresh hρdet ax hmem
   set Δsmall : Signature :=
-    (Δ.addUnary (SpecFn.func rel)).addUnaryRel (SpecFn.defined rel) with hΔsmall_def
+    (Δ.addUnary (SpecFn.func fn)).addUnaryRel (SpecFn.defined fn) with hΔsmall_def
   have hΔbig_wf : (Δsmall.declVar ⟨x, .value⟩).wf := by
-    show (defvalBodySig Δ rel x).wf
+    show (defvalBodySig Δ fn x).wf
     exact defvalBodySig_wf_of_headFresh hΔ hheadFresh
   have hbody_wf : body.wfIn (Δsmall.declVar ⟨x, .value⟩) := by
-    show body.wfIn (defvalBodySig Δ rel x)
-    exact encodeBody_wfIn_defvalBodySig hΔ hΓdef hheadFresh henc
-  have hxNeFun : x ≠ SpecFn.funcName rel := fun heq =>
+    show body.wfIn (defvalBodySig Δ fn x)
+    exact encodeBody_wfIn_defvalBodySig hΔ hΓwf.split hheadFresh henc
+  have hxNeFun : x ≠ SpecFn.funcName fn := fun heq =>
     var_fresh_splitBase_of_headFresh hheadFresh (heq ▸ Signature.mem_allNames_of_unary
-      (Δ := Δsmall) (u := SpecFn.func rel) (List.Mem.head _))
-  have hxNeDef : x ≠ SpecFn.defName rel := fun heq =>
+      (Δ := Δsmall) (u := SpecFn.func fn) (List.Mem.head _))
+  have hxNeDef : x ≠ SpecFn.defName fn := fun heq =>
     var_fresh_splitBase_of_headFresh hheadFresh (heq ▸ Signature.mem_allNames_of_unaryRel
-      (Δ := Δsmall) (u := SpecFn.defined rel) (List.Mem.head _))
-  have hfun_mem : SpecFn.func rel ∈ (Δsmall.declVar ⟨x, .value⟩).unary :=
+      (Δ := Δsmall) (u := SpecFn.defined fn) (List.Mem.head _))
+  have hfun_mem : SpecFn.func fn ∈ (Δsmall.declVar ⟨x, .value⟩).unary :=
     Signature.mem_remove_unary.mpr ⟨List.Mem.head _, fun heq => hxNeFun heq.symm⟩
-  have hrel_mem : SpecFn.defined rel ∈ (Δsmall.declVar ⟨x, .value⟩).unaryRel :=
+  have hrel_mem : SpecFn.defined fn ∈ (Δsmall.declVar ⟨x, .value⟩).unaryRel :=
     Signature.mem_remove_unaryRel.mpr ⟨List.Mem.head _, fun heq => hxNeDef heq.symm⟩
   have hax_wf : ax.wfIn Δsmall :=
     axioms_wfIn (Δ := Δsmall) hΔbig_wf hbody_wf hfun_mem hrel_mem ax hmem
-  have hrelFresh_small : (⟨rel, .value, .value⟩ : FOL.BinaryRel).name ∉ Δsmall.allNames :=
+  have hrelFresh_small : (⟨fn, .value, .value⟩ : FOL.BinaryRel).name ∉ Δsmall.allNames :=
     Signature.not_mem_allNames_addUnaryRel
       (Signature.not_mem_allNames_addUnary hheadFresh.relFresh
-        (show rel ≠ (SpecFn.func rel).name from (SpecFn.funcName_ne_fn rel).symm))
-      (show rel ≠ (SpecFn.defined rel).name from (SpecFn.defName_ne_fn rel).symm)
+        (show fn ≠ (SpecFn.func fn).name from (SpecFn.funcName_ne_fn fn).symm))
+      (show fn ≠ (SpecFn.defined fn).name from (SpecFn.defName_ne_fn fn).symm)
   have hagree :
       Env.agreeOn Δsmall
-        (defInterpEnv Γ Δ ρ f rel x res e body)
-        ((defInterpEnv Γ Δ ρ f rel x res e body).updateBinaryRel
-          .value .value rel R) :=
+        (defInterpEnv Γ Δ ρ f fn x res e body)
+        ((defInterpEnv Γ Δ ρ f fn x res e body).updateBinaryRel
+          .value .value fn R) :=
     Env.agreeOn_update_fresh_binaryRel
-      (b := ⟨rel, .value, .value⟩) hrelFresh_small
+      (b := ⟨fn, .value, .value⟩) hrelFresh_small
   exact (Formula.eval_env_agree hax_wf hagree).mp hbase
 
 /-- Verifier-facing combined functionality: `semrel` is single-valued. -/
 theorem bundle_semrel_functional
     {Γ : FunCtx} {Δ : Signature}
-    {name rel arg : String} {body : Typed.Expr}
-    {sym : FOL.BinaryRel} {fn : FOL.Unary} {drel : FOL.UnaryRel}
+    {f fn x : String} {e : Typed.Expr}
+    {sym : FOL.BinaryRel} {fnSym : FOL.Unary} {drel : FOL.UnaryRel}
     {res : String} {bv : DefVal} {axs : List Formula}
-    (hinfo : bundle Γ Δ name rel arg body
-              = .ok (sym, fn, drel, res, bv, axs))
-    (hΓrel : Γ.wfIn Δ) (hΓdef : Γ.defWfIn Δ)
-    (hΔ : Δ.wf) (hf : InfoFresh Δ rel arg)
+    (hinfo : bundle Γ Δ f fn x e
+              = .ok (sym, fnSym, drel, res, bv, axs))
+    (hΓwf : Γ.wfIn Δ)
+    (hΔ : Δ.wf) (hf : InfoFresh Δ fn x)
     (ρ : Env) (hρdet : Relation.BinaryRelDet Γ ρ ρ)
     (vin : Srt.value.denote) (y₁ y₂ : Srt.value.denote)
-    (h₁ : semrel Γ Δ ρ name rel arg res body vin y₁)
-    (h₂ : semrel Γ Δ ρ name rel arg res body vin y₂) :
+    (h₁ : semrel Γ Δ ρ f fn x res e vin y₁)
+    (h₂ : semrel Γ Δ ρ f fn x res e vin y₂) :
     y₁ = y₂ := by
   unfold bundle at hinfo
   simp only [bind, Except.bind] at hinfo
@@ -445,60 +445,60 @@ theorem bundle_semrel_functional
   · cases hinfo
   rename_i bv' henc
   cases hinfo
-  have hheadFresh := bundle_headFresh (Δ := Δ) (arg := arg) (rel := rel) hf
-  exact relation_semrel_functional_of_encodeBody henc hΔ hΓrel hΓdef hheadFresh hρdet vin y₁ y₂ h₁ h₂
+  have hheadFresh := bundle_headFresh (Δ := Δ) (x := x) (fn := fn) hf
+  exact relation_semrel_functional_of_encodeBody henc hΔ hΓwf hheadFresh hρdet vin y₁ y₂ h₁ h₂
 
 /-- Verifier-facing semrel/split graph compatibility for the new relation. -/
 theorem bundle_semrel_compatible
     {Γ : FunCtx} {Δ : Signature} {ρ : Env}
-    {name rel arg : String} {body : Typed.Expr}
-    {sym : FOL.BinaryRel} {fn : FOL.Unary} {drel : FOL.UnaryRel}
+    {f fn x : String} {e : Typed.Expr}
+    {sym : FOL.BinaryRel} {fnSym : FOL.Unary} {drel : FOL.UnaryRel}
     {res : String} {bv : DefVal} {axs : List Formula}
-    (hinfo : bundle Γ Δ name rel arg body
-              = .ok (sym, fn, drel, res, bv, axs))
+    (hinfo : bundle Γ Δ f fn x e
+              = .ok (sym, fnSym, drel, res, bv, axs))
     (hΓ : Γ.splitCompatible ρ)
-    (hΓrel : Γ.wfIn Δ) (hΓdef : Γ.defWfIn Δ)
-    (hΔ : Δ.wf) (hf : InfoFresh Δ rel arg)
+    (hΓwf : Γ.wfIn Δ)
+    (hΔ : Δ.wf) (hf : InfoFresh Δ fn x)
     (hρdet : Relation.BinaryRelDet Γ ρ ρ)
     (vin vout : Srt.value.denote) :
-    semrel Γ Δ ρ name rel arg res body vin vout ↔
-      semdef Γ Δ ρ name rel arg res body bv vin ∧
-        semFunc (semrel Γ Δ ρ name rel arg res body) vin = vout := by
+    semrel Γ Δ ρ f fn x res e vin vout ↔
+      semdef Γ Δ ρ f fn x res e bv vin ∧
+        semFunc (semrel Γ Δ ρ f fn x res e) vin = vout := by
   unfold bundle at hinfo
   simp only [bind, Except.bind] at hinfo
   split at hinfo
   · cases hinfo
   rename_i bv' henc
   cases hinfo
-  have hheadFresh := bundle_headFresh (Δ := Δ) (arg := arg) (rel := rel) hf
-  exact semrel_compatible henc hΓ hΓrel hΓdef hΔ hheadFresh hρdet vin vout
+  have hheadFresh := bundle_headFresh (Δ := Δ) (x := x) (fn := fn) hf
+  exact semrel_compatible henc hΓ hΓwf hΔ hheadFresh hρdet vin vout
 
 /-- Verifier-facing variant of `axioms_eval_updateBinaryRel`: the axioms emitted
 by `bundle` evaluate to true under any choice of binary-relation
-interpretation for the freshly declared `rel` symbol. -/
+interpretation for the freshly declared `fn` symbol. -/
 theorem bundle_eval_updateBinaryRel
     {Γ : FunCtx} {Δ : Signature} {ρ : Env}
-    {name rel arg : String} {body : Typed.Expr}
-    {sym : FOL.BinaryRel} {fn : FOL.Unary} {drel : FOL.UnaryRel}
+    {f fn x : String} {e : Typed.Expr}
+    {sym : FOL.BinaryRel} {fnSym : FOL.Unary} {drel : FOL.UnaryRel}
     {res : String} {bv : DefVal} {axs : List Formula}
-    (hinfo : bundle Γ Δ name rel arg body
-              = .ok (sym, fn, drel, res, bv, axs))
+    (hinfo : bundle Γ Δ f fn x e
+              = .ok (sym, fnSym, drel, res, bv, axs))
     (hΓ : Γ.splitCompatible ρ)
-    (hΓrel : Γ.wfIn Δ) (hΓdef : Γ.defWfIn Δ)
-    (hΔ : Δ.wf) (hf : InfoFresh Δ rel arg)
+    (hΓwf : Γ.wfIn Δ)
+    (hΔ : Δ.wf) (hf : InfoFresh Δ fn x)
     (hρdet : Relation.BinaryRelDet Γ ρ ρ)
     (R : ValRel) :
     ∀ ax ∈ axs,
-      ax.eval ((defInterpEnv Γ Δ ρ name rel arg res body bv).updateBinaryRel
-        .value .value rel R) := by
+      ax.eval ((defInterpEnv Γ Δ ρ f fn x res e bv).updateBinaryRel
+        .value .value fn R) := by
   unfold bundle at hinfo
   simp only [bind, Except.bind] at hinfo
   split at hinfo
   · cases hinfo
   rename_i bv' henc
   cases hinfo
-  have hheadFresh := bundle_headFresh (Δ := Δ) (arg := arg) (rel := rel) hf
-  exact axioms_eval_updateBinaryRel henc hΓ hΓrel hΓdef hΔ hheadFresh hρdet R
+  have hheadFresh := bundle_headFresh (Δ := Δ) (x := x) (fn := fn) hf
+  exact axioms_eval_updateBinaryRel henc hΓ hΓwf hΔ hheadFresh hρdet R
 
 end Skolemize
 end Verifier.RelationalEncoding

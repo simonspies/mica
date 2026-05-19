@@ -390,14 +390,6 @@ theorem Term.eval_env_agree {t : Term τ} {ρ ρ' : Env} {Δ : Signature} :
     simp [Term.eval]
     rw [ihc hwf.1, iht hwf.2.1, ihe hwf.2.2]
 
-/-- A variable's value depends only on the environment components named by a
-signature it belongs to. -/
-theorem Term.eval_var_agreeOn {τ : Srt} {x : String} {Δ : Signature} {ρ ρ' : Env}
-    (hmem : (⟨x, τ⟩ : Var) ∈ Δ.vars) (hag : Env.agreeOn Δ ρ ρ') :
-    Term.eval ρ (.var τ x) = Term.eval ρ' (.var τ x) := by
-  simp [Term.eval, Env.lookupConst]
-  exact hag.1 ⟨x, τ⟩ hmem
-
 /-- Agreement on the environment components used by term evaluation. Relation
 interpretations are intentionally ignored. -/
 def Env.termAgree (Δ : Signature) (ρ₁ ρ₂ : Env) : Prop :=

@@ -231,7 +231,7 @@ def wfInE (Δ : Signature) : Except String DefVal → Prop
 theorem encoderOps_call_wfInE {Γ : FunCtx} {Δ : Signature}
     {f : TinyML.Var} {fn : SpecFn} {arg : Term .value}
     {k : Term .value → Except String DefVal}
-    (hΔ : Δ.wf) (hΓ : Γ.defWfIn Δ) (hmem : (f, fn) ∈ Γ)
+    (hΔ : Δ.wf) (hΓ : Γ.splitWfIn Δ) (hmem : (f, fn) ∈ Γ)
     (harg : arg.wfIn Δ) (hk : SigCont wfInE Δ k) :
     wfInE Δ (encoderOps.call fn arg k) := by
   have hsyms := hΓ f fn hmem
@@ -266,15 +266,15 @@ theorem encoderOps_ite_wfInE {Δ : Signature} {cond : Term .bool}
 
 /-- `EncoderOpsSig` instance for the solver-facing defined/value encoder. The
 generic `encodeWith_indWithSig` then yields the well-formedness of `encode`. -/
-def encoderOps_wf : EncoderOpsSig encoderOps wfInE FunCtx.defWfIn where
-  ctx_mono := fun hΓ hsub => FunCtx.defWfIn_mono hΓ hsub
+def encoderOps_wf : EncoderOpsSig encoderOps wfInE FunCtx.splitWfIn where
+  ctx_mono := fun hΓ hsub => FunCtx.splitWfIn_mono hΓ hsub
   call_ind := encoderOps_call_wfInE
   ite_ind := encoderOps_ite_wfInE
   error_ind := True.intro
 
 /-- Well-formedness of the solver-facing defined/value encoding. -/
 theorem encode_wfIn {Γ : FunCtx} {Δ : Signature} (e : Typed.Expr)
-    {m : DefVal} (hΔ : Δ.wf) (hΓ : Γ.defWfIn Δ)
+    {m : DefVal} (hΔ : Δ.wf) (hΓ : Γ.splitWfIn Δ)
     (henc : encode Γ Δ e = .ok m) : m.wfIn Δ := by
   have hcarrier : wfInE Δ
       (encodeWith encoderOps Γ (VarEnv.ofSignature Δ) e (fun v => .ok (DefVal.pure v))) := by
@@ -382,7 +382,7 @@ relational signature. -/
 def RelSucceedsWhenDef (Γ : FunCtx) :
     Signature → Signature → Env → Env → Rel → Except String DefVal → Prop :=
   fun Δrel Δdef _ _ m d =>
-    Δrel.wf → Δdef.wf → Γ.defWfIn Δdef →
+    Δrel.wf → Δdef.wf → Γ.splitWfIn Δdef →
       ∀ s, s.Covers Δrel → ∀ body, d = .ok body → ∃ φ, m s = .ok φ
 
 /-- Call case for `RelSucceedsWhenDef`: split success of the continuation
@@ -902,16 +902,15 @@ theorem sig_wf_of_headFresh {Δ : Signature} {fn : SpecFn} {x res : String}
 /-! ### Freshness derivations -/
 
 theorem freshFn_of_headFresh {Γ : FunCtx} {Δ : Signature} {fn : SpecFn} {x res : String}
-    (hΓfn : Γ.wfIn Δ) (hΓdef : Γ.defWfIn Δ)
-    (hfresh : HeadFresh Δ fn x res) :
+    (hΓ : Γ.wfIn Δ) (hfresh : HeadFresh Δ fn x res) :
     FunCtx.freshFn Γ fn := by
   intro g fn' hmem
   have hrel'_mem : fn' ∈ Δ.allNames :=
-    Signature.mem_allNames_of_binaryRel (hΓfn g fn' hmem)
+    Signature.mem_allNames_of_binaryRel (hΓ.rel g fn' hmem)
   have hfun_mem : (fn').funcName ∈ Δ.allNames :=
-    Signature.mem_allNames_of_unary (hΓdef g fn' hmem).1
+    Signature.mem_allNames_of_unary (hΓ.split g fn' hmem).1
   have hdef_mem : (fn').defName ∈ Δ.allNames :=
-    Signature.mem_allNames_of_unaryRel (hΓdef g fn' hmem).2
+    Signature.mem_allNames_of_unaryRel (hΓ.split g fn' hmem).2
   refine ⟨?_, ?_, ?_⟩
   · intro h
     exact hfresh.relFresh (h ▸ hrel'_mem)
@@ -924,10 +923,10 @@ theorem freshFn_of_headFresh {Γ : FunCtx} {Δ : Signature} {fn : SpecFn} {x res
         (Signature.Subset.subset_addUnary _ (fn.func))) _ hdef_mem)
 
 
-theorem ctx_wfIn_relSig_of_headFresh
+theorem ctx_relWfIn_relSig_of_headFresh
     {Γ : FunCtx} {Δ : Signature} {f : TinyML.Var} {fn : SpecFn} {x res : TinyML.Var}
-    (hΓfn : Γ.wfIn Δ) (hfresh : HeadFresh Δ fn x res) :
-    (Relation.ctx Γ f fn).wfIn (Relation.sig Δ fn x res) := by
+    (hΓfn : Γ.relWfIn Δ) (hfresh : HeadFresh Δ fn x res) :
+    (Relation.ctx Γ f fn).relWfIn (Relation.sig Δ fn x res) := by
   intro g fn' hmem
   cases hmem with
   | head =>
@@ -947,10 +946,10 @@ theorem ctx_wfIn_relSig_of_headFresh
       exact ((subset_relBodySig_of_headFresh hfresh).trans
         (relBodySig_subset_relSig_of_headFresh hfresh)).binaryRel _ (hΓfn g fn' htail)
 
-theorem ctx_defWfIn_bodySig_of_headFresh
+theorem ctx_splitWfIn_bodySig_of_headFresh
     {Γ : FunCtx} {Δ : Signature} {f : TinyML.Var} {fn : SpecFn} {x res : TinyML.Var}
-    (hΓdef : Γ.defWfIn Δ) (hfresh : HeadFresh Δ fn x res) :
-    (Relation.ctx Γ f fn).defWfIn (bodySig Δ fn x) := by
+    (hΓdef : Γ.splitWfIn Δ) (hfresh : HeadFresh Δ fn x res) :
+    (Relation.ctx Γ f fn).splitWfIn (bodySig Δ fn x) := by
   intro g fn' hmem
   cases hmem with
   | head =>
@@ -968,12 +967,12 @@ theorem ctx_defWfIn_bodySig_of_headFresh
               (fn.defined))) (v := ⟨x, .value⟩) hfresh.argFresh)
           (fn.defined) (List.Mem.head _)
   | tail _ htail =>
-      exact FunCtx.defWfIn_mono hΓdef (subset_bodySig_of_headFresh hfresh) g fn' htail
+      exact FunCtx.splitWfIn_mono hΓdef (subset_bodySig_of_headFresh hfresh) g fn' htail
 
-theorem ctx_defWfIn_defvalBodySig_of_headFresh
+theorem ctx_splitWfIn_defvalBodySig_of_headFresh
     {Γ : FunCtx} {Δ : Signature} {f : TinyML.Var} {fn : SpecFn} {x res : TinyML.Var}
-    (hΓdef : Γ.defWfIn Δ) (hfresh : HeadFresh Δ fn x res) :
-    (Relation.ctx Γ f fn).defWfIn (defvalBodySig Δ fn x) := by
+    (hΓdef : Γ.splitWfIn Δ) (hfresh : HeadFresh Δ fn x res) :
+    (Relation.ctx Γ f fn).splitWfIn (defvalBodySig Δ fn x) := by
   intro g fn' hmem
   cases hmem with
   | head =>
@@ -991,7 +990,7 @@ theorem ctx_defWfIn_defvalBodySig_of_headFresh
             (v := ⟨x, .value⟩) (var_fresh_splitBase_of_headFresh hfresh))
           (fn.defined) (List.Mem.head _)
   | tail _ htail =>
-      exact FunCtx.defWfIn_mono hΓdef (subset_defvalBodySig_of_headFresh hfresh)
+      exact FunCtx.splitWfIn_mono hΓdef (subset_defvalBodySig_of_headFresh hfresh)
         g fn' htail
 
 /-- If the split defined/value body encoder succeeds, the relational body
@@ -1001,12 +1000,12 @@ proofs. -/
 theorem encodeBody_relEncodeBody {Γ : FunCtx} {Δ : Signature}
     {f : TinyML.Var} {fn : SpecFn} {x res : TinyML.Var} {e : Typed.Expr}
     {body : DefVal}
-    (hΔ : Δ.wf) (hΓdef : Γ.defWfIn Δ) (hheadFresh : HeadFresh Δ fn x res)
+    (hΔ : Δ.wf) (hΓdef : Γ.splitWfIn Δ) (hheadFresh : HeadFresh Δ fn x res)
     (henc : encodeBody Γ Δ f fn x res e = .ok body) :
     ∃ φ, relEncodeBody Γ Δ f fn x res e = .ok φ := by
   have hΔbody : (bodySig Δ fn x).wf := bodySig_wf_of_headFresh hΔ hheadFresh
-  have hΓbody : (Relation.ctx Γ f fn).defWfIn (bodySig Δ fn x) :=
-    ctx_defWfIn_bodySig_of_headFresh hΓdef hheadFresh
+  have hΓbody : (Relation.ctx Γ f fn).splitWfIn (bodySig Δ fn x) :=
+    ctx_splitWfIn_bodySig_of_headFresh hΓdef hheadFresh
   have hbinary :
       RelSucceedsWhenDef (Relation.ctx Γ f fn) (bodySig Δ fn x) (bodySig Δ fn x)
         default default
@@ -1043,12 +1042,12 @@ theorem encodeBody_wfIn_defvalBodySig
     {Γ : FunCtx} {Δ : Signature}
     {f : TinyML.Var} {fn : SpecFn} {x res : TinyML.Var} {e : Typed.Expr}
     {body : DefVal}
-    (hΔ : Δ.wf) (hΓdef : Γ.defWfIn Δ)
+    (hΔ : Δ.wf) (hΓdef : Γ.splitWfIn Δ)
     (hheadFresh : HeadFresh Δ fn x res)
     (henc : encodeBody Γ Δ f fn x res e = .ok body) :
     body.wfIn (defvalBodySig Δ fn x) :=
   encode_wfIn e (defvalBodySig_wf_of_headFresh hΔ hheadFresh)
-    (ctx_defWfIn_defvalBodySig_of_headFresh hΓdef hheadFresh)
+    (ctx_splitWfIn_defvalBodySig_of_headFresh hΓdef hheadFresh)
     henc
 
 theorem relEnv_relSplitEnv_agreeOn_relSig
@@ -1096,7 +1095,7 @@ theorem relEncodeBody_wfIn_relSig
     {Γ : FunCtx} {Δ : Signature}
     {f : TinyML.Var} {fn : SpecFn} {x res : TinyML.Var} {e : Typed.Expr}
     {φ : Formula}
-    (hΓfn : Γ.wfIn Δ) (hΔ : Δ.wf) (hheadFresh : HeadFresh Δ fn x res)
+    (hΓfn : Γ.relWfIn Δ) (hΔ : Δ.wf) (hheadFresh : HeadFresh Δ fn x res)
     (hrelEnc : relEncodeBody Γ Δ f fn x res e = .ok φ) :
     φ.wfIn (Relation.sig Δ fn x res) := by
   set m := encodeWith Relation.encoderOps (Relation.ctx Γ f fn)
@@ -1113,7 +1112,7 @@ theorem relEncodeBody_wfIn_relSig
     encodeWith_indWithSig Relation.encoderOps_wf e
       (relBodySig_subset_relSig_of_headFresh hheadFresh)
       hsigWf
-      (ctx_wfIn_relSig_of_headFresh hΓfn hheadFresh)
+      (ctx_relWfIn_relSig_of_headFresh hΓfn hheadFresh)
       (fun y v hlookup =>
         Term.wfIn_mono v ((VarEnv.ofSignature_wfIn
           (relBodySig_wf_of_headFresh hΔ hheadFresh)) y v hlookup)
@@ -1160,19 +1159,19 @@ theorem splitEnv_relSplitEnv_agreeOn_defvalBodySig
 equivalent to the abstract semantic body operator. -/
 theorem rel_body_eval_iff
     {Γ : FunCtx} {Δ : Signature} {ρ : Env}
-    {f : TinyML.Var} {rel : String} {x res : TinyML.Var} {e : Typed.Expr}
+    {f : TinyML.Var} {fn : SpecFn} {x res : TinyML.Var} {e : Typed.Expr}
     {φ : Formula} {R : ValRel}
     {D : Srt.value.denote → Prop} {F : Srt.value.denote → Srt.value.denote}
-    (hΓrel : Γ.wfIn Δ) (hΔ : Δ.wf) (hheadFresh : HeadFresh Δ rel x res)
-    (hrelEnc : relEncodeBody Γ Δ f rel x res e = .ok φ)
+    (hΓrel : Γ.relWfIn Δ) (hΔ : Δ.wf) (hheadFresh : HeadFresh Δ fn x res)
+    (hrelEnc : relEncodeBody Γ Δ f fn x res e = .ok φ)
     (vin vout : Srt.value.denote) :
-    φ.eval (((relSplitEnv ρ rel R D F).updateConst .value x vin).updateConst
+    φ.eval (((relSplitEnv ρ fn R D F).updateConst .value x vin).updateConst
         .value res vout) ↔
-      Relation.semanticBody Formula.sem ρ rel x res φ R vin vout := by
-  have hφwf : φ.wfIn (Relation.sig Δ rel x res) :=
+      Relation.semanticBody Formula.sem ρ fn x res φ R vin vout := by
+  have hφwf : φ.wfIn (Relation.sig Δ fn x res) :=
     relEncodeBody_wfIn_relSig hΓrel hΔ hheadFresh hrelEnc
   have hag :=
-    relEnv_relSplitEnv_agreeOn_relSig (Δ := Δ) (ρ := ρ) (fn := rel)
+    relEnv_relSplitEnv_agreeOn_relSig (Δ := Δ) (ρ := ρ) (fn := fn)
       (x := x) (res := res) (R := R) (D := D) (F := F) hheadFresh vin vout
   unfold Relation.semanticBody Formula.sem
   exact (Formula.eval_env_agree hφwf hag).symm

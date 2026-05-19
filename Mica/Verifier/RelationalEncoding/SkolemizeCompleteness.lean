@@ -18,7 +18,7 @@ def CompleteBinary (Γ : FunCtx) (P : Env → Srt.value.denote → Prop) (res : 
     Signature → Signature → Env → Env → Rel → Except String DefVal → Prop :=
   fun Δ₁ Δ₂ ρ₁ ρ₂ m d =>
     ∀ (Δ : Signature) (s : NameSupply) (φ : Formula) (body : DefVal),
-      Δ₂.Subset Δ₁ → Δ₂.wf → Γ.defWfIn Δ₂ →
+      Δ₂.Subset Δ₁ → Δ₂.wf → Γ.splitWfIn Δ₂ →
       Δ₁.Subset Δ → Δ.wf → s.Covers Δ →
       (⟨res, .value⟩ : Var) ∈ Δ.vars →
       m s = .ok φ →
@@ -68,25 +68,25 @@ continuation binary handles the fresh result variable. -/
 theorem CompleteBinary.call
     {Γ : FunCtx} {P : Env → Srt.value.denote → Prop} {res : String}
     {Δ₁ Δ₂ : Signature} {ρ₁ ρ₂ : Env}
-    {f rel : String} {arg₁ arg₂ : Term .value}
+    {f : TinyML.Var} {fn : SpecFn} {arg₁ arg₂ : Term .value}
     {k₁ : Term .value → Rel} {k₂ : Term .value → Except String DefVal}
-    (hmem : (f, rel) ∈ Γ)
+    (hmem : (f, fn) ∈ Γ)
     (harg₁ : arg₁.wfIn Δ₁) (harg₂ : arg₂.wfIn Δ₂)
     (hargeval : Term.eval ρ₁ arg₁ = Term.eval ρ₂ arg₂)
     (hk : EncoderContSpec (CompleteBinary Γ P res) Δ₁ Δ₂ ρ₁ ρ₂ k₁ k₂) :
     CompleteBinary Γ P res Δ₁ Δ₂ ρ₁ ρ₂
-      (Relation.encoderOps.call rel arg₁ k₁) (encoderOps.call rel arg₂ k₂) := by
+      (Relation.encoderOps.call fn arg₁ k₁) (encoderOps.call fn arg₂ k₂) := by
   intro Δ s φ body hsub21 hΔ₂ hΓdef hsub1 hΔ hcov hres hrun hd hbody hΓc hag hres_eq hφ
-  -- DefVal side: d = encoderOps.call rel arg₂ k₂ = DefVal.bind (DefVal.call rel arg₂) k₂
+  -- DefVal side: d = encoderOps.call fn arg₂ k₂ = DefVal.bind (DefVal.call fn arg₂) k₂
   simp only [encoderOps] at hd
   obtain ⟨n, hkn, hbodyeq⟩ := DefVal.bind_ok hd
   simp only [DefVal.call] at hkn
   subst hbodyeq
   obtain ⟨hnval_wf, hisdef_wf, hndef_wf⟩ := hbody
   have hnwf : n.wfIn Δ₂ := ⟨hnval_wf, hndef_wf⟩
-  have hfun_mem : SpecFn.func rel ∈ Δ₂.unary := (hΓdef f rel hmem).1
-  have hdef_mem : SpecFn.defined rel ∈ Δ₂.unaryRel := (hΓdef f rel hmem).2
-  -- Rel side: m = Rel.call rel arg₁ k₁
+  have hfun_mem : SpecFn.func fn ∈ Δ₂.unary := (hΓdef f fn hmem).1
+  have hdef_mem : SpecFn.defined fn ∈ Δ₂.unaryRel := (hΓdef f fn hmem).2
+  -- Rel side: m = Rel.call fn arg₁ k₁
   simp only [Relation.encoderOps, Rel.call] at hrun
   let ctx := freshValueCtx s hΔ hcov
   have hfreshΔ₁ : ctx.r ∉ Δ₁.allNames := ctx.fresh_of_subset hsub1
@@ -106,20 +106,20 @@ theorem CompleteBinary.call
     have hargΔ : arg₁.wfIn Δ := Term.wfIn_mono _ harg₁ hsub1 hΔ
     have hargeval' : arg₁.eval (ρ₁.updateConst .value ctx.r w) = arg₁.eval ρ₁ :=
       ctx.eval_update_fresh hargΔ
-    have hcall' : ρ₁.binaryRel .value .value rel (arg₁.eval ρ₁) w := by
+    have hcall' : ρ₁.binaryRel .value .value fn (arg₁.eval ρ₁) w := by
       simpa [Formula.funcall, Formula.eval, BinPred.eval, Term.eval,
         Env.updateConst_binaryRel, Env.lookupConst_updateConst_same, hargeval']
         using hcall
-    have hsplit := hΓc f rel hmem (arg₁.eval ρ₁) w hcall'
-    have hunary_eq : ρ₁.unary .value .value (SpecFn.funcName rel) =
-        ρ₂.unary .value .value (SpecFn.funcName rel) :=
-      hag.2.2.1 (SpecFn.func rel) hfun_mem
-    have hunaryRel_eq : ρ₁.unaryRel .value (SpecFn.defName rel) =
-        ρ₂.unaryRel .value (SpecFn.defName rel) :=
-      hag.2.2.2.2.1 (SpecFn.defined rel) hdef_mem
-    have hw_eq : w = ρ₂.unary .value .value (SpecFn.funcName rel) (arg₂.eval ρ₂) := by
+    have hsplit := hΓc f fn hmem (arg₁.eval ρ₁) w hcall'
+    have hunary_eq : ρ₁.unary .value .value (SpecFn.funcName fn) =
+        ρ₂.unary .value .value (SpecFn.funcName fn) :=
+      hag.2.2.1 (SpecFn.func fn) hfun_mem
+    have hunaryRel_eq : ρ₁.unaryRel .value (SpecFn.defName fn) =
+        ρ₂.unaryRel .value (SpecFn.defName fn) :=
+      hag.2.2.2.2.1 (SpecFn.defined fn) hdef_mem
+    have hw_eq : w = ρ₂.unary .value .value (SpecFn.funcName fn) (arg₂.eval ρ₂) := by
       rw [← hsplit.2, congrFun hunary_eq (arg₁.eval ρ₁), hargeval]
-    have hisdef_ev : (SpecFn.isDefined rel arg₂).eval ρ₂ := by
+    have hisdef_ev : (SpecFn.isDefined fn arg₂).eval ρ₂ := by
       have hu := hsplit.1
       rw [congrFun hunaryRel_eq (arg₁.eval ρ₁), hargeval] at hu
       simpa [SpecFn.isDefined, Formula.eval, UnPred.eval] using hu
@@ -131,18 +131,18 @@ theorem CompleteBinary.call
         (Env.agreeOn_symm
           (Env.agreeOn_update_fresh_const (c := ⟨ctx.r, .value⟩) hfreshΔ₂))
         hag
-    have hcallwf : (SpecFn.call rel arg₂).wfIn Δ₂ :=
+    have hcallwf : (SpecFn.call fn arg₂).wfIn Δ₂ :=
       SpecFn.call_wfIn hfun_mem hΔ₂ harg₂
     have hagree₁ : Env.agreeOn Δ₁ ρ₁ (ρ₁.updateConst .value ctx.r w) :=
       Env.agreeOn_update_fresh_const (c := ⟨ctx.r, .value⟩) hfreshΔ₁
     have heval_eq :
         Term.eval (ρ₁.updateConst .value ctx.r w) (Term.var .value ctx.r) =
-          Term.eval ρ₂ (SpecFn.call rel arg₂) := by
+          Term.eval ρ₂ (SpecFn.call fn arg₂) := by
       simp [Term.eval, SpecFn.call, UnOp.eval, Env.lookupConst_updateConst_same, hw_eq]
     have hcont :=
       hk (hsub1.trans ctx.subset) (Signature.Subset.refl Δ₂) ctx.wf hΔ₂
         hagree₁ Env.agreeOn_refl
-        (Term.var .value ctx.r) (SpecFn.call rel arg₂) ctx.var_wf hcallwf heval_eq
+        (Term.var .value ctx.r) (SpecFn.call fn arg₂) ctx.var_wf hcallwf heval_eq
     have hrec := hcont ctx.Δ' ctx.s' φ' n
       (hsub21.trans (hsub1.trans ctx.subset)) hΔ₂ hΓdef
       (Signature.Subset.refl ctx.Δ') ctx.wf ctx.covers
@@ -173,7 +173,7 @@ theorem encodeWith_kEq_complete {Γ : FunCtx} {Δenc Δrun : Signature}
     {res : String} {φ : Formula}
     (hrun : encodeWith Relation.encoderOps Γ (VarEnv.ofSignature Δenc) e (Relation.kEq res) srun = .ok φ)
     (hdef : encode Γ Δenc e = .ok body)
-    (hΓ : Γ.splitComplete ρ) (hΓdef : Γ.defWfIn Δenc)
+    (hΓ : Γ.splitComplete ρ) (hΓdef : Γ.splitWfIn Δenc)
     (hΔenc : Δenc.wf) (hΔrun : Δrun.wf) (hcov : srun.Covers Δrun)
     (hsub : Δenc.Subset Δrun)
     (hbody : body.wfIn Δenc)
@@ -207,20 +207,20 @@ theorem encodeWith_kEq_complete {Γ : FunCtx} {Δenc Δrun : Signature}
 
 theorem defval_eval_transport_from_relSplit_final
     {Γ : FunCtx} {Δ : Signature} {ρ : Env}
-    {f : TinyML.Var} {rel : String} {x res : TinyML.Var} {e : Typed.Expr}
+    {f : TinyML.Var} {fn : SpecFn} {x res : TinyML.Var} {e : Typed.Expr}
     {body : DefVal} {R : ValRel}
     {D : Srt.value.denote → Prop} {F : Srt.value.denote → Srt.value.denote}
-    (henc : encodeBody Γ Δ f rel x res e = .ok body)
-    (hΓdef : Γ.defWfIn Δ) (hΔ : Δ.wf) (hheadFresh : HeadFresh Δ rel x res)
+    (henc : encodeBody Γ Δ f fn x res e = .ok body)
+    (hΓdef : Γ.splitWfIn Δ) (hΔ : Δ.wf) (hheadFresh : HeadFresh Δ fn x res)
     (vin vout : Srt.value.denote) :
-    body.defined.eval (((relSplitEnv ρ rel R D F).updateConst .value x vin).updateConst .value res vout) ∧
-        body.value.eval (((relSplitEnv ρ rel R D F).updateConst .value x vin).updateConst .value res vout) =
+    body.defined.eval (((relSplitEnv ρ fn R D F).updateConst .value x vin).updateConst .value res vout) ∧
+        body.value.eval (((relSplitEnv ρ fn R D F).updateConst .value x vin).updateConst .value res vout) =
           vout →
-      body.defined.eval ((splitEnv ρ rel D F).updateConst .value x vin) ∧
-        body.value.eval ((splitEnv ρ rel D F).updateConst .value x vin) =
+      body.defined.eval ((splitEnv ρ fn D F).updateConst .value x vin) ∧
+        body.value.eval ((splitEnv ρ fn D F).updateConst .value x vin) =
           vout := by
   intro hsplit
-  have hbody : body.wfIn (defvalBodySig Δ rel x) :=
+  have hbody : body.wfIn (defvalBodySig Δ fn x) :=
     encodeBody_wfIn_defvalBodySig hΔ hΓdef hheadFresh henc
   have hag := splitEnv_relSplitEnv_agreeOn_defvalBodySig
     (ρ := ρ) (R := R) (D := D) (F := F) hheadFresh vin vout
@@ -232,88 +232,88 @@ definedness predicate and the value computed by the split body. This is one
 half of the relation/split fixpoint equivalence. -/
 theorem semrel_complete
     {Γ : FunCtx} {Δ : Signature} {ρ : Env}
-    {f : TinyML.Var} {rel : String} {x res : TinyML.Var} {e : Typed.Expr}
-    {body : DefVal} (henc : encodeBody Γ Δ f rel x res e = .ok body)
+    {f : TinyML.Var} {fn : SpecFn} {x res : TinyML.Var} {e : Typed.Expr}
+    {body : DefVal} (henc : encodeBody Γ Δ f fn x res e = .ok body)
     (hΓ : Γ.splitCompatible ρ)
-    (hΓrel : Γ.wfIn Δ) (hΓdef : Γ.defWfIn Δ)
-    (hΔ : Δ.wf) (hheadFresh : HeadFresh Δ rel x res)
+    (hΓwf : Γ.wfIn Δ)
+    (hΔ : Δ.wf) (hheadFresh : HeadFresh Δ fn x res)
     (hρdet : Relation.BinaryRelDet Γ ρ ρ)
     (vin vout : Srt.value.denote) :
-    semrel Γ Δ ρ f rel x res e vin vout →
-      semdef Γ Δ ρ f rel x res e body vin ∧
+    semrel Γ Δ ρ f fn x res e vin vout →
+      semdef Γ Δ ρ f fn x res e body vin ∧
       body.value.eval
-        ((defInterpEnv Γ Δ ρ f rel x res e body).updateConst .value x vin) =
+        ((defInterpEnv Γ Δ ρ f fn x res e body).updateConst .value x vin) =
       vout := by
   intro hrel
-  obtain ⟨φ, hrelEnc⟩ := encodeBody_relEncodeBody hΔ hΓdef hheadFresh henc
-  set m := encodeWith Relation.encoderOps (Relation.ctx Γ f rel)
-      (VarEnv.ofSignature (bodySig Δ rel x)) e (Relation.kEq res) with hm_def
-  have hrun : m (relBodySupply Δ rel x res) = .ok φ := by
+  obtain ⟨φ, hrelEnc⟩ := encodeBody_relEncodeBody hΔ hΓwf.split hheadFresh henc
+  set m := encodeWith Relation.encoderOps (Relation.ctx Γ f fn)
+      (VarEnv.ofSignature (bodySig Δ fn x)) e (Relation.kEq res) with hm_def
+  have hrun : m (relBodySupply Δ fn x res) = .ok φ := by
     have hvars :
-        VarEnv.ofSignature (bodySig Δ rel x) =
-          VarEnv.ofSignature (Relation.bodySig Δ rel x) := by
+        VarEnv.ofSignature (bodySig Δ fn x) =
+          VarEnv.ofSignature (Relation.bodySig Δ fn x) := by
       simp [VarEnv.ofSignature, bodySig, Relation.bodySig, Signature.declVar,
         Signature.addBinaryRel, Signature.addUnary, Signature.addUnaryRel,
         Signature.remove, Signature.addVar]
     rw [hm_def, hvars]
     simpa [Relation.relEncodeBody] using hrelEnc
-  have hbodyWf_body : body.wfIn (bodySig Δ rel x) :=
+  have hbodyWf_body : body.wfIn (bodySig Δ fn x) :=
     encode_wfIn e (bodySig_wf_of_headFresh hΔ hheadFresh)
-      (ctx_defWfIn_bodySig_of_headFresh hΓdef hheadFresh) (encodeBody_def_bodySig henc)
-  have hres_mem : (⟨res, .value⟩ : Var) ∈ (sig Δ rel x res).vars := by
+      (ctx_splitWfIn_bodySig_of_headFresh hΓwf.split hheadFresh) (encodeBody_def_bodySig henc)
+  have hres_mem : (⟨res, .value⟩ : Var) ∈ (sig Δ fn x res).vars := by
     unfold sig
     exact Signature.var_mem_declVar _ ⟨res, .value⟩
-  let R : ValRel := semrel Γ Δ ρ f rel x res e
-  let D : Srt.value.denote → Prop := semdef Γ Δ ρ f rel x res e body
+  let R : ValRel := semrel Γ Δ ρ f fn x res e
+  let D : Srt.value.denote → Prop := semdef Γ Δ ρ f fn x res e body
   let F : Srt.value.denote → Srt.value.denote := semFunc R
   let S : ValRel := fun x y => D x ∧ F x = y
-  have hrelEncR : Relation.relEncodeBody Γ Δ f rel x res e = .ok φ := by
+  have hrelEncR : Relation.relEncodeBody Γ Δ f fn x res e = .ok φ := by
     exact hrelEnc
   have hrel_eq :
-      R = Fix.lfp (Relation.semanticBody Formula.sem ρ rel x res φ) := by
+      R = Fix.lfp (Relation.semanticBody Formula.sem ρ fn x res φ) := by
     simp [R, Relation.semrel, Relation.semanticFixpoint, hrelEncR]
   have hpre :
-      Fix.le (Relation.semanticBody Formula.sem ρ rel x res φ S) S := by
+      Fix.le (Relation.semanticBody Formula.sem ρ fn x res φ S) S := by
     intro vin vout hbody
-    let ρS := relSplitEnv ρ rel S D F
-    have hΓS : (Relation.ctx Γ f rel).splitComplete ρS := by
-      intro g rel' hmem a b hcall
+    let ρS := relSplitEnv ρ fn S D F
+    have hΓS : (Relation.ctx Γ f fn).splitComplete ρS := by
+      intro g fn' hmem a b hcall
       cases hmem with
       | head =>
           have hhead :
-              ρS.binaryRel .value .value rel a b →
-                ρS.unaryRel .value (SpecFn.defName rel) a ∧
-                  ρS.unary .value .value (SpecFn.funcName rel) a = b := by
+              ρS.binaryRel .value .value fn a b →
+                ρS.unaryRel .value (SpecFn.defName fn) a ∧
+                  ρS.unary .value .value (SpecFn.funcName fn) a = b := by
             simp [ρS, relSplitEnv, S, Env.updateBinaryRel, Env.updateUnary,
               Env.updateUnaryRel]
           exact hhead hcall
       | tail _ htail =>
-          have hnames := freshFn_of_headFresh hΓrel hΓdef hheadFresh g rel' htail
+          have hnames := freshFn_of_headFresh hΓwf hheadFresh g fn' htail
           have htailComplete :
-              ρS.binaryRel .value .value rel' a b →
-                ρS.unaryRel .value (SpecFn.defName rel') a ∧
-                  ρS.unary .value .value (SpecFn.funcName rel') a = b := by
+              ρS.binaryRel .value .value fn' a b →
+                ρS.unaryRel .value (SpecFn.defName fn') a ∧
+                  ρS.unary .value .value (SpecFn.funcName fn') a = b := by
             simpa [ρS, relSplitEnv, Env.updateBinaryRel, Env.updateUnary,
               Env.updateUnaryRel, hnames.1, hnames.2.1, hnames.2.2]
-              using (hΓ g rel' htail a b).mp
+              using (hΓ g fn' htail a b).mp
           exact htailComplete hcall
     have hbodyρS :
         φ.eval ((ρS.updateConst .value x vin).updateConst .value res vout) := by
       simpa [ρS] using
-        (rel_body_eval_iff (D := D) (F := F) hΓrel hΔ hheadFresh hrelEnc vin vout).mpr hbody
+        (rel_body_eval_iff (D := D) (F := F) hΓwf.rel hΔ hheadFresh hrelEnc vin vout).mpr hbody
     have hproof :=
-      encodeWith_kEq_complete (Γ := Relation.ctx Γ f rel)
-        (Δenc := bodySig Δ rel x) (Δrun := sig Δ rel x res)
-        (srun := relBodySupply Δ rel x res)
+      encodeWith_kEq_complete (Γ := Relation.ctx Γ f fn)
+        (Δenc := bodySig Δ fn x) (Δrun := sig Δ fn x res)
+        (srun := relBodySupply Δ fn x res)
         (ρ := (ρS.updateConst .value x vin).updateConst .value res vout)
         (e := e) (body := body) (res := res) (φ := φ)
         hrun (encodeBody_def_bodySig henc)
         (FunCtx.splitComplete_updateConst
           (FunCtx.splitComplete_updateConst hΓS .value x vin) .value res vout)
-        (ctx_defWfIn_bodySig_of_headFresh hΓdef hheadFresh)
+        (ctx_splitWfIn_bodySig_of_headFresh hΓwf.split hheadFresh)
         (bodySig_wf_of_headFresh hΔ hheadFresh)
         (sig_wf_of_headFresh hΔ hheadFresh)
-        (relBodySupply_covers_sig Δ rel x res)
+        (relBodySupply_covers_sig Δ fn x res)
         (bodySig_subset_sig_of_headFresh hheadFresh)
         hbodyWf_body hres_mem
     have hsplitρS :
@@ -322,32 +322,32 @@ theorem semrel_complete
             vout := by
       simpa [Term.eval, Env.lookupConst_updateConst_same] using hproof hbodyρS
     have hsplit :
-        body.defined.eval ((splitEnv ρ rel D F).updateConst .value x vin) ∧
-          body.value.eval ((splitEnv ρ rel D F).updateConst .value x vin) =
+        body.defined.eval ((splitEnv ρ fn D F).updateConst .value x vin) ∧
+          body.value.eval ((splitEnv ρ fn D F).updateConst .value x vin) =
             vout := by
-      exact defval_eval_transport_from_relSplit_final henc hΓdef hΔ hheadFresh
+      exact defval_eval_transport_from_relSplit_final henc hΓwf.split hΔ hheadFresh
         vin vout hsplitρS
     have hdefined : D vin := by
       exact (semdef_unfold_of_encode (ρ := ρ) (x := x) (res := res) henc vin).mpr
         (by simpa [D, F, defBody, defEnv] using hsplit.1)
     have hfun : F vin = vout := by
       simpa [D, F, R, defInterpEnv] using
-        semFunc_eq_of_semdef_value henc hΓ hΓrel hΓdef hΔ hheadFresh hρdet
+        semFunc_eq_of_semdef_value henc hΓ hΓwf hΔ hheadFresh hρdet
           vin vout (by simpa [D] using hdefined)
           (by simpa [D, F, R, defInterpEnv] using hsplit.2)
     exact ⟨hdefined, hfun⟩
   have hlfp :
-      Fix.lfp (Relation.semanticBody Formula.sem ρ rel x res φ) vin vout := by
+      Fix.lfp (Relation.semanticBody Formula.sem ρ fn x res φ) vin vout := by
     simpa [R, hrel_eq] using hrel
   have hS : S vin vout := Fix.lfp_le_of_prefixed hpre vin vout hlfp
   have hdefined : D vin := hS.1
   let vbody :=
     body.value.eval
-      ((defInterpEnv Γ Δ ρ f rel x res e body).updateConst .value x vin)
+      ((defInterpEnv Γ Δ ρ f fn x res e body).updateConst .value x vin)
   have hbody_eq_fun : vbody = F vin := by
     have hfun : F vin = vbody := by
       simpa [D, F, R, defInterpEnv, vbody] using
-        semFunc_eq_of_semdef_value henc hΓ hΓrel hΓdef hΔ hheadFresh hρdet
+        semFunc_eq_of_semdef_value henc hΓ hΓwf hΔ hheadFresh hρdet
           vin vbody (by simpa [D] using hdefined) rfl
     exact hfun.symm
   exact ⟨by simpa [D] using hdefined, by simpa [vbody] using hbody_eq_fun.trans hS.2⟩
