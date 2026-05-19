@@ -55,22 +55,22 @@ open Relation
 /-- If the encoded body is defined on input `x`, the function is defined on `x`. -/
 def definedIntroAxiom (fn x : TinyML.Var) (body : DefVal) : Formula :=
   .forall_ x .value
-    (.implies body.defined (SpecFn.isDefined fn (.var .value x)))
+    (.implies body.defined (fn.isDefined (.var .value x)))
 
 /-- If the function is defined on input `x`, its solver-facing value equals the
 encoded body value. -/
 def valueAxiom (fn x : TinyML.Var) (body : DefVal) : Formula :=
   .forall_ x .value
     (.implies
-      (SpecFn.isDefined fn (.var .value x))
-      (.eq .value (SpecFn.call fn (.var .value x)) body.value))
+      (fn.isDefined (.var .value x))
+      (.eq .value (fn.call (.var .value x)) body.value))
 
 /-- Converse of `definedIntroAxiom`: if the function is defined on `x`, then the
 encoded body is defined on `x`.  Experimental — exposing this lets the SMT
 backend propagate definedness from a parent call into its recursive subterms. -/
 def definedElimAxiom (fn x : TinyML.Var) (body : DefVal) : Formula :=
   .forall_ x .value
-    (.implies (SpecFn.isDefined fn (.var .value x)) body.defined)
+    (.implies (fn.isDefined (.var .value x)) body.defined)
 
 /-- The solver-facing axioms emitted for a relation-marked function. -/
 def axioms (fn x : TinyML.Var) (body : DefVal) : List Formula :=
@@ -80,8 +80,8 @@ def axioms (fn x : TinyML.Var) (body : DefVal) : List Formula :=
 theorem axioms_wfIn {Δ : Signature} {fn x : String} {body : DefVal}
     (hΔx : (Δ.declVar ⟨x, .value⟩).wf)
     (hbody : body.wfIn (Δ.declVar ⟨x, .value⟩))
-    (hfun : SpecFn.func fn ∈ (Δ.declVar ⟨x, .value⟩).unary)
-    (hrel : SpecFn.defined fn ∈ (Δ.declVar ⟨x, .value⟩).unaryRel) :
+    (hfun : fn.func ∈ (Δ.declVar ⟨x, .value⟩).unary)
+    (hrel : fn.defined ∈ (Δ.declVar ⟨x, .value⟩).unaryRel) :
     ∀ ax ∈ axioms fn x body, ax.wfIn Δ := by
   intro ax hmem
   simp [axioms] at hmem
@@ -253,22 +253,22 @@ level. -/
 `HeadFresh` once a fresh result variable is chosen. The verifier discharges
 these per step. -/
 structure InfoFresh (Δ : Signature) (fn x : String) : Prop where
-  relFresh : fn ∉ Δ.allNames
-  funFresh : SpecFn.funcName fn ∉ Δ.allNames
-  defFresh : SpecFn.defName fn ∉ Δ.allNames
+  relFresh : fn.relName ∉ Δ.allNames
+  funFresh : fn.funcName ∉ Δ.allNames
+  defFresh : fn.defName ∉ Δ.allNames
   argFresh : x ∉ Δ.allNames
-  argNeRel : x ≠ fn
-  argNeFun : x ≠ SpecFn.funcName fn
-  argNeDef : x ≠ SpecFn.defName fn
+  argNeRel : x ≠ fn.relName
+  argNeFun : x ≠ fn.funcName
+  argNeDef : x ≠ fn.defName
 
 theorem freshName_avoid_props
     (Δ : Signature) (x fn : SpecFn) :
     let res := Fresh.freshName
-      (Δ.allNames ++ [x, fn, SpecFn.funcName fn, SpecFn.defName fn]) "r"
-    res ∉ Δ.allNames ∧ res ≠ x ∧ res ≠ fn ∧
-      res ≠ SpecFn.funcName fn ∧ res ≠ SpecFn.defName fn := by
+      (Δ.allNames ++ [x, fn.relName, fn.funcName, fn.defName]) "r"
+    res ∉ Δ.allNames ∧ res ≠ x ∧ res ≠ fn.relName ∧
+      res ≠ fn.funcName ∧ res ≠ fn.defName := by
   have hres := Fresh.freshName_not_in_avoid
-    (Δ.allNames ++ [x, fn, SpecFn.funcName fn, SpecFn.defName fn]) "r"
+    (Δ.allNames ++ [x, fn.relName, fn.funcName, fn.defName]) "r"
   refine ⟨?_, ?_, ?_, ?_, ?_⟩
   · intro h; exact hres (List.mem_append_left _ h)
   · intro h; apply hres; rw [h]; simp
@@ -282,8 +282,8 @@ theorem headFresh_of_fresh
     {Δ : Signature} {fn x res : String}
     (hf : InfoFresh Δ fn x)
     (hresΔ : res ∉ Δ.allNames)
-    (hresRel : res ≠ fn) (hresFun : res ≠ SpecFn.funcName fn)
-    (hresDef : res ≠ SpecFn.defName fn) (hresx : res ≠ x) :
+    (hresRel : res ≠ fn.relName) (hresFun : res ≠ fn.funcName)
+    (hresDef : res ≠ fn.defName) (hresx : res ≠ x) :
     HeadFresh Δ fn x res := by
   refine
     { relFresh := hf.relFresh
@@ -291,9 +291,9 @@ theorem headFresh_of_fresh
       defFresh := ?_
       argFresh := ?_
       resFresh := ?_ }
-  · exact Signature.not_mem_allNames_addBinaryRel hf.funFresh (SpecFn.funcName_ne_fn fn)
+  · exact Signature.not_mem_allNames_addBinaryRel hf.funFresh (SpecFn.funcName_ne_relName fn)
   · exact Signature.not_mem_allNames_addUnary
-      (Signature.not_mem_allNames_addBinaryRel hf.defFresh (SpecFn.defName_ne_fn fn))
+      (Signature.not_mem_allNames_addBinaryRel hf.defFresh (SpecFn.defName_ne_relName fn))
       (SpecFn.defName_ne_funcName fn)
   · exact Signature.not_mem_allNames_addUnaryRel
       (Signature.not_mem_allNames_addUnary
@@ -318,9 +318,9 @@ def bundle
     Except String
       (FOL.BinaryRel × FOL.Unary × FOL.UnaryRel × String × DefVal × List Formula) := do
   let res := Fresh.freshName
-    (Δ.allNames ++ [x, fn, SpecFn.funcName fn, SpecFn.defName fn]) "r"
+    (Δ.allNames ++ [x, fn.relName, fn.funcName, fn.defName]) "r"
   let bv ← encodeBody Γ Δ f fn x res e
-  pure (⟨fn, .value, .value⟩, SpecFn.func fn, SpecFn.defined fn, res, bv,
+  pure (⟨fn.relName, .value, .value⟩, fn.func, fn.defined, res, bv,
         axioms fn x bv)
 
 theorem bundle_headFresh
@@ -328,7 +328,7 @@ theorem bundle_headFresh
     (hf : InfoFresh Δ fn x) :
     HeadFresh Δ fn x
       (Fresh.freshName
-        (Δ.allNames ++ [x, fn, SpecFn.funcName fn, SpecFn.defName fn]) "r") := by
+        (Δ.allNames ++ [x, fn, fn.funcName, fn.defName]) "r") := by
   obtain ⟨hresΔ, hresArg, hresRel, hresFun, hresDef⟩ :=
     freshName_avoid_props Δ x fn
   exact headFresh_of_fresh hf hresΔ hresRel hresFun hresDef hresArg
@@ -341,7 +341,7 @@ theorem bundle_wfIn
               = .ok (sym, fnSym, drel, res, bv, axs))
     (hΔ : Δ.wf) (hΓwf : Γ.wfIn Δ)
     (hf : InfoFresh Δ fn x) :
-    sym = ⟨fn, .value, .value⟩ ∧ fnSym = SpecFn.func fn ∧ drel = SpecFn.defined fn ∧
+    sym = ⟨fn.relName, .value, .value⟩ ∧ fnSym = fn.func ∧ drel = fn.defined ∧
       ∀ ax ∈ axs,
         ax.wfIn (((Δ.addBinaryRel sym).addUnary fnSym).addUnaryRel drel) := by
   unfold bundle at hinfo
@@ -353,8 +353,8 @@ theorem bundle_wfIn
   refine ⟨rfl, rfl, rfl, ?_⟩
   have hheadFresh := bundle_headFresh (Δ := Δ) (x := x) (fn := fn) hf
   set Δext : Signature :=
-    ((Δ.addBinaryRel ⟨fn, .value, .value⟩).addUnary (SpecFn.func fn)).addUnaryRel
-      (SpecFn.defined fn) with hΔext_def
+    ((Δ.addBinaryRel ⟨fn.relName, .value, .value⟩).addUnary (fn.func)).addUnaryRel
+      (fn.defined) with hΔext_def
   have hΔx_wf : (Δext.declVar ⟨x, .value⟩).wf := by
     simpa [Δext, bodySig] using bodySig_wf_of_headFresh hΔ hheadFresh
   have hbody_x : bv.wfIn (Δext.declVar ⟨x, .value⟩) := by
@@ -364,9 +364,9 @@ theorem bundle_wfIn
       (bodySig_wf_of_headFresh hΔ hheadFresh)
       (ctx_splitWfIn_bodySig_of_headFresh hΓwf.split hheadFresh)
       (encodeBody_def_bodySig henc)
-  have hfun_mem : SpecFn.func fn ∈ (Δext.declVar ⟨x, .value⟩).unary :=
+  have hfun_mem : fn.func ∈ (Δext.declVar ⟨x, .value⟩).unary :=
     Signature.mem_remove_unary.mpr ⟨List.Mem.head _, fun heq => hf.argNeFun heq.symm⟩
-  have hrel_mem : SpecFn.defined fn ∈ (Δext.declVar ⟨x, .value⟩).unaryRel :=
+  have hrel_mem : fn.defined ∈ (Δext.declVar ⟨x, .value⟩).unaryRel :=
     Signature.mem_remove_unaryRel.mpr ⟨List.Mem.head _, fun heq => hf.argNeDef heq.symm⟩
   intro ax hmem
   exact axioms_wfIn (Δ := Δext) hΔx_wf hbody_x hfun_mem hrel_mem ax hmem
@@ -391,37 +391,37 @@ theorem axioms_eval_updateBinaryRel
   intro ax hmem
   have hbase := axioms_eval henc hΓ hΓwf hΔ hheadFresh hρdet ax hmem
   set Δsmall : Signature :=
-    (Δ.addUnary (SpecFn.func fn)).addUnaryRel (SpecFn.defined fn) with hΔsmall_def
+    (Δ.addUnary (fn.func)).addUnaryRel (fn.defined) with hΔsmall_def
   have hΔbig_wf : (Δsmall.declVar ⟨x, .value⟩).wf := by
     show (defvalBodySig Δ fn x).wf
     exact defvalBodySig_wf_of_headFresh hΔ hheadFresh
   have hbody_wf : body.wfIn (Δsmall.declVar ⟨x, .value⟩) := by
     show body.wfIn (defvalBodySig Δ fn x)
     exact encodeBody_wfIn_defvalBodySig hΔ hΓwf.split hheadFresh henc
-  have hxNeFun : x ≠ SpecFn.funcName fn := fun heq =>
+  have hxNeFun : x ≠ fn.funcName := fun heq =>
     var_fresh_splitBase_of_headFresh hheadFresh (heq ▸ Signature.mem_allNames_of_unary
-      (Δ := Δsmall) (u := SpecFn.func fn) (List.Mem.head _))
-  have hxNeDef : x ≠ SpecFn.defName fn := fun heq =>
+      (Δ := Δsmall) (u := fn.func) (List.Mem.head _))
+  have hxNeDef : x ≠ fn.defName := fun heq =>
     var_fresh_splitBase_of_headFresh hheadFresh (heq ▸ Signature.mem_allNames_of_unaryRel
-      (Δ := Δsmall) (u := SpecFn.defined fn) (List.Mem.head _))
-  have hfun_mem : SpecFn.func fn ∈ (Δsmall.declVar ⟨x, .value⟩).unary :=
+      (Δ := Δsmall) (u := fn.defined) (List.Mem.head _))
+  have hfun_mem : fn.func ∈ (Δsmall.declVar ⟨x, .value⟩).unary :=
     Signature.mem_remove_unary.mpr ⟨List.Mem.head _, fun heq => hxNeFun heq.symm⟩
-  have hrel_mem : SpecFn.defined fn ∈ (Δsmall.declVar ⟨x, .value⟩).unaryRel :=
+  have hrel_mem : fn.defined ∈ (Δsmall.declVar ⟨x, .value⟩).unaryRel :=
     Signature.mem_remove_unaryRel.mpr ⟨List.Mem.head _, fun heq => hxNeDef heq.symm⟩
   have hax_wf : ax.wfIn Δsmall :=
     axioms_wfIn (Δ := Δsmall) hΔbig_wf hbody_wf hfun_mem hrel_mem ax hmem
-  have hrelFresh_small : (⟨fn, .value, .value⟩ : FOL.BinaryRel).name ∉ Δsmall.allNames :=
+  have hrelFresh_small : (⟨fn.relName, .value, .value⟩ : FOL.BinaryRel).name ∉ Δsmall.allNames :=
     Signature.not_mem_allNames_addUnaryRel
       (Signature.not_mem_allNames_addUnary hheadFresh.relFresh
-        (show fn ≠ (SpecFn.func fn).name from (SpecFn.funcName_ne_fn fn).symm))
-      (show fn ≠ (SpecFn.defined fn).name from (SpecFn.defName_ne_fn fn).symm)
+        (show fn ≠ (fn.func).name from (SpecFn.funcName_ne_fn fn).symm))
+      (show fn ≠ (fn.defined).name from (SpecFn.defName_ne_fn fn).symm)
   have hagree :
       Env.agreeOn Δsmall
         (defInterpEnv Γ Δ ρ f fn x res e body)
         ((defInterpEnv Γ Δ ρ f fn x res e body).updateBinaryRel
           .value .value fn R) :=
     Env.agreeOn_update_fresh_binaryRel
-      (b := ⟨fn, .value, .value⟩) hrelFresh_small
+      (b := ⟨fn.relName, .value, .value⟩) hrelFresh_small
   exact (Formula.eval_env_agree hax_wf hagree).mp hbase
 
 /-- Verifier-facing combined functionality: `semrel` is single-valued. -/

@@ -84,8 +84,8 @@ theorem CompleteBinary.call
   subst hbodyeq
   obtain ⟨hnval_wf, hisdef_wf, hndef_wf⟩ := hbody
   have hnwf : n.wfIn Δ₂ := ⟨hnval_wf, hndef_wf⟩
-  have hfun_mem : SpecFn.func fn ∈ Δ₂.unary := (hΓdef f fn hmem).1
-  have hdef_mem : SpecFn.defined fn ∈ Δ₂.unaryRel := (hΓdef f fn hmem).2
+  have hfun_mem : fn.func ∈ Δ₂.unary := (hΓdef f fn hmem).1
+  have hdef_mem : fn.defined ∈ Δ₂.unaryRel := (hΓdef f fn hmem).2
   -- Rel side: m = Rel.call fn arg₁ k₁
   simp only [Relation.encoderOps, Rel.call] at hrun
   let ctx := freshValueCtx s hΔ hcov
@@ -106,20 +106,20 @@ theorem CompleteBinary.call
     have hargΔ : arg₁.wfIn Δ := Term.wfIn_mono _ harg₁ hsub1 hΔ
     have hargeval' : arg₁.eval (ρ₁.updateConst .value ctx.r w) = arg₁.eval ρ₁ :=
       ctx.eval_update_fresh hargΔ
-    have hcall' : ρ₁.binaryRel .value .value fn (arg₁.eval ρ₁) w := by
-      simpa [Formula.funcall, Formula.eval, BinPred.eval, Term.eval,
+    have hcall' : ρ₁.binaryRel .value .value fn.relName (arg₁.eval ρ₁) w := by
+      simpa [SpecFn.rel, Formula.eval, BinPred.eval, Term.eval,
         Env.updateConst_binaryRel, Env.lookupConst_updateConst_same, hargeval']
         using hcall
     have hsplit := hΓc f fn hmem (arg₁.eval ρ₁) w hcall'
-    have hunary_eq : ρ₁.unary .value .value (SpecFn.funcName fn) =
-        ρ₂.unary .value .value (SpecFn.funcName fn) :=
-      hag.2.2.1 (SpecFn.func fn) hfun_mem
-    have hunaryRel_eq : ρ₁.unaryRel .value (SpecFn.defName fn) =
-        ρ₂.unaryRel .value (SpecFn.defName fn) :=
-      hag.2.2.2.2.1 (SpecFn.defined fn) hdef_mem
-    have hw_eq : w = ρ₂.unary .value .value (SpecFn.funcName fn) (arg₂.eval ρ₂) := by
+    have hunary_eq : ρ₁.unary .value .value (fn.funcName) =
+        ρ₂.unary .value .value (fn.funcName) :=
+      hag.2.2.1 (fn.func) hfun_mem
+    have hunaryRel_eq : ρ₁.unaryRel .value (fn.defName) =
+        ρ₂.unaryRel .value (fn.defName) :=
+      hag.2.2.2.2.1 (fn.defined) hdef_mem
+    have hw_eq : w = ρ₂.unary .value .value (fn.funcName) (arg₂.eval ρ₂) := by
       rw [← hsplit.2, congrFun hunary_eq (arg₁.eval ρ₁), hargeval]
-    have hisdef_ev : (SpecFn.isDefined fn arg₂).eval ρ₂ := by
+    have hisdef_ev : (fn.isDefined arg₂).eval ρ₂ := by
       have hu := hsplit.1
       rw [congrFun hunaryRel_eq (arg₁.eval ρ₁), hargeval] at hu
       simpa [SpecFn.isDefined, Formula.eval, UnPred.eval] using hu
@@ -131,18 +131,18 @@ theorem CompleteBinary.call
         (Env.agreeOn_symm
           (Env.agreeOn_update_fresh_const (c := ⟨ctx.r, .value⟩) hfreshΔ₂))
         hag
-    have hcallwf : (SpecFn.call fn arg₂).wfIn Δ₂ :=
+    have hcallwf : (fn.call arg₂).wfIn Δ₂ :=
       SpecFn.call_wfIn hfun_mem hΔ₂ harg₂
     have hagree₁ : Env.agreeOn Δ₁ ρ₁ (ρ₁.updateConst .value ctx.r w) :=
       Env.agreeOn_update_fresh_const (c := ⟨ctx.r, .value⟩) hfreshΔ₁
     have heval_eq :
         Term.eval (ρ₁.updateConst .value ctx.r w) (Term.var .value ctx.r) =
-          Term.eval ρ₂ (SpecFn.call fn arg₂) := by
+          Term.eval ρ₂ (fn.call arg₂) := by
       simp [Term.eval, SpecFn.call, UnOp.eval, Env.lookupConst_updateConst_same, hw_eq]
     have hcont :=
       hk (hsub1.trans ctx.subset) (Signature.Subset.refl Δ₂) ctx.wf hΔ₂
         hagree₁ Env.agreeOn_refl
-        (Term.var .value ctx.r) (SpecFn.call fn arg₂) ctx.var_wf hcallwf heval_eq
+        (Term.var .value ctx.r) (fn.call arg₂) ctx.var_wf hcallwf heval_eq
     have hrec := hcont ctx.Δ' ctx.s' φ' n
       (hsub21.trans (hsub1.trans ctx.subset)) hΔ₂ hΓdef
       (Signature.Subset.refl ctx.Δ') ctx.wf ctx.covers
@@ -281,18 +281,18 @@ theorem semrel_complete
       cases hmem with
       | head =>
           have hhead :
-              ρS.binaryRel .value .value fn a b →
-                ρS.unaryRel .value (SpecFn.defName fn) a ∧
-                  ρS.unary .value .value (SpecFn.funcName fn) a = b := by
+              ρS.binaryRel .value .value fn.relName a b →
+                ρS.unaryRel .value (fn.defName) a ∧
+                  ρS.unary .value .value (fn.funcName) a = b := by
             simp [ρS, relSplitEnv, S, Env.updateBinaryRel, Env.updateUnary,
               Env.updateUnaryRel]
           exact hhead hcall
       | tail _ htail =>
           have hnames := freshFn_of_headFresh hΓwf hheadFresh g fn' htail
           have htailComplete :
-              ρS.binaryRel .value .value fn' a b →
-                ρS.unaryRel .value (SpecFn.defName fn') a ∧
-                  ρS.unary .value .value (SpecFn.funcName fn') a = b := by
+              ρS.binaryRel .value .value fn'.relName a b →
+                ρS.unaryRel .value (fn'.defName) a ∧
+                  ρS.unary .value .value (fn'.funcName) a = b := by
             simpa [ρS, relSplitEnv, Env.updateBinaryRel, Env.updateUnary,
               Env.updateUnaryRel, hnames.1, hnames.2.1, hnames.2.2]
               using (hΓ g fn' htail a b).mp

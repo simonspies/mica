@@ -8,22 +8,6 @@ First stage of the encoding. A recursive definition `rec f x := e` becomes a
 binary FOL relation, interpreted as the least fixpoint of the encoded body
 operator. Diverging inputs are absent from the relation.
 -/
-/-- Uninterpreted binary predicate `rel ⊆ value × value` applied to `arg, res`. -/
-def Formula.funcall (rel : String) (arg res : Term .value) : Formula :=
-  .binpred (.uninterpreted rel .value .value) arg res
-
-theorem Formula.funcall_wfIn {rel : String} {arg res : Term .value} {Δ : Signature}
-    (hrel : (⟨rel, .value, .value⟩ : FOL.BinaryRel) ∈ Δ.binaryRel)
-    (hΔ : Δ.wf)
-    (harg : arg.wfIn Δ) (hres : res.wfIn Δ) :
-    (Formula.funcall rel arg res).wfIn Δ := by
-  refine ⟨?_, harg, hres⟩
-  refine ⟨hrel, ?_, ?_⟩
-  · intro τ₁ τ₂ τ₃ hb
-    exact Signature.wf_no_binaryRel_of_binary hΔ hb hrel
-  · intro τ₁ τ₂ hb
-    exact Signature.wf_unique_binaryRel hΔ hrel hb
-
 def Formula.iteBool (cond : Term .bool) (φ ψ : Formula) : Formula :=
   .and (.implies (.eq .bool cond (.const (.b true)))  φ)
        (.implies (.eq .bool cond (.const (.b false))) ψ)
@@ -40,7 +24,7 @@ abbrev ValRel : Type := Fix.Rel Srt.value.denote Srt.value.denote
 
 def relEnv (ρ : Env) (fn : SpecFn) (x res : TinyML.Var)
     (self : ValRel) (vin vout : Srt.value.denote) : Env :=
-  let ρ1 := ρ.updateBinaryRel .value .value fn self
+  let ρ1 := ρ.updateBinaryRel .value .value fn.relName self
   let ρ2 := ρ1.updateConst .value x vin
   ρ2.updateConst .value res vout
 
@@ -81,7 +65,7 @@ def Rel.call (fn : SpecFn) (arg : Term .value) (k : Term .value → Rel) : Rel :
     let s' := s.reserve r
     do
       let φ ← k (.var .value r) s'
-      .ok (.exists_ r .value (.and (Formula.funcall fn arg (.var .value r)) φ))
+      .ok (.exists_ r .value (.and (fn.rel arg (.var .value r)) φ))
 
 def Rel.ite (cond : Term .bool) (thenEnc elseEnc : Rel) : Rel :=
   fun s => do
@@ -104,7 +88,7 @@ theorem Rel.error_wfIn {Δ : Signature} {msg : String} :
   simp [Rel.error] at hrun
 
 theorem Rel.call_wfIn {Δ : Signature} {fn : SpecFn} {arg : Term .value}
-    (hrel : (⟨fn, .value, .value⟩ : FOL.BinaryRel) ∈ Δ.binaryRel)
+    (hrel : (⟨fn.relName, .value, .value⟩ : FOL.BinaryRel) ∈ Δ.binaryRel)
     (harg : arg.wfIn Δ)
     {k : Term .value → Rel}
     (hk : ∀ {Δ'}, Δ.Subset Δ' → Δ'.wf →
@@ -126,7 +110,7 @@ theorem Rel.call_wfIn {Δ : Signature} {fn : SpecFn} {arg : Term .value}
     Term.wfIn_mono _ harg hsubt hΔ''wf
   have hrvar : (Term.var .value r).wfIn Δ'' :=
     var_value_wfIn hΔ''wf (by simpa [hΔ''] using Signature.var_mem_declVar Δ' ⟨r, .value⟩)
-  have hrel'' : (⟨fn, .value, .value⟩ : FOL.BinaryRel) ∈ Δ''.binaryRel :=
+  have hrel'' : (⟨fn.relName, .value, .value⟩ : FOL.BinaryRel) ∈ Δ''.binaryRel :=
     hsub''.binaryRel _ (hsub.binaryRel _ hrel)
   have hcov' : s'.Covers Δ'' := by
     simpa [hΔ'', hs'] using NameSupply.Covers.declVar hcov r .value
@@ -139,7 +123,7 @@ theorem Rel.call_wfIn {Δ : Signature} {fn : SpecFn} {arg : Term .value}
       hk hsubt hΔ''wf _ hrvar
     have hinnerWf : inner.wfIn Δ'' :=
       hkWf Δ'' s' inner (Signature.Subset.refl _) hΔ''wf hcov' hinner
-    exact ⟨Formula.funcall_wfIn hrel'' hΔ''wf harg'' hrvar, hinnerWf⟩
+    exact ⟨SpecFn.rel_wfIn hrel'' hΔ''wf harg'' hrvar, hinnerWf⟩
 
 theorem Rel.ite_wfIn {Δ : Signature} {cond : Term .bool}
     {thenEnc elseEnc : Rel}
@@ -196,7 +180,7 @@ theorem Rel.call_mono {fn : SpecFn} {arg : Term .value}
     simp only [Formula.eval] at hφ ⊢
     rcases hφ with ⟨w, hcall_ev, hbody⟩
     refine ⟨w, ?_, ?_⟩
-    · simp only [Formula.funcall, Formula.eval, BinPred.eval] at hcall_ev ⊢
+    · simp only [SpecFn.rel, Formula.eval, BinPred.eval] at hcall_ev ⊢
       have hleU : Fix.Env.le (ρ.updateConst .value r w) (ρ'.updateConst .value r w) :=
         Fix.Env.le.updateConst hle .value r w
       rw [← Fix.Term.eval_le hleU, ← Fix.Term.eval_le hleU]
@@ -280,8 +264,8 @@ def semrel
 def BinaryRelDet (Γ : FunCtx) (ρ₁ ρ₂ : Env) : Prop :=
   ∀ f fn, (f, fn) ∈ Γ →
     ∀ vin y₁ y₂,
-      ρ₁.binaryRel .value .value fn vin y₁ →
-      ρ₂.binaryRel .value .value fn vin y₂ →
+      ρ₁.binaryRel .value .value fn.relName vin y₁ →
+      ρ₂.binaryRel .value .value fn.relName vin y₂ →
       y₁ = y₂
 
 /-- A relational carrier is deterministic in `res` at any extension of its
@@ -356,7 +340,7 @@ theorem Rel.call_det {Γ : FunCtx} {res : String} {Δview : Signature}
         arg.eval (ρ₁.updateConst .value r w₁) =
           arg.eval (ρ₂.updateConst .value r w₁) :=
       Term.eval_termAgree hargΔ' hagree'
-    simp only [Formula.funcall, Formula.eval, BinPred.eval, Term.eval] at hcall₁ hcall₂
+    simp only [SpecFn.rel, Formula.eval, BinPred.eval, Term.eval] at hcall₁ hcall₂
     have hargEq₂ :
         arg.eval (ρ₂.updateConst .value r w₁) =
           arg.eval (ρ₂.updateConst .value r w₂) := by
@@ -369,11 +353,11 @@ theorem Rel.call_det {Γ : FunCtx} {res : String} {Δview : Signature}
       exact Term.eval_termAgree hargΔ hag
     have hw : w₁ = w₂ := by
       have hcall₁base :
-          ρ₁.binaryRel .value .value fn
+          ρ₁.binaryRel .value .value fn.relName
             (arg.eval (ρ₁.updateConst .value r w₁)) w₁ := by
         simpa [Env.updateConst_binaryRel, Env.lookupConst_updateConst_same] using hcall₁
       have hcall₂base :
-          ρ₂.binaryRel .value .value fn
+          ρ₂.binaryRel .value .value fn.relName
             (arg.eval (ρ₂.updateConst .value r w₂)) w₂ := by
         simpa [Env.updateConst_binaryRel, Env.lookupConst_updateConst_same] using hcall₂
       apply hrel f fn hmem (arg.eval (ρ₁.updateConst .value r w₁))
@@ -453,7 +437,7 @@ theorem semrel_functional
     {body : Formula}
     (henc : relEncodeBody Γ Δ f fn x res e = .ok body)
     (hΓ : Γ.relWfIn Δ)
-    (hrelFresh : fn ∉ Δ.allNames)
+    (hrelFresh : fn.relName ∉ Δ.allNames)
     (hΔbody : (bodySig Δ fn x).wf)
     (hresFresh : res ∉ (bodySig Δ fn x).allNames)
     (hρdet : BinaryRelDet Γ ρ ρ)
@@ -492,7 +476,7 @@ theorem semrel_functional
     intro n hn
     by_contra hnAvoid
     have hnΔ : n ∉ Δ.allNames := fun h => hnAvoid (by simp [relBodySupply, h])
-    have hnRel : n ≠ fn := fun h => hnAvoid (by simp [relBodySupply, h])
+    have hnRel : n ≠ fn.relName := fun h => hnAvoid (by simp [relBodySupply, h])
     have hnX : n ≠ x := fun h => hnAvoid (by simp [relBodySupply, h])
     exact (Signature.not_mem_allNames_declVar
       (Signature.not_mem_allNames_addBinaryRel hnΔ hnRel) hnX)
@@ -523,9 +507,9 @@ theorem semrel_functional
             simp [relEnv, Env.updateConst_binaryRel, Env.updateBinaryRel] at hz₁ hz₂
             exact hz₁.2 z₂ hz₂
         | tail _ htail =>
-            have hrel'_mem : (⟨fn', .value, .value⟩ : FOL.BinaryRel) ∈ Δ.binaryRel :=
+            have hrel'_mem : (⟨fn'.relName, .value, .value⟩ : FOL.BinaryRel) ∈ Δ.binaryRel :=
               hΓ f' fn' htail
-            have hne : fn' ≠ fn := fun h =>
+            have hne : fn'.relName ≠ fn.relName := fun h =>
               hrelFresh (h ▸ Signature.mem_allNames_of_binaryRel hrel'_mem)
             simp only [relEnv, Env.updateConst_binaryRel, Env.updateBinaryRel] at hz₁ hz₂
             simp [hne] at hz₁ hz₂
@@ -538,7 +522,7 @@ theorem semrel_functional
         refine ⟨?_, ?_, ?_, ?_⟩
         · intro v hv
           have hv' : v ∈ ⟨x, .value⟩ ::
-              ((Δ.addBinaryRel ⟨fn, .value, .value⟩).remove x).vars := by
+              ((Δ.addBinaryRel ⟨fn.relName, .value, .value⟩).remove x).vars := by
             simpa [Signature.declVar, Signature.addVar] using hv
           cases hv' with
           | head =>
@@ -547,7 +531,7 @@ theorem semrel_functional
               have hneX : v.name ≠ x := by
                 intro hxv
                 have hmem : v.name ∈
-                    ((Δ.addBinaryRel ⟨fn, .value, .value⟩).remove x).allNames :=
+                    ((Δ.addBinaryRel ⟨fn.relName, .value, .value⟩).remove x).allNames :=
                   Signature.mem_allNames_of_var htail
                 exact Signature.remove_allNames hmem hxv
               have hneRes : v.name ≠ res := by
@@ -560,7 +544,7 @@ theorem semrel_functional
           have hneX : c.name ≠ x := by
             intro hcx
             have hmem : c.name ∈
-                ((Δ.addBinaryRel ⟨fn, .value, .value⟩).remove x).allNames :=
+                ((Δ.addBinaryRel ⟨fn.relName, .value, .value⟩).remove x).allNames :=
               Signature.mem_allNames_of_const (by
                 simpa [bodySig, Signature.declVar, Signature.addVar] using hc)
             exact Signature.remove_allNames hmem hcx

@@ -402,23 +402,23 @@ theorem relSucceedsWhenDef_call {Γ : FunCtx}
   simp only [encoderOps] at hd
   obtain ⟨n, hkn, _hbody⟩ := DefVal.bind_ok hd
   let ctx := freshValueCtx s hΔrel hcov
-  have hcallWf : (SpecFn.call fn argDef).wfIn Δdef :=
+  have hcallWf : (fn.call argDef).wfIn Δdef :=
     SpecFn.call_wfIn (hΓdef f fn hmem).1 hΔdef hargDef
-  let w := (SpecFn.call fn argDef).eval ρdef
+  let w := (fn.call argDef).eval ρdef
   have hagRel : Env.agreeOn Δrel ρrel (ρrel.updateConst .value ctx.r w) :=
     Env.agreeOn_update_fresh_const (c := ⟨ctx.r, .value⟩) ctx.fresh
   have heval :
       Term.eval (ρrel.updateConst .value ctx.r w) (Term.var .value ctx.r) =
-        Term.eval ρdef (SpecFn.call fn argDef) := by
+        Term.eval ρdef (fn.call argDef) := by
     simp [Term.eval, Env.lookupConst_updateConst_same, w]
   have hcont :=
     hk ctx.subset (Signature.Subset.refl Δdef) ctx.wf hΔdef
       hagRel Env.agreeOn_refl
-      (Term.var .value ctx.r) (SpecFn.call fn argDef) ctx.var_wf hcallWf heval
+      (Term.var .value ctx.r) (fn.call argDef) ctx.var_wf hcallWf heval
   obtain ⟨φ, hφ⟩ := hcont ctx.wf hΔdef hΓdef ctx.s' ctx.covers n hkn
-  exact ⟨.exists_ ctx.r .value (.and (Formula.funcall fn argRel (.var .value ctx.r)) φ), by
+  exact ⟨.exists_ ctx.r .value (.and (fn.rel argRel (.var .value ctx.r)) φ), by
     change (Rel.call fn argRel kRel) s =
-      .ok (.exists_ ctx.r .value (.and (Formula.funcall fn argRel (.var .value ctx.r)) φ))
+      .ok (.exists_ ctx.r .value (.and (fn.rel argRel (.var .value ctx.r)) φ))
     simp only [Rel.call]
     rw [← ctx.hr, ← ctx.hs', hφ]
     rfl⟩
@@ -481,7 +481,7 @@ definedness predicate for `fn` at once. -/
 def relSplitEnv (ρ : Env) (fn : SpecFn)
     (R : ValRel) (D : Srt.value.denote → Prop)
     (F : Srt.value.denote → Srt.value.denote) : Env :=
-  ((ρ.updateBinaryRel .value .value fn R).updateUnary .value .value (fn.funcName) F)
+  ((ρ.updateBinaryRel .value .value fn.relName R).updateUnary .value .value (fn.funcName) F)
     |>.updateUnaryRel .value (fn.defName) D
 
 /-- Environment for evaluating a split encoded body at input `vin`, with
@@ -615,7 +615,7 @@ agree for every relation-marked function in the context. -/
 def FunCtx.splitCompatible (Γ : FunCtx) (ρ : Env) : Prop :=
   ∀ f fn, (f, fn) ∈ Γ →
     ∀ x y,
-      ρ.binaryRel .value .value fn x y ↔
+      ρ.binaryRel .value .value fn.relName x y ↔
         ρ.unaryRel .value (fn.defName) x ∧
           ρ.unary .value .value (fn.funcName) x = y
 
@@ -625,7 +625,7 @@ directional proofs. -/
 def FunCtx.splitComplete (Γ : FunCtx) (ρ : Env) : Prop :=
   ∀ f fn, (f, fn) ∈ Γ →
     ∀ x y,
-      ρ.binaryRel .value .value fn x y →
+      ρ.binaryRel .value .value fn.relName x y →
         ρ.unaryRel .value (fn.defName) x ∧
           ρ.unary .value .value (fn.funcName) x = y
 
@@ -637,7 +637,7 @@ def FunCtx.splitSound (Γ : FunCtx) (ρ : Env) : Prop :=
     ∀ x y,
       ρ.unaryRel .value (fn.defName) x ∧
         ρ.unary .value .value (fn.funcName) x = y →
-          ρ.binaryRel .value .value fn x y
+          ρ.binaryRel .value .value fn.relName x y
 
 theorem FunCtx.splitComplete_updateConst {Γ : FunCtx} {ρ : Env}
     (hΓ : Γ.splitComplete ρ) (τ : Srt) (x : String) (v : τ.denote) :
@@ -719,24 +719,24 @@ order in which `sig` introduces the head relation symbols and bound variables. -
 structure HeadFresh (Δ : Signature) (fn : SpecFn) (x res : String) : Prop where
   relFresh : fn ∉ Δ.allNames
   funFresh :
-    fn.funcName ∉ (Δ.addBinaryRel ⟨fn, .value, .value⟩).allNames
+    fn.funcName ∉ (Δ.addBinaryRel ⟨fn.relName, .value, .value⟩).allNames
   defFresh :
     fn.defName ∉
-    ((Δ.addBinaryRel ⟨fn, .value, .value⟩).addUnary (fn.func)).allNames
+    ((Δ.addBinaryRel ⟨fn.relName, .value, .value⟩).addUnary (fn.func)).allNames
   argFresh :
     x ∉
-    (((Δ.addBinaryRel ⟨fn, .value, .value⟩).addUnary (fn.func)).addUnaryRel
+    (((Δ.addBinaryRel ⟨fn.relName, .value, .value⟩).addUnary (fn.func)).addUnaryRel
       (fn.defined)).allNames
   resFresh :
     res ∉
-    ((((Δ.addBinaryRel ⟨fn, .value, .value⟩).addUnary (fn.func)).addUnaryRel
+    ((((Δ.addBinaryRel ⟨fn.relName, .value, .value⟩).addUnary (fn.func)).addUnaryRel
       (fn.defined)).declVar ⟨x, .value⟩).allNames
 
 /-! ### Subset lemmas -/
 
 theorem relBase_subset_bodyBase {Δ : Signature} {fn : SpecFn} :
-    (Δ.addBinaryRel ⟨fn, .value, .value⟩).Subset
-      (((Δ.addBinaryRel ⟨fn, .value, .value⟩).addUnary (fn.func)).addUnaryRel
+    (Δ.addBinaryRel ⟨fn.relName, .value, .value⟩).Subset
+      (((Δ.addBinaryRel ⟨fn.relName, .value, .value⟩).addUnary (fn.func)).addUnaryRel
         (fn.defined)) :=
   (Signature.Subset.subset_addUnary _ (fn.func)).trans
     (Signature.Subset.subset_addUnaryRel _ (fn.defined))
@@ -746,19 +746,19 @@ theorem subset_bodySig_of_headFresh {Δ : Signature} {fn : SpecFn} {x res : Stri
     Δ.Subset (bodySig Δ fn x) := by
   unfold bodySig
   exact
-    (((Signature.Subset.subset_addBinaryRel Δ ⟨fn, .value, .value⟩).trans
+    (((Signature.Subset.subset_addBinaryRel Δ ⟨fn.relName, .value, .value⟩).trans
       (Signature.Subset.subset_addUnary _ (fn.func))).trans
       (Signature.Subset.subset_addUnaryRel _ (fn.defined))).trans
       (Signature.subset_declVar_of_fresh (Δ :=
-        (((Δ.addBinaryRel ⟨fn, .value, .value⟩).addUnary (fn.func)).addUnaryRel
+        (((Δ.addBinaryRel ⟨fn.relName, .value, .value⟩).addUnary (fn.func)).addUnaryRel
           (fn.defined))) (v := ⟨x, .value⟩) hfresh.argFresh)
 
 theorem subset_relBodySig_of_headFresh {Δ : Signature} {fn : SpecFn} {x res : String}
     (hfresh : HeadFresh Δ fn x res) :
     Δ.Subset (Relation.bodySig Δ fn x) := by
   unfold Relation.bodySig
-  exact (Signature.Subset.subset_addBinaryRel Δ ⟨fn, .value, .value⟩).trans
-    (Signature.subset_declVar_of_fresh (Δ := Δ.addBinaryRel ⟨fn, .value, .value⟩)
+  exact (Signature.Subset.subset_addBinaryRel Δ ⟨fn.relName, .value, .value⟩).trans
+    (Signature.subset_declVar_of_fresh (Δ := Δ.addBinaryRel ⟨fn.relName, .value, .value⟩)
       (v := ⟨x, .value⟩) (by
         intro h
         exact hfresh.argFresh (Signature.allNames_subset
@@ -766,7 +766,7 @@ theorem subset_relBodySig_of_headFresh {Δ : Signature} {fn : SpecFn} {x res : S
 
 theorem splitBase_subset_bodyBase {Δ : Signature} {fn : SpecFn} :
     ((Δ.addUnary (fn.func)).addUnaryRel (fn.defined)).Subset
-      (((Δ.addBinaryRel ⟨fn, .value, .value⟩).addUnary (fn.func)).addUnaryRel
+      (((Δ.addBinaryRel ⟨fn.relName, .value, .value⟩).addUnary (fn.func)).addUnaryRel
         (fn.defined)) := by
   refine ⟨?_, ?_, ?_, ?_, ?_, fun a ha => List.mem_cons_of_mem _ ha⟩ <;>
     intro a ha <;>
@@ -819,13 +819,13 @@ theorem bodySig_wf_of_headFresh {Δ : Signature} {fn : SpecFn} {x res : String}
     (bodySig Δ fn x).wf := by
   unfold bodySig
   have hrel :
-      (Δ.addBinaryRel ⟨fn, .value, .value⟩).wf :=
+      (Δ.addBinaryRel ⟨fn.relName, .value, .value⟩).wf :=
     Signature.wf_addBinaryRel hΔ hfresh.relFresh
   have hfun :
-      ((Δ.addBinaryRel ⟨fn, .value, .value⟩).addUnary (fn.func)).wf :=
+      ((Δ.addBinaryRel ⟨fn.relName, .value, .value⟩).addUnary (fn.func)).wf :=
     Signature.wf_addUnary hrel hfresh.funFresh
   have hdef :
-      (((Δ.addBinaryRel ⟨fn, .value, .value⟩).addUnary (fn.func)).addUnaryRel
+      (((Δ.addBinaryRel ⟨fn.relName, .value, .value⟩).addUnary (fn.func)).addUnaryRel
         (fn.defined)).wf :=
     Signature.wf_addUnaryRel hfun hfresh.defFresh
   exact Signature.wf_declVar hdef
@@ -881,7 +881,7 @@ theorem defvalBodySig_wf_of_headFresh {Δ : Signature} {fn : SpecFn} {x res : St
     (Signature.wf_addUnaryRel
       (Signature.wf_addUnary hΔ (fun h =>
         hfresh.funFresh (Signature.allNames_subset
-          (Signature.Subset.subset_addBinaryRel Δ ⟨fn, .value, .value⟩) _ h)))
+          (Signature.Subset.subset_addBinaryRel Δ ⟨fn.relName, .value, .value⟩) _ h)))
       (fun h =>
         hfresh.defFresh (Signature.allNames_subset
           (by
@@ -916,10 +916,10 @@ theorem freshFn_of_headFresh {Γ : FunCtx} {Δ : Signature} {fn : SpecFn} {x res
     exact hfresh.relFresh (h ▸ hrel'_mem)
   · intro h
     exact hfresh.funFresh (h ▸ Signature.allNames_subset
-      (Signature.Subset.subset_addBinaryRel Δ ⟨fn, .value, .value⟩) _ hfun_mem)
+      (Signature.Subset.subset_addBinaryRel Δ ⟨fn.relName, .value, .value⟩) _ hfun_mem)
   · intro h
     exact hfresh.defFresh (h ▸ Signature.allNames_subset
-      ((Signature.Subset.subset_addBinaryRel Δ ⟨fn, .value, .value⟩).trans
+      ((Signature.Subset.subset_addBinaryRel Δ ⟨fn.relName, .value, .value⟩).trans
         (Signature.Subset.subset_addUnary _ (fn.func))) _ hdef_mem)
 
 
@@ -931,7 +931,7 @@ theorem ctx_relWfIn_relSig_of_headFresh
   cases hmem with
   | head =>
       have hxFresh :
-          x ∉ (Δ.addBinaryRel ⟨fn, .value, .value⟩).allNames := by
+          x ∉ (Δ.addBinaryRel ⟨fn.relName, .value, .value⟩).allNames := by
         intro h
         exact hfresh.argFresh (Signature.allNames_subset
           (relBase_subset_bodyBase (Δ := Δ) (fn := fn)) _ h)
@@ -939,7 +939,7 @@ theorem ctx_relWfIn_relSig_of_headFresh
         (by
           unfold Relation.bodySig
           exact (Signature.subset_declVar_of_fresh
-            (Δ := Δ.addBinaryRel ⟨fn, .value, .value⟩)
+            (Δ := Δ.addBinaryRel ⟨fn.relName, .value, .value⟩)
             (v := ⟨x, .value⟩) hxFresh).binaryRel _
             (List.Mem.head _))
   | tail _ htail =>
@@ -958,12 +958,12 @@ theorem ctx_splitWfIn_bodySig_of_headFresh
       · exact Signature.Subset.unary
           ((Signature.Subset.subset_addUnaryRel _ (fn.defined)).trans
             (Signature.subset_declVar_of_fresh (Δ :=
-              (((Δ.addBinaryRel ⟨fn, .value, .value⟩).addUnary (fn.func)).addUnaryRel
+              (((Δ.addBinaryRel ⟨fn.relName, .value, .value⟩).addUnary (fn.func)).addUnaryRel
                 (fn.defined))) (v := ⟨x, .value⟩) hfresh.argFresh))
           (fn.func) (List.Mem.head _)
       · exact Signature.Subset.unaryRel
           (Signature.subset_declVar_of_fresh (Δ :=
-            (((Δ.addBinaryRel ⟨fn, .value, .value⟩).addUnary (fn.func)).addUnaryRel
+            (((Δ.addBinaryRel ⟨fn.relName, .value, .value⟩).addUnary (fn.func)).addUnaryRel
               (fn.defined))) (v := ⟨x, .value⟩) hfresh.argFresh)
           (fn.defined) (List.Mem.head _)
   | tail _ htail =>
@@ -1058,36 +1058,36 @@ theorem relEnv_relSplitEnv_agreeOn_relSig
     Env.agreeOn (Relation.sig Δ fn x res)
       (Relation.relEnv ρ fn x res R vin vout)
       (((relSplitEnv ρ fn R D F).updateConst .value x vin).updateConst .value res vout) := by
-  let ρbin := ρ.updateBinaryRel .value .value fn R
+  let ρbin := ρ.updateBinaryRel .value .value fn.relName R
   let ρfun := ρbin.updateUnary .value .value (fn.funcName) F
   have hbase :
-      Env.agreeOn (Δ.addBinaryRel ⟨fn, .value, .value⟩) ρbin
+      Env.agreeOn (Δ.addBinaryRel ⟨fn.relName, .value, .value⟩) ρbin
         (relSplitEnv ρ fn R D F) := by
-    have hfun : Env.agreeOn (Δ.addBinaryRel ⟨fn, .value, .value⟩) ρbin ρfun := by
+    have hfun : Env.agreeOn (Δ.addBinaryRel ⟨fn.relName, .value, .value⟩) ρbin ρfun := by
       simpa [ρbin, ρfun] using
         (Env.agreeOn_update_fresh_unary (ρ := ρbin) (u := fn.func)
-          (f := F) (Δ := Δ.addBinaryRel ⟨fn, .value, .value⟩) hfresh.funFresh)
+          (f := F) (Δ := Δ.addBinaryRel ⟨fn.relName, .value, .value⟩) hfresh.funFresh)
     have hdef :
-        Env.agreeOn (Δ.addBinaryRel ⟨fn, .value, .value⟩) ρfun
+        Env.agreeOn (Δ.addBinaryRel ⟨fn.relName, .value, .value⟩) ρfun
           (relSplitEnv ρ fn R D F) := by
-      have hdefFresh : fn.defName ∉ (Δ.addBinaryRel ⟨fn, .value, .value⟩).allNames := by
+      have hdefFresh : fn.defName ∉ (Δ.addBinaryRel ⟨fn.relName, .value, .value⟩).allNames := by
         intro h
         exact hfresh.defFresh (Signature.allNames_subset
           (Signature.Subset.subset_addUnary _ (fn.func)) _ h)
       simpa [relSplitEnv, ρbin, ρfun] using
         (Env.agreeOn_update_fresh_unaryRel (ρ := ρfun) (u := fn.defined)
-          (f := D) (Δ := Δ.addBinaryRel ⟨fn, .value, .value⟩) hdefFresh)
+          (f := D) (Δ := Δ.addBinaryRel ⟨fn.relName, .value, .value⟩) hdefFresh)
     exact Env.agreeOn_trans hfun hdef
   simpa [Relation.relEnv, Relation.sig, Relation.bodySig] using
     (Env.agreeOn_declVar
       (Env.agreeOn_declVar hbase : Env.agreeOn
-        ((Δ.addBinaryRel ⟨fn, .value, .value⟩).declVar ⟨x, .value⟩)
-        ((ρ.updateBinaryRel .value .value fn R).updateConst .value x vin)
+        ((Δ.addBinaryRel ⟨fn.relName, .value, .value⟩).declVar ⟨x, .value⟩)
+        ((ρ.updateBinaryRel .value .value fn.relName R).updateConst .value x vin)
         ((relSplitEnv ρ fn R D F).updateConst .value x vin)) :
       Env.agreeOn
-        (((Δ.addBinaryRel ⟨fn, .value, .value⟩).declVar ⟨x, .value⟩).declVar
+        (((Δ.addBinaryRel ⟨fn.relName, .value, .value⟩).declVar ⟨x, .value⟩).declVar
           ⟨res, .value⟩)
-        (((ρ.updateBinaryRel .value .value fn R).updateConst .value x vin).updateConst
+        (((ρ.updateBinaryRel .value .value fn.relName R).updateConst .value x vin).updateConst
           .value res vout)
         (((relSplitEnv ρ fn R D F).updateConst .value x vin).updateConst .value res vout))
 

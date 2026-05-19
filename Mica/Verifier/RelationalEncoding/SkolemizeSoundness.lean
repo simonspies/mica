@@ -96,8 +96,8 @@ theorem SoundBinary.call
   simp only [Formula.eval] at hdefd
   obtain ⟨hisdef_ev, hndef_ev⟩ := hdefd
   have hnwf : n.wfIn Δ₂ := ⟨hnval_wf, hndef_wf⟩
-  have hfun_mem : SpecFn.func fn ∈ Δ₂.unary := (hΓdef f fn hmem).1
-  have hdef_mem : SpecFn.defined fn ∈ Δ₂.unaryRel := (hΓdef f fn hmem).2
+  have hfun_mem : fn.func ∈ Δ₂.unary := (hΓdef f fn hmem).1
+  have hdef_mem : fn.defined ∈ Δ₂.unaryRel := (hΓdef f fn hmem).2
   -- Rel side: m = Rel.call fn arg₁ k₁
   simp only [Relation.encoderOps, Rel.call] at hrun
   let ctx := freshValueCtx s hΔ hcov
@@ -113,27 +113,27 @@ theorem SoundBinary.call
     simp only [Bind.bind, Except.bind, Except.ok.injEq] at hrun
     subst hrun
     -- existential witness
-    set w := ρ₂.unary .value .value (SpecFn.funcName fn) (arg₂.eval ρ₂) with hw
+    set w := ρ₂.unary .value .value (fn.funcName) (arg₂.eval ρ₂) with hw
     simp only [Formula.eval]
     refine ⟨w, ?_, ?_⟩
     · -- the relational call edge holds
-      have hunary_eq : ρ₁.unary .value .value (SpecFn.funcName fn) =
-          ρ₂.unary .value .value (SpecFn.funcName fn) :=
-        hag.2.2.1 (SpecFn.func fn) hfun_mem
-      have hunaryRel_eq : ρ₁.unaryRel .value (SpecFn.defName fn) =
-          ρ₂.unaryRel .value (SpecFn.defName fn) :=
-        hag.2.2.2.2.1 (SpecFn.defined fn) hdef_mem
-      have hisdef_ev' : ρ₂.unaryRel .value (SpecFn.defName fn) (arg₂.eval ρ₂) := by
+      have hunary_eq : ρ₁.unary .value .value (fn.funcName) =
+          ρ₂.unary .value .value (fn.funcName) :=
+        hag.2.2.1 (fn.func) hfun_mem
+      have hunaryRel_eq : ρ₁.unaryRel .value (fn.defName) =
+          ρ₂.unaryRel .value (fn.defName) :=
+        hag.2.2.2.2.1 (fn.defined) hdef_mem
+      have hisdef_ev' : ρ₂.unaryRel .value (fn.defName) (arg₂.eval ρ₂) := by
         simpa [SpecFn.isDefined, Formula.eval, UnPred.eval] using hisdef_ev
       have hargΔ : arg₁.wfIn Δ := Term.wfIn_mono _ harg₁ hsub1 hΔ
       have hargeval' : arg₁.eval (ρ₁.updateConst .value ctx.r w) = arg₁.eval ρ₁ :=
         ctx.eval_update_fresh hargΔ
-      have hedge : ρ₁.binaryRel .value .value fn (arg₁.eval ρ₁) w := by
+      have hedge : ρ₁.binaryRel .value .value fn.relName (arg₁.eval ρ₁) w := by
         refine hΓs f fn hmem (arg₁.eval ρ₁) w ⟨?_, ?_⟩
         · rw [congrFun hunaryRel_eq (arg₁.eval ρ₁), hargeval]
           exact hisdef_ev'
         · rw [congrFun hunary_eq (arg₁.eval ρ₁), hargeval, hw]
-      simpa [Formula.funcall, Formula.eval, BinPred.eval, Term.eval,
+      simpa [SpecFn.rel, Formula.eval, BinPred.eval, Term.eval,
         Env.updateConst_binaryRel, Env.lookupConst_updateConst_same, hargeval']
         using hedge
     · -- the continuation is sound
@@ -144,18 +144,18 @@ theorem SoundBinary.call
           (Env.agreeOn_symm
             (Env.agreeOn_update_fresh_const (c := ⟨ctx.r, .value⟩) hfreshΔ₂))
           hag
-      have hcallwf : (SpecFn.call fn arg₂).wfIn Δ₂ :=
+      have hcallwf : (fn.call arg₂).wfIn Δ₂ :=
         SpecFn.call_wfIn hfun_mem hΔ₂ harg₂
       have hagree₁ : Env.agreeOn Δ₁ ρ₁ (ρ₁.updateConst .value ctx.r w) :=
         Env.agreeOn_update_fresh_const (c := ⟨ctx.r, .value⟩) hfreshΔ₁
       have heval_eq :
           Term.eval (ρ₁.updateConst .value ctx.r w) (Term.var .value ctx.r) =
-            Term.eval ρ₂ (SpecFn.call fn arg₂) := by
+            Term.eval ρ₂ (fn.call arg₂) := by
         simp [Term.eval, SpecFn.call, UnOp.eval, Env.lookupConst_updateConst_same, hw]
       have hcont :=
         hk (hsub1.trans ctx.subset) (Signature.Subset.refl Δ₂) ctx.wf hΔ₂
           hagree₁ Env.agreeOn_refl
-          (Term.var .value ctx.r) (SpecFn.call fn arg₂) ctx.var_wf hcallwf heval_eq
+          (Term.var .value ctx.r) (fn.call arg₂) ctx.var_wf hcallwf heval_eq
       exact hcont ctx.Δ' ctx.s' φ' n
         (hsub21.trans (hsub1.trans ctx.subset)) hΔ₂ hΓdef
         (Signature.Subset.refl ctx.Δ') ctx.wf ctx.covers
