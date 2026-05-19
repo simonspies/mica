@@ -84,6 +84,8 @@ theorem bind_traceSound {s : Strategy α} {k : α → Strategy β}
         | declareConst => cases r; trivial
         | declareUnary => cases r; trivial
         | declareBinary => cases r; trivial
+        | declareUnaryRel => cases r; trivial
+        | declareBinaryRel => cases r; trivial
         | assert => cases r; trivial
         | checkSat => cases r with
           | sat => trivial
