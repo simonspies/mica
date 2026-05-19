@@ -126,6 +126,10 @@ def defined (f : SpecFn) : FOL.UnaryRel :=
 def func (f : SpecFn) : FOL.Unary :=
   ⟨funcName f, .value, .value⟩
 
+/-- Solver-facing binary relation symbol for a spec-level function name. -/
+def rel (f : SpecFn) : FOL.BinaryRel :=
+  ⟨relName f, .value, .value⟩
+
 /-- Apply the solver-facing value function for frontend function name `f`. -/
 def call (f : SpecFn) (arg : Term .value) : Term .value :=
   .unop (.uninterpreted (funcName f) .value .value) arg
@@ -137,6 +141,48 @@ def isDefined (f : SpecFn) (arg : Term .value) : Formula :=
 /-- Apply the solver-facing binary relation for frontend function name `f`. -/
 def relates (f : SpecFn) (arg res : Term .value) : Formula :=
   .binpred (.uninterpreted (relName f) .value .value) arg res
+
+/-- Semantic value of the solver-facing value function on argument `arg`
+under environment `ρ`. -/
+def evalCall (f : SpecFn) (ρ : Env) (arg : Srt.value.denote) : Srt.value.denote :=
+  ρ.unary .value .value f.func.name arg
+
+/-- Semantic value of the solver-facing definedness predicate on argument `arg`
+under environment `ρ`. -/
+def evalDefined (f : SpecFn) (ρ : Env) (arg : Srt.value.denote) : Prop :=
+  ρ.unaryRel .value f.defined.name arg
+
+/-- Semantic value of the solver-facing binary relation on `(arg, res)`
+under environment `ρ`. -/
+def evalRelates (f : SpecFn) (ρ : Env) (arg res : Srt.value.denote) : Prop :=
+  ρ.binaryRel .value .value f.rel.name arg res
+
+/-- The value-function evaluation is preserved by `Env.updateConst`. -/
+@[simp] theorem evalCall_updateConst (f : SpecFn) (ρ : Env) (τ : Srt) (x : String)
+    (v : τ.denote) (a : Srt.value.denote) :
+    f.evalCall (ρ.updateConst τ x v) a = f.evalCall ρ a := rfl
+
+/-- The definedness predicate is preserved by `Env.updateConst`. -/
+@[simp] theorem evalDefined_updateConst (f : SpecFn) (ρ : Env) (τ : Srt) (x : String)
+    (v : τ.denote) (a : Srt.value.denote) :
+    f.evalDefined (ρ.updateConst τ x v) a = f.evalDefined ρ a := rfl
+
+/-- The binary relation is preserved by `Env.updateConst`. -/
+@[simp] theorem evalRelates_updateConst (f : SpecFn) (ρ : Env) (τ : Srt) (x : String)
+    (v : τ.denote) (a b : Srt.value.denote) :
+    f.evalRelates (ρ.updateConst τ x v) a b = f.evalRelates ρ a b := rfl
+
+/-- Evaluating `relates` reduces to the binary relation in the environment. -/
+@[simp] theorem relates_eval (f : SpecFn) (ρ : Env) (arg res : Term .value) :
+    (f.relates arg res).eval ρ = f.evalRelates ρ (arg.eval ρ) (res.eval ρ) := rfl
+
+/-- Evaluating `isDefined` reduces to the definedness predicate in the environment. -/
+@[simp] theorem isDefined_eval (f : SpecFn) (ρ : Env) (arg : Term .value) :
+    (f.isDefined arg).eval ρ = f.evalDefined ρ (arg.eval ρ) := rfl
+
+/-- Evaluating `call` reduces to the value function in the environment. -/
+@[simp] theorem call_eval (f : SpecFn) (ρ : Env) (arg : Term .value) :
+    (f.call arg).eval ρ = f.evalCall ρ (arg.eval ρ) := rfl
 
 /-- A registered solver-facing value-function application is well-formed when
 its argument is well-formed. -/
@@ -165,7 +211,7 @@ theorem isDefined_wfIn {fn : SpecFn} {arg : Term .value} {Δ : Signature}
 /-- A registered solver-facing relation application is well-formed when its
 arguments are well-formed. -/
 theorem relates_wfIn {fn : SpecFn} {arg res : Term .value} {Δ : Signature}
-    (hrel : (⟨fn.relName, .value, .value⟩ : FOL.BinaryRel) ∈ Δ.binaryRel)
+    (hrel : fn.rel ∈ Δ.binaryRel)
     (hΔ : Δ.wf) (harg : arg.wfIn Δ) (hres : res.wfIn Δ) :
     (fn.relates arg res).wfIn Δ := by
   refine ⟨?_, harg, hres⟩
@@ -199,7 +245,7 @@ theorem FunCtx.mem_of_lookup {Γ : FunCtx} {x : TinyML.Var} {fn : SpecFn}
 /-- Every relation in `Γ` is registered in `Δ` as a binary uninterpreted predicate
 on `value × value`. -/
 def FunCtx.relWfIn (Γ : FunCtx) (Δ : Signature) : Prop :=
-  ∀ x (fn : SpecFn), (x, fn) ∈ Γ → (⟨fn.relName, .value, .value⟩ : FOL.BinaryRel) ∈ Δ.binaryRel
+  ∀ x (fn : SpecFn), (x, fn) ∈ Γ → fn.rel ∈ Δ.binaryRel
 
 theorem FunCtx.relWfIn_mono {Γ : FunCtx} {Δ Δ' : Signature}
     (h : Γ.relWfIn Δ) (hsub : Δ.Subset Δ') : Γ.relWfIn Δ' :=
@@ -397,7 +443,7 @@ namespace Relation
 variable `x : value` and the binary predicate `fn.relName ⊆ value × value`, but
 not the result variable. -/
 def bodySig (Δ : Signature) (fn : SpecFn) (x : TinyML.Var) : Signature :=
-  (Δ.addBinaryRel ⟨fn.relName, .value, .value⟩).declVar ⟨x, .value⟩
+  (Δ.addBinaryRel fn.rel).declVar ⟨x, .value⟩
 
 /-- Run signature: `bodySig Δ fn x` extended with the pinned result variable `r`. -/
 def sig (Δ : Signature) (fn : SpecFn) (x r : TinyML.Var) : Signature :=
@@ -416,7 +462,7 @@ namespace Skolemize
 contains the binary relation, the split value/definedness symbols, and the
 input variable. -/
 def bodySig (Δ : Signature) (fn : SpecFn) (x : TinyML.Var) : Signature :=
-  ((((Δ.addBinaryRel ⟨fn.relName, .value, .value⟩).addUnary fn.func).addUnaryRel
+  ((((Δ.addBinaryRel fn.rel).addUnary fn.func).addUnaryRel
     fn.defined).declVar ⟨x, .value⟩)
 
 /-- Common run signature used for the relational pinned-result continuation. -/
@@ -444,11 +490,11 @@ theorem relBodySupply_covers_sig (Δ : Signature) (fn : SpecFn) (x res : String)
   have hnDef : n ≠ fn.defName     := fun h => hcontra (by simp [relBodySupply, h])
   have hnX   : n ≠ x              := fun h => hcontra (by simp [relBodySupply, h])
   have hnRes : n ≠ res            := fun h => hcontra (by simp [relBodySupply, h])
-  have h1 : n ∉ (Δ.addBinaryRel ⟨fn.relName, .value, .value⟩).allNames :=
+  have h1 : n ∉ (Δ.addBinaryRel fn.rel).allNames :=
     Signature.not_mem_allNames_addBinaryRel hnΔ hnRel
-  have h2 : n ∉ ((Δ.addBinaryRel ⟨fn.relName, .value, .value⟩).addUnary fn.func).allNames :=
+  have h2 : n ∉ ((Δ.addBinaryRel fn.rel).addUnary fn.func).allNames :=
     Signature.not_mem_allNames_addUnary h1 (by simpa [SpecFn.func] using hnFun)
-  have h3 : n ∉ (((Δ.addBinaryRel ⟨fn.relName, .value, .value⟩).addUnary fn.func).addUnaryRel
+  have h3 : n ∉ (((Δ.addBinaryRel fn.rel).addUnary fn.func).addUnaryRel
       fn.defined).allNames :=
     Signature.not_mem_allNames_addUnaryRel h2 (by simpa [SpecFn.defined] using hnDef)
   have h4 := Signature.not_mem_allNames_declVar h3 (show n ≠ (⟨x, .value⟩ : Var).name from hnX)

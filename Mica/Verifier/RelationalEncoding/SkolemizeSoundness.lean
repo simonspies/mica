@@ -113,7 +113,7 @@ theorem SoundBinary.call
     simp only [Bind.bind, Except.bind, Except.ok.injEq] at hrun
     subst hrun
     -- existential witness
-    set w := ρ₂.unary .value .value (fn.funcName) (arg₂.eval ρ₂) with hw
+    set w := fn.evalCall ρ₂ (arg₂.eval ρ₂) with hw
     simp only [Formula.eval]
     refine ⟨w, ?_, ?_⟩
     · -- the relational call edge holds
@@ -123,17 +123,23 @@ theorem SoundBinary.call
       have hunaryRel_eq : ρ₁.unaryRel .value (fn.defName) =
           ρ₂.unaryRel .value (fn.defName) :=
         hag.2.2.2.2.1 (fn.defined) hdef_mem
-      have hisdef_ev' : ρ₂.unaryRel .value (fn.defName) (arg₂.eval ρ₂) := by
-        simpa [SpecFn.isDefined, Formula.eval, UnPred.eval] using hisdef_ev
+      have hisdef_ev' : fn.evalDefined ρ₂ (arg₂.eval ρ₂) := by
+        simpa using hisdef_ev
       have hargΔ : arg₁.wfIn Δ := Term.wfIn_mono _ harg₁ hsub1 hΔ
       have hargeval' : arg₁.eval (ρ₁.updateConst .value ctx.r w) = arg₁.eval ρ₁ :=
         ctx.eval_update_fresh hargΔ
-      have hedge : ρ₁.binaryRel .value .value fn.relName (arg₁.eval ρ₁) w := by
+      have hevalDef_eq : fn.evalDefined ρ₁ = fn.evalDefined ρ₂ := hunaryRel_eq
+      have hevalCall_eq : fn.evalCall ρ₁ = fn.evalCall ρ₂ := hunary_eq
+      have hedge : fn.evalRelates ρ₁ (arg₁.eval ρ₁) w := by
         refine hΓs f fn hmem (arg₁.eval ρ₁) w ⟨?_, ?_⟩
-        · rw [congrFun hunaryRel_eq (arg₁.eval ρ₁), hargeval]
+        · rw [show fn.evalDefined ρ₁ (arg₁.eval ρ₁) =
+                fn.evalDefined ρ₂ (arg₁.eval ρ₁) from congrFun hevalDef_eq _,
+              hargeval]
           exact hisdef_ev'
-        · rw [congrFun hunary_eq (arg₁.eval ρ₁), hargeval, hw]
-      simpa [SpecFn.rel, Formula.eval, BinPred.eval, Term.eval,
+        · rw [show fn.evalCall ρ₁ (arg₁.eval ρ₁) =
+                fn.evalCall ρ₂ (arg₁.eval ρ₁) from congrFun hevalCall_eq _,
+              hargeval, hw]
+      simpa [SpecFn.relates, Formula.eval, BinPred.eval, Term.eval,
         Env.updateConst_binaryRel, Env.lookupConst_updateConst_same, hargeval']
         using hedge
     · -- the continuation is sound
@@ -151,7 +157,8 @@ theorem SoundBinary.call
       have heval_eq :
           Term.eval (ρ₁.updateConst .value ctx.r w) (Term.var .value ctx.r) =
             Term.eval ρ₂ (fn.call arg₂) := by
-        simp [Term.eval, SpecFn.call, UnOp.eval, Env.lookupConst_updateConst_same, hw]
+        simp [Term.eval, SpecFn.call, SpecFn.evalCall, SpecFn.func, UnOp.eval,
+          Env.lookupConst_updateConst_same, hw]
       have hcont :=
         hk (hsub1.trans ctx.subset) (Signature.Subset.refl Δ₂) ctx.wf hΔ₂
           hagree₁ Env.agreeOn_refl

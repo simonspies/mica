@@ -53,13 +53,13 @@ open Relation
 -- Axioms
 
 /-- If the encoded body is defined on input `x`, the function is defined on `x`. -/
-def definedIntroAxiom (fn x : TinyML.Var) (body : DefVal) : Formula :=
+def definedIntroAxiom (fn : SpecFn) (x : TinyML.Var) (body : DefVal) : Formula :=
   .forall_ x .value
     (.implies body.defined (fn.isDefined (.var .value x)))
 
 /-- If the function is defined on input `x`, its solver-facing value equals the
 encoded body value. -/
-def valueAxiom (fn x : TinyML.Var) (body : DefVal) : Formula :=
+def valueAxiom (fn : SpecFn) (x : TinyML.Var) (body : DefVal) : Formula :=
   .forall_ x .value
     (.implies
       (fn.isDefined (.var .value x))
@@ -68,16 +68,16 @@ def valueAxiom (fn x : TinyML.Var) (body : DefVal) : Formula :=
 /-- Converse of `definedIntroAxiom`: if the function is defined on `x`, then the
 encoded body is defined on `x`.  Experimental — exposing this lets the SMT
 backend propagate definedness from a parent call into its recursive subterms. -/
-def definedElimAxiom (fn x : TinyML.Var) (body : DefVal) : Formula :=
+def definedElimAxiom (fn : SpecFn) (x : TinyML.Var) (body : DefVal) : Formula :=
   .forall_ x .value
     (.implies (fn.isDefined (.var .value x)) body.defined)
 
 /-- The solver-facing axioms emitted for a relation-marked function. -/
-def axioms (fn x : TinyML.Var) (body : DefVal) : List Formula :=
+def axioms (fn : SpecFn) (x : TinyML.Var) (body : DefVal) : List Formula :=
   [definedIntroAxiom fn x body, valueAxiom fn x body,
    definedElimAxiom fn x body]
 
-theorem axioms_wfIn {Δ : Signature} {fn x : String} {body : DefVal}
+theorem axioms_wfIn {Δ : Signature} {fn : SpecFn} {x : String} {body : DefVal}
     (hΔx : (Δ.declVar ⟨x, .value⟩).wf)
     (hbody : body.wfIn (Δ.declVar ⟨x, .value⟩))
     (hfun : fn.func ∈ (Δ.declVar ⟨x, .value⟩).unary)
@@ -252,7 +252,7 @@ level. -/
 /-- Bundle of independent freshness premises sufficient to derive
 `HeadFresh` once a fresh result variable is chosen. The verifier discharges
 these per step. -/
-structure InfoFresh (Δ : Signature) (fn x : String) : Prop where
+structure InfoFresh (Δ : Signature) (fn : SpecFn) (x : String) : Prop where
   relFresh : fn.relName ∉ Δ.allNames
   funFresh : fn.funcName ∉ Δ.allNames
   defFresh : fn.defName ∉ Δ.allNames
@@ -279,7 +279,7 @@ theorem freshName_avoid_props
 /-- Derive `HeadFresh` from independent freshness hypotheses on each of the
 solver-facing names. -/
 theorem headFresh_of_fresh
-    {Δ : Signature} {fn x res : String}
+    {Δ : Signature} {fn : SpecFn} {x res : String}
     (hf : InfoFresh Δ fn x)
     (hresΔ : res ∉ Δ.allNames)
     (hresRel : res ≠ fn.relName) (hresFun : res ≠ fn.funcName)
@@ -314,13 +314,13 @@ level), the solver-facing value function, the definedness predicate, the
 canonical pinned-result variable, the encoded body, and the list of
 solver-emitted axioms. -/
 def bundle
-    (Γ : FunCtx) (Δ : Signature) (f fn x : String) (e : Typed.Expr) :
+    (Γ : FunCtx) (Δ : Signature) (f : TinyML.Var) (fn : SpecFn) (x : String) (e : Typed.Expr) :
     Except String
       (FOL.BinaryRel × FOL.Unary × FOL.UnaryRel × String × DefVal × List Formula) := do
   let res := Fresh.freshName
     (Δ.allNames ++ [x, fn.relName, fn.funcName, fn.defName]) "r"
   let bv ← encodeBody Γ Δ f fn x res e
-  pure (⟨fn.relName, .value, .value⟩, fn.func, fn.defined, res, bv,
+  pure (fn.rel, fn.func, fn.defined, res, bv,
         axioms fn x bv)
 
 theorem bundle_headFresh
@@ -328,20 +328,20 @@ theorem bundle_headFresh
     (hf : InfoFresh Δ fn x) :
     HeadFresh Δ fn x
       (Fresh.freshName
-        (Δ.allNames ++ [x, fn, fn.funcName, fn.defName]) "r") := by
+        (Δ.allNames ++ [x, fn.relName, fn.funcName, fn.defName]) "r") := by
   obtain ⟨hresΔ, hresArg, hresRel, hresFun, hresDef⟩ :=
     freshName_avoid_props Δ x fn
   exact headFresh_of_fresh hf hresΔ hresRel hresFun hresDef hresArg
 
 theorem bundle_wfIn
-    {Γ : FunCtx} {Δ : Signature} {f fn x : String} {e : Typed.Expr}
+    {Γ : FunCtx} {Δ : Signature} {f : TinyML.Var} {fn : SpecFn} {x : String} {e : Typed.Expr}
     {sym : FOL.BinaryRel} {fnSym : FOL.Unary} {drel : FOL.UnaryRel}
     {res : String} {bv : DefVal} {axs : List Formula}
     (hinfo : bundle Γ Δ f fn x e
               = .ok (sym, fnSym, drel, res, bv, axs))
     (hΔ : Δ.wf) (hΓwf : Γ.wfIn Δ)
     (hf : InfoFresh Δ fn x) :
-    sym = ⟨fn.relName, .value, .value⟩ ∧ fnSym = fn.func ∧ drel = fn.defined ∧
+    sym = fn.rel ∧ fnSym = fn.func ∧ drel = fn.defined ∧
       ∀ ax ∈ axs,
         ax.wfIn (((Δ.addBinaryRel sym).addUnary fnSym).addUnaryRel drel) := by
   unfold bundle at hinfo
@@ -353,7 +353,7 @@ theorem bundle_wfIn
   refine ⟨rfl, rfl, rfl, ?_⟩
   have hheadFresh := bundle_headFresh (Δ := Δ) (x := x) (fn := fn) hf
   set Δext : Signature :=
-    ((Δ.addBinaryRel ⟨fn.relName, .value, .value⟩).addUnary (fn.func)).addUnaryRel
+    ((Δ.addBinaryRel fn.rel).addUnary (fn.func)).addUnaryRel
       (fn.defined) with hΔext_def
   have hΔx_wf : (Δext.declVar ⟨x, .value⟩).wf := by
     simpa [Δext, bodySig] using bodySig_wf_of_headFresh hΔ hheadFresh
@@ -387,7 +387,7 @@ theorem axioms_eval_updateBinaryRel
     (R : ValRel) :
     ∀ ax ∈ axioms fn x body,
       ax.eval ((defInterpEnv Γ Δ ρ f fn x res e body).updateBinaryRel
-        .value .value fn R) := by
+        .value .value fn.relName R) := by
   intro ax hmem
   have hbase := axioms_eval henc hΓ hΓwf hΔ hheadFresh hρdet ax hmem
   set Δsmall : Signature :=
@@ -410,18 +410,18 @@ theorem axioms_eval_updateBinaryRel
     Signature.mem_remove_unaryRel.mpr ⟨List.Mem.head _, fun heq => hxNeDef heq.symm⟩
   have hax_wf : ax.wfIn Δsmall :=
     axioms_wfIn (Δ := Δsmall) hΔbig_wf hbody_wf hfun_mem hrel_mem ax hmem
-  have hrelFresh_small : (⟨fn.relName, .value, .value⟩ : FOL.BinaryRel).name ∉ Δsmall.allNames :=
+  have hrelFresh_small : fn.rel.name ∉ Δsmall.allNames :=
     Signature.not_mem_allNames_addUnaryRel
       (Signature.not_mem_allNames_addUnary hheadFresh.relFresh
-        (show fn ≠ (fn.func).name from (SpecFn.funcName_ne_fn fn).symm))
-      (show fn ≠ (fn.defined).name from (SpecFn.defName_ne_fn fn).symm)
+        (show fn.relName ≠ (fn.func).name from (SpecFn.funcName_ne_relName fn).symm))
+      (show fn.relName ≠ (fn.defined).name from (SpecFn.defName_ne_relName fn).symm)
   have hagree :
       Env.agreeOn Δsmall
         (defInterpEnv Γ Δ ρ f fn x res e body)
         ((defInterpEnv Γ Δ ρ f fn x res e body).updateBinaryRel
-          .value .value fn R) :=
+          .value .value fn.relName R) :=
     Env.agreeOn_update_fresh_binaryRel
-      (b := ⟨fn.relName, .value, .value⟩) hrelFresh_small
+      (b := fn.rel) hrelFresh_small
   exact (Formula.eval_env_agree hax_wf hagree).mp hbase
 
 /-- Verifier-facing combined functionality: `semrel` is single-valued. -/
@@ -478,7 +478,7 @@ by `bundle` evaluate to true under any choice of binary-relation
 interpretation for the freshly declared `fn` symbol. -/
 theorem bundle_eval_updateBinaryRel
     {Γ : FunCtx} {Δ : Signature} {ρ : Env}
-    {f fn x : String} {e : Typed.Expr}
+    {f : TinyML.Var} {fn : SpecFn} {x : String} {e : Typed.Expr}
     {sym : FOL.BinaryRel} {fnSym : FOL.Unary} {drel : FOL.UnaryRel}
     {res : String} {bv : DefVal} {axs : List Formula}
     (hinfo : bundle Γ Δ f fn x e
@@ -490,7 +490,7 @@ theorem bundle_eval_updateBinaryRel
     (R : ValRel) :
     ∀ ax ∈ axs,
       ax.eval ((defInterpEnv Γ Δ ρ f fn x res e bv).updateBinaryRel
-        .value .value fn R) := by
+        .value .value fn.relName R) := by
   unfold bundle at hinfo
   simp only [bind, Except.bind] at hinfo
   split at hinfo
