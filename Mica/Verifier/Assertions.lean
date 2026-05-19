@@ -354,7 +354,7 @@ def Assertion.prove (σ : FiniteSubst) : Assertion α → VerifM (FiniteSubst ×
       let σ' := σ.rename v v'.name
       VerifM.assume (.pure (.eq v.sort (.const (.uninterpreted v'.name v.sort)) t))
       Assertion.prove σ' k
-    | none => VerifM.fatal s!"could not resolve type predicate for {v.name}"
+    | none => VerifM.fatal s!"could not resolve predicate `{p.toStringHum}` for {v.name}"
   | .ite φ kt ke => do
     let branch ← VerifM.all [true, false]
     if branch then do
