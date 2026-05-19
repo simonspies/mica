@@ -416,9 +416,9 @@ theorem relSucceedsWhenDef_call {Γ : FunCtx}
       hagRel Env.agreeOn_refl
       (Term.var .value ctx.r) (fn.call argDef) ctx.var_wf hcallWf heval
   obtain ⟨φ, hφ⟩ := hcont ctx.wf hΔdef hΓdef ctx.s' ctx.covers n hkn
-  exact ⟨.exists_ ctx.r .value (.and (fn.rel argRel (.var .value ctx.r)) φ), by
+  exact ⟨.exists_ ctx.r .value (.and (fn.relates argRel (.var .value ctx.r)) φ), by
     change (Rel.call fn argRel kRel) s =
-      .ok (.exists_ ctx.r .value (.and (fn.rel argRel (.var .value ctx.r)) φ))
+      .ok (.exists_ ctx.r .value (.and (fn.relates argRel (.var .value ctx.r)) φ))
     simp only [Rel.call]
     rw [← ctx.hr, ← ctx.hs', hφ]
     rfl⟩

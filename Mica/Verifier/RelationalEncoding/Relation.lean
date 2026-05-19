@@ -65,7 +65,7 @@ def Rel.call (fn : SpecFn) (arg : Term .value) (k : Term .value → Rel) : Rel :
     let s' := s.reserve r
     do
       let φ ← k (.var .value r) s'
-      .ok (.exists_ r .value (.and (fn.rel arg (.var .value r)) φ))
+      .ok (.exists_ r .value (.and (fn.relates arg (.var .value r)) φ))
 
 def Rel.ite (cond : Term .bool) (thenEnc elseEnc : Rel) : Rel :=
   fun s => do

@@ -135,7 +135,7 @@ def isDefined (f : SpecFn) (arg : Term .value) : Formula :=
   .unpred (.uninterpreted (defName f) .value) arg
 
 /-- Apply the solver-facing binary relation for frontend function name `f`. -/
-def rel (f : SpecFn) (arg res : Term .value) : Formula :=
+def relates (f : SpecFn) (arg res : Term .value) : Formula :=
   .binpred (.uninterpreted (relName f) .value .value) arg res
 
 /-- A registered solver-facing value-function application is well-formed when
@@ -164,10 +164,10 @@ theorem isDefined_wfIn {fn : SpecFn} {arg : Term .value} {Δ : Signature}
 
 /-- A registered solver-facing relation application is well-formed when its
 arguments are well-formed. -/
-theorem rel_wfIn {fn : SpecFn} {arg res : Term .value} {Δ : Signature}
+theorem relates_wfIn {fn : SpecFn} {arg res : Term .value} {Δ : Signature}
     (hrel : (⟨fn.relName, .value, .value⟩ : FOL.BinaryRel) ∈ Δ.binaryRel)
     (hΔ : Δ.wf) (harg : arg.wfIn Δ) (hres : res.wfIn Δ) :
-    (fn.rel arg res).wfIn Δ := by
+    (fn.relates arg res).wfIn Δ := by
   refine ⟨?_, harg, hres⟩
   refine ⟨hrel, ?_, ?_⟩
   · intro τ₁ τ₂ τ₃ hb
