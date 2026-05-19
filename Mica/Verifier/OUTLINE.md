@@ -8,6 +8,7 @@
 - `Monad.lean` — Verification monad with SMT operations, branching, and its operational and semantic correctness interfaces.
 - `PredicateTransformers.lean` — Predicate transformers for function specifications, together with their semantics and call and implementation protocols.
 - `Programs.lean` — End-to-end preparation and verification of programs, from typed elaboration to program-level soundness.
+- `RelationalEncoding.lean` — Bundle for RelationalEncoding/, the two-stage encoding of recursive functions into FOL axioms.
 - `Scoped.lean` — Scoped SMT command language and its translation to solver strategies and flat contexts.
 - `SpecMaps.lean` — Finite maps of function specifications, together with satisfaction, update, and well-formedness lemmas.
 - `SpecTranslation.lean` — Sort-checked translation from frontend specifications into verifier terms, formulas, assertions, and predicate transformers.

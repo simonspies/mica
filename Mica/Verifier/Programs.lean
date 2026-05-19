@@ -9,6 +9,7 @@ import Mica.Verifier.SpecTranslation
 import Mica.Verifier.PredicateTransformers
 import Mica.Verifier.Specifications
 import Mica.Engine.Driver
+import Mica.Verifier.RelationalEncoding
 
 open Iris Iris.BI
 open Typed
