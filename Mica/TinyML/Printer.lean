@@ -150,9 +150,12 @@ def ValDecl.print (d : Untyped.ValDecl Untyped.Expr) : String :=
       let (allArgs, innerBody) := collectAnonArgs args inner
       s!"let {d.name.print} {argsStr allArgs} = {printExpr innerBody}"
     | body => s!"let {d.name.print} = {printExpr body}"
-  match d.spec with
-  | .none => decl
-  | .some e => s!"{decl} [@@spec {printExpr e}]"
+  let withSpec := match d.declMeta.spec with
+    | .none => decl
+    | .some e => s!"{decl} [@@spec {printExpr e}]"
+  match d.declMeta.relation with
+  | .none => withSpec
+  | .some fn => s!"{withSpec} [@@fn {fn}]"
 
 def TypeDecl.print (d : Untyped.TypeDecl) : String :=
   let payloads := (List.range d.body.payloads.length).zip d.body.payloads |>.map

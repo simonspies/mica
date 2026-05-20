@@ -284,7 +284,7 @@ def ValDecl.elaborate {S : Type} (Θ : TypeEnv) (Γ : TinyML.TyCtx) (d : Untyped
   let nameTy := match d.name with
     | .named _ (some ty) => ty
     | _ => bodyTy
-  .ok { name := Typed.Binder.ofUntyped d.name nameTy, body := body', spec := d.spec }
+  .ok { name := Typed.Binder.ofUntyped d.name nameTy, body := body', declMeta := d.declMeta }
 
 def Program.elaborate {S : Type} (Θ : TypeEnv) (Γ : TinyML.TyCtx) :
     Untyped.Program S → Except TypeError (TypeEnv × Typed.Program S)

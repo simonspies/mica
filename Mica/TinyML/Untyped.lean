@@ -159,11 +159,11 @@ abbrev Binders := List Binder
 structure ValDecl (S : Type) where
   name : Binder
   body : Expr
-  spec : Option S
+  declMeta : DeclMeta S
   deriving Repr, BEq, Inhabited
 
 def ValDecl.mapSpec {S T : Type} (f : S → Option T) (d : ValDecl S) : ValDecl T :=
-  { name := d.name, body := d.body, spec := d.spec.bind f }
+  { name := d.name, body := d.body, declMeta := d.declMeta.mapSpec f }
 
 structure TypeDecl where
   name : TypeName

@@ -1,5 +1,6 @@
 -- SUMMARY: Elaboration of surface syntax into the verifier's core language, with frontend-specific checks.
 import Mica.Frontend.AST
+import Mica.TinyML.Common
 import Mica.TinyML.Untyped
 
 /-!
@@ -464,7 +465,7 @@ def TypeDecl.elaborate (env : ElabEnv) (loc : Location) (decl : TypeDecl)
 
 def ValDecl.elaborate (env : ElabEnv) (loc : Location)
     (isRec : Bool) (binders : List Pattern) (retTy : Option Typ) (body : Expr)
-    (spec : Option Untyped.Expr)
+    (md : TinyML.DeclMeta Untyped.Expr)
     : ElabM (Untyped.ValDecl Untyped.Expr) := do
   match binders with
   | [] => err loc (.unsupportedFeature "declaration with no binders")
@@ -474,25 +475,43 @@ def ValDecl.elaborate (env : ElabEnv) (loc : Location)
     if isRec then
       err loc (.unsupportedFeature "let rec requires function arguments")
     else
-      .ok { name, body := body', spec }
+      .ok { name, body := body', declMeta := md }
   | pat :: args =>
     let name ← patternToBinder pat
     let self := if isRec then name else .none
     let args' ← Pattern.toAnnotatedBinders env args
     let retTy' ← elaborateOptTyp env retTy
     let body' ← Expr.elaborate env body
-    .ok { name, body := .fix self args' retTy' body', spec }
+    .ok { name, body := .fix self args' retTy' body', declMeta := md }
 
 -- ---------------------------------------------------------------------------
 -- Program elaboration
 
-private def elaborateSpec (env : ElabEnv) (attrs : List Attribute)
+private def elaborateAttrSpec (env : ElabEnv) (attrs : List Attribute)
     : ElabM (Option Untyped.Expr) :=
   match attrs.find? (·.name == "spec") with
   | none => .ok none
   | some attr => do
     let e ← Expr.elaborate env attr.payload
     .ok (some e)
+
+private def elaborateAttrRelationPayload (env : ElabEnv) (attr : Attribute) : ElabM String := do
+  let e ← Expr.elaborate env attr.payload
+  match e with
+  | .var name => .ok name
+  | _ => err attr.payload.loc (.unsupportedFeature "[@@fn] expects a bare identifier payload")
+
+private def elaborateAttrRelation (env : ElabEnv) (attrs : List Attribute)
+    : ElabM (Option String) :=
+  match attrs.find? (·.name == "fn") with
+  | none => .ok none
+  | some attr => elaborateAttrRelationPayload env attr
+
+private def elaborateDeclMeta (env : ElabEnv) (attrs : List Attribute)
+    : ElabM (TinyML.DeclMeta Untyped.Expr) := do
+  let spec ← elaborateAttrSpec env attrs
+  let relation ← elaborateAttrRelation env attrs
+  .ok { spec, relation }
 
 def Decl.elaborate (env : ElabEnv) (decl : Decl)
     : ElabM (ElabEnv × Option (Untyped.Decl Untyped.Expr)) := do
@@ -501,8 +520,8 @@ def Decl.elaborate (env : ElabEnv) (decl : Decl)
     let (env', tdecl') ← TypeDecl.elaborate env decl.loc tdecl
     .ok (env', tdecl'.map Untyped.Decl.type_)
   | .val_ isRec binders retTy body => do
-    let spec ← elaborateSpec env decl.attrs
-    let d ← ValDecl.elaborate env decl.loc isRec binders retTy body spec
+    let md ← elaborateDeclMeta env decl.attrs
+    let d ← ValDecl.elaborate env decl.loc isRec binders retTy body md
     .ok (env, some (.val_ d))
 
 private def elaborateDecls (env : ElabEnv) :

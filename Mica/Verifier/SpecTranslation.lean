@@ -14,11 +14,15 @@ Sort-checks the untyped `Spec` AST and translates it into typed
 namespace SpecTranslation
 
 abbrev Env := List (String × Srt)
+abbrev RelationEnv := List FOL.BinaryRel
 
 private def Env.lookup (env : Env) (x : String) : Option Srt :=
   (env.find? (·.1 == x)).map (·.2)
 
 private abbrev M := Except String
+
+private def RelationEnv.hasBinaryValueRel (rels : RelationEnv) (name : String) : Bool :=
+  rels.any fun rel => rel.name == name && rel.arg1 == .value && rel.arg2 == .value
 
 -- ---------------------------------------------------------------------------
 -- Terms
@@ -78,8 +82,14 @@ def checkTerm (env : Env) (τ : Srt) : Spec.Term → M (Term τ)
   | .var x => match env.lookup x with
     | none => .error s!"unbound variable '{x}'"
     | some sort =>
-      if h : sort = τ then .ok (h ▸ .var sort x)
-      else .error s!"variable '{x}' has sort {repr sort}, expected {repr τ}"
+      match sort, τ with
+      | .int, .value => .ok (.unop .ofInt (.var .int x))
+      | .bool, .value => .ok (.unop .ofBool (.var .bool x))
+      | .int, .int => .ok (.var .int x)
+      | .bool, .bool => .ok (.var .bool x)
+      | .value, .value => .ok (.var .value x)
+      | .vallist, .vallist => .ok (.var .vallist x)
+      | _, _ => .error s!"variable '{x}' has sort {repr sort}, expected {repr τ}"
   | .int n => match τ with
     | .int => .ok (.const (.i n))
     | .value => .ok (.unop .ofInt (.const (.i n)))
@@ -140,51 +150,58 @@ def translateFormula (env : Env) : Spec.Term → M Formula
 -- Predicates
 -- ---------------------------------------------------------------------------
 
-def translatePred (env : Env) : Spec.Pred → M (Σ t, Atom t)
+def translatePred (relations : RelationEnv) (env : Env) : Spec.Pred → M (Σ t, Atom t)
   | .isint e => do .ok ⟨.int, .isint (← checkTerm env .value e)⟩
   | .isbool e => do .ok ⟨.bool, .isbool (← checkTerm env .value e)⟩
   | .isinj tag arity e => do
     .ok ⟨.value, .isinj tag arity (← checkTerm env .value e)⟩
   | .own e => do .ok ⟨.value, .own (← checkTerm env .value e)⟩
+  | .call rel e => do
+    if RelationEnv.hasBinaryValueRel relations (Verifier.RelationalEncoding.SpecFn.relName rel) then
+      .ok ⟨.value, .rel rel (← checkTerm env .value e)⟩
+    else
+      .error s!"unknown binary relation '{rel}'"
 
 -- ---------------------------------------------------------------------------
 -- Assertions
 -- ---------------------------------------------------------------------------
 
-def translateAssert (env : Env) (inner : Env → α → M β) : Spec.Assert α → M (Assertion β)
+def translateAssert (relations : RelationEnv) (env : Env) (inner : Env → α → M β) :
+    Spec.Assert α → M (Assertion β)
   | .ret a => do .ok (.ret (← inner env a))
   | .assert cond rest => do
     let φ ← translateFormula env cond
-    .ok (.assert φ (← translateAssert env inner rest))
+    .ok (.assert φ (← translateAssert relations env inner rest))
   | .let_ x t rest => do
     let ⟨τ, t'⟩ ← inferTerm env t
     let v : Var := ⟨x, τ⟩
-    .ok (.let_ v t' (← translateAssert ((x, τ) :: env) inner rest))
+    .ok (.let_ v t' (← translateAssert relations ((x, τ) :: env) inner rest))
   | .bind pred x rest => do
-    let ⟨τ, atom⟩ ← translatePred env pred
+    let ⟨τ, atom⟩ ← translatePred relations env pred
     let v : Var := ⟨x, τ⟩
-    .ok (.pred v atom (← translateAssert ((x, τ) :: env) inner rest))
+    .ok (.pred v atom (← translateAssert relations ((x, τ) :: env) inner rest))
   | .ite cond thn els => do
     let φ ← translateFormula env cond
-    .ok (.ite φ (← translateAssert env inner thn) (← translateAssert env inner els))
+    .ok (.ite φ (← translateAssert relations env inner thn)
+      (← translateAssert relations env inner els))
 
 -- ---------------------------------------------------------------------------
 -- Top-level: Body → SpecPredicate
 -- ---------------------------------------------------------------------------
 
-def translatePost (env : Env) : Spec.Post → M (Assertion Unit) :=
-  translateAssert env (fun _ () => .ok ())
+def translatePost (relations : RelationEnv) (env : Env) : Spec.Post → M (Assertion Unit) :=
+  translateAssert relations env (fun _ () => .ok ())
 
-def translatePre (env : Env) : Spec.Pre → M PredTrans :=
-  translateAssert env fun env (name, post) => do
-    let post' ← translatePost ((name, .value) :: env) post
+def translatePre (relations : RelationEnv) (env : Env) : Spec.Pre → M PredTrans :=
+  translateAssert relations env fun env (name, post) => do
+    let post' ← translatePost relations ((name, .value) :: env) post
     .ok (name, post')
 
-def translate (body : Spec.Body) : M SpecPredicate :=
+def translate (relations : RelationEnv) (body : Spec.Body) : M SpecPredicate :=
   let (names, pre) := body
   let env : Env := names.map (·, .value)
   do
-    let pt ← translatePre env pre
+    let pt ← translatePre relations env pre
     .ok (names, pt)
 
 end SpecTranslation
