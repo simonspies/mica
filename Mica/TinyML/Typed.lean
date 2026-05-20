@@ -222,13 +222,13 @@ def Expr.ty : Expr → Typ
 structure ValDecl (S : Type) where
   name : Binder
   body : Expr
-  spec : Option S
+  declMeta : DeclMeta S
   deriving Repr, BEq
 
-instance [Inhabited S] : Inhabited (ValDecl S) := ⟨{ name := default, body := default, spec := default }⟩
+instance [Inhabited S] : Inhabited (ValDecl S) := ⟨{ name := default, body := default, declMeta := default }⟩
 
 def ValDecl.mapSpec {S T : Type} (f : S → Option T) (d : ValDecl S) : ValDecl T :=
-  { name := d.name, body := d.body, spec := d.spec.bind f }
+  { name := d.name, body := d.body, declMeta := d.declMeta.mapSpec f }
 
 abbrev Program (S : Type) := List (ValDecl S)
 

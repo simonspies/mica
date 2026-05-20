@@ -5,6 +5,14 @@ namespace TinyML
 
 abbrev Var := String
 
+structure DeclMeta (S : Type) where
+  spec : Option S := none
+  relation : Option String := none
+  deriving Repr, BEq, Inhabited
+
+def DeclMeta.mapSpec {S T : Type} (f : S -> Option T) (m : DeclMeta S) : DeclMeta T :=
+  { spec := m.spec.bind f, relation := m.relation }
+
 inductive BinOp where
   | add | sub | mul | div | mod
   | eq | lt | le | gt | ge

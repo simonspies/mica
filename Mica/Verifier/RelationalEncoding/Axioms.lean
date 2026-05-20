@@ -261,6 +261,20 @@ structure InfoFresh (Δ : Signature) (fn : SpecFn) (x : String) : Prop where
   argNeFun : x ≠ fn.funcName
   argNeDef : x ≠ fn.defName
 
+/-- Declaring `fn`'s three split symbols on top of a well-formed `Δ` keeps the
+signature well-formed, since the symbols are fresh for `Δ` and pairwise distinct. -/
+theorem InfoFresh.wf_addSplit {Δ : Signature} {fn : SpecFn} {x : String}
+    (hf : InfoFresh Δ fn x) (hΔ : Δ.wf) :
+    (((Δ.addBinaryRel fn.rel).addUnary fn.func).addUnaryRel fn.defined).wf :=
+  have hfun_fresh : fn.func.name ∉ (Δ.addBinaryRel fn.rel).allNames :=
+    Signature.not_mem_allNames_addBinaryRel hf.funFresh (SpecFn.funcName_ne_relName fn)
+  have hdef_fresh : fn.defined.name ∉ ((Δ.addBinaryRel fn.rel).addUnary fn.func).allNames :=
+    Signature.not_mem_allNames_addUnary
+      (Signature.not_mem_allNames_addBinaryRel hf.defFresh (SpecFn.defName_ne_relName fn))
+      (SpecFn.defName_ne_funcName fn)
+  Signature.wf_addUnaryRel
+    (Signature.wf_addUnary (Signature.wf_addBinaryRel hΔ hf.relFresh) hfun_fresh) hdef_fresh
+
 theorem freshName_avoid_props
     (Δ : Signature) (x fn : SpecFn) :
     let res := Fresh.freshName
@@ -309,19 +323,16 @@ theorem headFresh_of_fresh
       hresx
 
 /-- Verifier-facing helper bundle for the split (definedness/value) encoding.
-Returns the binary relation symbol (declared but unconstrained at the SMT
-level), the solver-facing value function, the definedness predicate, the
-canonical pinned-result variable, the encoded body, and the list of
-solver-emitted axioms. -/
+The declared symbols (`fn.rel`, `fn.func`, `fn.defined`) are determined by `fn`,
+so this returns only the data the encoder computes: the canonical pinned-result
+variable, the encoded body, and the list of solver-emitted axioms. -/
 def bundle
     (Γ : FunCtx) (Δ : Signature) (f : TinyML.Var) (fn : SpecFn) (x : String) (e : Typed.Expr) :
-    Except String
-      (FOL.BinaryRel × FOL.Unary × FOL.UnaryRel × String × DefVal × List Formula) := do
+    Except String (String × DefVal × List Formula) := do
   let res := Fresh.freshName
     (Δ.allNames ++ [x, fn.relName, fn.funcName, fn.defName]) "r"
   let bv ← encodeBody Γ Δ f fn x res e
-  pure (fn.rel, fn.func, fn.defined, res, bv,
-        axioms fn x bv)
+  pure (res, bv, axioms fn x bv)
 
 theorem bundle_headFresh
     {Δ : Signature} {x fn : SpecFn}
@@ -335,22 +346,18 @@ theorem bundle_headFresh
 
 theorem bundle_wfIn
     {Γ : FunCtx} {Δ : Signature} {f : TinyML.Var} {fn : SpecFn} {x : String} {e : Typed.Expr}
-    {sym : FOL.BinaryRel} {fnSym : FOL.Unary} {drel : FOL.UnaryRel}
     {res : String} {bv : DefVal} {axs : List Formula}
-    (hinfo : bundle Γ Δ f fn x e
-              = .ok (sym, fnSym, drel, res, bv, axs))
+    (hinfo : bundle Γ Δ f fn x e = .ok (res, bv, axs))
     (hΔ : Δ.wf) (hΓwf : Γ.wfIn Δ)
     (hf : InfoFresh Δ fn x) :
-    sym = fn.rel ∧ fnSym = fn.func ∧ drel = fn.defined ∧
-      ∀ ax ∈ axs,
-        ax.wfIn (((Δ.addBinaryRel sym).addUnary fnSym).addUnaryRel drel) := by
+    ∀ ax ∈ axs,
+      ax.wfIn (((Δ.addBinaryRel fn.rel).addUnary fn.func).addUnaryRel fn.defined) := by
   unfold bundle at hinfo
   simp only [bind, Except.bind] at hinfo
   split at hinfo
   · cases hinfo
   rename_i bv' henc
   cases hinfo
-  refine ⟨rfl, rfl, rfl, ?_⟩
   have hheadFresh := bundle_headFresh (Δ := Δ) (x := x) (fn := fn) hf
   set Δext : Signature :=
     ((Δ.addBinaryRel fn.rel).addUnary (fn.func)).addUnaryRel
@@ -428,10 +435,8 @@ theorem axioms_eval_updateBinaryRel
 theorem bundle_semrel_functional
     {Γ : FunCtx} {Δ : Signature}
     {f fn x : String} {e : Typed.Expr}
-    {sym : FOL.BinaryRel} {fnSym : FOL.Unary} {drel : FOL.UnaryRel}
     {res : String} {bv : DefVal} {axs : List Formula}
-    (hinfo : bundle Γ Δ f fn x e
-              = .ok (sym, fnSym, drel, res, bv, axs))
+    (hinfo : bundle Γ Δ f fn x e = .ok (res, bv, axs))
     (hΓwf : Γ.wfIn Δ)
     (hΔ : Δ.wf) (hf : InfoFresh Δ fn x)
     (ρ : Env) (hρdet : Relation.BinaryRelDet Γ ρ ρ)
@@ -452,10 +457,8 @@ theorem bundle_semrel_functional
 theorem bundle_semrel_compatible
     {Γ : FunCtx} {Δ : Signature} {ρ : Env}
     {f fn x : String} {e : Typed.Expr}
-    {sym : FOL.BinaryRel} {fnSym : FOL.Unary} {drel : FOL.UnaryRel}
     {res : String} {bv : DefVal} {axs : List Formula}
-    (hinfo : bundle Γ Δ f fn x e
-              = .ok (sym, fnSym, drel, res, bv, axs))
+    (hinfo : bundle Γ Δ f fn x e = .ok (res, bv, axs))
     (hΓ : Γ.splitCompatible ρ)
     (hΓwf : Γ.wfIn Δ)
     (hΔ : Δ.wf) (hf : InfoFresh Δ fn x)
@@ -479,10 +482,8 @@ interpretation for the freshly declared `fn` symbol. -/
 theorem bundle_eval_updateBinaryRel
     {Γ : FunCtx} {Δ : Signature} {ρ : Env}
     {f : TinyML.Var} {fn : SpecFn} {x : String} {e : Typed.Expr}
-    {sym : FOL.BinaryRel} {fnSym : FOL.Unary} {drel : FOL.UnaryRel}
     {res : String} {bv : DefVal} {axs : List Formula}
-    (hinfo : bundle Γ Δ f fn x e
-              = .ok (sym, fnSym, drel, res, bv, axs))
+    (hinfo : bundle Γ Δ f fn x e = .ok (res, bv, axs))
     (hΓ : Γ.splitCompatible ρ)
     (hΓwf : Γ.wfIn Δ)
     (hΔ : Δ.wf) (hf : InfoFresh Δ fn x)

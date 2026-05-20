@@ -42,6 +42,7 @@ inductive Pred where
   | isbool (arg : Term)
   | isinj (tag arity : Nat) (arg : Term)
   | own (loc : Term)
+  | call (rel : String) (arg : Term)
   deriving Repr, BEq, Inhabited
 
 inductive Assert (α : Type) where
