@@ -524,7 +524,11 @@ def Decl.elaborate (env : ElabEnv) (decl : Decl)
     let fn ← hasAttrRelation decl.attrs
     let d ← ValDecl.elaborate env decl.loc isRec binders retTy body { spec }
     -- A `[@@fn]` declaration uses its own name for the derived relation.
-    let relation := if fn then (match d.name with | .named x _ => some x | .none => none) else none
+    let relation ← if fn then
+      match d.name with
+      | .named x _ => .ok (some x)
+      | .none => err decl.loc (.unsupportedFeature "[@@fn] requires a named declaration")
+    else .ok none
     .ok (env, some (.val_ { d with declMeta := { d.declMeta with relation } }))
 
 private def elaborateDecls (env : ElabEnv) :
