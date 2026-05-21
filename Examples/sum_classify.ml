@@ -4,7 +4,8 @@ type result = Ok of int | Err of int
 let classify (x : int) : result =
   if x >= 0 then Ok x else Err x
 [@@spec fun x ->
-  bind (isint x) @@ fun n ->
   ret (fun v ->
-    if n >= 0 then assert (v = inj 0 2 x)
-    else assert (v = Err x))];;
+    if x >= 0 then
+      (bind (isinj 0 2 v) @@ fun (payload : int) -> assert (payload = x))
+    else
+      (bind (isinj 1 2 v) @@ fun (payload : int) -> assert (payload = x)))];;

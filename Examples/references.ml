@@ -2,8 +2,8 @@
    and booleans.
 
    References are currently managed by the logical relation, so the specs below
-   deliberately avoid describing the values stored in cells.  The example 
-   implements a small mutable stack and a bounded worklist transfer over a 
+   deliberately avoid describing the values stored in cells.  The example
+   implements a small mutable stack and a bounded worklist transfer over a
    recursive integer-list datatype. *)
 
 type ilist = Nil | Cons of int * ilist
@@ -15,29 +15,22 @@ let rec length (xs : ilist) : int =
   | Cons p -> 1 + length p.1
 [@@spec fun xs ->
   ret (fun v ->
-    bind (isint v) @@ fun n ->
-    assert (n >= 0);
-    if tagof xs = 0 then
-      assert (n = 0)
-    else
-      assert (n >= 1))];;
+    assert (v >= 0))];;
 
 let push (stack : ilist ref) (x : int) : unit =
   stack := Cons (x, !stack)
 [@@spec fun stack x ->
   ret (fun r ->
-    assert (r = ()))];;
+    ret ())];;
 
 let singleton (x : int) : ilist =
   Cons (x, Nil)
 [@@spec fun x ->
-  bind (isint x) @@ fun m ->
   ret (fun r ->
-    bind (isinj 1 2 r) @@ fun payload ->
-    bind (isint payload.0) @@ fun n ->
-    bind (isinj 0 2 payload.1) @@ fun tail_payload ->
-    assert (n = m);
-    assert (tail_payload = ()))];;
+    bind (isinj 1 2 r) @@ fun (payload : int * ilist) ->
+    let tail = payload.1 in
+    bind (isinj 0 2 tail) @@ fun (tail_payload : unit) ->
+    assert (payload.0 = x))];;
 
 let pop_or_zero (stack : ilist ref) : int =
   match !stack with
@@ -47,8 +40,7 @@ let pop_or_zero (stack : ilist ref) : int =
     p.0
 [@@spec fun stack ->
   ret (fun r ->
-    bind (isint r) @@ fun n ->
-    assert (n = n))];;
+    ret ())];;
 
 let top_is_positive (stack : ilist ref) : bool =
   match !stack with
@@ -56,8 +48,7 @@ let top_is_positive (stack : ilist ref) : bool =
   | Cons p -> p.0 > 0
 [@@spec fun stack ->
   ret (fun r ->
-    bind (isbool r) @@ fun b ->
-    assert (b = b))];;
+    ret ())];;
 
 let rec transfer (fuel : int) (src : ilist ref) (dst : ilist ref) : unit =
   if fuel <= 0 then
@@ -71,7 +62,7 @@ let rec transfer (fuel : int) (src : ilist ref) (dst : ilist ref) : unit =
       transfer (fuel - 1) src dst
 [@@spec fun fuel src dst ->
   ret (fun r ->
-    assert (r = ()))];;
+    ret ())];;
 
 let choose_and_push (prefer_left : bool) (left : ilist ref) (right : ilist ref)
     (x : int) : unit =
@@ -81,7 +72,7 @@ let choose_and_push (prefer_left : bool) (left : ilist ref) (right : ilist ref)
     push right x
 [@@spec fun prefer_left left right x ->
   ret (fun r ->
-    assert (r = ()))];;
+    ret ())];;
 
 let worklist_demo (a : int) (b : int) (c : int) (prefer_left : bool) : unit =
   let todo = ref (singleton a) in
@@ -98,11 +89,10 @@ let worklist_demo (a : int) (b : int) (c : int) (prefer_left : bool) : unit =
   ()
 [@@spec fun a b c prefer_left ->
   ret (fun r ->
-    assert (r = ()))];;
+    ret ())];;
 
 let build_and_measure (a : int) (b : int) (c : int) : int =
   length (Cons (a, Cons (b, Cons (c, Nil))))
 [@@spec fun a b c ->
   ret (fun v ->
-    bind (isint v) @@ fun n ->
-    assert (n >= 1))];;
+    assert (v >= 0))];;

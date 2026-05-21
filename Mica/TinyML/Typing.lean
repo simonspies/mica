@@ -3,6 +3,7 @@ import Mica.TinyML.Types
 import Mica.TinyML.Untyped
 import Mica.TinyML.Typed
 import Mica.TinyML.RuntimeExpr
+import Mica.TinyML.Spec
 import Mica.Base.Except
 
 namespace TinyML
@@ -84,6 +85,7 @@ inductive TypeError where
   | notARef (ty : Typ)
   | missingReturnType
   | subsumptionFailure (sub super : Typ)
+  | spec (msg : String)
   deriving Repr, Inhabited, DecidableEq
 
 instance : ToString TypeError where
@@ -104,6 +106,7 @@ instance : ToString TypeError where
     | .missingReturnType => "missing return type"
     | .subsumptionFailure sub super =>
         s!"subsumption failed: {repr sub} is not a subtype of {repr super}"
+    | .spec msg => s!"specification error: {msg}"
 
 def Binder.ofUntyped (b : Untyped.Binder) (ty : Typ) : Typed.Binder :=
   match b with
@@ -273,8 +276,72 @@ theorem Binder.ofUntyped_runtime (b : Untyped.Binder) (ty : Typ) :
     (Typed.Binder.ofUntyped b ty).runtime = b.runtime := by
   cases b <;> rfl
 
-def ValDecl.elaborate {S : Type} (Θ : TypeEnv) (Γ : TinyML.TyCtx) (d : Untyped.ValDecl S) :
-    Except TypeError (Typed.ValDecl S) := do
+/-! ## Specification elaboration
+
+A spec is elaborated alongside the declaration it annotates: its leaf
+expressions go through the ordinary `infer`/`check` judgments, with the spec's
+arguments taking the function's argument types, `bind` binders their annotated
+types, and the postcondition result the return type. This reuses the global
+context from `Program.elaborate`, so a spec may refer to earlier definitions. -/
+
+/-- Elaborate a spec assertion through `infer`/`check`. The `inner` callback
+elaborates the return payload in the current type context. -/
+def elabAssert (Θ : TypeEnv) (inner : TyCtx → α → Except TypeError β) :
+    TyCtx → Spec.Assert Untyped.Expr α → Except TypeError (Spec.Assert Typed.Expr β)
+  | Γ, .ret a => do .ok (.ret (← inner Γ a))
+  | Γ, .assert cond rest => do
+    let cond' ← check Θ Γ cond .bool
+    .ok (.assert cond' (← elabAssert Θ inner Γ rest))
+  | Γ, .let_ x e rest => do
+    let (ty, e') ← infer Θ Γ e
+    .ok (.let_ x e' (← elabAssert Θ inner (Γ.extend x ty) rest))
+  | Γ, .bind p x ty rest => do
+    .ok (.bind p x ty (← elabAssert Θ inner (Γ.extend x ty) rest))
+  | Γ, .ite cond thn els => do
+    let cond' ← check Θ Γ cond .bool
+    .ok (.ite cond' (← elabAssert Θ inner Γ thn) (← elabAssert Θ inner Γ els))
+
+private def elabPost (Θ : TypeEnv) (Γ : TyCtx) (post : Spec.Post Untyped.Expr) :
+    Except TypeError (Spec.Post Typed.Expr) :=
+  elabAssert Θ (fun _ () => .ok ()) Γ post
+
+/-- Match the spec's bound names against the typed function binders to recover
+each argument's type. -/
+private def specArgTypes : List Typed.Binder → List String → Except TypeError (List (String × Typ))
+  | _, [] => .ok []
+  | [], _ :: _ => .error (.spec "more arguments than the function declares")
+  | b :: bs, n :: ns => do
+    let rest ← specArgTypes bs ns
+    .ok ((n, b.ty) :: rest)
+
+/-- Elaborate a spec body against its function's typed signature, layering the
+spec's arguments on top of the program's global bindings `Γbase`. -/
+def elabSpecBody (Θ : TypeEnv) (Γbase : TyCtx) (body : Typed.Expr) (rb : Spec.Body Untyped.Expr) :
+    Except TypeError (Spec.Body Typed.Expr) := do
+  let (names, pre) := rb
+  let (argBinders, retTy) ← match body with
+    | .fix _ args retTy _ => .ok (args, retTy)
+    | _ => .error (.spec "attached to a non-function declaration")
+  let argTys ← specArgTypes argBinders names
+  let Γ₀ : TyCtx := argTys.foldl (fun Γ p => Γ.extend p.1 p.2) Γbase
+  let pre' ← elabAssert Θ
+    (fun Γ (vname, post) => do
+      let post' ← elabPost Θ (Γ.extend vname retTy) post
+      .ok (vname, post'))
+    Γ₀ pre
+  .ok (names, pre')
+
+/-- Elaborate a declaration's optional spec against the typed function `body`. -/
+def elabSpec (Θ : TypeEnv) (Γ : TyCtx) (body : Typed.Expr) :
+    Option (Spec.Body Untyped.Expr) → Except TypeError (Option (Spec.Body Typed.Expr))
+  | none => .ok none
+  | some rb => do
+    let cb ← elabSpecBody Θ Γ body rb
+    .ok (some cb)
+
+def ValDecl.elaborate (Θ : TypeEnv) (Γ : TinyML.TyCtx)
+    (d : Untyped.ValDecl (Spec.Body Untyped.Expr)) :
+    Except TypeError (Typed.ValDecl (Spec.Body Typed.Expr)) := do
   let (bodyTy, body') ←
     match d.name with
     | .named _ (some ty) => do
@@ -284,10 +351,12 @@ def ValDecl.elaborate {S : Type} (Θ : TypeEnv) (Γ : TinyML.TyCtx) (d : Untyped
   let nameTy := match d.name with
     | .named _ (some ty) => ty
     | _ => bodyTy
-  .ok { name := Typed.Binder.ofUntyped d.name nameTy, body := body', declMeta := d.declMeta }
+  let spec' ← elabSpec Θ Γ body' d.declMeta.spec
+  .ok { name := Typed.Binder.ofUntyped d.name nameTy, body := body',
+        declMeta := { spec := spec', relation := d.declMeta.relation } }
 
-def Program.elaborate {S : Type} (Θ : TypeEnv) (Γ : TinyML.TyCtx) :
-    Untyped.Program S → Except TypeError (TypeEnv × Typed.Program S)
+def Program.elaborate (Θ : TypeEnv) (Γ : TinyML.TyCtx) :
+    Untyped.Program (Spec.Body Untyped.Expr) → Except TypeError (TypeEnv × Typed.Program (Spec.Body Typed.Expr))
   | [] => .ok (Θ, [])
   | d :: ds => do
       match d with
@@ -664,8 +733,9 @@ mutual
           · simp [Typed.inferBranches, binderTy, hsub] at h
 end
 
-theorem ValDecl.elaborate_runtime {S : Type} (Θ : TypeEnv) (Γ : TinyML.TyCtx) (d : Untyped.ValDecl S) :
-    ∀ {d' : Typed.ValDecl S},
+theorem ValDecl.elaborate_runtime (Θ : TypeEnv) (Γ : TinyML.TyCtx)
+    (d : Untyped.ValDecl (Spec.Body Untyped.Expr)) :
+    ∀ {d' : Typed.ValDecl (Spec.Body Typed.Expr)},
       Typed.ValDecl.elaborate Θ Γ d = .ok d' →
       d'.runtime = d.runtime := by
   intro d' helab
@@ -673,25 +743,32 @@ theorem ValDecl.elaborate_runtime {S : Type} (Θ : TypeEnv) (Γ : TinyML.TyCtx) 
   match hname : d.name with
   | .named x (some ty) =>
     cases hcheck : Typed.check Θ Γ d.body ty with
-    | error err => simp [ValDecl.elaborate, hname, hcheck] at helab; cases helab
+    | error err => simp [ValDecl.elaborate, hname, hcheck, bind, Except.bind] at helab
     | ok body' =>
-      simp [ValDecl.elaborate, hname, hcheck] at helab
-      cases helab
-      simp [Typed.ValDecl.runtime, Untyped.ValDecl.runtime,
-        check_runtime Θ Γ d.body ty _ hcheck, Binder.ofUntyped_runtime, hname]
+      cases hspec : elabSpec Θ Γ body' d.declMeta.spec with
+      | error e => simp [ValDecl.elaborate, hname, hcheck, hspec, bind, Except.bind] at helab
+      | ok spec' =>
+        simp [ValDecl.elaborate, hname, hcheck, hspec, bind, Except.bind] at helab
+        cases helab
+        simp [Typed.ValDecl.runtime, Untyped.ValDecl.runtime,
+          check_runtime Θ Γ d.body ty _ hcheck, Binder.ofUntyped_runtime, hname]
   | .none | .named _ none =>
     cases hinfer : Typed.infer Θ Γ d.body with
-    | error err => simp [ValDecl.elaborate, hname, hinfer] at helab; cases helab
+    | error err => simp [ValDecl.elaborate, hname, hinfer, bind, Except.bind] at helab
     | ok p =>
       cases p with
       | mk bodyTy body' =>
-        simp [ValDecl.elaborate, hname, hinfer] at helab
-        cases helab
-        simp [Typed.ValDecl.runtime, Untyped.ValDecl.runtime,
-          infer_runtime Θ Γ d.body _ hinfer, Binder.ofUntyped_runtime, hname]
+        cases hspec : elabSpec Θ Γ body' d.declMeta.spec with
+        | error e => simp [ValDecl.elaborate, hname, hinfer, hspec, bind, Except.bind] at helab
+        | ok spec' =>
+          simp [ValDecl.elaborate, hname, hinfer, hspec, bind, Except.bind] at helab
+          cases helab
+          simp [Typed.ValDecl.runtime, Untyped.ValDecl.runtime,
+            infer_runtime Θ Γ d.body _ hinfer, Binder.ofUntyped_runtime, hname]
 
-theorem Program.elaborate_runtime {S : Type} (Θ : TypeEnv) (Γ : TinyML.TyCtx) (prog : Untyped.Program S) :
-    ∀ {Θ' : TypeEnv} {prog' : Typed.Program S},
+theorem Program.elaborate_runtime (Θ : TypeEnv) (Γ : TinyML.TyCtx)
+    (prog : Untyped.Program (Spec.Body Untyped.Expr)) :
+    ∀ {Θ' : TypeEnv} {prog' : Typed.Program (Spec.Body Typed.Expr)},
       Typed.Program.elaborate Θ Γ prog = .ok (Θ', prog') →
       prog'.runtime = prog.runtime := by
   induction prog generalizing Θ Γ with

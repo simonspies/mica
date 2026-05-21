@@ -10,11 +10,9 @@ let rec double_rec (n: int) : int =
   if n <= 0 then 0
   else double_rec (n - 1) + 2
 [@@spec fun x ->
-  bind (isint x) @@ fun n ->
-  assert (n >= 0);
+  assert (x >= 0);
   ret (fun v ->
-    bind (isint v) @@ fun r ->
-    assert (r = n * 2))];;
+    assert (v = x * 2))];;
 
 (* 2. Power of 2: computes 2^n.
       We cannot express 2^n in linear arithmetic, so we prove the weaker
@@ -24,11 +22,9 @@ let rec pow2 (n: int) : int =
   if n <= 0 then 1
   else pow2 (n - 1) * 2
 [@@spec fun x ->
-  bind (isint x) @@ fun n ->
-  assert (n >= 0);
+  assert (x >= 0);
   ret (fun v ->
-    bind (isint v) @@ fun r ->
-    assert (r >= 1))];;
+    assert (v >= 1))];;
 
 (* 3. Triangle numbers: computes 1 + 2 + ... + n.
       Exact spec: r = n*(n+1)/2. Z3's nonlinear arithmetic handles this —
@@ -38,11 +34,9 @@ let rec triangle (n: int) : int =
   if n <= 0 then 0
   else triangle (n - 1) + n
 [@@spec fun x ->
-  bind (isint x) @@ fun n ->
-  assert (n >= 0);
+  assert (x >= 0);
   ret (fun v ->
-    bind (isint v) @@ fun r ->
-    assert (r = n * (n + 1) / 2))];;
+    assert (v = x * (x + 1) / 2))];;
 
 
 (* The [sum_squares] version requires a longer timeout. *)
@@ -50,19 +44,15 @@ let rec triangle (n: int) : int =
   if n <= 0 then 0
   else sum_squares (n - 1) + n * n
 [@@spec fun x ->
-  bind (isint x) @@ fun n ->
-  assert (n >= 0);
+  assert (x >= 0);
   ret (fun v ->
-    bind (isint v) @@ fun r ->
-    assert (r = (n * (n + 1) * (2 * n + 1)) / 6))];; *)
+    assert (v = (x * (x + 1) * (2 * x + 1)) / 6))];; *)
 
 
 let rec sum_cubes (n: int) : int =
   if n <= 0 then 0
   else sum_cubes (n - 1) + n * n * n
 [@@spec fun x ->
-  bind (isint x) @@ fun n ->
-  assert (n >= 0);
+  assert (x >= 0);
   ret (fun v ->
-    bind (isint v) @@ fun r ->
-    assert (r = (n * n * (n + 1) * (n + 1)) / 4))];;
+    assert (v = (x * x * (x + 1) * (x + 1)) / 4))];;

@@ -20,22 +20,16 @@ type t = Avl of int * tree * int
 let min_int (x: int) (y: int) : int =
   if x < y then x else y
 [@@spec fun x y ->
-  bind (isint x) @@ fun xv ->
-  bind (isint y) @@ fun yv ->
   ret (fun result ->
-    bind (isint result) @@ fun rv ->
-    assert (rv <= xv);
-    assert (rv <= yv))];;
+    assert (result <= x);
+    assert (result <= y))];;
 
 let max_int (x: int) (y: int) : int =
   if x < y then y else x
 [@@spec fun x y ->
-  bind (isint x) @@ fun xv ->
-  bind (isint y) @@ fun yv ->
   ret (fun result ->
-    bind (isint result) @@ fun rv ->
-    assert (xv <= rv);
-    assert (yv <= rv))];;
+    assert (x <= result);
+    assert (y <= result))];;
 
 let rec height_spec (tr: tree) : int =
   match tr with

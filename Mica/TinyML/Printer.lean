@@ -3,6 +3,7 @@ import Mica.TinyML.Common
 import Mica.TinyML.Types
 import Mica.TinyML.Untyped
 import Mica.TinyML.Typed
+import Mica.TinyML.Spec
 
 open TinyML
 
@@ -137,7 +138,46 @@ end
 
 def Expr.print (e : Untyped.Expr) : String := printExpr e
 
-def ValDecl.print (d : Untyped.ValDecl Untyped.Expr) : String :=
+namespace Spec
+
+def Pred.print : Spec.Pred → String
+  | .isinj tag arity scrut => s!"isinj {tag} {arity} {scrut}"
+  | .own loc => s!"own {loc}"
+
+private def typString (ty : Typ) : String :=
+  toString (repr ty)
+
+def Assert.print (inner : α → String) : Spec.Assert Untyped.Expr α → String
+  | .ret a => s!"ret {inner a}"
+  | .assert cond rest => s!"assert {printExpr cond}; {Assert.print inner rest}"
+  | .let_ x e rest => s!"let {x} = {printExpr e} in {Assert.print inner rest}"
+  | .bind pred x ty rest =>
+      s!"bind ({Pred.print pred}) (fun ({x} : {typString ty}) -> {Assert.print inner rest})"
+  | .ite cond thn els =>
+      s!"if {printExpr cond} then {Assert.print inner thn} else {Assert.print inner els}"
+
+def Post.print : Spec.Post Untyped.Expr → String :=
+  Assert.print (fun () => "()")
+
+def Pre.print : Spec.Pre Untyped.Expr → String :=
+  Assert.print (fun (x, post) => s!"fun {x} -> {Post.print post}")
+
+def Body.print (body : Spec.Body Untyped.Expr) : String :=
+  let (args, pre) := body
+  s!"fun {" ".intercalate args} -> {Pre.print pre}"
+
+end Spec
+
+class SpecPayloadPrinter (S : Type) where
+  print : S → String
+
+instance : SpecPayloadPrinter Untyped.Expr where
+  print := Expr.print
+
+instance : SpecPayloadPrinter (Spec.Body Untyped.Expr) where
+  print := Spec.Body.print
+
+def ValDecl.print {S : Type} [SpecPayloadPrinter S] (d : Untyped.ValDecl S) : String :=
   let decl := match d.body with
     | .fix (.named f _) args _ inner =>
       let (allArgs, innerBody) := collectFixArgs f args inner
@@ -152,7 +192,7 @@ def ValDecl.print (d : Untyped.ValDecl Untyped.Expr) : String :=
     | body => s!"let {d.name.print} = {printExpr body}"
   let withSpec := match d.declMeta.spec with
     | .none => decl
-    | .some e => s!"{decl} [@@spec {printExpr e}]"
+    | .some e => s!"{decl} [@@spec {SpecPayloadPrinter.print e}]"
   match d.declMeta.relation with
   | .none => withSpec
   | .some fn => s!"{withSpec} [@@fn {fn}]"
@@ -162,11 +202,11 @@ def TypeDecl.print (d : Untyped.TypeDecl) : String :=
     (fun (i, ty) => s!"C{i} of {repr ty}")
   s!"type {d.name} = {" | ".intercalate payloads}"
 
-def Decl.print : Untyped.Decl Untyped.Expr → String
+def Decl.print {S : Type} [SpecPayloadPrinter S] : Untyped.Decl S → String
   | .val_ d => d.print
   | .type_ d => d.print
 
-def Program.print (p : Untyped.Program Untyped.Expr) : String :=
+def Program.print {S : Type} [SpecPayloadPrinter S] (p : Untyped.Program S) : String :=
   "\n;;\n".intercalate (p.map Decl.print)
 
 end Untyped

@@ -11,17 +11,15 @@ let unwrap_or (default : int) (opt : option_int) : int =
     ret ())];;
 
 (* Double the Some payload, or return 0.
-   Spec uses tagof to distinguish cases and isinj to extract the payload. *)
+   The spec uses isinj to extract the payload of the Some constructor. *)
 let double_or_zero (opt : option_int) : int =
   match opt with
   | None -> 0
   | Some x -> x + x
 [@@spec fun opt ->
-  bind (isinj 1 2 opt) @@ fun payload ->
-  bind (isint payload) @@ fun n ->
+  bind (isinj 1 2 opt) @@ fun (payload : int) ->
   ret (fun v ->
-    bind (isint v) @@ fun r ->
-    assert (r = n + n))];;
+    assert (v = payload + payload))];;
 
 (* Negate the payload if Some, return 0 if None *)
 let negate_or_zero (opt : option_int) : int =
@@ -29,8 +27,6 @@ let negate_or_zero (opt : option_int) : int =
   | None -> 0
   | Some x -> 0 - x
 [@@spec fun opt ->
-  bind (isinj 1 2 opt) @@ fun payload ->
-  bind (isint payload) @@ fun n ->
+  bind (isinj 1 2 opt) @@ fun (payload : int) ->
   ret (fun v ->
-    bind (isint v) @@ fun r ->
-    assert (r = 0 - n))];;
+    assert (v = 0 - payload))];;

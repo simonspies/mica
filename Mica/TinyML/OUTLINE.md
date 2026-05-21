@@ -5,6 +5,7 @@
 - `OpSem.lean` — Operational semantics for the TinyML runtime IR.
 - `Printer.lean` — Pretty-printing for the untyped TinyML IR and declarations.
 - `RuntimeExpr.lean` — Runtime TinyML IR, values, and substitution machinery.
+- `Spec.lean` — Abstract syntax for specifications embedded in TinyML programs.
 - `Typed.lean` — Typed TinyML IR, with erasure to the runtime IR.
 - `Types.lean` — TinyML types, type declarations, and subtyping structure.
 - `Typing.lean` — Elaboration and typechecking from the untyped IR to the typed IR.
