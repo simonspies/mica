@@ -273,8 +273,10 @@ def ExprKind.elaborate (env : ElabEnv) (loc : Location) : ExprKind → ElabM Unt
     let e' ← ExprKind.elaborate env el ek
     .ok (.assert e')
   | .unop (.proj n) ⟨el, ek⟩ => do
+    -- Surface projections are 1-based (`.1` is the first component); TinyML
+    -- projections are 0-based. The parser guarantees `n ≥ 1`.
     let e' ← ExprKind.elaborate env el ek
-    .ok (.unop (.proj n) e')
+    .ok (.unop (.proj (n - 1)) e')
   | .unop (.field name) ⟨el, ek⟩ =>
     match List.lookup name env.fields with
     | some (_, idx) => do

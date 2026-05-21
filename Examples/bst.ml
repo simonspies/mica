@@ -35,15 +35,15 @@ let max_int (x: int) (y: int) : int =
    interval with the parent value, so descendants are checked against
    every ancestor bound. *)
 let rec sorted (args: tree * int * int) : bool =
-  let tr = args.0 in
-  let lo = args.1 in
-  let hi = args.2 in
+  let tr = args.1 in
+  let lo = args.2 in
+  let hi = args.3 in
   match tr with
   | Leaf -> true
   | Node n ->
-    let v = n.0 in
-    let l = n.1 in
-    let r = n.2 in
+    let v = n.1 in
+    let l = n.2 in
+    let r = n.3 in
     let right_sorted = sorted (r, v, hi) in
     let left_sorted = sorted (l, lo, v) in
     right_sorted && left_sorted && lo <= v && v <= hi
@@ -53,9 +53,9 @@ let rec sorted (args: tree * int * int) : bool =
 let valid (h: t) : bool =
   match h with
   | Bst p ->
-    let lo = p.0 in
-    let tr = p.1 in
-    let hi = p.2 in
+    let lo = p.1 in
+    let tr = p.2 in
+    let hi = p.3 in
     let ok = sorted (tr, lo, hi) in
     lo <= hi && ok
 [@@fn];;
@@ -80,9 +80,9 @@ let rec widen_tree (lo: int) (hi: int) (new_lo: int) (new_hi: int) (tr: tree) : 
   match tr with
   | Leaf -> ()
   | Node n ->
-    let v = n.0 in
-    let l = n.1 in
-    let r = n.2 in
+    let v = n.1 in
+    let l = n.2 in
+    let r = n.3 in
     assert (new_lo <= v);
     assert (v <= new_hi);
     widen_tree lo v new_lo v l;
@@ -100,9 +100,9 @@ let rec insert_raw (x: int) (lo: int) (hi: int) (tr: tree) : tree =
   match tr with
   | Leaf -> Node (x, Leaf, Leaf)
   | Node n ->
-    let v = n.0 in
-    let l = n.1 in
-    let r = n.2 in
+    let v = n.1 in
+    let l = n.2 in
+    let r = n.3 in
     if x < v then make_node v lo hi (insert_raw x lo v l) r
     else if v < x then make_node v lo hi l (insert_raw x v hi r)
     else tr
@@ -125,9 +125,9 @@ let singleton (x: int) : t =
 let insert (x: int) (h: t) : t =
   match h with
   | Bst p ->
-    let lo = p.0 in
-    let tr = p.1 in
-    let hi = p.2 in
+    let lo = p.1 in
+    let tr = p.2 in
+    let hi = p.3 in
     let new_lo = min_int x lo in
     let new_hi = max_int x hi in
     widen_tree lo hi new_lo new_hi tr;
@@ -141,20 +141,20 @@ let insert (x: int) (h: t) : t =
 
 let min (h: t) : int =
   match h with
-  | Bst p -> p.0
+  | Bst p -> p.1
 [@@spec fun h ->
   let vh = valid h in
   assert (vh);
   bind (isinj 0 1 h) @@ fun (p : int * tree * int) ->
   ret (fun result ->
-    assert (result = p.0))];;
+    assert (result = p.1))];;
 
 let max (h: t) : int =
   match h with
-  | Bst p -> p.2
+  | Bst p -> p.3
 [@@spec fun h ->
   let vh = valid h in
   assert (vh);
   bind (isinj 0 1 h) @@ fun (p : int * tree * int) ->
   ret (fun result ->
-    assert (result = p.2))];;
+    assert (result = p.3))];;

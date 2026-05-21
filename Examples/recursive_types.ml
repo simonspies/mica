@@ -7,17 +7,17 @@ type ilist = Nil | Cons of int * ilist
 let head_or_zero (l: ilist) : int =
   match l with
   | Nil -> 0
-  | Cons x -> x.0
+  | Cons x -> x.1
 [@@spec fun l ->
   bind (isinj 1 2 l) @@ fun (payload : int * ilist) ->
   ret (fun v ->
-    assert (v = payload.0))];;
+    assert (v = payload.1))];;
 
 (* Length is non-negative. *)
 let rec list_length (l: ilist) : int =
   match l with
   | Nil -> 0
-  | Cons x -> 1 + list_length x.1
+  | Cons x -> 1 + list_length x.2
 [@@spec fun l ->
   ret (fun v ->
     assert (v >= 0))];;
@@ -25,14 +25,14 @@ let rec list_length (l: ilist) : int =
 
 let result = list_length (Cons (1, Cons (2, Cons (3, Cons (4, Cons (5, Nil))))));;
 
-(* Requires matching on x.1, which has type Typ.named "ilist" []. *)
+(* Requires matching on x.2, which has type Typ.named "ilist" []. *)
 let second_or_zero (l: ilist) : int =
   match l with
   | Nil -> 0
   | Cons x ->
-    match x.1 with
+    match x.2 with
     | Nil -> 0
-    | Cons y -> if y.0 <= 0 then 0 else y.0
+    | Cons y -> if y.1 <= 0 then 0 else y.1
 [@@spec fun l ->
   ret (fun v ->
     assert (v >= 0))];;
