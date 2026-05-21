@@ -34,7 +34,7 @@ let max_int (x: int) (y: int) : int =
    inclusive interval [lo, hi].  Each recursive call tightens the
    interval with the parent value, so descendants are checked against
    every ancestor bound. *)
-let rec sorted_spec (args: tree * int * int) : bool =
+let rec sorted (args: tree * int * int) : bool =
   let tr = args.0 in
   let lo = args.1 in
   let hi = args.2 in
@@ -44,33 +44,33 @@ let rec sorted_spec (args: tree * int * int) : bool =
     let v = n.0 in
     let l = n.1 in
     let r = n.2 in
-    let right_sorted = sorted_spec (r, v, hi) in
-    let left_sorted = sorted_spec (l, lo, v) in
+    let right_sorted = sorted (r, v, hi) in
+    let left_sorted = sorted (l, lo, v) in
     right_sorted && left_sorted && lo <= v && v <= hi
-[@@fn sorted];;
+[@@fn];;
 
 (* The public invariant for handles. *)
-let valid_spec (h: t) : bool =
+let valid (h: t) : bool =
   match h with
   | Bst p ->
     let lo = p.0 in
     let tr = p.1 in
     let hi = p.2 in
-    let ok = sorted_spec (tr, lo, hi) in
+    let ok = sorted (tr, lo, hi) in
     lo <= hi && ok
-[@@fn valid];;
+[@@fn];;
 
 let make_node (v: int) (lo: int) (hi: int) (l: tree) (r: tree) : tree =
   Node (v, l, r)
 [@@spec fun v lo hi l r ->
   assert (lo <= v);
   assert (v <= hi);
-  let sr = sorted_spec (r, v, hi) in
+  let sr = sorted (r, v, hi) in
   assert (sr);
-  let sl = sorted_spec (l, lo, v) in
+  let sl = sorted (l, lo, v) in
   assert (sl);
   ret (fun result ->
-    let st = sorted_spec (result, lo, hi) in
+    let st = sorted (result, lo, hi) in
     assert (st))];;
 
 (* Lemma-like function: prove that [tr] is still sorted when its
@@ -90,10 +90,10 @@ let rec widen_tree (lo: int) (hi: int) (new_lo: int) (new_hi: int) (tr: tree) : 
 [@@spec fun lo hi new_lo new_hi tr ->
   assert (new_lo <= lo);
   assert (hi <= new_hi);
-  let st = sorted_spec (tr, lo, hi) in
+  let st = sorted (tr, lo, hi) in
   assert (st);
   ret (fun result ->
-    let sr = sorted_spec (tr, new_lo, new_hi) in
+    let sr = sorted (tr, new_lo, new_hi) in
     assert (sr))];;
 
 let rec insert_raw (x: int) (lo: int) (hi: int) (tr: tree) : tree =
@@ -109,17 +109,17 @@ let rec insert_raw (x: int) (lo: int) (hi: int) (tr: tree) : tree =
 [@@spec fun x lo hi tr ->
   assert (lo <= x);
   assert (x <= hi);
-  let st = sorted_spec (tr, lo, hi) in
+  let st = sorted (tr, lo, hi) in
   assert (st);
   ret (fun result ->
-    let sr = sorted_spec (result, lo, hi) in
+    let sr = sorted (result, lo, hi) in
     assert (sr))];;
 
 let singleton (x: int) : t =
   Bst (x, Node (x, Leaf, Leaf), x)
 [@@spec fun x ->
   ret (fun result ->
-    let vr = valid_spec result in
+    let vr = valid result in
     assert (vr))];;
 
 let insert (x: int) (h: t) : t =
@@ -133,17 +133,17 @@ let insert (x: int) (h: t) : t =
     widen_tree lo hi new_lo new_hi tr;
     Bst (new_lo, insert_raw x new_lo new_hi tr, new_hi)
 [@@spec fun x h ->
-  let vh = valid_spec h in
+  let vh = valid h in
   assert (vh);
   ret (fun result ->
-    let vr = valid_spec result in
+    let vr = valid result in
     assert (vr))];;
 
 let min (h: t) : int =
   match h with
   | Bst p -> p.0
 [@@spec fun h ->
-  let vh = valid_spec h in
+  let vh = valid h in
   assert (vh);
   bind (isinj 0 1 h) @@ fun (p : int * tree * int) ->
   ret (fun result ->
@@ -153,7 +153,7 @@ let max (h: t) : int =
   match h with
   | Bst p -> p.2
 [@@spec fun h ->
-  let vh = valid_spec h in
+  let vh = valid h in
   assert (vh);
   bind (isinj 0 1 h) @@ fun (p : int * tree * int) ->
   ret (fun result ->

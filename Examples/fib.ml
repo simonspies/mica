@@ -1,19 +1,19 @@
 (* Recursive specification function for Fibonacci. *)
-let rec fib_spec (n: int) : int =
-  if n < 1 then 0
-  else if n < 2 then 1
-  else fib_spec (n - 1) + fib_spec (n - 2)
-[@@fn fib];;
-
-(* Recursive implementation. *)
 let rec fib (n: int) : int =
   if n < 1 then 0
   else if n < 2 then 1
   else fib (n - 1) + fib (n - 2)
+[@@fn];;
+
+(* Recursive implementation. *)
+let rec fib_impl (n: int) : int =
+  if n < 1 then 0
+  else if n < 2 then 1
+  else fib_impl (n - 1) + fib_impl (n - 2)
 [@@spec fun x ->
   assert (x >= 0);
   ret (fun v ->
-    let expected = fib_spec x in
+    let expected = fib x in
     assert (v = expected))]
 ;;
 
@@ -31,12 +31,12 @@ let rec fib_loop (n: int) (i: int) (a: int) (b: int) : int =
   assert (n >= 0);
   assert (i >= 0);
   assert (i <= n);
-  let fi  = fib_spec i in
-  let fip = fib_spec (i + 1) in
+  let fi  = fib i in
+  let fip = fib (i + 1) in
   assert (a = fi);
   assert (b = fip);
   ret (fun v ->
-    let expected = fib_spec n in
+    let expected = fib n in
     assert (v = expected))]
 ;;
 
@@ -46,6 +46,6 @@ let fib_iter (n: int) : int = fib_loop n 0 0 1
 [@@spec fun x ->
   assert (x >= 0);
   ret (fun v ->
-    let expected = fib_spec x in
+    let expected = fib x in
     assert (v = expected))]
 ;;

@@ -31,17 +31,17 @@ let max_int (x: int) (y: int) : int =
     assert (x <= result);
     assert (y <= result))];;
 
-let rec height_spec (tr: tree) : int =
+let rec height (tr: tree) : int =
   match tr with
   | Leaf -> 0
   | Node n -> n.1
-[@@fn height];;
+[@@fn];;
 
 (* [valid_raw (tree, lo, hi)] means:
    - values are in the inclusive BST interval [lo, hi],
    - cached heights are exact and non-negative,
    - every node satisfies the AVL balance bound. *)
-let rec valid_raw_spec (args: tree * int * int) : bool =
+let rec valid_raw (args: tree * int * int) : bool =
   let tr = args.0 in
   let lo = args.1 in
   let hi = args.2 in
@@ -52,40 +52,40 @@ let rec valid_raw_spec (args: tree * int * int) : bool =
     let h = n.1 in
     let l = n.2 in
     let r = n.3 in
-    let right_ok = valid_raw_spec (r, v, hi) in
-    let left_ok = valid_raw_spec (l, lo, v) in
-    let rh = height_spec r in
-    let lh = height_spec l in
+    let right_ok = valid_raw (r, v, hi) in
+    let left_ok = valid_raw (l, lo, v) in
+    let rh = height r in
+    let lh = height l in
     let mh = if lh < rh then rh else lh in
     right_ok && left_ok && lo <= v && v <= hi &&
     h = mh + 1 && lh <= rh + 1 && rh <= lh + 1
-[@@fn valid_raw];;
+[@@fn];;
 
-let valid_spec (h: t) : bool =
+let valid (h: t) : bool =
   match h with
   | Avl p ->
     let lo = p.0 in
     let tr = p.1 in
     let hi = p.2 in
-    let ok = valid_raw_spec (tr, lo, hi) in
+    let ok = valid_raw (tr, lo, hi) in
     lo <= hi && ok
-[@@fn valid];;
+[@@fn];;
 
-let height (tr: tree) : int =
+let height_impl (tr: tree) : int =
   match tr with
   | Leaf -> 0
   | Node n -> n.1;;
 
 let make_node (v: int) (l: tree) (r: tree) : tree =
-  let lh = height l in
-  let rh = height r in
+  let lh = height_impl l in
+  let rh = height_impl r in
   let h = max_int lh rh + 1 in
   Node (v, h, l, r)
 ;;
 
 let balance (v: int) (l: tree) (r: tree) : tree =
-  let lh = height l in
-  let rh = height r in
+  let lh = height_impl l in
+  let rh = height_impl r in
   if lh > rh + 1 then
     match l with
     | Leaf -> make_node v l r
@@ -93,7 +93,7 @@ let balance (v: int) (l: tree) (r: tree) : tree =
       let lv = ln.0 in
       let ll = ln.2 in
       let lr = ln.3 in
-      if height ll >= height lr then
+      if height_impl ll >= height_impl lr then
         make_node lv ll (make_node v lr r)
       else
         match lr with
@@ -110,7 +110,7 @@ let balance (v: int) (l: tree) (r: tree) : tree =
       let rv = rn.0 in
       let rl = rn.2 in
       let rr = rn.3 in
-      if height rr >= height rl then
+      if height_impl rr >= height_impl rl then
         make_node rv (make_node v l rl) rr
       else
         match rl with

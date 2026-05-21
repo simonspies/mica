@@ -192,7 +192,9 @@ partial def Expr.print (e : Expr) : String := Expr.printPrec e 0
 
 partial def Decl.print (d : Decl) : String :=
   let attrsStr := d.attrs.map fun attr =>
-    "\n[@@" ++ attr.name ++ " " ++ Expr.print attr.payload ++ "]"
+    match attr.payload with
+    | none => "\n[@@" ++ attr.name ++ "]"
+    | some payload => "\n[@@" ++ attr.name ++ " " ++ Expr.print payload ++ "]"
   let attrsSuffix := joinWith "" attrsStr
   match d.kind with
   | .type_ td => printTypeDecl td ++ attrsSuffix

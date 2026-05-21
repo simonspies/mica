@@ -770,7 +770,13 @@ where
       | .atat => do
         let st' := advance (advance st)  -- skip `[` and `@@`
         let (name, st') ← expectIdent st'
-        let (payload, st') ← parseExpr st'
+        -- An attribute may carry an expression payload (`[@@spec ...]`) or
+        -- stand alone with none (`[@@fn]`).
+        let (payload, st') ← match peekTok st' with
+          | .rbracket => .ok (none, st')
+          | _ => do
+            let (e, st') ← parseExpr st'
+            .ok (some e, st')
         let st' ← expect .rbracket st'
         let (rest, st') ← parseAttrs st'
         .ok ({ name, payload } :: rest, st')
