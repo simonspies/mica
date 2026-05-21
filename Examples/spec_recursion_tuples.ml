@@ -22,8 +22,8 @@
 (* Spec-level recursive definition. The `[@@fn]` annotation registers
    it as an SMT function; specs invoke it by its OCaml name `sum_acc`. *)
 let rec sum_acc (s: int * int) : int =
-  let acc = s.0 in
-  let i   = s.1 in
+  let acc = s.1 in
+  let i   = s.2 in
   if i < 1 then acc
   else sum_acc (acc + i, i - 1)
 [@@fn];;
@@ -33,8 +33,8 @@ let rec sum_acc (s: int * int) : int =
    `sum_acc (acc+i, i-1) = result`; the postcondition's
    `sum_acc s` is then equal to that, by one body unfolding. *)
 let rec sum_acc_impl (s: int * int) : int =
-  let acc = s.0 in
-  let i   = s.1 in
+  let acc = s.1 in
+  let i   = s.2 in
   if i < 1 then acc
   else sum_acc_impl (acc + i, i - 1)
 [@@spec fun s ->

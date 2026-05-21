@@ -17,7 +17,7 @@ inductive ParseErrorKind where
   | unexpectedToken (expected : String) (got : Token)
   | unexpectedEof
   | invalidRecordField
-  | negativeProjIndex
+  | nonPositiveProjIndex
   | letRecNoArgs
   deriving Repr, Inhabited
 
@@ -32,7 +32,7 @@ def ParseError.toString (e : ParseError) : String :=
   | .unexpectedToken exp got => s!"{loc}: expected {exp}, got '{got}'"
   | .unexpectedEof => s!"{loc}: unexpected end of file"
   | .invalidRecordField => s!"{loc}: expected field name (identifier) before '=' in record literal"
-  | .negativeProjIndex => s!"{loc}: projection index must be non-negative"
+  | .nonPositiveProjIndex => s!"{loc}: projection index must be at least 1 (projections are 1-based)"
   | .letRecNoArgs => s!"{loc}: let rec without arguments is not supported"
 
 instance : ToString ParseError := ⟨ParseError.toString⟩
@@ -483,12 +483,12 @@ where
       let st' := advance st
       match peekTok st' with
       | .intLit n =>
-        if n ≥ 0 then
+        if n ≥ 1 then
           let st'' := advance st'
           let loc : Location := { start := e.loc.start, stop := (spanTo e.loc st'').stop }
           parsePostfixRest { loc, kind := .unop (.proj n.toNat) e } st''
         else
-          .error { loc := peekLoc st', kind := .negativeProjIndex }
+          .error { loc := peekLoc st', kind := .nonPositiveProjIndex }
       | .ident fname =>
         let st'' := advance st'
         let loc : Location := { start := e.loc.start, stop := (spanTo e.loc st'').stop }
