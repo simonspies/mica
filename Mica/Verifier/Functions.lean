@@ -65,9 +65,9 @@ theorem checkBody_correct (Θ : TinyML.TypeEnv) (S : SpecMap) (s : Spec)
         (checkBody Θ Δ_spec (SpecMap.eraseAll argNames (S.insertBinder fb s)) s argNames body argVars)
         st' ρ'
         (fun result st'' ρ'' => ∀ S, result.wfIn st''.decls →
-          st''.sl ρ'' ∗ Q ∗
+          st''.sl Θ ρ'' ∗ Q ∗
             ((TinyML.ValHasType Θ (result.eval ρ''.env) s.retTy -∗ P (result.eval ρ''.env)) -∗ S) ⊢ S)) :
-    st'.sl ρ' ∗ TinyML.ValsHaveTypes Θ vs (s.args.map Prod.snd) ∗ Q ⊢
+    st'.sl Θ ρ' ∗ TinyML.ValsHaveTypes Θ vs (s.args.map Prod.snd) ∗ Q ⊢
       (S.satisfiedBy Θ Δ_spec ρ_spec γ ∗ s.isPrecondFor Θ Δ_spec ρ_spec fval) -∗
         wp (body.runtime.subst (γ.updateBinder fb.runtime fval |>.updateAllBinder bs vs)) P := by
   simp only [checkBody] at hbody_eval
@@ -140,7 +140,7 @@ theorem checkBody_correct (Θ : TinyML.TypeEnv) (S : SpecMap) (s : Spec)
       SpecMap.satisfiedBy_eraseAll_updateAllBinder hlen_nv
     exact hinsert.trans <| by simpa [S', γ_body, hbs_runtime] using herase
   have hbody_wp :
-      st'.sl ρ' ∗ (S'.satisfiedBy Θ Δ_spec ρ_spec γ_body ∗ Bindings.typedSubst Θ B Γ γ_body ∗ Q) ⊢
+      st'.sl Θ ρ' ∗ (S'.satisfiedBy Θ Δ_spec ρ_spec γ_body ∗ Bindings.typedSubst Θ B Γ γ_body ∗ Q) ⊢
         wp (body.runtime.subst γ_body) P := by
     refine compile_correct body Θ Q S' B Γ st' ρ' γ_body Δ_spec ρ_spec _ _
       (VerifM.eval.decls_grow ρ' hcompile) hagree hbwf hS'wf hΔwf hΔvars
@@ -155,8 +155,8 @@ theorem checkBody_correct (Θ : TinyML.TypeEnv) (S : SpecMap) (s : Spec)
     have hΨ' := VerifM.eval_ret hΨ
     dsimp only at hΨ'
     rw [← heval_se]
-    refine (show st''.sl ρ'' ∗ TinyML.ValHasType Θ (se.eval ρ''.env) body.ty ∗ Q ⊢
-        st''.sl ρ'' ∗ Q ∗
+    refine (show st''.sl Θ ρ'' ∗ TinyML.ValHasType Θ (se.eval ρ''.env) body.ty ∗ Q ⊢
+        st''.sl Θ ρ'' ∗ Q ∗
           ((TinyML.ValHasType Θ (se.eval ρ''.env) s.retTy -∗ P (se.eval ρ''.env)) -∗
             P (se.eval ρ''.env)) from ?_).trans (hΨ' _ hse_wf)
     iintro ⟨Howns, Hty, HQ⟩
@@ -189,7 +189,7 @@ theorem checkSpec_correct (Θ : TinyML.TypeEnv) (S : SpecMap) (e : Expr) (s : Sp
     (hΔspec : Δ_spec.Subset st.decls)
     (hρspec : VerifM.Env.agreeOn Δ_spec ρ_spec ρ) :
     VerifM.eval (checkSpec Θ Δ_spec S e s) st ρ (fun _ _ _ => True) →
-    st.sl ρ ∗ S.satisfiedBy Θ Δ_spec ρ_spec γ ⊢ wp (e.runtime.subst γ) (fun v => s.isPrecondFor Θ Δ_spec ρ_spec v) := by
+    st.sl Θ ρ ∗ S.satisfiedBy Θ Δ_spec ρ_spec γ ⊢ wp (e.runtime.subst γ) (fun v => s.isPrecondFor Θ Δ_spec ρ_spec v) := by
   intro heval
   -- All non-`fix` shapes (and bad `extractArgNames`) discharge the same way.
   have elim_bind_fatal : ∀ {α β} {msg} {k : α → VerifM β} {st ρ Ψ},
@@ -238,7 +238,7 @@ theorem checkSpec_correct (Θ : TinyML.TypeEnv) (S : SpecMap) (e : Expr) (s : Sp
       have hsub := Runtime.Expr.subst_fix_comp body.runtime fb.runtime bs γ fval vs hlen_vs
       simp only [] at hsub; rw [hsub]
       have hbody' : TinyML.ValsHaveTypes Θ vs (s.args.map Prod.snd) ∗
-          PredTrans.apply (fun r => TinyML.ValHasType Θ r s.retTy -∗ P r) s.pred
+          PredTrans.apply Θ (fun r => TinyML.ValHasType Θ r s.retTy -∗ P r) s.pred
           (Spec.argsEnv ρ_call s.args vs) ⊢
           SpecMap.satisfiedBy Θ Δ_spec ρ_spec S γ ∗ s.isPrecondFor Θ Δ_spec ρ_spec fval -∗
             wp (Runtime.Expr.subst ((Runtime.Subst.updateBinder fb.runtime fval γ).updateAllBinder bs vs) body.runtime) P := by
@@ -273,7 +273,7 @@ theorem checkSpec_correct (Θ : TinyML.TypeEnv) (S : SpecMap) (e : Expr) (s : Sp
                 have hlen := hlen_typed
                 simp [List.length_map] at hlen
                 omega
-              iapply (PredTrans.apply_env_agree (ρ := Spec.argsEnv ρ_call s.args vs)
+              iapply (PredTrans.apply_env_agree Θ (ρ := Spec.argsEnv ρ_call s.args vs)
                 (ρ' := Spec.argsEnv ρ_spec s.args vs) hswf
                 (Spec.argsEnv_agreeOn (Δ := Δ_spec) (ρ₁ := ρ_call) (ρ₂ := ρ_spec)
                   (VerifM.Env.agreeOn_symm hagree_call) s.args vs hlen_vals_call))
