@@ -1592,7 +1592,7 @@ theorem compileMatch_correct (scrut : Expr) (branches : List (Binder × Expr)) (
   intro v_scrut ρ_scrut st_scrut se_scrut hΨ_scrut hse_wf heval_se
   obtain ⟨hdecls_scrut, hagreeOn_scrut, hΨ_scrut⟩ := hΨ_scrut
   cases hscrut_ty : scrut.ty with
-  | unit | bool | int | arrow _ _ | ref _ | empty | value | tuple _ | tvar _ | named _ _ =>
+  | unit | bool | int | arrow _ _ | ref _ | owned _ | empty | value | tuple _ | tvar _ | named _ _ =>
     simp only [hscrut_ty] at hΨ_scrut
     exact (VerifM.eval_fatal hΨ_scrut).elim
   | sum ts =>
