@@ -19,22 +19,16 @@ type t = Bst of int * tree * int
 let min_int (x: int) (y: int) : int =
   if x < y then x else y
 [@@spec fun x y ->
-  bind (isint x) @@ fun xv ->
-  bind (isint y) @@ fun yv ->
   ret (fun result ->
-    bind (isint result) @@ fun rv ->
-    assert (rv <= xv);
-    assert (rv <= yv))];;
+    assert (result <= x);
+    assert (result <= y))];;
 
 let max_int (x: int) (y: int) : int =
   if x < y then y else x
 [@@spec fun x y ->
-  bind (isint x) @@ fun xv ->
-  bind (isint y) @@ fun yv ->
   ret (fun result ->
-    bind (isint result) @@ fun rv ->
-    assert (xv <= rv);
-    assert (yv <= rv))];;
+    assert (x <= result);
+    assert (y <= result))];;
 
 (* [sorted (tree, lo, hi)] means every value in [tree] lies in the
    inclusive interval [lo, hi].  Each recursive call tightens the
@@ -69,21 +63,15 @@ let valid_spec (h: t) : bool =
 let make_node (v: int) (lo: int) (hi: int) (l: tree) (r: tree) : tree =
   Node (v, l, r)
 [@@spec fun v lo hi l r ->
-  bind (isint v) @@ fun vv ->
-  bind (isint lo) @@ fun lov ->
-  bind (isint hi) @@ fun hiv ->
-  assert (lov <= vv);
-  assert (vv <= hiv);
-  bind (call sorted (r, v, hi)) @@ fun sr ->
-  bind (isbool sr) @@ fun srb ->
-  assert (srb = true);
-  bind (call sorted (l, lo, v)) @@ fun sl ->
-  bind (isbool sl) @@ fun slb ->
-  assert (slb = true);
+  assert (lo <= v);
+  assert (v <= hi);
+  let sr = sorted_spec (r, v, hi) in
+  assert (sr);
+  let sl = sorted_spec (l, lo, v) in
+  assert (sl);
   ret (fun result ->
-    bind (call sorted (result, lo, hi)) @@ fun st ->
-    bind (isbool st) @@ fun stb ->
-    assert (stb = true))];;
+    let st = sorted_spec (result, lo, hi) in
+    assert (st))];;
 
 (* Lemma-like function: prove that [tr] is still sorted when its
    inclusive interval is widened.  It returns only [unit]; the useful
@@ -95,23 +83,18 @@ let rec widen_tree (lo: int) (hi: int) (new_lo: int) (new_hi: int) (tr: tree) : 
     let v = n.0 in
     let l = n.1 in
     let r = n.2 in
+    assert (new_lo <= v);
+    assert (v <= new_hi);
     widen_tree lo v new_lo v l;
     widen_tree v hi v new_hi r
 [@@spec fun lo hi new_lo new_hi tr ->
-  bind (isint lo) @@ fun lov ->
-  bind (isint hi) @@ fun hiv ->
-  bind (isint new_lo) @@ fun nlov ->
-  bind (isint new_hi) @@ fun nhiv ->
-  assert (nlov <= lov);
-  assert (hiv <= nhiv);
-  bind (call sorted (tr, lo, hi)) @@ fun st ->
-  bind (isbool st) @@ fun stb ->
-  assert (stb = true);
+  assert (new_lo <= lo);
+  assert (hi <= new_hi);
+  let st = sorted_spec (tr, lo, hi) in
+  assert (st);
   ret (fun result ->
-    assert (result = ());
-    bind (call sorted (tr, new_lo, new_hi)) @@ fun sr ->
-    bind (isbool sr) @@ fun srb ->
-    assert (srb = true))];;
+    let sr = sorted_spec (tr, new_lo, new_hi) in
+    assert (sr))];;
 
 let rec insert_raw (x: int) (lo: int) (hi: int) (tr: tree) : tree =
   match tr with
@@ -124,27 +107,20 @@ let rec insert_raw (x: int) (lo: int) (hi: int) (tr: tree) : tree =
     else if v < x then make_node v lo hi l (insert_raw x v hi r)
     else tr
 [@@spec fun x lo hi tr ->
-  bind (isint x) @@ fun xv ->
-  bind (isint lo) @@ fun lov ->
-  bind (isint hi) @@ fun hiv ->
-  assert (lov <= xv);
-  assert (xv <= hiv);
-  bind (call sorted (tr, lo, hi)) @@ fun st ->
-  bind (isbool st) @@ fun stb ->
-  assert (stb = true);
+  assert (lo <= x);
+  assert (x <= hi);
+  let st = sorted_spec (tr, lo, hi) in
+  assert (st);
   ret (fun result ->
-    bind (call sorted (result, lo, hi)) @@ fun sr ->
-    bind (isbool sr) @@ fun srb ->
-    assert (srb = true))];;
+    let sr = sorted_spec (result, lo, hi) in
+    assert (sr))];;
 
 let singleton (x: int) : t =
   Bst (x, Node (x, Leaf, Leaf), x)
 [@@spec fun x ->
-  bind (isint x) @@ fun xv ->
   ret (fun result ->
-    bind (call valid result) @@ fun vr ->
-    bind (isbool vr) @@ fun vb ->
-    assert (vb = true))];;
+    let vr = valid_spec result in
+    assert (vr))];;
 
 let insert (x: int) (h: t) : t =
   match h with
@@ -157,37 +133,28 @@ let insert (x: int) (h: t) : t =
     widen_tree lo hi new_lo new_hi tr;
     Bst (new_lo, insert_raw x new_lo new_hi tr, new_hi)
 [@@spec fun x h ->
-  bind (isint x) @@ fun xv ->
-  bind (call valid h) @@ fun vh ->
-  bind (isbool vh) @@ fun vhb ->
-  assert (vhb = true);
+  let vh = valid_spec h in
+  assert (vh);
   ret (fun result ->
-    bind (call valid result) @@ fun vr ->
-    bind (isbool vr) @@ fun vrb ->
-    assert (vrb = true))];;
+    let vr = valid_spec result in
+    assert (vr))];;
 
 let min (h: t) : int =
   match h with
   | Bst p -> p.0
 [@@spec fun h ->
-  bind (call valid h) @@ fun vh ->
-  bind (isbool vh) @@ fun vhb ->
-  assert (vhb = true);
-  bind (isinj 0 1 h) @@ fun p ->
-  bind (isint p.0) @@ fun lo ->
+  let vh = valid_spec h in
+  assert (vh);
+  bind (isinj 0 1 h) @@ fun (p : int * tree * int) ->
   ret (fun result ->
-    bind (isint result) @@ fun r ->
-    assert (r = lo))];;
+    assert (result = p.0))];;
 
 let max (h: t) : int =
   match h with
   | Bst p -> p.2
 [@@spec fun h ->
-  bind (call valid h) @@ fun vh ->
-  bind (isbool vh) @@ fun vhb ->
-  assert (vhb = true);
-  bind (isinj 0 1 h) @@ fun p ->
-  bind (isint p.2) @@ fun hi ->
+  let vh = valid_spec h in
+  assert (vh);
+  bind (isinj 0 1 h) @@ fun (p : int * tree * int) ->
   ret (fun result ->
-    bind (isint result) @@ fun r ->
-    assert (r = hi))];;
+    assert (result = p.2))];;

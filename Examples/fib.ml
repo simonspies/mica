@@ -11,10 +11,9 @@ let rec fib (n: int) : int =
   else if n < 2 then 1
   else fib (n - 1) + fib (n - 2)
 [@@spec fun x ->
-  bind (isint x) @@ fun n ->
-  assert (n >= 0);
+  assert (x >= 0);
   ret (fun v ->
-    bind (call fib x) @@ fun expected ->
+    let expected = fib_spec x in
     assert (v = expected))]
 ;;
 
@@ -29,34 +28,24 @@ let rec fib_loop (n: int) (i: int) (a: int) (b: int) : int =
   if i >= n then a
   else fib_loop n (i + 1) b (a + b)
 [@@spec fun n i a b ->
-  bind (isint n) @@ fun nn ->
-  bind (isint i) @@ fun ii ->
-  bind (isint a) @@ fun aa ->
-  bind (isint b) @@ fun bb ->
-  let ip1 = ii + 1 in
-  assert (nn >= 0);
-  assert (ii >= 0);
-  assert (ii <= nn);
-  bind (call fib i)   @@ fun fi  ->
-  bind (isint fi)     @@ fun fii ->
-  bind (call fib ip1) @@ fun fip ->
-  bind (isint fip)    @@ fun fipi ->
-  assert (aa = fii);
-  assert (bb = fipi);
+  assert (n >= 0);
+  assert (i >= 0);
+  assert (i <= n);
+  let fi  = fib_spec i in
+  let fip = fib_spec (i + 1) in
+  assert (a = fi);
+  assert (b = fip);
   ret (fun v ->
-    bind (call fib n) @@ fun expected ->
-    bind (isint expected) @@ fun ee ->
-    bind (isint v)        @@ fun rr ->
-    assert (rr = ee))]
+    let expected = fib_spec n in
+    assert (v = expected))]
 ;;
 
 (* Closed iterative entry point: discharge the loop's invariant at i = 0,
    where fib(0) = 0 and fib(1) = 1 are immediate from one body unfolding. *)
 let fib_iter (n: int) : int = fib_loop n 0 0 1
 [@@spec fun x ->
-  bind (isint x) @@ fun n ->
-  assert (n >= 0);
+  assert (x >= 0);
   ret (fun v ->
-    bind (call fib x) @@ fun expected ->
+    let expected = fib_spec x in
     assert (v = expected))]
 ;;

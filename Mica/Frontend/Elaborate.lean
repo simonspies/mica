@@ -1,5 +1,6 @@
 -- SUMMARY: Elaboration of surface syntax into the verifier's core language, with frontend-specific checks.
 import Mica.Frontend.AST
+import Mica.Frontend.SpecParser
 import Mica.TinyML.Common
 import Mica.TinyML.Untyped
 
@@ -465,8 +466,8 @@ def TypeDecl.elaborate (env : ElabEnv) (loc : Location) (decl : TypeDecl)
 
 def ValDecl.elaborate (env : ElabEnv) (loc : Location)
     (isRec : Bool) (binders : List Pattern) (retTy : Option Typ) (body : Expr)
-    (md : TinyML.DeclMeta Untyped.Expr)
-    : ElabM (Untyped.ValDecl Untyped.Expr) := do
+    (md : TinyML.DeclMeta (Spec.Body Untyped.Expr))
+    : ElabM (Untyped.ValDecl (Spec.Body Untyped.Expr)) := do
   match binders with
   | [] => err loc (.unsupportedFeature "declaration with no binders")
   | [pat] =>
@@ -488,12 +489,14 @@ def ValDecl.elaborate (env : ElabEnv) (loc : Location)
 -- Program elaboration
 
 private def elaborateAttrSpec (env : ElabEnv) (attrs : List Attribute)
-    : ElabM (Option Untyped.Expr) :=
+    : ElabM (Option (Spec.Body Untyped.Expr)) :=
   match attrs.find? (·.name == "spec") with
   | none => .ok none
   | some attr => do
     let e ← Expr.elaborate env attr.payload
-    .ok (some e)
+    match Spec.parse e with
+    | .ok spec => .ok (some spec)
+    | .error msg => err attr.payload.loc (.unsupportedFeature s!"invalid [@@spec]: {msg}")
 
 private def elaborateAttrRelationPayload (env : ElabEnv) (attr : Attribute) : ElabM String := do
   let e ← Expr.elaborate env attr.payload
@@ -508,13 +511,13 @@ private def elaborateAttrRelation (env : ElabEnv) (attrs : List Attribute)
   | some attr => elaborateAttrRelationPayload env attr
 
 private def elaborateDeclMeta (env : ElabEnv) (attrs : List Attribute)
-    : ElabM (TinyML.DeclMeta Untyped.Expr) := do
+    : ElabM (TinyML.DeclMeta (Spec.Body Untyped.Expr)) := do
   let spec ← elaborateAttrSpec env attrs
   let relation ← elaborateAttrRelation env attrs
   .ok { spec, relation }
 
 def Decl.elaborate (env : ElabEnv) (decl : Decl)
-    : ElabM (ElabEnv × Option (Untyped.Decl Untyped.Expr)) := do
+    : ElabM (ElabEnv × Option (Untyped.Decl (Spec.Body Untyped.Expr))) := do
   match decl.kind with
   | .type_ tdecl => do
     let (env', tdecl') ← TypeDecl.elaborate env decl.loc tdecl
@@ -525,7 +528,7 @@ def Decl.elaborate (env : ElabEnv) (decl : Decl)
     .ok (env, some (.val_ d))
 
 private def elaborateDecls (env : ElabEnv) :
-    List Decl → ElabM (List (Untyped.Decl Untyped.Expr))
+    List Decl → ElabM (List (Untyped.Decl (Spec.Body Untyped.Expr)))
   | [] => .ok []
   | d :: ds => do
     let (env', optDecl) ← Decl.elaborate env d
@@ -534,7 +537,8 @@ private def elaborateDecls (env : ElabEnv) :
     | some decl => .ok (decl :: rest)
     | none => .ok rest
 
-def Program.elaborate (prog : Frontend.Program) : ElabM (Untyped.Program Untyped.Expr) :=
+def Program.elaborate (prog : Frontend.Program) :
+    ElabM (Untyped.Program (Spec.Body Untyped.Expr)) :=
   elaborateDecls {} prog
 
 end Frontend

@@ -13,11 +13,9 @@ let rec triangle (n: int) : int =
   if n <= 0 then 0
   else triangle (n - 1) + n
 [@@spec fun x ->
-  bind (isint x) @@ fun n ->
-  assert (n >= 0);
+  assert (x >= 0);
   ret (fun v ->
-    bind (isint v) @@ fun r ->
-    assert (r = n * (n + 1) / 2))];;
+    assert (v = x * (x + 1) / 2))];;
 ```
 
 Build it and run it with:

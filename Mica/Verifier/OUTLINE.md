@@ -11,7 +11,7 @@
 - `RelationalEncoding.lean` — Bundle for RelationalEncoding/, the two-stage encoding of recursive functions into FOL axioms.
 - `Scoped.lean` — Scoped SMT command language and its translation to solver strategies and flat contexts.
 - `SpecMaps.lean` — Finite maps of function specifications, together with satisfaction, update, and well-formedness lemmas.
-- `SpecTranslation.lean` — Sort-checked translation from frontend specifications into verifier terms, formulas, assertions, and predicate transformers.
+- `SpecTranslation.lean` — Translation from typechecked frontend specifications into verifier assertions and predicate transformers.
 - `Specifications.lean` — Function specifications, their semantics, and the protocols for specification calls and implementations.
 - `State.lean` — Verifier state and environments, together with their well-formedness conditions and fresh-name infrastructure.
 - `Utils.lean` — Supporting infrastructure for verifier finite substitutions and argument-handling helpers.
