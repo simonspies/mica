@@ -117,7 +117,7 @@ structure TypeDecl where
 
 structure Attribute where
   name    : String
-  payload : Expr
+  payload : Option Expr
 
 inductive DeclKind where
   | type_ (decl : TypeDecl)

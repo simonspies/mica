@@ -195,7 +195,7 @@ def ValDecl.print {S : Type} [SpecPayloadPrinter S] (d : Untyped.ValDecl S) : St
     | .some e => s!"{decl} [@@spec {SpecPayloadPrinter.print e}]"
   match d.declMeta.relation with
   | .none => withSpec
-  | .some fn => s!"{withSpec} [@@fn {fn}]"
+  | .some _ => s!"{withSpec} [@@fn]"
 
 def TypeDecl.print (d : Untyped.TypeDecl) : String :=
   let payloads := (List.range d.body.payloads.length).zip d.body.payloads |>.map

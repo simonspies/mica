@@ -47,7 +47,7 @@ def Program.prepare (prog : Untyped.Program (Spec.Body Untyped.Expr)) :
   | .ok prepared => .ret prepared
   | .error err => .fatal (toString err)
 
-/-- Globally assembled metadata for declarations marked with `[@@fn fn]`. -/
+/-- Globally assembled metadata for declarations marked with `[@@fn]`. -/
 structure RelationSpec where
   symbols : List FOL.BinaryRel
   axioms : List Formula
@@ -71,44 +71,44 @@ private structure RelationDecl where
   body : Typed.Expr
   bv : Skolemize.DefVal
 
-private def validateDecl (d : Typed.ValDecl (Spec.Body Typed.Expr)) (rel : String) :
+private def validateDecl (d : Typed.ValDecl (Spec.Body Typed.Expr)) :
     Except String (TinyML.Var × TinyML.Var × Typed.Expr) := do
   if d.declMeta.spec.isSome then
-    .error s!"declaration cannot have both [@@spec] and [@@fn {rel}]"
+    .error s!"declaration cannot have both [@@spec] and [@@fn]"
   let f ← match d.name.name with
     | some f => .ok f
-    | none => .error s!"[@@fn {rel}] requires a named declaration"
+    | none => .error s!"[@@fn] requires a named declaration"
   match d.body with
   | .fix _ [arg] _ body =>
     match arg.name with
     | some x => .ok (f, x, body)
-    | none => .error s!"[@@fn {rel}] requires a named unary argument"
-  | .fix _ _ _ _ => .error s!"[@@fn {rel}] requires a unary function"
-  | _ => .error s!"[@@fn {rel}] requires a function body"
+    | none => .error s!"[@@fn] requires a named unary argument"
+  | .fix _ _ _ _ => .error s!"[@@fn] requires a unary function"
+  | _ => .error s!"[@@fn] requires a function body"
 
 private def extend (acc : RelationSpec) (d : Typed.ValDecl (Spec.Body Typed.Expr)) :
     Except String RelationDecl := do
   match d.declMeta.relation with
   | none => .error "internal error: expected relation declaration"
   | some rel => do
-      let (f, arg, body) ← validateDecl d rel
+      let (f, arg, body) ← validateDecl d
       let relName := SpecFn.relName rel
       let funName := SpecFn.funcName rel
       let defName := SpecFn.defName rel
       if relName ∈ acc.delta.allNames then
-        .error s!"derived relation name '{relName}' for [@@fn {rel}] conflicts with an existing symbol"
+        .error s!"derived relation name '{relName}' for [@@fn] conflicts with an existing symbol"
       else if funName ∈ acc.delta.allNames then
-        .error s!"derived value-function name '{funName}' for [@@fn {rel}] conflicts with an existing symbol"
+        .error s!"derived value-function name '{funName}' for [@@fn] conflicts with an existing symbol"
       else if defName ∈ acc.delta.allNames then
-        .error s!"derived definedness name '{defName}' for [@@fn {rel}] conflicts with an existing symbol"
+        .error s!"derived definedness name '{defName}' for [@@fn] conflicts with an existing symbol"
       else if arg ∈ acc.delta.allNames then
-        .error s!"[@@fn {rel}] argument name '{arg}' conflicts with a global symbol"
+        .error s!"[@@fn] argument name '{arg}' conflicts with a global symbol"
       else if arg = relName then
-        .error s!"[@@fn {rel}] argument name '{arg}' clashes with derived relation name"
+        .error s!"[@@fn] argument name '{arg}' clashes with derived relation name"
       else if arg = funName then
-        .error s!"[@@fn {rel}] argument name '{arg}' clashes with derived value-function name"
+        .error s!"[@@fn] argument name '{arg}' clashes with derived value-function name"
       else if arg = defName then
-        .error s!"[@@fn {rel}] argument name '{arg}' clashes with derived definedness name"
+        .error s!"[@@fn] argument name '{arg}' clashes with derived definedness name"
       else
         let (res, bv, axs) ← Skolemize.bundle acc.functionMap acc.delta f rel arg body
         let spec := { symbols := acc.symbols ++ [SpecFn.rel rel],

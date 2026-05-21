@@ -492,29 +492,26 @@ private def elaborateAttrSpec (env : ElabEnv) (attrs : List Attribute)
     : ElabM (Option (Spec.Body Untyped.Expr)) :=
   match attrs.find? (·.name == "spec") with
   | none => .ok none
-  | some attr => do
-    let e ← Expr.elaborate env attr.payload
-    match Spec.parse e with
-    | .ok spec => .ok (some spec)
-    | .error msg => err attr.payload.loc (.unsupportedFeature s!"invalid [@@spec]: {msg}")
+  | some attr =>
+    match attr.payload with
+    | none => err default (.unsupportedFeature "[@@spec] expects a specification payload")
+    | some payload => do
+      let e ← Expr.elaborate env payload
+      match Spec.parse e with
+      | .ok spec => .ok (some spec)
+      | .error msg => err payload.loc (.unsupportedFeature s!"invalid [@@spec]: {msg}")
 
-private def elaborateAttrRelationPayload (env : ElabEnv) (attr : Attribute) : ElabM String := do
-  let e ← Expr.elaborate env attr.payload
-  match e with
-  | .var name => .ok name
-  | _ => err attr.payload.loc (.unsupportedFeature "[@@fn] expects a bare identifier payload")
-
-private def elaborateAttrRelation (env : ElabEnv) (attrs : List Attribute)
-    : ElabM (Option String) :=
+/-- Whether the declaration is marked `[@@fn]`, registering it as a spec-level
+    function. The attribute carries no payload; the function's own name is used
+    for the derived relation. -/
+private def hasAttrRelation (attrs : List Attribute) : ElabM Bool :=
   match attrs.find? (·.name == "fn") with
-  | none => .ok none
-  | some attr => elaborateAttrRelationPayload env attr
-
-private def elaborateDeclMeta (env : ElabEnv) (attrs : List Attribute)
-    : ElabM (TinyML.DeclMeta (Spec.Body Untyped.Expr)) := do
-  let spec ← elaborateAttrSpec env attrs
-  let relation ← elaborateAttrRelation env attrs
-  .ok { spec, relation }
+  | none => .ok false
+  | some attr =>
+    match attr.payload with
+    | none => .ok true
+    | some payload => err payload.loc (.unsupportedFeature
+        "[@@fn] takes no payload; the function's own name is used for the relation")
 
 def Decl.elaborate (env : ElabEnv) (decl : Decl)
     : ElabM (ElabEnv × Option (Untyped.Decl (Spec.Body Untyped.Expr))) := do
@@ -523,9 +520,16 @@ def Decl.elaborate (env : ElabEnv) (decl : Decl)
     let (env', tdecl') ← TypeDecl.elaborate env decl.loc tdecl
     .ok (env', tdecl'.map Untyped.Decl.type_)
   | .val_ isRec binders retTy body => do
-    let md ← elaborateDeclMeta env decl.attrs
-    let d ← ValDecl.elaborate env decl.loc isRec binders retTy body md
-    .ok (env, some (.val_ d))
+    let spec ← elaborateAttrSpec env decl.attrs
+    let fn ← hasAttrRelation decl.attrs
+    let d ← ValDecl.elaborate env decl.loc isRec binders retTy body { spec }
+    -- A `[@@fn]` declaration uses its own name for the derived relation.
+    let relation ← if fn then
+      match d.name with
+      | .named x _ => .ok (some x)
+      | .none => err decl.loc (.unsupportedFeature "[@@fn] requires a named declaration")
+    else .ok none
+    .ok (env, some (.val_ { d with declMeta := { d.declMeta with relation } }))
 
 private def elaborateDecls (env : ElabEnv) :
     List Decl → ElabM (List (Untyped.Decl (Spec.Body Untyped.Expr)))
