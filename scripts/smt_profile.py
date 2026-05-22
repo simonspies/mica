@@ -148,6 +148,7 @@ def main() -> int:
             seconds = perf_counter() - start
 
             if response == "":
+                z3.terminate()
                 stderr = z3.stderr.read() if z3.stderr is not None else ""
                 if stderr:
                     print(stderr, file=sys.stderr, end="")
