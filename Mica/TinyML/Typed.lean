@@ -46,7 +46,7 @@ inductive Expr where
   | app (fn : Expr) (args : List Expr) (ty : Typ)
   | ifThenElse (cond thn els : Expr) (ty : Typ)
   | letIn (name : Binder) (bound body : Expr)
-  | ref    (e : Expr)
+  | ref    (owned : Bool) (e : Expr)
   | deref  (e : Expr) (ty : Typ)
   | store  (loc val : Expr)
   | assert (e : Expr)
@@ -124,9 +124,10 @@ mutual
       | isFalse h, _, _ => isFalse (by intro heq; cases heq; exact h rfl)
       | _, isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
       | _, _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
-    case ref.ref e1 e2 => exact match e1.decEq e2 with
-      | isTrue h => isTrue (by subst h; rfl)
-      | isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
+    case ref.ref o1 e1 o2 e2 => exact match decEq o1 o2, e1.decEq e2 with
+      | isTrue h1, isTrue h2 => isTrue (by subst h1; subst h2; rfl)
+      | isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
+      | _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
     case deref.deref e1 t1 e2 t2 => exact match e1.decEq e2, decEq t1 t2 with
       | isTrue h1, isTrue h2 => isTrue (by subst h1; subst h2; rfl)
       | isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
@@ -210,7 +211,7 @@ def Expr.ty : Expr → Typ
   | .app _ _ ty => ty
   | .ifThenElse _ _ _ ty => ty
   | .letIn _ _ body => body.ty
-  | .ref e => .ref e.ty
+  | .ref owned e => if owned then .owned e.ty else .ref e.ty
   | .deref _ ty => ty
   | .store _ _ => .unit
   | .assert _ => .unit
@@ -268,7 +269,7 @@ mutual
     | .app fn args _ => .app fn.runtime (args.map Expr.runtime)
     | .ifThenElse c t e _ => .ifThenElse c.runtime t.runtime e.runtime
     | .letIn b bound body => .letIn (b.runtime) bound.runtime body.runtime
-    | .ref e => .ref e.runtime
+    | .ref _ e => .ref e.runtime
     | .deref e _ => .deref e.runtime
     | .store loc val => .store loc.runtime val.runtime
     | .assert e => .assert e.runtime

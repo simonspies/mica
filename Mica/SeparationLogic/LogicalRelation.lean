@@ -51,6 +51,7 @@ mutual
     | .arrow _ _  => iprop(False)
     | .tvar _     => iprop(False)
     | .ref t      => iprop(∃ l, ⌜v = .loc l⌝ ∗ locinv l (fun w => R w t))
+    | .owned _    => iprop(∃ l, ⌜v = .loc l⌝)
     | .named T args => k v T args
     | .tuple ts   => iprop(∃ vs, ⌜v = .tuple vs⌝ ∗ ValsRelBody R vs ts k)
     | .sum ts     =>
@@ -98,7 +99,7 @@ mutual
         · iapply (ValSumRelBody.mono_int R ts tag payload)
           · iexact Hk
           · iexact Hsum
-    | .unit | .bool | .int | .value | .empty | .arrow _ _ | .tvar _ | .ref _ =>
+    | .unit | .bool | .int | .value | .empty | .arrow _ _ | .tvar _ | .ref _ | .owned _ =>
         iintro _ H
         iexact H
 
@@ -170,7 +171,7 @@ mutual
         refine exists_ne fun payload => ?_
         refine sep_ne.ne (.of_eq rfl) ?_
         exact ValSumRelBody.dist hR hk ts tag payload
-    | .unit | .bool | .int | .value | .empty | .arrow _ _ | .tvar _ =>
+    | .unit | .bool | .int | .value | .empty | .arrow _ _ | .tvar _ | .owned _ =>
         exact Dist.rfl
 
   private theorem ValsRelBody.dist {n : Nat} {R S : ValShape} {k k' : RecCont}
@@ -317,7 +318,7 @@ mutual
       (hk : ∀ v T args, Persistent (k v T args)) : Persistent (ValRelBody R v t k) := by
     unfold ValRelBody
     match t with
-    | .unit | .bool | .int | .value | .empty | .arrow _ _ | .tvar _ =>
+    | .unit | .bool | .int | .value | .empty | .arrow _ _ | .tvar _ | .owned _ =>
         infer_instance
     | .ref _ =>
         have := locinv_persistent
@@ -426,6 +427,10 @@ theorem ValHasType.ref (Θ : TypeEnv) (v : Runtime.Val) (t : Typ) :
     ValHasType Θ v (.ref t) ⊣⊢
       iprop(∃ l, ⌜v = .loc l⌝ ∗ locinv l (fun w => ValHasType Θ w t)) := by
   exact equiv_iff.mp (ValHasType.unfold Θ v (.ref t))
+
+theorem ValHasType.owned (Θ : TypeEnv) (v : Runtime.Val) (t : Typ) :
+    ValHasType Θ v (.owned t) ⊣⊢ iprop(∃ l, ⌜v = .loc l⌝) := by
+  exact equiv_iff.mp (ValHasType.unfold Θ v (.owned t))
 
 theorem ValHasType.tuple (Θ : TypeEnv) (v : Runtime.Val) (ts : List Typ) :
     ValHasType Θ v (.tuple ts) ⊣⊢
@@ -966,7 +971,7 @@ theorem evalUnOp_typed {Θ : TypeEnv} {op : UnOp}
               · iexact Hwitness)
           iapply (ValsHaveTypes.of_getElem? (Θ := Θ) (vs := vs) (ts := ts) (n := n) (t := ty) hty)
           iexact Hvs
-      | unit | bool | int | sum _ | arrow _ _ | ref _ | empty | value | tvar _ | named _ _ =>
+      | unit | bool | int | sum _ | arrow _ _ | ref _ | owned _ | empty | value | tvar _ | named _ _ =>
           simp [UnOp.typeOf] at hty
 
 end TinyML
@@ -990,6 +995,7 @@ def typeConstraints (ty : TinyML.Typ) (t : Term .value) : List Formula :=
   match ty with
   | .int   => [.unpred .isInt t]
   | .bool  => [.unpred .isBool t]
+  | .owned _ => [.unpred .isLoc t]
   | .tuple ts =>
       .unpred .isTuple t ::
       typeConstraintsList ts (.unop .toValList t)
@@ -1013,6 +1019,9 @@ mutual
       simp [typeConstraints]
       simp only [Formula.wfIn]; exact ⟨trivial, ht⟩
     | bool =>
+      simp [typeConstraints]
+      simp only [Formula.wfIn]; exact ⟨trivial, ht⟩
+    | owned _ =>
       simp [typeConstraints]
       simp only [Formula.wfIn]; exact ⟨trivial, ht⟩
     | tuple ts =>
@@ -1063,6 +1072,16 @@ mutual
       simp [typeConstraints] at hφ
       subst hφ
       simp [Formula.eval, ht]
+    | owned inner =>
+      refine (TinyML.ValHasType.owned Θ v inner).1.trans ?_
+      iintro Hty
+      icases Hty with ⟨%l, %hv⟩
+      subst v
+      ipure_intro
+      intro φ hφ
+      simp [typeConstraints] at hφ
+      subst hφ
+      simp [Formula.eval, hv]
     | tuple ts =>
       refine (TinyML.ValHasType.tuple Θ v ts).1.trans ?_
       iintro Hty

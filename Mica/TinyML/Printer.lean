@@ -7,6 +7,30 @@ import Mica.TinyML.Spec
 
 open TinyML
 
+namespace TinyML
+
+def Typ.print : Typ → String
+  | .unit => "unit"
+  | .bool => "bool"
+  | .int => "int"
+  | .sum ts => s!"sum ({", ".intercalate (ts.map Typ.print)})"
+  | .arrow t1 t2 => s!"{wrapArg t1 (Typ.print t1)} -> {Typ.print t2}"
+  | .ref t => s!"ref {wrapArg t (Typ.print t)}"
+  | .owned t => s!"owned {wrapArg t (Typ.print t)}"
+  | .empty => "empty"
+  | .value => "value"
+  | .tuple ts => s!"({", ".intercalate (ts.map Typ.print)})"
+  | .tvar v => s!"'{v}"
+  | .named T [] => T
+  | .named T args => s!"{T} ({", ".intercalate (args.map Typ.print)})"
+where
+  wrapArg (t : Typ) (s : String) : String :=
+    match t with
+    | .unit | .bool | .int | .empty | .value | .tvar _ | .named _ [] => s
+    | _ => s!"({s})"
+
+end TinyML
+
 namespace Untyped
 
 def BinOp.toString : TinyML.BinOp → String
@@ -102,7 +126,7 @@ private partial def printMul : Untyped.Expr → String
 private partial def printApp : Untyped.Expr → String
   | .app fn args => s!"{printApp fn} {" ".intercalate (args.map printUnary)}"
   | .unop .not e => s!"not {printAtom e}"
-  | .ref e => s!"ref {printAtom e}"
+  | .ref owned e => if owned then s!"ref {printAtom e} [@owned]" else s!"ref {printAtom e}"
   | .inj tag arity e => s!"(inj {tag}/{arity} {printAtom e})"
   | .assert e => s!"assert {printAtom e}"
   | e => printUnary e
@@ -145,7 +169,7 @@ def Pred.print : Spec.Pred → String
   | .own loc => s!"own {loc}"
 
 private def typString (ty : Typ) : String :=
-  toString (repr ty)
+  ty.print
 
 def Assert.print (inner : α → String) : Spec.Assert Untyped.Expr α → String
   | .ret a => s!"ret {inner a}"
@@ -199,7 +223,7 @@ def ValDecl.print {S : Type} [SpecPayloadPrinter S] (d : Untyped.ValDecl S) : St
 
 def TypeDecl.print (d : Untyped.TypeDecl) : String :=
   let payloads := (List.range d.body.payloads.length).zip d.body.payloads |>.map
-    (fun (i, ty) => s!"C{i} of {repr ty}")
+    (fun (i, ty) => s!"C{i} of {ty.print}")
   s!"type {d.name} = {" | ".intercalate payloads}"
 
 def Decl.print {S : Type} [SpecPayloadPrinter S] : Untyped.Decl S → String
