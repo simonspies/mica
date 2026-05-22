@@ -26,7 +26,7 @@ inductive Atom : Srt → Type where
   | isint  : Term .value → Atom .int
   | isbool : Term .value → Atom .bool
   | isinj  (tag : Nat) (arity : Nat) : Term .value → Atom .value
-  | own    : Term .value → Atom .value
+  | own    : Term .value → TinyML.Typ → Atom .value
   | rel    (name : String) : Term .value → Atom .value
 
 
@@ -35,7 +35,7 @@ def Atom.pure {τ: Srt} (a : Atom τ) : Bool :=
   | isint _ => true
   | isbool _ => true
   | isinj _ _ _ => true
-  | own _ => false
+  | own _ _ => false
   | rel _ _ => true
 
 
@@ -47,7 +47,7 @@ def Atom.subst (σ : Subst) : Atom τ → Atom τ
   | .isint t  => .isint (t.subst σ)
   | .isbool t => .isbool (t.subst σ)
   | .isinj tag arity t => .isinj tag arity (t.subst σ)
-  | .own t    => .own (t.subst σ)
+  | .own t ty => .own (t.subst σ) ty
   | .rel name t => .rel name (t.subst σ)
 
 
@@ -57,19 +57,20 @@ def Atom.toItem (a : Atom τ) (t : Term τ) : CtxItem :=
   | .isint v => .pure (.eq .value v (.unop .ofInt t))
   | .isbool v => .pure (.eq .value v (.unop .ofBool t))
   | .isinj tag arity v => .pure (.eq .value v (.unop (.mkInj tag arity) t))
-  | .own l => .spatial (.pointsTo l t)
+  | .own l ty => .spatial (.pointsTo l t ty)
   | .rel name arg => .pure (.and (SpecFn.isDefined name arg) (.eq .value (SpecFn.call name arg) t))
 
 -- ---------------------------------------------------------------------------
 -- Semantics
 -- ---------------------------------------------------------------------------
 
-def Atom.eval (_Θ : TinyML.TypeEnv) {τ : Srt} (p : Atom τ) (ρ : VerifM.Env) : τ.denote → iProp :=
+def Atom.eval (Θ : TinyML.TypeEnv) {τ : Srt} (p : Atom τ) (ρ : VerifM.Env) : τ.denote → iProp :=
   match p with
   | isint t  => λ v => ⌜.int v = t.eval ρ.env⌝
   | isbool t => λ v => ⌜.bool v = t.eval ρ.env⌝
   | isinj tag arity t => λ v => ⌜.inj tag arity v = t.eval ρ.env⌝
-  | own l => λ v => ∃ loc : Runtime.Location, ⌜l.eval ρ.env = .loc loc⌝ ∗ loc ↦ v
+  | own l ty => λ v => ∃ loc : Runtime.Location,
+      ⌜l.eval ρ.env = .loc loc⌝ ∗ loc ↦ v ∗ TinyML.ValHasType Θ v ty
   | rel name arg => λ v =>
     ⌜(SpecFn.isDefined name arg).eval ρ.env ∧ (SpecFn.call name arg).eval ρ.env = v⌝
 
@@ -90,7 +91,7 @@ def Formula.matchAtom (φ : Formula) (a : Atom τ) : Option (Term τ) :=
     | .eq .value v' (.unop (.mkInj tag' arity') t) =>
       if v' = v ∧ tag = tag' ∧ arity = arity' then some t else none
     | _ => none
-  | .own _ => none
+  | .own _ _ => none
   | .rel _ _ => none
 
 theorem Formula.matchAtom_wfIn {φ : Formula} {a : Atom τ} {t : Term τ} {Δ : Signature}
@@ -105,7 +106,7 @@ theorem Formula.matchAtom_wfIn {φ : Formula} {a : Atom τ} {t : Term τ} {Δ : 
   | isinj tag arity v =>
     simp only [Formula.matchAtom] at h
     split at h <;> simp_all [Formula.wfIn, Term.wfIn]
-  | own l => simp only [Formula.matchAtom] at h; cases h
+  | own l ty => simp only [Formula.matchAtom] at h; cases h
   | rel name arg => simp only [Formula.matchAtom] at h; cases h
 
 
@@ -122,7 +123,7 @@ theorem Formula.matchAtom_correct {φ : Formula} {a : Atom τ} {t : Term τ}
     simp only [Formula.matchAtom] at h
     split at h <;> simp_all
     obtain ⟨⟨rfl, rfl, rfl⟩, rfl⟩ := h; rfl
-  | own l => simp only [Formula.matchAtom] at h; cases h
+  | own l ty => simp only [Formula.matchAtom] at h; cases h
   | rel name arg => simp only [Formula.matchAtom] at h; cases h
 
 
@@ -156,7 +157,7 @@ def Atom.toStringHum : {τ : Srt} → Atom τ → String
   | _, .isint  t => s!"isint {t.toStringHum}"
   | _, .isbool t => s!"isbool {t.toStringHum}"
   | _, .isinj tag arity t => s!"isinj {tag}/{arity} {t.toStringHum}"
-  | _, .own t => s!"own {t.toStringHum}"
+  | _, .own t ty => s!"own {t.toStringHum} : {reprStr ty}"
   | _, .rel name t => s!"call {name} {t.toStringHum}"
 
 -- ---------------------------------------------------------------------------
@@ -168,7 +169,7 @@ def Atom.wfIn (Δ : Signature) : Atom τ → Prop
   | .isint t  => t.wfIn Δ
   | .isbool t => t.wfIn Δ
   | .isinj _ _ t => t.wfIn Δ
-  | .own t    => t.wfIn Δ
+  | .own t _  => t.wfIn Δ
   | .rel name t => (SpecFn.isDefined name t).wfIn Δ ∧ (SpecFn.call name t).wfIn Δ
 
 def Atom.checkWf (p : Atom τ) (Δ : Signature) : Except String Unit :=
@@ -176,7 +177,7 @@ def Atom.checkWf (p : Atom τ) (Δ : Signature) : Except String Unit :=
   | .isint t  => t.checkWf Δ
   | .isbool t => t.checkWf Δ
   | .isinj _ _ t => t.checkWf Δ
-  | .own t    => t.checkWf Δ
+  | .own t _  => t.checkWf Δ
   | .rel name t => do
       (SpecFn.isDefined name t).checkWf Δ
       (SpecFn.call name t).checkWf Δ
@@ -186,7 +187,7 @@ theorem Atom.checkWf_ok {p : Atom τ} {Δ : Signature} (h : p.checkWf Δ = .ok (
   | isint t  => exact Term.checkWf_ok h
   | isbool t => exact Term.checkWf_ok h
   | isinj tag arity t => exact Term.checkWf_ok h
-  | own t => exact Term.checkWf_ok h
+  | own t ty => exact Term.checkWf_ok h
   | rel name t =>
     have ⟨w, hd, hv⟩ := Except.bind_ok h
     exact ⟨Formula.checkWf_ok hd, Term.checkWf_ok hv⟩
@@ -197,7 +198,7 @@ theorem Atom.wfIn_mono {p : Atom τ} {Δ Δ' : Signature}
   | isint t  => exact Term.wfIn_mono t h hmono hwf
   | isbool t => exact Term.wfIn_mono t h hmono hwf
   | isinj tag arity t => exact Term.wfIn_mono t h hmono hwf
-  | own t => exact Term.wfIn_mono t h hmono hwf
+  | own t ty => exact Term.wfIn_mono t h hmono hwf
   | rel name t =>
     exact ⟨Formula.wfIn_mono _ h.1 hmono hwf, Term.wfIn_mono _ h.2 hmono hwf⟩
 
@@ -207,7 +208,7 @@ theorem Atom.eval_env_agree (Θ : TinyML.TypeEnv) {p : Atom τ} {ρ ρ' : VerifM
   | isint t  => simp [Atom.eval, Term.eval_env_agree hwf hagree]
   | isbool t => simp [Atom.eval, Term.eval_env_agree hwf hagree]
   | isinj tag arity t => simp [Atom.eval, Term.eval_env_agree hwf hagree]
-  | own l => simp [Atom.eval, Term.eval_env_agree hwf hagree]
+  | own l ty => simp [Atom.eval, Term.eval_env_agree hwf hagree]
   | rel name t =>
     simp only [Atom.eval]
     funext v
@@ -227,7 +228,7 @@ theorem Atom.toItem_wfIn {p : Atom τ} {t : Term τ} {Δ : Signature}
   | isinj tag arity v =>
     simp only [Atom.toItem, CtxItem.wfIn]
     exact ⟨hp, trivial, ht⟩
-  | own l =>
+  | own l ty =>
     simp only [Atom.toItem, CtxItem.wfIn, SpatialAtom.wfIn]
     exact ⟨hp, ht⟩
   | rel name arg =>
@@ -240,7 +241,7 @@ theorem Atom.toItem_eval (Θ : TinyML.TypeEnv) {p : Atom τ} {t : Term τ} {ρ :
   | isint v  => simp [Atom.eval, Atom.toItem, CtxItem.interp, Formula.eval, Term.eval, eq_comm]
   | isbool v => simp [Atom.eval, Atom.toItem, CtxItem.interp, Formula.eval, Term.eval, eq_comm]
   | isinj tag arity v => simp [Atom.eval, Atom.toItem, CtxItem.interp, Formula.eval, Term.eval, eq_comm]
-  | own l =>
+  | own l ty =>
     simp only [Atom.eval, Atom.toItem, CtxItem.interp, SpatialAtom.interp]
     exact ⟨BIBase.Entails.rfl, BIBase.Entails.rfl⟩
   | rel name arg =>
@@ -255,7 +256,7 @@ theorem Atom.eval_purePart (Θ : TinyML.TypeEnv) {p : Atom τ} {t : Term τ} {ρ
     simp [Atom.eval, CtxItem.purePart, Atom.toItem, Formula.eval, Term.eval, eq_comm]
   | isinj tag arity v =>
     simp [Atom.eval, CtxItem.purePart, Atom.toItem, Formula.eval, Term.eval, eq_comm]
-  | own l =>
+  | own l ty =>
     simp only [Atom.toItem, CtxItem.purePart]
     exact pure_intro trivial
   | rel name arg =>
@@ -283,7 +284,7 @@ theorem Atom.eval_subst (Θ : TinyML.TypeEnv) {p : Atom τ} {σ : Subst} {ρ : V
     funext v
     simp only [Atom.subst, Atom.eval, VerifM.Env.withEnv_env]
     rw [Term.eval_subst hp hσ hwfΔ']
-  | own l =>
+  | own l ty =>
     funext v
     simp only [Atom.subst, Atom.eval, VerifM.Env.withEnv_env]
     rw [Term.eval_subst hp hσ hwfΔ']
@@ -303,7 +304,7 @@ theorem Atom.subst_wfIn {p : Atom τ} {σ : Subst} {dom : VarCtx} {Δ Δ' : Sign
   | isint t  => exact Term.subst_wfIn hp hσ hdom hsymbols hwf
   | isbool t => exact Term.subst_wfIn hp hσ hdom hsymbols hwf
   | isinj tag arity t => exact Term.subst_wfIn hp hσ hdom hsymbols hwf
-  | own t => exact Term.subst_wfIn hp hσ hdom hsymbols hwf
+  | own t ty => exact Term.subst_wfIn hp hσ hdom hsymbols hwf
   | rel name t =>
     refine ⟨?_, ?_⟩
     · exact SpecFn.isDefined_wfIn (hsymbols.unaryRel _ hp.1.1.1) hwf
@@ -322,7 +323,7 @@ def Atom.candidates : Atom τ → List (Formula × Term τ)
   | .isint  v => [(.unpred .isInt v, .unop .toInt v)]
   | .isbool v => [(.unpred .isBool v, .unop .toBool v)]
   | .isinj tag arity v => [(.unpred (.isInj tag arity) v, .unop .payloadOf v)]
-  | .own _ => []
+  | .own _ _ => []
   | .rel _ _ => []
 
 theorem Atom.candidates_correct (Θ : TinyML.TypeEnv) {a : Atom τ} {φ : Formula} {t : Term τ} {ρ : VerifM.Env}
@@ -346,7 +347,7 @@ theorem Atom.candidates_correct (Θ : TinyML.TypeEnv) {a : Atom τ} {φ : Formul
     simp [toItem, CtxItem.interp, Formula.eval, Term.eval, UnOp.eval]
     cases hv : v.eval ρ.env <;> simp_all
     · exact (pure_intro (PROP := iProp) trivial).trans true_emp.1
-  | own l => simp [candidates] at hmem
+  | own l ty => simp [candidates] at hmem
   | rel name arg => simp [candidates] at hmem
 
 theorem Atom.candidates_wfIn {a : Atom τ} {φ : Formula} {t : Term τ} {Δ : Signature}
@@ -364,7 +365,7 @@ theorem Atom.candidates_wfIn {a : Atom τ} {φ : Formula} {t : Term τ} {Δ : Si
     simp [candidates] at hmem
     obtain ⟨rfl, rfl⟩ := hmem
     exact ⟨⟨trivial, h⟩, ⟨trivial, h⟩⟩
-  | own l => simp [candidates] at hmem
+  | own l ty => simp [candidates] at hmem
   | rel name arg => simp [candidates] at hmem
 
 
@@ -419,20 +420,20 @@ private theorem VerifM.eval_tryCandidates (Θ : TinyML.TypeEnv)
 /-- Walk a spatial context and return the index and stored value at the first
     `pointsTo` whose location the SMT solver can prove equal to `lq`. The
     returned index is into the input list; consumption is the caller's job. -/
-def VerifM.findMatchIn (lq : Term .value) :
+def VerifM.findMatchIn (lq : Term .value) (ty : TinyML.Typ) :
     SpatialContext → VerifM (Option (Nat × Term .value))
   | [] => pure none
-  | .pointsTo l v :: rest => do
-      if ← VerifM.check (.eq .value lq l) then
+  | .pointsTo l v ty' :: rest => do
+      if ty' == ty && (← VerifM.check (.eq .value lq l)) then
         pure (some (0, v))
       else
-        return (← VerifM.findMatchIn lq rest).map fun (n, v') => (n + 1, v')
+        return (← VerifM.findMatchIn lq ty rest).map fun (n, v') => (n + 1, v')
 
 /-- Search the current ownership context for a `pointsTo` at location `lq`,
     returning the stored value and consuming the matched entry from `st.owns`. -/
-def VerifM.findMatch (lq : Term .value) : VerifM (Option (Term .value)) := do
+def VerifM.findMatch (lq : Term .value) (ty : TinyML.Typ) : VerifM (Option (Term .value)) := do
   let owns ← VerifM.ctx (fun st => (st.owns, st.owns))
-  match ← VerifM.findMatchIn lq owns with
+  match ← VerifM.findMatchIn lq ty owns with
   | none => pure none
   | some (n, v) =>
       match SpatialContext.remove owns n with
@@ -443,16 +444,16 @@ def VerifM.findMatch (lq : Term .value) : VerifM (Option (Term .value)) := do
 
 /-- Correctness of `findMatchIn`: on a `some (n, v)` result, `remove ctx n`
     extracts a points-to whose location the solver has proved equal to `lq`. -/
-theorem VerifM.eval_findMatchIn {lq : Term .value} {ctx : SpatialContext}
+theorem VerifM.eval_findMatchIn {lq : Term .value} {ty : TinyML.Typ} {ctx : SpatialContext}
     {st : TransState} {ρ : VerifM.Env}
     {Q : Option (Nat × Term .value) → TransState → VerifM.Env → Prop}
-    (h : VerifM.eval (VerifM.findMatchIn lq ctx) st ρ Q)
+    (h : VerifM.eval (VerifM.findMatchIn lq ty ctx) st ρ Q)
     (hlq : lq.wfIn st.decls) (hctx : ctx.wfIn st.decls) :
     ∃ result,
       Q result st ρ ∧
       (∀ n v, result = some (n, v) →
         ∃ l rest,
-          SpatialContext.remove ctx n = some (.pointsTo l v, rest) ∧
+          SpatialContext.remove ctx n = some (.pointsTo l v ty, rest) ∧
           Term.eval ρ.env lq = Term.eval ρ.env l) := by
   induction ctx generalizing Q with
   | nil =>
@@ -461,29 +462,27 @@ theorem VerifM.eval_findMatchIn {lq : Term .value} {ctx : SpatialContext}
     intros n v hvr; simp at hvr
   | cons a ctx ih =>
     cases a with
-    | pointsTo l v =>
+    | pointsTo l v ty' =>
       simp only [VerifM.findMatchIn] at h
-      have hb := VerifM.eval_bind _ _ _ _ h
       have hcons := (SpatialContext.wfIn_cons _ _ _).1 hctx
-      have hatom := hcons.1
-      have hrest := hcons.2
-      have hwfeq : (Formula.eq .value lq l).wfIn st.decls := ⟨hlq, hatom.1⟩
+      have hwfeq : (Formula.eq .value lq l).wfIn st.decls := ⟨hlq, hcons.1.1⟩
+      have hb := VerifM.eval_bind _ _ _ _ h
       obtain ⟨b, hb_sound, hq⟩ := VerifM.eval_check hb hwfeq
-      cases b with
-      | true =>
-        simp at hq
+      split at hq
+      · -- the type matches and the solver proved the locations equal
+        rename_i hcond
+        simp only [Bool.and_eq_true, beq_iff_eq] at hcond
+        obtain ⟨hty, hbtrue⟩ := hcond
         refine ⟨some (0, v), VerifM.eval_ret hq, ?_⟩
         intros n' v' hnv
         simp at hnv
         obtain ⟨rfl, rfl⟩ := hnv
         have heq : Term.eval ρ.env lq = Term.eval ρ.env l := by
-          have := hb_sound rfl
-          simpa [Formula.eval] using this
-        exact ⟨l, ctx, rfl, heq⟩
-      | false =>
-        simp at hq
+          simpa [Formula.eval] using hb_sound hbtrue
+        exact ⟨l, ctx, by simp [hty], heq⟩
+      · -- otherwise recurse into the rest of the context
         have hb' := VerifM.eval_bind _ _ _ _ hq
-        obtain ⟨result', hres', hsome'⟩ := ih hb' hrest
+        obtain ⟨result', hres', hsome'⟩ := ih hb' hcons.2
         cases result' with
         | none =>
           simp at hres'
@@ -497,22 +496,22 @@ theorem VerifM.eval_findMatchIn {lq : Term .value} {ctx : SpatialContext}
           simp at hnv
           obtain ⟨rfl, rfl⟩ := hnv
           obtain ⟨l', rest', hrem, heq⟩ := hsome' n₀ v₀ rfl
-          refine ⟨l', .pointsTo l v :: rest', ?_, heq⟩
+          refine ⟨l', .pointsTo l v ty' :: rest', ?_, heq⟩
           simp [SpatialContext.remove, hrem]
 
 /-- Correctness of `findMatch` in CPS style: the caller supplies Iris-level
     continuations for the `some` and `none` branches. On `some v`, the
     postcondition state has the matched points-to consumed from `st.owns`, and
     the caller receives separate ownership of `lq ↦ v`. -/
-theorem VerifM.eval_findMatch (Θ : TinyML.TypeEnv) {lq : Term .value}
+theorem VerifM.eval_findMatch (Θ : TinyML.TypeEnv) {lq : Term .value} {ty : TinyML.Typ}
     {st : TransState} {ρ : VerifM.Env}
     {Q : Option (Term .value) → TransState → VerifM.Env → Prop}
     {R Φ : iProp}
-    (h : VerifM.eval (VerifM.findMatch lq) st ρ Q)
+    (h : VerifM.eval (VerifM.findMatch lq ty) st ρ Q)
     (hlq : lq.wfIn st.decls)
     (hsome : ∀ v st', Q (some v) st' ρ →
         st'.decls = st.decls → v.wfIn st.decls →
-        SpatialAtom.interp Θ ρ.env (.pointsTo lq v) ∗ st'.sl Θ ρ ∗ R ⊢ Φ)
+        SpatialAtom.interp Θ ρ.env (.pointsTo lq v ty) ∗ st'.sl Θ ρ ∗ R ⊢ Φ)
     (hnone : Q none st ρ → st.sl Θ ρ ∗ R ⊢ Φ) :
     st.sl Θ ρ ∗ R ⊢ Φ := by
   unfold VerifM.findMatch at h
@@ -532,7 +531,7 @@ theorem VerifM.eval_findMatch (Θ : TinyML.TypeEnv) {lq : Term .value}
     obtain ⟨l, rest, hrem, heq⟩ := hprop n v rfl
     have hrest_wf : SpatialContext.wfIn rest st.decls :=
       (SpatialContext.wfIn_remove howns hrem).2
-    have hatom_wf : SpatialAtom.wfIn (.pointsTo l v) st.decls :=
+    have hatom_wf : SpatialAtom.wfIn (.pointsTo l v ty) st.decls :=
       (SpatialContext.wfIn_remove howns hrem).1
     have hv_wf : v.wfIn st.decls := hatom_wf.2
     simp [hrem] at hres
@@ -542,10 +541,11 @@ theorem VerifM.eval_findMatch (Θ : TinyML.TypeEnv) {lq : Term .value}
     have hk3' := hk3 hrest_wf
     have hQ : Q (some v) { st with owns := rest } ρ := VerifM.eval_ret hk3'
     have hsplit := SpatialContext.interp_remove Θ ρ.env st.owns n _ _ hrem
-    have hcong := SpatialAtom.pointsTo_congr Θ (l := l) (l' := lq) (v := v) (v' := v) heq.symm rfl
+    have hcong := SpatialAtom.pointsTo_congr Θ (l := l) (l' := lq) (v := v) (v' := v)
+      (ty := ty) heq.symm rfl
     -- goal: st.owns.interp ρ ∗ R ⊢ Φ
-    -- st.owns.interp ρ ⊣⊢ (pointsTo l v).interp ρ ∗ rest.interp ρ
-    --                ⊣⊢ (pointsTo lq v).interp ρ ∗ rest.interp ρ
+    -- st.owns.interp ρ ⊣⊢ (pointsTo l v ty).interp ρ ∗ rest.interp ρ
+    --                ⊣⊢ (pointsTo lq v ty).interp ρ ∗ rest.interp ρ
     refine (Iris.BI.sep_mono hsplit.1 BIBase.Entails.rfl).trans ?_
     refine (Iris.BI.sep_mono (Iris.BI.sep_mono hcong.1 BIBase.Entails.rfl) BIBase.Entails.rfl).trans ?_
     refine Iris.BI.sep_assoc.1.trans ?_
@@ -553,22 +553,22 @@ theorem VerifM.eval_findMatch (Θ : TinyML.TypeEnv) {lq : Term .value}
 
 /-- Like `findMatch`, but aborts with a fatal error if no matching points-to
     is found in the current ownership context. -/
-def VerifM.findMatchForce (lq : Term .value) : VerifM (Term .value) := do
-  match ← VerifM.findMatch lq with
+def VerifM.findMatchForce (lq : Term .value) (ty : TinyML.Typ) : VerifM (Term .value) := do
+  match ← VerifM.findMatch lq ty with
   | some v => pure v
   | none => VerifM.fatal s!"no matching points-to for location"
 
 /-- CPS correctness for `findMatchForce`: only a `some`-style continuation is
     required, since the `none` branch is discharged by the fatal error. -/
-theorem VerifM.eval_findMatchForce (Θ : TinyML.TypeEnv) {lq : Term .value}
+theorem VerifM.eval_findMatchForce (Θ : TinyML.TypeEnv) {lq : Term .value} {ty : TinyML.Typ}
     {st : TransState} {ρ : VerifM.Env}
     {Q : Term .value → TransState → VerifM.Env → Prop}
     {R Φ : iProp}
-    (h : VerifM.eval (VerifM.findMatchForce lq) st ρ Q)
+    (h : VerifM.eval (VerifM.findMatchForce lq ty) st ρ Q)
     (hlq : lq.wfIn st.decls)
     (hsome : ∀ v st', Q v st' ρ →
         st'.decls = st.decls → v.wfIn st.decls →
-        SpatialAtom.interp Θ ρ.env (.pointsTo lq v) ∗ st'.sl Θ ρ ∗ R ⊢ Φ) :
+        SpatialAtom.interp Θ ρ.env (.pointsTo lq v ty) ∗ st'.sl Θ ρ ∗ R ⊢ Φ) :
     st.sl Θ ρ ∗ R ⊢ Φ := by
   unfold VerifM.findMatchForce at h
   have hb := VerifM.eval_bind _ _ _ _ h
@@ -585,8 +585,8 @@ theorem VerifM.eval_findMatchForce (Θ : TinyML.TypeEnv) {lq : Term .value}
     Tier 1: syntactic search through the context.
     Tier 2: try candidate resolutions via the SMT solver. -/
 def VerifM.resolve : {τ : Srt} → Atom τ → VerifM (Option (Term τ))
-  | _, .own l => do
-      VerifM.findMatch l
+  | _, .own l ty => do
+      VerifM.findMatch l ty
   | _, .rel name arg => do
       if ← VerifM.check (SpecFn.isDefined name arg) then
         pure (some (SpecFn.call name arg))
@@ -663,14 +663,14 @@ theorem VerifM.eval_resolve (Θ : TinyML.TypeEnv) {pred : Atom τ} {st : TransSt
       Atom.eval Θ pred ρ' (v.eval ρ'.env) ∗ st'.sl Θ ρ' ∗ R ⊢ Φ) :
     st.sl Θ ρ ∗ R ⊢ Φ := by
   match pred, hwf, hsome, h with
-  | .own l, hwf, hsome, h =>
+  | .own l ty, hwf, hsome, h =>
     simp only [VerifM.resolve] at h
     refine VerifM.eval_findMatch Θ (R := R) (Φ := Φ) h hwf ?_ ?_
     · intros v st' hqsome hdecls hvwf
       have hsub : st.decls.Subset st'.decls := by rw [hdecls]; exact Signature.Subset.refl _
       have hvwf' : v.wfIn st'.decls := by rw [hdecls]; exact hvwf
       have hsome' := hsome v st' ρ hqsome hsub VerifM.Env.agreeOn_refl hvwf'
-      have heq : SpatialAtom.interp Θ ρ.env (.pointsTo l v) ⊢ Atom.eval Θ (Atom.own l) ρ (v.eval ρ.env) := by
+      have heq : SpatialAtom.interp Θ ρ.env (.pointsTo l v ty) ⊢ Atom.eval Θ (Atom.own l ty) ρ (v.eval ρ.env) := by
         simp only [Atom.eval, SpatialAtom.interp]
         exact BIBase.Entails.rfl
       exact (sep_mono heq BIBase.Entails.rfl).trans hsome'
