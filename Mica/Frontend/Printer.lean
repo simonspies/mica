@@ -123,7 +123,13 @@ private partial def Expr.isKeywordExpr (e : Expr) : Bool :=
   | _ => false
 
 private partial def Expr.printPrec (e : Expr) (outerPrec : Nat) : String :=
-  match e.kind with
+  if !e.attrs.isEmpty then
+    -- Expression attributes `e [@name payload]` attach at application precedence,
+    -- so parenthesize any compound base to round-trip with the parser.
+    let bare := Expr.printPrec { e with attrs := [] } 0
+    let baseStr := parenIf (!Expr.isAtom e) bare
+    baseStr ++ joinWith "" (e.attrs.map printAttr)
+  else match e.kind with
   | .const c => Const.print c
   | .var name => name
   | .ctor name => name
@@ -152,6 +158,11 @@ private partial def Expr.printPrec (e : Expr) (outerPrec : Nat) : String :=
       "| " ++ Pattern.print arm.pat ++ " -> " ++ Expr.printPrec arm.body 0
     "match " ++ Expr.printPrec scrutinee 0 ++ " with\n" ++ joinWith "\n" armsStr
 where
+  -- Expression attribute `[@name]` or `[@name payload]` (single `@`).
+  printAttr (attr : Attribute) : String :=
+    match attr.payload with
+    | none         => s!" [@{attr.name}]"
+    | some payload => s!" [@{attr.name} {Expr.printPrec payload 0}]"
   fmtArg (e : Expr) : String :=
     parenIf (!Expr.isAtom e) (Expr.printPrec e 0)
   fmtBase (e : Expr) : String :=
