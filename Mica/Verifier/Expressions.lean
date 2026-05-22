@@ -204,19 +204,43 @@ mutual
         let _ ← compile Θ Δ_spec S B Γ e
         let l ← VerifM.decl none .value
         pure (.const (.uninterpreted l.name .value))
-    | .ref true _ => VerifM.fatal "owned `ref` is not yet supported by the verifier"
+    | .ref true e => do
+        let v ← compile Θ Δ_spec S B Γ e
+        let l ← VerifM.decl none .value
+        let sl := Term.const (.uninterpreted l.name .value)
+        VerifM.assume (.spatial (.pointsTo sl v e.ty))
+        pure sl
     | .deref e ty => do
-        VerifM.expectEq "deref type annotation mismatch" e.ty (.ref ty)
-        let _ ← compile Θ Δ_spec S B Γ e
-        let v ← VerifM.decl none .value
-        let sv := Term.const (.uninterpreted v.name .value)
-        VerifM.assumeAll (TinyML.typeConstraints ty sv)
-        pure sv
+        match e.ty with
+        | .owned ty' => do
+            VerifM.expectEq "deref type annotation mismatch" ty' ty
+            let lq ← compile Θ Δ_spec S B Γ e
+            let v ← VerifM.findMatchForce lq ty
+            VerifM.assume (.spatial (.pointsTo lq v ty))
+            pure v
+        | .ref ty' => do
+            VerifM.expectEq "deref type annotation mismatch" ty' ty
+            let _ ← compile Θ Δ_spec S B Γ e
+            let v ← VerifM.decl none .value
+            let sv := Term.const (.uninterpreted v.name .value)
+            VerifM.assumeAll (TinyML.typeConstraints ty sv)
+            pure sv
+        | _ => VerifM.fatal "deref operand is not a reference"
     | .store loc val => do
-        VerifM.expectEq "store location type mismatch" loc.ty (.ref val.ty)
-        let _ ← compile Θ Δ_spec S B Γ val
-        let _ ← compile Θ Δ_spec S B Γ loc
-        pure (Term.const .unit)
+        match loc.ty with
+        | .owned ty => do
+            VerifM.expectEq "store location type mismatch" ty val.ty
+            let v ← compile Θ Δ_spec S B Γ val
+            let lq ← compile Θ Δ_spec S B Γ loc
+            let _ ← VerifM.findMatchForce lq val.ty
+            VerifM.assume (.spatial (.pointsTo lq v val.ty))
+            pure (Term.const .unit)
+        | .ref ty => do
+            VerifM.expectEq "store location type mismatch" ty val.ty
+            let _ ← compile Θ Δ_spec S B Γ val
+            let _ ← compile Θ Δ_spec S B Γ loc
+            pure (Term.const .unit)
+        | _ => VerifM.fatal "store location is not a reference"
     | .app _ _ _ | .fix _ _ _ _ => VerifM.fatal "unsupported expression"
 
   /-- Compile a single match branch: assume the scrutinee is `mkInj i n payload`, then compile the body. -/
@@ -749,26 +773,85 @@ theorem compileRefShared_correct (e : Expr)
         · iexact HR
   exact hwp
 
+theorem compileRefOwned_correct (e : Expr)
+    (ih : correctExpr e) :
+    correctExpr (.ref true e) := by
+  intro Θ R S B Γ st ρ γ Δ_spec ρ_spec Ψ Φ heval hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec hpost
+  unfold Expr.runtime
+  simp only [Runtime.Expr.subst]
+  simp only [compile] at heval
+  simp only [Expr.ty, if_true] at hpost
+  have heval_e : (compile Θ Δ_spec S B Γ e).eval st ρ _ := VerifM.eval_bind _ _ _ _ heval
+  refine SpatialContext.wp_bind_ref <| ih Θ R S B Γ st ρ γ Δ_spec ρ_spec _ _
+    (VerifM.eval.decls_grow ρ heval_e) hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec ?_
+  intro v_e ρ_e st₁ se hΨ_e hse_wf heval_se
+  obtain ⟨_hdecls_e, _hagreeOn_e, hΨ_e⟩ := hΨ_e
+  have hdecl_eval := VerifM.eval_bind _ _ _ _ hΨ_e
+  set c : FOL.Const := st₁.freshConst none .value
+  set sl : Term .value := .const (.uninterpreted c.name .value)
+  have hdecl := VerifM.eval_decl hdecl_eval
+  have hwf_st₁ := VerifM.eval.wf hΨ_e
+  have hc_fresh : c.name ∉ st₁.decls.allNames :=
+    TransState.freshConst_fresh st₁ none .value
+  have hwp :
+      st₁.sl Θ ρ_e ∗ TinyML.ValHasType Θ v_e e.ty ∗ R ⊢ wp (.ref (.val v_e)) Φ := by
+    refine SpatialContext.wp_ref Θ
+      (ctx := st₁.owns) (ρ := ρ_e.env) (R := R) (Δ := st₁.decls)
+      (vt := se) (ty := e.ty) (name := c.name)
+      (newctx := SpatialContext.insert (.pointsTo sl se e.ty) st₁.owns)
+      hwf_st₁.ownsWf hse_wf heval_se hc_fresh rfl ?_
+    intro loc
+    set ρ₂ : VerifM.Env := ρ_e.updateConst .value c.name (.loc loc)
+    set st₂ : TransState := { st₁ with decls := st₁.decls.addConst c }
+    have hdecl_loc := hdecl (.loc loc)
+    have hsl_wf : sl.wfIn st₂.decls := by
+      simpa [sl, st₂] using
+        (Term.const_wfIn_addConst_of_fresh (Δ := st₁.decls) (c := c)
+          hwf_st₁.namesDisjoint hc_fresh)
+    have hse_wf₂ : se.wfIn st₂.decls :=
+      Term.wfIn_mono se hse_wf (Signature.Subset.subset_addConst _ _)
+        (TransState.freshConst.wf _ hwf_st₁).namesDisjoint
+    have hatom_wf : (SpatialAtom.pointsTo sl se e.ty).wfIn st₂.decls := ⟨hsl_wf, hse_wf₂⟩
+    have hret := VerifM.eval_ret (VerifM.eval_assumeSpatial (VerifM.eval_bind _ _ _ _ hdecl_loc) hatom_wf)
+    have hsl_eval : sl.eval ρ₂.env = .loc loc := by
+      simp [sl, ρ₂, c, Term.eval, Const.denote, VerifM.Env.updateConst, Env.updateConst]
+    have hlocTy : ⊢ TinyML.ValHasType Θ (.loc loc) (.owned e.ty) := by
+      refine Entails.trans ?_ (TinyML.ValHasType.owned Θ (.loc loc) e.ty).2
+      istart
+      iintro _
+      iexists loc
+      ipure_intro
+      rfl
+    istart
+    iintro ⟨Hsl, HR⟩
+    iapply (hpost (.loc loc) ρ₂ { st₂ with owns := .pointsTo sl se e.ty :: st₁.owns }
+      sl hret hsl_wf hsl_eval)
+    isplitl [Hsl]
+    · simp [TransState.sl_eq, st₂, SpatialContext.insert]
+      rw [show ρ₂.env = ρ_e.env.updateConst .value c.name (.loc loc) by rfl]
+      iexact Hsl
+    · isplitl []
+      · iapply hlocTy
+      · iexact HR
+  exact hwp
+
 theorem compileRef_correct (owned : Bool) (e : Expr)
     (ih : correctExpr e) :
     correctExpr (.ref owned e) := by
   cases owned with
   | false => exact compileRefShared_correct e ih
-  | true =>
-    -- Owned `ref` is compiled to a fatal; correctness holds vacuously.
-    intro Θ R S B Γ st ρ γ Δ_spec ρ_spec Ψ Φ heval _ _ _ _ _ _ _ _
-    simp only [compile] at heval
-    exact (VerifM.eval_fatal heval).elim
+  | true => exact compileRefOwned_correct e ih
 
-theorem compileDeref_correct (e : Expr) (ty : TinyML.Typ)
+theorem compileDerefShared_correct (e : Expr) (ty : TinyML.Typ)
+    (href : e.ty = .ref ty)
     (ih : correctExpr e) :
     correctExpr (.deref e ty) := by
   intro Θ R S B Γ st ρ γ Δ_spec ρ_spec Ψ Φ heval hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec hpost
   unfold Expr.runtime
   simp only [Runtime.Expr.subst]
-  simp only [compile] at heval
+  simp only [compile, href] at heval
   simp only [Expr.ty] at hpost
-  obtain ⟨hannot, heval⟩ := VerifM.eval_bind_expectEq heval
+  obtain ⟨_, heval⟩ := VerifM.eval_bind_expectEq heval
   have heval_e : (compile Θ Δ_spec S B Γ e).eval st ρ _ := VerifM.eval_bind _ _ _ _ heval
   refine SpatialContext.wp_bind_deref <| ih Θ R S B Γ st ρ γ Δ_spec ρ_spec _ _
     (VerifM.eval.decls_grow ρ heval_e) hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec ?_
@@ -787,7 +870,7 @@ theorem compileDeref_correct (e : Expr) (ty : TinyML.Typ)
           (VerifM.eval.wf hdecl_eval).namesDisjoint hc_fresh)
   have hwp :
       st₁.sl Θ ρ_e ∗ TinyML.ValHasType Θ v_e e.ty ∗ R ⊢ wp (.deref (.val v_e)) Φ := by
-    rw [hannot]
+    rw [href]
     istart
     iintro ⟨Howns, Href, HR⟩
     ihave Href' := (TinyML.ValHasType.ref Θ v_e ty).1 $$ Href
@@ -824,15 +907,104 @@ theorem compileDeref_correct (e : Expr) (ty : TinyML.Typ)
         · iexact HR
   exact hwp
 
-theorem compileStore_correct (loc val : Expr)
+theorem compileDerefOwned_correct (e : Expr) (ty : TinyML.Typ)
+    (howned : e.ty = .owned ty)
+    (ih : correctExpr e) :
+    correctExpr (.deref e ty) := by
+  intro Θ R S B Γ st ρ γ Δ_spec ρ_spec Ψ Φ heval hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec hpost
+  unfold Expr.runtime
+  simp only [Runtime.Expr.subst]
+  simp only [compile, howned] at heval
+  simp only [Expr.ty] at hpost
+  obtain ⟨_, heval⟩ := VerifM.eval_bind_expectEq heval
+  have heval_e : (compile Θ Δ_spec S B Γ e).eval st ρ _ := VerifM.eval_bind _ _ _ _ heval
+  refine SpatialContext.wp_bind_deref <| ih Θ R S B Γ st ρ γ Δ_spec ρ_spec _ _
+    (VerifM.eval.decls_grow ρ heval_e) hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec ?_
+  intro v_e ρ_e st₁ se hΨ_e hse_wf heval_se
+  obtain ⟨_hdecls_e, _hagreeOn_e, hΨ_e⟩ := hΨ_e
+  have hfind_eval := VerifM.eval_bind _ _ _ _ hΨ_e
+  rw [howned]
+  refine VerifM.eval_findMatchForce Θ
+    (R := TinyML.ValHasType Θ v_e (.owned ty) ∗ R)
+    (Φ := wp (.deref (.val v_e)) Φ) hfind_eval hse_wf ?_
+  intro v st₂ hQ hdecls hv_wf
+  have hassume_eval := VerifM.eval_bind _ _ _ _ hQ
+  have hatom_wf : (SpatialAtom.pointsTo se v ty).wfIn st₂.decls := by
+    rw [hdecls]
+    exact ⟨hse_wf, hv_wf⟩
+  have hassume := VerifM.eval_assumeSpatial hassume_eval hatom_wf
+  have hret := VerifM.eval_ret hassume
+  have hv_wf' : v.wfIn st₂.decls := by
+    rw [hdecls]
+    exact hv_wf
+  have hwp :
+      SpatialAtom.interp Θ ρ_e.env (.pointsTo se v ty) ∗ st₂.sl Θ ρ_e ∗
+        (TinyML.ValHasType Θ v_e (.owned ty) ∗ R) ⊢ wp (.deref (.val v_e)) Φ := by
+    simp only [SpatialAtom.interp]
+    istart
+    iintro ⟨Hatom, Howns, _Howned, HR⟩
+    icases Hatom with ⟨%loc, %hse_loc, Hpt, #HstoredTy⟩
+    have hse_loc_orig : se.eval ρ_e.env = .loc loc := hse_loc
+    rw [heval_se] at hse_loc
+    rw [hse_loc]
+    iapply (wp.deref (l := loc) (v := v.eval ρ_e.env))
+    isplitl [Hpt]
+    · iexact Hpt
+    · iintro Hpt
+      iapply (hpost (v.eval ρ_e.env) ρ_e { st₂ with owns := .pointsTo se v ty :: st₂.owns }
+        v hret hv_wf' rfl)
+      isplitl [Hpt HstoredTy Howns]
+      · simp [TransState.sl_eq]
+        isplitl [Hpt HstoredTy]
+        · simp [SpatialAtom.interp]
+          iexists loc
+          isplitr
+          · ipure_intro
+            exact hse_loc_orig
+          · isplitl [Hpt]
+            · iexact Hpt
+            · iexact HstoredTy
+        · iexact Howns
+      · isplitl [HstoredTy]
+        · iexact HstoredTy
+        · iexact HR
+  exact hwp
+
+theorem compileDeref_correct (e : Expr) (ty : TinyML.Typ)
+    (ih : correctExpr e) :
+    correctExpr (.deref e ty) := by
+  cases hty : e.ty with
+  | ref ty' =>
+      by_cases heq : ty' = ty
+      · have href : e.ty = .ref ty := by simpa [heq] using hty
+        exact compileDerefShared_correct e ty href ih
+      · intro Θ R S B Γ st ρ γ Δ_spec ρ_spec Ψ Φ heval _ _ _ _ _ _ _ _
+        simp only [compile, hty] at heval
+        obtain ⟨hannot, _⟩ := VerifM.eval_bind_expectEq heval
+        exact False.elim (heq hannot)
+  | owned ty' =>
+      by_cases heq : ty' = ty
+      · have howned : e.ty = .owned ty := by simpa [heq] using hty
+        exact compileDerefOwned_correct e ty howned ih
+      · intro Θ R S B Γ st ρ γ Δ_spec ρ_spec Ψ Φ heval _ _ _ _ _ _ _ _
+        simp only [compile, hty] at heval
+        obtain ⟨hannot, _⟩ := VerifM.eval_bind_expectEq heval
+        exact False.elim (heq hannot)
+  | unit | bool | int | sum _ | arrow _ _ | empty | value | tuple _ | tvar _ | named _ _ =>
+      intro Θ R S B Γ st ρ γ Δ_spec ρ_spec Ψ Φ heval _ _ _ _ _ _ _ _
+      simp only [compile, hty] at heval
+      exact (VerifM.eval_fatal heval).elim
+
+theorem compileStoreShared_correct (loc val : Expr)
+    (href : loc.ty = .ref val.ty)
     (ihVal : correctExpr val) (ihLoc : correctExpr loc) :
     correctExpr (.store loc val) := by
   intro Θ R S B Γ st ρ γ Δ_spec ρ_spec Ψ Φ heval hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec hpost
   unfold Expr.runtime
   simp only [Runtime.Expr.subst]
-  simp only [compile] at heval
+  simp only [compile, href] at heval
   simp only [Expr.ty] at hpost
-  obtain ⟨hannot, heval⟩ := VerifM.eval_bind_expectEq heval
+  obtain ⟨_, heval⟩ := VerifM.eval_bind_expectEq heval
   have heval_v : (compile Θ Δ_spec S B Γ val).eval st ρ _ := VerifM.eval_bind _ _ _ _ heval
   have hstart :
       st.sl Θ ρ ∗ (S.satisfiedBy Θ Δ_spec ρ_spec γ ∗ Bindings.typedSubst Θ B Γ γ ∗ R) ⊢
@@ -869,7 +1041,7 @@ theorem compileStore_correct (loc val : Expr)
   have hwp :
       st₂.sl Θ ρ_l ∗ (TinyML.ValHasType Θ v_l loc.ty ∗ (TinyML.ValHasType Θ v_v val.ty ∗ R)) ⊢
         wp (.store (.val v_l) (.val v_v)) Φ := by
-    rw [hannot]
+    rw [href]
     istart
     iintro ⟨Howns, Hloc, #Hval, HR⟩
     ihave Href := (TinyML.ValHasType.ref Θ v_l val.ty).1 $$ Hloc
@@ -888,6 +1060,123 @@ theorem compileStore_correct (loc val : Expr)
           · iapply (TinyML.ValHasType.unit_intro Θ)
           · iexact HR
   exact hwp
+
+theorem compileStoreOwned_correct (loc val : Expr)
+    (howned : loc.ty = .owned val.ty)
+    (ihVal : correctExpr val) (ihLoc : correctExpr loc) :
+    correctExpr (.store loc val) := by
+  intro Θ R S B Γ st ρ γ Δ_spec ρ_spec Ψ Φ heval hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec hpost
+  unfold Expr.runtime
+  simp only [Runtime.Expr.subst]
+  simp only [compile, howned] at heval
+  simp only [Expr.ty] at hpost
+  obtain ⟨_, heval⟩ := VerifM.eval_bind_expectEq heval
+  have heval_v : (compile Θ Δ_spec S B Γ val).eval st ρ _ := VerifM.eval_bind _ _ _ _ heval
+  have hstart :
+      st.sl Θ ρ ∗ (S.satisfiedBy Θ Δ_spec ρ_spec γ ∗ Bindings.typedSubst Θ B Γ γ ∗ R) ⊢
+        st.sl Θ ρ ∗
+          (S.satisfiedBy Θ Δ_spec ρ_spec γ ∗ Bindings.typedSubst Θ B Γ γ ∗
+            (Bindings.typedSubst Θ B Γ γ ∗ (S.satisfiedBy Θ Δ_spec ρ_spec γ ∗ R))) :=
+    Helpers.ctx_dup_flip Θ Δ_spec ρ_spec S B Γ st ρ γ R
+  refine SpatialContext.wp_bind_store <| (hstart.trans <|
+    ihVal Θ (Bindings.typedSubst Θ B Γ γ ∗ (S.satisfiedBy Θ Δ_spec ρ_spec γ ∗ R)) S B Γ st ρ γ Δ_spec ρ_spec _ _
+      (VerifM.eval.decls_grow ρ heval_v) hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec ?_)
+  intro v_v ρ_v st₁ sv hΨ_v hsv_wf heval_sv
+  obtain ⟨hdecls_v, hagreeOn_v, hΨ_v⟩ := hΨ_v
+  have hagree_v : B.agreeOnLinked ρ_v.env γ :=
+    Bindings.agreeOnLinked_env_agree hagree hagreeOn_v hbwf
+  have hbwf_v : B.wfIn st₁.decls := fun p hp => hdecls_v.consts _ (hbwf p hp)
+  have heval_l : (compile Θ Δ_spec S B Γ loc).eval st₁ ρ_v _ := VerifM.eval_bind _ _ _ _ hΨ_v
+  have hlocStart :
+      st₁.sl Θ ρ_v ∗ TinyML.ValHasType Θ v_v val.ty ∗
+        (Bindings.typedSubst Θ B Γ γ ∗ (S.satisfiedBy Θ Δ_spec ρ_spec γ ∗ R)) ⊢
+          st₁.sl Θ ρ_v ∗ (S.satisfiedBy Θ Δ_spec ρ_spec γ ∗ Bindings.typedSubst Θ B Γ γ ∗
+            (TinyML.ValHasType Θ v_v val.ty ∗ R)) :=
+    Helpers.ctx_push_flip Θ Δ_spec ρ_spec S B Γ st₁ ρ_v γ R v_v val.ty
+  have hspecInv_v := specInvariants_mono hΔspec hρspec hdecls_v hagreeOn_v
+  refine hlocStart.trans <| ihLoc Θ (TinyML.ValHasType Θ v_v val.ty ∗ R) S B Γ st₁ ρ_v γ Δ_spec ρ_spec _ _
+    (VerifM.eval.decls_grow ρ_v heval_l) hagree_v hbwf_v hSwf hΔwf hΔvars hspecInv_v.1 hspecInv_v.2 ?_
+  intro v_l ρ_l st₂ sl hΨ_l hsl_wf heval_sl
+  obtain ⟨_hdecls_l, _hagreeOn_l, hΨ_l⟩ := hΨ_l
+  have hfind_eval := VerifM.eval_bind _ _ _ _ hΨ_l
+  have hsv_wf_l : sv.wfIn st₂.decls :=
+    Term.wfIn_mono sv hsv_wf _hdecls_l (VerifM.eval.wf hΨ_l).namesDisjoint
+  have heval_sv_l : sv.eval ρ_l.env = v_v := by
+    rw [← Term.eval_env_agree hsv_wf _hagreeOn_l]
+    exact heval_sv
+  rw [howned]
+  refine VerifM.eval_findMatchForce Θ
+    (R := TinyML.ValHasType Θ v_l (.owned val.ty) ∗ (TinyML.ValHasType Θ v_v val.ty ∗ R))
+    (Φ := wp (.store (.val v_l) (.val v_v)) Φ) hfind_eval hsl_wf ?_
+  intro old st₃ hQ hdecls hold_wf
+  have hassume_eval := VerifM.eval_bind _ _ _ _ hQ
+  have hatom_wf : (SpatialAtom.pointsTo sl sv val.ty).wfIn st₃.decls := by
+    rw [hdecls]
+    exact ⟨hsl_wf, hsv_wf_l⟩
+  have hassume := VerifM.eval_assumeSpatial hassume_eval hatom_wf
+  have hret := VerifM.eval_ret hassume
+  have hunit_wf : (Term.const .unit).wfIn ({ st₃ with owns := .pointsTo sl sv val.ty :: st₃.owns }).decls := by
+    simp [Term.wfIn, Const.wfIn]
+  have hwp :
+      SpatialAtom.interp Θ ρ_l.env (.pointsTo sl old val.ty) ∗ st₃.sl Θ ρ_l ∗
+        (TinyML.ValHasType Θ v_l (.owned val.ty) ∗ (TinyML.ValHasType Θ v_v val.ty ∗ R)) ⊢
+          wp (.store (.val v_l) (.val v_v)) Φ := by
+    simp only [SpatialAtom.interp]
+    istart
+    iintro ⟨Hatom, Howns, _Howned, #HnewTy, HR⟩
+    icases Hatom with ⟨%lref, %hsl_loc, Hold, _HoldTy⟩
+    have hsl_loc_orig : sl.eval ρ_l.env = .loc lref := hsl_loc
+    rw [heval_sl] at hsl_loc
+    rw [hsl_loc]
+    iapply (wp.store (l := lref) (old := old.eval ρ_l.env) (v := v_v))
+    isplitl [Hold]
+    · iexact Hold
+    · iintro Hnew
+      iapply (hpost .unit ρ_l { st₃ with owns := .pointsTo sl sv val.ty :: st₃.owns }
+        (Term.const .unit) hret hunit_wf (by simp [Term.eval]))
+      isplitl [Hnew HnewTy Howns]
+      · simp [TransState.sl_eq]
+        isplitl [Hnew HnewTy]
+        · simp [SpatialAtom.interp]
+          iexists lref
+          isplitr
+          · ipure_intro
+            exact hsl_loc_orig
+          · isplitl [Hnew]
+            · rw [heval_sv_l]
+              iexact Hnew
+            · rw [heval_sv_l]
+              iexact HnewTy
+        · iexact Howns
+      · isplitl []
+        · iapply (TinyML.ValHasType.unit_intro Θ)
+        · iexact HR
+  exact hwp
+
+theorem compileStore_correct (loc val : Expr)
+    (ihVal : correctExpr val) (ihLoc : correctExpr loc) :
+    correctExpr (.store loc val) := by
+  cases hty : loc.ty with
+  | ref ty =>
+      by_cases heq : ty = val.ty
+      · have href : loc.ty = .ref val.ty := by simpa [heq] using hty
+        exact compileStoreShared_correct loc val href ihVal ihLoc
+      · intro Θ R S B Γ st ρ γ Δ_spec ρ_spec Ψ Φ heval _ _ _ _ _ _ _ _
+        simp only [compile, hty] at heval
+        obtain ⟨hannot, _⟩ := VerifM.eval_bind_expectEq heval
+        exact False.elim (heq hannot)
+  | owned ty =>
+      by_cases heq : ty = val.ty
+      · have howned : loc.ty = .owned val.ty := by simpa [heq] using hty
+        exact compileStoreOwned_correct loc val howned ihVal ihLoc
+      · intro Θ R S B Γ st ρ γ Δ_spec ρ_spec Ψ Φ heval _ _ _ _ _ _ _ _
+        simp only [compile, hty] at heval
+        obtain ⟨hannot, _⟩ := VerifM.eval_bind_expectEq heval
+        exact False.elim (heq hannot)
+  | unit | bool | int | sum _ | arrow _ _ | empty | value | tuple _ | tvar _ | named _ _ =>
+      intro Θ R S B Γ st ρ γ Δ_spec ρ_spec Ψ Φ heval _ _ _ _ _ _ _ _
+      simp only [compile, hty] at heval
+      exact (VerifM.eval_fatal heval).elim
 
 theorem compileUnop_correct (op : TinyML.UnOp) (e : Expr) (uty : TinyML.Typ)
     (ih : correctExpr e) :
