@@ -24,9 +24,9 @@ structure Session where
 namespace Session
 
 -- `(set-option :smt.qi.eager_threshold 5.0)` Recursive functions are encoded
--- as quantified definitional axioms whose bodies references the function again.
+-- as quantified definitional axioms whose bodies reference the function again.
 -- Z3's default eager instantiation easily falls into a matching loop. It even
--- does so _before_  a check-sat is reached when entering a new scope.
+-- does so _before_ a check-sat is reached when entering a new scope.
 -- To avoid a severe performance penalty, we lower the default from 10.0 to 5.0.
 def preamble : String := s!"
 ;; preamble
