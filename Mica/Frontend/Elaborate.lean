@@ -84,6 +84,16 @@ private def err (loc : Location) (kind : ElaborateErrorKind) : ElabM α :=
 -- ---------------------------------------------------------------------------
 -- Type elaboration
 
+/-- Apply a single type attribute to an already-elaborated core type. `[@owned]`
+turns a shared `ref A` into an owned `owned A`; unknown names are rejected
+(mirroring how the expression-level `[@owned]` validates `ref`). -/
+private def applyTypAttr (loc : Location) (t : TinyML.Typ) : String → ElabM TinyML.Typ
+  | "owned" =>
+    match t with
+    | .ref inner => .ok (.owned inner)
+    | _ => err loc (.unsupportedFeature "[@owned] only applies to a 'ref' type")
+  | name => err loc (.unsupportedFeature s!"unknown type attribute [@{name}]")
+
 mutual
 def TypKind.elaborate (env : ElabEnv) (loc : Location) : TypKind → ElabM TinyML.Typ
   | .var v => .ok (.tvar v)
@@ -100,24 +110,31 @@ def TypKind.elaborate (env : ElabEnv) (loc : Location) : TypKind → ElabM TinyM
     | _ =>
       if env.types.elem name then .ok (.named name args')
       else err loc (.unknownType name)
-  | .arrow ⟨dloc, dkind⟩ ⟨cloc, ckind⟩ => do
-    let dom' ← TypKind.elaborate env dloc dkind
-    let cod' ← TypKind.elaborate env cloc ckind
+  | .arrow dom cod => do
+    let dom' ← Typ.elaborate env dom
+    let cod' ← Typ.elaborate env cod
     .ok (.arrow dom' cod')
   | .tuple ts => do
     let ts' ← Typ.elaborateList env ts
     .ok (.tuple ts')
+termination_by k => sizeOf k
+
+/-- Elaborate a surface type: lower its kind, then apply any type attributes
+(`T [@name]`) left-to-right. Single entry point for every type position. -/
+def Typ.elaborate (env : ElabEnv) (ty : Typ) : ElabM TinyML.Typ := do
+  let t ← TypKind.elaborate env ty.loc ty.kind
+  ty.attrs.foldlM (applyTypAttr ty.loc) t
+termination_by sizeOf ty
+decreasing_by cases ty; simp_wf; omega
 
 def Typ.elaborateList (env : ElabEnv) : List Typ → ElabM (List TinyML.Typ)
   | [] => .ok []
-  | ⟨loc, kind⟩ :: ts => do
-    let t' ← TypKind.elaborate env loc kind
+  | ty :: ts => do
+    let t' ← Typ.elaborate env ty
     let ts' ← Typ.elaborateList env ts
     .ok (t' :: ts')
+termination_by ts => sizeOf ts
 end
-
-def Typ.elaborate (env : ElabEnv) (ty : Typ) : ElabM TinyML.Typ :=
-  TypKind.elaborate env ty.loc ty.kind
 
 private def elaborateOptTyp (env : ElabEnv) : Option Typ → ElabM (Option TinyML.Typ)
   | none => .ok none
@@ -203,7 +220,25 @@ private def elaborateCtorLookup (env : ElabEnv) (loc : Location) (name : String)
   | some (tag, arity) => .ok (.inj tag arity (arg.getD (.const .unit)))
   | none => err loc (.unknownConstructor name)
 
+/-- Apply a single expression attribute to an already-elaborated term. One arm
+per supported expression attribute; unknown names are rejected here (mirroring
+how `[@@...]` names are validated). -/
+private def applyAttr (loc : Location) (e : Untyped.Expr) : Attribute → ElabM Untyped.Expr
+  | { name := "owned", payload := none } =>
+      match e with
+      | .ref _ inner => .ok (.ref true inner)
+      | _ => err loc (.unsupportedFeature "[@owned] only applies to 'ref'")
+  | { name, .. } => err loc (.unsupportedFeature s!"unknown expression attribute [@{name}]")
+
 mutual
+/-- Elaborate an expression: lower its kind, then apply any expression
+attributes (`e [@name payload]`) left-to-right. This is the single entry point
+for every expression position, so attributes are honored everywhere. -/
+def Expr.elaborate (env : ElabEnv) : Expr → ElabM Untyped.Expr
+  | ⟨loc, kind, attrs⟩ => do
+      let e ← ExprKind.elaborate env loc kind
+      attrs.foldlM (applyAttr loc) e
+
 def ExprKind.elaborate (env : ElabEnv) (loc : Location) : ExprKind → ElabM Untyped.Expr
   | .const (.int n)  => .ok (.const (.int n))
   | .const (.bool b) => .ok (.const (.bool b))
@@ -220,83 +255,91 @@ def ExprKind.elaborate (env : ElabEnv) (loc : Location) : ExprKind → ElabM Unt
 
   | .ctor name => elaborateCtorLookup env loc name none
 
-  | .app ⟨_, .var "not"⟩ [⟨al, ak⟩] => do
-    let arg' ← ExprKind.elaborate env al ak
-    .ok (.unop .not arg')
-  | .app ⟨_, .var "not"⟩ args => err loc (.arityMismatch 1 args.length)
-  | .app ⟨_, .var "ref"⟩ [⟨al, ak⟩] => do
-    let arg' ← ExprKind.elaborate env al ak
-    .ok (.ref false arg')
-  | .app ⟨_, .var "ref"⟩ args => err loc (.arityMismatch 1 args.length)
-  | .app ⟨_, .ctor name⟩ [⟨al, ak⟩] => do
-    let arg' ← ExprKind.elaborate env al ak
-    elaborateCtorLookup env loc name (some arg')
-  | .app ⟨_, .ctor name⟩ args =>
-    match List.lookup name env.ctors with
-    | some _ => err loc (.arityMismatch 1 args.length)
-    | none => err loc (.unknownConstructor name)
-  | .app ⟨fnLoc, fnKind⟩ args => do
-    let fn' ← ExprKind.elaborate env fnLoc fnKind
-    let args' ← Expr.elaborateList env args
-    .ok (.app fn' args')
+  | .app fn args =>
+    match fn.kind with
+    | .var "not" =>
+      match args with
+      | [arg] => do
+        let arg' ← Expr.elaborate env arg
+        .ok (.unop .not arg')
+      | _ => err loc (.arityMismatch 1 args.length)
+    | .var "ref" =>
+      match args with
+      | [arg] => do
+        let arg' ← Expr.elaborate env arg
+        .ok (.ref false arg')
+      | _ => err loc (.arityMismatch 1 args.length)
+    | .ctor name =>
+      match args with
+      | [arg] => do
+        let arg' ← Expr.elaborate env arg
+        elaborateCtorLookup env loc name (some arg')
+      | _ =>
+        match List.lookup name env.ctors with
+        | some _ => err loc (.arityMismatch 1 args.length)
+        | none => err loc (.unknownConstructor name)
+    | _ => do
+      let fn' ← Expr.elaborate env fn
+      let args' ← Expr.elaborateList env args
+      .ok (.app fn' args')
 
-  | .binop .semi ⟨ll, lk⟩ ⟨rl, rk⟩ => do
-    let l' ← ExprKind.elaborate env ll lk
-    let r' ← ExprKind.elaborate env rl rk
+  | .binop .semi l r => do
+    let l' ← Expr.elaborate env l
+    let r' ← Expr.elaborate env r
     .ok (.letIn .none l' r')
-  | .binop .pipeRight ⟨al, ak⟩ ⟨fl, fk⟩
-  | .binop .atAt ⟨fl, fk⟩ ⟨al, ak⟩ => do
-    let fn' ← ExprKind.elaborate env fl fk
-    let arg' ← ExprKind.elaborate env al ak
+  | .binop .pipeRight a f
+  | .binop .atAt f a => do
+    let fn' ← Expr.elaborate env f
+    let arg' ← Expr.elaborate env a
     .ok (.app fn' [arg'])
-  | .binop .assign ⟨ll, lk⟩ ⟨vl, vk⟩ => do
-    let loc' ← ExprKind.elaborate env ll lk
-    let val' ← ExprKind.elaborate env vl vk
+  | .binop .assign l v => do
+    let loc' ← Expr.elaborate env l
+    let val' ← Expr.elaborate env v
     .ok (.store loc' val')
-  | .binop .neq ⟨ll, lk⟩ ⟨rl, rk⟩ => do
-    let l' ← ExprKind.elaborate env ll lk
-    let r' ← ExprKind.elaborate env rl rk
+  | .binop .neq l r => do
+    let l' ← Expr.elaborate env l
+    let r' ← Expr.elaborate env r
     .ok (.unop .not (.binop .eq l' r'))
-  | .binop op ⟨ll, lk⟩ ⟨rl, rk⟩ => do
+  | .binop op l r => do
     let op' ← elaborateBinOp loc op
-    let l' ← ExprKind.elaborate env ll lk
-    let r' ← ExprKind.elaborate env rl rk
+    let l' ← Expr.elaborate env l
+    let r' ← Expr.elaborate env r
     .ok (.binop op' l' r')
 
-  | .unop .neg ⟨el, ek⟩ => do
-    let e' ← ExprKind.elaborate env el ek
+  | .unop .neg e => do
+    let e' ← Expr.elaborate env e
     .ok (.unop .neg e')
-  | .unop .deref ⟨el, ek⟩ => do
-    let e' ← ExprKind.elaborate env el ek
+  | .unop .deref e => do
+    let e' ← Expr.elaborate env e
     .ok (.deref e')
-  | .unop .assert ⟨el, ek⟩ => do
-    let e' ← ExprKind.elaborate env el ek
+  | .unop .assert e => do
+    let e' ← Expr.elaborate env e
     .ok (.assert e')
-  | .unop (.proj n) ⟨el, ek⟩ => do
+  | .unop (.proj n) e => do
     -- Surface projections are 1-based (`.1` is the first component); TinyML
     -- projections are 0-based. The parser guarantees `n ≥ 1`.
-    let e' ← ExprKind.elaborate env el ek
+    let e' ← Expr.elaborate env e
     .ok (.unop (.proj (n - 1)) e')
-  | .unop (.field name) ⟨el, ek⟩ =>
+  | .unop (.field name) e =>
     match List.lookup name env.fields with
     | some (_, idx) => do
-      let e' ← ExprKind.elaborate env el ek
+      let e' ← Expr.elaborate env e
       .ok (.unop (.proj idx) e')
     | none => err loc (.unknownField name)
 
-  | .ite ⟨cl, ck⟩ ⟨tl, tk⟩ ⟨el, ek⟩ => do
-    let c' ← ExprKind.elaborate env cl ck
-    let t' ← ExprKind.elaborate env tl tk
-    let e' ← ExprKind.elaborate env el ek
+  | .ite c t e => do
+    let c' ← Expr.elaborate env c
+    let t' ← Expr.elaborate env t
+    let e' ← Expr.elaborate env e
     .ok (.ifThenElse c' t' e')
 
-  | .letIn isRec binders ⟨bl, bk⟩ ⟨dl, dk⟩ =>
+  | .letIn isRec binders bound body =>
     match binders with
     | [] => err loc (.unsupportedFeature "let with no binders")
     | [pat] => do
       let name ← patternToBinder pat
-      let bound' ← ExprKind.elaborate env bl bk
-      let body' ← ExprKind.elaborate env dl dk
+      let bound' ← Expr.elaborate env bound
+      let body' ← Expr.elaborate env body
       if isRec then
         err loc (.unsupportedFeature "let rec requires function arguments")
       else
@@ -305,18 +348,18 @@ def ExprKind.elaborate (env : ElabEnv) (loc : Location) : ExprKind → ElabM Unt
       let name ← patternToBinder pat
       let args' ← Pattern.toAnnotatedBinders env args
       let self := if isRec then name else .none
-      let bound' ← ExprKind.elaborate env bl bk
-      let body' ← ExprKind.elaborate env dl dk
+      let bound' ← Expr.elaborate env bound
+      let body' ← Expr.elaborate env body
       .ok (.letIn name (.fix self args' none bound') body')
 
-  | .fun_ args retTy ⟨bl, bk⟩ => do
+  | .fun_ args retTy body => do
     let args' ← Pattern.toAnnotatedBinders env args
     let retTy' ← elaborateOptTyp env retTy
-    let body' ← ExprKind.elaborate env bl bk
+    let body' ← Expr.elaborate env body
     .ok (.fix .none args' retTy' body')
 
-  | .match_ ⟨sl, sk⟩ arms => do
-    let scrut' ← ExprKind.elaborate env sl sk
+  | .match_ scrut arms => do
+    let scrut' ← Expr.elaborate env scrut
     let arms' ← MatchArm.elaborateList env arms
     match arms' with
     | [] => err loc .emptyMatch
@@ -351,28 +394,28 @@ def ExprKind.elaborate (env : ElabEnv) (loc : Location) : ExprKind → ElabM Unt
 
   | .recordUpdate _ _ => err loc .unsupportedRecordUpdate
 
-  | .annot ⟨il, ik⟩ _ => ExprKind.elaborate env il ik
+  | .annot e _ => Expr.elaborate env e
 
 def Expr.elaborateList (env : ElabEnv) : List Expr → ElabM (List Untyped.Expr)
   | [] => .ok []
-  | ⟨l, k⟩ :: es => do
-    let e' ← ExprKind.elaborate env l k
+  | e :: es => do
+    let e' ← Expr.elaborate env e
     let es' ← Expr.elaborateList env es
     .ok (e' :: es')
 
 def Expr.elaborateRecordFields (env : ElabEnv)
     : List (FieldName × Expr) → ElabM (List (FieldName × Untyped.Expr))
   | [] => .ok []
-  | (name, ⟨l, k⟩) :: rest => do
-    let e' ← ExprKind.elaborate env l k
+  | (name, e) :: rest => do
+    let e' ← Expr.elaborate env e
     let rest' ← Expr.elaborateRecordFields env rest
     .ok ((name, e') :: rest')
 
 def MatchArm.elaborateList (env : ElabEnv)
     : List MatchArm → ElabM (List (Constructor × Option Untyped.Binder × Untyped.Expr))
   | [] => .ok []
-  | ⟨pat, ⟨bl, bk⟩⟩ :: arms => do
-    let body' ← ExprKind.elaborate env bl bk
+  | ⟨pat, body⟩ :: arms => do
+    let body' ← Expr.elaborate env body
     let (ctorName, binder) ← match pat.kind with
       | .ctor name payload => do
         let binder ← match payload with
@@ -393,9 +436,6 @@ def Pattern.toAnnotatedBinders (env : ElabEnv)
     let bs ← Pattern.toAnnotatedBinders env ps
     .ok (b :: bs)
 end
-
-def Expr.elaborate (env : ElabEnv) (e : Expr) : ElabM Untyped.Expr :=
-  ExprKind.elaborate env e.loc e.kind
 
 -- ---------------------------------------------------------------------------
 -- Type declaration elaboration

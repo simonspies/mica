@@ -129,6 +129,25 @@ private partial def parseLAssoc (ops : List (Token × BinOp)) (sub : Parser Expr
 -- ---------------------------------------------------------------------------
 -- Type parsing
 
+-- `[@name]` — single `@`, name only (type attributes carry no payload).
+private def parseTypeAttr : Parser String := fun st => do
+  let st ← expect .lbracket st
+  let st ← expect .at st
+  let (name, st) ← expectIdent st
+  let st ← expect .rbracket st
+  .ok (name, st)
+
+-- Fold trailing type attributes `T [@name]` into `T.attrs`.
+private partial def parseTypeAttrSuffix (t : Typ) : Parser Typ := fun st =>
+  match peekTok st with
+  | .lbracket =>
+    match peekTok (advance st) with
+    | .at => do
+      let (name, st) ← parseTypeAttr st
+      parseTypeAttrSuffix { t with attrs := t.attrs ++ [name] } st
+    | _ => .ok (t, st)  -- not a type attribute (e.g. `[@@...]`), leave `[`
+  | _ => .ok (t, st)
+
 mutual
 private partial def parseTypeAtom : Parser Typ := fun st =>
   let p := peekLoc st
@@ -176,7 +195,8 @@ private partial def parseTypeAppSuffix (arg : Typ) : Parser Typ := fun st =>
 
 private partial def parseTypeApp : Parser Typ := fun st => do
   let (t, st) ← parseTypeAtom st
-  parseTypeAppSuffix t st
+  let (t, st) ← parseTypeAppSuffix t st
+  parseTypeAttrSuffix t st
 
 private partial def parseTypeProdRest : Parser (List Typ) := fun st => do
   let (t, st) ← parseTypeApp st
@@ -448,10 +468,36 @@ where
       .ok (mkExpr p st (.unop .deref e), st)
     | _ => parseApp st
 
-  -- function application (left-assoc, juxtaposition)
+  -- function application (left-assoc, juxtaposition), then any expression
+  -- attributes `[@name payload]` attached as a postfix to the whole application.
   parseApp : Parser Expr := fun st => do
     let (fn, st) ← parsePostfix st
-    parseAppRest fn st
+    let (app, st) ← parseAppRest fn st
+    parseAttrSuffix app st
+
+  -- Fold trailing expression attributes `e [@name payload]` into `e.attrs`.
+  parseAttrSuffix (e : Expr) : Parser Expr := fun st =>
+    match peekTok st with
+    | .lbracket =>
+      match peekTok (advance st) with
+      | .at => do
+        let (attr, st) ← parseExprAttr st
+        parseAttrSuffix { e with attrs := e.attrs ++ [attr] } st
+      | _ => .ok (e, st)  -- not an expression attribute (e.g. `[@@...]`), leave `[`
+    | _ => .ok (e, st)
+
+  -- `[@name expr]` — single `@`, optional expression payload.
+  parseExprAttr : Parser Attribute := fun st => do
+    let st ← expect .lbracket st
+    let st ← expect .at st
+    let (name, st) ← expectIdent st
+    let (payload, st) ← match peekTok st with
+      | .rbracket => .ok (none, st)
+      | _ => do
+        let (e, st) ← parseExpr st
+        .ok (some e, st)
+    let st ← expect .rbracket st
+    .ok ({ name, payload }, st)
 
   parseAppRest (fn : Expr) : Parser Expr := fun st => do
     let (args, st) ← collectArgs st
