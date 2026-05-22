@@ -13,6 +13,7 @@ private structure Options where
   noCheck     : Bool := false
   printOcaml  : Bool := false
   printTinyML : Bool := false
+  smtCmdsOnly : Bool := false
   file        : Option String := none
   error       : Option String := none
 
@@ -26,6 +27,8 @@ private def parseArgs : List String → Options → Options
     parseArgs rest { opts with printOcaml := true }
   | "--print-tiny-ml" :: rest, opts =>
     parseArgs rest { opts with printTinyML := true }
+  | "--smt-commands-only" :: rest, opts =>
+    parseArgs rest { opts with smtCmdsOnly := true }
   | arg :: rest, opts =>
     if opts.error.isSome then opts
     else if arg.startsWith "-" then { opts with error := some s!"unknown option: {arg}" }
@@ -39,7 +42,7 @@ def main (args : List String) : IO Unit := do
     IO.Process.exit 1
   match opts.file with
   | none => do
-    IO.eprintln "usage: mica [--verbose] [--no-check] [--print-ocaml] [--print-tiny-ml] <file.ml>"
+    IO.eprintln "usage: mica [--verbose] [--no-check] [--print-ocaml] [--print-tiny-ml] [--smt-commands-only] <file.ml>"
     IO.Process.exit 1
   | some filename => do
     let contents ← IO.FS.readFile filename
@@ -60,9 +63,15 @@ def main (args : List String) : IO Unit := do
     if opts.noCheck then
       return
     let strategy := Program.verify untypedProg
-    let session ← Smt.Session.create
-    let outcome ← Smt.Strategy.run (log := opts.verbose) strategy session
+    let logMode : Smt.LogMode :=
+      if opts.smtCmdsOnly then .script
+      else if opts.verbose then .trace
+      else .quiet
+    let session ← Smt.Session.create (log := logMode)
+    let outcome ← Smt.Strategy.run (log := logMode) strategy session
     session.close
+    if opts.smtCmdsOnly then
+      return
     match outcome with
     | .ok () => IO.println s!"{bold "Status:"} all declarations verified"
     | .error msg => do

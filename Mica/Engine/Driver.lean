@@ -5,6 +5,16 @@ import Mica.Engine.Strategy
 
 namespace Smt
 
+/-- How a session reports the commands it issues.
+    - `quiet`: no output.
+    - `trace`: `> command` / `< response` pairs on stderr (verbose debugging).
+    - `script`: a replayable SMT-LIB script on stdout -/
+inductive LogMode where
+  | quiet
+  | trace
+  | script
+  deriving BEq
+
 /-- A persistent Z3 session. Keeps the subprocess alive for incremental queries. -/
 structure Session where
   stdin  : IO.FS.Handle
@@ -36,7 +46,7 @@ def preamble : String := s!"
 "
 
 /-- Start a new Z3 session with print-success enabled. -/
-def create (z3Path : String := "z3") (log : Bool := false) : IO Session := do
+def create (z3Path : String := "z3") (log : LogMode := .quiet) : IO Session := do
   let child ← IO.Process.spawn {
     cmd := z3Path
     args := #["-in"]
@@ -48,8 +58,9 @@ def create (z3Path : String := "z3") (log : Bool := false) : IO Session := do
   -- We first define the preamble that introduces the value type
   stdin.putStr preamble
   stdin.flush
-  if log then
-    IO.println preamble
+  if log == .script then do
+    IO.println "(set-option :print-success true)"
+    IO.print preamble
   -- Then we turn on interactive mode, and from here on parse the responses
   stdin.putStr "(set-option :print-success true)\n"
   stdin.flush
@@ -60,14 +71,17 @@ def create (z3Path : String := "z3") (log : Bool := false) : IO Session := do
   return { stdin, stdout := child.stdout, child }
 
 /-- Send a command and parse the response. Throws on unexpected output. -/
-def send (s : Session) (cmd : Command α) (log : Bool := false) : IO α := do
+def send (s : Session) (cmd : Command α) (log : LogMode := .quiet) : IO α := do
   let query := cmd.toSMTLIB
-  if log then IO.eprintln s!"  > {query}"
+  match log with
+  | .trace => IO.eprintln s!"  > {query}"
+  | .script => IO.println query
+  | .quiet => pure ()
   s.stdin.putStr (query ++ "\n")
   s.stdin.flush
   let line ← s.stdout.getLine
   let response := line.trimAscii.toString
-  if log then IO.eprintln s!"  < {response}"
+  if log == .trace then IO.eprintln s!"  < {response}"
   match cmd.parse response with
   | some r => return r
   | none => throw (IO.userError s!"Unexpected Z3 response for `{query}`: {response}")
@@ -84,14 +98,14 @@ end Session
 namespace Strategy
 
 /-- Execute a strategy against a live Z3 session. -/
-def run (log : Bool := false) : Strategy α → Session → IO α
+def run (log : LogMode := .quiet) : Strategy α → Session → IO α
   | .done a, _ => return a
   | .exec cmd k, session => do
     let response ← session.send cmd log
     run log (k response) session
 
 /-- Top-level entry point: create session, run strategy, print result, close. -/
-def execute (s : Strategy Outcome) (log : Bool := false) : IO Unit := do
+def execute (s : Strategy Outcome) (log : LogMode := .quiet) : IO Unit := do
   let session ← Session.create "z3" log
   let outcome ← run log s session
   session.close
