@@ -226,7 +226,7 @@ def ExprKind.elaborate (env : ElabEnv) (loc : Location) : ExprKind → ElabM Unt
   | .app ⟨_, .var "not"⟩ args => err loc (.arityMismatch 1 args.length)
   | .app ⟨_, .var "ref"⟩ [⟨al, ak⟩] => do
     let arg' ← ExprKind.elaborate env al ak
-    .ok (.ref arg')
+    .ok (.ref false arg')
   | .app ⟨_, .var "ref"⟩ args => err loc (.arityMismatch 1 args.length)
   | .app ⟨_, .ctor name⟩ [⟨al, ak⟩] => do
     let arg' ← ExprKind.elaborate env al ak
