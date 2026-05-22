@@ -435,14 +435,14 @@ theorem ValDecl.checkExpr_correct (Θ : TinyML.TypeEnv) (Δ_spec : Signature) (�
     (hΔspec : Δ_spec.Subset st.decls) (hρspec : VerifM.Env.agreeOn Δ_spec ρ_spec ρ)
     {Q : Unit → TransState → VerifM.Env → Prop}
     (heval : VerifM.eval (ValDecl.checkExpr Θ Δ_spec S d) st ρ Q) :
-    (□ st.sl ρ ∗ S.satisfiedBy Θ Δ_spec ρ_spec γ ⊢ Φ) →
-    □ st.sl ρ ∗ S.satisfiedBy Θ Δ_spec ρ_spec γ ⊢ wp (d.body.runtime.subst γ) (fun _ => Φ) := by
+    (□ st.sl Θ ρ ∗ S.satisfiedBy Θ Δ_spec ρ_spec γ ⊢ Φ) →
+    □ st.sl Θ ρ ∗ S.satisfiedBy Θ Δ_spec ρ_spec γ ⊢ wp (d.body.runtime.subst γ) (fun _ => Φ) := by
   intro Hent
   simp only [ValDecl.checkExpr] at heval
   have ⟨hinner, _⟩ := VerifM.eval_seq heval
   have hcompile := VerifM.eval_bind _ _ _ _ hinner
   have hcomp :=
-    compile_correct d.body Θ iprop(□ st.sl ρ ∗ Φ) S [] TinyML.TyCtx.empty st ρ γ Δ_spec ρ_spec
+    compile_correct d.body Θ iprop(□ st.sl Θ ρ ∗ Φ) S [] TinyML.TyCtx.empty st ρ γ Δ_spec ρ_spec
     (fun x st' ρ' => VerifM.eval (pure ()) st' ρ' (fun _ _ _ => True))
     (fun _ => Φ)
     hcompile
@@ -481,7 +481,7 @@ theorem ValDecl.check_correct (Θ : TinyML.TypeEnv) (Δ_spec : Signature) (Γfn 
     {Q : Spec → TransState → VerifM.Env → Prop}
     (heval : VerifM.eval (ValDecl.check Θ Δ_spec Γfn S d) st ρ Q) :
     ∃ spec, spec.wfIn Δ_spec ∧
-            (□ st.sl ρ ∗ S.satisfiedBy Θ Δ_spec ρ_spec γ ⊢ wp (d.body.runtime.subst γ) (fun v => spec.isPrecondFor Θ Δ_spec ρ_spec v)) ∧
+            (□ st.sl Θ ρ ∗ S.satisfiedBy Θ Δ_spec ρ_spec γ ⊢ wp (d.body.runtime.subst γ) (fun v => spec.isPrecondFor Θ Δ_spec ρ_spec v)) ∧
             Q spec st ρ := by
   simp only [ValDecl.check] at heval
   cases hspec : d.declMeta.spec with
@@ -534,7 +534,7 @@ theorem Program.check_correct (Θ : TinyML.TypeEnv) (Δ_spec : Signature) (Γfn 
     (st : TransState) (ρ : VerifM.Env)
     (hΔspec : Δ_spec.Subset st.decls) (hρspec : VerifM.Env.agreeOn Δ_spec ρ_spec ρ) :
     VerifM.eval (Program.check Θ Δ_spec Γfn S prog) st ρ (fun _ _ _ => True) →
-    □ st.sl ρ ∗ S.satisfiedBy Θ Δ_spec ρ_spec γ ⊢ pwp ((Typed.Program.runtime prog).subst γ) := by
+    □ st.sl Θ ρ ∗ S.satisfiedBy Θ Δ_spec ρ_spec γ ⊢ pwp ((Typed.Program.runtime prog).subst γ) := by
   induction prog generalizing S γ st ρ with
   | nil =>
     intro _
@@ -643,7 +643,7 @@ theorem Program.check_correct (Θ : TinyML.TypeEnv) (Δ_spec : Signature) (Γfn 
         rw [hupd v]
         have hih := ih (S.insert n spec) (γ.update n v)
           (SpecMap.wfIn_insert hSwf hswf) st ρ hΔspec hρspec hcont'
-        have hstep : (□ st.sl ρ ∗ S.satisfiedBy Θ Δ_spec ρ_spec γ) ∗ spec.isPrecondFor Θ Δ_spec ρ_spec v ⊢
+        have hstep : (□ st.sl Θ ρ ∗ S.satisfiedBy Θ Δ_spec ρ_spec γ) ∗ spec.isPrecondFor Θ Δ_spec ρ_spec v ⊢
             pwp ((Typed.Program.runtime ds).subst (γ.update n v)) := by
           refine BIBase.Entails.trans ?_ hih
           istart
@@ -695,7 +695,7 @@ theorem Program.verify_correct (p : Untyped.Program (Spec.Body Untyped.Expr)) :
                        VerifM.Env.agreeOn_refl
                        hcheck
     rw [Runtime.Program.subst_id] at hcorrect
-    have hctx0 : (⊢ □ stRel.sl ρRel ∗
+    have hctx0 : (⊢ □ stRel.sl Θ ρRel ∗
         SpecMap.satisfiedBy Θ stRel.decls ρRel (∅ : SpecMap) Runtime.Subst.id) := by
       istart
       isplitl []

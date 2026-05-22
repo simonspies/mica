@@ -1,6 +1,7 @@
 -- SUMMARY: Syntactic spatial atoms and contexts for verifier state, together with their well-formedness conditions and basic operations.
 import Mica.FOL.Terms
 import Mica.SeparationLogic.Axioms
+import Mica.TinyML.Types
 
 open Iris Iris.BI
 
@@ -32,15 +33,15 @@ theorem wfIn_mono {a : SpatialAtom} {Δ Δ' : Signature}
   | pointsTo l v => exact ⟨Term.wfIn_mono l h.1 hsub hwf, Term.wfIn_mono v h.2 hsub hwf⟩
 
 /-- Iris interpretation of a single spatial atom. -/
-def interp (ρ : Env) : SpatialAtom → iProp
+def interp (_Θ : TinyML.TypeEnv) (ρ : Env) : SpatialAtom → iProp
   | .pointsTo l v => ∃ (loc : Runtime.Location),
       ⌜Term.eval ρ l = .loc loc⌝ ∗ loc ↦ Term.eval ρ v
 
 /-- Congruence for points-to interpretation under equal location and value evaluation. -/
-theorem pointsTo_congr {ρ : Env} {l l' v v' : Term .value}
+theorem pointsTo_congr (Θ : TinyML.TypeEnv) {ρ : Env} {l l' v v' : Term .value}
     (hl : Term.eval ρ l = Term.eval ρ l')
     (hv : Term.eval ρ v = Term.eval ρ v') :
-    interp ρ (.pointsTo l v) ⊣⊢ interp ρ (.pointsTo l' v') := by
+    interp Θ ρ (.pointsTo l v) ⊣⊢ interp Θ ρ (.pointsTo l' v') := by
   simp only [interp, hl, hv]
   exact ⟨BIBase.Entails.rfl, BIBase.Entails.rfl⟩
 

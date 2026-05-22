@@ -64,7 +64,7 @@ def Atom.toItem (a : Atom τ) (t : Term τ) : CtxItem :=
 -- Semantics
 -- ---------------------------------------------------------------------------
 
-def Atom.eval {τ : Srt} (p : Atom τ) (ρ : VerifM.Env) : τ.denote → iProp :=
+def Atom.eval (_Θ : TinyML.TypeEnv) {τ : Srt} (p : Atom τ) (ρ : VerifM.Env) : τ.denote → iProp :=
   match p with
   | isint t  => λ v => ⌜.int v = t.eval ρ.env⌝
   | isbool t => λ v => ⌜.bool v = t.eval ρ.env⌝
@@ -134,9 +134,9 @@ theorem Formula.matchAtom_correct {φ : Formula} {a : Atom τ} {t : Term τ}
 def Atom.resolve (a : Atom τ) (C : List Formula) : Option (Term τ) :=
   C.findSome? (·.matchAtom a)
 
-theorem Atom.resolve_correct {a : Atom τ} {C : List Formula} {t : Term τ}
+theorem Atom.resolve_correct (Θ : TinyML.TypeEnv) {a : Atom τ} {C : List Formula} {t : Term τ}
     (h : a.resolve C = some t) (ρ : VerifM.Env) (hC : ∀ φ ∈ C, φ.eval ρ.env) :
-    ⊢ (a.toItem t).interp ρ := by
+    ⊢ (a.toItem t).interp Θ ρ := by
   obtain ⟨φ, hφ_mem, hφ_match⟩ := List.exists_of_findSome?_eq_some h
   rw [Formula.matchAtom_correct hφ_match]
   simpa [CtxItem.interp, hC _ hφ_mem] using (pure_intro (PROP := iProp) trivial)
@@ -201,8 +201,8 @@ theorem Atom.wfIn_mono {p : Atom τ} {Δ Δ' : Signature}
   | rel name t =>
     exact ⟨Formula.wfIn_mono _ h.1 hmono hwf, Term.wfIn_mono _ h.2 hmono hwf⟩
 
-theorem Atom.eval_env_agree {p : Atom τ} {ρ ρ' : VerifM.Env} {Δ : Signature}
-    (hwf : p.wfIn Δ) (hagree : VerifM.Env.agreeOn Δ ρ ρ') : p.eval ρ = p.eval ρ' := by
+theorem Atom.eval_env_agree (Θ : TinyML.TypeEnv) {p : Atom τ} {ρ ρ' : VerifM.Env} {Δ : Signature}
+    (hwf : p.wfIn Δ) (hagree : VerifM.Env.agreeOn Δ ρ ρ') : p.eval Θ ρ = p.eval Θ ρ' := by
   cases p with
   | isint t  => simp [Atom.eval, Term.eval_env_agree hwf hagree]
   | isbool t => simp [Atom.eval, Term.eval_env_agree hwf hagree]
@@ -234,8 +234,8 @@ theorem Atom.toItem_wfIn {p : Atom τ} {t : Term τ} {Δ : Signature}
     simp only [Atom.toItem, CtxItem.wfIn, Formula.wfIn]
     exact ⟨hp.1, hp.2, ht⟩
 
-theorem Atom.toItem_eval {p : Atom τ} {t : Term τ} {ρ : VerifM.Env} :
-    CtxItem.interp ρ (p.toItem t) ⊣⊢ p.eval ρ (t.eval ρ.env) := by
+theorem Atom.toItem_eval (Θ : TinyML.TypeEnv) {p : Atom τ} {t : Term τ} {ρ : VerifM.Env} :
+    CtxItem.interp Θ ρ (p.toItem t) ⊣⊢ p.eval Θ ρ (t.eval ρ.env) := by
   cases p with
   | isint v  => simp [Atom.eval, Atom.toItem, CtxItem.interp, Formula.eval, Term.eval, eq_comm]
   | isbool v => simp [Atom.eval, Atom.toItem, CtxItem.interp, Formula.eval, Term.eval, eq_comm]
@@ -246,8 +246,8 @@ theorem Atom.toItem_eval {p : Atom τ} {t : Term τ} {ρ : VerifM.Env} :
   | rel name arg =>
     simp [Atom.eval, Atom.toItem, CtxItem.interp, Formula.eval]
 
-theorem Atom.eval_purePart {p : Atom τ} {t : Term τ} {ρ : VerifM.Env} :
-    p.eval ρ (t.eval ρ.env) ⊢ ⌜(p.toItem t).purePart ρ⌝ := by
+theorem Atom.eval_purePart (Θ : TinyML.TypeEnv) {p : Atom τ} {t : Term τ} {ρ : VerifM.Env} :
+    p.eval Θ ρ (t.eval ρ.env) ⊢ ⌜(p.toItem t).purePart ρ⌝ := by
   cases p with
   | isint v =>
     simp [Atom.eval, CtxItem.purePart, Atom.toItem, Formula.eval, Term.eval, eq_comm]
@@ -267,9 +267,9 @@ theorem Atom.eval_purePart {p : Atom τ} {t : Term τ} {ρ : VerifM.Env} :
 -- ---------------------------------------------------------------------------
 
 -- @agent: change eval_subst to a bi-entailment in the future.
-theorem Atom.eval_subst {p : Atom τ} {σ : Subst} {ρ : VerifM.Env} {Δ Δ' : Signature}
+theorem Atom.eval_subst (Θ : TinyML.TypeEnv) {p : Atom τ} {σ : Subst} {ρ : VerifM.Env} {Δ Δ' : Signature}
     (hp : p.wfIn Δ) (hσ : σ.wfIn Δ.vars Δ') (hwfΔ' : Δ'.wf) :
-    (p.subst σ).eval ρ = p.eval (ρ.withEnv (σ.eval ρ.env)) := by
+    (p.subst σ).eval Θ ρ = p.eval Θ (ρ.withEnv (σ.eval ρ.env)) := by
   cases p with
   | isint t =>
     funext v
@@ -325,8 +325,8 @@ def Atom.candidates : Atom τ → List (Formula × Term τ)
   | .own _ => []
   | .rel _ _ => []
 
-theorem Atom.candidates_correct {a : Atom τ} {φ : Formula} {t : Term τ} {ρ : VerifM.Env}
-    (hmem : (φ, t) ∈ a.candidates) (h : φ.eval ρ.env) : ⊢ (a.toItem t).interp ρ := by
+theorem Atom.candidates_correct (Θ : TinyML.TypeEnv) {a : Atom τ} {φ : Formula} {t : Term τ} {ρ : VerifM.Env}
+    (hmem : (φ, t) ∈ a.candidates) (h : φ.eval ρ.env) : ⊢ (a.toItem t).interp Θ ρ := by
   cases a with
   | isint v =>
     simp [candidates] at hmem; obtain ⟨rfl, rfl⟩ := hmem
@@ -379,7 +379,7 @@ def VerifM.tryCandidates : List (Formula × Term τ) → VerifM (Option (Term τ
     if ← VerifM.check φ then pure (some t)
     else VerifM.tryCandidates rest
 
-private theorem VerifM.eval_tryCandidates
+private theorem VerifM.eval_tryCandidates (Θ : TinyML.TypeEnv)
     {candidates : List (Formula × Term τ)} {a : Atom τ}
     {st : TransState} {ρ : VerifM.Env} {Q : Option (Term τ) → TransState → VerifM.Env → Prop}
     (h : VerifM.eval (VerifM.tryCandidates candidates) st ρ Q)
@@ -387,7 +387,7 @@ private theorem VerifM.eval_tryCandidates
     (hpwf : a.wfIn st.decls) :
     ∃ result : Option (Term τ),
       Q result st ρ
-      ∧ (∀ t, result = some t → ⊢ (a.toItem t).interp ρ)
+      ∧ (∀ t, result = some t → ⊢ (a.toItem t).interp Θ ρ)
       ∧ (∀ t, result = some t → t.wfIn st.decls) := by
   induction candidates with
   | nil =>
@@ -405,7 +405,7 @@ private theorem VerifM.eval_tryCandidates
     | true =>
       simp at hq
       exact ⟨some t, VerifM.eval_ret hq,
-             fun t' ht' => by cases ht'; exact Atom.candidates_correct hmem (hb_sound rfl),
+             fun t' ht' => by cases ht'; exact Atom.candidates_correct Θ hmem (hb_sound rfl),
              fun t' ht' => by cases ht'; exact twf⟩
     | false =>
       simp at hq
@@ -504,7 +504,7 @@ theorem VerifM.eval_findMatchIn {lq : Term .value} {ctx : SpatialContext}
     continuations for the `some` and `none` branches. On `some v`, the
     postcondition state has the matched points-to consumed from `st.owns`, and
     the caller receives separate ownership of `lq ↦ v`. -/
-theorem VerifM.eval_findMatch {lq : Term .value}
+theorem VerifM.eval_findMatch (Θ : TinyML.TypeEnv) {lq : Term .value}
     {st : TransState} {ρ : VerifM.Env}
     {Q : Option (Term .value) → TransState → VerifM.Env → Prop}
     {R Φ : iProp}
@@ -512,9 +512,9 @@ theorem VerifM.eval_findMatch {lq : Term .value}
     (hlq : lq.wfIn st.decls)
     (hsome : ∀ v st', Q (some v) st' ρ →
         st'.decls = st.decls → v.wfIn st.decls →
-        SpatialAtom.interp ρ.env (.pointsTo lq v) ∗ st'.sl ρ ∗ R ⊢ Φ)
-    (hnone : Q none st ρ → st.sl ρ ∗ R ⊢ Φ) :
-    st.sl ρ ∗ R ⊢ Φ := by
+        SpatialAtom.interp Θ ρ.env (.pointsTo lq v) ∗ st'.sl Θ ρ ∗ R ⊢ Φ)
+    (hnone : Q none st ρ → st.sl Θ ρ ∗ R ⊢ Φ) :
+    st.sl Θ ρ ∗ R ⊢ Φ := by
   unfold VerifM.findMatch at h
   have hb := VerifM.eval_bind _ _ _ _ h
   have ⟨hk, howns, _, _⟩ := VerifM.eval_ctx hb
@@ -541,8 +541,8 @@ theorem VerifM.eval_findMatch {lq : Term .value}
     have ⟨hk3, _, _, _⟩ := VerifM.eval_ctx hb3
     have hk3' := hk3 hrest_wf
     have hQ : Q (some v) { st with owns := rest } ρ := VerifM.eval_ret hk3'
-    have hsplit := SpatialContext.interp_remove ρ.env st.owns n _ _ hrem
-    have hcong := SpatialAtom.pointsTo_congr (l := l) (l' := lq) (v := v) (v' := v) heq.symm rfl
+    have hsplit := SpatialContext.interp_remove Θ ρ.env st.owns n _ _ hrem
+    have hcong := SpatialAtom.pointsTo_congr Θ (l := l) (l' := lq) (v := v) (v' := v) heq.symm rfl
     -- goal: st.owns.interp ρ ∗ R ⊢ Φ
     -- st.owns.interp ρ ⊣⊢ (pointsTo l v).interp ρ ∗ rest.interp ρ
     --                ⊣⊢ (pointsTo lq v).interp ρ ∗ rest.interp ρ
@@ -560,7 +560,7 @@ def VerifM.findMatchForce (lq : Term .value) : VerifM (Term .value) := do
 
 /-- CPS correctness for `findMatchForce`: only a `some`-style continuation is
     required, since the `none` branch is discharged by the fatal error. -/
-theorem VerifM.eval_findMatchForce {lq : Term .value}
+theorem VerifM.eval_findMatchForce (Θ : TinyML.TypeEnv) {lq : Term .value}
     {st : TransState} {ρ : VerifM.Env}
     {Q : Term .value → TransState → VerifM.Env → Prop}
     {R Φ : iProp}
@@ -568,11 +568,11 @@ theorem VerifM.eval_findMatchForce {lq : Term .value}
     (hlq : lq.wfIn st.decls)
     (hsome : ∀ v st', Q v st' ρ →
         st'.decls = st.decls → v.wfIn st.decls →
-        SpatialAtom.interp ρ.env (.pointsTo lq v) ∗ st'.sl ρ ∗ R ⊢ Φ) :
-    st.sl ρ ∗ R ⊢ Φ := by
+        SpatialAtom.interp Θ ρ.env (.pointsTo lq v) ∗ st'.sl Θ ρ ∗ R ⊢ Φ) :
+    st.sl Θ ρ ∗ R ⊢ Φ := by
   unfold VerifM.findMatchForce at h
   have hb := VerifM.eval_bind _ _ _ _ h
-  refine eval_findMatch (R := R) (Φ := Φ) hb hlq ?_ ?_
+  refine eval_findMatch Θ (R := R) (Φ := Φ) hb hlq ?_ ?_
   · intros v st' hQ hdecls hv
     simp at hQ
     exact hsome v st' (VerifM.eval_ret hQ) hdecls hv
@@ -598,7 +598,7 @@ def VerifM.resolve : {τ : Srt} → Atom τ → VerifM (Option (Term τ))
       | none => VerifM.tryCandidates a.candidates
 
 /-- Helper: resolution of a pure atom via formula matching or SMT candidates. -/
-private theorem VerifM.eval_resolve_pure {pred : Atom τ} {st : TransState} {ρ : VerifM.Env}
+private theorem VerifM.eval_resolve_pure (Θ : TinyML.TypeEnv) {pred : Atom τ} {st : TransState} {ρ : VerifM.Env}
     {Q : Option (Term τ) → TransState → VerifM.Env → Prop}
     {R Φ : iProp}
     (h : VerifM.eval (do
@@ -607,11 +607,11 @@ private theorem VerifM.eval_resolve_pure {pred : Atom τ} {st : TransState} {ρ 
       | none => VerifM.tryCandidates pred.candidates) st ρ Q)
     (hwf : pred.wfIn st.decls)
     (hnone : ∀ st' ρ', Q .none st' ρ' → st.decls.Subset st'.decls →
-      VerifM.Env.agreeOn st.decls ρ ρ' → st'.sl ρ' ∗ R ⊢ Φ)
+      VerifM.Env.agreeOn st.decls ρ ρ' → st'.sl Θ ρ' ∗ R ⊢ Φ)
     (hsome : ∀ v st' ρ', Q (.some v) st' ρ' → st.decls.Subset st'.decls →
       VerifM.Env.agreeOn st.decls ρ ρ' → v.wfIn st'.decls →
-      Atom.eval pred ρ' (v.eval ρ'.env) ∗ st'.sl ρ' ∗ R ⊢ Φ) :
-    st.sl ρ ∗ R ⊢ Φ := by
+      Atom.eval Θ pred ρ' (v.eval ρ'.env) ∗ st'.sl Θ ρ' ∗ R ⊢ Φ) :
+    st.sl Θ ρ ∗ R ⊢ Φ := by
     have hb1 := VerifM.eval_bind _ _ _ _ h
     have ⟨hctx_q, hholds, hwfAsserts⟩ := VerifM.eval_ctxPure hb1
     cases hres : pred.resolve st.asserts with
@@ -619,10 +619,10 @@ private theorem VerifM.eval_resolve_pure {pred : Atom τ} {st : TransState} {ρ 
       simp [hres] at hctx_q
       have hq := VerifM.eval_ret hctx_q
       have htwf : t.wfIn st.decls := Atom.resolve_wfIn hres hwfAsserts
-      have hpred : ⊢ Atom.eval pred ρ (t.eval ρ.env) := by
-        exact (Atom.resolve_correct hres ρ hholds).trans Atom.toItem_eval.1
-      have hframe : st.sl ρ ∗ R ⊢
-          Atom.eval pred ρ (t.eval ρ.env) ∗ st.sl ρ ∗ R := by
+      have hpred : ⊢ Atom.eval Θ pred ρ (t.eval ρ.env) := by
+        exact (Atom.resolve_correct Θ hres ρ hholds).trans (Atom.toItem_eval Θ).1
+      have hframe : st.sl Θ ρ ∗ R ⊢
+          Atom.eval Θ pred ρ (t.eval ρ.env) ∗ st.sl Θ ρ ∗ R := by
         istart
         iintro H
         isplitr [H]
@@ -632,7 +632,7 @@ private theorem VerifM.eval_resolve_pure {pred : Atom τ} {st : TransState} {ρ 
     | none =>
       simp [hres] at hctx_q
       obtain ⟨result, hq, hresult_eval, hresult_wf⟩ :=
-        eval_tryCandidates hctx_q (fun p hp => hp) hwf
+        eval_tryCandidates Θ hctx_q (fun p hp => hp) hwf
       cases hr : result with
       | none =>
         have hqnone : Q .none st ρ := by simpa [hr] using hq
@@ -640,10 +640,10 @@ private theorem VerifM.eval_resolve_pure {pred : Atom τ} {st : TransState} {ρ 
       | some t =>
         have htwf : t.wfIn st.decls := hresult_wf t hr
         have hqsome : Q (.some t) st ρ := by simpa [hr] using hq
-        have hpred : ⊢ Atom.eval pred ρ (t.eval ρ.env) := by
-          exact (hresult_eval t hr).trans Atom.toItem_eval.1
-        have hframe : st.sl ρ ∗ R ⊢
-            Atom.eval pred ρ (t.eval ρ.env) ∗ st.sl ρ ∗ R := by
+        have hpred : ⊢ Atom.eval Θ pred ρ (t.eval ρ.env) := by
+          exact (hresult_eval t hr).trans (Atom.toItem_eval Θ).1
+        have hframe : st.sl Θ ρ ∗ R ⊢
+            Atom.eval Θ pred ρ (t.eval ρ.env) ∗ st.sl Θ ρ ∗ R := by
           istart
           iintro H
           isplitr [H]
@@ -651,26 +651,26 @@ private theorem VerifM.eval_resolve_pure {pred : Atom τ} {st : TransState} {ρ 
           · iexact H
         exact hframe.trans (hsome t st ρ hqsome (Signature.Subset.refl _) VerifM.Env.agreeOn_refl htwf)
 
-theorem VerifM.eval_resolve {pred : Atom τ} {st : TransState} {ρ : VerifM.Env}
+theorem VerifM.eval_resolve (Θ : TinyML.TypeEnv) {pred : Atom τ} {st : TransState} {ρ : VerifM.Env}
     {Q : Option (Term τ) → TransState → VerifM.Env → Prop}
     {R Φ : iProp}
     (h : VerifM.eval (VerifM.resolve pred) st ρ Q)
     (hwf : pred.wfIn st.decls)
     (hnone : ∀ st' ρ', Q .none st' ρ' → st.decls.Subset st'.decls →
-      VerifM.Env.agreeOn st.decls ρ ρ' → st'.sl ρ' ∗ R ⊢ Φ)
+      VerifM.Env.agreeOn st.decls ρ ρ' → st'.sl Θ ρ' ∗ R ⊢ Φ)
     (hsome : ∀ v st' ρ', Q (.some v) st' ρ' → st.decls.Subset st'.decls →
       VerifM.Env.agreeOn st.decls ρ ρ' → v.wfIn st'.decls →
-      Atom.eval pred ρ' (v.eval ρ'.env) ∗ st'.sl ρ' ∗ R ⊢ Φ) :
-    st.sl ρ ∗ R ⊢ Φ := by
+      Atom.eval Θ pred ρ' (v.eval ρ'.env) ∗ st'.sl Θ ρ' ∗ R ⊢ Φ) :
+    st.sl Θ ρ ∗ R ⊢ Φ := by
   match pred, hwf, hsome, h with
   | .own l, hwf, hsome, h =>
     simp only [VerifM.resolve] at h
-    refine VerifM.eval_findMatch (R := R) (Φ := Φ) h hwf ?_ ?_
+    refine VerifM.eval_findMatch Θ (R := R) (Φ := Φ) h hwf ?_ ?_
     · intros v st' hqsome hdecls hvwf
       have hsub : st.decls.Subset st'.decls := by rw [hdecls]; exact Signature.Subset.refl _
       have hvwf' : v.wfIn st'.decls := by rw [hdecls]; exact hvwf
       have hsome' := hsome v st' ρ hqsome hsub VerifM.Env.agreeOn_refl hvwf'
-      have heq : SpatialAtom.interp ρ.env (.pointsTo l v) ⊢ Atom.eval (Atom.own l) ρ (v.eval ρ.env) := by
+      have heq : SpatialAtom.interp Θ ρ.env (.pointsTo l v) ⊢ Atom.eval Θ (Atom.own l) ρ (v.eval ρ.env) := by
         simp only [Atom.eval, SpatialAtom.interp]
         exact BIBase.Entails.rfl
       exact (sep_mono heq BIBase.Entails.rfl).trans hsome'
@@ -678,13 +678,13 @@ theorem VerifM.eval_resolve {pred : Atom τ} {st : TransState} {ρ : VerifM.Env}
       exact hnone st ρ hqnone (Signature.Subset.refl _) VerifM.Env.agreeOn_refl
   | .isint t, hwf, hsome, h =>
     simp only [VerifM.resolve] at h
-    exact VerifM.eval_resolve_pure (pred := .isint t) h hwf hnone hsome
+    exact VerifM.eval_resolve_pure Θ (pred := .isint t) h hwf hnone hsome
   | .isbool t, hwf, hsome, h =>
     simp only [VerifM.resolve] at h
-    exact VerifM.eval_resolve_pure (pred := .isbool t) h hwf hnone hsome
+    exact VerifM.eval_resolve_pure Θ (pred := .isbool t) h hwf hnone hsome
   | .isinj tag arity t, hwf, hsome, h =>
     simp only [VerifM.resolve] at h
-    exact VerifM.eval_resolve_pure (pred := .isinj tag arity t) h hwf hnone hsome
+    exact VerifM.eval_resolve_pure Θ (pred := .isinj tag arity t) h hwf hnone hsome
   | .rel name t, hwf, hsome, h =>
     simp only [VerifM.resolve] at h
     have hb := VerifM.eval_bind _ _ _ _ h
@@ -698,10 +698,10 @@ theorem VerifM.eval_resolve {pred : Atom τ} {st : TransState} {ρ : VerifM.Env}
       simp at hafter
       have hdef : (SpecFn.isDefined name t).eval ρ.env := hok_sound rfl
       have hqsome : Q (some (SpecFn.call name t)) st ρ := VerifM.eval_ret hafter
-      have hpred : ⊢ Atom.eval (Atom.rel name t) ρ ((SpecFn.call name t).eval ρ.env) :=
+      have hpred : ⊢ Atom.eval Θ (Atom.rel name t) ρ ((SpecFn.call name t).eval ρ.env) :=
         pure_intro (PROP := iProp) ⟨hdef, rfl⟩
-      have hframe : st.sl ρ ∗ R ⊢
-          Atom.eval (Atom.rel name t) ρ ((SpecFn.call name t).eval ρ.env) ∗ st.sl ρ ∗ R := by
+      have hframe : st.sl Θ ρ ∗ R ⊢
+          Atom.eval Θ (Atom.rel name t) ρ ((SpecFn.call name t).eval ρ.env) ∗ st.sl Θ ρ ∗ R := by
         istart
         iintro H
         isplitr [H]
