@@ -61,8 +61,9 @@ mutual
     | tuple (components : List Typ)
 
   structure Typ where
-    loc  : Location
-    kind : TypKind
+    loc   : Location
+    kind  : TypKind
+    attrs : List String := []   -- type attributes `T [@name]` (name-only, e.g. `[@owned]`)
 end
 
 -- Patterns, expressions, match arms
@@ -96,12 +97,20 @@ mutual
     | annot (e : Expr) (ty : Typ)
 
   structure Expr where
-    loc  : Location
-    kind : ExprKind
+    loc   : Location
+    kind  : ExprKind
+    attrs : List Attribute := []   -- expression attributes `e [@name payload]`
 
   structure MatchArm where
     pat  : Pattern
     body : Expr
+
+  /-- An OCaml attribute `[@name payload]` (expression-level, single `@`) or
+  `[@@name payload]` (declaration-level, double `@`). The payload, when present,
+  is a surface expression. -/
+  structure Attribute where
+    name    : String
+    payload : Option Expr
 end
 
 -- Declarations and programs
@@ -114,10 +123,6 @@ structure TypeDecl where
   params : List TypeVariable
   name   : TypeConstructor
   body   : TypeDeclBody
-
-structure Attribute where
-  name    : String
-  payload : Option Expr
 
 inductive DeclKind where
   | type_ (decl : TypeDecl)

@@ -69,17 +69,18 @@ private partial def BinOp.rightAssoc : BinOp → Bool
 -- Type printing
 
 partial def Typ.print (t : Typ) : String :=
-  match t.kind with
-  | .var name => s!"'{name}"
-  | .con name [] => name
-  | .con name [arg] => s!"{printAppArg arg} {name}"
-  | .con name args => s!"({joinWith ", " (args.map Typ.print)}) {name}"
-  | .arrow dom cod =>
-    let domStr := match dom.kind with
-      | .arrow _ _ => parens (Typ.print dom)
-      | _ => Typ.print dom
-    s!"{domStr} -> {Typ.print cod}"
-  | .tuple components => joinWith " * " (components.map Typ.print)
+  let base := match t.kind with
+    | .var name => s!"'{name}"
+    | .con name [] => name
+    | .con name [arg] => s!"{printAppArg arg} {name}"
+    | .con name args => s!"({joinWith ", " (args.map Typ.print)}) {name}"
+    | .arrow dom cod =>
+      let domStr := match dom.kind with
+        | .arrow _ _ => parens (Typ.print dom)
+        | _ => Typ.print dom
+      s!"{domStr} -> {Typ.print cod}"
+    | .tuple components => joinWith " * " (components.map Typ.print)
+  base ++ joinWith "" (t.attrs.map (fun a => s!" [@{a}]"))
 where
   -- Type constructor arguments that are themselves applications need parens
   printAppArg (t : Typ) : String :=
