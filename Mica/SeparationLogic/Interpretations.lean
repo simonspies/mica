@@ -20,30 +20,37 @@ theorem interp_env_agree (Θ : TinyML.TypeEnv) {a : SpatialAtom} {Δ : Signature
     (hwf : a.wfIn Δ) (hagree : Env.agreeOn Δ ρ ρ') :
     interp Θ ρ a ⊣⊢ interp Θ ρ' a := by
   cases a with
-  | pointsTo l v =>
+  | pointsTo l v ty =>
     simp only [interp, Term.eval_env_agree hwf.1 hagree, Term.eval_env_agree hwf.2 hagree]
     exact ⟨BIBase.Entails.rfl, BIBase.Entails.rfl⟩
 
 /-- If a points-to atom's location term evaluates to `loc`, its interpretation
-    is equivalent to the raw points-to assertion for `loc`. -/
-theorem interp_pointsTo (Θ : TinyML.TypeEnv) {ρ : Env} {lt vt : Term .value} {loc : Runtime.Location}
+    is equivalent to the raw heap ownership together with the bundled value
+    typing fact. -/
+theorem interp_pointsTo (Θ : TinyML.TypeEnv) {ρ : Env} {lt vt : Term .value}
+    {ty : TinyML.Typ} {loc : Runtime.Location}
     (hloc : Term.eval ρ lt = .loc loc) :
-    interp Θ ρ (.pointsTo lt vt) ⊣⊢ loc ↦ Term.eval ρ vt := by
+    interp Θ ρ (.pointsTo lt vt ty) ⊣⊢
+      loc ↦ Term.eval ρ vt ∗ TinyML.ValHasType Θ (Term.eval ρ vt) ty := by
   constructor
   · simp only [interp]
     istart
-    iintro ⟨%loc', %Hloc', Hpt⟩
+    iintro ⟨%loc', %Hloc', Hpt, Hty⟩
     have : loc' = loc := Runtime.Val.loc.inj (Hloc'.symm.trans hloc)
     subst this
-    iexact Hpt
+    isplitl [Hpt]
+    · iexact Hpt
+    · iexact Hty
   · simp only [interp]
     istart
-    iintro Hpt
+    iintro ⟨Hpt, Hty⟩
     iexists loc
     isplitr
     · ipure_intro
       exact hloc
-    · iexact Hpt
+    · isplitl [Hpt]
+      · iexact Hpt
+      · iexact Hty
 
 end SpatialAtom
 

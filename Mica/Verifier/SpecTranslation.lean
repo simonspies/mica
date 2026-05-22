@@ -41,9 +41,9 @@ private def assertAll (φs : List Formula) (k : Assertion α) : Assertion α :=
   φs.foldr .assert k
 
 /-- Translate a predicate into an atom over its looked-up scrutinee. -/
-def translatePred (δ : VarEnv) : Spec.Pred → M (Atom .value)
+def translatePred (δ : VarEnv) (ty : TinyML.Typ) : Spec.Pred → M (Atom .value)
   | .isinj tag arity scrut => do .ok (.isinj tag arity (← lookupVar δ scrut))
-  | .own loc => do .ok (.own (← lookupVar δ loc))
+  | .own loc => do .ok (.own (← lookupVar δ loc) ty)
 
 /-- Translate a spec assertion, asserting each leaf's definedness before its value. -/
 def translateAssert (Γfn : FunCtx) (inner : VarEnv → α → M β) :
@@ -59,7 +59,7 @@ def translateAssert (Γfn : FunCtx) (inner : VarEnv → α → M β) :
       (assertAll (TinyML.typeConstraints e.ty (.var .value x))
         (← translateAssert Γfn inner (δ.bind x (.var .value x)) rest))))
   | δ, .bind pred x ty rest => do
-    let atom ← translatePred δ pred
+    let atom ← translatePred δ ty pred
     let v : Var := ⟨x, .value⟩
     .ok (.pred v atom
       (assertAll (TinyML.typeConstraints ty (.var .value x))
