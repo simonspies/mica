@@ -27,7 +27,7 @@ inductive Expr where
   | app (fn : Expr) (args : List Expr)
   | ifThenElse (cond thn els : Expr)
   | letIn (name : Binder) (bound body : Expr)
-  | ref    (e : Expr)
+  | ref    (owned : Bool) (e : Expr)
   | deref  (e : Expr)
   | store  (loc val : Expr)
   | assert (e : Expr)
@@ -95,9 +95,10 @@ mutual
       | isFalse h, _, _ => isFalse (by intro heq; cases heq; exact h rfl)
       | _, isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
       | _, _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
-    case ref.ref e1 e2 => exact match e1.decEq e2 with
-      | isTrue h => isTrue (by subst h; rfl)
-      | isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
+    case ref.ref o1 e1 o2 e2 => exact match decEq o1 o2, e1.decEq e2 with
+      | isTrue h1, isTrue h2 => isTrue (by subst h1; subst h2; rfl)
+      | isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
+      | _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
     case deref.deref e1 e2 => exact match e1.decEq e2 with
       | isTrue h => isTrue (by subst h; rfl)
       | isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
@@ -194,7 +195,7 @@ def Expr.runtime : Untyped.Expr → Runtime.Expr
   | .app fn args => .app fn.runtime (args.map Expr.runtime)
   | .ifThenElse c t e => .ifThenElse c.runtime t.runtime e.runtime
   | .letIn b bound body => .letIn (b.runtime) bound.runtime body.runtime
-  | .ref e => .ref e.runtime
+  | .ref _ e => .ref e.runtime
   | .deref e => .deref e.runtime
   | .store loc val => .store loc.runtime val.runtime
   | .assert e => .assert e.runtime

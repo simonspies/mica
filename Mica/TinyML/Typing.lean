@@ -179,18 +179,18 @@ mutual
         let typedName := Typed.Binder.ofUntyped name (match name with | .named _ (some ty) => ty | _ => boundTy)
         let (bodyTy, body') ← infer Θ (extendTyped Γ typedName) body
         .ok (bodyTy, .letIn typedName bound' body')
-    | .ref e => do
+    | .ref owned e => do
         let (ty, e') ← infer Θ Γ e
-        .ok (.ref ty, .ref e')
+        .ok ((if owned then .owned ty else .ref ty), .ref owned e')
     | .deref e => do
         let (ty, e') ← infer Θ Γ e
         match ty with
-        | .ref inner => .ok (inner, .deref e' inner)
+        | .ref inner | .owned inner => .ok (inner, .deref e' inner)
         | _ => .error (.notARef ty)
     | .store loc val => do
         let (locTy, loc') ← infer Θ Γ loc
         match locTy with
-        | .ref inner =>
+        | .ref inner | .owned inner =>
             let val' ← check Θ Γ val inner
             .ok (.unit, .store loc' val')
         | _ => .error (.notARef locTy)
@@ -544,7 +544,7 @@ mutual
                 simp [typedName, Binder.ofUntyped_runtime]
               simp [Expr.runtime, Untyped.Expr.runtime, ihBound _ hbound, ihBody _ hbody,
                 hname_rt]
-    | .ref e => by
+    | .ref owned e => by
         let ih := infer_runtime Θ Γ e
         intro result h
         unfold Typed.infer at h
@@ -564,6 +564,9 @@ mutual
           case ref ty =>
             rcases (by simpa using hcont) with ⟨rfl, rfl⟩
             simp [Expr.runtime, Untyped.Expr.runtime, ih _ hinfer]
+          case owned ty =>
+            rcases (by simpa using hcont) with ⟨rfl, rfl⟩
+            simp [Expr.runtime, Untyped.Expr.runtime, ih _ hinfer]
     | .store loc val => by
         let ihLoc := infer_runtime Θ Γ loc
         intro result h
@@ -573,6 +576,11 @@ mutual
         | mk locTy loc' =>
           cases locTy <;> simp at hcont
           case ref inner =>
+            let ihVal := check_runtime Θ Γ val inner
+            have ⟨val', hval, hcont⟩ := Except.bind_ok hcont
+            rcases (by simpa using hcont) with ⟨rfl, rfl⟩
+            simp [Expr.runtime, Untyped.Expr.runtime, ihLoc _ hloc, ihVal _ hval]
+          case owned inner =>
             let ihVal := check_runtime Θ Γ val inner
             have ⟨val', hval, hcont⟩ := Except.bind_ok hcont
             rcases (by simpa using hcont) with ⟨rfl, rfl⟩

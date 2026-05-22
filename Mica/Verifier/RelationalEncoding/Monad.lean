@@ -171,7 +171,7 @@ def encodeWith {M : Type} (ops : EncoderOps M)
       encodeMatchWith ops Γ δ v branches 0 k
   | .app _ _ _, _ => ops.error "relational encoding: only unary calls to named top-level functions are supported"
   | .fix .., _    => ops.error "relational encoding: nested `fix` is not supported"
-  | .ref _, _     => ops.error "relational encoding: heap allocation (`ref`) is not supported"
+  | .ref .., _    => ops.error "relational encoding: heap allocation (`ref`) is not supported"
   | .deref .., _  => ops.error "relational encoding: heap dereference is not supported"
   | .store .., _  => ops.error "relational encoding: heap store is not supported"
   | .assert _, _  => ops.error "relational encoding: `assert` is not supported"
@@ -323,7 +323,7 @@ theorem app (fn : Typed.Expr) (args : List Typed.Expr) (ty : TinyML.Typ)
           intro _
           exact hops.call_ind hk
   | .const _, _ | .unop .., _ | .binop .., _ | .fix .., _ | .app .., _
-  | .ifThenElse .., _ | .letIn .., _ | .ref _, _ | .deref .., _ | .store .., _
+  | .ifThenElse .., _ | .letIn .., _ | .ref .., _ | .deref .., _ | .store .., _
   | .assert _, _ | .tuple _, _ | .inj .., _ | .match_ .., _ | .cast .., _
   | .var _ _, [] | .var _ _, _ :: _ :: _ =>
       simp only [encodeWith]; exact hops.error_ind
@@ -344,7 +344,7 @@ theorem letIn (name : Typed.Binder) (bound body : Typed.Expr)
   simp only [encodeWith]
   exact ihBound hops fun _ => ihBody hops hk
 
-theorem ref (e : Typed.Expr) : EncodeWithInd (.ref e) :=
+theorem ref (owned : Bool) (e : Typed.Expr) : EncodeWithInd (.ref owned e) :=
   fun hops _ => hops.error_ind
 
 theorem deref (e : Typed.Expr) (ty : TinyML.Typ) : EncodeWithInd (.deref e ty) :=
@@ -430,7 +430,7 @@ theorem encodeWith_ind_def : ∀ (e : Typed.Expr), EncodeWithInd e
   | .fix self args retTy body => Ind.fix self args retTy body
   | .letIn name bound body =>
       Ind.letIn name bound body (encodeWith_ind_def bound) (encodeWith_ind_def body)
-  | .ref e => Ind.ref e
+  | .ref owned e => Ind.ref owned e
   | .deref e ty => Ind.deref e ty
   | .store loc val => Ind.store loc val
   | .assert e => Ind.assert e
@@ -616,7 +616,7 @@ theorem app (fn : Typed.Expr) (args : List Typed.Expr) (ty : TinyML.Typ)
           intro Δ''' hsub''' hΔ''' v' hv'
           exact hk (hsub''.trans hsub''') hΔ''' v' hv'
   | .const _, _ | .unop .., _ | .binop .., _ | .fix .., _ | .app .., _
-  | .ifThenElse .., _ | .letIn .., _ | .ref _, _ | .deref .., _ | .store .., _
+  | .ifThenElse .., _ | .letIn .., _ | .ref .., _ | .deref .., _ | .store .., _
   | .assert _, _ | .tuple _, _ | .inj .., _ | .match_ .., _ | .cast .., _
   | .var _ _, [] | .var _ _, _ :: _ :: _ =>
       simp only [encodeWith]; exact hops.error_ind
@@ -643,7 +643,7 @@ theorem letIn (name : Typed.Binder) (bound body : Typed.Expr)
       (fun y w h => Term.wfIn_mono w (hδ y w h) hsub'' hΔ'') hv)
     (fun hsub''' hΔ''' w hw => hk (hsub''.trans hsub''') hΔ''' w hw)
 
-theorem ref (e : Typed.Expr) : EncodeWithIndSig (.ref e) :=
+theorem ref (owned : Bool) (e : Typed.Expr) : EncodeWithIndSig (.ref owned e) :=
   fun hops _ _ _ _ _ => hops.error_ind
 
 theorem deref (e : Typed.Expr) (ty : TinyML.Typ) : EncodeWithIndSig (.deref e ty) :=
@@ -754,7 +754,7 @@ theorem encodeWith_indWithSig_def : ∀ (e : Typed.Expr), EncodeWithIndSig e
   | .letIn name bound body =>
       IndSig.letIn name bound body
         (encodeWith_indWithSig_def bound) (encodeWith_indWithSig_def body)
-  | .ref e => IndSig.ref e
+  | .ref owned e => IndSig.ref owned e
   | .deref e ty => IndSig.deref e ty
   | .store loc val => IndSig.store loc val
   | .assert e => IndSig.assert e
@@ -1123,7 +1123,7 @@ theorem app (fn : Typed.Expr) (args : List Typed.Expr) (ty : TinyML.Typ)
           exact hops.call_binary (FunCtx.mem_of_lookup hlk) hv₁ hv₂ hevalv
             (EncoderContSpec.mono hsa₁ hsa₂ haa₁ haa₂ hk)
   | .const _, _ | .unop .., _ | .binop .., _ | .fix .., _ | .app .., _
-  | .ifThenElse .., _ | .letIn .., _ | .ref _, _ | .deref .., _ | .store .., _
+  | .ifThenElse .., _ | .letIn .., _ | .ref .., _ | .deref .., _ | .store .., _
   | .assert _, _ | .tuple _, _ | .inj .., _ | .match_ .., _ | .cast .., _
   | .var _ _, [] | .var _ _, _ :: _ :: _ =>
       simp only [encodeWith]; exact hops.error_binary
@@ -1150,7 +1150,7 @@ theorem letIn (name : Typed.Binder) (bound body : Typed.Expr)
   exact ihBody hops (hsub₁.trans hsa₁) (hsub₂.trans hsa₂) hwa₁ hwa₂
     (VarEnv.Agree.bindBinder henv_a hv₁ hv₂ hevalv) hka
 
-theorem ref (e : Typed.Expr) : EncodeWithBindBinary (.ref e) := by
+theorem ref (owned : Bool) (e : Typed.Expr) : EncodeWithBindBinary (.ref owned e) := by
   intro _ _ _ _ _ _ _ _ _ _ hops _ _ _ _ _ _ _ _ _ _ _ _; exact hops.error_binary
 
 theorem deref (e : Typed.Expr) (ty : TinyML.Typ) : EncodeWithBindBinary (.deref e ty) := by
@@ -1294,7 +1294,7 @@ theorem encodeWith_bind_binary_def : ∀ (e : Typed.Expr), EncodeWithBindBinary 
   | .letIn name bound body =>
       BindBinary.letIn name bound body
         (encodeWith_bind_binary_def bound) (encodeWith_bind_binary_def body)
-  | .ref e => BindBinary.ref e
+  | .ref owned e => BindBinary.ref owned e
   | .deref e ty => BindBinary.deref e ty
   | .store loc val => BindBinary.store loc val
   | .assert e => BindBinary.assert e

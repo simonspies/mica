@@ -200,10 +200,11 @@ mutual
         let se ← compile Θ Δ_spec S B Γ e
         if TinyML.Typ.sub Θ e.ty ty then pure se
         else VerifM.fatal s!"cast type mismatch"
-    | .ref e => do
+    | .ref false e => do
         let _ ← compile Θ Δ_spec S B Γ e
         let l ← VerifM.decl none .value
         pure (.const (.uninterpreted l.name .value))
+    | .ref true _ => VerifM.fatal "owned `ref` is not yet supported by the verifier"
     | .deref e ty => do
         VerifM.expectEq "deref type annotation mismatch" e.ty (.ref ty)
         let _ ← compile Θ Δ_spec S B Γ e
@@ -680,14 +681,14 @@ theorem compileFix_correct (self : Binder) (args : List Binder) (retTy : TinyML.
   simp only [compile] at heval
   exact (VerifM.eval_fatal heval).elim
 
-theorem compileRef_correct (e : Expr)
+theorem compileRefShared_correct (e : Expr)
     (ih : correctExpr e) :
-    correctExpr (.ref e) := by
+    correctExpr (.ref false e) := by
   intro Θ R S B Γ st ρ γ Δ_spec ρ_spec Ψ Φ heval hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec hpost
   unfold Expr.runtime
   simp only [Runtime.Expr.subst]
   simp only [compile] at heval
-  simp only [Expr.ty] at hpost
+  simp only [Expr.ty, Bool.false_eq_true, if_false] at hpost
   have heval_e : (compile Θ Δ_spec S B Γ e).eval st ρ _ := VerifM.eval_bind _ _ _ _ heval
   refine SpatialContext.wp_bind_ref <| ih Θ R S B Γ st ρ γ Δ_spec ρ_spec _ _
     (VerifM.eval.decls_grow ρ heval_e) hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec ?_
@@ -747,6 +748,17 @@ theorem compileRef_correct (e : Expr)
           iexact Hinv
         · iexact HR
   exact hwp
+
+theorem compileRef_correct (owned : Bool) (e : Expr)
+    (ih : correctExpr e) :
+    correctExpr (.ref owned e) := by
+  cases owned with
+  | false => exact compileRefShared_correct e ih
+  | true =>
+    -- Owned `ref` is compiled to a fatal; correctness holds vacuously.
+    intro Θ R S B Γ st ρ γ Δ_spec ρ_spec Ψ Φ heval _ _ _ _ _ _ _ _
+    simp only [compile] at heval
+    exact (VerifM.eval_fatal heval).elim
 
 theorem compileDeref_correct (e : Expr) (ty : TinyML.Typ)
     (ih : correctExpr e) :
@@ -2012,8 +2024,8 @@ theorem compile_correct (e : Expr) : correctExpr e := by
     simpa using compileAssert_correct e (compile_correct e)
   | fix self args retTy body =>
     simpa using compileFix_correct self args retTy body
-  | ref e =>
-    simpa using compileRef_correct e (compile_correct e)
+  | ref owned e =>
+    simpa using compileRef_correct owned e (compile_correct e)
   | deref e ty =>
     simpa using compileDeref_correct e ty (compile_correct e)
   | store loc val =>
