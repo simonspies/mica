@@ -40,13 +40,13 @@ let rec triangle (n: int) : int =
 
 
 (* The [sum_squares] version requires a longer timeout. *)
-(* let rec sum_squares (n: int) : int =
+let rec sum_squares (n: int) : int =
   if n <= 0 then 0
   else sum_squares (n - 1) + n * n
 [@@spec fun x ->
   assert (x >= 0);
   ret (fun v ->
-    assert (v = (x * (x + 1) * (2 * x + 1)) / 6))];; *)
+    assert (v = (x * (x + 1) * (2 * x + 1)) / 6))];; 
 
 
 let rec sum_cubes (n: int) : int =
