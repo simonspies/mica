@@ -91,7 +91,7 @@ private def applyTypAttr (loc : Location) (t : TinyML.Typ) : String → ElabM Ti
   | "owned" =>
     match t with
     | .ref inner => .ok (.owned inner)
-    | _ => err loc (.unsupportedFeature "[@owned] only applies to a `ref` type")
+    | _ => err loc (.unsupportedFeature "[@owned] only applies to a 'ref' type")
   | name => err loc (.unsupportedFeature s!"unknown type attribute [@{name}]")
 
 mutual
@@ -227,7 +227,7 @@ private def applyAttr (loc : Location) (e : Untyped.Expr) : Attribute → ElabM 
   | { name := "owned", payload := none } =>
       match e with
       | .ref _ inner => .ok (.ref true inner)
-      | _ => err loc (.unsupportedFeature "[@owned] only applies to `ref`")
+      | _ => err loc (.unsupportedFeature "[@owned] only applies to 'ref'")
   | { name, .. } => err loc (.unsupportedFeature s!"unknown expression attribute [@{name}]")
 
 mutual
