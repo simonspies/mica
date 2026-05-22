@@ -9,14 +9,14 @@ open TinyML
 
 namespace TinyML
 
-partial def Typ.print : Typ → String
+def Typ.print : Typ → String
   | .unit => "unit"
   | .bool => "bool"
   | .int => "int"
   | .sum ts => s!"sum ({", ".intercalate (ts.map Typ.print)})"
-  | .arrow t1 t2 => s!"{printArg t1} -> {Typ.print t2}"
-  | .ref t => s!"ref {printArg t}"
-  | .owned t => s!"owned {printArg t}"
+  | .arrow t1 t2 => s!"{wrapArg t1 (Typ.print t1)} -> {Typ.print t2}"
+  | .ref t => s!"ref {wrapArg t (Typ.print t)}"
+  | .owned t => s!"owned {wrapArg t (Typ.print t)}"
   | .empty => "empty"
   | .value => "value"
   | .tuple ts => s!"({", ".intercalate (ts.map Typ.print)})"
@@ -24,10 +24,10 @@ partial def Typ.print : Typ → String
   | .named T [] => T
   | .named T args => s!"{T} ({", ".intercalate (args.map Typ.print)})"
 where
-  printArg (t : Typ) : String :=
+  wrapArg (t : Typ) (s : String) : String :=
     match t with
-    | .unit | .bool | .int | .empty | .value | .tvar _ | .named _ [] => Typ.print t
-    | _ => s!"({Typ.print t})"
+    | .unit | .bool | .int | .empty | .value | .tvar _ | .named _ [] => s
+    | _ => s!"({s})"
 
 end TinyML
 
