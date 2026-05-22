@@ -424,8 +424,11 @@ def VerifM.findMatchIn (lq : Term .value) (ty : TinyML.Typ) :
     SpatialContext → VerifM (Option (Nat × Term .value))
   | [] => pure none
   | .pointsTo l v ty' :: rest => do
-      if ty' == ty && (← VerifM.check (.eq .value lq l)) then
-        pure (some (0, v))
+      if ty' == ty then
+        if ← VerifM.check (.eq .value lq l) then
+          pure (some (0, v))
+        else
+          return (← VerifM.findMatchIn lq ty rest).map fun (n, v') => (n + 1, v')
       else
         return (← VerifM.findMatchIn lq ty rest).map fun (n, v') => (n + 1, v')
 
@@ -466,22 +469,19 @@ theorem VerifM.eval_findMatchIn {lq : Term .value} {ty : TinyML.Typ} {ctx : Spat
       simp only [VerifM.findMatchIn] at h
       have hcons := (SpatialContext.wfIn_cons _ _ _).1 hctx
       have hwfeq : (Formula.eq .value lq l).wfIn st.decls := ⟨hlq, hcons.1.1⟩
-      have hb := VerifM.eval_bind _ _ _ _ h
-      obtain ⟨b, hb_sound, hq⟩ := VerifM.eval_check hb hwfeq
-      split at hq
-      · -- the type matches and the solver proved the locations equal
-        rename_i hcond
-        simp only [Bool.and_eq_true, beq_iff_eq] at hcond
-        obtain ⟨hty, hbtrue⟩ := hcond
-        refine ⟨some (0, v), VerifM.eval_ret hq, ?_⟩
-        intros n' v' hnv
-        simp at hnv
-        obtain ⟨rfl, rfl⟩ := hnv
-        have heq : Term.eval ρ.env lq = Term.eval ρ.env l := by
-          simpa [Formula.eval] using hb_sound hbtrue
-        exact ⟨l, ctx, by simp [hty], heq⟩
-      · -- otherwise recurse into the rest of the context
-        have hb' := VerifM.eval_bind _ _ _ _ hq
+      have hrecurse :
+          VerifM.eval
+            (return (← VerifM.findMatchIn lq ty ctx).map fun (n, v') => (n + 1, v'))
+            st ρ Q →
+          ∃ result,
+            Q result st ρ ∧
+            (∀ n v', result = some (n, v') →
+              ∃ l' rest',
+                SpatialContext.remove (.pointsTo l v ty' :: ctx) n =
+                  some (.pointsTo l' v' ty, rest') ∧
+                Term.eval ρ.env lq = Term.eval ρ.env l') := by
+        intro hrec
+        have hb' := VerifM.eval_bind _ _ _ _ hrec
         obtain ⟨result', hres', hsome'⟩ := ih hb' hcons.2
         cases result' with
         | none =>
@@ -498,6 +498,24 @@ theorem VerifM.eval_findMatchIn {lq : Term .value} {ty : TinyML.Typ} {ctx : Spat
           obtain ⟨l', rest', hrem, heq⟩ := hsome' n₀ v₀ rfl
           refine ⟨l', .pointsTo l v ty' :: rest', ?_, heq⟩
           simp [SpatialContext.remove, hrem]
+      split at h
+      · -- the type matches, so ask the solver whether the locations are equal
+        rename_i hty
+        have hb := VerifM.eval_bind _ _ _ _ h
+        obtain ⟨b, hb_sound, hq⟩ := VerifM.eval_check hb hwfeq
+        split at hq
+        · -- the solver proved the locations equal
+          rename_i hbtrue
+          refine ⟨some (0, v), VerifM.eval_ret hq, ?_⟩
+          intros n' v' hnv
+          simp at hnv
+          obtain ⟨rfl, rfl⟩ := hnv
+          have heq : Term.eval ρ.env lq = Term.eval ρ.env l := by
+            simpa [Formula.eval] using hb_sound hbtrue
+          exact ⟨l, ctx, by simp [beq_iff_eq.mp hty], heq⟩
+        · exact hrecurse hq
+      · -- the type does not match, so skip the solver and keep searching
+        exact hrecurse h
 
 /-- Correctness of `findMatch` in CPS style: the caller supplies Iris-level
     continuations for the `some` and `none` branches. On `some v`, the
