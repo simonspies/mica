@@ -31,7 +31,7 @@ namespace Session
 def preamble : String := s!"
 ;; preamble
 (set-logic ALL)
-(set-option :timeout 3000)
+(set-option :rlimit 1200000) ;; about 3s
 (set-option :smt.qi.eager_threshold 5.0)
 
 (declare-sort Other 0)
