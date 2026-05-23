@@ -27,7 +27,7 @@ type t = Avl of int * tree * int
 let min_int (x: int) (y: int) : int =
   if x < y then x else y
 [@@spec fun x y ->
-  ret (fun result -> assert (result <= x && result <= y))];;
+  ret (fun result -> if x < y then assert (result = x) else assert (result = y))];;
 
 let max_int (x: int) (y: int) : int =
   if x < y then y else x
@@ -97,10 +97,8 @@ let make_node (v: int) (lo: int) (hi: int) (l: tree) (r: tree) : tree =
   assert (lh <= rh + 1 && rh <= lh + 1 && 0 <= lh && 0 <= rh);
   ret (fun result ->
     assert (avl_tree_inv (result, lo, hi));
-    let hl = height l in
-    let hr = height r in
     let hres = height result in
-    let mh = if hl < hr then hr else hl in
+    let mh = if lh < rh then rh else lh in
     assert (hres = mh + 1))];;
 
 let balance (v: int) (lo: int) (hi: int) (l: tree) (r: tree) : tree =
@@ -150,13 +148,11 @@ let balance (v: int) (lo: int) (hi: int) (l: tree) (r: tree) : tree =
   assert (lh <= rh + 2 && rh <= lh + 2 && 0 <= lh && 0 <= rh);
   ret (fun result ->
     assert (avl_tree_inv (result, lo, hi));
-    let hl = height l in
-    let hr = height r in
     let hres = height result in
-    let mh = if hl < hr then hr else hl in
+    let mh = if lh < rh then rh else lh in
     assert (mh <= hres && hres <= mh + 1);
-    if hl <= hr + 1 then
-      (if hr <= hl + 1 then assert (hres = mh + 1) else assert (mh <= hres))
+    if lh <= rh + 1 then
+      (if rh <= lh + 1 then assert (hres = mh + 1) else assert (mh <= hres))
     else assert (mh <= hres))];;
 
 (* Lemma-like function: widening the inclusive interval preserves
