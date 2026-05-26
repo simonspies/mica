@@ -494,9 +494,7 @@ theorem compileConst_correct (c : TinyML.Const) :
     isplitl [Howns]
     · iexact Howns
     · isplitl []
-      · iapply (TinyML.ValHasType.int Θ (.int n)).2
-        ipure_intro
-        exact ⟨n, rfl⟩
+      · exact TinyML.ValHasType.int_intro Θ n
       · iexact HR
   | bool b =>
     simp only [compile] at heval
@@ -512,9 +510,7 @@ theorem compileConst_correct (c : TinyML.Const) :
     isplitl [Howns]
     · iexact Howns
     · isplitl []
-      · iapply (TinyML.ValHasType.bool Θ (.bool b)).2
-        ipure_intro
-        exact ⟨b, rfl⟩
+      · exact TinyML.ValHasType.bool_intro Θ b
       · iexact HR
   | unit =>
     simp only [compile] at heval
@@ -530,9 +526,7 @@ theorem compileConst_correct (c : TinyML.Const) :
     isplitl [Howns]
     · iexact Howns
     · isplitl []
-      · iapply (TinyML.ValHasType.unit Θ .unit).2
-        ipure_intro
-        rfl
+      · exact TinyML.ValHasType.unit_intro Θ
       · iexact HR
 
 theorem compileVar_correct (x : String) (vty : TinyML.Typ) :
@@ -990,7 +984,7 @@ theorem compileDeref_correct (e : Expr) (ty : TinyML.Typ)
         simp only [compile, hty] at heval
         obtain ⟨hannot, _⟩ := VerifM.eval_bind_expectEq heval
         exact False.elim (heq hannot)
-  | unit | bool | int | sum _ | arrow _ _ | empty | value | tuple _ | tvar _ | named _ _ =>
+  | prim _ | sum _ | arrow _ _ | empty | value | tuple _ | tvar _ | named _ _ =>
       intro Θ R S B Γ st ρ γ Δ_spec ρ_spec Ψ Φ heval _ _ _ _ _ _ _ _
       simp only [compile, hty] at heval
       exact (VerifM.eval_fatal heval).elim
@@ -1173,7 +1167,7 @@ theorem compileStore_correct (loc val : Expr)
         simp only [compile, hty] at heval
         obtain ⟨hannot, _⟩ := VerifM.eval_bind_expectEq heval
         exact False.elim (heq hannot)
-  | unit | bool | int | sum _ | arrow _ _ | empty | value | tuple _ | tvar _ | named _ _ =>
+  | prim _ | sum _ | arrow _ _ | empty | value | tuple _ | tvar _ | named _ _ =>
       intro Θ R S B Γ st ρ γ Δ_spec ρ_spec Ψ Φ heval _ _ _ _ _ _ _ _
       simp only [compile, hty] at heval
       exact (VerifM.eval_fatal heval).elim
@@ -1271,12 +1265,8 @@ theorem compileBinop_correct (op : TinyML.BinOp) (l r : Expr) (bty : TinyML.Typ)
       simpa [hdivmod] using hΨ_l'
     rcases hdivmod with hdiv | hmod
     · subst hdiv
-      have hlty : l.ty = .int := by
-        revert htypeOf
-        cases l.ty <;> simp [TinyML.BinOp.typeOf]
-      have hrty : r.ty = .int := by
-        revert htypeOf
-        cases r.ty <;> simp [TinyML.BinOp.typeOf, hlty]
+      obtain ⟨hlty, hrty, hty_int⟩ :=
+        TinyML.BinOp.typeOf_arith (op := .div) (by simp) htypeOf
       have hassert_wf : (Formula.not (.eq .int (.unop .toInt sr) (.const (.i 0)))).wfIn st₂.decls := by
         simpa [Formula.wfIn, Term.wfIn, Const.wfIn, UnOp.wfIn] using
           (Term.wfIn_mono sr hsr_wf hdecls_l (VerifM.eval.wf hΨ_div).namesDisjoint)
@@ -1285,9 +1275,6 @@ theorem compileBinop_correct (op : TinyML.BinOp) (l r : Expr) (bty : TinyML.Typ)
       simp [Formula.eval, Term.eval, Const.denote] at hne_zero
       rw [hsr_ρ_l] at hne_zero
       obtain hΨ_post := VerifM.eval_ret hΨ_post
-      have hty_int : ty = .int := by
-        rw [hlty, hrty] at htypeOf
-        simpa [TinyML.BinOp.typeOf] using htypeOf.symm
       have hbty : bty = .int := hty_eq.symm.trans hty_int
       have hwf_sr_l : sr.wfIn st₂.decls :=
         Term.wfIn_mono sr hsr_wf hdecls_l (VerifM.eval.wf hΨ_div).namesDisjoint
@@ -1296,7 +1283,8 @@ theorem compileBinop_correct (op : TinyML.BinOp) (l r : Expr) (bty : TinyML.Typ)
       have hΨ_post' : Ψ (Term.unop .ofInt (Term.binop BinOp.div (Term.unop .toInt sl) (Term.unop .toInt sr))) st₂ ρ_l := by
         simpa using hΨ_post
       have hwp_int :
-          st₂.sl Θ ρ_l ∗ (TinyML.ValHasType Θ vl .int ∗ (TinyML.ValHasType Θ vr .int ∗ R)) ⊢
+          st₂.sl Θ ρ_l ∗
+              (TinyML.ValHasType Θ vl .int ∗ (TinyML.ValHasType Θ vr .int ∗ R)) ⊢
             wp (.binop .div (.val vl) (.val vr)) Φ := by
         istart
         iintro H
@@ -1308,9 +1296,7 @@ theorem compileBinop_correct (op : TinyML.BinOp) (l r : Expr) (bty : TinyML.Typ)
         subst hvl hvr
         have hq : st₂.sl Θ ρ_l ∗ R ⊢ Φ (.int (a / b)) := by
           have htype : ⊢ TinyML.ValHasType Θ (.int (a / b)) .int := by
-            iapply (TinyML.ValHasType.int Θ (.int (a / b))).2
-            ipure_intro
-            exact ⟨a / b, rfl⟩
+            exact TinyML.ValHasType.int_intro Θ (a / b)
           have hgoal :
               st₂.sl Θ ρ_l ∗ TinyML.ValHasType Θ (.int (a / b)) .int ∗ R ⊢ Φ (.int (a / b)) := by
             simpa [hbty] using
@@ -1330,12 +1316,8 @@ theorem compileBinop_correct (op : TinyML.BinOp) (l r : Expr) (bty : TinyML.Typ)
           · iexact HR
       simpa [hlty, hrty] using hwp_int
     · subst hmod
-      have hlty : l.ty = .int := by
-        revert htypeOf
-        cases l.ty <;> simp [TinyML.BinOp.typeOf]
-      have hrty : r.ty = .int := by
-        revert htypeOf
-        cases r.ty <;> simp [TinyML.BinOp.typeOf, hlty]
+      obtain ⟨hlty, hrty, hty_int⟩ :=
+        TinyML.BinOp.typeOf_arith (op := .mod) (by simp) htypeOf
       have hassert_wf : (Formula.not (.eq .int (.unop .toInt sr) (.const (.i 0)))).wfIn st₂.decls := by
         simpa [Formula.wfIn, Term.wfIn, Const.wfIn, UnOp.wfIn] using
           (Term.wfIn_mono sr hsr_wf hdecls_l (VerifM.eval.wf hΨ_div).namesDisjoint)
@@ -1344,9 +1326,6 @@ theorem compileBinop_correct (op : TinyML.BinOp) (l r : Expr) (bty : TinyML.Typ)
       simp [Formula.eval, Term.eval, Const.denote] at hne_zero
       rw [hsr_ρ_l] at hne_zero
       obtain hΨ_post := VerifM.eval_ret hΨ_post
-      have hty_int : ty = .int := by
-        rw [hlty, hrty] at htypeOf
-        simpa [TinyML.BinOp.typeOf] using htypeOf.symm
       have hbty : bty = .int := hty_eq.symm.trans hty_int
       have hwf_sr_l : sr.wfIn st₂.decls :=
         Term.wfIn_mono sr hsr_wf hdecls_l (VerifM.eval.wf hΨ_div).namesDisjoint
@@ -1355,7 +1334,8 @@ theorem compileBinop_correct (op : TinyML.BinOp) (l r : Expr) (bty : TinyML.Typ)
       have hΨ_post' : Ψ (Term.unop .ofInt (Term.binop BinOp.mod (Term.unop .toInt sl) (Term.unop .toInt sr))) st₂ ρ_l := by
         simpa using hΨ_post
       have hwp_int :
-          st₂.sl Θ ρ_l ∗ (TinyML.ValHasType Θ vl .int ∗ (TinyML.ValHasType Θ vr .int ∗ R)) ⊢
+          st₂.sl Θ ρ_l ∗
+              (TinyML.ValHasType Θ vl .int ∗ (TinyML.ValHasType Θ vr .int ∗ R)) ⊢
             wp (.binop .mod (.val vl) (.val vr)) Φ := by
         istart
         iintro H
@@ -1367,9 +1347,7 @@ theorem compileBinop_correct (op : TinyML.BinOp) (l r : Expr) (bty : TinyML.Typ)
         subst hvl hvr
         have hq : st₂.sl Θ ρ_l ∗ R ⊢ Φ (.int (a % b)) := by
           have htype : ⊢ TinyML.ValHasType Θ (.int (a % b)) .int := by
-            iapply (TinyML.ValHasType.int Θ (.int (a % b))).2
-            ipure_intro
-            exact ⟨a % b, rfl⟩
+            exact TinyML.ValHasType.int_intro Θ (a % b)
           have hgoal :
               st₂.sl Θ ρ_l ∗ TinyML.ValHasType Θ (.int (a % b)) .int ∗ R ⊢ Φ (.int (a % b)) := by
             simpa [hbty] using
@@ -1635,7 +1613,9 @@ theorem compileIfThenElse_correct (cond thn els : Expr) (ty : TinyML.Typ)
   let st_thn : TransState := { st₁ with asserts := φ_eq.not :: st₁.asserts }
   let st_els : TransState := { st₁ with asserts := φ_eq :: st₁.asserts }
   have hbool_cases_bool :
-      st₁.sl Θ ρ_c ∗ (TinyML.ValHasType Θ v_c .bool ∗ (S.satisfiedBy Θ Δ_spec ρ_spec γ ∗ Bindings.typedSubst Θ B Γ γ ∗ R)) ⊢
+      st₁.sl Θ ρ_c ∗
+          (TinyML.ValHasType Θ v_c .bool ∗
+            (S.satisfiedBy Θ Δ_spec ρ_spec γ ∗ Bindings.typedSubst Θ B Γ γ ∗ R)) ⊢
         st₁.sl Θ ρ_c ∗ iprop(⌜v_c = .bool false ∨ v_c = .bool true⌝) ∗
           (S.satisfiedBy Θ Δ_spec ρ_spec γ ∗ Bindings.typedSubst Θ B Γ γ ∗ R) := by
     iintro ⟨Howns, Hv, □HS, □HT, HR⟩
@@ -1893,7 +1873,7 @@ theorem compileMatch_correct (scrut : Expr) (branches : List (Binder × Expr)) (
   intro v_scrut ρ_scrut st_scrut se_scrut hΨ_scrut hse_wf heval_se
   obtain ⟨hdecls_scrut, hagreeOn_scrut, hΨ_scrut⟩ := hΨ_scrut
   cases hscrut_ty : scrut.ty with
-  | unit | bool | int | arrow _ _ | ref _ | owned _ | empty | value | tuple _ | tvar _ | named _ _ =>
+  | prim _ | arrow _ _ | ref _ | owned _ | empty | value | tuple _ | tvar _ | named _ _ =>
     simp only [hscrut_ty] at hΨ_scrut
     exact (VerifM.eval_fatal hΨ_scrut).elim
   | sum ts =>
