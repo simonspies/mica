@@ -16,6 +16,32 @@ abbrev TypeConstructor := String
 abbrev TypeVariable    := String
 abbrev FieldName       := String
 
+/-- A nonempty list of identifier segments in a (possibly) qualified path:
+`Int.min` is `⟨"Int", ["min"]⟩`; an unqualified `foo` is `⟨"foo", []⟩`. -/
+structure Path where
+  head : String
+  tail : List String := []
+  deriving Repr, Inhabited, BEq, DecidableEq
+
+namespace Path
+
+def single (s : String) : Path := ⟨s, []⟩
+
+def segments (p : Path) : List String := p.head :: p.tail
+
+def isQualified (p : Path) : Bool := !p.tail.isEmpty
+
+/-- Final segment of the path (the value/type/constructor name). -/
+def last (p : Path) : String :=
+  (p.head :: p.tail).getLast (by simp)
+
+def toString (p : Path) : String :=
+  String.intercalate "." p.segments
+
+instance : ToString Path := ⟨Path.toString⟩
+
+end Path
+
 -- Locations
 
 structure Position where
@@ -56,7 +82,7 @@ inductive BinOp where
 mutual
   inductive TypKind where
     | var (name : TypeVariable)
-    | con (name : TypeConstructor) (args : List Typ)
+    | con (path : Path) (args : List Typ)
     | arrow (dom cod : Typ)
     | tuple (components : List Typ)
 
@@ -73,7 +99,7 @@ mutual
     | wildcard
     | binder (name : Option Var) (ty : Option Typ)
     | const (c : Const)
-    | ctor (name : Constructor) (payload : Option Pattern)
+    | ctor (path : Path) (payload : Option Pattern)
     | tuple (pats : List Pattern)
 
   structure Pattern where
@@ -82,8 +108,8 @@ mutual
 
   inductive ExprKind where
     | const (c : Const)
-    | var (name : Var)
-    | ctor (name : Constructor)
+    | var (path : Path)
+    | ctor (path : Path)
     | app (fn : Expr) (args : List Expr)
     | binop (op : BinOp) (lhs rhs : Expr)
     | unop (op : UnOp) (e : Expr)
