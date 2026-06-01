@@ -6,33 +6,35 @@ open Iris Iris.BI
 /-! # Primitive Laws with Spatial Contexts
 
 Lifted versions of the wp axioms from `Axioms.lean`, stated in terms of
-spatial contexts. Each rule has the form `ctx.interp ρ ⊢ wp e Q` given
+spatial contexts. Each rule has the form `ctx.interp ρ ⊢ wp wctx e Q` given
 appropriate premises, where the context may change between premise and
 conclusion for stateful operations. -/
 
 namespace SpatialContext
 
+variable {wctx : WpCtx}
+
 private theorem wp_bind_tuple_aux {left : Runtime.Exprs} {es : Runtime.Exprs} {right : Runtime.Vals}
     {Q : Runtime.Val → iProp} :
-    wps es (fun vs => wp (.tuple (left ++ vs.map Runtime.Expr.val ++ right.map Runtime.Expr.val)) Q) ⊢
-    wp (.tuple (left ++ es ++ right.map Runtime.Expr.val)) Q := by
+    wps wctx es (fun vs => wp wctx (.tuple (left ++ vs.map Runtime.Expr.val ++ right.map Runtime.Expr.val)) Q) ⊢
+    wp wctx (.tuple (left ++ es ++ right.map Runtime.Expr.val)) Q := by
   induction es generalizing left with
   | nil =>
       simp
   | cons e es ih =>
       simp only [wps_cons]
       have hmono :
-          wps es (fun vs =>
-            wp e (fun v =>
-              wp (.tuple (left ++ (v :: vs).map Runtime.Expr.val ++ right.map Runtime.Expr.val)) Q)) ⊢
-          wps es (fun vs =>
-            wp (.tuple ((left ++ [e]) ++ vs.map Runtime.Expr.val ++ right.map Runtime.Expr.val)) Q) := by
+          wps wctx es (fun vs =>
+            wp wctx e (fun v =>
+              wp wctx (.tuple (left ++ (v :: vs).map Runtime.Expr.val ++ right.map Runtime.Expr.val)) Q)) ⊢
+          wps wctx es (fun vs =>
+            wp wctx (.tuple ((left ++ [e]) ++ vs.map Runtime.Expr.val ++ right.map Runtime.Expr.val)) Q) := by
         apply wps.mono
         intro vs
         have hbind :
-            wp e (fun v =>
-              wp (.tuple (left ++ (v :: vs).map Runtime.Expr.val ++ right.map Runtime.Expr.val)) Q) ⊢
-            wp (.tuple ((left ++ [e]) ++ vs.map Runtime.Expr.val ++ right.map Runtime.Expr.val)) Q := by
+            wp wctx e (fun v =>
+              wp wctx (.tuple (left ++ (v :: vs).map Runtime.Expr.val ++ right.map Runtime.Expr.val)) Q) ⊢
+            wp wctx (.tuple ((left ++ [e]) ++ vs.map Runtime.Expr.val ++ right.map Runtime.Expr.val)) Q := by
           simpa [TinyML.K.fill, List.map_cons, List.append_assoc] using
             (wp.bind (k := TinyML.K.tupleK left .hole (vs ++ right)))
         exact hbind
@@ -42,15 +44,15 @@ private theorem wp_bind_tuple_aux {left : Runtime.Exprs} {es : Runtime.Exprs} {r
 theorem wp_val {v : Runtime.Val} {Q : Runtime.Val → iProp}
     {R : iProp}
     (h : R ⊢ Q v) :
-    R ⊢ wp (.val v) Q :=
+    R ⊢ wp wctx (.val v) Q :=
   h.trans wp.val
 
 /-- Unary operation under evaluation: first evaluate the operand, then take the
     head unary-operation step. -/
 theorem wp_bind_unop {op : TinyML.UnOp} {e : Runtime.Expr} {Q : Runtime.Val → iProp}
     {R : iProp}
-    (h : R ⊢ wp e (fun v => wp (.unop op (.val v)) Q)) :
-    R ⊢ wp (.unop op e) Q :=
+    (h : R ⊢ wp wctx e (fun v => wp wctx (.unop op (.val v)) Q)) :
+    R ⊢ wp wctx (.unop op e) Q :=
   h.trans (wp.bind (k := TinyML.K.unop op .hole))
 
 /-- Unary operation at values: context unchanged. -/
@@ -58,7 +60,7 @@ theorem wp_unop {op : TinyML.UnOp} {v res : Runtime.Val} {Q : Runtime.Val → iP
     {R : iProp}
     (h : R ⊢ Q res) :
     TinyML.evalUnOp op v = some res →
-    R ⊢ wp (.unop op (.val v)) Q := by
+    R ⊢ wp wctx (.unop op (.val v)) Q := by
   intro heval
   exact h.trans (wp.unop heval)
 
@@ -66,12 +68,12 @@ theorem wp_unop {op : TinyML.UnOp} {v res : Runtime.Val} {Q : Runtime.Val → iP
     left operand, then take the head binary-operation step. -/
 theorem wp_bind_binop {op : TinyML.BinOp} {l r : Runtime.Expr} {Q : Runtime.Val → iProp}
     {R : iProp}
-    (h : R ⊢ wp r (fun vr => wp l (fun vl =>
-      wp (.binop op (.val vl) (.val vr)) Q))) :
-    R ⊢ wp (.binop op l r) Q := by
+    (h : R ⊢ wp wctx r (fun vr => wp wctx l (fun vl =>
+      wp wctx (.binop op (.val vl) (.val vr)) Q))) :
+    R ⊢ wp wctx (.binop op l r) Q := by
   have hr :
-      wp r (fun vr => wp l (fun vl => wp (.binop op (.val vl) (.val vr)) Q)) ⊢
-      wp r (fun vr => wp (.binop op l (.val vr)) Q) := by
+      wp wctx r (fun vr => wp wctx l (fun vl => wp wctx (.binop op (.val vl) (.val vr)) Q)) ⊢
+      wp wctx r (fun vr => wp wctx (.binop op l (.val vr)) Q) := by
     apply wp.mono
     intro vr
     exact wp.bind (k := TinyML.K.binopL op .hole vr)
@@ -82,7 +84,7 @@ theorem wp_binop {op : TinyML.BinOp} {vl vr res : Runtime.Val} {Q : Runtime.Val 
     {R : iProp}
     (h : R ⊢ Q res) :
     TinyML.evalBinOp op vl vr = some res →
-    R ⊢ wp (.binop op (.val vl) (.val vr)) Q := by
+    R ⊢ wp wctx (.binop op (.val vl) (.val vr)) Q := by
   intro heval
   apply h.trans
   iapply (wp.binop heval)
@@ -91,30 +93,30 @@ theorem wp_binop {op : TinyML.BinOp} {vl vr res : Runtime.Val} {Q : Runtime.Val 
     appropriate branch head step. -/
 theorem wp_bind_if {cond thn els : Runtime.Expr} {Q : Runtime.Val → iProp}
     {R : iProp}
-    (h : R ⊢ wp cond (fun v => wp (.ifThenElse (.val v) thn els) Q)) :
-    R ⊢ wp (.ifThenElse cond thn els) Q :=
+    (h : R ⊢ wp wctx cond (fun v => wp wctx (.ifThenElse (.val v) thn els) Q)) :
+    R ⊢ wp wctx (.ifThenElse cond thn els) Q :=
   h.trans (wp.bind (k := TinyML.K.ifCond .hole thn els))
 
 /-- Conditional on `true`: context unchanged. -/
 theorem wp_if_true {thn els : Runtime.Expr} {Q : Runtime.Val → iProp}
     {R : iProp}
-    (h : R ⊢ wp thn Q) :
-    R ⊢ wp (.ifThenElse (.val (.bool true)) thn els) Q :=
+    (h : R ⊢ wp wctx thn Q) :
+    R ⊢ wp wctx (.ifThenElse (.val (.bool true)) thn els) Q :=
   h.trans wp.if_true
 
 /-- Conditional on `false`: context unchanged. -/
 theorem wp_if_false {thn els : Runtime.Expr} {Q : Runtime.Val → iProp}
     {R : iProp}
-    (h : R ⊢ wp els Q) :
-    R ⊢ wp (.ifThenElse (.val (.bool false)) thn els) Q :=
+    (h : R ⊢ wp wctx els Q) :
+    R ⊢ wp wctx (.ifThenElse (.val (.bool false)) thn els) Q :=
   h.trans wp.if_false
 
 /-- Reference allocation under evaluation: first evaluate the payload, then
     allocate. -/
 theorem wp_bind_ref {e : Runtime.Expr} {Q : Runtime.Val → iProp}
     {R : iProp}
-    (h : R ⊢ wp e (fun v => wp (.ref (.val v)) Q)) :
-    R ⊢ wp (.ref e) Q :=
+    (h : R ⊢ wp wctx e (fun v => wp wctx (.ref (.val v)) Q)) :
+    R ⊢ wp wctx (.ref e) Q :=
   h.trans (wp.bind (k := TinyML.K.ref .hole))
 
 /-- Reference allocation at values. The continuation receives fresh ownership in
@@ -130,7 +132,7 @@ theorem wp_ref (Θ : TinyML.TypeEnv) {v : Runtime.Val} {Q : Runtime.Val → iPro
     (h : ∀ loc,
       newctx.interp Θ (ρ.updateConst .value name (.loc loc)) ∗ R ⊢
       Q (.loc loc)) :
-    ctx.interp Θ ρ ∗ TinyML.ValHasType Θ v ty ∗ R  ⊢ wp (.ref (.val v)) Q := by
+    ctx.interp Θ ρ ∗ TinyML.ValHasType Θ v ty ∗ R  ⊢ wp wctx (.ref (.val v)) Q := by
   have hforall : ctx.interp Θ ρ ∗ TinyML.ValHasType Θ v ty ∗ R ⊢
       BIBase.forall fun (loc : Runtime.Location) => loc ↦ v -∗ Q (.loc loc) := by
     apply forall_intro
@@ -176,8 +178,8 @@ theorem wp_ref (Θ : TinyML.TypeEnv) {v : Runtime.Val} {Q : Runtime.Val → iPro
     the resulting value. -/
 theorem wp_bind_deref {e : Runtime.Expr} {Q : Runtime.Val → iProp}
     {R : iProp}
-    (h : R ⊢ wp e (fun v => wp (.deref (.val v)) Q)) :
-    R ⊢ wp (.deref e) Q :=
+    (h : R ⊢ wp wctx e (fun v => wp wctx (.deref (.val v)) Q)) :
+    R ⊢ wp wctx (.deref e) Q :=
   h.trans (wp.bind (k := TinyML.K.deref .hole))
 
 /-- Dereference at values: the context must contain a matching points-to.
@@ -196,7 +198,7 @@ theorem wp_deref (Θ : TinyML.TypeEnv) {Q : Runtime.Val → iProp}
     remove ctx n = some (.pointsTo lt vt ty, rest) →
     Term.eval ρ lt = v →
     v = .loc loc →
-    ctx.interp Θ ρ ∗ R ⊢ wp (.deref (.val v)) Q := by
+    ctx.interp Θ ρ ∗ R ⊢ wp wctx (.deref (.val v)) Q := by
   intro hrem hlt hv
   subst hv
   -- Split the context and rewrite the selected atom to a raw points-to fact.
@@ -233,12 +235,12 @@ theorem wp_deref (Θ : TinyML.TypeEnv) {Q : Runtime.Val → iProp}
     location expression, then take the head store step. -/
 theorem wp_bind_store {loc val : Runtime.Expr} {Q : Runtime.Val → iProp}
     {R : iProp}
-    (h : R ⊢ wp val (fun vv => wp loc (fun vl =>
-      wp (.store (.val vl) (.val vv)) Q))) :
-    R ⊢ wp (.store loc val) Q := by
+    (h : R ⊢ wp wctx val (fun vv => wp wctx loc (fun vl =>
+      wp wctx (.store (.val vl) (.val vv)) Q))) :
+    R ⊢ wp wctx (.store loc val) Q := by
   have hloc :
-      wp val (fun vv => wp loc (fun vl => wp (.store (.val vl) (.val vv)) Q)) ⊢
-      wp val (fun vv => wp (.store loc (.val vv)) Q) := by
+      wp wctx val (fun vv => wp wctx loc (fun vl => wp wctx (.store (.val vl) (.val vv)) Q)) ⊢
+      wp wctx val (fun vv => wp wctx (.store loc (.val vv)) Q) := by
     apply wp.mono
     intro vv
     exact wp.bind (k := TinyML.K.storeL .hole vv)
@@ -255,7 +257,7 @@ theorem wp_store (Θ : TinyML.TypeEnv) {Q : Runtime.Val → iProp}
     vloc = .loc loc →
     Term.eval ρ vt_new = vnew →
     ctx.interp Θ ρ ∗ TinyML.ValHasType Θ vnew ty ∗ R ⊢
-      wp (.store (.val vloc) (.val vnew)) Q := by
+      wp wctx (.store (.val vloc) (.val vnew)) Q := by
   intro hrem hlt hvloc hvnew
   subst hvloc
   have hsplit : ctx.interp Θ ρ ⊢
@@ -291,38 +293,38 @@ theorem wp_store (Θ : TinyML.TypeEnv) {Q : Runtime.Val → iProp}
     the head assert step. -/
 theorem wp_bind_assert {e : Runtime.Expr} {Q : Runtime.Val → iProp}
     {R : iProp}
-    (h : R ⊢ wp e (fun v => wp (.assert (.val v)) Q)) :
-    R ⊢ wp (.assert e) Q :=
+    (h : R ⊢ wp wctx e (fun v => wp wctx (.assert (.val v)) Q)) :
+    R ⊢ wp wctx (.assert e) Q :=
   h.trans (wp.bind (k := TinyML.K.assert .hole))
 
 /-- Assert on `true`: context unchanged. -/
 theorem wp_assert {Q : Runtime.Val → iProp}
     {R : iProp}
     (h : R ⊢ Q .unit) :
-    R ⊢ wp (.assert (.val (.bool true))) Q :=
+    R ⊢ wp wctx (.assert (.val (.bool true))) Q :=
   h.trans wp.assert
 
 /-- Injection under evaluation: first evaluate the payload, then take the head
     injection step. -/
 theorem wp_bind_inj {tag arity : Nat} {payload : Runtime.Expr} {Q : Runtime.Val → iProp}
     {R : iProp}
-    (h : R ⊢ wp payload (fun v => wp (.inj tag arity (.val v)) Q)) :
-    R ⊢ wp (.inj tag arity payload) Q :=
+    (h : R ⊢ wp wctx payload (fun v => wp wctx (.inj tag arity (.val v)) Q)) :
+    R ⊢ wp wctx (.inj tag arity payload) Q :=
   h.trans (wp.bind (k := TinyML.K.injK tag arity .hole))
 
 /-- Injection at values: context unchanged. -/
 theorem wp_inj {tag arity : Nat} {payload : Runtime.Val} {Q : Runtime.Val → iProp}
     {R : iProp}
     (h : R ⊢ Q (.inj tag arity payload)) :
-    R ⊢ wp (.inj tag arity (.val payload)) Q :=
+    R ⊢ wp wctx (.inj tag arity (.val payload)) Q :=
   h.trans wp.inj
 
 /-- Tuple under evaluation: evaluate the components right-to-left, then take
     the head tuple step on the resulting values. -/
 theorem wp_bind_tuple {es : Runtime.Exprs} {Q : Runtime.Val → iProp}
     {R : iProp}
-    (h : R ⊢ wps es (fun vs => wp (.tuple (vs.map Runtime.Expr.val)) Q)) :
-    R ⊢ wp (.tuple es) Q := by
+    (h : R ⊢ wps wctx es (fun vs => wp wctx (.tuple (vs.map Runtime.Expr.val)) Q)) :
+    R ⊢ wp wctx (.tuple es) Q := by
   apply h.trans
   simpa using (wp_bind_tuple_aux (left := []) (es := es) (right := []) (Q := Q))
 
@@ -330,24 +332,24 @@ theorem wp_bind_tuple {es : Runtime.Exprs} {Q : Runtime.Val → iProp}
 theorem wp_tuple {vs : Runtime.Vals} {Q : Runtime.Val → iProp}
     {R : iProp}
     (h : R ⊢ Q (.tuple vs)) :
-    R ⊢ wp (.tuple (vs.map Runtime.Expr.val)) Q :=
+    R ⊢ wp wctx (.tuple (vs.map Runtime.Expr.val)) Q :=
   h.trans wp.tuple
 
 /-- Match under evaluation: first evaluate the scrutinee, then dispatch on the
     resulting injected value. -/
 theorem wp_bind_match {scrut : Runtime.Expr} {branches : Runtime.Exprs} {Q : Runtime.Val → iProp}
     {R : iProp}
-    (h : R ⊢ wp scrut (fun v => wp (.match_ (.val v) branches) Q)) :
-    R ⊢ wp (.match_ scrut branches) Q :=
+    (h : R ⊢ wp wctx scrut (fun v => wp wctx (.match_ (.val v) branches) Q)) :
+    R ⊢ wp wctx (.match_ scrut branches) Q :=
   h.trans (wp.bind (k := TinyML.K.matchK branches .hole))
 
 /-- Match on an injected value: context unchanged. -/
 theorem wp_match {tag arity : Nat} {payload : Runtime.Val} {branches : Runtime.Exprs}
     {branch : Runtime.Expr} {Q : Runtime.Val → iProp}
     {R : iProp}
-    (h : R ⊢ wp (.app branch [.val payload]) Q) :
+    (h : R ⊢ wp wctx (.app branch [.val payload]) Q) :
     branches[tag]? = some branch →
-    R ⊢ wp (.match_ (.val (.inj tag arity payload)) branches) Q := by
+    R ⊢ wp wctx (.match_ (.val (.inj tag arity payload)) branches) Q := by
   intro hbranch
   exact h.trans (wp.match_ hbranch)
 
@@ -355,16 +357,16 @@ theorem wp_match {tag arity : Nat} {payload : Runtime.Val} {branches : Runtime.E
 theorem wp_func {f : Runtime.Binder} {args : List Runtime.Binder} {e : Runtime.Expr}
     {Q : Runtime.Val → iProp} {R : iProp}
     (h : R ⊢ Q (.fix f args e)) :
-    R ⊢ wp (.fix f args e) Q :=
+    R ⊢ wp wctx (.fix f args e) Q :=
   h.trans (wp.func Q)
 
 /-- Application under evaluation: first evaluate the arguments right-to-left,
     then the function, then take the head application step. -/
 theorem wp_bind_app {fn : Runtime.Expr} {args : Runtime.Exprs} {Q : Runtime.Val → iProp}
     {R : iProp}
-    (h : R ⊢ wps args (fun vs => wp fn (fun fv =>
-      wp (.app (.val fv) (vs.map Runtime.Expr.val)) Q))) :
-    R ⊢ wp (.app fn args) Q :=
+    (h : R ⊢ wps wctx args (fun vs => wp wctx fn (fun fv =>
+      wp wctx (.app (.val fv) (vs.map Runtime.Expr.val)) Q))) :
+    R ⊢ wp wctx (.app fn args) Q :=
   h.trans wp.app
 
 /-- Fixpoint unfolding: spatially lifted version of `wp.fix`. -/
@@ -372,9 +374,9 @@ theorem wp_fix {f : Runtime.Binder} {args : List Runtime.Binder} {e : Runtime.Ex
     {P : Runtime.Val → iProp} {Φ : List Runtime.Val → iProp}
     R
     (h : R ⊢
-      (wp (e.subst ((Runtime.Subst.id.updateBinder f (.fix f args e)).updateAllBinder args vs)) P)) :
+      (wp wctx (e.subst ((Runtime.Subst.id.updateBinder f (.fix f args e)).updateAllBinder args vs)) P)) :
     R ⊢
-      (wp (.app (.val (.fix f args e)) (vs.map Runtime.Expr.val)) P) :=
+      (wp wctx (.app (.val (.fix f args e)) (vs.map Runtime.Expr.val)) P) :=
   h.trans (wp.fix (Φ := Φ))
 
 /-- Fixpoint unfolding with a continuation-indexed invariant. -/
@@ -383,37 +385,42 @@ theorem wp_fix' {f : Runtime.Binder} {args : List Runtime.Binder} {e : Runtime.E
     {R : iProp}
     (h : R ⊢
       □ (□ (∀ (vs : List Runtime.Val) (P : Runtime.Val → iProp),
-          Φ P vs -∗ wp (.app (.val (.fix f args e)) (vs.map Runtime.Expr.val)) P) -∗
+          Φ P vs -∗ wp wctx (.app (.val (.fix f args e)) (vs.map Runtime.Expr.val)) P) -∗
         ∀ (vs : List Runtime.Val) (P : Runtime.Val → iProp),
-          Φ P vs -∗ wp (e.subst ((Runtime.Subst.id.updateBinder f (.fix f args e)).updateAllBinder args vs)) P)) :
+          Φ P vs -∗ wp wctx (e.subst ((Runtime.Subst.id.updateBinder f (.fix f args e)).updateAllBinder args vs)) P)) :
     R ⊢ □ (∀ (vs : List Runtime.Val) (P : Runtime.Val → iProp),
-          Φ P vs -∗ wp (.app (.val (.fix f args e)) (vs.map Runtime.Expr.val)) P) :=
+          Φ P vs -∗ wp wctx (.app (.val (.fix f args e)) (vs.map Runtime.Expr.val)) P) :=
   h.trans (wp.fix' (Φ := Φ))
 
 /-- Let-bindings: evaluate the bound expression, then continue in the body with
     the resulting value substituted. -/
 theorem wp_letIn {b : Runtime.Binder} {bound body : Runtime.Expr} {Q : Runtime.Val → iProp}
     {R : iProp}
-    (h : R ⊢ wp bound (fun v => wp (body.subst (Runtime.Subst.id.updateBinder b v)) Q)) :
-    R ⊢ wp (Runtime.Expr.letIn b bound body) Q :=
+    (h : R ⊢ wp wctx bound (fun v => wp wctx (body.subst (Runtime.Subst.id.updateBinder b v)) Q)) :
+    R ⊢ wp wctx (Runtime.Expr.letIn b bound body) Q :=
   h.trans wp.letIn
 
+theorem wp_prim {n : String} {vs : List Runtime.Val} {Q : Runtime.Val → iProp}
+    {R : iProp}
+    (h : R ⊢ wctx n vs Q) :
+    R ⊢ wp wctx (.app (.val (.prim n)) (vs.map Runtime.Expr.val)) Q :=
+  h.trans wp.prim
 
 theorem wp_app_lambda_single {b : Runtime.Binder} {body : Runtime.Expr} {v : Runtime.Val}
     {Φ : Runtime.Val → iProp} {R : iProp}
-    (h : R ⊢ wp (body.subst (Runtime.Subst.id.updateBinder b v)) Φ) :
-    R ⊢ wp (.app (.fix .none [b] body) [.val v]) Φ :=
+    (h : R ⊢ wp wctx (body.subst (Runtime.Subst.id.updateBinder b v)) Φ) :
+    R ⊢ wp wctx (.app (.fix .none [b] body) [.val v]) Φ :=
   h.trans wp.app_lambda_single
 
 
 /-- Strengthen the postcondition of a `wp` using a persistent resource:
-    if `R` (persistent) entails `wp e P`, and `R` together with `P v` entails `Q v`,
-    then `R` entails `wp e Q`. -/
+    if `R` (persistent) entails `wp wctx e P`, and `R` together with `P v` entails `Q v`,
+    then `R` entails `wp wctx e Q`. -/
 theorem wp_strengthen_persistent
     {R : iProp} [Iris.BI.Persistent R] {e : Runtime.Expr}
     {P Q : Runtime.Val → iProp}
-    (hwp : R ⊢ wp e P) (hpost : ∀ v, R ⊢ P v -∗ Q v) :
-    R ⊢ wp e Q := by
+    (hwp : R ⊢ wp wctx e P) (hpost : ∀ v, R ⊢ P v -∗ Q v) :
+    R ⊢ wp wctx e Q := by
   iintro □HR
   iapply wp.wand
   isplitr

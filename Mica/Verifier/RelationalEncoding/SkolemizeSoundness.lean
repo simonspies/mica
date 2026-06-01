@@ -184,13 +184,16 @@ def soundBinary_ops (Γ : FunCtx) (P : Env → Srt.value.denote → Prop) (res :
 /-- Pinned-result soundness, obtained directly from a successful paired
 encoding of the same expression: the split body's definedness and value
 imply the relational formula. -/
-theorem encodeWith_kEq_sound {Γ : FunCtx} {Δenc Δrun : Signature}
+theorem encodeWith_kEq_sound {Γ : FunCtx} {Δsym Δenc Δrun : Signature}
     {srun : NameSupply} {ρ : Env}
     {e : Typed.Expr} {body : DefVal}
     {res : String} {φ : Formula}
-    (hrun : encodeWith Relation.encoderOps Γ (VarEnv.ofSignature Δenc) e (Relation.kEq res) srun = .ok φ)
-    (hdef : encode Γ Δenc e = .ok body)
+    (hrun : encodeWith Relation.encoderOps Δsym Γ (VarEnv.ofSignature Δenc) e
+      (Relation.kEq res) srun = .ok φ)
+    (hdef : encodeWith encoderOps Δsym Γ (VarEnv.ofSignature Δenc) e
+      (fun v => .ok (DefVal.pure v)) = .ok body)
     (hΓ : Γ.splitSound ρ) (hΓdef : Γ.splitWfIn Δenc)
+    (hsym : Δsym.Subset Δenc)
     (hΔenc : Δenc.wf) (hΔrun : Δrun.wf) (hcov : srun.Covers Δrun)
     (hsub : Δenc.Subset Δrun)
     (hbody : body.wfIn Δenc)
@@ -200,13 +203,13 @@ theorem encodeWith_kEq_sound {Γ : FunCtx} {Δenc Δrun : Signature}
   intro hsplit
   have hbinary :
       SoundBinary Γ (fun ρ v => v = (Term.var .value res).eval ρ) res Δenc Δenc ρ ρ
-        (encodeWith Relation.encoderOps Γ (VarEnv.ofSignature Δenc) e (Relation.kEq res))
-        (encodeWith encoderOps Γ (VarEnv.ofSignature Δenc) e (fun v => .ok (DefVal.pure v))) := by
+        (encodeWith Relation.encoderOps Δsym Γ (VarEnv.ofSignature Δenc) e (Relation.kEq res))
+        (encodeWith encoderOps Δsym Γ (VarEnv.ofSignature Δenc) e
+          (fun v => .ok (DefVal.pure v))) := by
     refine encodeWith_bind_binary (δ₁ := VarEnv.ofSignature Δenc)
       (δ₂ := VarEnv.ofSignature Δenc) (soundBinary_ops Γ _ res) e
-      (Signature.Subset.refl _) (Signature.Subset.refl _) hΔenc hΔenc
-      ?_ ?_
-    · exact varEnv_ofSignature_agree_self hΔenc
+      hsym hsym hΔenc hΔenc Env.agreeOn_refl
+      (varEnv_ofSignature_agree_self hΔenc) ?_
     -- EncoderContSpec for the `(kEq res, pure)` continuation pair
     intro Δ₁' Δ₂' ρ₁' ρ₂' _hs₁ _hs₂ _hw₁ _hw₂ _ha₁ _ha₂ v₁ v₂ _hv₁ _hv₂ heval Δ s φ' body'
       _ _ _ _ _ _ _ hrun' hd' _ _ _ hres_eq' _ hP'
@@ -262,7 +265,7 @@ theorem semrel_sound
       semrel Γ Δ ρ f fn x res e vin vout := by
   intro hsem hval
   obtain ⟨φ, hrelEnc⟩ := encodeBody_relEncodeBody hΔ hΓwf.split hheadFresh henc
-  set m := encodeWith Relation.encoderOps (Relation.ctx Γ f fn)
+  set m := encodeWith Relation.encoderOps Δ (Relation.ctx Γ f fn)
       (VarEnv.ofSignature (bodySig Δ fn x)) e (Relation.kEq res) with hm_def
   have hrun : m (relBodySupply Δ fn x res) = .ok φ := by
     have hvars :
@@ -290,8 +293,11 @@ theorem semrel_sound
     rw [hrel_eq]
     exact Fix.lfp_prefixed (Relation.semanticBody_mono_of_semanticMono hmonoφ)
   have hbodyWf_body : body.wfIn (bodySig Δ fn x) :=
-    encode_wfIn e (bodySig_wf_of_headFresh hΔ hheadFresh)
-      (ctx_splitWfIn_bodySig_of_headFresh hΓwf.split hheadFresh) (encodeBody_def_bodySig henc)
+    encode_wfIn_of_gate e
+      (subset_bodySig_of_headFresh hheadFresh)
+      (bodySig_wf_of_headFresh hΔ hheadFresh)
+      (ctx_splitWfIn_bodySig_of_headFresh hΓwf.split hheadFresh)
+      (encodeBody_def_bodySig henc)
   have hres_mem : (⟨res, .value⟩ : Var) ∈ (sig Δ fn x res).vars := by
     unfold sig
     exact Signature.var_mem_declVar _ ⟨res, .value⟩
@@ -305,6 +311,7 @@ theorem semrel_sound
       φ.eval ((ρsplit.updateConst .value x vin').updateConst .value res vout') :=
     encodeWith_kEq_sound (Γ := Relation.ctx Γ f fn)
       (Δenc := bodySig Δ fn x) (Δrun := sig Δ fn x res)
+      (Δsym := Δ)
       (srun := relBodySupply Δ fn x res)
       (ρ := (ρsplit.updateConst .value x vin').updateConst .value res vout')
       (e := e) (body := body) (res := res) (φ := φ)
@@ -312,6 +319,7 @@ theorem semrel_sound
       (FunCtx.splitSound_updateConst
         (FunCtx.splitSound_updateConst hΓsplit .value x vin') .value res vout')
       (ctx_splitWfIn_bodySig_of_headFresh hΓwf.split hheadFresh)
+      (subset_bodySig_of_headFresh hheadFresh)
       (bodySig_wf_of_headFresh hΔ hheadFresh)
       (sig_wf_of_headFresh hΔ hheadFresh) (relBodySupply_covers_sig Δ fn x res)
       (bodySig_subset_sig_of_headFresh hheadFresh)
@@ -391,6 +399,7 @@ theorem relation_semrel_functional_of_encodeBody
     exact hheadFresh.resFresh (Signature.allNames_subset
       (relBodySig_subset_bodySig (Δ := Δ) (fn := fn) (x := x)) _ hres)
   exact Relation.semrel_functional hrelEnc hΓwf.rel hheadFresh.relFresh
+    (subset_relBodySig_of_headFresh hheadFresh)
     (relBodySig_wf_of_headFresh hΔ hheadFresh)
     hresFreshR hρdet vin y₁ y₂
 

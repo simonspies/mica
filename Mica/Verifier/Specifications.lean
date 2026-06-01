@@ -43,14 +43,14 @@ def argsEnv (ρ : VerifM.Env) : List (String × TinyML.Typ) → List Runtime.Val
   | [], _ | _, [] => ρ
   | (name, _) :: rest, v :: vs => argsEnv (ρ.updateConst .value name v) rest vs
 
-def isPrecondFor (Θ : TinyML.TypeEnv) (Δ_spec : Signature) (ρ_spec : VerifM.Env)
+def isPrecondFor (wctx : WpCtx) (Θ : TinyML.TypeEnv) (Δ_spec : Signature) (ρ_spec : VerifM.Env)
     (f : Runtime.Val) (s : Spec) : iProp :=
   iprop(□ ∀ (ρ : VerifM.Env) (Φ : Runtime.Val → iProp) (vs : List Runtime.Val),
       ⌜VerifM.Env.agreeOn Δ_spec ρ_spec ρ⌝ -∗
       TinyML.ValsHaveTypes Θ vs (s.args.map Prod.snd) -∗
         PredTrans.apply Θ (fun r => TinyML.ValHasType Θ r s.retTy -∗ Φ r) s.pred
           (argsEnv ρ s.args vs) -∗
-        wp (Runtime.Expr.app (.val f) (vs.map fun v => .val v)) Φ)
+        wp wctx (Runtime.Expr.app (.val f) (vs.map fun v => .val v)) Φ)
 
 /-- A spec is well-formed when its predicate transformer is well-formed in the
     context extended with all argument variables. -/
@@ -105,20 +105,20 @@ def implement (Δ_base : Signature) (s : Spec) (body : List FOL.Const → VerifM
 /-! ## Precondition Proofs -/
 section Precondition
 
-instance : Iris.BI.Persistent (isPrecondFor Θ Δ_spec ρ_spec f s) := by
+instance : Iris.BI.Persistent (isPrecondFor wctx Θ Δ_spec ρ_spec f s) := by
   unfold isPrecondFor
   infer_instance
 
 /-- Fold `wp_fix'`'s tupled recursive obligation into a spec precondition;
     the two differ only by currying the typing hypothesis and the predicate transformer. -/
-theorem isPrecondFor_intro (Θ : TinyML.TypeEnv) (Δ_spec : Signature) (ρ_spec : VerifM.Env) (s : Spec)
+theorem isPrecondFor_intro (wctx : WpCtx) (Θ : TinyML.TypeEnv) (Δ_spec : Signature) (ρ_spec : VerifM.Env) (s : Spec)
     (f : Runtime.Val) :
     iprop(□ ∀ (ρ : VerifM.Env) (vs : List Runtime.Val) (P : Runtime.Val → iProp),
       (⌜VerifM.Env.agreeOn Δ_spec ρ_spec ρ⌝ ∗
         TinyML.ValsHaveTypes Θ vs (s.args.map Prod.snd) ∗
         PredTrans.apply Θ (fun r => TinyML.ValHasType Θ r s.retTy -∗ P r) s.pred
           (argsEnv ρ s.args vs)) -∗
-        wp (Runtime.Expr.app (.val f) (vs.map Runtime.Expr.val)) P) ⊢ s.isPrecondFor Θ Δ_spec ρ_spec f := by
+        wp wctx (Runtime.Expr.app (.val f) (vs.map Runtime.Expr.val)) P) ⊢ s.isPrecondFor wctx Θ Δ_spec ρ_spec f := by
   unfold isPrecondFor
   iintro □H
   imodintro
@@ -134,18 +134,18 @@ theorem isPrecondFor_intro (Θ : TinyML.TypeEnv) (Δ_spec : Signature) (ρ_spec 
 /-- Löb-style rule for spec preconditions on `fix`: to prove
     `s.isPrecondFor Θ (.fix f args e)`, assume it as the recursive hypothesis and
     prove the `wp` of the body (after the usual fix-substitution). -/
-theorem isPrecondFor_fix {Θ : TinyML.TypeEnv} {Δ_spec : Signature} {ρ_spec : VerifM.Env} {s : Spec}
+theorem isPrecondFor_fix {wctx : WpCtx} {Θ : TinyML.TypeEnv} {Δ_spec : Signature} {ρ_spec : VerifM.Env} {s : Spec}
     {f : Runtime.Binder} {args : List Runtime.Binder} {e : Runtime.Expr}
     {R : iProp}
-    (h : R ⊢ □ (s.isPrecondFor Θ Δ_spec ρ_spec (.fix f args e) -∗
+    (h : R ⊢ □ (s.isPrecondFor wctx Θ Δ_spec ρ_spec (.fix f args e) -∗
         ∀ (ρ : VerifM.Env) (vs : List Runtime.Val) (P : Runtime.Val → iProp),
           ⌜VerifM.Env.agreeOn Δ_spec ρ_spec ρ⌝ -∗
           TinyML.ValsHaveTypes Θ vs (s.args.map Prod.snd) -∗
           PredTrans.apply Θ (fun r => TinyML.ValHasType Θ r s.retTy -∗ P r) s.pred
               (argsEnv ρ s.args vs) -∗
-          wp (e.subst ((Runtime.Subst.id.updateBinder f (.fix f args e)).updateAllBinder args vs)) P)) :
-    R ⊢ s.isPrecondFor Θ Δ_spec ρ_spec (.fix f args e) := by
-  refine (SpatialContext.wp_fix' (f := f) (args := args) (e := e) (Φ := fun P vs =>
+          wp wctx (e.subst ((Runtime.Subst.id.updateBinder f (.fix f args e)).updateAllBinder args vs)) P)) :
+    R ⊢ s.isPrecondFor wctx Θ Δ_spec ρ_spec (.fix f args e) := by
+  refine (SpatialContext.wp_fix' (wctx := wctx) (f := f) (args := args) (e := e) (Φ := fun P vs =>
       iprop(∃ ρ : VerifM.Env,
         ⌜VerifM.Env.agreeOn Δ_spec ρ_spec ρ⌝ ∗
           TinyML.ValsHaveTypes Θ vs (s.args.map Prod.snd) ∗
@@ -382,7 +382,7 @@ theorem call_correct (Θ : TinyML.TypeEnv) (s : Spec) (Δ_base : Signature)
       iintuitionistic Hty
       ihave Hpure := (TinyML.typeConstraints_hold (ty := s.retTy) (t := t) (ρ := ρ''.env) (Θ := Θ) (v := v) hteval) $$ Hty
       ipure Hpure
-      obtain ⟨st₃, hst₃_decls, hst₃_owns, hret⟩ :=
+      obtain ⟨st₃, hst₃_decls, hst₃_owns, _, hret⟩ :=
         VerifM.eval_assumeAll (VerifM.eval_bind _ _ _ _ hΨ'')
           (fun φ hφ => TinyML.typeConstraints_wfIn htwf φ hφ)
           (fun φ hφ => Hpure φ hφ)
@@ -484,7 +484,7 @@ theorem declareImplArgs_correct (Θ : TinyML.TypeEnv) :
       ihave %htyped_formulas := TinyML.typeConstraints_hold (ty := ty)
           (t := .const (.uninterpreted argVar.name .value))
           (ρ := ρ₁.env) (Θ := Θ) (v := v) hvar_eval $$ Hv
-      obtain ⟨st₂, hst₂_decls, hst₂_owns, hdecl₂⟩ :=
+      obtain ⟨st₂, hst₂_decls, hst₂_owns, _, hdecl₂⟩ :=
         VerifM.eval_assumeAll (VerifM.eval_bind _ _ _ _ hdecl)
           (fun φ hφ => TinyML.typeConstraints_wfIn hvar_wf φ hφ)
           (fun φ hφ => htyped_formulas φ hφ)

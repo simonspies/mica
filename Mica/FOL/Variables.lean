@@ -384,6 +384,15 @@ structure SymbolSubset (Δ₁ Δ₂ : Signature) : Prop where
 theorem Subset.refl (Δ : Signature) : Δ.Subset Δ :=
   ⟨fun _ h => h, fun _ h => h, fun _ h => h, fun _ h => h, fun _ h => h, fun _ h => h⟩
 
+/-- The empty signature is a subset of any signature. -/
+theorem empty_subset (Δ : Signature) : Signature.empty.Subset Δ :=
+  ⟨fun _ h => by simp [Signature.empty] at h,
+   fun _ h => by simp [Signature.empty] at h,
+   fun _ h => by simp [Signature.empty] at h,
+   fun _ h => by simp [Signature.empty] at h,
+   fun _ h => by simp [Signature.empty] at h,
+   fun _ h => by simp [Signature.empty] at h⟩
+
 theorem SymbolSubset.refl (Δ : Signature) : Δ.SymbolSubset Δ :=
   ⟨fun _ h => h, fun _ h => h, fun _ h => h, fun _ h => h, fun _ h => h⟩
 
@@ -1059,6 +1068,18 @@ theorem Env.agreeOn_trans {Δ : Signature}
    fun b hb => (h₁₂.2.2.2.1 b hb).trans (h₂₃.2.2.2.1 b hb),
    fun u hu => (h₁₂.2.2.2.2.1 u hu).trans (h₂₃.2.2.2.2.1 u hu),
    fun b hb => (h₁₂.2.2.2.2.2 b hb).trans (h₂₃.2.2.2.2.2 b hb)⟩
+
+/-- Base-signature agreement is stable under extending each side: if `ρ₁` and
+    `ρ₂` agree on `Δ`, and each moves to an environment agreeing on a larger
+    signature (`Δ ⊆ Δ₁`, `Δ ⊆ Δ₂`), then the two extended environments still
+    agree on `Δ`. -/
+theorem Env.agreeOn_of_extensions {Δ Δ₁ Δ₂ : Signature} {ρ₁ ρ₂ ρ₁' ρ₂' : Env}
+    (hsub₁ : Δ.Subset Δ₁) (hsub₂ : Δ.Subset Δ₂)
+    (hbase : Env.agreeOn Δ ρ₁ ρ₂)
+    (h₁ : Env.agreeOn Δ₁ ρ₁ ρ₁') (h₂ : Env.agreeOn Δ₂ ρ₂ ρ₂') :
+    Env.agreeOn Δ ρ₁' ρ₂' :=
+  Env.agreeOn_trans (Env.agreeOn_symm (Env.agreeOn_mono hsub₁ h₁))
+    (Env.agreeOn_trans hbase (Env.agreeOn_mono hsub₂ h₂))
 
 theorem Env.agreeOn_addVars_cons (Δ : Signature) (v : Var) (vs : List Var) (ρ ρ' : Env) :
     Env.agreeOn (Δ.addVars (v :: vs)) ρ ρ' ↔ Env.agreeOn ((Δ.addVar v).addVars vs) ρ ρ' :=

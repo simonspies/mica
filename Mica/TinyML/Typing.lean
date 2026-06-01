@@ -140,6 +140,7 @@ mutual
         match Γ x with
         | some ty => .ok (ty, .var x ty)
         | none => .error (.undefinedVar x)
+    | .prim n ty => .ok (ty, .prim n ty)
     | .unop op e => do
         let (argTy, e') ← infer Θ Γ e
         match TinyML.UnOp.typeOf op argTy with
@@ -409,6 +410,11 @@ mutual
         intro result h
         simp [Typed.infer] at h
         split at h <;> cases h
+        simp [Expr.runtime, Untyped.Expr.runtime]
+    | .prim n ty => by
+        intro result h
+        simp [Typed.infer] at h
+        rcases h with ⟨rfl, rfl⟩
         simp [Expr.runtime, Untyped.Expr.runtime]
     | .unop op e => by
         let ih := infer_runtime Θ Γ e

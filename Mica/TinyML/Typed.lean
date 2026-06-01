@@ -40,6 +40,9 @@ instance : LawfulBEq Binder where
 inductive Expr where
   | const (c : Const)
   | var (name : Var) (ty : Typ)
+  /-- Reference to a built-in primitive, indexed by name. The carried type is
+      the arrow type from the registry. -/
+  | prim (name : String) (ty : Typ)
   | unop (op : UnOp) (e : Expr) (ty : Typ)
   | binop (op : BinOp) (lhs rhs : Expr) (ty : Typ)
   | fix (self : Binder) (args : List Binder) (retTy : Typ) (body : Expr)
@@ -80,6 +83,10 @@ mutual
       | isTrue h => isTrue (by subst h; rfl)
       | isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
     case var.var n1 t1 n2 t2 => exact match decEq n1 n2, decEq t1 t2 with
+      | isTrue h1, isTrue h2 => isTrue (by subst h1; subst h2; rfl)
+      | isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
+      | _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
+    case prim.prim n1 t1 n2 t2 => exact match decEq n1 n2, decEq t1 t2 with
       | isTrue h1, isTrue h2 => isTrue (by subst h1; subst h2; rfl)
       | isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
       | _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
@@ -205,6 +212,7 @@ def arrowOfArgs : List Binder → Typ → Typ
 def Expr.ty : Expr → Typ
   | .const c => Const.ty c
   | .var _ ty => ty
+  | .prim _ ty => ty
   | .unop _ _ ty => ty
   | .binop _ _ _ ty => ty
   | .fix _ args retTy _ => arrowOfArgs args retTy
@@ -263,6 +271,7 @@ mutual
   def Expr.runtime : Typed.Expr → Runtime.Expr
     | .const c => .val (Runtime.Val.ofConst c)
     | .var x _ => .var x
+    | .prim n _ => .val (.prim n)
     | .unop op e _ => .unop op e.runtime
     | .binop op l r _ => .binop op l.runtime r.runtime
     | .fix self args _ body => .fix (self.runtime) (args.map (·.runtime)) body.runtime

@@ -171,13 +171,16 @@ def completeBinary_ops (Γ : FunCtx) (P : Env → Srt.value.denote → Prop) (re
 /-- Pinned-result completeness, obtained directly from a successful paired
 encoding of the same expression: the relational formula implies the split
 body's definedness and value. -/
-theorem encodeWith_kEq_complete {Γ : FunCtx} {Δenc Δrun : Signature}
+theorem encodeWith_kEq_complete {Γ : FunCtx} {Δsym Δenc Δrun : Signature}
     {srun : NameSupply} {ρ : Env}
     {e : Typed.Expr} {body : DefVal}
     {res : String} {φ : Formula}
-    (hrun : encodeWith Relation.encoderOps Γ (VarEnv.ofSignature Δenc) e (Relation.kEq res) srun = .ok φ)
-    (hdef : encode Γ Δenc e = .ok body)
+    (hrun : encodeWith Relation.encoderOps Δsym Γ (VarEnv.ofSignature Δenc) e
+      (Relation.kEq res) srun = .ok φ)
+    (hdef : encodeWith encoderOps Δsym Γ (VarEnv.ofSignature Δenc) e
+      (fun v => .ok (DefVal.pure v)) = .ok body)
     (hΓ : Γ.splitComplete ρ) (hΓdef : Γ.splitWfIn Δenc)
+    (hsym : Δsym.Subset Δenc)
     (hΔenc : Δenc.wf) (hΔrun : Δrun.wf) (hcov : srun.Covers Δrun)
     (hsub : Δenc.Subset Δrun)
     (hbody : body.wfIn Δenc)
@@ -187,13 +190,13 @@ theorem encodeWith_kEq_complete {Γ : FunCtx} {Δenc Δrun : Signature}
   intro hφ
   have hbinary :
       CompleteBinary Γ (fun ρ v => v = (Term.var .value res).eval ρ) res Δenc Δenc ρ ρ
-        (encodeWith Relation.encoderOps Γ (VarEnv.ofSignature Δenc) e (Relation.kEq res))
-        (encodeWith encoderOps Γ (VarEnv.ofSignature Δenc) e (fun v => .ok (DefVal.pure v))) := by
+        (encodeWith Relation.encoderOps Δsym Γ (VarEnv.ofSignature Δenc) e (Relation.kEq res))
+        (encodeWith encoderOps Δsym Γ (VarEnv.ofSignature Δenc) e
+          (fun v => .ok (DefVal.pure v))) := by
     refine encodeWith_bind_binary (δ₁ := VarEnv.ofSignature Δenc)
       (δ₂ := VarEnv.ofSignature Δenc) (completeBinary_ops Γ _ res) e
-      (Signature.Subset.refl _) (Signature.Subset.refl _) hΔenc hΔenc
-      ?_ ?_
-    · exact varEnv_ofSignature_agree_self hΔenc
+      hsym hsym hΔenc hΔenc Env.agreeOn_refl
+      (varEnv_ofSignature_agree_self hΔenc) ?_
     -- EncoderContSpec for the `(kEq res, pure)` continuation pair
     intro Δ₁' Δ₂' ρ₁' ρ₂' _hs₁ _hs₂ _hw₁ _hw₂ _ha₁ _ha₂ v₁ v₂ _hv₁ _hv₂ heval Δ s φ' body'
       _ _ _ _ _ _ _ hrun' hd' _ _ _ hres_eq' hφ'
@@ -250,7 +253,7 @@ theorem semrel_complete
       vout := by
   intro hrel
   obtain ⟨φ, hrelEnc⟩ := encodeBody_relEncodeBody hΔ hΓwf.split hheadFresh henc
-  set m := encodeWith Relation.encoderOps (Relation.ctx Γ f fn)
+  set m := encodeWith Relation.encoderOps Δ (Relation.ctx Γ f fn)
       (VarEnv.ofSignature (bodySig Δ fn x)) e (Relation.kEq res) with hm_def
   have hrun : m (relBodySupply Δ fn x res) = .ok φ := by
     have hvars :
@@ -262,8 +265,11 @@ theorem semrel_complete
     rw [hm_def, hvars]
     simpa [Relation.relEncodeBody] using hrelEnc
   have hbodyWf_body : body.wfIn (bodySig Δ fn x) :=
-    encode_wfIn e (bodySig_wf_of_headFresh hΔ hheadFresh)
-      (ctx_splitWfIn_bodySig_of_headFresh hΓwf.split hheadFresh) (encodeBody_def_bodySig henc)
+    encode_wfIn_of_gate e
+      (subset_bodySig_of_headFresh hheadFresh)
+      (bodySig_wf_of_headFresh hΔ hheadFresh)
+      (ctx_splitWfIn_bodySig_of_headFresh hΓwf.split hheadFresh)
+      (encodeBody_def_bodySig henc)
   have hres_mem : (⟨res, .value⟩ : Var) ∈ (sig Δ fn x res).vars := by
     unfold sig
     exact Signature.var_mem_declVar _ ⟨res, .value⟩
@@ -310,6 +316,7 @@ theorem semrel_complete
     have hproof :=
       encodeWith_kEq_complete (Γ := Relation.ctx Γ f fn)
         (Δenc := bodySig Δ fn x) (Δrun := sig Δ fn x res)
+        (Δsym := Δ)
         (srun := relBodySupply Δ fn x res)
         (ρ := (ρS.updateConst .value x vin).updateConst .value res vout)
         (e := e) (body := body) (res := res) (φ := φ)
@@ -317,6 +324,7 @@ theorem semrel_complete
         (FunCtx.splitComplete_updateConst
           (FunCtx.splitComplete_updateConst hΓS .value x vin) .value res vout)
         (ctx_splitWfIn_bodySig_of_headFresh hΓwf.split hheadFresh)
+        (subset_bodySig_of_headFresh hheadFresh)
         (bodySig_wf_of_headFresh hΔ hheadFresh)
         (sig_wf_of_headFresh hΔ hheadFresh)
         (relBodySupply_covers_sig Δ fn x res)

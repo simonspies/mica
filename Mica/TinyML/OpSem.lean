@@ -88,63 +88,73 @@ theorem K.comp_fill (k1 k2 : K) (e : Runtime.Expr) :
     (k1.comp k2).fill e = k1.fill (k2.fill e) := by
   induction k1 <;> simp_all [K.comp, K.fill]
 
+abbrev PrimCtx := String → List Runtime.Val → Runtime.Val → Prop
+
 /-! ## Head reduction -/
 
-inductive Head : Runtime.Expr → Heap → Runtime.Expr → Heap → Prop where
+inductive Head (ctx : PrimCtx) : Runtime.Expr → Heap → Runtime.Expr → Heap → Prop where
   /-- A `fix` expression wraps itself as a value. -/
-  | fixIntro : Head (.fix f args body) μ (.val (.fix f args body)) μ
+  | fixIntro : Head ctx (.fix f args body) μ (.val (.fix f args body)) μ
 
   /-- Beta reduction: apply a fixpoint to a list of argument values. -/
   | beta : args.length = vs.length →
-           Head (.app (.val (.fix f args body)) (vs.map Runtime.Expr.val)) μ
+           Head ctx (.app (.val (.fix f args body)) (vs.map Runtime.Expr.val)) μ
                 (body.subst ((Runtime.Subst.id.updateBinder f (.fix f args body)).updateAllBinder args vs)) μ
 
   /-- Unary operator applied to a value. -/
   | unop : evalUnOp op v = some w →
-           Head (.unop op (.val v)) μ (.val w) μ
+           Head ctx (.unop op (.val v)) μ (.val w) μ
 
   /-- Binary operator applied to two values. -/
   | binop : evalBinOp op v1 v2 = some w →
-            Head (.binop op (.val v1) (.val v2)) μ (.val w) μ
+            Head ctx (.binop op (.val v1) (.val v2)) μ (.val w) μ
 
   /-- Conditional on true. -/
-  | ifTrue  : Head (.ifThenElse (.val (.bool true))  thn els) μ thn μ
+  | ifTrue  : Head ctx (.ifThenElse (.val (.bool true))  thn els) μ thn μ
   /-- Conditional on false. -/
-  | ifFalse : Head (.ifThenElse (.val (.bool false)) thn els) μ els μ
+  | ifFalse : Head ctx (.ifThenElse (.val (.bool false)) thn els) μ els μ
 
   /-- Allocate a fresh location. -/
   | ref : Heap.Fresh l μ →
-          Head (.ref (.val v)) μ (.val (.loc l)) (μ.update l v)
+          Head ctx (.ref (.val v)) μ (.val (.loc l)) (μ.update l v)
 
   /-- Dereference a location. -/
   | deref : μ.lookup l = some v →
-            Head (.deref (.val (.loc l))) μ (.val v) μ
+            Head ctx (.deref (.val (.loc l))) μ (.val v) μ
 
   /-- Write to a location. -/
   | store :
     μ.lookup l = some w →
-    Head (.store (.val (.loc l)) (.val v)) μ (.val .unit) (μ.update l v)
+    Head ctx (.store (.val (.loc l)) (.val v)) μ (.val .unit) (μ.update l v)
 
   /-- Assert succeeds on true; false is stuck (no rule). -/
-  | assertOk : Head (.assert (.val (.bool true))) μ (.val .unit) μ
+  | assertOk : Head ctx (.assert (.val (.bool true))) μ (.val .unit) μ
 
   /-- A tuple of values reduces to a tuple value. -/
-  | tuple : Head (.tuple (vs.map Runtime.Expr.val)) μ (.val (.tuple vs)) μ
+  | tuple : Head ctx (.tuple (vs.map Runtime.Expr.val)) μ (.val (.tuple vs)) μ
 
   /-- Injection of a value becomes a value. -/
-  | injVal : Head (.inj tag arity (.val v)) μ (.val (.inj tag arity v)) μ
+  | injVal : Head ctx (.inj tag arity (.val v)) μ (.val (.inj tag arity v)) μ
 
   /-- Match on an injected value: select the branch and apply it to the payload. -/
   | match_ : (h : i < branches.length) → n = branches.length →
-             Head (.match_ (.val (.inj i n v)) branches) μ (.app (branches[i]) [.val v]) μ
+             Head ctx (.match_ (.val (.inj i n v)) branches) μ (.app (branches[i]) [.val v]) μ
+
+  /-- Primitive call: the registry-derived context relates the name and argument
+      values to a result value. Unbound names are not in the relation, making
+      the call stuck. -/
+  | primStep {n vs v} :
+      ctx n vs v →
+      Head ctx (.app (.val (.prim n)) (vs.map Runtime.Expr.val)) μ (.val v) μ
 
 /-! ## Contextual step -/
 
-inductive Step : Runtime.Expr → Heap → Runtime.Expr → Heap → Prop where
-  | ctx : ∀ (k : K), Head e μ e' μ' → Step (k.fill e) μ (k.fill e') μ'
+inductive Step (ctx : PrimCtx) : Runtime.Expr → Heap → Runtime.Expr → Heap → Prop where
+  | ctx : ∀ (k : K), Head ctx e μ e' μ' → Step ctx (k.fill e) μ (k.fill e') μ'
 
 /-- A single step can be lifted into any surrounding context. -/
-theorem Step.lift_ctx (k : K) (h : Step e μ e' μ') : Step (k.fill e) μ (k.fill e') μ' := by
+theorem Step.lift_ctx {ctx : PrimCtx} (k : K) (h : Step ctx e μ e' μ') :
+    Step ctx (k.fill e) μ (k.fill e') μ' := by
   cases h with
   | ctx k0 hhead =>
     rw [← K.comp_fill, ← K.comp_fill]
@@ -152,19 +162,19 @@ theorem Step.lift_ctx (k : K) (h : Step e μ e' μ') : Step (k.fill e) μ (k.fil
 
 /-! ## Multi-step reduction -/
 
-inductive Steps : Runtime.Expr → Heap → Runtime.Expr → Heap → Prop where
-  | refl : Steps e μ e μ
-  | step : Step e μ e'' μ'' → Steps e'' μ'' e' μ' → Steps e μ e' μ'
+inductive Steps (ctx : PrimCtx) : Runtime.Expr → Heap → Runtime.Expr → Heap → Prop where
+  | refl : Steps ctx e μ e μ
+  | step : Step ctx e μ e'' μ'' → Steps ctx e'' μ'' e' μ' → Steps ctx e μ e' μ'
 
-theorem Steps.trans (h1 : Steps e μ e'' μ'') (h2 : Steps e'' μ'' e' μ') :
-    Steps e μ e' μ' := by
+theorem Steps.trans {ctx : PrimCtx} (h1 : Steps ctx e μ e'' μ'') (h2 : Steps ctx e'' μ'' e' μ') :
+    Steps ctx e μ e' μ' := by
   induction h1 with
   | refl => exact h2
   | step hs _ ih => exact Steps.step hs (ih h2)
 
 /-- Multi-step reduction can be lifted into any surrounding context. -/
-theorem Steps.lift_ctx (k : K) (h : Steps e μ e' μ') :
-    Steps (k.fill e) μ (k.fill e') μ' := by
+theorem Steps.lift_ctx {ctx : PrimCtx} (k : K) (h : Steps ctx e μ e' μ') :
+    Steps ctx (k.fill e) μ (k.fill e') μ' := by
   induction h with
   | refl => exact Steps.refl
   | step hs _ ih => exact Steps.step (hs.lift_ctx k) ih

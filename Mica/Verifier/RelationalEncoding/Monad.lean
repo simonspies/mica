@@ -4,6 +4,7 @@ import Mica.FOL.Fixpoint
 import Mica.TinyML.Typed
 import Mica.Base.Fresh
 import Mica.Verifier.RelationalEncoding.Variables
+import Mica.Verifier.RelationalEncoding.Prim
 
 /-!
 # Generic monadic skeleton for TinyML-to-FOL encoders
@@ -130,45 +131,51 @@ mutual
 continuation-passing style, parametric in the encoder operations. The only
 place that pattern-matches on `Typed.Expr`. Errors are reported via
 `ops.error`; the traversal itself is total in `M`. -/
-def encodeWith {M : Type} (ops : EncoderOps M)
+def encodeWith {M : Type} (ops : EncoderOps M) (Δ : Signature)
     (Γ : FunCtx) (δ : VarEnv) : Typed.Expr → (Term .value → M) → M
   | .const c, k => k (encodeConst c)
   | .var x _, k =>
     match δ.lookup x with
     | some v => k v
     | none => ops.error s!"unbound variable: {x}"
+  | .prim n _, _ => ops.error s!"relational encoding: standalone primitive `{n}` is not supported"
   | .unop op e _, k =>
-    encodeWith ops Γ δ e fun v =>
+    encodeWith ops Δ Γ δ e fun v =>
       match encodeUnOp op v with
       | .ok v'    => k v'
       | .error msg => ops.error msg
   | .binop op e1 e2 _, k =>
-    encodeWith ops Γ δ e1 fun v1 =>
-      encodeWith ops Γ δ e2 fun v2 =>
+    encodeWith ops Δ Γ δ e1 fun v1 =>
+      encodeWith ops Δ Γ δ e2 fun v2 =>
         match encodeBinOp op v1 v2 with
         | .ok v     => k v
         | .error msg => ops.error msg
   | .ifThenElse c t e _, k =>
-    encodeWith ops Γ δ c fun b =>
-      ops.ite (.unop .toBool b) (encodeWith ops Γ δ t k) (encodeWith ops Γ δ e k)
+    encodeWith ops Δ Γ δ c fun b =>
+      ops.ite (.unop .toBool b) (encodeWith ops Δ Γ δ t k) (encodeWith ops Δ Γ δ e k)
   | .tuple es, k =>
-    encodeListWith ops Γ δ es fun vs =>
+    encodeListWith ops Δ Γ δ es fun vs =>
       k (.unop .ofValList (Terms.toValList vs))
   | .app (.var f _) [arg] _, k =>
     match FunCtx.lookup Γ f with
     | none     => ops.error s!"unknown function: {f}"
     | some rel =>
-      encodeWith ops Γ δ arg fun v => ops.call rel v k
-  | .cast e _, k  => encodeWith ops Γ δ e k
+      encodeWith ops Δ Γ δ arg fun v => ops.call rel v k
+  | .app (.prim n _) args _, k =>
+    encodeListWith ops Δ Γ δ args fun vs =>
+      match encodePrim Δ n vs with
+      | .ok v      => k v
+      | .error msg => ops.error msg
+  | .cast e _, k  => encodeWith ops Δ Γ δ e k
   | .letIn b bound body, k =>
-    encodeWith ops Γ δ bound fun v =>
-      encodeWith ops Γ (VarEnv.bindBinder δ b v) body k
+    encodeWith ops Δ Γ δ bound fun v =>
+      encodeWith ops Δ Γ (VarEnv.bindBinder δ b v) body k
   | .inj tag arity payload, k =>
-    encodeWith ops Γ δ payload fun v =>
+    encodeWith ops Δ Γ δ payload fun v =>
       k (.unop (.mkInj tag arity) v)
   | .match_ scrut branches _, k =>
-    encodeWith ops Γ δ scrut fun v =>
-      encodeMatchWith ops Γ δ v branches 0 k
+    encodeWith ops Δ Γ δ scrut fun v =>
+      encodeMatchWith ops Δ Γ δ v branches 0 k
   | .app _ _ _, _ => ops.error "relational encoding: only unary calls to named top-level functions are supported"
   | .fix .., _    => ops.error "relational encoding: nested `fix` is not supported"
   | .ref .., _    => ops.error "relational encoding: heap allocation (`ref`) is not supported"
@@ -179,12 +186,12 @@ def encodeWith {M : Type} (ops : EncoderOps M)
 /-- Encode a list of expressions left-to-right, collecting their value terms.
 This is the list companion to `encodeWith`, needed by tuple syntax and later
 other n-ary constructs. -/
-def encodeListWith {M : Type} (ops : EncoderOps M)
+def encodeListWith {M : Type} (ops : EncoderOps M) (Δ : Signature)
     (Γ : FunCtx) (δ : VarEnv) : List Typed.Expr → (List (Term .value) → M) → M
   | [], k => k []
   | e :: es, k =>
-    encodeWith ops Γ δ e fun v =>
-      encodeListWith ops Γ δ es fun vs => k (v :: vs)
+    encodeWith ops Δ Γ δ e fun v =>
+      encodeListWith ops Δ Γ δ es fun vs => k (v :: vs)
 
 /-- Encode a `match_` as an if-let chain. For each non-final branch
 `(b, body)` at index `i`, the carrier tests whether the scrutinee
@@ -194,19 +201,19 @@ remaining branches are tried. The final branch is dispatched
 unconditionally — the elaborator guarantees an exhaustive list, so the
 trailing case must hold. An empty list (which the elaborator never
 produces) is conservatively encoded as `ops.error`. -/
-def encodeMatchWith {M : Type} (ops : EncoderOps M)
+def encodeMatchWith {M : Type} (ops : EncoderOps M) (Δ : Signature)
     (Γ : FunCtx) (δ : VarEnv) (scrut : Term .value) :
     List (Typed.Binder × Typed.Expr) → Nat → (Term .value → M) → M
   | [], _, _ => ops.error "match: non-exhaustive"
   | (b, body) :: rest, i, k =>
     let δ' := VarEnv.bindBinder δ b (.unop .payloadOf scrut)
     match rest with
-    | [] => encodeWith ops Γ δ' body k
+    | [] => encodeWith ops Δ Γ δ' body k
     | _ :: _ =>
       ops.ite
         (.binop .eq (.unop .tagOf scrut) (.const (.i (i : Int))))
-        (encodeWith ops Γ δ' body k)
-        (encodeMatchWith ops Γ δ scrut rest (i + 1) k)
+        (encodeWith ops Δ Γ δ' body k)
+        (encodeMatchWith ops Δ Γ δ scrut rest (i + 1) k)
 end
 
 /-! ## Semantic interpretation of carriers
@@ -243,43 +250,43 @@ structure EncoderOpsInd {M : Type} (ops : EncoderOps M) (P : M → Prop) where
 
 /-- Per-expression statement of `encodeWith_ind`. -/
 def EncodeWithInd (e : Typed.Expr) : Prop :=
-  ∀ {M : Type} {ops : EncoderOps M} {P : M → Prop}
+  ∀ {M : Type} {ops : EncoderOps M} {P : M → Prop} {Δ : Signature}
     {Γ : FunCtx} {δ : VarEnv} {k : Term .value → M},
     EncoderOpsInd ops P → (∀ v, P (k v)) →
-    P (encodeWith ops Γ δ e k)
+    P (encodeWith ops Δ Γ δ e k)
 
 /-- Per-list statement of `encodeWith_ind`. -/
 def EncodeListWithInd (es : List Typed.Expr) : Prop :=
-  ∀ {M : Type} {ops : EncoderOps M} {P : M → Prop}
+  ∀ {M : Type} {ops : EncoderOps M} {P : M → Prop} {Δ : Signature}
     {Γ : FunCtx} {δ : VarEnv} {k : List (Term .value) → M},
     EncoderOpsInd ops P → (∀ vs, P (k vs)) →
-    P (encodeListWith ops Γ δ es k)
+    P (encodeListWith ops Δ Γ δ es k)
 
 /-- Per-branch-list statement of `encodeWith_ind`, mirroring `EncodeWithInd`
 but parametric in the scrutinee value and the index offset. -/
 def EncodeMatchWithInd (branches : List (Typed.Binder × Typed.Expr)) : Prop :=
-  ∀ {M : Type} {ops : EncoderOps M} {P : M → Prop}
+  ∀ {M : Type} {ops : EncoderOps M} {P : M → Prop} {Δ : Signature}
     {Γ : FunCtx} {δ : VarEnv} {scrut : Term .value} {i : Nat}
     {k : Term .value → M},
     EncoderOpsInd ops P → (∀ v, P (k v)) →
-    P (encodeMatchWith ops Γ δ scrut branches i k)
+    P (encodeMatchWith ops Δ Γ δ scrut branches i k)
 
 /-! ## Per-case helpers for `encodeWith_ind` -/
 
 namespace Ind
 
 theorem const (c : TinyML.Const) : EncodeWithInd (.const c) := by
-  intro _ _ _ _ _ _ _ hk; simp only [encodeWith]; exact hk _
+  intro _ _ _ _ _ _ _ _ hk; simp only [encodeWith]; exact hk _
 
 theorem var (x : String) (ty : TinyML.Typ) : EncodeWithInd (.var x ty) := by
-  intro _ _ _ _ δ _ hops hk
+  intro _ _ _ _ _ δ _ hops hk
   cases hlookup : δ.lookup x with
   | none => simp only [encodeWith, hlookup]; exact hops.error_ind
   | some v => simp only [encodeWith, hlookup]; exact hk v
 
 theorem unop (op : TinyML.UnOp) (e : Typed.Expr) (ty : TinyML.Typ)
     (ih : EncodeWithInd e) : EncodeWithInd (.unop op e ty) := by
-  intro _ _ _ _ _ _ hops hk
+  intro _ _ _ _ _ _ _ hops hk
   simp only [encodeWith]
   refine ih hops ?_
   intro v
@@ -290,7 +297,7 @@ theorem unop (op : TinyML.UnOp) (e : Typed.Expr) (ty : TinyML.Typ)
 theorem binop (op : TinyML.BinOp) (e1 e2 : Typed.Expr) (ty : TinyML.Typ)
     (ih1 : EncodeWithInd e1) (ih2 : EncodeWithInd e2) :
     EncodeWithInd (.binop op e1 e2 ty) := by
-  intro _ _ _ _ _ _ hops hk
+  intro _ _ _ _ _ _ _ hops hk
   simp only [encodeWith]
   refine ih1 hops ?_
   intro v1
@@ -303,15 +310,16 @@ theorem binop (op : TinyML.BinOp) (e1 e2 : Typed.Expr) (ty : TinyML.Typ)
 theorem ifThenElse (c t e : Typed.Expr) (ty : TinyML.Typ)
     (ihc : EncodeWithInd c) (iht : EncodeWithInd t) (ihe : EncodeWithInd e) :
     EncodeWithInd (.ifThenElse c t e ty) := by
-  intro _ _ _ _ _ _ hops hk
+  intro _ _ _ _ _ _ _ hops hk
   simp only [encodeWith]
   refine ihc hops ?_
   intro _
   exact hops.ite_ind (iht hops hk) (ihe hops hk)
 
 theorem app (fn : Typed.Expr) (args : List Typed.Expr) (ty : TinyML.Typ)
-    (ihArgs : ∀ a ∈ args, EncodeWithInd a) : EncodeWithInd (.app fn args ty) := by
-  intro _ _ _ Γ _ _ hops hk
+    (ihArgs : ∀ a ∈ args, EncodeWithInd a) (ihArgsList : EncodeListWithInd args) :
+    EncodeWithInd (.app fn args ty) := by
+  intro _ _ _ _ Γ _ _ hops hk
   match fn, args with
   | .var f _, [arg] =>
       simp only [encodeWith]
@@ -322,6 +330,13 @@ theorem app (fn : Typed.Expr) (args : List Typed.Expr) (ty : TinyML.Typ)
           refine ihArgs arg (List.mem_singleton.mpr rfl) hops ?_
           intro _
           exact hops.call_ind hk
+  | .prim n _, args =>
+      simp only [encodeWith]
+      refine ihArgsList hops ?_
+      intro vs
+      cases encodePrim _ n vs with
+      | error _ => simp; exact hops.error_ind
+      | ok _    => simp; exact hk _
   | .const _, _ | .unop .., _ | .binop .., _ | .fix .., _ | .app .., _
   | .ifThenElse .., _ | .letIn .., _ | .ref .., _ | .deref .., _ | .store .., _
   | .assert _, _ | .tuple _, _ | .inj .., _ | .match_ .., _ | .cast .., _
@@ -330,17 +345,20 @@ theorem app (fn : Typed.Expr) (args : List Typed.Expr) (ty : TinyML.Typ)
 
 theorem cast (e : Typed.Expr) (ty : TinyML.Typ) (ih : EncodeWithInd e) :
     EncodeWithInd (.cast e ty) := by
-  intro _ _ _ _ _ _ hops hk
+  intro _ _ _ _ _ _ _ hops hk
   simp only [encodeWith]; exact ih hops hk
 
 theorem fix (self : Typed.Binder) (args : List Typed.Binder) (retTy : TinyML.Typ)
     (body : Typed.Expr) : EncodeWithInd (.fix self args retTy body) :=
   fun hops _ => hops.error_ind
 
+theorem prim (name : String) (ty : TinyML.Typ) : EncodeWithInd (.prim name ty) :=
+  fun hops _ => hops.error_ind
+
 theorem letIn (name : Typed.Binder) (bound body : Typed.Expr)
     (ihBound : EncodeWithInd bound) (ihBody : EncodeWithInd body) :
     EncodeWithInd (.letIn name bound body) := by
-  intro _ _ _ _ _ _ hops hk
+  intro _ _ _ _ _ _ _ hops hk
   simp only [encodeWith]
   exact ihBound hops fun _ => ihBody hops hk
 
@@ -358,13 +376,13 @@ theorem assert (e : Typed.Expr) : EncodeWithInd (.assert e) :=
 
 theorem tuple (es : List Typed.Expr) (ih : EncodeListWithInd es) :
     EncodeWithInd (.tuple es) := by
-  intro _ _ _ _ _ _ hops hk
+  intro _ _ _ _ _ _ _ hops hk
   simp only [encodeWith]
   exact ih hops (fun vs => hk (.unop .ofValList (Terms.toValList vs)))
 
 theorem inj (tag arity : Nat) (payload : Typed.Expr)
     (ih : EncodeWithInd payload) : EncodeWithInd (.inj tag arity payload) := by
-  intro _ _ _ _ _ _ hops hk
+  intro _ _ _ _ _ _ _ hops hk
   simp only [encodeWith]
   refine ih hops ?_
   intro v; exact hk _
@@ -373,19 +391,19 @@ theorem match_ (scrut : Typed.Expr) (branches : List (Typed.Binder × Typed.Expr
     (ty : TinyML.Typ) (ihScrut : EncodeWithInd scrut)
     (ihBranches : EncodeMatchWithInd branches) :
     EncodeWithInd (.match_ scrut branches ty) := by
-  intro _ _ _ _ _ _ hops hk
+  intro _ _ _ _ _ _ _ hops hk
   simp only [encodeWith]
   refine ihScrut hops ?_
   intro _; exact ihBranches hops hk
 
 theorem match_nil : EncodeMatchWithInd [] := by
-  intro _ _ _ _ _ _ _ _ hops _; simp only [encodeMatchWith]; exact hops.error_ind
+  intro _ _ _ _ _ _ _ _ _ hops _; simp only [encodeMatchWith]; exact hops.error_ind
 
 theorem match_cons (b : Typed.Binder) (body : Typed.Expr)
     (rest : List (Typed.Binder × Typed.Expr))
     (ihBody : EncodeWithInd body) (ihRest : EncodeMatchWithInd rest) :
     EncodeMatchWithInd ((b, body) :: rest) := by
-  intro _ _ _ _ _ _ _ _ hops hk
+  intro _ _ _ _ _ _ _ _ _ hops hk
   simp only [encodeMatchWith]
   cases rest with
   | nil =>
@@ -396,12 +414,12 @@ theorem match_cons (b : Typed.Binder) (body : Typed.Expr)
     · exact ihRest hops hk
 
 theorem list_nil : EncodeListWithInd [] := by
-  intro _ _ _ _ _ _ _ hk; simp only [encodeListWith]; exact hk []
+  intro _ _ _ _ _ _ _ _ hk; simp only [encodeListWith]; exact hk []
 
 theorem list_cons (e : Typed.Expr) (es : List Typed.Expr)
     (ih : EncodeWithInd e) (ihs : EncodeListWithInd es) :
     EncodeListWithInd (e :: es) := by
-  intro _ _ _ _ _ _ hops hk
+  intro _ _ _ _ _ _ _ hops hk
   simp only [encodeListWith]
   refine ih hops ?_
   intro v
@@ -418,6 +436,7 @@ the predicate. -/
 theorem encodeWith_ind_def : ∀ (e : Typed.Expr), EncodeWithInd e
   | .const c => Ind.const c
   | .var x ty => Ind.var x ty
+  | .prim n ty => Ind.prim n ty
   | .unop op e ty => Ind.unop op e ty (encodeWith_ind_def e)
   | .binop op e1 e2 ty =>
       Ind.binop op e1 e2 ty (encodeWith_ind_def e1) (encodeWith_ind_def e2)
@@ -425,7 +444,7 @@ theorem encodeWith_ind_def : ∀ (e : Typed.Expr), EncodeWithInd e
       Ind.ifThenElse c t e ty (encodeWith_ind_def c)
         (encodeWith_ind_def t) (encodeWith_ind_def e)
   | .app fn args ty =>
-      Ind.app fn args ty (fun a _ => encodeWith_ind_def a)
+      Ind.app fn args ty (fun a _ => encodeWith_ind_def a) (encodeListWith_ind_def args)
   | .cast e ty => Ind.cast e ty (encodeWith_ind_def e)
   | .fix self args retTy body => Ind.fix self args retTy body
   | .letIn name bound body =>
@@ -455,10 +474,10 @@ end
 /-- Compatibility wrapper preserving the original signature. -/
 theorem encodeWith_ind {M : Type} {ops : EncoderOps M} {P : M → Prop}
     (hops : EncoderOpsInd ops P)
-    {Γ : FunCtx} {δ : VarEnv} (e : Typed.Expr)
+    {Δ : Signature} {Γ : FunCtx} {δ : VarEnv} (e : Typed.Expr)
     {k : Term .value → M}
     (hk : ∀ v, P (k v)) :
-    P (encodeWith ops Γ δ e k) :=
+    P (encodeWith ops Δ Γ δ e k) :=
   encodeWith_ind_def e hops hk
 
 /-! ## Signature-indexed induction
@@ -508,7 +527,7 @@ def EncodeWithIndSig (e : Typed.Expr) : Prop :=
     EncoderOpsSig ops P Pctx →
     Δ.Subset Δ' → Δ'.wf → Pctx Γ Δ' → δ.wfIn Δ' →
     SigCont P Δ' k →
-    P Δ' (encodeWith ops Γ δ e k)
+    P Δ' (encodeWith ops Δ Γ δ e k)
 
 /-- Per-list statement of `encodeWith_indWithSig`. -/
 def EncodeListWithIndSig (es : List Typed.Expr) : Prop :=
@@ -519,7 +538,7 @@ def EncodeListWithIndSig (es : List Typed.Expr) : Prop :=
     Δ.Subset Δ' → Δ'.wf → Pctx Γ Δ' → δ.wfIn Δ' →
     (∀ {Δ''}, Δ'.Subset Δ'' → Δ''.wf →
       ∀ vs, (∀ v ∈ vs, v.wfIn Δ'') → P Δ'' (k vs)) →
-    P Δ' (encodeListWith ops Γ δ es k)
+    P Δ' (encodeListWith ops Δ Γ δ es k)
 
 /-- Per-branch-list statement of `encodeWith_indWithSig`, parametric in the
 scrutinee value and starting index. The scrutinee must be well-formed at the
@@ -533,7 +552,7 @@ def EncodeMatchWithIndSig (branches : List (Typed.Binder × Typed.Expr)) : Prop 
     Δ.Subset Δ' → Δ'.wf → Pctx Γ Δ' → δ.wfIn Δ' →
     scrut.wfIn Δ' →
     SigCont P Δ' k →
-    P Δ' (encodeMatchWith ops Γ δ scrut branches i k)
+    P Δ' (encodeMatchWith ops Δ Γ δ scrut branches i k)
 
 /-! ## Per-case helpers for `encodeWith_indWithSig` -/
 
@@ -600,8 +619,9 @@ theorem ifThenElse (c t e : Typed.Expr) (ty : TinyML.Typ)
   exact hops.ite_ind hΔ'' hbWf hmtP hmeP
 
 theorem app (fn : Typed.Expr) (args : List Typed.Expr) (ty : TinyML.Typ)
-    (ihArgs : ∀ a ∈ args, EncodeWithIndSig a) : EncodeWithIndSig (.app fn args ty) := by
-  intro _ _ _ _ Γ _ _ δ _ hops hsub hΔ' hΓ hδ hk
+    (ihArgs : ∀ a ∈ args, EncodeWithIndSig a) (ihArgsList : EncodeListWithIndSig args) :
+    EncodeWithIndSig (.app fn args ty) := by
+  intro _ _ _ _ Γ Δ _ δ _ hops hsub hΔ' hΓ hδ hk
   match fn, args with
   | .var f _, [arg] =>
       simp only [encodeWith]
@@ -615,6 +635,15 @@ theorem app (fn : Typed.Expr) (args : List Typed.Expr) (ty : TinyML.Typ)
           refine hops.call_ind hΔ'' (hops.ctx_mono hΓ hsub'') hmem hv ?_
           intro Δ''' hsub''' hΔ''' v' hv'
           exact hk (hsub''.trans hsub''') hΔ''' v' hv'
+  | .prim n _, args =>
+      simp only [encodeWith]
+      refine ihArgsList hops hsub hΔ' hΓ hδ ?_
+      intro Δ'' hsub'' hΔ'' vs hvs
+      cases hraw : encodePrim Δ n vs with
+      | error _ => simp; exact hops.error_ind
+      | ok v =>
+          simp
+          exact hk hsub'' hΔ'' v (encodePrim_wfIn hraw (hsub.trans hsub'') hΔ'' hvs)
   | .const _, _ | .unop .., _ | .binop .., _ | .fix .., _ | .app .., _
   | .ifThenElse .., _ | .letIn .., _ | .ref .., _ | .deref .., _ | .store .., _
   | .assert _, _ | .tuple _, _ | .inj .., _ | .match_ .., _ | .cast .., _
@@ -628,6 +657,9 @@ theorem cast (e : Typed.Expr) (ty : TinyML.Typ) (ih : EncodeWithIndSig e) :
 
 theorem fix (self : Typed.Binder) (args : List Typed.Binder) (retTy : TinyML.Typ)
     (body : Typed.Expr) : EncodeWithIndSig (.fix self args retTy body) :=
+  fun hops _ _ _ _ _ => hops.error_ind
+
+theorem prim (name : String) (ty : TinyML.Typ) : EncodeWithIndSig (.prim name ty) :=
   fun hops _ _ _ _ _ => hops.error_ind
 
 theorem letIn (name : Typed.Binder) (bound body : Typed.Expr)
@@ -741,6 +773,7 @@ expression yields a carrier satisfying `P`. -/
 theorem encodeWith_indWithSig_def : ∀ (e : Typed.Expr), EncodeWithIndSig e
   | .const c => IndSig.const c
   | .var x ty => IndSig.var x ty
+  | .prim n ty => IndSig.prim n ty
   | .unop op e ty => IndSig.unop op e ty (encodeWith_indWithSig_def e)
   | .binop op e1 e2 ty =>
       IndSig.binop op e1 e2 ty (encodeWith_indWithSig_def e1) (encodeWith_indWithSig_def e2)
@@ -749,6 +782,7 @@ theorem encodeWith_indWithSig_def : ∀ (e : Typed.Expr), EncodeWithIndSig e
         (encodeWith_indWithSig_def t) (encodeWith_indWithSig_def e)
   | .app fn args ty =>
       IndSig.app fn args ty (fun a _ => encodeWith_indWithSig_def a)
+        (encodeListWith_indWithSig_def args)
   | .cast e ty => IndSig.cast e ty (encodeWith_indWithSig_def e)
   | .fix self args retTy body => IndSig.fix self args retTy body
   | .letIn name bound body =>
@@ -789,7 +823,7 @@ theorem encodeWith_indWithSig {M : Type} {ops : EncoderOps M}
     (hsub : Δ.Subset Δ') (hΔ' : Δ'.wf) (hΓ : Pctx Γ Δ')
     (hδ : δ.wfIn Δ')
     (hk : SigCont P Δ' k) :
-    P Δ' (encodeWith ops Γ δ e k) :=
+    P Δ' (encodeWith ops Δ Γ δ e k) :=
   encodeWith_indWithSig_def e hops hsub hΔ' hΓ hδ hk
 
 /-! ## Generic paired-encoding binary
@@ -879,56 +913,64 @@ abbrev EncoderListContSpec {M₁ M₂ : Type}
         vs₂.map (fun v => Term.eval ρ₂' v) →
       B Δ₁' Δ₂' ρ₁' ρ₂' (k₁ vs₁) (k₂ vs₂)
 
-/-- Per-expression statement of `encodeWith_bind_binary`. -/
+/-- Per-expression statement of `encodeWith_bind_binary`. The two encoders
+share a single base signature `Δ` — which doubles as the intrinsic gate — and
+the two environments are required to agree on it (`Env.agreeOn Δ ρ₁' ρ₂'`), so
+that intrinsic (uninterpreted) symbols are interpreted identically on both
+sides. This is what lets the prim case discharge cross-environment evaluation
+equality, just as `call` relies on the witness it freshly introduces. -/
 def EncodeWithBindBinary (e : Typed.Expr) : Prop :=
-  ∀ {M₁ M₂ : Type} {Γ : FunCtx} {Δ₁ Δ₂ : Signature} {δ₁ δ₂ : VarEnv}
+  ∀ {M₁ M₂ : Type} {Γ : FunCtx} {Δ : Signature} {δ₁ δ₂ : VarEnv}
     {ops₁ : EncoderOps M₁} {ops₂ : EncoderOps M₂}
     {B : Signature → Signature → Env → Env → M₁ → M₂ → Prop},
     EncoderOpsBinary Γ ops₁ ops₂ B →
     ∀ {k₁ : Term .value → M₁}
       {Δ₁' Δ₂' : Signature} {ρ₁' ρ₂' : Env} {k₂ : Term .value → M₂},
-      Δ₁.Subset Δ₁' → Δ₂.Subset Δ₂' →
+      Δ.Subset Δ₁' → Δ.Subset Δ₂' →
       Δ₁'.wf → Δ₂'.wf →
+      Env.agreeOn Δ ρ₁' ρ₂' →
       VarEnv.Agree Δ₁' Δ₂' ρ₁' ρ₂' δ₁ δ₂ →
       EncoderContSpec B Δ₁' Δ₂' ρ₁' ρ₂' k₁ k₂ →
       B Δ₁' Δ₂' ρ₁' ρ₂'
-        (encodeWith ops₁ Γ δ₁ e k₁) (encodeWith ops₂ Γ δ₂ e k₂)
+        (encodeWith ops₁ Δ Γ δ₁ e k₁) (encodeWith ops₂ Δ Γ δ₂ e k₂)
 
 /-- Per-list statement of `encodeWith_bind_binary`. -/
 def EncodeListWithBindBinary (es : List Typed.Expr) : Prop :=
-  ∀ {M₁ M₂ : Type} {Γ : FunCtx} {Δ₁ Δ₂ : Signature} {δ₁ δ₂ : VarEnv}
+  ∀ {M₁ M₂ : Type} {Γ : FunCtx} {Δ : Signature} {δ₁ δ₂ : VarEnv}
     {ops₁ : EncoderOps M₁} {ops₂ : EncoderOps M₂}
     {B : Signature → Signature → Env → Env → M₁ → M₂ → Prop},
     EncoderOpsBinary Γ ops₁ ops₂ B →
     ∀ {k₁ : List (Term .value) → M₁}
       {Δ₁' Δ₂' : Signature} {ρ₁' ρ₂' : Env} {k₂ : List (Term .value) → M₂},
-      Δ₁.Subset Δ₁' → Δ₂.Subset Δ₂' →
+      Δ.Subset Δ₁' → Δ.Subset Δ₂' →
       Δ₁'.wf → Δ₂'.wf →
+      Env.agreeOn Δ ρ₁' ρ₂' →
       VarEnv.Agree Δ₁' Δ₂' ρ₁' ρ₂' δ₁ δ₂ →
       EncoderListContSpec B Δ₁' Δ₂' ρ₁' ρ₂' k₁ k₂ →
       B Δ₁' Δ₂' ρ₁' ρ₂'
-        (encodeListWith ops₁ Γ δ₁ es k₁) (encodeListWith ops₂ Γ δ₂ es k₂)
+        (encodeListWith ops₁ Δ Γ δ₁ es k₁) (encodeListWith ops₂ Δ Γ δ₂ es k₂)
 
 /-- Per-branch-list statement of `encodeWith_bind_binary`, parametric in two
 scrutinee values whose evaluations agree, the starting index, and the
 continuations. -/
 def EncodeMatchWithBindBinary (branches : List (Typed.Binder × Typed.Expr)) : Prop :=
-  ∀ {M₁ M₂ : Type} {Γ : FunCtx} {Δ₁ Δ₂ : Signature} {δ₁ δ₂ : VarEnv}
+  ∀ {M₁ M₂ : Type} {Γ : FunCtx} {Δ : Signature} {δ₁ δ₂ : VarEnv}
     {ops₁ : EncoderOps M₁} {ops₂ : EncoderOps M₂}
     {B : Signature → Signature → Env → Env → M₁ → M₂ → Prop},
     EncoderOpsBinary Γ ops₁ ops₂ B →
     ∀ {k₁ : Term .value → M₁}
       {Δ₁' Δ₂' : Signature} {ρ₁' ρ₂' : Env} {k₂ : Term .value → M₂}
       {scrut₁ scrut₂ : Term .value} {i : Nat},
-      Δ₁.Subset Δ₁' → Δ₂.Subset Δ₂' →
+      Δ.Subset Δ₁' → Δ.Subset Δ₂' →
       Δ₁'.wf → Δ₂'.wf →
+      Env.agreeOn Δ ρ₁' ρ₂' →
       VarEnv.Agree Δ₁' Δ₂' ρ₁' ρ₂' δ₁ δ₂ →
       scrut₁.wfIn Δ₁' → scrut₂.wfIn Δ₂' →
       Term.eval ρ₁' scrut₁ = Term.eval ρ₂' scrut₂ →
       EncoderContSpec B Δ₁' Δ₂' ρ₁' ρ₂' k₁ k₂ →
       B Δ₁' Δ₂' ρ₁' ρ₂'
-        (encodeMatchWith ops₁ Γ δ₁ scrut₁ branches i k₁)
-        (encodeMatchWith ops₂ Γ δ₂ scrut₂ branches i k₂)
+        (encodeMatchWith ops₁ Δ Γ δ₁ scrut₁ branches i k₁)
+        (encodeMatchWith ops₂ Δ Γ δ₂ scrut₂ branches i k₂)
 
 
 /-! ### Eval helpers for the paired-encoding binary -/
@@ -1014,14 +1056,14 @@ private theorem encodeBinOp_ok_irrel {op : TinyML.BinOp} {a b a' b' c : Term .va
 namespace BindBinary
 
 theorem const (c : TinyML.Const) : EncodeWithBindBinary (.const c) := by
-  intro _ _ _ _ _ _ _ _ _ _ hops _ _ _ _ _ _ hsub₁ hsub₂ hwf₁ hwf₂ _ hk
+  intro _ _ _ _ _ _ _ _ _ hops _ _ _ _ _ _ hsub₁ hsub₂ hwf₁ hwf₂ _ _ hk
   simp only [encodeWith]
   exact hk (Signature.Subset.refl _) (Signature.Subset.refl _) hwf₁ hwf₂
     Env.agreeOn_refl Env.agreeOn_refl (encodeConst c) (encodeConst c)
     (encodeConst_wfIn c _) (encodeConst_wfIn c _) (encodeConst_eval c _ _)
 
 theorem var (x : String) (ty : TinyML.Typ) : EncodeWithBindBinary (.var x ty) := by
-  intro _ _ _ _ _ δ₁ δ₂ _ _ _ hops _ _ _ ρ₁' ρ₂' _ _ _ hwf₁ hwf₂ henv hk
+  intro _ _ _ _ δ₁ δ₂ _ _ _ hops _ _ _ ρ₁' ρ₂' _ _ _ hwf₁ hwf₂ _ henv hk
   cases h₁ : δ₁.lookup x with
   | none =>
       have h₂ : δ₂.lookup x = none := by
@@ -1043,9 +1085,9 @@ theorem var (x : String) (ty : TinyML.Typ) : EncodeWithBindBinary (.var x ty) :=
 
 theorem unop (op : TinyML.UnOp) (e : Typed.Expr) (ty : TinyML.Typ)
     (ih : EncodeWithBindBinary e) : EncodeWithBindBinary (.unop op e ty) := by
-  intro _ _ _ _ _ _ _ _ _ _ hops _ _ _ _ _ _ hsub₁ hsub₂ hwf₁ hwf₂ henv hk
+  intro _ _ _ _ _ _ _ _ _ hops _ _ _ _ _ _ hsub₁ hsub₂ hwf₁ hwf₂ hagree henv hk
   simp only [encodeWith]
-  refine ih hops hsub₁ hsub₂ hwf₁ hwf₂ henv ?_
+  refine ih hops hsub₁ hsub₂ hwf₁ hwf₂ hagree henv ?_
   intro Δa₁ Δa₂ ρa₁ ρa₂ hsa₁ hsa₂ hwa₁ hwa₂ haa₁ haa₂ v₁ v₂ hv₁ hv₂ hevalv
   cases hraw₁ : encodeUnOp op v₁ with
   | error msg =>
@@ -1062,12 +1104,13 @@ theorem unop (op : TinyML.UnOp) (e : Typed.Expr) (ty : TinyML.Typ)
 theorem binop (op : TinyML.BinOp) (e1 e2 : Typed.Expr) (ty : TinyML.Typ)
     (ih1 : EncodeWithBindBinary e1) (ih2 : EncodeWithBindBinary e2) :
     EncodeWithBindBinary (.binop op e1 e2 ty) := by
-  intro _ _ _ Δ₁ Δ₂ _ _ _ _ _ hops _ _ _ _ _ _ hsub₁ hsub₂ hwf₁ hwf₂ henv hk
+  intro _ _ _ Δ _ _ _ _ _ hops _ _ _ _ _ _ hsub₁ hsub₂ hwf₁ hwf₂ hagree henv hk
   simp only [encodeWith]
-  refine ih1 hops hsub₁ hsub₂ hwf₁ hwf₂ henv ?_
+  refine ih1 hops hsub₁ hsub₂ hwf₁ hwf₂ hagree henv ?_
   intro Δa₁ Δa₂ ρa₁ ρa₂ hsa₁ hsa₂ hwa₁ hwa₂ haa₁ haa₂ v1₁ v1₂ hv1₁ hv1₂ heval1
   refine ih2 hops
     (hsub₁.trans hsa₁) (hsub₂.trans hsa₂) hwa₁ hwa₂
+    (Env.agreeOn_of_extensions hsub₁ hsub₂ hagree haa₁ haa₂)
     (VarEnv.Agree.mono hsa₁ hsa₂ hwa₁ hwa₂ haa₁ haa₂ henv) ?_
   intro Δb₁ Δb₂ ρb₁ ρb₂ hsb₁ hsb₂ hwb₁ hwb₂ hab₁ hab₂ v2₁ v2₂ hv2₁ hv2₂ heval2
   have hev1 : Term.eval ρb₁ v1₁ = Term.eval ρb₂ v1₂ := by
@@ -1093,24 +1136,26 @@ theorem ifThenElse (c t e : Typed.Expr) (ty : TinyML.Typ)
     (ihc : EncodeWithBindBinary c) (iht : EncodeWithBindBinary t)
     (ihe : EncodeWithBindBinary e) :
     EncodeWithBindBinary (.ifThenElse c t e ty) := by
-  intro _ _ _ Δ₁ Δ₂ _ _ _ _ _ hops _ _ _ _ _ _ hsub₁ hsub₂ hwf₁ hwf₂ henv hk
+  intro _ _ _ Δ _ _ _ _ _ hops _ _ _ _ _ _ hsub₁ hsub₂ hwf₁ hwf₂ hagree henv hk
   simp only [encodeWith]
-  refine ihc hops hsub₁ hsub₂ hwf₁ hwf₂ henv ?_
+  refine ihc hops hsub₁ hsub₂ hwf₁ hwf₂ hagree henv ?_
   intro Δa₁ Δa₂ ρa₁ ρa₂ hsa₁ hsa₂ hwa₁ hwa₂ haa₁ haa₂ b₁ b₂ hb₁ hb₂ hevalb
-  have hsub₁a : Δ₁.Subset Δa₁ := hsub₁.trans hsa₁
-  have hsub₂a : Δ₂.Subset Δa₂ := hsub₂.trans hsa₂
+  have hsub₁a : Δ.Subset Δa₁ := hsub₁.trans hsa₁
+  have hsub₂a : Δ.Subset Δa₂ := hsub₂.trans hsa₂
+  have hagree_a : Env.agreeOn Δ ρa₁ ρa₂ :=
+    Env.agreeOn_of_extensions hsub₁ hsub₂ hagree haa₁ haa₂
   have henv_a := VarEnv.Agree.mono hsa₁ hsa₂ hwa₁ hwa₂ haa₁ haa₂ henv
   have hka : EncoderContSpec _ Δa₁ Δa₂ ρa₁ ρa₂ _ _ :=
     EncoderContSpec.mono hsa₁ hsa₂ haa₁ haa₂ hk
   refine hops.ite_binary ?_
-    (iht hops hsub₁a hsub₂a hwa₁ hwa₂ henv_a hka)
-    (ihe hops hsub₁a hsub₂a hwa₁ hwa₂ henv_a hka)
+    (iht hops hsub₁a hsub₂a hwa₁ hwa₂ hagree_a henv_a hka)
+    (ihe hops hsub₁a hsub₂a hwa₁ hwa₂ hagree_a henv_a hka)
   simp only [Term.eval, UnOp.eval]; rw [hevalb]
 
 theorem app (fn : Typed.Expr) (args : List Typed.Expr) (ty : TinyML.Typ)
-    (ihArgs : ∀ a ∈ args, EncodeWithBindBinary a) :
+    (ihArgs : ∀ a ∈ args, EncodeWithBindBinary a) (ihArgsList : EncodeListWithBindBinary args) :
     EncodeWithBindBinary (.app fn args ty) := by
-  intro _ _ Γ _ _ _ _ _ _ _ hops _ _ _ _ _ _ hsub₁ hsub₂ hwf₁ hwf₂ henv hk
+  intro _ _ Γ Δ _ _ _ _ _ hops _ _ _ _ _ _ hsub₁ hsub₂ hwf₁ hwf₂ hagree henv hk
   match fn, args with
   | .var f _, [arg] =>
       simp only [encodeWith]
@@ -1118,10 +1163,32 @@ theorem app (fn : Typed.Expr) (args : List Typed.Expr) (ty : TinyML.Typ)
       | none => exact hops.error_binary
       | some _ =>
           simp only
-          refine ihArgs arg (List.mem_singleton.mpr rfl) hops hsub₁ hsub₂ hwf₁ hwf₂ henv ?_
+          refine ihArgs arg (List.mem_singleton.mpr rfl) hops hsub₁ hsub₂ hwf₁ hwf₂ hagree henv ?_
           intro Δa₁ Δa₂ ρa₁ ρa₂ hsa₁ hsa₂ _ _ haa₁ haa₂ v₁ v₂ hv₁ hv₂ hevalv
           exact hops.call_binary (FunCtx.mem_of_lookup hlk) hv₁ hv₂ hevalv
             (EncoderContSpec.mono hsa₁ hsa₂ haa₁ haa₂ hk)
+  | .prim n _, args =>
+      simp only [encodeWith]
+      refine ihArgsList hops hsub₁ hsub₂ hwf₁ hwf₂ hagree henv ?_
+      intro Δa₁ Δa₂ ρa₁ ρa₂ hsa₁ hsa₂ hwa₁ hwa₂ haa₁ haa₂ vs₁ vs₂ hvs₁ hvs₂ hevals
+      have hagree_a : Env.agreeOn Δ ρa₁ ρa₂ :=
+        Env.agreeOn_of_extensions hsub₁ hsub₂ hagree haa₁ haa₂
+      cases hraw₁ : encodePrim Δ n vs₁ with
+      | error msg =>
+          have hlen : vs₂.length = vs₁.length := by
+            simpa only [List.length_map] using (congrArg List.length hevals).symm
+          have hraw₂ := encodePrim_error_irrel (vs' := vs₂) hraw₁ hlen
+          simp only [hraw₁, hraw₂]
+          exact hops.error_binary
+      | ok v₁ =>
+          have hlen : vs₂.length = vs₁.length := by
+            simpa only [List.length_map] using (congrArg List.length hevals).symm
+          obtain ⟨v₂, hraw₂⟩ := encodePrim_ok_irrel (vs' := vs₂) hraw₁ hlen
+          simp only [hraw₁, hraw₂]
+          exact hk hsa₁ hsa₂ hwa₁ hwa₂ haa₁ haa₂ v₁ v₂
+            (encodePrim_wfIn hraw₁ (hsub₁.trans hsa₁) hwa₁ hvs₁)
+            (encodePrim_wfIn hraw₂ (hsub₂.trans hsa₂) hwa₂ hvs₂)
+            (encodePrim_eval hraw₁ hraw₂ hagree_a hevals)
   | .const _, _ | .unop .., _ | .binop .., _ | .fix .., _ | .app .., _
   | .ifThenElse .., _ | .letIn .., _ | .ref .., _ | .deref .., _ | .store .., _
   | .assert _, _ | .tuple _, _ | .inj .., _ | .match_ .., _ | .cast .., _
@@ -1130,43 +1197,48 @@ theorem app (fn : Typed.Expr) (args : List Typed.Expr) (ty : TinyML.Typ)
 
 theorem cast (e : Typed.Expr) (ty : TinyML.Typ) (ih : EncodeWithBindBinary e) :
     EncodeWithBindBinary (.cast e ty) := by
-  intro _ _ _ _ _ _ _ _ _ _ hops _ _ _ _ _ _ hsub₁ hsub₂ hwf₁ hwf₂ henv hk
-  simpa only [encodeWith] using ih hops hsub₁ hsub₂ hwf₁ hwf₂ henv hk
+  intro _ _ _ _ _ _ _ _ _ hops _ _ _ _ _ _ hsub₁ hsub₂ hwf₁ hwf₂ hagree henv hk
+  simpa only [encodeWith] using ih hops hsub₁ hsub₂ hwf₁ hwf₂ hagree henv hk
 
 theorem fix (self : Typed.Binder) (args : List Typed.Binder) (retTy : TinyML.Typ)
     (body : Typed.Expr) : EncodeWithBindBinary (.fix self args retTy body) := by
-  intro _ _ _ _ _ _ _ _ _ _ hops _ _ _ _ _ _ _ _ _ _ _ _; exact hops.error_binary
+  intro _ _ _ _ _ _ _ _ _ hops _ _ _ _ _ _ _ _ _ _ _ _ _; exact hops.error_binary
+
+theorem prim (name : String) (ty : TinyML.Typ) : EncodeWithBindBinary (.prim name ty) := by
+  intro _ _ _ _ _ _ _ _ _ hops _ _ _ _ _ _ _ _ _ _ _ _ _; exact hops.error_binary
 
 theorem letIn (name : Typed.Binder) (bound body : Typed.Expr)
     (ihBound : EncodeWithBindBinary bound) (ihBody : EncodeWithBindBinary body) :
     EncodeWithBindBinary (.letIn name bound body) := by
-  intro _ _ _ _ _ _ _ _ _ _ hops _ _ _ _ _ _ hsub₁ hsub₂ hwf₁ hwf₂ henv hk
+  intro _ _ _ Δ _ _ _ _ _ hops _ _ _ _ _ _ hsub₁ hsub₂ hwf₁ hwf₂ hagree henv hk
   simp only [encodeWith]
-  refine ihBound hops hsub₁ hsub₂ hwf₁ hwf₂ henv ?_
+  refine ihBound hops hsub₁ hsub₂ hwf₁ hwf₂ hagree henv ?_
   intro Δa₁ Δa₂ ρa₁ ρa₂ hsa₁ hsa₂ hwa₁ hwa₂ haa₁ haa₂ v₁ v₂ hv₁ hv₂ hevalv
   have henv_a := VarEnv.Agree.mono hsa₁ hsa₂ hwa₁ hwa₂ haa₁ haa₂ henv
+  have hagree_a : Env.agreeOn Δ ρa₁ ρa₂ :=
+    Env.agreeOn_of_extensions hsub₁ hsub₂ hagree haa₁ haa₂
   have hka : EncoderContSpec _ Δa₁ Δa₂ ρa₁ ρa₂ _ _ :=
     EncoderContSpec.mono hsa₁ hsa₂ haa₁ haa₂ hk
   exact ihBody hops (hsub₁.trans hsa₁) (hsub₂.trans hsa₂) hwa₁ hwa₂
-    (VarEnv.Agree.bindBinder henv_a hv₁ hv₂ hevalv) hka
+    hagree_a (VarEnv.Agree.bindBinder henv_a hv₁ hv₂ hevalv) hka
 
 theorem ref (owned : Bool) (e : Typed.Expr) : EncodeWithBindBinary (.ref owned e) := by
-  intro _ _ _ _ _ _ _ _ _ _ hops _ _ _ _ _ _ _ _ _ _ _ _; exact hops.error_binary
+  intro _ _ _ _ _ _ _ _ _ hops _ _ _ _ _ _ _ _ _ _ _ _ _; exact hops.error_binary
 
 theorem deref (e : Typed.Expr) (ty : TinyML.Typ) : EncodeWithBindBinary (.deref e ty) := by
-  intro _ _ _ _ _ _ _ _ _ _ hops _ _ _ _ _ _ _ _ _ _ _ _; exact hops.error_binary
+  intro _ _ _ _ _ _ _ _ _ hops _ _ _ _ _ _ _ _ _ _ _ _ _; exact hops.error_binary
 
 theorem store (loc val : Typed.Expr) : EncodeWithBindBinary (.store loc val) := by
-  intro _ _ _ _ _ _ _ _ _ _ hops _ _ _ _ _ _ _ _ _ _ _ _; exact hops.error_binary
+  intro _ _ _ _ _ _ _ _ _ hops _ _ _ _ _ _ _ _ _ _ _ _ _; exact hops.error_binary
 
 theorem assert (e : Typed.Expr) : EncodeWithBindBinary (.assert e) := by
-  intro _ _ _ _ _ _ _ _ _ _ hops _ _ _ _ _ _ _ _ _ _ _ _; exact hops.error_binary
+  intro _ _ _ _ _ _ _ _ _ hops _ _ _ _ _ _ _ _ _ _ _ _ _; exact hops.error_binary
 
 theorem tuple (es : List Typed.Expr) (ih : EncodeListWithBindBinary es) :
     EncodeWithBindBinary (.tuple es) := by
-  intro _ _ _ _ _ _ _ _ _ _ hops _ _ _ _ _ _ hsub₁ hsub₂ hwf₁ hwf₂ henv hk
+  intro _ _ _ _ _ _ _ _ _ hops _ _ _ _ _ _ hsub₁ hsub₂ hwf₁ hwf₂ hagree henv hk
   simp only [encodeWith]
-  refine ih hops hsub₁ hsub₂ hwf₁ hwf₂ henv ?_
+  refine ih hops hsub₁ hsub₂ hwf₁ hwf₂ hagree henv ?_
   intro Δa₁ Δa₂ ρa₁ ρa₂ hsa₁ hsa₂ hwa₁ hwa₂ haa₁ haa₂ vs₁ vs₂ hvs₁ hvs₂ hevals
   exact hk hsa₁ hsa₂ hwa₁ hwa₂ haa₁ haa₂
     (.unop .ofValList (Terms.toValList vs₁)) (.unop .ofValList (Terms.toValList vs₂))
@@ -1177,9 +1249,9 @@ theorem tuple (es : List Typed.Expr) (ih : EncodeListWithBindBinary es) :
 theorem inj (tag arity : Nat) (payload : Typed.Expr)
     (ih : EncodeWithBindBinary payload) :
     EncodeWithBindBinary (.inj tag arity payload) := by
-  intro _ _ _ _ _ _ _ _ _ _ hops _ _ _ _ _ _ hsub₁ hsub₂ hwf₁ hwf₂ henv hk
+  intro _ _ _ _ _ _ _ _ _ hops _ _ _ _ _ _ hsub₁ hsub₂ hwf₁ hwf₂ hagree henv hk
   simp only [encodeWith]
-  refine ih hops hsub₁ hsub₂ hwf₁ hwf₂ henv ?_
+  refine ih hops hsub₁ hsub₂ hwf₁ hwf₂ hagree henv ?_
   intro Δa₁ Δa₂ ρa₁ ρa₂ hsa₁ hsa₂ hwa₁ hwa₂ haa₁ haa₂ v₁ v₂ hv₁ hv₂ hevalv
   exact hk hsa₁ hsa₂ hwa₁ hwa₂ haa₁ haa₂
     (.unop (.mkInj tag arity) v₁) (.unop (.mkInj tag arity) v₂)
@@ -1190,19 +1262,21 @@ theorem match_ (scrut : Typed.Expr) (branches : List (Typed.Binder × Typed.Expr
     (ty : TinyML.Typ) (ihScrut : EncodeWithBindBinary scrut)
     (ihBranches : EncodeMatchWithBindBinary branches) :
     EncodeWithBindBinary (.match_ scrut branches ty) := by
-  intro _ _ _ _ _ _ _ _ _ _ hops _ _ _ _ _ _ hsub₁ hsub₂ hwf₁ hwf₂ henv hk
+  intro _ _ _ Δ _ _ _ _ _ hops _ _ _ _ _ _ hsub₁ hsub₂ hwf₁ hwf₂ hagree henv hk
   simp only [encodeWith]
-  refine ihScrut hops hsub₁ hsub₂ hwf₁ hwf₂ henv ?_
+  refine ihScrut hops hsub₁ hsub₂ hwf₁ hwf₂ hagree henv ?_
   intro Δa₁ Δa₂ ρa₁ ρa₂ hsa₁ hsa₂ hwa₁ hwa₂ haa₁ haa₂ v₁ v₂ hv₁ hv₂ hevalv
   have henv_a := VarEnv.Agree.mono hsa₁ hsa₂ hwa₁ hwa₂ haa₁ haa₂ henv
+  have hagree_a : Env.agreeOn Δ ρa₁ ρa₂ :=
+    Env.agreeOn_of_extensions hsub₁ hsub₂ hagree haa₁ haa₂
   have hka : EncoderContSpec _ Δa₁ Δa₂ ρa₁ ρa₂ _ _ :=
     EncoderContSpec.mono hsa₁ hsa₂ haa₁ haa₂ hk
   exact ihBranches hops (hsub₁.trans hsa₁) (hsub₂.trans hsa₂) hwa₁ hwa₂
-    henv_a hv₁ hv₂ hevalv hka
+    hagree_a henv_a hv₁ hv₂ hevalv hka
 
 /-- Empty match branch lists encode as the shared match error. -/
 theorem match_nil : EncodeMatchWithBindBinary [] := by
-  intro _ _ _ _ _ _ _ _ _ _ hops _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+  intro _ _ _ _ _ _ _ _ _ hops _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
   simp only [encodeMatchWith]; exact hops.error_binary
 
 /-- Binary preservation for a non-empty match branch list. -/
@@ -1211,8 +1285,8 @@ theorem match_cons (b : Typed.Binder) (body : Typed.Expr)
     (ihBody : EncodeWithBindBinary body)
     (ihRest : EncodeMatchWithBindBinary rest) :
     EncodeMatchWithBindBinary ((b, body) :: rest) := by
-  intro _ _ _ _ _ _ _ _ _ _ hops _ Δ₁' Δ₂' ρ₁' ρ₂' _ scrut₁ scrut₂ _
-        hsub₁ hsub₂ hwf₁ hwf₂ henv hscrut₁ hscrut₂ hevalScrut hk
+  intro _ _ _ Δ _ _ _ _ _ hops _ Δ₁' Δ₂' ρ₁' ρ₂' _ scrut₁ scrut₂ _
+        hsub₁ hsub₂ hwf₁ hwf₂ hagree henv hscrut₁ hscrut₂ hevalScrut hk
   simp only [encodeMatchWith]
   have hpay₁ : (Term.unop UnOp.payloadOf scrut₁).wfIn Δ₁' := ⟨trivial, hscrut₁⟩
   have hpay₂ : (Term.unop UnOp.payloadOf scrut₂).wfIn Δ₂' := ⟨trivial, hscrut₂⟩
@@ -1222,18 +1296,18 @@ theorem match_cons (b : Typed.Binder) (body : Typed.Expr)
   cases rest with
   | nil =>
     exact ihBody hops hsub₁ hsub₂ hwf₁ hwf₂
-      (VarEnv.Agree.bindBinder henv hpay₁ hpay₂ hpayEval) hk
+      hagree (VarEnv.Agree.bindBinder henv hpay₁ hpay₂ hpayEval) hk
   | cons _ _ =>
     refine hops.ite_binary ?_
       (ihBody hops hsub₁ hsub₂ hwf₁ hwf₂
-        (VarEnv.Agree.bindBinder henv hpay₁ hpay₂ hpayEval) hk)
-      (ihRest hops hsub₁ hsub₂ hwf₁ hwf₂ henv hscrut₁ hscrut₂ hevalScrut hk)
+        hagree (VarEnv.Agree.bindBinder henv hpay₁ hpay₂ hpayEval) hk)
+      (ihRest hops hsub₁ hsub₂ hwf₁ hwf₂ hagree henv hscrut₁ hscrut₂ hevalScrut hk)
     simp [Term.eval, UnOp.eval, BinOp.eval, hevalScrut]
 
 /-- Empty expression lists feed matching empty value lists to their
 continuations. -/
 theorem list_nil : EncodeListWithBindBinary [] := by
-  intro _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ hsub₁ hsub₂ hwf₁ hwf₂ _ hk
+  intro _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ hsub₁ hsub₂ hwf₁ hwf₂ _ _ hk
   simp only [encodeListWith]
   exact hk (Signature.Subset.refl _) (Signature.Subset.refl _) hwf₁ hwf₂
     Env.agreeOn_refl Env.agreeOn_refl [] [] (by simp) (by simp) (by simp)
@@ -1243,12 +1317,13 @@ tail list continuation. -/
 theorem list_cons (e : Typed.Expr) (es : List Typed.Expr)
     (ih : EncodeWithBindBinary e) (ihs : EncodeListWithBindBinary es) :
     EncodeListWithBindBinary (e :: es) := by
-  intro _ _ _ Δ₁ Δ₂ _ _ _ _ _ hops _ _ _ _ _ _ hsub₁ hsub₂ hwf₁ hwf₂ henv hk
+  intro _ _ _ Δ _ _ _ _ _ hops _ _ _ _ _ _ hsub₁ hsub₂ hwf₁ hwf₂ hagree henv hk
   simp only [encodeListWith]
-  refine ih hops hsub₁ hsub₂ hwf₁ hwf₂ henv ?_
+  refine ih hops hsub₁ hsub₂ hwf₁ hwf₂ hagree henv ?_
   intro Δa₁ Δa₂ ρa₁ ρa₂ hsa₁ hsa₂ hwa₁ hwa₂ haa₁ haa₂ v₁ v₂ hv₁ hv₂ hevalv
   refine ihs hops
     (hsub₁.trans hsa₁) (hsub₂.trans hsa₂) hwa₁ hwa₂
+    (Env.agreeOn_of_extensions hsub₁ hsub₂ hagree haa₁ haa₂)
     (VarEnv.Agree.mono hsa₁ hsa₂ hwa₁ hwa₂ haa₁ haa₂ henv) ?_
   intro Δb₁ Δb₂ ρb₁ ρb₂ hsb₁ hsb₂ hwb₁ hwb₂ hab₁ hab₂ vs₁ vs₂ hvs₁ hvs₂ hevals
   have hevHead : Term.eval ρb₁ v₁ = Term.eval ρb₂ v₂ := by
@@ -1280,6 +1355,7 @@ mutual
 theorem encodeWith_bind_binary_def : ∀ (e : Typed.Expr), EncodeWithBindBinary e
   | .const c => BindBinary.const c
   | .var x ty => BindBinary.var x ty
+  | .prim n ty => BindBinary.prim n ty
   | .unop op e ty => BindBinary.unop op e ty (encodeWith_bind_binary_def e)
   | .binop op e1 e2 ty =>
       BindBinary.binop op e1 e2 ty (encodeWith_bind_binary_def e1)
@@ -1289,6 +1365,7 @@ theorem encodeWith_bind_binary_def : ∀ (e : Typed.Expr), EncodeWithBindBinary 
         (encodeWith_bind_binary_def t) (encodeWith_bind_binary_def e)
   | .app fn args ty =>
       BindBinary.app fn args ty (fun a _ => encodeWith_bind_binary_def a)
+        (encodeListWith_bind_binary_def args)
   | .cast e ty => BindBinary.cast e ty (encodeWith_bind_binary_def e)
   | .fix self args retTy body => BindBinary.fix self args retTy body
   | .letIn name bound body =>
@@ -1328,19 +1405,21 @@ same syntax `e` but with independent local environments related by
 `(Δ₁', ρ₁')`, `(Δ₂', ρ₂')` extending the initial signatures, so the induction
 can chain inner continuation contracts off the future state reached by the
 outer one. -/
-theorem encodeWith_bind_binary {M₁ M₂ : Type} {Γ : FunCtx} {Δ₁ Δ₂ : Signature}
+theorem encodeWith_bind_binary {M₁ M₂ : Type} {Γ : FunCtx} {Δ : Signature}
     {δ₁ δ₂ : VarEnv}
     {ops₁ : EncoderOps M₁} {ops₂ : EncoderOps M₂}
     {B : Signature → Signature → Env → Env → M₁ → M₂ → Prop}
     (hops : EncoderOpsBinary Γ ops₁ ops₂ B)
     (e : Typed.Expr) {k₁ : Term .value → M₁}
     {Δ₁' Δ₂' : Signature} {ρ₁' ρ₂' : Env} {k₂ : Term .value → M₂}
-    (hsub₁ : Δ₁.Subset Δ₁') (hsub₂ : Δ₂.Subset Δ₂')
+    (hsub₁ : Δ.Subset Δ₁') (hsub₂ : Δ.Subset Δ₂')
     (hwf₁ : Δ₁'.wf) (hwf₂ : Δ₂'.wf)
+    (hagree : Env.agreeOn Δ ρ₁' ρ₂')
     (henv : VarEnv.Agree Δ₁' Δ₂' ρ₁' ρ₂' δ₁ δ₂)
     (hk : EncoderContSpec B Δ₁' Δ₂' ρ₁' ρ₂' k₁ k₂) :
-    B Δ₁' Δ₂' ρ₁' ρ₂' (encodeWith ops₁ Γ δ₁ e k₁) (encodeWith ops₂ Γ δ₂ e k₂) :=
-  encodeWith_bind_binary_def e hops hsub₁ hsub₂ hwf₁ hwf₂ henv hk
+    B Δ₁' Δ₂' ρ₁' ρ₂' (encodeWith ops₁ Δ Γ δ₁ e k₁)
+      (encodeWith ops₂ Δ Γ δ₂ e k₂) :=
+  encodeWith_bind_binary_def e hops hsub₁ hsub₂ hwf₁ hwf₂ hagree henv hk
 
 
 end Verifier.RelationalEncoding

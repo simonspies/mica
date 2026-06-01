@@ -366,8 +366,8 @@ theorem bundle_wfIn
     simpa [Δext, bodySig] using bodySig_wf_of_headFresh hΔ hheadFresh
   have hbody_x : bv.wfIn (Δext.declVar ⟨x, .value⟩) := by
     show bv.wfIn (bodySig Δ fn x)
-    exact encode_wfIn (Γ := Relation.ctx Γ f fn)
-      (Δ := bodySig Δ fn x) e
+    exact encode_wfIn_of_gate e
+      (subset_bodySig_of_headFresh hheadFresh)
       (bodySig_wf_of_headFresh hΔ hheadFresh)
       (ctx_splitWfIn_bodySig_of_headFresh hΓwf.split hheadFresh)
       (encodeBody_def_bodySig henc)

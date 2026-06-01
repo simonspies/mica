@@ -49,7 +49,7 @@ predicates, so this encoding introduces no existential witnesses. Implemented
 as the shared traversal `encodeWith` instantiated at `encoderOps`. -/
 def encode (Γ : FunCtx) (Δ : Signature) (e : Typed.Expr) :
     Except String DefVal :=
-  encodeWith encoderOps Γ (VarEnv.ofSignature Δ) e (fun v => .ok (DefVal.pure v))
+  encodeWith encoderOps Δ Γ (VarEnv.ofSignature Δ) e (fun v => .ok (DefVal.pure v))
 
 /-! ## Well-formedness of `encode` -/
 
@@ -272,19 +272,30 @@ def encoderOps_wf : EncoderOpsSig encoderOps wfInE FunCtx.splitWfIn where
   ite_ind := encoderOps_ite_wfInE
   error_ind := True.intro
 
-/-- Well-formedness of the solver-facing defined/value encoding. -/
-theorem encode_wfIn {Γ : FunCtx} {Δ : Signature} (e : Typed.Expr)
-    {m : DefVal} (hΔ : Δ.wf) (hΓ : Γ.splitWfIn Δ)
-    (henc : encode Γ Δ e = .ok m) : m.wfIn Δ := by
-  have hcarrier : wfInE Δ
-      (encodeWith encoderOps Γ (VarEnv.ofSignature Δ) e (fun v => .ok (DefVal.pure v))) := by
-    refine encodeWith_indWithSig encoderOps_wf e (Signature.Subset.refl Δ) hΔ hΓ
+/-- Well-formedness of a solver-facing defined/value encoding whose `encodeWith`
+gate signature `Δgate` may differ from the `VarEnv` signature `Δenc` (the two
+coincide for `encode`, but the body encodings gate on the outer signature while
+encoding into a body signature). -/
+theorem encode_wfIn_of_gate {Γ : FunCtx} {Δgate Δenc : Signature} (e : Typed.Expr)
+    {m : DefVal} (hsub : Δgate.Subset Δenc) (hΔ : Δenc.wf) (hΓ : Γ.splitWfIn Δenc)
+    (henc : encodeWith encoderOps Δgate Γ (VarEnv.ofSignature Δenc) e
+        (fun v => .ok (DefVal.pure v)) = .ok m) :
+    m.wfIn Δenc := by
+  have hcarrier : wfInE Δenc
+      (encodeWith encoderOps Δgate Γ (VarEnv.ofSignature Δenc) e
+        (fun v => .ok (DefVal.pure v))) := by
+    refine encodeWith_indWithSig encoderOps_wf e hsub hΔ hΓ
       (VarEnv.ofSignature_wfIn hΔ) ?_
     intro Δ' _ _ v hv
     exact DefVal.pure_wfIn hv
-  unfold encode at henc
   rw [henc] at hcarrier
   exact hcarrier
+
+/-- Well-formedness of the solver-facing defined/value encoding. -/
+theorem encode_wfIn {Γ : FunCtx} {Δ : Signature} (e : Typed.Expr)
+    {m : DefVal} (hΔ : Δ.wf) (hΓ : Γ.splitWfIn Δ)
+    (henc : encode Γ Δ e = .ok m) : m.wfIn Δ :=
+  encode_wfIn_of_gate e (Signature.Subset.refl Δ) hΔ hΓ (by simpa [encode] using henc)
 
 /-! ## Monotonicity of `encode` definedness -/
 
@@ -374,7 +385,8 @@ def encodeBody (Γ : FunCtx) (Δ : Signature)
     Except String DefVal :=
   let Γ' := Relation.ctx Γ f fn
   let Δ' := defvalBodySig Δ fn x
-  encode Γ' Δ' e
+  encodeWith encoderOps Δ Γ' (VarEnv.ofSignature Δ') e
+    (fun v => .ok (DefVal.pure v))
 
 /-- Proof-only binary relation: whenever the split `DefVal` carrier succeeds,
 the paired relational carrier succeeds under any name supply covering the
@@ -560,7 +572,8 @@ theorem semdef_unfold_of_encode
         (semdef Γ Δ ρ f fn x res e body) vin := by
   unfold semdef
   have hcarrier : MonoE
-      (encodeWith encoderOps (Relation.ctx Γ f fn) (VarEnv.ofSignature (defvalBodySig Δ fn x)) e
+      (encodeWith encoderOps Δ (Relation.ctx Γ f fn)
+        (VarEnv.ofSignature (defvalBodySig Δ fn x)) e
         (fun v => .ok (DefVal.pure v))) :=
     encodeWith_ind encoderOps_preservesMono e
       (by
@@ -568,9 +581,12 @@ theorem semdef_unfold_of_encode
         show MonoE (.ok (DefVal.pure v))
         intro ρ ρ' _ _
         simp [DefVal.pure, Formula.eval])
-  have hdef : encode (Relation.ctx Γ f fn) (defvalBodySig Δ fn x) e = .ok body := henc
-  unfold encode at hdef
-  rw [hdef] at hcarrier
+  have henc' :
+      encodeWith encoderOps Δ (Relation.ctx Γ f fn)
+        (VarEnv.ofSignature (defvalBodySig Δ fn x)) e
+        (fun v => .ok (DefVal.pure v)) = .ok body := by
+    simpa [encodeBody] using henc
+  rw [henc'] at hcarrier
   have hbodyMono : DefVal.Mono body := hcarrier
   exact UnaryFix.lfp_unfold (defBody_mono (ρ := ρ) (fn := fn) (x := x)
     (body := body) hbodyMono) vin
@@ -694,8 +710,10 @@ theorem splitSound_cons_relSplitEnv
 theorem encodeBody_def_bodySig {Γ : FunCtx} {Δ : Signature}
     {f : TinyML.Var} {fn : SpecFn} {x res : TinyML.Var} {e : Typed.Expr}
     {body : DefVal} (henc : encodeBody Γ Δ f fn x res e = .ok body) :
-    encode (Relation.ctx Γ f fn) (bodySig Δ fn x) e = .ok body := by
-  unfold encode
+    encodeWith encoderOps Δ (Relation.ctx Γ f fn)
+      (VarEnv.ofSignature (bodySig Δ fn x)) e
+      (fun v => .ok (DefVal.pure v)) = .ok body := by
+  unfold encodeBody at henc
   have hvars :
       VarEnv.ofSignature (bodySig Δ fn x) =
         VarEnv.ofSignature (defvalBodySig Δ fn x) := by
@@ -703,7 +721,7 @@ theorem encodeBody_def_bodySig {Γ : FunCtx} {Δ : Signature}
       Signature.addBinaryRel, Signature.addUnary, Signature.addUnaryRel,
       Signature.remove, Signature.addVar]
   rw [hvars]
-  exact henc
+  simpa [encodeBody] using henc
 
 /-! ### Freshness and signature infrastructure -/
 
@@ -997,29 +1015,55 @@ theorem encodeBody_relEncodeBody {Γ : FunCtx} {Δ : Signature}
     (henc : encodeBody Γ Δ f fn x res e = .ok body) :
     ∃ φ, relEncodeBody Γ Δ f fn x res e = .ok φ := by
   have hΔbody : (bodySig Δ fn x).wf := bodySig_wf_of_headFresh hΔ hheadFresh
+  have hΔrelBody : (Relation.bodySig Δ fn x).wf :=
+    relBodySig_wf_of_headFresh hΔ hheadFresh
   have hΓbody : (Relation.ctx Γ f fn).splitWfIn (bodySig Δ fn x) :=
     ctx_splitWfIn_bodySig_of_headFresh hΓdef hheadFresh
   have hbinary :
-      RelSucceedsWhenDef (Relation.ctx Γ f fn) (bodySig Δ fn x) (bodySig Δ fn x)
+      RelSucceedsWhenDef (Relation.ctx Γ f fn) (Relation.bodySig Δ fn x) (bodySig Δ fn x)
         default default
-        (encodeWith Relation.encoderOps (Relation.ctx Γ f fn)
+        (encodeWith Relation.encoderOps Δ (Relation.ctx Γ f fn)
           (VarEnv.ofSignature (bodySig Δ fn x)) e (Relation.kEq res))
-        (encode (Relation.ctx Γ f fn) (bodySig Δ fn x) e) := by
+        (encodeWith encoderOps Δ (Relation.ctx Γ f fn)
+          (VarEnv.ofSignature (bodySig Δ fn x)) e
+          (fun v => .ok (DefVal.pure v))) := by
+    have hvars :
+        VarEnv.ofSignature (bodySig Δ fn x) =
+          VarEnv.ofSignature (Relation.bodySig Δ fn x) := by
+      simp [VarEnv.ofSignature, bodySig, Relation.bodySig, Signature.declVar,
+        Signature.addBinaryRel, Signature.addUnary, Signature.addUnaryRel,
+        Signature.remove, Signature.addVar]
+    have henv :
+        VarEnv.Agree (Relation.bodySig Δ fn x) (bodySig Δ fn x) default default
+          (VarEnv.ofSignature (bodySig Δ fn x))
+          (VarEnv.ofSignature (bodySig Δ fn x)) := by
+      have hself := varEnv_ofSignature_agree_self (ρ := default) hΔrelBody
+      have hmono := VarEnv.Agree.mono (Signature.Subset.refl _)
+        (relBodySig_subset_bodySig (Δ := Δ) (fn := fn) (x := x))
+        hΔrelBody hΔbody Env.agreeOn_refl Env.agreeOn_refl hself
+      simpa [hvars] using hmono
     refine encodeWith_bind_binary (δ₁ := VarEnv.ofSignature (bodySig Δ fn x))
       (δ₂ := VarEnv.ofSignature (bodySig Δ fn x))
       (relSucceedsWhenDef_ops (Relation.ctx Γ f fn)) e
-      (Signature.Subset.refl _) (Signature.Subset.refl _) hΔbody hΔbody ?_ ?_
-    · exact varEnv_ofSignature_agree_self hΔbody
+      (subset_relBodySig_of_headFresh hheadFresh) (subset_bodySig_of_headFresh hheadFresh)
+      hΔrelBody hΔbody Env.agreeOn_refl henv ?_
     · intro Δrel' Δdef' ρrel' ρdef' _ _ _ _ _ _ vrel vdef _ _ _ _ _ _ s _ body' hbody'
       exact ⟨.eq .value vrel (.var .value res), by simp [Relation.kEq]⟩
-  have hdefBody : encode (Relation.ctx Γ f fn) (bodySig Δ fn x) e = .ok body :=
+  have hdefBody :
+      encodeWith encoderOps Δ (Relation.ctx Γ f fn)
+        (VarEnv.ofSignature (bodySig Δ fn x)) e
+        (fun v => .ok (DefVal.pure v)) = .ok body :=
     encodeBody_def_bodySig henc
   have hcov : (relBodySupply Δ fn x res).Covers (bodySig Δ fn x) := by
     intro n hn
     exact relBodySupply_covers_sig Δ fn x res n
       (Signature.allNames_subset (bodySig_subset_sig_of_headFresh hheadFresh) n hn)
-  obtain ⟨φ, hφ⟩ := hbinary hΔbody hΔbody hΓbody
-    (relBodySupply Δ fn x res) hcov body hdefBody
+  have hcovRel : (relBodySupply Δ fn x res).Covers (Relation.bodySig Δ fn x) := by
+    intro n hn
+    exact hcov n (Signature.allNames_subset
+      (relBodySig_subset_bodySig (Δ := Δ) (fn := fn) (x := x)) n hn)
+  obtain ⟨φ, hφ⟩ := hbinary hΔrelBody hΔbody hΓbody
+    (relBodySupply Δ fn x res) hcovRel body hdefBody
   have hvars :
       VarEnv.ofSignature (bodySig Δ fn x) =
         VarEnv.ofSignature (Relation.bodySig Δ fn x) := by
@@ -1039,9 +1083,11 @@ theorem encodeBody_wfIn_defvalBodySig
     (hheadFresh : HeadFresh Δ fn x res)
     (henc : encodeBody Γ Δ f fn x res e = .ok body) :
     body.wfIn (defvalBodySig Δ fn x) :=
-  encode_wfIn e (defvalBodySig_wf_of_headFresh hΔ hheadFresh)
+  encode_wfIn_of_gate e
+    (subset_defvalBodySig_of_headFresh hheadFresh)
+    (defvalBodySig_wf_of_headFresh hΔ hheadFresh)
     (ctx_splitWfIn_defvalBodySig_of_headFresh hΓdef hheadFresh)
-    henc
+    (by simpa [encodeBody] using henc)
 
 theorem relEnv_relSplitEnv_agreeOn_relSig
     {Δ : Signature} {ρ : Env} {fn : SpecFn} {x res : String}
@@ -1091,7 +1137,7 @@ theorem relEncodeBody_wfIn_relSig
     (hΓfn : Γ.relWfIn Δ) (hΔ : Δ.wf) (hheadFresh : HeadFresh Δ fn x res)
     (hrelEnc : relEncodeBody Γ Δ f fn x res e = .ok φ) :
     φ.wfIn (Relation.sig Δ fn x res) := by
-  set m := encodeWith Relation.encoderOps (Relation.ctx Γ f fn)
+  set m := encodeWith Relation.encoderOps Δ (Relation.ctx Γ f fn)
       (VarEnv.ofSignature (Relation.bodySig Δ fn x)) e (Relation.kEq res) with hm_def
   have hrun : m (relBodySupply Δ fn x res) = .ok φ := by
     simpa [Relation.relEncodeBody, hm_def] using hrelEnc
@@ -1103,7 +1149,8 @@ theorem relEncodeBody_wfIn_relSig
     exact Signature.var_mem_declVar (Relation.bodySig Δ fn x) ⟨res, .value⟩
   have hmWf : Relation.Rel.wfIn (Relation.sig Δ fn x res) m :=
     encodeWith_indWithSig Relation.encoderOps_wf e
-      (relBodySig_subset_relSig_of_headFresh hheadFresh)
+      ((subset_relBodySig_of_headFresh hheadFresh).trans
+        (relBodySig_subset_relSig_of_headFresh hheadFresh))
       hsigWf
       (ctx_relWfIn_relSig_of_headFresh hΓfn hheadFresh)
       (fun y v hlookup =>

@@ -21,6 +21,10 @@ instance : LawfulBEq Binder where
 inductive Expr where
   | const (c : Const)
   | var (name : Var)
+  /-- Reference to a built-in primitive, indexed by name. Resolved from a
+      qualified path by the frontend; the carried type is the arrow type the
+      registry assigns to the primitive. -/
+  | prim (name : String) (ty : Typ)
   | unop (op : UnOp) (e : Expr)
   | binop (op : BinOp) (lhs rhs : Expr)
   | fix (self : Binder) (args : List Binder) (retTy : Option Typ) (body : Expr)
@@ -63,6 +67,10 @@ mutual
     case var.var n1 n2 => exact match decEq n1 n2 with
       | isTrue h => isTrue (by subst h; rfl)
       | isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
+    case prim.prim n1 t1 n2 t2 => exact match decEq n1 n2, decEq t1 t2 with
+      | isTrue h1, isTrue h2 => isTrue (by subst h1; subst h2; rfl)
+      | isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
+      | _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
     case unop.unop o1 e1 o2 e2 => exact match decEq o1 o2, e1.decEq e2 with
       | isTrue h1, isTrue h2 => isTrue (by subst h1; subst h2; rfl)
       | isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
@@ -189,6 +197,7 @@ def Binder.runtime : Untyped.Binder → Runtime.Binder
 def Expr.runtime : Untyped.Expr → Runtime.Expr
   | .const c => .val (Runtime.Val.ofConst c)
   | .var x => .var x
+  | .prim n _ => .val (.prim n)
   | .unop op e => .unop op e.runtime
   | .binop op l r => .binop op l.runtime r.runtime
   | .fix self args _ body => .fix (self.runtime) (args.map (·.runtime)) body.runtime

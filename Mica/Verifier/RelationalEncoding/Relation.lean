@@ -250,7 +250,7 @@ pinned at result variable `res`. -/
 def relEncodeBody (Γ : FunCtx) (Δ : Signature)
     (f : TinyML.Var) (fn : SpecFn) (x res : TinyML.Var) (e : Typed.Expr) :
     Except String Formula :=
-  encodeWith encoderOps (ctx Γ f fn) (VarEnv.ofSignature (bodySig Δ fn x)) e (kEq res)
+  encodeWith encoderOps Δ (ctx Γ f fn) (VarEnv.ofSignature (bodySig Δ fn x)) e (kEq res)
     (relBodySupply Δ fn x res)
 
 /-- Least-fixpoint relational interpretation of `rec f x := e`. -/
@@ -425,7 +425,7 @@ theorem encodeWith_det {Γ : FunCtx} {Δenc : Signature} {res : String}
     (hδ : δ.wfIn Δview)
     (hk : ∀ {Δ : Signature} {v : Term .value},
         Δview.Subset Δ → Δ.wf → v.wfIn Δ → Rel.Det Γ res Δ (k v)) :
-    Rel.Det Γ res Δview (encodeWith encoderOps Γ δ e k) :=
+    Rel.Det Γ res Δview (encodeWith encoderOps Δenc Γ δ e k) :=
   encodeWith_indWithSig (encoderOps_det Γ res) e hsubView hΔview rfl
     hδ
     (fun hsub hΔ' _ hv => hk hsub hΔ' hv)
@@ -438,6 +438,7 @@ theorem semrel_functional
     (henc : relEncodeBody Γ Δ f fn x res e = .ok body)
     (hΓ : Γ.relWfIn Δ)
     (hrelFresh : fn.relName ∉ Δ.allNames)
+    (hsubBody : Δ.Subset (bodySig Δ fn x))
     (hΔbody : (bodySig Δ fn x).wf)
     (hresFresh : res ∉ (bodySig Δ fn x).allNames)
     (hρdet : BinaryRelDet Γ ρ ρ)
@@ -448,7 +449,7 @@ theorem semrel_functional
   let F : ValRel → ValRel := semanticBody Formula.sem ρ fn x res body
   let R : ValRel := semrel Γ Δ ρ f fn x res e
   set δ := VarEnv.ofSignature (bodySig Δ fn x) with hδ_def
-  set m := encodeWith encoderOps (ctx Γ f fn) δ e (kEq res) with hm_def
+  set m := encodeWith encoderOps Δ (ctx Γ f fn) δ e (kEq res) with hm_def
   have hrun : m (relBodySupply Δ fn x res) = .ok body := by
     simpa [relEncodeBody, hm_def] using henc
   have hR : R = Fix.lfp F := by simp [R, F, semrel, semanticFixpoint, henc]
@@ -463,9 +464,9 @@ theorem semrel_functional
   have hdetM : Rel.Det (ctx Γ f fn) res (bodySig Δ fn x) m :=
     by
       simpa [hm_def] using
-        encodeWith_det (Γ := ctx Γ f fn) (Δenc := bodySig Δ fn x)
+        encodeWith_det (Γ := ctx Γ f fn) (Δenc := Δ)
           (res := res) (e := e) (Δview := bodySig Δ fn x) (δ := δ)
-          (Signature.Subset.refl _) hΔbody
+          hsubBody hΔbody
           (by simpa [hδ_def] using VarEnv.ofSignature_wfIn hΔbody)
           (fun _ _ hv => kEq_det hv)
   have hxres : x ≠ res := by
