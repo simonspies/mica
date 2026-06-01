@@ -1,5 +1,6 @@
 -- SUMMARY: Elaboration of surface syntax into the verifier's core language, with frontend-specific checks.
 import Mica.Frontend.AST
+import Mica.Frontend.Resolver
 import Mica.Frontend.SpecParser
 import Mica.TinyML.Common
 import Mica.TinyML.Untyped
@@ -30,6 +31,7 @@ inductive ElaborateErrorKind where
   | bareSpecialIdentifier (name : String)
   | missingMatchBranch (tag : Nat) (arity : Nat)
   | emptyMatch
+  | unsupportedPath (path : Path)
   | internalError (desc : String)
   deriving Inhabited
 
@@ -55,6 +57,7 @@ def ElaborateErrorKind.toString : ElaborateErrorKind → String
   | .missingMatchBranch tag arity =>
     s!"missing match branch for constructor {tag} (of {arity})"
   | .emptyMatch => "empty match expression"
+  | .unsupportedPath path => s!"unsupported qualified path '{path}'"
   | .internalError desc => s!"internal error: {desc}"
 
 def ElaborateError.toString (e : ElaborateError) : String :=
@@ -68,10 +71,13 @@ instance : ToString ElaborateError := ⟨ElaborateError.toString⟩
 
 
 structure ElabEnv where
-  types   : List TypeConstructor                             := []
-  ctors   : List (Constructor × (Nat × Nat))                := []
-  fields  : List (FieldName × (TypeConstructor × Nat))      := []
-  records : List (TypeConstructor × List FieldName)         := []
+  types    : List TypeConstructor                             := []
+  ctors    : List (Constructor × (Nat × Nat))                := []
+  fields   : List (FieldName × (TypeConstructor × Nat))      := []
+  records  : List (TypeConstructor × List FieldName)         := []
+  /-- The prelude path registry. Single shared instance across elaboration;
+  feature lanes register entries in `stdResolver`. -/
+  resolver : Resolver                                         := stdResolver
 
 -- ---------------------------------------------------------------------------
 -- Helpers
@@ -97,8 +103,18 @@ private def applyTypAttr (loc : Location) (t : TinyML.Typ) : String → ElabM Ti
 mutual
 def TypKind.elaborate (env : ElabEnv) (loc : Location) : TypKind → ElabM TinyML.Typ
   | .var v => .ok (.tvar v)
-  | .con name args => do
+  | .con path args => do
     let args' ← Typ.elaborateList env args
+    -- Qualified paths route through the resolver; an alias must point to a
+    -- single-segment target (avoids unbounded chasing).
+    let name ← if path.isQualified then
+      match env.resolver.type_ path with
+      | some (.alias aliasPath) =>
+        if aliasPath.isQualified then
+          err loc (.unsupportedPath path)
+        else .ok aliasPath.head
+      | none => err loc (.unsupportedPath path)
+    else .ok path.head
     match name with
     | "int"  => if args'.isEmpty then .ok .int  else err loc (.arityMismatch 0 args'.length)
     | "bool" => if args'.isEmpty then .ok .bool else err loc (.arityMismatch 0 args'.length)
@@ -245,31 +261,53 @@ def ExprKind.elaborate (env : ElabEnv) (loc : Location) : ExprKind → ElabM Unt
   | .const .unit     => .ok (.const .unit)
   | .const (.char _) => err loc .unsupportedChar
 
-  | .var name =>
-    match name with
-    | "ref" | "not" => err loc (.bareSpecialIdentifier name)
-    | _ =>
-      match List.lookup name env.ctors with
-      | some (tag, arity) => .ok (.inj tag arity (.const .unit))
-      | none => .ok (.var name)
+  | .var path =>
+    if path.isQualified then
+      match env.resolver.value path with
+      | some (.userVar n) => .ok (.var n)
+      | none => err loc (.unsupportedPath path)
+    else
+      let name := path.head
+      match name with
+      | "ref" | "not" => err loc (.bareSpecialIdentifier name)
+      | _ =>
+        match List.lookup name env.ctors with
+        | some (tag, arity) => .ok (.inj tag arity (.const .unit))
+        | none => .ok (.var name)
 
-  | .ctor name => elaborateCtorLookup env loc name none
+  | .ctor path =>
+    if path.isQualified then
+      match env.resolver.ctor path with
+      | some (.aliased n) => elaborateCtorLookup env loc n none
+      | none => err loc (.unsupportedPath path)
+    else
+      elaborateCtorLookup env loc path.head none
 
   | .app fn args =>
     match fn.kind with
-    | .var "not" =>
-      match args with
-      | [arg] => do
-        let arg' ← Expr.elaborate env arg
-        .ok (.unop .not arg')
-      | _ => err loc (.arityMismatch 1 args.length)
-    | .var "ref" =>
-      match args with
-      | [arg] => do
-        let arg' ← Expr.elaborate env arg
-        .ok (.ref false arg')
-      | _ => err loc (.arityMismatch 1 args.length)
-    | .ctor name =>
+    | .var path =>
+      if !path.isQualified && path.head == "not" then
+        match args with
+        | [arg] => do
+          let arg' ← Expr.elaborate env arg
+          .ok (.unop .not arg')
+        | _ => err loc (.arityMismatch 1 args.length)
+      else if !path.isQualified && path.head == "ref" then
+        match args with
+        | [arg] => do
+          let arg' ← Expr.elaborate env arg
+          .ok (.ref false arg')
+        | _ => err loc (.arityMismatch 1 args.length)
+      else do
+        let fn' ← Expr.elaborate env fn
+        let args' ← Expr.elaborateList env args
+        .ok (.app fn' args')
+    | .ctor path => do
+      let name ← if path.isQualified then
+        match env.resolver.ctor path with
+        | some (.aliased n) => .ok n
+        | none => err loc (.unsupportedPath path)
+      else .ok path.head
       match args with
       | [arg] => do
         let arg' ← Expr.elaborate env arg
@@ -417,7 +455,12 @@ def MatchArm.elaborateList (env : ElabEnv)
   | ⟨pat, body⟩ :: arms => do
     let body' ← Expr.elaborate env body
     let (ctorName, binder) ← match pat.kind with
-      | .ctor name payload => do
+      | .ctor path payload => do
+        let name ← if path.isQualified then
+          match env.resolver.ctor path with
+          | some (.aliased n) => .ok n
+          | none => err pat.loc (.unsupportedPath path)
+        else .ok path.head
         let binder ← match payload with
           | some p => do
             let b ← patternToBinder p

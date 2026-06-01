@@ -71,9 +71,9 @@ private partial def BinOp.rightAssoc : BinOp → Bool
 partial def Typ.print (t : Typ) : String :=
   let base := match t.kind with
     | .var name => s!"'{name}"
-    | .con name [] => name
-    | .con name [arg] => s!"{printAppArg arg} {name}"
-    | .con name args => s!"({joinWith ", " (args.map Typ.print)}) {name}"
+    | .con path [] => path.toString
+    | .con path [arg] => s!"{printAppArg arg} {path.toString}"
+    | .con path args => s!"({joinWith ", " (args.map Typ.print)}) {path.toString}"
     | .arrow dom cod =>
       let domStr := match dom.kind with
         | .arrow _ _ => parens (Typ.print dom)
@@ -105,8 +105,8 @@ partial def Pattern.print (p : Pattern) : String :=
   | .binder none none => "_"
   | .binder none (some ty) => s!"(_ : {Typ.print ty})"
   | .const c => Const.print c
-  | .ctor name none => name
-  | .ctor name (some pat) => s!"{name} {parenIf (!Pattern.isAtom pat) (Pattern.print pat)}"
+  | .ctor path none => path.toString
+  | .ctor path (some pat) => s!"{path.toString} {parenIf (!Pattern.isAtom pat) (Pattern.print pat)}"
   | .tuple pats => parens (joinWith ", " (pats.map Pattern.print))
 
 -- ---------------------------------------------------------------------------
@@ -131,8 +131,8 @@ private partial def Expr.printPrec (e : Expr) (outerPrec : Nat) : String :=
     baseStr ++ joinWith "" (e.attrs.map printAttr)
   else match e.kind with
   | .const c => Const.print c
-  | .var name => name
-  | .ctor name => name
+  | .var path => path.toString
+  | .ctor path => path.toString
   | .annot inner ty => s!"({Expr.printPrec inner 0} : {Typ.print ty})"
   | .tuple es => parens (joinWith ", " (es.map fun x => Expr.printPrec x 0))
   | .record fields => "{ " ++ fmtFields fields ++ " }"

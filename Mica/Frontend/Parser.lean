@@ -19,6 +19,7 @@ inductive ParseErrorKind where
   | invalidRecordField
   | nonPositiveProjIndex
   | letRecNoArgs
+  | nonFinalLowercaseSegment (segment : String)
   deriving Repr, Inhabited
 
 structure ParseError where
@@ -34,6 +35,7 @@ def ParseError.toString (e : ParseError) : String :=
   | .invalidRecordField => s!"{loc}: expected field name (identifier) before '=' in record literal"
   | .nonPositiveProjIndex => s!"{loc}: projection index must be at least 1 (projections are 1-based)"
   | .letRecNoArgs => s!"{loc}: let rec without arguments is not supported"
+  | .nonFinalLowercaseSegment seg => s!"{loc}: qualified path segment '{seg}' is lowercase, but only the final component of a module path may be lowercase"
 
 instance : ToString ParseError := ⟨ParseError.toString⟩
 
@@ -89,6 +91,41 @@ private def expectConstructor (st : ParserState) : Except ParseError (String × 
     if name.front.isUpper then .ok (name, advance st)
     else .error { loc := peekLoc st, kind := .unexpectedToken "constructor name (uppercase)" (.ident name) }
   | t => .error { loc := peekLoc st, kind := .unexpectedToken "constructor name" t }
+
+/-- Gather a (possibly qualified) path starting with an already-consumed `head`
+identifier. If `head` is uppercase, look ahead for `.dot .ident` runs and append
+them. If `head` is lowercase, the path is always a single segment (a lowercase
+leading ident never starts a qualified path; `x.field` stays as postfix field
+access). The lookahead requires the token after `.dot` to be an identifier; a
+trailing `.dot` (e.g. before a numeric projection `.1`) is left untouched.
+
+In a module path only the final component may be lowercase (it is the
+value/type/constructor name); every earlier segment is a module and must be
+uppercase. So a lowercase segment terminates the path, and a lowercase segment
+followed by a further `.ident` (e.g. `Foo.bar.baz`) is rejected. -/
+private partial def collectPathTail
+    (head : String) (acc : List String) : ParserState → Except ParseError (Path × ParserState)
+  | st =>
+    if !head.front.isUpper then .ok ({ head, tail := acc.reverse }, st)
+    else
+      match peekTok st with
+      | .dot =>
+        match peekTok (advance st) with
+        | .ident next =>
+          let st' := advance (advance st)
+          if next.front.isUpper then
+            collectPathTail head (next :: acc) st'
+          else
+            -- A lowercase segment must be the final component of the path.
+            match peekTok st' with
+            | .dot =>
+              match peekTok (advance st') with
+              | .ident _ =>
+                .error { loc := peekLoc (advance st), kind := .nonFinalLowercaseSegment next }
+              | _ => .ok ({ head, tail := (next :: acc).reverse }, st')
+            | _ => .ok ({ head, tail := (next :: acc).reverse }, st')
+        | _ => .ok ({ head, tail := acc.reverse }, st)
+      | _ => .ok ({ head, tail := acc.reverse }, st)
 
 /-- Span from `start` location to the end of the last consumed token. -/
 private def spanTo (start : Location) (st : ParserState) : Location :=
@@ -156,12 +193,13 @@ private partial def parseTypeAtom : Parser Typ := fun st =>
     if name.front == '\'' then
       let varName := name.toRawSubstring.drop 1 |>.toString
       .ok (mkTyp p (advance st) (.var varName), advance st)
-    else
-      .ok (mkTyp p (advance st) (.con name []), advance st)
+    else do
+      let (path, st') ← collectPathTail name [] (advance st)
+      .ok (mkTyp p st' (.con path []), st')
   | .lparen =>
     let st' := advance st
     if peekTok st' == .rparen then
-      .ok (mkTyp p (advance st') (.con "unit" []), advance st')
+      .ok (mkTyp p (advance st') (.con (Path.single "unit") []), advance st')
     else do
       let (t1, st') ← parseType st'
       match peekTok st' with
@@ -174,9 +212,9 @@ private partial def parseTypeAtom : Parser Typ := fun st =>
         match peekTok st' with
         | .ident name =>
           let args := t1 :: rest
-          let st'' := advance st'
+          let (path, st'') ← collectPathTail name [] (advance st')
           let loc : Location := { start := p.start, stop := (spanTo p st'').stop }
-          .ok ({ loc, kind := .con name args }, st'')
+          .ok ({ loc, kind := .con path args }, st'')
         | t => .error { loc := peekLoc st', kind := .unexpectedToken "type constructor after '(T1,T2,...)'" t }
       | t => .error { loc := peekLoc st', kind := .unexpectedToken "')' or ',' in type" t }
   | t =>
@@ -189,7 +227,7 @@ private partial def parseTypeAppSuffix (arg : Typ) : Parser Typ := fun st =>
       let startLoc := arg.loc
       let st' := advance st
       let loc : Location := { start := startLoc.start, stop := (spanTo startLoc st').stop }
-      parseTypeAppSuffix { loc, kind := .con name [arg] } st'
+      parseTypeAppSuffix { loc, kind := .con (Path.single name) [arg] } st'
     else .ok (arg, st)
   | _ => .ok (arg, st)
 
@@ -248,15 +286,15 @@ private partial def parsePattern : Parser Pattern := fun st =>
   | .underscore =>
     .ok (mkPat p (advance st) .wildcard, advance st)
   | .ident name =>
-    if name.front.isUpper then
-      -- constructor pattern
-      let st' := advance st
+    if name.front.isUpper then do
+      -- constructor pattern (possibly qualified, e.g. `Option.Some x`)
+      let (path, st') ← collectPathTail name [] (advance st)
       match peekTok st' with
       | .ident _ | .underscore | .intLit _ | .charLit _ | .kw_true | .kw_false | .lparen => do
         let (payload, st'') ← parsePattern st'
-        .ok (mkPat p st'' (.ctor name (some payload)), st'')
+        .ok (mkPat p st'' (.ctor path (some payload)), st'')
       | _ =>
-        .ok (mkPat p st' (.ctor name none), st')
+        .ok (mkPat p st' (.ctor path none), st')
     else
       -- plain binder (no type annotation here; annotated form is `(x : T)`)
       .ok (mkPat p (advance st) (.binder (some name) none), advance st)
@@ -550,11 +588,12 @@ where
     | .charLit c => .ok (mkExpr p (advance st) (.const (.char c)), advance st)
     | .kw_true   => .ok (mkExpr p (advance st) (.const (.bool true)), advance st)
     | .kw_false  => .ok (mkExpr p (advance st) (.const (.bool false)), advance st)
-    | .ident name =>
-      if name.front.isUpper then
-        .ok (mkExpr p (advance st) (.ctor name), advance st)
+    | .ident name => do
+      let (path, st') ← collectPathTail name [] (advance st)
+      if path.last.front.isUpper then
+        .ok (mkExpr p st' (.ctor path), st')
       else
-        .ok (mkExpr p (advance st) (.var name), advance st)
+        .ok (mkExpr p st' (.var path), st')
     | .lbrace => parseRecord st
     | .lparen =>
       let st' := advance st

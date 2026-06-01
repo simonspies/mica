@@ -5,4 +5,5 @@
 - `Lexer.lean` — Lexical analysis for the OCaml frontend, including tokens and lexer errors.
 - `Parser.lean` — Parsing of frontend tokens into surface syntax trees, with integrated frontend errors.
 - `Printer.lean` — Pretty-printing of frontend syntax back into OCaml-like concrete syntax.
+- `Resolver.lean` — Central registry resolving qualified prelude paths to values, types, and constructors.
 - `SpecParser.lean` — Structural translation from elaborated TinyML terms into the specification language.
