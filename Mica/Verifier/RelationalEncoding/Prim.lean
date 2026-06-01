@@ -5,11 +5,10 @@ namespace Verifier.RelationalEncoding
 
 /-! ## Intrinsic application encoder -/
 
-/-- Encode a saturated intrinsic application `n vs` into a value-sorted FOL
+/-- Encode an intrinsic application `n vs` into a value-sorted FOL
 term over the intrinsic's uninterpreted symbol. The symbol must already be
 declared in the encoding signature `Δ` at the arity implied by the argument
-count; the membership gate rejects unknown or mis-arited names, mirroring the
-`FunCtx.lookup` gate for ordinary calls. All intrinsics live at the value sort. -/
+count. -/
 def encodePrim (Δ : Signature) (n : String) :
     List (Term .value) → Except String (Term .value)
   | [] =>
@@ -27,8 +26,8 @@ def encodePrim (Δ : Signature) (n : String) :
   | _ => .error s!"relational encoding: intrinsic `{n}` applied at unsupported arity"
 
 /-- A successful intrinsic encoding is well-formed in any extension of the
-gating signature. The intrinsic symbol's membership is established at the base
-signature `Δ` (where the gate is checked) and lifted to `Δ'`; the freshness and
+signature. The intrinsic symbol's membership is established at the base
+signature `Δ` and lifted to `Δ'`; the freshness and
 uniqueness side conditions of `wfIn` follow from `Δ'.wf`. -/
 theorem encodePrim_wfIn {Δ Δ' : Signature} {n : String} {vs : List (Term .value)}
     {v : Term .value} (h : encodePrim Δ n vs = .ok v)
@@ -172,7 +171,7 @@ theorem encodePrim_error_irrel {Δ : Signature} {n : String}
                           exact h
 
 /-- `encodePrim` is a pure uninterpreted-symbol application: when the two
-environments agree on the gate signature `Δ` (hence on the intrinsic symbol)
+environments agree on the signature `Δ` (hence on the intrinsic symbol)
 and the argument evaluations agree pointwise, the results evaluate equally. -/
 theorem encodePrim_eval {Δ : Signature} {n : String}
     {vs₁ vs₂ : List (Term .value)} {v₁ v₂ : Term .value} {ρ₁ ρ₂ : Env}
