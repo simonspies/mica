@@ -6,10 +6,100 @@ namespace TinyML
 abbrev TyVar := String
 abbrev TypeName := String
 
-inductive Typ where
+/-- Primitive, non-structural TinyML types. -/
+inductive PrimitiveType where
   | unit
   | bool
   | int
+  deriving Repr, DecidableEq
+
+/-- Decidable equality for primitive types. -/
+protected def PrimitiveType.decEq (p q : PrimitiveType) : Decidable (p = q) :=
+  inferInstance
+
+/-- Pretty-print a primitive type. -/
+def PrimitiveType.print : PrimitiveType → String
+  | .unit => "unit"
+  | .bool => "bool"
+  | .int => "int"
+
+/-- Type primitive binary operators before lifting the result to `Typ`. -/
+def PrimitiveType.binOpTypeOf : BinOp → PrimitiveType → PrimitiveType → Option PrimitiveType
+  | .add,  .int,  .int  => some .int
+  | .sub,  .int,  .int  => some .int
+  | .mul,  .int,  .int  => some .int
+  | .div,  .int,  .int  => some .int
+  | .mod,  .int,  .int  => some .int
+  | .eq,   .int,  .int  => some .bool
+  | .lt,   .int,  .int  => some .bool
+  | .le,   .int,  .int  => some .bool
+  | .gt,   .int,  .int  => some .bool
+  | .ge,   .int,  .int  => some .bool
+  | .and,  .bool, .bool => some .bool
+  | .or,   .bool, .bool => some .bool
+  | _, _, _             => none
+
+/-- Type primitive unary operators before lifting the result to `Typ`. -/
+def PrimitiveType.unOpTypeOf : UnOp → PrimitiveType → Option PrimitiveType
+  | .neg, .int  => some .int
+  | .not, .bool => some .bool
+  | _, _        => none
+
+/-- Arithmetic binary operators require integer primitive inputs and produce integer. -/
+theorem PrimitiveType.binOpTypeOf_arith {op : BinOp} {p1 p2 p : PrimitiveType}
+    (hop : op = .add ∨ op = .sub ∨ op = .mul ∨ op = .div ∨ op = .mod)
+    (hty : PrimitiveType.binOpTypeOf op p1 p2 = some p) :
+    p1 = .int ∧ p2 = .int ∧ p = .int := by
+  rcases hop with rfl | rfl | rfl | rfl | rfl
+  all_goals
+    cases p1 <;> cases p2 <;> simp [PrimitiveType.binOpTypeOf] at hty
+    subst hty
+    simp
+
+/-- Integer comparison binary operators require integer primitive inputs and produce Boolean. -/
+theorem PrimitiveType.binOpTypeOf_compare {op : BinOp} {p1 p2 p : PrimitiveType}
+    (hop : op = .eq ∨ op = .lt ∨ op = .le ∨ op = .gt ∨ op = .ge)
+    (hty : PrimitiveType.binOpTypeOf op p1 p2 = some p) :
+    p1 = .int ∧ p2 = .int ∧ p = .bool := by
+  rcases hop with rfl | rfl | rfl | rfl | rfl
+  all_goals
+    cases p1 <;> cases p2 <;> simp [PrimitiveType.binOpTypeOf] at hty
+    subst hty
+    simp
+
+/-- Boolean binary operators require Boolean primitive inputs and produce Boolean. -/
+theorem PrimitiveType.binOpTypeOf_bool {op : BinOp} {p1 p2 p : PrimitiveType}
+    (hop : op = .and ∨ op = .or)
+    (hty : PrimitiveType.binOpTypeOf op p1 p2 = some p) :
+    p1 = .bool ∧ p2 = .bool ∧ p = .bool := by
+  rcases hop with rfl | rfl
+  all_goals
+    cases p1 <;> cases p2 <;> simp [PrimitiveType.binOpTypeOf] at hty
+    subst hty
+    simp
+
+/-- Integer unary operators require an integer primitive input and produce integer. -/
+theorem PrimitiveType.unOpTypeOf_int {op : UnOp} {p p' : PrimitiveType}
+    (hop : op = .neg)
+    (hty : PrimitiveType.unOpTypeOf op p = some p') :
+    p = .int ∧ p' = .int := by
+  subst hop
+  cases p <;> simp [PrimitiveType.unOpTypeOf] at hty
+  subst hty
+  simp
+
+/-- Boolean unary operators require a Boolean primitive input and produce Boolean. -/
+theorem PrimitiveType.unOpTypeOf_bool {op : UnOp} {p p' : PrimitiveType}
+    (hop : op = .not)
+    (hty : PrimitiveType.unOpTypeOf op p = some p') :
+    p = .bool ∧ p' = .bool := by
+  subst hop
+  cases p <;> simp [PrimitiveType.unOpTypeOf] at hty
+  subst hty
+  simp
+
+inductive Typ where
+  | prim (p : PrimitiveType)
   | sum (ts : List Typ)
   | arrow (t1 t2 : Typ)
   | ref (t: Typ)
@@ -23,8 +113,21 @@ inductive Typ where
   | named (T : TypeName) (args : List Typ)
   deriving Repr
 
+/-- Compatibility name for the unit primitive type. -/
+@[simp] def Typ.unit : Typ := .prim .unit
+/-- Compatibility name for the Boolean primitive type. -/
+@[simp] def Typ.bool : Typ := .prim .bool
+/-- Compatibility name for the integer primitive type. -/
+@[simp] def Typ.int : Typ := .prim .int
+
+def Typ.primDecEq (p q : PrimitiveType) : Decidable (Typ.prim p = Typ.prim q) :=
+  match PrimitiveType.decEq p q with
+  | isTrue h => isTrue (by subst h; rfl)
+  | isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
+
 def Typ.decEq : (a b : Typ) → Decidable (a = b)
-  | .unit, .unit | .bool, .bool | .int, .int | .empty, .empty | .value, .value => isTrue rfl
+  | .prim p, .prim q => Typ.primDecEq p q
+  | .empty, .empty | .value, .value => isTrue rfl
   | .sum ss, .sum ts => match typesDecEq ss ts with
     | isTrue h => isTrue (by subst h; rfl)
     | isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
@@ -50,40 +153,34 @@ def Typ.decEq : (a b : Typ) → Decidable (a = b)
     | isTrue h1, isTrue h2 => isTrue (by subst h1; subst h2; rfl)
     | isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
     | _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
-  | .unit, .bool | .unit, .int | .unit, .sum .. | .unit, .arrow ..
-  | .unit, .ref .. | .unit, .owned .. | .unit, .empty | .unit, .value | .unit, .tuple ..
-  | .unit, .tvar .. | .unit, .named ..
-  | .bool, .unit | .bool, .int | .bool, .sum .. | .bool, .arrow ..
-  | .bool, .ref .. | .bool, .owned .. | .bool, .empty | .bool, .value | .bool, .tuple ..
-  | .bool, .tvar .. | .bool, .named ..
-  | .int, .unit | .int, .bool | .int, .sum .. | .int, .arrow ..
-  | .int, .ref .. | .int, .owned .. | .int, .empty | .int, .value | .int, .tuple ..
-  | .int, .tvar .. | .int, .named ..
-  | .sum .., .unit | .sum .., .bool | .sum .., .int
+  | .prim _, .sum .. | .prim _, .arrow ..
+  | .prim _, .ref .. | .prim _, .owned .. | .prim _, .empty | .prim _, .value | .prim _, .tuple ..
+  | .prim _, .tvar .. | .prim _, .named ..
+  | .sum .., .prim _
   | .sum .., .arrow .. | .sum .., .ref .. | .sum .., .owned .. | .sum .., .empty
   | .sum .., .value | .sum .., .tuple .. | .sum .., .tvar .. | .sum .., .named ..
-  | .arrow .., .unit | .arrow .., .bool | .arrow .., .int
+  | .arrow .., .prim _
   | .arrow .., .sum .. | .arrow .., .ref .. | .arrow .., .owned .. | .arrow .., .empty
   | .arrow .., .value | .arrow .., .tuple .. | .arrow .., .tvar .. | .arrow .., .named ..
-  | .ref .., .unit | .ref .., .bool | .ref .., .int
+  | .ref .., .prim _
   | .ref .., .sum .. | .ref .., .arrow .. | .ref .., .owned .. | .ref .., .empty
   | .ref .., .value | .ref .., .tuple .. | .ref .., .tvar .. | .ref .., .named ..
-  | .owned .., .unit | .owned .., .bool | .owned .., .int
+  | .owned .., .prim _
   | .owned .., .sum .. | .owned .., .arrow .. | .owned .., .ref .. | .owned .., .empty
   | .owned .., .value | .owned .., .tuple .. | .owned .., .tvar .. | .owned .., .named ..
-  | .empty, .unit | .empty, .bool | .empty, .int | .empty, .sum ..
+  | .empty, .prim _ | .empty, .sum ..
   | .empty, .arrow .. | .empty, .ref .. | .empty, .owned .. | .empty, .value | .empty, .tuple ..
   | .empty, .tvar .. | .empty, .named ..
-  | .value, .unit | .value, .bool | .value, .int | .value, .sum ..
+  | .value, .prim _ | .value, .sum ..
   | .value, .arrow .. | .value, .ref .. | .value, .owned .. | .value, .empty | .value, .tuple ..
   | .value, .tvar .. | .value, .named ..
-  | .tuple .., .unit | .tuple .., .bool | .tuple .., .int
+  | .tuple .., .prim _
   | .tuple .., .sum .. | .tuple .., .arrow .. | .tuple .., .ref .. | .tuple .., .owned ..
   | .tuple .., .empty | .tuple .., .value | .tuple .., .tvar .. | .tuple .., .named ..
-  | .tvar .., .unit | .tvar .., .bool | .tvar .., .int | .tvar .., .sum ..
+  | .tvar .., .prim _ | .tvar .., .sum ..
   | .tvar .., .arrow .. | .tvar .., .ref .. | .tvar .., .owned .. | .tvar .., .empty
   | .tvar .., .value | .tvar .., .tuple .. | .tvar .., .named ..
-  | .named .., .unit | .named .., .bool | .named .., .int | .named .., .sum ..
+  | .named .., .prim _ | .named .., .sum ..
   | .named .., .arrow .. | .named .., .ref .. | .named .., .owned .. | .named .., .empty
   | .named .., .value | .named .., .tuple .. | .named .., .tvar .. => isFalse (by intro h; cases h)
 where
@@ -109,9 +206,7 @@ This is currently structural-only scaffolding. It becomes meaningfully
 variable-sensitive once `Typ` grows `tvar`/`named`.
 -/
 def Typ.subst (_σ : TyVar → Typ) : Typ → Typ
-  | .unit => .unit
-  | .bool => .bool
-  | .int => .int
+  | .prim p => .prim p
   | .sum ts => .sum (ts.map (Typ.subst _σ))
   | .arrow t1 t2 => .arrow (Typ.subst _σ t1) (Typ.subst _σ t2)
   | .ref t => .ref (Typ.subst _σ t)
@@ -150,7 +245,7 @@ def TypeName.unfold (Θ : TypeEnv) (T : TypeName) (args : List Typ) : Option Typ
 mutual
   @[reducible]
   def Typ.weight : Typ → Nat
-    | .unit | .bool | .int | .empty | .value | .tvar _ => 1
+    | .prim _ | .empty | .value | .tvar _ => 1
     | .sum ts => 1 + Typ.weights ts
     | .arrow t1 t2 => 1 + Typ.weight t1 + Typ.weight t2
     | .ref t => 1 + Typ.weight t
@@ -167,7 +262,7 @@ end
 mutual
   @[reducible]
   def Typ.depth : Typ → Nat
-    | .unit | .bool | .int | .empty | .value | .tvar _ => 1
+    | .prim _ | .empty | .value | .tvar _ => 1
     | .sum ts => 1 + Typ.depths ts
     | .arrow t1 t2 => 1 + max (Typ.depth t1) (Typ.depth t2)
     | .ref t => 1 + Typ.depth t
@@ -413,24 +508,75 @@ end
 /-! ## Operator typing -/
 
 def BinOp.typeOf : BinOp → Typ → Typ → Option Typ
-  | .add,  .int,  .int  => some .int
-  | .sub,  .int,  .int  => some .int
-  | .mul,  .int,  .int  => some .int
-  | .div,  .int,  .int  => some .int
-  | .mod,  .int,  .int  => some .int
-  | .eq,   .int,  .int  => some .bool
-  | .lt,   .int,  .int  => some .bool
-  | .le,   .int,  .int  => some .bool
-  | .gt,   .int,  .int  => some .bool
-  | .ge,   .int,  .int  => some .bool
-  | .and,  .bool, .bool => some .bool
-  | .or,   .bool, .bool => some .bool
-  | _, _, _             => none
+  | op, .prim p1, .prim p2 => (PrimitiveType.binOpTypeOf op p1 p2).map Typ.prim
+  | _, _, _ => none
+
+/-- Arithmetic binary operators require integer inputs and produce an integer. -/
+theorem BinOp.typeOf_arith {op : BinOp} {t1 t2 ty : Typ}
+    (hop : op = .add ∨ op = .sub ∨ op = .mul ∨ op = .div ∨ op = .mod)
+    (hty : BinOp.typeOf op t1 t2 = some ty) :
+    t1 = Typ.int ∧ t2 = Typ.int ∧ ty = Typ.int := by
+  rcases hop with rfl | rfl | rfl | rfl | rfl
+  all_goals
+    cases t1 <;> cases t2 <;> simp [BinOp.typeOf] at hty
+    rename_i p1 p2
+    rcases hty with ⟨p, hprim, rfl⟩
+    obtain ⟨rfl, rfl, rfl⟩ := PrimitiveType.binOpTypeOf_arith (by simp) hprim
+    simp [Typ.int]
+
+/-- Integer comparison binary operators require integer inputs and produce a Boolean. -/
+theorem BinOp.typeOf_compare {op : BinOp} {t1 t2 ty : Typ}
+    (hop : op = .eq ∨ op = .lt ∨ op = .le ∨ op = .gt ∨ op = .ge)
+    (hty : BinOp.typeOf op t1 t2 = some ty) :
+    t1 = Typ.int ∧ t2 = Typ.int ∧ ty = Typ.bool := by
+  rcases hop with rfl | rfl | rfl | rfl | rfl
+  all_goals
+    cases t1 <;> cases t2 <;> simp [BinOp.typeOf] at hty
+    rename_i p1 p2
+    rcases hty with ⟨p, hprim, rfl⟩
+    obtain ⟨rfl, rfl, rfl⟩ := PrimitiveType.binOpTypeOf_compare (by simp) hprim
+    simp [Typ.int, Typ.bool]
+
+/-- Boolean binary operators require Boolean inputs and produce a Boolean. -/
+theorem BinOp.typeOf_bool {op : BinOp} {t1 t2 ty : Typ}
+    (hop : op = .and ∨ op = .or)
+    (hty : BinOp.typeOf op t1 t2 = some ty) :
+    t1 = Typ.bool ∧ t2 = Typ.bool ∧ ty = Typ.bool := by
+  rcases hop with rfl | rfl
+  all_goals
+    cases t1 <;> cases t2 <;> simp [BinOp.typeOf] at hty
+    rename_i p1 p2
+    rcases hty with ⟨p, hprim, rfl⟩
+    obtain ⟨rfl, rfl, rfl⟩ := PrimitiveType.binOpTypeOf_bool (by simp) hprim
+    simp [Typ.bool]
 
 def UnOp.typeOf : UnOp → Typ → Option Typ
-  | .neg, .int       => some .int
-  | .not, .bool      => some .bool
+  | op, .prim p => (PrimitiveType.unOpTypeOf op p).map Typ.prim
   | .proj n, .tuple ts => ts[n]?
   | _, _             => none
+
+/-- Integer unary operators require an integer input and produce an integer. -/
+theorem UnOp.typeOf_int {op : UnOp} {t ty : Typ}
+    (hop : op = .neg)
+    (hty : UnOp.typeOf op t = some ty) :
+    t = Typ.int ∧ ty = Typ.int := by
+  subst hop
+  cases t <;> simp [UnOp.typeOf] at hty
+  rename_i p
+  rcases hty with ⟨p', hprim, rfl⟩
+  obtain ⟨rfl, rfl⟩ := PrimitiveType.unOpTypeOf_int rfl hprim
+  simp [Typ.int]
+
+/-- Boolean unary operators require a Boolean input and produce a Boolean. -/
+theorem UnOp.typeOf_bool {op : UnOp} {t ty : Typ}
+    (hop : op = .not)
+    (hty : UnOp.typeOf op t = some ty) :
+    t = Typ.bool ∧ ty = Typ.bool := by
+  subst hop
+  cases t <;> simp [UnOp.typeOf] at hty
+  rename_i p
+  rcases hty with ⟨p', hprim, rfl⟩
+  obtain ⟨rfl, rfl⟩ := PrimitiveType.unOpTypeOf_bool rfl hprim
+  simp [Typ.bool]
 
 end TinyML

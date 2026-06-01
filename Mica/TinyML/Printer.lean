@@ -10,9 +10,7 @@ open TinyML
 namespace TinyML
 
 def Typ.print : Typ → String
-  | .unit => "unit"
-  | .bool => "bool"
-  | .int => "int"
+  | .prim p => p.print
   | .sum ts => s!"sum ({", ".intercalate (ts.map Typ.print)})"
   | .arrow t1 t2 => s!"{wrapArg t1 (Typ.print t1)} -> {Typ.print t2}"
   | .ref t => s!"ref {wrapArg t (Typ.print t)}"
@@ -26,7 +24,7 @@ def Typ.print : Typ → String
 where
   wrapArg (t : Typ) (s : String) : String :=
     match t with
-    | .unit | .bool | .int | .empty | .value | .tvar _ | .named _ [] => s
+    | .prim _ | .empty | .value | .tvar _ | .named _ [] => s
     | _ => s!"({s})"
 
 end TinyML

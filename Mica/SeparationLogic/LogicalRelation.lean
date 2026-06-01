@@ -34,6 +34,17 @@ abbrev RecIdx := LeibnizO (Runtime.Val × TypeName × List Typ)
 /-- The outer approximation ranges over closed value relations. -/
 abbrev ValShape := Runtime.Val → Typ → iProp
 
+/-- Interpret one primitive type as an Iris assertion over a runtime value. -/
+def PrimitiveType.valRelBody : PrimitiveType → Runtime.Val → iProp
+  | .unit, v => iprop(⌜v = .unit⌝)
+  | .bool, v => iprop(⌜∃ b, v = .bool b⌝)
+  | .int, v => iprop(⌜∃ n, v = .int n⌝)
+
+theorem PrimitiveType.valRelBody_persistent (p : PrimitiveType) (v : Runtime.Val) :
+    Persistent (p.valRelBody v) := by
+  unfold PrimitiveType.valRelBody
+  cases p <;> infer_instance
+
 /- One structural layer of the value relation.
 
 References use the outer approximation `R`; named types use the inner
@@ -43,9 +54,7 @@ the list/sum helpers below.
 mutual
   def ValRelBody (R : ValShape) (v : Runtime.Val) (t : Typ) (k : RecCont) : iProp :=
     match t with
-    | .unit       => iprop(⌜v = .unit⌝)
-    | .bool       => iprop(⌜∃ b, v = .bool b⌝)
-    | .int        => iprop(⌜∃ n, v = .int n⌝)
+    | .prim p     => p.valRelBody v
     | .value      => iprop(True)
     | .empty      => iprop(False)
     | .arrow _ _  => iprop(False)
@@ -99,7 +108,10 @@ mutual
         · iapply (ValSumRelBody.mono_int R ts tag payload)
           · iexact Hk
           · iexact Hsum
-    | .unit | .bool | .int | .value | .empty | .arrow _ _ | .tvar _ | .ref _ | .owned _ =>
+    | .prim _ =>
+        iintro _ H
+        iexact H
+    | .value | .empty | .arrow _ _ | .tvar _ | .ref _ | .owned _ =>
         iintro _ H
         iexact H
 
@@ -171,7 +183,9 @@ mutual
         refine exists_ne fun payload => ?_
         refine sep_ne.ne (.of_eq rfl) ?_
         exact ValSumRelBody.dist hR hk ts tag payload
-    | .unit | .bool | .int | .value | .empty | .arrow _ _ | .tvar _ | .owned _ =>
+    | .prim _ =>
+        exact Dist.rfl
+    | .value | .empty | .arrow _ _ | .tvar _ | .owned _ =>
         exact Dist.rfl
 
   private theorem ValsRelBody.dist {n : Nat} {R S : ValShape} {k k' : RecCont}
@@ -318,7 +332,9 @@ mutual
       (hk : ∀ v T args, Persistent (k v T args)) : Persistent (ValRelBody R v t k) := by
     unfold ValRelBody
     match t with
-    | .unit | .bool | .int | .value | .empty | .arrow _ _ | .tvar _ | .owned _ =>
+    | .prim _ =>
+        exact PrimitiveType.valRelBody_persistent _ v
+    | .value | .empty | .arrow _ _ | .tvar _ | .owned _ =>
         infer_instance
     | .ref _ =>
         have := locinv_persistent
@@ -396,16 +412,19 @@ instance (Θ : TypeEnv) (tag : Nat) (payload : Runtime.Val) (ts : List Typ) :
 /-! Per-type unfoldings -/
 
 theorem ValHasType.unit (Θ : TypeEnv) (v : Runtime.Val) :
-    ValHasType Θ v .unit ⊣⊢ iprop(⌜v = .unit⌝) := by
-  exact equiv_iff.mp (ValHasType.unfold Θ v .unit)
+    ValHasType Θ v Typ.unit ⊣⊢ iprop(⌜v = .unit⌝) := by
+  change ValHasType Θ v (.prim .unit) ⊣⊢ iprop(⌜v = .unit⌝)
+  exact equiv_iff.mp (ValHasType.unfold Θ v Typ.unit)
 
 theorem ValHasType.bool (Θ : TypeEnv) (v : Runtime.Val) :
-    ValHasType Θ v .bool ⊣⊢ iprop(⌜∃ b, v = .bool b⌝) := by
-  exact equiv_iff.mp (ValHasType.unfold Θ v .bool)
+    ValHasType Θ v Typ.bool ⊣⊢ iprop(⌜∃ b, v = .bool b⌝) := by
+  change ValHasType Θ v (.prim .bool) ⊣⊢ iprop(⌜∃ b, v = .bool b⌝)
+  exact equiv_iff.mp (ValHasType.unfold Θ v Typ.bool)
 
 theorem ValHasType.int (Θ : TypeEnv) (v : Runtime.Val) :
-    ValHasType Θ v .int ⊣⊢ iprop(⌜∃ n, v = .int n⌝) := by
-  exact equiv_iff.mp (ValHasType.unfold Θ v .int)
+    ValHasType Θ v Typ.int ⊣⊢ iprop(⌜∃ n, v = .int n⌝) := by
+  change ValHasType Θ v (.prim .int) ⊣⊢ iprop(⌜∃ n, v = .int n⌝)
+  exact equiv_iff.mp (ValHasType.unfold Θ v Typ.int)
 
 theorem ValHasType.value (Θ : TypeEnv) (v : Runtime.Val) :
     ValHasType Θ v .value ⊣⊢ iprop(True) := by
@@ -571,9 +590,23 @@ theorem ValHasType.inj {Θ : TypeEnv} {payload : Runtime.Val}
 
 /-- The canonical proof that `unit` has type `unit`. -/
 theorem ValHasType.unit_intro (Θ : TypeEnv) :
-    ⊢ ValHasType Θ .unit .unit := by
+    ⊢ ValHasType Θ .unit Typ.unit := by
   iapply (ValHasType.unit Θ .unit).2
   ipure_intro; rfl
+
+/-- The canonical proof that a Boolean literal has type `bool`. -/
+theorem ValHasType.bool_intro (Θ : TypeEnv) (b : Bool) :
+    ⊢ ValHasType Θ (.bool b) Typ.bool := by
+  iapply (ValHasType.bool Θ (.bool b)).2
+  ipure_intro
+  exact ⟨b, rfl⟩
+
+/-- The canonical proof that an integer literal has type `int`. -/
+theorem ValHasType.int_intro (Θ : TypeEnv) (n : Int) :
+    ⊢ ValHasType Θ (.int n) Typ.int := by
+  iapply (ValHasType.int Θ (.int n)).2
+  ipure_intro
+  exact ⟨n, rfl⟩
 
 mutual
   theorem ValHasType.sub {Θ : TypeEnv} {v : Runtime.Val} {t t' : Typ}
@@ -743,8 +776,7 @@ theorem evalBinOp_typed {Θ : TypeEnv} {op : BinOp}
       iprop(∃ w, ⌜evalBinOp op v1 v2 = some w⌝ ∗ ValHasType Θ w ty) := by
   cases op with
   | add =>
-      cases t1 <;> cases t2 <;> simp [BinOp.typeOf] at hty
-      subst hty
+      obtain ⟨rfl, rfl, rfl⟩ := BinOp.typeOf_arith (by simp) hty
       refine (sep_mono (ValHasType.int Θ v1).1 (ValHasType.int Θ v2).1).trans ?_
       iintro H
       icases H with ⟨H1, H2⟩
@@ -756,12 +788,9 @@ theorem evalBinOp_typed {Θ : TypeEnv} {op : BinOp}
       isplitr
       · ipure_intro
         simp [evalBinOp]
-      · iapply (ValHasType.int Θ (Runtime.Val.int (a + b))).2
-        ipure_intro
-        exact ⟨a + b, rfl⟩
+      · exact ValHasType.int_intro Θ (a + b)
   | sub =>
-      cases t1 <;> cases t2 <;> simp [BinOp.typeOf] at hty
-      subst hty
+      obtain ⟨rfl, rfl, rfl⟩ := BinOp.typeOf_arith (by simp) hty
       refine (sep_mono (ValHasType.int Θ v1).1 (ValHasType.int Θ v2).1).trans ?_
       iintro H
       icases H with ⟨H1, H2⟩
@@ -773,12 +802,9 @@ theorem evalBinOp_typed {Θ : TypeEnv} {op : BinOp}
       isplitr
       · ipure_intro
         simp [evalBinOp]
-      · iapply (ValHasType.int Θ (Runtime.Val.int (a - b))).2
-        ipure_intro
-        exact ⟨a - b, rfl⟩
+      · exact ValHasType.int_intro Θ (a - b)
   | mul =>
-      cases t1 <;> cases t2 <;> simp [BinOp.typeOf] at hty
-      subst hty
+      obtain ⟨rfl, rfl, rfl⟩ := BinOp.typeOf_arith (by simp) hty
       refine (sep_mono (ValHasType.int Θ v1).1 (ValHasType.int Θ v2).1).trans ?_
       iintro H
       icases H with ⟨H1, H2⟩
@@ -790,16 +816,13 @@ theorem evalBinOp_typed {Θ : TypeEnv} {op : BinOp}
       isplitr
       · ipure_intro
         simp [evalBinOp]
-      · iapply (ValHasType.int Θ (Runtime.Val.int (a * b))).2
-        ipure_intro
-        exact ⟨a * b, rfl⟩
+      · exact ValHasType.int_intro Θ (a * b)
   | div =>
       cases (hndiv rfl)
   | mod =>
       cases (hnmod rfl)
   | eq =>
-      cases t1 <;> cases t2 <;> simp [BinOp.typeOf] at hty
-      subst hty
+      obtain ⟨rfl, rfl, rfl⟩ := BinOp.typeOf_compare (by simp) hty
       refine (sep_mono (ValHasType.int Θ v1).1 (ValHasType.int Θ v2).1).trans ?_
       iintro H
       icases H with ⟨H1, H2⟩
@@ -811,12 +834,9 @@ theorem evalBinOp_typed {Θ : TypeEnv} {op : BinOp}
       isplitr
       · ipure_intro
         simp [evalBinOp]
-      · iapply (ValHasType.bool Θ (Runtime.Val.bool (a == b))).2
-        ipure_intro
-        exact ⟨a == b, rfl⟩
+      · exact ValHasType.bool_intro Θ (a == b)
   | lt =>
-      cases t1 <;> cases t2 <;> simp [BinOp.typeOf] at hty
-      subst hty
+      obtain ⟨rfl, rfl, rfl⟩ := BinOp.typeOf_compare (by simp) hty
       refine (sep_mono (ValHasType.int Θ v1).1 (ValHasType.int Θ v2).1).trans ?_
       iintro H
       icases H with ⟨H1, H2⟩
@@ -828,12 +848,9 @@ theorem evalBinOp_typed {Θ : TypeEnv} {op : BinOp}
       isplitr
       · ipure_intro
         simp [evalBinOp]
-      · iapply (ValHasType.bool Θ (Runtime.Val.bool (a < b))).2
-        ipure_intro
-        exact ⟨a < b, rfl⟩
+      · exact ValHasType.bool_intro Θ (a < b)
   | le =>
-      cases t1 <;> cases t2 <;> simp [BinOp.typeOf] at hty
-      subst hty
+      obtain ⟨rfl, rfl, rfl⟩ := BinOp.typeOf_compare (by simp) hty
       refine (sep_mono (ValHasType.int Θ v1).1 (ValHasType.int Θ v2).1).trans ?_
       iintro H
       icases H with ⟨H1, H2⟩
@@ -845,12 +862,9 @@ theorem evalBinOp_typed {Θ : TypeEnv} {op : BinOp}
       isplitr
       · ipure_intro
         simp [evalBinOp]
-      · iapply (ValHasType.bool Θ (Runtime.Val.bool (a ≤ b))).2
-        ipure_intro
-        exact ⟨a ≤ b, rfl⟩
+      · exact ValHasType.bool_intro Θ (a ≤ b)
   | gt =>
-      cases t1 <;> cases t2 <;> simp [BinOp.typeOf] at hty
-      subst hty
+      obtain ⟨rfl, rfl, rfl⟩ := BinOp.typeOf_compare (by simp) hty
       refine (sep_mono (ValHasType.int Θ v1).1 (ValHasType.int Θ v2).1).trans ?_
       iintro H
       icases H with ⟨H1, H2⟩
@@ -862,12 +876,9 @@ theorem evalBinOp_typed {Θ : TypeEnv} {op : BinOp}
       isplitr
       · ipure_intro
         simp [evalBinOp]
-      · iapply (ValHasType.bool Θ (Runtime.Val.bool (a > b))).2
-        ipure_intro
-        exact ⟨a > b, rfl⟩
+      · exact ValHasType.bool_intro Θ (a > b)
   | ge =>
-      cases t1 <;> cases t2 <;> simp [BinOp.typeOf] at hty
-      subst hty
+      obtain ⟨rfl, rfl, rfl⟩ := BinOp.typeOf_compare (by simp) hty
       refine (sep_mono (ValHasType.int Θ v1).1 (ValHasType.int Θ v2).1).trans ?_
       iintro H
       icases H with ⟨H1, H2⟩
@@ -879,12 +890,9 @@ theorem evalBinOp_typed {Θ : TypeEnv} {op : BinOp}
       isplitr
       · ipure_intro
         simp [evalBinOp]
-      · iapply (ValHasType.bool Θ (Runtime.Val.bool (a ≥ b))).2
-        ipure_intro
-        exact ⟨a ≥ b, rfl⟩
+      · exact ValHasType.bool_intro Θ (a ≥ b)
   | and =>
-      cases t1 <;> cases t2 <;> simp [BinOp.typeOf] at hty
-      subst hty
+      obtain ⟨rfl, rfl, rfl⟩ := BinOp.typeOf_bool (by simp) hty
       refine (sep_mono (ValHasType.bool Θ v1).1 (ValHasType.bool Θ v2).1).trans ?_
       iintro H
       icases H with ⟨H1, H2⟩
@@ -896,12 +904,9 @@ theorem evalBinOp_typed {Θ : TypeEnv} {op : BinOp}
       isplitr
       · ipure_intro
         simp [evalBinOp]
-      · iapply (ValHasType.bool Θ (Runtime.Val.bool (a && b))).2
-        ipure_intro
-        exact ⟨a && b, rfl⟩
+      · exact ValHasType.bool_intro Θ (a && b)
   | or =>
-      cases t1 <;> cases t2 <;> simp [BinOp.typeOf] at hty
-      subst hty
+      obtain ⟨rfl, rfl, rfl⟩ := BinOp.typeOf_bool (by simp) hty
       refine (sep_mono (ValHasType.bool Θ v1).1 (ValHasType.bool Θ v2).1).trans ?_
       iintro H
       icases H with ⟨H1, H2⟩
@@ -913,9 +918,7 @@ theorem evalBinOp_typed {Θ : TypeEnv} {op : BinOp}
       isplitr
       · ipure_intro
         simp [evalBinOp]
-      · iapply (ValHasType.bool Θ (Runtime.Val.bool (a || b))).2
-        ipure_intro
-        exact ⟨a || b, rfl⟩
+      · exact ValHasType.bool_intro Θ (a || b)
 
 theorem evalUnOp_typed {Θ : TypeEnv} {op : UnOp}
     {v : Runtime.Val} {t ty : Typ}
@@ -924,8 +927,7 @@ theorem evalUnOp_typed {Θ : TypeEnv} {op : UnOp}
       iprop(∃ w, ⌜evalUnOp op v = some w⌝ ∗ ValHasType Θ w ty) := by
   cases op with
   | neg =>
-      cases t <;> simp [UnOp.typeOf] at hty
-      subst hty
+      obtain ⟨rfl, rfl⟩ := UnOp.typeOf_int rfl hty
       refine (ValHasType.int Θ v).1.trans ?_
       iintro Hv
       icases Hv with ⟨%n, %hv⟩
@@ -934,12 +936,9 @@ theorem evalUnOp_typed {Θ : TypeEnv} {op : UnOp}
       isplitr
       · ipure_intro
         simp [evalUnOp]
-      · iapply (ValHasType.int Θ (Runtime.Val.int (-n))).2
-        ipure_intro
-        exact ⟨-n, rfl⟩
+      · exact ValHasType.int_intro Θ (-n)
   | not =>
-      cases t <;> simp [UnOp.typeOf] at hty
-      subst hty
+      obtain ⟨rfl, rfl⟩ := UnOp.typeOf_bool rfl hty
       refine (ValHasType.bool Θ v).1.trans ?_
       iintro Hv
       icases Hv with ⟨%b, %hv⟩
@@ -948,9 +947,7 @@ theorem evalUnOp_typed {Θ : TypeEnv} {op : UnOp}
       isplitr
       · ipure_intro
         simp [evalUnOp]
-      · iapply (ValHasType.bool Θ (Runtime.Val.bool (!b))).2
-        ipure_intro
-        exact ⟨!b, rfl⟩
+      · exact ValHasType.bool_intro Θ (!b)
   | proj n =>
       cases t with
       | tuple ts =>
@@ -971,8 +968,8 @@ theorem evalUnOp_typed {Θ : TypeEnv} {op : UnOp}
               · iexact Hwitness)
           iapply (ValsHaveTypes.of_getElem? (Θ := Θ) (vs := vs) (ts := ts) (n := n) (t := ty) hty)
           iexact Hvs
-      | unit | bool | int | sum _ | arrow _ _ | ref _ | owned _ | empty | value | tvar _ | named _ _ =>
-          simp [UnOp.typeOf] at hty
+      | prim _ | sum _ | arrow _ _ | ref _ | owned _ | empty | value | tvar _ | named _ _ =>
+          simp [UnOp.typeOf, PrimitiveType.unOpTypeOf] at hty
 
 end TinyML
 
@@ -987,14 +984,50 @@ end TinyML
 
 namespace TinyML
 
+/-- Generate SMT formulas for a primitive TinyML type. -/
+def PrimitiveType.typeConstraints (p : PrimitiveType) (t : Term .value) : List Formula :=
+  match p with
+  | .int => [.unpred .isInt t]
+  | .bool => [.unpred .isBool t]
+  | .unit => []
+
+/-- Primitive type constraints only reference free variables of the constrained term. -/
+theorem PrimitiveType.typeConstraints_wfIn {p : PrimitiveType} {t : Term .value} {Δ : Signature}
+    (ht : t.wfIn Δ) : ∀ φ ∈ p.typeConstraints t, φ.wfIn Δ := by
+  cases p <;> simp [PrimitiveType.typeConstraints]
+  · simp only [Formula.wfIn]; exact ⟨trivial, ht⟩
+  · simp only [Formula.wfIn]; exact ⟨trivial, ht⟩
+
+/-- Primitive value typing entails the generated primitive type constraints. -/
+theorem PrimitiveType.typeConstraints_hold {p : PrimitiveType} {t : Term .value} {ρ : Env}
+    {Θ : TinyML.TypeEnv} {v : Runtime.Val} (ht : t.eval ρ = v) :
+    TinyML.ValHasType Θ v (.prim p) ⊢ ⌜∀ φ ∈ p.typeConstraints t, φ.eval ρ⌝ := by
+  cases p
+  · iintro _; ipure_intro; simp [PrimitiveType.typeConstraints]
+  · refine (TinyML.ValHasType.bool Θ v).1.trans ?_
+    iintro %h
+    rcases h with ⟨b, rfl⟩
+    ipure_intro
+    intro φ hφ
+    simp [PrimitiveType.typeConstraints] at hφ
+    rcases hφ with rfl
+    simp [Formula.eval, ht]
+  · refine (TinyML.ValHasType.int Θ v).1.trans ?_
+    iintro %h
+    rcases h with ⟨n, rfl⟩
+    ipure_intro
+    intro φ hφ
+    simp [PrimitiveType.typeConstraints] at hφ
+    rcases hφ with rfl
+    simp [Formula.eval, ht]
+
 mutual
 /-- Generate SMT formulas asserting that a value-sorted term has a given TinyML type.
     For `int`: `is-of_int(t)`, for `bool`: `is-of_bool(t)`,
     for `tuple ts`: `is-of_tuple(t)` plus recursive constraints on elements. -/
 def typeConstraints (ty : TinyML.Typ) (t : Term .value) : List Formula :=
   match ty with
-  | .int   => [.unpred .isInt t]
-  | .bool  => [.unpred .isBool t]
+  | .prim p => p.typeConstraints t
   | .owned _ => [.unpred .isLoc t]
   | .tuple ts =>
       .unpred .isTuple t ::
@@ -1015,12 +1048,8 @@ mutual
   theorem typeConstraints_wfIn {ty : TinyML.Typ} {t : Term .value} {Δ : Signature}
       (ht : t.wfIn Δ) : ∀ φ ∈ typeConstraints ty t, φ.wfIn Δ := by
     cases ty with
-    | int =>
-      simp [typeConstraints]
-      simp only [Formula.wfIn]; exact ⟨trivial, ht⟩
-    | bool =>
-      simp [typeConstraints]
-      simp only [Formula.wfIn]; exact ⟨trivial, ht⟩
+    | prim p =>
+      simpa [typeConstraints] using PrimitiveType.typeConstraints_wfIn (p := p) ht
     | owned _ =>
       simp [typeConstraints]
       simp only [Formula.wfIn]; exact ⟨trivial, ht⟩
@@ -1054,24 +1083,8 @@ mutual
       {Θ : TinyML.TypeEnv} {v : Runtime.Val} (ht : t.eval ρ = v) :
       TinyML.ValHasType Θ v ty ⊢ ⌜∀ φ ∈ typeConstraints ty t, φ.eval ρ⌝ := by
     cases ty with
-    | int =>
-      refine (TinyML.ValHasType.int Θ v).1.trans ?_
-      iintro %h
-      rcases h with ⟨n, rfl⟩
-      ipure_intro
-      intro φ hφ
-      simp [typeConstraints] at hφ
-      subst hφ
-      simp [Formula.eval, ht]
-    | bool =>
-      refine (TinyML.ValHasType.bool Θ v).1.trans ?_
-      iintro %h
-      rcases h with ⟨b, rfl⟩
-      ipure_intro
-      intro φ hφ
-      simp [typeConstraints] at hφ
-      subst hφ
-      simp [Formula.eval, ht]
+    | prim p =>
+      simpa [typeConstraints] using PrimitiveType.typeConstraints_hold (p := p) (Θ := Θ) (v := v) ht
     | owned inner =>
       refine (TinyML.ValHasType.owned Θ v inner).1.trans ?_
       iintro Hty
@@ -1097,7 +1110,7 @@ mutual
         simp [Formula.eval, ht, hv]
       | tail _ hφ =>
         exact htail φ hφ
-    | unit | sum _ | ref _ | value | named _ _ =>
+    | sum _ | ref _ | value | named _ _ =>
       iintro _; ipure_intro; simp [typeConstraints]
     | arrow t1 t2 => exact (TinyML.ValHasType.arrow Θ v t1 t2).1.trans false_elim
     | empty => exact (TinyML.ValHasType.empty Θ v).1.trans false_elim
