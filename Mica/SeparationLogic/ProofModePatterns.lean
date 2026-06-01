@@ -203,7 +203,7 @@ example (P Q : iProp) : P ∗ (P -∗ Q) ⊢ Q := by
   iexact HP
 
 /-- Apply an external lemma. The lemma must conclude with an entailment. -/
-example (v : Runtime.Val) (Q : Runtime.Val → iProp) : Q v ⊢ wp (.val v) Q := by
+example (wctx : WpCtx) (v : Runtime.Val) (Q : Runtime.Val → iProp) : Q v ⊢ wp wctx (.val v) Q := by
   istart
   iintro HQ
   iapply wp.val

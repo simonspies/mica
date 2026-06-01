@@ -138,6 +138,7 @@ private partial def printUnary : Untyped.Expr → String
 private partial def printAtom : Untyped.Expr → String
   | .const c => printConst c
   | .var name => name
+  | .prim name _ => name
   | .fix self args _ body => printFix self args body
   | .tuple es => s!"({", ".intercalate (es.map printOr)})"
   | e => s!"({printExpr e})"

@@ -17,6 +17,7 @@ namespace Frontend
 
 inductive ResolvedValue where
   | userVar (name : String)
+  | primitive (name : String) (ty : TinyML.Typ)
   deriving Repr, Inhabited
 
 inductive ResolvedType where
@@ -37,11 +38,5 @@ def Resolver.value (r : Resolver) (p : Path) : Option ResolvedValue := List.look
 def Resolver.type_ (r : Resolver) (p : Path) : Option ResolvedType  := List.lookup p r.types
 def Resolver.ctor  (r : Resolver) (p : Path) : Option ResolvedCtor  := List.lookup p r.ctors
 
-def stdResolver : Resolver := {
-  values := [
-    (⟨"Int", ["min"]⟩, .userVar "int_min"),
-    (⟨"Int", ["max"]⟩, .userVar "int_max"),
-  ]
-}
 
 end Frontend

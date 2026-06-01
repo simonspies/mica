@@ -71,13 +71,11 @@ instance : ToString ElaborateError := ⟨ElaborateError.toString⟩
 
 
 structure ElabEnv where
-  types    : List TypeConstructor                             := []
+  types    : List TypeConstructor                            := []
   ctors    : List (Constructor × (Nat × Nat))                := []
   fields   : List (FieldName × (TypeConstructor × Nat))      := []
   records  : List (TypeConstructor × List FieldName)         := []
-  /-- The prelude path registry. Single shared instance across elaboration;
-  feature lanes register entries in `stdResolver`. -/
-  resolver : Resolver                                         := stdResolver
+  resolver : Resolver
 
 -- ---------------------------------------------------------------------------
 -- Helpers
@@ -265,6 +263,7 @@ def ExprKind.elaborate (env : ElabEnv) (loc : Location) : ExprKind → ElabM Unt
     if path.isQualified then
       match env.resolver.value path with
       | some (.userVar n) => .ok (.var n)
+      | some (.primitive n ty) => .ok (.prim n ty)
       | none => err loc (.unsupportedPath path)
     else
       let name := path.head
@@ -626,8 +625,8 @@ private def elaborateDecls (env : ElabEnv) :
     | some decl => .ok (decl :: rest)
     | none => .ok rest
 
-def Program.elaborate (prog : Frontend.Program) :
+def Program.elaborate (resolver : Resolver) (prog : Frontend.Program) :
     ElabM (Untyped.Program (Spec.Body Untyped.Expr)) :=
-  elaborateDecls {} prog
+  elaborateDecls { resolver } prog
 
 end Frontend

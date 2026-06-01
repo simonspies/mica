@@ -27,6 +27,10 @@ mutual
     | loc (l : Location)
     | fix (self : Binder) (args : List Binder) (body : Expr)
     | tuple (vs : List Val)
+    /-- Reference to a built-in primitive function, indexed by name. The
+        registry-derived context determines the operational and WP behavior of
+        each name. -/
+    | prim (name : String)
 
   inductive Expr where
     | val (v : Val)
@@ -102,6 +106,9 @@ mutual
       | _, _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
     case tuple.tuple vs1 vs2 =>
       exact match valsDecEq vs1 vs2 with
+      | isTrue h => isTrue (by subst h; rfl)
+      | isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
+    case prim.prim n1 n2 => exact match decEq n1 n2 with
       | isTrue h => isTrue (by subst h; rfl)
       | isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
 

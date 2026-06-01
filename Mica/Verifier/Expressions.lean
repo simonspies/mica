@@ -12,6 +12,7 @@ import Mica.Verifier.SpecMaps
 import Mica.Engine.Driver
 import Mica.Base.Fresh
 import Mathlib.Data.Finmap
+import Mica.Verifier.Intrinsic
 
 open Iris Iris.BI
 open Typed
@@ -105,7 +106,7 @@ theorem compileOp_eval {op : TinyML.BinOp} {sl sr : Term .value} {ρ : VerifM.En
 /-! ### Compiler and Top-Level Verifier -/
 
 mutual
-  def compile (Θ : TinyML.TypeEnv) (Δ_spec : Signature) (S : SpecMap) (B : Bindings) (Γ : TinyML.TyCtx) : Expr → VerifM (Term .value)
+  def compile (reg : Verifier.Registry) (Θ : TinyML.TypeEnv) (Δ_spec : Signature) (S : SpecMap) (B : Bindings) (Γ : TinyML.TyCtx) : Expr → VerifM (Term .value)
     | .const (.int n)  => pure (.unop .ofInt  (.const (.i n)))
     | .const (.bool b) => pure (.unop .ofBool (.const (.b b)))
     | .const .unit     => pure (Term.const .unit)
@@ -114,7 +115,7 @@ mutual
         VerifM.expectEq s!"type annotation mismatch for variable: {x}" (Γ x |>.getD .value) vty
         pure (.const (.uninterpreted x'.name .value))
     | .unop op e uty => do
-        let se ← compile Θ Δ_spec S B Γ e
+        let se ← compile reg Θ Δ_spec S B Γ e
         let ty ← VerifM.expectSome
           s!"type error: operator {repr op} cannot be applied to {repr e.ty}"
           (TinyML.UnOp.typeOf op e.ty)
@@ -124,12 +125,12 @@ mutual
           (compileUnop op se)
         pure t
     | .assert e => do
-        let sl ← compile Θ Δ_spec S B Γ e
+        let sl ← compile reg Θ Δ_spec S B Γ e
         VerifM.assert (Formula.eq .bool (Term.unop .toBool sl) (Term.const (.b true)))
         pure (Term.const .unit)
     | .binop op l r bty => do
-        let sr ← compile Θ Δ_spec S B Γ r
-        let sl ← compile Θ Δ_spec S B Γ l
+        let sr ← compile reg Θ Δ_spec S B Γ r
+        let sl ← compile reg Θ Δ_spec S B Γ l
         let ty ← VerifM.expectSome
           s!"type error: operator {repr op} cannot be applied to {repr l.ty} and {repr r.ty}"
           (TinyML.BinOp.typeOf op l.ty r.ty)
@@ -145,50 +146,60 @@ mutual
             (compileOp op sl sr)
           pure t
     | .letIn b e body => do
-        let se ← compile Θ Δ_spec S B Γ e
+        let se ← compile reg Θ Δ_spec S B Γ e
         VerifM.expectEq "let type annotation mismatch" b.ty e.ty
         match b.name with
-        | none => compile Θ Δ_spec S B Γ body
+        | none => compile reg Θ Δ_spec S B Γ body
         | some x =>
           let x' ← VerifM.decl (some x) .value
           VerifM.assume (.pure (Formula.eq .value (.const (.uninterpreted x'.name .value)) se))
-          compile Θ Δ_spec (Finmap.erase x S) ((x, x') :: B) (Γ.extend x e.ty) body
+          compile reg Θ Δ_spec (Finmap.erase x S) ((x, x') :: B) (Γ.extend x e.ty) body
     | .ifThenElse cond thn els ty => do
-        let sc ← compile Θ Δ_spec S B Γ cond
+        let sc ← compile reg Θ Δ_spec S B Γ cond
         VerifM.expectEq "if condition type mismatch" cond.ty .bool
         VerifM.expectEq "if branch type annotation mismatch" thn.ty ty
         VerifM.expectEq "if branch type annotation mismatch" els.ty ty
         let branch ← VerifM.all [true, false]
         if branch then do
           VerifM.assume (.pure (.not (.eq .value sc (.unop .ofBool (.const (.b false))))))
-          compile Θ Δ_spec S B Γ thn
+          compile reg Θ Δ_spec S B Γ thn
         else do
           VerifM.assume (.pure (.eq .value sc (.unop .ofBool (.const (.b false)))))
-          compile Θ Δ_spec S B Γ els
+          compile reg Θ Δ_spec S B Γ els
     | .app (.var f fty) args aty => do
         let spec ← VerifM.expectSome s!"no spec for function {f}" (S.lookup f)
-        let sterms ← compileExprs Θ Δ_spec S B Γ args
+        let sterms ← compileExprs reg Θ Δ_spec S B Γ args
         let sargs := (args.map Expr.ty).zip sterms
         VerifM.expectEq "app type annotation mismatch" spec.retTy aty
         VerifM.expectEq "app type annotation mismatch"
           fty (Typed.arrowOfArgs (spec.args.map fun arg => Binder.named arg.1 arg.2) spec.retTy)
         let (_, result) ← Spec.call Θ (FiniteSubst.base Δ_spec) spec sargs
         pure result
+    | .app (.prim n _) args aty => do
+        let i ← VerifM.expectSome s!"unknown primitive `{n}`"
+          (reg.lookup? n)
+        let spec := i.spec
+        VerifM.expectEq "primitive return type mismatch" i.resultTy aty
+        let sterms ← compileExprs reg Θ Δ_spec S B Γ args
+        let sargs := (args.map Expr.ty).zip sterms
+        let (_, result) ← Spec.call Θ (FiniteSubst.base Δ_spec) spec sargs
+        pure result
+    | .prim n _ => VerifM.fatal s!"primitive `{n}` must be applied"
     | .tuple es => do
-        let terms ← compileExprs Θ Δ_spec S B Γ es
+        let terms ← compileExprs reg Θ Δ_spec S B Γ es
         pure (.unop .ofValList (Terms.toValList terms))
     | .inj tag arity payload => do
         if tag ≥ arity then VerifM.fatal "inj tag out of range"
         else
-          let s ← compile Θ Δ_spec S B Γ payload
+          let s ← compile reg Θ Δ_spec S B Γ payload
           pure (.unop (.mkInj tag arity) s)
     | .match_ scrut branches ty => do
-        let sc ← compile Θ Δ_spec S B Γ scrut
+        let sc ← compile reg Θ Δ_spec S B Γ scrut
         match scrut.ty with
         | .sum ts =>
           if ts.length ≠ branches.length then VerifM.fatal "match arity mismatch"
           else if ∀ br ∈ branches, br.2.ty = ty then do
-            let actions := compileBranches Θ Δ_spec S B Γ sc ts branches 0
+            let actions := compileBranches reg Θ Δ_spec S B Γ sc ts branches 0
             let i ← VerifM.all (List.range actions.length)
             match actions[i]? with
             | some m => m
@@ -197,15 +208,15 @@ mutual
             VerifM.fatal "match branch type annotation mismatch"
         | _ => VerifM.fatal "match on non-sum type"
     | .cast e ty => do
-        let se ← compile Θ Δ_spec S B Γ e
+        let se ← compile reg Θ Δ_spec S B Γ e
         if TinyML.Typ.sub Θ e.ty ty then pure se
         else VerifM.fatal s!"cast type mismatch"
     | .ref false e => do
-        let _ ← compile Θ Δ_spec S B Γ e
+        let _ ← compile reg Θ Δ_spec S B Γ e
         let l ← VerifM.decl none .value
         pure (.const (.uninterpreted l.name .value))
     | .ref true e => do
-        let v ← compile Θ Δ_spec S B Γ e
+        let v ← compile reg Θ Δ_spec S B Γ e
         let l ← VerifM.decl none .value
         let sl := Term.const (.uninterpreted l.name .value)
         VerifM.assume (.spatial (.pointsTo sl v e.ty))
@@ -214,13 +225,13 @@ mutual
         match e.ty with
         | .owned ty' => do
             VerifM.expectEq "deref type annotation mismatch" ty' ty
-            let lq ← compile Θ Δ_spec S B Γ e
+            let lq ← compile reg Θ Δ_spec S B Γ e
             let v ← VerifM.findMatchForce lq ty
             VerifM.assume (.spatial (.pointsTo lq v ty))
             pure v
         | .ref ty' => do
             VerifM.expectEq "deref type annotation mismatch" ty' ty
-            let _ ← compile Θ Δ_spec S B Γ e
+            let _ ← compile reg Θ Δ_spec S B Γ e
             let v ← VerifM.decl none .value
             let sv := Term.const (.uninterpreted v.name .value)
             VerifM.assumeAll (TinyML.typeConstraints ty sv)
@@ -230,21 +241,21 @@ mutual
         match loc.ty with
         | .owned ty => do
             VerifM.expectEq "store location type mismatch" ty val.ty
-            let v ← compile Θ Δ_spec S B Γ val
-            let lq ← compile Θ Δ_spec S B Γ loc
+            let v ← compile reg Θ Δ_spec S B Γ val
+            let lq ← compile reg Θ Δ_spec S B Γ loc
             let _ ← VerifM.findMatchForce lq val.ty
             VerifM.assume (.spatial (.pointsTo lq v val.ty))
             pure (Term.const .unit)
         | .ref ty => do
             VerifM.expectEq "store location type mismatch" ty val.ty
-            let _ ← compile Θ Δ_spec S B Γ val
-            let _ ← compile Θ Δ_spec S B Γ loc
+            let _ ← compile reg Θ Δ_spec S B Γ val
+            let _ ← compile reg Θ Δ_spec S B Γ loc
             pure (Term.const .unit)
         | _ => VerifM.fatal "store location is not a reference"
     | .app _ _ _ | .fix _ _ _ _ => VerifM.fatal "unsupported expression"
 
   /-- Compile a single match branch: assume the scrutinee is `mkInj i n payload`, then compile the body. -/
-  def compileBranch (Θ : TinyML.TypeEnv) (Δ_spec : Signature) (S : SpecMap) (B : Bindings) (Γ : TinyML.TyCtx)
+  def compileBranch (reg : Verifier.Registry) (Θ : TinyML.TypeEnv) (Δ_spec : Signature) (S : SpecMap) (B : Bindings) (Γ : TinyML.TyCtx)
       (sc : Term .value) (n : Nat) (i : Nat) (ty_i : TinyML.Typ)
       : Binder × Expr → VerifM (Term .value)
     | (binder, body) => do
@@ -254,35 +265,35 @@ mutual
         VerifM.assumeAll (TinyML.typeConstraints ty_i (.const (.uninterpreted xv.name .value)))
         match binder.name with
         | some x =>
-          compile Θ Δ_spec (Finmap.erase x S) ((x, xv) :: B) (Γ.extendBinder binder ty_i) body
+          compile reg Θ Δ_spec (Finmap.erase x S) ((x, xv) :: B) (Γ.extendBinder binder ty_i) body
         | none =>
-          compile Θ Δ_spec S B (Γ.extendBinder binder ty_i) body
+          compile reg Θ Δ_spec S B (Γ.extendBinder binder ty_i) body
 
-  def compileBranches (Θ : TinyML.TypeEnv) (Δ_spec : Signature) (S : SpecMap) (B : Bindings) (Γ : TinyML.TyCtx)
+  def compileBranches (reg : Verifier.Registry) (Θ : TinyML.TypeEnv) (Δ_spec : Signature) (S : SpecMap) (B : Bindings) (Γ : TinyML.TyCtx)
       (sc : Term .value) (ts : List TinyML.Typ) :
       List (Binder × Expr) → Nat → List (VerifM (Term .value))
     | [], _ => []
     | branch :: rest, i =>
-      compileBranch Θ Δ_spec S B Γ sc ts.length i (ts[i]?.getD .value) branch
-        :: compileBranches Θ Δ_spec S B Γ sc ts rest (i + 1)
+      compileBranch reg Θ Δ_spec S B Γ sc ts.length i (ts[i]?.getD .value) branch
+        :: compileBranches reg Θ Δ_spec S B Γ sc ts rest (i + 1)
 
-  def compileExprs (Θ : TinyML.TypeEnv) (Δ_spec : Signature) (S : SpecMap) (B : Bindings) (Γ : TinyML.TyCtx) : List Expr → VerifM (List (Term .value))
+  def compileExprs (reg : Verifier.Registry) (Θ : TinyML.TypeEnv) (Δ_spec : Signature) (S : SpecMap) (B : Bindings) (Γ : TinyML.TyCtx) : List Expr → VerifM (List (Term .value))
     | [] => pure []
     | e :: es => do
-      let rest ← compileExprs Θ Δ_spec S B Γ es
-      let se ← compile Θ Δ_spec S B Γ e
+      let rest ← compileExprs reg Θ Δ_spec S B Γ es
+      let se ← compile reg Θ Δ_spec S B Γ e
       pure (se :: rest)
 end
 
 /-! ### Helper lemmas -/
 
-theorem compileBranches_length_get (Θ : TinyML.TypeEnv) (Δ_spec : Signature) (S : SpecMap) (B : Bindings) (Γ : TinyML.TyCtx)
+theorem compileBranches_length_get (reg : Verifier.Registry) (Θ : TinyML.TypeEnv) (Δ_spec : Signature) (S : SpecMap) (B : Bindings) (Γ : TinyML.TyCtx)
     (sc : Term .value) (ts : List TinyML.Typ)
     (branches : List (Binder × Expr)) (idx : Nat) :
-    (compileBranches Θ Δ_spec S B Γ sc ts branches idx).length = branches.length ∧
+    (compileBranches reg Θ Δ_spec S B Γ sc ts branches idx).length = branches.length ∧
     ∀ j, j < branches.length →
-      (compileBranches Θ Δ_spec S B Γ sc ts branches idx)[j]? =
-        branches[j]?.map (fun branch => compileBranch Θ Δ_spec S B Γ sc ts.length (idx + j) (ts[idx + j]?.getD .value) branch) := by
+      (compileBranches reg Θ Δ_spec S B Γ sc ts branches idx)[j]? =
+        branches[j]?.map (fun branch => compileBranch reg Θ Δ_spec S B Γ sc ts.length (idx + j) (ts[idx + j]?.getD .value) branch) := by
   induction branches generalizing idx with
   | nil => exact ⟨rfl, fun j hj => absurd hj (Nat.not_lt_zero _)⟩
   | cons b bs ih =>
@@ -300,13 +311,13 @@ theorem compileBranches_length_get (Θ : TinyML.TypeEnv) (Δ_spec : Signature) (
 
 namespace Helpers
 
-theorem ctx_dup (Θ : TinyML.TypeEnv) (Δ_spec : Signature) (ρ_spec : VerifM.Env)
+theorem ctx_dup (reg : Verifier.Registry) (Θ : TinyML.TypeEnv) (Δ_spec : Signature) (ρ_spec : VerifM.Env)
     (S : SpecMap) (B : Bindings) (Γ : TinyML.TyCtx)
     (st : TransState) (ρ : VerifM.Env) (γ : Runtime.Subst) (R : iProp) :
-    st.sl Θ ρ ∗ (S.satisfiedBy Θ Δ_spec ρ_spec γ ∗ B.typedSubst Θ Γ γ ∗ R) ⊢
+    st.sl Θ ρ ∗ (S.satisfiedBy (reg.wpCtx) Θ Δ_spec ρ_spec γ ∗ B.typedSubst Θ Γ γ ∗ R) ⊢
       st.sl Θ ρ ∗
-        (S.satisfiedBy Θ Δ_spec ρ_spec γ ∗ B.typedSubst Θ Γ γ ∗
-          (S.satisfiedBy Θ Δ_spec ρ_spec γ ∗ B.typedSubst Θ Γ γ ∗ R)) := by
+        (S.satisfiedBy (reg.wpCtx) Θ Δ_spec ρ_spec γ ∗ B.typedSubst Θ Γ γ ∗
+          (S.satisfiedBy (reg.wpCtx) Θ Δ_spec ρ_spec γ ∗ B.typedSubst Θ Γ γ ∗ R)) := by
   iintro ⟨Howns, □HS, □HT, HR⟩
   isplitl [Howns]
   · iexact Howns
@@ -320,13 +331,13 @@ theorem ctx_dup (Θ : TinyML.TypeEnv) (Δ_spec : Signature) (ρ_spec : VerifM.En
           · iexact HT
           · iexact HR
 
-theorem ctx_dup_flip (Θ : TinyML.TypeEnv) (Δ_spec : Signature) (ρ_spec : VerifM.Env)
+theorem ctx_dup_flip (reg : Verifier.Registry) (Θ : TinyML.TypeEnv) (Δ_spec : Signature) (ρ_spec : VerifM.Env)
     (S : SpecMap) (B : Bindings) (Γ : TinyML.TyCtx)
     (st : TransState) (ρ : VerifM.Env) (γ : Runtime.Subst) (R : iProp) :
-    st.sl Θ ρ ∗ (S.satisfiedBy Θ Δ_spec ρ_spec γ ∗ B.typedSubst Θ Γ γ ∗ R) ⊢
+    st.sl Θ ρ ∗ (S.satisfiedBy (reg.wpCtx) Θ Δ_spec ρ_spec γ ∗ B.typedSubst Θ Γ γ ∗ R) ⊢
       st.sl Θ ρ ∗
-        (S.satisfiedBy Θ Δ_spec ρ_spec γ ∗ B.typedSubst Θ Γ γ ∗
-          (B.typedSubst Θ Γ γ ∗ (S.satisfiedBy Θ Δ_spec ρ_spec γ ∗ R))) := by
+        (S.satisfiedBy (reg.wpCtx) Θ Δ_spec ρ_spec γ ∗ B.typedSubst Θ Γ γ ∗
+          (B.typedSubst Θ Γ γ ∗ (S.satisfiedBy (reg.wpCtx) Θ Δ_spec ρ_spec γ ∗ R))) := by
   iintro ⟨Howns, □HS, □HT, HR⟩
   isplitl [Howns]
   · iexact Howns
@@ -340,13 +351,13 @@ theorem ctx_dup_flip (Θ : TinyML.TypeEnv) (Δ_spec : Signature) (ρ_spec : Veri
           · iexact HS
           · iexact HR
 
-theorem ctx_push (Θ : TinyML.TypeEnv) (Δ_spec : Signature) (ρ_spec : VerifM.Env)
+theorem ctx_push (reg : Verifier.Registry) (Θ : TinyML.TypeEnv) (Δ_spec : Signature) (ρ_spec : VerifM.Env)
     (S : SpecMap) (B : Bindings) (Γ : TinyML.TyCtx)
     (st : TransState) (ρ : VerifM.Env) (γ : Runtime.Subst) (R : iProp)
     (v : Runtime.Val) (ty : TinyML.Typ) :
-    st.sl Θ ρ ∗ TinyML.ValHasType Θ v ty ∗ (S.satisfiedBy Θ Δ_spec ρ_spec γ ∗ B.typedSubst Θ Γ γ ∗ R) ⊢
+    st.sl Θ ρ ∗ TinyML.ValHasType Θ v ty ∗ (S.satisfiedBy (reg.wpCtx) Θ Δ_spec ρ_spec γ ∗ B.typedSubst Θ Γ γ ∗ R) ⊢
       st.sl Θ ρ ∗
-        (S.satisfiedBy Θ Δ_spec ρ_spec γ ∗ B.typedSubst Θ Γ γ ∗
+        (S.satisfiedBy (reg.wpCtx) Θ Δ_spec ρ_spec γ ∗ B.typedSubst Θ Γ γ ∗
           (TinyML.ValHasType Θ v ty ∗ R)) := by
   iintro ⟨Howns, Hv, □HS, □HT, HR⟩
   isplitl [Howns]
@@ -359,13 +370,13 @@ theorem ctx_push (Θ : TinyML.TypeEnv) (Δ_spec : Signature) (ρ_spec : VerifM.E
         · iexact Hv
         · iexact HR
 
-theorem ctx_push_flip (Θ : TinyML.TypeEnv) (Δ_spec : Signature) (ρ_spec : VerifM.Env)
+theorem ctx_push_flip (reg : Verifier.Registry) (Θ : TinyML.TypeEnv) (Δ_spec : Signature) (ρ_spec : VerifM.Env)
     (S : SpecMap) (B : Bindings) (Γ : TinyML.TyCtx)
     (st : TransState) (ρ : VerifM.Env) (γ : Runtime.Subst) (R : iProp)
     (v : Runtime.Val) (ty : TinyML.Typ) :
-    st.sl Θ ρ ∗ TinyML.ValHasType Θ v ty ∗ (B.typedSubst Θ Γ γ ∗ (S.satisfiedBy Θ Δ_spec ρ_spec γ ∗ R)) ⊢
+    st.sl Θ ρ ∗ TinyML.ValHasType Θ v ty ∗ (B.typedSubst Θ Γ γ ∗ (S.satisfiedBy (reg.wpCtx) Θ Δ_spec ρ_spec γ ∗ R)) ⊢
       st.sl Θ ρ ∗
-        (S.satisfiedBy Θ Δ_spec ρ_spec γ ∗ B.typedSubst Θ Γ γ ∗
+        (S.satisfiedBy (reg.wpCtx) Θ Δ_spec ρ_spec γ ∗ B.typedSubst Θ Γ γ ∗
           (TinyML.ValHasType Θ v ty ∗ R)) := by
   iintro ⟨Howns, Hv, □HT, □HS, HR⟩
   isplitl [Howns]
@@ -395,11 +406,11 @@ private theorem specInvariants_mono
   refine ⟨hΔspec.trans hdecls, VerifM.Env.agreeOn_trans hρspec ?_⟩
   exact VerifM.Env.agreeOn_mono hΔspec hagree
 
-def correctExpr (e : Expr) : Prop :=
+def correctExpr (reg : Verifier.Registry) (e : Expr) : Prop :=
   ∀ (Θ : TinyML.TypeEnv) (R : iProp) (S : SpecMap) (B : Bindings) (Γ : TinyML.TyCtx) (st : TransState) (ρ : VerifM.Env) (γ : Runtime.Subst)
   (Δ_spec : Signature) (ρ_spec : VerifM.Env)
   (Ψ : Term .value → TransState → VerifM.Env → Prop) (Φ : Runtime.Val → iProp),
-    VerifM.eval (compile Θ Δ_spec S B Γ e) st ρ Ψ →
+    VerifM.eval (compile reg Θ Δ_spec S B Γ e) st ρ Ψ →
     B.agreeOnLinked ρ.env γ →
     B.wfIn st.decls →
     S.wfIn Δ_spec →
@@ -407,18 +418,20 @@ def correctExpr (e : Expr) : Prop :=
     Δ_spec.vars = [] →
     Δ_spec.Subset st.decls →
     VerifM.Env.agreeOn Δ_spec ρ_spec ρ →
+    Verifier.Registry.symSubset reg Δ_spec →
+    Verifier.Registry.symAgree reg ρ_spec.env →
     (∀ v ρ' st' se, Ψ se st' ρ' → se.wfIn st'.decls → Term.eval ρ'.env se = v →
       st'.sl Θ ρ' ∗ TinyML.ValHasType Θ v e.ty ∗ R ⊢ Φ v) →
-    st.sl Θ ρ ∗ (S.satisfiedBy Θ Δ_spec ρ_spec γ ∗ B.typedSubst Θ Γ γ ∗ R) ⊢ wp (e.runtime.subst γ) Φ
+    st.sl Θ ρ ∗ (S.satisfiedBy (reg.wpCtx) Θ Δ_spec ρ_spec γ ∗ B.typedSubst Θ Γ γ ∗ R) ⊢ wp (reg.wpCtx) (e.runtime.subst γ) Φ
 
-def correctBranch (branch : Binder × Expr) : Prop :=
+def correctBranch (reg : Verifier.Registry) (branch : Binder × Expr) : Prop :=
   ∀ (Θ : TinyML.TypeEnv) (R : iProp) (S : SpecMap) (B : Bindings) (Γ : TinyML.TyCtx)
     (sc : Term .value) (n i : Nat) (ty_i : TinyML.Typ)
     (st : TransState) (ρ : VerifM.Env) (γ : Runtime.Subst)
     (Δ_spec : Signature) (ρ_spec : VerifM.Env)
     (Ψ : Term .value → TransState → VerifM.Env → Prop)
     (Φ : Runtime.Val → iProp),
-    VerifM.eval (compileBranch Θ Δ_spec S B Γ sc n i ty_i branch) st ρ Ψ →
+    VerifM.eval (compileBranch reg Θ Δ_spec S B Γ sc n i ty_i branch) st ρ Ψ →
     B.agreeOnLinked ρ.env γ →
     B.wfIn st.decls →
     S.wfIn Δ_spec →
@@ -426,13 +439,15 @@ def correctBranch (branch : Binder × Expr) : Prop :=
     Δ_spec.vars = [] →
     Δ_spec.Subset st.decls →
     VerifM.Env.agreeOn Δ_spec ρ_spec ρ →
+    Verifier.Registry.symSubset reg Δ_spec →
+    Verifier.Registry.symAgree reg ρ_spec.env →
     sc.wfIn st.decls →
     (∀ v ρ' st' se, Ψ se st' ρ' → se.wfIn st'.decls →
-      se.eval ρ'.env = v → st'.sl Θ ρ' ∗ TinyML.ValHasType Θ v branch.2.ty ∗ (S.satisfiedBy Θ Δ_spec ρ_spec γ ∗ R) ⊢ Φ v) →
+      se.eval ρ'.env = v → st'.sl Θ ρ' ∗ TinyML.ValHasType Θ v branch.2.ty ∗ (S.satisfiedBy (reg.wpCtx) Θ Δ_spec ρ_spec γ ∗ R) ⊢ Φ v) →
     ∀ payload, sc.eval ρ.env = Runtime.Val.inj i n payload →
-      st.sl Θ ρ ∗ TinyML.ValHasType Θ payload ty_i ∗ (S.satisfiedBy Θ Δ_spec ρ_spec γ ∗ B.typedSubst Θ Γ γ ∗ R) ⊢ wp (.app ((Runtime.Expr.fix .none [branch.1.runtime] branch.2.runtime).subst γ) [.val payload]) Φ
+      st.sl Θ ρ ∗ TinyML.ValHasType Θ payload ty_i ∗ (S.satisfiedBy (reg.wpCtx) Θ Δ_spec ρ_spec γ ∗ B.typedSubst Θ Γ γ ∗ R) ⊢ wp (reg.wpCtx) (.app ((Runtime.Expr.fix .none [branch.1.runtime] branch.2.runtime).subst γ) [.val payload]) Φ
 
-def correctBranches (branches : List (Binder × Expr)) : Prop :=
+def correctBranches (reg : Verifier.Registry) (branches : List (Binder × Expr)) : Prop :=
   ∀ (Θ : TinyML.TypeEnv) (R : iProp) (S : SpecMap) (B : Bindings) (Γ : TinyML.TyCtx)
     (sc : Term .value) (n : Nat) (ts : List TinyML.Typ) (idx : Nat)
     (st : TransState) (ρ : VerifM.Env) (γ : Runtime.Subst)
@@ -446,21 +461,23 @@ def correctBranches (branches : List (Binder × Expr)) : Prop :=
     Δ_spec.vars = [] →
     Δ_spec.Subset st.decls →
     VerifM.Env.agreeOn Δ_spec ρ_spec ρ →
+    Verifier.Registry.symSubset reg Δ_spec →
+    Verifier.Registry.symAgree reg ρ_spec.env →
     sc.wfIn st.decls →
     (∀ (j : Nat) (hj : j < branches.length) v ρ' st' se, Ψ se st' ρ' → se.wfIn st'.decls →
-      se.eval ρ'.env = v → st'.sl Θ ρ' ∗ TinyML.ValHasType Θ v (branches[j]).2.ty ∗ (S.satisfiedBy Θ Δ_spec ρ_spec γ ∗ R) ⊢ Φ v) →
+      se.eval ρ'.env = v → st'.sl Θ ρ' ∗ TinyML.ValHasType Θ v (branches[j]).2.ty ∗ (S.satisfiedBy (reg.wpCtx) Θ Δ_spec ρ_spec γ ∗ R) ⊢ Φ v) →
     ∀ (j : Nat) (hj : j < branches.length),
-      VerifM.eval (compileBranch Θ Δ_spec S B Γ sc n (idx + j) (ts[idx + j]?.getD .value) branches[j]) st ρ Ψ →
+      VerifM.eval (compileBranch reg Θ Δ_spec S B Γ sc n (idx + j) (ts[idx + j]?.getD .value) branches[j]) st ρ Ψ →
       ∀ payload, sc.eval ρ.env = Runtime.Val.inj (idx + j) n payload →
-        st.sl Θ ρ ∗ TinyML.ValHasType Θ payload (ts[idx + j]?.getD .value) ∗ (S.satisfiedBy Θ Δ_spec ρ_spec γ ∗ B.typedSubst Θ Γ γ ∗ R) ⊢ wp (.app ((Runtime.Expr.fix .none [(branches[j]).1.runtime] (branches[j]).2.runtime).subst γ) [.val payload]) Φ
+        st.sl Θ ρ ∗ TinyML.ValHasType Θ payload (ts[idx + j]?.getD .value) ∗ (S.satisfiedBy (reg.wpCtx) Θ Δ_spec ρ_spec γ ∗ B.typedSubst Θ Γ γ ∗ R) ⊢ wp (reg.wpCtx) (.app ((Runtime.Expr.fix .none [(branches[j]).1.runtime] (branches[j]).2.runtime).subst γ) [.val payload]) Φ
 
-def correctExprs (es : List Expr) : Prop :=
+def correctExprs (reg : Verifier.Registry) (es : List Expr) : Prop :=
   ∀ (Θ : TinyML.TypeEnv) (R : iProp) (S : SpecMap) (B : Bindings) (Γ : TinyML.TyCtx)
     (st : TransState) (ρ : VerifM.Env) (γ : Runtime.Subst)
     (Δ_spec : Signature) (ρ_spec : VerifM.Env)
     (Ψ : List (Term .value) → TransState → VerifM.Env → Prop)
     (Φ : List Runtime.Val → iProp),
-    VerifM.eval (compileExprs Θ Δ_spec S B Γ es) st ρ Ψ →
+    VerifM.eval (compileExprs reg Θ Δ_spec S B Γ es) st ρ Ψ →
     B.agreeOnLinked ρ.env γ →
     B.wfIn st.decls →
     S.wfIn Δ_spec →
@@ -468,17 +485,19 @@ def correctExprs (es : List Expr) : Prop :=
     Δ_spec.vars = [] →
     Δ_spec.Subset st.decls →
     VerifM.Env.agreeOn Δ_spec ρ_spec ρ →
+    Verifier.Registry.symSubset reg Δ_spec →
+    Verifier.Registry.symAgree reg ρ_spec.env →
     (∀ vs ρ' st' terms, Ψ terms st' ρ' →
       (∀ t ∈ terms, t.wfIn st'.decls) →
       Terms.Eval ρ'.env terms vs →
-       st'.sl Θ ρ' ∗ TinyML.ValsHaveTypes Θ vs (es.map Expr.ty) ∗ (S.satisfiedBy Θ Δ_spec ρ_spec γ ∗ R) ⊢ Φ vs) →
-    st.sl Θ ρ ∗ (S.satisfiedBy Θ Δ_spec ρ_spec γ ∗ B.typedSubst Θ Γ γ ∗ R) ⊢ wps (es.map (fun e => e.runtime.subst γ)) Φ
+       st'.sl Θ ρ' ∗ TinyML.ValsHaveTypes Θ vs (es.map Expr.ty) ∗ (S.satisfiedBy (reg.wpCtx) Θ Δ_spec ρ_spec γ ∗ R) ⊢ Φ vs) →
+    st.sl Θ ρ ∗ (S.satisfiedBy (reg.wpCtx) Θ Δ_spec ρ_spec γ ∗ B.typedSubst Θ Γ γ ∗ R) ⊢ wps (reg.wpCtx) (es.map (fun e => e.runtime.subst γ)) Φ
 
 /-! #### Correctness Compatibility Lemmas -/
 
-theorem compileConst_correct (c : TinyML.Const) :
-    correctExpr (.const c) := by
-  intro Θ R S B Γ st ρ γ Δ_spec ρ_spec Ψ Φ heval _hagree _hbwf _hSwf _hΔwf _hΔvars _hΔspec _hρspec hpost
+theorem compileConst_correct (reg : Verifier.Registry) (c : TinyML.Const) :
+    correctExpr reg (.const c) := by
+  intro Θ R S B Γ st ρ γ Δ_spec ρ_spec Ψ Φ heval _hagree _hbwf _hSwf _hΔwf _hΔvars _hΔspec _hρspec hΔreg hρreg hpost
   cases c with
   | int n =>
     simp only [compile] at heval
@@ -529,9 +548,9 @@ theorem compileConst_correct (c : TinyML.Const) :
       · exact TinyML.ValHasType.unit_intro Θ
       · iexact HR
 
-theorem compileVar_correct (x : String) (vty : TinyML.Typ) :
-    correctExpr (.var x vty) := by
-  intro Θ R S B Γ st ρ γ Δ_spec ρ_spec Ψ Φ heval hagree hbwf _hSwf _hΔwf _hΔvars _hΔspec _hρspec hpost
+theorem compileVar_correct (reg : Verifier.Registry) (x : String) (vty : TinyML.Typ) :
+    correctExpr reg (.var x vty) := by
+  intro Θ R S B Γ st ρ γ Δ_spec ρ_spec Ψ Φ heval hagree hbwf _hSwf _hΔwf _hΔvars _hΔspec _hρspec hΔreg hρreg hpost
   simp only [compile] at heval
   obtain ⟨x', hbind, heval⟩ := VerifM.eval_bind_expectSome heval
   obtain ⟨hcheck, hcont⟩ := VerifM.eval_bind_expectEq heval
@@ -598,10 +617,10 @@ theorem compileVar_correct (x : String) (vty : TinyML.Typ) :
         hΨ hwfv (by simp [Term.eval, Const.denote])
     exact SpatialContext.wp_val <| (sep_mono_r sep_elim_r).trans <| hprep.trans <| hpost'
 
-theorem compileInj_correct (tag arity : Nat) (payload : Expr)
-    (ihPayload : correctExpr payload) :
-    correctExpr (.inj tag arity payload) := by
-  intro Θ R S B Γ st ρ γ Δ_spec ρ_spec Ψ Φ heval hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec hpost
+theorem compileInj_correct (reg : Verifier.Registry) (tag arity : Nat) (payload : Expr)
+    (ihPayload : correctExpr reg payload) :
+    correctExpr reg (.inj tag arity payload) := by
+  intro Θ R S B Γ st ρ γ Δ_spec ρ_spec Ψ Φ heval hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec hΔreg hρreg hpost
   unfold Expr.runtime
   simp only [Runtime.Expr.subst]
   simp only [compile] at heval
@@ -610,9 +629,9 @@ theorem compileInj_correct (tag arity : Nat) (payload : Expr)
     exact (VerifM.eval_fatal heval).elim
   · push_neg at htag
     simp [show ¬(tag ≥ arity) from Nat.not_le.mpr htag] at heval
-    have heval_p : (compile Θ Δ_spec S B Γ payload).eval st ρ _ := VerifM.eval_bind _ _ _ _ heval
+    have heval_p : (compile reg Θ Δ_spec S B Γ payload).eval st ρ _ := VerifM.eval_bind _ _ _ _ heval
     refine SpatialContext.wp_bind_inj <| ihPayload Θ R S B Γ st ρ γ Δ_spec ρ_spec _ _
-      (VerifM.eval.decls_grow ρ heval_p) hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec ?_
+      (VerifM.eval.decls_grow ρ heval_p) hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec hΔreg hρreg ?_
     intro v_p ρ_p st_p se_p hΨ_p hse_wf_p heval_se_p
     obtain ⟨_hdecls_p, _hagreeOn_p, hΨ_p⟩ := hΨ_p
     obtain hΨ_p := VerifM.eval_ret hΨ_p
@@ -636,15 +655,15 @@ theorem compileInj_correct (tag arity : Nat) (payload : Expr)
           (by simp [Term.eval, UnOp.eval, heval_se_p]))
     exact SpatialContext.wp_inj <| hprep.trans hpost'
 
-theorem compileCast_correct (e : Expr) (ty : TinyML.Typ)
-    (ih : correctExpr e) :
-    correctExpr (.cast e ty) := by
-  intro Θ R S B Γ st ρ γ Δ_spec ρ_spec Ψ Φ heval hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec hpost
+theorem compileCast_correct (reg : Verifier.Registry) (e : Expr) (ty : TinyML.Typ)
+    (ih : correctExpr reg e) :
+    correctExpr reg (.cast e ty) := by
+  intro Θ R S B Γ st ρ γ Δ_spec ρ_spec Ψ Φ heval hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec hΔreg hρreg hpost
   simp only [Expr.ty] at hpost
   simp only [compile] at heval
-  have heval_e : (compile Θ Δ_spec S B Γ e).eval st ρ _ := VerifM.eval_bind _ _ _ _ heval
+  have heval_e : (compile reg Θ Δ_spec S B Γ e).eval st ρ _ := VerifM.eval_bind _ _ _ _ heval
   simp [Expr.runtime]
-  refine ih Θ R S B Γ st ρ γ Δ_spec ρ_spec _ _ (VerifM.eval.decls_grow ρ heval_e) hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec ?_
+  refine ih Θ R S B Γ st ρ γ Δ_spec ρ_spec _ _ (VerifM.eval.decls_grow ρ heval_e) hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec hΔreg hρreg ?_
   intro v ρ' st' se hΨ hse_wf heval_se
   obtain ⟨_, _, hΨ⟩ := hΨ
   cases hsub : TinyML.Typ.sub Θ e.ty ty with
@@ -661,16 +680,16 @@ theorem compileCast_correct (e : Expr) (ty : TinyML.Typ)
       sep_mono_r (sep_mono_l (TinyML.ValHasType.sub hsub'))
     exact hprep.trans <| hpost v ρ' st' se hΨ hse_wf heval_se
 
-theorem compileAssert_correct (e : Expr)
-    (ih : correctExpr e) :
-    correctExpr (.assert e) := by
-  intro Θ R S B Γ st ρ γ Δ_spec ρ_spec Ψ Φ heval hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec hpost
+theorem compileAssert_correct (reg : Verifier.Registry) (e : Expr)
+    (ih : correctExpr reg e) :
+    correctExpr reg (.assert e) := by
+  intro Θ R S B Γ st ρ γ Δ_spec ρ_spec Ψ Φ heval hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec hΔreg hρreg hpost
   unfold Expr.runtime
   simp only [Runtime.Expr.subst]
   simp only [compile] at heval
-  have heval_e : (compile Θ Δ_spec S B Γ e).eval st ρ _ := VerifM.eval_bind _ _ _ _ heval
+  have heval_e : (compile reg Θ Δ_spec S B Γ e).eval st ρ _ := VerifM.eval_bind _ _ _ _ heval
   refine SpatialContext.wp_bind_assert <| ih Θ R S B Γ st ρ γ Δ_spec ρ_spec _ _
-    (VerifM.eval.decls_grow ρ heval_e) hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec ?_
+    (VerifM.eval.decls_grow ρ heval_e) hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec hΔreg hρreg ?_
   intro v_e ρ_e st₁ se hΨ_e hse_wf heval_se
   obtain ⟨_, _, hΨ_e⟩ := hΨ_e
   let φ := Formula.eq .bool (Term.unop .toBool se) (Term.const (.b true))
@@ -693,23 +712,29 @@ theorem compileAssert_correct (e : Expr)
     trivial
     (by simp [Term.eval])
 
-theorem compileFix_correct (self : Binder) (args : List Binder) (retTy : TinyML.Typ) (body : Expr) :
-    correctExpr (.fix self args retTy body) := by
+theorem compileFix_correct (reg : Verifier.Registry) (self : Binder) (args : List Binder) (retTy : TinyML.Typ) (body : Expr) :
+    correctExpr reg (.fix self args retTy body) := by
   intro Θ R S B Γ st ρ γ Δ_spec ρ_spec Ψ Φ heval _hagree _hbwf _hSwf _hΔwf _hΔvars _hΔspec _hρspec _hpost
   simp only [compile] at heval
   exact (VerifM.eval_fatal heval).elim
 
-theorem compileRefShared_correct (e : Expr)
-    (ih : correctExpr e) :
-    correctExpr (.ref false e) := by
-  intro Θ R S B Γ st ρ γ Δ_spec ρ_spec Ψ Φ heval hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec hpost
+theorem compilePrim_correct (reg : Verifier.Registry) (n : String) (ty : TinyML.Typ) :
+    correctExpr reg (.prim n ty) := by
+  intro Θ R S B Γ st ρ γ Δ_spec ρ_spec Ψ Φ heval _hagree _hbwf _hSwf _hΔwf _hΔvars _hΔspec _hρspec _hpost
+  simp only [compile] at heval
+  exact (VerifM.eval_fatal heval).elim
+
+theorem compileRefShared_correct (reg : Verifier.Registry) (e : Expr)
+    (ih : correctExpr reg e) :
+    correctExpr reg (.ref false e) := by
+  intro Θ R S B Γ st ρ γ Δ_spec ρ_spec Ψ Φ heval hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec hΔreg hρreg hpost
   unfold Expr.runtime
   simp only [Runtime.Expr.subst]
   simp only [compile] at heval
   simp only [Expr.ty, Bool.false_eq_true, if_false] at hpost
-  have heval_e : (compile Θ Δ_spec S B Γ e).eval st ρ _ := VerifM.eval_bind _ _ _ _ heval
+  have heval_e : (compile reg Θ Δ_spec S B Γ e).eval st ρ _ := VerifM.eval_bind _ _ _ _ heval
   refine SpatialContext.wp_bind_ref <| ih Θ R S B Γ st ρ γ Δ_spec ρ_spec _ _
-    (VerifM.eval.decls_grow ρ heval_e) hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec ?_
+    (VerifM.eval.decls_grow ρ heval_e) hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec hΔreg hρreg ?_
   intro v_e ρ_e st₁ se hΨ_e hse_wf heval_se
   obtain ⟨_hdecls_e, _hagreeOn_e, hΨ_e⟩ := hΨ_e
   have hwf_st₁ := VerifM.eval.wf hΨ_e
@@ -719,7 +744,7 @@ theorem compileRefShared_correct (e : Expr)
   have hwf_addConst : TransState.wf { st₁ with decls := st₁.decls.addConst c } :=
     TransState.freshConst.wf _ hwf_st₁
   have hwp :
-      st₁.sl Θ ρ_e ∗ TinyML.ValHasType Θ v_e e.ty ∗ R ⊢ wp (.ref (.val v_e)) Φ := by
+      st₁.sl Θ ρ_e ∗ TinyML.ValHasType Θ v_e e.ty ∗ R ⊢ wp (reg.wpCtx) (.ref (.val v_e)) Φ := by
     istart
     iintro ⟨Howns, □Hty, HR⟩
     iapply (wp.ref_inv (I := fun w => TinyML.ValHasType Θ w e.ty))
@@ -767,17 +792,17 @@ theorem compileRefShared_correct (e : Expr)
         · iexact HR
   exact hwp
 
-theorem compileRefOwned_correct (e : Expr)
-    (ih : correctExpr e) :
-    correctExpr (.ref true e) := by
-  intro Θ R S B Γ st ρ γ Δ_spec ρ_spec Ψ Φ heval hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec hpost
+theorem compileRefOwned_correct (reg : Verifier.Registry) (e : Expr)
+    (ih : correctExpr reg e) :
+    correctExpr reg (.ref true e) := by
+  intro Θ R S B Γ st ρ γ Δ_spec ρ_spec Ψ Φ heval hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec hΔreg hρreg hpost
   unfold Expr.runtime
   simp only [Runtime.Expr.subst]
   simp only [compile] at heval
   simp only [Expr.ty, if_true] at hpost
-  have heval_e : (compile Θ Δ_spec S B Γ e).eval st ρ _ := VerifM.eval_bind _ _ _ _ heval
+  have heval_e : (compile reg Θ Δ_spec S B Γ e).eval st ρ _ := VerifM.eval_bind _ _ _ _ heval
   refine SpatialContext.wp_bind_ref <| ih Θ R S B Γ st ρ γ Δ_spec ρ_spec _ _
-    (VerifM.eval.decls_grow ρ heval_e) hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec ?_
+    (VerifM.eval.decls_grow ρ heval_e) hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec hΔreg hρreg ?_
   intro v_e ρ_e st₁ se hΨ_e hse_wf heval_se
   obtain ⟨_hdecls_e, _hagreeOn_e, hΨ_e⟩ := hΨ_e
   have hdecl_eval := VerifM.eval_bind _ _ _ _ hΨ_e
@@ -788,7 +813,7 @@ theorem compileRefOwned_correct (e : Expr)
   have hc_fresh : c.name ∉ st₁.decls.allNames :=
     TransState.freshConst_fresh st₁ none .value
   have hwp :
-      st₁.sl Θ ρ_e ∗ TinyML.ValHasType Θ v_e e.ty ∗ R ⊢ wp (.ref (.val v_e)) Φ := by
+      st₁.sl Θ ρ_e ∗ TinyML.ValHasType Θ v_e e.ty ∗ R ⊢ wp (reg.wpCtx) (.ref (.val v_e)) Φ := by
     refine SpatialContext.wp_ref Θ
       (ctx := st₁.owns) (ρ := ρ_e.env) (R := R) (Δ := st₁.decls)
       (vt := se) (ty := e.ty) (name := c.name)
@@ -829,26 +854,26 @@ theorem compileRefOwned_correct (e : Expr)
       · iexact HR
   exact hwp
 
-theorem compileRef_correct (owned : Bool) (e : Expr)
-    (ih : correctExpr e) :
-    correctExpr (.ref owned e) := by
+theorem compileRef_correct (reg : Verifier.Registry) (owned : Bool) (e : Expr)
+    (ih : correctExpr reg e) :
+    correctExpr reg (.ref owned e) := by
   cases owned with
-  | false => exact compileRefShared_correct e ih
-  | true => exact compileRefOwned_correct e ih
+  | false => exact compileRefShared_correct reg e ih
+  | true => exact compileRefOwned_correct reg e ih
 
-theorem compileDerefShared_correct (e : Expr) (ty : TinyML.Typ)
+theorem compileDerefShared_correct (reg : Verifier.Registry) (e : Expr) (ty : TinyML.Typ)
     (href : e.ty = .ref ty)
-    (ih : correctExpr e) :
-    correctExpr (.deref e ty) := by
-  intro Θ R S B Γ st ρ γ Δ_spec ρ_spec Ψ Φ heval hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec hpost
+    (ih : correctExpr reg e) :
+    correctExpr reg (.deref e ty) := by
+  intro Θ R S B Γ st ρ γ Δ_spec ρ_spec Ψ Φ heval hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec hΔreg hρreg hpost
   unfold Expr.runtime
   simp only [Runtime.Expr.subst]
   simp only [compile, href] at heval
   simp only [Expr.ty] at hpost
   obtain ⟨_, heval⟩ := VerifM.eval_bind_expectEq heval
-  have heval_e : (compile Θ Δ_spec S B Γ e).eval st ρ _ := VerifM.eval_bind _ _ _ _ heval
+  have heval_e : (compile reg Θ Δ_spec S B Γ e).eval st ρ _ := VerifM.eval_bind _ _ _ _ heval
   refine SpatialContext.wp_bind_deref <| ih Θ R S B Γ st ρ γ Δ_spec ρ_spec _ _
-    (VerifM.eval.decls_grow ρ heval_e) hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec ?_
+    (VerifM.eval.decls_grow ρ heval_e) hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec hΔreg hρreg ?_
   intro v_e ρ_e st₁ se hΨ_e _hse_wf heval_se
   obtain ⟨_hdecls_e, _hagreeOn_e, hΨ_e⟩ := hΨ_e
   have hdecl_eval := VerifM.eval_bind _ _ _ _ hΨ_e
@@ -863,7 +888,7 @@ theorem compileDerefShared_correct (e : Expr) (ty : TinyML.Typ)
         (Term.const_wfIn_addConst_of_fresh (Δ := st₁.decls) (c := c)
           (VerifM.eval.wf hdecl_eval).namesDisjoint hc_fresh)
   have hwp :
-      st₁.sl Θ ρ_e ∗ TinyML.ValHasType Θ v_e e.ty ∗ R ⊢ wp (.deref (.val v_e)) Φ := by
+      st₁.sl Θ ρ_e ∗ TinyML.ValHasType Θ v_e e.ty ∗ R ⊢ wp (reg.wpCtx) (.deref (.val v_e)) Φ := by
     rw [href]
     istart
     iintro ⟨Howns, Href, HR⟩
@@ -883,7 +908,7 @@ theorem compileDerefShared_correct (e : Expr) (ty : TinyML.Typ)
       ihave Hcheck := TinyML.typeConstraints_hold (ty := ty) (t := sv)
         (ρ := ρ₂.env) (Θ := Θ) (v := w) hsv_eval $$ Hw
       ipure Hcheck
-      obtain ⟨st₃, hst₃_decls, hst₃_owns, heval_ret⟩ := VerifM.eval_assumeAll hassume_eval
+      obtain ⟨st₃, hst₃_decls, hst₃_owns, _, heval_ret⟩ := VerifM.eval_assumeAll hassume_eval
         (fun φ hφ => TinyML.typeConstraints_wfIn hc_wf φ hφ)
         (fun φ hφ => Hcheck φ hφ)
       have hΨ_ret := VerifM.eval_ret heval_ret
@@ -901,26 +926,26 @@ theorem compileDerefShared_correct (e : Expr) (ty : TinyML.Typ)
         · iexact HR
   exact hwp
 
-theorem compileDerefOwned_correct (e : Expr) (ty : TinyML.Typ)
+theorem compileDerefOwned_correct (reg : Verifier.Registry) (e : Expr) (ty : TinyML.Typ)
     (howned : e.ty = .owned ty)
-    (ih : correctExpr e) :
-    correctExpr (.deref e ty) := by
-  intro Θ R S B Γ st ρ γ Δ_spec ρ_spec Ψ Φ heval hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec hpost
+    (ih : correctExpr reg e) :
+    correctExpr reg (.deref e ty) := by
+  intro Θ R S B Γ st ρ γ Δ_spec ρ_spec Ψ Φ heval hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec hΔreg hρreg hpost
   unfold Expr.runtime
   simp only [Runtime.Expr.subst]
   simp only [compile, howned] at heval
   simp only [Expr.ty] at hpost
   obtain ⟨_, heval⟩ := VerifM.eval_bind_expectEq heval
-  have heval_e : (compile Θ Δ_spec S B Γ e).eval st ρ _ := VerifM.eval_bind _ _ _ _ heval
+  have heval_e : (compile reg Θ Δ_spec S B Γ e).eval st ρ _ := VerifM.eval_bind _ _ _ _ heval
   refine SpatialContext.wp_bind_deref <| ih Θ R S B Γ st ρ γ Δ_spec ρ_spec _ _
-    (VerifM.eval.decls_grow ρ heval_e) hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec ?_
+    (VerifM.eval.decls_grow ρ heval_e) hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec hΔreg hρreg ?_
   intro v_e ρ_e st₁ se hΨ_e hse_wf heval_se
   obtain ⟨_hdecls_e, _hagreeOn_e, hΨ_e⟩ := hΨ_e
   have hfind_eval := VerifM.eval_bind _ _ _ _ hΨ_e
   rw [howned]
   refine VerifM.eval_findMatchForce Θ
     (R := TinyML.ValHasType Θ v_e (.owned ty) ∗ R)
-    (Φ := wp (.deref (.val v_e)) Φ) hfind_eval hse_wf ?_
+    (Φ := wp (reg.wpCtx) (.deref (.val v_e)) Φ) hfind_eval hse_wf ?_
   intro v st₂ hQ hdecls hv_wf
   have hassume_eval := VerifM.eval_bind _ _ _ _ hQ
   have hatom_wf : (SpatialAtom.pointsTo se v ty).wfIn st₂.decls := by
@@ -933,7 +958,7 @@ theorem compileDerefOwned_correct (e : Expr) (ty : TinyML.Typ)
     exact hv_wf
   have hwp :
       SpatialAtom.interp Θ ρ_e.env (.pointsTo se v ty) ∗ st₂.sl Θ ρ_e ∗
-        (TinyML.ValHasType Θ v_e (.owned ty) ∗ R) ⊢ wp (.deref (.val v_e)) Φ := by
+        (TinyML.ValHasType Θ v_e (.owned ty) ∗ R) ⊢ wp (reg.wpCtx) (.deref (.val v_e)) Φ := by
     simp only [SpatialAtom.interp]
     istart
     iintro ⟨Hatom, Howns, _Howned, HR⟩
@@ -964,14 +989,14 @@ theorem compileDerefOwned_correct (e : Expr) (ty : TinyML.Typ)
         · iexact HR
   exact hwp
 
-theorem compileDeref_correct (e : Expr) (ty : TinyML.Typ)
-    (ih : correctExpr e) :
-    correctExpr (.deref e ty) := by
+theorem compileDeref_correct (reg : Verifier.Registry) (e : Expr) (ty : TinyML.Typ)
+    (ih : correctExpr reg e) :
+    correctExpr reg (.deref e ty) := by
   cases hty : e.ty with
   | ref ty' =>
       by_cases heq : ty' = ty
       · have href : e.ty = .ref ty := by simpa [heq] using hty
-        exact compileDerefShared_correct e ty href ih
+        exact compileDerefShared_correct reg e ty href ih
       · intro Θ R S B Γ st ρ γ Δ_spec ρ_spec Ψ Φ heval _ _ _ _ _ _ _ _
         simp only [compile, hty] at heval
         obtain ⟨hannot, _⟩ := VerifM.eval_bind_expectEq heval
@@ -979,7 +1004,7 @@ theorem compileDeref_correct (e : Expr) (ty : TinyML.Typ)
   | owned ty' =>
       by_cases heq : ty' = ty
       · have howned : e.ty = .owned ty := by simpa [heq] using hty
-        exact compileDerefOwned_correct e ty howned ih
+        exact compileDerefOwned_correct reg e ty howned ih
       · intro Θ R S B Γ st ρ γ Δ_spec ρ_spec Ψ Φ heval _ _ _ _ _ _ _ _
         simp only [compile, hty] at heval
         obtain ⟨hannot, _⟩ := VerifM.eval_bind_expectEq heval
@@ -989,41 +1014,41 @@ theorem compileDeref_correct (e : Expr) (ty : TinyML.Typ)
       simp only [compile, hty] at heval
       exact (VerifM.eval_fatal heval).elim
 
-theorem compileStoreShared_correct (loc val : Expr)
+theorem compileStoreShared_correct (reg : Verifier.Registry) (loc val : Expr)
     (href : loc.ty = .ref val.ty)
-    (ihVal : correctExpr val) (ihLoc : correctExpr loc) :
-    correctExpr (.store loc val) := by
-  intro Θ R S B Γ st ρ γ Δ_spec ρ_spec Ψ Φ heval hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec hpost
+    (ihVal : correctExpr reg val) (ihLoc : correctExpr reg loc) :
+    correctExpr reg (.store loc val) := by
+  intro Θ R S B Γ st ρ γ Δ_spec ρ_spec Ψ Φ heval hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec hΔreg hρreg hpost
   unfold Expr.runtime
   simp only [Runtime.Expr.subst]
   simp only [compile, href] at heval
   simp only [Expr.ty] at hpost
   obtain ⟨_, heval⟩ := VerifM.eval_bind_expectEq heval
-  have heval_v : (compile Θ Δ_spec S B Γ val).eval st ρ _ := VerifM.eval_bind _ _ _ _ heval
+  have heval_v : (compile reg Θ Δ_spec S B Γ val).eval st ρ _ := VerifM.eval_bind _ _ _ _ heval
   have hstart :
-      st.sl Θ ρ ∗ (S.satisfiedBy Θ Δ_spec ρ_spec γ ∗ Bindings.typedSubst Θ B Γ γ ∗ R) ⊢
+      st.sl Θ ρ ∗ (S.satisfiedBy (reg.wpCtx) Θ Δ_spec ρ_spec γ ∗ Bindings.typedSubst Θ B Γ γ ∗ R) ⊢
         st.sl Θ ρ ∗
-          (S.satisfiedBy Θ Δ_spec ρ_spec γ ∗ Bindings.typedSubst Θ B Γ γ ∗
-            (Bindings.typedSubst Θ B Γ γ ∗ (S.satisfiedBy Θ Δ_spec ρ_spec γ ∗ R))) :=
-    Helpers.ctx_dup_flip Θ Δ_spec ρ_spec S B Γ st ρ γ R
+          (S.satisfiedBy (reg.wpCtx) Θ Δ_spec ρ_spec γ ∗ Bindings.typedSubst Θ B Γ γ ∗
+            (Bindings.typedSubst Θ B Γ γ ∗ (S.satisfiedBy (reg.wpCtx) Θ Δ_spec ρ_spec γ ∗ R))) :=
+    Helpers.ctx_dup_flip reg Θ Δ_spec ρ_spec S B Γ st ρ γ R
   refine SpatialContext.wp_bind_store <| (hstart.trans <|
-    ihVal Θ (Bindings.typedSubst Θ B Γ γ ∗ (S.satisfiedBy Θ Δ_spec ρ_spec γ ∗ R)) S B Γ st ρ γ Δ_spec ρ_spec _ _
-      (VerifM.eval.decls_grow ρ heval_v) hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec ?_)
+    ihVal Θ (Bindings.typedSubst Θ B Γ γ ∗ (S.satisfiedBy (reg.wpCtx) Θ Δ_spec ρ_spec γ ∗ R)) S B Γ st ρ γ Δ_spec ρ_spec _ _
+      (VerifM.eval.decls_grow ρ heval_v) hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec hΔreg hρreg ?_)
   intro v_v ρ_v st₁ sv hΨ_v hsv_wf heval_sv
   obtain ⟨hdecls_v, hagreeOn_v, hΨ_v⟩ := hΨ_v
   have hagree_v : B.agreeOnLinked ρ_v.env γ :=
     Bindings.agreeOnLinked_env_agree hagree hagreeOn_v hbwf
   have hbwf_v : B.wfIn st₁.decls := fun p hp => hdecls_v.consts _ (hbwf p hp)
-  have heval_l : (compile Θ Δ_spec S B Γ loc).eval st₁ ρ_v _ := VerifM.eval_bind _ _ _ _ hΨ_v
+  have heval_l : (compile reg Θ Δ_spec S B Γ loc).eval st₁ ρ_v _ := VerifM.eval_bind _ _ _ _ hΨ_v
   have hlocStart :
       st₁.sl Θ ρ_v ∗ TinyML.ValHasType Θ v_v val.ty ∗
-        (Bindings.typedSubst Θ B Γ γ ∗ (S.satisfiedBy Θ Δ_spec ρ_spec γ ∗ R)) ⊢
-          st₁.sl Θ ρ_v ∗ (S.satisfiedBy Θ Δ_spec ρ_spec γ ∗ Bindings.typedSubst Θ B Γ γ ∗
+        (Bindings.typedSubst Θ B Γ γ ∗ (S.satisfiedBy (reg.wpCtx) Θ Δ_spec ρ_spec γ ∗ R)) ⊢
+          st₁.sl Θ ρ_v ∗ (S.satisfiedBy (reg.wpCtx) Θ Δ_spec ρ_spec γ ∗ Bindings.typedSubst Θ B Γ γ ∗
             (TinyML.ValHasType Θ v_v val.ty ∗ R)) :=
-    Helpers.ctx_push_flip Θ Δ_spec ρ_spec S B Γ st₁ ρ_v γ R v_v val.ty
+    Helpers.ctx_push_flip reg Θ Δ_spec ρ_spec S B Γ st₁ ρ_v γ R v_v val.ty
   have hspecInv_v := specInvariants_mono hΔspec hρspec hdecls_v hagreeOn_v
   refine hlocStart.trans <| ihLoc Θ (TinyML.ValHasType Θ v_v val.ty ∗ R) S B Γ st₁ ρ_v γ Δ_spec ρ_spec _ _
-    (VerifM.eval.decls_grow ρ_v heval_l) hagree_v hbwf_v hSwf hΔwf hΔvars hspecInv_v.1 hspecInv_v.2 ?_
+    (VerifM.eval.decls_grow ρ_v heval_l) hagree_v hbwf_v hSwf hΔwf hΔvars hspecInv_v.1 hspecInv_v.2 hΔreg hρreg ?_
   intro v_l ρ_l st₂ sl hΨ_l hsl_wf heval_sl
   obtain ⟨hdecls_l, hagreeOn_l, hΨ_l⟩ := hΨ_l
   obtain hret := VerifM.eval_ret hΨ_l
@@ -1034,7 +1059,7 @@ theorem compileStoreShared_correct (loc val : Expr)
     hpost .unit ρ_l st₂ _ hret hunit_wf (by simp [Term.eval])
   have hwp :
       st₂.sl Θ ρ_l ∗ (TinyML.ValHasType Θ v_l loc.ty ∗ (TinyML.ValHasType Θ v_v val.ty ∗ R)) ⊢
-        wp (.store (.val v_l) (.val v_v)) Φ := by
+        wp (reg.wpCtx) (.store (.val v_l) (.val v_v)) Φ := by
     rw [href]
     istart
     iintro ⟨Howns, Hloc, #Hval, HR⟩
@@ -1055,41 +1080,41 @@ theorem compileStoreShared_correct (loc val : Expr)
           · iexact HR
   exact hwp
 
-theorem compileStoreOwned_correct (loc val : Expr)
+theorem compileStoreOwned_correct (reg : Verifier.Registry) (loc val : Expr)
     (howned : loc.ty = .owned val.ty)
-    (ihVal : correctExpr val) (ihLoc : correctExpr loc) :
-    correctExpr (.store loc val) := by
-  intro Θ R S B Γ st ρ γ Δ_spec ρ_spec Ψ Φ heval hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec hpost
+    (ihVal : correctExpr reg val) (ihLoc : correctExpr reg loc) :
+    correctExpr reg (.store loc val) := by
+  intro Θ R S B Γ st ρ γ Δ_spec ρ_spec Ψ Φ heval hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec hΔreg hρreg hpost
   unfold Expr.runtime
   simp only [Runtime.Expr.subst]
   simp only [compile, howned] at heval
   simp only [Expr.ty] at hpost
   obtain ⟨_, heval⟩ := VerifM.eval_bind_expectEq heval
-  have heval_v : (compile Θ Δ_spec S B Γ val).eval st ρ _ := VerifM.eval_bind _ _ _ _ heval
+  have heval_v : (compile reg Θ Δ_spec S B Γ val).eval st ρ _ := VerifM.eval_bind _ _ _ _ heval
   have hstart :
-      st.sl Θ ρ ∗ (S.satisfiedBy Θ Δ_spec ρ_spec γ ∗ Bindings.typedSubst Θ B Γ γ ∗ R) ⊢
+      st.sl Θ ρ ∗ (S.satisfiedBy (reg.wpCtx) Θ Δ_spec ρ_spec γ ∗ Bindings.typedSubst Θ B Γ γ ∗ R) ⊢
         st.sl Θ ρ ∗
-          (S.satisfiedBy Θ Δ_spec ρ_spec γ ∗ Bindings.typedSubst Θ B Γ γ ∗
-            (Bindings.typedSubst Θ B Γ γ ∗ (S.satisfiedBy Θ Δ_spec ρ_spec γ ∗ R))) :=
-    Helpers.ctx_dup_flip Θ Δ_spec ρ_spec S B Γ st ρ γ R
+          (S.satisfiedBy (reg.wpCtx) Θ Δ_spec ρ_spec γ ∗ Bindings.typedSubst Θ B Γ γ ∗
+            (Bindings.typedSubst Θ B Γ γ ∗ (S.satisfiedBy (reg.wpCtx) Θ Δ_spec ρ_spec γ ∗ R))) :=
+    Helpers.ctx_dup_flip reg Θ Δ_spec ρ_spec S B Γ st ρ γ R
   refine SpatialContext.wp_bind_store <| (hstart.trans <|
-    ihVal Θ (Bindings.typedSubst Θ B Γ γ ∗ (S.satisfiedBy Θ Δ_spec ρ_spec γ ∗ R)) S B Γ st ρ γ Δ_spec ρ_spec _ _
-      (VerifM.eval.decls_grow ρ heval_v) hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec ?_)
+    ihVal Θ (Bindings.typedSubst Θ B Γ γ ∗ (S.satisfiedBy (reg.wpCtx) Θ Δ_spec ρ_spec γ ∗ R)) S B Γ st ρ γ Δ_spec ρ_spec _ _
+      (VerifM.eval.decls_grow ρ heval_v) hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec hΔreg hρreg ?_)
   intro v_v ρ_v st₁ sv hΨ_v hsv_wf heval_sv
   obtain ⟨hdecls_v, hagreeOn_v, hΨ_v⟩ := hΨ_v
   have hagree_v : B.agreeOnLinked ρ_v.env γ :=
     Bindings.agreeOnLinked_env_agree hagree hagreeOn_v hbwf
   have hbwf_v : B.wfIn st₁.decls := fun p hp => hdecls_v.consts _ (hbwf p hp)
-  have heval_l : (compile Θ Δ_spec S B Γ loc).eval st₁ ρ_v _ := VerifM.eval_bind _ _ _ _ hΨ_v
+  have heval_l : (compile reg Θ Δ_spec S B Γ loc).eval st₁ ρ_v _ := VerifM.eval_bind _ _ _ _ hΨ_v
   have hlocStart :
       st₁.sl Θ ρ_v ∗ TinyML.ValHasType Θ v_v val.ty ∗
-        (Bindings.typedSubst Θ B Γ γ ∗ (S.satisfiedBy Θ Δ_spec ρ_spec γ ∗ R)) ⊢
-          st₁.sl Θ ρ_v ∗ (S.satisfiedBy Θ Δ_spec ρ_spec γ ∗ Bindings.typedSubst Θ B Γ γ ∗
+        (Bindings.typedSubst Θ B Γ γ ∗ (S.satisfiedBy (reg.wpCtx) Θ Δ_spec ρ_spec γ ∗ R)) ⊢
+          st₁.sl Θ ρ_v ∗ (S.satisfiedBy (reg.wpCtx) Θ Δ_spec ρ_spec γ ∗ Bindings.typedSubst Θ B Γ γ ∗
             (TinyML.ValHasType Θ v_v val.ty ∗ R)) :=
-    Helpers.ctx_push_flip Θ Δ_spec ρ_spec S B Γ st₁ ρ_v γ R v_v val.ty
+    Helpers.ctx_push_flip reg Θ Δ_spec ρ_spec S B Γ st₁ ρ_v γ R v_v val.ty
   have hspecInv_v := specInvariants_mono hΔspec hρspec hdecls_v hagreeOn_v
   refine hlocStart.trans <| ihLoc Θ (TinyML.ValHasType Θ v_v val.ty ∗ R) S B Γ st₁ ρ_v γ Δ_spec ρ_spec _ _
-    (VerifM.eval.decls_grow ρ_v heval_l) hagree_v hbwf_v hSwf hΔwf hΔvars hspecInv_v.1 hspecInv_v.2 ?_
+    (VerifM.eval.decls_grow ρ_v heval_l) hagree_v hbwf_v hSwf hΔwf hΔvars hspecInv_v.1 hspecInv_v.2 hΔreg hρreg ?_
   intro v_l ρ_l st₂ sl hΨ_l hsl_wf heval_sl
   obtain ⟨_hdecls_l, _hagreeOn_l, hΨ_l⟩ := hΨ_l
   have hfind_eval := VerifM.eval_bind _ _ _ _ hΨ_l
@@ -1101,7 +1126,7 @@ theorem compileStoreOwned_correct (loc val : Expr)
   rw [howned]
   refine VerifM.eval_findMatchForce Θ
     (R := TinyML.ValHasType Θ v_l (.owned val.ty) ∗ (TinyML.ValHasType Θ v_v val.ty ∗ R))
-    (Φ := wp (.store (.val v_l) (.val v_v)) Φ) hfind_eval hsl_wf ?_
+    (Φ := wp (reg.wpCtx) (.store (.val v_l) (.val v_v)) Φ) hfind_eval hsl_wf ?_
   intro old st₃ hQ hdecls hold_wf
   have hassume_eval := VerifM.eval_bind _ _ _ _ hQ
   have hatom_wf : (SpatialAtom.pointsTo sl sv val.ty).wfIn st₃.decls := by
@@ -1114,7 +1139,7 @@ theorem compileStoreOwned_correct (loc val : Expr)
   have hwp :
       SpatialAtom.interp Θ ρ_l.env (.pointsTo sl old val.ty) ∗ st₃.sl Θ ρ_l ∗
         (TinyML.ValHasType Θ v_l (.owned val.ty) ∗ (TinyML.ValHasType Θ v_v val.ty ∗ R)) ⊢
-          wp (.store (.val v_l) (.val v_v)) Φ := by
+          wp (reg.wpCtx) (.store (.val v_l) (.val v_v)) Φ := by
     simp only [SpatialAtom.interp]
     istart
     iintro ⟨Hatom, Howns, _Howned, #HnewTy, HR⟩
@@ -1147,14 +1172,14 @@ theorem compileStoreOwned_correct (loc val : Expr)
         · iexact HR
   exact hwp
 
-theorem compileStore_correct (loc val : Expr)
-    (ihVal : correctExpr val) (ihLoc : correctExpr loc) :
-    correctExpr (.store loc val) := by
+theorem compileStore_correct (reg : Verifier.Registry) (loc val : Expr)
+    (ihVal : correctExpr reg val) (ihLoc : correctExpr reg loc) :
+    correctExpr reg (.store loc val) := by
   cases hty : loc.ty with
   | ref ty =>
       by_cases heq : ty = val.ty
       · have href : loc.ty = .ref val.ty := by simpa [heq] using hty
-        exact compileStoreShared_correct loc val href ihVal ihLoc
+        exact compileStoreShared_correct reg loc val href ihVal ihLoc
       · intro Θ R S B Γ st ρ γ Δ_spec ρ_spec Ψ Φ heval _ _ _ _ _ _ _ _
         simp only [compile, hty] at heval
         obtain ⟨hannot, _⟩ := VerifM.eval_bind_expectEq heval
@@ -1162,7 +1187,7 @@ theorem compileStore_correct (loc val : Expr)
   | owned ty =>
       by_cases heq : ty = val.ty
       · have howned : loc.ty = .owned val.ty := by simpa [heq] using hty
-        exact compileStoreOwned_correct loc val howned ihVal ihLoc
+        exact compileStoreOwned_correct reg loc val howned ihVal ihLoc
       · intro Θ R S B Γ st ρ γ Δ_spec ρ_spec Ψ Φ heval _ _ _ _ _ _ _ _
         simp only [compile, hty] at heval
         obtain ⟨hannot, _⟩ := VerifM.eval_bind_expectEq heval
@@ -1172,16 +1197,16 @@ theorem compileStore_correct (loc val : Expr)
       simp only [compile, hty] at heval
       exact (VerifM.eval_fatal heval).elim
 
-theorem compileUnop_correct (op : TinyML.UnOp) (e : Expr) (uty : TinyML.Typ)
-    (ih : correctExpr e) :
-    correctExpr (.unop op e uty) := by
-  intro Θ R S B Γ st ρ γ Δ_spec ρ_spec Ψ Φ heval hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec hpost
+theorem compileUnop_correct (reg : Verifier.Registry) (op : TinyML.UnOp) (e : Expr) (uty : TinyML.Typ)
+    (ih : correctExpr reg e) :
+    correctExpr reg (.unop op e uty) := by
+  intro Θ R S B Γ st ρ γ Δ_spec ρ_spec Ψ Φ heval hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec hΔreg hρreg hpost
   unfold Expr.runtime
   simp only [Runtime.Expr.subst]
   simp only [compile] at heval
-  have heval_e : (compile Θ Δ_spec S B Γ e).eval st ρ _ := VerifM.eval_bind _ _ _ _ heval
+  have heval_e : (compile reg Θ Δ_spec S B Γ e).eval st ρ _ := VerifM.eval_bind _ _ _ _ heval
   refine SpatialContext.wp_bind_unop <| ih Θ R S B Γ st ρ γ Δ_spec ρ_spec _ _
-    (VerifM.eval.decls_grow ρ heval_e) hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec ?_
+    (VerifM.eval.decls_grow ρ heval_e) hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec hΔreg hρreg ?_
   intro v_e ρ_e st₁ se hΨ_e hse_wf heval_se
   obtain ⟨_, _, hΨ_e⟩ := hΨ_e
   obtain ⟨ty, htypeOf, hΨ_e⟩ := VerifM.eval_bind_expectSome hΨ_e
@@ -1202,7 +1227,7 @@ theorem compileUnop_correct (op : TinyML.UnOp) (e : Expr) (uty : TinyML.Typ)
   have hq : st₁.sl Θ ρ_e ∗ TinyML.ValHasType Θ w ty ∗ R ⊢ Φ w :=
     by simpa [hty_eq] using
       (hpost w ρ_e st₁ t hΨ_e (compileUnop_wfIn hse_wf hcompUnop) ht_eval)
-  have hwp : st₁.sl Θ ρ_e ∗ TinyML.ValHasType Θ w ty ∗ R ⊢ wp (.unop op (.val v_e)) Φ :=
+  have hwp : st₁.sl Θ ρ_e ∗ TinyML.ValHasType Θ w ty ∗ R ⊢ wp (reg.wpCtx) (.unop op (.val v_e)) Φ :=
     SpatialContext.wp_unop
       (R := st₁.sl Θ ρ_e ∗ TinyML.ValHasType Θ w ty ∗ R)
       (Q := Φ) (op := op) (v := v_e) (res := w) hq heval_op
@@ -1213,40 +1238,40 @@ theorem compileUnop_correct (op : TinyML.UnOp) (e : Expr) (uty : TinyML.Typ)
     · iexact Hwty
     · iexact HR
 
-theorem compileBinop_correct (op : TinyML.BinOp) (l r : Expr) (bty : TinyML.Typ)
-    (ihR : correctExpr r) (ihL : correctExpr l) :
-    correctExpr (.binop op l r bty) := by
-  intro Θ R S B Γ st ρ γ Δ_spec ρ_spec Ψ Φ heval hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec hpost
+theorem compileBinop_correct (reg : Verifier.Registry) (op : TinyML.BinOp) (l r : Expr) (bty : TinyML.Typ)
+    (ihR : correctExpr reg r) (ihL : correctExpr reg l) :
+    correctExpr reg (.binop op l r bty) := by
+  intro Θ R S B Γ st ρ γ Δ_spec ρ_spec Ψ Φ heval hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec hΔreg hρreg hpost
   unfold Expr.runtime
   simp only [Runtime.Expr.subst]
   simp only [compile] at heval
-  have heval_r : (compile Θ Δ_spec S B Γ r).eval st ρ _ := VerifM.eval_bind _ _ _ _ heval
+  have heval_r : (compile reg Θ Δ_spec S B Γ r).eval st ρ _ := VerifM.eval_bind _ _ _ _ heval
   have hstart :
-      st.sl Θ ρ ∗ (S.satisfiedBy Θ Δ_spec ρ_spec γ ∗ Bindings.typedSubst Θ B Γ γ ∗ R) ⊢
+      st.sl Θ ρ ∗ (S.satisfiedBy (reg.wpCtx) Θ Δ_spec ρ_spec γ ∗ Bindings.typedSubst Θ B Γ γ ∗ R) ⊢
         st.sl Θ ρ ∗
-          (S.satisfiedBy Θ Δ_spec ρ_spec γ ∗ Bindings.typedSubst Θ B Γ γ ∗
-            (S.satisfiedBy Θ Δ_spec ρ_spec γ ∗ Bindings.typedSubst Θ B Γ γ ∗ R)) :=
-    Helpers.ctx_dup Θ Δ_spec ρ_spec S B Γ st ρ γ R
+          (S.satisfiedBy (reg.wpCtx) Θ Δ_spec ρ_spec γ ∗ Bindings.typedSubst Θ B Γ γ ∗
+            (S.satisfiedBy (reg.wpCtx) Θ Δ_spec ρ_spec γ ∗ Bindings.typedSubst Θ B Γ γ ∗ R)) :=
+    Helpers.ctx_dup reg Θ Δ_spec ρ_spec S B Γ st ρ γ R
   refine SpatialContext.wp_bind_binop <| hstart.trans <|
-    ihR Θ (S.satisfiedBy Θ Δ_spec ρ_spec γ ∗ Bindings.typedSubst Θ B Γ γ ∗ R) S B Γ st ρ γ Δ_spec ρ_spec _ _
-      (VerifM.eval.decls_grow ρ heval_r) hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec ?_
+    ihR Θ (S.satisfiedBy (reg.wpCtx) Θ Δ_spec ρ_spec γ ∗ Bindings.typedSubst Θ B Γ γ ∗ R) S B Γ st ρ γ Δ_spec ρ_spec _ _
+      (VerifM.eval.decls_grow ρ heval_r) hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec hΔreg hρreg ?_
   intro vr ρ_r st₁ sr hΨ_r hsr_wf heval_sr
   obtain ⟨hdecls_r, hagreeOn_r, hΨ_r⟩ := hΨ_r
   have hagree_r : B.agreeOnLinked ρ_r.env γ :=
     Bindings.agreeOnLinked_env_agree hagree hagreeOn_r hbwf
   have hbwf_r : B.wfIn st₁.decls := fun p hp => hdecls_r.consts _ (hbwf p hp)
-  have heval_l : (compile Θ Δ_spec S B Γ l).eval st₁ ρ_r _ := VerifM.eval_bind _ _ _ _ hΨ_r
+  have heval_l : (compile reg Θ Δ_spec S B Γ l).eval st₁ ρ_r _ := VerifM.eval_bind _ _ _ _ hΨ_r
   have hleftStart :
       st₁.sl Θ ρ_r ∗ TinyML.ValHasType Θ vr r.ty ∗
-        (S.satisfiedBy Θ Δ_spec ρ_spec γ ∗ Bindings.typedSubst Θ B Γ γ ∗ R) ⊢
+        (S.satisfiedBy (reg.wpCtx) Θ Δ_spec ρ_spec γ ∗ Bindings.typedSubst Θ B Γ γ ∗ R) ⊢
           st₁.sl Θ ρ_r ∗
-            (S.satisfiedBy Θ Δ_spec ρ_spec γ ∗ Bindings.typedSubst Θ B Γ γ ∗
+            (S.satisfiedBy (reg.wpCtx) Θ Δ_spec ρ_spec γ ∗ Bindings.typedSubst Θ B Γ γ ∗
               (TinyML.ValHasType Θ vr r.ty ∗ R)) :=
-    Helpers.ctx_push Θ Δ_spec ρ_spec S B Γ st₁ ρ_r γ R vr r.ty
+    Helpers.ctx_push reg Θ Δ_spec ρ_spec S B Γ st₁ ρ_r γ R vr r.ty
   have hspecInv_r := specInvariants_mono hΔspec hρspec hdecls_r hagreeOn_r
   refine hleftStart.trans <|
     ihL Θ (TinyML.ValHasType Θ vr r.ty ∗ R) S B Γ st₁ ρ_r γ Δ_spec ρ_spec _ _
-      (VerifM.eval.decls_grow ρ_r heval_l) hagree_r hbwf_r hSwf hΔwf hΔvars hspecInv_r.1 hspecInv_r.2 ?_
+      (VerifM.eval.decls_grow ρ_r heval_l) hagree_r hbwf_r hSwf hΔwf hΔvars hspecInv_r.1 hspecInv_r.2 hΔreg hρreg ?_
   intro vl ρ_l st₂ sl hΨ_l hsl_wf heval_sl
   obtain ⟨hdecls_l, hagreeOn_l, hΨ_l⟩ := hΨ_l
   obtain ⟨ty, htypeOf, hΨ_l⟩ := VerifM.eval_bind_expectSome hΨ_l
@@ -1285,7 +1310,7 @@ theorem compileBinop_correct (op : TinyML.BinOp) (l r : Expr) (bty : TinyML.Typ)
       have hwp_int :
           st₂.sl Θ ρ_l ∗
               (TinyML.ValHasType Θ vl .int ∗ (TinyML.ValHasType Θ vr .int ∗ R)) ⊢
-            wp (.binop .div (.val vl) (.val vr)) Φ := by
+            wp (reg.wpCtx) (.binop .div (.val vl) (.val vr)) Φ := by
         istart
         iintro H
         icases H with ⟨Howns, Hvl, Hvr, HR⟩
@@ -1336,7 +1361,7 @@ theorem compileBinop_correct (op : TinyML.BinOp) (l r : Expr) (bty : TinyML.Typ)
       have hwp_int :
           st₂.sl Θ ρ_l ∗
               (TinyML.ValHasType Θ vl .int ∗ (TinyML.ValHasType Θ vr .int ∗ R)) ⊢
-            wp (.binop .mod (.val vl) (.val vr)) Φ := by
+            wp (reg.wpCtx) (.binop .mod (.val vl) (.val vr)) Φ := by
         istart
         iintro H
         icases H with ⟨Howns, Hvl, Hvr, HR⟩
@@ -1408,7 +1433,7 @@ theorem compileBinop_correct (op : TinyML.BinOp) (l r : Expr) (bty : TinyML.Typ)
     have hq : st₂.sl Θ ρ_l ∗ TinyML.ValHasType Θ w ty ∗ R ⊢ Φ w := by
       simpa [hty_eq] using
         (hpost w ρ_l st₂ t hΨ_ndiv (compileOp_wfIn hsl_wf hwf_sr_l hcompOp) ht_eval)
-    have hwp : st₂.sl Θ ρ_l ∗ TinyML.ValHasType Θ w ty ∗ R ⊢ wp (.binop op (.val vl) (.val vr)) Φ :=
+    have hwp : st₂.sl Θ ρ_l ∗ TinyML.ValHasType Θ w ty ∗ R ⊢ wp (reg.wpCtx) (.binop op (.val vl) (.val vr)) Φ :=
       SpatialContext.wp_binop
         (R := st₂.sl Θ ρ_l ∗ TinyML.ValHasType Θ w ty ∗ R)
         (Q := Φ) (op := op) (vl := vl) (vr := vr) (res := w) hq heval_op
@@ -1419,23 +1444,23 @@ theorem compileBinop_correct (op : TinyML.BinOp) (l r : Expr) (bty : TinyML.Typ)
       · iexact Hwty
       · iexact HR
 
-theorem compileLetIn_correct (b : Binder) (e body : Expr)
-    (ihE : correctExpr e) (ihBody : correctExpr body) :
-    correctExpr (.letIn b e body) := by
-  intro Θ R S B Γ st ρ γ Δ_spec ρ_spec Ψ Φ heval hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec hpost
+theorem compileLetIn_correct (reg : Verifier.Registry) (b : Binder) (e body : Expr)
+    (ihE : correctExpr reg e) (ihBody : correctExpr reg body) :
+    correctExpr reg (.letIn b e body) := by
+  intro Θ R S B Γ st ρ γ Δ_spec ρ_spec Ψ Φ heval hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec hΔreg hρreg hpost
   simp only [compile] at heval
   simp only [Expr.ty] at hpost
   unfold Expr.runtime
   simp only [Runtime.Expr.letIn_subst]
-  have heval_e_outer : (compile Θ Δ_spec S B Γ e).eval st ρ _ := VerifM.eval_bind _ _ _ _ heval
+  have heval_e_outer : (compile reg Θ Δ_spec S B Γ e).eval st ρ _ := VerifM.eval_bind _ _ _ _ heval
   have hstart :
-      st.sl Θ ρ ∗ (S.satisfiedBy Θ Δ_spec ρ_spec γ ∗ Bindings.typedSubst Θ B Γ γ ∗ R) ⊢
+      st.sl Θ ρ ∗ (S.satisfiedBy (reg.wpCtx) Θ Δ_spec ρ_spec γ ∗ Bindings.typedSubst Θ B Γ γ ∗ R) ⊢
         st.sl Θ ρ ∗
-          (S.satisfiedBy Θ Δ_spec ρ_spec γ ∗ Bindings.typedSubst Θ B Γ γ ∗
-            (S.satisfiedBy Θ Δ_spec ρ_spec γ ∗ Bindings.typedSubst Θ B Γ γ ∗ R)) :=
-    Helpers.ctx_dup Θ Δ_spec ρ_spec S B Γ st ρ γ R
-  refine (hstart.trans <| ihE Θ (S.satisfiedBy Θ Δ_spec ρ_spec γ ∗ Bindings.typedSubst Θ B Γ γ ∗ R) S B Γ st ρ γ Δ_spec ρ_spec _ _
-    (VerifM.eval.decls_grow ρ heval_e_outer) hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec ?_).trans wp.letIn
+          (S.satisfiedBy (reg.wpCtx) Θ Δ_spec ρ_spec γ ∗ Bindings.typedSubst Θ B Γ γ ∗
+            (S.satisfiedBy (reg.wpCtx) Θ Δ_spec ρ_spec γ ∗ Bindings.typedSubst Θ B Γ γ ∗ R)) :=
+    Helpers.ctx_dup reg Θ Δ_spec ρ_spec S B Γ st ρ γ R
+  refine (hstart.trans <| ihE Θ (S.satisfiedBy (reg.wpCtx) Θ Δ_spec ρ_spec γ ∗ Bindings.typedSubst Θ B Γ γ ∗ R) S B Γ st ρ γ Δ_spec ρ_spec _ _
+    (VerifM.eval.decls_grow ρ heval_e_outer) hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec hΔreg hρreg ?_).trans wp.letIn
   intro v_e ρ_e st₁ se hΨ_e hse_wf heval_e
   obtain ⟨hdecls_e, hagreeOn_e, hΨ_e⟩ := hΨ_e
   have hagree_e := Bindings.agreeOnLinked_env_agree hagree hagreeOn_e hbwf
@@ -1445,8 +1470,8 @@ theorem compileLetIn_correct (b : Binder) (e body : Expr)
   | none =>
     simp [hname] at hΨ_e
     have hdrop :
-        st₁.sl Θ ρ_e ∗ (TinyML.ValHasType Θ v_e e.ty ∗ (S.satisfiedBy Θ Δ_spec ρ_spec γ ∗ Bindings.typedSubst Θ B Γ γ ∗ R)) ⊢
-          st₁.sl Θ ρ_e ∗ (S.satisfiedBy Θ Δ_spec ρ_spec γ ∗ Bindings.typedSubst Θ B Γ γ ∗ R) := by
+        st₁.sl Θ ρ_e ∗ (TinyML.ValHasType Θ v_e e.ty ∗ (S.satisfiedBy (reg.wpCtx) Θ Δ_spec ρ_spec γ ∗ Bindings.typedSubst Θ B Γ γ ∗ R)) ⊢
+          st₁.sl Θ ρ_e ∗ (S.satisfiedBy (reg.wpCtx) Θ Δ_spec ρ_spec γ ∗ Bindings.typedSubst Θ B Γ γ ∗ R) := by
       iintro ⟨Howns, _Hv, □HS, □HT, HR⟩
       isplitl [Howns]
       · iexact Howns
@@ -1457,14 +1482,14 @@ theorem compileLetIn_correct (b : Binder) (e body : Expr)
           · iexact HR
     have hspecInv_e := specInvariants_mono hΔspec hρspec hdecls_e hagreeOn_e
     have hbody := hdrop.trans <| ihBody Θ R S B Γ st₁ ρ_e γ Δ_spec ρ_spec _ _
-      (VerifM.eval.decls_grow ρ_e hΨ_e) hagree_e hbwf_e hSwf hΔwf hΔvars hspecInv_e.1 hspecInv_e.2
+      (VerifM.eval.decls_grow ρ_e hΨ_e) hagree_e hbwf_e hSwf hΔwf hΔvars hspecInv_e.1 hspecInv_e.2 hΔreg hρreg
       (fun v ρ' st' se hΨ hs hw =>
         let ⟨_, _, hΨ'⟩ := hΨ
         hpost v ρ' st' se hΨ' hs hw)
     have hsubst := Runtime.Expr.subst_remove'_updateBinder body.runtime γ Runtime.Binder.none v_e
     have hbody' : st₁.sl Θ ρ_e ∗
-          (TinyML.ValHasType Θ v_e e.ty ∗ (S.satisfiedBy Θ Δ_spec ρ_spec γ ∗ Bindings.typedSubst Θ B Γ γ ∗ R)) ⊢
-            wp
+          (TinyML.ValHasType Θ v_e e.ty ∗ (S.satisfiedBy (reg.wpCtx) Θ Δ_spec ρ_spec γ ∗ Bindings.typedSubst Θ B Γ γ ∗ R)) ⊢
+            wp (reg.wpCtx)
               (Runtime.Expr.subst
                 (Runtime.Subst.updateBinder Runtime.Binder.none v_e Runtime.Subst.id)
                 (Runtime.Expr.subst (γ.remove' Runtime.Binder.none) body.runtime))
@@ -1487,12 +1512,12 @@ theorem compileLetIn_correct (b : Binder) (e body : Expr)
     set ρ_body := ρ_e.updateConst .value v.name v_e
     set γ_body : Runtime.Subst := Runtime.Subst.update γ x v_e
     suffices st₂.sl Θ ρ_body ∗
-        (TinyML.ValHasType Θ v_e e.ty ∗ (S.satisfiedBy Θ Δ_spec ρ_spec γ ∗ Bindings.typedSubst Θ B Γ γ ∗ R)) ⊢
-          wp (body.runtime.subst γ_body) Φ by
+        (TinyML.ValHasType Θ v_e e.ty ∗ (S.satisfiedBy (reg.wpCtx) Θ Δ_spec ρ_spec γ ∗ Bindings.typedSubst Θ B Γ γ ∗ R)) ⊢
+          wp (reg.wpCtx) (body.runtime.subst γ_body) Φ by
       have hsubst := Runtime.Expr.subst_remove'_updateBinder body.runtime γ (.named x) v_e
       have hbody' : st₂.sl Θ ρ_body ∗
-            (TinyML.ValHasType Θ v_e e.ty ∗ (S.satisfiedBy Θ Δ_spec ρ_spec γ ∗ Bindings.typedSubst Θ B Γ γ ∗ R)) ⊢
-              wp
+            (TinyML.ValHasType Θ v_e e.ty ∗ (S.satisfiedBy (reg.wpCtx) Θ Δ_spec ρ_spec γ ∗ Bindings.typedSubst Θ B Γ γ ∗ R)) ⊢
+              wp (reg.wpCtx)
                 (Runtime.Expr.subst
                   (Runtime.Subst.updateBinder (.named x) v_e Runtime.Subst.id)
                   (Runtime.Expr.subst (γ.remove' (.named x)) body.runtime))
@@ -1507,7 +1532,7 @@ theorem compileLetIn_correct (b : Binder) (e body : Expr)
           using hbody'
     have hagreeOn_body_e : Env.agreeOn st₁.decls ρ_e.env ρ_body.env :=
       Env.agreeOn_update_fresh_const hfresh
-    have hΨ_body : (compile Θ Δ_spec (Finmap.erase x S) ((x, v) :: B) (Γ.extend x e.ty) body).eval st₂ ρ_body Ψ := by
+    have hΨ_body : (compile reg Θ Δ_spec (Finmap.erase x S) ((x, v) :: B) (Γ.extend x e.ty) body).eval st₂ ρ_body Ψ := by
       have hdecl_eval := VerifM.eval_bind _ _ _ _ hΨ_e
       have hdecl := VerifM.eval_decl hdecl_eval
       have h := hdecl v_e
@@ -1546,9 +1571,9 @@ theorem compileLetIn_correct (b : Binder) (e body : Expr)
       rwa [hρ_body_lookup] at h
     have hres :
         st₂.sl Θ ρ_body ∗
-          (TinyML.ValHasType Θ v_e e.ty ∗ (S.satisfiedBy Θ Δ_spec ρ_spec γ ∗ Bindings.typedSubst Θ B Γ γ ∗ R)) ⊢
+          (TinyML.ValHasType Θ v_e e.ty ∗ (S.satisfiedBy (reg.wpCtx) Θ Δ_spec ρ_spec γ ∗ Bindings.typedSubst Θ B Γ γ ∗ R)) ⊢
             st₂.sl Θ ρ_body ∗
-              (SpecMap.satisfiedBy Θ Δ_spec ρ_spec (Finmap.erase x S) γ_body ∗
+              (SpecMap.satisfiedBy (reg.wpCtx) Θ Δ_spec ρ_spec (Finmap.erase x S) γ_body ∗
                 Bindings.typedSubst Θ ((x, v) :: B) (Γ.extend x e.ty) γ_body ∗ R) := by
       iintro ⟨Howns, Hve, □HS, □HT, HR⟩
       isplitl [Howns]
@@ -1566,29 +1591,29 @@ theorem compileLetIn_correct (b : Binder) (e body : Expr)
     have hspecInv_body := specInvariants_mono hspecInv_e.1 hspecInv_e.2
       (Signature.Subset.subset_addConst st₁.decls v) hagreeOn_body_e
     refine hres.trans <| ihBody Θ R (Finmap.erase x S) ((x, v) :: B) (Γ.extend x e.ty) st₂ ρ_body γ_body Δ_spec ρ_spec _ _
-      (VerifM.eval.decls_grow ρ_body hΨ_body) hagree_body hbwf₂ (SpecMap.wfIn_erase hSwf) hΔwf hΔvars hspecInv_body.1 hspecInv_body.2 ?_
+      (VerifM.eval.decls_grow ρ_body hΨ_body) hagree_body hbwf₂ (SpecMap.wfIn_erase hSwf) hΔwf hΔvars hspecInv_body.1 hspecInv_body.2 hΔreg hρreg ?_
     intro v' ρ' st' se' hΨ hs hw
     obtain ⟨_, _, hΨ'⟩ := hΨ
     exact hpost v' ρ' st' se' hΨ' hs hw
 
-theorem compileIfThenElse_correct (cond thn els : Expr) (ty : TinyML.Typ)
-    (ihCond : correctExpr cond) (ihThn : correctExpr thn) (ihEls : correctExpr els) :
-    correctExpr (.ifThenElse cond thn els ty) := by
-  intro Θ R S B Γ st ρ γ Δ_spec ρ_spec Ψ Φ heval hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec hpost
+theorem compileIfThenElse_correct (reg : Verifier.Registry) (cond thn els : Expr) (ty : TinyML.Typ)
+    (ihCond : correctExpr reg cond) (ihThn : correctExpr reg thn) (ihEls : correctExpr reg els) :
+    correctExpr reg (.ifThenElse cond thn els ty) := by
+  intro Θ R S B Γ st ρ γ Δ_spec ρ_spec Ψ Φ heval hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec hΔreg hρreg hpost
   simp only [Expr.ty] at hpost
   unfold Expr.runtime
   simp only [Runtime.Expr.subst]
   simp only [compile] at heval
-  have heval_cond : (compile Θ Δ_spec S B Γ cond).eval st ρ _ := VerifM.eval_bind _ _ _ _ heval
+  have heval_cond : (compile reg Θ Δ_spec S B Γ cond).eval st ρ _ := VerifM.eval_bind _ _ _ _ heval
   have hstart :
-      st.sl Θ ρ ∗ (S.satisfiedBy Θ Δ_spec ρ_spec γ ∗ Bindings.typedSubst Θ B Γ γ ∗ R) ⊢
+      st.sl Θ ρ ∗ (S.satisfiedBy (reg.wpCtx) Θ Δ_spec ρ_spec γ ∗ Bindings.typedSubst Θ B Γ γ ∗ R) ⊢
         st.sl Θ ρ ∗
-          (S.satisfiedBy Θ Δ_spec ρ_spec γ ∗ Bindings.typedSubst Θ B Γ γ ∗
-            (S.satisfiedBy Θ Δ_spec ρ_spec γ ∗ Bindings.typedSubst Θ B Γ γ ∗ R)) :=
-    Helpers.ctx_dup Θ Δ_spec ρ_spec S B Γ st ρ γ R
+          (S.satisfiedBy (reg.wpCtx) Θ Δ_spec ρ_spec γ ∗ Bindings.typedSubst Θ B Γ γ ∗
+            (S.satisfiedBy (reg.wpCtx) Θ Δ_spec ρ_spec γ ∗ Bindings.typedSubst Θ B Γ γ ∗ R)) :=
+    Helpers.ctx_dup reg Θ Δ_spec ρ_spec S B Γ st ρ γ R
   refine SpatialContext.wp_bind_if <| hstart.trans <|
-    ihCond Θ (S.satisfiedBy Θ Δ_spec ρ_spec γ ∗ Bindings.typedSubst Θ B Γ γ ∗ R) S B Γ st ρ γ Δ_spec ρ_spec _ _
-      (VerifM.eval.decls_grow ρ heval_cond) hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec ?_
+    ihCond Θ (S.satisfiedBy (reg.wpCtx) Θ Δ_spec ρ_spec γ ∗ Bindings.typedSubst Θ B Γ γ ∗ R) S B Γ st ρ γ Δ_spec ρ_spec _ _
+      (VerifM.eval.decls_grow ρ heval_cond) hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec hΔreg hρreg ?_
   intro v_c ρ_c st₁ sc hΨ_c hsc_wf heval_c
   obtain ⟨hdecls_c, hagreeOn_c, hΨ_c⟩ := hΨ_c
   have hagree_c := Bindings.agreeOnLinked_env_agree hagree hagreeOn_c hbwf
@@ -1615,9 +1640,9 @@ theorem compileIfThenElse_correct (cond thn els : Expr) (ty : TinyML.Typ)
   have hbool_cases_bool :
       st₁.sl Θ ρ_c ∗
           (TinyML.ValHasType Θ v_c .bool ∗
-            (S.satisfiedBy Θ Δ_spec ρ_spec γ ∗ Bindings.typedSubst Θ B Γ γ ∗ R)) ⊢
+            (S.satisfiedBy (reg.wpCtx) Θ Δ_spec ρ_spec γ ∗ Bindings.typedSubst Θ B Γ γ ∗ R)) ⊢
         st₁.sl Θ ρ_c ∗ iprop(⌜v_c = .bool false ∨ v_c = .bool true⌝) ∗
-          (S.satisfiedBy Θ Δ_spec ρ_spec γ ∗ Bindings.typedSubst Θ B Γ γ ∗ R) := by
+          (S.satisfiedBy (reg.wpCtx) Θ Δ_spec ρ_spec γ ∗ Bindings.typedSubst Θ B Γ γ ∗ R) := by
     iintro ⟨Howns, Hv, □HS, □HT, HR⟩
     ihave Hv_bool := (TinyML.ValHasType.bool Θ v_c).1 $$ Hv
     icases Hv_bool with ⟨%b, %hv⟩
@@ -1631,9 +1656,9 @@ theorem compileIfThenElse_correct (cond thn els : Expr) (ty : TinyML.Typ)
           · iexact HT
           · iexact HR
   have hbool_cases :
-      st₁.sl Θ ρ_c ∗ (TinyML.ValHasType Θ v_c cond.ty ∗ (S.satisfiedBy Θ Δ_spec ρ_spec γ ∗ Bindings.typedSubst Θ B Γ γ ∗ R)) ⊢
+      st₁.sl Θ ρ_c ∗ (TinyML.ValHasType Θ v_c cond.ty ∗ (S.satisfiedBy (reg.wpCtx) Θ Δ_spec ρ_spec γ ∗ Bindings.typedSubst Θ B Γ γ ∗ R)) ⊢
         st₁.sl Θ ρ_c ∗ iprop(⌜v_c = .bool false ∨ v_c = .bool true⌝) ∗
-          (S.satisfiedBy Θ Δ_spec ρ_spec γ ∗ Bindings.typedSubst Θ B Γ γ ∗ R) := by
+          (S.satisfiedBy (reg.wpCtx) Θ Δ_spec ρ_spec γ ∗ Bindings.typedSubst Θ B Γ γ ∗ R) := by
     simpa [hcond_bool] using hbool_cases_bool
   refine hbool_cases.trans ?_
   istart
@@ -1641,21 +1666,21 @@ theorem compileIfThenElse_correct (cond thn els : Expr) (ty : TinyML.Typ)
   icases Hbool with %hbool
   rcases hbool with hfalse_val | htrue_val
   · subst hfalse_val
-    have heval_els : (compile Θ Δ_spec S B Γ els).eval st_els ρ_c Ψ :=
+    have heval_els : (compile reg Θ Δ_spec S B Γ els).eval st_els ρ_c Ψ :=
       hfalse_cont hwf_eq (by
         simp only [Formula.eval, Term.eval, UnOp.eval, Const.denote]
         exact heval_c)
     have hwp :
-        st_els.sl Θ ρ_c ∗ (S.satisfiedBy Θ Δ_spec ρ_spec γ ∗ Bindings.typedSubst Θ B Γ γ ∗ R) ⊢
-          wp (.ifThenElse (.val (.bool false)) (thn.runtime.subst γ) (els.runtime.subst γ)) Φ :=
+        st_els.sl Θ ρ_c ∗ (S.satisfiedBy (reg.wpCtx) Θ Δ_spec ρ_spec γ ∗ Bindings.typedSubst Θ B Γ γ ∗ R) ⊢
+          wp (reg.wpCtx) (.ifThenElse (.val (.bool false)) (thn.runtime.subst γ) (els.runtime.subst γ)) Φ :=
       SpatialContext.wp_if_false
         (thn := thn.runtime.subst γ) (els := els.runtime.subst γ) <|
-        ihEls Θ R S B Γ st_els ρ_c γ Δ_spec ρ_spec Ψ Φ heval_els hagree_c hbwf_c hSwf hΔwf hΔvars hspecInv_c.1 hspecInv_c.2
+        ihEls Θ R S B Γ st_els ρ_c γ Δ_spec ρ_spec Ψ Φ heval_els hagree_c hbwf_c hSwf hΔwf hΔvars hspecInv_c.1 hspecInv_c.2 hΔreg hρreg
           (fun v ρ' st' se hΨ hs hw =>
             by simpa [hels_ty] using hpost v ρ' st' se hΨ hs hw)
     have hctx :
-        st₁.sl Θ ρ_c ∗ (S.satisfiedBy Θ Δ_spec ρ_spec γ ∗ Bindings.typedSubst Θ B Γ γ ∗ R) ⊢
-          st_els.sl Θ ρ_c ∗ (S.satisfiedBy Θ Δ_spec ρ_spec γ ∗ Bindings.typedSubst Θ B Γ γ ∗ R) := by
+        st₁.sl Θ ρ_c ∗ (S.satisfiedBy (reg.wpCtx) Θ Δ_spec ρ_spec γ ∗ Bindings.typedSubst Θ B Γ γ ∗ R) ⊢
+          st_els.sl Θ ρ_c ∗ (S.satisfiedBy (reg.wpCtx) Θ Δ_spec ρ_spec γ ∗ Bindings.typedSubst Θ B Γ γ ∗ R) := by
       simp [st_els, TransState.sl]
     iapply (hctx.trans hwp)
     isplitl [Howns]
@@ -1669,21 +1694,21 @@ theorem compileIfThenElse_correct (cond thn els : Expr) (ty : TinyML.Typ)
     have heval_ne : sc.eval ρ_c.env ≠ Runtime.Val.bool false := by
       rw [heval_c]
       simp
-    have heval_thn : (compile Θ Δ_spec S B Γ thn).eval st_thn ρ_c Ψ :=
+    have heval_thn : (compile reg Θ Δ_spec S B Γ thn).eval st_thn ρ_c Ψ :=
       htrue_cont hwf_ne (by
         simp only [Formula.eval, Term.eval, UnOp.eval, Const.denote]
         exact heval_ne)
     have hwp :
-        st_thn.sl Θ ρ_c ∗ (S.satisfiedBy Θ Δ_spec ρ_spec γ ∗ Bindings.typedSubst Θ B Γ γ ∗ R) ⊢
-          wp (.ifThenElse (.val (.bool true)) (thn.runtime.subst γ) (els.runtime.subst γ)) Φ :=
+        st_thn.sl Θ ρ_c ∗ (S.satisfiedBy (reg.wpCtx) Θ Δ_spec ρ_spec γ ∗ Bindings.typedSubst Θ B Γ γ ∗ R) ⊢
+          wp (reg.wpCtx) (.ifThenElse (.val (.bool true)) (thn.runtime.subst γ) (els.runtime.subst γ)) Φ :=
       SpatialContext.wp_if_true
         (thn := thn.runtime.subst γ) (els := els.runtime.subst γ) <|
-        ihThn Θ R S B Γ st_thn ρ_c γ Δ_spec ρ_spec Ψ Φ heval_thn hagree_c hbwf_c hSwf hΔwf hΔvars hspecInv_c.1 hspecInv_c.2
+        ihThn Θ R S B Γ st_thn ρ_c γ Δ_spec ρ_spec Ψ Φ heval_thn hagree_c hbwf_c hSwf hΔwf hΔvars hspecInv_c.1 hspecInv_c.2 hΔreg hρreg
           (fun v ρ' st' se hΨ hs hw =>
             by simpa [hthn_ty] using hpost v ρ' st' se hΨ hs hw)
     have hctx :
-        st₁.sl Θ ρ_c ∗ (S.satisfiedBy Θ Δ_spec ρ_spec γ ∗ Bindings.typedSubst Θ B Γ γ ∗ R) ⊢
-          st_thn.sl Θ ρ_c ∗ (S.satisfiedBy Θ Δ_spec ρ_spec γ ∗ Bindings.typedSubst Θ B Γ γ ∗ R) := by
+        st₁.sl Θ ρ_c ∗ (S.satisfiedBy (reg.wpCtx) Θ Δ_spec ρ_spec γ ∗ Bindings.typedSubst Θ B Γ γ ∗ R) ⊢
+          st_thn.sl Θ ρ_c ∗ (S.satisfiedBy (reg.wpCtx) Θ Δ_spec ρ_spec γ ∗ Bindings.typedSubst Θ B Γ γ ∗ R) := by
       simp [st_thn, TransState.sl]
     iapply (hctx.trans hwp)
     isplitl [Howns]
@@ -1694,17 +1719,17 @@ theorem compileIfThenElse_correct (cond thn els : Expr) (ty : TinyML.Typ)
         · iexact HT
         · iexact HR
 
-theorem compileTuple_correct (es : List Expr)
-    (ihEs : correctExprs es) :
-    correctExpr (.tuple es) := by
-  intro Θ R S B Γ st ρ γ Δ_spec ρ_spec Ψ Φ heval hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec hpost
+theorem compileTuple_correct (reg : Verifier.Registry) (es : List Expr)
+    (ihEs : correctExprs reg es) :
+    correctExpr reg (.tuple es) := by
+  intro Θ R S B Γ st ρ γ Δ_spec ρ_spec Ψ Φ heval hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec hΔreg hρreg hpost
   simp only [Expr.ty] at hpost
   unfold Expr.runtime
   simp only [Runtime.Expr.subst, List.map_map]
   simp only [compile] at heval
-  have heval_es : (compileExprs Θ Δ_spec S B Γ es).eval st ρ _ := VerifM.eval_bind _ _ _ _ heval
+  have heval_es : (compileExprs reg Θ Δ_spec S B Γ es).eval st ρ _ := VerifM.eval_bind _ _ _ _ heval
   refine SpatialContext.wp_bind_tuple <| ihEs Θ R S B Γ st ρ γ Δ_spec ρ_spec _ _
-    (VerifM.eval.decls_grow ρ heval_es) hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec ?_
+    (VerifM.eval.decls_grow ρ heval_es) hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec hΔreg hρreg ?_
   intro vs ρ' st' terms hΨ hwf_terms heval_terms
   obtain ⟨_, _, hΨ⟩ := hΨ
   obtain hΨ := VerifM.eval_ret hΨ
@@ -1715,7 +1740,7 @@ theorem compileTuple_correct (es : List Expr)
     exact ⟨trivial, Terms.toValList_wfIn hwf_terms⟩
   refine SpatialContext.wp_tuple ?_
   have hstep :
-      st'.sl Θ ρ' ∗ TinyML.ValsHaveTypes Θ vs (es.map Expr.ty) ∗ (S.satisfiedBy Θ Δ_spec ρ_spec γ ∗ R) ⊢
+      st'.sl Θ ρ' ∗ TinyML.ValsHaveTypes Θ vs (es.map Expr.ty) ∗ (S.satisfiedBy (reg.wpCtx) Θ Δ_spec ρ_spec γ ∗ R) ⊢
         st'.sl Θ ρ' ∗ TinyML.ValHasType Θ (.tuple vs) (.tuple (es.map Expr.ty)) ∗ R := by
     iintro ⟨Howns, Hvals, □HS, HR⟩
     isplitl [Howns]
@@ -1731,10 +1756,11 @@ theorem compileTuple_correct (es : List Expr)
     hpost (Runtime.Val.tuple vs) ρ' st' (.unop .ofValList (Terms.toValList terms))
       hΨ hwf_tuple heval_tuple
 
-theorem compileApp_correct (fn : Expr) (args : List Expr) (aty : TinyML.Typ)
-    (ihArgs : correctExprs args) :
-    correctExpr (.app fn args aty) := by
-  intro Θ R S B Γ st ρ γ Δ_spec ρ_spec Ψ Φ heval hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec hpost
+theorem compileApp_correct (reg : Verifier.Registry) (hSound : Verifier.Registry.Sound reg)
+    (fn : Expr) (args : List Expr) (aty : TinyML.Typ)
+    (ihArgs : correctExprs reg args) :
+    correctExpr reg (.app fn args aty) := by
+  intro Θ R S B Γ st ρ γ Δ_spec ρ_spec Ψ Φ heval hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec hΔreg hρreg hpost
   simp only [Expr.ty] at hpost
   unfold Expr.runtime
   simp only [Runtime.Expr.subst, List.map_map]
@@ -1742,9 +1768,9 @@ theorem compileApp_correct (fn : Expr) (args : List Expr) (aty : TinyML.Typ)
   | var f fty =>
     simp only [compile] at heval
     obtain ⟨spec, hlookup, heval⟩ := VerifM.eval_bind_expectSome heval
-    have heval_args : (compileExprs Θ Δ_spec S B Γ args).eval st ρ _ := VerifM.eval_bind _ _ _ _ heval
-    refine SpecMap.project
-      (P := st.sl Θ ρ ∗ (S.satisfiedBy Θ Δ_spec ρ_spec γ ∗ Bindings.typedSubst Θ B Γ γ ∗ R)) Θ Δ_spec ρ_spec S γ ?_ hlookup ?_
+    have heval_args : (compileExprs reg Θ Δ_spec S B Γ args).eval st ρ _ := VerifM.eval_bind _ _ _ _ heval
+    refine SpecMap.project (wctx := reg.wpCtx)
+      (P := st.sl Θ ρ ∗ (S.satisfiedBy (reg.wpCtx) Θ Δ_spec ρ_spec γ ∗ Bindings.typedSubst Θ B Γ γ ∗ R)) Θ Δ_spec ρ_spec S γ ?_ hlookup ?_
     · istart
       iintro ⟨_, □HS, _⟩
       iexact HS
@@ -1752,11 +1778,11 @@ theorem compileApp_correct (fn : Expr) (args : List Expr) (aty : TinyML.Typ)
       simp [Expr.runtime, Runtime.Expr.subst, hγf]
       refine SpatialContext.wp_bind_app ?_
       have hctx :
-          spec.isPrecondFor Θ Δ_spec ρ_spec fval ∗
-              (st.sl Θ ρ ∗ (S.satisfiedBy Θ Δ_spec ρ_spec γ ∗ Bindings.typedSubst Θ B Γ γ ∗ R)) ⊢
+          spec.isPrecondFor (reg.wpCtx) Θ Δ_spec ρ_spec fval ∗
+              (st.sl Θ ρ ∗ (S.satisfiedBy (reg.wpCtx) Θ Δ_spec ρ_spec γ ∗ Bindings.typedSubst Θ B Γ γ ∗ R)) ⊢
             st.sl Θ ρ ∗
-              (S.satisfiedBy Θ Δ_spec ρ_spec γ ∗
-                Bindings.typedSubst Θ B Γ γ ∗ (spec.isPrecondFor Θ Δ_spec ρ_spec fval ∗ R)) := by
+              (S.satisfiedBy (reg.wpCtx) Θ Δ_spec ρ_spec γ ∗
+                Bindings.typedSubst Θ B Γ γ ∗ (spec.isPrecondFor (reg.wpCtx) Θ Δ_spec ρ_spec fval ∗ R)) := by
         istart
         iintro ⟨□Hspec, Howns, □HS, □HT, HR⟩
         isplitl [Howns]
@@ -1769,8 +1795,8 @@ theorem compileApp_correct (fn : Expr) (args : List Expr) (aty : TinyML.Typ)
               · iexact Hspec
               · iexact HR
       refine hctx.trans <|
-        ihArgs Θ (spec.isPrecondFor Θ Δ_spec ρ_spec fval ∗ R) S B Γ st ρ γ Δ_spec ρ_spec _ _
-          (VerifM.eval.decls_grow ρ heval_args) hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec ?_
+        ihArgs Θ (spec.isPrecondFor (reg.wpCtx) Θ Δ_spec ρ_spec fval ∗ R) S B Γ st ρ γ Δ_spec ρ_spec _ _
+          (VerifM.eval.decls_grow ρ heval_args) hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec hΔreg hρreg ?_
       intro vs ρ_args st_args sargs hΨ_args hsargs_wf heval_sargs
       obtain ⟨hdecls_args, hagreeOn_args, hΨ_args⟩ := hΨ_args
       let typedArgs := (args.map Expr.ty).zip sargs
@@ -1853,23 +1879,128 @@ theorem compileApp_correct (fn : Expr) (args : List Expr) (aty : TinyML.Typ)
         isplitl [Howns]
         · iexact Howns
         · iexact HR
+  | prim n fty =>
+    simp only [compile] at heval
+    obtain ⟨i, hilookup, heval⟩ := VerifM.eval_bind_expectSome heval
+    obtain ⟨hret_eq, heval⟩ := VerifM.eval_bind_expectEq heval
+    have heval_args : (compileExprs reg Θ Δ_spec S B Γ args).eval st ρ _ :=
+      VerifM.eval_bind _ _ _ _ heval
+    have hi_mem : i ∈ reg := Verifier.Registry.mem_of_lookup? hilookup
+    have hbridge := Verifier.Registry.Sound.get hSound hi_mem
+    simp only [Expr.runtime, Runtime.Expr.subst_val]
+    refine SpatialContext.wp_bind_app ?_
+    refine ihArgs Θ R S B Γ st ρ γ Δ_spec ρ_spec _ _
+      (VerifM.eval.decls_grow ρ heval_args) hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec hΔreg hρreg ?_
+    intro vs ρ_args st_args sargs hΨ_args hsargs_wf heval_sargs
+    obtain ⟨hdecls_args, hagreeOn_args, hΨ_args⟩ := hΨ_args
+    let spec := i.spec
+    let typedArgs := (args.map Expr.ty).zip sargs
+    have hlen_sargs : sargs.length = vs.length := by
+      simpa [Terms.Eval] using List.Forall₂.length_eq heval_sargs
+    have hΔspec_args : Δ_spec.Subset st_args.decls := hΔspec.trans hdecls_args
+    have hst_args_wf : st_args.decls.wf := (VerifM.eval.wf hΨ_args).namesDisjoint
+    have hwf_pred :
+        spec.pred.wfIn ((Δ_spec.declVars (FiniteSubst.base Δ_spec).dom).declVars
+          (Spec.argVars spec.args)) := by
+      simpa [spec, FiniteSubst.base, Signature.declVars] using
+        hbridge.specWf Δ_spec (hΔreg i hi_mem) hΔwf
+    have hbase_wf : (FiniteSubst.base Δ_spec).wf Δ_spec st_args.decls :=
+      FiniteSubst.base_wfIn hΔspec_args hΔwf hst_args_wf hΔvars
+    have htypedArgs_wf : ∀ p ∈ typedArgs, p.2.wfIn st_args.decls := by
+      intro p hp
+      have hp'' : p.2 ∈ sargs := (List.of_mem_zip hp).2
+      exact hsargs_wf _ hp''
+    have hcall_eval : VerifM.eval (Spec.call Θ (FiniteSubst.base Δ_spec) spec typedArgs) st_args ρ_args
+        (fun p st' ρ' => VerifM.eval (pure p.2) st' ρ' Ψ) := VerifM.eval_bind _ _ _ _ hΨ_args
+    have hcall := Spec.call_correct Θ spec Δ_spec (FiniteSubst.base Δ_spec) typedArgs st_args ρ_args
+      (fun p st' ρ' => VerifM.eval (pure p.2) st' ρ' Ψ) Φ R
+      hwf_pred hbase_wf htypedArgs_wf hcall_eval
+      (fun v st' ρ' t hΨ hwf heval => by
+        have hret_eq' : spec.retTy = aty := by
+          simpa [spec, Verifier.Intrinsic.resultTy] using hret_eq
+        have h := hpost v ρ' st' t (VerifM.eval_ret hΨ) hwf heval
+        rw [← hret_eq'] at h
+        iintro H
+        icases H with ⟨Howns', Hrest⟩
+        icases Hrest with ⟨HR', Hty⟩
+        iapply h
+        isplitl [Howns']
+        · iexact Howns'
+        · isplitl [Hty]
+          · iexact Hty
+          · iexact HR')
+    obtain ⟨hsub_ty, happly⟩ := hcall
+    refine SpatialContext.wp_val ?_
+    refine BIBase.Entails.trans ?_ wp.prim
+    show _ ⊢ (reg.wpCtx) n vs Φ
+    have hctx_eq : (reg.wpCtx) n vs Φ = i.toWp vs Φ := by
+      simp only [Verifier.Registry.wpCtx, hilookup]
+    rw [hctx_eq]
+    istart
+    iintro ⟨Howns, Hvals, _HS, HR⟩
+    iintuitionistic Hvals
+    ihave Hlen := TinyML.ValsHaveTypes.length_eq $$ Hvals
+    ipure Hlen
+    have hlen_typed : (args.map Expr.ty).length = sargs.length := by
+      rw [← Hlen]; exact hlen_sargs.symm
+    have hsub_ty' : @TinyML.Typ.SubList Θ (args.map Expr.ty) i.argTysList := by
+      have hspec_snd : i.specArgs.map Prod.snd = i.argTysList := rfl
+      have hfst : typedArgs.map Prod.fst = args.map Expr.ty := by
+        simpa [typedArgs] using
+          (List.map_fst_zip (l₁ := args.map Expr.ty) (l₂ := sargs)
+            (Nat.le_of_eq hlen_typed))
+      simpa [spec, hspec_snd, hfst] using hsub_ty
+    have heval_sargs_map : typedArgs.map (fun p => p.2.eval ρ_args.env) = vs := by
+      have hsnd :
+          List.map Prod.snd ((List.map Expr.ty args).zip sargs) = sargs := by
+        simpa using
+          (List.map_snd_zip (l₁ := List.map Expr.ty args) (l₂ := sargs)
+            (Nat.le_of_eq hlen_typed.symm))
+      calc
+        typedArgs.map (fun p => p.2.eval ρ_args.env)
+            = sargs.map (fun t => t.eval ρ_args.env) := by
+                simpa [typedArgs, List.map_map] using
+                  congrArg (List.map (fun t => t.eval ρ_args.env)) hsnd
+        _ = vs := Terms.Eval.map_eval heval_sargs
+    have happly' :
+        st_args.sl Θ ρ_args ∗ R ⊢
+          PredTrans.apply Θ (fun r => TinyML.ValHasType Θ r i.resultTy -∗ Φ r) i.spec.pred
+            (Spec.argsEnv ρ_args i.specArgs vs) := by
+      rw [heval_sargs_map] at happly
+      simpa [spec, Verifier.Intrinsic.specArgs] using happly
+    have hagree_ρ_args : VerifM.Env.agreeOn Δ_spec ρ_spec ρ_args :=
+      VerifM.Env.agreeOn_trans hρspec (VerifM.Env.agreeOn_mono hΔspec hagreeOn_args)
+    have hρ_args_reg : ρ_args.env.respects i.folSym :=
+      Env.respects_of_agreeOn_extendWithSym (hρreg i hi_mem) (hΔreg i hi_mem) hagree_ρ_args
+    iapply (show
+        TinyML.ValsHaveTypes Θ vs i.argTysList ∗
+          PredTrans.apply Θ (fun r => TinyML.ValHasType Θ r i.resultTy -∗ Φ r) i.spec.pred
+            (Spec.argsEnv ρ_args i.specArgs vs) ⊢ i.toWp vs Φ from
+        hbridge.bridge Θ vs ρ_args Φ hρ_args_reg)
+    isplitl [Hvals]
+    · iapply (TinyML.ValsHaveTypes.sub hsub_ty')
+      iexact Hvals
+    · iapply happly'
+      isplitl [Howns]
+      · iexact Howns
+      · iexact HR
   | _ =>
     simp only [compile] at heval
     exact (VerifM.eval_fatal heval).elim
 
-theorem compileMatch_correct (scrut : Expr) (branches : List (Binder × Expr)) (ty : TinyML.Typ)
-    (ihScrut : correctExpr scrut) (ihBranches : correctBranches branches) :
-    correctExpr (.match_ scrut branches ty) := by
-  intro Θ R S B Γ st ρ γ Δ_spec ρ_spec Ψ Φ heval hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec hpost
+theorem compileMatch_correct (reg : Verifier.Registry) (scrut : Expr) (branches : List (Binder × Expr)) (ty : TinyML.Typ)
+    (ihScrut : correctExpr reg scrut) (ihBranches : correctBranches reg branches) :
+    correctExpr reg (.match_ scrut branches ty) := by
+  intro Θ R S B Γ st ρ γ Δ_spec ρ_spec Ψ Φ heval hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec hΔreg hρreg hpost
   simp only [Expr.ty] at hpost
   unfold Expr.runtime
   simp only [Expr.branchListRuntime_eq_map, Runtime.Expr.subst, List.map_map]
   simp only [compile] at heval
-  have heval_scrut : (compile Θ Δ_spec S B Γ scrut).eval st ρ _ := VerifM.eval_bind _ _ _ _ heval
+  have heval_scrut : (compile reg Θ Δ_spec S B Γ scrut).eval st ρ _ := VerifM.eval_bind _ _ _ _ heval
   refine SpatialContext.wp_bind_match <| BIBase.Entails.trans ?_ <|
-    ihScrut Θ (S.satisfiedBy Θ Δ_spec ρ_spec γ ∗ B.typedSubst Θ Γ γ ∗ R) S B Γ st ρ γ Δ_spec ρ_spec _ _
-      (VerifM.eval.decls_grow ρ heval_scrut) hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec ?_
-  · exact Helpers.ctx_dup Θ Δ_spec ρ_spec S B Γ st ρ γ R
+    ihScrut Θ (S.satisfiedBy (reg.wpCtx) Θ Δ_spec ρ_spec γ ∗ B.typedSubst Θ Γ γ ∗ R) S B Γ st ρ γ Δ_spec ρ_spec _ _
+      (VerifM.eval.decls_grow ρ heval_scrut) hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec hΔreg hρreg ?_
+  · exact Helpers.ctx_dup reg Θ Δ_spec ρ_spec S B Γ st ρ γ R
   intro v_scrut ρ_scrut st_scrut se_scrut hΨ_scrut hse_wf heval_se
   obtain ⟨hdecls_scrut, hagreeOn_scrut, hΨ_scrut⟩ := hΨ_scrut
   cases hscrut_ty : scrut.ty with
@@ -1885,12 +2016,12 @@ theorem compileMatch_correct (scrut : Expr) (branches : List (Binder × Expr)) (
       by_cases htys : ∀ br ∈ branches, br.2.ty = ty
       · have hΨ_scrut' :
             (do
-              let i ← VerifM.all (List.range (compileBranches Θ Δ_spec S B Γ se_scrut ts branches 0).length)
-              match (compileBranches Θ Δ_spec S B Γ se_scrut ts branches 0)[i]? with
+              let i ← VerifM.all (List.range (compileBranches reg Θ Δ_spec S B Γ se_scrut ts branches 0).length)
+              match (compileBranches reg Θ Δ_spec S B Γ se_scrut ts branches 0)[i]? with
               | some m => m
               | none => VerifM.fatal "match branch index out of range").eval st_scrut ρ_scrut Ψ := by
           simpa [if_pos hlen, if_pos htys] using hΨ_scrut
-        have hcb := compileBranches_length_get Θ Δ_spec S B Γ se_scrut ts branches 0
+        have hcb := compileBranches_length_get reg Θ Δ_spec S B Γ se_scrut ts branches 0
         have hactions_len := hcb.1
         have heval_all := VerifM.eval_bind _ _ _ _ hΨ_scrut'
         have hall := VerifM.eval_all heval_all
@@ -1902,7 +2033,7 @@ theorem compileMatch_correct (scrut : Expr) (branches : List (Binder × Expr)) (
           icases Hscrut_sum with ⟨%tag, %v_payload, %hval_eq, Hsum⟩
           ihave %htag_bound := TinyML.ValSumRel.bound $$ Hsum
           have htag_branches : tag < branches.length := hlen ▸ htag_bound
-          have htag_range : tag ∈ List.range (compileBranches Θ Δ_spec S B Γ se_scrut ts branches 0).length := by
+          have htag_range : tag ∈ List.range (compileBranches reg Θ Δ_spec S B Γ se_scrut ts branches 0).length := by
             rw [hactions_len]
             exact List.mem_range.mpr htag_branches
           have heval_tag := hall tag htag_range
@@ -1915,7 +2046,7 @@ theorem compileMatch_correct (scrut : Expr) (branches : List (Binder × Expr)) (
           have hspecInv_scrut := specInvariants_mono hΔspec hρspec hdecls_scrut hagreeOn_scrut
           have hbranch_wp := ihBranches Θ R S B Γ se_scrut ts.length ts 0
             st_scrut ρ_scrut γ Δ_spec ρ_spec Ψ Φ
-            hagree_scrut hbwf_scrut hSwf hΔwf hΔvars hspecInv_scrut.1 hspecInv_scrut.2 hse_wf
+            hagree_scrut hbwf_scrut hSwf hΔwf hΔvars hspecInv_scrut.1 hspecInv_scrut.2 hΔreg hρreg hse_wf
             (fun j hj v ρ' st' se hΨ hse_wf hse_eval => by
               iintro ⟨Hsl, Hv, □HS, HR⟩
               iapply (hpost v ρ' st' se hΨ hse_wf hse_eval)
@@ -1931,8 +2062,8 @@ theorem compileMatch_correct (scrut : Expr) (branches : List (Binder × Expr)) (
           have hbranch_entail :
               st_scrut.sl Θ ρ_scrut ∗
                   TinyML.ValSumRel Θ tag v_payload ts ∗
-                    (S.satisfiedBy Θ Δ_spec ρ_spec γ ∗ B.typedSubst Θ Γ γ ∗ R) ⊢
-                wp
+                    (S.satisfiedBy (reg.wpCtx) Θ Δ_spec ρ_spec γ ∗ B.typedSubst Θ Γ γ ∗ R) ⊢
+                wp (reg.wpCtx)
                   ((Runtime.Expr.subst γ
                         (Runtime.Expr.fix Runtime.Binder.none [branches[tag].1.runtime] branches[tag].2.runtime)).app
                     [Runtime.Expr.val v_payload])
@@ -1953,8 +2084,8 @@ theorem compileMatch_correct (scrut : Expr) (branches : List (Binder × Expr)) (
           have hmatch_entail :
               st_scrut.sl Θ ρ_scrut ∗
                   TinyML.ValSumRel Θ tag v_payload ts ∗
-                    (S.satisfiedBy Θ Δ_spec ρ_spec γ ∗ B.typedSubst Θ Γ γ ∗ R) ⊢
-                wp
+                    (S.satisfiedBy (reg.wpCtx) Θ Δ_spec ρ_spec γ ∗ B.typedSubst Θ Γ γ ∗ R) ⊢
+                wp (reg.wpCtx)
                   ((Runtime.Expr.val (Runtime.Val.inj tag ts.length v_payload)).match_
                     (List.map (Runtime.Expr.subst γ ∘ fun p =>
                       Runtime.Expr.fix Runtime.Binder.none [p.1.runtime] p.2.runtime) branches))
@@ -1962,7 +2093,7 @@ theorem compileMatch_correct (scrut : Expr) (branches : List (Binder × Expr)) (
             SpatialContext.wp_match
               (R := st_scrut.sl Θ ρ_scrut ∗
                   TinyML.ValSumRel Θ tag v_payload ts ∗
-                    (S.satisfiedBy Θ Δ_spec ρ_spec γ ∗ B.typedSubst Θ Γ γ ∗ R))
+                    (S.satisfiedBy (reg.wpCtx) Θ Δ_spec ρ_spec γ ∗ B.typedSubst Θ Γ γ ∗ R))
               (branch :=
                 Runtime.Expr.subst γ
                   (Runtime.Expr.fix Runtime.Binder.none [branches[tag].1.runtime] branches[tag].2.runtime))
@@ -1983,10 +2114,10 @@ theorem compileMatch_correct (scrut : Expr) (branches : List (Binder × Expr)) (
           simpa [if_pos hlen, if_neg htys] using hΨ_scrut
         exact (VerifM.eval_fatal hΨ_bad).elim
 
-theorem compileSingleBranch_correct (binder : Binder) (body : Expr)
-    (ihBody : correctExpr body) :
-    correctBranch (binder, body) := by
-  intro Θ R S B Γ sc n i ty_i st ρ γ Δ_spec ρ_spec Ψ Φ heval hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec hsc_wf hpost payload hsc_eval
+theorem compileSingleBranch_correct (reg : Verifier.Registry) (binder : Binder) (body : Expr)
+    (ihBody : correctExpr reg body) :
+    correctBranch reg (binder, body) := by
+  intro Θ R S B Γ sc n i ty_i st ρ γ Δ_spec ρ_spec Ψ Φ heval hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec hΔreg hρreg hsc_wf hpost payload hsc_eval
   simp only [compileBranch] at heval
   by_cases hty : binder.ty = ty_i
   · have hexpect := VerifM.eval_bind _ _ _ _ heval
@@ -2036,7 +2167,7 @@ theorem compileSingleBranch_correct (binder : Binder) (body : Expr)
         (t := Term.const (.uninterpreted xv.name .value))
         (ρ := ρ₁.env) (Θ := Θ) (v := payload) hxv_eval $$ Hpay
     ipure Hcheck
-    obtain ⟨st₂, hst₂_decls, hst₂_owns, heval_body'⟩ := VerifM.eval_assumeAll hassume_bind₂
+    obtain ⟨st₂, hst₂_decls, hst₂_owns, _, heval_body'⟩ := VerifM.eval_assumeAll hassume_bind₂
       (fun φ hφ => TinyML.typeConstraints_wfIn hxv_wf φ hφ)
       (fun φ hφ => Hcheck φ hφ)
     have hst₂_owns_eq : st₂.owns = st.owns := hst₂_owns
@@ -2046,17 +2177,18 @@ theorem compileSingleBranch_correct (binder : Binder) (body : Expr)
       have hagree₁ : B.agreeOnLinked ρ₁.env γ :=
         Bindings.agreeOnLinked_env_agree hagree hagreeOn_st hbwf
       have hbwf₁ : B.wfIn st₂.decls := hst₂_decls ▸ fun p hp => List.Mem.tail _ (hbwf p hp)
-      have heval_body'' : (compile Θ Δ_spec S B (Γ.extendBinder binder ty_i) body).eval st₂ ρ₁ Ψ := by
+      have heval_body'' : (compile reg Θ Δ_spec S B (Γ.extendBinder binder ty_i) body).eval st₂ ρ₁ Ψ := by
         simpa [ρ₁, xv, hint, hname] using heval_body'
       have hspecInv₁ := specInvariants_mono hΔspec hρspec
         (Signature.Subset.subset_addConst st.decls xv) hagreeOn_st
       have hBodyWp :
           st₂.sl Θ ρ₁ ∗
-              (S.satisfiedBy Θ Δ_spec ρ_spec γ ∗ Bindings.typedSubst Θ B (Γ.extendBinder binder ty_i) γ ∗
-                (S.satisfiedBy Θ Δ_spec ρ_spec γ ∗ R)) ⊢
-            wp (body.runtime.subst γ) Φ :=
-        ihBody Θ (S.satisfiedBy Θ Δ_spec ρ_spec γ ∗ R) S B (Γ.extendBinder binder ty_i) st₂ ρ₁ γ Δ_spec ρ_spec Ψ Φ
+              (S.satisfiedBy (reg.wpCtx) Θ Δ_spec ρ_spec γ ∗ Bindings.typedSubst Θ B (Γ.extendBinder binder ty_i) γ ∗
+                (S.satisfiedBy (reg.wpCtx) Θ Δ_spec ρ_spec γ ∗ R)) ⊢
+            wp (reg.wpCtx) (body.runtime.subst γ) Φ :=
+        ihBody Θ (S.satisfiedBy (reg.wpCtx) Θ Δ_spec ρ_spec γ ∗ R) S B (Γ.extendBinder binder ty_i) st₂ ρ₁ γ Δ_spec ρ_spec Ψ Φ
           heval_body'' hagree₁ hbwf₁ hSwf hΔwf hΔvars (hst₂_decls ▸ hspecInv₁.1) hspecInv₁.2
+          hΔreg hρreg
           (fun v ρ' st' se hΨ' hs hw => hpost v ρ' st' se hΨ' hs hw)
       rw [Binder.runtime_of_name_none hname]
       simp only [Runtime.Expr.subst_fix]
@@ -2107,19 +2239,20 @@ theorem compileSingleBranch_correct (binder : Binder) (body : Expr)
         have h := Bindings.agreeOnLinked_cons (x := x) (v := xv) (γ := γ) hagree hagreeOn_B (hvty := rfl)
         rwa [hρ₁_lookup] at h
       have heval_body'' :
-          (compile Θ Δ_spec (Finmap.erase x S) ((x, xv) :: B) (Γ.extendBinder binder ty_i) body).eval st₂ ρ₁ Ψ := by
+          (compile reg Θ Δ_spec (Finmap.erase x S) ((x, xv) :: B) (Γ.extendBinder binder ty_i) body).eval st₂ ρ₁ Ψ := by
         simpa [ρ₁, xv, hint, TinyML.TyCtx.extendBinder, hname] using heval_body'
       have hspecInv₁ := specInvariants_mono hΔspec hρspec
         (Signature.Subset.subset_addConst st.decls xv) hagreeOn_st
       have hBodyWp :
           st₂.sl Θ ρ₁ ∗
-              (SpecMap.satisfiedBy Θ Δ_spec ρ_spec (Finmap.erase x S) (Runtime.Subst.update γ x payload) ∗
+              (SpecMap.satisfiedBy (reg.wpCtx) Θ Δ_spec ρ_spec (Finmap.erase x S) (Runtime.Subst.update γ x payload) ∗
                 Bindings.typedSubst Θ ((x, xv) :: B) (Γ.extendBinder binder ty_i) (Runtime.Subst.update γ x payload) ∗
-                (S.satisfiedBy Θ Δ_spec ρ_spec γ ∗ R)) ⊢
-            wp (body.runtime.subst (Runtime.Subst.update γ x payload)) Φ :=
-        ihBody Θ (S.satisfiedBy Θ Δ_spec ρ_spec γ ∗ R) (Finmap.erase x S) ((x, xv) :: B) (Γ.extendBinder binder ty_i) st₂ ρ₁
+                (S.satisfiedBy (reg.wpCtx) Θ Δ_spec ρ_spec γ ∗ R)) ⊢
+            wp (reg.wpCtx) (body.runtime.subst (Runtime.Subst.update γ x payload)) Φ :=
+        ihBody Θ (S.satisfiedBy (reg.wpCtx) Θ Δ_spec ρ_spec γ ∗ R) (Finmap.erase x S) ((x, xv) :: B) (Γ.extendBinder binder ty_i) st₂ ρ₁
           (Runtime.Subst.update γ x payload) Δ_spec ρ_spec Ψ Φ heval_body'' hagree₁ hbwf₂ (SpecMap.wfIn_erase hSwf)
           hΔwf hΔvars (hst₂_decls ▸ hspecInv₁.1) hspecInv₁.2
+          hΔreg hρreg
           (fun v ρ' st' se hΨ' hs hw => hpost v ρ' st' se hΨ' hs hw)
       rw [Binder.runtime_of_name_some hname]
       simp only [Runtime.Expr.subst_fix]
@@ -2152,37 +2285,37 @@ theorem compileSingleBranch_correct (binder : Binder) (body : Expr)
   · have hexpect := VerifM.eval_bind _ _ _ _ heval
     exact False.elim (hty (VerifM.eval_expectEq hexpect).1)
 
-theorem compileBranchesCons_correct (b : Binder × Expr) (bs : List (Binder × Expr))
-    (ihHead : correctBranch b) (ihTail : correctBranches bs) :
-    correctBranches (b :: bs) := by
-  intro Θ R S B Γ sc n ts idx st ρ γ Δ_spec ρ_spec Ψ Φ hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec hsc_wf hpost j hj
+theorem compileBranchesCons_correct (reg : Verifier.Registry) (b : Binder × Expr) (bs : List (Binder × Expr))
+    (ihHead : correctBranch reg b) (ihTail : correctBranches reg bs) :
+    correctBranches reg (b :: bs) := by
+  intro Θ R S B Γ sc n ts idx st ρ γ Δ_spec ρ_spec Ψ Φ hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec hΔreg hρreg hsc_wf hpost j hj
   cases j with
   | zero =>
     simp only [Nat.add_zero, List.getElem_cons_zero]
     intro heval
     exact ihHead Θ R S B Γ sc n idx (ts[idx]?.getD .value) st ρ γ Δ_spec ρ_spec Ψ Φ
-      heval hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec hsc_wf (by simpa using hpost 0 hj)
+      heval hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec hΔreg hρreg hsc_wf (by simpa using hpost 0 hj)
   | succ k =>
     have hk : k < bs.length := by simp at hj; omega
     have hidx : idx + (k + 1) = (idx + 1) + k := by omega
     simp only [hidx, List.getElem_cons_succ]
     exact ihTail Θ R S B Γ sc n ts (idx + 1) st ρ γ Δ_spec ρ_spec Ψ Φ
-      hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec hsc_wf
+      hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec hΔreg hρreg hsc_wf
       (by
         intro j hj' v ρ' st' se hΨ hse_wf hse_eval htyped
         simpa [Nat.add_assoc] using hpost (j + 1) (by simpa using hj') v ρ' st' se hΨ hse_wf hse_eval htyped)
       k hk
 
-theorem compileExprsCons_correct (e : Expr) (rest : List Expr)
-    (ihE : correctExpr e) (ihRest : correctExprs rest) :
-    correctExprs (e :: rest) := by
-  intro Θ R S B Γ st ρ γ Δ_spec ρ_spec Ψ Φ heval hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec hpost
+theorem compileExprsCons_correct (reg : Verifier.Registry) (e : Expr) (rest : List Expr)
+    (ihE : correctExpr reg e) (ihRest : correctExprs reg rest) :
+    correctExprs reg (e :: rest) := by
+  intro Θ R S B Γ st ρ γ Δ_spec ρ_spec Ψ Φ heval hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec hΔreg hρreg hpost
   simp only [compileExprs] at heval
   simp only [List.map, wps_cons]
-  have heval_rest : (compileExprs Θ Δ_spec S B Γ rest).eval st ρ _ := VerifM.eval_bind _ _ _ _ heval
+  have heval_rest : (compileExprs reg Θ Δ_spec S B Γ rest).eval st ρ _ := VerifM.eval_bind _ _ _ _ heval
   refine BIBase.Entails.trans ?_ <|
-    ihRest Θ (B.typedSubst Θ Γ γ ∗ (S.satisfiedBy Θ Δ_spec ρ_spec γ ∗ R)) S B Γ st ρ γ Δ_spec ρ_spec _ _
-      (VerifM.eval.decls_grow ρ heval_rest) hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec ?_
+    ihRest Θ (B.typedSubst Θ Γ γ ∗ (S.satisfiedBy (reg.wpCtx) Θ Δ_spec ρ_spec γ ∗ R)) S B Γ st ρ γ Δ_spec ρ_spec _ _
+      (VerifM.eval.decls_grow ρ heval_rest) hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec hΔreg hρreg ?_
   · iintro ⟨Hsl, □HS, □HT, HR⟩
     isplitl [Hsl]
     · iexact Hsl
@@ -2200,12 +2333,12 @@ theorem compileExprsCons_correct (e : Expr) (rest : List Expr)
   have hagree_vs : B.agreeOnLinked ρ_vs.env γ :=
     Bindings.agreeOnLinked_env_agree hagree hagreeOn_vs hbwf
   have hbwf_vs : B.wfIn st_vs.decls := fun p hp => hdecls_vs.consts _ (hbwf p hp)
-  have heval_e : (compile Θ Δ_spec S B Γ e).eval st_vs ρ_vs _ := VerifM.eval_bind _ _ _ _ hΨ_vs
+  have heval_e : (compile reg Θ Δ_spec S B Γ e).eval st_vs ρ_vs _ := VerifM.eval_bind _ _ _ _ hΨ_vs
   have hspecInv_vs := specInvariants_mono hΔspec hρspec hdecls_vs hagreeOn_vs
   refine BIBase.Entails.trans ?_ <|
-    ihE Θ (TinyML.ValsHaveTypes Θ vs (rest.map Expr.ty) ∗ (S.satisfiedBy Θ Δ_spec ρ_spec γ ∗ R))
+    ihE Θ (TinyML.ValsHaveTypes Θ vs (rest.map Expr.ty) ∗ (S.satisfiedBy (reg.wpCtx) Θ Δ_spec ρ_spec γ ∗ R))
     S B Γ st_vs ρ_vs γ Δ_spec ρ_spec _ _
-    (VerifM.eval.decls_grow ρ_vs heval_e) hagree_vs hbwf_vs hSwf hΔwf hΔvars hspecInv_vs.1 hspecInv_vs.2 ?_
+    (VerifM.eval.decls_grow ρ_vs heval_e) hagree_vs hbwf_vs hSwf hΔwf hΔvars hspecInv_vs.1 hspecInv_vs.2 hΔreg hρreg ?_
   · iintro ⟨Hsl, Hvs, □HS, □HT, □HSpare, HR⟩
     isplitl [Hsl]
     · iexact Hsl
@@ -2252,14 +2385,14 @@ theorem compileExprsCons_correct (e : Expr) (rest : List Expr)
         · iexact HSpare
         · iexact HR)
 
-theorem compileBranchesNil_correct :
-    correctBranches [] := by
-  intro Θ R S B Γ sc n ts idx st ρ γ Δ_spec ρ_spec Ψ Φ hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec hsc_wf hpost j hj
+theorem compileBranchesNil_correct (reg : Verifier.Registry) :
+    correctBranches reg [] := by
+  intro Θ R S B Γ sc n ts idx st ρ γ Δ_spec ρ_spec Ψ Φ hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec hΔreg hρreg hsc_wf hpost j hj
   exact absurd hj (Nat.not_lt_zero _)
 
-theorem compileExprsNil_correct :
-    correctExprs [] := by
-  intro Θ R S B Γ st ρ γ Δ_spec ρ_spec Ψ Φ heval hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec hpost
+theorem compileExprsNil_correct (reg : Verifier.Registry) :
+    correctExprs reg [] := by
+  intro Θ R S B Γ st ρ γ Δ_spec ρ_spec Ψ Φ heval hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec hΔreg hρreg hpost
   simp only [compileExprs] at heval
   simp only [List.map, wps]
   obtain heval := VerifM.eval_ret heval
@@ -2279,60 +2412,66 @@ theorem compileExprsNil_correct :
 /-! #### Correctness Theorem -/
 
 mutual
-theorem compile_correct (e : Expr) : correctExpr e := by
+theorem compile_correct (reg : Verifier.Registry) (hSound : Verifier.Registry.Sound reg)
+    (e : Expr) : correctExpr reg e := by
   cases e with
   | const c =>
-    simpa using compileConst_correct c
+    simpa using compileConst_correct reg c
   | var x vty =>
-    simpa using compileVar_correct x vty
+    simpa using compileVar_correct reg x vty
+  | prim n ty =>
+    simpa using compilePrim_correct reg n ty
   | inj tag arity payload =>
-    simpa using compileInj_correct tag arity payload (compile_correct payload)
+    simpa using compileInj_correct reg tag arity payload (compile_correct reg hSound payload)
   | cast e ty =>
-    simpa using compileCast_correct e ty (compile_correct e)
+    simpa using compileCast_correct reg e ty (compile_correct reg hSound e)
   | assert e =>
-    simpa using compileAssert_correct e (compile_correct e)
+    simpa using compileAssert_correct reg e (compile_correct reg hSound e)
   | fix self args retTy body =>
-    simpa using compileFix_correct self args retTy body
+    simpa using compileFix_correct reg self args retTy body
   | ref owned e =>
-    simpa using compileRef_correct owned e (compile_correct e)
+    simpa using compileRef_correct reg owned e (compile_correct reg hSound e)
   | deref e ty =>
-    simpa using compileDeref_correct e ty (compile_correct e)
+    simpa using compileDeref_correct reg e ty (compile_correct reg hSound e)
   | store loc val =>
-    simpa using compileStore_correct loc val (compile_correct val) (compile_correct loc)
+    simpa using compileStore_correct reg loc val (compile_correct reg hSound val) (compile_correct reg hSound loc)
   | unop op e uty =>
-    simpa using compileUnop_correct op e uty (compile_correct e)
+    simpa using compileUnop_correct reg op e uty (compile_correct reg hSound e)
   | binop op l r bty =>
-    simpa using compileBinop_correct op l r bty (compile_correct r) (compile_correct l)
+    simpa using compileBinop_correct reg op l r bty (compile_correct reg hSound r) (compile_correct reg hSound l)
   | letIn b e body =>
-    simpa using compileLetIn_correct b e body (compile_correct e) (compile_correct body)
+    simpa using compileLetIn_correct reg b e body (compile_correct reg hSound e) (compile_correct reg hSound body)
   | ifThenElse cond thn els ty =>
-    simpa using compileIfThenElse_correct cond thn els ty
-      (compile_correct cond) (compile_correct thn) (compile_correct els)
+    simpa using compileIfThenElse_correct reg cond thn els ty
+      (compile_correct reg hSound cond) (compile_correct reg hSound thn) (compile_correct reg hSound els)
   | app fn args aty =>
-    simpa using compileApp_correct fn args aty (compileExprs_correct args)
+    simpa using compileApp_correct reg hSound fn args aty (compileExprs_correct reg hSound args)
   | tuple es =>
-    simpa using compileTuple_correct es (compileExprs_correct es)
+    simpa using compileTuple_correct reg es (compileExprs_correct reg hSound es)
   | match_ scrut branches ty =>
-    simpa using compileMatch_correct scrut branches ty
-      (compile_correct scrut) (compileBranches_correct branches)
+    simpa using compileMatch_correct reg scrut branches ty
+      (compile_correct reg hSound scrut) (compileBranches_correct reg hSound branches)
 
-theorem compileBranch_correct (branch : Binder × Expr) : correctBranch branch := by
+theorem compileBranch_correct (reg : Verifier.Registry) (hSound : Verifier.Registry.Sound reg)
+    (branch : Binder × Expr) : correctBranch reg branch := by
   obtain ⟨binder, body⟩ := branch
-  simpa using compileSingleBranch_correct binder body (compile_correct body)
+  simpa using compileSingleBranch_correct reg binder body (compile_correct reg hSound body)
 
-theorem compileBranches_correct (branches : List (Binder × Expr)) : correctBranches branches := by
+theorem compileBranches_correct (reg : Verifier.Registry) (hSound : Verifier.Registry.Sound reg)
+    (branches : List (Binder × Expr)) : correctBranches reg branches := by
   match branches with
   | [] =>
-    exact compileBranchesNil_correct
+    exact compileBranchesNil_correct reg
   | b :: bs =>
-    simpa using compileBranchesCons_correct b bs
-      (compileBranch_correct b) (compileBranches_correct bs)
+    simpa using compileBranchesCons_correct reg b bs
+      (compileBranch_correct reg hSound b) (compileBranches_correct reg hSound bs)
 
-theorem compileExprs_correct (es : List Expr) : correctExprs es := by
+theorem compileExprs_correct (reg : Verifier.Registry) (hSound : Verifier.Registry.Sound reg)
+    (es : List Expr) : correctExprs reg es := by
   match es with
   | [] =>
-    exact compileExprsNil_correct
+    exact compileExprsNil_correct reg
   | e :: rest =>
-    simpa using compileExprsCons_correct e rest
-      (compile_correct e) (compileExprs_correct rest)
+    simpa using compileExprsCons_correct reg e rest
+      (compile_correct reg hSound e) (compileExprs_correct reg hSound rest)
 end

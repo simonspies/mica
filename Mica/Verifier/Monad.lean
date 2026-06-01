@@ -81,6 +81,11 @@ def VerifM.expectSome (msg : String) (x : Option α) : VerifM α := do
   | some x => pure x
   | none => VerifM.fatal msg
 
+/-- Declare a constant with a specific name, failing if a different name was assigned. -/
+def VerifM.declConstExact (c : FOL.Const) : VerifM Unit := do
+  let c' ← VerifM.decl (some c.name) c.sort
+  VerifM.expectEq "declConstExact" c'.name c.name
+
 /-- Declare a unary relation with a specific name, failing if a different name was assigned. -/
 def VerifM.declUnaryRelExact (u : FOL.UnaryRel) : VerifM Unit := do
   let u' ← VerifM.declUnaryRel (some u.name) u.arg
@@ -745,6 +750,27 @@ theorem VerifM.eval_expectSome
     simp [hx] at h
     exact ⟨y, rfl, VerifM.eval_ret h⟩
 
+theorem VerifM.eval_declConstExact {c : FOL.Const} {st : TransState} {ρ : VerifM.Env}
+    {Q : Unit → TransState → VerifM.Env → Prop}
+    (h : VerifM.eval (VerifM.declConstExact c) st ρ Q) :
+    c.name ∉ st.decls.allNames ∧
+    ∀ v, Q () { st with decls := st.decls.addConst c } (ρ.updateConst c.sort c.name v) := by
+  simp only [VerifM.declConstExact] at h
+  have hbind := VerifM.eval_decl (VerifM.eval_bind _ _ _ _ h)
+  have hname : Fresh.freshNumbers c.name st.decls.allNames = c.name := by
+    have hcont0 := hbind default
+    obtain ⟨heq, _⟩ := VerifM.eval_expectEq hcont0
+    simpa using heq
+  refine ⟨?_, ?_⟩
+  · have := st.freshConst_fresh (some c.name) c.sort
+    simpa [TransState.freshConst, hname] using this
+  · intro v
+    obtain ⟨_, hq⟩ := VerifM.eval_expectEq (hbind v)
+    have hceq : st.freshConst (some c.name) c.sort = c := by
+      cases c; simp [TransState.freshConst, hname]
+    rw [hceq] at hq
+    exact hq
+
 theorem VerifM.eval_declUnaryRelExact {u : FOL.UnaryRel} {st : TransState} {ρ : VerifM.Env}
     {Q : Unit → TransState → VerifM.Env → Prop}
     (h : VerifM.eval (VerifM.declUnaryRelExact u) st ρ Q) :
@@ -893,12 +919,13 @@ theorem VerifM.eval_assumeAll {φs : List Formula}
     (h : VerifM.eval (VerifM.assumeAll φs) st ρ P) :
     (∀ φ ∈ φs, φ.wfIn st.decls) →
     (∀ φ ∈ φs, φ.eval ρ.env) →
-    ∃ st', st'.decls = st.decls ∧ st'.owns = st.owns ∧ P () st' ρ := by
+    ∃ st', st'.decls = st.decls ∧ st'.owns = st.owns ∧
+           st'.asserts = φs.reverse ++ st.asserts ∧ P () st' ρ := by
   induction φs generalizing st with
   | nil =>
     intro _ _
     simp only [VerifM.assumeAll] at h
-    exact ⟨st, rfl, rfl, VerifM.eval_ret h⟩
+    exact ⟨st, rfl, rfl, by simp, VerifM.eval_ret h⟩
   | cons φ φs ih =>
     intro hwf heval
     simp only [VerifM.assumeAll] at h
@@ -907,10 +934,11 @@ theorem VerifM.eval_assumeAll {φs : List Formula}
     have hcont := hassume
       (hwf φ (List.mem_cons_self ..))
       (heval φ (List.mem_cons_self ..))
-    obtain ⟨st', hst', howns, hp⟩ := ih hcont
+    obtain ⟨st', hst', howns, hass, hp⟩ := ih hcont
       (fun ψ hψ => hwf ψ (List.mem_cons_of_mem _ hψ))
       (fun ψ hψ => heval ψ (List.mem_cons_of_mem _ hψ))
-    exact ⟨st', by rw [hst'], by rw [howns], hp⟩
+    refine ⟨st', by rw [hst'], by rw [howns], ?_, hp⟩
+    rw [hass]; simp [List.reverse_cons, List.append_assoc]
 
 
 /-! ### Top-level corollary -/

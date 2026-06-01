@@ -5,6 +5,7 @@ import Mica.Frontend.Printer
 import Mica.Frontend.Elaborate
 import Mica.Verifier.Programs
 import Mica.Engine.Driver
+import Mica.Stdlib
 
 private def bold (s : String) : String := s!"\x1b[1m{s}\x1b[0m"
 
@@ -35,6 +36,17 @@ private def parseArgs : List String → Options → Options
     else if opts.file.isSome then { opts with error := some "multiple files provided" }
     else parseArgs rest { opts with file := some arg }
 
+open Iris Iris.BI in
+/-- Soundness of the verifier as actually configured by the CLI: a successful
+    `Program.verify Stdlib.registry` run guarantees the program's weakest
+    precondition holds under the registry-derived `wp` context. Instantiates the
+    generic `Program.verify_correct` at the concrete stdlib registry, discharging
+    its obligations from `Stdlib.registry_sound`. -/
+theorem verify_sound (p : Untyped.Program (Spec.Body Untyped.Expr)) :
+    Smt.Strategy.checks (Program.verify Stdlib.registry p)
+      (⊢ pwp (Stdlib.registry.wpCtx) (Untyped.Program.runtime p)) :=
+  Program.verify_correct Stdlib.registry Stdlib.registry_sound p
+
 def main (args : List String) : IO Unit := do
   let opts := parseArgs args {}
   if let some e := opts.error then
@@ -53,7 +65,7 @@ def main (args : List String) : IO Unit := do
         IO.Process.exit 1
     if opts.printOcaml then
       IO.println (Frontend.Program.print frontendProg)
-    let untypedProg ← match Frontend.Program.elaborate frontendProg with
+    let untypedProg ← match Frontend.Program.elaborate Stdlib.stdResolver frontendProg with
       | .ok prog => pure prog
       | .error e => do
         IO.eprintln s!"elaboration error: {e}"
@@ -62,7 +74,7 @@ def main (args : List String) : IO Unit := do
       IO.println (Untyped.Program.print untypedProg)
     if opts.noCheck then
       return
-    let strategy := Program.verify untypedProg
+    let strategy := Program.verify Stdlib.registry untypedProg
     let logMode : Smt.LogMode :=
       if opts.smtCmdsOnly then .script
       else if opts.verbose then .trace
