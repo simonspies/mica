@@ -87,7 +87,7 @@ private def byteToSMTLIB (b : UInt8) : String :=
 
 private def stringConstToSMTLIB : List UInt8 → String
   | [] => "(as seq.empty (Seq (_ BitVec 8)))"
-  | b :: bs => bs.foldl (fun acc c => s!"(seq.++ {acc} {byteToSMTLIB c})") (byteToSMTLIB b)
+  | s => s!"(seq.++ {" ".intercalate (s.map byteToSMTLIB)})"
 
 private def byteToHum (b : UInt8) : String :=
   let n := b.toNat
