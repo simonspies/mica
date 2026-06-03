@@ -39,6 +39,7 @@ def PrimitiveType.valRelBody : PrimitiveType → Runtime.Val → iProp
   | .unit, v => iprop(⌜v = .unit⌝)
   | .bool, v => iprop(⌜∃ b, v = .bool b⌝)
   | .int, v => iprop(⌜∃ n, v = .int n⌝)
+  | .string, v => iprop(⌜∃ s, v = .str s⌝)
 
 theorem PrimitiveType.valRelBody_persistent (p : PrimitiveType) (v : Runtime.Val) :
     Persistent (p.valRelBody v) := by
@@ -426,6 +427,11 @@ theorem ValHasType.int (Θ : TypeEnv) (v : Runtime.Val) :
   change ValHasType Θ v (.prim .int) ⊣⊢ iprop(⌜∃ n, v = .int n⌝)
   exact equiv_iff.mp (ValHasType.unfold Θ v Typ.int)
 
+theorem ValHasType.string (Θ : TypeEnv) (v : Runtime.Val) :
+    ValHasType Θ v Typ.string ⊣⊢ iprop(⌜∃ s, v = .str s⌝) := by
+  change ValHasType Θ v (.prim .string) ⊣⊢ iprop(⌜∃ s, v = .str s⌝)
+  exact equiv_iff.mp (ValHasType.unfold Θ v Typ.string)
+
 theorem ValHasType.value (Θ : TypeEnv) (v : Runtime.Val) :
     ValHasType Θ v .value ⊣⊢ iprop(True) := by
   exact equiv_iff.mp (ValHasType.unfold Θ v .value)
@@ -607,6 +613,13 @@ theorem ValHasType.int_intro (Θ : TypeEnv) (n : Int) :
   iapply (ValHasType.int Θ (.int n)).2
   ipure_intro
   exact ⟨n, rfl⟩
+
+/-- The canonical proof that a string literal has type `string`. -/
+theorem ValHasType.string_intro (Θ : TypeEnv) (s : List UInt8) :
+    ⊢ ValHasType Θ (.str s) Typ.string := by
+  iapply (ValHasType.string Θ (.str s)).2
+  ipure_intro
+  exact ⟨s, rfl⟩
 
 mutual
   theorem ValHasType.sub {Θ : TypeEnv} {v : Runtime.Val} {t t' : Typ}
@@ -989,12 +1002,14 @@ def PrimitiveType.typeConstraints (p : PrimitiveType) (t : Term .value) : List F
   match p with
   | .int => [.unpred .isInt t]
   | .bool => [.unpred .isBool t]
+  | .string => [.unpred .isStr t]
   | .unit => []
 
 /-- Primitive type constraints only reference free variables of the constrained term. -/
 theorem PrimitiveType.typeConstraints_wfIn {p : PrimitiveType} {t : Term .value} {Δ : Signature}
     (ht : t.wfIn Δ) : ∀ φ ∈ p.typeConstraints t, φ.wfIn Δ := by
   cases p <;> simp [PrimitiveType.typeConstraints]
+  · simp only [Formula.wfIn]; exact ⟨trivial, ht⟩
   · simp only [Formula.wfIn]; exact ⟨trivial, ht⟩
   · simp only [Formula.wfIn]; exact ⟨trivial, ht⟩
 
@@ -1015,6 +1030,14 @@ theorem PrimitiveType.typeConstraints_hold {p : PrimitiveType} {t : Term .value}
   · refine (TinyML.ValHasType.int Θ v).1.trans ?_
     iintro %h
     rcases h with ⟨n, rfl⟩
+    ipure_intro
+    intro φ hφ
+    simp [PrimitiveType.typeConstraints] at hφ
+    rcases hφ with rfl
+    simp [Formula.eval, ht]
+  · refine (TinyML.ValHasType.string Θ v).1.trans ?_
+    iintro %h
+    rcases h with ⟨s, rfl⟩
     ipure_intro
     intro φ hφ
     simp [PrimitiveType.typeConstraints] at hφ

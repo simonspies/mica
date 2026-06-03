@@ -1,6 +1,7 @@
 -- SUMMARY: The concrete stdlib: the intrinsic registry, its soundness aggregate, and the prelude resolver.
 import Mica.Verifier.Intrinsic
 import Mica.Stdlib.IntStd
+import Mica.Stdlib.StringStd
 import Mica.Frontend.Resolver
 
 open Iris Iris.BI
@@ -9,7 +10,15 @@ namespace Stdlib
 
 open Verifier
 
-def registry : Registry := [Intrinsics.intMax, Intrinsics.intMin]
+def registry : Registry := [
+  Intrinsics.stringEndsWith,
+  Intrinsics.stringStartsWith,
+  Intrinsics.stringEqual,
+  Intrinsics.stringCat,
+  Intrinsics.stringLength,
+  Intrinsics.intMax,
+  Intrinsics.intMin
+]
 
 theorem registry_sound : Registry.Sound registry := by
   simp [registry, Registry.Sound, Registry.SoundIn]
@@ -17,7 +26,7 @@ theorem registry_sound : Registry.Sound registry := by
   -- listed. Do not repeat concrete intrinsic names in this proof: infer each
   -- local dependency fragment, then prove only that it is contained in the
   -- registry.
-  repeat apply And.intro
+  repeat' apply And.intro
   all_goals
     try trivial
     apply IntrinsicSound.mono
@@ -25,10 +34,12 @@ theorem registry_sound : Registry.Sound registry := by
     · simp
 
 theorem registry_wf : Registry.Wf registry := by
-  simp only [registry, Registry.Wf, Registry.WfFrom, Signature.extendWithSym,
-    Signature.empty, Signature.addConst, Signature.addUnary, Signature.addBinary,
+  -- The per-symbol freshness side conditions reduce to literal-name
+  -- disequalities; the `@[simp]` `*_folSym`/`*Sym_name` lemmas expose the
+  -- names, so this stays generic over the registry contents.
+  simp [registry, Registry.Wf, Registry.WfFrom, Signature.extendWithSym,
+    Signature.empty, Signature.addUnary, Signature.addBinary,
     Signature.allNames]
-  simp
 
 private def resolvedType (i : Intrinsic) : TinyML.Typ :=
   i.argTysList.foldr TinyML.Typ.arrow i.resultTy

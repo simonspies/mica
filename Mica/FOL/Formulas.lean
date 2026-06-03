@@ -5,6 +5,7 @@ import Mica.Base.Except
 inductive UnPred : Srt → Type where
   | isInt   : UnPred .value
   | isBool  : UnPred .value
+  | isStr   : UnPred .value
   | isLoc   : UnPred .value
   | isTuple : UnPred .value
   | isInj (tag : Nat) (arity : Nat) : UnPred .value
@@ -245,6 +246,7 @@ theorem Context.wfIn_mono (Γ : Context) (h : Γ.wfIn Δ) (hsub : Δ.Subset Δ')
 @[simp] def UnPred.eval : Env → UnPred τ → τ.denote → Prop
   | _, .isInt,   v => match v with | .int _ => True | _ => False
   | _, .isBool,  v => match v with | .bool _ => True | _ => False
+  | _, .isStr,   v => match v with | .str _ => True | _ => False
   | _, .isLoc,   v => match v with | .loc _ => True | _ => False
   | _, .isTuple, v => match v with | .tuple _ => True | _ => False
   | _, .isInj tag arity, v => match v with | .inj t a _ => t = tag ∧ a = arity | _ => False

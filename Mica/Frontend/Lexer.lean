@@ -19,6 +19,8 @@ inductive LexErrorKind where
   | invalidIntLiteral (text : String)
   | invalidCharEscape (c : Char)
   | unterminatedCharLiteral
+  | invalidStringEscape (text : String)
+  | unterminatedStringLiteral
   deriving Repr
 
 structure LexError where
@@ -35,6 +37,8 @@ def LexError.toString (e : LexError) : String :=
   | .invalidIntLiteral t => s!"{loc}: invalid integer literal '{t}'"
   | .invalidCharEscape c => s!"{loc}: invalid character escape '\\{c}'"
   | .unterminatedCharLiteral => s!"{loc}: unterminated character literal"
+  | .invalidStringEscape text => s!"{loc}: invalid string escape '\\{text}'"
+  | .unterminatedStringLiteral => s!"{loc}: unterminated string literal"
 
 instance : ToString LexError := ⟨LexError.toString⟩
 
@@ -44,6 +48,7 @@ instance : ToString LexError := ⟨LexError.toString⟩
 inductive Token where
   | intLit  (n : Int)
   | charLit (c : Char)
+  | stringLit (s : List UInt8)
   | ident   (name : String)   -- identifier (lowercase, uppercase, or starting with ')
   -- keywords
   | kw_let | kw_rec | kw_in | kw_fun
@@ -55,6 +60,7 @@ inductive Token where
   | kw_mod | kw_and
   -- punctuation and operators
   | plus | minus | star | slash
+  | caret
   | eq | neq | lt | le | gt | ge   -- = <> < <= > >=
   | ampamp | pipepipe               -- && ||
   | pipeGt                          -- |>
@@ -73,6 +79,7 @@ inductive Token where
 def Token.toString : Token → String
   | .intLit n  => s!"INT({n})"
   | .charLit c => s!"CHAR({c})"
+  | .stringLit _ => "STRING"
   | .ident s   => s!"IDENT({s})"
   | .kw_let   => "let"   | .kw_rec  => "rec"   | .kw_in   => "in"
   | .kw_fun   => "fun"   | .kw_if   => "if"    | .kw_then => "then"
@@ -82,6 +89,7 @@ def Token.toString : Token → String
   | .kw_true  => "true"  | .kw_false => "false"
   | .kw_mod   => "mod"   | .kw_and  => "and"
   | .plus     => "+"     | .minus   => "-"    | .star  => "*"  | .slash => "/"
+  | .caret    => "^"
   | .eq       => "="     | .neq     => "<>"   | .lt    => "<"
   | .le       => "<="    | .gt      => ">"    | .ge    => ">="
   | .ampamp   => "&&"    | .pipepipe => "||"
@@ -125,6 +133,23 @@ private def LexState.peek2 (st : LexState) : Option Char :=
 -- Helpers
 
 private def isDigit (c : Char) : Bool := '0' ≤ c && c ≤ '9'
+private def isHexDigit (c : Char) : Bool :=
+  isDigit c || ('a' ≤ c && c ≤ 'f') || ('A' ≤ c && c ≤ 'F')
+
+private def hexVal (c : Char) : Nat :=
+  if '0' ≤ c && c ≤ '9' then c.toNat - '0'.toNat
+  else if 'a' ≤ c && c ≤ 'f' then 10 + c.toNat - 'a'.toNat
+  else if 'A' ≤ c && c ≤ 'F' then 10 + c.toNat - 'A'.toNat
+  else 0
+
+private def decVal (c : Char) : Nat := c.toNat - '0'.toNat
+
+private def isOctDigit (c : Char) : Bool := '0' ≤ c && c ≤ '7'
+private def octVal (c : Char) : Nat := c.toNat - '0'.toNat
+
+/-- UTF-8 encoding of a Unicode scalar value, as a byte list. -/
+private def utf8Bytes (n : Nat) : List UInt8 := (Char.ofNat n).toString.toUTF8.data.toList
+
 private def isUpper (c : Char) : Bool := 'A' ≤ c && c ≤ 'Z'
 private def isLower (c : Char) : Bool := 'a' ≤ c && c ≤ 'z'
 private def isAlpha (c : Char) : Bool := isUpper c || isLower c || c == '_'
@@ -209,12 +234,15 @@ where
         -- apostrophe handling: 'c' char literal, 'a type var / identifier, x' continuation
         | '\'', _ =>
           lexApostrophe st acc
+        | '"', _ =>
+          lexString st acc
         | _, _ =>
           -- single-char tokens
           let single : Option Token :=
             match c with
             | '+' => some .plus     | '-' => some .minus   | '*' => some .star
             | '/' => some .slash    | '=' => some .eq      | '<' => some .lt
+            | '^' => some .caret
             | '>' => some .gt       | ':' => some .colon   | ';' => some .semi
             | '.' => some .dot      | ',' => some .comma   | '!' => some .bang
             | '|' => some .pipe     | '@' => some .at
@@ -280,6 +308,103 @@ where
     let name := String.ofList chars
     let tok := keyword name
     lex st' (acc.push ({ start := p, stop := st'.pos }, tok))
+
+  lexString (st : LexState) (acc : Array (Location × Token))
+      : Except LexError (Array (Location × Token)) :=
+    let p := st.pos
+    let st1 := st.advance '"'
+    match stringBytes st1 [] with
+    | .ok (bytes, st') =>
+      let st'' := st'.advance '"'
+      lex st'' (acc.push ({ start := p, stop := st''.pos }, .stringLit bytes))
+    | .error e => .error e
+
+  stringBytes (st : LexState) (acc : List UInt8)
+      : Except LexError (List UInt8 × LexState) :=
+    match st.source with
+    | [] => .error { pos := st.pos, kind := .unterminatedStringLiteral }
+    | '"' :: _ => .ok (acc.reverse, st)
+    | '\n' :: _ => .error { pos := st.pos, kind := .unterminatedStringLiteral }
+    | '\\' :: esc :: _ =>
+      -- `st1` is positioned at the escape character (just past the backslash).
+      let st1 := st.advance '\\'
+      let simple : Option UInt8 :=
+        match esc with
+        | 'n' => some 10  | 't' => some 9   | 'r' => some 13  | 'b' => some 8
+        | '\\' => some 92 | '"' => some 34  | '\'' => some 39 | ' ' => some 32
+        | _ => none
+      match simple with
+      | some b => stringBytes (st1.advance esc) (b :: acc)
+      | none =>
+        match esc with
+        -- Line continuation: `\` newline spaces-or-tabs is ignored.
+        | '\n' => stringLineCont (st1.advance '\n') acc
+        | '\r' =>
+          let st2 := st1.advance '\r'
+          match st2.source with
+          | '\n' :: _ => stringLineCont (st2.advance '\n') acc
+          | _ => stringLineCont st2 acc
+        -- `\xHH`: two hexadecimal digits.
+        | 'x' =>
+          let st2 := st1.advance 'x'
+          match st2.source with
+          | h1 :: h2 :: _ =>
+            if isHexDigit h1 && isHexDigit h2 then
+              stringBytes ((st2.advance h1).advance h2) (UInt8.ofNat (hexVal h1 * 16 + hexVal h2) :: acc)
+            else .error { pos := st.pos, kind := .invalidStringEscape "x" }
+          | _ => .error { pos := st.pos, kind := .invalidStringEscape "x" }
+        -- `\oOOO`: three octal digits.
+        | 'o' =>
+          let st2 := st1.advance 'o'
+          match st2.source with
+          | a :: b :: c :: _ =>
+            if isOctDigit a && isOctDigit b && isOctDigit c then
+              let n := octVal a * 64 + octVal b * 8 + octVal c
+              if n ≤ 255 then
+                stringBytes (((st2.advance a).advance b).advance c) (UInt8.ofNat n :: acc)
+              else .error { pos := st.pos, kind := .invalidStringEscape (String.ofList ['o', a, b, c]) }
+            else .error { pos := st.pos, kind := .invalidStringEscape "o" }
+          | _ => .error { pos := st.pos, kind := .invalidStringEscape "o" }
+        -- `\u{X…}`: Unicode scalar value, substituted by its UTF-8 encoding.
+        | 'u' =>
+          let st2 := st1.advance 'u'
+          match st2.source with
+          | '{' :: _ =>
+            let (hexes, st3) := collectWhile isHexDigit (st2.advance '{')
+            match st3.source with
+            | '}' :: _ =>
+              if hexes.isEmpty then .error { pos := st.pos, kind := .invalidStringEscape "u" }
+              else
+                let n := hexes.foldl (fun a c => a * 16 + hexVal c) 0
+                if n ≤ 0xD7FF || (0xE000 ≤ n && n ≤ 0x10FFFF) then
+                  stringBytes (st3.advance '}') ((utf8Bytes n).reverse ++ acc)
+                else .error { pos := st.pos, kind := .invalidStringEscape "u" }
+            | _ => .error { pos := st.pos, kind := .invalidStringEscape "u" }
+          | _ => .error { pos := st.pos, kind := .invalidStringEscape "u" }
+        -- `\DDD`: three decimal digits.
+        | d1 =>
+          if isDigit d1 then
+            match st1.source with
+            | a :: b :: c :: _ =>
+              if isDigit a && isDigit b && isDigit c then
+                let n := decVal a * 100 + decVal b * 10 + decVal c
+                if n ≤ 255 then
+                  stringBytes (((st1.advance a).advance b).advance c) (UInt8.ofNat n :: acc)
+                else .error { pos := st.pos, kind := .invalidStringEscape (String.ofList [a, b, c]) }
+              else .error { pos := st.pos, kind := .invalidStringEscape (String.singleton d1) }
+            | _ => .error { pos := st.pos, kind := .invalidStringEscape (String.singleton d1) }
+          else .error { pos := st.pos, kind := .invalidStringEscape (String.singleton esc) }
+    | c :: _ =>
+      stringBytes (st.advance c) (c.toString.toUTF8.data.toList.reverse ++ acc)
+
+  /-- Skip the spaces and tabs following an escaped newline, then resume. -/
+  stringLineCont (st : LexState) (acc : List UInt8)
+      : Except LexError (List UInt8 × LexState) :=
+    match st.source with
+    | c :: _ =>
+      if c == ' ' || c == '\t' then stringLineCont (st.advance c) acc
+      else stringBytes st acc
+    | [] => stringBytes st acc
 
   lexComment (st : LexState) (acc : Array (Location × Token)) (depth : Nat)
       : Except LexError (Array (Location × Token)) :=

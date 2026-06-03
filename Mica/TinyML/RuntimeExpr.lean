@@ -22,6 +22,7 @@ mutual
   inductive Val where
     | int (n : Int)
     | bool (b : Bool)
+    | str (s : List UInt8)
     | unit
     | inj (tag : Nat) (arity : Nat) (payload : Val)
     | loc (l : Location)
@@ -72,6 +73,7 @@ theorem Expr.isFunc_elim {e : Expr} (h : e.isFunc = true) :
 def Val.ofConst : TinyML.Const → Val
   | .int n  => .int n
   | .bool b => .bool b
+  | .string s => .str s
   | .unit   => .unit
 
 
@@ -86,6 +88,9 @@ mutual
       | isTrue h => isTrue (by subst h; rfl)
       | isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
     case bool.bool a b => exact match decEq a b with
+      | isTrue h => isTrue (by subst h; rfl)
+      | isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
+    case str.str a b => exact match decEq a b with
       | isTrue h => isTrue (by subst h; rfl)
       | isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
     case unit.unit => exact isTrue rfl

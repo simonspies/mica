@@ -16,14 +16,18 @@ Two serialization targets:
 def Srt.toSMTLIB : Srt → String
   | .int     => "Int"
   | .bool    => "Bool"
+  | .string  => "(Seq (_ BitVec 8))"
   | .value   => "Value"
   | .vallist => "ValueList"
 
 def UnOp.toSMTLIB : UnOp τ₁ τ₂ → String
   | .ofInt   => "of_int"
   | .ofBool  => "of_bool"
+  | .ofString => "of_string"
   | .toInt   => "to_int"
   | .toBool  => "to_bool"
+  | .toString => "to_string"
+  | .seqLen => "seq.len"
   | .neg     => "-"
   | .not     => "not"
   | .ofValList => "of_tuple"
@@ -47,12 +51,16 @@ def BinOp.toSMTLIB : BinOp τ₁ τ₂ τ₃ → String
   | .gt    => ">"
   | .ge    => ">="
   | .eq    => "="
+  | .seqConcat => "seq.++"
+  | .seqPrefixOf => "seq.prefixof"
+  | .seqSuffixOf => "seq.suffixof"
   | .vcons => "vcons"
   | .uninterpreted name _ _ _ => name
 
 def UnPred.toSMTLIB : UnPred τ → String
   | .isInt   => "is-of_int"
   | .isBool  => "is-of_bool"
+  | .isStr   => "is-of_string"
   | .isLoc   => "is-of_loc"
   | .isTuple => "is-of_tuple"
   | .isInj _ _ => ""  -- handled specially in Formula.toSMTLIB
@@ -63,10 +71,40 @@ def BinPred.toSMTLIB : BinPred τ₁ τ₂ → String
   | .le => "<="
   | .uninterpreted name _ _ => name
 
+private def hexDigit (n : Nat) : Char :=
+  match n with
+  | 0 => '0' | 1 => '1' | 2 => '2' | 3 => '3'
+  | 4 => '4' | 5 => '5' | 6 => '6' | 7 => '7'
+  | 8 => '8' | 9 => '9' | 10 => 'A' | 11 => 'B'
+  | 12 => 'C' | 13 => 'D' | 14 => 'E' | _ => 'F'
+
+private def byteHex (b : UInt8) : String :=
+  let n := b.toNat
+  String.ofList [hexDigit (n / 16), hexDigit (n % 16)]
+
+private def byteToSMTLIB (b : UInt8) : String :=
+  s!"(seq.unit #x{byteHex b})"
+
+private def stringConstToSMTLIB : List UInt8 → String
+  | [] => "(as seq.empty (Seq (_ BitVec 8)))"
+  | s => s!"(seq.++ {" ".intercalate (s.map byteToSMTLIB)})"
+
+private def byteToHum (b : UInt8) : String :=
+  let n := b.toNat
+  if n == 10 then "\\n"
+  else if n == 9 then "\\t"
+  else if n == 13 then "\\r"
+  else if n == 34 then "\\\""
+  else if n == 92 then "\\\\"
+  else if 32 ≤ n && n < 127 then
+    String.singleton (Char.ofNat n)
+  else s!"\\x{byteHex b}"
+
 def Term.toSMTLIB : Term τ → String
   | .var _ name   => name
   | .const (.i n)   => if n ≥ 0 then s!"{n}" else s!"(- {-n})"
   | .const (.b b)   => if b then "true" else "false"
+  | .const (.str s) => stringConstToSMTLIB s
   | .const .unit    => "(of_other unit_val)"
   | .const .vnil    => "vnil"
   | .const (.uninterpreted name _) => name
@@ -116,14 +154,18 @@ private def termStr (p : Prec) : {τ : Srt} → Term τ → String
   | _, .var _ x        => x
   | _, .const (.i n)   => if n < 0 then s!"({n})" else s!"{n}"
   | _, .const (.b b)   => if b then "true" else "false"
+  | _, .const (.str s) => s!"\"{s.map byteToHum |>.foldl (· ++ ·) ""}\""
   | _, .const .unit    => "()"
   | _, .const .vnil    => "[]"
   | _, .const (.uninterpreted name _) => name
   | _, .unop op a  => match op with
     | .ofInt   => termStr p a     -- transparent coercion
     | .ofBool  => termStr p a     -- transparent coercion
+    | .ofString => termStr p a    -- transparent coercion
     | .toInt   => s!"toInt({termStr .bottom a})"
     | .toBool  => s!"toBool({termStr .bottom a})"
+    | .toString => s!"toString({termStr .bottom a})"
+    | .seqLen => s!"len({termStr .bottom a})"
     | .neg     => parens (Prec.lt .mul p) s!"-{termStr .top a}"
     | .not     => parens (Prec.lt .not_ p) s!"!{termStr .top a}"
     | .ofValList => s!"tuple({termStr .bottom a})"
@@ -146,6 +188,9 @@ private def termStr (p : Prec) : {τ : Srt} → Term τ → String
     | .gt    => parens (Prec.lt .cmp p) s!"{termStr .add a} > {termStr .add b}"
     | .ge    => parens (Prec.lt .cmp p) s!"{termStr .add a} >= {termStr .add b}"
     | .eq    => parens (Prec.lt .cmp p) s!"{termStr .add a} = {termStr .add b}"
+    | .seqConcat => parens (Prec.lt .add p) s!"{termStr .add a} ++ {termStr .mul b}"
+    | .seqPrefixOf => s!"prefixOf({termStr .bottom a}, {termStr .bottom b})"
+    | .seqSuffixOf => s!"suffixOf({termStr .bottom a}, {termStr .bottom b})"
     | .vcons => parens (Prec.lt .top p) s!"{termStr .top a} :: {termStr .top b}"
     | .uninterpreted name _ _ _ => s!"{name}({termStr .bottom a}, {termStr .bottom b})"
   | _, .ite c t e  => parens (Prec.lt .bottom p) s!"if {termStr .bottom c} then {termStr .bottom t} else {termStr .bottom e}"
@@ -158,6 +203,7 @@ private def formulaStr (p : Prec) : Formula → String
   | .unpred pred v   => match pred with
     | .isInt   => s!"isInt({termStr .bottom v})"
     | .isBool  => s!"isBool({termStr .bottom v})"
+    | .isStr   => s!"isStr({termStr .bottom v})"
     | .isLoc   => s!"isLoc({termStr .bottom v})"
     | .isTuple => s!"isTuple({termStr .bottom v})"
     | .isInj tag arity => s!"isInj({tag}/{arity}, {termStr .bottom v})"

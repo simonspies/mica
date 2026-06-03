@@ -117,6 +117,7 @@ def TypKind.elaborate (env : ElabEnv) (loc : Location) : TypKind → ElabM TinyM
     | "int"  => if args'.isEmpty then .ok .int  else err loc (.arityMismatch 0 args'.length)
     | "bool" => if args'.isEmpty then .ok .bool else err loc (.arityMismatch 0 args'.length)
     | "unit" => if args'.isEmpty then .ok .unit else err loc (.arityMismatch 0 args'.length)
+    | "string" => if args'.isEmpty then .ok .string else err loc (.arityMismatch 0 args'.length)
     | "ref" =>
       match args' with
       | [arg] => .ok (.ref arg)
@@ -224,7 +225,7 @@ private def elaborateBinOp (loc : Location) : BinOp → ElabM TinyML.BinOp
   | .div => .ok .div | .mod => .ok .mod
   | .eq => .ok .eq | .lt => .ok .lt | .le => .ok .le | .gt => .ok .gt | .ge => .ok .ge
   | .and => .ok .and | .or => .ok .or
-  | .neq | .semi | .pipeRight | .atAt | .assign =>
+  | .neq | .semi | .pipeRight | .atAt | .assign | .concat =>
     err loc (.internalError "desugared operator reached elaborateBinOp")
 
 -- Helper to elaborate a constructor lookup (not recursive)
@@ -256,6 +257,7 @@ def Expr.elaborate (env : ElabEnv) : Expr → ElabM Untyped.Expr
 def ExprKind.elaborate (env : ElabEnv) (loc : Location) : ExprKind → ElabM Untyped.Expr
   | .const (.int n)  => .ok (.const (.int n))
   | .const (.bool b) => .ok (.const (.bool b))
+  | .const (.string s) => .ok (.const (.string s))
   | .const .unit     => .ok (.const .unit)
   | .const (.char _) => err loc .unsupportedChar
 
@@ -337,6 +339,10 @@ def ExprKind.elaborate (env : ElabEnv) (loc : Location) : ExprKind → ElabM Unt
     let l' ← Expr.elaborate env l
     let r' ← Expr.elaborate env r
     .ok (.unop .not (.binop .eq l' r'))
+  | .binop .concat l r => do
+    let l' ← Expr.elaborate env l
+    let r' ← Expr.elaborate env r
+    .ok (.app (.prim "string_cat" (.arrow .string (.arrow .string .string))) [l', r'])
   | .binop op l r => do
     let op' ← elaborateBinOp loc op
     let l' ← Expr.elaborate env l
