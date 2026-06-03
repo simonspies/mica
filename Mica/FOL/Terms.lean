@@ -6,8 +6,11 @@ import Batteries.Data.List.Basic
 inductive UnOp : Srt → Srt → Type where
   | ofInt      : UnOp .int     .value
   | ofBool     : UnOp .bool    .value
+  | ofString   : UnOp .string  .value
   | toInt      : UnOp .value   .int
   | toBool     : UnOp .value   .bool
+  | toString   : UnOp .value   .string
+  | seqLen     : UnOp .string  .int
   | neg        : UnOp .int     .int
   | not        : UnOp .bool    .bool
   | ofValList  : UnOp .vallist .value
@@ -32,6 +35,9 @@ inductive BinOp : Srt → Srt → Srt → Type where
   | gt   : BinOp .int   .int     .bool
   | ge   : BinOp .int   .int     .bool
   | eq   : BinOp τ      τ        .bool
+  | seqConcat : BinOp .string .string .string
+  | seqPrefixOf : BinOp .string .string .bool
+  | seqSuffixOf : BinOp .string .string .bool
   | vcons : BinOp .value .vallist .vallist
   | uninterpreted : String → (τ₁ τ₂ τ₃ : Srt) → BinOp τ₁ τ₂ τ₃
   deriving DecidableEq, Repr
@@ -39,6 +45,7 @@ inductive BinOp : Srt → Srt → Srt → Type where
 inductive Const : Srt → Type where
   | i    : Int  → Const .int
   | b    : Bool → Const .bool
+  | str  : List UInt8 → Const .string
   | unit : Const .value
   | vnil : Const .vallist
   | uninterpreted : String → (τ : Srt) → Const τ
@@ -47,6 +54,7 @@ inductive Const : Srt → Type where
 @[simp] def Const.denote : Env → Const τ → τ.denote
   | _, .i n  => n
   | _, .b v  => v
+  | _, .str s => s
   | _, .unit => Runtime.Val.unit
   | _, .vnil => []
   | ρ, .uninterpreted name _ => ρ.consts τ name
@@ -325,8 +333,11 @@ theorem Term.wfIn_mono (t : Term τ) (h : t.wfIn Δ) (hsub : Δ.Subset Δ') (hwf
 @[simp] def UnOp.eval : Env → UnOp τ₁ τ₂ → τ₁.denote → τ₂.denote
   | _, .ofInt,   n  => Runtime.Val.int n
   | _, .ofBool,  b  => Runtime.Val.bool b
+  | _, .ofString, s => Runtime.Val.str s
   | _, .toInt,   v  => match v with | .int n => n | _ => 0
   | _, .toBool,  v  => match v with | .bool b => b | _ => false
+  | _, .toString, v => match v with | .str s => s | _ => []
+  | _, .seqLen, s => (s.length : Int)
   | _, .neg,     n  => -n
   | _, .not,     b  => !b
   | _, .ofValList, vs => Runtime.Val.tuple vs
@@ -350,6 +361,9 @@ theorem Term.wfIn_mono (t : Term τ) (h : t.wfIn Δ) (hsub : Δ.Subset Δ') (hwf
   | _, .gt,    a, b  => decide (a > b)
   | _, .ge,    a, b  => decide (a ≥ b)
   | _, .eq,    a, b  => decide (a = b)
+  | _, .seqConcat, a, b => a ++ b
+  | _, .seqPrefixOf, a, b => a.isPrefixOf b
+  | _, .seqSuffixOf, a, b => a.isSuffixOf b
   | _, .vcons, v, vs => v :: vs
   | ρ, .uninterpreted name _ _ _, x, y => ρ.binary τ₁ τ₂ τ₃ name x y
 

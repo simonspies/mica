@@ -481,7 +481,17 @@ where
 
   -- comparison (left-assoc)
   parseCmp : Parser Expr :=
-    parseLAssoc [(.eq, .eq), (.neq, .neq), (.lt, .lt), (.le, .le), (.gt, .gt), (.ge, .ge)] parseAdd
+    parseLAssoc [(.eq, .eq), (.neq, .neq), (.lt, .lt), (.le, .le), (.gt, .gt), (.ge, .ge)] parseConcat
+
+  -- `^` right-assoc, just below `+`/`-` (matches OCaml: looser than `+`/`-`)
+  parseConcat : Parser Expr := fun st => do
+    let (lhs, st) ← parseAdd st
+    match peekTok st with
+    | .caret => do
+      let (rhs, st) ← parseConcat (advance st)
+      let loc : Location := { start := lhs.loc.start, stop := rhs.loc.stop }
+      .ok ({ loc, kind := .binop .concat lhs rhs }, st)
+    | _ => .ok (lhs, st)
 
   -- `+` `-` left-assoc
   parseAdd : Parser Expr :=
@@ -552,7 +562,7 @@ where
     else .ok ([], st)
 
   isArgStart : Token → Bool
-    | .intLit _ | .charLit _ | .ident _ | .lparen | .lbrace
+    | .intLit _ | .charLit _ | .stringLit _ | .ident _ | .lparen | .lbrace
     | .kw_true | .kw_false => true
     | _ => false
 
@@ -586,6 +596,7 @@ where
     match peekTok st with
     | .intLit n  => .ok (mkExpr p (advance st) (.const (.int n)), advance st)
     | .charLit c => .ok (mkExpr p (advance st) (.const (.char c)), advance st)
+    | .stringLit s => .ok (mkExpr p (advance st) (.const (.string s)), advance st)
     | .kw_true   => .ok (mkExpr p (advance st) (.const (.bool true)), advance st)
     | .kw_false  => .ok (mkExpr p (advance st) (.const (.bool false)), advance st)
     | .ident name => do

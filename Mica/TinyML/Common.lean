@@ -27,6 +27,7 @@ inductive UnOp where
 inductive Const where
   | int  (n : Int)
   | bool (b : Bool)
+  | string (s : List UInt8)
   | unit
   deriving Repr, BEq, DecidableEq
 

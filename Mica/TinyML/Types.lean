@@ -11,6 +11,7 @@ inductive PrimitiveType where
   | unit
   | bool
   | int
+  | string
   deriving Repr, DecidableEq
 
 /-- Decidable equality for primitive types. -/
@@ -22,6 +23,7 @@ def PrimitiveType.print : PrimitiveType → String
   | .unit => "unit"
   | .bool => "bool"
   | .int => "int"
+  | .string => "string"
 
 /-- Type primitive binary operators before lifting the result to `Typ`. -/
 def PrimitiveType.binOpTypeOf : BinOp → PrimitiveType → PrimitiveType → Option PrimitiveType
@@ -119,6 +121,8 @@ inductive Typ where
 @[simp] def Typ.bool : Typ := .prim .bool
 /-- Compatibility name for the integer primitive type. -/
 @[simp] def Typ.int : Typ := .prim .int
+/-- Compatibility name for the string primitive type. -/
+@[simp] def Typ.string : Typ := .prim .string
 
 def Typ.primDecEq (p q : PrimitiveType) : Decidable (Typ.prim p = Typ.prim q) :=
   match PrimitiveType.decEq p q with

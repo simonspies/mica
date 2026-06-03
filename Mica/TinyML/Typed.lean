@@ -203,6 +203,7 @@ abbrev Binders := List Binder
 def Const.ty : Const → Typ
   | .int _ => .int
   | .bool _ => .bool
+  | .string _ => .string
   | .unit => .unit
 
 def arrowOfArgs : List Binder → Typ → Typ

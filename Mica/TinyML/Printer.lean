@@ -146,6 +146,7 @@ private partial def printAtom : Untyped.Expr → String
 partial def printConst : TinyML.Const → String
   | .int n => if n < 0 then s!"({n})" else s!"{n}"
   | .bool b => if b then "true" else "false"
+  | .string _ => "\"...\""
   | .unit => "()"
 
 partial def printFix (self : Untyped.Binder) (args : List Untyped.Binder) (body : Untyped.Expr) : String :=

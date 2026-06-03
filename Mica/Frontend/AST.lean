@@ -60,6 +60,7 @@ structure Location where
 inductive Const where
   | int (n : Int)
   | bool (b : Bool)
+  | string (s : List UInt8)
   | char (c : Char)
   | unit
   deriving Repr
@@ -74,7 +75,7 @@ inductive BinOp where
   | add | sub | mul | div | mod
   | eq | neq | lt | le | gt | ge
   | and | or
-  | semi | pipeRight | atAt | assign
+  | semi | pipeRight | atAt | assign | concat
   deriving Repr, BEq
 
 -- Types

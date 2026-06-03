@@ -23,9 +23,27 @@ private def parenIf (cond : Bool) (s : String) : String :=
 -- ---------------------------------------------------------------------------
 -- Const printing
 
+private def hexDigit (n : Nat) : Char :=
+  match n with
+  | 0 => '0' | 1 => '1' | 2 => '2' | 3 => '3'
+  | 4 => '4' | 5 => '5' | 6 => '6' | 7 => '7'
+  | 8 => '8' | 9 => '9' | 10 => 'A' | 11 => 'B'
+  | 12 => 'C' | 13 => 'D' | 14 => 'E' | _ => 'F'
+
+private def byteEsc (b : UInt8) : String :=
+  let n := b.toNat
+  if n == 10 then "\\n"
+  else if n == 9 then "\\t"
+  else if n == 13 then "\\r"
+  else if n == 34 then "\\\""
+  else if n == 92 then "\\\\"
+  else if 32 ≤ n && n < 127 then String.singleton (Char.ofNat n)
+  else "\\x" ++ String.ofList [hexDigit (n / 16), hexDigit (n % 16)]
+
 partial def Const.print : Const → String
   | .int n   => toString n
   | .bool b  => if b then "true" else "false"
+  | .string s => "\"" ++ joinWith "" (s.map byteEsc) ++ "\""
   | .unit    => "()"
   | .char c  =>
     let s := match c with
@@ -53,16 +71,16 @@ partial def BinOp.print : BinOp → String
   | .add => "+" | .sub => "-" | .mul => "*" | .div => "/" | .mod => "mod"
   | .eq => "=" | .neq => "<>" | .lt => "<" | .le => "<=" | .gt => ">" | .ge => ">="
   | .and => "&&" | .or => "||"
-  | .semi => ";" | .pipeRight => "|>" | .atAt => "@@" | .assign => ":="
+  | .semi => ";" | .pipeRight => "|>" | .atAt => "@@" | .assign => ":=" | .concat => "^"
 
 private partial def BinOp.prec : BinOp → Nat
   | .semi => 1 | .assign => 2 | .or => 3 | .and => 4
   | .pipeRight => 5 | .atAt => 6
   | .eq | .neq | .lt | .le | .gt | .ge => 7
-  | .add | .sub => 8 | .mul | .div | .mod => 9
+  | .concat => 8 | .add | .sub => 9 | .mul | .div | .mod => 10
 
 private partial def BinOp.rightAssoc : BinOp → Bool
-  | .semi | .assign | .or | .and | .atAt => true
+  | .semi | .assign | .or | .and | .atAt | .concat => true
   | _ => false
 
 -- ---------------------------------------------------------------------------
