@@ -18,6 +18,16 @@ inductive BinPred : Srt → Srt → Type where
   | uninterpreted : String → (τ₁ τ₂ : Srt) → BinPred τ₁ τ₂
   deriving DecidableEq, Repr
 
+/-- SMT trigger patterns attached to universal quantifiers.
+
+They are syntactic metadata for the SMT backend: formulas check and rename
+them like ordinary syntax, but the Lean semantics of formulas ignores them. -/
+inductive Pattern where
+  | term    : Term τ → Pattern
+  | unpred  : UnPred τ → Term τ → Pattern
+  | binpred : BinPred τ₁ τ₂ → Term τ₁ → Term τ₂ → Pattern
+  deriving DecidableEq
+
 inductive Formula where
   | true_ : Formula
   | false_ : Formula
@@ -28,9 +38,19 @@ inductive Formula where
   | and     : Formula → Formula → Formula
   | or      : Formula → Formula → Formula
   | implies : Formula → Formula → Formula
-  | forall_ : String → Srt → Formula → Formula
+  | forall_ : String → Srt → List Pattern → Formula → Formula
   | exists_ : String → Srt → Formula → Formula
   deriving DecidableEq
+
+/-- Universal quantifier without SMT triggers. -/
+@[simp]
+def Formula.all (x : String) (τ : Srt) (body : Formula) : Formula :=
+  .forall_ x τ [] body
+
+def Pattern.freeVars : Pattern → List Var
+  | .term t => t.freeVars
+  | .unpred _ t => t.freeVars
+  | .binpred _ a b => a.freeVars ++ b.freeVars
 
 def Formula.freeVars : Formula → List Var
   | .true_ => []
@@ -42,7 +62,7 @@ def Formula.freeVars : Formula → List Var
   | .and φ ψ      => φ.freeVars ++ ψ.freeVars
   | .or φ ψ       => φ.freeVars ++ ψ.freeVars
   | .implies φ ψ  => φ.freeVars ++ ψ.freeVars
-  | .forall_ y τ φ => φ.freeVars.filter (· != ⟨y, τ⟩)
+  | .forall_ y τ ps φ => (ps.flatMap Pattern.freeVars ++ φ.freeVars).filter (· != ⟨y, τ⟩)
   | .exists_ y τ φ => φ.freeVars.filter (· != ⟨y, τ⟩)
 
 def UnPred.wfIn : UnPred τ → Signature → Prop
@@ -80,6 +100,23 @@ def BinPred.checkWf : BinPred τ₁ τ₂ → Signature → Except String Unit
     else .error s!"binary predicate {name} not in signature"
   | _, _ => .ok ()
 
+@[simp] def Pattern.wfIn : Pattern → Signature → Prop
+  | .term t, Δ => t.wfIn Δ
+  | .unpred p t, Δ => p.wfIn Δ ∧ t.wfIn Δ
+  | .binpred p t₁ t₂, Δ => p.wfIn Δ ∧ t₁.wfIn Δ ∧ t₂.wfIn Δ
+
+def Pattern.checkWf : Pattern → Signature → Except String Unit
+  | .term t, Δ => t.checkWf Δ
+  | .unpred p t, Δ => do p.checkWf Δ; t.checkWf Δ
+  | .binpred p t₁ t₂, Δ => do p.checkWf Δ; t₁.checkWf Δ; t₂.checkWf Δ
+
+@[simp] def Pattern.List.wfIn (ps : List Pattern) (Δ : Signature) : Prop :=
+  ∀ p ∈ ps, p.wfIn Δ
+
+def Pattern.List.checkWf : List Pattern → Signature → Except String Unit
+  | [], _ => .ok ()
+  | p :: ps, Δ => do p.checkWf Δ; checkWf ps Δ
+
 def Formula.wfIn : Formula → Signature → Prop
   | .true_, _            => True
   | .false_, _           => True
@@ -90,7 +127,7 @@ def Formula.wfIn : Formula → Signature → Prop
   | .and φ ψ, Δ          => φ.wfIn Δ ∧ ψ.wfIn Δ
   | .or φ ψ, Δ           => φ.wfIn Δ ∧ ψ.wfIn Δ
   | .implies φ ψ, Δ      => φ.wfIn Δ ∧ ψ.wfIn Δ
-  | .forall_ x τ φ, Δ    => φ.wfIn (Δ.declVar ⟨x, τ⟩)
+  | .forall_ x τ ps φ, Δ => Pattern.List.wfIn ps (Δ.declVar ⟨x, τ⟩) ∧ φ.wfIn (Δ.declVar ⟨x, τ⟩)
   | .exists_ x τ φ, Δ    => φ.wfIn (Δ.declVar ⟨x, τ⟩)
 
 def Formula.checkWf : Formula → Signature → Except String Unit
@@ -103,7 +140,7 @@ def Formula.checkWf : Formula → Signature → Except String Unit
   | .and φ ψ, Δ          => do φ.checkWf Δ; ψ.checkWf Δ
   | .or φ ψ, Δ           => do φ.checkWf Δ; ψ.checkWf Δ
   | .implies φ ψ, Δ      => do φ.checkWf Δ; ψ.checkWf Δ
-  | .forall_ x τ φ, Δ    => φ.checkWf (Δ.declVar ⟨x, τ⟩)
+  | .forall_ x τ ps φ, Δ => do Pattern.List.checkWf ps (Δ.declVar ⟨x, τ⟩); φ.checkWf (Δ.declVar ⟨x, τ⟩)
   | .exists_ x τ φ, Δ    => φ.checkWf (Δ.declVar ⟨x, τ⟩)
 
 private theorem UnPred.checkWf_ok {p : UnPred τ} {Δ : Signature}
@@ -174,6 +211,35 @@ private theorem BinPred.checkWf_ok {p : BinPred τ₁ τ₂} {Δ : Signature}
     · simp at h
   | _ => trivial
 
+private theorem Pattern.checkWf_ok {p : Pattern} {Δ : Signature}
+    (h : p.checkWf Δ = .ok ()) : p.wfIn Δ := by
+  cases p with
+  | term t =>
+    exact Term.checkWf_ok h
+  | unpred p t =>
+    simp only [Pattern.checkWf] at h
+    have ⟨_, hp, ht⟩ := Except.bind_ok h
+    exact ⟨UnPred.checkWf_ok hp, Term.checkWf_ok ht⟩
+  | binpred p t₁ t₂ =>
+    simp only [Pattern.checkWf] at h
+    have ⟨_, hp, h12⟩ := Except.bind_ok h
+    have ⟨_, h1, h2⟩ := Except.bind_ok h12
+    exact ⟨BinPred.checkWf_ok hp, Term.checkWf_ok h1, Term.checkWf_ok h2⟩
+
+private theorem Pattern.List.checkWf_ok {ps : List Pattern} {Δ : Signature}
+    (h : Pattern.List.checkWf ps Δ = .ok ()) : Pattern.List.wfIn ps Δ := by
+  induction ps with
+  | nil =>
+    intro p hp
+    cases hp
+  | cons p ps ih =>
+    simp only [Pattern.List.checkWf] at h
+    have ⟨_, hp, hps⟩ := Except.bind_ok h
+    intro q hq
+    cases hq with
+    | head => exact Pattern.checkWf_ok hp
+    | tail _ hmem => exact ih hps q hmem
+
 theorem Formula.checkWf_ok {φ : Formula} {Δ : Signature} (h : φ.checkWf Δ = .ok ()) : φ.wfIn Δ := by
   induction φ generalizing Δ with
   | true_ | false_ => trivial
@@ -195,7 +261,11 @@ theorem Formula.checkWf_ok {φ : Formula} {Δ : Signature} (h : φ.checkWf Δ = 
     simp only [Formula.checkWf] at h
     have ⟨_, h1, h2⟩ := Except.bind_ok h
     exact ⟨ihφ h1, ihψ h2⟩
-  | forall_ x τ φ ih | exists_ x τ φ ih =>
+  | forall_ x τ ps φ ih =>
+    simp only [Formula.checkWf] at h
+    have ⟨_, hps, hφ⟩ := Except.bind_ok h
+    exact ⟨Pattern.List.checkWf_ok hps, ih hφ⟩
+  | exists_ x τ φ ih =>
     simp only [Formula.checkWf] at h
     exact ih h
 
@@ -221,6 +291,23 @@ private theorem BinPred.wfIn_mono {p : BinPred τ₁ τ₂} {Δ Δ' : Signature}
       exact Signature.wf_unique_binaryRel hwf (hsub.binaryRel _ h.1) hb'
   | _ => trivial
 
+private theorem Pattern.wfIn_mono {p : Pattern} {Δ Δ' : Signature}
+    (h : p.wfIn Δ) (hsub : Δ.Subset Δ') (hwf : Δ'.wf) : p.wfIn Δ' := by
+  cases p with
+  | term t =>
+    exact Term.wfIn_mono t h hsub hwf
+  | unpred p t =>
+    exact ⟨UnPred.wfIn_mono h.1 hsub hwf, Term.wfIn_mono t h.2 hsub hwf⟩
+  | binpred p t₁ t₂ =>
+    exact ⟨BinPred.wfIn_mono h.1 hsub hwf,
+      Term.wfIn_mono t₁ h.2.1 hsub hwf,
+      Term.wfIn_mono t₂ h.2.2 hsub hwf⟩
+
+private theorem Pattern.List.wfIn_mono {ps : List Pattern} {Δ Δ' : Signature}
+    (h : Pattern.List.wfIn ps Δ) (hsub : Δ.Subset Δ') (hwf : Δ'.wf) :
+    Pattern.List.wfIn ps Δ' :=
+  fun p hp => Pattern.wfIn_mono (h p hp) hsub hwf
+
 theorem Formula.wfIn_mono (φ : Formula) (h : φ.wfIn Δ) (hsub : Δ.Subset Δ') (hwf : Δ'.wf) : φ.wfIn Δ' := by
   induction φ generalizing Δ Δ' with
   | true_ | false_ => trivial
@@ -231,7 +318,11 @@ theorem Formula.wfIn_mono (φ : Formula) (h : φ.wfIn Δ) (hsub : Δ.Subset Δ')
   | not φ ih => exact ih h hsub hwf
   | and φ ψ ihφ ihψ | or φ ψ ihφ ihψ | implies φ ψ ihφ ihψ =>
     exact ⟨ihφ h.1 hsub hwf, ihψ h.2 hsub hwf⟩
-  | forall_ x τ φ ih | exists_ x τ φ ih =>
+  | forall_ x τ ps φ ih =>
+    simp only [Formula.wfIn]
+    exact ⟨Pattern.List.wfIn_mono h.1 (Signature.Subset.declVar hsub ⟨x, τ⟩) (Signature.wf_declVar hwf),
+      ih h.2 (Signature.Subset.declVar hsub ⟨x, τ⟩) (Signature.wf_declVar hwf)⟩
+  | exists_ x τ φ ih =>
     simp only [Formula.wfIn]
     exact ih h (Signature.Subset.declVar hsub ⟨x, τ⟩) (Signature.wf_declVar hwf)
 
@@ -267,7 +358,7 @@ def Formula.eval (ρ : Env) : Formula → Prop
   | .and φ ψ       => φ.eval ρ ∧ ψ.eval ρ
   | .or φ ψ        => φ.eval ρ ∨ ψ.eval ρ
   | .implies φ ψ   => φ.eval ρ → ψ.eval ρ
-  | .forall_ x τ φ => ∀ v : τ.denote, φ.eval (ρ.updateConst τ x v)
+  | .forall_ x τ _ φ => ∀ v : τ.denote, φ.eval (ρ.updateConst τ x v)
   | .exists_ x τ φ => ∃ v : τ.denote, φ.eval (ρ.updateConst τ x v)
 
 def entails (Γ : Context) (φ : Formula) : Prop :=
@@ -304,11 +395,11 @@ theorem Formula.eval_env_agree {φ : Formula} {ρ ρ' : Env} {Δ : Signature} :
   | and φ ψ ihφ ihψ | or φ ψ ihφ ihψ | implies φ ψ ihφ ihψ =>
     simp only [Formula.eval]
     rw [ihφ hwf.1 hagree, ihψ hwf.2 hagree]
-  | forall_ x τ φ ih =>
+  | forall_ x τ ps φ ih =>
     simp only [Formula.eval]
     constructor <;> intro h v
-    · exact (ih hwf (Env.agreeOn_declVar hagree)).mp (h v)
-    · exact (ih hwf (Env.agreeOn_declVar hagree)).mpr (h v)
+    · exact (ih hwf.2 (Env.agreeOn_declVar hagree)).mp (h v)
+    · exact (ih hwf.2 (Env.agreeOn_declVar hagree)).mpr (h v)
   | exists_ x τ φ ih =>
     simp only [Formula.eval]
     constructor

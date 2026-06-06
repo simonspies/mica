@@ -55,12 +55,14 @@ open Relation
 /-- If the encoded body is defined on input `x`, the function is defined on `x`. -/
 def definedIntroAxiom (fn : SpecFn) (x : TinyML.Var) (body : DefVal) : Formula :=
   .forall_ x .value
+    [.unpred (.uninterpreted fn.defName .value) (.var .value x)]
     (.implies body.defined (fn.isDefined (.var .value x)))
 
 /-- If the function is defined on input `x`, its solver-facing value equals the
 encoded body value. -/
 def valueAxiom (fn : SpecFn) (x : TinyML.Var) (body : DefVal) : Formula :=
   .forall_ x .value
+    [.term (fn.call (.var .value x))]
     (.implies
       (fn.isDefined (.var .value x))
       (.eq .value (fn.call (.var .value x)) body.value))
@@ -69,7 +71,7 @@ def valueAxiom (fn : SpecFn) (x : TinyML.Var) (body : DefVal) : Formula :=
 encoded body is defined on `x`.  Experimental — exposing this lets the SMT
 backend propagate definedness from a parent call into its recursive subterms. -/
 def definedElimAxiom (fn : SpecFn) (x : TinyML.Var) (body : DefVal) : Formula :=
-  .forall_ x .value
+  .all x .value
     (.implies (fn.isDefined (.var .value x)) body.defined)
 
 /-- The solver-facing axioms emitted for a relation-marked function. -/
@@ -87,18 +89,32 @@ theorem axioms_wfIn {Δ : Signature} {fn : SpecFn} {x : String} {body : DefVal}
   simp [axioms] at hmem
   rcases hmem with rfl | rfl | rfl
   · simp only [definedIntroAxiom, Formula.wfIn]
-    exact ⟨hbody.2,
+    exact ⟨by
+      intro p hp
+      simp only [List.mem_singleton] at hp
+      subst hp
+      exact SpecFn.isDefined_wfIn hrel hΔx
+        (var_value_wfIn hΔx (Signature.var_mem_declVar Δ ⟨x, .value⟩)),
+      ⟨hbody.2,
       SpecFn.isDefined_wfIn hrel hΔx
-        (var_value_wfIn hΔx (Signature.var_mem_declVar Δ ⟨x, .value⟩))⟩
+        (var_value_wfIn hΔx (Signature.var_mem_declVar Δ ⟨x, .value⟩))⟩⟩
   · simp only [valueAxiom, Formula.wfIn]
     have hx : (Term.var .value x).wfIn (Δ.declVar ⟨x, .value⟩) :=
       var_value_wfIn hΔx (Signature.var_mem_declVar Δ ⟨x, .value⟩)
-    exact ⟨SpecFn.isDefined_wfIn hrel hΔx hx,
-      SpecFn.call_wfIn hfun hΔx hx, hbody.1⟩
-  · simp only [definedElimAxiom, Formula.wfIn]
-    exact ⟨SpecFn.isDefined_wfIn hrel hΔx
+    exact ⟨by
+      intro p hp
+      simp only [List.mem_singleton] at hp
+      subst hp
+      exact SpecFn.call_wfIn hfun hΔx hx,
+      ⟨SpecFn.isDefined_wfIn hrel hΔx hx,
+        SpecFn.call_wfIn hfun hΔx hx, hbody.1⟩⟩
+  · simp only [definedElimAxiom]
+    exact ⟨(by
+      intro p hp
+      cases hp),
+      ⟨SpecFn.isDefined_wfIn hrel hΔx
         (var_value_wfIn hΔx (Signature.var_mem_declVar Δ ⟨x, .value⟩)),
-      hbody.2⟩
+      hbody.2⟩⟩
 
 
 /-- The semantic relation for the current recursive body is exactly the graph
@@ -211,7 +227,7 @@ theorem definedElimAxiom_eval
     {body : DefVal} (henc : encodeBody Γ Δ f fn x res e = .ok body) :
     (definedElimAxiom fn x body).eval
       (defInterpEnv Γ Δ ρ f fn x res e body) := by
-  simp only [definedElimAxiom, Formula.eval]
+  simp only [definedElimAxiom, Formula.all, Formula.eval]
   intro vin hdef
   have hsem : semdef Γ Δ ρ f fn x res e body vin :=
     (definedCall_eval_defInterpEnv (Γ := Γ) (Δ := Δ) (ρ := ρ)
