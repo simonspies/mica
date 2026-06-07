@@ -28,6 +28,11 @@ def Term.subst (σ : Subst) : Term τ → Term τ
   | .binop op a b => .binop op (a.subst σ) (b.subst σ)
   | .ite c t e => .ite (c.subst σ) (t.subst σ) (e.subst σ)
 
+def Pattern.subst (σ : Subst) : Pattern → Pattern
+  | .term t => .term (t.subst σ)
+  | .unpred p t => .unpred p (t.subst σ)
+  | .binpred p t₁ t₂ => .binpred p (t₁.subst σ) (t₂.subst σ)
+
 def Subst.wfIn (σ : Subst) (dom : VarCtx) (Δ : Signature) : Prop :=
   (∀ v ∈ dom, (σ.apply v.sort v.name).wfIn Δ) ∧
   (∀ v, v ∉ dom → σ.apply v.sort v.name = .var v.sort v.name)
@@ -178,6 +183,47 @@ theorem Term.subst_wfIn {t : Term τ} {σ : Subst} {dom : VarCtx} {Δ Δ' : Sign
            iht ht.2.1 hσ hdom hsymbols hwf,
            ihe ht.2.2 hσ hdom hsymbols hwf⟩
 
+theorem Pattern.subst_wfIn {p : Pattern} {σ : Subst} {dom : VarCtx}
+    {Δ Δ' : Signature}
+    (hp : p.wfIn Δ) (hσ : σ.wfIn dom Δ') (hdom : Δ.vars ⊆ dom)
+    (hsymbols : Δ.SymbolSubset Δ') (hwf : Δ'.wf) :
+    (p.subst σ).wfIn Δ' := by
+  cases p with
+  | term t =>
+    exact Term.subst_wfIn hp hσ hdom hsymbols hwf
+  | unpred p t =>
+    simp only [Pattern.subst, Pattern.wfIn]
+    refine ⟨?_, Term.subst_wfIn hp.2 hσ hdom hsymbols hwf⟩
+    cases p with
+    | uninterpreted name τ =>
+      refine ⟨hsymbols.unaryRel _ hp.1.1, ?_, ?_⟩
+      · intro τ₁ τ₂ hu
+        exact Signature.wf_no_unaryRel_of_unary hwf hu (hsymbols.unaryRel _ hp.1.1)
+      · intro τ' hu'
+        exact Signature.wf_unique_unaryRel hwf (hsymbols.unaryRel _ hp.1.1) hu'
+    | _ => trivial
+  | binpred p t₁ t₂ =>
+    simp only [Pattern.subst, Pattern.wfIn]
+    refine ⟨?_, Term.subst_wfIn hp.2.1 hσ hdom hsymbols hwf,
+      Term.subst_wfIn hp.2.2 hσ hdom hsymbols hwf⟩
+    cases p with
+    | uninterpreted name τ₁ τ₂ =>
+      refine ⟨hsymbols.binaryRel _ hp.1.1, ?_, ?_⟩
+      · intro τ₁' τ₂' τ₃' hb
+        exact Signature.wf_no_binaryRel_of_binary hwf hb (hsymbols.binaryRel _ hp.1.1)
+      · intro τ₁' τ₂' hb'
+        exact Signature.wf_unique_binaryRel hwf (hsymbols.binaryRel _ hp.1.1) hb'
+    | _ => trivial
+
+theorem Pattern.List.subst_wfIn {ps : List Pattern} {σ : Subst}
+    {dom : VarCtx} {Δ Δ' : Signature}
+    (hps : Pattern.List.wfIn ps Δ) (hσ : σ.wfIn dom Δ') (hdom : Δ.vars ⊆ dom)
+    (hsymbols : Δ.SymbolSubset Δ') (hwf : Δ'.wf) :
+    Pattern.List.wfIn (ps.map (Pattern.subst σ)) Δ' := by
+  intro p hp
+  rcases List.mem_map.mp hp with ⟨q, hq, rfl⟩
+  exact Pattern.subst_wfIn (hps q hq) hσ hdom hsymbols hwf
+
 theorem Term.subst_id {t : Term τ} : t.subst Subst.id = t := by
   induction t with
   | var τ x => rfl
@@ -275,9 +321,10 @@ def Formula.subst (σ : Subst) (avoid : List String) : Formula → Formula
   | .and φ ψ       => .and (Formula.subst σ avoid φ) (Formula.subst σ avoid ψ)
   | .or φ ψ        => .or (Formula.subst σ avoid φ) (Formula.subst σ avoid ψ)
   | .implies φ ψ   => .implies (Formula.subst σ avoid φ) (Formula.subst σ avoid ψ)
-  | .forall_ y τ φ =>
+  | .forall_ y τ ps φ =>
     let y' := Fresh.freshName avoid y
-    .forall_ y' τ (Formula.subst (σ.bind y τ y') (y' :: avoid) φ)
+    .forall_ y' τ (ps.map (Pattern.subst (σ.bind y τ y')))
+      (Formula.subst (σ.bind y τ y') (y' :: avoid) φ)
   | .exists_ y τ φ =>
     let y' := Fresh.freshName avoid y
     .exists_ y' τ (Formula.subst (σ.bind y τ y') (y' :: avoid) φ)
@@ -395,12 +442,12 @@ theorem Formula.eval_subst {σ : Subst} {ρ : Env} {φ : Formula} {Δ Δ' : Sign
   | and φ ψ ihφ ihψ | or φ ψ ihφ ihψ | implies φ ψ ihφ ihψ =>
     simp [Formula.subst, Formula.eval, ihφ hφ.1 hσ hsymbols hwfΔ hwfΔ',
       ihψ hφ.2 hσ hsymbols hwfΔ hwfΔ']
-  | forall_ y τ φ ih =>
+  | forall_ y τ ps φ ih =>
     simp only [Formula.subst, Formula.eval]
     let y' := Fresh.freshName Δ'.allNames y
     have hy'_fresh : y' ∉ Δ'.allNames := Fresh.freshName_not_in_avoid Δ'.allNames y
     have hremove : Δ'.remove y' = Δ' := Signature.remove_eq_of_not_in hy'_fresh
-    have hwf_body : φ.wfIn ((Δ.remove y).addVar ⟨y, τ⟩) := hφ
+    have hwf_body : φ.wfIn ((Δ.remove y).addVar ⟨y, τ⟩) := hφ.2
     have hwf_body_sig : ((Δ.remove y).addVar ⟨y, τ⟩).wf := Signature.wf_remove_addVar hwfΔ
     have hwf_target : ((Δ'.remove y').addVar ⟨y', τ⟩).wf := Signature.wf_remove_addVar hwfΔ'
     have hσ_ext : σ.wfIn Δ.vars ((Δ'.remove y').addVar ⟨y', τ⟩) := by
@@ -595,7 +642,65 @@ theorem Formula.subst_wfIn {φ : Formula} {σ : Subst} {Δ Δ' : Signature}
     simpa [Formula.subst, Formula.wfIn] using
       And.intro (ihφ hwf.1 hσ hsymbols hwfΔ')
         (ihψ hwf.2 hσ hsymbols hwfΔ')
-  | forall_ y τ φ ih | exists_ y τ φ ih =>
+  | forall_ y τ ps φ ih =>
+    simp only [Formula.subst, Formula.wfIn]
+    let y' := Fresh.freshName Δ'.allNames y
+    have hy'_fresh : y' ∉ Δ'.allNames := Fresh.freshName_not_in_avoid Δ'.allNames y
+    have hremove : Δ'.remove y' = Δ' := Signature.remove_eq_of_not_in hy'_fresh
+    have hwf_target : ((Δ'.remove y').addVar ⟨y', τ⟩).wf := Signature.wf_remove_addVar hwfΔ'
+    have hσ_ext :
+        σ.wfIn Δ.vars ((Δ'.remove y').addVar ⟨y', τ⟩) := by
+      have hσ_add : σ.wfIn Δ.vars (Δ'.addVar ⟨y', τ⟩) :=
+        Subst.wfIn_mono hσ (Signature.Subset.subset_addVar _ _) (Signature.wf_addVar hwfΔ' hy'_fresh)
+      simpa [hremove] using hσ_add
+    have hvarwf : (Term.var τ y').wfIn ((Δ'.remove y').addVar ⟨y', τ⟩) := by
+      refine ⟨List.Mem.head _, ?_, ?_⟩
+      · intro τ'' hc
+        exact Signature.wf_no_const_of_var hwf_target (List.Mem.head _) hc
+      · intro τ'' hv
+        exact Signature.wf_unique_var hwf_target (List.Mem.head _) hv
+    have hσ' :
+        (σ.bind y τ y').wfIn ((Δ.remove y).addVar ⟨y, τ⟩).vars ((Δ'.remove y').addVar ⟨y', τ⟩) :=
+      Subst.wfIn_bind (Δ := Δ) (Δ'' := ((Δ'.remove y').addVar ⟨y', τ⟩)) hσ_ext hvarwf
+    have hconsts' : ((Δ.remove y).addVar ⟨y, τ⟩).consts ⊆ ((Δ'.remove y').addVar ⟨y', τ⟩).consts := by
+      intro c hc
+      rcases Signature.mem_remove_consts.mp hc with ⟨hc, hcy⟩
+      refine Signature.mem_remove_consts.mpr ⟨hsymbols.consts _ hc, ?_⟩
+      intro hceq
+      exact hy'_fresh (hceq ▸ Signature.mem_allNames_of_const (hsymbols.consts _ hc))
+    have hunary' : ((Δ.remove y).addVar ⟨y, τ⟩).unary ⊆ ((Δ'.remove y').addVar ⟨y', τ⟩).unary := by
+      intro u hu
+      rcases Signature.mem_remove_unary.mp hu with ⟨hu, huy⟩
+      refine Signature.mem_remove_unary.mpr ⟨hsymbols.unary _ hu, ?_⟩
+      intro hueq
+      exact hy'_fresh (hueq ▸ Signature.mem_allNames_of_unary (hsymbols.unary _ hu))
+    have hbinary' : ((Δ.remove y).addVar ⟨y, τ⟩).binary ⊆ ((Δ'.remove y').addVar ⟨y', τ⟩).binary := by
+      intro b hb
+      rcases Signature.mem_remove_binary.mp hb with ⟨hb, hby⟩
+      refine Signature.mem_remove_binary.mpr ⟨hsymbols.binary _ hb, ?_⟩
+      intro hbeq
+      exact hy'_fresh (hbeq ▸ Signature.mem_allNames_of_binary (hsymbols.binary _ hb))
+    have hunaryRel' : ((Δ.remove y).addVar ⟨y, τ⟩).unaryRel ⊆ ((Δ'.remove y').addVar ⟨y', τ⟩).unaryRel := by
+      intro u hu
+      rcases Signature.mem_remove_unaryRel.mp hu with ⟨hu, huy⟩
+      refine Signature.mem_remove_unaryRel.mpr ⟨hsymbols.unaryRel _ hu, ?_⟩
+      intro hueq
+      exact hy'_fresh (hueq ▸ Signature.mem_allNames_of_unaryRel (hsymbols.unaryRel _ hu))
+    have hbinaryRel' : ((Δ.remove y).addVar ⟨y, τ⟩).binaryRel ⊆ ((Δ'.remove y').addVar ⟨y', τ⟩).binaryRel := by
+      intro b hb
+      rcases Signature.mem_remove_binaryRel.mp hb with ⟨hb, hby⟩
+      refine Signature.mem_remove_binaryRel.mpr ⟨hsymbols.binaryRel _ hb, ?_⟩
+      intro hbeq
+      exact hy'_fresh (hbeq ▸ Signature.mem_allNames_of_binaryRel (hsymbols.binaryRel _ hb))
+    have hsymbols' : ((Δ.remove y).addVar ⟨y, τ⟩).SymbolSubset ((Δ'.remove y').addVar ⟨y', τ⟩) :=
+      ⟨hconsts', hunary', hbinary', hunaryRel', hbinaryRel'⟩
+    exact ⟨by
+      simpa [y', Signature.allNames_remove_addVar_of_not_in hy'_fresh] using
+        Pattern.List.subst_wfIn hwf.1 hσ' (by intro v hv; exact hv) hsymbols' hwf_target,
+      by
+        simpa [y', Signature.allNames_remove_addVar_of_not_in hy'_fresh] using
+          ih hwf.2 hσ' hsymbols' hwf_target⟩
+  | exists_ y τ φ ih =>
     simp only [Formula.subst, Formula.wfIn]
     let y' := Fresh.freshName Δ'.allNames y
     have hy'_fresh : y' ∉ Δ'.allNames := Fresh.freshName_not_in_avoid Δ'.allNames y

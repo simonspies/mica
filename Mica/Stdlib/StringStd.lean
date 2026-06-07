@@ -75,52 +75,61 @@ The typing axiom is what lets a bare value-level equality such as
 projection, not that the result *is* an integer value. -/
 
 def stringLengthDefAxiom : Formula :=
-  .forall_ "s" .value <|
+  .forall_ "s" .value [.term (stringLengthTerm (.var .value "s"))] <|
     .eq .int
       (.unop .toInt (stringLengthTerm (.var .value "s")))
       (.unop .seqLen (.unop .toString (.var .value "s")))
 
 def stringLengthTypeAxiom : Formula :=
-  .forall_ "s" .value <| .unpred .isInt (stringLengthTerm (.var .value "s"))
+  .forall_ "s" .value [.term (stringLengthTerm (.var .value "s"))] <|
+    .unpred .isInt (stringLengthTerm (.var .value "s"))
 
 def stringCatDefAxiom : Formula :=
-  .forall_ "a" .value <| .forall_ "b" .value <|
+  .all "a" .value <| .forall_ "b" .value
+    [.term (stringCatTerm (.var .value "a") (.var .value "b"))] <|
     .eq .string
       (.unop .toString (stringCatTerm (.var .value "a") (.var .value "b")))
       (.binop .seqConcat (.unop .toString (.var .value "a")) (.unop .toString (.var .value "b")))
 
 def stringCatTypeAxiom : Formula :=
-  .forall_ "a" .value <| .forall_ "b" .value <|
+  .all "a" .value <| .forall_ "b" .value
+    [.term (stringCatTerm (.var .value "a") (.var .value "b"))] <|
     .unpred .isStr (stringCatTerm (.var .value "a") (.var .value "b"))
 
 def stringEqualDefAxiom : Formula :=
-  .forall_ "a" .value <| .forall_ "b" .value <|
+  .all "a" .value <| .forall_ "b" .value
+    [.term (stringEqualTerm (.var .value "a") (.var .value "b"))] <|
     .eq .bool
       (.unop .toBool (stringEqualTerm (.var .value "a") (.var .value "b")))
       (.binop (.eq (τ := .string)) (.unop .toString (.var .value "a")) (.unop .toString (.var .value "b")))
 
 def stringEqualTypeAxiom : Formula :=
-  .forall_ "a" .value <| .forall_ "b" .value <|
+  .all "a" .value <| .forall_ "b" .value
+    [.term (stringEqualTerm (.var .value "a") (.var .value "b"))] <|
     .unpred .isBool (stringEqualTerm (.var .value "a") (.var .value "b"))
 
 def stringStartsWithDefAxiom : Formula :=
-  .forall_ "prefix" .value <| .forall_ "s" .value <|
+  .all "prefix" .value <| .forall_ "s" .value
+    [.term (stringStartsWithTerm (.var .value "prefix") (.var .value "s"))] <|
     .eq .bool
       (.unop .toBool (stringStartsWithTerm (.var .value "prefix") (.var .value "s")))
       (.binop .seqPrefixOf (.unop .toString (.var .value "prefix")) (.unop .toString (.var .value "s")))
 
 def stringStartsWithTypeAxiom : Formula :=
-  .forall_ "prefix" .value <| .forall_ "s" .value <|
+  .all "prefix" .value <| .forall_ "s" .value
+    [.term (stringStartsWithTerm (.var .value "prefix") (.var .value "s"))] <|
     .unpred .isBool (stringStartsWithTerm (.var .value "prefix") (.var .value "s"))
 
 def stringEndsWithDefAxiom : Formula :=
-  .forall_ "suffix" .value <| .forall_ "s" .value <|
+  .all "suffix" .value <| .forall_ "s" .value
+    [.term (stringEndsWithTerm (.var .value "suffix") (.var .value "s"))] <|
     .eq .bool
       (.unop .toBool (stringEndsWithTerm (.var .value "suffix") (.var .value "s")))
       (.binop .seqSuffixOf (.unop .toString (.var .value "suffix")) (.unop .toString (.var .value "s")))
 
 def stringEndsWithTypeAxiom : Formula :=
-  .forall_ "suffix" .value <| .forall_ "s" .value <|
+  .all "suffix" .value <| .forall_ "s" .value
+    [.term (stringEndsWithTerm (.var .value "suffix") (.var .value "s"))] <|
     .unpred .isBool (stringEndsWithTerm (.var .value "suffix") (.var .value "s"))
 
 private theorem off_shape_one {Θ : TinyML.TypeEnv} {vs : List Runtime.Val} {ty : TinyML.Typ}
@@ -357,12 +366,12 @@ instance : IntrinsicSound [stringCat] stringCat where
           .value .value .value "string_cat" = fun a b => stringCatSym.interp (a, b) := by
       intro x y; rw [Env.updateConst_binary, Env.updateConst_binary]; simpa [stringCatSym] using hcat
     rcases hφ with rfl | rfl
-    · simp only [stringCatDefAxiom, Formula.eval]
+    · simp only [stringCatDefAxiom, Formula.all, Formula.eval]
       intro x y
       simp [stringCatTerm, Term.eval, Env.lookupConst_updateConst_same,
         Env.lookupConst_updateConst_ne (show "a" ≠ "b" by decide), hb x y, stringCatSym, valStr]
       rfl
-    · simp only [stringCatTypeAxiom, Formula.eval]
+    · simp only [stringCatTypeAxiom, Formula.all, Formula.eval]
       intro x y
       simp [stringCatTerm, Term.eval, Env.lookupConst_updateConst_same,
         Env.lookupConst_updateConst_ne (show "a" ≠ "b" by decide), hb x y, stringCatSym, valStr]
@@ -474,13 +483,13 @@ instance : IntrinsicSound [stringEqual] stringEqual where
           .value .value .value "string_equal" = fun a b => stringEqualSym.interp (a, b) := by
       intro x y; rw [Env.updateConst_binary, Env.updateConst_binary]; simpa [stringEqualSym] using heq
     rcases hφ with rfl | rfl
-    · simp only [stringEqualDefAxiom, Formula.eval]
+    · simp only [stringEqualDefAxiom, Formula.all, Formula.eval]
       intro x y
       simp [stringEqualTerm, Term.eval, Env.lookupConst_updateConst_same,
         Env.lookupConst_updateConst_ne (show "a" ≠ "b" by decide), hb x y, stringEqualSym, valStr,
         Bool.beq_eq_decide_eq]
       rfl
-    · simp only [stringEqualTypeAxiom, Formula.eval]
+    · simp only [stringEqualTypeAxiom, Formula.all, Formula.eval]
       intro x y
       simp [stringEqualTerm, Term.eval, Env.lookupConst_updateConst_same,
         Env.lookupConst_updateConst_ne (show "a" ≠ "b" by decide), hb x y, stringEqualSym, valStr]
@@ -592,12 +601,12 @@ instance : IntrinsicSound [stringStartsWith] stringStartsWith where
           .value .value .value "string_starts_with" = fun a b => stringStartsWithSym.interp (a, b) := by
       intro x y; rw [Env.updateConst_binary, Env.updateConst_binary]; simpa [stringStartsWithSym] using hp
     rcases hφ with rfl | rfl
-    · simp only [stringStartsWithDefAxiom, Formula.eval]
+    · simp only [stringStartsWithDefAxiom, Formula.all, Formula.eval]
       intro x y
       simp [stringStartsWithTerm, Term.eval, Env.lookupConst_updateConst_same,
         Env.lookupConst_updateConst_ne (show "prefix" ≠ "s" by decide), hb x y, stringStartsWithSym, valStr]
       rfl
-    · simp only [stringStartsWithTypeAxiom, Formula.eval]
+    · simp only [stringStartsWithTypeAxiom, Formula.all, Formula.eval]
       intro x y
       simp [stringStartsWithTerm, Term.eval, Env.lookupConst_updateConst_same,
         Env.lookupConst_updateConst_ne (show "prefix" ≠ "s" by decide), hb x y, stringStartsWithSym, valStr]
@@ -709,12 +718,12 @@ instance : IntrinsicSound [stringEndsWith] stringEndsWith where
           .value .value .value "string_ends_with" = fun a b => stringEndsWithSym.interp (a, b) := by
       intro x y; rw [Env.updateConst_binary, Env.updateConst_binary]; simpa [stringEndsWithSym] using hp
     rcases hφ with rfl | rfl
-    · simp only [stringEndsWithDefAxiom, Formula.eval]
+    · simp only [stringEndsWithDefAxiom, Formula.all, Formula.eval]
       intro x y
       simp [stringEndsWithTerm, Term.eval, Env.lookupConst_updateConst_same,
         Env.lookupConst_updateConst_ne (show "suffix" ≠ "s" by decide), hb x y, stringEndsWithSym, valStr]
       rfl
-    · simp only [stringEndsWithTypeAxiom, Formula.eval]
+    · simp only [stringEndsWithTypeAxiom, Formula.all, Formula.eval]
       intro x y
       simp [stringEndsWithTerm, Term.eval, Env.lookupConst_updateConst_same,
         Env.lookupConst_updateConst_ne (show "suffix" ≠ "s" by decide), hb x y, stringEndsWithSym, valStr]

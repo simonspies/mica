@@ -49,7 +49,8 @@ private def intMaxTerm (x y : Term .value) : Term .value :=
 /-- Defining axiom for `Int.min`: `toInt (int_min x y) = ite (x ≤ y) x y`,
     stated over the integer projection so it constrains all values. -/
 def intMinDefAxiom : Formula :=
-  .forall_ "x" .value <| .forall_ "y" .value <|
+  .all "x" .value <| .forall_ "y" .value
+    [.term (intMinTerm (.var .value "x") (.var .value "y"))] <|
     .eq .int
       (.unop .toInt (intMinTerm (.var .value "x") (.var .value "y")))
       (.ite (.binop .ge (.unop .toInt (.var .value "y")) (.unop .toInt (.var .value "x")))
@@ -58,7 +59,8 @@ def intMinDefAxiom : Formula :=
 
 /-- Defining axiom for `Int.max`: `toInt (int_max x y) = ite (x ≥ y) x y`. -/
 def intMaxDefAxiom : Formula :=
-  .forall_ "x" .value <| .forall_ "y" .value <|
+  .all "x" .value <| .forall_ "y" .value
+    [.term (intMaxTerm (.var .value "x") (.var .value "y"))] <|
     .eq .int
       (.unop .toInt (intMaxTerm (.var .value "x") (.var .value "y")))
       (.ite (.binop .ge (.unop .toInt (.var .value "x")) (.unop .toInt (.var .value "y")))
@@ -217,7 +219,7 @@ instance : IntrinsicSound [intMin] intMin where
     subst hφ
     have hmin : ρ.respects (some intMinSym) := hdeps intMin (by simp)
     simp only [Env.respects] at hmin
-    simp only [intMinDefAxiom, Formula.eval]
+    simp only [intMinDefAxiom, Formula.all, Formula.eval]
     intro x y
     have hb : ((ρ.updateConst .value "x" x).updateConst .value "y" y).binary
         .value .value .value "int_min" = fun a b => intMinSym.interp (a, b) := by
@@ -330,7 +332,7 @@ instance : IntrinsicSound [intMax] intMax where
     subst hφ
     have hmax : ρ.respects (some intMaxSym) := hdeps intMax (by simp)
     simp only [Env.respects] at hmax
-    simp only [intMaxDefAxiom, Formula.eval]
+    simp only [intMaxDefAxiom, Formula.all, Formula.eval]
     intro x y
     have hb : ((ρ.updateConst .value "x" x).updateConst .value "y" y).binary
         .value .value .value "int_max" = fun a b => intMaxSym.interp (a, b) := by

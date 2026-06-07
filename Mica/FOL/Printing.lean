@@ -112,6 +112,13 @@ def Term.toSMTLIB : Term τ → String
   | .binop op a b => s!"({op.toSMTLIB} {a.toSMTLIB} {b.toSMTLIB})"
   | .ite c t e    => s!"(ite {c.toSMTLIB} {t.toSMTLIB} {e.toSMTLIB})"
 
+def Pattern.toSMTLIB : Pattern → String
+  | .term t => t.toSMTLIB
+  | .unpred p t => match p with
+    | .isInj tag arity => s!"(and (is-of_inj {t.toSMTLIB}) (= (tag_of {t.toSMTLIB}) {tag}) (= (arity_of {t.toSMTLIB}) {arity}))"
+    | _ => s!"({p.toSMTLIB} {t.toSMTLIB})"
+  | .binpred p t₁ t₂ => s!"({p.toSMTLIB} {t₁.toSMTLIB} {t₂.toSMTLIB})"
+
 def Formula.toSMTLIB : Formula → String
   | .true_          => "true"
   | .false_         => "false"
@@ -124,7 +131,11 @@ def Formula.toSMTLIB : Formula → String
   | .and φ ψ        => s!"(and {φ.toSMTLIB} {ψ.toSMTLIB})"
   | .or φ ψ         => s!"(or {φ.toSMTLIB} {ψ.toSMTLIB})"
   | .implies φ ψ    => s!"(=> {φ.toSMTLIB} {ψ.toSMTLIB})"
-  | .forall_ x τ φ  => s!"(forall (({x} {τ.toSMTLIB})) {φ.toSMTLIB})"
+  | .forall_ x τ ps φ =>
+    let body := match ps with
+      | [] => φ.toSMTLIB
+      | ps => s!"(! {φ.toSMTLIB} :pattern ({" ".intercalate (ps.map Pattern.toSMTLIB)}))"
+    s!"(forall (({x} {τ.toSMTLIB})) {body})"
   | .exists_ x τ φ  => s!"(exists (({x} {τ.toSMTLIB})) {φ.toSMTLIB})"
 
 
@@ -217,7 +228,7 @@ private def formulaStr (p : Prec) : Formula → String
   | .and φ ψ         => parens (Prec.lt .and_    p) s!"{formulaStr .and_ φ} && {formulaStr .not_ ψ}"
   | .or  φ ψ         => parens (Prec.lt .or_     p) s!"{formulaStr .or_ φ} || {formulaStr .and_ ψ}"
   | .implies φ ψ     => parens (Prec.lt .implies p) s!"{formulaStr .or_ φ} => {formulaStr .implies ψ}"
-  | .forall_ x τ φ   => parens (Prec.lt .bottom  p) s!"∀ {x} : {repr τ}, {formulaStr .bottom φ}"
+  | .forall_ x τ _ φ => parens (Prec.lt .bottom  p) s!"∀ {x} : {repr τ}, {formulaStr .bottom φ}"
   | .exists_ x τ φ   => parens (Prec.lt .bottom  p) s!"∃ {x} : {repr τ}, {formulaStr .bottom φ}"
 
 def Formula.toStringHum (φ : Formula) : String := formulaStr .bottom φ
