@@ -28,6 +28,7 @@ inductive Const where
   | int  (n : Int)
   | bool (b : Bool)
   | string (s : List UInt8)
+  | float (bits : UInt64)
   | unit
   deriving Repr, BEq, DecidableEq
 

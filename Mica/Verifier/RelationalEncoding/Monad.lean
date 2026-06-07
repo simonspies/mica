@@ -38,6 +38,7 @@ def encodeConst : TinyML.Const → Term .value
   | .int  n => .unop .ofInt  (.const (.i n))
   | .bool b => .unop .ofBool (.const (.b b))
   | .string s => .unop .ofString (.const (.str s))
+  | .float b => .unop .ofFloat (.const (.fp b))
   | .unit   => .const .unit
 
 /-- Encode a TinyML unary op acting on a value-sorted argument. -/
