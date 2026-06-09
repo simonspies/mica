@@ -216,12 +216,13 @@ private theorem respects_argsEnv_two {s : FOL.Symbol .two} :
 /-! ## `Float.abs` (unary `float → float`) -/
 
 def floatAbsDefAxiom : Formula :=
-  .forall_ "a" .value <|
+  .forall_ "a" .value [.term (unTerm "float_abs" (.var .value "a"))] <|
     .eq .float (.unop .toFloat (unTerm "float_abs" (.var .value "a")))
       (.unop .fpAbs (.unop .toFloat (.var .value "a")))
 
 def floatAbsTypeAxiom : Formula :=
-  .forall_ "a" .value <| .unpred .isFloat (unTerm "float_abs" (.var .value "a"))
+  .forall_ "a" .value [.term (unTerm "float_abs" (.var .value "a"))] <|
+    .unpred .isFloat (unTerm "float_abs" (.var .value "a"))
 
 def floatAbs : Intrinsic where
   arity  := .one
@@ -325,11 +326,12 @@ instance : IntrinsicSound [floatAbs] floatAbs where
 /-! ## `Float.neg` (unary `float → float`) -/
 
 def floatNegDefAxiom : Formula :=
-  .forall_ "a" .value <|
+  .forall_ "a" .value [.term (unTerm "float_neg" (.var .value "a"))] <|
     .eq .float (.unop .toFloat (unTerm "float_neg" (.var .value "a")))
       (.unop .fpNeg (.unop .toFloat (.var .value "a")))
 def floatNegTypeAxiom : Formula :=
-  .forall_ "a" .value <| .unpred .isFloat (unTerm "float_neg" (.var .value "a"))
+  .forall_ "a" .value [.term (unTerm "float_neg" (.var .value "a"))] <|
+    .unpred .isFloat (unTerm "float_neg" (.var .value "a"))
 
 def floatNeg : Intrinsic where
   arity  := .one
@@ -433,11 +435,12 @@ instance : IntrinsicSound [floatNeg] floatNeg where
 /-! ## `Float.sqrt` (unary `float → float`) -/
 
 def floatSqrtDefAxiom : Formula :=
-  .forall_ "a" .value <|
+  .forall_ "a" .value [.term (unTerm "float_sqrt" (.var .value "a"))] <|
     .eq .float (.unop .toFloat (unTerm "float_sqrt" (.var .value "a")))
       (.unop .fpSqrt (.unop .toFloat (.var .value "a")))
 def floatSqrtTypeAxiom : Formula :=
-  .forall_ "a" .value <| .unpred .isFloat (unTerm "float_sqrt" (.var .value "a"))
+  .forall_ "a" .value [.term (unTerm "float_sqrt" (.var .value "a"))] <|
+    .unpred .isFloat (unTerm "float_sqrt" (.var .value "a"))
 
 def floatSqrt : Intrinsic where
   arity  := .one
@@ -541,11 +544,12 @@ instance : IntrinsicSound [floatSqrt] floatSqrt where
 /-! ## `Float.is_nan` (unary `float → bool`) -/
 
 def floatIsNanDefAxiom : Formula :=
-  .forall_ "a" .value <|
+  .forall_ "a" .value [.term (unTerm "float_is_nan" (.var .value "a"))] <|
     .eq .bool (.unop .toBool (unTerm "float_is_nan" (.var .value "a")))
       (.unop .fpIsNaN (.unop .toFloat (.var .value "a")))
 def floatIsNanTypeAxiom : Formula :=
-  .forall_ "a" .value <| .unpred .isBool (unTerm "float_is_nan" (.var .value "a"))
+  .forall_ "a" .value [.term (unTerm "float_is_nan" (.var .value "a"))] <|
+    .unpred .isBool (unTerm "float_is_nan" (.var .value "a"))
 
 def floatIsNan : Intrinsic where
   arity  := .one
@@ -651,13 +655,14 @@ instance : IntrinsicSound [floatIsNan] floatIsNan where
 /-- `is_finite a` decodes to `¬infinite ∧ ¬nan`, expressed via the Z3 primitives
 `fp.isInfinite`/`fp.isNaN` (no Z3 macro). Mirrors `FloatBits.isFinite`. -/
 def floatIsFiniteDefAxiom : Formula :=
-  .forall_ "a" .value <|
+  .forall_ "a" .value [.term (unTerm "float_is_finite" (.var .value "a"))] <|
     .eq .bool (.unop .toBool (unTerm "float_is_finite" (.var .value "a")))
       (.ite (.unop .fpIsInfinite (.unop .toFloat (.var .value "a"))) (.const (.b false))
         (.ite (.unop .fpIsNaN (.unop .toFloat (.var .value "a"))) (.const (.b false))
           (.const (.b true))))
 def floatIsFiniteTypeAxiom : Formula :=
-  .forall_ "a" .value <| .unpred .isBool (unTerm "float_is_finite" (.var .value "a"))
+  .forall_ "a" .value [.term (unTerm "float_is_finite" (.var .value "a"))] <|
+    .unpred .isBool (unTerm "float_is_finite" (.var .value "a"))
 
 def floatIsFinite : Intrinsic where
   arity  := .one
@@ -762,11 +767,12 @@ instance : IntrinsicSound [floatIsFinite] floatIsFinite where
 /-! ## `Float.of_int` (unary `int → float`) -/
 
 def floatOfIntDefAxiom : Formula :=
-  .forall_ "a" .value <|
+  .forall_ "a" .value [.term (unTerm "float_of_int" (.var .value "a"))] <|
     .eq .float (.unop .toFloat (unTerm "float_of_int" (.var .value "a")))
       (.unop .fpOfInt (.unop .toInt (.var .value "a")))
 def floatOfIntTypeAxiom : Formula :=
-  .forall_ "a" .value <| .unpred .isFloat (unTerm "float_of_int" (.var .value "a"))
+  .forall_ "a" .value [.term (unTerm "float_of_int" (.var .value "a"))] <|
+    .unpred .isFloat (unTerm "float_of_int" (.var .value "a"))
 
 def floatOfInt : Intrinsic where
   arity  := .one
@@ -870,12 +876,14 @@ instance : IntrinsicSound [floatOfInt] floatOfInt where
 /-! ## Binary `float → float → float` intrinsics -/
 
 private def binFloatDefAxiom (sym : FOL.Symbol .two) (op : BinOp .float .float .float) : Formula :=
-  .forall_ "a" .value <| .forall_ "b" .value <|
+  .all "a" .value <| .forall_ "b" .value
+    [.term (binTerm sym.name (.var .value "a") (.var .value "b"))] <|
     .eq .float (.unop .toFloat (binTerm sym.name (.var .value "a") (.var .value "b")))
       (.binop op (.unop .toFloat (.var .value "a")) (.unop .toFloat (.var .value "b")))
 
 private def binFloatTypeAxiom (sym : FOL.Symbol .two) : Formula :=
-  .forall_ "a" .value <| .forall_ "b" .value <|
+  .all "a" .value <| .forall_ "b" .value
+    [.term (binTerm sym.name (.var .value "a") (.var .value "b"))] <|
     .unpred .isFloat (binTerm sym.name (.var .value "a") (.var .value "b"))
 
 private def mkBinFloat (sym : FOL.Symbol .two) (pathTail : String)
@@ -937,7 +945,8 @@ definitional axiom is an `ite` cascade over the Z3 primitives, mirroring the
 def floatMinDefAxiom : Formula :=
   let ta : Term .float := .unop .toFloat (.var .value "a")
   let tb : Term .float := .unop .toFloat (.var .value "b")
-  .forall_ "a" .value <| .forall_ "b" .value <|
+  .all "a" .value <| .forall_ "b" .value
+    [.term (binTerm "float_min" (.var .value "a") (.var .value "b"))] <|
     .eq .float (.unop .toFloat (binTerm "float_min" (.var .value "a") (.var .value "b")))
       (.ite (.unop .fpIsNaN ta) (.const .fpNaN)
         (.ite (.unop .fpIsNaN tb) (.const .fpNaN)
@@ -949,7 +958,8 @@ def floatMinDefAxiom : Formula :=
 def floatMaxDefAxiom : Formula :=
   let ta : Term .float := .unop .toFloat (.var .value "a")
   let tb : Term .float := .unop .toFloat (.var .value "b")
-  .forall_ "a" .value <| .forall_ "b" .value <|
+  .all "a" .value <| .forall_ "b" .value
+    [.term (binTerm "float_max" (.var .value "a") (.var .value "b"))] <|
     .eq .float (.unop .toFloat (binTerm "float_max" (.var .value "a") (.var .value "b")))
       (.ite (.unop .fpIsNaN ta) (.const .fpNaN)
         (.ite (.unop .fpIsNaN tb) (.const .fpNaN)
@@ -1026,13 +1036,13 @@ instance : IntrinsicSound [floatAdd] floatAdd where
           .value .value .value "float_add" = fun a b => floatAddSym.interp (a, b) := by
       intro x y; rw [Env.updateConst_binary, Env.updateConst_binary]; simpa [floatAddSym] using hadd
     rcases hφ with rfl | hφ
-    · simp only [binFloatDefAxiom, Formula.eval]
+    · simp only [binFloatDefAxiom, Formula.all, Formula.eval]
       intro x y
       simp [binTerm, Term.eval, Env.lookupConst_updateConst_same,
         Env.lookupConst_updateConst_ne (show "a" ≠ "b" by decide), hb x y, floatAddSym]
       rfl
     · rcases hφ with rfl | hnil
-      · simp only [binFloatTypeAxiom, Formula.eval]
+      · simp only [binFloatTypeAxiom, Formula.all, Formula.eval]
         intro x y
         simp [binTerm, Term.eval, Env.lookupConst_updateConst_same,
           Env.lookupConst_updateConst_ne (show "a" ≠ "b" by decide), hb x y, floatAddSym]
@@ -1105,13 +1115,13 @@ private theorem mkBinFloat_sound_of (sym : FOL.Symbol .two) (pathTail : String)
           .value .value .value sym.name = fun a b => sym.interp (a, b) := by
       intro x y; rw [Env.updateConst_binary, Env.updateConst_binary]; exact hs
     rcases hφ with rfl | hφ
-    · simp only [binFloatDefAxiom, Formula.eval]
+    · simp only [binFloatDefAxiom, Formula.all, Formula.eval]
       intro x y
       simp [binTerm, Term.eval, Env.lookupConst_updateConst_same,
         Env.lookupConst_updateConst_ne (show "a" ≠ "b" by decide), hb x y]
       exact hdef _ x y
     · rcases hφ with rfl | hnil
-      · simp only [binFloatTypeAxiom, Formula.eval]
+      · simp only [binFloatTypeAxiom, Formula.all, Formula.eval]
         intro x y
         simp [binTerm, Term.eval, Env.lookupConst_updateConst_same,
           Env.lookupConst_updateConst_ne (show "a" ≠ "b" by decide), hb x y]
@@ -1205,7 +1215,7 @@ private theorem mkBinFloatWith_sound_of (sym : FOL.Symbol .two) (pathTail : Stri
     rcases hφ with rfl | hφ
     · exact hdefcase ρ hb
     · rcases hφ with rfl | hnil
-      · simp only [binFloatTypeAxiom, Formula.eval]
+      · simp only [binFloatTypeAxiom, Formula.all, Formula.eval]
         intro x y
         simp [binTerm, Term.eval, Env.lookupConst_updateConst_same,
           Env.lookupConst_updateConst_ne (show "a" ≠ "b" by decide), hb x y]
@@ -1330,7 +1340,7 @@ instance : IntrinsicSound [floatMin] floatMin :=
     (by
       intro ρ hb
       simp only [floatMinSym_name] at hb
-      simp only [floatMinDefAxiom, Formula.eval]
+      simp only [floatMinDefAxiom, Formula.all, Formula.eval]
       intro x y
       simp [binTerm, Term.eval, Env.lookupConst_updateConst_same,
         Env.lookupConst_updateConst_ne (show "a" ≠ "b" by decide), hb x y, floatMinSym,
@@ -1355,7 +1365,7 @@ instance : IntrinsicSound [floatMax] floatMax :=
     (by
       intro ρ hb
       simp only [floatMaxSym_name] at hb
-      simp only [floatMaxDefAxiom, Formula.eval]
+      simp only [floatMaxDefAxiom, Formula.all, Formula.eval]
       intro x y
       simp [binTerm, Term.eval, Env.lookupConst_updateConst_same,
         Env.lookupConst_updateConst_ne (show "a" ≠ "b" by decide), hb x y, floatMaxSym,
@@ -1365,12 +1375,14 @@ instance : IntrinsicSound [floatMax] floatMax :=
 /-! ## Binary `float → float → bool` intrinsics -/
 
 private def binFloatBoolDefAxiom (sym : FOL.Symbol .two) (op : BinOp .float .float .bool) : Formula :=
-  .forall_ "a" .value <| .forall_ "b" .value <|
+  .all "a" .value <| .forall_ "b" .value
+    [.term (binTerm sym.name (.var .value "a") (.var .value "b"))] <|
     .eq .bool (.unop .toBool (binTerm sym.name (.var .value "a") (.var .value "b")))
       (.binop op (.unop .toFloat (.var .value "a")) (.unop .toFloat (.var .value "b")))
 
 private def binFloatBoolTypeAxiom (sym : FOL.Symbol .two) : Formula :=
-  .forall_ "a" .value <| .forall_ "b" .value <|
+  .all "a" .value <| .forall_ "b" .value
+    [.term (binTerm sym.name (.var .value "a") (.var .value "b"))] <|
     .unpred .isBool (binTerm sym.name (.var .value "a") (.var .value "b"))
 
 private def mkBinFloatBool (sym : FOL.Symbol .two) (pathTail : String)
@@ -1440,13 +1452,13 @@ private theorem mkBinFloatBool_sound_of (sym : FOL.Symbol .two) (pathTail : Stri
           .value .value .value sym.name = fun a b => sym.interp (a, b) := by
       intro x y; rw [Env.updateConst_binary, Env.updateConst_binary]; exact hs
     rcases hφ with rfl | hφ
-    · simp only [binFloatBoolDefAxiom, Formula.eval]
+    · simp only [binFloatBoolDefAxiom, Formula.all, Formula.eval]
       intro x y
       simp [binTerm, Term.eval, Env.lookupConst_updateConst_same,
         Env.lookupConst_updateConst_ne (show "a" ≠ "b" by decide), hb x y]
       exact hdef _ x y
     · rcases hφ with rfl | hnil
-      · simp only [binFloatBoolTypeAxiom, Formula.eval]
+      · simp only [binFloatBoolTypeAxiom, Formula.all, Formula.eval]
         intro x y
         simp [binTerm, Term.eval, Env.lookupConst_updateConst_same,
           Env.lookupConst_updateConst_ne (show "a" ≠ "b" by decide), hb x y]
