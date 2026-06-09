@@ -17,6 +17,7 @@ def Srt.toSMTLIB : Srt → String
   | .int     => "Int"
   | .bool    => "Bool"
   | .string  => "(Seq (_ BitVec 8))"
+  | .float   => "(_ FloatingPoint 11 53)"
   | .value   => "Value"
   | .vallist => "ValueList"
 
@@ -24,10 +25,19 @@ def UnOp.toSMTLIB : UnOp τ₁ τ₂ → String
   | .ofInt   => "of_int"
   | .ofBool  => "of_bool"
   | .ofString => "of_string"
+  | .ofFloat => "of_float"
   | .toInt   => "to_int"
   | .toBool  => "to_bool"
   | .toString => "to_string"
+  | .toFloat => "to_float"
   | .seqLen => "seq.len"
+  | .fpAbs => "fp.abs"
+  | .fpNeg => "fp.neg"
+  | .fpSqrt => "fp.sqrt roundNearestTiesToEven"
+  | .fpIsNaN => "fp.isNaN"
+  | .fpIsInfinite => "fp.isInfinite"
+  | .fpIsNegative => "fp.isNegative"
+  | .fpOfInt => "(_ to_fp 11 53) roundNearestTiesToEven"
   | .neg     => "-"
   | .not     => "not"
   | .ofValList => "of_tuple"
@@ -54,6 +64,13 @@ def BinOp.toSMTLIB : BinOp τ₁ τ₂ τ₃ → String
   | .seqConcat => "seq.++"
   | .seqPrefixOf => "seq.prefixof"
   | .seqSuffixOf => "seq.suffixof"
+  | .fpAdd => "fp.add roundNearestTiesToEven"
+  | .fpSub => "fp.sub roundNearestTiesToEven"
+  | .fpMul => "fp.mul roundNearestTiesToEven"
+  | .fpDiv => "fp.div roundNearestTiesToEven"
+  | .fpEq  => "fp.eq"
+  | .fpLt  => "fp.lt"
+  | .fpLe  => "fp.leq"
   | .vcons => "vcons"
   | .uninterpreted name _ _ _ => name
 
@@ -61,6 +78,7 @@ def UnPred.toSMTLIB : UnPred τ → String
   | .isInt   => "is-of_int"
   | .isBool  => "is-of_bool"
   | .isStr   => "is-of_string"
+  | .isFloat => "is-of_float"
   | .isLoc   => "is-of_loc"
   | .isTuple => "is-of_tuple"
   | .isInj _ _ => ""  -- handled specially in Formula.toSMTLIB
@@ -85,6 +103,11 @@ private def byteHex (b : UInt8) : String :=
 private def byteToSMTLIB (b : UInt8) : String :=
   s!"(seq.unit #x{byteHex b})"
 
+/-- The 16 big-endian hex digits of a `UInt64`, for an `#x…` bitvector literal. -/
+private def uint64Hex (b : UInt64) : String :=
+  let n := b.toNat
+  String.ofList ((List.range 16).reverse.map (fun i => hexDigit ((n / (16 ^ i)) % 16)))
+
 private def stringConstToSMTLIB : List UInt8 → String
   | [] => "(as seq.empty (Seq (_ BitVec 8)))"
   | s => s!"(seq.++ {" ".intercalate (s.map byteToSMTLIB)})"
@@ -105,6 +128,10 @@ def Term.toSMTLIB : Term τ → String
   | .const (.i n)   => if n ≥ 0 then s!"{n}" else s!"(- {-n})"
   | .const (.b b)   => if b then "true" else "false"
   | .const (.str s) => stringConstToSMTLIB s
+  | .const (.fp bits) => s!"((_ to_fp 11 53) #x{uint64Hex bits})"
+  | .const .fpNaN    => "(_ NaN 11 53)"
+  | .const .fpPosInf => "(_ +oo 11 53)"
+  | .const .fpNegInf => "(_ -oo 11 53)"
   | .const .unit    => "(of_other unit_val)"
   | .const .vnil    => "vnil"
   | .const (.uninterpreted name _) => name
@@ -166,6 +193,10 @@ private def termStr (p : Prec) : {τ : Srt} → Term τ → String
   | _, .const (.i n)   => if n < 0 then s!"({n})" else s!"{n}"
   | _, .const (.b b)   => if b then "true" else "false"
   | _, .const (.str s) => s!"\"{s.map byteToHum |>.foldl (· ++ ·) ""}\""
+  | _, .const (.fp bits) => toString (Float.ofBits bits)
+  | _, .const .fpNaN    => "nan"
+  | _, .const .fpPosInf => "inf"
+  | _, .const .fpNegInf => "-inf"
   | _, .const .unit    => "()"
   | _, .const .vnil    => "[]"
   | _, .const (.uninterpreted name _) => name
@@ -173,10 +204,19 @@ private def termStr (p : Prec) : {τ : Srt} → Term τ → String
     | .ofInt   => termStr p a     -- transparent coercion
     | .ofBool  => termStr p a     -- transparent coercion
     | .ofString => termStr p a    -- transparent coercion
+    | .ofFloat => termStr p a     -- transparent coercion
     | .toInt   => s!"toInt({termStr .bottom a})"
     | .toBool  => s!"toBool({termStr .bottom a})"
     | .toString => s!"toString({termStr .bottom a})"
+    | .toFloat => s!"toFloat({termStr .bottom a})"
     | .seqLen => s!"len({termStr .bottom a})"
+    | .fpAbs => s!"fabs({termStr .bottom a})"
+    | .fpNeg => parens (Prec.lt .mul p) s!"-.{termStr .top a}"
+    | .fpSqrt => s!"sqrt({termStr .bottom a})"
+    | .fpIsNaN => s!"isNaN({termStr .bottom a})"
+    | .fpIsInfinite => s!"isInfinite({termStr .bottom a})"
+    | .fpIsNegative => s!"isNegative({termStr .bottom a})"
+    | .fpOfInt => s!"float({termStr .bottom a})"
     | .neg     => parens (Prec.lt .mul p) s!"-{termStr .top a}"
     | .not     => parens (Prec.lt .not_ p) s!"!{termStr .top a}"
     | .ofValList => s!"tuple({termStr .bottom a})"
@@ -202,6 +242,13 @@ private def termStr (p : Prec) : {τ : Srt} → Term τ → String
     | .seqConcat => parens (Prec.lt .add p) s!"{termStr .add a} ++ {termStr .mul b}"
     | .seqPrefixOf => s!"prefixOf({termStr .bottom a}, {termStr .bottom b})"
     | .seqSuffixOf => s!"suffixOf({termStr .bottom a}, {termStr .bottom b})"
+    | .fpAdd => parens (Prec.lt .add p) s!"{termStr .add a} +. {termStr .mul b}"
+    | .fpSub => parens (Prec.lt .add p) s!"{termStr .add a} -. {termStr .mul b}"
+    | .fpMul => parens (Prec.lt .mul p) s!"{termStr .mul a} *. {termStr .top b}"
+    | .fpDiv => parens (Prec.lt .mul p) s!"{termStr .mul a} /. {termStr .top b}"
+    | .fpEq  => parens (Prec.lt .cmp p) s!"{termStr .add a} =. {termStr .add b}"
+    | .fpLt  => parens (Prec.lt .cmp p) s!"{termStr .add a} <. {termStr .add b}"
+    | .fpLe  => parens (Prec.lt .cmp p) s!"{termStr .add a} <=. {termStr .add b}"
     | .vcons => parens (Prec.lt .top p) s!"{termStr .top a} :: {termStr .top b}"
     | .uninterpreted name _ _ _ => s!"{name}({termStr .bottom a}, {termStr .bottom b})"
   | _, .ite c t e  => parens (Prec.lt .bottom p) s!"if {termStr .bottom c} then {termStr .bottom t} else {termStr .bottom e}"
@@ -215,6 +262,7 @@ private def formulaStr (p : Prec) : Formula → String
     | .isInt   => s!"isInt({termStr .bottom v})"
     | .isBool  => s!"isBool({termStr .bottom v})"
     | .isStr   => s!"isStr({termStr .bottom v})"
+    | .isFloat => s!"isFloat({termStr .bottom v})"
     | .isLoc   => s!"isLoc({termStr .bottom v})"
     | .isTuple => s!"isTuple({termStr .bottom v})"
     | .isInj tag arity => s!"isInj({tag}/{arity}, {termStr .bottom v})"

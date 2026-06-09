@@ -42,6 +42,7 @@ private def byteEsc (b : UInt8) : String :=
 
 partial def Const.print : Const → String
   | .int n   => toString n
+  | .float f => toString f
   | .bool b  => if b then "true" else "false"
   | .string s => "\"" ++ joinWith "" (s.map byteEsc) ++ "\""
   | .unit    => "()"
@@ -69,6 +70,7 @@ private def UnOp.needsSpace : UnOp → Bool
 
 partial def BinOp.print : BinOp → String
   | .add => "+" | .sub => "-" | .mul => "*" | .div => "/" | .mod => "mod"
+  | .fadd => "+." | .fsub => "-." | .fmul => "*." | .fdiv => "/."
   | .eq => "=" | .neq => "<>" | .lt => "<" | .le => "<=" | .gt => ">" | .ge => ">="
   | .and => "&&" | .or => "||"
   | .semi => ";" | .pipeRight => "|>" | .atAt => "@@" | .assign => ":=" | .concat => "^"
@@ -77,7 +79,8 @@ private partial def BinOp.prec : BinOp → Nat
   | .semi => 1 | .assign => 2 | .or => 3 | .and => 4
   | .pipeRight => 5 | .atAt => 6
   | .eq | .neq | .lt | .le | .gt | .ge => 7
-  | .concat => 8 | .add | .sub => 9 | .mul | .div | .mod => 10
+  | .concat => 8 | .add | .sub | .fadd | .fsub => 9
+  | .mul | .div | .mod | .fmul | .fdiv => 10
 
 private partial def BinOp.rightAssoc : BinOp → Bool
   | .semi | .assign | .or | .and | .atAt | .concat => true

@@ -3,14 +3,65 @@ import Mica.FOL.Variables
 import Mica.Base.Except
 import Batteries.Data.List.Basic
 
+/-! ## IEEE binary64 operations on the `UInt64` bit-pattern carrier
+
+Each float operation decodes its operands with `Float.ofBits`, computes with
+Lean's `Float`, and (for float-valued results) re-encodes with `Float.toBits`.
+They are the **trusted** connection to Z3's FloatingPoint theory: each is
+implicitly *assumed* equal to the corresponding SMT-LIB `fp.*` op. The
+arithmetic ops use the rounding mode round-nearest-ties-to-even, matching the
+`roundNearestTiesToEven` printed for the Z3 ops.
+
+Derived ops (`is_finite`, `min`, `max`) are *not* here: they are built from these
+primitives in `Mica/Stdlib/FloatStd.lean`, where they are used. -/
+namespace FloatBits
+
+def add (a b : UInt64) : UInt64 := (Float.ofBits a + Float.ofBits b).toBits
+def sub (a b : UInt64) : UInt64 := (Float.ofBits a - Float.ofBits b).toBits
+def mul (a b : UInt64) : UInt64 := (Float.ofBits a * Float.ofBits b).toBits
+def div (a b : UInt64) : UInt64 := (Float.ofBits a / Float.ofBits b).toBits
+def abs (a : UInt64) : UInt64 := (Float.ofBits a).abs.toBits
+def neg (a : UInt64) : UInt64 := (-(Float.ofBits a)).toBits
+def sqrt (a : UInt64) : UInt64 := (Float.ofBits a).sqrt.toBits
+
+def isNaN (a : UInt64) : Bool := (Float.ofBits a).isNaN
+def isInf (a : UInt64) : Bool := (Float.ofBits a).isInf
+def ofInt (n : Int) : UInt64 := (Float.ofInt n).toBits
+def eq (a b : UInt64) : Bool := Float.ofBits a == Float.ofBits b
+def lt (a b : UInt64) : Bool := decide (Float.ofBits a < Float.ofBits b)
+def le (a b : UInt64) : Bool := decide (Float.ofBits a ≤ Float.ofBits b)
+
+/-- Sign-bit test, the bridge to SMT-LIB `fp.isNegative`: for a non-NaN value
+this is bit 63 (true for negatives, `-∞`, and `-0`); NaN is reported `false`,
+matching Z3. -/
+def isNegative (a : UInt64) : Bool := !isNaN a && (a >>> 63 == 1)
+
+/-- Canonical quiet-NaN bit pattern (the bridge to Z3's `(_ NaN 11 53)`). -/
+def nan : UInt64 := 0x7FF8000000000000
+/-- Positive-infinity bit pattern (the bridge to Z3's `(_ +oo 11 53)`). -/
+def posInf : UInt64 := 0x7FF0000000000000
+/-- Negative-infinity bit pattern (the bridge to Z3's `(_ -oo 11 53)`). -/
+def negInf : UInt64 := 0xFFF0000000000000
+
+end FloatBits
+
 inductive UnOp : Srt → Srt → Type where
   | ofInt      : UnOp .int     .value
   | ofBool     : UnOp .bool    .value
   | ofString   : UnOp .string  .value
+  | ofFloat    : UnOp .float   .value
   | toInt      : UnOp .value   .int
   | toBool     : UnOp .value   .bool
   | toString   : UnOp .value   .string
+  | toFloat    : UnOp .value   .float
   | seqLen     : UnOp .string  .int
+  | fpAbs      : UnOp .float   .float
+  | fpNeg      : UnOp .float   .float
+  | fpSqrt     : UnOp .float   .float
+  | fpIsNaN      : UnOp .float   .bool
+  | fpIsInfinite : UnOp .float   .bool
+  | fpIsNegative : UnOp .float   .bool
+  | fpOfInt    : UnOp .int     .float
   | neg        : UnOp .int     .int
   | not        : UnOp .bool    .bool
   | ofValList  : UnOp .vallist .value
@@ -38,6 +89,13 @@ inductive BinOp : Srt → Srt → Srt → Type where
   | seqConcat : BinOp .string .string .string
   | seqPrefixOf : BinOp .string .string .bool
   | seqSuffixOf : BinOp .string .string .bool
+  | fpAdd : BinOp .float .float .float
+  | fpSub : BinOp .float .float .float
+  | fpMul : BinOp .float .float .float
+  | fpDiv : BinOp .float .float .float
+  | fpEq  : BinOp .float .float .bool
+  | fpLt  : BinOp .float .float .bool
+  | fpLe  : BinOp .float .float .bool
   | vcons : BinOp .value .vallist .vallist
   | uninterpreted : String → (τ₁ τ₂ τ₃ : Srt) → BinOp τ₁ τ₂ τ₃
   deriving DecidableEq, Repr
@@ -46,6 +104,10 @@ inductive Const : Srt → Type where
   | i    : Int  → Const .int
   | b    : Bool → Const .bool
   | str  : List UInt8 → Const .string
+  | fp   : UInt64 → Const .float
+  | fpNaN    : Const .float
+  | fpPosInf : Const .float
+  | fpNegInf : Const .float
   | unit : Const .value
   | vnil : Const .vallist
   | uninterpreted : String → (τ : Srt) → Const τ
@@ -55,6 +117,10 @@ inductive Const : Srt → Type where
   | _, .i n  => n
   | _, .b v  => v
   | _, .str s => s
+  | _, .fp bits => bits
+  | _, .fpNaN => FloatBits.nan
+  | _, .fpPosInf => FloatBits.posInf
+  | _, .fpNegInf => FloatBits.negInf
   | _, .unit => Runtime.Val.unit
   | _, .vnil => []
   | ρ, .uninterpreted name _ => ρ.consts τ name
@@ -334,10 +400,19 @@ theorem Term.wfIn_mono (t : Term τ) (h : t.wfIn Δ) (hsub : Δ.Subset Δ') (hwf
   | _, .ofInt,   n  => Runtime.Val.int n
   | _, .ofBool,  b  => Runtime.Val.bool b
   | _, .ofString, s => Runtime.Val.str s
+  | _, .ofFloat, b => Runtime.Val.float b
   | _, .toInt,   v  => match v with | .int n => n | _ => 0
   | _, .toBool,  v  => match v with | .bool b => b | _ => false
   | _, .toString, v => match v with | .str s => s | _ => []
+  | _, .toFloat, v => match v with | .float b => b | _ => 0
   | _, .seqLen, s => (s.length : Int)
+  | _, .fpAbs, a => FloatBits.abs a
+  | _, .fpNeg, a => FloatBits.neg a
+  | _, .fpSqrt, a => FloatBits.sqrt a
+  | _, .fpIsNaN, a => FloatBits.isNaN a
+  | _, .fpIsInfinite, a => FloatBits.isInf a
+  | _, .fpIsNegative, a => FloatBits.isNegative a
+  | _, .fpOfInt, n => FloatBits.ofInt n
   | _, .neg,     n  => -n
   | _, .not,     b  => !b
   | _, .ofValList, vs => Runtime.Val.tuple vs
@@ -364,6 +439,13 @@ theorem Term.wfIn_mono (t : Term τ) (h : t.wfIn Δ) (hsub : Δ.Subset Δ') (hwf
   | _, .seqConcat, a, b => a ++ b
   | _, .seqPrefixOf, a, b => a.isPrefixOf b
   | _, .seqSuffixOf, a, b => a.isSuffixOf b
+  | _, .fpAdd, a, b => FloatBits.add a b
+  | _, .fpSub, a, b => FloatBits.sub a b
+  | _, .fpMul, a, b => FloatBits.mul a b
+  | _, .fpDiv, a, b => FloatBits.div a b
+  | _, .fpEq, a, b => FloatBits.eq a b
+  | _, .fpLt, a, b => FloatBits.lt a b
+  | _, .fpLe, a, b => FloatBits.le a b
   | _, .vcons, v, vs => v :: vs
   | ρ, .uninterpreted name _ _ _, x, y => ρ.binary τ₁ τ₂ τ₃ name x y
 

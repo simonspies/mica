@@ -59,6 +59,7 @@ structure Location where
 
 inductive Const where
   | int (n : Int)
+  | float (value : Float)
   | bool (b : Bool)
   | string (s : List UInt8)
   | char (c : Char)
@@ -73,6 +74,7 @@ inductive UnOp where
 
 inductive BinOp where
   | add | sub | mul | div | mod
+  | fadd | fsub | fmul | fdiv
   | eq | neq | lt | le | gt | ge
   | and | or
   | semi | pipeRight | atAt | assign | concat

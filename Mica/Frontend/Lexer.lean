@@ -17,6 +17,7 @@ inductive LexErrorKind where
   | unexpectedEof (context : String)  -- e.g. "after '", "in comment"
   | unterminatedComment
   | invalidIntLiteral (text : String)
+  | invalidFloatLiteral (text : String)
   | invalidCharEscape (c : Char)
   | unterminatedCharLiteral
   | invalidStringEscape (text : String)
@@ -35,6 +36,7 @@ def LexError.toString (e : LexError) : String :=
   | .unexpectedEof ctx => s!"{loc}: unexpected end of input {ctx}"
   | .unterminatedComment => s!"{loc}: unterminated comment"
   | .invalidIntLiteral t => s!"{loc}: invalid integer literal '{t}'"
+  | .invalidFloatLiteral t => s!"{loc}: invalid float literal '{t}'"
   | .invalidCharEscape c => s!"{loc}: invalid character escape '\\{c}'"
   | .unterminatedCharLiteral => s!"{loc}: unterminated character literal"
   | .invalidStringEscape text => s!"{loc}: invalid string escape '\\{text}'"
@@ -47,6 +49,7 @@ instance : ToString LexError := ⟨LexError.toString⟩
 
 inductive Token where
   | intLit  (n : Int)
+  | floatLit (value : Float)
   | charLit (c : Char)
   | stringLit (s : List UInt8)
   | ident   (name : String)   -- identifier (lowercase, uppercase, or starting with ')
@@ -60,6 +63,7 @@ inductive Token where
   | kw_mod | kw_and
   -- punctuation and operators
   | plus | minus | star | slash
+  | plusDot | minusDot | starDot | slashDot
   | caret
   | eq | neq | lt | le | gt | ge   -- = <> < <= > >=
   | ampamp | pipepipe               -- && ||
@@ -78,6 +82,7 @@ inductive Token where
 
 def Token.toString : Token → String
   | .intLit n  => s!"INT({n})"
+  | .floatLit f => s!"FLOAT({f})"
   | .charLit c => s!"CHAR({c})"
   | .stringLit _ => "STRING"
   | .ident s   => s!"IDENT({s})"
@@ -89,6 +94,7 @@ def Token.toString : Token → String
   | .kw_true  => "true"  | .kw_false => "false"
   | .kw_mod   => "mod"   | .kw_and  => "and"
   | .plus     => "+"     | .minus   => "-"    | .star  => "*"  | .slash => "/"
+  | .plusDot  => "+."    | .minusDot => "-."   | .starDot => "*." | .slashDot => "/."
   | .caret    => "^"
   | .eq       => "="     | .neq     => "<>"   | .lt    => "<"
   | .le       => "<="    | .gt      => ">"    | .ge    => ">="
@@ -231,6 +237,18 @@ where
         | ';', some ';' =>
           let st' := (st.advance ';').advance ';'
           lex st' (acc.push ({ start := p, stop := st'.pos }, .semisemi))
+        | '+', some '.' =>
+          let st' := (st.advance '+').advance '.'
+          lex st' (acc.push ({ start := p, stop := st'.pos }, .plusDot))
+        | '-', some '.' =>
+          let st' := (st.advance '-').advance '.'
+          lex st' (acc.push ({ start := p, stop := st'.pos }, .minusDot))
+        | '*', some '.' =>
+          let st' := (st.advance '*').advance '.'
+          lex st' (acc.push ({ start := p, stop := st'.pos }, .starDot))
+        | '/', some '.' =>
+          let st' := (st.advance '/').advance '.'
+          lex st' (acc.push ({ start := p, stop := st'.pos }, .slashDot))
         -- apostrophe handling: 'c' char literal, 'a type var / identifier, x' continuation
         | '\'', _ =>
           lexApostrophe st acc
@@ -255,8 +273,8 @@ where
             let st' := st.advance c
             lex st' (acc.push ({ start := p, stop := st'.pos }, tok))
           | none =>
-            -- integer literals
-            if isDigit c then lexInt st acc
+            -- integer and float literals
+            if isDigit c then lexNumber st acc
             -- identifiers / keywords
             else if isAlpha c then lexIdent st acc
             -- unrecognized
@@ -292,14 +310,58 @@ where
       else
         .error { pos := p, kind := .unexpectedChar '\'' }
 
-  lexInt (st : LexState) (acc : Array (Location × Token))
+  lexNumber (st : LexState) (acc : Array (Location × Token))
       : Except LexError (Array (Location × Token)) :=
     let p := st.pos
-    let (digits, st') := collectWhile isDigit st
-    let text := String.ofList digits
-    match text.toInt? with
-    | some n => lex st' (acc.push ({ start := p, stop := st'.pos }, .intLit n))
-    | none   => .error { pos := p, kind := .invalidIntLiteral text }
+    let (digits, stDigits) := collectWhile isDigit st
+    let (fracDigits, stFrac, sawFrac) :=
+      match stDigits.source with
+      | '.' :: _ =>
+        -- A `.` after the integer part starts a float, even with no fractional
+        -- digits: OCaml allows a trailing dot (`1.`, `1.e2`). After a numeric
+        -- mantissa a `.` only ever introduces a float in this grammar.
+        let (frac, stAfterFrac) := collectWhile isDigit (stDigits.advance '.')
+        (frac, stAfterFrac, true)
+      | _ => ([], stDigits, false)
+    let parseExp (st0 : LexState) : Except LexError (Option (Bool × Nat) × LexState) :=
+      match st0.source with
+      | 'e' :: _ | 'E' :: _ =>
+        let st1 := st0.advance st0.source.head!
+        let (neg, st2) :=
+          match st1.source with
+          | '+' :: _ => (false, st1.advance '+')
+          | '-' :: _ => (true, st1.advance '-')
+          | _ => (false, st1)
+        let (expDigits, st3) := collectWhile isDigit st2
+        if expDigits.isEmpty then
+          .error { pos := st0.pos, kind := .invalidFloatLiteral (String.ofList (digits ++ fracDigits)) }
+        else
+          match (String.ofList expDigits).toNat? with
+          | some e => .ok (some (neg, e), st3)
+          | none => .error { pos := st0.pos, kind := .invalidFloatLiteral (String.ofList expDigits) }
+      | _ => .ok (none, st0)
+    match parseExp stFrac with
+    | .error e => .error e
+    | .ok (expOpt, st') =>
+      if sawFrac || expOpt.isSome then
+        let mantText := String.ofList (digits ++ fracDigits)
+        match mantText.toNat? with
+        | none => .error { pos := p, kind := .invalidFloatLiteral mantText }
+        | some mant =>
+          let signedExp : Int :=
+            match expOpt with
+            | none => 0
+            | some (neg, e) => if neg then -Int.ofNat e else Int.ofNat e
+          let shift := signedExp - Int.ofNat fracDigits.length
+          let f :=
+            if shift < 0 then Float.ofScientific mant true ((-shift).toNat)
+            else Float.ofScientific mant false shift.toNat
+          lex st' (acc.push ({ start := p, stop := st'.pos }, .floatLit f))
+      else
+        let text := String.ofList digits
+        match text.toInt? with
+        | some n => lex st' (acc.push ({ start := p, stop := st'.pos }, .intLit n))
+        | none   => .error { pos := p, kind := .invalidIntLiteral text }
 
   lexIdent (st : LexState) (acc : Array (Location × Token))
       : Except LexError (Array (Location × Token)) :=

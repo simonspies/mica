@@ -2,6 +2,7 @@
 import Mica.Verifier.Intrinsic
 import Mica.Stdlib.IntStd
 import Mica.Stdlib.StringStd
+import Mica.Stdlib.FloatStd
 import Mica.Frontend.Resolver
 
 open Iris Iris.BI
@@ -11,6 +12,24 @@ namespace Stdlib
 open Verifier
 
 def registry : Registry := [
+  Intrinsics.floatNegInfinity,
+  Intrinsics.floatInfinity,
+  Intrinsics.floatNan,
+  Intrinsics.floatLe,
+  Intrinsics.floatLt,
+  Intrinsics.floatEqual,
+  Intrinsics.floatMax,
+  Intrinsics.floatMin,
+  Intrinsics.floatDiv,
+  Intrinsics.floatMul,
+  Intrinsics.floatSub,
+  Intrinsics.floatAdd,
+  Intrinsics.floatOfInt,
+  Intrinsics.floatIsFinite,
+  Intrinsics.floatIsNan,
+  Intrinsics.floatSqrt,
+  Intrinsics.floatNeg,
+  Intrinsics.floatAbs,
   Intrinsics.stringEndsWith,
   Intrinsics.stringStartsWith,
   Intrinsics.stringEqual,
@@ -38,7 +57,7 @@ theorem registry_wf : Registry.Wf registry := by
   -- disequalities; the `@[simp]` `*_folSym`/`*Sym_name` lemmas expose the
   -- names, so this stays generic over the registry contents.
   simp [registry, Registry.Wf, Registry.WfFrom, Signature.extendWithSym,
-    Signature.empty, Signature.addUnary, Signature.addBinary,
+    Signature.empty, Signature.addConst, Signature.addUnary, Signature.addBinary,
     Signature.allNames]
 
 private def resolvedType (i : Intrinsic) : TinyML.Typ :=
