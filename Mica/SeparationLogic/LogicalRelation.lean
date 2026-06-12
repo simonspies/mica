@@ -4,7 +4,7 @@ import Mica.TinyML.Types
 import Mica.TinyML.RuntimeExpr
 import Mica.TinyML.OpSem
 import Mica.FOL.Formulas
-import Mica.SeparationLogic.Axioms
+import Mica.SeparationLogic.Wp
 import Iris.BI.Lib.Fixpoint
 
 open Iris Iris.BI Iris.OFE

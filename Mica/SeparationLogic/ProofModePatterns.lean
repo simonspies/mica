@@ -1,5 +1,5 @@
 -- SUMMARY: Worked examples of Iris proof mode patterns used in the project.
-import Mica.SeparationLogic.Axioms
+import Mica.SeparationLogic.Wp
 
 /-! # Iris Proof Mode — Tactic Patterns
 
@@ -12,7 +12,7 @@ See also `docs/iris-tactics.md` for a prose reference.
 
 open Iris Iris.BI
 
--- We work with `iProp` from `Axioms.lean` throughout.
+-- We work with `iProp` from `Wp.lean` throughout.
 
 /-! ## 1. Entering proof mode: `istart` / `istop` -/
 

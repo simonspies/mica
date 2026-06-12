@@ -7,7 +7,7 @@ variable [MicaGS HasLC.hasLC Sig]
 
 /-! # Primitive Laws with Spatial Contexts
 
-Lifted versions of the wp axioms from `Axioms.lean`, stated in terms of
+Lifted versions of the wp rules from `Wp.lean`, stated in terms of
 spatial contexts. Each rule has the form `ctx.interp ρ ⊢ wp pctx e Q` given
 appropriate premises, where the context may change between premise and
 conclusion for stateful operations. -/

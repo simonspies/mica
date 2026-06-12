@@ -1,6 +1,6 @@
 -- SUMMARY: Data model for verifier intrinsics, with generic theorems characterizing the effect of registry setup.
 import Mica.TinyML.OpSem
-import Mica.SeparationLogic.Axioms
+import Mica.SeparationLogic.Wp
 import Mica.Verifier.PredicateTransformers
 import Mica.Verifier.Specifications
 import Mica.FOL.Formulas
