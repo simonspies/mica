@@ -88,7 +88,7 @@ theorem K.comp_fill (k1 k2 : K) (e : Runtime.Expr) :
     (k1.comp k2).fill e = k1.fill (k2.fill e) := by
   induction k1 <;> simp_all [K.comp, K.fill]
 
-abbrev PrimCtx := String → List Runtime.Val → Runtime.Val → Prop
+abbrev PrimCtx := String → List Runtime.Val → Heap → Runtime.Val → Heap → Prop
 
 /-! ## Head reduction -/
 
@@ -140,12 +140,12 @@ inductive Head (ctx : PrimCtx) : Runtime.Expr → Heap → Runtime.Expr → Heap
   | match_ : (h : i < branches.length) → n = branches.length →
              Head ctx (.match_ (.val (.inj i n v)) branches) μ (.app (branches[i]) [.val v]) μ
 
-  /-- Primitive call: the registry-derived context relates the name and argument
-      values to a result value. Unbound names are not in the relation, making
-      the call stuck. -/
-  | primStep {n vs v} :
-      ctx n vs v →
-      Head ctx (.app (.val (.prim n)) (vs.map Runtime.Expr.val)) μ (.val v) μ
+  /-- Primitive call: the registry-derived context relates the name, argument
+      values, and pre-heap to a result value and post-heap. Unbound names are
+      not in the relation, making the call stuck. -/
+  | primStep {n vs v μ'} :
+      ctx n vs μ v μ' →
+      Head ctx (.app (.val (.prim n)) (vs.map Runtime.Expr.val)) μ (.val v) μ'
 
 /-! ## Contextual step -/
 
