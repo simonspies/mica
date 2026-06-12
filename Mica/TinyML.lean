@@ -7,5 +7,6 @@ import Mica.TinyML.Heap
 import Mica.TinyML.Untyped
 import Mica.TinyML.Typed
 import Mica.TinyML.OpSem
+import Mica.TinyML.Language
 import Mica.TinyML.Typing
 import Mica.TinyML.Printer
