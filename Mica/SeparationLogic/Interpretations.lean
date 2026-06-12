@@ -5,6 +5,8 @@ import Mica.TinyML.Types
 
 open Iris Iris.BI
 
+variable [MicaGS HasLC.hasLC Sig]
+
 /-! # Spatial Atoms and Contexts — Iris Interpretation
 
 The syntactic definitions (`SpatialAtom`, `SpatialContext`, `wfIn`, `find`,
@@ -57,7 +59,7 @@ end SpatialAtom
 namespace SpatialContext
 
 /-- Iris interpretation of a spatial context: the separating conjunction of all items. -/
-noncomputable def interp (Θ : TinyML.TypeEnv) (ρ : Env) : SpatialContext → iProp
+def interp (Θ : TinyML.TypeEnv) (ρ : Env) : SpatialContext → iProp
   | []     => emp
   | a :: Γ => a.interp Θ ρ ∗ interp Θ ρ Γ
 
@@ -83,6 +85,7 @@ theorem interp_env_agree (Θ : TinyML.TypeEnv) {ctx : SpatialContext} {Δ : Sign
 @[simp] theorem interp_insert (Θ : TinyML.TypeEnv) (ρ : Env) (a : SpatialAtom) (ctx : SpatialContext) :
     interp Θ ρ (insert a ctx) = (a.interp Θ ρ ∗ interp Θ ρ ctx) := rfl
 
+omit [MicaGS HasLC.hasLC Sig] in
 private theorem sep_comm3 {A B C : iProp} : A ∗ (B ∗ C) ⊣⊢ B ∗ (A ∗ C) :=
   ⟨sep_assoc.2 |>.trans (sep_mono_left sep_comm.1) |>.trans sep_assoc.1,
    sep_assoc.2 |>.trans (sep_mono_left sep_comm.2) |>.trans sep_assoc.1⟩

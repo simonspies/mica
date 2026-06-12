@@ -203,7 +203,7 @@ example (P Q : iProp) : P ∗ (P -∗ Q) ⊢ Q := by
   iexact HP
 
 /-- Apply an external lemma. The lemma must conclude with an entailment. -/
-example (wctx : WpCtx) (v : Runtime.Val) (Q : Runtime.Val → iProp) : Q v ⊢ wp wctx (.val v) Q := by
+example (pctx : TinyML.PrimCtx) (v : Runtime.Val) (Q : Runtime.Val → iProp) : Q v ⊢ wp pctx (.val v) Q := by
   istart
   iintro HQ
   iapply wp.val
@@ -223,7 +223,7 @@ example (P : Nat → iProp) : (∀ n, P n) ⊢ P 42 := by
 
 /-- Introduce a persistent assertion, cross a persistency modality, and use it twice. -/
 example (R Q : iProp): R ∗ □ Q ⊢ □ (Q ∗ Q) := by
-  iintro ⟨HR, #HQ⟩
+  iintro ⟨HR, □HQ⟩
   imodintro
   isplitl
   . iexact HQ

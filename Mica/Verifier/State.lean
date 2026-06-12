@@ -136,7 +136,8 @@ theorem Env.agreeOn_update_fresh_binaryRel {ρ : Env} {b : FOL.BinaryRel}
 end VerifM
 
 /-- Semantic interpretation of a verifier context item. -/
-noncomputable def CtxItem.interp (Θ : TinyML.TypeEnv) (ρ : VerifM.Env) : CtxItem → iProp
+def CtxItem.interp [MicaGS HasLC.hasLC Sig] (Θ : TinyML.TypeEnv)
+    (ρ : VerifM.Env) : CtxItem → iProp
   | .pure φ => ⌜φ.eval ρ.env⌝
   | .spatial a => a.interp Θ ρ.env
 
@@ -145,10 +146,12 @@ def CtxItem.purePart (i : CtxItem) (ρ : VerifM.Env) : Prop :=
   | .pure φ => φ.eval ρ.env
   | .spatial _ => True
 
-noncomputable def TransState.sl (Θ : TinyML.TypeEnv) (st : TransState) (ρ : VerifM.Env) : iProp :=
+def TransState.sl [MicaGS HasLC.hasLC Sig] (Θ : TinyML.TypeEnv)
+    (st : TransState) (ρ : VerifM.Env) : iProp :=
   SpatialContext.interp Θ ρ.env st.owns
 
-@[simp] theorem TransState.sl_eq (Θ : TinyML.TypeEnv) (st : TransState) (ρ : VerifM.Env) :
+@[simp] theorem TransState.sl_eq [MicaGS HasLC.hasLC Sig] (Θ : TinyML.TypeEnv)
+    (st : TransState) (ρ : VerifM.Env) :
     st.sl Θ ρ = SpatialContext.interp Θ ρ.env st.owns := rfl
 
 /-- Drop the non-persistent spatial part of the verifier state. -/
@@ -161,7 +164,8 @@ def TransState.persist (st : TransState) : TransState :=
 @[simp] theorem TransState.persist_asserts (st : TransState) :
     st.persist.asserts = st.asserts := rfl
 
-theorem TransState.sl_entails_persist (Θ : TinyML.TypeEnv) (st : TransState) (ρ : VerifM.Env) :
+theorem TransState.sl_entails_persist [MicaGS HasLC.hasLC Sig] (Θ : TinyML.TypeEnv)
+    (st : TransState) (ρ : VerifM.Env) :
     st.sl Θ ρ ⊢ □ st.persist.sl Θ ρ := by
   istart
   iintro _

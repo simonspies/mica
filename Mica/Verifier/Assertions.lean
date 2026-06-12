@@ -11,6 +11,8 @@ import Mica.Base.Except
 
 open Iris Iris.BI
 
+variable [MicaGS HasLC.hasLC Sig]
+
 /-!
 # Assertions
 
@@ -48,7 +50,7 @@ def Assertion.toStringHum {α : Type} (showA : α → String) : Assertion α →
 -- Semantics
 -- ---------------------------------------------------------------------------
 
-noncomputable def Assertion.pre (Θ : TinyML.TypeEnv) (Φ : α → VerifM.Env → iProp) (m : Assertion α) (ρ : VerifM.Env) : iProp :=
+def Assertion.pre (Θ : TinyML.TypeEnv) (Φ : α → VerifM.Env → iProp) (m : Assertion α) (ρ : VerifM.Env) : iProp :=
   (match m with
   | .ret a        => Φ a ρ
   | .assert φ k   => ⌜φ.eval ρ.env⌝ ∗ Assertion.pre Θ Φ k ρ
@@ -58,7 +60,7 @@ noncomputable def Assertion.pre (Θ : TinyML.TypeEnv) (Φ : α → VerifM.Env �
       iprop((⌜φ.eval ρ.env⌝ -∗ Assertion.pre Θ Φ kt ρ) ∧
             (⌜¬ φ.eval ρ.env⌝ -∗ Assertion.pre Θ Φ ke ρ)))
 
-noncomputable def Assertion.post (Θ : TinyML.TypeEnv) {α} (Φ : α → VerifM.Env → iProp) (m : Assertion α) (ρ : VerifM.Env) : iProp :=
+def Assertion.post (Θ : TinyML.TypeEnv) {α} (Φ : α → VerifM.Env → iProp) (m : Assertion α) (ρ : VerifM.Env) : iProp :=
   match m with
   | .ret a        => Φ a ρ
   | .assert φ k   => ⌜φ.eval ρ.env⌝ -∗ Assertion.post Θ Φ k ρ
@@ -94,6 +96,7 @@ def Assertion.checkWf (retCheck : α → Signature → Except String Unit)
   | .pred v p k  => do p.checkWf Δ; k.checkWf retCheck (Δ.declVar v)
   | .ite φ kt ke => do φ.checkWf Δ; kt.checkWf retCheck Δ; ke.checkWf retCheck Δ
 
+omit [MicaGS HasLC.hasLC Sig] in
 theorem Assertion.checkWf_ok {m : Assertion α} {retCheck : α → Signature → Except String Unit}
     {retWf : α → Signature → Prop} {Δ : Signature}
     (hret : ∀ a Δ', retCheck a Δ' = .ok () → retWf a Δ')
@@ -114,6 +117,7 @@ theorem Assertion.checkWf_ok {m : Assertion α} {retCheck : α → Signature →
     have ⟨_, h2, h3⟩ := Except.bind_ok h23
     exact ⟨Formula.checkWf_ok h1, iht h2, ihe h3⟩
 
+omit [MicaGS HasLC.hasLC Sig] in
 theorem Assertion.wfIn_mono (m : Assertion α) (retWf : α → Signature → Prop)
     (hret : ∀ a Δ Δ', Δ.Subset Δ' → Δ'.wf → retWf a Δ → retWf a Δ')
     {Δ Δ' : Signature}

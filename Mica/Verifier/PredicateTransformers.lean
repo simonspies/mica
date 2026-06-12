@@ -12,6 +12,7 @@ import Mathlib.Data.Finmap
 
 open Iris Iris.BI
 
+variable [MicaGS HasLC.hasLC Sig]
 
 /-!
 # Predicate Transformers
@@ -43,6 +44,7 @@ def PredTrans.checkWf (Δ : Signature) (pt : PredTrans) : Except String Unit :=
     (fun post Δ' => Assertion.checkWf (fun _ _ => .ok ()) (Δ'.declVar ⟨post.1, .value⟩) post.2)
     Δ pt
 
+omit [MicaGS HasLC.hasLC Sig] in
 theorem PredTrans.checkWf_ok {pt : PredTrans} {Δ : Signature}
     (h : pt.checkWf Δ = .ok ()) : pt.wfIn Δ :=
   Assertion.checkWf_ok
@@ -53,7 +55,7 @@ theorem PredTrans.checkWf_ok {pt : PredTrans} {Δ : Signature}
 -- Semantics
 -- ---------------------------------------------------------------------------
 
-noncomputable def PredTrans.apply (Θ : TinyML.TypeEnv) (Φ : Runtime.Val → iProp) (m : PredTrans) (ρ : VerifM.Env) : iProp :=
+def PredTrans.apply (Θ : TinyML.TypeEnv) (Φ : Runtime.Val → iProp) (m : PredTrans) (ρ : VerifM.Env) : iProp :=
   Assertion.pre Θ (fun post ρ' =>
     BIBase.forall fun v : Runtime.Val =>
       Assertion.post Θ (fun () _ => Φ v) post.2 (ρ'.updateConst .value post.1 v)
@@ -89,6 +91,7 @@ def PredTrans.implement (σ : FiniteSubst) (pt : PredTrans) (body : VerifM (Term
 -- Properties
 -- ---------------------------------------------------------------------------
 
+omit [MicaGS HasLC.hasLC Sig] in
 theorem PredTrans.wfIn_mono {pt : PredTrans} {Δ Δ' : Signature}
     (h : pt.wfIn Δ) (hsub : Δ.Subset Δ') (hwf : Δ'.wf) : pt.wfIn Δ' := by
   unfold PredTrans.wfIn at h ⊢
@@ -311,7 +314,7 @@ theorem PredTrans.implement_correct (Θ : TinyML.TypeEnv) (pt : PredTrans) (Δ_b
         { st₂ with
           decls := st₂.decls.addConst resVar
           asserts := Formula.eq Srt.value (Term.const (.uninterpreted resVar.name .value)) result :: st₂.asserts }
-      have hpre := @Assertion.prove_correct Unit Θ postBody Δ_base σ₂ (fun _ _ => True)
+      have hpre := @Assertion.prove_correct _ Unit Θ postBody Δ_base σ₂ (fun _ _ => True)
         st₃
         (ρ₂.updateConst .value resVar.name (result.eval ρ₂.env))
         _ (fun () _ => Φ (result.eval ρ₂.env) -∗ S) (Φ (result.eval ρ₂.env) -∗ S)

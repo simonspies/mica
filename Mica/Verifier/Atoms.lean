@@ -6,6 +6,8 @@ import Mica.Verifier.Monad
 import Mica.Verifier.RelationalEncoding.SkolemizeCompleteness
 
 open Iris Iris.BI
+
+variable [MicaGS HasLC.hasLC Sig]
 open Verifier.RelationalEncoding
 
 /-!
@@ -64,7 +66,7 @@ def Atom.toItem (a : Atom τ) (t : Term τ) : CtxItem :=
 -- Semantics
 -- ---------------------------------------------------------------------------
 
-noncomputable def Atom.eval (Θ : TinyML.TypeEnv) {τ : Srt} (p : Atom τ) (ρ : VerifM.Env) : τ.denote → iProp :=
+def Atom.eval (Θ : TinyML.TypeEnv) {τ : Srt} (p : Atom τ) (ρ : VerifM.Env) : τ.denote → iProp :=
   match p with
   | isint t  => λ v => ⌜.int v = t.eval ρ.env⌝
   | isbool t => λ v => ⌜.bool v = t.eval ρ.env⌝
@@ -94,6 +96,7 @@ def Formula.matchAtom (φ : Formula) (a : Atom τ) : Option (Term τ) :=
   | .own _ _ => none
   | .rel _ _ => none
 
+omit [MicaGS HasLC.hasLC Sig] in
 theorem Formula.matchAtom_wfIn {φ : Formula} {a : Atom τ} {t : Term τ} {Δ : Signature}
     (h : φ.matchAtom a = some t) (hφ : φ.wfIn Δ) : t.wfIn Δ := by
   cases a with
@@ -110,6 +113,7 @@ theorem Formula.matchAtom_wfIn {φ : Formula} {a : Atom τ} {t : Term τ} {Δ : 
   | rel name arg => simp only [Formula.matchAtom] at h; cases h
 
 
+omit [MicaGS HasLC.hasLC Sig] in
 theorem Formula.matchAtom_correct {φ : Formula} {a : Atom τ} {t : Term τ}
     (h : φ.matchAtom a = some t) : a.toItem t = .pure φ := by
   cases a with
@@ -142,6 +146,7 @@ theorem Atom.resolve_correct (Θ : TinyML.TypeEnv) {a : Atom τ} {C : List Formu
   rw [Formula.matchAtom_correct hφ_match]
   simpa [CtxItem.interp, hC _ hφ_mem] using (pure_intro (PROP := iProp) trivial)
 
+omit [MicaGS HasLC.hasLC Sig] in
 theorem Atom.resolve_wfIn {a : Atom τ} {C : List Formula} {t : Term τ} {Δ : Signature}
     (h : a.resolve C = some t) (hwf : ∀ φ ∈ C, φ.wfIn Δ) :
     t.wfIn Δ := by
@@ -182,6 +187,7 @@ def Atom.checkWf (p : Atom τ) (Δ : Signature) : Except String Unit :=
       (SpecFn.isDefined name t).checkWf Δ
       (SpecFn.call name t).checkWf Δ
 
+omit [MicaGS HasLC.hasLC Sig] in
 theorem Atom.checkWf_ok {p : Atom τ} {Δ : Signature} (h : p.checkWf Δ = .ok ()) : p.wfIn Δ := by
   cases p with
   | isint t  => exact Term.checkWf_ok h
@@ -192,6 +198,7 @@ theorem Atom.checkWf_ok {p : Atom τ} {Δ : Signature} (h : p.checkWf Δ = .ok (
     have ⟨w, hd, hv⟩ := Except.bind_ok h
     exact ⟨Formula.checkWf_ok hd, Term.checkWf_ok hv⟩
 
+omit [MicaGS HasLC.hasLC Sig] in
 theorem Atom.wfIn_mono {p : Atom τ} {Δ Δ' : Signature}
     (h : p.wfIn Δ) (hmono : Δ.Subset Δ') (hwf : Δ'.wf) : p.wfIn Δ' := by
   cases p with
@@ -215,6 +222,7 @@ theorem Atom.eval_env_agree (Θ : TinyML.TypeEnv) {p : Atom τ} {ρ ρ' : VerifM
     rw [(Formula.eval_env_agree hwf.1 hagree),
         Term.eval_env_agree hwf.2 hagree]
 
+omit [MicaGS HasLC.hasLC Sig] in
 theorem Atom.toItem_wfIn {p : Atom τ} {t : Term τ} {Δ : Signature}
     (hp : p.wfIn Δ) (ht : t.wfIn Δ) :
     (p.toItem t).wfIn Δ := by
@@ -295,6 +303,7 @@ theorem Atom.eval_subst (Θ : TinyML.TypeEnv) {p : Atom τ} {σ : Subst} {ρ : V
     rw [Term.eval_subst hp.2.2 hσ hwfΔ']
     simp [Subst.eval]
 
+omit [MicaGS HasLC.hasLC Sig] in
 theorem Atom.subst_wfIn {p : Atom τ} {σ : Subst} {dom : VarCtx} {Δ Δ' : Signature}
     (hp : p.wfIn Δ) (hσ : σ.wfIn dom Δ') (hdom : Δ.vars ⊆ dom)
     (hsymbols : Δ.SymbolSubset Δ')
@@ -350,6 +359,7 @@ theorem Atom.candidates_correct (Θ : TinyML.TypeEnv) {a : Atom τ} {φ : Formul
   | own l ty => simp [candidates] at hmem
   | rel name arg => simp [candidates] at hmem
 
+omit [MicaGS HasLC.hasLC Sig] in
 theorem Atom.candidates_wfIn {a : Atom τ} {φ : Formula} {t : Term τ} {Δ : Signature}
     (hmem : (φ, t) ∈ a.candidates) (h : a.wfIn Δ) : φ.wfIn Δ ∧ t.wfIn Δ := by
   cases a with
@@ -445,6 +455,7 @@ def VerifM.findMatch (lq : Term .value) (ty : TinyML.Typ) : VerifM (Option (Term
           let _ ← VerifM.ctx (fun _ => ((), rest))
           pure (some v)
 
+omit [MicaGS HasLC.hasLC Sig] in
 /-- Correctness of `findMatchIn`: on a `some (n, v)` result, `remove ctx n`
     extracts a points-to whose location the solver has proved equal to `lq`. -/
 theorem VerifM.eval_findMatchIn {lq : Term .value} {ty : TinyML.Typ} {ctx : SpatialContext}

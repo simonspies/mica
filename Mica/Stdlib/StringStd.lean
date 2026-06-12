@@ -132,21 +132,21 @@ def stringEndsWithTypeAxiom : Formula :=
     [.term (stringEndsWithTerm (.var .value "suffix") (.var .value "s"))] <|
     .unpred .isBool (stringEndsWithTerm (.var .value "suffix") (.var .value "s"))
 
-private theorem off_shape_one {Θ : TinyML.TypeEnv} {vs : List Runtime.Val} {ty : TinyML.Typ}
+private theorem off_shape_one [MicaGS HasLC.hasLC Sig] {Θ : TinyML.TypeEnv} {vs : List Runtime.Val} {ty : TinyML.Typ}
     (P : iProp) (hlen : vs.length ≠ 1) :
     TinyML.ValsHaveTypes Θ vs [ty] ⊢ P := by
   refine TinyML.ValsHaveTypes.length_eq.trans ?_
   iintro %h
   simp at h; omega
 
-private theorem off_shape_two_ty {Θ : TinyML.TypeEnv} {vs : List Runtime.Val} {ty₁ ty₂ : TinyML.Typ}
+private theorem off_shape_two_ty [MicaGS HasLC.hasLC Sig] {Θ : TinyML.TypeEnv} {vs : List Runtime.Val} {ty₁ ty₂ : TinyML.Typ}
     (P : iProp) (hlen : vs.length ≠ 2) :
     TinyML.ValsHaveTypes Θ vs [ty₁, ty₂] ⊢ P := by
   refine TinyML.ValsHaveTypes.length_eq.trans ?_
   iintro %h
   simp at h; omega
 
-private theorem assert_ret_apply (Θ : TinyML.TypeEnv) (Φ : Runtime.Val → iProp)
+private theorem assert_ret_apply [MicaGS HasLC.hasLC Sig] (Θ : TinyML.TypeEnv) (Φ : Runtime.Val → iProp)
     (s : String) (ρ : VerifM.Env) (φ : Formula) (v : Runtime.Val)
     (hφ : φ.eval (ρ.updateConst .value s v).env) :
     PredTrans.apply Θ Φ (.ret (s, .assert φ (.ret ()))) ρ ⊢ Φ v := by
@@ -231,6 +231,26 @@ private theorem stringLength_assert_eval (ρ : VerifM.Env) (s : List UInt8)
   simp [hun, stringLengthSym]
 
 instance : IntrinsicSound [stringLength] stringLength where
+  wp_sound := by
+    intro _ ctx hctx vs Φ
+    match vs with
+    | [] => exact false_elim
+    | _ :: _ :: _ => exact false_elim
+    | [a] =>
+      rw [stringLength_toWp]
+      istart
+      iintro ⟨%s, %ha, HΦ⟩
+      obtain rfl := ha
+      have hrel : ∀ μ v μ',
+          ctx stringLength.name [Runtime.Val.str s] μ v μ' ↔
+            v = .int s.length ∧ μ' = μ := by
+        intro μ v μ'
+        rw [hctx]
+        simp [stringLength, Intrinsic.toReduce_one_of_arity, Reduce.pure]
+      iapply (wp.prim_pure hrel ⟨_, rfl⟩)
+      iintro %v %hv
+      subst hv
+      iexact HΦ
   axiomWf := by
     intro Δ hsub hwf φ hφ
     simp only [stringLength, List.mem_cons, List.not_mem_nil, or_false] at hφ
@@ -271,7 +291,7 @@ instance : IntrinsicSound [stringLength] stringLength where
       (Signature.Subset.declVars hsub (Spec.argVars stringLength.specArgs))
       (Signature.wf_declVars hwf)
   bridge := by
-    intro Θ vs ρ Φ hρ
+    intro _ Θ vs ρ Φ hρ
     simp only [stringLength_folSym, Env.respects] at hρ
     show TinyML.ValsHaveTypes Θ vs [TinyML.Typ.string] ∗ _ ⊢ _
     match vs with
@@ -340,6 +360,27 @@ private theorem stringCat_assert_eval (ρ : VerifM.Env) (x y : List UInt8)
   simp [hbin, stringCatSym]
 
 instance : IntrinsicSound [stringCat] stringCat where
+  wp_sound := by
+    intro _ ctx hctx vs Φ
+    match vs with
+    | [] => exact false_elim
+    | [_] => exact false_elim
+    | _ :: _ :: _ :: _ => exact false_elim
+    | [a, b] =>
+      rw [stringCat_toWp]
+      istart
+      iintro ⟨%x, %y, %hab, HΦ⟩
+      obtain ⟨rfl, rfl⟩ := hab
+      have hrel : ∀ μ v μ',
+          ctx stringCat.name [Runtime.Val.str x, Runtime.Val.str y] μ v μ' ↔
+            v = .str (x ++ y) ∧ μ' = μ := by
+        intro μ v μ'
+        rw [hctx]
+        simp [stringCat, Intrinsic.toReduce_two_of_arity, Reduce.pure]
+      iapply (wp.prim_pure hrel ⟨_, rfl⟩)
+      iintro %v %hv
+      subst hv
+      iexact HΦ
   axiomWf := by
     intro Δ hsub hwf φ hφ
     simp only [stringCat, List.mem_cons, List.not_mem_nil, or_false] at hφ
@@ -381,7 +422,7 @@ instance : IntrinsicSound [stringCat] stringCat where
       (Signature.Subset.declVars hsub (Spec.argVars stringCat.specArgs))
       (Signature.wf_declVars hwf)
   bridge := by
-    intro Θ vs ρ Φ hρ
+    intro _ Θ vs ρ Φ hρ
     simp only [stringCat_folSym, Env.respects] at hρ
     show TinyML.ValsHaveTypes Θ vs [TinyML.Typ.string, TinyML.Typ.string] ∗ _ ⊢ _
     match vs with
@@ -457,6 +498,27 @@ private theorem stringEqual_assert_eval (ρ : VerifM.Env) (x y : List UInt8)
   simp [hbin, stringEqualSym]
 
 instance : IntrinsicSound [stringEqual] stringEqual where
+  wp_sound := by
+    intro _ ctx hctx vs Φ
+    match vs with
+    | [] => exact false_elim
+    | [_] => exact false_elim
+    | _ :: _ :: _ :: _ => exact false_elim
+    | [a, b] =>
+      rw [stringEqual_toWp]
+      istart
+      iintro ⟨%x, %y, %hab, HΦ⟩
+      obtain ⟨rfl, rfl⟩ := hab
+      have hrel : ∀ μ v μ',
+          ctx stringEqual.name [Runtime.Val.str x, Runtime.Val.str y] μ v μ' ↔
+            v = .bool (x == y) ∧ μ' = μ := by
+        intro μ v μ'
+        rw [hctx]
+        simp [stringEqual, Intrinsic.toReduce_two_of_arity, Reduce.pure]
+      iapply (wp.prim_pure hrel ⟨_, rfl⟩)
+      iintro %v %hv
+      subst hv
+      iexact HΦ
   axiomWf := by
     intro Δ hsub hwf φ hφ
     simp only [stringEqual, List.mem_cons, List.not_mem_nil, or_false] at hφ
@@ -499,7 +561,7 @@ instance : IntrinsicSound [stringEqual] stringEqual where
       (Signature.Subset.declVars hsub (Spec.argVars stringEqual.specArgs))
       (Signature.wf_declVars hwf)
   bridge := by
-    intro Θ vs ρ Φ hρ
+    intro _ Θ vs ρ Φ hρ
     simp only [stringEqual_folSym, Env.respects] at hρ
     show TinyML.ValsHaveTypes Θ vs [TinyML.Typ.string, TinyML.Typ.string] ∗ _ ⊢ _
     match vs with
@@ -575,6 +637,27 @@ private theorem stringStartsWith_assert_eval (ρ : VerifM.Env) (x y : List UInt8
   simp [hbin, stringStartsWithSym]
 
 instance : IntrinsicSound [stringStartsWith] stringStartsWith where
+  wp_sound := by
+    intro _ ctx hctx vs Φ
+    match vs with
+    | [] => exact false_elim
+    | [_] => exact false_elim
+    | _ :: _ :: _ :: _ => exact false_elim
+    | [a, b] =>
+      rw [stringStartsWith_toWp]
+      istart
+      iintro ⟨%x, %y, %hab, HΦ⟩
+      obtain ⟨rfl, rfl⟩ := hab
+      have hrel : ∀ μ v μ',
+          ctx stringStartsWith.name [Runtime.Val.str x, Runtime.Val.str y] μ v μ' ↔
+            v = .bool (x.isPrefixOf y) ∧ μ' = μ := by
+        intro μ v μ'
+        rw [hctx]
+        simp [stringStartsWith, Intrinsic.toReduce_two_of_arity, Reduce.pure]
+      iapply (wp.prim_pure hrel ⟨_, rfl⟩)
+      iintro %v %hv
+      subst hv
+      iexact HΦ
   axiomWf := by
     intro Δ hsub hwf φ hφ
     simp only [stringStartsWith, List.mem_cons, List.not_mem_nil, or_false] at hφ
@@ -616,7 +699,7 @@ instance : IntrinsicSound [stringStartsWith] stringStartsWith where
       (Signature.Subset.declVars hsub (Spec.argVars stringStartsWith.specArgs))
       (Signature.wf_declVars hwf)
   bridge := by
-    intro Θ vs ρ Φ hρ
+    intro _ Θ vs ρ Φ hρ
     simp only [stringStartsWith_folSym, Env.respects] at hρ
     show TinyML.ValsHaveTypes Θ vs [TinyML.Typ.string, TinyML.Typ.string] ∗ _ ⊢ _
     match vs with
@@ -692,6 +775,27 @@ private theorem stringEndsWith_assert_eval (ρ : VerifM.Env) (x y : List UInt8)
   simp [hbin, stringEndsWithSym]
 
 instance : IntrinsicSound [stringEndsWith] stringEndsWith where
+  wp_sound := by
+    intro _ ctx hctx vs Φ
+    match vs with
+    | [] => exact false_elim
+    | [_] => exact false_elim
+    | _ :: _ :: _ :: _ => exact false_elim
+    | [a, b] =>
+      rw [stringEndsWith_toWp]
+      istart
+      iintro ⟨%x, %y, %hab, HΦ⟩
+      obtain ⟨rfl, rfl⟩ := hab
+      have hrel : ∀ μ v μ',
+          ctx stringEndsWith.name [Runtime.Val.str x, Runtime.Val.str y] μ v μ' ↔
+            v = .bool (x.isSuffixOf y) ∧ μ' = μ := by
+        intro μ v μ'
+        rw [hctx]
+        simp [stringEndsWith, Intrinsic.toReduce_two_of_arity, Reduce.pure]
+      iapply (wp.prim_pure hrel ⟨_, rfl⟩)
+      iintro %v %hv
+      subst hv
+      iexact HΦ
   axiomWf := by
     intro Δ hsub hwf φ hφ
     simp only [stringEndsWith, List.mem_cons, List.not_mem_nil, or_false] at hφ
@@ -733,7 +837,7 @@ instance : IntrinsicSound [stringEndsWith] stringEndsWith where
       (Signature.Subset.declVars hsub (Spec.argVars stringEndsWith.specArgs))
       (Signature.wf_declVars hwf)
   bridge := by
-    intro Θ vs ρ Φ hρ
+    intro _ Θ vs ρ Φ hρ
     simp only [stringEndsWith_folSym, Env.respects] at hρ
     show TinyML.ValsHaveTypes Θ vs [TinyML.Typ.string, TinyML.Typ.string] ∗ _ ⊢ _
     match vs with
