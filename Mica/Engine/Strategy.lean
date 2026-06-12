@@ -120,6 +120,11 @@ def Outcome := Except String Unit
 def checks (s : Strategy Outcome) (φ : Prop) :=
   ∀ st', eval s State.initial (.ok ()) st' → φ
 
+/-- If `s` checks `φ` and `φ` entails `ψ`, then `s` checks `ψ`. -/
+theorem checks.imp {s : Strategy Outcome} {φ ψ : Prop} (h : s.checks φ) (himp : φ → ψ) :
+    s.checks ψ :=
+  fun st' he => himp (h st' he)
+
 end Strategy
 
 end Smt
