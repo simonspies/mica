@@ -17,7 +17,7 @@ open Iris Iris.BI
 
 abbrev SpecMap := Finmap (fun _ : TinyML.Var => Spec)
 
-def SpecMap.satisfiedBy (wctx : WpCtx) (Θ : TinyML.TypeEnv) (Δ_spec : Signature) (ρ_spec : VerifM.Env)
+noncomputable def SpecMap.satisfiedBy (wctx : WpCtx) (Θ : TinyML.TypeEnv) (Δ_spec : Signature) (ρ_spec : VerifM.Env)
     (S : SpecMap) (γ : Runtime.Subst) : iProp :=
   iprop(□ (∀ x s, ⌜S.lookup x = some s⌝ -∗
     ∃ f, ⌜γ x = some f⌝ ∗ s.isPrecondFor wctx Θ Δ_spec ρ_spec f))
@@ -34,14 +34,14 @@ theorem SpecMap.project {x : TinyML.Var} {s : Spec} {Q : iProp} (P : iProp)
   intro hsat hlook hcont
   simp only [SpecMap.satisfiedBy] at hsat
   have hstep : P ⊢ (∃ fval, ⌜γ x = some fval⌝ ∗ s.isPrecondFor wctx Θ Δ_spec ρ_spec fval) ∗ P := by
-    refine (persistent_entails_r hsat).trans ?_
+    refine (persistent_entails_right hsat).trans ?_
     istart
-    iintro ⟨□Hall, HP⟩
+    iintro ⟨#Hall, HP⟩
     ispecialize Hall $$ %x
     ispecialize Hall $$ %s
     isplitl []
     · iapply Hall
-      ipure_intro
+      ipureintro
       exact hlook
     · iexact HP
   refine hstep.trans ?_
@@ -131,7 +131,7 @@ theorem SpecMap.satisfiedBy_preserved {Θ : TinyML.TypeEnv} {Δ_spec : Signature
       S.lookup y = some s ∧ (∀ f, γ y = some f → γ' y = some f)) :
     S.satisfiedBy wctx Θ Δ_spec ρ_spec γ ⊢ S'.satisfiedBy wctx Θ Δ_spec ρ_spec γ' := by
   simp only [SpecMap.satisfiedBy]
-  iintro □HS
+  iintro #HS
   imodintro
   iintro %y %s %hlookup
   obtain ⟨hlookup', hγ⟩ := h y s hlookup
@@ -139,7 +139,7 @@ theorem SpecMap.satisfiedBy_preserved {Θ : TinyML.TypeEnv} {Δ_spec : Signature
   icases HS with ⟨%f, %hγf, Hpre⟩
   iexists f
   isplitl [Hpre]
-  · ipure_intro; exact hγ f hγf
+  · ipureintro; exact hγ f hγf
   · iexact Hpre
 
 /-- Generic insert: fresh precondition for `x ↦ fval` plus preservation elsewhere. -/
@@ -150,7 +150,7 @@ theorem SpecMap.satisfiedBy_insert_of_preserved {Θ : TinyML.TypeEnv} {Δ_spec :
     S.satisfiedBy wctx Θ Δ_spec ρ_spec γ ∗ spec.isPrecondFor wctx Θ Δ_spec ρ_spec fval ⊢
       SpecMap.satisfiedBy wctx Θ Δ_spec ρ_spec (Finmap.insert x spec S) γ' := by
   simp only [SpecMap.satisfiedBy, Spec.isPrecondFor]
-  iintro ⟨□HS, □Hf⟩
+  iintro ⟨#HS, #Hf⟩
   imodintro
   iintro %y %s' %hlookup
   by_cases hyx : y = x
@@ -159,14 +159,14 @@ theorem SpecMap.satisfiedBy_insert_of_preserved {Θ : TinyML.TypeEnv} {Δ_spec :
     subst this
     iexists fval
     isplitr
-    · ipure_intro; exact hγ'
+    · ipureintro; exact hγ'
     · iexact Hf
   · rw [Finmap.lookup_insert_of_ne _ hyx] at hlookup
     ispecialize HS $$ %y %s' %hlookup
     icases HS with ⟨%f, %hγf, Hpre⟩
     iexists f
     isplitl [Hpre]
-    · ipure_intro; exact hγ y f hyx hγf
+    · ipureintro; exact hγ y f hyx hγf
     · iexact Hpre
 
 theorem SpecMap.satisfiedBy_insert {Θ : TinyML.TypeEnv} {Δ_spec : Signature} {ρ_spec : VerifM.Env} {S : SpecMap} {γ : Runtime.Subst}

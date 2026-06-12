@@ -91,7 +91,7 @@ theorem checkBody_correct (reg : Verifier.Registry) (hSound : Verifier.Registry.
     exact List.of_mem_zip hmem |>.2
   -- Use compile_correct
   have hcompile := VerifM.eval_bind _ _ _ _ hbody_eval
-  iintro ⟨Howns, □Hvals, HQ⟩
+  iintro ⟨Howns, #Hvals, HQ⟩
   ihave %hlen_vals := TinyML.ValsHaveTypes.length_eq $$ Hvals
   have hlen_nv : argNames.length = vs.length := by
     simp [List.length_map] at hlen_vals
@@ -273,7 +273,7 @@ theorem checkSpec_correct (reg : Verifier.Registry) (hSound : Verifier.Registry.
               · iexact HQ) $$ [Htyped' Hpred']
         · isplitl []
           · simp
-            iemp_intro
+            iempintro
           · isplitl [Htyped']
             · iexact Htyped'
             · have hlen_vals_call : s.args.length ≤ vs.length := by

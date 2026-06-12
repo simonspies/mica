@@ -43,7 +43,7 @@ def argsEnv (ρ : VerifM.Env) : List (String × TinyML.Typ) → List Runtime.Val
   | [], _ | _, [] => ρ
   | (name, _) :: rest, v :: vs => argsEnv (ρ.updateConst .value name v) rest vs
 
-def isPrecondFor (wctx : WpCtx) (Θ : TinyML.TypeEnv) (Δ_spec : Signature) (ρ_spec : VerifM.Env)
+noncomputable def isPrecondFor (wctx : WpCtx) (Θ : TinyML.TypeEnv) (Δ_spec : Signature) (ρ_spec : VerifM.Env)
     (f : Runtime.Val) (s : Spec) : iProp :=
   iprop(□ ∀ (ρ : VerifM.Env) (Φ : Runtime.Val → iProp) (vs : List Runtime.Val),
       ⌜VerifM.Env.agreeOn Δ_spec ρ_spec ρ⌝ -∗
@@ -120,7 +120,7 @@ theorem isPrecondFor_intro (wctx : WpCtx) (Θ : TinyML.TypeEnv) (Δ_spec : Signa
           (argsEnv ρ s.args vs)) -∗
         wp wctx (Runtime.Expr.app (.val f) (vs.map Runtime.Expr.val)) P) ⊢ s.isPrecondFor wctx Θ Δ_spec ρ_spec f := by
   unfold isPrecondFor
-  iintro □H
+  iintro #H
   imodintro
   iintro %ρ %Φ %vs Hagree Htyped Hpred
   ispecialize H $$ %ρ %vs %Φ
@@ -152,9 +152,9 @@ theorem isPrecondFor_fix {wctx : WpCtx} {Θ : TinyML.TypeEnv} {Δ_spec : Signatu
           PredTrans.apply Θ (fun r => TinyML.ValHasType Θ r s.retTy -∗ P r) s.pred
             (argsEnv ρ s.args vs))) (h.trans ?_)).trans ?_
   · istart
-    iintro □HR
+    iintro #HR
     imodintro
-    iintro □IH %vs %P Hpre
+    iintro #IH %vs %P Hpre
     ispecialize HR $$ [IH]
     · unfold isPrecondFor
       imodintro
@@ -167,15 +167,15 @@ theorem isPrecondFor_fix {wctx : WpCtx} {Θ : TinyML.TypeEnv} {Δ_spec : Signatu
       · isplitl [Htyped]
         · iexact Htyped
         · iexact Hpred
-    icases Hpre with ⟨%ρ, %hagr0, □Htyped0, Hpred0⟩
+    icases Hpre with ⟨%ρ, %hagr0, #Htyped0, Hpred0⟩
     ispecialize HR $$ %ρ %vs %P
     iapply HR
-    · ipure_intro
+    · ipureintro
       exact hagr0
     · iexact Htyped0
     · iexact Hpred0
   · unfold isPrecondFor
-    iintro □Hfix
+    iintro #Hfix
     imodintro
     iintro %ρ %Φ %vs Hagree Htyped Hpred
     ispecialize Hfix $$ %vs %Φ
@@ -393,7 +393,7 @@ theorem call_correct (Θ : TinyML.TypeEnv) (s : Spec) (Δ_base : Signature)
           · iexact HR
           · iexact Hty
       iapply (hΨ v st₃ ρ'' t (VerifM.eval_ret hret) (hst₃_decls ▸ htwf) hteval) $$ Harg)
-  exact (sep_mono_l (SpatialContext.interp_env_agree Θ (VerifM.eval.wf heval).ownsWf hragree).1).trans <|
+  exact (sep_mono_left (SpatialContext.interp_env_agree Θ (VerifM.eval.wf heval).ownsWf hragree).1).trans <|
     (by simpa [howns] using hcall : st.sl Θ ρ' ∗ R ⊢ _).trans <|
     PredTrans.apply_env_agree Θ hwf hagree
 
@@ -438,7 +438,7 @@ theorem declareImplArgs_correct (Θ : TinyML.TypeEnv) :
     | nil =>
       simp [Spec.declareImplArgs] at heval
       have := VerifM.eval_ret heval
-      ipure_intro
+      ipureintro
       exact ⟨σ, [], st, ρ, this, hσwf,
         Signature.Subset.refl _, VerifM.Env.agreeOn_refl, rfl, Signature.Subset.refl _,
         by simp [Spec.argVars, Spec.argsEnv]; exact VerifM.Env.agreeOn_refl,
@@ -507,7 +507,7 @@ theorem declareImplArgs_correct (Θ : TinyML.TypeEnv) :
         (ρ₂ := VerifM.Env.withEnv ρ ((σ.subst.eval ρ.env).updateConst .value name v))
         (by simpa [VerifM.Env.agreeOn, VerifM.Env.withEnv, σ', VerifM.Env.withEnv_env] using hag_rename)
         rest vs' (by simp [List.length_map] at hlen_rest; omega)
-      ipure_intro
+      ipureintro
       refine ⟨σ'', argVar :: argVars', st', ρ', hΨ, hσ''wf,
         Signature.Subset.trans hst_st₂ hdsub',
         VerifM.Env.agreeOn_trans

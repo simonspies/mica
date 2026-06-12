@@ -136,7 +136,7 @@ theorem Env.agreeOn_update_fresh_binaryRel {ρ : Env} {b : FOL.BinaryRel}
 end VerifM
 
 /-- Semantic interpretation of a verifier context item. -/
-def CtxItem.interp (Θ : TinyML.TypeEnv) (ρ : VerifM.Env) : CtxItem → iProp
+noncomputable def CtxItem.interp (Θ : TinyML.TypeEnv) (ρ : VerifM.Env) : CtxItem → iProp
   | .pure φ => ⌜φ.eval ρ.env⌝
   | .spatial a => a.interp Θ ρ.env
 
@@ -145,7 +145,7 @@ def CtxItem.purePart (i : CtxItem) (ρ : VerifM.Env) : Prop :=
   | .pure φ => φ.eval ρ.env
   | .spatial _ => True
 
-def TransState.sl (Θ : TinyML.TypeEnv) (st : TransState) (ρ : VerifM.Env) : iProp :=
+noncomputable def TransState.sl (Θ : TinyML.TypeEnv) (st : TransState) (ρ : VerifM.Env) : iProp :=
   SpatialContext.interp Θ ρ.env st.owns
 
 @[simp] theorem TransState.sl_eq (Θ : TinyML.TypeEnv) (st : TransState) (ρ : VerifM.Env) :
