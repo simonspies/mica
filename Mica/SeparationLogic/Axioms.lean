@@ -1,5 +1,6 @@
 -- SUMMARY: Axiomatized Iris connectives and weakest-precondition rules for TinyML programs and heap operations.
 import Iris.Examples.IProp
+import Mica.SeparationLogic.GhostState
 import Mica.TinyML.RuntimeExpr
 import Mica.TinyML.OpSem
 
@@ -24,9 +25,9 @@ macro_rules
   | `($P -∗ $Q) => ``(BIBase.wand $P $Q)
   | `(⌜$φ⌝)     => ``(BIBase.pure $φ)
 
--- Placeholder signature for now; eventually we will provide the resources
--- needed by the rules below (heap, invariants).
-def Sig : BundledGFunctors.{0} := .default
+-- The concrete signature from `GhostState`: invariants, later credits, and
+-- heap resources over TinyML heaps. The rules below are still axiomatized
+-- against it.
 abbrev iProp := IProp.{0} Sig
 
 -- Points-to axiomatized for now.
