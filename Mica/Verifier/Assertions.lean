@@ -48,7 +48,7 @@ def Assertion.toStringHum {α : Type} (showA : α → String) : Assertion α →
 -- Semantics
 -- ---------------------------------------------------------------------------
 
-def Assertion.pre (Θ : TinyML.TypeEnv) (Φ : α → VerifM.Env → iProp) (m : Assertion α) (ρ : VerifM.Env) : iProp :=
+noncomputable def Assertion.pre (Θ : TinyML.TypeEnv) (Φ : α → VerifM.Env → iProp) (m : Assertion α) (ρ : VerifM.Env) : iProp :=
   (match m with
   | .ret a        => Φ a ρ
   | .assert φ k   => ⌜φ.eval ρ.env⌝ ∗ Assertion.pre Θ Φ k ρ
@@ -58,7 +58,7 @@ def Assertion.pre (Θ : TinyML.TypeEnv) (Φ : α → VerifM.Env → iProp) (m : 
       iprop((⌜φ.eval ρ.env⌝ -∗ Assertion.pre Θ Φ kt ρ) ∧
             (⌜¬ φ.eval ρ.env⌝ -∗ Assertion.pre Θ Φ ke ρ)))
 
-def Assertion.post (Θ : TinyML.TypeEnv) {α} (Φ : α → VerifM.Env → iProp) (m : Assertion α) (ρ : VerifM.Env) : iProp :=
+noncomputable def Assertion.post (Θ : TinyML.TypeEnv) {α} (Φ : α → VerifM.Env → iProp) (m : Assertion α) (ρ : VerifM.Env) : iProp :=
   match m with
   | .ret a        => Φ a ρ
   | .assert φ k   => ⌜φ.eval ρ.env⌝ -∗ Assertion.post Θ Φ k ρ
@@ -147,7 +147,7 @@ theorem Assertion.pre_env_agree (Θ : TinyML.TypeEnv) {m : Assertion α} {retWf 
     istart
     iintro ⟨%hφ, Hk⟩
     isplitr
-    · ipure_intro
+    · ipureintro
       exact (Formula.eval_env_agree hφwf hagree).mp hφ
     · iapply (ih hkwf hagree)
       iexact Hk
@@ -176,7 +176,7 @@ theorem Assertion.pre_env_agree (Θ : TinyML.TypeEnv) {m : Assertion α} {retWf 
       iintro Hφ
       have hφ : BIBase.Entails (⌜φ.eval ρ'.env⌝ : iProp) ⌜φ.eval ρ.env⌝ := by
         iintro %hφ
-        ipure_intro
+        ipureintro
         exact (Formula.eval_env_agree hφwf hagree).mpr hφ
       iapply (iht hktwf hagree)
       iapply Hkt
@@ -187,7 +187,7 @@ theorem Assertion.pre_env_agree (Θ : TinyML.TypeEnv) {m : Assertion α} {retWf 
       iintro Hnφ
       have hnφ : BIBase.Entails (⌜¬ φ.eval ρ'.env⌝ : iProp) ⌜¬ φ.eval ρ.env⌝ := by
         iintro %hnφ
-        ipure_intro
+        ipureintro
         exact mt (Formula.eval_env_agree hφwf hagree).mp hnφ
       iapply (ihe hkewf hagree)
       iapply Hke
@@ -209,7 +209,7 @@ theorem Assertion.post_env_agree (Θ : TinyML.TypeEnv) {m : Assertion α} {retWf
     have hφ' : φ.eval ρ.env := (Formula.eval_env_agree hφwf hagree).mpr hφ
     iapply (ih hkwf hagree)
     iapply H
-    ipure_intro
+    ipureintro
     exact hφ'
   | let_ v t k ih =>
     obtain ⟨htwf, hkwf⟩ := hwf
@@ -235,7 +235,7 @@ theorem Assertion.post_env_agree (Θ : TinyML.TypeEnv) {m : Assertion α} {retWf
       have hφ' : φ.eval ρ.env := (Formula.eval_env_agree hφwf hagree).mpr hφ
       iapply (iht hktwf hagree)
       iapply Hkt
-      ipure_intro
+      ipureintro
       exact hφ'
     · apply BI.and_elim_r.trans
       iintro Hke
@@ -243,7 +243,7 @@ theorem Assertion.post_env_agree (Θ : TinyML.TypeEnv) {m : Assertion α} {retWf
       have hnφ' : ¬ φ.eval ρ.env := mt (Formula.eval_env_agree hφwf hagree).mp hnφ
       iapply (ihe hkewf hagree)
       iapply Hke
-      ipure_intro
+      ipureintro
       exact hnφ'
 
 /-- Combining caller-side `pre` with verifier-side `post`. -/
@@ -266,7 +266,7 @@ theorem Assertion.pre_post_combine (Θ : TinyML.TypeEnv) {α : Type}
     isplitl [Hpre]
     · iexact Hpre
     · iapply Hpost
-      ipure_intro
+      ipureintro
       exact hφ
   | let_ v t k ih =>
     simp only [Assertion.pre, Assertion.post]
@@ -289,20 +289,20 @@ theorem Assertion.pre_post_combine (Θ : TinyML.TypeEnv) {α : Type}
       iapply (iht (ρ := ρ) (R := R) hR)
       isplitl [Hpre]
       · iapply Hpre
-        ipure_intro
+        ipureintro
         exact hφ
       · iapply Hpost
-        ipure_intro
+        ipureintro
         exact hφ
     · istart
       iintro ⟨Hpre, Hpost⟩
       iapply (ihe (ρ := ρ) (R := R) hR)
       isplitl [Hpre]
       · iapply Hpre
-        ipure_intro
+        ipureintro
         exact hφ
       · iapply Hpost
-        ipure_intro
+        ipureintro
         exact hφ
 
 -- ---------------------------------------------------------------------------
@@ -689,7 +689,7 @@ theorem Assertion.prove_correct (Θ : TinyML.TypeEnv) (m : Assertion α) (Δ_bas
       istart
       iintro ⟨Howns, HR⟩
       isplitr [Howns HR]
-      · ipure_intro
+      · ipureintro
         exact hφ_holds
       · iapply (ih Δ_base σ st ρ Ψ hσwf hkwf hassert.2 hpost)
         isplitl [Howns]

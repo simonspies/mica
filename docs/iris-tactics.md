@@ -209,5 +209,5 @@ entering proof mode:
 exact h.trans (sep_mono ha.1 hctx.1)
 ```
 
-Key combinators: `BIBase.Entails.trans`, `sep_mono`, `sep_mono_l`, `sep_mono_r`,
+Key combinators: `BIBase.Entails.trans`, `sep_mono`, `sep_mono_left`, `sep_mono_right`,
 `sep_assoc`, `sep_comm`.

@@ -53,7 +53,7 @@ theorem PredTrans.checkWf_ok {pt : PredTrans} {Δ : Signature}
 -- Semantics
 -- ---------------------------------------------------------------------------
 
-def PredTrans.apply (Θ : TinyML.TypeEnv) (Φ : Runtime.Val → iProp) (m : PredTrans) (ρ : VerifM.Env) : iProp :=
+noncomputable def PredTrans.apply (Θ : TinyML.TypeEnv) (Φ : Runtime.Val → iProp) (m : PredTrans) (ρ : VerifM.Env) : iProp :=
   Assertion.pre Θ (fun post ρ' =>
     BIBase.forall fun v : Runtime.Val =>
       Assertion.post Θ (fun () _ => Φ v) post.2 (ρ'.updateConst .value post.1 v)
@@ -320,7 +320,7 @@ theorem PredTrans.implement_correct (Θ : TinyML.TypeEnv) (pt : PredTrans) (Δ_b
         (fun _ () st' ρ' hret _ _ => by
           show st'.sl Θ ρ' ∗ (Φ (result.eval ρ₂.env) -∗ S) ⊢
             (Φ (result.eval ρ₂.env) -∗ S)
-          exact sep_elim_r)
+          exact sep_elim_right)
       have hag_rename :=
         FiniteSubst.rename_agreeOn (σ := σ₁) (Δ_base := Δ_base) (Δ_use := st₂.decls)
           (v := ⟨postName, .value⟩) (name' := resVar.name)
@@ -400,16 +400,10 @@ theorem PredTrans.implement_correct (Θ : TinyML.TypeEnv) (pt : PredTrans) (Δ_b
   rw [hpre]
   exact BIBase.Entails.trans
     (by
-      iintro H
-      icases H with ⟨Howns, Happ⟩
-      isplitr [Howns]
-      · iexact Happ
-      · have hpost' : st.sl Θ ρ ∗ emp ⊢ Assertion.post Θ Φpost pt (VerifM.Env.withEnv ρ (σ.subst.eval ρ.env)) := by
-          simpa [VerifM.Env.withEnv] using hpost
-        iapply hpost'
-        isplitl
-        . iexact Howns
-        . iemp_intro)
+      have hpost' : st.sl Θ ρ ∗ emp ⊢
+          Assertion.post Θ Φpost pt (VerifM.Env.withEnv ρ (σ.subst.eval ρ.env)) := by
+        simpa [VerifM.Env.withEnv] using hpost
+      exact sep_comm.1.trans (sep_mono_right (sep_emp.2.trans hpost')))
     (Assertion.pre_post_combine Θ
       (ρ := VerifM.Env.withEnv ρ (σ.subst.eval ρ.env))
       (m := pt)

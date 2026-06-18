@@ -107,7 +107,7 @@ private theorem assert_ret_apply (Θ : TinyML.TypeEnv) (Φ : Runtime.Val → iPr
   refine (forall_elim v).trans ?_
   iintro Hw
   iapply Hw
-  ipure_intro
+  ipureintro
   exact hφ
 
 /-- Shape lemma: every length-mismatched two-int argument list makes the
@@ -238,9 +238,9 @@ instance : IntrinsicSound [intMin] intMin where
     simp only [intMin_folSym, Env.respects] at hρ
     show TinyML.ValsHaveTypes Θ vs [TinyML.Typ.int, TinyML.Typ.int] ∗ _ ⊢ _
     match vs with
-    | [] => exact (sep_mono_l (off_shape_two _ (by simp))).trans sep_elim_l
-    | [_] => exact (sep_mono_l (off_shape_two _ (by simp))).trans sep_elim_l
-    | _ :: _ :: _ :: _ => exact (sep_mono_l (off_shape_two _ (by simp))).trans sep_elim_l
+    | [] => exact (sep_mono_left (off_shape_two _ (by simp))).trans sep_elim_left
+    | [_] => exact (sep_mono_left (off_shape_two _ (by simp))).trans sep_elim_left
+    | _ :: _ :: _ :: _ => exact (sep_mono_left (off_shape_two _ (by simp))).trans sep_elim_left
     | [v1, v2] =>
       iintro ⟨Hvs, Hpred⟩
       ihave Hcons := (TinyML.ValsHaveTypes.cons Θ v1 [v2] _ _).1 $$ Hvs
@@ -257,7 +257,7 @@ instance : IntrinsicSound [intMin] intMin where
       iexists x
       iexists y
       isplitr [Hpred]
-      · ipure_intro; exact ⟨rfl, rfl⟩
+      · ipureintro; exact ⟨rfl, rfl⟩
       · refine (assert_ret_apply Θ _ "ret" _ _ (.int (min x y)) ?_).trans ?_
         · exact intMin_assert_eval ρ x y hρ
         · iintro Hwand
@@ -351,9 +351,9 @@ instance : IntrinsicSound [intMax] intMax where
     simp only [intMax_folSym, Env.respects] at hρ
     show TinyML.ValsHaveTypes Θ vs [TinyML.Typ.int, TinyML.Typ.int] ∗ _ ⊢ _
     match vs with
-    | [] => exact (sep_mono_l (off_shape_two _ (by simp))).trans sep_elim_l
-    | [_] => exact (sep_mono_l (off_shape_two _ (by simp))).trans sep_elim_l
-    | _ :: _ :: _ :: _ => exact (sep_mono_l (off_shape_two _ (by simp))).trans sep_elim_l
+    | [] => exact (sep_mono_left (off_shape_two _ (by simp))).trans sep_elim_left
+    | [_] => exact (sep_mono_left (off_shape_two _ (by simp))).trans sep_elim_left
+    | _ :: _ :: _ :: _ => exact (sep_mono_left (off_shape_two _ (by simp))).trans sep_elim_left
     | [v1, v2] =>
       iintro ⟨Hvs, Hpred⟩
       ihave Hcons := (TinyML.ValsHaveTypes.cons Θ v1 [v2] _ _).1 $$ Hvs
@@ -370,7 +370,7 @@ instance : IntrinsicSound [intMax] intMax where
       iexists x
       iexists y
       isplitr [Hpred]
-      · ipure_intro; exact ⟨rfl, rfl⟩
+      · ipureintro; exact ⟨rfl, rfl⟩
       · refine (assert_ret_apply Θ _ "ret" _ _ (.int (max x y)) ?_).trans ?_
         · exact intMax_assert_eval ρ x y hρ
         · iintro Hwand

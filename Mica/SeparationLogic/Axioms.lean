@@ -24,10 +24,10 @@ macro_rules
   | `($P -∗ $Q) => ``(BIBase.wand $P $Q)
   | `(⌜$φ⌝)     => ``(BIBase.pure $φ)
 
--- Signature axiomatized for now; eventually we will say there is a heap
--- resource algebra that is part of it.
-axiom Sig : BundledGFunctors
-abbrev iProp := IProp Sig
+-- Placeholder signature for now; eventually we will provide the resources
+-- needed by the rules below (heap, invariants).
+def Sig : BundledGFunctors.{0} := .default
+abbrev iProp := IProp.{0} Sig
 
 -- Points-to axiomatized for now.
 axiom pointsTo : Runtime.Location → Runtime.Val → iProp
@@ -171,7 +171,7 @@ axiom wp.store_inv {wctx : WpCtx} {l : Runtime.Location} {v: Runtime.Val} {Q : R
 -- Derived monotonicity as an entailment
 theorem wp.mono {wctx : WpCtx} {e : Runtime.Expr} {P Q : Runtime.Val → iProp}
     (h : ∀ v, P v ⊢ Q v) : wp wctx e P ⊢ wp wctx e Q :=
-  emp_sep.2.trans (sep_mono_l (forall_intro fun v => wand_intro (emp_sep.1.trans (h v)))) |>.trans wp.wand
+  emp_sep.2.trans (sep_mono_left (forall_intro fun v => wand_intro (emp_sep.1.trans (h v)))) |>.trans wp.wand
 
 theorem wps.mono {wctx : WpCtx} {es : Runtime.Exprs} {P Q : Runtime.Vals → iProp}
     (h : ∀ vs, P vs ⊢ Q vs) : wps wctx es P ⊢ wps wctx es Q := by

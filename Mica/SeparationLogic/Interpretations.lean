@@ -46,7 +46,7 @@ theorem interp_pointsTo (Θ : TinyML.TypeEnv) {ρ : Env} {lt vt : Term .value}
     iintro ⟨Hpt, Hty⟩
     iexists loc
     isplitr
-    · ipure_intro
+    · ipureintro
       exact hloc
     · isplitl [Hpt]
       · iexact Hpt
@@ -57,7 +57,7 @@ end SpatialAtom
 namespace SpatialContext
 
 /-- Iris interpretation of a spatial context: the separating conjunction of all items. -/
-def interp (Θ : TinyML.TypeEnv) (ρ : Env) : SpatialContext → iProp
+noncomputable def interp (Θ : TinyML.TypeEnv) (ρ : Env) : SpatialContext → iProp
   | []     => emp
   | a :: Γ => a.interp Θ ρ ∗ interp Θ ρ Γ
 
@@ -84,8 +84,8 @@ theorem interp_env_agree (Θ : TinyML.TypeEnv) {ctx : SpatialContext} {Δ : Sign
     interp Θ ρ (insert a ctx) = (a.interp Θ ρ ∗ interp Θ ρ ctx) := rfl
 
 private theorem sep_comm3 {A B C : iProp} : A ∗ (B ∗ C) ⊣⊢ B ∗ (A ∗ C) :=
-  ⟨sep_assoc.2 |>.trans (sep_mono_l sep_comm.1) |>.trans sep_assoc.1,
-   sep_assoc.2 |>.trans (sep_mono_l sep_comm.2) |>.trans sep_assoc.1⟩
+  ⟨sep_assoc.2 |>.trans (sep_mono_left sep_comm.1) |>.trans sep_assoc.1,
+   sep_assoc.2 |>.trans (sep_mono_left sep_comm.2) |>.trans sep_assoc.1⟩
 
 /-- The interpretation of a context is equivalent to splitting off the atom at index `n`. -/
 theorem interp_remove (Θ : TinyML.TypeEnv) (ρ : Env) (ctx : SpatialContext) (n : Nat)
@@ -104,8 +104,8 @@ theorem interp_remove (Θ : TinyML.TypeEnv) (ρ : Env) (ctx : SpatialContext) (n
       | some (b, rest'), h =>
         simp at h
         obtain ⟨rfl, rfl⟩ := h
-        exact ⟨sep_mono_r (ih n b rest' hr).1 |>.trans sep_comm3.1,
-               sep_comm3.2 |>.trans (sep_mono_r (ih n b rest' hr).2)⟩
+        exact ⟨sep_mono_right (ih n b rest' hr).1 |>.trans sep_comm3.1,
+               sep_comm3.2 |>.trans (sep_mono_right (ih n b rest' hr).2)⟩
 
 
 end SpatialContext

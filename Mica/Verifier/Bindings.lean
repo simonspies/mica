@@ -44,7 +44,7 @@ theorem Bindings.wfIn_cons {B : Bindings} {decls : Signature} {x : TinyML.Var} {
   · exact List.Mem.tail _ (hbwf p hp)
 
 /-- The substitution `γ` maps every binding to a value well-typed by `Γ`. -/
-def Bindings.typedSubst (Θ : TinyML.TypeEnv) (B : Bindings) (Γ : TinyML.TyCtx) (γ : Runtime.Subst) : iProp :=
+noncomputable def Bindings.typedSubst (Θ : TinyML.TypeEnv) (B : Bindings) (Γ : TinyML.TyCtx) (γ : Runtime.Subst) : iProp :=
   iprop(□ ∀ x x' t, ⌜B.lookup x = some x'⌝ -∗ ⌜Γ x = some t⌝ -∗ ∃ v, ⌜γ x = some v⌝ ∗ TinyML.ValHasType Θ v t)
 
 instance Bindings.typedSubst_persistent {B Γ γ} (Θ : TinyML.TypeEnv) : Persistent (Bindings.typedSubst Θ B Γ γ) :=
@@ -78,7 +78,7 @@ theorem Bindings.typedSubst_cons {B : Bindings} {Γ : TinyML.TyCtx} {γ : Runtim
     simp [TinyML.TyCtx.extend, hyx] at hΓ; subst hΓ
     iexists w
     isplitr
-    · ipure_intro
+    · ipureintro
       simp [Runtime.Subst.update, hyx]
     · iexact Hw
   · -- tail case: y ≠ x
@@ -88,7 +88,7 @@ theorem Bindings.typedSubst_cons {B : Bindings} {Γ : TinyML.TyCtx} {γ : Runtim
     icases Hts with ⟨%w', %hw', Hw'⟩
     iexists w'
     isplitr
-    · ipure_intro
+    · ipureintro
       simp [Runtime.Subst.update, hyx, hw']
     · iexact Hw'
 
@@ -129,12 +129,12 @@ theorem Bindings.typedSubst_of_agreeOnLinked
   obtain ⟨_, hval⟩ := hagree x x' hmem
   iexists (ρ.consts .value x'.name)
   isplitr
-  · ipure_intro
+  · ipureintro
     exact hval
   · ispecialize Htyped $$ %x %x' %t
     iapply Htyped
-    · ipure_intro; exact hmem
-    · ipure_intro; exact hΓ
+    · ipureintro; exact hmem
+    · ipureintro; exact hΓ
 
 theorem findVal_none_of_not_mem
     (ns : List String) (vs : List Runtime.Val) (x : String)

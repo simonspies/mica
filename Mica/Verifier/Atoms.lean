@@ -64,7 +64,7 @@ def Atom.toItem (a : Atom τ) (t : Term τ) : CtxItem :=
 -- Semantics
 -- ---------------------------------------------------------------------------
 
-def Atom.eval (Θ : TinyML.TypeEnv) {τ : Srt} (p : Atom τ) (ρ : VerifM.Env) : τ.denote → iProp :=
+noncomputable def Atom.eval (Θ : TinyML.TypeEnv) {τ : Srt} (p : Atom τ) (ρ : VerifM.Env) : τ.denote → iProp :=
   match p with
   | isint t  => λ v => ⌜.int v = t.eval ρ.env⌝
   | isbool t => λ v => ⌜.bool v = t.eval ρ.env⌝

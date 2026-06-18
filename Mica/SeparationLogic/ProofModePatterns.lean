@@ -37,7 +37,7 @@ example (P Q : iProp) : P ∗ Q ⊢ P ∗ Q := by
 example : ⊢ (∀ (n : Nat), ⌜n = n⌝ : iProp) := by
   istart
   iintro %n
-  ipure_intro
+  ipureintro
   rfl
 
 /-- Introduce a wand premise. -/
@@ -133,7 +133,7 @@ example (P Q : iProp) : P ∗ Q ⊢ ⌜True⌝ ∗ (P ∗ Q) := by
   istart
   iintro H
   isplitr
-  · ipure_intro; trivial   -- no spatial hyps needed
+  · ipureintro; trivial   -- no spatial hyps needed
   · iexact H               -- H is here
 
 /-- `isplitl`: left goal gets all spatial hypotheses. -/
@@ -142,7 +142,7 @@ example (P Q : iProp) : P ∗ Q ⊢ (P ∗ Q) ∗ ⌜True⌝ := by
   iintro H
   isplitl
   · iexact H
-  · ipure_intro; trivial
+  · ipureintro; trivial
 
 /-- Bracket variant: distribute specific hypotheses. -/
 example (P Q : iProp) : P ∗ Q ⊢ P ∗ Q := by
@@ -178,12 +178,12 @@ example (P : Nat → Nat → iProp) : P 1 2 ⊢ ∃ a b, P a b := by
   iexact HP
 
 
-/-! ## 7. Pure reasoning: `ipure_intro` / `%` pattern -/
+/-! ## 7. Pure reasoning: `ipureintro` / `%` pattern -/
 
-/-- `ipure_intro` turns a `⌜φ⌝` goal into a Lean goal. -/
+/-- `ipureintro` turns a `⌜φ⌝` goal into a Lean goal. -/
 example : ⊢ (⌜(1 : Nat) + 1 = 2⌝ : iProp) := by
   istart
-  ipure_intro
+  ipureintro
   rfl
 
 /-- Extracting a pure hypothesis with `%` in intro patterns. -/
@@ -223,7 +223,7 @@ example (P : Nat → iProp) : (∀ n, P n) ⊢ P 42 := by
 
 /-- Introduce a persistent assertion, cross a persistency modality, and use it twice. -/
 example (R Q : iProp): R ∗ □ Q ⊢ □ (Q ∗ Q) := by
-  iintro ⟨HR, □HQ⟩
+  iintro ⟨HR, #HQ⟩
   imodintro
   isplitl
   . iexact HQ

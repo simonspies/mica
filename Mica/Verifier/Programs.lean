@@ -487,7 +487,7 @@ theorem ValDecl.checkExpr_correct (reg : Verifier.Registry) (hSound : Verifier.R
       iexact HΦ)
   refine (BIBase.Entails.trans ?_ hcomp)
   istart
-  iintro ⟨□Hsl, □Hspec⟩
+  iintro ⟨#Hsl, #Hspec⟩
   isplitl [Hsl]
   · iexact Hsl
   · isplitl []
@@ -553,7 +553,7 @@ theorem ValDecl.check_correct (reg : Verifier.Registry) (hSound : Verifier.Regis
                   hswf hSwf hΔwf hΔvars st ρ hΔspec hρspec hΔreg hρreg hcheckSpec
               refine BIBase.Entails.trans ?_ hcheck
               istart
-              iintro ⟨□Hsl, □Hspec⟩
+              iintro ⟨#Hsl, #Hspec⟩
               isplitl [Hsl]
               · iexact Hsl
               · iexact Hspec,
@@ -576,7 +576,7 @@ theorem Program.check_correct (reg : Verifier.Registry) (hSound : Verifier.Regis
     simp only [Typed.Program.runtime, List.map_nil, Runtime.Program.subst, pwp]
     istart
     iintro _
-    iemp_intro
+    iempintro
   | cons d ds ih =>
     intro heval
     have hpwp_unfold : pwp (reg.wpCtx) ((Typed.Program.runtime (d :: ds)).subst γ) ⊣⊢
@@ -610,7 +610,7 @@ theorem Program.check_correct (reg : Verifier.Registry) (hSound : Verifier.Regis
         refine SpatialContext.wp_strengthen_persistent hwp ?_
         intro v
         rw [hupd v]
-        exact wand_intro (sep_elim_l.trans hih)
+        exact wand_intro (sep_elim_left.trans hih)
     | some n =>
       have hname_rt : d.name.runtime = .named n := Binder.runtime_of_name_some hname
       have herase : S.eraseBinder d.name = S.erase n := by simp [SpecMap.eraseBinder, hname]
@@ -643,7 +643,7 @@ theorem Program.check_correct (reg : Verifier.Registry) (hSound : Verifier.Regis
             (SpecMap.wfIn_erase hSwf) st ρ hΔspec hρspec heval'
           refine BIBase.Entails.trans ?_ hih
           istart
-          iintro ⟨□Hsl, □Hspec⟩
+          iintro ⟨#Hsl, #Hspec⟩
           isplitl [Hsl]
           · iexact Hsl
           · iapply SpecMap.satisfiedBy_erase
@@ -654,15 +654,15 @@ theorem Program.check_correct (reg : Verifier.Registry) (hSound : Verifier.Regis
           have hcont' : VerifM.eval (Program.check reg Θ Δ_spec Γfn (S.erase n) ds) st ρ (fun _ _ _ => True) :=
             VerifM.eval_ret hcont
           have hwp := ValDecl.checkExpr_correct reg hSound Θ Δ_spec ρ_spec S d γ hSwf hΔwf hΔvars st ρ hΔspec hρspec hΔreg hρreg hbind
-            (Φ := iprop(emp)) (by istart; iintro _; iemp_intro)
+            (Φ := iprop(emp)) (by istart; iintro _; iempintro)
           refine SpatialContext.wp_strengthen_persistent hwp ?_
           intro v
           rw [hupd v]
           have hih := ih (S.erase n) (γ.update n v) (SpecMap.wfIn_erase hSwf) st ρ hΔspec hρspec hcont'
-          exact wand_intro (sep_elim_l.trans <| by
+          exact wand_intro (sep_elim_left.trans <| by
             refine BIBase.Entails.trans ?_ hih
             istart
-            iintro ⟨□Hsl, □Hspec⟩
+            iintro ⟨#Hsl, #Hspec⟩
             isplitl [Hsl]
             · iexact Hsl
             · iapply SpecMap.satisfiedBy_erase
@@ -683,7 +683,7 @@ theorem Program.check_correct (reg : Verifier.Registry) (hSound : Verifier.Regis
           refine BIBase.Entails.trans ?_ hih
           istart
           iintro ⟨Hctx, Hpre⟩
-          icases Hctx with ⟨□Hsl, □Hspec⟩
+          icases Hctx with ⟨#Hsl, #Hspec⟩
           isplitl [Hsl]
           · iexact Hsl
           · iapply SpecMap.satisfiedBy_insert_update
@@ -702,7 +702,13 @@ theorem Program.verify_correct (reg : Verifier.Registry)
   obtain ⟨a, ctx_mid, hverif, hcont⟩ := ScopedM.eval_bind h1
   match a with
   | .error e =>
-    cases e <;> simp [ScopedM.eval_ret] at hcont
+    cases e with
+    | failed _ =>
+        have hret := (ScopedM.eval_ret.mp hcont).1
+        cases hret
+    | fatal _ =>
+        have hret := (ScopedM.eval_ret.mp hcont).1
+        cases hret
   | .ok () =>
     have hholdsFor : TransState.holdsFor TransState.empty VerifM.Env.empty :=
       fun φ hφ => by simp [TransState.empty] at hφ
@@ -755,6 +761,6 @@ theorem Program.verify_correct (reg : Verifier.Registry)
       isplitl []
       · simp [TransState.sl, howns]
         imodintro
-        iemp_intro
+        iempintro
       · iapply SpecMap.empty_satisfiedBy
     simpa [hrt] using hctx0.trans hcorrect

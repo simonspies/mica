@@ -154,7 +154,7 @@ private theorem assert_ret_apply (Θ : TinyML.TypeEnv) (Φ : Runtime.Val → iPr
   refine (forall_elim v).trans ?_
   iintro Hw
   iapply Hw
-  ipure_intro
+  ipureintro
   exact hφ
 
 private theorem respects_updateConstE_one {ρ : Env} {s : FOL.Symbol .one}
@@ -275,8 +275,8 @@ instance : IntrinsicSound [stringLength] stringLength where
     simp only [stringLength_folSym, Env.respects] at hρ
     show TinyML.ValsHaveTypes Θ vs [TinyML.Typ.string] ∗ _ ⊢ _
     match vs with
-    | [] => exact (sep_mono_l (off_shape_one _ (by simp))).trans sep_elim_l
-    | _ :: _ :: _ => exact (sep_mono_l (off_shape_one _ (by simp))).trans sep_elim_l
+    | [] => exact (sep_mono_left (off_shape_one _ (by simp))).trans sep_elim_left
+    | _ :: _ :: _ => exact (sep_mono_left (off_shape_one _ (by simp))).trans sep_elim_left
     | [v] =>
       iintro ⟨Hvs, Hpred⟩
       ihave Hcons := (TinyML.ValsHaveTypes.cons Θ v [] _ _).1 $$ Hvs
@@ -287,7 +287,7 @@ instance : IntrinsicSound [stringLength] stringLength where
       rw [stringLength_toWp]
       iexists s
       isplitr [Hpred]
-      · ipure_intro; rfl
+      · ipureintro; rfl
       · refine (assert_ret_apply Θ _ "ret" _ _ (.int s.length) ?_).trans ?_
         · exact stringLength_assert_eval ρ s hρ
         · iintro Hwand
@@ -385,9 +385,9 @@ instance : IntrinsicSound [stringCat] stringCat where
     simp only [stringCat_folSym, Env.respects] at hρ
     show TinyML.ValsHaveTypes Θ vs [TinyML.Typ.string, TinyML.Typ.string] ∗ _ ⊢ _
     match vs with
-    | [] => exact (sep_mono_l (off_shape_two_ty _ (by simp))).trans sep_elim_l
-    | [_] => exact (sep_mono_l (off_shape_two_ty _ (by simp))).trans sep_elim_l
-    | _ :: _ :: _ :: _ => exact (sep_mono_l (off_shape_two_ty _ (by simp))).trans sep_elim_l
+    | [] => exact (sep_mono_left (off_shape_two_ty _ (by simp))).trans sep_elim_left
+    | [_] => exact (sep_mono_left (off_shape_two_ty _ (by simp))).trans sep_elim_left
+    | _ :: _ :: _ :: _ => exact (sep_mono_left (off_shape_two_ty _ (by simp))).trans sep_elim_left
     | [v1, v2] =>
       iintro ⟨Hvs, Hpred⟩
       ihave Hcons := (TinyML.ValsHaveTypes.cons Θ v1 [v2] _ _).1 $$ Hvs
@@ -404,7 +404,7 @@ instance : IntrinsicSound [stringCat] stringCat where
       iexists x
       iexists y
       isplitr [Hpred]
-      · ipure_intro; exact ⟨rfl, rfl⟩
+      · ipureintro; exact ⟨rfl, rfl⟩
       · refine (assert_ret_apply Θ _ "ret" _ _ (.str (x ++ y)) ?_).trans ?_
         · exact stringCat_assert_eval ρ x y hρ
         · iintro Hwand
@@ -503,9 +503,9 @@ instance : IntrinsicSound [stringEqual] stringEqual where
     simp only [stringEqual_folSym, Env.respects] at hρ
     show TinyML.ValsHaveTypes Θ vs [TinyML.Typ.string, TinyML.Typ.string] ∗ _ ⊢ _
     match vs with
-    | [] => exact (sep_mono_l (off_shape_two_ty _ (by simp))).trans sep_elim_l
-    | [_] => exact (sep_mono_l (off_shape_two_ty _ (by simp))).trans sep_elim_l
-    | _ :: _ :: _ :: _ => exact (sep_mono_l (off_shape_two_ty _ (by simp))).trans sep_elim_l
+    | [] => exact (sep_mono_left (off_shape_two_ty _ (by simp))).trans sep_elim_left
+    | [_] => exact (sep_mono_left (off_shape_two_ty _ (by simp))).trans sep_elim_left
+    | _ :: _ :: _ :: _ => exact (sep_mono_left (off_shape_two_ty _ (by simp))).trans sep_elim_left
     | [v1, v2] =>
       iintro ⟨Hvs, Hpred⟩
       ihave Hcons := (TinyML.ValsHaveTypes.cons Θ v1 [v2] _ _).1 $$ Hvs
@@ -522,7 +522,7 @@ instance : IntrinsicSound [stringEqual] stringEqual where
       iexists x
       iexists y
       isplitr [Hpred]
-      · ipure_intro; exact ⟨rfl, rfl⟩
+      · ipureintro; exact ⟨rfl, rfl⟩
       · refine (assert_ret_apply Θ _ "ret" _ _ (.bool (x == y)) ?_).trans ?_
         · exact stringEqual_assert_eval ρ x y hρ
         · iintro Hwand
@@ -620,9 +620,9 @@ instance : IntrinsicSound [stringStartsWith] stringStartsWith where
     simp only [stringStartsWith_folSym, Env.respects] at hρ
     show TinyML.ValsHaveTypes Θ vs [TinyML.Typ.string, TinyML.Typ.string] ∗ _ ⊢ _
     match vs with
-    | [] => exact (sep_mono_l (off_shape_two_ty _ (by simp))).trans sep_elim_l
-    | [_] => exact (sep_mono_l (off_shape_two_ty _ (by simp))).trans sep_elim_l
-    | _ :: _ :: _ :: _ => exact (sep_mono_l (off_shape_two_ty _ (by simp))).trans sep_elim_l
+    | [] => exact (sep_mono_left (off_shape_two_ty _ (by simp))).trans sep_elim_left
+    | [_] => exact (sep_mono_left (off_shape_two_ty _ (by simp))).trans sep_elim_left
+    | _ :: _ :: _ :: _ => exact (sep_mono_left (off_shape_two_ty _ (by simp))).trans sep_elim_left
     | [v1, v2] =>
       iintro ⟨Hvs, Hpred⟩
       ihave Hcons := (TinyML.ValsHaveTypes.cons Θ v1 [v2] _ _).1 $$ Hvs
@@ -639,7 +639,7 @@ instance : IntrinsicSound [stringStartsWith] stringStartsWith where
       iexists x
       iexists y
       isplitr [Hpred]
-      · ipure_intro; exact ⟨rfl, rfl⟩
+      · ipureintro; exact ⟨rfl, rfl⟩
       · refine (assert_ret_apply Θ _ "ret" _ _ (.bool (x.isPrefixOf y)) ?_).trans ?_
         · exact stringStartsWith_assert_eval ρ x y hρ
         · iintro Hwand
@@ -737,9 +737,9 @@ instance : IntrinsicSound [stringEndsWith] stringEndsWith where
     simp only [stringEndsWith_folSym, Env.respects] at hρ
     show TinyML.ValsHaveTypes Θ vs [TinyML.Typ.string, TinyML.Typ.string] ∗ _ ⊢ _
     match vs with
-    | [] => exact (sep_mono_l (off_shape_two_ty _ (by simp))).trans sep_elim_l
-    | [_] => exact (sep_mono_l (off_shape_two_ty _ (by simp))).trans sep_elim_l
-    | _ :: _ :: _ :: _ => exact (sep_mono_l (off_shape_two_ty _ (by simp))).trans sep_elim_l
+    | [] => exact (sep_mono_left (off_shape_two_ty _ (by simp))).trans sep_elim_left
+    | [_] => exact (sep_mono_left (off_shape_two_ty _ (by simp))).trans sep_elim_left
+    | _ :: _ :: _ :: _ => exact (sep_mono_left (off_shape_two_ty _ (by simp))).trans sep_elim_left
     | [v1, v2] =>
       iintro ⟨Hvs, Hpred⟩
       ihave Hcons := (TinyML.ValsHaveTypes.cons Θ v1 [v2] _ _).1 $$ Hvs
@@ -756,7 +756,7 @@ instance : IntrinsicSound [stringEndsWith] stringEndsWith where
       iexists x
       iexists y
       isplitr [Hpred]
-      · ipure_intro; exact ⟨rfl, rfl⟩
+      · ipureintro; exact ⟨rfl, rfl⟩
       · refine (assert_ret_apply Θ _ "ret" _ _ (.bool (x.isSuffixOf y)) ?_).trans ?_
         · exact stringEndsWith_assert_eval ρ x y hρ
         · iintro Hwand
