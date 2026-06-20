@@ -1,6 +1,6 @@
 -- SUMMARY: Adequacy of the Mica weakest precondition: programs with a proven `pwp` never get stuck.
 import Iris.ProgramLogic.Adequacy
-import Mica.SeparationLogic.Axioms
+import Mica.SeparationLogic.Wp
 
 open Iris Iris.BI Iris.ProgramLogic Iris.ProgramLogic.Language.Notation
 
