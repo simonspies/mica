@@ -159,7 +159,7 @@ def intMin : Intrinsic where
   arity    := .two
   name     := "int_min"
   path     := some ("Int", ["min"])
-  reduce   := fun (a, b) v =>
+  reduce   := Reduce.pure fun (a, b) v =>
     ∃ x y : Int, a = .int x ∧ b = .int y ∧ v = .int (min x y)
   wp       := fun (a, b) Q =>
     iprop(∃ x y : Int, ⌜a = .int x ∧ b = .int y⌝ ∗ Q (.int (min x y)))
@@ -272,7 +272,7 @@ def intMax : Intrinsic where
   arity    := .two
   name     := "int_max"
   path     := some ("Int", ["max"])
-  reduce   := fun (a, b) v =>
+  reduce   := Reduce.pure fun (a, b) v =>
     ∃ x y : Int, a = .int x ∧ b = .int y ∧ v = .int (max x y)
   wp       := fun (a, b) Q =>
     iprop(∃ x y : Int, ⌜a = .int x ∧ b = .int y⌝ ∗ Q (.int (max x y)))

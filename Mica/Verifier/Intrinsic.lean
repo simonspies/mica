@@ -225,7 +225,7 @@ structure Intrinsic where
   name     : String
   /-- Optional surface module path used by concrete stdlibs to build frontend resolvers. -/
   path     : Option (String × List String)
-  reduce   : Arity.tup arity Runtime.Val → Runtime.Val → Prop
+  reduce   : Arity.tup arity Runtime.Val → TinyML.Heap → Runtime.Val → TinyML.Heap → Prop
   wp       : Arity.tup arity Runtime.Val → (Runtime.Val → iProp) → iProp
   /-- The intrinsic's specification, the single source of its argument names/
       types, return type, and predicate transformer. -/
@@ -235,6 +235,12 @@ structure Intrinsic where
 
 /-- A registry is a list of intrinsics. -/
 abbrev Registry := List Intrinsic
+
+/-- Embed a pure (heap-independent, heap-preserving) relation as a heap-aware
+    `reduce` field. -/
+def Reduce.pure {α : Type} (rel : α → Runtime.Val → Prop) :
+    α → TinyML.Heap → Runtime.Val → TinyML.Heap → Prop :=
+  fun a μ v μ' => rel a v ∧ μ' = μ
 
 namespace Intrinsic
 
@@ -281,13 +287,45 @@ def resultTy (i : Intrinsic) : TinyML.Typ :=
     the arity-shaped representation. Out-of-shape calls produce the empty
     relation. -/
 def toReduce (i : Intrinsic) :
-    List Runtime.Val → Runtime.Val → Prop :=
-  fun vs v =>
+    List Runtime.Val → TinyML.Heap → Runtime.Val → TinyML.Heap → Prop :=
+  fun vs μ v μ' =>
     match i.arity, i.reduce, vs with
-    | .zero, r, []          => r () v
-    | .one,  r, [a]         => r a v
-    | .two,  r, [a, b]      => r (a, b) v
+    | .zero, r, []          => r () μ v μ'
+    | .one,  r, [a]         => r a μ v μ'
+    | .two,  r, [a, b]      => r (a, b) μ v μ'
     | _,     _, _           => False
+
+/-- Unfolding lemma for `toReduce` at arity-two, two args. The intrinsic's
+    `arity` field is destructured explicitly so that the dependent `reduce`
+    field's match reduces. -/
+theorem toReduce_two_of_arity (name : String)
+    (path : Option (String × List String))
+    (reduce : Arity.tup .two Runtime.Val → TinyML.Heap → Runtime.Val → TinyML.Heap → Prop)
+    (wp : Arity.tup .two Runtime.Val → (Runtime.Val → iProp) → iProp)
+    (spec : Spec) (folSym : Option (FOL.Symbol .two)) (axioms : List Formula)
+    (a b v : Runtime.Val) (μ μ' : TinyML.Heap) :
+    (Intrinsic.mk .two name path reduce wp spec folSym axioms).toReduce [a, b] μ v μ'
+      = reduce (a, b) μ v μ' := rfl
+
+/-- Unfolding lemma for `toReduce` at arity-one, one arg. -/
+theorem toReduce_one_of_arity (name : String)
+    (path : Option (String × List String))
+    (reduce : Arity.tup .one Runtime.Val → TinyML.Heap → Runtime.Val → TinyML.Heap → Prop)
+    (wp : Arity.tup .one Runtime.Val → (Runtime.Val → iProp) → iProp)
+    (spec : Spec) (folSym : Option (FOL.Symbol .one)) (axioms : List Formula)
+    (a v : Runtime.Val) (μ μ' : TinyML.Heap) :
+    (Intrinsic.mk .one name path reduce wp spec folSym axioms).toReduce [a] μ v μ'
+      = reduce a μ v μ' := rfl
+
+/-- Unfolding lemma for `toReduce` at arity-zero, no args. -/
+theorem toReduce_zero_of_arity (name : String)
+    (path : Option (String × List String))
+    (reduce : Arity.tup .zero Runtime.Val → TinyML.Heap → Runtime.Val → TinyML.Heap → Prop)
+    (wp : Arity.tup .zero Runtime.Val → (Runtime.Val → iProp) → iProp)
+    (spec : Spec) (folSym : Option (FOL.Symbol .zero)) (axioms : List Formula)
+    (v : Runtime.Val) (μ μ' : TinyML.Heap) :
+    (Intrinsic.mk .zero name path reduce wp spec folSym axioms).toReduce [] μ v μ'
+      = reduce () μ v μ' := rfl
 
 /-- Adapter from the list-shaped argument call to the arity-shaped `wp`
     field. Out-of-shape calls produce `False`. -/
@@ -305,7 +343,7 @@ def toWp (i : Intrinsic) :
     field's match reduces. -/
 theorem toWp_two_of_arity (name : String)
     (path : Option (String × List String))
-    (reduce : Arity.tup .two Runtime.Val → Runtime.Val → Prop)
+    (reduce : Arity.tup .two Runtime.Val → TinyML.Heap → Runtime.Val → TinyML.Heap → Prop)
     (wp : Arity.tup .two Runtime.Val → (Runtime.Val → iProp) → iProp)
     (spec : Spec) (folSym : Option (FOL.Symbol .two)) (axioms : List Formula)
     (a b : Runtime.Val) (Q : Runtime.Val → iProp) :
@@ -315,7 +353,7 @@ theorem toWp_two_of_arity (name : String)
 /-- Unfolding lemma for `toWp` at arity-one, one arg. -/
 theorem toWp_one_of_arity (name : String)
     (path : Option (String × List String))
-    (reduce : Arity.tup .one Runtime.Val → Runtime.Val → Prop)
+    (reduce : Arity.tup .one Runtime.Val → TinyML.Heap → Runtime.Val → TinyML.Heap → Prop)
     (wp : Arity.tup .one Runtime.Val → (Runtime.Val → iProp) → iProp)
     (spec : Spec) (folSym : Option (FOL.Symbol .one)) (axioms : List Formula)
     (a : Runtime.Val) (Q : Runtime.Val → iProp) :
@@ -325,7 +363,7 @@ theorem toWp_one_of_arity (name : String)
 /-- Unfolding lemma for `toWp` at arity-zero, no args. -/
 theorem toWp_zero_of_arity (name : String)
     (path : Option (String × List String))
-    (reduce : Arity.tup .zero Runtime.Val → Runtime.Val → Prop)
+    (reduce : Arity.tup .zero Runtime.Val → TinyML.Heap → Runtime.Val → TinyML.Heap → Prop)
     (wp : Arity.tup .zero Runtime.Val → (Runtime.Val → iProp) → iProp)
     (spec : Spec) (folSym : Option (FOL.Symbol .zero)) (axioms : List Formula)
     (Q : Runtime.Val → iProp) :
@@ -406,11 +444,17 @@ theorem mem_of_lookup? {R : Registry} {n : String} {i : Intrinsic}
     (h : R.lookup? n = some i) : i ∈ R :=
   List.mem_of_find?_eq_some h
 
+/-- A looked-up intrinsic carries the name it was looked up by. -/
+theorem lookup?_name {R : Registry} {n : String} {i : Intrinsic}
+    (h : R.lookup? n = some i) : i.name = n := by
+  have := List.find?_eq_some_iff_append.mp h
+  exact eq_of_beq this.1
+
 /-- Build the operational-semantics context from a registry. -/
 def primCtx (R : Registry) : TinyML.PrimCtx :=
-  fun n vs v =>
+  fun n vs μ v μ' =>
     match R.lookup? n with
-    | some i => i.toReduce vs v
+    | some i => i.toReduce vs μ v μ'
     | none   => False
 
 /-- Build the `wp` context from a registry. Names not in `R` map to the

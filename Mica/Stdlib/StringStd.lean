@@ -194,7 +194,7 @@ def stringLength : Intrinsic where
   arity    := .one
   name     := "string_length"
   path     := some ("String", ["length"])
-  reduce   := fun a v => ∃ s : List UInt8, a = .str s ∧ v = .int s.length
+  reduce   := Reduce.pure fun a v => ∃ s : List UInt8, a = .str s ∧ v = .int s.length
   wp       := fun a Q => iprop(∃ s : List UInt8, ⌜a = .str s⌝ ∗ Q (.int s.length))
   spec     :=
     { args  := [("s", .string)]
@@ -299,7 +299,7 @@ def stringCat : Intrinsic where
   arity    := .two
   name     := "string_cat"
   path     := some ("String", ["cat"])
-  reduce   := fun (a, b) v => ∃ x y : List UInt8, a = .str x ∧ b = .str y ∧ v = .str (x ++ y)
+  reduce   := Reduce.pure fun (a, b) v => ∃ x y : List UInt8, a = .str x ∧ b = .str y ∧ v = .str (x ++ y)
   wp       := fun (a, b) Q => iprop(∃ x y : List UInt8, ⌜a = .str x ∧ b = .str y⌝ ∗ Q (.str (x ++ y)))
   spec     :=
     { args  := [("a", .string), ("b", .string)]
@@ -416,7 +416,7 @@ def stringEqual : Intrinsic where
   arity    := .two
   name     := "string_equal"
   path     := some ("String", ["equal"])
-  reduce   := fun (a, b) v => ∃ x y : List UInt8, a = .str x ∧ b = .str y ∧ v = .bool (x == y)
+  reduce   := Reduce.pure fun (a, b) v => ∃ x y : List UInt8, a = .str x ∧ b = .str y ∧ v = .bool (x == y)
   wp       := fun (a, b) Q => iprop(∃ x y : List UInt8, ⌜a = .str x ∧ b = .str y⌝ ∗ Q (.bool (x == y)))
   spec     :=
     { args  := [("a", .string), ("b", .string)]
@@ -534,7 +534,7 @@ def stringStartsWith : Intrinsic where
   arity    := .two
   name     := "string_starts_with"
   path     := some ("String", ["starts_with"])
-  reduce   := fun (p, s) v => ∃ x y : List UInt8, p = .str x ∧ s = .str y ∧ v = .bool (x.isPrefixOf y)
+  reduce   := Reduce.pure fun (p, s) v => ∃ x y : List UInt8, p = .str x ∧ s = .str y ∧ v = .bool (x.isPrefixOf y)
   wp       := fun (p, s) Q => iprop(∃ x y : List UInt8, ⌜p = .str x ∧ s = .str y⌝ ∗ Q (.bool (x.isPrefixOf y)))
   spec     :=
     { args  := [("prefix", .string), ("s", .string)]
@@ -651,7 +651,7 @@ def stringEndsWith : Intrinsic where
   arity    := .two
   name     := "string_ends_with"
   path     := some ("String", ["ends_with"])
-  reduce   := fun (q, s) v => ∃ x y : List UInt8, q = .str x ∧ s = .str y ∧ v = .bool (x.isSuffixOf y)
+  reduce   := Reduce.pure fun (q, s) v => ∃ x y : List UInt8, q = .str x ∧ s = .str y ∧ v = .bool (x.isSuffixOf y)
   wp       := fun (q, s) Q => iprop(∃ x y : List UInt8, ⌜q = .str x ∧ s = .str y⌝ ∗ Q (.bool (x.isSuffixOf y)))
   spec     :=
     { args  := [("suffix", .string), ("s", .string)]
