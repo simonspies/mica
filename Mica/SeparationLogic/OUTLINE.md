@@ -1,6 +1,7 @@
 **Mica/SeparationLogic**
 
 - `Axioms.lean` — Axiomatized Iris connectives and weakest-precondition rules for TinyML programs and heap operations.
+- `GhostState.lean` — Concrete Iris ghost-state signature for Mica: invariants, later credits, and heap resources over TinyML heaps.
 - `Interpretations.lean` — Iris interpretations of spatial atoms and contexts, with lemmas relating syntax to separation-logic assertions.
 - `LogicalRelation.lean` — Iris logical relations for TinyML values and types, together with formula generation for type constraints.
 - `PrimitiveLaws.lean` — Spatially lifted weakest-precondition laws for TinyML primitive operations.
