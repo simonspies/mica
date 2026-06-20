@@ -536,6 +536,18 @@ theorem Program.subst_remove_update (ds : Program) (b : Binder) (v : Val)
           Subst.update, Subst.id] <;>
     all_goals (split <;> simp_all)
 
+/-- At runtime, a program is just a sequence of let-bindings -/
+def Program.expr : Program → Expr
+  | [] => .val .unit
+  | ⟨b, e⟩ :: rest => .letIn b e (Program.expr rest)
+
+/-- `Program.expr` commutes with substitution. -/
+theorem Program.expr_subst (p : Program) (σ : Subst) :
+    (Program.subst p σ).expr = p.expr.subst σ := by
+  induction p generalizing σ with
+  | nil => simp [Program.subst, Program.expr]
+  | cons d rest ih => simp [Program.subst, Program.expr, Decl.subst, ih]
+
 theorem Program.subst_id (prog : Program) :
     prog.subst Subst.id = prog := by
   have hid : Subst.id = (fun _ => none) := rfl
