@@ -1,5 +1,6 @@
 **Mica/SeparationLogic**
 
+- `Adequacy.lean` — Adequacy of the Mica weakest precondition: programs with a proven `pwp` never get stuck.
 - `Axioms.lean` — The Iris weakest precondition for TinyML and its derived proof rules, including invariant-based heap rules and primitive-call lifting.
 - `GhostState.lean` — Concrete Iris ghost-state signature for Mica: invariants, later credits, and heap resources over TinyML heaps.
 - `Interpretations.lean` — Iris interpretations of spatial atoms and contexts, with lemmas relating syntax to separation-logic assertions.

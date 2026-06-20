@@ -36,17 +36,17 @@ private def parseArgs : List String → Options → Options
     else if opts.file.isSome then { opts with error := some "multiple files provided" }
     else parseArgs rest { opts with file := some arg }
 
-open Iris Iris.BI in
-/-- Soundness of the verifier as actually configured by the CLI: a successful
-    `Program.verify Stdlib.registry` run guarantees the program's weakest
-    precondition holds under the registry-derived `wp` context. Instantiates the
-    generic `Program.verify_correct` at the concrete stdlib registry, discharging
-    its obligations from `Stdlib.registry_sound`. -/
-theorem verify_sound [MicaGS HasLC.hasLC Sig]
-    (p : Untyped.Program (Spec.Body Untyped.Expr)) :
+/-- Adequacy of the verifier as actually configured by the CLI: a successful
+    `Program.verify Stdlib.registry` run guarantees that executions of the
+    program never gets stuck.
+    Instantiates the generic `Program.verify_adequate` at the concrete stdlib
+    registry, discharging its obligations from `Stdlib.registry_sound`. -/
+theorem verify_adequate (p : Untyped.Program (Spec.Body Untyped.Expr)) :
     Smt.Strategy.checks (Program.verify Stdlib.registry p)
-      (⊢ pwp Stdlib.registry.primCtx (Untyped.Program.runtime p)) :=
-  Program.verify_correct Stdlib.registry Stdlib.registry_sound p
+      (∀ {e' : Runtime.Expr} {μ' : TinyML.Heap},
+        TinyML.Steps Stdlib.registry.primCtx (Untyped.Program.runtime p).expr ∅ e' μ' →
+        (∃ v, e' = .val v) ∨ ∃ e'' μ'', TinyML.Step Stdlib.registry.primCtx e' μ' e'' μ'') :=
+  Program.verify_adequate Stdlib.registry Stdlib.registry_sound p
 
 def main (args : List String) : IO Unit := do
   let opts := parseArgs args {}

@@ -3,6 +3,7 @@ import Mica.TinyML.Typed
 import Mica.TinyML.Untyped
 import Mica.TinyML.Typing
 import Mica.SeparationLogic.PrimitiveLaws
+import Mica.SeparationLogic.Adequacy
 import Mica.Verifier.Functions
 import Mica.Verifier.SpecTranslation
 import Mica.Verifier.RelationalEncoding
@@ -703,11 +704,13 @@ theorem Program.check_correct (reg : Verifier.Registry) (hSound : Verifier.Regis
         exact wand_intro hstep
 
 
+omit [MicaGS HasLC.hasLC Sig] in
 theorem Program.verify_correct (reg : Verifier.Registry)
     (hSound : Verifier.Registry.Sound reg) (p : Untyped.Program (Spec.Body Untyped.Expr)) :
-  Smt.Strategy.checks (Program.verify reg p) (⊢ pwp reg.primCtx (Untyped.Program.runtime p)) := by
+    Smt.Strategy.checks (Program.verify reg p)
+      (∀ [MicaGS HasLC.hasLC Sig], ⊢ pwp reg.primCtx (Untyped.Program.runtime p)) := by
   simp only [Smt.Strategy.checks, Program.verify, VerifM.strategy]
-  intro st' heval
+  intro st' heval _inst
   have h1 := ScopedM.strategy_eval_initial_implies_ScopedM_eval heval
   obtain ⟨a, ctx_mid, hverif, hcont⟩ := ScopedM.eval_bind h1
   match a with
@@ -774,3 +777,19 @@ theorem Program.verify_correct (reg : Verifier.Registry)
         iempintro
       · iapply SpecMap.empty_satisfiedBy
     simpa [hrt] using hctx0.trans hcorrect
+
+omit [MicaGS HasLC.hasLC Sig] in
+/-- End-to-end adequacy: a successful verifier run guarantees that executions
+    of the program — folded into a single expression by `Runtime.Program.expr`,
+    starting from the empty heap — never get stuck: every reachable expression
+    is a value or can step. Derived from `Program.verify_correct` through the
+    `pwp`-to-`wp` bridge and `Runtime.Program.adequacy`. -/
+theorem Program.verify_adequate (reg : Verifier.Registry)
+    (hSound : Verifier.Registry.Sound reg) (p : Untyped.Program (Spec.Body Untyped.Expr)) :
+    Smt.Strategy.checks (Program.verify reg p)
+      (∀ {e' : Runtime.Expr} {μ' : TinyML.Heap},
+        TinyML.Steps reg.primCtx (Untyped.Program.runtime p).expr ∅ e' μ' →
+        (∃ v, e' = .val v) ∨ ∃ e'' μ'', TinyML.Step reg.primCtx e' μ' e'' μ'') :=
+  (Program.verify_correct reg hSound p).imp fun Hpwp _ _ hsteps =>
+    (Runtime.Program.adequacy (φ := fun _ => True)
+      (by intro inst; exact Hpwp.trans (pwp.wp_expr _)) hsteps).1
