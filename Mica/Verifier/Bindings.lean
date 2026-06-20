@@ -8,6 +8,8 @@ import Mica.SeparationLogic.LogicalRelation
 
 open Iris Iris.BI
 
+variable [MicaGS HasLC.hasLC Sig]
+
 /-! ### Bindings -/
 
 abbrev Bindings := List (TinyML.Var × FOL.Const)
@@ -22,6 +24,7 @@ def Bindings.agreeOnLinked (B : Bindings) (ρ : Env) (γ : Runtime.Subst) :=
 def Bindings.wfIn (B : Bindings) (decls : Signature) : Prop :=
   ∀ p ∈ B, p.2 ∈ decls.consts
 
+omit [MicaGS HasLC.hasLC Sig] in
 theorem Bindings.agreeOnLinked_env_agree {B : Bindings} {decls : Signature} {ρ ρ' : Env} {γ : Runtime.Subst}
     (hagr : B.agreeOnLinked ρ γ) (henv : Env.agreeOn decls ρ ρ')
     (hwf : B.wfIn decls) : B.agreeOnLinked ρ' γ := by
@@ -34,6 +37,7 @@ theorem Bindings.agreeOnLinked_env_agree {B : Bindings} {decls : Signature} {ρ 
   rw [hsort] at henv'
   exact ⟨hsort, hγ.trans (congrArg some henv')⟩
 
+omit [MicaGS HasLC.hasLC Sig] in
 theorem Bindings.wfIn_cons {B : Bindings} {decls : Signature} {x : TinyML.Var} {v : FOL.Const}
     (hbwf : B.wfIn decls) :
     Bindings.wfIn ((x, v) :: B) (decls.addConst v) := by
@@ -44,7 +48,7 @@ theorem Bindings.wfIn_cons {B : Bindings} {decls : Signature} {x : TinyML.Var} {
   · exact List.Mem.tail _ (hbwf p hp)
 
 /-- The substitution `γ` maps every binding to a value well-typed by `Γ`. -/
-noncomputable def Bindings.typedSubst (Θ : TinyML.TypeEnv) (B : Bindings) (Γ : TinyML.TyCtx) (γ : Runtime.Subst) : iProp :=
+def Bindings.typedSubst (Θ : TinyML.TypeEnv) (B : Bindings) (Γ : TinyML.TyCtx) (γ : Runtime.Subst) : iProp :=
   iprop(□ ∀ x x' t, ⌜B.lookup x = some x'⌝ -∗ ⌜Γ x = some t⌝ -∗ ∃ v, ⌜γ x = some v⌝ ∗ TinyML.ValHasType Θ v t)
 
 instance Bindings.typedSubst_persistent {B Γ γ} (Θ : TinyML.TypeEnv) : Persistent (Bindings.typedSubst Θ B Γ γ) :=
@@ -92,6 +96,7 @@ theorem Bindings.typedSubst_cons {B : Bindings} {Γ : TinyML.TyCtx} {γ : Runtim
       simp [Runtime.Subst.update, hyx, hw']
     · iexact Hw'
 
+omit [MicaGS HasLC.hasLC Sig] in
 theorem Bindings.agreeOnLinked_cons {B : Bindings} {ρ ρ' : Env} {γ : Runtime.Subst}
     {x : TinyML.Var} {v : FOL.Const}
     (hagree : B.agreeOnLinked ρ γ)
@@ -136,6 +141,7 @@ theorem Bindings.typedSubst_of_agreeOnLinked
     · ipureintro; exact hmem
     · ipureintro; exact hΓ
 
+omit [MicaGS HasLC.hasLC Sig] in
 theorem findVal_none_of_not_mem
     (ns : List String) (vs : List Runtime.Val) (x : String)
     (hlen : ns.length = vs.length) (hx : x ∉ ns) :
@@ -150,6 +156,7 @@ theorem findVal_none_of_not_mem
       simp only [List.map_cons, Runtime.Binders.findVal_cons, ih vs hlen hx.2]
       simp [BEq.beq, Runtime.instBEqBinder.beq, Ne.symm hx.1]
 
+omit [MicaGS HasLC.hasLC Sig] in
 theorem not_mem_of_lookup_zip_reverse_none
     (ns : List String) (avs : List FOL.Const) (x : String)
     (hlen : ns.length = avs.length)
@@ -167,6 +174,7 @@ theorem not_mem_of_lookup_zip_reverse_none
   have := h _ hmem'
   simp [hni] at this
 
+omit [MicaGS HasLC.hasLC Sig] in
 theorem Bindings.agreeOnLinked_zip_reverse
     (names : List String) (vars : List FOL.Const) (vals : List Runtime.Val)
     (γ : Runtime.Subst) (ρ : Env)
@@ -210,11 +218,13 @@ theorem Bindings.agreeOnLinked_zip_reverse
                 exact findVal_none_of_not_mem ns vs x hlen_nvl hx_notin
             · simp [List.lookup, hxn] at hmem
 
+omit [MicaGS HasLC.hasLC Sig] in
 theorem Bindings.lookup_reverse_zip_append {keys : List String} {vars : List FOL.Const} {x : String} (B : Bindings) :
     ((keys.zip vars).reverse ++ B).lookup x =
       ((keys.zip vars).reverse.lookup x).or (B.lookup x) := by
   rw [List.lookup_append]
 
+omit [MicaGS HasLC.hasLC Sig] in
 theorem Bindings.agreeOnLinked_updateAllBinder
     (B : Bindings) (names : List String) (vars : List FOL.Const) (vals : List Runtime.Val)
     (γ : Runtime.Subst) (ρ : Env)

@@ -9,6 +9,8 @@ import Iris.BI.Lib.Fixpoint
 
 open Iris Iris.BI Iris.OFE
 
+variable [MicaGS HasLC.hasLC Sig]
+
 namespace TinyML
 
 /-!
@@ -28,19 +30,20 @@ abbrev RecCont := Runtime.Val → TypeName → List Typ → iProp
 abbrev RecIdx := LeibnizO (Runtime.Val × TypeName × List Typ)
 
 /-- Reinterpret a predicate over `RecIdx` as a curried continuation. -/
-@[reducible] noncomputable def RecCont.ofPred (Φ : RecIdx → iProp) : RecCont :=
+@[reducible] def RecCont.ofPred (Φ : RecIdx → iProp) : RecCont :=
   fun v T args => Φ ⟨(v, T, args)⟩
 
 /-- The outer approximation ranges over closed value relations. -/
 abbrev ValShape := Runtime.Val → Typ → iProp
 
 /-- Interpret one primitive type as an Iris assertion over a runtime value. -/
-noncomputable def PrimitiveType.valRelBody : PrimitiveType → Runtime.Val → iProp
+def PrimitiveType.valRelBody : PrimitiveType → Runtime.Val → iProp
   | .unit, v => iprop(⌜v = .unit⌝)
   | .bool, v => iprop(⌜∃ b, v = .bool b⌝)
   | .int, v => iprop(⌜∃ n, v = .int n⌝)
   | .string, v => iprop(⌜∃ s, v = .str s⌝)
 
+omit [MicaGS HasLC.hasLC Sig] in
 theorem PrimitiveType.valRelBody_persistent (p : PrimitiveType) (v : Runtime.Val) :
     Persistent (p.valRelBody v) := by
   unfold PrimitiveType.valRelBody
@@ -53,7 +56,7 @@ continuation `k`. Tuples and sums are structural and mutually recursive with
 the list/sum helpers below.
 -/
 mutual
-  noncomputable def ValRelBody (R : ValShape) (v : Runtime.Val) (t : Typ) (k : RecCont) : iProp :=
+  def ValRelBody (R : ValShape) (v : Runtime.Val) (t : Typ) (k : RecCont) : iProp :=
     match t with
     | .prim p     => p.valRelBody v
     | .value      => iprop(True)
@@ -68,12 +71,12 @@ mutual
         iprop(∃ tag payload, ⌜v = .inj tag ts.length payload⌝ ∗
           ValSumRelBody R tag payload ts k)
 
-  noncomputable def ValsRelBody : ValShape → List Runtime.Val → List Typ → RecCont → iProp
+  def ValsRelBody : ValShape → List Runtime.Val → List Typ → RecCont → iProp
     | _, [], [], _ => iprop(emp)
     | R, v :: vs, t :: ts, k => iprop(ValRelBody R v t k ∗ ValsRelBody R vs ts k)
     | _, _, _, _ => iprop(False)
 
-  noncomputable def ValSumRelBody : ValShape → Nat → Runtime.Val → List Typ → RecCont → iProp
+  def ValSumRelBody : ValShape → Nat → Runtime.Val → List Typ → RecCont → iProp
     | _, _, _, [], _ => iprop(False)
     | R, 0, payload, t :: _, k => ValRelBody R payload t k
     | R, n + 1, payload, _ :: ts, k => ValSumRelBody R n payload ts k
@@ -222,7 +225,7 @@ private instance ValRelBody.contractive (k : RecCont) (v : Runtime.Val) (t : Typ
   distLater_dist hR := ValRelBody.dist hR Dist.rfl t v
 
 /-- One unfolding of the inner recursive type interpretation. -/
-private noncomputable def ValRelIndF (Θ : TypeEnv) (R : ValShape) (Φ : RecIdx → iProp) (x : RecIdx) : iProp :=
+private def ValRelIndF (Θ : TypeEnv) (R : ValShape) (Φ : RecIdx → iProp) (x : RecIdx) : iProp :=
   match x with
   | ⟨(v, T, args)⟩ =>
       iprop(∃ ty, ⌜TypeName.unfold Θ T args = some ty⌝ ∗
@@ -270,7 +273,7 @@ private instance (Θ : TypeEnv) (R : ValShape) : BIMonoPred (ValRelIndF Θ R) wh
     exact Dist.of_eq rfl
 
 /-- The inner least fixpoint for named types, with the outer approximation fixed. -/
-private noncomputable def ValRelInd (Θ : TypeEnv) (R : ValShape) : RecCont :=
+private def ValRelInd (Θ : TypeEnv) (R : ValShape) : RecCont :=
   fun v T args => Iris.bi_least_fixpoint (ValRelIndF Θ R) ⟨(v, T, args)⟩
 
 private theorem ValRelInd.unfold {Θ : TypeEnv} {R : ValShape}
@@ -294,7 +297,7 @@ private instance ValRelInd.contractive (Θ : TypeEnv) :
     exact (ValRelIndF.contractive Θ (fun x => Φ x) x).distLater_dist hR
 
 /-- The outer functional. It closes the named-type continuation using `ValRelInd`. -/
-private noncomputable def ValRelF (Θ : TypeEnv) (R : ValShape) : ValShape :=
+private def ValRelF (Θ : TypeEnv) (R : ValShape) : ValShape :=
   fun v t => ValRelBody R v t (ValRelInd Θ R)
 
 private instance ValRelF.contractive (Θ : TypeEnv) : Contractive (ValRelF Θ) where
@@ -305,15 +308,15 @@ private instance ValRelF.contractive (Θ : TypeEnv) : Contractive (ValRelF Θ) w
     exact ValRelBody.dist hR hk t v
 
 /-- The mixed recursive value relation. -/
-noncomputable def ValHasType (Θ : TypeEnv) : ValShape :=
+def ValHasType (Θ : TypeEnv) : ValShape :=
   fixpoint (ValRelF Θ)
 
 /-- Final tuple/list relation induced by the mixed recursive value relation. -/
-noncomputable def ValsHaveTypes (Θ : TypeEnv) (vs : List Runtime.Val) (ts : List Typ) : iProp :=
+def ValsHaveTypes (Θ : TypeEnv) (vs : List Runtime.Val) (ts : List Typ) : iProp :=
   ValsRelBody (ValHasType Θ) vs ts (ValRelInd Θ (ValHasType Θ))
 
 /-- Final sum-payload relation induced by the mixed recursive value relation. -/
-noncomputable def ValSumRel (Θ : TypeEnv) (tag : Nat) (payload : Runtime.Val)
+def ValSumRel (Θ : TypeEnv) (tag : Nat) (payload : Runtime.Val)
     (ts : List Typ) : iProp :=
   ValSumRelBody (ValHasType Θ) tag payload ts (ValRelInd Θ (ValHasType Θ))
 
@@ -1005,6 +1008,7 @@ def PrimitiveType.typeConstraints (p : PrimitiveType) (t : Term .value) : List F
   | .string => [.unpred .isStr t]
   | .unit => []
 
+omit [MicaGS HasLC.hasLC Sig] in
 /-- Primitive type constraints only reference free variables of the constrained term. -/
 theorem PrimitiveType.typeConstraints_wfIn {p : PrimitiveType} {t : Term .value} {Δ : Signature}
     (ht : t.wfIn Δ) : ∀ φ ∈ p.typeConstraints t, φ.wfIn Δ := by
@@ -1066,6 +1070,7 @@ def typeConstraintsList (ts : List TinyML.Typ) (tl : Term .vallist) : List Formu
 end
 
 
+omit [MicaGS HasLC.hasLC Sig] in
 mutual
   /-- All formulas in `typeConstraints ty t` only reference free variables of `t`. -/
   theorem typeConstraints_wfIn {ty : TinyML.Typ} {t : Term .value} {Δ : Signature}

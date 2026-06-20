@@ -36,13 +36,15 @@ theorem wfIn_mono {a : SpatialAtom} {Δ Δ' : Signature}
   | pointsTo l v _ => exact ⟨Term.wfIn_mono l h.1 hsub hwf, Term.wfIn_mono v h.2 hsub hwf⟩
 
 /-- Iris interpretation of a single spatial atom. -/
-noncomputable def interp (Θ : TinyML.TypeEnv) (ρ : Env) : SpatialAtom → iProp
+def interp [MicaGS HasLC.hasLC Sig] (Θ : TinyML.TypeEnv) (ρ : Env) :
+    SpatialAtom → iProp
   | .pointsTo l v ty => ∃ (loc : Runtime.Location),
       ⌜Term.eval ρ l = .loc loc⌝ ∗ loc ↦ Term.eval ρ v ∗
         TinyML.ValHasType Θ (Term.eval ρ v) ty
 
 /-- Congruence for points-to interpretation under equal location and value evaluation. -/
-theorem pointsTo_congr (Θ : TinyML.TypeEnv) {ρ : Env} {l l' v v' : Term .value} {ty : TinyML.Typ}
+theorem pointsTo_congr [MicaGS HasLC.hasLC Sig] (Θ : TinyML.TypeEnv) {ρ : Env}
+    {l l' v v' : Term .value} {ty : TinyML.Typ}
     (hl : Term.eval ρ l = Term.eval ρ l')
     (hv : Term.eval ρ v = Term.eval ρ v') :
     interp Θ ρ (.pointsTo l v ty) ⊣⊢ interp Θ ρ (.pointsTo l' v' ty) := by

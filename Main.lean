@@ -42,9 +42,10 @@ open Iris Iris.BI in
     precondition holds under the registry-derived `wp` context. Instantiates the
     generic `Program.verify_correct` at the concrete stdlib registry, discharging
     its obligations from `Stdlib.registry_sound`. -/
-theorem verify_sound (p : Untyped.Program (Spec.Body Untyped.Expr)) :
+theorem verify_sound [MicaGS HasLC.hasLC Sig]
+    (p : Untyped.Program (Spec.Body Untyped.Expr)) :
     Smt.Strategy.checks (Program.verify Stdlib.registry p)
-      (⊢ pwp (Stdlib.registry.wpCtx) (Untyped.Program.runtime p)) :=
+      (⊢ pwp Stdlib.registry.primCtx (Untyped.Program.runtime p)) :=
   Program.verify_correct Stdlib.registry Stdlib.registry_sound p
 
 def main (args : List String) : IO Unit := do

@@ -99,7 +99,7 @@ private theorem respects_argsEnv {s : FOL.Symbol .two} :
 
 /-- Apply a `.ret (s, .assert φ ...)` spec at a value, discharging the asserted
     `φ` as a pure side condition. -/
-private theorem assert_ret_apply (Θ : TinyML.TypeEnv) (Φ : Runtime.Val → iProp)
+private theorem assert_ret_apply [MicaGS HasLC.hasLC Sig] (Θ : TinyML.TypeEnv) (Φ : Runtime.Val → iProp)
     (s : String) (ρ : VerifM.Env) (φ : Formula) (v : Runtime.Val)
     (hφ : φ.eval (ρ.updateConst .value s v).env) :
     PredTrans.apply Θ Φ (.ret (s, .assert φ (.ret ()))) ρ ⊢ Φ v := by
@@ -112,7 +112,7 @@ private theorem assert_ret_apply (Θ : TinyML.TypeEnv) (Φ : Runtime.Val → iPr
 
 /-- Shape lemma: every length-mismatched two-int argument list makes the
     typing premise inconsistent. -/
-private theorem off_shape_two {Θ : TinyML.TypeEnv} {vs : List Runtime.Val}
+private theorem off_shape_two [MicaGS HasLC.hasLC Sig] {Θ : TinyML.TypeEnv} {vs : List Runtime.Val}
     (P : iProp) (hlen : vs.length ≠ 2) :
     TinyML.ValsHaveTypes Θ vs [TinyML.Typ.int, TinyML.Typ.int] ⊢ P := by
   refine TinyML.ValsHaveTypes.length_eq.trans ?_
@@ -203,6 +203,27 @@ private theorem intMin_assert_eval (ρ : VerifM.Env) (x y : Int)
   simp [hbin, intMinSym]
 
 instance : IntrinsicSound [intMin] intMin where
+  wp_sound := by
+    intro _ ctx hctx vs Φ
+    match vs with
+    | [] => exact false_elim
+    | [_] => exact false_elim
+    | _ :: _ :: _ :: _ => exact false_elim
+    | [a, b] =>
+      rw [intMin_toWp]
+      istart
+      iintro ⟨%x, %y, %hab, HΦ⟩
+      obtain ⟨rfl, rfl⟩ := hab
+      have hrel : ∀ μ v μ',
+          ctx intMin.name [Runtime.Val.int x, Runtime.Val.int y] μ v μ' ↔
+            v = .int (min x y) ∧ μ' = μ := by
+        intro μ v μ'
+        rw [hctx]
+        simp [intMin, Intrinsic.toReduce_two_of_arity, Reduce.pure]
+      iapply (wp.prim_pure hrel ⟨_, rfl⟩)
+      iintro %v %hv
+      subst hv
+      iexact HΦ
   axiomWf := by
     intro Δ hsub hwf φ hφ
     simp only [intMin, List.mem_singleton] at hφ
@@ -234,7 +255,7 @@ instance : IntrinsicSound [intMin] intMin where
       (Signature.Subset.declVars hsub (Spec.argVars intMin.specArgs))
       (Signature.wf_declVars hwf)
   bridge := by
-    intro Θ vs ρ Φ hρ
+    intro _ Θ vs ρ Φ hρ
     simp only [intMin_folSym, Env.respects] at hρ
     show TinyML.ValsHaveTypes Θ vs [TinyML.Typ.int, TinyML.Typ.int] ∗ _ ⊢ _
     match vs with
@@ -316,6 +337,27 @@ private theorem intMax_assert_eval (ρ : VerifM.Env) (x y : Int)
   simp [hbin, intMaxSym]
 
 instance : IntrinsicSound [intMax] intMax where
+  wp_sound := by
+    intro _ ctx hctx vs Φ
+    match vs with
+    | [] => exact false_elim
+    | [_] => exact false_elim
+    | _ :: _ :: _ :: _ => exact false_elim
+    | [a, b] =>
+      rw [intMax_toWp]
+      istart
+      iintro ⟨%x, %y, %hab, HΦ⟩
+      obtain ⟨rfl, rfl⟩ := hab
+      have hrel : ∀ μ v μ',
+          ctx intMax.name [Runtime.Val.int x, Runtime.Val.int y] μ v μ' ↔
+            v = .int (max x y) ∧ μ' = μ := by
+        intro μ v μ'
+        rw [hctx]
+        simp [intMax, Intrinsic.toReduce_two_of_arity, Reduce.pure]
+      iapply (wp.prim_pure hrel ⟨_, rfl⟩)
+      iintro %v %hv
+      subst hv
+      iexact HΦ
   axiomWf := by
     intro Δ hsub hwf φ hφ
     simp only [intMax, List.mem_singleton] at hφ
@@ -347,7 +389,7 @@ instance : IntrinsicSound [intMax] intMax where
       (Signature.Subset.declVars hsub (Spec.argVars intMax.specArgs))
       (Signature.wf_declVars hwf)
   bridge := by
-    intro Θ vs ρ Φ hρ
+    intro _ Θ vs ρ Φ hρ
     simp only [intMax_folSym, Env.respects] at hρ
     show TinyML.ValsHaveTypes Θ vs [TinyML.Typ.int, TinyML.Typ.int] ∗ _ ⊢ _
     match vs with

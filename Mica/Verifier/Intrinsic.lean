@@ -386,7 +386,7 @@ def sigOf (fragment : List Intrinsic) : Signature :=
 
 `compile` routes a `.prim n args` call through `Spec.call` against the
 intrinsic's spec. The resulting `PredTrans.apply` obligation must be bridged
-to the `i.toWp` iProp consumed by the registry-derived `wp.prim` axiom. The
+to the `i.toWp` iProp consumed by the registry-derived `Registry.wp_prim`. The
 bridge is one of the per-intrinsic obligations captured by `IntrinsicSound`
 below. The aggregate over the registry is the def `Registry.Sound`. -/
 
@@ -399,13 +399,13 @@ end Intrinsic
 
 /-- Per-intrinsic soundness obligation, discharged together for each intrinsic
     and aggregated over a registry by `Registry.Sound`. It bundles the two
-    spec→wp bridge facts (`specWf`, `bridge`) with the two axiom facts
-    (`axiomWf`, `proof`).
+    spec→wp bridge facts (`specWf`, `bridge`), the opsem↔wp fact (`wp_sound`),
+    and the two axiom facts (`axiomWf`, `proof`).
 
     `specWf`/`bridge` are independent of `fragment`: from a `PredTrans.apply`
     obligation against `i.spec` (the shape produced by `Spec.call_correct`) and
-    the typing of the arguments, `bridge` derives `i.toWp` — the iProp the
-    `wp.prim` axiom demands of the registry-derived context. Both take the
+    the typing of the arguments, `bridge` derives `i.toWp` — the iProp
+    `Registry.wp_prim` demands of the registry-derived context. Both take the
     symbol's declaration / interpretation as an explicit side condition: `i.spec`
     may mention `i.folSym`, so it is only well-formed in a signature declaring
     that symbol, and the bridge only holds when the environment interprets the
@@ -420,12 +420,17 @@ class IntrinsicSound (fragment : outParam (List Intrinsic)) (i : Intrinsic) : Pr
     ∀ (Δ : Signature), (Signature.empty.extendWithSym i.folSym).Subset Δ → Δ.wf →
       PredTrans.wfIn (Δ.declVars (Spec.argVars i.specArgs)) i.spec.pred
   bridge :
-    ∀ (Θ : TinyML.TypeEnv) (vs : List Runtime.Val) (ρ : VerifM.Env)
+    ∀ [MicaGS HasLC.hasLC Sig] (Θ : TinyML.TypeEnv) (vs : List Runtime.Val) (ρ : VerifM.Env)
       (Φ : Runtime.Val → iProp),
     ρ.env.respects i.folSym →
     TinyML.ValsHaveTypes Θ vs i.argTysList ∗
       PredTrans.apply Θ (fun r => TinyML.ValHasType Θ r i.resultTy -∗ Φ r) i.spec.pred
         (Spec.argsEnv ρ i.specArgs vs) ⊢ i.toWp vs Φ
+  wp_sound :
+    ∀ [MicaGS HasLC.hasLC Sig] (ctx : TinyML.PrimCtx),
+      (∀ vs μ v μ', ctx i.name vs μ v μ' ↔ i.toReduce vs μ v μ') →
+      ∀ (vs : List Runtime.Val) (Φ : Runtime.Val → iProp),
+        i.toWp vs Φ ⊢ wp ctx (.app (.val (.prim i.name)) (vs.map Runtime.Expr.val)) Φ
   axiomWf : ∀ {Δ : Signature}, (Intrinsic.sigOf fragment).Subset Δ → Δ.wf →
             ∀ φ ∈ i.axioms, Formula.wfIn φ Δ
   proof : ∀ ρ : Env,
@@ -571,6 +576,23 @@ theorem SoundIn.get {R todo : Registry} (h : SoundIn R todo) :
 theorem Sound.get {R : Registry} (h : Sound R) {i : Intrinsic} (hi : i ∈ R) :
     IntrinsicSound R i := SoundIn.get h i hi
 
+/-- The wp rule for primitive calls: a sound registry's spec context (`wpCtx`)
+    entails the weakest precondition at its operational context (`primCtx`).
+    Dispatches the per-intrinsic `IntrinsicSound.wp_sound` obligation at the
+    looked-up entry; `primCtx` agrees with that entry's `toReduce` at its name
+    by construction. -/
+theorem wp_prim [MicaGS HasLC.hasLC Sig] (R : Registry) (hSound : R.Sound) {n : String}
+    {vs : List Runtime.Val} {Q : Runtime.Val → iProp} :
+    R.wpCtx n vs Q ⊢ wp R.primCtx (.app (.val (.prim n)) (vs.map Runtime.Expr.val)) Q := by
+  unfold wpCtx
+  cases h : R.lookup? n with
+  | none =>
+    exact false_elim
+  | some i =>
+    obtain rfl := lookup?_name h
+    refine (hSound.get (mem_of_lookup? h)).wp_sound R.primCtx (fun vs μ v μ' => ?_) vs Q
+    simp [primCtx, h]
+
 theorem stdEnv_eq_foldEnv (R : Registry) : stdEnv R = foldEnv Env.empty R := rfl
 
 /-- Folding a well-formed registry into an environment preserves agreement
@@ -660,6 +682,7 @@ theorem IntrinsicSound.mono {deps deps' : Registry} {i : Intrinsic}
     IntrinsicSound deps' i where
   specWf := h.specWf
   bridge := h.bridge
+  wp_sound := h.wp_sound
   axiomWf := by
     intro Δ hsig hwf φ hφ
     exact h.axiomWf ((Registry.sigOf_subset_of_subset hsub).trans hsig) hwf φ hφ

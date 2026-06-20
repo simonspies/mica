@@ -11,6 +11,8 @@ import Mathlib.Data.Finmap
 
 open Iris Iris.BI
 
+variable [MicaGS HasLC.hasLC Sig]
+
 /-!
 # Specifications
 
@@ -43,14 +45,14 @@ def argsEnv (ρ : VerifM.Env) : List (String × TinyML.Typ) → List Runtime.Val
   | [], _ | _, [] => ρ
   | (name, _) :: rest, v :: vs => argsEnv (ρ.updateConst .value name v) rest vs
 
-noncomputable def isPrecondFor (wctx : WpCtx) (Θ : TinyML.TypeEnv) (Δ_spec : Signature) (ρ_spec : VerifM.Env)
+def isPrecondFor (pctx : TinyML.PrimCtx) (Θ : TinyML.TypeEnv) (Δ_spec : Signature) (ρ_spec : VerifM.Env)
     (f : Runtime.Val) (s : Spec) : iProp :=
   iprop(□ ∀ (ρ : VerifM.Env) (Φ : Runtime.Val → iProp) (vs : List Runtime.Val),
       ⌜VerifM.Env.agreeOn Δ_spec ρ_spec ρ⌝ -∗
       TinyML.ValsHaveTypes Θ vs (s.args.map Prod.snd) -∗
         PredTrans.apply Θ (fun r => TinyML.ValHasType Θ r s.retTy -∗ Φ r) s.pred
           (argsEnv ρ s.args vs) -∗
-        wp wctx (Runtime.Expr.app (.val f) (vs.map fun v => .val v)) Φ)
+        wp pctx (Runtime.Expr.app (.val f) (vs.map fun v => .val v)) Φ)
 
 /-- A spec is well-formed when its predicate transformer is well-formed in the
     context extended with all argument variables. -/
@@ -105,20 +107,20 @@ def implement (Δ_base : Signature) (s : Spec) (body : List FOL.Const → VerifM
 /-! ## Precondition Proofs -/
 section Precondition
 
-instance : Iris.BI.Persistent (isPrecondFor wctx Θ Δ_spec ρ_spec f s) := by
+instance : Iris.BI.Persistent (isPrecondFor pctx Θ Δ_spec ρ_spec f s) := by
   unfold isPrecondFor
   infer_instance
 
 /-- Fold `wp_fix'`'s tupled recursive obligation into a spec precondition;
     the two differ only by currying the typing hypothesis and the predicate transformer. -/
-theorem isPrecondFor_intro (wctx : WpCtx) (Θ : TinyML.TypeEnv) (Δ_spec : Signature) (ρ_spec : VerifM.Env) (s : Spec)
+theorem isPrecondFor_intro (pctx : TinyML.PrimCtx) (Θ : TinyML.TypeEnv) (Δ_spec : Signature) (ρ_spec : VerifM.Env) (s : Spec)
     (f : Runtime.Val) :
     iprop(□ ∀ (ρ : VerifM.Env) (vs : List Runtime.Val) (P : Runtime.Val → iProp),
       (⌜VerifM.Env.agreeOn Δ_spec ρ_spec ρ⌝ ∗
         TinyML.ValsHaveTypes Θ vs (s.args.map Prod.snd) ∗
         PredTrans.apply Θ (fun r => TinyML.ValHasType Θ r s.retTy -∗ P r) s.pred
           (argsEnv ρ s.args vs)) -∗
-        wp wctx (Runtime.Expr.app (.val f) (vs.map Runtime.Expr.val)) P) ⊢ s.isPrecondFor wctx Θ Δ_spec ρ_spec f := by
+        wp pctx (Runtime.Expr.app (.val f) (vs.map Runtime.Expr.val)) P) ⊢ s.isPrecondFor pctx Θ Δ_spec ρ_spec f := by
   unfold isPrecondFor
   iintro #H
   imodintro
@@ -134,23 +136,31 @@ theorem isPrecondFor_intro (wctx : WpCtx) (Θ : TinyML.TypeEnv) (Δ_spec : Signa
 /-- Löb-style rule for spec preconditions on `fix`: to prove
     `s.isPrecondFor Θ (.fix f args e)`, assume it as the recursive hypothesis and
     prove the `wp` of the body (after the usual fix-substitution). -/
-theorem isPrecondFor_fix {wctx : WpCtx} {Θ : TinyML.TypeEnv} {Δ_spec : Signature} {ρ_spec : VerifM.Env} {s : Spec}
+theorem isPrecondFor_fix {pctx : TinyML.PrimCtx} {Θ : TinyML.TypeEnv} {Δ_spec : Signature} {ρ_spec : VerifM.Env} {s : Spec}
     {f : Runtime.Binder} {args : List Runtime.Binder} {e : Runtime.Expr}
     {R : iProp}
-    (h : R ⊢ □ (s.isPrecondFor wctx Θ Δ_spec ρ_spec (.fix f args e) -∗
+    (hargs : args.length = s.args.length)
+    (h : R ⊢ □ (s.isPrecondFor pctx Θ Δ_spec ρ_spec (.fix f args e) -∗
         ∀ (ρ : VerifM.Env) (vs : List Runtime.Val) (P : Runtime.Val → iProp),
           ⌜VerifM.Env.agreeOn Δ_spec ρ_spec ρ⌝ -∗
           TinyML.ValsHaveTypes Θ vs (s.args.map Prod.snd) -∗
           PredTrans.apply Θ (fun r => TinyML.ValHasType Θ r s.retTy -∗ P r) s.pred
               (argsEnv ρ s.args vs) -∗
-          wp wctx (e.subst ((Runtime.Subst.id.updateBinder f (.fix f args e)).updateAllBinder args vs)) P)) :
-    R ⊢ s.isPrecondFor wctx Θ Δ_spec ρ_spec (.fix f args e) := by
-  refine (SpatialContext.wp_fix' (wctx := wctx) (f := f) (args := args) (e := e) (Φ := fun P vs =>
+          wp pctx (e.subst ((Runtime.Subst.id.updateBinder f (.fix f args e)).updateAllBinder args vs)) P)) :
+    R ⊢ s.isPrecondFor pctx Θ Δ_spec ρ_spec (.fix f args e) := by
+  refine (SpatialContext.wp_fix' (pctx := pctx) (f := f) (args := args) (e := e) (Φ := fun P vs =>
       iprop(∃ ρ : VerifM.Env,
         ⌜VerifM.Env.agreeOn Δ_spec ρ_spec ρ⌝ ∗
           TinyML.ValsHaveTypes Θ vs (s.args.map Prod.snd) ∗
           PredTrans.apply Θ (fun r => TinyML.ValHasType Θ r s.retTy -∗ P r) s.pred
-            (argsEnv ρ s.args vs))) (h.trans ?_)).trans ?_
+            (argsEnv ρ s.args vs))) ?_ (h.trans ?_)).trans ?_
+  · intro vs P
+    istart
+    iintro ⟨%ρ, %hagr, Htyped, -⟩
+    ihave %Hlen := TinyML.ValsHaveTypes.length_eq $$ Htyped
+    ipureintro
+    simp at Hlen
+    omega
   · istart
     iintro #HR
     imodintro
@@ -191,10 +201,12 @@ end Precondition
 /-! ## Well-Formedness Proofs -/
 section WellFormedness
 
+omit [MicaGS HasLC.hasLC Sig] in
 theorem checkWf_ok {spec : Spec} {Δ : Signature}
     (h : spec.checkWf Δ = .ok ()) : spec.wfIn Δ :=
   PredTrans.checkWf_ok h
 
+omit [MicaGS HasLC.hasLC Sig] in
 theorem wfIn_mono {spec : Spec} {Δ Δ' : Signature}
     (h : spec.wfIn Δ) (hsub : Δ.Subset Δ') (hwf : Δ'.wf) :
     spec.wfIn Δ' :=
@@ -206,6 +218,7 @@ end WellFormedness
 /-! ## Environment Agreement -/
 section EnvironmentAgreement
 
+omit [MicaGS HasLC.hasLC Sig] in
 /-- `argsEnv` preserves `agreeOn`: if two envs agree on `Δ`,
     then after applying the same updates, they agree on `argVars args ++ Δ`. -/
 theorem argsEnv_agreeOn {Δ : Signature} {ρ₁ ρ₂ : VerifM.Env}
@@ -232,6 +245,7 @@ end EnvironmentAgreement
 /-! ## Call Protocol Correctness -/
 section CallCorrectness
 
+omit [MicaGS HasLC.hasLC Sig] in
 /-- Correctness of `declareArgs`: after processing all arguments, the resulting
     substitution is well-formed, types match, and the env agrees with `argsEnv`. -/
 theorem declareArgs_correct (Θ : TinyML.TypeEnv) :
