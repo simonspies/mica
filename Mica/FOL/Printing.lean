@@ -35,7 +35,7 @@ def UnOp.toSMTLIB : UnOp τ₁ τ₂ → String
   | .vhead   => "vhd"
   | .vtail   => "vtl"
   | .visnil  => "is-vnil"
-  | .mkInj tag arity => s!"of_inj {tag} {arity}"
+  | .ofInj tag arity => s!"of_inj {tag} {arity}"
   | .tagOf   => "tag_of"
   | .arityOf => "arity_of"
   | .payloadOf => "payload_of"
@@ -63,7 +63,7 @@ def UnPred.toSMTLIB : UnPred τ → String
   | .isStr   => "is-of_string"
   | .isLoc   => "is-of_loc"
   | .isTuple => "is-of_tuple"
-  | .isInj _ _ => ""  -- handled specially in Formula.toSMTLIB
+  | .isOfInj => "is-of_inj"
   | .uninterpreted name _ => name
 
 def BinPred.toSMTLIB : BinPred τ₁ τ₂ → String
@@ -114,18 +114,14 @@ def Term.toSMTLIB : Term τ → String
 
 def Pattern.toSMTLIB : Pattern → String
   | .term t => t.toSMTLIB
-  | .unpred p t => match p with
-    | .isInj tag arity => s!"(and (is-of_inj {t.toSMTLIB}) (= (tag_of {t.toSMTLIB}) {tag}) (= (arity_of {t.toSMTLIB}) {arity}))"
-    | _ => s!"({p.toSMTLIB} {t.toSMTLIB})"
+  | .unpred p t => s!"({p.toSMTLIB} {t.toSMTLIB})"
   | .binpred p t₁ t₂ => s!"({p.toSMTLIB} {t₁.toSMTLIB} {t₂.toSMTLIB})"
 
 def Formula.toSMTLIB : Formula → String
   | .true_          => "true"
   | .false_         => "false"
   | .eq _τ a b      => s!"(= {a.toSMTLIB} {b.toSMTLIB})"
-  | .unpred p v     => match p with
-    | .isInj tag arity => s!"(and (is-of_inj {v.toSMTLIB}) (= (tag_of {v.toSMTLIB}) {tag}) (= (arity_of {v.toSMTLIB}) {arity}))"
-    | _ => s!"({p.toSMTLIB} {v.toSMTLIB})"
+  | .unpred p v     => s!"({p.toSMTLIB} {v.toSMTLIB})"
   | .binpred p a b  => s!"({p.toSMTLIB} {a.toSMTLIB} {b.toSMTLIB})"
   | .not φ          => s!"(not {φ.toSMTLIB})"
   | .and φ ψ        => s!"(and {φ.toSMTLIB} {ψ.toSMTLIB})"
@@ -184,7 +180,7 @@ private def termStr (p : Prec) : {τ : Srt} → Term τ → String
     | .vhead   => s!"hd({termStr .bottom a})"
     | .vtail   => s!"tl({termStr .bottom a})"
     | .visnil  => s!"isnil({termStr .bottom a})"
-    | .mkInj tag arity => s!"inj({tag}/{arity}, {termStr .bottom a})"
+    | .ofInj tag arity => s!"ofInj({tag}/{arity}, {termStr .bottom a})"
     | .tagOf   => s!"tag({termStr .bottom a})"
     | .arityOf => s!"arity({termStr .bottom a})"
     | .payloadOf => s!"payload({termStr .bottom a})"
@@ -217,7 +213,7 @@ private def formulaStr (p : Prec) : Formula → String
     | .isStr   => s!"isStr({termStr .bottom v})"
     | .isLoc   => s!"isLoc({termStr .bottom v})"
     | .isTuple => s!"isTuple({termStr .bottom v})"
-    | .isInj tag arity => s!"isInj({tag}/{arity}, {termStr .bottom v})"
+    | .isOfInj => s!"isOfInj({termStr .bottom v})"
     | .uninterpreted name _ => s!"{name}({termStr .bottom v})"
   | .binpred pred a b => match pred with
     | .lt => parens (Prec.lt .cmp p) s!"{termStr .add a} < {termStr .add b}"

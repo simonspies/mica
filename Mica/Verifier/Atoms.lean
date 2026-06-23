@@ -58,7 +58,7 @@ def Atom.toItem (a : Atom τ) (t : Term τ) : CtxItem :=
   match a with
   | .isint v => .pure (.eq .value v (.unop .ofInt t))
   | .isbool v => .pure (.eq .value v (.unop .ofBool t))
-  | .isinj tag arity v => .pure (.eq .value v (.unop (.mkInj tag arity) t))
+  | .isinj tag arity v => .pure (.eq .value v (.unop (.ofInj tag arity) t))
   | .own l ty => .spatial (.pointsTo l t ty)
   | .rel name arg => .pure (.and (SpecFn.isDefined name arg) (.eq .value (SpecFn.call name arg) t))
 
@@ -90,7 +90,7 @@ def Formula.matchAtom (φ : Formula) (a : Atom τ) : Option (Term τ) :=
     | _ => none
   | .isinj tag arity v =>
     match φ with
-    | .eq .value v' (.unop (.mkInj tag' arity') t) =>
+    | .eq .value v' (.unop (.ofInj tag' arity') t) =>
       if v' = v ∧ tag = tag' ∧ arity = arity' then some t else none
     | _ => none
   | .own _ _ => none
@@ -331,7 +331,13 @@ theorem Atom.subst_wfIn {p : Atom τ} {σ : Subst} {dom : VarCtx} {Δ Δ' : Sign
 def Atom.candidates : Atom τ → List (Formula × Term τ)
   | .isint  v => [(.unpred .isInt v, .unop .toInt v)]
   | .isbool v => [(.unpred .isBool v, .unop .toBool v)]
-  | .isinj tag arity v => [(.unpred (.isInj tag arity) v, .unop .payloadOf v)]
+  | .isinj tag arity v =>
+      [(.and
+          (.unpred .isOfInj v)
+          (.and
+            (.eq .int (.unop .tagOf v) (.const (.i tag)))
+            (.eq .int (.unop .arityOf v) (.const (.i arity)))),
+        .unop .payloadOf v)]
   | .own _ _ => []
   | .rel _ _ => []
 
@@ -352,10 +358,10 @@ theorem Atom.candidates_correct (Θ : TinyML.TypeEnv) {a : Atom τ} {φ : Formul
     · exact (pure_intro (PROP := iProp) trivial).trans true_emp.1
   | isinj tag arity v =>
     simp [candidates] at hmem; obtain ⟨rfl, rfl⟩ := hmem
-    simp [Formula.eval, UnPred.eval] at h
+    simp [Formula.eval, UnPred.eval, Term.eval, UnOp.eval, Const.denote] at h
     simp [toItem, CtxItem.interp, Formula.eval, Term.eval, UnOp.eval]
     cases hv : v.eval ρ.env <;> simp_all
-    · exact (pure_intro (PROP := iProp) trivial).trans true_emp.1
+    exact (pure_intro (PROP := iProp) trivial).trans true_emp.1
   | own l ty => simp [candidates] at hmem
   | rel name arg => simp [candidates] at hmem
 
@@ -374,7 +380,8 @@ theorem Atom.candidates_wfIn {a : Atom τ} {φ : Formula} {t : Term τ} {Δ : Si
   | isinj tag arity v =>
     simp [candidates] at hmem
     obtain ⟨rfl, rfl⟩ := hmem
-    exact ⟨⟨trivial, h⟩, ⟨trivial, h⟩⟩
+    refine ⟨⟨⟨trivial, h⟩, ?_⟩, ⟨trivial, h⟩⟩
+    exact ⟨⟨⟨trivial, h⟩, trivial⟩, ⟨⟨trivial, h⟩, trivial⟩⟩
   | own l ty => simp [candidates] at hmem
   | rel name arg => simp [candidates] at hmem
 

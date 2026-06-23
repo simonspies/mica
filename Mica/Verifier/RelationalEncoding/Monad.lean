@@ -173,7 +173,7 @@ def encodeWith {M : Type} (ops : EncoderOps M) (Δ : Signature)
       encodeWith ops Δ Γ (VarEnv.bindBinder δ b v) body k
   | .inj tag arity payload, k =>
     encodeWith ops Δ Γ δ payload fun v =>
-      k (.unop (.mkInj tag arity) v)
+      k (.unop (.ofInj tag arity) v)
   | .match_ scrut branches _, k =>
     encodeWith ops Δ Γ δ scrut fun v =>
       encodeMatchWith ops Δ Γ δ v branches 0 k
@@ -1255,7 +1255,7 @@ theorem inj (tag arity : Nat) (payload : Typed.Expr)
   refine ih hops hsub₁ hsub₂ hwf₁ hwf₂ hagree henv ?_
   intro Δa₁ Δa₂ ρa₁ ρa₂ hsa₁ hsa₂ hwa₁ hwa₂ haa₁ haa₂ v₁ v₂ hv₁ hv₂ hevalv
   exact hk hsa₁ hsa₂ hwa₁ hwa₂ haa₁ haa₂
-    (.unop (.mkInj tag arity) v₁) (.unop (.mkInj tag arity) v₂)
+    (.unop (.ofInj tag arity) v₁) (.unop (.ofInj tag arity) v₂)
     ⟨trivial, hv₁⟩ ⟨trivial, hv₂⟩
     (by simp [Term.eval, UnOp.eval, hevalv])
 

@@ -8,7 +8,7 @@ inductive UnPred : Srt → Type where
   | isStr   : UnPred .value
   | isLoc   : UnPred .value
   | isTuple : UnPred .value
-  | isInj (tag : Nat) (arity : Nat) : UnPred .value
+  | isOfInj : UnPred .value
   | uninterpreted : String → (τ : Srt) → UnPred τ
   deriving DecidableEq, Repr
 
@@ -340,7 +340,7 @@ theorem Context.wfIn_mono (Γ : Context) (h : Γ.wfIn Δ) (hsub : Δ.Subset Δ')
   | _, .isStr,   v => match v with | .str _ => True | _ => False
   | _, .isLoc,   v => match v with | .loc _ => True | _ => False
   | _, .isTuple, v => match v with | .tuple _ => True | _ => False
-  | _, .isInj tag arity, v => match v with | .inj t a _ => t = tag ∧ a = arity | _ => False
+  | _, .isOfInj, v => match v with | .inj _ _ _ => True | _ => False
   | ρ, .uninterpreted name _, v => ρ.unaryRel τ name v
 
 @[simp] def BinPred.eval : Env → BinPred τ₁ τ₂ → τ₁.denote → τ₂.denote → Prop
