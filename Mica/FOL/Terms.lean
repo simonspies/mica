@@ -18,7 +18,7 @@ inductive UnOp : Srt → Srt → Type where
   | vhead      : UnOp .vallist .value
   | vtail      : UnOp .vallist .vallist
   | visnil     : UnOp .vallist .bool
-  | mkInj (tag : Nat) (arity : Nat) : UnOp .value .value
+  | ofInj (tag : Nat) (arity : Nat) : UnOp .value .value
   | tagOf                           : UnOp .value .int
   | arityOf                         : UnOp .value .int
   | payloadOf                       : UnOp .value .value
@@ -345,7 +345,7 @@ theorem Term.wfIn_mono (t : Term τ) (h : t.wfIn Δ) (hsub : Δ.Subset Δ') (hwf
   | _, .vhead,   vs => vs.headD .unit
   | _, .vtail,   vs => vs.tail
   | _, .visnil,  vs => vs.isEmpty
-  | _, .mkInj tag arity, v => Runtime.Val.inj tag arity v
+  | _, .ofInj tag arity, v => Runtime.Val.inj tag arity v
   | _, .tagOf,   v => match v with | .inj tag _ _ => (tag : Int) | _ => 0
   | _, .arityOf, v => match v with | .inj _ arity _ => (arity : Int) | _ => 0
   | _, .payloadOf, v => match v with | .inj _ _ payload => payload | _ => Runtime.Val.unit

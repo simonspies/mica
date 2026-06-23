@@ -199,7 +199,7 @@ mutual
         if tag ≥ arity then VerifM.fatal "inj tag out of range"
         else
           let s ← compile reg Θ Δ_spec S B Γ payload
-          pure (.unop (.mkInj tag arity) s)
+          pure (.unop (.ofInj tag arity) s)
     | .match_ scrut branches ty => do
         let sc ← compile reg Θ Δ_spec S B Γ scrut
         match scrut.ty with
@@ -261,14 +261,14 @@ mutual
         | _ => VerifM.fatal "store location is not a reference"
     | .app _ _ _ | .fix _ _ _ _ => VerifM.fatal "unsupported expression"
 
-  /-- Compile a single match branch: assume the scrutinee is `mkInj i n payload`, then compile the body. -/
+  /-- Compile a single match branch: assume the scrutinee is `ofInj i n payload`, then compile the body. -/
   def compileBranch (reg : Verifier.Registry) (Θ : TinyML.TypeEnv) (Δ_spec : Signature) (S : SpecMap) (B : Bindings) (Γ : TinyML.TyCtx)
       (sc : Term .value) (n : Nat) (i : Nat) (ty_i : TinyML.Typ)
       : Binder × Expr → VerifM (Term .value)
     | (binder, body) => do
         VerifM.expectEq "match binder type annotation mismatch" binder.ty ty_i
         let xv ← VerifM.decl binder.name .value
-        VerifM.assume (.pure (.eq .value sc (.unop (.mkInj i n) (.const (.uninterpreted xv.name .value)))))
+        VerifM.assume (.pure (.eq .value sc (.unop (.ofInj i n) (.const (.uninterpreted xv.name .value)))))
         VerifM.assumeAll (TinyML.typeConstraints ty_i (.const (.uninterpreted xv.name .value)))
         match binder.name with
         | some x =>
@@ -2165,13 +2165,13 @@ theorem compileSingleBranch_correct (reg : Verifier.Registry) (binder : Binder) 
         simpa [st₁] using
           (Term.const_wfIn_addConst_of_fresh (Δ := st.decls) (c := xv) hstwf hxv_fresh)
     have hformula_wf : (Formula.eq .value sc
-        (.unop (.mkInj i n) (.const (.uninterpreted xv.name .value)))).wfIn st₁.decls := by
+        (.unop (.ofInj i n) (.const (.uninterpreted xv.name .value)))).wfIn st₁.decls := by
       refine ⟨Term.wfIn_mono sc hsc_wf (Signature.Subset.subset_addConst _ _)
         (Signature.wf_addConst hstwf hxv_fresh), trivial, hxv_wf⟩
     have hsc_eval_ρ₁ : sc.eval ρ₁.env = sc.eval ρ.env :=
       Term.eval_env_agree hsc_wf (Env.agreeOn_symm (Env.agreeOn_update_fresh_const hxv_fresh))
     have hformula_eval : Formula.eval ρ₁.env
-        (Formula.eq .value sc (.unop (.mkInj i n) (.const (.uninterpreted xv.name .value)))) := by
+        (Formula.eq .value sc (.unop (.ofInj i n) (.const (.uninterpreted xv.name .value)))) := by
       simp [Formula.eval, Term.eval, UnOp.eval]
       rw [hsc_eval_ρ₁, hsc_eval]
       simp [ρ₁, Env.updateConst]
