@@ -363,9 +363,7 @@ structure Binary.Lawful (b : Binary) where
   typeWf     : b.typeAxiom.wfIn (Intrinsic.sigOf [b.toIntrinsic])
   defEval    : ∀ ρ : Env, ρ.respects (some b.sym) → Formula.eval ρ b.defAxiom
 
-/-- The whole `IntrinsicSound` instance for a pure binary intrinsic, chaining the
-    field combinators. The argument/result embeddings supply the typing facts;
-    `project ∘ inject = id` supplies injectivity for the operational direction. -/
+/-- The whole `IntrinsicSound` instance for a pure binary intrinsic. -/
 @[reducible] def Binary.Lawful.sound {b : Binary} (l : b.Lawful) :
     IntrinsicSound [b.toIntrinsic] b.toIntrinsic where
   specWf := fun _ hsub hwf => specWf_of_base l.specBaseWf hsub hwf
