@@ -196,6 +196,12 @@ def Unary.toIntrinsic (b : Unary) : Intrinsic where
   folSym := some b.sym
   axioms := [b.defAxiom, b.typeAxiom]
 
+@[simp] theorem Unary.toWp_eq (b : Unary) (a : Runtime.Val) (Q : Runtime.Val → iProp) :
+    b.toIntrinsic.toWp [a] Q = iprop(∃ x, ⌜a = b.arg.inject x⌝ ∗ Q (b.res.inject (b.f x))) := rfl
+
+@[simp] theorem Unary.toReduce_eq (b : Unary) (a v : Runtime.Val) (μ μ' : TinyML.Heap) :
+    b.toIntrinsic.toReduce [a] μ v μ' = ((∃ x, a = b.arg.inject x ∧ v = b.res.inject (b.f x)) ∧ μ' = μ) := rfl
+
 /-- Proof obligations for a pure unary intrinsic. -/
 structure Unary.Lawful (b : Unary) where
   argL       : b.arg.Lawful
@@ -348,6 +354,14 @@ def Binary.toIntrinsic (b : Binary) : Intrinsic where
           (b.opTerm (.var .value "a") (.var .value "b"))) (.ret ())) }
   folSym := some b.sym
   axioms := [b.defAxiom, b.typeAxiom]
+
+@[simp] theorem Binary.toWp_eq (b : Binary) (a c : Runtime.Val) (Q : Runtime.Val → iProp) :
+    b.toIntrinsic.toWp [a, c] Q =
+      iprop(∃ x y, ⌜a = b.arg.inject x ∧ c = b.arg.inject y⌝ ∗ Q (b.res.inject (b.f x y))) := rfl
+
+@[simp] theorem Binary.toReduce_eq (b : Binary) (a c v : Runtime.Val) (μ μ' : TinyML.Heap) :
+    b.toIntrinsic.toReduce [a, c] μ v μ' =
+      ((∃ x y, a = b.arg.inject x ∧ c = b.arg.inject y ∧ v = b.res.inject (b.f x y)) ∧ μ' = μ) := rfl
 
 /-- Proof obligations for a pure binary intrinsic: lawful embeddings, the three
     well-formedness facts (spec/def-axiom/type-axiom — one-liners at literal
