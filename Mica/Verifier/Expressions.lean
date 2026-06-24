@@ -116,6 +116,7 @@ mutual
     | .const (.int n)  => pure (.unop .ofInt  (.const (.i n)))
     | .const (.bool b) => pure (.unop .ofBool (.const (.b b)))
     | .const (.string s) => pure (.unop .ofString (.const (.str s)))
+    | .const (.float b) => pure (.unop .ofFloat (.const (.fp b)))
     | .const .unit     => pure (Term.const .unit)
     | .var x vty => do
         let x' ← VerifM.expectSome s!"undefined variable: {x}" (B.lookup x)
@@ -555,6 +556,22 @@ theorem compileConst_correct (reg : Verifier.Registry) (c : TinyML.Const) :
     · iexact Howns
     · isplitl []
       · exact TinyML.ValHasType.string_intro Θ s
+      · iexact HR
+  | float b =>
+    simp only [compile] at heval
+    simp only [Expr.runtime, Runtime.Val.ofConst, Runtime.Expr.subst_val]
+    obtain heval := VerifM.eval_ret heval
+    simp only [Expr.ty, Const.ty] at hpost
+    refine SpatialContext.wp_val ?_
+    istart
+    iintro ⟨Howns, _HS, _Hts, HR⟩
+    iapply (hpost (.float b) ρ st _ heval
+      (by simp [Term.wfIn, Const.wfIn, UnOp.wfIn])
+      (by simp [Term.eval, UnOp.eval, Const.denote]))
+    isplitl [Howns]
+    · iexact Howns
+    · isplitl []
+      · exact TinyML.ValHasType.float_intro Θ b
       · iexact HR
   | unit =>
     simp only [compile] at heval

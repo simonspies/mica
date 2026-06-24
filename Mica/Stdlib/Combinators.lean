@@ -1,4 +1,4 @@
--- SUMMARY: Embeddings and the pure-intrinsic builders (`Pure.Unary`/`Pure.Binary`) that emit an intrinsic and its soundness instance, plus the shared helper lemmas their soundness proofs use.
+-- SUMMARY: Embeddings and the pure-intrinsic builders (`Pure.Zero`/`Pure.Unary`/`Pure.Binary`) that emit an intrinsic and its soundness instance, plus the shared helper lemmas their soundness proofs use.
 import Mica.Verifier.Intrinsic
 
 open Iris Iris.BI
@@ -107,12 +107,19 @@ def valStr : Runtime.Val → List UInt8
   | .str s => s
   | _      => []
 
+/-- Float projection of a runtime value, matching FOL's `toFloat`. -/
+def valFloat : Runtime.Val → UInt64
+  | .float b => b
+  | _        => 0
+
 /-- Integers as `.int` values. -/
 def Embedding.int  : Embedding := ⟨.int,    Int,        .int,  valInt,  .isInt⟩
 /-- Booleans as `.bool` values. -/
 def Embedding.bool : Embedding := ⟨.bool,   Bool,       .bool, valBool, .isBool⟩
 /-- Byte strings as `.str` values. -/
 def Embedding.str  : Embedding := ⟨.string, List UInt8, .str,  valStr,  .isStr⟩
+/-- IEEE binary64 bit-patterns as `.float` values. -/
+def Embedding.float : Embedding := ⟨.float, UInt64, .float, valFloat, .isFloat⟩
 
 /-- Coherence laws for an `Embedding`. -/
 structure Embedding.Lawful (e : Embedding) where
@@ -148,7 +155,137 @@ def Embedding.lawfulStr : Embedding.str.Lawful where
   member Θ w := TinyML.ValHasType.string Θ w
   intro Θ x := TinyML.ValHasType.string_intro Θ x
 
+/-- Floats are a lawful embedding. -/
+def Embedding.lawfulFloat : Embedding.float.Lawful where
+  project_inject _ := rfl
+  isOf_wf _ := trivial
+  isOf_inject _ _ := by simp [Embedding.float]
+  member Θ w := TinyML.ValHasType.float Θ w
+  intro Θ x := TinyML.ValHasType.float_intro Θ x
+
 namespace Pure
+
+/-! ## Builder for pure zero-arity intrinsics
+
+`Pure.Zero` bundles the *computational* content of a pure constant intrinsic:
+its name/path, result embedding, carrier value, and SMT defining axiom. From
+this alone the `Intrinsic` and its FOL symbol are built (`toIntrinsic`). The
+proof obligations live in `Pure.Zero.Lawful`. -/
+
+/-- The computational data of a pure zero-arity intrinsic. -/
+structure Zero where
+  name     : String
+  path     : Option (String × List String)
+  res      : Embedding
+  f        : res.carrier
+  defAxiom : Formula
+
+/-- The intrinsic's uninterpreted constant symbol as a value term. -/
+def Zero.opTerm (b : Zero) : Term .value :=
+  .const (.uninterpreted b.name .value)
+
+/-- The FOL symbol: the standard interpretation injects the carrier value. -/
+def Zero.sym (b : Zero) : FOL.Symbol .zero where
+  name   := b.name
+  interp := fun () => b.res.inject b.f
+
+/-- The result-typing axiom, generated from `res`. -/
+def Zero.typeAxiom (b : Zero) : Formula :=
+  .unpred b.res.isOf b.opTerm
+
+/-- The intrinsic built from `b`: a literal `Intrinsic.mk`. -/
+def Zero.toIntrinsic (b : Zero) : Intrinsic where
+  arity  := .zero
+  name   := b.name
+  path   := b.path
+  reduce := Reduce.pure fun () v => v = b.res.inject b.f
+  wp     := fun () Q => Q (b.res.inject b.f)
+  spec   :=
+    { args  := []
+      retTy := b.res.typ
+      pred  := .ret ("ret",
+        .assert (.eq .value (.var .value "ret") b.opTerm) (.ret ())) }
+  folSym := some b.sym
+  axioms := [b.defAxiom, b.typeAxiom]
+
+@[simp] theorem Zero.toWp_eq (b : Zero) (Q : Runtime.Val → iProp) :
+    b.toIntrinsic.toWp [] Q = Q (b.res.inject b.f) := rfl
+
+@[simp] theorem Zero.toReduce_eq (b : Zero) (v : Runtime.Val) (μ μ' : TinyML.Heap) :
+    b.toIntrinsic.toReduce [] μ v μ' = (v = b.res.inject b.f ∧ μ' = μ) := rfl
+
+/-- Proof obligations for a pure zero-arity intrinsic. The `nameFresh` premise
+    keeps the generated constant symbol distinct from the spec's `"ret"`
+    binder, since both live in the value-constant namespace. -/
+structure Zero.Lawful (b : Zero) where
+  resL       : b.res.Lawful
+  nameFresh  : b.name ≠ "ret"
+  specBaseWf : PredTrans.wfIn
+                 ((Intrinsic.sigOf [b.toIntrinsic]).declVars
+                   (Spec.argVars b.toIntrinsic.specArgs)) b.toIntrinsic.spec.pred
+  defWf      : b.defAxiom.wfIn (Intrinsic.sigOf [b.toIntrinsic])
+  typeWf     : b.typeAxiom.wfIn (Intrinsic.sigOf [b.toIntrinsic])
+  defEval    : ∀ ρ : Env, ρ.respects (some b.sym) → Formula.eval ρ b.defAxiom
+
+/-- The `IntrinsicSound` instance for a pure zero-arity intrinsic. -/
+@[reducible] def Zero.Lawful.sound {b : Zero} (l : b.Lawful) :
+    IntrinsicSound [b.toIntrinsic] b.toIntrinsic where
+  specWf := fun _ hsub hwf => specWf_of_base l.specBaseWf hsub hwf
+  wp_sound := by
+    intro _ ctx hctx vs Φ
+    match vs with
+    | _ :: _ => exact false_elim
+    | [] =>
+      have hred : ∀ μ v μ',
+          ctx b.toIntrinsic.name [] μ v μ' ↔ v = b.res.inject b.f ∧ μ' = μ := by
+        intro μ v μ'
+        rw [hctx]
+        simp only [Zero.toIntrinsic, Intrinsic.toReduce_zero_of_arity, Reduce.pure]
+      rw [Zero.toWp_eq]
+      istart
+      iintro HΦ
+      iapply (wp.prim_pure hred ⟨b.res.inject b.f, rfl⟩)
+      iintro %v %hv
+      subst hv
+      iexact HΦ
+  bridge := by
+    intro _ Θ vs ρ Φ hρ
+    show TinyML.ValsHaveTypes Θ vs [] ∗ _ ⊢ _
+    match vs with
+    | _ :: _ => exact (sep_mono_left (valsHaveTypes_off_shape _ (by simp))).trans sep_elim_left
+    | [] =>
+      simp only [Zero.toIntrinsic, Intrinsic.toWp_zero_of_arity]
+      refine (sep_mono_left (TinyML.ValsHaveTypes.nil Θ).1).trans ?_
+      refine emp_sep.1.trans ?_
+      refine (assert_ret_apply Θ _ "ret" _ _ (b.res.inject b.f) ?_).trans ?_
+      · have hconst : (ρ.updateConst .value "ret" (b.res.inject b.f)).env.lookupConst
+            .value b.name = b.res.inject b.f := by
+          rw [VerifM.Env.updateConst_env]
+          rw [Env.lookupConst_updateConst_ne l.nameFresh]
+          simpa [Env.respects, Zero.sym] using hρ
+        simpa [Zero.opTerm, Term.eval, Const.denote] using hconst.symm
+      · iintro Hwand
+        iapply Hwand
+        exact l.resL.intro Θ b.f
+  axiomWf := by
+    intro Δ hsub hwf φ hφ
+    simp only [Zero.toIntrinsic, List.mem_cons, List.not_mem_nil, _root_.or_false] at hφ
+    rcases hφ with rfl | rfl
+    · exact Formula.wfIn_mono _ l.defWf hsub hwf
+    · exact Formula.wfIn_mono _ l.typeWf hsub hwf
+  proof := by
+    intro ρ hdeps φ hφ
+    simp only [Zero.toIntrinsic, List.mem_cons, List.not_mem_nil, _root_.or_false] at hφ
+    have hresp : ρ.respects (some b.sym) := by
+      have h := hdeps b.toIntrinsic (by simp)
+      simpa [Zero.toIntrinsic] using h
+    rcases hφ with rfl | rfl
+    · exact l.defEval ρ hresp
+    · simp only [Zero.typeAxiom, Formula.eval, Zero.opTerm, Term.eval, Const.denote]
+      have hconst : ρ.consts .value b.name = b.res.inject b.f := by
+        simpa [Env.respects, Env.lookupConst, Zero.sym] using hresp
+      rw [hconst]
+      exact l.resL.isOf_inject _ _
 
 /-! ## Builder for pure unary intrinsics
 
@@ -484,6 +621,18 @@ structure Binary.Lawful (b : Binary) where
       exact l.resL.isOf_inject _ _
 
 end Pure
+
+syntax (name := intrinsicDefEval) "intrinsic_def_eval" "["
+  ((Lean.Parser.Tactic.simpErase <|> Lean.Parser.Tactic.simpLemma),*,?) "]" : tactic
+
+macro_rules
+  | `(tactic| intrinsic_def_eval [$xs,*]) => `(tactic|
+  ((intro ρ; intro hρ);
+   simp_all [Env.respects, Formula.eval, Formula.all, Term.eval, Env.lookupConst,
+     Env.updateConst, Env.updateConst_unary, Env.updateConst_binary,
+     Env.lookupConst_updateConst_same, Pure.Zero.sym, Pure.Unary.sym, Pure.Binary.sym,
+     Embedding.int, Embedding.bool, Embedding.str, Embedding.float,
+     Const.denote, valInt, valBool, valStr, valFloat, $xs,*]))
 
 end Intrinsics
 end Stdlib

@@ -40,6 +40,7 @@ def preamble : String := s!"
   ((of_int (to_int Int))
    (of_bool (to_bool Bool))
    (of_string (to_string (Seq (_ BitVec 8))))
+   (of_float (to_float (_ FloatingPoint 11 53)))
    (of_loc (to_loc Loc))
    (of_other (to_other Other))
    (of_tuple (to_tuple ValueList))
