@@ -9,16 +9,6 @@ open Verifier
 
 namespace Intrinsics
 
-/-- String projection of a runtime value, matching FOL's `toString`. -/
-private def valStr : Runtime.Val → List UInt8
-  | .str s => s
-  | _      => []
-
-@[simp] private theorem valStr_str (s : List UInt8) : valStr (.str s) = s := rfl
-
-@[simp] private theorem toString_eq_valStr (ρ : Env) (v : Runtime.Val) :
-    UnOp.eval ρ .toString v = valStr v := rfl
-
 /-- FOL symbol for `String.length`. -/
 def stringLengthSym : FOL.Symbol .one where
   name   := "string_length"
@@ -72,17 +62,15 @@ the expected value constructor (`is-of_int`/`is-of_string`/`is-of_bool`).
 
 The typing axiom is what lets a bare value-level equality such as
 `String.length s = 2` discharge: without it Z3 only knows the symbol's `toInt`
-projection, not that the result *is* an integer value. -/
+projection, not that the result *is* an integer value. Only the defining axiom
+is written by hand here; the typing axiom is generated uniformly from the result
+embedding by `Pure.Binary`/`Pure.Unary`. -/
 
 def stringLengthDefAxiom : Formula :=
   .forall_ "s" .value [.term (stringLengthTerm (.var .value "s"))] <|
     .eq .int
       (.unop .toInt (stringLengthTerm (.var .value "s")))
       (.unop .seqLen (.unop .toString (.var .value "s")))
-
-def stringLengthTypeAxiom : Formula :=
-  .forall_ "s" .value [.term (stringLengthTerm (.var .value "s"))] <|
-    .unpred .isInt (stringLengthTerm (.var .value "s"))
 
 def stringCatDefAxiom : Formula :=
   .all "a" .value <| .forall_ "b" .value
@@ -91,22 +79,12 @@ def stringCatDefAxiom : Formula :=
       (.unop .toString (stringCatTerm (.var .value "a") (.var .value "b")))
       (.binop .seqConcat (.unop .toString (.var .value "a")) (.unop .toString (.var .value "b")))
 
-def stringCatTypeAxiom : Formula :=
-  .all "a" .value <| .forall_ "b" .value
-    [.term (stringCatTerm (.var .value "a") (.var .value "b"))] <|
-    .unpred .isStr (stringCatTerm (.var .value "a") (.var .value "b"))
-
 def stringEqualDefAxiom : Formula :=
   .all "a" .value <| .forall_ "b" .value
     [.term (stringEqualTerm (.var .value "a") (.var .value "b"))] <|
     .eq .bool
       (.unop .toBool (stringEqualTerm (.var .value "a") (.var .value "b")))
       (.binop (.eq (τ := .string)) (.unop .toString (.var .value "a")) (.unop .toString (.var .value "b")))
-
-def stringEqualTypeAxiom : Formula :=
-  .all "a" .value <| .forall_ "b" .value
-    [.term (stringEqualTerm (.var .value "a") (.var .value "b"))] <|
-    .unpred .isBool (stringEqualTerm (.var .value "a") (.var .value "b"))
 
 def stringStartsWithDefAxiom : Formula :=
   .all "prefix" .value <| .forall_ "s" .value
@@ -115,11 +93,6 @@ def stringStartsWithDefAxiom : Formula :=
       (.unop .toBool (stringStartsWithTerm (.var .value "prefix") (.var .value "s")))
       (.binop .seqPrefixOf (.unop .toString (.var .value "prefix")) (.unop .toString (.var .value "s")))
 
-def stringStartsWithTypeAxiom : Formula :=
-  .all "prefix" .value <| .forall_ "s" .value
-    [.term (stringStartsWithTerm (.var .value "prefix") (.var .value "s"))] <|
-    .unpred .isBool (stringStartsWithTerm (.var .value "prefix") (.var .value "s"))
-
 def stringEndsWithDefAxiom : Formula :=
   .all "suffix" .value <| .forall_ "s" .value
     [.term (stringEndsWithTerm (.var .value "suffix") (.var .value "s"))] <|
@@ -127,745 +100,237 @@ def stringEndsWithDefAxiom : Formula :=
       (.unop .toBool (stringEndsWithTerm (.var .value "suffix") (.var .value "s")))
       (.binop .seqSuffixOf (.unop .toString (.var .value "suffix")) (.unop .toString (.var .value "s")))
 
-def stringEndsWithTypeAxiom : Formula :=
-  .all "suffix" .value <| .forall_ "s" .value
-    [.term (stringEndsWithTerm (.var .value "suffix") (.var .value "s"))] <|
-    .unpred .isBool (stringEndsWithTerm (.var .value "suffix") (.var .value "s"))
-
-private theorem off_shape_one [MicaGS HasLC.hasLC Sig] {Θ : TinyML.TypeEnv} {vs : List Runtime.Val} {ty : TinyML.Typ}
-    (P : iProp) (hlen : vs.length ≠ 1) :
-    TinyML.ValsHaveTypes Θ vs [ty] ⊢ P := by
-  refine TinyML.ValsHaveTypes.length_eq.trans ?_
-  iintro %h
-  simp at h; omega
-
-private theorem off_shape_two_ty [MicaGS HasLC.hasLC Sig] {Θ : TinyML.TypeEnv} {vs : List Runtime.Val} {ty₁ ty₂ : TinyML.Typ}
-    (P : iProp) (hlen : vs.length ≠ 2) :
-    TinyML.ValsHaveTypes Θ vs [ty₁, ty₂] ⊢ P := by
-  refine TinyML.ValsHaveTypes.length_eq.trans ?_
-  iintro %h
-  simp at h; omega
-
-private theorem assert_ret_apply [MicaGS HasLC.hasLC Sig] (Θ : TinyML.TypeEnv) (Φ : Runtime.Val → iProp)
-    (s : String) (ρ : VerifM.Env) (φ : Formula) (v : Runtime.Val)
-    (hφ : φ.eval (ρ.updateConst .value s v).env) :
-    PredTrans.apply Θ Φ (.ret (s, .assert φ (.ret ()))) ρ ⊢ Φ v := by
-  simp only [PredTrans.apply, Assertion.pre, Assertion.post]
-  refine (forall_elim v).trans ?_
-  iintro Hw
-  iapply Hw
-  ipureintro
-  exact hφ
-
-private theorem respects_updateConstE_one {ρ : Env} {s : FOL.Symbol .one}
-    {τ : Srt} {x : String} {v : τ.denote} (h : ρ.respects (some s)) :
-    (ρ.updateConst τ x v).respects (some s) := by
-  show (ρ.updateConst τ x v).unary .value .value s.name = _
-  rw [Env.updateConst_unary]; exact h
-
-private theorem respects_updateConstE_two {ρ : Env} {s : FOL.Symbol .two}
-    {τ : Srt} {x : String} {v : τ.denote} (h : ρ.respects (some s)) :
-    (ρ.updateConst τ x v).respects (some s) := by
-  show (ρ.updateConst τ x v).binary .value .value .value s.name = _
-  rw [Env.updateConst_binary]; exact h
-
-private theorem respects_argsEnv_one {s : FOL.Symbol .one} :
-    ∀ (args : List (String × TinyML.Typ)) (vs : List Runtime.Val) {ρ : VerifM.Env},
-      ρ.env.respects (some s) → (Spec.argsEnv ρ args vs).env.respects (some s)
-  | [], _, _, h => h
-  | _ :: _, [], _, h => h
-  | (name, _) :: rest, v :: vs, ρ, h => by
-      simp only [Spec.argsEnv]
-      refine respects_argsEnv_one rest vs ?_
-      rw [VerifM.Env.updateConst_env]; exact respects_updateConstE_one h
-
-private theorem respects_argsEnv_two {s : FOL.Symbol .two} :
-    ∀ (args : List (String × TinyML.Typ)) (vs : List Runtime.Val) {ρ : VerifM.Env},
-      ρ.env.respects (some s) → (Spec.argsEnv ρ args vs).env.respects (some s)
-  | [], _, _, h => h
-  | _ :: _, [], _, h => h
-  | (name, _) :: rest, v :: vs, ρ, h => by
-      simp only [Spec.argsEnv]
-      refine respects_argsEnv_two rest vs ?_
-      rw [VerifM.Env.updateConst_env]; exact respects_updateConstE_two h
-
-/-- `String.length`: byte length. -/
-def stringLength : Intrinsic where
-  arity    := .one
+/-- `String.length`: byte length, built by `Pure.Unary`. -/
+def stringLengthB : Pure.Unary where
   name     := "string_length"
   path     := some ("String", ["length"])
-  reduce   := Reduce.pure fun a v => ∃ s : List UInt8, a = .str s ∧ v = .int s.length
-  wp       := fun a Q => iprop(∃ s : List UInt8, ⌜a = .str s⌝ ∗ Q (.int s.length))
-  spec     :=
-    { args  := [("s", .string)]
-      retTy := .int
-      pred  := .ret ("ret",
-        .assert (.eq .value (.var .value "ret") (stringLengthTerm (.var .value "s")))
-          (.ret ())) }
-  folSym   := some stringLengthSym
-  axioms   := [stringLengthDefAxiom, stringLengthTypeAxiom]
+  arg      := .str
+  res      := .int
+  f        := (fun s => (s.length : Int) : List UInt8 → Int)
+  defAxiom := stringLengthDefAxiom
+
+def stringLength : Intrinsic := stringLengthB.toIntrinsic
 
 @[simp] theorem stringLength_arity : stringLength.arity = .one := rfl
 @[simp] theorem stringLength_folSym : stringLength.folSym = some stringLengthSym := rfl
-@[simp] theorem stringLength_toWp (a : Runtime.Val) (Q : Runtime.Val → iProp) :
-    stringLength.toWp [a] Q =
-      iprop(∃ s : List UInt8, ⌜a = .str s⌝ ∗ Q (.int s.length)) :=
-  Intrinsic.toWp_one_of_arity _ _ _ _ _ _ _ _ Q
 
-private theorem stringLength_base_wf :
-    PredTrans.wfIn
-      ((Intrinsic.sigOf [stringLength]).declVars (Spec.argVars stringLength.specArgs)) stringLength.spec.pred := by
-  apply PredTrans.checkWf_ok
-  rfl
+def stringLengthLawful : stringLengthB.Lawful where
+  argL       := Embedding.lawfulStr
+  resL       := Embedding.lawfulInt
+  specBaseWf := by apply PredTrans.checkWf_ok; rfl
+  defWf      := by
+    simp only [stringLengthB, Pure.Unary.toIntrinsic, Pure.Unary.sym]
+    simp [stringLengthDefAxiom, stringLengthTerm, Intrinsic.sigOf, Intrinsic.foldSig,
+      Formula.wfIn, Term.wfIn, UnOp.wfIn, Signature.extendWithSym, Signature.empty,
+      Signature.addUnary, Signature.declVar, Signature.addVar, Signature.remove]
+  typeWf     := by
+    simp only [stringLengthB, Pure.Unary.typeAxiom, Pure.Unary.opTerm, Pure.Unary.toIntrinsic,
+      Pure.Unary.sym, Embedding.int]
+    simp [Intrinsic.sigOf, Intrinsic.foldSig, Formula.wfIn, Term.wfIn, UnOp.wfIn,
+      UnPred.wfIn, Signature.extendWithSym, Signature.empty, Signature.addUnary,
+      Signature.declVar, Signature.addVar, Signature.remove]
+  defEval    := by
+    intro ρ hρ
+    simp only [Env.respects] at hρ
+    simp only [stringLengthB, stringLengthDefAxiom, Formula.eval]
+    intro s
+    have hu : (ρ.updateConst .value "s" s).unary .value .value "string_length"
+        = stringLengthSym.interp := by
+      rw [Env.updateConst_unary]
+      simpa [stringLengthSym, stringLengthB, Pure.Unary.sym, Embedding.str, Embedding.int] using hρ
+    simp [stringLengthTerm, Term.eval, Env.lookupConst_updateConst_same, hu,
+      stringLengthSym, valStr]
+    rfl
 
-private theorem stringLength_assert_eval (ρ : VerifM.Env) (s : List UInt8)
-    (hρ : ρ.env.respects (some stringLengthSym)) :
-    (Formula.eq .value (.var .value "ret") (stringLengthTerm (.var .value "s"))).eval
-      ((Spec.argsEnv ρ stringLength.specArgs [.str s]).updateConst .value "ret" (.int s.length)).env := by
-  have hargs := respects_argsEnv_one stringLength.specArgs [.str s] hρ
-  have hun : (Spec.argsEnv ρ stringLength.specArgs [.str s]).env.unary
-      .value .value "string_length" = stringLengthSym.interp := by
-    simpa [Env.respects, stringLengthSym] using hargs
-  show Runtime.Val.int s.length =
-    (Spec.argsEnv ρ stringLength.specArgs [.str s]).env.unary .value .value "string_length" (.str s)
-  simp [hun, stringLengthSym]
+instance : IntrinsicSound [stringLength] stringLength := stringLengthLawful.sound
 
-instance : IntrinsicSound [stringLength] stringLength where
-  wp_sound := by
-    intro _ ctx hctx vs Φ
-    match vs with
-    | [] => exact false_elim
-    | _ :: _ :: _ => exact false_elim
-    | [a] =>
-      rw [stringLength_toWp]
-      istart
-      iintro ⟨%s, %ha, HΦ⟩
-      obtain rfl := ha
-      have hrel : ∀ μ v μ',
-          ctx stringLength.name [Runtime.Val.str s] μ v μ' ↔
-            v = .int s.length ∧ μ' = μ := by
-        intro μ v μ'
-        rw [hctx]
-        simp [stringLength, Intrinsic.toReduce_one_of_arity, Reduce.pure]
-      iapply (wp.prim_pure hrel ⟨_, rfl⟩)
-      iintro %v %hv
-      subst hv
-      iexact HΦ
-  axiomWf := by
-    intro Δ hsub hwf φ hφ
-    simp only [stringLength, List.mem_cons, List.not_mem_nil, or_false] at hφ
-    rcases hφ with rfl | rfl
-    · have hbase : stringLengthDefAxiom.wfIn (Intrinsic.sigOf [stringLength]) := by
-        simp [stringLengthDefAxiom, stringLengthTerm, Intrinsic.sigOf, Intrinsic.foldSig,
-          stringLength, stringLengthSym, Formula.wfIn, Term.wfIn, UnOp.wfIn,
-          Signature.extendWithSym, Signature.empty, Signature.addUnary,
-          Signature.declVar, Signature.addVar, Signature.remove]
-      exact Formula.wfIn_mono _ hbase hsub hwf
-    · have hbase : stringLengthTypeAxiom.wfIn (Intrinsic.sigOf [stringLength]) := by
-        simp [stringLengthTypeAxiom, stringLengthTerm, Intrinsic.sigOf, Intrinsic.foldSig,
-          stringLength, stringLengthSym, Formula.wfIn, Term.wfIn, UnOp.wfIn, UnPred.wfIn,
-          Signature.extendWithSym, Signature.empty, Signature.addUnary,
-          Signature.declVar, Signature.addVar, Signature.remove]
-      exact Formula.wfIn_mono _ hbase hsub hwf
-  proof := by
-    intro ρ hdeps φ hφ
-    simp only [stringLength, List.mem_cons, List.not_mem_nil, or_false] at hφ
-    have hlen : ρ.respects (some stringLengthSym) := hdeps stringLength (by simp)
-    simp only [Env.respects] at hlen
-    have hu : ∀ s : Runtime.Val,
-        (ρ.updateConst .value "s" s).unary .value .value "string_length" = stringLengthSym.interp := by
-      intro s; rw [Env.updateConst_unary]; simpa [stringLengthSym] using hlen
-    rcases hφ with rfl | rfl
-    · simp only [stringLengthDefAxiom, Formula.eval]
-      intro s
-      simp [stringLengthTerm, Term.eval, Env.lookupConst_updateConst_same, hu s,
-        stringLengthSym, valStr]
-      rfl
-    · simp only [stringLengthTypeAxiom, Formula.eval]
-      intro s
-      simp [stringLengthTerm, Term.eval, Env.lookupConst_updateConst_same, hu s,
-        stringLengthSym, valStr]
-  specWf := by
-    intro Δ hsub hwf
-    exact PredTrans.wfIn_mono stringLength_base_wf
-      (Signature.Subset.declVars hsub (Spec.argVars stringLength.specArgs))
-      (Signature.wf_declVars hwf)
-  bridge := by
-    intro _ Θ vs ρ Φ hρ
-    simp only [stringLength_folSym, Env.respects] at hρ
-    show TinyML.ValsHaveTypes Θ vs [TinyML.Typ.string] ∗ _ ⊢ _
-    match vs with
-    | [] => exact (sep_mono_left (off_shape_one _ (by simp))).trans sep_elim_left
-    | _ :: _ :: _ => exact (sep_mono_left (off_shape_one _ (by simp))).trans sep_elim_left
-    | [v] =>
-      iintro ⟨Hvs, Hpred⟩
-      ihave Hcons := (TinyML.ValsHaveTypes.cons Θ v [] _ _).1 $$ Hvs
-      icases Hcons with ⟨Hv, _⟩
-      ihave Hveq := (TinyML.ValHasType.string Θ v).1 $$ Hv
-      ipure Hveq
-      obtain ⟨s, rfl⟩ := Hveq
-      rw [stringLength_toWp]
-      iexists s
-      isplitr [Hpred]
-      · ipureintro; rfl
-      · refine (assert_ret_apply Θ _ "ret" _ _ (.int s.length) ?_).trans ?_
-        · exact stringLength_assert_eval ρ s hρ
-        · iintro Hwand
-          iapply Hwand
-          exact TinyML.ValHasType.int_intro Θ s.length
-
-/-- `String.cat`: byte-string concatenation. -/
-def stringCat : Intrinsic where
-  arity    := .two
+/-- `String.cat`: byte-string concatenation, built by `Pure.Binary`. -/
+def stringCatB : Pure.Binary where
   name     := "string_cat"
   path     := some ("String", ["cat"])
-  reduce   := Reduce.pure fun (a, b) v => ∃ x y : List UInt8, a = .str x ∧ b = .str y ∧ v = .str (x ++ y)
-  wp       := fun (a, b) Q => iprop(∃ x y : List UInt8, ⌜a = .str x ∧ b = .str y⌝ ∗ Q (.str (x ++ y)))
-  spec     :=
-    { args  := [("a", .string), ("b", .string)]
-      retTy := .string
-      pred  := .ret ("ret",
-        .assert (.eq .value (.var .value "ret")
-          (stringCatTerm (.var .value "a") (.var .value "b")))
-          (.ret ())) }
-  folSym   := some stringCatSym
-  axioms   := [stringCatDefAxiom, stringCatTypeAxiom]
+  arg      := .str
+  res      := .str
+  f        := (fun x y => x ++ y : List UInt8 → List UInt8 → List UInt8)
+  defAxiom := stringCatDefAxiom
+
+def stringCat : Intrinsic := stringCatB.toIntrinsic
 
 @[simp] theorem stringCat_arity : stringCat.arity = .two := rfl
 @[simp] theorem stringCat_folSym : stringCat.folSym = some stringCatSym := rfl
-@[simp] theorem stringCat_toWp (a b : Runtime.Val) (Q : Runtime.Val → iProp) :
-    stringCat.toWp [a, b] Q =
-      iprop(∃ x y : List UInt8, ⌜a = .str x ∧ b = .str y⌝ ∗ Q (.str (x ++ y))) :=
-  Intrinsic.toWp_two_of_arity _ _ _ _ _ _ _ _ _ Q
 
-private theorem stringCat_base_wf :
-    PredTrans.wfIn
-      ((Intrinsic.sigOf [stringCat]).declVars (Spec.argVars stringCat.specArgs)) stringCat.spec.pred := by
-  apply PredTrans.checkWf_ok
-  rfl
+def stringCatLawful : stringCatB.Lawful where
+  argL       := Embedding.lawfulStr
+  resL       := Embedding.lawfulStr
+  specBaseWf := by apply PredTrans.checkWf_ok; rfl
+  defWf      := by
+    simp only [stringCatB, Pure.Binary.toIntrinsic, Pure.Binary.sym]
+    simp [stringCatDefAxiom, stringCatTerm, Intrinsic.sigOf, Intrinsic.foldSig,
+      Formula.wfIn, Term.wfIn, BinOp.wfIn, UnOp.wfIn, Signature.extendWithSym,
+      Signature.empty, Signature.addBinary, Signature.declVar, Signature.addVar,
+      Signature.remove]
+  typeWf     := by
+    simp only [stringCatB, Pure.Binary.typeAxiom, Pure.Binary.opTerm, Pure.Binary.toIntrinsic,
+      Pure.Binary.sym, Embedding.str]
+    simp [Intrinsic.sigOf, Intrinsic.foldSig, Formula.wfIn, Term.wfIn, BinOp.wfIn,
+      UnPred.wfIn, Signature.extendWithSym, Signature.empty, Signature.addBinary,
+      Signature.declVar, Signature.addVar, Signature.remove]
+  defEval    := by
+    intro ρ hρ
+    simp only [Env.respects] at hρ
+    simp only [stringCatB, stringCatDefAxiom, Formula.all, Formula.eval]
+    intro x y
+    have hb : ((ρ.updateConst .value "a" x).updateConst .value "b" y).binary
+        .value .value .value "string_cat" = fun a b => stringCatSym.interp (a, b) := by
+      rw [Env.updateConst_binary, Env.updateConst_binary]
+      simpa [stringCatSym, stringCatB, Pure.Binary.sym, Embedding.str] using hρ
+    simp [stringCatTerm, Term.eval, Env.lookupConst_updateConst_same,
+      Env.lookupConst_updateConst_ne (show "a" ≠ "b" by decide), hb, stringCatSym, valStr]
+    rfl
 
-private theorem stringCat_assert_eval (ρ : VerifM.Env) (x y : List UInt8)
-    (hρ : ρ.env.respects (some stringCatSym)) :
-    (Formula.eq .value (.var .value "ret")
-      (stringCatTerm (.var .value "a") (.var .value "b"))).eval
-      ((Spec.argsEnv ρ stringCat.specArgs [.str x, .str y]).updateConst
-        .value "ret" (.str (x ++ y))).env := by
-  have hargs := respects_argsEnv_two stringCat.specArgs [.str x, .str y] hρ
-  have hbin : (Spec.argsEnv ρ stringCat.specArgs [.str x, .str y]).env.binary
-      .value .value .value "string_cat" = fun a b => stringCatSym.interp (a, b) := by
-    simpa [Env.respects, stringCatSym] using hargs
-  show Runtime.Val.str (x ++ y) =
-    (Spec.argsEnv ρ stringCat.specArgs [.str x, .str y]).env.binary
-      .value .value .value "string_cat" (.str x) (.str y)
-  simp [hbin, stringCatSym]
+instance : IntrinsicSound [stringCat] stringCat := stringCatLawful.sound
 
-instance : IntrinsicSound [stringCat] stringCat where
-  wp_sound := by
-    intro _ ctx hctx vs Φ
-    match vs with
-    | [] => exact false_elim
-    | [_] => exact false_elim
-    | _ :: _ :: _ :: _ => exact false_elim
-    | [a, b] =>
-      rw [stringCat_toWp]
-      istart
-      iintro ⟨%x, %y, %hab, HΦ⟩
-      obtain ⟨rfl, rfl⟩ := hab
-      have hrel : ∀ μ v μ',
-          ctx stringCat.name [Runtime.Val.str x, Runtime.Val.str y] μ v μ' ↔
-            v = .str (x ++ y) ∧ μ' = μ := by
-        intro μ v μ'
-        rw [hctx]
-        simp [stringCat, Intrinsic.toReduce_two_of_arity, Reduce.pure]
-      iapply (wp.prim_pure hrel ⟨_, rfl⟩)
-      iintro %v %hv
-      subst hv
-      iexact HΦ
-  axiomWf := by
-    intro Δ hsub hwf φ hφ
-    simp only [stringCat, List.mem_cons, List.not_mem_nil, or_false] at hφ
-    rcases hφ with rfl | rfl
-    · have hbase : stringCatDefAxiom.wfIn (Intrinsic.sigOf [stringCat]) := by
-        simp [stringCatDefAxiom, stringCatTerm, Intrinsic.sigOf, Intrinsic.foldSig, stringCat,
-          stringCatSym, Formula.wfIn, Term.wfIn, BinOp.wfIn, UnOp.wfIn,
-          Signature.extendWithSym, Signature.empty, Signature.addBinary,
-          Signature.declVar, Signature.addVar, Signature.remove]
-      exact Formula.wfIn_mono _ hbase hsub hwf
-    · have hbase : stringCatTypeAxiom.wfIn (Intrinsic.sigOf [stringCat]) := by
-        simp [stringCatTypeAxiom, stringCatTerm, Intrinsic.sigOf, Intrinsic.foldSig, stringCat,
-          stringCatSym, Formula.wfIn, Term.wfIn, BinOp.wfIn, UnPred.wfIn,
-          Signature.extendWithSym, Signature.empty, Signature.addBinary,
-          Signature.declVar, Signature.addVar, Signature.remove]
-      exact Formula.wfIn_mono _ hbase hsub hwf
-  proof := by
-    intro ρ hdeps φ hφ
-    simp only [stringCat, List.mem_cons, List.not_mem_nil, or_false] at hφ
-    have hcat : ρ.respects (some stringCatSym) := hdeps stringCat (by simp)
-    simp only [Env.respects] at hcat
-    have hb : ∀ x y : Runtime.Val,
-        ((ρ.updateConst .value "a" x).updateConst .value "b" y).binary
-          .value .value .value "string_cat" = fun a b => stringCatSym.interp (a, b) := by
-      intro x y; rw [Env.updateConst_binary, Env.updateConst_binary]; simpa [stringCatSym] using hcat
-    rcases hφ with rfl | rfl
-    · simp only [stringCatDefAxiom, Formula.all, Formula.eval]
-      intro x y
-      simp [stringCatTerm, Term.eval, Env.lookupConst_updateConst_same,
-        Env.lookupConst_updateConst_ne (show "a" ≠ "b" by decide), hb x y, stringCatSym, valStr]
-      rfl
-    · simp only [stringCatTypeAxiom, Formula.all, Formula.eval]
-      intro x y
-      simp [stringCatTerm, Term.eval, Env.lookupConst_updateConst_same,
-        Env.lookupConst_updateConst_ne (show "a" ≠ "b" by decide), hb x y, stringCatSym, valStr]
-  specWf := by
-    intro Δ hsub hwf
-    exact PredTrans.wfIn_mono stringCat_base_wf
-      (Signature.Subset.declVars hsub (Spec.argVars stringCat.specArgs))
-      (Signature.wf_declVars hwf)
-  bridge := by
-    intro _ Θ vs ρ Φ hρ
-    simp only [stringCat_folSym, Env.respects] at hρ
-    show TinyML.ValsHaveTypes Θ vs [TinyML.Typ.string, TinyML.Typ.string] ∗ _ ⊢ _
-    match vs with
-    | [] => exact (sep_mono_left (off_shape_two_ty _ (by simp))).trans sep_elim_left
-    | [_] => exact (sep_mono_left (off_shape_two_ty _ (by simp))).trans sep_elim_left
-    | _ :: _ :: _ :: _ => exact (sep_mono_left (off_shape_two_ty _ (by simp))).trans sep_elim_left
-    | [v1, v2] =>
-      iintro ⟨Hvs, Hpred⟩
-      ihave Hcons := (TinyML.ValsHaveTypes.cons Θ v1 [v2] _ _).1 $$ Hvs
-      icases Hcons with ⟨Hv1, Hvs2⟩
-      ihave Hcons2 := (TinyML.ValsHaveTypes.cons Θ v2 [] _ _).1 $$ Hvs2
-      icases Hcons2 with ⟨Hv2, _⟩
-      ihave Hv1eq := (TinyML.ValHasType.string Θ v1).1 $$ Hv1
-      ipure Hv1eq
-      ihave Hv2eq := (TinyML.ValHasType.string Θ v2).1 $$ Hv2
-      ipure Hv2eq
-      obtain ⟨x, rfl⟩ := Hv1eq
-      obtain ⟨y, rfl⟩ := Hv2eq
-      rw [stringCat_toWp]
-      iexists x
-      iexists y
-      isplitr [Hpred]
-      · ipureintro; exact ⟨rfl, rfl⟩
-      · refine (assert_ret_apply Θ _ "ret" _ _ (.str (x ++ y)) ?_).trans ?_
-        · exact stringCat_assert_eval ρ x y hρ
-        · iintro Hwand
-          iapply Hwand
-          exact TinyML.ValHasType.string_intro Θ (x ++ y)
-
-/-- `String.equal`: byte-string equality. -/
-def stringEqual : Intrinsic where
-  arity    := .two
+/-- `String.equal`: byte-string equality, built by `Pure.Binary`. -/
+def stringEqualB : Pure.Binary where
   name     := "string_equal"
   path     := some ("String", ["equal"])
-  reduce   := Reduce.pure fun (a, b) v => ∃ x y : List UInt8, a = .str x ∧ b = .str y ∧ v = .bool (x == y)
-  wp       := fun (a, b) Q => iprop(∃ x y : List UInt8, ⌜a = .str x ∧ b = .str y⌝ ∗ Q (.bool (x == y)))
-  spec     :=
-    { args  := [("a", .string), ("b", .string)]
-      retTy := .bool
-      pred  := .ret ("ret",
-        .assert (.eq .value (.var .value "ret")
-          (stringEqualTerm (.var .value "a") (.var .value "b")))
-          (.ret ())) }
-  folSym   := some stringEqualSym
-  axioms   := [stringEqualDefAxiom, stringEqualTypeAxiom]
+  arg      := .str
+  res      := .bool
+  f        := (fun x y => x == y : List UInt8 → List UInt8 → Bool)
+  defAxiom := stringEqualDefAxiom
+
+def stringEqual : Intrinsic := stringEqualB.toIntrinsic
 
 @[simp] theorem stringEqual_arity : stringEqual.arity = .two := rfl
 @[simp] theorem stringEqual_folSym : stringEqual.folSym = some stringEqualSym := rfl
-@[simp] theorem stringEqual_toWp (a b : Runtime.Val) (Q : Runtime.Val → iProp) :
-    stringEqual.toWp [a, b] Q =
-      iprop(∃ x y : List UInt8, ⌜a = .str x ∧ b = .str y⌝ ∗ Q (.bool (x == y))) :=
-  Intrinsic.toWp_two_of_arity _ _ _ _ _ _ _ _ _ Q
 
-private theorem stringEqual_base_wf :
-    PredTrans.wfIn
-      ((Intrinsic.sigOf [stringEqual]).declVars (Spec.argVars stringEqual.specArgs)) stringEqual.spec.pred := by
-  apply PredTrans.checkWf_ok
-  rfl
+def stringEqualLawful : stringEqualB.Lawful where
+  argL       := Embedding.lawfulStr
+  resL       := Embedding.lawfulBool
+  specBaseWf := by apply PredTrans.checkWf_ok; rfl
+  defWf      := by
+    simp only [stringEqualB, Pure.Binary.toIntrinsic, Pure.Binary.sym]
+    simp [stringEqualDefAxiom, stringEqualTerm, Intrinsic.sigOf, Intrinsic.foldSig,
+      Formula.wfIn, Term.wfIn, BinOp.wfIn, UnOp.wfIn, Signature.extendWithSym,
+      Signature.empty, Signature.addBinary, Signature.declVar, Signature.addVar,
+      Signature.remove]
+  typeWf     := by
+    simp only [stringEqualB, Pure.Binary.typeAxiom, Pure.Binary.opTerm, Pure.Binary.toIntrinsic,
+      Pure.Binary.sym, Embedding.bool]
+    simp [Intrinsic.sigOf, Intrinsic.foldSig, Formula.wfIn, Term.wfIn, BinOp.wfIn,
+      UnPred.wfIn, Signature.extendWithSym, Signature.empty, Signature.addBinary,
+      Signature.declVar, Signature.addVar, Signature.remove]
+  defEval    := by
+    intro ρ hρ
+    simp only [Env.respects] at hρ
+    simp only [stringEqualB, stringEqualDefAxiom, Formula.all, Formula.eval]
+    intro x y
+    have hb : ((ρ.updateConst .value "a" x).updateConst .value "b" y).binary
+        .value .value .value "string_equal" = fun a b => stringEqualSym.interp (a, b) := by
+      rw [Env.updateConst_binary, Env.updateConst_binary]
+      simpa [stringEqualSym, stringEqualB, Pure.Binary.sym, Embedding.str, Embedding.bool] using hρ
+    simp [stringEqualTerm, Term.eval, Env.lookupConst_updateConst_same,
+      Env.lookupConst_updateConst_ne (show "a" ≠ "b" by decide), hb, stringEqualSym, valStr,
+      Bool.beq_eq_decide_eq]
+    rfl
 
-private theorem stringEqual_assert_eval (ρ : VerifM.Env) (x y : List UInt8)
-    (hρ : ρ.env.respects (some stringEqualSym)) :
-    (Formula.eq .value (.var .value "ret")
-      (stringEqualTerm (.var .value "a") (.var .value "b"))).eval
-      ((Spec.argsEnv ρ stringEqual.specArgs [.str x, .str y]).updateConst
-        .value "ret" (.bool (x == y))).env := by
-  have hargs := respects_argsEnv_two stringEqual.specArgs [.str x, .str y] hρ
-  have hbin : (Spec.argsEnv ρ stringEqual.specArgs [.str x, .str y]).env.binary
-      .value .value .value "string_equal" = fun a b => stringEqualSym.interp (a, b) := by
-    simpa [Env.respects, stringEqualSym] using hargs
-  show Runtime.Val.bool (x == y) =
-    (Spec.argsEnv ρ stringEqual.specArgs [.str x, .str y]).env.binary
-      .value .value .value "string_equal" (.str x) (.str y)
-  simp [hbin, stringEqualSym]
+instance : IntrinsicSound [stringEqual] stringEqual := stringEqualLawful.sound
 
-instance : IntrinsicSound [stringEqual] stringEqual where
-  wp_sound := by
-    intro _ ctx hctx vs Φ
-    match vs with
-    | [] => exact false_elim
-    | [_] => exact false_elim
-    | _ :: _ :: _ :: _ => exact false_elim
-    | [a, b] =>
-      rw [stringEqual_toWp]
-      istart
-      iintro ⟨%x, %y, %hab, HΦ⟩
-      obtain ⟨rfl, rfl⟩ := hab
-      have hrel : ∀ μ v μ',
-          ctx stringEqual.name [Runtime.Val.str x, Runtime.Val.str y] μ v μ' ↔
-            v = .bool (x == y) ∧ μ' = μ := by
-        intro μ v μ'
-        rw [hctx]
-        simp [stringEqual, Intrinsic.toReduce_two_of_arity, Reduce.pure]
-      iapply (wp.prim_pure hrel ⟨_, rfl⟩)
-      iintro %v %hv
-      subst hv
-      iexact HΦ
-  axiomWf := by
-    intro Δ hsub hwf φ hφ
-    simp only [stringEqual, List.mem_cons, List.not_mem_nil, or_false] at hφ
-    rcases hφ with rfl | rfl
-    · have hbase : stringEqualDefAxiom.wfIn (Intrinsic.sigOf [stringEqual]) := by
-        simp [stringEqualDefAxiom, stringEqualTerm, Intrinsic.sigOf, Intrinsic.foldSig,
-          stringEqual, stringEqualSym, Formula.wfIn, Term.wfIn, BinOp.wfIn, UnOp.wfIn,
-          Signature.extendWithSym, Signature.empty, Signature.addBinary,
-          Signature.declVar, Signature.addVar, Signature.remove]
-      exact Formula.wfIn_mono _ hbase hsub hwf
-    · have hbase : stringEqualTypeAxiom.wfIn (Intrinsic.sigOf [stringEqual]) := by
-        simp [stringEqualTypeAxiom, stringEqualTerm, Intrinsic.sigOf, Intrinsic.foldSig,
-          stringEqual, stringEqualSym, Formula.wfIn, Term.wfIn, BinOp.wfIn, UnPred.wfIn,
-          Signature.extendWithSym, Signature.empty, Signature.addBinary,
-          Signature.declVar, Signature.addVar, Signature.remove]
-      exact Formula.wfIn_mono _ hbase hsub hwf
-  proof := by
-    intro ρ hdeps φ hφ
-    simp only [stringEqual, List.mem_cons, List.not_mem_nil, or_false] at hφ
-    have heq : ρ.respects (some stringEqualSym) := hdeps stringEqual (by simp)
-    simp only [Env.respects] at heq
-    have hb : ∀ x y : Runtime.Val,
-        ((ρ.updateConst .value "a" x).updateConst .value "b" y).binary
-          .value .value .value "string_equal" = fun a b => stringEqualSym.interp (a, b) := by
-      intro x y; rw [Env.updateConst_binary, Env.updateConst_binary]; simpa [stringEqualSym] using heq
-    rcases hφ with rfl | rfl
-    · simp only [stringEqualDefAxiom, Formula.all, Formula.eval]
-      intro x y
-      simp [stringEqualTerm, Term.eval, Env.lookupConst_updateConst_same,
-        Env.lookupConst_updateConst_ne (show "a" ≠ "b" by decide), hb x y, stringEqualSym, valStr,
-        Bool.beq_eq_decide_eq]
-      rfl
-    · simp only [stringEqualTypeAxiom, Formula.all, Formula.eval]
-      intro x y
-      simp [stringEqualTerm, Term.eval, Env.lookupConst_updateConst_same,
-        Env.lookupConst_updateConst_ne (show "a" ≠ "b" by decide), hb x y, stringEqualSym, valStr]
-  specWf := by
-    intro Δ hsub hwf
-    exact PredTrans.wfIn_mono stringEqual_base_wf
-      (Signature.Subset.declVars hsub (Spec.argVars stringEqual.specArgs))
-      (Signature.wf_declVars hwf)
-  bridge := by
-    intro _ Θ vs ρ Φ hρ
-    simp only [stringEqual_folSym, Env.respects] at hρ
-    show TinyML.ValsHaveTypes Θ vs [TinyML.Typ.string, TinyML.Typ.string] ∗ _ ⊢ _
-    match vs with
-    | [] => exact (sep_mono_left (off_shape_two_ty _ (by simp))).trans sep_elim_left
-    | [_] => exact (sep_mono_left (off_shape_two_ty _ (by simp))).trans sep_elim_left
-    | _ :: _ :: _ :: _ => exact (sep_mono_left (off_shape_two_ty _ (by simp))).trans sep_elim_left
-    | [v1, v2] =>
-      iintro ⟨Hvs, Hpred⟩
-      ihave Hcons := (TinyML.ValsHaveTypes.cons Θ v1 [v2] _ _).1 $$ Hvs
-      icases Hcons with ⟨Hv1, Hvs2⟩
-      ihave Hcons2 := (TinyML.ValsHaveTypes.cons Θ v2 [] _ _).1 $$ Hvs2
-      icases Hcons2 with ⟨Hv2, _⟩
-      ihave Hv1eq := (TinyML.ValHasType.string Θ v1).1 $$ Hv1
-      ipure Hv1eq
-      ihave Hv2eq := (TinyML.ValHasType.string Θ v2).1 $$ Hv2
-      ipure Hv2eq
-      obtain ⟨x, rfl⟩ := Hv1eq
-      obtain ⟨y, rfl⟩ := Hv2eq
-      rw [stringEqual_toWp]
-      iexists x
-      iexists y
-      isplitr [Hpred]
-      · ipureintro; exact ⟨rfl, rfl⟩
-      · refine (assert_ret_apply Θ _ "ret" _ _ (.bool (x == y)) ?_).trans ?_
-        · exact stringEqual_assert_eval ρ x y hρ
-        · iintro Hwand
-          iapply Hwand
-          exact TinyML.ValHasType.bool_intro Θ (x == y)
-
-/-- `String.starts_with`: byte-string prefix test. -/
-def stringStartsWith : Intrinsic where
-  arity    := .two
+/-- `String.starts_with`: byte-string prefix test, built by `Pure.Binary`. -/
+def stringStartsWithB : Pure.Binary where
   name     := "string_starts_with"
   path     := some ("String", ["starts_with"])
-  reduce   := Reduce.pure fun (p, s) v => ∃ x y : List UInt8, p = .str x ∧ s = .str y ∧ v = .bool (x.isPrefixOf y)
-  wp       := fun (p, s) Q => iprop(∃ x y : List UInt8, ⌜p = .str x ∧ s = .str y⌝ ∗ Q (.bool (x.isPrefixOf y)))
-  spec     :=
-    { args  := [("prefix", .string), ("s", .string)]
-      retTy := .bool
-      pred  := .ret ("ret",
-        .assert (.eq .value (.var .value "ret")
-          (stringStartsWithTerm (.var .value "prefix") (.var .value "s")))
-          (.ret ())) }
-  folSym   := some stringStartsWithSym
-  axioms   := [stringStartsWithDefAxiom, stringStartsWithTypeAxiom]
+  arg      := .str
+  res      := .bool
+  f        := (fun x y => x.isPrefixOf y : List UInt8 → List UInt8 → Bool)
+  defAxiom := stringStartsWithDefAxiom
+
+def stringStartsWith : Intrinsic := stringStartsWithB.toIntrinsic
 
 @[simp] theorem stringStartsWith_arity : stringStartsWith.arity = .two := rfl
-@[simp] theorem stringStartsWith_folSym : stringStartsWith.folSym = some stringStartsWithSym := rfl
-@[simp] theorem stringStartsWith_toWp (a b : Runtime.Val) (Q : Runtime.Val → iProp) :
-    stringStartsWith.toWp [a, b] Q =
-      iprop(∃ x y : List UInt8, ⌜a = .str x ∧ b = .str y⌝ ∗ Q (.bool (x.isPrefixOf y))) :=
-  Intrinsic.toWp_two_of_arity _ _ _ _ _ _ _ _ _ Q
+@[simp] theorem stringStartsWith_folSym :
+    stringStartsWith.folSym = some stringStartsWithSym := rfl
 
-private theorem stringStartsWith_base_wf :
-    PredTrans.wfIn
-      ((Intrinsic.sigOf [stringStartsWith]).declVars (Spec.argVars stringStartsWith.specArgs)) stringStartsWith.spec.pred := by
-  apply PredTrans.checkWf_ok
-  rfl
+def stringStartsWithLawful : stringStartsWithB.Lawful where
+  argL       := Embedding.lawfulStr
+  resL       := Embedding.lawfulBool
+  specBaseWf := by apply PredTrans.checkWf_ok; rfl
+  defWf      := by
+    simp only [stringStartsWithB, Pure.Binary.toIntrinsic, Pure.Binary.sym]
+    simp [stringStartsWithDefAxiom, stringStartsWithTerm, Intrinsic.sigOf, Intrinsic.foldSig,
+      Formula.wfIn, Term.wfIn, BinOp.wfIn, UnOp.wfIn, Signature.extendWithSym,
+      Signature.empty, Signature.addBinary, Signature.declVar, Signature.addVar,
+      Signature.remove]
+  typeWf     := by
+    simp only [stringStartsWithB, Pure.Binary.typeAxiom, Pure.Binary.opTerm,
+      Pure.Binary.toIntrinsic, Pure.Binary.sym, Embedding.bool]
+    simp [Intrinsic.sigOf, Intrinsic.foldSig, Formula.wfIn, Term.wfIn, BinOp.wfIn,
+      UnPred.wfIn, Signature.extendWithSym, Signature.empty, Signature.addBinary,
+      Signature.declVar, Signature.addVar, Signature.remove]
+  defEval    := by
+    intro ρ hρ
+    simp only [Env.respects] at hρ
+    simp only [stringStartsWithB, stringStartsWithDefAxiom, Formula.all, Formula.eval]
+    intro x y
+    have hb : ((ρ.updateConst .value "prefix" x).updateConst .value "s" y).binary
+        .value .value .value "string_starts_with"
+        = fun a b => stringStartsWithSym.interp (a, b) := by
+      rw [Env.updateConst_binary, Env.updateConst_binary]
+      simpa [stringStartsWithSym, stringStartsWithB, Pure.Binary.sym, Embedding.str,
+        Embedding.bool] using hρ
+    simp [stringStartsWithTerm, Term.eval, Env.lookupConst_updateConst_same,
+      Env.lookupConst_updateConst_ne (show "prefix" ≠ "s" by decide), hb,
+      stringStartsWithSym, valStr]
+    rfl
 
-private theorem stringStartsWith_assert_eval (ρ : VerifM.Env) (x y : List UInt8)
-    (hρ : ρ.env.respects (some stringStartsWithSym)) :
-    (Formula.eq .value (.var .value "ret")
-      (stringStartsWithTerm (.var .value "prefix") (.var .value "s"))).eval
-      ((Spec.argsEnv ρ stringStartsWith.specArgs [.str x, .str y]).updateConst
-        .value "ret" (.bool (x.isPrefixOf y))).env := by
-  have hargs := respects_argsEnv_two stringStartsWith.specArgs [.str x, .str y] hρ
-  have hbin : (Spec.argsEnv ρ stringStartsWith.specArgs [.str x, .str y]).env.binary
-      .value .value .value "string_starts_with" = fun a b => stringStartsWithSym.interp (a, b) := by
-    simpa [Env.respects, stringStartsWithSym] using hargs
-  show Runtime.Val.bool (x.isPrefixOf y) =
-    (Spec.argsEnv ρ stringStartsWith.specArgs [.str x, .str y]).env.binary
-      .value .value .value "string_starts_with" (.str x) (.str y)
-  simp [hbin, stringStartsWithSym]
+instance : IntrinsicSound [stringStartsWith] stringStartsWith := stringStartsWithLawful.sound
 
-instance : IntrinsicSound [stringStartsWith] stringStartsWith where
-  wp_sound := by
-    intro _ ctx hctx vs Φ
-    match vs with
-    | [] => exact false_elim
-    | [_] => exact false_elim
-    | _ :: _ :: _ :: _ => exact false_elim
-    | [a, b] =>
-      rw [stringStartsWith_toWp]
-      istart
-      iintro ⟨%x, %y, %hab, HΦ⟩
-      obtain ⟨rfl, rfl⟩ := hab
-      have hrel : ∀ μ v μ',
-          ctx stringStartsWith.name [Runtime.Val.str x, Runtime.Val.str y] μ v μ' ↔
-            v = .bool (x.isPrefixOf y) ∧ μ' = μ := by
-        intro μ v μ'
-        rw [hctx]
-        simp [stringStartsWith, Intrinsic.toReduce_two_of_arity, Reduce.pure]
-      iapply (wp.prim_pure hrel ⟨_, rfl⟩)
-      iintro %v %hv
-      subst hv
-      iexact HΦ
-  axiomWf := by
-    intro Δ hsub hwf φ hφ
-    simp only [stringStartsWith, List.mem_cons, List.not_mem_nil, or_false] at hφ
-    rcases hφ with rfl | rfl
-    · have hbase : stringStartsWithDefAxiom.wfIn (Intrinsic.sigOf [stringStartsWith]) := by
-        simp [stringStartsWithDefAxiom, stringStartsWithTerm, Intrinsic.sigOf, Intrinsic.foldSig,
-          stringStartsWith, stringStartsWithSym, Formula.wfIn, Term.wfIn, BinOp.wfIn, UnOp.wfIn,
-          Signature.extendWithSym, Signature.empty, Signature.addBinary,
-          Signature.declVar, Signature.addVar, Signature.remove]
-      exact Formula.wfIn_mono _ hbase hsub hwf
-    · have hbase : stringStartsWithTypeAxiom.wfIn (Intrinsic.sigOf [stringStartsWith]) := by
-        simp [stringStartsWithTypeAxiom, stringStartsWithTerm, Intrinsic.sigOf, Intrinsic.foldSig,
-          stringStartsWith, stringStartsWithSym, Formula.wfIn, Term.wfIn, BinOp.wfIn, UnPred.wfIn,
-          Signature.extendWithSym, Signature.empty, Signature.addBinary,
-          Signature.declVar, Signature.addVar, Signature.remove]
-      exact Formula.wfIn_mono _ hbase hsub hwf
-  proof := by
-    intro ρ hdeps φ hφ
-    simp only [stringStartsWith, List.mem_cons, List.not_mem_nil, or_false] at hφ
-    have hp : ρ.respects (some stringStartsWithSym) := hdeps stringStartsWith (by simp)
-    simp only [Env.respects] at hp
-    have hb : ∀ x y : Runtime.Val,
-        ((ρ.updateConst .value "prefix" x).updateConst .value "s" y).binary
-          .value .value .value "string_starts_with" = fun a b => stringStartsWithSym.interp (a, b) := by
-      intro x y; rw [Env.updateConst_binary, Env.updateConst_binary]; simpa [stringStartsWithSym] using hp
-    rcases hφ with rfl | rfl
-    · simp only [stringStartsWithDefAxiom, Formula.all, Formula.eval]
-      intro x y
-      simp [stringStartsWithTerm, Term.eval, Env.lookupConst_updateConst_same,
-        Env.lookupConst_updateConst_ne (show "prefix" ≠ "s" by decide), hb x y, stringStartsWithSym, valStr]
-      rfl
-    · simp only [stringStartsWithTypeAxiom, Formula.all, Formula.eval]
-      intro x y
-      simp [stringStartsWithTerm, Term.eval, Env.lookupConst_updateConst_same,
-        Env.lookupConst_updateConst_ne (show "prefix" ≠ "s" by decide), hb x y, stringStartsWithSym, valStr]
-  specWf := by
-    intro Δ hsub hwf
-    exact PredTrans.wfIn_mono stringStartsWith_base_wf
-      (Signature.Subset.declVars hsub (Spec.argVars stringStartsWith.specArgs))
-      (Signature.wf_declVars hwf)
-  bridge := by
-    intro _ Θ vs ρ Φ hρ
-    simp only [stringStartsWith_folSym, Env.respects] at hρ
-    show TinyML.ValsHaveTypes Θ vs [TinyML.Typ.string, TinyML.Typ.string] ∗ _ ⊢ _
-    match vs with
-    | [] => exact (sep_mono_left (off_shape_two_ty _ (by simp))).trans sep_elim_left
-    | [_] => exact (sep_mono_left (off_shape_two_ty _ (by simp))).trans sep_elim_left
-    | _ :: _ :: _ :: _ => exact (sep_mono_left (off_shape_two_ty _ (by simp))).trans sep_elim_left
-    | [v1, v2] =>
-      iintro ⟨Hvs, Hpred⟩
-      ihave Hcons := (TinyML.ValsHaveTypes.cons Θ v1 [v2] _ _).1 $$ Hvs
-      icases Hcons with ⟨Hv1, Hvs2⟩
-      ihave Hcons2 := (TinyML.ValsHaveTypes.cons Θ v2 [] _ _).1 $$ Hvs2
-      icases Hcons2 with ⟨Hv2, _⟩
-      ihave Hv1eq := (TinyML.ValHasType.string Θ v1).1 $$ Hv1
-      ipure Hv1eq
-      ihave Hv2eq := (TinyML.ValHasType.string Θ v2).1 $$ Hv2
-      ipure Hv2eq
-      obtain ⟨x, rfl⟩ := Hv1eq
-      obtain ⟨y, rfl⟩ := Hv2eq
-      rw [stringStartsWith_toWp]
-      iexists x
-      iexists y
-      isplitr [Hpred]
-      · ipureintro; exact ⟨rfl, rfl⟩
-      · refine (assert_ret_apply Θ _ "ret" _ _ (.bool (x.isPrefixOf y)) ?_).trans ?_
-        · exact stringStartsWith_assert_eval ρ x y hρ
-        · iintro Hwand
-          iapply Hwand
-          exact TinyML.ValHasType.bool_intro Θ (x.isPrefixOf y)
-
-/-- `String.ends_with`: byte-string suffix test. -/
-def stringEndsWith : Intrinsic where
-  arity    := .two
+/-- `String.ends_with`: byte-string suffix test, built by `Pure.Binary`. -/
+def stringEndsWithB : Pure.Binary where
   name     := "string_ends_with"
   path     := some ("String", ["ends_with"])
-  reduce   := Reduce.pure fun (q, s) v => ∃ x y : List UInt8, q = .str x ∧ s = .str y ∧ v = .bool (x.isSuffixOf y)
-  wp       := fun (q, s) Q => iprop(∃ x y : List UInt8, ⌜q = .str x ∧ s = .str y⌝ ∗ Q (.bool (x.isSuffixOf y)))
-  spec     :=
-    { args  := [("suffix", .string), ("s", .string)]
-      retTy := .bool
-      pred  := .ret ("ret",
-        .assert (.eq .value (.var .value "ret")
-          (stringEndsWithTerm (.var .value "suffix") (.var .value "s")))
-          (.ret ())) }
-  folSym   := some stringEndsWithSym
-  axioms   := [stringEndsWithDefAxiom, stringEndsWithTypeAxiom]
+  arg      := .str
+  res      := .bool
+  f        := (fun x y => x.isSuffixOf y : List UInt8 → List UInt8 → Bool)
+  defAxiom := stringEndsWithDefAxiom
+
+def stringEndsWith : Intrinsic := stringEndsWithB.toIntrinsic
 
 @[simp] theorem stringEndsWith_arity : stringEndsWith.arity = .two := rfl
 @[simp] theorem stringEndsWith_folSym : stringEndsWith.folSym = some stringEndsWithSym := rfl
-@[simp] theorem stringEndsWith_toWp (a b : Runtime.Val) (Q : Runtime.Val → iProp) :
-    stringEndsWith.toWp [a, b] Q =
-      iprop(∃ x y : List UInt8, ⌜a = .str x ∧ b = .str y⌝ ∗ Q (.bool (x.isSuffixOf y))) :=
-  Intrinsic.toWp_two_of_arity _ _ _ _ _ _ _ _ _ Q
 
-private theorem stringEndsWith_base_wf :
-    PredTrans.wfIn
-      ((Intrinsic.sigOf [stringEndsWith]).declVars (Spec.argVars stringEndsWith.specArgs)) stringEndsWith.spec.pred := by
-  apply PredTrans.checkWf_ok
-  rfl
+def stringEndsWithLawful : stringEndsWithB.Lawful where
+  argL       := Embedding.lawfulStr
+  resL       := Embedding.lawfulBool
+  specBaseWf := by apply PredTrans.checkWf_ok; rfl
+  defWf      := by
+    simp only [stringEndsWithB, Pure.Binary.toIntrinsic, Pure.Binary.sym]
+    simp [stringEndsWithDefAxiom, stringEndsWithTerm, Intrinsic.sigOf, Intrinsic.foldSig,
+      Formula.wfIn, Term.wfIn, BinOp.wfIn, UnOp.wfIn, Signature.extendWithSym,
+      Signature.empty, Signature.addBinary, Signature.declVar, Signature.addVar,
+      Signature.remove]
+  typeWf     := by
+    simp only [stringEndsWithB, Pure.Binary.typeAxiom, Pure.Binary.opTerm,
+      Pure.Binary.toIntrinsic, Pure.Binary.sym, Embedding.bool]
+    simp [Intrinsic.sigOf, Intrinsic.foldSig, Formula.wfIn, Term.wfIn, BinOp.wfIn,
+      UnPred.wfIn, Signature.extendWithSym, Signature.empty, Signature.addBinary,
+      Signature.declVar, Signature.addVar, Signature.remove]
+  defEval    := by
+    intro ρ hρ
+    simp only [Env.respects] at hρ
+    simp only [stringEndsWithB, stringEndsWithDefAxiom, Formula.all, Formula.eval]
+    intro x y
+    have hb : ((ρ.updateConst .value "suffix" x).updateConst .value "s" y).binary
+        .value .value .value "string_ends_with"
+        = fun a b => stringEndsWithSym.interp (a, b) := by
+      rw [Env.updateConst_binary, Env.updateConst_binary]
+      simpa [stringEndsWithSym, stringEndsWithB, Pure.Binary.sym, Embedding.str,
+        Embedding.bool] using hρ
+    simp [stringEndsWithTerm, Term.eval, Env.lookupConst_updateConst_same,
+      Env.lookupConst_updateConst_ne (show "suffix" ≠ "s" by decide), hb,
+      stringEndsWithSym, valStr]
+    rfl
 
-private theorem stringEndsWith_assert_eval (ρ : VerifM.Env) (x y : List UInt8)
-    (hρ : ρ.env.respects (some stringEndsWithSym)) :
-    (Formula.eq .value (.var .value "ret")
-      (stringEndsWithTerm (.var .value "suffix") (.var .value "s"))).eval
-      ((Spec.argsEnv ρ stringEndsWith.specArgs [.str x, .str y]).updateConst
-        .value "ret" (.bool (x.isSuffixOf y))).env := by
-  have hargs := respects_argsEnv_two stringEndsWith.specArgs [.str x, .str y] hρ
-  have hbin : (Spec.argsEnv ρ stringEndsWith.specArgs [.str x, .str y]).env.binary
-      .value .value .value "string_ends_with" = fun a b => stringEndsWithSym.interp (a, b) := by
-    simpa [Env.respects, stringEndsWithSym] using hargs
-  show Runtime.Val.bool (x.isSuffixOf y) =
-    (Spec.argsEnv ρ stringEndsWith.specArgs [.str x, .str y]).env.binary
-      .value .value .value "string_ends_with" (.str x) (.str y)
-  simp [hbin, stringEndsWithSym]
-
-instance : IntrinsicSound [stringEndsWith] stringEndsWith where
-  wp_sound := by
-    intro _ ctx hctx vs Φ
-    match vs with
-    | [] => exact false_elim
-    | [_] => exact false_elim
-    | _ :: _ :: _ :: _ => exact false_elim
-    | [a, b] =>
-      rw [stringEndsWith_toWp]
-      istart
-      iintro ⟨%x, %y, %hab, HΦ⟩
-      obtain ⟨rfl, rfl⟩ := hab
-      have hrel : ∀ μ v μ',
-          ctx stringEndsWith.name [Runtime.Val.str x, Runtime.Val.str y] μ v μ' ↔
-            v = .bool (x.isSuffixOf y) ∧ μ' = μ := by
-        intro μ v μ'
-        rw [hctx]
-        simp [stringEndsWith, Intrinsic.toReduce_two_of_arity, Reduce.pure]
-      iapply (wp.prim_pure hrel ⟨_, rfl⟩)
-      iintro %v %hv
-      subst hv
-      iexact HΦ
-  axiomWf := by
-    intro Δ hsub hwf φ hφ
-    simp only [stringEndsWith, List.mem_cons, List.not_mem_nil, or_false] at hφ
-    rcases hφ with rfl | rfl
-    · have hbase : stringEndsWithDefAxiom.wfIn (Intrinsic.sigOf [stringEndsWith]) := by
-        simp [stringEndsWithDefAxiom, stringEndsWithTerm, Intrinsic.sigOf, Intrinsic.foldSig,
-          stringEndsWith, stringEndsWithSym, Formula.wfIn, Term.wfIn, BinOp.wfIn, UnOp.wfIn,
-          Signature.extendWithSym, Signature.empty, Signature.addBinary,
-          Signature.declVar, Signature.addVar, Signature.remove]
-      exact Formula.wfIn_mono _ hbase hsub hwf
-    · have hbase : stringEndsWithTypeAxiom.wfIn (Intrinsic.sigOf [stringEndsWith]) := by
-        simp [stringEndsWithTypeAxiom, stringEndsWithTerm, Intrinsic.sigOf, Intrinsic.foldSig,
-          stringEndsWith, stringEndsWithSym, Formula.wfIn, Term.wfIn, BinOp.wfIn, UnPred.wfIn,
-          Signature.extendWithSym, Signature.empty, Signature.addBinary,
-          Signature.declVar, Signature.addVar, Signature.remove]
-      exact Formula.wfIn_mono _ hbase hsub hwf
-  proof := by
-    intro ρ hdeps φ hφ
-    simp only [stringEndsWith, List.mem_cons, List.not_mem_nil, or_false] at hφ
-    have hp : ρ.respects (some stringEndsWithSym) := hdeps stringEndsWith (by simp)
-    simp only [Env.respects] at hp
-    have hb : ∀ x y : Runtime.Val,
-        ((ρ.updateConst .value "suffix" x).updateConst .value "s" y).binary
-          .value .value .value "string_ends_with" = fun a b => stringEndsWithSym.interp (a, b) := by
-      intro x y; rw [Env.updateConst_binary, Env.updateConst_binary]; simpa [stringEndsWithSym] using hp
-    rcases hφ with rfl | rfl
-    · simp only [stringEndsWithDefAxiom, Formula.all, Formula.eval]
-      intro x y
-      simp [stringEndsWithTerm, Term.eval, Env.lookupConst_updateConst_same,
-        Env.lookupConst_updateConst_ne (show "suffix" ≠ "s" by decide), hb x y, stringEndsWithSym, valStr]
-      rfl
-    · simp only [stringEndsWithTypeAxiom, Formula.all, Formula.eval]
-      intro x y
-      simp [stringEndsWithTerm, Term.eval, Env.lookupConst_updateConst_same,
-        Env.lookupConst_updateConst_ne (show "suffix" ≠ "s" by decide), hb x y, stringEndsWithSym, valStr]
-  specWf := by
-    intro Δ hsub hwf
-    exact PredTrans.wfIn_mono stringEndsWith_base_wf
-      (Signature.Subset.declVars hsub (Spec.argVars stringEndsWith.specArgs))
-      (Signature.wf_declVars hwf)
-  bridge := by
-    intro _ Θ vs ρ Φ hρ
-    simp only [stringEndsWith_folSym, Env.respects] at hρ
-    show TinyML.ValsHaveTypes Θ vs [TinyML.Typ.string, TinyML.Typ.string] ∗ _ ⊢ _
-    match vs with
-    | [] => exact (sep_mono_left (off_shape_two_ty _ (by simp))).trans sep_elim_left
-    | [_] => exact (sep_mono_left (off_shape_two_ty _ (by simp))).trans sep_elim_left
-    | _ :: _ :: _ :: _ => exact (sep_mono_left (off_shape_two_ty _ (by simp))).trans sep_elim_left
-    | [v1, v2] =>
-      iintro ⟨Hvs, Hpred⟩
-      ihave Hcons := (TinyML.ValsHaveTypes.cons Θ v1 [v2] _ _).1 $$ Hvs
-      icases Hcons with ⟨Hv1, Hvs2⟩
-      ihave Hcons2 := (TinyML.ValsHaveTypes.cons Θ v2 [] _ _).1 $$ Hvs2
-      icases Hcons2 with ⟨Hv2, _⟩
-      ihave Hv1eq := (TinyML.ValHasType.string Θ v1).1 $$ Hv1
-      ipure Hv1eq
-      ihave Hv2eq := (TinyML.ValHasType.string Θ v2).1 $$ Hv2
-      ipure Hv2eq
-      obtain ⟨x, rfl⟩ := Hv1eq
-      obtain ⟨y, rfl⟩ := Hv2eq
-      rw [stringEndsWith_toWp]
-      iexists x
-      iexists y
-      isplitr [Hpred]
-      · ipureintro; exact ⟨rfl, rfl⟩
-      · refine (assert_ret_apply Θ _ "ret" _ _ (.bool (x.isSuffixOf y)) ?_).trans ?_
-        · exact stringEndsWith_assert_eval ρ x y hρ
-        · iintro Hwand
-          iapply Hwand
-          exact TinyML.ValHasType.bool_intro Θ (x.isSuffixOf y)
+instance : IntrinsicSound [stringEndsWith] stringEndsWith := stringEndsWithLawful.sound
 
 end Intrinsics
 end Stdlib
