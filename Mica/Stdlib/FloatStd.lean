@@ -102,15 +102,6 @@ def floatNegInfinitySym : FOL.Symbol .zero where
 @[simp] theorem floatNegInfinitySym_name :
     floatNegInfinitySym.name = "float_neg_infinity" := rfl
 
-/-! ## Term builders -/
-
-private def unTerm (name : String) (x : Term .value) : Term .value :=
-  .unop (.uninterpreted name .value .value) x
-private def binTerm (name : String) (x y : Term .value) : Term .value :=
-  .binop (.uninterpreted name .value .value .value) x y
-private def constTerm (name : String) : Term .value :=
-  .const (.uninterpreted name .value)
-
 /-! ## Unary float intrinsics -/
 
 def floatAbsDefAxiom : Formula :=

@@ -9,7 +9,7 @@ open Verifier
 
 namespace Intrinsics
 
-/-! ## FOL symbols and their defining axioms
+/-! ## FOL symbols
 
 `Int.min` / `Int.max` are uninterpreted binary FOL function symbols at the
 value sort. Their standard interpretation is Lean's `min` / `max` on the
@@ -30,62 +30,28 @@ def intMaxSym : FOL.Symbol .two where
 @[simp] theorem intMinSym_name : intMinSym.name = "int_min" := rfl
 @[simp] theorem intMaxSym_name : intMaxSym.name = "int_max" := rfl
 
-private def intMinTerm (x y : Term .value) : Term .value :=
-  .binop (.uninterpreted intMinSym.name .value .value .value) x y
+/-! ## Defining axioms
 
-private def intMaxTerm (x y : Term .value) : Term .value :=
-  .binop (.uninterpreted intMaxSym.name .value .value .value) x y
+`toInt (int_min x y) = ite (y ≥ x) x y` and the mirror for `max`, stated over
+the integer projection so they constrain all values. -/
 
-/-- Defining axiom for `Int.min`: `toInt (int_min x y) = ite (x ≤ y) x y`,
-    stated over the integer projection so it constrains all values. -/
 def intMinDefAxiom : Formula :=
   .all "x" .value <| .forall_ "y" .value
-    [.term (intMinTerm (.var .value "x") (.var .value "y"))] <|
+    [.term (binTerm "int_min" (.var .value "x") (.var .value "y"))] <|
     .eq .int
-      (.unop .toInt (intMinTerm (.var .value "x") (.var .value "y")))
+      (.unop .toInt (binTerm "int_min" (.var .value "x") (.var .value "y")))
       (.ite (.binop .ge (.unop .toInt (.var .value "y")) (.unop .toInt (.var .value "x")))
             (.unop .toInt (.var .value "x"))
             (.unop .toInt (.var .value "y")))
 
-/-- Defining axiom for `Int.max`: `toInt (int_max x y) = ite (x ≥ y) x y`. -/
 def intMaxDefAxiom : Formula :=
   .all "x" .value <| .forall_ "y" .value
-    [.term (intMaxTerm (.var .value "x") (.var .value "y"))] <|
+    [.term (binTerm "int_max" (.var .value "x") (.var .value "y"))] <|
     .eq .int
-      (.unop .toInt (intMaxTerm (.var .value "x") (.var .value "y")))
+      (.unop .toInt (binTerm "int_max" (.var .value "x") (.var .value "y")))
       (.ite (.binop .ge (.unop .toInt (.var .value "x")) (.unop .toInt (.var .value "y")))
             (.unop .toInt (.var .value "x"))
             (.unop .toInt (.var .value "y")))
-
-/-! ## Per-operation axiom-evaluation helpers -/
-
-private theorem min_axiom_eval (ρ : Env)
-    (hρ : ρ.binary .value .value .value "int_min"
-      = fun a b => intMinSym.interp (a, b)) (x y : Runtime.Val) :
-    (UnOp.eval ρ .toInt (ρ.binary .value .value .value "int_min" x y))
-      = (bif BinOp.eval ρ .ge (UnOp.eval ρ .toInt y) (UnOp.eval ρ .toInt x) then
-          UnOp.eval ρ .toInt x else UnOp.eval ρ .toInt y) := by
-  rw [hρ]
-  simp only [UnOp.eval, BinOp.eval, Bool.cond_decide]
-  change min (valInt x) (valInt y) = if valInt x ≤ valInt y then valInt x else valInt y
-  by_cases h : valInt x ≤ valInt y
-  · rw [if_pos h, min_eq_left h]
-  · have hyx : valInt y ≤ valInt x := by omega
-    rw [if_neg h, min_eq_right hyx]
-
-private theorem max_axiom_eval (ρ : Env)
-    (hρ : ρ.binary .value .value .value "int_max"
-      = fun a b => intMaxSym.interp (a, b)) (x y : Runtime.Val) :
-    (UnOp.eval ρ .toInt (ρ.binary .value .value .value "int_max" x y))
-      = (bif BinOp.eval ρ .ge (UnOp.eval ρ .toInt x) (UnOp.eval ρ .toInt y) then
-          UnOp.eval ρ .toInt x else UnOp.eval ρ .toInt y) := by
-  rw [hρ]
-  simp only [UnOp.eval, BinOp.eval, Bool.cond_decide]
-  change max (valInt x) (valInt y) = if valInt y ≤ valInt x then valInt x else valInt y
-  by_cases h : valInt y ≤ valInt x
-  · rw [if_pos h, max_eq_left h]
-  · have hxy : valInt x ≤ valInt y := by omega
-    rw [if_neg h, max_eq_right hxy]
 
 /-! ## `Int.min` -/
 
@@ -110,30 +76,12 @@ def intMinLawful : intMinB.Lawful where
   argL       := Embedding.lawfulInt
   resL       := Embedding.lawfulInt
   specBaseWf := by apply PredTrans.checkWf_ok; rfl
-  defWf      := by
-    simp only [intMinB, Pure.Binary.toIntrinsic, Pure.Binary.sym]
-    simp [intMinDefAxiom, intMinTerm, Intrinsic.sigOf, Intrinsic.foldSig,
-      Formula.wfIn, Term.wfIn, BinOp.wfIn, UnOp.wfIn, Signature.extendWithSym,
-      Signature.empty, Signature.addBinary, Signature.declVar, Signature.addVar,
-      Signature.remove]
-  typeWf     := by
-    simp only [intMinB, Pure.Binary.typeAxiom, Pure.Binary.opTerm, Pure.Binary.toIntrinsic,
-      Pure.Binary.sym, Embedding.int]
-    simp [Intrinsic.sigOf, Intrinsic.foldSig, Formula.wfIn, Term.wfIn, BinOp.wfIn,
-      UnPred.wfIn, Signature.extendWithSym, Signature.empty, Signature.addBinary,
-      Signature.declVar, Signature.addVar, Signature.remove]
+  defWf      := by apply Formula.checkWf_ok; rfl
+  typeWf     := by apply Formula.checkWf_ok; rfl
   defEval    := by
-    intro ρ hρ
-    simp only [Env.respects] at hρ
-    simp only [intMinB, intMinDefAxiom, Formula.all, Formula.eval]
+    intrinsic_def_eval [binTerm, intMinB, intMinDefAxiom]
     intro x y
-    have hb : ((ρ.updateConst .value "x" x).updateConst .value "y" y).binary
-        .value .value .value "int_min" = fun a b => intMinSym.interp (a, b) := by
-      rw [Env.updateConst_binary, Env.updateConst_binary]
-      simpa [intMinSym, intMinB, Pure.Binary.sym, Embedding.int] using hρ
-    simpa [intMinTerm, Term.eval, Env.lookupConst_updateConst_same,
-      Env.lookupConst_updateConst_ne (show "x" ≠ "y" by decide)] using
-      min_axiom_eval (((ρ.updateConst .value "x" x).updateConst .value "y" y)) hb x y
+    rw [min_def, Bool.cond_decide]; congr 1
 
 instance : IntrinsicSound [intMin] intMin := intMinLawful.sound
 
@@ -157,30 +105,12 @@ def intMaxLawful : intMaxB.Lawful where
   argL       := Embedding.lawfulInt
   resL       := Embedding.lawfulInt
   specBaseWf := by apply PredTrans.checkWf_ok; rfl
-  defWf      := by
-    simp only [intMaxB, Pure.Binary.toIntrinsic, Pure.Binary.sym]
-    simp [intMaxDefAxiom, intMaxTerm, Intrinsic.sigOf, Intrinsic.foldSig,
-      Formula.wfIn, Term.wfIn, BinOp.wfIn, UnOp.wfIn, Signature.extendWithSym,
-      Signature.empty, Signature.addBinary, Signature.declVar, Signature.addVar,
-      Signature.remove]
-  typeWf     := by
-    simp only [intMaxB, Pure.Binary.typeAxiom, Pure.Binary.opTerm, Pure.Binary.toIntrinsic,
-      Pure.Binary.sym, Embedding.int]
-    simp [Intrinsic.sigOf, Intrinsic.foldSig, Formula.wfIn, Term.wfIn, BinOp.wfIn,
-      UnPred.wfIn, Signature.extendWithSym, Signature.empty, Signature.addBinary,
-      Signature.declVar, Signature.addVar, Signature.remove]
+  defWf      := by apply Formula.checkWf_ok; rfl
+  typeWf     := by apply Formula.checkWf_ok; rfl
   defEval    := by
-    intro ρ hρ
-    simp only [Env.respects] at hρ
-    simp only [intMaxB, intMaxDefAxiom, Formula.all, Formula.eval]
+    intrinsic_def_eval [binTerm, intMaxB, intMaxDefAxiom]
     intro x y
-    have hb : ((ρ.updateConst .value "x" x).updateConst .value "y" y).binary
-        .value .value .value "int_max" = fun a b => intMaxSym.interp (a, b) := by
-      rw [Env.updateConst_binary, Env.updateConst_binary]
-      simpa [intMaxSym, intMaxB, Pure.Binary.sym, Embedding.int] using hρ
-    simpa [intMaxTerm, Term.eval, Env.lookupConst_updateConst_same,
-      Env.lookupConst_updateConst_ne (show "x" ≠ "y" by decide)] using
-      max_axiom_eval (((ρ.updateConst .value "x" x).updateConst .value "y" y)) hb x y
+    rw [max_comm, max_def, Bool.cond_decide]; congr 1
 
 instance : IntrinsicSound [intMax] intMax := intMaxLawful.sound
 

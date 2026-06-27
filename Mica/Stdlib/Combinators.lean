@@ -163,6 +163,20 @@ def Embedding.lawfulFloat : Embedding.float.Lawful where
   member Θ w := TinyML.ValHasType.float Θ w
   intro Θ x := TinyML.ValHasType.float_intro Θ x
 
+/-! ## Name-based term builders -/
+
+/-- Uninterpreted unary value symbol `name` applied to `x`. -/
+def unTerm (name : String) (x : Term .value) : Term .value :=
+  .unop (.uninterpreted name .value .value) x
+
+/-- Uninterpreted binary value symbol `name` applied to `x` and `y`. -/
+def binTerm (name : String) (x y : Term .value) : Term .value :=
+  .binop (.uninterpreted name .value .value .value) x y
+
+/-- Uninterpreted nullary value symbol `name` as a term. -/
+def constTerm (name : String) : Term .value :=
+  .const (.uninterpreted name .value)
+
 namespace Pure
 
 /-! ## Builder for pure zero-arity intrinsics
