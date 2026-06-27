@@ -6,16 +6,16 @@ import Mica.TinyML.Language
 
 /-!
 The concrete Iris signature for Mica: a `MicaGpreS`/`MicaGS` pair of ghost-state
-classes for the generic heap over TinyML locations and values, and the bundled
+classes for the generic heap over TinyML locations and blocks, and the bundled
 functor signature `Sig` they are instantiated at.
 -/
 
 open Iris ProgramLogic Std
 
 /-- Ghost-state prerequisites: the signature supports invariants, later
-    credits, and a generic heap over TinyML locations and values. -/
+    credits, and a generic heap over TinyML locations and blocks. -/
 class MicaGpreS (hlc : outParam HasLC) (GF : BundledGFunctors) extends InvGpreS GF where
-  heap_pre : genHeapPreS PNat Runtime.Location Runtime.Val GF TinyML.HeapF
+  heap_pre : genHeapPreS PNat Runtime.Location TinyML.Block GF TinyML.HeapF
 
 attribute [reducible, instance] MicaGpreS.heap_pre
 
@@ -23,7 +23,7 @@ attribute [reducible, instance] MicaGpreS.heap_pre
     names for the heap and meta maps). Mica's `iProp` definitions are stated
     parametrically in this class so that adequacy can allocate the names. -/
 class MicaGS (hlc : outParam HasLC) (GF : BundledGFunctors) extends InvGS_gen hlc GF where
-  heap : genHeapGS PNat Runtime.Location Runtime.Val GF TinyML.HeapF
+  heap : genHeapGS PNat Runtime.Location TinyML.Block GF TinyML.HeapF
 
 attribute [reducible, instance] MicaGS.heap
 
@@ -34,7 +34,7 @@ def Sig : BundledGFunctors
   | 1 => ⟨constOF (DisjointLeibnizSet CoPset), by infer_instance⟩
   | 2 => ⟨constOF (DisjointLeibnizSet PosSet), by infer_instance⟩
   | 3 => ⟨Auth.AuthURF (F := PNat) (constOF Credit), by infer_instance⟩
-  | 4 => ⟨constOF (HeapView PNat Runtime.Location (Agree (LeibnizO Runtime.Val)) TinyML.HeapF),
+  | 4 => ⟨constOF (HeapView PNat Runtime.Location (Agree (LeibnizO TinyML.Block)) TinyML.HeapF),
           by infer_instance⟩
   | 5 => ⟨constOF (HeapView PNat Runtime.Location (Agree (LeibnizO GName)) TinyML.HeapF),
           by infer_instance⟩
@@ -60,29 +60,29 @@ instance instMicaGpreS_Sig : MicaGpreS HasLC.hasLC Sig where
 
 /-- The gen-heap `insert` (alter-based) agrees with `Heap.update`. -/
 theorem TinyML.Heap.insert_eq_update (μ : TinyML.Heap) (l : Runtime.Location)
-    (v : Runtime.Val) : Iris.Std.insert μ l v = μ.update l v := by
+    (b : TinyML.Block) : Iris.Std.insert μ l b = μ.update l b := by
   refine Std.ExtTreeMap.ext_getElem? fun k => ?_
-  show (μ.alter l fun _ => some v)[k]? = (μ.insert l v)[k]?
+  show (μ.alter l fun _ => some b)[k]? = (μ.insert l b)[k]?
   simp [Std.ExtTreeMap.getElem?_alter, Std.ExtTreeMap.getElem?_insert]
 
 /-- `genHeap_alloc` restated against `Heap.update`. -/
 theorem genHeap_alloc' {hlc} {GF : BundledGFunctors} [MicaGS hlc GF] {σ : TinyML.Heap}
-    {l : Runtime.Location} {v : Runtime.Val} (h : σ.lookup l = none) :
+    {l : Runtime.Location} {b : TinyML.Block} (h : σ.lookup l = none) :
     genHeapInterp (F := PNat) (GF := GF) (H := TinyML.HeapF) σ ⊢
-      |==> (genHeapInterp (F := PNat) (GF := GF) (H := TinyML.HeapF) (σ.update l v) ∗
-        pointsTo l (DFrac.own 1) v ∗ metaToken l ⊤) := by
-  have := genHeap_alloc (GF := GF) (H := TinyML.HeapF) (v := v)
+      |==> (genHeapInterp (F := PNat) (GF := GF) (H := TinyML.HeapF) (σ.update l b) ∗
+        pointsTo l (DFrac.own 1) b ∗ metaToken l ⊤) := by
+  have := genHeap_alloc (GF := GF) (H := TinyML.HeapF) (v := b)
     (show Iris.Std.get? σ l = none from h)
   rwa [TinyML.Heap.insert_eq_update] at this
 
 /-- `genHeap_update` restated against `Heap.update`. -/
 theorem genHeap_update' {hlc} {GF : BundledGFunctors} [MicaGS hlc GF] {σ : TinyML.Heap}
-    {l : Runtime.Location} {v₁ v₂ : Runtime.Val} :
-    genHeapInterp (F := PNat) (GF := GF) (H := TinyML.HeapF) σ ∗ pointsTo l (DFrac.own 1) v₁ ==∗
-      genHeapInterp (F := PNat) (GF := GF) (H := TinyML.HeapF) (σ.update l v₂) ∗
-        pointsTo l (DFrac.own 1) v₂ := by
+    {l : Runtime.Location} {b₁ b₂ : TinyML.Block} :
+    genHeapInterp (F := PNat) (GF := GF) (H := TinyML.HeapF) σ ∗ pointsTo l (DFrac.own 1) b₁ ==∗
+      genHeapInterp (F := PNat) (GF := GF) (H := TinyML.HeapF) (σ.update l b₂) ∗
+        pointsTo l (DFrac.own 1) b₂ := by
   have := genHeap_update (GF := GF) (H := TinyML.HeapF) (σ := σ) (l := l)
-    (v₁ := v₁) (v₂ := v₂)
+    (v₁ := b₁) (v₂ := b₂)
   rwa [TinyML.Heap.insert_eq_update] at this
 
 /-- Ownership of the physical TinyML heap — Mica's state interpretation.

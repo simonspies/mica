@@ -52,7 +52,7 @@ def micaN : Namespace := nroot.@"mica_locinv"
     where the payload `I` is handed out (`wp.deref_inv`), it must be
     persistent. -/
 def locinv (l : Runtime.Location) (I : Runtime.Val → iProp) : iProp :=
-  inv micaN iprop(∃ v, l ↦ v ∗ I v)
+  inv micaN iprop(∃ v, l ↦ [v] ∗ I v)
 
 instance locinv_persistent (l : Runtime.Location) (I : Runtime.Val → iProp) :
     Persistent (locinv l I) :=
@@ -73,8 +73,8 @@ def wps (ctx : TinyML.PrimCtx) : Runtime.Exprs → (Runtime.Vals → iProp) → 
 
 /-! ## Core rules -/
 
-theorem pointsTo.exclusive (l : Runtime.Location) (v1 v2 : Runtime.Val) :
-    l ↦ v1 ∗ l ↦ v2 ⊢ (False : iProp) := by
+theorem pointsTo.exclusive (l : Runtime.Location) (b1 b2 : TinyML.Block) :
+    l ↦ b1 ∗ l ↦ b2 ⊢ (False : iProp) := by
   istart
   iintro ⟨H1, H2⟩
   icases pointsTo_ne $$ H1 H2 with %Hne
@@ -198,9 +198,9 @@ theorem wp.match_ {ctx : TinyML.PrimCtx} {tag arity : Nat} {payload : Runtime.Va
 
 /-! ## Heap operations -/
 
-/-- `ref e` allocates a fresh location, stores the value, and returns the location. -/
+/-- `ref e` allocates a fresh location whose block has `e`'s value in field `0`. -/
 theorem wp.ref {ctx : TinyML.PrimCtx} {v : Runtime.Val} {Q : Runtime.Val → iProp} :
-    iprop(∀ (l : Runtime.Location), l ↦ v -∗ Q (.loc l)) ⊢
+    iprop(∀ (l : Runtime.Location), l ↦ [v] -∗ Q (.loc l)) ⊢
     wp ctx (.ref (.val v)) Q := by
   istart
   iintro HΦ
@@ -210,7 +210,7 @@ theorem wp.ref {ctx : TinyML.PrimCtx} {v : Runtime.Val} {Q : Runtime.Val → iPr
   obtain ⟨l, hl⟩ := Iris.Std.List.fresh σ₁.keys
   have hfresh : TinyML.Heap.Fresh l σ₁ := fun hmem => hl (Std.ExtTreeMap.mem_keys.mpr hmem)
   have hred : BaseStep.Reducible (show TinyML.LExpr ctx from .ref (.val v), σ₁) :=
-    ⟨[], .val (.loc l), σ₁.update l v, [], .ref hfresh, rfl, rfl⟩
+    ⟨[], .val (.loc l), σ₁.update l [v], [], .ref hfresh, rfl, rfl⟩
   isplitr
   · ipureintro
     exact primStep_reducible_of_baseStep_reducible hred
@@ -228,21 +228,23 @@ theorem wp.ref {ctx : TinyML.PrimCtx} {v : Runtime.Val} {Q : Runtime.Val → iPr
   · ipureintro; rfl
   · iapply HΦ $$ %l' Hpt
 
-/-- `deref e` reads the value stored at the location. Reading preserves ownership. -/
+/-- `deref e` reads field `0` of the block at the location. Reading preserves ownership. -/
 theorem wp.deref {ctx : TinyML.PrimCtx} {l : Runtime.Location} {v : Runtime.Val}
     {Q : Runtime.Val → iProp} :
-    l ↦ v ∗ (l ↦ v -∗ Q v) ⊢ wp ctx (.deref (.val (.loc l))) Q := by
+    l ↦ [v] ∗ (l ↦ [v] -∗ Q v) ⊢ wp ctx (.deref (.val (.loc l))) Q := by
   istart
   iintro ⟨Hpt, HΦ⟩
   simp only [_root_.wp]
   iapply wp_lift_atomic_step rfl
   iintro %σ₁ %ns %obs %obs' %nt Hσ !>
-  ihave %Hlook : (⌜Iris.Std.get? σ₁ l = some v⌝ : iProp) $$ [Hσ Hpt]
+  ihave %Hlook : (⌜Iris.Std.get? σ₁ l = some [v]⌝ : iProp) $$ [Hσ Hpt]
   · ihave >%h := genHeap_valid $$ [$Hσ $Hpt]
     itrivial
-  have hlk : TinyML.Heap.lookup l σ₁ = some v := Hlook
+  have hlk : TinyML.Heap.lookup l σ₁ = some [v] := Hlook
+  have hlkf : TinyML.Heap.lookupField l 0 σ₁ = some v := by
+    simp [TinyML.Heap.lookupField_of_lookup hlk]
   have hred : BaseStep.Reducible (show TinyML.LExpr ctx from .deref (.val (.loc l)), σ₁) :=
-    ⟨[], .val v, σ₁, [], .deref hlk, rfl, rfl⟩
+    ⟨[], .val v, σ₁, [], .deref hlkf, rfl, rfl⟩
   isplitr
   · ipureintro
     exact primStep_reducible_of_baseStep_reducible hred
@@ -250,7 +252,7 @@ theorem wp.deref {ctx : TinyML.PrimCtx} {l : Runtime.Location} {v : Runtime.Val}
   obtain ⟨hh, rfl, rfl⟩ := baseStep_of_primStep_of_baseStep_reducible hred Hps
   cases hh
   rename_i v' hlk'
-  obtain rfl : v = v' := Option.some.inj (hlk.symm.trans hlk')
+  obtain rfl : v = v' := Option.some.inj (hlkf.symm.trans hlk')
   imodintro
   simp only [List.length_nil, Nat.add_zero, Algebra.BigOpL.bigOpL_nil]
   iframe Hσ
@@ -260,21 +262,25 @@ theorem wp.deref {ctx : TinyML.PrimCtx} {l : Runtime.Location} {v : Runtime.Val}
   · ipureintro; rfl
   · iapply HΦ $$ Hpt
 
-/-- `store loc val` updates the value at the location. -/
+/-- `store loc val` updates field `0` of the block at the location. -/
 theorem wp.store {ctx : TinyML.PrimCtx} {l : Runtime.Location} {old v : Runtime.Val}
     {Q : Runtime.Val → iProp} :
-    l ↦ old ∗ (l ↦ v -∗ Q .unit) ⊢ wp ctx (.store (.val (.loc l)) (.val v)) Q := by
+    l ↦ [old] ∗ (l ↦ [v] -∗ Q .unit) ⊢ wp ctx (.store (.val (.loc l)) (.val v)) Q := by
   istart
   iintro ⟨Hpt, HΦ⟩
   simp only [_root_.wp]
   iapply wp_lift_atomic_step rfl
   iintro %σ₁ %ns %obs %obs' %nt Hσ !>
-  ihave %Hlook : (⌜Iris.Std.get? σ₁ l = some old⌝ : iProp) $$ [Hσ Hpt]
+  ihave %Hlook : (⌜Iris.Std.get? σ₁ l = some [old]⌝ : iProp) $$ [Hσ Hpt]
   · ihave >%h := genHeap_valid $$ [$Hσ $Hpt]
     itrivial
-  have hlk : TinyML.Heap.lookup l σ₁ = some old := Hlook
+  have hlk : TinyML.Heap.lookup l σ₁ = some [old] := Hlook
+  have hlkf : TinyML.Heap.lookupField l 0 σ₁ = some old := by
+    simp [TinyML.Heap.lookupField_of_lookup hlk]
+  have hpost : TinyML.Heap.updateField l 0 v σ₁ = σ₁.update l [v] :=
+    TinyML.Heap.updateField_of_lookup hlk
   have hred : BaseStep.Reducible (show TinyML.LExpr ctx from .store (.val (.loc l)) (.val v), σ₁) :=
-    ⟨[], .val .unit, σ₁.update l v, [], .store hlk, rfl, rfl⟩
+    ⟨[], .val .unit, TinyML.Heap.updateField l 0 v σ₁, [], .store hlkf, rfl, rfl⟩
   isplitr
   · ipureintro
     exact primStep_reducible_of_baseStep_reducible hred
@@ -282,7 +288,8 @@ theorem wp.store {ctx : TinyML.PrimCtx} {l : Runtime.Location} {old v : Runtime.
   obtain ⟨hh, rfl, rfl⟩ := baseStep_of_primStep_of_baseStep_reducible hred Hps
   cases hh
   rename_i w hlk'
-  imod genHeap_update' (v₂ := v) $$ [$Hσ $Hpt] with ⟨Hσ, Hpt⟩
+  rw [hpost]
+  imod genHeap_update' (b₂ := [v]) $$ [$Hσ $Hpt] with ⟨Hσ, Hpt⟩
   imodintro
   simp only [stateInterp, Algebra.BigOpL.bigOpL_nil]
   iframe Hσ
@@ -305,7 +312,7 @@ theorem wp.ref_inv {ctx : TinyML.PrimCtx} {v : Runtime.Val}
     (wp_fupd Stuckness.NotStuck ⊤ (show TinyML.LExpr ctx from .ref (.val v)) Q))
   istart
   iintro ⟨#HI, HΦ⟩ %l Hpt
-  imod inv_alloc micaN ⊤ iprop(∃ w, l ↦ w ∗ I w) $$ [Hpt] with Hinv
+  imod inv_alloc micaN ⊤ iprop(∃ w, l ↦ [w] ∗ I w) $$ [Hpt] with Hinv
   · inext
     iexists v
     isplitl [Hpt]
@@ -329,12 +336,14 @@ theorem wp.deref_inv {ctx : TinyML.PrimCtx} {l : Runtime.Location}
   imod inv_acc _ _ _ CoPset.subseteq_top $$ Hinv with ⟨HP, Hcl⟩
   icases HP with ⟨%w, Hpt, HI⟩
   imod Hpt with Hpt
-  ihave %Hlook : (⌜Iris.Std.get? σ₁ l = some w⌝ : iProp) $$ [Hσ Hpt]
+  ihave %Hlook : (⌜Iris.Std.get? σ₁ l = some [w]⌝ : iProp) $$ [Hσ Hpt]
   · ihave >%h := genHeap_valid $$ [$Hσ $Hpt]
     itrivial
-  have hlk : TinyML.Heap.lookup l σ₁ = some w := Hlook
+  have hlk : TinyML.Heap.lookup l σ₁ = some [w] := Hlook
+  have hlkf : TinyML.Heap.lookupField l 0 σ₁ = some w := by
+    simp [TinyML.Heap.lookupField_of_lookup hlk]
   have hred : BaseStep.Reducible (show TinyML.LExpr ctx from .deref (.val (.loc l)), σ₁) :=
-    ⟨[], .val w, σ₁, [], .deref hlk, rfl, rfl⟩
+    ⟨[], .val w, σ₁, [], .deref hlkf, rfl, rfl⟩
   iapply fupd_mask_intro Std.LawfulSet.empty_subset
   iintro Hclose
   isplitr
@@ -344,7 +353,7 @@ theorem wp.deref_inv {ctx : TinyML.PrimCtx} {l : Runtime.Location}
   obtain ⟨hh, rfl, rfl⟩ := baseStep_of_primStep_of_baseStep_reducible hred Hps
   cases hh
   rename_i w' hlk'
-  obtain rfl : w = w' := Option.some.inj (hlk.symm.trans hlk')
+  obtain rfl : w = w' := Option.some.inj (hlkf.symm.trans hlk')
   imodintro
   inext
   iintuitionistic HI
@@ -378,13 +387,17 @@ theorem wp.store_inv {ctx : TinyML.PrimCtx} {l : Runtime.Location}
   icases HP with ⟨%w, Hpt, HI⟩
   imod Hpt with Hpt
   iclear HI
-  ihave %Hlook : (⌜Iris.Std.get? σ₁ l = some w⌝ : iProp) $$ [Hσ Hpt]
+  ihave %Hlook : (⌜Iris.Std.get? σ₁ l = some [w]⌝ : iProp) $$ [Hσ Hpt]
   · ihave >%h := genHeap_valid $$ [$Hσ $Hpt]
     itrivial
-  have hlk : TinyML.Heap.lookup l σ₁ = some w := Hlook
+  have hlk : TinyML.Heap.lookup l σ₁ = some [w] := Hlook
+  have hlkf : TinyML.Heap.lookupField l 0 σ₁ = some w := by
+    simp [TinyML.Heap.lookupField_of_lookup hlk]
+  have hpost : TinyML.Heap.updateField l 0 v σ₁ = σ₁.update l [v] :=
+    TinyML.Heap.updateField_of_lookup hlk
   have hred : BaseStep.Reducible
       (show TinyML.LExpr ctx from .store (.val (.loc l)) (.val v), σ₁) :=
-    ⟨[], .val .unit, σ₁.update l v, [], .store hlk, rfl, rfl⟩
+    ⟨[], .val .unit, TinyML.Heap.updateField l 0 v σ₁, [], .store hlkf, rfl, rfl⟩
   iapply fupd_mask_intro Std.LawfulSet.empty_subset
   iintro Hclose
   isplitr
@@ -393,9 +406,10 @@ theorem wp.store_inv {ctx : TinyML.PrimCtx} {l : Runtime.Location}
   iintro %e₂ %σ₂ %eₜ %Hps -
   obtain ⟨hh, rfl, rfl⟩ := baseStep_of_primStep_of_baseStep_reducible hred Hps
   cases hh
+  rw [hpost]
   imodintro
   inext
-  imod genHeap_update' (v₂ := v) $$ [$Hσ $Hpt] with ⟨Hσ, Hpt⟩
+  imod genHeap_update' (b₂ := [v]) $$ [$Hσ $Hpt] with ⟨Hσ, Hpt⟩
   imod Hclose with -
   imod Hcl $$ [Hpt] with -
   · inext

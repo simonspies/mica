@@ -15,7 +15,7 @@ single atom. -/
 
 /-- A syntactic ownership item. Initially, only points-to assertions. -/
 inductive SpatialAtom where
-  /-- The cell at location term `l` holds value term `v`, whose TinyML type is `ty`.
+  /-- Field `0` of the block at location term `l` holds value term `v`, whose TinyML type is `ty`.
   The interpretation carries the value typing fact as part of the same spatial atom. -/
   | pointsTo : Term .value → Term .value → TinyML.Typ → SpatialAtom
   deriving DecidableEq
@@ -39,7 +39,7 @@ theorem wfIn_mono {a : SpatialAtom} {Δ Δ' : Signature}
 def interp [MicaGS HasLC.hasLC Sig] (Θ : TinyML.TypeEnv) (ρ : Env) :
     SpatialAtom → iProp
   | .pointsTo l v ty => ∃ (loc : Runtime.Location),
-      ⌜Term.eval ρ l = .loc loc⌝ ∗ loc ↦ Term.eval ρ v ∗
+      ⌜Term.eval ρ l = .loc loc⌝ ∗ loc ↦ [Term.eval ρ v] ∗
         TinyML.ValHasType Θ (Term.eval ρ v) ty
 
 /-- Congruence for points-to interpretation under equal location and value evaluation. -/

@@ -114,18 +114,18 @@ inductive Head (ctx : PrimCtx) : Runtime.Expr → Heap → Runtime.Expr → Heap
   /-- Conditional on false. -/
   | ifFalse : Head ctx (.ifThenElse (.val (.bool false)) thn els) μ els μ
 
-  /-- Allocate a fresh location. -/
+  /-- Allocate a fresh location holding a singleton block. -/
   | ref : Heap.Fresh l μ →
-          Head ctx (.ref (.val v)) μ (.val (.loc l)) (μ.update l v)
+          Head ctx (.ref (.val v)) μ (.val (.loc l)) (μ.update l [v])
 
-  /-- Dereference a location. -/
-  | deref : μ.lookup l = some v →
+  /-- Dereference a location: read field `0` of its block. -/
+  | deref : Heap.lookupField l 0 μ = some v →
             Head ctx (.deref (.val (.loc l))) μ (.val v) μ
 
-  /-- Write to a location. -/
+  /-- Write to a location: update field `0` of its block. -/
   | store :
-    μ.lookup l = some w →
-    Head ctx (.store (.val (.loc l)) (.val v)) μ (.val .unit) (μ.update l v)
+    Heap.lookupField l 0 μ = some w →
+    Head ctx (.store (.val (.loc l)) (.val v)) μ (.val .unit) (Heap.updateField l 0 v μ)
 
   /-- Assert succeeds on true; false is stuck (no rule). -/
   | assertOk : Head ctx (.assert (.val (.bool true))) μ (.val .unit) μ
