@@ -23,6 +23,7 @@ mutual
     | int (n : Int)
     | bool (b : Bool)
     | str (s : List UInt8)
+    | float (bits : UInt64)
     | unit
     | inj (tag : Nat) (arity : Nat) (payload : Val)
     | loc (l : Location)
@@ -74,6 +75,7 @@ def Val.ofConst : TinyML.Const → Val
   | .int n  => .int n
   | .bool b => .bool b
   | .string s => .str s
+  | .float b => .float b
   | .unit   => .unit
 
 
@@ -91,6 +93,9 @@ mutual
       | isTrue h => isTrue (by subst h; rfl)
       | isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
     case str.str a b => exact match decEq a b with
+      | isTrue h => isTrue (by subst h; rfl)
+      | isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
+    case float.float a b => exact match decEq a b with
       | isTrue h => isTrue (by subst h; rfl)
       | isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
     case unit.unit => exact isTrue rfl

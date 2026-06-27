@@ -495,11 +495,11 @@ where
 
   -- `+` `-` left-assoc
   parseAdd : Parser Expr :=
-    parseLAssoc [(.plus, .add), (.minus, .sub)] parseMul
+    parseLAssoc [(.plus, .add), (.minus, .sub), (.plusDot, .fadd), (.minusDot, .fsub)] parseMul
 
   -- `*` `/` `mod` left-assoc
   parseMul : Parser Expr :=
-    parseLAssoc [(.star, .mul), (.slash, .div), (.kw_mod, .mod)] parseUnary
+    parseLAssoc [(.star, .mul), (.slash, .div), (.starDot, .fmul), (.slashDot, .fdiv), (.kw_mod, .mod)] parseUnary
 
   -- prefix unary operators
   parseUnary : Parser Expr := fun st =>
@@ -562,7 +562,7 @@ where
     else .ok ([], st)
 
   isArgStart : Token → Bool
-    | .intLit _ | .charLit _ | .stringLit _ | .ident _ | .lparen | .lbrace
+    | .intLit _ | .floatLit _ | .charLit _ | .stringLit _ | .ident _ | .lparen | .lbrace
     | .kw_true | .kw_false => true
     | _ => false
 
@@ -595,6 +595,7 @@ where
     let p := peekLoc st
     match peekTok st with
     | .intLit n  => .ok (mkExpr p (advance st) (.const (.int n)), advance st)
+    | .floatLit f => .ok (mkExpr p (advance st) (.const (.float f)), advance st)
     | .charLit c => .ok (mkExpr p (advance st) (.const (.char c)), advance st)
     | .stringLit s => .ok (mkExpr p (advance st) (.const (.string s)), advance st)
     | .kw_true   => .ok (mkExpr p (advance st) (.const (.bool true)), advance st)

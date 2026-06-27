@@ -9,6 +9,7 @@ inductive Srt where
   | int
   | bool
   | string
+  | float
   | value
   | vallist
   deriving DecidableEq, Repr
@@ -17,6 +18,7 @@ inductive Srt where
   | .int => Int
   | .bool => Bool
   | .string => List UInt8
+  | .float => UInt64
   | .value => Runtime.Val
   | .vallist => List Runtime.Val
 

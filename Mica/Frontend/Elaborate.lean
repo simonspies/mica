@@ -118,6 +118,7 @@ def TypKind.elaborate (env : ElabEnv) (loc : Location) : TypKind → ElabM TinyM
     | "bool" => if args'.isEmpty then .ok .bool else err loc (.arityMismatch 0 args'.length)
     | "unit" => if args'.isEmpty then .ok .unit else err loc (.arityMismatch 0 args'.length)
     | "string" => if args'.isEmpty then .ok .string else err loc (.arityMismatch 0 args'.length)
+    | "float" => if args'.isEmpty then .ok .float else err loc (.arityMismatch 0 args'.length)
     | "ref" =>
       match args' with
       | [arg] => .ok (.ref arg)
@@ -225,7 +226,8 @@ private def elaborateBinOp (loc : Location) : BinOp → ElabM TinyML.BinOp
   | .div => .ok .div | .mod => .ok .mod
   | .eq => .ok .eq | .lt => .ok .lt | .le => .ok .le | .gt => .ok .gt | .ge => .ok .ge
   | .and => .ok .and | .or => .ok .or
-  | .neq | .semi | .pipeRight | .atAt | .assign | .concat =>
+  | .neq | .semi | .pipeRight | .atAt | .assign | .concat
+  | .fadd | .fsub | .fmul | .fdiv =>
     err loc (.internalError "desugared operator reached elaborateBinOp")
 
 -- Helper to elaborate a constructor lookup (not recursive)
@@ -256,6 +258,7 @@ def Expr.elaborate (env : ElabEnv) : Expr → ElabM Untyped.Expr
 
 def ExprKind.elaborate (env : ElabEnv) (loc : Location) : ExprKind → ElabM Untyped.Expr
   | .const (.int n)  => .ok (.const (.int n))
+  | .const (.float f) => .ok (.const (.float f.toBits))
   | .const (.bool b) => .ok (.const (.bool b))
   | .const (.string s) => .ok (.const (.string s))
   | .const .unit     => .ok (.const .unit)
@@ -265,7 +268,10 @@ def ExprKind.elaborate (env : ElabEnv) (loc : Location) : ExprKind → ElabM Unt
     if path.isQualified then
       match env.resolver.value path with
       | some (.userVar n) => .ok (.var n)
-      | some (.primitive n ty) => .ok (.prim n ty)
+      | some (.primitive n ty) =>
+        match ty with
+        | .arrow _ _ => .ok (.prim n ty)
+        | _ => .ok (.app (.prim n ty) [])
       | none => err loc (.unsupportedPath path)
     else
       let name := path.head
@@ -343,6 +349,22 @@ def ExprKind.elaborate (env : ElabEnv) (loc : Location) : ExprKind → ElabM Unt
     let l' ← Expr.elaborate env l
     let r' ← Expr.elaborate env r
     .ok (.app (.prim "string_cat" (.arrow .string (.arrow .string .string))) [l', r'])
+  | .binop .fadd l r => do
+    let l' ← Expr.elaborate env l
+    let r' ← Expr.elaborate env r
+    .ok (.app (.prim "float_add" (.arrow .float (.arrow .float .float))) [l', r'])
+  | .binop .fsub l r => do
+    let l' ← Expr.elaborate env l
+    let r' ← Expr.elaborate env r
+    .ok (.app (.prim "float_sub" (.arrow .float (.arrow .float .float))) [l', r'])
+  | .binop .fmul l r => do
+    let l' ← Expr.elaborate env l
+    let r' ← Expr.elaborate env r
+    .ok (.app (.prim "float_mul" (.arrow .float (.arrow .float .float))) [l', r'])
+  | .binop .fdiv l r => do
+    let l' ← Expr.elaborate env l
+    let r' ← Expr.elaborate env r
+    .ok (.app (.prim "float_div" (.arrow .float (.arrow .float .float))) [l', r'])
   | .binop op l r => do
     let op' ← elaborateBinOp loc op
     let l' ← Expr.elaborate env l

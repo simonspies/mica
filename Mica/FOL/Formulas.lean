@@ -6,6 +6,7 @@ inductive UnPred : Srt → Type where
   | isInt   : UnPred .value
   | isBool  : UnPred .value
   | isStr   : UnPred .value
+  | isFloat : UnPred .value
   | isLoc   : UnPred .value
   | isTuple : UnPred .value
   | isOfInj : UnPred .value
@@ -338,6 +339,7 @@ theorem Context.wfIn_mono (Γ : Context) (h : Γ.wfIn Δ) (hsub : Δ.Subset Δ')
   | _, .isInt,   v => match v with | .int _ => True | _ => False
   | _, .isBool,  v => match v with | .bool _ => True | _ => False
   | _, .isStr,   v => match v with | .str _ => True | _ => False
+  | _, .isFloat, v => match v with | .float _ => True | _ => False
   | _, .isLoc,   v => match v with | .loc _ => True | _ => False
   | _, .isTuple, v => match v with | .tuple _ => True | _ => False
   | _, .isOfInj, v => match v with | .inj _ _ _ => True | _ => False

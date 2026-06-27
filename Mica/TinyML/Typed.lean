@@ -204,6 +204,7 @@ def Const.ty : Const → Typ
   | .int _ => .int
   | .bool _ => .bool
   | .string _ => .string
+  | .float _ => .float
   | .unit => .unit
 
 def arrowOfArgs : List Binder → Typ → Typ
