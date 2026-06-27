@@ -27,10 +27,10 @@ let arith (a : float) (b : float) (scale : float) : float =
   assert (Float.is_finite a && Float.is_finite b && Float.is_finite scale);
   assert (Float.le 0. a && Float.le a 1.);
   assert (Float.le 0. b && Float.le b 1.);
-  assert (Float.le 0. scale && Float.le scale 1.);
+  assert (Float.le 1. scale && Float.le scale 2.);
   ret (fun v ->
-    assert (Float.is_finite v);
-    assert (Float.le 0. v))];;
+    assert (Float.is_finite v && Float.le 0. v)
+    )];;
 
 (* Square root of an absolute value is non-negative or NaN. *)
 let sqrt_abs (x : float) : float =
