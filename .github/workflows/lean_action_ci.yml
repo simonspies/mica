@@ -11,7 +11,14 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: leanprover/lean-action@v1
-      - run: sudo apt-get update && sudo apt-get install -y z3
+      - name: Install Z3
+        run: |
+          Z3_VERSION=4.15.4
+          curl -sSL -o z3.zip \
+            "https://github.com/Z3Prover/z3/releases/download/z3-${Z3_VERSION}/z3-${Z3_VERSION}-x64-glibc-2.39.zip"
+          unzip -q z3.zip
+          sudo install "z3-${Z3_VERSION}-x64-glibc-2.39/bin/z3" /usr/local/bin/z3
+          z3 --version
       - name: Test examples
         run: |
           lake run testsuite Examples/
