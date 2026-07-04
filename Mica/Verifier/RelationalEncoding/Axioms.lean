@@ -1,5 +1,6 @@
 -- SUMMARY: Solver-facing axioms and validity theorems for skolemized relational encoding.
 import Mica.Verifier.RelationalEncoding.SkolemizeCompleteness
+import Mica.Verifier.Guard
 
 
 /-!
@@ -74,17 +75,18 @@ def definedElimAxiom (fn : SpecFn) (x : TinyML.Var) (body : DefVal) : Formula :=
   .all x .value
     (.implies (fn.isDefined (.var .value x)) body.defined)
 
-/-- The solver-facing axioms emitted for a relation-marked function. -/
-def axioms (fn : SpecFn) (x : TinyML.Var) (body : DefVal) : List Formula :=
-  [definedIntroAxiom fn x body, valueAxiom fn x body,
-   definedElimAxiom fn x body]
+/-- The solver-facing axioms emitted for a relation-marked function. All three
+are quantified, so they are guarded (`.high`). -/
+def axioms (fn : SpecFn) (x : TinyML.Var) (body : DefVal) : List Axiom :=
+  [⟨definedIntroAxiom fn x body, .high⟩, ⟨valueAxiom fn x body, .high⟩,
+   ⟨definedElimAxiom fn x body, .high⟩]
 
 theorem axioms_wfIn {Δ : Signature} {fn : SpecFn} {x : String} {body : DefVal}
     (hΔx : (Δ.declVar ⟨x, .value⟩).wf)
     (hbody : body.wfIn (Δ.declVar ⟨x, .value⟩))
     (hfun : fn.func ∈ (Δ.declVar ⟨x, .value⟩).unary)
     (hrel : fn.defined ∈ (Δ.declVar ⟨x, .value⟩).unaryRel) :
-    ∀ ax ∈ axioms fn x body, ax.wfIn Δ := by
+    ∀ ax ∈ axioms fn x body, ax.formula.wfIn Δ := by
   intro ax hmem
   simp [axioms] at hmem
   rcases hmem with rfl | rfl | rfl
@@ -245,7 +247,7 @@ theorem axioms_eval
     (hΔ : Δ.wf) (hheadFresh : HeadFresh Δ fn x res)
     (hρdet : Relation.BinaryRelDet Γ ρ ρ) :
     ∀ ax ∈ axioms fn x body,
-      ax.eval (defInterpEnv Γ Δ ρ f fn x res e body) := by
+      ax.formula.eval (defInterpEnv Γ Δ ρ f fn x res e body) := by
   intro ax hmem
   simp [axioms] at hmem
   rcases hmem with rfl | rfl | rfl
@@ -259,8 +261,7 @@ theorem axioms_eval
 function and its body, it returns the data needed to declare solver symbols
 and assume axioms (the binary relation symbol, the value function, the
 definedness predicate, a fresh pinned result variable, the encoded body, and
-the list of axioms). Stage 2 emits two unary axioms (over the value and
-definedness symbols) instead of stage 1's single binary defining axiom.
+the guarded solver-facing axioms over the split symbols).
 
 The lemmas below lift the corresponding `axioms_*` results to the `bundle`
 level. -/
@@ -344,7 +345,7 @@ so this returns only the data the encoder computes: the canonical pinned-result
 variable, the encoded body, and the list of solver-emitted axioms. -/
 def bundle
     (Γ : FunCtx) (Δ : Signature) (f : TinyML.Var) (fn : SpecFn) (x : String) (e : Typed.Expr) :
-    Except String (String × DefVal × List Formula) := do
+    Except String (String × DefVal × List Axiom) := do
   let res := Fresh.freshName
     (Δ.allNames ++ [x, fn.relName, fn.funcName, fn.defName]) "r"
   let bv ← encodeBody Γ Δ f fn x res e
@@ -362,12 +363,12 @@ theorem bundle_headFresh
 
 theorem bundle_wfIn
     {Γ : FunCtx} {Δ : Signature} {f : TinyML.Var} {fn : SpecFn} {x : String} {e : Typed.Expr}
-    {res : String} {bv : DefVal} {axs : List Formula}
+    {res : String} {bv : DefVal} {axs : List Axiom}
     (hinfo : bundle Γ Δ f fn x e = .ok (res, bv, axs))
     (hΔ : Δ.wf) (hΓwf : Γ.wfIn Δ)
     (hf : InfoFresh Δ fn x) :
     ∀ ax ∈ axs,
-      ax.wfIn (((Δ.addBinaryRel fn.rel).addUnary fn.func).addUnaryRel fn.defined) := by
+      ax.formula.wfIn (((Δ.addBinaryRel fn.rel).addUnary fn.func).addUnaryRel fn.defined) := by
   unfold bundle at hinfo
   simp only [bind, Except.bind] at hinfo
   split at hinfo
@@ -409,7 +410,7 @@ theorem axioms_eval_updateBinaryRel
     (hρdet : Relation.BinaryRelDet Γ ρ ρ)
     (R : ValRel) :
     ∀ ax ∈ axioms fn x body,
-      ax.eval ((defInterpEnv Γ Δ ρ f fn x res e body).updateBinaryRel
+      ax.formula.eval ((defInterpEnv Γ Δ ρ f fn x res e body).updateBinaryRel
         .value .value fn.relName R) := by
   intro ax hmem
   have hbase := axioms_eval henc hΓ hΓwf hΔ hheadFresh hρdet ax hmem
@@ -431,7 +432,7 @@ theorem axioms_eval_updateBinaryRel
     Signature.mem_remove_unary.mpr ⟨List.Mem.head _, fun heq => hxNeFun heq.symm⟩
   have hrel_mem : fn.defined ∈ (Δsmall.declVar ⟨x, .value⟩).unaryRel :=
     Signature.mem_remove_unaryRel.mpr ⟨List.Mem.head _, fun heq => hxNeDef heq.symm⟩
-  have hax_wf : ax.wfIn Δsmall :=
+  have hax_wf : ax.formula.wfIn Δsmall :=
     axioms_wfIn (Δ := Δsmall) hΔbig_wf hbody_wf hfun_mem hrel_mem ax hmem
   have hrelFresh_small : fn.rel.name ∉ Δsmall.allNames :=
     Signature.not_mem_allNames_addUnaryRel
@@ -451,7 +452,7 @@ theorem axioms_eval_updateBinaryRel
 theorem bundle_semrel_functional
     {Γ : FunCtx} {Δ : Signature}
     {f fn x : String} {e : Typed.Expr}
-    {res : String} {bv : DefVal} {axs : List Formula}
+    {res : String} {bv : DefVal} {axs : List Axiom}
     (hinfo : bundle Γ Δ f fn x e = .ok (res, bv, axs))
     (hΓwf : Γ.wfIn Δ)
     (hΔ : Δ.wf) (hf : InfoFresh Δ fn x)
@@ -473,7 +474,7 @@ theorem bundle_semrel_functional
 theorem bundle_semrel_compatible
     {Γ : FunCtx} {Δ : Signature} {ρ : Env}
     {f fn x : String} {e : Typed.Expr}
-    {res : String} {bv : DefVal} {axs : List Formula}
+    {res : String} {bv : DefVal} {axs : List Axiom}
     (hinfo : bundle Γ Δ f fn x e = .ok (res, bv, axs))
     (hΓ : Γ.splitCompatible ρ)
     (hΓwf : Γ.wfIn Δ)
@@ -498,7 +499,7 @@ interpretation for the freshly declared `fn` symbol. -/
 theorem bundle_eval_updateBinaryRel
     {Γ : FunCtx} {Δ : Signature} {ρ : Env}
     {f : TinyML.Var} {fn : SpecFn} {x : String} {e : Typed.Expr}
-    {res : String} {bv : DefVal} {axs : List Formula}
+    {res : String} {bv : DefVal} {axs : List Axiom}
     (hinfo : bundle Γ Δ f fn x e = .ok (res, bv, axs))
     (hΓ : Γ.splitCompatible ρ)
     (hΓwf : Γ.wfIn Δ)
@@ -506,7 +507,7 @@ theorem bundle_eval_updateBinaryRel
     (hρdet : Relation.BinaryRelDet Γ ρ ρ)
     (R : ValRel) :
     ∀ ax ∈ axs,
-      ax.eval ((defInterpEnv Γ Δ ρ f fn x res e bv).updateBinaryRel
+      ax.formula.eval ((defInterpEnv Γ Δ ρ f fn x res e bv).updateBinaryRel
         .value .value fn.relName R) := by
   unfold bundle at hinfo
   simp only [bind, Except.bind] at hinfo

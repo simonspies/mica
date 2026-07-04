@@ -231,7 +231,7 @@ structure Intrinsic where
       types, return type, and predicate transformer. -/
   spec     : Spec
   folSym   : Option (FOL.Symbol arity)
-  axioms   : List Formula
+  axioms   : List Axiom
 
 /-- A registry is a list of intrinsics. -/
 abbrev Registry := List Intrinsic
@@ -302,7 +302,7 @@ theorem toReduce_two_of_arity (name : String)
     (path : Option (String × List String))
     (reduce : Arity.tup .two Runtime.Val → TinyML.Heap → Runtime.Val → TinyML.Heap → Prop)
     (wp : Arity.tup .two Runtime.Val → (Runtime.Val → iProp) → iProp)
-    (spec : Spec) (folSym : Option (FOL.Symbol .two)) (axioms : List Formula)
+    (spec : Spec) (folSym : Option (FOL.Symbol .two)) (axioms : List Axiom)
     (a b v : Runtime.Val) (μ μ' : TinyML.Heap) :
     (Intrinsic.mk .two name path reduce wp spec folSym axioms).toReduce [a, b] μ v μ'
       = reduce (a, b) μ v μ' := rfl
@@ -312,7 +312,7 @@ theorem toReduce_one_of_arity (name : String)
     (path : Option (String × List String))
     (reduce : Arity.tup .one Runtime.Val → TinyML.Heap → Runtime.Val → TinyML.Heap → Prop)
     (wp : Arity.tup .one Runtime.Val → (Runtime.Val → iProp) → iProp)
-    (spec : Spec) (folSym : Option (FOL.Symbol .one)) (axioms : List Formula)
+    (spec : Spec) (folSym : Option (FOL.Symbol .one)) (axioms : List Axiom)
     (a v : Runtime.Val) (μ μ' : TinyML.Heap) :
     (Intrinsic.mk .one name path reduce wp spec folSym axioms).toReduce [a] μ v μ'
       = reduce a μ v μ' := rfl
@@ -322,7 +322,7 @@ theorem toReduce_zero_of_arity (name : String)
     (path : Option (String × List String))
     (reduce : Arity.tup .zero Runtime.Val → TinyML.Heap → Runtime.Val → TinyML.Heap → Prop)
     (wp : Arity.tup .zero Runtime.Val → (Runtime.Val → iProp) → iProp)
-    (spec : Spec) (folSym : Option (FOL.Symbol .zero)) (axioms : List Formula)
+    (spec : Spec) (folSym : Option (FOL.Symbol .zero)) (axioms : List Axiom)
     (v : Runtime.Val) (μ μ' : TinyML.Heap) :
     (Intrinsic.mk .zero name path reduce wp spec folSym axioms).toReduce [] μ v μ'
       = reduce () μ v μ' := rfl
@@ -345,7 +345,7 @@ theorem toWp_two_of_arity (name : String)
     (path : Option (String × List String))
     (reduce : Arity.tup .two Runtime.Val → TinyML.Heap → Runtime.Val → TinyML.Heap → Prop)
     (wp : Arity.tup .two Runtime.Val → (Runtime.Val → iProp) → iProp)
-    (spec : Spec) (folSym : Option (FOL.Symbol .two)) (axioms : List Formula)
+    (spec : Spec) (folSym : Option (FOL.Symbol .two)) (axioms : List Axiom)
     (a b : Runtime.Val) (Q : Runtime.Val → iProp) :
     (Intrinsic.mk .two name path reduce wp spec folSym axioms).toWp [a, b] Q
       = wp (a, b) Q := rfl
@@ -355,7 +355,7 @@ theorem toWp_one_of_arity (name : String)
     (path : Option (String × List String))
     (reduce : Arity.tup .one Runtime.Val → TinyML.Heap → Runtime.Val → TinyML.Heap → Prop)
     (wp : Arity.tup .one Runtime.Val → (Runtime.Val → iProp) → iProp)
-    (spec : Spec) (folSym : Option (FOL.Symbol .one)) (axioms : List Formula)
+    (spec : Spec) (folSym : Option (FOL.Symbol .one)) (axioms : List Axiom)
     (a : Runtime.Val) (Q : Runtime.Val → iProp) :
     (Intrinsic.mk .one name path reduce wp spec folSym axioms).toWp [a] Q
       = wp a Q := rfl
@@ -365,7 +365,7 @@ theorem toWp_zero_of_arity (name : String)
     (path : Option (String × List String))
     (reduce : Arity.tup .zero Runtime.Val → TinyML.Heap → Runtime.Val → TinyML.Heap → Prop)
     (wp : Arity.tup .zero Runtime.Val → (Runtime.Val → iProp) → iProp)
-    (spec : Spec) (folSym : Option (FOL.Symbol .zero)) (axioms : List Formula)
+    (spec : Spec) (folSym : Option (FOL.Symbol .zero)) (axioms : List Axiom)
     (Q : Runtime.Val → iProp) :
     (Intrinsic.mk .zero name path reduce wp spec folSym axioms).toWp [] Q
       = wp () Q := rfl
@@ -432,10 +432,10 @@ class IntrinsicSound (fragment : outParam (List Intrinsic)) (i : Intrinsic) : Pr
       ∀ (vs : List Runtime.Val) (Φ : Runtime.Val → iProp),
         i.toWp vs Φ ⊢ wp ctx (.app (.val (.prim i.name)) (vs.map Runtime.Expr.val)) Φ
   axiomWf : ∀ {Δ : Signature}, (Intrinsic.sigOf fragment).Subset Δ → Δ.wf →
-            ∀ φ ∈ i.axioms, Formula.wfIn φ Δ
+            ∀ a ∈ i.axioms, Formula.wfIn a.formula Δ
   proof : ∀ ρ : Env,
             (∀ d ∈ fragment, ρ.respects d.folSym) →
-            ∀ φ ∈ i.axioms, Formula.eval ρ φ
+            ∀ a ∈ i.axioms, Formula.eval ρ a.formula
 
 namespace Registry
 
@@ -646,10 +646,10 @@ theorem stdEnv_respects {R : Registry} (hWf : Wf R) :
 theorem satisfies_of_respects {R : Registry}
     (hSound : Sound R)
     (hRespect : ∀ i ∈ R, ρ.respects i.folSym) :
-    ∀ i ∈ R, ∀ φ ∈ i.axioms, Formula.eval ρ φ := by
+    ∀ i ∈ R, ∀ a ∈ i.axioms, Formula.eval ρ a.formula := by
   suffices h :
       ∀ todo, SoundIn R todo →
-        ∀ i ∈ todo, ∀ φ ∈ i.axioms, Formula.eval ρ φ by
+        ∀ i ∈ todo, ∀ a ∈ i.axioms, Formula.eval ρ a.formula by
     exact h R hSound
   intro todo
   induction todo with
@@ -669,7 +669,7 @@ theorem satisfies_of_respects {R : Registry}
       exact ih hrestSound j hjrest φ hφ
 
 theorem stdEnv_satisfies {R : Registry} (hSound : Sound R) (hWf : Wf R) :
-    ∀ i ∈ R, ∀ φ ∈ i.axioms, Formula.eval (stdEnv R) φ :=
+    ∀ i ∈ R, ∀ a ∈ i.axioms, Formula.eval (stdEnv R) a.formula :=
   satisfies_of_respects hSound (stdEnv_respects hWf)
 
 end Registry
@@ -711,10 +711,10 @@ def declFOLSyms : Registry → VerifM Unit
   | []         => pure ()
   | i :: rest  => do i.declFOLSym; declFOLSyms rest
 
-/-- Assume every registered intrinsic axiom. -/
+/-- Assume every registered intrinsic axiom, weakening guarded axioms. -/
 def assumeAxioms : Registry → VerifM Unit
   | []         => pure ()
-  | i :: rest  => do VerifM.assumeAll i.axioms; assumeAxioms rest
+  | i :: rest  => do VerifM.assumeAxioms i.axioms; assumeAxioms rest
 
 /-- Declare all registered intrinsic FOL symbols first, then assume all
     intrinsic axioms. This keeps axiom validity independent of registry order:
@@ -866,12 +866,12 @@ theorem eval_assumeAxioms_in (full todo : Registry)
     simp only [assumeAxioms] at heval
     have h1 := VerifM.eval_bind _ _ _ _ heval
     rcases hSound with ⟨hiSound, hrestSound⟩
-    have hwfAxioms : ∀ φ ∈ i.axioms, φ.wfIn st.decls := fun φ hφ =>
-      hiSound.axiomWf hSig (VerifM.eval.wf h1).namesDisjoint φ hφ
-    have hevalAxioms : ∀ φ ∈ i.axioms, φ.eval ρ.env :=
+    have hwfAxioms : ∀ a ∈ i.axioms, a.formula.wfIn st.decls := fun a ha =>
+      hiSound.axiomWf hSig (VerifM.eval.wf h1).namesDisjoint a ha
+    have hevalAxioms : ∀ a ∈ i.axioms, a.formula.eval ρ.env :=
       hiSound.proof ρ.env (fun d hd => hRespect ρ VerifM.Env.agreeOn_refl d hd)
     obtain ⟨st1, hdecls1, howns1, hass1, hcont⟩ :=
-      VerifM.eval_assumeAll h1 hwfAxioms hevalAxioms
+      VerifM.eval_assumeAxioms h1 hwfAxioms hevalAxioms
     have hSig1 : (Intrinsic.sigOf full).Subset st1.decls := by
       rw [hdecls1]
       exact hSig
@@ -883,7 +883,7 @@ theorem eval_assumeAxioms_in (full todo : Registry)
     obtain ⟨st', hdecls2, howns2, ⟨extra2, hass2⟩, hQ⟩ :=
       ih hrestSound hSig1 hRespect1 hcont
     refine ⟨st', hdecls2.trans hdecls1, howns2.trans howns1,
-            ⟨extra2 ++ i.axioms.reverse, ?_⟩, hQ⟩
+            ⟨extra2 ++ (Axiom.asserts i.axioms).reverse, ?_⟩, hQ⟩
     rw [hass2, hass1, List.append_assoc]
 
 /-- Effect of `introduceRegistry` on a whole registry. All symbols are declared

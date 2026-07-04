@@ -220,7 +220,7 @@ def Zero.toIntrinsic (b : Zero) : Intrinsic where
       pred  := .ret ("ret",
         .assert (.eq .value (.var .value "ret") b.opTerm) (.ret ())) }
   folSym := some b.sym
-  axioms := [b.defAxiom, b.typeAxiom]
+  axioms := [⟨b.defAxiom, .low⟩, ⟨b.typeAxiom, .low⟩]
 
 @[simp] theorem Zero.toWp_eq (b : Zero) (Q : Runtime.Val → iProp) :
     b.toIntrinsic.toWp [] Q = Q (b.res.inject b.f) := rfl
@@ -282,13 +282,13 @@ structure Zero.Lawful (b : Zero) where
         iapply Hwand
         exact l.resL.intro Θ b.f
   axiomWf := by
-    intro Δ hsub hwf φ hφ
+    intro Δ hsub hwf a hφ
     simp only [Zero.toIntrinsic, List.mem_cons, List.not_mem_nil, _root_.or_false] at hφ
     rcases hφ with rfl | rfl
     · exact Formula.wfIn_mono _ l.defWf hsub hwf
     · exact Formula.wfIn_mono _ l.typeWf hsub hwf
   proof := by
-    intro ρ hdeps φ hφ
+    intro ρ hdeps a hφ
     simp only [Zero.toIntrinsic, List.mem_cons, List.not_mem_nil, _root_.or_false] at hφ
     have hresp : ρ.respects (some b.sym) := by
       have h := hdeps b.toIntrinsic (by simp)
@@ -345,7 +345,7 @@ def Unary.toIntrinsic (b : Unary) : Intrinsic where
         .assert (.eq .value (.var .value "ret")
           (b.opTerm (.var .value "a"))) (.ret ())) }
   folSym := some b.sym
-  axioms := [b.defAxiom, b.typeAxiom]
+  axioms := [⟨b.defAxiom, .high⟩, ⟨b.typeAxiom, .high⟩]
 
 @[simp] theorem Unary.toWp_eq (b : Unary) (a : Runtime.Val) (Q : Runtime.Val → iProp) :
     b.toIntrinsic.toWp [a] Q = iprop(∃ x, ⌜a = b.arg.inject x⌝ ∗ Q (b.res.inject (b.f x))) := rfl
@@ -432,13 +432,13 @@ structure Unary.Lawful (b : Unary) where
         iapply Hwand
         exact l.resL.intro Θ (b.f x)
   axiomWf := by
-    intro Δ hsub hwf φ hφ
+    intro Δ hsub hwf a hφ
     simp only [Unary.toIntrinsic, List.mem_cons, List.not_mem_nil, _root_.or_false] at hφ
     rcases hφ with rfl | rfl
     · exact Formula.wfIn_mono _ l.defWf hsub hwf
     · exact Formula.wfIn_mono _ l.typeWf hsub hwf
   proof := by
-    intro ρ hdeps φ hφ
+    intro ρ hdeps a hφ
     simp only [Unary.toIntrinsic, List.mem_cons, List.not_mem_nil, _root_.or_false] at hφ
     have hresp : ρ.respects (some b.sym) := by
       have h := hdeps b.toIntrinsic (by simp)
@@ -504,7 +504,7 @@ def Binary.toIntrinsic (b : Binary) : Intrinsic where
         .assert (.eq .value (.var .value "ret")
           (b.opTerm (.var .value "a") (.var .value "b"))) (.ret ())) }
   folSym := some b.sym
-  axioms := [b.defAxiom, b.typeAxiom]
+  axioms := [⟨b.defAxiom, .high⟩, ⟨b.typeAxiom, .high⟩]
 
 @[simp] theorem Binary.toWp_eq (b : Binary) (a c : Runtime.Val) (Q : Runtime.Val → iProp) :
     b.toIntrinsic.toWp [a, c] Q =
@@ -611,13 +611,13 @@ structure Binary.Lawful (b : Binary) where
         iapply Hwand
         exact l.resL.intro Θ (b.f x y)
   axiomWf := by
-    intro Δ hsub hwf φ hφ
+    intro Δ hsub hwf a hφ
     simp only [Binary.toIntrinsic, List.mem_cons, List.not_mem_nil, _root_.or_false] at hφ
     rcases hφ with rfl | rfl
     · exact Formula.wfIn_mono _ l.defWf hsub hwf
     · exact Formula.wfIn_mono _ l.typeWf hsub hwf
   proof := by
-    intro ρ hdeps φ hφ
+    intro ρ hdeps a hφ
     simp only [Binary.toIntrinsic, List.mem_cons, List.not_mem_nil, _root_.or_false] at hφ
     have hresp : ρ.respects (some b.sym) := by
       have h := hdeps b.toIntrinsic (by simp)

@@ -54,7 +54,7 @@ def Program.prepare (prog : Untyped.Program (Spec.Body Untyped.Expr)) :
 /-- Globally assembled metadata for declarations marked with `[@@fn]`. -/
 structure RelationSpec where
   symbols : List FOL.BinaryRel
-  axioms : List Formula
+  axioms : List Axiom
   functionMap : List (TinyML.Var × String)
   delta : Signature
 
@@ -68,7 +68,7 @@ def empty : RelationSpec :=
 private structure RelationDecl where
   spec : RelationSpec
   res : TinyML.Var
-  axs : List Formula
+  axs : List Axiom
   f : TinyML.Var
   rel : String
   arg : TinyML.Var
@@ -139,7 +139,7 @@ private def declareAndAssume (acc : RelationSpec) (d : Typed.ValDecl (Spec.Body 
           VerifM.declBinaryRelExact (SpecFn.rel rel)
           VerifM.declUnaryExact (SpecFn.func rel)
           VerifM.declUnaryRelExact (SpecFn.defined rel)
-          VerifM.assumeAll info.axs
+          VerifM.assumeAxioms info.axs
           pure info.spec
 
 private def assembleFrom : RelationSpec → Typed.Program (Spec.Body Typed.Expr) → VerifM RelationSpec
@@ -243,7 +243,7 @@ private theorem assembleFrom_correct (prog : Typed.Program (Spec.Body Typed.Expr
         have hst3_decls : st3.decls = Δext := by simp only [st3, Δext, hacc]
         -- Axiom well-formedness via bundle_wfIn.
         have hax_wf_acc := Skolemize.bundle_wfIn hinfoEq hΔwf_acc hΓwf_acc hf
-        have hax_wf : ∀ ax ∈ info.axs, ax.wfIn st3.decls :=
+        have hax_wf : ∀ ax ∈ info.axs, ax.formula.wfIn st3.decls :=
           fun ax hmem => hst3_decls ▸ hax_wf_acc ax hmem
         -- ρ3.env vs (defInterpEnv ...).updateBinaryRel R.
         have hρ3_env_eq :
@@ -253,12 +253,12 @@ private theorem assembleFrom_correct (prog : Typed.Program (Spec.Body Typed.Expr
           simp only [ρ3, VerifM.Env.updateUnaryRel_env, VerifM.Env.updateUnary_env,
             VerifM.Env.updateBinaryRel_env, Skolemize.defInterpEnv, Skolemize.splitEnv]
           apply Env.ext <;> rfl
-        have hax_eval : ∀ ax ∈ info.axs, ax.eval ρ3.env := fun ax hmem => by
+        have hax_eval : ∀ ax ∈ info.axs, ax.formula.eval ρ3.env := fun ax hmem => by
           rw [hρ3_env_eq]
           exact Skolemize.bundle_eval_updateBinaryRel
             hinfoEq hsplit hΓwf_acc hΔwf_acc hf hdet R ax hmem
         obtain ⟨st4, hst4_decls, hst4_owns, _, hpure_pre⟩ :=
-          VerifM.eval_assumeAll hbind7 hax_wf hax_eval
+          VerifM.eval_assumeAxioms hbind7 hax_wf hax_eval
         -- Reestablish invariants and apply IH.
         have hst4_owns_eq : st4.owns = [] := by rw [hst4_owns]; exact howns
         have hst4_vars : st4.decls.vars = [] := by
