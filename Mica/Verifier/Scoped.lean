@@ -559,3 +559,32 @@ theorem ScopedM.eval_extends {α} s Δ (r : α) Δ' :
     intro h
     obtain ⟨b, ctx_body, _, hk⟩ := ScopedM.eval_bracket h
     exact ih_k b _ _ _ hk
+
+/-! ## ScopedM.probe -/
+
+/-- The solver time budget for heuristic probes. A timeout is reported as
+    `unknown` and handled conservatively by the caller. -/
+def ScopedM.probeTimeout : Nat := 100 /- 100ms -/
+
+/-- A probe: a quick, scoped peek at whether `φ` is consistent with the current
+    context. The answer only steers the verifier; it is never a soundness
+    justification, which is reflected in `eval_probe` yielding an arbitrary
+    result. Accordingly, the probe runs under a short solver timeout, restoring
+    the ambient timeout afterwards. -/
+def ScopedM.probe (φ : Formula) (k : Result → ScopedM α) : ScopedM α :=
+  .getOption .timeout (fun ambient =>
+    .setOption (.timeout probeTimeout) (fun () =>
+      .bracket (.assert φ (fun () => .checkSat .ret)) (fun r =>
+        .setOption (.timeout ambient) (fun () => k r))))
+
+/-- A probe leaves the context unchanged and hands the continuation an
+    arbitrary result: nothing about the solver's answer can be trusted. -/
+theorem ScopedM.eval_probe {φ : Formula} {k : Result → ScopedM α}
+    {ctx : FlatCtx} {ret : α} {ctx' : FlatCtx} :
+    ScopedM.eval (.probe φ k) ctx ret ctx' →
+      ∃ r, ScopedM.eval (k r) ctx ret ctx' := by
+  intro h
+  obtain ⟨n, h⟩ := eval_getOption h
+  have h := eval_setOption h
+  obtain ⟨r, _, _, h⟩ := eval_bracket h
+  exact ⟨r, eval_setOption h⟩

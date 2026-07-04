@@ -723,21 +723,17 @@ theorem Program.verify_correct (reg : Verifier.Registry)
         have hret := (ScopedM.eval_ret.mp hcont).1
         cases hret
   | .ok () =>
-    have hholdsFor : TransState.holdsFor TransState.empty VerifM.Env.empty :=
-      fun φ hφ => by simp [TransState.empty] at hφ
-    have hwf : TransState.wf TransState.empty :=
-      ⟨fun φ hφ => by simp [TransState.empty] at hφ,
-       by simp [TransState.empty, Signature.empty, Signature.allNames],
-       fun a ha => by simp [TransState.empty] at ha⟩
     have hverifM := VerifM.eval_of_translate
                       (do
                         let (Θ, typed) ← Program.prepare p
                         Verifier.Registry.introduceRegistry reg
                         let relations ← RelationSpec.assemble typed
                         Program.check reg Θ relations.delta relations.functionMap ∅ typed)
-                      TransState.empty VerifM.Env.empty ctx_mid hverif hholdsFor hwf
+                      TransState.init VerifM.Env.init ctx_mid
+                      (ScopedM.eval_declareConst hverif)
+                      TransState.init_holdsFor TransState.init_wf
     have hbind := VerifM.eval_bind _ _ _ _ hverifM
-    obtain ⟨Θ, typed, hrt, hrest⟩ := Program.prepare_correct p TransState.empty VerifM.Env.empty hbind
+    obtain ⟨Θ, typed, hrt, hrest⟩ := Program.prepare_correct p TransState.init VerifM.Env.init hbind
     -- Peel the registry setup from the continuation generically.
     have hsetup_bind := VerifM.eval_bind _ _ _ _ hrest
     obtain ⟨st_setup, ρ_setup, _hΔsub, hdep_setup, hvars_setup_eq, howns_setup,

@@ -5,6 +5,7 @@
 - `Bindings.lean` — Verifier variable-to-constant bindings, their semantic linkage to runtime substitutions, and typing/lookup lemmas.
 - `Expressions.lean` — Compilation of typed TinyML expressions into verifier terms, with weakest-precondition correctness proofs.
 - `Functions.lean` — Verification of function bodies against specifications, including the soundness of specification checking.
+- `Guard.lean` — The guard constant deactivating quantified axioms in low-effort checks, effort levels, and guarded axioms.
 - `Intrinsic.lean` — Data model for verifier intrinsics, with generic theorems characterizing the effect of registry setup.
 - `Monad.lean` — Verification monad with SMT operations, branching, and its operational and semantic correctness interfaces.
 - `PredicateTransformers.lean` — Predicate transformers for function specifications, together with their semantics and call and implementation protocols.
