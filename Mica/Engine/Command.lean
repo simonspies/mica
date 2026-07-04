@@ -7,11 +7,40 @@ An SMT command, indexed by its response type -- Unit for no meaningful response
 - push, pop, assert: Unit
 - declareConst, declareUnary, declareBinary : Unit
 - declareUnaryRel, declareBinaryRel : Unit
-- checkSat: returns sat/unsat/unknown — Smt.Result -/
+- checkSat: returns sat/unsat/unknown — Smt.Result
+- setOption, getOption: write/read a solver option -/
 
 namespace Smt
 
-inductive Command : Type → Type where
+namespace Options
+
+/-- A solver option together with the value to set it to. Options are
+    soundness-irrelevant; `Trace.isSound` imposes nothing on them. -/
+inductive Settable where
+  | timeout (ms : Nat)
+
+/-- A solver option to read back, indexed by the type parsed from Z3's response. -/
+inductive Gettable : Type → Type where
+  | timeout : Gettable Nat
+
+/-- The settings every session starts with. -/
+def Settable.initial : List Settable := [.timeout 3000]
+
+/-- Serialize a settable option to its SMT-LIB2 string. -/
+def Settable.toSMTLIB : Settable → String
+  | .timeout ms => s!"(set-option :timeout {ms})"
+
+/-- Serialize an option read to its SMT-LIB2 string. -/
+def Gettable.toSMTLIB : Gettable α → String
+  | .timeout => "(get-option :timeout)"
+
+/-- Parse the solver's response for an option read. -/
+def Gettable.parse : Gettable α → String → Option α
+  | .timeout, s => s.toNat?
+
+end Options
+
+inductive Command : Type → Type 1 where
   | push : Command Unit
   | pop : Command Unit
   | declareConst (name : String) (sort : Srt) : Command Unit
@@ -21,6 +50,8 @@ inductive Command : Type → Type where
   | declareBinaryRel (name : String) (arg1 arg2 : Srt) : Command Unit
   | assert (expr : Formula) : Command Unit
   | checkSat : Command Result
+  | setOption (s : Options.Settable) : Command Unit
+  | getOption (g : Options.Gettable α) : Command α
 
 /-! ## Serialization -/
 
@@ -37,6 +68,8 @@ def toSMTLIB : Command α → String
   | .declareBinaryRel n a1 a2 => s!"(declare-fun {n} ({a1.toSMTLIB} {a2.toSMTLIB}) Bool)"
   | .assert e => s!"(assert {e.toSMTLIB})"
   | .checkSat => "(check-sat)"
+  | .setOption s => s.toSMTLIB
+  | .getOption g => g.toSMTLIB
 
 /-- Parse the solver's response string for a given command. Returns `none` on unexpected output. -/
 def parse : (cmd : Command α) → String → Option α
@@ -53,6 +86,8 @@ def parse : (cmd : Command α) → String → Option α
     else if s == "unsat" then some .unsat
     else if s == "unknown" then some .unknown
     else none
+  | .setOption _, s => if s == "success" then some () else none
+  | .getOption g, s => g.parse s.trimAscii.str
 
 end Command
 
@@ -71,6 +106,8 @@ def step : Command β → β → State → State
   | .declareBinaryRel n arg1 arg2, (), s => Smt.State.addBinaryRel s ⟨n, arg1, arg2⟩
   | .assert e, (), s => s.addAssert e
   | .checkSat, _, s => s
+  | .setOption _, (), s => s
+  | .getOption _, _, s => s
 
 end State
 

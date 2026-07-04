@@ -35,9 +35,10 @@ inductive VerifM : Type → Type 1 where
   | declBinary : Option String → Srt → Srt → Srt → VerifM FOL.Binary
   /-- Add a context item to the verifier state (permanent, no check). -/
   | assume : CtxItem → VerifM Unit
-  /-- Check whether φ is provable from the current context.
-      Returns `true` if UNSAT (provable), `false` otherwise. Never fails. -/
-  | check : Formula → VerifM Bool
+  /-- Check whether φ is provable from the current context. Returns `true` if
+      ¬ φ is unsat, `false` otherwise. Never fails. At `.low` effort guarded
+      axioms are ignored; at `.high` effort they are enabled. -/
+  | check : Effort → Formula → VerifM Bool
   /-- Abort with a fatal error. -/
   | fatal : String → VerifM α
   /-- Abort with a recoverable failure. -/
@@ -65,10 +66,15 @@ def VerifM.ctxPure (f : List Formula → α) : VerifM α :=
 def VerifM.persist : VerifM Unit :=
   VerifM.ctx (fun st => ((), (TransState.persist st).owns))
 
-/-- Assert-and-check: check φ is provable, fail if not. -/
+/-- Assert-and-check: check φ is provable at high effort, fail if not. -/
 def VerifM.assert (φ : Formula) : VerifM Unit := do
-  if ← VerifM.check φ then pure ()
+  if ← VerifM.check .high φ then pure ()
   else VerifM.failed s!"assertion failed"
+
+/-- Quick provability test at low effort: guarded axioms are invisible, so a
+`false` answer is fast and is normal control flow. -/
+def VerifM.test (φ : Formula) : VerifM Bool :=
+  VerifM.check .low φ
 
 /-- Check that two elaboration-time values match exactly, otherwise abort fatally. -/
 def VerifM.expectEq [DecidableEq α] [Repr α] (msg : String) (actual expected : α) : VerifM Unit := do
@@ -110,6 +116,10 @@ def VerifM.declBinaryExact (b : FOL.Binary) : VerifM Unit := do
 def VerifM.assumeAll : List Formula → VerifM Unit
   | [] => pure ()
   | φ :: φs => do VerifM.assume (.pure φ); VerifM.assumeAll φs
+
+/-- Assume a list of axioms, weakening high-effort axioms by the guard. -/
+def VerifM.assumeAxioms (axs : List Axiom) : VerifM Unit :=
+  VerifM.assumeAll (Axiom.asserts axs)
 
 def TransCont α := α → TransState → ScopedM (Except VerifError Unit)
 
@@ -167,12 +177,20 @@ def VerifM.translate :
             k (.ok ()) { st with asserts := φ :: st.asserts })
       | .spatial a =>
           k (.ok ()) { st with owns := a :: st.owns }
-  | .check φ, st, k =>
+  | .check e φ, st, k =>
+      -- Low effort first probes `guard = false ∧ ¬φ`; if that is unsat, it
+      -- reruns the normal `¬φ` check. High effort asserts the guard while
+      -- checking `¬φ`, enabling guarded axioms for that check.
+      let body := ScopedM.assert (.not φ) (fun () =>
+        .checkSat (fun
+          | .unsat => .ret true
+          | _ => .ret false))
       .bracket
-        (ScopedM.assert (.not φ) (fun () =>
-          .checkSat (fun
-            | .unsat => .ret true
-            | _ => .ret false)))
+        (match e with
+         | .low => ScopedM.probe (.and guardFalseFormula (.not φ)) (fun
+            | .unsat => body
+            | _ => .ret false)
+         | .high => ScopedM.assert guardFormula (fun () => body))
         (fun b => k (.ok b) st)
   | .fatal msg, st, k => k (.error (.fatal msg)) st
   | .failed msg, st, k => k (.error (.failed msg)) st
@@ -212,7 +230,7 @@ private def VerifM.eval_rec : VerifM α → TransState → VerifM.Env → (α �
       match item with
       | .pure φ => φ.wfIn st.decls → φ.eval ρ.env → P () { st with asserts := φ :: st.asserts } ρ
       | .spatial a => a.wfIn st.decls → P () { st with owns := a :: st.owns } ρ
-  | .check φ, st, ρ, P => φ.wfIn st.decls → ∃ b, (b = true → φ.eval ρ.env) ∧ P b st ρ
+  | .check _ φ, st, ρ, P => φ.wfIn st.decls → ∃ b, (b = true → φ.eval ρ.env) ∧ P b st ρ
   | .fatal _, _, _, _ => False
   | .failed _, _, _, _ => False
   | .all items, st, ρ, P => ∀ a ∈ items, P a st ρ
@@ -324,10 +342,9 @@ private theorem VerifM.eval_rec_preserves_wf (m : VerifM α) (st : TransState) (
     have hfresh := Fresh.freshNumbers_not_mem (hint.getD "_v") st.decls.allNames
     have hagree : VerifM.Env.agreeOn st.decls ρ (ρ.updateConst t w u) := by
       exact VerifM.Env.agreeOn_update_fresh (c := ⟨w, t⟩) hfresh
-    constructor
-    · intro φ hφ
-      exact (Formula.eval_env_agree (hwf.assertsWf φ hφ) hagree).mp (g φ hφ)
-    · exact ⟨TransState.freshConst.wf _ hwf, h⟩
+    refine ⟨⟨?_, g.builtins.agree hwf.builtins hagree⟩, TransState.freshConst.wf _ hwf, h⟩
+    intro φ hφ
+    exact (Formula.eval_env_agree (hwf.assertsWf φ hφ) hagree).mp (g.asserts φ hφ)
   | declUnaryRel hint τ =>
     simp only [VerifM.eval_rec] at h
     simp only [VerifM.eval_rec]
@@ -337,9 +354,10 @@ private theorem VerifM.eval_rec_preserves_wf (m : VerifM α) (st : TransState) (
     have hfresh := st.freshUnaryRel_fresh hint τ
     have hagree : VerifM.Env.agreeOn st.decls ρ (ρ.updateUnaryRel τ u.name f) := by
       exact VerifM.Env.agreeOn_update_fresh_unaryRel (u := u) hfresh
-    refine ⟨?_, TransState.addUnaryRel.wf st _ hwf hfresh, h⟩
+    refine ⟨⟨?_, g.builtins.agree hwf.builtins hagree⟩,
+      TransState.addUnaryRel.wf st _ hwf hfresh, h⟩
     intro φ hφ
-    exact (Formula.eval_env_agree (hwf.assertsWf φ hφ) hagree).mp (g φ hφ)
+    exact (Formula.eval_env_agree (hwf.assertsWf φ hφ) hagree).mp (g.asserts φ hφ)
   | declBinaryRel hint τ₁ τ₂ =>
     simp only [VerifM.eval_rec] at h
     simp only [VerifM.eval_rec]
@@ -349,9 +367,10 @@ private theorem VerifM.eval_rec_preserves_wf (m : VerifM α) (st : TransState) (
     have hfresh := st.freshBinaryRel_fresh hint τ₁ τ₂
     have hagree : VerifM.Env.agreeOn st.decls ρ (ρ.updateBinaryRel τ₁ τ₂ b.name f) := by
       exact VerifM.Env.agreeOn_update_fresh_binaryRel (b := b) hfresh
-    refine ⟨?_, TransState.addBinaryRel.wf st _ hwf hfresh, h⟩
+    refine ⟨⟨?_, g.builtins.agree hwf.builtins hagree⟩,
+      TransState.addBinaryRel.wf st _ hwf hfresh, h⟩
     intro φ hφ
-    exact (Formula.eval_env_agree (hwf.assertsWf φ hφ) hagree).mp (g φ hφ)
+    exact (Formula.eval_env_agree (hwf.assertsWf φ hφ) hagree).mp (g.asserts φ hφ)
   | declUnary hint τ₁ τ₂ =>
     simp only [VerifM.eval_rec] at h
     simp only [VerifM.eval_rec]
@@ -361,9 +380,10 @@ private theorem VerifM.eval_rec_preserves_wf (m : VerifM α) (st : TransState) (
     have hfresh := st.freshUnary_fresh hint τ₁ τ₂
     have hagree : VerifM.Env.agreeOn st.decls ρ (ρ.updateUnary τ₁ τ₂ u.name f) := by
       exact VerifM.Env.agreeOn_update_fresh_unary (u := u) hfresh
-    refine ⟨?_, TransState.addUnary.wf st _ hwf hfresh, h⟩
+    refine ⟨⟨?_, g.builtins.agree hwf.builtins hagree⟩,
+      TransState.addUnary.wf st _ hwf hfresh, h⟩
     intro φ hφ
-    exact (Formula.eval_env_agree (hwf.assertsWf φ hφ) hagree).mp (g φ hφ)
+    exact (Formula.eval_env_agree (hwf.assertsWf φ hφ) hagree).mp (g.asserts φ hφ)
   | declBinary hint τ₁ τ₂ τ₃ =>
     simp only [VerifM.eval_rec] at h
     simp only [VerifM.eval_rec]
@@ -373,23 +393,24 @@ private theorem VerifM.eval_rec_preserves_wf (m : VerifM α) (st : TransState) (
     have hfresh := st.freshBinary_fresh hint τ₁ τ₂ τ₃
     have hagree : VerifM.Env.agreeOn st.decls ρ (ρ.updateBinary τ₁ τ₂ τ₃ b.name f) := by
       exact VerifM.Env.agreeOn_update_fresh_binary (b := b) hfresh
-    refine ⟨?_, TransState.addBinary.wf st _ hwf hfresh, h⟩
+    refine ⟨⟨?_, g.builtins.agree hwf.builtins hagree⟩,
+      TransState.addBinary.wf st _ hwf hfresh, h⟩
     intro φ hφ
-    exact (Formula.eval_env_agree (hwf.assertsWf φ hφ) hagree).mp (g φ hφ)
+    exact (Formula.eval_env_agree (hwf.assertsWf φ hφ) hagree).mp (g.asserts φ hφ)
   | assume item =>
     cases item with
     | pure φ =>
       simp only [VerifM.eval_rec] at h ⊢
       intro hwf' hφ
-      refine ⟨?_, TransState.addAssert.wf _ hwf hwf', h hwf' hφ⟩
+      refine ⟨⟨?_, g.builtins⟩, TransState.addAssert.wf _ hwf hwf', h hwf' hφ⟩
       intro ψ hψ
       cases hψ with
       | head => exact hφ
-      | tail _ hψ => exact g ψ hψ
+      | tail _ hψ => exact g.asserts ψ hψ
     | spatial a =>
       simp only [VerifM.eval_rec] at h ⊢
       intro hwf'
-      exact ⟨g, TransState.addSpatial.wf _ hwf hwf', h hwf'⟩
+      exact ⟨⟨g.asserts, g.builtins⟩, TransState.addSpatial.wf _ hwf hwf', h hwf'⟩
   | check φ =>
     simp only [VerifM.eval_rec] at h ⊢
     intro hwf'
@@ -408,7 +429,8 @@ private theorem VerifM.eval_rec_preserves_wf (m : VerifM α) (st : TransState) (
   | ctx f =>
     simp only [VerifM.eval_rec] at h ⊢
     intro howns
-    exact ⟨g, ⟨hwf.assertsWf, hwf.namesDisjoint, howns⟩, h howns⟩
+    exact ⟨⟨g.asserts, g.builtins⟩,
+      ⟨hwf.assertsWf, hwf.namesDisjoint, howns, hwf.builtins⟩, h howns⟩
   | seq m m2 ihm ihf =>
     simp only [VerifM.eval_rec] at h ⊢
     exact ⟨(ihm st ρ h.1 g hwf).mono fun () _ _ _ => trivial,
@@ -520,21 +542,46 @@ private theorem VerifM.translate_eval_rec (m : VerifM α) (st : TransState) (ρ:
       simp only [VerifM.translate] at h
       intro hwf'
       exact ⟨_, h⟩
-  | check φ =>
+  | check e φ =>
     simp only [VerifM.translate] at h
     obtain ⟨b, _, hxx, hk⟩ := ScopedM.eval_bracket h
     intro hwf'
     refine ⟨b, ?_, ⟨_, hk⟩⟩
     intro hb
     subst hb
-    apply ScopedM.eval_assert at hxx
-    apply ScopedM.eval_checkSat at hxx
-    simp at hxx
-    rcases hxx with ⟨hunsat, _⟩ | hfalse
-    · have hunsat' : ¬Smt.State.satisfiable st.decls (Formula.not φ :: st.asserts) := by
-        simp only [FlatCtx.addAssert] at hunsat; exact hunsat
-      exact Smt.State.satisfiable.to_impl' st.decls st.asserts hunsat' ρ.env g
-    · simp [ScopedM.eval_ret] at hfalse
+    cases e with
+    | low =>
+      obtain ⟨r, hproof⟩ := ScopedM.eval_probe hxx
+      cases r with
+      | sat =>
+          simp [ScopedM.eval_ret] at hproof
+      | unknown =>
+          simp [ScopedM.eval_ret] at hproof
+      | unsat =>
+          apply ScopedM.eval_assert at hproof
+          apply ScopedM.eval_checkSat at hproof
+          simp at hproof
+          rcases hproof with ⟨hunsat, _⟩ | hfalse
+          · have hunsat' : ¬Smt.State.satisfiable st.decls (Formula.not φ :: st.asserts) := by
+              simp only [FlatCtx.addAssert] at hunsat; exact hunsat
+            exact Smt.State.satisfiable.to_impl' st.decls st.asserts hunsat' ρ.env g.asserts
+          · simp [ScopedM.eval_ret] at hfalse
+    | high =>
+      apply ScopedM.eval_assert at hxx
+      apply ScopedM.eval_assert at hxx
+      apply ScopedM.eval_checkSat at hxx
+      simp at hxx
+      rcases hxx with ⟨hunsat, _⟩ | hfalse
+      · have hunsat' : ¬Smt.State.satisfiable st.decls
+            (Formula.not φ :: guardFormula :: st.asserts) := by
+          simp only [FlatCtx.addAssert] at hunsat; exact hunsat
+        refine Smt.State.satisfiable.to_impl' st.decls (guardFormula :: st.asserts)
+          hunsat' ρ.env ?_
+        intro ψ hψ
+        cases hψ with
+        | head => exact g.builtins.guard
+        | tail _ hψ => exact g.asserts ψ hψ
+      · simp [ScopedM.eval_ret] at hfalse
   | fatal msg =>
     simp only [VerifM.translate] at h
     exact absurd ⟨Δ, h⟩ (hf (.fatal msg) st)
@@ -699,9 +746,9 @@ theorem VerifM.eval_assume {item : CtxItem} {st : TransState} {ρ : VerifM.Env}
       simp [TransState.addItem]
       exact VerifM.eval_assumeSpatial h
 
-theorem VerifM.eval_check {φ : Formula} {st : TransState} {ρ : VerifM.Env}
+theorem VerifM.eval_check {e : Effort} {φ : Formula} {st : TransState} {ρ : VerifM.Env}
     {Q : Bool → TransState → VerifM.Env → Prop}
-    (h : VerifM.eval (.check φ) st ρ Q) :
+    (h : VerifM.eval (.check e φ) st ρ Q) :
     φ.wfIn st.decls →
     ∃ b, (b = true → φ.eval ρ.env) ∧ Q b st ρ :=
   fun hwf =>
@@ -940,6 +987,22 @@ theorem VerifM.eval_assumeAll {φs : List Formula}
     refine ⟨st', by rw [hst'], by rw [howns], ?_, hp⟩
     rw [hass]; simp [List.reverse_cons, List.append_assoc]
 
+theorem VerifM.eval_assumeAxioms {axs : List Axiom}
+    {st : TransState} {ρ : VerifM.Env} {P : Unit → TransState → VerifM.Env → Prop}
+    (h : VerifM.eval (VerifM.assumeAxioms axs) st ρ P) :
+    (∀ a ∈ axs, a.formula.wfIn st.decls) →
+    (∀ a ∈ axs, a.formula.eval ρ.env) →
+    ∃ st', st'.decls = st.decls ∧ st'.owns = st.owns ∧
+           st'.asserts = (Axiom.asserts axs).reverse ++ st.asserts ∧ P () st' ρ := by
+  intro hwf heval
+  refine VerifM.eval_assumeAll h ?_ ?_
+  · intro φ hφ
+    obtain ⟨a, ha, rfl⟩ := List.mem_map.mp hφ
+    exact Axiom.assert_wfIn h.1.namesDisjoint h.1.builtins.guard (hwf a ha)
+  · intro φ hφ
+    obtain ⟨a, ha, rfl⟩ := List.mem_map.mp hφ
+    exact Axiom.assert_eval (heval a ha)
+
 
 /-! ### Top-level corollary -/
 
@@ -969,7 +1032,8 @@ theorem VerifM.eval_of_translate (m : VerifM Unit) (st : TransState) (ρ : Verif
   (translate_eval m st ρ topCont topCont_error_propagates Δ h g hwf).mono fun _ _ _ _ => trivial
 
 def VerifM.strategy (m : VerifM Unit) :=
-  let verif := VerifM.translate m TransState.empty VerifM.topCont
+  let verif := ScopedM.declareConst guardConst.name guardConst.sort fun () =>
+    VerifM.translate m TransState.init VerifM.topCont
   let verif' := ScopedM.bind verif fun
     | .ok () => ScopedM.ret (Except.ok ())
     | .error (.failed msg) => ScopedM.ret (Except.error msg)

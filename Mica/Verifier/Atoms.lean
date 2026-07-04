@@ -394,7 +394,7 @@ theorem Atom.candidates_wfIn {a : Atom τ} {φ : Formula} {t : Term τ} {Δ : Si
 def VerifM.tryCandidates : List (Formula × Term τ) → VerifM (Option (Term τ))
   | [] => pure none
   | (φ, t) :: rest => do
-    if ← VerifM.check φ then pure (some t)
+    if ← VerifM.check .high φ then pure (some t)
     else VerifM.tryCandidates rest
 
 private theorem VerifM.eval_tryCandidates (Θ : TinyML.TypeEnv)
@@ -442,7 +442,7 @@ def VerifM.findMatchIn (lq : Term .value) (ty : TinyML.Typ) :
   | [] => pure none
   | .pointsTo l v ty' :: rest => do
       if ty' == ty then
-        if ← VerifM.check (.eq .value lq l) then
+        if ← VerifM.test (.eq .value lq l) then
           pure (some (0, v))
         else
           return (← VerifM.findMatchIn lq ty rest).map fun (n, v') => (n + 1, v')
@@ -624,7 +624,7 @@ def VerifM.resolve : {τ : Srt} → Atom τ → VerifM (Option (Term τ))
   | _, .own l ty => do
       VerifM.findMatch l ty
   | _, .rel name arg => do
-      if ← VerifM.check (SpecFn.isDefined name arg) then
+      if ← VerifM.check .high (SpecFn.isDefined name arg) then
         pure (some (SpecFn.call name arg))
       else
         pure none
@@ -656,7 +656,7 @@ private theorem VerifM.eval_resolve_pure (Θ : TinyML.TypeEnv) {pred : Atom τ} 
       have hq := VerifM.eval_ret hctx_q
       have htwf : t.wfIn st.decls := Atom.resolve_wfIn hres hwfAsserts
       have hpred : ⊢ Atom.eval Θ pred ρ (t.eval ρ.env) := by
-        exact (Atom.resolve_correct Θ hres ρ hholds).trans (Atom.toItem_eval Θ).1
+        exact (Atom.resolve_correct Θ hres ρ hholds.asserts).trans (Atom.toItem_eval Θ).1
       have hframe : st.sl Θ ρ ∗ R ⊢
           Atom.eval Θ pred ρ (t.eval ρ.env) ∗ st.sl Θ ρ ∗ R := by
         istart

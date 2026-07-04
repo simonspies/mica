@@ -1,5 +1,6 @@
 -- SUMMARY: Verifier state and environments, together with their well-formedness conditions and fresh-name infrastructure.
 import Mica.Verifier.Scoped
+import Mica.Verifier.Guard
 import Mica.Base.Fresh
 import Mica.SeparationLogic.SpatialAtom
 import Mica.SeparationLogic
@@ -67,6 +68,20 @@ def Env.updateBinaryRel (ρ : Env) (τ₁ τ₂ : Srt) (x : String)
     (f : τ₁.denote → τ₂.denote → Prop) :
     (ρ.updateBinaryRel τ₁ τ₂ x f).env = ρ.env.updateBinaryRel τ₁ τ₂ x f := rfl
 
+/-- Builtin declarations the verifier requires in a signature; extend with a
+field per builtin. -/
+structure Builtins.wf (Δ : Signature) : Prop where
+  guard : Δ.supportsGuarding
+
+theorem Builtins.wf.mono {Δ Δ' : Signature} (hsub : Δ.Subset Δ')
+    (h : Builtins.wf Δ) : Builtins.wf Δ' :=
+  ⟨h.guard.mono hsub⟩
+
+/-- Facts about the environment required by the verifier's builtin constants;
+extend with a field per builtin. -/
+structure Builtins.holdsFor (ρ : Env) : Prop where
+  guard : ρ.env.supportsGuarding
+
 def Env.withEnv (ρ : Env) (env' : _root_.Env) : Env :=
   { ρ with env := env' }
 
@@ -132,6 +147,13 @@ theorem Env.agreeOn_update_fresh_binaryRel {ρ : Env} {b : FOL.BinaryRel}
     Env.agreeOn Δ ρ (ρ.updateBinaryRel b.arg1 b.arg2 b.name f) := by
   simpa [Env.agreeOn, Env.updateBinaryRel] using
     (_root_.Env.agreeOn_update_fresh_binaryRel (ρ := ρ.env) (b := b) (f := f) (Δ := Δ) hfresh)
+
+/-- Builtin facts transfer along environments that agree on a signature
+declaring the builtins. -/
+theorem Builtins.holdsFor.agree {Δ : Signature} {ρ ρ' : Env}
+    (hΔ : Builtins.wf Δ) (hagree : Env.agreeOn Δ ρ ρ')
+    (h : Builtins.holdsFor ρ) : Builtins.holdsFor ρ' :=
+  ⟨h.guard.agree hΔ.guard hagree⟩
 
 end VerifM
 
@@ -210,20 +232,43 @@ def TransState.toFlatCtx (st : TransState) : FlatCtx :=
     { st with asserts := φ :: st.asserts }.toFlatCtx = st.toFlatCtx.addAssert φ := by
   simp [toFlatCtx, FlatCtx.addAssert]
 
-def TransState.empty : TransState := ⟨Signature.empty, [], []⟩
+/-- The initial verifier state: only the builtin guard constant is declared. -/
+def TransState.init : TransState := ⟨Signature.empty.addConst guardConst, [], []⟩
 
-@[simp] theorem TransState.empty_toFlatCtx : TransState.empty.toFlatCtx = FlatCtx.empty := rfl
+@[simp] theorem TransState.init_toFlatCtx :
+    TransState.init.toFlatCtx = FlatCtx.empty.addConst guardConst.name guardConst.sort := rfl
 
-def TransState.holdsFor (st : TransState) (ρ : VerifM.Env) := ∀ φ ∈ st.asserts, φ.eval ρ.env
+/-- The environment satisfies the verifier state: every assertion holds and the
+builtin facts are in force. -/
+structure TransState.holdsFor (st : TransState) (ρ : VerifM.Env) : Prop where
+  asserts : ∀ φ ∈ st.asserts, φ.eval ρ.env
+  builtins : VerifM.Builtins.holdsFor ρ
 
 theorem TransState.holdsFor_mono {st st' : TransState} {ρ : VerifM.Env}
     (hsub : st.asserts ⊆ st'.asserts) (h : st'.holdsFor ρ) : st.holdsFor ρ :=
-  fun φ hφ => h φ (hsub hφ)
+  ⟨fun φ hφ => h.asserts φ (hsub hφ), h.builtins⟩
 
 structure TransState.wf (st : TransState) : Prop where
   assertsWf : st.asserts.wfIn st.decls
   namesDisjoint : st.decls.allNames.Nodup
   ownsWf : st.owns.wfIn st.decls
+  builtins : VerifM.Builtins.wf st.decls
+
+theorem TransState.init_wf : TransState.init.wf where
+  assertsWf := fun φ hφ => by simp [TransState.init] at hφ
+  namesDisjoint := by
+    simp [TransState.init, Signature.allNames, Signature.addConst, Signature.empty]
+  ownsWf := fun a ha => by simp [TransState.init] at ha
+  builtins := ⟨List.Mem.head _⟩
+
+/-- The canonical initial environment: the guard constant pinned to true. -/
+def VerifM.Env.init : VerifM.Env :=
+  VerifM.Env.empty.updateConst guardConst.sort guardConst.name true
+
+theorem TransState.init_holdsFor : TransState.init.holdsFor VerifM.Env.init where
+  asserts := fun φ hφ => by simp [TransState.init] at hφ
+  builtins := ⟨by simpa [VerifM.Env.init] using
+    Env.supportsGuarding_updateConst VerifM.Env.empty.env⟩
 
 def TransState.freshConst (hint : Option String) (t : Srt) (st : TransState) : FOL.Const :=
   let base := hint.getD "_v"
@@ -260,6 +305,7 @@ theorem TransState.freshConst.wf {hint t} (st : TransState) :
   · exact Context.wfIn_mono _ hwf.assertsWf (Signature.Subset.subset_addConst _ _) hwf'
   · exact Signature.nodup_allNames_addConst hwf.namesDisjoint hfresh
   · exact SpatialContext.wfIn_mono hwf.ownsWf (Signature.Subset.subset_addConst _ _) hwf'
+  · exact hwf.builtins.mono (Signature.Subset.subset_addConst _ _)
 
 theorem TransState.addUnary.wf (st : TransState) (u : FOL.Unary) :
     TransState.wf st →
@@ -271,6 +317,7 @@ theorem TransState.addUnary.wf (st : TransState) (u : FOL.Unary) :
   · exact Context.wfIn_mono _ hwf.assertsWf (Signature.Subset.subset_addUnary _ _) hwf'
   · exact hwf'
   · exact SpatialContext.wfIn_mono hwf.ownsWf (Signature.Subset.subset_addUnary _ _) hwf'
+  · exact hwf.builtins.mono (Signature.Subset.subset_addUnary _ _)
 
 theorem TransState.addBinary.wf (st : TransState) (b : FOL.Binary) :
     TransState.wf st →
@@ -282,6 +329,7 @@ theorem TransState.addBinary.wf (st : TransState) (b : FOL.Binary) :
   · exact Context.wfIn_mono _ hwf.assertsWf (Signature.Subset.subset_addBinary _ _) hwf'
   · exact hwf'
   · exact SpatialContext.wfIn_mono hwf.ownsWf (Signature.Subset.subset_addBinary _ _) hwf'
+  · exact hwf.builtins.mono (Signature.Subset.subset_addBinary _ _)
 
 theorem TransState.addUnaryRel.wf (st : TransState) (u : FOL.UnaryRel) :
     TransState.wf st →
@@ -293,6 +341,7 @@ theorem TransState.addUnaryRel.wf (st : TransState) (u : FOL.UnaryRel) :
   · exact Context.wfIn_mono _ hwf.assertsWf (Signature.Subset.subset_addUnaryRel _ _) hwf'
   · exact hwf'
   · exact SpatialContext.wfIn_mono hwf.ownsWf (Signature.Subset.subset_addUnaryRel _ _) hwf'
+  · exact hwf.builtins.mono (Signature.Subset.subset_addUnaryRel _ _)
 
 theorem TransState.addBinaryRel.wf (st : TransState) (b : FOL.BinaryRel) :
     TransState.wf st →
@@ -304,6 +353,7 @@ theorem TransState.addBinaryRel.wf (st : TransState) (b : FOL.BinaryRel) :
   · exact Context.wfIn_mono _ hwf.assertsWf (Signature.Subset.subset_addBinaryRel _ _) hwf'
   · exact hwf'
   · exact SpatialContext.wfIn_mono hwf.ownsWf (Signature.Subset.subset_addBinaryRel _ _) hwf'
+  · exact hwf.builtins.mono (Signature.Subset.subset_addBinaryRel _ _)
 
 /-- The name produced by `freshConst` is not in the existing decls. -/
 theorem TransState.freshConst_fresh (st : TransState) (hint : Option String) (τ : Srt) :
@@ -339,6 +389,7 @@ theorem TransState.addAssert.wf (st : TransState) :
     · exact hwf.assertsWf ψ hψ
   · exact hwf.namesDisjoint
   · exact hwf.ownsWf
+  · exact hwf.builtins
 
 theorem TransState.addSpatial.wf (st : TransState) :
     TransState.wf st →
@@ -349,6 +400,7 @@ theorem TransState.addSpatial.wf (st : TransState) :
   · exact hwf.assertsWf
   · exact hwf.namesDisjoint
   · simpa [SpatialContext.wfIn_cons] using And.intro ha hwf.ownsWf
+  · exact hwf.builtins
 
 theorem TransState.persist_wf (st : TransState) :
     TransState.wf st →
@@ -358,3 +410,4 @@ theorem TransState.persist_wf (st : TransState) :
   · exact hwf.assertsWf
   · exact hwf.namesDisjoint
   · simp [TransState.persist]
+  · exact hwf.builtins
