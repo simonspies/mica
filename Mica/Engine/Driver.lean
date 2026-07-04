@@ -31,7 +31,7 @@ namespace Session
 def preamble : String := s!"
 ;; preamble
 (set-logic ALL)
-(set-option :timeout 3000) ;; about 3s
+{String.intercalate "\n" (List.map Options.Settable.toSMTLIB Options.Settable.initial)}
 (set-option :smt.qi.eager_threshold 5.0)
 
 (declare-sort Other 0)

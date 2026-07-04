@@ -18,6 +18,8 @@ inductive ScopedM : Type → Type 1 where
   | declareBinaryRel : String → Srt → Srt → (Unit → ScopedM α) → ScopedM α
   | assert : Formula → (Unit → ScopedM α) → ScopedM α
   | checkSat : (Result → ScopedM α) → ScopedM α
+  | setOption : Smt.Options.Settable → (Unit → ScopedM α) → ScopedM α
+  | getOption : Smt.Options.Gettable β → (β → ScopedM α) → ScopedM α
   | bracket : ScopedM β → (β → ScopedM α) → ScopedM α
 
 /-! ## translate: ScopedM → Strategy -/
@@ -31,6 +33,8 @@ def ScopedM.translate : ScopedM α → Strategy α
   | .declareBinaryRel n a1 a2 k => .exec (.declareBinaryRel n a1 a2) (fun resp => translate (k resp))
   | .assert e k => .exec (.assert e) (fun r => translate (k r))
   | .checkSat k => .exec .checkSat (fun r => translate (k r))
+  | .setOption s k => .exec (.setOption s) (fun r => translate (k r))
+  | .getOption g k => .exec (.getOption g) (fun r => translate (k r))
   | .bracket body k =>
       .exec .push (fun () =>
         (translate body).bind (fun x =>
@@ -212,6 +216,17 @@ theorem ScopedM.translate_preservesFrames {m : ScopedM α} {f : Frame} {fs : Lis
     dsimp only at hrest
     have ⟨f', hext, hfin⟩ := ih resp hrest (f := f) (fs := fs)
     exact ⟨f', hext, by simp [Trace.finalState, State.step]; exact hfin⟩
+  | setOption s k ih =>
+    cases hgen; rename_i rest resp hrest
+    cases resp
+    dsimp only at hrest
+    have ⟨f', hext, hfin⟩ := ih () hrest (f := f) (fs := fs)
+    exact ⟨f', hext, by simp [Trace.finalState, State.step]; exact hfin⟩
+  | getOption g k ih =>
+    cases hgen; rename_i rest resp hrest
+    dsimp only at hrest
+    have ⟨f', hext, hfin⟩ := ih resp hrest (f := f) (fs := fs)
+    exact ⟨f', hext, by simp [Trace.finalState, State.step]; exact hfin⟩
   | bracket body k ih_body ih_k =>
     simp only [translate] at hgen
     cases hgen; rename_i rest_outer hgen_outer
@@ -355,6 +370,28 @@ theorem ScopedM.eval_checkSat {k : Result → ScopedM α} {ctx : FlatCtx} {ret :
     exact ⟨hunsat, st, st', hflat, hflat', rest, hrest, hsound.2, hst', hret⟩
   | unknown => right; right; exact ⟨st, st', hflat, hflat', rest, hrest, hsound, hst', hret⟩
 
+theorem ScopedM.eval_setOption {s : Smt.Options.Settable}
+    {k : Unit → ScopedM α} {ctx : FlatCtx} {ret : α} {ctx' : FlatCtx} :
+    ScopedM.eval (.setOption s k) ctx ret ctx' →
+      ScopedM.eval (k ()) ctx ret ctx' := by
+  simp only [ScopedM.eval, translate, Strategy.eval]
+  rintro ⟨st, st', hflat, hflat', t, hgen, hsound, hst', hret⟩
+  cases hgen; rename_i rest resp hrest
+  cases resp
+  simp only [Trace.finalState, State.step, Trace.result] at hsound hst' hret
+  exact ⟨st, st', hflat, hflat', rest, hrest, hsound, hst', hret⟩
+
+theorem ScopedM.eval_getOption {g : Smt.Options.Gettable β}
+    {k : β → ScopedM α} {ctx : FlatCtx} {ret : α} {ctx' : FlatCtx} :
+    ScopedM.eval (.getOption g k) ctx ret ctx' →
+      ∃ x, ScopedM.eval (k x) ctx ret ctx' := by
+  simp only [ScopedM.eval, translate, Strategy.eval]
+  rintro ⟨st, st', hflat, hflat', t, hgen, hsound, hst', hret⟩
+  cases hgen; rename_i rest resp hrest
+  dsimp only at hrest
+  simp only [Trace.finalState, State.step, Trace.result] at hsound hst' hret
+  exact ⟨resp, st, st', hflat, hflat', rest, hrest, hsound, hst', hret⟩
+
 theorem ScopedM.eval_bracket {body : ScopedM β} {k : β → ScopedM α}
     {ctx : FlatCtx} {ret : α} {ctx' : FlatCtx} :
     ScopedM.eval (.bracket body k) ctx ret ctx' →
@@ -407,6 +444,8 @@ def ScopedM.bind : ScopedM α → (α → ScopedM β) → ScopedM β
   | .declareBinaryRel n a1 a2 cont, k => .declareBinaryRel n a1 a2 (fun resp => (cont resp).bind k)
   | .assert e cont, k => .assert e (fun r => (cont r).bind k)
   | .checkSat cont, k => .checkSat (fun r => (cont r).bind k)
+  | .setOption s cont, k => .setOption s (fun r => (cont r).bind k)
+  | .getOption g cont, k => .getOption g (fun r => (cont r).bind k)
   | .bracket body cont, k => .bracket body (fun x => (cont x).bind k)
 
 theorem ScopedM.translate_bind (m : ScopedM α) (k : α → ScopedM β) :
@@ -426,6 +465,10 @@ theorem ScopedM.translate_bind (m : ScopedM α) (k : α → ScopedM β) :
   | assert e cont ih =>
     simp only [ScopedM.bind, translate, Strategy.bind]; congr 1; funext r; exact ih r k
   | checkSat cont ih =>
+    simp only [ScopedM.bind, translate, Strategy.bind]; congr 1; funext r; exact ih r k
+  | setOption s cont ih =>
+    simp only [ScopedM.bind, translate, Strategy.bind]; congr 1; funext r; exact ih r k
+  | getOption g cont ih =>
     simp only [ScopedM.bind, translate, Strategy.bind]; congr 1; funext r; exact ih r k
   | bracket body cont _ ih_cont =>
     simp only [ScopedM.bind, translate, Strategy.bind]
@@ -505,6 +548,13 @@ theorem ScopedM.eval_extends {α} s Δ (r : α) Δ' :
     · exact ih .unsat _ _ _ h
     · exact ih .sat _ _ _ h
     · exact ih .unknown _ _ _ h
+  | setOption s k ih =>
+    intro h
+    exact ih () _ _ _ (ScopedM.eval_setOption h)
+  | getOption g k ih =>
+    intro h
+    obtain ⟨n, h⟩ := ScopedM.eval_getOption h
+    exact ih n _ _ _ h
   | bracket body k ih_body ih_k =>
     intro h
     obtain ⟨b, ctx_body, _, hk⟩ := ScopedM.eval_bracket h

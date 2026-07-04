@@ -90,7 +90,9 @@ theorem bind_traceSound {s : Strategy α} {k : α → Strategy β}
         | checkSat => cases r with
           | sat => trivial
           | unsat => cases hsound; assumption
-          | unknown => trivial)
+          | unknown => trivial
+        | setOption => cases r; trivial
+        | getOption => trivial)
     · simp [Trace.finalState]; exact hsound_tk
     · simp [Trace.finalState]; exact hfin _
 

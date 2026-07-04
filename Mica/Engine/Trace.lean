@@ -48,6 +48,8 @@ def isSound : State → Trace α → Prop
   | s, .step .checkSat .unsat rest =>
       ¬ State.satisfiable s.allDecls s.allAsserts ∧ isSound s rest
   | s, .step .checkSat _ rest => isSound s rest
+  | s, .step (.setOption _) () rest => isSound s rest
+  | s, .step (.getOption _) _ rest => isSound s rest
 
 /-! ## isSound step lemmas -/
 
@@ -64,6 +66,8 @@ theorem isSound.step_rest {cmd : Command β} {r : β} {rest : Trace α} {st : St
   | declareBinaryRel n arg1 arg2 => cases r; exact h
   | assert e => cases r; exact h
   | checkSat => cases r with | sat => exact h | unsat => exact h.2 | unknown => exact h
+  | setOption s => cases r; exact h
+  | getOption g => exact h
 
 /-- Reconstructing isSound for one step from the step obligation and the rest. -/
 theorem isSound.step_cons {cmd : Command β} {r : β} {rest : Trace α} {st : State}
@@ -82,6 +86,8 @@ theorem isSound.step_cons {cmd : Command β} {r : β} {rest : Trace α} {st : St
   | declareBinaryRel n arg1 arg2 => cases r; exact hrest
   | assert e => cases r; exact hrest
   | checkSat => cases r with | sat => exact hrest | unsat => exact ⟨hstep, hrest⟩ | unknown => exact hrest
+  | setOption s => cases r; exact hrest
+  | getOption g => exact hrest
 
 end Trace
 
