@@ -15,9 +15,17 @@ Three independent namespaces:
 
 namespace Frontend
 
+inductive SpecialValue where
+  | arrayMake
+  | arrayLength
+  | arrayGet
+  | arraySet
+  deriving Repr, Inhabited
+
 inductive ResolvedValue where
   | userVar (name : String)
   | primitive (name : String) (ty : TinyML.Typ)
+  | special (value : SpecialValue)
   deriving Repr, Inhabited
 
 inductive ResolvedType where

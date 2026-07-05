@@ -71,7 +71,12 @@ private def resolverEntry (i : Intrinsic) :
 /-- The prelude resolver: which surface qualified paths route to which built-in
     primitives. Derived from `registry`; injected into the frontend by `Main`. -/
 def stdResolver : Frontend.Resolver := {
-  values := registry.filterMap resolverEntry
+  values := registry.filterMap resolverEntry ++ [
+    (⟨"Array", ["make"]⟩, .special .arrayMake),
+    (⟨"Array", ["length"]⟩, .special .arrayLength),
+    (⟨"Array", ["get"]⟩, .special .arrayGet),
+    (⟨"Array", ["set"]⟩, .special .arraySet)
+  ]
 }
 
 end Stdlib

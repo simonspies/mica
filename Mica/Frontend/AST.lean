@@ -115,6 +115,8 @@ mutual
     | ctor (path : Path)
     | app (fn : Expr) (args : List Expr)
     | binop (op : BinOp) (lhs rhs : Expr)
+    | arrayGet (arr idx : Expr)
+    | arraySet (arr idx val : Expr)
     | unop (op : UnOp) (e : Expr)
     | ite (cond thn els : Expr)
     | letIn (rec : Bool) (binders : List Pattern) (bound body : Expr)

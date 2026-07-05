@@ -32,6 +32,7 @@ def evalBinOp (op : TinyML.BinOp) (v1 v2 : Runtime.Val) : Option Runtime.Val :=
 
 /-! ## Evaluation contexts -/
 
+/-- Evaluation contexts encode TinyML's right-to-left operand order. -/
 inductive K where
   | hole
   | unop   (op : TinyML.UnOp)  (k : K)
@@ -44,6 +45,14 @@ inductive K where
   | deref  (k : K)
   | storeR (loc : Runtime.Expr) (k : K)                 -- val in focus (eval first)
   | storeL (k : K)      (v : Runtime.Val)               -- loc in focus, val done
+  | arrayMakeInit (len : Runtime.Expr) (k : K)
+  | arrayMakeLen (k : K) (init : Runtime.Val)
+  | arrayLen (k : K)
+  | arrayGetIdx (arr : Runtime.Expr) (k : K)
+  | arrayGetArr (k : K) (idx : Runtime.Val)
+  | arraySetVal (arr idx : Runtime.Expr) (k : K)
+  | arraySetIdx (arr : Runtime.Expr) (k : K) (val : Runtime.Val)
+  | arraySetArr (k : K) (idx val : Runtime.Val)
   | assert (k : K)
   | tupleK (left : Runtime.Exprs) (k : K) (right : Runtime.Vals)
   | injK   (tag : Nat) (arity : Nat) (k : K)
@@ -61,6 +70,14 @@ def K.fill : K → Runtime.Expr → Runtime.Expr
   | .deref k,           e => .deref (k.fill e)
   | .storeR loc k,      e => .store loc (k.fill e)
   | .storeL k v,        e => .store (k.fill e) (.val v)
+  | .arrayMakeInit len k, e => .arrayMake len (k.fill e)
+  | .arrayMakeLen k init, e => .arrayMake (k.fill e) (.val init)
+  | .arrayLen k,        e => .arrayLen (k.fill e)
+  | .arrayGetIdx arr k, e => .arrayGet arr (k.fill e)
+  | .arrayGetArr k idx, e => .arrayGet (k.fill e) (.val idx)
+  | .arraySetVal arr idx k, e => .arraySet arr idx (k.fill e)
+  | .arraySetIdx arr k val, e => .arraySet arr (k.fill e) (.val val)
+  | .arraySetArr k idx val, e => .arraySet (k.fill e) (.val idx) (.val val)
   | .assert k,          e => .assert (k.fill e)
   | .tupleK left k right, e => .tuple (left ++ [k.fill e] ++ right.map Runtime.Expr.val)
   | .injK tag arity k,    e => .inj tag arity (k.fill e)
@@ -79,6 +96,14 @@ def K.comp : K → K → K
   | .deref k1,          k2 => .deref (k1.comp k2)
   | .storeR loc k1,     k2 => .storeR loc (k1.comp k2)
   | .storeL k1 v,       k2 => .storeL (k1.comp k2) v
+  | .arrayMakeInit len k1, k2 => .arrayMakeInit len (k1.comp k2)
+  | .arrayMakeLen k1 init, k2 => .arrayMakeLen (k1.comp k2) init
+  | .arrayLen k1,       k2 => .arrayLen (k1.comp k2)
+  | .arrayGetIdx arr k1, k2 => .arrayGetIdx arr (k1.comp k2)
+  | .arrayGetArr k1 idx, k2 => .arrayGetArr (k1.comp k2) idx
+  | .arraySetVal arr idx k1, k2 => .arraySetVal arr idx (k1.comp k2)
+  | .arraySetIdx arr k1 val, k2 => .arraySetIdx arr (k1.comp k2) val
+  | .arraySetArr k1 idx val, k2 => .arraySetArr (k1.comp k2) idx val
   | .assert k1,         k2 => .assert (k1.comp k2)
   | .tupleK left k1 right, k2 => .tupleK left (k1.comp k2) right
   | .injK tag arity k1,    k2 => .injK tag arity (k1.comp k2)
@@ -126,6 +151,24 @@ inductive Head (ctx : PrimCtx) : Runtime.Expr → Heap → Runtime.Expr → Heap
   | store :
     Heap.lookupField l 0 μ = some w →
     Head ctx (.store (.val (.loc l)) (.val v)) μ (.val .unit) (Heap.updateField l 0 v μ)
+
+  /-- Allocate a fresh array block of length `n`, initialized with `v`. -/
+  | arrayMake : 0 ≤ n → Heap.Fresh l μ →
+      Head ctx (.arrayMake (.val (.int n)) (.val v)) μ
+        (.val (.array n.toNat l)) (μ.update l (List.replicate n.toNat v))
+
+  /-- Array length is stored in the array value. -/
+  | arrayLen :
+      Head ctx (.arrayLen (.val (.array len l))) μ (.val (.int len)) μ
+
+  /-- Array read at an in-bounds integer index. -/
+  | arrayGet : 0 ≤ i → i.toNat < len → Heap.lookupField l i.toNat μ = some v →
+      Head ctx (.arrayGet (.val (.array len l)) (.val (.int i))) μ (.val v) μ
+
+  /-- Array write at an in-bounds integer index. -/
+  | arraySet : 0 ≤ i → i.toNat < len → Heap.lookupField l i.toNat μ = some old →
+      Head ctx (.arraySet (.val (.array len l)) (.val (.int i)) (.val v)) μ
+        (.val .unit) (Heap.updateField l i.toNat v μ)
 
   /-- Assert succeeds on true; false is stuck (no rule). -/
   | assertOk : Head ctx (.assert (.val (.bool true))) μ (.val .unit) μ

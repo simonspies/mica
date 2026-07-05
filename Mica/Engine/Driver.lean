@@ -50,6 +50,9 @@ def preamble : String := s!"
 ))
 (declare-const unit_val Other)
 
+;; A `Value` constructor would need to expose both length and location
+(declare-fun array_length (Value) Int)
+
 ;; verification
 "
 

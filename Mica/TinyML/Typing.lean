@@ -83,6 +83,7 @@ inductive TypeError where
   | typeMismatch (expected actual : Typ)
   | notASum (ty : Typ)
   | notARef (ty : Typ)
+  | notAnArray (ty : Typ)
   | missingReturnType
   | subsumptionFailure (sub super : Typ)
   | spec (msg : String)
@@ -103,6 +104,7 @@ instance : ToString TypeError where
         s!"type mismatch: expected {repr expected}, got {repr actual}"
     | .notASum ty => s!"not a sum type: {repr ty}"
     | .notARef ty => s!"not a ref type: {repr ty}"
+    | .notAnArray ty => s!"not an array type: {repr ty}"
     | .missingReturnType => "missing return type"
     | .subsumptionFailure sub super =>
         s!"subsumption failed: {repr sub} is not a subtype of {repr super}"
@@ -195,6 +197,29 @@ mutual
             let val' ← check Θ Γ val inner
             .ok (.unit, .store loc' val')
         | _ => .error (.notARef locTy)
+    | .arrayMake len init => do
+        let len' ← check Θ Γ len .int
+        let (elemTy, init') ← infer Θ Γ init
+        .ok (.array elemTy, .arrayMake len' init')
+    | .arrayLen arr => do
+        let (arrTy, arr') ← infer Θ Γ arr
+        match arrTy with
+        | .array _ => .ok (.int, .arrayLen arr')
+        | _ => .error (.notAnArray arrTy)
+    | .arrayGet arr idx => do
+        let (arrTy, arr') ← infer Θ Γ arr
+        let idx' ← check Θ Γ idx .int
+        match arrTy with
+        | .array elemTy => .ok (elemTy, .arrayGet arr' idx' elemTy)
+        | _ => .error (.notAnArray arrTy)
+    | .arraySet arr idx val => do
+        let (arrTy, arr') ← infer Θ Γ arr
+        let idx' ← check Θ Γ idx .int
+        match arrTy with
+        | .array elemTy =>
+            let val' ← check Θ Γ val elemTy
+            .ok (.unit, .arraySet arr' idx' val')
+        | _ => .error (.notAnArray arrTy)
     | .assert e => do
         let e' ← check Θ Γ e .bool
         .ok (.unit, .assert e')
@@ -591,6 +616,56 @@ mutual
             have ⟨val', hval, hcont⟩ := Except.bind_ok hcont
             rcases (by simpa using hcont) with ⟨rfl, rfl⟩
             simp [Expr.runtime, Untyped.Expr.runtime, ihLoc _ hloc, ihVal _ hval]
+    | .arrayMake len init => by
+        let ihLen := check_runtime Θ Γ len .int
+        let ihInit := infer_runtime Θ Γ init
+        intro result h
+        unfold Typed.infer at h
+        have ⟨len', hlen, hcont⟩ := Except.bind_ok h
+        have ⟨p, hinit, hcont⟩ := Except.bind_ok hcont
+        cases p with
+        | mk elemTy init' =>
+          rcases (by simpa [hinit] using hcont) with ⟨rfl, rfl⟩
+          simp [Expr.runtime, Untyped.Expr.runtime, ihLen _ hlen, ihInit _ hinit]
+    | .arrayLen arr => by
+        let ih := infer_runtime Θ Γ arr
+        intro result h
+        unfold Typed.infer at h
+        have ⟨p, harr, hcont⟩ := Except.bind_ok h
+        cases p with
+        | mk arrTy arr' =>
+          cases arrTy <;> simp at hcont
+          case array elemTy =>
+            rcases hcont with ⟨rfl, rfl⟩
+            simp [Expr.runtime, Untyped.Expr.runtime, ih _ harr]
+    | .arrayGet arr idx => by
+        let ihArr := infer_runtime Θ Γ arr
+        let ihIdx := check_runtime Θ Γ idx .int
+        intro result h
+        unfold Typed.infer at h
+        have ⟨p, harr, hcont⟩ := Except.bind_ok h
+        cases p with
+        | mk arrTy arr' =>
+          have ⟨idx', hidx, hcont⟩ := Except.bind_ok hcont
+          cases arrTy <;> simp at hcont
+          case array elemTy =>
+            rcases hcont with ⟨rfl, rfl⟩
+            simp [Expr.runtime, Untyped.Expr.runtime, ihArr _ harr, ihIdx _ hidx]
+    | .arraySet arr idx val => by
+        let ihArr := infer_runtime Θ Γ arr
+        let ihIdx := check_runtime Θ Γ idx .int
+        intro result h
+        unfold Typed.infer at h
+        have ⟨p, harr, hcont⟩ := Except.bind_ok h
+        cases p with
+        | mk arrTy arr' =>
+          have ⟨idx', hidx, hcont⟩ := Except.bind_ok hcont
+          cases arrTy <;> simp at hcont
+          case array =>
+            have ⟨val', hval, hcont⟩ := Except.bind_ok hcont
+            rcases hcont with ⟨rfl, rfl⟩
+            have hval_rt := check_runtime Θ Γ val _ val' hval
+            simp [Expr.runtime, Untyped.Expr.runtime, ihArr _ harr, ihIdx _ hidx, hval_rt]
     | .assert e => by
         let ih := check_runtime Θ Γ e .bool
         intro result h

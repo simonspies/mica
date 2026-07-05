@@ -248,6 +248,179 @@ theorem wp_bind_store {loc val : Runtime.Expr} {Q : Runtime.Val → iProp}
     exact wp.bind (k := TinyML.K.storeL .hole vv)
   exact h.trans (hloc.trans (wp.bind (k := TinyML.K.storeR loc .hole)))
 
+/-- Array length under evaluation: first evaluate the array expression, then
+    read the immutable length from the value. -/
+theorem wp_bind_arrayLen {arr : Runtime.Expr} {Q : Runtime.Val → iProp}
+    {R : iProp}
+    (h : R ⊢ wp pctx arr (fun v => wp pctx (.arrayLen (.val v)) Q)) :
+    R ⊢ wp pctx (.arrayLen arr) Q :=
+  h.trans (wp.bind (k := TinyML.K.arrayLen .hole))
+
+/-- Array length at values: context unchanged. The array shape needed by the
+    head rule is exposed as an explicit pure obligation. -/
+theorem wp_arrayLen {v : Runtime.Val} {len : Nat} {l : Runtime.Location} {Q : Runtime.Val → iProp}
+    {R : iProp}
+    (hv : v = .array len l) (h : R ⊢ Q (.int len)) :
+    R ⊢ wp pctx (.arrayLen (.val v)) Q := by
+  subst hv
+  exact h.trans wp.arrayLen
+
+/-- `Array.make` under evaluation: evaluate `init`, then `len`. -/
+theorem wp_bind_arrayMake {len init : Runtime.Expr} {Q : Runtime.Val → iProp}
+    {R : iProp}
+    (h : R ⊢ wp pctx init (fun vinit => wp pctx len (fun vlen =>
+      wp pctx (.arrayMake (.val vlen) (.val vinit)) Q))) :
+    R ⊢ wp pctx (.arrayMake len init) Q := by
+  have hlen :
+      wp pctx init (fun vinit => wp pctx len (fun vlen =>
+        wp pctx (.arrayMake (.val vlen) (.val vinit)) Q)) ⊢
+      wp pctx init (fun vinit => wp pctx (.arrayMake len (.val vinit)) Q) := by
+    apply wp.mono; intro vinit
+    exact wp.bind (k := TinyML.K.arrayMakeLen .hole vinit)
+  exact h.trans (hlen.trans (wp.bind (k := TinyML.K.arrayMakeInit len .hole)))
+
+/-- `Array.make` at values: allocate a fresh block. The integer shape of the
+    length operand is exposed as an explicit pure obligation. -/
+theorem wp_arrayMake {vlen init : Runtime.Val} {n : Int} {Q : Runtime.Val → iProp}
+    (hvlen : vlen = .int n) (hn : 0 ≤ n) :
+    iprop(∀ (l : Runtime.Location), l ↦ List.replicate n.toNat init -∗
+      Q (.array n.toNat l)) ⊢
+    wp pctx (.arrayMake (.val vlen) (.val init)) Q := by
+  subst hvlen
+  exact wp.arrayMake hn
+
+/-- `Array.make` at values under an array invariant: allocate the block and
+    mint the invariant. The integer shape of the length operand is exposed as
+    an explicit pure obligation. -/
+theorem wp_arrayMake_inv {vlen init : Runtime.Val} {n : Int}
+    {I : Runtime.Val → iProp} [∀ w, Persistent (I w)] {Q : Runtime.Val → iProp}
+    (hvlen : vlen = .int n) (hn : 0 ≤ n) :
+    iprop((□ I init) ∗
+      ∀ (l : Runtime.Location), arrayinv n.toNat l I -∗ Q (.array n.toNat l)) ⊢
+    wp pctx (.arrayMake (.val vlen) (.val init)) Q := by
+  subst hvlen
+  exact wp.arrayMake_inv hn
+
+/-- `Array.get` under evaluation: evaluate `idx`, then `arr`. -/
+theorem wp_bind_arrayGet {arr idx : Runtime.Expr} {Q : Runtime.Val → iProp}
+    {R : iProp}
+    (h : R ⊢ wp pctx idx (fun vidx => wp pctx arr (fun varr =>
+      wp pctx (.arrayGet (.val varr) (.val vidx)) Q))) :
+    R ⊢ wp pctx (.arrayGet arr idx) Q := by
+  have harr :
+      wp pctx idx (fun vidx => wp pctx arr (fun varr =>
+        wp pctx (.arrayGet (.val varr) (.val vidx)) Q)) ⊢
+      wp pctx idx (fun vidx => wp pctx (.arrayGet arr (.val vidx)) Q) := by
+    apply wp.mono; intro vidx
+    exact wp.bind (k := TinyML.K.arrayGetArr .hole vidx)
+  exact h.trans (harr.trans (wp.bind (k := TinyML.K.arrayGetIdx arr .hole)))
+
+
+/-- `Array.get` at values under an array invariant: the spatial context is
+    preserved, while the continuation receives the element typing fact. The
+    array and index values are generic; their runtime shapes are recovered from
+    the value-typing assumptions. -/
+theorem wp_arrayGet_inv (Θ : TinyML.TypeEnv) {Q : Runtime.Val → iProp}
+    {ctx : SpatialContext} {ρ : Env} {R : iProp}
+    {arr idx : Term .value} {elemTy : TinyML.Typ}
+    {varr vidx : Runtime.Val}
+    (harr : Term.eval ρ arr = varr) (hidx : Term.eval ρ idx = vidx)
+    (hi : 0 ≤ Term.eval ρ (.unop .toInt idx))
+    (hlt : Term.eval ρ (.unop .toInt idx) < Term.eval ρ (.unop .arrayLengthOf arr))
+    (h : ∀ w, ctx.interp Θ ρ ∗ TinyML.ValHasType Θ w elemTy ∗ R ⊢ Q w) :
+    ctx.interp Θ ρ ∗ TinyML.ValHasType Θ varr (.array elemTy) ∗
+      TinyML.ValHasType Θ vidx .int ∗ R ⊢
+    wp pctx (.arrayGet (.val varr) (.val vidx)) Q := by
+  istart
+  iintro ⟨Hctx, Harr, #Hidx, HR⟩
+  ihave Harr' := (TinyML.ValHasType.array Θ varr elemTy).1 $$ Harr
+  icases Harr' with ⟨%len, %loc, %hv_arr, #Hinv⟩
+  ihave Hidx' := (TinyML.ValHasType.int Θ vidx).1 $$ Hidx
+  icases Hidx' with ⟨%i, %hv_idx⟩
+  have hi' : 0 ≤ i := by
+    simpa [Term.eval, UnOp.eval, hidx, hv_idx] using hi
+  have hlt' : i.toNat < len := by
+    have hltInt : i < (len : Int) := by
+      simpa [Term.eval, UnOp.eval, harr, hv_arr, hidx, hv_idx] using hlt
+    omega
+  subst hv_arr
+  subst hv_idx
+  iapply (wp.arrayGet_inv (I := fun w => TinyML.ValHasType Θ w elemTy) hi' hlt')
+  isplitl []
+  · iexact Hinv
+  · iintro %w #Hw
+    iapply h
+    isplitl [Hctx]
+    · iexact Hctx
+    · isplitl []
+      · iexact Hw
+      · iexact HR
+
+/-- `Array.set` under evaluation: evaluate `val`, then `idx`, then `arr`. -/
+theorem wp_bind_arraySet {arr idx val : Runtime.Expr} {Q : Runtime.Val → iProp}
+    {R : iProp}
+    (h : R ⊢ wp pctx val (fun vval => wp pctx idx (fun vidx => wp pctx arr (fun varr =>
+      wp pctx (.arraySet (.val varr) (.val vidx) (.val vval)) Q)))) :
+    R ⊢ wp pctx (.arraySet arr idx val) Q := by
+  have harr :
+      wp pctx val (fun vval => wp pctx idx (fun vidx => wp pctx arr (fun varr =>
+        wp pctx (.arraySet (.val varr) (.val vidx) (.val vval)) Q))) ⊢
+      wp pctx val (fun vval => wp pctx idx (fun vidx =>
+        wp pctx (.arraySet arr (.val vidx) (.val vval)) Q)) := by
+    apply wp.mono; intro vval
+    apply wp.mono; intro vidx
+    exact wp.bind (k := TinyML.K.arraySetArr .hole vidx vval)
+  have hidx :
+      wp pctx val (fun vval => wp pctx idx (fun vidx =>
+        wp pctx (.arraySet arr (.val vidx) (.val vval)) Q)) ⊢
+      wp pctx val (fun vval => wp pctx (.arraySet arr idx (.val vval)) Q) := by
+    apply wp.mono; intro vval
+    exact wp.bind (k := TinyML.K.arraySetIdx arr .hole vval)
+  exact h.trans (harr.trans (hidx.trans (wp.bind (k := TinyML.K.arraySetVal arr idx .hole))))
+
+
+/-- `Array.set` at values under an array invariant: the spatial context is
+    preserved, while the new element typing fact is used to restore the array
+    invariant. The array and index values are generic; their runtime shapes are
+    recovered from the value-typing assumptions. -/
+theorem wp_arraySet_inv (Θ : TinyML.TypeEnv) {Q : Runtime.Val → iProp}
+    {ctx : SpatialContext} {ρ : Env} {R : iProp}
+    {arr idx : Term .value} {elemTy : TinyML.Typ}
+    {varr vidx val : Runtime.Val}
+    (harr : Term.eval ρ arr = varr) (hidx : Term.eval ρ idx = vidx)
+    (hi : 0 ≤ Term.eval ρ (.unop .toInt idx))
+    (hlt : Term.eval ρ (.unop .toInt idx) < Term.eval ρ (.unop .arrayLengthOf arr))
+    (h : ctx.interp Θ ρ ∗ TinyML.ValHasType Θ .unit .unit ∗ R ⊢ Q .unit) :
+    ctx.interp Θ ρ ∗ TinyML.ValHasType Θ varr (.array elemTy) ∗
+      TinyML.ValHasType Θ vidx .int ∗ TinyML.ValHasType Θ val elemTy ∗ R ⊢
+    wp pctx (.arraySet (.val varr) (.val vidx) (.val val)) Q := by
+  istart
+  iintro ⟨Hctx, Harr, #Hidx, #Hval, HR⟩
+  ihave Harr' := (TinyML.ValHasType.array Θ varr elemTy).1 $$ Harr
+  icases Harr' with ⟨%len, %loc, %hv_arr, #Hinv⟩
+  ihave Hidx' := (TinyML.ValHasType.int Θ vidx).1 $$ Hidx
+  icases Hidx' with ⟨%i, %hv_idx⟩
+  have hi' : 0 ≤ i := by
+    simpa [Term.eval, UnOp.eval, hidx, hv_idx] using hi
+  have hlt' : i.toNat < len := by
+    have hltInt : i < (len : Int) := by
+      simpa [Term.eval, UnOp.eval, harr, hv_arr, hidx, hv_idx] using hlt
+    omega
+  subst hv_arr
+  subst hv_idx
+  iapply (wp.arraySet_inv (I := fun w => TinyML.ValHasType Θ w elemTy) hi' hlt')
+  isplitl []
+  · iexact Hinv
+  · isplitl []
+    · imodintro
+      iexact Hval
+    · iapply h
+      isplitl [Hctx]
+      · iexact Hctx
+      · isplitl []
+        · iapply TinyML.ValHasType.unit_intro
+        · iexact HR
+
 /-- Store at values: replace the selected points-to atom with the updated one. -/
 theorem wp_store (Θ : TinyML.TypeEnv) {Q : Runtime.Val → iProp}
     {ctx : SpatialContext} {ρ : Env} {R : iProp}

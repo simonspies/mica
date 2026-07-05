@@ -27,6 +27,7 @@ mutual
     | unit
     | inj (tag : Nat) (arity : Nat) (payload : Val)
     | loc (l : Location)
+    | array (len : Nat) (loc : Location)
     | fix (self : Binder) (args : List Binder) (body : Expr)
     | tuple (vs : List Val)
     /-- Reference to a built-in primitive function, indexed by name. The
@@ -45,6 +46,10 @@ mutual
     | ref    (e : Expr)
     | deref  (e : Expr)
     | store  (loc val : Expr)
+    | arrayMake (len init : Expr)
+    | arrayLen (arr : Expr)
+    | arrayGet (arr idx : Expr)
+    | arraySet (arr idx val : Expr)
     | assert (e : Expr)
     | tuple (es : List Expr)
     | inj (tag : Nat) (arity : Nat) (payload : Expr)
@@ -107,6 +112,10 @@ mutual
     case loc.loc a b => exact match decEq a b with
       | isTrue h => isTrue (by subst h; rfl)
       | isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
+    case array.array n1 l1 n2 l2 => exact match decEq n1 n2, decEq l1 l2 with
+      | isTrue h1, isTrue h2 => isTrue (by subst h1; subst h2; rfl)
+      | isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
+      | _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
     case fix.fix s1 args1 b1 s2 args2 b2 =>
       exact match decEq s1 s2, decEq args1 args2, b1.decEq b2 with
       | isTrue h1, isTrue h2, isTrue h3 =>
@@ -168,6 +177,22 @@ mutual
       | isTrue h1, isTrue h2 => isTrue (by subst h1; subst h2; rfl)
       | isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
       | _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
+    case arrayMake.arrayMake n1 v1 n2 v2 => exact match n1.decEq n2, v1.decEq v2 with
+      | isTrue h1, isTrue h2 => isTrue (by subst h1; subst h2; rfl)
+      | isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
+      | _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
+    case arrayLen.arrayLen a1 a2 => exact match a1.decEq a2 with
+      | isTrue h => isTrue (by subst h; rfl)
+      | isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
+    case arrayGet.arrayGet a1 i1 a2 i2 => exact match a1.decEq a2, i1.decEq i2 with
+      | isTrue h1, isTrue h2 => isTrue (by subst h1; subst h2; rfl)
+      | isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
+      | _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
+    case arraySet.arraySet a1 i1 v1 a2 i2 v2 => exact match a1.decEq a2, i1.decEq i2, v1.decEq v2 with
+      | isTrue h1, isTrue h2, isTrue h3 => isTrue (by subst h1; subst h2; subst h3; rfl)
+      | isFalse h, _, _ => isFalse (by intro heq; cases heq; exact h rfl)
+      | _, isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
+      | _, _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
     case assert.assert e1 e2 => exact match e1.decEq e2 with
       | isTrue h => isTrue (by subst h; rfl)
       | isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
@@ -295,6 +320,10 @@ def Expr.subst (σ : Subst) : Expr → Expr
   | .ref e => .ref (e.subst σ)
   | .deref e => .deref (e.subst σ)
   | .store loc v => .store (loc.subst σ) (v.subst σ)
+  | .arrayMake len init => .arrayMake (len.subst σ) (init.subst σ)
+  | .arrayLen arr => .arrayLen (arr.subst σ)
+  | .arrayGet arr idx => .arrayGet (arr.subst σ) (idx.subst σ)
+  | .arraySet arr idx v => .arraySet (arr.subst σ) (idx.subst σ) (v.subst σ)
   | .assert e => .assert (e.subst σ)
   | .tuple es => .tuple (es.map (Expr.subst σ))
   | .inj tag arity payload => .inj tag arity (payload.subst σ)
@@ -397,6 +426,10 @@ def Expr.freeVars : Expr → List Var
   | .ref e => e.freeVars
   | .deref e => e.freeVars
   | .store loc v => loc.freeVars ++ v.freeVars
+  | .arrayMake len init => len.freeVars ++ init.freeVars
+  | .arrayLen arr => arr.freeVars
+  | .arrayGet arr idx => arr.freeVars ++ idx.freeVars
+  | .arraySet arr idx v => arr.freeVars ++ idx.freeVars ++ v.freeVars
   | .assert e => e.freeVars
   | .tuple es => es.flatMap Expr.freeVars
   | .inj _ _ payload => payload.freeVars
@@ -468,6 +501,22 @@ theorem Expr.freeVars_subst (γ1 γ2 : Var → Option Val) (e : Expr) :
   case store loc v ihloc ihv =>
     intro h; simp only [Expr.freeVars, List.mem_append] at h
     simp [Expr.subst, ihloc γ1 γ2 (fun x hx => h x (Or.inl hx)),
+                       ihv γ1 γ2 (fun x hx => h x (Or.inr hx))]
+  case arrayMake len init ihlen ihinit =>
+    intro h; simp only [Expr.freeVars, List.mem_append] at h
+    simp [Expr.subst, ihlen γ1 γ2 (fun x hx => h x (Or.inl hx)),
+                       ihinit γ1 γ2 (fun x hx => h x (Or.inr hx))]
+  case arrayLen arr ih =>
+    intro h; simp only [Expr.freeVars] at h
+    simp [Expr.subst, ih γ1 γ2 h]
+  case arrayGet arr idx iharr ihidx =>
+    intro h; simp only [Expr.freeVars, List.mem_append] at h
+    simp [Expr.subst, iharr γ1 γ2 (fun x hx => h x (Or.inl hx)),
+                       ihidx γ1 γ2 (fun x hx => h x (Or.inr hx))]
+  case arraySet arr idx v iharr ihidx ihv =>
+    intro h; simp only [Expr.freeVars, List.mem_append] at h
+    simp [Expr.subst, iharr γ1 γ2 (fun x hx => h x (Or.inl (Or.inl hx))),
+                       ihidx γ1 γ2 (fun x hx => h x (Or.inl (Or.inr hx))),
                        ihv γ1 γ2 (fun x hx => h x (Or.inr hx))]
   case assert e ih =>
     intro h; simp only [Expr.freeVars] at h

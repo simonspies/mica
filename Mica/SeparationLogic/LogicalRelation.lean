@@ -65,6 +65,7 @@ mutual
     | .arrow _ _  => iprop(False)
     | .tvar _     => iprop(False)
     | .ref t      => iprop(∃ l, ⌜v = .loc l⌝ ∗ locinv l (fun w => R w t))
+    | .array t    => iprop(∃ len l, ⌜v = .array len l⌝ ∗ arrayinv len l (fun w => R w t))
     | .owned _    => iprop(∃ l, ⌜v = .loc l⌝)
     | .named T args => k v T args
     | .tuple ts   => iprop(∃ vs, ⌜v = .tuple vs⌝ ∗ ValsRelBody R vs ts k)
@@ -116,7 +117,7 @@ mutual
     | .prim _ =>
         iintro _ H
         iexact H
-    | .value | .empty | .arrow _ _ | .tvar _ | .ref _ | .owned _ =>
+    | .value | .empty | .arrow _ _ | .tvar _ | .ref _ | .array _ | .owned _ =>
         iintro _ H
         iexact H
 
@@ -175,6 +176,13 @@ mutual
         refine exists_ne fun l => ?_
         refine sep_ne.ne (.of_eq rfl) ?_
         apply Contractive.distLater_dist (f := fun I : Runtime.Val → iProp => locinv l I)
+        intro m hm w
+        exact hR m hm w t
+    | .array t =>
+        refine exists_ne fun len => ?_
+        refine exists_ne fun l => ?_
+        refine sep_ne.ne (.of_eq rfl) ?_
+        apply Contractive.distLater_dist (f := fun I : Runtime.Val → iProp => arrayinv len l I)
         intro m hm w
         exact hR m hm w t
     | .named T args =>
@@ -344,6 +352,9 @@ mutual
     | .ref _ =>
         have := locinv_persistent
         infer_instance
+    | .array _ =>
+        have := arrayinv_persistent
+        infer_instance
     | .named T args =>
         exact hk v T args
     | .tuple ts =>
@@ -465,6 +476,11 @@ theorem ValHasType.ref (Θ : TypeEnv) (v : Runtime.Val) (t : Typ) :
 theorem ValHasType.owned (Θ : TypeEnv) (v : Runtime.Val) (t : Typ) :
     ValHasType Θ v (.owned t) ⊣⊢ iprop(∃ l, ⌜v = .loc l⌝) := by
   exact equiv_iff.mp (ValHasType.unfold Θ v (.owned t))
+
+theorem ValHasType.array (Θ : TypeEnv) (v : Runtime.Val) (t : Typ) :
+    ValHasType Θ v (.array t) ⊣⊢
+      iprop(∃ len l, ⌜v = .array len l⌝ ∗ arrayinv len l (fun w => ValHasType Θ w t)) := by
+  exact equiv_iff.mp (ValHasType.unfold Θ v (.array t))
 
 theorem ValHasType.tuple (Θ : TypeEnv) (v : Runtime.Val) (ts : List Typ) :
     ValHasType Θ v (.tuple ts) ⊣⊢
@@ -997,7 +1013,7 @@ theorem evalUnOp_typed {Θ : TypeEnv} {op : UnOp}
               · iexact Hwitness)
           iapply (ValsHaveTypes.of_getElem? (Θ := Θ) (vs := vs) (ts := ts) (n := n) (t := ty) hty)
           iexact Hvs
-      | prim _ | sum _ | arrow _ _ | ref _ | owned _ | empty | value | tvar _ | named _ _ =>
+      | prim _ | sum _ | arrow _ _ | ref _ | array _ | owned _ | empty | value | tvar _ | named _ _ =>
           simp [UnOp.typeOf, PrimitiveType.unOpTypeOf] at hty
 
 end TinyML
@@ -1079,6 +1095,8 @@ def typeConstraints (ty : TinyML.Typ) (t : Term .value) : List Formula :=
   match ty with
   | .prim p => p.typeConstraints t
   | .owned _ => [.unpred .isLoc t]
+  | .array _ =>
+      [.binpred .le (.const (.i 0)) (.unop .arrayLengthOf t)]
   | .tuple ts =>
       .unpred .isTuple t ::
       typeConstraintsList ts (.unop .toValList t)
@@ -1104,6 +1122,12 @@ mutual
     | owned _ =>
       simp [typeConstraints]
       simp only [Formula.wfIn]; exact ⟨trivial, ht⟩
+    | array _ =>
+      simp only [typeConstraints, List.mem_cons, List.not_mem_nil]
+      intro φ hφ
+      rcases hφ with rfl | hfalse
+      · simp only [Formula.wfIn, Term.wfIn]; exact ⟨trivial, trivial, ⟨trivial, ht⟩⟩
+      · cases hfalse
     | tuple ts =>
       simp only [typeConstraints]
       intro φ hφ
@@ -1146,6 +1170,16 @@ mutual
       simp [typeConstraints] at hφ
       subst hφ
       simp [Formula.eval, hv]
+    | array inner =>
+      refine (TinyML.ValHasType.array Θ v inner).1.trans ?_
+      iintro Hty
+      icases Hty with ⟨%len, %l, %hv, _⟩
+      ipureintro
+      intro φ hφ
+      simp only [typeConstraints, List.mem_cons, List.not_mem_nil] at hφ
+      rcases hφ with rfl | hfalse
+      · simp [Formula.eval, Term.eval, UnOp.eval, ht, hv]
+      · cases hfalse
     | tuple ts =>
       refine (TinyML.ValHasType.tuple Θ v ts).1.trans ?_
       iintro Hty

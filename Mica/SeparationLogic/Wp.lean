@@ -64,6 +64,23 @@ instance locinv_contractive (l : Runtime.Location) :
     Contractive.distLater_dist (f := inv micaN)
       (fun m hm => exists_ne fun v => sep_ne.ne .rfl (H m hm v))
 
+/-- Array invariant: an Iris invariant owning a block of length `len` at `l`
+    and constraining each element by `I`. As with `locinv`, the rules never give
+    out the points-to; where the payload `I` is handed out it must be persistent. -/
+def arrayinv (len : Nat) (l : Runtime.Location) (I : Runtime.Val → iProp) : iProp :=
+  inv micaN iprop(∃ vs, ⌜vs.length = len⌝ ∗ l ↦ vs ∗ [∗list] v ∈ vs, I v)
+
+instance arrayinv_persistent (len : Nat) (l : Runtime.Location) (I : Runtime.Val → iProp) :
+    Persistent (arrayinv len l I) :=
+  inv_persistent micaN _
+
+instance arrayinv_contractive (len : Nat) (l : Runtime.Location) :
+    Contractive (fun I : Runtime.Val → iProp => arrayinv len l I) where
+  distLater_dist H :=
+    Contractive.distLater_dist (f := inv micaN)
+      (fun m hm => exists_ne fun _ =>
+        sep_ne.ne .rfl (sep_ne.ne .rfl (BigSepL.bigSepL_dist (fun _ => H m hm _))))
+
 /-- Weakest precondition for a list of expressions, evaluated right-to-left.
     `wps ctx [e1, e2, e3] Q` first evaluates `e3`, then `e2`, then `e1`,
     and passes `[v1, v2, v3]` (in original order) to `Q`. -/
@@ -299,6 +316,219 @@ theorem wp.store {ctx : TinyML.PrimCtx} {l : Runtime.Location} {old v : Runtime.
   · ipureintro; rfl
   · iapply HΦ $$ Hpt
 
+/-- `Array.length` reads the immutable length stored in the array value. -/
+theorem wp.arrayLen {ctx : TinyML.PrimCtx} {len : Nat} {l : Runtime.Location}
+    {Q : Runtime.Val → iProp} :
+    Q (.int len) ⊢ wp ctx (.arrayLen (.val (.array len l))) Q :=
+  wp.val.trans (wp.pure_step (fun _ => .arrayLen)
+    (by rintro μ e' μ' h; cases h; exact ⟨rfl, rfl⟩))
+
+/-- `Array.get a i` at an in-bounds index, with owned block access.
+    Reading preserves ownership of the whole block. -/
+theorem wp.arrayGet {ctx : TinyML.PrimCtx} {n : Nat} {l : Runtime.Location} {i : Int}
+    {vs : TinyML.Block} {Q : Runtime.Val → iProp} {R : iProp}
+    (hi : 0 ≤ i) (hlt : i.toNat < n) (hlen : vs.length = n)
+    (h : R ⊢ l ↦ vs ∗ (l ↦ vs -∗ Q vs[i.toNat])) :
+    R ⊢ wp ctx (.arrayGet (.val (.array n l)) (.val (.int i))) Q := by
+  apply h.trans
+  istart
+  iintro ⟨Hpt, HΦ⟩
+  simp only [_root_.wp]
+  iapply wp_lift_atomic_step rfl
+  iintro %σ₁ %ns %obs %obs' %nt Hσ !>
+  ihave %Hlook : (⌜Iris.Std.get? σ₁ l = some vs⌝ : iProp) $$ [Hσ Hpt]
+  · ihave >%h := genHeap_valid $$ [$Hσ $Hpt]
+    itrivial
+  have hlk : TinyML.Heap.lookup l σ₁ = some vs := Hlook
+  have hidx : i.toNat < vs.length := by rw [hlen]; exact hlt
+  have hget : vs[i.toNat]? = some vs[i.toNat] := List.getElem?_eq_getElem hidx
+  have hlkf : TinyML.Heap.lookupField l i.toNat σ₁ = some vs[i.toNat] := by
+    rw [TinyML.Heap.lookupField_of_lookup hlk]; exact hget
+  have hred : BaseStep.Reducible
+      (show TinyML.LExpr ctx from .arrayGet (.val (.array n l)) (.val (.int i)), σ₁) :=
+    ⟨[], .val vs[i.toNat], σ₁, [], .arrayGet hi hlt hlkf, rfl, rfl⟩
+  isplitr
+  · ipureintro
+    exact primStep_reducible_of_baseStep_reducible hred
+  iintro !> %e₂ %σ₂ %eₜ %Hps Hcr
+  obtain ⟨hh, rfl, rfl⟩ := baseStep_of_primStep_of_baseStep_reducible hred Hps
+  cases hh
+  rename_i v' hi' hlt' hlk'
+  obtain rfl : vs[i.toNat] = v' := Option.some.inj (hlkf.symm.trans hlk')
+  imodintro
+  simp only [stateInterp, Algebra.BigOpL.bigOpL_nil]
+  iframe Hσ
+  isplit <;> try itrivial
+  iexists vs[i.toNat]
+  isplit
+  · ipureintro; rfl
+  · iapply HΦ $$ Hpt
+
+
+/-- `Array.get a i` at an in-bounds index: open the invariant, read field `i`,
+    hand the (persistent) element typing to the continuation, restore the
+    invariant. -/
+theorem wp.arrayGet_inv {ctx : TinyML.PrimCtx} {n : Nat} {l : Runtime.Location} {i : Int}
+    {I : Runtime.Val → iProp} [∀ w, Persistent (I w)] {Q : Runtime.Val → iProp}
+    (hi : 0 ≤ i) (hlt : i.toNat < n) :
+    arrayinv n l I ∗ (∀ w, I w -∗ Q w) ⊢
+    wp ctx (.arrayGet (.val (.array n l)) (.val (.int i))) Q := by
+  simp only [arrayinv]
+  istart
+  iintro ⟨#Hinv, HΦ⟩
+  simp only [_root_.wp]
+  iapply wp_lift_step_fupd rfl
+  iintro %σ₁ %ns %obs %obs' %nt Hσ
+  imod inv_acc _ _ _ CoPset.subseteq_top $$ Hinv with ⟨HP, Hcl⟩
+  icases HP with ⟨%vs, Hlen, Hpt, Hlist⟩
+  imod Hlen with %hlen
+  imod Hpt with Hpt
+  ihave %Hlook : (⌜Iris.Std.get? σ₁ l = some vs⌝ : iProp) $$ [Hσ Hpt]
+  · ihave >%h := genHeap_valid $$ [$Hσ $Hpt]
+    itrivial
+  have hlk : TinyML.Heap.lookup l σ₁ = some vs := Hlook
+  have hidx : i.toNat < vs.length := by rw [hlen]; exact hlt
+  have hget : vs[i.toNat]? = some vs[i.toNat] := List.getElem?_eq_getElem hidx
+  have hlkf : TinyML.Heap.lookupField l i.toNat σ₁ = some vs[i.toNat] := by
+    rw [TinyML.Heap.lookupField_of_lookup hlk]; exact hget
+  have hred : BaseStep.Reducible
+      (show TinyML.LExpr ctx from .arrayGet (.val (.array n l)) (.val (.int i)), σ₁) :=
+    ⟨[], .val vs[i.toNat], σ₁, [], .arrayGet hi hlt hlkf, rfl, rfl⟩
+  iapply fupd_mask_intro Std.LawfulSet.empty_subset
+  iintro Hclose
+  isplitr
+  · ipureintro
+    exact primStep_reducible_of_baseStep_reducible hred
+  iintro %e₂ %σ₂ %eₜ %Hps -
+  obtain ⟨hh, rfl, rfl⟩ := baseStep_of_primStep_of_baseStep_reducible hred Hps
+  cases hh
+  rename_i v' hi' hlt' hlk'
+  obtain rfl : vs[i.toNat] = v' := Option.some.inj (hlkf.symm.trans hlk')
+  imodintro
+  inext
+  iintuitionistic Hlist
+  ihave Helem := (BigSepL.bigSepL_lookup (Φ := fun _ w => I w) hget) $$ Hlist
+  imod Hclose with -
+  imod Hcl $$ [Hpt] with -
+  · inext
+    iexists vs
+    isplitl []
+    · ipureintro; exact hlen
+    · isplitl [Hpt]
+      · iexact Hpt
+      · iexact Hlist
+  imodintro
+  simp only [stateInterp, Algebra.BigOpL.bigOpL_nil]
+  iframe Hσ
+  isplitl [HΦ Helem]
+  · iapply wp_value ⟨rfl⟩
+    iapply HΦ $$ Helem
+  · itrivial
+
+/-- `Array.set a i v` at an in-bounds index, with owned block access.
+    The continuation receives ownership of the updated whole block. -/
+theorem wp.arraySet {ctx : TinyML.PrimCtx} {n : Nat} {l : Runtime.Location} {i : Int}
+    {vs : TinyML.Block} {v : Runtime.Val} {Q : Runtime.Val → iProp} {R : iProp}
+    (hi : 0 ≤ i) (hlt : i.toNat < n) (hlen : vs.length = n)
+    (h : R ⊢ l ↦ vs ∗ (l ↦ vs.set i.toNat v -∗ Q .unit)) :
+    R ⊢ wp ctx (.arraySet (.val (.array n l)) (.val (.int i)) (.val v)) Q := by
+  apply h.trans
+  istart
+  iintro ⟨Hpt, HΦ⟩
+  simp only [_root_.wp]
+  iapply wp_lift_atomic_step rfl
+  iintro %σ₁ %ns %obs %obs' %nt Hσ !>
+  ihave %Hlook : (⌜Iris.Std.get? σ₁ l = some vs⌝ : iProp) $$ [Hσ Hpt]
+  · ihave >%h := genHeap_valid $$ [$Hσ $Hpt]
+    itrivial
+  have hlk : TinyML.Heap.lookup l σ₁ = some vs := Hlook
+  have hidx : i.toNat < vs.length := by rw [hlen]; exact hlt
+  have hget : vs[i.toNat]? = some vs[i.toNat] := List.getElem?_eq_getElem hidx
+  have hlkf : TinyML.Heap.lookupField l i.toNat σ₁ = some vs[i.toNat] := by
+    rw [TinyML.Heap.lookupField_of_lookup hlk]; exact hget
+  have hpost : TinyML.Heap.updateField l i.toNat v σ₁ = σ₁.update l (vs.set i.toNat v) :=
+    TinyML.Heap.updateField_of_lookup hlk
+  have hred : BaseStep.Reducible
+      (show TinyML.LExpr ctx from .arraySet (.val (.array n l)) (.val (.int i)) (.val v), σ₁) :=
+    ⟨[], .val .unit, TinyML.Heap.updateField l i.toNat v σ₁, [], .arraySet hi hlt hlkf, rfl, rfl⟩
+  isplitr
+  · ipureintro
+    exact primStep_reducible_of_baseStep_reducible hred
+  iintro !> %e₂ %σ₂ %eₜ %Hps Hcr
+  obtain ⟨hh, rfl, rfl⟩ := baseStep_of_primStep_of_baseStep_reducible hred Hps
+  cases hh
+  rw [hpost]
+  imod genHeap_update' (b₂ := vs.set i.toNat v) $$ [$Hσ $Hpt] with ⟨Hσ, Hpt⟩
+  imodintro
+  simp only [stateInterp, Algebra.BigOpL.bigOpL_nil]
+  iframe Hσ
+  isplit <;> try itrivial
+  iexists Runtime.Val.unit
+  isplit
+  · ipureintro; rfl
+  · iapply HΦ $$ Hpt
+
+/-- `Array.set a i v` at an in-bounds index: open the invariant, write field `i`
+    with the (persistent) payload, restore the invariant at the updated block. -/
+theorem wp.arraySet_inv {ctx : TinyML.PrimCtx} {n : Nat} {l : Runtime.Location} {i : Int}
+    {v : Runtime.Val} {I : Runtime.Val → iProp} [∀ w, Persistent (I w)] {Q : Runtime.Val → iProp}
+    (hi : 0 ≤ i) (hlt : i.toNat < n) :
+    arrayinv n l I ∗ (□ I v) ∗ Q .unit ⊢
+    wp ctx (.arraySet (.val (.array n l)) (.val (.int i)) (.val v)) Q := by
+  simp only [arrayinv]
+  istart
+  iintro ⟨#Hinv, #HIv, HΦ⟩
+  simp only [_root_.wp]
+  iapply wp_lift_step_fupd rfl
+  iintro %σ₁ %ns %obs %obs' %nt Hσ
+  imod inv_acc _ _ _ CoPset.subseteq_top $$ Hinv with ⟨HP, Hcl⟩
+  icases HP with ⟨%vs, Hlen, Hpt, Hlist⟩
+  imod Hlen with %hlen
+  imod Hpt with Hpt
+  ihave %Hlook : (⌜Iris.Std.get? σ₁ l = some vs⌝ : iProp) $$ [Hσ Hpt]
+  · ihave >%h := genHeap_valid $$ [$Hσ $Hpt]
+    itrivial
+  have hlk : TinyML.Heap.lookup l σ₁ = some vs := Hlook
+  have hidx : i.toNat < vs.length := by rw [hlen]; exact hlt
+  have hget : vs[i.toNat]? = some vs[i.toNat] := List.getElem?_eq_getElem hidx
+  have hlkf : TinyML.Heap.lookupField l i.toNat σ₁ = some vs[i.toNat] := by
+    rw [TinyML.Heap.lookupField_of_lookup hlk]; exact hget
+  have hpost : TinyML.Heap.updateField l i.toNat v σ₁ = σ₁.update l (vs.set i.toNat v) :=
+    TinyML.Heap.updateField_of_lookup hlk
+  have hred : BaseStep.Reducible
+      (show TinyML.LExpr ctx from .arraySet (.val (.array n l)) (.val (.int i)) (.val v), σ₁) :=
+    ⟨[], .val .unit, TinyML.Heap.updateField l i.toNat v σ₁, [], .arraySet hi hlt hlkf, rfl, rfl⟩
+  iapply fupd_mask_intro Std.LawfulSet.empty_subset
+  iintro Hclose
+  isplitr
+  · ipureintro
+    exact primStep_reducible_of_baseStep_reducible hred
+  iintro %e₂ %σ₂ %eₜ %Hps -
+  obtain ⟨hh, rfl, rfl⟩ := baseStep_of_primStep_of_baseStep_reducible hred Hps
+  cases hh
+  rw [hpost]
+  imodintro
+  inext
+  imod genHeap_update' (b₂ := vs.set i.toNat v) $$ [$Hσ $Hpt] with ⟨Hσ, Hpt⟩
+  imod Hclose with -
+  imod Hcl $$ [Hpt Hlist] with -
+  · inext
+    iexists (vs.set i.toNat v)
+    isplitl []
+    · ipureintro; rw [List.length_set]; exact hlen
+    · isplitl [Hpt]
+      · iexact Hpt
+      · ihave Hupd := (BigSepL.bigSepL_insert_acc (Φ := fun _ w => I w) hget) $$ Hlist
+        icases Hupd with ⟨_, Hupd⟩
+        iapply Hupd
+        iexact HIv
+  imodintro
+  simp only [stateInterp, Algebra.BigOpL.bigOpL_nil]
+  iframe Hσ
+  isplitl [HΦ]
+  · iapply wp_value ⟨rfl⟩
+    iexact HΦ
+  · itrivial
 /-! ## Invariant-based heap rules -/
 
 /-- `ref e` under a location invariant: allocate the location, then mint
@@ -424,6 +654,80 @@ theorem wp.store_inv {ctx : TinyML.PrimCtx} {l : Runtime.Location}
   · iapply wp_value ⟨rfl⟩
     iexact HΦ
   · itrivial
+
+/-! ## Array rules -/
+
+omit [MicaGS HasLC.hasLC Sig] in
+private theorem bigSepL_replicate_typed {I : Runtime.Val → iProp} {v : Runtime.Val}
+    [∀ w, Persistent (I w)] (k : Nat) :
+    iprop(□ I v) ⊢ ([∗list] w ∈ List.replicate k v, I w) := by
+  induction k with
+  | zero => simp only [List.replicate_zero]; exact Affine.affine
+  | succ k ih =>
+      rw [List.replicate_succ]
+      refine .trans ?_ (BigSepL.bigSepL_cons (Φ := fun _ w => I w)).2
+      iintro #HI
+      isplitl []
+      · iexact HI
+      · iapply ih
+        iexact HI
+
+/-- `Array.make n v` allocates a fresh block of `n` copies of `v`. -/
+theorem wp.arrayMake {ctx : TinyML.PrimCtx} {n : Int} {v : Runtime.Val}
+    {Q : Runtime.Val → iProp} (hn : 0 ≤ n) :
+    iprop(∀ (l : Runtime.Location), l ↦ List.replicate n.toNat v -∗ Q (.array n.toNat l)) ⊢
+    wp ctx (.arrayMake (.val (.int n)) (.val v)) Q := by
+  istart
+  iintro HΦ
+  simp only [_root_.wp]
+  iapply wp_lift_atomic_step rfl
+  iintro %σ₁ %ns %obs %obs' %nt Hσ !>
+  obtain ⟨l, hl⟩ := Iris.Std.List.fresh σ₁.keys
+  have hfresh : TinyML.Heap.Fresh l σ₁ := fun hmem => hl (Std.ExtTreeMap.mem_keys.mpr hmem)
+  have hred : BaseStep.Reducible
+      (show TinyML.LExpr ctx from .arrayMake (.val (.int n)) (.val v), σ₁) :=
+    ⟨[], .val (.array n.toNat l), σ₁.update l (List.replicate n.toNat v), [],
+      .arrayMake hn hfresh, rfl, rfl⟩
+  isplitr
+  · ipureintro
+    exact primStep_reducible_of_baseStep_reducible hred
+  iintro !> %e₂ %σ₂ %eₜ %Hps Hcr
+  obtain ⟨hh, rfl, rfl⟩ := baseStep_of_primStep_of_baseStep_reducible hred Hps
+  cases hh
+  rename_i l' hn' hfresh'
+  imod genHeap_alloc' (σ₁.lookup_fresh l' hfresh') $$ Hσ with ⟨Hσ, Hpt, _Hmt⟩
+  imodintro
+  simp only [stateInterp, Algebra.BigOpL.bigOpL_nil]
+  iframe Hσ
+  isplit <;> try itrivial
+  iexists (Runtime.Val.array n.toNat l')
+  isplit
+  · ipureintro; rfl
+  · iapply HΦ $$ %l' Hpt
+
+/-- `Array.make n v` under an array invariant: allocate the block and mint
+    `arrayinv n l I` from the fresh points-to and the persistent payload. -/
+theorem wp.arrayMake_inv {ctx : TinyML.PrimCtx} {n : Int} {v : Runtime.Val}
+    {I : Runtime.Val → iProp} [∀ w, Persistent (I w)] {Q : Runtime.Val → iProp} (hn : 0 ≤ n) :
+    iprop((□ I v) ∗ ∀ (l : Runtime.Location), arrayinv n.toNat l I -∗ Q (.array n.toNat l)) ⊢
+    wp ctx (.arrayMake (.val (.int n)) (.val v)) Q := by
+  simp only [arrayinv]
+  refine .trans ?_ ((wp.arrayMake (Q := fun w => iprop(|={⊤}=> Q w)) hn).trans
+    (wp_fupd Stuckness.NotStuck ⊤ (show TinyML.LExpr ctx from .arrayMake (.val (.int n)) (.val v)) Q))
+  istart
+  iintro ⟨#HI, HΦ⟩ %l Hpt
+  imod inv_alloc micaN ⊤
+      iprop(∃ vs, ⌜vs.length = n.toNat⌝ ∗ l ↦ vs ∗ [∗list] w ∈ vs, I w) $$ [Hpt] with Hinv
+  · inext
+    iexists (List.replicate n.toNat v)
+    isplitl []
+    · ipureintro; simp [List.length_replicate]
+    · isplitl [Hpt]
+      · iexact Hpt
+      · iapply (bigSepL_replicate_typed n.toNat)
+        iexact HI
+  imodintro
+  iapply HΦ $$ %l Hinv
 
 /-! ## Primitive calls -/
 

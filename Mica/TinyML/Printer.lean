@@ -14,6 +14,7 @@ def Typ.print : Typ → String
   | .sum ts => s!"sum ({", ".intercalate (ts.map Typ.print)})"
   | .arrow t1 t2 => s!"{wrapArg t1 (Typ.print t1)} -> {Typ.print t2}"
   | .ref t => s!"ref {wrapArg t (Typ.print t)}"
+  | .array t => s!"array {wrapArg t (Typ.print t)}"
   | .owned t => s!"owned {wrapArg t (Typ.print t)}"
   | .empty => "empty"
   | .value => "value"

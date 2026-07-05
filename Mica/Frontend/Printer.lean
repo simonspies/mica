@@ -73,7 +73,8 @@ partial def BinOp.print : BinOp → String
   | .fadd => "+." | .fsub => "-." | .fmul => "*." | .fdiv => "/."
   | .eq => "=" | .neq => "<>" | .lt => "<" | .le => "<=" | .gt => ">" | .ge => ">="
   | .and => "&&" | .or => "||"
-  | .semi => ";" | .pipeRight => "|>" | .atAt => "@@" | .assign => ":=" | .concat => "^"
+  | .semi => ";" | .pipeRight => "|>" | .atAt => "@@" | .assign => ":="
+  | .concat => "^"
 
 private partial def BinOp.prec : BinOp → Nat
   | .semi => 1 | .assign => 2 | .or => 3 | .and => 4
@@ -135,7 +136,7 @@ partial def Pattern.print (p : Pattern) : String :=
 
 private partial def Expr.isAtom (e : Expr) : Bool :=
   match e.kind with
-  | .const _ | .var _ | .ctor _ | .tuple _ | .record _ | .annot _ _ => true
+  | .const _ | .var _ | .ctor _ | .tuple _ | .record _ | .annot _ _ | .arrayGet _ _ => true
   | _ => false
 
 private partial def Expr.isKeywordExpr (e : Expr) : Bool :=
@@ -160,6 +161,8 @@ private partial def Expr.printPrec (e : Expr) (outerPrec : Nat) : String :=
   | .recordUpdate base fields =>
     "{ " ++ Expr.printPrec base 0 ++ " with " ++ fmtFields fields ++ " }"
   | .unop op inner => printUnop op inner
+  | .arrayGet arr idx => printArrayGet arr idx outerPrec
+  | .arraySet arr idx val => printArraySet arr idx val outerPrec
   | .binop op lhs rhs => printBinop op lhs rhs outerPrec
   | .app fn args =>
     joinWith " " (fmtArg fn :: args.map fmtArg)
@@ -197,6 +200,21 @@ where
     | _ =>
       let space := if UnOp.needsSpace op then " " else ""
       UnOp.print op ++ space ++ fmtArg inner
+  printArrayGet (arr idx : Expr) (outerPrec : Nat) : String :=
+    let p := 11
+    let arrNeedsParens : Bool := match arr.kind with
+      | .binop op _ _ => BinOp.prec op < p
+      | _ => Expr.isKeywordExpr arr
+    let arrStr := parenIf arrNeedsParens (Expr.printPrec arr p)
+    parenIf (outerPrec > p) (arrStr ++ ".(" ++ Expr.printPrec idx 0 ++ ")")
+  printArraySet (arr idx val : Expr) (outerPrec : Nat) : String :=
+    let p := 2
+    let lhs := printArrayGet arr idx p
+    let rhsNeedsParens : Bool := match val.kind with
+      | .binop op _ _ => BinOp.prec op < p
+      | _ => Expr.isKeywordExpr val
+    let rhs := parenIf rhsNeedsParens (Expr.printPrec val p)
+    parenIf (outerPrec > p) (lhs ++ " <- " ++ rhs)
 
   printBinop (op : BinOp) (lhs rhs : Expr) (outerPrec : Nat) : String :=
     let p := BinOp.prec op

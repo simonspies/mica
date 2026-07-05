@@ -20,6 +20,7 @@ inductive ParseErrorKind where
   | nonPositiveProjIndex
   | letRecNoArgs
   | nonFinalLowercaseSegment (segment : String)
+  | expectedArrayElementAssignTarget
   deriving Repr, Inhabited
 
 structure ParseError where
@@ -36,6 +37,7 @@ def ParseError.toString (e : ParseError) : String :=
   | .nonPositiveProjIndex => s!"{loc}: projection index must be at least 1 (projections are 1-based)"
   | .letRecNoArgs => s!"{loc}: let rec without arguments is not supported"
   | .nonFinalLowercaseSegment seg => s!"{loc}: qualified path segment '{seg}' is lowercase, but only the final component of a module path may be lowercase"
+  | .expectedArrayElementAssignTarget => s!"{loc}: `<-` expects an array element `a.(i)` on the left"
 
 instance : ToString ParseError := ⟨ParseError.toString⟩
 
@@ -425,7 +427,7 @@ where
     | .kw_match => parseMatch st
     | _         => parseAssign st
 
-  -- `:=` right-assoc
+  -- `:=` (ref store) and `<-` (array set), both right-assoc
   parseAssign : Parser Expr := fun st => do
     let (lhs, st) ← parseOr st
     match peekTok st with
@@ -433,6 +435,12 @@ where
       let (rhs, st) ← parseAssign (advance st)
       let loc : Location := { start := lhs.loc.start, stop := rhs.loc.stop }
       .ok ({ loc, kind := .binop .assign lhs rhs }, st)
+    | .leftArrow => do
+      let (rhs, st) ← parseAssign (advance st)
+      let loc : Location := { start := lhs.loc.start, stop := rhs.loc.stop }
+      match lhs.kind with
+      | .arrayGet arr idx => .ok ({ loc, kind := .arraySet arr idx rhs }, st)
+      | _ => .error { loc := lhs.loc, kind := .expectedArrayElementAssignTarget }
     | _ => .ok (lhs, st)
 
   -- `||` right-assoc
@@ -576,6 +584,11 @@ where
     | .dot =>
       let st' := advance st
       match peekTok st' with
+      | .lparen => do
+        let (idx, st'') ← parseExpr (advance st')
+        let st'' ← expect .rparen st''
+        let loc : Location := { start := e.loc.start, stop := (spanTo e.loc st'').stop }
+        parsePostfixRest { loc, kind := .arrayGet e idx } st''
       | .intLit n =>
         if n ≥ 1 then
           let st'' := advance st'
