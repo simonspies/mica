@@ -11,3 +11,10 @@ let swap_pair (p: int * int) : int * int =
   ret (fun v ->
     assert (p.1 = v.2);
     assert (p.2 = v.1))];;
+
+let sum_pair_pattern (p: int * int) : int =
+  let (x, y) = p in
+  x + y
+[@@spec fun p ->
+  ret (fun v ->
+    assert (v = p.1 + p.2))];;

@@ -111,6 +111,91 @@ theorem compileOp_eval {op : TinyML.BinOp} {sl sr : Term .value} {ρ : VerifM.En
 
 /-! ### Compiler and Top-Level Verifier -/
 
+def compileProductBindersFrom (S : SpecMap) (B : Bindings) (Γ : TinyML.TyCtx)
+    (names : List Binder) (tys : List TinyML.Typ) (tl : Term .vallist) :
+    VerifM (SpecMap × Bindings × TinyML.TyCtx) := do
+  match names, tys with
+  | [], [] => pure (S, B, Γ)
+  | b :: bs, ty :: tys => do
+      VerifM.expectEq "letProd binder type mismatch" b.ty ty
+      let si := Term.unop UnOp.vhead tl
+      let rest := Term.unop UnOp.vtail tl
+      match b.name with
+      | none => compileProductBindersFrom S B Γ bs tys rest
+      | some x =>
+          let x' ← VerifM.decl (some x) .value
+          VerifM.assume (.pure (Formula.eq .value (.const (.uninterpreted x'.name .value)) si))
+          compileProductBindersFrom (Finmap.erase x S) ((x, x') :: B) (Γ.extend x ty) bs tys rest
+  | _, _ => VerifM.fatal "letProd arity mismatch"
+
+def compileProductBinders (S : SpecMap) (B : Bindings) (Γ : TinyML.TyCtx)
+    (names : List Binder) (tys : List TinyML.Typ) (se : Term .value) :
+    VerifM (SpecMap × Bindings × TinyML.TyCtx) :=
+  compileProductBindersFrom S B Γ names tys (.unop .toValList se)
+
+omit [MicaGS HasLC.hasLC Sig] in
+theorem compileProductBindersFrom_length {S : SpecMap} {B : Bindings} {Γ : TinyML.TyCtx}
+    {names : List Binder} {tys : List TinyML.Typ} {tl : Term .vallist}
+    {st : TransState} {ρ : VerifM.Env}
+    {Ψ : SpecMap × Bindings × TinyML.TyCtx → TransState → VerifM.Env → Prop}
+    (htl_wf : tl.wfIn st.decls)
+    (heval : VerifM.eval (compileProductBindersFrom S B Γ names tys tl) st ρ Ψ) :
+    names.length = tys.length := by
+  induction names generalizing S B Γ tys tl st ρ Ψ with
+  | nil =>
+      cases tys with
+      | nil => rfl
+      | cons ty tys =>
+          simp only [compileProductBindersFrom] at heval
+          exact (VerifM.eval_fatal heval).elim
+  | cons b bs ih =>
+      cases tys with
+      | nil =>
+          simp only [compileProductBindersFrom] at heval
+          exact (VerifM.eval_fatal heval).elim
+      | cons ty tys =>
+          simp only [compileProductBindersFrom] at heval
+          have hexpect := VerifM.eval_bind _ _ _ _ heval
+          obtain ⟨hbty, hcont⟩ := VerifM.eval_expectEq hexpect
+          cases hname : b.name with
+          | none =>
+              simp [hname] at hcont
+              have htail_wf : (Term.unop UnOp.vtail tl).wfIn st.decls := ⟨trivial, htl_wf⟩
+              simp [ih htail_wf hcont]
+          | some x =>
+              simp [hname] at hcont
+              have hdecl_eval := VerifM.eval_bind _ _ _ _ hcont
+              have hdecl := VerifM.eval_decl hdecl_eval
+              let x' := st.freshConst (some x) .value
+              have hafter_decl := hdecl ((Term.unop UnOp.vhead tl).eval ρ.env)
+              have hassume := VerifM.eval_assumePure (VerifM.eval_bind _ _ _ _ hafter_decl)
+              have hstwf : st.decls.wf := (VerifM.eval.wf hdecl_eval).namesDisjoint
+              have hfresh : x'.name ∉ st.decls.allNames := by
+                simpa [x'] using TransState.freshConst_fresh st (some x) .value
+              have hhead_wf : (Term.unop UnOp.vhead tl).wfIn st.decls := ⟨trivial, htl_wf⟩
+              have htail_wf : (Term.unop UnOp.vtail tl).wfIn st.decls := ⟨trivial, htl_wf⟩
+              have hwf :
+                  (Formula.eq .value (.const (.uninterpreted x'.name .value))
+                    (Term.unop UnOp.vhead tl)).wfIn { st with decls := st.decls.addConst x' }.decls := by
+                simpa [x'] using
+                  (Formula.eq_wfIn_addConst_of_fresh (Δ := st.decls) (c := x')
+                    hstwf hhead_wf hfresh)
+              have hholds :
+                  (Formula.eq .value (.const (.uninterpreted x'.name .value))
+                    (Term.unop UnOp.vhead tl)).eval
+                      (ρ.updateConst .value x'.name ((Term.unop UnOp.vhead tl).eval ρ.env)).env := by
+                have hagree_head : Env.agreeOn st.decls ρ.env
+                    (ρ.updateConst .value x'.name ((Term.unop UnOp.vhead tl).eval ρ.env)).env :=
+                  Env.agreeOn_update_fresh_const hfresh
+                have hhead_same := Term.eval_env_agree hhead_wf hagree_head
+                simpa [Formula.eval, Term.eval, Const.denote, VerifM.Env.updateConst, Env.updateConst]
+                  using hhead_same
+              have hrec_eval := hassume hwf hholds
+              have hlen := ih (Term.wfIn_mono (Term.unop UnOp.vtail tl) htail_wf
+                (Signature.Subset.subset_addConst st.decls x')
+                (Signature.wf_addConst hstwf hfresh)) hrec_eval
+              simp [hlen]
+
 mutual
   def compile (reg : Verifier.Registry) (Θ : TinyML.TypeEnv) (Δ_spec : Signature) (S : SpecMap) (B : Bindings) (Γ : TinyML.TyCtx) : Expr → VerifM (Term .value)
     | .const (.int n)  => pure (.unop .ofInt  (.const (.i n)))
@@ -162,8 +247,13 @@ mutual
           let x' ← VerifM.decl (some x) .value
           VerifM.assume (.pure (Formula.eq .value (.const (.uninterpreted x'.name .value)) se))
           compile reg Θ Δ_spec (Finmap.erase x S) ((x, x') :: B) (Γ.extend x e.ty) body
-    | .letProd _ _ _ => do
-        VerifM.fatal "letProd verification is not implemented yet"
+    | .letProd names e body => do
+        let se ← compile reg Θ Δ_spec S B Γ e
+        let tys ← match e.ty with
+          | .tuple tys => pure tys
+          | _ => VerifM.fatal "letProd expected tuple type"
+        let (S', B', Γ') ← compileProductBinders S B Γ names tys se
+        compile reg Θ Δ_spec S' B' Γ' body
     | .ifThenElse cond thn els ty => do
         let sc ← compile reg Θ Δ_spec S B Γ cond
         VerifM.expectEq "if condition type mismatch" cond.ty .bool
@@ -2063,12 +2153,320 @@ theorem compileLetIn_correct (reg : Verifier.Registry) (b : Binder) (e body : Ex
     obtain ⟨_, _, hΨ'⟩ := hΨ
     exact hpost v' ρ' st' se' hΨ' hs hw
 
-theorem compileLetProd_correct (reg : Verifier.Registry) (names : List Binder) (e body : Expr) :
+theorem compileProductBindersFrom_correct (reg : Verifier.Registry) (body : Expr)
+    (ihBody : correctExpr reg body) :
+    ∀ (names : List Binder) (tys : List TinyML.Typ) (tl : Term .vallist)
+      (vals : List Runtime.Val) (Θ : TinyML.TypeEnv) (R : iProp) (S : SpecMap)
+      (B : Bindings) (Γ : TinyML.TyCtx) (st : TransState) (ρ : VerifM.Env)
+      (γ : Runtime.Subst) (Δ_spec : Signature) (ρ_spec : VerifM.Env)
+      (Ψ : Term .value → TransState → VerifM.Env → Prop) (Φ : Runtime.Val → iProp),
+      VerifM.eval (compileProductBindersFrom S B Γ names tys tl) st ρ
+        (fun p st' ρ' => (compile reg Θ Δ_spec p.1 p.2.1 p.2.2 body).eval st' ρ' Ψ) →
+      B.agreeOnLinked ρ.env γ →
+      B.wfIn st.decls →
+      S.wfIn Δ_spec →
+      Δ_spec.wf →
+      Δ_spec.vars = [] →
+      Δ_spec.Subset st.decls →
+      VerifM.Env.agreeOn Δ_spec ρ_spec ρ →
+      Verifier.Registry.symSubset reg Δ_spec →
+      Verifier.Registry.symAgree reg ρ_spec.env →
+      tl.wfIn st.decls →
+      Term.eval ρ.env tl = vals →
+      (∀ v ρ' st' se, Ψ se st' ρ' → se.wfIn st'.decls → Term.eval ρ'.env se = v →
+        st'.sl Θ ρ' ∗ TinyML.ValHasType Θ v body.ty ∗ R ⊢ Φ v) →
+      st.sl Θ ρ ∗
+          (TinyML.ValsHaveTypes Θ vals tys ∗
+            (S.satisfiedBy reg.primCtx Θ Δ_spec ρ_spec γ ∗
+              Bindings.typedSubst Θ B Γ γ ∗ R)) ⊢
+        wp reg.primCtx
+          (body.runtime.subst (γ.updateAllBinder (names.map Binder.runtime) vals)) Φ
+  | [], [], tl, vals, Θ, R, S, B, Γ, st, ρ, γ, Δ_spec, ρ_spec, Ψ, Φ,
+      heval, hagree, hbwf, hSwf, hΔwf, hΔvars, hΔspec, hρspec, hΔreg, hρreg,
+      htl_wf, htl_eval, hpost => by
+      simp only [compileProductBindersFrom] at heval
+      have hbody_eval : (compile reg Θ Δ_spec S B Γ body).eval st ρ Ψ := by
+        simpa using VerifM.eval_ret heval
+      cases vals with
+      | nil =>
+          have hbody_wp :=
+            ihBody Θ R S B Γ st ρ γ Δ_spec ρ_spec Ψ Φ hbody_eval hagree hbwf hSwf
+              hΔwf hΔvars hΔspec hρspec hΔreg hρreg hpost
+          simpa using
+            ((show st.sl Θ ρ ∗
+                (TinyML.ValsHaveTypes Θ [] [] ∗
+                  (S.satisfiedBy reg.primCtx Θ Δ_spec ρ_spec γ ∗
+                    Bindings.typedSubst Θ B Γ γ ∗ R)) ⊢
+                st.sl Θ ρ ∗
+                  (S.satisfiedBy reg.primCtx Θ Δ_spec ρ_spec γ ∗
+                    Bindings.typedSubst Θ B Γ γ ∗ R) by
+                iintro ⟨Hsl, Hvals, Hctx⟩
+                ihave Hemp := (TinyML.ValsHaveTypes.nil Θ).1 $$ Hvals
+                isplitl [Hsl]
+                · iexact Hsl
+                · iexact Hctx).trans hbody_wp)
+      | cons v vs =>
+          exact (show st.sl Θ ρ ∗
+              (TinyML.ValsHaveTypes Θ (v :: vs) [] ∗
+                (S.satisfiedBy reg.primCtx Θ Δ_spec ρ_spec γ ∗
+                  Bindings.typedSubst Θ B Γ γ ∗ R)) ⊢
+                wp reg.primCtx (body.runtime.subst (γ.updateAllBinder ([] : List Runtime.Binder) (v :: vs))) Φ by
+            iintro ⟨_Hsl, Hvals, _Hctx⟩
+            ihave Hfalse := (TinyML.ValsHaveTypes.cons_nil Θ v vs).1 $$ Hvals
+            iapply false_elim
+            iexact Hfalse)
+  | [], ty :: tys, tl, vals, Θ, R, S, B, Γ, st, ρ, γ, Δ_spec, ρ_spec, Ψ, Φ,
+      heval, _hagree, _hbwf, _hSwf, _hΔwf, _hΔvars, _hΔspec, _hρspec, _hΔreg, _hρreg,
+      _htl_wf, _htl_eval, _hpost => by
+      simp only [compileProductBindersFrom] at heval
+      exact (VerifM.eval_fatal heval).elim
+  | b :: bs, [], tl, vals, Θ, R, S, B, Γ, st, ρ, γ, Δ_spec, ρ_spec, Ψ, Φ,
+      heval, _hagree, _hbwf, _hSwf, _hΔwf, _hΔvars, _hΔspec, _hρspec, _hΔreg, _hρreg,
+      _htl_wf, _htl_eval, _hpost => by
+      simp only [compileProductBindersFrom] at heval
+      exact (VerifM.eval_fatal heval).elim
+  | b :: bs, ty :: tys, tl, vals, Θ, R, S, B, Γ, st, ρ, γ, Δ_spec, ρ_spec, Ψ, Φ,
+      heval, hagree, hbwf, hSwf, hΔwf, hΔvars, hΔspec, hρspec, hΔreg, hρreg,
+      htl_wf, htl_eval, hpost => by
+      cases vals with
+      | nil =>
+          exact (show st.sl Θ ρ ∗
+              (TinyML.ValsHaveTypes Θ [] (ty :: tys) ∗
+                (S.satisfiedBy reg.primCtx Θ Δ_spec ρ_spec γ ∗
+                  Bindings.typedSubst Θ B Γ γ ∗ R)) ⊢
+                wp reg.primCtx
+                  (body.runtime.subst (γ.updateAllBinder ((b :: bs).map Binder.runtime) [])) Φ by
+            iintro ⟨_Hsl, Hvals, _Hctx⟩
+            ihave Hfalse := (TinyML.ValsHaveTypes.nil_cons Θ ty tys).1 $$ Hvals
+            iapply false_elim
+            iexact Hfalse)
+      | cons v vs =>
+          simp only [compileProductBindersFrom] at heval
+          have hexpect : (VerifM.expectEq "letProd binder type mismatch" b.ty ty).eval st ρ _ :=
+            VerifM.eval_bind _ _ _ _ heval
+          obtain ⟨hbty, hcont⟩ := VerifM.eval_expectEq hexpect
+          have hhead_wf : (Term.unop UnOp.vhead tl).wfIn st.decls := ⟨trivial, htl_wf⟩
+          have htail_wf : (Term.unop UnOp.vtail tl).wfIn st.decls := ⟨trivial, htl_wf⟩
+          have hhead_eval : (Term.unop UnOp.vhead tl).eval ρ.env = v := by
+            simp [Term.eval, UnOp.eval, htl_eval]
+          have htail_eval : (Term.unop UnOp.vtail tl).eval ρ.env = vs := by
+            simp [Term.eval, UnOp.eval, htl_eval]
+          cases hname : b.name with
+          | none =>
+              simp [hname] at hcont
+              have hrec := compileProductBindersFrom_correct reg body ihBody bs tys
+                (Term.unop UnOp.vtail tl) vs Θ R S B Γ st ρ γ Δ_spec ρ_spec Ψ Φ
+                hcont hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec hΔreg hρreg
+                htail_wf htail_eval hpost
+              refine (show st.sl Θ ρ ∗
+                  (TinyML.ValsHaveTypes Θ (v :: vs) (ty :: tys) ∗
+                    (S.satisfiedBy reg.primCtx Θ Δ_spec ρ_spec γ ∗
+                      Bindings.typedSubst Θ B Γ γ ∗ R)) ⊢
+                    st.sl Θ ρ ∗
+                      (TinyML.ValsHaveTypes Θ vs tys ∗
+                        (S.satisfiedBy reg.primCtx Θ Δ_spec ρ_spec γ ∗
+                          Bindings.typedSubst Θ B Γ γ ∗ R)) by
+                iintro ⟨Hsl, Hvals, Hctx⟩
+                ihave Hpair := (TinyML.ValsHaveTypes.cons Θ v vs ty tys).1 $$ Hvals
+                icases Hpair with ⟨_Hv, Hvs⟩
+                isplitl [Hsl]
+                · iexact Hsl
+                · isplitl [Hvs]
+                  · iexact Hvs
+                  · iexact Hctx).trans ?_
+              simpa [Binder.runtime_of_name_none hname, Runtime.Subst.updateBinder]
+                using hrec
+          | some x =>
+              simp [hname] at hcont
+              have hdecl_eval := VerifM.eval_bind _ _ _ _ hcont
+              have hdecl := VerifM.eval_decl hdecl_eval
+              set x' := st.freshConst (some x) .value
+              set st₁ : TransState := { st with decls := st.decls.addConst x' }
+              set ρ₁ := ρ.updateConst .value x'.name v
+              have hafter_decl : _ := hdecl v
+              have hassume_eval := VerifM.eval_bind _ _ _ _ hafter_decl
+              have hassume := VerifM.eval_assumePure hassume_eval
+              have hfresh : x'.name ∉ st.decls.allNames := by
+                simpa [x'] using TransState.freshConst_fresh st (some x) .value
+              have hformula_wf :
+                  (Formula.eq .value (.const (.uninterpreted x'.name .value))
+                    (Term.unop UnOp.vhead tl)).wfIn st₁.decls := by
+                have hstwf : st.decls.wf := (VerifM.eval.wf hdecl_eval).namesDisjoint
+                simpa [x', st₁] using
+                  (Formula.eq_wfIn_addConst_of_fresh (Δ := st.decls) (c := x')
+                    hstwf hhead_wf hfresh)
+              have hformula_eval :
+                  (Formula.eq .value (.const (.uninterpreted x'.name .value))
+                    (Term.unop UnOp.vhead tl)).eval ρ₁.env := by
+                have hagree_head : Env.agreeOn st.decls ρ.env ρ₁.env :=
+                  Env.agreeOn_update_fresh_const hfresh
+                have hhead_same := Term.eval_env_agree hhead_wf hagree_head
+                have hval_same : v = (Term.unop UnOp.vhead tl).eval ρ₁.env := by
+                  exact hhead_eval.symm.trans hhead_same
+                simpa [Formula.eval, Term.eval, Const.denote, ρ₁, VerifM.Env.updateConst,
+                  Env.updateConst] using hval_same
+              have hrec_eval := hassume hformula_wf hformula_eval
+              set st₂ : TransState := { st₁ with
+                asserts := (Formula.eq .value (.const (.uninterpreted x'.name .value))
+                  (Term.unop UnOp.vhead tl)) :: st₁.asserts }
+              have hagreeOn_body : Env.agreeOn st.decls ρ.env ρ₁.env :=
+                Env.agreeOn_update_fresh_const hfresh
+              have hρ_agree : Env.agreeOn (Signature.ofConsts (B.map Prod.snd)) ρ₁.env ρ.env := by
+                constructor
+                · intro y hy; cases hy
+                · constructor
+                  · intro y' hy'
+                    obtain ⟨p, hp, rfl⟩ := List.mem_map.mp hy'
+                    exact (hagreeOn_body.2.1 p.2 (hbwf p hp)).symm
+                  · constructor
+                    · intro z hz; cases hz
+                    · constructor
+                      · intro z hz; cases hz
+                      · constructor
+                        · intro z hz; cases hz
+                        · intro z hz; cases hz
+              have hρ_lookup : ρ₁.env.consts .value x'.name = v := by
+                simp [ρ₁, VerifM.Env.updateConst, Env.updateConst]
+              have hagree₁ : Bindings.agreeOnLinked ((x, x') :: B) ρ₁.env
+                  (Runtime.Subst.update γ x v) := by
+                have h := Bindings.agreeOnLinked_cons (x := x) (v := x') (γ := γ)
+                  hagree hρ_agree (hvty := (rfl : x'.sort = .value))
+                rwa [hρ_lookup] at h
+              have hbwf₁ : Bindings.wfIn ((x, x') :: B) st₂.decls := by
+                simpa [st₂, st₁] using Bindings.wfIn_cons hbwf
+              have hspecInv := specInvariants_mono hΔspec hρspec
+                (Signature.Subset.subset_addConst st.decls x') hagreeOn_body
+              have hrec := compileProductBindersFrom_correct reg body ihBody bs tys
+                (Term.unop UnOp.vtail tl) vs Θ R (Finmap.erase x S) ((x, x') :: B)
+                (Γ.extend x ty) st₂ ρ₁ (Runtime.Subst.update γ x v) Δ_spec ρ_spec Ψ Φ
+                hrec_eval hagree₁ hbwf₁ (SpecMap.wfIn_erase hSwf) hΔwf hΔvars
+                hspecInv.1 hspecInv.2 hΔreg hρreg
+                (by
+                  have htail_wf₁ := Term.wfIn_mono (Term.unop UnOp.vtail tl) htail_wf
+                    (Signature.Subset.subset_addConst st.decls x')
+                    (Signature.wf_addConst (VerifM.eval.wf hdecl_eval).namesDisjoint hfresh)
+                  simpa [st₂, st₁] using htail_wf₁)
+                (by
+                  rw [Term.eval_env_agree htail_wf (Env.agreeOn_symm hagreeOn_body)]
+                  exact htail_eval)
+                hpost
+              have hctx :
+                  st.sl Θ ρ ∗
+                    (TinyML.ValsHaveTypes Θ (v :: vs) (ty :: tys) ∗
+                      (S.satisfiedBy reg.primCtx Θ Δ_spec ρ_spec γ ∗
+                        Bindings.typedSubst Θ B Γ γ ∗ R)) ⊢
+                    st₂.sl Θ ρ₁ ∗
+                      (TinyML.ValsHaveTypes Θ vs tys ∗
+                        (SpecMap.satisfiedBy reg.primCtx Θ Δ_spec ρ_spec (Finmap.erase x S)
+                          (Runtime.Subst.update γ x v) ∗
+                          Bindings.typedSubst Θ ((x, x') :: B) (Γ.extend x ty)
+                            (Runtime.Subst.update γ x v) ∗ R)) := by
+                iintro ⟨Hsl, Hvals, #HS, #HT, HR⟩
+                ihave Hpair := (TinyML.ValsHaveTypes.cons Θ v vs ty tys).1 $$ Hvals
+                icases Hpair with ⟨Hv, Hvs⟩
+                have hinterp_eq : SpatialContext.interp Θ ρ.env st.owns ⊢
+                    SpatialContext.interp Θ ρ₁.env st.owns :=
+                  (SpatialContext.interp_env_agree Θ (VerifM.eval.wf hdecl_eval).ownsWf
+                    (Env.agreeOn_update_fresh_const hfresh)).1
+                isplitl [Hsl]
+                · simp only [TransState.sl_eq]
+                  iapply hinterp_eq
+                  iexact Hsl
+                · isplitl [Hvs]
+                  · iexact Hvs
+                  · isplitr [Hv HR]
+                    · iapply (SpecMap.satisfiedBy_erase (Θ := Θ) (S := S) (γ := γ)
+                        (x := x) (v := v))
+                      iexact HS
+                    · isplitl [Hv]
+                      · iapply (Bindings.typedSubst_cons (Θ := Θ) (B := B) (Γ := Γ)
+                          (γ := γ) (x := x) (v := x') (te := ty) (w := v))
+                        · iexact HT
+                        · iexact Hv
+                      · iexact HR
+              refine hctx.trans ?_
+              simpa [Binder.runtime_of_name_some hname, Runtime.Subst.updateBinder,
+                Runtime.Subst.updateAllBinder_cons]
+                using hrec
+
+theorem compileLetProd_correct (reg : Verifier.Registry) (names : List Binder) (e body : Expr)
+    (ihE : correctExpr reg e) (ihBody : correctExpr reg body) :
     correctExpr reg (.letProd names e body) := by
   intro Θ R S B Γ st ρ γ Δ_spec ρ_spec Ψ Φ heval
     hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec hΔreg hρreg hpost
   simp only [compile] at heval
-  exact (VerifM.eval_fatal heval).elim
+  simp only [Expr.ty] at hpost
+  unfold Expr.runtime
+  simp only [Runtime.Expr.letProd_subst]
+  have heval_e : (compile reg Θ Δ_spec S B Γ e).eval st ρ _ :=
+    VerifM.eval_bind _ _ _ _ heval
+  have hstart :
+      st.sl Θ ρ ∗ (S.satisfiedBy reg.primCtx Θ Δ_spec ρ_spec γ ∗ Bindings.typedSubst Θ B Γ γ ∗ R) ⊢
+        st.sl Θ ρ ∗
+          (S.satisfiedBy reg.primCtx Θ Δ_spec ρ_spec γ ∗ Bindings.typedSubst Θ B Γ γ ∗
+            (S.satisfiedBy reg.primCtx Θ Δ_spec ρ_spec γ ∗ Bindings.typedSubst Θ B Γ γ ∗ R)) :=
+    Helpers.ctx_dup reg Θ Δ_spec ρ_spec S B Γ st ρ γ R
+  refine SpatialContext.wp_bind_letProd <| hstart.trans <|
+    ihE Θ (S.satisfiedBy reg.primCtx Θ Δ_spec ρ_spec γ ∗ Bindings.typedSubst Θ B Γ γ ∗ R)
+      S B Γ st ρ γ Δ_spec ρ_spec _ _
+      (VerifM.eval.decls_grow ρ heval_e) hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec
+      hΔreg hρreg ?_
+  intro v_e ρ_e st₁ se hΨ_e hse_wf heval_se
+  obtain ⟨hdecls_e, hagreeOn_e, hΨ_e⟩ := hΨ_e
+  cases hty : e.ty with
+  | tuple tys =>
+      simp [hty] at hΨ_e
+      have hpure_eval := VerifM.eval_bind _ _ _ _ hΨ_e
+      have hprod_body :
+          (do
+            let p ← compileProductBinders S B Γ names tys se
+            compile reg Θ Δ_spec p.1 p.2.1 p.2.2 body).eval st₁ ρ_e Ψ :=
+        VerifM.eval_ret hpure_eval
+      have hprod_eval := VerifM.eval_bind _ _ _ _ hprod_body
+      have hagree_e := Bindings.agreeOnLinked_env_agree hagree hagreeOn_e hbwf
+      have hbwf_e : B.wfIn st₁.decls := fun p hp => hdecls_e.consts _ (hbwf p hp)
+      have hspecInv_e := specInvariants_mono hΔspec hρspec hdecls_e hagreeOn_e
+      refine (show st₁.sl Θ ρ_e ∗
+          (TinyML.ValHasType Θ v_e (.tuple tys) ∗
+            (S.satisfiedBy reg.primCtx Θ Δ_spec ρ_spec γ ∗
+              Bindings.typedSubst Θ B Γ γ ∗ R)) ⊢
+            wp reg.primCtx
+              (Runtime.Expr.letProd (names.map Binder.runtime) (.val v_e)
+                (Runtime.Expr.subst (γ.removeAll' (names.map Binder.runtime)) body.runtime)) Φ from ?_)
+      iintro ⟨Hsl, Hve, #HS, #HT, HR⟩
+      ihave Htuple := (TinyML.ValHasType.tuple Θ v_e tys).1 $$ Hve
+      icases Htuple with ⟨%vs, %hveq, Hvals⟩
+      subst hveq
+      ihave %hlen_vals := (TinyML.ValsHaveTypes.length_eq (Θ := Θ) (vs := vs) (ts := tys)) $$ Hvals
+      have hnames_len : (names.map Binder.runtime).length = vs.length := by
+        have htl_wf : (Term.unop UnOp.toValList se).wfIn st₁.decls := ⟨trivial, hse_wf⟩
+        have hlen_compile := compileProductBindersFrom_length htl_wf hprod_eval
+        simp [hlen_compile, hlen_vals]
+      have hbody_subst := Runtime.Expr.subst_removeAll'_updateAllBinder body.runtime γ
+        (names.map Binder.runtime) vs hnames_len
+      iapply (wp.letProd_val (ctx := reg.primCtx) (names := names.map Binder.runtime)
+        (vs := vs)
+        (body := Runtime.Expr.subst (γ.removeAll' (names.map Binder.runtime)) body.runtime)
+        hnames_len)
+      rw [hbody_subst]
+      iapply (compileProductBindersFrom_correct reg body ihBody names tys
+        (Term.unop UnOp.toValList se) vs Θ R S B Γ st₁ ρ_e γ Δ_spec ρ_spec Ψ Φ
+        hprod_eval hagree_e hbwf_e hSwf hΔwf hΔvars hspecInv_e.1 hspecInv_e.2
+        hΔreg hρreg ?_ ?_ hpost)
+      · exact ⟨trivial, hse_wf⟩
+      · simp [Term.eval, UnOp.eval, heval_se]
+      · isplitl [Hsl]
+        · iexact Hsl
+        · isplitl [Hvals]
+          · iexact Hvals
+          · isplitl []
+            · iexact HS
+            · isplitl []
+              · iexact HT
+              · iexact HR
+  | prim _ | sum _ | arrow _ _ | ref _ | array _ | owned _ | empty | value | tvar _ | named _ _ =>
+      simp [hty] at hΨ_e
+      exact (VerifM.eval_fatal (VerifM.eval_bind _ _ _ _ hΨ_e)).elim
 
 theorem compileIfThenElse_correct (reg : Verifier.Registry) (cond thn els : Expr) (ty : TinyML.Typ)
     (ihCond : correctExpr reg cond) (ihThn : correctExpr reg thn) (ihEls : correctExpr reg els) :
@@ -2905,6 +3303,7 @@ theorem compile_correct (reg : Verifier.Registry) (hSound : Verifier.Registry.So
     simpa using compileFix_correct reg self args retTy body
   | letProd names e body =>
     simpa using compileLetProd_correct reg names e body
+      (compile_correct reg hSound e) (compile_correct reg hSound body)
   | ref owned e =>
     simpa using compileRef_correct reg owned e (compile_correct reg hSound e)
   | deref e ty =>
