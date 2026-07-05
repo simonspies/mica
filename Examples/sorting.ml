@@ -1,3 +1,5 @@
+open Mica
+
 (* In-place sorting and binary search over shared (unowned) [int array]s.
 
    Arrays expose only their length at the spec level; element contents are not

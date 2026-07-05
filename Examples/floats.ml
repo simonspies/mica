@@ -1,3 +1,5 @@
+open Mica
+
 (* Float examples *)
 
 (* `fp.leq x x` holds unless x is NaN; loads float_le and float_is_nan. *)

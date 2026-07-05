@@ -1,3 +1,5 @@
+open Mica
+
 (* Multi-argument functions and inter-function dependencies.
    Later declarations use the specs of earlier ones as their
    "induction hypotheses" for function calls. *)

@@ -1,3 +1,5 @@
+open Mica
+
 (* Owned-reference lookup is a performance-sensitive path. To resolve `!r`, the
    verifier walks the ownership context and uses low-effort checks to test
    whether the dereferenced location equals each candidate's location. *)

@@ -1,3 +1,5 @@
+open Mica
+
 (* A flat [m]-by-[n] matrix stored in a single shared [int array].
 
    The element at row [r], column [c] lives at flat index [r * n + c]. 

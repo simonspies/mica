@@ -1,3 +1,5 @@
+open Mica
+
 (* Spec-level functions: fn-marked definitions introduce SMT functions
    that specifications can call as ordinary applications. *)
 

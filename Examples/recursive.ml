@@ -1,3 +1,5 @@
+open Mica
+
 (* Recursive functions and what the verifier can prove about them.
    The verifier uses the spec as the induction hypothesis for recursive calls,
    so a valid spec must be an inductive invariant.

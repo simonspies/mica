@@ -1,3 +1,5 @@
+open Mica
+
 (* References combined with recursive datatypes, matching, recursion, integers,
    and booleans.
 

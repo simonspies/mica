@@ -1,3 +1,5 @@
+open Mica
+
 let half (x: int) : int =
   x / 2
 [@@spec fun v ->

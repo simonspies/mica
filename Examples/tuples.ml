@@ -1,3 +1,5 @@
+open Mica
+
 (* Functions that use tuples as arguments or return values. *)
 
 (* 1. Swap a pair: returns (b, a) given (a, b) as ints *)

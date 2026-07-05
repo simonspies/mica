@@ -1,3 +1,5 @@
+open Mica
+
 (* Spec-level recursive functions over tuples.
 
    Exercises three pieces of newly-added spec-function machinery in

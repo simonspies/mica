@@ -1,3 +1,5 @@
+open Mica
+
 (* In-place partition over a recursive list.
 
    The input list is pure, but the two output accumulators are owned heap cells.

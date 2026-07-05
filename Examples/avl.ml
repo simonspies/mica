@@ -1,3 +1,5 @@
+open Mica
+
 (* AVL trees with the same public-bound wrapper style as [bst.ml].
 
    Each internal node stores its cached height:

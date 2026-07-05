@@ -31,6 +31,8 @@ inductive ElaborateErrorKind where
   | bareSpecialIdentifier (name : String)
   | missingMatchBranch (tag : Nat) (arity : Nat)
   | emptyMatch
+  | missingOpenMica
+  | unsupportedOpen (path : Path)
   | unsupportedPath (path : Path)
   | internalError (desc : String)
   deriving Inhabited
@@ -57,6 +59,8 @@ def ElaborateErrorKind.toString : ElaborateErrorKind → String
   | .missingMatchBranch tag arity =>
     s!"missing match branch for constructor {tag} (of {arity})"
   | .emptyMatch => "empty match expression"
+  | .missingOpenMica => "source files must begin with `open Mica`"
+  | .unsupportedOpen path => s!"unsupported open '{path}' (only `open Mica` is supported)"
   | .unsupportedPath path => s!"unsupported qualified path '{path}'"
   | .internalError desc => s!"internal error: {desc}"
 
@@ -686,6 +690,11 @@ private def hasAttrRelation (attrs : List Attribute) : ElabM Bool :=
 def Decl.elaborate (env : ElabEnv) (decl : Decl)
     : ElabM (ElabEnv × Option (Untyped.Decl (Spec.Body Untyped.Expr))) := do
   match decl.kind with
+  | .open_ path =>
+    if path == Path.single "Mica" then
+      err decl.loc (.unsupportedFeature "`open Mica` must be the first declaration")
+    else
+      err decl.loc (.unsupportedOpen path)
   | .type_ tdecl => do
     let (env', tdecl') ← TypeDecl.elaborate env decl.loc tdecl
     .ok (env', tdecl'.map Untyped.Decl.type_)
@@ -711,8 +720,18 @@ private def elaborateDecls (env : ElabEnv) :
     | some decl => .ok (decl :: rest)
     | none => .ok rest
 
+private def requireOpenMica : List Decl → ElabM (List Decl)
+  | [] => err default .missingOpenMica
+  | d :: ds =>
+    match d.kind with
+    | .open_ path =>
+      if path == Path.single "Mica" then .ok ds
+      else err d.loc (.unsupportedOpen path)
+    | _ => err d.loc .missingOpenMica
+
 def Program.elaborate (resolver : Resolver) (prog : Frontend.Program) :
-    ElabM (Untyped.Program (Spec.Body Untyped.Expr)) :=
-  elaborateDecls { resolver } prog
+    ElabM (Untyped.Program (Spec.Body Untyped.Expr)) := do
+  let decls ← requireOpenMica prog
+  elaborateDecls { resolver } decls
 
 end Frontend

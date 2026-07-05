@@ -156,6 +156,7 @@ structure TypeDecl where
   body   : TypeDeclBody
 
 inductive DeclKind where
+  | open_ (path : Path)
   | type_ (decl : TypeDecl)
   | val_ (rec : Bool) (binders : List Pattern) (retTy : Option Typ) (body : Expr)
 
