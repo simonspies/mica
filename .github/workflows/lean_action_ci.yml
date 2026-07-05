@@ -11,6 +11,11 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: leanprover/lean-action@v1
+      - name: Install OCaml
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ocaml
+          ocamlc -version
       - name: Install Z3
         run: |
           Z3_VERSION=4.15.4
