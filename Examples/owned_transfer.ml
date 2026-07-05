@@ -1,3 +1,5 @@
+open Mica
+
 (* Owned references across calls (Phase 6).
 
    The spec-level binder `bind (own r)` introduces the bundled typed points-to

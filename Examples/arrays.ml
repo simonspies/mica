@@ -1,3 +1,5 @@
+open Mica
+
 (* Shared (unowned) arrays.
 
    An [int array] is a heap-allocated block exposing only its length at the

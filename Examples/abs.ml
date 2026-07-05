@@ -1,3 +1,5 @@
+open Mica
+
 (* Absolute value with an exact functional spec: r = |n|.
    We split on the sign of n using assertion-level if/then/else. *)
 let abs_ (x: int) : int = if x < 0 then 0 - x else x

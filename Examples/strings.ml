@@ -1,3 +1,5 @@
+open Mica
+
 (* String lane acceptance tests. *)
 
 let wrap (s : string) : string =

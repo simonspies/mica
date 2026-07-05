@@ -57,6 +57,7 @@ inductive Token where
   | kw_let | kw_rec | kw_in | kw_fun
   | kw_if | kw_then | kw_else
   | kw_match | kw_with
+  | kw_open
   | kw_type | kw_of
   | kw_assert
   | kw_true | kw_false
@@ -90,6 +91,7 @@ def Token.toString : Token → String
   | .kw_let   => "let"   | .kw_rec  => "rec"   | .kw_in   => "in"
   | .kw_fun   => "fun"   | .kw_if   => "if"    | .kw_then => "then"
   | .kw_else  => "else"  | .kw_match => "match" | .kw_with => "with"
+  | .kw_open  => "open"
   | .kw_type  => "type"  | .kw_of   => "of"
   | .kw_assert => "assert"
   | .kw_true  => "true"  | .kw_false => "false"
@@ -169,6 +171,7 @@ private def keyword (s : String) : Token :=
   | "let"    => .kw_let    | "rec"    => .kw_rec    | "in"     => .kw_in
   | "fun"    => .kw_fun    | "if"     => .kw_if     | "then"   => .kw_then
   | "else"   => .kw_else   | "match"  => .kw_match  | "with"   => .kw_with
+  | "open"   => .kw_open
   | "type"   => .kw_type   | "of"     => .kw_of
   | "assert" => .kw_assert
   | "true"   => .kw_true   | "false"  => .kw_false

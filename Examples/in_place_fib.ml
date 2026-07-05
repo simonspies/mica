@@ -1,3 +1,5 @@
+open Mica
+
 (* In-place Fibonacci
 
    The runtime loop owns two heap cells.  Each step performs the simultaneous

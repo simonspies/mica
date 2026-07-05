@@ -1,3 +1,5 @@
+open Mica
+
 (* Binary search trees with a global sortedness invariant hidden behind
    a small public handle.
 

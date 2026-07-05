@@ -248,6 +248,7 @@ partial def Decl.print (d : Decl) : String :=
     | some payload => "\n[@@" ++ attr.name ++ " " ++ Expr.print payload ++ "]"
   let attrsSuffix := joinWith "" attrsStr
   match d.kind with
+  | .open_ path => "open " ++ path.toString
   | .type_ td => printTypeDecl td ++ attrsSuffix
   | .val_ isRec binders retTy body =>
     let recStr := if isRec then "rec " else ""

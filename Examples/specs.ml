@@ -1,3 +1,5 @@
+open Mica
+
 (* Single-argument functions with type annotations for the verifier. *)
 
 (* 1. Identity: returns the input unchanged *)

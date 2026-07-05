@@ -1,3 +1,5 @@
+open Mica
+
 (* Recursive specification function for Fibonacci. *)
 let rec fib (n: int) : int =
   if n < 1 then 0

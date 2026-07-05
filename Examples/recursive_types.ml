@@ -1,3 +1,5 @@
+open Mica
+
 (* Examples using recursive types.
    `ilist` is an integer list: `Nil` (tag 0) or `Cons of int * ilist` (tag 1). *)
 

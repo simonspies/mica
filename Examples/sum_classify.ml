@@ -1,3 +1,5 @@
+open Mica
+
 (* Sum type construction with if/then/else *)
 type result = Ok of int | Err of int
 

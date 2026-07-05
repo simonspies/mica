@@ -1,3 +1,5 @@
+open Mica
+
 (* Option type with match expressions *)
 type option_int = None | Some of int
 

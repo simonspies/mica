@@ -760,11 +760,18 @@ where
 private partial def parseDecl : Parser Decl := fun st =>
   let p := peekLoc st
   match peekTok st with
+  | .kw_open => parseOpenDecl p st
   | .kw_type => parseTypeDecl p st
   | .kw_let  => parseValDecl p st
   | t =>
-    .error { loc := peekLoc st, kind := .unexpectedToken "declaration (let or type)" t }
+    .error { loc := peekLoc st, kind := .unexpectedToken "declaration (open, let, or type)" t }
 where
+  parseOpenDecl (p : Location) : Parser Decl := fun st => do
+    let st ← expect .kw_open st
+    let (head, st) ← expectIdent st
+    let (path, st) ← collectPathTail head [] st
+    .ok ({ loc := spanTo p st, kind := .open_ path, attrs := [] }, st)
+
   parseTypeDecl (p : Location) : Parser Decl := fun st => do
     let st ← expect .kw_type st
     -- optional type parameters: `'a`, `('a, 'b)`, etc.
@@ -901,7 +908,7 @@ private partial def parseProgram : Parser Program := fun st =>
   match peekTok st with
   | .eof => .ok ([], st)
   | .semisemi => parseProgram (advance st)
-  | .kw_let | .kw_type => do
+  | .kw_open | .kw_let | .kw_type => do
     let (decl, st) ← parseDecl st
     -- skip optional `;;`
     let st := if peekTok st == .semisemi then advance st else st
