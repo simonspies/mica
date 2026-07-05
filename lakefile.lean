@@ -33,6 +33,10 @@ structure TestOutcome where
   path : FilePath
   result : ProcessResult
 
+structure TestsuiteOutcomes where
+  compile : Array TestOutcome
+  check : Array TestOutcome
+
 structure TestsuiteOptions where
   summaryOnly : Bool
   dir : FilePath
@@ -219,31 +223,37 @@ def reportTestOutcome (options : TestsuiteOptions) (failed : List TestOutcome) (
     printCapturedOutput test
   pure failed
 
-def runOcamlCompileTests (options : TestsuiteOptions) (tests : Array FilePath)
-    (failed : List TestOutcome) :
-    IO (List TestOutcome) := do
+def reportTestOutcomes (options : TestsuiteOptions) (failed : List TestOutcome) (verb : String)
+    (tests : Array TestOutcome) : IO (List TestOutcome) := do
+  let mut failed := failed
+  for test in tests do
+    let filename := test.path.fileName.getD test.path.toString
+    failed ← reportTestOutcome options failed verb filename test
+  pure failed
+
+def runTestsuiteActions (mica : LeanExe) (tests : Array FilePath) : ScriptM TestsuiteOutcomes := do
   IO.FS.withTempDir fun tmpDir => do
     let stdlib ← runStdlibCompileIn tmpDir
-    let mut failed ← reportTestOutcome options failed "Compiling" "mica.ml" stdlib
-    if !isFailure stdlib.result then
-      let mut idx := 0
-      for file in tests do
-        let filename := file.fileName.getD file.toString
-        let test ← runOcamlExampleCompileIn tmpDir idx file
-        failed ← reportTestOutcome options failed "Compiling" filename test
-        idx := idx + 1
-    pure failed
-
-def runMicaExampleTests (options : TestsuiteOptions) (mica : LeanExe)
-    (tests : Array FilePath) (failed : List TestOutcome) : IO (List TestOutcome) := do
-  unless tests.isEmpty do
-    IO.println ""
-  let mut failed := failed
-  for file in tests do
-    let filename := file.fileName.getD file.toString
-    let test ← runTest mica file
-    failed ← reportTestOutcome options failed "Checking" filename test
-  pure failed
+    runBuild do
+      let mut compileJobs := #[]
+      if !isFailure stdlib.result then
+        let mut idx := 0
+        for file in tests do
+          let compileIdx := idx
+          let job ← withRegisterJob s!"compile {file.fileName.getD file.toString}" <|
+            Job.async do
+              runOcamlExampleCompileIn tmpDir compileIdx file
+          compileJobs := compileJobs.push job
+          idx := idx + 1
+      let checkJobs ← tests.mapM fun file =>
+        withRegisterJob s!"test {file.fileName.getD file.toString}" <|
+          Job.async do
+            runTest mica file
+      let compileJob := Job.collectArray compileJobs "ocaml compile testsuite"
+      let checkJob := Job.collectArray checkJobs "testsuite"
+      return compileJob.zipWith
+        (fun compile check => { compile := #[stdlib] ++ compile, check := check })
+        checkJob
 
 def printTestsuiteSummary (failed : List TestOutcome) : IO UInt32 := do
   IO.println ""
@@ -285,6 +295,9 @@ script testsuite (args) := do
   let options ← parseTestsuiteArgs args
   let inputPath ← resolveInputPath options.dir
   let tests ← discoverTests inputPath
-  let failed ← runOcamlCompileTests options tests []
-  let failed ← runMicaExampleTests options mica tests failed
+  let outcomes ← runTestsuiteActions mica tests
+  let failed ← reportTestOutcomes options [] "Compiling" outcomes.compile
+  unless outcomes.check.isEmpty do
+    IO.println ""
+  let failed ← reportTestOutcomes options failed "Checking" outcomes.check
   printTestsuiteSummary failed
