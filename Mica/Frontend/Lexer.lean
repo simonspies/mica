@@ -72,6 +72,7 @@ inductive Token where
   | colonEq | colon                 -- := :
   | semi | semisemi                 -- ; ;;
   | arrow                           -- ->
+  | leftArrow                       -- <-
   | dot | comma | bang              -- . , !
   | pipe | underscore               -- | _
   | lparen | rparen
@@ -102,7 +103,8 @@ def Token.toString : Token → String
   | .pipeGt   => "|>"    | .atat    => "@@"   | .at    => "@"
   | .colonEq  => ":="    | .colon   => ":"
   | .semi     => ";"     | .semisemi => ";;"
-  | .arrow    => "->"    | .dot     => "."    | .comma => ","  | .bang  => "!"
+  | .arrow    => "->"    | .leftArrow => "<-"
+  | .dot      => "."     | .comma   => ","   | .bang  => "!"
   | .pipe     => "|"     | .underscore => "_"
   | .lparen   => "("     | .rparen  => ")"
   | .lbracket => "["     | .rbracket => "]"
@@ -210,6 +212,9 @@ where
         | '-', some '>' =>
           let st' := (st.advance '-').advance '>'
           lex st' (acc.push ({ start := p, stop := st'.pos }, .arrow))
+        | '<', some '-' =>
+          let st' := (st.advance '<').advance '-'
+          lex st' (acc.push ({ start := p, stop := st'.pos }, .leftArrow))
         | '<', some '=' =>
           let st' := (st.advance '<').advance '='
           lex st' (acc.push ({ start := p, stop := st'.pos }, .le))

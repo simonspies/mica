@@ -52,6 +52,10 @@ inductive Expr where
   | ref    (owned : Bool) (e : Expr)
   | deref  (e : Expr) (ty : Typ)
   | store  (loc val : Expr)
+  | arrayMake (len init : Expr)
+  | arrayLen (arr : Expr)
+  | arrayGet (arr idx : Expr) (ty : Typ)
+  | arraySet (arr idx val : Expr)
   | assert (e : Expr)
   | tuple (es : List Expr)
   | inj (tag : Nat) (arity : Nat) (payload : Expr)
@@ -143,6 +147,23 @@ mutual
       | isTrue h1, isTrue h2 => isTrue (by subst h1; subst h2; rfl)
       | isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
       | _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
+    case arrayMake.arrayMake n1 v1 n2 v2 => exact match n1.decEq n2, v1.decEq v2 with
+      | isTrue h1, isTrue h2 => isTrue (by subst h1; subst h2; rfl)
+      | isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
+      | _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
+    case arrayLen.arrayLen a1 a2 => exact match a1.decEq a2 with
+      | isTrue h => isTrue (by subst h; rfl)
+      | isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
+    case arrayGet.arrayGet a1 i1 t1 a2 i2 t2 => exact match a1.decEq a2, i1.decEq i2, decEq t1 t2 with
+      | isTrue h1, isTrue h2, isTrue h3 => isTrue (by subst h1; subst h2; subst h3; rfl)
+      | isFalse h, _, _ => isFalse (by intro heq; cases heq; exact h rfl)
+      | _, isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
+      | _, _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
+    case arraySet.arraySet a1 i1 v1 a2 i2 v2 => exact match a1.decEq a2, i1.decEq i2, v1.decEq v2 with
+      | isTrue h1, isTrue h2, isTrue h3 => isTrue (by subst h1; subst h2; subst h3; rfl)
+      | isFalse h, _, _ => isFalse (by intro heq; cases heq; exact h rfl)
+      | _, isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
+      | _, _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
     case assert.assert e1 e2 => exact match e1.decEq e2 with
       | isTrue h => isTrue (by subst h; rfl)
       | isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
@@ -224,6 +245,10 @@ def Expr.ty : Expr → Typ
   | .ref owned e => if owned then .owned e.ty else .ref e.ty
   | .deref _ ty => ty
   | .store _ _ => .unit
+  | .arrayMake _ init => .array init.ty
+  | .arrayLen _ => .int
+  | .arrayGet _ _ ty => ty
+  | .arraySet _ _ _ => .unit
   | .assert _ => .unit
   | .tuple es => .tuple (es.map Expr.ty)
   | .inj tag arity e => .sum ((List.replicate arity .empty).set tag e.ty)
@@ -283,6 +308,10 @@ mutual
     | .ref _ e => .ref e.runtime
     | .deref e _ => .deref e.runtime
     | .store loc val => .store loc.runtime val.runtime
+    | .arrayMake len init => .arrayMake len.runtime init.runtime
+    | .arrayLen arr => .arrayLen arr.runtime
+    | .arrayGet arr idx _ => .arrayGet arr.runtime idx.runtime
+    | .arraySet arr idx val => .arraySet arr.runtime idx.runtime val.runtime
     | .assert e => .assert e.runtime
     | .tuple es => .tuple (es.map Expr.runtime)
     | .inj tag arity payload => .inj tag arity payload.runtime

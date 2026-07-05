@@ -183,6 +183,11 @@ def encodeWith {M : Type} (ops : EncoderOps M) (Δ : Signature)
   | .ref .., _    => ops.error "relational encoding: heap allocation (`ref`) is not supported"
   | .deref .., _  => ops.error "relational encoding: heap dereference is not supported"
   | .store .., _  => ops.error "relational encoding: heap store is not supported"
+  | .arrayLen arr, k =>
+    encodeWith ops Δ Γ δ arr fun v =>
+      k (.unop .ofInt (.unop .arrayLengthOf v))
+  | .arrayMake .., _ | .arrayGet .., _ | .arraySet .., _ =>
+      ops.error "relational encoding: arrays are not supported"
   | .assert _, _  => ops.error "relational encoding: `assert` is not supported"
 
 /-- Encode a list of expressions left-to-right, collecting their value terms.
@@ -341,6 +346,7 @@ theorem app (fn : Typed.Expr) (args : List Typed.Expr) (ty : TinyML.Typ)
       | ok _    => simp; exact hk _
   | .const _, _ | .unop .., _ | .binop .., _ | .fix .., _ | .app .., _
   | .ifThenElse .., _ | .letIn .., _ | .ref .., _ | .deref .., _ | .store .., _
+  | .arrayMake .., _ | .arrayLen _, _ | .arrayGet .., _ | .arraySet .., _
   | .assert _, _ | .tuple _, _ | .inj .., _ | .match_ .., _ | .cast .., _
   | .var _ _, [] | .var _ _, _ :: _ :: _ =>
       simp only [encodeWith]; exact hops.error_ind
@@ -371,6 +377,23 @@ theorem deref (e : Typed.Expr) (ty : TinyML.Typ) : EncodeWithInd (.deref e ty) :
   fun hops _ => hops.error_ind
 
 theorem store (loc val : Typed.Expr) : EncodeWithInd (.store loc val) :=
+  fun hops _ => hops.error_ind
+
+theorem arrayMake (len init : Typed.Expr) : EncodeWithInd (.arrayMake len init) :=
+  fun hops _ => hops.error_ind
+
+theorem arrayLen (arr : Typed.Expr) (ih : EncodeWithInd arr) :
+    EncodeWithInd (.arrayLen arr) := by
+  intro _ _ _ _ _ _ _ hops hk
+  simp only [encodeWith]
+  refine ih hops ?_
+  intro v
+  exact hk _
+
+theorem arrayGet (arr idx : Typed.Expr) (ty : TinyML.Typ) : EncodeWithInd (.arrayGet arr idx ty) :=
+  fun hops _ => hops.error_ind
+
+theorem arraySet (arr idx val : Typed.Expr) : EncodeWithInd (.arraySet arr idx val) :=
   fun hops _ => hops.error_ind
 
 theorem assert (e : Typed.Expr) : EncodeWithInd (.assert e) :=
@@ -454,6 +477,10 @@ theorem encodeWith_ind_def : ∀ (e : Typed.Expr), EncodeWithInd e
   | .ref owned e => Ind.ref owned e
   | .deref e ty => Ind.deref e ty
   | .store loc val => Ind.store loc val
+  | .arrayMake len init => Ind.arrayMake len init
+  | .arrayLen arr => Ind.arrayLen arr (encodeWith_ind_def arr)
+  | .arrayGet arr idx ty => Ind.arrayGet arr idx ty
+  | .arraySet arr idx val => Ind.arraySet arr idx val
   | .assert e => Ind.assert e
   | .tuple es => Ind.tuple es (encodeListWith_ind_def es)
   | .inj tag arity payload => Ind.inj tag arity payload (encodeWith_ind_def payload)
@@ -648,6 +675,7 @@ theorem app (fn : Typed.Expr) (args : List Typed.Expr) (ty : TinyML.Typ)
           exact hk hsub'' hΔ'' v (encodePrim_wfIn hraw (hsub.trans hsub'') hΔ'' hvs)
   | .const _, _ | .unop .., _ | .binop .., _ | .fix .., _ | .app .., _
   | .ifThenElse .., _ | .letIn .., _ | .ref .., _ | .deref .., _ | .store .., _
+  | .arrayMake .., _ | .arrayLen _, _ | .arrayGet .., _ | .arraySet .., _
   | .assert _, _ | .tuple _, _ | .inj .., _ | .match_ .., _ | .cast .., _
   | .var _ _, [] | .var _ _, _ :: _ :: _ =>
       simp only [encodeWith]; exact hops.error_ind
@@ -684,6 +712,23 @@ theorem deref (e : Typed.Expr) (ty : TinyML.Typ) : EncodeWithIndSig (.deref e ty
   fun hops _ _ _ _ _ => hops.error_ind
 
 theorem store (loc val : Typed.Expr) : EncodeWithIndSig (.store loc val) :=
+  fun hops _ _ _ _ _ => hops.error_ind
+
+theorem arrayMake (len init : Typed.Expr) : EncodeWithIndSig (.arrayMake len init) :=
+  fun hops _ _ _ _ _ => hops.error_ind
+
+theorem arrayLen (arr : Typed.Expr) (ih : EncodeWithIndSig arr) :
+    EncodeWithIndSig (.arrayLen arr) := by
+  intro _ _ _ _ _ _ _ _ _ hops hsub hΔ' hΓ hδ hk
+  simp only [encodeWith]
+  refine ih hops hsub hΔ' hΓ hδ ?_
+  intro Δ'' hsub'' hΔ'' v hv
+  exact hk hsub'' hΔ'' _ ⟨trivial, trivial, hv⟩
+
+theorem arrayGet (arr idx : Typed.Expr) (ty : TinyML.Typ) : EncodeWithIndSig (.arrayGet arr idx ty) :=
+  fun hops _ _ _ _ _ => hops.error_ind
+
+theorem arraySet (arr idx val : Typed.Expr) : EncodeWithIndSig (.arraySet arr idx val) :=
   fun hops _ _ _ _ _ => hops.error_ind
 
 theorem assert (e : Typed.Expr) : EncodeWithIndSig (.assert e) :=
@@ -793,6 +838,10 @@ theorem encodeWith_indWithSig_def : ∀ (e : Typed.Expr), EncodeWithIndSig e
   | .ref owned e => IndSig.ref owned e
   | .deref e ty => IndSig.deref e ty
   | .store loc val => IndSig.store loc val
+  | .arrayMake len init => IndSig.arrayMake len init
+  | .arrayLen arr => IndSig.arrayLen arr (encodeWith_indWithSig_def arr)
+  | .arrayGet arr idx ty => IndSig.arrayGet arr idx ty
+  | .arraySet arr idx val => IndSig.arraySet arr idx val
   | .assert e => IndSig.assert e
   | .tuple es => IndSig.tuple es (encodeListWith_indWithSig_def es)
   | .inj tag arity payload =>
@@ -1193,6 +1242,7 @@ theorem app (fn : Typed.Expr) (args : List Typed.Expr) (ty : TinyML.Typ)
             (encodePrim_eval hraw₁ hraw₂ hagree_a hevals)
   | .const _, _ | .unop .., _ | .binop .., _ | .fix .., _ | .app .., _
   | .ifThenElse .., _ | .letIn .., _ | .ref .., _ | .deref .., _ | .store .., _
+  | .arrayMake .., _ | .arrayLen _, _ | .arrayGet .., _ | .arraySet .., _
   | .assert _, _ | .tuple _, _ | .inj .., _ | .match_ .., _ | .cast .., _
   | .var _ _, [] | .var _ _, _ :: _ :: _ =>
       simp only [encodeWith]; exact hops.error_binary
@@ -1231,6 +1281,26 @@ theorem deref (e : Typed.Expr) (ty : TinyML.Typ) : EncodeWithBindBinary (.deref 
   intro _ _ _ _ _ _ _ _ _ hops _ _ _ _ _ _ _ _ _ _ _ _ _; exact hops.error_binary
 
 theorem store (loc val : Typed.Expr) : EncodeWithBindBinary (.store loc val) := by
+  intro _ _ _ _ _ _ _ _ _ hops _ _ _ _ _ _ _ _ _ _ _ _ _; exact hops.error_binary
+
+theorem arrayMake (len init : Typed.Expr) : EncodeWithBindBinary (.arrayMake len init) := by
+  intro _ _ _ _ _ _ _ _ _ hops _ _ _ _ _ _ _ _ _ _ _ _ _; exact hops.error_binary
+
+theorem arrayLen (arr : Typed.Expr) (ih : EncodeWithBindBinary arr) :
+    EncodeWithBindBinary (.arrayLen arr) := by
+  intro _ _ _ _ _ _ _ _ _ hops _ _ _ _ _ _ hsub₁ hsub₂ hwf₁ hwf₂ hagree henv hk
+  simp only [encodeWith]
+  refine ih hops hsub₁ hsub₂ hwf₁ hwf₂ hagree henv ?_
+  intro Δa₁ Δa₂ ρa₁ ρa₂ hsa₁ hsa₂ hwa₁ hwa₂ haa₁ haa₂ v₁ v₂ hv₁ hv₂ hevalv
+  exact hk hsa₁ hsa₂ hwa₁ hwa₂ haa₁ haa₂
+    (.unop .ofInt (.unop .arrayLengthOf v₁)) (.unop .ofInt (.unop .arrayLengthOf v₂))
+    ⟨trivial, trivial, hv₁⟩ ⟨trivial, trivial, hv₂⟩
+    (by simp [Term.eval, UnOp.eval, hevalv])
+
+theorem arrayGet (arr idx : Typed.Expr) (ty : TinyML.Typ) : EncodeWithBindBinary (.arrayGet arr idx ty) := by
+  intro _ _ _ _ _ _ _ _ _ hops _ _ _ _ _ _ _ _ _ _ _ _ _; exact hops.error_binary
+
+theorem arraySet (arr idx val : Typed.Expr) : EncodeWithBindBinary (.arraySet arr idx val) := by
   intro _ _ _ _ _ _ _ _ _ hops _ _ _ _ _ _ _ _ _ _ _ _ _; exact hops.error_binary
 
 theorem assert (e : Typed.Expr) : EncodeWithBindBinary (.assert e) := by
@@ -1376,6 +1446,10 @@ theorem encodeWith_bind_binary_def : ∀ (e : Typed.Expr), EncodeWithBindBinary 
   | .ref owned e => BindBinary.ref owned e
   | .deref e ty => BindBinary.deref e ty
   | .store loc val => BindBinary.store loc val
+  | .arrayMake len init => BindBinary.arrayMake len init
+  | .arrayLen arr => BindBinary.arrayLen arr (encodeWith_bind_binary_def arr)
+  | .arrayGet arr idx ty => BindBinary.arrayGet arr idx ty
+  | .arraySet arr idx val => BindBinary.arraySet arr idx val
   | .assert e => BindBinary.assert e
   | .tuple es => BindBinary.tuple es (encodeListWith_bind_binary_def es)
   | .inj tag arity payload =>

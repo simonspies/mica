@@ -107,6 +107,8 @@ inductive Typ where
   | sum (ts : List Typ)
   | arrow (t1 t2 : Typ)
   | ref (t: Typ)
+  /-- Shared array whose elements have type `t`. -/
+  | array (t : Typ)
   /-- An owned reference. Its value interpretation records only that the value
   is a location; points-to ownership lives in the ambient spatial context. -/
   | owned (t : Typ)
@@ -147,6 +149,9 @@ def Typ.decEq : (a b : Typ) → Decidable (a = b)
   | .ref s, .ref t => match s.decEq t with
     | isTrue h => isTrue (by subst h; rfl)
     | isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
+  | .array s, .array t => match s.decEq t with
+    | isTrue h => isTrue (by subst h; rfl)
+    | isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
   | .owned s, .owned t => match s.decEq t with
     | isTrue h => isTrue (by subst h; rfl)
     | isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
@@ -162,34 +167,40 @@ def Typ.decEq : (a b : Typ) → Decidable (a = b)
     | isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
     | _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
   | .prim _, .sum .. | .prim _, .arrow ..
-  | .prim _, .ref .. | .prim _, .owned .. | .prim _, .empty | .prim _, .value | .prim _, .tuple ..
+  | .prim _, .ref .. | .prim _, .array .. | .prim _, .owned .. | .prim _, .empty | .prim _, .value | .prim _, .tuple ..
   | .prim _, .tvar .. | .prim _, .named ..
   | .sum .., .prim _
-  | .sum .., .arrow .. | .sum .., .ref .. | .sum .., .owned .. | .sum .., .empty
+  | .sum .., .arrow .. | .sum .., .ref .. | .sum .., .array .. | .sum .., .owned .. | .sum .., .empty
   | .sum .., .value | .sum .., .tuple .. | .sum .., .tvar .. | .sum .., .named ..
   | .arrow .., .prim _
-  | .arrow .., .sum .. | .arrow .., .ref .. | .arrow .., .owned .. | .arrow .., .empty
+  | .arrow .., .sum .. | .arrow .., .ref .. | .arrow .., .array .. | .arrow .., .owned .. | .arrow .., .empty
   | .arrow .., .value | .arrow .., .tuple .. | .arrow .., .tvar .. | .arrow .., .named ..
   | .ref .., .prim _
-  | .ref .., .sum .. | .ref .., .arrow .. | .ref .., .owned .. | .ref .., .empty
+  | .ref .., .sum .. | .ref .., .arrow .. | .ref .., .array .. | .ref .., .owned .. | .ref .., .empty
   | .ref .., .value | .ref .., .tuple .. | .ref .., .tvar .. | .ref .., .named ..
+  | .array .., .prim _
+  | .array .., .sum .. | .array .., .arrow .. | .array .., .ref .. | .array .., .owned .. | .array .., .empty
+  | .array .., .value | .array .., .tuple .. | .array .., .tvar .. | .array .., .named ..
   | .owned .., .prim _
-  | .owned .., .sum .. | .owned .., .arrow .. | .owned .., .ref .. | .owned .., .empty
+  | .owned .., .sum .. | .owned .., .arrow .. | .owned .., .ref .. | .owned .., .array .. | .owned .., .empty
   | .owned .., .value | .owned .., .tuple .. | .owned .., .tvar .. | .owned .., .named ..
   | .empty, .prim _ | .empty, .sum ..
-  | .empty, .arrow .. | .empty, .ref .. | .empty, .owned .. | .empty, .value | .empty, .tuple ..
+  | .empty, .arrow .. | .empty, .ref .. | .empty, .array .. | .empty, .owned .. | .empty, .value | .empty, .tuple ..
   | .empty, .tvar .. | .empty, .named ..
   | .value, .prim _ | .value, .sum ..
-  | .value, .arrow .. | .value, .ref .. | .value, .owned .. | .value, .empty | .value, .tuple ..
+  | .value, .arrow .. | .value, .ref .. | .value, .array .. | .value, .owned .. | .value, .empty | .value, .tuple ..
   | .value, .tvar .. | .value, .named ..
   | .tuple .., .prim _
   | .tuple .., .sum .. | .tuple .., .arrow .. | .tuple .., .ref .. | .tuple .., .owned ..
+  | .tuple .., .array ..
   | .tuple .., .empty | .tuple .., .value | .tuple .., .tvar .. | .tuple .., .named ..
   | .tvar .., .prim _ | .tvar .., .sum ..
   | .tvar .., .arrow .. | .tvar .., .ref .. | .tvar .., .owned .. | .tvar .., .empty
+  | .tvar .., .array ..
   | .tvar .., .value | .tvar .., .tuple .. | .tvar .., .named ..
   | .named .., .prim _ | .named .., .sum ..
   | .named .., .arrow .. | .named .., .ref .. | .named .., .owned .. | .named .., .empty
+  | .named .., .array ..
   | .named .., .value | .named .., .tuple .. | .named .., .tvar .. => isFalse (by intro h; cases h)
 where
   typesDecEq : (as bs : List Typ) → Decidable (as = bs)
@@ -218,6 +229,7 @@ def Typ.subst (_σ : TyVar → Typ) : Typ → Typ
   | .sum ts => .sum (ts.map (Typ.subst _σ))
   | .arrow t1 t2 => .arrow (Typ.subst _σ t1) (Typ.subst _σ t2)
   | .ref t => .ref (Typ.subst _σ t)
+  | .array t => .array (Typ.subst _σ t)
   | .owned t => .owned (Typ.subst _σ t)
   | .empty => .empty
   | .value => .value
@@ -257,6 +269,7 @@ mutual
     | .sum ts => 1 + Typ.weights ts
     | .arrow t1 t2 => 1 + Typ.weight t1 + Typ.weight t2
     | .ref t => 1 + Typ.weight t
+    | .array t => 1 + Typ.weight t
     | .owned t => 1 + Typ.weight t
     | .tuple ts => 1 + Typ.weights ts
     | .named _ args => 1 + Typ.weights args
@@ -274,6 +287,7 @@ mutual
     | .sum ts => 1 + Typ.depths ts
     | .arrow t1 t2 => 1 + max (Typ.depth t1) (Typ.depth t2)
     | .ref t => 1 + Typ.depth t
+    | .array t => 1 + Typ.depth t
     | .owned t => 1 + Typ.depth t
     | .tuple ts => 1 + Typ.depths ts
     | .named _ args => 1 + Typ.depths args
@@ -478,6 +492,7 @@ mutual
                                     else .value
     | .arrow s1 s2, .arrow t1 t2 => .arrow (Typ.meet Θ s1 t1) (Typ.join Θ s2 t2)
     | .ref s,       .ref t       => if s == t then .ref s else .value
+    | .array s,     .array t     => if s == t then .array s else .value
     | .owned s,     .owned t     => if s == t then .owned s else .value
     | .tuple ss,    .tuple ts    => if ss.length == ts.length
                                     then .tuple (Typ.joinList Θ ss ts)
@@ -495,6 +510,7 @@ mutual
                                     else .empty
     | .arrow s1 s2, .arrow t1 t2 => .arrow (Typ.join Θ s1 t1) (Typ.meet Θ s2 t2)
     | .ref s,       .ref t       => if s == t then .ref s else .empty
+    | .array s,     .array t     => if s == t then .array s else .empty
     | .owned s,     .owned t     => if s == t then .owned s else .empty
     | .tuple ss,    .tuple ts    => if ss.length == ts.length
                                     then .tuple (Typ.meetList Θ ss ts)

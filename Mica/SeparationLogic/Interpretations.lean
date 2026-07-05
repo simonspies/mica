@@ -33,7 +33,7 @@ theorem interp_pointsTo (Θ : TinyML.TypeEnv) {ρ : Env} {lt vt : Term .value}
     {ty : TinyML.Typ} {loc : Runtime.Location}
     (hloc : Term.eval ρ lt = .loc loc) :
     interp Θ ρ (.pointsTo lt vt ty) ⊣⊢
-      loc ↦ Term.eval ρ vt ∗ TinyML.ValHasType Θ (Term.eval ρ vt) ty := by
+      loc ↦ [Term.eval ρ vt] ∗ TinyML.ValHasType Θ (Term.eval ρ vt) ty := by
   constructor
   · simp only [interp]
     istart

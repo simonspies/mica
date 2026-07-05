@@ -95,6 +95,7 @@ private def applyTypAttr (loc : Location) (t : TinyML.Typ) : String → ElabM Ti
   | "owned" =>
     match t with
     | .ref inner => .ok (.owned inner)
+    | .array _ => err loc (.unsupportedFeature "[@owned] arrays are not supported")
     | _ => err loc (.unsupportedFeature "[@owned] only applies to a 'ref' type")
   | name => err loc (.unsupportedFeature s!"unknown type attribute [@{name}]")
 
@@ -122,6 +123,10 @@ def TypKind.elaborate (env : ElabEnv) (loc : Location) : TypKind → ElabM TinyM
     | "ref" =>
       match args' with
       | [arg] => .ok (.ref arg)
+      | _ => err loc (.arityMismatch 1 args'.length)
+    | "array" =>
+      match args' with
+      | [arg] => .ok (.array arg)
       | _ => err loc (.arityMismatch 1 args'.length)
     | _ =>
       if env.types.elem name then .ok (.named name args')
@@ -247,6 +252,9 @@ private def applyAttr (loc : Location) (e : Untyped.Expr) : Attribute → ElabM 
       | _ => err loc (.unsupportedFeature "[@owned] only applies to 'ref'")
   | { name, .. } => err loc (.unsupportedFeature s!"unknown expression attribute [@{name}]")
 
+private def bareSpecial (loc : Location) (path : Path) : ElabM Untyped.Expr :=
+  err loc (.bareSpecialIdentifier path.toString)
+
 mutual
 /-- Elaborate an expression: lower its kind, then apply any expression
 attributes (`e [@name payload]`) left-to-right. This is the single entry point
@@ -269,9 +277,10 @@ def ExprKind.elaborate (env : ElabEnv) (loc : Location) : ExprKind → ElabM Unt
       match env.resolver.value path with
       | some (.userVar n) => .ok (.var n)
       | some (.primitive n ty) =>
-        match ty with
+        (match ty with
         | .arrow _ _ => .ok (.prim n ty)
-        | _ => .ok (.app (.prim n ty) [])
+        | _ => .ok (.app (.prim n ty) []))
+      | some (.special _) => bareSpecial loc path
       | none => err loc (.unsupportedPath path)
     else
       let name := path.head
@@ -305,6 +314,46 @@ def ExprKind.elaborate (env : ElabEnv) (loc : Location) : ExprKind → ElabM Unt
           let arg' ← Expr.elaborate env arg
           .ok (.ref false arg')
         | _ => err loc (.arityMismatch 1 args.length)
+      else if path.isQualified then
+        match env.resolver.value path with
+        | some (.userVar n) => do
+          let args' ← Expr.elaborateList env args
+          .ok (.app (.var n) args')
+        | some (.primitive n ty) => do
+          let args' ← Expr.elaborateList env args
+          .ok (.app (.prim n ty) args')
+        | some (.special .arrayMake) =>
+            match args with
+            | [len, init] => do
+              let len' ← Expr.elaborate env len
+              let init' ← Expr.elaborate env init
+              .ok (.arrayMake len' init')
+            | _ => err loc (.arityMismatch 2 args.length)
+        | some (.special .arrayLength) =>
+            match args with
+            | [arr] => do
+              let arr' ← Expr.elaborate env arr
+              .ok (.arrayLen arr')
+            | _ => err loc (.arityMismatch 1 args.length)
+        | some (.special .arrayGet) =>
+            match args with
+            | [arr, idx] => do
+              let arr' ← Expr.elaborate env arr
+              let idx' ← Expr.elaborate env idx
+              .ok (.arrayGet arr' idx')
+            | _ => err loc (.arityMismatch 2 args.length)
+        | some (.special .arraySet) =>
+            match args with
+            | [arr, idx, val] => do
+              let arr' ← Expr.elaborate env arr
+              let idx' ← Expr.elaborate env idx
+              let val' ← Expr.elaborate env val
+              .ok (.arraySet arr' idx' val')
+            | _ => err loc (.arityMismatch 3 args.length)
+        | none => do
+          let fn' ← Expr.elaborate env fn
+          let args' ← Expr.elaborateList env args
+          .ok (.app fn' args')
       else do
         let fn' ← Expr.elaborate env fn
         let args' ← Expr.elaborateList env args
@@ -341,6 +390,15 @@ def ExprKind.elaborate (env : ElabEnv) (loc : Location) : ExprKind → ElabM Unt
     let loc' ← Expr.elaborate env l
     let val' ← Expr.elaborate env v
     .ok (.store loc' val')
+  | .arrayGet arr idx => do
+    let arr' ← Expr.elaborate env arr
+    let idx' ← Expr.elaborate env idx
+    .ok (.arrayGet arr' idx')
+  | .arraySet arr idx val => do
+    let arr' ← Expr.elaborate env arr
+    let idx' ← Expr.elaborate env idx
+    let val' ← Expr.elaborate env val
+    .ok (.arraySet arr' idx' val')
   | .binop .neq l r => do
     let l' ← Expr.elaborate env l
     let r' ← Expr.elaborate env r

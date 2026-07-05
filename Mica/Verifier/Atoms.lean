@@ -72,7 +72,7 @@ def Atom.eval (Θ : TinyML.TypeEnv) {τ : Srt} (p : Atom τ) (ρ : VerifM.Env) :
   | isbool t => λ v => ⌜.bool v = t.eval ρ.env⌝
   | isinj tag arity t => λ v => ⌜.inj tag arity v = t.eval ρ.env⌝
   | own l ty => λ v => ∃ loc : Runtime.Location,
-      ⌜l.eval ρ.env = .loc loc⌝ ∗ loc ↦ v ∗ TinyML.ValHasType Θ v ty
+      ⌜l.eval ρ.env = .loc loc⌝ ∗ loc ↦ [v] ∗ TinyML.ValHasType Θ v ty
   | rel name arg => λ v =>
     ⌜(SpecFn.isDefined name arg).eval ρ.env ∧ (SpecFn.call name arg).eval ρ.env = v⌝
 

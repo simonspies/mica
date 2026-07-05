@@ -51,6 +51,14 @@ inductive KItem where
   | deref
   | storeR (loc : Runtime.Expr)
   | storeL (v : Runtime.Val)
+  | arrayMakeInit (len : Runtime.Expr)
+  | arrayMakeLen (init : Runtime.Val)
+  | arrayLen
+  | arrayGetIdx (arr : Runtime.Expr)
+  | arrayGetArr (idx : Runtime.Val)
+  | arraySetVal (arr idx : Runtime.Expr)
+  | arraySetIdx (arr : Runtime.Expr) (val : Runtime.Val)
+  | arraySetArr (idx val : Runtime.Val)
   | assert
   | tupleK (left : Runtime.Exprs) (right : Runtime.Vals)
   | injK (tag : Nat) (arity : Nat)
@@ -68,6 +76,14 @@ def KItem.fill : KItem → Runtime.Expr → Runtime.Expr
   | .deref,               e => .deref e
   | .storeR loc,          e => .store loc e
   | .storeL v,            e => .store e (.val v)
+  | .arrayMakeInit len,   e => .arrayMake len e
+  | .arrayMakeLen init,   e => .arrayMake e (.val init)
+  | .arrayLen,            e => .arrayLen e
+  | .arrayGetIdx arr,     e => .arrayGet arr e
+  | .arrayGetArr idx,     e => .arrayGet e (.val idx)
+  | .arraySetVal arr idx, e => .arraySet arr idx e
+  | .arraySetIdx arr val, e => .arraySet arr e (.val val)
+  | .arraySetArr idx val, e => .arraySet e (.val idx) (.val val)
   | .assert,              e => .assert e
   | .tupleK left right,   e => .tuple (left ++ [e] ++ right.map .val)
   | .injK tag arity,      e => .inj tag arity e
@@ -146,6 +162,21 @@ theorem KItem.fill_no_val_inj {e₁ e₂ : Runtime.Expr} (Ki₁ Ki₂ : KItem)
   case storeL.storeR =>
     simp only [KItem.fill, Runtime.Expr.store.injEq] at heq
     exact absurd heq.2.symm (hv₂ _)
+  case arrayMakeLen.arrayMakeInit =>
+    simp only [KItem.fill, Runtime.Expr.arrayMake.injEq] at heq
+    exact False.elim (hv₂ _ heq.2.symm)
+  case arrayGetArr.arrayGetIdx =>
+    simp only [KItem.fill, Runtime.Expr.arrayGet.injEq] at heq
+    exact absurd heq.2.symm (hv₂ _)
+  case arraySetIdx.arraySetVal =>
+    simp only [KItem.fill, Runtime.Expr.arraySet.injEq] at heq
+    exact absurd heq.2.2.symm (hv₂ _)
+  case arraySetArr.arraySetVal =>
+    simp only [KItem.fill, Runtime.Expr.arraySet.injEq] at heq
+    exact absurd heq.2.2.symm (hv₂ _)
+  case arraySetArr.arraySetIdx =>
+    simp only [KItem.fill, Runtime.Expr.arraySet.injEq] at heq
+    exact False.elim (hv₂ _ heq.2.1.symm)
   case appArgs.appArgs =>
     simp only [KItem.fill, Runtime.Expr.app.injEq, List.append_assoc,
       List.singleton_append] at heq
@@ -239,6 +270,14 @@ def K.items : K → List KItem
   | .deref k => k.items ++ [.deref]
   | .storeR loc k => k.items ++ [.storeR loc]
   | .storeL k v => k.items ++ [.storeL v]
+  | .arrayMakeInit len k => k.items ++ [.arrayMakeInit len]
+  | .arrayMakeLen k init => k.items ++ [.arrayMakeLen init]
+  | .arrayLen k => k.items ++ [.arrayLen]
+  | .arrayGetIdx arr k => k.items ++ [.arrayGetIdx arr]
+  | .arrayGetArr k idx => k.items ++ [.arrayGetArr idx]
+  | .arraySetVal arr idx k => k.items ++ [.arraySetVal arr idx]
+  | .arraySetIdx arr k val => k.items ++ [.arraySetIdx arr val]
+  | .arraySetArr k idx val => k.items ++ [.arraySetArr idx val]
   | .assert k => k.items ++ [.assert]
   | .tupleK left k right => k.items ++ [.tupleK left right]
   | .injK tag arity k => k.items ++ [.injK tag arity]
@@ -265,6 +304,14 @@ def KItem.toK : KItem → K
   | .deref => .deref .hole
   | .storeR loc => .storeR loc .hole
   | .storeL v => .storeL .hole v
+  | .arrayMakeInit len => .arrayMakeInit len .hole
+  | .arrayMakeLen init => .arrayMakeLen .hole init
+  | .arrayLen => .arrayLen .hole
+  | .arrayGetIdx arr => .arrayGetIdx arr .hole
+  | .arrayGetArr idx => .arrayGetArr .hole idx
+  | .arraySetVal arr idx => .arraySetVal arr idx .hole
+  | .arraySetIdx arr val => .arraySetIdx arr .hole val
+  | .arraySetArr idx val => .arraySetArr .hole idx val
   | .assert => .assert .hole
   | .tupleK left right => .tupleK left .hole right
   | .injK tag arity => .injK tag arity .hole

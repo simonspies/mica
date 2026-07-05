@@ -57,6 +57,7 @@ inductive UnOp : Srt → Srt → Type where
   | not        : UnOp .bool    .bool
   | ofValList  : UnOp .vallist .value
   | toValList  : UnOp .value   .vallist
+  | arrayLengthOf : UnOp .value .int
   | vhead      : UnOp .vallist .value
   | vtail      : UnOp .vallist .vallist
   | visnil     : UnOp .vallist .bool
@@ -408,6 +409,7 @@ theorem Term.wfIn_mono (t : Term τ) (h : t.wfIn Δ) (hsub : Δ.Subset Δ') (hwf
   | _, .not,     b  => !b
   | _, .ofValList, vs => Runtime.Val.tuple vs
   | _, .toValList, v  => match v with | .tuple vs => vs | _ => []
+  | _, .arrayLengthOf, v => match v with | .array len _ => (len : Int) | _ => 0
   | _, .vhead,   vs => vs.headD .unit
   | _, .vtail,   vs => vs.tail
   | _, .visnil,  vs => vs.isEmpty
