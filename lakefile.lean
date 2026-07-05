@@ -56,11 +56,12 @@ partial def waitForExitOrTimeout {cfg : IO.Process.StdioConfig}
         IO.sleep (UInt32.ofNat sleepMs)
         waitForExitOrTimeout child (remainingMs - sleepMs)
 
-def runProcessWithTimeout (cmd : String) (args : Array String) (timeoutMs : UInt32) :
-    IO ProcessResult := do
+def runProcessWithTimeoutIn? (cmd : String) (args : Array String) (cwd? : Option FilePath)
+    (timeoutMs : UInt32) : IO ProcessResult := do
   let child ← IO.Process.spawn {
     cmd := cmd
     args := args
+    cwd := cwd?
     stdin := .null
     stdout := .piped
     stderr := .piped
@@ -80,9 +81,29 @@ def runProcessWithTimeout (cmd : String) (args : Array String) (timeoutMs : UInt
       let stderr ← IO.ofExcept stderrTask.get
       pure (.terminated { exitCode, stdout, stderr })
 
-def runTest (mica : LeanExe) (file : FilePath) : ScriptM TestOutcome := do
+def runProcessWithTimeout (cmd : String) (args : Array String) (timeoutMs : UInt32) :
+    IO ProcessResult := do
+  runProcessWithTimeoutIn? cmd args none timeoutMs
+
+def runTest (mica : LeanExe) (file : FilePath) : IO TestOutcome := do
   let result ← runProcessWithTimeout mica.file.toString #[file.toString] testTimeoutMs
   return { path := file, result := result }
+
+def runStdlibCompile : IO TestOutcome := do
+  let cwd ← IO.currentDir
+  let path := cwd / "mica.ml"
+  IO.FS.withTempDir fun tmpDir => do
+    let result ←
+      try
+        runProcessWithTimeoutIn? "ocamlc" #["-c", path.toString, "-o", "mica.cmo"]
+          (some tmpDir) testTimeoutMs
+      catch e =>
+        pure (.terminated {
+          exitCode := 127
+          stdout := ""
+          stderr := s!"failed to run ocamlc: {e}\n"
+        })
+    return { path, result }
 
 def parseTestsuiteArgs (args : List String) : ScriptM TestsuiteOptions := do
   let mut summaryOnly := false
@@ -161,8 +182,8 @@ def resultSuffix (result : ProcessResult) : String :=
 def recordFailure (failed : List TestOutcome) (test : TestOutcome) : List TestOutcome :=
   if isFailure test.result then test :: failed else failed
 
-def printTestHeader (filename : String) : IO Unit := do
-  IO.print s!"Checking {filename} ..."
+def printTestHeader (verb filename : String) : IO Unit := do
+  IO.print s!"{verb} {filename} ..."
   (← IO.getStdout).flush
 
 private def bold (s : String) : String := s!"\x1b[1m{s}\x1b[0m"
@@ -174,6 +195,40 @@ def printFailureSummary (failed : List TestOutcome) : IO Unit := do
       | .timeout _ => " (timed out)"
       | .terminated _ => ""
     IO.println s!"- {test.path.fileName.getD test.path.toString}{suffix}"
+
+def reportTestOutcome (options : TestsuiteOptions) (failed : List TestOutcome) (verb : String)
+    (label : String) (test : TestOutcome) : IO (List TestOutcome) := do
+  printTestHeader verb label
+  IO.println (resultSuffix test.result)
+  let failed := recordFailure failed test
+  if !options.summaryOnly || isFailure test.result then
+    printCapturedOutput test
+  pure failed
+
+def runOcamlStdlibTests (options : TestsuiteOptions) (failed : List TestOutcome) :
+    IO (List TestOutcome) := do
+  let test ← runStdlibCompile
+  reportTestOutcome options failed "Compiling" "mica.ml" test
+
+def runMicaExampleTests (options : TestsuiteOptions) (mica : LeanExe)
+    (tests : Array FilePath) (failed : List TestOutcome) : IO (List TestOutcome) := do
+  unless tests.isEmpty do
+    IO.println ""
+  let mut failed := failed
+  for file in tests do
+    let filename := file.fileName.getD file.toString
+    let test ← runTest mica file
+    failed ← reportTestOutcome options failed "Checking" filename test
+  pure failed
+
+def printTestsuiteSummary (failed : List TestOutcome) : IO UInt32 := do
+  IO.println ""
+  if List.isEmpty failed then
+    IO.println (bold "all tests passed")
+    return 0
+  else
+    printFailureSummary failed
+    return 1
 
 def runFileSummaries (extraArgs : Array String) : IO UInt32 := do
   let child ← IO.Process.spawn {
@@ -206,21 +261,6 @@ script testsuite (args) := do
   let options ← parseTestsuiteArgs args
   let inputPath ← resolveInputPath options.dir
   let tests ← discoverTests inputPath
-  let mut failed : List TestOutcome := []
-  for file in tests do
-    let filename := file.fileName.getD file.toString
-    printTestHeader filename
-    let test <- runTest mica file
-    IO.println (resultSuffix test.result)
-    failed := recordFailure failed test
-    if !options.summaryOnly || isFailure test.result then
-      printCapturedOutput test
-
-  IO.println ""
-
-  if List.isEmpty failed then
-    IO.println (bold "all tests passed")
-    return 0
-  else
-    printFailureSummary failed
-    return 1
+  let failed ← runOcamlStdlibTests options []
+  let failed ← runMicaExampleTests options mica tests failed
+  printTestsuiteSummary failed
