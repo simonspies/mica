@@ -21,6 +21,15 @@ private def parsePred : Untyped.Expr → M Pred
   | .app (.var "own") [.var loc] => .ok (.own loc)
   | e => .error s!"expected predicate (isinj, own) over a variable, got {repr e}"
 
+private def addProductLets (bound : Untyped.Expr) :
+    Nat → List Untyped.Binder → Assert Untyped.Expr α → M (Assert Untyped.Expr α)
+  | _, [], rest => .ok rest
+  | idx, binder :: binders, rest => do
+      let rest' ← addProductLets bound (idx + 1) binders rest
+      match binder with
+      | .named x _ => .ok (.let_ x (.unop (.proj idx) bound) rest')
+      | .none => .ok rest'
+
 private def parseAssert (inner : Untyped.Expr → M α)
     (bareAssert : Untyped.Expr → M (Assert Untyped.Expr α)) :
     Untyped.Expr → M (Assert Untyped.Expr α)
@@ -37,6 +46,9 @@ private def parseAssert (inner : Untyped.Expr → M α)
   | .letIn .none (.assert cond) body => do
     let rest ← parseAssert inner bareAssert body
     .ok (.assert cond rest)
+  | .letProd names bound body => do
+    let rest ← parseAssert inner bareAssert body
+    addProductLets bound 0 names rest
   | .assert cond => bareAssert cond
   | .ifThenElse cond thn els => do
     .ok (.ite cond (← parseAssert inner bareAssert thn) (← parseAssert inner bareAssert els))

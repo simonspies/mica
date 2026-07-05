@@ -3,18 +3,15 @@ open Mica
 (* Functions that use tuples as arguments or return values. *)
 
 (* 1. Swap a pair: returns (b, a) given (a, b) as ints *)
-let swap_pair (p: int * int) : int * int =
-  let a = p.1 in
-  let b = p.2 in
+let swap_pair ((a : int), (b : int)) : int * int =
   (b, a)
-[@@spec fun p ->
-  ret (fun v ->
-    assert (p.1 = v.2);
-    assert (p.2 = v.1))];;
+[@@spec fun ((a : int), (b : int)) ->
+  ret (fun ((c : int), (d : int)) ->
+    assert (a = d);
+    assert (b = c))];;
 
-let sum_pair_pattern (p: int * int) : int =
-  let (x, y) = p in
+let sum_pair_pattern ((x : int), (y : int)) : int =
   x + y
-[@@spec fun p ->
+[@@spec fun ((x : int), (y : int)) ->
   ret (fun v ->
-    assert (v = p.1 + p.2))];;
+    assert (v = x + y))];;

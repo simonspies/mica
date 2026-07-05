@@ -7,10 +7,7 @@ open Mica
    proves that after [fuel] steps the two cells contain exactly the tuple
    computed by the pure recurrence [fib_state]. *)
 
-let rec fib_state (s : int * int * int) : int * int =
-  let a = s.1 in
-  let b = s.2 in
-  let fuel = s.3 in
+let rec fib_state ((a : int), (b : int), (fuel : int)) : int * int =
   if fuel <= 0 then (a, b)
   else fib_state (b, a + b, fuel - 1)
 [@@fn];;
@@ -45,4 +42,3 @@ let fib (n : int) : int =
   ret (fun result ->
     let expected = fib_state (0, 1, n) in
     assert (result = expected.1))];;
-

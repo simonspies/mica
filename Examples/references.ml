@@ -14,7 +14,7 @@ type ilist = Nil | Cons of int * ilist
 let rec length (xs : ilist) : int =
   match xs with
   | Nil -> 0
-  | Cons p -> 1 + length p.2
+  | Cons (x, rest) -> 1 + length rest
 [@@spec fun xs ->
   ret (fun v ->
     assert (v >= 0))];;
@@ -29,17 +29,16 @@ let singleton (x : int) : ilist =
   Cons (x, Nil)
 [@@spec fun x ->
   ret (fun r ->
-    bind (isinj 1 2 r) @@ fun (payload : int * ilist) ->
-    let tail = payload.2 in
+    bind (isinj 1 2 r) @@ fun ((head : int), (tail : ilist)) ->
     bind (isinj 0 2 tail) @@ fun (tail_payload : unit) ->
-    assert (payload.1 = x))];;
+    assert (head = x))];;
 
 let pop_or_zero (stack : ilist ref) : int =
   match !stack with
   | Nil -> 0
-  | Cons p ->
-    stack := p.2;
-    p.1
+  | Cons (x, rest) ->
+    stack := rest;
+    x
 [@@spec fun stack ->
   ret (fun r ->
     ret ())];;
@@ -47,7 +46,7 @@ let pop_or_zero (stack : ilist ref) : int =
 let top_is_positive (stack : ilist ref) : bool =
   match !stack with
   | Nil -> false
-  | Cons p -> p.1 > 0
+  | Cons (x, rest) -> x > 0
 [@@spec fun stack ->
   ret (fun r ->
     ret ())];;
@@ -58,9 +57,9 @@ let rec transfer (fuel : int) (src : ilist ref) (dst : ilist ref) : unit =
   else
     match !src with
     | Nil -> ()
-    | Cons p ->
-      src := p.2;
-      dst := Cons (p.1, !dst);
+    | Cons (x, rest) ->
+      src := rest;
+      dst := Cons (x, !dst);
       transfer (fuel - 1) src dst
 [@@spec fun fuel src dst ->
   ret (fun r ->

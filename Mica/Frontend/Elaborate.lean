@@ -199,6 +199,56 @@ private def patternToProductBinders (env : ElabEnv) (pat : Pattern) :
   | .const .unit => .ok []
   | _ => err pat.loc (.unsupportedPattern "expected a flat tuple binder")
 
+private def patternComponentType? (env : ElabEnv) (pat : Pattern) : ElabM (Option TinyML.Typ) :=
+  match pat.kind with
+  | .binder _ (some ty) => do
+      let ty' ← Typ.elaborate env ty
+      .ok (some ty')
+  | .binder _ none | .wildcard => .ok none
+  | _ => err pat.loc (.unsupportedPattern "expected a flat tuple binder")
+
+private def patternComponentTypes? (env : ElabEnv) :
+    List Pattern → ElabM (Option (List TinyML.Typ))
+  | [] => .ok (some [])
+  | p :: ps => do
+      let ty? ← patternComponentType? env p
+      let tys? ← patternComponentTypes? env ps
+      match ty?, tys? with
+      | some ty, some tys => .ok (some (ty :: tys))
+      | _, _ => .ok none
+
+private def patternToProductType (env : ElabEnv) (pat : Pattern) : ElabM TinyML.Typ :=
+  match pat.kind with
+  | .tuple pats => do
+      match ← patternComponentTypes? env pats with
+      | some tys => .ok (TinyML.Typ.tuple tys)
+      | none =>
+          err pat.loc (.unsupportedPattern "tuple function arguments must annotate each component")
+  | .const .unit => .ok (TinyML.Typ.tuple [])
+  | _ => err pat.loc (.unsupportedPattern "expected a flat tuple binder")
+
+private def isProductPattern (pat : Pattern) : Bool :=
+  match pat.kind with
+  | .tuple _ | .const .unit => true
+  | _ => false
+
+private def productArgumentName (stem : String) (idx : Nat) : String :=
+  s!"{stem}{idx}"
+
+private def elaborateFunctionArgs (env : ElabEnv) (stem : String) :
+    Nat → List Pattern → Untyped.Expr → ElabM (List Untyped.Binder × Untyped.Expr)
+  | _, [], body => .ok ([], body)
+  | idx, pat :: pats, body => do
+      let (restArgs, restBody) ← elaborateFunctionArgs env stem (idx + 1) pats body
+      if isProductPattern pat then
+        let argName := productArgumentName stem idx
+        let argTy ← patternToProductType env pat
+        let names ← patternToProductBinders env pat
+        .ok (.named argName (some argTy) :: restArgs, .letProd names (.var argName) restBody)
+      else
+        let arg ← patternToBinderTyped env pat
+        .ok (arg :: restArgs, restBody)
+
 -- ---------------------------------------------------------------------------
 -- Match branch assembly
 
@@ -493,17 +543,17 @@ def ExprKind.elaborate (env : ElabEnv) (loc : Location) : ExprKind → ElabM Unt
           .ok (.letIn name bound' body')
     | pat :: args => do
       let name ← patternToBinder pat
-      let args' ← Pattern.toAnnotatedBinders env args
       let self := if isRec then name else .none
       let bound' ← Expr.elaborate env bound
+      let (args', bound'') ← elaborateFunctionArgs env "__param" 0 args bound'
       let body' ← Expr.elaborate env body
-      .ok (.letIn name (.fix self args' none bound') body')
+      .ok (.letIn name (.fix self args' none bound'') body')
 
   | .fun_ args retTy body => do
-    let args' ← Pattern.toAnnotatedBinders env args
     let retTy' ← elaborateOptTyp env retTy
     let body' ← Expr.elaborate env body
-    .ok (.fix .none args' retTy' body')
+    let (args', body'') ← elaborateFunctionArgs env "__param" 0 args body'
+    .ok (.fix .none args' retTy' body'')
 
   | .match_ scrut arms => do
     let scrut' ← Expr.elaborate env scrut
@@ -563,22 +613,27 @@ def MatchArm.elaborateList (env : ElabEnv)
   | [] => .ok []
   | ⟨pat, body⟩ :: arms => do
     let body' ← Expr.elaborate env body
-    let (ctorName, binder) ← match pat.kind with
+    let (ctorName, binder, body'') ← match pat.kind with
       | .ctor path payload => do
         let name ← if path.isQualified then
           match env.resolver.ctor path with
           | some (.aliased n) => .ok n
           | none => err pat.loc (.unsupportedPath path)
         else .ok path.head
-        let binder ← match payload with
-          | some p => do
-            let b ← patternToBinder p
-            pure (some b)
-          | none => pure none
-        pure (name, binder)
+        let (binder, body'') ← match payload with
+          | some p =>
+            if isProductPattern p then do
+              let names ← patternToProductBinders env p
+              let argName := "__arg0"
+              pure (some (.named argName none), .letProd names (.var argName) body')
+            else do
+              let b ← patternToBinder p
+              pure (some b, body')
+          | none => pure (none, body')
+        pure (name, binder, body'')
       | _ => err pat.loc (.unsupportedPattern "only constructor patterns are allowed in match")
     let rest ← MatchArm.elaborateList env arms
-    .ok ((ctorName, binder, body') :: rest)
+    .ok ((ctorName, binder, body'') :: rest)
 
 def Pattern.toAnnotatedBinders (env : ElabEnv)
     : List Pattern → ElabM (List Untyped.Binder)
@@ -674,10 +729,10 @@ def ValDecl.elaborate (env : ElabEnv) (loc : Location)
   | pat :: args =>
     let name ← patternToBinder pat
     let self := if isRec then name else .none
-    let args' ← Pattern.toAnnotatedBinders env args
     let retTy' ← elaborateOptTyp env retTy
     let body' ← Expr.elaborate env body
-    .ok { name, body := .fix self args' retTy' body', declMeta := md }
+    let (args', body'') ← elaborateFunctionArgs env "__param" 0 args body'
+    .ok { name, body := .fix self args' retTy' body'', declMeta := md }
 
 -- ---------------------------------------------------------------------------
 -- Program elaboration
