@@ -395,9 +395,9 @@ def ExprKind.elaborate (env : ElabEnv) (loc : Location) : ExprKind → ElabM Unt
     let idx' ← Expr.elaborate env idx
     .ok (.arrayGet arr' idx')
   | .arraySet arr idx val => do
-    let val' ← Expr.elaborate env val
     let arr' ← Expr.elaborate env arr
     let idx' ← Expr.elaborate env idx
+    let val' ← Expr.elaborate env val
     .ok (.arraySet arr' idx' val')
   | .binop .neq l r => do
     let l' ← Expr.elaborate env l
