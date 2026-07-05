@@ -43,6 +43,7 @@ mutual
     | fix (self : Binder) (args : List Binder) (body : Expr)
     | app (fn : Expr) (args : List Expr)
     | ifThenElse (cond thn els : Expr)
+    | letProd (names : List Binder) (bound body : Expr)
     | ref    (e : Expr)
     | deref  (e : Expr)
     | store  (loc val : Expr)
@@ -163,6 +164,12 @@ mutual
       | _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
     case ifThenElse.ifThenElse c1 t1 e1 c2 t2 e2 =>
       exact match c1.decEq c2, t1.decEq t2, e1.decEq e2 with
+      | isTrue h1, isTrue h2, isTrue h3 => isTrue (by subst h1; subst h2; subst h3; rfl)
+      | isFalse h, _, _ => isFalse (by intro heq; cases heq; exact h rfl)
+      | _, isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
+      | _, _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
+    case letProd.letProd bs1 d1 y1 bs2 d2 y2 =>
+      exact match decEq bs1 bs2, d1.decEq d2, y1.decEq y2 with
       | isTrue h1, isTrue h2, isTrue h3 => isTrue (by subst h1; subst h2; subst h3; rfl)
       | isFalse h, _, _ => isFalse (by intro heq; cases heq; exact h rfl)
       | _, isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
@@ -317,6 +324,7 @@ def Expr.subst (σ : Subst) : Expr → Expr
     .fix f args (body.subst (σ.remove' f |>.removeAll' args))
   | .app fn args => .app (fn.subst σ) (args.map (Expr.subst σ))
   | .ifThenElse c t e => .ifThenElse (c.subst σ) (t.subst σ) (e.subst σ)
+  | .letProd bs bound body => .letProd bs (bound.subst σ) (body.subst (σ.removeAll' bs))
   | .ref e => .ref (e.subst σ)
   | .deref e => .deref (e.subst σ)
   | .store loc v => .store (loc.subst σ) (v.subst σ)
@@ -336,6 +344,11 @@ def Expr.subst (σ : Subst) : Expr → Expr
 @[simp] theorem Expr.letIn_subst (σ : Subst) (name : Binder) (bound body : Expr) :
     (Expr.letIn name bound body).subst σ = Expr.letIn name (bound.subst σ) (body.subst (σ.remove' name)) := by
   simp [Expr.letIn, Expr.subst, Subst.remove'_none, Subst.removeAll'_cons, Subst.removeAll'_nil]
+
+@[simp] theorem Expr.letProd_subst (σ : Subst) (names : List Binder) (bound body : Expr) :
+    (Expr.letProd names bound body).subst σ =
+      Expr.letProd names (bound.subst σ) (body.subst (σ.removeAll' names)) := by
+  simp [Expr.subst]
 
 theorem Expr.isFunc_subst {e : Expr} {σ : Subst} (h : e.isFunc = true) :
     (e.subst σ).isFunc = true := by
@@ -403,6 +416,11 @@ theorem Expr.subst_comp (e : Expr) (σ ρ : Subst) :
     simp only [Subst.removeAll'_eq]
     cases f <;> simp [Subst.remove', Subst.remove] <;> split <;> simp_all
     all_goals (split <;> simp_all)
+  case letProd names bound body ihBound ihBody =>
+    congr 1
+    funext z
+    simp only [Subst.removeAll'_eq]
+    split <;> simp_all
 /-- Removing a binder from γ and then substituting it back yields the same as just updating γ.
     Used to prove Program.subst_remove_update. -/
 theorem Expr.subst_remove'_updateBinder (e : Expr) (γ : Subst) (b : Binder) (v : Val) :
@@ -423,6 +441,8 @@ def Expr.freeVars : Expr → List Var
     body.freeVars.filter (fun v => f != .named v && !args.any (· == .named v))
   | .app fn args => fn.freeVars ++ args.flatMap Expr.freeVars
   | .ifThenElse c t e => c.freeVars ++ t.freeVars ++ e.freeVars
+  | .letProd bs bound body =>
+    bound.freeVars ++ body.freeVars.filter (fun v => !bs.any (· == .named v))
   | .ref e => e.freeVars
   | .deref e => e.freeVars
   | .store loc v => loc.freeVars ++ v.freeVars
@@ -492,6 +512,19 @@ theorem Expr.freeVars_subst (γ1 γ2 : Var → Option Val) (e : Expr) :
     simp [Expr.subst, ihc γ1 γ2 (fun x hx => h x (by simp [hx])),
                        iht γ1 γ2 (fun x hx => h x (by simp [hx])),
                        ihe γ1 γ2 (fun x hx => h x (by simp [hx]))]
+  case letProd names bound body ihBound ihBody =>
+    intro h
+    simp only [Expr.subst]
+    rw [ihBound γ1 γ2]
+    · rw [ihBody (Subst.removeAll' γ1 names) (Subst.removeAll' γ2 names)]
+      intro x hx
+      simp only [Subst.removeAll'_eq]
+      by_cases hb : names.any (· == Binder.named x)
+      · simp [hb]
+      · simp [hb]
+        exact h x (by simp [Expr.freeVars, hx, hb])
+    · intro x hx
+      exact h x (by simp [Expr.freeVars, hx])
   case ref e ih =>
     intro h; simp only [Expr.freeVars] at h
     simp [Expr.subst, ih γ1 γ2 h]
@@ -725,6 +758,15 @@ private theorem Subst.removeAll'_updateAllBinder_comp (γ : Subst) (bs : Binders
     = (γ.updateAllBinder bs vs) z := by
   rw [removeAll'_updateAllBinder_gen _ _ hlen]
   congr 1; funext w; simp [Subst.id]; split <;> simp_all
+
+theorem Expr.subst_removeAll'_updateAllBinder (body : Expr) (γ : Subst)
+    (bs : Binders) (vs : Vals) (hlen : bs.length = vs.length) :
+    (body.subst (γ.removeAll' bs)).subst (Subst.id.updateAllBinder bs vs) =
+      body.subst (γ.updateAllBinder bs vs) := by
+  rw [Expr.subst_comp]
+  congr 1
+  funext z
+  exact Subst.removeAll'_updateAllBinder_comp γ bs vs hlen z
 
 -- Substitution composition lemma for the fix body.
 theorem Expr.subst_fix_comp (body : Expr)

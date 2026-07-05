@@ -179,6 +179,14 @@ theorem wp.if_false {ctx : TinyML.PrimCtx} {thn els : Runtime.Expr} {Q : Runtime
     wp ctx els Q ⊢ wp ctx (.ifThenElse (.val (.bool false)) thn els) Q :=
   wp.pure_step (fun _ => .ifFalse) (by rintro μ e' μ' h; cases h; exact ⟨rfl, rfl⟩)
 
+theorem wp.letProd_val {ctx : TinyML.PrimCtx} {names : List Runtime.Binder}
+    {vs : List Runtime.Val} {body : Runtime.Expr} {Q : Runtime.Val → iProp}
+    (hlen : names.length = vs.length) :
+    wp ctx (body.subst (Runtime.Subst.id.updateAllBinder names vs)) Q ⊢
+      wp ctx (.letProd names (.val (.tuple vs)) body) Q :=
+  wp.pure_step (fun _ => .letProd hlen)
+    (by rintro μ e' μ' h; cases h; exact ⟨rfl, rfl⟩)
+
 /-- `assert true` returns unit; `assert false` is stuck. -/
 theorem wp.assert {ctx : TinyML.PrimCtx} {P : Runtime.Val → iProp} :
     P .unit ⊢ wp ctx (.assert (.val (.bool true))) P :=

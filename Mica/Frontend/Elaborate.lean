@@ -184,6 +184,21 @@ private def patternToBinderTyped (env : ElabEnv) (pat : Pattern) : ElabM Untyped
     .ok (.named n ty')
   | _ => err pat.loc (.unsupportedPattern "expected a simple binder (variable or wildcard)")
 
+private def patternListToAnnotatedBinders (env : ElabEnv) :
+    List Pattern → ElabM (List Untyped.Binder)
+  | [] => .ok []
+  | p :: ps => do
+    let b ← patternToBinderTyped env p
+    let bs ← patternListToAnnotatedBinders env ps
+    .ok (b :: bs)
+
+private def patternToProductBinders (env : ElabEnv) (pat : Pattern) :
+    ElabM (List Untyped.Binder) :=
+  match pat.kind with
+  | .tuple pats => patternListToAnnotatedBinders env pats
+  | .const .unit => .ok []
+  | _ => err pat.loc (.unsupportedPattern "expected a flat tuple binder")
+
 -- ---------------------------------------------------------------------------
 -- Match branch assembly
 
@@ -464,13 +479,18 @@ def ExprKind.elaborate (env : ElabEnv) (loc : Location) : ExprKind → ElabM Unt
     match binders with
     | [] => err loc (.unsupportedFeature "let with no binders")
     | [pat] => do
-      let name ← patternToBinder pat
       let bound' ← Expr.elaborate env bound
       let body' ← Expr.elaborate env body
       if isRec then
         err loc (.unsupportedFeature "let rec requires function arguments")
       else
-        .ok (.letIn name bound' body')
+        match pat.kind with
+        | .tuple _ | .const .unit => do
+          let names ← patternToProductBinders env pat
+          .ok (.letProd names bound' body')
+        | _ => do
+          let name ← patternToBinder pat
+          .ok (.letIn name bound' body')
     | pat :: args => do
       let name ← patternToBinder pat
       let args' ← Pattern.toAnnotatedBinders env args

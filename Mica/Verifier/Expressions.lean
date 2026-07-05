@@ -162,6 +162,8 @@ mutual
           let x' ← VerifM.decl (some x) .value
           VerifM.assume (.pure (Formula.eq .value (.const (.uninterpreted x'.name .value)) se))
           compile reg Θ Δ_spec (Finmap.erase x S) ((x, x') :: B) (Γ.extend x e.ty) body
+    | .letProd _ _ _ => do
+        VerifM.fatal "letProd verification is not implemented yet"
     | .ifThenElse cond thn els ty => do
         let sc ← compile reg Θ Δ_spec S B Γ cond
         VerifM.expectEq "if condition type mismatch" cond.ty .bool
@@ -2061,6 +2063,13 @@ theorem compileLetIn_correct (reg : Verifier.Registry) (b : Binder) (e body : Ex
     obtain ⟨_, _, hΨ'⟩ := hΨ
     exact hpost v' ρ' st' se' hΨ' hs hw
 
+theorem compileLetProd_correct (reg : Verifier.Registry) (names : List Binder) (e body : Expr) :
+    correctExpr reg (.letProd names e body) := by
+  intro Θ R S B Γ st ρ γ Δ_spec ρ_spec Ψ Φ heval
+    hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec hΔreg hρreg hpost
+  simp only [compile] at heval
+  exact (VerifM.eval_fatal heval).elim
+
 theorem compileIfThenElse_correct (reg : Verifier.Registry) (cond thn els : Expr) (ty : TinyML.Typ)
     (ihCond : correctExpr reg cond) (ihThn : correctExpr reg thn) (ihEls : correctExpr reg els) :
     correctExpr reg (.ifThenElse cond thn els ty) := by
@@ -2894,6 +2903,8 @@ theorem compile_correct (reg : Verifier.Registry) (hSound : Verifier.Registry.So
     simpa using compileAssert_correct reg e (compile_correct reg hSound e)
   | fix self args retTy body =>
     simpa using compileFix_correct reg self args retTy body
+  | letProd names e body =>
+    simpa using compileLetProd_correct reg names e body
   | ref owned e =>
     simpa using compileRef_correct reg owned e (compile_correct reg hSound e)
   | deref e ty =>

@@ -71,6 +71,7 @@ mutual
 partial def printExpr : Untyped.Expr → String
   | .letIn .none bound body => s!"{printOr bound};\n{printExpr body}"
   | .letIn name bound body => printLetIn name bound body
+  | .letProd names bound body => s!"let ({", ".intercalate (names.map Binder.print)}) = {printExpr bound} in\n{printExpr body}"
   | .ifThenElse cond thn els =>
     s!"if {printExpr cond} then {printExpr thn} else {printExpr els}"
   | .match_ scrut branches =>

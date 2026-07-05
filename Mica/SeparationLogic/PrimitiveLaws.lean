@@ -99,6 +99,12 @@ theorem wp_bind_if {cond thn els : Runtime.Expr} {Q : Runtime.Val → iProp}
     R ⊢ wp pctx (.ifThenElse cond thn els) Q :=
   h.trans (wp.bind (k := TinyML.K.ifCond .hole thn els))
 
+theorem wp_bind_letProd {names : List Runtime.Binder} {bound body : Runtime.Expr}
+    {Q : Runtime.Val → iProp} {R : iProp}
+    (h : R ⊢ wp pctx bound (fun v => wp pctx (.letProd names (.val v) body) Q)) :
+    R ⊢ wp pctx (.letProd names bound body) Q :=
+  h.trans (wp.bind (k := TinyML.K.letProdK names .hole body))
+
 /-- Conditional on `true`: context unchanged. -/
 theorem wp_if_true {thn els : Runtime.Expr} {Q : Runtime.Val → iProp}
     {R : iProp}
