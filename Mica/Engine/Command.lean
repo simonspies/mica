@@ -24,7 +24,7 @@ inductive Gettable : Type → Type where
   | timeout : Gettable Nat
 
 /-- The settings every session starts with. -/
-def Settable.initial : List Settable := [.timeout 3000]
+def Settable.initial : List Settable := [.timeout 5000]
 
 /-- Serialize a settable option to its SMT-LIB2 string. -/
 def Settable.toSMTLIB : Settable → String
