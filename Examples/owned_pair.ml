@@ -10,7 +10,7 @@ type ilist = Nil | Cons of int * ilist
 let rec length (xs : ilist) : int =
   match xs with
   | Nil -> 0
-  | Cons p -> 1 + length p.2
+  | Cons (x, rest) -> 1 + length rest
 [@@spec fun xs -> ret (fun v -> assert (v >= 0))];;
 
 (* Two owned cells of the same type: each read may skip candidates before the

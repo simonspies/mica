@@ -104,6 +104,7 @@ mutual
     | const (c : Const)
     | ctor (path : Path) (payload : Option Pattern)
     | tuple (pats : List Pattern)
+    | record (fields : List (FieldName × Pattern))
 
   structure Pattern where
     loc  : Location

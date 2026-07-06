@@ -172,6 +172,9 @@ def encodeWith {M : Type} (ops : EncoderOps M) (Δ : Signature)
   | .letIn b bound body, k =>
     encodeWith ops Δ Γ δ bound fun v =>
       encodeWith ops Δ Γ (VarEnv.bindBinder δ b v) body k
+  | .letProd bs bound body, k =>
+    encodeWith ops Δ Γ δ bound fun v =>
+      encodeWith ops Δ Γ (VarEnv.bindBinders δ bs v) body k
   | .inj tag arity payload, k =>
     encodeWith ops Δ Γ δ payload fun v =>
       k (.unop (.ofInj tag arity) v)
@@ -345,7 +348,7 @@ theorem app (fn : Typed.Expr) (args : List Typed.Expr) (ty : TinyML.Typ)
       | error _ => simp; exact hops.error_ind
       | ok _    => simp; exact hk _
   | .const _, _ | .unop .., _ | .binop .., _ | .fix .., _ | .app .., _
-  | .ifThenElse .., _ | .letIn .., _ | .ref .., _ | .deref .., _ | .store .., _
+  | .ifThenElse .., _ | .letIn .., _ | .letProd .., _ | .ref .., _ | .deref .., _ | .store .., _
   | .arrayMake .., _ | .arrayLen _, _ | .arrayGet .., _ | .arraySet .., _
   | .assert _, _ | .tuple _, _ | .inj .., _ | .match_ .., _ | .cast .., _
   | .var _ _, [] | .var _ _, _ :: _ :: _ =>
@@ -367,6 +370,13 @@ theorem prim (name : String) (inst : List (TinyML.TyVar × TinyML.Typ))
 theorem letIn (name : Typed.Binder) (bound body : Typed.Expr)
     (ihBound : EncodeWithInd bound) (ihBody : EncodeWithInd body) :
     EncodeWithInd (.letIn name bound body) := by
+  intro _ _ _ _ _ _ _ hops hk
+  simp only [encodeWith]
+  exact ihBound hops fun _ => ihBody hops hk
+
+theorem letProd (names : List Typed.Binder) (bound body : Typed.Expr)
+    (ihBound : EncodeWithInd bound) (ihBody : EncodeWithInd body) :
+    EncodeWithInd (.letProd names bound body) := by
   intro _ _ _ _ _ _ _ hops hk
   simp only [encodeWith]
   exact ihBound hops fun _ => ihBody hops hk
@@ -475,6 +485,8 @@ theorem encodeWith_ind_def : ∀ (e : Typed.Expr), EncodeWithInd e
   | .fix self args retTy body => Ind.fix self args retTy body
   | .letIn name bound body =>
       Ind.letIn name bound body (encodeWith_ind_def bound) (encodeWith_ind_def body)
+  | .letProd names bound body =>
+      Ind.letProd names bound body (encodeWith_ind_def bound) (encodeWith_ind_def body)
   | .ref owned e => Ind.ref owned e
   | .deref e ty => Ind.deref e ty
   | .store loc val => Ind.store loc val
@@ -675,7 +687,7 @@ theorem app (fn : Typed.Expr) (args : List Typed.Expr) (ty : TinyML.Typ)
           simp
           exact hk hsub'' hΔ'' v (encodePrim_wfIn hraw (hsub.trans hsub'') hΔ'' hvs)
   | .const _, _ | .unop .., _ | .binop .., _ | .fix .., _ | .app .., _
-  | .ifThenElse .., _ | .letIn .., _ | .ref .., _ | .deref .., _ | .store .., _
+  | .ifThenElse .., _ | .letIn .., _ | .letProd .., _ | .ref .., _ | .deref .., _ | .store .., _
   | .arrayMake .., _ | .arrayLen _, _ | .arrayGet .., _ | .arraySet .., _
   | .assert _, _ | .tuple _, _ | .inj .., _ | .match_ .., _ | .cast .., _
   | .var _ _, [] | .var _ _, _ :: _ :: _ =>
@@ -704,6 +716,19 @@ theorem letIn (name : Typed.Binder) (bound body : Typed.Expr)
   have hΓ'' := hops.ctx_mono hΓ hsub''
   exact ihBody hops (hsub.trans hsub'') hΔ'' hΓ''
     (VarEnv.wfIn.bindBinder
+      (fun y w h => Term.wfIn_mono w (hδ y w h) hsub'' hΔ'') hv)
+    (fun hsub''' hΔ''' w hw => hk (hsub''.trans hsub''') hΔ''' w hw)
+
+theorem letProd (names : List Typed.Binder) (bound body : Typed.Expr)
+    (ihBound : EncodeWithIndSig bound) (ihBody : EncodeWithIndSig body) :
+    EncodeWithIndSig (.letProd names bound body) := by
+  intro _ _ _ _ _ _ _ δ _ hops hsub hΔ' hΓ hδ hk
+  simp only [encodeWith]
+  refine ihBound hops hsub hΔ' hΓ hδ ?_
+  intro Δ'' hsub'' hΔ'' v hv
+  have hΓ'' := hops.ctx_mono hΓ hsub''
+  exact ihBody hops (hsub.trans hsub'') hΔ'' hΓ''
+    (VarEnv.wfIn.bindBinders
       (fun y w h => Term.wfIn_mono w (hδ y w h) hsub'' hΔ'') hv)
     (fun hsub''' hΔ''' w hw => hk (hsub''.trans hsub''') hΔ''' w hw)
 
@@ -836,6 +861,9 @@ theorem encodeWith_indWithSig_def : ∀ (e : Typed.Expr), EncodeWithIndSig e
   | .fix self args retTy body => IndSig.fix self args retTy body
   | .letIn name bound body =>
       IndSig.letIn name bound body
+        (encodeWith_indWithSig_def bound) (encodeWith_indWithSig_def body)
+  | .letProd names bound body =>
+      IndSig.letProd names bound body
         (encodeWith_indWithSig_def bound) (encodeWith_indWithSig_def body)
   | .ref owned e => IndSig.ref owned e
   | .deref e ty => IndSig.deref e ty
@@ -1243,7 +1271,7 @@ theorem app (fn : Typed.Expr) (args : List Typed.Expr) (ty : TinyML.Typ)
             (encodePrim_wfIn hraw₂ (hsub₂.trans hsa₂) hwa₂ hvs₂)
             (encodePrim_eval hraw₁ hraw₂ hagree_a hevals)
   | .const _, _ | .unop .., _ | .binop .., _ | .fix .., _ | .app .., _
-  | .ifThenElse .., _ | .letIn .., _ | .ref .., _ | .deref .., _ | .store .., _
+  | .ifThenElse .., _ | .letIn .., _ | .letProd .., _ | .ref .., _ | .deref .., _ | .store .., _
   | .arrayMake .., _ | .arrayLen _, _ | .arrayGet .., _ | .arraySet .., _
   | .assert _, _ | .tuple _, _ | .inj .., _ | .match_ .., _ | .cast .., _
   | .var _ _, [] | .var _ _, _ :: _ :: _ =>
@@ -1276,6 +1304,21 @@ theorem letIn (name : Typed.Binder) (bound body : Typed.Expr)
     EncoderContSpec.mono hsa₁ hsa₂ haa₁ haa₂ hk
   exact ihBody hops (hsub₁.trans hsa₁) (hsub₂.trans hsa₂) hwa₁ hwa₂
     hagree_a (VarEnv.Agree.bindBinder henv_a hv₁ hv₂ hevalv) hka
+
+theorem letProd (names : List Typed.Binder) (bound body : Typed.Expr)
+    (ihBound : EncodeWithBindBinary bound) (ihBody : EncodeWithBindBinary body) :
+    EncodeWithBindBinary (.letProd names bound body) := by
+  intro _ _ _ Δ _ _ _ _ _ hops _ _ _ _ _ _ hsub₁ hsub₂ hwf₁ hwf₂ hagree henv hk
+  simp only [encodeWith]
+  refine ihBound hops hsub₁ hsub₂ hwf₁ hwf₂ hagree henv ?_
+  intro Δa₁ Δa₂ ρa₁ ρa₂ hsa₁ hsa₂ hwa₁ hwa₂ haa₁ haa₂ v₁ v₂ hv₁ hv₂ hevalv
+  have henv_a := VarEnv.Agree.mono hsa₁ hsa₂ hwa₁ hwa₂ haa₁ haa₂ henv
+  have hagree_a : Env.agreeOn Δ ρa₁ ρa₂ :=
+    Env.agreeOn_of_extensions hsub₁ hsub₂ hagree haa₁ haa₂
+  have hka : EncoderContSpec _ Δa₁ Δa₂ ρa₁ ρa₂ _ _ :=
+    EncoderContSpec.mono hsa₁ hsa₂ haa₁ haa₂ hk
+  exact ihBody hops (hsub₁.trans hsa₁) (hsub₂.trans hsa₂) hwa₁ hwa₂
+    hagree_a (VarEnv.Agree.bindBinders henv_a hv₁ hv₂ hevalv) hka
 
 theorem ref (owned : Bool) (e : Typed.Expr) : EncodeWithBindBinary (.ref owned e) := by
   intro _ _ _ _ _ _ _ _ _ hops _ _ _ _ _ _ _ _ _ _ _ _ _; exact hops.error_binary
@@ -1445,6 +1488,9 @@ theorem encodeWith_bind_binary_def : ∀ (e : Typed.Expr), EncodeWithBindBinary 
   | .fix self args retTy body => BindBinary.fix self args retTy body
   | .letIn name bound body =>
       BindBinary.letIn name bound body
+        (encodeWith_bind_binary_def bound) (encodeWith_bind_binary_def body)
+  | .letProd names bound body =>
+      BindBinary.letProd names bound body
         (encodeWith_bind_binary_def bound) (encodeWith_bind_binary_def body)
   | .ref owned e => BindBinary.ref owned e
   | .deref e ty => BindBinary.deref e ty

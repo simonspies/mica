@@ -14,19 +14,19 @@ type ilist = Nil | Cons of int * ilist
 let rec length (xs : ilist) : int =
   match xs with
   | Nil -> 0
-  | Cons p -> 1 + length p.2
+  | Cons (x, rest) -> 1 + length rest
 [@@fn];;
 
 let rec all_neg (xs : ilist) : bool =
   match xs with
   | Nil -> true
-  | Cons p -> p.1 < 0 && all_neg p.2
+  | Cons (x, rest) -> x < 0 && all_neg rest
 [@@fn];;
 
 let rec all_nonneg (xs : ilist) : bool =
   match xs with
   | Nil -> true
-  | Cons p -> p.1 >= 0 && all_nonneg p.2
+  | Cons (x, rest) -> x >= 0 && all_nonneg rest
 [@@fn];;
 
 let empty (unused : int) : ilist =
@@ -37,15 +37,10 @@ let empty (unused : int) : ilist =
     assert (all_nonneg result);
     assert (length result = 0))];;
 
-let rec partition_counts (s : ilist * int * int) : int * int =
-  let xs = s.1 in
-  let neg_len = s.2 in
-  let nonneg_len = s.3 in
+let rec partition_counts ((xs : ilist), (neg_len : int), (nonneg_len : int)) : int * int =
   match xs with
   | Nil -> (neg_len, nonneg_len)
-  | Cons p ->
-    let x = p.1 in
-    let rest = p.2 in
+  | Cons (x, rest) ->
     if x < 0 then
       partition_counts (rest, neg_len + 1, nonneg_len)
     else
@@ -56,9 +51,7 @@ let rec partition_into
     (xs : ilist) (neg : ilist ref [@owned]) (nonneg : ilist ref [@owned]) : unit =
   match xs with
   | Nil -> ()
-  | Cons p ->
-    let x = p.1 in
-    let rest = p.2 in
+  | Cons (x, rest) ->
     if x < 0 then
       neg := Cons (x, !neg)
     else
@@ -74,12 +67,13 @@ let rec partition_into
   ret (fun result ->
     bind (own neg) @@ fun (final_neg : ilist) ->
     bind (own nonneg) @@ fun (final_nonneg : ilist) ->
-    let expected =
-      partition_counts (xs, start_neg_len, start_nonneg_len) in
-    assert (all_neg final_neg);
-    assert (all_nonneg final_nonneg);
-    assert (length final_neg = expected.1);
-    assert (length final_nonneg = expected.2))];;
+	    let expected =
+	      partition_counts (xs, start_neg_len, start_nonneg_len) in
+	    let ((expected_neg : int), (expected_nonneg : int)) = expected in
+	    assert (all_neg final_neg);
+	    assert (all_nonneg final_nonneg);
+	    assert (length final_neg = expected_neg);
+	    assert (length final_nonneg = expected_nonneg))];;
 
 let partition (xs : ilist) : ilist * ilist =
   let neg = ref (empty 0) [@owned] in
@@ -87,11 +81,10 @@ let partition (xs : ilist) : ilist * ilist =
   partition_into xs neg nonneg;
   (!neg, !nonneg)
 [@@spec fun xs ->
-  ret (fun result ->
-    let expected = partition_counts (xs, 0, 0) in
-    let neg = result.1 in
-    let nonneg = result.2 in
-    assert (all_neg neg);
-    assert (all_nonneg nonneg);
-    assert (length neg = expected.1);
-    assert (length nonneg = expected.2))];;
+	  ret (fun ((neg : ilist), (nonneg : ilist)) ->
+	    let expected = partition_counts (xs, 0, 0) in
+	    let ((expected_neg : int), (expected_nonneg : int)) = expected in
+	    assert (all_neg neg);
+	    assert (all_nonneg nonneg);
+	    assert (length neg = expected_neg);
+	    assert (length nonneg = expected_nonneg))];;

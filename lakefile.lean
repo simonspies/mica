@@ -89,21 +89,35 @@ def runTest (mica : LeanExe) (file : FilePath) : IO TestOutcome := do
   let result ← runProcessWithTimeout mica.file.toString #[file.toString] testTimeoutMs
   return { path := file, result := result }
 
-def runStdlibCompile : IO TestOutcome := do
+def runStdlibCompileIn (tmpDir : FilePath) : IO TestOutcome := do
   let cwd ← IO.currentDir
   let path := cwd / "mica.ml"
-  IO.FS.withTempDir fun tmpDir => do
-    let result ←
-      try
-        runProcessWithTimeoutIn? "ocamlc" #["-c", path.toString, "-o", "mica.cmo"]
-          (some tmpDir) testTimeoutMs
-      catch e =>
-        pure (.terminated {
-          exitCode := 127
-          stdout := ""
-          stderr := s!"failed to run ocamlc: {e}\n"
-        })
-    return { path, result }
+  let result ←
+    try
+      runProcessWithTimeoutIn? "ocamlopt" #["-c", path.toString, "-o", "mica.cmx"]
+        (some tmpDir) testTimeoutMs
+    catch e =>
+      pure (.terminated {
+        exitCode := 127
+        stdout := ""
+        stderr := s!"failed to run ocamlopt: {e}\n"
+      })
+  return { path, result }
+
+def runOcamlExampleCompileIn (tmpDir : FilePath) (idx : Nat) (file : FilePath) : IO TestOutcome := do
+  let out := tmpDir / s!"example_{idx}.cmx"
+  let result ←
+    try
+      runProcessWithTimeoutIn? "ocamlopt"
+        #["-I", tmpDir.toString, "-c", file.toString, "-o", out.toString]
+        (some tmpDir) testTimeoutMs
+    catch e =>
+      pure (.terminated {
+        exitCode := 127
+        stdout := ""
+        stderr := s!"failed to run ocamlopt: {e}\n"
+      })
+  return { path := file, result := result }
 
 def parseTestsuiteArgs (args : List String) : ScriptM TestsuiteOptions := do
   let mut summaryOnly := false
@@ -205,10 +219,20 @@ def reportTestOutcome (options : TestsuiteOptions) (failed : List TestOutcome) (
     printCapturedOutput test
   pure failed
 
-def runOcamlStdlibTests (options : TestsuiteOptions) (failed : List TestOutcome) :
+def runOcamlCompileTests (options : TestsuiteOptions) (tests : Array FilePath)
+    (failed : List TestOutcome) :
     IO (List TestOutcome) := do
-  let test ← runStdlibCompile
-  reportTestOutcome options failed "Compiling" "mica.ml" test
+  IO.FS.withTempDir fun tmpDir => do
+    let stdlib ← runStdlibCompileIn tmpDir
+    let mut failed ← reportTestOutcome options failed "Compiling" "mica.ml" stdlib
+    if !isFailure stdlib.result then
+      let mut idx := 0
+      for file in tests do
+        let filename := file.fileName.getD file.toString
+        let test ← runOcamlExampleCompileIn tmpDir idx file
+        failed ← reportTestOutcome options failed "Compiling" filename test
+        idx := idx + 1
+    pure failed
 
 def runMicaExampleTests (options : TestsuiteOptions) (mica : LeanExe)
     (tests : Array FilePath) (failed : List TestOutcome) : IO (List TestOutcome) := do
@@ -261,6 +285,6 @@ script testsuite (args) := do
   let options ← parseTestsuiteArgs args
   let inputPath ← resolveInputPath options.dir
   let tests ← discoverTests inputPath
-  let failed ← runOcamlStdlibTests options []
+  let failed ← runOcamlCompileTests options tests []
   let failed ← runMicaExampleTests options mica tests failed
   printTestsuiteSummary failed

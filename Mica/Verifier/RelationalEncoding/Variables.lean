@@ -316,6 +316,16 @@ def bindBinder (ρ : VarEnv) (b : Typed.Binder) (v : Term .value) : VarEnv :=
   | none => ρ
   | some x => ρ.bind x v
 
+def prodProj (v : Term .value) (i : Nat) : Term .value :=
+  .unop .vhead (vtailN (.unop .toValList v) i)
+
+def bindBindersFrom (ρ : VarEnv) (v : Term .value) : List Typed.Binder → Nat → VarEnv
+  | [], _ => ρ
+  | b :: bs, i => bindBindersFrom (ρ.bindBinder b (prodProj v i)) v bs (i + 1)
+
+def bindBinders (ρ : VarEnv) (bs : List Typed.Binder) (v : Term .value) : VarEnv :=
+  bindBindersFrom ρ v bs 0
+
 /-- Initial local environment induced by value variables declared in a FOL
 signature. -/
 def ofSignature (Δ : Signature) : VarEnv :=
@@ -359,6 +369,28 @@ theorem wfIn.bindBinder {Δ : Signature} {δ : VarEnv} {b : Typed.Binder}
       cases name with
       | none => simpa [bindBinder] using henv
       | some x => simpa [bindBinder] using henv.bind hv
+
+theorem prodProj_wfIn {Δ : Signature} {v : Term .value} (hv : v.wfIn Δ) (i : Nat) :
+    (prodProj v i).wfIn Δ := by
+  unfold prodProj
+  have hto : (Term.unop UnOp.toValList v).wfIn Δ := by
+    change UnOp.toValList.wfIn Δ ∧ v.wfIn Δ
+    exact And.intro trivial hv
+  change UnOp.vhead.wfIn Δ ∧ (vtailN (.unop .toValList v) i).wfIn Δ
+  exact And.intro trivial (vtailN_wfIn hto i)
+
+theorem wfIn.bindBindersFrom {Δ : Signature} {δ : VarEnv} {v : Term .value}
+    (henv : δ.wfIn Δ) (hv : v.wfIn Δ) :
+    ∀ bs i, (bindBindersFrom δ v bs i).wfIn Δ
+  | [], _ => henv
+  | _ :: bs, i =>
+      wfIn.bindBindersFrom
+        (wfIn.bindBinder henv (prodProj_wfIn hv i)) hv bs (i + 1)
+
+theorem wfIn.bindBinders {Δ : Signature} {δ : VarEnv} {bs : List Typed.Binder}
+    {v : Term .value} (henv : δ.wfIn Δ) (hv : v.wfIn Δ) :
+    (δ.bindBinders bs v).wfIn Δ := by
+  simpa [bindBinders] using wfIn.bindBindersFrom henv hv bs 0
 
 theorem ofSignature_wfIn {Δ : Signature} (hΔ : Δ.wf) :
     (ofSignature Δ).wfIn Δ := by
@@ -427,6 +459,34 @@ theorem Agree.bindBinder {Δ₁ Δ₂ : Signature} {ρ₁ ρ₂ : Env}
       cases name with
       | none => simpa [bindBinder] using henv
       | some x => simpa [bindBinder] using henv.bind hv₁ hv₂ heval
+
+theorem prodProj_eval {ρ₁ ρ₂ : Env} {v₁ v₂ : Term .value} (i : Nat)
+    (heval : Term.eval ρ₁ v₁ = Term.eval ρ₂ v₂) :
+    Term.eval ρ₁ (prodProj v₁ i) = Term.eval ρ₂ (prodProj v₂ i) := by
+  simp [prodProj, Term.eval, UnOp.eval, vtailN_eval, heval]
+
+theorem Agree.bindBindersFrom {Δ₁ Δ₂ : Signature} {ρ₁ ρ₂ : Env}
+    {δ₁ δ₂ : VarEnv} {v₁ v₂ : Term .value}
+    (henv : Agree Δ₁ Δ₂ ρ₁ ρ₂ δ₁ δ₂)
+    (hv₁ : v₁.wfIn Δ₁) (hv₂ : v₂.wfIn Δ₂)
+    (heval : Term.eval ρ₁ v₁ = Term.eval ρ₂ v₂) :
+    ∀ bs i,
+      Agree Δ₁ Δ₂ ρ₁ ρ₂
+        (bindBindersFrom δ₁ v₁ bs i) (bindBindersFrom δ₂ v₂ bs i)
+  | [], _ => henv
+  | _ :: bs, i =>
+      Agree.bindBindersFrom
+        (Agree.bindBinder henv
+          (prodProj_wfIn hv₁ i) (prodProj_wfIn hv₂ i) (prodProj_eval i heval))
+        hv₁ hv₂ heval bs (i + 1)
+
+theorem Agree.bindBinders {Δ₁ Δ₂ : Signature} {ρ₁ ρ₂ : Env}
+    {δ₁ δ₂ : VarEnv} {bs : List Typed.Binder} {v₁ v₂ : Term .value}
+    (henv : Agree Δ₁ Δ₂ ρ₁ ρ₂ δ₁ δ₂)
+    (hv₁ : v₁.wfIn Δ₁) (hv₂ : v₂.wfIn Δ₂)
+    (heval : Term.eval ρ₁ v₁ = Term.eval ρ₂ v₂) :
+    Agree Δ₁ Δ₂ ρ₁ ρ₂ (δ₁.bindBinders bs v₁) (δ₂.bindBinders bs v₂) := by
+  simpa [bindBinders] using Agree.bindBindersFrom henv hv₁ hv₂ heval bs 0
 
 theorem Agree.mono {Δ₁ Δ₂ Δ₁' Δ₂' : Signature} {ρ₁ ρ₂ ρ₁' ρ₂' : Env}
     {δ₁ δ₂ : VarEnv}

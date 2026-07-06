@@ -130,6 +130,8 @@ partial def Pattern.print (p : Pattern) : String :=
   | .ctor path none => path.toString
   | .ctor path (some pat) => s!"{path.toString} {parenIf (!Pattern.isAtom pat) (Pattern.print pat)}"
   | .tuple pats => parens (joinWith ", " (pats.map Pattern.print))
+  | .record fields =>
+    "{ " ++ joinWith "; " (fields.map fun (name, pat) => name ++ " = " ++ Pattern.print pat) ++ " }"
 
 -- ---------------------------------------------------------------------------
 -- Expression printing

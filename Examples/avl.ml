@@ -39,13 +39,13 @@ let max_int (x: int) (y: int) : int =
 let height (tr: tree) : int =
   match tr with
   | Leaf -> 0
-  | Node n -> n.2
+  | Node (v, h, l, r) -> h
 [@@fn];;
 
 let height_impl (tr: tree) : int =
   match tr with
   | Leaf -> 0
-  | Node n -> n.2
+  | Node (v, h, l, r) -> h
 [@@spec fun tr ->
   ret (fun result -> assert (result = height tr))];;
 
@@ -53,17 +53,10 @@ let height_impl (tr: tree) : int =
    - values are in the inclusive BST interval [lo, hi],
    - cached heights are exact and non-negative,
    - every node satisfies the AVL balance bound. *)
-let rec avl_tree_inv (args: tree * int * int) : bool =
-  let tr = args.1 in
-  let lo = args.2 in
-  let hi = args.3 in
+let rec avl_tree_inv ((tr : tree), (lo : int), (hi : int)) : bool =
   match tr with
   | Leaf -> true
-  | Node n ->
-    let v = n.1 in
-    let h = n.2 in
-    let l = n.3 in
-    let r = n.4 in
+  | Node (v, h, l, r) ->
     let right_ok = avl_tree_inv (r, v, hi) in
     let left_ok = avl_tree_inv (l, lo, v) in
     let rh = height r in
@@ -76,10 +69,7 @@ let rec avl_tree_inv (args: tree * int * int) : bool =
 
 let avl_tree (h: t) : bool =
   match h with
-  | Avl p ->
-    let lo = p.1 in
-    let tr = p.2 in
-    let hi = p.3 in
+  | Avl (lo, tr, hi) ->
     let ok = avl_tree_inv (tr, lo, hi) in
     lo <= hi && ok
 [@@fn];;
@@ -109,36 +99,24 @@ let balance (v: int) (lo: int) (hi: int) (l: tree) (r: tree) : tree =
   if lh > rh + 1 then
     match l with
     | Leaf -> (* unreachable *) make_node v lo hi l r
-    | Node ln ->
-      let lv = ln.1 in
-      let ll = ln.3 in
-      let lr = ln.4 in
+    | Node (lv, lh, ll, lr) ->
       if height_impl ll >= height_impl lr then
         make_node lv lo hi ll (make_node v lv hi lr r)
       else
         match lr with
         | Leaf -> (* unreachable *) make_node v lo hi l r
-        | Node lrn ->
-          let lrv = lrn.1 in
-          let lrl = lrn.3 in
-          let lrr = lrn.4 in
+        | Node (lrv, lrh, lrl, lrr) ->
           make_node lrv lo hi (make_node lv lo lrv ll lrl) (make_node v lrv hi lrr r)
   else if rh > lh + 1 then
     match r with
     | Leaf -> (* unreachable *) make_node v lo hi l r
-    | Node rn ->
-      let rv = rn.1 in
-      let rl = rn.3 in
-      let rr = rn.4 in
+    | Node (rv, rh, rl, rr) ->
       if height_impl rr >= height_impl rl then
         make_node rv lo hi (make_node v lo rv l rl) rr
       else
         match rl with
         | Leaf -> (* unreachable *) make_node v lo hi l r
-        | Node rln ->
-          let rlv = rln.1 in
-          let rll = rln.3 in
-          let rlr = rln.4 in
+        | Node (rlv, rlh, rll, rlr) ->
           make_node rlv lo hi (make_node v lo rlv l rll) (make_node rv rlv hi rlr rr)
   else make_node v lo hi l r
 [@@spec fun v lo hi l r ->
@@ -163,10 +141,7 @@ let balance (v: int) (lo: int) (hi: int) (l: tree) (r: tree) : tree =
 let rec widen_tree (lo: int) (hi: int) (new_lo: int) (new_hi: int) (tr: tree) : unit =
   match tr with
   | Leaf -> ()
-  | Node n ->
-    let v = n.1 in
-    let l = n.3 in
-    let r = n.4 in
+  | Node (v, h, l, r) ->
     assert (new_lo <= v);
     assert (v <= new_hi);
     widen_tree lo v new_lo v l;
@@ -180,10 +155,7 @@ let rec widen_tree (lo: int) (hi: int) (new_lo: int) (new_hi: int) (tr: tree) : 
 let rec insert_raw (x: int) (lo: int) (hi: int) (tr: tree) : tree =
   match tr with
   | Leaf -> Node (x, 1, Leaf, Leaf)
-  | Node n ->
-    let v = n.1 in
-    let l = n.3 in
-    let r = n.4 in
+  | Node (v, h, l, r) ->
     if x < v then balance v lo hi (insert_raw x lo v l) r
     else if v < x then balance v lo hi l (insert_raw x v hi r)
     else tr
@@ -203,10 +175,7 @@ let singleton (x: int) : t =
 
 let insert (x: int) (h: t) : t =
   match h with
-  | Avl p ->
-    let lo = p.1 in
-    let tr = p.2 in
-    let hi = p.3 in
+  | Avl (lo, tr, hi) ->
     let new_lo = min_int x lo in
     let new_hi = max_int x hi in
     widen_tree lo hi new_lo new_hi tr;
@@ -217,18 +186,18 @@ let insert (x: int) (h: t) : t =
 
 let min (h: t) : int =
   match h with
-  | Avl p -> p.1
+  | Avl (lo, tr, hi) -> lo
 [@@spec fun h ->
   assert (avl_tree h);
-  bind (isinj 0 1 h) @@ fun (p : int * tree * int) ->
+  bind (isinj 0 1 h) @@ fun ((lo : int), (tr : tree), (hi : int)) ->
   ret (fun result ->
-    assert (result = p.1))];;
+    assert (result = lo))];;
 
 let max (h: t) : int =
   match h with
-  | Avl p -> p.3
+  | Avl (lo, tr, hi) -> hi
 [@@spec fun h ->
   assert (avl_tree h);
-  bind (isinj 0 1 h) @@ fun (p : int * tree * int) ->
+  bind (isinj 0 1 h) @@ fun ((lo : int), (tr : tree), (hi : int)) ->
   ret (fun result ->
-    assert (result = p.3))];;
+    assert (result = hi))];;

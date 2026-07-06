@@ -47,6 +47,7 @@ inductive KItem where
   | appArgs (fn : Runtime.Expr) (left : Runtime.Exprs) (right : Runtime.Vals)
   | appFn   (vs : Runtime.Vals)
   | ifCond (thn els : Runtime.Expr)
+  | letProdK (names : List Runtime.Binder) (body : Runtime.Expr)
   | ref
   | deref
   | storeR (loc : Runtime.Expr)
@@ -72,6 +73,7 @@ def KItem.fill : KItem → Runtime.Expr → Runtime.Expr
   | .appArgs fn left right, e => .app fn (left ++ [e] ++ right.map .val)
   | .appFn vs,            e => .app e (vs.map .val)
   | .ifCond thn els,      e => .ifThenElse e thn els
+  | .letProdK names body, e => .letProd names e body
   | .ref,                 e => .ref e
   | .deref,               e => .deref e
   | .storeR loc,          e => .store loc e
@@ -266,6 +268,7 @@ def K.items : K → List KItem
   | .appArgs fn left k right => k.items ++ [.appArgs fn left right]
   | .appFn k vs => k.items ++ [.appFn vs]
   | .ifCond k thn els => k.items ++ [.ifCond thn els]
+  | .letProdK names k body => k.items ++ [.letProdK names body]
   | .ref k => k.items ++ [.ref]
   | .deref k => k.items ++ [.deref]
   | .storeR loc k => k.items ++ [.storeR loc]
@@ -300,6 +303,7 @@ def KItem.toK : KItem → K
   | .appArgs fn left right => .appArgs fn left .hole right
   | .appFn vs => .appFn .hole vs
   | .ifCond thn els => .ifCond .hole thn els
+  | .letProdK names body => .letProdK names .hole body
   | .ref => .ref .hole
   | .deref => .deref .hole
   | .storeR loc => .storeR loc .hole

@@ -23,6 +23,7 @@ inductive ElaborateErrorKind where
   | duplicateConstructor (name : String)
   | duplicateType (name : String)
   | duplicateField (name : String)
+  | missingField (name : String)
   | unsupportedChar
   | unsupportedRecordUpdate
   | unsupportedPattern (desc : String)
@@ -46,6 +47,7 @@ def ElaborateErrorKind.toString : ElaborateErrorKind → String
   | .unknownConstructor name => s!"unknown constructor '{name}'"
   | .unknownType name => s!"unknown type '{name}'"
   | .unknownField name => s!"unknown field '{name}'"
+  | .missingField name => s!"missing field '{name}'"
   | .duplicateConstructor name => s!"duplicate constructor '{name}'"
   | .duplicateType name => s!"duplicate type name '{name}'"
   | .duplicateField name =>
@@ -76,9 +78,9 @@ instance : ToString ElaborateError := ⟨ElaborateError.toString⟩
 
 structure ElabEnv where
   types    : List TypeConstructor                            := []
-  ctors    : List (Constructor × (Nat × Nat))                := []
+  ctors    : List (Constructor × (Nat × Nat × TinyML.Typ))   := []
   fields   : List (FieldName × (TypeConstructor × Nat))      := []
-  records  : List (TypeConstructor × List FieldName)         := []
+  records  : List (TypeConstructor × List (FieldName × TinyML.Typ)) := []
   resolver : Resolver
 
 -- ---------------------------------------------------------------------------
@@ -133,6 +135,11 @@ def TypKind.elaborate (env : ElabEnv) (loc : Location) : TypKind → ElabM TinyM
       | [arg] => .ok (.array arg)
       | _ => err loc (.arityMismatch 1 args'.length)
     | _ =>
+      match List.lookup name env.records with
+      | some fields =>
+          if args'.isEmpty then .ok (.tuple (fields.map Prod.snd))
+          else err loc (.arityMismatch 0 args'.length)
+      | none =>
       if env.types.elem name then .ok (.named name args')
       else err loc (.unknownType name)
   | .arrow dom cod => do
@@ -184,6 +191,119 @@ private def patternToBinderTyped (env : ElabEnv) (pat : Pattern) : ElabM Untyped
     .ok (.named n ty')
   | _ => err pat.loc (.unsupportedPattern "expected a simple binder (variable or wildcard)")
 
+private def patternListToAnnotatedBinders (env : ElabEnv) :
+    List Pattern → ElabM (List Untyped.Binder)
+  | [] => .ok []
+  | p :: ps => do
+    let b ← patternToBinderTyped env p
+    let bs ← patternListToAnnotatedBinders env ps
+    .ok (b :: bs)
+
+private def checkRecordFieldSet (loc : Location) (fieldOrder : List FieldName) :
+    List (FieldName × α) → ElabM Unit
+  | [] => .ok ()
+  | (name, _) :: rest =>
+      if !fieldOrder.any (· == name) then
+        err loc (.unknownField name)
+      else if rest.any (fun (other, _) => other == name) then
+        err loc (.duplicateField name)
+      else
+        checkRecordFieldSet loc fieldOrder rest
+
+private def reorderFields (loc : Location) (provided : List (FieldName × α)) :
+    List FieldName → ElabM (List α)
+  | [] => .ok []
+  | fieldName :: rest => do
+    match provided.find? (fun (n, _) => n == fieldName) with
+    | some (_, a) =>
+      let rest' ← reorderFields loc provided rest
+      .ok (a :: rest')
+    | none => err loc (.missingField fieldName)
+
+private def recordFieldsFor (env : ElabEnv) (loc : Location) (fields : List (FieldName × α)) :
+    ElabM (List (FieldName × TinyML.Typ)) :=
+  match fields with
+  | [] => err loc (.unsupportedFeature "empty record pattern")
+  | (name, _) :: _ =>
+      match List.lookup name env.fields with
+      | none => err loc (.unknownField name)
+      | some (tyName, _) =>
+          match List.lookup tyName env.records with
+          | none => err loc (.unknownType tyName)
+          | some fieldInfo => do
+              checkRecordFieldSet loc (fieldInfo.map Prod.fst) fields
+              .ok fieldInfo
+
+private def patternRecordFieldsToBinders (env : ElabEnv)
+    : List (FieldName × Pattern) → ElabM (List (FieldName × Untyped.Binder))
+  | [] => .ok []
+  | (name, pat) :: rest => do
+      let binder ← patternToBinderTyped env pat
+      let binders ← patternRecordFieldsToBinders env rest
+      .ok ((name, binder) :: binders)
+
+private def patternToProductBinders (env : ElabEnv) (pat : Pattern) :
+    ElabM (List Untyped.Binder) :=
+  match pat.kind with
+  | .tuple pats => patternListToAnnotatedBinders env pats
+  | .record fields => do
+      let fieldInfo ← recordFieldsFor env pat.loc fields
+      let binders ← patternRecordFieldsToBinders env fields
+      reorderFields pat.loc binders (fieldInfo.map Prod.fst)
+  | _ => err pat.loc (.unsupportedPattern "expected a flat product binder")
+
+private def patternComponentType? (env : ElabEnv) (pat : Pattern) : ElabM (Option TinyML.Typ) :=
+  match pat.kind with
+  | .binder _ (some ty) => do
+      let ty' ← Typ.elaborate env ty
+      .ok (some ty')
+  | .binder _ none | .wildcard => .ok none
+  | _ => err pat.loc (.unsupportedPattern "expected a flat tuple binder")
+
+private def patternComponentTypes? (env : ElabEnv) :
+    List Pattern → ElabM (Option (List TinyML.Typ))
+  | [] => .ok (some [])
+  | p :: ps => do
+      let ty? ← patternComponentType? env p
+      let tys? ← patternComponentTypes? env ps
+      match ty?, tys? with
+      | some ty, some tys => .ok (some (ty :: tys))
+      | _, _ => .ok none
+
+private def patternToProductType (env : ElabEnv) (pat : Pattern) : ElabM TinyML.Typ :=
+  match pat.kind with
+  | .tuple pats => do
+      match ← patternComponentTypes? env pats with
+      | some tys => .ok (TinyML.Typ.tuple tys)
+      | none =>
+          err pat.loc (.unsupportedPattern "tuple function arguments must annotate each component")
+  | .record fields => do
+      let fieldInfo ← recordFieldsFor env pat.loc fields
+      .ok (TinyML.Typ.tuple (fieldInfo.map Prod.snd))
+  | _ => err pat.loc (.unsupportedPattern "expected a flat product binder")
+
+private def isProductPattern (pat : Pattern) : Bool :=
+  match pat.kind with
+  | .tuple (_ :: _) | .record _ => true
+  | _ => false
+
+private def productArgumentName (stem : String) (idx : Nat) : String :=
+  s!"{stem}{idx}"
+
+private def elaborateFunctionArgs (env : ElabEnv) (stem : String) :
+    Nat → List Pattern → Untyped.Expr → ElabM (List Untyped.Binder × Untyped.Expr)
+  | _, [], body => .ok ([], body)
+  | idx, pat :: pats, body => do
+      let (restArgs, restBody) ← elaborateFunctionArgs env stem (idx + 1) pats body
+      if isProductPattern pat then
+        let argName := productArgumentName stem idx
+        let argTy ← patternToProductType env pat
+        let names ← patternToProductBinders env pat
+        .ok (.named argName (some argTy) :: restArgs, .letProd names (.var argName) restBody)
+      else
+        let arg ← patternToBinderTyped env pat
+        .ok (arg :: restArgs, restBody)
+
 -- ---------------------------------------------------------------------------
 -- Match branch assembly
 
@@ -207,25 +327,12 @@ private def insertBranch (env : ElabEnv) (loc : Location) (arity : Nat)
     : ElabM (List (Option (Untyped.Binder × Untyped.Expr))) :=
   match List.lookup name env.ctors with
   | none => .error { loc, kind := .unknownConstructor name }
-  | some (tag, arity') =>
+  | some (tag, arity', _) =>
     if arity' != arity then
       .error { loc, kind := .arityMismatch arity arity' }
     else
       let b := binder.getD .none
       .ok (listSet acc tag (some (b, body)))
-
--- ---------------------------------------------------------------------------
--- Record helpers (outside mutual block — no recursion into Expr)
-
-private def reorderElaborated (loc : Location) (elaborated : List (FieldName × Untyped.Expr))
-    : List FieldName → ElabM (List Untyped.Expr)
-  | [] => .ok []
-  | fieldName :: rest => do
-    match elaborated.find? (fun (n, _) => n == fieldName) with
-    | some (_, e) =>
-      let rest' ← reorderElaborated loc elaborated rest
-      .ok (e :: rest')
-    | none => err loc (.unknownField fieldName)
 
 -- ---------------------------------------------------------------------------
 -- Expression elaboration
@@ -243,7 +350,7 @@ private def elaborateBinOp (loc : Location) : BinOp → ElabM TinyML.BinOp
 private def elaborateCtorLookup (env : ElabEnv) (loc : Location) (name : String)
     (arg : Option Untyped.Expr) : ElabM Untyped.Expr :=
   match List.lookup name env.ctors with
-  | some (tag, arity) => .ok (.inj tag arity (arg.getD (.const .unit)))
+  | some (tag, arity, _) => .ok (.inj tag arity (arg.getD (.const .unit)))
   | none => err loc (.unknownConstructor name)
 
 /-- Apply a single expression attribute to an already-elaborated term. One arm
@@ -292,7 +399,7 @@ def ExprKind.elaborate (env : ElabEnv) (loc : Location) : ExprKind → ElabM Unt
       | "ref" | "not" => err loc (.bareSpecialIdentifier name)
       | _ =>
         match List.lookup name env.ctors with
-        | some (tag, arity) => .ok (.inj tag arity (.const .unit))
+        | some (tag, arity, _) => .ok (.inj tag arity (.const .unit))
         | none => .ok (.var name)
 
   | .ctor path =>
@@ -464,26 +571,30 @@ def ExprKind.elaborate (env : ElabEnv) (loc : Location) : ExprKind → ElabM Unt
     match binders with
     | [] => err loc (.unsupportedFeature "let with no binders")
     | [pat] => do
-      let name ← patternToBinder pat
       let bound' ← Expr.elaborate env bound
       let body' ← Expr.elaborate env body
       if isRec then
         err loc (.unsupportedFeature "let rec requires function arguments")
       else
-        .ok (.letIn name bound' body')
+        if isProductPattern pat then
+          let names ← patternToProductBinders env pat
+          .ok (.letProd names bound' body')
+        else do
+          let name ← patternToBinder pat
+          .ok (.letIn name bound' body')
     | pat :: args => do
       let name ← patternToBinder pat
-      let args' ← Pattern.toAnnotatedBinders env args
       let self := if isRec then name else .none
       let bound' ← Expr.elaborate env bound
+      let (args', bound'') ← elaborateFunctionArgs env "$param" 0 args bound'
       let body' ← Expr.elaborate env body
-      .ok (.letIn name (.fix self args' none bound') body')
+      .ok (.letIn name (.fix self args' none bound'') body')
 
   | .fun_ args retTy body => do
-    let args' ← Pattern.toAnnotatedBinders env args
     let retTy' ← elaborateOptTyp env retTy
     let body' ← Expr.elaborate env body
-    .ok (.fix .none args' retTy' body')
+    let (args', body'') ← elaborateFunctionArgs env "$param" 0 args body'
+    .ok (.fix .none args' retTy' body'')
 
   | .match_ scrut arms => do
     let scrut' ← Expr.elaborate env scrut
@@ -493,7 +604,7 @@ def ExprKind.elaborate (env : ElabEnv) (loc : Location) : ExprKind → ElabM Unt
     | (ctorName, _, _) :: _ =>
       match List.lookup ctorName env.ctors with
       | none => err loc (.unknownConstructor ctorName)
-      | some (_, arity) => do
+      | some (_, arity, _) => do
         let init : List (Option (Untyped.Binder × Untyped.Expr)) := List.replicate arity none
         let filled ← arms'.foldlM
           (fun acc (name, binder, body) => insertBranch env loc arity acc name binder body)
@@ -505,19 +616,11 @@ def ExprKind.elaborate (env : ElabEnv) (loc : Location) : ExprKind → ElabM Unt
     let es' ← Expr.elaborateList env es
     .ok (.tuple es')
 
-  | .record flds =>
-    match flds with
-    | [] => err loc (.unsupportedFeature "empty record")
-    | (name, _) :: _ =>
-      match List.lookup name env.fields with
-      | none => err loc (.unknownField name)
-      | some (tyName, _) =>
-        match List.lookup tyName env.records with
-        | none => err loc (.unknownType tyName)
-        | some fieldOrder => do
-          let elaborated ← Expr.elaborateRecordFields env flds
-          let es' ← reorderElaborated loc elaborated fieldOrder
-          .ok (.tuple es')
+  | .record flds => do
+    let fieldInfo ← recordFieldsFor env loc flds
+    let elaborated ← Expr.elaborateRecordFields env flds
+    let es' ← reorderFields loc elaborated (fieldInfo.map Prod.fst)
+    .ok (.tuple es')
 
   | .recordUpdate _ _ => err loc .unsupportedRecordUpdate
 
@@ -543,22 +646,41 @@ def MatchArm.elaborateList (env : ElabEnv)
   | [] => .ok []
   | ⟨pat, body⟩ :: arms => do
     let body' ← Expr.elaborate env body
-    let (ctorName, binder) ← match pat.kind with
+    let (ctorName, binder, body'') ← match pat.kind with
       | .ctor path payload => do
         let name ← if path.isQualified then
           match env.resolver.ctor path with
           | some (.aliased n) => .ok n
           | none => err pat.loc (.unsupportedPath path)
         else .ok path.head
-        let binder ← match payload with
-          | some p => do
-            let b ← patternToBinder p
-            pure (some b)
-          | none => pure none
-        pure (name, binder)
+        let payloadTy ← match List.lookup name env.ctors with
+          | some (_, _, ty) => .ok ty
+          | none => err pat.loc (.unknownConstructor name)
+        let (binder, body'') ← match payload with
+          | some p =>
+            match payloadTy with
+            | .tuple _ =>
+                if isProductPattern p then do
+                  let names ← patternToProductBinders env p
+                  let argName := "$arg0"
+                  pure (some (.named argName none), .letProd names (.var argName) body')
+                else
+                  err p.loc (.unsupportedPattern
+                    "constructor tuple or record payload must be destructured in the constructor pattern")
+            | _ =>
+                if isProductPattern p then
+                  err p.loc (.unsupportedPattern "constructor payload is not a product")
+                else do
+                  let b ← patternToBinder p
+                  pure (some b, body')
+          | none =>
+            match payloadTy with
+            | .prim .unit => pure (none, body')
+            | _ => err pat.loc (.unsupportedPattern "constructor payload must be matched")
+        pure (name, binder, body'')
       | _ => err pat.loc (.unsupportedPattern "only constructor patterns are allowed in match")
     let rest ← MatchArm.elaborateList env arms
-    .ok ((ctorName, binder, body') :: rest)
+    .ok ((ctorName, binder, body'') :: rest)
 
 def Pattern.toAnnotatedBinders (env : ElabEnv)
     : List Pattern → ElabM (List Untyped.Binder)
@@ -574,7 +696,7 @@ end
 
 private def elaborateCtorDefs (env : ElabEnv) (loc : Location)
     (ctorDefs : List (Constructor × Option Typ)) (tag : Nat) (arity : Nat)
-    : ElabM (List TinyML.Typ × List (Constructor × (Nat × Nat))) :=
+    : ElabM (List TinyML.Typ × List (Constructor × (Nat × Nat × TinyML.Typ))) :=
   match ctorDefs with
   | [] => .ok ([], [])
   | (ctorName, payloadTy) :: rest => do
@@ -586,7 +708,7 @@ private def elaborateCtorDefs (env : ElabEnv) (loc : Location)
       | none => .ok .unit
     let (restTypes, restCtors) ← elaborateCtorDefs env loc rest (tag + 1) arity
     .ok (payloadTy' :: restTypes,
-         (ctorName, (tag, arity)) :: restCtors)
+         (ctorName, (tag, arity, payloadTy')) :: restCtors)
 
 private def elaborateVariant (env : ElabEnv) (loc : Location) (name : TypeConstructor)
     (tparams : List TinyML.TyVar) (ctorDefs : List (Constructor × Option Typ))
@@ -618,11 +740,14 @@ private def elaborateRecordDecl (env : ElabEnv) (loc : Location) (name : TypeCon
     (fieldDefs : List (FieldName × Typ)) : ElabM ElabEnv := do
   if env.types.elem name then
     return ← err loc (.duplicateType name)
+  let envWithSelf := { env with types := name :: env.types }
   let newFields ← elaborateFieldDefs env loc name fieldDefs 0
-  let fieldNames := fieldDefs.map Prod.fst
+  let fieldTypes ← fieldDefs.mapM (fun (fieldName, ty) => do
+    let ty' ← Typ.elaborate envWithSelf ty
+    pure (fieldName, ty'))
   .ok { env with
     types := name :: env.types
-    records := (name, fieldNames) :: env.records
+    records := (name, fieldTypes) :: env.records
     fields := newFields ++ env.fields }
 
 def TypeDecl.elaborate (env : ElabEnv) (loc : Location) (decl : TypeDecl)
@@ -654,10 +779,10 @@ def ValDecl.elaborate (env : ElabEnv) (loc : Location)
   | pat :: args =>
     let name ← patternToBinder pat
     let self := if isRec then name else .none
-    let args' ← Pattern.toAnnotatedBinders env args
     let retTy' ← elaborateOptTyp env retTy
     let body' ← Expr.elaborate env body
-    .ok { name, body := .fix self args' retTy' body', declMeta := md }
+    let (args', body'') ← elaborateFunctionArgs env "$param" 0 args body'
+    .ok { name, body := .fix self args' retTy' body'', declMeta := md }
 
 -- ---------------------------------------------------------------------------
 -- Program elaboration

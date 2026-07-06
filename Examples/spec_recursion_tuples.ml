@@ -23,9 +23,7 @@ open Mica
 
 (* Spec-level recursive definition. The `[@@fn]` annotation registers
    it as an SMT function; specs invoke it by its OCaml name `sum_acc`. *)
-let rec sum_acc (s: int * int) : int =
-  let acc = s.1 in
-  let i   = s.2 in
+let rec sum_acc ((acc : int), (i : int)) : int =
   if i < 1 then acc
   else sum_acc (acc + i, i - 1)
 [@@fn];;
@@ -34,14 +32,12 @@ let rec sum_acc (s: int * int) : int =
    function exactly. Each recursive runtime call discharges
    `sum_acc (acc+i, i-1) = result`; the postcondition's
    `sum_acc s` is then equal to that, by one body unfolding. *)
-let rec sum_acc_impl (s: int * int) : int =
-  let acc = s.1 in
-  let i   = s.2 in
+let rec sum_acc_impl ((acc : int), (i : int)) : int =
   if i < 1 then acc
   else sum_acc_impl (acc + i, i - 1)
-[@@spec fun s ->
+[@@spec fun ((acc : int), (i : int)) ->
   ret (fun v ->
-    let expected = sum_acc s in
+    let expected = sum_acc (acc, i) in
     assert (v = expected))];;
 
 (* Closed entry point.  This function does not carry recursion itself,

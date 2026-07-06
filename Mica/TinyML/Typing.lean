@@ -131,6 +131,22 @@ def extendTyped (Γ : TinyML.TyCtx) (b : Typed.Binder) : TinyML.TyCtx :=
   | none => Γ
   | some x => Γ.extend x b.ty
 
+def extendTypedList (Γ : TinyML.TyCtx) (bs : List Typed.Binder) : TinyML.TyCtx :=
+  bs.foldl extendTyped Γ
+
+def inferProductBinders (Θ : TypeEnv) :
+    List Untyped.Binder → List Typ → Except TypeError (List Typed.Binder)
+  | [], [] => .ok []
+  | binder :: binders, ty :: tys => do
+      let binderTy := Typed.Binder.expectedTy binder ty
+      if Typ.sub Θ ty binderTy then
+        let typedBinder := Typed.Binder.ofUntyped binder binderTy
+        let rest ← inferProductBinders Θ binders tys
+        .ok (typedBinder :: rest)
+      else
+        .error (.subsumptionFailure ty binderTy)
+  | binders, tys => .error (.arityMismatch tys.length binders.length)
+
 def joinAll (Θ : TypeEnv) : List Typ → Typ
   | [] => .value
   | t :: ts => ts.foldl (Typ.join Θ) t
@@ -270,6 +286,14 @@ mutual
         let typedName := Typed.Binder.ofUntyped name (match name with | .named _ (some ty) => ty | _ => boundTy)
         let (bodyTy, body') ← infer prims Θ (extendTyped Γ typedName) body
         .ok (bodyTy, .letIn typedName bound' body')
+    | .letProd names bound body => do
+        let (boundTy, bound') ← infer prims Θ Γ bound
+        let tys ← match boundTy with
+          | .tuple tys => .ok tys
+          | _ => .error (.typeMismatch (.tuple []) boundTy)
+        let typedNames ← inferProductBinders Θ names tys
+        let (bodyTy, body') ← infer prims Θ (extendTypedList Γ typedNames) body
+        .ok (bodyTy, .letProd typedNames bound' body')
     | .ref owned e => do
         let (ty, e') ← infer prims Θ Γ e
         .ok ((if owned then .owned ty else .ref ty), .ref owned e')
@@ -389,6 +413,26 @@ end
 theorem Binder.ofUntyped_runtime (b : Untyped.Binder) (ty : Typ) :
     (Typed.Binder.ofUntyped b ty).runtime = b.runtime := by
   cases b <;> rfl
+
+theorem inferProductBinders_runtime (Θ : TypeEnv) :
+    ∀ (binders : List Untyped.Binder) (tys : List Typ) (typed : List Typed.Binder),
+      inferProductBinders Θ binders tys = .ok typed →
+        typed.map Typed.Binder.runtime = binders.map Untyped.Binder.runtime
+  | [], [], typed, h => by
+      simp [inferProductBinders] at h
+      subst h
+      rfl
+  | b :: bs, ty :: tys, typed, h => by
+      simp [inferProductBinders] at h
+      split at h
+      · have ⟨rest, hrest, hcont⟩ := Except.bind_ok h
+        cases hcont
+        simp [Binder.ofUntyped_runtime, inferProductBinders_runtime Θ bs tys rest hrest]
+      · cases h
+  | [], _ :: _, typed, h => by
+      simp [inferProductBinders] at h
+  | _ :: _, [], typed, h => by
+      simp [inferProductBinders] at h
 
 /-! ## Specification elaboration
 
@@ -691,6 +735,32 @@ mutual
                 simp [typedName, Binder.ofUntyped_runtime]
               simp [Expr.runtime, Untyped.Expr.runtime, ihBound _ hbound, ihBody _ hbody,
                 hname_rt]
+    | .letProd names bound body => by
+        let ihBound := infer_runtime prims Θ Γ bound
+        intro result h
+        unfold Typed.infer at h
+        have ⟨p, hbound, hcont⟩ := Except.bind_ok h
+        cases p with
+        | mk boundTy bound' =>
+          cases boundTy with
+          | tuple tys =>
+            have hcont' :
+                (do
+                  let typedNames ← inferProductBinders Θ names tys
+                  let p ← infer prims Θ (extendTypedList Γ typedNames) body
+                  Except.ok (p.1, Expr.letProd typedNames bound' p.2)) = .ok result := by
+              simpa using hcont
+            have ⟨typedNames, hnames, hcont⟩ := Except.bind_ok hcont'
+            let ihBody := infer_runtime prims Θ (extendTypedList Γ typedNames) body
+            have ⟨p, hbody, hcont⟩ := Except.bind_ok hcont
+            cases p with
+            | mk bodyTy body' =>
+              rcases (by simpa [hbody] using hcont) with ⟨rfl, rfl⟩
+              simp [Expr.runtime, Untyped.Expr.runtime, ihBound _ hbound, ihBody _ hbody,
+                inferProductBinders_runtime Θ names tys typedNames hnames]
+          | _ =>
+            simp at hcont
+            cases hcont
     | .ref owned e => by
         let ih := infer_runtime prims Θ Γ e
         intro result h

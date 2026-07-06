@@ -50,6 +50,7 @@ inductive Expr where
   | app (fn : Expr) (args : List Expr) (ty : Typ)
   | ifThenElse (cond thn els : Expr) (ty : Typ)
   | letIn (name : Binder) (bound body : Expr)
+  | letProd (names : List Binder) (bound body : Expr)
   | ref    (owned : Bool) (e : Expr)
   | deref  (e : Expr) (ty : Typ)
   | store  (loc val : Expr)
@@ -135,6 +136,11 @@ mutual
       | _, _, isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
       | _, _, _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
     case letIn.letIn b1 d1 y1 b2 d2 y2 => exact match decEq b1 b2, d1.decEq d2, y1.decEq y2 with
+      | isTrue h1, isTrue h2, isTrue h3 => isTrue (by subst h1; subst h2; subst h3; rfl)
+      | isFalse h, _, _ => isFalse (by intro heq; cases heq; exact h rfl)
+      | _, isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
+      | _, _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
+    case letProd.letProd bs1 d1 y1 bs2 d2 y2 => exact match decEq bs1 bs2, d1.decEq d2, y1.decEq y2 with
       | isTrue h1, isTrue h2, isTrue h3 => isTrue (by subst h1; subst h2; subst h3; rfl)
       | isFalse h, _, _ => isFalse (by intro heq; cases heq; exact h rfl)
       | _, isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
@@ -246,6 +252,7 @@ def Expr.ty : Expr → Typ
   | .app _ _ ty => ty
   | .ifThenElse _ _ _ ty => ty
   | .letIn _ _ body => body.ty
+  | .letProd _ _ body => body.ty
   | .ref owned e => if owned then .owned e.ty else .ref e.ty
   | .deref _ ty => ty
   | .store _ _ => .unit
@@ -309,6 +316,7 @@ mutual
     | .app fn args _ => .app fn.runtime (args.map Expr.runtime)
     | .ifThenElse c t e _ => .ifThenElse c.runtime t.runtime e.runtime
     | .letIn b bound body => .letIn (b.runtime) bound.runtime body.runtime
+    | .letProd bs bound body => .letProd (bs.map (·.runtime)) bound.runtime body.runtime
     | .ref _ e => .ref e.runtime
     | .deref e _ => .deref e.runtime
     | .store loc val => .store loc.runtime val.runtime
