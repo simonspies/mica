@@ -23,6 +23,7 @@ inductive ElaborateErrorKind where
   | duplicateConstructor (name : String)
   | duplicateType (name : String)
   | duplicateField (name : String)
+  | missingField (name : String)
   | unsupportedChar
   | unsupportedRecordUpdate
   | unsupportedPattern (desc : String)
@@ -46,6 +47,7 @@ def ElaborateErrorKind.toString : ElaborateErrorKind → String
   | .unknownConstructor name => s!"unknown constructor '{name}'"
   | .unknownType name => s!"unknown type '{name}'"
   | .unknownField name => s!"unknown field '{name}'"
+  | .missingField name => s!"missing field '{name}'"
   | .duplicateConstructor name => s!"duplicate constructor '{name}'"
   | .duplicateType name => s!"duplicate type name '{name}'"
   | .duplicateField name =>
@@ -216,7 +218,7 @@ private def reorderFields (loc : Location) (provided : List (FieldName × α)) :
     | some (_, a) =>
       let rest' ← reorderFields loc provided rest
       .ok (a :: rest')
-    | none => err loc (.unknownField fieldName)
+    | none => err loc (.missingField fieldName)
 
 private def recordFieldsFor (env : ElabEnv) (loc : Location) (fields : List (FieldName × α)) :
     ElabM (List (FieldName × TinyML.Typ)) :=
