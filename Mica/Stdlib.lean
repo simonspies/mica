@@ -3,6 +3,7 @@ import Mica.Verifier.Intrinsic
 import Mica.Stdlib.IntStd
 import Mica.Stdlib.StringStd
 import Mica.Stdlib.FloatStd
+import Mica.Stdlib.FunStd
 import Mica.Frontend.Resolver
 
 open Iris Iris.BI
@@ -12,6 +13,7 @@ namespace Stdlib
 open Verifier
 
 def registry : Registry := [
+  Intrinsics.funId,
   Intrinsics.floatNegInfinity,
   Intrinsics.floatInfinity,
   Intrinsics.floatNan,
@@ -60,13 +62,11 @@ theorem registry_wf : Registry.Wf registry := by
     Signature.empty, Signature.addConst, Signature.addUnary, Signature.addBinary,
     Signature.allNames]
 
-private def resolvedType (i : Intrinsic) : TinyML.Typ :=
-  i.argTysList.foldr TinyML.Typ.arrow i.resultTy
-
 private def resolverEntry (i : Intrinsic) :
     Option (Frontend.Path × Frontend.ResolvedValue) :=
   i.path.map (fun (head, tail) =>
-    (⟨head, tail⟩, .primitive i.name (resolvedType i)))
+    (⟨head, tail⟩, .primitive i.name
+      (match i.arity with | .zero => .nullary | _ => .function)))
 
 /-- The prelude resolver: which surface qualified paths route to which built-in
     primitives. Derived from `registry`; injected into the frontend by `Main`. -/

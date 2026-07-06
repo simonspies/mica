@@ -237,6 +237,20 @@ def Typ.subst (_σ : TyVar → Typ) : Typ → Typ
   | .tvar v => _σ v
   | .named T args => .named T (args.map (Typ.subst _σ))
 
+/-- A type is closed when it contains no type variables. -/
+def Typ.closed : Typ → Bool
+  | .prim _ => true
+  | .sum ts => (ts.map Typ.closed).all id
+  | .arrow t1 t2 => Typ.closed t1 && Typ.closed t2
+  | .ref t => Typ.closed t
+  | .array t => Typ.closed t
+  | .owned t => Typ.closed t
+  | .empty => true
+  | .value => true
+  | .tuple ts => (ts.map Typ.closed).all id
+  | .tvar _ => false
+  | .named _ args => (args.map Typ.closed).all id
+
 structure DataDecl where
   tparams : List TyVar
   payloads : List Typ

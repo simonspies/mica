@@ -87,6 +87,8 @@ inductive TypeError where
   | missingReturnType
   | subsumptionFailure (sub super : Typ)
   | spec (msg : String)
+  | unknownPrimitive (name : String)
+  | cannotInstantiate (name : String) (msg : String)
   deriving Repr, Inhabited, DecidableEq
 
 instance : ToString TypeError where
@@ -109,6 +111,9 @@ instance : ToString TypeError where
     | .subsumptionFailure sub super =>
         s!"subsumption failed: {repr sub} is not a subtype of {repr super}"
     | .spec msg => s!"specification error: {msg}"
+    | .unknownPrimitive name => s!"unknown primitive: {name}"
+    | .cannotInstantiate name msg =>
+        s!"cannot instantiate primitive {name}: {msg}"
 
 def Binder.ofUntyped (b : Untyped.Binder) (ty : Typ) : Typed.Binder :=
   match b with
@@ -135,22 +140,89 @@ def extendTypeEnv (Θ : TypeEnv) (name : TypeName) (body : DataDecl) : Except Ty
   | some _ => .error (.duplicateType name)
   | none => .ok (fun query => if query == name then some body else Θ query)
 
+/-- What typing needs to know about a built-in primitive: its (possibly
+    polymorphic) arrow scheme and the typing function computing the type-variable
+    instantiation from the inferred argument types. The typing function is
+    untrusted — the elaborator re-checks arguments against the instantiated
+    scheme, so a wrong instantiation is rejected, never unsound. -/
+structure PrimSig where
+  scheme : Typ
+  typing : TypeEnv → List Typ → Except String (List (TyVar × Typ))
+
+/-- The primitive context threaded through typing: name to typing face. -/
+abbrev Prims := String → Option PrimSig
+
+/-- Subsume already-inferred arguments against the domains of `ty`, inserting
+    casts. Peels one arrow per argument like `checkArgs`, but takes the
+    arguments post-inference — used for primitive applications, whose arrow
+    type is only known after the instantiation is solved from the inferred
+    argument types. -/
+def checkInferred (Θ : TypeEnv) :
+    Typ → List (Typ × Typed.Expr) → Except TypeError (List Typed.Expr × Typ)
+  | ty, [] => .ok ([], ty)
+  | .arrow dom cod, (argTy, arg) :: rest =>
+      if argTy == dom then do
+        let (args', retTy) ← checkInferred Θ cod rest
+        .ok (arg :: args', retTy)
+      else if Typ.sub Θ argTy dom then do
+        let (args', retTy) ← checkInferred Θ cod rest
+        .ok (arg.cast dom :: args', retTy)
+      else .error (.subsumptionFailure argTy dom)
+  | _, rest => .error (.arityMismatch 0 rest.length)
+
+/-- `checkInferred` preserves erasure: casts are transparent at runtime. -/
+theorem checkInferred_runtime (Θ : TypeEnv) :
+    (pairs : List (Typ × Typed.Expr)) → ∀ ty result,
+      checkInferred Θ ty pairs = .ok result →
+      result.1.map Expr.runtime = (pairs.map Prod.snd).map Expr.runtime
+  | [] => by
+      intro ty result h
+      simp [checkInferred] at h
+      cases h
+      rfl
+  | (argTy, arg) :: rest => by
+      intro ty result h
+      cases ty <;> simp only [checkInferred] at h <;> try cases h
+      case arrow dom cod =>
+        split at h
+        · have ⟨res, hrest, hcont⟩ := Except.bind_ok h
+          cases res with
+          | mk args' retTy =>
+            simp at hcont
+            cases hcont
+            simp only [List.map]
+            rw [checkInferred_runtime Θ rest cod _ hrest]
+        · split at h
+          · have ⟨res, hrest, hcont⟩ := Except.bind_ok h
+            cases res with
+            | mk args' retTy =>
+              simp at hcont
+              cases hcont
+              simp only [List.map, Expr.runtime]
+              rw [checkInferred_runtime Θ rest cod _ hrest]
+          · simp at h
+
 mutual
-  def infer (Θ : TypeEnv) (Γ : TinyML.TyCtx) : Untyped.Expr → Except TypeError (Typ × Typed.Expr)
+  def infer (prims : Prims) (Θ : TypeEnv) (Γ : TinyML.TyCtx) : Untyped.Expr → Except TypeError (Typ × Typed.Expr)
     | .const c => .ok (Typed.Const.ty c, .const c)
     | .var x =>
         match Γ x with
         | some ty => .ok (ty, .var x ty)
         | none => .error (.undefinedVar x)
-    | .prim n ty => .ok (ty, .prim n ty)
+    | .prim n =>
+        match prims n with
+        | none => .error (.unknownPrimitive n)
+        | some sig =>
+          if sig.scheme.closed then .ok (sig.scheme, .prim n [] sig.scheme)
+          else .error (.cannotInstantiate n "a polymorphic primitive must be applied")
     | .unop op e => do
-        let (argTy, e') ← infer Θ Γ e
+        let (argTy, e') ← infer prims Θ Γ e
         match TinyML.UnOp.typeOf op argTy with
         | some ty => .ok (ty, .unop op e' ty)
         | none => .error (.unaryMismatch op argTy)
     | .binop op lhs rhs => do
-        let (lhsTy, lhs') ← infer Θ Γ lhs
-        let (rhsTy, rhs') ← infer Θ Γ rhs
+        let (lhsTy, lhs') ← infer prims Θ Γ lhs
+        let (rhsTy, rhs') ← infer prims Θ Γ rhs
         match TinyML.BinOp.typeOf op lhsTy rhsTy with
         | some ty => .ok (ty, .binop op lhs' rhs' ty)
         | none => .error (.operatorMismatch op lhsTy rhsTy)
@@ -160,16 +232,32 @@ mutual
         let selfTy := Typed.arrowOfArgs typedArgs retTy
         let typedSelf := Typed.Binder.ofUntyped self selfTy
         let Γ' := typedArgs.foldl extendTyped (extendTyped Γ typedSelf)
-        let body' ← check Θ Γ' body retTy
+        let body' ← check prims Θ Γ' body retTy
         .ok (selfTy, .fix typedSelf typedArgs retTy body')
-    | .app fn args => do
-        let (fnTy, fn') ← infer Θ Γ fn
-        let (args', retTy) ← checkArgs Θ Γ fnTy args
-        .ok (retTy, .app fn' args' retTy)
+    | .app fn args =>
+        match fn.primName? with
+        | some n =>
+          match prims n with
+          | none => .error (.unknownPrimitive n)
+          | some sig => do
+            let inferred ← inferList prims Θ Γ args
+            match sig.typing Θ (inferred.map Prod.fst) with
+            | .error msg => .error (.cannotInstantiate n msg)
+            | .ok inst =>
+              let ty := sig.scheme.subst fun v => (inst.lookup v).getD (.tvar v)
+              if ty.closed then do
+                let (args', retTy) ← checkInferred Θ ty inferred
+                .ok (retTy, .app (.prim n inst ty) args' retTy)
+              else
+                .error (.cannotInstantiate n "unresolved type variables")
+        | none => do
+            let (fnTy, fn') ← infer prims Θ Γ fn
+            let (args', retTy) ← checkArgs prims Θ Γ fnTy args
+            .ok (retTy, .app fn' args' retTy)
     | .ifThenElse cond thn els => do
-        let cond' ← check Θ Γ cond .bool
-        let (thnTy, thn') ← infer Θ Γ thn
-        let (elsTy, els') ← infer Θ Γ els
+        let cond' ← check prims Θ Γ cond .bool
+        let (thnTy, thn') ← infer prims Θ Γ thn
+        let (elsTy, els') ← infer prims Θ Γ els
         let ty := Typ.join Θ thnTy elsTy
         let thn'' := if thnTy == ty then thn' else .cast thn' ty
         let els'' := if elsTy == ty then els' else .cast els' ty
@@ -177,65 +265,65 @@ mutual
     | .letIn name bound body => do
         let (boundTy, bound') ←
           match name with
-          | .named _ (some ty) => do let e' ← check Θ Γ bound ty; .ok (ty, e')
-          | _ => infer Θ Γ bound
+          | .named _ (some ty) => do let e' ← check prims Θ Γ bound ty; .ok (ty, e')
+          | _ => infer prims Θ Γ bound
         let typedName := Typed.Binder.ofUntyped name (match name with | .named _ (some ty) => ty | _ => boundTy)
-        let (bodyTy, body') ← infer Θ (extendTyped Γ typedName) body
+        let (bodyTy, body') ← infer prims Θ (extendTyped Γ typedName) body
         .ok (bodyTy, .letIn typedName bound' body')
     | .ref owned e => do
-        let (ty, e') ← infer Θ Γ e
+        let (ty, e') ← infer prims Θ Γ e
         .ok ((if owned then .owned ty else .ref ty), .ref owned e')
     | .deref e => do
-        let (ty, e') ← infer Θ Γ e
+        let (ty, e') ← infer prims Θ Γ e
         match ty with
         | .ref inner | .owned inner => .ok (inner, .deref e' inner)
         | _ => .error (.notARef ty)
     | .store loc val => do
-        let (locTy, loc') ← infer Θ Γ loc
+        let (locTy, loc') ← infer prims Θ Γ loc
         match locTy with
         | .ref inner | .owned inner =>
-            let val' ← check Θ Γ val inner
+            let val' ← check prims Θ Γ val inner
             .ok (.unit, .store loc' val')
         | _ => .error (.notARef locTy)
     | .arrayMake len init => do
-        let len' ← check Θ Γ len .int
-        let (elemTy, init') ← infer Θ Γ init
+        let len' ← check prims Θ Γ len .int
+        let (elemTy, init') ← infer prims Θ Γ init
         .ok (.array elemTy, .arrayMake len' init')
     | .arrayLen arr => do
-        let (arrTy, arr') ← infer Θ Γ arr
+        let (arrTy, arr') ← infer prims Θ Γ arr
         match arrTy with
         | .array _ => .ok (.int, .arrayLen arr')
         | _ => .error (.notAnArray arrTy)
     | .arrayGet arr idx => do
-        let (arrTy, arr') ← infer Θ Γ arr
-        let idx' ← check Θ Γ idx .int
+        let (arrTy, arr') ← infer prims Θ Γ arr
+        let idx' ← check prims Θ Γ idx .int
         match arrTy with
         | .array elemTy => .ok (elemTy, .arrayGet arr' idx' elemTy)
         | _ => .error (.notAnArray arrTy)
     | .arraySet arr idx val => do
-        let (arrTy, arr') ← infer Θ Γ arr
-        let idx' ← check Θ Γ idx .int
+        let (arrTy, arr') ← infer prims Θ Γ arr
+        let idx' ← check prims Θ Γ idx .int
         match arrTy with
         | .array elemTy =>
-            let val' ← check Θ Γ val elemTy
+            let val' ← check prims Θ Γ val elemTy
             .ok (.unit, .arraySet arr' idx' val')
         | _ => .error (.notAnArray arrTy)
     | .assert e => do
-        let e' ← check Θ Γ e .bool
+        let e' ← check prims Θ Γ e .bool
         .ok (.unit, .assert e')
     | .tuple es => do
-        let pairs ← inferList Θ Γ es
+        let pairs ← inferList prims Θ Γ es
         .ok (.tuple (pairs.map Prod.fst), .tuple (pairs.map Prod.snd))
     | .inj tag arity payload => do
-        let (ty, payload') ← infer Θ Γ payload
+        let (ty, payload') ← infer prims Θ Γ payload
         .ok (.sum ((List.replicate arity .empty).set tag ty), .inj tag arity payload')
     | .match_ scrutinee branches => do
-        let (scrutTy, scrut') ← infer Θ Γ scrutinee
+        let (scrutTy, scrut') ← infer prims Θ Γ scrutinee
         -- Resolve the scrutinee type: accept sum directly, or unfold a named type and insert a cast.
         match scrutTy with
         | .sum ts =>
                 if _h : ts.length = branches.length then
-                  let branches' ← inferBranches Θ Γ ts branches
+                  let branches' ← inferBranches prims Θ Γ ts branches
                   let ty := joinAll Θ (branches'.map (fun p => p.2.ty))
                   let branches'' := branches'.map fun
                     | (binder, body) =>
@@ -247,7 +335,7 @@ mutual
                 match TypeName.unfold Θ T args with
                 | some (.sum ts) =>
                     if _h : ts.length = branches.length then
-                      let branches' ← inferBranches Θ Γ ts branches
+                      let branches' ← inferBranches prims Θ Γ ts branches
                       let ty := joinAll Θ (branches'.map (fun p => p.2.ty))
                       let branches'' := branches'.map fun
                         | (binder, body) =>
@@ -259,8 +347,8 @@ mutual
                 | _ => .error (.notASum scrutTy)
         | _ => .error (.notASum scrutTy)
 
-  def check (Θ : TypeEnv) (Γ : TinyML.TyCtx) (e : Untyped.Expr) (expected : Typ) : Except TypeError Typed.Expr := do
-    let (actual, e') ← infer Θ Γ e
+  def check (prims : Prims) (Θ : TypeEnv) (Γ : TinyML.TyCtx) (e : Untyped.Expr) (expected : Typ) : Except TypeError Typed.Expr := do
+    let (actual, e') ← infer prims Θ Γ e
     if actual == expected then
       .ok e'
     else if Typ.sub Θ actual expected then
@@ -268,30 +356,30 @@ mutual
     else
       .error (.subsumptionFailure actual expected)
 
-  def inferList (Θ : TypeEnv) (Γ : TinyML.TyCtx) : List Untyped.Expr → Except TypeError (List (Typ × Typed.Expr))
+  def inferList (prims : Prims) (Θ : TypeEnv) (Γ : TinyML.TyCtx) : List Untyped.Expr → Except TypeError (List (Typ × Typed.Expr))
     | [] => .ok []
     | e :: es => do
-        let head ← infer Θ Γ e
-        let tail ← inferList Θ Γ es
+        let head ← infer prims Θ Γ e
+        let tail ← inferList prims Θ Γ es
         .ok (head :: tail)
 
-  def checkArgs (Θ : TypeEnv) (Γ : TinyML.TyCtx) : Typ → List Untyped.Expr → Except TypeError (List Typed.Expr × Typ)
+  def checkArgs (prims : Prims) (Θ : TypeEnv) (Γ : TinyML.TyCtx) : Typ → List Untyped.Expr → Except TypeError (List Typed.Expr × Typ)
     | ty, [] => .ok ([], ty)
     | .arrow dom cod, arg :: args => do
-        let arg' ← check Θ Γ arg dom
-        let (args', retTy) ← checkArgs Θ Γ cod args
+        let arg' ← check prims Θ Γ arg dom
+        let (args', retTy) ← checkArgs prims Θ Γ cod args
         .ok (arg' :: args', retTy)
     | _ty, args => .error (.arityMismatch 0 args.length)
 
-  def inferBranches (Θ : TypeEnv) (Γ : TinyML.TyCtx) :
+  def inferBranches (prims : Prims) (Θ : TypeEnv) (Γ : TinyML.TyCtx) :
       List Typ → List (Untyped.Binder × Untyped.Expr) → Except TypeError (List (Typed.Binder × Typed.Expr))
     | [], [] => .ok []
     | ty :: tys, (binder, body) :: rest => do
         let binderTy := Typed.Binder.expectedTy binder ty
         if Typ.sub Θ ty binderTy then
           let typedBinder := Typed.Binder.ofUntyped binder binderTy
-          let (_bodyTy, body') ← infer Θ (extendTyped Γ typedBinder) body
-          let rest' ← inferBranches Θ Γ tys rest
+          let (_bodyTy, body') ← infer prims Θ (extendTyped Γ typedBinder) body
+          let rest' ← inferBranches prims Θ Γ tys rest
           .ok ((typedBinder, body') :: rest')
         else
           .error (.subsumptionFailure ty binderTy)
@@ -312,24 +400,24 @@ context from `Program.elaborate`, so a spec may refer to earlier definitions. -/
 
 /-- Elaborate a spec assertion through `infer`/`check`. The `inner` callback
 elaborates the return payload in the current type context. -/
-def elabAssert (Θ : TypeEnv) (inner : TyCtx → α → Except TypeError β) :
+def elabAssert (prims : Prims) (Θ : TypeEnv) (inner : TyCtx → α → Except TypeError β) :
     TyCtx → Spec.Assert Untyped.Expr α → Except TypeError (Spec.Assert Typed.Expr β)
   | Γ, .ret a => do .ok (.ret (← inner Γ a))
   | Γ, .assert cond rest => do
-    let cond' ← check Θ Γ cond .bool
-    .ok (.assert cond' (← elabAssert Θ inner Γ rest))
+    let cond' ← check prims Θ Γ cond .bool
+    .ok (.assert cond' (← elabAssert prims Θ inner Γ rest))
   | Γ, .let_ x e rest => do
-    let (ty, e') ← infer Θ Γ e
-    .ok (.let_ x e' (← elabAssert Θ inner (Γ.extend x ty) rest))
+    let (ty, e') ← infer prims Θ Γ e
+    .ok (.let_ x e' (← elabAssert prims Θ inner (Γ.extend x ty) rest))
   | Γ, .bind p x ty rest => do
-    .ok (.bind p x ty (← elabAssert Θ inner (Γ.extend x ty) rest))
+    .ok (.bind p x ty (← elabAssert prims Θ inner (Γ.extend x ty) rest))
   | Γ, .ite cond thn els => do
-    let cond' ← check Θ Γ cond .bool
-    .ok (.ite cond' (← elabAssert Θ inner Γ thn) (← elabAssert Θ inner Γ els))
+    let cond' ← check prims Θ Γ cond .bool
+    .ok (.ite cond' (← elabAssert prims Θ inner Γ thn) (← elabAssert prims Θ inner Γ els))
 
-private def elabPost (Θ : TypeEnv) (Γ : TyCtx) (post : Spec.Post Untyped.Expr) :
+private def elabPost (prims : Prims) (Θ : TypeEnv) (Γ : TyCtx) (post : Spec.Post Untyped.Expr) :
     Except TypeError (Spec.Post Typed.Expr) :=
-  elabAssert Θ (fun _ () => .ok ()) Γ post
+  elabAssert prims Θ (fun _ () => .ok ()) Γ post
 
 /-- Match the spec's bound names against the typed function binders to recover
 each argument's type. -/
@@ -342,7 +430,7 @@ private def specArgTypes : List Typed.Binder → List String → Except TypeErro
 
 /-- Elaborate a spec body against its function's typed signature, layering the
 spec's arguments on top of the program's global bindings `Γbase`. -/
-def elabSpecBody (Θ : TypeEnv) (Γbase : TyCtx) (body : Typed.Expr) (rb : Spec.Body Untyped.Expr) :
+def elabSpecBody (prims : Prims) (Θ : TypeEnv) (Γbase : TyCtx) (body : Typed.Expr) (rb : Spec.Body Untyped.Expr) :
     Except TypeError (Spec.Body Typed.Expr) := do
   let (names, pre) := rb
   let (argBinders, retTy) ← match body with
@@ -350,51 +438,51 @@ def elabSpecBody (Θ : TypeEnv) (Γbase : TyCtx) (body : Typed.Expr) (rb : Spec.
     | _ => .error (.spec "attached to a non-function declaration")
   let argTys ← specArgTypes argBinders names
   let Γ₀ : TyCtx := argTys.foldl (fun Γ p => Γ.extend p.1 p.2) Γbase
-  let pre' ← elabAssert Θ
+  let pre' ← elabAssert prims Θ
     (fun Γ (vname, post) => do
-      let post' ← elabPost Θ (Γ.extend vname retTy) post
+      let post' ← elabPost prims Θ (Γ.extend vname retTy) post
       .ok (vname, post'))
     Γ₀ pre
   .ok (names, pre')
 
 /-- Elaborate a declaration's optional spec against the typed function `body`. -/
-def elabSpec (Θ : TypeEnv) (Γ : TyCtx) (body : Typed.Expr) :
+def elabSpec (prims : Prims) (Θ : TypeEnv) (Γ : TyCtx) (body : Typed.Expr) :
     Option (Spec.Body Untyped.Expr) → Except TypeError (Option (Spec.Body Typed.Expr))
   | none => .ok none
   | some rb => do
-    let cb ← elabSpecBody Θ Γ body rb
+    let cb ← elabSpecBody prims Θ Γ body rb
     .ok (some cb)
 
-def ValDecl.elaborate (Θ : TypeEnv) (Γ : TinyML.TyCtx)
+def ValDecl.elaborate (prims : Prims) (Θ : TypeEnv) (Γ : TinyML.TyCtx)
     (d : Untyped.ValDecl (Spec.Body Untyped.Expr)) :
     Except TypeError (Typed.ValDecl (Spec.Body Typed.Expr)) := do
   let (bodyTy, body') ←
     match d.name with
     | .named _ (some ty) => do
-        let body' ← check Θ Γ d.body ty
+        let body' ← check prims Θ Γ d.body ty
         .ok (ty, body')
-    | _ => infer Θ Γ d.body
+    | _ => infer prims Θ Γ d.body
   let nameTy := match d.name with
     | .named _ (some ty) => ty
     | _ => bodyTy
-  let spec' ← elabSpec Θ Γ body' d.declMeta.spec
+  let spec' ← elabSpec prims Θ Γ body' d.declMeta.spec
   .ok { name := Typed.Binder.ofUntyped d.name nameTy, body := body',
         declMeta := { spec := spec', relation := d.declMeta.relation } }
 
-def Program.elaborate (Θ : TypeEnv) (Γ : TinyML.TyCtx) :
+def Program.elaborate (prims : Prims) (Θ : TypeEnv) (Γ : TinyML.TyCtx) :
     Untyped.Program (Spec.Body Untyped.Expr) → Except TypeError (TypeEnv × Typed.Program (Spec.Body Typed.Expr))
   | [] => .ok (Θ, [])
   | d :: ds => do
       match d with
       | .type_ dty =>
           let Θ' ← extendTypeEnv Θ dty.name dty.body
-          Program.elaborate Θ' Γ ds
+          Program.elaborate prims Θ' Γ ds
       | .val_ dval =>
-          let d' ← ValDecl.elaborate Θ Γ dval
+          let d' ← ValDecl.elaborate prims Θ Γ dval
           let Γ' := match d'.name.name with
             | some x => Γ.extend x d'.name.ty
             | none => Γ
-          let (Θ', ds') ← Program.elaborate Θ Γ' ds
+          let (Θ', ds') ← Program.elaborate prims Θ Γ' ds
           .ok (Θ', d' :: ds')
 
 private theorem branchListRuntime_cast_joinAll
@@ -424,8 +512,8 @@ private theorem branchListRuntime_cast_joinAll
 -- over successful elaboration results. Once those recursive implications have
 -- been obtained in the branch, they can be used freely afterward.
 mutual
-  theorem infer_runtime (Θ : TypeEnv) (Γ : TinyML.TyCtx) :
-      (e : Untyped.Expr) → ∀ result, Typed.infer Θ Γ e = .ok result → result.2.runtime = e.runtime
+  theorem infer_runtime (prims : Prims) (Θ : TypeEnv) (Γ : TinyML.TyCtx) :
+      (e : Untyped.Expr) → ∀ result, Typed.infer prims Θ Γ e = .ok result → result.2.runtime = e.runtime
     | .const c => by
         intro result h
         simp [Typed.infer] at h
@@ -436,13 +524,19 @@ mutual
         simp [Typed.infer] at h
         split at h <;> cases h
         simp [Expr.runtime, Untyped.Expr.runtime]
-    | .prim n ty => by
+    | .prim n => by
         intro result h
-        simp [Typed.infer] at h
-        rcases h with ⟨rfl, rfl⟩
-        simp [Expr.runtime, Untyped.Expr.runtime]
+        unfold Typed.infer at h
+        cases hp : prims n with
+        | none => simp [hp] at h
+        | some sig =>
+          by_cases hc : sig.scheme.closed
+          · simp [hp, hc] at h
+            rcases h with ⟨rfl, rfl⟩
+            simp [Expr.runtime, Untyped.Expr.runtime]
+          · simp [hp, hc] at h
     | .unop op e => by
-        let ih := infer_runtime Θ Γ e
+        let ih := infer_runtime prims Θ Γ e
         intro result h
         unfold Typed.infer at h
         have ⟨p, hinfer, hcont⟩ := Except.bind_ok h
@@ -455,8 +549,8 @@ mutual
             rcases (by simpa [hty] using hcont) with ⟨rfl, rfl⟩
             simp [Expr.runtime, Untyped.Expr.runtime, ih _ hinfer]
     | .binop op lhs rhs => by
-        let ihL := infer_runtime Θ Γ lhs
-        let ihR := infer_runtime Θ Γ rhs
+        let ihL := infer_runtime prims Θ Γ lhs
+        let ihR := infer_runtime prims Θ Γ rhs
         intro result h
         unfold Typed.infer at h
         have ⟨lp, hlhs, hcont⟩ := Except.bind_ok h
@@ -477,29 +571,51 @@ mutual
         let selfTy := Typed.arrowOfArgs typedArgs retTy'
         let typedSelf := Typed.Binder.ofUntyped self selfTy
         let Γ' := typedArgs.foldl extendTyped (extendTyped Γ typedSelf)
-        let ih := check_runtime Θ Γ' body retTy'
+        let ih := check_runtime prims Θ Γ' body retTy'
         intro result h
         unfold Typed.infer at h
         have ⟨body', hbody, hcont⟩ := Except.bind_ok h
         rcases (by simpa [retTy', typedArgs, selfTy, typedSelf, Γ', hbody] using hcont) with ⟨rfl, rfl⟩
         simp [Expr.runtime, Untyped.Expr.runtime, ih _ hbody, Binder.ofUntyped_runtime]
     | .app fn args => by
-        let ihFn := infer_runtime Θ Γ fn
-        let ihArgs := checkArgs_runtime Θ Γ args
+        let ihFn := infer_runtime prims Θ Γ fn
+        let ihArgs := checkArgs_runtime prims Θ Γ args
+        let ihList := inferList_runtime prims Θ Γ args
         intro result h
         unfold Typed.infer at h
-        have ⟨fp, hfn, hcont⟩ := Except.bind_ok h
-        cases fp with
-        | mk fnTy fn' =>
-          have ⟨result, hargs, hcont⟩ := Except.bind_ok hcont
-          cases result with
-          | mk args' retTy =>
-            rcases (by simpa [hargs] using hcont) with ⟨rfl, rfl⟩
-            simp [Expr.runtime, Untyped.Expr.runtime, ihFn _ hfn, ihArgs fnTy _ hargs]
+        cases hpn : fn.primName? with
+        | some n =>
+          simp only [hpn] at h
+          cases hp : prims n with
+          | none => simp [hp] at h
+          | some sig =>
+            simp only [hp] at h
+            have ⟨inferred, hinf, hcont⟩ := Except.bind_ok h
+            cases hty : sig.typing Θ (inferred.map Prod.fst) with
+            | error msg => simp [hty] at hcont
+            | ok inst =>
+              simp only [hty] at hcont
+              split at hcont
+              · have ⟨res, hchk, hcont⟩ := Except.bind_ok hcont
+                cases res with
+                | mk args' retTy =>
+                  rcases (by simpa using hcont) with ⟨rfl, rfl⟩
+                  simp only [Expr.runtime, Untyped.Expr.runtime,
+                    Untyped.Expr.primName?_runtime hpn]
+                  rw [checkInferred_runtime Θ inferred _ _ hchk, ihList _ hinf]
+              · simp at hcont
+        | none =>
+          simp only [hpn] at h
+          obtain ⟨fp, hfn, hcont⟩ := Except.bind_ok h
+          obtain ⟨fnTy, fn'⟩ := fp
+          obtain ⟨res, hargs, hcont⟩ := Except.bind_ok hcont
+          obtain ⟨args', retTy⟩ := res
+          rcases (by simpa [hargs] using hcont) with ⟨rfl, rfl⟩
+          simp [Expr.runtime, Untyped.Expr.runtime, ihFn _ hfn, ihArgs fnTy _ hargs]
     | .ifThenElse cond thn els => by
-        let ihCond := check_runtime Θ Γ cond .bool
-        let ihThn := infer_runtime Θ Γ thn
-        let ihEls := infer_runtime Θ Γ els
+        let ihCond := check_runtime prims Θ Γ cond .bool
+        let ihThn := infer_runtime prims Θ Γ thn
+        let ihEls := infer_runtime prims Θ Γ els
         intro result h
         unfold Typed.infer at h
         have ⟨cond', hcond, hcont⟩ := Except.bind_ok h
@@ -531,8 +647,8 @@ mutual
           cases p with
           | mk boundTy bound' =>
             let typedName := Typed.Binder.ofUntyped .none boundTy
-            let ihBound := infer_runtime Θ Γ bound
-            let ihBody := infer_runtime Θ (extendTyped Γ typedName) body
+            let ihBound := infer_runtime prims Θ Γ bound
+            let ihBody := infer_runtime prims Θ (extendTyped Γ typedName) body
             have ⟨p, hbody, hcont⟩ := Except.bind_ok hcont
             cases p with
             | mk bodyTy body' =>
@@ -547,8 +663,8 @@ mutual
             cases p with
             | mk boundTy bound' =>
               let typedName := Typed.Binder.ofUntyped (.named x .none) boundTy
-              let ihBound := infer_runtime Θ Γ bound
-              let ihBody := infer_runtime Θ (extendTyped Γ typedName) body
+              let ihBound := infer_runtime prims Θ Γ bound
+              let ihBody := infer_runtime prims Θ (extendTyped Γ typedName) body
               have ⟨p, hbody, hcont⟩ := Except.bind_ok hcont
               cases p with
               | mk bodyTy body' =>
@@ -559,11 +675,11 @@ mutual
             unfold Typed.infer at h
             have ⟨bound', hbound, hcont⟩ := Except.bind_ok h
             let typedName := Typed.Binder.ofUntyped (.named x (.some ty)) ty
-            let ihBound := check_runtime Θ Γ bound ty
-            let ihBody := infer_runtime Θ (extendTyped Γ typedName) body
+            let ihBound := check_runtime prims Θ Γ bound ty
+            let ihBody := infer_runtime prims Θ (extendTyped Γ typedName) body
             have hcont' :
                 (do
-                  let p ← infer Θ (extendTyped Γ typedName) body
+                  let p ← infer prims Θ (extendTyped Γ typedName) body
                   Except.ok (p.1, Expr.letIn typedName bound' p.2)) = .ok result := by
               simpa [typedName] using hcont
             have ⟨p, hbody, hcont⟩ := Except.bind_ok hcont'
@@ -576,7 +692,7 @@ mutual
               simp [Expr.runtime, Untyped.Expr.runtime, ihBound _ hbound, ihBody _ hbody,
                 hname_rt]
     | .ref owned e => by
-        let ih := infer_runtime Θ Γ e
+        let ih := infer_runtime prims Θ Γ e
         intro result h
         unfold Typed.infer at h
         have ⟨p, hinfer, hcont⟩ := Except.bind_ok h
@@ -585,7 +701,7 @@ mutual
           rcases (by simpa using hcont) with ⟨rfl, rfl⟩
           simp [Expr.runtime, Untyped.Expr.runtime, ih _ hinfer]
     | .deref e => by
-        let ih := infer_runtime Θ Γ e
+        let ih := infer_runtime prims Θ Γ e
         intro result h
         unfold Typed.infer at h
         have ⟨p, hinfer, hcont⟩ := Except.bind_ok h
@@ -599,7 +715,7 @@ mutual
             rcases (by simpa using hcont) with ⟨rfl, rfl⟩
             simp [Expr.runtime, Untyped.Expr.runtime, ih _ hinfer]
     | .store loc val => by
-        let ihLoc := infer_runtime Θ Γ loc
+        let ihLoc := infer_runtime prims Θ Γ loc
         intro result h
         unfold Typed.infer at h
         have ⟨p, hloc, hcont⟩ := Except.bind_ok h
@@ -607,18 +723,18 @@ mutual
         | mk locTy loc' =>
           cases locTy <;> simp at hcont
           case ref inner =>
-            let ihVal := check_runtime Θ Γ val inner
+            let ihVal := check_runtime prims Θ Γ val inner
             have ⟨val', hval, hcont⟩ := Except.bind_ok hcont
             rcases (by simpa using hcont) with ⟨rfl, rfl⟩
             simp [Expr.runtime, Untyped.Expr.runtime, ihLoc _ hloc, ihVal _ hval]
           case owned inner =>
-            let ihVal := check_runtime Θ Γ val inner
+            let ihVal := check_runtime prims Θ Γ val inner
             have ⟨val', hval, hcont⟩ := Except.bind_ok hcont
             rcases (by simpa using hcont) with ⟨rfl, rfl⟩
             simp [Expr.runtime, Untyped.Expr.runtime, ihLoc _ hloc, ihVal _ hval]
     | .arrayMake len init => by
-        let ihLen := check_runtime Θ Γ len .int
-        let ihInit := infer_runtime Θ Γ init
+        let ihLen := check_runtime prims Θ Γ len .int
+        let ihInit := infer_runtime prims Θ Γ init
         intro result h
         unfold Typed.infer at h
         have ⟨len', hlen, hcont⟩ := Except.bind_ok h
@@ -628,7 +744,7 @@ mutual
           rcases (by simpa [hinit] using hcont) with ⟨rfl, rfl⟩
           simp [Expr.runtime, Untyped.Expr.runtime, ihLen _ hlen, ihInit _ hinit]
     | .arrayLen arr => by
-        let ih := infer_runtime Θ Γ arr
+        let ih := infer_runtime prims Θ Γ arr
         intro result h
         unfold Typed.infer at h
         have ⟨p, harr, hcont⟩ := Except.bind_ok h
@@ -639,8 +755,8 @@ mutual
             rcases hcont with ⟨rfl, rfl⟩
             simp [Expr.runtime, Untyped.Expr.runtime, ih _ harr]
     | .arrayGet arr idx => by
-        let ihArr := infer_runtime Θ Γ arr
-        let ihIdx := check_runtime Θ Γ idx .int
+        let ihArr := infer_runtime prims Θ Γ arr
+        let ihIdx := check_runtime prims Θ Γ idx .int
         intro result h
         unfold Typed.infer at h
         have ⟨p, harr, hcont⟩ := Except.bind_ok h
@@ -652,8 +768,8 @@ mutual
             rcases hcont with ⟨rfl, rfl⟩
             simp [Expr.runtime, Untyped.Expr.runtime, ihArr _ harr, ihIdx _ hidx]
     | .arraySet arr idx val => by
-        let ihArr := infer_runtime Θ Γ arr
-        let ihIdx := check_runtime Θ Γ idx .int
+        let ihArr := infer_runtime prims Θ Γ arr
+        let ihIdx := check_runtime prims Θ Γ idx .int
         intro result h
         unfold Typed.infer at h
         have ⟨p, harr, hcont⟩ := Except.bind_ok h
@@ -664,24 +780,24 @@ mutual
           case array =>
             have ⟨val', hval, hcont⟩ := Except.bind_ok hcont
             rcases hcont with ⟨rfl, rfl⟩
-            have hval_rt := check_runtime Θ Γ val _ val' hval
+            have hval_rt := check_runtime prims Θ Γ val _ val' hval
             simp [Expr.runtime, Untyped.Expr.runtime, ihArr _ harr, ihIdx _ hidx, hval_rt]
     | .assert e => by
-        let ih := check_runtime Θ Γ e .bool
+        let ih := check_runtime prims Θ Γ e .bool
         intro result h
         unfold Typed.infer at h
         have ⟨e1, he, hcont⟩ := Except.bind_ok h
         rcases (by simpa using hcont) with ⟨rfl, rfl⟩
         simp [Expr.runtime, Untyped.Expr.runtime, ih _ he]
     | .tuple es => by
-        let ih := inferList_runtime Θ Γ es
+        let ih := inferList_runtime prims Θ Γ es
         intro result h
         unfold Typed.infer at h
         have ⟨pairs, hpairs, hcont⟩ := Except.bind_ok h
         rcases (by simpa [hpairs] using hcont) with ⟨rfl, rfl⟩
         simp [Expr.runtime, Untyped.Expr.runtime, ih _ hpairs]
     | .inj tag arity payload => by
-        let ih := infer_runtime Θ Γ payload
+        let ih := infer_runtime prims Θ Γ payload
         intro result h
         unfold Typed.infer at h
         have ⟨p, hpayload, hcont⟩ := Except.bind_ok h
@@ -690,8 +806,8 @@ mutual
           rcases (by simpa using hcont) with ⟨rfl, rfl⟩
           simp [Expr.runtime, Untyped.Expr.runtime, ih _ hpayload]
     | .match_ scrutinee branches => by
-        let ihScrut := infer_runtime Θ Γ scrutinee
-        let ihBranches := inferBranches_runtime Θ Γ branches
+        let ihScrut := infer_runtime prims Θ Γ scrutinee
+        let ihBranches := inferBranches_runtime prims Θ Γ branches
         intro result h
         unfold Typed.infer at h
         have ⟨p, hscrut, hcont⟩ := Except.bind_ok h
@@ -726,8 +842,8 @@ mutual
           | _ =>
             simp at hcont
 
-  theorem check_runtime (Θ : TypeEnv) (Γ : TinyML.TyCtx) (e : Untyped.Expr) (expected : Typ) :
-      ∀ e', Typed.check Θ Γ e expected = .ok e' → e'.runtime = e.runtime := by
+  theorem check_runtime (prims : Prims) (Θ : TypeEnv) (Γ : TinyML.TyCtx) (e : Untyped.Expr) (expected : Typ) :
+      ∀ e', Typed.check prims Θ Γ e expected = .ok e' → e'.runtime = e.runtime := by
       intro e' h
       unfold Typed.check at h
       have ⟨p, hinfer, hcont⟩ := Except.bind_ok h
@@ -736,15 +852,15 @@ mutual
         by_cases heq : actual == expected
         · simp [heq] at hcont
           cases hcont
-          simpa using infer_runtime Θ Γ e _ hinfer
+          simpa using infer_runtime prims Θ Γ e _ hinfer
         · by_cases hsub : Typ.sub Θ actual expected
           · simp [heq, hsub] at hcont
             cases hcont
-            simp [Expr.runtime, infer_runtime Θ Γ e _ hinfer]
+            simp [Expr.runtime, infer_runtime prims Θ Γ e _ hinfer]
           · simp [heq, hsub] at hcont
 
-  theorem inferList_runtime (Θ : TypeEnv) (Γ : TinyML.TyCtx) :
-      (es : List Untyped.Expr) → ∀ pairs, Typed.inferList Θ Γ es = .ok pairs →
+  theorem inferList_runtime (prims : Prims) (Θ : TypeEnv) (Γ : TinyML.TyCtx) :
+      (es : List Untyped.Expr) → ∀ pairs, Typed.inferList prims Θ Γ es = .ok pairs →
         (pairs.map Prod.snd).map Expr.runtime = es.map Untyped.Expr.runtime
     | [] => by
         intro pairs h
@@ -752,8 +868,8 @@ mutual
         cases h
         rfl
     | e :: es => by
-        let ihHead := infer_runtime Θ Γ e
-        let ihTail := inferList_runtime Θ Γ es
+        let ihHead := infer_runtime prims Θ Γ e
+        let ihTail := inferList_runtime prims Θ Γ es
         intro pairs h
         unfold Typed.inferList at h
         have ⟨head, hinfer, hcont⟩ := Except.bind_ok h
@@ -764,8 +880,8 @@ mutual
           cases hcont
           simp [ihHead _ hinfer, ihTail _ htail]
 
-  theorem checkArgs_runtime (Θ : TypeEnv) (Γ : TinyML.TyCtx) :
-      (args : List Untyped.Expr) → ∀ ty result, Typed.checkArgs Θ Γ ty args = .ok result →
+  theorem checkArgs_runtime (prims : Prims) (Θ : TypeEnv) (Γ : TinyML.TyCtx) :
+      (args : List Untyped.Expr) → ∀ ty result, Typed.checkArgs prims Θ Γ ty args = .ok result →
         result.1.map Expr.runtime = args.map Untyped.Expr.runtime
     | [] => by
         intro ty result h
@@ -773,7 +889,7 @@ mutual
         cases h
         rfl
     | arg :: args => by
-        let ihRest := checkArgs_runtime Θ Γ args
+        let ihRest := checkArgs_runtime prims Θ Γ args
         intro ty result h
         cases ty <;> simp [Typed.checkArgs] at h
         case arrow dom cod =>
@@ -784,11 +900,11 @@ mutual
             simp at hcont
             cases hcont
             simp only [List.map]
-            rw [check_runtime Θ Γ arg dom _ harg, ihRest cod _ hrest]
+            rw [check_runtime prims Θ Γ arg dom _ harg, ihRest cod _ hrest]
 
-  theorem inferBranches_runtime (Θ : TypeEnv) (Γ : TinyML.TyCtx) :
+  theorem inferBranches_runtime (prims : Prims) (Θ : TypeEnv) (Γ : TinyML.TyCtx) :
       (branches : List (Untyped.Binder × Untyped.Expr)) →
-      ∀ tys branches', Typed.inferBranches Θ Γ tys branches = .ok branches' →
+      ∀ tys branches', Typed.inferBranches prims Θ Γ tys branches = .ok branches' →
         Expr.branchListRuntime branches' =
           Untyped.Expr.runtime.branchListRuntime branches
     | [] => by
@@ -798,7 +914,7 @@ mutual
           cases h
           simp [Expr.branchListRuntime, Untyped.Expr.runtime.branchListRuntime]
     | br :: rest => by
-        let ihRest := inferBranches_runtime Θ Γ rest
+        let ihRest := inferBranches_runtime prims Θ Γ rest
         intro tys branches' h
         cases tys with
         | nil =>
@@ -810,7 +926,7 @@ mutual
           · unfold Typed.inferBranches at h
             simp [binderTy, hsub] at h
             let typedBinder := Typed.Binder.ofUntyped binder binderTy
-            let ihBody := infer_runtime Θ (extendTyped Γ typedBinder) body
+            let ihBody := infer_runtime prims Θ (extendTyped Γ typedBinder) body
             have ⟨p, hbody, hcont⟩ := Except.bind_ok h
             cases p with
             | mk bodyTy body' =>
@@ -822,43 +938,43 @@ mutual
           · simp [Typed.inferBranches, binderTy, hsub] at h
 end
 
-theorem ValDecl.elaborate_runtime (Θ : TypeEnv) (Γ : TinyML.TyCtx)
+theorem ValDecl.elaborate_runtime (prims : Prims) (Θ : TypeEnv) (Γ : TinyML.TyCtx)
     (d : Untyped.ValDecl (Spec.Body Untyped.Expr)) :
     ∀ {d' : Typed.ValDecl (Spec.Body Typed.Expr)},
-      Typed.ValDecl.elaborate Θ Γ d = .ok d' →
+      Typed.ValDecl.elaborate prims Θ Γ d = .ok d' →
       d'.runtime = d.runtime := by
   intro d' helab
   -- Split only on whether there is an annotation; the unannotated cases are identical.
   match hname : d.name with
   | .named x (some ty) =>
-    cases hcheck : Typed.check Θ Γ d.body ty with
+    cases hcheck : Typed.check prims Θ Γ d.body ty with
     | error err => simp [ValDecl.elaborate, hname, hcheck, bind, Except.bind] at helab
     | ok body' =>
-      cases hspec : elabSpec Θ Γ body' d.declMeta.spec with
+      cases hspec : elabSpec prims Θ Γ body' d.declMeta.spec with
       | error e => simp [ValDecl.elaborate, hname, hcheck, hspec, bind, Except.bind] at helab
       | ok spec' =>
         simp [ValDecl.elaborate, hname, hcheck, hspec, bind, Except.bind] at helab
         cases helab
         simp [Typed.ValDecl.runtime, Untyped.ValDecl.runtime,
-          check_runtime Θ Γ d.body ty _ hcheck, Binder.ofUntyped_runtime, hname]
+          check_runtime prims Θ Γ d.body ty _ hcheck, Binder.ofUntyped_runtime, hname]
   | .none | .named _ none =>
-    cases hinfer : Typed.infer Θ Γ d.body with
+    cases hinfer : Typed.infer prims Θ Γ d.body with
     | error err => simp [ValDecl.elaborate, hname, hinfer, bind, Except.bind] at helab
     | ok p =>
       cases p with
       | mk bodyTy body' =>
-        cases hspec : elabSpec Θ Γ body' d.declMeta.spec with
+        cases hspec : elabSpec prims Θ Γ body' d.declMeta.spec with
         | error e => simp [ValDecl.elaborate, hname, hinfer, hspec, bind, Except.bind] at helab
         | ok spec' =>
           simp [ValDecl.elaborate, hname, hinfer, hspec, bind, Except.bind] at helab
           cases helab
           simp [Typed.ValDecl.runtime, Untyped.ValDecl.runtime,
-            infer_runtime Θ Γ d.body _ hinfer, Binder.ofUntyped_runtime, hname]
+            infer_runtime prims Θ Γ d.body _ hinfer, Binder.ofUntyped_runtime, hname]
 
-theorem Program.elaborate_runtime (Θ : TypeEnv) (Γ : TinyML.TyCtx)
+theorem Program.elaborate_runtime (prims : Prims) (Θ : TypeEnv) (Γ : TinyML.TyCtx)
     (prog : Untyped.Program (Spec.Body Untyped.Expr)) :
     ∀ {Θ' : TypeEnv} {prog' : Typed.Program (Spec.Body Typed.Expr)},
-      Typed.Program.elaborate Θ Γ prog = .ok (Θ', prog') →
+      Typed.Program.elaborate prims Θ Γ prog = .ok (Θ', prog') →
       prog'.runtime = prog.runtime := by
   induction prog generalizing Θ Γ with
   | nil =>
@@ -888,7 +1004,7 @@ theorem Program.elaborate_runtime (Θ : TypeEnv) (Γ : TinyML.TyCtx)
       rcases tail with ⟨Θ'', ds'⟩
       simp at hcont
       cases hcont
-      have hdecl_rt : dval'.runtime = dval.runtime := ValDecl.elaborate_runtime Θ Γ dval hdecl
+      have hdecl_rt : dval'.runtime = dval.runtime := ValDecl.elaborate_runtime prims Θ Γ dval hdecl
       subst prog'
       simp [Typed.Program.runtime, Untyped.Program.runtime, hdecl_rt]
       exact congrArg (List.cons dval.runtime) (ih Θ Γ' htail)

@@ -22,9 +22,16 @@ inductive SpecialValue where
   | arraySet
   deriving Repr, Inhabited
 
+/-- Whether a primitive is a zero-arity constant (auto-applied when its bare
+    path appears in expression position) or a function. -/
+inductive PrimKind where
+  | nullary
+  | function
+  deriving Repr, Inhabited
+
 inductive ResolvedValue where
   | userVar (name : String)
-  | primitive (name : String) (ty : TinyML.Typ)
+  | primitive (name : String) (kind : PrimKind)
   | special (value : SpecialValue)
   deriving Repr, Inhabited
 

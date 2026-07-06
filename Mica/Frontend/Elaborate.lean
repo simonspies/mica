@@ -280,10 +280,10 @@ def ExprKind.elaborate (env : ElabEnv) (loc : Location) : ExprKind → ElabM Unt
     if path.isQualified then
       match env.resolver.value path with
       | some (.userVar n) => .ok (.var n)
-      | some (.primitive n ty) =>
-        (match ty with
-        | .arrow _ _ => .ok (.prim n ty)
-        | _ => .ok (.app (.prim n ty) []))
+      | some (.primitive n kind) =>
+        (match kind with
+        | .function => .ok (.prim n)
+        | .nullary => .ok (.app (.prim n) []))
       | some (.special _) => bareSpecial loc path
       | none => err loc (.unsupportedPath path)
     else
@@ -323,9 +323,9 @@ def ExprKind.elaborate (env : ElabEnv) (loc : Location) : ExprKind → ElabM Unt
         | some (.userVar n) => do
           let args' ← Expr.elaborateList env args
           .ok (.app (.var n) args')
-        | some (.primitive n ty) => do
+        | some (.primitive n _) => do
           let args' ← Expr.elaborateList env args
-          .ok (.app (.prim n ty) args')
+          .ok (.app (.prim n) args')
         | some (.special .arrayMake) =>
             match args with
             | [len, init] => do
@@ -410,23 +410,23 @@ def ExprKind.elaborate (env : ElabEnv) (loc : Location) : ExprKind → ElabM Unt
   | .binop .concat l r => do
     let l' ← Expr.elaborate env l
     let r' ← Expr.elaborate env r
-    .ok (.app (.prim "string_cat" (.arrow .string (.arrow .string .string))) [l', r'])
+    .ok (.app (.prim "string_cat") [l', r'])
   | .binop .fadd l r => do
     let l' ← Expr.elaborate env l
     let r' ← Expr.elaborate env r
-    .ok (.app (.prim "float_add" (.arrow .float (.arrow .float .float))) [l', r'])
+    .ok (.app (.prim "float_add") [l', r'])
   | .binop .fsub l r => do
     let l' ← Expr.elaborate env l
     let r' ← Expr.elaborate env r
-    .ok (.app (.prim "float_sub" (.arrow .float (.arrow .float .float))) [l', r'])
+    .ok (.app (.prim "float_sub") [l', r'])
   | .binop .fmul l r => do
     let l' ← Expr.elaborate env l
     let r' ← Expr.elaborate env r
-    .ok (.app (.prim "float_mul" (.arrow .float (.arrow .float .float))) [l', r'])
+    .ok (.app (.prim "float_mul") [l', r'])
   | .binop .fdiv l r => do
     let l' ← Expr.elaborate env l
     let r' ← Expr.elaborate env r
-    .ok (.app (.prim "float_div" (.arrow .float (.arrow .float .float))) [l', r'])
+    .ok (.app (.prim "float_div") [l', r'])
   | .binop op l r => do
     let op' ← elaborateBinOp loc op
     let l' ← Expr.elaborate env l

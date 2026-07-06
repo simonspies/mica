@@ -45,9 +45,9 @@ def Spec.complete (sp : SpecPredicate) (e : Expr) : Except String Spec :=
 Iterates over a list of declarations, verifying each one against its spec
 and accumulating the spec map for use by subsequent declarations. -/
 
-def Program.prepare (prog : Untyped.Program (Spec.Body Untyped.Expr)) :
+def Program.prepare (prims : Typed.Prims) (prog : Untyped.Program (Spec.Body Untyped.Expr)) :
     VerifM (TinyML.TypeEnv × Typed.Program (Spec.Body Typed.Expr)) :=
-  match Typed.Program.elaborate TinyML.TypeEnv.empty TinyML.TyCtx.empty prog with
+  match Typed.Program.elaborate prims TinyML.TypeEnv.empty TinyML.TyCtx.empty prog with
   | .ok prepared => .ret prepared
   | .error err => .fatal (toString err)
 
@@ -434,7 +434,7 @@ def ρ_spec : VerifM.Env := VerifM.Env.empty
 
 def Program.verify (reg : Verifier.Registry) (prog : Untyped.Program (Spec.Body Untyped.Expr)) : Smt.Strategy Smt.Strategy.Outcome :=
   VerifM.strategy do
-    let (Θ, typed) ← Program.prepare prog
+    let (Θ, typed) ← Program.prepare reg.sigs prog
     Verifier.Registry.introduceRegistry reg
     let relations ← RelationSpec.assemble typed
     Program.check reg Θ relations.delta relations.functionMap ∅ typed
@@ -442,19 +442,20 @@ def Program.verify (reg : Verifier.Registry) (prog : Untyped.Program (Spec.Body 
 /-! ## Correctness -/
 
 omit [MicaGS HasLC.hasLC Sig] in
-theorem Program.prepare_correct (prog : Untyped.Program (Spec.Body Untyped.Expr))
+theorem Program.prepare_correct (prims : Typed.Prims)
+    (prog : Untyped.Program (Spec.Body Untyped.Expr))
     (st : TransState) (ρ : VerifM.Env)
     {Q : (TinyML.TypeEnv × Typed.Program (Spec.Body Typed.Expr)) → TransState → VerifM.Env → Prop}
-    (heval : VerifM.eval (Program.prepare prog) st ρ Q) :
+    (heval : VerifM.eval (Program.prepare prims prog) st ρ Q) :
     ∃ Θ typed, Typed.Program.runtime typed = Untyped.Program.runtime prog ∧ Q (Θ, typed) st ρ := by
   unfold Program.prepare at heval
-  cases helab : Typed.Program.elaborate TinyML.TypeEnv.empty TinyML.TyCtx.empty prog with
+  cases helab : Typed.Program.elaborate prims TinyML.TypeEnv.empty TinyML.TyCtx.empty prog with
   | error err =>
     simp [helab] at heval
     exact (VerifM.eval_fatal heval).elim
   | ok prepared =>
     rcases prepared with ⟨Θ, typed⟩
-    refine ⟨Θ, typed, Typed.Program.elaborate_runtime TinyML.TypeEnv.empty TinyML.TyCtx.empty prog helab, ?_⟩
+    refine ⟨Θ, typed, Typed.Program.elaborate_runtime prims TinyML.TypeEnv.empty TinyML.TyCtx.empty prog helab, ?_⟩
     simp [helab] at heval
     exact VerifM.eval_ret heval
 
@@ -725,7 +726,7 @@ theorem Program.verify_correct (reg : Verifier.Registry)
   | .ok () =>
     have hverifM := VerifM.eval_of_translate
                       (do
-                        let (Θ, typed) ← Program.prepare p
+                        let (Θ, typed) ← Program.prepare reg.sigs p
                         Verifier.Registry.introduceRegistry reg
                         let relations ← RelationSpec.assemble typed
                         Program.check reg Θ relations.delta relations.functionMap ∅ typed)
@@ -733,7 +734,8 @@ theorem Program.verify_correct (reg : Verifier.Registry)
                       (ScopedM.eval_declareConst hverif)
                       TransState.init_holdsFor TransState.init_wf
     have hbind := VerifM.eval_bind _ _ _ _ hverifM
-    obtain ⟨Θ, typed, hrt, hrest⟩ := Program.prepare_correct p TransState.init VerifM.Env.init hbind
+    obtain ⟨Θ, typed, hrt, hrest⟩ :=
+      Program.prepare_correct reg.sigs p TransState.init VerifM.Env.init hbind
     -- Peel the registry setup from the continuation generically.
     have hsetup_bind := VerifM.eval_bind _ _ _ _ hrest
     obtain ⟨st_setup, ρ_setup, _hΔsub, hdep_setup, hvars_setup_eq, howns_setup,

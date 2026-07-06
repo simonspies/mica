@@ -183,16 +183,16 @@ mutual
           fty (Typed.arrowOfArgs (spec.args.map fun arg => Binder.named arg.1 arg.2) spec.retTy)
         let (_, result) ← Spec.call Θ (FiniteSubst.base Δ_spec) spec sargs
         pure result
-    | .app (.prim n _) args aty => do
+    | .app (.prim n inst _) args aty => do
         let i ← VerifM.expectSome s!"unknown primitive `{n}`"
           (reg.lookup? n)
-        let spec := i.spec
-        VerifM.expectEq "primitive return type mismatch" i.resultTy aty
+        let spec := i.spec.instantiate fun v => (inst.lookup v).getD (.tvar v)
+        VerifM.expectEq "primitive return type mismatch" spec.retTy aty
         let sterms ← compileExprs reg Θ Δ_spec S B Γ args
         let sargs := (args.map Expr.ty).zip sterms
         let (_, result) ← Spec.call Θ (FiniteSubst.base Δ_spec) spec sargs
         pure result
-    | .prim n _ => VerifM.fatal s!"primitive `{n}` must be applied"
+    | .prim n _ _ => VerifM.fatal s!"primitive `{n}` must be applied"
     | .tuple es => do
         let terms ← compileExprs reg Θ Δ_spec S B Γ es
         pure (.unop .ofValList (Terms.toValList terms))
@@ -802,8 +802,9 @@ theorem compileFix_correct (reg : Verifier.Registry) (self : Binder) (args : Lis
   simp only [compile] at heval
   exact (VerifM.eval_fatal heval).elim
 
-theorem compilePrim_correct (reg : Verifier.Registry) (n : String) (ty : TinyML.Typ) :
-    correctExpr reg (.prim n ty) := by
+theorem compilePrim_correct (reg : Verifier.Registry) (n : String)
+    (inst : List (TinyML.TyVar × TinyML.Typ)) (ty : TinyML.Typ) :
+    correctExpr reg (.prim n inst ty) := by
   intro Θ R S B Γ st ρ γ Δ_spec ρ_spec Ψ Φ heval _hagree _hbwf _hSwf _hΔwf _hΔvars _hΔspec _hρspec _hpost
   simp only [compile] at heval
   exact (VerifM.eval_fatal heval).elim
@@ -2343,7 +2344,7 @@ theorem compileApp_correct (reg : Verifier.Registry) (hSound : Verifier.Registry
         isplitl [Howns]
         · iexact Howns
         · iexact HR
-  | prim n fty =>
+  | prim n inst fty =>
     simp only [compile] at heval
     obtain ⟨i, hilookup, heval⟩ := VerifM.eval_bind_expectSome heval
     obtain ⟨hret_eq, heval⟩ := VerifM.eval_bind_expectEq heval
@@ -2357,7 +2358,8 @@ theorem compileApp_correct (reg : Verifier.Registry) (hSound : Verifier.Registry
       (VerifM.eval.decls_grow ρ heval_args) hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec hΔreg hρreg ?_
     intro vs ρ_args st_args sargs hΨ_args hsargs_wf heval_sargs
     obtain ⟨hdecls_args, hagreeOn_args, hΨ_args⟩ := hΨ_args
-    let spec := i.spec
+    let σi : TinyML.TyVar → TinyML.Typ := fun v => (inst.lookup v).getD (.tvar v)
+    let spec := i.spec.instantiate σi
     let typedArgs := (args.map Expr.ty).zip sargs
     have hlen_sargs : sargs.length = vs.length := by
       simpa [Terms.Eval] using List.Forall₂.length_eq heval_sargs
@@ -2366,7 +2368,7 @@ theorem compileApp_correct (reg : Verifier.Registry) (hSound : Verifier.Registry
     have hwf_pred :
         spec.pred.wfIn ((Δ_spec.declVars (FiniteSubst.base Δ_spec).dom).declVars
           (Spec.argVars spec.args)) := by
-      simpa [spec, FiniteSubst.base, Signature.declVars] using
+      simpa [spec, FiniteSubst.base, Signature.declVars, Verifier.Intrinsic.specArgs] using
         hbridge.specWf Δ_spec (hΔreg i hi_mem) hΔwf
     have hbase_wf : (FiniteSubst.base Δ_spec).wf Δ_spec st_args.decls :=
       FiniteSubst.base_wfIn hΔspec_args hΔwf hst_args_wf hΔvars
@@ -2380,8 +2382,7 @@ theorem compileApp_correct (reg : Verifier.Registry) (hSound : Verifier.Registry
       (fun p st' ρ' => VerifM.eval (pure p.2) st' ρ' Ψ) Φ R
       hwf_pred hbase_wf htypedArgs_wf hcall_eval
       (fun v st' ρ' t hΨ hwf heval => by
-        have hret_eq' : spec.retTy = aty := by
-          simpa [spec, Verifier.Intrinsic.resultTy] using hret_eq
+        have hret_eq' : spec.retTy = aty := hret_eq
         have h := hpost v ρ' st' t (VerifM.eval_ret hΨ) hwf heval
         rw [← hret_eq'] at h
         iintro H
@@ -2407,13 +2408,12 @@ theorem compileApp_correct (reg : Verifier.Registry) (hSound : Verifier.Registry
     ipure Hlen
     have hlen_typed : (args.map Expr.ty).length = sargs.length := by
       rw [← Hlen]; exact hlen_sargs.symm
-    have hsub_ty' : @TinyML.Typ.SubList Θ (args.map Expr.ty) i.argTysList := by
-      have hspec_snd : i.specArgs.map Prod.snd = i.argTysList := rfl
+    have hsub_ty' : @TinyML.Typ.SubList Θ (args.map Expr.ty) (spec.args.map Prod.snd) := by
       have hfst : typedArgs.map Prod.fst = args.map Expr.ty := by
         simpa [typedArgs] using
           (List.map_fst_zip (l₁ := args.map Expr.ty) (l₂ := sargs)
             (Nat.le_of_eq hlen_typed))
-      simpa [spec, hspec_snd, hfst] using hsub_ty
+      simpa [hfst] using hsub_ty
     have heval_sargs_map : typedArgs.map (fun p => p.2.eval ρ_args.env) = vs := by
       have hsnd :
           List.map Prod.snd ((List.map Expr.ty args).zip sargs) = sargs := by
@@ -2428,19 +2428,19 @@ theorem compileApp_correct (reg : Verifier.Registry) (hSound : Verifier.Registry
         _ = vs := Terms.Eval.map_eval heval_sargs
     have happly' :
         st_args.sl Θ ρ_args ∗ R ⊢
-          PredTrans.apply Θ (fun r => TinyML.ValHasType Θ r i.resultTy -∗ Φ r) i.spec.pred
-            (Spec.argsEnv ρ_args i.specArgs vs) := by
+          PredTrans.apply Θ (fun r => TinyML.ValHasType Θ r spec.retTy -∗ Φ r) spec.pred
+            (Spec.argsEnv ρ_args spec.args vs) := by
       rw [heval_sargs_map] at happly
-      simpa [spec, Verifier.Intrinsic.specArgs] using happly
+      exact happly
     have hagree_ρ_args : VerifM.Env.agreeOn Δ_spec ρ_spec ρ_args :=
       VerifM.Env.agreeOn_trans hρspec (VerifM.Env.agreeOn_mono hΔspec hagreeOn_args)
     have hρ_args_reg : ρ_args.env.respects i.folSym :=
       Env.respects_of_agreeOn_extendWithSym (hρreg i hi_mem) (hΔreg i hi_mem) hagree_ρ_args
     iapply (show
-        TinyML.ValsHaveTypes Θ vs i.argTysList ∗
-          PredTrans.apply Θ (fun r => TinyML.ValHasType Θ r i.resultTy -∗ Φ r) i.spec.pred
-            (Spec.argsEnv ρ_args i.specArgs vs) ⊢ i.toWp vs Φ from
-        hbridge.bridge Θ vs ρ_args Φ hρ_args_reg)
+        TinyML.ValsHaveTypes Θ vs (spec.args.map Prod.snd) ∗
+          PredTrans.apply Θ (fun r => TinyML.ValHasType Θ r spec.retTy -∗ Φ r) spec.pred
+            (Spec.argsEnv ρ_args spec.args vs) ⊢ i.toWp vs Φ from
+        hbridge.bridge σi Θ vs ρ_args Φ hρ_args_reg)
     isplitl [Hvals]
     · iapply (TinyML.ValsHaveTypes.sub hsub_ty')
       iexact Hvals
@@ -2884,8 +2884,8 @@ theorem compile_correct (reg : Verifier.Registry) (hSound : Verifier.Registry.So
     simpa using compileConst_correct reg c
   | var x vty =>
     simpa using compileVar_correct reg x vty
-  | prim n ty =>
-    simpa using compilePrim_correct reg n ty
+  | prim n inst ty =>
+    simpa using compilePrim_correct reg n inst ty
   | inj tag arity payload =>
     simpa using compileInj_correct reg tag arity payload (compile_correct reg hSound payload)
   | cast e ty =>

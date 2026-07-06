@@ -39,6 +39,30 @@ namespace Spec
 def argVars (args : List (String × TinyML.Typ)) : List Var :=
   args.map fun (name, _) => ⟨name, .value⟩
 
+/-- Instantiate a spec scheme: substitute `σ` into the argument and return
+    types. The predicate transformer is untouched — a polymorphic intrinsic is a
+    family of functions with the same implementation, so only the types vary
+    with the instantiation. -/
+def instantiate (s : Spec) (σ : TinyML.TyVar → TinyML.Typ) : Spec :=
+  { args  := s.args.map fun (name, ty) => (name, ty.subst σ)
+    retTy := s.retTy.subst σ
+    pred  := s.pred }
+
+omit [MicaGS HasLC.hasLC Sig] in
+@[simp] theorem instantiate_pred (s : Spec) (σ : TinyML.TyVar → TinyML.Typ) :
+    (s.instantiate σ).pred = s.pred := rfl
+
+omit [MicaGS HasLC.hasLC Sig] in
+@[simp] theorem instantiate_retTy (s : Spec) (σ : TinyML.TyVar → TinyML.Typ) :
+    (s.instantiate σ).retTy = s.retTy.subst σ := rfl
+
+omit [MicaGS HasLC.hasLC Sig] in
+/-- Instantiation preserves argument names, hence the argument variables. -/
+@[simp] theorem instantiate_argVars (s : Spec) (σ : TinyML.TyVar → TinyML.Typ) :
+    argVars (s.instantiate σ).args = argVars s.args := by
+  simp only [instantiate, argVars, List.map_map]
+  rfl
+
 /-- Build an environment binding each argument name to its value, left-to-right.
     Later arguments shadow earlier ones with the same name. -/
 def argsEnv (ρ : VerifM.Env) : List (String × TinyML.Typ) → List Runtime.Val → VerifM.Env
