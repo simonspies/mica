@@ -140,7 +140,7 @@ def encodeWith {M : Type} (ops : EncoderOps M) (Δ : Signature)
     match δ.lookup x with
     | some v => k v
     | none => ops.error s!"unbound variable: {x}"
-  | .prim n _, _ => ops.error s!"relational encoding: standalone primitive `{n}` is not supported"
+  | .prim n _ _, _ => ops.error s!"relational encoding: standalone primitive `{n}` is not supported"
   | .unop op e _, k =>
     encodeWith ops Δ Γ δ e fun v =>
       match encodeUnOp op v with
@@ -163,7 +163,7 @@ def encodeWith {M : Type} (ops : EncoderOps M) (Δ : Signature)
     | none     => ops.error s!"unknown function: {f}"
     | some rel =>
       encodeWith ops Δ Γ δ arg fun v => ops.call rel v k
-  | .app (.prim n _) args _, k =>
+  | .app (.prim n _ _) args _, k =>
     encodeListWith ops Δ Γ δ args fun vs =>
       match encodePrim Δ n vs with
       | .ok v      => k v
@@ -337,7 +337,7 @@ theorem app (fn : Typed.Expr) (args : List Typed.Expr) (ty : TinyML.Typ)
           refine ihArgs arg (List.mem_singleton.mpr rfl) hops ?_
           intro _
           exact hops.call_ind hk
-  | .prim n _, args =>
+  | .prim n _ _, args =>
       simp only [encodeWith]
       refine ihArgsList hops ?_
       intro vs
@@ -360,7 +360,8 @@ theorem fix (self : Typed.Binder) (args : List Typed.Binder) (retTy : TinyML.Typ
     (body : Typed.Expr) : EncodeWithInd (.fix self args retTy body) :=
   fun hops _ => hops.error_ind
 
-theorem prim (name : String) (ty : TinyML.Typ) : EncodeWithInd (.prim name ty) :=
+theorem prim (name : String) (inst : List (TinyML.TyVar × TinyML.Typ))
+    (ty : TinyML.Typ) : EncodeWithInd (.prim name inst ty) :=
   fun hops _ => hops.error_ind
 
 theorem letIn (name : Typed.Binder) (bound body : Typed.Expr)
@@ -461,7 +462,7 @@ the predicate. -/
 theorem encodeWith_ind_def : ∀ (e : Typed.Expr), EncodeWithInd e
   | .const c => Ind.const c
   | .var x ty => Ind.var x ty
-  | .prim n ty => Ind.prim n ty
+  | .prim n inst ty => Ind.prim n inst ty
   | .unop op e ty => Ind.unop op e ty (encodeWith_ind_def e)
   | .binop op e1 e2 ty =>
       Ind.binop op e1 e2 ty (encodeWith_ind_def e1) (encodeWith_ind_def e2)
@@ -664,7 +665,7 @@ theorem app (fn : Typed.Expr) (args : List Typed.Expr) (ty : TinyML.Typ)
           refine hops.call_ind hΔ'' (hops.ctx_mono hΓ hsub'') hmem hv ?_
           intro Δ''' hsub''' hΔ''' v' hv'
           exact hk (hsub''.trans hsub''') hΔ''' v' hv'
-  | .prim n _, args =>
+  | .prim n _ _, args =>
       simp only [encodeWith]
       refine ihArgsList hops hsub hΔ' hΓ hδ ?_
       intro Δ'' hsub'' hΔ'' vs hvs
@@ -689,7 +690,8 @@ theorem fix (self : Typed.Binder) (args : List Typed.Binder) (retTy : TinyML.Typ
     (body : Typed.Expr) : EncodeWithIndSig (.fix self args retTy body) :=
   fun hops _ _ _ _ _ => hops.error_ind
 
-theorem prim (name : String) (ty : TinyML.Typ) : EncodeWithIndSig (.prim name ty) :=
+theorem prim (name : String) (inst : List (TinyML.TyVar × TinyML.Typ))
+    (ty : TinyML.Typ) : EncodeWithIndSig (.prim name inst ty) :=
   fun hops _ _ _ _ _ => hops.error_ind
 
 theorem letIn (name : Typed.Binder) (bound body : Typed.Expr)
@@ -820,7 +822,7 @@ expression yields a carrier satisfying `P`. -/
 theorem encodeWith_indWithSig_def : ∀ (e : Typed.Expr), EncodeWithIndSig e
   | .const c => IndSig.const c
   | .var x ty => IndSig.var x ty
-  | .prim n ty => IndSig.prim n ty
+  | .prim n inst ty => IndSig.prim n inst ty
   | .unop op e ty => IndSig.unop op e ty (encodeWith_indWithSig_def e)
   | .binop op e1 e2 ty =>
       IndSig.binop op e1 e2 ty (encodeWith_indWithSig_def e1) (encodeWith_indWithSig_def e2)
@@ -1218,7 +1220,7 @@ theorem app (fn : Typed.Expr) (args : List Typed.Expr) (ty : TinyML.Typ)
           intro Δa₁ Δa₂ ρa₁ ρa₂ hsa₁ hsa₂ _ _ haa₁ haa₂ v₁ v₂ hv₁ hv₂ hevalv
           exact hops.call_binary (FunCtx.mem_of_lookup hlk) hv₁ hv₂ hevalv
             (EncoderContSpec.mono hsa₁ hsa₂ haa₁ haa₂ hk)
-  | .prim n _, args =>
+  | .prim n _ _, args =>
       simp only [encodeWith]
       refine ihArgsList hops hsub₁ hsub₂ hwf₁ hwf₂ hagree henv ?_
       intro Δa₁ Δa₂ ρa₁ ρa₂ hsa₁ hsa₂ hwa₁ hwa₂ haa₁ haa₂ vs₁ vs₂ hvs₁ hvs₂ hevals
@@ -1256,7 +1258,8 @@ theorem fix (self : Typed.Binder) (args : List Typed.Binder) (retTy : TinyML.Typ
     (body : Typed.Expr) : EncodeWithBindBinary (.fix self args retTy body) := by
   intro _ _ _ _ _ _ _ _ _ hops _ _ _ _ _ _ _ _ _ _ _ _ _; exact hops.error_binary
 
-theorem prim (name : String) (ty : TinyML.Typ) : EncodeWithBindBinary (.prim name ty) := by
+theorem prim (name : String) (inst : List (TinyML.TyVar × TinyML.Typ))
+    (ty : TinyML.Typ) : EncodeWithBindBinary (.prim name inst ty) := by
   intro _ _ _ _ _ _ _ _ _ hops _ _ _ _ _ _ _ _ _ _ _ _ _; exact hops.error_binary
 
 theorem letIn (name : Typed.Binder) (bound body : Typed.Expr)
@@ -1427,7 +1430,7 @@ mutual
 theorem encodeWith_bind_binary_def : ∀ (e : Typed.Expr), EncodeWithBindBinary e
   | .const c => BindBinary.const c
   | .var x ty => BindBinary.var x ty
-  | .prim n ty => BindBinary.prim n ty
+  | .prim n inst ty => BindBinary.prim n inst ty
   | .unop op e ty => BindBinary.unop op e ty (encodeWith_bind_binary_def e)
   | .binop op e1 e2 ty =>
       BindBinary.binop op e1 e2 ty (encodeWith_bind_binary_def e1)

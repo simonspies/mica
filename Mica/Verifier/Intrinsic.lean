@@ -30,6 +30,12 @@ inductive Arity
   | two
   deriving DecidableEq, Repr
 
+/-- The number of arguments of an `Arity`. -/
+def Arity.toNat : Arity → Nat
+  | .zero => 0
+  | .one  => 1
+  | .two  => 2
+
 /-- The shape of a tuple of `n` elements of type `α` indexed by an `Arity`. -/
 abbrev Arity.tup : Arity → Type → Type
   | .zero, _ => Unit
@@ -228,8 +234,16 @@ structure Intrinsic where
   reduce   : Arity.tup arity Runtime.Val → TinyML.Heap → Runtime.Val → TinyML.Heap → Prop
   wp       : Arity.tup arity Runtime.Val → (Runtime.Val → iProp) → iProp
   /-- The intrinsic's specification, the single source of its argument names/
-      types, return type, and predicate transformer. -/
+      types, return type, and predicate transformer. Argument and return types
+      may contain type variables (a *scheme*); a polymorphic intrinsic is a
+      family of functions with the same implementation, instantiated per use
+      site via `Spec.instantiate`. -/
   spec     : Spec
+  /-- The typing function: given the inferred argument types of a use site,
+      compute the type-variable instantiation (or reject with a message). It is
+      untrusted — the elaborator re-checks arguments against the instantiated
+      scheme and the semantic obligations hold for every substitution. -/
+  typing   : TinyML.TypeEnv → List TinyML.Typ → Except String (List (TinyML.TyVar × TinyML.Typ))
   folSym   : Option (FOL.Symbol arity)
   axioms   : List Axiom
 
@@ -242,6 +256,15 @@ def Reduce.pure {α : Type} (rel : α → Runtime.Val → Prop) :
     α → TinyML.Heap → Runtime.Val → TinyML.Heap → Prop :=
   fun a μ v μ' => rel a v ∧ μ' = μ
 
+/-- The typing function of a monomorphic intrinsic: no type variables to
+    solve, only the argument count to check. -/
+def monoTyping (arity : Arity) :
+    TinyML.TypeEnv → List TinyML.Typ →
+      Except String (List (TinyML.TyVar × TinyML.Typ)) :=
+  fun _ tys =>
+    if tys.length = arity.toNat then .ok []
+    else .error s!"expected {arity.toNat} arguments, got {tys.length}"
+
 namespace Intrinsic
 
 /-- Extending an environment with an intrinsic's fresh FOL symbol preserves
@@ -250,7 +273,7 @@ theorem agreeOn_extend_fresh (i : Intrinsic) {Δ : Signature} (ρ : Env)
     (hfresh : match i.folSym with | none => True | some sym => sym.name ∉ Δ.allNames) :
     Env.agreeOn Δ ρ (ρ.extendWithSym i.folSym) := by
   cases i with
-  | mk arity name path reduce wp spec folSym axioms =>
+  | mk arity name path reduce wp spec typing folSym axioms =>
     cases arity with
     | zero =>
       cases folSym with
@@ -283,6 +306,14 @@ def argTysList (i : Intrinsic) : List TinyML.Typ :=
 def resultTy (i : Intrinsic) : TinyML.Typ :=
   i.spec.retTy
 
+/-- The intrinsic's full arrow (scheme) type. -/
+def arrowType (i : Intrinsic) : TinyML.Typ :=
+  i.argTysList.foldr .arrow i.resultTy
+
+/-- The typing face of an intrinsic, consumed by the elaborator. -/
+def sig (i : Intrinsic) : Typed.PrimSig :=
+  ⟨i.arrowType, i.typing⟩
+
 /-- Adapter from the list-shaped argument call (used by OpSem and `wp`) to
     the arity-shaped representation. Out-of-shape calls produce the empty
     relation. -/
@@ -302,9 +333,12 @@ theorem toReduce_two_of_arity (name : String)
     (path : Option (String × List String))
     (reduce : Arity.tup .two Runtime.Val → TinyML.Heap → Runtime.Val → TinyML.Heap → Prop)
     (wp : Arity.tup .two Runtime.Val → (Runtime.Val → iProp) → iProp)
-    (spec : Spec) (folSym : Option (FOL.Symbol .two)) (axioms : List Axiom)
+    (spec : Spec)
+    (typing : TinyML.TypeEnv → List TinyML.Typ →
+      Except String (List (TinyML.TyVar × TinyML.Typ)))
+    (folSym : Option (FOL.Symbol .two)) (axioms : List Axiom)
     (a b v : Runtime.Val) (μ μ' : TinyML.Heap) :
-    (Intrinsic.mk .two name path reduce wp spec folSym axioms).toReduce [a, b] μ v μ'
+    (Intrinsic.mk .two name path reduce wp spec typing folSym axioms).toReduce [a, b] μ v μ'
       = reduce (a, b) μ v μ' := rfl
 
 /-- Unfolding lemma for `toReduce` at arity-one, one arg. -/
@@ -312,9 +346,12 @@ theorem toReduce_one_of_arity (name : String)
     (path : Option (String × List String))
     (reduce : Arity.tup .one Runtime.Val → TinyML.Heap → Runtime.Val → TinyML.Heap → Prop)
     (wp : Arity.tup .one Runtime.Val → (Runtime.Val → iProp) → iProp)
-    (spec : Spec) (folSym : Option (FOL.Symbol .one)) (axioms : List Axiom)
+    (spec : Spec)
+    (typing : TinyML.TypeEnv → List TinyML.Typ →
+      Except String (List (TinyML.TyVar × TinyML.Typ)))
+    (folSym : Option (FOL.Symbol .one)) (axioms : List Axiom)
     (a v : Runtime.Val) (μ μ' : TinyML.Heap) :
-    (Intrinsic.mk .one name path reduce wp spec folSym axioms).toReduce [a] μ v μ'
+    (Intrinsic.mk .one name path reduce wp spec typing folSym axioms).toReduce [a] μ v μ'
       = reduce a μ v μ' := rfl
 
 /-- Unfolding lemma for `toReduce` at arity-zero, no args. -/
@@ -322,9 +359,12 @@ theorem toReduce_zero_of_arity (name : String)
     (path : Option (String × List String))
     (reduce : Arity.tup .zero Runtime.Val → TinyML.Heap → Runtime.Val → TinyML.Heap → Prop)
     (wp : Arity.tup .zero Runtime.Val → (Runtime.Val → iProp) → iProp)
-    (spec : Spec) (folSym : Option (FOL.Symbol .zero)) (axioms : List Axiom)
+    (spec : Spec)
+    (typing : TinyML.TypeEnv → List TinyML.Typ →
+      Except String (List (TinyML.TyVar × TinyML.Typ)))
+    (folSym : Option (FOL.Symbol .zero)) (axioms : List Axiom)
     (v : Runtime.Val) (μ μ' : TinyML.Heap) :
-    (Intrinsic.mk .zero name path reduce wp spec folSym axioms).toReduce [] μ v μ'
+    (Intrinsic.mk .zero name path reduce wp spec typing folSym axioms).toReduce [] μ v μ'
       = reduce () μ v μ' := rfl
 
 /-- Adapter from the list-shaped argument call to the arity-shaped `wp`
@@ -345,9 +385,12 @@ theorem toWp_two_of_arity (name : String)
     (path : Option (String × List String))
     (reduce : Arity.tup .two Runtime.Val → TinyML.Heap → Runtime.Val → TinyML.Heap → Prop)
     (wp : Arity.tup .two Runtime.Val → (Runtime.Val → iProp) → iProp)
-    (spec : Spec) (folSym : Option (FOL.Symbol .two)) (axioms : List Axiom)
+    (spec : Spec)
+    (typing : TinyML.TypeEnv → List TinyML.Typ →
+      Except String (List (TinyML.TyVar × TinyML.Typ)))
+    (folSym : Option (FOL.Symbol .two)) (axioms : List Axiom)
     (a b : Runtime.Val) (Q : Runtime.Val → iProp) :
-    (Intrinsic.mk .two name path reduce wp spec folSym axioms).toWp [a, b] Q
+    (Intrinsic.mk .two name path reduce wp spec typing folSym axioms).toWp [a, b] Q
       = wp (a, b) Q := rfl
 
 /-- Unfolding lemma for `toWp` at arity-one, one arg. -/
@@ -355,9 +398,12 @@ theorem toWp_one_of_arity (name : String)
     (path : Option (String × List String))
     (reduce : Arity.tup .one Runtime.Val → TinyML.Heap → Runtime.Val → TinyML.Heap → Prop)
     (wp : Arity.tup .one Runtime.Val → (Runtime.Val → iProp) → iProp)
-    (spec : Spec) (folSym : Option (FOL.Symbol .one)) (axioms : List Axiom)
+    (spec : Spec)
+    (typing : TinyML.TypeEnv → List TinyML.Typ →
+      Except String (List (TinyML.TyVar × TinyML.Typ)))
+    (folSym : Option (FOL.Symbol .one)) (axioms : List Axiom)
     (a : Runtime.Val) (Q : Runtime.Val → iProp) :
-    (Intrinsic.mk .one name path reduce wp spec folSym axioms).toWp [a] Q
+    (Intrinsic.mk .one name path reduce wp spec typing folSym axioms).toWp [a] Q
       = wp a Q := rfl
 
 /-- Unfolding lemma for `toWp` at arity-zero, no args. -/
@@ -365,9 +411,12 @@ theorem toWp_zero_of_arity (name : String)
     (path : Option (String × List String))
     (reduce : Arity.tup .zero Runtime.Val → TinyML.Heap → Runtime.Val → TinyML.Heap → Prop)
     (wp : Arity.tup .zero Runtime.Val → (Runtime.Val → iProp) → iProp)
-    (spec : Spec) (folSym : Option (FOL.Symbol .zero)) (axioms : List Axiom)
+    (spec : Spec)
+    (typing : TinyML.TypeEnv → List TinyML.Typ →
+      Except String (List (TinyML.TyVar × TinyML.Typ)))
+    (folSym : Option (FOL.Symbol .zero)) (axioms : List Axiom)
     (Q : Runtime.Val → iProp) :
-    (Intrinsic.mk .zero name path reduce wp spec folSym axioms).toWp [] Q
+    (Intrinsic.mk .zero name path reduce wp spec typing folSym axioms).toWp [] Q
       = wp () Q := rfl
 
 /-- Fold a registry fragment's FOL symbols into a starting signature. The
@@ -412,6 +461,9 @@ end Intrinsic
     symbol by its standard interpretation. These side conditions are discharged
     by the caller from the registry-derived signature/environment.
 
+    `bridge` is a family indexed by the type-variable substitution `σ`: it is
+    stated at the *instantiated* spec `i.spec.instantiate σ`, for every `σ`.
+
     `axiomWf`/`proof` are stated against the dependency `fragment`: each axiom is
     well-formed in the signature supplied by the fragment, and is satisfied by
     every environment that respects every FOL symbol in the fragment. -/
@@ -420,12 +472,13 @@ class IntrinsicSound (fragment : outParam (List Intrinsic)) (i : Intrinsic) : Pr
     ∀ (Δ : Signature), (Signature.empty.extendWithSym i.folSym).Subset Δ → Δ.wf →
       PredTrans.wfIn (Δ.declVars (Spec.argVars i.specArgs)) i.spec.pred
   bridge :
-    ∀ [MicaGS HasLC.hasLC Sig] (Θ : TinyML.TypeEnv) (vs : List Runtime.Val) (ρ : VerifM.Env)
-      (Φ : Runtime.Val → iProp),
+    ∀ [MicaGS HasLC.hasLC Sig] (σ : TinyML.TyVar → TinyML.Typ) (Θ : TinyML.TypeEnv)
+      (vs : List Runtime.Val) (ρ : VerifM.Env) (Φ : Runtime.Val → iProp),
     ρ.env.respects i.folSym →
-    TinyML.ValsHaveTypes Θ vs i.argTysList ∗
-      PredTrans.apply Θ (fun r => TinyML.ValHasType Θ r i.resultTy -∗ Φ r) i.spec.pred
-        (Spec.argsEnv ρ i.specArgs vs) ⊢ i.toWp vs Φ
+    TinyML.ValsHaveTypes Θ vs ((i.spec.instantiate σ).args.map Prod.snd) ∗
+      PredTrans.apply Θ (fun r => TinyML.ValHasType Θ r (i.spec.instantiate σ).retTy -∗ Φ r)
+        (i.spec.instantiate σ).pred
+        (Spec.argsEnv ρ (i.spec.instantiate σ).args vs) ⊢ i.toWp vs Φ
   wp_sound :
     ∀ [MicaGS HasLC.hasLC Sig] (ctx : TinyML.PrimCtx),
       (∀ vs μ v μ', ctx i.name vs μ v μ' ↔ i.toReduce vs μ v μ') →
@@ -454,6 +507,11 @@ theorem lookup?_name {R : Registry} {n : String} {i : Intrinsic}
     (h : R.lookup? n = some i) : i.name = n := by
   have := List.find?_eq_some_iff_append.mp h
   exact eq_of_beq this.1
+
+/-- The typing faces of all registered intrinsics, keyed by name; handed to the
+    elaborator. -/
+def sigs (R : Registry) : String → Option Typed.PrimSig :=
+  fun n => (R.lookup? n).map Intrinsic.sig
 
 /-- Build the operational-semantics context from a registry. -/
 def primCtx (R : Registry) : TinyML.PrimCtx :=
@@ -744,7 +802,7 @@ theorem eval_declFOLSym (i : Intrinsic) {st : TransState} {ρ : VerifM.Env}
       ρ'.env.respects i.folSym ∧
       Q () { st with decls := st.decls.extendWithSym i.folSym } ρ' := by
   cases i with
-  | mk arity name path reduce wp spec folSym axioms =>
+  | mk arity name path reduce wp spec typing folSym axioms =>
     cases arity with
     | zero =>
       cases folSym with
