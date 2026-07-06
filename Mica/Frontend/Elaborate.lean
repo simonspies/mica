@@ -243,7 +243,6 @@ private def patternRecordFieldsToBinders (env : ElabEnv)
 private def patternToProductBinders (env : ElabEnv) (pat : Pattern) :
     ElabM (List Untyped.Binder) :=
   match pat.kind with
-  | .tuple [] => err pat.loc (.unsupportedPattern "unit is not a product binder")
   | .tuple pats => patternListToAnnotatedBinders env pats
   | .record fields => do
       let fieldInfo ← recordFieldsFor env pat.loc fields
@@ -271,7 +270,6 @@ private def patternComponentTypes? (env : ElabEnv) :
 
 private def patternToProductType (env : ElabEnv) (pat : Pattern) : ElabM TinyML.Typ :=
   match pat.kind with
-  | .tuple [] => err pat.loc (.unsupportedPattern "unit is not a product binder")
   | .tuple pats => do
       match ← patternComponentTypes? env pats with
       | some tys => .ok (TinyML.Typ.tuple tys)
@@ -285,7 +283,6 @@ private def patternToProductType (env : ElabEnv) (pat : Pattern) : ElabM TinyML.
 private def isProductPattern (pat : Pattern) : Bool :=
   match pat.kind with
   | .tuple (_ :: _) | .record _ => true
-  | .tuple [] => false
   | _ => false
 
 private def productArgumentName (stem : String) (idx : Nat) : String :=
