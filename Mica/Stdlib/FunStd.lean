@@ -6,7 +6,7 @@ open Iris Iris.BI
 /-!
 # Functions
 
-The indentity function as an example exercising the support for implementing
+The identity function as an example exercising the support for implementing
 polymorphic intrinsics.
 
 -/
