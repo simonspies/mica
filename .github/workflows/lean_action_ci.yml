@@ -15,7 +15,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y ocaml
-          ocamlc -version
+          ocamlopt -version
       - name: Install Z3
         run: |
           Z3_VERSION=4.15.4
@@ -24,7 +24,7 @@ jobs:
           unzip -q z3.zip
           sudo install "z3-${Z3_VERSION}-x64-glibc-2.39/bin/z3" /usr/local/bin/z3
           z3 --version
-      - name: Test examples
+      - name: Test and compile examples
         run: |
           lake run testsuite Examples/
 
