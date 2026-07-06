@@ -85,8 +85,8 @@ let worklist_demo (a : int) (b : int) (c : int) (prefer_left : bool) : unit =
     transfer 3 todo done_
   else
     transfer 1 done_ todo;
-  let dropped_todo = pop_or_zero todo in
-  let dropped_done = pop_or_zero done_ in
+  let _ = pop_or_zero todo in
+  let _ = pop_or_zero done_ in
   ()
 [@@spec fun a b c prefer_left ->
   ret (fun r ->

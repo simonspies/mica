@@ -26,11 +26,12 @@ let rec advance (fuel : int) (a : int ref [@owned]) (b : int ref [@owned]) : uni
   bind (own a) @@ fun (start_a : int) ->
   bind (own b) @@ fun (start_b : int) ->
   ret (fun result ->
-    bind (own a) @@ fun (final_a : int) ->
-    bind (own b) @@ fun (final_b : int) ->
-    let expected = fib_state (start_a, start_b, fuel) in
-    assert (final_a = expected.1);
-    assert (final_b = expected.2))];;
+	    bind (own a) @@ fun (final_a : int) ->
+	    bind (own b) @@ fun (final_b : int) ->
+	    let expected = fib_state (start_a, start_b, fuel) in
+	    let ((expected_a : int), (expected_b : int)) = expected in
+	    assert (final_a = expected_a);
+	    assert (final_b = expected_b))];;
 
 let fib (n : int) : int =
   let a = ref 0 [@owned] in
@@ -38,7 +39,8 @@ let fib (n : int) : int =
   advance n a b;
   !a
 [@@spec fun n ->
-  assert (n >= 0);
-  ret (fun result ->
-    let expected = fib_state (0, 1, n) in
-    assert (result = expected.1))];;
+	  assert (n >= 0);
+	  ret (fun result ->
+	    let expected = fib_state (0, 1, n) in
+	    let ((expected_a : int), (_expected_b : int)) = expected in
+	    assert (result = expected_a))];;
