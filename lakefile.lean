@@ -32,6 +32,7 @@ inductive ProcessResult where
 structure TestOutcome where
   path : FilePath
   result : ProcessResult
+  elapsedMs : Nat
 
 structure TestsuiteOutcomes where
   compile : Array TestOutcome
@@ -89,14 +90,20 @@ def runProcessWithTimeout (cmd : String) (args : Array String) (timeoutMs : UInt
     IO ProcessResult := do
   runProcessWithTimeoutIn? cmd args none timeoutMs
 
+def measureTestOutcome (path : FilePath) (action : IO ProcessResult) : IO TestOutcome := do
+  let start ← IO.monoMsNow
+  let result ← action
+  let stop ← IO.monoMsNow
+  return { path, result, elapsedMs := stop - start }
+
 def runTest (mica : LeanExe) (file : FilePath) : IO TestOutcome := do
-  let result ← runProcessWithTimeout mica.file.toString #[file.toString] testTimeoutMs
-  return { path := file, result := result }
+  measureTestOutcome file <|
+    runProcessWithTimeout mica.file.toString #[file.toString] testTimeoutMs
 
 def runStdlibCompileIn (tmpDir : FilePath) : IO TestOutcome := do
   let cwd ← IO.currentDir
   let path := cwd / "mica.ml"
-  let result ←
+  measureTestOutcome path <|
     try
       runProcessWithTimeoutIn? "ocamlopt" #["-c", path.toString, "-o", "mica.cmx"]
         (some tmpDir) testTimeoutMs
@@ -106,11 +113,10 @@ def runStdlibCompileIn (tmpDir : FilePath) : IO TestOutcome := do
         stdout := ""
         stderr := s!"failed to run ocamlopt: {e}\n"
       })
-  return { path, result }
 
 def runOcamlExampleCompileIn (tmpDir : FilePath) (idx : Nat) (file : FilePath) : IO TestOutcome := do
   let out := tmpDir / s!"example_{idx}.cmx"
-  let result ←
+  measureTestOutcome file <|
     try
       runProcessWithTimeoutIn? "ocamlopt"
         #["-I", tmpDir.toString, "-c", file.toString, "-o", out.toString]
@@ -121,7 +127,6 @@ def runOcamlExampleCompileIn (tmpDir : FilePath) (idx : Nat) (file : FilePath) :
         stdout := ""
         stderr := s!"failed to run ocamlopt: {e}\n"
       })
-  return { path := file, result := result }
 
 def parseTestsuiteArgs (args : List String) : ScriptM TestsuiteOptions := do
   let mut summaryOnly := false
@@ -192,10 +197,11 @@ def isFailure (result : ProcessResult) : Bool :=
   | .timeout _ => true
   | .terminated out => out.exitCode != 0
 
-def resultSuffix (result : ProcessResult) : String :=
-  match result with
+def resultSuffix (test : TestOutcome) : String :=
+  let elapsed := s!" ({test.elapsedMs}ms)"
+  match test.result with
   | .timeout ms => s!" timed out after {ms}ms"
-  | .terminated output => if output.exitCode == 0 then " ✓" else " ⨯"
+  | .terminated output => if output.exitCode == 0 then s!" ✓{elapsed}" else s!" ⨯{elapsed}"
 
 def recordFailure (failed : List TestOutcome) (test : TestOutcome) : List TestOutcome :=
   if isFailure test.result then test :: failed else failed
@@ -217,7 +223,7 @@ def printFailureSummary (failed : List TestOutcome) : IO Unit := do
 def reportTestOutcome (options : TestsuiteOptions) (failed : List TestOutcome) (verb : String)
     (label : String) (test : TestOutcome) : IO (List TestOutcome) := do
   printTestHeader verb label
-  IO.println (resultSuffix test.result)
+  IO.println (resultSuffix test)
   let failed := recordFailure failed test
   if !options.summaryOnly || isFailure test.result then
     printCapturedOutput test
