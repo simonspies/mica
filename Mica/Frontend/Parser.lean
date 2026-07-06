@@ -292,7 +292,7 @@ private partial def parsePattern : Parser Pattern := fun st =>
       -- constructor pattern (possibly qualified, e.g. `Option.Some x`)
       let (path, st') ← collectPathTail name [] (advance st)
       match peekTok st' with
-      | .ident _ | .underscore | .intLit _ | .charLit _ | .kw_true | .kw_false | .lparen => do
+      | .ident _ | .underscore | .intLit _ | .charLit _ | .kw_true | .kw_false | .lparen | .lbrace => do
         let (payload, st'') ← parsePattern st'
         .ok (mkPat p st'' (.ctor path (some payload)), st'')
       | _ =>
@@ -325,6 +325,11 @@ private partial def parsePattern : Parser Pattern := fun st =>
         .ok (pat, advance st')
       | t =>
         .error { loc := peekLoc st', kind := .unexpectedToken "')' or ',' in pattern" t }
+  | .lbrace => do
+    let st' := advance st
+    let (fields, st') ← parseRecordPatFields st'
+    let st' ← expect .rbrace st'
+    .ok (mkPat p st' (.record fields), st')
   | t =>
     .error { loc := peekLoc st, kind := .unexpectedToken "pattern" t }
 where
@@ -358,13 +363,26 @@ where
       .ok (p :: rest, st)
     | _ => .ok ([], st)
 
+  parseRecordPatFields : Parser (List (FieldName × Pattern)) := fun st => do
+    let (name, st) ← expectIdent st
+    let st ← expect .eq st
+    let (pat, st) ← parsePattern st
+    match peekTok st with
+    | .semi =>
+      if peekTok (advance st) == .rbrace then
+        .ok ([(name, pat)], advance st)
+      else do
+        let (rest, st) ← parseRecordPatFields (advance st)
+        .ok ((name, pat) :: rest, st)
+    | _ => .ok ([(name, pat)], st)
+
 -- ---------------------------------------------------------------------------
 -- Shared binder helpers
 -- These are top-level so both parseExpr (parseLet/parseFun) and parseDecl
 -- (parseValDecl) can call them directly.
 
 private def isPatStart : Token → Bool
-  | .ident _ | .underscore | .lparen | .intLit _ | .kw_true | .kw_false => true
+  | .ident _ | .underscore | .lparen | .lbrace | .intLit _ | .kw_true | .kw_false => true
   | _ => false
 
 private partial def parsePatternBinder : Parser Pattern := fun st =>
@@ -387,6 +405,11 @@ private partial def parsePatternBinder : Parser Pattern := fun st =>
       | .rparen => .ok (pat, advance st')
       | t =>
         .error { loc := peekLoc st', kind := .unexpectedToken "')' in binder" t }
+  | .lbrace => do
+    let st' := advance st
+    let (fields, st') ← parsePattern.parseRecordPatFields st'
+    let st' ← expect .rbrace st'
+    .ok (mkPat p st' (.record fields), st')
   | t =>
     .error { loc := peekLoc st, kind := .unexpectedToken "binder" t }
 
