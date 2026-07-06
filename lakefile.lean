@@ -32,6 +32,11 @@ inductive ProcessResult where
 structure TestOutcome where
   path : FilePath
   result : ProcessResult
+  elapsedMs : Nat
+
+structure TestsuiteOutcomes where
+  compile : Array TestOutcome
+  check : Array TestOutcome
 
 structure TestsuiteOptions where
   summaryOnly : Bool
@@ -85,14 +90,20 @@ def runProcessWithTimeout (cmd : String) (args : Array String) (timeoutMs : UInt
     IO ProcessResult := do
   runProcessWithTimeoutIn? cmd args none timeoutMs
 
+def measureTestOutcome (path : FilePath) (action : IO ProcessResult) : IO TestOutcome := do
+  let start ← IO.monoMsNow
+  let result ← action
+  let stop ← IO.monoMsNow
+  return { path, result, elapsedMs := stop - start }
+
 def runTest (mica : LeanExe) (file : FilePath) : IO TestOutcome := do
-  let result ← runProcessWithTimeout mica.file.toString #[file.toString] testTimeoutMs
-  return { path := file, result := result }
+  measureTestOutcome file <|
+    runProcessWithTimeout mica.file.toString #[file.toString] testTimeoutMs
 
 def runStdlibCompileIn (tmpDir : FilePath) : IO TestOutcome := do
   let cwd ← IO.currentDir
   let path := cwd / "mica.ml"
-  let result ←
+  measureTestOutcome path <|
     try
       runProcessWithTimeoutIn? "ocamlopt" #["-c", path.toString, "-o", "mica.cmx"]
         (some tmpDir) testTimeoutMs
@@ -102,11 +113,10 @@ def runStdlibCompileIn (tmpDir : FilePath) : IO TestOutcome := do
         stdout := ""
         stderr := s!"failed to run ocamlopt: {e}\n"
       })
-  return { path, result }
 
 def runOcamlExampleCompileIn (tmpDir : FilePath) (idx : Nat) (file : FilePath) : IO TestOutcome := do
   let out := tmpDir / s!"example_{idx}.cmx"
-  let result ←
+  measureTestOutcome file <|
     try
       runProcessWithTimeoutIn? "ocamlopt"
         #["-I", tmpDir.toString, "-c", file.toString, "-o", out.toString]
@@ -117,7 +127,6 @@ def runOcamlExampleCompileIn (tmpDir : FilePath) (idx : Nat) (file : FilePath) :
         stdout := ""
         stderr := s!"failed to run ocamlopt: {e}\n"
       })
-  return { path := file, result := result }
 
 def parseTestsuiteArgs (args : List String) : ScriptM TestsuiteOptions := do
   let mut summaryOnly := false
@@ -188,10 +197,11 @@ def isFailure (result : ProcessResult) : Bool :=
   | .timeout _ => true
   | .terminated out => out.exitCode != 0
 
-def resultSuffix (result : ProcessResult) : String :=
-  match result with
+def resultSuffix (test : TestOutcome) : String :=
+  let elapsed := s!" ({test.elapsedMs}ms)"
+  match test.result with
   | .timeout ms => s!" timed out after {ms}ms"
-  | .terminated output => if output.exitCode == 0 then " ✓" else " ⨯"
+  | .terminated output => if output.exitCode == 0 then s!" ✓{elapsed}" else s!" ⨯{elapsed}"
 
 def recordFailure (failed : List TestOutcome) (test : TestOutcome) : List TestOutcome :=
   if isFailure test.result then test :: failed else failed
@@ -213,37 +223,43 @@ def printFailureSummary (failed : List TestOutcome) : IO Unit := do
 def reportTestOutcome (options : TestsuiteOptions) (failed : List TestOutcome) (verb : String)
     (label : String) (test : TestOutcome) : IO (List TestOutcome) := do
   printTestHeader verb label
-  IO.println (resultSuffix test.result)
+  IO.println (resultSuffix test)
   let failed := recordFailure failed test
   if !options.summaryOnly || isFailure test.result then
     printCapturedOutput test
   pure failed
 
-def runOcamlCompileTests (options : TestsuiteOptions) (tests : Array FilePath)
-    (failed : List TestOutcome) :
-    IO (List TestOutcome) := do
+def reportTestOutcomes (options : TestsuiteOptions) (failed : List TestOutcome) (verb : String)
+    (tests : Array TestOutcome) : IO (List TestOutcome) := do
+  let mut failed := failed
+  for test in tests do
+    let filename := test.path.fileName.getD test.path.toString
+    failed ← reportTestOutcome options failed verb filename test
+  pure failed
+
+def runTestsuiteActions (mica : LeanExe) (tests : Array FilePath) : ScriptM TestsuiteOutcomes := do
   IO.FS.withTempDir fun tmpDir => do
     let stdlib ← runStdlibCompileIn tmpDir
-    let mut failed ← reportTestOutcome options failed "Compiling" "mica.ml" stdlib
-    if !isFailure stdlib.result then
-      let mut idx := 0
-      for file in tests do
-        let filename := file.fileName.getD file.toString
-        let test ← runOcamlExampleCompileIn tmpDir idx file
-        failed ← reportTestOutcome options failed "Compiling" filename test
-        idx := idx + 1
-    pure failed
-
-def runMicaExampleTests (options : TestsuiteOptions) (mica : LeanExe)
-    (tests : Array FilePath) (failed : List TestOutcome) : IO (List TestOutcome) := do
-  unless tests.isEmpty do
-    IO.println ""
-  let mut failed := failed
-  for file in tests do
-    let filename := file.fileName.getD file.toString
-    let test ← runTest mica file
-    failed ← reportTestOutcome options failed "Checking" filename test
-  pure failed
+    runBuild do
+      let mut compileJobs := #[]
+      if !isFailure stdlib.result then
+        let mut idx := 0
+        for file in tests do
+          let compileIdx := idx
+          let job ← withRegisterJob s!"compile {file.fileName.getD file.toString}" <|
+            Job.async do
+              runOcamlExampleCompileIn tmpDir compileIdx file
+          compileJobs := compileJobs.push job
+          idx := idx + 1
+      let checkJobs ← tests.mapM fun file =>
+        withRegisterJob s!"test {file.fileName.getD file.toString}" <|
+          Job.async do
+            runTest mica file
+      let compileJob := Job.collectArray compileJobs "ocaml compile testsuite"
+      let checkJob := Job.collectArray checkJobs "testsuite"
+      return compileJob.zipWith
+        (fun compile check => { compile := #[stdlib] ++ compile, check := check })
+        checkJob
 
 def printTestsuiteSummary (failed : List TestOutcome) : IO UInt32 := do
   IO.println ""
@@ -285,6 +301,9 @@ script testsuite (args) := do
   let options ← parseTestsuiteArgs args
   let inputPath ← resolveInputPath options.dir
   let tests ← discoverTests inputPath
-  let failed ← runOcamlCompileTests options tests []
-  let failed ← runMicaExampleTests options mica tests failed
+  let outcomes ← runTestsuiteActions mica tests
+  let failed ← reportTestOutcomes options [] "Compiling" outcomes.compile
+  unless outcomes.check.isEmpty do
+    IO.println ""
+  let failed ← reportTestOutcomes options failed "Checking" outcomes.check
   printTestsuiteSummary failed
