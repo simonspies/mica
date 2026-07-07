@@ -16,6 +16,7 @@ Two serialization targets:
 def Srt.toSMTLIB : Srt → String
   | .int     => "Int"
   | .bool    => "Bool"
+  | .char    => "(_ BitVec 8)"
   | .string  => "(Seq (_ BitVec 8))"
   | .float   => "(_ FloatingPoint 11 53)"
   | .value   => "Value"
@@ -24,12 +25,16 @@ def Srt.toSMTLIB : Srt → String
 def UnOp.toSMTLIB : UnOp τ₁ τ₂ → String
   | .ofInt   => "of_int"
   | .ofBool  => "of_bool"
+  | .ofChar => "of_char"
   | .ofString => "of_string"
   | .ofFloat => "of_float"
   | .toInt   => "to_int"
   | .toBool  => "to_bool"
+  | .toChar => "to_char"
   | .toString => "to_string"
   | .toFloat => "to_float"
+  | .charToInt => "bv2nat"
+  | .intToChar => "(_ int2bv 8)"
   | .seqLen => "seq.len"
   | .fpAbs => "fp.abs"
   | .fpNeg => "fp.neg"
@@ -78,6 +83,7 @@ def BinOp.toSMTLIB : BinOp τ₁ τ₂ τ₃ → String
 def UnPred.toSMTLIB : UnPred τ → String
   | .isInt   => "is-of_int"
   | .isBool  => "is-of_bool"
+  | .isChar  => "is-of_char"
   | .isStr   => "is-of_string"
   | .isFloat => "is-of_float"
   | .isLoc   => "is-of_loc"
@@ -128,6 +134,7 @@ def Term.toSMTLIB : Term τ → String
   | .var _ name   => name
   | .const (.i n)   => if n ≥ 0 then s!"{n}" else s!"(- {-n})"
   | .const (.b b)   => if b then "true" else "false"
+  | .const (.char c) => s!"#x{byteHex c}"
   | .const (.str s) => stringConstToSMTLIB s
   | .const (.fp bits) => s!"((_ to_fp 11 53) #x{uint64Hex bits})"
   | .const .fpNaN    => "(_ NaN 11 53)"
@@ -189,6 +196,7 @@ private def termStr (p : Prec) : {τ : Srt} → Term τ → String
   | _, .var _ x        => x
   | _, .const (.i n)   => if n < 0 then s!"({n})" else s!"{n}"
   | _, .const (.b b)   => if b then "true" else "false"
+  | _, .const (.char c) => s!"'{byteToHum c}'"
   | _, .const (.str s) => s!"\"{s.map byteToHum |>.foldl (· ++ ·) ""}\""
   | _, .const (.fp bits) => toString (Float.ofBits bits)
   | _, .const .fpNaN    => "nan"
@@ -200,12 +208,16 @@ private def termStr (p : Prec) : {τ : Srt} → Term τ → String
   | _, .unop op a  => match op with
     | .ofInt   => termStr p a     -- transparent coercion
     | .ofBool  => termStr p a     -- transparent coercion
+    | .ofChar => termStr p a      -- transparent coercion
     | .ofString => termStr p a    -- transparent coercion
     | .ofFloat => termStr p a     -- transparent coercion
     | .toInt   => s!"toInt({termStr .bottom a})"
     | .toBool  => s!"toBool({termStr .bottom a})"
+    | .toChar => s!"toChar({termStr .bottom a})"
     | .toString => s!"toString({termStr .bottom a})"
     | .toFloat => s!"toFloat({termStr .bottom a})"
+    | .charToInt => s!"charCode({termStr .bottom a})"
+    | .intToChar => s!"charChr({termStr .bottom a})"
     | .seqLen => s!"len({termStr .bottom a})"
     | .fpAbs => s!"fabs({termStr .bottom a})"
     | .fpNeg => parens (Prec.lt .mul p) s!"-.{termStr .top a}"
@@ -259,6 +271,7 @@ private def formulaStr (p : Prec) : Formula → String
   | .unpred pred v   => match pred with
     | .isInt   => s!"isInt({termStr .bottom v})"
     | .isBool  => s!"isBool({termStr .bottom v})"
+    | .isChar  => s!"isChar({termStr .bottom v})"
     | .isStr   => s!"isStr({termStr .bottom v})"
     | .isFloat => s!"isFloat({termStr .bottom v})"
     | .isLoc   => s!"isLoc({termStr .bottom v})"

@@ -11,6 +11,7 @@ inductive PrimitiveType where
   | unit
   | bool
   | int
+  | char
   | string
   | float
   deriving Repr, DecidableEq
@@ -24,6 +25,7 @@ def PrimitiveType.print : PrimitiveType → String
   | .unit => "unit"
   | .bool => "bool"
   | .int => "int"
+  | .char => "char"
   | .string => "string"
   | .float => "float"
 
@@ -125,6 +127,8 @@ inductive Typ where
 @[simp] def Typ.bool : Typ := .prim .bool
 /-- Compatibility name for the integer primitive type. -/
 @[simp] def Typ.int : Typ := .prim .int
+/-- Compatibility name for the character primitive type. -/
+@[simp] def Typ.char : Typ := .prim .char
 /-- Compatibility name for the string primitive type. -/
 @[simp] def Typ.string : Typ := .prim .string
 /-- Compatibility name for the float primitive type. -/

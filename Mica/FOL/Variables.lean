@@ -8,6 +8,7 @@ import Mica.TinyML.RuntimeExpr
 inductive Srt where
   | int
   | bool
+  | char
   | string
   | float
   | value
@@ -17,6 +18,7 @@ inductive Srt where
 @[reducible] def Srt.denote : Srt → Type
   | .int => Int
   | .bool => Bool
+  | .char => UInt8
   | .string => List UInt8
   | .float => UInt64
   | .value => Runtime.Val

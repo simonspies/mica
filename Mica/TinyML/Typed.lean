@@ -234,6 +234,7 @@ abbrev Binders := List Binder
 def Const.ty : Const → Typ
   | .int _ => .int
   | .bool _ => .bool
+  | .char _ => .char
   | .string _ => .string
   | .float _ => .float
   | .unit => .unit

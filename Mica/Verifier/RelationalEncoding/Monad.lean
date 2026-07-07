@@ -37,6 +37,7 @@ namespace Verifier.RelationalEncoding
 def encodeConst : TinyML.Const → Term .value
   | .int  n => .unop .ofInt  (.const (.i n))
   | .bool b => .unop .ofBool (.const (.b b))
+  | .char c => .unop .ofChar (.const (.char c))
   | .string s => .unop .ofString (.const (.str s))
   | .float b => .unop .ofFloat (.const (.fp b))
   | .unit   => .const .unit
