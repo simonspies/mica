@@ -6,6 +6,12 @@ module String = struct
   let ends_with suffix s = Stdlib.String.ends_with ~suffix s
 end
 
+module Char = struct
+  let code = Stdlib.Char.code
+  let chr = Stdlib.Char.chr
+  let equal = Stdlib.Char.equal
+end
+
 module Int = struct
   let min = Stdlib.min
   let max = Stdlib.max
