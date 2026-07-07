@@ -102,6 +102,11 @@ def valBool : Runtime.Val → Bool
   | .bool b => b
   | _       => false
 
+/-- Character projection of a runtime value, matching FOL's `toChar`. -/
+def valChar : Runtime.Val → UInt8
+  | .char c => c
+  | _       => 0
+
 /-- Byte-string projection of a runtime value, matching FOL's `toString`. -/
 def valStr : Runtime.Val → List UInt8
   | .str s => s
@@ -116,6 +121,8 @@ def valFloat : Runtime.Val → UInt64
 def Embedding.int  : Embedding := ⟨.int,    Int,        .int,  valInt,  .isInt⟩
 /-- Booleans as `.bool` values. -/
 def Embedding.bool : Embedding := ⟨.bool,   Bool,       .bool, valBool, .isBool⟩
+/-- Bytes as `.char` values. -/
+def Embedding.char : Embedding := ⟨.char, UInt8, .char, valChar, .isChar⟩
 /-- Byte strings as `.str` values. -/
 def Embedding.str  : Embedding := ⟨.string, List UInt8, .str,  valStr,  .isStr⟩
 /-- IEEE binary64 bit-patterns as `.float` values. -/
@@ -152,6 +159,14 @@ def Embedding.lawfulBool : Embedding.bool.Lawful where
   isOf_inject _ _ := by simp [Embedding.bool]
   member _ Θ w := by simpa [Embedding.bool, TinyML.Typ.subst] using TinyML.ValHasType.bool Θ w
   intro _ Θ x := by simpa [Embedding.bool, TinyML.Typ.subst] using TinyML.ValHasType.bool_intro Θ x
+
+/-- Characters are a lawful embedding. -/
+def Embedding.lawfulChar : Embedding.char.Lawful where
+  project_inject _ := rfl
+  isOf_wf _ := trivial
+  isOf_inject _ _ := by simp [Embedding.char]
+  member _ Θ w := by simpa [Embedding.char, TinyML.Typ.subst] using TinyML.ValHasType.char Θ w
+  intro _ Θ x := by simpa [Embedding.char, TinyML.Typ.subst] using TinyML.ValHasType.char_intro Θ x
 
 /-- Byte strings are a lawful embedding. -/
 def Embedding.lawfulStr : Embedding.str.Lawful where
@@ -674,8 +689,8 @@ macro_rules
    simp_all [Env.respects, Formula.eval, Formula.all, Term.eval, Env.lookupConst,
      Env.updateConst, Env.updateConst_unary, Env.updateConst_binary,
      Env.lookupConst_updateConst_same, Pure.Zero.sym, Pure.Unary.sym, Pure.Binary.sym,
-     Embedding.int, Embedding.bool, Embedding.str, Embedding.float,
-     Const.denote, valInt, valBool, valStr, valFloat, $xs,*]))
+     Embedding.int, Embedding.bool, Embedding.char, Embedding.str, Embedding.float,
+     Const.denote, valInt, valBool, valChar, valStr, valFloat, $xs,*]))
 
 end Intrinsics
 end Stdlib
