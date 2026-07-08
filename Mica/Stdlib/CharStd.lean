@@ -37,46 +37,13 @@ def charEqualSym : FOL.Symbol .two where
 @[simp] theorem charChrSym_name : charChrSym.name = "char_chr" := rfl
 @[simp] theorem charEqualSym_name : charEqualSym.name = "char_equal" := rfl
 
-private theorem char_respects_argsEnv_one {s : FOL.Symbol .one} :
-    ∀ (args : List (String × TinyML.Typ)) (vs : List Runtime.Val) {ρ : VerifM.Env},
-      ρ.env.respects (some s) → (Spec.argsEnv ρ args vs).env.respects (some s)
-  | [], _, _, h => h
-  | _ :: _, [], _, h => h
-  | (_, _) :: rest, _ :: vs, ρ, h => by
-      simp only [Spec.argsEnv]
-      refine char_respects_argsEnv_one rest vs ?_
-      rw [VerifM.Env.updateConst_env]
-      simpa only [Env.respects, Env.updateConst_unary] using h
-
-def charChrPre : Formula :=
-  let n := .unop .toInt (.var .value "n")
-  .and
-    (.binpred .le (.const (.i 0)) n)
-    (.binpred .lt n (.const (.i 256)))
-
-/-! ## Defining axioms -/
+/-! ## `Char.code` -/
 
 def charCodeDefAxiom : Formula :=
   .forall_ "c" .value [.term (unTerm "char_code" (.var .value "c"))] <|
     .eq .int
       (.unop .toInt (unTerm "char_code" (.var .value "c")))
       (.unop .charToInt (.unop .toChar (.var .value "c")))
-
-def charChrDefAxiom : Formula :=
-  .forall_ "n" .value [.term (unTerm "char_chr" (.var .value "n"))] <|
-    .implies charChrPre <|
-      .eq .char
-        (.unop .toChar (unTerm "char_chr" (.var .value "n")))
-        (.unop .intToChar (.unop .toInt (.var .value "n")))
-
-def charEqualDefAxiom : Formula :=
-  .all "a" .value <| .forall_ "b" .value
-    [.term (binTerm "char_equal" (.var .value "a") (.var .value "b"))] <|
-    .eq .bool
-      (.unop .toBool (binTerm "char_equal" (.var .value "a") (.var .value "b")))
-      (.binop (.eq (τ := .char)) (.unop .toChar (.var .value "a")) (.unop .toChar (.var .value "b")))
-
-/-! ## `Char.code` -/
 
 /-- `Char.code`: byte value as an integer. -/
 def charCodeB : Pure.Unary where
@@ -107,6 +74,12 @@ instance : IntrinsicSound [charCode] charCode := charCodeLawful.sound
 
 /-! ## `Char.chr` -/
 
+def charChrPre : Formula :=
+  let n := .unop .toInt (.var .value "n")
+  .and
+    (.binpred .le (.const (.i 0)) n)
+    (.binpred .lt n (.const (.i 256)))
+
 /-- The value-level FOL term for `Char.chr n`. -/
 def charChrTerm (n : Term .value) : Term .value :=
   unTerm "char_chr" n
@@ -116,9 +89,27 @@ def charChrTerm (n : Term .value) : Term .value :=
 def charChrVal (n : Int) : Runtime.Val :=
   .char (charChrByte n)
 
+def charChrDefAxiom : Formula :=
+  .forall_ "n" .value [.term (unTerm "char_chr" (.var .value "n"))] <|
+    .implies charChrPre <|
+      .eq .char
+        (.unop .toChar (unTerm "char_chr" (.var .value "n")))
+        (.unop .intToChar (.unop .toInt (.var .value "n")))
+
 def charChrTypeAxiom : Formula :=
   .forall_ "n" .value [.term (charChrTerm (.var .value "n"))] <|
     .unpred .isChar (charChrTerm (.var .value "n"))
+
+private theorem char_respects_argsEnv_one {s : FOL.Symbol .one} :
+    ∀ (args : List (String × TinyML.Typ)) (vs : List Runtime.Val) {ρ : VerifM.Env},
+      ρ.env.respects (some s) → (Spec.argsEnv ρ args vs).env.respects (some s)
+  | [], _, _, h => h
+  | _ :: _, [], _, h => h
+  | (_, _) :: rest, _ :: vs, ρ, h => by
+      simp only [Spec.argsEnv]
+      refine char_respects_argsEnv_one rest vs ?_
+      rw [VerifM.Env.updateConst_env]
+      simpa only [Env.respects, Env.updateConst_unary] using h
 
 /-- `Char.chr`: integer to byte, with the OCaml precondition `0 <= n < 256`.
     The defining axiom only constrains the valid range, matching the spec
@@ -272,6 +263,13 @@ instance : IntrinsicSound [charChr] charChr where
         hun, charChrSym, valInt]
 
 /-! ## `Char.equal` -/
+
+def charEqualDefAxiom : Formula :=
+  .all "a" .value <| .forall_ "b" .value
+    [.term (binTerm "char_equal" (.var .value "a") (.var .value "b"))] <|
+    .eq .bool
+      (.unop .toBool (binTerm "char_equal" (.var .value "a") (.var .value "b")))
+      (.binop (.eq (τ := .char)) (.unop .toChar (.var .value "a")) (.unop .toChar (.var .value "b")))
 
 /-- `Char.equal`: byte equality. -/
 def charEqualB : Pure.Binary where
