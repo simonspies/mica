@@ -24,7 +24,6 @@ inductive ElaborateErrorKind where
   | duplicateType (name : String)
   | duplicateField (name : String)
   | missingField (name : String)
-  | unsupportedChar
   | unsupportedRecordUpdate
   | unsupportedPattern (desc : String)
   | unsupportedFeature (desc : String)
@@ -52,7 +51,6 @@ def ElaborateErrorKind.toString : ElaborateErrorKind → String
   | .duplicateType name => s!"duplicate type name '{name}'"
   | .duplicateField name =>
     s!"duplicate field '{name}' (shadowing fields from a previous type is not supported)"
-  | .unsupportedChar => "char literals are not supported"
   | .unsupportedRecordUpdate => "record update expressions are not supported"
   | .unsupportedPattern desc => s!"unsupported pattern: {desc}"
   | .unsupportedFeature desc => s!"unsupported feature: {desc}"
@@ -124,6 +122,7 @@ def TypKind.elaborate (env : ElabEnv) (loc : Location) : TypKind → ElabM TinyM
     | "int"  => if args'.isEmpty then .ok .int  else err loc (.arityMismatch 0 args'.length)
     | "bool" => if args'.isEmpty then .ok .bool else err loc (.arityMismatch 0 args'.length)
     | "unit" => if args'.isEmpty then .ok .unit else err loc (.arityMismatch 0 args'.length)
+    | "char" => if args'.isEmpty then .ok .char else err loc (.arityMismatch 0 args'.length)
     | "string" => if args'.isEmpty then .ok .string else err loc (.arityMismatch 0 args'.length)
     | "float" => if args'.isEmpty then .ok .float else err loc (.arityMismatch 0 args'.length)
     | "ref" =>
@@ -379,9 +378,11 @@ def ExprKind.elaborate (env : ElabEnv) (loc : Location) : ExprKind → ElabM Unt
   | .const (.int n)  => .ok (.const (.int n))
   | .const (.float f) => .ok (.const (.float f.toBits))
   | .const (.bool b) => .ok (.const (.bool b))
+  | .const (.char c) =>
+      if c.toNat < 256 then .ok (.const (.char (UInt8.ofNat c.toNat)))
+      else err loc (.unsupportedFeature "char literals must be byte-sized")
   | .const (.string s) => .ok (.const (.string s))
   | .const .unit     => .ok (.const .unit)
-  | .const (.char _) => err loc .unsupportedChar
 
   | .var path =>
     if path.isQualified then

@@ -39,6 +39,7 @@ def preamble : String := s!"
 (declare-datatypes ((Value 0) (ValueList 0)) (
   ((of_int (to_int Int))
    (of_bool (to_bool Bool))
+   (of_char (to_char (_ BitVec 8)))
    (of_string (to_string (Seq (_ BitVec 8))))
    (of_float (to_float (_ FloatingPoint 11 53)))
    (of_loc (to_loc Loc))

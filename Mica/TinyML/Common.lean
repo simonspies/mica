@@ -27,6 +27,7 @@ inductive UnOp where
 inductive Const where
   | int  (n : Int)
   | bool (b : Bool)
+  | char (c : UInt8)
   | string (s : List UInt8)
   | float (bits : UInt64)
   | unit

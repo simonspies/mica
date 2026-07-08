@@ -39,12 +39,16 @@ end FloatBits
 inductive UnOp : Srt → Srt → Type where
   | ofInt      : UnOp .int     .value
   | ofBool     : UnOp .bool    .value
+  | ofChar     : UnOp .char    .value
   | ofString   : UnOp .string  .value
   | ofFloat    : UnOp .float   .value
   | toInt      : UnOp .value   .int
   | toBool     : UnOp .value   .bool
+  | toChar     : UnOp .value   .char
   | toString   : UnOp .value   .string
   | toFloat    : UnOp .value   .float
+  | charToInt  : UnOp .char    .int
+  | intToChar  : UnOp .int     .char
   | seqLen     : UnOp .string  .int
   | fpAbs      : UnOp .float   .float
   | fpNeg      : UnOp .float   .float
@@ -95,6 +99,7 @@ inductive BinOp : Srt → Srt → Srt → Type where
 inductive Const : Srt → Type where
   | i    : Int  → Const .int
   | b    : Bool → Const .bool
+  | char : UInt8 → Const .char
   | str  : List UInt8 → Const .string
   | fp   : UInt64 → Const .float
   | fpNaN    : Const .float
@@ -108,6 +113,7 @@ inductive Const : Srt → Type where
 @[simp] def Const.denote : Env → Const τ → τ.denote
   | _, .i n  => n
   | _, .b v  => v
+  | _, .char c => c
   | _, .str s => s
   | _, .fp bits => bits
   | _, .fpNaN => FloatBits.nan
@@ -391,12 +397,16 @@ theorem Term.wfIn_mono (t : Term τ) (h : t.wfIn Δ) (hsub : Δ.Subset Δ') (hwf
 @[simp] def UnOp.eval : Env → UnOp τ₁ τ₂ → τ₁.denote → τ₂.denote
   | _, .ofInt,   n  => Runtime.Val.int n
   | _, .ofBool,  b  => Runtime.Val.bool b
+  | _, .ofChar,  c  => Runtime.Val.char c
   | _, .ofString, s => Runtime.Val.str s
   | _, .ofFloat, b => Runtime.Val.float b
   | _, .toInt,   v  => match v with | .int n => n | _ => 0
   | _, .toBool,  v  => match v with | .bool b => b | _ => false
+  | _, .toChar,  v  => match v with | .char c => c | _ => 0
   | _, .toString, v => match v with | .str s => s | _ => []
   | _, .toFloat, v => match v with | .float b => b | _ => 0
+  | _, .charToInt, c => c.toNat
+  | _, .intToChar, n => UInt8.ofNat (Int.toNat (n % 256))
   | _, .seqLen, s => (s.length : Int)
   | _, .fpAbs, a => FloatBits.abs a
   | _, .fpNeg, a => FloatBits.neg a
