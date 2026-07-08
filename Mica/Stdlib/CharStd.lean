@@ -20,7 +20,7 @@ def charCodeSym : FOL.Symbol .one where
     valid range, and return zero outside it. -/
 def charChrByte (n : Int) : UInt8 :=
   if n ≥ 0 then
-    if n < 256 then UInt8.ofNat (Int.toNat (n % 256)) else 0
+    if n < 256 then UInt8.ofNat n.toNat else 0
   else 0
 
 /-- FOL symbol for `Char.chr`. -/
@@ -252,7 +252,7 @@ instance : IntrinsicSound [charChr] charChr where
           Env.lookupConst_updateConst_same, valInt] using hpre
       simp [unTerm, Term.eval, Env.lookupConst_updateConst_same, hun, charChrSym]
       cases x <;> simp [valInt, charChrByte] at hbounds ⊢
-      rw [if_pos hbounds.1, if_pos hbounds.2]
+      rw [if_pos hbounds.1, if_pos hbounds.2, Int.emod_eq_of_lt hbounds.1 hbounds.2]
     · simp only [charChrTypeAxiom, Formula.eval]
       intro x
       have hun : (ρ.updateConst .value "n" x).unary .value .value "char_chr" =
