@@ -46,3 +46,18 @@ module Array = struct
   let get = Stdlib.Array.get
   let set = Stdlib.Array.set
 end
+
+module Iarray = struct
+  let make n x : 'a iarray = Stdlib.Iarray.init n (fun _ -> x)
+  let length = Stdlib.Iarray.length
+  let get = Stdlib.Iarray.get
+
+  (* Functional update: vectors are immutable, so [set] copies. *)
+  let set (v : 'a iarray) i x : 'a iarray =
+    let a = Stdlib.Iarray.to_array v in
+    Stdlib.Array.set a i x;
+    Stdlib.Iarray.of_array a
+end
+
+type 'a vec = 'a iarray
+module Vec = Iarray
