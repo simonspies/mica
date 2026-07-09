@@ -21,6 +21,7 @@ def Srt.toSMTLIB : Srt → String
   | .float   => "(_ FloatingPoint 11 53)"
   | .value   => "Value"
   | .vallist => "ValueList"
+  | .vec     => "Vec"
 
 def UnOp.toSMTLIB : UnOp τ₁ τ₂ → String
   | .ofInt   => "of_int"
@@ -55,6 +56,9 @@ def UnOp.toSMTLIB : UnOp τ₁ τ₂ → String
   | .tagOf   => "tag_of"
   | .arityOf => "arity_of"
   | .payloadOf => "payload_of"
+  | .vecLen  => "vec_length"
+  | .ofVec   => "of_vec"
+  | .toVec   => "to_vec"
   | .uninterpreted name _ _ => name
 
 def BinOp.toSMTLIB : BinOp τ₁ τ₂ τ₃ → String
@@ -79,10 +83,13 @@ def BinOp.toSMTLIB : BinOp τ₁ τ₂ τ₃ → String
   | .fpLt  => "fp.lt"
   | .fpLe  => "fp.leq"
   | .vcons => "vcons"
+  | .vecGet  => "vec_get"
+  | .vecMake => "vec_make"
   | .uninterpreted name _ _ _ => name
 
 def TerOp.toSMTLIB : TerOp τ₁ τ₂ τ₃ τ₄ → String
   | .seqExtract => "seq.extract"
+  | .vecSet => "vec_set"
   | .uninterpreted name _ _ _ _ => name
 
 def UnPred.toSMTLIB : UnPred τ → String
@@ -94,6 +101,7 @@ def UnPred.toSMTLIB : UnPred τ → String
   | .isLoc   => "is-of_loc"
   | .isTuple => "is-of_tuple"
   | .isOfInj => "is-of_inj"
+  | .isVec   => "is-of_vec"
   | .uninterpreted name _ => name
 
 def BinPred.toSMTLIB : BinPred τ₁ τ₂ → String
@@ -244,6 +252,9 @@ private def termStr (p : Prec) : {τ : Srt} → Term τ → String
     | .tagOf   => s!"tag({termStr .bottom a})"
     | .arityOf => s!"arity({termStr .bottom a})"
     | .payloadOf => s!"payload({termStr .bottom a})"
+    | .vecLen  => s!"length({termStr .bottom a})"
+    | .ofVec   => termStr p a     -- transparent coercion
+    | .toVec   => s!"toVec({termStr .bottom a})"
     | .uninterpreted name _ _ => s!"{name}({termStr .bottom a})"
   | _, .binop op a b => match op with
     | .add   => parens (Prec.lt .add p) s!"{termStr .add a} + {termStr .mul b}"
@@ -267,9 +278,12 @@ private def termStr (p : Prec) : {τ : Srt} → Term τ → String
     | .fpLt  => parens (Prec.lt .cmp p) s!"{termStr .add a} <. {termStr .add b}"
     | .fpLe  => parens (Prec.lt .cmp p) s!"{termStr .add a} <=. {termStr .add b}"
     | .vcons => parens (Prec.lt .top p) s!"{termStr .top a} :: {termStr .top b}"
+    | .vecGet  => s!"get({termStr .bottom a}, {termStr .bottom b})"
+    | .vecMake => s!"make({termStr .bottom a}, {termStr .bottom b})"
     | .uninterpreted name _ _ _ => s!"{name}({termStr .bottom a}, {termStr .bottom b})"
   | _, .terop op a b c => match op with
     | .seqExtract => s!"extract({termStr .bottom a}, {termStr .bottom b}, {termStr .bottom c})"
+    | .vecSet => s!"set({termStr .bottom a}, {termStr .bottom b}, {termStr .bottom c})"
     | .uninterpreted name _ _ _ _ =>
       s!"{name}({termStr .bottom a}, {termStr .bottom b}, {termStr .bottom c})"
   | _, .ite c t e  => parens (Prec.lt .bottom p) s!"if {termStr .bottom c} then {termStr .bottom t} else {termStr .bottom e}"
@@ -288,6 +302,7 @@ private def formulaStr (p : Prec) : Formula → String
     | .isLoc   => s!"isLoc({termStr .bottom v})"
     | .isTuple => s!"isTuple({termStr .bottom v})"
     | .isOfInj => s!"isOfInj({termStr .bottom v})"
+    | .isVec   => s!"isVec({termStr .bottom v})"
     | .uninterpreted name _ => s!"{name}({termStr .bottom v})"
   | .binpred pred a b => match pred with
     | .lt => parens (Prec.lt .cmp p) s!"{termStr .add a} < {termStr .add b}"

@@ -11,6 +11,7 @@ inductive UnPred : Srt → Type where
   | isLoc   : UnPred .value
   | isTuple : UnPred .value
   | isOfInj : UnPred .value
+  | isVec   : UnPred .value
   | uninterpreted : String → (τ : Srt) → UnPred τ
   deriving DecidableEq, Repr
 
@@ -345,6 +346,7 @@ theorem Context.wfIn_mono (Γ : Context) (h : Γ.wfIn Δ) (hsub : Δ.Subset Δ')
   | _, .isLoc,   v => match v with | .loc _ => True | _ => False
   | _, .isTuple, v => match v with | .tuple _ => True | _ => False
   | _, .isOfInj, v => match v with | .inj _ _ _ => True | _ => False
+  | _, .isVec,   v => match v with | .vec _ => True | _ => False
   | ρ, .uninterpreted name _, v => ρ.unaryRel τ name v
 
 @[simp] def BinPred.eval : Env → BinPred τ₁ τ₂ → τ₁.denote → τ₂.denote → Prop

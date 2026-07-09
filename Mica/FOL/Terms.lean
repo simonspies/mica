@@ -69,6 +69,9 @@ inductive UnOp : Srt → Srt → Type where
   | tagOf                           : UnOp .value .int
   | arityOf                         : UnOp .value .int
   | payloadOf                       : UnOp .value .value
+  | vecLen     : UnOp .vec   .int
+  | ofVec      : UnOp .vec   .value
+  | toVec      : UnOp .value .vec
   | uninterpreted : String → (τ₁ τ₂ : Srt) → UnOp τ₁ τ₂
   deriving DecidableEq, Repr
 
@@ -94,11 +97,14 @@ inductive BinOp : Srt → Srt → Srt → Type where
   | fpLt  : BinOp .float .float .bool
   | fpLe  : BinOp .float .float .bool
   | vcons : BinOp .value .vallist .vallist
+  | vecGet  : BinOp .vec .int   .value
+  | vecMake : BinOp .int .value .vec
   | uninterpreted : String → (τ₁ τ₂ τ₃ : Srt) → BinOp τ₁ τ₂ τ₃
   deriving DecidableEq, Repr
 
 inductive TerOp : Srt → Srt → Srt → Srt → Type where
   | seqExtract : TerOp .string .int .int .string
+  | vecSet : TerOp .vec .int .value .vec
   | uninterpreted : String → (τ₁ τ₂ τ₃ τ₄ : Srt) → TerOp τ₁ τ₂ τ₃ τ₄
   deriving DecidableEq, Repr
 
@@ -376,6 +382,7 @@ private theorem TerOp.checkWf_ok {op : TerOp τ₁ τ₂ τ₃ τ₄} {Δ : Sign
           refine ⟨⟨name, τ₁', τ₂', τ₃', τ₄'⟩, ht', ?_⟩
           simp [harg1]
     · simp at h
+  | _ => trivial
 
 theorem Term.checkWf_ok {t : Term τ} {Δ : Signature} (h : t.checkWf Δ = .ok ()) : t.wfIn Δ := by
   induction t generalizing Δ with
@@ -462,6 +469,7 @@ private theorem TerOp.wfIn_mono {op : TerOp τ₁ τ₂ τ₃ τ₄} {Δ Δ' : S
     refine ⟨hsub.ternary _ h.1, ?_⟩
     intro τ₁' τ₂' τ₃' τ₄' ht'
     exact Signature.wf_unique_ternary hwf (hsub.ternary _ h.1) ht'
+  | _ => trivial
 
 theorem Term.wfIn_mono (t : Term τ) (h : t.wfIn Δ) (hsub : Δ.Subset Δ') (hwf : Δ'.wf) : t.wfIn Δ' := by
   induction t generalizing Δ Δ' with
@@ -513,6 +521,9 @@ theorem Term.wfIn_mono (t : Term τ) (h : t.wfIn Δ) (hsub : Δ.Subset Δ') (hwf
   | _, .tagOf,   v => match v with | .inj tag _ _ => (tag : Int) | _ => 0
   | _, .arityOf, v => match v with | .inj _ arity _ => (arity : Int) | _ => 0
   | _, .payloadOf, v => match v with | .inj _ _ payload => payload | _ => Runtime.Val.unit
+  | _, .vecLen,  l => (l.length : Int)
+  | _, .ofVec,   l => Runtime.Val.vec l
+  | _, .toVec,   v => match v with | .vec l => l | _ => []
   | ρ, .uninterpreted name _ _, x => ρ.unary τ₁ τ₂ name x
 
 @[simp] def BinOp.eval : Env → BinOp τ₁ τ₂ τ₃ → τ₁.denote → τ₂.denote → τ₃.denote
@@ -537,10 +548,13 @@ theorem Term.wfIn_mono (t : Term τ) (h : t.wfIn Δ) (hsub : Δ.Subset Δ') (hwf
   | _, .fpLt, a, b => FloatBits.lt a b
   | _, .fpLe, a, b => FloatBits.le a b
   | _, .vcons, v, vs => v :: vs
+  | _, .vecGet,  l, i => (l[i.toNat]?).getD .unit
+  | _, .vecMake, n, x => List.replicate n.toNat x
   | ρ, .uninterpreted name _ _ _, x, y => ρ.binary τ₁ τ₂ τ₃ name x y
 
 @[simp] def TerOp.eval : Env → TerOp τ₁ τ₂ τ₃ τ₄ → τ₁.denote → τ₂.denote → τ₃.denote → τ₄.denote
   | _, .seqExtract, s, pos, len => (s.drop (Int.toNat pos)).take (Int.toNat len)
+  | _, .vecSet, l, i, x => l.set i.toNat x
   | ρ, .uninterpreted name _ _ _ _, x, y, z => ρ.ternary τ₁ τ₂ τ₃ τ₄ name x y z
 
 def Term.eval (ρ : Env) : Term τ → τ.denote

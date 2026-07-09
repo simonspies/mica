@@ -31,6 +31,7 @@ mutual
     | array (len : Nat) (loc : Location)
     | fix (self : Binder) (args : List Binder) (body : Expr)
     | tuple (vs : List Val)
+    | vec (elems : List Val)
     /-- Reference to a built-in primitive function, indexed by name. The
         registry-derived context determines the operational and WP behavior of
         each name. -/
@@ -130,6 +131,10 @@ mutual
       | _, isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
       | _, _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
     case tuple.tuple vs1 vs2 =>
+      exact match valsDecEq vs1 vs2 with
+      | isTrue h => isTrue (by subst h; rfl)
+      | isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
+    case vec.vec vs1 vs2 =>
       exact match valsDecEq vs1 vs2 with
       | isTrue h => isTrue (by subst h; rfl)
       | isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
