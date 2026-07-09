@@ -122,7 +122,7 @@ theorem SoundBinary.call
         hag.2.2.1 (fn.func) hfun_mem
       have hunaryRel_eq : ρ₁.unaryRel .value (fn.defName) =
           ρ₂.unaryRel .value (fn.defName) :=
-        hag.2.2.2.2.1 (fn.defined) hdef_mem
+        hag.2.2.2.2.2.1 (fn.defined) hdef_mem
       have hisdef_ev' : fn.evalDefined ρ₂ (arg₂.eval ρ₂) := by
         simpa using hisdef_ev
       have hargΔ : arg₁.wfIn Δ := Term.wfIn_mono _ harg₁ hsub1 hΔ

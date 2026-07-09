@@ -117,7 +117,7 @@ theorem CompleteBinary.call
       hag.2.2.1 (fn.func) hfun_mem
     have hunaryRel_eq : ρ₁.unaryRel .value (fn.defName) =
         ρ₂.unaryRel .value (fn.defName) :=
-      hag.2.2.2.2.1 (fn.defined) hdef_mem
+      hag.2.2.2.2.2.1 (fn.defined) hdef_mem
     have hevalCall_eq : fn.evalCall ρ₁ = fn.evalCall ρ₂ := hunary_eq
     have hevalDef_eq : fn.evalDefined ρ₁ = fn.evalDefined ρ₂ := hunaryRel_eq
     have hw_eq : w = fn.evalCall ρ₂ (arg₂.eval ρ₂) := by

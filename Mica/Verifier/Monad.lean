@@ -33,6 +33,8 @@ inductive VerifM : Type → Type 1 where
   | declUnary : Option String → Srt → Srt → VerifM FOL.Unary
   /-- Declare a fresh binary function symbol with the given hint, argument and result sorts. -/
   | declBinary : Option String → Srt → Srt → Srt → VerifM FOL.Binary
+  /-- Declare a fresh ternary function symbol with the given hint, arguments and result sort. -/
+  | declTernary : Option String → Srt → Srt → Srt → Srt → VerifM FOL.Ternary
   /-- Add a context item to the verifier state (permanent, no check). -/
   | assume : CtxItem → VerifM Unit
   /-- Check whether φ is provable from the current context. Returns `true` if
@@ -112,6 +114,11 @@ def VerifM.declBinaryExact (b : FOL.Binary) : VerifM Unit := do
   let b' ← VerifM.declBinary (some b.name) b.arg1 b.arg2 b.ret
   VerifM.expectEq "declBinaryExact" b'.name b.name
 
+/-- Declare a ternary function with a specific name, failing if a different name was assigned. -/
+def VerifM.declTernaryExact (t : FOL.Ternary) : VerifM Unit := do
+  let t' ← VerifM.declTernary (some t.name) t.arg1 t.arg2 t.arg3 t.ret
+  VerifM.expectEq "declTernaryExact" t'.name t.name
+
 /-- Assume all formulas in a list via `VerifM.assume`. -/
 def VerifM.assumeAll : List Formula → VerifM Unit
   | [] => pure ()
@@ -170,6 +177,10 @@ def VerifM.translate :
       let b := st.freshBinary hint τ₁ τ₂ τ₃
       .declareBinary b.name b.arg1 b.arg2 b.ret (fun () =>
         k (.ok b) { st with decls := st.decls.addBinary b })
+  | .declTernary hint τ₁ τ₂ τ₃ τ₄, st, k =>
+      let t := st.freshTernary hint τ₁ τ₂ τ₃ τ₄
+      .declareTernary t.name t.arg1 t.arg2 t.arg3 t.ret (fun () =>
+        k (.ok t) { st with decls := st.decls.addTernary t })
   | .assume item, st, k =>
       match item with
       | .pure φ =>
@@ -226,6 +237,10 @@ private def VerifM.eval_rec : VerifM α → TransState → VerifM.Env → (α �
   | .declBinary hint τ₁ τ₂ τ₃, st, ρ, P =>
       let b := st.freshBinary hint τ₁ τ₂ τ₃
       ∀ f, P b { st with decls := st.decls.addBinary b } (ρ.updateBinary τ₁ τ₂ τ₃ b.name f)
+  | .declTernary hint τ₁ τ₂ τ₃ τ₄, st, ρ, P =>
+      let t := st.freshTernary hint τ₁ τ₂ τ₃ τ₄
+      ∀ f, P t { st with decls := st.decls.addTernary t }
+        (ρ.updateTernary τ₁ τ₂ τ₃ τ₄ t.name f)
   | .assume item, st, ρ, P =>
       match item with
       | .pure φ => φ.wfIn st.decls → φ.eval ρ.env → P () { st with asserts := φ :: st.asserts } ρ
@@ -285,6 +300,13 @@ private theorem VerifM.eval_rec.mono' {m : VerifM α} (ρ : VerifM.Env) (st : Tr
     exact VerifM.Env.agreeOn_update_fresh_binary
       (b := st.freshBinary hint τ₁ τ₂ τ₃)
       (st.freshBinary_fresh hint τ₁ τ₂ τ₃)
+  | declTernary hint τ₁ τ₂ τ₃ τ₄ =>
+    simp only [VerifM.eval_rec] at h ⊢
+    intro f
+    refine hPQ _ _ _ (Signature.Subset.subset_addTernary _ _) ?_ (h f)
+    exact VerifM.Env.agreeOn_update_fresh_ternary
+      (t := st.freshTernary hint τ₁ τ₂ τ₃ τ₄)
+      (st.freshTernary_fresh hint τ₁ τ₂ τ₃ τ₄)
   | assume item =>
     cases item with
     | pure φ =>
@@ -395,6 +417,19 @@ private theorem VerifM.eval_rec_preserves_wf (m : VerifM α) (st : TransState) (
       exact VerifM.Env.agreeOn_update_fresh_binary (b := b) hfresh
     refine ⟨⟨?_, g.builtins.agree hwf.builtins hagree⟩,
       TransState.addBinary.wf st _ hwf hfresh, h⟩
+    intro φ hφ
+    exact (Formula.eval_env_agree (hwf.assertsWf φ hφ) hagree).mp (g.asserts φ hφ)
+  | declTernary hint τ₁ τ₂ τ₃ τ₄ =>
+    simp only [VerifM.eval_rec] at h
+    simp only [VerifM.eval_rec]
+    intro f
+    specialize h f
+    let t := st.freshTernary hint τ₁ τ₂ τ₃ τ₄
+    have hfresh := st.freshTernary_fresh hint τ₁ τ₂ τ₃ τ₄
+    have hagree : VerifM.Env.agreeOn st.decls ρ (ρ.updateTernary τ₁ τ₂ τ₃ τ₄ t.name f) := by
+      exact VerifM.Env.agreeOn_update_fresh_ternary (t := t) hfresh
+    refine ⟨⟨?_, g.builtins.agree hwf.builtins hagree⟩,
+      TransState.addTernary.wf st _ hwf hfresh, h⟩
     intro φ hφ
     exact (Formula.eval_env_agree (hwf.assertsWf φ hφ) hagree).mp (g.asserts φ hφ)
   | assume item =>
@@ -528,6 +563,12 @@ private theorem VerifM.translate_eval_rec (m : VerifM α) (st : TransState) (ρ:
   | declBinary hint τ₁ τ₂ τ₃ =>
     simp only [VerifM.translate] at h
     have h := ScopedM.eval_declareBinary h
+    simp only [VerifM.eval_rec]
+    intro _
+    exact ⟨_, h⟩
+  | declTernary hint τ₁ τ₂ τ₃ τ₄ =>
+    simp only [VerifM.translate] at h
+    have h := ScopedM.eval_declareTernary h
     simp only [VerifM.eval_rec]
     intro _
     exact ⟨_, h⟩
@@ -719,6 +760,16 @@ theorem VerifM.eval_declBinary {hint : Option String} {τ₁ τ₂ τ₃ : Srt} 
     ∀ f, Q b { st with decls := st.decls.addBinary b } (ρ.updateBinary τ₁ τ₂ τ₃ b.name f) :=
   ⟨st.freshBinary_fresh hint τ₁ τ₂ τ₃, fun f => (h.2.2 f).2.2⟩
 
+theorem VerifM.eval_declTernary {hint : Option String} {τ₁ τ₂ τ₃ τ₄ : Srt}
+    {st : TransState} {ρ : VerifM.Env}
+    {Q : FOL.Ternary → TransState → VerifM.Env → Prop}
+    (h : VerifM.eval (.declTernary hint τ₁ τ₂ τ₃ τ₄) st ρ Q) :
+    let t := st.freshTernary hint τ₁ τ₂ τ₃ τ₄
+    t.name ∉ st.decls.allNames ∧
+    ∀ f, Q t { st with decls := st.decls.addTernary t }
+      (ρ.updateTernary τ₁ τ₂ τ₃ τ₄ t.name f) :=
+  ⟨st.freshTernary_fresh hint τ₁ τ₂ τ₃ τ₄, fun f => (h.2.2 f).2.2⟩
+
 theorem VerifM.eval_assumePure {φ : Formula} {st : TransState} {ρ : VerifM.Env}
     {Q : Unit → TransState → VerifM.Env → Prop}
     (h : VerifM.eval (.assume (.pure φ)) st ρ Q) :
@@ -892,6 +943,26 @@ theorem VerifM.eval_declBinaryExact {b : FOL.Binary} {st : TransState} {ρ : Ver
   have hbeq : st.freshBinary (some b.name) b.arg1 b.arg2 b.ret = b := by
     cases b; simp [TransState.freshBinary, hname]
   rw [hbeq] at hq
+  exact hq
+
+theorem VerifM.eval_declTernaryExact {t : FOL.Ternary} {st : TransState} {ρ : VerifM.Env}
+    {Q : Unit → TransState → VerifM.Env → Prop}
+    (h : VerifM.eval (VerifM.declTernaryExact t) st ρ Q) :
+    t.name ∉ st.decls.allNames ∧
+    ∀ f, Q () { st with decls := st.decls.addTernary t }
+      (ρ.updateTernary t.arg1 t.arg2 t.arg3 t.ret t.name f) := by
+  simp only [VerifM.declTernaryExact] at h
+  obtain ⟨hfresh, hcont⟩ := VerifM.eval_declTernary (VerifM.eval_bind _ _ _ _ h)
+  have hname : Fresh.freshNumbers t.name st.decls.allNames = t.name := by
+    have hcont0 := hcont (fun _ _ _ => default)
+    obtain ⟨heq, _⟩ := VerifM.eval_expectEq hcont0
+    simpa using heq
+  refine ⟨hname ▸ hfresh, ?_⟩
+  intro f
+  obtain ⟨_, hq⟩ := VerifM.eval_expectEq (hcont f)
+  have hteq : st.freshTernary (some t.name) t.arg1 t.arg2 t.arg3 t.ret = t := by
+    cases t; simp [TransState.freshTernary, hname]
+  rw [hteq] at hq
   exact hq
 
 theorem VerifM.eval_bind_expectEq [DecidableEq α] [Repr α]
