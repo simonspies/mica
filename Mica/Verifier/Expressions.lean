@@ -1207,7 +1207,7 @@ theorem compileDeref_correct (reg : Verifier.Registry) (e : Expr) (ty : TinyML.T
         simp only [compile, hty] at heval
         obtain ⟨hannot, _⟩ := VerifM.eval_bind_expectEq heval
         exact False.elim (heq hannot)
-  | prim _ | sum _ | arrow _ _ | array _ | empty | value | tuple _ | tvar _ | named _ _ =>
+  | prim _ | sum _ | arrow _ _ | array _ | vec _ | empty | value | tuple _ | tvar _ | named _ _ =>
       intro Θ R S B Γ st ρ γ Δ_spec ρ_spec Ψ Φ heval _ _ _ _ _ _ _ _
       simp only [compile, hty] at heval
       exact (VerifM.eval_fatal heval).elim
@@ -1390,7 +1390,7 @@ theorem compileStore_correct (reg : Verifier.Registry) (loc val : Expr)
         simp only [compile, hty] at heval
         obtain ⟨hannot, _⟩ := VerifM.eval_bind_expectEq heval
         exact False.elim (heq hannot)
-  | prim _ | sum _ | arrow _ _ | array _ | empty | value | tuple _ | tvar _ | named _ _ =>
+  | prim _ | sum _ | arrow _ _ | array _ | vec _ | empty | value | tuple _ | tvar _ | named _ _ =>
       intro Θ R S B Γ st ρ γ Δ_spec ρ_spec Ψ Φ heval _ _ _ _ _ _ _ _
       simp only [compile, hty] at heval
       exact (VerifM.eval_fatal heval).elim
@@ -1561,7 +1561,8 @@ theorem compileArrayLen_correct (reg : Verifier.Registry) (arr : Expr)
           · iapply (TinyML.ValHasType.int_intro Θ)
           · iexact HR
       exact hwp
-  | prim _ | sum _ | arrow _ _ | ref _ | owned _ | empty | value | tuple _ | tvar _ | named _ _ =>
+  | prim _ | sum _ | arrow _ _ | ref _ | vec _ | owned _ | empty | value | tuple _ | tvar _
+  | named _ _ =>
       intro Θ R S B Γ st ρ γ Δ_spec ρ_spec Ψ Φ heval _ _ _ _ _ _ _ _ _ _ _
       simp only [compile, hty] at heval
       exact (VerifM.eval_fatal heval).elim
@@ -1667,7 +1668,8 @@ theorem compileArrayGet_correct (reg : Verifier.Registry) (arr idx : Expr) (ty :
               · iexact Hw
               · iexact HR))
     exact hwp
-  | prim _ | sum _ | arrow _ _ | ref _ | owned _ | empty | value | tuple _ | tvar _ | named _ _ =>
+  | prim _ | sum _ | arrow _ _ | ref _ | vec _ | owned _ | empty | value | tuple _ | tvar _
+  | named _ _ =>
       intro Θ R S B Γ st ρ γ Δ_spec ρ_spec Ψ Φ heval _ _ _ _ _ _ _ _ _ _ _
       simp only [compile, hty] at heval
       exact (VerifM.eval_fatal heval).elim
@@ -1770,7 +1772,8 @@ theorem compileArraySet_correct (reg : Verifier.Registry) (arr idx val : Expr)
               · iapply (TinyML.ValHasType.unit_intro Θ)
               · iexact HR))
     exact hwp
-  | prim _ | sum _ | arrow _ _ | ref _ | owned _ | empty | value | tuple _ | tvar _ | named _ _ =>
+  | prim _ | sum _ | arrow _ _ | ref _ | vec _ | owned _ | empty | value | tuple _ | tvar _
+  | named _ _ =>
       intro Θ R S B Γ st ρ γ Δ_spec ρ_spec Ψ Φ heval _ _ _ _ _ _ _ _ _ _ _
       simp only [compile, hty] at heval
       exact (VerifM.eval_fatal heval).elim
@@ -2479,7 +2482,8 @@ theorem compileLetProd_correct (reg : Verifier.Registry) (names : List Binder) (
             · isplitl []
               · iexact HT
               · iexact HR
-  | prim _ | sum _ | arrow _ _ | ref _ | array _ | owned _ | empty | value | tvar _ | named _ _ =>
+  | prim _ | sum _ | arrow _ _ | ref _ | array _ | vec _ | owned _ | empty | value | tvar _
+  | named _ _ =>
       simp [hty] at hΨ_e
       exact (VerifM.eval_fatal (VerifM.eval_bind _ _ _ _ hΨ_e)).elim
 
@@ -2890,7 +2894,8 @@ theorem compileMatch_correct (reg : Verifier.Registry) (scrut : Expr) (branches 
   intro v_scrut ρ_scrut st_scrut se_scrut hΨ_scrut hse_wf heval_se
   obtain ⟨hdecls_scrut, hagreeOn_scrut, hΨ_scrut⟩ := hΨ_scrut
   cases hscrut_ty : scrut.ty with
-  | prim _ | arrow _ _ | ref _ | array _ | owned _ | empty | value | tuple _ | tvar _ | named _ _ =>
+  | prim _ | arrow _ _ | ref _ | array _ | vec _ | owned _ | empty | value | tuple _ | tvar _
+  | named _ _ =>
     simp only [hscrut_ty] at hΨ_scrut
     exact (VerifM.eval_fatal hΨ_scrut).elim
   | sum ts =>
