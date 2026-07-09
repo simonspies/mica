@@ -82,6 +82,7 @@ def BinOp.toSMTLIB : BinOp τ₁ τ₂ τ₃ → String
   | .uninterpreted name _ _ _ => name
 
 def TerOp.toSMTLIB : TerOp τ₁ τ₂ τ₃ τ₄ → String
+  | .seqExtract => "seq.extract"
   | .uninterpreted name _ _ _ _ => name
 
 def UnPred.toSMTLIB : UnPred τ → String
@@ -268,6 +269,7 @@ private def termStr (p : Prec) : {τ : Srt} → Term τ → String
     | .vcons => parens (Prec.lt .top p) s!"{termStr .top a} :: {termStr .top b}"
     | .uninterpreted name _ _ _ => s!"{name}({termStr .bottom a}, {termStr .bottom b})"
   | _, .terop op a b c => match op with
+    | .seqExtract => s!"extract({termStr .bottom a}, {termStr .bottom b}, {termStr .bottom c})"
     | .uninterpreted name _ _ _ _ =>
       s!"{name}({termStr .bottom a}, {termStr .bottom b}, {termStr .bottom c})"
   | _, .ite c t e  => parens (Prec.lt .bottom p) s!"if {termStr .bottom c} then {termStr .bottom t} else {termStr .bottom e}"
