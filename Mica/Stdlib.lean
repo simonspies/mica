@@ -36,6 +36,8 @@ def registry : Registry := [
   Intrinsics.stringEndsWith,
   Intrinsics.stringStartsWith,
   Intrinsics.stringEqual,
+  Intrinsics.stringSub,
+  Intrinsics.stringGet,
   Intrinsics.stringCat,
   Intrinsics.stringLength,
   Intrinsics.charEqual,
@@ -64,7 +66,7 @@ theorem registry_wf : Registry.Wf registry := by
   -- names, so this stays generic over the registry contents.
   simp [registry, Registry.Wf, Registry.WfFrom, Signature.extendWithSym,
     Signature.empty, Signature.addConst, Signature.addUnary, Signature.addBinary,
-    Signature.allNames]
+    Signature.addTernary, Signature.allNames]
 
 private def resolverEntry (i : Intrinsic) :
     Option (Frontend.Path × Frontend.ResolvedValue) :=

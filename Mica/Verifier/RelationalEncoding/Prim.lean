@@ -23,6 +23,10 @@ def encodePrim (Δ : Signature) (n : String) :
     if (⟨n, .value, .value, .value⟩ : FOL.Binary) ∈ Δ.binary then
       .ok (.binop (.uninterpreted n .value .value .value) a b)
     else .error s!"relational encoding: unknown binary intrinsic `{n}`"
+  | [a, b, c] =>
+    if (⟨n, .value, .value, .value, .value⟩ : FOL.Ternary) ∈ Δ.ternary then
+      .ok (.terop (.uninterpreted n .value .value .value .value) a b c)
+    else .error s!"relational encoding: unknown ternary intrinsic `{n}`"
   | _ => .error s!"relational encoding: intrinsic `{n}` applied at unsupported arity"
 
 /-- A successful intrinsic encoding is well-formed in any extension of the
@@ -69,7 +73,20 @@ theorem encodePrim_wfIn {Δ Δ' : Signature} {n : String} {vs : List (Term .valu
             hvs a (by simp), hvs b (by simp)⟩
         · simp at h
       | cons c tl3 =>
-        simp [encodePrim] at h
+        cases tl3 with
+        | nil =>
+          simp only [encodePrim] at h
+          split at h
+          · rename_i hmem
+            simp only [Except.ok.injEq] at h; subst h
+            have hmem' : (⟨n, .value, .value, .value, .value⟩ : FOL.Ternary) ∈ Δ'.ternary :=
+              hsub.ternary _ hmem
+            exact ⟨⟨hmem', fun τ₁' τ₂' τ₃' τ₄' ht =>
+                Signature.wf_unique_ternary hΔ' hmem' ht⟩,
+              hvs a (by simp), hvs b (by simp), hvs c (by simp)⟩
+          · simp at h
+        | cons d rest =>
+          simp [encodePrim] at h
 
 /-- The success of `encodePrim` depends only on the name, signature, and
 argument count, not the argument terms: equal-length argument lists succeed
@@ -114,7 +131,24 @@ theorem encodePrim_ok_irrel {Δ : Signature} {n : String}
                           split at h <;> simp_all
                       | cons c' rest => simp at hlen
           | cons c rest =>
-              simp [encodePrim] at h
+              cases rest with
+              | nil =>
+                  cases vs' with
+                  | nil => simp at hlen
+                  | cons a' tl' =>
+                      cases tl' with
+                      | nil => simp at hlen
+                      | cons b' tl2' =>
+                          cases tl2' with
+                          | nil => simp at hlen
+                          | cons c' rest' =>
+                              cases rest' with
+                              | nil =>
+                                  simp only [encodePrim] at h ⊢
+                                  split at h <;> simp_all
+                              | cons d' rest'' => simp at hlen
+              | cons d rest' =>
+                  simp [encodePrim] at h
 
 /-- The failure of `encodePrim` likewise depends only on the name, signature,
 and argument count: equal-length argument lists fail with the same message. -/
@@ -167,8 +201,19 @@ theorem encodePrim_error_irrel {Δ : Signature} {n : String}
                       cases tl2' with
                       | nil => simp at hlen
                       | cons c' rest' =>
-                          simp [encodePrim] at h ⊢
-                          exact h
+                          cases rest with
+                          | nil =>
+                              cases rest' with
+                              | nil =>
+                                  simp only [encodePrim] at h ⊢
+                                  split at h <;> simp_all
+                              | cons d' rest'' => simp at hlen
+                          | cons d rest'' =>
+                              cases rest' with
+                              | nil => simp at hlen
+                              | cons d' rest''' =>
+                                  simp [encodePrim] at h ⊢
+                                  exact h
 
 /-- `encodePrim` is a pure uninterpreted-symbol application: when the two
 environments agree on the signature `Δ` (hence on the intrinsic symbol)
@@ -218,7 +263,21 @@ theorem encodePrim_eval {Δ : Signature} {n : String}
         simp only [Term.eval, BinOp.eval]
         rw [hagree.2.2.2.1 ⟨n, .value, .value, .value⟩ hmem, ha, hb]
       · simp at h₁
-    · -- vs₁ length ≥ 3: encodePrim errors
-      simp [encodePrim] at h₁
+    · -- vs₁ length ≥ 3
+      rcases s₁ with _ | ⟨d₁, rest₁⟩
+      · -- vs₁ = [a₁, b₁, c₁]  (ternary)
+        rcases vs₂ with _ | ⟨a₂, _ | ⟨b₂, _ | ⟨c₂, _ | _⟩⟩⟩ <;> try (exfalso; simp at hvals; done)
+        simp only [List.map_cons, List.map_nil, List.cons.injEq] at hvals
+        obtain ⟨ha, hb, hc, _⟩ := hvals
+        simp only [encodePrim] at h₁ h₂
+        split at h₁
+        · rename_i hmem
+          rw [if_pos hmem] at h₂
+          simp only [Except.ok.injEq] at h₁ h₂; subst h₁; subst h₂
+          simp only [Term.eval, TerOp.eval]
+          rw [hagree.2.2.2.2.1 ⟨n, .value, .value, .value, .value⟩ hmem, ha, hb, hc]
+        · simp at h₁
+      · -- vs₁ length > 3: encodePrim errors
+        simp [encodePrim] at h₁
 
 end Verifier.RelationalEncoding

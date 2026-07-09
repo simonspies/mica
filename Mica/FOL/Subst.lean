@@ -188,6 +188,7 @@ theorem Term.subst_wfIn {t : Term τ} {σ : Subst} {dom : VarCtx} {Δ Δ' : Sign
       refine ⟨hsymbols.ternary _ ht.1.1, ?_⟩
       intro τ₁' τ₂' τ₃' τ₄' ht'
       exact Signature.wf_unique_ternary hwf (hsymbols.ternary _ ht.1.1) ht'
+    | _ => trivial
   | ite c t e ihc iht ihe =>
     simp only [Term.subst, Term.wfIn]
     exact ⟨ihc ht.1 hσ hdom hsymbols hwf,
@@ -334,6 +335,7 @@ theorem Term.eval_subst {σ : Subst} {ρ : Env} {t : Term τ} {Δ Δ' : Signatur
     rw [iha ht.2.1 hσ hwfΔ', ihb ht.2.2.1 hσ hwfΔ', ihc ht.2.2.2 hσ hwfΔ']
     cases op with
     | uninterpreted name _ _ _ _ => rfl
+    | _ => rfl
   | ite c t e ihc iht ihe =>
     simp [Term.subst, Term.eval, ihc ht.1 hσ hwfΔ', iht ht.2.1 hσ hwfΔ', ihe ht.2.2 hσ hwfΔ']
 
