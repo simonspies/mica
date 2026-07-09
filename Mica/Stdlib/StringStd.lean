@@ -1,4 +1,4 @@
--- SUMMARY: Byte-string intrinsics (`String.length`, `cat`, `equal`, `starts_with`, `ends_with`) and soundness instances.
+-- SUMMARY: Byte-string intrinsics (`String.length`, `get`, `cat`, `equal`, `starts_with`, `ends_with`) and soundness instances.
 import Mica.Stdlib.IntStd
 
 open Iris Iris.BI
@@ -21,6 +21,11 @@ def stringCatSym : FOL.Symbol .two where
   name   := "string_cat"
   interp := fun (a, b) => .str (valStr a ++ valStr b)
 
+/-- FOL symbol for `String.get`. -/
+def stringGetSym : FOL.Symbol .two where
+  name   := "string_get"
+  interp := fun (s, i) => .char ((valStr s)[Int.toNat (valInt i)]?.getD 0)
+
 /-- FOL symbol for `String.equal`. -/
 def stringEqualSym : FOL.Symbol .two where
   name   := "string_equal"
@@ -38,6 +43,7 @@ def stringEndsWithSym : FOL.Symbol .two where
 
 @[simp] theorem stringLengthSym_name : stringLengthSym.name = "string_length" := rfl
 @[simp] theorem stringCatSym_name : stringCatSym.name = "string_cat" := rfl
+@[simp] theorem stringGetSym_name : stringGetSym.name = "string_get" := rfl
 @[simp] theorem stringEqualSym_name : stringEqualSym.name = "string_equal" := rfl
 @[simp] theorem stringStartsWithSym_name : stringStartsWithSym.name = "string_starts_with" := rfl
 @[simp] theorem stringEndsWithSym_name : stringEndsWithSym.name = "string_ends_with" := rfl
@@ -67,6 +73,35 @@ def stringCatDefAxiom : Formula :=
     .eq .string
       (.unop .toString (binTerm "string_cat" (.var .value "a") (.var .value "b")))
       (.binop .seqConcat (.unop .toString (.var .value "a")) (.unop .toString (.var .value "b")))
+
+def stringGetPre : Formula :=
+  let i := .unop .toInt (.var .value "i")
+  let len := .unop .seqLen (.unop .toString (.var .value "s"))
+  .and
+    (.binpred .le (.const (.i 0)) i)
+    (.binpred .lt i len)
+
+/-- The value-level FOL term for `String.get s i`. -/
+def stringGetTerm (s i : Term .value) : Term .value :=
+  binTerm "string_get" s i
+
+/-- Total byte lookup used by the FOL interpretation. The intrinsic precondition
+    restricts runtime calls to OCaml's in-bounds case. -/
+def stringGetByte (s : List UInt8) (i : Int) : UInt8 :=
+  s[Int.toNat i]?.getD 0
+
+def stringGetDefAxiom : Formula :=
+  .all "s" .value <| .forall_ "i" .value
+    [.term (stringGetTerm (.var .value "s") (.var .value "i"))] <|
+    .implies stringGetPre <|
+      .eq .char
+        (.unop .toChar (stringGetTerm (.var .value "s") (.var .value "i")))
+        (.binop .seqNth (.unop .toString (.var .value "s")) (.unop .toInt (.var .value "i")))
+
+def stringGetTypeAxiom : Formula :=
+  .all "s" .value <| .forall_ "i" .value
+    [.term (stringGetTerm (.var .value "s") (.var .value "i"))] <|
+    .unpred .isChar (stringGetTerm (.var .value "s") (.var .value "i"))
 
 def stringEqualDefAxiom : Formula :=
   .all "a" .value <| .forall_ "b" .value
@@ -140,6 +175,188 @@ def stringCatLawful : stringCatB.Lawful where
   defEval    := by intrinsic_def_eval [binTerm, stringCatB, stringCatDefAxiom]; intros; rfl
 
 instance : IntrinsicSound [stringCat] stringCat := stringCatLawful.sound
+
+/-! ## `String.get` -/
+
+private theorem string_respects_argsEnv_two {s : FOL.Symbol .two} :
+    ∀ (args : List (String × TinyML.Typ)) (vs : List Runtime.Val) {ρ : VerifM.Env},
+      ρ.env.respects (some s) → (Spec.argsEnv ρ args vs).env.respects (some s)
+  | [], _, _, h => h
+  | _ :: _, [], _, h => h
+  | (_, _) :: rest, _ :: vs, ρ, h => by
+      simp only [Spec.argsEnv]
+      refine string_respects_argsEnv_two rest vs ?_
+      rw [VerifM.Env.updateConst_env]
+      simpa only [Env.respects, Env.updateConst_binary] using h
+
+/-- `String.get`: byte lookup, with OCaml's in-bounds precondition. -/
+def stringGet : Intrinsic where
+  arity  := .two
+  name   := "string_get"
+  path   := some ("String", ["get"])
+  reduce := Reduce.pure fun (s, i) v =>
+    ∃ bytes n, s = .str bytes ∧ i = .int n ∧ 0 ≤ n ∧ n < (bytes.length : Int) ∧
+      v = .char (stringGetByte bytes n)
+  wp     := fun (s, i) Q =>
+    iprop(∃ bytes n,
+      ⌜s = .str bytes ∧ i = .int n ∧ 0 ≤ n ∧ n < (bytes.length : Int)⌝ ∗
+      Q (.char (stringGetByte bytes n)))
+  spec   :=
+    { args  := [("s", .string), ("i", .int)]
+      retTy := .char
+      pred  := .assert stringGetPre <|
+        .ret ("ret",
+          .assert (.eq .value (.var .value "ret")
+            (stringGetTerm (.var .value "s") (.var .value "i")))
+            (.ret ())) }
+  typing := monoTyping .two
+  folSym := some stringGetSym
+  axioms := [⟨stringGetDefAxiom, .high⟩, ⟨stringGetTypeAxiom, .high⟩]
+
+@[simp] theorem stringGet_arity : stringGet.arity = .two := rfl
+@[simp] theorem stringGet_folSym : stringGet.folSym = some stringGetSym := rfl
+
+@[simp] theorem stringGet.toWp_eq (s i : Runtime.Val) (Q : Runtime.Val → iProp) :
+    stringGet.toWp [s, i] Q =
+      iprop(∃ bytes n,
+        ⌜s = .str bytes ∧ i = .int n ∧ 0 ≤ n ∧ n < (bytes.length : Int)⌝ ∗
+        Q (.char (stringGetByte bytes n))) := rfl
+
+@[simp] theorem stringGet.toReduce_eq (s i v : Runtime.Val) (μ μ' : TinyML.Heap) :
+    stringGet.toReduce [s, i] μ v μ' =
+      ((∃ bytes n, s = .str bytes ∧ i = .int n ∧ 0 ≤ n ∧
+        n < (bytes.length : Int) ∧ v = .char (stringGetByte bytes n)) ∧ μ' = μ) := rfl
+
+@[simp] theorem stringGet.instantiate_args (σ : TinyML.TyVar → TinyML.Typ) :
+    (stringGet.spec.instantiate σ).args = [("s", .string), ("i", .int)] := by
+  simp [stringGet, Spec.instantiate, TinyML.Typ.subst]
+
+@[simp] theorem stringGet.instantiate_retTy (σ : TinyML.TyVar → TinyML.Typ) :
+    (stringGet.spec.instantiate σ).retTy = .char := by
+  simp [stringGet, Spec.instantiate, TinyML.Typ.subst]
+
+@[simp] theorem stringGet.spec_pred :
+    stringGet.spec.pred = .assert stringGetPre
+      (.ret ("ret",
+        .assert (.eq .value (.var .value "ret")
+          (stringGetTerm (.var .value "s") (.var .value "i")))
+          (.ret ()))) := rfl
+
+instance : IntrinsicSound [stringGet] stringGet where
+  specWf := fun _ hsub hwf =>
+    specWf_of_base (by apply PredTrans.checkWf_ok; rfl) hsub hwf
+  wp_sound := by
+    intro _ ctx hctx vs Φ
+    match vs with
+    | [] => exact false_elim
+    | [_] => exact false_elim
+    | _ :: _ :: _ :: _ => exact false_elim
+    | [s, i] =>
+      have hred : ∀ bytes n μ v μ',
+          ctx stringGet.name [.str bytes, .int n] μ v μ'
+            ↔ (0 ≤ n ∧ n < (bytes.length : Int) ∧ v = .char (stringGetByte bytes n)) ∧
+              μ' = μ := by
+        intro bytes n μ v μ'
+        rw [hctx]
+        simp only [stringGet.toReduce_eq]
+        constructor
+        · rintro ⟨⟨bytes', n', hs, hi, hlo, hhi, hv⟩, hμ⟩
+          cases hs
+          cases hi
+          exact ⟨⟨hlo, hhi, hv⟩, hμ⟩
+        · rintro ⟨⟨hlo, hhi, hv⟩, hμ⟩
+          exact ⟨⟨bytes, n, rfl, rfl, hlo, hhi, hv⟩, hμ⟩
+      show iprop(∃ bytes n,
+        ⌜s = .str bytes ∧ i = .int n ∧ 0 ≤ n ∧ n < (bytes.length : Int)⌝ ∗
+        Φ (.char (stringGetByte bytes n))) ⊢ _
+      istart
+      iintro ⟨%bytes, %n, %ha, HΦ⟩
+      obtain ⟨rfl, rfl, hlo, hhi⟩ := ha
+      iapply (wp.prim_pure (hred bytes n) ⟨.char (stringGetByte bytes n), hlo, hhi, rfl⟩)
+      iintro %v %hv
+      obtain ⟨_, _, rfl⟩ := hv
+      iexact HΦ
+  bridge := by
+    intro _ σ Θ vs ρ Φ hρ
+    simp only [stringGet.instantiate_args, stringGet.instantiate_retTy,
+      Spec.instantiate_pred, stringGet.spec_pred, List.map_cons, List.map_nil]
+    match vs with
+    | [] => exact (sep_mono_left (valsHaveTypes_off_shape _ (by simp))).trans sep_elim_left
+    | [_] => exact (sep_mono_left (valsHaveTypes_off_shape _ (by simp))).trans sep_elim_left
+    | _ :: _ :: _ :: _ =>
+        exact (sep_mono_left (valsHaveTypes_off_shape _ (by simp))).trans sep_elim_left
+    | [s, i] =>
+      simp only [PredTrans.apply, Assertion.pre]
+      iintro ⟨Hvs, Hpred⟩
+      ihave Hcons := (TinyML.ValsHaveTypes.cons Θ s [i] _ _).1 $$ Hvs
+      icases Hcons with ⟨Hs, Hrest⟩
+      ihave Hcons2 := (TinyML.ValsHaveTypes.cons Θ i [] _ _).1 $$ Hrest
+      icases Hcons2 with ⟨Hi, _⟩
+      ihave Hseq := (TinyML.ValHasType.string Θ s).1 $$ Hs
+      ipure Hseq
+      obtain ⟨bytes, rfl⟩ := Hseq
+      ihave Hieq := (TinyML.ValHasType.int Θ i).1 $$ Hi
+      ipure Hieq
+      obtain ⟨n, rfl⟩ := Hieq
+      icases Hpred with ⟨%hpre, Hpost⟩
+      have hbounds : 0 ≤ n ∧ n < (bytes.length : Int) := by
+        simpa [stringGetPre, Spec.argsEnv, Formula.eval, Term.eval, Const.denote,
+          VerifM.Env.updateConst_env, Env.lookupConst_updateConst_same,
+          Env.lookupConst_updateConst_ne (show "s" ≠ "i" by decide)] using hpre
+      simp only [stringGet.toWp_eq]
+      iexists bytes
+      iexists n
+      isplitr [Hpost]
+      · ipureintro
+        exact ⟨rfl, rfl, hbounds.1, hbounds.2⟩
+      · have hassert : (Formula.eq .value (.var .value "ret")
+            (stringGetTerm (.var .value "s") (.var .value "i"))).eval
+            ((Spec.argsEnv ρ stringGet.specArgs [.str bytes, .int n]).updateConst
+              .value "ret" (.char (stringGetByte bytes n))).env := by
+          have hargs := string_respects_argsEnv_two stringGet.specArgs [.str bytes, .int n] hρ
+          have hbin : (Spec.argsEnv ρ stringGet.specArgs [.str bytes, .int n]).env.binary
+              .value .value .value "string_get" = fun a b => stringGetSym.interp (a, b) := by
+            simpa [Env.respects, stringGetSym] using hargs
+          show .char (stringGetByte bytes n) =
+            (Spec.argsEnv ρ stringGet.specArgs [.str bytes, .int n]).env.binary
+              .value .value .value "string_get" (.str bytes) (.int n)
+          simp [stringGetByte, stringGetSym, hbin, valStr, valInt]
+        refine (assert_ret_apply Θ _ "ret" _ _ (.char (stringGetByte bytes n)) hassert).trans ?_
+        iintro Hwand
+        iapply Hwand
+        exact TinyML.ValHasType.char_intro Θ (stringGetByte bytes n)
+  axiomWf := by
+    intro Δ hsub hwf a hφ
+    simp only [stringGet, List.mem_cons, List.not_mem_nil, _root_.or_false] at hφ
+    rcases hφ with rfl | rfl
+    · exact Formula.wfIn_mono _ (by apply Formula.checkWf_ok; rfl) hsub hwf
+    · exact Formula.wfIn_mono _ (by apply Formula.checkWf_ok; rfl) hsub hwf
+  proof := by
+    intro ρ hdeps a hφ
+    simp only [stringGet, List.mem_cons, List.not_mem_nil, _root_.or_false] at hφ
+    have hresp : ρ.respects (some stringGetSym) := by
+      have h := hdeps stringGet (by simp)
+      simpa [stringGet] using h
+    rcases hφ with rfl | rfl
+    · simp only [stringGetDefAxiom, Formula.all, Formula.eval]
+      intro s i hpre
+      have hbin : (((ρ.updateConst .value "s" s).updateConst .value "i" i).binary
+          .value .value .value "string_get") = fun a b => stringGetSym.interp (a, b) := by
+        rw [Env.updateConst_binary, Env.updateConst_binary]
+        simpa [Env.respects, stringGetSym] using hresp
+      simp [stringGetTerm, binTerm, stringGetSym, hbin,
+        Term.eval, Env.lookupConst_updateConst_same,
+        Env.lookupConst_updateConst_ne (show "s" ≠ "i" by decide), valStr, valInt]
+      rfl
+    · simp only [stringGetTypeAxiom, Formula.all, Formula.eval]
+      intro s i
+      have hbin : (((ρ.updateConst .value "s" s).updateConst .value "i" i).binary
+          .value .value .value "string_get") = fun a b => stringGetSym.interp (a, b) := by
+        rw [Env.updateConst_binary, Env.updateConst_binary]
+        simpa [Env.respects, stringGetSym] using hresp
+      simp [stringGetTerm, binTerm, stringGetSym, hbin, Term.eval,
+        Env.lookupConst_updateConst_same,
+        Env.lookupConst_updateConst_ne (show "s" ≠ "i" by decide), valStr, valInt]
 
 /-! ## `String.equal` -/
 

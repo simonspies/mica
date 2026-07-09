@@ -83,6 +83,7 @@ inductive BinOp : Srt → Srt → Srt → Type where
   | ge   : BinOp .int   .int     .bool
   | eq   : BinOp τ      τ        .bool
   | seqConcat : BinOp .string .string .string
+  | seqNth : BinOp .string .int .char
   | seqPrefixOf : BinOp .string .string .bool
   | seqSuffixOf : BinOp .string .string .bool
   | fpAdd : BinOp .float .float .float
@@ -520,6 +521,7 @@ theorem Term.wfIn_mono (t : Term τ) (h : t.wfIn Δ) (hsub : Δ.Subset Δ') (hwf
   | _, .ge,    a, b  => decide (a ≥ b)
   | _, .eq,    a, b  => decide (a = b)
   | _, .seqConcat, a, b => a ++ b
+  | _, .seqNth, s, i => s[Int.toNat i]?.getD 0
   | _, .seqPrefixOf, a, b => a.isPrefixOf b
   | _, .seqSuffixOf, a, b => a.isSuffixOf b
   | _, .fpAdd, a, b => FloatBits.add a b

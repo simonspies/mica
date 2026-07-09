@@ -36,6 +36,7 @@ def registry : Registry := [
   Intrinsics.stringEndsWith,
   Intrinsics.stringStartsWith,
   Intrinsics.stringEqual,
+  Intrinsics.stringGet,
   Intrinsics.stringCat,
   Intrinsics.stringLength,
   Intrinsics.charEqual,
