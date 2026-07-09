@@ -41,23 +41,23 @@ theorem lfp_unfold {F : Rel α β → Rel α β} (hmono : Mono F) (a : α) (b : 
     lfp F a b ↔ F (lfp F) a b :=
   ⟨lfp_postfixed hmono a b, lfp_prefixed hmono a b⟩
 
-/-- Pointwise extension order on environments: constants/unary/binary operators
+/-- Pointwise extension order on environments: constants/unary/binary/ternary operators
 are fixed, while uninterpreted predicate interpretations may grow. -/
 def Env.le (ρ ρ' : Env) : Prop :=
-  ρ.consts = ρ'.consts ∧ ρ.unary = ρ'.unary ∧ ρ.binary = ρ'.binary ∧
+  ρ.consts = ρ'.consts ∧ ρ.unary = ρ'.unary ∧ ρ.binary = ρ'.binary ∧ ρ.ternary = ρ'.ternary ∧
   (∀ τ name a, ρ.unaryRel τ name a → ρ'.unaryRel τ name a) ∧
   ∀ τ₁ τ₂ name a b, ρ.binaryRel τ₁ τ₂ name a b → ρ'.binaryRel τ₁ τ₂ name a b
 
 theorem Env.le.refl (ρ : Env) : Env.le ρ ρ :=
-  ⟨rfl, rfl, rfl, fun _ _ _ h => h, fun _ _ _ _ _ h => h⟩
+  ⟨rfl, rfl, rfl, rfl, fun _ _ _ h => h, fun _ _ _ _ _ h => h⟩
 
 theorem Env.le.updateConst {ρ ρ' : Env} (h : Env.le ρ ρ')
     (τ : Srt) (x : String) (v : τ.denote) :
     Env.le (ρ.updateConst τ x v) (ρ'.updateConst τ x v) := by
-  refine ⟨?_, h.2.1, h.2.2.1, h.2.2.2.1, h.2.2.2.2⟩
+  refine ⟨?_, h.2.1, h.2.2.1, h.2.2.2.1, h.2.2.2.2.1, h.2.2.2.2.2⟩
   simp only [Env.updateConst, h.1]
 
-/-- Term evaluation only depends on `consts`, `unary`, and `binary`, so it is
+/-- Term evaluation only depends on `consts`, `unary`, `binary`, and `ternary`, so it is
 invariant under `Env.le`. -/
 theorem Term.eval_le {τ : Srt} {ρ ρ' : Env} (h : Env.le ρ ρ') (t : Term τ) :
     t.eval ρ = t.eval ρ' := by
@@ -71,6 +71,9 @@ theorem Term.eval_le {τ : Srt} {ρ ρ' : Env} (h : Env.le ρ ρ') (t : Term τ)
   | binop op a b iha ihb =>
     simp only [Term.eval]; rw [iha, ihb]
     cases op <;> simp [BinOp.eval, h.2.2.1]
+  | terop op a b c iha ihb ihc =>
+    simp only [Term.eval]; rw [iha, ihb, ihc]
+    cases op <;> simp [TerOp.eval, h.2.2.2.1]
   | ite c t e ihc iht ihe =>
     simp only [Term.eval]; rw [ihc, iht, ihe]
 

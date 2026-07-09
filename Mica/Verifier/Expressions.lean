@@ -191,9 +191,13 @@ theorem compileProductBindersFrom_length {S : SpecMap} {B : Bindings} {Γ : Tiny
                 simpa [Formula.eval, Term.eval, Const.denote, VerifM.Env.updateConst, Env.updateConst]
                   using hhead_same
               have hrec_eval := hassume hwf hholds
-              have hlen := ih (Term.wfIn_mono (Term.unop UnOp.vtail tl) htail_wf
-                (Signature.Subset.subset_addConst st.decls x')
-                (Signature.wf_addConst hstwf hfresh)) hrec_eval
+              have hsub : st.decls.Subset (st.decls.addConst x') :=
+                Signature.Subset.subset_addConst st.decls x'
+              have hstwf' : (st.decls.addConst x').wf :=
+                Signature.wf_addConst hstwf hfresh
+              have htail_wf' : (Term.unop UnOp.vtail tl).wfIn (st.decls.addConst x') :=
+                Term.wfIn_mono (Term.unop UnOp.vtail tl) htail_wf hsub hstwf'
+              have hlen := ih htail_wf' hrec_eval
               simp [hlen]
 
 mutual
@@ -2123,21 +2127,18 @@ theorem compileLetIn_correct (reg : Verifier.Registry) (b : Binder) (e body : Ex
         simpa [ρ_body, Env.updateConst] using this
     have hbwf₂ : Bindings.wfIn ((x, v) :: B) st₂.decls := Bindings.wfIn_cons hbwf_e
     have hρ_agree : Env.agreeOn (Signature.ofConsts (B.map Prod.snd)) ρ_body.env ρ.env := by
-      constructor
+      refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
       · intro y hy
         cases hy
-      · constructor
-        · intro y' hy'
-          obtain ⟨p, hp, rfl⟩ := List.mem_map.mp hy'
-          exact ((hagreeOn_e.2.1 p.2 (hbwf p hp)).trans
-            (hagreeOn_body_e.2.1 p.2 (hbwf_e p hp))).symm
-        · constructor
-          · intro z hz; cases hz
-          · constructor
-            · intro z hz; cases hz
-            · constructor
-              · intro z hz; cases hz
-              · intro z hz; cases hz
+      · intro y' hy'
+        obtain ⟨p, hp, rfl⟩ := List.mem_map.mp hy'
+        exact ((hagreeOn_e.2.1 p.2 (hbwf p hp)).trans
+          (hagreeOn_body_e.2.1 p.2 (hbwf_e p hp))).symm
+      · intro z hz; cases hz
+      · intro z hz; cases hz
+      · intro z hz; cases hz
+      · intro z hz; cases hz
+      · intro z hz; cases hz
     have hρ_body_lookup : ρ_body.env.consts .value v.name = v_e := by
       simp [ρ_body, VerifM.Env.updateConst, Env.updateConst]
     have hagree_body : Bindings.agreeOnLinked ((x, v) :: B) ρ_body.env γ_body := by
@@ -2329,19 +2330,16 @@ theorem compileProductBindersFrom_correct (reg : Verifier.Registry) (body : Expr
               have hagreeOn_body : Env.agreeOn st.decls ρ.env ρ₁.env :=
                 Env.agreeOn_update_fresh_const hfresh
               have hρ_agree : Env.agreeOn (Signature.ofConsts (B.map Prod.snd)) ρ₁.env ρ.env := by
-                constructor
+                refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
                 · intro y hy; cases hy
-                · constructor
-                  · intro y' hy'
-                    obtain ⟨p, hp, rfl⟩ := List.mem_map.mp hy'
-                    exact (hagreeOn_body.2.1 p.2 (hbwf p hp)).symm
-                  · constructor
-                    · intro z hz; cases hz
-                    · constructor
-                      · intro z hz; cases hz
-                      · constructor
-                        · intro z hz; cases hz
-                        · intro z hz; cases hz
+                · intro y' hy'
+                  obtain ⟨p, hp, rfl⟩ := List.mem_map.mp hy'
+                  exact (hagreeOn_body.2.1 p.2 (hbwf p hp)).symm
+                · intro z hz; cases hz
+                · intro z hz; cases hz
+                · intro z hz; cases hz
+                · intro z hz; cases hz
+                · intro z hz; cases hz
               have hρ_lookup : ρ₁.env.consts .value x'.name = v := by
                 simp [ρ₁, VerifM.Env.updateConst, Env.updateConst]
               have hagree₁ : Bindings.agreeOnLinked ((x, x') :: B) ρ₁.env
@@ -3107,20 +3105,17 @@ theorem compileSingleBranch_correct (reg : Verifier.Registry) (binder : Binder) 
     | some x =>
       simp [hname, TinyML.TyCtx.extendBinder] at heval_body'
       have hagreeOn_B : Env.agreeOn (Signature.ofConsts (B.map Prod.snd)) ρ₁.env ρ.env := by
-        constructor
+        refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
         · intro w hw
           cases hw
-        · constructor
-          · intro c hc
-            obtain ⟨p, hp, rfl⟩ := List.mem_map.mp hc
-            exact (hagreeOn_st.2.1 p.2 (hbwf p hp)).symm
-          · constructor
-            · intro z hz; cases hz
-            · constructor
-              · intro z hz; cases hz
-              · constructor
-                · intro z hz; cases hz
-                · intro z hz; cases hz
+        · intro c hc
+          obtain ⟨p, hp, rfl⟩ := List.mem_map.mp hc
+          exact (hagreeOn_st.2.1 p.2 (hbwf p hp)).symm
+        · intro z hz; cases hz
+        · intro z hz; cases hz
+        · intro z hz; cases hz
+        · intro z hz; cases hz
+        · intro z hz; cases hz
       have hbwf₂ : Bindings.wfIn ((x, xv) :: B) st₂.decls := hst₂_decls ▸ Bindings.wfIn_cons hbwf
       have hρ₁_lookup : ρ₁.env.consts .value xv.name = payload := by
         simp [ρ₁, VerifM.Env.updateConst, Env.updateConst]

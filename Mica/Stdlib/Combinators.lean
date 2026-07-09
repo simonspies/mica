@@ -1,4 +1,4 @@
--- SUMMARY: Embeddings and the pure-intrinsic builders (`Pure.Zero`/`Pure.Unary`/`Pure.Binary`) that emit an intrinsic and its soundness instance, plus the shared helper lemmas their soundness proofs use.
+-- SUMMARY: Embeddings and the pure-intrinsic builders (`Pure.Zero`/`Pure.Unary`/`Pure.Binary`/`Pure.Ternary`) that emit an intrinsic and its soundness instance, plus the shared helper lemmas their soundness proofs use.
 import Mica.Verifier.Intrinsic
 
 open Iris Iris.BI
@@ -61,6 +61,19 @@ private theorem respects_argsEnv_two {s : FOL.Symbol .two} :
       refine respects_argsEnv_two rest vs ?_
       rw [VerifM.Env.updateConst_env]
       simpa only [Env.respects, Env.updateConst_binary] using h
+
+/-- Respect for an arity-three symbol survives the argument-binding fold; each
+    step rebinds a `value` constant, which never touches the ternary table. -/
+private theorem respects_argsEnv_three {s : FOL.Symbol .three} :
+    ∀ (args : List (String × TinyML.Typ)) (vs : List Runtime.Val) {ρ : VerifM.Env},
+      ρ.env.respects (some s) → (Spec.argsEnv ρ args vs).env.respects (some s)
+  | [], _, _, h => h
+  | _ :: _, [], _, h => h
+  | (_, _) :: rest, _ :: vs, ρ, h => by
+      simp only [Spec.argsEnv]
+      refine respects_argsEnv_three rest vs ?_
+      rw [VerifM.Env.updateConst_env]
+      simpa only [Env.respects, Env.updateConst_ternary] using h
 
 /-! ## `specWf`: predicate-transformer well-formedness -/
 
@@ -193,6 +206,10 @@ def unTerm (name : String) (x : Term .value) : Term .value :=
 /-- Uninterpreted binary value symbol `name` applied to `x` and `y`. -/
 def binTerm (name : String) (x y : Term .value) : Term .value :=
   .binop (.uninterpreted name .value .value .value) x y
+
+/-- Uninterpreted ternary value symbol `name` applied to `x`, `y`, and `z`. -/
+def terTerm (name : String) (x y z : Term .value) : Term .value :=
+  .terop (.uninterpreted name .value .value .value .value) x y z
 
 /-- Uninterpreted nullary value symbol `name` as a term. -/
 def constTerm (name : String) : Term .value :=
@@ -678,6 +695,218 @@ structure Binary.Lawful (b : Binary) where
         Env.lookupConst_updateConst_ne (show "a" ≠ "b" by decide), hb, Binary.sym]
       exact l.resL.isOf_inject _ _
 
+/-! ## Builder for pure ternary intrinsics
+
+`Pure.Ternary` bundles the *computational* content of a pure ternary intrinsic:
+its name/path, the argument and result embeddings, the carrier function `f`, and
+the SMT defining axiom. From this alone the `Intrinsic` and its FOL symbol are
+built (`toIntrinsic`). The proof obligations live in `Pure.Ternary.Lawful`. -/
+
+/-- The computational data of a pure ternary intrinsic. -/
+structure Ternary where
+  name     : String
+  path     : Option (String × List String)
+  arg      : Embedding
+  res      : Embedding
+  f        : arg.carrier → arg.carrier → arg.carrier → res.carrier
+  defAxiom : Formula
+
+/-- The intrinsic's uninterpreted ternary symbol applied to three value terms. -/
+def Ternary.opTerm (b : Ternary) (x y z : Term .value) : Term .value :=
+  .terop (.uninterpreted b.name .value .value .value .value) x y z
+
+/-- The FOL symbol: the standard interpretation projects all arguments, applies
+    `f`, and injects the result. -/
+def Ternary.sym (b : Ternary) : FOL.Symbol .three where
+  name   := b.name
+  interp := fun (a, c, d) =>
+    b.res.inject (b.f (b.arg.project a) (b.arg.project c) (b.arg.project d))
+
+/-- The result-typing axiom, generated from `res`: the op result satisfies the
+    result embedding's `is-of` predicate. -/
+def Ternary.typeAxiom (b : Ternary) : Formula :=
+  .all "a" .value <| .all "b" .value <| .forall_ "c" .value
+    [.term (b.opTerm (.var .value "a") (.var .value "b") (.var .value "c"))] <|
+    .unpred b.res.isOf
+      (b.opTerm (.var .value "a") (.var .value "b") (.var .value "c"))
+
+/-- The intrinsic built from `b`: a literal `Intrinsic.mk` so the arity-unfolding
+    lemmas (`toReduce_three_of_arity`, `toWp_three_of_arity`) keep firing by `rfl`. -/
+def Ternary.toIntrinsic (b : Ternary) : Intrinsic where
+  arity  := .three
+  name   := b.name
+  path   := b.path
+  reduce := Reduce.pure fun (a, c, d) v =>
+    ∃ x y z, a = b.arg.inject x ∧ c = b.arg.inject y ∧ d = b.arg.inject z ∧
+      v = b.res.inject (b.f x y z)
+  wp     := fun (a, c, d) Q =>
+    iprop(∃ x y z, ⌜a = b.arg.inject x ∧ c = b.arg.inject y ∧ d = b.arg.inject z⌝ ∗
+      Q (b.res.inject (b.f x y z)))
+  spec   :=
+    { args  := [("a", b.arg.typ), ("b", b.arg.typ), ("c", b.arg.typ)]
+      retTy := b.res.typ
+      pred  := .ret ("ret",
+        .assert (.eq .value (.var .value "ret")
+          (b.opTerm (.var .value "a") (.var .value "b") (.var .value "c"))) (.ret ())) }
+  typing := monoTyping .three
+  folSym := some b.sym
+  axioms := [⟨b.defAxiom, .high⟩, ⟨b.typeAxiom, .high⟩]
+
+@[simp] theorem Ternary.toWp_eq (b : Ternary) (a c d : Runtime.Val) (Q : Runtime.Val → iProp) :
+    b.toIntrinsic.toWp [a, c, d] Q =
+      iprop(∃ x y z, ⌜a = b.arg.inject x ∧ c = b.arg.inject y ∧ d = b.arg.inject z⌝ ∗
+        Q (b.res.inject (b.f x y z))) := rfl
+
+@[simp] theorem Ternary.toReduce_eq (b : Ternary) (a c d v : Runtime.Val) (μ μ' : TinyML.Heap) :
+    b.toIntrinsic.toReduce [a, c, d] μ v μ' =
+      ((∃ x y z, a = b.arg.inject x ∧ c = b.arg.inject y ∧ d = b.arg.inject z ∧
+        v = b.res.inject (b.f x y z)) ∧ μ' = μ) := rfl
+
+@[simp] theorem Ternary.instantiate_args (b : Ternary) (σ : TinyML.TyVar → TinyML.Typ) :
+    (b.toIntrinsic.spec.instantiate σ).args
+      = [("a", b.arg.typ.subst σ), ("b", b.arg.typ.subst σ), ("c", b.arg.typ.subst σ)] := rfl
+
+@[simp] theorem Ternary.instantiate_retTy (b : Ternary) (σ : TinyML.TyVar → TinyML.Typ) :
+    (b.toIntrinsic.spec.instantiate σ).retTy = b.res.typ.subst σ := rfl
+
+/-- Proof obligations for a pure ternary intrinsic. -/
+structure Ternary.Lawful (b : Ternary) where
+  argL       : b.arg.Lawful
+  resL       : b.res.Lawful
+  specBaseWf : PredTrans.wfIn
+                 ((Intrinsic.sigOf [b.toIntrinsic]).declVars
+                   (Spec.argVars b.toIntrinsic.specArgs)) b.toIntrinsic.spec.pred
+  defWf      : b.defAxiom.wfIn (Intrinsic.sigOf [b.toIntrinsic])
+  typeWf     : b.typeAxiom.wfIn (Intrinsic.sigOf [b.toIntrinsic])
+  defEval    : ∀ ρ : Env, ρ.respects (some b.sym) → Formula.eval ρ b.defAxiom
+
+/-- The whole `IntrinsicSound` instance for a pure ternary intrinsic. -/
+@[reducible] def Ternary.Lawful.sound {b : Ternary} (l : b.Lawful) :
+    IntrinsicSound [b.toIntrinsic] b.toIntrinsic where
+  specWf := fun _ hsub hwf => specWf_of_base l.specBaseWf hsub hwf
+  wp_sound := by
+    intro _ ctx hctx vs Φ
+    match vs with
+    | [] => exact false_elim
+    | [_] => exact false_elim
+    | [_, _] => exact false_elim
+    | _ :: _ :: _ :: _ :: _ => exact false_elim
+    | [a, c, d] =>
+      have hred : ∀ x y z μ v μ',
+          ctx b.toIntrinsic.name [b.arg.inject x, b.arg.inject y, b.arg.inject z] μ v μ'
+            ↔ v = b.res.inject (b.f x y z) ∧ μ' = μ := by
+        intro x y z μ v μ'
+        rw [hctx]
+        simp only [Ternary.toIntrinsic, Intrinsic.toReduce_three_of_arity, Reduce.pure]
+        constructor
+        · rintro ⟨⟨x', y', z', hx, hy, hz, hv⟩, hμ⟩
+          have hxx : x = x' := by
+            have := congrArg b.arg.project hx
+            rwa [l.argL.project_inject, l.argL.project_inject] at this
+          have hyy : y = y' := by
+            have := congrArg b.arg.project hy
+            rwa [l.argL.project_inject, l.argL.project_inject] at this
+          have hzz : z = z' := by
+            have := congrArg b.arg.project hz
+            rwa [l.argL.project_inject, l.argL.project_inject] at this
+          subst hxx; subst hyy; subst hzz
+          exact ⟨hv, hμ⟩
+        · rintro ⟨hv, hμ⟩
+          exact ⟨⟨x, y, z, rfl, rfl, rfl, hv⟩, hμ⟩
+      show iprop(∃ x y z, ⌜a = b.arg.inject x ∧ c = b.arg.inject y ∧ d = b.arg.inject z⌝ ∗
+        Φ (b.res.inject (b.f x y z))) ⊢ _
+      istart
+      iintro ⟨%x, %y, %z, %habc, HΦ⟩
+      obtain ⟨rfl, rfl, rfl⟩ := habc
+      iapply (wp.prim_pure (hred x y z) ⟨_, rfl⟩)
+      iintro %v %hv
+      subst hv
+      iexact HΦ
+  bridge := by
+    intro _ σ Θ vs ρ Φ hρ
+    simp only [Ternary.instantiate_args, Ternary.instantiate_retTy,
+      Spec.instantiate_pred, List.map_cons, List.map_nil]
+    show TinyML.ValsHaveTypes Θ vs
+      [b.arg.typ.subst σ, b.arg.typ.subst σ, b.arg.typ.subst σ] ∗ _ ⊢ _
+    match vs with
+    | [] => exact (sep_mono_left (valsHaveTypes_off_shape _ (by simp))).trans sep_elim_left
+    | [_] => exact (sep_mono_left (valsHaveTypes_off_shape _ (by simp))).trans sep_elim_left
+    | [_, _] => exact (sep_mono_left (valsHaveTypes_off_shape _ (by simp))).trans sep_elim_left
+    | _ :: _ :: _ :: _ :: _ =>
+        exact (sep_mono_left (valsHaveTypes_off_shape _ (by simp))).trans sep_elim_left
+    | [v1, v2, v3] =>
+      iintro ⟨Hvs, Hpred⟩
+      ihave Hcons := (TinyML.ValsHaveTypes.cons Θ v1 [v2, v3] _ _).1 $$ Hvs
+      icases Hcons with ⟨Hv1, Hvs2⟩
+      ihave Hcons2 := (TinyML.ValsHaveTypes.cons Θ v2 [v3] _ _).1 $$ Hvs2
+      icases Hcons2 with ⟨Hv2, Hvs3⟩
+      ihave Hcons3 := (TinyML.ValsHaveTypes.cons Θ v3 [] _ _).1 $$ Hvs3
+      icases Hcons3 with ⟨Hv3, _⟩
+      ihave Hv1eq := (l.argL.member σ Θ v1).1 $$ Hv1
+      ipure Hv1eq
+      ihave Hv2eq := (l.argL.member σ Θ v2).1 $$ Hv2
+      ipure Hv2eq
+      ihave Hv3eq := (l.argL.member σ Θ v3).1 $$ Hv3
+      ipure Hv3eq
+      obtain ⟨x, rfl⟩ := Hv1eq
+      obtain ⟨y, rfl⟩ := Hv2eq
+      obtain ⟨z, rfl⟩ := Hv3eq
+      simp only [Ternary.toIntrinsic, Intrinsic.toWp_three_of_arity]
+      iexists x
+      iexists y
+      iexists z
+      isplitr [Hpred]
+      · ipureintro; exact ⟨rfl, rfl, rfl⟩
+      · have hassert : (Formula.eq .value (.var .value "ret")
+            (b.opTerm (.var .value "a") (.var .value "b") (.var .value "c"))).eval
+            ((Spec.argsEnv ρ b.toIntrinsic.specArgs
+              [b.arg.inject x, b.arg.inject y, b.arg.inject z]).updateConst
+              .value "ret" (b.res.inject (b.f x y z))).env := by
+          have hargs := respects_argsEnv_three b.toIntrinsic.specArgs
+            [b.arg.inject x, b.arg.inject y, b.arg.inject z] hρ
+          have hter : (Spec.argsEnv ρ b.toIntrinsic.specArgs
+              [b.arg.inject x, b.arg.inject y, b.arg.inject z]).env.ternary
+              .value .value .value .value b.name
+              = fun a c d => b.sym.interp (a, c, d) := by
+            simpa [Env.respects, Ternary.sym] using hargs
+          show b.res.inject (b.f x y z) =
+            (Spec.argsEnv ρ b.toIntrinsic.specArgs
+              [b.arg.inject x, b.arg.inject y, b.arg.inject z]).env.ternary
+              .value .value .value .value b.name
+              (b.arg.inject x) (b.arg.inject y) (b.arg.inject z)
+          simp [hter, Ternary.sym, l.argL.project_inject]
+        refine (assert_ret_apply Θ _ "ret" _ _ (b.res.inject (b.f x y z)) hassert).trans ?_
+        iintro Hwand
+        iapply Hwand
+        exact l.resL.intro σ Θ (b.f x y z)
+  axiomWf := by
+    intro Δ hsub hwf a hφ
+    simp only [Ternary.toIntrinsic, List.mem_cons, List.not_mem_nil, _root_.or_false] at hφ
+    rcases hφ with rfl | rfl
+    · exact Formula.wfIn_mono _ l.defWf hsub hwf
+    · exact Formula.wfIn_mono _ l.typeWf hsub hwf
+  proof := by
+    intro ρ hdeps a hφ
+    simp only [Ternary.toIntrinsic, List.mem_cons, List.not_mem_nil, _root_.or_false] at hφ
+    have hresp : ρ.respects (some b.sym) := by
+      have h := hdeps b.toIntrinsic (by simp)
+      simpa [Ternary.toIntrinsic] using h
+    rcases hφ with rfl | rfl
+    · exact l.defEval ρ hresp
+    · simp only [Ternary.typeAxiom, Formula.all, Formula.eval]
+      intro x y z
+      have ht : (((ρ.updateConst .value "a" x).updateConst .value "b" y).updateConst
+            .value "c" z).ternary .value .value .value .value b.name =
+          fun a c d => b.sym.interp (a, c, d) := by
+        rw [Env.updateConst_ternary, Env.updateConst_ternary, Env.updateConst_ternary]
+        simpa [Ternary.sym] using hresp
+      simp only [Ternary.opTerm, Term.eval, TerOp.eval, Env.lookupConst_updateConst_same,
+        Env.lookupConst_updateConst_ne (show "a" ≠ "b" by decide),
+        Env.lookupConst_updateConst_ne (show "a" ≠ "c" by decide),
+        Env.lookupConst_updateConst_ne (show "b" ≠ "c" by decide),
+        ht, Ternary.sym]
+      exact l.resL.isOf_inject _ _
+
 end Pure
 
 syntax (name := intrinsicDefEval) "intrinsic_def_eval" "["
@@ -687,9 +916,10 @@ macro_rules
   | `(tactic| intrinsic_def_eval [$xs,*]) => `(tactic|
   ((intro ρ; intro hρ);
    simp_all [Env.respects, Formula.eval, Formula.all, Term.eval, Env.lookupConst,
-     Env.updateConst, Env.updateConst_unary, Env.updateConst_binary,
-     Env.lookupConst_updateConst_same, Pure.Zero.sym, Pure.Unary.sym, Pure.Binary.sym,
-     Embedding.int, Embedding.bool, Embedding.char, Embedding.str, Embedding.float,
+    Env.updateConst, Env.updateConst_unary, Env.updateConst_binary, Env.updateConst_ternary,
+    Env.lookupConst_updateConst_same, Pure.Zero.sym, Pure.Unary.sym, Pure.Binary.sym,
+    Pure.Ternary.sym,
+    Embedding.int, Embedding.bool, Embedding.char, Embedding.str, Embedding.float,
      Const.denote, valInt, valBool, valChar, valStr, valFloat, $xs,*]))
 
 end Intrinsics

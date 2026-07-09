@@ -46,7 +46,7 @@ theorem semanticBody_mono_of_semanticMono {M : Type} {sem : SemPred M}
   have hle : Fix.Env.le (relEnv ρ fn x res S vin vout)
                     (relEnv ρ fn x res S' vin vout) := by
     refine Fix.Env.le.updateConst (Fix.Env.le.updateConst ?_ _ _ _) _ _ _
-    refine ⟨rfl, rfl, rfl, fun _ _ _ h => h, ?_⟩
+    refine ⟨rfl, rfl, rfl, rfl, fun _ _ _ h => h, ?_⟩
     intro τ₁ τ₂ name a b
     simp only [Env.updateBinaryRel]
     split
@@ -184,7 +184,7 @@ theorem Rel.call_mono {fn : SpecFn} {arg : Term .value}
       have hleU : Fix.Env.le (ρ.updateConst .value r w) (ρ'.updateConst .value r w) :=
         Fix.Env.le.updateConst hle .value r w
       rw [← Fix.Term.eval_le hleU, ← Fix.Term.eval_le hleU]
-      exact hleU.2.2.2.2 _ _ _ _ _ hcall_ev
+      exact hleU.2.2.2.2.2 _ _ _ _ _ hcall_ev
     · exact hkMono s' inner hinner (hle.updateConst .value r w) hbody
 
 theorem Rel.ite_mono {cond : Term .bool} {t e : Rel}
@@ -522,7 +522,7 @@ theorem semrel_functional
             (relEnv ρ fn x res S a b)
             (relEnv ρ fn x res R a b') := by
         unfold bodySig relEnv
-        refine ⟨?_, ?_, ?_, ?_⟩
+        refine ⟨?_, ?_, ?_, ?_, ?_⟩
         · intro v hv
           have hv' : v ∈ ⟨x, .value⟩ ::
               ((Δ.addBinaryRel fn.rel).remove x).vars := by
@@ -561,6 +561,8 @@ theorem semrel_functional
           simp [Env.updateConst_unary, Env.updateBinaryRel]
         · intro bin hbin
           simp [Env.updateConst_binary, Env.updateBinaryRel]
+        · intro t ht
+          simp [Env.updateConst_ternary, Env.updateBinaryRel]
       have hresEq :=
         hdetM (bodySig Δ fn x) (relBodySupply Δ fn x res) body
         (relEnv ρ fn x res S a b) (relEnv ρ fn x res R a b')

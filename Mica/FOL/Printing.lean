@@ -80,6 +80,9 @@ def BinOp.toSMTLIB : BinOp τ₁ τ₂ τ₃ → String
   | .vcons => "vcons"
   | .uninterpreted name _ _ _ => name
 
+def TerOp.toSMTLIB : TerOp τ₁ τ₂ τ₃ τ₄ → String
+  | .uninterpreted name _ _ _ _ => name
+
 def UnPred.toSMTLIB : UnPred τ → String
   | .isInt   => "is-of_int"
   | .isBool  => "is-of_bool"
@@ -145,6 +148,7 @@ def Term.toSMTLIB : Term τ → String
   | .const (.uninterpreted name _) => name
   | .unop op a    => s!"({op.toSMTLIB} {a.toSMTLIB})"
   | .binop op a b => s!"({op.toSMTLIB} {a.toSMTLIB} {b.toSMTLIB})"
+  | .terop op a b c => s!"({op.toSMTLIB} {a.toSMTLIB} {b.toSMTLIB} {c.toSMTLIB})"
   | .ite c t e    => s!"(ite {c.toSMTLIB} {t.toSMTLIB} {e.toSMTLIB})"
 
 def Pattern.toSMTLIB : Pattern → String
@@ -261,6 +265,9 @@ private def termStr (p : Prec) : {τ : Srt} → Term τ → String
     | .fpLe  => parens (Prec.lt .cmp p) s!"{termStr .add a} <=. {termStr .add b}"
     | .vcons => parens (Prec.lt .top p) s!"{termStr .top a} :: {termStr .top b}"
     | .uninterpreted name _ _ _ => s!"{name}({termStr .bottom a}, {termStr .bottom b})"
+  | _, .terop op a b c => match op with
+    | .uninterpreted name _ _ _ _ =>
+      s!"{name}({termStr .bottom a}, {termStr .bottom b}, {termStr .bottom c})"
   | _, .ite c t e  => parens (Prec.lt .bottom p) s!"if {termStr .bottom c} then {termStr .bottom t} else {termStr .bottom e}"
 
 def Term.toStringHum {τ : Srt} (t : Term τ) : String := termStr .bottom t

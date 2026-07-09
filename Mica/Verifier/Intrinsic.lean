@@ -28,6 +28,7 @@ inductive Arity
   | zero
   | one
   | two
+  | three
   deriving DecidableEq, Repr
 
 /-- The number of arguments of an `Arity`. -/
@@ -35,12 +36,14 @@ def Arity.toNat : Arity → Nat
   | .zero => 0
   | .one  => 1
   | .two  => 2
+  | .three => 3
 
 /-- The shape of a tuple of `n` elements of type `α` indexed by an `Arity`. -/
 abbrev Arity.tup : Arity → Type → Type
   | .zero, _ => Unit
   | .one,  α => α
   | .two,  α => α × α
+  | .three, α => α × α × α
 
 /-- A FOL symbol attached to an intrinsic: a function symbol of the given
     arity at the value sort, together with its standard interpretation. -/
@@ -56,6 +59,7 @@ def Signature.extendWithSym : ∀ {n : Arity}, Signature → Option (FOL.Symbol 
   | .zero, Δ, some s      => Δ.addConst ⟨s.name, .value⟩
   | .one,  Δ, some s      => Δ.addUnary ⟨s.name, .value, .value⟩
   | .two,  Δ, some s      => Δ.addBinary ⟨s.name, .value, .value, .value⟩
+  | .three, Δ, some s      => Δ.addTernary ⟨s.name, .value, .value, .value, .value⟩
 
 /-- Extending a signature is a subset extension. -/
 theorem Signature.subset_extendWithSym {n : Arity} (Δ : Signature)
@@ -67,6 +71,7 @@ theorem Signature.subset_extendWithSym {n : Arity} (Δ : Signature)
     | zero => exact Signature.Subset.subset_addConst _ _
     | one  => exact Signature.Subset.subset_addUnary _ _
     | two  => exact Signature.Subset.subset_addBinary _ _
+    | three => exact Signature.Subset.subset_addTernary _ _
 
 @[simp] theorem Signature.extendWithSym_vars {n : Arity} (Δ : Signature)
     (s : Option (FOL.Symbol n)) : (Δ.extendWithSym s).vars = Δ.vars := by
@@ -88,6 +93,7 @@ theorem Signature.extendWithSym_mono {n : Arity} {Δ Δ' : Signature}
               fun c hc => ?_,
               fun _ hu => h.unary _ hu,
               fun _ hb => h.binary _ hb,
+              fun _ ht => h.ternary _ ht,
               fun _ hu => h.unaryRel _ hu,
               fun _ hb => h.binaryRel _ hb⟩
       simp only [Signature.extendWithSym, Signature.addConst, List.mem_cons] at hc ⊢
@@ -97,6 +103,7 @@ theorem Signature.extendWithSym_mono {n : Arity} {Δ Δ' : Signature}
               fun _ hc => h.consts _ hc,
               fun u hu => ?_,
               fun _ hb => h.binary _ hb,
+              fun _ ht => h.ternary _ ht,
               fun _ hu => h.unaryRel _ hu,
               fun _ hb => h.binaryRel _ hb⟩
       simp only [Signature.extendWithSym, Signature.addUnary, List.mem_cons] at hu ⊢
@@ -106,10 +113,21 @@ theorem Signature.extendWithSym_mono {n : Arity} {Δ Δ' : Signature}
               fun _ hc => h.consts _ hc,
               fun _ hu => h.unary _ hu,
               fun b hb => ?_,
+              fun _ ht => h.ternary _ ht,
               fun _ hu => h.unaryRel _ hu,
               fun _ hb => h.binaryRel _ hb⟩
       simp only [Signature.extendWithSym, Signature.addBinary, List.mem_cons] at hb ⊢
       exact hb.imp_right (h.binary _)
+    | three =>
+      refine ⟨fun _ hx => h.vars _ hx,
+              fun _ hc => h.consts _ hc,
+              fun _ hu => h.unary _ hu,
+              fun _ hb => h.binary _ hb,
+              fun t ht => ?_,
+              fun _ hu => h.unaryRel _ hu,
+              fun _ hb => h.binaryRel _ hb⟩
+      simp only [Signature.extendWithSym, Signature.addTernary, List.mem_cons] at ht ⊢
+      exact ht.imp_right (h.ternary _)
 
 /-- If the base signature and the symbol being added are already contained in
     a target signature, extending the base with that symbol stays contained in
@@ -128,6 +146,7 @@ theorem Signature.extendWithSym_subset_of_subset_of_sym {n : Arity} {Δ Δ' : Si
               fun c hc => ?_,
               fun _ hu => hbase.unary _ hu,
               fun _ hb => hbase.binary _ hb,
+              fun _ ht => hbase.ternary _ ht,
               fun _ hu => hbase.unaryRel _ hu,
               fun _ hb => hbase.binaryRel _ hb⟩
       simp only [Signature.extendWithSym, Signature.addConst, List.mem_cons] at hc
@@ -141,6 +160,7 @@ theorem Signature.extendWithSym_subset_of_subset_of_sym {n : Arity} {Δ Δ' : Si
               fun _ hc => hbase.consts _ hc,
               fun u hu => ?_,
               fun _ hb => hbase.binary _ hb,
+              fun _ ht => hbase.ternary _ ht,
               fun _ hu => hbase.unaryRel _ hu,
               fun _ hb => hbase.binaryRel _ hb⟩
       simp only [Signature.extendWithSym, Signature.addUnary, List.mem_cons] at hu
@@ -154,6 +174,7 @@ theorem Signature.extendWithSym_subset_of_subset_of_sym {n : Arity} {Δ Δ' : Si
               fun _ hc => hbase.consts _ hc,
               fun _ hu => hbase.unary _ hu,
               fun b hb => ?_,
+              fun _ ht => hbase.ternary _ ht,
               fun _ hu => hbase.unaryRel _ hu,
               fun _ hb => hbase.binaryRel _ hb⟩
       simp only [Signature.extendWithSym, Signature.addBinary, List.mem_cons] at hb
@@ -162,6 +183,20 @@ theorem Signature.extendWithSym_subset_of_subset_of_sym {n : Arity} {Δ Δ' : Si
         subst hb
         exact hsym.binary _ (by simp [Signature.extendWithSym, Signature.addBinary])
       | inr hb => exact hbase.binary _ hb
+    | three =>
+      refine ⟨fun _ hx => hbase.vars _ hx,
+              fun _ hc => hbase.consts _ hc,
+              fun _ hu => hbase.unary _ hu,
+              fun _ hb => hbase.binary _ hb,
+              fun t ht => ?_,
+              fun _ hu => hbase.unaryRel _ hu,
+              fun _ hb => hbase.binaryRel _ hb⟩
+      simp only [Signature.extendWithSym, Signature.addTernary, List.mem_cons] at ht
+      cases ht with
+      | inl ht =>
+        subst ht
+        exact hsym.ternary _ (by simp [Signature.extendWithSym, Signature.addTernary])
+      | inr ht => exact hbase.ternary _ ht
 
 /-- Extend an environment with the standard interpretation of `s` (if any). -/
 def Env.extendWithSym : ∀ {n : Arity}, Env → Option (FOL.Symbol n) → Env
@@ -170,6 +205,8 @@ def Env.extendWithSym : ∀ {n : Arity}, Env → Option (FOL.Symbol n) → Env
   | .one,  ρ, some s      => ρ.updateUnary .value .value s.name s.interp
   | .two,  ρ, some s      => ρ.updateBinary .value .value .value s.name
                                             (fun a b => s.interp (a, b))
+  | .three, ρ, some s      => ρ.updateTernary .value .value .value .value s.name
+                                            (fun a b c => s.interp (a, b, c))
 
 /-- `ρ.respects s` says `ρ`'s entry at the value-sort/arity slot of `s` is
     the standard interpretation of `s`. Vacuously true for `none`. -/
@@ -179,6 +216,8 @@ def Env.respects : ∀ {n : Arity}, Env → Option (FOL.Symbol n) → Prop
   | .one,  ρ, some s      => ρ.unary .value .value s.name = s.interp
   | .two,  ρ, some s      => ρ.binary .value .value .value s.name
                                 = (fun a b => s.interp (a, b))
+  | .three, ρ, some s      => ρ.ternary .value .value .value .value s.name
+                                = (fun a b c => s.interp (a, b, c))
 
 /-- The post-extension environment respects the symbol it was extended with. -/
 theorem Env.respects_extendWithSym {n : Arity} (ρ : Env) (s : Option (FOL.Symbol n)) :
@@ -190,6 +229,7 @@ theorem Env.respects_extendWithSym {n : Arity} (ρ : Env) (s : Option (FOL.Symbo
     | zero => simp [Env.respects, Env.extendWithSym, Env.lookupConst, Env.updateConst]
     | one  => simp [Env.respects, Env.extendWithSym, Env.updateUnary]
     | two  => simp [Env.respects, Env.extendWithSym, Env.updateBinary]
+    | three => simp [Env.respects, Env.extendWithSym, Env.updateTernary]
 
 /-- Respect for a symbol is preserved by moving to an environment that agrees
     on a signature containing that symbol. -/
@@ -217,6 +257,11 @@ theorem Env.respects_of_agreeOn_extendWithSym {n : Arity} {Δ : Signature}
       have hmem : ⟨s'.name, .value, .value, .value⟩ ∈ Δ.binary :=
         hsub.binary _ (by simp [Signature.extendWithSym, Signature.empty, Signature.addBinary])
       have heq := hagree.2.2.2.1 ⟨s'.name, .value, .value, .value⟩ hmem
+      simpa [Env.respects] using heq.symm.trans hrespects
+    | three =>
+      have hmem : ⟨s'.name, .value, .value, .value, .value⟩ ∈ Δ.ternary :=
+        hsub.ternary _ (by simp [Signature.extendWithSym, Signature.empty, Signature.addTernary])
+      have heq := hagree.2.2.2.2.1 ⟨s'.name, .value, .value, .value, .value⟩ hmem
       simpa [Env.respects] using heq.symm.trans hrespects
 
 /-! ## The intrinsic structure -/
@@ -297,6 +342,14 @@ theorem agreeOn_extend_fresh (i : Intrinsic) {Δ : Signature} (ρ : Env)
           (Env.agreeOn_update_fresh_binary (ρ := ρ)
             (b := ⟨s.name, .value, .value, .value⟩)
             (f := fun a b => s.interp (a, b)) (Δ := Δ) hfresh)
+    | three =>
+      cases folSym with
+      | none => exact Env.agreeOn_refl
+      | some s =>
+        simpa [Env.extendWithSym] using
+          (Env.agreeOn_update_fresh_ternary (ρ := ρ)
+            (t := ⟨s.name, .value, .value, .value, .value⟩)
+            (f := fun a b c => s.interp (a, b, c)) (Δ := Δ) hfresh)
 
 /-- The intrinsic's argument types, in left-to-right order. Read off the spec. -/
 def argTysList (i : Intrinsic) : List TinyML.Typ :=
@@ -324,6 +377,7 @@ def toReduce (i : Intrinsic) :
     | .zero, r, []          => r () μ v μ'
     | .one,  r, [a]         => r a μ v μ'
     | .two,  r, [a, b]      => r (a, b) μ v μ'
+    | .three, r, [a, b, c]  => r (a, b, c) μ v μ'
     | _,     _, _           => False
 
 /-- Unfolding lemma for `toReduce` at arity-two, two args. The intrinsic's
@@ -340,6 +394,19 @@ theorem toReduce_two_of_arity (name : String)
     (a b v : Runtime.Val) (μ μ' : TinyML.Heap) :
     (Intrinsic.mk .two name path reduce wp spec typing folSym axioms).toReduce [a, b] μ v μ'
       = reduce (a, b) μ v μ' := rfl
+
+/-- Unfolding lemma for `toReduce` at arity-three, three args. -/
+theorem toReduce_three_of_arity (name : String)
+    (path : Option (String × List String))
+    (reduce : Arity.tup .three Runtime.Val → TinyML.Heap → Runtime.Val → TinyML.Heap → Prop)
+    (wp : Arity.tup .three Runtime.Val → (Runtime.Val → iProp) → iProp)
+    (spec : Spec)
+    (typing : TinyML.TypeEnv → List TinyML.Typ →
+      Except String (List (TinyML.TyVar × TinyML.Typ)))
+    (folSym : Option (FOL.Symbol .three)) (axioms : List Axiom)
+    (a b c v : Runtime.Val) (μ μ' : TinyML.Heap) :
+    (Intrinsic.mk .three name path reduce wp spec typing folSym axioms).toReduce [a, b, c] μ v μ'
+      = reduce (a, b, c) μ v μ' := rfl
 
 /-- Unfolding lemma for `toReduce` at arity-one, one arg. -/
 theorem toReduce_one_of_arity (name : String)
@@ -376,6 +443,7 @@ def toWp (i : Intrinsic) :
     | .zero, w, []          => w () Q
     | .one,  w, [a]         => w a Q
     | .two,  w, [a, b]      => w (a, b) Q
+    | .three, w, [a, b, c]  => w (a, b, c) Q
     | _,     _, _           => iprop(False)
 
 /-- Unfolding lemma for `toWp` at arity-two, two args. The intrinsic's
@@ -392,6 +460,19 @@ theorem toWp_two_of_arity (name : String)
     (a b : Runtime.Val) (Q : Runtime.Val → iProp) :
     (Intrinsic.mk .two name path reduce wp spec typing folSym axioms).toWp [a, b] Q
       = wp (a, b) Q := rfl
+
+/-- Unfolding lemma for `toWp` at arity-three, three args. -/
+theorem toWp_three_of_arity (name : String)
+    (path : Option (String × List String))
+    (reduce : Arity.tup .three Runtime.Val → TinyML.Heap → Runtime.Val → TinyML.Heap → Prop)
+    (wp : Arity.tup .three Runtime.Val → (Runtime.Val → iProp) → iProp)
+    (spec : Spec)
+    (typing : TinyML.TypeEnv → List TinyML.Typ →
+      Except String (List (TinyML.TyVar × TinyML.Typ)))
+    (folSym : Option (FOL.Symbol .three)) (axioms : List Axiom)
+    (a b c : Runtime.Val) (Q : Runtime.Val → iProp) :
+    (Intrinsic.mk .three name path reduce wp spec typing folSym axioms).toWp [a, b, c] Q
+      = wp (a, b, c) Q := rfl
 
 /-- Unfolding lemma for `toWp` at arity-one, one arg. -/
 theorem toWp_one_of_arity (name : String)
@@ -759,6 +840,7 @@ def declFOLSym (i : Intrinsic) : VerifM Unit :=
   | .zero, some s => VerifM.declConstExact ⟨s.name, .value⟩
   | .one,  some s => VerifM.declUnaryExact ⟨s.name, .value, .value⟩
   | .two,  some s => VerifM.declBinaryExact ⟨s.name, .value, .value, .value⟩
+  | .three, some s => VerifM.declTernaryExact ⟨s.name, .value, .value, .value, .value⟩
 
 end Intrinsic
 
@@ -846,6 +928,22 @@ theorem eval_declFOLSym (i : Intrinsic) {st : TransState} {ρ : VerifM.Env}
                 ?_, ?_⟩
         · simp [Env.respects, VerifM.Env.updateBinary, Env.updateBinary]
         · exact hcont (fun a b => s.interp (a, b))
+    | three =>
+      cases folSym with
+      | none =>
+        simp only [declFOLSym, Signature.extendWithSym] at heval ⊢
+        refine ⟨ρ, VerifM.Env.agreeOn_refl, by simp [Env.respects], ?_⟩
+        exact VerifM.eval_ret heval
+      | some s =>
+        simp only [declFOLSym, Signature.extendWithSym] at heval ⊢
+        obtain ⟨hfresh, hcont⟩ := VerifM.eval_declTernaryExact heval
+        refine ⟨ρ.updateTernary .value .value .value .value s.name
+                  (fun a b c => s.interp (a, b, c)),
+                VerifM.Env.agreeOn_update_fresh_ternary
+                  (t := ⟨s.name, .value, .value, .value, .value⟩) hfresh,
+                ?_, ?_⟩
+        · simp [Env.respects, VerifM.Env.updateTernary, Env.updateTernary]
+        · exact hcont (fun a b c => s.interp (a, b, c))
 
 end Intrinsic
 

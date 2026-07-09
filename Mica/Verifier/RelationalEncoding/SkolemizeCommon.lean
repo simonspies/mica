@@ -310,7 +310,7 @@ theorem call_mono (fn : SpecFn) (arg : Term .value) : Mono (call fn arg) := by
   intro ρ ρ' hle hdef
   simp only [call, SpecFn.isDefined, SpecFn.isDefined, Formula.eval, UnPred.eval] at hdef ⊢
   rw [← Fix.Term.eval_le hle arg]
-  exact hle.2.2.2.1 .value (fn.defName) (arg.eval ρ) hdef
+  exact hle.2.2.2.2.1 .value (fn.defName) (arg.eval ρ) hdef
 
 theorem ite_mono {cond : Term .bool} {thenVal elseVal : DefVal}
     (ht : Mono thenVal) (he : Mono elseVal) : Mono (ite cond thenVal elseVal) := by
@@ -518,7 +518,7 @@ theorem splitEnv_le {ρ : Env} {fn : SpecFn}
     {F : Srt.value.denote → Srt.value.denote}
     (hDD' : UnaryFix.le D D') :
     Fix.Env.le (splitEnv ρ fn D F) (splitEnv ρ fn D' F) := by
-  refine ⟨rfl, rfl, rfl, ?_, ?_⟩
+  refine ⟨rfl, rfl, rfl, rfl, ?_, ?_⟩
   · intro τ name a h
     simp only [splitEnv, Env.updateUnaryRel] at h ⊢
     split at h
@@ -779,7 +779,7 @@ theorem splitBase_subset_bodyBase {Δ : Signature} {fn : SpecFn} :
     ((Δ.addUnary fn.func).addUnaryRel (fn.defined)).Subset
       (((Δ.addBinaryRel fn.rel).addUnary fn.func).addUnaryRel
         (fn.defined)) := by
-  refine ⟨?_, ?_, ?_, ?_, ?_, fun a ha => List.mem_cons_of_mem _ ha⟩ <;>
+  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, fun a ha => List.mem_cons_of_mem _ ha⟩ <;>
     intro a ha <;>
     simpa [Signature.addUnary, Signature.addUnaryRel, Signature.addBinaryRel] using ha
 
@@ -870,8 +870,8 @@ theorem splitEnv_relSplitEnv_agreeOn_splitBase
     (hfresh : HeadFresh Δ fn x res) :
     Env.agreeOn ((Δ.addUnary fn.func).addUnaryRel (fn.defined))
       (splitEnv ρ fn D F) (relSplitEnv ρ fn R D F) := by
-  refine ⟨?_, ?_, ?_, ?_, ?_, ?_⟩
-  iterate 5
+  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+  iterate 6
     intro _ _
     simp [splitEnv, relSplitEnv, Env.updateBinaryRel, Env.updateUnary, Env.updateUnaryRel]
   intro b hb
@@ -897,6 +897,7 @@ theorem defvalBodySig_wf_of_headFresh {Δ : Signature} {fn : SpecFn} {x res : St
         hfresh.defFresh (Signature.allNames_subset
           (by
             constructor <;> intro a ha
+            · simpa [Signature.addUnary, Signature.addBinaryRel] using ha
             · simpa [Signature.addUnary, Signature.addBinaryRel] using ha
             · simpa [Signature.addUnary, Signature.addBinaryRel] using ha
             · simpa [Signature.addUnary, Signature.addBinaryRel] using ha

@@ -14,6 +14,7 @@ inductive ScopedM : Type → Type 1 where
   | declareConst : String → Srt → (Unit → ScopedM α) → ScopedM α
   | declareUnary : String → Srt → Srt → (Unit → ScopedM α) → ScopedM α
   | declareBinary : String → Srt → Srt → Srt → (Unit → ScopedM α) → ScopedM α
+  | declareTernary : String → Srt → Srt → Srt → Srt → (Unit → ScopedM α) → ScopedM α
   | declareUnaryRel : String → Srt → (Unit → ScopedM α) → ScopedM α
   | declareBinaryRel : String → Srt → Srt → (Unit → ScopedM α) → ScopedM α
   | assert : Formula → (Unit → ScopedM α) → ScopedM α
@@ -29,6 +30,8 @@ def ScopedM.translate : ScopedM α → Strategy α
   | .declareConst n s k => .exec (.declareConst n s) (fun r => translate (k r))
   | .declareUnary n a r k => .exec (.declareUnary n a r) (fun resp => translate (k resp))
   | .declareBinary n a1 a2 r k => .exec (.declareBinary n a1 a2 r) (fun resp => translate (k resp))
+  | .declareTernary n a1 a2 a3 r k =>
+      .exec (.declareTernary n a1 a2 a3 r) (fun resp => translate (k resp))
   | .declareUnaryRel n a k => .exec (.declareUnaryRel n a) (fun resp => translate (k resp))
   | .declareBinaryRel n a1 a2 k => .exec (.declareBinaryRel n a1 a2) (fun resp => translate (k resp))
   | .assert e k => .exec (.assert e) (fun r => translate (k r))
@@ -61,6 +64,9 @@ def addUnary (ctx : FlatCtx) (n : String) (arg ret : Srt) : FlatCtx :=
 
 def addBinary (ctx : FlatCtx) (n : String) (arg1 arg2 ret : Srt) : FlatCtx :=
   ⟨ctx.decls.addBinary ⟨n, arg1, arg2, ret⟩, ctx.asserts⟩
+
+def addTernary (ctx : FlatCtx) (n : String) (arg1 arg2 arg3 ret : Srt) : FlatCtx :=
+  ⟨ctx.decls.addTernary ⟨n, arg1, arg2, arg3, ret⟩, ctx.asserts⟩
 
 def addUnaryRel (ctx : FlatCtx) (n : String) (arg : Srt) : FlatCtx :=
   ⟨ctx.decls.addUnaryRel ⟨n, arg⟩, ctx.asserts⟩
@@ -113,6 +119,18 @@ theorem flatten_addBinary (s : State) (b : FOL.Binary) :
     | mk decls asserts =>
       cases decls
       simp [Signature.addBinary, List.flatMap, List.cons_append]
+
+theorem flatten_addTernary (s : State) (t : FOL.Ternary) :
+    (s.addTernary t).flatten = s.flatten.addTernary t.name t.arg1 t.arg2 t.arg3 t.ret := by
+  simp only [State.flatten, State.allDecls, State.allAsserts,
+             State.modifyDecls, State.addTernary, FlatCtx.addTernary]
+  cases s.frames with
+  | nil => simp [Signature.addTernary]
+  | cons hd tl =>
+    cases hd with
+    | mk decls asserts =>
+      cases decls
+      simp [Signature.addTernary, List.flatMap, List.cons_append]
 
 theorem flatten_addUnaryRel (s : State) (u : FOL.UnaryRel) :
     (s.addUnaryRel u).flatten = s.flatten.addUnaryRel u.name u.arg := by
@@ -187,6 +205,14 @@ theorem ScopedM.translate_preservesFrames {m : ScopedM α} {f : Frame} {fs : Lis
       (f := ⟨f.decls.addBinary ⟨n, a1, a2, r⟩, f.asserts⟩) (fs := fs)
     refine ⟨f', (Frame.Extends.addBinary f ⟨n, a1, a2, r⟩).trans hext, ?_⟩
     simp [Trace.finalState, State.step, State.addBinary]; exact hfin
+  | declareTernary n a1 a2 a3 r k ih =>
+    cases hgen; rename_i rest resp hrest
+    cases resp
+    dsimp only at hrest
+    have ⟨f', hext, hfin⟩ := ih () hrest
+      (f := ⟨f.decls.addTernary ⟨n, a1, a2, a3, r⟩, f.asserts⟩) (fs := fs)
+    refine ⟨f', (Frame.Extends.addTernary f ⟨n, a1, a2, a3, r⟩).trans hext, ?_⟩
+    simp [Trace.finalState, State.step, State.addTernary]; exact hfin
   | declareUnaryRel n a k ih =>
     cases hgen; rename_i rest resp hrest
     cases resp
@@ -312,6 +338,18 @@ theorem ScopedM.eval_declareBinary {n : String} {arg1 arg2 ret : Srt}
   simp only [Trace.finalState, State.step, Trace.result] at hsound hst' hret
   refine ⟨st.addBinary ⟨n, arg1, arg2, ret⟩, st', ?_, hflat', rest, hrest, hsound, hst', hret⟩
   simp only [State.flatten_addBinary, hflat]
+
+theorem ScopedM.eval_declareTernary {n : String} {arg1 arg2 arg3 ret : Srt}
+    {k : Unit → ScopedM α} {ctx : FlatCtx} {r : α} {ctx' : FlatCtx} :
+    ScopedM.eval (.declareTernary n arg1 arg2 arg3 ret k) ctx r ctx' →
+      ScopedM.eval (k ()) (ctx.addTernary n arg1 arg2 arg3 ret) r ctx' := by
+  simp only [ScopedM.eval, translate, Strategy.eval]
+  rintro ⟨st, st', hflat, hflat', t, hgen, hsound, hst', hret⟩
+  cases hgen; rename_i rest resp hrest
+  cases resp
+  simp only [Trace.finalState, State.step, Trace.result] at hsound hst' hret
+  refine ⟨st.addTernary ⟨n, arg1, arg2, arg3, ret⟩, st', ?_, hflat', rest, hrest, hsound, hst', hret⟩
+  simp only [State.flatten_addTernary, hflat]
 
 theorem ScopedM.eval_declareUnaryRel {n : String} {arg : Srt}
     {k : Unit → ScopedM α} {ctx : FlatCtx} {r : α} {ctx' : FlatCtx} :
@@ -440,6 +478,7 @@ def ScopedM.bind : ScopedM α → (α → ScopedM β) → ScopedM β
   | .declareConst n s cont, k => .declareConst n s (fun r => (cont r).bind k)
   | .declareUnary n a r cont, k => .declareUnary n a r (fun resp => (cont resp).bind k)
   | .declareBinary n a1 a2 r cont, k => .declareBinary n a1 a2 r (fun resp => (cont resp).bind k)
+  | .declareTernary n a1 a2 a3 r cont, k => .declareTernary n a1 a2 a3 r (fun resp => (cont resp).bind k)
   | .declareUnaryRel n a cont, k => .declareUnaryRel n a (fun resp => (cont resp).bind k)
   | .declareBinaryRel n a1 a2 cont, k => .declareBinaryRel n a1 a2 (fun resp => (cont resp).bind k)
   | .assert e cont, k => .assert e (fun r => (cont r).bind k)
@@ -457,6 +496,8 @@ theorem ScopedM.translate_bind (m : ScopedM α) (k : α → ScopedM β) :
   | declareUnary n a r cont ih =>
     simp only [ScopedM.bind, translate, Strategy.bind]; congr 1; funext resp; exact ih resp k
   | declareBinary n a1 a2 r cont ih =>
+    simp only [ScopedM.bind, translate, Strategy.bind]; congr 1; funext resp; exact ih resp k
+  | declareTernary n a1 a2 a3 r cont ih =>
     simp only [ScopedM.bind, translate, Strategy.bind]; congr 1; funext resp; exact ih resp k
   | declareUnaryRel n a cont ih =>
     simp only [ScopedM.bind, translate, Strategy.bind]; congr 1; funext resp; exact ih resp k
@@ -527,6 +568,11 @@ theorem ScopedM.eval_extends {α} s Δ (r : α) Δ' :
     have h' := ScopedM.eval_declareBinary h
     have ⟨hdecls, hasserts⟩ := ih () (Δ.addBinary n arg1 arg2 ret) r Δ' h'
     exact ⟨(Signature.Subset.subset_addBinary _ _).trans hdecls, hasserts⟩
+  | declareTernary n arg1 arg2 arg3 ret k ih =>
+    intro h
+    have h' := ScopedM.eval_declareTernary h
+    have ⟨hdecls, hasserts⟩ := ih () (Δ.addTernary n arg1 arg2 arg3 ret) r Δ' h'
+    exact ⟨(Signature.Subset.subset_addTernary _ _).trans hdecls, hasserts⟩
   | declareUnaryRel n arg k ih =>
     intro h
     have h' := ScopedM.eval_declareUnaryRel h

@@ -228,7 +228,7 @@ theorem agreeOn {fn : SpecFn} {ρ ρ' : Env} {Δ : Signature}
     (hr : fn.rel ∈ Δ.binaryRel) (hu : fn.func ∈ Δ.unary) (hd : fn.defined ∈ Δ.unaryRel) :
     fn.evalRelates ρ = fn.evalRelates ρ' ∧
       fn.evalCall ρ = fn.evalCall ρ' ∧ fn.evalDefined ρ = fn.evalDefined ρ' :=
-  ⟨h.2.2.2.2.2 _ hr, h.2.2.1 _ hu, h.2.2.2.2.1 _ hd⟩
+  ⟨h.2.2.2.2.2.2 _ hr, h.2.2.1 _ hu, h.2.2.2.2.2.1 _ hd⟩
 
 end SpecFn
 

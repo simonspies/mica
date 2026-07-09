@@ -26,6 +26,7 @@ def Term.subst (σ : Subst) : Term τ → Term τ
   | .const c   => .const c
   | .unop op a => .unop op (a.subst σ)
   | .binop op a b => .binop op (a.subst σ) (b.subst σ)
+  | .terop op a b c => .terop op (a.subst σ) (b.subst σ) (c.subst σ)
   | .ite c t e => .ite (c.subst σ) (t.subst σ) (e.subst σ)
 
 def Pattern.subst (σ : Subst) : Pattern → Pattern
@@ -177,6 +178,16 @@ theorem Term.subst_wfIn {t : Term τ} {σ : Subst} {dom : VarCtx} {Δ Δ' : Sign
       · intro τ₁' τ₂' τ₃' hb'
         exact Signature.wf_unique_binary hwf (hsymbols.binary _ ht.1.1) hb'
     | _ => trivial
+  | terop op a b c iha ihb ihc =>
+    simp only [Term.subst, Term.wfIn]
+    refine ⟨?_, iha ht.2.1 hσ hdom hsymbols hwf,
+      ihb ht.2.2.1 hσ hdom hsymbols hwf,
+      ihc ht.2.2.2 hσ hdom hsymbols hwf⟩
+    cases op with
+    | uninterpreted name _ _ _ _ =>
+      refine ⟨hsymbols.ternary _ ht.1.1, ?_⟩
+      intro τ₁' τ₂' τ₃' τ₄' ht'
+      exact Signature.wf_unique_ternary hwf (hsymbols.ternary _ ht.1.1) ht'
   | ite c t e ihc iht ihe =>
     simp only [Term.subst, Term.wfIn]
     exact ⟨ihc ht.1 hσ hdom hsymbols hwf,
@@ -230,6 +241,7 @@ theorem Term.subst_id {t : Term τ} : t.subst Subst.id = t := by
   | const _ => rfl
   | unop op a iha => simp [Term.subst, iha]
   | binop op a b iha ihb => simp [Term.subst, iha, ihb]
+  | terop op a b c iha ihb ihc => simp [Term.subst, iha, ihb, ihc]
   | ite c t e ihc iht ihe => simp [Term.subst, ihc, iht, ihe]
 
 theorem Term.apply_freeVars_subset_subst_freeVars {t : Term τ} {σ : Subst} {v : Var} :
@@ -252,6 +264,15 @@ theorem Term.apply_freeVars_subset_subst_freeVars {t : Term τ} {σ : Subst} {v 
     cases hv with
     | inl ha => intro w hw; left; exact iha ha hw
     | inr hb => intro w hw; right; exact ihb hb hw
+  | terop op a b c iha ihb ihc =>
+    simp [Term.freeVars, List.mem_append] at hv
+    simp [Term.subst, Term.freeVars, List.subset_def, List.mem_append]
+    cases hv with
+    | inl ha => intro w hw; left; exact iha ha hw
+    | inr hv =>
+      cases hv with
+      | inl hb => intro w hw; right; left; exact ihb hb hw
+      | inr hc => intro w hw; right; right; exact ihc hc hw
   | ite c t e ihc iht ihe =>
     simp [Term.freeVars, List.mem_append] at hv
     simp [Term.subst, Term.freeVars, List.subset_def, List.mem_append]
@@ -308,6 +329,11 @@ theorem Term.eval_subst {σ : Subst} {ρ : Env} {t : Term τ} {Δ Δ' : Signatur
     cases op with
     | uninterpreted name _ _ _ => rfl
     | _ => rfl
+  | terop op a b c iha ihb ihc =>
+    simp only [Term.subst, Term.eval]
+    rw [iha ht.2.1 hσ hwfΔ', ihb ht.2.2.1 hσ hwfΔ', ihc ht.2.2.2 hσ hwfΔ']
+    cases op with
+    | uninterpreted name _ _ _ _ => rfl
   | ite c t e ihc iht ihe =>
     simp [Term.subst, Term.eval, ihc ht.1 hσ hwfΔ', iht ht.2.1 hσ hwfΔ', ihe ht.2.2 hσ hwfΔ']
 
@@ -417,10 +443,13 @@ theorem Subst.eval_bind_agreeOn {σ : Subst} {ρ : Env} {τ : Srt} {y y' : Strin
         · intro b hb
           rfl
         · constructor
-          · intro u hu
+          · intro t ht
             rfl
-          · intro b hb
-            rfl
+          · constructor
+            · intro u hu
+              rfl
+            · intro b hb
+              rfl
 
 theorem Formula.eval_subst {σ : Subst} {ρ : Env} {φ : Formula} {Δ Δ' : Signature}
     (hφ : φ.wfIn Δ) (hσ : σ.wfIn Δ.vars Δ') (hsymbols : Δ.SymbolSubset Δ')
@@ -477,6 +506,10 @@ theorem Formula.eval_subst {σ : Subst} {ρ : Env} {φ : Formula} {Δ Δ' : Sign
         simpa [hremove, Signature.addVar] using
           (Signature.SymbolSubset.declVar hsymbols ⟨y, τ⟩).binary b
             (by simpa [Signature.declVar, Signature.addVar] using hb)
+      · intro t ht
+        simpa [hremove, Signature.addVar] using
+          (Signature.SymbolSubset.declVar hsymbols ⟨y, τ⟩).ternary t
+            (by simpa [Signature.declVar, Signature.addVar] using ht)
       · intro u hu
         simpa [hremove, Signature.addVar] using
           (Signature.SymbolSubset.declVar hsymbols ⟨y, τ⟩).unaryRel u
@@ -536,6 +569,10 @@ theorem Formula.eval_subst {σ : Subst} {ρ : Env} {φ : Formula} {Δ Δ' : Sign
         simpa [hremove, Signature.addVar] using
           (Signature.SymbolSubset.declVar hsymbols ⟨y, τ⟩).binary b
             (by simpa [Signature.declVar, Signature.addVar] using hb)
+      · intro t ht
+        simpa [hremove, Signature.addVar] using
+          (Signature.SymbolSubset.declVar hsymbols ⟨y, τ⟩).ternary t
+            (by simpa [Signature.declVar, Signature.addVar] using ht)
       · intro u hu
         simpa [hremove, Signature.addVar] using
           (Signature.SymbolSubset.declVar hsymbols ⟨y, τ⟩).unaryRel u
@@ -680,6 +717,12 @@ theorem Formula.subst_wfIn {φ : Formula} {σ : Subst} {Δ Δ' : Signature}
       refine Signature.mem_remove_binary.mpr ⟨hsymbols.binary _ hb, ?_⟩
       intro hbeq
       exact hy'_fresh (hbeq ▸ Signature.mem_allNames_of_binary (hsymbols.binary _ hb))
+    have hternary' : ((Δ.remove y).addVar ⟨y, τ⟩).ternary ⊆ ((Δ'.remove y').addVar ⟨y', τ⟩).ternary := by
+      intro t ht
+      rcases Signature.mem_remove_ternary.mp ht with ⟨ht, hty⟩
+      refine Signature.mem_remove_ternary.mpr ⟨hsymbols.ternary _ ht, ?_⟩
+      intro hteq
+      exact hy'_fresh (hteq ▸ Signature.mem_allNames_of_ternary (hsymbols.ternary _ ht))
     have hunaryRel' : ((Δ.remove y).addVar ⟨y, τ⟩).unaryRel ⊆ ((Δ'.remove y').addVar ⟨y', τ⟩).unaryRel := by
       intro u hu
       rcases Signature.mem_remove_unaryRel.mp hu with ⟨hu, huy⟩
@@ -693,7 +736,7 @@ theorem Formula.subst_wfIn {φ : Formula} {σ : Subst} {Δ Δ' : Signature}
       intro hbeq
       exact hy'_fresh (hbeq ▸ Signature.mem_allNames_of_binaryRel (hsymbols.binaryRel _ hb))
     have hsymbols' : ((Δ.remove y).addVar ⟨y, τ⟩).SymbolSubset ((Δ'.remove y').addVar ⟨y', τ⟩) :=
-      ⟨hconsts', hunary', hbinary', hunaryRel', hbinaryRel'⟩
+      ⟨hconsts', hunary', hbinary', hternary', hunaryRel', hbinaryRel'⟩
     exact ⟨by
       simpa [y', Signature.allNames_remove_addVar_of_not_in hy'_fresh] using
         Pattern.List.subst_wfIn hwf.1 hσ' (by intro v hv; exact hv) hsymbols' hwf_target,
@@ -738,6 +781,12 @@ theorem Formula.subst_wfIn {φ : Formula} {σ : Subst} {Δ Δ' : Signature}
       refine Signature.mem_remove_binary.mpr ⟨hsymbols.binary _ hb, ?_⟩
       intro hbeq
       exact hy'_fresh (hbeq ▸ Signature.mem_allNames_of_binary (hsymbols.binary _ hb))
+    have hternary' : ((Δ.remove y).addVar ⟨y, τ⟩).ternary ⊆ ((Δ'.remove y').addVar ⟨y', τ⟩).ternary := by
+      intro t ht
+      rcases Signature.mem_remove_ternary.mp ht with ⟨ht, hty⟩
+      refine Signature.mem_remove_ternary.mpr ⟨hsymbols.ternary _ ht, ?_⟩
+      intro hteq
+      exact hy'_fresh (hteq ▸ Signature.mem_allNames_of_ternary (hsymbols.ternary _ ht))
     have hunaryRel' : ((Δ.remove y).addVar ⟨y, τ⟩).unaryRel ⊆ ((Δ'.remove y').addVar ⟨y', τ⟩).unaryRel := by
       intro u hu
       rcases Signature.mem_remove_unaryRel.mp hu with ⟨hu, huy⟩
@@ -751,7 +800,7 @@ theorem Formula.subst_wfIn {φ : Formula} {σ : Subst} {Δ Δ' : Signature}
       intro hbeq
       exact hy'_fresh (hbeq ▸ Signature.mem_allNames_of_binaryRel (hsymbols.binaryRel _ hb))
     have hsymbols' : ((Δ.remove y).addVar ⟨y, τ⟩).SymbolSubset ((Δ'.remove y').addVar ⟨y', τ⟩) :=
-      ⟨hconsts', hunary', hbinary', hunaryRel', hbinaryRel'⟩
+      ⟨hconsts', hunary', hbinary', hternary', hunaryRel', hbinaryRel'⟩
     exact (by
       simpa [y', Signature.allNames_remove_addVar_of_not_in hy'_fresh] using
         ih hwf hσ' hsymbols' hwf_target)

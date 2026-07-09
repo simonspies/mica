@@ -382,7 +382,7 @@ theorem Formula.eval_env_agree {φ : Formula} {ρ ρ' : Env} {Δ : Signature} :
     cases p with
     | uninterpreted name τ =>
       simp only [UnPred.eval]
-      have hrel := hagree.2.2.2.2.1 ⟨name, _⟩ hwf.1.1
+      have hrel := hagree.2.2.2.2.2.1 ⟨name, _⟩ hwf.1.1
       simp [hrel]
     | _ => rfl
   | binpred p a b =>
@@ -391,7 +391,7 @@ theorem Formula.eval_env_agree {φ : Formula} {ρ ρ' : Env} {Δ : Signature} :
     cases p with
     | uninterpreted name τ₁ τ₂ =>
       simp only [BinPred.eval]
-      have hrel := hagree.2.2.2.2.2 ⟨name, _, _⟩ hwf.1.1
+      have hrel := hagree.2.2.2.2.2.2 ⟨name, _, _⟩ hwf.1.1
       simp [hrel]
     | _ => rfl
   | not φ ih =>

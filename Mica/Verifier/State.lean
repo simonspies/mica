@@ -54,6 +54,14 @@ def Env.updateBinary (ρ : Env) (τ₁ τ₂ τ₃ : Srt) (x : String)
     (f : τ₁.denote → τ₂.denote → τ₃.denote) :
     (ρ.updateBinary τ₁ τ₂ τ₃ x f).env = ρ.env.updateBinary τ₁ τ₂ τ₃ x f := rfl
 
+def Env.updateTernary (ρ : Env) (τ₁ τ₂ τ₃ τ₄ : Srt) (x : String)
+    (f : τ₁.denote → τ₂.denote → τ₃.denote → τ₄.denote) : Env :=
+  { ρ with env := _root_.Env.updateTernary ρ.env τ₁ τ₂ τ₃ τ₄ x f }
+
+@[simp] theorem Env.updateTernary_env (ρ : Env) (τ₁ τ₂ τ₃ τ₄ : Srt) (x : String)
+    (f : τ₁.denote → τ₂.denote → τ₃.denote → τ₄.denote) :
+    (ρ.updateTernary τ₁ τ₂ τ₃ τ₄ x f).env = ρ.env.updateTernary τ₁ τ₂ τ₃ τ₄ x f := rfl
+
 def Env.updateUnaryRel (ρ : Env) (τ : Srt) (x : String) (f : τ.denote → Prop) : Env :=
   { ρ with env := _root_.Env.updateUnaryRel ρ.env τ x f }
 
@@ -133,6 +141,13 @@ theorem Env.agreeOn_update_fresh_binary {ρ : Env} {b : FOL.Binary}
     Env.agreeOn Δ ρ (ρ.updateBinary b.arg1 b.arg2 b.ret b.name f) := by
   simpa [Env.agreeOn, Env.updateBinary] using
     (_root_.Env.agreeOn_update_fresh_binary (ρ := ρ.env) (b := b) (f := f) (Δ := Δ) hfresh)
+
+theorem Env.agreeOn_update_fresh_ternary {ρ : Env} {t : FOL.Ternary}
+    {f : t.arg1.denote → t.arg2.denote → t.arg3.denote → t.ret.denote}
+    {Δ : Signature} (hfresh : t.name ∉ Δ.allNames) :
+    Env.agreeOn Δ ρ (ρ.updateTernary t.arg1 t.arg2 t.arg3 t.ret t.name f) := by
+  simpa [Env.agreeOn, Env.updateTernary] using
+    (_root_.Env.agreeOn_update_fresh_ternary (ρ := ρ.env) (t := t) (f := f) (Δ := Δ) hfresh)
 
 theorem Env.agreeOn_update_fresh_unaryRel {ρ : Env} {u : FOL.UnaryRel}
     {f : u.arg.denote → Prop}
@@ -218,6 +233,11 @@ def TransState.toFlatCtx (st : TransState) : FlatCtx :=
       st.toFlatCtx.addBinary b.name b.arg1 b.arg2 b.ret := by
   simp [toFlatCtx, FlatCtx.addBinary]
 
+@[simp] theorem TransState.toFlatCtx_addTernary (st : TransState) (t : FOL.Ternary) :
+    { st with decls := st.decls.addTernary t }.toFlatCtx =
+      st.toFlatCtx.addTernary t.name t.arg1 t.arg2 t.arg3 t.ret := by
+  simp [toFlatCtx, FlatCtx.addTernary]
+
 @[simp] theorem TransState.toFlatCtx_addUnaryRel (st : TransState) (u : FOL.UnaryRel) :
     { st with decls := st.decls.addUnaryRel u }.toFlatCtx =
       st.toFlatCtx.addUnaryRel u.name u.arg := by
@@ -289,6 +309,10 @@ def TransState.freshBinary (st : TransState) (hint : Option String) (τ₁ τ₂
     FOL.Binary :=
   ⟨Fresh.freshNumbers (hint.getD "_g") st.decls.allNames, τ₁, τ₂, τ₃⟩
 
+def TransState.freshTernary (st : TransState) (hint : Option String) (τ₁ τ₂ τ₃ τ₄ : Srt) :
+    FOL.Ternary :=
+  ⟨Fresh.freshNumbers (hint.getD "_h") st.decls.allNames, τ₁, τ₂, τ₃, τ₄⟩
+
 def TransState.addItem (st : TransState) (item : CtxItem) :=
   match item with
   | .pure φ => { st with asserts := φ :: st.asserts }
@@ -330,6 +354,18 @@ theorem TransState.addBinary.wf (st : TransState) (b : FOL.Binary) :
   · exact hwf'
   · exact SpatialContext.wfIn_mono hwf.ownsWf (Signature.Subset.subset_addBinary _ _) hwf'
   · exact hwf.builtins.mono (Signature.Subset.subset_addBinary _ _)
+
+theorem TransState.addTernary.wf (st : TransState) (t : FOL.Ternary) :
+    TransState.wf st →
+    t.name ∉ st.decls.allNames →
+    TransState.wf { st with decls := st.decls.addTernary t } := by
+  intro hwf hfresh
+  have hwf' := Signature.wf_addTernary hwf.namesDisjoint hfresh
+  constructor
+  · exact Context.wfIn_mono _ hwf.assertsWf (Signature.Subset.subset_addTernary _ _) hwf'
+  · exact hwf'
+  · exact SpatialContext.wfIn_mono hwf.ownsWf (Signature.Subset.subset_addTernary _ _) hwf'
+  · exact hwf.builtins.mono (Signature.Subset.subset_addTernary _ _)
 
 theorem TransState.addUnaryRel.wf (st : TransState) (u : FOL.UnaryRel) :
     TransState.wf st →
@@ -375,6 +411,11 @@ theorem TransState.freshUnary_fresh (st : TransState) (hint : Option String) (τ
 theorem TransState.freshBinary_fresh (st : TransState) (hint : Option String) (τ₁ τ₂ τ₃ : Srt) :
     (st.freshBinary hint τ₁ τ₂ τ₃).name ∉ st.decls.allNames :=
   Fresh.freshNumbers_not_mem (hint.getD "_g") st.decls.allNames
+
+theorem TransState.freshTernary_fresh (st : TransState) (hint : Option String)
+    (τ₁ τ₂ τ₃ τ₄ : Srt) :
+    (st.freshTernary hint τ₁ τ₂ τ₃ τ₄).name ∉ st.decls.allNames :=
+  Fresh.freshNumbers_not_mem (hint.getD "_h") st.decls.allNames
 
 theorem TransState.addAssert.wf (st : TransState) :
     TransState.wf st →
