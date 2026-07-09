@@ -5,6 +5,7 @@ import Mica.Stdlib.CharStd
 import Mica.Stdlib.StringStd
 import Mica.Stdlib.FloatStd
 import Mica.Stdlib.FunStd
+import Mica.Stdlib.VecStd
 import Mica.Frontend.Resolver
 
 open Iris Iris.BI
@@ -14,6 +15,10 @@ namespace Stdlib
 open Verifier
 
 def registry : Registry := [
+  Intrinsics.vecMake,
+  Intrinsics.vecSet,
+  Intrinsics.vecGet,
+  Intrinsics.vecLength,
   Intrinsics.funId,
   Intrinsics.floatNegInfinity,
   Intrinsics.floatInfinity,
