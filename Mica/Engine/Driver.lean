@@ -36,6 +36,7 @@ def preamble : String := s!"
 
 (declare-sort Other 0)
 (declare-sort Loc 0)
+(declare-sort Vec 0)
 (declare-datatypes ((Value 0) (ValueList 0)) (
   ((of_int (to_int Int))
    (of_bool (to_bool Bool))
@@ -45,6 +46,7 @@ def preamble : String := s!"
    (of_loc (to_loc Loc))
    (of_other (to_other Other))
    (of_tuple (to_tuple ValueList))
+   (of_vec (to_vec Vec))
    (of_inj (tag_of Int) (arity_of Int) (payload_of Value)))
   ((vnil)
    (vcons (vhd Value) (vtl ValueList)))
@@ -53,6 +55,38 @@ def preamble : String := s!"
 
 ;; A `Value` constructor would need to expose both length and location
 (declare-fun array_length (Value) Int)
+
+;; Vector theory. Vectors are exposed as arrays to Z3, and via
+;; the uninterpreted functions vec_get, ... to Mica
+(declare-fun vec_to_array (Vec) (Array Int Value))
+(declare-fun vec_of_array ((Array Int Value) Int) Vec)
+(declare-fun vec_length (Vec) Int)
+(assert (forall ((w Vec)) (! (<= 0 (vec_length w)) :pattern ((vec_length w)))))
+
+(assert (forall ((w Vec))
+  (! (= (vec_of_array (vec_to_array w) (vec_length w)) w)
+     :pattern ((vec_to_array w)))))
+(assert (forall ((a (Array Int Value)) (n Int))
+  (! (=> (<= 0 n) (= (vec_length (vec_of_array a n)) n))
+     :pattern ((vec_of_array a n)))))
+(assert (forall ((a (Array Int Value)) (n Int) (i Int))
+  (! (=> (and (<= 0 i) (< i n))
+         (= (select (vec_to_array (vec_of_array a n)) i) (select a i)))
+     :pattern ((select (vec_to_array (vec_of_array a n)) i)))))
+
+(declare-fun vec_get (Vec Int) Value)
+(declare-fun vec_set (Vec Int Value) Vec)
+(declare-fun vec_make (Int Value) Vec)
+(assert (forall ((w Vec) (i Int))
+  (! (= (vec_get w i) (select (vec_to_array w) i))
+     :pattern ((vec_get w i)))))
+(assert (forall ((w Vec) (i Int) (x Value))
+  (! (= (vec_set w i x)
+        (vec_of_array (store (vec_to_array w) i x) (vec_length w)))
+     :pattern ((vec_set w i x)))))
+(assert (forall ((n Int) (x Value))
+  (! (= (vec_make n x) (vec_of_array ((as const (Array Int Value)) x) n))
+     :pattern ((vec_make n x)))))
 
 ;; verification
 "
