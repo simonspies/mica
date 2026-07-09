@@ -1,5 +1,7 @@
 module String = struct
   let length = Stdlib.String.length
+  let get = Stdlib.String.get
+  let sub = Stdlib.String.sub
   let cat = Stdlib.String.cat
   let equal = Stdlib.String.equal
   let starts_with prefix s = Stdlib.String.starts_with ~prefix s
