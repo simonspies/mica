@@ -6,3 +6,4 @@
 - `FunStd.lean` — `Fun.id`
 - `IntStd.lean` — Integer-arithmetic intrinsics (`Int.min`, `Int.max`) and their soundness instances.
 - `StringStd.lean` — Byte-string intrinsics (`String.length`, `get`, `sub`, `cat`, `equal`, `starts_with`, `ends_with`) and soundness instances.
+- `VecStd.lean` — Immutable-vector intrinsics (`Vec.length`, `Vec.get`, `Vec.set`, `Vec.make`) and their soundness instances.
