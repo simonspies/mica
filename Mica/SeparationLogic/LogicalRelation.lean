@@ -55,7 +55,8 @@ theorem PrimitiveType.valRelBody_persistent (p : PrimitiveType) (v : Runtime.Val
 
 References use the outer approximation `R`; named types use the inner
 continuation `k`. Tuples and sums are structural and mutually recursive with
-the list/sum helpers below.
+the list/sum helpers below. Vectors are a big separating conjunction over the
+elements.
 -/
 mutual
   def ValRelBody (R : ValShape) (v : Runtime.Val) (t : Typ) (k : RecCont) : iProp :=
@@ -67,6 +68,8 @@ mutual
     | .tvar _     => iprop(False)
     | .ref t      => iprop(∃ l, ⌜v = .loc l⌝ ∗ locinv l (fun w => R w t))
     | .array t    => iprop(∃ len l, ⌜v = .array len l⌝ ∗ arrayinv len l (fun w => R w t))
+    | .vec t      =>
+        iprop(∃ vs, ⌜v = .vec vs⌝ ∗ [∗list] w ∈ vs, ValRelBody R w t k)
     | .owned _    => iprop(∃ l, ⌜v = .loc l⌝)
     | .named T args => k v T args
     | .tuple ts   => iprop(∃ vs, ⌜v = .tuple vs⌝ ∗ ValsRelBody R vs ts k)
@@ -106,6 +109,17 @@ mutual
         · iapply (ValsRelBody.mono_int R ts vs)
           · iexact Hk
           · iexact Hvs
+    | .vec t =>
+        iintro #Hk ⟨%vs, %heq, Hvs⟩
+        iexists vs
+        isplitr
+        · ipureintro
+          exact heq
+        · iapply BigSepL.bigSepL_impl $$ Hvs
+          imodintro
+          iintro %i %w %hget
+          iapply (ValRelBody.mono_int R t w)
+          iexact Hk
     | .sum ts =>
         iintro #Hk ⟨%tag, %payload, %heq, Hsum⟩
         iexists tag, payload
@@ -192,6 +206,11 @@ mutual
         refine exists_ne fun vs => ?_
         refine sep_ne.ne (.of_eq rfl) ?_
         exact ValsRelBody.dist hR hk ts vs
+    | .vec t =>
+        refine exists_ne fun vs => ?_
+        refine sep_ne.ne (.of_eq rfl) ?_
+        exact Iris.Algebra.BigOpL.bigOpL_gen_proper (· ≡{n}≡ ·) Dist.rfl (sep_ne.ne · ·)
+          (fun _ => ValRelBody.dist hR hk t _)
     | .sum ts =>
         refine exists_ne fun tag => ?_
         refine exists_ne fun payload => ?_
@@ -362,6 +381,13 @@ mutual
         have : ∀ vs, Persistent (ValsRelBody R vs ts k) :=
           fun vs => ValsRelBody.persistent R ts vs hk
         infer_instance
+    | .vec t =>
+        have hw : ∀ (w : Runtime.Val), Persistent (ValRelBody R w t k) :=
+          fun w => ValRelBody.persistent R t w hk
+        have : ∀ vs : List Runtime.Val,
+            Persistent (iprop([∗list] w ∈ vs, ValRelBody R w t k)) :=
+          fun _ => BigSepL.bigSepL_persistent (fun _ w _ => hw w)
+        infer_instance
     | .sum ts =>
         have : ∀ n payload, Persistent (ValSumRelBody R n payload ts k) :=
           fun n payload => ValSumRelBody.persistent R ts n payload hk
@@ -488,6 +514,16 @@ theorem ValHasType.array (Θ : TypeEnv) (v : Runtime.Val) (t : Typ) :
       iprop(∃ len l, ⌜v = .array len l⌝ ∗ arrayinv len l (fun w => ValHasType Θ w t)) := by
   exact equiv_iff.mp (ValHasType.unfold Θ v (.array t))
 
+theorem ValHasType.vec (Θ : TypeEnv) (v : Runtime.Val) (t : Typ) :
+    ValHasType Θ v (.vec t) ⊣⊢
+      iprop(∃ vs, ⌜v = .vec vs⌝ ∗ [∗list] w ∈ vs, ValHasType Θ w t) := by
+  refine (equiv_iff.mp (ValHasType.unfold Θ v (.vec t))).trans ?_
+  apply equiv_iff.mp
+  refine equiv_dist.mpr fun _ => ?_
+  refine exists_ne fun vs => ?_
+  refine sep_ne.ne (.of_eq rfl) ?_
+  exact (BigSepL.bigSepL_eqv fun _ => (ValHasType.unfold Θ _ t).symm).dist
+
 theorem ValHasType.tuple (Θ : TypeEnv) (v : Runtime.Val) (ts : List Typ) :
     ValHasType Θ v (.tuple ts) ⊣⊢
       iprop(∃ vs, ⌜v = .tuple vs⌝ ∗ ValsHaveTypes Θ vs ts) := by
@@ -551,6 +587,44 @@ theorem ValsHaveTypes.cons_nil (Θ : TypeEnv) (v : Runtime.Val) (vs : List Runti
     ValsHaveTypes Θ (v :: vs) [] ⊣⊢ iprop(False) := by
   unfold ValsHaveTypes ValsRelBody
   exact .rfl
+
+/-! ### The vector type -/
+
+/-- The canonical proof that a vector of well-typed elements has vector type. -/
+theorem ValHasType.vec_intro (Θ : TypeEnv) (vs : List Runtime.Val) (t : Typ) :
+    iprop([∗list] w ∈ vs, ValHasType Θ w t) ⊢ ValHasType Θ (.vec vs) (.vec t) := by
+  refine .trans ?_ (ValHasType.vec Θ (.vec vs) t).2
+  iintro Hvs
+  iexists vs
+  isplitr [Hvs]
+  · ipureintro; rfl
+  · iexact Hvs
+
+/-- Overwriting an in-bounds slot with a well-typed value preserves well-typedness. -/
+theorem ValHasType.vec_set (Θ : TypeEnv) {vs : List Runtime.Val} {t : Typ}
+    {n : Nat} {x w : Runtime.Val} (h : vs[n]? = some x) :
+    iprop(([∗list] w' ∈ vs, ValHasType Θ w' t) ∗ ValHasType Θ w t) ⊢
+      ValHasType Θ (.vec (vs.set n w)) (.vec t) := by
+  refine .trans ?_ (ValHasType.vec_intro Θ (vs.set n w) t)
+  refine (sep_mono_left (BigSepL.bigSepL_insert_acc h)).trans ?_
+  refine (sep_mono_left sep_elim_right).trans ?_
+  exact (sep_mono_left (forall_elim w)).trans wand_elim_left
+
+/-- A replicated well-typed value gives a well-typed vector. -/
+theorem ValHasType.vec_replicate (Θ : TypeEnv) (n : Nat) (x : Runtime.Val) (t : Typ) :
+    ValHasType Θ x t ⊢ ValHasType Θ (.vec (List.replicate n x)) (.vec t) := by
+  refine .trans ?_ (ValHasType.vec_intro Θ (List.replicate n x) t)
+  induction n with
+  | zero => exact affine
+  | succ n ih =>
+    rw [List.replicate_succ]
+    refine .trans ?_ BigSepL.bigSepL_cons.2
+    istart
+    iintro #Hx
+    isplitr []
+    · iexact Hx
+    · iapply ih
+      iexact Hx
 
 theorem ValSumRel.nil (Θ : TypeEnv) (tag : Nat) (payload : Runtime.Val) :
     ValSumRel Θ tag payload [] ⊣⊢ iprop(False) := by
@@ -1026,7 +1100,8 @@ theorem evalUnOp_typed {Θ : TypeEnv} {op : UnOp}
               · iexact Hwitness)
           iapply (ValsHaveTypes.of_getElem? (Θ := Θ) (vs := vs) (ts := ts) (n := n) (t := ty) hty)
           iexact Hvs
-      | prim _ | sum _ | arrow _ _ | ref _ | array _ | owned _ | empty | value | tvar _ | named _ _ =>
+      | prim _ | sum _ | arrow _ _ | ref _ | array _ | vec _ | owned _ | empty | value | tvar _
+      | named _ _ =>
           simp [UnOp.typeOf, PrimitiveType.unOpTypeOf] at hty
 
 end TinyML
@@ -1120,6 +1195,9 @@ def typeConstraints (ty : TinyML.Typ) (t : Term .value) : List Formula :=
   | .owned _ => [.unpred .isLoc t]
   | .array _ =>
       [.binpred .le (.const (.i 0)) (.unop .arrayLengthOf t)]
+  | .vec _ =>
+      [.unpred .isVec t,
+       .binpred .le (.const (.i 0)) (.unop .vecLen (.unop .toVec t))]
   | .tuple ts =>
       .unpred .isTuple t ::
       typeConstraintsList ts (.unop .toValList t)
@@ -1150,6 +1228,13 @@ mutual
       intro φ hφ
       rcases hφ with rfl | hfalse
       · simp only [Formula.wfIn, Term.wfIn]; exact ⟨trivial, trivial, ⟨trivial, ht⟩⟩
+      · cases hfalse
+    | vec _ =>
+      simp only [typeConstraints, List.mem_cons, List.not_mem_nil]
+      intro φ hφ
+      rcases hφ with rfl | rfl | hfalse
+      · simp only [Formula.wfIn]; exact ⟨trivial, ht⟩
+      · simp only [Formula.wfIn, Term.wfIn]; exact ⟨trivial, trivial, ⟨trivial, ⟨trivial, ht⟩⟩⟩
       · cases hfalse
     | tuple ts =>
       simp only [typeConstraints]
@@ -1202,6 +1287,17 @@ mutual
       simp only [typeConstraints, List.mem_cons, List.not_mem_nil] at hφ
       rcases hφ with rfl | hfalse
       · simp [Formula.eval, Term.eval, UnOp.eval, ht, hv]
+      · cases hfalse
+    | vec inner =>
+      refine (TinyML.ValHasType.vec Θ v inner).1.trans ?_
+      iintro Hty
+      icases Hty with ⟨%vs, %hv, _⟩
+      ipureintro
+      intro φ hφ
+      simp only [typeConstraints, List.mem_cons, List.not_mem_nil] at hφ
+      rcases hφ with rfl | rfl | hfalse
+      · simp [Formula.eval, ht, hv]
+      · simp [Formula.eval, Term.eval, UnOp.eval, BinPred.eval, ht, hv]
       · cases hfalse
     | tuple ts =>
       refine (TinyML.ValHasType.tuple Θ v ts).1.trans ?_

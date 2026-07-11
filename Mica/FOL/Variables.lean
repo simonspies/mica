@@ -13,6 +13,7 @@ inductive Srt where
   | float
   | value
   | vallist
+  | vec
   deriving DecidableEq, Repr
 
 @[reducible] def Srt.denote : Srt → Type
@@ -23,6 +24,7 @@ inductive Srt where
   | .float => UInt64
   | .value => Runtime.Val
   | .vallist => List Runtime.Val
+  | .vec => List Runtime.Val
 
 instance : DecidableEq (Srt.denote τ) := by
   cases τ <;> simp [Srt.denote] <;> infer_instance

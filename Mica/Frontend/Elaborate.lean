@@ -133,6 +133,10 @@ def TypKind.elaborate (env : ElabEnv) (loc : Location) : TypKind → ElabM TinyM
       match args' with
       | [arg] => .ok (.array arg)
       | _ => err loc (.arityMismatch 1 args'.length)
+    | "vec" =>
+      match args' with
+      | [arg] => .ok (.vec arg)
+      | _ => err loc (.arityMismatch 1 args'.length)
     | _ =>
       match List.lookup name env.records with
       | some fields =>
