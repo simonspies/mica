@@ -454,7 +454,23 @@ def elabAssert (prims : Prims) (Θ : TypeEnv) (inner : TyCtx → α → Except T
     let (ty, e') ← infer prims Θ Γ e
     .ok (.let_ x e' (← elabAssert prims Θ inner (Γ.extend x ty) rest))
   | Γ, .bind p x ty rest => do
-    .ok (.bind p x ty (← elabAssert prims Θ inner (Γ.extend x ty) rest))
+    let p' ← match p with
+      | .isinj tag arity scrut => .ok (.isinj tag arity scrut)
+      | .own loc =>
+        match Γ loc with
+        | some (.owned innerTy) =>
+          if innerTy == ty then .ok (.own loc)
+          else .error (.spec s!"own {loc} must bind {repr innerTy}, not {repr ty}")
+        | some other => .error (.spec s!"own {loc} requires an owned reference, got {repr other}")
+        | none => .error (.spec s!"unknown ownership variable '{loc}'")
+      | .arr loc =>
+        match Γ loc with
+        | some (.ownedArray innerTy) =>
+          if (.vec innerTy) == ty then .ok (.arr loc)
+          else .error (.spec s!"arr {loc} must bind a vector snapshot of type {repr (TinyML.Typ.vec innerTy)}, not {repr ty}")
+        | some other => .error (.spec s!"arr {loc} requires an owned array, got {repr other}")
+        | none => .error (.spec s!"unknown ownership variable '{loc}'")
+    .ok (.bind p' x ty (← elabAssert prims Θ inner (Γ.extend x ty) rest))
   | Γ, .ite cond thn els => do
     let cond' ← check prims Θ Γ cond .bool
     .ok (.ite cond' (← elabAssert prims Θ inner Γ thn) (← elabAssert prims Θ inner Γ els))

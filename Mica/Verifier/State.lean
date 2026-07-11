@@ -183,6 +183,33 @@ def CtxItem.purePart (i : CtxItem) (ρ : VerifM.Env) : Prop :=
   | .pure φ => φ.eval ρ.env
   | .spatial _ => True
 
+/-- Pure formulas implied by an item's interpretation. -/
+def CtxItem.facts : CtxItem → List Formula
+  | .pure _ => []
+  | .spatial a => a.facts
+
+/-- The pure facts of a well-formed item are well-formed. -/
+theorem CtxItem.facts_wfIn {i : CtxItem} {Δ : Signature} (h : i.wfIn Δ) :
+    ∀ φ ∈ i.facts, φ.wfIn Δ := by
+  cases i with
+  | pure φ => simp [facts]
+  | spatial a => exact SpatialAtom.facts_wfIn h
+
+/-- An item's interpretation implies its pure facts. -/
+theorem CtxItem.interp_facts [MicaGS HasLC.hasLC Sig] (Θ : TinyML.TypeEnv)
+    (ρ : VerifM.Env) (i : CtxItem) :
+    i.interp Θ ρ ⊢ ⌜∀ φ ∈ i.facts, φ.eval ρ.env⌝ ∗ i.interp Θ ρ := by
+  cases i with
+  | pure φ =>
+    istart
+    iintro H
+    isplitr [H]
+    · ipureintro
+      simp [facts]
+    · iexact H
+  | spatial a =>
+    exact SpatialAtom.interp_facts Θ a
+
 def TransState.sl [MicaGS HasLC.hasLC Sig] (Θ : TinyML.TypeEnv)
     (st : TransState) (ρ : VerifM.Env) : iProp :=
   SpatialContext.interp Θ ρ.env st.owns

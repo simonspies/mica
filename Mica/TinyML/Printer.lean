@@ -173,6 +173,7 @@ namespace Spec
 def Pred.print : Spec.Pred → String
   | .isinj tag arity scrut => s!"isinj {tag} {arity} {scrut}"
   | .own loc => s!"own {loc}"
+  | .arr loc => s!"arr {loc}"
 
 private def typString (ty : Typ) : String :=
   ty.print

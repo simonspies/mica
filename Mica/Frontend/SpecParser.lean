@@ -19,7 +19,8 @@ private def parsePred : Untyped.Expr → M Pred
   | .app (.var "isinj") [.const (.int tag), .const (.int arity), .var scrut] =>
     .ok (.isinj tag.toNat arity.toNat scrut)
   | .app (.var "own") [.var loc] => .ok (.own loc)
-  | e => .error s!"expected predicate (isinj, own) over a variable, got {repr e}"
+  | .app (.var "arr") [.var loc] => .ok (.arr loc)
+  | e => .error s!"expected predicate (isinj, own, arr) over a variable, got {repr e}"
 
 private def addProductLets (bound : Untyped.Expr) :
     Nat → List Untyped.Binder → Assert Untyped.Expr α → M (Assert Untyped.Expr α)

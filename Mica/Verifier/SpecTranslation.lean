@@ -46,6 +46,10 @@ private def assertAll (φs : List Formula) (k : Assertion α) : Assertion α :=
 def translatePred (δ : VarEnv) (ty : TinyML.Typ) : Spec.Pred → M (Atom .value)
   | .isinj tag arity scrut => do .ok (.isinj tag arity (← lookupVar δ scrut))
   | .own loc => do .ok (.own (← lookupVar δ loc) ty)
+  | .arr loc =>
+    match ty with
+    | .vec elemTy => do .ok (.arr (← lookupVar δ loc) elemTy)
+    | _ => .error "owned-array predicates must bind a vector snapshot"
 
 /-- Translate a spec assertion, asserting each leaf's definedness before its value. -/
 def translateAssert (Δ : Signature) (Γfn : FunCtx) (inner : VarEnv → α → M β) :
