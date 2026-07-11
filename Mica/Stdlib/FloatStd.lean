@@ -115,6 +115,8 @@ def floatAbsB : Pure.Unary where
   arg      := .float
   res      := .float
   f        := FloatBits.abs
+  dom      := fun _ => True
+  pre      := none
   typing   := monoTyping .one
   defAxiom := floatAbsDefAxiom
 
@@ -126,6 +128,7 @@ def floatAbs : Intrinsic := floatAbsB.toIntrinsic
 def floatAbsLawful : floatAbsB.Lawful where
   argL       := Embedding.lawfulFloat
   resL       := Embedding.lawfulFloat
+  domSound   := fun _ _ _ => True.intro
   specBaseWf := by apply PredTrans.checkWf_ok; rfl
   defWf      := by apply Formula.checkWf_ok; rfl
   typeWf     := by apply Formula.checkWf_ok; rfl
@@ -144,6 +147,8 @@ def floatNegB : Pure.Unary where
   arg      := .float
   res      := .float
   f        := FloatBits.neg
+  dom      := fun _ => True
+  pre      := none
   typing   := monoTyping .one
   defAxiom := floatNegDefAxiom
 
@@ -155,6 +160,7 @@ def floatNeg : Intrinsic := floatNegB.toIntrinsic
 def floatNegLawful : floatNegB.Lawful where
   argL       := Embedding.lawfulFloat
   resL       := Embedding.lawfulFloat
+  domSound   := fun _ _ _ => True.intro
   specBaseWf := by apply PredTrans.checkWf_ok; rfl
   defWf      := by apply Formula.checkWf_ok; rfl
   typeWf     := by apply Formula.checkWf_ok; rfl
@@ -173,6 +179,8 @@ def floatSqrtB : Pure.Unary where
   arg      := .float
   res      := .float
   f        := FloatBits.sqrt
+  dom      := fun _ => True
+  pre      := none
   typing   := monoTyping .one
   defAxiom := floatSqrtDefAxiom
 
@@ -184,6 +192,7 @@ def floatSqrt : Intrinsic := floatSqrtB.toIntrinsic
 def floatSqrtLawful : floatSqrtB.Lawful where
   argL       := Embedding.lawfulFloat
   resL       := Embedding.lawfulFloat
+  domSound   := fun _ _ _ => True.intro
   specBaseWf := by apply PredTrans.checkWf_ok; rfl
   defWf      := by apply Formula.checkWf_ok; rfl
   typeWf     := by apply Formula.checkWf_ok; rfl
@@ -202,6 +211,8 @@ def floatIsNanB : Pure.Unary where
   arg      := .float
   res      := .bool
   f        := FloatBits.isNaN
+  dom      := fun _ => True
+  pre      := none
   typing   := monoTyping .one
   defAxiom := floatIsNanDefAxiom
 
@@ -213,6 +224,7 @@ def floatIsNan : Intrinsic := floatIsNanB.toIntrinsic
 def floatIsNanLawful : floatIsNanB.Lawful where
   argL       := Embedding.lawfulFloat
   resL       := Embedding.lawfulBool
+  domSound   := fun _ _ _ => True.intro
   specBaseWf := by apply PredTrans.checkWf_ok; rfl
   defWf      := by apply Formula.checkWf_ok; rfl
   typeWf     := by apply Formula.checkWf_ok; rfl
@@ -235,6 +247,8 @@ def floatIsFiniteB : Pure.Unary where
   arg      := .float
   res      := .bool
   f        := FloatBits.isFinite
+  dom      := fun _ => True
+  pre      := none
   typing   := monoTyping .one
   defAxiom := floatIsFiniteDefAxiom
 
@@ -246,6 +260,7 @@ def floatIsFinite : Intrinsic := floatIsFiniteB.toIntrinsic
 def floatIsFiniteLawful : floatIsFiniteB.Lawful where
   argL       := Embedding.lawfulFloat
   resL       := Embedding.lawfulBool
+  domSound   := fun _ _ _ => True.intro
   specBaseWf := by apply PredTrans.checkWf_ok; rfl
   defWf      := by apply Formula.checkWf_ok; rfl
   typeWf     := by apply Formula.checkWf_ok; rfl
@@ -264,6 +279,8 @@ def floatOfIntB : Pure.Unary where
   arg      := .int
   res      := .float
   f        := FloatBits.ofInt
+  dom      := fun _ => True
+  pre      := none
   typing   := monoTyping .one
   defAxiom := floatOfIntDefAxiom
 
@@ -275,6 +292,7 @@ def floatOfInt : Intrinsic := floatOfIntB.toIntrinsic
 def floatOfIntLawful : floatOfIntB.Lawful where
   argL       := Embedding.lawfulInt
   resL       := Embedding.lawfulFloat
+  domSound   := fun _ _ _ => True.intro
   specBaseWf := by apply PredTrans.checkWf_ok; rfl
   defWf      := by apply Formula.checkWf_ok; rfl
   typeWf     := by apply Formula.checkWf_ok; rfl
@@ -295,6 +313,8 @@ def floatAddB : Pure.Binary where
   arg₂     := .float
   res      := .float
   f        := FloatBits.add
+  dom      := fun _ _ => True
+  pre      := none
   typing   := monoTyping .two
   defAxiom := binFloatDefAxiom floatAddSym .fpAdd
 
@@ -307,6 +327,7 @@ def floatAddLawful : floatAddB.Lawful where
   argL₁      := Embedding.lawfulFloat
   argL₂      := Embedding.lawfulFloat
   resL       := Embedding.lawfulFloat
+  domSound   := fun _ _ _ _ => True.intro
   specBaseWf := by apply PredTrans.checkWf_ok; rfl
   defWf      := by apply Formula.checkWf_ok; rfl
   typeWf     := by apply Formula.checkWf_ok; rfl
@@ -321,6 +342,8 @@ def floatSubB : Pure.Binary where
   arg₂     := .float
   res      := .float
   f        := FloatBits.sub
+  dom      := fun _ _ => True
+  pre      := none
   typing   := monoTyping .two
   defAxiom := binFloatDefAxiom floatSubSym .fpSub
 
@@ -333,6 +356,7 @@ def floatSubLawful : floatSubB.Lawful where
   argL₁      := Embedding.lawfulFloat
   argL₂      := Embedding.lawfulFloat
   resL       := Embedding.lawfulFloat
+  domSound   := fun _ _ _ _ => True.intro
   specBaseWf := by apply PredTrans.checkWf_ok; rfl
   defWf      := by apply Formula.checkWf_ok; rfl
   typeWf     := by apply Formula.checkWf_ok; rfl
@@ -347,6 +371,8 @@ def floatMulB : Pure.Binary where
   arg₂     := .float
   res      := .float
   f        := FloatBits.mul
+  dom      := fun _ _ => True
+  pre      := none
   typing   := monoTyping .two
   defAxiom := binFloatDefAxiom floatMulSym .fpMul
 
@@ -359,6 +385,7 @@ def floatMulLawful : floatMulB.Lawful where
   argL₁      := Embedding.lawfulFloat
   argL₂      := Embedding.lawfulFloat
   resL       := Embedding.lawfulFloat
+  domSound   := fun _ _ _ _ => True.intro
   specBaseWf := by apply PredTrans.checkWf_ok; rfl
   defWf      := by apply Formula.checkWf_ok; rfl
   typeWf     := by apply Formula.checkWf_ok; rfl
@@ -373,6 +400,8 @@ def floatDivB : Pure.Binary where
   arg₂     := .float
   res      := .float
   f        := FloatBits.div
+  dom      := fun _ _ => True
+  pre      := none
   typing   := monoTyping .two
   defAxiom := binFloatDefAxiom floatDivSym .fpDiv
 
@@ -385,6 +414,7 @@ def floatDivLawful : floatDivB.Lawful where
   argL₁      := Embedding.lawfulFloat
   argL₂      := Embedding.lawfulFloat
   resL       := Embedding.lawfulFloat
+  domSound   := fun _ _ _ _ => True.intro
   specBaseWf := by apply PredTrans.checkWf_ok; rfl
   defWf      := by apply Formula.checkWf_ok; rfl
   typeWf     := by apply Formula.checkWf_ok; rfl
@@ -412,6 +442,8 @@ def floatMinB : Pure.Binary where
   arg₂     := .float
   res      := .float
   f        := FloatBits.min
+  dom      := fun _ _ => True
+  pre      := none
   typing   := monoTyping .two
   defAxiom := floatMinDefAxiom
 
@@ -424,6 +456,7 @@ def floatMinLawful : floatMinB.Lawful where
   argL₁      := Embedding.lawfulFloat
   argL₂      := Embedding.lawfulFloat
   resL       := Embedding.lawfulFloat
+  domSound   := fun _ _ _ _ => True.intro
   specBaseWf := by apply PredTrans.checkWf_ok; rfl
   defWf      := by apply Formula.checkWf_ok; rfl
   typeWf     := by apply Formula.checkWf_ok; rfl
@@ -451,6 +484,8 @@ def floatMaxB : Pure.Binary where
   arg₂     := .float
   res      := .float
   f        := FloatBits.max
+  dom      := fun _ _ => True
+  pre      := none
   typing   := monoTyping .two
   defAxiom := floatMaxDefAxiom
 
@@ -463,6 +498,7 @@ def floatMaxLawful : floatMaxB.Lawful where
   argL₁      := Embedding.lawfulFloat
   argL₂      := Embedding.lawfulFloat
   resL       := Embedding.lawfulFloat
+  domSound   := fun _ _ _ _ => True.intro
   specBaseWf := by apply PredTrans.checkWf_ok; rfl
   defWf      := by apply Formula.checkWf_ok; rfl
   typeWf     := by apply Formula.checkWf_ok; rfl
@@ -483,6 +519,8 @@ def floatEqualB : Pure.Binary where
   arg₂     := .float
   res      := .bool
   f        := FloatBits.eq
+  dom      := fun _ _ => True
+  pre      := none
   typing   := monoTyping .two
   defAxiom := binFloatBoolDefAxiom floatEqualSym .fpEq
 
@@ -495,6 +533,7 @@ def floatEqualLawful : floatEqualB.Lawful where
   argL₁      := Embedding.lawfulFloat
   argL₂      := Embedding.lawfulFloat
   resL       := Embedding.lawfulBool
+  domSound   := fun _ _ _ _ => True.intro
   specBaseWf := by apply PredTrans.checkWf_ok; rfl
   defWf      := by apply Formula.checkWf_ok; rfl
   typeWf     := by apply Formula.checkWf_ok; rfl
@@ -509,6 +548,8 @@ def floatLtB : Pure.Binary where
   arg₂     := .float
   res      := .bool
   f        := FloatBits.lt
+  dom      := fun _ _ => True
+  pre      := none
   typing   := monoTyping .two
   defAxiom := binFloatBoolDefAxiom floatLtSym .fpLt
 
@@ -521,6 +562,7 @@ def floatLtLawful : floatLtB.Lawful where
   argL₁      := Embedding.lawfulFloat
   argL₂      := Embedding.lawfulFloat
   resL       := Embedding.lawfulBool
+  domSound   := fun _ _ _ _ => True.intro
   specBaseWf := by apply PredTrans.checkWf_ok; rfl
   defWf      := by apply Formula.checkWf_ok; rfl
   typeWf     := by apply Formula.checkWf_ok; rfl
@@ -535,6 +577,8 @@ def floatLeB : Pure.Binary where
   arg₂     := .float
   res      := .bool
   f        := FloatBits.le
+  dom      := fun _ _ => True
+  pre      := none
   typing   := monoTyping .two
   defAxiom := binFloatBoolDefAxiom floatLeSym .fpLe
 
@@ -547,6 +591,7 @@ def floatLeLawful : floatLeB.Lawful where
   argL₁      := Embedding.lawfulFloat
   argL₂      := Embedding.lawfulFloat
   resL       := Embedding.lawfulBool
+  domSound   := fun _ _ _ _ => True.intro
   specBaseWf := by apply PredTrans.checkWf_ok; rfl
   defWf      := by apply Formula.checkWf_ok; rfl
   typeWf     := by apply Formula.checkWf_ok; rfl

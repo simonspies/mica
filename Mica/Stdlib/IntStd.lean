@@ -66,6 +66,8 @@ def intMinB : Pure.Binary where
   arg₂     := .int
   res      := .int
   f        := (min : Int → Int → Int)
+  dom      := fun _ _ => True
+  pre      := none
   typing   := monoTyping .two
   defAxiom := intMinDefAxiom
 
@@ -78,6 +80,7 @@ def intMinLawful : intMinB.Lawful where
   argL₁      := Embedding.lawfulInt
   argL₂      := Embedding.lawfulInt
   resL       := Embedding.lawfulInt
+  domSound   := fun _ _ _ _ => True.intro
   specBaseWf := by apply PredTrans.checkWf_ok; rfl
   defWf      := by apply Formula.checkWf_ok; rfl
   typeWf     := by apply Formula.checkWf_ok; rfl
@@ -98,6 +101,8 @@ def intMaxB : Pure.Binary where
   arg₂     := .int
   res      := .int
   f        := (max : Int → Int → Int)
+  dom      := fun _ _ => True
+  pre      := none
   typing   := monoTyping .two
   defAxiom := intMaxDefAxiom
 
@@ -110,6 +115,7 @@ def intMaxLawful : intMaxB.Lawful where
   argL₁      := Embedding.lawfulInt
   argL₂      := Embedding.lawfulInt
   resL       := Embedding.lawfulInt
+  domSound   := fun _ _ _ _ => True.intro
   specBaseWf := by apply PredTrans.checkWf_ok; rfl
   defWf      := by apply Formula.checkWf_ok; rfl
   typeWf     := by apply Formula.checkWf_ok; rfl
