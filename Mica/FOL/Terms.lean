@@ -548,13 +548,13 @@ theorem Term.wfIn_mono (t : Term τ) (h : t.wfIn Δ) (hsub : Δ.Subset Δ') (hwf
   | _, .fpLt, a, b => FloatBits.lt a b
   | _, .fpLe, a, b => FloatBits.le a b
   | _, .vcons, v, vs => v :: vs
-  | _, .vecGet,  l, i => (l[i.toNat]?).getD .unit
-  | _, .vecMake, n, x => List.replicate n.toNat x
+  | _, .vecGet,  l, i => if 0 ≤ i then (l[i.toNat]?).getD .unit else .unit
+  | _, .vecMake, n, x => if 0 ≤ n then List.replicate n.toNat x else []
   | ρ, .uninterpreted name _ _ _, x, y => ρ.binary τ₁ τ₂ τ₃ name x y
 
 @[simp] def TerOp.eval : Env → TerOp τ₁ τ₂ τ₃ τ₄ → τ₁.denote → τ₂.denote → τ₃.denote → τ₄.denote
   | _, .seqExtract, s, pos, len => (s.drop (Int.toNat pos)).take (Int.toNat len)
-  | _, .vecSet, l, i, x => l.set i.toNat x
+  | _, .vecSet, l, i, x => if 0 ≤ i then l.set i.toNat x else l
   | ρ, .uninterpreted name _ _ _ _, x, y, z => ρ.ternary τ₁ τ₂ τ₃ τ₄ name x y z
 
 def Term.eval (ρ : Env) : Term τ → τ.denote

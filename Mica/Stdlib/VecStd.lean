@@ -16,6 +16,8 @@ The symbol is what the relational encoding needs in order to translate a
 spec-level `Vec.get v i`. The defining axiom then hands the solver the
 operation's meaning. The axioms are unguarded: the operations are total and the
 standard interpretations agree with them everywhere, not only in bounds.
+The SMT preamble only constrains the underlying vector operations on their
+intrinsic domains; their out-of-domain SMT values remain unspecified.
 
 `get`/`set` are partial: their `reduce` relations demand an in-bounds index, so
 an out-of-bounds call is stuck, and the `spec.pred` precondition is what makes
@@ -71,8 +73,8 @@ private theorem vec_respects_argsEnv_three {s : FOL.Symbol .three} :
 
 Value-sorted counterparts of the `Vec`-sorted operations. Each standard
 interpretation projects its arguments (`valVec`/`valInt`, matching FOL's
-`toVec`/`toInt`) and injects the result, so it is total: it agrees with the
-defining axiom for every value, not only the well-sorted, in-bounds ones. -/
+`toVec`/`toInt`) and injects the result. Negative indices and lengths have
+explicit totalized behavior matching the interpreted FOL operations. -/
 
 def vecLengthSym : FOL.Symbol .one where
   name   := "val_vec_length"
@@ -80,15 +82,21 @@ def vecLengthSym : FOL.Symbol .one where
 
 def vecGetSym : FOL.Symbol .two where
   name   := "val_vec_get"
-  interp := fun (v, i) => ((valVec v)[(valInt i).toNat]?).getD .unit
+  interp := fun (v, i) =>
+    let n := valInt i
+    if 0 ≤ n then ((valVec v)[n.toNat]?).getD .unit else .unit
 
 def vecSetSym : FOL.Symbol .three where
   name   := "val_vec_set"
-  interp := fun (v, i, x) => .vec ((valVec v).set (valInt i).toNat x)
+  interp := fun (v, i, x) =>
+    let n := valInt i
+    .vec (if 0 ≤ n then (valVec v).set n.toNat x else valVec v)
 
 def vecMakeSym : FOL.Symbol .two where
   name   := "val_vec_make"
-  interp := fun (n, x) => .vec (List.replicate (valInt n).toNat x)
+  interp := fun (n, x) =>
+    let len := valInt n
+    .vec (if 0 ≤ len then List.replicate len.toNat x else [])
 
 @[simp] theorem vecLengthSym_name : vecLengthSym.name = "val_vec_length" := rfl
 @[simp] theorem vecGetSym_name : vecGetSym.name = "val_vec_get" := rfl
@@ -431,7 +439,7 @@ instance : IntrinsicSound [vecGet] vecGet where
               [.vec l, .int n]).env.binary .value .value .value "val_vec_get"
                 (.vec l) (.int n)
           rw [hbin]
-          simp [vecGetSym, valVec, valInt]
+          simp [vecGetSym, valVec, valInt, hbounds.1]
         refine (sep_mono_right
           (assert_ret_apply Θ _ "ret" _ _ ((l[n.toNat]?).getD .unit) hassert)).trans ?_
         iintro ⟨Helems, Hwand⟩
@@ -619,7 +627,7 @@ instance : IntrinsicSound [vecSet] vecSet where
               ("x", σ "a")] [.vec l, .int n, x]).env.ternary
                 .value .value .value .value "val_vec_set" (.vec l) (.int n) x
           rw [hter]
-          simp [vecSetSym, valVec, valInt]
+          simp [vecSetSym, valVec, valInt, hbounds.1]
         refine (sep_mono_left
           (assert_ret_apply Θ _ "ret" _ _ (.vec (l.set n.toNat x)) hassert)).trans ?_
         iintro ⟨Hwand, Hty⟩
@@ -788,7 +796,7 @@ instance : IntrinsicSound [vecMake] vecMake where
             (Spec.argsEnv ρ [("n", TinyML.Typ.int), ("x", σ "a")]
               [.int m, x]).env.binary .value .value .value "val_vec_make" (.int m) x
           rw [hbin]
-          simp [vecMakeSym, valInt]
+          simp [vecMakeSym, valInt, hlo]
         refine (sep_mono_left
           (assert_ret_apply Θ _ "ret" _ _ (.vec (List.replicate m.toNat x)) hassert)).trans ?_
         iintro ⟨Hwand, Hty⟩
