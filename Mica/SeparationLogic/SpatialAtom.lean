@@ -13,11 +13,13 @@ A `SpatialContext` is a list of such items. We define their well-formedness
 and basic operations (insert = cons, lookup+remove), plus interpretation of a
 single atom. -/
 
-/-- A syntactic ownership item. Initially, only points-to assertions. -/
+/-- A syntactic ownership item. -/
 inductive SpatialAtom where
   /-- Field `0` of the block at location term `l` holds value term `v`, whose TinyML type is `ty`.
   The interpretation carries the value typing fact as part of the same spatial atom. -/
   | pointsTo : Term .value → Term .value → TinyML.Typ → SpatialAtom
+  /-- An owned mutable array and its immutable vector snapshot. -/
+  | arrayPointsTo : Term .value → Term .value → TinyML.Typ → SpatialAtom
   deriving DecidableEq
 
 /-- The spatial part of the verifier state: a list of ownership items. -/
@@ -28,12 +30,14 @@ namespace SpatialAtom
 /-- A spatial atom is well-formed in a signature when all terms it mentions are. -/
 def wfIn : SpatialAtom → Signature → Prop
   | .pointsTo l v _, Δ => l.wfIn Δ ∧ v.wfIn Δ
+  | .arrayPointsTo a v _, Δ => a.wfIn Δ ∧ v.wfIn Δ
 
 /-- Well-formedness is stable under signature extension. -/
 theorem wfIn_mono {a : SpatialAtom} {Δ Δ' : Signature}
     (h : a.wfIn Δ) (hsub : Δ.Subset Δ') (hwf : Δ'.wf) : a.wfIn Δ' := by
   cases a with
   | pointsTo l v _ => exact ⟨Term.wfIn_mono l h.1 hsub hwf, Term.wfIn_mono v h.2 hsub hwf⟩
+  | arrayPointsTo a v _ => exact ⟨Term.wfIn_mono a h.1 hsub hwf, Term.wfIn_mono v h.2 hsub hwf⟩
 
 /-- Iris interpretation of a single spatial atom. -/
 def interp [MicaGS HasLC.hasLC Sig] (Θ : TinyML.TypeEnv) (ρ : Env) :
@@ -41,6 +45,10 @@ def interp [MicaGS HasLC.hasLC Sig] (Θ : TinyML.TypeEnv) (ρ : Env) :
   | .pointsTo l v ty => ∃ (loc : Runtime.Location),
       ⌜Term.eval ρ l = .loc loc⌝ ∗ loc ↦ [Term.eval ρ v] ∗
         TinyML.ValHasType Θ (Term.eval ρ v) ty
+  | .arrayPointsTo a v ty => ∃ (loc : Runtime.Location) (vs : List Runtime.Val),
+      ⌜Term.eval ρ a = .array vs.length loc⌝ ∗
+      ⌜Term.eval ρ v = .vec vs⌝ ∗ loc ↦ vs ∗
+        TinyML.ValHasType Θ (.vec vs) (.vec ty)
 
 /-- Congruence for points-to interpretation under equal location and value evaluation. -/
 theorem pointsTo_congr [MicaGS HasLC.hasLC Sig] (Θ : TinyML.TypeEnv) {ρ : Env}
@@ -50,6 +58,24 @@ theorem pointsTo_congr [MicaGS HasLC.hasLC Sig] (Θ : TinyML.TypeEnv) {ρ : Env}
     interp Θ ρ (.pointsTo l v ty) ⊣⊢ interp Θ ρ (.pointsTo l' v' ty) := by
   simp only [interp, hl, hv]
   exact ⟨BIBase.Entails.rfl, BIBase.Entails.rfl⟩
+
+/-- Pure formulas implied by an atom's interpretation. They are assumed
+alongside the atom whenever it enters the verifier's spatial context. -/
+def facts : SpatialAtom → List Formula
+  | .pointsTo .. => []
+  | .arrayPointsTo a v _ =>
+      [.eq .int (.unop .vecLen (.unop .toVec v)) (.unop .arrayLengthOf a)]
+
+/-- The pure facts of a well-formed atom are well-formed. -/
+theorem facts_wfIn {a : SpatialAtom} {Δ : Signature} (h : a.wfIn Δ) :
+    ∀ φ ∈ a.facts, φ.wfIn Δ := by
+  cases a with
+  | pointsTo l v ty => simp [facts]
+  | arrayPointsTo a v ty =>
+    intro φ hφ
+    simp only [facts, List.mem_cons, List.not_mem_nil, or_false] at hφ
+    subst hφ
+    exact ⟨⟨trivial, ⟨trivial, h.2⟩⟩, ⟨trivial, h.1⟩⟩
 
 end SpatialAtom
 

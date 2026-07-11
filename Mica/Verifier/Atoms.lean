@@ -448,6 +448,8 @@ def VerifM.findMatchIn (lq : Term .value) (ty : TinyML.Typ) :
           return (← VerifM.findMatchIn lq ty rest).map fun (n, v') => (n + 1, v')
       else
         return (← VerifM.findMatchIn lq ty rest).map fun (n, v') => (n + 1, v')
+  | .arrayPointsTo _ _ _ :: rest => do
+      return (← VerifM.findMatchIn lq ty rest).map fun (n, v') => (n + 1, v')
 
 /-- Search the current ownership context for a `pointsTo` at location `lq`,
     returning the stored value and consuming the matched entry from `st.owns`. -/
@@ -534,6 +536,27 @@ theorem VerifM.eval_findMatchIn {lq : Term .value} {ty : TinyML.Typ} {ctx : Spat
         · exact hrecurse hq
       · -- the type does not match, so skip the solver and keep searching
         exact hrecurse h
+    | arrayPointsTo a v elemTy =>
+      simp only [VerifM.findMatchIn] at h
+      have hcons := (SpatialContext.wfIn_cons _ _ _).1 hctx
+      have hb := VerifM.eval_bind _ _ _ _ h
+      obtain ⟨result, hres, hsome⟩ := ih hb hcons.2
+      cases result with
+      | none =>
+        simp at hres
+        refine ⟨none, VerifM.eval_ret hres, ?_⟩
+        intros n' v' hnv
+        simp at hnv
+      | some pair =>
+        obtain ⟨n₀, v₀⟩ := pair
+        simp at hres
+        refine ⟨some (n₀ + 1, v₀), VerifM.eval_ret hres, ?_⟩
+        intros n' v' hnv
+        simp at hnv
+        obtain ⟨rfl, rfl⟩ := hnv
+        obtain ⟨l', rest', hrem, heq⟩ := hsome n₀ v₀ rfl
+        refine ⟨l', .arrayPointsTo a v elemTy :: rest', ?_, heq⟩
+        simp [SpatialContext.remove, hrem]
 
 /-- Correctness of `findMatch` in CPS style: the caller supplies Iris-level
     continuations for the `some` and `none` branches. On `some v`, the
