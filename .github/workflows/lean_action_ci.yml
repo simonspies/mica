@@ -16,7 +16,7 @@ jobs:
         with:
           ocaml-compiler: 5.4.x
       - name: Print OCaml version
-        run: ocamlopt -version
+        run: opam exec -- ocamlopt -version
       - name: Install Z3
         run: |
           Z3_VERSION=4.15.4
@@ -26,8 +26,7 @@ jobs:
           sudo install "z3-${Z3_VERSION}-x64-glibc-2.39/bin/z3" /usr/local/bin/z3
           z3 --version
       - name: Test and compile examples
-        run: |
-          lake run testsuite Examples/
+        run: opam exec -- lake run testsuite Examples/
 
   check-outlines:
     runs-on: ubuntu-latest
