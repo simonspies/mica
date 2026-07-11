@@ -27,10 +27,65 @@ abbrev SpatialContext := List SpatialAtom
 
 namespace SpatialAtom
 
+/-- The head constructor of a spatial atom. Both constructors carry a key
+term, a value term, and a type, so atoms can be processed generically by
+kind. -/
+inductive Kind where
+  | ref
+  | array
+  deriving DecidableEq
+
+/-- The atom of a given kind, from its key term, value term, and type. -/
+def Kind.atom : Kind → Term .value → Term .value → TinyML.Typ → SpatialAtom
+  | .ref => .pointsTo
+  | .array => .arrayPointsTo
+
+/-- Human-readable name of an atom kind, for error messages. -/
+def Kind.print : Kind → String
+  | .ref => "points-to"
+  | .array => "owned array"
+
+/-- The kind of an atom. -/
+def kind : SpatialAtom → Kind
+  | .pointsTo .. => .ref
+  | .arrayPointsTo .. => .array
+
+/-- The key term an atom asserts ownership of: the location of a points-to,
+the array value of an owned array. -/
+def key : SpatialAtom → Term .value
+  | .pointsTo l _ _ => l
+  | .arrayPointsTo a _ _ => a
+
+/-- The value term stored under an atom's key: the contents of a reference,
+the vector snapshot of an owned array. -/
+def val : SpatialAtom → Term .value
+  | .pointsTo _ v _ => v
+  | .arrayPointsTo _ v _ => v
+
+/-- The element type carried by an atom. -/
+def ty : SpatialAtom → TinyML.Typ
+  | .pointsTo _ _ ty => ty
+  | .arrayPointsTo _ _ ty => ty
+
+@[simp] theorem eta (a : SpatialAtom) : a.kind.atom a.key a.val a.ty = a := by
+  cases a <;> rfl
+
 /-- A spatial atom is well-formed in a signature when all terms it mentions are. -/
 def wfIn : SpatialAtom → Signature → Prop
   | .pointsTo l v _, Δ => l.wfIn Δ ∧ v.wfIn Δ
   | .arrayPointsTo a v _, Δ => a.wfIn Δ ∧ v.wfIn Δ
+
+@[simp] theorem atom_wfIn {k : Kind} {t v : Term .value} {ty : TinyML.Typ} {Δ : Signature} :
+    (k.atom t v ty).wfIn Δ ↔ t.wfIn Δ ∧ v.wfIn Δ := by
+  cases k <;> exact Iff.rfl
+
+/-- The key term of a well-formed atom is well-formed. -/
+theorem wfIn.key {a : SpatialAtom} {Δ : Signature} (h : a.wfIn Δ) : a.key.wfIn Δ := by
+  cases a <;> exact h.1
+
+/-- The value term of a well-formed atom is well-formed. -/
+theorem wfIn.val {a : SpatialAtom} {Δ : Signature} (h : a.wfIn Δ) : a.val.wfIn Δ := by
+  cases a <;> exact h.2
 
 /-- Well-formedness is stable under signature extension. -/
 theorem wfIn_mono {a : SpatialAtom} {Δ Δ' : Signature}
@@ -50,14 +105,14 @@ def interp [MicaGS HasLC.hasLC Sig] (Θ : TinyML.TypeEnv) (ρ : Env) :
       ⌜Term.eval ρ v = .vec vs⌝ ∗ loc ↦ vs ∗
         TinyML.ValHasType Θ (.vec vs) (.vec ty)
 
-/-- Congruence for points-to interpretation under equal location and value evaluation. -/
-theorem pointsTo_congr [MicaGS HasLC.hasLC Sig] (Θ : TinyML.TypeEnv) {ρ : Env}
-    {l l' v v' : Term .value} {ty : TinyML.Typ}
-    (hl : Term.eval ρ l = Term.eval ρ l')
+/-- Congruence of interpretation in the key and value terms, at equal evaluation. -/
+theorem congr [MicaGS HasLC.hasLC Sig] (Θ : TinyML.TypeEnv) {ρ : Env} {k : Kind}
+    {t t' v v' : Term .value} {ty : TinyML.Typ}
+    (ht : Term.eval ρ t = Term.eval ρ t')
     (hv : Term.eval ρ v = Term.eval ρ v') :
-    interp Θ ρ (.pointsTo l v ty) ⊣⊢ interp Θ ρ (.pointsTo l' v' ty) := by
-  simp only [interp, hl, hv]
-  exact ⟨BIBase.Entails.rfl, BIBase.Entails.rfl⟩
+    interp Θ ρ (k.atom t v ty) ⊣⊢ interp Θ ρ (k.atom t' v' ty) := by
+  cases k <;> simp only [Kind.atom, interp, ht, hv] <;>
+    exact ⟨BIBase.Entails.rfl, BIBase.Entails.rfl⟩
 
 /-- Pure formulas implied by an atom's interpretation. They are assumed
 alongside the atom whenever it enters the verifier's spatial context. -/

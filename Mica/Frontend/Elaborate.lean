@@ -99,8 +99,8 @@ private def applyTypAttr (loc : Location) (t : TinyML.Typ) : String → ElabM Ti
   | "owned" =>
     match t with
     | .ref inner => .ok (.owned inner)
-    | .array _ => err loc (.unsupportedFeature "[@owned] arrays are not supported")
-    | _ => err loc (.unsupportedFeature "[@owned] only applies to a 'ref' type")
+    | .array inner => .ok (.ownedArray inner)
+    | _ => err loc (.unsupportedFeature "[@owned] only applies to a 'ref' or 'array' type")
   | name => err loc (.unsupportedFeature s!"unknown type attribute [@{name}]")
 
 mutual
@@ -363,7 +363,8 @@ private def applyAttr (loc : Location) (e : Untyped.Expr) : Attribute → ElabM 
   | { name := "owned", payload := none } =>
       match e with
       | .ref _ inner => .ok (.ref true inner)
-      | _ => err loc (.unsupportedFeature "[@owned] only applies to 'ref'")
+      | .arrayMake _ len init => .ok (.arrayMake true len init)
+      | _ => err loc (.unsupportedFeature "[@owned] only applies to 'ref' or 'Array.make'")
   | { name, .. } => err loc (.unsupportedFeature s!"unknown expression attribute [@{name}]")
 
 private def bareSpecial (loc : Location) (path : Path) : ElabM Untyped.Expr :=
@@ -443,7 +444,7 @@ def ExprKind.elaborate (env : ElabEnv) (loc : Location) : ExprKind → ElabM Unt
             | [len, init] => do
               let len' ← Expr.elaborate env len
               let init' ← Expr.elaborate env init
-              .ok (.arrayMake len' init')
+              .ok (.arrayMake false len' init')
             | _ => err loc (.arityMismatch 2 args.length)
         | some (.special .arrayLength) =>
             match args with

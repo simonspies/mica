@@ -331,7 +331,7 @@ mutual
         | .owned ty' => do
             VerifM.expectEq "deref type annotation mismatch" ty' ty
             let lq ← compile reg Θ Δ_spec S B Γ e
-            let v ← VerifM.findMatchForce lq ty
+            let v ← VerifM.findMatchForce .ref lq ty
             VerifM.assume (.spatial (.pointsTo lq v ty))
             pure v
         | .ref ty' => do
@@ -348,7 +348,7 @@ mutual
             VerifM.expectEq "store location type mismatch" ty val.ty
             let v ← compile reg Θ Δ_spec S B Γ val
             let lq ← compile reg Θ Δ_spec S B Γ loc
-            let _ ← VerifM.findMatchForce lq val.ty
+            let _ ← VerifM.findMatchForce .ref lq val.ty
             VerifM.assume (.spatial (.pointsTo lq v val.ty))
             pure (Term.const .unit)
         | .ref ty => do
@@ -357,7 +357,8 @@ mutual
             let _ ← compile reg Θ Δ_spec S B Γ loc
             pure (Term.const .unit)
         | _ => VerifM.fatal "store location is not a reference"
-    | .arrayMake len init => do
+    | .arrayMake owned len init => do
+        if owned then VerifM.fatal "owned Array.make is not yet compiled" else
         VerifM.expectEq "array length must be int" len.ty .int
         let _ ← compile reg Θ Δ_spec S B Γ init
         let sl ← compile reg Θ Δ_spec S B Γ len
@@ -1207,7 +1208,7 @@ theorem compileDeref_correct (reg : Verifier.Registry) (e : Expr) (ty : TinyML.T
         simp only [compile, hty] at heval
         obtain ⟨hannot, _⟩ := VerifM.eval_bind_expectEq heval
         exact False.elim (heq hannot)
-  | prim _ | sum _ | arrow _ _ | array _ | vec _ | empty | value | tuple _ | tvar _ | named _ _ =>
+  | prim _ | sum _ | arrow _ _ | array _ | ownedArray _ | vec _ | empty | value | tuple _ | tvar _ | named _ _ =>
       intro Θ R S B Γ st ρ γ Δ_spec ρ_spec Ψ Φ heval _ _ _ _ _ _ _ _
       simp only [compile, hty] at heval
       exact (VerifM.eval_fatal heval).elim
@@ -1390,19 +1391,19 @@ theorem compileStore_correct (reg : Verifier.Registry) (loc val : Expr)
         simp only [compile, hty] at heval
         obtain ⟨hannot, _⟩ := VerifM.eval_bind_expectEq heval
         exact False.elim (heq hannot)
-  | prim _ | sum _ | arrow _ _ | array _ | vec _ | empty | value | tuple _ | tvar _ | named _ _ =>
+  | prim _ | sum _ | arrow _ _ | array _ | ownedArray _ | vec _ | empty | value | tuple _ | tvar _ | named _ _ =>
       intro Θ R S B Γ st ρ γ Δ_spec ρ_spec Ψ Φ heval _ _ _ _ _ _ _ _
       simp only [compile, hty] at heval
       exact (VerifM.eval_fatal heval).elim
 
-theorem compileArrayMake_correct (reg : Verifier.Registry) (len init : Expr)
+theorem compileArrayMakeShared_correct (reg : Verifier.Registry) (len init : Expr)
     (ihLen : correctExpr reg len) (ihInit : correctExpr reg init) :
-    correctExpr reg (.arrayMake len init) := by
+    correctExpr reg (.arrayMake false len init) := by
   intro Θ R S B Γ st ρ γ Δ_spec ρ_spec Ψ Φ heval hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec hΔreg hρreg hpost
   unfold Expr.runtime
   simp only [Runtime.Expr.subst]
   simp only [compile] at heval
-  simp only [Expr.ty] at hpost
+  simp only [Expr.ty, Bool.false_eq_true, if_false] at hpost
   obtain ⟨hlenty, heval⟩ := VerifM.eval_bind_expectEq heval
   have heval_init : (compile reg Θ Δ_spec S B Γ init).eval st ρ _ := VerifM.eval_bind _ _ _ _ heval
   refine SpatialContext.wp_bind_arrayMake <| ?_
@@ -1518,6 +1519,18 @@ theorem compileArrayMake_correct (reg : Verifier.Registry) (len init : Expr)
         · iexact HR
   exact hwp
 
+/-- Array allocation correctness, dispatching shared allocation to the
+invariant-backed proof. The owned branch is completed by the owned-array
+symbolic-execution rule below. -/
+theorem compileArrayMake_correct (reg : Verifier.Registry) (owned : Bool) (len init : Expr)
+    (ihLen : correctExpr reg len) (ihInit : correctExpr reg init) :
+    correctExpr reg (.arrayMake owned len init) := by
+  cases owned with
+  | false => exact compileArrayMakeShared_correct reg len init ihLen ihInit
+  | true =>
+    intro Θ R S B Γ st ρ γ Δ_spec ρ_spec Ψ Φ heval _ _ _ _ _ _ _ _ _ _ _
+    exact (VerifM.eval_fatal (by simpa [compile] using heval)).elim
+
 theorem compileArrayLen_correct (reg : Verifier.Registry) (arr : Expr)
     (ihArr : correctExpr reg arr) :
     correctExpr reg (.arrayLen arr) := by
@@ -1561,6 +1574,10 @@ theorem compileArrayLen_correct (reg : Verifier.Registry) (arr : Expr)
           · iapply (TinyML.ValHasType.int_intro Θ)
           · iexact HR
       exact hwp
+  | ownedArray elem =>
+      intro Θ R S B Γ st ρ γ Δ_spec ρ_spec Ψ Φ heval _ _ _ _ _ _ _ _ _ _ _
+      simp only [compile, hty] at heval
+      exact (VerifM.eval_fatal heval).elim
   | prim _ | sum _ | arrow _ _ | ref _ | vec _ | owned _ | empty | value | tuple _ | tvar _
   | named _ _ =>
       intro Θ R S B Γ st ρ γ Δ_spec ρ_spec Ψ Φ heval _ _ _ _ _ _ _ _ _ _ _
@@ -1668,6 +1685,10 @@ theorem compileArrayGet_correct (reg : Verifier.Registry) (arr idx : Expr) (ty :
               · iexact Hw
               · iexact HR))
     exact hwp
+  | ownedArray elemTy =>
+    intro Θ R S B Γ st ρ γ Δ_spec ρ_spec Ψ Φ heval _ _ _ _ _ _ _ _ _ _ _
+    simp only [compile, hty] at heval
+    exact (VerifM.eval_fatal heval).elim
   | prim _ | sum _ | arrow _ _ | ref _ | vec _ | owned _ | empty | value | tuple _ | tvar _
   | named _ _ =>
       intro Θ R S B Γ st ρ γ Δ_spec ρ_spec Ψ Φ heval _ _ _ _ _ _ _ _ _ _ _
@@ -1772,6 +1793,10 @@ theorem compileArraySet_correct (reg : Verifier.Registry) (arr idx val : Expr)
               · iapply (TinyML.ValHasType.unit_intro Θ)
               · iexact HR))
     exact hwp
+  | ownedArray elemTy =>
+    intro Θ R S B Γ st ρ γ Δ_spec ρ_spec Ψ Φ heval _ _ _ _ _ _ _ _ _ _ _
+    simp only [compile, hty] at heval
+    exact (VerifM.eval_fatal heval).elim
   | prim _ | sum _ | arrow _ _ | ref _ | vec _ | owned _ | empty | value | tuple _ | tvar _
   | named _ _ =>
       intro Θ R S B Γ st ρ γ Δ_spec ρ_spec Ψ Φ heval _ _ _ _ _ _ _ _ _ _ _
@@ -2482,7 +2507,7 @@ theorem compileLetProd_correct (reg : Verifier.Registry) (names : List Binder) (
             · isplitl []
               · iexact HT
               · iexact HR
-  | prim _ | sum _ | arrow _ _ | ref _ | array _ | vec _ | owned _ | empty | value | tvar _
+  | prim _ | sum _ | arrow _ _ | ref _ | array _ | ownedArray _ | vec _ | owned _ | empty | value | tvar _
   | named _ _ =>
       simp [hty] at hΨ_e
       exact (VerifM.eval_fatal (VerifM.eval_bind _ _ _ _ hΨ_e)).elim
@@ -2894,7 +2919,7 @@ theorem compileMatch_correct (reg : Verifier.Registry) (scrut : Expr) (branches 
   intro v_scrut ρ_scrut st_scrut se_scrut hΨ_scrut hse_wf heval_se
   obtain ⟨hdecls_scrut, hagreeOn_scrut, hΨ_scrut⟩ := hΨ_scrut
   cases hscrut_ty : scrut.ty with
-  | prim _ | arrow _ _ | ref _ | array _ | vec _ | owned _ | empty | value | tuple _ | tvar _
+  | prim _ | arrow _ _ | ref _ | array _ | ownedArray _ | vec _ | owned _ | empty | value | tuple _ | tvar _
   | named _ _ =>
     simp only [hscrut_ty] at hΨ_scrut
     exact (VerifM.eval_fatal hΨ_scrut).elim
@@ -3327,8 +3352,8 @@ theorem compile_correct (reg : Verifier.Registry) (hSound : Verifier.Registry.So
     simpa using compileDeref_correct reg e ty (compile_correct reg hSound e)
   | store loc val =>
     simpa using compileStore_correct reg loc val (compile_correct reg hSound val) (compile_correct reg hSound loc)
-  | arrayMake len init =>
-    simpa using compileArrayMake_correct reg len init
+  | arrayMake owned len init =>
+    simpa using compileArrayMake_correct reg owned len init
       (compile_correct reg hSound len) (compile_correct reg hSound init)
   | arrayLen arr =>
     simpa using compileArrayLen_correct reg arr (compile_correct reg hSound arr)

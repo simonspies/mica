@@ -111,6 +111,9 @@ inductive Typ where
   | ref (t: Typ)
   /-- Shared array whose elements have type `t`. -/
   | array (t : Typ)
+  /-- An owned mutable array. Its contents are tracked by an immutable vector
+  snapshot in the ambient spatial context. -/
+  | ownedArray (t : Typ)
   /-- Immutable vector whose elements have type `t`. Unlike `array`, a vector is
   a pure value: its contents live in the value itself, not in the heap. -/
   | vec (t : Typ)
@@ -159,6 +162,9 @@ def Typ.decEq : (a b : Typ) → Decidable (a = b)
   | .array s, .array t => match s.decEq t with
     | isTrue h => isTrue (by subst h; rfl)
     | isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
+  | .ownedArray s, .ownedArray t => match s.decEq t with
+    | isTrue h => isTrue (by subst h; rfl)
+    | isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
   | .vec s, .vec t => match s.decEq t with
     | isTrue h => isTrue (by subst h; rfl)
     | isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
@@ -176,6 +182,15 @@ def Typ.decEq : (a b : Typ) → Decidable (a = b)
     | isTrue h1, isTrue h2 => isTrue (by subst h1; subst h2; rfl)
     | isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
     | _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
+  | .ownedArray .., .prim _ | .ownedArray .., .sum _ | .ownedArray .., .arrow _ _
+  | .ownedArray .., .ref _ | .ownedArray .., .array _ | .ownedArray .., .vec _
+  | .ownedArray .., .owned _ | .ownedArray .., .empty | .ownedArray .., .value
+  | .ownedArray .., .tuple _ | .ownedArray .., .tvar _ | .ownedArray .., .named _ _
+  | .prim _, .ownedArray .. | .sum _, .ownedArray .. | .arrow _ _, .ownedArray ..
+  | .ref _, .ownedArray .. | .array _, .ownedArray .. | .vec _, .ownedArray ..
+  | .owned _, .ownedArray .. | .empty, .ownedArray .. | .value, .ownedArray ..
+  | .tuple _, .ownedArray .. | .tvar _, .ownedArray .. | .named _ _, .ownedArray .. =>
+      isFalse (by intro h; cases h)
   | .prim _, .sum .. | .prim _, .arrow ..
   | .prim _, .ref .. | .prim _, .array .. | .prim _, .owned .. | .prim _, .empty | .prim _, .value | .prim _, .tuple ..
   | .prim _, .tvar .. | .prim _, .named .. | .prim _, .vec ..
@@ -243,6 +258,7 @@ def Typ.subst (_σ : TyVar → Typ) : Typ → Typ
   | .arrow t1 t2 => .arrow (Typ.subst _σ t1) (Typ.subst _σ t2)
   | .ref t => .ref (Typ.subst _σ t)
   | .array t => .array (Typ.subst _σ t)
+  | .ownedArray t => .ownedArray (Typ.subst _σ t)
   | .vec t => .vec (Typ.subst _σ t)
   | .owned t => .owned (Typ.subst _σ t)
   | .empty => .empty
@@ -258,6 +274,7 @@ def Typ.closed : Typ → Bool
   | .arrow t1 t2 => Typ.closed t1 && Typ.closed t2
   | .ref t => Typ.closed t
   | .array t => Typ.closed t
+  | .ownedArray t => Typ.closed t
   | .vec t => Typ.closed t
   | .owned t => Typ.closed t
   | .empty => true
@@ -299,6 +316,7 @@ mutual
     | .arrow t1 t2 => 1 + Typ.weight t1 + Typ.weight t2
     | .ref t => 1 + Typ.weight t
     | .array t => 1 + Typ.weight t
+    | .ownedArray t => 1 + Typ.weight t
     | .vec t => 1 + Typ.weight t
     | .owned t => 1 + Typ.weight t
     | .tuple ts => 1 + Typ.weights ts
@@ -318,6 +336,7 @@ mutual
     | .arrow t1 t2 => 1 + max (Typ.depth t1) (Typ.depth t2)
     | .ref t => 1 + Typ.depth t
     | .array t => 1 + Typ.depth t
+    | .ownedArray t => 1 + Typ.depth t
     | .vec t => 1 + Typ.depth t
     | .owned t => 1 + Typ.depth t
     | .tuple ts => 1 + Typ.depths ts
@@ -524,6 +543,7 @@ mutual
     | .arrow s1 s2, .arrow t1 t2 => .arrow (Typ.meet Θ s1 t1) (Typ.join Θ s2 t2)
     | .ref s,       .ref t       => if s == t then .ref s else .value
     | .array s,     .array t     => if s == t then .array s else .value
+    | .ownedArray s, .ownedArray t => if s == t then .ownedArray s else .value
     | .vec s,       .vec t       => if s == t then .vec s else .value
     | .owned s,     .owned t     => if s == t then .owned s else .value
     | .tuple ss,    .tuple ts    => if ss.length == ts.length
@@ -543,6 +563,7 @@ mutual
     | .arrow s1 s2, .arrow t1 t2 => .arrow (Typ.join Θ s1 t1) (Typ.meet Θ s2 t2)
     | .ref s,       .ref t       => if s == t then .ref s else .empty
     | .array s,     .array t     => if s == t then .array s else .empty
+    | .ownedArray s, .ownedArray t => if s == t then .ownedArray s else .empty
     | .vec s,       .vec t       => if s == t then .vec s else .empty
     | .owned s,     .owned t     => if s == t then .owned s else .empty
     | .tuple ss,    .tuple ts    => if ss.length == ts.length
