@@ -92,6 +92,53 @@ theorem interp_arrayPointsTo (Θ : TinyML.TypeEnv) {ρ : Env} {arrt vt : Term .v
         · iexact Hpt
         · iexact Hty
 
+/-- Destruct an owned-array atom at an in-bounds index: expose the underlying
+block, the integer index witness, and the persistent element typing of the
+snapshot. -/
+theorem interp_arrayPointsTo_lookup (Θ : TinyML.TypeEnv) {ρ : Env}
+    {arr contents idx : Term .value} {elemTy : TinyML.Typ} {vidx : Runtime.Val}
+    (hidx : Term.eval ρ idx = vidx)
+    (hi : 0 ≤ Term.eval ρ (.unop .toInt idx))
+    (hlt : Term.eval ρ (.unop .toInt idx) < Term.eval ρ (.unop .arrayLengthOf arr)) :
+    SpatialAtom.interp Θ ρ (.arrayPointsTo arr contents elemTy) ⊢
+      TinyML.ValHasType Θ vidx .int -∗
+      ∃ (loc : Runtime.Location) (vs : List Runtime.Val) (i : Int),
+        ⌜Term.eval ρ arr = .array vs.length loc⌝ ∗ ⌜Term.eval ρ contents = .vec vs⌝ ∗
+        ⌜vidx = .int i⌝ ∗ ⌜0 ≤ i⌝ ∗ ⌜i.toNat < vs.length⌝ ∗
+        loc ↦ vs ∗ □ TinyML.ValHasType Θ (.vec vs) (.vec elemTy) := by
+  simp only [SpatialAtom.interp]
+  istart
+  iintro Hatom
+  iintro HidxTy
+  icases Hatom with ⟨%loc, %vs, %ha, %hv, Hpt, #HvecTy⟩
+  ihave Hidx' := (TinyML.ValHasType.int Θ vidx).1 $$ HidxTy
+  icases Hidx' with ⟨%i, %hvidx⟩
+  have hi' : 0 ≤ i := by simpa [Term.eval, UnOp.eval, hidx, hvidx] using hi
+  have hlt' : i.toNat < vs.length := by
+    have : i < (vs.length : Int) := by
+      simpa [Term.eval, UnOp.eval, ha, hidx, hvidx] using hlt
+    omega
+  iexists loc, vs, i
+  isplitr
+  · ipureintro
+    exact ha
+  · isplitr
+    · ipureintro
+      exact hv
+    · isplitr
+      · ipureintro
+        exact hvidx
+      · isplitr
+        · ipureintro
+          exact hi'
+        · isplitr
+          · ipureintro
+            exact hlt'
+          · isplitl [Hpt]
+            · iexact Hpt
+            · imodintro
+              iexact HvecTy
+
 /-- An atom's interpretation implies its pure facts. -/
 theorem interp_facts (Θ : TinyML.TypeEnv) {ρ : Env} (a : SpatialAtom) :
     interp Θ ρ a ⊢ ⌜∀ φ ∈ a.facts, φ.eval ρ⌝ ∗ interp Θ ρ a := by
