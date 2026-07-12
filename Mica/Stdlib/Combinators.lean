@@ -1,4 +1,4 @@
--- SUMMARY: Embeddings and the pure-intrinsic builders (`Pure.Zero`/`Pure.Unary`/`Pure.Binary`/`Pure.Ternary`) that emit an intrinsic and its soundness instance, plus the shared helper lemmas their soundness proofs use.
+-- SUMMARY: Embeddings (with semantic type predicates for polymorphic types) and the pure-intrinsic builders (`Pure.Zero`/`Pure.Unary`/`Pure.Binary`/`Pure.Ternary`) that emit an intrinsic — optional precondition, generated type axiom — and its soundness instance.
 import Mica.Verifier.Intrinsic
 
 open Iris Iris.BI
@@ -123,14 +123,19 @@ predicate that recognizes the type at the value sort. The coherence laws
 live in `Embedding.Lawful`. -/
 
 /-- How a Lean carrier is represented as runtime values of a TinyML type: an
-    injection, its retracting projection, and the `is-of` value-sort predicate
-    recognizing the type. Pure data; see `Embedding.Lawful` for the laws. -/
+    injection, its retracting projection, the semantic type predicate
+    `typePred` — the resource left of a typing fact after peeling off the
+    injection (`emp` for the base types) — and an optional `is-of` value-sort
+    predicate recognizing the type (absent when the type is a variable).
+    Pure data; see `Embedding.Lawful` for the laws. -/
 structure Embedding where
-  typ     : TinyML.Typ
-  carrier : Type
-  inject  : carrier → Runtime.Val
-  project : Runtime.Val → carrier
-  isOf    : UnPred .value
+  typ      : TinyML.Typ
+  carrier  : Type
+  inject   : carrier → Runtime.Val
+  project  : Runtime.Val → carrier
+  typePred : ∀ [MicaGS.{0} HasLC.hasLC Sig],
+              (TinyML.TyVar → TinyML.Typ) → TinyML.TypeEnv → carrier → iProp
+  isOf     : Option (UnPred .value)
 
 /-- Integer projection of a runtime value, matching FOL's `toInt`. -/
 def valInt : Runtime.Val → Int
@@ -157,69 +162,135 @@ def valFloat : Runtime.Val → UInt64
   | .float b => b
   | _        => 0
 
+/-- Vector projection of a runtime value, matching FOL's `toVec`. -/
+def valVec : Runtime.Val → List Runtime.Val
+  | .vec l => l
+  | _      => []
+
 /-- Integers as `.int` values. -/
-def Embedding.int  : Embedding := ⟨.int,    Int,        .int,  valInt,  .isInt⟩
+def Embedding.int  : Embedding :=
+  ⟨.int, Int, .int, valInt, fun _ _ _ => iprop(emp), some .isInt⟩
 /-- Booleans as `.bool` values. -/
-def Embedding.bool : Embedding := ⟨.bool,   Bool,       .bool, valBool, .isBool⟩
+def Embedding.bool : Embedding :=
+  ⟨.bool, Bool, .bool, valBool, fun _ _ _ => iprop(emp), some .isBool⟩
 /-- Bytes as `.char` values. -/
-def Embedding.char : Embedding := ⟨.char, UInt8, .char, valChar, .isChar⟩
+def Embedding.char : Embedding :=
+  ⟨.char, UInt8, .char, valChar, fun _ _ _ => iprop(emp), some .isChar⟩
 /-- Byte strings as `.str` values. -/
-def Embedding.str  : Embedding := ⟨.string, List UInt8, .str,  valStr,  .isStr⟩
+def Embedding.str  : Embedding :=
+  ⟨.string, List UInt8, .str, valStr, fun _ _ _ => iprop(emp), some .isStr⟩
 /-- IEEE binary64 bit-patterns as `.float` values. -/
-def Embedding.float : Embedding := ⟨.float, UInt64, .float, valFloat, .isFloat⟩
+def Embedding.float : Embedding :=
+  ⟨.float, UInt64, .float, valFloat, fun _ _ _ => iprop(emp), some .isFloat⟩
+
+/-- A type variable `'a`: any runtime value, with its typing at the
+    instantiated type as the type predicate. No `is-of` recognizer, so no
+    type axiom. -/
+def Embedding.poly : Embedding :=
+  ⟨.tvar "a", Runtime.Val, id, id,
+    fun σ Θ v => TinyML.ValHasType Θ v (σ "a"), none⟩
+
+/-- Vectors `'a vec`: element lists, with the big-sep of element typings at
+    the instantiated element type as the type predicate. -/
+def Embedding.vec : Embedding :=
+  ⟨.vec (.tvar "a"), List Runtime.Val, .vec, valVec,
+    fun σ Θ l => iprop([∗list] w ∈ l, TinyML.ValHasType Θ w (σ "a")), some .isVec⟩
 
 /-- Coherence laws for an `Embedding`. The `member`/`intro` laws are stated at
     every instantiation `e.typ.subst σ` of the embedding's type. -/
 structure Embedding.Lawful (e : Embedding) where
   project_inject : ∀ x, e.project (e.inject x) = x
-  isOf_wf        : ∀ Δ, e.isOf.wfIn Δ
-  isOf_inject    : ∀ (ρ : Env) (x : e.carrier), UnPred.eval ρ e.isOf (e.inject x)
+  isOf_wf        : ∀ Δ p, e.isOf = some p → p.wfIn Δ
+  isOf_inject    : ∀ (ρ : Env) (x : e.carrier) p, e.isOf = some p →
+                     UnPred.eval ρ p (e.inject x)
   member         : ∀ [MicaGS HasLC.hasLC Sig] (σ : TinyML.TyVar → TinyML.Typ)
                      (Θ : TinyML.TypeEnv) (w : Runtime.Val),
-                     TinyML.ValHasType Θ w (e.typ.subst σ) ⊣⊢ iprop(⌜∃ x, w = e.inject x⌝)
+                     TinyML.ValHasType Θ w (e.typ.subst σ) ⊣⊢
+                       iprop(∃ x, ⌜w = e.inject x⌝ ∗ e.typePred σ Θ x)
   intro          : ∀ [MicaGS HasLC.hasLC Sig] (σ : TinyML.TyVar → TinyML.Typ)
                      (Θ : TinyML.TypeEnv) (x : e.carrier),
-                     ⊢ TinyML.ValHasType Θ (e.inject x) (e.typ.subst σ)
+                     e.typePred σ Θ x ⊢ TinyML.ValHasType Θ (e.inject x) (e.typ.subst σ)
+
+/-- Lift the pure membership fact of an embedding with trivial type predicate
+    to the predicate-carrying `member` shape (`∗ emp` under the existential). -/
+theorem pure_member [MicaGS HasLC.hasLC Sig] {P : iProp} {α : Type} {φ : α → Prop}
+    (h : P ⊣⊢ iprop(⌜∃ x, φ x⌝)) : P ⊣⊢ iprop(∃ x, ⌜φ x⌝ ∗ emp) :=
+  h.trans (pure_exists.symm.trans (exists_congr fun _ => sep_emp.symm))
 
 /-- Integers are a lawful embedding. -/
 def Embedding.lawfulInt : Embedding.int.Lawful where
   project_inject _ := rfl
-  isOf_wf _ := trivial
-  isOf_inject _ _ := by simp [Embedding.int]
-  member _ Θ w := by simpa [Embedding.int, TinyML.Typ.subst] using TinyML.ValHasType.int Θ w
+  isOf_wf _ _ h := by cases h; trivial
+  isOf_inject _ _ _ h := by cases h; simp [Embedding.int]
+  member _ Θ w := pure_member (φ := fun x => w = .int x)
+    (by simpa [Embedding.int, TinyML.Typ.subst] using TinyML.ValHasType.int Θ w)
   intro _ Θ x := by simpa [Embedding.int, TinyML.Typ.subst] using TinyML.ValHasType.int_intro Θ x
 
 /-- Booleans are a lawful embedding. -/
 def Embedding.lawfulBool : Embedding.bool.Lawful where
   project_inject _ := rfl
-  isOf_wf _ := trivial
-  isOf_inject _ _ := by simp [Embedding.bool]
-  member _ Θ w := by simpa [Embedding.bool, TinyML.Typ.subst] using TinyML.ValHasType.bool Θ w
+  isOf_wf _ _ h := by cases h; trivial
+  isOf_inject _ _ _ h := by cases h; simp [Embedding.bool]
+  member _ Θ w := pure_member (φ := fun x => w = .bool x)
+    (by simpa [Embedding.bool, TinyML.Typ.subst] using TinyML.ValHasType.bool Θ w)
   intro _ Θ x := by simpa [Embedding.bool, TinyML.Typ.subst] using TinyML.ValHasType.bool_intro Θ x
 
 /-- Characters are a lawful embedding. -/
 def Embedding.lawfulChar : Embedding.char.Lawful where
   project_inject _ := rfl
-  isOf_wf _ := trivial
-  isOf_inject _ _ := by simp [Embedding.char]
-  member _ Θ w := by simpa [Embedding.char, TinyML.Typ.subst] using TinyML.ValHasType.char Θ w
+  isOf_wf _ _ h := by cases h; trivial
+  isOf_inject _ _ _ h := by cases h; simp [Embedding.char]
+  member _ Θ w := pure_member (φ := fun x => w = .char x)
+    (by simpa [Embedding.char, TinyML.Typ.subst] using TinyML.ValHasType.char Θ w)
   intro _ Θ x := by simpa [Embedding.char, TinyML.Typ.subst] using TinyML.ValHasType.char_intro Θ x
 
 /-- Byte strings are a lawful embedding. -/
 def Embedding.lawfulStr : Embedding.str.Lawful where
   project_inject _ := rfl
-  isOf_wf _ := trivial
-  isOf_inject _ _ := by simp [Embedding.str]
-  member _ Θ w := by simpa [Embedding.str, TinyML.Typ.subst] using TinyML.ValHasType.string Θ w
+  isOf_wf _ _ h := by cases h; trivial
+  isOf_inject _ _ _ h := by cases h; simp [Embedding.str]
+  member _ Θ w := pure_member (φ := fun x => w = .str x)
+    (by simpa [Embedding.str, TinyML.Typ.subst] using TinyML.ValHasType.string Θ w)
   intro _ Θ x := by simpa [Embedding.str, TinyML.Typ.subst] using TinyML.ValHasType.string_intro Θ x
 
 /-- Floats are a lawful embedding. -/
 def Embedding.lawfulFloat : Embedding.float.Lawful where
   project_inject _ := rfl
-  isOf_wf _ := trivial
-  isOf_inject _ _ := by simp [Embedding.float]
-  member _ Θ w := by simpa [Embedding.float, TinyML.Typ.subst] using TinyML.ValHasType.float Θ w
+  isOf_wf _ _ h := by cases h; trivial
+  isOf_inject _ _ _ h := by cases h; simp [Embedding.float]
+  member _ Θ w := pure_member (φ := fun x => w = .float x)
+    (by simpa [Embedding.float, TinyML.Typ.subst] using TinyML.ValHasType.float Θ w)
   intro _ Θ x := by simpa [Embedding.float, TinyML.Typ.subst] using TinyML.ValHasType.float_intro Θ x
+
+/-- Type variables are a lawful embedding: the type predicate is the typing fact itself. -/
+def Embedding.lawfulPoly : Embedding.poly.Lawful where
+  project_inject _ := rfl
+  isOf_wf _ _ h := nomatch h
+  isOf_inject _ _ _ h := nomatch h
+  member σ Θ w := by
+    simp only [Embedding.poly, TinyML.Typ.subst]
+    constructor
+    · iintro H
+      iexists w
+      isplitl []
+      · ipureintro; rfl
+      · iexact H
+    · iintro ⟨%x, %hw, H⟩
+      obtain rfl := hw
+      iexact H
+  intro σ Θ x := by
+    simp only [Embedding.poly, TinyML.Typ.subst]
+    exact .rfl
+
+/-- Vectors are a lawful embedding: exactly the `ValHasType.vec` API. -/
+def Embedding.lawfulVec : Embedding.vec.Lawful where
+  project_inject _ := rfl
+  isOf_wf _ _ h := by cases h; trivial
+  isOf_inject _ _ _ h := by cases h; simp [Embedding.vec]
+  member σ Θ w := by
+    simpa [Embedding.vec, TinyML.Typ.subst] using TinyML.ValHasType.vec Θ w (σ "a")
+  intro σ Θ l := by
+    simpa [Embedding.vec, TinyML.Typ.subst] using TinyML.ValHasType.vec_intro Θ l (σ "a")
 
 /-! ## Name-based term builders -/
 
@@ -266,9 +337,9 @@ def Zero.sym (b : Zero) : FOL.Symbol .zero where
   name   := b.name
   interp := fun () => b.res.inject b.f
 
-/-- The result-typing axiom, generated from `res`. -/
-def Zero.typeAxiom (b : Zero) : Formula :=
-  .unpred b.res.isOf b.opTerm
+/-- The result-typing axiom, generated from `res` when it has a recognizer. -/
+def Zero.typeAxiom (b : Zero) : Option Formula :=
+  b.res.isOf.map fun p => .unpred p b.opTerm
 
 /-- The intrinsic built from `b`: a literal `Intrinsic.mk`. -/
 def Zero.toIntrinsic (b : Zero) : Intrinsic where
@@ -284,7 +355,7 @@ def Zero.toIntrinsic (b : Zero) : Intrinsic where
         .assert (.eq .value (.var .value "ret") b.opTerm) (.ret ())) }
   typing := b.typing
   folSym := some b.sym
-  axioms := [⟨b.defAxiom, .low⟩, ⟨b.typeAxiom, .low⟩]
+  axioms := ⟨b.defAxiom, .low⟩ :: (b.typeAxiom.map (⟨·, .low⟩)).toList
 
 @[simp] theorem Zero.toWp_eq (b : Zero) (Q : Runtime.Val → iProp) :
     b.toIntrinsic.toWp [] Q = Q (b.res.inject b.f) := rfl
@@ -299,14 +370,16 @@ def Zero.toIntrinsic (b : Zero) : Intrinsic where
     keeps the generated constant symbol distinct from the spec's `"ret"`
     binder, since both live in the value-constant namespace. -/
 structure Zero.Lawful (b : Zero) where
-  resL       : b.res.Lawful
-  nameFresh  : b.name ≠ "ret"
-  specBaseWf : PredTrans.wfIn
+  resL         : b.res.Lawful
+  nameFresh    : b.name ≠ "ret"
+  semWellTyped : ∀ [MicaGS HasLC.hasLC Sig] (σ : TinyML.TyVar → TinyML.Typ)
+                 (Θ : TinyML.TypeEnv), iprop(emp) ⊢ b.res.typePred σ Θ b.f
+  specBaseWf   : PredTrans.wfIn
                  ((Intrinsic.sigOf [b.toIntrinsic]).declVars
                    (Spec.argVars b.toIntrinsic.specArgs)) b.toIntrinsic.spec.pred
-  defWf      : b.defAxiom.wfIn (Intrinsic.sigOf [b.toIntrinsic])
-  typeWf     : b.typeAxiom.wfIn (Intrinsic.sigOf [b.toIntrinsic])
-  defEval    : ∀ ρ : Env, ρ.respects (some b.sym) → Formula.eval ρ b.defAxiom
+  defWf        : b.defAxiom.wfIn (Intrinsic.sigOf [b.toIntrinsic])
+  typeWf       : ∀ φ, b.typeAxiom = some φ → φ.wfIn (Intrinsic.sigOf [b.toIntrinsic])
+  defEval      : ∀ ρ : Env, ρ.respects (some b.sym) → Formula.eval ρ b.defAxiom
 
 /-- The `IntrinsicSound` instance for a pure zero-arity intrinsic. -/
 @[reducible] def Zero.Lawful.sound {b : Zero} (l : b.Lawful) :
@@ -348,26 +421,28 @@ structure Zero.Lawful (b : Zero) where
         simpa [Zero.opTerm, Term.eval, Const.denote] using hconst.symm
       · iintro Hwand
         iapply Hwand
-        exact l.resL.intro σ Θ b.f
+        exact (l.semWellTyped σ Θ).trans (l.resL.intro σ Θ b.f)
   axiomWf := by
     intro Δ hsub hwf a hφ
-    simp only [Zero.toIntrinsic, List.mem_cons, List.not_mem_nil, _root_.or_false] at hφ
-    rcases hφ with rfl | rfl
+    simp only [Zero.toIntrinsic, List.mem_cons, Option.mem_toList,
+      Option.map_eq_some_iff] at hφ
+    rcases hφ with rfl | ⟨φ, hφ, rfl⟩
     · exact Formula.wfIn_mono _ l.defWf hsub hwf
-    · exact Formula.wfIn_mono _ l.typeWf hsub hwf
+    · exact Formula.wfIn_mono _ (l.typeWf φ hφ) hsub hwf
   proof := by
     intro ρ hdeps a hφ
-    simp only [Zero.toIntrinsic, List.mem_cons, List.not_mem_nil, _root_.or_false] at hφ
+    simp only [Zero.toIntrinsic, List.mem_cons, Option.mem_toList,
+      Option.map_eq_some_iff, Zero.typeAxiom] at hφ
     have hresp : ρ.respects (some b.sym) := by
       have h := hdeps b.toIntrinsic (by simp)
       simpa [Zero.toIntrinsic] using h
-    rcases hφ with rfl | rfl
+    rcases hφ with rfl | ⟨φ, ⟨p, hp, rfl⟩, rfl⟩
     · exact l.defEval ρ hresp
-    · simp only [Zero.typeAxiom, Formula.eval, Zero.opTerm, Term.eval, Const.denote]
+    · simp only [Formula.eval, Zero.opTerm, Term.eval, Const.denote]
       have hconst : ρ.consts .value b.name = b.res.inject b.f := by
         simpa [Env.respects, Env.lookupConst, Zero.sym] using hresp
       rw [hconst]
-      exact l.resL.isOf_inject _ _
+      exact l.resL.isOf_inject _ _ p hp
 
 /-! ## Builder for pure unary intrinsics
 
@@ -400,10 +475,11 @@ def Unary.sym (b : Unary) : FOL.Symbol .one where
   name   := b.name
   interp := fun a => b.res.inject (b.f (b.arg.project a))
 
-/-- The result-typing axiom, generated from `res`. -/
-def Unary.typeAxiom (b : Unary) : Formula :=
-  .forall_ "a" .value [.term (b.opTerm (.var .value "a"))] <|
-    .unpred b.res.isOf (b.opTerm (.var .value "a"))
+/-- The result-typing axiom, generated from `res` when it has a recognizer. -/
+def Unary.typeAxiom (b : Unary) : Option Formula :=
+  b.res.isOf.map fun p =>
+    .forall_ "a" .value [.term (b.opTerm (.var .value "a"))] <|
+      .unpred p (b.opTerm (.var .value "a"))
 
 /-- The intrinsic built from `b`: a literal `Intrinsic.mk`. -/
 def Unary.toIntrinsic (b : Unary) : Intrinsic where
@@ -421,7 +497,7 @@ def Unary.toIntrinsic (b : Unary) : Intrinsic where
           (b.opTerm (.var .value "a"))) (.ret ())) }
   typing := b.typing
   folSym := some b.sym
-  axioms := [⟨b.defAxiom, .high⟩, ⟨b.typeAxiom, .high⟩]
+  axioms := ⟨b.defAxiom, .high⟩ :: (b.typeAxiom.map (⟨·, .high⟩)).toList
 
 @[simp] theorem Unary.toWp_eq (b : Unary) (a : Runtime.Val) (Q : Runtime.Val → iProp) :
     b.toIntrinsic.toWp [a] Q
@@ -448,18 +524,21 @@ def Unary.toIntrinsic (b : Unary) : Intrinsic where
     hypothesis is vacuous, so `dom` must hold unconditionally
     (`fun _ _ _ => trivial` for `dom := fun _ => True`). -/
 structure Unary.Lawful (b : Unary) where
-  argL       : b.arg.Lawful
-  resL       : b.res.Lawful
-  domSound   : ∀ (ρ : Env) (x : b.arg.carrier),
+  argL         : b.arg.Lawful
+  resL         : b.res.Lawful
+  domSound     : ∀ (ρ : Env) (x : b.arg.carrier),
                  (∀ p, b.pre = some p →
                    (p "a").eval (ρ.updateConst .value "a" (b.arg.inject x))) →
                  b.dom x
-  specBaseWf : PredTrans.wfIn
+  semWellTyped : ∀ [MicaGS HasLC.hasLC Sig] (σ : TinyML.TyVar → TinyML.Typ)
+                 (Θ : TinyML.TypeEnv) (x : b.arg.carrier), b.dom x →
+                 b.arg.typePred σ Θ x ⊢ b.res.typePred σ Θ (b.f x)
+  specBaseWf   : PredTrans.wfIn
                  ((Intrinsic.sigOf [b.toIntrinsic]).declVars
                    (Spec.argVars b.toIntrinsic.specArgs)) b.toIntrinsic.spec.pred
-  defWf      : b.defAxiom.wfIn (Intrinsic.sigOf [b.toIntrinsic])
-  typeWf     : b.typeAxiom.wfIn (Intrinsic.sigOf [b.toIntrinsic])
-  defEval    : ∀ ρ : Env, ρ.respects (some b.sym) → Formula.eval ρ b.defAxiom
+  defWf        : b.defAxiom.wfIn (Intrinsic.sigOf [b.toIntrinsic])
+  typeWf       : ∀ φ, b.typeAxiom = some φ → φ.wfIn (Intrinsic.sigOf [b.toIntrinsic])
+  defEval      : ∀ ρ : Env, ρ.respects (some b.sym) → Formula.eval ρ b.defAxiom
 
 /-- The `IntrinsicSound` instance for a pure unary intrinsic. -/
 @[reducible] def Unary.Lawful.sound {b : Unary} (l : b.Lawful) :
@@ -507,17 +586,21 @@ structure Unary.Lawful (b : Unary) where
       ihave Hcons := (TinyML.ValsHaveTypes.cons Θ v [] _ _).1 $$ Hvs
       icases Hcons with ⟨Hv, _⟩
       ihave Hveq := (l.argL.member σ Θ v).1 $$ Hv
-      ipure Hveq
-      obtain ⟨x, rfl⟩ := Hveq
+      icases Hveq with ⟨%x, %hw, Hrel⟩
+      obtain rfl := hw
       ihave Hsplit := withPre_apply Θ _ _ _ _ $$ Hpred
       icases Hsplit with ⟨%hpre, Hpost⟩
       have hdom : b.dom x := by
         refine l.domSound ρ.env x fun p hp => ?_
         have h := hpre (p "a") (by rw [hp]; rfl)
         simpa [Spec.argsEnv, VerifM.Env.updateConst_env] using h
+      ihave Hty : iprop(TinyML.ValHasType Θ (b.res.inject (b.f x)) (b.res.typ.subst σ)) $$ [Hrel]
+      · iapply (l.resL.intro σ Θ (b.f x))
+        iapply (l.semWellTyped σ Θ x hdom)
+        iexact Hrel
       simp only [Unary.toIntrinsic, Intrinsic.toWp_one_of_arity]
       iexists x
-      isplitr [Hpost]
+      isplitr [Hpost Hty]
       · ipureintro; exact ⟨rfl, hdom⟩
       · have hassert : (Formula.eq .value (.var .value "ret")
             (b.opTerm (.var .value "a"))).eval
@@ -531,32 +614,35 @@ structure Unary.Lawful (b : Unary) where
             (Spec.argsEnv ρ b.toIntrinsic.specArgs [b.arg.inject x]).env.unary
               .value .value b.name (b.arg.inject x)
           simp [hun, Unary.sym, l.argL.project_inject]
-        refine (assert_ret_apply Θ _ "ret" _ _ (b.res.inject (b.f x)) hassert).trans ?_
-        iintro Hwand
+        refine (sep_mono_left
+          (assert_ret_apply Θ _ "ret" _ _ (b.res.inject (b.f x)) hassert)).trans ?_
+        iintro ⟨Hwand, Hty⟩
         iapply Hwand
-        exact l.resL.intro σ Θ (b.f x)
+        iexact Hty
   axiomWf := by
     intro Δ hsub hwf a hφ
-    simp only [Unary.toIntrinsic, List.mem_cons, List.not_mem_nil, _root_.or_false] at hφ
-    rcases hφ with rfl | rfl
+    simp only [Unary.toIntrinsic, List.mem_cons, Option.mem_toList,
+      Option.map_eq_some_iff] at hφ
+    rcases hφ with rfl | ⟨φ, hφ, rfl⟩
     · exact Formula.wfIn_mono _ l.defWf hsub hwf
-    · exact Formula.wfIn_mono _ l.typeWf hsub hwf
+    · exact Formula.wfIn_mono _ (l.typeWf φ hφ) hsub hwf
   proof := by
     intro ρ hdeps a hφ
-    simp only [Unary.toIntrinsic, List.mem_cons, List.not_mem_nil, _root_.or_false] at hφ
+    simp only [Unary.toIntrinsic, List.mem_cons, Option.mem_toList,
+      Option.map_eq_some_iff, Unary.typeAxiom] at hφ
     have hresp : ρ.respects (some b.sym) := by
       have h := hdeps b.toIntrinsic (by simp)
       simpa [Unary.toIntrinsic] using h
-    rcases hφ with rfl | rfl
+    rcases hφ with rfl | ⟨φ, ⟨p, hp, rfl⟩, rfl⟩
     · exact l.defEval ρ hresp
-    · simp only [Unary.typeAxiom, Formula.eval]
+    · simp only [Formula.eval]
       intro x
       have hu : (ρ.updateConst .value "a" x).unary .value .value b.name = b.sym.interp := by
         rw [Env.updateConst_unary]
         simpa [Unary.sym] using hresp
       simp only [Unary.opTerm, Term.eval, UnOp.eval, Env.lookupConst_updateConst_same,
         hu, Unary.sym]
-      exact l.resL.isOf_inject _ _
+      exact l.resL.isOf_inject _ _ p hp
 
 /-! ## Builder for pure binary intrinsics
 
@@ -591,12 +677,13 @@ def Binary.sym (b : Binary) : FOL.Symbol .two where
   name   := b.name
   interp := fun (a, c) => b.res.inject (b.f (b.arg₁.project a) (b.arg₂.project c))
 
-/-- The result-typing axiom, generated from `res`: the op result satisfies the
-    result embedding's `is-of` predicate. -/
-def Binary.typeAxiom (b : Binary) : Formula :=
-  .all "a" .value <| .forall_ "b" .value
-    [.term (b.opTerm (.var .value "a") (.var .value "b"))] <|
-    .unpred b.res.isOf (b.opTerm (.var .value "a") (.var .value "b"))
+/-- The result-typing axiom, generated from `res` when it has a recognizer: the
+    op result satisfies the result embedding's `is-of` predicate. -/
+def Binary.typeAxiom (b : Binary) : Option Formula :=
+  b.res.isOf.map fun p =>
+    .all "a" .value <| .forall_ "b" .value
+      [.term (b.opTerm (.var .value "a") (.var .value "b"))] <|
+      .unpred p (b.opTerm (.var .value "a") (.var .value "b"))
 
 /-- The intrinsic built from `b`: a literal `Intrinsic.mk` so the arity-unfolding
     lemmas (`toReduce_two_of_arity`, `toWp_two_of_arity`) keep firing by `rfl`. -/
@@ -617,7 +704,7 @@ def Binary.toIntrinsic (b : Binary) : Intrinsic where
           (b.opTerm (.var .value "a") (.var .value "b"))) (.ret ())) }
   typing := b.typing
   folSym := some b.sym
-  axioms := [⟨b.defAxiom, .high⟩, ⟨b.typeAxiom, .high⟩]
+  axioms := ⟨b.defAxiom, .high⟩ :: (b.typeAxiom.map (⟨·, .high⟩)).toList
 
 @[simp] theorem Binary.toWp_eq (b : Binary) (a c : Runtime.Val) (Q : Runtime.Val → iProp) :
     b.toIntrinsic.toWp [a, c] Q =
@@ -647,20 +734,24 @@ def Binary.toIntrinsic (b : Binary) : Intrinsic where
     names), and validity of the defining axiom under the standard
     interpretation. -/
 structure Binary.Lawful (b : Binary) where
-  argL₁      : b.arg₁.Lawful
-  argL₂      : b.arg₂.Lawful
-  resL       : b.res.Lawful
-  domSound   : ∀ (ρ : Env) (x : b.arg₁.carrier) (y : b.arg₂.carrier),
+  argL₁        : b.arg₁.Lawful
+  argL₂        : b.arg₂.Lawful
+  resL         : b.res.Lawful
+  domSound     : ∀ (ρ : Env) (x : b.arg₁.carrier) (y : b.arg₂.carrier),
                  (∀ p, b.pre = some p →
                    (p "a" "b").eval ((ρ.updateConst .value "a" (b.arg₁.inject x)).updateConst
                      .value "b" (b.arg₂.inject y))) →
                  b.dom x y
-  specBaseWf : PredTrans.wfIn
+  semWellTyped : ∀ [MicaGS HasLC.hasLC Sig] (σ : TinyML.TyVar → TinyML.Typ)
+                 (Θ : TinyML.TypeEnv) (x : b.arg₁.carrier) (y : b.arg₂.carrier),
+                 b.dom x y →
+                 b.arg₁.typePred σ Θ x ∗ b.arg₂.typePred σ Θ y ⊢ b.res.typePred σ Θ (b.f x y)
+  specBaseWf   : PredTrans.wfIn
                  ((Intrinsic.sigOf [b.toIntrinsic]).declVars
                    (Spec.argVars b.toIntrinsic.specArgs)) b.toIntrinsic.spec.pred
-  defWf      : b.defAxiom.wfIn (Intrinsic.sigOf [b.toIntrinsic])
-  typeWf     : b.typeAxiom.wfIn (Intrinsic.sigOf [b.toIntrinsic])
-  defEval    : ∀ ρ : Env, ρ.respects (some b.sym) → Formula.eval ρ b.defAxiom
+  defWf        : b.defAxiom.wfIn (Intrinsic.sigOf [b.toIntrinsic])
+  typeWf       : ∀ φ, b.typeAxiom = some φ → φ.wfIn (Intrinsic.sigOf [b.toIntrinsic])
+  defEval      : ∀ ρ : Env, ρ.respects (some b.sym) → Formula.eval ρ b.defAxiom
 
 /-- The whole `IntrinsicSound` instance for a pure binary intrinsic. -/
 @[reducible] def Binary.Lawful.sound {b : Binary} (l : b.Lawful) :
@@ -717,21 +808,28 @@ structure Binary.Lawful (b : Binary) where
       ihave Hcons2 := (TinyML.ValsHaveTypes.cons Θ v2 [] _ _).1 $$ Hvs2
       icases Hcons2 with ⟨Hv2, _⟩
       ihave Hv1eq := (l.argL₁.member σ Θ v1).1 $$ Hv1
-      ipure Hv1eq
+      icases Hv1eq with ⟨%x, %hw1, Hrel1⟩
+      obtain rfl := hw1
       ihave Hv2eq := (l.argL₂.member σ Θ v2).1 $$ Hv2
-      ipure Hv2eq
-      obtain ⟨x, rfl⟩ := Hv1eq
-      obtain ⟨y, rfl⟩ := Hv2eq
+      icases Hv2eq with ⟨%y, %hw2, Hrel2⟩
+      obtain rfl := hw2
       ihave Hsplit := withPre_apply Θ _ _ _ _ $$ Hpred
       icases Hsplit with ⟨%hpre, Hpost⟩
       have hdom : b.dom x y := by
         refine l.domSound ρ.env x y fun p hp => ?_
         have h := hpre (p "a" "b") (by rw [hp]; rfl)
         simpa [Spec.argsEnv, VerifM.Env.updateConst_env] using h
+      ihave Hty : iprop(TinyML.ValHasType Θ (b.res.inject (b.f x y))
+          (b.res.typ.subst σ)) $$ [Hrel1 Hrel2]
+      · iapply (l.resL.intro σ Θ (b.f x y))
+        iapply (l.semWellTyped σ Θ x y hdom)
+        isplitl [Hrel1]
+        · iexact Hrel1
+        · iexact Hrel2
       simp only [Binary.toIntrinsic, Intrinsic.toWp_two_of_arity]
       iexists x
       iexists y
-      isplitr [Hpost]
+      isplitr [Hpost Hty]
       · ipureintro; exact ⟨rfl, rfl, hdom⟩
       · have hassert : (Formula.eq .value (.var .value "ret")
             (b.opTerm (.var .value "a") (.var .value "b"))).eval
@@ -749,25 +847,28 @@ structure Binary.Lawful (b : Binary) where
               [b.arg₁.inject x, b.arg₂.inject y]).env.binary
               .value .value .value b.name (b.arg₁.inject x) (b.arg₂.inject y)
           simp [hbin, Binary.sym, l.argL₁.project_inject, l.argL₂.project_inject]
-        refine (assert_ret_apply Θ _ "ret" _ _ (b.res.inject (b.f x y)) hassert).trans ?_
-        iintro Hwand
+        refine (sep_mono_left
+          (assert_ret_apply Θ _ "ret" _ _ (b.res.inject (b.f x y)) hassert)).trans ?_
+        iintro ⟨Hwand, Hty⟩
         iapply Hwand
-        exact l.resL.intro σ Θ (b.f x y)
+        iexact Hty
   axiomWf := by
     intro Δ hsub hwf a hφ
-    simp only [Binary.toIntrinsic, List.mem_cons, List.not_mem_nil, _root_.or_false] at hφ
-    rcases hφ with rfl | rfl
+    simp only [Binary.toIntrinsic, List.mem_cons, Option.mem_toList,
+      Option.map_eq_some_iff] at hφ
+    rcases hφ with rfl | ⟨φ, hφ, rfl⟩
     · exact Formula.wfIn_mono _ l.defWf hsub hwf
-    · exact Formula.wfIn_mono _ l.typeWf hsub hwf
+    · exact Formula.wfIn_mono _ (l.typeWf φ hφ) hsub hwf
   proof := by
     intro ρ hdeps a hφ
-    simp only [Binary.toIntrinsic, List.mem_cons, List.not_mem_nil, _root_.or_false] at hφ
+    simp only [Binary.toIntrinsic, List.mem_cons, Option.mem_toList,
+      Option.map_eq_some_iff, Binary.typeAxiom] at hφ
     have hresp : ρ.respects (some b.sym) := by
       have h := hdeps b.toIntrinsic (by simp)
       simpa [Binary.toIntrinsic] using h
-    rcases hφ with rfl | rfl
+    rcases hφ with rfl | ⟨φ, ⟨p, hp, rfl⟩, rfl⟩
     · exact l.defEval ρ hresp
-    · simp only [Binary.typeAxiom, Formula.all, Formula.eval]
+    · simp only [Formula.all, Formula.eval]
       intro x y
       have hb : ((ρ.updateConst .value "a" x).updateConst .value "b" y).binary
           .value .value .value b.name = fun a c => b.sym.interp (a, c) := by
@@ -775,7 +876,7 @@ structure Binary.Lawful (b : Binary) where
         simpa [Binary.sym] using hresp
       simp only [Binary.opTerm, Term.eval, BinOp.eval, Env.lookupConst_updateConst_same,
         Env.lookupConst_updateConst_ne (show "a" ≠ "b" by decide), hb, Binary.sym]
-      exact l.resL.isOf_inject _ _
+      exact l.resL.isOf_inject _ _ p hp
 
 /-! ## Builder for pure ternary intrinsics
 
@@ -813,13 +914,13 @@ def Ternary.sym (b : Ternary) : FOL.Symbol .three where
   interp := fun (a, c, d) =>
     b.res.inject (b.f (b.arg₁.project a) (b.arg₂.project c) (b.arg₃.project d))
 
-/-- The result-typing axiom, generated from `res`: the op result satisfies the
-    result embedding's `is-of` predicate. -/
-def Ternary.typeAxiom (b : Ternary) : Formula :=
-  .all "a" .value <| .all "b" .value <| .forall_ "c" .value
-    [.term (b.opTerm (.var .value "a") (.var .value "b") (.var .value "c"))] <|
-    .unpred b.res.isOf
-      (b.opTerm (.var .value "a") (.var .value "b") (.var .value "c"))
+/-- The result-typing axiom, generated from `res` when it has a recognizer: the
+    op result satisfies the result embedding's `is-of` predicate. -/
+def Ternary.typeAxiom (b : Ternary) : Option Formula :=
+  b.res.isOf.map fun p =>
+    .all "a" .value <| .all "b" .value <| .forall_ "c" .value
+      [.term (b.opTerm (.var .value "a") (.var .value "b") (.var .value "c"))] <|
+      .unpred p (b.opTerm (.var .value "a") (.var .value "b") (.var .value "c"))
 
 /-- The intrinsic built from `b`: a literal `Intrinsic.mk` so the arity-unfolding
     lemmas (`toReduce_three_of_arity`, `toWp_three_of_arity`) keep firing by `rfl`. -/
@@ -841,7 +942,7 @@ def Ternary.toIntrinsic (b : Ternary) : Intrinsic where
           (b.opTerm (.var .value "a") (.var .value "b") (.var .value "c"))) (.ret ())) }
   typing := b.typing
   folSym := some b.sym
-  axioms := [⟨b.defAxiom, .high⟩, ⟨b.typeAxiom, .high⟩]
+  axioms := ⟨b.defAxiom, .high⟩ :: (b.typeAxiom.map (⟨·, .high⟩)).toList
 
 @[simp] theorem Ternary.toWp_eq (b : Ternary) (a c d : Runtime.Val) (Q : Runtime.Val → iProp) :
     b.toIntrinsic.toWp [a, c, d] Q =
@@ -868,22 +969,27 @@ def Ternary.toIntrinsic (b : Ternary) : Intrinsic where
 
 /-- Proof obligations for a pure ternary intrinsic. -/
 structure Ternary.Lawful (b : Ternary) where
-  argL₁      : b.arg₁.Lawful
-  argL₂      : b.arg₂.Lawful
-  argL₃      : b.arg₃.Lawful
-  resL       : b.res.Lawful
-  domSound   : ∀ (ρ : Env) (x : b.arg₁.carrier) (y : b.arg₂.carrier) (z : b.arg₃.carrier),
+  argL₁        : b.arg₁.Lawful
+  argL₂        : b.arg₂.Lawful
+  argL₃        : b.arg₃.Lawful
+  resL         : b.res.Lawful
+  domSound     : ∀ (ρ : Env) (x : b.arg₁.carrier) (y : b.arg₂.carrier) (z : b.arg₃.carrier),
                  (∀ p, b.pre = some p →
                    (p "a" "b" "c").eval (((ρ.updateConst .value "a"
                      (b.arg₁.inject x)).updateConst .value "b"
                      (b.arg₂.inject y)).updateConst .value "c" (b.arg₃.inject z))) →
                  b.dom x y z
-  specBaseWf : PredTrans.wfIn
+  semWellTyped : ∀ [MicaGS HasLC.hasLC Sig] (σ : TinyML.TyVar → TinyML.Typ)
+                 (Θ : TinyML.TypeEnv) (x : b.arg₁.carrier) (y : b.arg₂.carrier)
+                 (z : b.arg₃.carrier), b.dom x y z →
+                 b.arg₁.typePred σ Θ x ∗ b.arg₂.typePred σ Θ y ∗ b.arg₃.typePred σ Θ z ⊢
+                   b.res.typePred σ Θ (b.f x y z)
+  specBaseWf   : PredTrans.wfIn
                  ((Intrinsic.sigOf [b.toIntrinsic]).declVars
                    (Spec.argVars b.toIntrinsic.specArgs)) b.toIntrinsic.spec.pred
-  defWf      : b.defAxiom.wfIn (Intrinsic.sigOf [b.toIntrinsic])
-  typeWf     : b.typeAxiom.wfIn (Intrinsic.sigOf [b.toIntrinsic])
-  defEval    : ∀ ρ : Env, ρ.respects (some b.sym) → Formula.eval ρ b.defAxiom
+  defWf        : b.defAxiom.wfIn (Intrinsic.sigOf [b.toIntrinsic])
+  typeWf       : ∀ φ, b.typeAxiom = some φ → φ.wfIn (Intrinsic.sigOf [b.toIntrinsic])
+  defEval      : ∀ ρ : Env, ρ.respects (some b.sym) → Formula.eval ρ b.defAxiom
 
 /-- The whole `IntrinsicSound` instance for a pure ternary intrinsic. -/
 @[reducible] def Ternary.Lawful.sound {b : Ternary} (l : b.Lawful) :
@@ -948,25 +1054,34 @@ structure Ternary.Lawful (b : Ternary) where
       ihave Hcons3 := (TinyML.ValsHaveTypes.cons Θ v3 [] _ _).1 $$ Hvs3
       icases Hcons3 with ⟨Hv3, _⟩
       ihave Hv1eq := (l.argL₁.member σ Θ v1).1 $$ Hv1
-      ipure Hv1eq
+      icases Hv1eq with ⟨%x, %hw1, Hrel1⟩
+      obtain rfl := hw1
       ihave Hv2eq := (l.argL₂.member σ Θ v2).1 $$ Hv2
-      ipure Hv2eq
+      icases Hv2eq with ⟨%y, %hw2, Hrel2⟩
+      obtain rfl := hw2
       ihave Hv3eq := (l.argL₃.member σ Θ v3).1 $$ Hv3
-      ipure Hv3eq
-      obtain ⟨x, rfl⟩ := Hv1eq
-      obtain ⟨y, rfl⟩ := Hv2eq
-      obtain ⟨z, rfl⟩ := Hv3eq
+      icases Hv3eq with ⟨%z, %hw3, Hrel3⟩
+      obtain rfl := hw3
       ihave Hsplit := withPre_apply Θ _ _ _ _ $$ Hpred
       icases Hsplit with ⟨%hpre, Hpost⟩
       have hdom : b.dom x y z := by
         refine l.domSound ρ.env x y z fun p hp => ?_
         have h := hpre (p "a" "b" "c") (by rw [hp]; rfl)
         simpa [Spec.argsEnv, VerifM.Env.updateConst_env] using h
+      ihave Hty : iprop(TinyML.ValHasType Θ (b.res.inject (b.f x y z))
+          (b.res.typ.subst σ)) $$ [Hrel1 Hrel2 Hrel3]
+      · iapply (l.resL.intro σ Θ (b.f x y z))
+        iapply (l.semWellTyped σ Θ x y z hdom)
+        isplitl [Hrel1]
+        · iexact Hrel1
+        · isplitl [Hrel2]
+          · iexact Hrel2
+          · iexact Hrel3
       simp only [Ternary.toIntrinsic, Intrinsic.toWp_three_of_arity]
       iexists x
       iexists y
       iexists z
-      isplitr [Hpost]
+      isplitr [Hpost Hty]
       · ipureintro; exact ⟨rfl, rfl, rfl, hdom⟩
       · have hassert : (Formula.eq .value (.var .value "ret")
             (b.opTerm (.var .value "a") (.var .value "b") (.var .value "c"))).eval
@@ -987,25 +1102,28 @@ structure Ternary.Lawful (b : Ternary) where
               (b.arg₁.inject x) (b.arg₂.inject y) (b.arg₃.inject z)
           simp [hter, Ternary.sym, l.argL₁.project_inject, l.argL₂.project_inject,
             l.argL₃.project_inject]
-        refine (assert_ret_apply Θ _ "ret" _ _ (b.res.inject (b.f x y z)) hassert).trans ?_
-        iintro Hwand
+        refine (sep_mono_left
+          (assert_ret_apply Θ _ "ret" _ _ (b.res.inject (b.f x y z)) hassert)).trans ?_
+        iintro ⟨Hwand, Hty⟩
         iapply Hwand
-        exact l.resL.intro σ Θ (b.f x y z)
+        iexact Hty
   axiomWf := by
     intro Δ hsub hwf a hφ
-    simp only [Ternary.toIntrinsic, List.mem_cons, List.not_mem_nil, _root_.or_false] at hφ
-    rcases hφ with rfl | rfl
+    simp only [Ternary.toIntrinsic, List.mem_cons, Option.mem_toList,
+      Option.map_eq_some_iff] at hφ
+    rcases hφ with rfl | ⟨φ, hφ, rfl⟩
     · exact Formula.wfIn_mono _ l.defWf hsub hwf
-    · exact Formula.wfIn_mono _ l.typeWf hsub hwf
+    · exact Formula.wfIn_mono _ (l.typeWf φ hφ) hsub hwf
   proof := by
     intro ρ hdeps a hφ
-    simp only [Ternary.toIntrinsic, List.mem_cons, List.not_mem_nil, _root_.or_false] at hφ
+    simp only [Ternary.toIntrinsic, List.mem_cons, Option.mem_toList,
+      Option.map_eq_some_iff, Ternary.typeAxiom] at hφ
     have hresp : ρ.respects (some b.sym) := by
       have h := hdeps b.toIntrinsic (by simp)
       simpa [Ternary.toIntrinsic] using h
-    rcases hφ with rfl | rfl
+    rcases hφ with rfl | ⟨φ, ⟨p, hp, rfl⟩, rfl⟩
     · exact l.defEval ρ hresp
-    · simp only [Ternary.typeAxiom, Formula.all, Formula.eval]
+    · simp only [Formula.all, Formula.eval]
       intro x y z
       have ht : (((ρ.updateConst .value "a" x).updateConst .value "b" y).updateConst
             .value "c" z).ternary .value .value .value .value b.name =
@@ -1017,7 +1135,7 @@ structure Ternary.Lawful (b : Ternary) where
         Env.lookupConst_updateConst_ne (show "a" ≠ "c" by decide),
         Env.lookupConst_updateConst_ne (show "b" ≠ "c" by decide),
         ht, Ternary.sym]
-      exact l.resL.isOf_inject _ _
+      exact l.resL.isOf_inject _ _ p hp
 
 end Pure
 
@@ -1032,7 +1150,8 @@ macro_rules
     Env.lookupConst_updateConst_same, Pure.Zero.sym, Pure.Unary.sym, Pure.Binary.sym,
     Pure.Ternary.sym,
     Embedding.int, Embedding.bool, Embedding.char, Embedding.str, Embedding.float,
-     Const.denote, valInt, valBool, valChar, valStr, valFloat, $xs,*]))
+    Embedding.poly, Embedding.vec,
+     Const.denote, valInt, valBool, valChar, valStr, valFloat, valVec, $xs,*]))
 
 end Intrinsics
 end Stdlib

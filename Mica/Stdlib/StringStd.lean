@@ -177,13 +177,14 @@ def stringLength : Intrinsic := stringLengthB.toIntrinsic
 @[simp] theorem stringLength_folSym : stringLength.folSym = some stringLengthSym := rfl
 
 def stringLengthLawful : stringLengthB.Lawful where
-  argL       := Embedding.lawfulStr
-  resL       := Embedding.lawfulInt
-  domSound   := fun _ _ _ => True.intro
-  specBaseWf := by apply PredTrans.checkWf_ok; rfl
-  defWf      := by apply Formula.checkWf_ok; rfl
-  typeWf     := by apply Formula.checkWf_ok; rfl
-  defEval    := by intrinsic_def_eval [unTerm, stringLengthB, stringLengthDefAxiom]; intros; rfl
+  argL         := Embedding.lawfulStr
+  resL         := Embedding.lawfulInt
+  domSound     := fun _ _ _ => True.intro
+  semWellTyped := fun _ _ _ _ => .rfl
+  specBaseWf   := by apply PredTrans.checkWf_ok; rfl
+  defWf        := by apply Formula.checkWf_ok; rfl
+  typeWf       := by intro φ h; injection h with h; subst h; apply Formula.checkWf_ok; rfl
+  defEval      := by intrinsic_def_eval [unTerm, stringLengthB, stringLengthDefAxiom]; intros; rfl
 
 instance : IntrinsicSound [stringLength] stringLength := stringLengthLawful.sound
 
@@ -208,14 +209,15 @@ def stringCat : Intrinsic := stringCatB.toIntrinsic
 @[simp] theorem stringCat_folSym : stringCat.folSym = some stringCatSym := rfl
 
 def stringCatLawful : stringCatB.Lawful where
-  argL₁      := Embedding.lawfulStr
-  argL₂      := Embedding.lawfulStr
-  resL       := Embedding.lawfulStr
-  domSound   := fun _ _ _ _ => True.intro
-  specBaseWf := by apply PredTrans.checkWf_ok; rfl
-  defWf      := by apply Formula.checkWf_ok; rfl
-  typeWf     := by apply Formula.checkWf_ok; rfl
-  defEval    := by intrinsic_def_eval [binTerm, stringCatB, stringCatDefAxiom]; intros; rfl
+  argL₁        := Embedding.lawfulStr
+  argL₂        := Embedding.lawfulStr
+  resL         := Embedding.lawfulStr
+  domSound     := fun _ _ _ _ => True.intro
+  semWellTyped := fun _ _ _ _ _ => sep_emp.1
+  specBaseWf   := by apply PredTrans.checkWf_ok; rfl
+  defWf        := by apply Formula.checkWf_ok; rfl
+  typeWf       := by intro φ h; injection h with h; subst h; apply Formula.checkWf_ok; rfl
+  defEval      := by intrinsic_def_eval [binTerm, stringCatB, stringCatDefAxiom]; intros; rfl
 
 instance : IntrinsicSound [stringCat] stringCat := stringCatLawful.sound
 
@@ -240,19 +242,20 @@ def stringGet : Intrinsic := stringGetB.toIntrinsic
 @[simp] theorem stringGet_folSym : stringGet.folSym = some stringGetSym := rfl
 
 def stringGetLawful : stringGetB.Lawful where
-  argL₁      := Embedding.lawfulStr
-  argL₂      := Embedding.lawfulInt
-  resL       := Embedding.lawfulChar
-  domSound   := by
+  argL₁        := Embedding.lawfulStr
+  argL₂        := Embedding.lawfulInt
+  resL         := Embedding.lawfulChar
+  domSound     := by
     intro ρ s i h
     have hpre := h stringGetPre rfl
     simpa [stringGetB, stringGetPre, Embedding.str, Embedding.int, Formula.eval, Term.eval,
       Const.denote, Env.lookupConst_updateConst_same,
       Env.lookupConst_updateConst_ne (show "a" ≠ "b" by decide), valStr, valInt] using hpre
-  specBaseWf := by apply PredTrans.checkWf_ok; rfl
-  defWf      := by apply Formula.checkWf_ok; rfl
-  typeWf     := by apply Formula.checkWf_ok; rfl
-  defEval    := by
+  semWellTyped := fun _ _ _ _ _ => sep_emp.1
+  specBaseWf   := by apply PredTrans.checkWf_ok; rfl
+  defWf        := by apply Formula.checkWf_ok; rfl
+  typeWf       := by intro φ h; injection h with h; subst h; apply Formula.checkWf_ok; rfl
+  defEval      := by
     have hsym : stringGetB.sym = stringGetSym := rfl
     intro ρ hresp
     rw [hsym] at hresp
@@ -292,11 +295,11 @@ def stringSub : Intrinsic := stringSubB.toIntrinsic
 @[simp] theorem stringSub_folSym : stringSub.folSym = some stringSubSym := rfl
 
 def stringSubLawful : stringSubB.Lawful where
-  argL₁      := Embedding.lawfulStr
-  argL₂      := Embedding.lawfulInt
-  argL₃      := Embedding.lawfulInt
-  resL       := Embedding.lawfulStr
-  domSound   := by
+  argL₁        := Embedding.lawfulStr
+  argL₂        := Embedding.lawfulInt
+  argL₃        := Embedding.lawfulInt
+  resL         := Embedding.lawfulStr
+  domSound     := by
     intro ρ s pos len h
     have hpre := h stringSubPre rfl
     simpa [stringSubB, stringSubPre, Embedding.str, Embedding.int, Formula.eval, Term.eval,
@@ -304,10 +307,11 @@ def stringSubLawful : stringSubB.Lawful where
       Env.lookupConst_updateConst_ne (show "a" ≠ "b" by decide),
       Env.lookupConst_updateConst_ne (show "a" ≠ "c" by decide),
       Env.lookupConst_updateConst_ne (show "b" ≠ "c" by decide), valStr, valInt] using hpre
-  specBaseWf := by apply PredTrans.checkWf_ok; rfl
-  defWf      := by apply Formula.checkWf_ok; rfl
-  typeWf     := by apply Formula.checkWf_ok; rfl
-  defEval    := by
+  semWellTyped := fun _ _ _ _ _ _ => emp_sep.1.trans emp_sep.1
+  specBaseWf   := by apply PredTrans.checkWf_ok; rfl
+  defWf        := by apply Formula.checkWf_ok; rfl
+  typeWf       := by intro φ h; injection h with h; subst h; apply Formula.checkWf_ok; rfl
+  defEval      := by
     have hsym : stringSubB.sym = stringSubSym := rfl
     intro ρ hresp
     rw [hsym] at hresp
@@ -349,14 +353,15 @@ def stringEqual : Intrinsic := stringEqualB.toIntrinsic
 @[simp] theorem stringEqual_folSym : stringEqual.folSym = some stringEqualSym := rfl
 
 def stringEqualLawful : stringEqualB.Lawful where
-  argL₁      := Embedding.lawfulStr
-  argL₂      := Embedding.lawfulStr
-  resL       := Embedding.lawfulBool
-  domSound   := fun _ _ _ _ => True.intro
-  specBaseWf := by apply PredTrans.checkWf_ok; rfl
-  defWf      := by apply Formula.checkWf_ok; rfl
-  typeWf     := by apply Formula.checkWf_ok; rfl
-  defEval    := by
+  argL₁        := Embedding.lawfulStr
+  argL₂        := Embedding.lawfulStr
+  resL         := Embedding.lawfulBool
+  domSound     := fun _ _ _ _ => True.intro
+  semWellTyped := fun _ _ _ _ _ => sep_emp.1
+  specBaseWf   := by apply PredTrans.checkWf_ok; rfl
+  defWf        := by apply Formula.checkWf_ok; rfl
+  typeWf       := by intro φ h; injection h with h; subst h; apply Formula.checkWf_ok; rfl
+  defEval      := by
     intrinsic_def_eval [binTerm, stringEqualB, stringEqualDefAxiom, Bool.beq_eq_decide_eq]
     intros; rfl
 
@@ -384,14 +389,15 @@ def stringStartsWith : Intrinsic := stringStartsWithB.toIntrinsic
     stringStartsWith.folSym = some stringStartsWithSym := rfl
 
 def stringStartsWithLawful : stringStartsWithB.Lawful where
-  argL₁      := Embedding.lawfulStr
-  argL₂      := Embedding.lawfulStr
-  resL       := Embedding.lawfulBool
-  domSound   := fun _ _ _ _ => True.intro
-  specBaseWf := by apply PredTrans.checkWf_ok; rfl
-  defWf      := by apply Formula.checkWf_ok; rfl
-  typeWf     := by apply Formula.checkWf_ok; rfl
-  defEval    := by
+  argL₁        := Embedding.lawfulStr
+  argL₂        := Embedding.lawfulStr
+  resL         := Embedding.lawfulBool
+  domSound     := fun _ _ _ _ => True.intro
+  semWellTyped := fun _ _ _ _ _ => sep_emp.1
+  specBaseWf   := by apply PredTrans.checkWf_ok; rfl
+  defWf        := by apply Formula.checkWf_ok; rfl
+  typeWf       := by intro φ h; injection h with h; subst h; apply Formula.checkWf_ok; rfl
+  defEval      := by
     intrinsic_def_eval [binTerm, stringStartsWithB, stringStartsWithDefAxiom]; intros; rfl
 
 instance : IntrinsicSound [stringStartsWith] stringStartsWith := stringStartsWithLawful.sound
@@ -417,14 +423,15 @@ def stringEndsWith : Intrinsic := stringEndsWithB.toIntrinsic
 @[simp] theorem stringEndsWith_folSym : stringEndsWith.folSym = some stringEndsWithSym := rfl
 
 def stringEndsWithLawful : stringEndsWithB.Lawful where
-  argL₁      := Embedding.lawfulStr
-  argL₂      := Embedding.lawfulStr
-  resL       := Embedding.lawfulBool
-  domSound   := fun _ _ _ _ => True.intro
-  specBaseWf := by apply PredTrans.checkWf_ok; rfl
-  defWf      := by apply Formula.checkWf_ok; rfl
-  typeWf     := by apply Formula.checkWf_ok; rfl
-  defEval    := by
+  argL₁        := Embedding.lawfulStr
+  argL₂        := Embedding.lawfulStr
+  resL         := Embedding.lawfulBool
+  domSound     := fun _ _ _ _ => True.intro
+  semWellTyped := fun _ _ _ _ _ => sep_emp.1
+  specBaseWf   := by apply PredTrans.checkWf_ok; rfl
+  defWf        := by apply Formula.checkWf_ok; rfl
+  typeWf       := by intro φ h; injection h with h; subst h; apply Formula.checkWf_ok; rfl
+  defEval      := by
     intrinsic_def_eval [binTerm, stringEndsWithB, stringEndsWithDefAxiom]; intros; rfl
 
 instance : IntrinsicSound [stringEndsWith] stringEndsWith := stringEndsWithLawful.sound

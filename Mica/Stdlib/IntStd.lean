@@ -77,14 +77,15 @@ def intMin : Intrinsic := intMinB.toIntrinsic
 @[simp] theorem intMin_arity : intMin.arity = .two := rfl
 
 def intMinLawful : intMinB.Lawful where
-  argL₁      := Embedding.lawfulInt
-  argL₂      := Embedding.lawfulInt
-  resL       := Embedding.lawfulInt
-  domSound   := fun _ _ _ _ => True.intro
-  specBaseWf := by apply PredTrans.checkWf_ok; rfl
-  defWf      := by apply Formula.checkWf_ok; rfl
-  typeWf     := by apply Formula.checkWf_ok; rfl
-  defEval    := by
+  argL₁        := Embedding.lawfulInt
+  argL₂        := Embedding.lawfulInt
+  resL         := Embedding.lawfulInt
+  domSound     := fun _ _ _ _ => True.intro
+  semWellTyped := fun _ _ _ _ _ => sep_emp.1
+  specBaseWf   := by apply PredTrans.checkWf_ok; rfl
+  defWf        := by apply Formula.checkWf_ok; rfl
+  typeWf       := by intro φ h; injection h with h; subst h; apply Formula.checkWf_ok; rfl
+  defEval      := by
     intrinsic_def_eval [binTerm, intMinB, intMinDefAxiom]
     intro x y
     rw [min_def, Bool.cond_decide]; congr 1
@@ -112,14 +113,15 @@ def intMax : Intrinsic := intMaxB.toIntrinsic
 @[simp] theorem intMax_arity : intMax.arity = .two := rfl
 
 def intMaxLawful : intMaxB.Lawful where
-  argL₁      := Embedding.lawfulInt
-  argL₂      := Embedding.lawfulInt
-  resL       := Embedding.lawfulInt
-  domSound   := fun _ _ _ _ => True.intro
-  specBaseWf := by apply PredTrans.checkWf_ok; rfl
-  defWf      := by apply Formula.checkWf_ok; rfl
-  typeWf     := by apply Formula.checkWf_ok; rfl
-  defEval    := by
+  argL₁        := Embedding.lawfulInt
+  argL₂        := Embedding.lawfulInt
+  resL         := Embedding.lawfulInt
+  domSound     := fun _ _ _ _ => True.intro
+  semWellTyped := fun _ _ _ _ _ => sep_emp.1
+  specBaseWf   := by apply PredTrans.checkWf_ok; rfl
+  defWf        := by apply Formula.checkWf_ok; rfl
+  typeWf       := by intro φ h; injection h with h; subst h; apply Formula.checkWf_ok; rfl
+  defEval      := by
     intrinsic_def_eval [binTerm, intMaxB, intMaxDefAxiom]
     intro x y
     rw [max_comm, max_def, Bool.cond_decide]; congr 1

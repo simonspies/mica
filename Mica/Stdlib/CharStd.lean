@@ -63,13 +63,14 @@ def charCode : Intrinsic := charCodeB.toIntrinsic
 @[simp] theorem charCode_folSym : charCode.folSym = some charCodeSym := rfl
 
 def charCodeLawful : charCodeB.Lawful where
-  argL       := Embedding.lawfulChar
-  resL       := Embedding.lawfulInt
-  domSound   := fun _ _ _ => True.intro
-  specBaseWf := by apply PredTrans.checkWf_ok; rfl
-  defWf      := by apply Formula.checkWf_ok; rfl
-  typeWf     := by apply Formula.checkWf_ok; rfl
-  defEval    := by
+  argL         := Embedding.lawfulChar
+  resL         := Embedding.lawfulInt
+  domSound     := fun _ _ _ => True.intro
+  semWellTyped := fun _ _ _ _ => .rfl
+  specBaseWf   := by apply PredTrans.checkWf_ok; rfl
+  defWf        := by apply Formula.checkWf_ok; rfl
+  typeWf       := by intro φ h; injection h with h; subst h; apply Formula.checkWf_ok; rfl
+  defEval      := by
     intrinsic_def_eval [unTerm, charCodeB, charCodeDefAxiom]
     intro v
     rfl
@@ -112,17 +113,18 @@ def charChr : Intrinsic := charChrB.toIntrinsic
 @[simp] theorem charChr_folSym : charChr.folSym = some charChrSym := rfl
 
 def charChrLawful : charChrB.Lawful where
-  argL       := Embedding.lawfulInt
-  resL       := Embedding.lawfulChar
-  domSound   := by
+  argL         := Embedding.lawfulInt
+  resL         := Embedding.lawfulChar
+  domSound     := by
     intro ρ n h
     have hpre := h charChrPre rfl
     simpa [charChrB, charChrPre, Embedding.int, Formula.eval, Term.eval, Const.denote,
       Env.lookupConst_updateConst_same, valInt] using hpre
-  specBaseWf := by apply PredTrans.checkWf_ok; rfl
-  defWf      := by apply Formula.checkWf_ok; rfl
-  typeWf     := by apply Formula.checkWf_ok; rfl
-  defEval    := by
+  semWellTyped := fun _ _ _ _ => .rfl
+  specBaseWf   := by apply PredTrans.checkWf_ok; rfl
+  defWf        := by apply Formula.checkWf_ok; rfl
+  typeWf       := by intro φ h; injection h with h; subst h; apply Formula.checkWf_ok; rfl
+  defEval      := by
     have hsym : charChrB.sym = charChrSym := rfl
     intro ρ hresp
     rw [hsym] at hresp
@@ -169,14 +171,15 @@ def charEqual : Intrinsic := charEqualB.toIntrinsic
 @[simp] theorem charEqual_folSym : charEqual.folSym = some charEqualSym := rfl
 
 def charEqualLawful : charEqualB.Lawful where
-  argL₁      := Embedding.lawfulChar
-  argL₂      := Embedding.lawfulChar
-  resL       := Embedding.lawfulBool
-  domSound   := fun _ _ _ _ => True.intro
-  specBaseWf := by apply PredTrans.checkWf_ok; rfl
-  defWf      := by apply Formula.checkWf_ok; rfl
-  typeWf     := by apply Formula.checkWf_ok; rfl
-  defEval    := by
+  argL₁        := Embedding.lawfulChar
+  argL₂        := Embedding.lawfulChar
+  resL         := Embedding.lawfulBool
+  domSound     := fun _ _ _ _ => True.intro
+  semWellTyped := fun _ _ _ _ _ => sep_emp.1
+  specBaseWf   := by apply PredTrans.checkWf_ok; rfl
+  defWf        := by apply Formula.checkWf_ok; rfl
+  typeWf       := by intro φ h; injection h with h; subst h; apply Formula.checkWf_ok; rfl
+  defEval      := by
     intrinsic_def_eval [binTerm, charEqualB, charEqualDefAxiom, Bool.beq_eq_decide_eq]
     intros; rfl
 
