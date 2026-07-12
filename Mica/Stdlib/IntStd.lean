@@ -68,7 +68,6 @@ def intMinB : Pure.Binary where
   f        := (min : Int → Int → Int)
   dom      := fun _ _ => True
   pre      := none
-  typing   := monoTyping .two
   defAxiom := intMinDefAxiom
 
 def intMin : Intrinsic := intMinB.toIntrinsic
@@ -104,7 +103,6 @@ def intMaxB : Pure.Binary where
   f        := (max : Int → Int → Int)
   dom      := fun _ _ => True
   pre      := none
-  typing   := monoTyping .two
   defAxiom := intMaxDefAxiom
 
 def intMax : Intrinsic := intMaxB.toIntrinsic

@@ -54,7 +54,6 @@ def charCodeB : Pure.Unary where
   f        := (fun c => (c.toNat : Int) : UInt8 → Int)
   dom      := fun _ => True
   pre      := none
-  typing   := monoTyping .one
   defAxiom := charCodeDefAxiom
 
 def charCode : Intrinsic := charCodeB.toIntrinsic
@@ -104,7 +103,6 @@ def charChrB : Pure.Unary where
   f        := charChrByte
   dom      := (fun n => 0 ≤ n ∧ n < 256 : Int → Prop)
   pre      := some charChrPre
-  typing   := monoTyping .one
   defAxiom := charChrDefAxiom
 
 def charChr : Intrinsic := charChrB.toIntrinsic
@@ -162,7 +160,6 @@ def charEqualB : Pure.Binary where
   f        := (fun x y => x == y : UInt8 → UInt8 → Bool)
   dom      := fun _ _ => True
   pre      := none
-  typing   := monoTyping .two
   defAxiom := charEqualDefAxiom
 
 def charEqual : Intrinsic := charEqualB.toIntrinsic

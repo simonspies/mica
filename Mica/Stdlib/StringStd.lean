@@ -168,7 +168,6 @@ def stringLengthB : Pure.Unary where
   f        := (fun s => (s.length : Int) : List UInt8 → Int)
   dom      := fun _ => True
   pre      := none
-  typing   := monoTyping .one
   defAxiom := stringLengthDefAxiom
 
 def stringLength : Intrinsic := stringLengthB.toIntrinsic
@@ -200,7 +199,6 @@ def stringCatB : Pure.Binary where
   f        := (fun x y => x ++ y : List UInt8 → List UInt8 → List UInt8)
   dom      := fun _ _ => True
   pre      := none
-  typing   := monoTyping .two
   defAxiom := stringCatDefAxiom
 
 def stringCat : Intrinsic := stringCatB.toIntrinsic
@@ -233,7 +231,6 @@ def stringGetB : Pure.Binary where
   f        := stringGetByte
   dom      := (fun s i => 0 ≤ i ∧ i < (s.length : Int) : List UInt8 → Int → Prop)
   pre      := some stringGetPre
-  typing   := monoTyping .two
   defAxiom := stringGetDefAxiom
 
 def stringGet : Intrinsic := stringGetB.toIntrinsic
@@ -286,7 +283,6 @@ def stringSubB : Pure.Ternary where
   dom      := (fun s pos len => 0 ≤ pos ∧ 0 ≤ len ∧ pos + len ≤ (s.length : Int) :
                 List UInt8 → Int → Int → Prop)
   pre      := some stringSubPre
-  typing   := monoTyping .three
   defAxiom := stringSubDefAxiom
 
 def stringSub : Intrinsic := stringSubB.toIntrinsic
@@ -344,7 +340,6 @@ def stringEqualB : Pure.Binary where
   f        := (fun x y => x == y : List UInt8 → List UInt8 → Bool)
   dom      := fun _ _ => True
   pre      := none
-  typing   := monoTyping .two
   defAxiom := stringEqualDefAxiom
 
 def stringEqual : Intrinsic := stringEqualB.toIntrinsic
@@ -379,7 +374,6 @@ def stringStartsWithB : Pure.Binary where
   f        := (fun x y => x.isPrefixOf y : List UInt8 → List UInt8 → Bool)
   dom      := fun _ _ => True
   pre      := none
-  typing   := monoTyping .two
   defAxiom := stringStartsWithDefAxiom
 
 def stringStartsWith : Intrinsic := stringStartsWithB.toIntrinsic
@@ -414,7 +408,6 @@ def stringEndsWithB : Pure.Binary where
   f        := (fun x y => x.isSuffixOf y : List UInt8 → List UInt8 → Bool)
   dom      := fun _ _ => True
   pre      := none
-  typing   := monoTyping .two
   defAxiom := stringEndsWithDefAxiom
 
 def stringEndsWith : Intrinsic := stringEndsWithB.toIntrinsic

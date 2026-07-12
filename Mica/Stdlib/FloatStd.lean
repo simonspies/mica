@@ -117,7 +117,6 @@ def floatAbsB : Pure.Unary where
   f        := FloatBits.abs
   dom      := fun _ => True
   pre      := none
-  typing   := monoTyping .one
   defAxiom := floatAbsDefAxiom
 
 def floatAbs : Intrinsic := floatAbsB.toIntrinsic
@@ -150,7 +149,6 @@ def floatNegB : Pure.Unary where
   f        := FloatBits.neg
   dom      := fun _ => True
   pre      := none
-  typing   := monoTyping .one
   defAxiom := floatNegDefAxiom
 
 def floatNeg : Intrinsic := floatNegB.toIntrinsic
@@ -183,7 +181,6 @@ def floatSqrtB : Pure.Unary where
   f        := FloatBits.sqrt
   dom      := fun _ => True
   pre      := none
-  typing   := monoTyping .one
   defAxiom := floatSqrtDefAxiom
 
 def floatSqrt : Intrinsic := floatSqrtB.toIntrinsic
@@ -216,7 +213,6 @@ def floatIsNanB : Pure.Unary where
   f        := FloatBits.isNaN
   dom      := fun _ => True
   pre      := none
-  typing   := monoTyping .one
   defAxiom := floatIsNanDefAxiom
 
 def floatIsNan : Intrinsic := floatIsNanB.toIntrinsic
@@ -253,7 +249,6 @@ def floatIsFiniteB : Pure.Unary where
   f        := FloatBits.isFinite
   dom      := fun _ => True
   pre      := none
-  typing   := monoTyping .one
   defAxiom := floatIsFiniteDefAxiom
 
 def floatIsFinite : Intrinsic := floatIsFiniteB.toIntrinsic
@@ -286,7 +281,6 @@ def floatOfIntB : Pure.Unary where
   f        := FloatBits.ofInt
   dom      := fun _ => True
   pre      := none
-  typing   := monoTyping .one
   defAxiom := floatOfIntDefAxiom
 
 def floatOfInt : Intrinsic := floatOfIntB.toIntrinsic
@@ -321,7 +315,6 @@ def floatAddB : Pure.Binary where
   f        := FloatBits.add
   dom      := fun _ _ => True
   pre      := none
-  typing   := monoTyping .two
   defAxiom := binFloatDefAxiom floatAddSym .fpAdd
 
 def floatAdd : Intrinsic := floatAddB.toIntrinsic
@@ -351,7 +344,6 @@ def floatSubB : Pure.Binary where
   f        := FloatBits.sub
   dom      := fun _ _ => True
   pre      := none
-  typing   := monoTyping .two
   defAxiom := binFloatDefAxiom floatSubSym .fpSub
 
 def floatSub : Intrinsic := floatSubB.toIntrinsic
@@ -381,7 +373,6 @@ def floatMulB : Pure.Binary where
   f        := FloatBits.mul
   dom      := fun _ _ => True
   pre      := none
-  typing   := monoTyping .two
   defAxiom := binFloatDefAxiom floatMulSym .fpMul
 
 def floatMul : Intrinsic := floatMulB.toIntrinsic
@@ -411,7 +402,6 @@ def floatDivB : Pure.Binary where
   f        := FloatBits.div
   dom      := fun _ _ => True
   pre      := none
-  typing   := monoTyping .two
   defAxiom := binFloatDefAxiom floatDivSym .fpDiv
 
 def floatDiv : Intrinsic := floatDivB.toIntrinsic
@@ -454,7 +444,6 @@ def floatMinB : Pure.Binary where
   f        := FloatBits.min
   dom      := fun _ _ => True
   pre      := none
-  typing   := monoTyping .two
   defAxiom := floatMinDefAxiom
 
 def floatMin : Intrinsic := floatMinB.toIntrinsic
@@ -497,7 +486,6 @@ def floatMaxB : Pure.Binary where
   f        := FloatBits.max
   dom      := fun _ _ => True
   pre      := none
-  typing   := monoTyping .two
   defAxiom := floatMaxDefAxiom
 
 def floatMax : Intrinsic := floatMaxB.toIntrinsic
@@ -533,7 +521,6 @@ def floatEqualB : Pure.Binary where
   f        := FloatBits.eq
   dom      := fun _ _ => True
   pre      := none
-  typing   := monoTyping .two
   defAxiom := binFloatBoolDefAxiom floatEqualSym .fpEq
 
 def floatEqual : Intrinsic := floatEqualB.toIntrinsic
@@ -563,7 +550,6 @@ def floatLtB : Pure.Binary where
   f        := FloatBits.lt
   dom      := fun _ _ => True
   pre      := none
-  typing   := monoTyping .two
   defAxiom := binFloatBoolDefAxiom floatLtSym .fpLt
 
 def floatLt : Intrinsic := floatLtB.toIntrinsic
@@ -593,7 +579,6 @@ def floatLeB : Pure.Binary where
   f        := FloatBits.le
   dom      := fun _ _ => True
   pre      := none
-  typing   := monoTyping .two
   defAxiom := binFloatBoolDefAxiom floatLeSym .fpLe
 
 def floatLe : Intrinsic := floatLeB.toIntrinsic
@@ -624,7 +609,6 @@ def floatNanB : Pure.Zero where
   path     := some ("Float", ["nan"])
   res      := .float
   f        := FloatBits.nan
-  typing   := monoTyping .zero
   defAxiom := zeroFloatDefAxiom floatNanSym .fpNaN
 
 def floatNan : Intrinsic := floatNanB.toIntrinsic
@@ -648,7 +632,6 @@ def floatInfinityB : Pure.Zero where
   path     := some ("Float", ["infinity"])
   res      := .float
   f        := FloatBits.posInf
-  typing   := monoTyping .zero
   defAxiom := zeroFloatDefAxiom floatInfinitySym .fpPosInf
 
 def floatInfinity : Intrinsic := floatInfinityB.toIntrinsic
@@ -672,7 +655,6 @@ def floatNegInfinityB : Pure.Zero where
   path     := some ("Float", ["neg_infinity"])
   res      := .float
   f        := FloatBits.negInf
-  typing   := monoTyping .zero
   defAxiom := zeroFloatDefAxiom floatNegInfinitySym .fpNegInf
 
 def floatNegInfinity : Intrinsic := floatNegInfinityB.toIntrinsic

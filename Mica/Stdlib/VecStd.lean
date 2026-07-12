@@ -85,16 +85,11 @@ def vecMakeDefAxiom : Formula :=
 def vecLengthB : Pure.Unary where
   name     := "val_vec_length"
   path     := some ("Vec", ["length"])
-  arg      := .vec
+  arg      := .vec (.tvar "a")
   res      := .int
   f        := (fun l => (l.length : Int) : List Runtime.Val → Int)
   dom      := fun _ => True
   pre      := none
-  typing   := fun _ tys =>
-    match tys with
-    | [.vec t] => .ok [("a", t)]
-    | [_] => .error "Vec.length expects a vector argument"
-    | _ => .error s!"expected 1 argument, got {tys.length}"
   defAxiom := vecLengthDefAxiom
 
 def vecLength : Intrinsic := vecLengthB.toIntrinsic
@@ -104,7 +99,7 @@ def vecLength : Intrinsic := vecLengthB.toIntrinsic
 @[simp] theorem vecLengthSym_name : vecLengthB.sym.name = "val_vec_length" := rfl
 
 def vecLengthLawful : vecLengthB.Lawful where
-  argL         := Embedding.lawfulVec
+  argL         := Embedding.lawfulVec (.tvar "a")
   resL         := Embedding.lawfulInt
   domSound     := fun _ _ _ => True.intro
   semWellTyped := fun _ _ _ _ => affine
@@ -124,18 +119,13 @@ instance : IntrinsicSound [vecLength] vecLength := vecLengthLawful.sound
 def vecGetB : Pure.Binary where
   name     := "val_vec_get"
   path     := some ("Vec", ["get"])
-  arg₁     := .vec
+  arg₁     := .vec (.tvar "a")
   arg₂     := .int
-  res      := .poly
+  res      := .poly "a"
   f        := fun (l : List Runtime.Val) (i : Int) =>
     if 0 ≤ i then (l[i.toNat]?).getD .unit else .unit
   dom      := (fun l n => 0 ≤ n ∧ n < (l.length : Int) : List Runtime.Val → Int → Prop)
   pre      := some vecBoundsPre
-  typing   := fun _ tys =>
-    match tys with
-    | [.vec t, _] => .ok [("a", t)]
-    | [_, _] => .error "Vec.get expects a vector as its first argument"
-    | _ => .error s!"expected 2 arguments, got {tys.length}"
   defAxiom := vecGetDefAxiom
 
 def vecGet : Intrinsic := vecGetB.toIntrinsic
@@ -145,9 +135,9 @@ def vecGet : Intrinsic := vecGetB.toIntrinsic
 @[simp] theorem vecGetSym_name : vecGetB.sym.name = "val_vec_get" := rfl
 
 def vecGetLawful : vecGetB.Lawful where
-  argL₁        := Embedding.lawfulVec
+  argL₁        := Embedding.lawfulVec (.tvar "a")
   argL₂        := Embedding.lawfulInt
-  resL         := Embedding.lawfulPoly
+  resL         := Embedding.lawfulPoly "a"
   domSound     := by
     intro ρ l n h
     have hpre := h vecBoundsPre rfl
@@ -159,7 +149,8 @@ def vecGetLawful : vecGetB.Lawful where
     obtain ⟨h0, hlen⟩ := hdom
     have hlt : n.toNat < l.length := by omega
     have hget : l[n.toNat]? = some l[n.toNat] := List.getElem?_eq_getElem hlt
-    simp only [Embedding.vec, Embedding.int, Embedding.poly, vecGetB, if_pos h0,
+    simp only [Embedding.vec, Embedding.int, Embedding.poly, TinyML.Typ.subst,
+      vecGetB, if_pos h0,
       hget, Option.getD_some]
     refine sep_emp.1.trans ?_
     exact BigSepL.bigSepL_lookup (Φ := fun _ w => TinyML.ValHasType Θ w (σ "a")) hget
@@ -180,20 +171,15 @@ instance : IntrinsicSound [vecGet] vecGet := vecGetLawful.sound
 def vecSetB : Pure.Ternary where
   name     := "val_vec_set"
   path     := some ("Vec", ["set"])
-  arg₁     := .vec
+  arg₁     := .vec (.tvar "a")
   arg₂     := .int
-  arg₃     := .poly
-  res      := .vec
+  arg₃     := .poly "a"
+  res      := .vec (.tvar "a")
   f        := fun (l : List Runtime.Val) (i : Int) (x : Runtime.Val) =>
     if 0 ≤ i then l.set i.toNat x else l
   dom      := (fun l n _ => 0 ≤ n ∧ n < (l.length : Int) :
                 List Runtime.Val → Int → Runtime.Val → Prop)
   pre      := some fun v i _ => vecBoundsPre v i
-  typing   := fun _ tys =>
-    match tys with
-    | [.vec t, _, _] => .ok [("a", t)]
-    | [_, _, _] => .error "Vec.set expects a vector as its first argument"
-    | _ => .error s!"expected 3 arguments, got {tys.length}"
   defAxiom := vecSetDefAxiom
 
 def vecSet : Intrinsic := vecSetB.toIntrinsic
@@ -203,10 +189,10 @@ def vecSet : Intrinsic := vecSetB.toIntrinsic
 @[simp] theorem vecSetSym_name : vecSetB.sym.name = "val_vec_set" := rfl
 
 def vecSetLawful : vecSetB.Lawful where
-  argL₁        := Embedding.lawfulVec
+  argL₁        := Embedding.lawfulVec (.tvar "a")
   argL₂        := Embedding.lawfulInt
-  argL₃        := Embedding.lawfulPoly
-  resL         := Embedding.lawfulVec
+  argL₃        := Embedding.lawfulPoly "a"
+  resL         := Embedding.lawfulVec (.tvar "a")
   domSound     := by
     intro ρ l n x h
     have hpre := h _ rfl
@@ -220,7 +206,8 @@ def vecSetLawful : vecSetB.Lawful where
     obtain ⟨h0, hlen⟩ := hdom
     have hlt : n.toNat < l.length := by omega
     have hget : l[n.toNat]? = some l[n.toNat] := List.getElem?_eq_getElem hlt
-    simp only [Embedding.vec, Embedding.int, Embedding.poly, vecSetB, if_pos h0]
+    simp only [Embedding.vec, Embedding.int, Embedding.poly, TinyML.Typ.subst,
+      vecSetB, if_pos h0]
     refine (sep_mono_right emp_sep.1).trans ?_
     refine (sep_mono_left (BigSepL.bigSepL_insert_acc
       (Φ := fun _ w => TinyML.ValHasType Θ w (σ "a")) hget)).trans ?_
@@ -243,17 +230,13 @@ def vecMakeB : Pure.Binary where
   name     := "val_vec_make"
   path     := some ("Vec", ["make"])
   arg₁     := .int
-  arg₂     := .poly
-  res      := .vec
+  arg₂     := .poly "a"
+  res      := .vec (.tvar "a")
   f        := fun (m : Int) (x : Runtime.Val) =>
     let len := m
     if 0 ≤ len then List.replicate len.toNat x else []
   dom      := (fun m _ => 0 ≤ m : Int → Runtime.Val → Prop)
   pre      := some fun n _ => .binpred .le (.const (.i 0)) (intOf n)
-  typing   := fun _ tys =>
-    match tys with
-    | [_, t] => .ok [("a", t)]
-    | _ => .error s!"expected 2 arguments, got {tys.length}"
   defAxiom := vecMakeDefAxiom
 
 def vecMake : Intrinsic := vecMakeB.toIntrinsic
@@ -264,8 +247,8 @@ def vecMake : Intrinsic := vecMakeB.toIntrinsic
 
 def vecMakeLawful : vecMakeB.Lawful where
   argL₁        := Embedding.lawfulInt
-  argL₂        := Embedding.lawfulPoly
-  resL         := Embedding.lawfulVec
+  argL₂        := Embedding.lawfulPoly "a"
+  resL         := Embedding.lawfulVec (.tvar "a")
   domSound     := by
     intro ρ m x h
     have hpre := h _ rfl
@@ -275,7 +258,8 @@ def vecMakeLawful : vecMakeB.Lawful where
   semWellTyped := by
     refine fun σ Θ (m : Int) (x : Runtime.Val) hdom => ?_
     have hnonneg : 0 ≤ m := hdom
-    simp only [Embedding.vec, Embedding.int, Embedding.poly, vecMakeB, if_pos hnonneg]
+    simp only [Embedding.vec, Embedding.int, Embedding.poly, TinyML.Typ.subst,
+      vecMakeB, if_pos hnonneg]
     refine emp_sep.1.trans ?_
     refine (TinyML.ValHasType.vec_replicate Θ m.toNat x (σ "a")).trans ?_
     refine (TinyML.ValHasType.vec Θ _ (σ "a")).1.trans ?_

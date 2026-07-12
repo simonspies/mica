@@ -27,15 +27,11 @@ def funIdDefAxiom : Formula :=
 def funIdB : Pure.Unary where
   name     := "fun_id"
   path     := some ("Fun", ["id"])
-  arg      := .poly
-  res      := .poly
+  arg      := .poly "a"
+  res      := .poly "a"
   f        := (id : Runtime.Val → Runtime.Val)
   dom      := fun _ => True
   pre      := none
-  typing   := fun _ tys =>
-    match tys with
-    | [t] => .ok [("a", t)]
-    | _ => .error s!"expected 1 argument, got {tys.length}"
   defAxiom := funIdDefAxiom
 
 def funId : Intrinsic := funIdB.toIntrinsic
@@ -45,8 +41,8 @@ def funId : Intrinsic := funIdB.toIntrinsic
 @[simp] theorem funIdSym_name : funIdB.sym.name = "fun_id" := rfl
 
 def funIdLawful : funIdB.Lawful where
-  argL         := Embedding.lawfulPoly
-  resL         := Embedding.lawfulPoly
+  argL         := Embedding.lawfulPoly "a"
+  resL         := Embedding.lawfulPoly "a"
   domSound     := fun _ _ _ => True.intro
   semWellTyped := fun _ _ _ _ => .rfl
   specBaseWf   := by apply PredTrans.checkWf_ok; rfl

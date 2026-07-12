@@ -1,5 +1,6 @@
 -- SUMMARY: Embeddings (with semantic type predicates for polymorphic types) and the pure-intrinsic builders (`Pure.Zero`/`Pure.Unary`/`Pure.Binary`/`Pure.Ternary`) that emit an intrinsic — optional precondition, generated type axiom — and its soundness instance.
 import Mica.Verifier.Intrinsic
+import Mica.TinyML.Printer
 
 open Iris Iris.BI
 
@@ -183,18 +184,19 @@ def Embedding.str  : Embedding :=
 def Embedding.float : Embedding :=
   ⟨.float, UInt64, .float, valFloat, fun _ _ _ => iprop(emp), some .isFloat⟩
 
-/-- A type variable `'a`: any runtime value, with its typing at the
+/-- A type variable: any runtime value, with its typing at the
     instantiated type as the type predicate. No `is-of` recognizer, so no
     type axiom. -/
-def Embedding.poly : Embedding :=
-  ⟨.tvar "a", Runtime.Val, id, id,
-    fun σ Θ v => TinyML.ValHasType Θ v (σ "a"), none⟩
+def Embedding.poly (v : TinyML.TyVar) : Embedding :=
+  ⟨.tvar v, Runtime.Val, id, id,
+    fun σ Θ w => TinyML.ValHasType Θ w (σ v), none⟩
 
-/-- Vectors `'a vec`: element lists, with the big-sep of element typings at
-    the instantiated element type as the type predicate. -/
-def Embedding.vec : Embedding :=
-  ⟨.vec (.tvar "a"), List Runtime.Val, .vec, valVec,
-    fun σ Θ l => iprop([∗list] w ∈ l, TinyML.ValHasType Θ w (σ "a")), some .isVec⟩
+/-- Vectors of an arbitrary element scheme: element lists, with the big-sep of
+    instantiated element typings as the type predicate. -/
+def Embedding.vec (elem : TinyML.Typ) : Embedding :=
+  ⟨.vec elem, List Runtime.Val, .vec, valVec,
+    fun σ Θ l => iprop([∗list] w ∈ l, TinyML.ValHasType Θ w (elem.subst σ)),
+    some .isVec⟩
 
 /-- Coherence laws for an `Embedding`. The `member`/`intro` laws are stated at
     every instantiation `e.typ.subst σ` of the embedding's type. -/
@@ -263,7 +265,7 @@ def Embedding.lawfulFloat : Embedding.float.Lawful where
   intro _ Θ x := by simpa [Embedding.float, TinyML.Typ.subst] using TinyML.ValHasType.float_intro Θ x
 
 /-- Type variables are a lawful embedding: the type predicate is the typing fact itself. -/
-def Embedding.lawfulPoly : Embedding.poly.Lawful where
+def Embedding.lawfulPoly (v : TinyML.TyVar) : (Embedding.poly v).Lawful where
   project_inject _ := rfl
   isOf_wf _ _ h := nomatch h
   isOf_inject _ _ _ h := nomatch h
@@ -283,14 +285,63 @@ def Embedding.lawfulPoly : Embedding.poly.Lawful where
     exact .rfl
 
 /-- Vectors are a lawful embedding: exactly the `ValHasType.vec` API. -/
-def Embedding.lawfulVec : Embedding.vec.Lawful where
+def Embedding.lawfulVec (elem : TinyML.Typ) : (Embedding.vec elem).Lawful where
   project_inject _ := rfl
   isOf_wf _ _ h := by cases h; trivial
   isOf_inject _ _ _ h := by cases h; simp [Embedding.vec]
   member σ Θ w := by
-    simpa [Embedding.vec, TinyML.Typ.subst] using TinyML.ValHasType.vec Θ w (σ "a")
+    simpa [Embedding.vec, TinyML.Typ.subst] using TinyML.ValHasType.vec Θ w (elem.subst σ)
   intro σ Θ l := by
-    simpa [Embedding.vec, TinyML.Typ.subst] using TinyML.ValHasType.vec_intro Θ l (σ "a")
+    simpa [Embedding.vec, TinyML.Typ.subst] using TinyML.ValHasType.vec_intro Θ l (elem.subst σ)
+
+/-! ## Scheme matching -/
+
+/-- Render a list of types for intrinsic-instantiation diagnostics. -/
+private def printTypes (tys : List TinyML.Typ) : String :=
+  s!"[{", ".intercalate (tys.map TinyML.Typ.print)}]"
+
+/-- Match type variables occurring in a scheme type against an inferred type.
+    A variable is fixed by its first occurrence; later occurrences are checked
+    by the elaborator against the instantiated scheme, including subtyping. -/
+def matchType (inst : List (TinyML.TyVar × TinyML.Typ))
+    (pattern actual : TinyML.Typ) : Except String (List (TinyML.TyVar × TinyML.Typ)) :=
+  if pattern.closed then .ok inst
+  else
+    match pattern, actual with
+    | .tvar v, t => .ok (if inst.lookup v |>.isSome then inst else (v, t) :: inst)
+    | .sum ps, .sum ts => matchTypes inst ps ts
+    | .arrow p₁ p₂, .arrow t₁ t₂ => do
+        let inst ← matchType inst p₁ t₁
+        matchType inst p₂ t₂
+    | .ref p, .ref t | .array p, .array t | .vec p, .vec t | .owned p, .owned t =>
+        matchType inst p t
+    | .tuple ps, .tuple ts => matchTypes inst ps ts
+    | .named P ps, .named T ts =>
+        if P = T then matchTypes inst ps ts
+        else .error s!"expected {pattern.print}, got {actual.print}"
+    | _, _ => .error s!"expected {pattern.print}, got {actual.print}"
+where
+  matchTypes (inst : List (TinyML.TyVar × TinyML.Typ)) :
+      List TinyML.Typ → List TinyML.Typ →
+        Except String (List (TinyML.TyVar × TinyML.Typ))
+    | [], [] => .ok inst
+    | p :: ps, t :: ts => do
+        let inst ← matchType inst p t
+        matchTypes inst ps ts
+    | ps, ts => .error s!"expected type arguments {printTypes ps}, got {printTypes ts}"
+
+/-- Derive a primitive instantiation by structurally matching its argument
+    scheme against the inferred argument types. Arity and the instantiated
+    domains are rechecked by the elaborator. -/
+def schemeTyping (patterns : List TinyML.Typ) :
+    TinyML.TypeEnv → List TinyML.Typ →
+      Except String (List (TinyML.TyVar × TinyML.Typ)) :=
+  fun _ actuals =>
+    if patterns.length = actuals.length then
+      matchType.matchTypes [] patterns actuals
+    else
+      .error s!"expected {patterns.length} arguments {printTypes patterns}, got \
+        {actuals.length} arguments {printTypes actuals}"
 
 /-! ## Name-based term builders -/
 
@@ -325,7 +376,6 @@ structure Zero where
   path     : Option (String × List String)
   res      : Embedding
   f        : res.carrier
-  typing   : TinyML.TypeEnv → List TinyML.Typ → Except String (List (TinyML.TyVar × TinyML.Typ))
   defAxiom : Formula
 
 /-- The intrinsic's uninterpreted constant symbol as a value term. -/
@@ -353,7 +403,7 @@ def Zero.toIntrinsic (b : Zero) : Intrinsic where
       retTy := b.res.typ
       pred  := .ret ("ret",
         .assert (.eq .value (.var .value "ret") b.opTerm) (.ret ())) }
-  typing := b.typing
+  typing := schemeTyping []
   folSym := some b.sym
   axioms := ⟨b.defAxiom, .low⟩ :: (b.typeAxiom.map (⟨·, .low⟩)).toList
 
@@ -463,7 +513,6 @@ structure Unary where
   f        : arg.carrier → res.carrier
   dom      : arg.carrier → Prop
   pre      : Option (String → Formula)
-  typing   : TinyML.TypeEnv → List TinyML.Typ → Except String (List (TinyML.TyVar × TinyML.Typ))
   defAxiom : Formula
 
 /-- The intrinsic's uninterpreted unary symbol applied to a value term. -/
@@ -495,7 +544,7 @@ def Unary.toIntrinsic (b : Unary) : Intrinsic where
       pred  := withPre (b.pre.map (· "a")) <| .ret ("ret",
         .assert (.eq .value (.var .value "ret")
           (b.opTerm (.var .value "a"))) (.ret ())) }
-  typing := b.typing
+  typing := schemeTyping [b.arg.typ]
   folSym := some b.sym
   axioms := ⟨b.defAxiom, .high⟩ :: (b.typeAxiom.map (⟨·, .high⟩)).toList
 
@@ -664,7 +713,6 @@ structure Binary where
   f        : arg₁.carrier → arg₂.carrier → res.carrier
   dom      : arg₁.carrier → arg₂.carrier → Prop
   pre      : Option (String → String → Formula)
-  typing   : TinyML.TypeEnv → List TinyML.Typ → Except String (List (TinyML.TyVar × TinyML.Typ))
   defAxiom : Formula
 
 /-- The intrinsic's uninterpreted binary symbol applied to two value terms. -/
@@ -702,7 +750,7 @@ def Binary.toIntrinsic (b : Binary) : Intrinsic where
       pred  := withPre (b.pre.map (· "a" "b")) <| .ret ("ret",
         .assert (.eq .value (.var .value "ret")
           (b.opTerm (.var .value "a") (.var .value "b"))) (.ret ())) }
-  typing := b.typing
+  typing := schemeTyping [b.arg₁.typ, b.arg₂.typ]
   folSym := some b.sym
   axioms := ⟨b.defAxiom, .high⟩ :: (b.typeAxiom.map (⟨·, .high⟩)).toList
 
@@ -900,7 +948,6 @@ structure Ternary where
   f        : arg₁.carrier → arg₂.carrier → arg₃.carrier → res.carrier
   dom      : arg₁.carrier → arg₂.carrier → arg₃.carrier → Prop
   pre      : Option (String → String → String → Formula)
-  typing   : TinyML.TypeEnv → List TinyML.Typ → Except String (List (TinyML.TyVar × TinyML.Typ))
   defAxiom : Formula
 
 /-- The intrinsic's uninterpreted ternary symbol applied to three value terms. -/
@@ -940,7 +987,7 @@ def Ternary.toIntrinsic (b : Ternary) : Intrinsic where
       pred  := withPre (b.pre.map (· "a" "b" "c")) <| .ret ("ret",
         .assert (.eq .value (.var .value "ret")
           (b.opTerm (.var .value "a") (.var .value "b") (.var .value "c"))) (.ret ())) }
-  typing := b.typing
+  typing := schemeTyping [b.arg₁.typ, b.arg₂.typ, b.arg₃.typ]
   folSym := some b.sym
   axioms := ⟨b.defAxiom, .high⟩ :: (b.typeAxiom.map (⟨·, .high⟩)).toList
 
