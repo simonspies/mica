@@ -19,6 +19,8 @@ scope, whose encoded value the translator looks up directly. -/
 inductive Pred where
   | isinj (tag arity : Nat) (scrut : String)
   | own (loc : String)
+  /-- Ownership of a mutable array `loc`, binding its vector snapshot. -/
+  | arr (loc : String)
   deriving Inhabited
 
 /-- The assertion language, parametric in the embedded leaf expression type `ε`

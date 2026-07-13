@@ -328,7 +328,7 @@ def Assertion.assume (σ : FiniteSubst) : Assertion α → VerifM (FiniteSubst �
   | .pred v p k => do
     let v' ← VerifM.decl (some v.name) v.sort
     let σ' := σ.rename v v'.name
-    VerifM.assume ((p.subst σ.subst).toItem (.const (.uninterpreted v'.name v.sort)))
+    VerifM.acquire ((p.subst σ.subst).toItem (.const (.uninterpreted v'.name v.sort)))
     Assertion.assume σ' k
   | .ite φ kt ke => do
     let branch ← VerifM.all [true, false]
@@ -547,20 +547,21 @@ theorem Assertion.assume_correct (Θ : TinyML.TypeEnv) (m : Assertion α) (Δ_ba
         · iapply hφ_entail
           simp [VerifM.Env.withEnv]
         icases Hφ with %hφ
-        have hb2' : (VerifM.assume (.pure φ)).eval
+        have hb2' : (VerifM.acquire (.pure φ)).eval
             { st with decls := st.decls.addConst v' } (ρ.updateConst v.sort v'.name u)
             (fun r st' ρ' => (Assertion.assume σ' k).eval st' ρ' Ψ) := by
           simpa [item, hitem] using hb2
         have hitem_wf' : (.pure φ : CtxItem).wfIn (st.decls.addConst v') := by
           simpa [item, hitem] using hitem_wf
-        have hassume := VerifM.eval_assume hb2' hitem_wf' hφ
-        have hih := ih Δ_base σ' (TransState.addItem { st with decls := st.decls.addConst v' } (.pure φ))
-          (ρ.updateConst v.sort v'.name u) Ψ hσ'wf hkwf' hassume hpost
+        obtain ⟨st'', hdecls'', howns'', hassume⟩ :=
+          VerifM.eval_acquire hb2' hitem_wf' hφ (by simp [CtxItem.facts])
+        have hσ''wf : σ'.wfIn Δ_base st''.decls := by rw [hdecls'']; exact hσ'wf
+        have hih := ih Δ_base σ' st''
+          (ρ.updateConst v.sort v'.name u) Ψ hσ''wf hkwf' hassume hpost
         have hframe :
             st.sl Θ ρ ∗ R ⊢
-              (TransState.addItem { st with decls := st.decls.addConst v' } (.pure φ)).sl
-                Θ (ρ.updateConst v.sort v'.name u) ∗ R := by
-          simp [TransState.addItem]
+              st''.sl Θ (ρ.updateConst v.sort v'.name u) ∗ R := by
+          simp only [TransState.sl_eq, howns'', TransState.addItem]
           exact sep_mono
             (SpatialContext.interp_env_agree Θ (VerifM.eval.wf heval).ownsWf
               (Env.agreeOn_update_fresh_const (c := v') hv'_fresh_decls)).1
@@ -575,15 +576,12 @@ theorem Assertion.assume_correct (Θ : TinyML.TypeEnv) (m : Assertion α) (Δ_ba
           hΦ)
         iexact Howns
       | spatial a =>
-        have hb2' : (VerifM.assume (.spatial a)).eval
+        have hb2' : (VerifM.acquire (.spatial a)).eval
             { st with decls := st.decls.addConst v' } (ρ.updateConst v.sort v'.name u)
             (fun r st' ρ' => (Assertion.assume σ' k).eval st' ρ' Ψ) := by
           simpa [item, hitem] using hb2
         have hitem_wf' : (.spatial a : CtxItem).wfIn (st.decls.addConst v') := by
           simpa [item, hitem] using hitem_wf
-        have hassume := VerifM.eval_assume hb2' hitem_wf' trivial
-        have hih := ih Δ_base σ' (TransState.addItem { st with decls := st.decls.addConst v' } (.spatial a))
-          (ρ.updateConst v.sort v'.name u) Ψ hσ'wf hkwf' hassume hpost
         have hitem_interp :
             p.eval Θ (ρ.withEnv (σ.subst.eval ρ.env)) u ⊢
               CtxItem.interp Θ (ρ.updateConst v.sort v'.name u) item := by
@@ -595,6 +593,16 @@ theorem Assertion.assume_correct (Θ : TinyML.TypeEnv) (m : Assertion α) (Δ_ba
             p.eval Θ (ρ.withEnv (σ.subst.eval ρ.env)) u ⊢
               SpatialAtom.interp Θ (ρ.updateConst v.sort v'.name u).env a := by
           simpa [item, hitem, CtxItem.interp] using hitem_interp
+        ihave Ha : SpatialAtom.interp Θ (ρ.updateConst v.sort v'.name u).env a $$ [Hpu]
+        · iapply hspatial_interp
+          simp [VerifM.Env.withEnv]
+        ihave Hfacts := SpatialAtom.interp_facts Θ a $$ Ha
+        icases Hfacts with ⟨%hfacts, Ha⟩
+        obtain ⟨st'', hdecls'', howns'', hassume⟩ :=
+          VerifM.eval_acquire hb2' hitem_wf' trivial (by simpa [CtxItem.facts] using hfacts)
+        have hσ''wf : σ'.wfIn Δ_base st''.decls := by rw [hdecls'']; exact hσ'wf
+        have hih := ih Δ_base σ' st''
+          (ρ.updateConst v.sort v'.name u) Ψ hσ''wf hkwf' hassume hpost
         have howns_agree :
             st.sl Θ ρ ⊢
               st.sl Θ (ρ.updateConst v.sort v'.name u) :=
@@ -606,20 +614,13 @@ theorem Assertion.assume_correct (Θ : TinyML.TypeEnv) (m : Assertion α) (Δ_ba
               (FiniteSubst.rename_agreeOn (σ := σ) (Δ_base := Δ_base) (Δ_use := st.decls)
                 (v := v) (name' := v'.name) (ρ := ρ.env) (u := u) hσwf hv'_fresh_range))
           hΦ)
-        simp [TransState.addItem]
+        simp only [TransState.sl_eq, howns'', TransState.addItem, SpatialContext.interp]
         icases Howns with ⟨HS, HR⟩
         isplitr [HR]
-        · isplitr [HS]
-          · have hspatial_interp' :
-              p.eval Θ (ρ.withEnv (σ.subst.eval ρ.env)) u ⊢
-                SpatialAtom.interp Θ (Env.updateConst ρ.env v.sort v'.name u) a := by
-              simpa [VerifM.Env.updateConst] using hspatial_interp
-            iapply hspatial_interp'
-            simp [VerifM.Env.withEnv]
-          · have howns_agree' :
-              st.sl Θ ρ ⊢ SpatialContext.interp Θ (Env.updateConst ρ.env v.sort v'.name u) st.owns := by
-              simpa [TransState.sl, VerifM.Env.updateConst] using howns_agree
-            iapply howns_agree'
+        · isplitl [Ha]
+          · iexact Ha
+          · simp only [← TransState.sl_eq]
+            iapply howns_agree
             simp [TransState.sl]
         · iexact HR
   | ite φ kt ke iht ihe =>

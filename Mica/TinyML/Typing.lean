@@ -309,26 +309,26 @@ mutual
             let val' ← check prims Θ Γ val inner
             .ok (.unit, .store loc' val')
         | _ => .error (.notARef locTy)
-    | .arrayMake len init => do
+    | .arrayMake owned len init => do
         let len' ← check prims Θ Γ len .int
         let (elemTy, init') ← infer prims Θ Γ init
-        .ok (.array elemTy, .arrayMake len' init')
+        .ok ((if owned then .ownedArray elemTy else .array elemTy), .arrayMake owned len' init')
     | .arrayLen arr => do
         let (arrTy, arr') ← infer prims Θ Γ arr
         match arrTy with
-        | .array _ => .ok (.int, .arrayLen arr')
+        | .array _ | .ownedArray _ => .ok (.int, .arrayLen arr')
         | _ => .error (.notAnArray arrTy)
     | .arrayGet arr idx => do
         let (arrTy, arr') ← infer prims Θ Γ arr
         let idx' ← check prims Θ Γ idx .int
         match arrTy with
-        | .array elemTy => .ok (elemTy, .arrayGet arr' idx' elemTy)
+        | .array elemTy | .ownedArray elemTy => .ok (elemTy, .arrayGet arr' idx' elemTy)
         | _ => .error (.notAnArray arrTy)
     | .arraySet arr idx val => do
         let (arrTy, arr') ← infer prims Θ Γ arr
         let idx' ← check prims Θ Γ idx .int
         match arrTy with
-        | .array elemTy =>
+        | .array elemTy | .ownedArray elemTy =>
             let val' ← check prims Θ Γ val elemTy
             .ok (.unit, .arraySet arr' idx' val')
         | _ => .error (.notAnArray arrTy)
@@ -454,7 +454,23 @@ def elabAssert (prims : Prims) (Θ : TypeEnv) (inner : TyCtx → α → Except T
     let (ty, e') ← infer prims Θ Γ e
     .ok (.let_ x e' (← elabAssert prims Θ inner (Γ.extend x ty) rest))
   | Γ, .bind p x ty rest => do
-    .ok (.bind p x ty (← elabAssert prims Θ inner (Γ.extend x ty) rest))
+    let p' ← match p with
+      | .isinj tag arity scrut => .ok (.isinj tag arity scrut)
+      | .own loc =>
+        match Γ loc with
+        | some (.owned innerTy) =>
+          if innerTy == ty then .ok (.own loc)
+          else .error (.spec s!"own {loc} must bind {repr innerTy}, not {repr ty}")
+        | some other => .error (.spec s!"own {loc} requires an owned reference, got {repr other}")
+        | none => .error (.spec s!"unknown ownership variable '{loc}'")
+      | .arr loc =>
+        match Γ loc with
+        | some (.ownedArray innerTy) =>
+          if (.vec innerTy) == ty then .ok (.arr loc)
+          else .error (.spec s!"arr {loc} must bind a vector snapshot of type {repr (TinyML.Typ.vec innerTy)}, not {repr ty}")
+        | some other => .error (.spec s!"arr {loc} requires an owned array, got {repr other}")
+        | none => .error (.spec s!"unknown ownership variable '{loc}'")
+    .ok (.bind p' x ty (← elabAssert prims Θ inner (Γ.extend x ty) rest))
   | Γ, .ite cond thn els => do
     let cond' ← check prims Θ Γ cond .bool
     .ok (.ite cond' (← elabAssert prims Θ inner Γ thn) (← elabAssert prims Θ inner Γ els))
@@ -802,7 +818,7 @@ mutual
             have ⟨val', hval, hcont⟩ := Except.bind_ok hcont
             rcases (by simpa using hcont) with ⟨rfl, rfl⟩
             simp [Expr.runtime, Untyped.Expr.runtime, ihLoc _ hloc, ihVal _ hval]
-    | .arrayMake len init => by
+    | .arrayMake owned len init => by
         let ihLen := check_runtime prims Θ Γ len .int
         let ihInit := infer_runtime prims Θ Γ init
         intro result h
@@ -821,7 +837,7 @@ mutual
         cases p with
         | mk arrTy arr' =>
           cases arrTy <;> simp at hcont
-          case array elemTy =>
+          case array elemTy | ownedArray elemTy =>
             rcases hcont with ⟨rfl, rfl⟩
             simp [Expr.runtime, Untyped.Expr.runtime, ih _ harr]
     | .arrayGet arr idx => by
@@ -834,7 +850,7 @@ mutual
         | mk arrTy arr' =>
           have ⟨idx', hidx, hcont⟩ := Except.bind_ok hcont
           cases arrTy <;> simp at hcont
-          case array elemTy =>
+          case array elemTy | ownedArray elemTy =>
             rcases hcont with ⟨rfl, rfl⟩
             simp [Expr.runtime, Untyped.Expr.runtime, ihArr _ harr, ihIdx _ hidx]
     | .arraySet arr idx val => by
@@ -847,7 +863,7 @@ mutual
         | mk arrTy arr' =>
           have ⟨idx', hidx, hcont⟩ := Except.bind_ok hcont
           cases arrTy <;> simp at hcont
-          case array =>
+          case array | ownedArray =>
             have ⟨val', hval, hcont⟩ := Except.bind_ok hcont
             rcases hcont with ⟨rfl, rfl⟩
             have hval_rt := check_runtime prims Θ Γ val _ val' hval

@@ -68,6 +68,7 @@ mutual
     | .tvar _     => iprop(False)
     | .ref t      => iprop(∃ l, ⌜v = .loc l⌝ ∗ locinv l (fun w => R w t))
     | .array t    => iprop(∃ len l, ⌜v = .array len l⌝ ∗ arrayinv len l (fun w => R w t))
+    | .ownedArray _ => iprop(∃ len l, ⌜v = .array len l⌝)
     | .vec t      =>
         iprop(∃ vs, ⌜v = .vec vs⌝ ∗ [∗list] w ∈ vs, ValRelBody R w t k)
     | .owned _    => iprop(∃ l, ⌜v = .loc l⌝)
@@ -132,7 +133,7 @@ mutual
     | .prim _ =>
         iintro _ H
         iexact H
-    | .value | .empty | .arrow _ _ | .tvar _ | .ref _ | .array _ | .owned _ =>
+    | .value | .empty | .arrow _ _ | .tvar _ | .ref _ | .array _ | .ownedArray _ | .owned _ =>
         iintro _ H
         iexact H
 
@@ -200,6 +201,8 @@ mutual
         apply Contractive.distLater_dist (f := fun I : Runtime.Val → iProp => arrayinv len l I)
         intro m hm w
         exact hR m hm w t
+    | .ownedArray _ =>
+        exact Dist.rfl
     | .named T args =>
         exact hk v T args
     | .tuple ts =>
@@ -367,7 +370,7 @@ mutual
     match t with
     | .prim _ =>
         exact PrimitiveType.valRelBody_persistent _ v
-    | .value | .empty | .arrow _ _ | .tvar _ | .owned _ =>
+    | .value | .empty | .arrow _ _ | .tvar _ | .owned _ | .ownedArray _ =>
         infer_instance
     | .ref _ =>
         have := locinv_persistent
@@ -513,6 +516,12 @@ theorem ValHasType.array (Θ : TypeEnv) (v : Runtime.Val) (t : Typ) :
     ValHasType Θ v (.array t) ⊣⊢
       iprop(∃ len l, ⌜v = .array len l⌝ ∗ arrayinv len l (fun w => ValHasType Θ w t)) := by
   exact equiv_iff.mp (ValHasType.unfold Θ v (.array t))
+
+/-- Owned arrays expose their runtime shape; contents are carried by the
+spatial owned-array assertion. -/
+theorem ValHasType.ownedArray (Θ : TypeEnv) (v : Runtime.Val) (t : Typ) :
+    ValHasType Θ v (.ownedArray t) ⊣⊢ iprop(∃ len l, ⌜v = .array len l⌝) := by
+  exact equiv_iff.mp (ValHasType.unfold Θ v (.ownedArray t))
 
 theorem ValHasType.vec (Θ : TypeEnv) (v : Runtime.Val) (t : Typ) :
     ValHasType Θ v (.vec t) ⊣⊢
@@ -1100,7 +1109,7 @@ theorem evalUnOp_typed {Θ : TypeEnv} {op : UnOp}
               · iexact Hwitness)
           iapply (ValsHaveTypes.of_getElem? (Θ := Θ) (vs := vs) (ts := ts) (n := n) (t := ty) hty)
           iexact Hvs
-      | prim _ | sum _ | arrow _ _ | ref _ | array _ | vec _ | owned _ | empty | value | tvar _
+      | prim _ | sum _ | arrow _ _ | ref _ | array _ | ownedArray _ | vec _ | owned _ | empty | value | tvar _
       | named _ _ =>
           simp [UnOp.typeOf, PrimitiveType.unOpTypeOf] at hty
 
@@ -1195,6 +1204,8 @@ def typeConstraints (ty : TinyML.Typ) (t : Term .value) : List Formula :=
   | .owned _ => [.unpred .isLoc t]
   | .array _ =>
       [.binpred .le (.const (.i 0)) (.unop .arrayLengthOf t)]
+  | .ownedArray _ =>
+      [.binpred .le (.const (.i 0)) (.unop .arrayLengthOf t)]
   | .vec _ =>
       [.unpred .isVec t,
        .binpred .le (.const (.i 0)) (.unop .vecLen (.unop .toVec t))]
@@ -1223,7 +1234,7 @@ mutual
     | owned _ =>
       simp [typeConstraints]
       simp only [Formula.wfIn]; exact ⟨trivial, ht⟩
-    | array _ =>
+    | array _ | ownedArray _ =>
       simp only [typeConstraints, List.mem_cons, List.not_mem_nil]
       intro φ hφ
       rcases hφ with rfl | hfalse
@@ -1282,6 +1293,16 @@ mutual
       refine (TinyML.ValHasType.array Θ v inner).1.trans ?_
       iintro Hty
       icases Hty with ⟨%len, %l, %hv, _⟩
+      ipureintro
+      intro φ hφ
+      simp only [typeConstraints, List.mem_cons, List.not_mem_nil] at hφ
+      rcases hφ with rfl | hfalse
+      · simp [Formula.eval, Term.eval, UnOp.eval, ht, hv]
+      · cases hfalse
+    | ownedArray inner =>
+      refine (TinyML.ValHasType.ownedArray Θ v inner).1.trans ?_
+      iintro Hty
+      icases Hty with ⟨%len, %l, %hv⟩
       ipureintro
       intro φ hφ
       simp only [typeConstraints, List.mem_cons, List.not_mem_nil] at hφ

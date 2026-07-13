@@ -35,7 +35,7 @@ inductive Expr where
   | ref    (owned : Bool) (e : Expr)
   | deref  (e : Expr)
   | store  (loc val : Expr)
-  | arrayMake (len init : Expr)
+  | arrayMake (owned : Bool) (len init : Expr)
   | arrayLen (arr : Expr)
   | arrayGet (arr idx : Expr)
   | arraySet (arr idx val : Expr)
@@ -123,10 +123,11 @@ mutual
       | isTrue h1, isTrue h2 => isTrue (by subst h1; subst h2; rfl)
       | isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
       | _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
-    case arrayMake.arrayMake n1 v1 n2 v2 => exact match n1.decEq n2, v1.decEq v2 with
-      | isTrue h1, isTrue h2 => isTrue (by subst h1; subst h2; rfl)
-      | isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
-      | _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
+    case arrayMake.arrayMake o1 n1 v1 o2 n2 v2 => exact match decEq o1 o2, n1.decEq n2, v1.decEq v2 with
+      | isTrue h0, isTrue h1, isTrue h2 => isTrue (by subst h0; subst h1; subst h2; rfl)
+      | isFalse h, _, _ => isFalse (by intro heq; cases heq; exact h rfl)
+      | _, isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
+      | _, _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
     case arrayLen.arrayLen a1 a2 => exact match a1.decEq a2 with
       | isTrue h => isTrue (by subst h; rfl)
       | isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
@@ -240,7 +241,7 @@ def Expr.runtime : Untyped.Expr → Runtime.Expr
   | .ref _ e => .ref e.runtime
   | .deref e => .deref e.runtime
   | .store loc val => .store loc.runtime val.runtime
-  | .arrayMake len init => .arrayMake len.runtime init.runtime
+  | .arrayMake _ len init => .arrayMake len.runtime init.runtime
   | .arrayLen arr => .arrayLen arr.runtime
   | .arrayGet arr idx => .arrayGet arr.runtime idx.runtime
   | .arraySet arr idx val => .arraySet arr.runtime idx.runtime val.runtime

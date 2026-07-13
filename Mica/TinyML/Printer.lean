@@ -15,6 +15,7 @@ def Typ.print : Typ → String
   | .arrow t1 t2 => s!"{wrapArg t1 (Typ.print t1)} -> {Typ.print t2}"
   | .ref t => s!"ref {wrapArg t (Typ.print t)}"
   | .array t => s!"array {wrapArg t (Typ.print t)}"
+  | .ownedArray t => s!"owned-array {wrapArg t (Typ.print t)}"
   | .vec t => s!"vec {wrapArg t (Typ.print t)}"
   | .owned t => s!"owned {wrapArg t (Typ.print t)}"
   | .empty => "empty"
@@ -172,6 +173,7 @@ namespace Spec
 def Pred.print : Spec.Pred → String
   | .isinj tag arity scrut => s!"isinj {tag} {arity} {scrut}"
   | .own loc => s!"own {loc}"
+  | .arr loc => s!"arr {loc}"
 
 private def typString (ty : Typ) : String :=
   ty.print

@@ -331,7 +331,7 @@ mutual
         | .owned ty' => do
             VerifM.expectEq "deref type annotation mismatch" ty' ty
             let lq ← compile reg Θ Δ_spec S B Γ e
-            let v ← VerifM.findMatchForce lq ty
+            let v ← VerifM.findMatchForce .ref lq ty
             VerifM.assume (.spatial (.pointsTo lq v ty))
             pure v
         | .ref ty' => do
@@ -348,7 +348,7 @@ mutual
             VerifM.expectEq "store location type mismatch" ty val.ty
             let v ← compile reg Θ Δ_spec S B Γ val
             let lq ← compile reg Θ Δ_spec S B Γ loc
-            let _ ← VerifM.findMatchForce lq val.ty
+            let _ ← VerifM.findMatchForce .ref lq val.ty
             VerifM.assume (.spatial (.pointsTo lq v val.ty))
             pure (Term.const .unit)
         | .ref ty => do
@@ -357,48 +357,65 @@ mutual
             let _ ← compile reg Θ Δ_spec S B Γ loc
             pure (Term.const .unit)
         | _ => VerifM.fatal "store location is not a reference"
-    | .arrayMake len init => do
+    | .arrayMake owned len init => do
         VerifM.expectEq "array length must be int" len.ty .int
-        let _ ← compile reg Θ Δ_spec S B Γ init
+        let s_init ← compile reg Θ Δ_spec S B Γ init
         let sl ← compile reg Θ Δ_spec S B Γ len
         VerifM.assert (.binpred .le (.const (.i 0)) (.unop .toInt sl))
         let a ← VerifM.decl none .value
         let sa := Term.const (.uninterpreted a.name .value)
         VerifM.assume (.pure (.eq .int (.unop .arrayLengthOf sa) (.unop .toInt sl)))
-        VerifM.assumeAll (TinyML.typeConstraints (.array init.ty) sa)
+        if owned then
+          let contents := Term.unop .ofVec (.binop .vecMake (.unop .toInt sl) s_init)
+          VerifM.acquire (.spatial (.arrayPointsTo sa contents init.ty))
+          VerifM.assumeAll (TinyML.typeConstraints (.ownedArray init.ty) sa)
+        else
+          VerifM.assumeAll (TinyML.typeConstraints (.array init.ty) sa)
         pure sa
     | .arrayLen arr => do
         match arr.ty with
-        | .array _ =>
+        | .array _ | .ownedArray _ =>
             let sa ← compile reg Θ Δ_spec S B Γ arr
             pure (.unop .ofInt (.unop .arrayLengthOf sa))
         | _ => VerifM.fatal "Array.length operand is not an array"
     | .arrayGet arr idx ty => do
-        match arr.ty with
-        | .array elemTy => do
-            VerifM.expectEq "array get element type mismatch" elemTy ty
-            VerifM.expectEq "array index must be int" idx.ty .int
-            let si ← compile reg Θ Δ_spec S B Γ idx
-            let sa ← compile reg Θ Δ_spec S B Γ arr
-            VerifM.assert (.binpred .le (.const (.i 0)) (.unop .toInt si))
-            VerifM.assert (.binpred .lt (.unop .toInt si) (.unop .arrayLengthOf sa))
-            let v ← VerifM.decl none .value
-            let sv := Term.const (.uninterpreted v.name .value)
-            VerifM.assumeAll (TinyML.typeConstraints ty sv)
-            pure sv
-        | _ => VerifM.fatal "Array.get operand is not an array"
+        let (elemTy, owned) ← match arr.ty with
+          | .array elemTy => pure (elemTy, false)
+          | .ownedArray elemTy => pure (elemTy, true)
+          | _ => VerifM.fatal "Array.get operand is not an array"
+        VerifM.expectEq "array get element type mismatch" elemTy ty
+        VerifM.expectEq "array index must be int" idx.ty .int
+        let si ← compile reg Θ Δ_spec S B Γ idx
+        let sa ← compile reg Θ Δ_spec S B Γ arr
+        VerifM.assert (.binpred .le (.const (.i 0)) (.unop .toInt si))
+        VerifM.assert (.binpred .lt (.unop .toInt si) (.unop .arrayLengthOf sa))
+        if owned then
+          let contents ← VerifM.findMatchForce .array sa elemTy
+          VerifM.acquire (.spatial (.arrayPointsTo sa contents elemTy))
+          pure (.binop .vecGet (.unop .toVec contents) (.unop .toInt si))
+        else
+          let v ← VerifM.decl none .value
+          let sv := Term.const (.uninterpreted v.name .value)
+          VerifM.assumeAll (TinyML.typeConstraints ty sv)
+          pure sv
     | .arraySet arr idx val => do
-        match arr.ty with
-        | .array elemTy => do
-            VerifM.expectEq "array set element type mismatch" elemTy val.ty
-            VerifM.expectEq "array index must be int" idx.ty .int
-            let _ ← compile reg Θ Δ_spec S B Γ val
-            let si ← compile reg Θ Δ_spec S B Γ idx
-            let sa ← compile reg Θ Δ_spec S B Γ arr
-            VerifM.assert (.binpred .le (.const (.i 0)) (.unop .toInt si))
-            VerifM.assert (.binpred .lt (.unop .toInt si) (.unop .arrayLengthOf sa))
-            pure (Term.const .unit)
-        | _ => VerifM.fatal "Array.set operand is not an array"
+        let (elemTy, owned) ← match arr.ty with
+          | .array elemTy => pure (elemTy, false)
+          | .ownedArray elemTy => pure (elemTy, true)
+          | _ => VerifM.fatal "Array.set operand is not an array"
+        VerifM.expectEq "array set element type mismatch" elemTy val.ty
+        VerifM.expectEq "array index must be int" idx.ty .int
+        let sv ← compile reg Θ Δ_spec S B Γ val
+        let si ← compile reg Θ Δ_spec S B Γ idx
+        let sa ← compile reg Θ Δ_spec S B Γ arr
+        VerifM.assert (.binpred .le (.const (.i 0)) (.unop .toInt si))
+        VerifM.assert (.binpred .lt (.unop .toInt si) (.unop .arrayLengthOf sa))
+        if owned then
+          let contents ← VerifM.findMatchForce .array sa elemTy
+          let contents' := Term.unop .ofVec
+            (.terop .vecSet (.unop .toVec contents) (.unop .toInt si) sv)
+          VerifM.acquire (.spatial (.arrayPointsTo sa contents' elemTy))
+        pure (Term.const .unit)
     | .app _ _ _ | .fix _ _ _ _ => VerifM.fatal "unsupported expression"
 
   /-- Compile a single match branch: assume the scrutinee is `ofInj i n payload`, then compile the body. -/
@@ -1207,7 +1224,7 @@ theorem compileDeref_correct (reg : Verifier.Registry) (e : Expr) (ty : TinyML.T
         simp only [compile, hty] at heval
         obtain ⟨hannot, _⟩ := VerifM.eval_bind_expectEq heval
         exact False.elim (heq hannot)
-  | prim _ | sum _ | arrow _ _ | array _ | vec _ | empty | value | tuple _ | tvar _ | named _ _ =>
+  | prim _ | sum _ | arrow _ _ | array _ | ownedArray _ | vec _ | empty | value | tuple _ | tvar _ | named _ _ =>
       intro Θ R S B Γ st ρ γ Δ_spec ρ_spec Ψ Φ heval _ _ _ _ _ _ _ _
       simp only [compile, hty] at heval
       exact (VerifM.eval_fatal heval).elim
@@ -1390,19 +1407,44 @@ theorem compileStore_correct (reg : Verifier.Registry) (loc val : Expr)
         simp only [compile, hty] at heval
         obtain ⟨hannot, _⟩ := VerifM.eval_bind_expectEq heval
         exact False.elim (heq hannot)
-  | prim _ | sum _ | arrow _ _ | array _ | vec _ | empty | value | tuple _ | tvar _ | named _ _ =>
+  | prim _ | sum _ | arrow _ _ | array _ | ownedArray _ | vec _ | empty | value | tuple _ | tvar _ | named _ _ =>
       intro Θ R S B Γ st ρ γ Δ_spec ρ_spec Ψ Φ heval _ _ _ _ _ _ _ _
       simp only [compile, hty] at heval
       exact (VerifM.eval_fatal heval).elim
 
-theorem compileArrayMake_correct (reg : Verifier.Registry) (len init : Expr)
+omit [MicaGS HasLC.hasLC Sig] in
+/-- Peel the two bounds assertions guarding an array access. -/
+private theorem VerifM.eval_assertBounds {si sa : Term .value} {α : Type}
+    {k : VerifM α} {st : TransState} {ρ : VerifM.Env}
+    {Q : α → TransState → VerifM.Env → Prop}
+    (h : VerifM.eval (do
+      VerifM.assert (.binpred .le (.const (.i 0)) (.unop .toInt si))
+      VerifM.assert (.binpred .lt (.unop .toInt si) (.unop .arrayLengthOf sa))
+      k) st ρ Q)
+    (hsi : si.wfIn st.decls) (hsa : sa.wfIn st.decls) :
+    0 ≤ Term.eval ρ.env (.unop .toInt si) ∧
+    Term.eval ρ.env (.unop .toInt si) < Term.eval ρ.env (.unop .arrayLengthOf sa) ∧
+    VerifM.eval k st ρ Q := by
+  have hwf1 : (Formula.binpred .le (.const (.i 0)) (.unop .toInt si)).wfIn st.decls := by
+    simpa [Formula.wfIn, Term.wfIn, Const.wfIn, UnOp.wfIn, BinPred.wfIn] using hsi
+  obtain ⟨hφ1, hcont1⟩ := VerifM.eval_assert (VerifM.eval_bind _ _ _ _ h) hwf1
+  have hwf2 : (Formula.binpred .lt (.unop .toInt si) (.unop .arrayLengthOf sa)).wfIn st.decls := by
+    simpa [Formula.wfIn, Term.wfIn, UnOp.wfIn, BinPred.wfIn] using And.intro hsi hsa
+  obtain ⟨hφ2, hcont2⟩ := VerifM.eval_assert (VerifM.eval_bind _ _ _ _ hcont1) hwf2
+  refine ⟨?_, ?_, hcont2⟩
+  · simpa [Formula.eval, BinPred.eval, Term.eval, Const.denote] using hφ1
+  · simpa [Formula.eval, BinPred.eval] using hφ2
+
+/-- Array allocation correctness: after evaluating the initial value and the
+length, the shared branch allocates behind the array invariant while the
+owned branch acquires a fresh owned-array atom. -/
+theorem compileArrayMake_correct (reg : Verifier.Registry) (owned : Bool) (len init : Expr)
     (ihLen : correctExpr reg len) (ihInit : correctExpr reg init) :
-    correctExpr reg (.arrayMake len init) := by
+    correctExpr reg (.arrayMake owned len init) := by
   intro Θ R S B Γ st ρ γ Δ_spec ρ_spec Ψ Φ heval hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec hΔreg hρreg hpost
   unfold Expr.runtime
   simp only [Runtime.Expr.subst]
   simp only [compile] at heval
-  simp only [Expr.ty] at hpost
   obtain ⟨hlenty, heval⟩ := VerifM.eval_bind_expectEq heval
   have heval_init : (compile reg Θ Δ_spec S B Γ init).eval st ρ _ := VerifM.eval_bind _ _ _ _ heval
   refine SpatialContext.wp_bind_arrayMake <| ?_
@@ -1426,11 +1468,10 @@ theorem compileArrayMake_correct (reg : Verifier.Registry) (len init : Expr)
   intro v_len ρ_len st₂ slen hΨ_len hslen_wf heval_slen
   obtain ⟨hdecls_len, hagreeOn_len, hΨ_len⟩ := hΨ_len
   -- Discharge the nonnegative-length obligation.
-  set φ : Formula := .binpred .le (.const (.i 0)) (.unop .toInt slen) with hφ_def
+  set φ : Formula := .binpred .le (.const (.i 0)) (.unop .toInt slen)
   have hwf_φ : φ.wfIn st₂.decls := by
     simpa [φ, Formula.wfIn, Term.wfIn, Const.wfIn, UnOp.wfIn, BinPred.wfIn] using hslen_wf
-  have heval_assert : (VerifM.assert φ).eval st₂ ρ_len _ := VerifM.eval_bind _ _ _ _ hΨ_len
-  obtain ⟨hφ, hcont⟩ := VerifM.eval_assert heval_assert hwf_φ
+  obtain ⟨hφ, hcont⟩ := VerifM.eval_assert (VerifM.eval_bind _ _ _ _ hΨ_len) hwf_φ
   -- The fresh constant standing for the allocated array.
   have hdecl_eval := VerifM.eval_bind _ _ _ _ hcont
   have hdecl := VerifM.eval_decl hdecl_eval
@@ -1439,22 +1480,19 @@ theorem compileArrayMake_correct (reg : Verifier.Registry) (len init : Expr)
   set sa : Term .value := .const (.uninterpreted c.name .value)
   have hc_fresh : c.name ∉ st₂.decls.allNames := TransState.freshConst_fresh st₂ none .value
   have hc_wf : sa.wfIn (st₂.decls.addConst c) := by
-    simpa [sa] using
-      (Term.const_wfIn_addConst_of_fresh (Δ := st₂.decls) (c := c)
-        (VerifM.eval.wf hdecl_eval).namesDisjoint hc_fresh)
-  have hwp :
-      st₂.sl Θ ρ_len ∗ TinyML.ValHasType Θ v_len len.ty ∗ (TinyML.ValHasType Θ v_init init.ty ∗ R) ⊢
-        wp reg.primCtx (.arrayMake (.val v_len) (.val v_init)) Φ := by
-    rw [hlenty]
-    istart
-    iintro ⟨Howns, Hlen, #Hinit, HR⟩
-    ihave Hlen' := (TinyML.ValHasType.int Θ v_len).1 $$ Hlen
-    icases Hlen' with ⟨%n, %hv_len⟩
-    have hn : (0 : Int) ≤ n := by
-      have h := hφ
-      simp only [φ, Formula.eval, BinPred.eval, Term.eval, Const.denote, UnOp.eval,
-        heval_slen, hv_len] at h
-      exact h
+    simpa [sa] using Term.const_wfIn_addConst_of_fresh (Δ := st₂.decls) (c := c)
+      hst₂_wf.namesDisjoint hc_fresh
+  rw [hlenty]
+  istart
+  iintro ⟨Howns, Hlen, #Hinit, HR⟩
+  ihave Hlen' := (TinyML.ValHasType.int Θ v_len).1 $$ Hlen
+  icases Hlen' with ⟨%n, %hv_len⟩
+  have hn : (0 : Int) ≤ n := by
+    simpa [φ, Formula.eval, BinPred.eval, Term.eval, Const.denote, UnOp.eval,
+      heval_slen, hv_len] using hφ
+  cases owned with
+  | false =>
+    simp only [Expr.ty, Bool.false_eq_true, if_false] at hpost
     iapply (SpatialContext.wp_arrayMake_inv (vlen := v_len) (init := v_init) (n := n)
       (I := fun w => TinyML.ValHasType Θ w init.ty) (Q := Φ) hv_len hn)
     isplitl []
@@ -1465,7 +1503,7 @@ theorem compileArrayMake_correct (reg : Verifier.Registry) (len init : Expr)
       -- freshly allocated array value `.array n.toNat l`.
       have hbody := hdecl (.array n.toNat l)
       have hassume_eval := VerifM.eval_bind _ _ _ _ hbody
-      set ρ' : VerifM.Env := ρ_len.updateConst .value c.name (.array n.toNat l) with hρ'_def
+      set ρ' : VerifM.Env := ρ_len.updateConst .value c.name (.array n.toNat l)
       set st_c : TransState := { st₂ with decls := st₂.decls.addConst c } with hst_c_def
       have hsa_eval : sa.eval ρ'.env = .array n.toNat l := by
         simp [sa, ρ', Term.eval, Const.denote, VerifM.Env.updateConst, Env.updateConst]
@@ -1516,7 +1554,92 @@ theorem compileArrayMake_correct (reg : Verifier.Registry) (len init : Expr)
           · ipureintro; rfl
           · iexact Hinv_l
         · iexact HR
-  exact hwp
+  | true =>
+    simp only [Expr.ty, if_true] at hpost
+    iapply (SpatialContext.wp_arrayMake (vlen := v_len) (init := v_init) (n := n)
+      (Q := Φ) hv_len hn)
+    iintro %l Hpt
+    have hbody := hdecl (.array n.toNat l)
+    set ρ' : VerifM.Env := ρ_len.updateConst .value c.name (.array n.toNat l)
+    set st_c : TransState := { st₂ with decls := st₂.decls.addConst c }
+    have hsa_eval : sa.eval ρ'.env = .array n.toNat l := by
+      simp [sa, ρ', Term.eval, Const.denote, VerifM.Env.updateConst, Env.updateConst]
+    have hslen_eval' : slen.eval ρ'.env = .int n :=
+      (Term.eval_env_agree hslen_wf
+        (VerifM.Env.agreeOn_update_fresh (c := c) (u := Runtime.Val.array n.toNat l) hc_fresh)).symm.trans
+        (heval_slen.trans hv_len)
+    have hsinit_wf₂ : s_init.wfIn st₂.decls :=
+      Term.wfIn_mono s_init hsinit_wf hdecls_len hst₂_wf.namesDisjoint
+    have hsinit_eval_len : s_init.eval ρ_len.env = v_init := by
+      rw [Term.eval_env_agree hsinit_wf (Env.agreeOn_symm hagreeOn_len)]
+      exact heval_sinit
+    have hsinit_eval' : s_init.eval ρ'.env = v_init :=
+      (Term.eval_env_agree hsinit_wf₂
+        (VerifM.Env.agreeOn_update_fresh (c := c) (u := Runtime.Val.array n.toNat l) hc_fresh)).symm.trans
+        hsinit_eval_len
+    have hstc_wf : (st₂.decls.addConst c).wf := Signature.wf_addConst hst₂_wf.namesDisjoint hc_fresh
+    have hslen_wf_c := Term.wfIn_mono slen hslen_wf (Signature.Subset.subset_addConst _ _) hstc_wf
+    have hsinit_wf_c := Term.wfIn_mono s_init hsinit_wf₂ (Signature.Subset.subset_addConst _ _) hstc_wf
+    have heq_wf : (CtxItem.pure
+        (.eq .int (.unop .arrayLengthOf sa) (.unop .toInt slen))).wfIn st_c.decls :=
+      ⟨⟨trivial, hc_wf⟩, ⟨trivial, hslen_wf_c⟩⟩
+    have heq_hold : Formula.eval ρ'.env
+        (.eq .int (.unop .arrayLengthOf sa) (.unop .toInt slen)) := by
+      simp [Formula.eval, Term.eval, UnOp.eval, hsa_eval, hslen_eval']
+      omega
+    have hassume := VerifM.eval_assume (VerifM.eval_bind _ _ _ _ hbody) heq_wf heq_hold
+    let contents : Term .value := .unop .ofVec
+      (.binop .vecMake (.unop .toInt slen) s_init)
+    have hcontents_wf : contents.wfIn st_c.decls :=
+      ⟨trivial, ⟨trivial, ⟨trivial, hslen_wf_c⟩, hsinit_wf_c⟩⟩
+    have hatom_wf : (SpatialAtom.arrayPointsTo sa contents init.ty).wfIn st_c.decls :=
+      ⟨hc_wf, hcontents_wf⟩
+    have hcontents_eval : contents.eval ρ'.env = .vec (List.replicate n.toNat v_init) := by
+      simp [contents, Term.eval, UnOp.eval, BinOp.eval, hslen_eval', hsinit_eval', hn]
+    -- Acquire the owned-array atom; its length fact holds by construction.
+    have hfacts : ∀ ψ ∈ (CtxItem.spatial (.arrayPointsTo sa contents init.ty)).facts,
+        ψ.eval ρ'.env := by
+      simp [CtxItem.facts, SpatialAtom.facts, Formula.eval, Term.eval, UnOp.eval,
+        hcontents_eval, hsa_eval]
+    obtain ⟨st_a, hdecls_a, howns_a, hq_a⟩ :=
+      VerifM.eval_acquire (VerifM.eval_bind _ _ _ _ hassume) hatom_wf trivial hfacts
+    ihave HvecTy : iprop(TinyML.ValHasType Θ (.vec (List.replicate n.toNat v_init)) (.vec init.ty)) $$ [Hinit]
+    · iapply TinyML.ValHasType.vec_replicate
+      iexact Hinit
+    have hArrTy : ⊢ TinyML.ValHasType Θ (.array n.toNat l) (.ownedArray init.ty) := by
+      iapply (TinyML.ValHasType.ownedArray Θ _ _).2
+      iexists n.toNat, l
+      ipureintro; rfl
+    ihave HarrTy := hArrTy
+    ihave %htyped := TinyML.typeConstraints_hold (ty := .ownedArray init.ty) (t := sa)
+      (ρ := ρ'.env) (Θ := Θ) hsa_eval $$ HarrTy
+    obtain ⟨st_final, hdecls_final, howns_final, _, heval_ret⟩ :=
+      VerifM.eval_assumeAll (VerifM.eval_bind _ _ _ _ hq_a)
+        (fun ψ hψ => by rw [hdecls_a]; exact TinyML.typeConstraints_wfIn hc_wf ψ hψ)
+        (fun ψ hψ => htyped ψ hψ)
+    have hret := VerifM.eval_ret heval_ret
+    have hsa_wf_final : sa.wfIn st_final.decls := by
+      rw [hdecls_final, hdecls_a]; exact hc_wf
+    have hsl_agree : SpatialContext.interp Θ ρ_len.env st₂.owns ⊢
+        SpatialContext.interp Θ ρ'.env st₂.owns := by
+      rw [show ρ'.env = ρ_len.env.updateConst .value c.name (.array n.toNat l) by rfl]
+      exact (SpatialContext.interp_env_agree Θ hst₂_wf.ownsWf
+        (Env.agreeOn_update_fresh_const (ρ := ρ_len.env) (c := c)
+          (u := Runtime.Val.array n.toNat l) hc_fresh)).1
+    iapply (hpost (.array n.toNat l) ρ' st_final sa hret hsa_wf_final hsa_eval)
+    isplitl [Hpt HvecTy Howns]
+    · simp only [TransState.sl_eq, howns_final, howns_a, TransState.addItem, st_c,
+        SpatialContext.interp]
+      isplitl [Hpt HvecTy]
+      · iapply (SpatialAtom.interp_arrayPointsTo Θ (by simpa using hsa_eval) hcontents_eval).2
+        isplitl [Hpt]
+        · iexact Hpt
+        · iexact HvecTy
+      · iapply hsl_agree
+        iexact Howns
+    · isplitl [HarrTy]
+      · iexact HarrTy
+      · iexact HR
 
 theorem compileArrayLen_correct (reg : Verifier.Registry) (arr : Expr)
     (ihArr : correctExpr reg arr) :
@@ -1561,6 +1684,39 @@ theorem compileArrayLen_correct (reg : Verifier.Registry) (arr : Expr)
           · iapply (TinyML.ValHasType.int_intro Θ)
           · iexact HR
       exact hwp
+  | ownedArray elem =>
+      intro Θ R S B Γ st ρ γ Δ_spec ρ_spec Ψ Φ heval hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec hΔreg hρreg hpost
+      unfold Expr.runtime
+      simp only [Runtime.Expr.subst]
+      simp only [compile, hty] at heval
+      have heval_arr : (compile reg Θ Δ_spec S B Γ arr).eval st ρ _ :=
+        VerifM.eval_bind _ _ _ _ heval
+      refine SpatialContext.wp_bind_arrayLen <| ihArr Θ R S B Γ st ρ γ Δ_spec ρ_spec _ _
+        (VerifM.eval.decls_grow ρ heval_arr) hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec hΔreg hρreg ?_
+      intro v_arr ρ_arr st₁ sa hΨ_arr hsa_wf heval_sa
+      obtain ⟨_, _, hΨ_arr⟩ := hΨ_arr
+      obtain hret := VerifM.eval_ret hΨ_arr
+      set t : Term .value := .unop .ofInt (.unop .arrayLengthOf sa)
+      have ht_wf : t.wfIn st₁.decls := ⟨trivial, ⟨trivial, hsa_wf⟩⟩
+      rw [hty]
+      istart
+      iintro ⟨Howns, Harr, HR⟩
+      ihave Harr' := (TinyML.ValHasType.ownedArray Θ v_arr elem).1 $$ Harr
+      icases Harr' with ⟨%len, %loc, %hv_arr⟩
+      have ht_eval : t.eval ρ_arr.env = Runtime.Val.int len := by
+        simp [t, Term.eval, UnOp.eval, heval_sa, hv_arr]
+      have hgoal :
+          st₁.sl Θ ρ_arr ∗ TinyML.ValHasType Θ (.int len) TinyML.Typ.int ∗ R ⊢
+            Φ (.int len) := by
+        simpa [Expr.ty] using hpost (.int len) ρ_arr st₁ t hret ht_wf ht_eval
+      iapply (SpatialContext.wp_arrayLen
+        (R := st₁.sl Θ ρ_arr ∗ TinyML.ValHasType Θ (.int len) TinyML.Typ.int ∗ R)
+        (Q := Φ) (v := v_arr) (len := len) (l := loc) hv_arr hgoal)
+      isplitl [Howns]
+      · iexact Howns
+      · isplitl []
+        · iapply (TinyML.ValHasType.int_intro Θ)
+        · iexact HR
   | prim _ | sum _ | arrow _ _ | ref _ | vec _ | owned _ | empty | value | tuple _ | tvar _
   | named _ _ =>
       intro Θ R S B Γ st ρ γ Δ_spec ρ_spec Ψ Φ heval _ _ _ _ _ _ _ _ _ _ _
@@ -1577,6 +1733,7 @@ theorem compileArrayGet_correct (reg : Verifier.Registry) (arr idx : Expr) (ty :
     simp only [Runtime.Expr.subst]
     simp only [compile, hty] at heval
     simp only [Expr.ty] at hpost
+    replace heval := VerifM.eval_ret (VerifM.eval_bind _ _ _ _ heval)
     obtain ⟨helem, heval⟩ := VerifM.eval_bind_expectEq heval
     obtain ⟨hidxty, heval⟩ := VerifM.eval_bind_expectEq heval
     subst helem
@@ -1603,16 +1760,7 @@ theorem compileArrayGet_correct (reg : Verifier.Registry) (arr idx : Expr) (ty :
       Term.wfIn_mono si hsi_wf hdecls_arr (VerifM.eval.wf hΨ_arr).namesDisjoint
     have hsi_ρ_arr : si.eval ρ_arr.env = v_idx := by
       rw [Term.eval_env_agree hsi_wf (Env.agreeOn_symm hagreeOn_arr)]; exact heval_si
-    set φ1 : Formula := .binpred .le (.const (.i 0)) (.unop .toInt si) with hφ1_def
-    have hwf_φ1 : φ1.wfIn st₂.decls := by
-      simpa [φ1, Formula.wfIn, Term.wfIn, Const.wfIn, UnOp.wfIn, BinPred.wfIn] using hsi_wf₂
-    have heval_assert1 : (VerifM.assert φ1).eval st₂ ρ_arr _ := VerifM.eval_bind _ _ _ _ hΨ_arr
-    obtain ⟨hφ1, hcont1⟩ := VerifM.eval_assert heval_assert1 hwf_φ1
-    set φ2 : Formula := .binpred .lt (.unop .toInt si) (.unop .arrayLengthOf sa) with hφ2_def
-    have hwf_φ2 : φ2.wfIn st₂.decls := by
-      simpa [φ2, Formula.wfIn, Term.wfIn, UnOp.wfIn, BinPred.wfIn] using And.intro hsi_wf₂ hsa_wf
-    have heval_assert2 : (VerifM.assert φ2).eval st₂ ρ_arr _ := VerifM.eval_bind _ _ _ _ hcont1
-    obtain ⟨hφ2, hcont2⟩ := VerifM.eval_assert heval_assert2 hwf_φ2
+    obtain ⟨hi, hlt, hcont2⟩ := VerifM.eval_assertBounds hΨ_arr hsi_wf₂ hsa_wf
     have hdecl_eval := VerifM.eval_bind _ _ _ _ hcont2
     have hdecl := VerifM.eval_decl hdecl_eval
     set c : FOL.Const := st₂.freshConst none .value
@@ -1627,11 +1775,6 @@ theorem compileArrayGet_correct (reg : Verifier.Registry) (arr idx : Expr) (ty :
           (TinyML.ValHasType Θ v_idx idx.ty ∗ R) ⊢
           wp reg.primCtx (.arrayGet (.val v_arr) (.val v_idx)) Φ := by
       rw [hty, hidxty]
-      have hi : (0 : Int) ≤ Term.eval ρ_arr.env (.unop .toInt si) := by
-        simpa [hφ1_def, Formula.eval, BinPred.eval, Term.eval, Const.denote] using hφ1
-      have hlt : Term.eval ρ_arr.env (.unop .toInt si) <
-          Term.eval ρ_arr.env (.unop .arrayLengthOf sa) := by
-        simpa [hφ2_def, Formula.eval, BinPred.eval] using hφ2
       simpa [TransState.sl_eq] using
         (SpatialContext.wp_arrayGet_inv (pctx := reg.primCtx) (Θ := Θ)
           (ctx := st₂.owns) (ρ := ρ_arr.env) (arr := sa) (idx := si)
@@ -1668,11 +1811,78 @@ theorem compileArrayGet_correct (reg : Verifier.Registry) (arr idx : Expr) (ty :
               · iexact Hw
               · iexact HR))
     exact hwp
+  | ownedArray elemTy =>
+    intro Θ R S B Γ st ρ γ Δ_spec ρ_spec Ψ Φ heval hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec hΔreg hρreg hpost
+    unfold Expr.runtime
+    simp only [Runtime.Expr.subst]
+    simp only [compile, hty] at heval
+    simp only [Expr.ty] at hpost
+    replace heval := VerifM.eval_ret (VerifM.eval_bind _ _ _ _ heval)
+    obtain ⟨helem, heval⟩ := VerifM.eval_bind_expectEq heval
+    obtain ⟨hidxty, heval⟩ := VerifM.eval_bind_expectEq heval
+    subst ty
+    have heval_idx : (compile reg Θ Δ_spec S B Γ idx).eval st ρ _ := VerifM.eval_bind _ _ _ _ heval
+    refine SpatialContext.wp_bind_arrayGet <| ?_
+    have hstart := Helpers.ctx_dup_flip reg Θ Δ_spec ρ_spec S B Γ st ρ γ R
+    refine hstart.trans <| ihIdx Θ (B.typedSubst Θ Γ γ ∗ (S.satisfiedBy reg.primCtx Θ Δ_spec ρ_spec γ ∗ R))
+      S B Γ st ρ γ Δ_spec ρ_spec _ _ (VerifM.eval.decls_grow ρ heval_idx)
+      hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec hΔreg hρreg ?_
+    intro v_idx ρ_idx st₁ si hΨ_idx hsi_wf heval_si
+    obtain ⟨hdecls_idx, hagreeOn_idx, hΨ_idx⟩ := hΨ_idx
+    have hagree_idx := Bindings.agreeOnLinked_env_agree hagree hagreeOn_idx hbwf
+    have hbwf_idx : B.wfIn st₁.decls := fun p hp => hdecls_idx.consts _ (hbwf p hp)
+    have heval_arr : (compile reg Θ Δ_spec S B Γ arr).eval st₁ ρ_idx _ := VerifM.eval_bind _ _ _ _ hΨ_idx
+    have harrStart := Helpers.ctx_push_flip reg Θ Δ_spec ρ_spec S B Γ st₁ ρ_idx γ R v_idx idx.ty
+    have hspecInv_idx := specInvariants_mono hΔspec hρspec hdecls_idx hagreeOn_idx
+    refine harrStart.trans <| ihArr Θ (TinyML.ValHasType Θ v_idx idx.ty ∗ R) S B Γ st₁ ρ_idx γ Δ_spec ρ_spec _ _
+      (VerifM.eval.decls_grow ρ_idx heval_arr) hagree_idx hbwf_idx hSwf hΔwf hΔvars
+      hspecInv_idx.1 hspecInv_idx.2 hΔreg hρreg ?_
+    intro v_arr ρ_arr st₂ sa hΨ_arr hsa_wf heval_sa
+    obtain ⟨hdecls_arr, hagreeOn_arr, hΨ_arr⟩ := hΨ_arr
+    have hsi_wf₂ := Term.wfIn_mono si hsi_wf hdecls_arr (VerifM.eval.wf hΨ_arr).namesDisjoint
+    have hsi_eval : si.eval ρ_arr.env = v_idx := by
+      rw [Term.eval_env_agree hsi_wf (Env.agreeOn_symm hagreeOn_arr)]; exact heval_si
+    obtain ⟨hi, hlt, hcont2⟩ := VerifM.eval_assertBounds hΨ_arr hsi_wf₂ hsa_wf
+    have hfind := VerifM.eval_bind _ _ _ _ hcont2
+    rw [hty, hidxty]
+    refine VerifM.eval_findMatchForce Θ
+      (R := TinyML.ValHasType Θ v_arr (.ownedArray elemTy) ∗ TinyML.ValHasType Θ v_idx .int ∗ R)
+      (Φ := wp reg.primCtx (.arrayGet (.val v_arr) (.val v_idx)) Φ) hfind hsa_wf ?_
+    intro contents st₃ hQ hdecls hcontents_wf
+    have hatom_wf : (SpatialAtom.arrayPointsTo sa contents elemTy).wfIn st₃.decls := by
+      rw [hdecls]; exact ⟨hsa_wf, hcontents_wf⟩
+    let result : Term .value := .binop .vecGet (.unop .toVec contents) (.unop .toInt si)
+    simpa [TransState.sl_eq] using
+      (SpatialContext.wp_arrayGet_owned (pctx := reg.primCtx) (Θ := Θ)
+        (rest := st₃.owns) (arr := sa) (contents := contents) (idx := si)
+        (result := result) (elemTy := elemTy) (varr := v_arr) (vidx := v_idx)
+        (Q := Φ) (R := R) heval_sa hsi_eval hi hlt rfl (by
+          -- Acquire the restored atom, then conclude with the postcondition.
+          have hstep := VerifM.eval_acquireSpatial Θ
+            (R := TinyML.ValHasType Θ (Term.eval ρ_arr.env result) elemTy ∗ R)
+            (Φ := Φ (Term.eval ρ_arr.env result)) (VerifM.eval_bind _ _ _ _ hQ) hatom_wf
+            (fun st₄ hq₄ hdecls₄ _howns₄ =>
+              hpost (Term.eval ρ_arr.env result) ρ_arr st₄ result (VerifM.eval_ret hq₄)
+                (by rw [hdecls₄, hdecls]
+                    exact ⟨trivial, ⟨trivial, hcontents_wf⟩, ⟨trivial, hsi_wf₂⟩⟩)
+                rfl)
+          simp only [SpatialContext.interp_insert]
+          istart
+          iintro ⟨⟨Hatom, Howns⟩, HresTy, HR⟩
+          iapply hstep
+          isplitl [Hatom]
+          · iexact Hatom
+          · isplitl [Howns]
+            · simp only [TransState.sl_eq]
+              iexact Howns
+            · isplitl [HresTy]
+              · iexact HresTy
+              · iexact HR))
   | prim _ | sum _ | arrow _ _ | ref _ | vec _ | owned _ | empty | value | tuple _ | tvar _
   | named _ _ =>
       intro Θ R S B Γ st ρ γ Δ_spec ρ_spec Ψ Φ heval _ _ _ _ _ _ _ _ _ _ _
       simp only [compile, hty] at heval
-      exact (VerifM.eval_fatal heval).elim
+      exact (VerifM.eval_fatal (VerifM.eval_bind _ _ _ _ heval)).elim
 
 theorem compileArraySet_correct (reg : Verifier.Registry) (arr idx val : Expr)
     (ihArr : correctExpr reg arr) (ihIdx : correctExpr reg idx) (ihVal : correctExpr reg val) :
@@ -1684,6 +1894,7 @@ theorem compileArraySet_correct (reg : Verifier.Registry) (arr idx val : Expr)
     simp only [Runtime.Expr.subst]
     simp only [compile, hty] at heval
     simp only [Expr.ty] at hpost
+    replace heval := VerifM.eval_ret (VerifM.eval_bind _ _ _ _ heval)
     obtain ⟨helemTy, heval⟩ := VerifM.eval_bind_expectEq heval
     obtain ⟨hidxty, heval⟩ := VerifM.eval_bind_expectEq heval
     have heval_val : (compile reg Θ Δ_spec S B Γ val).eval st ρ _ := VerifM.eval_bind _ _ _ _ heval
@@ -1729,17 +1940,8 @@ theorem compileArraySet_correct (reg : Verifier.Registry) (arr idx val : Expr)
     have hsi_ρ_arr : si.eval ρ_arr.env = v_idx := by
       rw [Term.eval_env_agree hsi_wf (Env.agreeOn_symm hagreeOn_arr)]; exact heval_si
     -- Discharge the two bounds obligations.
-    set φ1 : Formula := .binpred .le (.const (.i 0)) (.unop .toInt si) with hφ1_def
-    have hwf_φ1 : φ1.wfIn st₃.decls := by
-      simpa [φ1, Formula.wfIn, Term.wfIn, Const.wfIn, UnOp.wfIn, BinPred.wfIn] using hsi_wf₃
-    have heval_assert1 : (VerifM.assert φ1).eval st₃ ρ_arr _ := VerifM.eval_bind _ _ _ _ hΨ_arr
-    obtain ⟨hφ1, hcont1⟩ := VerifM.eval_assert heval_assert1 hwf_φ1
-    set φ2 : Formula := .binpred .lt (.unop .toInt si) (.unop .arrayLengthOf sa) with hφ2_def
-    have hwf_φ2 : φ2.wfIn st₃.decls := by
-      simpa [φ2, Formula.wfIn, Term.wfIn, UnOp.wfIn, BinPred.wfIn] using And.intro hsi_wf₃ hsa_wf
-    have heval_assert2 : (VerifM.assert φ2).eval st₃ ρ_arr _ := VerifM.eval_bind _ _ _ _ hcont1
-    obtain ⟨hφ2, hcont2⟩ := VerifM.eval_assert heval_assert2 hwf_φ2
-    have hret := VerifM.eval_ret hcont2
+    obtain ⟨hi, hlt, hcont2⟩ := VerifM.eval_assertBounds hΨ_arr hsi_wf₃ hsa_wf
+    have hret := VerifM.eval_ret (VerifM.eval_ret (VerifM.eval_bind _ _ _ _ hcont2))
     have hunit_wf : (Term.const .unit).wfIn st₃.decls := by simp [Term.wfIn, Const.wfIn]
     have hgoal :
         st₃.sl Θ ρ_arr ∗ TinyML.ValHasType Θ .unit .unit ∗ R ⊢ Φ .unit :=
@@ -1749,11 +1951,6 @@ theorem compileArraySet_correct (reg : Verifier.Registry) (arr idx val : Expr)
           (TinyML.ValHasType Θ v_idx idx.ty ∗ (TinyML.ValHasType Θ v_val val.ty ∗ R)) ⊢
           wp reg.primCtx (.arraySet (.val v_arr) (.val v_idx) (.val v_val)) Φ := by
       rw [hty, hidxty, ← helemTy]
-      have hi : (0 : Int) ≤ Term.eval ρ_arr.env (.unop .toInt si) := by
-        simpa [hφ1_def, Formula.eval, BinPred.eval, Term.eval, Const.denote] using hφ1
-      have hlt : Term.eval ρ_arr.env (.unop .toInt si) <
-          Term.eval ρ_arr.env (.unop .arrayLengthOf sa) := by
-        simpa [hφ2_def, Formula.eval, BinPred.eval] using hφ2
       simpa [TransState.sl_eq] using
         (SpatialContext.wp_arraySet_inv (pctx := reg.primCtx) (Θ := Θ)
           (ctx := st₃.owns) (ρ := ρ_arr.env) (arr := sa) (idx := si)
@@ -1772,11 +1969,104 @@ theorem compileArraySet_correct (reg : Verifier.Registry) (arr idx val : Expr)
               · iapply (TinyML.ValHasType.unit_intro Θ)
               · iexact HR))
     exact hwp
+  | ownedArray elemTy =>
+    intro Θ R S B Γ st ρ γ Δ_spec ρ_spec Ψ Φ heval hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec hΔreg hρreg hpost
+    unfold Expr.runtime
+    simp only [Runtime.Expr.subst]
+    simp only [compile, hty] at heval
+    simp only [Expr.ty] at hpost
+    replace heval := VerifM.eval_ret (VerifM.eval_bind _ _ _ _ heval)
+    obtain ⟨helemTy, heval⟩ := VerifM.eval_bind_expectEq heval
+    obtain ⟨hidxty, heval⟩ := VerifM.eval_bind_expectEq heval
+    have heval_val : (compile reg Θ Δ_spec S B Γ val).eval st ρ _ := VerifM.eval_bind _ _ _ _ heval
+    refine SpatialContext.wp_bind_arraySet <| ?_
+    have hstart := Helpers.ctx_dup_flip reg Θ Δ_spec ρ_spec S B Γ st ρ γ R
+    refine hstart.trans <| ihVal Θ (B.typedSubst Θ Γ γ ∗ (S.satisfiedBy reg.primCtx Θ Δ_spec ρ_spec γ ∗ R))
+      S B Γ st ρ γ Δ_spec ρ_spec _ _ (VerifM.eval.decls_grow ρ heval_val)
+      hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec hΔreg hρreg ?_
+    intro v_val ρ_val st₁ sv hΨ_val hsv_wf heval_sv
+    obtain ⟨hdecls_val, hagreeOn_val, hΨ_val⟩ := hΨ_val
+    have hagree_val := Bindings.agreeOnLinked_env_agree hagree hagreeOn_val hbwf
+    have hbwf_val : B.wfIn st₁.decls := fun p hp => hdecls_val.consts _ (hbwf p hp)
+    have heval_idx : (compile reg Θ Δ_spec S B Γ idx).eval st₁ ρ_val _ := VerifM.eval_bind _ _ _ _ hΨ_val
+    have hspecInv_val := specInvariants_mono hΔspec hρspec hdecls_val hagreeOn_val
+    have hstepB :=
+      (Helpers.ctx_push_flip reg Θ Δ_spec ρ_spec S B Γ st₁ ρ_val γ R v_val val.ty).trans
+        (Helpers.ctx_dup_flip reg Θ Δ_spec ρ_spec S B Γ st₁ ρ_val γ (TinyML.ValHasType Θ v_val val.ty ∗ R))
+    refine hstepB.trans <| ihIdx Θ
+      (B.typedSubst Θ Γ γ ∗ (S.satisfiedBy reg.primCtx Θ Δ_spec ρ_spec γ ∗ (TinyML.ValHasType Θ v_val val.ty ∗ R)))
+      S B Γ st₁ ρ_val γ Δ_spec ρ_spec _ _ (VerifM.eval.decls_grow ρ_val heval_idx)
+      hagree_val hbwf_val hSwf hΔwf hΔvars hspecInv_val.1 hspecInv_val.2 hΔreg hρreg ?_
+    intro v_idx ρ_idx st₂ si hΨ_idx hsi_wf heval_si
+    obtain ⟨hdecls_idx, hagreeOn_idx, hΨ_idx⟩ := hΨ_idx
+    have hagree_idx := Bindings.agreeOnLinked_env_agree hagree_val hagreeOn_idx hbwf_val
+    have hbwf_idx : B.wfIn st₂.decls := fun p hp => hdecls_idx.consts _ (hbwf_val p hp)
+    have heval_arr : (compile reg Θ Δ_spec S B Γ arr).eval st₂ ρ_idx _ := VerifM.eval_bind _ _ _ _ hΨ_idx
+    have hspecInv_idx := specInvariants_mono hspecInv_val.1 hspecInv_val.2 hdecls_idx hagreeOn_idx
+    have hstepC := Helpers.ctx_push_flip reg Θ Δ_spec ρ_spec S B Γ st₂ ρ_idx γ
+      (TinyML.ValHasType Θ v_val val.ty ∗ R) v_idx idx.ty
+    refine hstepC.trans <| ihArr Θ
+      (TinyML.ValHasType Θ v_idx idx.ty ∗ (TinyML.ValHasType Θ v_val val.ty ∗ R))
+      S B Γ st₂ ρ_idx γ Δ_spec ρ_spec _ _ (VerifM.eval.decls_grow ρ_idx heval_arr)
+      hagree_idx hbwf_idx hSwf hΔwf hΔvars hspecInv_idx.1 hspecInv_idx.2 hΔreg hρreg ?_
+    intro v_arr ρ_arr st₃ sa hΨ_arr hsa_wf heval_sa
+    obtain ⟨hdecls_arr, hagreeOn_arr, hΨ_arr⟩ := hΨ_arr
+    have hsi_wf₃ := Term.wfIn_mono si hsi_wf hdecls_arr (VerifM.eval.wf hΨ_arr).namesDisjoint
+    have hsv_wf₃ : sv.wfIn st₃.decls :=
+      Term.wfIn_mono sv hsv_wf (hdecls_idx.trans hdecls_arr) (VerifM.eval.wf hΨ_arr).namesDisjoint
+    have hsv_wf₂ : sv.wfIn st₂.decls :=
+      Term.wfIn_mono sv hsv_wf hdecls_idx (VerifM.eval.wf hΨ_idx).namesDisjoint
+    have hsi_eval : si.eval ρ_arr.env = v_idx := by
+      rw [Term.eval_env_agree hsi_wf (Env.agreeOn_symm hagreeOn_arr)]; exact heval_si
+    have hsv_eval : sv.eval ρ_arr.env = v_val := by
+      rw [Term.eval_env_agree hsv_wf₂ (Env.agreeOn_symm hagreeOn_arr)]
+      rw [Term.eval_env_agree hsv_wf (Env.agreeOn_symm hagreeOn_idx)]
+      exact heval_sv
+    obtain ⟨hi, hlt, hcont2⟩ := VerifM.eval_assertBounds hΨ_arr hsi_wf₃ hsa_wf
+    have hfind := VerifM.eval_bind _ _ _ _ hcont2
+    rw [hty, hidxty, ← helemTy]
+    refine VerifM.eval_findMatchForce Θ
+      (R := TinyML.ValHasType Θ v_arr (.ownedArray elemTy) ∗ TinyML.ValHasType Θ v_idx .int ∗
+        TinyML.ValHasType Θ v_val elemTy ∗ R)
+      (Φ := wp reg.primCtx (.arraySet (.val v_arr) (.val v_idx) (.val v_val)) Φ) hfind hsa_wf ?_
+    intro contents st₄ hQ hdecls hcontents_wf
+    let contents' : Term .value := .unop .ofVec
+      (.terop .vecSet (.unop .toVec contents) (.unop .toInt si) sv)
+    have hcontents'_wf : contents'.wfIn st₄.decls := by
+      rw [hdecls]
+      exact ⟨trivial, ⟨trivial, ⟨trivial, hcontents_wf⟩, ⟨trivial, hsi_wf₃⟩, hsv_wf₃⟩⟩
+    have hatom_wf : (SpatialAtom.arrayPointsTo sa contents' elemTy).wfIn st₄.decls := by
+      rw [hdecls]; exact ⟨hsa_wf, by simpa [hdecls] using hcontents'_wf⟩
+    have hunit_wf : (Term.const .unit).wfIn st₄.decls := by simp [Term.wfIn, Const.wfIn]
+    simpa [TransState.sl_eq] using
+      (SpatialContext.wp_arraySet_owned (pctx := reg.primCtx) (Θ := Θ)
+        (rest := st₄.owns) (arr := sa) (contents := contents) (contents' := contents')
+        (idx := si) (val := sv) (elemTy := elemTy) (varr := v_arr) (vidx := v_idx)
+        (vval := v_val) (Q := Φ) (R := R) heval_sa hsi_eval hsv_eval hi hlt rfl (by
+          -- Acquire the updated atom, then conclude with the postcondition.
+          have hstep := VerifM.eval_acquireSpatial Θ
+            (R := TinyML.ValHasType Θ .unit .unit ∗ R)
+            (Φ := Φ .unit) (VerifM.eval_bind _ _ _ _ hQ) hatom_wf
+            (fun st₅ hq₅ hdecls₅ _howns₅ =>
+              hpost .unit ρ_arr st₅ (.const .unit) (VerifM.eval_ret hq₅)
+                (by rw [hdecls₅]; exact hunit_wf) (by simp [Term.eval]))
+          simp only [SpatialContext.interp_insert]
+          istart
+          iintro ⟨⟨Hatom, Howns⟩, HunitTy, HR⟩
+          iapply hstep
+          isplitl [Hatom]
+          · iexact Hatom
+          · isplitl [Howns]
+            · simp only [TransState.sl_eq]
+              iexact Howns
+            · isplitl [HunitTy]
+              · iexact HunitTy
+              · iexact HR))
   | prim _ | sum _ | arrow _ _ | ref _ | vec _ | owned _ | empty | value | tuple _ | tvar _
   | named _ _ =>
       intro Θ R S B Γ st ρ γ Δ_spec ρ_spec Ψ Φ heval _ _ _ _ _ _ _ _ _ _ _
       simp only [compile, hty] at heval
-      exact (VerifM.eval_fatal heval).elim
+      exact (VerifM.eval_fatal (VerifM.eval_bind _ _ _ _ heval)).elim
 
 theorem compileUnop_correct (reg : Verifier.Registry) (op : TinyML.UnOp) (e : Expr) (uty : TinyML.Typ)
     (ih : correctExpr reg e) :
@@ -2482,7 +2772,7 @@ theorem compileLetProd_correct (reg : Verifier.Registry) (names : List Binder) (
             · isplitl []
               · iexact HT
               · iexact HR
-  | prim _ | sum _ | arrow _ _ | ref _ | array _ | vec _ | owned _ | empty | value | tvar _
+  | prim _ | sum _ | arrow _ _ | ref _ | array _ | ownedArray _ | vec _ | owned _ | empty | value | tvar _
   | named _ _ =>
       simp [hty] at hΨ_e
       exact (VerifM.eval_fatal (VerifM.eval_bind _ _ _ _ hΨ_e)).elim
@@ -2894,7 +3184,7 @@ theorem compileMatch_correct (reg : Verifier.Registry) (scrut : Expr) (branches 
   intro v_scrut ρ_scrut st_scrut se_scrut hΨ_scrut hse_wf heval_se
   obtain ⟨hdecls_scrut, hagreeOn_scrut, hΨ_scrut⟩ := hΨ_scrut
   cases hscrut_ty : scrut.ty with
-  | prim _ | arrow _ _ | ref _ | array _ | vec _ | owned _ | empty | value | tuple _ | tvar _
+  | prim _ | arrow _ _ | ref _ | array _ | ownedArray _ | vec _ | owned _ | empty | value | tuple _ | tvar _
   | named _ _ =>
     simp only [hscrut_ty] at hΨ_scrut
     exact (VerifM.eval_fatal hΨ_scrut).elim
@@ -3327,8 +3617,8 @@ theorem compile_correct (reg : Verifier.Registry) (hSound : Verifier.Registry.So
     simpa using compileDeref_correct reg e ty (compile_correct reg hSound e)
   | store loc val =>
     simpa using compileStore_correct reg loc val (compile_correct reg hSound val) (compile_correct reg hSound loc)
-  | arrayMake len init =>
-    simpa using compileArrayMake_correct reg len init
+  | arrayMake owned len init =>
+    simpa using compileArrayMake_correct reg owned len init
       (compile_correct reg hSound len) (compile_correct reg hSound init)
   | arrayLen arr =>
     simpa using compileArrayLen_correct reg arr (compile_correct reg hSound arr)

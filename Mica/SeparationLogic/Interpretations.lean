@@ -25,6 +25,9 @@ theorem interp_env_agree (Θ : TinyML.TypeEnv) {a : SpatialAtom} {Δ : Signature
   | pointsTo l v ty =>
     simp only [interp, Term.eval_env_agree hwf.1 hagree, Term.eval_env_agree hwf.2 hagree]
     exact ⟨BIBase.Entails.rfl, BIBase.Entails.rfl⟩
+  | arrayPointsTo a v ty =>
+    simp only [interp, Term.eval_env_agree hwf.1 hagree, Term.eval_env_agree hwf.2 hagree]
+    exact ⟨BIBase.Entails.rfl, BIBase.Entails.rfl⟩
 
 /-- If a points-to atom's location term evaluates to `loc`, its interpretation
     is equivalent to the raw heap ownership together with the bundled value
@@ -53,6 +56,121 @@ theorem interp_pointsTo (Θ : TinyML.TypeEnv) {ρ : Env} {lt vt : Term .value}
     · isplitl [Hpt]
       · iexact Hpt
       · iexact Hty
+
+/-- If an owned-array atom's array and snapshot terms evaluate to the same
+    runtime block, its interpretation exposes ownership of that whole block
+    together with the element-typing fact carried by the vector snapshot. -/
+theorem interp_arrayPointsTo (Θ : TinyML.TypeEnv) {ρ : Env} {arrt vt : Term .value}
+    {ty : TinyML.Typ} {loc : Runtime.Location} {vs : List Runtime.Val}
+    (harr : Term.eval ρ arrt = .array vs.length loc)
+    (hvec : Term.eval ρ vt = .vec vs) :
+    interp Θ ρ (.arrayPointsTo arrt vt ty) ⊣⊢
+      loc ↦ vs ∗ TinyML.ValHasType Θ (.vec vs) (.vec ty) := by
+  constructor
+  · simp only [interp]
+    istart
+    iintro ⟨%loc', %vs', %Harr', %Hvec', Hpt, Hty⟩
+    have hloc : loc' = loc := by
+      exact Runtime.Val.array.inj (Harr'.symm.trans harr) |>.2
+    have hvs : vs' = vs := Runtime.Val.vec.inj (Hvec'.symm.trans hvec)
+    subst hloc
+    subst hvs
+    isplitl [Hpt]
+    · iexact Hpt
+    · iexact Hty
+  · simp only [interp]
+    istart
+    iintro ⟨Hpt, Hty⟩
+    iexists loc, vs
+    isplitr
+    · ipureintro
+      exact harr
+    · isplitr
+      · ipureintro
+        exact hvec
+      · isplitl [Hpt]
+        · iexact Hpt
+        · iexact Hty
+
+/-- Destruct an owned-array atom at an in-bounds index: expose the underlying
+block, the integer index witness, and the persistent element typing of the
+snapshot. -/
+theorem interp_arrayPointsTo_lookup (Θ : TinyML.TypeEnv) {ρ : Env}
+    {arr contents idx : Term .value} {elemTy : TinyML.Typ} {vidx : Runtime.Val}
+    (hidx : Term.eval ρ idx = vidx)
+    (hi : 0 ≤ Term.eval ρ (.unop .toInt idx))
+    (hlt : Term.eval ρ (.unop .toInt idx) < Term.eval ρ (.unop .arrayLengthOf arr)) :
+    SpatialAtom.interp Θ ρ (.arrayPointsTo arr contents elemTy) ⊢
+      TinyML.ValHasType Θ vidx .int -∗
+      ∃ (loc : Runtime.Location) (vs : List Runtime.Val) (i : Int),
+        ⌜Term.eval ρ arr = .array vs.length loc⌝ ∗ ⌜Term.eval ρ contents = .vec vs⌝ ∗
+        ⌜vidx = .int i⌝ ∗ ⌜0 ≤ i⌝ ∗ ⌜i.toNat < vs.length⌝ ∗
+        loc ↦ vs ∗ □ TinyML.ValHasType Θ (.vec vs) (.vec elemTy) := by
+  simp only [SpatialAtom.interp]
+  istart
+  iintro Hatom
+  iintro HidxTy
+  icases Hatom with ⟨%loc, %vs, %ha, %hv, Hpt, #HvecTy⟩
+  ihave Hidx' := (TinyML.ValHasType.int Θ vidx).1 $$ HidxTy
+  icases Hidx' with ⟨%i, %hvidx⟩
+  have hi' : 0 ≤ i := by simpa [Term.eval, UnOp.eval, hidx, hvidx] using hi
+  have hlt' : i.toNat < vs.length := by
+    have : i < (vs.length : Int) := by
+      simpa [Term.eval, UnOp.eval, ha, hidx, hvidx] using hlt
+    omega
+  iexists loc, vs, i
+  isplitr
+  · ipureintro
+    exact ha
+  · isplitr
+    · ipureintro
+      exact hv
+    · isplitr
+      · ipureintro
+        exact hvidx
+      · isplitr
+        · ipureintro
+          exact hi'
+        · isplitr
+          · ipureintro
+            exact hlt'
+          · isplitl [Hpt]
+            · iexact Hpt
+            · imodintro
+              iexact HvecTy
+
+/-- An atom's interpretation implies its pure facts. -/
+theorem interp_facts (Θ : TinyML.TypeEnv) {ρ : Env} (a : SpatialAtom) :
+    interp Θ ρ a ⊢ ⌜∀ φ ∈ a.facts, φ.eval ρ⌝ ∗ interp Θ ρ a := by
+  cases a with
+  | pointsTo l v ty =>
+    istart
+    iintro H
+    isplitr [H]
+    · ipureintro
+      simp [facts]
+    · iexact H
+  | arrayPointsTo a v ty =>
+    simp only [interp]
+    istart
+    iintro H
+    icases H with ⟨%loc, %vs, %ha, %hv, Hpt, Hty⟩
+    isplitl []
+    · ipureintro
+      intro φ hφ
+      simp only [facts, List.mem_cons, List.not_mem_nil, or_false] at hφ
+      subst hφ
+      simp [Formula.eval, Term.eval, UnOp.eval, ha, hv]
+    · iexists loc, vs
+      isplitr
+      · ipureintro
+        exact ha
+      · isplitr
+        · ipureintro
+          exact hv
+        · isplitl [Hpt]
+          · iexact Hpt
+          · iexact Hty
 
 end SpatialAtom
 

@@ -391,7 +391,7 @@ theorem deref (e : Typed.Expr) (ty : TinyML.Typ) : EncodeWithInd (.deref e ty) :
 theorem store (loc val : Typed.Expr) : EncodeWithInd (.store loc val) :=
   fun hops _ => hops.error_ind
 
-theorem arrayMake (len init : Typed.Expr) : EncodeWithInd (.arrayMake len init) :=
+theorem arrayMake (owned : Bool) (len init : Typed.Expr) : EncodeWithInd (.arrayMake owned len init) :=
   fun hops _ => hops.error_ind
 
 theorem arrayLen (arr : Typed.Expr) (ih : EncodeWithInd arr) :
@@ -491,7 +491,7 @@ theorem encodeWith_ind_def : ∀ (e : Typed.Expr), EncodeWithInd e
   | .ref owned e => Ind.ref owned e
   | .deref e ty => Ind.deref e ty
   | .store loc val => Ind.store loc val
-  | .arrayMake len init => Ind.arrayMake len init
+  | .arrayMake owned len init => Ind.arrayMake owned len init
   | .arrayLen arr => Ind.arrayLen arr (encodeWith_ind_def arr)
   | .arrayGet arr idx ty => Ind.arrayGet arr idx ty
   | .arraySet arr idx val => Ind.arraySet arr idx val
@@ -742,7 +742,7 @@ theorem deref (e : Typed.Expr) (ty : TinyML.Typ) : EncodeWithIndSig (.deref e ty
 theorem store (loc val : Typed.Expr) : EncodeWithIndSig (.store loc val) :=
   fun hops _ _ _ _ _ => hops.error_ind
 
-theorem arrayMake (len init : Typed.Expr) : EncodeWithIndSig (.arrayMake len init) :=
+theorem arrayMake (owned : Bool) (len init : Typed.Expr) : EncodeWithIndSig (.arrayMake owned len init) :=
   fun hops _ _ _ _ _ => hops.error_ind
 
 theorem arrayLen (arr : Typed.Expr) (ih : EncodeWithIndSig arr) :
@@ -869,7 +869,7 @@ theorem encodeWith_indWithSig_def : ∀ (e : Typed.Expr), EncodeWithIndSig e
   | .ref owned e => IndSig.ref owned e
   | .deref e ty => IndSig.deref e ty
   | .store loc val => IndSig.store loc val
-  | .arrayMake len init => IndSig.arrayMake len init
+  | .arrayMake owned len init => IndSig.arrayMake owned len init
   | .arrayLen arr => IndSig.arrayLen arr (encodeWith_indWithSig_def arr)
   | .arrayGet arr idx ty => IndSig.arrayGet arr idx ty
   | .arraySet arr idx val => IndSig.arraySet arr idx val
@@ -1330,7 +1330,7 @@ theorem deref (e : Typed.Expr) (ty : TinyML.Typ) : EncodeWithBindBinary (.deref 
 theorem store (loc val : Typed.Expr) : EncodeWithBindBinary (.store loc val) := by
   intro _ _ _ _ _ _ _ _ _ hops _ _ _ _ _ _ _ _ _ _ _ _ _; exact hops.error_binary
 
-theorem arrayMake (len init : Typed.Expr) : EncodeWithBindBinary (.arrayMake len init) := by
+theorem arrayMake (owned : Bool) (len init : Typed.Expr) : EncodeWithBindBinary (.arrayMake owned len init) := by
   intro _ _ _ _ _ _ _ _ _ hops _ _ _ _ _ _ _ _ _ _ _ _ _; exact hops.error_binary
 
 theorem arrayLen (arr : Typed.Expr) (ih : EncodeWithBindBinary arr) :
@@ -1496,7 +1496,7 @@ theorem encodeWith_bind_binary_def : ∀ (e : Typed.Expr), EncodeWithBindBinary 
   | .ref owned e => BindBinary.ref owned e
   | .deref e ty => BindBinary.deref e ty
   | .store loc val => BindBinary.store loc val
-  | .arrayMake len init => BindBinary.arrayMake len init
+  | .arrayMake owned len init => BindBinary.arrayMake owned len init
   | .arrayLen arr => BindBinary.arrayLen arr (encodeWith_bind_binary_def arr)
   | .arrayGet arr idx ty => BindBinary.arrayGet arr idx ty
   | .arraySet arr idx val => BindBinary.arraySet arr idx val
