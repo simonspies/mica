@@ -1,4 +1,4 @@
--- SUMMARY: Embeddings (with semantic type predicates for polymorphic types) and the pure-intrinsic builders (`Pure.Zero`/`Pure.Unary`/`Pure.Binary`/`Pure.Ternary`) that emit an intrinsic — optional precondition, generated type axiom — and its soundness instance.
+-- SUMMARY: Embeddings and the pure-intrinsic builders (`Pure.Zero`/`Pure.Unary`/`Pure.Binary`/`Pure.Ternary`) that emit an intrinsic and its soundness instance.
 import Mica.Verifier.Intrinsic
 import Mica.TinyML.Printer
 

@@ -1,4 +1,4 @@
--- SUMMARY: Immutable-vector intrinsics (`Vec.length`, `Vec.get`, `Vec.set`, `Vec.make`) as builder instances over the vec/poly embeddings.
+-- SUMMARY: Immutable-vector intrinsics (`Vec.length`, `Vec.get`, `Vec.set`, `Vec.make`).
 import Mica.Stdlib.Combinators
 
 open Iris Iris.BI
