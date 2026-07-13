@@ -62,9 +62,12 @@ def intMaxDefAxiom : Formula :=
 def intMinB : Pure.Binary where
   name     := "int_min"
   path     := some ("Int", ["min"])
-  arg      := .int
+  arg₁     := .int
+  arg₂     := .int
   res      := .int
   f        := (min : Int → Int → Int)
+  dom      := fun _ _ => True
+  pre      := none
   defAxiom := intMinDefAxiom
 
 def intMin : Intrinsic := intMinB.toIntrinsic
@@ -73,12 +76,15 @@ def intMin : Intrinsic := intMinB.toIntrinsic
 @[simp] theorem intMin_arity : intMin.arity = .two := rfl
 
 def intMinLawful : intMinB.Lawful where
-  argL       := Embedding.lawfulInt
-  resL       := Embedding.lawfulInt
-  specBaseWf := by apply PredTrans.checkWf_ok; rfl
-  defWf      := by apply Formula.checkWf_ok; rfl
-  typeWf     := by apply Formula.checkWf_ok; rfl
-  defEval    := by
+  argL₁        := Embedding.lawfulInt
+  argL₂        := Embedding.lawfulInt
+  resL         := Embedding.lawfulInt
+  domSound     := fun _ _ _ _ => True.intro
+  semWellTyped := fun _ _ _ _ _ => sep_emp.1
+  specBaseWf   := by apply PredTrans.checkWf_ok; rfl
+  defWf        := by apply Formula.checkWf_ok; rfl
+  typeWf       := by intro φ h; injection h with h; subst h; apply Formula.checkWf_ok; rfl
+  defEval      := by
     intrinsic_def_eval [binTerm, intMinB, intMinDefAxiom]
     intro x y
     rw [min_def, Bool.cond_decide]; congr 1
@@ -91,9 +97,12 @@ instance : IntrinsicSound [intMin] intMin := intMinLawful.sound
 def intMaxB : Pure.Binary where
   name     := "int_max"
   path     := some ("Int", ["max"])
-  arg      := .int
+  arg₁     := .int
+  arg₂     := .int
   res      := .int
   f        := (max : Int → Int → Int)
+  dom      := fun _ _ => True
+  pre      := none
   defAxiom := intMaxDefAxiom
 
 def intMax : Intrinsic := intMaxB.toIntrinsic
@@ -102,12 +111,15 @@ def intMax : Intrinsic := intMaxB.toIntrinsic
 @[simp] theorem intMax_arity : intMax.arity = .two := rfl
 
 def intMaxLawful : intMaxB.Lawful where
-  argL       := Embedding.lawfulInt
-  resL       := Embedding.lawfulInt
-  specBaseWf := by apply PredTrans.checkWf_ok; rfl
-  defWf      := by apply Formula.checkWf_ok; rfl
-  typeWf     := by apply Formula.checkWf_ok; rfl
-  defEval    := by
+  argL₁        := Embedding.lawfulInt
+  argL₂        := Embedding.lawfulInt
+  resL         := Embedding.lawfulInt
+  domSound     := fun _ _ _ _ => True.intro
+  semWellTyped := fun _ _ _ _ _ => sep_emp.1
+  specBaseWf   := by apply PredTrans.checkWf_ok; rfl
+  defWf        := by apply Formula.checkWf_ok; rfl
+  typeWf       := by intro φ h; injection h with h; subst h; apply Formula.checkWf_ok; rfl
+  defEval      := by
     intrinsic_def_eval [binTerm, intMaxB, intMaxDefAxiom]
     intro x y
     rw [max_comm, max_def, Bool.cond_decide]; congr 1
