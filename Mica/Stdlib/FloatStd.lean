@@ -115,6 +115,7 @@ def floatAbsB : Pure.Unary where
   arg      := .float
   res      := .float
   f        := FloatBits.abs
+  typing   := monoTyping .one
   defAxiom := floatAbsDefAxiom
 
 def floatAbs : Intrinsic := floatAbsB.toIntrinsic
@@ -143,6 +144,7 @@ def floatNegB : Pure.Unary where
   arg      := .float
   res      := .float
   f        := FloatBits.neg
+  typing   := monoTyping .one
   defAxiom := floatNegDefAxiom
 
 def floatNeg : Intrinsic := floatNegB.toIntrinsic
@@ -171,6 +173,7 @@ def floatSqrtB : Pure.Unary where
   arg      := .float
   res      := .float
   f        := FloatBits.sqrt
+  typing   := monoTyping .one
   defAxiom := floatSqrtDefAxiom
 
 def floatSqrt : Intrinsic := floatSqrtB.toIntrinsic
@@ -199,6 +202,7 @@ def floatIsNanB : Pure.Unary where
   arg      := .float
   res      := .bool
   f        := FloatBits.isNaN
+  typing   := monoTyping .one
   defAxiom := floatIsNanDefAxiom
 
 def floatIsNan : Intrinsic := floatIsNanB.toIntrinsic
@@ -231,6 +235,7 @@ def floatIsFiniteB : Pure.Unary where
   arg      := .float
   res      := .bool
   f        := FloatBits.isFinite
+  typing   := monoTyping .one
   defAxiom := floatIsFiniteDefAxiom
 
 def floatIsFinite : Intrinsic := floatIsFiniteB.toIntrinsic
@@ -259,6 +264,7 @@ def floatOfIntB : Pure.Unary where
   arg      := .int
   res      := .float
   f        := FloatBits.ofInt
+  typing   := monoTyping .one
   defAxiom := floatOfIntDefAxiom
 
 def floatOfInt : Intrinsic := floatOfIntB.toIntrinsic
@@ -285,9 +291,11 @@ private def binFloatDefAxiom (sym : FOL.Symbol .two) (op : BinOp .float .float .
 def floatAddB : Pure.Binary where
   name     := "float_add"
   path     := some ("Float", ["add"])
-  arg      := .float
+  arg₁     := .float
+  arg₂     := .float
   res      := .float
   f        := FloatBits.add
+  typing   := monoTyping .two
   defAxiom := binFloatDefAxiom floatAddSym .fpAdd
 
 def floatAdd : Intrinsic := floatAddB.toIntrinsic
@@ -296,7 +304,8 @@ def floatAdd : Intrinsic := floatAddB.toIntrinsic
 @[simp] theorem floatAdd_arity : floatAdd.arity = .two := rfl
 
 def floatAddLawful : floatAddB.Lawful where
-  argL       := Embedding.lawfulFloat
+  argL₁      := Embedding.lawfulFloat
+  argL₂      := Embedding.lawfulFloat
   resL       := Embedding.lawfulFloat
   specBaseWf := by apply PredTrans.checkWf_ok; rfl
   defWf      := by apply Formula.checkWf_ok; rfl
@@ -308,9 +317,11 @@ instance : IntrinsicSound [floatAdd] floatAdd := floatAddLawful.sound
 def floatSubB : Pure.Binary where
   name     := "float_sub"
   path     := some ("Float", ["sub"])
-  arg      := .float
+  arg₁     := .float
+  arg₂     := .float
   res      := .float
   f        := FloatBits.sub
+  typing   := monoTyping .two
   defAxiom := binFloatDefAxiom floatSubSym .fpSub
 
 def floatSub : Intrinsic := floatSubB.toIntrinsic
@@ -319,7 +330,8 @@ def floatSub : Intrinsic := floatSubB.toIntrinsic
 @[simp] theorem floatSub_arity : floatSub.arity = .two := rfl
 
 def floatSubLawful : floatSubB.Lawful where
-  argL       := Embedding.lawfulFloat
+  argL₁      := Embedding.lawfulFloat
+  argL₂      := Embedding.lawfulFloat
   resL       := Embedding.lawfulFloat
   specBaseWf := by apply PredTrans.checkWf_ok; rfl
   defWf      := by apply Formula.checkWf_ok; rfl
@@ -331,9 +343,11 @@ instance : IntrinsicSound [floatSub] floatSub := floatSubLawful.sound
 def floatMulB : Pure.Binary where
   name     := "float_mul"
   path     := some ("Float", ["mul"])
-  arg      := .float
+  arg₁     := .float
+  arg₂     := .float
   res      := .float
   f        := FloatBits.mul
+  typing   := monoTyping .two
   defAxiom := binFloatDefAxiom floatMulSym .fpMul
 
 def floatMul : Intrinsic := floatMulB.toIntrinsic
@@ -342,7 +356,8 @@ def floatMul : Intrinsic := floatMulB.toIntrinsic
 @[simp] theorem floatMul_arity : floatMul.arity = .two := rfl
 
 def floatMulLawful : floatMulB.Lawful where
-  argL       := Embedding.lawfulFloat
+  argL₁      := Embedding.lawfulFloat
+  argL₂      := Embedding.lawfulFloat
   resL       := Embedding.lawfulFloat
   specBaseWf := by apply PredTrans.checkWf_ok; rfl
   defWf      := by apply Formula.checkWf_ok; rfl
@@ -354,9 +369,11 @@ instance : IntrinsicSound [floatMul] floatMul := floatMulLawful.sound
 def floatDivB : Pure.Binary where
   name     := "float_div"
   path     := some ("Float", ["div"])
-  arg      := .float
+  arg₁     := .float
+  arg₂     := .float
   res      := .float
   f        := FloatBits.div
+  typing   := monoTyping .two
   defAxiom := binFloatDefAxiom floatDivSym .fpDiv
 
 def floatDiv : Intrinsic := floatDivB.toIntrinsic
@@ -365,7 +382,8 @@ def floatDiv : Intrinsic := floatDivB.toIntrinsic
 @[simp] theorem floatDiv_arity : floatDiv.arity = .two := rfl
 
 def floatDivLawful : floatDivB.Lawful where
-  argL       := Embedding.lawfulFloat
+  argL₁      := Embedding.lawfulFloat
+  argL₂      := Embedding.lawfulFloat
   resL       := Embedding.lawfulFloat
   specBaseWf := by apply PredTrans.checkWf_ok; rfl
   defWf      := by apply Formula.checkWf_ok; rfl
@@ -390,9 +408,11 @@ def floatMinDefAxiom : Formula :=
 def floatMinB : Pure.Binary where
   name     := "float_min"
   path     := some ("Float", ["min"])
-  arg      := .float
+  arg₁     := .float
+  arg₂     := .float
   res      := .float
   f        := FloatBits.min
+  typing   := monoTyping .two
   defAxiom := floatMinDefAxiom
 
 def floatMin : Intrinsic := floatMinB.toIntrinsic
@@ -401,7 +421,8 @@ def floatMin : Intrinsic := floatMinB.toIntrinsic
 @[simp] theorem floatMin_arity : floatMin.arity = .two := rfl
 
 def floatMinLawful : floatMinB.Lawful where
-  argL       := Embedding.lawfulFloat
+  argL₁      := Embedding.lawfulFloat
+  argL₂      := Embedding.lawfulFloat
   resL       := Embedding.lawfulFloat
   specBaseWf := by apply PredTrans.checkWf_ok; rfl
   defWf      := by apply Formula.checkWf_ok; rfl
@@ -426,9 +447,11 @@ def floatMaxDefAxiom : Formula :=
 def floatMaxB : Pure.Binary where
   name     := "float_max"
   path     := some ("Float", ["max"])
-  arg      := .float
+  arg₁     := .float
+  arg₂     := .float
   res      := .float
   f        := FloatBits.max
+  typing   := monoTyping .two
   defAxiom := floatMaxDefAxiom
 
 def floatMax : Intrinsic := floatMaxB.toIntrinsic
@@ -437,7 +460,8 @@ def floatMax : Intrinsic := floatMaxB.toIntrinsic
 @[simp] theorem floatMax_arity : floatMax.arity = .two := rfl
 
 def floatMaxLawful : floatMaxB.Lawful where
-  argL       := Embedding.lawfulFloat
+  argL₁      := Embedding.lawfulFloat
+  argL₂      := Embedding.lawfulFloat
   resL       := Embedding.lawfulFloat
   specBaseWf := by apply PredTrans.checkWf_ok; rfl
   defWf      := by apply Formula.checkWf_ok; rfl
@@ -455,9 +479,11 @@ private def binFloatBoolDefAxiom (sym : FOL.Symbol .two) (op : BinOp .float .flo
 def floatEqualB : Pure.Binary where
   name     := "float_equal"
   path     := some ("Float", ["equal"])
-  arg      := .float
+  arg₁     := .float
+  arg₂     := .float
   res      := .bool
   f        := FloatBits.eq
+  typing   := monoTyping .two
   defAxiom := binFloatBoolDefAxiom floatEqualSym .fpEq
 
 def floatEqual : Intrinsic := floatEqualB.toIntrinsic
@@ -466,7 +492,8 @@ def floatEqual : Intrinsic := floatEqualB.toIntrinsic
 @[simp] theorem floatEqual_arity : floatEqual.arity = .two := rfl
 
 def floatEqualLawful : floatEqualB.Lawful where
-  argL       := Embedding.lawfulFloat
+  argL₁      := Embedding.lawfulFloat
+  argL₂      := Embedding.lawfulFloat
   resL       := Embedding.lawfulBool
   specBaseWf := by apply PredTrans.checkWf_ok; rfl
   defWf      := by apply Formula.checkWf_ok; rfl
@@ -478,9 +505,11 @@ instance : IntrinsicSound [floatEqual] floatEqual := floatEqualLawful.sound
 def floatLtB : Pure.Binary where
   name     := "float_lt"
   path     := some ("Float", ["lt"])
-  arg      := .float
+  arg₁     := .float
+  arg₂     := .float
   res      := .bool
   f        := FloatBits.lt
+  typing   := monoTyping .two
   defAxiom := binFloatBoolDefAxiom floatLtSym .fpLt
 
 def floatLt : Intrinsic := floatLtB.toIntrinsic
@@ -489,7 +518,8 @@ def floatLt : Intrinsic := floatLtB.toIntrinsic
 @[simp] theorem floatLt_arity : floatLt.arity = .two := rfl
 
 def floatLtLawful : floatLtB.Lawful where
-  argL       := Embedding.lawfulFloat
+  argL₁      := Embedding.lawfulFloat
+  argL₂      := Embedding.lawfulFloat
   resL       := Embedding.lawfulBool
   specBaseWf := by apply PredTrans.checkWf_ok; rfl
   defWf      := by apply Formula.checkWf_ok; rfl
@@ -501,9 +531,11 @@ instance : IntrinsicSound [floatLt] floatLt := floatLtLawful.sound
 def floatLeB : Pure.Binary where
   name     := "float_le"
   path     := some ("Float", ["le"])
-  arg      := .float
+  arg₁     := .float
+  arg₂     := .float
   res      := .bool
   f        := FloatBits.le
+  typing   := monoTyping .two
   defAxiom := binFloatBoolDefAxiom floatLeSym .fpLe
 
 def floatLe : Intrinsic := floatLeB.toIntrinsic
@@ -512,7 +544,8 @@ def floatLe : Intrinsic := floatLeB.toIntrinsic
 @[simp] theorem floatLe_arity : floatLe.arity = .two := rfl
 
 def floatLeLawful : floatLeB.Lawful where
-  argL       := Embedding.lawfulFloat
+  argL₁      := Embedding.lawfulFloat
+  argL₂      := Embedding.lawfulFloat
   resL       := Embedding.lawfulBool
   specBaseWf := by apply PredTrans.checkWf_ok; rfl
   defWf      := by apply Formula.checkWf_ok; rfl
@@ -531,6 +564,7 @@ def floatNanB : Pure.Zero where
   path     := some ("Float", ["nan"])
   res      := .float
   f        := FloatBits.nan
+  typing   := monoTyping .zero
   defAxiom := zeroFloatDefAxiom floatNanSym .fpNaN
 
 def floatNan : Intrinsic := floatNanB.toIntrinsic
@@ -553,6 +587,7 @@ def floatInfinityB : Pure.Zero where
   path     := some ("Float", ["infinity"])
   res      := .float
   f        := FloatBits.posInf
+  typing   := monoTyping .zero
   defAxiom := zeroFloatDefAxiom floatInfinitySym .fpPosInf
 
 def floatInfinity : Intrinsic := floatInfinityB.toIntrinsic
@@ -575,6 +610,7 @@ def floatNegInfinityB : Pure.Zero where
   path     := some ("Float", ["neg_infinity"])
   res      := .float
   f        := FloatBits.negInf
+  typing   := monoTyping .zero
   defAxiom := zeroFloatDefAxiom floatNegInfinitySym .fpNegInf
 
 def floatNegInfinity : Intrinsic := floatNegInfinityB.toIntrinsic

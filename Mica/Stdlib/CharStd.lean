@@ -52,6 +52,7 @@ def charCodeB : Pure.Unary where
   arg      := .char
   res      := .int
   f        := (fun c => (c.toNat : Int) : UInt8 → Int)
+  typing   := monoTyping .one
   defAxiom := charCodeDefAxiom
 
 def charCode : Intrinsic := charCodeB.toIntrinsic
@@ -275,9 +276,11 @@ def charEqualDefAxiom : Formula :=
 def charEqualB : Pure.Binary where
   name     := "char_equal"
   path     := some ("Char", ["equal"])
-  arg      := .char
+  arg₁     := .char
+  arg₂     := .char
   res      := .bool
   f        := (fun x y => x == y : UInt8 → UInt8 → Bool)
+  typing   := monoTyping .two
   defAxiom := charEqualDefAxiom
 
 def charEqual : Intrinsic := charEqualB.toIntrinsic
@@ -286,7 +289,8 @@ def charEqual : Intrinsic := charEqualB.toIntrinsic
 @[simp] theorem charEqual_folSym : charEqual.folSym = some charEqualSym := rfl
 
 def charEqualLawful : charEqualB.Lawful where
-  argL       := Embedding.lawfulChar
+  argL₁      := Embedding.lawfulChar
+  argL₂      := Embedding.lawfulChar
   resL       := Embedding.lawfulBool
   specBaseWf := by apply PredTrans.checkWf_ok; rfl
   defWf      := by apply Formula.checkWf_ok; rfl

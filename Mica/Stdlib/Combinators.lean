@@ -142,10 +142,7 @@ def Embedding.str  : Embedding := ⟨.string, List UInt8, .str,  valStr,  .isStr
 def Embedding.float : Embedding := ⟨.float, UInt64, .float, valFloat, .isFloat⟩
 
 /-- Coherence laws for an `Embedding`. The `member`/`intro` laws are stated at
-    every instantiation `e.typ.subst σ` of the embedding's type. For a concrete
-    embedding the type is closed, so the substitution reduces away; stating the
-    laws through `σ` lets the combinator soundness proofs face the *instantiated*
-    spec directly, without a closedness detour. -/
+    every instantiation `e.typ.subst σ` of the embedding's type. -/
 structure Embedding.Lawful (e : Embedding) where
   project_inject : ∀ x, e.project (e.inject x) = x
   isOf_wf        : ∀ Δ, e.isOf.wfIn Δ
@@ -230,6 +227,7 @@ structure Zero where
   path     : Option (String × List String)
   res      : Embedding
   f        : res.carrier
+  typing   : TinyML.TypeEnv → List TinyML.Typ → Except String (List (TinyML.TyVar × TinyML.Typ))
   defAxiom : Formula
 
 /-- The intrinsic's uninterpreted constant symbol as a value term. -/
@@ -257,7 +255,7 @@ def Zero.toIntrinsic (b : Zero) : Intrinsic where
       retTy := b.res.typ
       pred  := .ret ("ret",
         .assert (.eq .value (.var .value "ret") b.opTerm) (.ret ())) }
-  typing := monoTyping .zero
+  typing := b.typing
   folSym := some b.sym
   axioms := [⟨b.defAxiom, .low⟩, ⟨b.typeAxiom, .low⟩]
 
@@ -358,6 +356,7 @@ structure Unary where
   arg      : Embedding
   res      : Embedding
   f        : arg.carrier → res.carrier
+  typing   : TinyML.TypeEnv → List TinyML.Typ → Except String (List (TinyML.TyVar × TinyML.Typ))
   defAxiom : Formula
 
 /-- The intrinsic's uninterpreted unary symbol applied to a value term. -/
@@ -387,7 +386,7 @@ def Unary.toIntrinsic (b : Unary) : Intrinsic where
       pred  := .ret ("ret",
         .assert (.eq .value (.var .value "ret")
           (b.opTerm (.var .value "a"))) (.ret ())) }
-  typing := monoTyping .one
+  typing := b.typing
   folSym := some b.sym
   axioms := [⟨b.defAxiom, .high⟩, ⟨b.typeAxiom, .high⟩]
 
@@ -516,9 +515,11 @@ built (`toIntrinsic`). The proof obligations live in `Pure.Binary.Lawful`. -/
 structure Binary where
   name     : String
   path     : Option (String × List String)
-  arg      : Embedding
+  arg₁     : Embedding
+  arg₂     : Embedding
   res      : Embedding
-  f        : arg.carrier → arg.carrier → res.carrier
+  f        : arg₁.carrier → arg₂.carrier → res.carrier
+  typing   : TinyML.TypeEnv → List TinyML.Typ → Except String (List (TinyML.TyVar × TinyML.Typ))
   defAxiom : Formula
 
 /-- The intrinsic's uninterpreted binary symbol applied to two value terms. -/
@@ -529,7 +530,7 @@ def Binary.opTerm (b : Binary) (x y : Term .value) : Term .value :=
     `f`, and injects the result. -/
 def Binary.sym (b : Binary) : FOL.Symbol .two where
   name   := b.name
-  interp := fun (a, c) => b.res.inject (b.f (b.arg.project a) (b.arg.project c))
+  interp := fun (a, c) => b.res.inject (b.f (b.arg₁.project a) (b.arg₂.project c))
 
 /-- The result-typing axiom, generated from `res`: the op result satisfies the
     result embedding's `is-of` predicate. -/
@@ -545,30 +546,30 @@ def Binary.toIntrinsic (b : Binary) : Intrinsic where
   name   := b.name
   path   := b.path
   reduce := Reduce.pure fun (a, c) v =>
-    ∃ x y, a = b.arg.inject x ∧ c = b.arg.inject y ∧ v = b.res.inject (b.f x y)
+    ∃ x y, a = b.arg₁.inject x ∧ c = b.arg₂.inject y ∧ v = b.res.inject (b.f x y)
   wp     := fun (a, c) Q =>
-    iprop(∃ x y, ⌜a = b.arg.inject x ∧ c = b.arg.inject y⌝ ∗ Q (b.res.inject (b.f x y)))
+    iprop(∃ x y, ⌜a = b.arg₁.inject x ∧ c = b.arg₂.inject y⌝ ∗ Q (b.res.inject (b.f x y)))
   spec   :=
-    { args  := [("a", b.arg.typ), ("b", b.arg.typ)]
+    { args  := [("a", b.arg₁.typ), ("b", b.arg₂.typ)]
       retTy := b.res.typ
       pred  := .ret ("ret",
         .assert (.eq .value (.var .value "ret")
           (b.opTerm (.var .value "a") (.var .value "b"))) (.ret ())) }
-  typing := monoTyping .two
+  typing := b.typing
   folSym := some b.sym
   axioms := [⟨b.defAxiom, .high⟩, ⟨b.typeAxiom, .high⟩]
 
 @[simp] theorem Binary.toWp_eq (b : Binary) (a c : Runtime.Val) (Q : Runtime.Val → iProp) :
     b.toIntrinsic.toWp [a, c] Q =
-      iprop(∃ x y, ⌜a = b.arg.inject x ∧ c = b.arg.inject y⌝ ∗ Q (b.res.inject (b.f x y))) := rfl
+      iprop(∃ x y, ⌜a = b.arg₁.inject x ∧ c = b.arg₂.inject y⌝ ∗ Q (b.res.inject (b.f x y))) := rfl
 
 @[simp] theorem Binary.toReduce_eq (b : Binary) (a c v : Runtime.Val) (μ μ' : TinyML.Heap) :
     b.toIntrinsic.toReduce [a, c] μ v μ' =
-      ((∃ x y, a = b.arg.inject x ∧ c = b.arg.inject y ∧ v = b.res.inject (b.f x y)) ∧ μ' = μ) := rfl
+      ((∃ x y, a = b.arg₁.inject x ∧ c = b.arg₂.inject y ∧ v = b.res.inject (b.f x y)) ∧ μ' = μ) := rfl
 
 @[simp] theorem Binary.instantiate_args (b : Binary) (σ : TinyML.TyVar → TinyML.Typ) :
     (b.toIntrinsic.spec.instantiate σ).args
-      = [("a", b.arg.typ.subst σ), ("b", b.arg.typ.subst σ)] := rfl
+      = [("a", b.arg₁.typ.subst σ), ("b", b.arg₂.typ.subst σ)] := rfl
 
 @[simp] theorem Binary.instantiate_retTy (b : Binary) (σ : TinyML.TyVar → TinyML.Typ) :
     (b.toIntrinsic.spec.instantiate σ).retTy = b.res.typ.subst σ := rfl
@@ -578,7 +579,8 @@ def Binary.toIntrinsic (b : Binary) : Intrinsic where
     names), and validity of the defining axiom under the standard
     interpretation. -/
 structure Binary.Lawful (b : Binary) where
-  argL       : b.arg.Lawful
+  argL₁      : b.arg₁.Lawful
+  argL₂      : b.arg₂.Lawful
   resL       : b.res.Lawful
   specBaseWf : PredTrans.wfIn
                  ((Intrinsic.sigOf [b.toIntrinsic]).declVars
@@ -599,7 +601,7 @@ structure Binary.Lawful (b : Binary) where
     | _ :: _ :: _ :: _ => exact false_elim
     | [a, c] =>
       have hred : ∀ x y μ v μ',
-          ctx b.toIntrinsic.name [b.arg.inject x, b.arg.inject y] μ v μ'
+          ctx b.toIntrinsic.name [b.arg₁.inject x, b.arg₂.inject y] μ v μ'
             ↔ v = b.res.inject (b.f x y) ∧ μ' = μ := by
         intro x y μ v μ'
         rw [hctx]
@@ -607,16 +609,16 @@ structure Binary.Lawful (b : Binary) where
         constructor
         · rintro ⟨⟨x', y', hx, hy, hv⟩, hμ⟩
           have hxx : x = x' := by
-            have := congrArg b.arg.project hx
-            rwa [l.argL.project_inject, l.argL.project_inject] at this
+            have := congrArg b.arg₁.project hx
+            rwa [l.argL₁.project_inject, l.argL₁.project_inject] at this
           have hyy : y = y' := by
-            have := congrArg b.arg.project hy
-            rwa [l.argL.project_inject, l.argL.project_inject] at this
+            have := congrArg b.arg₂.project hy
+            rwa [l.argL₂.project_inject, l.argL₂.project_inject] at this
           subst hxx; subst hyy
           exact ⟨hv, hμ⟩
         · rintro ⟨hv, hμ⟩
           exact ⟨⟨x, y, rfl, rfl, hv⟩, hμ⟩
-      show iprop(∃ x y, ⌜a = b.arg.inject x ∧ c = b.arg.inject y⌝ ∗ Φ (b.res.inject (b.f x y))) ⊢ _
+      show iprop(∃ x y, ⌜a = b.arg₁.inject x ∧ c = b.arg₂.inject y⌝ ∗ Φ (b.res.inject (b.f x y))) ⊢ _
       istart
       iintro ⟨%x, %y, %hab, HΦ⟩
       obtain ⟨rfl, rfl⟩ := hab
@@ -628,7 +630,7 @@ structure Binary.Lawful (b : Binary) where
     intro _ σ Θ vs ρ Φ hρ
     simp only [Binary.instantiate_args, Binary.instantiate_retTy,
       Spec.instantiate_pred, List.map_cons, List.map_nil]
-    show TinyML.ValsHaveTypes Θ vs [b.arg.typ.subst σ, b.arg.typ.subst σ] ∗ _ ⊢ _
+    show TinyML.ValsHaveTypes Θ vs [b.arg₁.typ.subst σ, b.arg₂.typ.subst σ] ∗ _ ⊢ _
     match vs with
     | [] => exact (sep_mono_left (valsHaveTypes_off_shape _ (by simp))).trans sep_elim_left
     | [_] => exact (sep_mono_left (valsHaveTypes_off_shape _ (by simp))).trans sep_elim_left
@@ -640,9 +642,9 @@ structure Binary.Lawful (b : Binary) where
       icases Hcons with ⟨Hv1, Hvs2⟩
       ihave Hcons2 := (TinyML.ValsHaveTypes.cons Θ v2 [] _ _).1 $$ Hvs2
       icases Hcons2 with ⟨Hv2, _⟩
-      ihave Hv1eq := (l.argL.member σ Θ v1).1 $$ Hv1
+      ihave Hv1eq := (l.argL₁.member σ Θ v1).1 $$ Hv1
       ipure Hv1eq
-      ihave Hv2eq := (l.argL.member σ Θ v2).1 $$ Hv2
+      ihave Hv2eq := (l.argL₂.member σ Θ v2).1 $$ Hv2
       ipure Hv2eq
       obtain ⟨x, rfl⟩ := Hv1eq
       obtain ⟨y, rfl⟩ := Hv2eq
@@ -654,19 +656,19 @@ structure Binary.Lawful (b : Binary) where
       · have hassert : (Formula.eq .value (.var .value "ret")
             (b.opTerm (.var .value "a") (.var .value "b"))).eval
             ((Spec.argsEnv ρ b.toIntrinsic.specArgs
-              [b.arg.inject x, b.arg.inject y]).updateConst
+              [b.arg₁.inject x, b.arg₂.inject y]).updateConst
               .value "ret" (b.res.inject (b.f x y))).env := by
           have hargs := respects_argsEnv_two b.toIntrinsic.specArgs
-            [b.arg.inject x, b.arg.inject y] hρ
+            [b.arg₁.inject x, b.arg₂.inject y] hρ
           have hbin : (Spec.argsEnv ρ b.toIntrinsic.specArgs
-              [b.arg.inject x, b.arg.inject y]).env.binary .value .value .value b.name
+              [b.arg₁.inject x, b.arg₂.inject y]).env.binary .value .value .value b.name
               = fun a c => b.sym.interp (a, c) := by
             simpa [Env.respects, Binary.sym] using hargs
           show b.res.inject (b.f x y) =
             (Spec.argsEnv ρ b.toIntrinsic.specArgs
-              [b.arg.inject x, b.arg.inject y]).env.binary
-              .value .value .value b.name (b.arg.inject x) (b.arg.inject y)
-          simp [hbin, Binary.sym, l.argL.project_inject]
+              [b.arg₁.inject x, b.arg₂.inject y]).env.binary
+              .value .value .value b.name (b.arg₁.inject x) (b.arg₂.inject y)
+          simp [hbin, Binary.sym, l.argL₁.project_inject, l.argL₂.project_inject]
         refine (assert_ret_apply Θ _ "ret" _ _ (b.res.inject (b.f x y)) hassert).trans ?_
         iintro Hwand
         iapply Hwand
@@ -706,9 +708,12 @@ built (`toIntrinsic`). The proof obligations live in `Pure.Ternary.Lawful`. -/
 structure Ternary where
   name     : String
   path     : Option (String × List String)
-  arg      : Embedding
+  arg₁     : Embedding
+  arg₂     : Embedding
+  arg₃     : Embedding
   res      : Embedding
-  f        : arg.carrier → arg.carrier → arg.carrier → res.carrier
+  f        : arg₁.carrier → arg₂.carrier → arg₃.carrier → res.carrier
+  typing   : TinyML.TypeEnv → List TinyML.Typ → Except String (List (TinyML.TyVar × TinyML.Typ))
   defAxiom : Formula
 
 /-- The intrinsic's uninterpreted ternary symbol applied to three value terms. -/
@@ -720,7 +725,7 @@ def Ternary.opTerm (b : Ternary) (x y z : Term .value) : Term .value :=
 def Ternary.sym (b : Ternary) : FOL.Symbol .three where
   name   := b.name
   interp := fun (a, c, d) =>
-    b.res.inject (b.f (b.arg.project a) (b.arg.project c) (b.arg.project d))
+    b.res.inject (b.f (b.arg₁.project a) (b.arg₂.project c) (b.arg₃.project d))
 
 /-- The result-typing axiom, generated from `res`: the op result satisfies the
     result embedding's `is-of` predicate. -/
@@ -737,41 +742,43 @@ def Ternary.toIntrinsic (b : Ternary) : Intrinsic where
   name   := b.name
   path   := b.path
   reduce := Reduce.pure fun (a, c, d) v =>
-    ∃ x y z, a = b.arg.inject x ∧ c = b.arg.inject y ∧ d = b.arg.inject z ∧
+    ∃ x y z, a = b.arg₁.inject x ∧ c = b.arg₂.inject y ∧ d = b.arg₃.inject z ∧
       v = b.res.inject (b.f x y z)
   wp     := fun (a, c, d) Q =>
-    iprop(∃ x y z, ⌜a = b.arg.inject x ∧ c = b.arg.inject y ∧ d = b.arg.inject z⌝ ∗
+    iprop(∃ x y z, ⌜a = b.arg₁.inject x ∧ c = b.arg₂.inject y ∧ d = b.arg₃.inject z⌝ ∗
       Q (b.res.inject (b.f x y z)))
   spec   :=
-    { args  := [("a", b.arg.typ), ("b", b.arg.typ), ("c", b.arg.typ)]
+    { args  := [("a", b.arg₁.typ), ("b", b.arg₂.typ), ("c", b.arg₃.typ)]
       retTy := b.res.typ
       pred  := .ret ("ret",
         .assert (.eq .value (.var .value "ret")
           (b.opTerm (.var .value "a") (.var .value "b") (.var .value "c"))) (.ret ())) }
-  typing := monoTyping .three
+  typing := b.typing
   folSym := some b.sym
   axioms := [⟨b.defAxiom, .high⟩, ⟨b.typeAxiom, .high⟩]
 
 @[simp] theorem Ternary.toWp_eq (b : Ternary) (a c d : Runtime.Val) (Q : Runtime.Val → iProp) :
     b.toIntrinsic.toWp [a, c, d] Q =
-      iprop(∃ x y z, ⌜a = b.arg.inject x ∧ c = b.arg.inject y ∧ d = b.arg.inject z⌝ ∗
+      iprop(∃ x y z, ⌜a = b.arg₁.inject x ∧ c = b.arg₂.inject y ∧ d = b.arg₃.inject z⌝ ∗
         Q (b.res.inject (b.f x y z))) := rfl
 
 @[simp] theorem Ternary.toReduce_eq (b : Ternary) (a c d v : Runtime.Val) (μ μ' : TinyML.Heap) :
     b.toIntrinsic.toReduce [a, c, d] μ v μ' =
-      ((∃ x y z, a = b.arg.inject x ∧ c = b.arg.inject y ∧ d = b.arg.inject z ∧
+      ((∃ x y z, a = b.arg₁.inject x ∧ c = b.arg₂.inject y ∧ d = b.arg₃.inject z ∧
         v = b.res.inject (b.f x y z)) ∧ μ' = μ) := rfl
 
 @[simp] theorem Ternary.instantiate_args (b : Ternary) (σ : TinyML.TyVar → TinyML.Typ) :
     (b.toIntrinsic.spec.instantiate σ).args
-      = [("a", b.arg.typ.subst σ), ("b", b.arg.typ.subst σ), ("c", b.arg.typ.subst σ)] := rfl
+      = [("a", b.arg₁.typ.subst σ), ("b", b.arg₂.typ.subst σ), ("c", b.arg₃.typ.subst σ)] := rfl
 
 @[simp] theorem Ternary.instantiate_retTy (b : Ternary) (σ : TinyML.TyVar → TinyML.Typ) :
     (b.toIntrinsic.spec.instantiate σ).retTy = b.res.typ.subst σ := rfl
 
 /-- Proof obligations for a pure ternary intrinsic. -/
 structure Ternary.Lawful (b : Ternary) where
-  argL       : b.arg.Lawful
+  argL₁      : b.arg₁.Lawful
+  argL₂      : b.arg₂.Lawful
+  argL₃      : b.arg₃.Lawful
   resL       : b.res.Lawful
   specBaseWf : PredTrans.wfIn
                  ((Intrinsic.sigOf [b.toIntrinsic]).declVars
@@ -793,7 +800,7 @@ structure Ternary.Lawful (b : Ternary) where
     | _ :: _ :: _ :: _ :: _ => exact false_elim
     | [a, c, d] =>
       have hred : ∀ x y z μ v μ',
-          ctx b.toIntrinsic.name [b.arg.inject x, b.arg.inject y, b.arg.inject z] μ v μ'
+          ctx b.toIntrinsic.name [b.arg₁.inject x, b.arg₂.inject y, b.arg₃.inject z] μ v μ'
             ↔ v = b.res.inject (b.f x y z) ∧ μ' = μ := by
         intro x y z μ v μ'
         rw [hctx]
@@ -801,19 +808,19 @@ structure Ternary.Lawful (b : Ternary) where
         constructor
         · rintro ⟨⟨x', y', z', hx, hy, hz, hv⟩, hμ⟩
           have hxx : x = x' := by
-            have := congrArg b.arg.project hx
-            rwa [l.argL.project_inject, l.argL.project_inject] at this
+            have := congrArg b.arg₁.project hx
+            rwa [l.argL₁.project_inject, l.argL₁.project_inject] at this
           have hyy : y = y' := by
-            have := congrArg b.arg.project hy
-            rwa [l.argL.project_inject, l.argL.project_inject] at this
+            have := congrArg b.arg₂.project hy
+            rwa [l.argL₂.project_inject, l.argL₂.project_inject] at this
           have hzz : z = z' := by
-            have := congrArg b.arg.project hz
-            rwa [l.argL.project_inject, l.argL.project_inject] at this
+            have := congrArg b.arg₃.project hz
+            rwa [l.argL₃.project_inject, l.argL₃.project_inject] at this
           subst hxx; subst hyy; subst hzz
           exact ⟨hv, hμ⟩
         · rintro ⟨hv, hμ⟩
           exact ⟨⟨x, y, z, rfl, rfl, rfl, hv⟩, hμ⟩
-      show iprop(∃ x y z, ⌜a = b.arg.inject x ∧ c = b.arg.inject y ∧ d = b.arg.inject z⌝ ∗
+      show iprop(∃ x y z, ⌜a = b.arg₁.inject x ∧ c = b.arg₂.inject y ∧ d = b.arg₃.inject z⌝ ∗
         Φ (b.res.inject (b.f x y z))) ⊢ _
       istart
       iintro ⟨%x, %y, %z, %habc, HΦ⟩
@@ -827,7 +834,7 @@ structure Ternary.Lawful (b : Ternary) where
     simp only [Ternary.instantiate_args, Ternary.instantiate_retTy,
       Spec.instantiate_pred, List.map_cons, List.map_nil]
     show TinyML.ValsHaveTypes Θ vs
-      [b.arg.typ.subst σ, b.arg.typ.subst σ, b.arg.typ.subst σ] ∗ _ ⊢ _
+      [b.arg₁.typ.subst σ, b.arg₂.typ.subst σ, b.arg₃.typ.subst σ] ∗ _ ⊢ _
     match vs with
     | [] => exact (sep_mono_left (valsHaveTypes_off_shape _ (by simp))).trans sep_elim_left
     | [_] => exact (sep_mono_left (valsHaveTypes_off_shape _ (by simp))).trans sep_elim_left
@@ -842,11 +849,11 @@ structure Ternary.Lawful (b : Ternary) where
       icases Hcons2 with ⟨Hv2, Hvs3⟩
       ihave Hcons3 := (TinyML.ValsHaveTypes.cons Θ v3 [] _ _).1 $$ Hvs3
       icases Hcons3 with ⟨Hv3, _⟩
-      ihave Hv1eq := (l.argL.member σ Θ v1).1 $$ Hv1
+      ihave Hv1eq := (l.argL₁.member σ Θ v1).1 $$ Hv1
       ipure Hv1eq
-      ihave Hv2eq := (l.argL.member σ Θ v2).1 $$ Hv2
+      ihave Hv2eq := (l.argL₂.member σ Θ v2).1 $$ Hv2
       ipure Hv2eq
-      ihave Hv3eq := (l.argL.member σ Θ v3).1 $$ Hv3
+      ihave Hv3eq := (l.argL₃.member σ Θ v3).1 $$ Hv3
       ipure Hv3eq
       obtain ⟨x, rfl⟩ := Hv1eq
       obtain ⟨y, rfl⟩ := Hv2eq
@@ -860,21 +867,22 @@ structure Ternary.Lawful (b : Ternary) where
       · have hassert : (Formula.eq .value (.var .value "ret")
             (b.opTerm (.var .value "a") (.var .value "b") (.var .value "c"))).eval
             ((Spec.argsEnv ρ b.toIntrinsic.specArgs
-              [b.arg.inject x, b.arg.inject y, b.arg.inject z]).updateConst
+              [b.arg₁.inject x, b.arg₂.inject y, b.arg₃.inject z]).updateConst
               .value "ret" (b.res.inject (b.f x y z))).env := by
           have hargs := respects_argsEnv_three b.toIntrinsic.specArgs
-            [b.arg.inject x, b.arg.inject y, b.arg.inject z] hρ
+            [b.arg₁.inject x, b.arg₂.inject y, b.arg₃.inject z] hρ
           have hter : (Spec.argsEnv ρ b.toIntrinsic.specArgs
-              [b.arg.inject x, b.arg.inject y, b.arg.inject z]).env.ternary
+              [b.arg₁.inject x, b.arg₂.inject y, b.arg₃.inject z]).env.ternary
               .value .value .value .value b.name
               = fun a c d => b.sym.interp (a, c, d) := by
             simpa [Env.respects, Ternary.sym] using hargs
           show b.res.inject (b.f x y z) =
             (Spec.argsEnv ρ b.toIntrinsic.specArgs
-              [b.arg.inject x, b.arg.inject y, b.arg.inject z]).env.ternary
+              [b.arg₁.inject x, b.arg₂.inject y, b.arg₃.inject z]).env.ternary
               .value .value .value .value b.name
-              (b.arg.inject x) (b.arg.inject y) (b.arg.inject z)
-          simp [hter, Ternary.sym, l.argL.project_inject]
+              (b.arg₁.inject x) (b.arg₂.inject y) (b.arg₃.inject z)
+          simp [hter, Ternary.sym, l.argL₁.project_inject, l.argL₂.project_inject,
+            l.argL₃.project_inject]
         refine (assert_ret_apply Θ _ "ret" _ _ (b.res.inject (b.f x y z)) hassert).trans ?_
         iintro Hwand
         iapply Hwand

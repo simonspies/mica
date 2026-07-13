@@ -62,9 +62,11 @@ def intMaxDefAxiom : Formula :=
 def intMinB : Pure.Binary where
   name     := "int_min"
   path     := some ("Int", ["min"])
-  arg      := .int
+  arg₁     := .int
+  arg₂     := .int
   res      := .int
   f        := (min : Int → Int → Int)
+  typing   := monoTyping .two
   defAxiom := intMinDefAxiom
 
 def intMin : Intrinsic := intMinB.toIntrinsic
@@ -73,7 +75,8 @@ def intMin : Intrinsic := intMinB.toIntrinsic
 @[simp] theorem intMin_arity : intMin.arity = .two := rfl
 
 def intMinLawful : intMinB.Lawful where
-  argL       := Embedding.lawfulInt
+  argL₁      := Embedding.lawfulInt
+  argL₂      := Embedding.lawfulInt
   resL       := Embedding.lawfulInt
   specBaseWf := by apply PredTrans.checkWf_ok; rfl
   defWf      := by apply Formula.checkWf_ok; rfl
@@ -91,9 +94,11 @@ instance : IntrinsicSound [intMin] intMin := intMinLawful.sound
 def intMaxB : Pure.Binary where
   name     := "int_max"
   path     := some ("Int", ["max"])
-  arg      := .int
+  arg₁     := .int
+  arg₂     := .int
   res      := .int
   f        := (max : Int → Int → Int)
+  typing   := monoTyping .two
   defAxiom := intMaxDefAxiom
 
 def intMax : Intrinsic := intMaxB.toIntrinsic
@@ -102,7 +107,8 @@ def intMax : Intrinsic := intMaxB.toIntrinsic
 @[simp] theorem intMax_arity : intMax.arity = .two := rfl
 
 def intMaxLawful : intMaxB.Lawful where
-  argL       := Embedding.lawfulInt
+  argL₁      := Embedding.lawfulInt
+  argL₂      := Embedding.lawfulInt
   resL       := Embedding.lawfulInt
   specBaseWf := by apply PredTrans.checkWf_ok; rfl
   defWf      := by apply Formula.checkWf_ok; rfl

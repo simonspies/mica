@@ -174,6 +174,7 @@ def stringLengthB : Pure.Unary where
   arg      := .str
   res      := .int
   f        := (fun s => (s.length : Int) : List UInt8 → Int)
+  typing   := monoTyping .one
   defAxiom := stringLengthDefAxiom
 
 def stringLength : Intrinsic := stringLengthB.toIntrinsic
@@ -197,9 +198,11 @@ instance : IntrinsicSound [stringLength] stringLength := stringLengthLawful.soun
 def stringCatB : Pure.Binary where
   name     := "string_cat"
   path     := some ("String", ["cat"])
-  arg      := .str
+  arg₁     := .str
+  arg₂     := .str
   res      := .str
   f        := (fun x y => x ++ y : List UInt8 → List UInt8 → List UInt8)
+  typing   := monoTyping .two
   defAxiom := stringCatDefAxiom
 
 def stringCat : Intrinsic := stringCatB.toIntrinsic
@@ -208,7 +211,8 @@ def stringCat : Intrinsic := stringCatB.toIntrinsic
 @[simp] theorem stringCat_folSym : stringCat.folSym = some stringCatSym := rfl
 
 def stringCatLawful : stringCatB.Lawful where
-  argL       := Embedding.lawfulStr
+  argL₁      := Embedding.lawfulStr
+  argL₂      := Embedding.lawfulStr
   resL       := Embedding.lawfulStr
   specBaseWf := by apply PredTrans.checkWf_ok; rfl
   defWf      := by apply Formula.checkWf_ok; rfl
@@ -615,9 +619,11 @@ instance : IntrinsicSound [stringSub] stringSub where
 def stringEqualB : Pure.Binary where
   name     := "string_equal"
   path     := some ("String", ["equal"])
-  arg      := .str
+  arg₁     := .str
+  arg₂     := .str
   res      := .bool
   f        := (fun x y => x == y : List UInt8 → List UInt8 → Bool)
+  typing   := monoTyping .two
   defAxiom := stringEqualDefAxiom
 
 def stringEqual : Intrinsic := stringEqualB.toIntrinsic
@@ -626,7 +632,8 @@ def stringEqual : Intrinsic := stringEqualB.toIntrinsic
 @[simp] theorem stringEqual_folSym : stringEqual.folSym = some stringEqualSym := rfl
 
 def stringEqualLawful : stringEqualB.Lawful where
-  argL       := Embedding.lawfulStr
+  argL₁      := Embedding.lawfulStr
+  argL₂      := Embedding.lawfulStr
   resL       := Embedding.lawfulBool
   specBaseWf := by apply PredTrans.checkWf_ok; rfl
   defWf      := by apply Formula.checkWf_ok; rfl
@@ -643,9 +650,11 @@ instance : IntrinsicSound [stringEqual] stringEqual := stringEqualLawful.sound
 def stringStartsWithB : Pure.Binary where
   name     := "string_starts_with"
   path     := some ("String", ["starts_with"])
-  arg      := .str
+  arg₁     := .str
+  arg₂     := .str
   res      := .bool
   f        := (fun x y => x.isPrefixOf y : List UInt8 → List UInt8 → Bool)
+  typing   := monoTyping .two
   defAxiom := stringStartsWithDefAxiom
 
 def stringStartsWith : Intrinsic := stringStartsWithB.toIntrinsic
@@ -655,7 +664,8 @@ def stringStartsWith : Intrinsic := stringStartsWithB.toIntrinsic
     stringStartsWith.folSym = some stringStartsWithSym := rfl
 
 def stringStartsWithLawful : stringStartsWithB.Lawful where
-  argL       := Embedding.lawfulStr
+  argL₁      := Embedding.lawfulStr
+  argL₂      := Embedding.lawfulStr
   resL       := Embedding.lawfulBool
   specBaseWf := by apply PredTrans.checkWf_ok; rfl
   defWf      := by apply Formula.checkWf_ok; rfl
@@ -671,9 +681,11 @@ instance : IntrinsicSound [stringStartsWith] stringStartsWith := stringStartsWit
 def stringEndsWithB : Pure.Binary where
   name     := "string_ends_with"
   path     := some ("String", ["ends_with"])
-  arg      := .str
+  arg₁     := .str
+  arg₂     := .str
   res      := .bool
   f        := (fun x y => x.isSuffixOf y : List UInt8 → List UInt8 → Bool)
+  typing   := monoTyping .two
   defAxiom := stringEndsWithDefAxiom
 
 def stringEndsWith : Intrinsic := stringEndsWithB.toIntrinsic
@@ -682,7 +694,8 @@ def stringEndsWith : Intrinsic := stringEndsWithB.toIntrinsic
 @[simp] theorem stringEndsWith_folSym : stringEndsWith.folSym = some stringEndsWithSym := rfl
 
 def stringEndsWithLawful : stringEndsWithB.Lawful where
-  argL       := Embedding.lawfulStr
+  argL₁      := Embedding.lawfulStr
+  argL₂      := Embedding.lawfulStr
   resL       := Embedding.lawfulBool
   specBaseWf := by apply PredTrans.checkWf_ok; rfl
   defWf      := by apply Formula.checkWf_ok; rfl
