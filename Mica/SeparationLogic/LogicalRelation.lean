@@ -4,6 +4,7 @@ import Mica.TinyML.Types
 import Mica.TinyML.RuntimeExpr
 import Mica.TinyML.OpSem
 import Mica.FOL.Formulas
+import Mica.Base.Fresh
 import Mica.SeparationLogic.Wp
 import Iris.BI.Lib.Fixpoint
 
@@ -1222,6 +1223,23 @@ def typeConstraintsList (ts : List TinyML.Typ) (tl : Term .vallist) : List Formu
         typeConstraintsList rest (.unop .vtail tl)
 end
 
+private def elementConstraint (contents : Term .value) (name : String)
+    (constraint : Formula) : Formula :=
+  let i : Term .int := .var .int name
+  let elem : Term .value := .binop .vecGet (.unop .toVec contents) i
+  let bounds := Formula.and
+    (.binpred .le (.const (.i 0)) i)
+    (.binpred .lt i (.unop .vecLen (.unop .toVec contents)))
+  .forall_ name .int [.term elem] (.implies bounds constraint)
+
+/-- Generate bounded element-type constraints for a vector snapshot. Each
+ordinary constraint becomes a quantified implication over in-bounds integer
+indices, triggered by the selected `vecGet` term. -/
+def elementConstraints (ty : TinyML.Typ) (contents : Term .value) : List Formula :=
+  let name := Fresh.freshName contents.names "i"
+  let elem : Term .value := .binop .vecGet (.unop .toVec contents) (.var .int name)
+  (TinyML.typeConstraints ty elem).map (elementConstraint contents name)
+
 
 omit [MicaGS HasLC.hasLC Sig] in
 mutual
@@ -1269,6 +1287,47 @@ mutual
         exact typeConstraints_wfIn (by simp only [Term.wfIn]; exact ⟨trivial, htl⟩) φ h
       | inr h =>
         exact typeConstraintsList_wfIn (by simp only [Term.wfIn]; exact ⟨trivial, htl⟩) φ h
+
+  /-- Bounded vector-element constraints are well-formed whenever the snapshot
+  term is well-formed. -/
+  theorem elementConstraints_wfIn {ty : TinyML.Typ} {contents : Term .value}
+      {Δ : Signature} (hcontents : contents.wfIn Δ) :
+      ∀ φ ∈ elementConstraints ty contents, φ.wfIn Δ := by
+    intro φ hφ
+    simp only [elementConstraints, List.mem_map] at hφ
+    obtain ⟨constraint, hconstraint, rfl⟩ := hφ
+    let name := Fresh.freshName contents.names "i"
+    have hname : name ∉ contents.names := Fresh.freshName_not_in_avoid contents.names "i"
+    have hcontents' : contents.wfIn (Δ.declVar ⟨name, .int⟩) :=
+      Term.wfIn_declVar_of_fresh hcontents hname
+    have hi : (Term.var .int name).wfIn (Δ.declVar ⟨name, .int⟩) := by
+      refine ⟨Signature.var_mem_declVar Δ ⟨name, .int⟩, ?_, ?_⟩
+      · intro τ hconst
+        simp [Signature.declVar, Signature.addVar, Signature.remove] at hconst
+      · intro τ hvar
+        simpa [Signature.declVar, Signature.addVar, Signature.remove] using hvar
+    have helem : (Term.binop .vecGet (.unop .toVec contents) (.var .int name)).wfIn
+        (Δ.declVar ⟨name, .int⟩) := ⟨trivial, ⟨trivial, hcontents'⟩, hi⟩
+    have hconstraint' := typeConstraints_wfIn helem constraint hconstraint
+    simp only [elementConstraint]
+    change
+      Pattern.List.wfIn
+          [.term (.binop .vecGet (.unop .toVec contents) (.var .int name))]
+          (Δ.declVar ⟨name, .int⟩) ∧
+        (Formula.implies
+          (.and
+            (.binpred .le (.const (.i 0)) (.var .int name))
+            (.binpred .lt (.var .int name) (.unop .vecLen (.unop .toVec contents))))
+          constraint).wfIn (Δ.declVar ⟨name, .int⟩)
+    constructor
+    · intro p hp
+      simp only [List.mem_singleton] at hp
+      subst p
+      exact helem
+    · exact
+        ⟨⟨⟨trivial, trivial, hi⟩,
+            ⟨trivial, hi, ⟨trivial, ⟨trivial, hcontents'⟩⟩⟩⟩,
+          hconstraint'⟩
 end
 
 mutual
@@ -1369,5 +1428,76 @@ mutual
     | v :: vs, [] =>
         exact (TinyML.ValsHaveTypes.cons_nil Θ v vs).1.trans false_elim
 end
+
+/-- A single element type constraint holds at every in-bounds index of a
+well-typed vector snapshot. -/
+private theorem elementConstraint_hold {ty : TinyML.Typ}
+    {contents : Term .value} {ρ : Env} {Θ : TinyML.TypeEnv}
+    {vs : List Runtime.Val} {constraint : Formula}
+    (hcontents : contents.eval ρ = .vec vs)
+    (hconstraint : constraint ∈ typeConstraints ty
+      (.binop .vecGet (.unop .toVec contents)
+        (.var .int (Fresh.freshName contents.names "i")))) :
+    TinyML.ValHasType Θ (.vec vs) (.vec ty) ⊢
+      ⌜(elementConstraint contents (Fresh.freshName contents.names "i") constraint).eval ρ⌝ := by
+  refine (TinyML.ValHasType.vec Θ (.vec vs) ty).1.trans ?_
+  iintro Hvec
+  icases Hvec with ⟨%ws, %hws, #Htys⟩
+  have hws_eq : ws = vs := Runtime.Val.vec.inj hws.symm
+  subst ws
+  let name := Fresh.freshName contents.names "i"
+  have hname : name ∉ contents.names := Fresh.freshName_not_in_avoid contents.names "i"
+  simp only [elementConstraint, Formula.eval]
+  iapply pure_forall.2
+  iintro %i
+  have hcontents_i : contents.eval (ρ.updateConst .int name i) = .vec vs :=
+    (Term.eval_updateConst_of_fresh hname).trans hcontents
+  by_cases hbounds : 0 ≤ i ∧ i < (vs.length : Int)
+  · have hi_nat : (i.toNat : Int) = i := by simp [Int.toNat_of_nonneg hbounds.1]
+    have hlt : i.toNat < vs.length :=
+      Int.ofNat_lt.mp (hi_nat.trans_lt hbounds.2)
+    have hlookup : vs[i.toNat]? = some vs[i.toNat] := List.getElem?_eq_getElem hlt
+    ihave Hty :=
+      (BigSepL.bigSepL_lookup (Φ := fun _ w => TinyML.ValHasType Θ w ty) hlookup) $$ Htys
+    have helem :
+        Term.eval (ρ.updateConst .int name i)
+          (.binop .vecGet (.unop .toVec contents) (.var .int name)) = vs[i.toNat] := by
+      simp [Term.eval, UnOp.eval, BinOp.eval, hcontents_i, hbounds.1, hlookup]
+    ihave %hconstraints :=
+      (typeConstraints_hold (ty := ty)
+        (t := .binop .vecGet (.unop .toVec contents) (.var .int name))
+        (ρ := ρ.updateConst .int name i) (Θ := Θ) helem) $$ Hty
+    iclear Htys
+    ipureintro
+    intro _
+    exact hconstraints constraint (by simpa [name] using hconstraint)
+  · iclear Htys
+    ipureintro
+    intro hante
+    exfalso
+    apply hbounds
+    simpa [name, Formula.eval, Term.eval, UnOp.eval, BinPred.eval, hcontents_i] using hante
+
+/-- A well-typed vector snapshot entails the bounded solver constraints for
+all of its in-bounds elements. -/
+theorem elementConstraints_hold {ty : TinyML.Typ} {contents : Term .value}
+    {ρ : Env} {Θ : TinyML.TypeEnv} {vs : List Runtime.Val}
+    (hcontents : contents.eval ρ = .vec vs) :
+    TinyML.ValHasType Θ (.vec vs) (.vec ty) ⊢
+      ⌜∀ φ ∈ elementConstraints ty contents, φ.eval ρ⌝ := by
+  iintro #Hvec
+  iapply pure_forall.2
+  iintro %φ
+  by_cases hφ : φ ∈ elementConstraints ty contents
+  · simp only [elementConstraints, List.mem_map] at hφ
+    obtain ⟨constraint, hconstraint, rfl⟩ := hφ
+    ihave %heval :=
+      (elementConstraint_hold (Θ := Θ) hcontents hconstraint) $$ Hvec
+    iclear Hvec
+    ipureintro
+    exact fun _ => heval
+  · iclear Hvec
+    ipureintro
+    exact fun hmem => (hφ hmem).elim
 
 end TinyML

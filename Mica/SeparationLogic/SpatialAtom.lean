@@ -118,8 +118,9 @@ theorem congr [MicaGS HasLC.hasLC Sig] (Θ : TinyML.TypeEnv) {ρ : Env} {k : Kin
 alongside the atom whenever it enters the verifier's spatial context. -/
 def facts : SpatialAtom → List Formula
   | .pointsTo .. => []
-  | .arrayPointsTo a v _ =>
-      [.eq .int (.unop .vecLen (.unop .toVec v)) (.unop .arrayLengthOf a)]
+  | .arrayPointsTo a v ty =>
+      .eq .int (.unop .vecLen (.unop .toVec v)) (.unop .arrayLengthOf a) ::
+        TinyML.elementConstraints ty v
 
 /-- The pure facts of a well-formed atom are well-formed. -/
 theorem facts_wfIn {a : SpatialAtom} {Δ : Signature} (h : a.wfIn Δ) :
@@ -128,9 +129,10 @@ theorem facts_wfIn {a : SpatialAtom} {Δ : Signature} (h : a.wfIn Δ) :
   | pointsTo l v ty => simp [facts]
   | arrayPointsTo a v ty =>
     intro φ hφ
-    simp only [facts, List.mem_cons, List.not_mem_nil, or_false] at hφ
-    subst hφ
-    exact ⟨⟨trivial, ⟨trivial, h.2⟩⟩, ⟨trivial, h.1⟩⟩
+    simp only [facts, List.mem_cons] at hφ
+    rcases hφ with rfl | hφ
+    · exact ⟨⟨trivial, ⟨trivial, h.2⟩⟩, ⟨trivial, h.1⟩⟩
+    · exact TinyML.elementConstraints_wfIn h.2 φ hφ
 
 end SpatialAtom
 

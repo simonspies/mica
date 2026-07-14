@@ -152,6 +152,21 @@ def Term.freeVars : Term τ → List Var
   | .terop _ a b c => a.freeVars ++ b.freeVars ++ c.freeVars
   | .ite c t e => c.freeVars ++ t.freeVars ++ e.freeVars
 
+/-- Names of variables and uninterpreted symbols referenced by a term. Unlike
+`freeVars`, this includes constants and function symbols, so it is suitable
+for choosing a quantifier binder that cannot shadow anything in the term. -/
+def Term.names : Term τ → List String
+  | .var _ x => [x]
+  | .const (.uninterpreted name _) => [name]
+  | .const _ => []
+  | .unop (.uninterpreted name _ _) a => name :: a.names
+  | .unop _ a => a.names
+  | .binop (.uninterpreted name _ _ _) a b => name :: (a.names ++ b.names)
+  | .binop _ a b => a.names ++ b.names
+  | .terop (.uninterpreted name _ _ _ _) a b c => name :: (a.names ++ b.names ++ c.names)
+  | .terop _ a b c => a.names ++ b.names ++ c.names
+  | .ite c t e => c.names ++ t.names ++ e.names
+
 def Const.wfIn : Const τ → Signature → Prop
   | .uninterpreted name τ, Δ => ⟨name, τ⟩ ∈ Δ.consts
                                ∧ (∀ τ', ⟨name, τ'⟩ ∉ Δ.vars)
@@ -488,6 +503,65 @@ theorem Term.wfIn_mono (t : Term τ) (h : t.wfIn Δ) (hsub : Δ.Subset Δ') (hwf
       ihc h.2.2.2 hsub hwf⟩
   | ite c t e ihc iht ihe => exact ⟨ihc h.1 hsub hwf, iht h.2.1 hsub hwf, ihe h.2.2 hsub hwf⟩
 
+/-- A term remains well-formed when a variable whose name it does not
+reference is declared around it. -/
+theorem Term.wfIn_declVar_of_fresh {t : Term τ} {x : String} {s : Srt}
+    { Δ : Signature } (h : t.wfIn Δ) (hx : x ∉ t.names) :
+    t.wfIn (Δ.declVar ⟨x, s⟩) := by
+  induction t generalizing Δ with
+  | var τ y =>
+    have hne : y ≠ x := by simpa [Term.names, ne_eq, eq_comm] using hx
+    simpa [Term.wfIn, Signature.declVar, Signature.addVar, Signature.remove, hne] using h
+  | const c =>
+    cases c with
+    | uninterpreted name τ =>
+      have hne : name ≠ x := by simpa [Term.names, ne_eq, eq_comm] using hx
+      simpa [Term.wfIn, Const.wfIn, Signature.declVar, Signature.addVar,
+        Signature.remove, hne] using h
+    | _ => trivial
+  | unop op a ih =>
+    cases op with
+    | uninterpreted name τ₁ τ₂ =>
+      have hparts : x ≠ name ∧ x ∉ a.names := by simpa [Term.names] using hx
+      have hname : name ≠ x := Ne.symm hparts.1
+      have ha : x ∉ a.names := hparts.2
+      refine ⟨?_, ih h.2 ha⟩
+      simpa [UnOp.wfIn, Signature.declVar, Signature.addVar, Signature.remove, hname] using h.1
+    | _ =>
+      refine ⟨trivial, ih h.2 ?_⟩
+      simpa [Term.names] using hx
+  | binop op a b iha ihb =>
+    have ha : x ∉ a.names := by
+      cases op <;> simp_all [Term.names]
+    have hb : x ∉ b.names := by
+      cases op <;> simp_all [Term.names]
+    refine ⟨?_, iha h.2.1 ha, ihb h.2.2 hb⟩
+    cases op with
+    | uninterpreted name τ₁ τ₂ τ₃ =>
+      have hparts : x ≠ name ∧ x ∉ a.names ∧ x ∉ b.names := by
+        simpa [Term.names] using hx
+      have hname : name ≠ x := Ne.symm hparts.1
+      simpa [BinOp.wfIn, Signature.declVar, Signature.addVar, Signature.remove, hname] using h.1
+    | _ => trivial
+  | terop op a b c iha ihb ihc =>
+    have ha : x ∉ a.names := by
+      cases op <;> simp_all [Term.names]
+    have hb : x ∉ b.names := by
+      cases op <;> simp_all [Term.names]
+    have hc : x ∉ c.names := by
+      cases op <;> simp_all [Term.names]
+    refine ⟨?_, iha h.2.1 ha, ihb h.2.2.1 hb, ihc h.2.2.2 hc⟩
+    cases op with
+    | uninterpreted name τ₁ τ₂ τ₃ τ₄ =>
+      have hparts : x ≠ name ∧ x ∉ a.names ∧ x ∉ b.names ∧ x ∉ c.names := by
+        simpa [Term.names] using hx
+      have hname : name ≠ x := Ne.symm hparts.1
+      simpa [TerOp.wfIn, Signature.declVar, Signature.addVar, Signature.remove, hname] using h.1
+    | _ => trivial
+  | ite c t e ihc iht ihe =>
+    simp only [Term.names, List.mem_append, not_or] at hx
+    exact ⟨ihc h.1 hx.1.1, iht h.2.1 hx.1.2, ihe h.2.2 hx.2⟩
+
 @[simp] def UnOp.eval : Env → UnOp τ₁ τ₂ → τ₁.denote → τ₂.denote
   | _, .ofInt,   n  => Runtime.Val.int n
   | _, .ofBool,  b  => Runtime.Val.bool b
@@ -564,6 +638,40 @@ def Term.eval (ρ : Env) : Term τ → τ.denote
   | .binop op a b => op.eval ρ (Term.eval ρ a) (Term.eval ρ b)
   | .terop op a b c => op.eval ρ (Term.eval ρ a) (Term.eval ρ b) (Term.eval ρ c)
   | .ite c t e    => bif Term.eval ρ c then Term.eval ρ t else Term.eval ρ e
+
+/-- Updating the constant environment at a name not referenced by a term does
+not change the term's value. -/
+theorem Term.eval_updateConst_of_fresh {t : Term τ'} {x : String} {τ : Srt}
+    {v : τ.denote} {ρ : Env} (hx : x ∉ t.names) :
+    Term.eval (ρ.updateConst τ x v) t = Term.eval ρ t := by
+  induction t with
+  | var s y =>
+    have hne : y ≠ x := by simpa [Term.names, ne_eq, eq_comm] using hx
+    exact Env.lookupConst_updateConst_ne' (Or.inl hne)
+  | const c =>
+    cases c with
+    | uninterpreted name s =>
+      have hne : name ≠ x := by simpa [Term.names, ne_eq, eq_comm] using hx
+      exact Env.lookupConst_updateConst_ne' (Or.inl hne)
+    | _ => rfl
+  | unop op a ih =>
+    simp only [Term.eval]
+    rw [ih (by cases op <;> simp_all [Term.names])]
+    cases op <;> rfl
+  | binop op a b iha ihb =>
+    simp only [Term.eval]
+    rw [iha (by cases op <;> simp_all [Term.names]),
+      ihb (by cases op <;> simp_all [Term.names])]
+    cases op <;> rfl
+  | terop op a b c iha ihb ihc =>
+    simp only [Term.eval]
+    rw [iha (by cases op <;> simp_all [Term.names]),
+      ihb (by cases op <;> simp_all [Term.names]),
+      ihc (by cases op <;> simp_all [Term.names])]
+    cases op <;> rfl
+  | ite c t e ihc iht ihe =>
+    simp only [Term.names, List.mem_append, not_or] at hx
+    simp [Term.eval, ihc hx.1.1, iht hx.1.2, ihe hx.2]
 
 theorem Term.eval_env_agree {t : Term τ} {ρ ρ' : Env} {Δ : Signature} :
     t.wfIn Δ → Env.agreeOn Δ ρ ρ' → Term.eval ρ t = Term.eval ρ' t := by

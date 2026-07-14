@@ -1596,16 +1596,20 @@ theorem compileArrayMake_correct (reg : Verifier.Registry) (owned : Bool) (len i
       ⟨hc_wf, hcontents_wf⟩
     have hcontents_eval : contents.eval ρ'.env = .vec (List.replicate n.toNat v_init) := by
       simp [contents, Term.eval, UnOp.eval, BinOp.eval, hslen_eval', hsinit_eval', hn]
-    -- Acquire the owned-array atom; its length fact holds by construction.
-    have hfacts : ∀ ψ ∈ (CtxItem.spatial (.arrayPointsTo sa contents init.ty)).facts,
-        ψ.eval ρ'.env := by
-      simp [CtxItem.facts, SpatialAtom.facts, Formula.eval, Term.eval, UnOp.eval,
-        hcontents_eval, hsa_eval]
-    obtain ⟨st_a, hdecls_a, howns_a, hq_a⟩ :=
-      VerifM.eval_acquire (VerifM.eval_bind _ _ _ _ hassume) hatom_wf trivial hfacts
-    ihave HvecTy : iprop(TinyML.ValHasType Θ (.vec (List.replicate n.toNat v_init)) (.vec init.ty)) $$ [Hinit]
+    ihave #HvecTy : iprop(TinyML.ValHasType Θ (.vec (List.replicate n.toNat v_init)) (.vec init.ty)) $$ [Hinit]
     · iapply TinyML.ValHasType.vec_replicate
       iexact Hinit
+    ihave %helements := TinyML.elementConstraints_hold (ty := init.ty) hcontents_eval $$ HvecTy
+    -- Acquire the owned-array atom; all snapshot facts hold by construction.
+    have hfacts : ∀ ψ ∈ (CtxItem.spatial (.arrayPointsTo sa contents init.ty)).facts,
+        ψ.eval ρ'.env := by
+      intro ψ hψ
+      simp only [CtxItem.facts, SpatialAtom.facts, List.mem_cons] at hψ
+      rcases hψ with rfl | hψ
+      · simp [Formula.eval, Term.eval, UnOp.eval, hcontents_eval, hsa_eval]
+      · exact helements ψ hψ
+    obtain ⟨st_a, hdecls_a, howns_a, hq_a⟩ :=
+      VerifM.eval_acquire (VerifM.eval_bind _ _ _ _ hassume) hatom_wf trivial hfacts
     have hArrTy : ⊢ TinyML.ValHasType Θ (.array n.toNat l) (.ownedArray init.ty) := by
       iapply (TinyML.ValHasType.ownedArray Θ _ _).2
       iexists n.toNat, l
@@ -1627,10 +1631,10 @@ theorem compileArrayMake_correct (reg : Verifier.Registry) (owned : Bool) (len i
         (Env.agreeOn_update_fresh_const (ρ := ρ_len.env) (c := c)
           (u := Runtime.Val.array n.toNat l) hc_fresh)).1
     iapply (hpost (.array n.toNat l) ρ' st_final sa hret hsa_wf_final hsa_eval)
-    isplitl [Hpt HvecTy Howns]
+    isplitl [Hpt Howns]
     · simp only [TransState.sl_eq, howns_final, howns_a, TransState.addItem, st_c,
         SpatialContext.interp]
-      isplitl [Hpt HvecTy]
+      isplitl [Hpt]
       · iapply (SpatialAtom.interp_arrayPointsTo Θ (by simpa using hsa_eval) hcontents_eval).2
         isplitl [Hpt]
         · iexact Hpt
