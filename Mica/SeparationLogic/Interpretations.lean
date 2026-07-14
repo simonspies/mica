@@ -154,13 +154,15 @@ theorem interp_facts (Θ : TinyML.TypeEnv) {ρ : Env} (a : SpatialAtom) :
     simp only [interp]
     istart
     iintro H
-    icases H with ⟨%loc, %vs, %ha, %hv, Hpt, Hty⟩
+    icases H with ⟨%loc, %vs, %ha, %hv, Hpt, #Hty⟩
+    ihave %helements := TinyML.elementConstraints_hold (ty := ty) hv $$ Hty
     isplitl []
     · ipureintro
       intro φ hφ
-      simp only [facts, List.mem_cons, List.not_mem_nil, or_false] at hφ
-      subst hφ
-      simp [Formula.eval, Term.eval, UnOp.eval, ha, hv]
+      simp only [facts, List.mem_cons] at hφ
+      rcases hφ with rfl | hφ
+      · simp [Formula.eval, Term.eval, UnOp.eval, ha, hv]
+      · exact helements φ hφ
     · iexists loc, vs
       isplitr
       · ipureintro
