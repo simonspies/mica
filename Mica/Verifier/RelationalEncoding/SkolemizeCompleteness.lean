@@ -280,10 +280,10 @@ theorem semrel_complete
   have hrelEncR : Relation.relEncodeBody Γ Δ f fn x res e = .ok φ := by
     exact hrelEnc
   have hrel_eq :
-      R = Fix.lfp (Relation.semanticBody Formula.sem ρ fn x res φ) := by
+      R = RelationFix.lfp (Relation.semanticBody Formula.sem ρ fn x res φ) := by
     simp [R, Relation.semrel, Relation.semanticFixpoint, hrelEncR]
   have hpre :
-      Fix.le (Relation.semanticBody Formula.sem ρ fn x res φ S) S := by
+      RelationFix.le (Relation.semanticBody Formula.sem ρ fn x res φ S) S := by
     intro vin vout hbody
     let ρS := relSplitEnv ρ fn S D F
     have hΓS : (Relation.ctx Γ f fn).splitComplete ρS := by
@@ -351,9 +351,9 @@ theorem semrel_complete
           (by simpa [D, F, R, defInterpEnv] using hsplit.2)
     exact ⟨hdefined, hfun⟩
   have hlfp :
-      Fix.lfp (Relation.semanticBody Formula.sem ρ fn x res φ) vin vout := by
+      RelationFix.lfp (Relation.semanticBody Formula.sem ρ fn x res φ) vin vout := by
     simpa [R, hrel_eq] using hrel
-  have hS : S vin vout := Fix.lfp_le_of_prefixed hpre vin vout hlfp
+  have hS : S vin vout := RelationFix.lfp_le_of_prefixed hpre vin vout hlfp
   have hdefined : D vin := hS.1
   let vbody :=
     body.value.eval

@@ -20,7 +20,7 @@ theorem Formula.iteBool_wfIn {cond : Term .bool} {φ ψ : Formula} {Δ : Signatu
 namespace Verifier.RelationalEncoding
 namespace Relation
 
-abbrev ValRel : Type := Fix.Rel Srt.value.denote Srt.value.denote
+abbrev ValRel : Type := RelationFix.Rel Srt.value.denote Srt.value.denote
 
 def relEnv (ρ : Env) (fn : SpecFn) (x res : TinyML.Var)
     (self : ValRel) (vin vout : Srt.value.denote) : Env :=
@@ -36,16 +36,16 @@ def semanticFixpoint {M : Type} (encoded : Except String M) (sem : SemPred M)
     (ρ : Env) (fn : SpecFn) (x res : TinyML.Var) : ValRel :=
   match encoded with
   | .error _ => fun _ _ => False
-  | .ok m    => Fix.lfp (semanticBody sem ρ fn x res m)
+  | .ok m    => RelationFix.lfp (semanticBody sem ρ fn x res m)
 
 theorem semanticBody_mono_of_semanticMono {M : Type} {sem : SemPred M}
     {ρ : Env} {fn : SpecFn} {x res : TinyML.Var} {m : M}
     (hm : SemanticMono sem m) :
-    Fix.Mono (semanticBody sem ρ fn x res m) := by
+    RelationFix.Mono (semanticBody sem ρ fn x res m) := by
   intro S S' hSS' vin vout hF
-  have hle : Fix.Env.le (relEnv ρ fn x res S vin vout)
+  have hle : Env.le (relEnv ρ fn x res S vin vout)
                     (relEnv ρ fn x res S' vin vout) := by
-    refine Fix.Env.le.updateConst (Fix.Env.le.updateConst ?_ _ _ _) _ _ _
+    refine Env.le.updateConst (Env.le.updateConst ?_ _ _ _) _ _ _
     refine ⟨rfl, rfl, rfl, rfl, fun _ _ _ h => h, ?_⟩
     intro τ₁ τ₂ name a b
     simp only [Env.updateBinaryRel]
@@ -109,7 +109,7 @@ theorem Rel.call_wfIn {Δ : Signature} {fn : SpecFn} {arg : Term .value}
   have harg'' : arg.wfIn Δ'' :=
     Term.wfIn_mono _ harg hsubt hΔ''wf
   have hrvar : (Term.var .value r).wfIn Δ'' :=
-    var_value_wfIn hΔ''wf (by simpa [hΔ''] using Signature.var_mem_declVar Δ' ⟨r, .value⟩)
+    var_value_wfIn hΔ''wf (by simp [hΔ''])
   have hrel'' : fn.rel ∈ Δ''.binaryRel :=
     hsub''.binaryRel _ (hsub.binaryRel _ hrel)
   have hcov' : s'.Covers Δ'' := by
@@ -181,9 +181,9 @@ theorem Rel.call_mono {fn : SpecFn} {arg : Term .value}
     rcases hφ with ⟨w, hcall_ev, hbody⟩
     refine ⟨w, ?_, ?_⟩
     · simp only [SpecFn.relates, Formula.eval, BinPred.eval] at hcall_ev ⊢
-      have hleU : Fix.Env.le (ρ.updateConst .value r w) (ρ'.updateConst .value r w) :=
-        Fix.Env.le.updateConst hle .value r w
-      rw [← Fix.Term.eval_le hleU, ← Fix.Term.eval_le hleU]
+      have hleU : Env.le (ρ.updateConst .value r w) (ρ'.updateConst .value r w) :=
+        Env.le.updateConst hle .value r w
+      rw [← Term.eval_env_le hleU, ← Term.eval_env_le hleU]
       exact hleU.2.2.2.2.2 _ _ _ _ _ hcall_ev
     · exact hkMono s' inner hinner (hle.updateConst .value r w) hbody
 
@@ -205,11 +205,11 @@ theorem Rel.ite_mono {cond : Term .bool} {t e : Rel}
       constructor
       · intro hcond
         have hcond' : cond.eval ρ = true := by
-          rw [Fix.Term.eval_le hle]; exact hcond
+          rw [Term.eval_env_le hle]; exact hcond
         exact ht s φt htRun hle (hφ.1 hcond')
       · intro hcond
         have hcond' : cond.eval ρ = false := by
-          rw [Fix.Term.eval_le hle]; exact hcond
+          rw [Term.eval_env_le hle]; exact hcond
         exact he s φe heRun hle (hφ.2 hcond')
 
 def encoderOps_preservesMono :
@@ -239,7 +239,7 @@ theorem kEq_mono (res : String) :
   intro h
   unfold Formula.sem at h ⊢
   simp only [Formula.eval] at h ⊢
-  rw [← Fix.Term.eval_le hle, ← Fix.Term.eval_le hle]; exact h
+  rw [← Term.eval_env_le hle, ← Term.eval_env_le hle]; exact h
 
 /-- Extend the function context so recursive calls to `f` resolve to `fn`. -/
 def ctx (Γ : FunCtx) (f : TinyML.Var) (fn : SpecFn) : FunCtx :=
@@ -322,7 +322,7 @@ theorem Rel.call_det {Γ : FunCtx} {res : String} {Δview : Signature}
   have hres_ne_r : res ≠ r := by
     intro heq; exact hfresh_avoid (by simpa [heq] using hresA)
   have hrvar : (Term.var .value r).wfIn Δ' :=
-    var_value_wfIn hΔ'wf (by simpa [hΔ'def] using Signature.var_mem_declVar Δ ⟨r, .value⟩)
+    var_value_wfIn hΔ'wf (by simp [hΔ'def])
   have hargΔ : arg.wfIn Δ := Term.wfIn_mono _ harg hsubView hΔ
   have hargΔ' : arg.wfIn Δ' := Term.wfIn_mono _ hargΔ hsub' hΔ'wf
   cases hinner : k (.var .value r) s' with
@@ -452,12 +452,12 @@ theorem semrel_functional
   set m := encodeWith encoderOps Δ (ctx Γ f fn) δ e (kEq res) with hm_def
   have hrun : m (relBodySupply Δ fn x res) = .ok body := by
     simpa [relEncodeBody, hm_def] using henc
-  have hR : R = Fix.lfp F := by simp [R, F, semrel, semanticFixpoint, henc]
+  have hR : R = RelationFix.lfp F := by simp [R, F, semrel, semanticFixpoint, henc]
   have hmMono : Rel.Mono m :=
     encodeWith_ind encoderOps_preservesMono e (kEq_mono res)
   have hmonoBody : SemanticMono Formula.sem body :=
     hmMono (relBodySupply Δ fn x res) body hrun
-  have hmono : Fix.Mono F := by
+  have hmono : RelationFix.Mono F := by
     simpa [F] using
       (semanticBody_mono_of_semanticMono
         (ρ := ρ) (fn := fn) (x := x) (res := res) hmonoBody)
@@ -484,19 +484,19 @@ theorem semrel_functional
       (by simpa [bodySig] using hn)
   have hresAvoid : res ∈ (relBodySupply Δ fn x res).avoid := by simp [relBodySupply]
   let S : ValRel := fun a b => R a b ∧ ∀ b', R a b' → b = b'
-  have hSleR : Fix.le S R := fun _ _ h => h.1
-  have hpre : Fix.le (F S) S := by
+  have hSleR : RelationFix.le S R := fun _ _ h => h.1
+  have hpre : RelationFix.le (F S) S := by
     intro a b hFS
     constructor
     · rw [hR]
       have hFR : F R a b := hmono hSleR a b hFS
       rw [hR] at hFR
-      exact Fix.lfp_prefixed hmono a b hFR
+      exact RelationFix.lfp_prefixed hmono a b hFR
     · intro b' hRb'
       have hFR : F R a b' := by
-        have hFRlfp : F (Fix.lfp F) a b' := by
+        have hFRlfp : F (RelationFix.lfp F) a b' := by
           rw [hR] at hRb'
-          exact (Fix.lfp_unfold hmono a b').mp hRb'
+          exact (RelationFix.lfp_unfold hmono a b').mp hRb'
         simpa [hR] using hFRlfp
       have hrelDet :
           BinaryRelDet (ctx Γ f fn)
@@ -573,7 +573,7 @@ theorem semrel_functional
   have hy₁S : S vin y₁ := by
     change R vin y₁ at hy₁
     rw [hR] at hy₁
-    exact Fix.lfp_le_of_prefixed hpre vin y₁ hy₁
+    exact RelationFix.lfp_le_of_prefixed hpre vin y₁ hy₁
   exact hy₁S.2 y₂ hy₂
 end Relation
 end Verifier.RelationalEncoding
