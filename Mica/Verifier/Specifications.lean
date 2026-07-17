@@ -151,11 +151,7 @@ theorem isPrecondFor_intro (pctx : TinyML.PrimCtx) (Θ : TinyML.TypeEnv) (Δ_spe
   iintro %ρ %Φ %vs Hagree Htyped Hpred
   ispecialize H $$ %ρ %vs %Φ
   iapply H
-  isplitl [Hagree]
-  · iexact Hagree
-  · isplitl [Htyped]
-    · iexact Htyped
-    · iexact Hpred
+  iframe
 
 /-- Löb-style rule for spec preconditions on `fix`: to prove
     `s.isPrecondFor Θ (.fix f args e)`, assume it as the recursive hypothesis and
@@ -196,11 +192,7 @@ theorem isPrecondFor_fix {pctx : TinyML.PrimCtx} {Θ : TinyML.TypeEnv} {Δ_spec 
       ispecialize IH $$ %vs %Φ
       iapply IH
       iexists ρ
-      isplitl [Hagree]
-      · iexact Hagree
-      · isplitl [Htyped]
-        · iexact Htyped
-        · iexact Hpred
+      iframe
     icases Hpre with ⟨%ρ, %hagr0, #Htyped0, Hpred0⟩
     ispecialize HR $$ %ρ %vs %P
     iapply HR
@@ -215,11 +207,7 @@ theorem isPrecondFor_fix {pctx : TinyML.PrimCtx} {Θ : TinyML.TypeEnv} {Δ_spec 
     ispecialize Hfix $$ %vs %Φ
     iapply Hfix
     iexists ρ
-    isplitl [Hagree]
-    · iexact Hagree
-    · isplitl [Htyped]
-      · iexact Htyped
-      · iexact Hpred
+    iframe
 end Precondition
 
 /-! ## Well-Formedness Proofs -/
@@ -314,18 +302,15 @@ theorem declareArgs_correct (Θ : TinyML.TypeEnv) :
       by_cases hsub_ty : TinyML.Typ.sub Θ targ ty = true
       · simp [hsub_ty] at heval
         have hdecl := VerifM.eval_decl
-          (VerifM.eval_bind _ _ _ _ (VerifM.eval_ret (VerifM.eval_bind _ _ _ _ heval)))
+          (VerifM.eval_bind (VerifM.eval_ret (VerifM.eval_bind heval)))
         set argVar := st.freshConst (some name) .value
         set σ' := σ.rename ⟨name, .value⟩ argVar.name
         set ρ₁ := ρ.updateConst .value argVar.name (sarg.eval ρ.env)
-        have hstwf : st.decls.wf := (VerifM.eval.wf heval).namesDisjoint
-        rcases hσwf with ⟨hsubst, hbase, huse, hsrcwf, hrangewf, husewf, hbasevars⟩
-        have hσwf : σ.wfIn Δ_base st.decls :=
-          ⟨hsubst, hbase, huse, hsrcwf, hrangewf, husewf, hbasevars⟩
+        have hstwf : st.decls.wf := hσwf.useWf
         have hfresh_decls : argVar.name ∉ st.decls.allNames :=
-          Fresh.freshNumbers_not_mem name st.decls.allNames
+          st.freshConst_fresh (some name) .value
         have hfresh_range : argVar.name ∉ σ.range.allNames :=
-          fun h => hfresh_decls (Signature.allNames_subset huse _ h)
+          hσwf.fresh_range hfresh_decls
         have hσ'wf : σ'.wfIn Δ_base (st.decls.addConst argVar) := by
           simpa [σ', argVar] using
             (FiniteSubst.rename_wfIn (σ := σ) (Δ_base := Δ_base) (Δ_use := st.decls)
@@ -333,7 +318,7 @@ theorem declareArgs_correct (Θ : TinyML.TypeEnv) :
               hσwf hfresh_range hfresh_decls)
         have hsarg_wf : sarg.wfIn st.decls := hsargs _ (List.mem_cons_self ..)
         have hassume := VerifM.eval_assumePure
-          (VerifM.eval_bind _ _ _ _ (hdecl (sarg.eval ρ.env)))
+          (VerifM.eval_bind (hdecl (sarg.eval ρ.env)))
           (by
             simpa [argVar] using
               (Formula.eq_wfIn_addConst_of_fresh
@@ -382,7 +367,7 @@ theorem declareArgs_correct (Θ : TinyML.TypeEnv) :
             VerifM.Env.agreeOn] using
             (VerifM.Env.agreeOn_trans hagree hag_env)
       · simp [hsub_ty] at heval
-        exact (VerifM.eval_fatal (VerifM.eval_bind _ _ _ _ heval)).elim
+        exact (VerifM.eval_fatal (VerifM.eval_bind heval)).elim
 
 theorem call_correct (Θ : TinyML.TypeEnv) (s : Spec) (Δ_base : Signature)
     (σ : FiniteSubst) (sargs : List (TinyML.Typ × Term .value))
@@ -401,35 +386,28 @@ theorem call_correct (Θ : TinyML.TypeEnv) (s : Spec) (Δ_base : Signature)
         (sargs.map fun p => p.2.eval ρ.env))) := by
   intro hwf hσwf hsargs heval hΨ
   simp only [Spec.call] at heval
-  have hb_grow := VerifM.eval.decls_grow ρ (VerifM.eval_bind _ _ _ _ heval)
+  have hb_grow := VerifM.eval.decls_grow ρ (VerifM.eval_bind heval)
   obtain ⟨σ', st', ρ', ⟨hdsub, hragree, hΨ'⟩, hσ'wf, howns, hsublist, hdom_sub, hagree⟩ :=
     declareArgs_correct Θ s.args sargs Δ_base σ st ρ _ hσwf hsargs hb_grow
   refine ⟨hsublist, ?_⟩
-  rcases hσ'wf with ⟨hσ'subst, hσ'base, hσ'use, hσ'srcwf, hσ'rangewf, hσ'usewf, hσ'basevars⟩
-  have hσ'wf : σ'.wfIn Δ_base st'.decls :=
-    ⟨hσ'subst, hσ'base, hσ'use, hσ'srcwf, hσ'rangewf, hσ'usewf, hσ'basevars⟩
   have hwf'' : s.pred.wfIn (Δ_base.declVars σ'.dom) :=
-    PredTrans.wfIn_mono hwf hdom_sub hσ'srcwf
+    PredTrans.wfIn_mono hwf hdom_sub hσ'wf.srcWf
   have hcall := PredTrans.call_correct Θ s.pred Δ_base σ' st' ρ'
     _ (fun r => TinyML.ValHasType Θ r s.retTy -∗ Φ r) R
-    hwf'' hσ'wf (VerifM.eval_bind _ _ _ _ hΨ')
+    hwf'' hσ'wf (VerifM.eval_bind hΨ')
     (fun v st'' ρ'' t hΨ'' htwf hteval => by
       apply wand_intro
-      iintro H
-      icases H with ⟨⟨Howns, HR⟩, Hty⟩
+      iintro ⟨⟨Howns, HR⟩, Hty⟩
       iintuitionistic Hty
       ihave Hpure := (TinyML.typeConstraints_hold (ty := s.retTy) (t := t) (ρ := ρ''.env) (Θ := Θ) (v := v) hteval) $$ Hty
       ipure Hpure
       obtain ⟨st₃, hst₃_decls, hst₃_owns, _, hret⟩ :=
-        VerifM.eval_assumeAll (VerifM.eval_bind _ _ _ _ hΨ'')
+        VerifM.eval_assumeAll (VerifM.eval_bind hΨ'')
           (fun φ hφ => TinyML.typeConstraints_wfIn htwf φ hφ)
           (fun φ hφ => Hpure φ hφ)
       ihave Harg : (st₃.sl Θ ρ'' ∗ R ∗ TinyML.ValHasType Θ v s.retTy) $$ [HR Howns Hty]
-      · isplitr [Hty HR]
-        · simp [TransState.sl, hst₃_owns]; iassumption
-        · isplitl [HR]
-          · iexact HR
-          · iexact Hty
+      · iframe HR Hty
+        simp [TransState.sl, hst₃_owns]; iassumption
       iapply (hΨ v st₃ ρ'' t (VerifM.eval_ret hret) (hst₃_decls ▸ htwf) hteval) $$ Harg)
   exact (sep_mono_left (SpatialContext.interp_env_agree Θ (VerifM.eval.wf heval).ownsWf hragree).1).trans <|
     (by simpa [howns] using hcall : st.sl Θ ρ' ∗ R ⊢ _).trans <|
@@ -496,19 +474,16 @@ theorem declareImplArgs_correct (Θ : TinyML.TypeEnv) :
       iintro Hvs
       icases Hvs with ⟨Hv, Hvs_rest⟩
       simp only [Spec.declareImplArgs] at heval
-      have hdecl := VerifM.eval_decl (VerifM.eval_bind _ _ _ _ heval)
+      have hdecl := VerifM.eval_decl (VerifM.eval_bind heval)
       set argVar := st.freshConst (some name) .value
       set σ' := σ.rename ⟨name, .value⟩ argVar.name
       set ρ₁ := ρ.updateConst .value argVar.name v
       specialize hdecl v
-      have hstwf : st.decls.wf := (VerifM.eval.wf heval).namesDisjoint
-      rcases hσwf with ⟨hsubst, hbase, huse, hsrcwf, hrangewf, husewf, hbasevars⟩
-      have hσwf : σ.wfIn Δ_base st.decls :=
-        ⟨hsubst, hbase, huse, hsrcwf, hrangewf, husewf, hbasevars⟩
+      have hstwf : st.decls.wf := hσwf.useWf
       have hfresh_decls : argVar.name ∉ st.decls.allNames :=
-        Fresh.freshNumbers_not_mem name st.decls.allNames
+        st.freshConst_fresh (some name) .value
       have hfresh_range : argVar.name ∉ σ.range.allNames :=
-        fun h => hfresh_decls (Signature.allNames_subset huse _ h)
+        hσwf.fresh_range hfresh_decls
       have hσ'wf : σ'.wfIn Δ_base (st.decls.addConst argVar) := by
         simpa [σ', argVar] using
           (FiniteSubst.rename_wfIn (σ := σ) (Δ_base := Δ_base) (Δ_use := st.decls)
@@ -523,7 +498,7 @@ theorem declareImplArgs_correct (Θ : TinyML.TypeEnv) :
           (t := .const (.uninterpreted argVar.name .value))
           (ρ := ρ₁.env) (Θ := Θ) (v := v) hvar_eval $$ Hv
       obtain ⟨st₂, hst₂_decls, hst₂_owns, _, hdecl₂⟩ :=
-        VerifM.eval_assumeAll (VerifM.eval_bind _ _ _ _ hdecl)
+        VerifM.eval_assumeAll (VerifM.eval_bind hdecl)
           (fun φ hφ => TinyML.typeConstraints_wfIn hvar_wf φ hφ)
           (fun φ hφ => htyped_formulas φ hφ)
       have hst_st₂ : st.decls.Subset st₂.decls :=
@@ -531,7 +506,7 @@ theorem declareImplArgs_correct (Θ : TinyML.TypeEnv) :
       ihave %hih := ih vs' Δ_base σ' st₂ ρ₁
         (fun p st' ρ' => Ψ (p.1, argVar :: p.2) st' ρ')
         (hst₂_decls ▸ hσ'wf)
-        ((VerifM.eval_bind _ _ _ _ hdecl₂).mono (fun _ _ _ hp => VerifM.eval_ret hp))
+        ((VerifM.eval_bind hdecl₂).mono (fun _ _ _ hp => VerifM.eval_ret hp))
         $$ Hvs_rest
       obtain ⟨σ'', argVars', st', ρ', hΨ, hσ''wf, hdsub', hragree',
         howns, hdom_sub, hagree, hmem_decls, hsorts, hlookups⟩ := hih
@@ -603,7 +578,7 @@ theorem implement_correct (Θ : TinyML.TypeEnv) (s : Spec) (body : List FOL.Cons
         (Spec.argsEnv ρ_spec s.args vs) ⊢ R := by
   intro hswf hΔspec hρspec hΔwf hΔvars heval hbody
   simp only [Spec.implement] at heval
-  have hb := VerifM.eval_bind _ _ _ _ heval
+  have hb := VerifM.eval_bind heval
   iintro H
   icases H with ⟨Howns, Hvals, Happ⟩
   iintuitionistic Hvals
@@ -614,9 +589,6 @@ theorem implement_correct (Θ : TinyML.TypeEnv) (s : Spec) (body : List FOL.Cons
   ipure Hdecl
   obtain ⟨σ', argVars, st', ρ', hΨ, hσ'wf, hdsub, hragree, howns, hdom_sub, hagree,
     hmem_decls, hsorts, hlookups⟩ := Hdecl
-  rcases hσ'wf with ⟨hσ'subst, hσ'base, hσ'use, hσ'srcwf, hσ'rangewf, hσ'usewf, hσ'basevars⟩
-  have hσ'wf : σ'.wfIn Δ_spec st'.decls :=
-    ⟨hσ'subst, hσ'base, hσ'use, hσ'srcwf, hσ'rangewf, hσ'usewf, hσ'basevars⟩
   have hag_base :
       VerifM.Env.agreeOn (Δ_spec.declVars (Spec.argVars s.args))
         (Spec.argsEnv ρ_spec s.args vs)
@@ -635,7 +607,7 @@ theorem implement_correct (Θ : TinyML.TypeEnv) (s : Spec) (body : List FOL.Cons
           (VerifM.Env.withEnv ρ' (σ'.subst.eval ρ'.env)) ⊢ R from
     PredTrans.implement_correct Θ s.pred Δ_spec σ' (body argVars) st' ρ'
       (fun r => TinyML.ValHasType Θ r s.retTy -∗ Φ r) R
-      (PredTrans.wfIn_mono hswf hdom_sub hσ'srcwf)
+      (PredTrans.wfIn_mono hswf hdom_sub hσ'wf.srcWf)
       hσ'wf hΨ
       (fun st'' ρ'' Q hdsub' hragree' hbody_eval => by
         apply hbody argVars st'' ρ'' Q

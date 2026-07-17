@@ -219,12 +219,6 @@ theorem Bindings.agreeOnLinked_zip_reverse
             · simp [List.lookup, hxn] at hmem
 
 omit [MicaGS HasLC.hasLC Sig] in
-theorem Bindings.lookup_reverse_zip_append {keys : List String} {vars : List FOL.Const} {x : String} (B : Bindings) :
-    ((keys.zip vars).reverse ++ B).lookup x =
-      ((keys.zip vars).reverse.lookup x).or (B.lookup x) := by
-  rw [List.lookup_append]
-
-omit [MicaGS HasLC.hasLC Sig] in
 theorem Bindings.agreeOnLinked_updateAllBinder
     (B : Bindings) (names : List String) (vars : List FOL.Const) (vals : List Runtime.Val)
     (γ : Runtime.Subst) (ρ : Env)
@@ -236,7 +230,7 @@ theorem Bindings.agreeOnLinked_updateAllBinder
     Bindings.agreeOnLinked ((names.zip vars).reverse ++ B) ρ
       (γ.updateAllBinder (names.map Runtime.Binder.named) vals) := by
   intro x x' hmem
-  rw [lookup_reverse_zip_append B] at hmem
+  rw [List.lookup_append] at hmem
   cases hlk : (names.zip vars).reverse.lookup x with
   | some x'' =>
     simp [hlk] at hmem; subst hmem

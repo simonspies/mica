@@ -60,7 +60,7 @@ instance : Monad VerifM where
   bind := VerifM.bind
 
 
-/-- Read the current pure assertion context (backwards-compatible wrapper around `ctx`). -/
+/-- Read the current pure assertion context, leaving the spatial context untouched. -/
 def VerifM.ctxPure (f : List Formula → α) : VerifM α :=
   VerifM.ctx (fun st => (f st.asserts, st.owns))
 
@@ -697,7 +697,7 @@ theorem VerifM.eval_ret {a : α} {st : TransState} {ρ : VerifM.Env} {Q : α →
     (h : VerifM.eval (.ret a) st ρ Q) : Q a st ρ :=
   h.2.2.2.2
 
-theorem VerifM.eval_bind (m : VerifM α) (k : α → VerifM β) st ρ :
+theorem VerifM.eval_bind {m : VerifM α} {k : α → VerifM β} {st ρ} :
   (m.bind k).eval st ρ P →
   m.eval st ρ (fun r st' ρ' => (k r).eval st' ρ' P) := by
   intros hev
@@ -707,9 +707,7 @@ theorem VerifM.eval_bind (m : VerifM α) (k : α → VerifM β) st ρ :
   apply VerifM.eval_rec_preserves_wf at hev
   apply (VerifM.eval_rec.mono (hev hholds hwf))
   intro a st' ρ' ⟨hholds', hwf', hev⟩
-  refine ⟨hwf', hholds', ?_⟩
-  refine ⟨hwf', hholds', ?_⟩
-  trivial
+  exact ⟨hwf', hholds', hwf', hholds', hev⟩
 
 
 
@@ -812,7 +810,7 @@ theorem VerifM.eval_assert {φ : Formula} {st : TransState} {ρ : VerifM.Env}
     φ.wfIn st.decls → φ.eval ρ.env ∧ Q () st ρ := by
   intro hwf
   simp only [VerifM.assert] at h
-  have hb := VerifM.eval_bind _ _ _ _ h
+  have hb := VerifM.eval_bind h
   have ⟨b, hb_sound, hq⟩ := VerifM.eval_check hb hwf
   cases b with
   | true =>
@@ -854,7 +852,7 @@ theorem VerifM.eval_declConstExact {c : FOL.Const} {st : TransState} {ρ : Verif
     c.name ∉ st.decls.allNames ∧
     ∀ v, Q () { st with decls := st.decls.addConst c } (ρ.updateConst c.sort c.name v) := by
   simp only [VerifM.declConstExact] at h
-  have hbind := VerifM.eval_decl (VerifM.eval_bind _ _ _ _ h)
+  have hbind := VerifM.eval_decl (VerifM.eval_bind h)
   have hname : Fresh.freshNumbers c.name st.decls.allNames = c.name := by
     have hcont0 := hbind default
     obtain ⟨heq, _⟩ := VerifM.eval_expectEq hcont0
@@ -875,7 +873,7 @@ theorem VerifM.eval_declUnaryRelExact {u : FOL.UnaryRel} {st : TransState} {ρ :
     u.name ∉ st.decls.allNames ∧
     ∀ f, Q () { st with decls := st.decls.addUnaryRel u } (ρ.updateUnaryRel u.arg u.name f) := by
   simp only [VerifM.declUnaryRelExact] at h
-  obtain ⟨hfresh, hcont⟩ := VerifM.eval_declUnaryRel (VerifM.eval_bind _ _ _ _ h)
+  obtain ⟨hfresh, hcont⟩ := VerifM.eval_declUnaryRel (VerifM.eval_bind h)
   have hname : Fresh.freshNumbers u.name st.decls.allNames = u.name := by
     have hcont0 := hcont (fun _ => True)
     obtain ⟨heq, _⟩ := VerifM.eval_expectEq hcont0
@@ -894,7 +892,7 @@ theorem VerifM.eval_declBinaryRelExact {b : FOL.BinaryRel} {st : TransState} {ρ
     b.name ∉ st.decls.allNames ∧
     ∀ f, Q () { st with decls := st.decls.addBinaryRel b } (ρ.updateBinaryRel b.arg1 b.arg2 b.name f) := by
   simp only [VerifM.declBinaryRelExact] at h
-  obtain ⟨hfresh, hcont⟩ := VerifM.eval_declBinaryRel (VerifM.eval_bind _ _ _ _ h)
+  obtain ⟨hfresh, hcont⟩ := VerifM.eval_declBinaryRel (VerifM.eval_bind h)
   have hname : Fresh.freshNumbers b.name st.decls.allNames = b.name := by
     have hcont0 := hcont (fun _ _ => True)
     obtain ⟨heq, _⟩ := VerifM.eval_expectEq hcont0
@@ -913,7 +911,7 @@ theorem VerifM.eval_declUnaryExact {u : FOL.Unary} {st : TransState} {ρ : Verif
     u.name ∉ st.decls.allNames ∧
     ∀ f, Q () { st with decls := st.decls.addUnary u } (ρ.updateUnary u.arg u.ret u.name f) := by
   simp only [VerifM.declUnaryExact] at h
-  obtain ⟨hfresh, hcont⟩ := VerifM.eval_declUnary (VerifM.eval_bind _ _ _ _ h)
+  obtain ⟨hfresh, hcont⟩ := VerifM.eval_declUnary (VerifM.eval_bind h)
   have hname : Fresh.freshNumbers u.name st.decls.allNames = u.name := by
     have hcont0 := hcont (fun _ => default)
     obtain ⟨heq, _⟩ := VerifM.eval_expectEq hcont0
@@ -932,7 +930,7 @@ theorem VerifM.eval_declBinaryExact {b : FOL.Binary} {st : TransState} {ρ : Ver
     b.name ∉ st.decls.allNames ∧
     ∀ f, Q () { st with decls := st.decls.addBinary b } (ρ.updateBinary b.arg1 b.arg2 b.ret b.name f) := by
   simp only [VerifM.declBinaryExact] at h
-  obtain ⟨hfresh, hcont⟩ := VerifM.eval_declBinary (VerifM.eval_bind _ _ _ _ h)
+  obtain ⟨hfresh, hcont⟩ := VerifM.eval_declBinary (VerifM.eval_bind h)
   have hname : Fresh.freshNumbers b.name st.decls.allNames = b.name := by
     have hcont0 := hcont (fun _ _ => default)
     obtain ⟨heq, _⟩ := VerifM.eval_expectEq hcont0
@@ -952,7 +950,7 @@ theorem VerifM.eval_declTernaryExact {t : FOL.Ternary} {st : TransState} {ρ : V
     ∀ f, Q () { st with decls := st.decls.addTernary t }
       (ρ.updateTernary t.arg1 t.arg2 t.arg3 t.ret t.name f) := by
   simp only [VerifM.declTernaryExact] at h
-  obtain ⟨hfresh, hcont⟩ := VerifM.eval_declTernary (VerifM.eval_bind _ _ _ _ h)
+  obtain ⟨hfresh, hcont⟩ := VerifM.eval_declTernary (VerifM.eval_bind h)
   have hname : Fresh.freshNumbers t.name st.decls.allNames = t.name := by
     have hcont0 := hcont (fun _ _ _ => default)
     obtain ⟨heq, _⟩ := VerifM.eval_expectEq hcont0
@@ -970,7 +968,7 @@ theorem VerifM.eval_bind_expectEq [DecidableEq α] [Repr α]
     {st : TransState} {ρ : VerifM.Env} {Q : β → TransState → VerifM.Env → Prop}
     (h : VerifM.eval ((VerifM.expectEq msg actual expected).bind k) st ρ Q) :
     actual = expected ∧ VerifM.eval (k ()) st ρ Q := by
-  have hb := VerifM.eval_bind _ _ _ _ h
+  have hb := VerifM.eval_bind h
   obtain ⟨heq, hk⟩ := VerifM.eval_expectEq hb
   exact ⟨heq, hk⟩
 
@@ -979,7 +977,7 @@ theorem VerifM.eval_bind_expectSome
     {st : TransState} {ρ : VerifM.Env} {Q : β → TransState → VerifM.Env → Prop}
     (h : VerifM.eval ((VerifM.expectSome msg x).bind k) st ρ Q) :
     ∃ y, x = some y ∧ VerifM.eval (k y) st ρ Q := by
-  have hb := VerifM.eval_bind _ _ _ _ h
+  have hb := VerifM.eval_bind h
   obtain ⟨y, hx, hk⟩ := VerifM.eval_expectSome hb
   exact ⟨y, hx, hk⟩
 
@@ -1047,7 +1045,7 @@ theorem VerifM.eval_assumeAll {φs : List Formula}
   | cons φ φs ih =>
     intro hwf heval
     simp only [VerifM.assumeAll] at h
-    have hb := VerifM.eval_bind _ _ _ _ h
+    have hb := VerifM.eval_bind h
     have hassume := VerifM.eval_assumePure hb
     have hcont := hassume
       (hwf φ (List.mem_cons_self ..))

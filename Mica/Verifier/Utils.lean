@@ -62,11 +62,8 @@ structure FiniteSubst where
   dom   : List Var
   range : Signature
 
-def FiniteSubst.id : FiniteSubst where
-  subst := Subst.id
-  dom   := []
-  range := Signature.empty
-
+/-- The identity substitution over a base signature: nothing is renamed yet, and every
+    symbol of `Δ_base` is already available in the range. -/
 def FiniteSubst.base (Δ_base : Signature) : FiniteSubst where
   subst := Subst.id
   dom   := []
@@ -99,7 +96,46 @@ def FiniteSubst.wfIn (σ : FiniteSubst) (Δ_base Δ_use : Signature) : Prop :=
   Δ_use.wf ∧
   Δ_base.vars = []
 
-abbrev FiniteSubst.wf := FiniteSubst.wfIn
+namespace FiniteSubst.wfIn
+
+variable {σ : FiniteSubst} {Δ_base Δ_use : Signature}
+
+/-- The substitution maps the source variables into the range signature. -/
+theorem subst (h : σ.wfIn Δ_base Δ_use) :
+    σ.subst.wfIn (Δ_base.declVars σ.dom).vars σ.range := h.1
+
+/-- Every non-variable symbol of the source signature is available in the range. -/
+private theorem symbolSubset (h : σ.wfIn Δ_base Δ_use) : Δ_base.SymbolSubset σ.range := h.2.1
+
+/-- The range signature is available at the use site. -/
+theorem rangeSubset (h : σ.wfIn Δ_base Δ_use) : σ.range.Subset Δ_use := h.2.2.1
+
+theorem srcWf (h : σ.wfIn Δ_base Δ_use) : (Δ_base.declVars σ.dom).wf := h.2.2.2.1
+
+theorem rangeWf (h : σ.wfIn Δ_base Δ_use) : σ.range.wf := h.2.2.2.2.1
+
+theorem useWf (h : σ.wfIn Δ_base Δ_use) : Δ_use.wf := h.2.2.2.2.2.1
+
+/-- The source signature contributes no free variables of its own. -/
+private theorem baseVars (h : σ.wfIn Δ_base Δ_use) : Δ_base.vars = [] := h.2.2.2.2.2.2
+
+/-- The source signature's symbols are all available in the range: `declVars` only adds
+    variables, and every other symbol of `Δ_base` is in the range by `symbolSubset`. -/
+theorem srcSymbolSubset (h : σ.wfIn Δ_base Δ_use) :
+    (Δ_base.declVars σ.dom).SymbolSubset σ.range :=
+  Signature.SymbolSubset.declVars h.symbolSubset σ.dom
+
+/-- A finite substitution well-formed at one use site is well-formed at any larger one. -/
+theorem mono (h : σ.wfIn Δ_base Δ_use) {Δ_use' : Signature}
+    (hsub : Δ_use.Subset Δ_use') (hwf : Δ_use'.wf) : σ.wfIn Δ_base Δ_use' :=
+  ⟨h.subst, h.symbolSubset, h.rangeSubset.trans hsub, h.srcWf, h.rangeWf, hwf, h.baseVars⟩
+
+/-- A name fresh for the use site is fresh for the range, which the use site contains. -/
+theorem fresh_range (h : σ.wfIn Δ_base Δ_use) {name : String}
+    (hfresh : name ∉ Δ_use.allNames) : name ∉ σ.range.allNames :=
+  fun hmem => hfresh (Signature.allNames_subset h.rangeSubset _ hmem)
+
+end FiniteSubst.wfIn
 
 def FiniteSubst.rename (σ : FiniteSubst) (v : Var) (name' : String) : FiniteSubst where
   subst := (σ.subst.remove v.name).update v.sort v.name (.const (.uninterpreted name' v.sort))
@@ -155,30 +191,6 @@ private theorem subst_wfIn_dom_congr {σ : Subst} {dom dom' : VarCtx} {Δ : Sign
   ⟨fun v hv => hσ.1 v (h₁ hv),
    fun v hv => hσ.2 v (fun h => hv (h₂ h))⟩
 
-private theorem subset_addConst_same {Δ Δ' : Signature} (h : Δ.Subset Δ') (c : FOL.Const) :
-    (Δ.addConst c).Subset (Δ'.addConst c) :=
-  { vars := h.vars
-    consts := fun c' hc' => by
-      cases hc' with
-      | head => left
-      | tail _ hc => exact List.mem_cons_of_mem _ (h.consts c' hc)
-    unary := h.unary
-    binary := h.binary
-    ternary := h.ternary
-    unaryRel := h.unaryRel
-    binaryRel := h.binaryRel }
-
-private theorem const_wfIn_addConst {Δ : Signature} {name : String} {τ : Srt}
-    (hΔ : Δ.wf) (hfresh : name ∉ Δ.allNames) :
-    (Term.const (.uninterpreted name τ)).wfIn (Δ.addConst ⟨name, τ⟩) := by
-  simp only [Term.wfIn, Const.wfIn, Signature.addConst]
-  have hΔ' : (Δ.addConst ⟨name, τ⟩).wf := Signature.wf_addConst hΔ hfresh
-  refine ⟨List.Mem.head _, ?_, ?_⟩
-  · intro τ' hvar
-    exact hfresh (Signature.mem_allNames_of_var hvar)
-  · intro τ' hc'
-    exact Signature.wf_unique_const hΔ' (List.Mem.head _) hc'
-
 /-- Renaming a source variable to a fresh use-site constant preserves finite-substitution
     well-formedness, extending both the substitution range and the use-site signature by
     that fresh constant. -/
@@ -188,20 +200,19 @@ theorem FiniteSubst.rename_wfIn {σ : FiniteSubst} {Δ_base Δ_use : Signature}
     (hfresh_range : name' ∉ σ.range.allNames)
     (hfresh_use : name' ∉ Δ_use.allNames) :
     (σ.rename v name').wfIn Δ_base (Δ_use.addConst ⟨name', v.sort⟩) := by
-  rcases hσ with ⟨hsubst, hbase, huse, hsrcwf, hrangewf, husewf, hbasevars⟩
   have hrange_add_wf : (σ.range.addConst ⟨name', v.sort⟩).wf :=
-    Signature.wf_addConst hrangewf hfresh_range
+    Signature.wf_addConst hσ.rangeWf hfresh_range
   have huse_add_wf : (Δ_use.addConst ⟨name', v.sort⟩).wf :=
-    Signature.wf_addConst husewf hfresh_use
+    Signature.wf_addConst hσ.useWf hfresh_use
   have hconst_wf :
       (Term.const (.uninterpreted name' v.sort)).wfIn
         (σ.range.addConst ⟨name', v.sort⟩) :=
-    const_wfIn_addConst hrangewf hfresh_range
+    Term.const_wfIn_addConst_of_fresh (c := ⟨name', v.sort⟩) hσ.rangeWf hfresh_range
   have hremove :
       (σ.subst.remove v.name).wfIn
         ((Δ_base.declVars σ.dom).remove v.name).vars
-        (σ.range.addConst ⟨name', v.sort⟩) := by
-    exact Subst.wfIn_mono (Subst.wfIn_remove hsubst)
+        (σ.range.addConst ⟨name', v.sort⟩) :=
+    Subst.wfIn_mono (Subst.wfIn_remove hσ.subst)
       (Signature.Subset.subset_addConst _ _) hrange_add_wf
   have hupdate :
       ((σ.subst.remove v.name).update v.sort v.name
@@ -212,7 +223,7 @@ theorem FiniteSubst.rename_wfIn {σ : FiniteSubst} {Δ_base Δ_use : Signature}
       (Subst.wfIn_update (σ := σ.subst.remove v.name)
         (dom := ((Δ_base.declVars σ.dom).remove v.name).vars)
         (x := v.name) hremove hconst_wf)
-  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, hbasevars⟩
+  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, hσ.baseVars⟩
   · have hsub₁ :
         (Δ_base.declVars (σ.rename v name').dom).vars ⊆
           ((Δ_base.declVars σ.dom).declVar v).vars :=
@@ -222,132 +233,114 @@ theorem FiniteSubst.rename_wfIn {σ : FiniteSubst} {Δ_base Δ_use : Signature}
           (Δ_base.declVars (σ.rename v name').dom).vars :=
       (FiniteSubst.rename_source_subset σ Δ_base v name').vars
     simpa [FiniteSubst.rename] using subst_wfIn_dom_congr hupdate hsub₁ hsub₂
-  · exact Signature.SymbolSubset.trans hbase (Signature.SymbolSubset.subset_addConst _ _)
-  · exact subset_addConst_same huse ⟨name', v.sort⟩
-  · exact FiniteSubst.rename_source_wf hsrcwf
+  · exact Signature.SymbolSubset.trans hσ.symbolSubset
+      (Signature.SymbolSubset.subset_addConst _ _)
+  · exact Signature.Subset.addConst hσ.rangeSubset ⟨name', v.sort⟩
+  · exact FiniteSubst.rename_source_wf hσ.srcWf
   · exact hrange_add_wf
   · exact huse_add_wf
-
-theorem declVars_symbolSubset {Δ_base : Signature} {vs : List Var} :
-    (Δ_base.declVars vs).SymbolSubset Δ_base := by
-  induction vs generalizing Δ_base with
-  | nil =>
-    simpa [Signature.declVars] using Signature.SymbolSubset.refl Δ_base
-  | cons v vs ih =>
-    simpa [Signature.declVars] using
-      Signature.SymbolSubset.trans (ih (Δ_base := Δ_base.declVar v))
-        (Signature.SymbolSubset.declVar (Signature.SymbolSubset.refl Δ_base) v)
 
 theorem FiniteSubst.subst_wfIn_formula_range {σ : FiniteSubst} {φ : Formula}
     {Δ_base Δ_use : Signature}
     (hσ : σ.wfIn Δ_base Δ_use)
     (hφ : φ.wfIn (Δ_base.declVars σ.dom)) :
-    (φ.subst σ.subst σ.range.allNames).wfIn σ.range := by
-  rcases hσ with ⟨hsubst, hbase, _huse, _hsrcwf, hrangewf, _husewf, _hbasevars⟩
-  exact Formula.subst_wfIn hφ hsubst
-    (Signature.SymbolSubset.trans declVars_symbolSubset hbase) hrangewf
+    (φ.subst σ.subst σ.range.allNames).wfIn σ.range :=
+  Formula.subst_wfIn hφ hσ.subst hσ.srcSymbolSubset hσ.rangeWf
 
 theorem FiniteSubst.subst_wfIn_term_range {σ : FiniteSubst} {t : Term τ}
     {Δ_base Δ_use : Signature}
     (hσ : σ.wfIn Δ_base Δ_use)
     (ht : t.wfIn (Δ_base.declVars σ.dom)) :
-    (t.subst σ.subst).wfIn σ.range := by
-  rcases hσ with ⟨hsubst, hbase, _huse, _hsrcwf, hrangewf, _husewf, _hbasevars⟩
-  exact Term.subst_wfIn ht hsubst (by intro x hx; exact hx)
-    (Signature.SymbolSubset.trans declVars_symbolSubset hbase) hrangewf
+    (t.subst σ.subst).wfIn σ.range :=
+  Term.subst_wfIn ht hσ.subst (fun _ hx => hx) hσ.srcSymbolSubset hσ.rangeWf
 
 theorem FiniteSubst.subst_wfIn_term {σ : FiniteSubst} {t : Term τ}
     {Δ_base Δ_use : Signature}
     (hσ : σ.wfIn Δ_base Δ_use)
     (ht : t.wfIn (Δ_base.declVars σ.dom)) :
-    (t.subst σ.subst).wfIn Δ_use := by
-  have hrange := FiniteSubst.subst_wfIn_term_range hσ ht
-  rcases hσ with ⟨_hsubst, _hbase, huse, _hsrcwf, _hrangewf, husewf, _hbasevars⟩
-  exact Term.wfIn_mono _ hrange huse husewf
+    (t.subst σ.subst).wfIn Δ_use :=
+  Term.wfIn_mono _ (FiniteSubst.subst_wfIn_term_range hσ ht) hσ.rangeSubset hσ.useWf
+
+theorem FiniteSubst.subst_wfIn_formula {σ : FiniteSubst} {φ : Formula}
+    {Δ_base Δ_use : Signature}
+    (hσ : σ.wfIn Δ_base Δ_use)
+    (hφ : φ.wfIn (Δ_base.declVars σ.dom)) :
+    (φ.subst σ.subst σ.range.allNames).wfIn Δ_use :=
+  Formula.wfIn_mono _ (FiniteSubst.subst_wfIn_formula_range hσ hφ) hσ.rangeSubset hσ.useWf
 
 theorem FiniteSubst.eval_subst_formula {σ : FiniteSubst} {φ : Formula} {ρ : Env}
     {Δ_base Δ_use : Signature}
     (hσ : σ.wfIn Δ_base Δ_use)
     (hφ : φ.wfIn (Δ_base.declVars σ.dom)) :
-    ((φ.subst σ.subst σ.range.allNames).eval ρ ↔ φ.eval (σ.subst.eval ρ)) := by
-  rcases hσ with ⟨hsubst, hbase, _huse, hsrcwf, hrangewf, _husewf, _hbasevars⟩
-  exact Formula.eval_subst hφ hsubst
-    (Signature.SymbolSubset.trans declVars_symbolSubset hbase) hsrcwf hrangewf
+    ((φ.subst σ.subst σ.range.allNames).eval ρ ↔ φ.eval (σ.subst.eval ρ)) :=
+  Formula.eval_subst hφ hσ.subst hσ.srcSymbolSubset hσ.srcWf hσ.rangeWf
 
 theorem FiniteSubst.eval_subst_term {σ : FiniteSubst} {t : Term τ} {ρ : Env}
     {Δ_base Δ_use : Signature}
     (hσ : σ.wfIn Δ_base Δ_use)
     (ht : t.wfIn (Δ_base.declVars σ.dom)) :
-    Term.eval ρ (t.subst σ.subst) = Term.eval (σ.subst.eval ρ) t := by
-  rcases hσ with ⟨hsubst, _hbase, _huse, _hsrcwf, hrangewf, _husewf, _hbasevars⟩
-  exact Term.eval_subst ht hsubst hrangewf
+    Term.eval ρ (t.subst σ.subst) = Term.eval (σ.subst.eval ρ) t :=
+  Term.eval_subst ht hσ.subst hσ.rangeWf
+
+/-! ### Declaring a source variable as a fresh use-site constant
+
+When an assertion's let-bound variable `v` is declared as a fresh verifier constant `c`,
+the verifier assumes the equation `c = t[σ]`. These two lemmas supply its well-formedness
+and its truth in the updated environment. -/
+
+theorem FiniteSubst.decl_eq_wfIn {σ : FiniteSubst} {Δ_base Δ_use : Signature}
+    {c : FOL.Const} {t : Term c.sort}
+    (hσ : σ.wfIn Δ_base Δ_use) (ht : t.wfIn (Δ_base.declVars σ.dom))
+    (hfresh : c.name ∉ Δ_use.allNames) :
+    (Formula.eq c.sort (.const (.uninterpreted c.name c.sort)) (t.subst σ.subst)).wfIn
+      (Δ_use.addConst c) :=
+  Formula.eq_wfIn_addConst_of_fresh hσ.useWf (FiniteSubst.subst_wfIn_term hσ ht) hfresh
+
+theorem FiniteSubst.decl_eq_eval {σ : FiniteSubst} {Δ_base Δ_use : Signature} {ρ : Env}
+    {c : FOL.Const} {t : Term c.sort}
+    (hσ : σ.wfIn Δ_base Δ_use) (ht : t.wfIn (Δ_base.declVars σ.dom))
+    (hfresh : c.name ∉ Δ_use.allNames) :
+    (Formula.eq c.sort (.const (.uninterpreted c.name c.sort)) (t.subst σ.subst)).eval
+      (ρ.updateConst c.sort c.name (t.eval (σ.subst.eval ρ))) := by
+  rw [← FiniteSubst.eval_subst_term hσ ht]
+  exact Formula.eq_eval_updateConst_of_fresh (FiniteSubst.subst_wfIn_term hσ ht) hfresh
+
+/-- The core agreement transfer: environments agreeing on the substitution's range induce
+    substituted environments agreeing on the source signature. Shared by `eval_agreeOn` and
+    `eval_update_fresh`, which differ only in where the range agreement comes from. -/
+private theorem FiniteSubst.eval_agreeOn_range {σ : FiniteSubst} {ρ ρ' : Env}
+    {Δ_base Δ_use : Signature}
+    (hσ : σ.wfIn Δ_base Δ_use)
+    (hagree : Env.agreeOn σ.range ρ ρ') :
+    Env.agreeOn (Δ_base.declVars σ.dom) (σ.subst.eval ρ) (σ.subst.eval ρ') := by
+  have hsymbols := hσ.srcSymbolSubset
+  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+  · intro v hv
+    exact Term.eval_env_agree (hσ.subst.1 v hv) hagree
+  · intro c hc
+    have hnot : ⟨c.name, c.sort⟩ ∉ (Δ_base.declVars σ.dom).vars :=
+      fun hv => Signature.wf_no_var_of_const hσ.srcWf hc hv
+    have hvar : σ.subst.apply c.sort c.name = Term.var c.sort c.name := hσ.subst.2 _ hnot
+    simp [Subst.eval, Term.eval, hvar]
+    exact hagree.2.1 c (hsymbols.consts c hc)
+  · exact fun u hu => hagree.2.2.1 u (hsymbols.unary u hu)
+  · exact fun b hb => hagree.2.2.2.1 b (hsymbols.binary b hb)
+  · exact fun t ht => hagree.2.2.2.2.1 t (hsymbols.ternary t ht)
+  · exact fun u hu => hagree.2.2.2.2.2.1 u (hsymbols.unaryRel u hu)
+  · exact fun b hb => hagree.2.2.2.2.2.2 b (hsymbols.binaryRel b hb)
 
 theorem FiniteSubst.eval_agreeOn {σ : FiniteSubst} {ρ ρ' : Env}
     {Δ_base Δ_use : Signature}
     (hσ : σ.wfIn Δ_base Δ_use)
     (hagree : Env.agreeOn Δ_use ρ ρ') :
-    Env.agreeOn (Δ_base.declVars σ.dom) (σ.subst.eval ρ) (σ.subst.eval ρ') := by
-  rcases hσ with ⟨hsubst, hbase, huse, hsrcwf, _hrangewf, _husewf, _hbasevars⟩
-  have hagree_range : Env.agreeOn σ.range ρ ρ' := Env.agreeOn_mono huse hagree
-  have hsymbols : (Δ_base.declVars σ.dom).SymbolSubset σ.range :=
-    Signature.SymbolSubset.trans declVars_symbolSubset hbase
-  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
-  · intro v hv
-    exact Term.eval_env_agree (hsubst.1 v hv) hagree_range
-  · intro c hc
-    have hc' : c ∈ σ.range.consts := hsymbols.consts c hc
-    have hnot : ⟨c.name, c.sort⟩ ∉ (Δ_base.declVars σ.dom).vars := by
-      intro hv
-      exact Signature.wf_no_var_of_const hsrcwf hc hv
-    have hvar : σ.subst.apply c.sort c.name = Term.var c.sort c.name := hsubst.2 _ hnot
-    simp [Subst.eval, Term.eval, hvar]
-    exact hagree_range.2.1 c hc'
-  · intro u hu
-    have hu' : u ∈ σ.range.unary := hsymbols.unary u hu
-    exact hagree_range.2.2.1 u hu'
-  · intro b hb
-    have hb' : b ∈ σ.range.binary := hsymbols.binary b hb
-    exact hagree_range.2.2.2.1 b hb'
-  · intro t ht
-    have ht' : t ∈ σ.range.ternary := hsymbols.ternary t ht
-    exact hagree_range.2.2.2.2.1 t ht'
-  · intro u hu
-    have hu' : u ∈ σ.range.unaryRel := hsymbols.unaryRel u hu
-    exact hagree_range.2.2.2.2.2.1 u hu'
-  · intro b hb
-    have hb' : b ∈ σ.range.binaryRel := hsymbols.binaryRel b hb
-    exact hagree_range.2.2.2.2.2.2 b hb'
+    Env.agreeOn (Δ_base.declVars σ.dom) (σ.subst.eval ρ) (σ.subst.eval ρ') :=
+  FiniteSubst.eval_agreeOn_range hσ (Env.agreeOn_mono hσ.rangeSubset hagree)
 
 theorem FiniteSubst.eval_update_fresh {σ : FiniteSubst} {ρ : Env} {τ : Srt} {name' : String}
     {u : τ.denote} {Δ_base Δ_use : Signature}
     (hσ : σ.wfIn Δ_base Δ_use) (hfresh : name' ∉ σ.range.allNames) :
-    Env.agreeOn (Δ_base.declVars σ.dom) (σ.subst.eval ρ) (σ.subst.eval (ρ.updateConst τ name' u)) := by
-  rcases hσ with ⟨hsubst, hbase, _huse, hsrcwf, _hrangewf, _husewf, _hbasevars⟩
-  have hagree_range : Env.agreeOn σ.range ρ (ρ.updateConst τ name' u) :=
-    Env.agreeOn_update_fresh_const (c := ⟨name', τ⟩) hfresh
-  have hsymbols : (Δ_base.declVars σ.dom).SymbolSubset σ.range :=
-    Signature.SymbolSubset.trans declVars_symbolSubset hbase
-  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
-  · intro v hv
-    exact Term.eval_env_agree (hsubst.1 v hv) hagree_range
-  · intro c hc
-    have hc' : c ∈ σ.range.consts := hsymbols.consts c hc
-    have hnot : ⟨c.name, c.sort⟩ ∉ (Δ_base.declVars σ.dom).vars := by
-      intro hv
-      exact Signature.wf_no_var_of_const hsrcwf hc hv
-    have hvar : σ.subst.apply c.sort c.name = Term.var c.sort c.name := hsubst.2 _ hnot
-    simp [Subst.eval, Term.eval, hvar]
-    exact hagree_range.2.1 c hc'
-  · intro u' hu
-    exact hagree_range.2.2.1 u' (hsymbols.unary u' hu)
-  · intro b hb
-    exact hagree_range.2.2.2.1 b (hsymbols.binary b hb)
-  · intro t ht
-    exact hagree_range.2.2.2.2.1 t (hsymbols.ternary t ht)
-  · intro u' hu
-    exact hagree_range.2.2.2.2.2.1 u' (hsymbols.unaryRel u' hu)
-  · intro b hb
-    exact hagree_range.2.2.2.2.2.2 b (hsymbols.binaryRel b hb)
+    Env.agreeOn (Δ_base.declVars σ.dom) (σ.subst.eval ρ) (σ.subst.eval (ρ.updateConst τ name' u)) :=
+  FiniteSubst.eval_agreeOn_range hσ (Env.agreeOn_update_fresh_const (c := ⟨name', τ⟩) hfresh)
 
 /-- After `rename`, evaluating the renamed substitution in an environment containing the
     fresh verifier constant agrees with evaluating the old substitution and updating the
@@ -358,9 +351,9 @@ theorem FiniteSubst.rename_agreeOn {σ : FiniteSubst} {Δ_base Δ_use : Signatur
     Env.agreeOn (Δ_base.declVars (σ.rename v name').dom)
       ((σ.rename v name').subst.eval (ρ.updateConst v.sort name' u))
       ((σ.subst.eval ρ).updateConst v.sort v.name u) := by
-  rcases hσ with ⟨hsubst, hbase, huse, hsrcwf, hrangewf, husewf, hbasevars⟩
-  have hsymbols : (Δ_base.declVars σ.dom).SymbolSubset σ.range :=
-    Signature.SymbolSubset.trans declVars_symbolSubset hbase
+  have hsubst := hσ.subst
+  have hsrcwf := hσ.srcWf
+  have hsymbols := hσ.srcSymbolSubset
   have hlarge :
       Env.agreeOn ((Δ_base.declVars σ.dom).declVar v)
         ((σ.rename v name').subst.eval (ρ.updateConst v.sort name' u))

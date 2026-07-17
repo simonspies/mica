@@ -453,6 +453,13 @@ theorem SymbolSubset.declVar {Δ Δ' : Signature} (h : Δ.SymbolSubset Δ') (v :
     rcases Signature.mem_remove_binaryRel.mp (by simpa [Signature.declVar, Signature.addVar] using hb) with ⟨hb, _⟩
     exact h.binaryRel b hb
 
+/-- Declaring variables adds no non-variable symbols, so a symbol-subset survives. -/
+theorem SymbolSubset.declVars {Δ Δ' : Signature} (h : Δ.SymbolSubset Δ') (vs : List Var) :
+    (Δ.declVars vs).SymbolSubset Δ' := by
+  induction vs generalizing Δ with
+  | nil => simpa [declVars] using h
+  | cons v vs ih => simpa [declVars] using ih (SymbolSubset.declVar h v)
+
 theorem allNames_subset {Δ Δ' : Signature} (h : Δ.Subset Δ') :
     ∀ n ∈ Δ.allNames, n ∈ Δ'.allNames := by
   intro n hn
@@ -470,6 +477,12 @@ theorem Subset.addVar {Δ Δ' : Signature} (h : Δ.Subset Δ') (v : Var) :
     (Δ.addVar v).Subset (Δ'.addVar v) :=
   ⟨fun x hx => by cases hx with | head => left | tail _ hmem => right; exact h.vars x hmem,
    h.consts, h.unary, h.binary, h.ternary, h.unaryRel, h.binaryRel⟩
+
+theorem Subset.addConst {Δ Δ' : Signature} (h : Δ.Subset Δ') (c : FOL.Const) :
+    (Δ.addConst c).Subset (Δ'.addConst c) :=
+  ⟨h.vars,
+   fun x hx => by cases hx with | head => left | tail _ hmem => right; exact h.consts x hmem,
+   h.unary, h.binary, h.ternary, h.unaryRel, h.binaryRel⟩
 
 theorem Subset.subset_addVar (Δ : Signature) (v : Var) :
     Δ.Subset (Δ.addVar v) :=
