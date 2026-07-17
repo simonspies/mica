@@ -975,7 +975,7 @@ theorem eval_declFOLSyms (R : Registry)
       cases hd
   | cons i rest ih =>
     simp only [declFOLSyms] at heval
-    have h1 := VerifM.eval_bind _ _ _ _ heval
+    have h1 := VerifM.eval_bind heval
     obtain ⟨ρ1, hag1, hiRespect, hcont⟩ := Intrinsic.eval_declFOLSym i h1
     set st1 : TransState := { st with decls := st.decls.extendWithSym i.folSym }
     obtain ⟨st', ρ', hsub2, hdep2, hvars2, howns2, hass2, hrestStable, hag2, hQ⟩ :=
@@ -1020,7 +1020,7 @@ theorem eval_assumeAxioms_in (full todo : Registry)
     refine ⟨st, rfl, rfl, ⟨[], by simp⟩, VerifM.eval_ret heval⟩
   | cons i rest ih =>
     simp only [assumeAxioms] at heval
-    have h1 := VerifM.eval_bind _ _ _ _ heval
+    have h1 := VerifM.eval_bind heval
     rcases hSound with ⟨hiSound, hrestSound⟩
     have hwfAxioms : ∀ a ∈ i.axioms, a.formula.wfIn st.decls := fun a ha =>
       hiSound.axiomWf hSig (VerifM.eval.wf h1).namesDisjoint a ha
@@ -1061,7 +1061,7 @@ theorem eval_introduceRegistry (R : Registry)
       VerifM.Env.agreeOn st.decls ρ ρ' ∧
       Q () st' ρ' := by
   unfold introduceRegistry at heval
-  have hdecls := VerifM.eval_bind _ _ _ _ heval
+  have hdecls := VerifM.eval_bind heval
   obtain ⟨st1, ρ1, hsub1, hfold1, hvars1, howns1, hass1, hstable, hag1, hcont⟩ :=
     eval_declFOLSyms R hdecls
   have hsig1 : (Intrinsic.sigOf R).Subset st1.decls := by

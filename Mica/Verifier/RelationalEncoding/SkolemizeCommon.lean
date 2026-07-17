@@ -183,7 +183,7 @@ def freshValueCtx (s : NameSupply) {Δ : Signature}
       var_wf := ?_ }
   · simpa [Δ', s'] using NameSupply.Covers.declVar hcov r .value
   · exact var_value_wfIn hΔ'wf
-      (by simpa [Δ'] using Signature.var_mem_declVar Δ ⟨r, .value⟩)
+      (by simp [Δ'])
 
 namespace FreshValueCtx
 
@@ -309,7 +309,7 @@ def Mono (m : DefVal) : Prop :=
 theorem call_mono (fn : SpecFn) (arg : Term .value) : Mono (call fn arg) := by
   intro ρ ρ' hle hdef
   simp only [call, SpecFn.isDefined, SpecFn.isDefined, Formula.eval, UnPred.eval] at hdef ⊢
-  rw [← Fix.Term.eval_le hle arg]
+  rw [← Term.eval_env_le hle arg]
   exact hle.2.2.2.2.1 .value (fn.defName) (arg.eval ρ) hdef
 
 theorem ite_mono {cond : Term .bool} {thenVal elseVal : DefVal}
@@ -319,11 +319,11 @@ theorem ite_mono {cond : Term .bool} {thenVal elseVal : DefVal}
   constructor
   · intro hcond
     have hcond' : cond.eval ρ = true := by
-      rw [Fix.Term.eval_le hle]; exact hcond
+      rw [Term.eval_env_le hle]; exact hcond
     exact ht hle (hdef.1 hcond')
   · intro hcond
     have hcond' : cond.eval ρ = false := by
-      rw [Fix.Term.eval_le hle]; exact hcond
+      rw [Term.eval_env_le hle]; exact hcond
     exact he hle (hdef.2 hcond')
 
 end DefVal
@@ -516,8 +516,8 @@ split environments. -/
 theorem splitEnv_le {ρ : Env} {fn : SpecFn}
     {D D' : Srt.value.denote → Prop}
     {F : Srt.value.denote → Srt.value.denote}
-    (hDD' : UnaryFix.le D D') :
-    Fix.Env.le (splitEnv ρ fn D F) (splitEnv ρ fn D' F) := by
+    (hDD' : PredicateFix.le D D') :
+    Env.le (splitEnv ρ fn D F) (splitEnv ρ fn D' F) := by
   refine ⟨rfl, rfl, rfl, rfl, ?_, ?_⟩
   · intro τ name a h
     simp only [splitEnv, Env.updateUnaryRel] at h ⊢
@@ -536,9 +536,9 @@ monotone definedness. -/
 theorem defBody_mono {ρ : Env} {fn : SpecFn} {x : String} {body : DefVal}
     {F : Srt.value.denote → Srt.value.denote}
     (hbody : DefVal.Mono body) :
-    UnaryFix.Mono (defBody ρ fn x body F) := by
+    PredicateFix.Mono (defBody ρ fn x body F) := by
   intro D D' hDD' vin hdef
-  exact hbody (Fix.Env.le.updateConst (splitEnv_le (ρ := ρ) (fn := fn)
+  exact hbody (Env.le.updateConst (splitEnv_le (ρ := ρ) (fn := fn)
     (D := D) (D' := D') (F := F) hDD') .value x vin) hdef
 
 /-- Semantic definedness for the split presentation: the least fixpoint of the
@@ -548,7 +548,7 @@ noncomputable def semdef
     (Γ : FunCtx) (Δ : Signature) (ρ : Env)
     (f : TinyML.Var) (fn : SpecFn) (x res : TinyML.Var) (e : Typed.Expr)
     (body : DefVal) : Srt.value.denote → Prop :=
-  UnaryFix.lfp (defBody ρ fn x body
+  PredicateFix.lfp (defBody ρ fn x body
     (semFunc (semrel Γ Δ ρ f fn x res e)))
 
 /-- Canonical environment for the split presentation extracted from the
@@ -588,7 +588,7 @@ theorem semdef_unfold_of_encode
     simpa [encodeBody] using henc
   rw [henc'] at hcarrier
   have hbodyMono : DefVal.Mono body := hcarrier
-  exact UnaryFix.lfp_unfold (defBody_mono (ρ := ρ) (fn := fn) (x := x)
+  exact PredicateFix.lfp_unfold (defBody_mono (ρ := ρ) (fn := fn) (x := x)
     (body := body) hbodyMono) vin
 
 /-- Under the canonical split interpretation, the definedness symbol denotes

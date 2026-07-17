@@ -92,7 +92,7 @@ theorem checkBody_correct (reg : Verifier.Registry) (hSound : Verifier.Registry.
     have hmem : (n, v) ∈ (argNames.zip argVars) := by simp [B, Bindings.empty] at hp; exact hp
     exact List.of_mem_zip hmem |>.2
   -- Use compile_correct
-  have hcompile := VerifM.eval_bind _ _ _ _ hbody_eval
+  have hcompile := VerifM.eval_bind hbody_eval
   iintro ⟨Howns, #Hvals, HQ⟩
   ihave %hlen_vals := TinyML.ValsHaveTypes.length_eq $$ Hvals
   have hlen_nv : argNames.length = vs.length := by
@@ -166,25 +166,19 @@ theorem checkBody_correct (reg : Verifier.Registry) (hSound : Verifier.Registry.
           ((TinyML.ValHasType Θ (se.eval ρ''.env) s.retTy -∗ P (se.eval ρ''.env)) -∗
             P (se.eval ρ''.env)) from ?_).trans (hΨ' _ hse_wf)
     iintro ⟨Howns, Hty, HQ⟩
-    isplitl [Howns]
-    · iexact Howns
-    · isplitl [HQ]
-      · iexact HQ
-      · iintro Hwand
-        iapply Hwand
-        iapply (TinyML.ValHasType.sub (TinyML.Typ.sub_sound hsub))
-        iexact Hty
+    iframe Howns HQ
+    iintro Hwand
+    iapply Hwand
+    iapply (TinyML.ValHasType.sub (TinyML.Typ.sub_sound hsub))
+    iexact Hty
   iintro HSat
   iapply hbody_wp
-  isplitl [Howns]
-  · iexact Howns
-  · isplitl [HSat]
-    · iapply hS'_sat
-      iexact HSat
-    · isplitl []
-      · iapply hts
-        iexact Hvals
-      · iexact HQ
+  iframe Howns HQ
+  isplitl [HSat]
+  · iapply hS'_sat
+    iexact HSat
+  · iapply hts
+    iexact Hvals
 
 theorem checkSpec_correct (reg : Verifier.Registry) (hSound : Verifier.Registry.Sound reg)
     (Θ : TinyML.TypeEnv) (S : SpecMap) (e : Expr) (s : Spec)
@@ -203,7 +197,7 @@ theorem checkSpec_correct (reg : Verifier.Registry) (hSound : Verifier.Registry.
   -- All non-`fix` shapes (and bad `extractArgNames`) discharge the same way.
   have elim_bind_fatal : ∀ {α β} {msg} {k : α → VerifM β} {st ρ Ψ},
       VerifM.eval (VerifM.fatal msg >>= k) st ρ Ψ → False :=
-    fun h => VerifM.eval_fatal (VerifM.eval_bind _ _ _ _ h)
+    fun h => VerifM.eval_fatal (VerifM.eval_bind h)
   cases e
   case fix fb argBinders retTy body =>
     simp only [checkSpec] at heval
@@ -214,8 +208,8 @@ theorem checkSpec_correct (reg : Verifier.Registry) (hSound : Verifier.Registry.
       exact (elim_bind_fatal heval).elim
     | ok argNames =>
       simp [hext] at heval
-      have hcont := VerifM.eval_ret (VerifM.eval_bind _ _ _ _ heval)
-      have hpersist := VerifM.eval_persist (VerifM.eval_bind _ _ _ _ hcont)
+      have hcont := VerifM.eval_ret (VerifM.eval_bind heval)
+      have hpersist := VerifM.eval_persist (VerifM.eval_bind hcont)
       have himpl := hpersist
       dsimp only at himpl
       set bs := argBinders.map (·.runtime)

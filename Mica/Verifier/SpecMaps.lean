@@ -41,19 +41,16 @@ theorem SpecMap.project {x : TinyML.Var} {s : Spec} {Q : iProp} (P : iProp)
     iintro ⟨#Hall, HP⟩
     ispecialize Hall $$ %x
     ispecialize Hall $$ %s
-    isplitl []
-    · iapply Hall
-      ipureintro
-      exact hlook
-    · iexact HP
+    iframe HP
+    iapply Hall
+    ipureintro
+    exact hlook
   refine hstep.trans ?_
   istart
   iintro ⟨⟨%fval, Hγ, Hpre⟩, HP⟩
   ipure Hγ
   iapply (hcont fval Hγ)
-  isplitl [Hpre]
-  · iexact Hpre
-  · iexact HP
+  iframe
 
 
 def SpecMap.wfIn (S : SpecMap) (Δ : Signature) : Prop :=
@@ -150,9 +147,8 @@ theorem SpecMap.satisfiedBy_preserved {Θ : TinyML.TypeEnv} {Δ_spec : Signature
   ispecialize HS $$ %y %s %hlookup'
   icases HS with ⟨%f, %hγf, Hpre⟩
   iexists f
-  isplitl [Hpre]
-  · ipureintro; exact hγ f hγf
-  · iexact Hpre
+  iframe Hpre
+  ipureintro; exact hγ f hγf
 
 /-- Generic insert: fresh precondition for `x ↦ fval` plus preservation elsewhere. -/
 theorem SpecMap.satisfiedBy_insert_of_preserved {Θ : TinyML.TypeEnv} {Δ_spec : Signature} {ρ_spec : VerifM.Env} {S : SpecMap}
@@ -170,16 +166,14 @@ theorem SpecMap.satisfiedBy_insert_of_preserved {Θ : TinyML.TypeEnv} {Δ_spec :
     have : s' = spec := by rw [Finmap.lookup_insert] at hlookup; simpa using hlookup.symm
     subst this
     iexists fval
-    isplitr
-    · ipureintro; exact hγ'
-    · iexact Hf
+    iframe Hf
+    ipureintro; exact hγ'
   · rw [Finmap.lookup_insert_of_ne _ hyx] at hlookup
     ispecialize HS $$ %y %s' %hlookup
     icases HS with ⟨%f, %hγf, Hpre⟩
     iexists f
-    isplitl [Hpre]
-    · ipureintro; exact hγ y f hyx hγf
-    · iexact Hpre
+    iframe Hpre
+    ipureintro; exact hγ y f hyx hγf
 
 theorem SpecMap.satisfiedBy_insert {Θ : TinyML.TypeEnv} {Δ_spec : Signature} {ρ_spec : VerifM.Env} {S : SpecMap} {γ : Runtime.Subst}
     {x : TinyML.Var} {fval : Runtime.Val} {spec : Spec} (hγ : γ x = some fval) :

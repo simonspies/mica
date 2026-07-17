@@ -131,7 +131,7 @@ theorem PredTrans.call_correct (Θ : TinyML.TypeEnv) (pt : PredTrans) (Δ_base :
     st.sl Θ ρ ∗ R ⊢ PredTrans.apply Θ Φ pt (VerifM.Env.withEnv ρ (σ.subst.eval ρ.env)) := by
   intro hwf hσwf heval hΨ
   simp only [PredTrans.call] at heval
-  have hb := VerifM.eval_bind _ _ _ _ heval
+  have hb := VerifM.eval_bind heval
   let retWf : (String × Assertion Unit) → Signature → Prop :=
     fun post Δ' => Assertion.wfIn (fun _ _ => True) (Δ'.declVar ⟨post.1, .value⟩) post.2
   let Φpost : (String × Assertion Unit) → VerifM.Env → iProp :=
@@ -157,18 +157,15 @@ theorem PredTrans.call_correct (Θ : TinyML.TypeEnv) (pt : PredTrans) (Δ_base :
       (fun σ₁ ⟨postName, postBody⟩ st₁ ρ₁ hcont hσ₁wf hwf₁ => by
         apply forall_intro
         intro v
-        rcases hσ₁wf with ⟨hσ₁subst, hσ₁base, hσ₁use, hσ₁srcwf, hσ₁rangewf, hσ₁usewf, hσ₁basevars⟩
-        have hσ₁wf : σ₁.wfIn Δ_base st₁.decls :=
-          ⟨hσ₁subst, hσ₁base, hσ₁use, hσ₁srcwf, hσ₁rangewf, hσ₁usewf, hσ₁basevars⟩
-        have hb2 := VerifM.eval_bind _ _ _ _ hcont
+        have hb2 := VerifM.eval_bind hcont
         have hdecl := VerifM.eval_decl hb2
         set resVar := st₁.freshConst (some postName) .value
         have hfresh_decls : resVar.name ∉ st₁.decls.allNames :=
-          Fresh.freshNumbers_not_mem postName st₁.decls.allNames
+          st₁.freshConst_fresh (some postName) .value
         have hfresh_range : resVar.name ∉ σ₁.range.allNames :=
-          fun h => hfresh_decls (Signature.allNames_subset hσ₁use _ h)
+          hσ₁wf.fresh_range hfresh_decls
         specialize hdecl v
-        have hb3 := VerifM.eval_bind _ _ _ _ hdecl
+        have hb3 := VerifM.eval_bind hdecl
         set σ₂ := σ₁.rename ⟨postName, .value⟩ resVar.name
         have hσ₂wf : σ₂.wfIn Δ_base (st₁.decls.addConst resVar) := by
           simpa [σ₂] using
@@ -193,12 +190,7 @@ theorem PredTrans.call_correct (Θ : TinyML.TypeEnv) (pt : PredTrans) (Δ_base :
             have hret := VerifM.eval_ret hcont'
             have hwfst₂ : st₂.decls.wf := (VerifM.eval.wf hcont').namesDisjoint
             apply hΨ _ st₂ ρ₂ (.const (.uninterpreted resVar.name .value)) hret
-            · simp only [Term.wfIn, Const.wfIn]
-              refine ⟨hsub.consts resVar (List.Mem.head _), ?_, ?_⟩
-              · intro τ' hvar
-                exact Signature.wf_no_var_of_const hwfst₂ (hsub.consts resVar (List.Mem.head _)) hvar
-              · intro τ' hc'
-                exact Signature.wf_unique_const hwfst₂ (hsub.consts resVar (List.Mem.head _)) hc'
+            · exact Term.const_wfIn_of_mem hwfst₂ (hsub.consts resVar (List.Mem.head _))
             · simp only [Term.eval, Const.denote]
               have := hagree.2.1 resVar (List.Mem.head _)
               simpa [Env.lookupConst, Env.updateConst] using this.symm)
@@ -206,9 +198,7 @@ theorem PredTrans.call_correct (Θ : TinyML.TypeEnv) (pt : PredTrans) (Δ_base :
             st₁.sl Θ ρ₁ ⊣⊢ st₁.sl Θ (ρ₁.updateConst .value resVar.name v) :=
           SpatialContext.interp_env_agree Θ (VerifM.eval.wf hcont).ownsWf
             (Env.agreeOn_update_fresh_const (c := resVar) hfresh_decls)
-        exact (sep_mono hinterp_bi.1 (by
-          iintro HR
-          iexact HR)).trans <| hassume.trans <| Assertion.post_env_agree Θ hwf₁'
+        exact (sep_mono_left hinterp_bi.1).trans <| hassume.trans <| Assertion.post_env_agree Θ hwf₁'
           (by
             simpa [σ₂, VerifM.Env.agreeOn, VerifM.Env.withEnv_env, VerifM.Env.updateConst] using
               (FiniteSubst.rename_agreeOn (σ := σ₁) (Δ_base := Δ_base) (Δ_use := st₁.decls)
@@ -236,7 +226,7 @@ theorem PredTrans.implement_correct (Θ : TinyML.TypeEnv) (pt : PredTrans) (Δ_b
     st.sl Θ ρ ∗ PredTrans.apply Θ Φ pt (VerifM.Env.withEnv ρ (σ.subst.eval ρ.env)) ⊢ R := by
   intro hwf hσwf heval hbody
   simp only [PredTrans.implement] at heval
-  have hb := VerifM.eval_bind _ _ _ _ heval
+  have hb := VerifM.eval_bind heval
   have hb_grow := VerifM.eval.decls_grow ρ hb
   let retWf : (String × Assertion Unit) → Signature → Prop :=
     fun post Δ' => Assertion.wfIn (fun _ _ => True) (Δ'.declVar ⟨post.1, .value⟩) post.2
@@ -263,51 +253,33 @@ theorem PredTrans.implement_correct (Θ : TinyML.TypeEnv) (pt : PredTrans) (Δ_b
     (fun σ₁ ⟨postName, postBody⟩ st₁ ρ₁ ⟨hdsub_st, hagree_st, hcont⟩ hσ₁wf hwf_postBody => by
       apply BIBase.Entails.trans sep_comm.1
       apply BIBase.Entails.trans emp_sep.1
-      rcases hσ₁wf with ⟨hσ₁subst, hσ₁base, hσ₁use, hσ₁srcwf, hσ₁rangewf, hσ₁usewf, hσ₁basevars⟩
-      have hσ₁wf : σ₁.wfIn Δ_base st₁.decls :=
-        ⟨hσ₁subst, hσ₁base, hσ₁use, hσ₁srcwf, hσ₁rangewf, hσ₁usewf, hσ₁basevars⟩
-      have hcont_body := VerifM.eval_bind _ _ _ _ hcont
+      have hcont_body := VerifM.eval_bind hcont
       change st₁.sl Θ ρ₁ ⊢ OuterQ (postName, postBody) (VerifM.Env.withEnv ρ₁ (σ₁.subst.eval ρ₁.env)) -∗ R
       refine wand_intro ?_
       refine hbody st₁ ρ₁ _ hdsub_st hagree_st ?_
       refine (VerifM.eval.decls_grow ρ₁ hcont_body).mono ?_
       intro result st₂ ρ₂ ⟨hdsub_body, hagree_body, hrest⟩ S hwf_result
-      have hb2 := VerifM.eval_bind _ _ _ _ hrest
+      have hb2 := VerifM.eval_bind hrest
       have hdecl := VerifM.eval_decl hb2
       set resVar := st₂.freshConst (some postName) .value
+      have hwfst₂ : st₂.decls.wf := (VerifM.eval.wf hrest).namesDisjoint
+      have hσ₁wf₂ : σ₁.wfIn Δ_base st₂.decls := hσ₁wf.mono hdsub_body hwfst₂
       have hfresh_decls : resVar.name ∉ st₂.decls.allNames :=
-        Fresh.freshNumbers_not_mem postName st₂.decls.allNames
+        st₂.freshConst_fresh (some postName) .value
       have hfresh_range : resVar.name ∉ σ₁.range.allNames :=
-        fun hmem => hfresh_decls (Signature.allNames_subset (Signature.Subset.trans hσ₁use hdsub_body) _ hmem)
+        hσ₁wf₂.fresh_range hfresh_decls
       specialize hdecl (result.eval ρ₂.env)
-      have hb3 := VerifM.eval_bind _ _ _ _ hdecl
-      have heq_wf : (Formula.eq Srt.value (Term.const (.uninterpreted resVar.name .value)) result).wfIn
-          (st₂.decls.addConst resVar) := by
-        have hwf' : (st₂.decls.addConst resVar).wf :=
-          (TransState.freshConst.wf _ (VerifM.eval.wf hrest)).namesDisjoint
-        refine ⟨?_, Term.wfIn_mono result hwf_result (Signature.Subset.subset_addConst _ _) hwf'⟩
-        simp only [Term.wfIn, Const.wfIn, Signature.addConst]
-        refine ⟨List.Mem.head _, ?_, ?_⟩
-        · intro τ' hvar
-          exact hfresh_decls (Signature.mem_allNames_of_var hvar)
-        · intro τ' hc'
-          exact Signature.wf_unique_const hwf' (List.Mem.head _) hc'
-      have heq_holds : (Formula.eq Srt.value (Term.const (.uninterpreted resVar.name .value)) result).eval
-          (ρ₂.updateConst .value resVar.name (result.eval ρ₂.env)).env := by
-        simp only [Formula.eval, Term.eval, Const.denote]
-        simpa [Env.lookupConst, Env.updateConst] using
-          (Term.eval_env_agree hwf_result (Env.agreeOn_update_fresh_const hfresh_decls))
-      have hassume := VerifM.eval_assumePure hb3 heq_wf heq_holds
+      have hb3 := VerifM.eval_bind hdecl
+      have hassume := VerifM.eval_assumePure hb3
+        (Formula.eq_wfIn_addConst_of_fresh (c := resVar) hwfst₂ hwf_result hfresh_decls)
+        (Formula.eq_eval_updateConst_of_fresh (c := resVar) (ρ := ρ₂.env) hwf_result hfresh_decls)
       set σ₂ := σ₁.rename ⟨postName, .value⟩ resVar.name
-      have hσ₁wf₂ : σ₁.wfIn Δ_base st₂.decls := by
-        exact ⟨hσ₁subst, hσ₁base, Signature.Subset.trans hσ₁use hdsub_body,
-          hσ₁srcwf, hσ₁rangewf, (VerifM.eval.wf hrest).namesDisjoint, hσ₁basevars⟩
       have hσ₂wf : σ₂.wfIn Δ_base (st₂.decls.addConst resVar) := by
         simpa [σ₂] using
           (FiniteSubst.rename_wfIn (σ := σ₁) (Δ_base := Δ_base) (Δ_use := st₂.decls)
             (v := ⟨postName, .value⟩) (name' := resVar.name)
             hσ₁wf₂ hfresh_range hfresh_decls)
-      have hb4 := VerifM.eval_bind _ _ _ _ hassume
+      have hb4 := VerifM.eval_bind hassume
       have hwf_postBody' : Assertion.wfIn (fun _ _ => True) (Δ_base.declVars σ₂.dom) postBody := by
         simpa [σ₂, FiniteSubst.rename_source_eq] using hwf_postBody
       let st₃ : TransState :=
@@ -362,12 +334,10 @@ theorem PredTrans.implement_correct (Θ : TinyML.TypeEnv) (pt : PredTrans) (Δ_b
             st₂.sl Θ ρ₂ ∗ (Φ (result.eval ρ₂.env) -∗ S) ⊢
               st₃.sl Θ (ρ₂.updateConst .value resVar.name (result.eval ρ₂.env)) ∗
                 (Φ (result.eval ρ₂.env) -∗ S) := by
-          iintro H
-          icases H with ⟨Howns, Hwand⟩
-          isplitl [Howns]
-          · iapply howns_agree
-            simp [st₃, TransState.sl]
-          · iexact Hwand
+          iintro ⟨Howns, Hwand⟩
+          iframe Hwand
+          iapply howns_agree
+          simp [st₃, TransState.sl]
         exact hinput.trans hpre
       have hpost_final :
           OuterQ (postName, postBody) (VerifM.Env.withEnv ρ₁ (σ₁.subst.eval ρ₁.env)) ⊢
@@ -375,8 +345,7 @@ theorem PredTrans.implement_correct (Θ : TinyML.TypeEnv) (pt : PredTrans) (Δ_b
               (VerifM.Env.withEnv (ρ₂.updateConst .value resVar.name (result.eval ρ₂.env))
                 (σ₂.subst.eval (ρ₂.updateConst .value resVar.name (result.eval ρ₂.env)).env)) := by
         exact (forall_elim (result.eval ρ₂.env)).trans hpost_transport
-      iintro H
-      icases H with ⟨Howns, HQ, Hwand⟩
+      iintro ⟨Howns, HQ, Hwand⟩
       iapply (Assertion.pre_post_combine Θ
         (ρ := VerifM.Env.withEnv (ρ₂.updateConst .value resVar.name (result.eval ρ₂.env))
           (σ₂.subst.eval (ρ₂.updateConst .value resVar.name (result.eval ρ₂.env)).env))
@@ -385,15 +354,12 @@ theorem PredTrans.implement_correct (Θ : TinyML.TypeEnv) (pt : PredTrans) (Δ_b
         (Ψ := fun () _ => Φ (result.eval ρ₂.env))
         (R := S)
         (fun () _ => by
-          iintro H
-          icases H with ⟨Hwand, HΦ⟩
+          iintro ⟨Hwand, HΦ⟩
           iapply Hwand
           iexact HΦ))
       isplitl [Howns Hwand]
       · iapply hpre_final
-        isplitl [Howns]
-        · iexact Howns
-        · iexact Hwand
+        iframe
       · iapply hpost_final
         iexact HQ
       )

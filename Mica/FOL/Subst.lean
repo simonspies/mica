@@ -18,9 +18,6 @@ def Subst.remove (σ : Subst) (x : String) : Subst := fun τ y =>
 def Subst.bind (σ : Subst) (y : String) (τ : Srt) (y' : String) : Subst :=
   (σ.remove y).update τ y (.var τ y')
 
-def Subst.single (τ : Srt) (x : String) (s : Term τ) : Subst :=
-  Subst.id.update τ x s
-
 def Term.subst (σ : Subst) : Term τ → Term τ
   | .var τ y   => σ.apply τ y
   | .const c   => .const c
@@ -43,7 +40,7 @@ theorem Subst.wfIn_mono {σ : Subst} {dom : VarCtx} {Δ Δ' : Signature}
     σ.wfIn dom Δ' :=
   ⟨fun v hv => Term.wfIn_mono _ (hσ.1 v hv) hsub hwf, hσ.2⟩
 
-theorem Subst.apply_update_same {σ : Subst} {τ : Srt} {x : String} {t : Term τ} :
+private theorem Subst.apply_update_same {σ : Subst} {τ : Srt} {x : String} {t : Term τ} :
     (σ.update τ x t).apply τ x = t := by
   simp [Subst.update, Subst.apply]
 
@@ -55,10 +52,6 @@ theorem Subst.apply_update_ne {σ : Subst} {τ τ' : Srt} {x y : String} {t : Te
     | inl h => exact absurd heq.2 h
     | inr h => exact absurd heq.1 h
   · rfl
-
-theorem Subst.apply_remove_same {σ : Subst} {τ : Srt} {x : String} :
-    (σ.remove x).apply τ x = .var τ x := by
-  simp [Subst.remove, Subst.apply]
 
 theorem Subst.apply_remove_ne {σ : Subst} {τ : Srt} {x y : String}
     (h : y ≠ x) : (σ.remove x).apply τ y = σ.apply τ y := by
@@ -106,11 +99,6 @@ theorem Subst.id_wfIn {dom : VarCtx} {Δ : Signature} (hsub : dom ⊆ Δ.vars) (
         exact Signature.wf_unique_var hwf (hsub hv) hv',
     fun _ _ => rfl⟩
 
-theorem Subst.single_wfIn {τ : Srt} {x : String} {t : Term τ} {Δ : Signature} (ht : t.wfIn Δ) :
-    (Subst.single τ x t).wfIn [⟨x, τ⟩] Δ := by
-  unfold Subst.single
-  exact Subst.wfIn_update ⟨fun _ h => absurd h (by simp), fun _ h => rfl⟩ ht
-
 theorem Subst.wfIn_remove {σ : Subst} {dom : VarCtx} {Δ : Signature} {x : String}
     (hσ : σ.wfIn dom Δ) :
     (σ.remove x).wfIn (dom.filter (fun v => v.name != x)) Δ := by
@@ -129,14 +117,24 @@ theorem Subst.wfIn_remove {σ : Subst} {dom : VarCtx} {Δ : Signature} {x : Stri
       apply hv
       simp [hvdom, hname]
 
-theorem Subst.wfIn_bind {σ : Subst} {Δ Δ'' : Signature} {y y' : String} {τ : Srt}
+private theorem Subst.wfIn_bind {σ : Subst} {Δ Δ'' : Signature} {y y' : String} {τ : Srt}
     (hσ : σ.wfIn Δ.vars Δ'') (hvarwf : (Term.var τ y').wfIn Δ'') :
-    (σ.bind y τ y').wfIn ((Δ.remove y).addVar ⟨y, τ⟩).vars Δ'' := by
+    (σ.bind y τ y').wfIn (Δ.declVar ⟨y, τ⟩).vars Δ'' := by
   have hσ_erase : (σ.remove y).wfIn (Δ.remove y).vars Δ'' := by
     simpa [Signature.remove] using
       (Subst.wfIn_remove (σ := σ) (dom := Δ.vars) (Δ := Δ'') (x := y) hσ)
-  simpa [Subst.bind, Signature.addVar] using
+  simpa [Subst.bind, Signature.declVar, Signature.addVar] using
     (Subst.wfIn_update (σ := σ.remove y) (dom := (Δ.remove y).vars) (x := y) hσ_erase hvarwf)
+
+/-- The binder step of `Formula.subst`: rebinding `y` to a name `y'` fresh for
+the target signature maps the source binder scope into the target binder scope. -/
+theorem Subst.wfIn_bind_fresh {σ : Subst} {Δ Δ' : Signature} {y y' : String} {τ : Srt}
+    (hσ : σ.wfIn Δ.vars Δ') (hwfΔ' : Δ'.wf) (hfresh : y' ∉ Δ'.allNames) :
+    (σ.bind y τ y').wfIn (Δ.declVar ⟨y, τ⟩).vars (Δ'.declVar ⟨y', τ⟩) :=
+  have hwf_target : (Δ'.declVar ⟨y', τ⟩).wf := Signature.wf_declVar hwfΔ'
+  Subst.wfIn_bind
+    (Subst.wfIn_mono hσ (Signature.subset_declVar_of_fresh hfresh) hwf_target)
+    (Term.var_wfIn_declVar hwf_target)
 
 theorem Term.subst_wfIn {t : Term τ} {σ : Subst} {dom : VarCtx} {Δ Δ' : Signature}
     (ht : t.wfIn Δ) (hσ : σ.wfIn dom Δ') (hdom : Δ.vars ⊆ dom)
@@ -195,7 +193,7 @@ theorem Term.subst_wfIn {t : Term τ} {σ : Subst} {dom : VarCtx} {Δ Δ' : Sign
            iht ht.2.1 hσ hdom hsymbols hwf,
            ihe ht.2.2 hσ hdom hsymbols hwf⟩
 
-theorem Pattern.subst_wfIn {p : Pattern} {σ : Subst} {dom : VarCtx}
+private theorem Pattern.subst_wfIn {p : Pattern} {σ : Subst} {dom : VarCtx}
     {Δ Δ' : Signature}
     (hp : p.wfIn Δ) (hσ : σ.wfIn dom Δ') (hdom : Δ.vars ⊆ dom)
     (hsymbols : Δ.SymbolSubset Δ') (hwf : Δ'.wf) :
@@ -227,7 +225,7 @@ theorem Pattern.subst_wfIn {p : Pattern} {σ : Subst} {dom : VarCtx}
         exact Signature.wf_unique_binaryRel hwf (hsymbols.binaryRel _ hp.1.1) hb'
     | _ => trivial
 
-theorem Pattern.List.subst_wfIn {ps : List Pattern} {σ : Subst}
+private theorem Pattern.List.subst_wfIn {ps : List Pattern} {σ : Subst}
     {dom : VarCtx} {Δ Δ' : Signature}
     (hps : Pattern.List.wfIn ps Δ) (hσ : σ.wfIn dom Δ') (hdom : Δ.vars ⊆ dom)
     (hsymbols : Δ.SymbolSubset Δ') (hwf : Δ'.wf) :
@@ -236,70 +234,12 @@ theorem Pattern.List.subst_wfIn {ps : List Pattern} {σ : Subst}
   rcases List.mem_map.mp hp with ⟨q, hq, rfl⟩
   exact Pattern.subst_wfIn (hps q hq) hσ hdom hsymbols hwf
 
-theorem Term.subst_id {t : Term τ} : t.subst Subst.id = t := by
-  induction t with
-  | var τ x => rfl
-  | const _ => rfl
-  | unop op a iha => simp [Term.subst, iha]
-  | binop op a b iha ihb => simp [Term.subst, iha, ihb]
-  | terop op a b c iha ihb ihc => simp [Term.subst, iha, ihb, ihc]
-  | ite c t e ihc iht ihe => simp [Term.subst, ihc, iht, ihe]
-
-theorem Term.apply_freeVars_subset_subst_freeVars {t : Term τ} {σ : Subst} {v : Var} :
-    v ∈ t.freeVars → (σ.apply v.sort v.name).freeVars ⊆ (t.subst σ).freeVars := by
-  intro hv
-  induction t with
-  | var τ' x =>
-    simp [Term.freeVars] at hv
-    subst hv
-    simp [Term.subst]
-  | const _  =>
-    simp [Term.freeVars] at hv
-  | unop op a iha =>
-    simp [Term.freeVars] at hv
-    simp [Term.subst, Term.freeVars]
-    exact iha hv
-  | binop op a b iha ihb =>
-    simp [Term.freeVars, List.mem_append] at hv
-    simp [Term.subst, Term.freeVars, List.subset_def, List.mem_append]
-    cases hv with
-    | inl ha => intro w hw; left; exact iha ha hw
-    | inr hb => intro w hw; right; exact ihb hb hw
-  | terop op a b c iha ihb ihc =>
-    simp [Term.freeVars, List.mem_append] at hv
-    simp [Term.subst, Term.freeVars, List.subset_def, List.mem_append]
-    cases hv with
-    | inl ha => intro w hw; left; exact iha ha hw
-    | inr hv =>
-      cases hv with
-      | inl hb => intro w hw; right; left; exact ihb hb hw
-      | inr hc => intro w hw; right; right; exact ihc hc hw
-  | ite c t e ihc iht ihe =>
-    simp [Term.freeVars, List.mem_append] at hv
-    simp [Term.subst, Term.freeVars, List.subset_def, List.mem_append]
-    cases hv with
-    | inl hc => intro w hw; left; exact ihc hc hw
-    | inr hv =>
-      cases hv with
-      | inl ht => intro w hw; right; left; exact iht ht hw
-      | inr he => intro w hw; right; right; exact ihe he hw
-
 def Subst.eval (σ : Subst) (ρ : Env) : Env :=
   { ρ with consts := fun τ x => Term.eval ρ (σ.apply τ x) }
 
 theorem Subst.eval_lookup (σ : Subst) (ρ : Env) (τ : Srt) (x : String) :
     (σ.eval ρ).lookupConst τ x = Term.eval ρ (σ.apply τ x) := by
   simp [Subst.eval, Env.lookupConst]
-
-theorem Subst.eval_single {τ : Srt} {x : String} {t : Term τ} {ρ : Env} :
-    (Subst.single τ x t).eval ρ = ρ.updateConst τ x (t.eval ρ) := by
-  apply Env.ext
-  · funext τ' y
-    simp [Subst.eval, Env.updateConst, Subst.apply, Subst.single, Subst.update, Subst.id]
-    split
-    · next h => obtain ⟨rfl, rfl⟩ := h; simp
-    · next _ => simp [Term.eval, Env.lookupConst]
-  all_goals rfl
 
 theorem Term.eval_subst {σ : Subst} {ρ : Env} {t : Term τ} {Δ Δ' : Signature}
     (ht : t.wfIn Δ) (hσ : σ.wfIn Δ.vars Δ') (hwfΔ' : Δ'.wf) :
@@ -357,55 +297,16 @@ def Formula.subst (σ : Subst) (avoid : List String) : Formula → Formula
     let y' := Fresh.freshName avoid y
     .exists_ y' τ (Formula.subst (σ.bind y τ y') (y' :: avoid) φ)
 
-theorem Subst.eval_update_agreeOn {σ : Subst} {ρ : Env} {τ : Srt} {x name' : String} {v : τ.denote}
-    {dom : VarCtx} {Δ : Signature} (hσ : σ.wfIn dom Δ) (hfresh : name' ∉ Δ.allNames) :
-    Env.agreeOn (Signature.ofVars (⟨x, τ⟩ :: dom))
-      ((σ.update τ x (.var τ name')).eval (ρ.updateConst τ name' v))
-      ((σ.eval ρ).updateConst τ x v) := by
-  constructor
-  · intro w hw
-    cases hw with
-    | head =>
-      simp [Subst.eval, Env.updateConst, Env.lookupConst, Subst.apply, Subst.update, Term.eval]
-    | tail _ hw =>
-      by_cases hname : w.name = x <;> by_cases hsort : w.sort = τ
-      · cases w
-        simp only at hname hsort
-        subst hname hsort
-        simp [Subst.eval, Env.updateConst, Env.lookupConst, Subst.apply, Subst.update, Term.eval]
-      · change
-          Term.eval (ρ.updateConst τ name' v) ((σ.update τ x (.var τ name')).apply w.sort w.name) =
-            (((σ.eval ρ).updateConst τ x v).lookupConst w.sort w.name)
-        rw [Subst.apply_update_ne (Or.inr hsort), Env.lookupConst_updateConst_ne' (Or.inr hsort)]
-        simpa [Subst.eval, Env.updateConst, Env.lookupConst] using
-          (Term.eval_update_fresh (ρ := ρ) (τ' := w.sort) (x := name') (τ := τ)
-            (v := v) (Δ := Δ) (hwf := hσ.1 w hw) hfresh)
-      · change
-          Term.eval (ρ.updateConst τ name' v) ((σ.update τ x (.var τ name')).apply w.sort w.name) =
-            (((σ.eval ρ).updateConst τ x v).lookupConst w.sort w.name)
-        rw [Subst.apply_update_ne (Or.inl hname), Env.lookupConst_updateConst_ne' (Or.inl hname)]
-        simpa [Subst.eval, Env.updateConst, Env.lookupConst] using
-          (Term.eval_update_fresh (ρ := ρ) (τ' := w.sort) (x := name') (τ := τ)
-            (v := v) (Δ := Δ) (hwf := hσ.1 w hw) hfresh)
-      · change
-          Term.eval (ρ.updateConst τ name' v) ((σ.update τ x (.var τ name')).apply w.sort w.name) =
-            (((σ.eval ρ).updateConst τ x v).lookupConst w.sort w.name)
-        rw [Subst.apply_update_ne (Or.inl hname), Env.lookupConst_updateConst_ne' (Or.inl hname)]
-        simpa [Subst.eval, Env.updateConst, Env.lookupConst] using
-          (Term.eval_update_fresh (ρ := ρ) (τ' := w.sort) (x := name') (τ := τ)
-            (v := v) (Δ := Δ) (hwf := hσ.1 w hw) hfresh)
-  · simp [Signature.ofVars]
-
-theorem Subst.eval_bind_agreeOn {σ : Subst} {ρ : Env} {τ : Srt} {y y' : String} {v : τ.denote}
+private theorem Subst.eval_bind_agreeOn {σ : Subst} {ρ : Env} {τ : Srt} {y y' : String} {v : τ.denote}
     {Δ Δ' : Signature} (hσ : σ.wfIn Δ.vars Δ') (hsymbols : Δ.SymbolSubset Δ')
     (hwfΔ : Δ.wf) (hy'_fresh : y' ∉ Δ'.allNames) :
-    Env.agreeOn ((Δ.remove y).addVar ⟨y, τ⟩)
+    Env.agreeOn (Δ.declVar ⟨y, τ⟩)
       ((σ.bind y τ y').eval (ρ.updateConst τ y' v))
       ((σ.eval ρ).updateConst τ y v) := by
   constructor
   · intro w hw
     have hw' : w = ⟨y, τ⟩ ∨ w ∈ Δ.vars ∧ w.name ≠ y := by
-      simpa [Signature.addVar] using hw
+      simpa using hw
     cases hw' with
     | inl hEq =>
       subst hEq
@@ -422,7 +323,7 @@ theorem Subst.eval_bind_agreeOn {σ : Subst} {ρ : Env} {τ : Srt} {y y' : Strin
   · constructor
     · intro c hc
       have hc' : c ∈ Δ.consts ∧ c.name ≠ y := by
-        simpa [Signature.addVar] using hc
+        simpa using hc
       have hc_not_var : ⟨c.name, c.sort⟩ ∉ Δ.vars :=
         Signature.wf_no_var_of_const hwfΔ hc'.1
       have hc_not_fresh : c.name ≠ y' := by
@@ -477,169 +378,40 @@ theorem Formula.eval_subst {σ : Subst} {ρ : Env} {φ : Formula} {Δ Δ' : Sign
     simp only [Formula.subst, Formula.eval]
     let y' := Fresh.freshName Δ'.allNames y
     have hy'_fresh : y' ∉ Δ'.allNames := Fresh.freshName_not_in_avoid Δ'.allNames y
-    have hremove : Δ'.remove y' = Δ' := Signature.remove_eq_of_not_in hy'_fresh
-    have hwf_body : φ.wfIn ((Δ.remove y).addVar ⟨y, τ⟩) := hφ.2
-    have hwf_body_sig : ((Δ.remove y).addVar ⟨y, τ⟩).wf := Signature.wf_remove_addVar hwfΔ
-    have hwf_target : ((Δ'.remove y').addVar ⟨y', τ⟩).wf := Signature.wf_remove_addVar hwfΔ'
-    have hσ_ext : σ.wfIn Δ.vars ((Δ'.remove y').addVar ⟨y', τ⟩) := by
-      have hσ_add : σ.wfIn Δ.vars (Δ'.addVar ⟨y', τ⟩) :=
-        Subst.wfIn_mono hσ (Signature.Subset.subset_addVar _ _) (Signature.wf_addVar hwfΔ' hy'_fresh)
-      simpa [hremove] using hσ_add
-    have hvarwf : (Term.var τ y').wfIn ((Δ'.remove y').addVar ⟨y', τ⟩) := by
-      refine ⟨List.Mem.head _, ?_, ?_⟩
-      · intro τ'' hc
-        exact Signature.wf_no_const_of_var hwf_target (List.Mem.head _) hc
-      · intro τ'' hv
-        exact Signature.wf_unique_var hwf_target (List.Mem.head _) hv
-    have hσ' :
-        (σ.bind y τ y').wfIn ((Δ.remove y).addVar ⟨y, τ⟩).vars ((Δ'.remove y').addVar ⟨y', τ⟩) :=
-      Subst.wfIn_bind (Δ := Δ) (Δ'' := ((Δ'.remove y').addVar ⟨y', τ⟩)) hσ_ext hvarwf
-    have hsymbols_body : ((Δ.remove y).addVar ⟨y, τ⟩).SymbolSubset ((Δ'.remove y').addVar ⟨y', τ⟩) := by
-      constructor
-      · intro c hc
-        simpa [hremove, Signature.addVar] using
-          (Signature.SymbolSubset.declVar hsymbols ⟨y, τ⟩).consts c
-            (by simpa [Signature.declVar, Signature.addVar] using hc)
-      · intro u hu
-        simpa [hremove, Signature.addVar] using
-          (Signature.SymbolSubset.declVar hsymbols ⟨y, τ⟩).unary u
-            (by simpa [Signature.declVar, Signature.addVar] using hu)
-      · intro b hb
-        simpa [hremove, Signature.addVar] using
-          (Signature.SymbolSubset.declVar hsymbols ⟨y, τ⟩).binary b
-            (by simpa [Signature.declVar, Signature.addVar] using hb)
-      · intro t ht
-        simpa [hremove, Signature.addVar] using
-          (Signature.SymbolSubset.declVar hsymbols ⟨y, τ⟩).ternary t
-            (by simpa [Signature.declVar, Signature.addVar] using ht)
-      · intro u hu
-        simpa [hremove, Signature.addVar] using
-          (Signature.SymbolSubset.declVar hsymbols ⟨y, τ⟩).unaryRel u
-            (by simpa [Signature.declVar, Signature.addVar] using hu)
-      · intro b hb
-        simpa [hremove, Signature.addVar] using
-          (Signature.SymbolSubset.declVar hsymbols ⟨y, τ⟩).binaryRel b
-            (by simpa [Signature.declVar, Signature.addVar] using hb)
-    have hagree (v : τ.denote) : Env.agreeOn ((Δ.remove y).addVar ⟨y, τ⟩)
+    have hwf_body : φ.wfIn (Δ.declVar ⟨y, τ⟩) := hφ.2
+    have hbody (v : τ.denote) := ih (σ := σ.bind y τ y') (Δ := Δ.declVar ⟨y, τ⟩)
+      (Δ' := Δ'.declVar ⟨y', τ⟩) (ρ := ρ.updateConst τ y' v)
+      hwf_body (Subst.wfIn_bind_fresh hσ hwfΔ' hy'_fresh)
+      (Signature.SymbolSubset.declVar_fresh hsymbols hy'_fresh)
+      (Signature.wf_declVar hwfΔ) (Signature.wf_declVar hwfΔ')
+    have hagree (v : τ.denote) : Env.agreeOn (Δ.declVar ⟨y, τ⟩)
         ((σ.bind y τ y').eval (ρ.updateConst τ y' v))
         ((σ.eval ρ).updateConst τ y v) :=
       Subst.eval_bind_agreeOn (ρ := ρ) (Δ := Δ) (Δ' := Δ') hσ hsymbols hwfΔ hy'_fresh
     constructor <;> intro h v
-    · have h1 := (ih (σ := σ.bind y τ y') (Δ := (Δ.remove y).addVar ⟨y, τ⟩)
-          (Δ' := (Δ'.remove y').addVar ⟨y', τ⟩) (ρ := ρ.updateConst τ y' v) hwf_body hσ'
-          hsymbols_body hwf_body_sig hwf_target).mp
-          (by simpa [y', Signature.allNames_remove_addVar_of_not_in hy'_fresh] using h v)
-      exact (Formula.eval_env_agree hwf_body (hagree v)).mp h1
-    · have h1 := (Formula.eval_env_agree hwf_body (hagree v)).mpr (h v)
-      exact (by
-        simpa [y', Signature.allNames_remove_addVar_of_not_in hy'_fresh] using
-          (ih (σ := σ.bind y τ y') (Δ := (Δ.remove y).addVar ⟨y, τ⟩)
-            (Δ' := (Δ'.remove y').addVar ⟨y', τ⟩) (ρ := ρ.updateConst τ y' v) hwf_body hσ'
-            hsymbols_body hwf_body_sig hwf_target).mpr h1)
+    · exact (Formula.eval_env_agree hwf_body (hagree v)).mp
+        ((hbody v).mp (by simpa [y', Signature.allNames_declVar_of_not_in hy'_fresh] using h v))
+    · simpa [y', Signature.allNames_declVar_of_not_in hy'_fresh] using
+        (hbody v).mpr ((Formula.eval_env_agree hwf_body (hagree v)).mpr (h v))
   | exists_ y τ φ ih =>
     simp only [Formula.subst, Formula.eval]
     let y' := Fresh.freshName Δ'.allNames y
     have hy'_fresh : y' ∉ Δ'.allNames := Fresh.freshName_not_in_avoid Δ'.allNames y
-    have hremove : Δ'.remove y' = Δ' := Signature.remove_eq_of_not_in hy'_fresh
-    have hwf_body : φ.wfIn ((Δ.remove y).addVar ⟨y, τ⟩) := hφ
-    have hwf_body_sig : ((Δ.remove y).addVar ⟨y, τ⟩).wf := Signature.wf_remove_addVar hwfΔ
-    have hwf_target : ((Δ'.remove y').addVar ⟨y', τ⟩).wf := Signature.wf_remove_addVar hwfΔ'
-    have hσ_ext : σ.wfIn Δ.vars ((Δ'.remove y').addVar ⟨y', τ⟩) := by
-      have hσ_add : σ.wfIn Δ.vars (Δ'.addVar ⟨y', τ⟩) :=
-        Subst.wfIn_mono hσ (Signature.Subset.subset_addVar _ _) (Signature.wf_addVar hwfΔ' hy'_fresh)
-      simpa [hremove] using hσ_add
-    have hvarwf : (Term.var τ y').wfIn ((Δ'.remove y').addVar ⟨y', τ⟩) := by
-      refine ⟨List.Mem.head _, ?_, ?_⟩
-      · intro τ'' hc
-        exact Signature.wf_no_const_of_var hwf_target (List.Mem.head _) hc
-      · intro τ'' hv
-        exact Signature.wf_unique_var hwf_target (List.Mem.head _) hv
-    have hσ' :
-        (σ.bind y τ y').wfIn ((Δ.remove y).addVar ⟨y, τ⟩).vars ((Δ'.remove y').addVar ⟨y', τ⟩) :=
-      Subst.wfIn_bind (Δ := Δ) (Δ'' := ((Δ'.remove y').addVar ⟨y', τ⟩)) hσ_ext hvarwf
-    have hsymbols_body : ((Δ.remove y).addVar ⟨y, τ⟩).SymbolSubset ((Δ'.remove y').addVar ⟨y', τ⟩) := by
-      constructor
-      · intro c hc
-        simpa [hremove, Signature.addVar] using
-          (Signature.SymbolSubset.declVar hsymbols ⟨y, τ⟩).consts c
-            (by simpa [Signature.declVar, Signature.addVar] using hc)
-      · intro u hu
-        simpa [hremove, Signature.addVar] using
-          (Signature.SymbolSubset.declVar hsymbols ⟨y, τ⟩).unary u
-            (by simpa [Signature.declVar, Signature.addVar] using hu)
-      · intro b hb
-        simpa [hremove, Signature.addVar] using
-          (Signature.SymbolSubset.declVar hsymbols ⟨y, τ⟩).binary b
-            (by simpa [Signature.declVar, Signature.addVar] using hb)
-      · intro t ht
-        simpa [hremove, Signature.addVar] using
-          (Signature.SymbolSubset.declVar hsymbols ⟨y, τ⟩).ternary t
-            (by simpa [Signature.declVar, Signature.addVar] using ht)
-      · intro u hu
-        simpa [hremove, Signature.addVar] using
-          (Signature.SymbolSubset.declVar hsymbols ⟨y, τ⟩).unaryRel u
-            (by simpa [Signature.declVar, Signature.addVar] using hu)
-      · intro b hb
-        simpa [hremove, Signature.addVar] using
-          (Signature.SymbolSubset.declVar hsymbols ⟨y, τ⟩).binaryRel b
-            (by simpa [Signature.declVar, Signature.addVar] using hb)
-    have hagree (v : τ.denote) : Env.agreeOn ((Δ.remove y).addVar ⟨y, τ⟩)
+    have hwf_body : φ.wfIn (Δ.declVar ⟨y, τ⟩) := hφ
+    have hbody (v : τ.denote) := ih (σ := σ.bind y τ y') (Δ := Δ.declVar ⟨y, τ⟩)
+      (Δ' := Δ'.declVar ⟨y', τ⟩) (ρ := ρ.updateConst τ y' v)
+      hwf_body (Subst.wfIn_bind_fresh hσ hwfΔ' hy'_fresh)
+      (Signature.SymbolSubset.declVar_fresh hsymbols hy'_fresh)
+      (Signature.wf_declVar hwfΔ) (Signature.wf_declVar hwfΔ')
+    have hagree (v : τ.denote) : Env.agreeOn (Δ.declVar ⟨y, τ⟩)
         ((σ.bind y τ y').eval (ρ.updateConst τ y' v))
         ((σ.eval ρ).updateConst τ y v) :=
       Subst.eval_bind_agreeOn (ρ := ρ) (Δ := Δ) (Δ' := Δ') hσ hsymbols hwfΔ hy'_fresh
-    constructor
-    · rintro ⟨v, hv⟩
-      refine ⟨v, ?_⟩
-      have h1 := (ih (σ := σ.bind y τ y') (Δ := (Δ.remove y).addVar ⟨y, τ⟩)
-        (Δ' := (Δ'.remove y').addVar ⟨y', τ⟩) (ρ := ρ.updateConst τ y' v) hwf_body hσ'
-        hsymbols_body hwf_body_sig hwf_target).mp
-        (by simpa [y', Signature.allNames_remove_addVar_of_not_in hy'_fresh] using hv)
-      exact (Formula.eval_env_agree hwf_body (hagree v)).mp h1
-    · rintro ⟨v, hv⟩
-      refine ⟨v, ?_⟩
-      have h1 := (Formula.eval_env_agree hwf_body (hagree v)).mpr hv
-      exact (by
-        simpa [y', Signature.allNames_remove_addVar_of_not_in hy'_fresh] using
-          (ih (σ := σ.bind y τ y') (Δ := (Δ.remove y).addVar ⟨y, τ⟩)
-            (Δ' := (Δ'.remove y').addVar ⟨y', τ⟩) (ρ := ρ.updateConst τ y' v) hwf_body hσ'
-            hsymbols_body hwf_body_sig hwf_target).mpr h1)
-
-theorem Formula.eval_subst_single {φ : Formula} {τ : Srt} {x : String} {t : Term τ} {ρ : Env}
-    {Δ : Signature} (hφ : φ.wfIn ((Δ.remove x).addVar ⟨x, τ⟩)) (ht : t.wfIn Δ) (hwfΔ : Δ.wf) :
-    (φ.subst (Subst.single τ x t) Δ.allNames).eval ρ ↔ φ.eval (ρ.updateConst τ x (t.eval ρ)) := by
-  have hid : Subst.id.wfIn Δ.vars Δ := by
-    exact Subst.id_wfIn (by intro v hv; exact hv) hwfΔ
-  have hsingle : (Subst.single τ x t).wfIn ((Δ.remove x).addVar ⟨x, τ⟩).vars Δ := by
-    unfold Subst.single
-    have hbase := Subst.wfIn_update (σ := Subst.id) (dom := Δ.vars) (x := x) hid ht
-    refine ⟨?_, ?_⟩
-    · intro v hv
-      have hv' : v = ⟨x, τ⟩ ∨ v ∈ Δ.vars ∧ v.name ≠ x := by
-        simpa [Signature.addVar] using hv
-      cases hv' with
-      | inl hEq =>
-        subst hEq
-        exact hbase.1 _ List.mem_cons_self
-      | inr hrest =>
-        exact hbase.1 _ (List.mem_cons_of_mem _ hrest.1)
-    · intro v hv
-      by_cases hname : v.name = x <;> by_cases hsort : v.sort = τ
-      · exfalso
-        apply hv
-        cases v
-        simp only at hname hsort
-        subst hname hsort
-        simp [Signature.addVar]
-      · rw [Subst.apply_update_ne (σ := Subst.id) (Or.inr hsort)]
-        rfl
-      · rw [Subst.apply_update_ne (σ := Subst.id) (Or.inl hname)]
-        rfl
-      · rw [Subst.apply_update_ne (σ := Subst.id) (Or.inl hname)]
-        rfl
-  have hsymbols : ((Δ.remove x).addVar ⟨x, τ⟩).SymbolSubset Δ := by
-    simpa [Signature.declVar] using (Signature.SymbolSubset.declVar (Signature.SymbolSubset.refl Δ) ⟨x, τ⟩)
-  have hwfBody : ((Δ.remove x).addVar ⟨x, τ⟩).wf := Signature.wf_remove_addVar hwfΔ
-  rw [Formula.eval_subst hφ hsingle hsymbols hwfBody hwfΔ, Subst.eval_single]
+    constructor <;> rintro ⟨v, hv⟩ <;> refine ⟨v, ?_⟩
+    · exact (Formula.eval_env_agree hwf_body (hagree v)).mp
+        ((hbody v).mp (by simpa [y', Signature.allNames_declVar_of_not_in hy'_fresh] using hv))
+    · simpa [y', Signature.allNames_declVar_of_not_in hy'_fresh] using
+        (hbody v).mpr ((Formula.eval_env_agree hwf_body (hagree v)).mpr hv)
 
 theorem Formula.subst_wfIn {φ : Formula} {σ : Subst} {Δ Δ' : Signature}
     (hwf : φ.wfIn Δ) (hσ : σ.wfIn Δ.vars Δ')
@@ -685,124 +457,26 @@ theorem Formula.subst_wfIn {φ : Formula} {σ : Subst} {Δ Δ' : Signature}
     simp only [Formula.subst, Formula.wfIn]
     let y' := Fresh.freshName Δ'.allNames y
     have hy'_fresh : y' ∉ Δ'.allNames := Fresh.freshName_not_in_avoid Δ'.allNames y
-    have hremove : Δ'.remove y' = Δ' := Signature.remove_eq_of_not_in hy'_fresh
-    have hwf_target : ((Δ'.remove y').addVar ⟨y', τ⟩).wf := Signature.wf_remove_addVar hwfΔ'
-    have hσ_ext :
-        σ.wfIn Δ.vars ((Δ'.remove y').addVar ⟨y', τ⟩) := by
-      have hσ_add : σ.wfIn Δ.vars (Δ'.addVar ⟨y', τ⟩) :=
-        Subst.wfIn_mono hσ (Signature.Subset.subset_addVar _ _) (Signature.wf_addVar hwfΔ' hy'_fresh)
-      simpa [hremove] using hσ_add
-    have hvarwf : (Term.var τ y').wfIn ((Δ'.remove y').addVar ⟨y', τ⟩) := by
-      refine ⟨List.Mem.head _, ?_, ?_⟩
-      · intro τ'' hc
-        exact Signature.wf_no_const_of_var hwf_target (List.Mem.head _) hc
-      · intro τ'' hv
-        exact Signature.wf_unique_var hwf_target (List.Mem.head _) hv
-    have hσ' :
-        (σ.bind y τ y').wfIn ((Δ.remove y).addVar ⟨y, τ⟩).vars ((Δ'.remove y').addVar ⟨y', τ⟩) :=
-      Subst.wfIn_bind (Δ := Δ) (Δ'' := ((Δ'.remove y').addVar ⟨y', τ⟩)) hσ_ext hvarwf
-    have hconsts' : ((Δ.remove y).addVar ⟨y, τ⟩).consts ⊆ ((Δ'.remove y').addVar ⟨y', τ⟩).consts := by
-      intro c hc
-      rcases Signature.mem_remove_consts.mp hc with ⟨hc, hcy⟩
-      refine Signature.mem_remove_consts.mpr ⟨hsymbols.consts _ hc, ?_⟩
-      intro hceq
-      exact hy'_fresh (hceq ▸ Signature.mem_allNames_of_const (hsymbols.consts _ hc))
-    have hunary' : ((Δ.remove y).addVar ⟨y, τ⟩).unary ⊆ ((Δ'.remove y').addVar ⟨y', τ⟩).unary := by
-      intro u hu
-      rcases Signature.mem_remove_unary.mp hu with ⟨hu, huy⟩
-      refine Signature.mem_remove_unary.mpr ⟨hsymbols.unary _ hu, ?_⟩
-      intro hueq
-      exact hy'_fresh (hueq ▸ Signature.mem_allNames_of_unary (hsymbols.unary _ hu))
-    have hbinary' : ((Δ.remove y).addVar ⟨y, τ⟩).binary ⊆ ((Δ'.remove y').addVar ⟨y', τ⟩).binary := by
-      intro b hb
-      rcases Signature.mem_remove_binary.mp hb with ⟨hb, hby⟩
-      refine Signature.mem_remove_binary.mpr ⟨hsymbols.binary _ hb, ?_⟩
-      intro hbeq
-      exact hy'_fresh (hbeq ▸ Signature.mem_allNames_of_binary (hsymbols.binary _ hb))
-    have hternary' : ((Δ.remove y).addVar ⟨y, τ⟩).ternary ⊆ ((Δ'.remove y').addVar ⟨y', τ⟩).ternary := by
-      intro t ht
-      rcases Signature.mem_remove_ternary.mp ht with ⟨ht, hty⟩
-      refine Signature.mem_remove_ternary.mpr ⟨hsymbols.ternary _ ht, ?_⟩
-      intro hteq
-      exact hy'_fresh (hteq ▸ Signature.mem_allNames_of_ternary (hsymbols.ternary _ ht))
-    have hunaryRel' : ((Δ.remove y).addVar ⟨y, τ⟩).unaryRel ⊆ ((Δ'.remove y').addVar ⟨y', τ⟩).unaryRel := by
-      intro u hu
-      rcases Signature.mem_remove_unaryRel.mp hu with ⟨hu, huy⟩
-      refine Signature.mem_remove_unaryRel.mpr ⟨hsymbols.unaryRel _ hu, ?_⟩
-      intro hueq
-      exact hy'_fresh (hueq ▸ Signature.mem_allNames_of_unaryRel (hsymbols.unaryRel _ hu))
-    have hbinaryRel' : ((Δ.remove y).addVar ⟨y, τ⟩).binaryRel ⊆ ((Δ'.remove y').addVar ⟨y', τ⟩).binaryRel := by
-      intro b hb
-      rcases Signature.mem_remove_binaryRel.mp hb with ⟨hb, hby⟩
-      refine Signature.mem_remove_binaryRel.mpr ⟨hsymbols.binaryRel _ hb, ?_⟩
-      intro hbeq
-      exact hy'_fresh (hbeq ▸ Signature.mem_allNames_of_binaryRel (hsymbols.binaryRel _ hb))
-    have hsymbols' : ((Δ.remove y).addVar ⟨y, τ⟩).SymbolSubset ((Δ'.remove y').addVar ⟨y', τ⟩) :=
-      ⟨hconsts', hunary', hbinary', hternary', hunaryRel', hbinaryRel'⟩
+    have hwf_target : (Δ'.declVar ⟨y', τ⟩).wf := Signature.wf_declVar hwfΔ'
+    have hσ' : (σ.bind y τ y').wfIn (Δ.declVar ⟨y, τ⟩).vars (Δ'.declVar ⟨y', τ⟩) :=
+      Subst.wfIn_bind_fresh hσ hwfΔ' hy'_fresh
+    have hsymbols' : (Δ.declVar ⟨y, τ⟩).SymbolSubset (Δ'.declVar ⟨y', τ⟩) :=
+      Signature.SymbolSubset.declVar_fresh hsymbols hy'_fresh
     exact ⟨by
-      simpa [y', Signature.allNames_remove_addVar_of_not_in hy'_fresh] using
+      simpa [y', Signature.allNames_declVar_of_not_in hy'_fresh] using
         Pattern.List.subst_wfIn hwf.1 hσ' (by intro v hv; exact hv) hsymbols' hwf_target,
       by
-        simpa [y', Signature.allNames_remove_addVar_of_not_in hy'_fresh] using
+        simpa [y', Signature.allNames_declVar_of_not_in hy'_fresh] using
           ih hwf.2 hσ' hsymbols' hwf_target⟩
   | exists_ y τ φ ih =>
     simp only [Formula.subst, Formula.wfIn]
     let y' := Fresh.freshName Δ'.allNames y
     have hy'_fresh : y' ∉ Δ'.allNames := Fresh.freshName_not_in_avoid Δ'.allNames y
-    have hremove : Δ'.remove y' = Δ' := Signature.remove_eq_of_not_in hy'_fresh
-    have hwf_target : ((Δ'.remove y').addVar ⟨y', τ⟩).wf := Signature.wf_remove_addVar hwfΔ'
-    have hσ_ext :
-        σ.wfIn Δ.vars ((Δ'.remove y').addVar ⟨y', τ⟩) := by
-      have hσ_add : σ.wfIn Δ.vars (Δ'.addVar ⟨y', τ⟩) :=
-        Subst.wfIn_mono hσ (Signature.Subset.subset_addVar _ _) (Signature.wf_addVar hwfΔ' hy'_fresh)
-      simpa [hremove] using hσ_add
-    have hvarwf : (Term.var τ y').wfIn ((Δ'.remove y').addVar ⟨y', τ⟩) := by
-      refine ⟨List.Mem.head _, ?_, ?_⟩
-      · intro τ'' hc
-        exact Signature.wf_no_const_of_var hwf_target (List.Mem.head _) hc
-      · intro τ'' hv
-        exact Signature.wf_unique_var hwf_target (List.Mem.head _) hv
-    have hσ' :
-        (σ.bind y τ y').wfIn ((Δ.remove y).addVar ⟨y, τ⟩).vars ((Δ'.remove y').addVar ⟨y', τ⟩) :=
-      Subst.wfIn_bind (Δ := Δ) (Δ'' := ((Δ'.remove y').addVar ⟨y', τ⟩)) hσ_ext hvarwf
-    have hconsts' : ((Δ.remove y).addVar ⟨y, τ⟩).consts ⊆ ((Δ'.remove y').addVar ⟨y', τ⟩).consts := by
-      intro c hc
-      rcases Signature.mem_remove_consts.mp hc with ⟨hc, hcy⟩
-      refine Signature.mem_remove_consts.mpr ⟨hsymbols.consts _ hc, ?_⟩
-      intro hceq
-      exact hy'_fresh (hceq ▸ Signature.mem_allNames_of_const (hsymbols.consts _ hc))
-    have hunary' : ((Δ.remove y).addVar ⟨y, τ⟩).unary ⊆ ((Δ'.remove y').addVar ⟨y', τ⟩).unary := by
-      intro u hu
-      rcases Signature.mem_remove_unary.mp hu with ⟨hu, huy⟩
-      refine Signature.mem_remove_unary.mpr ⟨hsymbols.unary _ hu, ?_⟩
-      intro hueq
-      exact hy'_fresh (hueq ▸ Signature.mem_allNames_of_unary (hsymbols.unary _ hu))
-    have hbinary' : ((Δ.remove y).addVar ⟨y, τ⟩).binary ⊆ ((Δ'.remove y').addVar ⟨y', τ⟩).binary := by
-      intro b hb
-      rcases Signature.mem_remove_binary.mp hb with ⟨hb, hby⟩
-      refine Signature.mem_remove_binary.mpr ⟨hsymbols.binary _ hb, ?_⟩
-      intro hbeq
-      exact hy'_fresh (hbeq ▸ Signature.mem_allNames_of_binary (hsymbols.binary _ hb))
-    have hternary' : ((Δ.remove y).addVar ⟨y, τ⟩).ternary ⊆ ((Δ'.remove y').addVar ⟨y', τ⟩).ternary := by
-      intro t ht
-      rcases Signature.mem_remove_ternary.mp ht with ⟨ht, hty⟩
-      refine Signature.mem_remove_ternary.mpr ⟨hsymbols.ternary _ ht, ?_⟩
-      intro hteq
-      exact hy'_fresh (hteq ▸ Signature.mem_allNames_of_ternary (hsymbols.ternary _ ht))
-    have hunaryRel' : ((Δ.remove y).addVar ⟨y, τ⟩).unaryRel ⊆ ((Δ'.remove y').addVar ⟨y', τ⟩).unaryRel := by
-      intro u hu
-      rcases Signature.mem_remove_unaryRel.mp hu with ⟨hu, huy⟩
-      refine Signature.mem_remove_unaryRel.mpr ⟨hsymbols.unaryRel _ hu, ?_⟩
-      intro hueq
-      exact hy'_fresh (hueq ▸ Signature.mem_allNames_of_unaryRel (hsymbols.unaryRel _ hu))
-    have hbinaryRel' : ((Δ.remove y).addVar ⟨y, τ⟩).binaryRel ⊆ ((Δ'.remove y').addVar ⟨y', τ⟩).binaryRel := by
-      intro b hb
-      rcases Signature.mem_remove_binaryRel.mp hb with ⟨hb, hby⟩
-      refine Signature.mem_remove_binaryRel.mpr ⟨hsymbols.binaryRel _ hb, ?_⟩
-      intro hbeq
-      exact hy'_fresh (hbeq ▸ Signature.mem_allNames_of_binaryRel (hsymbols.binaryRel _ hb))
-    have hsymbols' : ((Δ.remove y).addVar ⟨y, τ⟩).SymbolSubset ((Δ'.remove y').addVar ⟨y', τ⟩) :=
-      ⟨hconsts', hunary', hbinary', hternary', hunaryRel', hbinaryRel'⟩
+    have hwf_target : (Δ'.declVar ⟨y', τ⟩).wf := Signature.wf_declVar hwfΔ'
+    have hσ' : (σ.bind y τ y').wfIn (Δ.declVar ⟨y, τ⟩).vars (Δ'.declVar ⟨y', τ⟩) :=
+      Subst.wfIn_bind_fresh hσ hwfΔ' hy'_fresh
+    have hsymbols' : (Δ.declVar ⟨y, τ⟩).SymbolSubset (Δ'.declVar ⟨y', τ⟩) :=
+      Signature.SymbolSubset.declVar_fresh hsymbols hy'_fresh
     exact (by
-      simpa [y', Signature.allNames_remove_addVar_of_not_in hy'_fresh] using
+      simpa [y', Signature.allNames_declVar_of_not_in hy'_fresh] using
         ih hwf hσ' hsymbols' hwf_target)

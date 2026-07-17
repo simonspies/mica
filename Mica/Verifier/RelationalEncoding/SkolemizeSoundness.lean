@@ -282,16 +282,16 @@ theorem semrel_sound
   have hrelEncR : Relation.relEncodeBody Γ Δ f fn x res e = .ok φ := by
     exact hrelEnc
   have hrel_eq :
-      R = Fix.lfp (Relation.semanticBody Formula.sem ρ fn x res φ) := by
+      R = RelationFix.lfp (Relation.semanticBody Formula.sem ρ fn x res φ) := by
     simp [R, Relation.semrel, Relation.semanticFixpoint, hrelEncR]
   have hmMono : Rel.Mono m :=
     encodeWith_ind Relation.encoderOps_preservesMono e (Relation.kEq_mono res)
   have hmonoφ : SemanticMono Formula.sem φ :=
     hmMono (relBodySupply Δ fn x res) φ hrun
   have hpreR :
-      Fix.le (Relation.semanticBody Formula.sem ρ fn x res φ R) R := by
+      RelationFix.le (Relation.semanticBody Formula.sem ρ fn x res φ R) R := by
     rw [hrel_eq]
-    exact Fix.lfp_prefixed (Relation.semanticBody_mono_of_semanticMono hmonoφ)
+    exact RelationFix.lfp_prefixed (Relation.semanticBody_mono_of_semanticMono hmonoφ)
   have hbodyWf_body : body.wfIn (bodySig Δ fn x) :=
     encode_wfIn_of_gate e
       (subset_bodySig_of_headFresh hheadFresh)
@@ -326,9 +326,9 @@ theorem semrel_sound
       hbodyWf_body hres_mem
       (by simpa [Term.eval, Env.lookupConst_updateConst_same] using hsplit)
   have hdomain :
-      UnaryFix.le D (semDefined R) := by
+      PredicateFix.le D (semDefined R) := by
     unfold D semdef
-    apply UnaryFix.lfp_le_of_prefixed
+    apply PredicateFix.lfp_le_of_prefixed
     intro vin hdefBody
     let P : Srt.value.denote → Prop := semDefined R
     let vbody := body.value.eval (defEnv ρ fn x P F vin)

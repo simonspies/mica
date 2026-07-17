@@ -1,6 +1,6 @@
 -- SUMMARY: Generic monadic skeleton for TinyML-to-FOL encoders.
 import Mica.FOL.Formulas
-import Mica.FOL.Fixpoint
+import Mica.Base.Fixpoint
 import Mica.TinyML.Typed
 import Mica.Base.Fresh
 import Mica.Verifier.RelationalEncoding.Variables
@@ -237,9 +237,9 @@ encoder's least fixpoint) use these notions on top of the traversal. -/
 abbrev SemPred (M : Type) := M → Env → Prop
 
 /-- A carrier is monotone when its semantic interpretation is stable under
-`Fix.Env.le`. -/
+`Env.le`. -/
 def SemanticMono {M : Type} (sem : SemPred M) (m : M) : Prop :=
-  ∀ {ρ ρ' : Env}, Fix.Env.le ρ ρ' → sem m ρ → sem m ρ'
+  ∀ {ρ ρ' : Env}, Env.le ρ ρ' → sem m ρ → sem m ρ'
 
 /-! ## Generic carrier predicates
 

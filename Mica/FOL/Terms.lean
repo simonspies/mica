@@ -712,6 +712,26 @@ theorem Term.eval_env_agree {t : Term τ} {ρ ρ' : Env} {Δ : Signature} :
     simp [Term.eval]
     rw [ihc hwf.1, iht hwf.2.1, ihe hwf.2.2]
 
+/-- Term evaluation only depends on `consts`, `unary`, `binary`, and `ternary`, so it is
+invariant under `Env.le`. -/
+theorem Term.eval_env_le {τ : Srt} {ρ ρ' : Env} (h : Env.le ρ ρ') (t : Term τ) :
+    t.eval ρ = t.eval ρ' := by
+  induction t with
+  | var τ y => simp [Term.eval, Env.lookupConst, h.1]
+  | const c =>
+    cases c <;> simp [Term.eval, Const.denote, h.1]
+  | unop op a iha =>
+    simp only [Term.eval]; rw [iha]
+    cases op <;> simp [UnOp.eval, h.2.1]
+  | binop op a b iha ihb =>
+    simp only [Term.eval]; rw [iha, ihb]
+    cases op <;> simp [BinOp.eval, h.2.2.1]
+  | terop op a b c iha ihb ihc =>
+    simp only [Term.eval]; rw [iha, ihb, ihc]
+    cases op <;> simp [TerOp.eval, h.2.2.2.1]
+  | ite c t e ihc iht ihe =>
+    simp only [Term.eval]; rw [ihc, iht, ihe]
+
 /-- Agreement on the environment components used by term evaluation. Relation
 interpretations are intentionally ignored. -/
 def Env.termAgree (Δ : Signature) (ρ₁ ρ₂ : Env) : Prop :=
@@ -842,6 +862,13 @@ theorem Term.const_wfIn_of_mem {Δ : Signature} {name : String} {τ : Srt}
   ⟨hmem,
     fun _ hvar => Signature.wf_no_var_of_const hwf hmem hvar,
     fun _ hc' => Signature.wf_unique_const hwf hmem hc'⟩
+
+/-- The variable just declared is well-formed in the declaring signature. -/
+theorem Term.var_wfIn_declVar {Δ : Signature} {x : String} {τ : Srt}
+    (hwf : (Δ.declVar ⟨x, τ⟩).wf) : (Term.var τ x).wfIn (Δ.declVar ⟨x, τ⟩) :=
+  ⟨Signature.var_mem_declVar Δ ⟨x, τ⟩,
+   fun _ hc => Signature.wf_no_const_of_var hwf (Signature.var_mem_declVar Δ ⟨x, τ⟩) hc,
+   fun _ hv => Signature.wf_unique_var hwf (Signature.var_mem_declVar Δ ⟨x, τ⟩) hv⟩
 
 /-- A fresh uninterpreted constant is well-formed in a signature extended by itself. -/
 theorem Term.const_wfIn_addConst_of_fresh {Δ : Signature} {c : FOL.Const}

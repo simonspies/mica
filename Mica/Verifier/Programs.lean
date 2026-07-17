@@ -178,7 +178,7 @@ private theorem assembleFrom_correct (prog : Typed.Program (Spec.Body Typed.Expr
   | cons d ds ih =>
     intro acc st ρ Q hacc howns hvars hwf hΓwf hsplit hdet heval
     simp only [assembleFrom] at heval
-    have hbind := VerifM.eval_bind _ _ _ _ heval
+    have hbind := VerifM.eval_bind heval
     simp only [declareAndAssume] at hbind
     cases hrel : d.declMeta.relation with
     | none =>
@@ -225,10 +225,10 @@ private theorem assembleFrom_correct (prog : Typed.Program (Spec.Body Typed.Expr
         set D : Srt.value.denote → Prop :=
           Skolemize.semdef acc.functionMap acc.delta ρ.env
             info.f rel_name info.arg info.res info.body info.bv
-        obtain ⟨_, hbcont⟩ := VerifM.eval_declBinaryRelExact (VerifM.eval_bind _ _ _ _ hbind)
-        obtain ⟨_, hbcont3⟩ := VerifM.eval_declUnaryExact (VerifM.eval_bind _ _ _ _ (hbcont R))
-        obtain ⟨_, hbcont5⟩ := VerifM.eval_declUnaryRelExact (VerifM.eval_bind _ _ _ _ (hbcont3 F))
-        have hbind7 := VerifM.eval_bind _ _ _ _ (hbcont5 D)
+        obtain ⟨_, hbcont⟩ := VerifM.eval_declBinaryRelExact (VerifM.eval_bind hbind)
+        obtain ⟨_, hbcont3⟩ := VerifM.eval_declUnaryExact (VerifM.eval_bind (hbcont R))
+        obtain ⟨_, hbcont5⟩ := VerifM.eval_declUnaryRelExact (VerifM.eval_bind (hbcont3 F))
+        have hbind7 := VerifM.eval_bind (hbcont5 D)
         -- Δ after the three declarations.
         set Δext : Signature :=
           ((acc.delta.addBinaryRel (SpecFn.rel rel_name)).addUnary
@@ -358,7 +358,7 @@ theorem assemble_correct (typed : Typed.Program (Spec.Body Typed.Expr))
       VerifM.Env.agreeOn st.decls ρ ρRel ∧
       Q { spec0 with delta := stRel.decls } stRel ρRel := by
   unfold RelationSpec.assemble at heval
-  have hctx := VerifM.eval_bind _ _ _ _ heval
+  have hctx := VerifM.eval_bind heval
   obtain ⟨hassembleFrom, hownsWf, _, _⟩ := VerifM.eval_ctx hctx
   have hrest := hassembleFrom hownsWf
   have hempty_Γwf : FunCtx.wfIn empty.functionMap st.decls :=
@@ -474,7 +474,7 @@ theorem ValDecl.checkExpr_correct (reg : Verifier.Registry) (hSound : Verifier.R
   intro Hent
   simp only [ValDecl.checkExpr] at heval
   have ⟨hinner, _⟩ := VerifM.eval_seq heval
-  have hcompile := VerifM.eval_bind _ _ _ _ hinner
+  have hcompile := VerifM.eval_bind hinner
   have hcomp :=
     compile_correct reg hSound d.body Θ iprop(□ st.sl Θ ρ ∗ Φ) S [] TinyML.TyCtx.empty st ρ γ Δ_spec ρ_spec
     (fun x st' ρ' => VerifM.eval (pure ()) st' ρ' (fun _ _ _ => True))
@@ -526,31 +526,31 @@ theorem ValDecl.check_correct (reg : Verifier.Registry) (hSound : Verifier.Regis
   cases hspec : d.declMeta.spec with
   | none =>
     simp only [hspec] at heval
-    exact (VerifM.eval_fatal (VerifM.eval_bind _ _ _ _ heval)).elim
+    exact (VerifM.eval_fatal (VerifM.eval_bind heval)).elim
   | some specExpr =>
     simp only [hspec] at heval
-    have h1 := VerifM.eval_ret (VerifM.eval_bind _ _ _ _ heval)
+    have h1 := VerifM.eval_ret (VerifM.eval_bind heval)
     cases hparse : parseSpec reg Γfn specExpr with
     | error msg =>
       simp only [hparse] at h1
-      exact (VerifM.eval_fatal (VerifM.eval_bind _ _ _ _ h1)).elim
+      exact (VerifM.eval_fatal (VerifM.eval_bind h1)).elim
     | ok sp =>
       simp only [hparse] at h1
-      have h2 := VerifM.eval_ret (VerifM.eval_bind _ _ _ _ h1)
+      have h2 := VerifM.eval_ret (VerifM.eval_bind h1)
       cases hcomplete : Spec.complete sp d.body with
       | error msg =>
         simp only [hcomplete] at h2
-        exact (VerifM.eval_fatal (VerifM.eval_bind _ _ _ _ h2)).elim
+        exact (VerifM.eval_fatal (VerifM.eval_bind h2)).elim
       | ok spec =>
         simp only [hcomplete] at h2
-        have h3 := VerifM.eval_ret (VerifM.eval_bind _ _ _ _ h2)
+        have h3 := VerifM.eval_ret (VerifM.eval_bind h2)
         cases hwf : Spec.checkWf spec Δ_spec with
         | error msg =>
           simp only [hwf] at h3
-          exact (VerifM.eval_fatal (VerifM.eval_bind _ _ _ _ h3)).elim
+          exact (VerifM.eval_fatal (VerifM.eval_bind h3)).elim
         | ok u =>
           simp only [hwf] at h3
-          have h4 := VerifM.eval_ret (VerifM.eval_bind _ _ _ _ h3)
+          have h4 := VerifM.eval_ret (VerifM.eval_bind h3)
           have hswf : spec.wfIn Δ_spec := Spec.checkWf_ok (by cases u; exact hwf)
           have ⟨hcheckSpec, hpure⟩ := VerifM.eval_seq h4
           exact ⟨spec, hswf,
@@ -607,7 +607,7 @@ theorem Program.check_correct (reg : Verifier.Registry) (hSound : Verifier.Regis
       | none =>
         -- unnamed, no spec
         simp only [hname, hspec] at heval
-        have hbind := VerifM.eval_bind _ _ _ _ heval
+        have hbind := VerifM.eval_bind heval
         have ⟨_, hcont⟩ := VerifM.eval_seq hbind
         have hih := ih S γ hSwf st ρ hΔspec hρspec (VerifM.eval_ret hcont)
         have hwp := ValDecl.checkExpr_correct reg hSound Θ Δ_spec ρ_spec S d γ hSwf hΔwf hΔvars st ρ hΔspec hρspec hΔreg hρreg hbind hih
@@ -617,7 +617,7 @@ theorem Program.check_correct (reg : Verifier.Registry) (hSound : Verifier.Regis
         -- unnamed, with spec
         simp only [hname, hspec] at heval
         obtain ⟨spec, _, hwp, hcont⟩ :=
-          ValDecl.check_correct reg hSound Θ Δ_spec Γfn ρ_spec S d γ hSwf hΔwf hΔvars st ρ hΔspec hρspec hΔreg hρreg (VerifM.eval_bind _ _ _ _ heval)
+          ValDecl.check_correct reg hSound Θ Δ_spec Γfn ρ_spec S d γ hSwf hΔwf hΔvars st ρ hΔspec hρspec hΔreg hρreg (VerifM.eval_bind heval)
         have hih := ih S γ hSwf st ρ hΔspec hρspec hcont
         refine SpatialContext.wp_strengthen_persistent hwp ?_
         intro v
@@ -661,7 +661,7 @@ theorem Program.check_correct (reg : Verifier.Registry) (hSound : Verifier.Regis
           · iapply SpecMap.satisfiedBy_erase
             iexact Hspec
         · -- named, no spec, not a function
-          have hbind := VerifM.eval_bind _ _ _ _ heval
+          have hbind := VerifM.eval_bind heval
           have ⟨_, hcont⟩ := VerifM.eval_seq hbind
           have hcont' : VerifM.eval (Program.check reg Θ Δ_spec Γfn (S.erase n) ds) st ρ (fun _ _ _ => True) :=
             VerifM.eval_ret hcont
@@ -682,7 +682,7 @@ theorem Program.check_correct (reg : Verifier.Registry) (hSound : Verifier.Regis
       | some _ =>
         simp only [hname, hspec] at heval
         obtain ⟨spec, hswf, hwp, hcont⟩ :=
-          ValDecl.check_correct reg hSound Θ Δ_spec Γfn ρ_spec S d γ hSwf hΔwf hΔvars st ρ hΔspec hρspec hΔreg hρreg (VerifM.eval_bind _ _ _ _ heval)
+          ValDecl.check_correct reg hSound Θ Δ_spec Γfn ρ_spec S d γ hSwf hΔwf hΔvars st ρ hΔspec hρspec hΔreg hρreg (VerifM.eval_bind heval)
         have hcont' : VerifM.eval (Program.check reg Θ Δ_spec Γfn (S.insert n spec) ds) st ρ (fun _ _ _ => True) := by
           convert hcont
         refine SpatialContext.wp_strengthen_persistent hwp ?_
@@ -733,15 +733,15 @@ theorem Program.verify_correct (reg : Verifier.Registry)
                       TransState.init VerifM.Env.init ctx_mid
                       (ScopedM.eval_declareConst hverif)
                       TransState.init_holdsFor TransState.init_wf
-    have hbind := VerifM.eval_bind _ _ _ _ hverifM
+    have hbind := VerifM.eval_bind hverifM
     obtain ⟨Θ, typed, hrt, hrest⟩ :=
       Program.prepare_correct reg.sigs p TransState.init VerifM.Env.init hbind
     -- Peel the registry setup from the continuation generically.
-    have hsetup_bind := VerifM.eval_bind _ _ _ _ hrest
+    have hsetup_bind := VerifM.eval_bind hrest
     obtain ⟨st_setup, ρ_setup, _hΔsub, hdep_setup, hvars_setup_eq, howns_setup,
       _hasserts, hstable_setup, _hρagree, hcheck_eval⟩ :=
       Verifier.Registry.eval_introduceRegistry reg hSound hsetup_bind
-    have hassemble := VerifM.eval_bind _ _ _ _ hcheck_eval
+    have hassemble := VerifM.eval_bind hcheck_eval
     have hvars_setup : st_setup.decls.vars = [] := by
       rw [hvars_setup_eq]
       rfl
