@@ -2,9 +2,12 @@
 # Testsuite runner
 
 Standalone driver for the mica test corpus, invoked via `lake run testsuite`.
-The lake script builds this executable, asks it for the test list
-(`--list`), and registers one Lake job per test (`--single FILE`) so the
-build monitor shows live progress; this executable itself runs tests
+The unit of work is an *action*, written `task,file` where task is one of
+`compile`, `check`, `roundtrip`. The lake script builds this executable,
+asks it for the action list (`--list`), registers one Lake job per action
+so the build monitor shows live progress, and hands the failed actions
+back to `--summarize` for the final summary. Invoked with paths instead of
+actions, this executable discovers and runs everything itself,
 sequentially.
 
 A test is a single `.ml` file. An optional directive on its first line
@@ -53,10 +56,10 @@ structure Test where
 structure Options where
   summaryOnly : Bool := false
   promote : Bool := false
-  /-- Per-test mode for use as a Lake job: quiet stdlib compile, no summary. -/
-  single : Bool := false
-  /-- Print the discovered test files and exit. -/
+  /-- Print the discovered actions (`task,file` lines) and exit. -/
   list : Bool := false
+  /-- Print the summary for the given failed actions and exit. -/
+  summarize : Bool := false
   mica : Option FilePath := none
   paths : Array FilePath := #[]
 
@@ -65,8 +68,9 @@ def testTimeoutMs : UInt32 := 300000
 def pollIntervalMs : UInt32 := 300
 
 def usage : String :=
-  "usage: testsuite --mica PATH [--summary-only] [--promote] [--single] [PATH ...]\n" ++
-  "       testsuite --list [PATH ...]"
+  "usage: testsuite --mica PATH [--summary-only] [--promote] [PATH | TASK,FILE ...]\n" ++
+  "       testsuite --list [PATH ...]\n" ++
+  "       testsuite --summarize [TASK,FILE ...]"
 
 /-! ## Process execution -/
 
@@ -193,6 +197,37 @@ def discoverTests (cwd : FilePath) (paths : Array FilePath) : IO (Array Test) :=
     files := files ++ (← discoverFiles inputPath (explicit := true))
   let sorted := files.qsort (fun a b => a.toString < b.toString)
   sorted.mapM (loadTest cwd)
+
+/-! ## Actions -/
+
+/-- The kinds of per-test work the runner executes. -/
+inductive ActionKind where
+  | compile
+  | check
+  | roundtrip
+deriving BEq
+
+def ActionKind.name : ActionKind → String
+  | .compile => "compile"
+  | .check => "check"
+  | .roundtrip => "roundtrip"
+
+def ActionKind.verb : ActionKind → String
+  | .compile => "Compiling"
+  | .check => "Checking"
+  | .roundtrip => "Roundtrip"
+
+def ActionKind.parse : String → Option ActionKind
+  | "compile" => some .compile
+  | "check" => some .check
+  | "roundtrip" => some .roundtrip
+  | _ => none
+
+/-- Expand tests into the phase-grouped list of actions to run. -/
+def actions (tests : Array Test) : Array (ActionKind × Test) :=
+  (tests.filter (!·.config.noCompile)).map ((ActionKind.compile, ·))
+    ++ tests.map ((ActionKind.check, ·))
+    ++ (tests.filter (·.config.roundtrip)).map ((ActionKind.roundtrip, ·))
 
 /-! ## Test actions -/
 
@@ -359,8 +394,8 @@ def parseOptions : List String → Options → Except String Options
   | [], opts => .ok opts
   | "--summary-only" :: rest, opts => parseOptions rest { opts with summaryOnly := true }
   | "--promote" :: rest, opts => parseOptions rest { opts with promote := true }
-  | "--single" :: rest, opts => parseOptions rest { opts with single := true }
   | "--list" :: rest, opts => parseOptions rest { opts with list := true }
+  | "--summarize" :: rest, opts => parseOptions rest { opts with summarize := true }
   | "--mica" :: path :: rest, opts => parseOptions rest { opts with mica := some path }
   | ["--mica"], _ => .error usage
   | arg :: rest, opts =>
@@ -374,35 +409,71 @@ def defaultPaths (cwd : FilePath) : IO (Array FilePath) := do
     throw <| IO.userError "no test paths given and neither Examples/ nor Tests/ exists"
   pure paths
 
-def run (mica : FilePath) (opts : Options) : IO UInt32 := do
+/-- Run actions in order. In standalone mode the stdlib stub compile is
+    reported, kind changes are separated by blank lines, and a summary is
+    printed; in action mode (specs handed out by the lake script) the stub
+    compile is reported only on failure and the exit code carries the
+    verdict. -/
+def runActions (mica : FilePath) (opts : Options) (standalone : Bool)
+    (acts : Array (ActionKind × Test)) : IO UInt32 := do
   let cwd ← IO.currentDir
-  let paths ← if opts.paths.isEmpty then defaultPaths cwd else pure opts.paths
-  let tests ← discoverTests cwd paths
   IO.FS.withTempDir fun tmpDir => do
-    let stdlib ← runStdlibCompileIn cwd tmpDir
-    let compileOutcomes ←
-      if isFailure stdlib.result then
-        pure #[]
+    let stdlib? ←
+      if acts.any (·.1 == .compile) then
+        some <$> runStdlibCompileIn cwd tmpDir
       else
-        let compileTests := tests.filter (!·.config.noCompile)
-        compileTests.mapIdxM fun idx test => compileTest tmpDir idx test
-    let checkOutcomes ← tests.mapIdxM fun idx test => checkTest mica opts tmpDir idx test
-    let roundtripTests := tests.filter (·.config.roundtrip)
-    let roundtripOutcomes ←
-      roundtripTests.mapIdxM fun idx test => roundtripTest mica tmpDir idx test
-    -- In single mode the stdlib stub compile is an implementation detail:
-    -- report it only when it fails.
-    let stdlibOutcomes := if opts.single && !isFailure stdlib.result then #[] else #[stdlib]
-    let failed ← reportTestOutcomes opts [] "Compiling" (stdlibOutcomes ++ compileOutcomes)
-    unless opts.single do
-      IO.println ""
-    let failed ← reportTestOutcomes opts failed "Checking" checkOutcomes
-    unless opts.single || roundtripOutcomes.isEmpty do
-      IO.println ""
-    let failed ← reportTestOutcomes opts failed "Roundtrip" roundtripOutcomes
-    if opts.single then
+        pure none
+    let stdlibFailed := (stdlib?.map (isFailure ·.result)).getD false
+    let stdlibReport := match stdlib? with
+      | some outcome => if standalone || isFailure outcome.result then #[outcome] else #[]
+      | none => #[]
+    let mut failed ← reportTestOutcomes opts [] ActionKind.compile.verb stdlibReport
+    let mut prev := ActionKind.compile
+    let mut reported := !stdlibReport.isEmpty
+    let mut idx := 0
+    for (kind, test) in acts do
+      if standalone && kind != prev && reported then
+        IO.println ""
+      prev := kind
+      -- Without the stdlib stub, compiling a test cannot succeed; the stub
+      -- failure has already been reported.
+      if kind == .compile && stdlibFailed then
+        continue
+      let outcome ← match kind with
+        | .compile => compileTest tmpDir idx test
+        | .check => checkTest mica opts tmpDir idx test
+        | .roundtrip => roundtripTest mica tmpDir idx test
+      failed ← reportTestOutcomes opts failed kind.verb #[outcome]
+      reported := true
+      idx := idx + 1
+    if standalone then
+      printTestsuiteSummary failed
+    else
       return if failed.isEmpty then (0 : UInt32) else 1
-    printTestsuiteSummary failed
+
+/-- Parse a `task,file` spec into an action against the working directory. -/
+def parseSpec (cwd : FilePath) (spec : String) : IO (ActionKind × Test) := do
+  let kindStr := (spec.takeWhile (· != ',')).toString
+  let file := (spec.drop (kindStr.length + 1)).toString
+  let some kind := ActionKind.parse kindStr
+    | throw <| IO.userError s!"unknown task '{kindStr}' in '{spec}'"
+  let path := FilePath.mk file
+  let inputPath := if path.isAbsolute then path else cwd / path
+  if !(← inputPath.pathExists) then
+    throw <| IO.userError s!"test file does not exist: {inputPath}"
+  let test ← loadTest cwd inputPath
+  return (kind, test)
+
+def summarize (failed : Array String) : IO UInt32 := do
+  IO.println ""
+  if failed.isEmpty then
+    IO.println (bold "all tests passed")
+    return 0
+  else
+    IO.println (bold s!"{failed.size} {if failed.size == 1 then "test" else "tests"} failed")
+    for spec in failed do
+      IO.println s!"- {spec.replace "," " "}"
+    return 1
 
 def main (args : List String) : IO UInt32 := do
   let opts ← match parseOptions args {} with
@@ -410,26 +481,35 @@ def main (args : List String) : IO UInt32 := do
     | .error e => do
         IO.eprintln e
         return 1
-  if opts.list then
-    try
+  if opts.summarize then
+    return ← summarize (opts.paths.map (·.toString))
+  try
+    if opts.list then
       let cwd ← IO.currentDir
       let paths ← if opts.paths.isEmpty then defaultPaths cwd else pure opts.paths
       let tests ← discoverTests cwd paths
-      for test in tests do
-        IO.println test.label
+      for (kind, test) in actions tests do
+        IO.println s!"{kind.name},{test.label}"
       return (0 : UInt32)
-    catch e =>
-      IO.eprintln s!"testsuite: {e}"
+    let some mica := opts.mica
+      | do
+          IO.eprintln usage
+          return (1 : UInt32)
+    if !(← mica.pathExists) then
+      IO.eprintln s!"mica executable not found at {mica}; run `lake build` first"
       return (1 : UInt32)
-  let some mica := opts.mica
-    | do
-        IO.eprintln usage
-        return 1
-  if !(← mica.pathExists) then
-    IO.eprintln s!"mica executable not found at {mica}; run `lake build` first"
-    return 1
-  try
-    run mica opts
+    let (specArgs, pathArgs) := opts.paths.partition (·.toString.contains ',')
+    if !specArgs.isEmpty && !pathArgs.isEmpty then
+      IO.eprintln "cannot mix TASK,FILE arguments with paths"
+      return (1 : UInt32)
+    let cwd ← IO.currentDir
+    if !specArgs.isEmpty then
+      let acts ← specArgs.mapM fun spec => parseSpec cwd spec.toString
+      runActions mica opts (standalone := false) acts
+    else
+      let paths ← if pathArgs.isEmpty then defaultPaths cwd else pure pathArgs
+      let tests ← discoverTests cwd paths
+      runActions mica opts (standalone := true) (actions tests)
   catch e =>
     IO.eprintln s!"testsuite: {e}"
     return (1 : UInt32)
