@@ -1,8 +1,11 @@
 /-!
 # Testsuite runner
 
-Standalone driver for the mica test corpus, invoked via `lake run testsuite`
-(which builds this executable and forwards its arguments).
+Standalone driver for the mica test corpus, invoked via `lake run testsuite`.
+The lake script builds this executable, asks it for the test list
+(`--list`), and registers one Lake job per test (`--single FILE`) so the
+build monitor shows live progress; this executable itself runs tests
+sequentially.
 
 A test is a single `.ml` file. An optional directive on its first line
 configures the run:
@@ -50,6 +53,10 @@ structure Test where
 structure Options where
   summaryOnly : Bool := false
   promote : Bool := false
+  /-- Per-test mode for use as a Lake job: quiet stdlib compile, no summary. -/
+  single : Bool := false
+  /-- Print the discovered test files and exit. -/
+  list : Bool := false
   mica : Option FilePath := none
   paths : Array FilePath := #[]
 
@@ -57,11 +64,9 @@ def testTimeoutMs : UInt32 := 300000
 
 def pollIntervalMs : UInt32 := 300
 
-/-- Worker threads per parallel phase. -/
-def poolSize : Nat := 8
-
 def usage : String :=
-  "usage: testsuite --mica PATH [--summary-only] [--promote] [PATH ...]"
+  "usage: testsuite --mica PATH [--summary-only] [--promote] [--single] [PATH ...]\n" ++
+  "       testsuite --list [PATH ...]"
 
 /-! ## Process execution -/
 
@@ -111,29 +116,6 @@ def measureTestOutcome (label : String) (action : IO ProcessResult) : IO TestOut
   let result ← action
   let stop ← IO.monoMsNow
   return { label, result, elapsedMs := stop - start }
-
-/-! ## Worker pool -/
-
-private partial def workerLoop (jobs : Array (IO TestOutcome)) (next : IO.Ref Nat)
-    (results : IO.Ref (Array (Option TestOutcome))) : IO Unit := do
-  let i ← next.modifyGet fun i => (i, i + 1)
-  if h : i < jobs.size then
-    let r ← jobs[i]
-    results.modify (·.set! i (some r))
-    workerLoop jobs next results
-
-/-- Run all jobs on a bounded pool of dedicated threads, preserving order. -/
-def runPool (jobs : Array (IO TestOutcome)) : IO (Array TestOutcome) := do
-  let next ← IO.mkRef 0
-  let results ← IO.mkRef (Array.replicate jobs.size (none : Option TestOutcome))
-  let workers := min poolSize (max jobs.size 1)
-  let tasks ← (Array.range workers).mapM fun _ =>
-    IO.asTask (workerLoop jobs next results) Task.Priority.dedicated
-  for t in tasks do
-    IO.ofExcept t.get
-  (← results.get).mapM fun
-    | some r => pure r
-    | none => throw <| IO.userError "testsuite: worker pool lost a result"
 
 /-! ## Test discovery -/
 
@@ -377,6 +359,8 @@ def parseOptions : List String → Options → Except String Options
   | [], opts => .ok opts
   | "--summary-only" :: rest, opts => parseOptions rest { opts with summaryOnly := true }
   | "--promote" :: rest, opts => parseOptions rest { opts with promote := true }
+  | "--single" :: rest, opts => parseOptions rest { opts with single := true }
+  | "--list" :: rest, opts => parseOptions rest { opts with list := true }
   | "--mica" :: path :: rest, opts => parseOptions rest { opts with mica := some path }
   | ["--mica"], _ => .error usage
   | arg :: rest, opts =>
@@ -401,17 +385,23 @@ def run (mica : FilePath) (opts : Options) : IO UInt32 := do
         pure #[]
       else
         let compileTests := tests.filter (!·.config.noCompile)
-        runPool (compileTests.mapIdx fun idx test => compileTest tmpDir idx test)
-    let checkOutcomes ← runPool (tests.mapIdx fun idx test => checkTest mica opts tmpDir idx test)
+        compileTests.mapIdxM fun idx test => compileTest tmpDir idx test
+    let checkOutcomes ← tests.mapIdxM fun idx test => checkTest mica opts tmpDir idx test
     let roundtripTests := tests.filter (·.config.roundtrip)
     let roundtripOutcomes ←
-      runPool (roundtripTests.mapIdx fun idx test => roundtripTest mica tmpDir idx test)
-    let failed ← reportTestOutcomes opts [] "Compiling" (#[stdlib] ++ compileOutcomes)
-    IO.println ""
+      roundtripTests.mapIdxM fun idx test => roundtripTest mica tmpDir idx test
+    -- In single mode the stdlib stub compile is an implementation detail:
+    -- report it only when it fails.
+    let stdlibOutcomes := if opts.single && !isFailure stdlib.result then #[] else #[stdlib]
+    let failed ← reportTestOutcomes opts [] "Compiling" (stdlibOutcomes ++ compileOutcomes)
+    unless opts.single do
+      IO.println ""
     let failed ← reportTestOutcomes opts failed "Checking" checkOutcomes
-    unless roundtripOutcomes.isEmpty do
+    unless opts.single || roundtripOutcomes.isEmpty do
       IO.println ""
     let failed ← reportTestOutcomes opts failed "Roundtrip" roundtripOutcomes
+    if opts.single then
+      return if failed.isEmpty then (0 : UInt32) else 1
     printTestsuiteSummary failed
 
 def main (args : List String) : IO UInt32 := do
@@ -420,6 +410,17 @@ def main (args : List String) : IO UInt32 := do
     | .error e => do
         IO.eprintln e
         return 1
+  if opts.list then
+    try
+      let cwd ← IO.currentDir
+      let paths ← if opts.paths.isEmpty then defaultPaths cwd else pure opts.paths
+      let tests ← discoverTests cwd paths
+      for test in tests do
+        IO.println test.label
+      return (0 : UInt32)
+    catch e =>
+      IO.eprintln s!"testsuite: {e}"
+      return (1 : UInt32)
   let some mica := opts.mica
     | do
         IO.eprintln usage

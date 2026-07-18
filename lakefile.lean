@@ -44,8 +44,10 @@ script «generate-docs» (args) := do
   if rc ≠ 0 then return rc
   runOverviews
 
-/-- Build mica and the testsuite runner (`Testsuite.lean`), then forward the
-    arguments to the runner. -/
+/-- Build mica and the testsuite runner (`Testsuite.lean`), ask the runner for
+    the test list, and register one Lake job per test so the build monitor
+    shows live progress. Reports and the summary are printed once all jobs
+    have finished. -/
 script testsuite (args) := do
   let some mica ← Lake.findLeanExe? `mica
     | error "mica executable undefined"
@@ -55,8 +57,36 @@ script testsuite (args) := do
     let micaJob ← mica.exe.fetch
     let suiteJob ← suite.exe.fetch
     return micaJob.zipWith (fun m s => (m, s)) suiteJob
-  let child ← IO.Process.spawn {
+  let (flags, paths) := args.partition (·.startsWith "-")
+  let listOut ← IO.Process.output {
     cmd := exeFile.toString
-    args := #["--mica", micaFile.toString] ++ args.toArray
+    args := #["--list"] ++ paths.toArray
   }
-  child.wait
+  if listOut.exitCode != 0 then
+    error s!"test discovery failed: {listOut.stderr}"
+  let files := listOut.stdout.splitOn "\n" |>.filter (!·.isEmpty) |>.toArray
+  let results ← runBuild do
+    let jobs ← files.mapM fun file =>
+      withRegisterJob s!"test {file}" <| Job.async do
+        let out ← IO.Process.output {
+          cmd := exeFile.toString
+          args := #["--mica", micaFile.toString, "--single"] ++ flags.toArray ++ #[file]
+        }
+        return (file, out)
+    return Job.collectArray jobs "testsuite"
+  let mut failed := #[]
+  for (file, out) in results do
+    IO.print out.stdout
+    IO.eprint out.stderr
+    if out.exitCode != 0 then
+      failed := failed.push file
+  IO.println ""
+  let bold (s : String) : String := s!"\x1b[1m{s}\x1b[0m"
+  if failed.isEmpty then
+    IO.println (bold "all tests passed")
+    return 0
+  else
+    IO.println (bold s!"{failed.size} {if failed.size == 1 then "test" else "tests"} failed")
+    for file in failed do
+      IO.println s!"- {file}"
+    return 1
