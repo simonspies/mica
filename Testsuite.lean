@@ -1,13 +1,22 @@
 /-!
 # Testsuite runner
 
-The testsuite driver, moved out of `lakefile.lean`. Invoked via
-`lake run testsuite`, which builds this executable and forwards the
-arguments, passing the mica executable via `--mica`.
+Standalone driver for the mica test corpus, invoked via `lake run testsuite`
+(which builds this executable and forwards its arguments).
 
-Compared to the lakefile version, `ScriptM` becomes `IO` and Lake's job
-machinery is replaced by a bounded worker pool; everything else is a
-verbatim move.
+A test is a single `.ml` file. An optional directive on its first line
+configures the run:
+
+  (* TEST: <token>* *)
+
+where a token starting with `-` is passed to mica as a flag and the bare
+tokens `no-compile` (skip the ocamlopt phase) and `roundtrip` (additionally
+check the print∘parse fixpoint of `--print-ocaml`) toggle runner behavior.
+
+Expectations: without a sibling `foo.out`, the mica run must exit 0. With
+one, the captured output (stdout ++ stderr, ANSI-stripped, plus a trailing
+`[<code>]` line for nonzero exits) must match it; `--promote` rewrites
+existing `.out` files with the actual output instead of failing.
 -/
 
 open System (FilePath)
@@ -22,18 +31,27 @@ inductive ProcessResult where
   | terminated (output : ProcessOutput)
 
 structure TestOutcome where
-  path : FilePath
+  label : String
   result : ProcessResult
   elapsedMs : Nat
 
-structure TestsuiteOutcomes where
-  compile : Array TestOutcome
-  check : Array TestOutcome
+/-- Per-test configuration from the `(* TEST: ... *)` directive. -/
+structure Config where
+  flags : Array String := #[]
+  noCompile : Bool := false
+  roundtrip : Bool := false
 
-structure TestsuiteOptions where
+structure Test where
+  path : FilePath
+  label : String
+  config : Config
+  golden : Option FilePath
+
+structure Options where
   summaryOnly : Bool := false
+  promote : Bool := false
   mica : Option FilePath := none
-  dir : Option FilePath := none
+  paths : Array FilePath := #[]
 
 def testTimeoutMs : UInt32 := 300000
 
@@ -42,8 +60,10 @@ def pollIntervalMs : UInt32 := 300
 /-- Worker threads per parallel phase. -/
 def poolSize : Nat := 8
 
-def testsuiteUsage : String :=
-  "usage: testsuite --mica PATH [--summary-only] TESTPATH"
+def usage : String :=
+  "usage: testsuite --mica PATH [--summary-only] [--promote] [PATH ...]"
+
+/-! ## Process execution -/
 
 partial def waitForExitOrTimeout {cfg : IO.Process.StdioConfig}
     (child : IO.Process.Child cfg) (remainingMs : Nat) : IO (Option UInt32) := do
@@ -86,20 +106,117 @@ def runProcessWithTimeout (cmd : String) (args : Array String) (timeoutMs : UInt
     IO ProcessResult := do
   runProcessWithTimeoutIn? cmd args none timeoutMs
 
-def measureTestOutcome (path : FilePath) (action : IO ProcessResult) : IO TestOutcome := do
+def measureTestOutcome (label : String) (action : IO ProcessResult) : IO TestOutcome := do
   let start ← IO.monoMsNow
   let result ← action
   let stop ← IO.monoMsNow
-  return { path, result, elapsedMs := stop - start }
+  return { label, result, elapsedMs := stop - start }
 
-def runTest (mica : FilePath) (file : FilePath) : IO TestOutcome := do
-  measureTestOutcome file <|
-    runProcessWithTimeout mica.toString #[file.toString] testTimeoutMs
+/-! ## Worker pool -/
 
-def runStdlibCompileIn (tmpDir : FilePath) : IO TestOutcome := do
-  let cwd ← IO.currentDir
+private partial def workerLoop (jobs : Array (IO TestOutcome)) (next : IO.Ref Nat)
+    (results : IO.Ref (Array (Option TestOutcome))) : IO Unit := do
+  let i ← next.modifyGet fun i => (i, i + 1)
+  if h : i < jobs.size then
+    let r ← jobs[i]
+    results.modify (·.set! i (some r))
+    workerLoop jobs next results
+
+/-- Run all jobs on a bounded pool of dedicated threads, preserving order. -/
+def runPool (jobs : Array (IO TestOutcome)) : IO (Array TestOutcome) := do
+  let next ← IO.mkRef 0
+  let results ← IO.mkRef (Array.replicate jobs.size (none : Option TestOutcome))
+  let workers := min poolSize (max jobs.size 1)
+  let tasks ← (Array.range workers).mapM fun _ =>
+    IO.asTask (workerLoop jobs next results) Task.Priority.dedicated
+  for t in tasks do
+    IO.ofExcept t.get
+  (← results.get).mapM fun
+    | some r => pure r
+    | none => throw <| IO.userError "testsuite: worker pool lost a result"
+
+/-! ## Test discovery -/
+
+def parseDirective (path : FilePath) (line : String) : Except String Config := do
+  let line := line.trimAscii.toString
+  unless line.startsWith "(* TEST:" do return {}
+  unless line.endsWith "*)" do
+    throw s!"{path}: malformed TEST directive: {line}"
+  let body := ((line.drop "(* TEST:".length).dropEnd "*)".length).toString
+  let mut config : Config := {}
+  for tok in body.split Char.isWhitespace do
+    let tok := tok.toString
+    if tok.isEmpty then
+      continue
+    else if tok.startsWith "-" then
+      config := { config with flags := config.flags.push tok }
+    else if tok == "no-compile" then
+      config := { config with noCompile := true }
+    else if tok == "roundtrip" then
+      config := { config with roundtrip := true }
+    else
+      throw s!"{path}: unknown TEST directive token '{tok}'"
+  return config
+
+partial def discoverFiles (path : FilePath) (explicit : Bool) : IO (Array FilePath) := do
+  let metadata ← path.metadata
+  match metadata.type with
+  | .file =>
+      if path.extension == some "ml" then
+        pure #[path]
+      else if explicit then
+        throw <| IO.userError s!"test file must end in .ml: {path}"
+      else
+        pure #[]
+  | .dir =>
+      let mut files := #[]
+      for entry in (← path.readDir) do
+        files := files ++ (← discoverFiles entry.path (explicit := false))
+      pure files
+  | _ =>
+      if explicit then
+        throw <| IO.userError s!"test path must be a .ml file or directory: {path}"
+      else
+        pure #[]
+
+def relativeLabel (cwd : FilePath) (path : FilePath) : String :=
+  let cwdPrefix := cwd.toString ++ FilePath.pathSeparator.toString
+  if path.toString.startsWith cwdPrefix then
+    (path.toString.drop cwdPrefix.length).toString
+  else
+    path.toString
+
+def loadTest (cwd : FilePath) (path : FilePath) : IO Test := do
+  let contents ← IO.FS.readFile path
+  let firstLine := (contents.takeWhile (· != '\n')).toString
+  let config ← match parseDirective path firstLine with
+    | .ok config => pure config
+    | .error e => throw <| IO.userError e
+  let goldenPath := path.withExtension "out"
+  let golden := if ← goldenPath.pathExists then some goldenPath else none
+  return { path, label := relativeLabel cwd path, config, golden }
+
+partial def stripTrailingSep (s : String) : String :=
+  if s.length > 1 && s.endsWith FilePath.pathSeparator.toString then
+    stripTrailingSep (s.dropEnd 1).toString
+  else s
+
+def discoverTests (cwd : FilePath) (paths : Array FilePath) : IO (Array Test) := do
+  let mut files := #[]
+  for path in paths do
+    let path := FilePath.mk (stripTrailingSep path.toString)
+    let inputPath := if path.isAbsolute then path else cwd / path
+    if !(← inputPath.pathExists) then
+      throw <| IO.userError s!"test path does not exist: {inputPath}"
+    files := files ++ (← discoverFiles inputPath (explicit := true))
+  let sorted := files.qsort (fun a b => a.toString < b.toString)
+  sorted.mapM (loadTest cwd)
+
+/-! ## Test actions -/
+
+def runStdlibCompileIn (cwd tmpDir : FilePath) : IO TestOutcome := do
   let path := cwd / "mica.ml"
-  measureTestOutcome path <|
+  measureTestOutcome (relativeLabel cwd path) <|
     try
       runProcessWithTimeoutIn? "ocamlopt" #["-c", path.toString, "-o", "mica.cmx"]
         (some tmpDir) testTimeoutMs
@@ -110,12 +227,12 @@ def runStdlibCompileIn (tmpDir : FilePath) : IO TestOutcome := do
         stderr := s!"failed to run ocamlopt: {e}\n"
       })
 
-def runOcamlExampleCompileIn (tmpDir : FilePath) (idx : Nat) (file : FilePath) : IO TestOutcome := do
+def compileTest (tmpDir : FilePath) (idx : Nat) (test : Test) : IO TestOutcome := do
   let out := tmpDir / s!"example_{idx}.cmx"
-  measureTestOutcome file <|
+  measureTestOutcome test.label <|
     try
       runProcessWithTimeoutIn? "ocamlopt"
-        #["-I", tmpDir.toString, "-c", file.toString, "-o", out.toString]
+        #["-I", tmpDir.toString, "-c", test.path.toString, "-o", out.toString]
         (some tmpDir) testTimeoutMs
     catch e =>
       pure (.terminated {
@@ -124,48 +241,78 @@ def runOcamlExampleCompileIn (tmpDir : FilePath) (idx : Nat) (file : FilePath) :
         stderr := s!"failed to run ocamlopt: {e}\n"
       })
 
-def parseTestsuiteArgs : List String → TestsuiteOptions → Except String TestsuiteOptions
-  | [], opts => .ok opts
-  | "--summary-only" :: rest, opts =>
-      parseTestsuiteArgs rest { opts with summaryOnly := true }
-  | "--mica" :: path :: rest, opts =>
-      parseTestsuiteArgs rest { opts with mica := some path }
-  | arg :: rest, opts =>
-      if arg.startsWith "-" then .error s!"unknown option '{arg}'"
-      else match opts.dir with
-        | none => parseTestsuiteArgs rest { opts with dir := some arg }
-        | some _ => .error testsuiteUsage
+def stripAnsi (s : String) : String :=
+  (s.replace "\x1b[1m" "").replace "\x1b[0m" ""
 
-def resolveInputPath (path : FilePath) : IO FilePath := do
-  let cwd ← IO.currentDir
-  let inputPath := if path.isAbsolute then path else cwd / path
-  if !(← inputPath.pathExists) then
-    throw <| IO.userError s!"test path does not exist: {inputPath}"
-  pure inputPath
+def ensureNewline (s : String) : String :=
+  if s.isEmpty || s.endsWith "\n" then s else s ++ "\n"
 
-def isMlFile (path : FilePath) : IO Bool := do
-  if path.extension != some "ml" then
-    return false
-  let metadata ← path.metadata
-  return metadata.type == .file
+/-- The text a golden `.out` file is compared against: stdout then stderr
+    (ANSI-stripped), followed by a `[<code>]` line for nonzero exits. -/
+def renderActual (out : ProcessOutput) : String :=
+  let base := ensureNewline (stripAnsi out.stdout) ++ ensureNewline (stripAnsi out.stderr)
+  if out.exitCode == 0 then base else base ++ s!"[{out.exitCode}]\n"
 
-partial def discoverTests (path : FilePath) : IO (Array FilePath) := do
-  let metadata ← path.metadata
-  match metadata.type with
-  | .file =>
-      if ← isMlFile path then
-        pure #[path]
+def diffStrings (tmpDir : FilePath) (tag : String) (expected actual : String) : IO String := do
+  let expectedFile := tmpDir / s!"{tag}.expected"
+  let actualFile := tmpDir / s!"{tag}.actual"
+  IO.FS.writeFile expectedFile expected
+  IO.FS.writeFile actualFile actual
+  let out ← IO.Process.output {
+    cmd := "diff"
+    args := #["-u", "-L", "expected", "-L", "actual",
+      expectedFile.toString, actualFile.toString]
+  }
+  pure out.stdout
+
+def checkTest (mica : FilePath) (opts : Options) (tmpDir : FilePath) (idx : Nat) (test : Test) :
+    IO TestOutcome := do
+  -- Pass the cwd-relative path so file positions in golden output stay portable.
+  let outcome ← measureTestOutcome test.label <|
+    runProcessWithTimeout mica.toString
+      (test.config.flags.push test.label) testTimeoutMs
+  let some goldenPath := test.golden
+    | return outcome
+  match outcome.result with
+  | .timeout _ => return outcome
+  | .terminated out =>
+      let actual := renderActual out
+      let expected ← IO.FS.readFile goldenPath
+      if actual == expected then
+        return { outcome with result := .terminated { exitCode := 0, stdout := "", stderr := "" } }
+      else if opts.promote then
+        IO.FS.writeFile goldenPath actual
+        let note := s!"promoted {goldenPath.fileName.getD goldenPath.toString}\n"
+        return { outcome with result := .terminated { exitCode := 0, stdout := note, stderr := "" } }
       else
-        throw <| IO.userError s!"test file must end in .ml: {path}"
-  | .dir =>
-      let entries ← path.readDir
-      let mut tests := #[]
-      for entry in entries do
-        let entryTests ← discoverTests entry.path
-        tests := tests ++ entryTests
-      pure <| tests.qsort (fun a b => a.toString < b.toString)
-  | _ =>
-      throw <| IO.userError s!"test path must be a .ml file or directory: {path}"
+        let diff ← diffStrings tmpDir s!"golden_{idx}" expected actual
+        return { outcome with result := .terminated { exitCode := 1, stdout := diff, stderr := "" } }
+
+/-- Check that `--print-ocaml` output reparses to the same print (fixpoint). -/
+def roundtripTest (mica : FilePath) (tmpDir : FilePath) (idx : Nat) (test : Test) :
+    IO TestOutcome := do
+  measureTestOutcome test.label do
+    let args := fun (file : FilePath) => #["--print-ocaml", "--no-check", file.toString]
+    let r1 ← runProcessWithTimeout mica.toString (args test.path) testTimeoutMs
+    let .terminated out1 := r1
+      | return r1
+    if out1.exitCode != 0 then
+      return .terminated { out1 with stdout := "roundtrip: initial print failed\n" ++ out1.stdout }
+    let reprinted := tmpDir / s!"roundtrip_{idx}.ml"
+    IO.FS.writeFile reprinted out1.stdout
+    let r2 ← runProcessWithTimeout mica.toString (args reprinted) testTimeoutMs
+    let .terminated out2 := r2
+      | return r2
+    if out2.exitCode != 0 then
+      return .terminated
+        { out2 with stdout := "roundtrip: reparse of printed output failed\n" ++ out2.stdout }
+    if out2.stdout == out1.stdout then
+      return .terminated { exitCode := 0, stdout := "", stderr := "" }
+    else
+      let diff ← diffStrings tmpDir s!"roundtrip_{idx}" out1.stdout out2.stdout
+      return .terminated { exitCode := 1, stdout := "roundtrip: print is not a fixpoint\n" ++ diff, stderr := "" }
+
+/-! ## Reporting -/
 
 def printOutputBlock (output : String) : IO Unit := do
   unless output.isEmpty do
@@ -192,13 +339,6 @@ def resultSuffix (test : TestOutcome) : String :=
   | .timeout ms => s!" timed out after {ms}ms"
   | .terminated output => if output.exitCode == 0 then s!" ✓{elapsed}" else s!" ⨯{elapsed}"
 
-def recordFailure (failed : List TestOutcome) (test : TestOutcome) : List TestOutcome :=
-  if isFailure test.result then test :: failed else failed
-
-def printTestHeader (verb filename : String) : IO Unit := do
-  IO.print s!"{verb} {filename} ..."
-  (← IO.getStdout).flush
-
 private def bold (s : String) : String := s!"\x1b[1m{s}\x1b[0m"
 
 def printFailureSummary (failed : List TestOutcome) : IO Unit := do
@@ -207,56 +347,20 @@ def printFailureSummary (failed : List TestOutcome) : IO Unit := do
     let suffix := match test.result with
       | .timeout _ => " (timed out)"
       | .terminated _ => ""
-    IO.println s!"- {test.path.fileName.getD test.path.toString}{suffix}"
+    IO.println s!"- {test.label}{suffix}"
 
-def reportTestOutcome (options : TestsuiteOptions) (failed : List TestOutcome) (verb : String)
-    (label : String) (test : TestOutcome) : IO (List TestOutcome) := do
-  printTestHeader verb label
-  IO.println (resultSuffix test)
-  let failed := recordFailure failed test
-  if !options.summaryOnly || isFailure test.result then
-    printCapturedOutput test
-  pure failed
-
-def reportTestOutcomes (options : TestsuiteOptions) (failed : List TestOutcome) (verb : String)
+def reportTestOutcomes (opts : Options) (failed : List TestOutcome) (verb : String)
     (tests : Array TestOutcome) : IO (List TestOutcome) := do
   let mut failed := failed
   for test in tests do
-    let filename := test.path.fileName.getD test.path.toString
-    failed ← reportTestOutcome options failed verb filename test
+    IO.print s!"{verb} {test.label} ..."
+    (← IO.getStdout).flush
+    IO.println (resultSuffix test)
+    if isFailure test.result then
+      failed := test :: failed
+    if !opts.summaryOnly || isFailure test.result then
+      printCapturedOutput test
   pure failed
-
-private partial def workerLoop (jobs : Array (IO TestOutcome)) (next : IO.Ref Nat)
-    (results : IO.Ref (Array (Option TestOutcome))) : IO Unit := do
-  let i ← next.modifyGet fun i => (i, i + 1)
-  if h : i < jobs.size then
-    let r ← jobs[i]
-    results.modify (·.set! i (some r))
-    workerLoop jobs next results
-
-/-- Run all jobs on a bounded pool of dedicated threads, preserving order. -/
-def runPool (jobs : Array (IO TestOutcome)) : IO (Array TestOutcome) := do
-  let next ← IO.mkRef 0
-  let results ← IO.mkRef (Array.replicate jobs.size (none : Option TestOutcome))
-  let workers := min poolSize (max jobs.size 1)
-  let tasks ← (Array.range workers).mapM fun _ =>
-    IO.asTask (workerLoop jobs next results) Task.Priority.dedicated
-  for t in tasks do
-    IO.ofExcept t.get
-  (← results.get).mapM fun
-    | some r => pure r
-    | none => throw <| IO.userError "testsuite: worker pool lost a result"
-
-def runTestsuiteActions (mica : FilePath) (tests : Array FilePath) : IO TestsuiteOutcomes := do
-  IO.FS.withTempDir fun tmpDir => do
-    let stdlib ← runStdlibCompileIn tmpDir
-    let compile ←
-      if isFailure stdlib.result then
-        pure #[]
-      else
-        runPool (tests.mapIdx fun idx file => runOcamlExampleCompileIn tmpDir idx file)
-    let check ← runPool (tests.map fun file => runTest mica file)
-    return { compile := #[stdlib] ++ compile, check := check }
 
 def printTestsuiteSummary (failed : List TestOutcome) : IO UInt32 := do
   IO.println ""
@@ -267,24 +371,64 @@ def printTestsuiteSummary (failed : List TestOutcome) : IO UInt32 := do
     printFailureSummary failed
     return 1
 
+/-! ## Entry point -/
+
+def parseOptions : List String → Options → Except String Options
+  | [], opts => .ok opts
+  | "--summary-only" :: rest, opts => parseOptions rest { opts with summaryOnly := true }
+  | "--promote" :: rest, opts => parseOptions rest { opts with promote := true }
+  | "--mica" :: path :: rest, opts => parseOptions rest { opts with mica := some path }
+  | ["--mica"], _ => .error usage
+  | arg :: rest, opts =>
+    if arg.startsWith "-" then .error s!"unknown option '{arg}'\n{usage}"
+    else parseOptions rest { opts with paths := opts.paths.push arg }
+
+def defaultPaths (cwd : FilePath) : IO (Array FilePath) := do
+  let candidates := #[cwd / "Examples", cwd / "Tests"]
+  let paths ← candidates.filterM (·.pathExists)
+  if paths.isEmpty then
+    throw <| IO.userError "no test paths given and neither Examples/ nor Tests/ exists"
+  pure paths
+
+def run (mica : FilePath) (opts : Options) : IO UInt32 := do
+  let cwd ← IO.currentDir
+  let paths ← if opts.paths.isEmpty then defaultPaths cwd else pure opts.paths
+  let tests ← discoverTests cwd paths
+  IO.FS.withTempDir fun tmpDir => do
+    let stdlib ← runStdlibCompileIn cwd tmpDir
+    let compileOutcomes ←
+      if isFailure stdlib.result then
+        pure #[]
+      else
+        let compileTests := tests.filter (!·.config.noCompile)
+        runPool (compileTests.mapIdx fun idx test => compileTest tmpDir idx test)
+    let checkOutcomes ← runPool (tests.mapIdx fun idx test => checkTest mica opts tmpDir idx test)
+    let roundtripTests := tests.filter (·.config.roundtrip)
+    let roundtripOutcomes ←
+      runPool (roundtripTests.mapIdx fun idx test => roundtripTest mica tmpDir idx test)
+    let failed ← reportTestOutcomes opts [] "Compiling" (#[stdlib] ++ compileOutcomes)
+    IO.println ""
+    let failed ← reportTestOutcomes opts failed "Checking" checkOutcomes
+    unless roundtripOutcomes.isEmpty do
+      IO.println ""
+    let failed ← reportTestOutcomes opts failed "Roundtrip" roundtripOutcomes
+    printTestsuiteSummary failed
+
 def main (args : List String) : IO UInt32 := do
-  let opts ← match parseTestsuiteArgs args {} with
+  let opts ← match parseOptions args {} with
     | .ok opts => pure opts
     | .error e => do
         IO.eprintln e
         return 1
-  let (some mica, some dir) := (opts.mica, opts.dir)
+  let some mica := opts.mica
     | do
-        IO.eprintln testsuiteUsage
+        IO.eprintln usage
         return 1
   if !(← mica.pathExists) then
     IO.eprintln s!"mica executable not found at {mica}; run `lake build` first"
     return 1
-  let inputPath ← resolveInputPath dir
-  let tests ← discoverTests inputPath
-  let outcomes ← runTestsuiteActions mica tests
-  let failed ← reportTestOutcomes opts [] "Compiling" outcomes.compile
-  unless outcomes.check.isEmpty do
-    IO.println ""
-  let failed ← reportTestOutcomes opts failed "Checking" outcomes.check
-  printTestsuiteSummary failed
+  try
+    run mica opts
+  catch e =>
+    IO.eprintln s!"testsuite: {e}"
+    return (1 : UInt32)
