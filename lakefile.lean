@@ -44,17 +44,19 @@ script «generate-docs» (args) := do
   if rc ≠ 0 then return rc
   runOverviews
 
-/-- Build the testsuite runner (`Testsuite.lean`) and forward the arguments to it. -/
+/-- Build mica and the testsuite runner (`Testsuite.lean`), then forward the
+    arguments to the runner. -/
 script testsuite (args) := do
   let some mica ← Lake.findLeanExe? `mica
     | error "mica executable undefined"
-  if not (← mica.file.pathExists) then
-    error "mica executable has not been built"
   let some suite ← Lake.findLeanExe? `«testsuite-runner»
     | error "testsuite-runner executable undefined"
-  let exeFile ← runBuild suite.exe.fetch
+  let (micaFile, exeFile) ← runBuild do
+    let micaJob ← mica.exe.fetch
+    let suiteJob ← suite.exe.fetch
+    return micaJob.zipWith (fun m s => (m, s)) suiteJob
   let child ← IO.Process.spawn {
     cmd := exeFile.toString
-    args := #["--mica", mica.file.toString] ++ args.toArray
+    args := #["--mica", micaFile.toString] ++ args.toArray
   }
   child.wait
