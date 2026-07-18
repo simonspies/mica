@@ -1,3 +1,4 @@
+(* TEST: roundtrip *)
 open Mica
 
 (* Functions that use tuples as arguments or return values. *)

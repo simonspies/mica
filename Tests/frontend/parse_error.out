@@ -1,0 +1,2 @@
+parse error: Tests/frontend/parse_error.ml:5:14: expected expression, got ';;'
+[1]

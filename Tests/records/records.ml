@@ -1,3 +1,4 @@
+(* TEST: roundtrip *)
 open Mica
 
 (* Record syntax elaborates to tuple-shaped products in the frontend. *)

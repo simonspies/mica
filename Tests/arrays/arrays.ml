@@ -1,3 +1,4 @@
+(* TEST: roundtrip *)
 open Mica
 
 (* Shared (unowned) arrays.

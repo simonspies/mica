@@ -1,3 +1,4 @@
+(* TEST: roundtrip *)
 open Mica
 
 let rec gcd (a: int) (b: int) : int =
