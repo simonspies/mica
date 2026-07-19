@@ -258,9 +258,11 @@ structure Lifting where
   arg : String
   body : Typed.Expr
 
-/-- State of the per-declaration rewrite: the occurrence counter and the
-lifted symbols in dependency order (inner occurrences precede outer ones). -/
+/-- State of the per-declaration rewrite: its program index, the occurrence
+counter, and the lifted symbols in dependency order (inner occurrences precede
+outer ones). -/
 structure LiftState where
+  declIdx : Nat := 0
   count : Nat := 0
   syms : List Lifting := []
 
@@ -313,11 +315,12 @@ private def lift (decl : Option String) (all : Bool) (binder : Typed.Binder)
   let some decl := decl
     | throw "Range.all/Range.exists in a specification require a named declaration"
   let st ← get
-  let name := s!"{decl}-range-{st.count}"
+  let name := s!"{decl}-range-{st.declIdx}-{st.count}"
   let captured := ((freeVars body).filter (fun v => binder.name != some v)).eraseDups
   let gBody := Typed.Expr.letProd
     (captured.map (fun x => ⟨some x, .value⟩) ++ [binder]) (.var (name ++ "-x") .value) body
-  set ({ count := st.count + 1,
+  set ({ declIdx := st.declIdx,
+         count := st.count + 1,
          syms := st.syms ++ [{ name, all, captured, arg := name ++ "-x", body := gBody }] } : LiftState)
   pure (.app (.var name (.arrow .value .bool))
     [.tuple (lo :: hi :: captured.map (fun x => Typed.Expr.var x .value))] .bool)
@@ -384,13 +387,14 @@ private def rewriteBody (decl : Option String) (body : Spec.Body Typed.Expr) :
     (fun (r, post) => do pure (r, ← rewriteAssert decl pure post)) body.2
   pure (body.1, pre)
 
-/-- Rewrite one declaration's spec, pairing it with the lifted symbols. -/
-def runDecl (d : Typed.ValDecl (Spec.Body Typed.Expr)) :
+/-- Rewrite one declaration's spec at its program index, pairing it with the
+lifted symbols. -/
+def runDecl (declIdx : Nat) (d : Typed.ValDecl (Spec.Body Typed.Expr)) :
     Except String (Typed.ValDecl (Spec.Body Typed.Expr) × List Lifting) :=
   match d.declMeta.spec with
   | none => .ok (d, [])
   | some body =>
-      match (rewriteBody d.name.name body).run {} with
+      match (rewriteBody d.name.name body).run { declIdx := declIdx } with
       | .error err => .error err
       | .ok (body', st) =>
           .ok ({ d with declMeta := { d.declMeta with spec := some body' } }, st.syms)
@@ -399,21 +403,28 @@ def runDecl (d : Typed.ValDecl (Spec.Body Typed.Expr)) :
 bounded-quantifier occurrences and pair each declaration with its lifted
 symbols in dependency order. Declaration bodies are untouched, so the
 program's runtime erasure is preserved (`run_runtime`). -/
-def run : Typed.Program (Spec.Body Typed.Expr) →
+private def runFrom : Nat → Typed.Program (Spec.Body Typed.Expr) →
     Except String (List (Typed.ValDecl (Spec.Body Typed.Expr) × List Lifting))
-  | [] => .ok []
-  | d :: ds =>
-      match runDecl d with
+  | _, [] => .ok []
+  | declIdx, d :: ds =>
+      match runDecl declIdx d with
       | .error err => .error err
       | .ok p =>
-          match run ds with
+          match runFrom (declIdx + 1) ds with
           | .error err => .error err
           | .ok ps => .ok (p :: ps)
 
+/-- Run the bounded-quantifier pass over a typed program. The declaration
+index makes generated symbol names unique even when top-level names are
+shadowed. -/
+def run (prog : Typed.Program (Spec.Body Typed.Expr)) :
+    Except String (List (Typed.ValDecl (Spec.Body Typed.Expr) × List Lifting)) :=
+  runFrom 0 prog
+
 /-- The pass leaves a declaration's name and body untouched. -/
-theorem runDecl_runtime {d : Typed.ValDecl (Spec.Body Typed.Expr)}
+theorem runDecl_runtime {declIdx : Nat} {d : Typed.ValDecl (Spec.Body Typed.Expr)}
     {p : Typed.ValDecl (Spec.Body Typed.Expr) × List Lifting}
-    (h : runDecl d = .ok p) : p.1.runtime = d.runtime := by
+    (h : runDecl declIdx d = .ok p) : p.1.runtime = d.runtime := by
   unfold runDecl at h
   split at h
   · cases h; rfl
@@ -423,17 +434,17 @@ theorem runDecl_runtime {d : Typed.ValDecl (Spec.Body Typed.Expr)}
 
 /-- The pass preserves the program's runtime erasure: only spec metadata
 changes. -/
-theorem run_runtime {prog : Typed.Program (Spec.Body Typed.Expr)}
+private theorem runFrom_runtime {declIdx : Nat} {prog : Typed.Program (Spec.Body Typed.Expr)}
     {pairs : List (Typed.ValDecl (Spec.Body Typed.Expr) × List Lifting)}
-    (h : run prog = .ok pairs) :
+    (h : runFrom declIdx prog = .ok pairs) :
     Typed.Program.runtime (pairs.map Prod.fst) = prog.runtime := by
-  induction prog generalizing pairs with
+  induction prog generalizing declIdx pairs with
   | nil =>
-    simp only [run, Except.ok.injEq] at h
+    simp only [runFrom, Except.ok.injEq] at h
     subst h
     rfl
   | cons d ds ih =>
-    rw [run] at h
+    rw [runFrom] at h
     split at h
     · cases h
     · rename_i p hd
@@ -446,6 +457,14 @@ theorem run_runtime {prog : Typed.Program (Spec.Body Typed.Expr)}
         have := ih hds
         simp only [Typed.Program.runtime] at this
         rw [this]
+
+/-- The pass preserves the program's runtime erasure: only spec metadata
+changes. -/
+theorem run_runtime {prog : Typed.Program (Spec.Body Typed.Expr)}
+    {pairs : List (Typed.ValDecl (Spec.Body Typed.Expr) × List Lifting)}
+    (h : run prog = .ok pairs) :
+    Typed.Program.runtime (pairs.map Prod.fst) = prog.runtime := by
+  exact runFrom_runtime h
 
 /-! ## Lifted closures -/
 
