@@ -79,6 +79,7 @@ structure ElabEnv where
   ctors    : List (Constructor × (Nat × Nat × TinyML.Typ))   := []
   fields   : List (FieldName × (TypeConstructor × Nat))      := []
   records  : List (TypeConstructor × List (FieldName × TinyML.Typ)) := []
+  locals   : List Var                                        := []
   resolver : Resolver
 
 -- ---------------------------------------------------------------------------
@@ -88,6 +89,40 @@ private abbrev ElabM := Except ElaborateError
 
 private def err (loc : Location) (kind : ElaborateErrorKind) : ElabM α :=
   .error { loc, kind }
+
+private def Pattern.binderName? (pat : Pattern) : Option Var :=
+  match pat.kind with
+  | .binder (some name) _ => some name
+  | _ => none
+
+private def Pattern.productBoundNames (pat : Pattern) : List Var :=
+  match pat.kind with
+  | .tuple pats => pats.filterMap Pattern.binderName?
+  | .record fields => fields.filterMap (fun (_, field) => field.binderName?)
+  | _ => []
+
+private def Pattern.boundNames (pat : Pattern) : List Var :=
+  match pat.kind with
+  | .binder (some name) _ => [name]
+  | .ctor _ (some payload) =>
+      match payload.binderName? with
+      | some name => [name]
+      | none => payload.productBoundNames
+  | .tuple _ | .record _ => pat.productBoundNames
+  | _ => []
+
+private def ElabEnv.bindPattern (env : ElabEnv) (pat : Pattern) : ElabEnv :=
+  { env with locals := pat.boundNames ++ env.locals }
+
+private def ElabEnv.bindPatterns (env : ElabEnv) (pats : List Pattern) : ElabEnv :=
+  { env with locals := pats.flatMap Pattern.boundNames ++ env.locals }
+
+private def ElabEnv.bindBinder (env : ElabEnv) : Untyped.Binder → ElabEnv
+  | .none => env
+  | .named name _ => { env with locals := name :: env.locals }
+
+private def ElabEnv.isLocal (env : ElabEnv) (name : Var) : Bool :=
+  env.locals.elem name
 
 -- ---------------------------------------------------------------------------
 -- Type elaboration
@@ -401,12 +436,21 @@ def ExprKind.elaborate (env : ElabEnv) (loc : Location) : ExprKind → ElabM Unt
       | none => err loc (.unsupportedPath path)
     else
       let name := path.head
-      match name with
-      | "ref" | "not" => err loc (.bareSpecialIdentifier name)
-      | _ =>
-        match List.lookup name env.ctors with
-        | some (tag, arity, _) => .ok (.inj tag arity (.const .unit))
-        | none => .ok (.var name)
+      if env.isLocal name then
+        .ok (.var name)
+      else
+        match name with
+        | "ref" | "not" => err loc (.bareSpecialIdentifier name)
+        | _ =>
+          match List.lookup name env.ctors with
+          | some (tag, arity, _) => .ok (.inj tag arity (.const .unit))
+          | none =>
+            -- Bare prelude values resolve only when no lexical binder shadows
+            -- them; qualified paths always resolve through the resolver.
+            match env.resolver.value path with
+            | some (.primitive n .function) => .ok (.prim n)
+            | some (.primitive n .nullary) => .ok (.app (.prim n) [])
+            | _ => .ok (.var name)
 
   | .ctor path =>
     if path.isQualified then
@@ -419,13 +463,13 @@ def ExprKind.elaborate (env : ElabEnv) (loc : Location) : ExprKind → ElabM Unt
   | .app fn args =>
     match fn.kind with
     | .var path =>
-      if !path.isQualified && path.head == "not" then
+      if !path.isQualified && !env.isLocal path.head && path.head == "not" then
         match args with
         | [arg] => do
           let arg' ← Expr.elaborate env arg
           .ok (.unop .not arg')
         | _ => err loc (.arityMismatch 1 args.length)
-      else if !path.isQualified && path.head == "ref" then
+      else if !path.isQualified && !env.isLocal path.head && path.head == "ref" then
         match args with
         | [arg] => do
           let arg' ← Expr.elaborate env arg
@@ -578,10 +622,10 @@ def ExprKind.elaborate (env : ElabEnv) (loc : Location) : ExprKind → ElabM Unt
     | [] => err loc (.unsupportedFeature "let with no binders")
     | [pat] => do
       let bound' ← Expr.elaborate env bound
-      let body' ← Expr.elaborate env body
       if isRec then
         err loc (.unsupportedFeature "let rec requires function arguments")
       else
+        let body' ← Expr.elaborate (env.bindPattern pat) body
         if isProductPattern pat then
           let names ← patternToProductBinders env pat
           .ok (.letProd names bound' body')
@@ -591,14 +635,16 @@ def ExprKind.elaborate (env : ElabEnv) (loc : Location) : ExprKind → ElabM Unt
     | pat :: args => do
       let name ← patternToBinder pat
       let self := if isRec then name else .none
-      let bound' ← Expr.elaborate env bound
+      let boundEnv := env.bindPatterns args
+      let boundEnv := if isRec then boundEnv.bindPattern pat else boundEnv
+      let bound' ← Expr.elaborate boundEnv bound
       let (args', bound'') ← elaborateFunctionArgs env "$param" 0 args bound'
-      let body' ← Expr.elaborate env body
+      let body' ← Expr.elaborate (env.bindPattern pat) body
       .ok (.letIn name (.fix self args' none bound'') body')
 
   | .fun_ args retTy body => do
     let retTy' ← elaborateOptTyp env retTy
-    let body' ← Expr.elaborate env body
+    let body' ← Expr.elaborate (env.bindPatterns args) body
     let (args', body'') ← elaborateFunctionArgs env "$param" 0 args body'
     .ok (.fix .none args' retTy' body'')
 
@@ -651,7 +697,6 @@ def MatchArm.elaborateList (env : ElabEnv)
     : List MatchArm → ElabM (List (Constructor × Option Untyped.Binder × Untyped.Expr))
   | [] => .ok []
   | ⟨pat, body⟩ :: arms => do
-    let body' ← Expr.elaborate env body
     let (ctorName, binder, body'') ← match pat.kind with
       | .ctor path payload => do
         let name ← if path.isQualified then
@@ -664,6 +709,7 @@ def MatchArm.elaborateList (env : ElabEnv)
           | none => err pat.loc (.unknownConstructor name)
         let (binder, body'') ← match payload with
           | some p =>
+            let body' ← Expr.elaborate (env.bindPattern p) body
             match payloadTy with
             | .tuple _ =>
                 if isProductPattern p then do
@@ -680,6 +726,7 @@ def MatchArm.elaborateList (env : ElabEnv)
                   let b ← patternToBinder p
                   pure (some b, body')
           | none =>
+            let body' ← Expr.elaborate env body
             match payloadTy with
             | .prim .unit => pure (none, body')
             | _ => err pat.loc (.unsupportedPattern "constructor payload must be matched")
@@ -786,7 +833,9 @@ def ValDecl.elaborate (env : ElabEnv) (loc : Location)
     let name ← patternToBinder pat
     let self := if isRec then name else .none
     let retTy' ← elaborateOptTyp env retTy
-    let body' ← Expr.elaborate env body
+    let bodyEnv := env.bindPatterns args
+    let bodyEnv := if isRec then bodyEnv.bindPattern pat else bodyEnv
+    let body' ← Expr.elaborate bodyEnv body
     let (args', body'') ← elaborateFunctionArgs env "$param" 0 args body'
     .ok { name, body := .fix self args' retTy' body'', declMeta := md }
 
@@ -839,7 +888,7 @@ def Decl.elaborate (env : ElabEnv) (decl : Decl)
       | .named x _ => .ok (some x)
       | .none => err decl.loc (.unsupportedFeature "[@@fn] requires a named declaration")
     else .ok none
-    .ok (env, some (.val_ { d with declMeta := { d.declMeta with relation } }))
+    .ok (env.bindBinder d.name, some (.val_ { d with declMeta := { d.declMeta with relation } }))
 
 private def elaborateDecls (env : ElabEnv) :
     List Decl → ElabM (List (Untyped.Decl (Spec.Body Untyped.Expr)))

@@ -2,6 +2,7 @@
 
 - `CharStd.lean` — Character intrinsics (`Char.code`, `Char.chr`, `Char.equal`) and their soundness instances.
 - `Combinators.lean` — Embeddings and the pure-intrinsic builders (`Pure.Zero`/`Pure.Unary`/`Pure.Binary`/`Pure.Ternary`) that emit an intrinsic and its soundness instance.
+- `ErrorStd.lean` — Error intrinsics (`failwith`, `invalid_arg`): precondition `False`, so the verifier must prove every raise unreachable.
 - `FloatStd.lean` — IEEE binary64 float intrinsics (`Float.abs`, `add`, `min`, `equal`, `nan`, …) and soundness instances.
 - `FunStd.lean` — `Fun.id`
 - `IntStd.lean` — Integer-arithmetic intrinsics (`Int.min`, `Int.max`) and their soundness instances.

@@ -7,6 +7,7 @@ import Mica.Stdlib.StringStd
 import Mica.Stdlib.FloatStd
 import Mica.Stdlib.FunStd
 import Mica.Stdlib.VecStd
+import Mica.Stdlib.ErrorStd
 import Mica.Frontend.Resolver
 
 open Iris Iris.BI
@@ -18,6 +19,8 @@ open Verifier
 def registry : Registry := [
   Verifier.BoundedQuantifier.allIntrinsic,
   Verifier.BoundedQuantifier.existsIntrinsic,
+  Intrinsics.failwith,
+  Intrinsics.invalidArg,
   Intrinsics.vecMake,
   Intrinsics.vecSet,
   Intrinsics.vecGet,

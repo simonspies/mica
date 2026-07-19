@@ -191,6 +191,12 @@ def Embedding.poly (v : TinyML.TyVar) : Embedding :=
   ⟨.tvar v, Runtime.Val, id, id,
     fun σ Θ w => TinyML.ValHasType Θ w (σ v), none⟩
 
+/-- The empty type: no closed values inhabit it. Trivial `Unit` carrier with a
+    `False` type predicate, so only an intrinsic with an unsatisfiable domain
+    can use it as a result. No `is-of` recognizer, so no type axiom. -/
+def Embedding.empty : Embedding :=
+  ⟨.empty, Unit, fun _ => .unit, fun _ => (), fun _ _ _ => iprop(False), none⟩
+
 /-- Vectors of an arbitrary element scheme: element lists, with the big-sep of
     instantiated element typings as the type predicate. -/
 def Embedding.vec (elem : TinyML.Typ) : Embedding :=
@@ -283,6 +289,23 @@ def Embedding.lawfulPoly (v : TinyML.TyVar) : (Embedding.poly v).Lawful where
   intro σ Θ x := by
     simp only [Embedding.poly, TinyML.Typ.subst]
     exact .rfl
+
+/-- The empty embedding is lawful: `ValHasType` at `.empty` is `False`, so both
+    typing directions are vacuous. -/
+def Embedding.lawfulEmpty : Embedding.empty.Lawful where
+  project_inject _ := rfl
+  isOf_wf _ _ h := nomatch h
+  isOf_inject _ _ _ h := nomatch h
+  member σ Θ w := by
+    simp only [Embedding.empty, TinyML.Typ.subst]
+    refine (TinyML.ValHasType.empty Θ w).trans ?_
+    constructor
+    · exact false_elim
+    · iintro ⟨%x, %hw, H⟩
+      iexact H
+  intro σ Θ x := by
+    simp only [Embedding.empty, TinyML.Typ.subst]
+    exact false_elim
 
 /-- Vectors are a lawful embedding: exactly the `ValHasType.vec` API. -/
 def Embedding.lawfulVec (elem : TinyML.Typ) : (Embedding.vec elem).Lawful where

@@ -1,3 +1,6 @@
+let failwith = Stdlib.failwith
+let invalid_arg = Stdlib.invalid_arg
+
 module String = struct
   let length = Stdlib.String.length
   let get = Stdlib.String.get
