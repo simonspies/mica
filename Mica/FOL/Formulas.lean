@@ -50,6 +50,21 @@ inductive Formula where
 def Formula.all (x : String) (τ : Srt) (body : Formula) : Formula :=
   .forall_ x τ [] body
 
+/-- Bi-implication, encoded as the two implications. -/
+@[simp]
+def Formula.iff (φ ψ : Formula) : Formula :=
+  .and (.implies φ ψ) (.implies ψ φ)
+
+/-- The value-sorted term is the encoded boolean `true`. -/
+@[simp]
+def Term.isTrue (t : Term .value) : Formula :=
+  .eq .value t (.unop .ofBool (.const (.b true)))
+
+/-- The value-sorted term is the encoded boolean `false`. -/
+@[simp]
+def Term.isFalse (t : Term .value) : Formula :=
+  .eq .value t (.unop .ofBool (.const (.b false)))
+
 def Pattern.freeVars : Pattern → List Var
   | .term t => t.freeVars
   | .unpred _ t => t.freeVars

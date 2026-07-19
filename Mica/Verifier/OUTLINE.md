@@ -3,6 +3,7 @@
 - `Assertions.lean` — Assertion language for specifications, together with its semantics, well-formedness conditions, and verifier operations.
 - `Atoms.lean` — Verifier atoms for pure and spatial facts, together with their interpretations, resolution procedures, and correctness lemmas.
 - `Bindings.lean` — Verifier variable-to-constant bindings, their semantic linkage to runtime substitutions, and typing/lookup lemmas.
+- `BoundedQuantifier.lean` — Lambda lifting of spec-level bounded quantifiers (Range.all/Range.exists) into axiomatized function symbols.
 - `Expressions.lean` — Compilation of typed TinyML expressions into verifier terms, with weakest-precondition correctness proofs.
 - `Functions.lean` — Verification of function bodies against specifications, including the soundness of specification checking.
 - `Guard.lean` — The guard constant deactivating quantified axioms in low-effort checks, effort levels, and guarded axioms.

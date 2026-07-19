@@ -496,6 +496,56 @@ def relSplitEnv (ρ : Env) (fn : SpecFn)
   ((ρ.updateBinaryRel .value .value fn.relName R).updateUnary .value .value (fn.funcName) F)
     |>.updateUnaryRel .value (fn.defName) D
 
+/-- Interpreting the triple's three fresh names leaves `Δ`-agreement intact. -/
+theorem relSplitEnv_agreeOn {Δ : Signature} {fn : SpecFn} {ρ : Env}
+    {R : Srt.value.denote → Srt.value.denote → Prop}
+    {D : Srt.value.denote → Prop} {F : Srt.value.denote → Srt.value.denote}
+    (hrel : fn.relName ∉ Δ.allNames)
+    (hfun : fn.funcName ∉ Δ.allNames)
+    (hdef : fn.defName ∉ Δ.allNames) :
+    Env.agreeOn Δ ρ (relSplitEnv ρ fn R D F) :=
+  Env.agreeOn_trans
+    (Env.agreeOn_update_fresh_binaryRel (b := fn.rel) (f := R) hrel)
+    (Env.agreeOn_trans
+      (Env.agreeOn_update_fresh_unary (u := fn.func) (f := F) hfun)
+      (Env.agreeOn_update_fresh_unaryRel (u := fn.defined) (f := D) hdef))
+
+theorem relSplitEnv_evalDefined (fn : SpecFn) (ρ : Env)
+    {R : Srt.value.denote → Srt.value.denote → Prop}
+    {D : Srt.value.denote → Prop} {F : Srt.value.denote → Srt.value.denote}
+    (v : Srt.value.denote) :
+    SpecFn.evalDefined fn (relSplitEnv ρ fn R D F) v ↔ D v := by
+  simp [relSplitEnv, SpecFn.evalDefined, SpecFn.defined, SpecFn.defName,
+    Env.updateUnaryRel, Env.updateUnary, Env.updateBinaryRel]
+
+theorem relSplitEnv_evalCall (fn : SpecFn) (ρ : Env)
+    {R : Srt.value.denote → Srt.value.denote → Prop}
+    {D : Srt.value.denote → Prop} {F : Srt.value.denote → Srt.value.denote}
+    (v : Srt.value.denote) :
+    SpecFn.evalCall fn (relSplitEnv ρ fn R D F) v = F v := by
+  simp [relSplitEnv, SpecFn.evalCall, SpecFn.func, SpecFn.funcName,
+    Env.updateUnaryRel, Env.updateUnary, Env.updateBinaryRel]
+
+theorem relSplitEnv_evalRelates (fn : SpecFn) (ρ : Env)
+    {R : Srt.value.denote → Srt.value.denote → Prop}
+    {D : Srt.value.denote → Prop} {F : Srt.value.denote → Srt.value.denote}
+    (a b : Srt.value.denote) :
+    SpecFn.evalRelates fn (relSplitEnv ρ fn R D F) a b ↔ R a b := by
+  simp [relSplitEnv, SpecFn.evalRelates, SpecFn.rel, SpecFn.relName,
+    Env.updateUnaryRel, Env.updateUnary, Env.updateBinaryRel]
+
+/-- With graph-shaped interpretations, the interpreted environment presents
+the relation as the graph of the value function on the definedness domain. -/
+theorem relSplitEnv_graph (fn : SpecFn) (ρ : Env)
+    {R : Srt.value.denote → Srt.value.denote → Prop}
+    {D : Srt.value.denote → Prop} {F : Srt.value.denote → Srt.value.denote}
+    (hgraph : ∀ a b, R a b ↔ D a ∧ F a = b) (a b : Srt.value.denote) :
+    SpecFn.evalRelates fn (relSplitEnv ρ fn R D F) a b ↔
+      SpecFn.evalDefined fn (relSplitEnv ρ fn R D F) a ∧
+        SpecFn.evalCall fn (relSplitEnv ρ fn R D F) a = b := by
+  simp only [relSplitEnv_evalRelates, relSplitEnv_evalDefined, relSplitEnv_evalCall]
+  exact hgraph a b
+
 /-- Environment for evaluating a split encoded body at input `vin`, with
 recursive calls interpreted by `D` and `F`. -/
 def defEnv (ρ : Env) (fn : SpecFn) (x : String)
@@ -688,12 +738,8 @@ theorem splitSound_cons_relSplitEnv
   cases hmem with
   | head =>
       have hsplit' : D x ∧ F x = y := by
-        simpa [SpecFn.evalDefined, SpecFn.evalCall, SpecFn.defined, SpecFn.func,
-          relSplitEnv, Env.updateBinaryRel, Env.updateUnary, Env.updateUnaryRel]
-          using hsplit
-      simpa [SpecFn.evalRelates, SpecFn.rel, relSplitEnv,
-        Env.updateBinaryRel, Env.updateUnary, Env.updateUnaryRel]
-        using hRF x y hsplit'
+        simpa [relSplitEnv_evalDefined, relSplitEnv_evalCall] using hsplit
+      simpa [relSplitEnv_evalRelates] using hRF x y hsplit'
   | tail _ htail =>
       have hnames := hfresh g fn' htail
       have hsplit' : fn'.evalDefined ρ x ∧ fn'.evalCall ρ x = y := by
