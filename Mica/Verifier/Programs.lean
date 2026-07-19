@@ -142,12 +142,15 @@ private def declareLifting (acc : RelationSpec) (s : Verifier.BoundedQuantifier.
     VerifM RelationSpec :=
   match s.validate acc.delta with
   | .error msg => VerifM.fatal msg
-  | .ok _ => do
-      s.declare
-      pure { symbols := acc.symbols ++ [SpecFn.rel s.name],
-             axioms := acc.axioms ++ s.axioms,
-             functionMap := acc.functionMap ++ [(s.name, s.name)],
-             delta := s.extendSignature acc.delta }
+  | .ok _ =>
+      match s.compile acc.functionMap acc.delta with
+      | .error msg => VerifM.fatal msg
+      | .ok body => do
+          s.declare body
+          pure { symbols := acc.symbols ++ [SpecFn.rel s.name],
+                 axioms := acc.axioms ++ s.axioms body,
+                 functionMap := acc.functionMap ++ [(s.name, s.name)],
+                 delta := s.extendSignature acc.delta }
 
 private def assembleFrom : RelationSpec → Typed.Program (Spec.Body Typed.Expr) → VerifM RelationSpec
   | acc, [] => pure acc
@@ -155,21 +158,19 @@ private def assembleFrom : RelationSpec → Typed.Program (Spec.Body Typed.Expr)
       let acc' ← declareAndAssume acc d
       assembleFrom acc' ds
 
-/-- Declare the lifted bounded quantifiers in lift order: each closure is
-axiomatized as a synthetic relation declaration, then its quantifier symbol
-is defined on top of it. -/
+/-- Compile and declare the lifted bounded quantifiers in lift order. Earlier
+symbols are available while compiling later bodies, which supports nesting. -/
 private def assembleLiftings : RelationSpec → List Verifier.BoundedQuantifier.Lifting → VerifM RelationSpec
   | acc, [] => pure acc
   | acc, s :: ss => do
-      let acc' ← declareAndAssume acc s.closureDecl
-      let acc'' ← declareLifting acc' s
-      assembleLiftings acc'' ss
+      let acc' ← declareLifting acc s
+      assembleLiftings acc' ss
 
 /-- Assemble the global relation signature and function-name map for a typed
 program paired with its lifted bounded quantifiers. Quantifier symbols are
 declared after all program declarations: assembly never consults specs, and
-the only cross-references between lifted closures — inner occurrences
-captured by outer ones — respect the lift order, which `flatMap` preserves. -/
+the only cross-references between lifted bodies — inner occurrences captured
+by outer ones — respect the lift order, which `flatMap` preserves. -/
 def assemble (pairs : List (Typed.ValDecl (Spec.Body Typed.Expr) × List Verifier.BoundedQuantifier.Lifting)) :
     VerifM RelationSpec := do
   let Δ ← VerifM.ctx (fun st => (st.decls, st.owns))
@@ -305,9 +306,8 @@ private theorem assembleFrom_correct (prog : Typed.Program (Spec.Body Typed.Expr
       VerifM.Env.agreeOn_trans hag' (VerifM.Env.agreeOn_mono hsub' hagRel), hQ⟩
 
 omit [MicaGS HasLC.hasLC Sig] in
-/-- Declaring one lifted bounded quantifier preserves the assembly
-invariants; its closure's symbols must already be declared (checked by
-`validate`). -/
+/-- Compiling and declaring one lifted bounded quantifier preserves the
+assembly invariants. -/
 private theorem declareLifting_correct (s : Verifier.BoundedQuantifier.Lifting)
     (acc : RelationSpec) (st : TransState) (ρ : VerifM.Env)
     {Q : RelationSpec → TransState → VerifM.Env → Prop}
@@ -324,17 +324,25 @@ private theorem declareLifting_correct (s : Verifier.BoundedQuantifier.Lifting)
     exact (VerifM.eval_fatal heval).elim
   | ok v =>
     simp only [hvalid] at heval
-    obtain ⟨st4, ρ4, hdelta, howns4, hvars4, hwf4, hsub4, hagree4,
-      hΓwf4, hsplit4, hdet4, hcont⟩ :=
-      Verifier.BoundedQuantifier.Lifting.declare_correct s acc.delta acc.functionMap st ρ
-        v.down hacc.symm howns hvars
-        (hacc ▸ hwf) (hacc ▸ hΓwf) hsplit hdet (VerifM.eval_bind heval)
-    exact ⟨{ symbols := acc.symbols ++ [SpecFn.rel s.name],
-             axioms := acc.axioms ++ s.axioms,
-             functionMap := acc.functionMap ++ [(s.name, s.name)],
-             delta := s.extendSignature acc.delta }, st4, ρ4,
-      ⟨hdelta.symm, howns4, hvars4, hwf4, hΓwf4, hsplit4, hdet4⟩,
-      hsub4, hagree4, VerifM.eval_ret hcont⟩
+    cases hcompile : s.compile acc.functionMap acc.delta with
+    | error msg =>
+      simp only [hcompile] at heval
+      exact (VerifM.eval_fatal heval).elim
+    | ok body =>
+      simp only [hcompile] at heval
+      have hbody := Verifier.BoundedQuantifier.Lifting.compile_wfIn
+        v.down (hacc ▸ hwf) (hacc ▸ hΓwf) hcompile
+      obtain ⟨st4, ρ4, hdelta, howns4, hvars4, hwf4, hsub4, hagree4,
+        hΓwf4, hsplit4, hdet4, hcont⟩ :=
+        Verifier.BoundedQuantifier.Lifting.declare_correct s body acc.delta
+          acc.functionMap st ρ v.down hbody hacc.symm howns hvars
+          (hacc ▸ hwf) (hacc ▸ hΓwf) hsplit hdet (VerifM.eval_bind heval)
+      exact ⟨{ symbols := acc.symbols ++ [SpecFn.rel s.name],
+               axioms := acc.axioms ++ s.axioms body,
+               functionMap := acc.functionMap ++ [(s.name, s.name)],
+               delta := s.extendSignature acc.delta }, st4, ρ4,
+        ⟨hdelta.symm, howns4, hvars4, hwf4, hΓwf4, hsplit4, hdet4⟩,
+        hsub4, hagree4, VerifM.eval_ret hcont⟩
 
 omit [MicaGS HasLC.hasLC Sig] in
 private theorem assembleLiftings_correct (ss : List Verifier.BoundedQuantifier.Lifting) :
@@ -355,13 +363,11 @@ private theorem assembleLiftings_correct (ss : List Verifier.BoundedQuantifier.L
     intro acc st ρ Q hinv heval
     simp only [assembleLiftings] at heval
     obtain ⟨acc1, st1, ρ1, hinv1, hsub1, hag1, hcont1⟩ :=
-      declareAndAssume_correct s.closureDecl acc st ρ hinv (VerifM.eval_bind heval)
-    obtain ⟨acc2, st2, ρ2, hinv2, hsub2, hag2, hcont2⟩ :=
-      declareLifting_correct s acc1 st1 ρ1 hinv1 (VerifM.eval_bind hcont1)
-    obtain ⟨result, stRel, ρRel, hinvRel, hsubRel, hagRel, hQ⟩ := ih acc2 st2 ρ2 hinv2 hcont2
-    exact ⟨result, stRel, ρRel, hinvRel, (hsub1.trans hsub2).trans hsubRel,
-      VerifM.Env.agreeOn_trans hag1 (VerifM.Env.agreeOn_mono hsub1
-        (VerifM.Env.agreeOn_trans hag2 (VerifM.Env.agreeOn_mono hsub2 hagRel))), hQ⟩
+      declareLifting_correct s acc st ρ hinv (VerifM.eval_bind heval)
+    obtain ⟨result, stRel, ρRel, hinvRel, hsubRel, hagRel, hQ⟩ :=
+      ih acc1 st1 ρ1 hinv1 hcont1
+    exact ⟨result, stRel, ρRel, hinvRel, hsub1.trans hsubRel,
+      VerifM.Env.agreeOn_trans hag1 (VerifM.Env.agreeOn_mono hsub1 hagRel), hQ⟩
 
 omit [MicaGS HasLC.hasLC Sig] in
 theorem assemble_correct
