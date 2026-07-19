@@ -1,3 +1,4 @@
+(* TEST: roundtrip *)
 open Mica
 
 (* Option type with match expressions *)

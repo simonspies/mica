@@ -21,11 +21,12 @@ let rec triangle (n: int) : int =
 Build it and run it with:
 ```
 $ lake build
-$ lake exe mica Examples/recursive.ml
+$ lake exe mica Tests/recursion/recursive.ml
 Status: all declarations verified
 ```
 
-More examples are in the [`Examples/`](Examples/) directory.
+Larger case studies are in the [`Examples/`](Examples/) directory; small
+feature-targeted tests live under [`Tests/`](Tests/).
 
 ## How it works
 
@@ -54,7 +55,7 @@ Requires [Lean 4](https://lean-lang.org/) and [Z3](https://github.com/Z3Prover/z
 ```
 lake build                   # build the verifier
 lake build Exploration       # build experimental scratch files (optional)
-lake run testsuite Examples/ # run the testsuite
+lake run testsuite           # run the testsuite (Examples/ and Tests/)
 lake exe mica <file>         # the main executable 
 ```
 
@@ -70,4 +71,6 @@ lake exe mica <file>         # the main executable
 | `Mica/Verifier/` | Specification language, checking program expressions, and the verifier correctness development |
 | `Mica/Base/` | Shared utilities |
 | `Exploration/` | Experimental scratch files and extra executables |
-| `Examples/` | OCaml programs with `[@@spec ...]` annotations |
+| `Examples/` | Case studies: larger OCaml programs with `[@@spec ...]` annotations |
+| `Tests/` | Small feature-targeted tests, organized by feature, with expected `.out` files |
+| `Testsuite.lean` | The testsuite runner, invoked via `lake run testsuite` |
