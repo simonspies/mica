@@ -11,17 +11,11 @@ require iris from git
 
 lean_lib Mica
 
-lean_lib Exploration where globs := #[`Exploration.+]
-
 @[default_target] lean_exe mica where root := `Main
 
 lean_lib Testsuite where globs := #[`Testsuite.+]
 
 lean_exe «testsuite-runner» where root := `Testsuite
-
-lean_exe «dynamic-goal» where root := `Exploration.DynamicGoal
-
-lean_exe «smt-query» where root := `Exploration.SMTQuery
 
 def runFileSummaries (extraArgs : Array String) : IO UInt32 := do
   let child ← IO.Process.spawn {

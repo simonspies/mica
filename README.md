@@ -57,7 +57,6 @@ Requires [Lean 4](https://lean-lang.org/) and [Z3](https://github.com/Z3Prover/z
 
 ```
 lake build                   # build the verifier
-lake build Exploration       # build experimental scratch files (optional)
 lake run testsuite           # run the testsuite (Examples/ and Tests/)
 lake exe mica <file>         # the main executable 
 ```
@@ -73,7 +72,6 @@ lake exe mica <file>         # the main executable
 | `Mica/Engine/` | Generic infrastructure for interactive SMT sessions and drivers |
 | `Mica/Verifier/` | Specification language, checking program expressions, and the verifier correctness development |
 | `Mica/Base/` | Shared utilities |
-| `Exploration/` | Experimental scratch files and extra executables |
 | `Examples/` | Case studies: complete verified programs |
 | `Tests/` | Small feature-targeted tests, organized by feature, with expected `.out` files |
 | `Testsuite.lean` | The testsuite runner, invoked via `lake run testsuite` |
