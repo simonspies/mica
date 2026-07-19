@@ -85,14 +85,14 @@ def runTasks (mica : FilePath) (promote : Bool) (standalone : Bool)
   let cwd ← IO.currentDir
   IO.FS.withTempDir fun tmpDir => do
     let mut tasks := tasks
-    let mut failed : List Outcome := []
+    let mut failed : List (TaskKind × Outcome) := []
     let mut prev? : Option TaskKind := none
     if tasks.any (·.1 == .compile) then
       let stdlib ← compileStdlib cwd tmpDir
       if stdlib.result.failed then
         -- Without the stdlib stub, compiling a test cannot succeed.
         tasks := tasks.filter (·.1 != .compile)
-        failed := [stdlib]
+        failed := [(.compile, stdlib)]
       if standalone || stdlib.result.failed then
         report TaskKind.compile.verb stdlib
         prev? := some .compile
@@ -104,10 +104,10 @@ def runTasks (mica : FilePath) (promote : Bool) (standalone : Bool)
       let outcome ← perform mica promote tmpDir idx task
       report task.1.verb outcome
       if outcome.result.failed then
-        failed := outcome :: failed
+        failed := (task.1, outcome) :: failed
       idx := idx + 1
     if standalone then
-      summary (failed.reverse.map failureLabel)
+      summary (failed.reverse.map fun (kind, outcome) => failureLabel kind outcome)
     else
       pure (if failed.isEmpty then (0 : UInt32) else 1)
 

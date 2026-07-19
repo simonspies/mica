@@ -40,6 +40,8 @@ def runProcess (cmd : String) (args : Array String) (cwd? : Option FilePath := n
     stdin := .null
     stdout := .piped
     stderr := .piped
+    -- Own process group, so killing on timeout also kills children (e.g. z3).
+    setsid := true
   }
   let stdoutTask ← IO.asTask child.stdout.readToEnd Task.Priority.dedicated
   let stderrTask ← IO.asTask child.stderr.readToEnd Task.Priority.dedicated

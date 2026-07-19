@@ -21,7 +21,7 @@ def TaskKind.name : TaskKind → String
 def TaskKind.verb : TaskKind → String
   | .compile => "Compiling"
   | .check => "Checking"
-  | .roundtrip => "Roundtrip"
+  | .roundtrip => "Parsing and Printing"
 
 def TaskKind.parse : String → Option TaskKind
   | "compile" => some .compile

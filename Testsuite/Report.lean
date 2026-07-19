@@ -26,11 +26,12 @@ def report (verb : String) (outcome : Outcome) : IO Unit := do
     if !out.stdout.isEmpty || !out.stderr.isEmpty then
       IO.println ""
 
-/-- How a failed outcome appears in the summary. -/
-def failureLabel (outcome : Outcome) : String :=
+/-- How a failed task appears in the summary, matching the `task file` form
+    of the `summarize` subcommand. -/
+def failureLabel (kind : TaskKind) (outcome : Outcome) : String :=
   match outcome.result with
-  | .timeout _ => s!"{outcome.label} (timed out)"
-  | .terminated _ => outcome.label
+  | .timeout _ => s!"{kind.name} {outcome.label} (timed out)"
+  | .terminated _ => s!"{kind.name} {outcome.label}"
 
 /-- Print the final summary; the exit code is 1 iff there are failures. -/
 def summary (failed : List String) : IO UInt32 := do
