@@ -61,3 +61,8 @@ end
 
 type 'a vec = 'a iarray
 module Vec = Iarray
+
+module Range = struct
+  let rec all a b f = a >= b || (f a && all (a + 1) b f)
+  let rec exists a b f = a < b && (f a || exists (a + 1) b f)
+end

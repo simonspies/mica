@@ -266,10 +266,10 @@ mutual
         VerifM.expectEq "if branch type annotation mismatch" els.ty ty
         let branch ← VerifM.all [true, false]
         if branch then do
-          VerifM.assume (.pure (.not (.eq .value sc (.unop .ofBool (.const (.b false))))))
+          VerifM.assume (.pure (.not sc.isFalse))
           compile reg Θ Δ_spec S B Γ thn
         else do
-          VerifM.assume (.pure (.eq .value sc (.unop .ofBool (.const (.b false)))))
+          VerifM.assume (.pure sc.isFalse)
           compile reg Θ Δ_spec S B Γ els
     | .app (.var f fty) args aty => do
         let spec ← VerifM.expectSome s!"no spec for function {f}" (S.lookup f)
@@ -2757,15 +2757,15 @@ theorem compileIfThenElse_correct (reg : Verifier.Registry) (cond thn els : Expr
   have hall := VerifM.eval_all heval_branches
   have htrue := hall true (by simp)
   have hfalse := hall false (by simp)
-  have hwf_ne : (Formula.not (Formula.eq .value sc (.unop .ofBool (.const (.b false))))).wfIn st₁.decls := by
-    simp only [Formula.wfIn, Term.wfIn, Const.wfIn, UnOp.wfIn, _root_.and_true]
+  have hwf_ne : (Formula.not sc.isFalse).wfIn st₁.decls := by
+    simp only [Term.isFalse, Formula.wfIn, Term.wfIn, Const.wfIn, UnOp.wfIn, _root_.and_true]
     exact hsc_wf
-  have hwf_eq : (Formula.eq .value sc (.unop .ofBool (.const (.b false) : Term .bool))).wfIn st₁.decls := by
-    simp only [Formula.wfIn, Term.wfIn, Const.wfIn, UnOp.wfIn, _root_.and_true]
+  have hwf_eq : sc.isFalse.wfIn st₁.decls := by
+    simp only [Term.isFalse, Formula.wfIn, Term.wfIn, Const.wfIn, UnOp.wfIn, _root_.and_true]
     exact hsc_wf
   have htrue_cont := VerifM.eval_assumePure (VerifM.eval_bind htrue)
   have hfalse_cont := VerifM.eval_assumePure (VerifM.eval_bind hfalse)
-  let φ_eq : Formula := .eq .value sc (.unop .ofBool (.const (.b false) : Term .bool))
+  let φ_eq : Formula := sc.isFalse
   let st_thn : TransState := { st₁ with asserts := φ_eq.not :: st₁.asserts }
   let st_els : TransState := { st₁ with asserts := φ_eq :: st₁.asserts }
   have hbool_cases_bool :
@@ -2799,7 +2799,7 @@ theorem compileIfThenElse_correct (reg : Verifier.Registry) (cond thn els : Expr
   · subst hfalse_val
     have heval_els : (compile reg Θ Δ_spec S B Γ els).eval st_els ρ_c Ψ :=
       hfalse_cont hwf_eq (by
-        simp only [Formula.eval, Term.eval, UnOp.eval, Const.denote]
+        simp only [Term.isFalse, Formula.eval, Term.eval, UnOp.eval, Const.denote]
         exact heval_c)
     have hwp :
         st_els.sl Θ ρ_c ∗ (S.satisfiedBy reg.primCtx Θ Δ_spec ρ_spec γ ∗ Bindings.typedSubst Θ B Γ γ ∗ R) ⊢
@@ -2827,7 +2827,7 @@ theorem compileIfThenElse_correct (reg : Verifier.Registry) (cond thn els : Expr
       simp
     have heval_thn : (compile reg Θ Δ_spec S B Γ thn).eval st_thn ρ_c Ψ :=
       htrue_cont hwf_ne (by
-        simp only [Formula.eval, Term.eval, UnOp.eval, Const.denote]
+        simp only [Term.isFalse, Formula.eval, Term.eval, UnOp.eval, Const.denote]
         exact heval_ne)
     have hwp :
         st_thn.sl Θ ρ_c ∗ (S.satisfiedBy reg.primCtx Θ Δ_spec ρ_spec γ ∗ Bindings.typedSubst Θ B Γ γ ∗ R) ⊢

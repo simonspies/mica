@@ -1,5 +1,6 @@
 -- SUMMARY: The concrete stdlib: the intrinsic registry, its soundness aggregate, and the prelude resolver.
 import Mica.Verifier.Intrinsic
+import Mica.Verifier.BoundedQuantifier
 import Mica.Stdlib.IntStd
 import Mica.Stdlib.CharStd
 import Mica.Stdlib.StringStd
@@ -15,6 +16,8 @@ namespace Stdlib
 open Verifier
 
 def registry : Registry := [
+  Verifier.BoundedQuantifier.allIntrinsic,
+  Verifier.BoundedQuantifier.existsIntrinsic,
   Intrinsics.vecMake,
   Intrinsics.vecSet,
   Intrinsics.vecGet,
