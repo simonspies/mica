@@ -4,6 +4,7 @@
 (set-logic ALL)
 (set-option :timeout 10000)
 (set-option :smt.qi.eager_threshold 5.0)
+(set-option :smt.mbqi false)
 
 (declare-sort Other 0)
 (declare-sort Loc 0)
