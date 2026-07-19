@@ -28,11 +28,15 @@ namespace Session
 -- Z3's default eager instantiation easily falls into a matching loop. It even
 -- does so _before_ a check-sat is reached when entering a new scope.
 -- To avoid a severe performance penalty, we lower the default from 10.0 to 5.0.
+-- The verifier's quantified axioms are designed for E-matching (with explicit
+-- or Z3-inferred triggers), so model-based quantifier instantiation adds a
+-- second, less predictable search path without being needed by the examples.
 def preamble : String := s!"
 ;; preamble
 (set-logic ALL)
 {String.intercalate "\n" (List.map Options.Settable.toSMTLIB Options.Settable.initial)}
 (set-option :smt.qi.eager_threshold 5.0)
+(set-option :smt.mbqi false)
 
 (declare-sort Other 0)
 (declare-sort Loc 0)
