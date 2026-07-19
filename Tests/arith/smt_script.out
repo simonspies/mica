@@ -65,6 +65,8 @@
 
 ;; verification
 (declare-const guard! Bool)
+(declare-fun failwith (Value) Value)
+(declare-fun invalid_arg (Value) Value)
 (declare-fun val_vec_make (Value Value) Value)
 (declare-fun val_vec_set (Value Value Value) Value)
 (declare-fun val_vec_get (Value Value) Value)
@@ -100,6 +102,8 @@
 (declare-fun char_code (Value) Value)
 (declare-fun int_max (Value Value) Value)
 (declare-fun int_min (Value Value) Value)
+(assert (=> (= guard! true) true))
+(assert (=> (= guard! true) true))
 (assert (forall ((n Value)) (forall ((x Value)) (! (=> (= guard! true) (= (val_vec_make n x) (of_vec (vec_make (to_int n) x)))) :pattern ((val_vec_make n x))))))
 (assert (forall ((a Value)) (forall ((b Value)) (! (=> (= guard! true) (is-of_vec (val_vec_make a b))) :pattern ((val_vec_make a b))))))
 (assert (forall ((v Value)) (forall ((i Value)) (forall ((x Value)) (! (=> (= guard! true) (= (val_vec_set v i x) (of_vec (vec_set (to_vec v) (to_int i) x)))) :pattern ((val_vec_set v i x)))))))

@@ -406,7 +406,13 @@ def ExprKind.elaborate (env : ElabEnv) (loc : Location) : ExprKind → ElabM Unt
       | _ =>
         match List.lookup name env.ctors with
         | some (tag, arity, _) => .ok (.inj tag arity (.const .unit))
-        | none => .ok (.var name)
+        | none =>
+          -- Bare stdlib primitives (`failwith`, `invalid_arg`): resolved like
+          -- their qualified counterparts; anything else is a local variable.
+          match env.resolver.value path with
+          | some (.primitive n .function) => .ok (.prim n)
+          | some (.primitive n .nullary) => .ok (.app (.prim n) [])
+          | _ => .ok (.var name)
 
   | .ctor path =>
     if path.isQualified then
