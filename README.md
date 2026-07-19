@@ -72,5 +72,5 @@ lake exe mica <file>         # the main executable
 | `Mica/Base/` | Shared utilities |
 | `Exploration/` | Experimental scratch files and extra executables |
 | `Examples/` | Case studies: larger OCaml programs with `[@@spec ...]` annotations |
-| `Tests/` | Small feature-targeted tests, organized by feature, with golden `.out` files |
+| `Tests/` | Small feature-targeted tests, organized by feature, with expected `.out` files |
 | `Testsuite.lean` | The testsuite runner, invoked via `lake run testsuite` |

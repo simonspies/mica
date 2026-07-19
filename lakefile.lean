@@ -15,6 +15,8 @@ lean_lib Exploration where globs := #[`Exploration.+]
 
 @[default_target] lean_exe mica where root := `Main
 
+lean_lib Testsuite where globs := #[`Testsuite.+]
+
 lean_exe «testsuite-runner» where root := `Testsuite
 
 lean_exe «dynamic-goal» where root := `Exploration.DynamicGoal
@@ -45,9 +47,10 @@ script «generate-docs» (args) := do
   runOverviews
 
 /-- Build mica and the testsuite runner (`Testsuite.lean`), ask the runner for
-    the action list (`task,file` lines), and register one Lake job per action
-    so the build monitor shows live progress. Reports are printed once all
-    jobs have finished; the summary is delegated back to the runner. -/
+    the task list (`list` → `task,file` lines), and register one Lake job per
+    task (`run-task`) so the build monitor shows live progress. Reports are
+    printed once all jobs have finished; the summary is delegated back to the
+    runner (`summarize`). -/
 script testsuite (args) := do
   let some mica ← Lake.findLeanExe? `mica
     | error "mica executable undefined"
@@ -60,7 +63,7 @@ script testsuite (args) := do
   let (flags, paths) := args.partition (·.startsWith "-")
   let listOut ← IO.Process.output {
     cmd := exeFile.toString
-    args := #["--list"] ++ paths.toArray
+    args := #["list"] ++ paths.toArray
   }
   if listOut.exitCode != 0 then
     error s!"test discovery failed: {listOut.stderr}"
@@ -70,7 +73,7 @@ script testsuite (args) := do
       withRegisterJob (spec.replace "," " ") <| Job.async do
         let out ← IO.Process.output {
           cmd := exeFile.toString
-          args := #["--mica", micaFile.toString] ++ flags.toArray ++ #[spec]
+          args := #["run-task", "--mica", micaFile.toString] ++ flags.toArray ++ #[spec]
         }
         return (spec, out)
     return Job.collectArray jobs "testsuite"
@@ -87,6 +90,6 @@ script testsuite (args) := do
       failed := failed.push spec
   let child ← IO.Process.spawn {
     cmd := exeFile.toString
-    args := #["--summarize"] ++ failed
+    args := #["summarize"] ++ failed
   }
   child.wait
