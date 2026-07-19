@@ -7,6 +7,8 @@ import Mica.Stdlib.StringStd
 import Mica.Stdlib.FloatStd
 import Mica.Stdlib.FunStd
 import Mica.Stdlib.VecStd
+import Mica.Stdlib.ListStd
+import Mica.Stdlib.OptionStd
 import Mica.Stdlib.ErrorStd
 import Mica.Frontend.Resolver
 
@@ -25,6 +27,12 @@ def registry : Registry := [
   Intrinsics.vecSet,
   Intrinsics.vecGet,
   Intrinsics.vecLength,
+  Intrinsics.listLengthIntrinsic,
+  Intrinsics.listAppendIntrinsic,
+  Intrinsics.listRevIntrinsic,
+  Intrinsics.optionIsSomeIntrinsic,
+  Intrinsics.optionIsNoneIntrinsic,
+  Intrinsics.optionValueIntrinsic,
   Intrinsics.funId,
   Intrinsics.floatNegInfinity,
   Intrinsics.floatInfinity,

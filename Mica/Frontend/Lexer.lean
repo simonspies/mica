@@ -70,7 +70,7 @@ inductive Token where
   | ampamp | pipepipe               -- && ||
   | pipeGt                          -- |>
   | atat | at                       -- @@ @
-  | colonEq | colon                 -- := :
+  | colonEq | coloncolon | colon    -- := :: :
   | semi | semisemi                 -- ; ;;
   | arrow                           -- ->
   | leftArrow                       -- <-
@@ -103,7 +103,7 @@ def Token.toString : Token → String
   | .le       => "<="    | .gt      => ">"    | .ge    => ">="
   | .ampamp   => "&&"    | .pipepipe => "||"
   | .pipeGt   => "|>"    | .atat    => "@@"   | .at    => "@"
-  | .colonEq  => ":="    | .colon   => ":"
+  | .colonEq  => ":="    | .coloncolon => "::" | .colon => ":"
   | .semi     => ";"     | .semisemi => ";;"
   | .arrow    => "->"    | .leftArrow => "<-"
   | .dot      => "."     | .comma   => ","   | .bang  => "!"
@@ -242,6 +242,9 @@ where
         | ':', some '=' =>
           let st' := (st.advance ':').advance '='
           lex st' (acc.push ({ start := p, stop := st'.pos }, .colonEq))
+        | ':', some ':' =>
+          let st' := (st.advance ':').advance ':'
+          lex st' (acc.push ({ start := p, stop := st'.pos }, .coloncolon))
         | ';', some ';' =>
           let st' := (st.advance ';').advance ';'
           lex st' (acc.push ({ start := p, stop := st'.pos }, .semisemi))

@@ -6,5 +6,7 @@
 - `FloatStd.lean` — IEEE binary64 float intrinsics (`Float.abs`, `add`, `min`, `equal`, `nan`, …) and soundness instances.
 - `FunStd.lean` — `Fun.id`
 - `IntStd.lean` — Integer-arithmetic intrinsics (`Int.min`, `Int.max`) and their soundness instances.
+- `ListStd.lean` — Canonical list representation and polymorphic List intrinsics.
+- `OptionStd.lean` — Canonical option representation and polymorphic Option intrinsics.
 - `StringStd.lean` — Byte-string intrinsics (`String.length`, `get`, `sub`, `cat`, `equal`, `starts_with`, `ends_with`) and soundness instances.
 - `VecStd.lean` — Immutable-vector intrinsics (`Vec.length`, `Vec.get`, `Vec.set`, `Vec.make`).

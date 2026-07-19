@@ -22,8 +22,8 @@ def Typ.print : Typ → String
   | .value => "value"
   | .tuple ts => s!"({", ".intercalate (ts.map Typ.print)})"
   | .tvar v => s!"'{v}"
-  | .named T [] => T
-  | .named T args => s!"{T} ({", ".intercalate (args.map Typ.print)})"
+  | .named T [] => T.print
+  | .named T args => s!"{T.print} ({", ".intercalate (args.map Typ.print)})"
 where
   wrapArg (t : Typ) (s : String) : String :=
     match t with

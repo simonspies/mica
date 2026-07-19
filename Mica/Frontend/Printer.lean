@@ -74,17 +74,17 @@ partial def BinOp.print : BinOp → String
   | .eq => "=" | .neq => "<>" | .lt => "<" | .le => "<=" | .gt => ">" | .ge => ">="
   | .and => "&&" | .or => "||"
   | .semi => ";" | .pipeRight => "|>" | .atAt => "@@" | .assign => ":="
-  | .concat => "^"
+  | .concat => "^" | .append => "@" | .cons => "::"
 
 private partial def BinOp.prec : BinOp → Nat
   | .semi => 1 | .assign => 2 | .or => 3 | .and => 4
   | .pipeRight => 5 | .atAt => 6
   | .eq | .neq | .lt | .le | .gt | .ge => 7
-  | .concat => 8 | .add | .sub | .fadd | .fsub => 9
-  | .mul | .div | .mod | .fmul | .fdiv => 10
+  | .concat | .append => 8 | .cons => 9 | .add | .sub | .fadd | .fsub => 10
+  | .mul | .div | .mod | .fmul | .fdiv => 11
 
 private partial def BinOp.rightAssoc : BinOp → Bool
-  | .semi | .assign | .or | .and | .atAt | .concat => true
+  | .semi | .assign | .or | .and | .atAt | .concat | .append | .cons => true
   | _ => false
 
 -- ---------------------------------------------------------------------------
@@ -116,7 +116,7 @@ where
 
 private partial def Pattern.isAtom (p : Pattern) : Bool :=
   match p.kind with
-  | .ctor _ (some _) => false
+  | .ctor _ (some _) | .cons _ _ => false
   | _ => true
 
 partial def Pattern.print (p : Pattern) : String :=
@@ -127,8 +127,11 @@ partial def Pattern.print (p : Pattern) : String :=
   | .binder none none => "_"
   | .binder none (some ty) => s!"(_ : {Typ.print ty})"
   | .const c => Const.print c
+  | .nil => "[]"
+  | .cons head tail => s!"{Pattern.print head} :: {Pattern.print tail}"
   | .ctor path none => path.toString
-  | .ctor path (some pat) => s!"{path.toString} {parenIf (!Pattern.isAtom pat) (Pattern.print pat)}"
+  | .ctor path (some pat) =>
+    s!"{path.toString} {parenIf (!Pattern.isAtom pat) (Pattern.print pat)}"
   | .tuple pats => parens (joinWith ", " (pats.map Pattern.print))
   | .record fields =>
     "{ " ++ joinWith "; " (fields.map fun (name, pat) => name ++ " = " ++ Pattern.print pat) ++ " }"
@@ -138,7 +141,7 @@ partial def Pattern.print (p : Pattern) : String :=
 
 private partial def Expr.isAtom (e : Expr) : Bool :=
   match e.kind with
-  | .const _ | .var _ | .ctor _ | .tuple _ | .record _ | .annot _ _ | .arrayGet _ _ => true
+  | .const _ | .var _ | .ctor _ | .tuple _ | .list _ | .record _ | .annot _ _ | .arrayGet _ _ => true
   | _ => false
 
 private partial def Expr.isKeywordExpr (e : Expr) : Bool :=
@@ -159,6 +162,7 @@ private partial def Expr.printPrec (e : Expr) (outerPrec : Nat) : String :=
   | .ctor path => path.toString
   | .annot inner ty => s!"({Expr.printPrec inner 0} : {Typ.print ty})"
   | .tuple es => parens (joinWith ", " (es.map fun x => Expr.printPrec x 0))
+  | .list es => "[" ++ joinWith "; " (es.map fun x => Expr.printPrec x 0) ++ "]"
   | .record fields => "{ " ++ fmtFields fields ++ " }"
   | .recordUpdate base fields =>
     "{ " ++ Expr.printPrec base 0 ++ " with " ++ fmtFields fields ++ " }"
@@ -166,8 +170,7 @@ private partial def Expr.printPrec (e : Expr) (outerPrec : Nat) : String :=
   | .arrayGet arr idx => printArrayGet arr idx outerPrec
   | .arraySet arr idx val => printArraySet arr idx val outerPrec
   | .binop op lhs rhs => printBinop op lhs rhs outerPrec
-  | .app fn args =>
-    joinWith " " (fmtArg fn :: args.map fmtArg)
+  | .app fn args => joinWith " " (fmtArg fn :: args.map fmtArg)
   | .ite cond thn els =>
     "if " ++ Expr.printPrec cond 0 ++ " then " ++ Expr.printPrec thn 0 ++
     " else " ++ Expr.printPrec els 0
