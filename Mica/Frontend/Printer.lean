@@ -162,7 +162,7 @@ private partial def Expr.printPrec (e : Expr) (outerPrec : Nat) : String :=
   | .ctor path => path.toString
   | .annot inner ty => s!"({Expr.printPrec inner 0} : {Typ.print ty})"
   | .tuple es => parens (joinWith ", " (es.map fun x => Expr.printPrec x 0))
-  | .list es => "[" ++ joinWith "; " (es.map fun x => Expr.printPrec x 0) ++ "]"
+  | .list es => "[" ++ joinWith "; " (es.map fun x => Expr.printPrec x 2) ++ "]"
   | .record fields => "{ " ++ fmtFields fields ++ " }"
   | .recordUpdate base fields =>
     "{ " ++ Expr.printPrec base 0 ++ " with " ++ fmtFields fields ++ " }"
@@ -229,7 +229,9 @@ where
       parenIf (outerPrec > p) result
     else
       let lhsNeedsParens : Bool := match lhs.kind with
-        | .binop lop _ _ => BinOp.prec lop < p
+        | .binop lop _ _ =>
+          if BinOp.rightAssoc op then BinOp.prec lop <= p
+          else BinOp.prec lop < p
         | _ => Expr.isKeywordExpr lhs
       let rhsNeedsParens : Bool := match rhs.kind with
         | .binop rop _ _ =>
