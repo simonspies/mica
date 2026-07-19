@@ -4,7 +4,28 @@ import Mica.TinyML.Common
 namespace TinyML
 
 abbrev TyVar := String
-abbrev TypeName := String
+
+/-- Canonical algebraic types supplied by Mica rather than declared by a
+program. Their identity is distinct from user-written type names. -/
+inductive Predef where
+  | list
+  | option
+  deriving Repr, Inhabited, DecidableEq, BEq
+
+/-- The identity of a recursive named type. Predefined identities unfold to
+their canonical declarations independently of the user type environment. -/
+inductive TypeName where
+  | user (name : String)
+  | predef (type : Predef)
+  deriving Repr, Inhabited, DecidableEq, BEq
+
+/-- The surface spelling of a named type. -/
+def TypeName.print : TypeName → String
+  | .user name => name
+  | .predef .list => "list"
+  | .predef .option => "option"
+
+instance : ToString TypeName := ⟨TypeName.print⟩
 
 /-- Primitive, non-structural TinyML types. -/
 inductive PrimitiveType where
@@ -139,6 +160,12 @@ inductive Typ where
 @[simp] def Typ.string : Typ := .prim .string
 /-- Compatibility name for the float primitive type. -/
 @[simp] def Typ.float : Typ := .prim .float
+/-- A canonical predefined type application. -/
+@[simp] def Typ.predef (p : Predef) (args : List Typ) : Typ := .named (.predef p) args
+/-- The canonical list type. -/
+@[simp] def Typ.list (elem : Typ) : Typ := .predef .list [elem]
+/-- The canonical option type. -/
+@[simp] def Typ.option (elem : Typ) : Typ := .predef .option [elem]
 
 def Typ.primDecEq (p q : PrimitiveType) : Decidable (Typ.prim p = Typ.prim q) :=
   match PrimitiveType.decEq p q with
@@ -288,6 +315,38 @@ structure DataDecl where
   payloads : List Typ
   deriving Repr, Inhabited, DecidableEq
 
+namespace Predef
+
+/-- All predefined types exposed by the frontend. -/
+def all : List Predef := [.list, .option]
+
+/-- The surface type name. -/
+def name : Predef → String
+  | .list => "list"
+  | .option => "option"
+
+/-- Type parameters of a predefined declaration. -/
+def tparams : Predef → List TyVar
+  | .list | .option => ["a"]
+
+/-- Ordered constructors. Their position is the runtime injection tag. -/
+def ctors : Predef → List (String × Typ)
+  | .option => [
+      ("None", .unit),
+      ("Some", .tvar "a")]
+  | .list => [
+      ("[]", .unit),
+      ("::", .tuple [.tvar "a", .list (.tvar "a")])]
+
+/-- The canonical core declaration of a predefined type. -/
+def decl (p : Predef) : DataDecl :=
+  { tparams := p.tparams, payloads := (p.ctors.map Prod.snd) }
+
+/-- Number of type arguments accepted by the predefined type. -/
+def arity (p : Predef) : Nat := p.tparams.length
+
+end Predef
+
 abbrev TypeEnv := TypeName → Option DataDecl
 
 def TypeEnv.empty : TypeEnv := fun _ => none
@@ -304,7 +363,14 @@ def DataDecl.instantiate (d : DataDecl) (args : List Typ) : Typ :=
   .sum (d.payloads.map (Typ.subst σ))
 
 def TypeName.unfold (Θ : TypeEnv) (T : TypeName) (args : List Typ) : Option Typ :=
-  (Θ T).map (·.instantiate args)
+  match T with
+  | .user _ => (Θ T).map (·.instantiate args)
+  | .predef p =>
+      if args.length = p.arity then some (p.decl.instantiate args) else none
+
+@[simp] theorem TypeName.unfold_predef (Θ : TypeEnv) (p : Predef) (args : List Typ) :
+    TypeName.unfold Θ (.predef p) args =
+      if args.length = p.arity then some (p.decl.instantiate args) else none := rfl
 
 /-! ## Weight and depth measures -/
 

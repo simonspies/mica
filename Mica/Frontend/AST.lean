@@ -77,7 +77,7 @@ inductive BinOp where
   | fadd | fsub | fmul | fdiv
   | eq | neq | lt | le | gt | ge
   | and | or
-  | semi | pipeRight | atAt | assign | concat
+  | semi | pipeRight | atAt | assign | concat | append | cons
   deriving Repr, BEq
 
 -- Types
@@ -103,6 +103,8 @@ mutual
     | binder (name : Option Var) (ty : Option Typ)
     | const (c : Const)
     | ctor (path : Path) (payload : Option Pattern)
+    | nil
+    | cons (head tail : Pattern)
     | tuple (pats : List Pattern)
     | record (fields : List (FieldName × Pattern))
 
@@ -124,6 +126,7 @@ mutual
     | fun_ (args : List Pattern) (retTy : Option Typ) (body : Expr)
     | match_ (scrutinee : Expr) (arms : List MatchArm)
     | tuple (es : List Expr)
+    | list (es : List Expr)
     | record (fields : List (FieldName × Expr))
     | recordUpdate (e : Expr) (fields : List (FieldName × Expr))
     | annot (e : Expr) (ty : Typ)

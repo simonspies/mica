@@ -330,6 +330,12 @@ private partial def parsePattern : Parser Pattern := fun st =>
     let (fields, st') ← parseRecordPatFields st'
     let st' ← expect .rbrace st'
     .ok (mkPat p st' (.record fields), st')
+  | .lbracket =>
+    -- `[]` — empty-list pattern (no general list-literal patterns)
+    let st' := advance st
+    match peekTok st' with
+    | .rbracket => .ok (mkPat p (advance st') .nil, advance st')
+    | t => .error { loc := peekLoc st', kind := .unexpectedToken "']' in pattern" t }
   | t =>
     .error { loc := peekLoc st, kind := .unexpectedToken "pattern" t }
 where
@@ -375,6 +381,18 @@ where
         let (rest, st) ← parseRecordPatFields (advance st)
         .ok ((name, pat) :: rest, st)
     | _ => .ok ([(name, pat)], st)
+
+/-- Pattern with infix `::` (right-assoc): `p1 :: p2` is the prelude cons
+    constructor applied to the pair pattern `(p1, p2)`. Constructor payloads
+    bind tighter, so only match arms use this entry point. -/
+private partial def parsePatternCons : Parser Pattern := fun st => do
+  let (lhs, st) ← parsePattern st
+  match peekTok st with
+  | .coloncolon => do
+    let (rhs, st') ← parsePatternCons (advance st)
+    let loc : Location := { start := lhs.loc.start, stop := rhs.loc.stop }
+    .ok ({ loc, kind := .cons lhs rhs }, st')
+  | _ => .ok (lhs, st)
 
 -- ---------------------------------------------------------------------------
 -- Shared binder helpers
@@ -514,14 +532,28 @@ where
   parseCmp : Parser Expr :=
     parseLAssoc [(.eq, .eq), (.neq, .neq), (.lt, .lt), (.le, .le), (.gt, .gt), (.ge, .ge)] parseConcat
 
-  -- `^` right-assoc, just below `+`/`-` (matches OCaml: looser than `+`/`-`)
+  -- `^`/`@` right-assoc, one shared level (matches OCaml: looser than `::`)
   parseConcat : Parser Expr := fun st => do
-    let (lhs, st) ← parseAdd st
+    let (lhs, st) ← parseCons st
     match peekTok st with
     | .caret => do
       let (rhs, st) ← parseConcat (advance st)
       let loc : Location := { start := lhs.loc.start, stop := rhs.loc.stop }
       .ok ({ loc, kind := .binop .concat lhs rhs }, st)
+    | .at => do
+      let (rhs, st) ← parseConcat (advance st)
+      let loc : Location := { start := lhs.loc.start, stop := rhs.loc.stop }
+      .ok ({ loc, kind := .binop .append lhs rhs }, st)
+    | _ => .ok (lhs, st)
+
+  -- `::` right-assoc, between `@`/`^` and `+`/`-` (matches OCaml)
+  parseCons : Parser Expr := fun st => do
+    let (lhs, st) ← parseAdd st
+    match peekTok st with
+    | .coloncolon => do
+      let (rhs, st) ← parseCons (advance st)
+      let loc : Location := { start := lhs.loc.start, stop := rhs.loc.stop }
+      .ok ({ loc, kind := .binop .cons lhs rhs }, st)
     | _ => .ok (lhs, st)
 
   -- `+` `-` left-assoc
@@ -586,7 +618,10 @@ where
       .ok ({ loc, kind := .app fn args }, st)
 
   collectArgs : Parser (List Expr) := fun st =>
-    if isArgStart (peekTok st) then do
+    -- `[` starts a list-literal argument unless it opens an attribute `[@...]`
+    let isAttr := peekTok st == .lbracket &&
+      (peekTok (advance st) == .at || peekTok (advance st) == .atat)
+    if isArgStart (peekTok st) && !isAttr then do
       let (arg, st) ← parsePostfix st
       let (rest, st) ← collectArgs st
       .ok (arg :: rest, st)
@@ -594,7 +629,7 @@ where
 
   isArgStart : Token → Bool
     | .intLit _ | .floatLit _ | .charLit _ | .stringLit _ | .ident _ | .lparen | .lbrace
-    | .kw_true | .kw_false => true
+    | .lbracket | .kw_true | .kw_false => true
     | _ => false
 
   -- postfix: `.n` tuple projection, `.field` field access
@@ -643,6 +678,15 @@ where
       else
         .ok (mkExpr p st' (.var path), st')
     | .lbrace => parseRecord st
+    | .lbracket =>
+      -- list literal `[]` / `[e1; e2; ...]`; elaboration lowers it to constructors
+      let st' := advance st
+      if peekTok st' == .rbracket then
+        .ok (mkExpr p (advance st') (.list []), advance st')
+      else do
+        let (elems, st') ← parseListElems st'
+        let st' ← expect .rbracket st'
+        .ok (mkExpr p st' (.list elems), st')
     | .lparen =>
       let st' := advance st
       -- `()` = unit
@@ -677,6 +721,18 @@ where
       let (rest, st) ← parseTupleRest st
       .ok (e :: rest, st)
     | _ => .ok ([], st)
+
+  -- `;`-separated list-literal elements, allowing a trailing `;`
+  parseListElems : Parser (List Expr) := fun st => do
+    let (e, st) ← parseExprNoSemi st
+    match peekTok st with
+    | .semi =>
+      let st' := advance st
+      if peekTok st' == .rbracket then .ok ([e], st')
+      else do
+        let (rest, st') ← parseListElems st'
+        .ok (e :: rest, st')
+    | _ => .ok ([e], st)
 
   -- `{ f1 = e1; f2 = e2 }` or `{ e with f1 = e1; ... }`
   -- Lookahead approach: peek to distinguish record literal from record update.
@@ -769,7 +825,7 @@ where
     match peekTok st with
     | .pipe => do
       let st' := advance st
-      let (pat, st') ← parsePattern st'
+      let (pat, st') ← parsePatternCons st'
       let st' ← expect .arrow st'
       let (body, st') ← parseExpr st'
       let (rest, st') ← parseMatchArms st'

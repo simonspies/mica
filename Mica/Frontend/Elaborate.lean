@@ -74,8 +74,12 @@ instance : ToString ElaborateError := ⟨ElaborateError.toString⟩
 -- Elaboration environment (association lists)
 
 
+private structure TypeInfo where
+  core  : TinyML.TypeName
+  arity : Nat
+
 structure ElabEnv where
-  types    : List TypeConstructor                            := []
+  types    : List (TypeConstructor × TypeInfo)                := []
   ctors    : List (Constructor × (Nat × Nat × TinyML.Typ))   := []
   fields   : List (FieldName × (TypeConstructor × Nat))      := []
   records  : List (TypeConstructor × List (FieldName × TinyML.Typ)) := []
@@ -101,13 +105,14 @@ private def Pattern.productBoundNames (pat : Pattern) : List Var :=
   | .record fields => fields.filterMap (fun (_, field) => field.binderName?)
   | _ => []
 
-private def Pattern.boundNames (pat : Pattern) : List Var :=
+private partial def Pattern.boundNames (pat : Pattern) : List Var :=
   match pat.kind with
   | .binder (some name) _ => [name]
   | .ctor _ (some payload) =>
       match payload.binderName? with
       | some name => [name]
       | none => payload.productBoundNames
+  | .cons head tail => head.boundNames ++ tail.boundNames
   | .tuple _ | .record _ => pat.productBoundNames
   | _ => []
 
@@ -178,8 +183,11 @@ def TypKind.elaborate (env : ElabEnv) (loc : Location) : TypKind → ElabM TinyM
           if args'.isEmpty then .ok (.tuple (fields.map Prod.snd))
           else err loc (.arityMismatch 0 args'.length)
       | none =>
-      if env.types.elem name then .ok (.named name args')
-      else err loc (.unknownType name)
+      match List.lookup name env.types with
+      | some info =>
+          if args'.length = info.arity then .ok (.named info.core args')
+          else err loc (.arityMismatch info.arity args'.length)
+      | none => err loc (.unknownType name)
   | .arrow dom cod => do
     let dom' ← Typ.elaborate env dom
     let cod' ← Typ.elaborate env cod
@@ -380,7 +388,7 @@ private def elaborateBinOp (loc : Location) : BinOp → ElabM TinyML.BinOp
   | .div => .ok .div | .mod => .ok .mod
   | .eq => .ok .eq | .lt => .ok .lt | .le => .ok .le | .gt => .ok .gt | .ge => .ok .ge
   | .and => .ok .and | .or => .ok .or
-  | .neq | .semi | .pipeRight | .atAt | .assign | .concat
+  | .neq | .semi | .pipeRight | .atAt | .assign | .concat | .append | .cons
   | .fadd | .fsub | .fmul | .fdiv =>
     err loc (.internalError "desugared operator reached elaborateBinOp")
 
@@ -404,6 +412,19 @@ private def applyAttr (loc : Location) (e : Untyped.Expr) : Attribute → ElabM 
 
 private def bareSpecial (loc : Location) (path : Path) : ElabM Untyped.Expr :=
   err loc (.bareSpecialIdentifier path.toString)
+
+private partial def Pattern.lowerLists (pat : Pattern) : Pattern :=
+  let kind := match pat.kind with
+    | .nil => .ctor (Path.single "[]") none
+    | .cons head tail =>
+        let head := head.lowerLists
+        let tail := tail.lowerLists
+        .ctor (Path.single "::") (some { loc := pat.loc, kind := .tuple [head, tail] })
+    | .ctor path payload => .ctor path (payload.map Pattern.lowerLists)
+    | .tuple pats => .tuple (pats.map Pattern.lowerLists)
+    | .record fields => .record (fields.map fun (name, p) => (name, p.lowerLists))
+    | kind => kind
+  { pat with kind }
 
 mutual
 /-- Elaborate an expression: lower its kind, then apply any expression
@@ -568,6 +589,14 @@ def ExprKind.elaborate (env : ElabEnv) (loc : Location) : ExprKind → ElabM Unt
     let l' ← Expr.elaborate env l
     let r' ← Expr.elaborate env r
     .ok (.app (.prim "string_cat") [l', r'])
+  | .binop .append l r => do
+    let l' ← Expr.elaborate env l
+    let r' ← Expr.elaborate env r
+    .ok (.app (.prim "list_append") [l', r'])
+  | .binop .cons head tail => do
+    let head' ← Expr.elaborate env head
+    let tail' ← Expr.elaborate env tail
+    elaborateCtorLookup env loc "::" (some (.tuple [head', tail']))
   | .binop .fadd l r => do
     let l' ← Expr.elaborate env l
     let r' ← Expr.elaborate env r
@@ -668,6 +697,14 @@ def ExprKind.elaborate (env : ElabEnv) (loc : Location) : ExprKind → ElabM Unt
     let es' ← Expr.elaborateList env es
     .ok (.tuple es')
 
+  | .list es => do
+    let es' ← Expr.elaborateList env es
+    let nil ← elaborateCtorLookup env loc "[]" none
+    match List.lookup "::" env.ctors with
+    | some (tag, arity, _) =>
+        .ok (es'.foldr (fun head tail => .inj tag arity (.tuple [head, tail])) nil)
+    | none => err loc (.unknownConstructor "::")
+
   | .record flds => do
     let fieldInfo ← recordFieldsFor env loc flds
     let elaborated ← Expr.elaborateRecordFields env flds
@@ -697,6 +734,7 @@ def MatchArm.elaborateList (env : ElabEnv)
     : List MatchArm → ElabM (List (Constructor × Option Untyped.Binder × Untyped.Expr))
   | [] => .ok []
   | ⟨pat, body⟩ :: arms => do
+    let pat := pat.lowerLists
     let (ctorName, binder, body'') ← match pat.kind with
       | .ctor path payload => do
         let name ← if path.isQualified then
@@ -766,15 +804,16 @@ private def elaborateCtorDefs (env : ElabEnv) (loc : Location)
 private def elaborateVariant (env : ElabEnv) (loc : Location) (name : TypeConstructor)
     (tparams : List TinyML.TyVar) (ctorDefs : List (Constructor × Option Typ))
     : ElabM (ElabEnv × Untyped.TypeDecl) := do
-  if env.types.elem name then
+  if (List.lookup name env.types).isSome then
     return ← err loc (.duplicateType name)
   let arity := ctorDefs.length
   -- Register the type name as a named reference so both recursive self-references in
   -- constructor payloads and later uses resolve to the named type (not the inlined sum).
-  let envWithSelf := { env with types := name :: env.types }
+  let coreName := TinyML.TypeName.user name
+  let envWithSelf := { env with types := (name, ⟨coreName, tparams.length⟩) :: env.types }
   let (payloadTypes, newCtors) ← elaborateCtorDefs envWithSelf loc ctorDefs 0 arity
   let env' := { envWithSelf with ctors := newCtors ++ env.ctors }
-  let decl : Untyped.TypeDecl := { name, body := { tparams, payloads := payloadTypes } }
+  let decl : Untyped.TypeDecl := { name := coreName, body := { tparams, payloads := payloadTypes } }
   .ok (env', decl)
 
 private def elaborateFieldDefs (env : ElabEnv) (loc : Location) (tyName : TypeConstructor)
@@ -791,15 +830,16 @@ private def elaborateFieldDefs (env : ElabEnv) (loc : Location) (tyName : TypeCo
 
 private def elaborateRecordDecl (env : ElabEnv) (loc : Location) (name : TypeConstructor)
     (fieldDefs : List (FieldName × Typ)) : ElabM ElabEnv := do
-  if env.types.elem name then
+  if (List.lookup name env.types).isSome then
     return ← err loc (.duplicateType name)
-  let envWithSelf := { env with types := name :: env.types }
+  let coreName := TinyML.TypeName.user name
+  let envWithSelf := { env with types := (name, ⟨coreName, 0⟩) :: env.types }
   let newFields ← elaborateFieldDefs env loc name fieldDefs 0
   let fieldTypes ← fieldDefs.mapM (fun (fieldName, ty) => do
     let ty' ← Typ.elaborate envWithSelf ty
     pure (fieldName, ty'))
   .ok { env with
-    types := name :: env.types
+    types := (name, ⟨coreName, 0⟩) :: env.types
     records := (name, fieldTypes) :: env.records
     fields := newFields ++ env.fields }
 
@@ -909,9 +949,30 @@ private def requireOpenMica : List Decl → ElabM (List Decl)
       else err d.loc (.unsupportedOpen path)
     | _ => err d.loc .missingOpenMica
 
+-- ---------------------------------------------------------------------------
+-- Predefined types
+
+private def predefCtorEntries (p : TinyML.Predef) :
+    List (Constructor × (Nat × Nat × TinyML.Typ)) :=
+  let arity := p.ctors.length
+  let rec go : List (String × TinyML.Typ) → Nat →
+      List (Constructor × (Nat × Nat × TinyML.Typ))
+    | [], _ => []
+    | (name, payload) :: rest, tag => (name, (tag, arity, payload)) :: go rest (tag + 1)
+  go p.ctors 0
+
+/-- The initial frontend environment derived from the canonical predef catalog.
+Predefs participate in name and constructor resolution but are not emitted as
+program declarations. -/
+private def predefEnv (resolver : Resolver) : ElabEnv :=
+  { resolver
+    types := TinyML.Predef.all.map fun p =>
+      (p.name, ⟨.predef p, p.arity⟩)
+    ctors := TinyML.Predef.all.flatMap predefCtorEntries }
+
 def Program.elaborate (resolver : Resolver) (prog : Frontend.Program) :
     ElabM (Untyped.Program (Spec.Body Untyped.Expr)) := do
   let decls ← requireOpenMica prog
-  elaborateDecls { resolver } decls
+  elaborateDecls (predefEnv resolver) decls
 
 end Frontend

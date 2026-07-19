@@ -191,6 +191,11 @@ def Embedding.poly (v : TinyML.TyVar) : Embedding :=
   ⟨.tvar v, Runtime.Val, id, id,
     fun σ Θ w => TinyML.ValHasType Θ w (σ v), none⟩
 
+/-- An arbitrary type scheme represented by the runtime value itself. -/
+def Embedding.logical (typ : TinyML.Typ) : Embedding :=
+  ⟨typ, Runtime.Val, id, id,
+    fun σ Θ w => TinyML.ValHasType Θ w (typ.subst σ), none⟩
+
 /-- The empty type: no closed values inhabit it. Trivial `Unit` carrier with a
     `False` type predicate, so only an intrinsic with an unsatisfiable domain
     can use it as a result. No `is-of` recognizer, so no type axiom. -/
@@ -290,6 +295,24 @@ def Embedding.lawfulPoly (v : TinyML.TyVar) : (Embedding.poly v).Lawful where
     simp only [Embedding.poly, TinyML.Typ.subst]
     exact .rfl
 
+/-- The identity representation of an arbitrary logical type is lawful. -/
+def Embedding.lawfulLogical (typ : TinyML.Typ) : (Embedding.logical typ).Lawful where
+  project_inject _ := rfl
+  isOf_wf _ _ h := nomatch h
+  isOf_inject _ _ _ h := nomatch h
+  member σ Θ w := by
+    simp only [Embedding.logical]
+    constructor
+    · iintro H
+      iexists w
+      isplitl []
+      · ipureintro; rfl
+      · iexact H
+    · iintro ⟨%x, %hw, H⟩
+      obtain rfl := hw
+      iexact H
+  intro _ _ _ := .rfl
+
 /-- The empty embedding is lawful: `ValHasType` at `.empty` is `False`, so both
     typing directions are vacuous. -/
 def Embedding.lawfulEmpty : Embedding.empty.Lawful where
@@ -339,6 +362,18 @@ def matchType (inst : List (TinyML.TyVar × TinyML.Typ))
     | .ref p, .ref t | .array p, .array t | .vec p, .vec t | .owned p, .owned t =>
         matchType inst p t
     | .tuple ps, .tuple ts => matchTypes inst ps ts
+    -- Constructor syntax is inferred as a sparse structural sum before the
+    -- primitive scheme is known. Recover the parameter of a predefined type
+    -- from the constructor that is present; an empty constructor carries no
+    -- information, so instantiate it at the top value type.
+    | .named (.predef .list) [p], .sum [.unit, .empty] =>
+        matchType inst p .value
+    | .named (.predef .list) [p], .sum [_, .tuple [t, _]] =>
+        matchType inst p t
+    | .named (.predef .option) [p], .sum [.unit, .empty] =>
+        matchType inst p .value
+    | .named (.predef .option) [p], .sum [_, t] =>
+        matchType inst p t
     | .named P ps, .named T ts =>
         if P = T then matchTypes inst ps ts
         else .error s!"expected {pattern.print}, got {actual.print}"

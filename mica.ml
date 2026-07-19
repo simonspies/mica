@@ -1,6 +1,39 @@
 let failwith = Stdlib.failwith
 let invalid_arg = Stdlib.invalid_arg
 
+type 'a list = [] | (::) of 'a * 'a list
+type 'a option = None | Some of 'a
+
+let rec list_length = function
+  | [] -> 0
+  | _ :: tail -> 1 + list_length tail
+
+let rec list_append left right =
+  match left with
+  | [] -> right
+  | head :: tail -> head :: list_append tail right
+
+let list_rev value =
+  let rec loop acc = function
+    | [] -> acc
+    | head :: tail -> loop (head :: acc) tail
+  in
+  loop [] value
+
+let ( @ ) = list_append
+
+module List = struct
+  let length = list_length
+  let append = list_append
+  let rev = list_rev
+end
+
+module Option = struct
+  let is_some = function Some _ -> true | None -> false
+  let is_none = function None -> true | Some _ -> false
+  let value = function Some value -> value | None -> invalid_arg "Option.value"
+end
+
 module String = struct
   let length = Stdlib.String.length
   let get = Stdlib.String.get
