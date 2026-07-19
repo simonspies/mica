@@ -25,8 +25,11 @@ $ lake exe mica Tests/recursion/recursive.ml
 Status: all declarations verified
 ```
 
-Larger case studies are in the [`Examples/`](Examples/) directory; small
-feature-targeted tests live under [`Tests/`](Tests/).
+[`Examples/`](Examples/) is reserved for case studies: complete programs of
+independent interest, verified end to end. Everything
+else — small programs exercising one language or verifier feature — lives
+under [`Tests/`](Tests/), one directory per feature. Tests for new
+functionality go in `Tests/`, not `Examples/`.
 
 ## How it works
 
@@ -71,6 +74,6 @@ lake exe mica <file>         # the main executable
 | `Mica/Verifier/` | Specification language, checking program expressions, and the verifier correctness development |
 | `Mica/Base/` | Shared utilities |
 | `Exploration/` | Experimental scratch files and extra executables |
-| `Examples/` | Case studies: larger OCaml programs with `[@@spec ...]` annotations |
+| `Examples/` | Case studies: complete verified programs |
 | `Tests/` | Small feature-targeted tests, organized by feature, with expected `.out` files |
 | `Testsuite.lean` | The testsuite runner, invoked via `lake run testsuite` |
