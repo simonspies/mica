@@ -325,6 +325,7 @@ mutual
         let l ← VerifM.decl none .value
         let sl := Term.const (.uninterpreted l.name .value)
         VerifM.assume (.spatial (.pointsTo sl v e.ty))
+        VerifM.assumeAll (TinyML.typeConstraints (.owned e.ty) sl)
         pure sl
     | .deref e ty => do
         match e.ty with
@@ -992,9 +993,19 @@ theorem compileRefOwned_correct (reg : Verifier.Registry) (e : Expr)
       Term.wfIn_mono se hse_wf (Signature.Subset.subset_addConst _ _)
         (TransState.freshConst.wf _ hwf_st₁).namesDisjoint
     have hatom_wf : (SpatialAtom.pointsTo sl se e.ty).wfIn st₂.decls := ⟨hsl_wf, hse_wf₂⟩
-    have hret := VerifM.eval_ret (VerifM.eval_assumeSpatial (VerifM.eval_bind hdecl_loc) hatom_wf)
+    have hassumed := VerifM.eval_assumeSpatial (VerifM.eval_bind hdecl_loc) hatom_wf
     have hsl_eval : sl.eval ρ₂.env = .loc loc := by
       simp [sl, ρ₂, c, Term.eval, Const.denote, VerifM.Env.updateConst, Env.updateConst]
+    have htyped : ∀ φ ∈ TinyML.typeConstraints (.owned e.ty) sl, φ.eval ρ₂.env := by
+      intro φ hφ
+      simp only [TinyML.typeConstraints, List.mem_singleton] at hφ
+      subst hφ
+      simp [Formula.eval, hsl_eval]
+    obtain ⟨st₃, hdecls₃, howns₃, _hasserts₃, hq₃⟩ :=
+      VerifM.eval_assumeAll (VerifM.eval_bind hassumed)
+        (fun φ hφ => TinyML.typeConstraints_wfIn hsl_wf φ hφ) htyped
+    have hret := VerifM.eval_ret hq₃
+    have hsl_wf₃ : sl.wfIn st₃.decls := by rw [hdecls₃]; exact hsl_wf
     have hlocTy : ⊢ TinyML.ValHasType Θ (.loc loc) (.owned e.ty) := by
       refine Entails.trans ?_ (TinyML.ValHasType.owned Θ (.loc loc) e.ty).2
       istart
@@ -1004,10 +1015,9 @@ theorem compileRefOwned_correct (reg : Verifier.Registry) (e : Expr)
       rfl
     istart
     iintro ⟨Hsl, HR⟩
-    iapply (hpost (.loc loc) ρ₂ { st₂ with owns := .pointsTo sl se e.ty :: st₁.owns }
-      sl hret hsl_wf hsl_eval)
+    iapply (hpost (.loc loc) ρ₂ st₃ sl hret hsl_wf₃ hsl_eval)
     isplitl [Hsl]
-    · simp [TransState.sl_eq, st₂, SpatialContext.insert]
+    · simp [TransState.sl_eq, howns₃, SpatialContext.insert]
       rw [show ρ₂.env = ρ_e.env.updateConst .value c.name (.loc loc) by rfl]
       iexact Hsl
     · isplitl []
