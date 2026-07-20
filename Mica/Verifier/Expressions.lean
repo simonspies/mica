@@ -316,48 +316,47 @@ mutual
         let se ← compile reg Θ Δ_spec S B Γ e
         if TinyML.Typ.sub Θ e.ty ty then pure se
         else VerifM.fatal s!"cast type mismatch"
-    | .ref .shared e => do
-        let _ ← compile reg Θ Δ_spec S B Γ e
-        let l ← VerifM.decl none .value
-        pure (.const (.uninterpreted l.name .value))
-    | .ref .owned e => do
+    | .ref ownership e => do
         let v ← compile reg Θ Δ_spec S B Γ e
         let l ← VerifM.decl none .value
         let sl := Term.const (.uninterpreted l.name .value)
-        VerifM.assume (.spatial (.pointsTo sl v e.ty))
-        VerifM.assumeAll (TinyML.typeConstraints (.owned e.ty) sl)
+        match ownership with
+        | .owned => do
+            VerifM.assume (.spatial (.pointsTo sl v e.ty))
+            VerifM.assumeAll (TinyML.typeConstraints (.owned e.ty) sl)
+        | .shared => pure ()
         pure sl
     | .deref e ty => do
-        match e.ty with
-        | .owned ty' => do
-            VerifM.expectEq "deref type annotation mismatch" ty' ty
-            let lq ← compile reg Θ Δ_spec S B Γ e
+        let (ownership, ty') : TinyML.Ownership × TinyML.Typ ← match e.ty with
+          | .owned ty' => pure (TinyML.Ownership.owned, ty')
+          | .ref ty' => pure (TinyML.Ownership.shared, ty')
+          | _ => VerifM.fatal "deref operand is not a reference"
+        VerifM.expectEq "deref type annotation mismatch" ty' ty
+        let lq ← compile reg Θ Δ_spec S B Γ e
+        match ownership with
+        | .owned => do
             let v ← VerifM.findMatchForce .ref lq ty
             VerifM.assume (.spatial (.pointsTo lq v ty))
             pure v
-        | .ref ty' => do
-            VerifM.expectEq "deref type annotation mismatch" ty' ty
-            let _ ← compile reg Θ Δ_spec S B Γ e
+        | .shared => do
             let v ← VerifM.decl none .value
             let sv := Term.const (.uninterpreted v.name .value)
             VerifM.assumeAll (TinyML.typeConstraints ty sv)
             pure sv
-        | _ => VerifM.fatal "deref operand is not a reference"
     | .store loc val => do
-        match loc.ty with
-        | .owned ty => do
-            VerifM.expectEq "store location type mismatch" ty val.ty
-            let v ← compile reg Θ Δ_spec S B Γ val
-            let lq ← compile reg Θ Δ_spec S B Γ loc
+        let (ownership, ty) : TinyML.Ownership × TinyML.Typ ← match loc.ty with
+          | .owned ty => pure (TinyML.Ownership.owned, ty)
+          | .ref ty => pure (TinyML.Ownership.shared, ty)
+          | _ => VerifM.fatal "store location is not a reference"
+        VerifM.expectEq "store location type mismatch" ty val.ty
+        let v ← compile reg Θ Δ_spec S B Γ val
+        let lq ← compile reg Θ Δ_spec S B Γ loc
+        match ownership with
+        | .owned => do
             let _ ← VerifM.findMatchForce .ref lq val.ty
             VerifM.assume (.spatial (.pointsTo lq v val.ty))
-            pure (Term.const .unit)
-        | .ref ty => do
-            VerifM.expectEq "store location type mismatch" ty val.ty
-            let _ ← compile reg Θ Δ_spec S B Γ val
-            let _ ← compile reg Θ Δ_spec S B Γ loc
-            pure (Term.const .unit)
-        | _ => VerifM.fatal "store location is not a reference"
+        | .shared => pure ()
+        pure (Term.const .unit)
     | .arrayMake ownership len init => do
         VerifM.expectEq "array length must be int" len.ty .int
         let s_init ← compile reg Θ Δ_spec S B Γ init
@@ -1183,7 +1182,7 @@ theorem compileDeref_correct (reg : Verifier.Registry) (e : Expr) (ty : TinyML.T
   | prim _ | sum _ | arrow _ _ | array _ | ownedArray _ | vec _ | empty | value | tuple _ | tvar _ | named _ _ =>
       intro Θ R S B Γ st ρ γ Δ_spec ρ_spec Ψ Φ heval _ _ _ _ _ _ _ _
       simp only [compile, hty] at heval
-      exact (VerifM.eval_fatal heval).elim
+      exact (VerifM.eval_fatal (VerifM.eval_bind heval)).elim
 
 theorem compileStoreShared_correct (reg : Verifier.Registry) (loc val : Expr)
     (href : loc.ty = .ref val.ty)
@@ -1366,7 +1365,7 @@ theorem compileStore_correct (reg : Verifier.Registry) (loc val : Expr)
   | prim _ | sum _ | arrow _ _ | array _ | ownedArray _ | vec _ | empty | value | tuple _ | tvar _ | named _ _ =>
       intro Θ R S B Γ st ρ γ Δ_spec ρ_spec Ψ Φ heval _ _ _ _ _ _ _ _
       simp only [compile, hty] at heval
-      exact (VerifM.eval_fatal heval).elim
+      exact (VerifM.eval_fatal (VerifM.eval_bind heval)).elim
 
 omit [MicaGS HasLC.hasLC Sig] in
 /-- Peel the two bounds assertions guarding an array access. -/
