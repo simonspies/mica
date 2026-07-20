@@ -353,11 +353,11 @@ private partial def rewrite (decl : Option String) : Typed.Expr → LiftM Typed.
   | .letIn b bound body => do pure (.letIn b (← rewrite decl bound) (← rewrite decl body))
   | .letProd bs bound body => do
       pure (.letProd bs (← rewrite decl bound) (← rewrite decl body))
-  | .ref owned e => do pure (.ref owned (← rewrite decl e))
+  | .ref ownership e => do pure (.ref ownership (← rewrite decl e))
   | .deref e ty => do pure (.deref (← rewrite decl e) ty)
   | .store loc val => do pure (.store (← rewrite decl loc) (← rewrite decl val))
-  | .arrayMake owned len init => do
-      pure (.arrayMake owned (← rewrite decl len) (← rewrite decl init))
+  | .arrayMake ownership len init => do
+      pure (.arrayMake ownership (← rewrite decl len) (← rewrite decl init))
   | .arrayLen arr => do pure (.arrayLen (← rewrite decl arr))
   | .arrayGet arr idx ty => do pure (.arrayGet (← rewrite decl arr) (← rewrite decl idx) ty)
   | .arraySet arr idx val => do

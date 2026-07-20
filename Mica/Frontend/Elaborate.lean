@@ -405,8 +405,8 @@ how `[@@...]` names are validated). -/
 private def applyAttr (loc : Location) (e : Untyped.Expr) : Attribute → ElabM Untyped.Expr
   | { name := "owned", payload := none } =>
       match e with
-      | .ref _ inner => .ok (.ref true inner)
-      | .arrayMake _ len init => .ok (.arrayMake true len init)
+      | .ref _ inner => .ok (.ref .owned inner)
+      | .arrayMake _ len init => .ok (.arrayMake .owned len init)
       | _ => err loc (.unsupportedFeature "[@owned] only applies to 'ref' or 'Array.make'")
   | { name, .. } => err loc (.unsupportedFeature s!"unknown expression attribute [@{name}]")
 
@@ -494,7 +494,7 @@ def ExprKind.elaborate (env : ElabEnv) (loc : Location) : ExprKind → ElabM Unt
         match args with
         | [arg] => do
           let arg' ← Expr.elaborate env arg
-          .ok (.ref false arg')
+          .ok (.ref .shared arg')
         | _ => err loc (.arityMismatch 1 args.length)
       else if path.isQualified then
         match env.resolver.value path with
@@ -509,7 +509,7 @@ def ExprKind.elaborate (env : ElabEnv) (loc : Location) : ExprKind → ElabM Unt
             | [len, init] => do
               let len' ← Expr.elaborate env len
               let init' ← Expr.elaborate env init
-              .ok (.arrayMake false len' init')
+              .ok (.arrayMake .shared len' init')
             | _ => err loc (.arityMismatch 2 args.length)
         | some (.special .arrayLength) =>
             match args with

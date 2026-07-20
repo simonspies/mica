@@ -382,7 +382,7 @@ theorem letProd (names : List Typed.Binder) (bound body : Typed.Expr)
   simp only [encodeWith]
   exact ihBound hops fun _ => ihBody hops hk
 
-theorem ref (owned : Bool) (e : Typed.Expr) : EncodeWithInd (.ref owned e) :=
+theorem ref (ownership : TinyML.Ownership) (e : Typed.Expr) : EncodeWithInd (.ref ownership e) :=
   fun hops _ => hops.error_ind
 
 theorem deref (e : Typed.Expr) (ty : TinyML.Typ) : EncodeWithInd (.deref e ty) :=
@@ -391,7 +391,7 @@ theorem deref (e : Typed.Expr) (ty : TinyML.Typ) : EncodeWithInd (.deref e ty) :
 theorem store (loc val : Typed.Expr) : EncodeWithInd (.store loc val) :=
   fun hops _ => hops.error_ind
 
-theorem arrayMake (owned : Bool) (len init : Typed.Expr) : EncodeWithInd (.arrayMake owned len init) :=
+theorem arrayMake (ownership : TinyML.Ownership) (len init : Typed.Expr) : EncodeWithInd (.arrayMake ownership len init) :=
   fun hops _ => hops.error_ind
 
 theorem arrayLen (arr : Typed.Expr) (ih : EncodeWithInd arr) :
@@ -488,10 +488,10 @@ theorem encodeWith_ind_def : ∀ (e : Typed.Expr), EncodeWithInd e
       Ind.letIn name bound body (encodeWith_ind_def bound) (encodeWith_ind_def body)
   | .letProd names bound body =>
       Ind.letProd names bound body (encodeWith_ind_def bound) (encodeWith_ind_def body)
-  | .ref owned e => Ind.ref owned e
+  | .ref ownership e => Ind.ref ownership e
   | .deref e ty => Ind.deref e ty
   | .store loc val => Ind.store loc val
-  | .arrayMake owned len init => Ind.arrayMake owned len init
+  | .arrayMake ownership len init => Ind.arrayMake ownership len init
   | .arrayLen arr => Ind.arrayLen arr (encodeWith_ind_def arr)
   | .arrayGet arr idx ty => Ind.arrayGet arr idx ty
   | .arraySet arr idx val => Ind.arraySet arr idx val
@@ -733,7 +733,7 @@ theorem letProd (names : List Typed.Binder) (bound body : Typed.Expr)
       (fun y w h => Term.wfIn_mono w (hδ y w h) hsub'' hΔ'') hv)
     (fun hsub''' hΔ''' w hw => hk (hsub''.trans hsub''') hΔ''' w hw)
 
-theorem ref (owned : Bool) (e : Typed.Expr) : EncodeWithIndSig (.ref owned e) :=
+theorem ref (ownership : TinyML.Ownership) (e : Typed.Expr) : EncodeWithIndSig (.ref ownership e) :=
   fun hops _ _ _ _ _ => hops.error_ind
 
 theorem deref (e : Typed.Expr) (ty : TinyML.Typ) : EncodeWithIndSig (.deref e ty) :=
@@ -742,7 +742,7 @@ theorem deref (e : Typed.Expr) (ty : TinyML.Typ) : EncodeWithIndSig (.deref e ty
 theorem store (loc val : Typed.Expr) : EncodeWithIndSig (.store loc val) :=
   fun hops _ _ _ _ _ => hops.error_ind
 
-theorem arrayMake (owned : Bool) (len init : Typed.Expr) : EncodeWithIndSig (.arrayMake owned len init) :=
+theorem arrayMake (ownership : TinyML.Ownership) (len init : Typed.Expr) : EncodeWithIndSig (.arrayMake ownership len init) :=
   fun hops _ _ _ _ _ => hops.error_ind
 
 theorem arrayLen (arr : Typed.Expr) (ih : EncodeWithIndSig arr) :
@@ -866,10 +866,10 @@ theorem encodeWith_indWithSig_def : ∀ (e : Typed.Expr), EncodeWithIndSig e
   | .letProd names bound body =>
       IndSig.letProd names bound body
         (encodeWith_indWithSig_def bound) (encodeWith_indWithSig_def body)
-  | .ref owned e => IndSig.ref owned e
+  | .ref ownership e => IndSig.ref ownership e
   | .deref e ty => IndSig.deref e ty
   | .store loc val => IndSig.store loc val
-  | .arrayMake owned len init => IndSig.arrayMake owned len init
+  | .arrayMake ownership len init => IndSig.arrayMake ownership len init
   | .arrayLen arr => IndSig.arrayLen arr (encodeWith_indWithSig_def arr)
   | .arrayGet arr idx ty => IndSig.arrayGet arr idx ty
   | .arraySet arr idx val => IndSig.arraySet arr idx val
@@ -1321,7 +1321,7 @@ theorem letProd (names : List Typed.Binder) (bound body : Typed.Expr)
   exact ihBody hops (hsub₁.trans hsa₁) (hsub₂.trans hsa₂) hwa₁ hwa₂
     hagree_a (VarEnv.Agree.bindBinders henv_a hv₁ hv₂ hevalv) hka
 
-theorem ref (owned : Bool) (e : Typed.Expr) : EncodeWithBindBinary (.ref owned e) := by
+theorem ref (ownership : TinyML.Ownership) (e : Typed.Expr) : EncodeWithBindBinary (.ref ownership e) := by
   intro _ _ _ _ _ _ _ _ _ hops _ _ _ _ _ _ _ _ _ _ _ _ _; exact hops.error_binary
 
 theorem deref (e : Typed.Expr) (ty : TinyML.Typ) : EncodeWithBindBinary (.deref e ty) := by
@@ -1330,7 +1330,7 @@ theorem deref (e : Typed.Expr) (ty : TinyML.Typ) : EncodeWithBindBinary (.deref 
 theorem store (loc val : Typed.Expr) : EncodeWithBindBinary (.store loc val) := by
   intro _ _ _ _ _ _ _ _ _ hops _ _ _ _ _ _ _ _ _ _ _ _ _; exact hops.error_binary
 
-theorem arrayMake (owned : Bool) (len init : Typed.Expr) : EncodeWithBindBinary (.arrayMake owned len init) := by
+theorem arrayMake (ownership : TinyML.Ownership) (len init : Typed.Expr) : EncodeWithBindBinary (.arrayMake ownership len init) := by
   intro _ _ _ _ _ _ _ _ _ hops _ _ _ _ _ _ _ _ _ _ _ _ _; exact hops.error_binary
 
 theorem arrayLen (arr : Typed.Expr) (ih : EncodeWithBindBinary arr) :
@@ -1493,10 +1493,10 @@ theorem encodeWith_bind_binary_def : ∀ (e : Typed.Expr), EncodeWithBindBinary 
   | .letProd names bound body =>
       BindBinary.letProd names bound body
         (encodeWith_bind_binary_def bound) (encodeWith_bind_binary_def body)
-  | .ref owned e => BindBinary.ref owned e
+  | .ref ownership e => BindBinary.ref ownership e
   | .deref e ty => BindBinary.deref e ty
   | .store loc val => BindBinary.store loc val
-  | .arrayMake owned len init => BindBinary.arrayMake owned len init
+  | .arrayMake ownership len init => BindBinary.arrayMake ownership len init
   | .arrayLen arr => BindBinary.arrayLen arr (encodeWith_bind_binary_def arr)
   | .arrayGet arr idx ty => BindBinary.arrayGet arr idx ty
   | .arraySet arr idx val => BindBinary.arraySet arr idx val

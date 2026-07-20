@@ -128,7 +128,8 @@ private partial def printMul : Untyped.Expr → String
 private partial def printApp : Untyped.Expr → String
   | .app fn args => s!"{printApp fn} {" ".intercalate (args.map printUnary)}"
   | .unop .not e => s!"not {printAtom e}"
-  | .ref owned e => if owned then s!"ref {printAtom e} [@owned]" else s!"ref {printAtom e}"
+  | .ref .owned e => s!"ref {printAtom e} [@owned]"
+  | .ref .shared e => s!"ref {printAtom e}"
   | .inj tag arity e => s!"(inj {tag}/{arity} {printAtom e})"
   | .assert e => s!"assert {printAtom e}"
   | e => printUnary e

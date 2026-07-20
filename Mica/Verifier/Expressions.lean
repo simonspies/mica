@@ -316,11 +316,11 @@ mutual
         let se ← compile reg Θ Δ_spec S B Γ e
         if TinyML.Typ.sub Θ e.ty ty then pure se
         else VerifM.fatal s!"cast type mismatch"
-    | .ref false e => do
+    | .ref .shared e => do
         let _ ← compile reg Θ Δ_spec S B Γ e
         let l ← VerifM.decl none .value
         pure (.const (.uninterpreted l.name .value))
-    | .ref true e => do
+    | .ref .owned e => do
         let v ← compile reg Θ Δ_spec S B Γ e
         let l ← VerifM.decl none .value
         let sl := Term.const (.uninterpreted l.name .value)
@@ -358,7 +358,7 @@ mutual
             let _ ← compile reg Θ Δ_spec S B Γ loc
             pure (Term.const .unit)
         | _ => VerifM.fatal "store location is not a reference"
-    | .arrayMake owned len init => do
+    | .arrayMake ownership len init => do
         VerifM.expectEq "array length must be int" len.ty .int
         let s_init ← compile reg Θ Δ_spec S B Γ init
         let sl ← compile reg Θ Δ_spec S B Γ len
@@ -366,7 +366,7 @@ mutual
         let a ← VerifM.decl none .value
         let sa := Term.const (.uninterpreted a.name .value)
         VerifM.assume (.pure (.eq .int (.unop .arrayLengthOf sa) (.unop .toInt sl)))
-        if owned then
+        if ownership = .owned then
           let contents := Term.unop .ofVec (.binop .vecMake (.unop .toInt sl) s_init)
           VerifM.acquire (.spatial (.arrayPointsTo sa contents init.ty))
           VerifM.assumeAll (TinyML.typeConstraints (.ownedArray init.ty) sa)
@@ -888,12 +888,12 @@ theorem compilePrim_correct (reg : Verifier.Registry) (n : String)
 
 theorem compileRefShared_correct (reg : Verifier.Registry) (e : Expr)
     (ih : correctExpr reg e) :
-    correctExpr reg (.ref false e) := by
+    correctExpr reg (.ref .shared e) := by
   intro Θ R S B Γ st ρ γ Δ_spec ρ_spec Ψ Φ heval hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec hΔreg hρreg hpost
   unfold Expr.runtime
   simp only [Runtime.Expr.subst]
   simp only [compile] at heval
-  simp only [Expr.ty, Bool.false_eq_true, if_false] at hpost
+  simp only [Expr.ty] at hpost
   have heval_e : (compile reg Θ Δ_spec S B Γ e).eval st ρ _ := VerifM.eval_bind heval
   refine SpatialContext.wp_bind_ref <| ih Θ R S B Γ st ρ γ Δ_spec ρ_spec _ _
     (VerifM.eval.decls_grow ρ heval_e) hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec hΔreg hρreg ?_
@@ -956,12 +956,12 @@ theorem compileRefShared_correct (reg : Verifier.Registry) (e : Expr)
 
 theorem compileRefOwned_correct (reg : Verifier.Registry) (e : Expr)
     (ih : correctExpr reg e) :
-    correctExpr reg (.ref true e) := by
+    correctExpr reg (.ref .owned e) := by
   intro Θ R S B Γ st ρ γ Δ_spec ρ_spec Ψ Φ heval hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec hΔreg hρreg hpost
   unfold Expr.runtime
   simp only [Runtime.Expr.subst]
   simp only [compile] at heval
-  simp only [Expr.ty, if_true] at hpost
+  simp only [Expr.ty] at hpost
   have heval_e : (compile reg Θ Δ_spec S B Γ e).eval st ρ _ := VerifM.eval_bind heval
   refine SpatialContext.wp_bind_ref <| ih Θ R S B Γ st ρ γ Δ_spec ρ_spec _ _
     (VerifM.eval.decls_grow ρ heval_e) hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec hΔreg hρreg ?_
@@ -1025,12 +1025,12 @@ theorem compileRefOwned_correct (reg : Verifier.Registry) (e : Expr)
       · iexact HR
   exact hwp
 
-theorem compileRef_correct (reg : Verifier.Registry) (owned : Bool) (e : Expr)
+theorem compileRef_correct (reg : Verifier.Registry) (ownership : TinyML.Ownership) (e : Expr)
     (ih : correctExpr reg e) :
-    correctExpr reg (.ref owned e) := by
-  cases owned with
-  | false => exact compileRefShared_correct reg e ih
-  | true => exact compileRefOwned_correct reg e ih
+    correctExpr reg (.ref ownership e) := by
+  cases ownership with
+  | shared => exact compileRefShared_correct reg e ih
+  | owned => exact compileRefOwned_correct reg e ih
 
 theorem compileDerefShared_correct (reg : Verifier.Registry) (e : Expr) (ty : TinyML.Typ)
     (href : e.ty = .ref ty)
@@ -1394,9 +1394,9 @@ private theorem VerifM.eval_assertBounds {si sa : Term .value} {α : Type}
 /-- Array allocation correctness: after evaluating the initial value and the
 length, the shared branch allocates behind the array invariant while the
 owned branch acquires a fresh owned-array atom. -/
-theorem compileArrayMake_correct (reg : Verifier.Registry) (owned : Bool) (len init : Expr)
+theorem compileArrayMake_correct (reg : Verifier.Registry) (ownership : TinyML.Ownership) (len init : Expr)
     (ihLen : correctExpr reg len) (ihInit : correctExpr reg init) :
-    correctExpr reg (.arrayMake owned len init) := by
+    correctExpr reg (.arrayMake ownership len init) := by
   intro Θ R S B Γ st ρ γ Δ_spec ρ_spec Ψ Φ heval hagree hbwf hSwf hΔwf hΔvars hΔspec hρspec hΔreg hρreg hpost
   unfold Expr.runtime
   simp only [Runtime.Expr.subst]
@@ -1446,9 +1446,9 @@ theorem compileArrayMake_correct (reg : Verifier.Registry) (owned : Bool) (len i
   have hn : (0 : Int) ≤ n := by
     simpa [φ, Formula.eval, BinPred.eval, Term.eval, Const.denote, UnOp.eval,
       heval_slen, hv_len] using hφ
-  cases owned with
-  | false =>
-    simp only [Expr.ty, Bool.false_eq_true, if_false] at hpost
+  cases ownership with
+  | shared =>
+    simp only [Expr.ty] at hpost
     iapply (SpatialContext.wp_arrayMake_inv (vlen := v_len) (init := v_init) (n := n)
       (I := fun w => TinyML.ValHasType Θ w init.ty) (Q := Φ) hv_len hn)
     isplitl []
@@ -1510,8 +1510,8 @@ theorem compileArrayMake_correct (reg : Verifier.Registry) (owned : Bool) (len i
           · ipureintro; rfl
           · iexact Hinv_l
         · iexact HR
-  | true =>
-    simp only [Expr.ty, if_true] at hpost
+  | owned =>
+    simp only [Expr.ty] at hpost
     iapply (SpatialContext.wp_arrayMake (vlen := v_len) (init := v_init) (n := n)
       (Q := Φ) hv_len hn)
     iintro %l Hpt
@@ -3571,14 +3571,14 @@ theorem compile_correct (reg : Verifier.Registry) (hSound : Verifier.Registry.So
   | letProd names e body =>
     simpa using compileLetProd_correct reg names e body
       (compile_correct reg hSound e) (compile_correct reg hSound body)
-  | ref owned e =>
-    simpa using compileRef_correct reg owned e (compile_correct reg hSound e)
+  | ref ownership e =>
+    simpa using compileRef_correct reg ownership e (compile_correct reg hSound e)
   | deref e ty =>
     simpa using compileDeref_correct reg e ty (compile_correct reg hSound e)
   | store loc val =>
     simpa using compileStore_correct reg loc val (compile_correct reg hSound val) (compile_correct reg hSound loc)
-  | arrayMake owned len init =>
-    simpa using compileArrayMake_correct reg owned len init
+  | arrayMake ownership len init =>
+    simpa using compileArrayMake_correct reg ownership len init
       (compile_correct reg hSound len) (compile_correct reg hSound init)
   | arrayLen arr =>
     simpa using compileArrayLen_correct reg arr (compile_correct reg hSound arr)

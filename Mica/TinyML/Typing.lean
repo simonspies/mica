@@ -294,9 +294,12 @@ mutual
         let typedNames ← inferProductBinders Θ names tys
         let (bodyTy, body') ← infer prims Θ (extendTypedList Γ typedNames) body
         .ok (bodyTy, .letProd typedNames bound' body')
-    | .ref owned e => do
+    | .ref ownership e => do
         let (ty, e') ← infer prims Θ Γ e
-        .ok ((if owned then .owned ty else .ref ty), .ref owned e')
+        let refTy := match ownership with
+          | .owned => .owned ty
+          | .shared => .ref ty
+        .ok (refTy, .ref ownership e')
     | .deref e => do
         let (ty, e') ← infer prims Θ Γ e
         match ty with
@@ -309,10 +312,13 @@ mutual
             let val' ← check prims Θ Γ val inner
             .ok (.unit, .store loc' val')
         | _ => .error (.notARef locTy)
-    | .arrayMake owned len init => do
+    | .arrayMake ownership len init => do
         let len' ← check prims Θ Γ len .int
         let (elemTy, init') ← infer prims Θ Γ init
-        .ok ((if owned then .ownedArray elemTy else .array elemTy), .arrayMake owned len' init')
+        let arrayTy := match ownership with
+          | .owned => .ownedArray elemTy
+          | .shared => .array elemTy
+        .ok (arrayTy, .arrayMake ownership len' init')
     | .arrayLen arr => do
         let (arrTy, arr') ← infer prims Θ Γ arr
         match arrTy with
@@ -777,7 +783,7 @@ mutual
           | _ =>
             simp at hcont
             cases hcont
-    | .ref owned e => by
+    | .ref ownership e => by
         let ih := infer_runtime prims Θ Γ e
         intro result h
         unfold Typed.infer at h
@@ -818,7 +824,7 @@ mutual
             have ⟨val', hval, hcont⟩ := Except.bind_ok hcont
             rcases (by simpa using hcont) with ⟨rfl, rfl⟩
             simp [Expr.runtime, Untyped.Expr.runtime, ihLoc _ hloc, ihVal _ hval]
-    | .arrayMake owned len init => by
+    | .arrayMake ownership len init => by
         let ihLen := check_runtime prims Θ Γ len .int
         let ihInit := infer_runtime prims Θ Γ init
         intro result h
