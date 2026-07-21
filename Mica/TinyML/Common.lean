@@ -5,6 +5,12 @@ namespace TinyML
 
 abbrev Var := String
 
+/-- Whether a mutable allocation is owned directly or shared through an invariant. -/
+inductive Ownership where
+  | owned
+  | shared
+  deriving Repr, BEq, Inhabited, DecidableEq
+
 structure DeclMeta (S : Type) where
   spec : Option S := none
   relation : Option String := none

@@ -51,10 +51,10 @@ inductive Expr where
   | ifThenElse (cond thn els : Expr) (ty : Typ)
   | letIn (name : Binder) (bound body : Expr)
   | letProd (names : List Binder) (bound body : Expr)
-  | ref    (owned : Bool) (e : Expr)
+  | ref    (ownership : Ownership) (e : Expr)
   | deref  (e : Expr) (ty : Typ)
   | store  (loc val : Expr)
-  | arrayMake (owned : Bool) (len init : Expr)
+  | arrayMake (ownership : Ownership) (len init : Expr)
   | arrayLen (arr : Expr)
   | arrayGet (arr idx : Expr) (ty : Typ)
   | arraySet (arr idx val : Expr)
@@ -255,10 +255,12 @@ def Expr.ty : Expr → Typ
   | .ifThenElse _ _ _ ty => ty
   | .letIn _ _ body => body.ty
   | .letProd _ _ body => body.ty
-  | .ref owned e => if owned then .owned e.ty else .ref e.ty
+  | .ref .owned e => .owned e.ty
+  | .ref .shared e => .ref e.ty
   | .deref _ ty => ty
   | .store _ _ => .unit
-  | .arrayMake owned _ init => if owned then .ownedArray init.ty else .array init.ty
+  | .arrayMake .owned _ init => .ownedArray init.ty
+  | .arrayMake .shared _ init => .array init.ty
   | .arrayLen _ => .int
   | .arrayGet _ _ ty => ty
   | .arraySet _ _ _ => .unit
