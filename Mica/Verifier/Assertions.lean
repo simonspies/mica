@@ -32,6 +32,45 @@ inductive Assertion : Type → Type where
   | pred   : (v : Var) → Atom v.sort → Assertion α → Assertion α
   | ite    : Formula → Assertion α → Assertion α → Assertion α
 
+private def Assertion.decideEq [DecidableEq α] : (a b : Assertion α) → Decidable (a = b)
+  | .ret a, .ret b => match decEq a b with
+    | isTrue h => isTrue (by subst h; rfl)
+    | isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
+  | .assert φ₁ k₁, .assert φ₂ k₂ => match decEq φ₁ φ₂, k₁.decideEq k₂ with
+    | isTrue h₁, isTrue h₂ => isTrue (by subst h₁; subst h₂; rfl)
+    | isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
+    | _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
+  | .let_ v₁ t₁ k₁, .let_ v₂ t₂ k₂ => match decEq v₁ v₂ with
+    | isTrue hv => by
+        subst hv
+        exact match decEq t₁ t₂, k₁.decideEq k₂ with
+          | isTrue ht, isTrue hk => isTrue (by subst ht; subst hk; rfl)
+          | isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
+          | _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
+    | isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
+  | .pred v₁ p₁ k₁, .pred v₂ p₂ k₂ => match decEq v₁ v₂ with
+    | isTrue hv => by
+        subst hv
+        exact match decEq p₁ p₂, k₁.decideEq k₂ with
+          | isTrue hp, isTrue hk => isTrue (by subst hp; subst hk; rfl)
+          | isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
+          | _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
+    | isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
+  | .ite φ₁ kt₁ ke₁, .ite φ₂ kt₂ ke₂ =>
+    match decEq φ₁ φ₂, kt₁.decideEq kt₂, ke₁.decideEq ke₂ with
+    | isTrue hφ, isTrue ht, isTrue he => isTrue (by subst hφ; subst ht; subst he; rfl)
+    | isFalse h, _, _ => isFalse (by intro heq; cases heq; exact h rfl)
+    | _, isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
+    | _, _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
+  | .ret _, .assert .. | .ret _, .let_ .. | .ret _, .pred .. | .ret _, .ite ..
+  | .assert .., .ret _ | .assert .., .let_ .. | .assert .., .pred .. | .assert .., .ite ..
+  | .let_ .., .ret _ | .let_ .., .assert .. | .let_ .., .pred .. | .let_ .., .ite ..
+  | .pred .., .ret _ | .pred .., .assert .. | .pred .., .let_ .. | .pred .., .ite ..
+  | .ite .., .ret _ | .ite .., .assert .. | .ite .., .let_ .. | .ite .., .pred .. =>
+    isFalse (by intro h; cases h)
+
+instance [DecidableEq α] : DecidableEq (Assertion α) := Assertion.decideEq
+
 
 -- ---------------------------------------------------------------------------
 -- Semantics

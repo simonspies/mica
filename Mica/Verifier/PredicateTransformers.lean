@@ -27,6 +27,10 @@ Defines `PredTrans` and `SpecPredicate`.
 def PredTrans := Assertion (Pred (Assertion Unit))
 abbrev SpecPredicate := MultiPred PredTrans
 
+instance : DecidableEq PredTrans := by
+  unfold PredTrans Pred
+  infer_instance
+
 -- ---------------------------------------------------------------------------
 -- Well-formedness
 -- ---------------------------------------------------------------------------

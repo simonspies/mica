@@ -31,6 +31,7 @@ inductive Atom : Srt → Type where
   | own    : Term .value → TinyML.Typ → Atom .value
   | arr : Term .value → TinyML.Typ → Atom .value
   | rel    (name : String) : Term .value → Atom .value
+  deriving DecidableEq
 
 
 -- ---------------------------------------------------------------------------

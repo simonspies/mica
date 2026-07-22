@@ -30,6 +30,7 @@ structure Spec where
   args    : List (String × TinyML.Typ)
   retTy   : TinyML.Typ
   pred    : PredTrans
+  deriving DecidableEq
 
 namespace Spec
 
