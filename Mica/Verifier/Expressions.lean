@@ -277,7 +277,7 @@ mutual
         let sargs := (args.map Expr.ty).zip sterms
         VerifM.expectEq "app type annotation mismatch" spec.retTy aty
         VerifM.expectEq "app type annotation mismatch"
-          fty (Typed.arrowOfArgs (spec.args.map fun arg => Binder.named arg.1 arg.2) spec.retTy)
+          fty (.arrow (spec.args.map Prod.snd) spec.retTy)
         let (_, result) ← Spec.call Θ (FiniteSubst.base Δ_spec) spec sargs
         pure result
     | .app (.prim n inst _) args aty => do

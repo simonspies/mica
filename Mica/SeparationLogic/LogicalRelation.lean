@@ -496,9 +496,9 @@ theorem ValHasType.empty (Θ : TypeEnv) (v : Runtime.Val) :
     ValHasType Θ v .empty ⊣⊢ iprop(False) := by
   exact equiv_iff.mp (ValHasType.unfold Θ v .empty)
 
-theorem ValHasType.arrow (Θ : TypeEnv) (v : Runtime.Val) (t1 t2 : Typ) :
-    ValHasType Θ v (.arrow t1 t2) ⊣⊢ iprop(False) := by
-  exact equiv_iff.mp (ValHasType.unfold Θ v (.arrow t1 t2))
+theorem ValHasType.arrow (Θ : TypeEnv) (v : Runtime.Val) (args : List Typ) (ret : Typ) :
+    ValHasType Θ v (.arrow args ret) ⊣⊢ iprop(False) := by
+  exact equiv_iff.mp (ValHasType.unfold Θ v (.arrow args ret))
 
 theorem ValHasType.tvar (Θ : TypeEnv) (v : Runtime.Val) (x : TyVar) :
     ValHasType Θ v (.tvar x) ⊣⊢ iprop(False) := by
@@ -1396,7 +1396,7 @@ mutual
         exact htail φ hφ
     | sum _ | ref _ | value | named _ _ =>
       iintro _; ipureintro; simp [typeConstraints]
-    | arrow t1 t2 => exact (TinyML.ValHasType.arrow Θ v t1 t2).1.trans false_elim
+    | arrow args ret => exact (TinyML.ValHasType.arrow Θ v args ret).1.trans false_elim
     | empty => exact (TinyML.ValHasType.empty Θ v).1.trans false_elim
     | tvar x => exact (TinyML.ValHasType.tvar Θ v x).1.trans false_elim
 

@@ -356,9 +356,9 @@ def matchType (inst : List (TinyML.TyVar × TinyML.Typ))
     match pattern, actual with
     | .tvar v, t => .ok (if inst.lookup v |>.isSome then inst else (v, t) :: inst)
     | .sum ps, .sum ts => matchTypes inst ps ts
-    | .arrow p₁ p₂, .arrow t₁ t₂ => do
-        let inst ← matchType inst p₁ t₁
-        matchType inst p₂ t₂
+    | .arrow ps p, .arrow ts t => do
+        let inst ← matchTypes inst ps ts
+        matchType inst p t
     | .ref p, .ref t | .array p, .array t | .vec p, .vec t | .owned p, .owned t =>
         matchType inst p t
     | .tuple ps, .tuple ts => matchTypes inst ps ts

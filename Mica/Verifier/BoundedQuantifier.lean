@@ -182,7 +182,7 @@ def intrinsic (name : String) (path : String) : Verifier.Intrinsic where
   reduce := fun _ _ _ _ => False
   wp := fun _ _ => iprop(False)
   spec :=
-    { args := [("lo", .int), ("hi", .int), ("body", .arrow .int .bool)]
+    { args := [("lo", .int), ("hi", .int), ("body", .arrow [.int] .bool)]
       retTy := .bool
       pred := .assert .false_ (.ret ("ret", .ret ())) }
   typing := Verifier.monoTyping .three
@@ -322,7 +322,7 @@ private def lift (decl : Option String) (all : Bool) (binder : Typed.Binder)
   set ({ declIdx := st.declIdx,
          count := st.count + 1,
          syms := st.syms ++ [{ name, all, captured, arg := name ++ "-x", body := gBody }] } : LiftState)
-  pure (.app (.var name (.arrow .value .bool))
+  pure (.app (.var name (.arrow [.value] .bool))
     [.tuple (lo :: hi :: captured.map (fun x => Typed.Expr.var x .value))] .bool)
 
 /-- Rewrite every bounded-quantifier occurrence in a spec leaf, bottom-up:

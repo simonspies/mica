@@ -361,7 +361,7 @@ def resultTy (i : Intrinsic) : TinyML.Typ :=
 
 /-- The intrinsic's full arrow (scheme) type. -/
 def arrowType (i : Intrinsic) : TinyML.Typ :=
-  i.argTysList.foldr .arrow i.resultTy
+  .arrow i.argTysList i.resultTy
 
 /-- The typing face of an intrinsic, consumed by the elaborator. -/
 def sig (i : Intrinsic) : Typed.PrimSig :=

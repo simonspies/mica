@@ -191,7 +191,9 @@ def TypKind.elaborate (env : ElabEnv) (loc : Location) : TypKind → ElabM TinyM
   | .arrow dom cod => do
     let dom' ← Typ.elaborate env dom
     let cod' ← Typ.elaborate env cod
-    .ok (.arrow dom' cod')
+    match cod' with
+    | .arrow args ret => .ok (.arrow (dom' :: args) ret)
+    | _ => .ok (.arrow [dom'] cod')
   | .tuple ts => do
     let ts' ← Typ.elaborateList env ts
     .ok (.tuple ts')
@@ -671,6 +673,8 @@ def ExprKind.elaborate (env : ElabEnv) (loc : Location) : ExprKind → ElabM Unt
       let body' ← Expr.elaborate (env.bindPattern pat) body
       .ok (.letIn name (.fix self args' none bound'') body')
 
+  | .fun_ [] _ _ =>
+    err loc (.unsupportedFeature "function expressions require at least one argument")
   | .fun_ args retTy body => do
     let retTy' ← elaborateOptTyp env retTy
     let body' ← Expr.elaborate (env.bindPatterns args) body
