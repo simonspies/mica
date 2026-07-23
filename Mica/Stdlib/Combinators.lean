@@ -16,10 +16,10 @@ namespace Intrinsics
 
 /-- Apply a `.ret (s, .assert φ ...)` spec at a value, discharging the asserted
     `φ` as a pure side condition. -/
-theorem assert_ret_apply [MicaGS HasLC.hasLC Sig] (Θ : TinyML.TypeEnv) (Φ : Runtime.Val → iProp)
+theorem assert_ret_apply [MicaGS HasLC.hasLC Sig] (W : TinyML.World) (Φ : Runtime.Val → iProp)
     (s : String) (ρ : VerifM.Env) (φ : Formula) (v : Runtime.Val)
     (hφ : φ.eval (ρ.updateConst .value s v).env) :
-    PredTrans.apply Θ Φ (.ret (s, .assert φ (.ret ()))) ρ ⊢ Φ v := by
+    PredTrans.apply W Φ (.ret (s, .assert φ (.ret ()))) ρ ⊢ Φ v := by
   simp only [PredTrans.apply, Assertion.pre, Assertion.post]
   refine (forall_elim v).trans ?_
   iintro Hw
@@ -36,10 +36,10 @@ def withPre : Option Formula → PredTrans → PredTrans
 
 /-- Eliminate `withPre`: applying the wrapped predicate yields the precondition
     as a pure fact (vacuous for `none`) alongside the unwrapped application. -/
-theorem withPre_apply [MicaGS HasLC.hasLC Sig] (Θ : TinyML.TypeEnv) (Φ : Runtime.Val → iProp)
+theorem withPre_apply [MicaGS HasLC.hasLC Sig] (W : TinyML.World) (Φ : Runtime.Val → iProp)
     (pre : Option Formula) (post : PredTrans) (ρ : VerifM.Env) :
-    PredTrans.apply Θ Φ (withPre pre post) ρ ⊢
-      iprop(⌜∀ φ, pre = some φ → φ.eval ρ.env⌝ ∗ PredTrans.apply Θ Φ post ρ) := by
+    PredTrans.apply W Φ (withPre pre post) ρ ⊢
+      iprop(⌜∀ φ, pre = some φ → φ.eval ρ.env⌝ ∗ PredTrans.apply W Φ post ρ) := by
   cases pre with
   | none =>
     simp only [withPre]
@@ -56,10 +56,10 @@ theorem withPre_apply [MicaGS HasLC.hasLC Sig] (Θ : TinyML.TypeEnv) (Φ : Runti
 
 /-- A length-mismatched argument list makes the typing premise inconsistent, so
     it entails anything. -/
-theorem valsHaveTypes_off_shape [MicaGS HasLC.hasLC Sig] {Θ : TinyML.TypeEnv}
+theorem valsHaveTypes_off_shape [MicaGS HasLC.hasLC Sig] {W : TinyML.World}
     {vs : List Runtime.Val} {tys : List TinyML.Typ} (P : iProp)
     (hlen : vs.length ≠ tys.length) :
-    TinyML.ValsHaveTypes Θ vs tys ⊢ P := by
+    TinyML.ValsHaveTypes W vs tys ⊢ P := by
   refine TinyML.ValsHaveTypes.length_eq.trans ?_
   iintro %h
   simp at h; omega
@@ -135,7 +135,7 @@ structure Embedding where
   inject   : carrier → Runtime.Val
   project  : Runtime.Val → carrier
   typePred : ∀ [MicaGS.{0} HasLC.hasLC Sig],
-              (TinyML.TyVar → TinyML.Typ) → TinyML.TypeEnv → carrier → iProp
+              (TinyML.TyVar → TinyML.Typ) → TinyML.World → carrier → iProp
   isOf     : Option (UnPred .value)
 
 /-- Integer projection of a runtime value, matching FOL's `toInt`. -/
@@ -189,12 +189,12 @@ def Embedding.float : Embedding :=
     type axiom. -/
 def Embedding.poly (v : TinyML.TyVar) : Embedding :=
   ⟨.tvar v, Runtime.Val, id, id,
-    fun σ Θ w => TinyML.ValHasType Θ w (σ v), none⟩
+    fun σ W w => TinyML.ValHasType W w (σ v), none⟩
 
 /-- An arbitrary type scheme represented by the runtime value itself. -/
 def Embedding.logical (typ : TinyML.Typ) : Embedding :=
   ⟨typ, Runtime.Val, id, id,
-    fun σ Θ w => TinyML.ValHasType Θ w (typ.subst σ), none⟩
+    fun σ W w => TinyML.ValHasType W w (typ.subst σ), none⟩
 
 /-- The empty type: no closed values inhabit it. Trivial `Unit` carrier with a
     `False` type predicate, so only an intrinsic with an unsatisfiable domain
@@ -206,7 +206,7 @@ def Embedding.empty : Embedding :=
     instantiated element typings as the type predicate. -/
 def Embedding.vec (elem : TinyML.Typ) : Embedding :=
   ⟨.vec elem, List Runtime.Val, .vec, valVec,
-    fun σ Θ l => iprop([∗list] w ∈ l, TinyML.ValHasType Θ w (elem.subst σ)),
+    fun σ W l => iprop([∗list] w ∈ l, TinyML.ValHasType W w (elem.subst σ)),
     some .isVec⟩
 
 /-- Coherence laws for an `Embedding`. The `member`/`intro` laws are stated at
@@ -217,12 +217,12 @@ structure Embedding.Lawful (e : Embedding) where
   isOf_inject    : ∀ (ρ : Env) (x : e.carrier) p, e.isOf = some p →
                      UnPred.eval ρ p (e.inject x)
   member         : ∀ [MicaGS HasLC.hasLC Sig] (σ : TinyML.TyVar → TinyML.Typ)
-                     (Θ : TinyML.TypeEnv) (w : Runtime.Val),
-                     TinyML.ValHasType Θ w (e.typ.subst σ) ⊣⊢
-                       iprop(∃ x, ⌜w = e.inject x⌝ ∗ e.typePred σ Θ x)
+                     (W : TinyML.World) (w : Runtime.Val),
+                     TinyML.ValHasType W w (e.typ.subst σ) ⊣⊢
+                       iprop(∃ x, ⌜w = e.inject x⌝ ∗ e.typePred σ W x)
   intro          : ∀ [MicaGS HasLC.hasLC Sig] (σ : TinyML.TyVar → TinyML.Typ)
-                     (Θ : TinyML.TypeEnv) (x : e.carrier),
-                     e.typePred σ Θ x ⊢ TinyML.ValHasType Θ (e.inject x) (e.typ.subst σ)
+                     (W : TinyML.World) (x : e.carrier),
+                     e.typePred σ W x ⊢ TinyML.ValHasType W (e.inject x) (e.typ.subst σ)
 
 /-- Lift the pure membership fact of an embedding with trivial type predicate
     to the predicate-carrying `member` shape (`∗ emp` under the existential). -/
@@ -235,52 +235,52 @@ def Embedding.lawfulInt : Embedding.int.Lawful where
   project_inject _ := rfl
   isOf_wf _ _ h := by cases h; trivial
   isOf_inject _ _ _ h := by cases h; simp [Embedding.int]
-  member _ Θ w := pure_member (φ := fun x => w = .int x)
-    (by simpa [Embedding.int, TinyML.Typ.subst] using TinyML.ValHasType.int Θ w)
-  intro _ Θ x := by simpa [Embedding.int, TinyML.Typ.subst] using TinyML.ValHasType.int_intro Θ x
+  member _ W w := pure_member (φ := fun x => w = .int x)
+    (by simpa [Embedding.int, TinyML.Typ.subst] using TinyML.ValHasType.int W w)
+  intro _ W x := by simpa [Embedding.int, TinyML.Typ.subst] using TinyML.ValHasType.int_intro W x
 
 /-- Booleans are a lawful embedding. -/
 def Embedding.lawfulBool : Embedding.bool.Lawful where
   project_inject _ := rfl
   isOf_wf _ _ h := by cases h; trivial
   isOf_inject _ _ _ h := by cases h; simp [Embedding.bool]
-  member _ Θ w := pure_member (φ := fun x => w = .bool x)
-    (by simpa [Embedding.bool, TinyML.Typ.subst] using TinyML.ValHasType.bool Θ w)
-  intro _ Θ x := by simpa [Embedding.bool, TinyML.Typ.subst] using TinyML.ValHasType.bool_intro Θ x
+  member _ W w := pure_member (φ := fun x => w = .bool x)
+    (by simpa [Embedding.bool, TinyML.Typ.subst] using TinyML.ValHasType.bool W w)
+  intro _ W x := by simpa [Embedding.bool, TinyML.Typ.subst] using TinyML.ValHasType.bool_intro W x
 
 /-- Characters are a lawful embedding. -/
 def Embedding.lawfulChar : Embedding.char.Lawful where
   project_inject _ := rfl
   isOf_wf _ _ h := by cases h; trivial
   isOf_inject _ _ _ h := by cases h; simp [Embedding.char]
-  member _ Θ w := pure_member (φ := fun x => w = .char x)
-    (by simpa [Embedding.char, TinyML.Typ.subst] using TinyML.ValHasType.char Θ w)
-  intro _ Θ x := by simpa [Embedding.char, TinyML.Typ.subst] using TinyML.ValHasType.char_intro Θ x
+  member _ W w := pure_member (φ := fun x => w = .char x)
+    (by simpa [Embedding.char, TinyML.Typ.subst] using TinyML.ValHasType.char W w)
+  intro _ W x := by simpa [Embedding.char, TinyML.Typ.subst] using TinyML.ValHasType.char_intro W x
 
 /-- Byte strings are a lawful embedding. -/
 def Embedding.lawfulStr : Embedding.str.Lawful where
   project_inject _ := rfl
   isOf_wf _ _ h := by cases h; trivial
   isOf_inject _ _ _ h := by cases h; simp [Embedding.str]
-  member _ Θ w := pure_member (φ := fun x => w = .str x)
-    (by simpa [Embedding.str, TinyML.Typ.subst] using TinyML.ValHasType.string Θ w)
-  intro _ Θ x := by simpa [Embedding.str, TinyML.Typ.subst] using TinyML.ValHasType.string_intro Θ x
+  member _ W w := pure_member (φ := fun x => w = .str x)
+    (by simpa [Embedding.str, TinyML.Typ.subst] using TinyML.ValHasType.string W w)
+  intro _ W x := by simpa [Embedding.str, TinyML.Typ.subst] using TinyML.ValHasType.string_intro W x
 
 /-- Floats are a lawful embedding. -/
 def Embedding.lawfulFloat : Embedding.float.Lawful where
   project_inject _ := rfl
   isOf_wf _ _ h := by cases h; trivial
   isOf_inject _ _ _ h := by cases h; simp [Embedding.float]
-  member _ Θ w := pure_member (φ := fun x => w = .float x)
-    (by simpa [Embedding.float, TinyML.Typ.subst] using TinyML.ValHasType.float Θ w)
-  intro _ Θ x := by simpa [Embedding.float, TinyML.Typ.subst] using TinyML.ValHasType.float_intro Θ x
+  member _ W w := pure_member (φ := fun x => w = .float x)
+    (by simpa [Embedding.float, TinyML.Typ.subst] using TinyML.ValHasType.float W w)
+  intro _ W x := by simpa [Embedding.float, TinyML.Typ.subst] using TinyML.ValHasType.float_intro W x
 
 /-- Type variables are a lawful embedding: the type predicate is the typing fact itself. -/
 def Embedding.lawfulPoly (v : TinyML.TyVar) : (Embedding.poly v).Lawful where
   project_inject _ := rfl
   isOf_wf _ _ h := nomatch h
   isOf_inject _ _ _ h := nomatch h
-  member σ Θ w := by
+  member σ W w := by
     simp only [Embedding.poly, TinyML.Typ.subst]
     constructor
     · iintro H
@@ -291,7 +291,7 @@ def Embedding.lawfulPoly (v : TinyML.TyVar) : (Embedding.poly v).Lawful where
     · iintro ⟨%x, %hw, H⟩
       obtain rfl := hw
       iexact H
-  intro σ Θ x := by
+  intro σ W x := by
     simp only [Embedding.poly, TinyML.Typ.subst]
     exact .rfl
 
@@ -300,7 +300,7 @@ def Embedding.lawfulLogical (typ : TinyML.Typ) : (Embedding.logical typ).Lawful 
   project_inject _ := rfl
   isOf_wf _ _ h := nomatch h
   isOf_inject _ _ _ h := nomatch h
-  member σ Θ w := by
+  member σ W w := by
     simp only [Embedding.logical]
     constructor
     · iintro H
@@ -319,14 +319,14 @@ def Embedding.lawfulEmpty : Embedding.empty.Lawful where
   project_inject _ := rfl
   isOf_wf _ _ h := nomatch h
   isOf_inject _ _ _ h := nomatch h
-  member σ Θ w := by
+  member σ W w := by
     simp only [Embedding.empty, TinyML.Typ.subst]
-    refine (TinyML.ValHasType.empty Θ w).trans ?_
+    refine (TinyML.ValHasType.empty W w).trans ?_
     constructor
     · exact false_elim
     · iintro ⟨%x, %hw, H⟩
       iexact H
-  intro σ Θ x := by
+  intro σ W x := by
     simp only [Embedding.empty, TinyML.Typ.subst]
     exact false_elim
 
@@ -335,10 +335,10 @@ def Embedding.lawfulVec (elem : TinyML.Typ) : (Embedding.vec elem).Lawful where
   project_inject _ := rfl
   isOf_wf _ _ h := by cases h; trivial
   isOf_inject _ _ _ h := by cases h; simp [Embedding.vec]
-  member σ Θ w := by
-    simpa [Embedding.vec, TinyML.Typ.subst] using TinyML.ValHasType.vec Θ w (elem.subst σ)
-  intro σ Θ l := by
-    simpa [Embedding.vec, TinyML.Typ.subst] using TinyML.ValHasType.vec_intro Θ l (elem.subst σ)
+  member σ W w := by
+    simpa [Embedding.vec, TinyML.Typ.subst] using TinyML.ValHasType.vec W w (elem.subst σ)
+  intro σ W l := by
+    simpa [Embedding.vec, TinyML.Typ.subst] using TinyML.ValHasType.vec_intro W l (elem.subst σ)
 
 /-! ## Scheme matching -/
 
@@ -481,7 +481,7 @@ structure Zero.Lawful (b : Zero) where
   resL         : b.res.Lawful
   nameFresh    : b.name ≠ "ret"
   semWellTyped : ∀ [MicaGS HasLC.hasLC Sig] (σ : TinyML.TyVar → TinyML.Typ)
-                 (Θ : TinyML.TypeEnv), iprop(emp) ⊢ b.res.typePred σ Θ b.f
+                 (W : TinyML.World), iprop(emp) ⊢ b.res.typePred σ W b.f
   specBaseWf   : PredTrans.wfIn
                  ((Intrinsic.sigOf [b.toIntrinsic]).declVars
                    (Spec.argVars b.toIntrinsic.specArgs)) b.toIntrinsic.spec.pred
@@ -511,16 +511,16 @@ structure Zero.Lawful (b : Zero) where
       subst hv
       iexact HΦ
   bridge := by
-    intro _ σ Θ vs ρ Φ hρ
+    intro _ σ W vs ρ Φ hρ
     simp only [Zero.instantiate_retTy, Spec.instantiate_pred]
-    show TinyML.ValsHaveTypes Θ vs [] ∗ _ ⊢ _
+    show TinyML.ValsHaveTypes W vs [] ∗ _ ⊢ _
     match vs with
     | _ :: _ => exact (sep_mono_left (valsHaveTypes_off_shape _ (by simp))).trans sep_elim_left
     | [] =>
       simp only [Zero.toIntrinsic, Intrinsic.toWp_zero_of_arity]
-      refine (sep_mono_left (TinyML.ValsHaveTypes.nil Θ).1).trans ?_
+      refine (sep_mono_left (TinyML.ValsHaveTypes.nil W).1).trans ?_
       refine emp_sep.1.trans ?_
-      refine (assert_ret_apply Θ _ "ret" _ _ (b.res.inject b.f) ?_).trans ?_
+      refine (assert_ret_apply W _ "ret" _ _ (b.res.inject b.f) ?_).trans ?_
       · have hconst : (ρ.updateConst .value "ret" (b.res.inject b.f)).env.lookupConst
             .value b.name = b.res.inject b.f := by
           rw [VerifM.Env.updateConst_env]
@@ -529,7 +529,7 @@ structure Zero.Lawful (b : Zero) where
         simpa [Zero.opTerm, Term.eval, Const.denote] using hconst.symm
       · iintro Hwand
         iapply Hwand
-        exact (l.semWellTyped σ Θ).trans (l.resL.intro σ Θ b.f)
+        exact (l.semWellTyped σ W).trans (l.resL.intro σ W b.f)
   axiomWf := by
     intro Δ hsub hwf a hφ
     simp only [Zero.toIntrinsic, List.mem_cons, Option.mem_toList,
@@ -638,8 +638,8 @@ structure Unary.Lawful (b : Unary) where
                    (p "a").eval (ρ.updateConst .value "a" (b.arg.inject x))) →
                  b.dom x
   semWellTyped : ∀ [MicaGS HasLC.hasLC Sig] (σ : TinyML.TyVar → TinyML.Typ)
-                 (Θ : TinyML.TypeEnv) (x : b.arg.carrier), b.dom x →
-                 b.arg.typePred σ Θ x ⊢ b.res.typePred σ Θ (b.f x)
+                 (W : TinyML.World) (x : b.arg.carrier), b.dom x →
+                 b.arg.typePred σ W x ⊢ b.res.typePred σ W (b.f x)
   specBaseWf   : PredTrans.wfIn
                  ((Intrinsic.sigOf [b.toIntrinsic]).declVars
                    (Spec.argVars b.toIntrinsic.specArgs)) b.toIntrinsic.spec.pred
@@ -681,7 +681,7 @@ structure Unary.Lawful (b : Unary) where
       subst hv
       iexact HΦ
   bridge := by
-    intro _ σ Θ vs ρ Φ hρ
+    intro _ σ W vs ρ Φ hρ
     simp only [Unary.instantiate_args, Unary.instantiate_retTy,
       Spec.instantiate_pred, Unary.spec_pred, List.map_cons, List.map_nil]
     match vs with
@@ -690,20 +690,20 @@ structure Unary.Lawful (b : Unary) where
         exact (sep_mono_left (valsHaveTypes_off_shape _ (by simp))).trans sep_elim_left
     | [v] =>
       iintro ⟨Hvs, Hpred⟩
-      ihave Hcons := (TinyML.ValsHaveTypes.cons Θ v [] _ _).1 $$ Hvs
+      ihave Hcons := (TinyML.ValsHaveTypes.cons W v [] _ _).1 $$ Hvs
       icases Hcons with ⟨Hv, _⟩
-      ihave Hveq := (l.argL.member σ Θ v).1 $$ Hv
+      ihave Hveq := (l.argL.member σ W v).1 $$ Hv
       icases Hveq with ⟨%x, %hw, Hrel⟩
       obtain rfl := hw
-      ihave Hsplit := withPre_apply Θ _ _ _ _ $$ Hpred
+      ihave Hsplit := withPre_apply W _ _ _ _ $$ Hpred
       icases Hsplit with ⟨%hpre, Hpost⟩
       have hdom : b.dom x := by
         refine l.domSound ρ.env x fun p hp => ?_
         have h := hpre (p "a") (by rw [hp]; rfl)
         simpa [Spec.argsEnv, VerifM.Env.updateConst_env] using h
-      ihave Hty : iprop(TinyML.ValHasType Θ (b.res.inject (b.f x)) (b.res.typ.subst σ)) $$ [Hrel]
-      · iapply (l.resL.intro σ Θ (b.f x))
-        iapply (l.semWellTyped σ Θ x hdom)
+      ihave Hty : iprop(TinyML.ValHasType W (b.res.inject (b.f x)) (b.res.typ.subst σ)) $$ [Hrel]
+      · iapply (l.resL.intro σ W (b.f x))
+        iapply (l.semWellTyped σ W x hdom)
         iexact Hrel
       simp only [Unary.toIntrinsic, Intrinsic.toWp_one_of_arity]
       iexists x
@@ -722,7 +722,7 @@ structure Unary.Lawful (b : Unary) where
               .value .value b.name (b.arg.inject x)
           simp [hun, Unary.sym, l.argL.project_inject]
         refine (sep_mono_left
-          (assert_ret_apply Θ _ "ret" _ _ (b.res.inject (b.f x)) hassert)).trans ?_
+          (assert_ret_apply W _ "ret" _ _ (b.res.inject (b.f x)) hassert)).trans ?_
         iintro ⟨Hwand, Hty⟩
         iapply Hwand
         iexact Hty
@@ -849,9 +849,9 @@ structure Binary.Lawful (b : Binary) where
                      .value "b" (b.arg₂.inject y))) →
                  b.dom x y
   semWellTyped : ∀ [MicaGS HasLC.hasLC Sig] (σ : TinyML.TyVar → TinyML.Typ)
-                 (Θ : TinyML.TypeEnv) (x : b.arg₁.carrier) (y : b.arg₂.carrier),
+                 (W : TinyML.World) (x : b.arg₁.carrier) (y : b.arg₂.carrier),
                  b.dom x y →
-                 b.arg₁.typePred σ Θ x ∗ b.arg₂.typePred σ Θ y ⊢ b.res.typePred σ Θ (b.f x y)
+                 b.arg₁.typePred σ W x ∗ b.arg₂.typePred σ W y ⊢ b.res.typePred σ W (b.f x y)
   specBaseWf   : PredTrans.wfIn
                  ((Intrinsic.sigOf [b.toIntrinsic]).declVars
                    (Spec.argVars b.toIntrinsic.specArgs)) b.toIntrinsic.spec.pred
@@ -898,10 +898,10 @@ structure Binary.Lawful (b : Binary) where
       subst hv
       iexact HΦ
   bridge := by
-    intro _ σ Θ vs ρ Φ hρ
+    intro _ σ W vs ρ Φ hρ
     simp only [Binary.instantiate_args, Binary.instantiate_retTy,
       Spec.instantiate_pred, Binary.spec_pred, List.map_cons, List.map_nil]
-    show TinyML.ValsHaveTypes Θ vs [b.arg₁.typ.subst σ, b.arg₂.typ.subst σ] ∗ _ ⊢ _
+    show TinyML.ValsHaveTypes W vs [b.arg₁.typ.subst σ, b.arg₂.typ.subst σ] ∗ _ ⊢ _
     match vs with
     | [] => exact (sep_mono_left (valsHaveTypes_off_shape _ (by simp))).trans sep_elim_left
     | [_] => exact (sep_mono_left (valsHaveTypes_off_shape _ (by simp))).trans sep_elim_left
@@ -909,26 +909,26 @@ structure Binary.Lawful (b : Binary) where
         exact (sep_mono_left (valsHaveTypes_off_shape _ (by simp))).trans sep_elim_left
     | [v1, v2] =>
       iintro ⟨Hvs, Hpred⟩
-      ihave Hcons := (TinyML.ValsHaveTypes.cons Θ v1 [v2] _ _).1 $$ Hvs
+      ihave Hcons := (TinyML.ValsHaveTypes.cons W v1 [v2] _ _).1 $$ Hvs
       icases Hcons with ⟨Hv1, Hvs2⟩
-      ihave Hcons2 := (TinyML.ValsHaveTypes.cons Θ v2 [] _ _).1 $$ Hvs2
+      ihave Hcons2 := (TinyML.ValsHaveTypes.cons W v2 [] _ _).1 $$ Hvs2
       icases Hcons2 with ⟨Hv2, _⟩
-      ihave Hv1eq := (l.argL₁.member σ Θ v1).1 $$ Hv1
+      ihave Hv1eq := (l.argL₁.member σ W v1).1 $$ Hv1
       icases Hv1eq with ⟨%x, %hw1, Hrel1⟩
       obtain rfl := hw1
-      ihave Hv2eq := (l.argL₂.member σ Θ v2).1 $$ Hv2
+      ihave Hv2eq := (l.argL₂.member σ W v2).1 $$ Hv2
       icases Hv2eq with ⟨%y, %hw2, Hrel2⟩
       obtain rfl := hw2
-      ihave Hsplit := withPre_apply Θ _ _ _ _ $$ Hpred
+      ihave Hsplit := withPre_apply W _ _ _ _ $$ Hpred
       icases Hsplit with ⟨%hpre, Hpost⟩
       have hdom : b.dom x y := by
         refine l.domSound ρ.env x y fun p hp => ?_
         have h := hpre (p "a" "b") (by rw [hp]; rfl)
         simpa [Spec.argsEnv, VerifM.Env.updateConst_env] using h
-      ihave Hty : iprop(TinyML.ValHasType Θ (b.res.inject (b.f x y))
+      ihave Hty : iprop(TinyML.ValHasType W (b.res.inject (b.f x y))
           (b.res.typ.subst σ)) $$ [Hrel1 Hrel2]
-      · iapply (l.resL.intro σ Θ (b.f x y))
-        iapply (l.semWellTyped σ Θ x y hdom)
+      · iapply (l.resL.intro σ W (b.f x y))
+        iapply (l.semWellTyped σ W x y hdom)
         isplitl [Hrel1]
         · iexact Hrel1
         · iexact Hrel2
@@ -954,7 +954,7 @@ structure Binary.Lawful (b : Binary) where
               .value .value .value b.name (b.arg₁.inject x) (b.arg₂.inject y)
           simp [hbin, Binary.sym, l.argL₁.project_inject, l.argL₂.project_inject]
         refine (sep_mono_left
-          (assert_ret_apply Θ _ "ret" _ _ (b.res.inject (b.f x y)) hassert)).trans ?_
+          (assert_ret_apply W _ "ret" _ _ (b.res.inject (b.f x y)) hassert)).trans ?_
         iintro ⟨Hwand, Hty⟩
         iapply Hwand
         iexact Hty
@@ -1085,10 +1085,10 @@ structure Ternary.Lawful (b : Ternary) where
                      (b.arg₂.inject y)).updateConst .value "c" (b.arg₃.inject z))) →
                  b.dom x y z
   semWellTyped : ∀ [MicaGS HasLC.hasLC Sig] (σ : TinyML.TyVar → TinyML.Typ)
-                 (Θ : TinyML.TypeEnv) (x : b.arg₁.carrier) (y : b.arg₂.carrier)
+                 (W : TinyML.World) (x : b.arg₁.carrier) (y : b.arg₂.carrier)
                  (z : b.arg₃.carrier), b.dom x y z →
-                 b.arg₁.typePred σ Θ x ∗ b.arg₂.typePred σ Θ y ∗ b.arg₃.typePred σ Θ z ⊢
-                   b.res.typePred σ Θ (b.f x y z)
+                 b.arg₁.typePred σ W x ∗ b.arg₂.typePred σ W y ∗ b.arg₃.typePred σ W z ⊢
+                   b.res.typePred σ W (b.f x y z)
   specBaseWf   : PredTrans.wfIn
                  ((Intrinsic.sigOf [b.toIntrinsic]).declVars
                    (Spec.argVars b.toIntrinsic.specArgs)) b.toIntrinsic.spec.pred
@@ -1139,10 +1139,10 @@ structure Ternary.Lawful (b : Ternary) where
       subst hv
       iexact HΦ
   bridge := by
-    intro _ σ Θ vs ρ Φ hρ
+    intro _ σ W vs ρ Φ hρ
     simp only [Ternary.instantiate_args, Ternary.instantiate_retTy,
       Spec.instantiate_pred, Ternary.spec_pred, List.map_cons, List.map_nil]
-    show TinyML.ValsHaveTypes Θ vs
+    show TinyML.ValsHaveTypes W vs
       [b.arg₁.typ.subst σ, b.arg₂.typ.subst σ, b.arg₃.typ.subst σ] ∗ _ ⊢ _
     match vs with
     | [] => exact (sep_mono_left (valsHaveTypes_off_shape _ (by simp))).trans sep_elim_left
@@ -1152,31 +1152,31 @@ structure Ternary.Lawful (b : Ternary) where
         exact (sep_mono_left (valsHaveTypes_off_shape _ (by simp))).trans sep_elim_left
     | [v1, v2, v3] =>
       iintro ⟨Hvs, Hpred⟩
-      ihave Hcons := (TinyML.ValsHaveTypes.cons Θ v1 [v2, v3] _ _).1 $$ Hvs
+      ihave Hcons := (TinyML.ValsHaveTypes.cons W v1 [v2, v3] _ _).1 $$ Hvs
       icases Hcons with ⟨Hv1, Hvs2⟩
-      ihave Hcons2 := (TinyML.ValsHaveTypes.cons Θ v2 [v3] _ _).1 $$ Hvs2
+      ihave Hcons2 := (TinyML.ValsHaveTypes.cons W v2 [v3] _ _).1 $$ Hvs2
       icases Hcons2 with ⟨Hv2, Hvs3⟩
-      ihave Hcons3 := (TinyML.ValsHaveTypes.cons Θ v3 [] _ _).1 $$ Hvs3
+      ihave Hcons3 := (TinyML.ValsHaveTypes.cons W v3 [] _ _).1 $$ Hvs3
       icases Hcons3 with ⟨Hv3, _⟩
-      ihave Hv1eq := (l.argL₁.member σ Θ v1).1 $$ Hv1
+      ihave Hv1eq := (l.argL₁.member σ W v1).1 $$ Hv1
       icases Hv1eq with ⟨%x, %hw1, Hrel1⟩
       obtain rfl := hw1
-      ihave Hv2eq := (l.argL₂.member σ Θ v2).1 $$ Hv2
+      ihave Hv2eq := (l.argL₂.member σ W v2).1 $$ Hv2
       icases Hv2eq with ⟨%y, %hw2, Hrel2⟩
       obtain rfl := hw2
-      ihave Hv3eq := (l.argL₃.member σ Θ v3).1 $$ Hv3
+      ihave Hv3eq := (l.argL₃.member σ W v3).1 $$ Hv3
       icases Hv3eq with ⟨%z, %hw3, Hrel3⟩
       obtain rfl := hw3
-      ihave Hsplit := withPre_apply Θ _ _ _ _ $$ Hpred
+      ihave Hsplit := withPre_apply W _ _ _ _ $$ Hpred
       icases Hsplit with ⟨%hpre, Hpost⟩
       have hdom : b.dom x y z := by
         refine l.domSound ρ.env x y z fun p hp => ?_
         have h := hpre (p "a" "b" "c") (by rw [hp]; rfl)
         simpa [Spec.argsEnv, VerifM.Env.updateConst_env] using h
-      ihave Hty : iprop(TinyML.ValHasType Θ (b.res.inject (b.f x y z))
+      ihave Hty : iprop(TinyML.ValHasType W (b.res.inject (b.f x y z))
           (b.res.typ.subst σ)) $$ [Hrel1 Hrel2 Hrel3]
-      · iapply (l.resL.intro σ Θ (b.f x y z))
-        iapply (l.semWellTyped σ Θ x y z hdom)
+      · iapply (l.resL.intro σ W (b.f x y z))
+        iapply (l.semWellTyped σ W x y z hdom)
         isplitl [Hrel1]
         · iexact Hrel1
         · isplitl [Hrel2]
@@ -1208,7 +1208,7 @@ structure Ternary.Lawful (b : Ternary) where
           simp [hter, Ternary.sym, l.argL₁.project_inject, l.argL₂.project_inject,
             l.argL₃.project_inject]
         refine (sep_mono_left
-          (assert_ret_apply Θ _ "ret" _ _ (b.res.inject (b.f x y z)) hassert)).trans ?_
+          (assert_ret_apply W _ "ret" _ _ (b.res.inject (b.f x y z)) hassert)).trans ?_
         iintro ⟨Hwand, Hty⟩
         iapply Hwand
         iexact Hty

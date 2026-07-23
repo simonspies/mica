@@ -19,23 +19,23 @@ variable [MicaGS HasLC.hasLC Sig]
 
 abbrev SpecMap := Finmap (fun _ : TinyML.Var => Spec)
 
-def SpecMap.satisfiedBy (pctx : TinyML.PrimCtx) (Θ : TinyML.TypeEnv) (Δ_spec : Signature) (ρ_spec : VerifM.Env)
+def SpecMap.satisfiedBy (W : TinyML.World) (Δ_spec : Signature) (ρ_spec : VerifM.Env)
     (S : SpecMap) (γ : Runtime.Subst) : iProp :=
   iprop(□ (∀ x s, ⌜S.lookup x = some s⌝ -∗
-    ∃ f, ⌜γ x = some f⌝ ∗ s.isPrecondFor pctx Θ Δ_spec ρ_spec f))
+    ∃ f, ⌜γ x = some f⌝ ∗ s.isPrecondFor W Δ_spec ρ_spec f))
 
-instance : Iris.BI.Persistent (SpecMap.satisfiedBy pctx Θ Δ_spec ρ_spec S γ) := by
+instance : Iris.BI.Persistent (SpecMap.satisfiedBy W Δ_spec ρ_spec S γ) := by
   unfold SpecMap.satisfiedBy; infer_instance
 
 theorem SpecMap.project {x : TinyML.Var} {s : Spec} {Q : iProp} (P : iProp)
-    (Θ : TinyML.TypeEnv) (Δ_spec : Signature) (ρ_spec : VerifM.Env) (S : SpecMap) (γ : Runtime.Subst) :
-  (P ⊢ S.satisfiedBy pctx Θ Δ_spec ρ_spec γ) →
+    (W : TinyML.World) (Δ_spec : Signature) (ρ_spec : VerifM.Env) (S : SpecMap) (γ : Runtime.Subst) :
+  (P ⊢ S.satisfiedBy W Δ_spec ρ_spec γ) →
   S.lookup x = some s →
-  (∀ fval, γ x = some fval → s.isPrecondFor pctx Θ Δ_spec ρ_spec fval ∗ P ⊢ Q) →
+  (∀ fval, γ x = some fval → s.isPrecondFor W Δ_spec ρ_spec fval ∗ P ⊢ Q) →
   (P ⊢ Q) := by
   intro hsat hlook hcont
   simp only [SpecMap.satisfiedBy] at hsat
-  have hstep : P ⊢ (∃ fval, ⌜γ x = some fval⌝ ∗ s.isPrecondFor pctx Θ Δ_spec ρ_spec fval) ∗ P := by
+  have hstep : P ⊢ (∃ fval, ⌜γ x = some fval⌝ ∗ s.isPrecondFor W Δ_spec ρ_spec fval) ∗ P := by
     refine (persistent_entails_right hsat).trans ?_
     istart
     iintro ⟨#Hall, HP⟩
@@ -134,11 +134,11 @@ omit [MicaGS HasLC.hasLC Sig] in
 
 /-- Generic preservation: if every `y` in the domain of `S'` has the same spec in `S` and
     its value is preserved from `γ` to `γ'`, then satisfiedness transfers. -/
-theorem SpecMap.satisfiedBy_preserved {Θ : TinyML.TypeEnv} {Δ_spec : Signature} {ρ_spec : VerifM.Env}
+theorem SpecMap.satisfiedBy_preserved {W : TinyML.World} {Δ_spec : Signature} {ρ_spec : VerifM.Env}
     {S S' : SpecMap} {γ γ' : Runtime.Subst}
     (h : ∀ y s, S'.lookup y = some s →
       S.lookup y = some s ∧ (∀ f, γ y = some f → γ' y = some f)) :
-    S.satisfiedBy pctx Θ Δ_spec ρ_spec γ ⊢ S'.satisfiedBy pctx Θ Δ_spec ρ_spec γ' := by
+    S.satisfiedBy W Δ_spec ρ_spec γ ⊢ S'.satisfiedBy W Δ_spec ρ_spec γ' := by
   simp only [SpecMap.satisfiedBy]
   iintro #HS
   imodintro
@@ -151,12 +151,12 @@ theorem SpecMap.satisfiedBy_preserved {Θ : TinyML.TypeEnv} {Δ_spec : Signature
   ipureintro; exact hγ f hγf
 
 /-- Generic insert: fresh precondition for `x ↦ fval` plus preservation elsewhere. -/
-theorem SpecMap.satisfiedBy_insert_of_preserved {Θ : TinyML.TypeEnv} {Δ_spec : Signature} {ρ_spec : VerifM.Env} {S : SpecMap}
+theorem SpecMap.satisfiedBy_insert_of_preserved {W : TinyML.World} {Δ_spec : Signature} {ρ_spec : VerifM.Env} {S : SpecMap}
     {γ γ' : Runtime.Subst} {x : TinyML.Var} {fval : Runtime.Val} {spec : Spec}
     (hγ' : γ' x = some fval)
     (hγ : ∀ y f, y ≠ x → γ y = some f → γ' y = some f) :
-    S.satisfiedBy pctx Θ Δ_spec ρ_spec γ ∗ spec.isPrecondFor pctx Θ Δ_spec ρ_spec fval ⊢
-      SpecMap.satisfiedBy pctx Θ Δ_spec ρ_spec (Finmap.insert x spec S) γ' := by
+    S.satisfiedBy W Δ_spec ρ_spec γ ∗ spec.isPrecondFor W Δ_spec ρ_spec fval ⊢
+      SpecMap.satisfiedBy W Δ_spec ρ_spec (Finmap.insert x spec S) γ' := by
   simp only [SpecMap.satisfiedBy, Spec.isPrecondFor]
   iintro ⟨#HS, #Hf⟩
   imodintro
@@ -175,16 +175,16 @@ theorem SpecMap.satisfiedBy_insert_of_preserved {Θ : TinyML.TypeEnv} {Δ_spec :
     iframe Hpre
     ipureintro; exact hγ y f hyx hγf
 
-theorem SpecMap.satisfiedBy_insert {Θ : TinyML.TypeEnv} {Δ_spec : Signature} {ρ_spec : VerifM.Env} {S : SpecMap} {γ : Runtime.Subst}
+theorem SpecMap.satisfiedBy_insert {W : TinyML.World} {Δ_spec : Signature} {ρ_spec : VerifM.Env} {S : SpecMap} {γ : Runtime.Subst}
     {x : TinyML.Var} {fval : Runtime.Val} {spec : Spec} (hγ : γ x = some fval) :
-    S.satisfiedBy pctx Θ Δ_spec ρ_spec γ ∗ spec.isPrecondFor pctx Θ Δ_spec ρ_spec fval ⊢
-      SpecMap.satisfiedBy pctx Θ Δ_spec ρ_spec (Finmap.insert x spec S) γ :=
+    S.satisfiedBy W Δ_spec ρ_spec γ ∗ spec.isPrecondFor W Δ_spec ρ_spec fval ⊢
+      SpecMap.satisfiedBy W Δ_spec ρ_spec (Finmap.insert x spec S) γ :=
   SpecMap.satisfiedBy_insert_of_preserved hγ (fun _ _ _ hf => hf)
 
-theorem SpecMap.satisfiedBy_insert_update {Θ : TinyML.TypeEnv} {Δ_spec : Signature} {ρ_spec : VerifM.Env} {S : SpecMap} {γ : Runtime.Subst}
+theorem SpecMap.satisfiedBy_insert_update {W : TinyML.World} {Δ_spec : Signature} {ρ_spec : VerifM.Env} {S : SpecMap} {γ : Runtime.Subst}
     {x : TinyML.Var} {v : Runtime.Val} {spec : Spec} :
-    S.satisfiedBy pctx Θ Δ_spec ρ_spec γ ∗ spec.isPrecondFor pctx Θ Δ_spec ρ_spec v ⊢
-      SpecMap.satisfiedBy pctx Θ Δ_spec ρ_spec (Finmap.insert x spec S) (γ.update x v) :=
+    S.satisfiedBy W Δ_spec ρ_spec γ ∗ spec.isPrecondFor W Δ_spec ρ_spec v ⊢
+      SpecMap.satisfiedBy W Δ_spec ρ_spec (Finmap.insert x spec S) (γ.update x v) :=
   SpecMap.satisfiedBy_insert_of_preserved
     (by simp [Runtime.Subst.update])
     (fun y f hyx hf => by simp [Runtime.Subst.update, beq_false_of_ne hyx, hf])
@@ -197,20 +197,20 @@ theorem SpecMap.wfIn_insert {S : SpecMap} {x : TinyML.Var} {spec : Spec} {Δ : S
   · subst hyx; rw [Finmap.lookup_insert] at hlookup; simp at hlookup; subst hlookup; exact hs
   · rw [Finmap.lookup_insert_of_ne _ hyx] at hlookup; exact hS y s' hlookup
 
-theorem SpecMap.satisfiedBy_insertBinder {Θ : TinyML.TypeEnv} {Δ_spec : Signature} {ρ_spec : VerifM.Env} {S : SpecMap} {γ : Runtime.Subst}
+theorem SpecMap.satisfiedBy_insertBinder {W : TinyML.World} {Δ_spec : Signature} {ρ_spec : VerifM.Env} {S : SpecMap} {γ : Runtime.Subst}
     {b : Typed.Binder} {fval : Runtime.Val} {spec : Spec}
     (hγ : ∀ x ty, b = Typed.Binder.named x ty → γ x = some fval) :
-    S.satisfiedBy pctx Θ Δ_spec ρ_spec γ ∗ spec.isPrecondFor pctx Θ Δ_spec ρ_spec fval ⊢
-      SpecMap.satisfiedBy pctx Θ Δ_spec ρ_spec (S.insertBinder b spec) γ := by
+    S.satisfiedBy W Δ_spec ρ_spec γ ∗ spec.isPrecondFor W Δ_spec ρ_spec fval ⊢
+      SpecMap.satisfiedBy W Δ_spec ρ_spec (S.insertBinder b spec) γ := by
   rcases hb : b.name with _ | x
   · rw [SpecMap.insertBinder_none hb]; iintro ⟨HS, _⟩; iexact HS
   · obtain ⟨_, ty⟩ := b; cases hb
     rw [SpecMap.insertBinder_some rfl]; exact SpecMap.satisfiedBy_insert (hγ x ty rfl)
 
-theorem SpecMap.satisfiedBy_insertBinder_updateBinder {Θ : TinyML.TypeEnv} {Δ_spec : Signature} {ρ_spec : VerifM.Env} {S : SpecMap} {γ : Runtime.Subst}
+theorem SpecMap.satisfiedBy_insertBinder_updateBinder {W : TinyML.World} {Δ_spec : Signature} {ρ_spec : VerifM.Env} {S : SpecMap} {γ : Runtime.Subst}
     {b : Typed.Binder} {v : Runtime.Val} {spec : Spec} :
-    S.satisfiedBy pctx Θ Δ_spec ρ_spec γ ∗ spec.isPrecondFor pctx Θ Δ_spec ρ_spec v ⊢
-      SpecMap.satisfiedBy pctx Θ Δ_spec ρ_spec (S.insertBinder b spec) (Runtime.Subst.updateBinder b.runtime v γ) := by
+    S.satisfiedBy W Δ_spec ρ_spec γ ∗ spec.isPrecondFor W Δ_spec ρ_spec v ⊢
+      SpecMap.satisfiedBy W Δ_spec ρ_spec (S.insertBinder b spec) (Runtime.Subst.updateBinder b.runtime v γ) := by
   rcases hb : b.name with _ | _
   · rw [SpecMap.insertBinder_none hb, Typed.Binder.runtime_of_name_none hb]
     simp [Runtime.Subst.updateBinder]; iintro ⟨HS, _⟩; iexact HS
@@ -231,11 +231,11 @@ theorem SpecMap.wfIn_eraseBinder {S : SpecMap} {b : Typed.Binder} {Δ : Signatur
   · rwa [SpecMap.eraseBinder_none hb]
   · rw [SpecMap.eraseBinder_some hb]; exact SpecMap.wfIn_erase hS
 
-theorem SpecMap.satisfiedBy_eraseAll_updateAllBinder {Θ : TinyML.TypeEnv} {Δ_spec : Signature} {ρ_spec : VerifM.Env}
+theorem SpecMap.satisfiedBy_eraseAll_updateAllBinder {W : TinyML.World} {Δ_spec : Signature} {ρ_spec : VerifM.Env}
     {keys : List String} {S : SpecMap} {γ : Runtime.Subst}
     {vs : List Runtime.Val} (hlen : keys.length = vs.length) :
-    S.satisfiedBy pctx Θ Δ_spec ρ_spec γ ⊢
-      (SpecMap.eraseAll keys S).satisfiedBy pctx Θ Δ_spec ρ_spec (γ.updateAllBinder (keys.map Runtime.Binder.named) vs) := by
+    S.satisfiedBy W Δ_spec ρ_spec γ ⊢
+      (SpecMap.eraseAll keys S).satisfiedBy W Δ_spec ρ_spec (γ.updateAllBinder (keys.map Runtime.Binder.named) vs) := by
   apply SpecMap.satisfiedBy_preserved
   intro y s hlookup
   have hy_notin : y ∉ keys := by
@@ -249,8 +249,8 @@ theorem SpecMap.satisfiedBy_eraseAll_updateAllBinder {Θ : TinyML.TypeEnv} {Δ_s
       findVal_none_of_not_mem keys vs y (by omega) hy_notin]
   exact hf
 
-theorem SpecMap.empty_satisfiedBy (Θ : TinyML.TypeEnv) (Δ_spec : Signature) (ρ_spec : VerifM.Env) (γ : Runtime.Subst) :
-    ⊢ SpecMap.satisfiedBy pctx Θ Δ_spec ρ_spec (∅ : SpecMap) γ := by
+theorem SpecMap.empty_satisfiedBy (W : TinyML.World) (Δ_spec : Signature) (ρ_spec : VerifM.Env) (γ : Runtime.Subst) :
+    ⊢ SpecMap.satisfiedBy W Δ_spec ρ_spec (∅ : SpecMap) γ := by
   simp only [SpecMap.satisfiedBy]
   imodintro
   iintro %x %s %h
@@ -261,10 +261,10 @@ theorem SpecMap.empty_wfIn (Δ : Signature) :
     SpecMap.wfIn (∅ : SpecMap) Δ := by
   intro f spec h; simp [Finmap.lookup_empty] at h
 
-theorem SpecMap.satisfiedBy_erase {Θ : TinyML.TypeEnv} {Δ_spec : Signature} {ρ_spec : VerifM.Env}
+theorem SpecMap.satisfiedBy_erase {W : TinyML.World} {Δ_spec : Signature} {ρ_spec : VerifM.Env}
     {S : SpecMap} {γ : Runtime.Subst} {x : TinyML.Var} {v : Runtime.Val} :
-    S.satisfiedBy pctx Θ Δ_spec ρ_spec γ ⊢
-      SpecMap.satisfiedBy pctx Θ Δ_spec ρ_spec (Finmap.erase x S) (Runtime.Subst.update γ x v) := by
+    S.satisfiedBy W Δ_spec ρ_spec γ ⊢
+      SpecMap.satisfiedBy W Δ_spec ρ_spec (Finmap.erase x S) (Runtime.Subst.update γ x v) := by
   apply SpecMap.satisfiedBy_preserved
   intro y s hlookup
   have hyx : y ≠ x := fun heq => by
@@ -272,19 +272,19 @@ theorem SpecMap.satisfiedBy_erase {Θ : TinyML.TypeEnv} {Δ_spec : Signature} {�
   exact ⟨by rwa [Finmap.lookup_erase_ne hyx] at hlookup,
     fun f hf => by simp [Runtime.Subst.update, hyx, hf]⟩
 
-theorem SpecMap.satisfiedBy_eraseBinder {Θ : TinyML.TypeEnv} {Δ_spec : Signature} {ρ_spec : VerifM.Env} {S : SpecMap} {γ : Runtime.Subst}
+theorem SpecMap.satisfiedBy_eraseBinder {W : TinyML.World} {Δ_spec : Signature} {ρ_spec : VerifM.Env} {S : SpecMap} {γ : Runtime.Subst}
     {b : Typed.Binder} {v : Runtime.Val} :
-    S.satisfiedBy pctx Θ Δ_spec ρ_spec γ ⊢
-      SpecMap.satisfiedBy pctx Θ Δ_spec ρ_spec (S.eraseBinder b) (Runtime.Subst.updateBinder b.runtime v γ) := by
+    S.satisfiedBy W Δ_spec ρ_spec γ ⊢
+      SpecMap.satisfiedBy W Δ_spec ρ_spec (S.eraseBinder b) (Runtime.Subst.updateBinder b.runtime v γ) := by
   rcases hb : b.name with _ | _
   · rw [SpecMap.eraseBinder_none hb, Typed.Binder.runtime_of_name_none hb]
     simp [Runtime.Subst.updateBinder]
   · rw [SpecMap.eraseBinder_some hb, Typed.Binder.runtime_of_name_some hb]
     exact SpecMap.satisfiedBy_erase
 
-theorem SpecMap.satisfiedBy_update_of_not_mem {Θ : TinyML.TypeEnv} {Δ_spec : Signature} {ρ_spec : VerifM.Env} {S : SpecMap} {γ : Runtime.Subst}
+theorem SpecMap.satisfiedBy_update_of_not_mem {W : TinyML.World} {Δ_spec : Signature} {ρ_spec : VerifM.Env} {S : SpecMap} {γ : Runtime.Subst}
     {x : TinyML.Var} {v : Runtime.Val} (hx : S.lookup x = none) :
-    S.satisfiedBy pctx Θ Δ_spec ρ_spec γ ⊢ S.satisfiedBy pctx Θ Δ_spec ρ_spec (γ.update x v) := by
+    S.satisfiedBy W Δ_spec ρ_spec γ ⊢ S.satisfiedBy W Δ_spec ρ_spec (γ.update x v) := by
   apply SpecMap.satisfiedBy_preserved
   intro y s hlookup
   have hyx : y ≠ x := fun heq => by subst heq; rw [hx] at hlookup; exact absurd hlookup (by simp)

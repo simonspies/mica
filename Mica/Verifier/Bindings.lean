@@ -48,16 +48,16 @@ theorem Bindings.wfIn_cons {B : Bindings} {decls : Signature} {x : TinyML.Var} {
   · exact List.Mem.tail _ (hbwf p hp)
 
 /-- The substitution `γ` maps every binding to a value well-typed by `Γ`. -/
-def Bindings.typedSubst (Θ : TinyML.TypeEnv) (B : Bindings) (Γ : TinyML.TyCtx) (γ : Runtime.Subst) : iProp :=
-  iprop(□ ∀ x x' t, ⌜B.lookup x = some x'⌝ -∗ ⌜Γ x = some t⌝ -∗ ∃ v, ⌜γ x = some v⌝ ∗ TinyML.ValHasType Θ v t)
+def Bindings.typedSubst (W : TinyML.World) (B : Bindings) (Γ : TinyML.TyCtx) (γ : Runtime.Subst) : iProp :=
+  iprop(□ ∀ x x' t, ⌜B.lookup x = some x'⌝ -∗ ⌜Γ x = some t⌝ -∗ ∃ v, ⌜γ x = some v⌝ ∗ TinyML.ValHasType W v t)
 
-instance Bindings.typedSubst_persistent {B Γ γ} (Θ : TinyML.TypeEnv) : Persistent (Bindings.typedSubst Θ B Γ γ) :=
+instance Bindings.typedSubst_persistent {B Γ γ} (W : TinyML.World) : Persistent (Bindings.typedSubst W B Γ γ) :=
   by
     unfold Bindings.typedSubst
     infer_instance
 
-theorem Bindings.typedSubst_nil (Θ : TinyML.TypeEnv) (γ : Runtime.Subst) :
-    ⊢ Bindings.typedSubst Θ [] TinyML.TyCtx.empty γ := by
+theorem Bindings.typedSubst_nil (W : TinyML.World) (γ : Runtime.Subst) :
+    ⊢ Bindings.typedSubst W [] TinyML.TyCtx.empty γ := by
   unfold Bindings.typedSubst
   imodintro
   iintro %x %x' %t
@@ -66,8 +66,8 @@ theorem Bindings.typedSubst_nil (Θ : TinyML.TypeEnv) (γ : Runtime.Subst) :
 
 theorem Bindings.typedSubst_cons {B : Bindings} {Γ : TinyML.TyCtx} {γ : Runtime.Subst}
     {x : TinyML.Var} {v : FOL.Const} {te : TinyML.Typ} {w : Runtime.Val}
-    : ⊢ B.typedSubst Θ Γ γ -∗ TinyML.ValHasType Θ w te -∗
-      Bindings.typedSubst Θ ((x, v) :: B) (Γ.extend x te) (Runtime.Subst.update γ x w) := by
+    : ⊢ B.typedSubst W Γ γ -∗ TinyML.ValHasType W w te -∗
+      Bindings.typedSubst W ((x, v) :: B) (Γ.extend x te) (Runtime.Subst.update γ x w) := by
   iintro #Hts #Hw
   unfold Bindings.typedSubst
   imodintro
@@ -121,8 +121,8 @@ theorem Bindings.typedSubst_of_agreeOnLinked
     {B : Bindings} {Γ : TinyML.TyCtx} {γ : Runtime.Subst} {ρ : Env}
     (hagree : B.agreeOnLinked ρ γ)
     : ⊢ □ (∀ x x' t, ⌜B.lookup x = some x'⌝ -∗ ⌜Γ x = some t⌝ -∗
-        TinyML.ValHasType Θ (ρ.consts .value x'.name) t) -∗
-      B.typedSubst Θ Γ γ := by
+        TinyML.ValHasType W (ρ.consts .value x'.name) t) -∗
+      B.typedSubst W Γ γ := by
   iintro #Htyped
   unfold Bindings.typedSubst
   imodintro
@@ -260,8 +260,8 @@ theorem valHasType_lookup_zip_reverse
     (hlookup : List.lookup x ((args.map Prod.fst).zip vars).reverse = some x')
     (hΓ : (args.foldl (fun ctx a => ctx.extend a.1 a.2) Γ₀) x = some t)
     (hlookups : List.Forall₂ (fun av val => ρ.consts .value av.name = val) vars vals)
-    : ⊢ TinyML.ValsHaveTypes Θ vals (args.map Prod.snd) -∗
-        TinyML.ValHasType Θ (ρ.consts .value x'.name) t := by
+    : ⊢ TinyML.ValsHaveTypes W vals (args.map Prod.snd) -∗
+        TinyML.ValHasType W (ρ.consts .value x'.name) t := by
   induction args generalizing vars vals Γ₀ with
   | nil => simp at hlookup
   | cons a as' ih =>
@@ -274,10 +274,10 @@ theorem valHasType_lookup_zip_reverse
         simp [List.map_cons, List.length_cons] at hlen_v hlen_vl
         cases hlookups with
         | cons hlk_head hlk_tail =>
-          exact (show ⊢ TinyML.ValsHaveTypes Θ (vl :: vls) (a.2 :: as'.map Prod.snd) -∗
-                TinyML.ValHasType Θ (ρ.consts .value x'.name) t by
+          exact (show ⊢ TinyML.ValsHaveTypes W (vl :: vls) (a.2 :: as'.map Prod.snd) -∗
+                TinyML.ValHasType W (ρ.consts .value x'.name) t by
               iintro Hvals
-              ihave Hpair := (TinyML.ValsHaveTypes.cons Θ vl vls a.2 (as'.map Prod.snd)).1 $$ Hvals
+              ihave Hpair := (TinyML.ValsHaveTypes.cons W vl vls a.2 (as'.map Prod.snd)).1 $$ Hvals
               icases Hpair with ⟨Htype_head, Htype_tail⟩
               simp only [List.map_cons, List.zip_cons_cons, List.reverse_cons] at hlookup
               rw [List.lookup_append] at hlookup

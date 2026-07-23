@@ -7,4 +7,5 @@
 - `PrimitiveLaws.lean` — Spatially lifted weakest-precondition laws for TinyML primitive operations.
 - `ProofModePatterns.lean` — Worked examples of Iris proof mode patterns used in the project.
 - `SpatialAtom.lean` — Syntactic spatial atoms and contexts for verifier state, together with their well-formedness conditions and basic operations.
+- `World.lean` — The fixed meta-level world in which the logical relation interprets types.
 - `Wp.lean` — The Iris weakest precondition for TinyML and its derived proof rules, including invariant-based heap rules and primitive-call lifting.

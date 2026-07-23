@@ -10,9 +10,9 @@ open Verifier
 namespace Intrinsics
 
 theorem valHasType_option_unfold [MicaGS HasLC.hasLC Sig]
-    (Θ : TinyML.TypeEnv) (v : Runtime.Val) (t : TinyML.Typ) :
-    TinyML.ValHasType Θ v (.option t) ⊣⊢
-      TinyML.ValHasType Θ v (.sum [.unit, t]) := by
+    (W : TinyML.World) (v : Runtime.Val) (t : TinyML.Typ) :
+    TinyML.ValHasType W v (.option t) ⊣⊢
+      TinyML.ValHasType W v (.sum [.unit, t]) := by
   apply TinyML.ValHasType.named_of_unfold
   simp [TinyML.TypeName.unfold, TinyML.Predef.arity, TinyML.Predef.decl, TinyML.Predef.tparams,
     TinyML.Predef.ctors, TinyML.DataDecl.instantiate, TinyML.Typ.subst]
@@ -24,26 +24,26 @@ def optionNone : Runtime.Val := .inj 0 2 .unit
 def optionSome (value : Runtime.Val) : Runtime.Val := .inj 1 2 value
 
 theorem valHasType_option_cases [MicaGS HasLC.hasLC Sig]
-    (Θ : TinyML.TypeEnv) (v : Runtime.Val) (t : TinyML.Typ) :
-    TinyML.ValHasType Θ v (.option t) ⊢
+    (W : TinyML.World) (v : Runtime.Val) (t : TinyML.Typ) :
+    TinyML.ValHasType W v (.option t) ⊢
       iprop(⌜v = optionNone⌝ ∨ ∃ value,
-        ⌜v = optionSome value⌝ ∗ TinyML.ValHasType Θ value t) := by
+        ⌜v = optionSome value⌝ ∗ TinyML.ValHasType W value t) := by
   istart
   iintro H
-  ihave Hsum := (valHasType_option_unfold Θ v t).1 $$ H
-  ihave Hsum := (TinyML.ValHasType.sum Θ v [.unit, t]).1 $$ Hsum
+  ihave Hsum := (valHasType_option_unfold W v t).1 $$ H
+  ihave Hsum := (TinyML.ValHasType.sum W v [.unit, t]).1 $$ Hsum
   icases Hsum with ⟨%tag, %payload, %hv, Htag⟩
-  ihave %hbound := (TinyML.ValSumRel.bound (Θ := Θ) (payload := payload)) $$ Htag
+  ihave %hbound := (TinyML.ValSumRel.bound (W := W) (payload := payload)) $$ Htag
   simp at hbound
   have htag : tag = 0 ∨ tag = 1 := by omega
   rcases htag with rfl | rfl
-  · ihave Hunit := (TinyML.ValSumRel.zero Θ payload .unit [t]).1 $$ Htag
-    ihave %hpayload := (TinyML.ValHasType.unit Θ payload).1 $$ Hunit
+  · ihave Hunit := (TinyML.ValSumRel.zero W payload .unit [t]).1 $$ Htag
+    ihave %hpayload := (TinyML.ValHasType.unit W payload).1 $$ Hunit
     iapply or_intro_l
     ipureintro
     simp [optionNone, hv, hpayload]
-  · ihave Hvalue := (TinyML.ValSumRel.succ Θ 0 payload .unit [t]).1 $$ Htag
-    ihave Hvalue := (TinyML.ValSumRel.zero Θ payload t []).1 $$ Hvalue
+  · ihave Hvalue := (TinyML.ValSumRel.succ W 0 payload .unit [t]).1 $$ Htag
+    ihave Hvalue := (TinyML.ValSumRel.zero W payload t []).1 $$ Hvalue
     iapply or_intro_r
     iexists payload
     isplitr
@@ -67,13 +67,13 @@ def optionValue : Runtime.Val → Runtime.Val
   | _ => .unit
 
 theorem optionValue_typed [MicaGS HasLC.hasLC Sig]
-    (Θ : TinyML.TypeEnv) (option value : Runtime.Val) (t : TinyML.Typ)
+    (W : TinyML.World) (option value : Runtime.Val) (t : TinyML.Typ)
     (hvalue : option = optionSome value) :
-    TinyML.ValHasType Θ option (.option t) ⊢
-      TinyML.ValHasType Θ (optionValue option) t := by
+    TinyML.ValHasType W option (.option t) ⊢
+      TinyML.ValHasType W (optionValue option) t := by
   istart
   iintro H
-  ihave Hcases := valHasType_option_cases Θ option t $$ H
+  ihave Hcases := valHasType_option_cases W option t $$ H
   icases Hcases with (Hnone | Hsome)
   · ihave %hnone := Hnone
     rw [hnone] at hvalue
@@ -223,10 +223,10 @@ def optionValueLawful : optionValueB.Lawful where
       optionPayload, Formula.eval, Term.eval,
       Env.lookupConst_updateConst_same] using hpre
   semWellTyped := by
-    refine fun σ Θ (option : Runtime.Val) hdom => ?_
+    refine fun σ W (option : Runtime.Val) hdom => ?_
     obtain ⟨value, hvalue⟩ := hdom
     simpa [optionValueB, Embedding.logical, Embedding.poly, optionTy,
-      TinyML.Typ.subst] using optionValue_typed Θ option value (σ "a") hvalue
+      TinyML.Typ.subst] using optionValue_typed W option value (σ "a") hvalue
   specBaseWf := by apply PredTrans.checkWf_ok; rfl
   defWf := by apply Formula.checkWf_ok; rfl
   typeWf := fun _ h => nomatch h

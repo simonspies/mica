@@ -18,9 +18,9 @@ namespace SpatialAtom
 
 /-- Interpreting a well-formed atom only depends on the environment values of
     symbols in the ambient signature. -/
-theorem interp_env_agree (Θ : TinyML.TypeEnv) {a : SpatialAtom} {Δ : Signature} {ρ ρ' : Env}
+theorem interp_env_agree (W : TinyML.World) {a : SpatialAtom} {Δ : Signature} {ρ ρ' : Env}
     (hwf : a.wfIn Δ) (hagree : Env.agreeOn Δ ρ ρ') :
-    interp Θ ρ a ⊣⊢ interp Θ ρ' a := by
+    interp W ρ a ⊣⊢ interp W ρ' a := by
   cases a with
   | pointsTo l v ty =>
     simp only [interp, Term.eval_env_agree hwf.1 hagree, Term.eval_env_agree hwf.2 hagree]
@@ -32,11 +32,11 @@ theorem interp_env_agree (Θ : TinyML.TypeEnv) {a : SpatialAtom} {Δ : Signature
 /-- If a points-to atom's location term evaluates to `loc`, its interpretation
     is equivalent to the raw heap ownership together with the bundled value
     typing fact. -/
-theorem interp_pointsTo (Θ : TinyML.TypeEnv) {ρ : Env} {lt vt : Term .value}
+theorem interp_pointsTo (W : TinyML.World) {ρ : Env} {lt vt : Term .value}
     {ty : TinyML.Typ} {loc : Runtime.Location}
     (hloc : Term.eval ρ lt = .loc loc) :
-    interp Θ ρ (.pointsTo lt vt ty) ⊣⊢
-      loc ↦ [Term.eval ρ vt] ∗ TinyML.ValHasType Θ (Term.eval ρ vt) ty := by
+    interp W ρ (.pointsTo lt vt ty) ⊣⊢
+      loc ↦ [Term.eval ρ vt] ∗ TinyML.ValHasType W (Term.eval ρ vt) ty := by
   constructor
   · simp only [interp]
     istart
@@ -60,12 +60,12 @@ theorem interp_pointsTo (Θ : TinyML.TypeEnv) {ρ : Env} {lt vt : Term .value}
 /-- If an owned-array atom's array and snapshot terms evaluate to the same
     runtime block, its interpretation exposes ownership of that whole block
     together with the element-typing fact carried by the vector snapshot. -/
-theorem interp_arrayPointsTo (Θ : TinyML.TypeEnv) {ρ : Env} {arrt vt : Term .value}
+theorem interp_arrayPointsTo (W : TinyML.World) {ρ : Env} {arrt vt : Term .value}
     {ty : TinyML.Typ} {loc : Runtime.Location} {vs : List Runtime.Val}
     (harr : Term.eval ρ arrt = .array vs.length loc)
     (hvec : Term.eval ρ vt = .vec vs) :
-    interp Θ ρ (.arrayPointsTo arrt vt ty) ⊣⊢
-      loc ↦ vs ∗ TinyML.ValHasType Θ (.vec vs) (.vec ty) := by
+    interp W ρ (.arrayPointsTo arrt vt ty) ⊣⊢
+      loc ↦ vs ∗ TinyML.ValHasType W (.vec vs) (.vec ty) := by
   constructor
   · simp only [interp]
     istart
@@ -95,23 +95,23 @@ theorem interp_arrayPointsTo (Θ : TinyML.TypeEnv) {ρ : Env} {arrt vt : Term .v
 /-- Destruct an owned-array atom at an in-bounds index: expose the underlying
 block, the integer index witness, and the persistent element typing of the
 snapshot. -/
-theorem interp_arrayPointsTo_lookup (Θ : TinyML.TypeEnv) {ρ : Env}
+theorem interp_arrayPointsTo_lookup (W : TinyML.World) {ρ : Env}
     {arr contents idx : Term .value} {elemTy : TinyML.Typ} {vidx : Runtime.Val}
     (hidx : Term.eval ρ idx = vidx)
     (hi : 0 ≤ Term.eval ρ (.unop .toInt idx))
     (hlt : Term.eval ρ (.unop .toInt idx) < Term.eval ρ (.unop .arrayLengthOf arr)) :
-    SpatialAtom.interp Θ ρ (.arrayPointsTo arr contents elemTy) ⊢
-      TinyML.ValHasType Θ vidx .int -∗
+    SpatialAtom.interp W ρ (.arrayPointsTo arr contents elemTy) ⊢
+      TinyML.ValHasType W vidx .int -∗
       ∃ (loc : Runtime.Location) (vs : List Runtime.Val) (i : Int),
         ⌜Term.eval ρ arr = .array vs.length loc⌝ ∗ ⌜Term.eval ρ contents = .vec vs⌝ ∗
         ⌜vidx = .int i⌝ ∗ ⌜0 ≤ i⌝ ∗ ⌜i.toNat < vs.length⌝ ∗
-        loc ↦ vs ∗ □ TinyML.ValHasType Θ (.vec vs) (.vec elemTy) := by
+        loc ↦ vs ∗ □ TinyML.ValHasType W (.vec vs) (.vec elemTy) := by
   simp only [SpatialAtom.interp]
   istart
   iintro Hatom
   iintro HidxTy
   icases Hatom with ⟨%loc, %vs, %ha, %hv, Hpt, #HvecTy⟩
-  ihave Hidx' := (TinyML.ValHasType.int Θ vidx).1 $$ HidxTy
+  ihave Hidx' := (TinyML.ValHasType.int W vidx).1 $$ HidxTy
   icases Hidx' with ⟨%i, %hvidx⟩
   have hi' : 0 ≤ i := by simpa [Term.eval, UnOp.eval, hidx, hvidx] using hi
   have hlt' : i.toNat < vs.length := by
@@ -140,8 +140,8 @@ theorem interp_arrayPointsTo_lookup (Θ : TinyML.TypeEnv) {ρ : Env}
               iexact HvecTy
 
 /-- An atom's interpretation implies its pure facts. -/
-theorem interp_facts (Θ : TinyML.TypeEnv) {ρ : Env} (a : SpatialAtom) :
-    interp Θ ρ a ⊢ ⌜∀ φ ∈ a.facts, φ.eval ρ⌝ ∗ interp Θ ρ a := by
+theorem interp_facts (W : TinyML.World) {ρ : Env} (a : SpatialAtom) :
+    interp W ρ a ⊢ ⌜∀ φ ∈ a.facts, φ.eval ρ⌝ ∗ interp W ρ a := by
   cases a with
   | pointsTo l v ty =>
     istart
@@ -179,31 +179,31 @@ end SpatialAtom
 namespace SpatialContext
 
 /-- Iris interpretation of a spatial context: the separating conjunction of all items. -/
-def interp (Θ : TinyML.TypeEnv) (ρ : Env) : SpatialContext → iProp
+def interp (W : TinyML.World) (ρ : Env) : SpatialContext → iProp
   | []     => emp
-  | a :: Γ => a.interp Θ ρ ∗ interp Θ ρ Γ
+  | a :: Γ => a.interp W ρ ∗ interp W ρ Γ
 
 /-- Interpreting a well-formed context only depends on the environment values of
     symbols in the ambient signature. -/
-theorem interp_env_agree (Θ : TinyML.TypeEnv) {ctx : SpatialContext} {Δ : Signature} {ρ ρ' : Env}
+theorem interp_env_agree (W : TinyML.World) {ctx : SpatialContext} {Δ : Signature} {ρ ρ' : Env}
     (hwf : wfIn ctx Δ) (hagree : Env.agreeOn Δ ρ ρ') :
-    interp Θ ρ ctx ⊣⊢ interp Θ ρ' ctx := by
+    interp W ρ ctx ⊣⊢ interp W ρ' ctx := by
   induction ctx with
   | nil => simp [interp]
   | cons a ctx ih =>
-    have ha : SpatialAtom.interp Θ ρ a ⊣⊢ SpatialAtom.interp Θ ρ' a :=
-      SpatialAtom.interp_env_agree Θ (hwf a (by simp)) hagree
+    have ha : SpatialAtom.interp W ρ a ⊣⊢ SpatialAtom.interp W ρ' a :=
+      SpatialAtom.interp_env_agree W (hwf a (by simp)) hagree
     have htail : wfIn ctx Δ := (wfIn_cons a ctx Δ).1 hwf |>.2
-    have hctx : interp Θ ρ ctx ⊣⊢ interp Θ ρ' ctx := ih htail
+    have hctx : interp W ρ ctx ⊣⊢ interp W ρ' ctx := ih htail
     simp only [interp]
     exact ⟨sep_mono ha.1 hctx.1, sep_mono ha.2 hctx.2⟩
 
-@[simp] theorem interp_nil (Θ : TinyML.TypeEnv) (ρ : Env) : interp Θ ρ [] = emp := rfl
-@[simp] theorem interp_cons (Θ : TinyML.TypeEnv) (ρ : Env) (a : SpatialAtom) (Γ : SpatialContext) :
-    interp Θ ρ (a :: Γ) = (a.interp Θ ρ ∗ interp Θ ρ Γ) := rfl
+@[simp] theorem interp_nil (W : TinyML.World) (ρ : Env) : interp W ρ [] = emp := rfl
+@[simp] theorem interp_cons (W : TinyML.World) (ρ : Env) (a : SpatialAtom) (Γ : SpatialContext) :
+    interp W ρ (a :: Γ) = (a.interp W ρ ∗ interp W ρ Γ) := rfl
 
-@[simp] theorem interp_insert (Θ : TinyML.TypeEnv) (ρ : Env) (a : SpatialAtom) (ctx : SpatialContext) :
-    interp Θ ρ (insert a ctx) = (a.interp Θ ρ ∗ interp Θ ρ ctx) := rfl
+@[simp] theorem interp_insert (W : TinyML.World) (ρ : Env) (a : SpatialAtom) (ctx : SpatialContext) :
+    interp W ρ (insert a ctx) = (a.interp W ρ ∗ interp W ρ ctx) := rfl
 
 omit [MicaGS HasLC.hasLC Sig] in
 private theorem sep_comm3 {A B C : iProp} : A ∗ (B ∗ C) ⊣⊢ B ∗ (A ∗ C) :=
@@ -211,10 +211,10 @@ private theorem sep_comm3 {A B C : iProp} : A ∗ (B ∗ C) ⊣⊢ B ∗ (A ∗ 
    sep_assoc.2 |>.trans (sep_mono_left sep_comm.2) |>.trans sep_assoc.1⟩
 
 /-- The interpretation of a context is equivalent to splitting off the atom at index `n`. -/
-theorem interp_remove (Θ : TinyML.TypeEnv) (ρ : Env) (ctx : SpatialContext) (n : Nat)
+theorem interp_remove (W : TinyML.World) (ρ : Env) (ctx : SpatialContext) (n : Nat)
     (a : SpatialAtom) (rest : SpatialContext)
     (h : remove ctx n = some (a, rest)) :
-    interp Θ ρ ctx ⊣⊢ a.interp Θ ρ ∗ interp Θ ρ rest := by
+    interp W ρ ctx ⊣⊢ a.interp W ρ ∗ interp W ρ rest := by
   induction ctx generalizing n a rest with
   | nil => simp at h
   | cons x xs ih =>

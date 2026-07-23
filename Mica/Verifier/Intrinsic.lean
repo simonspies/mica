@@ -553,11 +553,11 @@ class IntrinsicSound (fragment : outParam (List Intrinsic)) (i : Intrinsic) : Pr
     ∀ (Δ : Signature), (Signature.empty.extendWithSym i.folSym).Subset Δ → Δ.wf →
       PredTrans.wfIn (Δ.declVars (Spec.argVars i.specArgs)) i.spec.pred
   bridge :
-    ∀ [MicaGS HasLC.hasLC Sig] (σ : TinyML.TyVar → TinyML.Typ) (Θ : TinyML.TypeEnv)
+    ∀ [MicaGS HasLC.hasLC Sig] (σ : TinyML.TyVar → TinyML.Typ) (W : TinyML.World)
       (vs : List Runtime.Val) (ρ : VerifM.Env) (Φ : Runtime.Val → iProp),
     ρ.env.respects i.folSym →
-    TinyML.ValsHaveTypes Θ vs ((i.spec.instantiate σ).args.map Prod.snd) ∗
-      PredTrans.apply Θ (fun r => TinyML.ValHasType Θ r (i.spec.instantiate σ).retTy -∗ Φ r)
+    TinyML.ValsHaveTypes W vs ((i.spec.instantiate σ).args.map Prod.snd) ∗
+      PredTrans.apply W (fun r => TinyML.ValHasType W r (i.spec.instantiate σ).retTy -∗ Φ r)
         (i.spec.instantiate σ).pred
         (Spec.argsEnv ρ (i.spec.instantiate σ).args vs) ⊢ i.toWp vs Φ
   wp_sound :

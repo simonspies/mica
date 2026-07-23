@@ -10,9 +10,9 @@ open Verifier
 namespace Intrinsics
 
 theorem valHasType_list_unfold [MicaGS HasLC.hasLC Sig]
-    (Θ : TinyML.TypeEnv) (v : Runtime.Val) (t : TinyML.Typ) :
-    TinyML.ValHasType Θ v (.list t) ⊣⊢
-      TinyML.ValHasType Θ v (.sum [.unit, .tuple [t, .list t]]) := by
+    (W : TinyML.World) (v : Runtime.Val) (t : TinyML.Typ) :
+    TinyML.ValHasType W v (.list t) ⊣⊢
+      TinyML.ValHasType W v (.sum [.unit, .tuple [t, .list t]]) := by
   apply TinyML.ValHasType.named_of_unfold
   simp [TinyML.Typ.list, TinyML.Typ.predef, TinyML.TypeName.unfold,
     TinyML.Predef.arity, TinyML.Predef.decl, TinyML.Predef.tparams,
@@ -26,65 +26,65 @@ def listCons (head tail : Runtime.Val) : Runtime.Val :=
   .inj 1 2 (.tuple [head, tail])
 
 theorem valHasType_list_nil [MicaGS HasLC.hasLC Sig]
-    (Θ : TinyML.TypeEnv) (t : TinyML.Typ) :
-    ⊢ TinyML.ValHasType Θ listNil (.list t) := by
-  exact (TinyML.ValHasType.unit_intro Θ).trans
+    (W : TinyML.World) (t : TinyML.Typ) :
+    ⊢ TinyML.ValHasType W listNil (.list t) := by
+  exact (TinyML.ValHasType.unit_intro W).trans
     ((TinyML.ValHasType.inj (tag := 0) (arity := 2) (s := .unit)
       (ts := [.unit, .tuple [t, .list t]]) (by simp) (by simp)).trans
-      (valHasType_list_unfold Θ listNil t).2)
+      (valHasType_list_unfold W listNil t).2)
 
 theorem valHasType_list_cons [MicaGS HasLC.hasLC Sig]
-    (Θ : TinyML.TypeEnv) (head tail : Runtime.Val) (t : TinyML.Typ) :
-    TinyML.ValHasType Θ head t ∗ TinyML.ValHasType Θ tail (.list t) ⊢
-      TinyML.ValHasType Θ (listCons head tail) (.list t) := by
+    (W : TinyML.World) (head tail : Runtime.Val) (t : TinyML.Typ) :
+    TinyML.ValHasType W head t ∗ TinyML.ValHasType W tail (.list t) ⊢
+      TinyML.ValHasType W (listCons head tail) (.list t) := by
   istart
   iintro H
   icases H with ⟨Hhead, Htail⟩
-  iapply (valHasType_list_unfold Θ (listCons head tail) t).2
+  iapply (valHasType_list_unfold W (listCons head tail) t).2
   simp only [listCons]
   iapply (TinyML.ValHasType.inj (tag := 1) (arity := 2)
     (s := .tuple [t, .list t]) (ts := [.unit, .tuple [t, .list t]]) (by simp) (by simp))
-  iapply (TinyML.ValHasType.tuple Θ (.tuple [head, tail]) [t, .list t]).2
+  iapply (TinyML.ValHasType.tuple W (.tuple [head, tail]) [t, .list t]).2
   iexists [head, tail]
   isplitr
   · ipureintro; rfl
-  · iapply (TinyML.ValsHaveTypes.cons Θ head [tail] t [.list t]).2
+  · iapply (TinyML.ValsHaveTypes.cons W head [tail] t [.list t]).2
     isplitl [Hhead]
     · iexact Hhead
-    · iapply (TinyML.ValsHaveTypes.cons Θ tail [] (.list t) []).2
+    · iapply (TinyML.ValsHaveTypes.cons W tail [] (.list t) []).2
       isplitl [Htail]
       · iexact Htail
       · exact affine
 
 theorem valHasType_list_cons_raw [MicaGS HasLC.hasLC Sig]
-    (Θ : TinyML.TypeEnv) (head tail : Runtime.Val) (t : TinyML.Typ) :
-    TinyML.ValHasType Θ head t ∗ TinyML.ValHasType Θ tail (.list t) ⊢
-      TinyML.ValHasType Θ (.inj 1 2 (.tuple [head, tail])) (.list t) := by
-  simpa only [listCons] using valHasType_list_cons Θ head tail t
+    (W : TinyML.World) (head tail : Runtime.Val) (t : TinyML.Typ) :
+    TinyML.ValHasType W head t ∗ TinyML.ValHasType W tail (.list t) ⊢
+      TinyML.ValHasType W (.inj 1 2 (.tuple [head, tail])) (.list t) := by
+  simpa only [listCons] using valHasType_list_cons W head tail t
 
 theorem valHasType_list_cases [MicaGS HasLC.hasLC Sig]
-    (Θ : TinyML.TypeEnv) (v : Runtime.Val) (t : TinyML.Typ) :
-    TinyML.ValHasType Θ v (.list t) ⊢
+    (W : TinyML.World) (v : Runtime.Val) (t : TinyML.Typ) :
+    TinyML.ValHasType W v (.list t) ⊢
       iprop(⌜v = listNil⌝ ∨ ∃ head tail,
         ⌜v = listCons head tail⌝ ∗
-        TinyML.ValHasType Θ head t ∗ TinyML.ValHasType Θ tail (.list t)) := by
+        TinyML.ValHasType W head t ∗ TinyML.ValHasType W tail (.list t)) := by
   istart
   iintro H
-  ihave Hsum := (valHasType_list_unfold Θ v t).1 $$ H
-  ihave Hsum := (TinyML.ValHasType.sum Θ v [.unit, .tuple [t, .list t]]).1 $$ Hsum
+  ihave Hsum := (valHasType_list_unfold W v t).1 $$ H
+  ihave Hsum := (TinyML.ValHasType.sum W v [.unit, .tuple [t, .list t]]).1 $$ Hsum
   icases Hsum with ⟨%tag, %payload, %hv, Htag⟩
-  ihave %hbound := (TinyML.ValSumRel.bound (Θ := Θ) (payload := payload)) $$ Htag
+  ihave %hbound := (TinyML.ValSumRel.bound (W := W) (payload := payload)) $$ Htag
   simp at hbound
   have htag : tag = 0 ∨ tag = 1 := by omega
   rcases htag with rfl | rfl
-  · ihave Hunit := (TinyML.ValSumRel.zero Θ payload .unit [.tuple [t, .list t]]).1 $$ Htag
-    ihave %hpayload := (TinyML.ValHasType.unit Θ payload).1 $$ Hunit
+  · ihave Hunit := (TinyML.ValSumRel.zero W payload .unit [.tuple [t, .list t]]).1 $$ Htag
+    ihave %hpayload := (TinyML.ValHasType.unit W payload).1 $$ Hunit
     iapply or_intro_l
     ipureintro
     simp [listNil, hv, hpayload]
-  · ihave Htuple := (TinyML.ValSumRel.succ Θ 0 payload .unit [.tuple [t, .list t]]).1 $$ Htag
-    ihave Htuple := (TinyML.ValSumRel.zero Θ payload (.tuple [t, .list t]) []).1 $$ Htuple
-    icases (TinyML.ValHasType.tuple Θ payload [t, .list t]).1 $$ Htuple with
+  · ihave Htuple := (TinyML.ValSumRel.succ W 0 payload .unit [.tuple [t, .list t]]).1 $$ Htag
+    ihave Htuple := (TinyML.ValSumRel.zero W payload (.tuple [t, .list t]) []).1 $$ Htuple
+    icases (TinyML.ValHasType.tuple W payload [t, .list t]).1 $$ Htuple with
       ⟨%vs, %hpayload, Hvals⟩
     ihave %hlen := TinyML.ValsHaveTypes.length_eq $$ Hvals
     match vs with
@@ -94,9 +94,9 @@ theorem valHasType_list_cases [MicaGS HasLC.hasLC Sig]
       isplitr
       · ipureintro
         simp [listCons, hv, hpayload]
-      · ihave Hvals := (TinyML.ValsHaveTypes.cons Θ head [tail] t [.list t]).1 $$ Hvals
+      · ihave Hvals := (TinyML.ValsHaveTypes.cons W head [tail] t [.list t]).1 $$ Hvals
         icases Hvals with ⟨Hhead, Hvals⟩
-        ihave Hvals := (TinyML.ValsHaveTypes.cons Θ tail [] (.list t) []).1 $$ Hvals
+        ihave Hvals := (TinyML.ValsHaveTypes.cons W tail [] (.list t) []).1 $$ Hvals
         icases Hvals with ⟨Htail, _⟩
         isplitl [Hhead]
         · iexact Hhead
@@ -127,13 +127,13 @@ termination_by value => sizeOf value
 decreasing_by simp_wf; omega
 
 theorem listAppend_typed [MicaGS HasLC.hasLC Sig]
-    (Θ : TinyML.TypeEnv) (left right : Runtime.Val) (t : TinyML.Typ) :
-    TinyML.ValHasType Θ left (.list t) ∗ TinyML.ValHasType Θ right (.list t) ⊢
-      TinyML.ValHasType Θ (listAppend left right) (.list t) := by
+    (W : TinyML.World) (left right : Runtime.Val) (t : TinyML.Typ) :
+    TinyML.ValHasType W left (.list t) ∗ TinyML.ValHasType W right (.list t) ⊢
+      TinyML.ValHasType W (listAppend left right) (.list t) := by
   istart
   iintro H
   icases H with ⟨Hleft, Hright⟩
-  ihave Hcases := valHasType_list_cases Θ left t $$ Hleft
+  ihave Hcases := valHasType_list_cases W left t $$ Hleft
   icases Hcases with (Hnil | Hcons)
   · ihave %hleft := Hnil
     subst hleft
@@ -153,17 +153,17 @@ termination_by sizeOf left
 decreasing_by simp_all [listCons]; omega
 
 theorem listRev_typed [MicaGS HasLC.hasLC Sig]
-    (Θ : TinyML.TypeEnv) (value : Runtime.Val) (t : TinyML.Typ) :
-    TinyML.ValHasType Θ value (.list t) ⊢
-      TinyML.ValHasType Θ (listRev value) (.list t) := by
+    (W : TinyML.World) (value : Runtime.Val) (t : TinyML.Typ) :
+    TinyML.ValHasType W value (.list t) ⊢
+      TinyML.ValHasType W (listRev value) (.list t) := by
   istart
   iintro H
-  ihave Hcases := valHasType_list_cases Θ value t $$ H
+  ihave Hcases := valHasType_list_cases W value t $$ H
   icases Hcases with (Hnil | Hcons)
   · ihave %hvalue := Hnil
     subst hvalue
     simp only [listRev, listNil]
-    exact valHasType_list_nil Θ t
+    exact valHasType_list_nil W t
   · icases Hcons with ⟨%head, %tail, %hvalue, Hhead, Htail⟩
     subst hvalue
     simp only [listCons, listRev]
@@ -174,7 +174,7 @@ theorem listRev_typed [MicaGS HasLC.hasLC Sig]
     · iapply valHasType_list_cons_raw
       isplitl [Hhead]
       · iexact Hhead
-      · exact valHasType_list_nil Θ t
+      · exact valHasType_list_nil W t
 termination_by sizeOf value
 decreasing_by simp_all [listCons]; omega
 
@@ -237,9 +237,9 @@ def listAppendLawful : listAppendB.Lawful where
   resL := Embedding.lawfulLogical listTy
   domSound := fun _ _ _ _ => trivial
   semWellTyped := by
-    refine fun σ Θ (left : Runtime.Val) (right : Runtime.Val) _ => ?_
+    refine fun σ W (left : Runtime.Val) (right : Runtime.Val) _ => ?_
     simpa [listAppendB, Embedding.logical, listTy, TinyML.Typ.subst] using
-      listAppend_typed Θ left right (σ "a")
+      listAppend_typed W left right (σ "a")
   specBaseWf := by apply PredTrans.checkWf_ok; rfl
   defWf := by apply Formula.checkWf_ok; rfl
   typeWf := fun _ h => nomatch h
@@ -271,9 +271,9 @@ def listRevLawful : listRevB.Lawful where
   resL := Embedding.lawfulLogical listTy
   domSound := fun _ _ _ => trivial
   semWellTyped := by
-    refine fun σ Θ (value : Runtime.Val) _ => ?_
+    refine fun σ W (value : Runtime.Val) _ => ?_
     simpa [listRevB, Embedding.logical, listTy, TinyML.Typ.subst] using
-      listRev_typed Θ value (σ "a")
+      listRev_typed W value (σ "a")
   specBaseWf := by apply PredTrans.checkWf_ok; rfl
   defWf := by apply Formula.checkWf_ok; rfl
   typeWf := fun _ h => nomatch h
