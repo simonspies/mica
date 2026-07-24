@@ -21,7 +21,7 @@ open Verifier.RelationalEncoding (FunCtx)
 
 private def parseSpec (reg : Verifier.Registry) (Γfn : FunCtx) (cb : (Spec.Body Typed.Expr)) :
     Except String SpecPredicate :=
-  SpecTranslation.translate (Verifier.Intrinsic.sigOf reg) Γfn cb
+  SpecTranslation.translate reg.primitives (Verifier.Intrinsic.sigOf reg) Γfn cb
 
 /-- Extract typed argument names from a function's argument list. -/
 private def extractArgs : List Binder → List String → Except String (List (String × TinyML.Typ))
@@ -91,7 +91,8 @@ private def validateDecl (d : Typed.ValDecl (Spec.Body Typed.Expr)) :
   | .fix _ _ _ _ => .error s!"[@@fn] requires a unary function"
   | _ => .error s!"[@@fn] requires a function body"
 
-private def extend (acc : RelationSpec) (d : Typed.ValDecl (Spec.Body Typed.Expr)) :
+private def extend (primitives : PrimEncodings) (acc : RelationSpec)
+    (d : Typed.ValDecl (Spec.Body Typed.Expr)) :
     Except String RelationDecl := do
   match d.declMeta.relation with
   | none => .error "internal error: expected relation declaration"
@@ -115,7 +116,7 @@ private def extend (acc : RelationSpec) (d : Typed.ValDecl (Spec.Body Typed.Expr
       else if arg = defName then
         .error s!"[@@fn] argument name '{arg}' clashes with derived definedness name"
       else
-        let (res, bv, axs) ← Skolemize.bundle acc.functionMap acc.delta f rel arg body
+        let (res, bv, axs) ← Skolemize.bundle primitives acc.functionMap acc.delta f rel arg body
         let spec := { symbols := acc.symbols ++ [SpecFn.rel rel],
                       axioms := acc.axioms ++ axs,
                       functionMap := acc.functionMap ++ [(f, rel)],
@@ -123,12 +124,13 @@ private def extend (acc : RelationSpec) (d : Typed.ValDecl (Spec.Body Typed.Expr
                                   (SpecFn.func rel)).addUnaryRel (SpecFn.defined rel) }
         .ok { spec, res, axs, f, rel, arg, body, bv }
 
-private def declareAndAssume (acc : RelationSpec) (d : Typed.ValDecl (Spec.Body Typed.Expr)) :
+private def declareAndAssume (primitives : PrimEncodings) (acc : RelationSpec)
+    (d : Typed.ValDecl (Spec.Body Typed.Expr)) :
     VerifM RelationSpec := do
   match d.declMeta.relation with
   | none => pure acc
   | some rel =>
-      match extend acc d with
+      match extend primitives acc d with
       | .error msg => VerifM.fatal msg
       | .ok info => do
           SpecFn.declare rel info.axs
@@ -138,12 +140,13 @@ private def declareAndAssume (acc : RelationSpec) (d : Typed.ValDecl (Spec.Body 
 axioms on top of the accumulated relation spec. All freshness and membership
 conditions needed by the soundness proof are checked operationally by
 `validate`. -/
-private def declareLifting (acc : RelationSpec) (s : Verifier.BoundedQuantifier.Lifting) :
+private def declareLifting (primitives : PrimEncodings) (acc : RelationSpec)
+    (s : Verifier.BoundedQuantifier.Lifting) :
     VerifM RelationSpec :=
   match s.validate acc.delta with
   | .error msg => VerifM.fatal msg
   | .ok _ =>
-      match s.compile acc.functionMap acc.delta with
+      match s.compile primitives acc.functionMap acc.delta with
       | .error msg => VerifM.fatal msg
       | .ok body => do
           s.declare body
@@ -152,30 +155,33 @@ private def declareLifting (acc : RelationSpec) (s : Verifier.BoundedQuantifier.
                  functionMap := acc.functionMap ++ [(s.name, s.name)],
                  delta := s.extendSignature acc.delta }
 
-private def assembleFrom : RelationSpec → Typed.Program (Spec.Body Typed.Expr) → VerifM RelationSpec
+private def assembleFrom (primitives : PrimEncodings) :
+    RelationSpec → Typed.Program (Spec.Body Typed.Expr) → VerifM RelationSpec
   | acc, [] => pure acc
   | acc, d :: ds => do
-      let acc' ← declareAndAssume acc d
-      assembleFrom acc' ds
+      let acc' ← declareAndAssume primitives acc d
+      assembleFrom primitives acc' ds
 
 /-- Compile and declare the lifted bounded quantifiers in lift order. Earlier
 symbols are available while compiling later bodies, which supports nesting. -/
-private def assembleLiftings : RelationSpec → List Verifier.BoundedQuantifier.Lifting → VerifM RelationSpec
+private def assembleLiftings (primitives : PrimEncodings) :
+    RelationSpec → List Verifier.BoundedQuantifier.Lifting → VerifM RelationSpec
   | acc, [] => pure acc
   | acc, s :: ss => do
-      let acc' ← declareLifting acc s
-      assembleLiftings acc' ss
+      let acc' ← declareLifting primitives acc s
+      assembleLiftings primitives acc' ss
 
 /-- Assemble the global relation signature and function-name map for a typed
 program paired with its lifted bounded quantifiers. Quantifier symbols are
 declared after all program declarations: assembly never consults specs, and
 the only cross-references between lifted bodies — inner occurrences captured
 by outer ones — respect the lift order, which `flatMap` preserves. -/
-def assemble (pairs : List (Typed.ValDecl (Spec.Body Typed.Expr) × List Verifier.BoundedQuantifier.Lifting)) :
+def assemble (primitives : PrimEncodings)
+    (pairs : List (Typed.ValDecl (Spec.Body Typed.Expr) × List Verifier.BoundedQuantifier.Lifting)) :
     VerifM RelationSpec := do
   let Δ ← VerifM.ctx (fun st => (st.decls, st.owns))
-  let acc ← assembleFrom { RelationSpec.empty with delta := Δ } (pairs.map Prod.fst)
-  assembleLiftings acc (pairs.flatMap Prod.snd)
+  let acc ← assembleFrom primitives { RelationSpec.empty with delta := Δ } (pairs.map Prod.fst)
+  assembleLiftings primitives acc (pairs.flatMap Prod.snd)
 
 /-- The invariant pack threaded through relation assembly: the accumulated
 delta mirrors the declared signature, the state is spec-level (no owned
@@ -198,7 +204,7 @@ private theorem declareAndAssume_correct (d : Typed.ValDecl (Spec.Body Typed.Exp
     (acc : RelationSpec) (st : TransState) (ρ : VerifM.Env)
     {Q : RelationSpec → TransState → VerifM.Env → Prop}
     (hinv : Inv acc st ρ)
-    (heval : VerifM.eval (declareAndAssume acc d) st ρ Q) :
+    (heval : VerifM.eval (declareAndAssume primitives acc d) st ρ Q) :
     ∃ acc' st' ρ', Inv acc' st' ρ' ∧
       st.decls.Subset st'.decls ∧ VerifM.Env.agreeOn st.decls ρ ρ' ∧
       Q acc' st' ρ' := by
@@ -211,7 +217,7 @@ private theorem declareAndAssume_correct (d : Typed.ValDecl (Spec.Body Typed.Exp
       Signature.Subset.refl _, VerifM.Env.agreeOn_refl, VerifM.eval_ret heval⟩
   | some rel_name =>
     simp only [hrel] at heval
-    cases hext : extend acc d with
+    cases hext : extend primitives acc d with
     | error msg => simp only [hext] at heval; exact (VerifM.eval_fatal heval).elim
     | ok info =>
       simp only [hext] at heval
@@ -221,7 +227,7 @@ private theorem declareAndAssume_correct (d : Typed.ValDecl (Spec.Body Typed.Exp
           info.spec.delta = ((acc.delta.addBinaryRel (SpecFn.rel rel_name)).addUnary
               (SpecFn.func rel_name)).addUnaryRel (SpecFn.defined rel_name) ∧
           info.spec.functionMap = acc.functionMap ++ [(info.f, rel_name)] ∧
-          Skolemize.bundle acc.functionMap acc.delta info.f rel_name info.arg info.body
+          Skolemize.bundle primitives acc.functionMap acc.delta info.f rel_name info.arg info.body
             = .ok (info.res, info.bv, info.axs) := by
         unfold extend at hext
         simp only [hrel, bind, Except.bind] at hext
@@ -244,16 +250,16 @@ private theorem declareAndAssume_correct (d : Typed.ValDecl (Spec.Body Typed.Exp
       have hΔwf_acc : acc.delta.wf := hacc ▸ hwf
       -- The chosen interpretations: the ground-truth relation and its split.
       set R : Relation.ValRel :=
-        Relation.semrel acc.functionMap acc.delta ρ.env
+        Relation.semrel primitives acc.functionMap acc.delta ρ.env
           info.f rel_name info.arg info.res info.body
       set F := Skolemize.semFunc R
       set D : Srt.value.denote → Prop :=
-        Skolemize.semdef acc.functionMap acc.delta ρ.env
+        Skolemize.semdef primitives acc.functionMap acc.delta ρ.env
           info.f rel_name info.arg info.res info.body info.bv
       have hgraph : ∀ a b, R a b ↔ D a ∧ F a = b := fun a b =>
         Skolemize.bundle_semrel_compatible hinfoEq hsplit hΓwf_acc hΔwf_acc hf hdet a b
       have henv : Skolemize.relSplitEnv ρ.env rel_name R D F
-          = (Skolemize.defInterpEnv acc.functionMap acc.delta ρ.env
+          = (Skolemize.defInterpEnv primitives acc.functionMap acc.delta ρ.env
               info.f rel_name info.arg info.res info.body info.bv).updateBinaryRel
             .value .value (SpecFn.relName rel_name) R := by
         simp only [Skolemize.relSplitEnv, Skolemize.defInterpEnv, Skolemize.splitEnv]
@@ -286,7 +292,7 @@ private theorem assembleFrom_correct (prog : Typed.Program (Spec.Body Typed.Expr
     ∀ (acc : RelationSpec) (st : TransState) (ρ : VerifM.Env)
       {Q : RelationSpec → TransState → VerifM.Env → Prop},
       Inv acc st ρ →
-      VerifM.eval (assembleFrom acc prog) st ρ Q →
+      VerifM.eval (assembleFrom primitives acc prog) st ρ Q →
       ∃ result stRel ρRel, Inv result stRel ρRel ∧
         st.decls.Subset stRel.decls ∧ VerifM.Env.agreeOn st.decls ρ ρRel ∧
         Q result stRel ρRel := by
@@ -312,7 +318,7 @@ private theorem declareLifting_correct (s : Verifier.BoundedQuantifier.Lifting)
     (acc : RelationSpec) (st : TransState) (ρ : VerifM.Env)
     {Q : RelationSpec → TransState → VerifM.Env → Prop}
     (hinv : Inv acc st ρ)
-    (heval : VerifM.eval (declareLifting acc s) st ρ Q) :
+    (heval : VerifM.eval (declareLifting primitives acc s) st ρ Q) :
     ∃ acc' st' ρ', Inv acc' st' ρ' ∧
       st.decls.Subset st'.decls ∧ VerifM.Env.agreeOn st.decls ρ ρ' ∧
       Q acc' st' ρ' := by
@@ -324,7 +330,7 @@ private theorem declareLifting_correct (s : Verifier.BoundedQuantifier.Lifting)
     exact (VerifM.eval_fatal heval).elim
   | ok v =>
     simp only [hvalid] at heval
-    cases hcompile : s.compile acc.functionMap acc.delta with
+    cases hcompile : s.compile primitives acc.functionMap acc.delta with
     | error msg =>
       simp only [hcompile] at heval
       exact (VerifM.eval_fatal heval).elim
@@ -349,7 +355,7 @@ private theorem assembleLiftings_correct (ss : List Verifier.BoundedQuantifier.L
     ∀ (acc : RelationSpec) (st : TransState) (ρ : VerifM.Env)
       {Q : RelationSpec → TransState → VerifM.Env → Prop},
       Inv acc st ρ →
-      VerifM.eval (assembleLiftings acc ss) st ρ Q →
+      VerifM.eval (assembleLiftings primitives acc ss) st ρ Q →
       ∃ result stRel ρRel, Inv result stRel ρRel ∧
         st.decls.Subset stRel.decls ∧ VerifM.Env.agreeOn st.decls ρ ρRel ∧
         Q result stRel ρRel := by
@@ -371,13 +377,14 @@ private theorem assembleLiftings_correct (ss : List Verifier.BoundedQuantifier.L
 
 omit [MicaGS HasLC.hasLC Sig] in
 theorem assemble_correct
+    (primitives : PrimEncodings)
     (pairs : List (Typed.ValDecl (Spec.Body Typed.Expr) × List Verifier.BoundedQuantifier.Lifting))
     {st : TransState} {ρ : VerifM.Env}
     {Q : RelationSpec → TransState → VerifM.Env → Prop}
     (hvars0 : st.decls.vars = [])
     (howns0 : st.owns = [])
     (hwf0 : st.decls.wf)
-    (heval : VerifM.eval (RelationSpec.assemble pairs) st ρ Q) :
+    (heval : VerifM.eval (RelationSpec.assemble primitives pairs) st ρ Q) :
     ∃ spec0 : RelationSpec, ∃ stRel ρRel,
       stRel.decls.vars = [] ∧
       stRel.owns = [] ∧
@@ -464,7 +471,7 @@ def Program.verify (reg : Verifier.Registry) (prog : Untyped.Program (Spec.Body 
     | .error msg => VerifM.fatal msg
     | .ok pairs => do
         Verifier.Registry.introduceRegistry reg
-        let relations ← RelationSpec.assemble pairs
+        let relations ← RelationSpec.assemble reg.primitives pairs
         Program.check reg Θ relations.delta relations.functionMap ∅ (pairs.map Prod.fst)
 
 /-! ## Correctness -/
@@ -757,7 +764,7 @@ theorem Program.verify_correct (reg : Verifier.Registry)
                         | .error msg => VerifM.fatal msg
                         | .ok pairs => do
                             Verifier.Registry.introduceRegistry reg
-                            let relations ← RelationSpec.assemble pairs
+                            let relations ← RelationSpec.assemble reg.primitives pairs
                             Program.check reg Θ relations.delta relations.functionMap ∅
                               (pairs.map Prod.fst))
                       TransState.init VerifM.Env.init ctx_mid
@@ -787,7 +794,8 @@ theorem Program.verify_correct (reg : Verifier.Registry)
       rw [hvars_setup_eq]
       rfl
     obtain ⟨spec0, stRel, ρRel, hvars, howns, hsub_setup_rel, hag_setup_rel, hcheck_eval⟩ :=
-      RelationSpec.assemble_correct pairs hvars_setup howns_setup hcheck_eval.1.namesDisjoint hassemble
+      RelationSpec.assemble_correct reg.primitives pairs hvars_setup howns_setup
+        hcheck_eval.1.namesDisjoint hassemble
     have hΔreg : Verifier.Registry.symSubset reg stRel.decls := by
       intro i hi
       exact (Verifier.Registry.extendWithSym_subset_sigOf_of_mem hi).trans

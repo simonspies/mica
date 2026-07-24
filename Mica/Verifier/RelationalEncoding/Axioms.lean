@@ -121,14 +121,14 @@ theorem axioms_wfIn {Δ : Signature} {fn : SpecFn} {x : String} {body : DefVal}
 
 /-- The semantic relation for the current recursive body is exactly the graph
 of the split definedness predicate and the epsilon-selected value function. -/
-def GraphCompatible
+def GraphCompatible (primitives : PrimEncodings)
     (Γ : FunCtx) (Δ : Signature) (ρ : Env)
     (f : TinyML.Var) (fn : SpecFn) (x res : TinyML.Var) (e : Typed.Expr)
     (body : DefVal) : Prop :=
   ∀ vin vout,
-    semrel Γ Δ ρ f fn x res e vin vout ↔
-      semdef Γ Δ ρ f fn x res e body vin ∧
-        semFunc (semrel Γ Δ ρ f fn x res e) vin = vout
+    semrel primitives Γ Δ ρ f fn x res e vin vout ↔
+      semdef primitives Γ Δ ρ f fn x res e body vin ∧
+        semFunc (semrel primitives Γ Δ ρ f fn x res e) vin = vout
 
 
 /-- The definedness-introduction axiom is valid under the semantic definedness
@@ -137,13 +137,13 @@ eventual relation/graph equivalence. -/
 theorem definedIntroAxiom_eval
     {Γ : FunCtx} {Δ : Signature} {ρ : Env}
     {f : TinyML.Var} {fn : SpecFn} {x res : TinyML.Var} {e : Typed.Expr}
-    {body : DefVal} (henc : encodeBody Γ Δ f fn x res e = .ok body) :
+    {body : DefVal} (henc : encodeBody primitives Γ Δ f fn x res e = .ok body) :
     (definedIntroAxiom fn x body).eval
-      (defInterpEnv Γ Δ ρ f fn x res e body) := by
+      (defInterpEnv primitives Γ Δ ρ f fn x res e body) := by
   simp only [definedIntroAxiom, Formula.eval]
   intro vin hbody
   have hsem :
-      semdef Γ Δ ρ f fn x res e body vin := by
+      semdef primitives Γ Δ ρ f fn x res e body vin := by
     exact (semdef_unfold_of_encode (ρ := ρ) (x := x) (res := res) henc vin).mpr hbody
   exact (definedCall_eval_defInterpEnv (Γ := Γ) (Δ := Δ) (ρ := ρ)
     (f := f) (fn := fn) (x := x) (res := res) (e := e) (body := body) vin).mpr hsem
@@ -157,39 +157,39 @@ recursive body. -/
 theorem semrel_compatible
     {Γ : FunCtx} {Δ : Signature} {ρ : Env}
     {f : TinyML.Var} {fn : SpecFn} {x res : TinyML.Var} {e : Typed.Expr}
-    {body : DefVal} (henc : encodeBody Γ Δ f fn x res e = .ok body)
+    {body : DefVal} (henc : encodeBody primitives Γ Δ f fn x res e = .ok body)
     (hΓ : Γ.splitCompatible ρ)
     (hΓwf : Γ.wfIn Δ)
     (hΔ : Δ.wf) (hheadFresh : HeadFresh Δ fn x res)
     (hρdet : Relation.BinaryRelDet Γ ρ ρ) :
-    GraphCompatible Γ Δ ρ f fn x res e body := by
+    GraphCompatible primitives Γ Δ ρ f fn x res e body := by
   intro vin vout
   constructor
   · intro hrel
     have hsplit :=
       semrel_complete henc hΓ hΓwf hΔ hheadFresh hρdet
         vin vout hrel
-    have hdefined : semDefined (semrel Γ Δ ρ f fn x res e) vin := ⟨vout, hrel⟩
+    have hdefined : semDefined (semrel primitives Γ Δ ρ f fn x res e) vin := ⟨vout, hrel⟩
     have hfun :
-      semFunc (semrel Γ Δ ρ f fn x res e) vin = vout :=
+      semFunc (semrel primitives Γ Δ ρ f fn x res e) vin = vout :=
       relation_semrel_functional_of_encodeBody henc hΔ hΓwf hheadFresh hρdet vin
-        (semFunc (semrel Γ Δ ρ f fn x res e) vin) vout
+        (semFunc (semrel primitives Γ Δ ρ f fn x res e) vin) vout
         (semFunc_spec hdefined) hrel
     exact ⟨hsplit.1, hfun⟩
   · intro hgraph
     rcases hgraph with ⟨hdef, hfun⟩
     let vbody :=
       body.value.eval
-        ((defInterpEnv Γ Δ ρ f fn x res e body).updateConst .value x vin)
+        ((defInterpEnv primitives Γ Δ ρ f fn x res e body).updateConst .value x vin)
     have hrelBody :
-        semrel Γ Δ ρ f fn x res e vin vbody :=
+        semrel primitives Γ Δ ρ f fn x res e vin vbody :=
       semrel_sound henc hΓ hΓwf hΔ hheadFresh vin vbody
         hdef rfl
-    have hdefined : semDefined (semrel Γ Δ ρ f fn x res e) vin := ⟨vbody, hrelBody⟩
+    have hdefined : semDefined (semrel primitives Γ Δ ρ f fn x res e) vin := ⟨vbody, hrelBody⟩
     have hchosen :
-        vbody = semFunc (semrel Γ Δ ρ f fn x res e) vin :=
+        vbody = semFunc (semrel primitives Γ Δ ρ f fn x res e) vin :=
       relation_semrel_functional_of_encodeBody henc hΔ hΓwf hheadFresh hρdet vin vbody
-        (semFunc (semrel Γ Δ ρ f fn x res e) vin)
+        (semFunc (semrel primitives Γ Δ ρ f fn x res e) vin)
         hrelBody (semFunc_spec hdefined)
     exact semrel_sound henc hΓ hΓwf hΔ hheadFresh vin vout
       hdef (hchosen.trans hfun)
@@ -199,13 +199,13 @@ from the relational semantics. -/
 theorem valueAxiom_eval
     {Γ : FunCtx} {Δ : Signature} {ρ : Env}
     {f : TinyML.Var} {fn : SpecFn} {x res : TinyML.Var} {e : Typed.Expr}
-    {body : DefVal} (henc : encodeBody Γ Δ f fn x res e = .ok body)
+    {body : DefVal} (henc : encodeBody primitives Γ Δ f fn x res e = .ok body)
     (hΓ : Γ.splitCompatible ρ)
     (hΓwf : Γ.wfIn Δ)
     (hΔ : Δ.wf) (hheadFresh : HeadFresh Δ fn x res)
     (hρdet : Relation.BinaryRelDet Γ ρ ρ) :
     (valueAxiom fn x body).eval
-      (defInterpEnv Γ Δ ρ f fn x res e body) := by
+      (defInterpEnv primitives Γ Δ ρ f fn x res e body) := by
   simp only [valueAxiom, Formula.eval]
   intro vin hdef
   have hsem := (definedCall_eval_defInterpEnv (Γ := Γ) (Δ := Δ) (ρ := ρ)
@@ -214,11 +214,11 @@ theorem valueAxiom_eval
     (f := f) (fn := fn) (x := x) (res := res) (e := e) (body := body) vin]
   have hgraph := semrel_compatible henc hΓ hΓwf hΔ hheadFresh hρdet
   have hrel :
-      semrel Γ Δ ρ f fn x res e vin
-        (semFunc (semrel Γ Δ ρ f fn x res e) vin) :=
-    (hgraph vin (semFunc (semrel Γ Δ ρ f fn x res e) vin)).mpr ⟨hsem, rfl⟩
+      semrel primitives Γ Δ ρ f fn x res e vin
+        (semFunc (semrel primitives Γ Δ ρ f fn x res e) vin) :=
+    (hgraph vin (semFunc (semrel primitives Γ Δ ρ f fn x res e) vin)).mpr ⟨hsem, rfl⟩
   exact (semrel_complete henc hΓ hΓwf hΔ hheadFresh hρdet
-    vin (semFunc (semrel Γ Δ ρ f fn x res e) vin) hrel).2.symm
+    vin (semFunc (semrel primitives Γ Δ ρ f fn x res e) vin) hrel).2.symm
 
 /-- Semantic validity of the converse definedness axiom: under the least
 fixpoint of `semdef`, the `semdef`/`defBody` unfolding goes both ways, so
@@ -226,12 +226,12 @@ fixpoint of `semdef`, the `semdef`/`defBody` unfolding goes both ways, so
 theorem definedElimAxiom_eval
     {Γ : FunCtx} {Δ : Signature} {ρ : Env}
     {f : TinyML.Var} {fn : SpecFn} {x res : TinyML.Var} {e : Typed.Expr}
-    {body : DefVal} (henc : encodeBody Γ Δ f fn x res e = .ok body) :
+    {body : DefVal} (henc : encodeBody primitives Γ Δ f fn x res e = .ok body) :
     (definedElimAxiom fn x body).eval
-      (defInterpEnv Γ Δ ρ f fn x res e body) := by
+      (defInterpEnv primitives Γ Δ ρ f fn x res e body) := by
   simp only [definedElimAxiom, Formula.all, Formula.eval]
   intro vin hdef
-  have hsem : semdef Γ Δ ρ f fn x res e body vin :=
+  have hsem : semdef primitives Γ Δ ρ f fn x res e body vin :=
     (definedCall_eval_defInterpEnv (Γ := Γ) (Δ := Δ) (ρ := ρ)
       (f := f) (fn := fn) (x := x) (res := res) (e := e) (body := body) vin).mp hdef
   exact (semdef_unfold_of_encode (ρ := ρ) (x := x) (res := res) henc vin).mp hsem
@@ -241,13 +241,13 @@ interpretation. -/
 theorem axioms_eval
     {Γ : FunCtx} {Δ : Signature} {ρ : Env}
     {f : TinyML.Var} {fn : SpecFn} {x res : TinyML.Var} {e : Typed.Expr}
-    {body : DefVal} (henc : encodeBody Γ Δ f fn x res e = .ok body)
+    {body : DefVal} (henc : encodeBody primitives Γ Δ f fn x res e = .ok body)
     (hΓ : Γ.splitCompatible ρ)
     (hΓwf : Γ.wfIn Δ)
     (hΔ : Δ.wf) (hheadFresh : HeadFresh Δ fn x res)
     (hρdet : Relation.BinaryRelDet Γ ρ ρ) :
     ∀ ax ∈ axioms fn x body,
-      ax.formula.eval (defInterpEnv Γ Δ ρ f fn x res e body) := by
+      ax.formula.eval (defInterpEnv primitives Γ Δ ρ f fn x res e body) := by
   intro ax hmem
   simp [axioms] at hmem
   rcases hmem with rfl | rfl | rfl
@@ -343,12 +343,12 @@ theorem headFresh_of_fresh
 The declared symbols (`fn.rel`, `fn.func`, `fn.defined`) are determined by `fn`,
 so this returns only the data the encoder computes: the canonical pinned-result
 variable, the encoded body, and the list of solver-emitted axioms. -/
-def bundle
+def bundle (primitives : PrimEncodings)
     (Γ : FunCtx) (Δ : Signature) (f : TinyML.Var) (fn : SpecFn) (x : String) (e : Typed.Expr) :
     Except String (String × DefVal × List Axiom) := do
   let res := Fresh.freshName
     (Δ.allNames ++ [x, fn.relName, fn.funcName, fn.defName]) "r"
-  let bv ← encodeBody Γ Δ f fn x res e
+  let bv ← encodeBody primitives Γ Δ f fn x res e
   pure (res, bv, axioms fn x bv)
 
 theorem bundle_headFresh
@@ -364,7 +364,7 @@ theorem bundle_headFresh
 theorem bundle_wfIn
     {Γ : FunCtx} {Δ : Signature} {f : TinyML.Var} {fn : SpecFn} {x : String} {e : Typed.Expr}
     {res : String} {bv : DefVal} {axs : List Axiom}
-    (hinfo : bundle Γ Δ f fn x e = .ok (res, bv, axs))
+    (hinfo : bundle primitives Γ Δ f fn x e = .ok (res, bv, axs))
     (hΔ : Δ.wf) (hΓwf : Γ.wfIn Δ)
     (hf : InfoFresh Δ fn x) :
     ∀ ax ∈ axs,
@@ -403,14 +403,14 @@ solver-facing split symbols, never `fn` as a binary predicate, so updating
 theorem axioms_eval_updateBinaryRel
     {Γ : FunCtx} {Δ : Signature} {ρ : Env}
     {f : TinyML.Var} {fn : SpecFn} {x res : TinyML.Var} {e : Typed.Expr}
-    {body : DefVal} (henc : encodeBody Γ Δ f fn x res e = .ok body)
+    {body : DefVal} (henc : encodeBody primitives Γ Δ f fn x res e = .ok body)
     (hΓ : Γ.splitCompatible ρ)
     (hΓwf : Γ.wfIn Δ)
     (hΔ : Δ.wf) (hheadFresh : HeadFresh Δ fn x res)
     (hρdet : Relation.BinaryRelDet Γ ρ ρ)
     (R : ValRel) :
     ∀ ax ∈ axioms fn x body,
-      ax.formula.eval ((defInterpEnv Γ Δ ρ f fn x res e body).updateBinaryRel
+      ax.formula.eval ((defInterpEnv primitives Γ Δ ρ f fn x res e body).updateBinaryRel
         .value .value fn.relName R) := by
   intro ax hmem
   have hbase := axioms_eval henc hΓ hΓwf hΔ hheadFresh hρdet ax hmem
@@ -441,8 +441,8 @@ theorem axioms_eval_updateBinaryRel
       (show fn.relName ≠ (fn.defined).name from (SpecFn.defName_ne_relName fn).symm)
   have hagree :
       Env.agreeOn Δsmall
-        (defInterpEnv Γ Δ ρ f fn x res e body)
-        ((defInterpEnv Γ Δ ρ f fn x res e body).updateBinaryRel
+        (defInterpEnv primitives Γ Δ ρ f fn x res e body)
+        ((defInterpEnv primitives Γ Δ ρ f fn x res e body).updateBinaryRel
           .value .value fn.relName R) :=
     Env.agreeOn_update_fresh_binaryRel
       (b := fn.rel) hrelFresh_small
@@ -453,13 +453,13 @@ theorem bundle_semrel_functional
     {Γ : FunCtx} {Δ : Signature}
     {f fn x : String} {e : Typed.Expr}
     {res : String} {bv : DefVal} {axs : List Axiom}
-    (hinfo : bundle Γ Δ f fn x e = .ok (res, bv, axs))
+    (hinfo : bundle primitives Γ Δ f fn x e = .ok (res, bv, axs))
     (hΓwf : Γ.wfIn Δ)
     (hΔ : Δ.wf) (hf : InfoFresh Δ fn x)
     (ρ : Env) (hρdet : Relation.BinaryRelDet Γ ρ ρ)
     (vin : Srt.value.denote) (y₁ y₂ : Srt.value.denote)
-    (h₁ : semrel Γ Δ ρ f fn x res e vin y₁)
-    (h₂ : semrel Γ Δ ρ f fn x res e vin y₂) :
+    (h₁ : semrel primitives Γ Δ ρ f fn x res e vin y₁)
+    (h₂ : semrel primitives Γ Δ ρ f fn x res e vin y₂) :
     y₁ = y₂ := by
   unfold bundle at hinfo
   simp only [bind, Except.bind] at hinfo
@@ -475,15 +475,15 @@ theorem bundle_semrel_compatible
     {Γ : FunCtx} {Δ : Signature} {ρ : Env}
     {f fn x : String} {e : Typed.Expr}
     {res : String} {bv : DefVal} {axs : List Axiom}
-    (hinfo : bundle Γ Δ f fn x e = .ok (res, bv, axs))
+    (hinfo : bundle primitives Γ Δ f fn x e = .ok (res, bv, axs))
     (hΓ : Γ.splitCompatible ρ)
     (hΓwf : Γ.wfIn Δ)
     (hΔ : Δ.wf) (hf : InfoFresh Δ fn x)
     (hρdet : Relation.BinaryRelDet Γ ρ ρ)
     (vin vout : Srt.value.denote) :
-    semrel Γ Δ ρ f fn x res e vin vout ↔
-      semdef Γ Δ ρ f fn x res e bv vin ∧
-        semFunc (semrel Γ Δ ρ f fn x res e) vin = vout := by
+    semrel primitives Γ Δ ρ f fn x res e vin vout ↔
+      semdef primitives Γ Δ ρ f fn x res e bv vin ∧
+        semFunc (semrel primitives Γ Δ ρ f fn x res e) vin = vout := by
   unfold bundle at hinfo
   simp only [bind, Except.bind] at hinfo
   split at hinfo
@@ -500,14 +500,14 @@ theorem bundle_eval_updateBinaryRel
     {Γ : FunCtx} {Δ : Signature} {ρ : Env}
     {f : TinyML.Var} {fn : SpecFn} {x : String} {e : Typed.Expr}
     {res : String} {bv : DefVal} {axs : List Axiom}
-    (hinfo : bundle Γ Δ f fn x e = .ok (res, bv, axs))
+    (hinfo : bundle primitives Γ Δ f fn x e = .ok (res, bv, axs))
     (hΓ : Γ.splitCompatible ρ)
     (hΓwf : Γ.wfIn Δ)
     (hΔ : Δ.wf) (hf : InfoFresh Δ fn x)
     (hρdet : Relation.BinaryRelDet Γ ρ ρ)
     (R : ValRel) :
     ∀ ax ∈ axs,
-      ax.formula.eval ((defInterpEnv Γ Δ ρ f fn x res e bv).updateBinaryRel
+      ax.formula.eval ((defInterpEnv primitives Γ Δ ρ f fn x res e bv).updateBinaryRel
         .value .value fn.relName R) := by
   unfold bundle at hinfo
   simp only [bind, Except.bind] at hinfo

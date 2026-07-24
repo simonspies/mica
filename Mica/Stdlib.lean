@@ -10,6 +10,7 @@ import Mica.Stdlib.VecStd
 import Mica.Stdlib.ListStd
 import Mica.Stdlib.OptionStd
 import Mica.Stdlib.ErrorStd
+import Mica.Stdlib.LogicStd
 import Mica.Frontend.Resolver
 
 open Iris Iris.BI
@@ -23,6 +24,7 @@ def registry : Registry := [
   Verifier.BoundedQuantifier.existsIntrinsic,
   Intrinsics.failwith,
   Intrinsics.invalidArg,
+  Intrinsics.logicEq,
   Intrinsics.vecMake,
   Intrinsics.vecSet,
   Intrinsics.vecGet,
