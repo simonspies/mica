@@ -3525,7 +3525,8 @@ theorem compileApp_correct (reg : Verifier.Registry) (hSound : Verifier.Registry
         PredTrans.wfIn ((W.Δ_spec.declVars (FiniteSubst.base W.Δ_spec).dom).declVars
           (Spec.argVars i.spec.args)) i.spec.pred := by
       simpa [FiniteSubst.base, Signature.declVars, Verifier.Intrinsic.specArgs] using
-        hbridge.specWf W.Δ_spec (hΔreg i hi_mem) hwf.wf
+        hbridge.specWf W.Δ_spec
+          (Verifier.Registry.sigOf_subset_of_symSubset hΔreg) hwf.wf
     have hbase_wf : (FiniteSubst.base W.Δ_spec).wfIn W.Δ_spec st_args.decls :=
       FiniteSubst.base_wfIn hΔspec_args hwf.wf hst_args_wf hwf.vars
     have htypedArgs_wf : ∀ p ∈ typedArgs, p.2.wfIn st_args.decls := by
@@ -3591,8 +3592,10 @@ theorem compileApp_correct (reg : Verifier.Registry) (hSound : Verifier.Registry
       exact happly
     have hagree_ρ_args : Env.agreeOn W.Δ_spec W.ρ_spec ρ_args :=
       Env.agreeOn_trans hag.agree (Env.agreeOn_mono hag.subset hagreeOn_args)
-    have hρ_args_reg : ρ_args.respects i.folSym :=
-      Env.respects_of_agreeOn_extendWithSym (hρreg i hi_mem) (hΔreg i hi_mem) hagree_ρ_args
+    have hρ_args_reg : ∀ d ∈ reg, ρ_args.respects d.folSym := by
+      intro d hd
+      exact Env.respects_of_agreeOn_extendWithSym
+        (hρreg d hd) (hΔreg d hd) hagree_ρ_args
     iapply (show
         TinyML.ValsHaveTypes W vs argTys ∗
           PredTrans.apply (TinyML.ValHasType W) (fun r => TinyML.ValHasType W r retTy -∗ Φ r) i.spec.pred

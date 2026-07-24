@@ -61,10 +61,10 @@ def charCode : Intrinsic := charCodeB.toIntrinsic
 @[simp] theorem charCode_arity : charCode.arity = .one := rfl
 @[simp] theorem charCode_folSym : charCode.folSym = some charCodeSym := rfl
 
-def charCodeLawful : charCodeB.Lawful where
+def charCodeLawful : charCodeB.Lawful [] where
   argL         := Embedding.lawfulChar
   resL         := Embedding.lawfulInt
-  domSound     := fun _ _ _ => True.intro
+  domSound     := fun _ _ _ _ => True.intro
   semWellTyped := fun _ _ _ _ => .rfl
   specBaseWf   := by apply PredTrans.checkWf_ok; rfl
   defWf        := by apply Formula.checkWf_ok; rfl
@@ -110,11 +110,11 @@ def charChr : Intrinsic := charChrB.toIntrinsic
 @[simp] theorem charChr_arity : charChr.arity = .one := rfl
 @[simp] theorem charChr_folSym : charChr.folSym = some charChrSym := rfl
 
-def charChrLawful : charChrB.Lawful where
+def charChrLawful : charChrB.Lawful [] where
   argL         := Embedding.lawfulInt
   resL         := Embedding.lawfulChar
   domSound     := by
-    intro ρ n h
+    intro ρ n _ h
     have hpre := h charChrPre rfl
     simpa [charChrB, charChrPre, Embedding.int, Formula.eval, Term.eval, Const.denote,
       Env.lookupConst_updateConst_same, valInt] using hpre
@@ -124,7 +124,7 @@ def charChrLawful : charChrB.Lawful where
   typeWf       := by intro φ h; injection h with h; subst h; apply Formula.checkWf_ok; rfl
   defEval      := by
     have hsym : charChrB.sym = charChrSym := rfl
-    intro ρ hresp
+    intro ρ _ hresp
     rw [hsym] at hresp
     simp only [charChrB, charChrDefAxiom, Formula.eval]
     intro x hpre
@@ -167,11 +167,11 @@ def charEqual : Intrinsic := charEqualB.toIntrinsic
 @[simp] theorem charEqual_arity : charEqual.arity = .two := rfl
 @[simp] theorem charEqual_folSym : charEqual.folSym = some charEqualSym := rfl
 
-def charEqualLawful : charEqualB.Lawful where
+def charEqualLawful : charEqualB.Lawful [] where
   argL₁        := Embedding.lawfulChar
   argL₂        := Embedding.lawfulChar
   resL         := Embedding.lawfulBool
-  domSound     := fun _ _ _ _ => True.intro
+  domSound     := fun _ _ _ _ _ => True.intro
   semWellTyped := fun _ _ _ _ _ => sep_emp.1
   specBaseWf   := by apply PredTrans.checkWf_ok; rfl
   defWf        := by apply Formula.checkWf_ok; rfl

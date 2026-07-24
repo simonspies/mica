@@ -146,10 +146,10 @@ def optionIsSomeIntrinsic : Intrinsic := optionIsSomeB.toIntrinsic
     optionIsSomeIntrinsic.folSym = some optionIsSomeB.sym := rfl
 @[simp] theorem optionIsSomeSym_name : optionIsSomeB.sym.name = "option_is_some" := rfl
 
-def optionIsSomeLawful : optionIsSomeB.Lawful where
+def optionIsSomeLawful : optionIsSomeB.Lawful [] where
   argL := Embedding.lawfulLogical optionTy
   resL := Embedding.lawfulBool
-  domSound := fun _ _ _ => trivial
+  domSound := fun _ _ _ _ => trivial
   semWellTyped := fun _ _ _ _ => affine
   specBaseWf := by apply PredTrans.checkWf_ok; rfl
   defWf := by apply Formula.checkWf_ok; rfl
@@ -179,10 +179,10 @@ def optionIsNoneIntrinsic : Intrinsic := optionIsNoneB.toIntrinsic
     optionIsNoneIntrinsic.folSym = some optionIsNoneB.sym := rfl
 @[simp] theorem optionIsNoneSym_name : optionIsNoneB.sym.name = "option_is_none" := rfl
 
-def optionIsNoneLawful : optionIsNoneB.Lawful where
+def optionIsNoneLawful : optionIsNoneB.Lawful [] where
   argL := Embedding.lawfulLogical optionTy
   resL := Embedding.lawfulBool
-  domSound := fun _ _ _ => trivial
+  domSound := fun _ _ _ _ => trivial
   semWellTyped := fun _ _ _ _ => affine
   specBaseWf := by apply PredTrans.checkWf_ok; rfl
   defWf := by apply Formula.checkWf_ok; rfl
@@ -212,11 +212,11 @@ def optionValueIntrinsic : Intrinsic := optionValueB.toIntrinsic
     optionValueIntrinsic.folSym = some optionValueB.sym := rfl
 @[simp] theorem optionValueSym_name : optionValueB.sym.name = "option_value" := rfl
 
-def optionValueLawful : optionValueB.Lawful where
+def optionValueLawful : optionValueB.Lawful [] where
   argL := Embedding.lawfulLogical optionTy
   resL := Embedding.lawfulPoly "a"
   domSound := by
-    intro ρ option h
+    intro ρ option _ h
     have hpre := h optionSomePre rfl
     refine ⟨optionPayload option, ?_⟩
     simpa [optionValueB, optionSomePre, optionSomeTerm, optionSome,

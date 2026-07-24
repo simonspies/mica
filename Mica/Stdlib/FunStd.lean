@@ -40,10 +40,10 @@ def funId : Intrinsic := funIdB.toIntrinsic
 @[simp] theorem funId_folSym : funId.folSym = some funIdB.sym := rfl
 @[simp] theorem funIdSym_name : funIdB.sym.name = "fun_id" := rfl
 
-def funIdLawful : funIdB.Lawful where
+def funIdLawful : funIdB.Lawful [] where
   argL         := Embedding.lawfulPoly "a"
   resL         := Embedding.lawfulPoly "a"
-  domSound     := fun _ _ _ => True.intro
+  domSound     := fun _ _ _ _ => True.intro
   semWellTyped := fun _ _ _ _ => .rfl
   specBaseWf   := by apply PredTrans.checkWf_ok; rfl
   defWf        := by apply Formula.checkWf_ok; rfl

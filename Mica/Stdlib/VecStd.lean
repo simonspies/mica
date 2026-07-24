@@ -98,10 +98,10 @@ def vecLength : Intrinsic := vecLengthB.toIntrinsic
 @[simp] theorem vecLength_folSym : vecLength.folSym = some vecLengthB.sym := rfl
 @[simp] theorem vecLengthSym_name : vecLengthB.sym.name = "val_vec_length" := rfl
 
-def vecLengthLawful : vecLengthB.Lawful where
+def vecLengthLawful : vecLengthB.Lawful [] where
   argL         := Embedding.lawfulVec (.tvar "a")
   resL         := Embedding.lawfulInt
-  domSound     := fun _ _ _ => True.intro
+  domSound     := fun _ _ _ _ => True.intro
   semWellTyped := fun _ _ _ _ => affine
   specBaseWf   := by apply PredTrans.checkWf_ok; rfl
   defWf        := by apply Formula.checkWf_ok; rfl
@@ -134,12 +134,12 @@ def vecGet : Intrinsic := vecGetB.toIntrinsic
 @[simp] theorem vecGet_folSym : vecGet.folSym = some vecGetB.sym := rfl
 @[simp] theorem vecGetSym_name : vecGetB.sym.name = "val_vec_get" := rfl
 
-def vecGetLawful : vecGetB.Lawful where
+def vecGetLawful : vecGetB.Lawful [] where
   argL₁        := Embedding.lawfulVec (.tvar "a")
   argL₂        := Embedding.lawfulInt
   resL         := Embedding.lawfulPoly "a"
   domSound     := by
-    intro ρ l n h
+    intro ρ l n _ h
     have hpre := h vecBoundsPre rfl
     simpa [vecGetB, vecBoundsPre, vecOf, intOf, Embedding.vec, Embedding.int,
       Formula.eval, Term.eval, Const.denote, Env.lookupConst_updateConst_same,
@@ -188,13 +188,13 @@ def vecSet : Intrinsic := vecSetB.toIntrinsic
 @[simp] theorem vecSet_folSym : vecSet.folSym = some vecSetB.sym := rfl
 @[simp] theorem vecSetSym_name : vecSetB.sym.name = "val_vec_set" := rfl
 
-def vecSetLawful : vecSetB.Lawful where
+def vecSetLawful : vecSetB.Lawful [] where
   argL₁        := Embedding.lawfulVec (.tvar "a")
   argL₂        := Embedding.lawfulInt
   argL₃        := Embedding.lawfulPoly "a"
   resL         := Embedding.lawfulVec (.tvar "a")
   domSound     := by
-    intro ρ l n x h
+    intro ρ l n x _ h
     have hpre := h _ rfl
     simpa [vecSetB, vecBoundsPre, vecOf, intOf, Embedding.vec, Embedding.int, Embedding.poly,
       Formula.eval, Term.eval, Const.denote, Env.lookupConst_updateConst_same,
@@ -245,12 +245,12 @@ def vecMake : Intrinsic := vecMakeB.toIntrinsic
 @[simp] theorem vecMake_folSym : vecMake.folSym = some vecMakeB.sym := rfl
 @[simp] theorem vecMakeSym_name : vecMakeB.sym.name = "val_vec_make" := rfl
 
-def vecMakeLawful : vecMakeB.Lawful where
+def vecMakeLawful : vecMakeB.Lawful [] where
   argL₁        := Embedding.lawfulInt
   argL₂        := Embedding.lawfulPoly "a"
   resL         := Embedding.lawfulVec (.tvar "a")
   domSound     := by
-    intro ρ m x h
+    intro ρ m x _ h
     have hpre := h _ rfl
     simpa [vecMakeB, intOf, Embedding.int, Embedding.poly, Formula.eval, Term.eval,
       Const.denote, Env.lookupConst_updateConst_same,
