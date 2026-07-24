@@ -35,7 +35,7 @@ lake run testsuite                # run the test suite (Examples/ and Tests/)
 
 ### Test suite
 
-Case studies live in `Examples/`, small feature-targeted tests in `Tests/<feature>/`. A test is one `.ml` file; the runner (`Testsuite.lean`) compiles it with ocamlopt and runs mica on it. An optional first-line directive `(* TEST: <flags> [no-compile] [roundtrip] *)` passes flags to mica, skips the ocamlopt phase, or adds a print∘parse fixpoint check of `--print-ocaml`. Without a sibling `foo.out`, the mica run must exit 0; with one, the output must match it (nonzero exits end with a `[<code>]` line). `lake run testsuite --promote PATH` rewrites existing `.out` files with the actual output; create a new expected-output test with `touch foo.out` followed by `--promote`.
+`Examples/` is reserved for case studies; everything else goes in `Tests/<feature>/`. When adding tests for new functionality, lean toward small targeted files in `Tests/`. A test is one `.ml` file; the runner (`Testsuite.lean`) compiles it with ocamlopt and runs mica on it. An optional first-line directive `(* TEST: <flags> [no-compile] [roundtrip] *)` passes flags to mica, skips the ocamlopt phase, or adds a print∘parse fixpoint check of `--print-ocaml`. Without a sibling `foo.out`, the mica run must exit 0; with one, the output must match it (nonzero exits end with a `[<code>]` line). `lake run testsuite --promote PATH` rewrites existing `.out` files with the actual output; create a new expected-output test with `touch foo.out` followed by `--promote`.
 
 **MCP Tools**
 - `lean_diagnostic_messages` after proof work, check for errors (filter to the declaration)
