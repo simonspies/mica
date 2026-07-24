@@ -22,14 +22,17 @@ open Verifier.RelationalEncoding
 private abbrev M := Except String
 
 /-- Encode a spec expression into a `DefVal`. -/
-def encodeExpr (Δ : Signature) (Γfn : FunCtx) (δ : VarEnv) (e : Typed.Expr) :
+def encodeExpr (primitives : PrimEncodings) (Δ : Signature) (Γfn : FunCtx)
+    (δ : VarEnv) (e : Typed.Expr) :
     M Skolemize.DefVal :=
-  encodeWith Skolemize.encoderOps Δ Γfn δ e (fun v => .ok (Skolemize.DefVal.pure v))
+  encodeWith primitives Skolemize.encoderOps Δ Γfn δ e
+    (fun v => .ok (Skolemize.DefVal.pure v))
 
 /-- Encode a boolean spec expression into its definedness and truth formulas. -/
-def encodeBool (Δ : Signature) (Γfn : FunCtx) (δ : VarEnv) (e : Typed.Expr) :
+def encodeBool (primitives : PrimEncodings) (Δ : Signature) (Γfn : FunCtx)
+    (δ : VarEnv) (e : Typed.Expr) :
     M (Formula × Formula) := do
-  let dv ← encodeExpr Δ Γfn δ e
+  let dv ← encodeExpr primitives Δ Γfn δ e
   .ok (dv.defined, .eq .bool (.unop .toBool dv.value) (.const (.b true)))
 
 /-- Look up a spec-level variable's encoded value. -/
@@ -52,37 +55,38 @@ def translatePred (δ : VarEnv) (ty : TinyML.Typ) : Spec.Pred → M (Atom .value
     | _ => .error "owned-array predicates must bind a vector snapshot"
 
 /-- Translate a spec assertion, asserting each leaf's definedness before its value. -/
-def translateAssert (Δ : Signature) (Γfn : FunCtx) (inner : VarEnv → α → M β) :
+def translateAssert (primitives : PrimEncodings) (Δ : Signature) (Γfn : FunCtx)
+    (inner : VarEnv → α → M β) :
     VarEnv → Spec.Assert Typed.Expr α → M (Assertion β)
   | δ, .ret a => do .ok (.ret (← inner δ a))
   | δ, .assert cond rest => do
-    let (defd, φ) ← encodeBool Δ Γfn δ cond
-    .ok (.assert defd (.assert φ (← translateAssert Δ Γfn inner δ rest)))
+    let (defd, φ) ← encodeBool primitives Δ Γfn δ cond
+    .ok (.assert defd (.assert φ (← translateAssert primitives Δ Γfn inner δ rest)))
   | δ, .let_ x e rest => do
-    let dv ← encodeExpr Δ Γfn δ e
+    let dv ← encodeExpr primitives Δ Γfn δ e
     let v : Var := ⟨x, .value⟩
     .ok (.assert dv.defined (.let_ v dv.value
       (assertAll (TinyML.typeConstraints e.ty (.var .value x))
-        (← translateAssert Δ Γfn inner (δ.bind x (.var .value x)) rest))))
+        (← translateAssert primitives Δ Γfn inner (δ.bind x (.var .value x)) rest))))
   | δ, .bind pred x ty rest => do
     let atom ← translatePred δ ty pred
     let v : Var := ⟨x, .value⟩
     .ok (.pred v atom
       (assertAll (TinyML.typeConstraints ty (.var .value x))
-        (← translateAssert Δ Γfn inner (δ.bind x (.var .value x)) rest)))
+        (← translateAssert primitives Δ Γfn inner (δ.bind x (.var .value x)) rest)))
   | δ, .ite cond thn els => do
-    let (defd, φ) ← encodeBool Δ Γfn δ cond
-    .ok (.assert defd (.ite φ (← translateAssert Δ Γfn inner δ thn)
-      (← translateAssert Δ Γfn inner δ els)))
+    let (defd, φ) ← encodeBool primitives Δ Γfn δ cond
+    .ok (.assert defd (.ite φ (← translateAssert primitives Δ Γfn inner δ thn)
+      (← translateAssert primitives Δ Γfn inner δ els)))
 
-def translatePost (Δ : Signature) (Γfn : FunCtx) (δ : VarEnv) :
+def translatePost (primitives : PrimEncodings) (Δ : Signature) (Γfn : FunCtx) (δ : VarEnv) :
     Spec.Post Typed.Expr → M (Assertion Unit) :=
-  translateAssert Δ Γfn (fun _ () => .ok ()) δ
+  translateAssert primitives Δ Γfn (fun _ () => .ok ()) δ
 
-def translatePre (Δ : Signature) (Γfn : FunCtx) (δ : VarEnv) :
+def translatePre (primitives : PrimEncodings) (Δ : Signature) (Γfn : FunCtx) (δ : VarEnv) :
     Spec.Pre Typed.Expr → M PredTrans :=
-  translateAssert Δ Γfn (fun δ (name, post) => do
-    let post' ← translatePost Δ Γfn (δ.bind name (.var .value name)) post
+  translateAssert primitives Δ Γfn (fun δ (name, post) => do
+    let post' ← translatePost primitives Δ Γfn (δ.bind name (.var .value name)) post
     .ok (name, post')) δ
 
 /-- Build the initial encoder environment from the spec's argument names. -/
@@ -90,10 +94,11 @@ private def argEnv (names : List String) : VarEnv :=
   names.map (fun n => (n, .var .value n))
 
 /-- Translate a typechecked spec body into a spec predicate. -/
-def translate (Δ : Signature) (Γfn : FunCtx) (body : (Spec.Body Typed.Expr)) : M SpecPredicate :=
+def translate (primitives : PrimEncodings) (Δ : Signature) (Γfn : FunCtx)
+    (body : (Spec.Body Typed.Expr)) : M SpecPredicate :=
   let (names, pre) := body
   do
-    let pt ← translatePre Δ Γfn (argEnv names) pre
+    let pt ← translatePre primitives Δ Γfn (argEnv names) pre
     .ok (names, pt)
 
 end SpecTranslation

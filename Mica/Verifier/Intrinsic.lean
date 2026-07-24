@@ -4,6 +4,7 @@ import Mica.SeparationLogic.Wp
 import Mica.Verifier.PredicateTransformers
 import Mica.Verifier.Specifications
 import Mica.FOL.Formulas
+import Mica.Verifier.RelationalEncoding.Prim
 
 open Iris Iris.BI
 
@@ -45,11 +46,196 @@ abbrev Arity.tup : Arity → Type → Type
   | .two,  α => α × α
   | .three, α => α × α × α
 
+/-- Pointwise predicate over an arity-indexed tuple. -/
+def Arity.All (p : α → Prop) : (n : Arity) → Arity.tup n α → Prop
+  | .zero, _ => True
+  | .one, a => p a
+  | .two, (a, b) => p a ∧ p b
+  | .three, (a, b, c) => p a ∧ p b ∧ p c
+
+/-- Map a function over an arity-indexed tuple. -/
+def Arity.map (f : α → β) : (n : Arity) → Arity.tup n α → Arity.tup n β
+  | .zero, _ => ()
+  | .one, a => f a
+  | .two, (a, b) => (f a, f b)
+  | .three, (a, b, c) => (f a, f b, f c)
+
+/-- Turn a list of the statically known length into an arity-indexed tuple. -/
+def Arity.ofList : (n : Arity) → (xs : List α) → xs.length = n.toNat →
+    Arity.tup n α
+  | .zero, [], _ => ()
+  | .zero, _ :: _, h => by simp [Arity.toNat] at h
+  | .one, [], h => by simp [Arity.toNat] at h
+  | .one, [a], _ => a
+  | .one, _ :: _ :: _, h => by simp [Arity.toNat] at h
+  | .two, [], h => by simp [Arity.toNat] at h
+  | .two, [_], h => by simp [Arity.toNat] at h
+  | .two, [a, b], _ => (a, b)
+  | .two, _ :: _ :: _ :: _, h => by simp [Arity.toNat] at h
+  | .three, [], h => by simp [Arity.toNat] at h
+  | .three, [_], h => by simp [Arity.toNat] at h
+  | .three, [_, _], h => by simp [Arity.toNat] at h
+  | .three, [a, b, c], _ => (a, b, c)
+  | .three, _ :: _ :: _ :: _ :: _, h => by simp [Arity.toNat] at h
+
+/-- A pointwise list property transfers to its arity-indexed tuple. -/
+theorem Arity.ofList_all (n : Arity) (xs : List α) (hlen : xs.length = n.toNat)
+    (hxs : ∀ x ∈ xs, p x) : Arity.All p n (Arity.ofList n xs hlen) := by
+  cases n <;> simp [Arity.toNat] at hlen
+  · subst xs; trivial
+  · obtain ⟨a, rfl⟩ := List.length_eq_one_iff.mp hlen
+    exact hxs a (by simp)
+  · rcases xs with _ | ⟨a, _ | ⟨b, rest⟩⟩ <;> simp at hlen
+    subst rest
+    exact ⟨hxs a (by simp), hxs b (by simp)⟩
+  · rcases xs with _ | ⟨a, _ | ⟨b, _ | ⟨c, rest⟩⟩⟩ <;> simp at hlen
+    subst rest
+    exact ⟨hxs a (by simp), hxs b (by simp), hxs c (by simp)⟩
+
+/-- Equal mapped fixed-length lists yield equal mapped argument tuples. -/
+theorem Arity.map_ofList_eq (f : α → γ) (g : β → γ) (n : Arity)
+    (xs : List α) (ys : List β)
+    (hlen₁ : xs.length = n.toNat) (hlen₂ : ys.length = n.toNat)
+    (hmap : xs.map f = ys.map g) :
+    Arity.map f n (Arity.ofList n xs hlen₁) =
+      Arity.map g n (Arity.ofList n ys hlen₂) := by
+  cases n
+  · simp [Arity.toNat] at hlen₁ hlen₂
+    subst xs; subst ys; rfl
+  · obtain ⟨a, rfl⟩ := List.length_eq_one_iff.mp (by simpa [Arity.toNat] using hlen₁)
+    obtain ⟨b, rfl⟩ := List.length_eq_one_iff.mp (by simpa [Arity.toNat] using hlen₂)
+    simpa [Arity.map, Arity.ofList] using hmap
+  · rcases xs with _ | ⟨a, _ | ⟨b, rest₁⟩⟩ <;>
+      rcases ys with _ | ⟨c, _ | ⟨d, rest₂⟩⟩ <;> simp [Arity.toNat] at hlen₁ hlen₂
+    subst rest₁; subst rest₂
+    simpa [Arity.map, Arity.ofList] using hmap
+  · rcases xs with _ | ⟨a, _ | ⟨b, _ | ⟨c, rest₁⟩⟩⟩ <;>
+      rcases ys with _ | ⟨d, _ | ⟨e, _ | ⟨f', rest₂⟩⟩⟩ <;>
+      simp [Arity.toNat] at hlen₁ hlen₂
+    subst rest₁; subst rest₂
+    simpa [Arity.map, Arity.ofList] using hmap
+
 /-- A FOL symbol attached to an intrinsic: a function symbol of the given
     arity at the value sort, together with its standard interpretation. -/
 structure FOL.Symbol (n : Arity) where
   name   : String
   interp : Arity.tup n (Srt.value).denote → (Srt.value).denote
+
+/-- A direct intrinsic encoding, including the structural facts needed by the
+    generic relational encoder. -/
+structure FOL.Direct (n : Arity) where
+  interp : Arity.tup n (Srt.value).denote → (Srt.value).denote
+  encode : Arity.tup n (Term .value) → Term .value
+  wfIn : ∀ (Δ : Signature) (args : Arity.tup n (Term .value)),
+    Arity.All (·.wfIn Δ) n args → (encode args).wfIn Δ
+  eval : ∀ (ρ : Env) (args : Arity.tup n (Term .value)),
+    Term.eval ρ (encode args) = interp (Arity.map (Term.eval ρ) n args)
+
+/-- Solver-facing representation of an intrinsic. Opaque encodings apply a
+    declared uninterpreted symbol; direct encodings build a value term from
+    their argument terms without contributing a symbol or axioms. -/
+inductive IntrinsicFOL (n : Arity) where
+  | direct (encoding : FOL.Direct n)
+  | symbol (sym : FOL.Symbol n)
+
+/-- The declaration contributed by an intrinsic encoding, if any. -/
+def IntrinsicFOL.sym : IntrinsicFOL n → Option (FOL.Symbol n)
+  | .direct _ => none
+  | .symbol sym => some sym
+
+/-- Whether an intrinsic encoding can be used in a signature. Direct terms
+    are always available; symbol applications require their declaration. -/
+def IntrinsicFOL.available (Δ : Signature) : (n : Arity) → IntrinsicFOL n → Bool
+  | .zero, .direct _ => true
+  | .zero, .symbol s => decide (⟨s.name, .value⟩ ∈ Δ.consts)
+  | .one, .direct _ => true
+  | .one, .symbol s => decide (⟨s.name, .value, .value⟩ ∈ Δ.unary)
+  | .two, .direct _ => true
+  | .two, .symbol s => decide (⟨s.name, .value, .value, .value⟩ ∈ Δ.binary)
+  | .three, .direct _ => true
+  | .three, .symbol s =>
+      decide (⟨s.name, .value, .value, .value, .value⟩ ∈ Δ.ternary)
+
+/-- Build the solver term selected by an intrinsic FOL encoding. -/
+def IntrinsicFOL.term : (n : Arity) → IntrinsicFOL n →
+    Arity.tup n (Term .value) → Term .value
+  | _, .direct d, args => d.encode args
+  | .zero, .symbol s, _ => .const (.uninterpreted s.name .value)
+  | .one, .symbol s, a => .unop (.uninterpreted s.name .value .value) a
+  | .two, .symbol s, (a, b) =>
+      .binop (.uninterpreted s.name .value .value .value) a b
+  | .three, .symbol s, (a, b, c) =>
+      .terop (.uninterpreted s.name .value .value .value .value) a b c
+
+/-- Available intrinsic terms are well-formed when their arguments are. -/
+theorem IntrinsicFOL.term_wfIn {Δ Δ' : Signature} (hsub : Δ.Subset Δ') (hΔ' : Δ'.wf)
+    (f : IntrinsicFOL n) (args : Arity.tup n (Term .value))
+    (hav : f.available Δ n = true) (hargs : Arity.All (·.wfIn Δ') n args) :
+    (f.term n args).wfIn Δ' := by
+  cases f with
+  | direct d => exact d.wfIn Δ' args hargs
+  | symbol s =>
+    cases n with
+    | zero =>
+      simp only [IntrinsicFOL.available, decide_eq_true_eq] at hav
+      have hav' := hsub.consts _ hav
+      exact ⟨hav', fun τ' hv => Signature.wf_no_var_of_const hΔ' hav' hv,
+        fun τ' hc => Signature.wf_unique_const hΔ' hav' hc⟩
+    | one =>
+      simp only [IntrinsicFOL.available, decide_eq_true_eq] at hav
+      have hav' := hsub.unary _ hav
+      exact ⟨⟨hav', fun τ' hrel => Signature.wf_no_unaryRel_of_unary hΔ' hav' hrel,
+        fun τ₁' τ₂' hu => Signature.wf_unique_unary hΔ' hav' hu⟩, hargs⟩
+    | two =>
+      simp only [IntrinsicFOL.available, decide_eq_true_eq] at hav
+      have hav' := hsub.binary _ hav
+      exact ⟨⟨hav', fun τ₁' τ₂' hrel => Signature.wf_no_binaryRel_of_binary hΔ' hav' hrel,
+        fun τ₁' τ₂' τ₃' hb => Signature.wf_unique_binary hΔ' hav' hb⟩,
+        hargs.1, hargs.2⟩
+    | three =>
+      simp only [IntrinsicFOL.available, decide_eq_true_eq] at hav
+      have hav' := hsub.ternary _ hav
+      exact ⟨⟨hav', fun τ₁' τ₂' τ₃' τ₄' ht =>
+        Signature.wf_unique_ternary hΔ' hav' ht⟩, hargs.1, hargs.2.1, hargs.2.2⟩
+
+/-- Intrinsic terms preserve evaluation when their argument tuples agree and
+    the environments agree on the signature used by symbol encodings. -/
+theorem IntrinsicFOL.term_eval (f : IntrinsicFOL n) {Δ : Signature}
+    (args₁ args₂ : Arity.tup n (Term .value)) {ρ₁ ρ₂ : Env}
+    (hav : f.available Δ n = true) (hagree : Env.agreeOn Δ ρ₁ ρ₂)
+    (hargs : Arity.map (Term.eval ρ₁) n args₁ = Arity.map (Term.eval ρ₂) n args₂) :
+    Term.eval ρ₁ (f.term n args₁) = Term.eval ρ₂ (f.term n args₂) := by
+  cases f with
+  | direct d =>
+    simp only [IntrinsicFOL.term]
+    rw [d.eval, d.eval, hargs]
+  | symbol s =>
+    cases n with
+    | zero =>
+      simp only [IntrinsicFOL.available, decide_eq_true_eq] at hav
+      simpa [IntrinsicFOL.term, Term.eval, Const.denote] using hagree.2.1 _ hav
+    | one =>
+      simp only [IntrinsicFOL.available, decide_eq_true_eq] at hav
+      change Term.eval ρ₁ args₁ = Term.eval ρ₂ args₂ at hargs
+      simp only [IntrinsicFOL.term, Term.eval, UnOp.eval]
+      rw [hagree.2.2.1 _ hav, hargs]
+    | two =>
+      simp only [IntrinsicFOL.available, decide_eq_true_eq] at hav
+      change (Term.eval ρ₁ args₁.1, Term.eval ρ₁ args₁.2) =
+        (Term.eval ρ₂ args₂.1, Term.eval ρ₂ args₂.2) at hargs
+      injection hargs with ha hb
+      simp only [IntrinsicFOL.term, Term.eval, BinOp.eval]
+      rw [hagree.2.2.2.1 _ hav, ha, hb]
+    | three =>
+      simp only [IntrinsicFOL.available, decide_eq_true_eq] at hav
+      change (Term.eval ρ₁ args₁.1, Term.eval ρ₁ args₁.2.1,
+          Term.eval ρ₁ args₁.2.2) =
+        (Term.eval ρ₂ args₂.1, Term.eval ρ₂ args₂.2.1,
+          Term.eval ρ₂ args₂.2.2) at hargs
+      injection hargs with ha hrest
+      injection hrest with hb hc
+      simp only [IntrinsicFOL.term, Term.eval, TerOp.eval]
+      rw [hagree.2.2.2.2.1 _ hav, ha, hb, hc]
 
 /-! ## Extending signatures and environments with an FOL symbol -/
 
@@ -289,11 +475,50 @@ structure Intrinsic where
       untrusted — the elaborator re-checks arguments against the instantiated
       scheme and the semantic obligations hold for every substitution. -/
   typing   : TinyML.TypeEnv → List TinyML.Typ → Except String (List (TinyML.TyVar × TinyML.Typ))
-  folSym   : Option (FOL.Symbol arity)
+  folTerm      : Option (IntrinsicFOL arity)
   axioms   : List Axiom
+
+/-- The uninterpreted symbol contributed by an intrinsic, if its FOL encoding
+    is opaque. Direct encodings contribute no declaration. -/
+def Intrinsic.folSym (i : Intrinsic) : Option (FOL.Symbol i.arity) :=
+  i.folTerm.bind IntrinsicFOL.sym
+
+/-- The relational encoder entry contributed by an intrinsic. This projection
+    keeps solver declarations and expression encodings separate: symbol-backed
+    entries consult the signature, while direct entries simply build a term. -/
+def Intrinsic.encoding (i : Intrinsic) : RelationalEncoding.PrimEncoding where
+  name := i.name
+  arity := i.arity.toNat
+  available := fun Δ =>
+    match i.folTerm with
+    | none => false
+    | some f => f.available Δ i.arity
+  encode := fun _ vs hlen =>
+    match i.folTerm with
+    | none => .const .unit
+    | some f => f.term i.arity (Arity.ofList i.arity vs hlen)
+  wfIn := by
+    intro Δ Δ' vs hlen hav hsub hΔ' hvs
+    cases hfolTerm : i.folTerm with
+    | none => simp [hfolTerm] at hav
+    | some f =>
+      simp only [hfolTerm] at hav ⊢
+      exact f.term_wfIn hsub hΔ' _ hav (Arity.ofList_all i.arity vs hlen hvs)
+  eval := by
+    intro Δ vs₁ vs₂ hlen₁ hlen₂ ρ₁ ρ₂ hav hagree hvals
+    cases hfolTerm : i.folTerm with
+    | none => simp [hfolTerm] at hav
+    | some f =>
+      simp only [hfolTerm] at hav ⊢
+      apply f.term_eval _ _ hav hagree
+      exact Arity.map_ofList_eq _ _ i.arity vs₁ vs₂ hlen₁ hlen₂ hvals
 
 /-- A registry is a list of intrinsics. -/
 abbrev Registry := List Intrinsic
+
+/-- The explicit primitive-encoding table derived from a registry. -/
+def Registry.primitives (R : Registry) : RelationalEncoding.PrimEncodings :=
+  R.map Intrinsic.encoding
 
 /-- Embed a pure (heap-independent, heap-preserving) relation as a heap-aware
     `reduce` field. -/
@@ -318,34 +543,46 @@ theorem agreeOn_extend_fresh (i : Intrinsic) {Δ : Signature} (ρ : Env)
     (hfresh : match i.folSym with | none => True | some sym => sym.name ∉ Δ.allNames) :
     Env.agreeOn Δ ρ (ρ.extendWithSym i.folSym) := by
   cases i with
-  | mk arity name path reduce wp spec typing folSym axioms =>
+  | mk arity name path reduce wp spec typing folTerm axioms =>
     cases arity with
     | zero =>
-      cases folSym with
+      cases folTerm with
       | none => exact Env.agreeOn_refl
-      | some s =>
+      | some f =>
+        cases f with
+        | direct _ => exact Env.agreeOn_refl
+        | symbol s =>
         simpa [Env.extendWithSym] using
           (Env.agreeOn_update_fresh_const (ρ := ρ) (c := ⟨s.name, .value⟩)
             (u := s.interp ()) (Δ := Δ) hfresh)
     | one =>
-      cases folSym with
+      cases folTerm with
       | none => exact Env.agreeOn_refl
-      | some s =>
+      | some f =>
+        cases f with
+        | direct _ => exact Env.agreeOn_refl
+        | symbol s =>
         simpa [Env.extendWithSym] using
           (Env.agreeOn_update_fresh_unary (ρ := ρ) (u := ⟨s.name, .value, .value⟩)
             (f := s.interp) (Δ := Δ) hfresh)
     | two =>
-      cases folSym with
+      cases folTerm with
       | none => exact Env.agreeOn_refl
-      | some s =>
+      | some f =>
+        cases f with
+        | direct _ => exact Env.agreeOn_refl
+        | symbol s =>
         simpa [Env.extendWithSym] using
           (Env.agreeOn_update_fresh_binary (ρ := ρ)
             (b := ⟨s.name, .value, .value, .value⟩)
             (f := fun a b => s.interp (a, b)) (Δ := Δ) hfresh)
     | three =>
-      cases folSym with
+      cases folTerm with
       | none => exact Env.agreeOn_refl
-      | some s =>
+      | some f =>
+        cases f with
+        | direct _ => exact Env.agreeOn_refl
+        | symbol s =>
         simpa [Env.extendWithSym] using
           (Env.agreeOn_update_fresh_ternary (ρ := ρ)
             (t := ⟨s.name, .value, .value, .value, .value⟩)
@@ -390,9 +627,9 @@ theorem toReduce_two_of_arity (name : String)
     (spec : Spec)
     (typing : TinyML.TypeEnv → List TinyML.Typ →
       Except String (List (TinyML.TyVar × TinyML.Typ)))
-    (folSym : Option (FOL.Symbol .two)) (axioms : List Axiom)
+    (folTerm : Option (IntrinsicFOL .two)) (axioms : List Axiom)
     (a b v : Runtime.Val) (μ μ' : TinyML.Heap) :
-    (Intrinsic.mk .two name path reduce wp spec typing folSym axioms).toReduce [a, b] μ v μ'
+    (Intrinsic.mk .two name path reduce wp spec typing folTerm axioms).toReduce [a, b] μ v μ'
       = reduce (a, b) μ v μ' := rfl
 
 /-- Unfolding lemma for `toReduce` at arity-three, three args. -/
@@ -403,9 +640,9 @@ theorem toReduce_three_of_arity (name : String)
     (spec : Spec)
     (typing : TinyML.TypeEnv → List TinyML.Typ →
       Except String (List (TinyML.TyVar × TinyML.Typ)))
-    (folSym : Option (FOL.Symbol .three)) (axioms : List Axiom)
+    (folTerm : Option (IntrinsicFOL .three)) (axioms : List Axiom)
     (a b c v : Runtime.Val) (μ μ' : TinyML.Heap) :
-    (Intrinsic.mk .three name path reduce wp spec typing folSym axioms).toReduce [a, b, c] μ v μ'
+    (Intrinsic.mk .three name path reduce wp spec typing folTerm axioms).toReduce [a, b, c] μ v μ'
       = reduce (a, b, c) μ v μ' := rfl
 
 /-- Unfolding lemma for `toReduce` at arity-one, one arg. -/
@@ -416,9 +653,9 @@ theorem toReduce_one_of_arity (name : String)
     (spec : Spec)
     (typing : TinyML.TypeEnv → List TinyML.Typ →
       Except String (List (TinyML.TyVar × TinyML.Typ)))
-    (folSym : Option (FOL.Symbol .one)) (axioms : List Axiom)
+    (folTerm : Option (IntrinsicFOL .one)) (axioms : List Axiom)
     (a v : Runtime.Val) (μ μ' : TinyML.Heap) :
-    (Intrinsic.mk .one name path reduce wp spec typing folSym axioms).toReduce [a] μ v μ'
+    (Intrinsic.mk .one name path reduce wp spec typing folTerm axioms).toReduce [a] μ v μ'
       = reduce a μ v μ' := rfl
 
 /-- Unfolding lemma for `toReduce` at arity-zero, no args. -/
@@ -429,9 +666,9 @@ theorem toReduce_zero_of_arity (name : String)
     (spec : Spec)
     (typing : TinyML.TypeEnv → List TinyML.Typ →
       Except String (List (TinyML.TyVar × TinyML.Typ)))
-    (folSym : Option (FOL.Symbol .zero)) (axioms : List Axiom)
+    (folTerm : Option (IntrinsicFOL .zero)) (axioms : List Axiom)
     (v : Runtime.Val) (μ μ' : TinyML.Heap) :
-    (Intrinsic.mk .zero name path reduce wp spec typing folSym axioms).toReduce [] μ v μ'
+    (Intrinsic.mk .zero name path reduce wp spec typing folTerm axioms).toReduce [] μ v μ'
       = reduce () μ v μ' := rfl
 
 /-- Adapter from the list-shaped argument call to the arity-shaped `wp`
@@ -456,9 +693,9 @@ theorem toWp_two_of_arity (name : String)
     (spec : Spec)
     (typing : TinyML.TypeEnv → List TinyML.Typ →
       Except String (List (TinyML.TyVar × TinyML.Typ)))
-    (folSym : Option (FOL.Symbol .two)) (axioms : List Axiom)
+    (folTerm : Option (IntrinsicFOL .two)) (axioms : List Axiom)
     (a b : Runtime.Val) (Q : Runtime.Val → iProp) :
-    (Intrinsic.mk .two name path reduce wp spec typing folSym axioms).toWp [a, b] Q
+    (Intrinsic.mk .two name path reduce wp spec typing folTerm axioms).toWp [a, b] Q
       = wp (a, b) Q := rfl
 
 /-- Unfolding lemma for `toWp` at arity-three, three args. -/
@@ -469,9 +706,9 @@ theorem toWp_three_of_arity (name : String)
     (spec : Spec)
     (typing : TinyML.TypeEnv → List TinyML.Typ →
       Except String (List (TinyML.TyVar × TinyML.Typ)))
-    (folSym : Option (FOL.Symbol .three)) (axioms : List Axiom)
+    (folTerm : Option (IntrinsicFOL .three)) (axioms : List Axiom)
     (a b c : Runtime.Val) (Q : Runtime.Val → iProp) :
-    (Intrinsic.mk .three name path reduce wp spec typing folSym axioms).toWp [a, b, c] Q
+    (Intrinsic.mk .three name path reduce wp spec typing folTerm axioms).toWp [a, b, c] Q
       = wp (a, b, c) Q := rfl
 
 /-- Unfolding lemma for `toWp` at arity-one, one arg. -/
@@ -482,9 +719,9 @@ theorem toWp_one_of_arity (name : String)
     (spec : Spec)
     (typing : TinyML.TypeEnv → List TinyML.Typ →
       Except String (List (TinyML.TyVar × TinyML.Typ)))
-    (folSym : Option (FOL.Symbol .one)) (axioms : List Axiom)
+    (folTerm : Option (IntrinsicFOL .one)) (axioms : List Axiom)
     (a : Runtime.Val) (Q : Runtime.Val → iProp) :
-    (Intrinsic.mk .one name path reduce wp spec typing folSym axioms).toWp [a] Q
+    (Intrinsic.mk .one name path reduce wp spec typing folTerm axioms).toWp [a] Q
       = wp a Q := rfl
 
 /-- Unfolding lemma for `toWp` at arity-zero, no args. -/
@@ -495,9 +732,9 @@ theorem toWp_zero_of_arity (name : String)
     (spec : Spec)
     (typing : TinyML.TypeEnv → List TinyML.Typ →
       Except String (List (TinyML.TyVar × TinyML.Typ)))
-    (folSym : Option (FOL.Symbol .zero)) (axioms : List Axiom)
+    (folTerm : Option (IntrinsicFOL .zero)) (axioms : List Axiom)
     (Q : Runtime.Val → iProp) :
-    (Intrinsic.mk .zero name path reduce wp spec typing folSym axioms).toWp [] Q
+    (Intrinsic.mk .zero name path reduce wp spec typing folTerm axioms).toWp [] Q
       = wp () Q := rfl
 
 /-- Fold a registry fragment's FOL symbols into a starting signature. The
@@ -884,16 +1121,24 @@ theorem eval_declFOLSym (i : Intrinsic) {st : TransState} {ρ : VerifM.Env}
       ρ'.env.respects i.folSym ∧
       Q () { st with decls := st.decls.extendWithSym i.folSym } ρ' := by
   cases i with
-  | mk arity name path reduce wp spec typing folSym axioms =>
+  | mk arity name path reduce wp spec typing folTerm axioms =>
     cases arity with
     | zero =>
-      cases folSym with
+      cases folTerm with
       | none =>
-        simp only [declFOLSym, Signature.extendWithSym] at heval ⊢
+        simp only [declFOLSym, folSym, Option.bind, Signature.extendWithSym] at heval ⊢
         refine ⟨ρ, VerifM.Env.agreeOn_refl, by simp [Env.respects], ?_⟩
         exact VerifM.eval_ret heval
-      | some s =>
-        simp only [declFOLSym, Signature.extendWithSym] at heval ⊢
+      | some f =>
+        cases f with
+        | direct _ =>
+          simp only [folSym, Option.bind_some, IntrinsicFOL.sym,
+            declFOLSym, Signature.extendWithSym] at heval ⊢
+          refine ⟨ρ, VerifM.Env.agreeOn_refl, by simp [Env.respects], ?_⟩
+          exact VerifM.eval_ret heval
+        | symbol s =>
+        simp only [declFOLSym, folSym, IntrinsicFOL.sym, Option.bind,
+          Signature.extendWithSym] at heval ⊢
         obtain ⟨hfresh, hcont⟩ := VerifM.eval_declConstExact heval
         refine ⟨ρ.updateConst .value s.name (s.interp ()),
                 VerifM.Env.agreeOn_update_fresh (c := ⟨s.name, .value⟩) hfresh,
@@ -901,13 +1146,21 @@ theorem eval_declFOLSym (i : Intrinsic) {st : TransState} {ρ : VerifM.Env}
         · simp [Env.respects, VerifM.Env.updateConst, Env.lookupConst, Env.updateConst]
         · exact hcont (s.interp ())
     | one =>
-      cases folSym with
+      cases folTerm with
       | none =>
-        simp only [declFOLSym, Signature.extendWithSym] at heval ⊢
+        simp only [declFOLSym, folSym, Option.bind, Signature.extendWithSym] at heval ⊢
         refine ⟨ρ, VerifM.Env.agreeOn_refl, by simp [Env.respects], ?_⟩
         exact VerifM.eval_ret heval
-      | some s =>
-        simp only [declFOLSym, Signature.extendWithSym] at heval ⊢
+      | some f =>
+        cases f with
+        | direct _ =>
+          simp only [folSym, Option.bind_some, IntrinsicFOL.sym,
+            declFOLSym, Signature.extendWithSym] at heval ⊢
+          refine ⟨ρ, VerifM.Env.agreeOn_refl, by simp [Env.respects], ?_⟩
+          exact VerifM.eval_ret heval
+        | symbol s =>
+        simp only [declFOLSym, folSym, IntrinsicFOL.sym, Option.bind,
+          Signature.extendWithSym] at heval ⊢
         obtain ⟨hfresh, hcont⟩ := VerifM.eval_declUnaryExact heval
         refine ⟨ρ.updateUnary .value .value s.name s.interp,
                 VerifM.Env.agreeOn_update_fresh_unary (u := ⟨s.name, .value, .value⟩) hfresh,
@@ -915,13 +1168,21 @@ theorem eval_declFOLSym (i : Intrinsic) {st : TransState} {ρ : VerifM.Env}
         · simp [Env.respects, VerifM.Env.updateUnary, Env.updateUnary]
         · exact hcont s.interp
     | two =>
-      cases folSym with
+      cases folTerm with
       | none =>
-        simp only [declFOLSym, Signature.extendWithSym] at heval ⊢
+        simp only [declFOLSym, folSym, Option.bind, Signature.extendWithSym] at heval ⊢
         refine ⟨ρ, VerifM.Env.agreeOn_refl, by simp [Env.respects], ?_⟩
         exact VerifM.eval_ret heval
-      | some s =>
-        simp only [declFOLSym, Signature.extendWithSym] at heval ⊢
+      | some f =>
+        cases f with
+        | direct _ =>
+          simp only [folSym, Option.bind_some, IntrinsicFOL.sym,
+            declFOLSym, Signature.extendWithSym] at heval ⊢
+          refine ⟨ρ, VerifM.Env.agreeOn_refl, by simp [Env.respects], ?_⟩
+          exact VerifM.eval_ret heval
+        | symbol s =>
+        simp only [declFOLSym, folSym, IntrinsicFOL.sym, Option.bind,
+          Signature.extendWithSym] at heval ⊢
         obtain ⟨hfresh, hcont⟩ := VerifM.eval_declBinaryExact heval
         refine ⟨ρ.updateBinary .value .value .value s.name (fun a b => s.interp (a, b)),
                 VerifM.Env.agreeOn_update_fresh_binary (b := ⟨s.name, .value, .value, .value⟩) hfresh,
@@ -929,13 +1190,21 @@ theorem eval_declFOLSym (i : Intrinsic) {st : TransState} {ρ : VerifM.Env}
         · simp [Env.respects, VerifM.Env.updateBinary, Env.updateBinary]
         · exact hcont (fun a b => s.interp (a, b))
     | three =>
-      cases folSym with
+      cases folTerm with
       | none =>
-        simp only [declFOLSym, Signature.extendWithSym] at heval ⊢
+        simp only [declFOLSym, folSym, Option.bind, Signature.extendWithSym] at heval ⊢
         refine ⟨ρ, VerifM.Env.agreeOn_refl, by simp [Env.respects], ?_⟩
         exact VerifM.eval_ret heval
-      | some s =>
-        simp only [declFOLSym, Signature.extendWithSym] at heval ⊢
+      | some f =>
+        cases f with
+        | direct _ =>
+          simp only [folSym, Option.bind_some, IntrinsicFOL.sym,
+            declFOLSym, Signature.extendWithSym] at heval ⊢
+          refine ⟨ρ, VerifM.Env.agreeOn_refl, by simp [Env.respects], ?_⟩
+          exact VerifM.eval_ret heval
+        | symbol s =>
+        simp only [declFOLSym, folSym, IntrinsicFOL.sym, Option.bind,
+          Signature.extendWithSym] at heval ⊢
         obtain ⟨hfresh, hcont⟩ := VerifM.eval_declTernaryExact heval
         refine ⟨ρ.updateTernary .value .value .value .value s.name
                   (fun a b c => s.interp (a, b, c)),

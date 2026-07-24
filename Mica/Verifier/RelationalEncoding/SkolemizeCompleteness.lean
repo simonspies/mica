@@ -175,9 +175,9 @@ theorem encodeWith_kEq_complete {Γ : FunCtx} {Δsym Δenc Δrun : Signature}
     {srun : NameSupply} {ρ : Env}
     {e : Typed.Expr} {body : DefVal}
     {res : String} {φ : Formula}
-    (hrun : encodeWith Relation.encoderOps Δsym Γ (VarEnv.ofSignature Δenc) e
+    (hrun : encodeWith primitives Relation.encoderOps Δsym Γ (VarEnv.ofSignature Δenc) e
       (Relation.kEq res) srun = .ok φ)
-    (hdef : encodeWith encoderOps Δsym Γ (VarEnv.ofSignature Δenc) e
+    (hdef : encodeWith primitives encoderOps Δsym Γ (VarEnv.ofSignature Δenc) e
       (fun v => .ok (DefVal.pure v)) = .ok body)
     (hΓ : Γ.splitComplete ρ) (hΓdef : Γ.splitWfIn Δenc)
     (hsym : Δsym.Subset Δenc)
@@ -190,10 +190,10 @@ theorem encodeWith_kEq_complete {Γ : FunCtx} {Δsym Δenc Δrun : Signature}
   intro hφ
   have hbinary :
       CompleteBinary Γ (fun ρ v => v = (Term.var .value res).eval ρ) res Δenc Δenc ρ ρ
-        (encodeWith Relation.encoderOps Δsym Γ (VarEnv.ofSignature Δenc) e (Relation.kEq res))
-        (encodeWith encoderOps Δsym Γ (VarEnv.ofSignature Δenc) e
+        (encodeWith primitives Relation.encoderOps Δsym Γ (VarEnv.ofSignature Δenc) e (Relation.kEq res))
+        (encodeWith primitives encoderOps Δsym Γ (VarEnv.ofSignature Δenc) e
           (fun v => .ok (DefVal.pure v))) := by
-    refine encodeWith_bind_binary (δ₁ := VarEnv.ofSignature Δenc)
+    refine encodeWith_bind_binary (primitives := primitives) (δ₁ := VarEnv.ofSignature Δenc)
       (δ₂ := VarEnv.ofSignature Δenc) (completeBinary_ops Γ _ res) e
       hsym hsym hΔenc hΔenc Env.agreeOn_refl
       (varEnv_ofSignature_agree_self hΔenc) ?_
@@ -217,7 +217,7 @@ theorem defval_eval_transport_from_relSplit_final
     {f : TinyML.Var} {fn : SpecFn} {x res : TinyML.Var} {e : Typed.Expr}
     {body : DefVal} {R : ValRel}
     {D : Srt.value.denote → Prop} {F : Srt.value.denote → Srt.value.denote}
-    (henc : encodeBody Γ Δ f fn x res e = .ok body)
+    (henc : encodeBody primitives Γ Δ f fn x res e = .ok body)
     (hΓdef : Γ.splitWfIn Δ) (hΔ : Δ.wf) (hheadFresh : HeadFresh Δ fn x res)
     (vin vout : Srt.value.denote) :
     body.defined.eval (((relSplitEnv ρ fn R D F).updateConst .value x vin).updateConst .value res vout) ∧
@@ -240,20 +240,20 @@ half of the relation/split fixpoint equivalence. -/
 theorem semrel_complete
     {Γ : FunCtx} {Δ : Signature} {ρ : Env}
     {f : TinyML.Var} {fn : SpecFn} {x res : TinyML.Var} {e : Typed.Expr}
-    {body : DefVal} (henc : encodeBody Γ Δ f fn x res e = .ok body)
+    {body : DefVal} (henc : encodeBody primitives Γ Δ f fn x res e = .ok body)
     (hΓ : Γ.splitCompatible ρ)
     (hΓwf : Γ.wfIn Δ)
     (hΔ : Δ.wf) (hheadFresh : HeadFresh Δ fn x res)
     (hρdet : Relation.BinaryRelDet Γ ρ ρ)
     (vin vout : Srt.value.denote) :
-    semrel Γ Δ ρ f fn x res e vin vout →
-      semdef Γ Δ ρ f fn x res e body vin ∧
+    semrel primitives Γ Δ ρ f fn x res e vin vout →
+      semdef primitives Γ Δ ρ f fn x res e body vin ∧
       body.value.eval
-        ((defInterpEnv Γ Δ ρ f fn x res e body).updateConst .value x vin) =
+        ((defInterpEnv primitives Γ Δ ρ f fn x res e body).updateConst .value x vin) =
       vout := by
   intro hrel
   obtain ⟨φ, hrelEnc⟩ := encodeBody_relEncodeBody hΔ hΓwf.split hheadFresh henc
-  set m := encodeWith Relation.encoderOps Δ (Relation.ctx Γ f fn)
+  set m := encodeWith primitives Relation.encoderOps Δ (Relation.ctx Γ f fn)
       (VarEnv.ofSignature (bodySig Δ fn x)) e (Relation.kEq res) with hm_def
   have hrun : m (relBodySupply Δ fn x res) = .ok φ := by
     have hvars :
@@ -273,11 +273,11 @@ theorem semrel_complete
   have hres_mem : (⟨res, .value⟩ : Var) ∈ (sig Δ fn x res).vars := by
     unfold sig
     exact Signature.var_mem_declVar _ ⟨res, .value⟩
-  let R : ValRel := semrel Γ Δ ρ f fn x res e
-  let D : Srt.value.denote → Prop := semdef Γ Δ ρ f fn x res e body
+  let R : ValRel := semrel primitives Γ Δ ρ f fn x res e
+  let D : Srt.value.denote → Prop := semdef primitives Γ Δ ρ f fn x res e body
   let F : Srt.value.denote → Srt.value.denote := semFunc R
   let S : ValRel := fun x y => D x ∧ F x = y
-  have hrelEncR : Relation.relEncodeBody Γ Δ f fn x res e = .ok φ := by
+  have hrelEncR : Relation.relEncodeBody primitives Γ Δ f fn x res e = .ok φ := by
     exact hrelEnc
   have hrel_eq :
       R = RelationFix.lfp (Relation.semanticBody Formula.sem ρ fn x res φ) := by
@@ -357,7 +357,7 @@ theorem semrel_complete
   have hdefined : D vin := hS.1
   let vbody :=
     body.value.eval
-      ((defInterpEnv Γ Δ ρ f fn x res e body).updateConst .value x vin)
+      ((defInterpEnv primitives Γ Δ ρ f fn x res e body).updateConst .value x vin)
   have hbody_eq_fun : vbody = F vin := by
     have hfun : F vin = vbody := by
       simpa [D, F, R, defInterpEnv, vbody] using

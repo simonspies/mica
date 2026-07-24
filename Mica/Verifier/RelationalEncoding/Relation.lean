@@ -247,18 +247,19 @@ def ctx (Γ : FunCtx) (f : TinyML.Var) (fn : SpecFn) : FunCtx :=
 
 /-- Relational body encoding: encodes `rec f x := e` into a closed FOL formula
 pinned at result variable `res`. -/
-def relEncodeBody (Γ : FunCtx) (Δ : Signature)
+def relEncodeBody (primitives : PrimEncodings) (Γ : FunCtx) (Δ : Signature)
     (f : TinyML.Var) (fn : SpecFn) (x res : TinyML.Var) (e : Typed.Expr) :
     Except String Formula :=
-  encodeWith encoderOps Δ (ctx Γ f fn) (VarEnv.ofSignature (bodySig Δ fn x)) e (kEq res)
+  encodeWith primitives encoderOps Δ (ctx Γ f fn)
+    (VarEnv.ofSignature (bodySig Δ fn x)) e (kEq res)
     (relBodySupply Δ fn x res)
 
 /-- Least-fixpoint relational interpretation of `rec f x := e`. -/
-def semrel
+def semrel (primitives : PrimEncodings)
     (Γ : FunCtx) (Δ : Signature) (ρ : Env)
     (f : TinyML.Var) (fn : SpecFn) (x res : TinyML.Var) (e : Typed.Expr) :
     ValRel :=
-  semanticFixpoint (relEncodeBody Γ Δ f fn x res e) Formula.sem ρ fn x res
+  semanticFixpoint (relEncodeBody primitives Γ Δ f fn x res e) Formula.sem ρ fn x res
 
 /-- Cross-environment determinism for the relation symbols registered in `Γ`. -/
 def BinaryRelDet (Γ : FunCtx) (ρ₁ ρ₂ : Env) : Prop :=
@@ -419,23 +420,25 @@ private def encoderOps_det (Γ : FunCtx) (res : String) :
   error_ind := Rel.error_det
 
 /-- Successful relational encodings produce deterministic carriers. -/
-theorem encodeWith_det {Γ : FunCtx} {Δenc : Signature} {res : String}
+theorem encodeWith_det {primitives : PrimEncodings} {Γ : FunCtx}
+    {Δenc : Signature} {res : String}
     {e : Typed.Expr} {Δview : Signature} {δ : VarEnv} {k : Term .value → Rel}
     (hsubView : Δenc.Subset Δview) (hΔview : Δview.wf)
     (hδ : δ.wfIn Δview)
     (hk : ∀ {Δ : Signature} {v : Term .value},
         Δview.Subset Δ → Δ.wf → v.wfIn Δ → Rel.Det Γ res Δ (k v)) :
-    Rel.Det Γ res Δview (encodeWith encoderOps Δenc Γ δ e k) :=
-  encodeWith_indWithSig (encoderOps_det Γ res) e hsubView hΔview rfl
+    Rel.Det Γ res Δview (encodeWith primitives encoderOps Δenc Γ δ e k) :=
+  encodeWith_indWithSig (primitives := primitives) (encoderOps_det Γ res) e
+    hsubView hΔview rfl
     hδ
     (fun hsub hΔ' _ hv => hk hsub hΔ' hv)
 
 /-- The relational semantics induced by an encoded pure body is functional. -/
 theorem semrel_functional
-    {Γ : FunCtx} {Δ : Signature} {ρ : Env}
+    {primitives : PrimEncodings} {Γ : FunCtx} {Δ : Signature} {ρ : Env}
     {f : TinyML.Var} {fn : SpecFn} {x res : TinyML.Var} {e : Typed.Expr}
     {body : Formula}
-    (henc : relEncodeBody Γ Δ f fn x res e = .ok body)
+    (henc : relEncodeBody primitives Γ Δ f fn x res e = .ok body)
     (hΓ : Γ.relWfIn Δ)
     (hrelFresh : fn.relName ∉ Δ.allNames)
     (hsubBody : Δ.Subset (bodySig Δ fn x))
@@ -443,18 +446,18 @@ theorem semrel_functional
     (hresFresh : res ∉ (bodySig Δ fn x).allNames)
     (hρdet : BinaryRelDet Γ ρ ρ)
     (vin y₁ y₂ : Srt.value.denote) :
-    semrel Γ Δ ρ f fn x res e vin y₁ →
-      semrel Γ Δ ρ f fn x res e vin y₂ →
+    semrel primitives Γ Δ ρ f fn x res e vin y₁ →
+      semrel primitives Γ Δ ρ f fn x res e vin y₂ →
       y₁ = y₂ := by
   let F : ValRel → ValRel := semanticBody Formula.sem ρ fn x res body
-  let R : ValRel := semrel Γ Δ ρ f fn x res e
+  let R : ValRel := semrel primitives Γ Δ ρ f fn x res e
   set δ := VarEnv.ofSignature (bodySig Δ fn x) with hδ_def
-  set m := encodeWith encoderOps Δ (ctx Γ f fn) δ e (kEq res) with hm_def
+  set m := encodeWith primitives encoderOps Δ (ctx Γ f fn) δ e (kEq res) with hm_def
   have hrun : m (relBodySupply Δ fn x res) = .ok body := by
     simpa [relEncodeBody, hm_def] using henc
   have hR : R = RelationFix.lfp F := by simp [R, F, semrel, semanticFixpoint, henc]
   have hmMono : Rel.Mono m :=
-    encodeWith_ind encoderOps_preservesMono e (kEq_mono res)
+    encodeWith_ind (primitives := primitives) encoderOps_preservesMono e (kEq_mono res)
   have hmonoBody : SemanticMono Formula.sem body :=
     hmMono (relBodySupply Δ fn x res) body hrun
   have hmono : RelationFix.Mono F := by
@@ -464,7 +467,7 @@ theorem semrel_functional
   have hdetM : Rel.Det (ctx Γ f fn) res (bodySig Δ fn x) m :=
     by
       simpa [hm_def] using
-        encodeWith_det (Γ := ctx Γ f fn) (Δenc := Δ)
+        encodeWith_det (primitives := primitives) (Γ := ctx Γ f fn) (Δenc := Δ)
           (res := res) (e := e) (Δview := bodySig Δ fn x) (δ := δ)
           hsubBody hΔbody
           (by simpa [hδ_def] using VarEnv.ofSignature_wfIn hΔbody)

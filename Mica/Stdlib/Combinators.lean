@@ -462,7 +462,7 @@ def Zero.toIntrinsic (b : Zero) : Intrinsic where
       pred  := .ret ("ret",
         .assert (.eq .value (.var .value "ret") b.opTerm) (.ret ())) }
   typing := schemeTyping []
-  folSym := some b.sym
+  folTerm := some (.symbol b.sym)
   axioms := ⟨b.defAxiom, .low⟩ :: (b.typeAxiom.map (⟨·, .low⟩)).toList
 
 @[simp] theorem Zero.toWp_eq (b : Zero) (Q : Runtime.Val → iProp) :
@@ -603,7 +603,7 @@ def Unary.toIntrinsic (b : Unary) : Intrinsic where
         .assert (.eq .value (.var .value "ret")
           (b.opTerm (.var .value "a"))) (.ret ())) }
   typing := schemeTyping [b.arg.typ]
-  folSym := some b.sym
+  folTerm := some (.symbol b.sym)
   axioms := ⟨b.defAxiom, .high⟩ :: (b.typeAxiom.map (⟨·, .high⟩)).toList
 
 @[simp] theorem Unary.toWp_eq (b : Unary) (a : Runtime.Val) (Q : Runtime.Val → iProp) :
@@ -809,7 +809,7 @@ def Binary.toIntrinsic (b : Binary) : Intrinsic where
         .assert (.eq .value (.var .value "ret")
           (b.opTerm (.var .value "a") (.var .value "b"))) (.ret ())) }
   typing := schemeTyping [b.arg₁.typ, b.arg₂.typ]
-  folSym := some b.sym
+  folTerm := some (.symbol b.sym)
   axioms := ⟨b.defAxiom, .high⟩ :: (b.typeAxiom.map (⟨·, .high⟩)).toList
 
 @[simp] theorem Binary.toWp_eq (b : Binary) (a c : Runtime.Val) (Q : Runtime.Val → iProp) :
@@ -1046,7 +1046,7 @@ def Ternary.toIntrinsic (b : Ternary) : Intrinsic where
         .assert (.eq .value (.var .value "ret")
           (b.opTerm (.var .value "a") (.var .value "b") (.var .value "c"))) (.ret ())) }
   typing := schemeTyping [b.arg₁.typ, b.arg₂.typ, b.arg₃.typ]
-  folSym := some b.sym
+  folTerm := some (.symbol b.sym)
   axioms := ⟨b.defAxiom, .high⟩ :: (b.typeAxiom.map (⟨·, .high⟩)).toList
 
 @[simp] theorem Ternary.toWp_eq (b : Ternary) (a c d : Runtime.Val) (Q : Runtime.Val → iProp) :

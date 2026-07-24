@@ -188,9 +188,9 @@ theorem encodeWith_kEq_sound {Γ : FunCtx} {Δsym Δenc Δrun : Signature}
     {srun : NameSupply} {ρ : Env}
     {e : Typed.Expr} {body : DefVal}
     {res : String} {φ : Formula}
-    (hrun : encodeWith Relation.encoderOps Δsym Γ (VarEnv.ofSignature Δenc) e
+    (hrun : encodeWith primitives Relation.encoderOps Δsym Γ (VarEnv.ofSignature Δenc) e
       (Relation.kEq res) srun = .ok φ)
-    (hdef : encodeWith encoderOps Δsym Γ (VarEnv.ofSignature Δenc) e
+    (hdef : encodeWith primitives encoderOps Δsym Γ (VarEnv.ofSignature Δenc) e
       (fun v => .ok (DefVal.pure v)) = .ok body)
     (hΓ : Γ.splitSound ρ) (hΓdef : Γ.splitWfIn Δenc)
     (hsym : Δsym.Subset Δenc)
@@ -203,10 +203,10 @@ theorem encodeWith_kEq_sound {Γ : FunCtx} {Δsym Δenc Δrun : Signature}
   intro hsplit
   have hbinary :
       SoundBinary Γ (fun ρ v => v = (Term.var .value res).eval ρ) res Δenc Δenc ρ ρ
-        (encodeWith Relation.encoderOps Δsym Γ (VarEnv.ofSignature Δenc) e (Relation.kEq res))
-        (encodeWith encoderOps Δsym Γ (VarEnv.ofSignature Δenc) e
+        (encodeWith primitives Relation.encoderOps Δsym Γ (VarEnv.ofSignature Δenc) e (Relation.kEq res))
+        (encodeWith primitives encoderOps Δsym Γ (VarEnv.ofSignature Δenc) e
           (fun v => .ok (DefVal.pure v))) := by
-    refine encodeWith_bind_binary (δ₁ := VarEnv.ofSignature Δenc)
+    refine encodeWith_bind_binary (primitives := primitives) (δ₁ := VarEnv.ofSignature Δenc)
       (δ₂ := VarEnv.ofSignature Δenc) (soundBinary_ops Γ _ res) e
       hsym hsym hΔenc hΔenc Env.agreeOn_refl
       (varEnv_ofSignature_agree_self hΔenc) ?_
@@ -229,7 +229,7 @@ theorem defval_eval_transport_to_relSplit_domain
     {f : TinyML.Var} {fn : SpecFn} {x res : TinyML.Var} {e : Typed.Expr}
     {body : DefVal} {R : ValRel}
     {P : Srt.value.denote → Prop} {F : Srt.value.denote → Srt.value.denote}
-    (henc : encodeBody Γ Δ f fn x res e = .ok body)
+    (henc : encodeBody primitives Γ Δ f fn x res e = .ok body)
     (hΓdef : Γ.splitWfIn Δ) (hΔ : Δ.wf) (hheadFresh : HeadFresh Δ fn x res)
     (vin : Srt.value.denote)
     (hdefBody : defBody ρ fn x body F P vin) :
@@ -253,19 +253,19 @@ is the converse half of the relation/split fixpoint equivalence. -/
 theorem semrel_sound
     {Γ : FunCtx} {Δ : Signature} {ρ : Env}
     {f : TinyML.Var} {fn : SpecFn} {x res : TinyML.Var} {e : Typed.Expr}
-    {body : DefVal} (henc : encodeBody Γ Δ f fn x res e = .ok body)
+    {body : DefVal} (henc : encodeBody primitives Γ Δ f fn x res e = .ok body)
     (hΓ : Γ.splitCompatible ρ)
     (hΓwf : Γ.wfIn Δ)
     (hΔ : Δ.wf) (hheadFresh : HeadFresh Δ fn x res)
     (vin vout : Srt.value.denote) :
-    semdef Γ Δ ρ f fn x res e body vin →
+    semdef primitives Γ Δ ρ f fn x res e body vin →
       body.value.eval
-        ((defInterpEnv Γ Δ ρ f fn x res e body).updateConst .value x vin) =
+        ((defInterpEnv primitives Γ Δ ρ f fn x res e body).updateConst .value x vin) =
       vout →
-      semrel Γ Δ ρ f fn x res e vin vout := by
+      semrel primitives Γ Δ ρ f fn x res e vin vout := by
   intro hsem hval
   obtain ⟨φ, hrelEnc⟩ := encodeBody_relEncodeBody hΔ hΓwf.split hheadFresh henc
-  set m := encodeWith Relation.encoderOps Δ (Relation.ctx Γ f fn)
+  set m := encodeWith primitives Relation.encoderOps Δ (Relation.ctx Γ f fn)
       (VarEnv.ofSignature (bodySig Δ fn x)) e (Relation.kEq res) with hm_def
   have hrun : m (relBodySupply Δ fn x res) = .ok φ := by
     have hvars :
@@ -276,16 +276,17 @@ theorem semrel_sound
         Signature.remove, Signature.addVar]
     rw [hm_def, hvars]
     simpa [Relation.relEncodeBody] using hrelEnc
-  let R : ValRel := semrel Γ Δ ρ f fn x res e
+  let R : ValRel := semrel primitives Γ Δ ρ f fn x res e
   let F : Srt.value.denote → Srt.value.denote := semFunc R
-  let D : Srt.value.denote → Prop := semdef Γ Δ ρ f fn x res e body
-  have hrelEncR : Relation.relEncodeBody Γ Δ f fn x res e = .ok φ := by
+  let D : Srt.value.denote → Prop := semdef primitives Γ Δ ρ f fn x res e body
+  have hrelEncR : Relation.relEncodeBody primitives Γ Δ f fn x res e = .ok φ := by
     exact hrelEnc
   have hrel_eq :
       R = RelationFix.lfp (Relation.semanticBody Formula.sem ρ fn x res φ) := by
     simp [R, Relation.semrel, Relation.semanticFixpoint, hrelEncR]
   have hmMono : Rel.Mono m :=
-    encodeWith_ind Relation.encoderOps_preservesMono e (Relation.kEq_mono res)
+    encodeWith_ind (primitives := primitives) Relation.encoderOps_preservesMono e
+      (Relation.kEq_mono res)
   have hmonoφ : SemanticMono Formula.sem φ :=
     hmMono (relBodySupply Δ fn x res) φ hrun
   have hpreR :
@@ -385,20 +386,21 @@ theorem semrel_sound
 theorem relation_semrel_functional_of_encodeBody
     {Γ : FunCtx} {Δ : Signature} {ρ : Env}
     {f : TinyML.Var} {fn : SpecFn} {x res : TinyML.Var} {e : Typed.Expr}
-    {body : DefVal} (henc : encodeBody Γ Δ f fn x res e = .ok body)
+    {body : DefVal} (henc : encodeBody primitives Γ Δ f fn x res e = .ok body)
     (hΔ : Δ.wf) (hΓwf : Γ.wfIn Δ)
     (hheadFresh : HeadFresh Δ fn x res)
     (hρdet : Relation.BinaryRelDet Γ ρ ρ)
     (vin y₁ y₂ : Srt.value.denote) :
-    semrel Γ Δ ρ f fn x res e vin y₁ →
-      semrel Γ Δ ρ f fn x res e vin y₂ →
+    semrel primitives Γ Δ ρ f fn x res e vin y₁ →
+      semrel primitives Γ Δ ρ f fn x res e vin y₂ →
       y₁ = y₂ := by
   obtain ⟨φ, hrelEnc⟩ := encodeBody_relEncodeBody hΔ hΓwf.split hheadFresh henc
   have hresFreshR : res ∉ (Relation.bodySig Δ fn x).allNames := by
     intro hres
     exact hheadFresh.resFresh (Signature.allNames_subset
       (relBodySig_subset_bodySig (Δ := Δ) (fn := fn) (x := x)) _ hres)
-  exact Relation.semrel_functional hrelEnc hΓwf.rel hheadFresh.relFresh
+  exact Relation.semrel_functional (primitives := primitives) hrelEnc hΓwf.rel
+    hheadFresh.relFresh
     (subset_relBodySig_of_headFresh hheadFresh)
     (relBodySig_wf_of_headFresh hΔ hheadFresh)
     hresFreshR hρdet vin y₁ y₂
@@ -410,19 +412,19 @@ of the split interpretation inside the relational fixpoint. -/
 theorem semFunc_eq_of_semdef_value
     {Γ : FunCtx} {Δ : Signature} {ρ : Env}
     {f : TinyML.Var} {fn : SpecFn} {x res : TinyML.Var} {e : Typed.Expr}
-    {body : DefVal} (henc : encodeBody Γ Δ f fn x res e = .ok body)
+    {body : DefVal} (henc : encodeBody primitives Γ Δ f fn x res e = .ok body)
     (hΓ : Γ.splitCompatible ρ)
     (hΓwf : Γ.wfIn Δ)
     (hΔ : Δ.wf) (hheadFresh : HeadFresh Δ fn x res)
     (hρdet : Relation.BinaryRelDet Γ ρ ρ)
     (vin vout : Srt.value.denote) :
-    semdef Γ Δ ρ f fn x res e body vin →
+    semdef primitives Γ Δ ρ f fn x res e body vin →
       body.value.eval
-        ((defInterpEnv Γ Δ ρ f fn x res e body).updateConst .value x vin) =
+        ((defInterpEnv primitives Γ Δ ρ f fn x res e body).updateConst .value x vin) =
       vout →
-      semFunc (semrel Γ Δ ρ f fn x res e) vin = vout := by
+      semFunc (semrel primitives Γ Δ ρ f fn x res e) vin = vout := by
   intro hdefined hval
-  let R : ValRel := semrel Γ Δ ρ f fn x res e
+  let R : ValRel := semrel primitives Γ Δ ρ f fn x res e
   have hrelBody : R vin vout := by
     simpa [R] using
       semrel_sound henc hΓ hΓwf hΔ hheadFresh vin vout hdefined hval
