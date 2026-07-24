@@ -70,10 +70,10 @@ def argsEnv (ρ : VerifM.Env) : List (String × TinyML.Typ) → List Runtime.Val
   | [], _ | _, [] => ρ
   | (name, _) :: rest, v :: vs => argsEnv (ρ.updateConst .value name v) rest vs
 
-def isPrecondFor (W : TinyML.World) (Δ_spec : Signature) (ρ_spec : VerifM.Env)
+def isPrecondFor (W : TinyML.World)
     (f : Runtime.Val) (s : Spec) : iProp :=
   iprop(□ ∀ (ρ : VerifM.Env) (Φ : Runtime.Val → iProp) (vs : List Runtime.Val),
-      ⌜VerifM.Env.agreeOn Δ_spec ρ_spec ρ⌝ -∗
+      ⌜Env.agreeOn W.Δ_spec W.ρ_spec ρ.env⌝ -∗
       TinyML.ValsHaveTypes W vs (s.args.map Prod.snd) -∗
         PredTrans.apply W (fun r => TinyML.ValHasType W r s.retTy -∗ Φ r) s.pred
           (argsEnv ρ s.args vs) -∗
@@ -132,20 +132,20 @@ def implement (Δ_base : Signature) (s : Spec) (body : List FOL.Const → VerifM
 /-! ## Precondition Proofs -/
 section Precondition
 
-instance : Iris.BI.Persistent (isPrecondFor W Δ_spec ρ_spec f s) := by
+instance : Iris.BI.Persistent (isPrecondFor W f s) := by
   unfold isPrecondFor
   infer_instance
 
 /-- Fold `wp_fix'`'s tupled recursive obligation into a spec precondition;
     the two differ only by currying the typing hypothesis and the predicate transformer. -/
-theorem isPrecondFor_intro (W : TinyML.World) (Δ_spec : Signature) (ρ_spec : VerifM.Env) (s : Spec)
+theorem isPrecondFor_intro (W : TinyML.World) (s : Spec)
     (f : Runtime.Val) :
     iprop(□ ∀ (ρ : VerifM.Env) (vs : List Runtime.Val) (P : Runtime.Val → iProp),
-      (⌜VerifM.Env.agreeOn Δ_spec ρ_spec ρ⌝ ∗
+      (⌜Env.agreeOn W.Δ_spec W.ρ_spec ρ.env⌝ ∗
         TinyML.ValsHaveTypes W vs (s.args.map Prod.snd) ∗
         PredTrans.apply W (fun r => TinyML.ValHasType W r s.retTy -∗ P r) s.pred
           (argsEnv ρ s.args vs)) -∗
-        wp W.pctx (Runtime.Expr.app (.val f) (vs.map Runtime.Expr.val)) P) ⊢ s.isPrecondFor W Δ_spec ρ_spec f := by
+        wp W.pctx (Runtime.Expr.app (.val f) (vs.map Runtime.Expr.val)) P) ⊢ s.isPrecondFor W f := by
   unfold isPrecondFor
   iintro #H
   imodintro
@@ -157,21 +157,21 @@ theorem isPrecondFor_intro (W : TinyML.World) (Δ_spec : Signature) (ρ_spec : V
 /-- Löb-style rule for spec preconditions on `fix`: to prove
     `s.isPrecondFor W (.fix f args e)`, assume it as the recursive hypothesis and
     prove the `wp` of the body (after the usual fix-substitution). -/
-theorem isPrecondFor_fix {W : TinyML.World} {Δ_spec : Signature} {ρ_spec : VerifM.Env} {s : Spec}
+theorem isPrecondFor_fix {W : TinyML.World} {s : Spec}
     {f : Runtime.Binder} {args : List Runtime.Binder} {e : Runtime.Expr}
     {R : iProp}
     (hargs : args.length = s.args.length)
-    (h : R ⊢ □ (s.isPrecondFor W Δ_spec ρ_spec (.fix f args e) -∗
+    (h : R ⊢ □ (s.isPrecondFor W (.fix f args e) -∗
         ∀ (ρ : VerifM.Env) (vs : List Runtime.Val) (P : Runtime.Val → iProp),
-          ⌜VerifM.Env.agreeOn Δ_spec ρ_spec ρ⌝ -∗
+          ⌜Env.agreeOn W.Δ_spec W.ρ_spec ρ.env⌝ -∗
           TinyML.ValsHaveTypes W vs (s.args.map Prod.snd) -∗
           PredTrans.apply W (fun r => TinyML.ValHasType W r s.retTy -∗ P r) s.pred
               (argsEnv ρ s.args vs) -∗
           wp W.pctx (e.subst ((Runtime.Subst.id.updateBinder f (.fix f args e)).updateAllBinder args vs)) P)) :
-    R ⊢ s.isPrecondFor W Δ_spec ρ_spec (.fix f args e) := by
+    R ⊢ s.isPrecondFor W (.fix f args e) := by
   refine (SpatialContext.wp_fix' (pctx := W.pctx) (f := f) (args := args) (e := e) (Φ := fun P vs =>
       iprop(∃ ρ : VerifM.Env,
-        ⌜VerifM.Env.agreeOn Δ_spec ρ_spec ρ⌝ ∗
+        ⌜Env.agreeOn W.Δ_spec W.ρ_spec ρ.env⌝ ∗
           TinyML.ValsHaveTypes W vs (s.args.map Prod.snd) ∗
           PredTrans.apply W (fun r => TinyML.ValHasType W r s.retTy -∗ P r) s.pred
             (argsEnv ρ s.args vs))) ?_ (h.trans ?_)).trans ?_
@@ -555,14 +555,11 @@ theorem declareImplArgs_correct (W : TinyML.World) :
         exact h1'.trans hvar_eval
 
 theorem implement_correct (W : TinyML.World) (s : Spec) (body : List FOL.Const → VerifM (Term .value))
-    (Δ_spec : Signature) (ρ_spec : VerifM.Env)
     (st : TransState) (ρ : VerifM.Env) (vs : List Runtime.Val) (Φ : Runtime.Val → iProp) (R : iProp) :
-    s.wfIn Δ_spec →
-    Δ_spec.Subset st.decls →
-    VerifM.Env.agreeOn Δ_spec ρ_spec ρ →
-    Δ_spec.wf →
-    Δ_spec.vars = [] →
-    VerifM.eval (Spec.implement Δ_spec s body) st ρ (fun _ _ _ => True) →
+    s.wfIn W.Δ_spec →
+    W.wf →
+    W.agrees st.decls ρ.env →
+    VerifM.eval (Spec.implement W.Δ_spec s body) st ρ (fun _ _ _ => True) →
     (∀ (argVars : List FOL.Const) (st' : TransState) (ρ' : VerifM.Env) (Q : iProp),
       st.decls.Subset st'.decls →
       VerifM.Env.agreeOn st.decls ρ ρ' →
@@ -576,28 +573,28 @@ theorem implement_correct (W : TinyML.World) (s : Spec) (body : List FOL.Const �
       st'.sl W ρ' ∗ Q ⊢ R) →
     st.sl W ρ ∗ TinyML.ValsHaveTypes W vs (s.args.map Prod.snd) ∗
       PredTrans.apply W (fun r => TinyML.ValHasType W r s.retTy -∗ Φ r) s.pred
-        (Spec.argsEnv ρ_spec s.args vs) ⊢ R := by
-  intro hswf hΔspec hρspec hΔwf hΔvars heval hbody
+        (Spec.argsEnv ⟨W.ρ_spec⟩ s.args vs) ⊢ R := by
+  intro hswf hwf hag heval hbody
   simp only [Spec.implement] at heval
   have hb := VerifM.eval_bind heval
   iintro H
   icases H with ⟨Howns, Hvals, Happ⟩
   iintuitionistic Hvals
   ihave %hlen_vals := TinyML.ValsHaveTypes.length_eq $$ Hvals
-  ihave Hdecl := declareImplArgs_correct W s.args vs Δ_spec (FiniteSubst.base Δ_spec) st ρ _
-      (FiniteSubst.base_wfIn hΔspec hΔwf (VerifM.eval.wf heval).namesDisjoint hΔvars)
+  ihave Hdecl := declareImplArgs_correct W s.args vs W.Δ_spec (FiniteSubst.base W.Δ_spec) st ρ _
+      (FiniteSubst.base_wfIn hag.subset hwf.wf (VerifM.eval.wf heval).namesDisjoint hwf.vars)
       hb $$ Hvals
   ipure Hdecl
   obtain ⟨σ', argVars, st', ρ', hΨ, hσ'wf, hdsub, hragree, howns, hdom_sub, hagree,
     hmem_decls, hsorts, hlookups⟩ := Hdecl
   have hag_base :
-      VerifM.Env.agreeOn (Δ_spec.declVars (Spec.argVars s.args))
-        (Spec.argsEnv ρ_spec s.args vs)
-            (Spec.argsEnv (VerifM.Env.withEnv ρ ((FiniteSubst.base Δ_spec).subst.eval ρ.env)) s.args vs) :=
-    Spec.argsEnv_agreeOn (Δ := Δ_spec)
-      (ρ₁ := ρ_spec)
-      (ρ₂ := VerifM.Env.withEnv ρ ((FiniteSubst.base Δ_spec).subst.eval ρ.env))
-      (by simpa [FiniteSubst.base, VerifM.Env.withEnv] using hρspec)
+      VerifM.Env.agreeOn (W.Δ_spec.declVars (Spec.argVars s.args))
+        (Spec.argsEnv ⟨W.ρ_spec⟩ s.args vs)
+            (Spec.argsEnv (VerifM.Env.withEnv ρ ((FiniteSubst.base W.Δ_spec).subst.eval ρ.env)) s.args vs) :=
+    Spec.argsEnv_agreeOn (Δ := W.Δ_spec)
+      (ρ₁ := ⟨W.ρ_spec⟩)
+      (ρ₂ := VerifM.Env.withEnv ρ ((FiniteSubst.base W.Δ_spec).subst.eval ρ.env))
+      (by simpa [FiniteSubst.base, VerifM.Env.withEnv] using hag.agree)
       s.args vs
       (by
         simp [List.length_map] at hlen_vals
@@ -606,7 +603,7 @@ theorem implement_correct (W : TinyML.World) (s : Spec) (body : List FOL.Const �
   iapply (show st'.sl W ρ' ∗
         PredTrans.apply W (fun r => TinyML.ValHasType W r s.retTy -∗ Φ r) s.pred
           (VerifM.Env.withEnv ρ' (σ'.subst.eval ρ'.env)) ⊢ R from
-    PredTrans.implement_correct W s.pred Δ_spec σ' (body argVars) st' ρ'
+    PredTrans.implement_correct W s.pred W.Δ_spec σ' (body argVars) st' ρ'
       (fun r => TinyML.ValHasType W r s.retTy -∗ Φ r) R
       (PredTrans.wfIn_mono hswf hdom_sub hσ'wf.srcWf)
       hσ'wf hΨ
