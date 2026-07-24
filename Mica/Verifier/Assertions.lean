@@ -32,31 +32,70 @@ inductive Assertion : Type → Type where
   | pred   : (v : Var) → Atom v.sort → Assertion α → Assertion α
   | ite    : Formula → Assertion α → Assertion α → Assertion α
 
+private def Assertion.decideEq [DecidableEq α] : (a b : Assertion α) → Decidable (a = b)
+  | .ret a, .ret b => match decEq a b with
+    | isTrue h => isTrue (by subst h; rfl)
+    | isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
+  | .assert φ₁ k₁, .assert φ₂ k₂ => match decEq φ₁ φ₂, k₁.decideEq k₂ with
+    | isTrue h₁, isTrue h₂ => isTrue (by subst h₁; subst h₂; rfl)
+    | isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
+    | _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
+  | .let_ v₁ t₁ k₁, .let_ v₂ t₂ k₂ => match decEq v₁ v₂ with
+    | isTrue hv => by
+        subst hv
+        exact match decEq t₁ t₂, k₁.decideEq k₂ with
+          | isTrue ht, isTrue hk => isTrue (by subst ht; subst hk; rfl)
+          | isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
+          | _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
+    | isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
+  | .pred v₁ p₁ k₁, .pred v₂ p₂ k₂ => match decEq v₁ v₂ with
+    | isTrue hv => by
+        subst hv
+        exact match decEq p₁ p₂, k₁.decideEq k₂ with
+          | isTrue hp, isTrue hk => isTrue (by subst hp; subst hk; rfl)
+          | isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
+          | _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
+    | isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
+  | .ite φ₁ kt₁ ke₁, .ite φ₂ kt₂ ke₂ =>
+    match decEq φ₁ φ₂, kt₁.decideEq kt₂, ke₁.decideEq ke₂ with
+    | isTrue hφ, isTrue ht, isTrue he => isTrue (by subst hφ; subst ht; subst he; rfl)
+    | isFalse h, _, _ => isFalse (by intro heq; cases heq; exact h rfl)
+    | _, isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
+    | _, _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
+  | .ret _, .assert .. | .ret _, .let_ .. | .ret _, .pred .. | .ret _, .ite ..
+  | .assert .., .ret _ | .assert .., .let_ .. | .assert .., .pred .. | .assert .., .ite ..
+  | .let_ .., .ret _ | .let_ .., .assert .. | .let_ .., .pred .. | .let_ .., .ite ..
+  | .pred .., .ret _ | .pred .., .assert .. | .pred .., .let_ .. | .pred .., .ite ..
+  | .ite .., .ret _ | .ite .., .assert .. | .ite .., .let_ .. | .ite .., .pred .. =>
+    isFalse (by intro h; cases h)
+
+instance [DecidableEq α] : DecidableEq (Assertion α) := Assertion.decideEq
+
 
 -- ---------------------------------------------------------------------------
 -- Semantics
 -- ---------------------------------------------------------------------------
 
-def Assertion.pre (Θ : TinyML.TypeEnv) (Φ : α → VerifM.Env → iProp) (m : Assertion α) (ρ : VerifM.Env) : iProp :=
+def Assertion.pre (W : TinyML.World) (Φ : α → VerifM.Env → iProp) (m : Assertion α) (ρ : VerifM.Env) : iProp :=
   (match m with
   | .ret a        => Φ a ρ
-  | .assert φ k   => ⌜φ.eval ρ.env⌝ ∗ Assertion.pre Θ Φ k ρ
-  | .let_ x t k   => let v := t.eval ρ.env; Assertion.pre Θ Φ k (ρ.updateConst x.sort x.name v)
-  | .pred x p k   => ∃ (v : x.sort.denote), p.eval Θ ρ v ∗ Assertion.pre Θ Φ k (ρ.updateConst x.sort x.name v)
+  | .assert φ k   => ⌜φ.eval ρ.env⌝ ∗ Assertion.pre W Φ k ρ
+  | .let_ x t k   => let v := t.eval ρ.env; Assertion.pre W Φ k (ρ.updateConst x.sort x.name v)
+  | .pred x p k   => ∃ (v : x.sort.denote), p.eval W ρ v ∗ Assertion.pre W Φ k (ρ.updateConst x.sort x.name v)
   | .ite φ kt ke  =>
-      iprop((⌜φ.eval ρ.env⌝ -∗ Assertion.pre Θ Φ kt ρ) ∧
-            (⌜¬ φ.eval ρ.env⌝ -∗ Assertion.pre Θ Φ ke ρ)))
+      iprop((⌜φ.eval ρ.env⌝ -∗ Assertion.pre W Φ kt ρ) ∧
+            (⌜¬ φ.eval ρ.env⌝ -∗ Assertion.pre W Φ ke ρ)))
 
-def Assertion.post (Θ : TinyML.TypeEnv) {α} (Φ : α → VerifM.Env → iProp) (m : Assertion α) (ρ : VerifM.Env) : iProp :=
+def Assertion.post (W : TinyML.World) {α} (Φ : α → VerifM.Env → iProp) (m : Assertion α) (ρ : VerifM.Env) : iProp :=
   match m with
   | .ret a        => Φ a ρ
-  | .assert φ k   => ⌜φ.eval ρ.env⌝ -∗ Assertion.post Θ Φ k ρ
-  | .let_ x t k   => let v := t.eval ρ.env; Assertion.post Θ Φ k (ρ.updateConst x.sort x.name v)
+  | .assert φ k   => ⌜φ.eval ρ.env⌝ -∗ Assertion.post W Φ k ρ
+  | .let_ x t k   => let v := t.eval ρ.env; Assertion.post W Φ k (ρ.updateConst x.sort x.name v)
   | .pred x p k   => iprop(∀ (v : x.sort.denote),
-      p.eval Θ ρ v -∗ Assertion.post Θ Φ k (ρ.updateConst x.sort x.name v))
+      p.eval W ρ v -∗ Assertion.post W Φ k (ρ.updateConst x.sort x.name v))
   | .ite φ kt ke  =>
-      iprop((⌜φ.eval ρ.env⌝ -∗ Assertion.post Θ Φ kt ρ) ∧
-            (⌜¬ φ.eval ρ.env⌝ -∗ Assertion.post Θ Φ ke ρ))
+      iprop((⌜φ.eval ρ.env⌝ -∗ Assertion.post W Φ kt ρ) ∧
+            (⌜¬ φ.eval ρ.env⌝ -∗ Assertion.post W Φ ke ρ))
 
 
 -- ---------------------------------------------------------------------------
@@ -125,11 +164,11 @@ theorem Assertion.wfIn_mono (m : Assertion α) (retWf : α → Signature → Pro
 -- Environment agreement
 -- ---------------------------------------------------------------------------
 
-theorem Assertion.pre_env_agree (Θ : TinyML.TypeEnv) {m : Assertion α} {retWf : α → Signature → Prop}
+theorem Assertion.pre_env_agree (W : TinyML.World) {m : Assertion α} {retWf : α → Signature → Prop}
     {Φ : α → VerifM.Env → iProp} {ρ ρ' : VerifM.Env} {Δ : Signature}
     (hwf : m.wfIn retWf Δ) (hagree : VerifM.Env.agreeOn Δ ρ ρ')
     (hΦ : ∀ a Δ ρ₁ ρ₂, retWf a Δ → VerifM.Env.agreeOn Δ ρ₁ ρ₂ → Φ a ρ₁ ⊢ Φ a ρ₂) :
-    Assertion.pre Θ Φ m ρ ⊢ Assertion.pre Θ Φ m ρ' := by
+    Assertion.pre W Φ m ρ ⊢ Assertion.pre W Φ m ρ' := by
   induction m generalizing Δ ρ ρ' with
   | ret a => exact hΦ a Δ ρ ρ' hwf hagree
   | assert φ k ih =>
@@ -154,8 +193,8 @@ theorem Assertion.pre_env_agree (Θ : TinyML.TypeEnv) {m : Assertion α} {retWf 
     iintro ⟨%w, Hsep⟩
     iexists w
     iapply (sep_mono
-      (show p.eval Θ ρ w ⊢ p.eval Θ ρ' w by
-        simp [(Atom.eval_env_agree Θ hpwf hagree)])
+      (show p.eval W ρ w ⊢ p.eval W ρ' w by
+        simp [(Atom.eval_env_agree W hpwf hagree)])
       (ih hkwf (VerifM.Env.agreeOn_declVar hagree)))
     iexact Hsep
   | ite φ kt ke iht ihe =>
@@ -185,11 +224,11 @@ theorem Assertion.pre_env_agree (Θ : TinyML.TypeEnv) {m : Assertion α} {retWf 
       iapply hnφ
       iapply Hnφ
 
-theorem Assertion.post_env_agree (Θ : TinyML.TypeEnv) {m : Assertion α} {retWf : α → Signature → Prop}
+theorem Assertion.post_env_agree (W : TinyML.World) {m : Assertion α} {retWf : α → Signature → Prop}
     {Φ : α → VerifM.Env → iProp} {ρ ρ' : VerifM.Env} {Δ : Signature}
     (hwf : m.wfIn retWf Δ) (hagree : VerifM.Env.agreeOn Δ ρ ρ')
     (hΦ : ∀ a Δ ρ₁ ρ₂, retWf a Δ → VerifM.Env.agreeOn Δ ρ₁ ρ₂ → Φ a ρ₁ ⊢ Φ a ρ₂) :
-    Assertion.post Θ Φ m ρ ⊢ Assertion.post Θ Φ m ρ' := by
+    Assertion.post W Φ m ρ ⊢ Assertion.post W Φ m ρ' := by
   induction m generalizing Δ ρ ρ' with
   | ret a => exact hΦ a Δ ρ ρ' hwf hagree
   | assert φ k ih =>
@@ -214,7 +253,7 @@ theorem Assertion.post_env_agree (Θ : TinyML.TypeEnv) {m : Assertion α} {retWf
     iintro %w Hw
     iapply (ih hkwf (VerifM.Env.agreeOn_declVar hagree))
     iapply H
-    iapply (show p.eval Θ ρ' w ⊢ p.eval Θ ρ w by simp [(Atom.eval_env_agree Θ hpwf hagree)])
+    iapply (show p.eval W ρ' w ⊢ p.eval W ρ w by simp [(Atom.eval_env_agree W hpwf hagree)])
     iexact Hw
   | ite φ kt ke iht ihe =>
     obtain ⟨hφwf, hktwf, hkewf⟩ := hwf
@@ -238,13 +277,13 @@ theorem Assertion.post_env_agree (Θ : TinyML.TypeEnv) {m : Assertion α} {retWf
       exact hnφ'
 
 /-- Combining caller-side `pre` with verifier-side `post`. -/
-theorem Assertion.pre_post_combine (Θ : TinyML.TypeEnv) {α : Type}
+theorem Assertion.pre_post_combine (W : TinyML.World) {α : Type}
     {m : Assertion α}
     {Φ : α → VerifM.Env → iProp} {Ψ : α → VerifM.Env → iProp}
     {ρ : VerifM.Env}
     {R : iProp}
     (hR : ∀ (a : α) (ρ0 : VerifM.Env), Φ a ρ0 ∗ Ψ a ρ0 ⊢ R)
-    : (Assertion.pre Θ Φ m ρ ∗ Assertion.post Θ Ψ m ρ) ⊢ R := by
+    : (Assertion.pre W Φ m ρ ∗ Assertion.post W Ψ m ρ) ⊢ R := by
   induction m generalizing ρ R with
   | ret a =>
     simpa [Assertion.pre, Assertion.post] using hR a ρ
@@ -360,7 +399,7 @@ def Assertion.prove (σ : FiniteSubst) : Assertion α → VerifM (FiniteSubst ×
 -- Correctness theorems
 -- ---------------------------------------------------------------------------
 
-theorem Assertion.assume_correct (Θ : TinyML.TypeEnv) (m : Assertion α) (Δ_base : Signature) (σ : FiniteSubst)
+theorem Assertion.assume_correct (W : TinyML.World) (m : Assertion α) (Δ_base : Signature) (σ : FiniteSubst)
     (retWf : α → Signature → Prop)
     (st : TransState) (ρ : VerifM.Env)
     (Ψ : (FiniteSubst × α) → TransState → VerifM.Env → Prop) (Φ : α → VerifM.Env → iProp) (R : iProp)
@@ -370,8 +409,8 @@ theorem Assertion.assume_correct (Θ : TinyML.TypeEnv) (m : Assertion α) (Δ_ba
     VerifM.eval (Assertion.assume σ m) st ρ Ψ →
     (∀ σ' a st' ρ', Ψ (σ', a) st' ρ' → σ'.wfIn Δ_base st'.decls →
       retWf a (Δ_base.declVars σ'.dom) →
-      st'.sl Θ ρ' ∗ R ⊢ Φ a (ρ'.withEnv (σ'.subst.eval ρ'.env))) →
-    st.sl Θ ρ ∗ R ⊢ Assertion.post Θ Φ m (ρ.withEnv (σ.subst.eval ρ.env)) := by
+      st'.sl W ρ' ∗ R ⊢ Φ a (ρ'.withEnv (σ'.subst.eval ρ'.env))) →
+    st.sl W ρ ∗ R ⊢ Assertion.post W Φ m (ρ.withEnv (σ.subst.eval ρ.env)) := by
   intro hσwf hwf heval hpost
   induction m generalizing Δ_base σ st ρ Ψ with
   | ret a =>
@@ -412,10 +451,10 @@ theorem Assertion.assume_correct (Θ : TinyML.TypeEnv) (m : Assertion α) (Δ_ba
         simpa [σ', FiniteSubst.rename_source_eq] using hkwf
       have hih := ih Δ_base σ' { st with decls := st.decls.addConst v', asserts := _ :: st.asserts }
         (ρ.updateConst v.sort v'.name u) Ψ hσ'wf hkwf' hassume hpost
-      have hinterp_bi : st.sl Θ ρ ⊣⊢ st.sl Θ (ρ.updateConst v.sort v'.name u) :=
-        SpatialContext.interp_env_agree Θ (VerifM.eval.wf heval).ownsWf
+      have hinterp_bi : st.sl W ρ ⊣⊢ st.sl W (ρ.updateConst v.sort v'.name u) :=
+        SpatialContext.interp_env_agree W (VerifM.eval.wf heval).ownsWf
           (Env.agreeOn_update_fresh_const (c := v') hv'_fresh_decls)
-      exact (sep_mono_left hinterp_bi.1).trans <| hih.trans <| Assertion.post_env_agree Θ hkwf'
+      exact (sep_mono_left hinterp_bi.1).trans <| hih.trans <| Assertion.post_env_agree W hkwf'
         (by
           simpa [σ', VerifM.Env.agreeOn, VerifM.Env.withEnv_env, VerifM.Env.updateConst] using
             (FiniteSubst.rename_agreeOn (σ := σ) (Δ_base := Δ_base) (Δ_use := st.decls)
@@ -447,22 +486,22 @@ theorem Assertion.assume_correct (Θ : TinyML.TypeEnv) (m : Assertion α) (Δ_ba
         Atom.toItem_wfIn
           (Atom.wfIn_mono hp_subst_wf (Signature.Subset.subset_addConst _ _)
             (Signature.wf_addConst hσwf.useWf hv'_fresh_decls)) hvar_wf
-      have hpu' : p.eval Θ (ρ.withEnv (σ.subst.eval ρ.env)) u ⊢
-          (p.subst σ.subst).eval Θ (ρ.updateConst v.sort v'.name u)
+      have hpu' : p.eval W (ρ.withEnv (σ.subst.eval ρ.env)) u ⊢
+          (p.subst σ.subst).eval W (ρ.updateConst v.sort v'.name u)
             ((.const (.uninterpreted v'.name v.sort) : Term v.sort).eval
               (ρ.updateConst v.sort v'.name u).env) := by
         have hconst : ((.const (.uninterpreted v'.name v.sort) : Term v.sort).eval
             (ρ.updateConst v.sort v'.name u).env) = u := by
           simp [Term.eval, Const.denote, Env.updateConst]
         rw [hconst]
-        rw [Atom.eval_subst Θ hpwf hσwf.subst hσwf.rangeWf]
+        rw [Atom.eval_subst W hpwf hσwf.subst hσwf.rangeWf]
         have hagree := FiniteSubst.eval_update_fresh (σ := σ) (ρ := ρ.env)
           (τ := v.sort) (name' := v'.name) (u := u) hσwf hv'_fresh_range
         have heval_agree :
-            p.eval Θ (ρ.withEnv (σ.subst.eval ρ.env)) =
-              p.eval Θ ((ρ.updateConst v.sort v'.name u).withEnv
+            p.eval W (ρ.withEnv (σ.subst.eval ρ.env)) =
+              p.eval W ((ρ.updateConst v.sort v'.name u).withEnv
                 (σ.subst.eval (ρ.updateConst v.sort v'.name u).env)) :=
-          Atom.eval_env_agree Θ (p := p)
+          Atom.eval_env_agree W (p := p)
             (ρ := ρ.withEnv (σ.subst.eval ρ.env))
             (ρ' := (ρ.updateConst v.sort v'.name u).withEnv
               (σ.subst.eval (ρ.updateConst v.sort v'.name u).env))
@@ -480,10 +519,10 @@ theorem Assertion.assume_correct (Θ : TinyML.TypeEnv) (m : Assertion α) (Δ_ba
         simpa [σ', FiniteSubst.rename_source_eq] using hkwf
       cases hitem : item with
       | pure φ =>
-        have hφ_entail : p.eval Θ (ρ.withEnv (σ.subst.eval ρ.env)) u ⊢
+        have hφ_entail : p.eval W (ρ.withEnv (σ.subst.eval ρ.env)) u ⊢
             ⌜φ.eval (ρ.updateConst v.sort v'.name u).env⌝ := by
           simpa [item, hitem] using
-            (hpu'.trans (Atom.eval_purePart Θ (p := p.subst σ.subst)
+            (hpu'.trans (Atom.eval_purePart W (p := p.subst σ.subst)
               (t := .const (.uninterpreted v'.name v.sort))
               (ρ := (ρ.updateConst v.sort v'.name u))))
         ihave Hφ : ⌜φ.eval (ρ.updateConst v.sort v'.name u).env⌝ $$ [Hpu]
@@ -502,16 +541,16 @@ theorem Assertion.assume_correct (Θ : TinyML.TypeEnv) (m : Assertion α) (Δ_ba
         have hih := ih Δ_base σ' st''
           (ρ.updateConst v.sort v'.name u) Ψ hσ''wf hkwf' hassume hpost
         have hframe :
-            st.sl Θ ρ ∗ R ⊢
-              st''.sl Θ (ρ.updateConst v.sort v'.name u) ∗ R := by
+            st.sl W ρ ∗ R ⊢
+              st''.sl W (ρ.updateConst v.sort v'.name u) ∗ R := by
           simp only [TransState.sl_eq, howns'', TransState.addItem]
           exact sep_mono
-            (SpatialContext.interp_env_agree Θ (VerifM.eval.wf heval).ownsWf
+            (SpatialContext.interp_env_agree W (VerifM.eval.wf heval).ownsWf
               (Env.agreeOn_update_fresh_const (c := v') hv'_fresh_decls)).1
             (by
               iintro HR
               iexact HR)
-        iapply (hframe.trans <| hih.trans <| Assertion.post_env_agree Θ hkwf'
+        iapply (hframe.trans <| hih.trans <| Assertion.post_env_agree W hkwf'
           (by
             simpa [σ', VerifM.Env.agreeOn, VerifM.Env.withEnv_env, VerifM.Env.updateConst] using
               (FiniteSubst.rename_agreeOn (σ := σ) (Δ_base := Δ_base) (Δ_use := st.decls)
@@ -526,20 +565,20 @@ theorem Assertion.assume_correct (Θ : TinyML.TypeEnv) (m : Assertion α) (Δ_ba
         have hitem_wf' : (.spatial a : CtxItem).wfIn (st.decls.addConst v') := by
           simpa [item, hitem] using hitem_wf
         have hitem_interp :
-            p.eval Θ (ρ.withEnv (σ.subst.eval ρ.env)) u ⊢
-              CtxItem.interp Θ (ρ.updateConst v.sort v'.name u) item := by
+            p.eval W (ρ.withEnv (σ.subst.eval ρ.env)) u ⊢
+              CtxItem.interp W (ρ.updateConst v.sort v'.name u) item := by
           simpa [item] using
-            (hpu'.trans (Atom.toItem_eval Θ (p := p.subst σ.subst)
+            (hpu'.trans (Atom.toItem_eval W (p := p.subst σ.subst)
               (t := .const (.uninterpreted v'.name v.sort))
               (ρ := (ρ.updateConst v.sort v'.name u))).2)
         have hspatial_interp :
-            p.eval Θ (ρ.withEnv (σ.subst.eval ρ.env)) u ⊢
-              SpatialAtom.interp Θ (ρ.updateConst v.sort v'.name u).env a := by
+            p.eval W (ρ.withEnv (σ.subst.eval ρ.env)) u ⊢
+              SpatialAtom.interp W (ρ.updateConst v.sort v'.name u).env a := by
           simpa [item, hitem, CtxItem.interp] using hitem_interp
-        ihave Ha : SpatialAtom.interp Θ (ρ.updateConst v.sort v'.name u).env a $$ [Hpu]
+        ihave Ha : SpatialAtom.interp W (ρ.updateConst v.sort v'.name u).env a $$ [Hpu]
         · iapply hspatial_interp
           simp [VerifM.Env.withEnv]
-        ihave Hfacts := SpatialAtom.interp_facts Θ a $$ Ha
+        ihave Hfacts := SpatialAtom.interp_facts W a $$ Ha
         icases Hfacts with ⟨%hfacts, Ha⟩
         obtain ⟨st'', hdecls'', howns'', hassume⟩ :=
           VerifM.eval_acquire hb2' hitem_wf' trivial (by simpa [CtxItem.facts] using hfacts)
@@ -547,11 +586,11 @@ theorem Assertion.assume_correct (Θ : TinyML.TypeEnv) (m : Assertion α) (Δ_ba
         have hih := ih Δ_base σ' st''
           (ρ.updateConst v.sort v'.name u) Ψ hσ''wf hkwf' hassume hpost
         have howns_agree :
-            st.sl Θ ρ ⊢
-              st.sl Θ (ρ.updateConst v.sort v'.name u) :=
-          (SpatialContext.interp_env_agree Θ (VerifM.eval.wf heval).ownsWf
+            st.sl W ρ ⊢
+              st.sl W (ρ.updateConst v.sort v'.name u) :=
+          (SpatialContext.interp_env_agree W (VerifM.eval.wf heval).ownsWf
             (Env.agreeOn_update_fresh_const (c := v') hv'_fresh_decls)).1
-        iapply (hih.trans <| Assertion.post_env_agree Θ hkwf'
+        iapply (hih.trans <| Assertion.post_env_agree W hkwf'
           (by
             simpa [σ', VerifM.Env.agreeOn, VerifM.Env.withEnv_env, VerifM.Env.updateConst] using
               (FiniteSubst.rename_agreeOn (σ := σ) (Δ_base := Δ_base) (Δ_use := st.decls)
@@ -590,7 +629,7 @@ theorem Assertion.assume_correct (Θ : TinyML.TypeEnv) (m : Assertion α) (Δ_ba
         iapply (ihe Δ_base σ { st with asserts := _ :: st.asserts } ρ Ψ hσwf hkewf hassume hpost)
         simp [TransState.sl]
 
-theorem Assertion.prove_correct (Θ : TinyML.TypeEnv) (m : Assertion α) (Δ_base : Signature) (σ : FiniteSubst)
+theorem Assertion.prove_correct (W : TinyML.World) (m : Assertion α) (Δ_base : Signature) (σ : FiniteSubst)
     (retWf : α → Signature → Prop)
     (st : TransState) (ρ : VerifM.Env)
     (Ψ : (FiniteSubst × α) → TransState → VerifM.Env → Prop) (Φ : α → VerifM.Env → iProp) (R : iProp)
@@ -600,8 +639,8 @@ theorem Assertion.prove_correct (Θ : TinyML.TypeEnv) (m : Assertion α) (Δ_bas
     VerifM.eval (Assertion.prove σ m) st ρ Ψ →
     (∀ σ' a st' ρ', Ψ (σ', a) st' ρ' → σ'.wfIn Δ_base st'.decls →
       retWf a (Δ_base.declVars σ'.dom) →
-      st'.sl Θ ρ' ∗ R ⊢ Φ a (ρ'.withEnv (σ'.subst.eval ρ'.env))) →
-    st.sl Θ ρ ∗ R ⊢ Assertion.pre Θ Φ m (ρ.withEnv (σ.subst.eval ρ.env)) := by
+      st'.sl W ρ' ∗ R ⊢ Φ a (ρ'.withEnv (σ'.subst.eval ρ'.env))) →
+    st.sl W ρ ∗ R ⊢ Assertion.pre W Φ m (ρ.withEnv (σ.subst.eval ρ.env)) := by
   intro hσwf hwf heval hpost
   induction m generalizing Δ_base σ st ρ Ψ with
   | ret a =>
@@ -612,8 +651,8 @@ theorem Assertion.prove_correct (Θ : TinyML.TypeEnv) (m : Assertion α) (Δ_bas
       have hassert := VerifM.eval_assert (VerifM.eval_bind heval)
         (FiniteSubst.subst_wfIn_formula hσwf hφwf)
       have hφ_holds := (FiniteSubst.eval_subst_formula hσwf hφwf).mp hassert.1
-      show st.sl Θ ρ ∗ R ⊢
-        (⌜φ.eval (σ.subst.eval ρ.env)⌝ ∗ Assertion.pre Θ Φ k (ρ.withEnv (σ.subst.eval ρ.env)) : iProp)
+      show st.sl W ρ ∗ R ⊢
+        (⌜φ.eval (σ.subst.eval ρ.env)⌝ ∗ Assertion.pre W Φ k (ρ.withEnv (σ.subst.eval ρ.env)) : iProp)
       istart
       iintro ⟨Howns, HR⟩
       isplitr [Howns HR]
@@ -646,10 +685,10 @@ theorem Assertion.prove_correct (Θ : TinyML.TypeEnv) (m : Assertion α) (Δ_bas
         simpa [σ', FiniteSubst.rename_source_eq] using hkwf
       have hih := ih Δ_base σ' { st with decls := st.decls.addConst v', asserts := _ :: st.asserts }
         (ρ.updateConst v.sort v'.name u) Ψ hσ'wf hkwf' hassume hpost
-      have hinterp_bi : st.sl Θ ρ ⊣⊢ st.sl Θ (ρ.updateConst v.sort v'.name u) :=
-        SpatialContext.interp_env_agree Θ (VerifM.eval.wf heval).ownsWf
+      have hinterp_bi : st.sl W ρ ⊣⊢ st.sl W (ρ.updateConst v.sort v'.name u) :=
+        SpatialContext.interp_env_agree W (VerifM.eval.wf heval).ownsWf
           (Env.agreeOn_update_fresh_const (c := v') hv'_fresh_decls)
-      exact (sep_mono_left hinterp_bi.1).trans <| hih.trans <| Assertion.pre_env_agree Θ hkwf'
+      exact (sep_mono_left hinterp_bi.1).trans <| hih.trans <| Assertion.pre_env_agree W hkwf'
         (by
           simpa [σ', VerifM.Env.agreeOn, VerifM.Env.withEnv_env, VerifM.Env.updateConst] using
             (FiniteSubst.rename_agreeOn (σ := σ) (Δ_base := Δ_base) (Δ_use := st.decls)
@@ -663,7 +702,7 @@ theorem Assertion.prove_correct (Θ : TinyML.TypeEnv) (m : Assertion α) (Δ_bas
         Atom.wfIn_mono
           (Atom.subst_wfIn hpwf hσwf.subst (fun _ hx => hx) hσwf.srcSymbolSubset hσwf.rangeWf)
           hσwf.rangeSubset hσwf.useWf
-      exact VerifM.eval_resolve Θ hb hpwf_decls
+      exact VerifM.eval_resolve W hb hpwf_decls
         (fun st' ρ' hq hsub hagree => by
           exact (VerifM.eval_fatal hq).elim)
         (fun t st' ρ' hq hsub hagree htwf => by
@@ -676,12 +715,12 @@ theorem Assertion.prove_correct (Θ : TinyML.TypeEnv) (m : Assertion α) (Δ_bas
           iexists (t.eval ρ'.env)
           isplitr [Howns HR]
           · have hpred_subst :
-                (p.subst σ.subst).eval Θ ρ' (t.eval ρ'.env) ⊢
-                  p.eval Θ (ρ'.withEnv (σ.subst.eval ρ'.env)) (t.eval ρ'.env) := by
+                (p.subst σ.subst).eval W ρ' (t.eval ρ'.env) ⊢
+                  p.eval W (ρ'.withEnv (σ.subst.eval ρ'.env)) (t.eval ρ'.env) := by
               simpa [VerifM.Env.withEnv] using
-                (show (p.subst σ.subst).eval Θ ρ' (t.eval ρ'.env) ⊢
-                    p.eval Θ (ρ'.withEnv (σ.subst.eval ρ'.env)) (t.eval ρ'.env) by
-                  rw [Atom.eval_subst Θ hpwf hσwf.subst hσwf.rangeWf]
+                (show (p.subst σ.subst).eval W ρ' (t.eval ρ'.env) ⊢
+                    p.eval W (ρ'.withEnv (σ.subst.eval ρ'.env)) (t.eval ρ'.env) by
+                  rw [Atom.eval_subst W hpwf hσwf.subst hσwf.rangeWf]
                   exact BIBase.Entails.rfl)
             have hagree_subst :
                 VerifM.Env.agreeOn (Δ_base.declVars σ.dom)
@@ -689,9 +728,9 @@ theorem Assertion.prove_correct (Θ : TinyML.TypeEnv) (m : Assertion α) (Δ_bas
                   (ρ'.withEnv (σ.subst.eval ρ'.env)) := by
               exact FiniteSubst.eval_agreeOn hσwf hagree
             have hpred_transport :
-                p.eval Θ (ρ'.withEnv (σ.subst.eval ρ'.env)) (t.eval ρ'.env) ⊢
-                  p.eval Θ (ρ.withEnv (σ.subst.eval ρ.env)) (t.eval ρ'.env) := by
-              rw [Atom.eval_env_agree Θ hpwf (VerifM.Env.agreeOn_symm hagree_subst)]
+                p.eval W (ρ'.withEnv (σ.subst.eval ρ'.env)) (t.eval ρ'.env) ⊢
+                  p.eval W (ρ.withEnv (σ.subst.eval ρ.env)) (t.eval ρ'.env) := by
+              rw [Atom.eval_env_agree W hpwf (VerifM.Env.agreeOn_symm hagree_subst)]
               exact BIBase.Entails.rfl
             iapply hpred_transport
             iapply hpred_subst
@@ -717,13 +756,13 @@ theorem Assertion.prove_correct (Θ : TinyML.TypeEnv) (m : Assertion α) (Δ_bas
               simpa [σ', FiniteSubst.rename_source_eq] using hkwf
             have hih := ih Δ_base σ' { st' with decls := st'.decls.addConst v', asserts := _ :: st'.asserts }
               (ρ'.updateConst v.sort v'.name (t.eval ρ'.env)) Ψ hσ'wf hkwf' hassume hpost
-            have hinterp_bi : st'.sl Θ ρ' ⊣⊢ st'.sl Θ (ρ'.updateConst v.sort v'.name (t.eval ρ'.env)) :=
-              SpatialContext.interp_env_agree Θ (VerifM.eval.wf hq).ownsWf
+            have hinterp_bi : st'.sl W ρ' ⊣⊢ st'.sl W (ρ'.updateConst v.sort v'.name (t.eval ρ'.env)) :=
+              SpatialContext.interp_env_agree W (VerifM.eval.wf hq).ownsWf
                 (Env.agreeOn_update_fresh_const (c := v') hv'_fresh_decls)
-            have hframe : st'.sl Θ ρ' ∗ R ⊢
-                st'.sl Θ (ρ'.updateConst v.sort v'.name (t.eval ρ'.env)) ∗ R :=
+            have hframe : st'.sl W ρ' ∗ R ⊢
+                st'.sl W (ρ'.updateConst v.sort v'.name (t.eval ρ'.env)) ∗ R :=
               sep_mono_left hinterp_bi.1
-            iapply (hframe.trans <| hih.trans <| Assertion.pre_env_agree Θ hkwf'
+            iapply (hframe.trans <| hih.trans <| Assertion.pre_env_agree W hkwf'
               (by
                 have hrename := (FiniteSubst.rename_agreeOn (σ := σ) (Δ_base := Δ_base) (Δ_use := st'.decls)
                     (v := v) (name' := v'.name) (ρ := ρ'.env) (u := t.eval ρ'.env)

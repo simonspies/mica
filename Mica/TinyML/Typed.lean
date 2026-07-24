@@ -240,17 +240,13 @@ def Const.ty : Const → Typ
   | .float _ => .float
   | .unit => .unit
 
-def arrowOfArgs : List Binder → Typ → Typ
-  | [], retTy => retTy
-  | arg :: args, retTy => .arrow arg.ty (arrowOfArgs args retTy)
-
 def Expr.ty : Expr → Typ
   | .const c => Const.ty c
   | .var _ ty => ty
   | .prim _ _ ty => ty
   | .unop _ _ ty => ty
   | .binop _ _ _ ty => ty
-  | .fix _ args retTy _ => arrowOfArgs args retTy
+  | .fix _ args retTy _ => .arrow (args.map Binder.ty) retTy
   | .app _ _ ty => ty
   | .ifThenElse _ _ _ ty => ty
   | .letIn _ _ body => body.ty

@@ -128,7 +128,7 @@ theorem PrimitiveType.unOpTypeOf_bool {op : UnOp} {p p' : PrimitiveType}
 inductive Typ where
   | prim (p : PrimitiveType)
   | sum (ts : List Typ)
-  | arrow (t1 t2 : Typ)
+  | arrow (args : List Typ) (ret : Typ)
   | ref (t: Typ)
   /-- Shared array whose elements have type `t`. -/
   | array (t : Typ)
@@ -178,8 +178,8 @@ def Typ.decEq : (a b : Typ) → Decidable (a = b)
   | .sum ss, .sum ts => match typesDecEq ss ts with
     | isTrue h => isTrue (by subst h; rfl)
     | isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
-  | .arrow s1 s2, .arrow t1 t2 =>
-    match s1.decEq t1, s2.decEq t2 with
+  | .arrow ss s, .arrow ts t =>
+    match typesDecEq ss ts, s.decEq t with
     | isTrue h1, isTrue h2 => isTrue (by subst h1; subst h2; rfl)
     | isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
     | _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
@@ -282,7 +282,7 @@ variable-sensitive once `Typ` grows `tvar`/`named`.
 def Typ.subst (_σ : TyVar → Typ) : Typ → Typ
   | .prim p => .prim p
   | .sum ts => .sum (ts.map (Typ.subst _σ))
-  | .arrow t1 t2 => .arrow (Typ.subst _σ t1) (Typ.subst _σ t2)
+  | .arrow args ret => .arrow (args.map (Typ.subst _σ)) (Typ.subst _σ ret)
   | .ref t => .ref (Typ.subst _σ t)
   | .array t => .array (Typ.subst _σ t)
   | .ownedArray t => .ownedArray (Typ.subst _σ t)
@@ -298,7 +298,7 @@ def Typ.subst (_σ : TyVar → Typ) : Typ → Typ
 def Typ.closed : Typ → Bool
   | .prim _ => true
   | .sum ts => (ts.map Typ.closed).all id
-  | .arrow t1 t2 => Typ.closed t1 && Typ.closed t2
+  | .arrow args ret => (args.map Typ.closed).all id && Typ.closed ret
   | .ref t => Typ.closed t
   | .array t => Typ.closed t
   | .ownedArray t => Typ.closed t
@@ -379,7 +379,7 @@ mutual
   def Typ.weight : Typ → Nat
     | .prim _ | .empty | .value | .tvar _ => 1
     | .sum ts => 1 + Typ.weights ts
-    | .arrow t1 t2 => 1 + Typ.weight t1 + Typ.weight t2
+    | .arrow args ret => 1 + Typ.weights args + Typ.weight ret
     | .ref t => 1 + Typ.weight t
     | .array t => 1 + Typ.weight t
     | .ownedArray t => 1 + Typ.weight t
@@ -399,7 +399,7 @@ mutual
   def Typ.depth : Typ → Nat
     | .prim _ | .empty | .value | .tvar _ => 1
     | .sum ts => 1 + Typ.depths ts
-    | .arrow t1 t2 => 1 + max (Typ.depth t1) (Typ.depth t2)
+    | .arrow args ret => 1 + max (Typ.depths args) (Typ.depth ret)
     | .ref t => 1 + Typ.depth t
     | .array t => 1 + Typ.depth t
     | .ownedArray t => 1 + Typ.depth t
@@ -427,8 +427,8 @@ mutual
         | .empty, _ => true
         | _, .value => true
         | .sum ss, .sum ts => Typ.subListBody Θ recur ss ts
-        | .arrow s1 s2, .arrow t1 t2 =>
-            Typ.subBody Θ recur t1 s1 && Typ.subBody Θ recur s2 t2
+        | .arrow ss s, .arrow ts t =>
+            Typ.subListBody Θ recur ts ss && Typ.subBody Θ recur s t
         | .tuple ss, .tuple ts => Typ.subListBody Θ recur ss ts
         | _, _ =>
             if s == t then true
@@ -487,9 +487,9 @@ mutual
     | trans : Typ.Sub Θ s t → Typ.Sub Θ t u → Typ.Sub Θ s u
     | sum   : Typ.SubList Θ ss ts
             → Typ.Sub Θ (.sum ss) (.sum ts)
-    | arrow : Typ.Sub Θ t1 s1
-            → Typ.Sub Θ s2 t2
-            → Typ.Sub Θ (.arrow s1 s2) (.arrow t1 t2)
+    | arrow : Typ.SubList Θ ts ss
+            → Typ.Sub Θ s t
+            → Typ.Sub Θ (.arrow ss s) (.arrow ts t)
     | tuple : Typ.SubList Θ ss ts
             → Typ.Sub Θ (.tuple ss) (.tuple ts)
     | named_left : TypeName.unfold Θ T args = some ty
@@ -519,7 +519,7 @@ mutual
     · exact .top
     · exact .sum (subListBody_sound hrecur h)
     · simp [Bool.and_eq_true] at h
-      exact .arrow (subBody_sound hrecur h.1) (subBody_sound hrecur h.2)
+      exact .arrow (subListBody_sound hrecur h.1) (subBody_sound hrecur h.2)
     · exact .tuple (subListBody_sound hrecur h)
     · -- catchall: if s == t then true else match (s, t) for named
       split at h
@@ -606,7 +606,9 @@ mutual
     | .sum  ss,     .sum  ts     => if ss.length == ts.length
                                     then .sum (Typ.joinList Θ ss ts)
                                     else .value
-    | .arrow s1 s2, .arrow t1 t2 => .arrow (Typ.meet Θ s1 t1) (Typ.join Θ s2 t2)
+    | .arrow ss s, .arrow ts t => if ss.length == ts.length
+                                  then .arrow (Typ.meetList Θ ss ts) (Typ.join Θ s t)
+                                  else .value
     | .ref s,       .ref t       => if s == t then .ref s else .value
     | .array s,     .array t     => if s == t then .array s else .value
     | .ownedArray s, .ownedArray t => if s == t then .ownedArray s else .value
@@ -626,7 +628,9 @@ mutual
     | .sum  ss,     .sum  ts     => if ss.length == ts.length
                                     then .sum (Typ.meetList Θ ss ts)
                                     else .empty
-    | .arrow s1 s2, .arrow t1 t2 => .arrow (Typ.join Θ s1 t1) (Typ.meet Θ s2 t2)
+    | .arrow ss s, .arrow ts t => if ss.length == ts.length
+                                  then .arrow (Typ.joinList Θ ss ts) (Typ.meet Θ s t)
+                                  else .empty
     | .ref s,       .ref t       => if s == t then .ref s else .empty
     | .array s,     .array t     => if s == t then .array s else .empty
     | .ownedArray s, .ownedArray t => if s == t then .ownedArray s else .empty

@@ -129,7 +129,7 @@ theorem wp_bind_ref {e : Runtime.Expr} {Q : Runtime.Val → iProp}
 
 /-- Reference allocation at values. The continuation receives fresh ownership in
     the updated environment for a caller-chosen fresh value constant. -/
-theorem wp_ref (Θ : TinyML.TypeEnv) {v : Runtime.Val} {Q : Runtime.Val → iProp}
+theorem wp_ref (W : TinyML.World) {v : Runtime.Val} {Q : Runtime.Val → iProp}
     {ctx : SpatialContext} {ρ : Env} {R : iProp} {Δ : Signature}
     {vt : Term .value} {ty : TinyML.Typ} {name : String} {newctx : SpatialContext}
     (hctx : wfIn ctx Δ)
@@ -138,38 +138,38 @@ theorem wp_ref (Θ : TinyML.TypeEnv) {v : Runtime.Val} {Q : Runtime.Val → iPro
     (hfresh : name ∉ Δ.allNames)
     (hnewctx : insert (.pointsTo (.const (.uninterpreted name .value)) vt ty) ctx = newctx)
     (h : ∀ loc,
-      newctx.interp Θ (ρ.updateConst .value name (.loc loc)) ∗ R ⊢
+      newctx.interp W (ρ.updateConst .value name (.loc loc)) ∗ R ⊢
       Q (.loc loc)) :
-    ctx.interp Θ ρ ∗ TinyML.ValHasType Θ v ty ∗ R  ⊢ wp pctx (.ref (.val v)) Q := by
-  have hforall : ctx.interp Θ ρ ∗ TinyML.ValHasType Θ v ty ∗ R ⊢
+    ctx.interp W ρ ∗ TinyML.ValHasType W v ty ∗ R  ⊢ wp W.pctx (.ref (.val v)) Q := by
+  have hforall : ctx.interp W ρ ∗ TinyML.ValHasType W v ty ∗ R ⊢
       BIBase.forall fun (loc : Runtime.Location) => loc ↦ [v] -∗ Q (.loc loc) := by
     apply forall_intro
     intro loc
     apply wand_intro
-    -- goal: (ctx.interp ρ ∗ ValHasType Θ v ty ∗ R) ∗ (loc ↦ [v]) ⊢ Q (.loc loc)
+    -- goal: (ctx.interp ρ ∗ ValHasType W v ty ∗ R) ∗ (loc ↦ [v]) ⊢ Q (.loc loc)
     let ρ' := ρ.updateConst .value name (.loc loc)
     let a : SpatialAtom := .pointsTo (.const (.uninterpreted name .value)) vt ty
     have hagree : Env.agreeOn Δ ρ ρ' := Env.agreeOn_update_fresh_const (c := ⟨name, .value⟩) hfresh
-    have hctxeq : ctx.interp Θ ρ ⊢ ctx.interp Θ ρ' := by
-      exact (SpatialContext.interp_env_agree Θ hctx hagree).1
+    have hctxeq : ctx.interp W ρ ⊢ ctx.interp W ρ' := by
+      exact (SpatialContext.interp_env_agree W hctx hagree).1
     have hveq : Term.eval ρ' vt = v := by
       simpa [ρ'] using (Term.eval_update_fresh (t := vt) hvt hfresh).trans hv
     have hloc : Term.eval ρ' (.const (.uninterpreted name .value)) = .loc loc := by
       simp [ρ', Term.eval, Env.updateConst]
-    have hptIntro : loc ↦ [v] ∗ TinyML.ValHasType Θ v ty ⊢ a.interp Θ ρ' := by
+    have hptIntro : loc ↦ [v] ∗ TinyML.ValHasType W v ty ⊢ a.interp W ρ' := by
       rw [← hveq]
-      exact (SpatialAtom.interp_pointsTo Θ (ρ := ρ')
+      exact (SpatialAtom.interp_pointsTo W (ρ := ρ')
         (lt := .const (.uninterpreted name .value)) (vt := vt) (ty := ty) (loc := loc) hloc).2
-    have hinsert : ctx.interp Θ ρ ∗ (loc ↦ [v] ∗ TinyML.ValHasType Θ v ty) ⊢
-        (insert a ctx).interp Θ ρ' := by
+    have hinsert : ctx.interp W ρ ∗ (loc ↦ [v] ∗ TinyML.ValHasType W v ty) ⊢
+        (insert a ctx).interp W ρ' := by
       apply (sep_mono_left hctxeq).trans
       apply sep_comm.1.trans
       apply (sep_mono_left hptIntro).trans
       simp [a, SpatialContext.interp]
     -- rearrange the heap and type resources into the new spatial atom.
     have hrearrange :
-        (ctx.interp Θ ρ ∗ TinyML.ValHasType Θ v ty ∗ R) ∗ (loc ↦ [v]) ⊢
-          (ctx.interp Θ ρ ∗ (loc ↦ [v] ∗ TinyML.ValHasType Θ v ty)) ∗ R := by
+        (ctx.interp W ρ ∗ TinyML.ValHasType W v ty ∗ R) ∗ (loc ↦ [v]) ⊢
+          (ctx.interp W ρ ∗ (loc ↦ [v] ∗ TinyML.ValHasType W v ty)) ∗ R := by
       istart
       iintro ⟨⟨Hctx, Hty, HR⟩, Hpt⟩
       isplitl [Hctx Hpt Hty]
@@ -198,22 +198,22 @@ theorem wp_bind_deref {e : Runtime.Expr} {Q : Runtime.Val → iProp}
     The pure premises identify the runtime value `v` with the location named
     by `lt`, and the continuation premise `h` works with the remaining
     context. -/
-theorem wp_deref (Θ : TinyML.TypeEnv) {Q : Runtime.Val → iProp}
+theorem wp_deref (W : TinyML.World) {Q : Runtime.Val → iProp}
     {ctx : SpatialContext} {ρ : Env} {R : iProp}
     {n : Nat} {lt vt : Term .value} {ty : TinyML.Typ} {rest : SpatialContext}
     {v : Runtime.Val} {loc : Runtime.Location}
-    (h : ctx.interp Θ ρ ∗ R ⊢ Q (Term.eval ρ vt)) :
+    (h : ctx.interp W ρ ∗ R ⊢ Q (Term.eval ρ vt)) :
     remove ctx n = some (.pointsTo lt vt ty, rest) →
     Term.eval ρ lt = v →
     v = .loc loc →
-    ctx.interp Θ ρ ∗ R ⊢ wp pctx (.deref (.val v)) Q := by
+    ctx.interp W ρ ∗ R ⊢ wp W.pctx (.deref (.val v)) Q := by
   intro hrem hlt hv
   subst hv
   -- Split the context and rewrite the selected atom to a raw points-to fact.
-  have hsplit : ctx.interp Θ ρ ⊢
-      (loc ↦ [Term.eval ρ vt] ∗ TinyML.ValHasType Θ (Term.eval ρ vt) ty) ∗
-        rest.interp Θ ρ :=
-    (interp_remove Θ ρ ctx n _ _ hrem).1 |>.trans (sep_mono_left (SpatialAtom.interp_pointsTo Θ hlt).1)
+  have hsplit : ctx.interp W ρ ⊢
+      (loc ↦ [Term.eval ρ vt] ∗ TinyML.ValHasType W (Term.eval ρ vt) ty) ∗
+        rest.interp W ρ :=
+    (interp_remove W ρ ctx n _ _ hrem).1 |>.trans (sep_mono_left (SpatialAtom.interp_pointsTo W hlt).1)
   -- Rebuild the original context inside the wand, since reading preserves it.
   apply (sep_mono_left hsplit).trans
   istart
@@ -223,12 +223,12 @@ theorem wp_deref (Θ : TinyML.TypeEnv) {Q : Runtime.Val → iProp}
   · iexact Hpt
   · iintro Hpt
     have hctx :
-        (loc ↦ [Term.eval ρ vt] ∗ TinyML.ValHasType Θ (Term.eval ρ vt) ty) ∗
-          rest.interp Θ ρ ⊢ ctx.interp Θ ρ :=
-      (sep_mono_left (SpatialAtom.interp_pointsTo Θ hlt).2).trans (interp_remove Θ ρ ctx n _ _ hrem).2
+        (loc ↦ [Term.eval ρ vt] ∗ TinyML.ValHasType W (Term.eval ρ vt) ty) ∗
+          rest.interp W ρ ⊢ ctx.interp W ρ :=
+      (sep_mono_left (SpatialAtom.interp_pointsTo W hlt).2).trans (interp_remove W ρ ctx n _ _ hrem).2
     have hq :
-        (loc ↦ [Term.eval ρ vt] ∗ TinyML.ValHasType Θ (Term.eval ρ vt) ty) ∗
-          rest.interp Θ ρ ∗ R ⊢ Q (Term.eval ρ vt) :=
+        (loc ↦ [Term.eval ρ vt] ∗ TinyML.ValHasType W (Term.eval ρ vt) ty) ∗
+          rest.interp W ρ ∗ R ⊢ Q (Term.eval ρ vt) :=
       sep_assoc.2.trans ((sep_mono_left hctx).trans h)
     iapply hq
     isplitl [Hpt Hty]
@@ -326,22 +326,22 @@ theorem wp_bind_arrayGet {arr idx : Runtime.Expr} {Q : Runtime.Val → iProp}
     preserved, while the continuation receives the element typing fact. The
     array and index values are generic; their runtime shapes are recovered from
     the value-typing assumptions. -/
-theorem wp_arrayGet_inv (Θ : TinyML.TypeEnv) {Q : Runtime.Val → iProp}
+theorem wp_arrayGet_inv (W : TinyML.World) {Q : Runtime.Val → iProp}
     {ctx : SpatialContext} {ρ : Env} {R : iProp}
     {arr idx : Term .value} {elemTy : TinyML.Typ}
     {varr vidx : Runtime.Val}
     (harr : Term.eval ρ arr = varr) (hidx : Term.eval ρ idx = vidx)
     (hi : 0 ≤ Term.eval ρ (.unop .toInt idx))
     (hlt : Term.eval ρ (.unop .toInt idx) < Term.eval ρ (.unop .arrayLengthOf arr))
-    (h : ∀ w, ctx.interp Θ ρ ∗ TinyML.ValHasType Θ w elemTy ∗ R ⊢ Q w) :
-    ctx.interp Θ ρ ∗ TinyML.ValHasType Θ varr (.array elemTy) ∗
-      TinyML.ValHasType Θ vidx .int ∗ R ⊢
-    wp pctx (.arrayGet (.val varr) (.val vidx)) Q := by
+    (h : ∀ w, ctx.interp W ρ ∗ TinyML.ValHasType W w elemTy ∗ R ⊢ Q w) :
+    ctx.interp W ρ ∗ TinyML.ValHasType W varr (.array elemTy) ∗
+      TinyML.ValHasType W vidx .int ∗ R ⊢
+    wp W.pctx (.arrayGet (.val varr) (.val vidx)) Q := by
   istart
   iintro ⟨Hctx, Harr, #Hidx, HR⟩
-  ihave Harr' := (TinyML.ValHasType.array Θ varr elemTy).1 $$ Harr
+  ihave Harr' := (TinyML.ValHasType.array W varr elemTy).1 $$ Harr
   icases Harr' with ⟨%len, %loc, %hv_arr, #Hinv⟩
-  ihave Hidx' := (TinyML.ValHasType.int Θ vidx).1 $$ Hidx
+  ihave Hidx' := (TinyML.ValHasType.int W vidx).1 $$ Hidx
   icases Hidx' with ⟨%i, %hv_idx⟩
   have hi' : 0 ≤ i := by
     simpa [Term.eval, UnOp.eval, hidx, hv_idx] using hi
@@ -351,7 +351,7 @@ theorem wp_arrayGet_inv (Θ : TinyML.TypeEnv) {Q : Runtime.Val → iProp}
     omega
   subst hv_arr
   subst hv_idx
-  iapply (wp.arrayGet_inv (I := fun w => TinyML.ValHasType Θ w elemTy) hi' hlt')
+  iapply (wp.arrayGet_inv (I := fun w => TinyML.ValHasType W w elemTy) hi' hlt')
   isplitl []
   · iexact Hinv
   · iintro %w #Hw
@@ -364,7 +364,7 @@ theorem wp_arrayGet_inv (Θ : TinyML.TypeEnv) {Q : Runtime.Val → iProp}
 
 /-- `Array.get` through an owned-array atom: consume the atom, read the
 selected element, and restore the unchanged snapshot. -/
-theorem wp_arrayGet_owned (Θ : TinyML.TypeEnv) {Q : Runtime.Val → iProp}
+theorem wp_arrayGet_owned (W : TinyML.World) {Q : Runtime.Val → iProp}
     {ρ : Env} {R : iProp}
     {arr contents idx result : Term .value} {elemTy : TinyML.Typ}
     {rest : SpatialContext} {varr vidx : Runtime.Val}
@@ -372,33 +372,33 @@ theorem wp_arrayGet_owned (Θ : TinyML.TypeEnv) {Q : Runtime.Val → iProp}
     (hi : 0 ≤ Term.eval ρ (.unop .toInt idx))
     (hlt : Term.eval ρ (.unop .toInt idx) < Term.eval ρ (.unop .arrayLengthOf arr))
     (hresult : result = .binop .vecGet (.unop .toVec contents) (.unop .toInt idx))
-    (h : (insert (.arrayPointsTo arr contents elemTy) rest).interp Θ ρ ∗
-      TinyML.ValHasType Θ (Term.eval ρ result) elemTy ∗ R ⊢ Q (Term.eval ρ result)) :
-    SpatialAtom.interp Θ ρ (.arrayPointsTo arr contents elemTy) ∗ rest.interp Θ ρ ∗
-      TinyML.ValHasType Θ varr (.ownedArray elemTy) ∗
-      TinyML.ValHasType Θ vidx .int ∗ R ⊢
-      wp pctx (.arrayGet (.val varr) (.val vidx)) Q := by
+    (h : (insert (.arrayPointsTo arr contents elemTy) rest).interp W ρ ∗
+      TinyML.ValHasType W (Term.eval ρ result) elemTy ∗ R ⊢ Q (Term.eval ρ result)) :
+    SpatialAtom.interp W ρ (.arrayPointsTo arr contents elemTy) ∗ rest.interp W ρ ∗
+      TinyML.ValHasType W varr (.ownedArray elemTy) ∗
+      TinyML.ValHasType W vidx .int ∗ R ⊢
+      wp W.pctx (.arrayGet (.val varr) (.val vidx)) Q := by
   istart
   iintro ⟨Hatom, Hrest, _HarrTy, HidxTy, HR⟩
-  ihave Hacc := (SpatialAtom.interp_arrayPointsTo_lookup Θ hidx hi hlt) $$ Hatom
+  ihave Hacc := (SpatialAtom.interp_arrayPointsTo_lookup W hidx hi hlt) $$ Hatom
   ispecialize Hacc $$ HidxTy
   icases Hacc with ⟨%loc, %vs, %i, %ha, %hv, %hvidx, %hi', %hlt', Hpt, #HvecTy⟩
   have hvarr : varr = .array vs.length loc := harr ▸ ha
   subst hvarr
   subst hvidx
   have hraw : iprop(loc ↦ vs ∗ (loc ↦ vs -∗ Q vs[i.toNat])) ⊢
-      wp pctx (.arrayGet (.val (.array vs.length loc)) (.val (.int i))) Q :=
+      wp W.pctx (.arrayGet (.val (.array vs.length loc)) (.val (.int i))) Q :=
     wp.arrayGet hi' hlt' rfl BIBase.Entails.rfl
   iapply hraw
   isplitl [Hpt]
   · iexact Hpt
   · iintro HptNew
     have hlookup : vs[i.toNat]? = some vs[i.toNat] := List.getElem?_eq_getElem hlt'
-    ihave Helem := (TinyML.ValHasType.vec Θ (.vec vs) elemTy).1 $$ HvecTy
+    ihave Helem := (TinyML.ValHasType.vec W (.vec vs) elemTy).1 $$ HvecTy
     icases Helem with ⟨%ws, %hws, Htys⟩
     have hws_eq : ws = vs := Runtime.Val.vec.inj hws.symm
     subst ws
-    ihave Hty := (BigSepL.bigSepL_lookup (Φ := fun _ w => TinyML.ValHasType Θ w elemTy) hlookup) $$ Htys
+    ihave Hty := (BigSepL.bigSepL_lookup (Φ := fun _ w => TinyML.ValHasType W w elemTy) hlookup) $$ Htys
     have hresult_eval : Term.eval ρ result = vs[i.toNat] := by
       subst hresult
       simp [Term.eval, UnOp.eval, BinOp.eval, hv, hidx, hi', hlookup]
@@ -407,7 +407,7 @@ theorem wp_arrayGet_owned (Θ : TinyML.TypeEnv) {Q : Runtime.Val → iProp}
     isplitl [HptNew HvecTy Hrest]
     · simp only [SpatialContext.interp]
       isplitr [Hrest]
-      · iapply (SpatialAtom.interp_arrayPointsTo Θ ha hv).2
+      · iapply (SpatialAtom.interp_arrayPointsTo W ha hv).2
         isplitl [HptNew]
         · iexact HptNew
         · iexact HvecTy
@@ -444,22 +444,22 @@ theorem wp_bind_arraySet {arr idx val : Runtime.Expr} {Q : Runtime.Val → iProp
     preserved, while the new element typing fact is used to restore the array
     invariant. The array and index values are generic; their runtime shapes are
     recovered from the value-typing assumptions. -/
-theorem wp_arraySet_inv (Θ : TinyML.TypeEnv) {Q : Runtime.Val → iProp}
+theorem wp_arraySet_inv (W : TinyML.World) {Q : Runtime.Val → iProp}
     {ctx : SpatialContext} {ρ : Env} {R : iProp}
     {arr idx : Term .value} {elemTy : TinyML.Typ}
     {varr vidx val : Runtime.Val}
     (harr : Term.eval ρ arr = varr) (hidx : Term.eval ρ idx = vidx)
     (hi : 0 ≤ Term.eval ρ (.unop .toInt idx))
     (hlt : Term.eval ρ (.unop .toInt idx) < Term.eval ρ (.unop .arrayLengthOf arr))
-    (h : ctx.interp Θ ρ ∗ TinyML.ValHasType Θ .unit .unit ∗ R ⊢ Q .unit) :
-    ctx.interp Θ ρ ∗ TinyML.ValHasType Θ varr (.array elemTy) ∗
-      TinyML.ValHasType Θ vidx .int ∗ TinyML.ValHasType Θ val elemTy ∗ R ⊢
-    wp pctx (.arraySet (.val varr) (.val vidx) (.val val)) Q := by
+    (h : ctx.interp W ρ ∗ TinyML.ValHasType W .unit .unit ∗ R ⊢ Q .unit) :
+    ctx.interp W ρ ∗ TinyML.ValHasType W varr (.array elemTy) ∗
+      TinyML.ValHasType W vidx .int ∗ TinyML.ValHasType W val elemTy ∗ R ⊢
+    wp W.pctx (.arraySet (.val varr) (.val vidx) (.val val)) Q := by
   istart
   iintro ⟨Hctx, Harr, #Hidx, #Hval, HR⟩
-  ihave Harr' := (TinyML.ValHasType.array Θ varr elemTy).1 $$ Harr
+  ihave Harr' := (TinyML.ValHasType.array W varr elemTy).1 $$ Harr
   icases Harr' with ⟨%len, %loc, %hv_arr, #Hinv⟩
-  ihave Hidx' := (TinyML.ValHasType.int Θ vidx).1 $$ Hidx
+  ihave Hidx' := (TinyML.ValHasType.int W vidx).1 $$ Hidx
   icases Hidx' with ⟨%i, %hv_idx⟩
   have hi' : 0 ≤ i := by
     simpa [Term.eval, UnOp.eval, hidx, hv_idx] using hi
@@ -469,7 +469,7 @@ theorem wp_arraySet_inv (Θ : TinyML.TypeEnv) {Q : Runtime.Val → iProp}
     omega
   subst hv_arr
   subst hv_idx
-  iapply (wp.arraySet_inv (I := fun w => TinyML.ValHasType Θ w elemTy) hi' hlt')
+  iapply (wp.arraySet_inv (I := fun w => TinyML.ValHasType W w elemTy) hi' hlt')
   isplitl []
   · iexact Hinv
   · isplitl []
@@ -484,7 +484,7 @@ theorem wp_arraySet_inv (Θ : TinyML.TypeEnv) {Q : Runtime.Val → iProp}
 
 /-- `Array.set` through an owned-array atom: consume the old snapshot and
 restore ownership with the selected element updated. -/
-theorem wp_arraySet_owned (Θ : TinyML.TypeEnv) {Q : Runtime.Val → iProp}
+theorem wp_arraySet_owned (W : TinyML.World) {Q : Runtime.Val → iProp}
     {ρ : Env} {R : iProp}
     {arr contents contents' idx val : Term .value} {elemTy : TinyML.Typ}
     {rest : SpatialContext} {varr vidx vval : Runtime.Val}
@@ -494,35 +494,35 @@ theorem wp_arraySet_owned (Θ : TinyML.TypeEnv) {Q : Runtime.Val → iProp}
     (hlt : Term.eval ρ (.unop .toInt idx) < Term.eval ρ (.unop .arrayLengthOf arr))
     (hcontents' : contents' = .unop .ofVec
       (.terop .vecSet (.unop .toVec contents) (.unop .toInt idx) val))
-    (h : (insert (.arrayPointsTo arr contents' elemTy) rest).interp Θ ρ ∗
-      TinyML.ValHasType Θ .unit .unit ∗ R ⊢ Q .unit) :
-    SpatialAtom.interp Θ ρ (.arrayPointsTo arr contents elemTy) ∗ rest.interp Θ ρ ∗
-      TinyML.ValHasType Θ varr (.ownedArray elemTy) ∗
-      TinyML.ValHasType Θ vidx .int ∗ TinyML.ValHasType Θ vval elemTy ∗ R ⊢
-      wp pctx (.arraySet (.val varr) (.val vidx) (.val vval)) Q := by
+    (h : (insert (.arrayPointsTo arr contents' elemTy) rest).interp W ρ ∗
+      TinyML.ValHasType W .unit .unit ∗ R ⊢ Q .unit) :
+    SpatialAtom.interp W ρ (.arrayPointsTo arr contents elemTy) ∗ rest.interp W ρ ∗
+      TinyML.ValHasType W varr (.ownedArray elemTy) ∗
+      TinyML.ValHasType W vidx .int ∗ TinyML.ValHasType W vval elemTy ∗ R ⊢
+      wp W.pctx (.arraySet (.val varr) (.val vidx) (.val vval)) Q := by
   istart
   iintro ⟨Hatom, Hrest, _HarrTy, HidxTy, #HvalTy, HR⟩
-  ihave Hacc := (SpatialAtom.interp_arrayPointsTo_lookup Θ hidx hi hlt) $$ Hatom
+  ihave Hacc := (SpatialAtom.interp_arrayPointsTo_lookup W hidx hi hlt) $$ Hatom
   ispecialize Hacc $$ HidxTy
   icases Hacc with ⟨%loc, %vs, %i, %ha, %hv, %hvidx, %hi', %hlt', Hpt, #HvecTy⟩
   have hvarr : varr = .array vs.length loc := harr ▸ ha
   subst hvarr
   subst hvidx
   have hraw : iprop(loc ↦ vs ∗ (loc ↦ vs.set i.toNat vval -∗ Q .unit)) ⊢
-      wp pctx (.arraySet (.val (.array vs.length loc)) (.val (.int i)) (.val vval)) Q :=
+      wp W.pctx (.arraySet (.val (.array vs.length loc)) (.val (.int i)) (.val vval)) Q :=
     wp.arraySet hi' hlt' rfl BIBase.Entails.rfl
   iapply hraw
   isplitl [Hpt]
   · iexact Hpt
   · iintro HptNew
     have hlookup : vs[i.toNat]? = some vs[i.toNat] := List.getElem?_eq_getElem hlt'
-    ihave Hvec := (TinyML.ValHasType.vec Θ (.vec vs) elemTy).1 $$ HvecTy
+    ihave Hvec := (TinyML.ValHasType.vec W (.vec vs) elemTy).1 $$ HvecTy
     icases Hvec with ⟨%ws, %hws, Htys⟩
     have hws_eq : ws = vs := Runtime.Val.vec.inj hws.symm
     subst ws
-    ihave HvecTyNew : iprop(TinyML.ValHasType Θ (.vec (vs.set i.toNat vval)) (.vec elemTy))
+    ihave HvecTyNew : iprop(TinyML.ValHasType W (.vec (vs.set i.toNat vval)) (.vec elemTy))
         $$ [Htys HvalTy]
-    · iapply (TinyML.ValHasType.vec_set Θ hlookup)
+    · iapply (TinyML.ValHasType.vec_set W hlookup)
       isplitl [Htys]
       · iexact Htys
       · iexact HvalTy
@@ -533,7 +533,7 @@ theorem wp_arraySet_owned (Θ : TinyML.TypeEnv) {Q : Runtime.Val → iProp}
     isplitl [HptNew HvecTyNew Hrest]
     · simp only [SpatialContext.interp]
       isplitr [Hrest]
-      · iapply (SpatialAtom.interp_arrayPointsTo Θ (by simpa using ha) hcontents'_eval).2
+      · iapply (SpatialAtom.interp_arrayPointsTo W (by simpa using ha) hcontents'_eval).2
         isplitl [HptNew]
         · iexact HptNew
         · iexact HvecTyNew
@@ -543,23 +543,23 @@ theorem wp_arraySet_owned (Θ : TinyML.TypeEnv) {Q : Runtime.Val → iProp}
       · iexact HR
 
 /-- Store at values: replace the selected points-to atom with the updated one. -/
-theorem wp_store (Θ : TinyML.TypeEnv) {Q : Runtime.Val → iProp}
+theorem wp_store (W : TinyML.World) {Q : Runtime.Val → iProp}
     {ctx : SpatialContext} {ρ : Env} {R : iProp}
     {n : Nat} {lt vt_old vt_new : Term .value} {ty : TinyML.Typ} {rest : SpatialContext}
     {vloc vnew : Runtime.Val} {loc : Runtime.Location}
-    (h : (insert (.pointsTo lt vt_new ty) rest).interp Θ ρ ∗ R ⊢ Q .unit) :
+    (h : (insert (.pointsTo lt vt_new ty) rest).interp W ρ ∗ R ⊢ Q .unit) :
     remove ctx n = some (.pointsTo lt vt_old ty, rest) →
     Term.eval ρ lt = vloc →
     vloc = .loc loc →
     Term.eval ρ vt_new = vnew →
-    ctx.interp Θ ρ ∗ TinyML.ValHasType Θ vnew ty ∗ R ⊢
-      wp pctx (.store (.val vloc) (.val vnew)) Q := by
+    ctx.interp W ρ ∗ TinyML.ValHasType W vnew ty ∗ R ⊢
+      wp W.pctx (.store (.val vloc) (.val vnew)) Q := by
   intro hrem hlt hvloc hvnew
   subst hvloc
-  have hsplit : ctx.interp Θ ρ ⊢
-      (loc ↦ [Term.eval ρ vt_old] ∗ TinyML.ValHasType Θ (Term.eval ρ vt_old) ty) ∗
-        rest.interp Θ ρ :=
-    (interp_remove Θ ρ ctx n _ _ hrem).1 |>.trans (sep_mono_left (SpatialAtom.interp_pointsTo Θ hlt).1)
+  have hsplit : ctx.interp W ρ ⊢
+      (loc ↦ [Term.eval ρ vt_old] ∗ TinyML.ValHasType W (Term.eval ρ vt_old) ty) ∗
+        rest.interp W ρ :=
+    (interp_remove W ρ ctx n _ _ hrem).1 |>.trans (sep_mono_left (SpatialAtom.interp_pointsTo W hlt).1)
   apply (sep_mono_left hsplit).trans
   istart
   iintro ⟨⟨⟨Hold, _HoldTy⟩, Hrest⟩, HnewTy, HR⟩
@@ -567,14 +567,14 @@ theorem wp_store (Θ : TinyML.TypeEnv) {Q : Runtime.Val → iProp}
   isplitl [Hold]
   · iexact Hold
   · iintro Hnew
-    have hnew : loc ↦ [vnew] ∗ TinyML.ValHasType Θ vnew ty ⊢
-        SpatialAtom.interp Θ ρ (.pointsTo lt vt_new ty) := by
+    have hnew : loc ↦ [vnew] ∗ TinyML.ValHasType W vnew ty ⊢
+        SpatialAtom.interp W ρ (.pointsTo lt vt_new ty) := by
       rw [← hvnew]
-      exact (SpatialAtom.interp_pointsTo Θ hlt).2
-    have hctx : (loc ↦ [vnew] ∗ TinyML.ValHasType Θ vnew ty) ∗ rest.interp Θ ρ ⊢
-        (insert (.pointsTo lt vt_new ty) rest).interp Θ ρ := by
+      exact (SpatialAtom.interp_pointsTo W hlt).2
+    have hctx : (loc ↦ [vnew] ∗ TinyML.ValHasType W vnew ty) ∗ rest.interp W ρ ⊢
+        (insert (.pointsTo lt vt_new ty) rest).interp W ρ := by
       simpa [insert, interp] using (sep_mono_left hnew)
-    have hq : (loc ↦ [vnew] ∗ TinyML.ValHasType Θ vnew ty) ∗ rest.interp Θ ρ ∗ R ⊢ Q .unit :=
+    have hq : (loc ↦ [vnew] ∗ TinyML.ValHasType W vnew ty) ∗ rest.interp W ρ ∗ R ⊢ Q .unit :=
       sep_assoc.2.trans ((sep_mono_left hctx).trans h)
     iapply hq
     isplitl [Hnew HnewTy]

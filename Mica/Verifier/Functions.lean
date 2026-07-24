@@ -47,11 +47,10 @@ def checkSpec (reg : Verifier.Registry) (Θ : TinyML.TypeEnv) (Δ_spec : Signatu
     `Spec.implement_correct` and a successful `checkBody` evaluation, the
     compiled body's `wp` holds. -/
 theorem checkBody_correct (reg : Verifier.Registry) (hSound : Verifier.Registry.Sound reg)
-    (Θ : TinyML.TypeEnv) (S : SpecMap) (s : Spec)
+    (W : TinyML.World) (hW : W.pctx = reg.primCtx) (S : SpecMap) (s : Spec)
     (γ : Runtime.Subst)
-    (Δ_spec : Signature) (ρ_spec : VerifM.Env)
-    (hswf : s.wfIn Δ_spec) (hSwf : S.wfIn Δ_spec)
-    (hΔwf : Δ_spec.wf) (hΔvars : Δ_spec.vars = [])
+    (hswf : s.wfIn W.Δ_spec) (hSwf : S.wfIn W.Δ_spec)
+    (hwf : W.wf)
     (fb : Binder) (argBinders : List Binder) (body : Expr)
     (argNames : List String)
     (hext : extractArgNames argBinders s.args = Except.ok argNames)
@@ -60,28 +59,27 @@ theorem checkBody_correct (reg : Verifier.Registry) (hSound : Verifier.Registry.
     (vs : List Runtime.Val)
     (P : Runtime.Val → iProp)
     {argVars : List FOL.Const} {st' : TransState} {ρ' : VerifM.Env} {Q : iProp}
-    (hΔspec : Δ_spec.Subset st'.decls)
-    (hρspec : VerifM.Env.agreeOn Δ_spec ρ_spec ρ')
-    (hΔreg : Verifier.Registry.symSubset reg Δ_spec)
-    (hρreg : Verifier.Registry.symAgree reg ρ_spec.env)
+    (hag : W.agrees st'.decls ρ'.env)
+    (hΔreg : Verifier.Registry.symSubset reg W.Δ_spec)
+    (hρreg : Verifier.Registry.symAgree reg W.ρ_spec)
     (hargVars_mem : ∀ v ∈ argVars, v ∈ st'.decls.consts)
     (hargVars_sort : ∀ v ∈ argVars, v.sort = .value)
     (hargVars_lookup : List.Forall₂ (fun av val => ρ'.env.consts .value av.name = val) argVars vs)
     (hbody_eval : VerifM.eval
-        (checkBody reg Θ Δ_spec (SpecMap.eraseAll argNames (S.insertBinder fb s)) s argNames body argVars)
+        (checkBody reg W.Θ W.Δ_spec (SpecMap.eraseAll argNames (S.insertBinder fb s)) s argNames body argVars)
         st' ρ'
         (fun result st'' ρ'' => ∀ S, result.wfIn st''.decls →
-          st''.sl Θ ρ'' ∗ Q ∗
-            ((TinyML.ValHasType Θ (result.eval ρ''.env) s.retTy -∗ P (result.eval ρ''.env)) -∗ S) ⊢ S)) :
-    st'.sl Θ ρ' ∗ TinyML.ValsHaveTypes Θ vs (s.args.map Prod.snd) ∗ Q ⊢
-      (S.satisfiedBy reg.primCtx Θ Δ_spec ρ_spec γ ∗ s.isPrecondFor reg.primCtx Θ Δ_spec ρ_spec fval) -∗
-        wp reg.primCtx (body.runtime.subst (γ.updateBinder fb.runtime fval |>.updateAllBinder bs vs)) P := by
+          st''.sl W ρ'' ∗ Q ∗
+            ((TinyML.ValHasType W (result.eval ρ''.env) s.retTy -∗ P (result.eval ρ''.env)) -∗ S) ⊢ S)) :
+    st'.sl W ρ' ∗ TinyML.ValsHaveTypes W vs (s.args.map Prod.snd) ∗ Q ⊢
+      (S.satisfiedBy W γ ∗ s.isPrecondFor W fval) -∗
+        wp W.pctx (body.runtime.subst (γ.updateBinder fb.runtime fval |>.updateAllBinder bs vs)) P := by
   simp only [checkBody] at hbody_eval
   obtain ⟨hargNames_len, _, hbs_eq⟩ := extractArgNames_spec hext
   have hbs_runtime : bs = argNames.map Runtime.Binder.named := hbs_def ▸ hbs_eq
   set γ_body := γ.updateBinder fb.runtime fval |>.updateAllBinder bs vs
   set S' : SpecMap := SpecMap.eraseAll argNames (S.insertBinder fb s)
-  have hS'wf : S'.wfIn Δ_spec :=
+  have hS'wf : S'.wfIn W.Δ_spec :=
     SpecMap.wfIn_eraseAll (SpecMap.wfIn_insertBinder hSwf hswf)
   set Γ := (argNames.zip (s.args.map Prod.snd)).foldl
     (fun ctx (x : String × TinyML.Typ) => ctx.extend x.1 x.2) TinyML.TyCtx.empty
@@ -115,10 +113,10 @@ theorem checkBody_correct (reg : Verifier.Registry) (hSound : Verifier.Registry.
     · exact hargVars_sort
     · exact hargVars_lookup
   have hts :
-      TinyML.ValsHaveTypes Θ vs (s.args.map Prod.snd) ⊢
-        Bindings.typedSubst Θ B Γ γ_body := by
+      TinyML.ValsHaveTypes W vs (s.args.map Prod.snd) ⊢
+        Bindings.typedSubst W B Γ γ_body := by
     iintro #HvalsArg
-    iapply (Bindings.typedSubst_of_agreeOnLinked (Θ := Θ) hagree)
+    iapply (Bindings.typedSubst_of_agreeOnLinked (W := W) hagree)
     imodintro
     iintro %x %x' %t %hmem %hΓ
     set args' := argNames.zip (s.args.map Prod.snd)
@@ -134,26 +132,26 @@ theorem checkBody_correct (reg : Verifier.Registry) (hSound : Verifier.Registry.
     rw [hsnd]
     iassumption
   have hS'_sat :
-      S.satisfiedBy reg.primCtx Θ Δ_spec ρ_spec γ ∗ s.isPrecondFor reg.primCtx Θ Δ_spec ρ_spec fval ⊢
-        S'.satisfiedBy reg.primCtx Θ Δ_spec ρ_spec γ_body := by
+      S.satisfiedBy W γ ∗ s.isPrecondFor W fval ⊢
+        S'.satisfiedBy W γ_body := by
     have hinsert :
-        S.satisfiedBy reg.primCtx Θ Δ_spec ρ_spec γ ∗ s.isPrecondFor reg.primCtx Θ Δ_spec ρ_spec fval ⊢
-          (S.insertBinder fb s).satisfiedBy reg.primCtx Θ Δ_spec ρ_spec (γ.updateBinder fb.runtime fval) :=
+        S.satisfiedBy W γ ∗ s.isPrecondFor W fval ⊢
+          (S.insertBinder fb s).satisfiedBy W (γ.updateBinder fb.runtime fval) :=
       SpecMap.satisfiedBy_insertBinder_updateBinder
     have herase :
-        (S.insertBinder fb s).satisfiedBy reg.primCtx Θ Δ_spec ρ_spec (γ.updateBinder fb.runtime fval) ⊢
-          S'.satisfiedBy reg.primCtx Θ Δ_spec ρ_spec ((γ.updateBinder fb.runtime fval).updateAllBinder (argNames.map Runtime.Binder.named) vs) :=
+        (S.insertBinder fb s).satisfiedBy W (γ.updateBinder fb.runtime fval) ⊢
+          S'.satisfiedBy W ((γ.updateBinder fb.runtime fval).updateAllBinder (argNames.map Runtime.Binder.named) vs) :=
       SpecMap.satisfiedBy_eraseAll_updateAllBinder hlen_nv
     exact hinsert.trans <| by simpa [S', γ_body, hbs_runtime] using herase
   have hbody_wp :
-      st'.sl Θ ρ' ∗ (S'.satisfiedBy reg.primCtx Θ Δ_spec ρ_spec γ_body ∗ Bindings.typedSubst Θ B Γ γ_body ∗ Q) ⊢
-        wp reg.primCtx (body.runtime.subst γ_body) P := by
-    refine compile_correct reg hSound body Θ Q S' B Γ st' ρ' γ_body Δ_spec ρ_spec _ _
-      (VerifM.eval.decls_grow ρ' hcompile) hagree hbwf hS'wf hΔwf hΔvars
-      hΔspec hρspec hΔreg hρreg ?_
+      st'.sl W ρ' ∗ (S'.satisfiedBy W γ_body ∗ Bindings.typedSubst W B Γ γ_body ∗ Q) ⊢
+        wp W.pctx (body.runtime.subst γ_body) P := by
+    refine compile_correct reg hSound body W Q S' B Γ st' ρ' γ_body _ _ hW
+      (VerifM.eval.decls_grow ρ' hcompile) hagree hbwf hS'wf hwf
+      hag hΔreg hρreg ?_
     intro v ρ'' st'' se hΨ hse_wf heval_se
     obtain ⟨_, _, hΨ⟩ := hΨ
-    by_cases hsub : TinyML.Typ.sub Θ body.ty s.retTy
+    by_cases hsub : TinyML.Typ.sub W.Θ body.ty s.retTy
     case neg =>
       simp [hsub] at hΨ
       exact (VerifM.eval_fatal hΨ).elim
@@ -161,9 +159,9 @@ theorem checkBody_correct (reg : Verifier.Registry) (hSound : Verifier.Registry.
     have hΨ' := VerifM.eval_ret hΨ
     dsimp only at hΨ'
     rw [← heval_se]
-    refine (show st''.sl Θ ρ'' ∗ TinyML.ValHasType Θ (se.eval ρ''.env) body.ty ∗ Q ⊢
-        st''.sl Θ ρ'' ∗ Q ∗
-          ((TinyML.ValHasType Θ (se.eval ρ''.env) s.retTy -∗ P (se.eval ρ''.env)) -∗
+    refine (show st''.sl W ρ'' ∗ TinyML.ValHasType W (se.eval ρ''.env) body.ty ∗ Q ⊢
+        st''.sl W ρ'' ∗ Q ∗
+          ((TinyML.ValHasType W (se.eval ρ''.env) s.retTy -∗ P (se.eval ρ''.env)) -∗
             P (se.eval ρ''.env)) from ?_).trans (hΨ' _ hse_wf)
     iintro ⟨Howns, Hty, HQ⟩
     iframe Howns HQ
@@ -181,18 +179,16 @@ theorem checkBody_correct (reg : Verifier.Registry) (hSound : Verifier.Registry.
     iexact Hvals
 
 theorem checkSpec_correct (reg : Verifier.Registry) (hSound : Verifier.Registry.Sound reg)
-    (Θ : TinyML.TypeEnv) (S : SpecMap) (e : Expr) (s : Spec)
+    (W : TinyML.World) (hW : W.pctx = reg.primCtx) (S : SpecMap) (e : Expr) (s : Spec)
     (γ : Runtime.Subst)
-    (Δ_spec : Signature) (ρ_spec : VerifM.Env)
-    (hswf : s.wfIn Δ_spec) (hSwf : S.wfIn Δ_spec)
-    (hΔwf : Δ_spec.wf) (hΔvars : Δ_spec.vars = [])
+    (hswf : s.wfIn W.Δ_spec) (hSwf : S.wfIn W.Δ_spec)
+    (hwf : W.wf)
     (st : TransState) (ρ : VerifM.Env)
-    (hΔspec : Δ_spec.Subset st.decls)
-    (hρspec : VerifM.Env.agreeOn Δ_spec ρ_spec ρ)
-    (hΔreg : Verifier.Registry.symSubset reg Δ_spec)
-    (hρreg : Verifier.Registry.symAgree reg ρ_spec.env) :
-    VerifM.eval (checkSpec reg Θ Δ_spec S e s) st ρ (fun _ _ _ => True) →
-    st.sl Θ ρ ∗ S.satisfiedBy reg.primCtx Θ Δ_spec ρ_spec γ ⊢ wp reg.primCtx (e.runtime.subst γ) (fun v => s.isPrecondFor reg.primCtx Θ Δ_spec ρ_spec v) := by
+    (hag : W.agrees st.decls ρ.env)
+    (hΔreg : Verifier.Registry.symSubset reg W.Δ_spec)
+    (hρreg : Verifier.Registry.symAgree reg W.ρ_spec) :
+    VerifM.eval (checkSpec reg W.Θ W.Δ_spec S e s) st ρ (fun _ _ _ => True) →
+    st.sl W ρ ∗ S.satisfiedBy W γ ⊢ wp W.pctx (e.runtime.subst γ) (fun v => s.isPrecondFor W v) := by
   intro heval
   -- All non-`fix` shapes (and bad `extractArgNames`) discharge the same way.
   have elim_bind_fatal : ∀ {α β} {msg} {k : α → VerifM β} {st ρ Ψ},
@@ -240,28 +236,26 @@ theorem checkSpec_correct (reg : Verifier.Registry) (hSound : Verifier.Registry.
         omega
       have hsub := Runtime.Expr.subst_fix_comp body.runtime fb.runtime bs γ fval vs hlen_vs
       simp only [] at hsub; rw [hsub]
-      have hbody' : TinyML.ValsHaveTypes Θ vs (s.args.map Prod.snd) ∗
-          PredTrans.apply Θ (fun r => TinyML.ValHasType Θ r s.retTy -∗ P r) s.pred
+      have hbody' : TinyML.ValsHaveTypes W vs (s.args.map Prod.snd) ∗
+          PredTrans.apply W (fun r => TinyML.ValHasType W r s.retTy -∗ P r) s.pred
           (Spec.argsEnv ρ_call s.args vs) ⊢
-          SpecMap.satisfiedBy reg.primCtx Θ Δ_spec ρ_spec S γ ∗ s.isPrecondFor reg.primCtx Θ Δ_spec ρ_spec fval -∗
-            wp reg.primCtx (Runtime.Expr.subst ((Runtime.Subst.updateBinder fb.runtime fval γ).updateAllBinder bs vs) body.runtime) P := by
+          SpecMap.satisfiedBy W S γ ∗ s.isPrecondFor W fval -∗
+            wp W.pctx (Runtime.Expr.subst ((Runtime.Subst.updateBinder fb.runtime fval γ).updateAllBinder bs vs) body.runtime) P := by
         iintro H
         icases H with ⟨Htyped', Hpred'⟩
         iintuitionistic Htyped'
-        have hΔspec_persist : Δ_spec.Subset (TransState.persist st).decls := by
-          simpa using hΔspec
-        ihave Hwand := Spec.implement_correct Θ s _ Δ_spec ρ_spec (TransState.persist st) ρ vs P
-          (TinyML.ValsHaveTypes Θ vs (s.args.map Prod.snd) -∗
-            (S.satisfiedBy reg.primCtx Θ Δ_spec ρ_spec γ ∗ s.isPrecondFor reg.primCtx Θ Δ_spec ρ_spec fval) -∗
-              wp reg.primCtx (body.runtime.subst (γ.updateBinder fb.runtime fval |>.updateAllBinder bs vs)) P)
-          hswf hΔspec_persist hρspec hΔwf hΔvars himpl
+        have hag_persist : W.agrees (TransState.persist st).decls ρ.env := by
+          simpa using hag
+        ihave Hwand := Spec.implement_correct W s _ (TransState.persist st) ρ vs P
+          (TinyML.ValsHaveTypes W vs (s.args.map Prod.snd) -∗
+            (S.satisfiedBy W γ ∗ s.isPrecondFor W fval) -∗
+              wp W.pctx (body.runtime.subst (γ.updateBinder fb.runtime fval |>.updateAllBinder bs vs)) P)
+          hswf hwf hag_persist himpl
           (fun argVars st' ρ' Q hst_sub hρ_agree hargVars_mem hargVars_sort hargVars_lookup hbody_eval => by
-            have hΔspec' : Δ_spec.Subset st'.decls := hΔspec_persist.trans hst_sub
-            have hρspec' : VerifM.Env.agreeOn Δ_spec ρ_spec ρ' := by
-              exact VerifM.Env.agreeOn_trans hρspec (VerifM.Env.agreeOn_mono hΔspec_persist hρ_agree)
+            have hag' : W.agrees st'.decls ρ'.env := hag_persist.step hst_sub hρ_agree
             iintro ⟨Hsl, HQ⟩ Htyped''
-            iapply (checkBody_correct reg hSound Θ S s γ Δ_spec ρ_spec hswf hSwf hΔwf hΔvars fb argBinders body argNames
-              hext bs rfl fval vs P hΔspec' hρspec' hΔreg hρreg hargVars_mem hargVars_sort hargVars_lookup hbody_eval)
+            iapply (checkBody_correct reg hSound W hW S s γ hswf hSwf hwf fb argBinders body argNames
+              hext bs rfl fval vs P hag' hΔreg hρreg hargVars_mem hargVars_sort hargVars_lookup hbody_eval)
             isplitl [Hsl]
             · iexact Hsl
             · isplitl [Htyped'']
@@ -276,9 +270,9 @@ theorem checkSpec_correct (reg : Verifier.Registry) (hSound : Verifier.Registry.
                 have hlen := hlen_typed
                 simp [List.length_map] at hlen
                 omega
-              iapply (PredTrans.apply_env_agree Θ (ρ := Spec.argsEnv ρ_call s.args vs)
-                (ρ' := Spec.argsEnv ρ_spec s.args vs) hswf
-                (Spec.argsEnv_agreeOn (Δ := Δ_spec) (ρ₁ := ρ_call) (ρ₂ := ρ_spec)
+              iapply (PredTrans.apply_env_agree W (ρ := Spec.argsEnv ρ_call s.args vs)
+                (ρ' := Spec.argsEnv ⟨W.ρ_spec⟩ s.args vs) hswf
+                (Spec.argsEnv_agreeOn (Δ := W.Δ_spec) (ρ₁ := ρ_call) (ρ₂ := ⟨W.ρ_spec⟩)
                   (VerifM.Env.agreeOn_symm hagree_call) s.args vs hlen_vals_call))
               iexact Hpred'
         iapply Hwand

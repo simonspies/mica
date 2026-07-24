@@ -19,6 +19,7 @@ inductive ParseErrorKind where
   | invalidRecordField
   | nonPositiveProjIndex
   | letRecNoArgs
+  | funNoArgs
   | nonFinalLowercaseSegment (segment : String)
   | expectedArrayElementAssignTarget
   deriving Repr, Inhabited
@@ -36,6 +37,7 @@ def ParseError.toString (e : ParseError) : String :=
   | .invalidRecordField => s!"{loc}: expected field name (identifier) before '=' in record literal"
   | .nonPositiveProjIndex => s!"{loc}: projection index must be at least 1 (projections are 1-based)"
   | .letRecNoArgs => s!"{loc}: let rec without arguments is not supported"
+  | .funNoArgs => s!"{loc}: function expressions require at least one argument"
   | .nonFinalLowercaseSegment seg => s!"{loc}: qualified path segment '{seg}' is lowercase, but only the final component of a module path may be lowercase"
   | .expectedArrayElementAssignTarget => s!"{loc}: `<-` expects an array element `a.(i)` on the left"
 
@@ -794,6 +796,8 @@ where
     let p := peekLoc st
     let st ← expect .kw_fun st
     let (args, st) ← parseFunArgs st
+    if args.isEmpty then
+      .error { loc := p, kind := .funNoArgs }
     let (retTy, st) ← parseOptRetTy st
     let st ← expect .arrow st
     let (body, st) ← parseExpr st

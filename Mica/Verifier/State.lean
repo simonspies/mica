@@ -173,10 +173,10 @@ theorem Builtins.holdsFor.agree {Δ : Signature} {ρ ρ' : Env}
 end VerifM
 
 /-- Semantic interpretation of a verifier context item. -/
-def CtxItem.interp [MicaGS HasLC.hasLC Sig] (Θ : TinyML.TypeEnv)
+def CtxItem.interp [MicaGS HasLC.hasLC Sig] (W : TinyML.World)
     (ρ : VerifM.Env) : CtxItem → iProp
   | .pure φ => ⌜φ.eval ρ.env⌝
-  | .spatial a => a.interp Θ ρ.env
+  | .spatial a => a.interp W ρ.env
 
 def CtxItem.purePart (i : CtxItem) (ρ : VerifM.Env) : Prop :=
   match i with
@@ -196,9 +196,9 @@ theorem CtxItem.facts_wfIn {i : CtxItem} {Δ : Signature} (h : i.wfIn Δ) :
   | spatial a => exact SpatialAtom.facts_wfIn h
 
 /-- An item's interpretation implies its pure facts. -/
-theorem CtxItem.interp_facts [MicaGS HasLC.hasLC Sig] (Θ : TinyML.TypeEnv)
+theorem CtxItem.interp_facts [MicaGS HasLC.hasLC Sig] (W : TinyML.World)
     (ρ : VerifM.Env) (i : CtxItem) :
-    i.interp Θ ρ ⊢ ⌜∀ φ ∈ i.facts, φ.eval ρ.env⌝ ∗ i.interp Θ ρ := by
+    i.interp W ρ ⊢ ⌜∀ φ ∈ i.facts, φ.eval ρ.env⌝ ∗ i.interp W ρ := by
   cases i with
   | pure φ =>
     istart
@@ -208,15 +208,15 @@ theorem CtxItem.interp_facts [MicaGS HasLC.hasLC Sig] (Θ : TinyML.TypeEnv)
       simp [facts]
     · iexact H
   | spatial a =>
-    exact SpatialAtom.interp_facts Θ a
+    exact SpatialAtom.interp_facts W a
 
-def TransState.sl [MicaGS HasLC.hasLC Sig] (Θ : TinyML.TypeEnv)
+def TransState.sl [MicaGS HasLC.hasLC Sig] (W : TinyML.World)
     (st : TransState) (ρ : VerifM.Env) : iProp :=
-  SpatialContext.interp Θ ρ.env st.owns
+  SpatialContext.interp W ρ.env st.owns
 
-@[simp] theorem TransState.sl_eq [MicaGS HasLC.hasLC Sig] (Θ : TinyML.TypeEnv)
+@[simp] theorem TransState.sl_eq [MicaGS HasLC.hasLC Sig] (W : TinyML.World)
     (st : TransState) (ρ : VerifM.Env) :
-    st.sl Θ ρ = SpatialContext.interp Θ ρ.env st.owns := rfl
+    st.sl W ρ = SpatialContext.interp W ρ.env st.owns := rfl
 
 /-- Drop the non-persistent spatial part of the verifier state. -/
 def TransState.persist (st : TransState) : TransState :=
@@ -228,9 +228,9 @@ def TransState.persist (st : TransState) : TransState :=
 @[simp] theorem TransState.persist_asserts (st : TransState) :
     st.persist.asserts = st.asserts := rfl
 
-theorem TransState.sl_entails_persist [MicaGS HasLC.hasLC Sig] (Θ : TinyML.TypeEnv)
+theorem TransState.sl_entails_persist [MicaGS HasLC.hasLC Sig] (W : TinyML.World)
     (st : TransState) (ρ : VerifM.Env) :
-    st.sl Θ ρ ⊢ □ st.persist.sl Θ ρ := by
+    st.sl W ρ ⊢ □ st.persist.sl W ρ := by
   istart
   iintro _
   imodintro

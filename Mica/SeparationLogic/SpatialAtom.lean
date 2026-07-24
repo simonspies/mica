@@ -95,22 +95,22 @@ theorem wfIn_mono {a : SpatialAtom} {Δ Δ' : Signature}
   | arrayPointsTo a v _ => exact ⟨Term.wfIn_mono a h.1 hsub hwf, Term.wfIn_mono v h.2 hsub hwf⟩
 
 /-- Iris interpretation of a single spatial atom. -/
-def interp [MicaGS HasLC.hasLC Sig] (Θ : TinyML.TypeEnv) (ρ : Env) :
+def interp [MicaGS HasLC.hasLC Sig] (W : TinyML.World) (ρ : Env) :
     SpatialAtom → iProp
   | .pointsTo l v ty => ∃ (loc : Runtime.Location),
       ⌜Term.eval ρ l = .loc loc⌝ ∗ loc ↦ [Term.eval ρ v] ∗
-        TinyML.ValHasType Θ (Term.eval ρ v) ty
+        TinyML.ValHasType W (Term.eval ρ v) ty
   | .arrayPointsTo a v ty => ∃ (loc : Runtime.Location) (vs : List Runtime.Val),
       ⌜Term.eval ρ a = .array vs.length loc⌝ ∗
       ⌜Term.eval ρ v = .vec vs⌝ ∗ loc ↦ vs ∗
-        TinyML.ValHasType Θ (.vec vs) (.vec ty)
+        TinyML.ValHasType W (.vec vs) (.vec ty)
 
 /-- Congruence of interpretation in the key and value terms, at equal evaluation. -/
-theorem congr [MicaGS HasLC.hasLC Sig] (Θ : TinyML.TypeEnv) {ρ : Env} {k : Kind}
+theorem congr [MicaGS HasLC.hasLC Sig] (W : TinyML.World) {ρ : Env} {k : Kind}
     {t t' v v' : Term .value} {ty : TinyML.Typ}
     (ht : Term.eval ρ t = Term.eval ρ t')
     (hv : Term.eval ρ v = Term.eval ρ v') :
-    interp Θ ρ (k.atom t v ty) ⊣⊢ interp Θ ρ (k.atom t' v' ty) := by
+    interp W ρ (k.atom t v ty) ⊣⊢ interp W ρ (k.atom t' v' ty) := by
   cases k <;> simp only [Kind.atom, interp, ht, hv] <;>
     exact ⟨BIBase.Entails.rfl, BIBase.Entails.rfl⟩
 

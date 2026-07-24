@@ -145,7 +145,7 @@ def vecGetLawful : vecGetB.Lawful where
       Formula.eval, Term.eval, Const.denote, Env.lookupConst_updateConst_same,
       Env.lookupConst_updateConst_ne (show "a" ≠ "b" by decide), valVec, valInt] using hpre
   semWellTyped := by
-    refine fun σ Θ (l : List Runtime.Val) (n : Int) hdom => ?_
+    refine fun σ W (l : List Runtime.Val) (n : Int) hdom => ?_
     obtain ⟨h0, hlen⟩ := hdom
     have hlt : n.toNat < l.length := by omega
     have hget : l[n.toNat]? = some l[n.toNat] := List.getElem?_eq_getElem hlt
@@ -153,7 +153,7 @@ def vecGetLawful : vecGetB.Lawful where
       vecGetB, if_pos h0,
       hget, Option.getD_some]
     refine sep_emp.1.trans ?_
-    exact BigSepL.bigSepL_lookup (Φ := fun _ w => TinyML.ValHasType Θ w (σ "a")) hget
+    exact BigSepL.bigSepL_lookup (Φ := fun _ w => TinyML.ValHasType W w (σ "a")) hget
   specBaseWf   := by apply PredTrans.checkWf_ok; rfl
   defWf        := by apply Formula.checkWf_ok; rfl
   typeWf       := by intro φ h; exact nomatch h
@@ -202,7 +202,7 @@ def vecSetLawful : vecSetB.Lawful where
       Env.lookupConst_updateConst_ne (show "a" ≠ "c" by decide),
       Env.lookupConst_updateConst_ne (show "b" ≠ "c" by decide), valVec, valInt] using hpre
   semWellTyped := by
-    refine fun σ Θ (l : List Runtime.Val) (n : Int) (x : Runtime.Val) hdom => ?_
+    refine fun σ W (l : List Runtime.Val) (n : Int) (x : Runtime.Val) hdom => ?_
     obtain ⟨h0, hlen⟩ := hdom
     have hlt : n.toNat < l.length := by omega
     have hget : l[n.toNat]? = some l[n.toNat] := List.getElem?_eq_getElem hlt
@@ -210,7 +210,7 @@ def vecSetLawful : vecSetB.Lawful where
       vecSetB, if_pos h0]
     refine (sep_mono_right emp_sep.1).trans ?_
     refine (sep_mono_left (BigSepL.bigSepL_insert_acc
-      (Φ := fun _ w => TinyML.ValHasType Θ w (σ "a")) hget)).trans ?_
+      (Φ := fun _ w => TinyML.ValHasType W w (σ "a")) hget)).trans ?_
     refine (sep_mono_left sep_elim_right).trans ?_
     exact (sep_mono_left (forall_elim x)).trans wand_elim_left
   specBaseWf   := by apply PredTrans.checkWf_ok; rfl
@@ -256,13 +256,13 @@ def vecMakeLawful : vecMakeB.Lawful where
       Const.denote, Env.lookupConst_updateConst_same,
       Env.lookupConst_updateConst_ne (show "a" ≠ "b" by decide), valInt] using hpre
   semWellTyped := by
-    refine fun σ Θ (m : Int) (x : Runtime.Val) hdom => ?_
+    refine fun σ W (m : Int) (x : Runtime.Val) hdom => ?_
     have hnonneg : 0 ≤ m := hdom
     simp only [Embedding.vec, Embedding.int, Embedding.poly, TinyML.Typ.subst,
       vecMakeB, if_pos hnonneg]
     refine emp_sep.1.trans ?_
-    refine (TinyML.ValHasType.vec_replicate Θ m.toNat x (σ "a")).trans ?_
-    refine (TinyML.ValHasType.vec Θ _ (σ "a")).1.trans ?_
+    refine (TinyML.ValHasType.vec_replicate W m.toNat x (σ "a")).trans ?_
+    refine (TinyML.ValHasType.vec W _ (σ "a")).1.trans ?_
     istart
     iintro ⟨%vs, %hv, Hs⟩
     obtain rfl : List.replicate m.toNat x = vs := by injection hv

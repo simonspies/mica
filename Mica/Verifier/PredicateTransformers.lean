@@ -27,6 +27,10 @@ Defines `PredTrans` and `SpecPredicate`.
 def PredTrans := Assertion (Pred (Assertion Unit))
 abbrev SpecPredicate := MultiPred PredTrans
 
+instance : DecidableEq PredTrans := by
+  unfold PredTrans Pred
+  infer_instance
+
 -- ---------------------------------------------------------------------------
 -- Well-formedness
 -- ---------------------------------------------------------------------------
@@ -55,10 +59,10 @@ theorem PredTrans.checkWf_ok {pt : PredTrans} {Δ : Signature}
 -- Semantics
 -- ---------------------------------------------------------------------------
 
-def PredTrans.apply (Θ : TinyML.TypeEnv) (Φ : Runtime.Val → iProp) (m : PredTrans) (ρ : VerifM.Env) : iProp :=
-  Assertion.pre Θ (fun post ρ' =>
+def PredTrans.apply (W : TinyML.World) (Φ : Runtime.Val → iProp) (m : PredTrans) (ρ : VerifM.Env) : iProp :=
+  Assertion.pre W (fun post ρ' =>
     BIBase.forall fun v : Runtime.Val =>
-      Assertion.post Θ (fun () _ => Φ v) post.2 (ρ'.updateConst .value post.1 v)
+      Assertion.post W (fun () _ => Φ v) post.2 (ρ'.updateConst .value post.1 v)
   ) m ρ
 
 -- ---------------------------------------------------------------------------
@@ -102,17 +106,17 @@ theorem PredTrans.wfIn_mono {pt : PredTrans} {Δ Δ' : Signature}
         (Signature.wf_declVar hwf'))
     h hsub hwf
 
-theorem PredTrans.apply_env_agree (Θ : TinyML.TypeEnv) {pt : PredTrans} {Φ : Runtime.Val → iProp}
+theorem PredTrans.apply_env_agree (W : TinyML.World) {pt : PredTrans} {Φ : Runtime.Val → iProp}
     {ρ ρ' : VerifM.Env} {Δ : Signature}
     (hwf : pt.wfIn Δ) (hagree : VerifM.Env.agreeOn Δ ρ ρ') :
-    PredTrans.apply Θ Φ pt ρ ⊢ PredTrans.apply Θ Φ pt ρ' := by
+    PredTrans.apply W Φ pt ρ ⊢ PredTrans.apply W Φ pt ρ' := by
   unfold PredTrans.apply at ⊢
-  apply Assertion.pre_env_agree Θ hwf hagree
+  apply Assertion.pre_env_agree W hwf hagree
   intro ⟨postName, postBody⟩ Δ' ρ₁ ρ₂ hwf_post hagree_post
   apply forall_intro
   intro v
   exact (forall_elim v).trans <|
-    Assertion.post_env_agree Θ hwf_post
+    Assertion.post_env_agree W hwf_post
       (VerifM.Env.agreeOn_declVar hagree_post)
       (fun _ _ _ _ _ _ => .rfl)
 
@@ -120,15 +124,15 @@ theorem PredTrans.apply_env_agree (Θ : TinyML.TypeEnv) {pt : PredTrans} {Φ : R
 -- Correctness
 -- ---------------------------------------------------------------------------
 
-theorem PredTrans.call_correct (Θ : TinyML.TypeEnv) (pt : PredTrans) (Δ_base : Signature) (σ : FiniteSubst)
+theorem PredTrans.call_correct (W : TinyML.World) (pt : PredTrans) (Δ_base : Signature) (σ : FiniteSubst)
     (st : TransState) (ρ : VerifM.Env)
     (Ψ : Term .value → TransState → VerifM.Env → Prop) (Φ : Runtime.Val → iProp) R :
     pt.wfIn (Δ_base.declVars σ.dom) →
     σ.wfIn Δ_base st.decls →
     VerifM.eval (PredTrans.call σ pt) st ρ Ψ →
     (∀ v st' ρ' t, Ψ t st' ρ' → t.wfIn st'.decls → t.eval ρ'.env = v →
-      (st'.sl Θ ρ' ∗ R ⊢ Φ v)) →
-    st.sl Θ ρ ∗ R ⊢ PredTrans.apply Θ Φ pt (VerifM.Env.withEnv ρ (σ.subst.eval ρ.env)) := by
+      (st'.sl W ρ' ∗ R ⊢ Φ v)) →
+    st.sl W ρ ∗ R ⊢ PredTrans.apply W Φ pt (VerifM.Env.withEnv ρ (σ.subst.eval ρ.env)) := by
   intro hwf hσwf heval hΨ
   simp only [PredTrans.call] at heval
   have hb := VerifM.eval_bind heval
@@ -137,7 +141,7 @@ theorem PredTrans.call_correct (Θ : TinyML.TypeEnv) (pt : PredTrans) (Δ_base :
   let Φpost : (String × Assertion Unit) → VerifM.Env → iProp :=
     fun post ρ' =>
       BIBase.forall fun v : Runtime.Val =>
-        Assertion.post Θ (fun () _ => Φ v) post.2 (ρ'.updateConst .value post.1 v)
+        Assertion.post W (fun () _ => Φ v) post.2 (ρ'.updateConst .value post.1 v)
   let Ψcall : (FiniteSubst × (String × Assertion Unit)) → TransState → VerifM.Env → Prop :=
     fun r st' ρ' =>
       match r with
@@ -145,12 +149,12 @@ theorem PredTrans.call_correct (Θ : TinyML.TypeEnv) (pt : PredTrans) (Δ_base :
           let resVar ← VerifM.decl (some postName) Srt.value
           let _ ← Assertion.assume (σ₁.rename ⟨postName, .value⟩ resVar.name) postBody
           Pure.pure (Term.const (.uninterpreted resVar.name .value))).eval st' ρ' Ψ
-  have hpre : st.sl Θ ρ ∗ R ⊢ Assertion.pre Θ Φpost pt (VerifM.Env.withEnv ρ (σ.subst.eval ρ.env)) := by
-    exact Assertion.prove_correct Θ pt Δ_base σ retWf st ρ Ψcall Φpost R
+  have hpre : st.sl W ρ ∗ R ⊢ Assertion.pre W Φpost pt (VerifM.Env.withEnv ρ (σ.subst.eval ρ.env)) := by
+    exact Assertion.prove_correct W pt Δ_base σ retWf st ρ Ψcall Φpost R
       (fun ⟨postName, postBody⟩ Δ' ρ₁ ρ₂ hwf_post hagree =>
         forall_intro fun v =>
           (forall_elim v).trans <|
-            Assertion.post_env_agree Θ hwf_post
+            Assertion.post_env_agree W hwf_post
               (VerifM.Env.agreeOn_declVar hagree)
               (fun _ _ _ _ _ _ => .rfl))
       hσwf hwf hb
@@ -175,7 +179,7 @@ theorem PredTrans.call_correct (Θ : TinyML.TypeEnv) (pt : PredTrans) (Δ_base :
         have hwf₁' : Assertion.wfIn (fun _ _ => True) (Δ_base.declVars σ₂.dom) postBody := by
           simpa [σ₂, FiniteSubst.rename_source_eq] using hwf₁
         have hgrow := VerifM.eval.decls_grow (ρ₁.updateConst .value resVar.name v) hb3
-        have hassume := Assertion.assume_correct Θ postBody Δ_base σ₂ (fun _ _ => True)
+        have hassume := Assertion.assume_correct W postBody Δ_base σ₂ (fun _ _ => True)
           { st₁ with decls := st₁.decls.addConst resVar }
           (ρ₁.updateConst .value resVar.name v)
           (fun a st' ρ' =>
@@ -195,10 +199,10 @@ theorem PredTrans.call_correct (Θ : TinyML.TypeEnv) (pt : PredTrans) (Δ_base :
               have := hagree.2.1 resVar (List.Mem.head _)
               simpa [Env.lookupConst, Env.updateConst] using this.symm)
         have hinterp_bi :
-            st₁.sl Θ ρ₁ ⊣⊢ st₁.sl Θ (ρ₁.updateConst .value resVar.name v) :=
-          SpatialContext.interp_env_agree Θ (VerifM.eval.wf hcont).ownsWf
+            st₁.sl W ρ₁ ⊣⊢ st₁.sl W (ρ₁.updateConst .value resVar.name v) :=
+          SpatialContext.interp_env_agree W (VerifM.eval.wf hcont).ownsWf
             (Env.agreeOn_update_fresh_const (c := resVar) hfresh_decls)
-        exact (sep_mono_left hinterp_bi.1).trans <| hassume.trans <| Assertion.post_env_agree Θ hwf₁'
+        exact (sep_mono_left hinterp_bi.1).trans <| hassume.trans <| Assertion.post_env_agree W hwf₁'
           (by
             simpa [σ₂, VerifM.Env.agreeOn, VerifM.Env.withEnv_env, VerifM.Env.updateConst] using
               (FiniteSubst.rename_agreeOn (σ := σ₁) (Δ_base := Δ_base) (Δ_use := st₁.decls)
@@ -208,7 +212,7 @@ theorem PredTrans.call_correct (Θ : TinyML.TypeEnv) (pt : PredTrans) (Δ_base :
   simpa [PredTrans.apply, Φpost] using hpre
 
 
-theorem PredTrans.implement_correct (Θ : TinyML.TypeEnv) (pt : PredTrans) (Δ_base : Signature) (σ : FiniteSubst)
+theorem PredTrans.implement_correct (W : TinyML.World) (pt : PredTrans) (Δ_base : Signature) (σ : FiniteSubst)
     (body : VerifM (Term .value))
     (st : TransState) (ρ : VerifM.Env) (Φ : Runtime.Val → iProp) (R : iProp) :
     pt.wfIn (Δ_base.declVars σ.dom) →
@@ -221,9 +225,9 @@ theorem PredTrans.implement_correct (Θ : TinyML.TypeEnv) (pt : PredTrans) (Δ_b
       (fun result st'' ρ'' =>
         ∀ (S : iProp),
         result.wfIn st''.decls →
-        (st''.sl Θ ρ'' ∗ Q ∗ (Φ (result.eval ρ''.env) -∗ S) ⊢ S)) →
-      st'.sl Θ ρ' ∗ Q ⊢ R) →
-    st.sl Θ ρ ∗ PredTrans.apply Θ Φ pt (VerifM.Env.withEnv ρ (σ.subst.eval ρ.env)) ⊢ R := by
+        (st''.sl W ρ'' ∗ Q ∗ (Φ (result.eval ρ''.env) -∗ S) ⊢ S)) →
+      st'.sl W ρ' ∗ Q ⊢ R) →
+    st.sl W ρ ∗ PredTrans.apply W Φ pt (VerifM.Env.withEnv ρ (σ.subst.eval ρ.env)) ⊢ R := by
   intro hwf hσwf heval hbody
   simp only [PredTrans.implement] at heval
   have hb := VerifM.eval_bind heval
@@ -233,10 +237,10 @@ theorem PredTrans.implement_correct (Θ : TinyML.TypeEnv) (pt : PredTrans) (Δ_b
   let OuterQ : (String × Assertion Unit) → VerifM.Env → iProp :=
     fun ⟨postName, postBody⟩ ρ' =>
       BIBase.forall fun v : Runtime.Val =>
-        Assertion.post Θ (fun () _ => Φ v) postBody (ρ'.updateConst .value postName v)
+        Assertion.post W (fun () _ => Φ v) postBody (ρ'.updateConst .value postName v)
   let Φpost : (String × Assertion Unit) → VerifM.Env → iProp :=
     fun a ρ' => OuterQ a ρ' -∗ R
-  have hpost := Assertion.assume_correct Θ pt Δ_base σ retWf
+  have hpost := Assertion.assume_correct W pt Δ_base σ retWf
     st ρ _ Φpost emp
     (fun ⟨postName, postBody⟩ Δ' ρ₁ ρ₂ hwf_post hagree => by
       refine wand_intro ?_
@@ -246,7 +250,7 @@ theorem PredTrans.implement_correct (Θ : TinyML.TypeEnv) (pt : PredTrans) (Δ_b
       apply forall_intro
       intro v
       exact (forall_elim v).trans <|
-        Assertion.post_env_agree Θ hwf_post
+        Assertion.post_env_agree W hwf_post
           (Env.agreeOn_symm (Env.agreeOn_declVar hagree))
           (fun _ _ _ _ _ _ => .rfl))
     hσwf hwf hb_grow
@@ -254,7 +258,7 @@ theorem PredTrans.implement_correct (Θ : TinyML.TypeEnv) (pt : PredTrans) (Δ_b
       apply BIBase.Entails.trans sep_comm.1
       apply BIBase.Entails.trans emp_sep.1
       have hcont_body := VerifM.eval_bind hcont
-      change st₁.sl Θ ρ₁ ⊢ OuterQ (postName, postBody) (VerifM.Env.withEnv ρ₁ (σ₁.subst.eval ρ₁.env)) -∗ R
+      change st₁.sl W ρ₁ ⊢ OuterQ (postName, postBody) (VerifM.Env.withEnv ρ₁ (σ₁.subst.eval ρ₁.env)) -∗ R
       refine wand_intro ?_
       refine hbody st₁ ρ₁ _ hdsub_st hagree_st ?_
       refine (VerifM.eval.decls_grow ρ₁ hcont_body).mono ?_
@@ -286,14 +290,14 @@ theorem PredTrans.implement_correct (Θ : TinyML.TypeEnv) (pt : PredTrans) (Δ_b
         { st₂ with
           decls := st₂.decls.addConst resVar
           asserts := Formula.eq Srt.value (Term.const (.uninterpreted resVar.name .value)) result :: st₂.asserts }
-      have hpre := @Assertion.prove_correct _ Unit Θ postBody Δ_base σ₂ (fun _ _ => True)
+      have hpre := @Assertion.prove_correct _ Unit W postBody Δ_base σ₂ (fun _ _ => True)
         st₃
         (ρ₂.updateConst .value resVar.name (result.eval ρ₂.env))
         _ (fun () _ => Φ (result.eval ρ₂.env) -∗ S) (Φ (result.eval ρ₂.env) -∗ S)
         (fun _ _ _ _ _ _ => .rfl)
         hσ₂wf hwf_postBody' hb4
         (fun _ () st' ρ' hret _ _ => by
-          show st'.sl Θ ρ' ∗ (Φ (result.eval ρ₂.env) -∗ S) ⊢
+          show st'.sl W ρ' ∗ (Φ (result.eval ρ₂.env) -∗ S) ⊢
             (Φ (result.eval ρ₂.env) -∗ S)
           exact sep_elim_right)
       have hag_rename :=
@@ -309,30 +313,30 @@ theorem PredTrans.implement_correct (Θ : TinyML.TypeEnv) (pt : PredTrans) (Δ_b
         apply Env.agreeOn_mono
           (FiniteSubst.rename_source_subset_rev σ₁ Δ_base ⟨postName, .value⟩ resVar.name)
         exact Env.agreeOn_update (Env.agreeOn_remove hag_eval)
-      have hpost_transport : Assertion.post Θ (fun () _ => Φ (result.eval ρ₂.env)) postBody
+      have hpost_transport : Assertion.post W (fun () _ => Φ (result.eval ρ₂.env)) postBody
           (VerifM.Env.withEnv ρ₁ ((σ₁.subst.eval ρ₁.env).updateConst .value postName (result.eval ρ₂.env))) ⊢
-          Assertion.post Θ (fun () _ => Φ (result.eval ρ₂.env)) postBody
+          Assertion.post W (fun () _ => Φ (result.eval ρ₂.env)) postBody
             (VerifM.Env.withEnv (ρ₂.updateConst .value resVar.name (result.eval ρ₂.env))
               (σ₂.subst.eval (ρ₂.updateConst .value resVar.name (result.eval ρ₂.env)).env)) := by
-        exact Assertion.post_env_agree Θ hwf_postBody'
+        exact Assertion.post_env_agree W hwf_postBody'
           (by
             simpa [VerifM.Env.agreeOn, VerifM.Env.withEnv]
               using (Env.agreeOn_symm (Env.agreeOn_trans hag_rename hag_eval')))
           (fun _ _ _ _ _ _ => .rfl)
-      have howns_agree : st₃.sl Θ ρ₂
+      have howns_agree : st₃.sl W ρ₂
             ⊢
-          st₃.sl Θ (ρ₂.updateConst .value resVar.name (result.eval ρ₂.env)) := by
+          st₃.sl W (ρ₂.updateConst .value resVar.name (result.eval ρ₂.env)) := by
         simpa using
-          (SpatialContext.interp_env_agree Θ (VerifM.eval.wf hrest).ownsWf
+          (SpatialContext.interp_env_agree W (VerifM.eval.wf hrest).ownsWf
             (Env.agreeOn_update_fresh_const hfresh_decls)).1
       have hpre_final :
-          st₂.sl Θ ρ₂ ∗ (Φ (result.eval ρ₂.env) -∗ S) ⊢
-            Assertion.pre Θ (fun () _ => Φ (result.eval ρ₂.env) -∗ S) postBody
+          st₂.sl W ρ₂ ∗ (Φ (result.eval ρ₂.env) -∗ S) ⊢
+            Assertion.pre W (fun () _ => Φ (result.eval ρ₂.env) -∗ S) postBody
               (VerifM.Env.withEnv (ρ₂.updateConst .value resVar.name (result.eval ρ₂.env))
                 (σ₂.subst.eval (ρ₂.updateConst .value resVar.name (result.eval ρ₂.env)).env)) := by
         have hinput :
-            st₂.sl Θ ρ₂ ∗ (Φ (result.eval ρ₂.env) -∗ S) ⊢
-              st₃.sl Θ (ρ₂.updateConst .value resVar.name (result.eval ρ₂.env)) ∗
+            st₂.sl W ρ₂ ∗ (Φ (result.eval ρ₂.env) -∗ S) ⊢
+              st₃.sl W (ρ₂.updateConst .value resVar.name (result.eval ρ₂.env)) ∗
                 (Φ (result.eval ρ₂.env) -∗ S) := by
           iintro ⟨Howns, Hwand⟩
           iframe Hwand
@@ -341,12 +345,12 @@ theorem PredTrans.implement_correct (Θ : TinyML.TypeEnv) (pt : PredTrans) (Δ_b
         exact hinput.trans hpre
       have hpost_final :
           OuterQ (postName, postBody) (VerifM.Env.withEnv ρ₁ (σ₁.subst.eval ρ₁.env)) ⊢
-            Assertion.post Θ (fun () _ => Φ (result.eval ρ₂.env)) postBody
+            Assertion.post W (fun () _ => Φ (result.eval ρ₂.env)) postBody
               (VerifM.Env.withEnv (ρ₂.updateConst .value resVar.name (result.eval ρ₂.env))
                 (σ₂.subst.eval (ρ₂.updateConst .value resVar.name (result.eval ρ₂.env)).env)) := by
         exact (forall_elim (result.eval ρ₂.env)).trans hpost_transport
       iintro ⟨Howns, HQ, Hwand⟩
-      iapply (Assertion.pre_post_combine Θ
+      iapply (Assertion.pre_post_combine W
         (ρ := VerifM.Env.withEnv (ρ₂.updateConst .value resVar.name (result.eval ρ₂.env))
           (σ₂.subst.eval (ρ₂.updateConst .value resVar.name (result.eval ρ₂.env)).env))
         (m := postBody)
@@ -364,16 +368,16 @@ theorem PredTrans.implement_correct (Θ : TinyML.TypeEnv) (pt : PredTrans) (Δ_b
         iexact HQ
       )
   have hpre :
-      PredTrans.apply Θ Φ pt (VerifM.Env.withEnv ρ (σ.subst.eval ρ.env)) =
-      Assertion.pre Θ OuterQ pt (VerifM.Env.withEnv ρ (σ.subst.eval ρ.env)) := rfl
+      PredTrans.apply W Φ pt (VerifM.Env.withEnv ρ (σ.subst.eval ρ.env)) =
+      Assertion.pre W OuterQ pt (VerifM.Env.withEnv ρ (σ.subst.eval ρ.env)) := rfl
   rw [hpre]
   exact BIBase.Entails.trans
     (by
-      have hpost' : st.sl Θ ρ ∗ emp ⊢
-          Assertion.post Θ Φpost pt (VerifM.Env.withEnv ρ (σ.subst.eval ρ.env)) := by
+      have hpost' : st.sl W ρ ∗ emp ⊢
+          Assertion.post W Φpost pt (VerifM.Env.withEnv ρ (σ.subst.eval ρ.env)) := by
         simpa [VerifM.Env.withEnv] using hpost
       exact sep_comm.1.trans (sep_mono_right (sep_emp.2.trans hpost')))
-    (Assertion.pre_post_combine Θ
+    (Assertion.pre_post_combine W
       (ρ := VerifM.Env.withEnv ρ (σ.subst.eval ρ.env))
       (m := pt)
       (Φ := OuterQ)

@@ -12,7 +12,8 @@ namespace TinyML
 def Typ.print : Typ → String
   | .prim p => p.print
   | .sum ts => s!"sum ({", ".intercalate (ts.map Typ.print)})"
-  | .arrow t1 t2 => s!"{wrapArg t1 (Typ.print t1)} -> {Typ.print t2}"
+  | .arrow args ret =>
+      " -> ".intercalate ((args.map fun arg => wrapArg arg (Typ.print arg)) ++ [Typ.print ret])
   | .ref t => s!"ref {wrapArg t (Typ.print t)}"
   | .array t => s!"array {wrapArg t (Typ.print t)}"
   | .ownedArray t => s!"owned-array {wrapArg t (Typ.print t)}"

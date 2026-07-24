@@ -1,0 +1,2 @@
+parse error: Tests/functions/zero_argument_type.ml:6:12: function expressions require at least one argument
+[1]
