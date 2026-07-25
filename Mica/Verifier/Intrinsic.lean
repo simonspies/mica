@@ -554,8 +554,8 @@ class IntrinsicSound (fragment : outParam (List Intrinsic)) (i : Intrinsic) : Pr
       PredTrans.wfIn (Δ.declVars (Spec.argVars i.specArgs)) i.spec.pred
   bridge :
     ∀ [MicaGS HasLC.hasLC Sig] (σ : TinyML.TyVar → TinyML.Typ) (W : TinyML.World)
-      (vs : List Runtime.Val) (ρ : VerifM.Env) (Φ : Runtime.Val → iProp),
-    ρ.env.respects i.folSym →
+      (vs : List Runtime.Val) (ρ : Env) (Φ : Runtime.Val → iProp),
+    ρ.respects i.folSym →
     TinyML.ValsHaveTypes W vs ((i.spec.instantiate σ).args.map Prod.snd) ∗
       PredTrans.apply W (fun r => TinyML.ValHasType W r (i.spec.instantiate σ).retTy -∗ Φ r)
         (i.spec.instantiate σ).pred
@@ -876,12 +876,12 @@ namespace Intrinsic
     leaves owns and asserts untouched, and produces a post-decl environment
     that respects `i.folSym` (when present), agreeing with the original on
     the original signature. -/
-theorem eval_declFOLSym (i : Intrinsic) {st : TransState} {ρ : VerifM.Env}
-    {Q : Unit → TransState → VerifM.Env → Prop}
+theorem eval_declFOLSym (i : Intrinsic) {st : TransState} {ρ : Env}
+    {Q : Unit → TransState → Env → Prop}
     (heval : VerifM.eval i.declFOLSym st ρ Q) :
-    ∃ ρ' : VerifM.Env,
-      VerifM.Env.agreeOn st.decls ρ ρ' ∧
-      ρ'.env.respects i.folSym ∧
+    ∃ ρ' : Env,
+      Env.agreeOn st.decls ρ ρ' ∧
+      ρ'.respects i.folSym ∧
       Q () { st with decls := st.decls.extendWithSym i.folSym } ρ' := by
   cases i with
   | mk arity name path reduce wp spec typing folSym axioms =>
@@ -890,59 +890,59 @@ theorem eval_declFOLSym (i : Intrinsic) {st : TransState} {ρ : VerifM.Env}
       cases folSym with
       | none =>
         simp only [declFOLSym, Signature.extendWithSym] at heval ⊢
-        refine ⟨ρ, VerifM.Env.agreeOn_refl, by simp [Env.respects], ?_⟩
+        refine ⟨ρ, Env.agreeOn_refl, by simp [Env.respects], ?_⟩
         exact VerifM.eval_ret heval
       | some s =>
         simp only [declFOLSym, Signature.extendWithSym] at heval ⊢
         obtain ⟨hfresh, hcont⟩ := VerifM.eval_declConstExact heval
         refine ⟨ρ.updateConst .value s.name (s.interp ()),
-                VerifM.Env.agreeOn_update_fresh (c := ⟨s.name, .value⟩) hfresh,
+                Env.agreeOn_update_fresh_const (c := ⟨s.name, .value⟩) hfresh,
                 ?_, ?_⟩
-        · simp [Env.respects, VerifM.Env.updateConst, Env.lookupConst, Env.updateConst]
+        · simp [Env.respects, Env.updateConst, Env.lookupConst, Env.updateConst]
         · exact hcont (s.interp ())
     | one =>
       cases folSym with
       | none =>
         simp only [declFOLSym, Signature.extendWithSym] at heval ⊢
-        refine ⟨ρ, VerifM.Env.agreeOn_refl, by simp [Env.respects], ?_⟩
+        refine ⟨ρ, Env.agreeOn_refl, by simp [Env.respects], ?_⟩
         exact VerifM.eval_ret heval
       | some s =>
         simp only [declFOLSym, Signature.extendWithSym] at heval ⊢
         obtain ⟨hfresh, hcont⟩ := VerifM.eval_declUnaryExact heval
         refine ⟨ρ.updateUnary .value .value s.name s.interp,
-                VerifM.Env.agreeOn_update_fresh_unary (u := ⟨s.name, .value, .value⟩) hfresh,
+                Env.agreeOn_update_fresh_unary (u := ⟨s.name, .value, .value⟩) hfresh,
                 ?_, ?_⟩
-        · simp [Env.respects, VerifM.Env.updateUnary, Env.updateUnary]
+        · simp [Env.respects, Env.updateUnary, Env.updateUnary]
         · exact hcont s.interp
     | two =>
       cases folSym with
       | none =>
         simp only [declFOLSym, Signature.extendWithSym] at heval ⊢
-        refine ⟨ρ, VerifM.Env.agreeOn_refl, by simp [Env.respects], ?_⟩
+        refine ⟨ρ, Env.agreeOn_refl, by simp [Env.respects], ?_⟩
         exact VerifM.eval_ret heval
       | some s =>
         simp only [declFOLSym, Signature.extendWithSym] at heval ⊢
         obtain ⟨hfresh, hcont⟩ := VerifM.eval_declBinaryExact heval
         refine ⟨ρ.updateBinary .value .value .value s.name (fun a b => s.interp (a, b)),
-                VerifM.Env.agreeOn_update_fresh_binary (b := ⟨s.name, .value, .value, .value⟩) hfresh,
+                Env.agreeOn_update_fresh_binary (b := ⟨s.name, .value, .value, .value⟩) hfresh,
                 ?_, ?_⟩
-        · simp [Env.respects, VerifM.Env.updateBinary, Env.updateBinary]
+        · simp [Env.respects, Env.updateBinary, Env.updateBinary]
         · exact hcont (fun a b => s.interp (a, b))
     | three =>
       cases folSym with
       | none =>
         simp only [declFOLSym, Signature.extendWithSym] at heval ⊢
-        refine ⟨ρ, VerifM.Env.agreeOn_refl, by simp [Env.respects], ?_⟩
+        refine ⟨ρ, Env.agreeOn_refl, by simp [Env.respects], ?_⟩
         exact VerifM.eval_ret heval
       | some s =>
         simp only [declFOLSym, Signature.extendWithSym] at heval ⊢
         obtain ⟨hfresh, hcont⟩ := VerifM.eval_declTernaryExact heval
         refine ⟨ρ.updateTernary .value .value .value .value s.name
                   (fun a b c => s.interp (a, b, c)),
-                VerifM.Env.agreeOn_update_fresh_ternary
+                Env.agreeOn_update_fresh_ternary
                   (t := ⟨s.name, .value, .value, .value, .value⟩) hfresh,
                 ?_, ?_⟩
-        · simp [Env.respects, VerifM.Env.updateTernary, Env.updateTernary]
+        · simp [Env.respects, Env.updateTernary, Env.updateTernary]
         · exact hcont (fun a b c => s.interp (a, b, c))
 
 end Intrinsic
@@ -952,8 +952,8 @@ namespace Registry
 /-- Effect of the declaration pass on a registry. It declares every registered
     FOL symbol before any intrinsic axiom is assumed. -/
 theorem eval_declFOLSyms (R : Registry)
-    {st : TransState} {ρ : VerifM.Env}
-    {Q : Unit → TransState → VerifM.Env → Prop}
+    {st : TransState} {ρ : Env}
+    {Q : Unit → TransState → Env → Prop}
     (heval : VerifM.eval (declFOLSyms R) st ρ Q) :
     ∃ st' ρ',
       st.decls.Subset st'.decls ∧
@@ -961,15 +961,15 @@ theorem eval_declFOLSyms (R : Registry)
       st'.decls.vars = st.decls.vars ∧
       st'.owns = st.owns ∧
       st'.asserts = st.asserts ∧
-      (∀ ρ'' : VerifM.Env, VerifM.Env.agreeOn st'.decls ρ' ρ'' →
-        ∀ d ∈ R, ρ''.env.respects d.folSym) ∧
-      VerifM.Env.agreeOn st.decls ρ ρ' ∧
+      (∀ ρ'' : Env, Env.agreeOn st'.decls ρ' ρ'' →
+        ∀ d ∈ R, ρ''.respects d.folSym) ∧
+      Env.agreeOn st.decls ρ ρ' ∧
       Q () st' ρ' := by
   induction R generalizing st ρ Q with
   | nil =>
     simp only [declFOLSyms] at heval
     refine ⟨st, ρ, Signature.Subset.refl _, ?_, rfl, rfl, rfl, ?_,
-            VerifM.Env.agreeOn_refl, VerifM.eval_ret heval⟩
+            Env.agreeOn_refl, VerifM.eval_ret heval⟩
     · exact Signature.Subset.refl _
     · intro _ _ d hd
       cases hd
@@ -982,16 +982,16 @@ theorem eval_declFOLSyms (R : Registry)
       ih hcont
     have hsub1 : st.decls.Subset st1.decls := Signature.subset_extendWithSym _ _
     have hiStable :
-        ∀ ρ'' : VerifM.Env, VerifM.Env.agreeOn st'.decls ρ' ρ'' →
-          ρ''.env.respects i.folSym := by
+        ∀ ρ'' : Env, Env.agreeOn st'.decls ρ' ρ'' →
+          ρ''.respects i.folSym := by
       intro ρ'' hag
       refine Env.respects_of_agreeOn_extendWithSym (Δ := st1.decls) hiRespect ?_ ?_
       · exact Signature.extendWithSym_mono (Signature.empty_subset _) _
-      · exact VerifM.Env.agreeOn_trans hag2 (VerifM.Env.agreeOn_mono hsub2 hag)
+      · exact Env.agreeOn_trans hag2 (Env.agreeOn_mono hsub2 hag)
     have hvars1 : st1.decls.vars = st.decls.vars := by
       simp [st1]
     refine ⟨st', ρ', hsub1.trans hsub2, ?_, hvars2.trans hvars1, howns2, hass2, ?_,
-            VerifM.Env.agreeOn_trans hag1 (VerifM.Env.agreeOn_mono hsub1 hag2), hQ⟩
+            Env.agreeOn_trans hag1 (Env.agreeOn_mono hsub1 hag2), hQ⟩
     · exact hdep2
     · intro ρ'' hag d hd
       cases hd with
@@ -1002,12 +1002,12 @@ theorem eval_declFOLSyms (R : Registry)
     full registry fragment, so axiom dependencies need not follow list order. -/
 theorem eval_assumeAxioms_in (full todo : Registry)
     (hSound : SoundIn full todo)
-    {st : TransState} {ρ : VerifM.Env}
+    {st : TransState} {ρ : Env}
     (hSig : (Intrinsic.sigOf full).Subset st.decls)
     (hRespect :
-      ∀ ρ' : VerifM.Env, VerifM.Env.agreeOn st.decls ρ ρ' →
-        ∀ d ∈ full, ρ'.env.respects d.folSym)
-    {Q : Unit → TransState → VerifM.Env → Prop}
+      ∀ ρ' : Env, Env.agreeOn st.decls ρ ρ' →
+        ∀ d ∈ full, ρ'.respects d.folSym)
+    {Q : Unit → TransState → Env → Prop}
     (heval : VerifM.eval (assumeAxioms todo) st ρ Q) :
     ∃ st',
       st'.decls = st.decls ∧
@@ -1024,16 +1024,16 @@ theorem eval_assumeAxioms_in (full todo : Registry)
     rcases hSound with ⟨hiSound, hrestSound⟩
     have hwfAxioms : ∀ a ∈ i.axioms, a.formula.wfIn st.decls := fun a ha =>
       hiSound.axiomWf hSig (VerifM.eval.wf h1).namesDisjoint a ha
-    have hevalAxioms : ∀ a ∈ i.axioms, a.formula.eval ρ.env :=
-      hiSound.proof ρ.env (fun d hd => hRespect ρ VerifM.Env.agreeOn_refl d hd)
+    have hevalAxioms : ∀ a ∈ i.axioms, a.formula.eval ρ :=
+      hiSound.proof ρ (fun d hd => hRespect ρ Env.agreeOn_refl d hd)
     obtain ⟨st1, hdecls1, howns1, hass1, hcont⟩ :=
       VerifM.eval_assumeAxioms h1 hwfAxioms hevalAxioms
     have hSig1 : (Intrinsic.sigOf full).Subset st1.decls := by
       rw [hdecls1]
       exact hSig
     have hRespect1 :
-        ∀ ρ' : VerifM.Env, VerifM.Env.agreeOn st1.decls ρ ρ' →
-          ∀ d ∈ full, ρ'.env.respects d.folSym := by
+        ∀ ρ' : Env, Env.agreeOn st1.decls ρ ρ' →
+          ∀ d ∈ full, ρ'.respects d.folSym := by
       intro ρ' hag d hd
       exact hRespect ρ' (by rwa [hdecls1] at hag) d hd
     obtain ⟨st', hdecls2, howns2, ⟨extra2, hass2⟩, hQ⟩ :=
@@ -1047,8 +1047,8 @@ theorem eval_assumeAxioms_in (full todo : Registry)
     signature. -/
 theorem eval_introduceRegistry (R : Registry)
     (hSound : Sound R)
-    {st : TransState} {ρ : VerifM.Env}
-    {Q : Unit → TransState → VerifM.Env → Prop}
+    {st : TransState} {ρ : Env}
+    {Q : Unit → TransState → Env → Prop}
     (heval : VerifM.eval (introduceRegistry R) st ρ Q) :
     ∃ st' ρ',
       st.decls.Subset st'.decls ∧
@@ -1056,9 +1056,9 @@ theorem eval_introduceRegistry (R : Registry)
       st'.decls.vars = st.decls.vars ∧
       st'.owns = st.owns ∧
       (∃ extra, st'.asserts = extra ++ st.asserts) ∧
-      (∀ ρ'' : VerifM.Env, VerifM.Env.agreeOn st'.decls ρ' ρ'' →
-        ∀ d ∈ R, ρ''.env.respects d.folSym) ∧
-      VerifM.Env.agreeOn st.decls ρ ρ' ∧
+      (∀ ρ'' : Env, Env.agreeOn st'.decls ρ' ρ'' →
+        ∀ d ∈ R, ρ''.respects d.folSym) ∧
+      Env.agreeOn st.decls ρ ρ' ∧
       Q () st' ρ' := by
   unfold introduceRegistry at heval
   have hdecls := VerifM.eval_bind heval

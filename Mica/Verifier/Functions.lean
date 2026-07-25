@@ -58,19 +58,19 @@ theorem checkBody_correct (reg : Verifier.Registry) (hSound : Verifier.Registry.
     (fval : Runtime.Val)
     (vs : List Runtime.Val)
     (P : Runtime.Val → iProp)
-    {argVars : List FOL.Const} {st' : TransState} {ρ' : VerifM.Env} {Q : iProp}
-    (hag : W.agrees st'.decls ρ'.env)
+    {argVars : List FOL.Const} {st' : TransState} {ρ' : Env} {Q : iProp}
+    (hag : W.agrees st'.decls ρ')
     (hΔreg : Verifier.Registry.symSubset reg W.Δ_spec)
     (hρreg : Verifier.Registry.symAgree reg W.ρ_spec)
     (hargVars_mem : ∀ v ∈ argVars, v ∈ st'.decls.consts)
     (hargVars_sort : ∀ v ∈ argVars, v.sort = .value)
-    (hargVars_lookup : List.Forall₂ (fun av val => ρ'.env.consts .value av.name = val) argVars vs)
+    (hargVars_lookup : List.Forall₂ (fun av val => ρ'.consts .value av.name = val) argVars vs)
     (hbody_eval : VerifM.eval
         (checkBody reg W.Θ W.Δ_spec (SpecMap.eraseAll argNames (S.insertBinder fb s)) s argNames body argVars)
         st' ρ'
         (fun result st'' ρ'' => ∀ S, result.wfIn st''.decls →
           st''.sl W ρ'' ∗ Q ∗
-            ((TinyML.ValHasType W (result.eval ρ''.env) s.retTy -∗ P (result.eval ρ''.env)) -∗ S) ⊢ S)) :
+            ((TinyML.ValHasType W (result.eval ρ'') s.retTy -∗ P (result.eval ρ'')) -∗ S) ⊢ S)) :
     st'.sl W ρ' ∗ TinyML.ValsHaveTypes W vs (s.args.map Prod.snd) ∗ Q ⊢
       (S.satisfiedBy W γ ∗ s.isPrecondFor W fval) -∗
         wp W.pctx (body.runtime.subst (γ.updateBinder fb.runtime fval |>.updateAllBinder bs vs)) P := by
@@ -99,14 +99,14 @@ theorem checkBody_correct (reg : Verifier.Registry) (hSound : Verifier.Registry.
   have hlen_avs : argNames.length = argVars.length := by
     have := hargVars_lookup.length_eq
     omega
-  have hagree : Bindings.agreeOnLinked B ρ'.env γ_body := by
-    show Bindings.agreeOnLinked (Bindings.empty ++ (argNames.zip argVars).reverse) ρ'.env
+  have hagree : Bindings.agreeOnLinked B ρ' γ_body := by
+    show Bindings.agreeOnLinked (Bindings.empty ++ (argNames.zip argVars).reverse) ρ'
       ((γ.updateBinder fb.runtime fval).updateAllBinder bs vs)
     rw [show Bindings.empty ++ (argNames.zip argVars).reverse =
         (argNames.zip argVars).reverse ++ Bindings.empty from by simp [Bindings.empty]]
     rw [hbs_runtime]
     apply Bindings.agreeOnLinked_updateAllBinder Bindings.empty argNames argVars vs
-      (γ.updateBinder fb.runtime fval) ρ'.env
+      (γ.updateBinder fb.runtime fval) ρ'
     · intro x x' h; simp [Bindings.empty] at h
     · exact hlen_avs
     · exact hlen_nv
@@ -124,7 +124,7 @@ theorem checkBody_correct (reg : Verifier.Registry) (hSound : Verifier.Registry.
       simp [args']; exact List.map_fst_zip (by simp; omega)
     have hsnd : args'.map Prod.snd = s.args.map Prod.snd := by
       simp [args']; exact List.map_snd_zip (by simp; omega)
-    iapply (valHasType_lookup_zip_reverse args' argVars vs ρ'.env TinyML.TyCtx.empty x x' t
+    iapply (valHasType_lookup_zip_reverse args' argVars vs ρ' TinyML.TyCtx.empty x x' t
       (by rw [hfst]; exact hlen_avs)
       (by rw [hfst]; exact hlen_nv)
       (by rw [hfst]; simp [B, Bindings.empty] at hmem; exact hmem)
@@ -159,10 +159,10 @@ theorem checkBody_correct (reg : Verifier.Registry) (hSound : Verifier.Registry.
     have hΨ' := VerifM.eval_ret hΨ
     dsimp only at hΨ'
     rw [← heval_se]
-    refine (show st''.sl W ρ'' ∗ TinyML.ValHasType W (se.eval ρ''.env) body.ty ∗ Q ⊢
+    refine (show st''.sl W ρ'' ∗ TinyML.ValHasType W (se.eval ρ'') body.ty ∗ Q ⊢
         st''.sl W ρ'' ∗ Q ∗
-          ((TinyML.ValHasType W (se.eval ρ''.env) s.retTy -∗ P (se.eval ρ''.env)) -∗
-            P (se.eval ρ''.env)) from ?_).trans (hΨ' _ hse_wf)
+          ((TinyML.ValHasType W (se.eval ρ'') s.retTy -∗ P (se.eval ρ'')) -∗
+            P (se.eval ρ'')) from ?_).trans (hΨ' _ hse_wf)
     iintro ⟨Howns, Hty, HQ⟩
     iframe Howns HQ
     iintro Hwand
@@ -183,8 +183,8 @@ theorem checkSpec_correct (reg : Verifier.Registry) (hSound : Verifier.Registry.
     (γ : Runtime.Subst)
     (hswf : s.wfIn W.Δ_spec) (hSwf : S.wfIn W.Δ_spec)
     (hwf : W.wf)
-    (st : TransState) (ρ : VerifM.Env)
-    (hag : W.agrees st.decls ρ.env)
+    (st : TransState) (ρ : Env)
+    (hag : W.agrees st.decls ρ)
     (hΔreg : Verifier.Registry.symSubset reg W.Δ_spec)
     (hρreg : Verifier.Registry.symAgree reg W.ρ_spec) :
     VerifM.eval (checkSpec reg W.Θ W.Δ_spec S e s) st ρ (fun _ _ _ => True) →
@@ -244,7 +244,7 @@ theorem checkSpec_correct (reg : Verifier.Registry) (hSound : Verifier.Registry.
         iintro H
         icases H with ⟨Htyped', Hpred'⟩
         iintuitionistic Htyped'
-        have hag_persist : W.agrees (TransState.persist st).decls ρ.env := by
+        have hag_persist : W.agrees (TransState.persist st).decls ρ := by
           simpa using hag
         ihave Hwand := Spec.implement_correct W s _ (TransState.persist st) ρ vs P
           (TinyML.ValsHaveTypes W vs (s.args.map Prod.snd) -∗
@@ -252,7 +252,7 @@ theorem checkSpec_correct (reg : Verifier.Registry) (hSound : Verifier.Registry.
               wp W.pctx (body.runtime.subst (γ.updateBinder fb.runtime fval |>.updateAllBinder bs vs)) P)
           hswf hwf hag_persist himpl
           (fun argVars st' ρ' Q hst_sub hρ_agree hargVars_mem hargVars_sort hargVars_lookup hbody_eval => by
-            have hag' : W.agrees st'.decls ρ'.env := hag_persist.step hst_sub hρ_agree
+            have hag' : W.agrees st'.decls ρ' := hag_persist.step hst_sub hρ_agree
             iintro ⟨Hsl, HQ⟩ Htyped''
             iapply (checkBody_correct reg hSound W hW S s γ hswf hSwf hwf fb argBinders body argNames
               hext bs rfl fval vs P hag' hΔreg hρreg hargVars_mem hargVars_sort hargVars_lookup hbody_eval)
@@ -271,9 +271,9 @@ theorem checkSpec_correct (reg : Verifier.Registry) (hSound : Verifier.Registry.
                 simp [List.length_map] at hlen
                 omega
               iapply (PredTrans.apply_env_agree W (ρ := Spec.argsEnv ρ_call s.args vs)
-                (ρ' := Spec.argsEnv ⟨W.ρ_spec⟩ s.args vs) hswf
-                (Spec.argsEnv_agreeOn (Δ := W.Δ_spec) (ρ₁ := ρ_call) (ρ₂ := ⟨W.ρ_spec⟩)
-                  (VerifM.Env.agreeOn_symm hagree_call) s.args vs hlen_vals_call))
+                (ρ' := Spec.argsEnv W.ρ_spec s.args vs) hswf
+                (Spec.argsEnv_agreeOn (Δ := W.Δ_spec) (ρ₁ := ρ_call) (ρ₂ := W.ρ_spec)
+                  (Env.agreeOn_symm hagree_call) s.args vs hlen_vals_call))
               iexact Hpred'
         iapply Hwand
         iexact Htyped'

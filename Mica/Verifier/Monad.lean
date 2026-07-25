@@ -219,7 +219,7 @@ def VerifM.translate :
 
 /-! ### Eval_rec: postcondition-based semantics (raw) -/
 
-private def VerifM.eval_rec : VerifM α → TransState → VerifM.Env → (α → TransState → VerifM.Env → Prop) → Prop
+private def VerifM.eval_rec : VerifM α → TransState → Env → (α → TransState → Env → Prop) → Prop
   | .ret a, st, ρ, P => P a st ρ
   | .bind m k, st, ρ, P => m.eval_rec st ρ (fun r st' ρ' => (k r).eval_rec st' ρ' P)
   | .decl hint t, st, ρ, P =>
@@ -243,9 +243,9 @@ private def VerifM.eval_rec : VerifM α → TransState → VerifM.Env → (α �
         (ρ.updateTernary τ₁ τ₂ τ₃ τ₄ t.name f)
   | .assume item, st, ρ, P =>
       match item with
-      | .pure φ => φ.wfIn st.decls → φ.eval ρ.env → P () { st with asserts := φ :: st.asserts } ρ
+      | .pure φ => φ.wfIn st.decls → φ.eval ρ → P () { st with asserts := φ :: st.asserts } ρ
       | .spatial a => a.wfIn st.decls → P () { st with owns := a :: st.owns } ρ
-  | .check _ φ, st, ρ, P => φ.wfIn st.decls → ∃ b, (b = true → φ.eval ρ.env) ∧ P b st ρ
+  | .check _ φ, st, ρ, P => φ.wfIn st.decls → ∃ b, (b = true → φ.eval ρ) ∧ P b st ρ
   | .fatal _, _, _, _ => False
   | .failed _, _, _, _ => False
   | .all items, st, ρ, P => ∀ a ∈ items, P a st ρ
@@ -256,80 +256,80 @@ private def VerifM.eval_rec : VerifM α → TransState → VerifM.Env → (α �
   | .seq m m2, st, ρ, P =>
       m.eval_rec st ρ (fun () _ _ => True) ∧ m2.eval_rec st ρ P
 
-private theorem VerifM.eval_rec.mono' {m : VerifM α} (ρ : VerifM.Env) (st : TransState) (h : m.eval_rec st ρ P)
-    (hPQ : ∀ a st' (ρ' : VerifM.Env),
-      st.decls.Subset st'.decls → VerifM.Env.agreeOn st.decls ρ ρ' → P a st' ρ' → Q a st' ρ') :
+private theorem VerifM.eval_rec.mono' {m : VerifM α} (ρ : Env) (st : TransState) (h : m.eval_rec st ρ P)
+    (hPQ : ∀ a st' (ρ' : Env),
+      st.decls.Subset st'.decls → Env.agreeOn st.decls ρ ρ' → P a st' ρ' → Q a st' ρ') :
     m.eval_rec st ρ Q := by
   induction m generalizing st ρ with
-  | ret => exact hPQ _ _ _ (Signature.Subset.refl _) (VerifM.Env.agreeOn_refl) h
+  | ret => exact hPQ _ _ _ (Signature.Subset.refl _) (Env.agreeOn_refl) h
   | bind m k ihm ihk =>
     exact ihm ρ st h fun r st' ρ' hsub hag hr =>
       ihk r ρ' st' hr fun a st'' ρ'' hsub' hag' hp =>
-        hPQ a st'' ρ'' (hsub.trans hsub') (VerifM.Env.agreeOn_trans hag (VerifM.Env.agreeOn_mono hsub hag')) hp
+        hPQ a st'' ρ'' (hsub.trans hsub') (Env.agreeOn_trans hag (Env.agreeOn_mono hsub hag')) hp
   | decl hint t =>
     intro u
     refine hPQ _ _ _ (Signature.Subset.subset_addConst _ _) ?_ (h u)
-    exact VerifM.Env.agreeOn_update_fresh
+    exact Env.agreeOn_update_fresh_const
       (c := ⟨Fresh.freshNumbers (hint.getD "_v") st.decls.allNames, t⟩)
       (Fresh.freshNumbers_not_mem (hint.getD "_v") st.decls.allNames)
   | declUnaryRel hint τ =>
     simp only [VerifM.eval_rec] at h ⊢
     intro f
     refine hPQ _ _ _ (Signature.Subset.subset_addUnaryRel _ _) ?_ (h f)
-    exact VerifM.Env.agreeOn_update_fresh_unaryRel
+    exact Env.agreeOn_update_fresh_unaryRel
       (u := st.freshUnaryRel hint τ)
       (st.freshUnaryRel_fresh hint τ)
   | declBinaryRel hint τ₁ τ₂ =>
     simp only [VerifM.eval_rec] at h ⊢
     intro f
     refine hPQ _ _ _ (Signature.Subset.subset_addBinaryRel _ _) ?_ (h f)
-    exact VerifM.Env.agreeOn_update_fresh_binaryRel
+    exact Env.agreeOn_update_fresh_binaryRel
       (b := st.freshBinaryRel hint τ₁ τ₂)
       (st.freshBinaryRel_fresh hint τ₁ τ₂)
   | declUnary hint τ₁ τ₂ =>
     simp only [VerifM.eval_rec] at h ⊢
     intro f
     refine hPQ _ _ _ (Signature.Subset.subset_addUnary _ _) ?_ (h f)
-    exact VerifM.Env.agreeOn_update_fresh_unary
+    exact Env.agreeOn_update_fresh_unary
       (u := st.freshUnary hint τ₁ τ₂)
       (st.freshUnary_fresh hint τ₁ τ₂)
   | declBinary hint τ₁ τ₂ τ₃ =>
     simp only [VerifM.eval_rec] at h ⊢
     intro f
     refine hPQ _ _ _ (Signature.Subset.subset_addBinary _ _) ?_ (h f)
-    exact VerifM.Env.agreeOn_update_fresh_binary
+    exact Env.agreeOn_update_fresh_binary
       (b := st.freshBinary hint τ₁ τ₂ τ₃)
       (st.freshBinary_fresh hint τ₁ τ₂ τ₃)
   | declTernary hint τ₁ τ₂ τ₃ τ₄ =>
     simp only [VerifM.eval_rec] at h ⊢
     intro f
     refine hPQ _ _ _ (Signature.Subset.subset_addTernary _ _) ?_ (h f)
-    exact VerifM.Env.agreeOn_update_fresh_ternary
+    exact Env.agreeOn_update_fresh_ternary
       (t := st.freshTernary hint τ₁ τ₂ τ₃ τ₄)
       (st.freshTernary_fresh hint τ₁ τ₂ τ₃ τ₄)
   | assume item =>
     cases item with
     | pure φ =>
       intro hwf hφ
-      exact hPQ _ _ _ (Signature.Subset.refl _) (VerifM.Env.agreeOn_refl) (h hwf hφ)
+      exact hPQ _ _ _ (Signature.Subset.refl _) (Env.agreeOn_refl) (h hwf hφ)
     | spatial a =>
       intro hwf
-      exact hPQ _ _ _ (Signature.Subset.refl _) (VerifM.Env.agreeOn_refl) (h hwf)
+      exact hPQ _ _ _ (Signature.Subset.refl _) (Env.agreeOn_refl) (h hwf)
   | check =>
     intro hwf
     obtain ⟨b, hb, hp⟩ := h hwf
-    exact ⟨b, hb, hPQ _ _ _ (Signature.Subset.refl _) (VerifM.Env.agreeOn_refl) hp⟩
+    exact ⟨b, hb, hPQ _ _ _ (Signature.Subset.refl _) (Env.agreeOn_refl) hp⟩
   | fatal => exact h.elim
   | failed => exact h.elim
   | all items =>
     intro a ha
-    exact hPQ _ _ _ (Signature.Subset.refl _) (VerifM.Env.agreeOn_refl) (h a ha)
+    exact hPQ _ _ _ (Signature.Subset.refl _) (Env.agreeOn_refl) (h a ha)
   | any items =>
     obtain ⟨a, ha, hp⟩ := h
-    exact ⟨a, ha, hPQ _ _ _ (Signature.Subset.refl _) (VerifM.Env.agreeOn_refl) hp⟩
+    exact ⟨a, ha, hPQ _ _ _ (Signature.Subset.refl _) (Env.agreeOn_refl) hp⟩
   | ctx f =>
     intro howns
-    exact hPQ _ _ _ (Signature.Subset.refl _) VerifM.Env.agreeOn_refl (h howns)
+    exact hPQ _ _ _ (Signature.Subset.refl _) Env.agreeOn_refl (h howns)
   | seq m m2 ihm ihf =>
     exact ⟨ihm ρ st h.1 fun () _ _ _ _ ha => trivial,
            ihf ρ st h.2 hPQ⟩
@@ -339,13 +339,13 @@ private theorem VerifM.eval_rec.mono {m : VerifM α} (h : m.eval_rec st ρ P) (h
   h.mono' ρ st fun a st' ρ' _ _ => hPQ a st' ρ'
 
 private theorem VerifM.eval_rec.decls_grow {m : VerifM α} ρ (h : m.eval_rec st ρ P) :
-    m.eval_rec st ρ (fun a st' ρ' => st.decls.Subset st'.decls ∧ VerifM.Env.agreeOn st.decls ρ ρ' ∧ P a st' ρ') :=
+    m.eval_rec st ρ (fun a st' ρ' => st.decls.Subset st'.decls ∧ Env.agreeOn st.decls ρ ρ' ∧ P a st' ρ') :=
   h.mono' ρ st fun _ _ _ hsub hag hp => ⟨hsub, hag, hp⟩
 
 /-! ### Adequacy: translate success implies eval -/
 
 
-private theorem VerifM.eval_rec_preserves_wf (m : VerifM α) (st : TransState) (ρ: VerifM.Env)
+private theorem VerifM.eval_rec_preserves_wf (m : VerifM α) (st : TransState) (ρ: Env)
     (h : VerifM.eval_rec m st ρ P) (g : st.holdsFor ρ) (hwf : st.wf) :
     VerifM.eval_rec m st ρ (fun a st' ρ' => st'.holdsFor ρ' ∧ st'.wf ∧ P a st' ρ') := by
   induction m generalizing st ρ with
@@ -362,8 +362,8 @@ private theorem VerifM.eval_rec_preserves_wf (m : VerifM α) (st : TransState) (
     specialize (h u)
     let w := Fresh.freshNumbers (hint.getD "_v") st.decls.allNames
     have hfresh := Fresh.freshNumbers_not_mem (hint.getD "_v") st.decls.allNames
-    have hagree : VerifM.Env.agreeOn st.decls ρ (ρ.updateConst t w u) := by
-      exact VerifM.Env.agreeOn_update_fresh (c := ⟨w, t⟩) hfresh
+    have hagree : Env.agreeOn st.decls ρ (ρ.updateConst t w u) := by
+      exact Env.agreeOn_update_fresh_const (c := ⟨w, t⟩) hfresh
     refine ⟨⟨?_, g.builtins.agree hwf.builtins hagree⟩, TransState.freshConst.wf _ hwf, h⟩
     intro φ hφ
     exact (Formula.eval_env_agree (hwf.assertsWf φ hφ) hagree).mp (g.asserts φ hφ)
@@ -374,8 +374,8 @@ private theorem VerifM.eval_rec_preserves_wf (m : VerifM α) (st : TransState) (
     specialize h f
     let u := st.freshUnaryRel hint τ
     have hfresh := st.freshUnaryRel_fresh hint τ
-    have hagree : VerifM.Env.agreeOn st.decls ρ (ρ.updateUnaryRel τ u.name f) := by
-      exact VerifM.Env.agreeOn_update_fresh_unaryRel (u := u) hfresh
+    have hagree : Env.agreeOn st.decls ρ (ρ.updateUnaryRel τ u.name f) := by
+      exact Env.agreeOn_update_fresh_unaryRel (u := u) hfresh
     refine ⟨⟨?_, g.builtins.agree hwf.builtins hagree⟩,
       TransState.addUnaryRel.wf st _ hwf hfresh, h⟩
     intro φ hφ
@@ -387,8 +387,8 @@ private theorem VerifM.eval_rec_preserves_wf (m : VerifM α) (st : TransState) (
     specialize h f
     let b := st.freshBinaryRel hint τ₁ τ₂
     have hfresh := st.freshBinaryRel_fresh hint τ₁ τ₂
-    have hagree : VerifM.Env.agreeOn st.decls ρ (ρ.updateBinaryRel τ₁ τ₂ b.name f) := by
-      exact VerifM.Env.agreeOn_update_fresh_binaryRel (b := b) hfresh
+    have hagree : Env.agreeOn st.decls ρ (ρ.updateBinaryRel τ₁ τ₂ b.name f) := by
+      exact Env.agreeOn_update_fresh_binaryRel (b := b) hfresh
     refine ⟨⟨?_, g.builtins.agree hwf.builtins hagree⟩,
       TransState.addBinaryRel.wf st _ hwf hfresh, h⟩
     intro φ hφ
@@ -400,8 +400,8 @@ private theorem VerifM.eval_rec_preserves_wf (m : VerifM α) (st : TransState) (
     specialize h f
     let u := st.freshUnary hint τ₁ τ₂
     have hfresh := st.freshUnary_fresh hint τ₁ τ₂
-    have hagree : VerifM.Env.agreeOn st.decls ρ (ρ.updateUnary τ₁ τ₂ u.name f) := by
-      exact VerifM.Env.agreeOn_update_fresh_unary (u := u) hfresh
+    have hagree : Env.agreeOn st.decls ρ (ρ.updateUnary τ₁ τ₂ u.name f) := by
+      exact Env.agreeOn_update_fresh_unary (u := u) hfresh
     refine ⟨⟨?_, g.builtins.agree hwf.builtins hagree⟩,
       TransState.addUnary.wf st _ hwf hfresh, h⟩
     intro φ hφ
@@ -413,8 +413,8 @@ private theorem VerifM.eval_rec_preserves_wf (m : VerifM α) (st : TransState) (
     specialize h f
     let b := st.freshBinary hint τ₁ τ₂ τ₃
     have hfresh := st.freshBinary_fresh hint τ₁ τ₂ τ₃
-    have hagree : VerifM.Env.agreeOn st.decls ρ (ρ.updateBinary τ₁ τ₂ τ₃ b.name f) := by
-      exact VerifM.Env.agreeOn_update_fresh_binary (b := b) hfresh
+    have hagree : Env.agreeOn st.decls ρ (ρ.updateBinary τ₁ τ₂ τ₃ b.name f) := by
+      exact Env.agreeOn_update_fresh_binary (b := b) hfresh
     refine ⟨⟨?_, g.builtins.agree hwf.builtins hagree⟩,
       TransState.addBinary.wf st _ hwf hfresh, h⟩
     intro φ hφ
@@ -426,8 +426,8 @@ private theorem VerifM.eval_rec_preserves_wf (m : VerifM α) (st : TransState) (
     specialize h f
     let t := st.freshTernary hint τ₁ τ₂ τ₃ τ₄
     have hfresh := st.freshTernary_fresh hint τ₁ τ₂ τ₃ τ₄
-    have hagree : VerifM.Env.agreeOn st.decls ρ (ρ.updateTernary τ₁ τ₂ τ₃ τ₄ t.name f) := by
-      exact VerifM.Env.agreeOn_update_fresh_ternary (t := t) hfresh
+    have hagree : Env.agreeOn st.decls ρ (ρ.updateTernary τ₁ τ₂ τ₃ τ₄ t.name f) := by
+      exact Env.agreeOn_update_fresh_ternary (t := t) hfresh
     refine ⟨⟨?_, g.builtins.agree hwf.builtins hagree⟩,
       TransState.addTernary.wf st _ hwf hfresh, h⟩
     intro φ hφ
@@ -516,7 +516,7 @@ private theorem translateAny_eval (items : List α) (st : TransState)
       simp only [ScopedM.eval_ret] at hk1
       exact absurd hk1.1 (by simp)
 
-private theorem VerifM.translate_eval_rec (m : VerifM α) (st : TransState) (ρ: VerifM.Env)
+private theorem VerifM.translate_eval_rec (m : VerifM α) (st : TransState) (ρ: Env)
     (f : TransCont (Except VerifError α))
     (hf : ∀ e st', ¬∃ Δ, ScopedM.eval (f (.error e) st') st'.toFlatCtx (.ok ()) Δ)
     (Δ : FlatCtx)
@@ -605,7 +605,7 @@ private theorem VerifM.translate_eval_rec (m : VerifM α) (st : TransState) (ρ:
           rcases hproof with ⟨hunsat, _⟩ | hfalse
           · have hunsat' : ¬Smt.State.satisfiable st.decls (Formula.not φ :: st.asserts) := by
               simp only [FlatCtx.addAssert] at hunsat; exact hunsat
-            exact Smt.State.satisfiable.to_impl' st.decls st.asserts hunsat' ρ.env g.asserts
+            exact Smt.State.satisfiable.to_impl' st.decls st.asserts hunsat' ρ g.asserts
           · simp [ScopedM.eval_ret] at hfalse
     | high =>
       apply ScopedM.eval_assert at hxx
@@ -617,7 +617,7 @@ private theorem VerifM.translate_eval_rec (m : VerifM α) (st : TransState) (ρ:
             (Formula.not φ :: guardFormula :: st.asserts) := by
           simp only [FlatCtx.addAssert] at hunsat; exact hunsat
         refine Smt.State.satisfiable.to_impl' st.decls (guardFormula :: st.asserts)
-          hunsat' ρ.env ?_
+          hunsat' ρ ?_
         intro ψ hψ
         cases hψ with
         | head => exact g.builtins.guard
@@ -664,20 +664,20 @@ private theorem VerifM.translate_eval_rec (m : VerifM α) (st : TransState) (ρ:
 
 /-- The main verification predicate. Requires `st` to be well-formed and satisfy `ρ`,
     and guarantees the same for every reachable `st'`. -/
-def VerifM.eval (m : VerifM α) (st : TransState) (ρ : VerifM.Env) (Q : α → TransState → VerifM.Env → Prop) : Prop :=
+def VerifM.eval (m : VerifM α) (st : TransState) (ρ : Env) (Q : α → TransState → Env → Prop) : Prop :=
   st.wf ∧ st.holdsFor ρ ∧
   m.eval_rec st ρ (fun a st' ρ' => st'.wf ∧ st'.holdsFor ρ' ∧ Q a st' ρ')
 
 /-! ### Structural properties -/
 
-theorem VerifM.eval.wf {m : VerifM α} {st : TransState} {ρ : VerifM.Env} {Q : α → TransState → VerifM.Env → Prop}
+theorem VerifM.eval.wf {m : VerifM α} {st : TransState} {ρ : Env} {Q : α → TransState → Env → Prop}
     (h : m.eval st ρ Q) : st.wf := h.1
 
-theorem VerifM.eval.holdsFor {m : VerifM α} {st : TransState} {ρ : VerifM.Env} {Q : α → TransState → VerifM.Env → Prop}
+theorem VerifM.eval.holdsFor {m : VerifM α} {st : TransState} {ρ : Env} {Q : α → TransState → Env → Prop}
     (h : m.eval st ρ Q) : st.holdsFor ρ := h.2.1
 
-theorem VerifM.eval.mono' {m : VerifM α} (ρ : VerifM.Env) (st : TransState) (h : m.eval st ρ P)
-    (hPQ : ∀ a st' (ρ' : VerifM.Env), st.decls.Subset st'.decls → VerifM.Env.agreeOn st.decls ρ ρ' →
+theorem VerifM.eval.mono' {m : VerifM α} (ρ : Env) (st : TransState) (h : m.eval st ρ P)
+    (hPQ : ∀ a st' (ρ' : Env), st.decls.Subset st'.decls → Env.agreeOn st.decls ρ ρ' →
       st'.wf → st'.holdsFor ρ' → P a st' ρ' → Q a st' ρ') :
     m.eval st ρ Q :=
   ⟨h.1, h.2.1, h.2.2.mono' ρ st fun a st' ρ' hsub hag ⟨hwf', hg', hp⟩ =>
@@ -688,12 +688,12 @@ theorem VerifM.eval.mono {m : VerifM α} (h : m.eval st ρ P) (hPQ : ∀ a st' �
   h.mono' ρ st fun a st' ρ' _ _ _ _ => hPQ a st' ρ'
 
 theorem VerifM.eval.decls_grow {m : VerifM α} ρ (h : m.eval st ρ P) :
-    m.eval st ρ (fun a st' ρ' => st.decls.Subset st'.decls ∧ VerifM.Env.agreeOn st.decls ρ ρ' ∧ P a st' ρ') :=
+    m.eval st ρ (fun a st' ρ' => st.decls.Subset st'.decls ∧ Env.agreeOn st.decls ρ ρ' ∧ P a st' ρ') :=
   h.mono' ρ st fun _ _ _ hsub hag _ _ hp => ⟨hsub, hag, hp⟩
 
 /-! ### Inversion lemmas for VerifM.eval (forward direction) -/
 
-theorem VerifM.eval_ret {a : α} {st : TransState} {ρ : VerifM.Env} {Q : α → TransState → VerifM.Env → Prop}
+theorem VerifM.eval_ret {a : α} {st : TransState} {ρ : Env} {Q : α → TransState → Env → Prop}
     (h : VerifM.eval (.ret a) st ρ Q) : Q a st ρ :=
   h.2.2.2.2
 
@@ -711,23 +711,23 @@ theorem VerifM.eval_bind {m : VerifM α} {k : α → VerifM β} {st ρ} :
 
 
 
-theorem VerifM.eval_failed {st : TransState} {ρ : VerifM.Env} {Q : α → TransState → VerifM.Env → Prop}
+theorem VerifM.eval_failed {st : TransState} {ρ : Env} {Q : α → TransState → Env → Prop}
     (h : VerifM.eval (.failed msg) st ρ Q) : False :=
   h.2.2
 
-theorem VerifM.eval_fatal {st : TransState} {ρ : VerifM.Env} {Q : α → TransState → VerifM.Env → Prop}
+theorem VerifM.eval_fatal {st : TransState} {ρ : Env} {Q : α → TransState → Env → Prop}
     (h : VerifM.eval (.fatal msg) st ρ Q) : False :=
   h.2.2
 
-theorem VerifM.eval_decl {hint : Option String} {t : Srt} {st : TransState} {ρ : VerifM.Env}
-    {Q : FOL.Const → TransState → VerifM.Env → Prop}
+theorem VerifM.eval_decl {hint : Option String} {t : Srt} {st : TransState} {ρ : Env}
+    {Q : FOL.Const → TransState → Env → Prop}
     (h : VerifM.eval (.decl hint t) st ρ Q) :
     let c := st.freshConst hint t
     ∀ u, Q c { st with decls := st.decls.addConst c } (ρ.updateConst t c.name u) :=
   fun u => (h.2.2 u).2.2
 
-theorem VerifM.eval_declUnaryRel {hint : Option String} {τ : Srt} {st : TransState} {ρ : VerifM.Env}
-    {Q : FOL.UnaryRel → TransState → VerifM.Env → Prop}
+theorem VerifM.eval_declUnaryRel {hint : Option String} {τ : Srt} {st : TransState} {ρ : Env}
+    {Q : FOL.UnaryRel → TransState → Env → Prop}
     (h : VerifM.eval (.declUnaryRel hint τ) st ρ Q) :
     let u := st.freshUnaryRel hint τ
     u.name ∉ st.decls.allNames ∧
@@ -735,7 +735,7 @@ theorem VerifM.eval_declUnaryRel {hint : Option String} {τ : Srt} {st : TransSt
   ⟨st.freshUnaryRel_fresh hint τ, fun f => (h.2.2 f).2.2⟩
 
 theorem VerifM.eval_declBinaryRel {hint : Option String} {τ₁ τ₂ : Srt} {st : TransState}
-    {ρ : VerifM.Env} {Q : FOL.BinaryRel → TransState → VerifM.Env → Prop}
+    {ρ : Env} {Q : FOL.BinaryRel → TransState → Env → Prop}
     (h : VerifM.eval (.declBinaryRel hint τ₁ τ₂) st ρ Q) :
     let b := st.freshBinaryRel hint τ₁ τ₂
     b.name ∉ st.decls.allNames ∧
@@ -743,7 +743,7 @@ theorem VerifM.eval_declBinaryRel {hint : Option String} {τ₁ τ₂ : Srt} {st
   ⟨st.freshBinaryRel_fresh hint τ₁ τ₂, fun f => (h.2.2 f).2.2⟩
 
 theorem VerifM.eval_declUnary {hint : Option String} {τ₁ τ₂ : Srt} {st : TransState}
-    {ρ : VerifM.Env} {Q : FOL.Unary → TransState → VerifM.Env → Prop}
+    {ρ : Env} {Q : FOL.Unary → TransState → Env → Prop}
     (h : VerifM.eval (.declUnary hint τ₁ τ₂) st ρ Q) :
     let u := st.freshUnary hint τ₁ τ₂
     u.name ∉ st.decls.allNames ∧
@@ -751,7 +751,7 @@ theorem VerifM.eval_declUnary {hint : Option String} {τ₁ τ₂ : Srt} {st : T
   ⟨st.freshUnary_fresh hint τ₁ τ₂, fun f => (h.2.2 f).2.2⟩
 
 theorem VerifM.eval_declBinary {hint : Option String} {τ₁ τ₂ τ₃ : Srt} {st : TransState}
-    {ρ : VerifM.Env} {Q : FOL.Binary → TransState → VerifM.Env → Prop}
+    {ρ : Env} {Q : FOL.Binary → TransState → Env → Prop}
     (h : VerifM.eval (.declBinary hint τ₁ τ₂ τ₃) st ρ Q) :
     let b := st.freshBinary hint τ₁ τ₂ τ₃
     b.name ∉ st.decls.allNames ∧
@@ -759,8 +759,8 @@ theorem VerifM.eval_declBinary {hint : Option String} {τ₁ τ₂ τ₃ : Srt} 
   ⟨st.freshBinary_fresh hint τ₁ τ₂ τ₃, fun f => (h.2.2 f).2.2⟩
 
 theorem VerifM.eval_declTernary {hint : Option String} {τ₁ τ₂ τ₃ τ₄ : Srt}
-    {st : TransState} {ρ : VerifM.Env}
-    {Q : FOL.Ternary → TransState → VerifM.Env → Prop}
+    {st : TransState} {ρ : Env}
+    {Q : FOL.Ternary → TransState → Env → Prop}
     (h : VerifM.eval (.declTernary hint τ₁ τ₂ τ₃ τ₄) st ρ Q) :
     let t := st.freshTernary hint τ₁ τ₂ τ₃ τ₄
     t.name ∉ st.decls.allNames ∧
@@ -768,23 +768,23 @@ theorem VerifM.eval_declTernary {hint : Option String} {τ₁ τ₂ τ₃ τ₄ 
       (ρ.updateTernary τ₁ τ₂ τ₃ τ₄ t.name f) :=
   ⟨st.freshTernary_fresh hint τ₁ τ₂ τ₃ τ₄, fun f => (h.2.2 f).2.2⟩
 
-theorem VerifM.eval_assumePure {φ : Formula} {st : TransState} {ρ : VerifM.Env}
-    {Q : Unit → TransState → VerifM.Env → Prop}
+theorem VerifM.eval_assumePure {φ : Formula} {st : TransState} {ρ : Env}
+    {Q : Unit → TransState → Env → Prop}
     (h : VerifM.eval (.assume (.pure φ)) st ρ Q) :
-    φ.wfIn st.decls → φ.eval ρ.env → Q () { st with asserts := φ :: st.asserts } ρ :=
+    φ.wfIn st.decls → φ.eval ρ → Q () { st with asserts := φ :: st.asserts } ρ :=
   fun hwf hφ => (h.2.2 hwf hφ).2.2
 
-theorem VerifM.eval_assumeSpatial {a : SpatialAtom} {st : TransState} {ρ : VerifM.Env}
-    {Q : Unit → TransState → VerifM.Env → Prop}
+theorem VerifM.eval_assumeSpatial {a : SpatialAtom} {st : TransState} {ρ : Env}
+    {Q : Unit → TransState → Env → Prop}
     (h : VerifM.eval (.assume (.spatial a)) st ρ Q) :
     a.wfIn st.decls → Q () { st with owns := a :: st.owns } ρ :=
   fun hwf => (h.2.2 hwf).2.2
 
-theorem VerifM.eval_assume {item : CtxItem} {st : TransState} {ρ : VerifM.Env}
-    {Q : Unit → TransState → VerifM.Env → Prop}
+theorem VerifM.eval_assume {item : CtxItem} {st : TransState} {ρ : Env}
+    {Q : Unit → TransState → Env → Prop}
     (h : VerifM.eval (.assume item) st ρ Q) :
     item.wfIn st.decls →
-    (match item with | .pure φ => φ.eval ρ.env | .spatial _ => True) →
+    (match item with | .pure φ => φ.eval ρ | .spatial _ => True) →
     Q () (st.addItem item) ρ :=
   by
     cases item with
@@ -795,19 +795,19 @@ theorem VerifM.eval_assume {item : CtxItem} {st : TransState} {ρ : VerifM.Env}
       simp [TransState.addItem]
       exact VerifM.eval_assumeSpatial h
 
-theorem VerifM.eval_check {e : Effort} {φ : Formula} {st : TransState} {ρ : VerifM.Env}
-    {Q : Bool → TransState → VerifM.Env → Prop}
+theorem VerifM.eval_check {e : Effort} {φ : Formula} {st : TransState} {ρ : Env}
+    {Q : Bool → TransState → Env → Prop}
     (h : VerifM.eval (.check e φ) st ρ Q) :
     φ.wfIn st.decls →
-    ∃ b, (b = true → φ.eval ρ.env) ∧ Q b st ρ :=
+    ∃ b, (b = true → φ.eval ρ) ∧ Q b st ρ :=
   fun hwf =>
     let ⟨b, hb, _, _, hq⟩ := h.2.2 hwf
     ⟨b, hb, hq⟩
 
-theorem VerifM.eval_assert {φ : Formula} {st : TransState} {ρ : VerifM.Env}
-    {Q : Unit → TransState → VerifM.Env → Prop}
+theorem VerifM.eval_assert {φ : Formula} {st : TransState} {ρ : Env}
+    {Q : Unit → TransState → Env → Prop}
     (h : VerifM.eval (VerifM.assert φ) st ρ Q) :
-    φ.wfIn st.decls → φ.eval ρ.env ∧ Q () st ρ := by
+    φ.wfIn st.decls → φ.eval ρ ∧ Q () st ρ := by
   intro hwf
   simp only [VerifM.assert] at h
   have hb := VerifM.eval_bind h
@@ -821,8 +821,8 @@ theorem VerifM.eval_assert {φ : Formula} {st : TransState} {ρ : VerifM.Env}
     exact (VerifM.eval_failed hq).elim
 
 theorem VerifM.eval_expectEq [DecidableEq α] [Repr α]
-    {msg : String} {actual expected : α} {st : TransState} {ρ : VerifM.Env}
-    {Q : Unit → TransState → VerifM.Env → Prop}
+    {msg : String} {actual expected : α} {st : TransState} {ρ : Env}
+    {Q : Unit → TransState → Env → Prop}
     (h : VerifM.eval (VerifM.expectEq msg actual expected) st ρ Q) :
     actual = expected ∧ Q () st ρ := by
   unfold VerifM.expectEq at h
@@ -833,8 +833,8 @@ theorem VerifM.eval_expectEq [DecidableEq α] [Repr α]
     exact (VerifM.eval_fatal h).elim
 
 theorem VerifM.eval_expectSome
-    {msg : String} {x : Option α} {st : TransState} {ρ : VerifM.Env}
-    {Q : α → TransState → VerifM.Env → Prop}
+    {msg : String} {x : Option α} {st : TransState} {ρ : Env}
+    {Q : α → TransState → Env → Prop}
     (h : VerifM.eval (VerifM.expectSome msg x) st ρ Q) :
     ∃ y, x = some y ∧ Q y st ρ := by
   unfold VerifM.expectSome at h
@@ -846,8 +846,8 @@ theorem VerifM.eval_expectSome
     simp [hx] at h
     exact ⟨y, rfl, VerifM.eval_ret h⟩
 
-theorem VerifM.eval_declConstExact {c : FOL.Const} {st : TransState} {ρ : VerifM.Env}
-    {Q : Unit → TransState → VerifM.Env → Prop}
+theorem VerifM.eval_declConstExact {c : FOL.Const} {st : TransState} {ρ : Env}
+    {Q : Unit → TransState → Env → Prop}
     (h : VerifM.eval (VerifM.declConstExact c) st ρ Q) :
     c.name ∉ st.decls.allNames ∧
     ∀ v, Q () { st with decls := st.decls.addConst c } (ρ.updateConst c.sort c.name v) := by
@@ -867,8 +867,8 @@ theorem VerifM.eval_declConstExact {c : FOL.Const} {st : TransState} {ρ : Verif
     rw [hceq] at hq
     exact hq
 
-theorem VerifM.eval_declUnaryRelExact {u : FOL.UnaryRel} {st : TransState} {ρ : VerifM.Env}
-    {Q : Unit → TransState → VerifM.Env → Prop}
+theorem VerifM.eval_declUnaryRelExact {u : FOL.UnaryRel} {st : TransState} {ρ : Env}
+    {Q : Unit → TransState → Env → Prop}
     (h : VerifM.eval (VerifM.declUnaryRelExact u) st ρ Q) :
     u.name ∉ st.decls.allNames ∧
     ∀ f, Q () { st with decls := st.decls.addUnaryRel u } (ρ.updateUnaryRel u.arg u.name f) := by
@@ -886,8 +886,8 @@ theorem VerifM.eval_declUnaryRelExact {u : FOL.UnaryRel} {st : TransState} {ρ :
   rw [hueq] at hq
   exact hq
 
-theorem VerifM.eval_declBinaryRelExact {b : FOL.BinaryRel} {st : TransState} {ρ : VerifM.Env}
-    {Q : Unit → TransState → VerifM.Env → Prop}
+theorem VerifM.eval_declBinaryRelExact {b : FOL.BinaryRel} {st : TransState} {ρ : Env}
+    {Q : Unit → TransState → Env → Prop}
     (h : VerifM.eval (VerifM.declBinaryRelExact b) st ρ Q) :
     b.name ∉ st.decls.allNames ∧
     ∀ f, Q () { st with decls := st.decls.addBinaryRel b } (ρ.updateBinaryRel b.arg1 b.arg2 b.name f) := by
@@ -905,8 +905,8 @@ theorem VerifM.eval_declBinaryRelExact {b : FOL.BinaryRel} {st : TransState} {ρ
   rw [hbeq] at hq
   exact hq
 
-theorem VerifM.eval_declUnaryExact {u : FOL.Unary} {st : TransState} {ρ : VerifM.Env}
-    {Q : Unit → TransState → VerifM.Env → Prop}
+theorem VerifM.eval_declUnaryExact {u : FOL.Unary} {st : TransState} {ρ : Env}
+    {Q : Unit → TransState → Env → Prop}
     (h : VerifM.eval (VerifM.declUnaryExact u) st ρ Q) :
     u.name ∉ st.decls.allNames ∧
     ∀ f, Q () { st with decls := st.decls.addUnary u } (ρ.updateUnary u.arg u.ret u.name f) := by
@@ -924,8 +924,8 @@ theorem VerifM.eval_declUnaryExact {u : FOL.Unary} {st : TransState} {ρ : Verif
   rw [hueq] at hq
   exact hq
 
-theorem VerifM.eval_declBinaryExact {b : FOL.Binary} {st : TransState} {ρ : VerifM.Env}
-    {Q : Unit → TransState → VerifM.Env → Prop}
+theorem VerifM.eval_declBinaryExact {b : FOL.Binary} {st : TransState} {ρ : Env}
+    {Q : Unit → TransState → Env → Prop}
     (h : VerifM.eval (VerifM.declBinaryExact b) st ρ Q) :
     b.name ∉ st.decls.allNames ∧
     ∀ f, Q () { st with decls := st.decls.addBinary b } (ρ.updateBinary b.arg1 b.arg2 b.ret b.name f) := by
@@ -943,8 +943,8 @@ theorem VerifM.eval_declBinaryExact {b : FOL.Binary} {st : TransState} {ρ : Ver
   rw [hbeq] at hq
   exact hq
 
-theorem VerifM.eval_declTernaryExact {t : FOL.Ternary} {st : TransState} {ρ : VerifM.Env}
-    {Q : Unit → TransState → VerifM.Env → Prop}
+theorem VerifM.eval_declTernaryExact {t : FOL.Ternary} {st : TransState} {ρ : Env}
+    {Q : Unit → TransState → Env → Prop}
     (h : VerifM.eval (VerifM.declTernaryExact t) st ρ Q) :
     t.name ∉ st.decls.allNames ∧
     ∀ f, Q () { st with decls := st.decls.addTernary t }
@@ -965,7 +965,7 @@ theorem VerifM.eval_declTernaryExact {t : FOL.Ternary} {st : TransState} {ρ : V
 
 theorem VerifM.eval_bind_expectEq [DecidableEq α] [Repr α]
     {msg : String} {actual expected : α} {β : Type _} {k : Unit → VerifM β}
-    {st : TransState} {ρ : VerifM.Env} {Q : β → TransState → VerifM.Env → Prop}
+    {st : TransState} {ρ : Env} {Q : β → TransState → Env → Prop}
     (h : VerifM.eval ((VerifM.expectEq msg actual expected).bind k) st ρ Q) :
     actual = expected ∧ VerifM.eval (k ()) st ρ Q := by
   have hb := VerifM.eval_bind h
@@ -974,28 +974,28 @@ theorem VerifM.eval_bind_expectEq [DecidableEq α] [Repr α]
 
 theorem VerifM.eval_bind_expectSome
     {msg : String} {x : Option α} {β : Type _} {k : α → VerifM β}
-    {st : TransState} {ρ : VerifM.Env} {Q : β → TransState → VerifM.Env → Prop}
+    {st : TransState} {ρ : Env} {Q : β → TransState → Env → Prop}
     (h : VerifM.eval ((VerifM.expectSome msg x).bind k) st ρ Q) :
     ∃ y, x = some y ∧ VerifM.eval (k y) st ρ Q := by
   have hb := VerifM.eval_bind h
   obtain ⟨y, hx, hk⟩ := VerifM.eval_expectSome hb
   exact ⟨y, hx, hk⟩
 
-theorem VerifM.eval_all {items : List α} {st : TransState} {ρ : VerifM.Env}
-    {Q : α → TransState → VerifM.Env → Prop}
+theorem VerifM.eval_all {items : List α} {st : TransState} {ρ : Env}
+    {Q : α → TransState → Env → Prop}
     (h : VerifM.eval (.all items) st ρ Q) :
     ∀ a ∈ items, Q a st ρ :=
   fun a ha => (h.2.2 a ha).2.2
 
-theorem VerifM.eval_any {items : List α} {st : TransState} {ρ : VerifM.Env}
-    {Q : α → TransState → VerifM.Env → Prop}
+theorem VerifM.eval_any {items : List α} {st : TransState} {ρ : Env}
+    {Q : α → TransState → Env → Prop}
     (h : VerifM.eval (.any items) st ρ Q) :
     ∃ a ∈ items, Q a st ρ :=
   let ⟨a, ha, _, _, hq⟩ := h.2.2; ⟨a, ha, hq⟩
 
 
 theorem VerifM.eval_ctx {f : TransState → α × SpatialContext}
-    {st : TransState} {ρ : VerifM.Env} {Q : α → TransState → VerifM.Env → Prop}
+    {st : TransState} {ρ : Env} {Q : α → TransState → Env → Prop}
     (h : VerifM.eval (.ctx f) st ρ Q) :
     let (a, owns') := f st
     (owns'.wfIn st.decls → Q a { st with owns := owns' } ρ)
@@ -1004,8 +1004,8 @@ theorem VerifM.eval_ctx {f : TransState → α × SpatialContext}
     ∧ st.asserts.wfIn st.decls :=
   ⟨fun howns => (h.2.2 howns).2.2, h.1.ownsWf, h.2.1, h.1.assertsWf⟩
 
-theorem VerifM.eval_ctxPure {f : List Formula → α} {st : TransState} {ρ : VerifM.Env}
-    {Q : α → TransState → VerifM.Env → Prop}
+theorem VerifM.eval_ctxPure {f : List Formula → α} {st : TransState} {ρ : Env}
+    {Q : α → TransState → Env → Prop}
     (h : VerifM.eval (.ctx (fun st => (f st.asserts, st.owns))) st ρ Q) :
     Q (f st.asserts) st ρ
     ∧ st.holdsFor ρ
@@ -1013,16 +1013,16 @@ theorem VerifM.eval_ctxPure {f : List Formula → α} {st : TransState} {ρ : Ve
   let ⟨hq, howns, hg, hwf⟩ := VerifM.eval_ctx h
   ⟨hq howns, hg, hwf⟩
 
-theorem VerifM.eval_persist {st : TransState} {ρ : VerifM.Env}
-    {Q : Unit → TransState → VerifM.Env → Prop}
+theorem VerifM.eval_persist {st : TransState} {ρ : Env}
+    {Q : Unit → TransState → Env → Prop}
     (h : VerifM.eval VerifM.persist st ρ Q) :
     Q () (TransState.persist st) ρ := by
   let ⟨hq, howns, _, _⟩ := VerifM.eval_ctx h
   apply hq
   simp [TransState.persist]
 
-theorem VerifM.eval_seq {m : VerifM Unit} {m2 : VerifM β} {st : TransState} {ρ : VerifM.Env}
-    {Q : β → TransState → VerifM.Env → Prop}
+theorem VerifM.eval_seq {m : VerifM Unit} {m2 : VerifM β} {st : TransState} {ρ : Env}
+    {Q : β → TransState → Env → Prop}
     (h : VerifM.eval (.seq m m2) st ρ Q) :
     VerifM.eval m st ρ (fun () _ _ => True) ∧ VerifM.eval m2 st ρ Q := by
   obtain ⟨hwf, hholds, hm, hm2⟩ := h
@@ -1031,10 +1031,10 @@ theorem VerifM.eval_seq {m : VerifM Unit} {m2 : VerifM β} {st : TransState} {ρ
    ⟨hwf, hholds, hm2⟩⟩
 
 theorem VerifM.eval_assumeAll {φs : List Formula}
-    {st : TransState} {ρ : VerifM.Env} {P : Unit → TransState → VerifM.Env → Prop}
+    {st : TransState} {ρ : Env} {P : Unit → TransState → Env → Prop}
     (h : VerifM.eval (VerifM.assumeAll φs) st ρ P) :
     (∀ φ ∈ φs, φ.wfIn st.decls) →
-    (∀ φ ∈ φs, φ.eval ρ.env) →
+    (∀ φ ∈ φs, φ.eval ρ) →
     ∃ st', st'.decls = st.decls ∧ st'.owns = st.owns ∧
            st'.asserts = φs.reverse ++ st.asserts ∧ P () st' ρ := by
   induction φs generalizing st with
@@ -1057,10 +1057,10 @@ theorem VerifM.eval_assumeAll {φs : List Formula}
     rw [hass]; simp [List.reverse_cons, List.append_assoc]
 
 theorem VerifM.eval_assumeAxioms {axs : List Axiom}
-    {st : TransState} {ρ : VerifM.Env} {P : Unit → TransState → VerifM.Env → Prop}
+    {st : TransState} {ρ : Env} {P : Unit → TransState → Env → Prop}
     (h : VerifM.eval (VerifM.assumeAxioms axs) st ρ P) :
     (∀ a ∈ axs, a.formula.wfIn st.decls) →
-    (∀ a ∈ axs, a.formula.eval ρ.env) →
+    (∀ a ∈ axs, a.formula.eval ρ) →
     ∃ st', st'.decls = st.decls ∧ st'.owns = st.owns ∧
            st'.asserts = (Axiom.asserts axs).reverse ++ st.asserts ∧ P () st' ρ := by
   intro hwf heval
@@ -1084,7 +1084,7 @@ theorem VerifM.topCont_error_propagates :
   simp only [topCont, ScopedM.eval_ret] at h
   exact absurd h.1 (by cases e <;> simp)
 
-theorem VerifM.translate_eval (m : VerifM α) (st : TransState) (ρ : VerifM.Env)
+theorem VerifM.translate_eval (m : VerifM α) (st : TransState) (ρ : Env)
     (f : TransCont (Except VerifError α))
     (hf : ∀ e st', ¬∃ Δ, ScopedM.eval (f (.error e) st') st'.toFlatCtx (.ok ()) Δ)
     (Δ : FlatCtx)
@@ -1094,7 +1094,7 @@ theorem VerifM.translate_eval (m : VerifM α) (st : TransState) (ρ : VerifM.Env
   ⟨hwf, g, (eval_rec_preserves_wf m st ρ (translate_eval_rec m st ρ f hf Δ h g hwf) g hwf).mono
     fun _ _ _ ⟨hg', hwf', hΔ'⟩ => ⟨hwf', hg', hΔ'⟩⟩
 
-theorem VerifM.eval_of_translate (m : VerifM Unit) (st : TransState) (ρ : VerifM.Env) (Δ : FlatCtx)
+theorem VerifM.eval_of_translate (m : VerifM Unit) (st : TransState) (ρ : Env) (Δ : FlatCtx)
     (h : ScopedM.eval (m.translate st topCont) st.toFlatCtx (.ok ()) Δ)
     (g : st.holdsFor ρ) (hwf : st.wf) :
     VerifM.eval m st ρ (fun _ _ _ => True) :=
