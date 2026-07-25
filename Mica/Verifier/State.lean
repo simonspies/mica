@@ -26,56 +26,6 @@ end CtxItem
 
 namespace VerifM
 
-structure Env where
-  env : _root_.Env
-
-def Env.empty : Env :=
-  { env := _root_.Env.empty }
-
-@[simp] theorem Env.empty_env : Env.empty.env = _root_.Env.empty := rfl
-
-def Env.updateConst (ρ : Env) (t : Srt) (x : String) (u : t.denote) : Env :=
-  { ρ with env := _root_.Env.updateConst ρ.env t x u }
-
-@[simp] theorem Env.updateConst_env (ρ : Env) (t : Srt) (x : String) (u : t.denote) :
-    (ρ.updateConst t x u).env = ρ.env.updateConst t x u := rfl
-
-def Env.updateUnary (ρ : Env) (τ₁ τ₂ : Srt) (x : String) (f : τ₁.denote → τ₂.denote) : Env :=
-  { ρ with env := _root_.Env.updateUnary ρ.env τ₁ τ₂ x f }
-
-@[simp] theorem Env.updateUnary_env (ρ : Env) (τ₁ τ₂ : Srt) (x : String) (f : τ₁.denote → τ₂.denote) :
-    (ρ.updateUnary τ₁ τ₂ x f).env = ρ.env.updateUnary τ₁ τ₂ x f := rfl
-
-def Env.updateBinary (ρ : Env) (τ₁ τ₂ τ₃ : Srt) (x : String)
-    (f : τ₁.denote → τ₂.denote → τ₃.denote) : Env :=
-  { ρ with env := _root_.Env.updateBinary ρ.env τ₁ τ₂ τ₃ x f }
-
-@[simp] theorem Env.updateBinary_env (ρ : Env) (τ₁ τ₂ τ₃ : Srt) (x : String)
-    (f : τ₁.denote → τ₂.denote → τ₃.denote) :
-    (ρ.updateBinary τ₁ τ₂ τ₃ x f).env = ρ.env.updateBinary τ₁ τ₂ τ₃ x f := rfl
-
-def Env.updateTernary (ρ : Env) (τ₁ τ₂ τ₃ τ₄ : Srt) (x : String)
-    (f : τ₁.denote → τ₂.denote → τ₃.denote → τ₄.denote) : Env :=
-  { ρ with env := _root_.Env.updateTernary ρ.env τ₁ τ₂ τ₃ τ₄ x f }
-
-@[simp] theorem Env.updateTernary_env (ρ : Env) (τ₁ τ₂ τ₃ τ₄ : Srt) (x : String)
-    (f : τ₁.denote → τ₂.denote → τ₃.denote → τ₄.denote) :
-    (ρ.updateTernary τ₁ τ₂ τ₃ τ₄ x f).env = ρ.env.updateTernary τ₁ τ₂ τ₃ τ₄ x f := rfl
-
-def Env.updateUnaryRel (ρ : Env) (τ : Srt) (x : String) (f : τ.denote → Prop) : Env :=
-  { ρ with env := _root_.Env.updateUnaryRel ρ.env τ x f }
-
-@[simp] theorem Env.updateUnaryRel_env (ρ : Env) (τ : Srt) (x : String) (f : τ.denote → Prop) :
-    (ρ.updateUnaryRel τ x f).env = ρ.env.updateUnaryRel τ x f := rfl
-
-def Env.updateBinaryRel (ρ : Env) (τ₁ τ₂ : Srt) (x : String)
-    (f : τ₁.denote → τ₂.denote → Prop) : Env :=
-  { ρ with env := _root_.Env.updateBinaryRel ρ.env τ₁ τ₂ x f }
-
-@[simp] theorem Env.updateBinaryRel_env (ρ : Env) (τ₁ τ₂ : Srt) (x : String)
-    (f : τ₁.denote → τ₂.denote → Prop) :
-    (ρ.updateBinaryRel τ₁ τ₂ x f).env = ρ.env.updateBinaryRel τ₁ τ₂ x f := rfl
-
 /-- Builtin declarations the verifier requires in a signature; extend with a
 field per builtin. -/
 structure Builtins.wf (Δ : Signature) : Prop where
@@ -88,80 +38,7 @@ theorem Builtins.wf.mono {Δ Δ' : Signature} (hsub : Δ.Subset Δ')
 /-- Facts about the environment required by the verifier's builtin constants;
 extend with a field per builtin. -/
 structure Builtins.holdsFor (ρ : Env) : Prop where
-  guard : ρ.env.supportsGuarding
-
-def Env.withEnv (ρ : Env) (env' : _root_.Env) : Env :=
-  { ρ with env := env' }
-
-@[simp] theorem Env.withEnv_env (ρ : Env) (env' : _root_.Env) :
-    (ρ.withEnv env').env = env' := rfl
-
-def Env.agreeOn (Δ : Signature) (ρ ρ' : Env) : Prop :=
-  _root_.Env.agreeOn Δ ρ.env ρ'.env
-
-theorem Env.agreeOn_refl : Env.agreeOn Δ ρ ρ :=
-  _root_.Env.agreeOn_refl
-
-theorem Env.agreeOn_mono {Δ₁ Δ₂ : Signature} (hsub : Δ₁.Subset Δ₂)
-    (h : Env.agreeOn Δ₂ ρ ρ') : Env.agreeOn Δ₁ ρ ρ' :=
-  _root_.Env.agreeOn_mono hsub h
-
-theorem Env.agreeOn_symm {Δ : Signature} (h : Env.agreeOn Δ ρ ρ') :
-    Env.agreeOn Δ ρ' ρ :=
-  _root_.Env.agreeOn_symm h
-
-theorem Env.agreeOn_trans {Δ : Signature}
-    (h₁₂ : Env.agreeOn Δ ρ₁ ρ₂) (h₂₃ : Env.agreeOn Δ ρ₂ ρ₃) :
-    Env.agreeOn Δ ρ₁ ρ₃ :=
-  _root_.Env.agreeOn_trans h₁₂ h₂₃
-
-theorem Env.agreeOn_declVar {ρ ρ' : Env} {Δ : Signature} {τ : Srt} {x : String} {v : τ.denote} :
-    Env.agreeOn Δ ρ ρ' →
-    Env.agreeOn (Δ.declVar ⟨x, τ⟩) (ρ.updateConst τ x v) (ρ'.updateConst τ x v) := by
-  intro hagree
-  simpa [Env.agreeOn, Env.updateConst] using
-    (_root_.Env.agreeOn_declVar (ρ := ρ.env) (ρ' := ρ'.env) (Δ := Δ) (τ := τ) (x := x) (v := v) hagree)
-
-theorem Env.agreeOn_update_fresh {ρ : Env} {c : FOL.Const} {u : c.sort.denote}
-    {Δ : Signature} (hfresh : c.name ∉ Δ.allNames) :
-    Env.agreeOn Δ ρ (ρ.updateConst c.sort c.name u) := by
-  simpa [Env.agreeOn, Env.updateConst] using
-    (Env.agreeOn_update_fresh_const (ρ := ρ.env) (c := c) (u := u) (Δ := Δ) hfresh)
-
-theorem Env.agreeOn_update_fresh_unary {ρ : Env} {u : FOL.Unary}
-    {f : u.arg.denote → u.ret.denote}
-    {Δ : Signature} (hfresh : u.name ∉ Δ.allNames) :
-    Env.agreeOn Δ ρ (ρ.updateUnary u.arg u.ret u.name f) := by
-  simpa [Env.agreeOn, Env.updateUnary] using
-    (_root_.Env.agreeOn_update_fresh_unary (ρ := ρ.env) (u := u) (f := f) (Δ := Δ) hfresh)
-
-theorem Env.agreeOn_update_fresh_binary {ρ : Env} {b : FOL.Binary}
-    {f : b.arg1.denote → b.arg2.denote → b.ret.denote}
-    {Δ : Signature} (hfresh : b.name ∉ Δ.allNames) :
-    Env.agreeOn Δ ρ (ρ.updateBinary b.arg1 b.arg2 b.ret b.name f) := by
-  simpa [Env.agreeOn, Env.updateBinary] using
-    (_root_.Env.agreeOn_update_fresh_binary (ρ := ρ.env) (b := b) (f := f) (Δ := Δ) hfresh)
-
-theorem Env.agreeOn_update_fresh_ternary {ρ : Env} {t : FOL.Ternary}
-    {f : t.arg1.denote → t.arg2.denote → t.arg3.denote → t.ret.denote}
-    {Δ : Signature} (hfresh : t.name ∉ Δ.allNames) :
-    Env.agreeOn Δ ρ (ρ.updateTernary t.arg1 t.arg2 t.arg3 t.ret t.name f) := by
-  simpa [Env.agreeOn, Env.updateTernary] using
-    (_root_.Env.agreeOn_update_fresh_ternary (ρ := ρ.env) (t := t) (f := f) (Δ := Δ) hfresh)
-
-theorem Env.agreeOn_update_fresh_unaryRel {ρ : Env} {u : FOL.UnaryRel}
-    {f : u.arg.denote → Prop}
-    {Δ : Signature} (hfresh : u.name ∉ Δ.allNames) :
-    Env.agreeOn Δ ρ (ρ.updateUnaryRel u.arg u.name f) := by
-  simpa [Env.agreeOn, Env.updateUnaryRel] using
-    (_root_.Env.agreeOn_update_fresh_unaryRel (ρ := ρ.env) (u := u) (f := f) (Δ := Δ) hfresh)
-
-theorem Env.agreeOn_update_fresh_binaryRel {ρ : Env} {b : FOL.BinaryRel}
-    {f : b.arg1.denote → b.arg2.denote → Prop}
-    {Δ : Signature} (hfresh : b.name ∉ Δ.allNames) :
-    Env.agreeOn Δ ρ (ρ.updateBinaryRel b.arg1 b.arg2 b.name f) := by
-  simpa [Env.agreeOn, Env.updateBinaryRel] using
-    (_root_.Env.agreeOn_update_fresh_binaryRel (ρ := ρ.env) (b := b) (f := f) (Δ := Δ) hfresh)
+  guard : ρ.supportsGuarding
 
 /-- Builtin facts transfer along environments that agree on a signature
 declaring the builtins. -/
@@ -174,13 +51,13 @@ end VerifM
 
 /-- Semantic interpretation of a verifier context item. -/
 def CtxItem.interp [MicaGS HasLC.hasLC Sig] (W : TinyML.World)
-    (ρ : VerifM.Env) : CtxItem → iProp
-  | .pure φ => ⌜φ.eval ρ.env⌝
-  | .spatial a => a.interp W ρ.env
+    (ρ : Env) : CtxItem → iProp
+  | .pure φ => ⌜φ.eval ρ⌝
+  | .spatial a => a.interp W ρ
 
-def CtxItem.purePart (i : CtxItem) (ρ : VerifM.Env) : Prop :=
+def CtxItem.purePart (i : CtxItem) (ρ : Env) : Prop :=
   match i with
-  | .pure φ => φ.eval ρ.env
+  | .pure φ => φ.eval ρ
   | .spatial _ => True
 
 /-- Pure formulas implied by an item's interpretation. -/
@@ -197,8 +74,8 @@ theorem CtxItem.facts_wfIn {i : CtxItem} {Δ : Signature} (h : i.wfIn Δ) :
 
 /-- An item's interpretation implies its pure facts. -/
 theorem CtxItem.interp_facts [MicaGS HasLC.hasLC Sig] (W : TinyML.World)
-    (ρ : VerifM.Env) (i : CtxItem) :
-    i.interp W ρ ⊢ ⌜∀ φ ∈ i.facts, φ.eval ρ.env⌝ ∗ i.interp W ρ := by
+    (ρ : Env) (i : CtxItem) :
+    i.interp W ρ ⊢ ⌜∀ φ ∈ i.facts, φ.eval ρ⌝ ∗ i.interp W ρ := by
   cases i with
   | pure φ =>
     istart
@@ -211,12 +88,12 @@ theorem CtxItem.interp_facts [MicaGS HasLC.hasLC Sig] (W : TinyML.World)
     exact SpatialAtom.interp_facts W a
 
 def TransState.sl [MicaGS HasLC.hasLC Sig] (W : TinyML.World)
-    (st : TransState) (ρ : VerifM.Env) : iProp :=
-  SpatialContext.interp W ρ.env st.owns
+    (st : TransState) (ρ : Env) : iProp :=
+  SpatialContext.interp W ρ st.owns
 
 @[simp] theorem TransState.sl_eq [MicaGS HasLC.hasLC Sig] (W : TinyML.World)
-    (st : TransState) (ρ : VerifM.Env) :
-    st.sl W ρ = SpatialContext.interp W ρ.env st.owns := rfl
+    (st : TransState) (ρ : Env) :
+    st.sl W ρ = SpatialContext.interp W ρ st.owns := rfl
 
 /-- Drop the non-persistent spatial part of the verifier state. -/
 def TransState.persist (st : TransState) : TransState :=
@@ -229,7 +106,7 @@ def TransState.persist (st : TransState) : TransState :=
     st.persist.asserts = st.asserts := rfl
 
 theorem TransState.sl_entails_persist [MicaGS HasLC.hasLC Sig] (W : TinyML.World)
-    (st : TransState) (ρ : VerifM.Env) :
+    (st : TransState) (ρ : Env) :
     st.sl W ρ ⊢ □ st.persist.sl W ρ := by
   istart
   iintro _
@@ -287,11 +164,11 @@ def TransState.init : TransState := ⟨Signature.empty.addConst guardConst, [], 
 
 /-- The environment satisfies the verifier state: every assertion holds and the
 builtin facts are in force. -/
-structure TransState.holdsFor (st : TransState) (ρ : VerifM.Env) : Prop where
-  asserts : ∀ φ ∈ st.asserts, φ.eval ρ.env
+structure TransState.holdsFor (st : TransState) (ρ : Env) : Prop where
+  asserts : ∀ φ ∈ st.asserts, φ.eval ρ
   builtins : VerifM.Builtins.holdsFor ρ
 
-theorem TransState.holdsFor_mono {st st' : TransState} {ρ : VerifM.Env}
+theorem TransState.holdsFor_mono {st st' : TransState} {ρ : Env}
     (hsub : st.asserts ⊆ st'.asserts) (h : st'.holdsFor ρ) : st.holdsFor ρ :=
   ⟨fun φ hφ => h.asserts φ (hsub hφ), h.builtins⟩
 
@@ -309,13 +186,13 @@ theorem TransState.init_wf : TransState.init.wf where
   builtins := ⟨List.Mem.head _⟩
 
 /-- The canonical initial environment: the guard constant pinned to true. -/
-def VerifM.Env.init : VerifM.Env :=
-  VerifM.Env.empty.updateConst guardConst.sort guardConst.name true
+def Env.init : Env :=
+  Env.empty.updateConst guardConst.sort guardConst.name true
 
-theorem TransState.init_holdsFor : TransState.init.holdsFor VerifM.Env.init where
+theorem TransState.init_holdsFor : TransState.init.holdsFor Env.init where
   asserts := fun φ hφ => by simp [TransState.init] at hφ
-  builtins := ⟨by simpa [VerifM.Env.init] using
-    Env.supportsGuarding_updateConst VerifM.Env.empty.env⟩
+  builtins := ⟨by simpa [Env.init] using
+    Env.supportsGuarding_updateConst Env.empty⟩
 
 def TransState.freshConst (hint : Option String) (t : Srt) (st : TransState) : FOL.Const :=
   let base := hint.getD "_v"

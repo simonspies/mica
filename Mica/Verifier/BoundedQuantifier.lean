@@ -47,8 +47,8 @@ theorem declare_correct (L : SpecFn) (f : TinyML.Var) (axs : List Axiom)
     (R : Srt.value.denote → Srt.value.denote → Prop)
     (F : Srt.value.denote → Srt.value.denote)
     (D : Srt.value.denote → Prop)
-    (Δ : Signature) (Γ : FunCtx) (st : TransState) (ρ : VerifM.Env)
-    {Q : Unit → TransState → VerifM.Env → Prop}
+    (Δ : Signature) (Γ : FunCtx) (st : TransState) (ρ : Env)
+    {Q : Unit → TransState → Env → Prop}
     (hrelFresh : relName L ∉ Δ.allNames)
     (hfunFresh : funcName L ∉ Δ.allNames)
     (hdefFresh : defName L ∉ Δ.allNames)
@@ -56,20 +56,20 @@ theorem declare_correct (L : SpecFn) (f : TinyML.Var) (axs : List Axiom)
     (hdecls : st.decls = Δ) (howns : st.owns = []) (hvars : st.decls.vars = [])
     (hwfext : (((Δ.addBinaryRel (rel L)).addUnary (func L)).addUnaryRel (defined L)).wf)
     (hΓwf : FunCtx.wfIn Γ Δ)
-    (hsplit : FunCtx.splitCompatible Γ ρ.env)
-    (hdet : Relation.BinaryRelDet Γ ρ.env ρ.env)
+    (hsplit : FunCtx.splitCompatible Γ ρ)
+    (hdet : Relation.BinaryRelDet Γ ρ ρ)
     (haxwf : ∀ ax ∈ axs, ax.formula.wfIn
       (((Δ.addBinaryRel (rel L)).addUnary (func L)).addUnaryRel (defined L)))
-    (haxeval : ∀ ax ∈ axs, ax.formula.eval (Skolemize.relSplitEnv ρ.env L R D F))
+    (haxeval : ∀ ax ∈ axs, ax.formula.eval (Skolemize.relSplitEnv ρ L R D F))
     (heval : VerifM.eval (declare L axs) st ρ Q) :
     ∃ st' ρ',
       st'.decls = ((Δ.addBinaryRel (rel L)).addUnary (func L)).addUnaryRel (defined L) ∧
       st'.owns = [] ∧ st'.decls.vars = [] ∧ st'.decls.wf ∧
       st.decls.Subset st'.decls ∧
-      VerifM.Env.agreeOn st.decls ρ ρ' ∧
+      Env.agreeOn st.decls ρ ρ' ∧
       FunCtx.wfIn (Γ ++ [(f, L)]) st'.decls ∧
-      FunCtx.splitCompatible (Γ ++ [(f, L)]) ρ'.env ∧
-      Relation.BinaryRelDet (Γ ++ [(f, L)]) ρ'.env ρ'.env ∧
+      FunCtx.splitCompatible (Γ ++ [(f, L)]) ρ' ∧
+      Relation.BinaryRelDet (Γ ++ [(f, L)]) ρ' ρ' ∧
       Q () st' ρ' := by
   simp only [declare] at heval
   obtain ⟨_, h1⟩ := VerifM.eval_declBinaryRelExact (VerifM.eval_bind heval)
@@ -81,22 +81,21 @@ theorem declare_correct (L : SpecFn) (f : TinyML.Var) (axs : List Axiom)
   set st3 : TransState :=
     { st with decls := ((st.decls.addBinaryRel (rel L)).addUnary
         (func L)).addUnaryRel (defined L) }
-  set ρ3 : VerifM.Env :=
+  set ρ3 : Env :=
     ((ρ.updateBinaryRel .value .value (relName L) R).updateUnary
         .value .value (funcName L) F).updateUnaryRel
       .value (defName L) D
   have hst3 : st3.decls = Δext := by
     simp only [st3, Δext, hdecls]
-  have hρ3 : ρ3.env = Skolemize.relSplitEnv ρ.env L R D F := by
-    simp only [ρ3, VerifM.Env.updateUnaryRel_env, VerifM.Env.updateUnary_env,
-      VerifM.Env.updateBinaryRel_env, Skolemize.relSplitEnv]
+  have hρ3 : ρ3 = Skolemize.relSplitEnv ρ L R D F := by
+    rfl
   have hsub : Δ.Subset Δext :=
     ((Signature.Subset.subset_addBinaryRel _ _).trans
       (Signature.Subset.subset_addUnary _ _)).trans
       (Signature.Subset.subset_addUnaryRel _ _)
   obtain ⟨st4, hst4, howns4, _, hQ4⟩ :=
     VerifM.eval_assumeAxioms h4 (fun ax hax => hst3 ▸ haxwf ax hax)
-      (fun ax hax => hρ3 ▸ haxeval ax hax)
+      (fun ax hax => by simpa [Skolemize.relSplitEnv] using haxeval ax hax)
   have howns4' : st4.owns = [] := by rw [howns4]; exact howns
   have hvars4 : st4.decls.vars = [] := by
     rw [hst4, hst3]
@@ -104,7 +103,7 @@ theorem declare_correct (L : SpecFn) (f : TinyML.Var) (axs : List Axiom)
     rw [← hdecls]
     exact hvars
   have hwf4 : st4.decls.wf := by rw [hst4, hst3]; exact hwfext
-  have hagree : Env.agreeOn Δ ρ.env ρ3.env := by
+  have hagree : Env.agreeOn Δ ρ ρ3 := by
     rw [hρ3]
     exact Skolemize.relSplitEnv_agreeOn hrelFresh hfunFresh hdefFresh
   have hΓwf' : FunCtx.wfIn (Γ ++ [(f, L)]) st4.decls := by
@@ -121,7 +120,7 @@ theorem declare_correct (L : SpecFn) (f : TinyML.Var) (axs : List Axiom)
         exact ⟨hsub.unary _ hu, hsub.unaryRel _ hr⟩
       · simp at hnew; obtain ⟨_, rfl⟩ := hnew
         exact ⟨List.Mem.head _, List.Mem.head _⟩
-  have hsplit' : FunCtx.splitCompatible (Γ ++ [(f, L)]) ρ3.env := by
+  have hsplit' : FunCtx.splitCompatible (Γ ++ [(f, L)]) ρ3 := by
     intro g rel hgr x y
     rcases List.mem_append.mp hgr with hold | hnew
     · obtain ⟨hu, hr⟩ := hΓwf.split g rel hold
@@ -130,8 +129,8 @@ theorem declare_correct (L : SpecFn) (f : TinyML.Var) (axs : List Axiom)
       exact hsplit g rel hold x y
     · simp at hnew; obtain ⟨_, rfl⟩ := hnew
       rw [hρ3]
-      exact Skolemize.relSplitEnv_graph rel ρ.env hgraph x y
-  have hdet' : Relation.BinaryRelDet (Γ ++ [(f, L)]) ρ3.env ρ3.env := by
+      exact Skolemize.relSplitEnv_graph rel ρ hgraph x y
+  have hdet' : Relation.BinaryRelDet (Γ ++ [(f, L)]) ρ3 ρ3 := by
     intro g rel hgr x y₁ y₂ hy₁ hy₂
     rcases List.mem_append.mp hgr with hold | hnew
     · obtain ⟨hu, hr⟩ := hΓwf.split g rel hold
@@ -140,13 +139,13 @@ theorem declare_correct (L : SpecFn) (f : TinyML.Var) (axs : List Axiom)
       exact hdet g rel hold x y₁ y₂ hy₁ hy₂
     · simp at hnew; obtain ⟨_, rfl⟩ := hnew
       rw [hρ3] at hy₁ hy₂
-      obtain ⟨_, heq₁⟩ := (Skolemize.relSplitEnv_graph rel ρ.env hgraph x y₁).mp hy₁
-      obtain ⟨_, heq₂⟩ := (Skolemize.relSplitEnv_graph rel ρ.env hgraph x y₂).mp hy₂
+      obtain ⟨_, heq₁⟩ := (Skolemize.relSplitEnv_graph rel ρ hgraph x y₁).mp hy₁
+      obtain ⟨_, heq₂⟩ := (Skolemize.relSplitEnv_graph rel ρ hgraph x y₂).mp hy₂
       exact heq₁.symm.trans heq₂
   have hsub4 : st.decls.Subset st4.decls := by
     rw [hst4, hst3, hdecls]
     exact hsub
-  have hagree4 : VerifM.Env.agreeOn st.decls ρ ρ3 := by
+  have hagree4 : Env.agreeOn st.decls ρ ρ3 := by
     rw [hdecls]
     exact hagree
   exact ⟨st4, ρ3, by rw [hst4, hst3], howns4', hvars4, hwf4, hsub4,
@@ -885,21 +884,21 @@ relation-assembly invariants: the generic triple declaration
 (`SpecFn.declare_correct`) instantiated with the canonical interpretations,
 whose graph shape holds by construction. -/
 theorem declare_correct (s : Lifting) (body : Skolemize.DefVal) (Δ : Signature) (Γ : FunCtx)
-    (st : TransState) (ρ : VerifM.Env) {Q : Unit → TransState → VerifM.Env → Prop}
+    (st : TransState) (ρ : Env) {Q : Unit → TransState → Env → Prop}
     (hv : Valid s Δ)
     (hbody : body.wfIn ((Δ.declVar ⟨s.arg, .value⟩).declVar ⟨s.idx, .int⟩))
     (hdecls : st.decls = Δ) (howns : st.owns = []) (hvars : st.decls.vars = [])
     (hwf : Δ.wf) (hΓwf : FunCtx.wfIn Γ Δ)
-    (hsplit : FunCtx.splitCompatible Γ ρ.env)
-    (hdet : Relation.BinaryRelDet Γ ρ.env ρ.env)
+    (hsplit : FunCtx.splitCompatible Γ ρ)
+    (hdet : Relation.BinaryRelDet Γ ρ ρ)
     (heval : VerifM.eval (s.declare body) st ρ Q) :
     ∃ st' ρ',
       st'.decls = s.extendSignature Δ ∧ st'.owns = [] ∧ st'.decls.vars = [] ∧
       st'.decls.wf ∧ st.decls.Subset st'.decls ∧
-      VerifM.Env.agreeOn st.decls ρ ρ' ∧
+      Env.agreeOn st.decls ρ ρ' ∧
       FunCtx.wfIn (Γ ++ [(s.name, s.name)]) st'.decls ∧
-      FunCtx.splitCompatible (Γ ++ [(s.name, s.name)]) ρ'.env ∧
-      Relation.BinaryRelDet (Γ ++ [(s.name, s.name)]) ρ'.env ρ'.env ∧
+      FunCtx.splitCompatible (Γ ++ [(s.name, s.name)]) ρ' ∧
+      Relation.BinaryRelDet (Γ ++ [(s.name, s.name)]) ρ' ρ' ∧
       Q () st' ρ' := by
   have hf : Skolemize.InfoFresh Δ s.name s.arg :=
     { relFresh := hv.relFresh, funFresh := hv.funFresh, defFresh := hv.defFresh,
@@ -933,14 +932,14 @@ theorem declare_correct (s : Lifting) (body : Skolemize.DefVal) (Δ : Signature)
     s.axioms_wfIn hwfext hbodyext (List.Mem.head _) (List.Mem.head _)
       hargext hidxext hv.idxNeArg
   have haxeval : ∀ ax ∈ s.axioms body,
-      ax.formula.eval (Skolemize.relSplitEnv ρ.env s.name
-        (s.relinterp body ρ.env) (s.definterp body ρ.env) (s.funcinterp body ρ.env)) :=
+      ax.formula.eval (Skolemize.relSplitEnv ρ s.name
+        (s.relinterp body ρ) (s.definterp body ρ) (s.funcinterp body ρ)) :=
     s.axioms_eval (Δ := Δ)
       (s.matrix_wfIn hwf hbody hv.argFresh hv.idxFresh hv.idxNeArg)
       (s.defMatrix_wfIn hwf hbody hv.argFresh hv.idxFresh hv.idxNeArg)
       hv.relFresh hv.funFresh hv.defFresh
   exact SpecFn.declare_correct s.name s.name (s.axioms body)
-    (s.relinterp body ρ.env) (s.funcinterp body ρ.env) (s.definterp body ρ.env) Δ Γ st ρ
+    (s.relinterp body ρ) (s.funcinterp body ρ) (s.definterp body ρ) Δ Γ st ρ
     hv.relFresh hv.funFresh hv.defFresh (fun _ _ => Iff.rfl)
     hdecls howns hvars hwfext hΓwf hsplit hdet haxwf haxeval heval
 

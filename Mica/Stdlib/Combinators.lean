@@ -17,8 +17,8 @@ namespace Intrinsics
 /-- Apply a `.ret (s, .assert φ ...)` spec at a value, discharging the asserted
     `φ` as a pure side condition. -/
 theorem assert_ret_apply [MicaGS HasLC.hasLC Sig] (W : TinyML.World) (Φ : Runtime.Val → iProp)
-    (s : String) (ρ : VerifM.Env) (φ : Formula) (v : Runtime.Val)
-    (hφ : φ.eval (ρ.updateConst .value s v).env) :
+    (s : String) (ρ : Env) (φ : Formula) (v : Runtime.Val)
+    (hφ : φ.eval (ρ.updateConst .value s v)) :
     PredTrans.apply W Φ (.ret (s, .assert φ (.ret ()))) ρ ⊢ Φ v := by
   simp only [PredTrans.apply, Assertion.pre, Assertion.post]
   refine (forall_elim v).trans ?_
@@ -37,9 +37,9 @@ def withPre : Option Formula → PredTrans → PredTrans
 /-- Eliminate `withPre`: applying the wrapped predicate yields the precondition
     as a pure fact (vacuous for `none`) alongside the unwrapped application. -/
 theorem withPre_apply [MicaGS HasLC.hasLC Sig] (W : TinyML.World) (Φ : Runtime.Val → iProp)
-    (pre : Option Formula) (post : PredTrans) (ρ : VerifM.Env) :
+    (pre : Option Formula) (post : PredTrans) (ρ : Env) :
     PredTrans.apply W Φ (withPre pre post) ρ ⊢
-      iprop(⌜∀ φ, pre = some φ → φ.eval ρ.env⌝ ∗ PredTrans.apply W Φ post ρ) := by
+      iprop(⌜∀ φ, pre = some φ → φ.eval ρ⌝ ∗ PredTrans.apply W Φ post ρ) := by
   cases pre with
   | none =>
     simp only [withPre]
@@ -67,40 +67,37 @@ theorem valsHaveTypes_off_shape [MicaGS HasLC.hasLC Sig] {W : TinyML.World}
 /-- Respect for an arity-one symbol survives the argument-binding fold; each
     step rebinds a `value` constant, which never touches the unary table. -/
 private theorem respects_argsEnv_one {s : FOL.Symbol .one} :
-    ∀ (args : List (String × TinyML.Typ)) (vs : List Runtime.Val) {ρ : VerifM.Env},
-      ρ.env.respects (some s) → (Spec.argsEnv ρ args vs).env.respects (some s)
+    ∀ (args : List (String × TinyML.Typ)) (vs : List Runtime.Val) {ρ : Env},
+      ρ.respects (some s) → (Spec.argsEnv ρ args vs).respects (some s)
   | [], _, _, h => h
   | _ :: _, [], _, h => h
   | (_, _) :: rest, _ :: vs, ρ, h => by
       simp only [Spec.argsEnv]
       refine respects_argsEnv_one rest vs ?_
-      rw [VerifM.Env.updateConst_env]
       simpa only [Env.respects, Env.updateConst_unary] using h
 
 /-- Respect for an arity-two symbol survives the argument-binding fold; each
     step rebinds a `value` constant, which never touches the binary table. -/
 private theorem respects_argsEnv_two {s : FOL.Symbol .two} :
-    ∀ (args : List (String × TinyML.Typ)) (vs : List Runtime.Val) {ρ : VerifM.Env},
-      ρ.env.respects (some s) → (Spec.argsEnv ρ args vs).env.respects (some s)
+    ∀ (args : List (String × TinyML.Typ)) (vs : List Runtime.Val) {ρ : Env},
+      ρ.respects (some s) → (Spec.argsEnv ρ args vs).respects (some s)
   | [], _, _, h => h
   | _ :: _, [], _, h => h
   | (_, _) :: rest, _ :: vs, ρ, h => by
       simp only [Spec.argsEnv]
       refine respects_argsEnv_two rest vs ?_
-      rw [VerifM.Env.updateConst_env]
       simpa only [Env.respects, Env.updateConst_binary] using h
 
 /-- Respect for an arity-three symbol survives the argument-binding fold; each
     step rebinds a `value` constant, which never touches the ternary table. -/
 private theorem respects_argsEnv_three {s : FOL.Symbol .three} :
-    ∀ (args : List (String × TinyML.Typ)) (vs : List Runtime.Val) {ρ : VerifM.Env},
-      ρ.env.respects (some s) → (Spec.argsEnv ρ args vs).env.respects (some s)
+    ∀ (args : List (String × TinyML.Typ)) (vs : List Runtime.Val) {ρ : Env},
+      ρ.respects (some s) → (Spec.argsEnv ρ args vs).respects (some s)
   | [], _, _, h => h
   | _ :: _, [], _, h => h
   | (_, _) :: rest, _ :: vs, ρ, h => by
       simp only [Spec.argsEnv]
       refine respects_argsEnv_three rest vs ?_
-      rw [VerifM.Env.updateConst_env]
       simpa only [Env.respects, Env.updateConst_ternary] using h
 
 /-! ## `specWf`: predicate-transformer well-formedness -/
@@ -521,9 +518,8 @@ structure Zero.Lawful (b : Zero) where
       refine (sep_mono_left (TinyML.ValsHaveTypes.nil W).1).trans ?_
       refine emp_sep.1.trans ?_
       refine (assert_ret_apply W _ "ret" _ _ (b.res.inject b.f) ?_).trans ?_
-      · have hconst : (ρ.updateConst .value "ret" (b.res.inject b.f)).env.lookupConst
+      · have hconst : (ρ.updateConst .value "ret" (b.res.inject b.f)).lookupConst
             .value b.name = b.res.inject b.f := by
-          rw [VerifM.Env.updateConst_env]
           rw [Env.lookupConst_updateConst_ne l.nameFresh]
           simpa [Env.respects, Zero.sym] using hρ
         simpa [Zero.opTerm, Term.eval, Const.denote] using hconst.symm
@@ -698,9 +694,9 @@ structure Unary.Lawful (b : Unary) where
       ihave Hsplit := withPre_apply W _ _ _ _ $$ Hpred
       icases Hsplit with ⟨%hpre, Hpost⟩
       have hdom : b.dom x := by
-        refine l.domSound ρ.env x fun p hp => ?_
+        refine l.domSound ρ x fun p hp => ?_
         have h := hpre (p "a") (by rw [hp]; rfl)
-        simpa [Spec.argsEnv, VerifM.Env.updateConst_env] using h
+        simpa [Spec.argsEnv, ] using h
       ihave Hty : iprop(TinyML.ValHasType W (b.res.inject (b.f x)) (b.res.typ.subst σ)) $$ [Hrel]
       · iapply (l.resL.intro σ W (b.f x))
         iapply (l.semWellTyped σ W x hdom)
@@ -712,13 +708,13 @@ structure Unary.Lawful (b : Unary) where
       · have hassert : (Formula.eq .value (.var .value "ret")
             (b.opTerm (.var .value "a"))).eval
             ((Spec.argsEnv ρ b.toIntrinsic.specArgs [b.arg.inject x]).updateConst
-              .value "ret" (b.res.inject (b.f x))).env := by
+              .value "ret" (b.res.inject (b.f x))) := by
           have hargs := respects_argsEnv_one b.toIntrinsic.specArgs [b.arg.inject x] hρ
-          have hun : (Spec.argsEnv ρ b.toIntrinsic.specArgs [b.arg.inject x]).env.unary
+          have hun : (Spec.argsEnv ρ b.toIntrinsic.specArgs [b.arg.inject x]).unary
               .value .value b.name = b.sym.interp := by
             simpa [Env.respects, Unary.sym] using hargs
           show b.res.inject (b.f x) =
-            (Spec.argsEnv ρ b.toIntrinsic.specArgs [b.arg.inject x]).env.unary
+            (Spec.argsEnv ρ b.toIntrinsic.specArgs [b.arg.inject x]).unary
               .value .value b.name (b.arg.inject x)
           simp [hun, Unary.sym, l.argL.project_inject]
         refine (sep_mono_left
@@ -922,9 +918,9 @@ structure Binary.Lawful (b : Binary) where
       ihave Hsplit := withPre_apply W _ _ _ _ $$ Hpred
       icases Hsplit with ⟨%hpre, Hpost⟩
       have hdom : b.dom x y := by
-        refine l.domSound ρ.env x y fun p hp => ?_
+        refine l.domSound ρ x y fun p hp => ?_
         have h := hpre (p "a" "b") (by rw [hp]; rfl)
-        simpa [Spec.argsEnv, VerifM.Env.updateConst_env] using h
+        simpa [Spec.argsEnv, ] using h
       ihave Hty : iprop(TinyML.ValHasType W (b.res.inject (b.f x y))
           (b.res.typ.subst σ)) $$ [Hrel1 Hrel2]
       · iapply (l.resL.intro σ W (b.f x y))
@@ -941,16 +937,16 @@ structure Binary.Lawful (b : Binary) where
             (b.opTerm (.var .value "a") (.var .value "b"))).eval
             ((Spec.argsEnv ρ b.toIntrinsic.specArgs
               [b.arg₁.inject x, b.arg₂.inject y]).updateConst
-              .value "ret" (b.res.inject (b.f x y))).env := by
+              .value "ret" (b.res.inject (b.f x y))) := by
           have hargs := respects_argsEnv_two b.toIntrinsic.specArgs
             [b.arg₁.inject x, b.arg₂.inject y] hρ
           have hbin : (Spec.argsEnv ρ b.toIntrinsic.specArgs
-              [b.arg₁.inject x, b.arg₂.inject y]).env.binary .value .value .value b.name
+              [b.arg₁.inject x, b.arg₂.inject y]).binary .value .value .value b.name
               = fun a c => b.sym.interp (a, c) := by
             simpa [Env.respects, Binary.sym] using hargs
           show b.res.inject (b.f x y) =
             (Spec.argsEnv ρ b.toIntrinsic.specArgs
-              [b.arg₁.inject x, b.arg₂.inject y]).env.binary
+              [b.arg₁.inject x, b.arg₂.inject y]).binary
               .value .value .value b.name (b.arg₁.inject x) (b.arg₂.inject y)
           simp [hbin, Binary.sym, l.argL₁.project_inject, l.argL₂.project_inject]
         refine (sep_mono_left
@@ -1170,9 +1166,9 @@ structure Ternary.Lawful (b : Ternary) where
       ihave Hsplit := withPre_apply W _ _ _ _ $$ Hpred
       icases Hsplit with ⟨%hpre, Hpost⟩
       have hdom : b.dom x y z := by
-        refine l.domSound ρ.env x y z fun p hp => ?_
+        refine l.domSound ρ x y z fun p hp => ?_
         have h := hpre (p "a" "b" "c") (by rw [hp]; rfl)
-        simpa [Spec.argsEnv, VerifM.Env.updateConst_env] using h
+        simpa [Spec.argsEnv, ] using h
       ihave Hty : iprop(TinyML.ValHasType W (b.res.inject (b.f x y z))
           (b.res.typ.subst σ)) $$ [Hrel1 Hrel2 Hrel3]
       · iapply (l.resL.intro σ W (b.f x y z))
@@ -1192,17 +1188,17 @@ structure Ternary.Lawful (b : Ternary) where
             (b.opTerm (.var .value "a") (.var .value "b") (.var .value "c"))).eval
             ((Spec.argsEnv ρ b.toIntrinsic.specArgs
               [b.arg₁.inject x, b.arg₂.inject y, b.arg₃.inject z]).updateConst
-              .value "ret" (b.res.inject (b.f x y z))).env := by
+              .value "ret" (b.res.inject (b.f x y z))) := by
           have hargs := respects_argsEnv_three b.toIntrinsic.specArgs
             [b.arg₁.inject x, b.arg₂.inject y, b.arg₃.inject z] hρ
           have hter : (Spec.argsEnv ρ b.toIntrinsic.specArgs
-              [b.arg₁.inject x, b.arg₂.inject y, b.arg₃.inject z]).env.ternary
+              [b.arg₁.inject x, b.arg₂.inject y, b.arg₃.inject z]).ternary
               .value .value .value .value b.name
               = fun a c d => b.sym.interp (a, c, d) := by
             simpa [Env.respects, Ternary.sym] using hargs
           show b.res.inject (b.f x y z) =
             (Spec.argsEnv ρ b.toIntrinsic.specArgs
-              [b.arg₁.inject x, b.arg₂.inject y, b.arg₃.inject z]).env.ternary
+              [b.arg₁.inject x, b.arg₂.inject y, b.arg₃.inject z]).ternary
               .value .value .value .value b.name
               (b.arg₁.inject x) (b.arg₂.inject y) (b.arg₃.inject z)
           simp [hter, Ternary.sym, l.argL₁.project_inject, l.argL₂.project_inject,

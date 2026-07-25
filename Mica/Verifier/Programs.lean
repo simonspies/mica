@@ -181,26 +181,26 @@ def assemble (pairs : List (Typed.ValDecl (Spec.Body Typed.Expr) × List Verifie
 delta mirrors the declared signature, the state is spec-level (no owned
 locations, no variables), and the accumulated function map is well-formed
 with deterministic, split-compatible interpretations. -/
-private structure Inv (acc : RelationSpec) (st : TransState) (ρ : VerifM.Env) : Prop where
+private structure Inv (acc : RelationSpec) (st : TransState) (ρ : Env) : Prop where
   delta : acc.delta = st.decls
   owns : st.owns = []
   vars : st.decls.vars = []
   wf : st.decls.wf
   Γwf : FunCtx.wfIn acc.functionMap st.decls
-  split : FunCtx.splitCompatible acc.functionMap ρ.env
-  det : Relation.BinaryRelDet acc.functionMap ρ.env ρ.env
+  split : FunCtx.splitCompatible acc.functionMap ρ
+  det : Relation.BinaryRelDet acc.functionMap ρ ρ
 
 omit [MicaGS HasLC.hasLC Sig] in
 /-- Declaring one relation-marked declaration preserves the assembly
 invariants; the signature only grows and the environment is only extended
 with fresh interpretations. -/
 private theorem declareAndAssume_correct (d : Typed.ValDecl (Spec.Body Typed.Expr))
-    (acc : RelationSpec) (st : TransState) (ρ : VerifM.Env)
-    {Q : RelationSpec → TransState → VerifM.Env → Prop}
+    (acc : RelationSpec) (st : TransState) (ρ : Env)
+    {Q : RelationSpec → TransState → Env → Prop}
     (hinv : Inv acc st ρ)
     (heval : VerifM.eval (declareAndAssume acc d) st ρ Q) :
     ∃ acc' st' ρ', Inv acc' st' ρ' ∧
-      st.decls.Subset st'.decls ∧ VerifM.Env.agreeOn st.decls ρ ρ' ∧
+      st.decls.Subset st'.decls ∧ Env.agreeOn st.decls ρ ρ' ∧
       Q acc' st' ρ' := by
   obtain ⟨hacc, howns, hvars, hwf, hΓwf, hsplit, hdet⟩ := hinv
   simp only [declareAndAssume] at heval
@@ -208,7 +208,7 @@ private theorem declareAndAssume_correct (d : Typed.ValDecl (Spec.Body Typed.Exp
   | none =>
     simp only [hrel] at heval
     exact ⟨acc, st, ρ, ⟨hacc, howns, hvars, hwf, hΓwf, hsplit, hdet⟩,
-      Signature.Subset.refl _, VerifM.Env.agreeOn_refl, VerifM.eval_ret heval⟩
+      Signature.Subset.refl _, Env.agreeOn_refl, VerifM.eval_ret heval⟩
   | some rel_name =>
     simp only [hrel] at heval
     cases hext : extend acc d with
@@ -244,22 +244,22 @@ private theorem declareAndAssume_correct (d : Typed.ValDecl (Spec.Body Typed.Exp
       have hΔwf_acc : acc.delta.wf := hacc ▸ hwf
       -- The chosen interpretations: the ground-truth relation and its split.
       set R : Relation.ValRel :=
-        Relation.semrel acc.functionMap acc.delta ρ.env
+        Relation.semrel acc.functionMap acc.delta ρ
           info.f rel_name info.arg info.res info.body
       set F := Skolemize.semFunc R
       set D : Srt.value.denote → Prop :=
-        Skolemize.semdef acc.functionMap acc.delta ρ.env
+        Skolemize.semdef acc.functionMap acc.delta ρ
           info.f rel_name info.arg info.res info.body info.bv
       have hgraph : ∀ a b, R a b ↔ D a ∧ F a = b := fun a b =>
         Skolemize.bundle_semrel_compatible hinfoEq hsplit hΓwf_acc hΔwf_acc hf hdet a b
-      have henv : Skolemize.relSplitEnv ρ.env rel_name R D F
-          = (Skolemize.defInterpEnv acc.functionMap acc.delta ρ.env
+      have henv : Skolemize.relSplitEnv ρ rel_name R D F
+          = (Skolemize.defInterpEnv acc.functionMap acc.delta ρ
               info.f rel_name info.arg info.res info.body info.bv).updateBinaryRel
             .value .value (SpecFn.relName rel_name) R := by
         simp only [Skolemize.relSplitEnv, Skolemize.defInterpEnv, Skolemize.splitEnv]
         apply Env.ext <;> rfl
       have haxeval : ∀ ax ∈ info.axs,
-          ax.formula.eval (Skolemize.relSplitEnv ρ.env rel_name R D F) := by
+          ax.formula.eval (Skolemize.relSplitEnv ρ rel_name R D F) := by
         rw [henv]
         exact Skolemize.bundle_eval_updateBinaryRel
           hinfoEq hsplit hΓwf_acc hΔwf_acc hf hdet R
@@ -273,9 +273,9 @@ private theorem declareAndAssume_correct (d : Typed.ValDecl (Spec.Body Typed.Exp
       have hdelta4 : info.spec.delta = st4.decls := by rw [hspec_delta, hst4_decls]
       have hΓwf4' : FunCtx.wfIn info.spec.functionMap st4.decls := by
         rw [hspec_fm]; exact hΓwf4
-      have hsplit4' : FunCtx.splitCompatible info.spec.functionMap ρ4.env := by
+      have hsplit4' : FunCtx.splitCompatible info.spec.functionMap ρ4 := by
         rw [hspec_fm]; exact hsplit4
-      have hdet4' : Relation.BinaryRelDet info.spec.functionMap ρ4.env ρ4.env := by
+      have hdet4' : Relation.BinaryRelDet info.spec.functionMap ρ4 ρ4 := by
         rw [hspec_fm]; exact hdet4
       exact ⟨info.spec, st4, ρ4,
         ⟨hdelta4, howns4, hvars4, hwf4, hΓwf4', hsplit4', hdet4'⟩,
@@ -283,18 +283,18 @@ private theorem declareAndAssume_correct (d : Typed.ValDecl (Spec.Body Typed.Exp
 
 omit [MicaGS HasLC.hasLC Sig] in
 private theorem assembleFrom_correct (prog : Typed.Program (Spec.Body Typed.Expr)) :
-    ∀ (acc : RelationSpec) (st : TransState) (ρ : VerifM.Env)
-      {Q : RelationSpec → TransState → VerifM.Env → Prop},
+    ∀ (acc : RelationSpec) (st : TransState) (ρ : Env)
+      {Q : RelationSpec → TransState → Env → Prop},
       Inv acc st ρ →
       VerifM.eval (assembleFrom acc prog) st ρ Q →
       ∃ result stRel ρRel, Inv result stRel ρRel ∧
-        st.decls.Subset stRel.decls ∧ VerifM.Env.agreeOn st.decls ρ ρRel ∧
+        st.decls.Subset stRel.decls ∧ Env.agreeOn st.decls ρ ρRel ∧
         Q result stRel ρRel := by
   induction prog with
   | nil =>
     intro acc st ρ Q hinv heval
     simp only [assembleFrom] at heval
-    exact ⟨acc, st, ρ, hinv, Signature.Subset.refl _, VerifM.Env.agreeOn_refl,
+    exact ⟨acc, st, ρ, hinv, Signature.Subset.refl _, Env.agreeOn_refl,
       VerifM.eval_ret heval⟩
   | cons d ds ih =>
     intro acc st ρ Q hinv heval
@@ -303,18 +303,18 @@ private theorem assembleFrom_correct (prog : Typed.Program (Spec.Body Typed.Expr
       declareAndAssume_correct d acc st ρ hinv (VerifM.eval_bind heval)
     obtain ⟨result, stRel, ρRel, hinvRel, hsubRel, hagRel, hQ⟩ := ih acc' st' ρ' hinv' hcont
     exact ⟨result, stRel, ρRel, hinvRel, hsub'.trans hsubRel,
-      VerifM.Env.agreeOn_trans hag' (VerifM.Env.agreeOn_mono hsub' hagRel), hQ⟩
+      Env.agreeOn_trans hag' (Env.agreeOn_mono hsub' hagRel), hQ⟩
 
 omit [MicaGS HasLC.hasLC Sig] in
 /-- Compiling and declaring one lifted bounded quantifier preserves the
 assembly invariants. -/
 private theorem declareLifting_correct (s : Verifier.BoundedQuantifier.Lifting)
-    (acc : RelationSpec) (st : TransState) (ρ : VerifM.Env)
-    {Q : RelationSpec → TransState → VerifM.Env → Prop}
+    (acc : RelationSpec) (st : TransState) (ρ : Env)
+    {Q : RelationSpec → TransState → Env → Prop}
     (hinv : Inv acc st ρ)
     (heval : VerifM.eval (declareLifting acc s) st ρ Q) :
     ∃ acc' st' ρ', Inv acc' st' ρ' ∧
-      st.decls.Subset st'.decls ∧ VerifM.Env.agreeOn st.decls ρ ρ' ∧
+      st.decls.Subset st'.decls ∧ Env.agreeOn st.decls ρ ρ' ∧
       Q acc' st' ρ' := by
   obtain ⟨hacc, howns, hvars, hwf, hΓwf, hsplit, hdet⟩ := hinv
   simp only [declareLifting] at heval
@@ -346,18 +346,18 @@ private theorem declareLifting_correct (s : Verifier.BoundedQuantifier.Lifting)
 
 omit [MicaGS HasLC.hasLC Sig] in
 private theorem assembleLiftings_correct (ss : List Verifier.BoundedQuantifier.Lifting) :
-    ∀ (acc : RelationSpec) (st : TransState) (ρ : VerifM.Env)
-      {Q : RelationSpec → TransState → VerifM.Env → Prop},
+    ∀ (acc : RelationSpec) (st : TransState) (ρ : Env)
+      {Q : RelationSpec → TransState → Env → Prop},
       Inv acc st ρ →
       VerifM.eval (assembleLiftings acc ss) st ρ Q →
       ∃ result stRel ρRel, Inv result stRel ρRel ∧
-        st.decls.Subset stRel.decls ∧ VerifM.Env.agreeOn st.decls ρ ρRel ∧
+        st.decls.Subset stRel.decls ∧ Env.agreeOn st.decls ρ ρRel ∧
         Q result stRel ρRel := by
   induction ss with
   | nil =>
     intro acc st ρ Q hinv heval
     simp only [assembleLiftings] at heval
-    exact ⟨acc, st, ρ, hinv, Signature.Subset.refl _, VerifM.Env.agreeOn_refl,
+    exact ⟨acc, st, ρ, hinv, Signature.Subset.refl _, Env.agreeOn_refl,
       VerifM.eval_ret heval⟩
   | cons s ss ih =>
     intro acc st ρ Q hinv heval
@@ -367,13 +367,13 @@ private theorem assembleLiftings_correct (ss : List Verifier.BoundedQuantifier.L
     obtain ⟨result, stRel, ρRel, hinvRel, hsubRel, hagRel, hQ⟩ :=
       ih acc1 st1 ρ1 hinv1 hcont1
     exact ⟨result, stRel, ρRel, hinvRel, hsub1.trans hsubRel,
-      VerifM.Env.agreeOn_trans hag1 (VerifM.Env.agreeOn_mono hsub1 hagRel), hQ⟩
+      Env.agreeOn_trans hag1 (Env.agreeOn_mono hsub1 hagRel), hQ⟩
 
 omit [MicaGS HasLC.hasLC Sig] in
 theorem assemble_correct
     (pairs : List (Typed.ValDecl (Spec.Body Typed.Expr) × List Verifier.BoundedQuantifier.Lifting))
-    {st : TransState} {ρ : VerifM.Env}
-    {Q : RelationSpec → TransState → VerifM.Env → Prop}
+    {st : TransState} {ρ : Env}
+    {Q : RelationSpec → TransState → Env → Prop}
     (hvars0 : st.decls.vars = [])
     (howns0 : st.owns = [])
     (hwf0 : st.decls.wf)
@@ -382,7 +382,7 @@ theorem assemble_correct
       stRel.decls.vars = [] ∧
       stRel.owns = [] ∧
       st.decls.Subset stRel.decls ∧
-      VerifM.Env.agreeOn st.decls ρ ρRel ∧
+      Env.agreeOn st.decls ρ ρRel ∧
       Q { spec0 with delta := stRel.decls } stRel ρRel := by
   unfold RelationSpec.assemble at heval
   have hctx := VerifM.eval_bind heval
@@ -390,10 +390,10 @@ theorem assemble_correct
   have hrest := hassembleFrom hownsWf
   have hempty_Γwf : FunCtx.wfIn empty.functionMap st.decls :=
     ⟨fun _ _ h => (List.not_mem_nil h).elim, fun _ _ h => (List.not_mem_nil h).elim⟩
-  have hempty_split : FunCtx.splitCompatible empty.functionMap ρ.env :=
+  have hempty_split : FunCtx.splitCompatible empty.functionMap ρ :=
     fun _ _ h => (List.not_mem_nil h).elim
   have hempty_det : Relation.BinaryRelDet
-      empty.functionMap ρ.env ρ.env :=
+      empty.functionMap ρ ρ :=
     fun _ _ h => (List.not_mem_nil h).elim
   obtain ⟨acc, st1, ρ1, hinv1, hsub1, hag1, hcont⟩ :=
     assembleFrom_correct (pairs.map Prod.fst) { empty with delta := st.decls } st ρ
@@ -402,7 +402,7 @@ theorem assemble_correct
   obtain ⟨result, stRel, ρRel, hinvRel, hsubRel, hagRel, hQ⟩ :=
     assembleLiftings_correct (pairs.flatMap Prod.snd) acc st1 ρ1 hinv1 hcont
   refine ⟨result, stRel, ρRel, hinvRel.vars, hinvRel.owns, hsub1.trans hsubRel,
-    VerifM.Env.agreeOn_trans hag1 (VerifM.Env.agreeOn_mono hsub1 hagRel), ?_⟩
+    Env.agreeOn_trans hag1 (Env.agreeOn_mono hsub1 hagRel), ?_⟩
   have hresD := hinvRel.delta
   obtain ⟨_, _, _, _⟩ := result
   simp only at hresD; subst hresD
@@ -472,8 +472,8 @@ def Program.verify (reg : Verifier.Registry) (prog : Untyped.Program (Spec.Body 
 omit [MicaGS HasLC.hasLC Sig] in
 theorem Program.prepare_correct (prims : Typed.Prims)
     (prog : Untyped.Program (Spec.Body Untyped.Expr))
-    (st : TransState) (ρ : VerifM.Env)
-    {Q : (TinyML.TypeEnv × Typed.Program (Spec.Body Typed.Expr)) → TransState → VerifM.Env → Prop}
+    (st : TransState) (ρ : Env)
+    {Q : (TinyML.TypeEnv × Typed.Program (Spec.Body Typed.Expr)) → TransState → Env → Prop}
     (heval : VerifM.eval (Program.prepare prims prog) st ρ Q) :
     ∃ Θ typed, Typed.Program.runtime typed = Untyped.Program.runtime prog ∧ Q (Θ, typed) st ρ := by
   unfold Program.prepare at heval
@@ -491,11 +491,11 @@ theorem ValDecl.checkExpr_correct (reg : Verifier.Registry) (hSound : Verifier.R
     (W : TinyML.World) (hW : W.pctx = reg.primCtx)
     (S : SpecMap) (d : Typed.ValDecl (Spec.Body Typed.Expr)) (γ : Runtime.Subst)
     (hSwf : S.wfIn W.Δ_spec) (hwf : W.wf)
-    (st : TransState) (ρ : VerifM.Env)
-    (hag : W.agrees st.decls ρ.env)
+    (st : TransState) (ρ : Env)
+    (hag : W.agrees st.decls ρ)
     (hΔreg : Verifier.Registry.symSubset reg W.Δ_spec)
     (hρreg : Verifier.Registry.symAgree reg W.ρ_spec)
-    {Q : Unit → TransState → VerifM.Env → Prop}
+    {Q : Unit → TransState → Env → Prop}
     (heval : VerifM.eval (ValDecl.checkExpr reg W.Θ W.Δ_spec S d) st ρ Q) :
     (□ st.sl W ρ ∗ S.satisfiedBy W γ ⊢ Φ) →
     □ st.sl W ρ ∗ S.satisfiedBy W γ ⊢ wp W.pctx (d.body.runtime.subst γ) (fun _ => Φ) := by
@@ -540,11 +540,11 @@ theorem ValDecl.check_correct (reg : Verifier.Registry) (hSound : Verifier.Regis
     (W : TinyML.World) (hW : W.pctx = reg.primCtx) (Γfn : FunCtx)
     (S : SpecMap) (d : Typed.ValDecl (Spec.Body Typed.Expr)) (γ : Runtime.Subst)
     (hSwf : S.wfIn W.Δ_spec) (hwf : W.wf)
-    (st : TransState) (ρ : VerifM.Env)
-    (hag : W.agrees st.decls ρ.env)
+    (st : TransState) (ρ : Env)
+    (hag : W.agrees st.decls ρ)
     (hΔreg : Verifier.Registry.symSubset reg W.Δ_spec)
     (hρreg : Verifier.Registry.symAgree reg W.ρ_spec)
-    {Q : Spec → TransState → VerifM.Env → Prop}
+    {Q : Spec → TransState → Env → Prop}
     (heval : VerifM.eval (ValDecl.check reg W.Θ W.Δ_spec Γfn S d) st ρ Q) :
     ∃ spec, spec.wfIn W.Δ_spec ∧
             (□ st.sl W ρ ∗ S.satisfiedBy W γ ⊢ wp W.pctx (d.body.runtime.subst γ) (fun v => spec.isPrecondFor W v)) ∧
@@ -597,8 +597,8 @@ theorem Program.check_correct (reg : Verifier.Registry) (hSound : Verifier.Regis
     (W : TinyML.World) (hW : W.pctx = reg.primCtx) (Γfn : FunCtx)
     (S : SpecMap) (prog : Typed.Program (Spec.Body Typed.Expr)) (γ : Runtime.Subst)
     (hSwf : S.wfIn W.Δ_spec) (hwf : W.wf)
-    (st : TransState) (ρ : VerifM.Env)
-    (hag : W.agrees st.decls ρ.env)
+    (st : TransState) (ρ : Env)
+    (hag : W.agrees st.decls ρ)
     (hΔreg : Verifier.Registry.symSubset reg W.Δ_spec)
     (hρreg : Verifier.Registry.symAgree reg W.ρ_spec) :
     VerifM.eval (Program.check reg W.Θ W.Δ_spec Γfn S prog) st ρ (fun _ _ _ => True) →
@@ -760,12 +760,12 @@ theorem Program.verify_correct (reg : Verifier.Registry)
                             let relations ← RelationSpec.assemble pairs
                             Program.check reg Θ relations.delta relations.functionMap ∅
                               (pairs.map Prod.fst))
-                      TransState.init VerifM.Env.init ctx_mid
+                      TransState.init Env.init ctx_mid
                       (ScopedM.eval_declareConst hverif)
                       TransState.init_holdsFor TransState.init_wf
     have hbind := VerifM.eval_bind hverifM
     obtain ⟨Θ, typed, hrt, hrest⟩ :=
-      Program.prepare_correct reg.sigs p TransState.init VerifM.Env.init hbind
+      Program.prepare_correct reg.sigs p TransState.init Env.init hbind
     -- Peel the bounded-quantifier pass: a rewrite failure is fatal, and a success
     -- leaves the program's runtime erasure unchanged.
     dsimp only at hrest
@@ -792,20 +792,20 @@ theorem Program.verify_correct (reg : Verifier.Registry)
       intro i hi
       exact (Verifier.Registry.extendWithSym_subset_sigOf_of_mem hi).trans
         (hdep_setup.trans hsub_setup_rel)
-    have hρreg : Verifier.Registry.symAgree reg ρRel.env := by
+    have hρreg : Verifier.Registry.symAgree reg ρRel := by
       intro i hi
       exact hstable_setup ρRel hag_setup_rel i hi
     -- The meta-level world: the registry's operational context, the type
     -- environment the elaborator produced, and the specification model the
     -- relational declarations left in the state.
     let W : TinyML.World :=
-      { pctx := reg.primCtx, Θ, Δ_spec := stRel.decls, ρ_spec := ρRel.env }
+      { pctx := reg.primCtx, Θ, Δ_spec := stRel.decls, ρ_spec := ρRel }
     have hcorrect := Program.check_correct reg hSound W rfl spec0.functionMap
                        ∅ (pairs.map Prod.fst) Runtime.Subst.id
                        (SpecMap.empty_wfIn _)
                        ⟨hcheck_eval.1.namesDisjoint, hvars⟩
                        stRel ρRel
-                       ⟨Signature.Subset.refl _, VerifM.Env.agreeOn_refl⟩
+                       ⟨Signature.Subset.refl _, Env.agreeOn_refl⟩
                        hΔreg
                        hρreg
                        hcheck_eval
