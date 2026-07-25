@@ -1,7 +1,7 @@
 -- SUMMARY: Shared names, signatures, and freshness helpers for relational encoding.
 import Mica.FOL.Formulas
 import Mica.Base.Fixpoint
-import Mica.TinyML.Typed
+import Mica.SourceTinyML.Typed
 import Mica.Base.Fresh
 
 namespace Verifier.RelationalEncoding

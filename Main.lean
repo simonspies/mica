@@ -1,5 +1,5 @@
-import Mica.TinyML.Untyped
-import Mica.TinyML.Printer
+import Mica.SourceTinyML.Untyped
+import Mica.SourceTinyML.Printer
 import Mica.Frontend.Parser
 import Mica.Frontend.Printer
 import Mica.Frontend.Elaborate

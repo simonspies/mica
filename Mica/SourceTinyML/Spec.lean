@@ -1,6 +1,6 @@
 -- SUMMARY: Abstract syntax for specifications embedded in TinyML programs.
-import Mica.TinyML.Untyped
-import Mica.TinyML.Typed
+import Mica.SourceTinyML.Untyped
+import Mica.SourceTinyML.Typed
 /-!
 # Specification Language
 

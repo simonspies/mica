@@ -1,5 +1,5 @@
 -- SUMMARY: Translation from typechecked frontend specifications into verifier assertions and predicate transformers.
-import Mica.TinyML.Spec
+import Mica.SourceTinyML.Spec
 import Mica.FOL.Printing
 import Mica.Verifier.Assertions
 import Mica.Verifier.PredicateTransformers

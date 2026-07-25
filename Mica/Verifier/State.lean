@@ -2,8 +2,7 @@
 import Mica.Verifier.Scoped
 import Mica.Verifier.Guard
 import Mica.Base.Fresh
-import Mica.SeparationLogic.SpatialAtom
-import Mica.SeparationLogic
+import Mica.Verifier.Interpretations
 
 open Iris Iris.BI
 

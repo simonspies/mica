@@ -1,7 +1,7 @@
 -- SUMMARY: Iris interpretations of spatial atoms and contexts, with lemmas relating syntax to separation-logic assertions.
 import Mica.SeparationLogic.Wp
-import Mica.SeparationLogic.SpatialAtom
-import Mica.TinyML.Types
+import Mica.Verifier.SpatialAtom
+import Mica.SourceTinyML.Types
 
 open Iris Iris.BI
 

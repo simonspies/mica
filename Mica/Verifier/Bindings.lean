@@ -1,10 +1,10 @@
 -- SUMMARY: Verifier variable-to-constant bindings, their semantic linkage to runtime substitutions, and typing/lookup lemmas.
-import Mica.TinyML.Typed
-import Mica.TinyML.Typing
+import Mica.SourceTinyML.Typed
+import Mica.SourceTinyML.Typing
 import Mica.TinyML.OpSem
 import Mica.FOL.Printing
 import Mica.FOL.Subst
-import Mica.SeparationLogic.LogicalRelation
+import Mica.SourceTinyML.LogicalRelation
 
 open Iris Iris.BI
 

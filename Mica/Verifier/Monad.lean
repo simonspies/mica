@@ -4,7 +4,7 @@ import Mica.Verifier.Scoped
 import Mica.Verifier.State
 import Mica.Verifier.Utils
 import Mica.Base.Fresh
-import Mica.SeparationLogic.SpatialAtom
+import Mica.Verifier.SpatialAtom
 
 
 /-! ## Verification Monad

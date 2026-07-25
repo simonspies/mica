@@ -1,6 +1,6 @@
 -- SUMMARY: Predicate transformers for function specifications, together with their semantics and call and implementation protocols.
-import Mica.TinyML.Typed
-import Mica.TinyML.Typing
+import Mica.SourceTinyML.Typed
+import Mica.SourceTinyML.Typing
 import Mica.FOL.Printing
 import Mica.Verifier.Monad
 import Mica.Verifier.Atoms

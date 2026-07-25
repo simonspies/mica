@@ -1,12 +1,7 @@
--- SUMMARY: Bundle for `TinyML/`, containing the core IR in three stages: Untyped (surface), Typed (elaborated), Runtime (operational semantics).
+-- SUMMARY: Bundle for `TinyML/`, containing the runtime language: shared vocabulary, runtime IR, heap, operational semantics, and Iris language instance.
 
 import Mica.TinyML.Common
-import Mica.TinyML.Types
 import Mica.TinyML.RuntimeExpr
 import Mica.TinyML.Heap
-import Mica.TinyML.Untyped
-import Mica.TinyML.Typed
 import Mica.TinyML.OpSem
 import Mica.TinyML.Language
-import Mica.TinyML.Typing
-import Mica.TinyML.Printer

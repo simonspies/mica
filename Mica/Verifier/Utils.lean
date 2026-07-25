@@ -1,12 +1,12 @@
 -- SUMMARY: Supporting infrastructure for verifier finite substitutions and argument-handling helpers.
-import Mica.TinyML.Typed
-import Mica.TinyML.Typing
+import Mica.SourceTinyML.Typed
+import Mica.SourceTinyML.Typing
 import Mica.TinyML.OpSem
 import Mica.FOL.Printing
 import Mica.FOL.Subst
 import Mica.Base.Fresh
 import Mica.Base.Except
-import Mica.SeparationLogic.LogicalRelation
+import Mica.SourceTinyML.LogicalRelation
 import Mica.Verifier.Bindings
 import Mica.Verifier.State
 import Mathlib.Data.Finmap

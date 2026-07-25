@@ -1,9 +1,9 @@
 -- SUMMARY: Elaboration and typechecking from the untyped IR to the typed IR.
-import Mica.TinyML.Types
-import Mica.TinyML.Untyped
-import Mica.TinyML.Typed
+import Mica.SourceTinyML.Types
+import Mica.SourceTinyML.Untyped
+import Mica.SourceTinyML.Typed
 import Mica.TinyML.RuntimeExpr
-import Mica.TinyML.Spec
+import Mica.SourceTinyML.Spec
 import Mica.Base.Except
 
 namespace TinyML

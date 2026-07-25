@@ -1,6 +1,6 @@
 -- SUMMARY: Embeddings and the pure-intrinsic builders (`Pure.Zero`/`Pure.Unary`/`Pure.Binary`/`Pure.Ternary`) that emit an intrinsic and its soundness instance.
 import Mica.Verifier.Intrinsic
-import Mica.TinyML.Printer
+import Mica.SourceTinyML.Printer
 
 open Iris Iris.BI
 
