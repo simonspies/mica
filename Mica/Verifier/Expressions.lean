@@ -1,8 +1,8 @@
 -- SUMMARY: Compilation of typed TinyML expressions into verifier terms, with weakest-precondition correctness proofs.
-import Mica.TinyML.Typed
-import Mica.TinyML.Typing
+import Mica.SourceTinyML.Typed
+import Mica.SourceTinyML.Typing
 import Mica.TinyML.OpSem
-import Mica.SeparationLogic.PrimitiveLaws
+import Mica.Verifier.PrimitiveLaws
 import Mica.Verifier.Utils
 import Mica.Verifier.Monad
 import Mica.Verifier.Assertions

@@ -1,6 +1,6 @@
 -- SUMMARY: Typed TinyML IR, with erasure to the runtime IR.
 import Mica.TinyML.Common
-import Mica.TinyML.Types
+import Mica.SourceTinyML.Types
 import Mica.TinyML.RuntimeExpr
 
 namespace Typed

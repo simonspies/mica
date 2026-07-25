@@ -1,12 +1,12 @@
 -- SUMMARY: Iris logical relations for TinyML values and types, together with formula generation for type constraints.
 import Mica.TinyML.Common
-import Mica.TinyML.Types
+import Mica.SourceTinyML.Types
 import Mica.TinyML.RuntimeExpr
 import Mica.TinyML.OpSem
 import Mica.FOL.Formulas
 import Mica.Base.Fresh
 import Mica.SeparationLogic.Wp
-import Mica.SeparationLogic.World
+import Mica.SourceTinyML.World
 import Iris.BI.Lib.Fixpoint
 
 open Iris Iris.BI Iris.OFE

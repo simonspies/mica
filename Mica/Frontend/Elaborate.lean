@@ -3,7 +3,7 @@ import Mica.Frontend.AST
 import Mica.Frontend.Resolver
 import Mica.Frontend.SpecParser
 import Mica.TinyML.Common
-import Mica.TinyML.Untyped
+import Mica.SourceTinyML.Untyped
 
 /-!
 This file elaborates frontend AST programs into TinyML untyped core terms and

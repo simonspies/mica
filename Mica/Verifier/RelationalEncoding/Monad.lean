@@ -1,7 +1,7 @@
 -- SUMMARY: Generic monadic skeleton for TinyML-to-FOL encoders.
 import Mica.FOL.Formulas
 import Mica.Base.Fixpoint
-import Mica.TinyML.Typed
+import Mica.SourceTinyML.Typed
 import Mica.Base.Fresh
 import Mica.Verifier.RelationalEncoding.Variables
 import Mica.Verifier.RelationalEncoding.Prim

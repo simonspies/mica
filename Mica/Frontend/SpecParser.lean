@@ -1,6 +1,6 @@
 -- SUMMARY: Structural translation from elaborated TinyML terms into the specification language.
-import Mica.TinyML.Spec
-import Mica.TinyML.Untyped
+import Mica.SourceTinyML.Spec
+import Mica.SourceTinyML.Untyped
 
 /-!
 # Spec Parser

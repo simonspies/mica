@@ -1,6 +1,6 @@
 -- SUMMARY: Lambda lifting of spec-level bounded quantifiers (Range.all/Range.exists) into axiomatized function symbols.
-import Mica.TinyML.Typing
-import Mica.TinyML.Spec
+import Mica.SourceTinyML.Typing
+import Mica.SourceTinyML.Spec
 import Mica.Verifier.RelationalEncoding.Variables
 import Mica.Verifier.Guard
 import Mica.Verifier.Intrinsic

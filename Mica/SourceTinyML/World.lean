@@ -1,5 +1,5 @@
 -- SUMMARY: The fixed meta-level world in which the logical relation interprets types.
-import Mica.TinyML.Types
+import Mica.SourceTinyML.Types
 import Mica.TinyML.OpSem
 import Mica.FOL.Variables
 

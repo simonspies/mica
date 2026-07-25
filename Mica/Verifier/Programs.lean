@@ -1,8 +1,8 @@
 -- SUMMARY: End-to-end preparation and verification of programs, from typed elaboration to program-level soundness.
-import Mica.TinyML.Typed
-import Mica.TinyML.Untyped
-import Mica.TinyML.Typing
-import Mica.SeparationLogic.PrimitiveLaws
+import Mica.SourceTinyML.Typed
+import Mica.SourceTinyML.Untyped
+import Mica.SourceTinyML.Typing
+import Mica.Verifier.PrimitiveLaws
 import Mica.SeparationLogic.Adequacy
 import Mica.Verifier.Functions
 import Mica.Verifier.SpecTranslation
