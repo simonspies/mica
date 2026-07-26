@@ -10,9 +10,9 @@ import Mica.Verifier.Bindings
 import Mica.Verifier.State
 import Mathlib.Data.Finmap
 
-/-- Extract argument names from binders, pairing with spec arg info.
-    Requires exact length match. -/
-def extractArgNames : List Typed.Binder → List (String × TinyML.Typ) →
+/-- Extract argument names from binders, checking against the spec's argument
+    names. Requires exact length match. -/
+def extractArgNames : List Typed.Binder → List String →
     Except String (List String)
   | [], [] => .ok []
   | ⟨some x, _⟩ :: rest, _ :: specRest => do
@@ -21,7 +21,7 @@ def extractArgNames : List Typed.Binder → List (String × TinyML.Typ) →
   | _, _ => .error "argument mismatch"
 
 theorem extractArgNames_spec {argBinders : List Typed.Binder}
-    {specArgs : List (String × TinyML.Typ)} {names : List String}
+    {specArgs : List String} {names : List String}
     (h : extractArgNames argBinders specArgs = .ok names) :
     names.length = specArgs.length ∧
     argBinders.length = specArgs.length ∧

@@ -67,11 +67,11 @@ theorem valsHaveTypes_off_shape [MicaGS HasLC.hasLC Sig] {W : TinyML.World}
 /-- Respect for an arity-one symbol survives the argument-binding fold; each
     step rebinds a `value` constant, which never touches the unary table. -/
 private theorem respects_argsEnv_one {s : FOL.Symbol .one} :
-    ∀ (args : List (String × TinyML.Typ)) (vs : List Runtime.Val) {ρ : Env},
+    ∀ (args : List String) (vs : List Runtime.Val) {ρ : Env},
       ρ.respects (some s) → (Spec.argsEnv ρ args vs).respects (some s)
   | [], _, _, h => h
   | _ :: _, [], _, h => h
-  | (_, _) :: rest, _ :: vs, ρ, h => by
+  | _ :: rest, _ :: vs, ρ, h => by
       simp only [Spec.argsEnv]
       refine respects_argsEnv_one rest vs ?_
       simpa only [Env.respects, Env.updateConst_unary] using h
@@ -79,11 +79,11 @@ private theorem respects_argsEnv_one {s : FOL.Symbol .one} :
 /-- Respect for an arity-two symbol survives the argument-binding fold; each
     step rebinds a `value` constant, which never touches the binary table. -/
 private theorem respects_argsEnv_two {s : FOL.Symbol .two} :
-    ∀ (args : List (String × TinyML.Typ)) (vs : List Runtime.Val) {ρ : Env},
+    ∀ (args : List String) (vs : List Runtime.Val) {ρ : Env},
       ρ.respects (some s) → (Spec.argsEnv ρ args vs).respects (some s)
   | [], _, _, h => h
   | _ :: _, [], _, h => h
-  | (_, _) :: rest, _ :: vs, ρ, h => by
+  | _ :: rest, _ :: vs, ρ, h => by
       simp only [Spec.argsEnv]
       refine respects_argsEnv_two rest vs ?_
       simpa only [Env.respects, Env.updateConst_binary] using h
@@ -91,11 +91,11 @@ private theorem respects_argsEnv_two {s : FOL.Symbol .two} :
 /-- Respect for an arity-three symbol survives the argument-binding fold; each
     step rebinds a `value` constant, which never touches the ternary table. -/
 private theorem respects_argsEnv_three {s : FOL.Symbol .three} :
-    ∀ (args : List (String × TinyML.Typ)) (vs : List Runtime.Val) {ρ : Env},
+    ∀ (args : List String) (vs : List Runtime.Val) {ρ : Env},
       ρ.respects (some s) → (Spec.argsEnv ρ args vs).respects (some s)
   | [], _, _, h => h
   | _ :: _, [], _, h => h
-  | (_, _) :: rest, _ :: vs, ρ, h => by
+  | _ :: rest, _ :: vs, ρ, h => by
       simp only [Spec.argsEnv]
       refine respects_argsEnv_three rest vs ?_
       simpa only [Env.respects, Env.updateConst_ternary] using h
@@ -453,9 +453,10 @@ def Zero.toIntrinsic (b : Zero) : Intrinsic where
   path   := b.path
   reduce := Reduce.pure fun () v => v = b.res.inject b.f
   wp     := fun () Q => Q (b.res.inject b.f)
+  argTys := []
+  retTy  := b.res.typ
   spec   :=
     { args  := []
-      retTy := b.res.typ
       pred  := .ret ("ret",
         .assert (.eq .value (.var .value "ret") b.opTerm) (.ret ())) }
   typing := schemeTyping []
@@ -467,9 +468,6 @@ def Zero.toIntrinsic (b : Zero) : Intrinsic where
 
 @[simp] theorem Zero.toReduce_eq (b : Zero) (v : Runtime.Val) (μ μ' : TinyML.Heap) :
     b.toIntrinsic.toReduce [] μ v μ' = (v = b.res.inject b.f ∧ μ' = μ) := rfl
-
-@[simp] theorem Zero.instantiate_retTy (b : Zero) (σ : TinyML.TyVar → TinyML.Typ) :
-    (b.toIntrinsic.spec.instantiate σ).retTy = b.res.typ.subst σ := rfl
 
 /-- Proof obligations for a pure zero-arity intrinsic. The `nameFresh` premise
     keeps the generated constant symbol distinct from the spec's `"ret"`
@@ -489,6 +487,7 @@ structure Zero.Lawful (b : Zero) where
 /-- The `IntrinsicSound` instance for a pure zero-arity intrinsic. -/
 @[reducible] def Zero.Lawful.sound {b : Zero} (l : b.Lawful) :
     IntrinsicSound [b.toIntrinsic] b.toIntrinsic where
+  argLen := rfl
   specWf := fun _ hsub hwf => specWf_of_base l.specBaseWf hsub hwf
   wp_sound := by
     intro _ ctx hctx vs Φ
@@ -509,7 +508,6 @@ structure Zero.Lawful (b : Zero) where
       iexact HΦ
   bridge := by
     intro _ σ W vs ρ Φ hρ
-    simp only [Zero.instantiate_retTy, Spec.instantiate_pred]
     show TinyML.ValsHaveTypes W vs [] ∗ _ ⊢ _
     match vs with
     | _ :: _ => exact (sep_mono_left (valsHaveTypes_off_shape _ (by simp))).trans sep_elim_left
@@ -592,9 +590,10 @@ def Unary.toIntrinsic (b : Unary) : Intrinsic where
   reduce := Reduce.pure fun a v =>
     ∃ x, a = b.arg.inject x ∧ b.dom x ∧ v = b.res.inject (b.f x)
   wp     := fun a Q => iprop(∃ x, ⌜a = b.arg.inject x ∧ b.dom x⌝ ∗ Q (b.res.inject (b.f x)))
+  argTys := [b.arg.typ]
+  retTy  := b.res.typ
   spec   :=
-    { args  := [("a", b.arg.typ)]
-      retTy := b.res.typ
+    { args  := ["a"]
       pred  := withPre (b.pre.map (· "a")) <| .ret ("ret",
         .assert (.eq .value (.var .value "ret")
           (b.opTerm (.var .value "a"))) (.ret ())) }
@@ -616,11 +615,11 @@ def Unary.toIntrinsic (b : Unary) : Intrinsic where
         .assert (.eq .value (.var .value "ret")
           (b.opTerm (.var .value "a"))) (.ret ()))) := rfl
 
-@[simp] theorem Unary.instantiate_args (b : Unary) (σ : TinyML.TyVar → TinyML.Typ) :
-    (b.toIntrinsic.spec.instantiate σ).args = [("a", b.arg.typ.subst σ)] := rfl
+@[simp] theorem Unary.argTys_map_subst (b : Unary) (σ : TinyML.TyVar → TinyML.Typ) :
+    b.toIntrinsic.argTys.map (·.subst σ) = [b.arg.typ.subst σ] := rfl
 
-@[simp] theorem Unary.instantiate_retTy (b : Unary) (σ : TinyML.TyVar → TinyML.Typ) :
-    (b.toIntrinsic.spec.instantiate σ).retTy = b.res.typ.subst σ := rfl
+@[simp] theorem Unary.retTy_subst (b : Unary) (σ : TinyML.TyVar → TinyML.Typ) :
+    b.toIntrinsic.retTy.subst σ = b.res.typ.subst σ := rfl
 
 /-- Proof obligations for a pure unary intrinsic. `domSound` extracts the
     carrier-level domain from the evaluated precondition; when `pre = none` the
@@ -646,6 +645,7 @@ structure Unary.Lawful (b : Unary) where
 /-- The `IntrinsicSound` instance for a pure unary intrinsic. -/
 @[reducible] def Unary.Lawful.sound {b : Unary} (l : b.Lawful) :
     IntrinsicSound [b.toIntrinsic] b.toIntrinsic where
+  argLen := rfl
   specWf := fun _ hsub hwf => specWf_of_base l.specBaseWf hsub hwf
   wp_sound := by
     intro _ ctx hctx vs Φ
@@ -678,8 +678,7 @@ structure Unary.Lawful (b : Unary) where
       iexact HΦ
   bridge := by
     intro _ σ W vs ρ Φ hρ
-    simp only [Unary.instantiate_args, Unary.instantiate_retTy,
-      Spec.instantiate_pred, Unary.spec_pred, List.map_cons, List.map_nil]
+    simp only [Unary.argTys_map_subst, Unary.retTy_subst, Unary.spec_pred]
     match vs with
     | [] => exact (sep_mono_left (valsHaveTypes_off_shape _ (by simp))).trans sep_elim_left
     | _ :: _ :: _ =>
@@ -798,9 +797,10 @@ def Binary.toIntrinsic (b : Binary) : Intrinsic where
   wp     := fun (a, c) Q =>
     iprop(∃ x y, ⌜a = b.arg₁.inject x ∧ c = b.arg₂.inject y ∧ b.dom x y⌝ ∗
       Q (b.res.inject (b.f x y)))
+  argTys := [b.arg₁.typ, b.arg₂.typ]
+  retTy  := b.res.typ
   spec   :=
-    { args  := [("a", b.arg₁.typ), ("b", b.arg₂.typ)]
-      retTy := b.res.typ
+    { args  := ["a", "b"]
       pred  := withPre (b.pre.map (· "a" "b")) <| .ret ("ret",
         .assert (.eq .value (.var .value "ret")
           (b.opTerm (.var .value "a") (.var .value "b"))) (.ret ())) }
@@ -824,12 +824,12 @@ def Binary.toIntrinsic (b : Binary) : Intrinsic where
         .assert (.eq .value (.var .value "ret")
           (b.opTerm (.var .value "a") (.var .value "b"))) (.ret ()))) := rfl
 
-@[simp] theorem Binary.instantiate_args (b : Binary) (σ : TinyML.TyVar → TinyML.Typ) :
-    (b.toIntrinsic.spec.instantiate σ).args
-      = [("a", b.arg₁.typ.subst σ), ("b", b.arg₂.typ.subst σ)] := rfl
+@[simp] theorem Binary.argTys_map_subst (b : Binary) (σ : TinyML.TyVar → TinyML.Typ) :
+    b.toIntrinsic.argTys.map (·.subst σ)
+      = [b.arg₁.typ.subst σ, b.arg₂.typ.subst σ] := rfl
 
-@[simp] theorem Binary.instantiate_retTy (b : Binary) (σ : TinyML.TyVar → TinyML.Typ) :
-    (b.toIntrinsic.spec.instantiate σ).retTy = b.res.typ.subst σ := rfl
+@[simp] theorem Binary.retTy_subst (b : Binary) (σ : TinyML.TyVar → TinyML.Typ) :
+    b.toIntrinsic.retTy.subst σ = b.res.typ.subst σ := rfl
 
 /-- Proof obligations for a pure binary intrinsic: lawful embeddings, the three
     well-formedness facts (spec/def-axiom/type-axiom — one-liners at literal
@@ -858,6 +858,7 @@ structure Binary.Lawful (b : Binary) where
 /-- The whole `IntrinsicSound` instance for a pure binary intrinsic. -/
 @[reducible] def Binary.Lawful.sound {b : Binary} (l : b.Lawful) :
     IntrinsicSound [b.toIntrinsic] b.toIntrinsic where
+  argLen := rfl
   specWf := fun _ hsub hwf => specWf_of_base l.specBaseWf hsub hwf
   wp_sound := by
     intro _ ctx hctx vs Φ
@@ -895,8 +896,7 @@ structure Binary.Lawful (b : Binary) where
       iexact HΦ
   bridge := by
     intro _ σ W vs ρ Φ hρ
-    simp only [Binary.instantiate_args, Binary.instantiate_retTy,
-      Spec.instantiate_pred, Binary.spec_pred, List.map_cons, List.map_nil]
+    simp only [Binary.argTys_map_subst, Binary.retTy_subst, Binary.spec_pred]
     show TinyML.ValsHaveTypes W vs [b.arg₁.typ.subst σ, b.arg₂.typ.subst σ] ∗ _ ⊢ _
     match vs with
     | [] => exact (sep_mono_left (valsHaveTypes_off_shape _ (by simp))).trans sep_elim_left
@@ -1035,9 +1035,10 @@ def Ternary.toIntrinsic (b : Ternary) : Intrinsic where
   wp     := fun (a, c, d) Q =>
     iprop(∃ x y z, ⌜a = b.arg₁.inject x ∧ c = b.arg₂.inject y ∧ d = b.arg₃.inject z ∧
       b.dom x y z⌝ ∗ Q (b.res.inject (b.f x y z)))
+  argTys := [b.arg₁.typ, b.arg₂.typ, b.arg₃.typ]
+  retTy  := b.res.typ
   spec   :=
-    { args  := [("a", b.arg₁.typ), ("b", b.arg₂.typ), ("c", b.arg₃.typ)]
-      retTy := b.res.typ
+    { args  := ["a", "b", "c"]
       pred  := withPre (b.pre.map (· "a" "b" "c")) <| .ret ("ret",
         .assert (.eq .value (.var .value "ret")
           (b.opTerm (.var .value "a") (.var .value "b") (.var .value "c"))) (.ret ())) }
@@ -1061,12 +1062,12 @@ def Ternary.toIntrinsic (b : Ternary) : Intrinsic where
         .assert (.eq .value (.var .value "ret")
           (b.opTerm (.var .value "a") (.var .value "b") (.var .value "c"))) (.ret ()))) := rfl
 
-@[simp] theorem Ternary.instantiate_args (b : Ternary) (σ : TinyML.TyVar → TinyML.Typ) :
-    (b.toIntrinsic.spec.instantiate σ).args
-      = [("a", b.arg₁.typ.subst σ), ("b", b.arg₂.typ.subst σ), ("c", b.arg₃.typ.subst σ)] := rfl
+@[simp] theorem Ternary.argTys_map_subst (b : Ternary) (σ : TinyML.TyVar → TinyML.Typ) :
+    b.toIntrinsic.argTys.map (·.subst σ)
+      = [b.arg₁.typ.subst σ, b.arg₂.typ.subst σ, b.arg₃.typ.subst σ] := rfl
 
-@[simp] theorem Ternary.instantiate_retTy (b : Ternary) (σ : TinyML.TyVar → TinyML.Typ) :
-    (b.toIntrinsic.spec.instantiate σ).retTy = b.res.typ.subst σ := rfl
+@[simp] theorem Ternary.retTy_subst (b : Ternary) (σ : TinyML.TyVar → TinyML.Typ) :
+    b.toIntrinsic.retTy.subst σ = b.res.typ.subst σ := rfl
 
 /-- Proof obligations for a pure ternary intrinsic. -/
 structure Ternary.Lawful (b : Ternary) where
@@ -1095,6 +1096,7 @@ structure Ternary.Lawful (b : Ternary) where
 /-- The whole `IntrinsicSound` instance for a pure ternary intrinsic. -/
 @[reducible] def Ternary.Lawful.sound {b : Ternary} (l : b.Lawful) :
     IntrinsicSound [b.toIntrinsic] b.toIntrinsic where
+  argLen := rfl
   specWf := fun _ hsub hwf => specWf_of_base l.specBaseWf hsub hwf
   wp_sound := by
     intro _ ctx hctx vs Φ
@@ -1136,8 +1138,7 @@ structure Ternary.Lawful (b : Ternary) where
       iexact HΦ
   bridge := by
     intro _ σ W vs ρ Φ hρ
-    simp only [Ternary.instantiate_args, Ternary.instantiate_retTy,
-      Spec.instantiate_pred, Ternary.spec_pred, List.map_cons, List.map_nil]
+    simp only [Ternary.argTys_map_subst, Ternary.retTy_subst, Ternary.spec_pred]
     show TinyML.ValsHaveTypes W vs
       [b.arg₁.typ.subst σ, b.arg₂.typ.subst σ, b.arg₃.typ.subst σ] ∗ _ ⊢ _
     match vs with

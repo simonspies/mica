@@ -278,11 +278,15 @@ structure Intrinsic where
   path     : Option (String × List String)
   reduce   : Arity.tup arity Runtime.Val → TinyML.Heap → Runtime.Val → TinyML.Heap → Prop
   wp       : Arity.tup arity Runtime.Val → (Runtime.Val → iProp) → iProp
-  /-- The intrinsic's specification, the single source of its argument names/
-      types, return type, and predicate transformer. Argument and return types
-      may contain type variables (a *scheme*); a polymorphic intrinsic is a
-      family of functions with the same implementation, instantiated per use
-      site via `Spec.instantiate`. -/
+  /-- The intrinsic's argument types, in order. May contain type variables (a
+      *scheme*); substituted per use site by the elaborator's instantiation. -/
+  argTys   : List TinyML.Typ
+  /-- The intrinsic's result type; likewise a scheme. -/
+  retTy    : TinyML.Typ
+  /-- The intrinsic's specification: argument names and predicate transformer.
+      A polymorphic intrinsic is a family of functions with the same
+      implementation; only the argument/return types vary per use site, while
+      the names and predicate are shared. -/
   spec     : Spec
   /-- The typing function: given the inferred argument types of a use site,
       compute the type-variable instantiation (or reject with a message). It is
@@ -318,7 +322,7 @@ theorem agreeOn_extend_fresh (i : Intrinsic) {Δ : Signature} (ρ : Env)
     (hfresh : match i.folSym with | none => True | some sym => sym.name ∉ Δ.allNames) :
     Env.agreeOn Δ ρ (ρ.extendWithSym i.folSym) := by
   cases i with
-  | mk arity name path reduce wp spec typing folSym axioms =>
+  | mk arity name path reduce wp argTys retTy spec typing folSym axioms =>
     cases arity with
     | zero =>
       cases folSym with
@@ -351,13 +355,13 @@ theorem agreeOn_extend_fresh (i : Intrinsic) {Δ : Signature} (ρ : Env)
             (t := ⟨s.name, .value, .value, .value, .value⟩)
             (f := fun a b c => s.interp (a, b, c)) (Δ := Δ) hfresh)
 
-/-- The intrinsic's argument types, in left-to-right order. Read off the spec. -/
+/-- The intrinsic's argument types, in left-to-right order. -/
 def argTysList (i : Intrinsic) : List TinyML.Typ :=
-  i.spec.args.map Prod.snd
+  i.argTys
 
-/-- The intrinsic's result type. Read off the spec. -/
+/-- The intrinsic's result type. -/
 def resultTy (i : Intrinsic) : TinyML.Typ :=
-  i.spec.retTy
+  i.retTy
 
 /-- The intrinsic's full arrow (scheme) type. -/
 def arrowType (i : Intrinsic) : TinyML.Typ :=
@@ -387,12 +391,12 @@ theorem toReduce_two_of_arity (name : String)
     (path : Option (String × List String))
     (reduce : Arity.tup .two Runtime.Val → TinyML.Heap → Runtime.Val → TinyML.Heap → Prop)
     (wp : Arity.tup .two Runtime.Val → (Runtime.Val → iProp) → iProp)
-    (spec : Spec)
+    (argTys : List TinyML.Typ) (retTy : TinyML.Typ) (spec : Spec)
     (typing : TinyML.TypeEnv → List TinyML.Typ →
       Except String (List (TinyML.TyVar × TinyML.Typ)))
     (folSym : Option (FOL.Symbol .two)) (axioms : List Axiom)
     (a b v : Runtime.Val) (μ μ' : TinyML.Heap) :
-    (Intrinsic.mk .two name path reduce wp spec typing folSym axioms).toReduce [a, b] μ v μ'
+    (Intrinsic.mk .two name path reduce wp argTys retTy spec typing folSym axioms).toReduce [a, b] μ v μ'
       = reduce (a, b) μ v μ' := rfl
 
 /-- Unfolding lemma for `toReduce` at arity-three, three args. -/
@@ -400,12 +404,12 @@ theorem toReduce_three_of_arity (name : String)
     (path : Option (String × List String))
     (reduce : Arity.tup .three Runtime.Val → TinyML.Heap → Runtime.Val → TinyML.Heap → Prop)
     (wp : Arity.tup .three Runtime.Val → (Runtime.Val → iProp) → iProp)
-    (spec : Spec)
+    (argTys : List TinyML.Typ) (retTy : TinyML.Typ) (spec : Spec)
     (typing : TinyML.TypeEnv → List TinyML.Typ →
       Except String (List (TinyML.TyVar × TinyML.Typ)))
     (folSym : Option (FOL.Symbol .three)) (axioms : List Axiom)
     (a b c v : Runtime.Val) (μ μ' : TinyML.Heap) :
-    (Intrinsic.mk .three name path reduce wp spec typing folSym axioms).toReduce [a, b, c] μ v μ'
+    (Intrinsic.mk .three name path reduce wp argTys retTy spec typing folSym axioms).toReduce [a, b, c] μ v μ'
       = reduce (a, b, c) μ v μ' := rfl
 
 /-- Unfolding lemma for `toReduce` at arity-one, one arg. -/
@@ -413,12 +417,12 @@ theorem toReduce_one_of_arity (name : String)
     (path : Option (String × List String))
     (reduce : Arity.tup .one Runtime.Val → TinyML.Heap → Runtime.Val → TinyML.Heap → Prop)
     (wp : Arity.tup .one Runtime.Val → (Runtime.Val → iProp) → iProp)
-    (spec : Spec)
+    (argTys : List TinyML.Typ) (retTy : TinyML.Typ) (spec : Spec)
     (typing : TinyML.TypeEnv → List TinyML.Typ →
       Except String (List (TinyML.TyVar × TinyML.Typ)))
     (folSym : Option (FOL.Symbol .one)) (axioms : List Axiom)
     (a v : Runtime.Val) (μ μ' : TinyML.Heap) :
-    (Intrinsic.mk .one name path reduce wp spec typing folSym axioms).toReduce [a] μ v μ'
+    (Intrinsic.mk .one name path reduce wp argTys retTy spec typing folSym axioms).toReduce [a] μ v μ'
       = reduce a μ v μ' := rfl
 
 /-- Unfolding lemma for `toReduce` at arity-zero, no args. -/
@@ -426,12 +430,12 @@ theorem toReduce_zero_of_arity (name : String)
     (path : Option (String × List String))
     (reduce : Arity.tup .zero Runtime.Val → TinyML.Heap → Runtime.Val → TinyML.Heap → Prop)
     (wp : Arity.tup .zero Runtime.Val → (Runtime.Val → iProp) → iProp)
-    (spec : Spec)
+    (argTys : List TinyML.Typ) (retTy : TinyML.Typ) (spec : Spec)
     (typing : TinyML.TypeEnv → List TinyML.Typ →
       Except String (List (TinyML.TyVar × TinyML.Typ)))
     (folSym : Option (FOL.Symbol .zero)) (axioms : List Axiom)
     (v : Runtime.Val) (μ μ' : TinyML.Heap) :
-    (Intrinsic.mk .zero name path reduce wp spec typing folSym axioms).toReduce [] μ v μ'
+    (Intrinsic.mk .zero name path reduce wp argTys retTy spec typing folSym axioms).toReduce [] μ v μ'
       = reduce () μ v μ' := rfl
 
 /-- Adapter from the list-shaped argument call to the arity-shaped `wp`
@@ -453,12 +457,12 @@ theorem toWp_two_of_arity (name : String)
     (path : Option (String × List String))
     (reduce : Arity.tup .two Runtime.Val → TinyML.Heap → Runtime.Val → TinyML.Heap → Prop)
     (wp : Arity.tup .two Runtime.Val → (Runtime.Val → iProp) → iProp)
-    (spec : Spec)
+    (argTys : List TinyML.Typ) (retTy : TinyML.Typ) (spec : Spec)
     (typing : TinyML.TypeEnv → List TinyML.Typ →
       Except String (List (TinyML.TyVar × TinyML.Typ)))
     (folSym : Option (FOL.Symbol .two)) (axioms : List Axiom)
     (a b : Runtime.Val) (Q : Runtime.Val → iProp) :
-    (Intrinsic.mk .two name path reduce wp spec typing folSym axioms).toWp [a, b] Q
+    (Intrinsic.mk .two name path reduce wp argTys retTy spec typing folSym axioms).toWp [a, b] Q
       = wp (a, b) Q := rfl
 
 /-- Unfolding lemma for `toWp` at arity-three, three args. -/
@@ -466,12 +470,12 @@ theorem toWp_three_of_arity (name : String)
     (path : Option (String × List String))
     (reduce : Arity.tup .three Runtime.Val → TinyML.Heap → Runtime.Val → TinyML.Heap → Prop)
     (wp : Arity.tup .three Runtime.Val → (Runtime.Val → iProp) → iProp)
-    (spec : Spec)
+    (argTys : List TinyML.Typ) (retTy : TinyML.Typ) (spec : Spec)
     (typing : TinyML.TypeEnv → List TinyML.Typ →
       Except String (List (TinyML.TyVar × TinyML.Typ)))
     (folSym : Option (FOL.Symbol .three)) (axioms : List Axiom)
     (a b c : Runtime.Val) (Q : Runtime.Val → iProp) :
-    (Intrinsic.mk .three name path reduce wp spec typing folSym axioms).toWp [a, b, c] Q
+    (Intrinsic.mk .three name path reduce wp argTys retTy spec typing folSym axioms).toWp [a, b, c] Q
       = wp (a, b, c) Q := rfl
 
 /-- Unfolding lemma for `toWp` at arity-one, one arg. -/
@@ -479,12 +483,12 @@ theorem toWp_one_of_arity (name : String)
     (path : Option (String × List String))
     (reduce : Arity.tup .one Runtime.Val → TinyML.Heap → Runtime.Val → TinyML.Heap → Prop)
     (wp : Arity.tup .one Runtime.Val → (Runtime.Val → iProp) → iProp)
-    (spec : Spec)
+    (argTys : List TinyML.Typ) (retTy : TinyML.Typ) (spec : Spec)
     (typing : TinyML.TypeEnv → List TinyML.Typ →
       Except String (List (TinyML.TyVar × TinyML.Typ)))
     (folSym : Option (FOL.Symbol .one)) (axioms : List Axiom)
     (a : Runtime.Val) (Q : Runtime.Val → iProp) :
-    (Intrinsic.mk .one name path reduce wp spec typing folSym axioms).toWp [a] Q
+    (Intrinsic.mk .one name path reduce wp argTys retTy spec typing folSym axioms).toWp [a] Q
       = wp a Q := rfl
 
 /-- Unfolding lemma for `toWp` at arity-zero, no args. -/
@@ -492,12 +496,12 @@ theorem toWp_zero_of_arity (name : String)
     (path : Option (String × List String))
     (reduce : Arity.tup .zero Runtime.Val → TinyML.Heap → Runtime.Val → TinyML.Heap → Prop)
     (wp : Arity.tup .zero Runtime.Val → (Runtime.Val → iProp) → iProp)
-    (spec : Spec)
+    (argTys : List TinyML.Typ) (retTy : TinyML.Typ) (spec : Spec)
     (typing : TinyML.TypeEnv → List TinyML.Typ →
       Except String (List (TinyML.TyVar × TinyML.Typ)))
     (folSym : Option (FOL.Symbol .zero)) (axioms : List Axiom)
     (Q : Runtime.Val → iProp) :
-    (Intrinsic.mk .zero name path reduce wp spec typing folSym axioms).toWp [] Q
+    (Intrinsic.mk .zero name path reduce wp argTys retTy spec typing folSym axioms).toWp [] Q
       = wp () Q := rfl
 
 /-- Fold a registry fragment's FOL symbols into a starting signature. The
@@ -522,7 +526,7 @@ below. The aggregate over the registry is the def `Registry.Sound`. -/
 
 /-- Argument list for the spec view: the spec's own argument names paired with
     their types. -/
-def specArgs (i : Intrinsic) : List (String × TinyML.Typ) :=
+def specArgs (i : Intrinsic) : List String :=
   i.spec.args
 
 end Intrinsic
@@ -543,12 +547,15 @@ end Intrinsic
     by the caller from the registry-derived signature/environment.
 
     `bridge` is a family indexed by the type-variable substitution `σ`: it is
-    stated at the *instantiated* spec `i.spec.instantiate σ`, for every `σ`.
+    stated at the argument/result types substituted by `σ`, for every `σ`, with
+    the spec's names and predicate transformer shared across instantiations.
 
     `axiomWf`/`proof` are stated against the dependency `fragment`: each axiom is
     well-formed in the signature supplied by the fragment, and is satisfied by
     every environment that respects every FOL symbol in the fragment. -/
 class IntrinsicSound (fragment : outParam (List Intrinsic)) (i : Intrinsic) : Prop where
+  /-- The spec's argument-name count matches the intrinsic's arity. -/
+  argLen : i.spec.args.length = i.argTys.length
   specWf :
     ∀ (Δ : Signature), (Signature.empty.extendWithSym i.folSym).Subset Δ → Δ.wf →
       PredTrans.wfIn (Δ.declVars (Spec.argVars i.specArgs)) i.spec.pred
@@ -556,10 +563,10 @@ class IntrinsicSound (fragment : outParam (List Intrinsic)) (i : Intrinsic) : Pr
     ∀ [MicaGS HasLC.hasLC Sig] (σ : TinyML.TyVar → TinyML.Typ) (W : TinyML.World)
       (vs : List Runtime.Val) (ρ : Env) (Φ : Runtime.Val → iProp),
     ρ.respects i.folSym →
-    TinyML.ValsHaveTypes W vs ((i.spec.instantiate σ).args.map Prod.snd) ∗
-      PredTrans.apply W (fun r => TinyML.ValHasType W r (i.spec.instantiate σ).retTy -∗ Φ r)
-        (i.spec.instantiate σ).pred
-        (Spec.argsEnv ρ (i.spec.instantiate σ).args vs) ⊢ i.toWp vs Φ
+    TinyML.ValsHaveTypes W vs (i.argTys.map (·.subst σ)) ∗
+      PredTrans.apply W (fun r => TinyML.ValHasType W r (i.retTy.subst σ) -∗ Φ r)
+        i.spec.pred
+        (Spec.argsEnv ρ i.spec.args vs) ⊢ i.toWp vs Φ
   wp_sound :
     ∀ [MicaGS HasLC.hasLC Sig] (ctx : TinyML.PrimCtx),
       (∀ vs μ v μ', ctx i.name vs μ v μ' ↔ i.toReduce vs μ v μ') →
@@ -819,6 +826,7 @@ end Registry
 theorem IntrinsicSound.mono {deps deps' : Registry} {i : Intrinsic}
     (h : IntrinsicSound deps i) (hsub : deps ⊆ deps') :
     IntrinsicSound deps' i where
+  argLen := h.argLen
   specWf := h.specWf
   bridge := h.bridge
   wp_sound := h.wp_sound
@@ -884,7 +892,7 @@ theorem eval_declFOLSym (i : Intrinsic) {st : TransState} {ρ : Env}
       ρ'.respects i.folSym ∧
       Q () { st with decls := st.decls.extendWithSym i.folSym } ρ' := by
   cases i with
-  | mk arity name path reduce wp spec typing folSym axioms =>
+  | mk arity name path reduce wp argTys retTy spec typing folSym axioms =>
     cases arity with
     | zero =>
       cases folSym with

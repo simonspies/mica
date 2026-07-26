@@ -180,9 +180,10 @@ def intrinsic (name : String) (path : String) : Verifier.Intrinsic where
   path := some ("Range", [path])
   reduce := fun _ _ _ _ => False
   wp := fun _ _ => iprop(False)
+  argTys := [.int, .int, .arrow [.int] .bool]
+  retTy := .bool
   spec :=
-    { args := [("lo", .int), ("hi", .int), ("body", .arrow [.int] .bool)]
-      retTy := .bool
+    { args := ["lo", "hi", "body"]
       pred := .assert .false_ (.ret ("ret", .ret ())) }
   typing := Verifier.monoTyping .three
   folSym := none
@@ -203,13 +204,14 @@ def existsIntrinsic : Verifier.Intrinsic := intrinsic existsName "exists"
 are both false, and it contributes no solver symbols or axioms. -/
 @[reducible] def intrinsicSound (name path : String) :
     Verifier.IntrinsicSound [] (intrinsic name path) where
+  argLen := rfl
   specWf := by
     intro Δ _ _
     simp [intrinsic, Verifier.Intrinsic.specArgs, PredTrans.wfIn, Assertion.wfIn]
     trivial
   bridge := by
     intro _ σ Θ vs ρ Φ _
-    simp only [intrinsic, Spec.instantiate, PredTrans.apply, Assertion.pre]
+    simp only [intrinsic, PredTrans.apply, Assertion.pre]
     iintro H
     icases H with ⟨_, %hfalse, _⟩
     exact hfalse.elim

@@ -19,6 +19,29 @@ open Typed
 open Verifier.RelationalEncoding (FunCtx encodeWith)
 open Verifier.RelationalEncoding.Skolemize (encoderOps DefVal)
 
+/-- Bundle a declaration's spec with the argument and result types of the
+    function literal it annotates. Validates that the spec's argument-name count
+    matches the function's arity. -/
+def SpecEntry.ofFunction (s : Spec) (e : Expr) : Except String SpecEntry :=
+  match e with
+  | .fix _ argBinders retTy _ =>
+    if s.args.length = argBinders.length then
+      .ok { argTys := argBinders.map (·.ty), retTy, spec := s }
+    else .error s!"spec argument count does not match function arity"
+  | _ => .error "SpecEntry.ofFunction: expected function"
+
+omit [MicaGS HasLC.hasLC Sig] in
+/-- A bundled entry's spec-argument count matches its argument-type count. -/
+theorem SpecEntry.ofFunction_argLen {s : Spec} {expr : Expr} {e : SpecEntry}
+    (h : SpecEntry.ofFunction s expr = .ok e) : e.spec.args.length = e.argTys.length := by
+  simp only [SpecEntry.ofFunction] at h
+  split at h
+  · split at h
+    · rename_i hlen
+      injection h with h; subst h; simpa using hlen
+    · simp at h
+  · simp at h
+
 /-! ## Program-level verification
 
 Iterates over a list of declarations, verifying each one against its spec
@@ -439,14 +462,17 @@ end RelationSpec
 /-- Check an individual declaration. Each declaration's `checkSpec` runs inside a `seq` bracket so its
     declarations and assertions don't pollute subsequent verifications. -/
 def ValDecl.check (reg : Verifier.Registry) (Θ : TinyML.TypeEnv) (Δ_spec : Signature)
-    (S : SpecMap) (d : Typed.ValDecl Spec) : VerifM Spec := do
+    (S : SpecMap) (d : Typed.ValDecl Spec) : VerifM SpecEntry := do
   let spec ← match d.declMeta.spec with
     | some s => .ret s
     | none => .fatal "declaration has no spec"
-  let () ← match Spec.checkWf spec Δ_spec with
+  let e ← match SpecEntry.ofFunction spec d.body with
+    | .ok s => .ret s
+    | .error msg => .fatal msg
+  let () ← match Spec.checkWf e.spec Δ_spec with
     | .ok () => .ret ()
     | .error msg => .fatal msg
-  VerifM.seq (checkSpec reg Θ Δ_spec S d.body spec) (pure spec)
+  VerifM.seq (checkSpec reg Θ Δ_spec S d.body e) (pure e)
 
 /-- Check a `let _ = e` declaration: just compile `e` for safety, no spec. -/
 def ValDecl.checkExpr (reg : Verifier.Registry) (Θ : TinyML.TypeEnv) (Δ_spec : Signature) (S : SpecMap) (d : Typed.ValDecl Spec) : VerifM Unit :=
@@ -563,7 +589,7 @@ theorem ValDecl.check_correct (reg : Verifier.Registry) (hSound : Verifier.Regis
     (hag : W.agrees st.decls ρ)
     (hΔreg : Verifier.Registry.symSubset reg W.Δ_spec)
     (hρreg : Verifier.Registry.symAgree reg W.ρ_spec)
-    {Q : Spec → TransState → Env → Prop}
+    {Q : SpecEntry → TransState → Env → Prop}
     (heval : VerifM.eval (ValDecl.check reg W.Θ W.Δ_spec S d) st ρ Q) :
     ∃ spec, spec.wfIn W.Δ_spec ∧
             (□ st.sl W ρ ∗ S.satisfiedBy W γ ⊢ wp W.pctx (d.body.runtime.subst γ) (fun v => spec.isPrecondFor W v)) ∧
@@ -573,30 +599,38 @@ theorem ValDecl.check_correct (reg : Verifier.Registry) (hSound : Verifier.Regis
   | none =>
     simp only [hspec] at heval
     exact (VerifM.eval_fatal (VerifM.eval_bind heval)).elim
-  | some spec =>
+  | some s =>
     simp only [hspec] at heval
-    have h3 := VerifM.eval_ret (VerifM.eval_bind heval)
-    cases hcheckWf : Spec.checkWf spec W.Δ_spec with
+    have h2 := VerifM.eval_ret (VerifM.eval_bind heval)
+    cases hentry : SpecEntry.ofFunction s d.body with
     | error msg =>
-      simp only [hcheckWf] at h3
-      exact (VerifM.eval_fatal (VerifM.eval_bind h3)).elim
-    | ok u =>
-      simp only [hcheckWf] at h3
-      have h4 := VerifM.eval_ret (VerifM.eval_bind h3)
-      have hswf : spec.wfIn W.Δ_spec := Spec.checkWf_ok (by cases u; exact hcheckWf)
-      have ⟨hcheckSpec, hpure⟩ := VerifM.eval_seq h4
-      exact ⟨spec, hswf,
-        by
-          have hcheck :=
-            checkSpec_correct reg hSound W hW S d.body spec γ
-              hswf hSwf hwf st ρ hag hΔreg hρreg hcheckSpec
-          refine BIBase.Entails.trans ?_ hcheck
-          istart
-          iintro ⟨#Hsl, #Hspec⟩
-          isplitl [Hsl]
-          · iexact Hsl
-          · iexact Hspec,
-             VerifM.eval_ret hpure⟩
+      simp only [hentry] at h2
+      exact (VerifM.eval_fatal (VerifM.eval_bind h2)).elim
+    | ok spec =>
+      simp only [hentry] at h2
+      have h3 := VerifM.eval_ret (VerifM.eval_bind h2)
+      cases hcheckWf : Spec.checkWf spec.spec W.Δ_spec with
+      | error msg =>
+        simp only [hcheckWf] at h3
+        exact (VerifM.eval_fatal (VerifM.eval_bind h3)).elim
+      | ok u =>
+        simp only [hcheckWf] at h3
+        have h4 := VerifM.eval_ret (VerifM.eval_bind h3)
+        have hswf : spec.wfIn W.Δ_spec :=
+          ⟨SpecEntry.ofFunction_argLen hentry, Spec.checkWf_ok (by cases u; exact hcheckWf)⟩
+        have ⟨hcheckSpec, hpure⟩ := VerifM.eval_seq h4
+        exact ⟨spec, hswf,
+          by
+            have hcheck :=
+              checkSpec_correct reg hSound W hW S d.body spec γ
+                hswf hSwf hwf st ρ hag hΔreg hρreg hcheckSpec
+            refine BIBase.Entails.trans ?_ hcheck
+            istart
+            iintro ⟨#Hsl, #Hspec⟩
+            isplitl [Hsl]
+            · iexact Hsl
+            · iexact Hspec,
+               VerifM.eval_ret hpure⟩
 
 theorem Program.check_correct (reg : Verifier.Registry) (hSound : Verifier.Registry.Sound reg)
     (W : TinyML.World) (hW : W.pctx = reg.primCtx)
