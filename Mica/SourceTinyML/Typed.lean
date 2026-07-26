@@ -46,7 +46,11 @@ inductive Expr where
   | prim (name : String) (inst : List (TyVar × Typ)) (ty : Typ)
   | unop (op : UnOp) (e : Expr) (ty : Typ)
   | binop (op : BinOp) (lhs rhs : Expr) (ty : Typ)
-  | fix (self : Binder) (args : List Binder) (retTy : Typ) (body : Expr)
+  /-- A function literal. `spec` is the specification the function was checked
+      against, which is also what `Expr.ty` puts in the node's arrow type; the
+      self binder carries the same arrow. -/
+  | fix (self : Binder) (args : List Binder) (retTy : Typ) (spec : Option (Spec Typ))
+      (body : Expr)
   | app (fn : Expr) (args : List Expr) (ty : Typ)
   | ifThenElse (cond thn els : Expr) (ty : Typ)
   | letIn (name : Binder) (bound body : Expr)
@@ -71,12 +75,12 @@ def Expr.isFunc : Expr → Bool
   | .fix .. => true
   | _ => false
 
-@[simp] theorem Expr.isFunc_fix : (Expr.fix self args retTy body).isFunc = true := rfl
+@[simp] theorem Expr.isFunc_fix : (Expr.fix self args retTy spec body).isFunc = true := rfl
 
 theorem Expr.isFunc_elim {e : Expr} (h : e.isFunc = true) :
-    ∃ self args retTy body, e = .fix self args retTy body := by
+    ∃ self args retTy spec body, e = .fix self args retTy spec body := by
   cases e <;> simp [isFunc] at h
-  exact ⟨_, _, _, _, rfl⟩
+  exact ⟨_, _, _, _, _, rfl⟩
 
 -- `deriving DecidableEq` does not support mutual inductives with `List`-nested
 -- recursion, so we define the instance by hand.
@@ -113,14 +117,15 @@ mutual
       | _, isFalse h, _, _ => isFalse (by intro heq; cases heq; exact h rfl)
       | _, _, isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
       | _, _, _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
-    case fix.fix s1 args1 rt1 b1 s2 args2 rt2 b2 =>
-      exact match decEq s1 s2, decEq args1 args2, decEq rt1 rt2, b1.decEq b2 with
-      | isTrue h1, isTrue h2, isTrue h3, isTrue h4 =>
-        isTrue (by subst h1; subst h2; subst h3; subst h4; rfl)
-      | isFalse h, _, _, _ => isFalse (by intro heq; cases heq; exact h rfl)
-      | _, isFalse h, _, _ => isFalse (by intro heq; cases heq; exact h rfl)
-      | _, _, isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
-      | _, _, _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
+    case fix.fix s1 args1 rt1 sp1 b1 s2 args2 rt2 sp2 b2 =>
+      exact match decEq s1 s2, decEq args1 args2, decEq rt1 rt2, decEq sp1 sp2, b1.decEq b2 with
+      | isTrue h1, isTrue h2, isTrue h3, isTrue h4, isTrue h5 =>
+        isTrue (by subst h1; subst h2; subst h3; subst h4; subst h5; rfl)
+      | isFalse h, _, _, _, _ => isFalse (by intro heq; cases heq; exact h rfl)
+      | _, isFalse h, _, _, _ => isFalse (by intro heq; cases heq; exact h rfl)
+      | _, _, isFalse h, _, _ => isFalse (by intro heq; cases heq; exact h rfl)
+      | _, _, _, isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
+      | _, _, _, _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
     case app.app f1 args1 t1 f2 args2 t2 =>
       exact match f1.decEq f2, exprsDecEq args1 args2, decEq t1 t2 with
       | isTrue h1, isTrue h2, isTrue h3 => isTrue (by subst h1; subst h2; subst h3; rfl)
@@ -246,7 +251,7 @@ def Expr.ty : Expr → Typ
   | .prim _ _ ty => ty
   | .unop _ _ ty => ty
   | .binop _ _ _ ty => ty
-  | .fix _ args retTy _ => .arrow (args.map Binder.ty) retTy none
+  | .fix _ args retTy spec _ => .arrow (args.map Binder.ty) retTy spec
   | .app _ _ ty => ty
   | .ifThenElse _ _ _ ty => ty
   | .letIn _ _ body => body.ty
@@ -312,7 +317,7 @@ mutual
     | .prim n _ _ => .val (.prim n)
     | .unop op e _ => .unop op e.runtime
     | .binop op l r _ => .binop op l.runtime r.runtime
-    | .fix self args _ body => .fix (self.runtime) (args.map (·.runtime)) body.runtime
+    | .fix self args _ _ body => .fix (self.runtime) (args.map (·.runtime)) body.runtime
     | .app fn args _ => .app fn.runtime (args.map Expr.runtime)
     | .ifThenElse c t e _ => .ifThenElse c.runtime t.runtime e.runtime
     | .letIn b bound body => .letIn (b.runtime) bound.runtime body.runtime

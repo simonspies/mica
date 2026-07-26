@@ -34,7 +34,7 @@ def checkBody (reg : Verifier.Registry) (Θ : TinyML.TypeEnv) (Δ_spec : Signatu
 
 def checkSpec (reg : Verifier.Registry) (Θ : TinyML.TypeEnv) (Δ_spec : Signature) (S : SpecMap) (expr : Expr) (e : SpecEntry) : VerifM Unit := do
   let (fb, argNames, body) ← match expr with
-    | .fix fb argBinders _ body => do
+    | .fix fb argBinders _ _ body => do
       match extractArgNames argBinders e.spec.args with
       | .ok names => pure (fb, names, body)
       | .error msg => VerifM.fatal msg
@@ -195,7 +195,7 @@ theorem checkSpec_correct (reg : Verifier.Registry) (hSound : Verifier.Registry.
       VerifM.eval (VerifM.fatal msg >>= k) st ρ Ψ → False :=
     fun h => VerifM.eval_fatal (VerifM.eval_bind h)
   cases expr
-  case fix fb argBinders retTy body =>
+  case fix fb argBinders retTy spec body =>
     simp only [checkSpec] at heval
     -- Case split on extractArgNames result
     cases hext : extractArgNames argBinders e.spec.args with
@@ -211,7 +211,7 @@ theorem checkSpec_correct (reg : Verifier.Registry) (hSound : Verifier.Registry.
       set bs := argBinders.map (·.runtime)
       set γ' := (γ.remove' fb.runtime).removeAll' bs with hγ'_def
       set S' : SpecMap := SpecMap.eraseAll argNames (S.insertBinder fb e)
-      have hgoal : (Expr.fix fb argBinders retTy body).runtime.subst γ =
+      have hgoal : (Expr.fix fb argBinders retTy spec body).runtime.subst γ =
           Runtime.Expr.fix fb.runtime (argBinders.map (·.runtime))
             (body.runtime.subst γ') := by
         conv_lhs => unfold Expr.runtime

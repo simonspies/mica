@@ -24,7 +24,7 @@ open Verifier.RelationalEncoding.Skolemize (encoderOps DefVal)
     matches the function's arity. -/
 def SpecEntry.ofFunction (s : Spec TinyML.Typ) (e : Expr) : Except String SpecEntry :=
   match e with
-  | .fix _ argBinders retTy _ =>
+  | .fix _ argBinders retTy _ _ =>
     if s.args.length = argBinders.length then
       .ok { argTys := argBinders.map (·.ty), retTy, spec := s }
     else .error s!"spec argument count does not match function arity"
@@ -132,11 +132,11 @@ private def validateDecl (d : Typed.ValDecl (Spec TinyML.Typ)) :
     | some f => .ok f
     | none => .error s!"[@@fn] requires a named declaration"
   match d.body with
-  | .fix _ [arg] _ body =>
+  | .fix _ [arg] _ _ body =>
     match arg.name with
     | some x => .ok (f, x, body)
     | none => .error s!"[@@fn] requires a named unary argument"
-  | .fix _ _ _ _ => .error s!"[@@fn] requires a unary function"
+  | .fix _ _ _ _ _ => .error s!"[@@fn] requires a unary function"
   | _ => .error s!"[@@fn] requires a function body"
 
 private def extend (acc : RelationSpec) (d : Typed.ValDecl (Spec TinyML.Typ)) :
@@ -701,7 +701,7 @@ theorem Program.check_correct (reg : Verifier.Registry) (hSound : Verifier.Regis
         split at heval
         · -- named, no spec, function value
           rename_i hfunc
-          obtain ⟨self, args, retTy, body, hbody⟩ := Expr.isFunc_elim hfunc
+          obtain ⟨self, args, retTy, spec, body, hbody⟩ := Expr.isFunc_elim hfunc
           have hbody_rt : d.body.runtime.subst γ =
               Runtime.Expr.fix self.runtime (args.map (·.runtime))
                 (body.runtime.subst ((γ.remove' self.runtime).removeAll'

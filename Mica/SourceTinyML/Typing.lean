@@ -296,7 +296,7 @@ mutual
         let typedSelf := Typed.Binder.ofUntyped self selfTy
         let Γ' := typedArgs.foldl extendTyped (extendTyped Γ typedSelf)
         let body' ← check env Θ Γ' body retTy
-        pure (selfTy, .fix typedSelf typedArgs retTy body')
+        pure (selfTy, .fix typedSelf typedArgs retTy none body')
     | .app fn args =>
         match fn.primName? with
         | some n =>
@@ -586,7 +586,7 @@ def elabSpecBody (env : SpecEnv σ) (Θ : TypeEnv) (Γbase : TyCtx) (body : Type
     (rb : Spec.Body Untyped.Expr) : TypeM σ (Spec Typ) := do
   let (names, pre) := rb
   let (argBinders, retTy) ← match body with
-    | .fix _ args retTy _ => pure (args, retTy)
+    | .fix _ args retTy _ _ => pure (args, retTy)
     | _ => TypeM.error (.spec "attached to a non-function declaration")
   let argTys ← TypeM.ofExcept (specArgTypes argBinders names)
   let Γ₀ : TyCtx := argTys.foldl (fun Γ p => Γ.extend p.1 p.2) Γbase

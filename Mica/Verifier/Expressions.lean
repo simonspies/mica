@@ -417,7 +417,7 @@ mutual
             (.terop .vecSet (.unop .toVec contents) (.unop .toInt si) sv)
           VerifM.acquire (.spatial (.arrayPointsTo sa contents' elemTy))
         pure (Term.const .unit)
-    | .app _ _ _ | .fix _ _ _ _ => VerifM.fatal "unsupported expression"
+    | .app _ _ _ | .fix _ _ _ _ _ => VerifM.fatal "unsupported expression"
 
   /-- Compile a single match branch: assume the scrutinee is `ofInj i n payload`, then compile the body. -/
   def compileBranch (reg : Verifier.Registry) (Θ : TinyML.TypeEnv) (Δ_spec : Signature) (S : SpecMap) (B : Bindings) (Γ : TinyML.TyCtx)
@@ -854,8 +854,9 @@ theorem compileAssert_correct (reg : Verifier.Registry) (e : Expr)
     trivial
     (by simp [Term.eval])
 
-theorem compileFix_correct (reg : Verifier.Registry) (self : Binder) (args : List Binder) (retTy : TinyML.Typ) (body : Expr) :
-    correctExpr reg (.fix self args retTy body) := by
+theorem compileFix_correct (reg : Verifier.Registry) (self : Binder) (args : List Binder)
+    (retTy : TinyML.Typ) (spec : Option (Spec TinyML.Typ)) (body : Expr) :
+    correctExpr reg (.fix self args retTy spec body) := by
   intro W R S B Γ st ρ γ Ψ Φ hW heval _hagree _hbwf _hSwf _hwf _hag _hpost
   simp only [compile] at heval
   exact (VerifM.eval_fatal heval).elim
@@ -3553,8 +3554,8 @@ theorem compile_correct (reg : Verifier.Registry) (hSound : Verifier.Registry.So
     simpa using compileCast_correct reg e ty (compile_correct reg hSound e)
   | assert e =>
     simpa using compileAssert_correct reg e (compile_correct reg hSound e)
-  | fix self args retTy body =>
-    simpa using compileFix_correct reg self args retTy body
+  | fix self args retTy spec body =>
+    simpa using compileFix_correct reg self args retTy spec body
   | letProd names e body =>
     simpa using compileLetProd_correct reg names e body
       (compile_correct reg hSound e) (compile_correct reg hSound body)

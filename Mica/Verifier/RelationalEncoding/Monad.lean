@@ -361,7 +361,8 @@ theorem cast (e : Typed.Expr) (ty : TinyML.Typ) (ih : EncodeWithInd e) :
   simp only [encodeWith]; exact ih hops hk
 
 theorem fix (self : Typed.Binder) (args : List Typed.Binder) (retTy : TinyML.Typ)
-    (body : Typed.Expr) : EncodeWithInd (.fix self args retTy body) :=
+    (spec : Option (Spec TinyML.Typ)) (body : Typed.Expr) :
+    EncodeWithInd (.fix self args retTy spec body) :=
   fun hops _ => hops.error_ind
 
 theorem prim (name : String) (inst : List (TinyML.TyVar × TinyML.Typ))
@@ -483,7 +484,7 @@ theorem encodeWith_ind_def : ∀ (e : Typed.Expr), EncodeWithInd e
   | .app fn args ty =>
       Ind.app fn args ty (fun a _ => encodeWith_ind_def a) (encodeListWith_ind_def args)
   | .cast e ty => Ind.cast e ty (encodeWith_ind_def e)
-  | .fix self args retTy body => Ind.fix self args retTy body
+  | .fix self args retTy spec body => Ind.fix self args retTy spec body
   | .letIn name bound body =>
       Ind.letIn name bound body (encodeWith_ind_def bound) (encodeWith_ind_def body)
   | .letProd names bound body =>
@@ -700,7 +701,8 @@ theorem cast (e : Typed.Expr) (ty : TinyML.Typ) (ih : EncodeWithIndSig e) :
   simpa [encodeWith] using ih hops hsub hΔ' hΓ hδ hk
 
 theorem fix (self : Typed.Binder) (args : List Typed.Binder) (retTy : TinyML.Typ)
-    (body : Typed.Expr) : EncodeWithIndSig (.fix self args retTy body) :=
+    (spec : Option (Spec TinyML.Typ)) (body : Typed.Expr) :
+    EncodeWithIndSig (.fix self args retTy spec body) :=
   fun hops _ _ _ _ _ => hops.error_ind
 
 theorem prim (name : String) (inst : List (TinyML.TyVar × TinyML.Typ))
@@ -859,7 +861,7 @@ theorem encodeWith_indWithSig_def : ∀ (e : Typed.Expr), EncodeWithIndSig e
       IndSig.app fn args ty (fun a _ => encodeWith_indWithSig_def a)
         (encodeListWith_indWithSig_def args)
   | .cast e ty => IndSig.cast e ty (encodeWith_indWithSig_def e)
-  | .fix self args retTy body => IndSig.fix self args retTy body
+  | .fix self args retTy spec body => IndSig.fix self args retTy spec body
   | .letIn name bound body =>
       IndSig.letIn name bound body
         (encodeWith_indWithSig_def bound) (encodeWith_indWithSig_def body)
@@ -1284,7 +1286,8 @@ theorem cast (e : Typed.Expr) (ty : TinyML.Typ) (ih : EncodeWithBindBinary e) :
   simpa only [encodeWith] using ih hops hsub₁ hsub₂ hwf₁ hwf₂ hagree henv hk
 
 theorem fix (self : Typed.Binder) (args : List Typed.Binder) (retTy : TinyML.Typ)
-    (body : Typed.Expr) : EncodeWithBindBinary (.fix self args retTy body) := by
+    (spec : Option (Spec TinyML.Typ)) (body : Typed.Expr) :
+    EncodeWithBindBinary (.fix self args retTy spec body) := by
   intro _ _ _ _ _ _ _ _ _ hops _ _ _ _ _ _ _ _ _ _ _ _ _; exact hops.error_binary
 
 theorem prim (name : String) (inst : List (TinyML.TyVar × TinyML.Typ))
@@ -1486,7 +1489,7 @@ theorem encodeWith_bind_binary_def : ∀ (e : Typed.Expr), EncodeWithBindBinary 
       BindBinary.app fn args ty (fun a _ => encodeWith_bind_binary_def a)
         (encodeListWith_bind_binary_def args)
   | .cast e ty => BindBinary.cast e ty (encodeWith_bind_binary_def e)
-  | .fix self args retTy body => BindBinary.fix self args retTy body
+  | .fix self args retTy spec body => BindBinary.fix self args retTy spec body
   | .letIn name bound body =>
       BindBinary.letIn name bound body
         (encodeWith_bind_binary_def bound) (encodeWith_bind_binary_def body)
