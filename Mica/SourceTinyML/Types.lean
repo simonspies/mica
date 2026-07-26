@@ -421,32 +421,89 @@ instance : LawfulBEq Typ where
   eq_of_beq h := of_decide_eq_true h
   rfl := by simp [BEq.beq]
 
-/--
-Substitution over `Typ`.
+/-! ### Substitution and closedness
 
-This is currently structural-only scaffolding. It becomes meaningfully
-variable-sensitive once `Typ` grows `tvar`/`named`.
--/
-def Typ.subst (_σ : TyVar → Typ) : Typ → Typ
+Both descend into an arrow's specification: the `own` and `arr` atoms of a
+specification mention types, so a type variable can occur inside one. Each
+traversal is spelled out over the specification syntax the same way `Typ.decEq`
+is, since `Typ` nests those types and a generic map over them would not be
+structurally recursive. -/
+
+mutual
+
+/-- Substitution over `Typ`, replacing each type variable by `σ`. -/
+def Typ.subst (σ : TyVar → Typ) : Typ → Typ
   | .prim p => .prim p
-  | .sum ts => .sum (ts.map (Typ.subst _σ))
-  | .arrow args ret spec => .arrow (args.map (Typ.subst _σ)) (Typ.subst _σ ret) spec
-  | .ref t => .ref (Typ.subst _σ t)
-  | .array t => .array (Typ.subst _σ t)
-  | .ownedArray t => .ownedArray (Typ.subst _σ t)
-  | .vec t => .vec (Typ.subst _σ t)
-  | .owned t => .owned (Typ.subst _σ t)
+  | .sum ts => .sum (Typ.substList σ ts)
+  | .arrow args ret spec =>
+    .arrow (Typ.substList σ args) (Typ.subst σ ret) (Typ.substSpec? σ spec)
+  | .ref t => .ref (Typ.subst σ t)
+  | .array t => .array (Typ.subst σ t)
+  | .ownedArray t => .ownedArray (Typ.subst σ t)
+  | .vec t => .vec (Typ.subst σ t)
+  | .owned t => .owned (Typ.subst σ t)
   | .empty => .empty
   | .value => .value
-  | .tuple ts => .tuple (ts.map (Typ.subst _σ))
-  | .tvar v => _σ v
-  | .named T args => .named T (args.map (Typ.subst _σ))
+  | .tuple ts => .tuple (Typ.substList σ ts)
+  | .tvar v => σ v
+  | .named T args => .named T (Typ.substList σ args)
+termination_by structural t => t
+
+/-- Substitution over a list of types, mutually with `Typ.subst`. -/
+def Typ.substList (σ : TyVar → Typ) : List Typ → List Typ
+  | [] => []
+  | t :: ts => Typ.subst σ t :: Typ.substList σ ts
+termination_by structural ts => ts
+
+/-- Substitution in the types an atom mentions, mutually with `Typ.subst`. -/
+def Typ.substAtom (σ : TyVar → Typ) : {s : Srt} → Atom Typ s → Atom Typ s
+  | _, .isint t => .isint t
+  | _, .isbool t => .isbool t
+  | _, .isinj tag arity t => .isinj tag arity t
+  | _, .own t ty => .own t (Typ.subst σ ty)
+  | _, .arr t ty => .arr t (Typ.subst σ ty)
+  | _, .rel n t => .rel n t
+termination_by structural _ a => a
+
+/-- Substitution in a postcondition assertion, mutually with `Typ.subst`. -/
+def Typ.substPost (σ : TyVar → Typ) : Assertion Typ Unit → Assertion Typ Unit
+  | .ret () => .ret ()
+  | .assert φ k => .assert φ (Typ.substPost σ k)
+  | .let_ v t k => .let_ v t (Typ.substPost σ k)
+  | .pred v p k => .pred v (Typ.substAtom σ p) (Typ.substPost σ k)
+  | .ite φ kt ke => .ite φ (Typ.substPost σ kt) (Typ.substPost σ ke)
+termination_by structural a => a
+
+/-- Substitution in a predicate transformer, mutually with `Typ.subst`. -/
+def Typ.substPredTrans (σ : TyVar → Typ) :
+    Assertion Typ (Post Typ) → Assertion Typ (Post Typ)
+  | .ret p => .ret ⟨p.name, Typ.substPost σ p.body⟩
+  | .assert φ k => .assert φ (Typ.substPredTrans σ k)
+  | .let_ v t k => .let_ v t (Typ.substPredTrans σ k)
+  | .pred v p k => .pred v (Typ.substAtom σ p) (Typ.substPredTrans σ k)
+  | .ite φ kt ke => .ite φ (Typ.substPredTrans σ kt) (Typ.substPredTrans σ ke)
+termination_by structural a => a
+
+/-- Substitution in a specification, mutually with `Typ.subst`. -/
+def Typ.substSpec (σ : TyVar → Typ) : Spec Typ → Spec Typ
+  | s => { args := s.args, pred := Typ.substPredTrans σ s.pred }
+termination_by structural s => s
+
+/-- Substitution in an optional specification, mutually with `Typ.subst`. -/
+def Typ.substSpec? (σ : TyVar → Typ) : Option (Spec Typ) → Option (Spec Typ)
+  | none => none
+  | some s => some (Typ.substSpec σ s)
+termination_by structural s => s
+
+end
+
+mutual
 
 /-- A type is closed when it contains no type variables. -/
 def Typ.closed : Typ → Bool
   | .prim _ => true
-  | .sum ts => (ts.map Typ.closed).all id
-  | .arrow args ret _ => (args.map Typ.closed).all id && Typ.closed ret
+  | .sum ts => Typ.closedList ts
+  | .arrow args ret spec => Typ.closedList args && Typ.closed ret && Typ.closedSpec? spec
   | .ref t => Typ.closed t
   | .array t => Typ.closed t
   | .ownedArray t => Typ.closed t
@@ -454,9 +511,66 @@ def Typ.closed : Typ → Bool
   | .owned t => Typ.closed t
   | .empty => true
   | .value => true
-  | .tuple ts => (ts.map Typ.closed).all id
+  | .tuple ts => Typ.closedList ts
   | .tvar _ => false
-  | .named _ args => (args.map Typ.closed).all id
+  | .named _ args => Typ.closedList args
+termination_by structural t => t
+
+/-- Closedness of a list of types, mutually with `Typ.closed`. -/
+def Typ.closedList : List Typ → Bool
+  | [] => true
+  | t :: ts => Typ.closed t && Typ.closedList ts
+termination_by structural ts => ts
+
+/-- Closedness of the types an atom mentions, mutually with `Typ.closed`. -/
+def Typ.closedAtom : {s : Srt} → Atom Typ s → Bool
+  | _, .isint _ | _, .isbool _ | _, .isinj .. | _, .rel .. => true
+  | _, .own _ ty => Typ.closed ty
+  | _, .arr _ ty => Typ.closed ty
+termination_by structural _ a => a
+
+/-- Closedness of a postcondition assertion, mutually with `Typ.closed`. -/
+def Typ.closedPost : Assertion Typ Unit → Bool
+  | .ret () => true
+  | .assert _ k => Typ.closedPost k
+  | .let_ _ _ k => Typ.closedPost k
+  | .pred _ p k => Typ.closedAtom p && Typ.closedPost k
+  | .ite _ kt ke => Typ.closedPost kt && Typ.closedPost ke
+termination_by structural a => a
+
+/-- Closedness of a predicate transformer, mutually with `Typ.closed`. -/
+def Typ.closedPredTrans : Assertion Typ (Post Typ) → Bool
+  | .ret p => Typ.closedPost p.body
+  | .assert _ k => Typ.closedPredTrans k
+  | .let_ _ _ k => Typ.closedPredTrans k
+  | .pred _ p k => Typ.closedAtom p && Typ.closedPredTrans k
+  | .ite _ kt ke => Typ.closedPredTrans kt && Typ.closedPredTrans ke
+termination_by structural a => a
+
+/-- Closedness of a specification, mutually with `Typ.closed`. -/
+def Typ.closedSpec : Spec Typ → Bool
+  | s => Typ.closedPredTrans s.pred
+termination_by structural s => s
+
+/-- Closedness of an optional specification, mutually with `Typ.closed`. -/
+def Typ.closedSpec? : Option (Spec Typ) → Bool
+  | none => true
+  | some s => Typ.closedSpec s
+termination_by structural s => s
+
+end
+
+@[simp] theorem Typ.substList_eq (σ : TyVar → Typ) (ts : List Typ) :
+    Typ.substList σ ts = ts.map (Typ.subst σ) := by
+  induction ts with
+  | nil => rfl
+  | cons t ts ih => simp [Typ.substList, ih]
+
+@[simp] theorem Typ.closedList_eq (ts : List Typ) :
+    Typ.closedList ts = (ts.map Typ.closed).all id := by
+  induction ts with
+  | nil => rfl
+  | cons t ts ih => simp [Typ.closedList, ih]
 
 structure DataDecl where
   tparams : List TyVar
@@ -520,7 +634,11 @@ def TypeName.unfold (Θ : TypeEnv) (T : TypeName) (args : List Typ) : Option Typ
     TypeName.unfold Θ (.predef p) args =
       if args.length = p.arity then some (p.decl.instantiate args) else none := rfl
 
-/-! ## Weight and depth measures -/
+/-! ## Weight and depth measures
+
+Both skip an arrow's specification. They exist to justify termination of
+subtyping, joins, and meets, and none of those descend into a specification: a
+specified arrow is invariant, so two are compared by equality. -/
 
 mutual
   @[reducible]
