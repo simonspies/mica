@@ -1,6 +1,5 @@
 -- SUMMARY: Semantics, well-formedness conditions, and verifier operations for the assertion language.
 import Mica.SourceTinyML.Typed
-import Mica.SourceTinyML.Typing
 import Mica.Verifier.Interpretations
 import Mica.FOL.Printing
 import Mica.Verifier.Utils

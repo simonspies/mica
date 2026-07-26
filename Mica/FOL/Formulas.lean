@@ -451,9 +451,3 @@ theorem Formula.eq_eval_updateConst_of_fresh {Δ : Signature} {ρ : Env}
 Used by the verifier's predicate-transformer layer to carry binder names for
 human-readable output while keeping the body representation generic over `α`. -/
 def Pred α      := String × α
-
-/-- A multi-argument named predicate, represented as `(argNames, body)`.
-
-This is the n-ary generalization of `Pred`, used for specification predicates
-whose printed form is `λ x₁ x₂ … -> body`. -/
-def MultiPred α := List String × α

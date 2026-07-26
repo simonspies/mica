@@ -10,7 +10,7 @@ the embedded leaf expressions as ordinary TinyML, parametric in their type `ε`.
 Only `ε := Untyped.Expr` occurs in practice: elaboration (`Typing.lean`) walks
 this spine exactly once, typechecking each leaf and translating it to FOL in the
 same pass, so the result is a `Spec` and no typed spec body is ever built. The
-leaf translation itself lives in `Verifier/SpecTranslation.lean`.
+leaf translation itself is supplied by the verifier, via `Typed.SpecEnv`.
 -/
 
 namespace Spec

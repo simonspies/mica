@@ -317,10 +317,3 @@ private def formulaStr (p : Prec) : Formula → String
   | .exists_ x τ φ   => parens (Prec.lt .bottom  p) s!"∃ {x} : {repr τ}, {formulaStr .bottom φ}"
 
 def Formula.toStringHum (φ : Formula) : String := formulaStr .bottom φ
-
-def Pred.toStringHum {α : Type} (showA : α → String) : Pred α → String
-  | (x, a) => s!"λ {x} ->\n{showA a}"
-
-def MultiPred.toStringHum {α : Type} (showA : α → String) : MultiPred α → String
-  | ([], body)   => showA body
-  | (args, body) => s!"λ {" ".intercalate args} ->\n{showA body}"

@@ -5,7 +5,6 @@ import Mica.SourceTinyML.Typing
 import Mica.Verifier.PrimitiveLaws
 import Mica.SeparationLogic.Adequacy
 import Mica.Verifier.Functions
-import Mica.Verifier.SpecTranslation
 import Mica.Verifier.RelationalEncoding
 import Mica.Verifier.PredicateTransformers
 import Mica.Verifier.Specifications
@@ -17,7 +16,8 @@ open Iris Iris.BI
 
 variable [MicaGS HasLC.hasLC Sig]
 open Typed
-open Verifier.RelationalEncoding (FunCtx)
+open Verifier.RelationalEncoding (FunCtx encodeWith)
+open Verifier.RelationalEncoding.Skolemize (encoderOps DefVal)
 
 /-! ## Program-level verification
 
@@ -38,6 +38,16 @@ def Program.relationMap (prog : Untyped.Program (Spec.Body Untyped.Expr)) : FunC
       | _, _ => none
     | .type_ _ => none
 
+/-- Encode one typechecked specification leaf into its value term and definedness
+condition. The encoder environment is the identity over the spec-level names in
+scope: `δ` carries real terms only *inside* a leaf — for let-expressions and
+match payloads — so the names alone determine it. -/
+private def Program.translateLeaf (Δ : Signature) (Γfn : FunCtx) (names : List String)
+    (e : Typed.Expr) : Except String (Term .value × Formula) := do
+  let dv ← encodeWith encoderOps Δ Γfn (names.map (fun n => (n, .var .value n))) e
+    (fun v => .ok (DefVal.pure v))
+  .ok (dv.value, dv.defined)
+
 /-- The environment elaboration resolves specifications against: the registry's
 primitives, and leaf translation through bounded-quantifier lifting followed by
 the relational FOL encoding. The lifted symbols accumulate in the elaboration
@@ -53,7 +63,7 @@ def Program.specEnv (reg : Verifier.Registry) (Γfn : FunCtx) :
     | .error msg => .error (.spec msg)
     | .ok (e', st') =>
       let Γ := Γfn ++ st'.syms.map (fun s => (s.name, s.name))
-      match SpecTranslation.translateLeaf (Verifier.Intrinsic.sigOf reg) Γ names e' with
+      match Program.translateLeaf (Verifier.Intrinsic.sigOf reg) Γ names e' with
       | .error msg => .error (.spec msg)
       | .ok r => .ok (r, st')
 

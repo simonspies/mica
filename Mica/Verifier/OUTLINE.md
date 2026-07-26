@@ -17,7 +17,6 @@
 - `Scoped.lean` — Scoped SMT command language and its translation to solver strategies and flat contexts.
 - `SpatialAtom.lean` — Syntactic spatial atoms and contexts for verifier state, together with their well-formedness conditions and basic operations.
 - `SpecMaps.lean` — Finite maps of function specifications, together with satisfaction, update, and well-formedness lemmas.
-- `SpecTranslation.lean` — Translation of one typechecked specification leaf into its FOL value term and definedness condition.
 - `Specifications.lean` — Semantics of function specifications and the protocols for specification calls and implementations.
 - `State.lean` — Verifier state and environments, together with their well-formedness conditions and fresh-name infrastructure.
 - `Utils.lean` — Supporting infrastructure for verifier finite substitutions and argument-handling helpers.

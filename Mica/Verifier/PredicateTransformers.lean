@@ -1,6 +1,5 @@
 -- SUMMARY: Semantics and call/implementation protocols for function-specification predicate transformers.
 import Mica.SourceTinyML.Typed
-import Mica.SourceTinyML.Typing
 import Mica.FOL.Printing
 import Mica.Verifier.Monad
 import Mica.Verifier.Atoms

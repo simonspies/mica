@@ -1,6 +1,5 @@
 -- SUMMARY: Semantics of function specifications and the protocols for specification calls and implementations.
 import Mica.SourceTinyML.Typed
-import Mica.SourceTinyML.Typing
 import Mica.FOL.Printing
 import Mica.Verifier.PrimitiveLaws
 import Mica.Verifier.Monad
