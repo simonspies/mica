@@ -48,12 +48,12 @@ appends to the function map. -/
 def Program.specEnv (reg : Verifier.Registry) (Γfn : FunCtx) :
     Typed.SpecEnv Verifier.BoundedQuantifier.LiftState where
   primitive := reg.sigs
-  translate scope e := fun st =>
-    match Verifier.BoundedQuantifier.rewriteLeaf scope.decl scope.declIdx e st with
+  translate names e := fun st =>
+    match Verifier.BoundedQuantifier.rewriteLeaf e st with
     | .error msg => .error (.spec msg)
     | .ok (e', st') =>
       let Γ := Γfn ++ st'.syms.map (fun s => (s.name, s.name))
-      match SpecTranslation.translateLeaf (Verifier.Intrinsic.sigOf reg) Γ scope.names e' with
+      match SpecTranslation.translateLeaf (Verifier.Intrinsic.sigOf reg) Γ names e' with
       | .error msg => .error (.spec msg)
       | .ok r => .ok (r, st')
 
@@ -63,7 +63,7 @@ carries the lifted bounded quantifiers). -/
 def Program.prepare (env : Typed.SpecEnv σ) (s : σ)
     (prog : Untyped.Program (Spec.Body Untyped.Expr)) :
     VerifM (TinyML.TypeEnv × Typed.Program Spec × σ) :=
-  match Typed.Program.elaborate env TinyML.TypeEnv.empty TinyML.TyCtx.empty 0 prog s with
+  match Typed.Program.elaborate env TinyML.TypeEnv.empty TinyML.TyCtx.empty prog s with
   | .ok ((Θ, typed), s') => .ret (Θ, typed, s')
   | .error err => .fatal (toString err)
 
@@ -485,14 +485,14 @@ theorem Program.prepare_correct (env : Typed.SpecEnv σ) (s : σ)
     ∃ Θ typed s', Typed.Program.runtime typed = Untyped.Program.runtime prog ∧
       Q (Θ, typed, s') st ρ := by
   unfold Program.prepare at heval
-  cases helab : Typed.Program.elaborate env TinyML.TypeEnv.empty TinyML.TyCtx.empty 0 prog s with
+  cases helab : Typed.Program.elaborate env TinyML.TypeEnv.empty TinyML.TyCtx.empty prog s with
   | error err =>
     simp [helab] at heval
     exact (VerifM.eval_fatal heval).elim
   | ok prepared =>
     rcases prepared with ⟨⟨Θ, typed⟩, s'⟩
     refine ⟨Θ, typed, s',
-      Typed.Program.elaborate_runtime env TinyML.TypeEnv.empty TinyML.TyCtx.empty 0 prog helab, ?_⟩
+      Typed.Program.elaborate_runtime env TinyML.TypeEnv.empty TinyML.TyCtx.empty prog helab, ?_⟩
     simp [helab] at heval
     exact VerifM.eval_ret heval
 

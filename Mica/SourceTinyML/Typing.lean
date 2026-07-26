@@ -208,25 +208,14 @@ def TypeM.ofExcept : Except TypeError α → TypeM σ α
     (TypeM.ofExcept r : TypeM σ α) s = .ok (a, s') ↔ r = .ok a ∧ s' = s := by
   cases r <;> simp [TypeM.ofExcept, eq_comm]
 
-/-- What a spec leaf's translator learns from the spine it sits in: the
-declaration the specification is attached to, that declaration's index in the
-program, and the spec-level names in scope. -/
-structure SpecScope where
-  decl : Option String
-  declIdx : Nat
-  names : List String
-
-/-- Extend the spec-level scope with a newly bound name. -/
-def SpecScope.bind (scope : SpecScope) (x : String) : SpecScope :=
-  { scope with names := scope.names ++ [x] }
-
 /-- The ambient vocabulary typing resolves against: the built-in primitives, and
 the translation of a single typed specification leaf into its value term and
-definedness condition. Typing supplies the scope and propagates whatever effect
-the translation carries in `σ`; it never inspects that state itself. -/
+definedness condition, given the spec-level names in scope. Typing propagates
+whatever effect the translation carries in `σ`; it never inspects that state
+itself. -/
 structure SpecEnv (σ : Type) where
   primitive : String → Option PrimSig
-  translate : SpecScope → Typed.Expr → TypeM σ (Term .value × Formula)
+  translate : List String → Typed.Expr → TypeM σ (Term .value × Formula)
 
 /-- The domain and result types of `ty` applied to `arity` arguments.
     Applications are n-ary and saturated: a wrong argument count is an arity
@@ -558,33 +547,33 @@ private def elabPred (Γ : TyCtx) (names : List String) (ty : Typ) :
 is typechecked and then translated, and its definedness condition is asserted
 before the value it guards is bound or tested. The `inner` callback elaborates
 the return payload in the current type context and spec-level scope. -/
-def elabAssert (env : SpecEnv σ) (Θ : TypeEnv) (inner : TyCtx → SpecScope → α → TypeM σ β) :
-    TyCtx → SpecScope → Spec.Assert Untyped.Expr α → TypeM σ (Assertion β)
-  | Γ, scope, .ret a => do pure (.ret (← inner Γ scope a))
-  | Γ, scope, .assert cond rest => do
+def elabAssert (env : SpecEnv σ) (Θ : TypeEnv) (inner : TyCtx → List String → α → TypeM σ β) :
+    TyCtx → List String → Spec.Assert Untyped.Expr α → TypeM σ (Assertion β)
+  | Γ, ns, .ret a => do pure (.ret (← inner Γ ns a))
+  | Γ, ns, .assert cond rest => do
     let cond' ← check env Θ Γ cond .bool
-    let (v, defd) ← env.translate scope cond'
-    pure (.assert defd (.assert (holds v) (← elabAssert env Θ inner Γ scope rest)))
-  | Γ, scope, .let_ x e rest => do
+    let (v, defd) ← env.translate ns cond'
+    pure (.assert defd (.assert (holds v) (← elabAssert env Θ inner Γ ns rest)))
+  | Γ, ns, .let_ x e rest => do
     let (ty, e') ← infer env Θ Γ e
-    let (v, defd) ← env.translate scope e'
+    let (v, defd) ← env.translate ns e'
     pure (.assert defd (.let_ ⟨x, .value⟩ v
       (assertAll (TinyML.typeConstraints ty (.var .value x))
-        (← elabAssert env Θ inner (Γ.extend x ty) (scope.bind x) rest))))
-  | Γ, scope, .bind p x ty rest => do
-    let atom ← elabPred Γ scope.names ty p
+        (← elabAssert env Θ inner (Γ.extend x ty) (ns ++ [x]) rest))))
+  | Γ, ns, .bind p x ty rest => do
+    let atom ← elabPred Γ ns ty p
     pure (.pred ⟨x, .value⟩ atom
       (assertAll (TinyML.typeConstraints ty (.var .value x))
-        (← elabAssert env Θ inner (Γ.extend x ty) (scope.bind x) rest)))
-  | Γ, scope, .ite cond thn els => do
+        (← elabAssert env Θ inner (Γ.extend x ty) (ns ++ [x]) rest)))
+  | Γ, ns, .ite cond thn els => do
     let cond' ← check env Θ Γ cond .bool
-    let (v, defd) ← env.translate scope cond'
+    let (v, defd) ← env.translate ns cond'
     pure (.assert defd (.ite (holds v)
-      (← elabAssert env Θ inner Γ scope thn) (← elabAssert env Θ inner Γ scope els)))
+      (← elabAssert env Θ inner Γ ns thn) (← elabAssert env Θ inner Γ ns els)))
 
-private def elabPost (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TyCtx) (scope : SpecScope)
+private def elabPost (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TyCtx) (ns : List String)
     (post : Spec.Post Untyped.Expr) : TypeM σ (Assertion Unit) :=
-  elabAssert env Θ (fun _ _ () => pure ()) Γ scope post
+  elabAssert env Θ (fun _ _ () => pure ()) Γ ns post
 
 /-- Match the spec's bound names against the typed function binders to recover
 each argument's type. -/
@@ -599,8 +588,8 @@ private def specArgTypes : List Typed.Binder → List String → Except TypeErro
 spec's arguments on top of the program's global bindings `Γbase`. The argument
 and return types recovered here are exactly the ones the resulting `Spec`
 carries. -/
-def elabSpecBody (env : SpecEnv σ) (Θ : TypeEnv) (Γbase : TyCtx) (decl : Option String)
-    (declIdx : Nat) (body : Typed.Expr) (rb : Spec.Body Untyped.Expr) : TypeM σ Spec := do
+def elabSpecBody (env : SpecEnv σ) (Θ : TypeEnv) (Γbase : TyCtx) (body : Typed.Expr)
+    (rb : Spec.Body Untyped.Expr) : TypeM σ Spec := do
   let (names, pre) := rb
   let (argBinders, retTy) ← match body with
     | .fix _ args retTy _ => pure (args, retTy)
@@ -608,21 +597,21 @@ def elabSpecBody (env : SpecEnv σ) (Θ : TypeEnv) (Γbase : TyCtx) (decl : Opti
   let argTys ← TypeM.ofExcept (specArgTypes argBinders names)
   let Γ₀ : TyCtx := argTys.foldl (fun Γ p => Γ.extend p.1 p.2) Γbase
   let pred ← elabAssert env Θ
-    (fun Γ scope (vname, post) => do
-      let post' ← elabPost env Θ (Γ.extend vname retTy) (scope.bind vname) post
+    (fun Γ ns (vname, post) => do
+      let post' ← elabPost env Θ (Γ.extend vname retTy) (ns ++ [vname]) post
       pure (vname, post'))
-    Γ₀ { decl, declIdx, names } pre
+    Γ₀ names pre
   pure { args := argTys, retTy := retTy, pred := pred }
 
 /-- Elaborate a declaration's optional spec against the typed function `body`. -/
-def elabSpec (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TyCtx) (decl : Option String) (declIdx : Nat)
-    (body : Typed.Expr) : Option (Spec.Body Untyped.Expr) → TypeM σ (Option Spec)
+def elabSpec (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TyCtx) (body : Typed.Expr) :
+    Option (Spec.Body Untyped.Expr) → TypeM σ (Option Spec)
   | none => pure none
   | some rb => do
-    let s ← elabSpecBody env Θ Γ decl declIdx body rb
+    let s ← elabSpecBody env Θ Γ body rb
     pure (some s)
 
-def ValDecl.elaborate (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx) (declIdx : Nat)
+def ValDecl.elaborate (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx)
     (d : Untyped.ValDecl (Spec.Body Untyped.Expr)) :
     TypeM σ (Typed.ValDecl Spec) := do
   let (bodyTy, body') ←
@@ -634,28 +623,24 @@ def ValDecl.elaborate (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx) (dec
   let nameTy := match d.name with
     | .named _ (some ty) => ty
     | _ => bodyTy
-  let nameB := Typed.Binder.ofUntyped d.name nameTy
-  let spec' ← elabSpec env Θ Γ nameB.name declIdx body' d.declMeta.spec
-  pure { name := nameB, body := body',
+  let spec' ← elabSpec env Θ Γ body' d.declMeta.spec
+  pure { name := Typed.Binder.ofUntyped d.name nameTy, body := body',
          declMeta := { spec := spec', relation := d.declMeta.relation } }
 
-/-- Elaborate a program's declarations left to right. `declIdx` counts value
-declarations only; it is passed on to specification elaboration, whose leaf
-translator may need to key generated names by declaration. -/
-def Program.elaborate (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx) (declIdx : Nat) :
+def Program.elaborate (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx) :
     Untyped.Program (Spec.Body Untyped.Expr) → TypeM σ (TypeEnv × Typed.Program Spec)
   | [] => pure (Θ, [])
   | d :: ds => do
       match d with
       | .type_ dty =>
           let Θ' ← TypeM.ofExcept (extendTypeEnv Θ dty.name dty.body)
-          Program.elaborate env Θ' Γ declIdx ds
+          Program.elaborate env Θ' Γ ds
       | .val_ dval =>
-          let d' ← ValDecl.elaborate env Θ Γ declIdx dval
+          let d' ← ValDecl.elaborate env Θ Γ dval
           let Γ' := match d'.name.name with
             | some x => Γ.extend x d'.name.ty
             | none => Γ
-          let (Θ', ds') ← Program.elaborate env Θ Γ' (declIdx + 1) ds
+          let (Θ', ds') ← Program.elaborate env Θ Γ' ds
           pure (Θ', d' :: ds')
 
 private theorem branchListRuntime_cast_joinAll
@@ -1152,9 +1137,9 @@ mutual
 end
 
 theorem ValDecl.elaborate_runtime (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx)
-    (declIdx : Nat) (d : Untyped.ValDecl (Spec.Body Untyped.Expr)) :
+    (d : Untyped.ValDecl (Spec.Body Untyped.Expr)) :
     ∀ {s : σ} {d' : Typed.ValDecl Spec} {s' : σ},
-      Typed.ValDecl.elaborate env Θ Γ declIdx d s = .ok (d', s') →
+      Typed.ValDecl.elaborate env Θ Γ d s = .ok (d', s') →
       d'.runtime = d.runtime := by
   intro s d' s' helab
   -- Split only on whether there is an annotation; the unannotated cases are identical.
@@ -1180,11 +1165,11 @@ theorem ValDecl.elaborate_runtime (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML
       infer_runtime env Θ Γ d.body _ _ _ hinfer, Binder.ofUntyped_runtime, hname]
 
 theorem Program.elaborate_runtime (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx)
-    (declIdx : Nat) (prog : Untyped.Program (Spec.Body Untyped.Expr)) :
+    (prog : Untyped.Program (Spec.Body Untyped.Expr)) :
     ∀ {s : σ} {Θ' : TypeEnv} {prog' : Typed.Program Spec} {s' : σ},
-      Typed.Program.elaborate env Θ Γ declIdx prog s = .ok ((Θ', prog'), s') →
+      Typed.Program.elaborate env Θ Γ prog s = .ok ((Θ', prog'), s') →
       prog'.runtime = prog.runtime := by
-  induction prog generalizing Θ Γ declIdx with
+  induction prog generalizing Θ Γ with
   | nil =>
     intro s Θ' prog' s' h
     simp [Typed.Program.elaborate] at h
@@ -1200,7 +1185,7 @@ theorem Program.elaborate_runtime (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML
         simp [hext] at h
       | ok Θ1 =>
         simp [hext] at h
-        exact ih Θ1 Γ declIdx h
+        exact ih Θ1 Γ h
     | val_ dval =>
       unfold Typed.Program.elaborate at h
       have ⟨dval', s₀, hdecl, hcont⟩ := StateT.bind_ok h
@@ -1212,6 +1197,6 @@ theorem Program.elaborate_runtime (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML
       simp at hcont
       rcases hcont with ⟨⟨rfl, rfl⟩, rfl⟩
       have hdecl_rt : dval'.runtime = dval.runtime :=
-        ValDecl.elaborate_runtime env Θ Γ declIdx dval hdecl
+        ValDecl.elaborate_runtime env Θ Γ dval hdecl
       simp [Typed.Program.runtime, Untyped.Program.runtime, hdecl_rt]
-      exact congrArg (List.cons dval.runtime) (ih Θ Γ' (declIdx + 1) htail)
+      exact congrArg (List.cons dval.runtime) (ih Θ Γ' htail)
