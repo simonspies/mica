@@ -575,8 +575,11 @@ mutual
         | .empty, _ => true
         | _, .value => true
         | .sum ss, .sum ts => Typ.subListBody Θ recur ss ts
-        | .arrow ss s sp, .arrow ts t sp' =>
-            sp == sp' && Typ.subListBody Θ recur ts ss && Typ.subBody Θ recur s t
+        | .arrow ss s none, .arrow ts t none =>
+            Typ.subListBody Θ recur ts ss && Typ.subBody Θ recur s t
+        | .arrow ss s (some p), .arrow ts t (some q) =>
+            ss == ts && s == t && p == q
+        | .arrow .., .arrow .. => false
         | .tuple ss, .tuple ts => Typ.subListBody Θ recur ss ts
         | _, _ =>
             if s == t then true
@@ -635,9 +638,12 @@ mutual
     | trans : Typ.Sub Θ s t → Typ.Sub Θ t u → Typ.Sub Θ s u
     | sum   : Typ.SubList Θ ss ts
             → Typ.Sub Θ (.sum ss) (.sum ts)
+    /-- Only unspecified arrows are structural. A specified arrow is invariant
+    in its whole signature and specification, so it is related to another type
+    only by `refl` (or through `top`/`bot`). -/
     | arrow : Typ.SubList Θ ts ss
             → Typ.Sub Θ s t
-            → Typ.Sub Θ (.arrow ss s sp) (.arrow ts t sp)
+            → Typ.Sub Θ (.arrow ss s none) (.arrow ts t none)
     | tuple : Typ.SubList Θ ss ts
             → Typ.Sub Θ (.tuple ss) (.tuple ts)
     | named_left : TypeName.unfold Θ T args = some ty
@@ -667,9 +673,12 @@ mutual
     · exact .top
     · exact .sum (subListBody_sound hrecur h)
     · simp [Bool.and_eq_true] at h
-      obtain ⟨⟨hsp, h1⟩, h2⟩ := h
-      subst hsp
-      exact .arrow (subListBody_sound hrecur h1) (subBody_sound hrecur h2)
+      exact .arrow (subListBody_sound hrecur h.1) (subBody_sound hrecur h.2)
+    · simp [Bool.and_eq_true] at h
+      obtain ⟨⟨hargs, hret⟩, hspec⟩ := h
+      subst hargs; subst hret; subst hspec
+      exact .refl
+    · exact absurd h (by simp)
     · exact .tuple (subListBody_sound hrecur h)
     · -- catchall: if s == t then true else match (s, t) for named
       split at h
@@ -756,9 +765,12 @@ mutual
     | .sum  ss,     .sum  ts     => if ss.length == ts.length
                                     then .sum (Typ.joinList Θ ss ts)
                                     else .value
-    | .arrow ss s sp, .arrow ts t sp' => if ss.length == ts.length && sp == sp'
-                                  then .arrow (Typ.meetList Θ ss ts) (Typ.join Θ s t) sp
+    | .arrow ss s none, .arrow ts t none => if ss.length == ts.length
+                                  then .arrow (Typ.meetList Θ ss ts) (Typ.join Θ s t) none
                                   else .value
+    | .arrow ss s (some p), .arrow ts t (some q) =>
+        if ss == ts && s == t && p == q then .arrow ss s (some p) else .value
+    | .arrow .., .arrow .. => .value
     | .ref s,       .ref t       => if s == t then .ref s else .value
     | .array s,     .array t     => if s == t then .array s else .value
     | .ownedArray s, .ownedArray t => if s == t then .ownedArray s else .value
@@ -778,9 +790,12 @@ mutual
     | .sum  ss,     .sum  ts     => if ss.length == ts.length
                                     then .sum (Typ.meetList Θ ss ts)
                                     else .empty
-    | .arrow ss s sp, .arrow ts t sp' => if ss.length == ts.length && sp == sp'
-                                  then .arrow (Typ.joinList Θ ss ts) (Typ.meet Θ s t) sp
+    | .arrow ss s none, .arrow ts t none => if ss.length == ts.length
+                                  then .arrow (Typ.joinList Θ ss ts) (Typ.meet Θ s t) none
                                   else .empty
+    | .arrow ss s (some p), .arrow ts t (some q) =>
+        if ss == ts && s == t && p == q then .arrow ss s (some p) else .empty
+    | .arrow .., .arrow .. => .empty
     | .ref s,       .ref t       => if s == t then .ref s else .empty
     | .array s,     .array t     => if s == t then .array s else .empty
     | .ownedArray s, .ownedArray t => if s == t then .ownedArray s else .empty
