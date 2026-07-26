@@ -1,4 +1,5 @@
--- SUMMARY: Verifier atoms for pure and spatial facts, together with their interpretations, resolution procedures, and correctness lemmas.
+-- SUMMARY: Operations, interpretations, resolution procedures, and correctness lemmas for verifier atoms.
+import Mica.SourceTinyML.Assertions
 import Mica.FOL.Printing
 import Mica.FOL.Subst
 import Mica.Verifier.Interpretations
@@ -13,25 +14,10 @@ open Verifier.RelationalEncoding
 /-!
 # Atoms
 
-Defines `Atom`, a sort predicate that asserts a value-sorted term has a specific sort
-and extracts the underlying typed value.
+Operations, interpretations, and correctness lemmas for `Atom`, the sort
+predicate asserting that a value-sorted term has a specific sort. The inductive
+itself lives in `SourceTinyML/Assertions.lean`.
 -/
-
-
--- ---------------------------------------------------------------------------
--- Atom inductive
--- ---------------------------------------------------------------------------
-
-/-- A sort predicate: asserts that a value-sorted term has a specific sort,
-    and extracts the underlying typed value. -/
-inductive Atom : Srt → Type where
-  | isint  : Term .value → Atom .int
-  | isbool : Term .value → Atom .bool
-  | isinj  (tag : Nat) (arity : Nat) : Term .value → Atom .value
-  | own    : Term .value → TinyML.Typ → Atom .value
-  | arr : Term .value → TinyML.Typ → Atom .value
-  | rel    (name : String) : Term .value → Atom .value
-  deriving DecidableEq
 
 
 -- ---------------------------------------------------------------------------

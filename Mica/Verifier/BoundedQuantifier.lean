@@ -234,18 +234,19 @@ instance : Verifier.IntrinsicSound [] existsIntrinsic := intrinsicSound _ _
 
 /-! ## The rewrite pass
 
-Runs on the typed program before relation assembly. Each occurrence
+Lifting is a *leaf* rewrite, so it runs inside the leaf translator that
+elaboration calls (`Typed.SpecEnv.translate`), ahead of the FOL encoding, and
+accumulates its lifted symbols in the elaboration state. Each occurrence
 `Range.all lo hi (fun i -> body)` in a spec leaf is replaced by a plain call
-`L (lo, hi, x̄)` of a fresh symbol `L = "<decl>-range-<k>"` over the packed
-bounds and captured variables `x̄`; the closure is recorded as a lifted
+`L (lo, hi, x̄)` of a symbol `L = "range-<digest>"` named after the closure's
+content, over the packed bounds and captured variables `x̄`; the closure is recorded as a lifted
 function body `let (x̄, i) = arg in body` to be axiomatized during assembly.
-Only the spec leaves change — declaration bodies (hence the program's runtime
-erasure) are untouched.
+Only spec leaves change — declaration bodies, hence the program's runtime
+erasure, are never touched.
 
 The rewrite itself is `partial` and unverified: no proof depends on its
-equations. Rewritten specs are re-checked from scratch by spec translation,
-name freshness is validated operationally during assembly, and `run_runtime`
-only needs that declaration bodies are untouched. -/
+equations. Rewritten leaves are encoded from scratch, and name freshness is
+validated operationally during assembly. -/
 
 /-- One lifted occurrence of a bounded quantifier: the quantifier symbol's base
 name, the quantifier kind, the captured spec variables (first-occurrence
@@ -256,13 +257,11 @@ structure Lifting where
   captured : List TinyML.Var
   arg : String
   body : Typed.Expr
+  deriving BEq
 
-/-- State of the per-declaration rewrite: its program index, the occurrence
-counter, and the lifted symbols in dependency order (inner occurrences precede
-outer ones). -/
+/-- State of the leaf rewrite: the lifted symbols in dependency order (inner
+occurrences precede outer ones). -/
 structure LiftState where
-  declIdx : Nat := 0
-  count : Nat := 0
   syms : List Lifting := []
 
 abbrev LiftM := StateT LiftState (Except String)
@@ -306,164 +305,94 @@ mutual
         (freeVars body).filter (fun v => b.name != some v) ++ branchFreeVars rest
 end
 
+/-- The lifted symbol's name: a digest of everything that determines its defining
+axioms — the quantifier kind, the index binder, the captured variables, and the
+closure body — but not the bounds, which are passed as arguments, nor the packed
+argument's name, which is derived from this name in turn.
+
+Keying the symbol by content rather than by occurrence means an identical
+quantifier written twice, in one specification or in two, lifts to a single
+symbol. -/
+private def liftedName (all : Bool) (binder : Typed.Binder) (captured : List TinyML.Var)
+    (body : Typed.Expr) : String :=
+  s!"range-{String.hash (toString (repr (all, binder, captured, body)))}"
+
 /-- Lift one occurrence: allocate the quantifier symbol, record the lifted closure
 `let (x̄, i) = arg in body`, and return the plain call replacing the
-occurrence — the quantifier symbol applied to the packed `(lo, hi, x̄)` tuple. -/
-private def lift (decl : Option String) (all : Bool) (binder : Typed.Binder)
+occurrence — the quantifier symbol applied to the packed `(lo, hi, x̄)` tuple.
+
+Since the symbol is keyed by the closure's content, re-lifting an identical
+occurrence reuses the symbol and records nothing new — which is what keeps
+`Lifting.validate`'s freshness precondition satisfiable. One name standing for
+two *different* closures would axiomatize one of them as the other, so a digest
+collision is rejected rather than resolved. -/
+private def lift (all : Bool) (binder : Typed.Binder)
     (body lo hi : Typed.Expr) : LiftM Typed.Expr := do
-  let some decl := decl
-    | throw "Range.all/Range.exists in a specification require a named declaration"
-  let st ← get
-  let name := s!"{decl}-range-{st.declIdx}-{st.count}"
   let captured := ((freeVars body).filter (fun v => binder.name != some v)).eraseDups
+  let name := liftedName all binder captured body
   let gBody := Typed.Expr.letProd
     (captured.map (fun x => ⟨some x, .value⟩) ++ [binder]) (.var (name ++ "-x") .value) body
-  set ({ declIdx := st.declIdx,
-         count := st.count + 1,
-         syms := st.syms ++ [{ name, all, captured, arg := name ++ "-x", body := gBody }] } : LiftState)
+  let entry : Lifting := { name, all, captured, arg := name ++ "-x", body := gBody }
+  let st ← get
+  match st.syms.find? (fun s => s.name == name) with
+  | some existing =>
+      if existing == entry then pure ()
+      else throw s!"bounded-quantifier digest collision on '{name}'"
+  | none => set ({ syms := st.syms ++ [entry] } : LiftState)
   pure (.app (.var name (.arrow [.value] .bool))
     [.tuple (lo :: hi :: captured.map (fun x => Typed.Expr.var x .value))] .bool)
 
 /-- Rewrite every bounded-quantifier occurrence in a spec leaf, bottom-up:
 bounds and closure bodies are rewritten first, so inner occurrences are
 lifted before — and their calls captured by — outer ones. -/
-private partial def rewrite (decl : Option String) : Typed.Expr → LiftM Typed.Expr
+private partial def rewrite : Typed.Expr → LiftM Typed.Expr
   | .app (.prim n inst pty) args ty => do
       if isPrim n then
         match args with
         | [lo, hi, .fix _ [binder] _ body] => do
-            let lo' ← rewrite decl lo
-            let hi' ← rewrite decl hi
-            let body' ← rewrite decl body
-            lift decl (n = allName) binder body' lo' hi'
+            let lo' ← rewrite lo
+            let hi' ← rewrite hi
+            let body' ← rewrite body
+            lift (n = allName) binder body' lo' hi'
         | _ => throw "Range.all/Range.exists expect a literal single-argument function"
       else do
-        pure (.app (.prim n inst pty) (← args.mapM (rewrite decl)) ty)
+        pure (.app (.prim n inst pty) (← args.mapM rewrite) ty)
   | .const c => pure (.const c)
   | .var x ty => pure (.var x ty)
   | .prim n inst ty => pure (.prim n inst ty)
-  | .unop op e ty => do pure (.unop op (← rewrite decl e) ty)
-  | .binop op l r ty => do pure (.binop op (← rewrite decl l) (← rewrite decl r) ty)
-  | .fix self args retTy body => do pure (.fix self args retTy (← rewrite decl body))
+  | .unop op e ty => do pure (.unop op (← rewrite e) ty)
+  | .binop op l r ty => do pure (.binop op (← rewrite l) (← rewrite r) ty)
+  | .fix self args retTy body => do pure (.fix self args retTy (← rewrite body))
   | .app fn args ty => do
-      pure (.app (← rewrite decl fn) (← args.mapM (rewrite decl)) ty)
+      pure (.app (← rewrite fn) (← args.mapM rewrite) ty)
   | .ifThenElse c t e ty => do
-      pure (.ifThenElse (← rewrite decl c) (← rewrite decl t) (← rewrite decl e) ty)
-  | .letIn b bound body => do pure (.letIn b (← rewrite decl bound) (← rewrite decl body))
+      pure (.ifThenElse (← rewrite c) (← rewrite t) (← rewrite e) ty)
+  | .letIn b bound body => do pure (.letIn b (← rewrite bound) (← rewrite body))
   | .letProd bs bound body => do
-      pure (.letProd bs (← rewrite decl bound) (← rewrite decl body))
-  | .ref ownership e => do pure (.ref ownership (← rewrite decl e))
-  | .deref e ty => do pure (.deref (← rewrite decl e) ty)
-  | .store loc val => do pure (.store (← rewrite decl loc) (← rewrite decl val))
+      pure (.letProd bs (← rewrite bound) (← rewrite body))
+  | .ref ownership e => do pure (.ref ownership (← rewrite e))
+  | .deref e ty => do pure (.deref (← rewrite e) ty)
+  | .store loc val => do pure (.store (← rewrite loc) (← rewrite val))
   | .arrayMake ownership len init => do
-      pure (.arrayMake ownership (← rewrite decl len) (← rewrite decl init))
-  | .arrayLen arr => do pure (.arrayLen (← rewrite decl arr))
-  | .arrayGet arr idx ty => do pure (.arrayGet (← rewrite decl arr) (← rewrite decl idx) ty)
+      pure (.arrayMake ownership (← rewrite len) (← rewrite init))
+  | .arrayLen arr => do pure (.arrayLen (← rewrite arr))
+  | .arrayGet arr idx ty => do pure (.arrayGet (← rewrite arr) (← rewrite idx) ty)
   | .arraySet arr idx val => do
-      pure (.arraySet (← rewrite decl arr) (← rewrite decl idx) (← rewrite decl val))
-  | .assert e => do pure (.assert (← rewrite decl e))
-  | .tuple es => do pure (.tuple (← es.mapM (rewrite decl)))
-  | .inj tag arity payload => do pure (.inj tag arity (← rewrite decl payload))
+      pure (.arraySet (← rewrite arr) (← rewrite idx) (← rewrite val))
+  | .assert e => do pure (.assert (← rewrite e))
+  | .tuple es => do pure (.tuple (← es.mapM rewrite))
+  | .inj tag arity payload => do pure (.inj tag arity (← rewrite payload))
   | .match_ scrut branches ty => do
-      pure (.match_ (← rewrite decl scrut)
-        (← branches.mapM fun (b, body) => do pure (b, ← rewrite decl body)) ty)
-  | .cast e ty => do pure (.cast (← rewrite decl e) ty)
+      pure (.match_ (← rewrite scrut)
+        (← branches.mapM fun (b, body) => do pure (b, ← rewrite body)) ty)
+  | .cast e ty => do pure (.cast (← rewrite e) ty)
 
-/-- Rewrite the leaves of a spec assertion; `f` handles the return payload. -/
-private def rewriteAssert {α β : Type} (decl : Option String) (f : α → LiftM β) :
-    Spec.Assert Typed.Expr α → LiftM (Spec.Assert Typed.Expr β)
-  | .ret v => .ret <$> f v
-  | .assert c rest => do pure (.assert (← rewrite decl c) (← rewriteAssert decl f rest))
-  | .let_ x v rest => do pure (.let_ x (← rewrite decl v) (← rewriteAssert decl f rest))
-  | .bind p x ty rest => do pure (.bind p x ty (← rewriteAssert decl f rest))
-  | .ite c t e => do
-      pure (.ite (← rewrite decl c) (← rewriteAssert decl f t) (← rewriteAssert decl f e))
-
-/-- Rewrite all spec leaves of a spec body. -/
-private def rewriteBody (decl : Option String) (body : Spec.Body Typed.Expr) :
-    LiftM (Spec.Body Typed.Expr) := do
-  let pre ← rewriteAssert decl
-    (fun (r, post) => do pure (r, ← rewriteAssert decl pure post)) body.2
-  pure (body.1, pre)
-
-/-- Rewrite one declaration's spec at its program index, pairing it with the
-lifted symbols. -/
-def runDecl (declIdx : Nat) (d : Typed.ValDecl (Spec.Body Typed.Expr)) :
-    Except String (Typed.ValDecl (Spec.Body Typed.Expr) × List Lifting) :=
-  match d.declMeta.spec with
-  | none => .ok (d, [])
-  | some body =>
-      match (rewriteBody d.name.name body).run { declIdx := declIdx } with
-      | .error err => .error err
-      | .ok (body', st) =>
-          .ok ({ d with declMeta := { d.declMeta with spec := some body' } }, st.syms)
-
-/-- Run the bounded-quantifier pass over a typed program: rewrite every spec's
-bounded-quantifier occurrences and pair each declaration with its lifted
-symbols in dependency order. Declaration bodies are untouched, so the
-program's runtime erasure is preserved (`run_runtime`). -/
-private def runFrom : Nat → Typed.Program (Spec.Body Typed.Expr) →
-    Except String (List (Typed.ValDecl (Spec.Body Typed.Expr) × List Lifting))
-  | _, [] => .ok []
-  | declIdx, d :: ds =>
-      match runDecl declIdx d with
-      | .error err => .error err
-      | .ok p =>
-          match runFrom (declIdx + 1) ds with
-          | .error err => .error err
-          | .ok ps => .ok (p :: ps)
-
-/-- Run the bounded-quantifier pass over a typed program. The declaration
-index makes generated symbol names unique even when top-level names are
-shadowed. -/
-def run (prog : Typed.Program (Spec.Body Typed.Expr)) :
-    Except String (List (Typed.ValDecl (Spec.Body Typed.Expr) × List Lifting)) :=
-  runFrom 0 prog
-
-/-- The pass leaves a declaration's name and body untouched. -/
-theorem runDecl_runtime {declIdx : Nat} {d : Typed.ValDecl (Spec.Body Typed.Expr)}
-    {p : Typed.ValDecl (Spec.Body Typed.Expr) × List Lifting}
-    (h : runDecl declIdx d = .ok p) : p.1.runtime = d.runtime := by
-  unfold runDecl at h
-  split at h
-  · cases h; rfl
-  · split at h
-    · cases h
-    · cases h; rfl
-
-/-- The pass preserves the program's runtime erasure: only spec metadata
-changes. -/
-private theorem runFrom_runtime {declIdx : Nat} {prog : Typed.Program (Spec.Body Typed.Expr)}
-    {pairs : List (Typed.ValDecl (Spec.Body Typed.Expr) × List Lifting)}
-    (h : runFrom declIdx prog = .ok pairs) :
-    Typed.Program.runtime (pairs.map Prod.fst) = prog.runtime := by
-  induction prog generalizing declIdx pairs with
-  | nil =>
-    simp only [runFrom, Except.ok.injEq] at h
-    subst h
-    rfl
-  | cons d ds ih =>
-    rw [runFrom] at h
-    split at h
-    · cases h
-    · rename_i p hd
-      split at h
-      · cases h
-      · rename_i ps hds
-        cases h
-        simp only [List.map_cons, Typed.Program.runtime, List.map]
-        rw [show p.1.runtime = d.runtime from runDecl_runtime hd]
-        have := ih hds
-        simp only [Typed.Program.runtime] at this
-        rw [this]
-
-/-- The pass preserves the program's runtime erasure: only spec metadata
-changes. -/
-theorem run_runtime {prog : Typed.Program (Spec.Body Typed.Expr)}
-    {pairs : List (Typed.ValDecl (Spec.Body Typed.Expr) × List Lifting)}
-    (h : run prog = .ok pairs) :
-    Typed.Program.runtime (pairs.map Prod.fst) = prog.runtime := by
-  exact runFrom_runtime h
+/-- Rewrite one typed spec leaf, lifting every bounded-quantifier occurrence in
+it. Lifted symbols accumulate in `syms` in dependency order: `rewrite` descends
+into bounds and closure bodies first, so inner occurrences are lifted before the
+outer ones that capture their calls. -/
+def rewriteLeaf (e : Typed.Expr) (st : LiftState) : Except String (Typed.Expr × LiftState) :=
+  (rewrite e).run st
 
 /-! ## Solver-facing symbols and defining axioms
 

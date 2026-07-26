@@ -6,10 +6,8 @@ import Mica.SourceTinyML.Typed
 
 Abstract syntax for `[@@spec ...]` attributes. `SpecParser` recognises the
 control structure (`assert`, `let`, predicate `bind`, `ite`, `ret`) and keeps
-the embedded leaf expressions as ordinary TinyML, parametric in their type `ε`:
-`Untyped.Expr` before typechecking, `Typed.Expr` after. Typechecking happens
-during elaboration (`Typing.lean`); the FOL translation lives in
-`Verifier/SpecTranslation.lean`.
+the embedded leaf expressions as ordinary TinyML, parametric in their type `ε`.
+Only `ε := Untyped.Expr` occurs in practice.
 -/
 
 namespace Spec

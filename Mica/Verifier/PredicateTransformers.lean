@@ -1,6 +1,5 @@
--- SUMMARY: Predicate transformers for function specifications, together with their semantics and call and implementation protocols.
+-- SUMMARY: Semantics and call/implementation protocols for function-specification predicate transformers.
 import Mica.SourceTinyML.Typed
-import Mica.SourceTinyML.Typing
 import Mica.FOL.Printing
 import Mica.Verifier.Monad
 import Mica.Verifier.Atoms
@@ -17,19 +16,9 @@ variable [MicaGS HasLC.hasLC Sig]
 /-!
 # Predicate Transformers
 
-Defines `PredTrans` and `SpecPredicate`.
+Well-formedness, semantics, and call/implementation protocols for `PredTrans`,
+which is defined in `SourceTinyML/Assertions.lean`.
 -/
-
--- ---------------------------------------------------------------------------
--- Core types
--- ---------------------------------------------------------------------------
-
-def PredTrans := Assertion (Pred (Assertion Unit))
-abbrev SpecPredicate := MultiPred PredTrans
-
-instance : DecidableEq PredTrans := by
-  unfold PredTrans Pred
-  infer_instance
 
 -- ---------------------------------------------------------------------------
 -- Well-formedness
