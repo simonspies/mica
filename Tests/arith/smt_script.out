@@ -206,3 +206,4 @@
 (pop)
 (pop)
 (pop)
+(declare-const id_ Value)
