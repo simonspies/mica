@@ -181,7 +181,7 @@ def intrinsic (name : String) (path : String) : Verifier.Intrinsic where
   path := some ("Range", [path])
   reduce := fun _ _ _ _ => False
   wp := fun _ _ => iprop(False)
-  argTys := [.int, .int, .arrow [.int] .bool]
+  argTys := [.int, .int, .arrow [.int] .bool none]
   retTy := .bool
   spec :=
     { args := ["lo", "hi", "body"]
@@ -342,7 +342,7 @@ private def lift (all : Bool) (binder : Typed.Binder)
       if existing == entry then pure ()
       else throw s!"bounded-quantifier digest collision on '{name}'"
   | none => set ({ syms := st.syms ++ [entry] } : LiftState)
-  pure (.app (.var name (.arrow [.value] .bool))
+  pure (.app (.var name (.arrow [.value] .bool none))
     [.tuple (lo :: hi :: captured.map (fun x => Typed.Expr.var x .value))] .bool)
 
 /-- Rewrite every bounded-quantifier occurrence in a spec leaf, bottom-up:

@@ -9,7 +9,7 @@ open TinyML
 
 inductive Binder where
   | none
-  | named (name : Var) (ty : Option Typ)
+  | named (name : TinyML.Var) (ty : Option Typ)
   deriving Repr, Inhabited, DecidableEq
 
 instance : BEq Binder := ⟨fun a b => decide (a = b)⟩
@@ -20,7 +20,7 @@ instance : LawfulBEq Binder where
 
 inductive Expr where
   | const (c : Const)
-  | var (name : Var)
+  | var (name : TinyML.Var)
   /-- Reference to a built-in primitive, indexed by name. Resolved from a
       qualified path by the frontend; the registry (threaded through typing)
       is the source of its type scheme. -/
@@ -187,7 +187,7 @@ instance : DecidableEq Expr := Expr.decEq
 deriving instance Repr for Expr
 deriving instance BEq for Expr
 
-abbrev Vars := List Var
+abbrev Vars := List TinyML.Var
 abbrev Exprs := List Expr
 abbrev Binders := List Binder
 

@@ -1,5 +1,6 @@
 -- SUMMARY: TinyML types, type declarations, and subtyping structure.
 import Mica.TinyML.Common
+import Mica.SourceTinyML.Assertions
 
 namespace TinyML
 
@@ -128,7 +129,9 @@ theorem PrimitiveType.unOpTypeOf_bool {op : UnOp} {p p' : PrimitiveType}
 inductive Typ where
   | prim (p : PrimitiveType)
   | sum (ts : List Typ)
-  | arrow (args : List Typ) (ret : Typ)
+  /-- A function type. `spec` is the specification the function was verified
+  against, if it has one; only specified functions are inhabited values. -/
+  | arrow (args : List Typ) (ret : Typ) (spec : Option (Spec Typ))
   | ref (t: Typ)
   /-- Shared array whose elements have type `t`. -/
   | array (t : Typ)
@@ -172,17 +175,20 @@ def Typ.primDecEq (p q : PrimitiveType) : Decidable (Typ.prim p = Typ.prim q) :=
   | isTrue h => isTrue (by subst h; rfl)
   | isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
 
+mutual
+
 def Typ.decEq : (a b : Typ) → Decidable (a = b)
   | .prim p, .prim q => Typ.primDecEq p q
   | .empty, .empty | .value, .value => isTrue rfl
-  | .sum ss, .sum ts => match typesDecEq ss ts with
+  | .sum ss, .sum ts => match Typ.decEqList ss ts with
     | isTrue h => isTrue (by subst h; rfl)
     | isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
-  | .arrow ss s, .arrow ts t =>
-    match typesDecEq ss ts, s.decEq t with
-    | isTrue h1, isTrue h2 => isTrue (by subst h1; subst h2; rfl)
-    | isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
-    | _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
+  | .arrow ss s sp, .arrow ts t sp' =>
+    match Typ.decEqList ss ts, s.decEq t, Typ.decEqSpec? sp sp' with
+    | isTrue h1, isTrue h2, isTrue h3 => isTrue (by subst h1; subst h2; subst h3; rfl)
+    | isFalse h, _, _ => isFalse (by intro heq; cases heq; exact h rfl)
+    | _, isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
+    | _, _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
   | .ref s, .ref t => match s.decEq t with
     | isTrue h => isTrue (by subst h; rfl)
     | isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
@@ -198,22 +204,22 @@ def Typ.decEq : (a b : Typ) → Decidable (a = b)
   | .owned s, .owned t => match s.decEq t with
     | isTrue h => isTrue (by subst h; rfl)
     | isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
-  | .tuple ss, .tuple ts => match typesDecEq ss ts with
+  | .tuple ss, .tuple ts => match Typ.decEqList ss ts with
     | isTrue h => isTrue (by subst h; rfl)
     | isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
   | .tvar v, .tvar w => match (inferInstance : DecidableEq TyVar) v w with
     | isTrue h => isTrue (by subst h; rfl)
     | isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
   | .named T args, .named U params =>
-    match (inferInstance : DecidableEq TypeName) T U, typesDecEq args params with
+    match (inferInstance : DecidableEq TypeName) T U, Typ.decEqList args params with
     | isTrue h1, isTrue h2 => isTrue (by subst h1; subst h2; rfl)
     | isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
     | _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
-  | .ownedArray .., .prim _ | .ownedArray .., .sum _ | .ownedArray .., .arrow _ _
+  | .ownedArray .., .prim _ | .ownedArray .., .sum _ | .ownedArray .., .arrow ..
   | .ownedArray .., .ref _ | .ownedArray .., .array _ | .ownedArray .., .vec _
   | .ownedArray .., .owned _ | .ownedArray .., .empty | .ownedArray .., .value
   | .ownedArray .., .tuple _ | .ownedArray .., .tvar _ | .ownedArray .., .named _ _
-  | .prim _, .ownedArray .. | .sum _, .ownedArray .. | .arrow _ _, .ownedArray ..
+  | .prim _, .ownedArray .. | .sum _, .ownedArray .. | .arrow .., .ownedArray ..
   | .ref _, .ownedArray .. | .array _, .ownedArray .. | .vec _, .ownedArray ..
   | .owned _, .ownedArray .. | .empty, .ownedArray .. | .value, .ownedArray ..
   | .tuple _, .ownedArray .. | .tvar _, .ownedArray .. | .named _ _, .ownedArray .. =>
@@ -257,14 +263,156 @@ def Typ.decEq : (a b : Typ) → Decidable (a = b)
   | .named .., .arrow .. | .named .., .ref .. | .named .., .owned .. | .named .., .empty
   | .named .., .array .. | .named .., .vec ..
   | .named .., .value | .named .., .tuple .. | .named .., .tvar .. => isFalse (by intro h; cases h)
-where
-  typesDecEq : (as bs : List Typ) → Decidable (as = bs)
-    | [], [] => isTrue rfl
-    | [], _ :: _ | _ :: _, [] => isFalse (by intro h; cases h)
-    | a :: as, b :: bs => match a.decEq b, typesDecEq as bs with
-      | isTrue h1, isTrue h2 => isTrue (by subst h1; subst h2; rfl)
-      | isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
-      | _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
+termination_by structural a _ => a
+
+/-- Equality of type lists, mutually with `Typ.decEq`. -/
+def Typ.decEqList : (as bs : List Typ) → Decidable (as = bs)
+  | [], [] => isTrue rfl
+  | [], _ :: _ | _ :: _, [] => isFalse (by intro h; cases h)
+  | a :: as, b :: bs => match a.decEq b, Typ.decEqList as bs with
+    | isTrue h1, isTrue h2 => isTrue (by subst h1; subst h2; rfl)
+    | isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
+    | _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
+
+-- The remaining members of the block decide equality of the specification a
+-- function type carries. They cannot go through the generic instances in
+-- `Mica/SourceTinyML/Assertions.lean`: those take `DecidableEq Typ` as an instance
+-- argument, which is what this block is defining.
+termination_by structural a _ => a
+
+/-- Equality of atoms over TinyML types, mutually with `Typ.decEq`. -/
+def Typ.decEqAtom {s : Srt} : (a b : Atom Typ s) → Decidable (a = b)
+  | .isint t, .isint u | .isbool t, .isbool u =>
+    match _root_.decEq t u with
+    | isTrue h => isTrue (by subst h; rfl)
+    | isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
+  | .isinj tag arity t, .isinj tag' arity' u =>
+    match _root_.decEq tag tag', _root_.decEq arity arity', _root_.decEq t u with
+    | isTrue h1, isTrue h2, isTrue h3 => isTrue (by subst h1; subst h2; subst h3; rfl)
+    | isFalse h, _, _ => isFalse (by intro heq; cases heq; exact h rfl)
+    | _, isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
+    | _, _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
+  | .own t x, .own u y | .arr t x, .arr u y =>
+    match _root_.decEq t u, Typ.decEq x y with
+    | isTrue h1, isTrue h2 => isTrue (by subst h1; subst h2; rfl)
+    | isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
+    | _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
+  | .rel n t, .rel m u =>
+    match _root_.decEq n m, _root_.decEq t u with
+    | isTrue h1, isTrue h2 => isTrue (by subst h1; subst h2; rfl)
+    | isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
+    | _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
+  | .isinj .., .own .. | .isinj .., .arr .. | .isinj .., .rel ..
+  | .own .., .isinj .. | .own .., .arr .. | .own .., .rel ..
+  | .arr .., .isinj .. | .arr .., .own .. | .arr .., .rel ..
+  | .rel .., .isinj .. | .rel .., .own .. | .rel .., .arr .. =>
+    isFalse (by intro h; cases h)
+termination_by structural a _ => a
+
+/-- Equality of postcondition assertions, mutually with `Typ.decEq`. -/
+def Typ.decEqPost : (a b : Assertion Typ Unit) → Decidable (a = b)
+  | .ret (), .ret () => isTrue rfl
+  | .assert φ k, .assert ψ k' =>
+    match _root_.decEq φ ψ, Typ.decEqPost k k' with
+    | isTrue h1, isTrue h2 => isTrue (by subst h1; subst h2; rfl)
+    | isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
+    | _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
+  | .let_ v t k, .let_ w u k' =>
+    match _root_.decEq v w with
+    | isTrue hv => by
+        subst hv
+        exact match _root_.decEq t u, Typ.decEqPost k k' with
+          | isTrue h1, isTrue h2 => isTrue (by subst h1; subst h2; rfl)
+          | isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
+          | _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
+    | isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
+  | .pred v p k, .pred w q k' =>
+    match _root_.decEq v w with
+    | isTrue hv => by
+        subst hv
+        exact match Typ.decEqAtom p q, Typ.decEqPost k k' with
+          | isTrue h1, isTrue h2 => isTrue (by subst h1; subst h2; rfl)
+          | isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
+          | _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
+    | isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
+  | .ite φ kt ke, .ite ψ kt' ke' =>
+    match _root_.decEq φ ψ, Typ.decEqPost kt kt', Typ.decEqPost ke ke' with
+    | isTrue h1, isTrue h2, isTrue h3 => isTrue (by subst h1; subst h2; subst h3; rfl)
+    | isFalse h, _, _ => isFalse (by intro heq; cases heq; exact h rfl)
+    | _, isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
+    | _, _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
+  | .ret _, .assert .. | .ret _, .let_ .. | .ret _, .pred .. | .ret _, .ite ..
+  | .assert .., .ret _ | .assert .., .let_ .. | .assert .., .pred .. | .assert .., .ite ..
+  | .let_ .., .ret _ | .let_ .., .assert .. | .let_ .., .pred .. | .let_ .., .ite ..
+  | .pred .., .ret _ | .pred .., .assert .. | .pred .., .let_ .. | .pred .., .ite ..
+  | .ite .., .ret _ | .ite .., .assert .. | .ite .., .let_ .. | .ite .., .pred .. =>
+    isFalse (by intro h; cases h)
+termination_by structural a _ => a
+
+/-- Equality of predicate transformers, mutually with `Typ.decEq`. -/
+def Typ.decEqPredTrans : (a b : Assertion Typ (Post Typ)) → Decidable (a = b)
+  | .ret p, .ret q =>
+    match _root_.decEq p.name q.name, Typ.decEqPost p.body q.body with
+    | isTrue h1, isTrue h2 => isTrue (by cases p; cases q; simp_all)
+    | isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
+    | _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
+  | .assert φ k, .assert ψ k' =>
+    match _root_.decEq φ ψ, Typ.decEqPredTrans k k' with
+    | isTrue h1, isTrue h2 => isTrue (by subst h1; subst h2; rfl)
+    | isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
+    | _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
+  | .let_ v t k, .let_ w u k' =>
+    match _root_.decEq v w with
+    | isTrue hv => by
+        subst hv
+        exact match _root_.decEq t u, Typ.decEqPredTrans k k' with
+          | isTrue h1, isTrue h2 => isTrue (by subst h1; subst h2; rfl)
+          | isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
+          | _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
+    | isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
+  | .pred v p k, .pred w q k' =>
+    match _root_.decEq v w with
+    | isTrue hv => by
+        subst hv
+        exact match Typ.decEqAtom p q, Typ.decEqPredTrans k k' with
+          | isTrue h1, isTrue h2 => isTrue (by subst h1; subst h2; rfl)
+          | isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
+          | _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
+    | isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
+  | .ite φ kt ke, .ite ψ kt' ke' =>
+    match _root_.decEq φ ψ, Typ.decEqPredTrans kt kt', Typ.decEqPredTrans ke ke' with
+    | isTrue h1, isTrue h2, isTrue h3 => isTrue (by subst h1; subst h2; subst h3; rfl)
+    | isFalse h, _, _ => isFalse (by intro heq; cases heq; exact h rfl)
+    | _, isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
+    | _, _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
+  | .ret _, .assert .. | .ret _, .let_ .. | .ret _, .pred .. | .ret _, .ite ..
+  | .assert .., .ret _ | .assert .., .let_ .. | .assert .., .pred .. | .assert .., .ite ..
+  | .let_ .., .ret _ | .let_ .., .assert .. | .let_ .., .pred .. | .let_ .., .ite ..
+  | .pred .., .ret _ | .pred .., .assert .. | .pred .., .let_ .. | .pred .., .ite ..
+  | .ite .., .ret _ | .ite .., .assert .. | .ite .., .let_ .. | .ite .., .pred .. =>
+    isFalse (by intro h; cases h)
+termination_by structural a _ => a
+
+/-- Equality of specifications, mutually with `Typ.decEq`. -/
+def Typ.decEqSpec : (a b : Spec Typ) → Decidable (a = b)
+  | ⟨as, p⟩, ⟨bs, q⟩ =>
+    match _root_.decEq as bs, Typ.decEqPredTrans p q with
+    | isTrue h1, isTrue h2 => isTrue (by subst h1; subst h2; rfl)
+    | isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
+    | _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
+termination_by structural a _ => a
+
+/-- Equality of optional specifications, mutually with `Typ.decEq`. -/
+def Typ.decEqSpec? : (a b : Option (Spec Typ)) → Decidable (a = b)
+  | none, none => isTrue rfl
+  | none, some _ | some _, none => isFalse (by intro h; cases h)
+  | some s, some t =>
+    match Typ.decEqSpec s t with
+    | isTrue h => isTrue (by subst h; rfl)
+    | isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
+termination_by structural a _ => a
+
+end
 
 instance : DecidableEq Typ := Typ.decEq
 
@@ -282,7 +430,7 @@ variable-sensitive once `Typ` grows `tvar`/`named`.
 def Typ.subst (_σ : TyVar → Typ) : Typ → Typ
   | .prim p => .prim p
   | .sum ts => .sum (ts.map (Typ.subst _σ))
-  | .arrow args ret => .arrow (args.map (Typ.subst _σ)) (Typ.subst _σ ret)
+  | .arrow args ret spec => .arrow (args.map (Typ.subst _σ)) (Typ.subst _σ ret) spec
   | .ref t => .ref (Typ.subst _σ t)
   | .array t => .array (Typ.subst _σ t)
   | .ownedArray t => .ownedArray (Typ.subst _σ t)
@@ -298,7 +446,7 @@ def Typ.subst (_σ : TyVar → Typ) : Typ → Typ
 def Typ.closed : Typ → Bool
   | .prim _ => true
   | .sum ts => (ts.map Typ.closed).all id
-  | .arrow args ret => (args.map Typ.closed).all id && Typ.closed ret
+  | .arrow args ret _ => (args.map Typ.closed).all id && Typ.closed ret
   | .ref t => Typ.closed t
   | .array t => Typ.closed t
   | .ownedArray t => Typ.closed t
@@ -379,7 +527,7 @@ mutual
   def Typ.weight : Typ → Nat
     | .prim _ | .empty | .value | .tvar _ => 1
     | .sum ts => 1 + Typ.weights ts
-    | .arrow args ret => 1 + Typ.weights args + Typ.weight ret
+    | .arrow args ret _ => 1 + Typ.weights args + Typ.weight ret
     | .ref t => 1 + Typ.weight t
     | .array t => 1 + Typ.weight t
     | .ownedArray t => 1 + Typ.weight t
@@ -399,7 +547,7 @@ mutual
   def Typ.depth : Typ → Nat
     | .prim _ | .empty | .value | .tvar _ => 1
     | .sum ts => 1 + Typ.depths ts
-    | .arrow args ret => 1 + max (Typ.depths args) (Typ.depth ret)
+    | .arrow args ret _ => 1 + max (Typ.depths args) (Typ.depth ret)
     | .ref t => 1 + Typ.depth t
     | .array t => 1 + Typ.depth t
     | .ownedArray t => 1 + Typ.depth t
@@ -427,8 +575,8 @@ mutual
         | .empty, _ => true
         | _, .value => true
         | .sum ss, .sum ts => Typ.subListBody Θ recur ss ts
-        | .arrow ss s, .arrow ts t =>
-            Typ.subListBody Θ recur ts ss && Typ.subBody Θ recur s t
+        | .arrow ss s sp, .arrow ts t sp' =>
+            sp == sp' && Typ.subListBody Θ recur ts ss && Typ.subBody Θ recur s t
         | .tuple ss, .tuple ts => Typ.subListBody Θ recur ss ts
         | _, _ =>
             if s == t then true
@@ -489,7 +637,7 @@ mutual
             → Typ.Sub Θ (.sum ss) (.sum ts)
     | arrow : Typ.SubList Θ ts ss
             → Typ.Sub Θ s t
-            → Typ.Sub Θ (.arrow ss s) (.arrow ts t)
+            → Typ.Sub Θ (.arrow ss s sp) (.arrow ts t sp)
     | tuple : Typ.SubList Θ ss ts
             → Typ.Sub Θ (.tuple ss) (.tuple ts)
     | named_left : TypeName.unfold Θ T args = some ty
@@ -519,7 +667,9 @@ mutual
     · exact .top
     · exact .sum (subListBody_sound hrecur h)
     · simp [Bool.and_eq_true] at h
-      exact .arrow (subListBody_sound hrecur h.1) (subBody_sound hrecur h.2)
+      obtain ⟨⟨hsp, h1⟩, h2⟩ := h
+      subst hsp
+      exact .arrow (subListBody_sound hrecur h1) (subBody_sound hrecur h2)
     · exact .tuple (subListBody_sound hrecur h)
     · -- catchall: if s == t then true else match (s, t) for named
       split at h
@@ -606,8 +756,8 @@ mutual
     | .sum  ss,     .sum  ts     => if ss.length == ts.length
                                     then .sum (Typ.joinList Θ ss ts)
                                     else .value
-    | .arrow ss s, .arrow ts t => if ss.length == ts.length
-                                  then .arrow (Typ.meetList Θ ss ts) (Typ.join Θ s t)
+    | .arrow ss s sp, .arrow ts t sp' => if ss.length == ts.length && sp == sp'
+                                  then .arrow (Typ.meetList Θ ss ts) (Typ.join Θ s t) sp
                                   else .value
     | .ref s,       .ref t       => if s == t then .ref s else .value
     | .array s,     .array t     => if s == t then .array s else .value
@@ -628,8 +778,8 @@ mutual
     | .sum  ss,     .sum  ts     => if ss.length == ts.length
                                     then .sum (Typ.meetList Θ ss ts)
                                     else .empty
-    | .arrow ss s, .arrow ts t => if ss.length == ts.length
-                                  then .arrow (Typ.joinList Θ ss ts) (Typ.meet Θ s t)
+    | .arrow ss s sp, .arrow ts t sp' => if ss.length == ts.length && sp == sp'
+                                  then .arrow (Typ.joinList Θ ss ts) (Typ.meet Θ s t) sp
                                   else .empty
     | .ref s,       .ref t       => if s == t then .ref s else .empty
     | .array s,     .array t     => if s == t then .array s else .empty

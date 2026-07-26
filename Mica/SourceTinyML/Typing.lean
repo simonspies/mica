@@ -12,11 +12,11 @@ namespace TinyML
 
 /-! ## Type contexts -/
 
-abbrev TyCtx := Var → Option Typ
+abbrev TyCtx := TinyML.Var → Option Typ
 
 def TyCtx.empty : TyCtx := fun _ => none
 
-def TyCtx.extend (Γ : TyCtx) (x : Var) (t : Typ) : TyCtx :=
+def TyCtx.extend (Γ : TyCtx) (x : TinyML.Var) (t : Typ) : TyCtx :=
   fun y => if y == x then some t else Γ y
 
 def TyCtx.extendBinder (Γ : TyCtx) (b : Typed.Binder) (t : Typ) : TyCtx :=
@@ -24,10 +24,10 @@ def TyCtx.extendBinder (Γ : TyCtx) (b : Typed.Binder) (t : Typ) : TyCtx :=
   | none => Γ
   | some x => Γ.extend x t
 
-@[simp] theorem TyCtx.extend_eq (Γ : TyCtx) (x : Var) (t : Typ) :
+@[simp] theorem TyCtx.extend_eq (Γ : TyCtx) (x : TinyML.Var) (t : Typ) :
     (Γ.extend x t) x = some t := by simp [TyCtx.extend]
 
-@[simp] theorem TyCtx.extend_ne (Γ : TyCtx) (x y : Var) (t : Typ) (h : y ≠ x) :
+@[simp] theorem TyCtx.extend_ne (Γ : TyCtx) (x y : TinyML.Var) (t : Typ) (h : y ≠ x) :
     (Γ.extend x t) y = Γ y := by
   simp [TyCtx.extend, h]
 
@@ -57,7 +57,7 @@ theorem TyCtx.le_extendBinder_congr {Γ Γ' : TyCtx} (b : Typed.Binder) (t : Typ
 
 -- foldl extend doesn't change the value at x if x doesn't appear in the list.
 theorem TyCtx.foldl_extend_stable
-    (args : List (Var × Typ)) (Γ : TyCtx) (x : Var)
+    (args : List (TinyML.Var × Typ)) (Γ : TyCtx) (x : TinyML.Var)
     (hx : ∀ a ∈ args, a.1 ≠ x) :
     (args.foldl (fun ctx a => ctx.extend a.1 a.2) Γ) x = Γ x := by
   induction args generalizing Γ with
@@ -215,7 +215,7 @@ structure SpecEnv (σ : Type) where
     error, not a partial application. -/
 def domains (ty : Typ) (arity : Nat) : Except TypeError (List Typ × Typ) :=
   match ty with
-  | .arrow doms ret =>
+  | .arrow doms ret _ =>
       if doms.length == arity then .ok (doms, ret)
       else .error (.arityMismatch doms.length arity)
   | _ => .error (.notAFunction ty)
@@ -292,7 +292,7 @@ mutual
     | .fix self args retTy body => do
         let retTy := retTy.getD .value
         let typedArgs := args.map (fun b => Typed.Binder.ofUntyped b (Typed.Binder.expectedTy b .value))
-        let selfTy := Typ.arrow (typedArgs.map Binder.ty) retTy
+        let selfTy := Typ.arrow (typedArgs.map Binder.ty) retTy none
         let typedSelf := Typed.Binder.ofUntyped self selfTy
         let Γ' := typedArgs.foldl extendTyped (extendTyped Γ typedSelf)
         let body' ← check env Θ Γ' body retTy
@@ -725,7 +725,7 @@ mutual
     | .fix self args retTy body => by
         let retTy' := retTy.getD .value
         let typedArgs := args.map (fun b => Typed.Binder.ofUntyped b (Typed.Binder.expectedTy b .value))
-        let selfTy := Typ.arrow (typedArgs.map Binder.ty) retTy'
+        let selfTy := Typ.arrow (typedArgs.map Binder.ty) retTy' none
         let typedSelf := Typed.Binder.ofUntyped self selfTy
         let Γ' := typedArgs.foldl extendTyped (extendTyped Γ typedSelf)
         let ih := check_runtime env Θ Γ' body retTy'

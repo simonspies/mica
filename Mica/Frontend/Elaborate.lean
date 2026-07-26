@@ -192,8 +192,8 @@ def TypKind.elaborate (env : ElabEnv) (loc : Location) : TypKind → ElabM TinyM
     let dom' ← Typ.elaborate env dom
     let cod' ← Typ.elaborate env cod
     match cod' with
-    | .arrow args ret => .ok (.arrow (dom' :: args) ret)
-    | _ => .ok (.arrow [dom'] cod')
+    | .arrow args ret none => .ok (.arrow (dom' :: args) ret none)
+    | _ => .ok (.arrow [dom'] cod' none)
   | .tuple ts => do
     let ts' ← Typ.elaborateList env ts
     .ok (.tuple ts')
