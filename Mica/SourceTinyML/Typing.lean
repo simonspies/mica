@@ -629,7 +629,13 @@ def ValDecl.elaborate (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx)
     | .named _ (some ty) => ty
     | _ => bodyTy
   let spec' ← elabSpec env Θ Γ body' d.declMeta.spec
-  pure { name := Typed.Binder.ofUntyped d.name nameTy, body := body',
+  -- A specified declaration's literal records its specification, so the
+  -- declaration's own type — and hence the type every later use is annotated
+  -- with — is the specified arrow.
+  let (body'', nameTy') := match spec' with
+    | some s => let b := body'.withSpec s; (b, b.ty)
+    | none => (body', nameTy)
+  pure { name := Typed.Binder.ofUntyped d.name nameTy', body := body'',
          declMeta := { spec := spec', relation := d.declMeta.relation } }
 
 def Program.elaborate (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx) :
@@ -1158,16 +1164,18 @@ theorem ValDecl.elaborate_runtime (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML
     rcases (by simpa using hy) with ⟨rfl, rfl⟩
     have ⟨spec', s₁, hspec, hcont⟩ := StateT.bind_ok hcont
     rcases hcont with ⟨rfl, rfl⟩
-    simp [Typed.ValDecl.runtime, Untyped.ValDecl.runtime,
-      check_runtime env Θ Γ d.body ty _ _ _ hcheck, Binder.ofUntyped_runtime, hname]
+    cases spec' <;>
+      simp [Typed.ValDecl.runtime, Untyped.ValDecl.runtime,
+        check_runtime env Θ Γ d.body ty _ _ _ hcheck, Binder.ofUntyped_runtime, hname]
   | .none | .named _ none =>
     simp only [ValDecl.elaborate, hname] at helab
     have ⟨p, s₀, hinfer, hcont⟩ := StateT.bind_ok helab
     obtain ⟨bodyTy, body'⟩ := p
     have ⟨spec', s₁, hspec, hcont⟩ := StateT.bind_ok hcont
     rcases hcont with ⟨rfl, rfl⟩
-    simp [Typed.ValDecl.runtime, Untyped.ValDecl.runtime,
-      infer_runtime env Θ Γ d.body _ _ _ hinfer, Binder.ofUntyped_runtime, hname]
+    cases spec' <;>
+      simp [Typed.ValDecl.runtime, Untyped.ValDecl.runtime,
+        infer_runtime env Θ Γ d.body _ _ _ hinfer, Binder.ofUntyped_runtime, hname]
 
 theorem Program.elaborate_runtime (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx)
     (prog : Untyped.Program (Spec.Body Untyped.Expr)) :
