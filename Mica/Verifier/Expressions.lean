@@ -200,29 +200,6 @@ theorem compileProductBindersFrom_length {S : SpecMap} {B : Bindings} {Γ : Tiny
               have hlen := ih htail_wf' hrec_eval
               simp [hlen]
 
-/-- The specification a named function is applied through, when it is not
-    reachable as a value: a top-level declaration, whose name no expression
-    context binds, or a recursive self reference typed at the bare arrow. A
-    locally bound variable of specified type is a value and goes the other way. -/
-def Typed.Expr.mapSpec? (B : Bindings) (S : SpecMap) : Expr → Option SpecEntry
-  | .var f fty =>
-      match fty, B.lookup f with
-      | .arrow _ _ (some _), some _ => none
-      | _, _ => S.lookup f
-  | _ => none
-
-omit [MicaGS HasLC.hasLC Sig] in
-theorem Typed.Expr.mapSpec?_eq_some {B : Bindings} {S : SpecMap} {fn : Expr}
-    {e : SpecEntry} (h : fn.mapSpec? B S = some e) :
-    ∃ f fty, fn = .var f fty ∧ S.lookup f = some e := by
-  cases fn
-  case var f fty =>
-    simp only [Typed.Expr.mapSpec?] at h
-    split at h
-    · simp at h
-    · exact ⟨_, _, rfl, h⟩
-  all_goals simp [Typed.Expr.mapSpec?] at h
-
 /-- Check that a function body's type is a subtype of its declared return type. -/
 def checkRet (Θ : TinyML.TypeEnv) (retTy bodyTy : TinyML.Typ) : VerifM Unit :=
   if TinyML.Typ.sub Θ bodyTy retTy then pure ()
@@ -307,20 +284,9 @@ mutual
           VerifM.assume (.pure sc.isFalse)
           compile reg Θ Δ_spec S B Γ els
     | .app fn args aty =>
-      match fn.mapSpec? B S with
-      -- A name that is not a value in scope resolves through `S`.
-      | some e => do
-          let sterms ← compileExprs reg Θ Δ_spec S B Γ args
-          let sargs := (args.map Expr.ty).zip sterms
-          VerifM.expectEq "app type annotation mismatch" e.retTy aty
-          VerifM.expectEq "app type annotation mismatch"
-            fn.ty.unspec (.arrow e.argTys e.retTy none)
-          let (_, result) ← Spec.call Θ (FiniteSubst.base Δ_spec) e.argTys e.retTy e.spec sargs
-          pure result
-      | none =>
-      -- Otherwise a function expression whose type carries a specification is
-      -- applied directly: the specification is read off the type, and the
-      -- function value's own interpretation supplies the call.
+      -- A function expression whose type carries a specification is applied
+      -- through it: the specification is read off the type, and the function
+      -- value's own interpretation supplies the call.
       match fn.ty with
       | .arrow argTys retTy (some s) =>
         -- The specification rides on a type, so nothing has checked it yet.
@@ -3518,125 +3484,6 @@ theorem compileApp_correct (reg : Verifier.Registry) (hSound : Verifier.Registry
   unfold Expr.runtime
   simp only [Runtime.Expr.subst, List.map_map]
   simp only [compile] at heval
-  split at heval
-  case _ spec htop =>
-    -- a top-level name: its specification comes from the map
-    obtain ⟨f, fty, rfl, hlookup⟩ := Typed.Expr.mapSpec?_eq_some htop
-    have heval_args : (compileExprs reg W.Θ W.Δ_spec S B Γ args).eval st ρ _ := VerifM.eval_bind heval
-    refine SpecMap.project
-      (P := st.sl W ρ ∗ (S.satisfiedBy W γ ∗ Bindings.typedSubst W B Γ γ ∗ R)) W S γ ?_ hlookup ?_
-    · istart
-      iintro ⟨_, #HS, _⟩
-      iexact HS
-    · intro fval hγf
-      simp [Expr.runtime, Runtime.Expr.subst, hγf]
-      refine SpatialContext.wp_bind_app ?_
-      have hctx :
-          spec.isPrecondFor W fval ∗
-              (st.sl W ρ ∗ (S.satisfiedBy W γ ∗ Bindings.typedSubst W B Γ γ ∗ R)) ⊢
-            st.sl W ρ ∗
-              (S.satisfiedBy W γ ∗
-                Bindings.typedSubst W B Γ γ ∗ (spec.isPrecondFor W fval ∗ R)) := by
-        istart
-        iintro ⟨#Hspec, Howns, #HS, #HT, HR⟩
-        isplitl [Howns]
-        · iexact Howns
-        · isplitl []
-          · iexact HS
-          · isplitl []
-            · iexact HT
-            · isplitl []
-              · iexact Hspec
-              · iexact HR
-      refine hctx.trans <|
-        ihArgs W (spec.isPrecondFor W fval ∗ R) S B Γ st ρ γ _ _ hW
-          (VerifM.eval.decls_grow ρ heval_args) hagree hbwf hSwf hwf hag hΔreg hρreg ?_
-      intro vs ρ_args st_args sargs hΨ_args hsargs_wf heval_sargs
-      obtain ⟨hdecls_args, hagreeOn_args, hΨ_args⟩ := hΨ_args
-      let typedArgs := (args.map Expr.ty).zip sargs
-      have hlen_sargs : sargs.length = vs.length := by
-        simpa [Terms.Eval] using List.Forall₂.length_eq heval_sargs
-      obtain ⟨hret_eq, hΨ_args⟩ := VerifM.eval_bind_expectEq hΨ_args
-      obtain ⟨_, hΨ_args⟩ := VerifM.eval_bind_expectEq hΨ_args
-      have hΔspec_args : W.Δ_spec.Subset st_args.decls := hag.subset.trans hdecls_args
-      have hst_args_wf : st_args.decls.wf := (VerifM.eval.wf hΨ_args).namesDisjoint
-      have hlen_e : spec.spec.args.length = spec.argTys.length := (hSwf f spec hlookup).1
-      have hwf_pred : PredTrans.wfIn ((W.Δ_spec.declVars (FiniteSubst.base W.Δ_spec).dom).declVars (Spec.argVars spec.spec.args)) spec.spec.pred := by
-        simpa [FiniteSubst.base, Signature.declVars] using (hSwf f spec hlookup).2
-      have hbase_wf : (FiniteSubst.base W.Δ_spec).wfIn W.Δ_spec st_args.decls :=
-        FiniteSubst.base_wfIn hΔspec_args hwf.wf hst_args_wf hwf.vars
-      have htypedArgs_wf : ∀ p ∈ typedArgs, p.2.wfIn st_args.decls := by
-        intro p hp
-        have hp'' : p.2 ∈ sargs := (List.of_mem_zip hp).2
-        exact hsargs_wf _ hp''
-      have hcall_eval : VerifM.eval (Spec.call W.Θ (FiniteSubst.base W.Δ_spec) spec.argTys spec.retTy spec.spec typedArgs) st_args ρ_args
-          (fun p st' ρ' => VerifM.eval (pure p.2) st' ρ' Ψ) := VerifM.eval_bind hΨ_args
-      have hcall := Spec.call_correct W spec.argTys spec.retTy spec.spec W.Δ_spec (FiniteSubst.base W.Δ_spec) typedArgs st_args ρ_args
-        (fun p st' ρ' => VerifM.eval (pure p.2) st' ρ' Ψ) Φ R
-        hlen_e hwf_pred
-        hbase_wf htypedArgs_wf hcall_eval
-        (fun v st' ρ' t hΨ hwf heval => by
-          have h := hpost v ρ' st' t (VerifM.eval_ret hΨ) hwf heval
-          rw [← hret_eq] at h
-          iintro H
-          icases H with ⟨Howns', Hrest⟩
-          icases Hrest with ⟨HR', Hty⟩
-          iapply h
-          isplitl [Howns']
-          · iexact Howns'
-          · isplitl [Hty]
-            · iexact Hty
-            · iexact HR')
-      obtain ⟨hsub_ty, happly⟩ := hcall
-      refine SpatialContext.wp_val ?_
-      unfold SpecEntry.isPrecondFor Spec.isPrecondFor
-      istart
-      iintro ⟨Howns, Hvals, #HS, #Hspec, HR⟩
-      iintuitionistic Hvals
-      ihave Hlen := TinyML.ValsHaveTypes.length_eq $$ Hvals
-      ipure Hlen
-      have hlen_typed : (args.map Expr.ty).length = sargs.length := by
-        rw [← Hlen]; exact hlen_sargs.symm
-      have hsub_ty' : @TinyML.Typ.SubList W.Θ (args.map Expr.ty) spec.argTys := by
-        simpa [typedArgs, List.map_fst_zip (Nat.le_of_eq hlen_typed)] using hsub_ty
-      have heval_sargs_map : typedArgs.map (fun p => p.2.eval ρ_args) = vs := by
-        have hsnd :
-            List.map Prod.snd ((List.map Expr.ty args).zip sargs) = sargs := by
-          simpa using
-            (List.map_snd_zip (l₁ := List.map Expr.ty args) (l₂ := sargs)
-              (Nat.le_of_eq hlen_typed.symm))
-        calc
-          typedArgs.map (fun p => p.2.eval ρ_args)
-              = sargs.map (fun t => t.eval ρ_args) := by
-                  simpa [typedArgs, List.map_map] using
-                    congrArg (List.map (fun t => t.eval ρ_args)) hsnd
-          _ = vs := Terms.Eval.map_eval heval_sargs
-      have happly' :
-          st_args.sl W ρ_args ∗ R ⊢
-            PredTrans.apply (TinyML.ValHasType W) (fun r => TinyML.ValHasType W r spec.retTy -∗ Φ r) spec.spec.pred
-              (Spec.argsEnv ρ_args spec.spec.args vs) := by
-        rw [heval_sargs_map] at happly
-        exact happly
-      have hagree_ρ_args : Env.agreeOn W.Δ_spec W.ρ_spec ρ_args :=
-        Env.agreeOn_trans hag.agree (Env.agreeOn_mono hag.subset hagreeOn_args)
-      ispecialize Hspec $$ %ρ_args
-      ispecialize Hspec $$ %Φ
-      ispecialize Hspec $$ %vs
-      iapply Hspec
-      · ipureintro
-        exact hagree_ρ_args
-      · ipureintro
-        have := TinyML.Typ.SubList.length_eq hsub_ty'
-        omega
-      · iapply later_intro
-        iapply (TinyML.ValsHaveTypes.sub hsub_ty')
-        iexact Hvals
-      · iapply later_intro
-        iapply happly'
-        isplitl [Howns]
-        · iexact Howns
-        · iexact HR
-  case _ hnone =>
   split at heval
   case _ argTys retTy s hfnty =>
     cases hcheck : Spec.checkWf s W.Δ_spec with
