@@ -31,6 +31,17 @@ def TyCtx.extendBinder (Γ : TyCtx) (b : Typed.Binder) (t : Typ) : TyCtx :=
     (Γ.extend x t) y = Γ y := by
   simp [TyCtx.extend, h]
 
+/-- Extending a context along a list of name/type pairs leaves every name
+    outside that list untouched. -/
+theorem TyCtx.foldl_extend_of_not_mem (Γ : TyCtx) (ps : List (TinyML.Var × Typ))
+    (y : TinyML.Var) (hy : y ∉ ps.map Prod.fst) :
+    (ps.foldl (fun ctx (p : TinyML.Var × Typ) => ctx.extend p.1 p.2) Γ) y = Γ y := by
+  induction ps generalizing Γ with
+  | nil => rfl
+  | cons p ps ih =>
+    simp only [List.map_cons, List.mem_cons, not_or] at hy
+    rw [List.foldl_cons, ih _ (by simpa using hy.2), TyCtx.extend_ne _ _ _ _ hy.1]
+
 /-- Γ ≤ Γ': Γ' extends Γ pointwise. -/
 def TyCtx.le (Γ Γ' : TyCtx) : Prop := ∀ x t, Γ x = some t → Γ' x = some t
 
