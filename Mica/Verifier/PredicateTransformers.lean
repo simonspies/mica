@@ -17,19 +17,9 @@ variable [MicaGS HasLC.hasLC Sig]
 /-!
 # Predicate Transformers
 
-Defines `PredTrans` and `SpecPredicate`.
+Well-formedness, semantics, and call/implementation protocols for `PredTrans`
+and `SpecPredicate`, both defined in `SourceTinyML/Assertions.lean`.
 -/
-
--- ---------------------------------------------------------------------------
--- Core types
--- ---------------------------------------------------------------------------
-
-def PredTrans := Assertion (Pred (Assertion Unit))
-abbrev SpecPredicate := MultiPred PredTrans
-
-instance : DecidableEq PredTrans := by
-  unfold PredTrans Pred
-  infer_instance
 
 -- ---------------------------------------------------------------------------
 -- Well-formedness

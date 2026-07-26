@@ -17,21 +17,13 @@ variable [MicaGS HasLC.hasLC Sig]
 /-!
 # Specifications
 
-Defines `Spec` and its call/implementation operations built on top of
-`PredTrans`.
+Call/implementation operations for `Spec`, built on top of `PredTrans`. The
+structure itself lives in `SourceTinyML/Assertions.lean`.
 -/
 
 -- ---------------------------------------------------------------------------
 -- Spec
 -- ---------------------------------------------------------------------------
-
-/-- A complete specification for a (possibly multi-argument) function, pairing the
-    predicate transformer with the argument and return types from the function annotation. -/
-structure Spec where
-  args    : List (String × TinyML.Typ)
-  retTy   : TinyML.Typ
-  pred    : PredTrans
-  deriving DecidableEq
 
 namespace Spec
 

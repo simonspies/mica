@@ -4,6 +4,7 @@ import Mica.SourceTinyML.Types
 import Mica.SourceTinyML.Untyped
 import Mica.SourceTinyML.Typed
 import Mica.SourceTinyML.Spec
+import Mica.SourceTinyML.Assertions
 import Mica.SourceTinyML.Typing
 import Mica.SourceTinyML.Printer
 import Mica.SourceTinyML.World
