@@ -16,8 +16,8 @@ variable [MicaGS HasLC.hasLC Sig]
 # Assertions
 
 Semantic interpretations and VerifM-level operations `Assertion.assume` and
-`Assertion.prove` for `Assertion` (formerly `PropM`). The inductive itself lives
-in `SourceTinyML/Assertions.lean`.
+`Assertion.prove` for `Assertion`. The inductive itself lives in
+`SourceTinyML/Assertions.lean`.
 -/
 
 

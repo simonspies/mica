@@ -171,12 +171,7 @@ structure PrimSig where
 
 Typing has exactly one effect of its own — failure. The state is there only to
 carry whatever effect the ambient environment's callbacks need, and typing never
-reads or writes it: it merely threads it through. The monad is concrete rather
-than a generic `m` with `[Monad m]` so that the erasure proofs below stay
-first-order (`StateT.bind_ok`).
-
-`StateT σ (Except ε)` discards the state on error, which is what we want: a
-failed elaboration contributes nothing. -/
+reads or writes it: it merely threads it through. -/
 
 abbrev TypeM (σ : Type) := StateT σ (Except TypeError)
 
@@ -208,11 +203,9 @@ def TypeM.ofExcept : Except TypeError α → TypeM σ α
     (TypeM.ofExcept r : TypeM σ α) s = .ok (a, s') ↔ r = .ok a ∧ s' = s := by
   cases r <;> simp [TypeM.ofExcept, eq_comm]
 
-/-- The ambient vocabulary typing resolves against: the built-in primitives, and
-the translation of a single typed specification leaf into its value term and
-definedness condition, given the spec-level names in scope. Typing propagates
-whatever effect the translation carries in `σ`; it never inspects that state
-itself. -/
+/-- The the built-in primitives, and the translation of a single typed
+    specification expression into its value term and definedness condition.
+    Typing propagates whatever effect the translation carries in `σ`. -/
 structure SpecEnv (σ : Type) where
   primitive : String → Option PrimSig
   translate : List String → Typed.Expr → TypeM σ (Term .value × Formula)

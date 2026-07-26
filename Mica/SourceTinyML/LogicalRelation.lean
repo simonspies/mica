@@ -1129,16 +1129,6 @@ end TinyML
 
 namespace TinyML
 
-omit [MicaGS HasLC.hasLC Sig] in
-/-- Primitive type constraints only reference free variables of the constrained term. -/
-theorem PrimitiveType.typeConstraints_wfIn {p : PrimitiveType} {t : Term .value} {Δ : Signature}
-    (ht : t.wfIn Δ) : ∀ φ ∈ p.typeConstraints t, φ.wfIn Δ := by
-  cases p <;> simp [PrimitiveType.typeConstraints]
-  · simp only [Formula.wfIn]; exact ⟨trivial, ht⟩
-  · simp only [Formula.wfIn]; exact ⟨trivial, ht⟩
-  · simp only [Formula.wfIn]; exact ⟨trivial, ht⟩
-  · simp only [Formula.wfIn]; exact ⟨trivial, ht⟩
-  · simp only [Formula.wfIn]; exact ⟨trivial, ht⟩
 
 /-- Primitive value typing entails the generated primitive type constraints. -/
 theorem PrimitiveType.typeConstraints_hold {p : PrimitiveType} {t : Term .value} {ρ : Env}
@@ -1186,95 +1176,6 @@ theorem PrimitiveType.typeConstraints_hold {p : PrimitiveType} {t : Term .value}
     simp [PrimitiveType.typeConstraints] at hφ
     rcases hφ with rfl
     simp [Formula.eval, ht]
-
-omit [MicaGS HasLC.hasLC Sig] in
-mutual
-  /-- All formulas in `typeConstraints ty t` only reference free variables of `t`. -/
-  theorem typeConstraints_wfIn {ty : TinyML.Typ} {t : Term .value} {Δ : Signature}
-      (ht : t.wfIn Δ) : ∀ φ ∈ typeConstraints ty t, φ.wfIn Δ := by
-    cases ty with
-    | prim p =>
-      simpa [typeConstraints] using PrimitiveType.typeConstraints_wfIn (p := p) ht
-    | owned _ =>
-      simp [typeConstraints]
-      simp only [Formula.wfIn]; exact ⟨trivial, ht⟩
-    | array _ | ownedArray _ =>
-      simp only [typeConstraints, List.mem_cons, List.not_mem_nil]
-      intro φ hφ
-      rcases hφ with rfl | hfalse
-      · simp only [Formula.wfIn, Term.wfIn]; exact ⟨trivial, trivial, ⟨trivial, ht⟩⟩
-      · cases hfalse
-    | vec _ =>
-      simp only [typeConstraints, List.mem_cons, List.not_mem_nil]
-      intro φ hφ
-      rcases hφ with rfl | rfl | hfalse
-      · simp only [Formula.wfIn]; exact ⟨trivial, ht⟩
-      · simp only [Formula.wfIn, Term.wfIn]; exact ⟨trivial, trivial, ⟨trivial, ⟨trivial, ht⟩⟩⟩
-      · cases hfalse
-    | tuple ts =>
-      simp only [typeConstraints]
-      intro φ hφ
-      cases hφ with
-      | head =>
-        simp only [Formula.wfIn]; exact ⟨trivial, ht⟩
-      | tail _ hφ =>
-        exact typeConstraintsList_wfIn (by simp only [Term.wfIn]; exact ⟨trivial, ht⟩) φ hφ
-    | _ => simp [typeConstraints]
-
-  theorem typeConstraintsList_wfIn {ts : List TinyML.Typ} {tl : Term .vallist} {Δ : Signature}
-      (htl : tl.wfIn Δ) : ∀ φ ∈ typeConstraintsList ts tl, φ.wfIn Δ := by
-    cases ts with
-    | nil => simp [typeConstraintsList]
-    | cons ty rest =>
-      simp only [typeConstraintsList]
-      intro φ hφ
-      cases List.mem_append.mp hφ with
-      | inl h =>
-        exact typeConstraints_wfIn (by simp only [Term.wfIn]; exact ⟨trivial, htl⟩) φ h
-      | inr h =>
-        exact typeConstraintsList_wfIn (by simp only [Term.wfIn]; exact ⟨trivial, htl⟩) φ h
-
-  /-- Bounded vector-element constraints are well-formed whenever the snapshot
-  term is well-formed. -/
-  theorem elementConstraints_wfIn {ty : TinyML.Typ} {contents : Term .value}
-      {Δ : Signature} (hcontents : contents.wfIn Δ) :
-      ∀ φ ∈ elementConstraints ty contents, φ.wfIn Δ := by
-    intro φ hφ
-    simp only [elementConstraints, List.mem_map] at hφ
-    obtain ⟨constraint, hconstraint, rfl⟩ := hφ
-    let name := Fresh.freshName contents.names "i"
-    have hname : name ∉ contents.names := Fresh.freshName_not_in_avoid contents.names "i"
-    have hcontents' : contents.wfIn (Δ.declVar ⟨name, .int⟩) :=
-      Term.wfIn_declVar_of_fresh hcontents hname
-    have hi : (Term.var .int name).wfIn (Δ.declVar ⟨name, .int⟩) := by
-      refine ⟨Signature.var_mem_declVar Δ ⟨name, .int⟩, ?_, ?_⟩
-      · intro τ hconst
-        simp [Signature.declVar, Signature.addVar, Signature.remove] at hconst
-      · intro τ hvar
-        simpa [Signature.declVar, Signature.addVar, Signature.remove] using hvar
-    have helem : (Term.binop .vecGet (.unop .toVec contents) (.var .int name)).wfIn
-        (Δ.declVar ⟨name, .int⟩) := ⟨trivial, ⟨trivial, hcontents'⟩, hi⟩
-    have hconstraint' := typeConstraints_wfIn helem constraint hconstraint
-    simp only [elementConstraint]
-    change
-      Pattern.List.wfIn
-          [.term (.binop .vecGet (.unop .toVec contents) (.var .int name))]
-          (Δ.declVar ⟨name, .int⟩) ∧
-        (Formula.implies
-          (.and
-            (.binpred .le (.const (.i 0)) (.var .int name))
-            (.binpred .lt (.var .int name) (.unop .vecLen (.unop .toVec contents))))
-          constraint).wfIn (Δ.declVar ⟨name, .int⟩)
-    constructor
-    · intro p hp
-      simp only [List.mem_singleton] at hp
-      subst p
-      exact helem
-    · exact
-        ⟨⟨⟨trivial, trivial, hi⟩,
-            ⟨trivial, hi, ⟨trivial, ⟨trivial, hcontents'⟩⟩⟩⟩,
-          hconstraint'⟩
-end
 
 mutual
   /-- If `ValHasType v ty` and `t.eval ρ = v`, then all formulas in `typeConstraints ty t` hold. -/

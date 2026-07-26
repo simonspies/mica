@@ -16,10 +16,6 @@ end Except
 
 namespace StateT
 
-/-- Destructure a successful `StateT σ (Except ε)` bind: the first computation
-succeeded on the incoming state, and the continuation succeeded on the state it
-handed on. The `Except` version with one extra existential for the intermediate
-state. -/
 theorem bind_ok {σ ε α β} {f : StateT σ (Except ε) α} {g : α → StateT σ (Except ε) β}
     {s s' : σ} {b : β} (h : (f >>= g) s = .ok (b, s')) :
     ∃ a s₀, f s = .ok (a, s₀) ∧ g a s₀ = .ok (b, s') := by
