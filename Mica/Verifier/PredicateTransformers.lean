@@ -26,19 +26,19 @@ which is defined in `SourceTinyML/Assertions.lean`.
 
 /-- A predicate transformer is well-formed when its outer assertion is well-formed
     and each inner postcondition assertion is also well-formed (in the extended context). -/
-def PredTrans.wfIn (Δ : Signature) (pt : PredTrans) : Prop :=
+def PredTrans.wfIn (Δ : Signature) (pt : PredTrans TinyML.Typ) : Prop :=
   Assertion.wfIn
     (fun post Δ' => Assertion.wfIn (fun _ _ => True) (Δ'.declVar ⟨post.name, .value⟩) post.body)
     Δ pt
 
 
-def PredTrans.checkWf (Δ : Signature) (pt : PredTrans) : Except String Unit :=
+def PredTrans.checkWf (Δ : Signature) (pt : PredTrans TinyML.Typ) : Except String Unit :=
   Assertion.checkWf
     (fun post Δ' => Assertion.checkWf (fun _ _ => .ok ()) (Δ'.declVar ⟨post.name, .value⟩) post.body)
     Δ pt
 
 omit [MicaGS HasLC.hasLC Sig] in
-theorem PredTrans.checkWf_ok {pt : PredTrans} {Δ : Signature}
+theorem PredTrans.checkWf_ok {pt : PredTrans TinyML.Typ} {Δ : Signature}
     (h : pt.checkWf Δ = .ok ()) : pt.wfIn Δ :=
   Assertion.checkWf_ok
     (fun _ _ hok => Assertion.checkWf_ok (fun _ _ _ => trivial) hok)
@@ -48,7 +48,7 @@ theorem PredTrans.checkWf_ok {pt : PredTrans} {Δ : Signature}
 -- Semantics
 -- ---------------------------------------------------------------------------
 
-def PredTrans.apply (W : TinyML.World) (Φ : Runtime.Val → iProp) (m : PredTrans) (ρ : Env) : iProp :=
+def PredTrans.apply (W : TinyML.World) (Φ : Runtime.Val → iProp) (m : PredTrans TinyML.Typ) (ρ : Env) : iProp :=
   Assertion.pre W (fun post ρ' =>
     BIBase.forall fun v : Runtime.Val =>
       Assertion.post W (fun () _ => Φ v) post.body (ρ'.updateConst .value post.name v)
@@ -61,7 +61,7 @@ def PredTrans.apply (W : TinyML.World) (Φ : Runtime.Val → iProp) (m : PredTra
 /-- The caller side of a predicate transformer: assert the precondition (prove the outer
     assertion) and assume the postcondition (assume the inner assertion). Returns a term
     representing the result value. -/
-def PredTrans.call (σ : FiniteSubst) (pt : PredTrans) : VerifM (Term .value) := do
+def PredTrans.call (σ : FiniteSubst) (pt : PredTrans TinyML.Typ) : VerifM (Term .value) := do
   let (σ₁, ⟨postName, postBody⟩) ← Assertion.prove σ pt
   let resVar ← VerifM.decl (some postName) .value
   let σ₂ := σ₁.rename ⟨postName, .value⟩ resVar.name
@@ -71,7 +71,7 @@ def PredTrans.call (σ : FiniteSubst) (pt : PredTrans) : VerifM (Term .value) :=
 /-- The implementor side of a predicate transformer: assume the precondition (assume the outer
     assertion), run `body` to produce a result term, then assert the postcondition (prove the
     inner assertion). Dual to `PredTrans.call`. -/
-def PredTrans.implement (σ : FiniteSubst) (pt : PredTrans) (body : VerifM (Term .value)) : VerifM Unit := do
+def PredTrans.implement (σ : FiniteSubst) (pt : PredTrans TinyML.Typ) (body : VerifM (Term .value)) : VerifM Unit := do
   let (σ₁, ⟨postName, postBody⟩) ← Assertion.assume σ pt
   let result ← body
   let resVar ← VerifM.decl (some postName) .value
@@ -85,7 +85,7 @@ def PredTrans.implement (σ : FiniteSubst) (pt : PredTrans) (body : VerifM (Term
 -- ---------------------------------------------------------------------------
 
 omit [MicaGS HasLC.hasLC Sig] in
-theorem PredTrans.wfIn_mono {pt : PredTrans} {Δ Δ' : Signature}
+theorem PredTrans.wfIn_mono {pt : PredTrans TinyML.Typ} {Δ Δ' : Signature}
     (h : pt.wfIn Δ) (hsub : Δ.Subset Δ') (hwf : Δ'.wf) : pt.wfIn Δ' := by
   unfold PredTrans.wfIn at h ⊢
   exact Assertion.wfIn_mono pt _
@@ -95,7 +95,7 @@ theorem PredTrans.wfIn_mono {pt : PredTrans} {Δ Δ' : Signature}
         (Signature.wf_declVar hwf'))
     h hsub hwf
 
-theorem PredTrans.apply_env_agree (W : TinyML.World) {pt : PredTrans} {Φ : Runtime.Val → iProp}
+theorem PredTrans.apply_env_agree (W : TinyML.World) {pt : PredTrans TinyML.Typ} {Φ : Runtime.Val → iProp}
     {ρ ρ' : Env} {Δ : Signature}
     (hwf : pt.wfIn Δ) (hagree : Env.agreeOn Δ ρ ρ') :
     PredTrans.apply W Φ pt ρ ⊢ PredTrans.apply W Φ pt ρ' := by
@@ -113,7 +113,7 @@ theorem PredTrans.apply_env_agree (W : TinyML.World) {pt : PredTrans} {Φ : Runt
 -- Correctness
 -- ---------------------------------------------------------------------------
 
-theorem PredTrans.call_correct (W : TinyML.World) (pt : PredTrans) (Δ_base : Signature) (σ : FiniteSubst)
+theorem PredTrans.call_correct (W : TinyML.World) (pt : PredTrans TinyML.Typ) (Δ_base : Signature) (σ : FiniteSubst)
     (st : TransState) (ρ : Env)
     (Ψ : Term .value → TransState → Env → Prop) (Φ : Runtime.Val → iProp) R :
     pt.wfIn (Δ_base.declVars σ.dom) →
@@ -125,13 +125,13 @@ theorem PredTrans.call_correct (W : TinyML.World) (pt : PredTrans) (Δ_base : Si
   intro hwf hσwf heval hΨ
   simp only [PredTrans.call] at heval
   have hb := VerifM.eval_bind heval
-  let retWf : Post → Signature → Prop :=
+  let retWf : Post TinyML.Typ → Signature → Prop :=
     fun post Δ' => Assertion.wfIn (fun _ _ => True) (Δ'.declVar ⟨post.name, .value⟩) post.body
-  let Φpost : Post → Env → iProp :=
+  let Φpost : Post TinyML.Typ → Env → iProp :=
     fun post ρ' =>
       BIBase.forall fun v : Runtime.Val =>
         Assertion.post W (fun () _ => Φ v) post.body (ρ'.updateConst .value post.name v)
-  let Ψcall : (FiniteSubst × Post) → TransState → Env → Prop :=
+  let Ψcall : (FiniteSubst × Post TinyML.Typ) → TransState → Env → Prop :=
     fun r st' ρ' =>
       match r with
       | (σ₁, ⟨postName, postBody⟩) => (do
@@ -201,7 +201,7 @@ theorem PredTrans.call_correct (W : TinyML.World) (pt : PredTrans) (Δ_base : Si
   simpa [PredTrans.apply, Φpost] using hpre
 
 
-theorem PredTrans.implement_correct (W : TinyML.World) (pt : PredTrans) (Δ_base : Signature) (σ : FiniteSubst)
+theorem PredTrans.implement_correct (W : TinyML.World) (pt : PredTrans TinyML.Typ) (Δ_base : Signature) (σ : FiniteSubst)
     (body : VerifM (Term .value))
     (st : TransState) (ρ : Env) (Φ : Runtime.Val → iProp) (R : iProp) :
     pt.wfIn (Δ_base.declVars σ.dom) →
@@ -221,13 +221,13 @@ theorem PredTrans.implement_correct (W : TinyML.World) (pt : PredTrans) (Δ_base
   simp only [PredTrans.implement] at heval
   have hb := VerifM.eval_bind heval
   have hb_grow := VerifM.eval.decls_grow ρ hb
-  let retWf : Post → Signature → Prop :=
+  let retWf : Post TinyML.Typ → Signature → Prop :=
     fun post Δ' => Assertion.wfIn (fun _ _ => True) (Δ'.declVar ⟨post.name, .value⟩) post.body
-  let OuterQ : Post → Env → iProp :=
+  let OuterQ : Post TinyML.Typ → Env → iProp :=
     fun ⟨postName, postBody⟩ ρ' =>
       BIBase.forall fun v : Runtime.Val =>
         Assertion.post W (fun () _ => Φ v) postBody (ρ'.updateConst .value postName v)
-  let Φpost : Post → Env → iProp :=
+  let Φpost : Post TinyML.Typ → Env → iProp :=
     fun a ρ' => OuterQ a ρ' -∗ R
   have hpost := Assertion.assume_correct W pt Δ_base σ retWf
     st ρ _ Φpost emp

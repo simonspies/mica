@@ -21,7 +21,7 @@ variable [MicaGS HasLC.hasLC Sig]
 structure SpecEntry where
   argTys : List TinyML.Typ
   retTy  : TinyML.Typ
-  spec   : Spec
+  spec   : Spec TinyML.Typ
   deriving DecidableEq
 
 /-- The precondition assertion for a specified function value, reading the

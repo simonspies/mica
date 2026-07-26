@@ -40,7 +40,7 @@ def argsEnv (ρ : Env) : List String → List Runtime.Val → Env
 
 def isPrecondFor (W : TinyML.World)
     (argTys : List TinyML.Typ) (retTy : TinyML.Typ)
-    (f : Runtime.Val) (s : Spec) : iProp :=
+    (f : Runtime.Val) (s : Spec TinyML.Typ) : iProp :=
   iprop(□ ∀ (ρ : Env) (Φ : Runtime.Val → iProp) (vs : List Runtime.Val),
       ⌜Env.agreeOn W.Δ_spec W.ρ_spec ρ⌝ -∗
       TinyML.ValsHaveTypes W vs argTys -∗
@@ -50,10 +50,10 @@ def isPrecondFor (W : TinyML.World)
 
 /-- A spec is well-formed when its predicate transformer is well-formed in the
     context extended with all argument variables. -/
-def wfIn (spec : Spec) (Δ : Signature) : Prop :=
+def wfIn (spec : Spec TinyML.Typ) (Δ : Signature) : Prop :=
   PredTrans.wfIn (Δ.declVars (argVars spec.args)) spec.pred
 
-def checkWf (spec : Spec) (Δ : Signature) : Except String Unit :=
+def checkWf (spec : Spec TinyML.Typ) (Δ : Signature) : Except String Unit :=
   PredTrans.checkWf (Δ.declVars (argVars spec.args)) spec.pred
 
 /-- Declare argument variables, check types, and assume equalities for a spec call.
@@ -76,7 +76,7 @@ def declareArgs (Θ : TinyML.TypeEnv) (σ : FiniteSubst) :
     argument and result types come from the enclosing arrow. -/
 def call (Θ : TinyML.TypeEnv) (σ : FiniteSubst)
     (argTys : List TinyML.Typ) (retTy : TinyML.Typ)
-    (s : Spec) (sargs : List (TinyML.Typ × Term .value)) :
+    (s : Spec TinyML.Typ) (sargs : List (TinyML.Typ × Term .value)) :
     VerifM (TinyML.Typ × Term .value) := do
   let σ' ← declareArgs Θ σ s.args argTys sargs
   let result ← PredTrans.call σ' s.pred
@@ -100,7 +100,7 @@ def declareImplArgs (σ : FiniteSubst) :
 /-- Full implementation protocol for a spec: declare argument variables,
     assume type constraints, then invoke `PredTrans.implement`. Dual to `call`.
     The argument types come from the enclosing arrow. -/
-def implement (Δ_base : Signature) (argTys : List TinyML.Typ) (s : Spec)
+def implement (Δ_base : Signature) (argTys : List TinyML.Typ) (s : Spec TinyML.Typ)
     (body : List FOL.Const → VerifM (Term .value)) : VerifM Unit := do
   let (σ, argVars) ← declareImplArgs (FiniteSubst.base Δ_base) s.args argTys
   PredTrans.implement σ s.pred (body argVars)
@@ -115,7 +115,7 @@ instance : Iris.BI.Persistent (isPrecondFor W argTys retTy f s) := by
 /-- Fold `wp_fix'`'s tupled recursive obligation into a spec precondition;
     the two differ only by currying the typing hypothesis and the predicate transformer. -/
 theorem isPrecondFor_intro (W : TinyML.World)
-    (argTys : List TinyML.Typ) (retTy : TinyML.Typ) (s : Spec)
+    (argTys : List TinyML.Typ) (retTy : TinyML.Typ) (s : Spec TinyML.Typ)
     (f : Runtime.Val) :
     iprop(□ ∀ (ρ : Env) (vs : List Runtime.Val) (P : Runtime.Val → iProp),
       (⌜Env.agreeOn W.Δ_spec W.ρ_spec ρ⌝ ∗
@@ -135,7 +135,7 @@ theorem isPrecondFor_intro (W : TinyML.World)
     `s.isPrecondFor W (.fix f args e)`, assume it as the recursive hypothesis and
     prove the `wp` of the body (after the usual fix-substitution). -/
 theorem isPrecondFor_fix {W : TinyML.World}
-    {argTys : List TinyML.Typ} {retTy : TinyML.Typ} {s : Spec}
+    {argTys : List TinyML.Typ} {retTy : TinyML.Typ} {s : Spec TinyML.Typ}
     {f : Runtime.Binder} {args : List Runtime.Binder} {e : Runtime.Expr}
     {R : iProp}
     (hargs : args.length = s.args.length)
@@ -194,12 +194,12 @@ end Precondition
 section WellFormedness
 
 omit [MicaGS HasLC.hasLC Sig] in
-theorem checkWf_ok {spec : Spec} {Δ : Signature}
+theorem checkWf_ok {spec : Spec TinyML.Typ} {Δ : Signature}
     (h : spec.checkWf Δ = .ok ()) : spec.wfIn Δ :=
   PredTrans.checkWf_ok h
 
 omit [MicaGS HasLC.hasLC Sig] in
-theorem wfIn_mono {spec : Spec} {Δ Δ' : Signature}
+theorem wfIn_mono {spec : Spec TinyML.Typ} {Δ Δ' : Signature}
     (h : spec.wfIn Δ) (hsub : Δ.Subset Δ') (hwf : Δ'.wf) :
     spec.wfIn Δ' :=
   PredTrans.wfIn_mono h (Signature.Subset.declVars hsub (argVars spec.args))
@@ -356,13 +356,13 @@ theorem declareArgs_correct (W : TinyML.World) :
         exact (VerifM.eval_fatal (VerifM.eval_bind heval)).elim
 
 theorem call_correct (W : TinyML.World)
-    (argTys : List TinyML.Typ) (retTy : TinyML.Typ) (s : Spec) (Δ_base : Signature)
+    (argTys : List TinyML.Typ) (retTy : TinyML.Typ) (s : Spec TinyML.Typ) (Δ_base : Signature)
     (σ : FiniteSubst) (sargs : List (TinyML.Typ × Term .value))
     (st : TransState) (ρ : Env)
     (Ψ : (TinyML.Typ × Term .value) → TransState → Env → Prop)
     (Φ : Runtime.Val → iProp) (R : iProp) :
     s.args.length = argTys.length →
-    s.pred.wfIn ((Δ_base.declVars σ.dom).declVars (Spec.argVars s.args)) →
+    PredTrans.wfIn ((Δ_base.declVars σ.dom).declVars (Spec.argVars s.args)) s.pred →
     σ.wfIn Δ_base st.decls →
     (∀ p ∈ sargs, (p : TinyML.Typ × Term .value).2.wfIn st.decls) →
     VerifM.eval (Spec.call W.Θ σ argTys retTy s sargs) st ρ Ψ →
@@ -378,7 +378,7 @@ theorem call_correct (W : TinyML.World)
   obtain ⟨σ', st', ρ', ⟨hdsub, hragree, hΨ'⟩, hσ'wf, howns, hsublist, hdom_sub, hagree⟩ :=
     declareArgs_correct W s.args argTys sargs Δ_base σ st ρ _ hlen hσwf hsargs hb_grow
   refine ⟨hsublist, ?_⟩
-  have hwf'' : s.pred.wfIn (Δ_base.declVars σ'.dom) :=
+  have hwf'' : PredTrans.wfIn (Δ_base.declVars σ'.dom) s.pred :=
     PredTrans.wfIn_mono hwf hdom_sub hσ'wf.srcWf
   have hcall := PredTrans.call_correct W s.pred Δ_base σ' st' ρ'
     _ (fun r => TinyML.ValHasType W r retTy -∗ Φ r) R
@@ -549,7 +549,7 @@ theorem declareImplArgs_correct (W : TinyML.World) :
         exact h1'.trans hvar_eval
 
 theorem implement_correct (W : TinyML.World)
-    (argTys : List TinyML.Typ) (retTy : TinyML.Typ) (s : Spec)
+    (argTys : List TinyML.Typ) (retTy : TinyML.Typ) (s : Spec TinyML.Typ)
     (body : List FOL.Const → VerifM (Term .value))
     (st : TransState) (ρ : Env) (vs : List Runtime.Val) (Φ : Runtime.Val → iProp) (R : iProp) :
     s.args.length = argTys.length →

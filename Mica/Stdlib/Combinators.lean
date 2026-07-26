@@ -30,14 +30,14 @@ theorem assert_ret_apply [MicaGS HasLC.hasLC Sig] (W : TinyML.World) (Φ : Runti
 /-- Wrap an optional precondition around a spec predicate: `some φ` prepends an
     `.assert φ`; `none` leaves the predicate untouched, keeping the emitted spec
     of precondition-free intrinsics unchanged. -/
-def withPre : Option Formula → PredTrans → PredTrans
+def withPre : Option Formula → PredTrans TinyML.Typ → PredTrans TinyML.Typ
   | none,   post => post
   | some φ, post => .assert φ post
 
 /-- Eliminate `withPre`: applying the wrapped predicate yields the precondition
     as a pure fact (vacuous for `none`) alongside the unwrapped application. -/
 theorem withPre_apply [MicaGS HasLC.hasLC Sig] (W : TinyML.World) (Φ : Runtime.Val → iProp)
-    (pre : Option Formula) (post : PredTrans) (ρ : Env) :
+    (pre : Option Formula) (post : PredTrans TinyML.Typ) (ρ : Env) :
     PredTrans.apply W Φ (withPre pre post) ρ ⊢
       iprop(⌜∀ φ, pre = some φ → φ.eval ρ⌝ ∗ PredTrans.apply W Φ post ρ) := by
   cases pre with
