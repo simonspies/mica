@@ -29,7 +29,8 @@ interpretation is the graph of its value function on its definedness domain,
 and assuming its valid defining axioms, preserves the relation-assembly
 invariants. -/
 
-namespace Verifier.RelationalEncoding.SpecFn
+namespace SpecFn
+open Verifier.RelationalEncoding
 
 /-- Declare the solver-facing triple of `L` and assume its defining axioms. -/
 def declare (L : SpecFn) (axs : List Axiom) : VerifM Unit := do
@@ -151,7 +152,7 @@ theorem declare_correct (L : SpecFn) (f : TinyML.Var) (axs : List Axiom)
   exact ⟨st4, ρ3, by rw [hst4, hst3], howns4', hvars4, hwf4, hsub4,
     hagree4, hΓwf', hsplit', hdet', hQ4⟩
 
-end Verifier.RelationalEncoding.SpecFn
+end SpecFn
 
 namespace Verifier.BoundedQuantifier
 
