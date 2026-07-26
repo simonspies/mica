@@ -593,7 +593,7 @@ def elabSpecBody (env : SpecEnv σ) (Θ : TypeEnv) (Γbase : TyCtx) (body : Type
   let pred ← elabAssert env Θ
     (fun Γ ns (vname, post) => do
       let post' ← elabPost env Θ (Γ.extend vname retTy) (ns ++ [vname]) post
-      pure (vname, post'))
+      pure ⟨vname, post'⟩)
     Γ₀ names pre
   pure { args := names, pred := pred }
 

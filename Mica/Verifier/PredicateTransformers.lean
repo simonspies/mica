@@ -28,13 +28,13 @@ which is defined in `SourceTinyML/Assertions.lean`.
     and each inner postcondition assertion is also well-formed (in the extended context). -/
 def PredTrans.wfIn (Δ : Signature) (pt : PredTrans) : Prop :=
   Assertion.wfIn
-    (fun post Δ' => Assertion.wfIn (fun _ _ => True) (Δ'.declVar ⟨post.1, .value⟩) post.2)
+    (fun post Δ' => Assertion.wfIn (fun _ _ => True) (Δ'.declVar ⟨post.name, .value⟩) post.body)
     Δ pt
 
 
 def PredTrans.checkWf (Δ : Signature) (pt : PredTrans) : Except String Unit :=
   Assertion.checkWf
-    (fun post Δ' => Assertion.checkWf (fun _ _ => .ok ()) (Δ'.declVar ⟨post.1, .value⟩) post.2)
+    (fun post Δ' => Assertion.checkWf (fun _ _ => .ok ()) (Δ'.declVar ⟨post.name, .value⟩) post.body)
     Δ pt
 
 omit [MicaGS HasLC.hasLC Sig] in
@@ -51,7 +51,7 @@ theorem PredTrans.checkWf_ok {pt : PredTrans} {Δ : Signature}
 def PredTrans.apply (W : TinyML.World) (Φ : Runtime.Val → iProp) (m : PredTrans) (ρ : Env) : iProp :=
   Assertion.pre W (fun post ρ' =>
     BIBase.forall fun v : Runtime.Val =>
-      Assertion.post W (fun () _ => Φ v) post.2 (ρ'.updateConst .value post.1 v)
+      Assertion.post W (fun () _ => Φ v) post.body (ρ'.updateConst .value post.name v)
   ) m ρ
 
 -- ---------------------------------------------------------------------------
@@ -62,7 +62,7 @@ def PredTrans.apply (W : TinyML.World) (Φ : Runtime.Val → iProp) (m : PredTra
     assertion) and assume the postcondition (assume the inner assertion). Returns a term
     representing the result value. -/
 def PredTrans.call (σ : FiniteSubst) (pt : PredTrans) : VerifM (Term .value) := do
-  let (σ₁, (postName, postBody)) ← Assertion.prove σ pt
+  let (σ₁, ⟨postName, postBody⟩) ← Assertion.prove σ pt
   let resVar ← VerifM.decl (some postName) .value
   let σ₂ := σ₁.rename ⟨postName, .value⟩ resVar.name
   let (_, ()) ← Assertion.assume σ₂ postBody
@@ -72,7 +72,7 @@ def PredTrans.call (σ : FiniteSubst) (pt : PredTrans) : VerifM (Term .value) :=
     assertion), run `body` to produce a result term, then assert the postcondition (prove the
     inner assertion). Dual to `PredTrans.call`. -/
 def PredTrans.implement (σ : FiniteSubst) (pt : PredTrans) (body : VerifM (Term .value)) : VerifM Unit := do
-  let (σ₁, (postName, postBody)) ← Assertion.assume σ pt
+  let (σ₁, ⟨postName, postBody⟩) ← Assertion.assume σ pt
   let result ← body
   let resVar ← VerifM.decl (some postName) .value
   let σ₂ := σ₁.rename ⟨postName, .value⟩ resVar.name
@@ -90,8 +90,8 @@ theorem PredTrans.wfIn_mono {pt : PredTrans} {Δ Δ' : Signature}
   unfold PredTrans.wfIn at h ⊢
   exact Assertion.wfIn_mono pt _
     (fun post ds ds' hsub' hwf' hpost =>
-      Assertion.wfIn_mono post.2 _ (fun _ _ _ _ _ h => h) hpost
-        (Signature.Subset.declVar hsub' ⟨post.1, .value⟩)
+      Assertion.wfIn_mono post.body _ (fun _ _ _ _ _ h => h) hpost
+        (Signature.Subset.declVar hsub' ⟨post.name, .value⟩)
         (Signature.wf_declVar hwf'))
     h hsub hwf
 
@@ -125,16 +125,16 @@ theorem PredTrans.call_correct (W : TinyML.World) (pt : PredTrans) (Δ_base : Si
   intro hwf hσwf heval hΨ
   simp only [PredTrans.call] at heval
   have hb := VerifM.eval_bind heval
-  let retWf : (String × Assertion Unit) → Signature → Prop :=
-    fun post Δ' => Assertion.wfIn (fun _ _ => True) (Δ'.declVar ⟨post.1, .value⟩) post.2
-  let Φpost : (String × Assertion Unit) → Env → iProp :=
+  let retWf : Post → Signature → Prop :=
+    fun post Δ' => Assertion.wfIn (fun _ _ => True) (Δ'.declVar ⟨post.name, .value⟩) post.body
+  let Φpost : Post → Env → iProp :=
     fun post ρ' =>
       BIBase.forall fun v : Runtime.Val =>
-        Assertion.post W (fun () _ => Φ v) post.2 (ρ'.updateConst .value post.1 v)
-  let Ψcall : (FiniteSubst × (String × Assertion Unit)) → TransState → Env → Prop :=
+        Assertion.post W (fun () _ => Φ v) post.body (ρ'.updateConst .value post.name v)
+  let Ψcall : (FiniteSubst × Post) → TransState → Env → Prop :=
     fun r st' ρ' =>
       match r with
-      | (σ₁, postName, postBody) => (do
+      | (σ₁, ⟨postName, postBody⟩) => (do
           let resVar ← VerifM.decl (some postName) Srt.value
           let _ ← Assertion.assume (σ₁.rename ⟨postName, .value⟩ resVar.name) postBody
           Pure.pure (Term.const (.uninterpreted resVar.name .value))).eval st' ρ' Ψ
@@ -221,13 +221,13 @@ theorem PredTrans.implement_correct (W : TinyML.World) (pt : PredTrans) (Δ_base
   simp only [PredTrans.implement] at heval
   have hb := VerifM.eval_bind heval
   have hb_grow := VerifM.eval.decls_grow ρ hb
-  let retWf : (String × Assertion Unit) → Signature → Prop :=
-    fun post Δ' => Assertion.wfIn (fun _ _ => True) (Δ'.declVar ⟨post.1, .value⟩) post.2
-  let OuterQ : (String × Assertion Unit) → Env → iProp :=
+  let retWf : Post → Signature → Prop :=
+    fun post Δ' => Assertion.wfIn (fun _ _ => True) (Δ'.declVar ⟨post.name, .value⟩) post.body
+  let OuterQ : Post → Env → iProp :=
     fun ⟨postName, postBody⟩ ρ' =>
       BIBase.forall fun v : Runtime.Val =>
         Assertion.post W (fun () _ => Φ v) postBody (ρ'.updateConst .value postName v)
-  let Φpost : (String × Assertion Unit) → Env → iProp :=
+  let Φpost : Post → Env → iProp :=
     fun a ρ' => OuterQ a ρ' -∗ R
   have hpost := Assertion.assume_correct W pt Δ_base σ retWf
     st ρ _ Φpost emp
@@ -247,7 +247,7 @@ theorem PredTrans.implement_correct (W : TinyML.World) (pt : PredTrans) (Δ_base
       apply BIBase.Entails.trans sep_comm.1
       apply BIBase.Entails.trans emp_sep.1
       have hcont_body := VerifM.eval_bind hcont
-      change st₁.sl W ρ₁ ⊢ OuterQ (postName, postBody) ((σ₁.subst.eval ρ₁)) -∗ R
+      change st₁.sl W ρ₁ ⊢ OuterQ ⟨postName, postBody⟩ ((σ₁.subst.eval ρ₁)) -∗ R
       refine wand_intro ?_
       refine hbody st₁ ρ₁ _ hdsub_st hagree_st ?_
       refine (VerifM.eval.decls_grow ρ₁ hcont_body).mono ?_
@@ -331,7 +331,7 @@ theorem PredTrans.implement_correct (W : TinyML.World) (pt : PredTrans) (Δ_base
           simp [st₃, TransState.sl]
         exact hinput.trans hpre
       have hpost_final :
-          OuterQ (postName, postBody) ((σ₁.subst.eval ρ₁)) ⊢
+          OuterQ ⟨postName, postBody⟩ ((σ₁.subst.eval ρ₁)) ⊢
             Assertion.post W (fun () _ => Φ (result.eval ρ₂)) postBody
               ((σ₂.subst.eval (ρ₂.updateConst .value resVar.name (result.eval ρ₂)))) := by
         exact (forall_elim (result.eval ρ₂)).trans hpost_transport

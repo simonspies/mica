@@ -14,12 +14,12 @@ namespace Intrinsics
 
 /-! ## Shared helpers -/
 
-/-- Apply a `.ret (s, .assert φ ...)` spec at a value, discharging the asserted
+/-- Apply a `.ret ⟨s, .assert φ ...⟩` spec at a value, discharging the asserted
     `φ` as a pure side condition. -/
 theorem assert_ret_apply [MicaGS HasLC.hasLC Sig] (W : TinyML.World) (Φ : Runtime.Val → iProp)
     (s : String) (ρ : Env) (φ : Formula) (v : Runtime.Val)
     (hφ : φ.eval (ρ.updateConst .value s v)) :
-    PredTrans.apply W Φ (.ret (s, .assert φ (.ret ()))) ρ ⊢ Φ v := by
+    PredTrans.apply W Φ (.ret ⟨s, .assert φ (.ret ())⟩) ρ ⊢ Φ v := by
   simp only [PredTrans.apply, Assertion.pre, Assertion.post]
   refine (forall_elim v).trans ?_
   iintro Hw
@@ -457,8 +457,8 @@ def Zero.toIntrinsic (b : Zero) : Intrinsic where
   retTy  := b.res.typ
   spec   :=
     { args  := []
-      pred  := .ret ("ret",
-        .assert (.eq .value (.var .value "ret") b.opTerm) (.ret ())) }
+      pred  := .ret ⟨"ret",
+        .assert (.eq .value (.var .value "ret") b.opTerm) (.ret ())⟩ }
   typing := schemeTyping []
   folSym := some b.sym
   axioms := ⟨b.defAxiom, .low⟩ :: (b.typeAxiom.map (⟨·, .low⟩)).toList
@@ -594,9 +594,9 @@ def Unary.toIntrinsic (b : Unary) : Intrinsic where
   retTy  := b.res.typ
   spec   :=
     { args  := ["a"]
-      pred  := withPre (b.pre.map (· "a")) <| .ret ("ret",
+      pred  := withPre (b.pre.map (· "a")) <| .ret ⟨"ret",
         .assert (.eq .value (.var .value "ret")
-          (b.opTerm (.var .value "a"))) (.ret ())) }
+          (b.opTerm (.var .value "a"))) (.ret ())⟩ }
   typing := schemeTyping [b.arg.typ]
   folSym := some b.sym
   axioms := ⟨b.defAxiom, .high⟩ :: (b.typeAxiom.map (⟨·, .high⟩)).toList
@@ -611,9 +611,9 @@ def Unary.toIntrinsic (b : Unary) : Intrinsic where
 
 @[simp] theorem Unary.spec_pred (b : Unary) :
     b.toIntrinsic.spec.pred = withPre (b.pre.map (· "a"))
-      (.ret ("ret",
+      (.ret ⟨"ret",
         .assert (.eq .value (.var .value "ret")
-          (b.opTerm (.var .value "a"))) (.ret ()))) := rfl
+          (b.opTerm (.var .value "a"))) (.ret ())⟩) := rfl
 
 @[simp] theorem Unary.argTys_map_subst (b : Unary) (σ : TinyML.TyVar → TinyML.Typ) :
     b.toIntrinsic.argTys.map (·.subst σ) = [b.arg.typ.subst σ] := rfl
@@ -801,9 +801,9 @@ def Binary.toIntrinsic (b : Binary) : Intrinsic where
   retTy  := b.res.typ
   spec   :=
     { args  := ["a", "b"]
-      pred  := withPre (b.pre.map (· "a" "b")) <| .ret ("ret",
+      pred  := withPre (b.pre.map (· "a" "b")) <| .ret ⟨"ret",
         .assert (.eq .value (.var .value "ret")
-          (b.opTerm (.var .value "a") (.var .value "b"))) (.ret ())) }
+          (b.opTerm (.var .value "a") (.var .value "b"))) (.ret ())⟩ }
   typing := schemeTyping [b.arg₁.typ, b.arg₂.typ]
   folSym := some b.sym
   axioms := ⟨b.defAxiom, .high⟩ :: (b.typeAxiom.map (⟨·, .high⟩)).toList
@@ -820,9 +820,9 @@ def Binary.toIntrinsic (b : Binary) : Intrinsic where
 
 @[simp] theorem Binary.spec_pred (b : Binary) :
     b.toIntrinsic.spec.pred = withPre (b.pre.map (· "a" "b"))
-      (.ret ("ret",
+      (.ret ⟨"ret",
         .assert (.eq .value (.var .value "ret")
-          (b.opTerm (.var .value "a") (.var .value "b"))) (.ret ()))) := rfl
+          (b.opTerm (.var .value "a") (.var .value "b"))) (.ret ())⟩) := rfl
 
 @[simp] theorem Binary.argTys_map_subst (b : Binary) (σ : TinyML.TyVar → TinyML.Typ) :
     b.toIntrinsic.argTys.map (·.subst σ)
@@ -1039,9 +1039,9 @@ def Ternary.toIntrinsic (b : Ternary) : Intrinsic where
   retTy  := b.res.typ
   spec   :=
     { args  := ["a", "b", "c"]
-      pred  := withPre (b.pre.map (· "a" "b" "c")) <| .ret ("ret",
+      pred  := withPre (b.pre.map (· "a" "b" "c")) <| .ret ⟨"ret",
         .assert (.eq .value (.var .value "ret")
-          (b.opTerm (.var .value "a") (.var .value "b") (.var .value "c"))) (.ret ())) }
+          (b.opTerm (.var .value "a") (.var .value "b") (.var .value "c"))) (.ret ())⟩ }
   typing := schemeTyping [b.arg₁.typ, b.arg₂.typ, b.arg₃.typ]
   folSym := some b.sym
   axioms := ⟨b.defAxiom, .high⟩ :: (b.typeAxiom.map (⟨·, .high⟩)).toList
@@ -1058,9 +1058,9 @@ def Ternary.toIntrinsic (b : Ternary) : Intrinsic where
 
 @[simp] theorem Ternary.spec_pred (b : Ternary) :
     b.toIntrinsic.spec.pred = withPre (b.pre.map (· "a" "b" "c"))
-      (.ret ("ret",
+      (.ret ⟨"ret",
         .assert (.eq .value (.var .value "ret")
-          (b.opTerm (.var .value "a") (.var .value "b") (.var .value "c"))) (.ret ()))) := rfl
+          (b.opTerm (.var .value "a") (.var .value "b") (.var .value "c"))) (.ret ())⟩) := rfl
 
 @[simp] theorem Ternary.argTys_map_subst (b : Ternary) (σ : TinyML.TyVar → TinyML.Typ) :
     b.toIntrinsic.argTys.map (·.subst σ)

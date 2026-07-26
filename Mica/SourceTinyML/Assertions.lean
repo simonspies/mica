@@ -84,10 +84,17 @@ instance [DecidableEq α] : DecidableEq (Assertion α) := Assertion.decideEq
 -- Predicate transformers
 -- ---------------------------------------------------------------------------
 
-def PredTrans := Assertion (Pred (Assertion Unit))
+/-- The postcondition of a predicate transformer: the name bound to the result
+    value, together with the assertion that must hold of it. -/
+structure Post where
+  name : String
+  body : Assertion Unit
+  deriving DecidableEq
+
+def PredTrans := Assertion Post
 
 instance : DecidableEq PredTrans := by
-  unfold PredTrans Pred
+  unfold PredTrans
   infer_instance
 
 -- ---------------------------------------------------------------------------
