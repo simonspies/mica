@@ -1,7 +1,7 @@
 **Mica/Verifier**
 
-- `Assertions.lean` — Assertion language for specifications, together with its semantics, well-formedness conditions, and verifier operations.
-- `Atoms.lean` — Verifier atoms for pure and spatial facts, together with their interpretations, resolution procedures, and correctness lemmas.
+- `Assertions.lean` — Semantics, well-formedness conditions, and verifier operations for the assertion language.
+- `Atoms.lean` — Operations, interpretations, resolution procedures, and correctness lemmas for verifier atoms.
 - `Bindings.lean` — Verifier variable-to-constant bindings, their semantic linkage to runtime substitutions, and typing/lookup lemmas.
 - `BoundedQuantifier.lean` — Lambda lifting of spec-level bounded quantifiers (Range.all/Range.exists) into axiomatized function symbols.
 - `Expressions.lean` — Compilation of typed TinyML expressions into verifier terms, with weakest-precondition correctness proofs.
@@ -10,14 +10,14 @@
 - `Interpretations.lean` — Iris interpretations of spatial atoms and contexts, with lemmas relating syntax to separation-logic assertions.
 - `Intrinsic.lean` — Data model for verifier intrinsics, with generic theorems characterizing the effect of registry setup.
 - `Monad.lean` — Verification monad with SMT operations, branching, and its operational and semantic correctness interfaces.
-- `PredicateTransformers.lean` — Predicate transformers for function specifications, together with their semantics and call and implementation protocols.
+- `PredicateTransformers.lean` — Semantics and call/implementation protocols for function-specification predicate transformers.
 - `PrimitiveLaws.lean` — Spatially lifted weakest-precondition laws for TinyML primitive operations.
 - `Programs.lean` — End-to-end preparation and verification of programs, from typed elaboration to program-level soundness.
 - `RelationalEncoding.lean` — Bundle for RelationalEncoding/, the two-stage encoding of recursive functions into FOL axioms.
 - `Scoped.lean` — Scoped SMT command language and its translation to solver strategies and flat contexts.
 - `SpatialAtom.lean` — Syntactic spatial atoms and contexts for verifier state, together with their well-formedness conditions and basic operations.
 - `SpecMaps.lean` — Finite maps of function specifications, together with satisfaction, update, and well-formedness lemmas.
-- `SpecTranslation.lean` — Translation from typechecked frontend specifications into verifier assertions and predicate transformers.
-- `Specifications.lean` — Function specifications, their semantics, and the protocols for specification calls and implementations.
+- `SpecTranslation.lean` — Translation of one typechecked specification leaf into its FOL value term and definedness condition.
+- `Specifications.lean` — Semantics of function specifications and the protocols for specification calls and implementations.
 - `State.lean` — Verifier state and environments, together with their well-formedness conditions and fresh-name infrastructure.
 - `Utils.lean` — Supporting infrastructure for verifier finite substitutions and argument-handling helpers.

@@ -85,7 +85,6 @@ instance [DecidableEq α] : DecidableEq (Assertion α) := Assertion.decideEq
 -- ---------------------------------------------------------------------------
 
 def PredTrans := Assertion (Pred (Assertion Unit))
-abbrev SpecPredicate := MultiPred PredTrans
 
 instance : DecidableEq PredTrans := by
   unfold PredTrans Pred

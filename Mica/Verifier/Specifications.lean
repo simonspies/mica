@@ -1,4 +1,4 @@
--- SUMMARY: Function specifications, their semantics, and the protocols for specification calls and implementations.
+-- SUMMARY: Semantics of function specifications and the protocols for specification calls and implementations.
 import Mica.SourceTinyML.Typed
 import Mica.SourceTinyML.Typing
 import Mica.FOL.Printing

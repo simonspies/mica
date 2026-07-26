@@ -19,38 +19,52 @@ variable [MicaGS HasLC.hasLC Sig]
 open Typed
 open Verifier.RelationalEncoding (FunCtx)
 
-private def parseSpec (reg : Verifier.Registry) (Γfn : FunCtx) (cb : (Spec.Body Typed.Expr)) :
-    Except String SpecPredicate :=
-  SpecTranslation.translate (Verifier.Intrinsic.sigOf reg) Γfn cb
-
-/-- Extract typed argument names from a function's argument list. -/
-private def extractArgs : List Binder → List String → Except String (List (String × TinyML.Typ))
-  | [], names =>
-    if names.isEmpty then .ok []
-    else .error s!"spec has more arguments than function"
-  | _ :: _, [] => .ok []
-  | b :: rest, n :: ns => do
-    let tail ← extractArgs rest ns
-    .ok ((n, b.ty) :: tail)
-
-/-- Complete a raw spec predicate with type information from a function expression. -/
-def Spec.complete (sp : SpecPredicate) (e : Expr) : Except String Spec :=
-  match e with
-  | .fix _ argBinders retTy _ => do
-    let args ← extractArgs argBinders sp.1
-    .ok { args, retTy, pred := sp.2 }
-  | _ => .error "Spec.complete: expected function"
-
 /-! ## Program-level verification
 
 Iterates over a list of declarations, verifying each one against its spec
 and accumulating the spec map for use by subsequent declarations. -/
 
+/-- The `[@@fn]` function map, read off the *untyped* program. Specification
+leaves are translated during elaboration, so the map that resolves their calls
+has to be available before elaboration starts; the declaration name and relation
+name it needs are both untyped metadata. `RelationSpec.assemble` re-derives the
+same map from the typed program and validates every entry, so nothing here is
+trusted. -/
+def Program.relationMap (prog : Untyped.Program (Spec.Body Untyped.Expr)) : FunCtx :=
+  prog.filterMap fun
+    | .val_ d =>
+      match d.name, d.declMeta.relation with
+      | .named f _, some rel => some (f, rel)
+      | _, _ => none
+    | .type_ _ => none
+
+/-- The environment elaboration resolves specifications against: the registry's
+primitives, and leaf translation through bounded-quantifier lifting followed by
+the relational FOL encoding. The lifted symbols accumulate in the elaboration
+state, and lifting a leaf turns its quantifier occurrences into calls of those
+symbols, so encoding the rewritten leaf resolves against `Γfn` extended by every
+lifting so far — the same list, in the same order, that `assembleLiftings`
+appends to the function map. -/
+def Program.specEnv (reg : Verifier.Registry) (Γfn : FunCtx) :
+    Typed.SpecEnv Verifier.BoundedQuantifier.LiftState where
+  primitive := reg.sigs
+  translate scope e := fun st =>
+    match Verifier.BoundedQuantifier.rewriteLeaf scope.decl scope.declIdx e st with
+    | .error msg => .error (.spec msg)
+    | .ok (e', st') =>
+      let Γ := Γfn ++ st'.syms.map (fun s => (s.name, s.name))
+      match SpecTranslation.translateLeaf (Verifier.Intrinsic.sigOf reg) Γ scope.names e' with
+      | .error msg => .error (.spec msg)
+      | .ok r => .ok (r, st')
+
+/-- Elaborate a program, returning the type environment, the typed program with
+its specifications already translated, and the final elaboration state (which
+carries the lifted bounded quantifiers). -/
 def Program.prepare (env : Typed.SpecEnv σ) (s : σ)
     (prog : Untyped.Program (Spec.Body Untyped.Expr)) :
-    VerifM (TinyML.TypeEnv × Typed.Program (Spec.Body Typed.Expr)) :=
-  match Typed.Program.elaborate env TinyML.TypeEnv.empty TinyML.TyCtx.empty prog s with
-  | .ok (prepared, _) => .ret prepared
+    VerifM (TinyML.TypeEnv × Typed.Program Spec × σ) :=
+  match Typed.Program.elaborate env TinyML.TypeEnv.empty TinyML.TyCtx.empty 0 prog s with
+  | .ok ((Θ, typed), s') => .ret (Θ, typed, s')
   | .error err => .fatal (toString err)
 
 /-- Globally assembled metadata for declarations marked with `[@@fn]`. -/
@@ -77,7 +91,7 @@ private structure RelationDecl where
   body : Typed.Expr
   bv : Skolemize.DefVal
 
-private def validateDecl (d : Typed.ValDecl (Spec.Body Typed.Expr)) :
+private def validateDecl (d : Typed.ValDecl Spec) :
     Except String (TinyML.Var × TinyML.Var × Typed.Expr) := do
   if d.declMeta.spec.isSome then
     .error s!"declaration cannot have both [@@spec] and [@@fn]"
@@ -92,7 +106,7 @@ private def validateDecl (d : Typed.ValDecl (Spec.Body Typed.Expr)) :
   | .fix _ _ _ _ => .error s!"[@@fn] requires a unary function"
   | _ => .error s!"[@@fn] requires a function body"
 
-private def extend (acc : RelationSpec) (d : Typed.ValDecl (Spec.Body Typed.Expr)) :
+private def extend (acc : RelationSpec) (d : Typed.ValDecl Spec) :
     Except String RelationDecl := do
   match d.declMeta.relation with
   | none => .error "internal error: expected relation declaration"
@@ -124,7 +138,7 @@ private def extend (acc : RelationSpec) (d : Typed.ValDecl (Spec.Body Typed.Expr
                                   (SpecFn.func rel)).addUnaryRel (SpecFn.defined rel) }
         .ok { spec, res, axs, f, rel, arg, body, bv }
 
-private def declareAndAssume (acc : RelationSpec) (d : Typed.ValDecl (Spec.Body Typed.Expr)) :
+private def declareAndAssume (acc : RelationSpec) (d : Typed.ValDecl Spec) :
     VerifM RelationSpec := do
   match d.declMeta.relation with
   | none => pure acc
@@ -153,7 +167,7 @@ private def declareLifting (acc : RelationSpec) (s : Verifier.BoundedQuantifier.
                  functionMap := acc.functionMap ++ [(s.name, s.name)],
                  delta := s.extendSignature acc.delta }
 
-private def assembleFrom : RelationSpec → Typed.Program (Spec.Body Typed.Expr) → VerifM RelationSpec
+private def assembleFrom : RelationSpec → Typed.Program Spec → VerifM RelationSpec
   | acc, [] => pure acc
   | acc, d :: ds => do
       let acc' ← declareAndAssume acc d
@@ -168,15 +182,16 @@ private def assembleLiftings : RelationSpec → List Verifier.BoundedQuantifier.
       assembleLiftings acc' ss
 
 /-- Assemble the global relation signature and function-name map for a typed
-program paired with its lifted bounded quantifiers. Quantifier symbols are
-declared after all program declarations: assembly never consults specs, and
-the only cross-references between lifted bodies — inner occurrences captured
-by outer ones — respect the lift order, which `flatMap` preserves. -/
-def assemble (pairs : List (Typed.ValDecl (Spec.Body Typed.Expr) × List Verifier.BoundedQuantifier.Lifting)) :
-    VerifM RelationSpec := do
+program together with the bounded quantifiers its specifications lifted.
+Quantifier symbols are declared after all program declarations: assembly never
+consults specs, and the only cross-references between lifted bodies — inner
+occurrences captured by outer ones — respect the lift order, which elaboration
+preserves. -/
+def assemble (prog : Typed.Program Spec)
+    (liftings : List Verifier.BoundedQuantifier.Lifting) : VerifM RelationSpec := do
   let Δ ← VerifM.ctx (fun st => (st.decls, st.owns))
-  let acc ← assembleFrom { RelationSpec.empty with delta := Δ } (pairs.map Prod.fst)
-  assembleLiftings acc (pairs.flatMap Prod.snd)
+  let acc ← assembleFrom { RelationSpec.empty with delta := Δ } prog
+  assembleLiftings acc liftings
 
 /-- The invariant pack threaded through relation assembly: the accumulated
 delta mirrors the declared signature, the state is spec-level (no owned
@@ -195,7 +210,7 @@ omit [MicaGS HasLC.hasLC Sig] in
 /-- Declaring one relation-marked declaration preserves the assembly
 invariants; the signature only grows and the environment is only extended
 with fresh interpretations. -/
-private theorem declareAndAssume_correct (d : Typed.ValDecl (Spec.Body Typed.Expr))
+private theorem declareAndAssume_correct (d : Typed.ValDecl Spec)
     (acc : RelationSpec) (st : TransState) (ρ : Env)
     {Q : RelationSpec → TransState → Env → Prop}
     (hinv : Inv acc st ρ)
@@ -283,7 +298,7 @@ private theorem declareAndAssume_correct (d : Typed.ValDecl (Spec.Body Typed.Exp
         hsub4, hagree4, VerifM.eval_ret hcont⟩
 
 omit [MicaGS HasLC.hasLC Sig] in
-private theorem assembleFrom_correct (prog : Typed.Program (Spec.Body Typed.Expr)) :
+private theorem assembleFrom_correct (prog : Typed.Program Spec) :
     ∀ (acc : RelationSpec) (st : TransState) (ρ : Env)
       {Q : RelationSpec → TransState → Env → Prop},
       Inv acc st ρ →
@@ -371,14 +386,14 @@ private theorem assembleLiftings_correct (ss : List Verifier.BoundedQuantifier.L
       Env.agreeOn_trans hag1 (Env.agreeOn_mono hsub1 hagRel), hQ⟩
 
 omit [MicaGS HasLC.hasLC Sig] in
-theorem assemble_correct
-    (pairs : List (Typed.ValDecl (Spec.Body Typed.Expr) × List Verifier.BoundedQuantifier.Lifting))
+theorem assemble_correct (prog : Typed.Program Spec)
+    (liftings : List Verifier.BoundedQuantifier.Lifting)
     {st : TransState} {ρ : Env}
     {Q : RelationSpec → TransState → Env → Prop}
     (hvars0 : st.decls.vars = [])
     (howns0 : st.owns = [])
     (hwf0 : st.decls.wf)
-    (heval : VerifM.eval (RelationSpec.assemble pairs) st ρ Q) :
+    (heval : VerifM.eval (RelationSpec.assemble prog liftings) st ρ Q) :
     ∃ spec0 : RelationSpec, ∃ stRel ρRel,
       stRel.decls.vars = [] ∧
       stRel.owns = [] ∧
@@ -397,11 +412,11 @@ theorem assemble_correct
       empty.functionMap ρ ρ :=
     fun _ _ h => (List.not_mem_nil h).elim
   obtain ⟨acc, st1, ρ1, hinv1, hsub1, hag1, hcont⟩ :=
-    assembleFrom_correct (pairs.map Prod.fst) { empty with delta := st.decls } st ρ
+    assembleFrom_correct prog { empty with delta := st.decls } st ρ
       ⟨rfl, howns0, hvars0, hwf0, hempty_Γwf, hempty_split, hempty_det⟩
       (VerifM.eval_bind hrest)
   obtain ⟨result, stRel, ρRel, hinvRel, hsubRel, hagRel, hQ⟩ :=
-    assembleLiftings_correct (pairs.flatMap Prod.snd) acc st1 ρ1 hinv1 hcont
+    assembleLiftings_correct liftings acc st1 ρ1 hinv1 hcont
   refine ⟨result, stRel, ρRel, hinvRel.vars, hinvRel.owns, hsub1.trans hsubRel,
     Env.agreeOn_trans hag1 (Env.agreeOn_mono hsub1 hagRel), ?_⟩
   have hresD := hinvRel.delta
@@ -413,60 +428,51 @@ end RelationSpec
 
 /-- Check an individual declaration. Each declaration's `checkSpec` runs inside a `seq` bracket so its
     declarations and assertions don't pollute subsequent verifications. -/
-def ValDecl.check (reg : Verifier.Registry) (Θ : TinyML.TypeEnv) (Δ_spec : Signature) (Γfn : FunCtx)
-    (S : SpecMap) (d : Typed.ValDecl (Spec.Body Typed.Expr)) : VerifM Spec := do
-  let specExpr ← match d.declMeta.spec with
-    | some e => .ret e
+def ValDecl.check (reg : Verifier.Registry) (Θ : TinyML.TypeEnv) (Δ_spec : Signature)
+    (S : SpecMap) (d : Typed.ValDecl Spec) : VerifM Spec := do
+  let spec ← match d.declMeta.spec with
+    | some s => .ret s
     | none => .fatal "declaration has no spec"
-  let sp ← match parseSpec reg Γfn specExpr with
-  | .ok a => .ret a
-  | .error msg => .fatal msg
-  let spec ← match Spec.complete sp d.body with
-    | .ok s => .ret s
-    | .error e => .fatal e
   let () ← match Spec.checkWf spec Δ_spec with
     | .ok () => .ret ()
     | .error msg => .fatal msg
   VerifM.seq (checkSpec reg Θ Δ_spec S d.body spec) (pure spec)
 
 /-- Check a `let _ = e` declaration: just compile `e` for safety, no spec. -/
-def ValDecl.checkExpr (reg : Verifier.Registry) (Θ : TinyML.TypeEnv) (Δ_spec : Signature) (S : SpecMap) (d : Typed.ValDecl (Spec.Body Typed.Expr)) : VerifM Unit :=
+def ValDecl.checkExpr (reg : Verifier.Registry) (Θ : TinyML.TypeEnv) (Δ_spec : Signature) (S : SpecMap) (d : Typed.ValDecl Spec) : VerifM Unit :=
   VerifM.seq (do let _ ← compile reg Θ Δ_spec S [] TinyML.TyCtx.empty d.body; pure ()) (pure ())
 
 /-- Verify all declarations in a program, accumulating specs as we go. -/
-def Program.check (reg : Verifier.Registry) (Θ : TinyML.TypeEnv) (Δ_spec : Signature) (Γfn : FunCtx) :
-    SpecMap → Typed.Program (Spec.Body Typed.Expr) → VerifM Unit
+def Program.check (reg : Verifier.Registry) (Θ : TinyML.TypeEnv) (Δ_spec : Signature) :
+    SpecMap → Typed.Program Spec → VerifM Unit
   | _, [] => pure ()
   | S, d :: ds => do
     match d.name.name, d.declMeta.spec with
     | none, none =>
       ValDecl.checkExpr reg Θ Δ_spec S d
-      Program.check reg Θ Δ_spec Γfn S ds
+      Program.check reg Θ Δ_spec S ds
     | some n, none =>
     -- Named declaration without a spec: skip if it's a function definition
     -- (no code executes), otherwise check it. Erase any old spec for this
     -- name since the new binding shadows it.
       if d.body.isFunc then
-        Program.check reg Θ Δ_spec Γfn (S.erase n) ds
+        Program.check reg Θ Δ_spec (S.erase n) ds
       else
         ValDecl.checkExpr reg Θ Δ_spec S d
-        Program.check reg Θ Δ_spec Γfn (S.erase n) ds
+        Program.check reg Θ Δ_spec (S.erase n) ds
     | _, _ =>
-      let spec ← ValDecl.check reg Θ Δ_spec Γfn S d
+      let spec ← ValDecl.check reg Θ Δ_spec S d
       let S' := match d.name.name with
         | some name => S.insert name spec
         | none => S
-      Program.check reg Θ Δ_spec Γfn S' ds
+      Program.check reg Θ Δ_spec S' ds
 
 def Program.verify (reg : Verifier.Registry) (prog : Untyped.Program (Spec.Body Untyped.Expr)) : Smt.Strategy Smt.Strategy.Outcome :=
   VerifM.strategy do
-    let (Θ, typed) ← Program.prepare { primitive := reg.sigs } () prog
-    match Verifier.BoundedQuantifier.run typed with
-    | .error msg => VerifM.fatal msg
-    | .ok pairs => do
-        Verifier.Registry.introduceRegistry reg
-        let relations ← RelationSpec.assemble pairs
-        Program.check reg Θ relations.delta relations.functionMap ∅ (pairs.map Prod.fst)
+    let (Θ, typed, liftSt) ← Program.prepare (Program.specEnv reg (Program.relationMap prog)) {} prog
+    Verifier.Registry.introduceRegistry reg
+    let relations ← RelationSpec.assemble typed liftSt.syms
+    Program.check reg Θ relations.delta ∅ typed
 
 /-! ## Correctness -/
 
@@ -474,24 +480,25 @@ omit [MicaGS HasLC.hasLC Sig] in
 theorem Program.prepare_correct (env : Typed.SpecEnv σ) (s : σ)
     (prog : Untyped.Program (Spec.Body Untyped.Expr))
     (st : TransState) (ρ : Env)
-    {Q : (TinyML.TypeEnv × Typed.Program (Spec.Body Typed.Expr)) → TransState → Env → Prop}
+    {Q : (TinyML.TypeEnv × Typed.Program Spec × σ) → TransState → Env → Prop}
     (heval : VerifM.eval (Program.prepare env s prog) st ρ Q) :
-    ∃ Θ typed, Typed.Program.runtime typed = Untyped.Program.runtime prog ∧ Q (Θ, typed) st ρ := by
+    ∃ Θ typed s', Typed.Program.runtime typed = Untyped.Program.runtime prog ∧
+      Q (Θ, typed, s') st ρ := by
   unfold Program.prepare at heval
-  cases helab : Typed.Program.elaborate env TinyML.TypeEnv.empty TinyML.TyCtx.empty prog s with
+  cases helab : Typed.Program.elaborate env TinyML.TypeEnv.empty TinyML.TyCtx.empty 0 prog s with
   | error err =>
     simp [helab] at heval
     exact (VerifM.eval_fatal heval).elim
   | ok prepared =>
     rcases prepared with ⟨⟨Θ, typed⟩, s'⟩
-    refine ⟨Θ, typed,
-      Typed.Program.elaborate_runtime env TinyML.TypeEnv.empty TinyML.TyCtx.empty prog helab, ?_⟩
+    refine ⟨Θ, typed, s',
+      Typed.Program.elaborate_runtime env TinyML.TypeEnv.empty TinyML.TyCtx.empty 0 prog helab, ?_⟩
     simp [helab] at heval
     exact VerifM.eval_ret heval
 
 theorem ValDecl.checkExpr_correct (reg : Verifier.Registry) (hSound : Verifier.Registry.Sound reg)
     (W : TinyML.World) (hW : W.pctx = reg.primCtx)
-    (S : SpecMap) (d : Typed.ValDecl (Spec.Body Typed.Expr)) (γ : Runtime.Subst)
+    (S : SpecMap) (d : Typed.ValDecl Spec) (γ : Runtime.Subst)
     (hSwf : S.wfIn W.Δ_spec) (hwf : W.wf)
     (st : TransState) (ρ : Env)
     (hag : W.agrees st.decls ρ)
@@ -539,15 +546,15 @@ theorem ValDecl.checkExpr_correct (reg : Verifier.Registry) (hSound : Verifier.R
           · iexact Hspec
 
 theorem ValDecl.check_correct (reg : Verifier.Registry) (hSound : Verifier.Registry.Sound reg)
-    (W : TinyML.World) (hW : W.pctx = reg.primCtx) (Γfn : FunCtx)
-    (S : SpecMap) (d : Typed.ValDecl (Spec.Body Typed.Expr)) (γ : Runtime.Subst)
+    (W : TinyML.World) (hW : W.pctx = reg.primCtx)
+    (S : SpecMap) (d : Typed.ValDecl Spec) (γ : Runtime.Subst)
     (hSwf : S.wfIn W.Δ_spec) (hwf : W.wf)
     (st : TransState) (ρ : Env)
     (hag : W.agrees st.decls ρ)
     (hΔreg : Verifier.Registry.symSubset reg W.Δ_spec)
     (hρreg : Verifier.Registry.symAgree reg W.ρ_spec)
     {Q : Spec → TransState → Env → Prop}
-    (heval : VerifM.eval (ValDecl.check reg W.Θ W.Δ_spec Γfn S d) st ρ Q) :
+    (heval : VerifM.eval (ValDecl.check reg W.Θ W.Δ_spec S d) st ρ Q) :
     ∃ spec, spec.wfIn W.Δ_spec ∧
             (□ st.sl W ρ ∗ S.satisfiedBy W γ ⊢ wp W.pctx (d.body.runtime.subst γ) (fun v => spec.isPrecondFor W v)) ∧
             Q spec st ρ := by
@@ -556,54 +563,40 @@ theorem ValDecl.check_correct (reg : Verifier.Registry) (hSound : Verifier.Regis
   | none =>
     simp only [hspec] at heval
     exact (VerifM.eval_fatal (VerifM.eval_bind heval)).elim
-  | some specExpr =>
+  | some spec =>
     simp only [hspec] at heval
-    have h1 := VerifM.eval_ret (VerifM.eval_bind heval)
-    cases hparse : parseSpec reg Γfn specExpr with
+    have h3 := VerifM.eval_ret (VerifM.eval_bind heval)
+    cases hcheckWf : Spec.checkWf spec W.Δ_spec with
     | error msg =>
-      simp only [hparse] at h1
-      exact (VerifM.eval_fatal (VerifM.eval_bind h1)).elim
-    | ok sp =>
-      simp only [hparse] at h1
-      have h2 := VerifM.eval_ret (VerifM.eval_bind h1)
-      cases hcomplete : Spec.complete sp d.body with
-      | error msg =>
-        simp only [hcomplete] at h2
-        exact (VerifM.eval_fatal (VerifM.eval_bind h2)).elim
-      | ok spec =>
-        simp only [hcomplete] at h2
-        have h3 := VerifM.eval_ret (VerifM.eval_bind h2)
-        cases hcheckWf : Spec.checkWf spec W.Δ_spec with
-        | error msg =>
-          simp only [hcheckWf] at h3
-          exact (VerifM.eval_fatal (VerifM.eval_bind h3)).elim
-        | ok u =>
-          simp only [hcheckWf] at h3
-          have h4 := VerifM.eval_ret (VerifM.eval_bind h3)
-          have hswf : spec.wfIn W.Δ_spec := Spec.checkWf_ok (by cases u; exact hcheckWf)
-          have ⟨hcheckSpec, hpure⟩ := VerifM.eval_seq h4
-          exact ⟨spec, hswf,
-            by
-              have hcheck :=
-                checkSpec_correct reg hSound W hW S d.body spec γ
-                  hswf hSwf hwf st ρ hag hΔreg hρreg hcheckSpec
-              refine BIBase.Entails.trans ?_ hcheck
-              istart
-              iintro ⟨#Hsl, #Hspec⟩
-              isplitl [Hsl]
-              · iexact Hsl
-              · iexact Hspec,
-                 VerifM.eval_ret hpure⟩
+      simp only [hcheckWf] at h3
+      exact (VerifM.eval_fatal (VerifM.eval_bind h3)).elim
+    | ok u =>
+      simp only [hcheckWf] at h3
+      have h4 := VerifM.eval_ret (VerifM.eval_bind h3)
+      have hswf : spec.wfIn W.Δ_spec := Spec.checkWf_ok (by cases u; exact hcheckWf)
+      have ⟨hcheckSpec, hpure⟩ := VerifM.eval_seq h4
+      exact ⟨spec, hswf,
+        by
+          have hcheck :=
+            checkSpec_correct reg hSound W hW S d.body spec γ
+              hswf hSwf hwf st ρ hag hΔreg hρreg hcheckSpec
+          refine BIBase.Entails.trans ?_ hcheck
+          istart
+          iintro ⟨#Hsl, #Hspec⟩
+          isplitl [Hsl]
+          · iexact Hsl
+          · iexact Hspec,
+             VerifM.eval_ret hpure⟩
 
 theorem Program.check_correct (reg : Verifier.Registry) (hSound : Verifier.Registry.Sound reg)
-    (W : TinyML.World) (hW : W.pctx = reg.primCtx) (Γfn : FunCtx)
-    (S : SpecMap) (prog : Typed.Program (Spec.Body Typed.Expr)) (γ : Runtime.Subst)
+    (W : TinyML.World) (hW : W.pctx = reg.primCtx)
+    (S : SpecMap) (prog : Typed.Program Spec) (γ : Runtime.Subst)
     (hSwf : S.wfIn W.Δ_spec) (hwf : W.wf)
     (st : TransState) (ρ : Env)
     (hag : W.agrees st.decls ρ)
     (hΔreg : Verifier.Registry.symSubset reg W.Δ_spec)
     (hρreg : Verifier.Registry.symAgree reg W.ρ_spec) :
-    VerifM.eval (Program.check reg W.Θ W.Δ_spec Γfn S prog) st ρ (fun _ _ _ => True) →
+    VerifM.eval (Program.check reg W.Θ W.Δ_spec S prog) st ρ (fun _ _ _ => True) →
     □ st.sl W ρ ∗ S.satisfiedBy W γ ⊢ pwp W.pctx ((Typed.Program.runtime prog).subst γ) := by
   induction prog generalizing S γ st ρ with
   | nil =>
@@ -645,7 +638,7 @@ theorem Program.check_correct (reg : Verifier.Registry) (hSound : Verifier.Regis
         -- unnamed, with spec
         simp only [hname, hspec] at heval
         obtain ⟨spec, _, hwp, hcont⟩ :=
-          ValDecl.check_correct reg hSound W hW Γfn S d γ hSwf hwf st ρ hag hΔreg hρreg (VerifM.eval_bind heval)
+          ValDecl.check_correct reg hSound W hW S d γ hSwf hwf st ρ hag hΔreg hρreg (VerifM.eval_bind heval)
         have hih := ih S γ hSwf st ρ hag hcont
         refine SpatialContext.wp_strengthen_persistent hwp ?_
         intro v
@@ -677,7 +670,7 @@ theorem Program.check_correct (reg : Verifier.Registry) (hSound : Verifier.Regis
               (args.map (·.runtime))))
           apply SpatialContext.wp_func
           rw [hupd fval]
-          have heval' : VerifM.eval (Program.check reg W.Θ W.Δ_spec Γfn (S.erase n) ds) st ρ (fun _ _ _ => True) := by
+          have heval' : VerifM.eval (Program.check reg W.Θ W.Δ_spec (S.erase n) ds) st ρ (fun _ _ _ => True) := by
             convert heval
           have hih := ih (S.erase n) (γ.update n fval)
             (SpecMap.wfIn_erase hSwf) st ρ hag heval'
@@ -691,7 +684,7 @@ theorem Program.check_correct (reg : Verifier.Registry) (hSound : Verifier.Regis
         · -- named, no spec, not a function
           have hbind := VerifM.eval_bind heval
           have ⟨_, hcont⟩ := VerifM.eval_seq hbind
-          have hcont' : VerifM.eval (Program.check reg W.Θ W.Δ_spec Γfn (S.erase n) ds) st ρ (fun _ _ _ => True) :=
+          have hcont' : VerifM.eval (Program.check reg W.Θ W.Δ_spec (S.erase n) ds) st ρ (fun _ _ _ => True) :=
             VerifM.eval_ret hcont
           have hwp := ValDecl.checkExpr_correct reg hSound W hW S d γ hSwf hwf st ρ hag hΔreg hρreg hbind
             (Φ := iprop(emp)) (by istart; iintro _; iempintro)
@@ -710,8 +703,8 @@ theorem Program.check_correct (reg : Verifier.Registry) (hSound : Verifier.Regis
       | some _ =>
         simp only [hname, hspec] at heval
         obtain ⟨spec, hswf, hwp, hcont⟩ :=
-          ValDecl.check_correct reg hSound W hW Γfn S d γ hSwf hwf st ρ hag hΔreg hρreg (VerifM.eval_bind heval)
-        have hcont' : VerifM.eval (Program.check reg W.Θ W.Δ_spec Γfn (S.insert n spec) ds) st ρ (fun _ _ _ => True) := by
+          ValDecl.check_correct reg hSound W hW S d γ hSwf hwf st ρ hag hΔreg hρreg (VerifM.eval_bind heval)
+        have hcont' : VerifM.eval (Program.check reg W.Θ W.Δ_spec (S.insert n spec) ds) st ρ (fun _ _ _ => True) := by
           convert hcont
         refine SpatialContext.wp_strengthen_persistent hwp ?_
         intro v
@@ -754,31 +747,19 @@ theorem Program.verify_correct (reg : Verifier.Registry)
   | .ok () =>
     have hverifM := VerifM.eval_of_translate
                       (do
-                        let (Θ, typed) ← Program.prepare { primitive := reg.sigs } () p
-                        match Verifier.BoundedQuantifier.run typed with
-                        | .error msg => VerifM.fatal msg
-                        | .ok pairs => do
-                            Verifier.Registry.introduceRegistry reg
-                            let relations ← RelationSpec.assemble pairs
-                            Program.check reg Θ relations.delta relations.functionMap ∅
-                              (pairs.map Prod.fst))
+                        let (Θ, typed, liftSt) ←
+                          Program.prepare (Program.specEnv reg (Program.relationMap p)) {} p
+                        Verifier.Registry.introduceRegistry reg
+                        let relations ← RelationSpec.assemble typed liftSt.syms
+                        Program.check reg Θ relations.delta ∅ typed)
                       TransState.init Env.init ctx_mid
                       (ScopedM.eval_declareConst hverif)
                       TransState.init_holdsFor TransState.init_wf
     have hbind := VerifM.eval_bind hverifM
-    obtain ⟨Θ, typed, hrt, hrest⟩ :=
-      Program.prepare_correct { primitive := reg.sigs } () p TransState.init Env.init hbind
-    -- Peel the bounded-quantifier pass: a rewrite failure is fatal, and a success
-    -- leaves the program's runtime erasure unchanged.
+    obtain ⟨Θ, typed, liftSt, hrt, hrest⟩ :=
+      Program.prepare_correct (Program.specEnv reg (Program.relationMap p)) {} p
+        TransState.init Env.init hbind
     dsimp only at hrest
-    cases hrun : Verifier.BoundedQuantifier.run typed with
-    | error msg =>
-      rw [hrun] at hrest
-      exact (VerifM.eval_fatal hrest).elim
-    | ok pairs =>
-    rw [hrun] at hrest
-    have hrt : Typed.Program.runtime (pairs.map Prod.fst) = Untyped.Program.runtime p :=
-      (Verifier.BoundedQuantifier.run_runtime hrun).trans hrt
     -- Peel the registry setup from the continuation generically.
     have hsetup_bind := VerifM.eval_bind hrest
     obtain ⟨st_setup, ρ_setup, _hΔsub, hdep_setup, hvars_setup_eq, howns_setup,
@@ -789,7 +770,8 @@ theorem Program.verify_correct (reg : Verifier.Registry)
       rw [hvars_setup_eq]
       rfl
     obtain ⟨spec0, stRel, ρRel, hvars, howns, hsub_setup_rel, hag_setup_rel, hcheck_eval⟩ :=
-      RelationSpec.assemble_correct pairs hvars_setup howns_setup hcheck_eval.1.namesDisjoint hassemble
+      RelationSpec.assemble_correct typed liftSt.syms hvars_setup howns_setup
+        hcheck_eval.1.namesDisjoint hassemble
     have hΔreg : Verifier.Registry.symSubset reg stRel.decls := by
       intro i hi
       exact (Verifier.Registry.extendWithSym_subset_sigOf_of_mem hi).trans
@@ -802,8 +784,8 @@ theorem Program.verify_correct (reg : Verifier.Registry)
     -- relational declarations left in the state.
     let W : TinyML.World :=
       { pctx := reg.primCtx, Θ, Δ_spec := stRel.decls, ρ_spec := ρRel }
-    have hcorrect := Program.check_correct reg hSound W rfl spec0.functionMap
-                       ∅ (pairs.map Prod.fst) Runtime.Subst.id
+    have hcorrect := Program.check_correct reg hSound W rfl
+                       ∅ typed Runtime.Subst.id
                        (SpecMap.empty_wfIn _)
                        ⟨hcheck_eval.1.namesDisjoint, hvars⟩
                        stRel ρRel

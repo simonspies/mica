@@ -1,4 +1,4 @@
--- SUMMARY: Verifier atoms for pure and spatial facts, together with their interpretations, resolution procedures, and correctness lemmas.
+-- SUMMARY: Operations, interpretations, resolution procedures, and correctness lemmas for verifier atoms.
 import Mica.SourceTinyML.Assertions
 import Mica.FOL.Printing
 import Mica.FOL.Subst

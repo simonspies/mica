@@ -234,18 +234,19 @@ instance : Verifier.IntrinsicSound [] existsIntrinsic := intrinsicSound _ _
 
 /-! ## The rewrite pass
 
-Runs on the typed program before relation assembly. Each occurrence
+Lifting is a *leaf* rewrite, so it runs inside the leaf translator that
+elaboration calls (`Typed.SpecEnv.translate`), ahead of the FOL encoding, and
+accumulates its lifted symbols in the elaboration state. Each occurrence
 `Range.all lo hi (fun i -> body)` in a spec leaf is replaced by a plain call
 `L (lo, hi, x̄)` of a fresh symbol `L = "<decl>-range-<k>"` over the packed
 bounds and captured variables `x̄`; the closure is recorded as a lifted
 function body `let (x̄, i) = arg in body` to be axiomatized during assembly.
-Only the spec leaves change — declaration bodies (hence the program's runtime
-erasure) are untouched.
+Only spec leaves change — declaration bodies, hence the program's runtime
+erasure, are never touched.
 
 The rewrite itself is `partial` and unverified: no proof depends on its
-equations. Rewritten specs are re-checked from scratch by spec translation,
-name freshness is validated operationally during assembly, and `run_runtime`
-only needs that declaration bodies are untouched. -/
+equations. Rewritten leaves are encoded from scratch, and name freshness is
+validated operationally during assembly. -/
 
 /-- One lifted occurrence of a bounded quantifier: the quantifier symbol's base
 name, the quantifier kind, the captured spec variables (first-occurrence
@@ -369,101 +370,14 @@ private partial def rewrite (decl : Option String) : Typed.Expr → LiftM Typed.
         (← branches.mapM fun (b, body) => do pure (b, ← rewrite decl body)) ty)
   | .cast e ty => do pure (.cast (← rewrite decl e) ty)
 
-/-- Rewrite the leaves of a spec assertion; `f` handles the return payload. -/
-private def rewriteAssert {α β : Type} (decl : Option String) (f : α → LiftM β) :
-    Spec.Assert Typed.Expr α → LiftM (Spec.Assert Typed.Expr β)
-  | .ret v => .ret <$> f v
-  | .assert c rest => do pure (.assert (← rewrite decl c) (← rewriteAssert decl f rest))
-  | .let_ x v rest => do pure (.let_ x (← rewrite decl v) (← rewriteAssert decl f rest))
-  | .bind p x ty rest => do pure (.bind p x ty (← rewriteAssert decl f rest))
-  | .ite c t e => do
-      pure (.ite (← rewrite decl c) (← rewriteAssert decl f t) (← rewriteAssert decl f e))
-
-/-- Rewrite all spec leaves of a spec body. -/
-private def rewriteBody (decl : Option String) (body : Spec.Body Typed.Expr) :
-    LiftM (Spec.Body Typed.Expr) := do
-  let pre ← rewriteAssert decl
-    (fun (r, post) => do pure (r, ← rewriteAssert decl pure post)) body.2
-  pure (body.1, pre)
-
-/-- Rewrite one declaration's spec at its program index, pairing it with the
-lifted symbols. -/
-def runDecl (declIdx : Nat) (d : Typed.ValDecl (Spec.Body Typed.Expr)) :
-    Except String (Typed.ValDecl (Spec.Body Typed.Expr) × List Lifting) :=
-  match d.declMeta.spec with
-  | none => .ok (d, [])
-  | some body =>
-      match (rewriteBody d.name.name body).run { declIdx := declIdx } with
-      | .error err => .error err
-      | .ok (body', st) =>
-          .ok ({ d with declMeta := { d.declMeta with spec := some body' } }, st.syms)
-
-/-- Run the bounded-quantifier pass over a typed program: rewrite every spec's
-bounded-quantifier occurrences and pair each declaration with its lifted
-symbols in dependency order. Declaration bodies are untouched, so the
-program's runtime erasure is preserved (`run_runtime`). -/
-private def runFrom : Nat → Typed.Program (Spec.Body Typed.Expr) →
-    Except String (List (Typed.ValDecl (Spec.Body Typed.Expr) × List Lifting))
-  | _, [] => .ok []
-  | declIdx, d :: ds =>
-      match runDecl declIdx d with
-      | .error err => .error err
-      | .ok p =>
-          match runFrom (declIdx + 1) ds with
-          | .error err => .error err
-          | .ok ps => .ok (p :: ps)
-
-/-- Run the bounded-quantifier pass over a typed program. The declaration
-index makes generated symbol names unique even when top-level names are
-shadowed. -/
-def run (prog : Typed.Program (Spec.Body Typed.Expr)) :
-    Except String (List (Typed.ValDecl (Spec.Body Typed.Expr) × List Lifting)) :=
-  runFrom 0 prog
-
-/-- The pass leaves a declaration's name and body untouched. -/
-theorem runDecl_runtime {declIdx : Nat} {d : Typed.ValDecl (Spec.Body Typed.Expr)}
-    {p : Typed.ValDecl (Spec.Body Typed.Expr) × List Lifting}
-    (h : runDecl declIdx d = .ok p) : p.1.runtime = d.runtime := by
-  unfold runDecl at h
-  split at h
-  · cases h; rfl
-  · split at h
-    · cases h
-    · cases h; rfl
-
-/-- The pass preserves the program's runtime erasure: only spec metadata
-changes. -/
-private theorem runFrom_runtime {declIdx : Nat} {prog : Typed.Program (Spec.Body Typed.Expr)}
-    {pairs : List (Typed.ValDecl (Spec.Body Typed.Expr) × List Lifting)}
-    (h : runFrom declIdx prog = .ok pairs) :
-    Typed.Program.runtime (pairs.map Prod.fst) = prog.runtime := by
-  induction prog generalizing declIdx pairs with
-  | nil =>
-    simp only [runFrom, Except.ok.injEq] at h
-    subst h
-    rfl
-  | cons d ds ih =>
-    rw [runFrom] at h
-    split at h
-    · cases h
-    · rename_i p hd
-      split at h
-      · cases h
-      · rename_i ps hds
-        cases h
-        simp only [List.map_cons, Typed.Program.runtime, List.map]
-        rw [show p.1.runtime = d.runtime from runDecl_runtime hd]
-        have := ih hds
-        simp only [Typed.Program.runtime] at this
-        rw [this]
-
-/-- The pass preserves the program's runtime erasure: only spec metadata
-changes. -/
-theorem run_runtime {prog : Typed.Program (Spec.Body Typed.Expr)}
-    {pairs : List (Typed.ValDecl (Spec.Body Typed.Expr) × List Lifting)}
-    (h : run prog = .ok pairs) :
-    Typed.Program.runtime (pairs.map Prod.fst) = prog.runtime := by
-  exact runFrom_runtime h
+/-- Rewrite one typed spec leaf, lifting every bounded-quantifier occurrence in
+it. `decl` names the declaration the specification is attached to and `declIdx`
+is its index in the program; together with the running occurrence counter they
+key the generated symbol names, which stay unique even when top-level names are
+shadowed. The lifted symbols accumulate in `syms` in dependency order. -/
+def rewriteLeaf (decl : Option String) (declIdx : Nat) (e : Typed.Expr) (st : LiftState) :
+    Except String (Typed.Expr × LiftState) :=
+  (rewrite decl e).run { st with declIdx := declIdx }
 
 /-! ## Solver-facing symbols and defining axioms
 

@@ -4,6 +4,8 @@ import Mica.SourceTinyML.Untyped
 import Mica.SourceTinyML.Typed
 import Mica.TinyML.RuntimeExpr
 import Mica.SourceTinyML.Spec
+import Mica.SourceTinyML.Assertions
+import Mica.SourceTinyML.TypeConstraints
 import Mica.Base.Except
 
 namespace TinyML
@@ -74,7 +76,7 @@ namespace Typed
 open TinyML
 
 inductive TypeError where
-  | undefinedVar (name : Var)
+  | undefinedVar (name : TinyML.Var)
   | duplicateType (name : TypeName)
   | operatorMismatch (op : BinOp) (lhs rhs : Typ)
   | unaryMismatch (op : UnOp) (arg : Typ)
@@ -206,9 +208,25 @@ def TypeM.ofExcept : Except TypeError α → TypeM σ α
     (TypeM.ofExcept r : TypeM σ α) s = .ok (a, s') ↔ r = .ok a ∧ s' = s := by
   cases r <;> simp [TypeM.ofExcept, eq_comm]
 
-/-- The ambient vocabulary typing resolves against: the built-in primitives. -/
+/-- What a spec leaf's translator learns from the spine it sits in: the
+declaration the specification is attached to, that declaration's index in the
+program, and the spec-level names in scope. -/
+structure SpecScope where
+  decl : Option String
+  declIdx : Nat
+  names : List String
+
+/-- Extend the spec-level scope with a newly bound name. -/
+def SpecScope.bind (scope : SpecScope) (x : String) : SpecScope :=
+  { scope with names := scope.names ++ [x] }
+
+/-- The ambient vocabulary typing resolves against: the built-in primitives, and
+the translation of a single typed specification leaf into its value term and
+definedness condition. Typing supplies the scope and propagates whatever effect
+the translation carries in `σ`; it never inspects that state itself. -/
 structure SpecEnv (σ : Type) where
   primitive : String → Option PrimSig
+  translate : SpecScope → Typed.Expr → TypeM σ (Term .value × Formula)
 
 /-- The domain and result types of `ty` applied to `arity` arguments.
     Applications are n-ary and saturated: a wrong argument count is an arity
@@ -493,48 +511,80 @@ theorem inferProductBinders_runtime (Θ : TypeEnv) :
 
 /-! ## Specification elaboration
 
-A spec is elaborated alongside the declaration it annotates: its leaf
-expressions go through the ordinary `infer`/`check` judgments, with the spec's
-arguments taking the function's argument types, `bind` binders their annotated
-types, and the postcondition result the return type. This reuses the global
+A spec is elaborated alongside the declaration it annotates, in a single walk.
+Its leaf expressions go through the ordinary `infer`/`check` judgments — with the
+spec's arguments taking the function's argument types, `bind` binders their
+annotated types, and the postcondition result the return type — and each typed
+leaf is handed straight to `env.translate`, so the walk produces a `Spec`
+directly rather than an intermediate typed spec body. This reuses the global
 context from `Program.elaborate`, so a spec may refer to earlier definitions. -/
 
-/-- Elaborate a spec assertion through `infer`/`check`. The `inner` callback
-elaborates the return payload in the current type context. -/
-def elabAssert (env : SpecEnv σ) (Θ : TypeEnv) (inner : TyCtx → α → TypeM σ β) :
-    TyCtx → Spec.Assert Untyped.Expr α → TypeM σ (Spec.Assert Typed.Expr β)
-  | Γ, .ret a => do pure (.ret (← inner Γ a))
-  | Γ, .assert cond rest => do
-    let cond' ← check env Θ Γ cond .bool
-    pure (.assert cond' (← elabAssert env Θ inner Γ rest))
-  | Γ, .let_ x e rest => do
-    let (ty, e') ← infer env Θ Γ e
-    pure (.let_ x e' (← elabAssert env Θ inner (Γ.extend x ty) rest))
-  | Γ, .bind p x ty rest => do
-    let p' ← match p with
-      | .isinj tag arity scrut => pure (.isinj tag arity scrut)
-      | .own loc =>
-        match Γ loc with
-        | some (.owned innerTy) =>
-          if innerTy == ty then pure (.own loc)
-          else TypeM.error (.spec s!"own {loc} must bind {repr innerTy}, not {repr ty}")
-        | some other => TypeM.error (.spec s!"own {loc} requires an owned reference, got {repr other}")
-        | none => TypeM.error (.spec s!"unknown ownership variable '{loc}'")
-      | .arr loc =>
-        match Γ loc with
-        | some (.ownedArray innerTy) =>
-          if (.vec innerTy) == ty then pure (.arr loc)
-          else TypeM.error (.spec s!"arr {loc} must bind a vector snapshot of type {repr (TinyML.Typ.vec innerTy)}, not {repr ty}")
-        | some other => TypeM.error (.spec s!"arr {loc} requires an owned array, got {repr other}")
-        | none => TypeM.error (.spec s!"unknown ownership variable '{loc}'")
-    pure (.bind p' x ty (← elabAssert env Θ inner (Γ.extend x ty) rest))
-  | Γ, .ite cond thn els => do
-    let cond' ← check env Θ Γ cond .bool
-    pure (.ite cond' (← elabAssert env Θ inner Γ thn) (← elabAssert env Θ inner Γ els))
+/-- Assert all formulas in order before continuing with the assertion body. -/
+private def assertAll (φs : List Formula) (k : Assertion α) : Assertion α :=
+  φs.foldr .assert k
 
-private def elabPost (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TyCtx) (post : Spec.Post Untyped.Expr) :
-    TypeM σ (Spec.Post Typed.Expr) :=
-  elabAssert env Θ (fun _ () => pure ()) Γ post
+/-- The formula stating that a leaf's value term is the boolean `true`. -/
+private def holds (v : Term .value) : Formula :=
+  .eq .bool (.unop .toBool v) (.const (.b true))
+
+/-- Resolve a spec-level variable. The leaf translator represents each spec-level
+name by the value-sorted variable of the same name, so resolving one is just a
+scope check. -/
+private def specVar (names : List String) (x : String) : TypeM σ (Term .value) :=
+  if x ∈ names then pure (.var .value x)
+  else TypeM.error (.spec s!"unbound spec variable '{x}'")
+
+/-- Elaborate a spec predicate into the atom binding its payload, checking the
+scrutinee against both the type context and the spec-level scope. -/
+private def elabPred (Γ : TyCtx) (names : List String) (ty : Typ) :
+    Spec.Pred → TypeM σ (Atom .value)
+  | .isinj tag arity scrut => do pure (.isinj tag arity (← specVar names scrut))
+  | .own loc =>
+    match Γ loc with
+    | some (.owned innerTy) =>
+      if innerTy == ty then do pure (.own (← specVar names loc) ty)
+      else TypeM.error (.spec s!"own {loc} must bind {repr innerTy}, not {repr ty}")
+    | some other => TypeM.error (.spec s!"own {loc} requires an owned reference, got {repr other}")
+    | none => TypeM.error (.spec s!"unknown ownership variable '{loc}'")
+  | .arr loc =>
+    match Γ loc with
+    | some (.ownedArray innerTy) =>
+      if (.vec innerTy) == ty then do pure (.arr (← specVar names loc) innerTy)
+      else TypeM.error (.spec s!"arr {loc} must bind a vector snapshot of type {repr (TinyML.Typ.vec innerTy)}, not {repr ty}")
+    | some other => TypeM.error (.spec s!"arr {loc} requires an owned array, got {repr other}")
+    | none => TypeM.error (.spec s!"unknown ownership variable '{loc}'")
+
+/-- Elaborate a spec assertion into a verifier assertion in one walk: each leaf
+is typechecked and then translated, and its definedness condition is asserted
+before the value it guards is bound or tested. The `inner` callback elaborates
+the return payload in the current type context and spec-level scope. -/
+def elabAssert (env : SpecEnv σ) (Θ : TypeEnv) (inner : TyCtx → SpecScope → α → TypeM σ β) :
+    TyCtx → SpecScope → Spec.Assert Untyped.Expr α → TypeM σ (Assertion β)
+  | Γ, scope, .ret a => do pure (.ret (← inner Γ scope a))
+  | Γ, scope, .assert cond rest => do
+    let cond' ← check env Θ Γ cond .bool
+    let (v, defd) ← env.translate scope cond'
+    pure (.assert defd (.assert (holds v) (← elabAssert env Θ inner Γ scope rest)))
+  | Γ, scope, .let_ x e rest => do
+    let (ty, e') ← infer env Θ Γ e
+    let (v, defd) ← env.translate scope e'
+    pure (.assert defd (.let_ ⟨x, .value⟩ v
+      (assertAll (TinyML.typeConstraints ty (.var .value x))
+        (← elabAssert env Θ inner (Γ.extend x ty) (scope.bind x) rest))))
+  | Γ, scope, .bind p x ty rest => do
+    let atom ← elabPred Γ scope.names ty p
+    pure (.pred ⟨x, .value⟩ atom
+      (assertAll (TinyML.typeConstraints ty (.var .value x))
+        (← elabAssert env Θ inner (Γ.extend x ty) (scope.bind x) rest)))
+  | Γ, scope, .ite cond thn els => do
+    let cond' ← check env Θ Γ cond .bool
+    let (v, defd) ← env.translate scope cond'
+    pure (.assert defd (.ite (holds v)
+      (← elabAssert env Θ inner Γ scope thn) (← elabAssert env Θ inner Γ scope els)))
+
+private def elabPost (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TyCtx) (scope : SpecScope)
+    (post : Spec.Post Untyped.Expr) : TypeM σ (Assertion Unit) :=
+  elabAssert env Θ (fun _ _ () => pure ()) Γ scope post
 
 /-- Match the spec's bound names against the typed function binders to recover
 each argument's type. -/
@@ -546,33 +596,35 @@ private def specArgTypes : List Typed.Binder → List String → Except TypeErro
     .ok ((n, b.ty) :: rest)
 
 /-- Elaborate a spec body against its function's typed signature, layering the
-spec's arguments on top of the program's global bindings `Γbase`. -/
-def elabSpecBody (env : SpecEnv σ) (Θ : TypeEnv) (Γbase : TyCtx) (body : Typed.Expr) (rb : Spec.Body Untyped.Expr) :
-    TypeM σ (Spec.Body Typed.Expr) := do
+spec's arguments on top of the program's global bindings `Γbase`. The argument
+and return types recovered here are exactly the ones the resulting `Spec`
+carries. -/
+def elabSpecBody (env : SpecEnv σ) (Θ : TypeEnv) (Γbase : TyCtx) (decl : Option String)
+    (declIdx : Nat) (body : Typed.Expr) (rb : Spec.Body Untyped.Expr) : TypeM σ Spec := do
   let (names, pre) := rb
   let (argBinders, retTy) ← match body with
     | .fix _ args retTy _ => pure (args, retTy)
     | _ => TypeM.error (.spec "attached to a non-function declaration")
   let argTys ← TypeM.ofExcept (specArgTypes argBinders names)
   let Γ₀ : TyCtx := argTys.foldl (fun Γ p => Γ.extend p.1 p.2) Γbase
-  let pre' ← elabAssert env Θ
-    (fun Γ (vname, post) => do
-      let post' ← elabPost env Θ (Γ.extend vname retTy) post
+  let pred ← elabAssert env Θ
+    (fun Γ scope (vname, post) => do
+      let post' ← elabPost env Θ (Γ.extend vname retTy) (scope.bind vname) post
       pure (vname, post'))
-    Γ₀ pre
-  pure (names, pre')
+    Γ₀ { decl, declIdx, names } pre
+  pure { args := argTys, retTy := retTy, pred := pred }
 
 /-- Elaborate a declaration's optional spec against the typed function `body`. -/
-def elabSpec (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TyCtx) (body : Typed.Expr) :
-    Option (Spec.Body Untyped.Expr) → TypeM σ (Option (Spec.Body Typed.Expr))
+def elabSpec (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TyCtx) (decl : Option String) (declIdx : Nat)
+    (body : Typed.Expr) : Option (Spec.Body Untyped.Expr) → TypeM σ (Option Spec)
   | none => pure none
   | some rb => do
-    let cb ← elabSpecBody env Θ Γ body rb
-    pure (some cb)
+    let s ← elabSpecBody env Θ Γ decl declIdx body rb
+    pure (some s)
 
-def ValDecl.elaborate (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx)
+def ValDecl.elaborate (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx) (declIdx : Nat)
     (d : Untyped.ValDecl (Spec.Body Untyped.Expr)) :
-    TypeM σ (Typed.ValDecl (Spec.Body Typed.Expr)) := do
+    TypeM σ (Typed.ValDecl Spec) := do
   let (bodyTy, body') ←
     match d.name with
     | .named _ (some ty) => do
@@ -582,24 +634,28 @@ def ValDecl.elaborate (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx)
   let nameTy := match d.name with
     | .named _ (some ty) => ty
     | _ => bodyTy
-  let spec' ← elabSpec env Θ Γ body' d.declMeta.spec
-  pure { name := Typed.Binder.ofUntyped d.name nameTy, body := body',
+  let nameB := Typed.Binder.ofUntyped d.name nameTy
+  let spec' ← elabSpec env Θ Γ nameB.name declIdx body' d.declMeta.spec
+  pure { name := nameB, body := body',
          declMeta := { spec := spec', relation := d.declMeta.relation } }
 
-def Program.elaborate (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx) :
-    Untyped.Program (Spec.Body Untyped.Expr) → TypeM σ (TypeEnv × Typed.Program (Spec.Body Typed.Expr))
+/-- Elaborate a program's declarations left to right. `declIdx` counts value
+declarations only; it is passed on to specification elaboration, whose leaf
+translator may need to key generated names by declaration. -/
+def Program.elaborate (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx) (declIdx : Nat) :
+    Untyped.Program (Spec.Body Untyped.Expr) → TypeM σ (TypeEnv × Typed.Program Spec)
   | [] => pure (Θ, [])
   | d :: ds => do
       match d with
       | .type_ dty =>
           let Θ' ← TypeM.ofExcept (extendTypeEnv Θ dty.name dty.body)
-          Program.elaborate env Θ' Γ ds
+          Program.elaborate env Θ' Γ declIdx ds
       | .val_ dval =>
-          let d' ← ValDecl.elaborate env Θ Γ dval
+          let d' ← ValDecl.elaborate env Θ Γ declIdx dval
           let Γ' := match d'.name.name with
             | some x => Γ.extend x d'.name.ty
             | none => Γ
-          let (Θ', ds') ← Program.elaborate env Θ Γ' ds
+          let (Θ', ds') ← Program.elaborate env Θ Γ' (declIdx + 1) ds
           pure (Θ', d' :: ds')
 
 private theorem branchListRuntime_cast_joinAll
@@ -1096,50 +1152,39 @@ mutual
 end
 
 theorem ValDecl.elaborate_runtime (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx)
-    (d : Untyped.ValDecl (Spec.Body Untyped.Expr)) :
-    ∀ {s : σ} {d' : Typed.ValDecl (Spec.Body Typed.Expr)} {s' : σ},
-      Typed.ValDecl.elaborate env Θ Γ d s = .ok (d', s') →
+    (declIdx : Nat) (d : Untyped.ValDecl (Spec.Body Untyped.Expr)) :
+    ∀ {s : σ} {d' : Typed.ValDecl Spec} {s' : σ},
+      Typed.ValDecl.elaborate env Θ Γ declIdx d s = .ok (d', s') →
       d'.runtime = d.runtime := by
   intro s d' s' helab
   -- Split only on whether there is an annotation; the unannotated cases are identical.
+  -- The spec's own elaboration stays opaque: `StateT.bind_ok` recovers it without
+  -- naming the arguments `elabSpec` is applied to.
   match hname : d.name with
   | .named x (some ty) =>
-    cases hcheck : Typed.check env Θ Γ d.body ty s with
-    | error err =>
-      simp [ValDecl.elaborate, hname, hcheck, bind, StateT.bind, Except.bind] at helab
-    | ok p =>
-      obtain ⟨body', s₀⟩ := p
-      cases hspec : elabSpec env Θ Γ body' d.declMeta.spec s₀ with
-      | error e =>
-        simp [ValDecl.elaborate, hname, hcheck, hspec, bind, StateT.bind, Except.bind] at helab
-      | ok q =>
-        obtain ⟨spec', s₁⟩ := q
-        simp [ValDecl.elaborate, hname, hcheck, hspec, bind, StateT.bind, Except.bind] at helab
-        rcases helab with ⟨rfl, rfl⟩
-        simp [Typed.ValDecl.runtime, Untyped.ValDecl.runtime,
-          check_runtime env Θ Γ d.body ty _ _ _ hcheck, Binder.ofUntyped_runtime, hname]
+    simp only [ValDecl.elaborate, hname] at helab
+    have ⟨body', s₀, hcheck, hcont⟩ := StateT.bind_ok helab
+    have ⟨y, s₂, hy, hcont⟩ := StateT.bind_ok hcont
+    rcases (by simpa using hy) with ⟨rfl, rfl⟩
+    have ⟨spec', s₁, hspec, hcont⟩ := StateT.bind_ok hcont
+    rcases hcont with ⟨rfl, rfl⟩
+    simp [Typed.ValDecl.runtime, Untyped.ValDecl.runtime,
+      check_runtime env Θ Γ d.body ty _ _ _ hcheck, Binder.ofUntyped_runtime, hname]
   | .none | .named _ none =>
-    cases hinfer : Typed.infer env Θ Γ d.body s with
-    | error err =>
-      simp [ValDecl.elaborate, hname, hinfer, bind, StateT.bind, Except.bind] at helab
-    | ok p =>
-      obtain ⟨⟨bodyTy, body'⟩, s₀⟩ := p
-      cases hspec : elabSpec env Θ Γ body' d.declMeta.spec s₀ with
-      | error e =>
-        simp [ValDecl.elaborate, hname, hinfer, hspec, bind, StateT.bind, Except.bind] at helab
-      | ok q =>
-        obtain ⟨spec', s₁⟩ := q
-        simp [ValDecl.elaborate, hname, hinfer, hspec, bind, StateT.bind, Except.bind] at helab
-        rcases helab with ⟨rfl, rfl⟩
-        simp [Typed.ValDecl.runtime, Untyped.ValDecl.runtime,
-          infer_runtime env Θ Γ d.body _ _ _ hinfer, Binder.ofUntyped_runtime, hname]
+    simp only [ValDecl.elaborate, hname] at helab
+    have ⟨p, s₀, hinfer, hcont⟩ := StateT.bind_ok helab
+    obtain ⟨bodyTy, body'⟩ := p
+    have ⟨spec', s₁, hspec, hcont⟩ := StateT.bind_ok hcont
+    rcases hcont with ⟨rfl, rfl⟩
+    simp [Typed.ValDecl.runtime, Untyped.ValDecl.runtime,
+      infer_runtime env Θ Γ d.body _ _ _ hinfer, Binder.ofUntyped_runtime, hname]
 
 theorem Program.elaborate_runtime (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx)
-    (prog : Untyped.Program (Spec.Body Untyped.Expr)) :
-    ∀ {s : σ} {Θ' : TypeEnv} {prog' : Typed.Program (Spec.Body Typed.Expr)} {s' : σ},
-      Typed.Program.elaborate env Θ Γ prog s = .ok ((Θ', prog'), s') →
+    (declIdx : Nat) (prog : Untyped.Program (Spec.Body Untyped.Expr)) :
+    ∀ {s : σ} {Θ' : TypeEnv} {prog' : Typed.Program Spec} {s' : σ},
+      Typed.Program.elaborate env Θ Γ declIdx prog s = .ok ((Θ', prog'), s') →
       prog'.runtime = prog.runtime := by
-  induction prog generalizing Θ Γ with
+  induction prog generalizing Θ Γ declIdx with
   | nil =>
     intro s Θ' prog' s' h
     simp [Typed.Program.elaborate] at h
@@ -1155,7 +1200,7 @@ theorem Program.elaborate_runtime (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML
         simp [hext] at h
       | ok Θ1 =>
         simp [hext] at h
-        exact ih Θ1 Γ h
+        exact ih Θ1 Γ declIdx h
     | val_ dval =>
       unfold Typed.Program.elaborate at h
       have ⟨dval', s₀, hdecl, hcont⟩ := StateT.bind_ok h
@@ -1166,6 +1211,7 @@ theorem Program.elaborate_runtime (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML
       rcases tail with ⟨Θ'', ds'⟩
       simp at hcont
       rcases hcont with ⟨⟨rfl, rfl⟩, rfl⟩
-      have hdecl_rt : dval'.runtime = dval.runtime := ValDecl.elaborate_runtime env Θ Γ dval hdecl
+      have hdecl_rt : dval'.runtime = dval.runtime :=
+        ValDecl.elaborate_runtime env Θ Γ declIdx dval hdecl
       simp [Typed.Program.runtime, Untyped.Program.runtime, hdecl_rt]
-      exact congrArg (List.cons dval.runtime) (ih Θ Γ' htail)
+      exact congrArg (List.cons dval.runtime) (ih Θ Γ' (declIdx + 1) htail)
