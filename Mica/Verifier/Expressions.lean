@@ -200,6 +200,29 @@ theorem compileProductBindersFrom_length {S : SpecMap} {B : Bindings} {Γ : Tiny
               have hlen := ih htail_wf' hrec_eval
               simp [hlen]
 
+/-- The specification a named function is applied through, when it is not
+    reachable as a value: a top-level declaration, whose name no expression
+    context binds, or a recursive self reference typed at the bare arrow. A
+    locally bound variable of specified type is a value and goes the other way. -/
+def Typed.Expr.mapSpec? (B : Bindings) (S : SpecMap) : Expr → Option SpecEntry
+  | .var f fty =>
+      match fty, B.lookup f with
+      | .arrow _ _ (some _), some _ => none
+      | _, _ => S.lookup f
+  | _ => none
+
+omit [MicaGS HasLC.hasLC Sig] in
+theorem Typed.Expr.mapSpec?_eq_some {B : Bindings} {S : SpecMap} {fn : Expr}
+    {e : SpecEntry} (h : fn.mapSpec? B S = some e) :
+    ∃ f fty, fn = .var f fty ∧ S.lookup f = some e := by
+  cases fn
+  case var f fty =>
+    simp only [Typed.Expr.mapSpec?] at h
+    split at h
+    · simp at h
+    · exact ⟨_, _, rfl, h⟩
+  all_goals simp [Typed.Expr.mapSpec?] at h
+
 /-- Check that a function body's type is a subtype of its declared return type. -/
 def checkRet (Θ : TinyML.TypeEnv) (retTy bodyTy : TinyML.Typ) : VerifM Unit :=
   if TinyML.Typ.sub Θ bodyTy retTy then pure ()
@@ -214,7 +237,14 @@ mutual
     | .const (.float b) => pure (.unop .ofFloat (.const (.fp b)))
     | .const .unit     => pure (Term.const .unit)
     | .var x vty => do
-        let x' ← VerifM.expectSome s!"undefined variable: {x}" (B.lookup x)
+        let x' ← match B.lookup x with
+          | some c => pure c
+          | none =>
+            -- A top-level function is reachable only through its specification,
+            -- which the application case resolves; there is no value to bind.
+            if (S.lookup x).isSome then
+              VerifM.fatal s!"top-level function `{x}` can only be applied, not used as a value"
+            else VerifM.fatal s!"undefined variable: {x}"
         VerifM.expectEq s!"type annotation mismatch for variable: {x}" (Γ x |>.getD .value) vty
         pure (.const (.uninterpreted x'.name .value))
     | .unop op e uty => do
@@ -276,10 +306,21 @@ mutual
         else do
           VerifM.assume (.pure sc.isFalse)
           compile reg Θ Δ_spec S B Γ els
-    -- A function expression whose type carries a specification is applied
-    -- directly: the specification is read off the type, and the function value's
-    -- own interpretation supplies the call.
     | .app fn args aty =>
+      match fn.mapSpec? B S with
+      -- A name that is not a value in scope resolves through `S`.
+      | some e => do
+          let sterms ← compileExprs reg Θ Δ_spec S B Γ args
+          let sargs := (args.map Expr.ty).zip sterms
+          VerifM.expectEq "app type annotation mismatch" e.retTy aty
+          VerifM.expectEq "app type annotation mismatch"
+            fn.ty.unspec (.arrow e.argTys e.retTy none)
+          let (_, result) ← Spec.call Θ (FiniteSubst.base Δ_spec) e.argTys e.retTy e.spec sargs
+          pure result
+      | none =>
+      -- Otherwise a function expression whose type carries a specification is
+      -- applied directly: the specification is read off the type, and the
+      -- function value's own interpretation supplies the call.
       match fn.ty with
       | .arrow argTys retTy (some s) =>
         -- The specification rides on a type, so nothing has checked it yet.
@@ -295,18 +336,6 @@ mutual
           pure result
       | _ =>
         match fn with
-        -- A named top-level function still resolves its specification through
-        -- `S`: its type is the bare arrow, since the declaration binds the name
-        -- at the annotation it was written with.
-        | .var f fty => do
-            let e ← VerifM.expectSome s!"no spec for function {f}" (S.lookup f)
-            let sterms ← compileExprs reg Θ Δ_spec S B Γ args
-            let sargs := (args.map Expr.ty).zip sterms
-            VerifM.expectEq "app type annotation mismatch" e.retTy aty
-            VerifM.expectEq "app type annotation mismatch"
-              fty.unspec (.arrow e.argTys e.retTy none)
-            let (_, result) ← Spec.call Θ (FiniteSubst.base Δ_spec) e.argTys e.retTy e.spec sargs
-            pure result
         | .prim n inst _ => do
             let i ← VerifM.expectSome s!"unknown primitive `{n}`"
               (reg.lookup? n)
@@ -317,7 +346,7 @@ mutual
             let (_, result) ← Spec.call Θ (FiniteSubst.base Δ_spec)
               (i.argTys.map (·.subst σi)) (i.retTy.subst σi) i.spec sargs
             pure result
-        | _ => VerifM.fatal "application of an unspecified function"
+        | _ => VerifM.fatal "application of a function without a specification"
     | .prim n _ _ => VerifM.fatal s!"primitive `{n}` must be applied"
     | .tuple es => do
         let terms ← compileExprs reg Θ Δ_spec S B Γ es
@@ -754,7 +783,18 @@ theorem compileVar_correct (reg : Verifier.Registry) (x : String) (vty : TinyML.
     correctExpr reg (.var x vty) := by
   intro W R S B Γ st ρ γ Ψ Φ hW heval hagree hbwf _hSwf _hwf _hag hΔreg hρreg hpost
   simp only [compile] at heval
-  obtain ⟨x', hbind, heval⟩ := VerifM.eval_bind_expectSome heval
+  obtain ⟨x', hbind, heval⟩ : ∃ x', B.lookup x = some x' ∧
+      VerifM.eval (do
+        VerifM.expectEq s!"type annotation mismatch for variable: {x}"
+          ((Γ x).getD .value) vty
+        pure (Term.const (.uninterpreted x'.name .value))) st ρ Ψ := by
+    cases hb : B.lookup x with
+    | some c =>
+      simp only [hb] at heval
+      exact ⟨c, rfl, VerifM.eval_ret (VerifM.eval_bind heval)⟩
+    | none =>
+      simp only [hb] at heval
+      split at heval <;> exact (VerifM.eval_fatal (VerifM.eval_bind heval)).elim
   obtain ⟨hcheck, hcont⟩ := VerifM.eval_bind_expectEq heval
   unfold Expr.runtime
   simp only [Runtime.Expr.subst]
@@ -3479,19 +3519,9 @@ theorem compileApp_correct (reg : Verifier.Registry) (hSound : Verifier.Registry
   simp only [Runtime.Expr.subst, List.map_map]
   simp only [compile] at heval
   split at heval
-  case _ argTys retTy s hfnty =>
-    cases hcheck : Spec.checkWf s W.Δ_spec with
-    | error msg => rw [hcheck] at heval; exact (VerifM.eval_fatal heval).elim
-    | ok u =>
-      cases u
-      rw [hcheck] at heval
-      exact compileAppSpec_correct reg fn args aty argTys retTy s hfnty ihFn ihArgs
-        W R S B Γ st ρ γ Ψ Φ hW heval (Spec.checkWf_ok hcheck) hagree hbwf hSwf hwf hag
-        hΔreg hρreg hpost
-  case _ hne =>
-  cases fn with
-  | var f fty =>
-    obtain ⟨spec, hlookup, heval⟩ := VerifM.eval_bind_expectSome heval
+  case _ spec htop =>
+    -- a top-level name: its specification comes from the map
+    obtain ⟨f, fty, rfl, hlookup⟩ := Typed.Expr.mapSpec?_eq_some htop
     have heval_args : (compileExprs reg W.Θ W.Δ_spec S B Γ args).eval st ρ _ := VerifM.eval_bind heval
     refine SpecMap.project
       (P := st.sl W ρ ∗ (S.satisfiedBy W γ ∗ Bindings.typedSubst W B Γ γ ∗ R)) W S γ ?_ hlookup ?_
@@ -3606,6 +3636,19 @@ theorem compileApp_correct (reg : Verifier.Registry) (hSound : Verifier.Registry
         isplitl [Howns]
         · iexact Howns
         · iexact HR
+  case _ hnone =>
+  split at heval
+  case _ argTys retTy s hfnty =>
+    cases hcheck : Spec.checkWf s W.Δ_spec with
+    | error msg => rw [hcheck] at heval; exact (VerifM.eval_fatal heval).elim
+    | ok u =>
+      cases u
+      rw [hcheck] at heval
+      exact compileAppSpec_correct reg fn args aty argTys retTy s hfnty ihFn ihArgs
+        W R S B Γ st ρ γ Ψ Φ hW heval (Spec.checkWf_ok hcheck) hagree hbwf hSwf hwf hag
+        hΔreg hρreg hpost
+  case _ =>
+  cases fn with
   | prim n inst fty =>
     obtain ⟨i, hilookup, heval⟩ := VerifM.eval_bind_expectSome heval
     obtain ⟨hret_eq, heval⟩ := VerifM.eval_bind_expectEq heval
