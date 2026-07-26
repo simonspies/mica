@@ -1,4 +1,4 @@
--- SUMMARY: Semantics, well-formedness conditions, and verifier operations for the assertion language.
+-- SUMMARY: Verifier operations on assertions: assume and prove, well-formedness conditions, and correctness lemmas.
 import Mica.SourceTinyML.Typed
 import Mica.Verifier.Interpretations
 import Mica.FOL.Printing
@@ -15,36 +15,11 @@ variable [MicaGS HasLC.hasLC Sig]
 /-!
 # Assertions
 
-Semantic interpretations and VerifM-level operations `Assertion.assume` and
-`Assertion.prove` for `Assertion`. The inductive itself lives in
-`SourceTinyML/Assertions.lean`.
+Well-formedness of `Assertion` and the VerifM-level operations
+`Assertion.assume` and `Assertion.prove`, with their correctness proofs. The
+syntax lives in `Mica/SourceTinyML/Assertions.lean` and the semantics
+(`Assertion.pre`/`Assertion.post`) in `Mica/SourceTinyML/Semantics.lean`.
 -/
-
-
--- ---------------------------------------------------------------------------
--- Semantics
--- ---------------------------------------------------------------------------
-
-def Assertion.pre (W : TinyML.World) (Φ : α → Env → iProp) (m : Assertion TinyML.Typ α) (ρ : Env) : iProp :=
-  (match m with
-  | .ret a        => Φ a ρ
-  | .assert φ k   => ⌜φ.eval ρ⌝ ∗ Assertion.pre W Φ k ρ
-  | .let_ x t k   => let v := t.eval ρ; Assertion.pre W Φ k (ρ.updateConst x.sort x.name v)
-  | .pred x p k   => ∃ (v : x.sort.denote), p.eval W ρ v ∗ Assertion.pre W Φ k (ρ.updateConst x.sort x.name v)
-  | .ite φ kt ke  =>
-      iprop((⌜φ.eval ρ⌝ -∗ Assertion.pre W Φ kt ρ) ∧
-            (⌜¬ φ.eval ρ⌝ -∗ Assertion.pre W Φ ke ρ)))
-
-def Assertion.post (W : TinyML.World) {α} (Φ : α → Env → iProp) (m : Assertion TinyML.Typ α) (ρ : Env) : iProp :=
-  match m with
-  | .ret a        => Φ a ρ
-  | .assert φ k   => ⌜φ.eval ρ⌝ -∗ Assertion.post W Φ k ρ
-  | .let_ x t k   => let v := t.eval ρ; Assertion.post W Φ k (ρ.updateConst x.sort x.name v)
-  | .pred x p k   => iprop(∀ (v : x.sort.denote),
-      p.eval W ρ v -∗ Assertion.post W Φ k (ρ.updateConst x.sort x.name v))
-  | .ite φ kt ke  =>
-      iprop((⌜φ.eval ρ⌝ -∗ Assertion.post W Φ kt ρ) ∧
-            (⌜¬ φ.eval ρ⌝ -∗ Assertion.post W Φ ke ρ))
 
 
 -- ---------------------------------------------------------------------------

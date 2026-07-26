@@ -10,4 +10,5 @@ import Mica.SourceTinyML.TypeConstraints
 import Mica.SourceTinyML.Typing
 import Mica.SourceTinyML.Printer
 import Mica.SourceTinyML.World
+import Mica.SourceTinyML.Semantics
 import Mica.SourceTinyML.LogicalRelation
