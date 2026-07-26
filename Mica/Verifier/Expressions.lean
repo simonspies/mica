@@ -276,28 +276,48 @@ mutual
         else do
           VerifM.assume (.pure sc.isFalse)
           compile reg Θ Δ_spec S B Γ els
-    | .app (.var f fty) args aty => do
-        let e ← VerifM.expectSome s!"no spec for function {f}" (S.lookup f)
-        let sterms ← compileExprs reg Θ Δ_spec S B Γ args
-        let sargs := (args.map Expr.ty).zip sterms
-        VerifM.expectEq "app type annotation mismatch" e.retTy aty
-        -- The specification comes from `S`, so the annotation only has to agree on
-        -- the signature: a recursive self reference is annotated with the
-        -- specified arrow, an ordinary reference with the bare one.
-        VerifM.expectEq "app type annotation mismatch"
-          fty.unspec (.arrow e.argTys e.retTy none)
-        let (_, result) ← Spec.call Θ (FiniteSubst.base Δ_spec) e.argTys e.retTy e.spec sargs
-        pure result
-    | .app (.prim n inst _) args aty => do
-        let i ← VerifM.expectSome s!"unknown primitive `{n}`"
-          (reg.lookup? n)
-        let σi : TinyML.TyVar → TinyML.Typ := fun v => (inst.lookup v).getD (.tvar v)
-        VerifM.expectEq "primitive return type mismatch" (i.retTy.subst σi) aty
-        let sterms ← compileExprs reg Θ Δ_spec S B Γ args
-        let sargs := (args.map Expr.ty).zip sterms
-        let (_, result) ← Spec.call Θ (FiniteSubst.base Δ_spec)
-          (i.argTys.map (·.subst σi)) (i.retTy.subst σi) i.spec sargs
-        pure result
+    -- A function expression whose type carries a specification is applied
+    -- directly: the specification is read off the type, and the function value's
+    -- own interpretation supplies the call.
+    | .app fn args aty =>
+      match fn.ty with
+      | .arrow argTys retTy (some s) =>
+        -- The specification rides on a type, so nothing has checked it yet.
+        match Spec.checkWf s Δ_spec with
+        | .error msg => VerifM.fatal msg
+        | .ok () => do
+          VerifM.expectEq "app type annotation mismatch" retTy aty
+          VerifM.expectEq "specification arity mismatch" s.args.length argTys.length
+          let sterms ← compileExprs reg Θ Δ_spec S B Γ args
+          let sargs := (args.map Expr.ty).zip sterms
+          let _ ← compile reg Θ Δ_spec S B Γ fn
+          let (_, result) ← Spec.call Θ (FiniteSubst.base Δ_spec) argTys retTy s sargs
+          pure result
+      | _ =>
+        match fn with
+        -- A named top-level function still resolves its specification through
+        -- `S`: its type is the bare arrow, since the declaration binds the name
+        -- at the annotation it was written with.
+        | .var f fty => do
+            let e ← VerifM.expectSome s!"no spec for function {f}" (S.lookup f)
+            let sterms ← compileExprs reg Θ Δ_spec S B Γ args
+            let sargs := (args.map Expr.ty).zip sterms
+            VerifM.expectEq "app type annotation mismatch" e.retTy aty
+            VerifM.expectEq "app type annotation mismatch"
+              fty.unspec (.arrow e.argTys e.retTy none)
+            let (_, result) ← Spec.call Θ (FiniteSubst.base Δ_spec) e.argTys e.retTy e.spec sargs
+            pure result
+        | .prim n inst _ => do
+            let i ← VerifM.expectSome s!"unknown primitive `{n}`"
+              (reg.lookup? n)
+            let σi : TinyML.TyVar → TinyML.Typ := fun v => (inst.lookup v).getD (.tvar v)
+            VerifM.expectEq "primitive return type mismatch" (i.retTy.subst σi) aty
+            let sterms ← compileExprs reg Θ Δ_spec S B Γ args
+            let sargs := (args.map Expr.ty).zip sterms
+            let (_, result) ← Spec.call Θ (FiniteSubst.base Δ_spec)
+              (i.argTys.map (·.subst σi)) (i.retTy.subst σi) i.spec sargs
+            pure result
+        | _ => VerifM.fatal "application of an unspecified function"
     | .prim n _ _ => VerifM.fatal s!"primitive `{n}` must be applied"
     | .tuple es => do
         let terms ← compileExprs reg Θ Δ_spec S B Γ es
@@ -458,7 +478,6 @@ mutual
                   checkRet Θ retTy body.ty
                   pure se)
               (pure (.const (.uninterpreted fv.name .value)))
-    | .app _ _ _ => VerifM.fatal "unsupported expression"
 
   /-- Compile a single match branch: assume the scrutinee is `ofInj i n payload`, then compile the body. -/
   def compileBranch (reg : Verifier.Registry) (Θ : TinyML.TypeEnv) (Δ_spec : Signature) (S : SpecMap) (B : Bindings) (Γ : TinyML.TyCtx)
@@ -3278,17 +3297,200 @@ theorem compileTuple_correct (reg : Verifier.Registry) (es : List Expr)
     hpost (Runtime.Val.tuple vs) ρ' st' (.unop .ofValList (Terms.toValList terms))
       hΨ hwf_tuple heval_tuple
 
+/-- Application of a function expression whose type carries a specification: the
+    arguments and then the function are evaluated, and the function value's own
+    interpretation — which is exactly its specification — supplies the call. -/
+theorem compileAppSpec_correct (reg : Verifier.Registry)
+    (fn : Expr) (args : List Expr) (aty : TinyML.Typ)
+    (argTys : List TinyML.Typ) (retTy : TinyML.Typ) (s : Spec TinyML.Typ)
+    (hfnty : fn.ty = .arrow argTys retTy (some s))
+    (ihFn : correctExpr reg fn) (ihArgs : correctExprs reg args)
+    (W : TinyML.World) (R : iProp) (S : SpecMap) (B : Bindings) (Γ : TinyML.TyCtx)
+    (st : TransState) (ρ : Env) (γ : Runtime.Subst)
+    (Ψ : Term .value → TransState → Env → Prop) (Φ : Runtime.Val → iProp)
+    (hW : W.pctx = reg.primCtx)
+    (heval : VerifM.eval
+      (do
+        VerifM.expectEq "app type annotation mismatch" retTy aty
+        VerifM.expectEq "specification arity mismatch" s.args.length argTys.length
+        let sterms ← compileExprs reg W.Θ W.Δ_spec S B Γ args
+        let _ ← compile reg W.Θ W.Δ_spec S B Γ fn
+        let r ← Spec.call W.Θ (FiniteSubst.base W.Δ_spec) argTys retTy s
+          ((args.map Expr.ty).zip sterms)
+        pure r.2) st ρ Ψ)
+    (hswf : s.wfIn W.Δ_spec)
+    (hagree : B.agreeOnLinked ρ γ) (hbwf : B.wfIn st.decls) (hSwf : S.wfIn W.Δ_spec)
+    (hwf : W.wf) (hag : W.agrees st.decls ρ)
+    (hΔreg : Verifier.Registry.symSubset reg W.Δ_spec)
+    (hρreg : Verifier.Registry.symAgree reg W.ρ_spec)
+    (hpost : ∀ v ρ' st' se, Ψ se st' ρ' → se.wfIn st'.decls → Term.eval ρ' se = v →
+      st'.sl W ρ' ∗ TinyML.ValHasType W v aty ∗ R ⊢ Φ v) :
+    st.sl W ρ ∗ (S.satisfiedBy W γ ∗ B.typedSubst W Γ γ ∗ R) ⊢
+      wp W.pctx (.app (fn.runtime.subst γ) (args.map (fun e => e.runtime.subst γ))) Φ := by
+  obtain ⟨hret_eq, heval⟩ := VerifM.eval_bind_expectEq heval
+  obtain ⟨hlen_e, heval⟩ := VerifM.eval_bind_expectEq heval
+  have heval_args : (compileExprs reg W.Θ W.Δ_spec S B Γ args).eval st ρ _ :=
+    VerifM.eval_bind heval
+  refine SpatialContext.wp_bind_app ?_
+  -- The typing context is persistent, so it can also travel in the frame.
+  have hctx : st.sl W ρ ∗ (S.satisfiedBy W γ ∗ B.typedSubst W Γ γ ∗ R) ⊢
+      st.sl W ρ ∗ (S.satisfiedBy W γ ∗ B.typedSubst W Γ γ ∗
+        (B.typedSubst W Γ γ ∗ R)) := by
+    istart
+    iintro ⟨Howns, #HS, #HT, HR⟩
+    isplitl [Howns]
+    · iexact Howns
+    · isplitl []
+      · iexact HS
+      · isplitl []
+        · iexact HT
+        · isplitl []
+          · iexact HT
+          · iexact HR
+  refine hctx.trans <|
+    ihArgs W (B.typedSubst W Γ γ ∗ R) S B Γ st ρ γ _ _ hW
+      (VerifM.eval.decls_grow ρ heval_args) hagree hbwf hSwf hwf hag hΔreg hρreg ?_
+  intro vs ρ_args st_args sargs hΨ_args hsargs_wf heval_sargs
+  obtain ⟨hdecls_args, hagreeOn_args, hΨ_args⟩ := hΨ_args
+  have hag_args : W.agrees st_args.decls ρ_args := hag.step hdecls_args hagreeOn_args
+  have hbwf_args : B.wfIn st_args.decls := fun p hp => hdecls_args.consts p.2 (hbwf p hp)
+  have hagree_args : B.agreeOnLinked ρ_args γ :=
+    Bindings.agreeOnLinked_env_agree hagree hagreeOn_args hbwf
+  have heval_fn : (compile reg W.Θ W.Δ_spec S B Γ fn).eval st_args ρ_args _ :=
+    VerifM.eval_bind hΨ_args
+  have hlen_sargs : sargs.length = vs.length := by
+    simpa [Terms.Eval] using List.Forall₂.length_eq heval_sargs
+  have hctx' : st_args.sl W ρ_args ∗ TinyML.ValsHaveTypes W vs (args.map Expr.ty) ∗
+      (S.satisfiedBy W γ ∗ (B.typedSubst W Γ γ ∗ R)) ⊢
+      st_args.sl W ρ_args ∗ (S.satisfiedBy W γ ∗ B.typedSubst W Γ γ ∗
+        (TinyML.ValsHaveTypes W vs (args.map Expr.ty) ∗ R)) := by
+    istart
+    iintro ⟨Howns, #Hvals, #HS, #HT, HR⟩
+    isplitl [Howns]
+    · iexact Howns
+    · isplitl []
+      · iexact HS
+      · isplitl []
+        · iexact HT
+        · isplitl []
+          · iexact Hvals
+          · iexact HR
+  refine hctx'.trans <|
+    ihFn W (TinyML.ValsHaveTypes W vs (args.map Expr.ty) ∗ R) S B Γ st_args ρ_args γ _ _ hW
+      (VerifM.eval.decls_grow ρ_args heval_fn) hagree_args hbwf_args hSwf hwf hag_args
+      hΔreg hρreg ?_
+  intro fval ρ_fn st_fn sfn hΨ_fn _hsfn_wf _heval_sfn
+  obtain ⟨hdecls_fn, hagreeOn_fn, hΨ_fn⟩ := hΨ_fn
+  set typedArgs := (args.map Expr.ty).zip sargs with htypedArgs_def
+  have hag_fn : W.agrees st_fn.decls ρ_fn := hag_args.step hdecls_fn hagreeOn_fn
+  have hst_fn_wf : st_fn.decls.wf := (VerifM.eval.wf hΨ_fn).namesDisjoint
+  have hsargs_wf_fn : ∀ t ∈ sargs, t.wfIn st_fn.decls := fun t ht =>
+    Term.wfIn_mono t (hsargs_wf t ht) hdecls_fn hst_fn_wf
+  have htypedArgs_wf : ∀ p ∈ typedArgs, p.2.wfIn st_fn.decls := by
+    intro p hp
+    exact hsargs_wf_fn _ (List.of_mem_zip hp).2
+  have hwf_pred : PredTrans.wfIn
+      ((W.Δ_spec.declVars (FiniteSubst.base W.Δ_spec).dom).declVars (Spec.argVars s.args)) s.pred := by
+    simpa [FiniteSubst.base, Signature.declVars] using hswf
+  have hbase_wf : (FiniteSubst.base W.Δ_spec).wfIn W.Δ_spec st_fn.decls :=
+    FiniteSubst.base_wfIn (hag_fn.subset) hwf.wf hst_fn_wf hwf.vars
+  have hcall_eval : VerifM.eval
+      (Spec.call W.Θ (FiniteSubst.base W.Δ_spec) argTys retTy s typedArgs) st_fn ρ_fn
+      (fun p st' ρ' => VerifM.eval (pure p.2) st' ρ' Ψ) := VerifM.eval_bind hΨ_fn
+  have hcall := Spec.call_correct W argTys retTy s W.Δ_spec (FiniteSubst.base W.Δ_spec)
+    typedArgs st_fn ρ_fn (fun p st' ρ' => VerifM.eval (pure p.2) st' ρ' Ψ) Φ R
+    hlen_e hwf_pred hbase_wf htypedArgs_wf hcall_eval
+    (fun v st' ρ' t hΨ hwf heval => by
+      have h := hpost v ρ' st' t (VerifM.eval_ret hΨ) hwf heval
+      rw [← hret_eq] at h
+      iintro H
+      icases H with ⟨Howns', Hrest⟩
+      icases Hrest with ⟨HR', Hty⟩
+      iapply h
+      isplitl [Howns']
+      · iexact Howns'
+      · isplitl [Hty]
+        · iexact Hty
+        · iexact HR')
+  obtain ⟨hsub_ty, happly⟩ := hcall
+  rw [hfnty]
+  refine (sep_mono_right (sep_mono_left
+    (TinyML.ValHasType.arrow_some W fval argTys retTy s).1)).trans ?_
+  unfold Spec.isPrecondFor
+  istart
+  iintro ⟨Howns, #Hspec, #Hvals, HR⟩
+  ihave Hlen := TinyML.ValsHaveTypes.length_eq $$ Hvals
+  ipure Hlen
+  have hlen_typed : (args.map Expr.ty).length = sargs.length := by
+    rw [← Hlen]; exact hlen_sargs.symm
+  have hsub_ty' : @TinyML.Typ.SubList W.Θ (args.map Expr.ty) argTys := by
+    simpa [htypedArgs_def, List.map_fst_zip (Nat.le_of_eq hlen_typed)] using hsub_ty
+  -- The argument terms still denote the same values in the function's state.
+  have heval_sargs_map : typedArgs.map (fun p => p.2.eval ρ_fn) = vs := by
+    have hsnd : List.map Prod.snd ((List.map Expr.ty args).zip sargs) = sargs := by
+      simpa using
+        (List.map_snd_zip (l₁ := List.map Expr.ty args) (l₂ := sargs)
+          (Nat.le_of_eq hlen_typed.symm))
+    have hcongr : sargs.map (fun t => t.eval ρ_fn) = sargs.map (fun t => t.eval ρ_args) :=
+      List.map_congr_left fun t ht =>
+        Term.eval_env_agree (hsargs_wf t ht) (Env.agreeOn_symm hagreeOn_fn)
+    calc
+      typedArgs.map (fun p => p.2.eval ρ_fn)
+          = sargs.map (fun t => t.eval ρ_fn) := by
+              simpa [htypedArgs_def, List.map_map] using
+                congrArg (List.map (fun t => t.eval ρ_fn)) hsnd
+      _ = sargs.map (fun t => t.eval ρ_args) := hcongr
+      _ = vs := Terms.Eval.map_eval heval_sargs
+  have happly' :
+      st_fn.sl W ρ_fn ∗ R ⊢
+        PredTrans.apply (TinyML.ValHasType W) (fun r => TinyML.ValHasType W r retTy -∗ Φ r)
+          s.pred (Spec.argsEnv ρ_fn s.args vs) := by
+    rw [heval_sargs_map] at happly
+    exact happly
+  have hagree_ρ_fn : Env.agreeOn W.Δ_spec W.ρ_spec ρ_fn :=
+    Env.agreeOn_trans hag.agree (Env.agreeOn_mono hag.subset
+      (Env.agreeOn_trans hagreeOn_args (Env.agreeOn_mono hdecls_args hagreeOn_fn)))
+  ispecialize Hspec $$ %ρ_fn
+  ispecialize Hspec $$ %Φ
+  ispecialize Hspec $$ %vs
+  iapply Hspec
+  · ipureintro
+    exact hagree_ρ_fn
+  · ipureintro
+    have := TinyML.Typ.SubList.length_eq hsub_ty'
+    omega
+  · iapply later_intro
+    iapply (TinyML.ValsHaveTypes.sub hsub_ty')
+    iexact Hvals
+  · iapply later_intro
+    iapply happly'
+    isplitl [Howns]
+    · iexact Howns
+    · iexact HR
+
 theorem compileApp_correct (reg : Verifier.Registry) (hSound : Verifier.Registry.Sound reg)
     (fn : Expr) (args : List Expr) (aty : TinyML.Typ)
+    (ihFn : correctExpr reg fn)
     (ihArgs : correctExprs reg args) :
     correctExpr reg (.app fn args aty) := by
   intro W R S B Γ st ρ γ Ψ Φ hW heval hagree hbwf hSwf hwf hag hΔreg hρreg hpost
   simp only [Expr.ty] at hpost
   unfold Expr.runtime
   simp only [Runtime.Expr.subst, List.map_map]
+  simp only [compile] at heval
+  split at heval
+  case _ argTys retTy s hfnty =>
+    cases hcheck : Spec.checkWf s W.Δ_spec with
+    | error msg => rw [hcheck] at heval; exact (VerifM.eval_fatal heval).elim
+    | ok u =>
+      cases u
+      rw [hcheck] at heval
+      exact compileAppSpec_correct reg fn args aty argTys retTy s hfnty ihFn ihArgs
+        W R S B Γ st ρ γ Ψ Φ hW heval (Spec.checkWf_ok hcheck) hagree hbwf hSwf hwf hag
+        hΔreg hρreg hpost
+  case _ hne =>
   cases fn with
   | var f fty =>
-    simp only [compile] at heval
     obtain ⟨spec, hlookup, heval⟩ := VerifM.eval_bind_expectSome heval
     have heval_args : (compileExprs reg W.Θ W.Δ_spec S B Γ args).eval st ρ _ := VerifM.eval_bind heval
     refine SpecMap.project
@@ -3405,7 +3607,6 @@ theorem compileApp_correct (reg : Verifier.Registry) (hSound : Verifier.Registry
         · iexact Howns
         · iexact HR
   | prim n inst fty =>
-    simp only [compile] at heval
     obtain ⟨i, hilookup, heval⟩ := VerifM.eval_bind_expectSome heval
     obtain ⟨hret_eq, heval⟩ := VerifM.eval_bind_expectEq heval
     have heval_args : (compileExprs reg W.Θ W.Δ_spec S B Γ args).eval st ρ _ :=
@@ -3513,7 +3714,6 @@ theorem compileApp_correct (reg : Verifier.Registry) (hSound : Verifier.Registry
       · iexact Howns
       · iexact HR
   | _ =>
-    simp only [compile] at heval
     exact (VerifM.eval_fatal heval).elim
 
 theorem compileMatch_correct (reg : Verifier.Registry) (scrut : Expr) (branches : List (Binder × Expr)) (ty : TinyML.Typ)
@@ -3986,7 +4186,8 @@ theorem compile_correct (reg : Verifier.Registry) (hSound : Verifier.Registry.So
     simpa using compileIfThenElse_correct reg cond thn els ty
       (compile_correct reg hSound cond) (compile_correct reg hSound thn) (compile_correct reg hSound els)
   | app fn args aty =>
-    simpa using compileApp_correct reg hSound fn args aty (compileExprs_correct reg hSound args)
+    simpa using compileApp_correct reg hSound fn args aty (compile_correct reg hSound fn)
+      (compileExprs_correct reg hSound args)
   | tuple es =>
     simpa using compileTuple_correct reg es (compileExprs_correct reg hSound es)
   | match_ scrut branches ty =>
