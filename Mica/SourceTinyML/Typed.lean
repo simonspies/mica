@@ -271,6 +271,17 @@ def Expr.ty : Expr → Typ
   | .match_ _ _ ty => ty
   | .cast _ ty => ty
 
+/-- Attach a specification to a function literal; anything else is unchanged.
+    A declaration's `[@@spec]` is completed only in the verifier, so this is how
+    it reaches the `fix` node that verification discharges it against. -/
+def Expr.withSpec (s : Spec Typ) : Expr → Expr
+  | .fix self args retTy _ body => .fix self args retTy (some s) body
+  | e => e
+
+@[simp] theorem Expr.withSpec_fix (s : Spec Typ) (self : Binder) (args : List Binder)
+    (retTy : Typ) (spec : Option (Spec Typ)) (body : Expr) :
+    (Expr.fix self args retTy spec body).withSpec s = .fix self args retTy (some s) body := rfl
+
 structure ValDecl (S : Type) where
   name : Binder
   body : Expr
@@ -346,6 +357,11 @@ def ValDecl.runtime {S : Type} (d : Typed.ValDecl S) : Runtime.Decl :=
 
 def Program.runtime {S : Type} (prog : Typed.Program S) : Runtime.Program :=
   prog.map ValDecl.runtime
+
+/-- Attaching a specification does not change what a function literal runs. -/
+@[simp] theorem Expr.withSpec_runtime (s : Spec Typ) (e : Expr) :
+    (e.withSpec s).runtime = e.runtime := by
+  cases e <;> simp [Expr.withSpec, Expr.runtime]
 
 theorem Expr.branchListRuntime_eq_map (branches : List (Typed.Binder × Typed.Expr)) :
     Expr.branchListRuntime branches =
