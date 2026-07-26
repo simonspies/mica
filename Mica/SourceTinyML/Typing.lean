@@ -203,7 +203,7 @@ def TypeM.ofExcept : Except TypeError α → TypeM σ α
     (TypeM.ofExcept r : TypeM σ α) s = .ok (a, s') ↔ r = .ok a ∧ s' = s := by
   cases r <;> simp [TypeM.ofExcept, eq_comm]
 
-/-- The the built-in primitives, and the translation of a single typed
+/-- The built-in primitives, and the translation of a single typed
     specification expression into its value term and definedness condition.
     Typing propagates whatever effect the translation carries in `σ`. -/
 structure SpecEnv (σ : Type) where
