@@ -55,7 +55,7 @@ private def parseAssert (inner : Untyped.Expr → M α)
     .ok (.ite cond (← parseAssert inner bareAssert thn) (← parseAssert inner bareAssert els))
   | e => .error s!"expected assertion, got {repr e}"
 
-private def parsePost : Untyped.Expr → M (Post Untyped.Expr) :=
+private def parsePostBody : Untyped.Expr → M (Assert Untyped.Expr Unit) :=
   parseAssert
     (fun | .const .unit => .ok ()
          | e => .error s!"expected (), got {repr e}")
@@ -64,8 +64,8 @@ private def parsePost : Untyped.Expr → M (Post Untyped.Expr) :=
 private def parsePre : Untyped.Expr → M (Pre Untyped.Expr) :=
   parseAssert
     (fun | .fix .none [Untyped.Binder.named x _] _ body => do
-           let post ← parsePost body
-           .ok (x, post)
+           let body' ← parsePostBody body
+           .ok ⟨x, body'⟩
          | e => .error s!"expected fun v -> ..., got {repr e}")
     (fun _ => .error "bare assert is only allowed in postconditions")
 

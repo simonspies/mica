@@ -32,8 +32,18 @@ inductive Assert (ε α : Type) where
 
 instance [Inhabited α] : Inhabited (Assert ε α) := ⟨.ret default⟩
 
-abbrev Post (ε : Type) := Assert ε Unit
-abbrev Pre (ε : Type) := Assert ε (String × Post ε)
+/-- The postcondition of a specification: the name bound to the result value,
+together with the assertion that must hold of it.
+
+Spelled as a structure rather than a pair for the same reason as `Post` in
+`Assertions.lean`: a nested inductive may not occur inside its own type
+parameter, so the payload of the outer assertion has to be a type constructor
+other than `Assert` itself. -/
+structure Post (ε : Type) where
+  name : String
+  body : Assert ε Unit
+
+abbrev Pre (ε : Type) := Assert ε (Post ε)
 
 /-- A spec body: the bound argument names together with the precondition. -/
 abbrev Body (ε : Type) := List String × Pre ε

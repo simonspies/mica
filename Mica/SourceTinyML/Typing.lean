@@ -576,8 +576,8 @@ def elabAssert (env : SpecEnv σ) (Θ : TypeEnv) (inner : TyCtx → List String 
       (← elabAssert env Θ inner Γ ns thn) (← elabAssert env Θ inner Γ ns els)))
 
 private def elabPost (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TyCtx) (ns : List String)
-    (post : Spec.Post Untyped.Expr) : TypeM σ (Assertion Typ Unit) :=
-  elabAssert env Θ (fun _ _ () => pure ()) Γ ns post
+    (body : Spec.Assert Untyped.Expr Unit) : TypeM σ (Assertion Typ Unit) :=
+  elabAssert env Θ (fun _ _ () => pure ()) Γ ns body
 
 /-- Match the spec's bound names against the typed function binders to recover
 each argument's type. -/
@@ -600,9 +600,9 @@ def elabSpecBody (env : SpecEnv σ) (Θ : TypeEnv) (Γbase : TyCtx)
   let argTys ← TypeM.ofExcept (specArgTypes argBinders names)
   let Γ₀ : TyCtx := argTys.foldl (fun Γ p => Γ.extend p.1 p.2) Γbase
   let pred ← elabAssert env Θ
-    (fun Γ ns (vname, post) => do
-      let post' ← elabPost env Θ (Γ.extend vname retTy) (ns ++ [vname]) post
-      pure ⟨vname, post'⟩)
+    (fun Γ ns (post : Spec.Post Untyped.Expr) => do
+      let body' ← elabPost env Θ (Γ.extend post.name retTy) (ns ++ [post.name]) post.body
+      pure ⟨post.name, body'⟩)
     Γ₀ names pre
   pure { args := names, pred := pred }
 
