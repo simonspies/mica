@@ -8,7 +8,7 @@ namespace Typed
 open TinyML
 
 structure Binder where
-  name : Option Var
+  name : Option TinyML.Var
   ty : Typ
   deriving Repr
 
@@ -27,7 +27,7 @@ instance : DecidableEq Binder := by
 
 def Binder.none (ty : Typ) : Binder := ⟨Option.none, ty⟩
 
-def Binder.named (name : Var) (ty : Typ) : Binder := ⟨some name, ty⟩
+def Binder.named (name : TinyML.Var) (ty : Typ) : Binder := ⟨some name, ty⟩
 
 instance : BEq Binder := ⟨fun a b => decide (a = b)⟩
 
@@ -39,7 +39,7 @@ instance : LawfulBEq Binder where
 
 inductive Expr where
   | const (c : Const)
-  | var (name : Var) (ty : Typ)
+  | var (name : TinyML.Var) (ty : Typ)
   /-- Reference to a built-in primitive, indexed by name. `inst` is the
       type-variable instantiation solved at the use site; `ty` is the
       instantiated arrow type derived from the registry's scheme. -/
@@ -228,7 +228,7 @@ instance : DecidableEq Expr := Expr.decEq
 deriving instance Repr for Expr
 deriving instance BEq for Expr
 
-abbrev Vars := List Var
+abbrev Vars := List TinyML.Var
 abbrev Exprs := List Expr
 abbrev Binders := List Binder
 
@@ -246,7 +246,7 @@ def Expr.ty : Expr → Typ
   | .prim _ _ ty => ty
   | .unop _ _ ty => ty
   | .binop _ _ _ ty => ty
-  | .fix _ args retTy _ => .arrow (args.map Binder.ty) retTy
+  | .fix _ args retTy _ => .arrow (args.map Binder.ty) retTy none
   | .app _ _ ty => ty
   | .ifThenElse _ _ _ ty => ty
   | .letIn _ _ body => body.ty

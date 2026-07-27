@@ -67,7 +67,7 @@ mutual
     | .prim p     => p.valRelBody v
     | .value      => iprop(True)
     | .empty      => iprop(False)
-    | .arrow _ _  => iprop(False)
+    | .arrow ..  => iprop(False)
     | .tvar _     => iprop(False)
     | .ref t      => iprop(∃ l, ⌜v = .loc l⌝ ∗ locinv l (fun w => R w t))
     | .array t    => iprop(∃ len l, ⌜v = .array len l⌝ ∗ arrayinv len l (fun w => R w t))
@@ -136,7 +136,7 @@ mutual
     | .prim _ =>
         iintro _ H
         iexact H
-    | .value | .empty | .arrow _ _ | .tvar _ | .ref _ | .array _ | .ownedArray _ | .owned _ =>
+    | .value | .empty | .arrow .. | .tvar _ | .ref _ | .array _ | .ownedArray _ | .owned _ =>
         iintro _ H
         iexact H
 
@@ -224,7 +224,7 @@ mutual
         exact ValSumRelBody.dist hR hk ts tag payload
     | .prim _ =>
         exact Dist.rfl
-    | .value | .empty | .arrow _ _ | .tvar _ | .owned _ =>
+    | .value | .empty | .arrow .. | .tvar _ | .owned _ =>
         exact Dist.rfl
 
   private theorem ValsRelBody.dist {n : Nat} {R S : ValShape} {k k' : RecCont}
@@ -373,7 +373,7 @@ mutual
     match t with
     | .prim _ =>
         exact PrimitiveType.valRelBody_persistent _ v
-    | .value | .empty | .arrow _ _ | .tvar _ | .owned _ | .ownedArray _ =>
+    | .value | .empty | .arrow .. | .tvar _ | .owned _ | .ownedArray _ =>
         infer_instance
     | .ref _ =>
         have := locinv_persistent
@@ -498,9 +498,10 @@ theorem ValHasType.empty (W : World) (v : Runtime.Val) :
     ValHasType W v .empty ⊣⊢ iprop(False) := by
   exact equiv_iff.mp (ValHasType.unfold W v .empty)
 
-theorem ValHasType.arrow (W : World) (v : Runtime.Val) (args : List Typ) (ret : Typ) :
-    ValHasType W v (.arrow args ret) ⊣⊢ iprop(False) := by
-  exact equiv_iff.mp (ValHasType.unfold W v (.arrow args ret))
+theorem ValHasType.arrow (W : World) (v : Runtime.Val) (args : List Typ) (ret : Typ)
+    (spec : Option (Spec Typ)) :
+    ValHasType W v (.arrow args ret spec) ⊣⊢ iprop(False) := by
+  exact equiv_iff.mp (ValHasType.unfold W v (.arrow args ret spec))
 
 theorem ValHasType.tvar (W : World) (v : Runtime.Val) (x : TyVar) :
     ValHasType W v (.tvar x) ⊣⊢ iprop(False) := by
@@ -777,8 +778,8 @@ mutual
           rw [heq, hlen]
         · iapply (ValSumRel.sub hlist payload tag)
           iexact Hsum
-    | .arrow _ _ =>
-        exact (ValHasType.arrow W v _ _).1.trans false_elim
+    | .arrow .. =>
+        exact (ValHasType.arrow W v _ _ _).1.trans false_elim
     | .tuple hlist =>
         refine (ValHasType.tuple W v _).1.trans ?_
         refine .trans ?_ (ValHasType.tuple W v _).2
@@ -1243,7 +1244,7 @@ mutual
         exact htail φ hφ
     | sum _ | ref _ | value | named _ _ =>
       iintro _; ipureintro; simp [typeConstraints]
-    | arrow args ret => exact (TinyML.ValHasType.arrow W v args ret).1.trans false_elim
+    | arrow args ret spec => exact (TinyML.ValHasType.arrow W v args ret spec).1.trans false_elim
     | empty => exact (TinyML.ValHasType.empty W v).1.trans false_elim
     | tvar x => exact (TinyML.ValHasType.tvar W v x).1.trans false_elim
 
