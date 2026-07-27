@@ -908,7 +908,7 @@ def TypeDecl.elaborate (env : ElabEnv) (loc : Location) (decl : TypeDecl)
 
 def ValDecl.elaborate (env : ElabEnv) (loc : Location)
     (isRec : Bool) (binders : List Pattern) (retTy : Option Typ) (body : Expr)
-    (md : TinyML.DeclMeta Untyped.SpecBody)
+    (spec : Option Untyped.SpecBody)
     : ElabM (Untyped.ValDecl Untyped.SpecBody) := do
   match binders with
   | [] => err loc (.unsupportedFeature "declaration with no binders")
@@ -926,11 +926,11 @@ def ValDecl.elaborate (env : ElabEnv) (loc : Location)
       let body' ← Expr.elaborate (env.bindPattern pat) body
       match body' with
       | .fix .none args retTy' inner =>
-        .ok { name, body := .fix name args retTy' inner, declMeta := md }
+        .ok { name, body := .fix name args retTy' inner, spec }
       | _ => err loc (.unsupportedFeature "let rec requires a function")
     else do
       let body' ← Expr.elaborate env body
-      .ok { name, body := body', declMeta := md }
+      .ok { name, body := body', spec }
   | pat :: args =>
     let name ← patternToBinder pat
     let self := if isRec then name else .none
@@ -939,7 +939,7 @@ def ValDecl.elaborate (env : ElabEnv) (loc : Location)
     let bodyEnv := if isRec then bodyEnv.bindPattern pat else bodyEnv
     let body' ← Expr.elaborate bodyEnv body
     let (args', body'') ← elaborateFunctionArgs env "$param" 0 args body'
-    .ok { name, body := .fix self args' retTy' body'', declMeta := md }
+    .ok { name, body := .fix self args' retTy' body'', spec }
 
 -- ---------------------------------------------------------------------------
 -- Program elaboration
@@ -983,14 +983,14 @@ def Decl.elaborate (env : ElabEnv) (decl : Decl)
   | .val_ isRec binders retTy body => do
     let spec ← elaborateAttrSpec env decl.attrs
     let fn ← hasAttrRelation decl.attrs
-    let d ← ValDecl.elaborate env decl.loc isRec binders retTy body { spec }
+    let d ← ValDecl.elaborate env decl.loc isRec binders retTy body spec
     -- A `[@@fn]` declaration uses its own name for the derived relation.
     let relation ← if fn then
       match d.name with
       | .named x _ => .ok (some x)
       | .none => err decl.loc (.unsupportedFeature "[@@fn] requires a named declaration")
     else .ok none
-    .ok (env.bindBinder d.name, some (.val_ { d with declMeta := { d.declMeta with relation } }))
+    .ok (env.bindBinder d.name, some (.val_ { d with relation }))
 
 private def elaborateDecls (env : ElabEnv) :
     List Decl → ElabM (List (Untyped.Decl Untyped.SpecBody))

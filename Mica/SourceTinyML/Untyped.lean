@@ -144,11 +144,11 @@ abbrev Binders := List Binder
 structure ValDecl (S : Type) where
   name : Binder
   body : Expr
-  declMeta : DeclMeta S
+  /-- The specification written as `[@@spec]`, still unelaborated. -/
+  spec : Option S := none
+  /-- The spec-level relation this declaration is registered as, if `[@@fn]`. -/
+  relation : Option String := none
   deriving Repr, Inhabited
-
-def ValDecl.mapSpec {S T : Type} (f : S → Option T) (d : ValDecl S) : ValDecl T :=
-  { name := d.name, body := d.body, declMeta := d.declMeta.mapSpec f }
 
 structure TypeDecl where
   name : TypeName
@@ -159,10 +159,6 @@ inductive Decl (S : Type) where
   | val_ (d : ValDecl S)
   | type_ (d : TypeDecl)
   deriving Repr, Inhabited
-
-def Decl.mapSpec {S T : Type} (f : S → Option T) : Decl S → Decl T
-  | .val_ d => .val_ (d.mapSpec f)
-  | .type_ d => .type_ d
 
 abbrev Program (S : Type) := List (Decl S)
 

@@ -243,10 +243,10 @@ def ValDecl.print {S : Type} [SpecPayloadPrinter S] (d : Untyped.ValDecl S) : St
       let (allArgs, innerBody) := collectAnonArgs args inner
       s!"let {d.name.print} {argsStr allArgs} = {printExpr innerBody}"
     | body => s!"let {d.name.print} = {printExpr body}"
-  let withSpec := match d.declMeta.spec with
+  let withSpec := match d.spec with
     | .none => decl
     | .some e => s!"{decl} [@@spec {SpecPayloadPrinter.print e}]"
-  match d.declMeta.relation with
+  match d.relation with
   | .none => withSpec
   | .some _ => s!"{withSpec} [@@fn]"
 
