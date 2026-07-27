@@ -3,7 +3,6 @@ import Mica.SourceTinyML.Types
 import Mica.SourceTinyML.Untyped
 import Mica.SourceTinyML.Typed
 import Mica.TinyML.RuntimeExpr
-import Mica.SourceTinyML.Spec
 import Mica.SourceTinyML.Assertions
 import Mica.SourceTinyML.TypeConstraints
 import Mica.Base.Except
@@ -596,14 +595,14 @@ arrow. -/
 def elabSpecBody (env : SpecEnv σ) (Θ : TypeEnv) (Γbase : TyCtx)
     (argBinders : List Typed.Binder) (retTy : Typ)
     (rb : Spec.Body Untyped.Expr) : TypeM σ (Spec Typ) := do
-  let (names, pre) := rb
+  let names := rb.args
   let argTys ← TypeM.ofExcept (specArgTypes argBinders names)
   let Γ₀ : TyCtx := argTys.foldl (fun Γ p => Γ.extend p.1 p.2) Γbase
   let pred ← elabAssert env Θ
     (fun Γ ns (post : Spec.Post Untyped.Expr) => do
       let body' ← elabPost env Θ (Γ.extend post.name retTy) (ns ++ [post.name]) post.body
       pure ⟨post.name, body'⟩)
-    Γ₀ names pre
+    Γ₀ names rb.pre
   pure { args := names, pred := pred }
 
 /-- Elaborate a specified function literal: its signature and specification

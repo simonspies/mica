@@ -3,7 +3,6 @@ import Mica.TinyML.Common
 import Mica.SourceTinyML.Types
 import Mica.SourceTinyML.Untyped
 import Mica.SourceTinyML.Typed
-import Mica.SourceTinyML.Spec
 
 open TinyML
 
@@ -196,8 +195,7 @@ def Pre.print : Spec.Pre Untyped.Expr → String :=
   Assert.print Post.print
 
 def Body.print (body : Spec.Body Untyped.Expr) : String :=
-  let (args, pre) := body
-  s!"fun {" ".intercalate args} -> {Pre.print pre}"
+  s!"fun {" ".intercalate body.args} -> {Pre.print body.pre}"
 
 end Spec
 

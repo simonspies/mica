@@ -1,7 +1,59 @@
--- SUMMARY: Untyped TinyML IR, with annotations carried where available.
+-- SUMMARY: Untyped TinyML IR and specification syntax, with annotations carried where available.
 import Mica.TinyML.Common
 import Mica.SourceTinyML.Types
 import Mica.TinyML.RuntimeExpr
+
+/-!
+# Untyped IR
+
+The IR the frontend elaborates into, together with the syntax of the
+specifications written in it. `SpecParser` recognises a specification's control
+structure (`assert`, `let`, predicate `bind`, `ite`, `ret`) and keeps the
+embedded leaf expressions as ordinary untyped terms; typing turns the whole
+thing into a completed `Spec Typ` (`Assertions.lean`).
+-/
+
+namespace Spec
+
+/-- Specification predicates. Each names a spec-level variable already in
+scope, whose encoded value the translator looks up directly. -/
+inductive Pred where
+  | isinj (tag arity : Nat) (scrut : String)
+  | own (loc : String)
+  /-- Ownership of a mutable array `loc`, binding its vector snapshot. -/
+  | arr (loc : String)
+  deriving Inhabited
+
+/-- The assertion language, parametric in the embedded leaf expression type `ε`
+(used by `assert`, `let_`, and `ite`). Only `ε := Untyped.Expr` occurs in
+practice. -/
+inductive Assert (ε : Type) : Type → Type where
+  | ret (val : α) : Assert ε α
+  | assert (cond : ε) (rest : Assert ε α) : Assert ε α
+  | let_ (name : String) (val : ε) (rest : Assert ε α) : Assert ε α
+  /-- Bind the value a predicate exposes. An ownership snapshot is data, never
+  a function, so its annotation is a core type. -/
+  | bind (p : Pred) (name : String) (ty : TinyML.Typ) (rest : Assert ε α) : Assert ε α
+  | ite (cond : ε) (thn els : Assert ε α) : Assert ε α
+
+instance [Inhabited α] : Inhabited (Assert ε α) := ⟨.ret default⟩
+
+/-- The postcondition of a specification: the name bound to the result value,
+together with the assertion that must hold of it. A structure, because a nested
+inductive may not occur inside its own type parameter. -/
+structure Post (ε : Type) where
+  name : String
+  body : Assert ε Unit
+
+abbrev Pre (ε : Type) := Assert ε (Post ε)
+
+/-- A spec body as written: the argument names it binds, together with the
+precondition. Typing turns it into a completed `Spec` (`Assertions.lean`). -/
+structure Body (ε : Type) where
+  args : List String
+  pre : Assert ε (Post ε)
+
+end Spec
 
 namespace Untyped
 

@@ -1,14 +1,14 @@
 -- SUMMARY: Structural translation from elaborated TinyML terms into the specification language.
-import Mica.SourceTinyML.Spec
 import Mica.SourceTinyML.Untyped
 
 /-!
 # Spec Parser
 
-Translates `Untyped.Expr` (from elaborated `[@@spec ...]` attributes) into the
-`Spec` AST. This recognises only the control structure (`ret`, predicate
-`bind`, `let`, `assert`, `ite`); embedded leaf expressions are preserved
-verbatim as `Untyped.Expr` and typechecked later during elaboration.
+Translates `Untyped.Expr` (from elaborated `[@spec ...]` attributes) into the
+specification syntax of `Untyped.lean`. This recognises only the control
+structure (`ret`, predicate `bind`, `let`, `assert`, `ite`); embedded leaf
+expressions are preserved verbatim as `Untyped.Expr` and typechecked later
+during elaboration.
 -/
 
 namespace Spec
@@ -75,7 +75,7 @@ private def peelBinders : Untyped.Expr → M (Body Untyped.Expr)
     if names.isEmpty then .error "spec must bind at least one argument"
     else do
       let pre ← parsePre body
-      .ok (names, pre)
+      .ok ⟨names, pre⟩
   | e => .error s!"expected fun x -> ..., got {repr e}"
 where
   getNames : List Untyped.Binder → M (List String)
@@ -83,6 +83,8 @@ where
     | Untyped.Binder.named x _ :: rest => do let xs ← getNames rest; .ok (x :: xs)
     | Untyped.Binder.none :: _ => .error "unnamed binder in spec is not allowed"
 
+/-- Recognise a specification's control structure in an elaborated attribute
+payload. -/
 def parse (e : Untyped.Expr) : M (Body Untyped.Expr) :=
   peelBinders e
 
