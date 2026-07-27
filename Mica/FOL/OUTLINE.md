@@ -2,6 +2,7 @@
 
 - `Formulas.lean` — First-order formulas together with their Tarski semantics and well-formedness conditions.
 - `Printing.lean` — Serialization of first-order syntax to SMT-LIB and human-readable notation.
+- `SpecFn.lean` — Solver-facing symbol vocabulary for specification-level function names.
 - `Subst.lean` — Capture-avoiding substitution for first-order syntax and its well-formedness conditions.
 - `Terms.lean` — Typed first-order terms, their Tarski semantics, and their well-formedness conditions.
 - `Variables.lean` — Sorts, variables, and signatures for the first-order logic layer.

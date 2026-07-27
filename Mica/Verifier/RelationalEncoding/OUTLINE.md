@@ -7,4 +7,4 @@
 - `SkolemizeCommon.lean` — Shared split encoding and semantic infrastructure for Skolemization.
 - `SkolemizeCompleteness.lean` — Completeness of Skolemization: relational encoding implies split definedness/value.
 - `SkolemizeSoundness.lean` — Soundness of Skolemization: split definedness/value implies the relational encoding.
-- `Variables.lean` — Shared names, signatures, and freshness helpers for relational encoding.
+- `Variables.lean` — Name supply, function context, and local variable environments for relational encoding.

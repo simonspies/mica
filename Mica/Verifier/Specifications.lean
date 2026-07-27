@@ -1,4 +1,4 @@
--- SUMMARY: Semantics of function specifications and the protocols for specification calls and implementations.
+-- SUMMARY: Verifier operations on function specifications: the call and implementation protocols and their correctness.
 import Mica.SourceTinyML.Typed
 import Mica.FOL.Printing
 import Mica.Verifier.PrimitiveLaws
@@ -16,8 +16,9 @@ variable [MicaGS HasLC.hasLC Sig]
 /-!
 # Specifications
 
-Call/implementation operations for `Spec`, built on top of `PredTrans`. The
-structure itself lives in `SourceTinyML/Assertions.lean`.
+The call and implementation operations for `Spec`, built on top of `PredTrans`,
+with their correctness proofs. `Spec.isPrecondFor`, the semantics, lives in
+`Mica/SourceTinyML/Semantics.lean`.
 -/
 
 -- ---------------------------------------------------------------------------
@@ -31,22 +32,6 @@ namespace Spec
 /-- The list of SMT variables corresponding to a spec's arguments. -/
 def argVars (args : List String) : List Var :=
   args.map fun name => ⟨name, .value⟩
-
-/-- Build an environment binding each argument name to its value, left-to-right.
-    Later arguments shadow earlier ones with the same name. -/
-def argsEnv (ρ : Env) : List String → List Runtime.Val → Env
-  | [], _ | _, [] => ρ
-  | name :: rest, v :: vs => argsEnv (ρ.updateConst .value name v) rest vs
-
-def isPrecondFor (W : TinyML.World)
-    (argTys : List TinyML.Typ) (retTy : TinyML.Typ)
-    (f : Runtime.Val) (s : Spec TinyML.Typ) : iProp :=
-  iprop(□ ∀ (ρ : Env) (Φ : Runtime.Val → iProp) (vs : List Runtime.Val),
-      ⌜Env.agreeOn W.Δ_spec W.ρ_spec ρ⌝ -∗
-      TinyML.ValsHaveTypes W vs argTys -∗
-        PredTrans.apply W (fun r => TinyML.ValHasType W r retTy -∗ Φ r) s.pred
-          (argsEnv ρ s.args vs) -∗
-        wp W.pctx (Runtime.Expr.app (.val f) (vs.map fun v => .val v)) Φ)
 
 /-- A spec is well-formed when its predicate transformer is well-formed in the
     context extended with all argument variables. -/
@@ -107,10 +92,6 @@ def implement (Δ_base : Signature) (argTys : List TinyML.Typ) (s : Spec TinyML.
 
 /-! ## Precondition Proofs -/
 section Precondition
-
-instance : Iris.BI.Persistent (isPrecondFor W argTys retTy f s) := by
-  unfold isPrecondFor
-  infer_instance
 
 /-- Fold `wp_fix'`'s tupled recursive obligation into a spec precondition;
     the two differ only by currying the typing hypothesis and the predicate transformer. -/

@@ -1,7 +1,7 @@
 **Mica/Verifier**
 
-- `Assertions.lean` — Semantics, well-formedness conditions, and verifier operations for the assertion language.
-- `Atoms.lean` — Operations, interpretations, resolution procedures, and correctness lemmas for verifier atoms.
+- `Assertions.lean` — Verifier operations on assertions: assume and prove, well-formedness conditions, and correctness lemmas.
+- `Atoms.lean` — Verifier operations on atoms: context items, resolution procedures, well-formedness, and correctness lemmas.
 - `Bindings.lean` — Verifier variable-to-constant bindings, their semantic linkage to runtime substitutions, and typing/lookup lemmas.
 - `BoundedQuantifier.lean` — Lambda lifting of spec-level bounded quantifiers (Range.all/Range.exists) into axiomatized function symbols.
 - `Expressions.lean` — Compilation of typed TinyML expressions into verifier terms, with weakest-precondition correctness proofs.
@@ -10,13 +10,13 @@
 - `Interpretations.lean` — Iris interpretations of spatial atoms and contexts, with lemmas relating syntax to separation-logic assertions.
 - `Intrinsic.lean` — Data model for verifier intrinsics, with generic theorems characterizing the effect of registry setup.
 - `Monad.lean` — Verification monad with SMT operations, branching, and its operational and semantic correctness interfaces.
-- `PredicateTransformers.lean` — Semantics and call/implementation protocols for function-specification predicate transformers.
+- `PredicateTransformers.lean` — Verifier operations on predicate transformers: the call and implementation protocols and their well-formedness.
 - `PrimitiveLaws.lean` — Spatially lifted weakest-precondition laws for TinyML primitive operations.
 - `Programs.lean` — End-to-end preparation and verification of programs, from typed elaboration to program-level soundness.
 - `RelationalEncoding.lean` — Bundle for RelationalEncoding/, the two-stage encoding of recursive functions into FOL axioms.
 - `Scoped.lean` — Scoped SMT command language and its translation to solver strategies and flat contexts.
 - `SpatialAtom.lean` — Syntactic spatial atoms and contexts for verifier state, together with their well-formedness conditions and basic operations.
 - `SpecMaps.lean` — Finite maps of function specifications, together with satisfaction, update, and well-formedness lemmas.
-- `Specifications.lean` — Semantics of function specifications and the protocols for specification calls and implementations.
+- `Specifications.lean` — Verifier operations on function specifications: the call and implementation protocols and their correctness.
 - `State.lean` — Verifier state and environments, together with their well-formedness conditions and fresh-name infrastructure.
 - `Utils.lean` — Supporting infrastructure for verifier finite substitutions and argument-handling helpers.

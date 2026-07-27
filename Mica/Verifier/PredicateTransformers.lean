@@ -1,4 +1,4 @@
--- SUMMARY: Semantics and call/implementation protocols for function-specification predicate transformers.
+-- SUMMARY: Verifier operations on predicate transformers: the call and implementation protocols and their well-formedness.
 import Mica.SourceTinyML.Typed
 import Mica.FOL.Printing
 import Mica.Verifier.Monad
@@ -16,8 +16,9 @@ variable [MicaGS HasLC.hasLC Sig]
 /-!
 # Predicate Transformers
 
-Well-formedness, semantics, and call/implementation protocols for `PredTrans`,
-which is defined in `SourceTinyML/Assertions.lean`.
+Well-formedness of `PredTrans` and the `call`/`implement` protocols, with their
+correctness proofs. `PredTrans.apply`, the semantics, lives in
+`Mica/SourceTinyML/Semantics.lean`.
 -/
 
 -- ---------------------------------------------------------------------------
@@ -43,16 +44,6 @@ theorem PredTrans.checkWf_ok {pt : PredTrans TinyML.Typ} {Δ : Signature}
   Assertion.checkWf_ok
     (fun _ _ hok => Assertion.checkWf_ok (fun _ _ _ => trivial) hok)
     h
-
--- ---------------------------------------------------------------------------
--- Semantics
--- ---------------------------------------------------------------------------
-
-def PredTrans.apply (W : TinyML.World) (Φ : Runtime.Val → iProp) (m : PredTrans TinyML.Typ) (ρ : Env) : iProp :=
-  Assertion.pre W (fun post ρ' =>
-    BIBase.forall fun v : Runtime.Val =>
-      Assertion.post W (fun () _ => Φ v) post.body (ρ'.updateConst .value post.name v)
-  ) m ρ
 
 -- ---------------------------------------------------------------------------
 -- Verifier operations

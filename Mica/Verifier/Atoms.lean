@@ -1,5 +1,5 @@
--- SUMMARY: Operations, interpretations, resolution procedures, and correctness lemmas for verifier atoms.
-import Mica.SourceTinyML.Assertions
+-- SUMMARY: Verifier operations on atoms: context items, resolution procedures, well-formedness, and correctness lemmas.
+import Mica.SourceTinyML.Semantics
 import Mica.FOL.Printing
 import Mica.FOL.Subst
 import Mica.Verifier.Interpretations
@@ -14,9 +14,11 @@ open Verifier.RelationalEncoding
 /-!
 # Atoms
 
-Operations, interpretations, and correctness lemmas for `Atom`, the sort
-predicate asserting that a value-sorted term has a specific sort. The inductive
-itself lives in `SourceTinyML/Assertions.lean`.
+Verifier-side operations on `Atom`: substitution, the corresponding context
+item, resolution against the pure context, well-formedness, and the lemmas
+relating `Atom.eval` to the spatial interpretation. The syntax lives in
+`Mica/SourceTinyML/Assertions.lean` and the semantics in
+`Mica/SourceTinyML/Semantics.lean`.
 -/
 
 
@@ -42,24 +44,6 @@ def Atom.toItem (a : Atom TinyML.Typ τ) (t : Term τ) : CtxItem :=
   | .own l ty => .spatial (.pointsTo l t ty)
   | .arr a ty => .spatial (.arrayPointsTo a t ty)
   | .rel name arg => .pure (.and (SpecFn.isDefined name arg) (.eq .value (SpecFn.call name arg) t))
-
--- ---------------------------------------------------------------------------
--- Semantics
--- ---------------------------------------------------------------------------
-
-def Atom.eval (W : TinyML.World) {τ : Srt} (p : Atom TinyML.Typ τ) (ρ : Env) : τ.denote → iProp :=
-  match p with
-  | isint t  => λ v => ⌜.int v = t.eval ρ⌝
-  | isbool t => λ v => ⌜.bool v = t.eval ρ⌝
-  | isinj tag arity t => λ v => ⌜.inj tag arity v = t.eval ρ⌝
-  | own l ty => λ v => ∃ loc : Runtime.Location,
-      ⌜l.eval ρ = .loc loc⌝ ∗ loc ↦ [v] ∗ TinyML.ValHasType W v ty
-  | arr a ty => λ v => ∃ loc : Runtime.Location, ∃ vs : List Runtime.Val,
-      ⌜a.eval ρ = .array vs.length loc⌝ ∗ ⌜v = .vec vs⌝ ∗ loc ↦ vs ∗
-        TinyML.ValHasType W (.vec vs) (.vec ty)
-  | rel name arg => λ v =>
-    ⌜(SpecFn.isDefined name arg).eval ρ ∧ (SpecFn.call name arg).eval ρ = v⌝
-
 
 /-- Try to match a formula against an atom, returning the extracted term if it matches. -/
 def Formula.matchAtom (φ : Formula) (a : Atom TinyML.Typ τ) : Option (Term τ) :=
