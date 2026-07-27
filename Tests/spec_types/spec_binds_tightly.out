@@ -1,0 +1,2 @@
+elaboration error: Tests/spec_types/spec_binds_tightly.ml:6:19: unsupported feature: [@spec] only applies to a function type
+[1]

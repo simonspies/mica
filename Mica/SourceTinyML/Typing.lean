@@ -800,6 +800,18 @@ def elabSpecifiedFix (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx)
       pure (s, ← check env Θ Γ e (.arrow (typedArgs.map Binder.ty) ret (some s)))
   | _ => TypeM.error (.spec "attached to a non-function declaration")
 
+/-- A declaration is specified once. `[@@spec]` and a specification on the
+declaration's own type are the same mechanism, so giving both would ask for two
+specifications of one function. -/
+private def checkSingleSpec (b : Untyped.Binder) : TypeM σ Unit :=
+  match b with
+  | .named _ (some ann) =>
+      if ann.isSpecified then
+        TypeM.error (.spec
+          "a declaration carries either [@@spec] or a specification on its own type, not both")
+      else pure ()
+  | _ => pure ()
+
 /-- Check a declaration binder's annotation against the type elaborated for its
 body. A specified declaration's type carries its specification, which no
 annotation mentions, so the annotation is matched against the bare type. -/
@@ -816,6 +828,7 @@ def ValDecl.elaborate (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx)
     TypeM σ Typed.ValDecl := do
   match d.spec with
   | some rb => do
+      checkSingleSpec d.name
       -- A specified declaration's literal records its specification, so the
       -- declaration's own type — and hence the type every later use is
       -- annotated with — is the specified arrow.
@@ -1394,7 +1407,8 @@ theorem ValDecl.elaborate_runtime (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML
   match hspec : d.spec with
   | some rb =>
     simp only [ValDecl.elaborate, hspec] at helab
-    have ⟨r, s₀, hfix, hcont⟩ := StateT.bind_ok helab
+    have ⟨_, sg, _, helab'⟩ := StateT.bind_ok helab
+    have ⟨r, s₀, hfix, hcont⟩ := StateT.bind_ok helab'
     have ⟨_, s₁, _, hcont⟩ := StateT.bind_ok hcont
     rcases hcont with ⟨rfl, rfl⟩
     simp [Typed.ValDecl.runtime, Untyped.ValDecl.runtime, Binder.ofUntyped_runtime,

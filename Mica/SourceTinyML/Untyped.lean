@@ -137,6 +137,11 @@ deriving instance Repr for Expr
 untyped terms, and binder annotations are untyped types. -/
 abbrev SpecBody := Spec.Body Expr Typ
 
+/-- Whether this type is an arrow carrying a specification of its own. -/
+def Typ.isSpecified : Typ → Bool
+  | .arrow _ _ (some _) => true
+  | _ => false
+
 abbrev Vars := List TinyML.Var
 abbrev Exprs := List Expr
 abbrev Binders := List Binder

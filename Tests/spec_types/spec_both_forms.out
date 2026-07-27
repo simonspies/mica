@@ -1,0 +1,2 @@
+Status: failed: specification error: a declaration carries either [@@spec] or a specification on its own type, not both
+[1]
