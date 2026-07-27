@@ -677,20 +677,21 @@ theorem wp_fix {f : Runtime.Binder} {args : List Runtime.Binder} {e : Runtime.Ex
       (wp pctx (.app (.val (.fix f args e)) (vs.map Runtime.Expr.val)) P) :=
   h.trans (wp.fix hlen)
 
-/-- Fixpoint unfolding with a continuation-indexed invariant. -/
+/-- Fixpoint unfolding with a guarded continuation-indexed invariant. -/
 theorem wp_fix' {f : Runtime.Binder} {args : List Runtime.Binder} {e : Runtime.Expr}
     {Φ : (Runtime.Val → iProp) → List Runtime.Val → iProp}
     {R : iProp}
-    (hlen : ∀ (vs : List Runtime.Val) (P : Runtime.Val → iProp),
-      Φ P vs ⊢ (⌜args.length = vs.length⌝ : iProp))
     (h : R ⊢
       □ (□ (∀ (vs : List Runtime.Val) (P : Runtime.Val → iProp),
-          Φ P vs -∗ wp pctx (.app (.val (.fix f args e)) (vs.map Runtime.Expr.val)) P) -∗
+          ⌜args.length = vs.length⌝ -∗ ▷ Φ P vs -∗
+            wp pctx (.app (.val (.fix f args e)) (vs.map Runtime.Expr.val)) P) -∗
         ∀ (vs : List Runtime.Val) (P : Runtime.Val → iProp),
-          Φ P vs -∗ wp pctx (e.subst ((Runtime.Subst.id.updateBinder f (.fix f args e)).updateAllBinder args vs)) P)) :
+          ⌜args.length = vs.length⌝ -∗ Φ P vs -∗
+            wp pctx (e.subst ((Runtime.Subst.id.updateBinder f (.fix f args e)).updateAllBinder args vs)) P)) :
     R ⊢ □ (∀ (vs : List Runtime.Val) (P : Runtime.Val → iProp),
-          Φ P vs -∗ wp pctx (.app (.val (.fix f args e)) (vs.map Runtime.Expr.val)) P) :=
-  h.trans (wp.fix' (Φ := Φ) hlen)
+          ⌜args.length = vs.length⌝ -∗ ▷ Φ P vs -∗
+            wp pctx (.app (.val (.fix f args e)) (vs.map Runtime.Expr.val)) P) :=
+  h.trans (wp.fix' (Φ := Φ))
 
 /-- Let-bindings: evaluate the bound expression, then continue in the body with
     the resulting value substituted. -/

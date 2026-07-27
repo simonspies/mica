@@ -802,29 +802,32 @@ theorem wp.prim_pure {ctx : TinyML.PrimCtx} {n : String} {vs : List Runtime.Val}
 
 /-! ## Recursion -/
 
+/-- Fixpoint unfolding with a continuation-indexed invariant, where the caller's
+    resources are guarded: the beta step is what strips the guard, so the body is
+    proved from the unguarded invariant. The argument count is a pure premise,
+    since the step needs it before the guard can be stripped. -/
 theorem wp.fix' {ctx : TinyML.PrimCtx} {f : Runtime.Binder} {args : List Runtime.Binder}
-    {e : Runtime.Expr} {Φ : (Runtime.Val → iProp) → List Runtime.Val → iProp}
-    (hlen : ∀ (vs : List Runtime.Val) (P : Runtime.Val → iProp),
-      Φ P vs ⊢ (⌜args.length = vs.length⌝ : iProp)) :
+    {e : Runtime.Expr} {Φ : (Runtime.Val → iProp) → List Runtime.Val → iProp} :
     □ (□ (∀ (vs : List Runtime.Val) (P : Runtime.Val → iProp),
-        Φ P vs -∗ wp ctx (.app (.val (.fix f args e)) (vs.map Runtime.Expr.val)) P) -∗
+        ⌜args.length = vs.length⌝ -∗ ▷ Φ P vs -∗
+          wp ctx (.app (.val (.fix f args e)) (vs.map Runtime.Expr.val)) P) -∗
       ∀ (vs : List Runtime.Val) (P : Runtime.Val → iProp),
-        Φ P vs -∗ wp ctx (e.subst ((Runtime.Subst.id.updateBinder f (.fix f args e)).updateAllBinder args vs)) P)
-    ⊢ □ (∀ (vs : List Runtime.Val) (P : Runtime.Val → iProp), Φ P vs -∗ wp ctx (.app (.val (.fix f args e)) (vs.map Runtime.Expr.val)) P) := by
+        ⌜args.length = vs.length⌝ -∗ Φ P vs -∗
+          wp ctx (e.subst ((Runtime.Subst.id.updateBinder f (.fix f args e)).updateAllBinder args vs)) P)
+    ⊢ □ (∀ (vs : List Runtime.Val) (P : Runtime.Val → iProp),
+        ⌜args.length = vs.length⌝ -∗ ▷ Φ P vs -∗
+          wp ctx (.app (.val (.fix f args e)) (vs.map Runtime.Expr.val)) P) := by
   istart
   iintro #H
   iapply loeb_wand_intuitionistically
   imodintro
   iintro #HG
   imodintro
-  iintro %vs %P HΦ
-  ihave %hl : (⌜args.length = vs.length⌝ : iProp) $$ [HΦ]
-  · iapply hlen vs P
-    iexact HΦ
+  iintro %vs %P %hl HΦ
   iapply wp.pure_step' (fun _ => .beta hl) (fun _ _ _ h => h.beta_inv)
   inext
   ispecialize H $$ HG
-  iapply H $$ %vs %P HΦ
+  iapply H $$ %vs %P %hl HΦ
 
 /-- Definitional unfolding of `wp` into the Iris weakest precondition; stated
     here so it remains usable once `wp` is marked irreducible (adequacy needs

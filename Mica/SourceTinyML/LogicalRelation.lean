@@ -8,6 +8,7 @@ import Mica.FOL.Formulas
 import Mica.Base.Fresh
 import Mica.SeparationLogic.Wp
 import Mica.SourceTinyML.World
+import Mica.SourceTinyML.Semantics
 import Iris.BI.Lib.Fixpoint
 
 open Iris Iris.BI Iris.OFE
@@ -36,9 +37,6 @@ abbrev RecIdx := LeibnizO (Runtime.Val × TypeName × List Typ)
 @[reducible] def RecCont.ofPred (Φ : RecIdx → iProp) : RecCont :=
   fun v T args => Φ ⟨(v, T, args)⟩
 
-/-- The outer approximation ranges over closed value relations. -/
-abbrev ValShape := Runtime.Val → Typ → iProp
-
 /-- Interpret one primitive type as an Iris assertion over a runtime value. -/
 def PrimitiveType.valRelBody : PrimitiveType → Runtime.Val → iProp
   | .unit, v => iprop(⌜v = .unit⌝)
@@ -60,44 +58,53 @@ References use the outer approximation `R`; named types use the inner
 continuation `k`. Tuples and sums are structural and mutually recursive with
 the list/sum helpers below. Vectors are a big separating conjunction over the
 elements.
+
+An unspecified function type is uninhabited. A specified one is interpreted by
+its specification, taken at the outer approximation `R`: the specification
+mentions types, which `isPrecondFor` interprets through the relation being
+defined. `R` rather than `k`, because `R` occurs both negatively (arguments) and
+positively (result), so the body is neither monotone nor antitone in the inner
+continuation. The guard that makes this well-defined sits inside
+`isPrecondFor`, on its resource premises.
 -/
 mutual
-  def ValRelBody (R : ValShape) (v : Runtime.Val) (t : Typ) (k : RecCont) : iProp :=
+  def ValRelBody (W : World) (R : ValueRelation) (v : Runtime.Val) (t : Typ) (k : RecCont) : iProp :=
     match t with
     | .prim p     => p.valRelBody v
     | .value      => iprop(True)
     | .empty      => iprop(False)
-    | .arrow ..  => iprop(False)
+    | .arrow _ _ none     => iprop(False)
+    | .arrow args ret (some s) => s.isPrecondFor W R args ret v
     | .tvar _     => iprop(False)
     | .ref t      => iprop(∃ l, ⌜v = .loc l⌝ ∗ locinv l (fun w => R w t))
     | .array t    => iprop(∃ len l, ⌜v = .array len l⌝ ∗ arrayinv len l (fun w => R w t))
     | .ownedArray _ => iprop(∃ len l, ⌜v = .array len l⌝)
     | .vec t      =>
-        iprop(∃ vs, ⌜v = .vec vs⌝ ∗ [∗list] w ∈ vs, ValRelBody R w t k)
+        iprop(∃ vs, ⌜v = .vec vs⌝ ∗ [∗list] w ∈ vs, ValRelBody W R w t k)
     | .owned _    => iprop(∃ l, ⌜v = .loc l⌝)
     | .named T args => k v T args
-    | .tuple ts   => iprop(∃ vs, ⌜v = .tuple vs⌝ ∗ ValsRelBody R vs ts k)
+    | .tuple ts   => iprop(∃ vs, ⌜v = .tuple vs⌝ ∗ ValsRelBody W R vs ts k)
     | .sum ts     =>
         iprop(∃ tag payload, ⌜v = .inj tag ts.length payload⌝ ∗
-          ValSumRelBody R tag payload ts k)
+          ValSumRelBody W R tag payload ts k)
 
-  def ValsRelBody : ValShape → List Runtime.Val → List Typ → RecCont → iProp
+  def ValsRelBody (W : World) : ValueRelation → List Runtime.Val → List Typ → RecCont → iProp
     | _, [], [], _ => iprop(emp)
-    | R, v :: vs, t :: ts, k => iprop(ValRelBody R v t k ∗ ValsRelBody R vs ts k)
+    | R, v :: vs, t :: ts, k => iprop(ValRelBody W R v t k ∗ ValsRelBody W R vs ts k)
     | _, _, _, _ => iprop(False)
 
-  def ValSumRelBody : ValShape → Nat → Runtime.Val → List Typ → RecCont → iProp
+  def ValSumRelBody (W : World) : ValueRelation → Nat → Runtime.Val → List Typ → RecCont → iProp
     | _, _, _, [], _ => iprop(False)
-    | R, 0, payload, t :: _, k => ValRelBody R payload t k
-    | R, n + 1, payload, _ :: ts, k => ValSumRelBody R n payload ts k
+    | R, 0, payload, t :: _, k => ValRelBody W R payload t k
+    | R, n + 1, payload, _ :: ts, k => ValSumRelBody W R n payload ts k
 end
 
 /-! Monotonicity in the inner continuation. -/
 
 mutual
-  private theorem ValRelBody.mono_int (R : ValShape) (t : Typ) (v : Runtime.Val) {k k' : RecCont} :
+  private theorem ValRelBody.mono_int (W : World) (R : ValueRelation) (t : Typ) (v : Runtime.Val) {k k' : RecCont} :
       ⊢ □ (∀ v T args, k v T args -∗ k' v T args) -∗
-        (ValRelBody R v t k -∗ ValRelBody R v t k' : iProp) := by
+        (ValRelBody W R v t k -∗ ValRelBody W R v t k' : iProp) := by
     unfold ValRelBody
     match t with
     | .named T args =>
@@ -110,7 +117,7 @@ mutual
         isplitr
         · ipureintro
           exact heq
-        · iapply (ValsRelBody.mono_int R ts vs)
+        · iapply (ValsRelBody.mono_int W R ts vs)
           · iexact Hk
           · iexact Hvs
     | .vec t =>
@@ -122,7 +129,7 @@ mutual
         · iapply BigSepL.bigSepL_impl $$ Hvs
           imodintro
           iintro %i %w %hget
-          iapply (ValRelBody.mono_int R t w)
+          iapply (ValRelBody.mono_int W R t w)
           iexact Hk
     | .sum ts =>
         iintro #Hk ⟨%tag, %payload, %heq, Hsum⟩
@@ -130,20 +137,21 @@ mutual
         isplitr
         · ipureintro
           exact heq
-        · iapply (ValSumRelBody.mono_int R ts tag payload)
+        · iapply (ValSumRelBody.mono_int W R ts tag payload)
           · iexact Hk
           · iexact Hsum
     | .prim _ =>
         iintro _ H
         iexact H
-    | .value | .empty | .arrow .. | .tvar _ | .ref _ | .array _ | .ownedArray _ | .owned _ =>
+    | .value | .empty | .arrow _ _ none | .arrow _ _ (some _) | .tvar _ | .ref _ | .array _
+    | .ownedArray _ | .owned _ =>
         iintro _ H
         iexact H
 
-  private theorem ValsRelBody.mono_int (R : ValShape) (ts : List Typ) (vs : List Runtime.Val)
+  private theorem ValsRelBody.mono_int (W : World) (R : ValueRelation) (ts : List Typ) (vs : List Runtime.Val)
       {k k' : RecCont} :
       ⊢ □ (∀ v T args, k v T args -∗ k' v T args) -∗
-        (ValsRelBody R vs ts k -∗ ValsRelBody R vs ts k' : iProp) := by
+        (ValsRelBody W R vs ts k -∗ ValsRelBody W R vs ts k' : iProp) := by
     unfold ValsRelBody
     match vs, ts with
     | [], [] =>
@@ -152,20 +160,20 @@ mutual
     | v :: vs, t :: ts =>
         iintro #Hk ⟨Hv, Hvs⟩
         isplitl [Hv]
-        · iapply (ValRelBody.mono_int R t v)
+        · iapply (ValRelBody.mono_int W R t v)
           · iexact Hk
           · iexact Hv
-        · iapply (ValsRelBody.mono_int R ts vs)
+        · iapply (ValsRelBody.mono_int W R ts vs)
           · iexact Hk
           · iexact Hvs
     | [], _ :: _ | _ :: _, [] =>
         iintro _ H
         iexact H
 
-  private theorem ValSumRelBody.mono_int (R : ValShape) (ts : List Typ) (tag : Nat)
+  private theorem ValSumRelBody.mono_int (W : World) (R : ValueRelation) (ts : List Typ) (tag : Nat)
       (payload : Runtime.Val) {k k' : RecCont} :
       ⊢ □ (∀ v T args, k v T args -∗ k' v T args) -∗
-        (ValSumRelBody R tag payload ts k -∗ ValSumRelBody R tag payload ts k' : iProp) := by
+        (ValSumRelBody W R tag payload ts k -∗ ValSumRelBody W R tag payload ts k' : iProp) := by
     unfold ValSumRelBody
     match tag, ts with
     | _, [] =>
@@ -173,12 +181,12 @@ mutual
         iexact H
     | 0, t :: _ =>
         iintro #Hk Hv
-        iapply (ValRelBody.mono_int R t payload)
+        iapply (ValRelBody.mono_int W R t payload)
         · iexact Hk
         · iexact Hv
     | n + 1, _ :: ts =>
         iintro #Hk Hv
-        iapply (ValSumRelBody.mono_int R ts n payload)
+        iapply (ValSumRelBody.mono_int W R ts n payload)
         · iexact Hk
         · iexact Hv
 end
@@ -186,9 +194,9 @@ end
 /-! Mixed OFE continuity in the outer approximation and inner continuation. -/
 
 mutual
-  private theorem ValRelBody.dist {n : Nat} {R S : ValShape} {k k' : RecCont}
+  private theorem ValRelBody.dist {n : Nat} {W : World} {R S : ValueRelation} {k k' : RecCont}
       (hR : DistLater n R S) (hk : k ≡{n}≡ k') (t : Typ) (v : Runtime.Val) :
-      ValRelBody R v t k ≡{n}≡ ValRelBody S v t k' := by
+      ValRelBody W R v t k ≡{n}≡ ValRelBody W S v t k' := by
     unfold ValRelBody
     match t with
     | .ref t =>
@@ -222,14 +230,16 @@ mutual
         refine exists_ne fun payload => ?_
         refine sep_ne.ne (.of_eq rfl) ?_
         exact ValSumRelBody.dist hR hk ts tag payload
+    | .arrow args ret (some s) =>
+        exact Spec.isPrecondFor_contractive hR args ret v s
     | .prim _ =>
         exact Dist.rfl
-    | .value | .empty | .arrow .. | .tvar _ | .owned _ =>
+    | .value | .empty | .arrow _ _ none | .tvar _ | .owned _ =>
         exact Dist.rfl
 
-  private theorem ValsRelBody.dist {n : Nat} {R S : ValShape} {k k' : RecCont}
+  private theorem ValsRelBody.dist {n : Nat} {W : World} {R S : ValueRelation} {k k' : RecCont}
       (hR : DistLater n R S) (hk : k ≡{n}≡ k') (ts : List Typ) (vs : List Runtime.Val) :
-      ValsRelBody R vs ts k ≡{n}≡ ValsRelBody S vs ts k' := by
+      ValsRelBody W R vs ts k ≡{n}≡ ValsRelBody W S vs ts k' := by
     unfold ValsRelBody
     match vs, ts with
     | [], [] =>
@@ -241,10 +251,10 @@ mutual
     | [], _ :: _ | _ :: _, [] =>
         exact Dist.rfl
 
-  private theorem ValSumRelBody.dist {n : Nat} {R S : ValShape} {k k' : RecCont}
+  private theorem ValSumRelBody.dist {n : Nat} {W : World} {R S : ValueRelation} {k k' : RecCont}
       (hR : DistLater n R S) (hk : k ≡{n}≡ k') (ts : List Typ) (tag : Nat)
       (payload : Runtime.Val) :
-      ValSumRelBody R tag payload ts k ≡{n}≡ ValSumRelBody S tag payload ts k' := by
+      ValSumRelBody W R tag payload ts k ≡{n}≡ ValSumRelBody W S tag payload ts k' := by
     unfold ValSumRelBody
     match tag, ts with
     | _, [] =>
@@ -255,18 +265,18 @@ mutual
         exact ValSumRelBody.dist hR hk ts n payload
 end
 
-private instance ValRelBody.contractive (k : RecCont) (v : Runtime.Val) (t : Typ) :
-    Contractive (fun R : ValShape => ValRelBody R v t k) where
+private instance ValRelBody.contractive (W : World) (k : RecCont) (v : Runtime.Val) (t : Typ) :
+    Contractive (fun R : ValueRelation => ValRelBody W R v t k) where
   distLater_dist hR := ValRelBody.dist hR Dist.rfl t v
 
 /-- One unfolding of the inner recursive type interpretation. -/
-private def ValRelIndF (W : World) (R : ValShape) (Φ : RecIdx → iProp) (x : RecIdx) : iProp :=
+private def ValRelIndF (W : World) (R : ValueRelation) (Φ : RecIdx → iProp) (x : RecIdx) : iProp :=
   match x with
   | ⟨(v, T, args)⟩ =>
       iprop(∃ ty, ⌜TypeName.unfold W.Θ T args = some ty⌝ ∗
-        ValRelBody R v ty (RecCont.ofPred Φ))
+        ValRelBody W R v ty (RecCont.ofPred Φ))
 
-private instance (W : World) (R : ValShape) (Φ : RecIdx → iProp) :
+private instance (W : World) (R : ValueRelation) (Φ : RecIdx → iProp) :
     NonExpansive (ValRelIndF W R Φ) where
   ne {_ x y} h := by
     obtain ⟨x⟩ := x
@@ -275,16 +285,16 @@ private instance (W : World) (R : ValShape) (Φ : RecIdx → iProp) :
     exact Dist.of_eq rfl
 
 private theorem ValRelIndF.contractive (W : World) (Φ : RecIdx → iProp) (x : RecIdx) :
-    Contractive (fun R : ValShape => ValRelIndF W R Φ x) where
+    Contractive (fun R : ValueRelation => ValRelIndF W R Φ x) where
   distLater_dist {n R S} hR := by
     obtain ⟨v, T, args⟩ := x
     simp only [ValRelIndF]
     refine exists_ne fun ty => ?_
     refine sep_ne.ne (.of_eq rfl) ?_
     exact Contractive.distLater_dist
-      (f := fun R : ValShape => ValRelBody R v ty (RecCont.ofPred Φ)) hR
+      (f := fun R : ValueRelation => ValRelBody W R v ty (RecCont.ofPred Φ)) hR
 
-private instance (W : World) (R : ValShape) : BIMonoPred (ValRelIndF W R) where
+private instance (W : World) (R : ValueRelation) : BIMonoPred (ValRelIndF W R) where
   mono_pred := by
     intro Φ Ψ _ _
     iintro #HΦΨ %x HF
@@ -295,7 +305,7 @@ private instance (W : World) (R : ValShape) : BIMonoPred (ValRelIndF W R) where
     isplitr
     · ipureintro
       exact hunfold
-    · iapply (ValRelBody.mono_int R ty v
+    · iapply (ValRelBody.mono_int W R ty v
         (k := RecCont.ofPred Φ) (k' := RecCont.ofPred Ψ))
       · imodintro
         iintro %v' %T' %args'
@@ -308,20 +318,20 @@ private instance (W : World) (R : ValShape) : BIMonoPred (ValRelIndF W R) where
     exact Dist.of_eq rfl
 
 /-- The inner least fixpoint for named types, with the outer approximation fixed. -/
-private def ValRelInd (W : World) (R : ValShape) : RecCont :=
+private def ValRelInd (W : World) (R : ValueRelation) : RecCont :=
   fun v T args => Iris.bi_least_fixpoint (ValRelIndF W R) ⟨(v, T, args)⟩
 
-private theorem ValRelInd.unfold {W : World} {R : ValShape}
+private theorem ValRelInd.unfold {W : World} {R : ValueRelation}
     {v : Runtime.Val} {T : TypeName} {args : List Typ} :
     ValRelInd W R v T args ⊣⊢
       iprop(∃ ty, ⌜TypeName.unfold W.Θ T args = some ty⌝ ∗
-        ValRelBody R v ty (ValRelInd W R)) := by
+        ValRelBody W R v ty (ValRelInd W R)) := by
   have h := Iris.least_fixpoint_unfold (ValRelIndF W R) (x := ⟨(v, T, args)⟩)
   simp only [ValRelIndF] at h
   exact equiv_iff.mp h
 
 private instance ValRelInd.contractive (W : World) :
-    Contractive (fun R : ValShape => ValRelInd W R) where
+    Contractive (fun R : ValueRelation => ValRelInd W R) where
   distLater_dist {n R S} hR v T args := by
     unfold ValRelInd Iris.bi_least_fixpoint
     refine forall_ne fun Φ => ?_
@@ -332,48 +342,63 @@ private instance ValRelInd.contractive (W : World) :
     exact (ValRelIndF.contractive W (fun x => Φ x) x).distLater_dist hR
 
 /-- The outer functional. It closes the named-type continuation using `ValRelInd`. -/
-private def ValRelF (W : World) (R : ValShape) : ValShape :=
-  fun v t => ValRelBody R v t (ValRelInd W R)
+private def ValRelF (W : World) (R : ValueRelation) : ValueRelation :=
+  fun v t => ValRelBody W R v t (ValRelInd W R)
 
 private instance ValRelF.contractive (W : World) : Contractive (ValRelF W) where
   distLater_dist {n R S} hR v t := by
     unfold ValRelF
     have hk : ValRelInd W R ≡{n}≡ ValRelInd W S :=
-      Contractive.distLater_dist (f := fun R : ValShape => ValRelInd W R) hR
+      Contractive.distLater_dist (f := fun R : ValueRelation => ValRelInd W R) hR
     exact ValRelBody.dist hR hk t v
 
 /-- The mixed recursive value relation. -/
-def ValHasType (W : World) : ValShape :=
+def ValHasType (W : World) : ValueRelation :=
   fixpoint (ValRelF W)
 
-/-- Final tuple/list relation induced by the mixed recursive value relation. -/
-def ValsHaveTypes (W : World) (vs : List Runtime.Val) (ts : List Typ) : iProp :=
-  ValsRelBody (ValHasType W) vs ts (ValRelInd W (ValHasType W))
+/-- Final tuple/list relation induced by the mixed recursive value relation.
+    Reducible so that it unifies with `ValsRel` at an instantiated `V`. -/
+@[reducible] def ValsHaveTypes (W : World) (vs : List Runtime.Val) (ts : List Typ) : iProp :=
+  ValsRel (ValHasType W) vs ts
 
 /-- Final sum-payload relation induced by the mixed recursive value relation. -/
 def ValSumRel (W : World) (tag : Nat) (payload : Runtime.Val)
     (ts : List Typ) : iProp :=
-  ValSumRelBody (ValHasType W) tag payload ts (ValRelInd W (ValHasType W))
+  ValSumRelBody W (ValHasType W) tag payload ts (ValRelInd W (ValHasType W))
 
 theorem ValHasType.unfold (W : World) (v : Runtime.Val) (t : Typ) :
-    ValHasType W v t ≡ ValRelBody (ValHasType W) v t (ValRelInd W (ValHasType W)) := by
-  let F : ValShape -c> ValShape := {
+    ValHasType W v t ≡ ValRelBody W (ValHasType W) v t (ValRelInd W (ValHasType W)) := by
+  let F : ValueRelation -c> ValueRelation := {
     f := ValRelF W
     contractive := inferInstance
   }
   exact (fixpoint_unfold F) v t
 
+/-- At the fixpoint, the pointwise lifting agrees with the structural list
+    layer of the value relation. -/
+theorem ValsHaveTypes.unfold (W : World) :
+    ∀ (vs : List Runtime.Val) (ts : List Typ),
+      ValsHaveTypes W vs ts ⊣⊢ ValsRelBody W (ValHasType W) vs ts (ValRelInd W (ValHasType W))
+  | [], [] => .rfl
+  | [], _ :: _ | _ :: _, [] => .rfl
+  | v :: vs, t :: ts => by
+      show iprop(ValHasType W v t ∗ ValsRel (ValHasType W) vs ts) ⊣⊢
+        iprop(ValRelBody W (ValHasType W) v t (ValRelInd W (ValHasType W)) ∗
+          ValsRelBody W (ValHasType W) vs ts (ValRelInd W (ValHasType W)))
+      exact sep_congr (equiv_iff.mp (ValHasType.unfold W v t)) (ValsHaveTypes.unfold W vs ts)
+
 
 /-! Persistence of the mixed value relation. -/
 
 mutual
-  theorem ValRelBody.persistent (R : ValShape) (t : Typ) (v : Runtime.Val) {k : RecCont}
-      (hk : ∀ v T args, Persistent (k v T args)) : Persistent (ValRelBody R v t k) := by
+  theorem ValRelBody.persistent (W : World) (R : ValueRelation) (t : Typ) (v : Runtime.Val) {k : RecCont}
+      (hk : ∀ v T args, Persistent (k v T args)) : Persistent (ValRelBody W R v t k) := by
     unfold ValRelBody
     match t with
     | .prim _ =>
         exact PrimitiveType.valRelBody_persistent _ v
-    | .value | .empty | .arrow .. | .tvar _ | .owned _ | .ownedArray _ =>
+    | .value | .empty | .arrow _ _ none | .arrow _ _ (some _) | .tvar _ | .owned _
+    | .ownedArray _ =>
         infer_instance
     | .ref _ =>
         have := locinv_persistent
@@ -384,78 +409,78 @@ mutual
     | .named T args =>
         exact hk v T args
     | .tuple ts =>
-        have : ∀ vs, Persistent (ValsRelBody R vs ts k) :=
-          fun vs => ValsRelBody.persistent R ts vs hk
+        have : ∀ vs, Persistent (ValsRelBody W R vs ts k) :=
+          fun vs => ValsRelBody.persistent W R ts vs hk
         infer_instance
     | .vec t =>
-        have hw : ∀ (w : Runtime.Val), Persistent (ValRelBody R w t k) :=
-          fun w => ValRelBody.persistent R t w hk
+        have hw : ∀ (w : Runtime.Val), Persistent (ValRelBody W R w t k) :=
+          fun w => ValRelBody.persistent W R t w hk
         have : ∀ vs : List Runtime.Val,
-            Persistent (iprop([∗list] w ∈ vs, ValRelBody R w t k)) :=
+            Persistent (iprop([∗list] w ∈ vs, ValRelBody W R w t k)) :=
           fun _ => BigSepL.bigSepL_persistent (fun _ w _ => hw w)
         infer_instance
     | .sum ts =>
-        have : ∀ n payload, Persistent (ValSumRelBody R n payload ts k) :=
-          fun n payload => ValSumRelBody.persistent R ts n payload hk
+        have : ∀ n payload, Persistent (ValSumRelBody W R n payload ts k) :=
+          fun n payload => ValSumRelBody.persistent W R ts n payload hk
         infer_instance
 
-  theorem ValsRelBody.persistent (R : ValShape) (ts : List Typ) (vs : List Runtime.Val)
+  theorem ValsRelBody.persistent (W : World) (R : ValueRelation) (ts : List Typ) (vs : List Runtime.Val)
       {k : RecCont} (hk : ∀ v T args, Persistent (k v T args)) :
-      Persistent (ValsRelBody R vs ts k) := by
+      Persistent (ValsRelBody W R vs ts k) := by
     unfold ValsRelBody
     match vs, ts with
     | [], [] =>
         infer_instance
     | v :: vs, t :: ts =>
-        have := ValRelBody.persistent R t v hk
-        have := ValsRelBody.persistent R ts vs hk
+        have := ValRelBody.persistent W R t v hk
+        have := ValsRelBody.persistent W R ts vs hk
         infer_instance
     | [], _ :: _ | _ :: _, [] =>
         infer_instance
 
-  theorem ValSumRelBody.persistent (R : ValShape) (ts : List Typ) (n : Nat)
+  theorem ValSumRelBody.persistent (W : World) (R : ValueRelation) (ts : List Typ) (n : Nat)
       (payload : Runtime.Val) {k : RecCont} (hk : ∀ v T args, Persistent (k v T args)) :
-      Persistent (ValSumRelBody R n payload ts k) := by
+      Persistent (ValSumRelBody W R n payload ts k) := by
     unfold ValSumRelBody
     match n, ts with
     | _, [] =>
         infer_instance
     | 0, t :: _ =>
-        exact ValRelBody.persistent R t payload hk
+        exact ValRelBody.persistent W R t payload hk
     | n + 1, _ :: ts =>
-        exact ValSumRelBody.persistent R ts n payload hk
+        exact ValSumRelBody.persistent W R ts n payload hk
 end
 
-private instance ValRelIndF.persistent (W : World) (R : ValShape) (Φ : RecIdx → iProp)
+private instance ValRelIndF.persistent (W : World) (R : ValueRelation) (Φ : RecIdx → iProp)
     [∀ x, Persistent (Φ x)] (x : RecIdx) : Persistent (ValRelIndF W R Φ x) := by
   obtain ⟨v, T, args⟩ := x
   simp only [ValRelIndF]
-  have : ∀ ty, Persistent (ValRelBody R v ty (RecCont.ofPred Φ)) :=
-    fun ty => ValRelBody.persistent R ty v (fun _ _ _ => inferInstance)
+  have : ∀ ty, Persistent (ValRelBody W R v ty (RecCont.ofPred Φ)) :=
+    fun ty => ValRelBody.persistent W R ty v (fun _ _ _ => inferInstance)
   infer_instance
 
-private instance ValRelIndF.absorbing (W : World) (R : ValShape) (Φ : RecIdx → iProp)
+private instance ValRelIndF.absorbing (W : World) (R : ValueRelation) (Φ : RecIdx → iProp)
     [∀ x, Absorbing (Φ x)] (x : RecIdx) : Absorbing (ValRelIndF W R Φ x) := by
   obtain ⟨v, T, args⟩ := x
   simp only [ValRelIndF]
   infer_instance
 
-instance (W : World) (R : ValShape) (v : Runtime.Val) (T : TypeName)
+instance (W : World) (R : ValueRelation) (v : Runtime.Val) (T : TypeName)
     (args : List Typ) : Persistent (ValRelInd W R v T args) :=
   @Iris.least_fixpoint_persistent_absorbing iProp RecIdx _ _ (ValRelIndF W R) _
     (fun _ _ _ => inferInstance) (fun _ _ _ => inferInstance) ⟨(v, T, args)⟩
 
 instance (W : World) (v : Runtime.Val) (t : Typ) : Persistent (ValHasType W v t) :=
   (persistent_congr (equiv_iff.mp (ValHasType.unfold W v t))).mpr
-    (ValRelBody.persistent (ValHasType W) t v (fun _ _ _ => inferInstance))
+    (ValRelBody.persistent W (ValHasType W) t v (fun _ _ _ => inferInstance))
 
 instance (W : World) (vs : List Runtime.Val) (ts : List Typ) :
     Persistent (ValsHaveTypes W vs ts) :=
-  ValsRelBody.persistent (ValHasType W) ts vs (fun _ _ _ => inferInstance)
+  ValsRel.persistent (ValHasType W) (fun _ _ => inferInstance) vs ts
 
 instance (W : World) (tag : Nat) (payload : Runtime.Val) (ts : List Typ) :
     Persistent (ValSumRel W tag payload ts) :=
-  ValSumRelBody.persistent (ValHasType W) ts tag payload (fun _ _ _ => inferInstance)
+  ValSumRelBody.persistent W (ValHasType W) ts tag payload (fun _ _ _ => inferInstance)
 
 
 /-! Per-type unfoldings -/
@@ -498,10 +523,20 @@ theorem ValHasType.empty (W : World) (v : Runtime.Val) :
     ValHasType W v .empty ⊣⊢ iprop(False) := by
   exact equiv_iff.mp (ValHasType.unfold W v .empty)
 
-theorem ValHasType.arrow (W : World) (v : Runtime.Val) (args : List Typ) (ret : Typ)
-    (spec : Option (Spec Typ)) :
-    ValHasType W v (.arrow args ret spec) ⊣⊢ iprop(False) := by
-  exact equiv_iff.mp (ValHasType.unfold W v (.arrow args ret spec))
+/-- An unspecified function type is uninhabited: nothing is known about a
+    function that carries no specification. -/
+theorem ValHasType.arrow_none (W : World) (v : Runtime.Val) (args : List Typ) (ret : Typ) :
+    ValHasType W v (.arrow args ret none) ⊣⊢ iprop(False) := by
+  exact equiv_iff.mp (ValHasType.unfold W v (.arrow args ret none))
+
+/-- A specified function type holds of exactly the values that satisfy its
+    specification, with the specification's types interpreted by the value
+    relation itself. -/
+theorem ValHasType.arrow_some (W : World) (v : Runtime.Val) (args : List Typ) (ret : Typ)
+    (s : Spec Typ) :
+    ValHasType W v (.arrow args ret (some s)) ⊣⊢
+      s.isPrecondFor W (ValHasType W) args ret v := by
+  exact equiv_iff.mp (ValHasType.unfold W v (.arrow args ret (some s)))
 
 theorem ValHasType.tvar (W : World) (v : Runtime.Val) (x : TyVar) :
     ValHasType W v (.tvar x) ⊣⊢ iprop(False) := by
@@ -540,7 +575,8 @@ theorem ValHasType.vec (W : World) (v : Runtime.Val) (t : Typ) :
 theorem ValHasType.tuple (W : World) (v : Runtime.Val) (ts : List Typ) :
     ValHasType W v (.tuple ts) ⊣⊢
       iprop(∃ vs, ⌜v = .tuple vs⌝ ∗ ValsHaveTypes W vs ts) := by
-  exact equiv_iff.mp (ValHasType.unfold W v (.tuple ts))
+  refine (equiv_iff.mp (ValHasType.unfold W v (.tuple ts))).trans ?_
+  exact exists_congr fun vs => sep_congr .rfl (ValsHaveTypes.unfold W vs ts).symm
 
 theorem ValHasType.sum (W : World) (v : Runtime.Val) (ts : List Typ) :
     ValHasType W v (.sum ts) ⊣⊢
@@ -579,26 +615,23 @@ theorem ValHasType.named_of_unfold {W : World} {v : Runtime.Val}
 
 theorem ValsHaveTypes.nil (W : World) :
     ValsHaveTypes W [] [] ⊣⊢ iprop(emp) := by
-  unfold ValsHaveTypes ValsRelBody
+  unfold ValsHaveTypes ValsRel
   exact .rfl
 
 theorem ValsHaveTypes.cons (W : World) (v : Runtime.Val) (vs : List Runtime.Val)
     (t : Typ) (ts : List Typ) :
     ValsHaveTypes W (v :: vs) (t :: ts) ⊣⊢ ValHasType W v t ∗ ValsHaveTypes W vs ts := by
-  unfold ValsHaveTypes
-  change iprop(ValRelBody (ValHasType W) v t (ValRelInd W (ValHasType W)) ∗
-      ValsRelBody (ValHasType W) vs ts (ValRelInd W (ValHasType W))) ⊣⊢
-    iprop(ValHasType W v t ∗ ValsRelBody (ValHasType W) vs ts (ValRelInd W (ValHasType W)))
-  exact sep_congr (equiv_iff.mp (ValHasType.unfold W v t).symm) .rfl
+  simp only [ValsHaveTypes, ValsRel]
+  exact .rfl
 
 theorem ValsHaveTypes.nil_cons (W : World) (t : Typ) (ts : List Typ) :
     ValsHaveTypes W [] (t :: ts) ⊣⊢ iprop(False) := by
-  unfold ValsHaveTypes ValsRelBody
+  unfold ValsHaveTypes ValsRel
   exact .rfl
 
 theorem ValsHaveTypes.cons_nil (W : World) (v : Runtime.Val) (vs : List Runtime.Val) :
     ValsHaveTypes W (v :: vs) [] ⊣⊢ iprop(False) := by
-  unfold ValsHaveTypes ValsRelBody
+  unfold ValsHaveTypes ValsRel
   exact .rfl
 
 /-! ### The vector type -/
@@ -653,8 +686,8 @@ theorem ValSumRel.succ (W : World) (tag : Nat) (payload : Runtime.Val)
     (t : Typ) (ts : List Typ) :
     ValSumRel W (tag + 1) payload (t :: ts) ⊣⊢ ValSumRel W tag payload ts := by
   unfold ValSumRel
-  change ValSumRelBody (ValHasType W) tag payload ts (ValRelInd W (ValHasType W)) ⊣⊢
-    ValSumRelBody (ValHasType W) tag payload ts (ValRelInd W (ValHasType W))
+  change ValSumRelBody W (ValHasType W) tag payload ts (ValRelInd W (ValHasType W)) ⊣⊢
+    ValSumRelBody W (ValHasType W) tag payload ts (ValRelInd W (ValHasType W))
   exact .rfl
 
 /-! Indexing and subtyping compatibility. -/
@@ -779,7 +812,7 @@ mutual
         · iapply (ValSumRel.sub hlist payload tag)
           iexact Hsum
     | .arrow .. =>
-        exact (ValHasType.arrow W v _ _ _).1.trans false_elim
+        exact (ValHasType.arrow_none W v _ _).1.trans false_elim
     | .tuple hlist =>
         refine (ValHasType.tuple W v _).1.trans ?_
         refine .trans ?_ (ValHasType.tuple W v _).2
@@ -855,18 +888,8 @@ end
 
 /-- Length agreement for `ValsHaveTypes`, as an entailment. -/
 theorem ValsHaveTypes.length_eq {W : World} {vs : List Runtime.Val} {ts : List Typ} :
-    ValsHaveTypes W vs ts ⊢ iprop(⌜vs.length = ts.length⌝) := by
-  match vs, ts with
-  | [], [] =>
-      exact (ValsHaveTypes.nil W).1.trans (pure_intro rfl)
-  | v :: vs, t :: ts =>
-      exact ((ValsHaveTypes.cons W v vs t ts).1.trans sep_elim_right).trans
-        ((ValsHaveTypes.length_eq (W := W) (vs := vs) (ts := ts)).trans
-          (pure_mono (fun h => by simp [h])))
-  | [], t :: ts =>
-      exact (ValsHaveTypes.nil_cons W t ts).1.trans false_elim
-  | v :: vs, [] =>
-      exact (ValsHaveTypes.cons_nil W v vs).1.trans false_elim
+    ValsHaveTypes W vs ts ⊢ iprop(⌜vs.length = ts.length⌝) :=
+  ValsRel.length_eq
 
 /-- If `ts[n]? = some t`, then a related list of values contains a value at
 index `n` related at type `t`. -/
@@ -1244,7 +1267,10 @@ mutual
         exact htail φ hφ
     | sum _ | ref _ | value | named _ _ =>
       iintro _; ipureintro; simp [typeConstraints]
-    | arrow args ret spec => exact (TinyML.ValHasType.arrow W v args ret spec).1.trans false_elim
+    | arrow args ret spec =>
+      cases spec with
+      | none => exact (TinyML.ValHasType.arrow_none W v args ret).1.trans false_elim
+      | some _ => iintro _; ipureintro; simp [typeConstraints]
     | empty => exact (TinyML.ValHasType.empty W v).1.trans false_elim
     | tvar x => exact (TinyML.ValHasType.tvar W v x).1.trans false_elim
 

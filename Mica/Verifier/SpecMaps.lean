@@ -28,7 +28,7 @@ structure SpecEntry where
     argument and result types off the entry. Reducible so it unifies definitionally
     with the underlying `Spec.isPrecondFor`. -/
 @[reducible] def SpecEntry.isPrecondFor (W : TinyML.World) (e : SpecEntry) (f : Runtime.Val) : iProp :=
-  e.spec.isPrecondFor W e.argTys e.retTy f
+  e.spec.isPrecondFor W (TinyML.ValHasType W) e.argTys e.retTy f
 
 instance : Iris.BI.Persistent (SpecEntry.isPrecondFor W e f) := by
   unfold SpecEntry.isPrecondFor; infer_instance

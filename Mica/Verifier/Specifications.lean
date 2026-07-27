@@ -95,19 +95,20 @@ section Precondition
 
 /-- Fold `wp_fix'`'s tupled recursive obligation into a spec precondition;
     the two differ only by currying the typing hypothesis and the predicate transformer. -/
-theorem isPrecondFor_intro (W : TinyML.World)
+theorem isPrecondFor_intro (W : TinyML.World) (V : TinyML.ValueRelation)
     (argTys : List TinyML.Typ) (retTy : TinyML.Typ) (s : Spec TinyML.Typ)
     (f : Runtime.Val) :
     iprop(□ ∀ (ρ : Env) (vs : List Runtime.Val) (P : Runtime.Val → iProp),
-      (⌜Env.agreeOn W.Δ_spec W.ρ_spec ρ⌝ ∗
-        TinyML.ValsHaveTypes W vs argTys ∗
-        PredTrans.apply W (fun r => TinyML.ValHasType W r retTy -∗ P r) s.pred
+      (⌜Env.agreeOn W.Δ_spec W.ρ_spec ρ⌝ ∗ ⌜vs.length = argTys.length⌝ ∗
+        ▷ TinyML.ValsRel V vs argTys ∗
+        ▷ PredTrans.apply V (fun r => V r retTy -∗ P r) s.pred
           (argsEnv ρ s.args vs)) -∗
-        wp W.pctx (Runtime.Expr.app (.val f) (vs.map Runtime.Expr.val)) P) ⊢ s.isPrecondFor W argTys retTy f := by
+        wp W.pctx (Runtime.Expr.app (.val f) (vs.map Runtime.Expr.val)) P) ⊢
+      s.isPrecondFor W V argTys retTy f := by
   unfold isPrecondFor
   iintro #H
   imodintro
-  iintro %ρ %Φ %vs Hagree Htyped Hpred
+  iintro %ρ %Φ %vs Hagree Hlen Htyped Hpred
   ispecialize H $$ %ρ %vs %Φ
   iapply H
   iframe
@@ -115,60 +116,60 @@ theorem isPrecondFor_intro (W : TinyML.World)
 /-- Löb-style rule for spec preconditions on `fix`: to prove
     `s.isPrecondFor W (.fix f args e)`, assume it as the recursive hypothesis and
     prove the `wp` of the body (after the usual fix-substitution). -/
-theorem isPrecondFor_fix {W : TinyML.World}
+theorem isPrecondFor_fix {W : TinyML.World} {V : TinyML.ValueRelation}
     {argTys : List TinyML.Typ} {retTy : TinyML.Typ} {s : Spec TinyML.Typ}
     {f : Runtime.Binder} {args : List Runtime.Binder} {e : Runtime.Expr}
     {R : iProp}
     (hargs : args.length = s.args.length)
     (hargTys : argTys.length = s.args.length)
-    (h : R ⊢ □ (s.isPrecondFor W argTys retTy (.fix f args e) -∗
+    (h : R ⊢ □ (s.isPrecondFor W V argTys retTy (.fix f args e) -∗
         ∀ (ρ : Env) (vs : List Runtime.Val) (P : Runtime.Val → iProp),
           ⌜Env.agreeOn W.Δ_spec W.ρ_spec ρ⌝ -∗
-          TinyML.ValsHaveTypes W vs argTys -∗
-          PredTrans.apply W (fun r => TinyML.ValHasType W r retTy -∗ P r) s.pred
+          TinyML.ValsRel V vs argTys -∗
+          PredTrans.apply V (fun r => V r retTy -∗ P r) s.pred
               (argsEnv ρ s.args vs) -∗
           wp W.pctx (e.subst ((Runtime.Subst.id.updateBinder f (.fix f args e)).updateAllBinder args vs)) P)) :
-    R ⊢ s.isPrecondFor W argTys retTy (.fix f args e) := by
+    R ⊢ s.isPrecondFor W V argTys retTy (.fix f args e) := by
   refine (SpatialContext.wp_fix' (pctx := W.pctx) (f := f) (args := args) (e := e) (Φ := fun P vs =>
       iprop(∃ ρ : Env,
         ⌜Env.agreeOn W.Δ_spec W.ρ_spec ρ⌝ ∗
-          TinyML.ValsHaveTypes W vs argTys ∗
-          PredTrans.apply W (fun r => TinyML.ValHasType W r retTy -∗ P r) s.pred
-            (argsEnv ρ s.args vs))) ?_ (h.trans ?_)).trans ?_
-  · intro vs P
-    istart
-    iintro ⟨%ρ, %hagr, Htyped, -⟩
-    ihave %Hlen := TinyML.ValsHaveTypes.length_eq $$ Htyped
-    ipureintro
-    simp at Hlen
-    omega
+          TinyML.ValsRel V vs argTys ∗
+          PredTrans.apply V (fun r => V r retTy -∗ P r) s.pred
+            (argsEnv ρ s.args vs))) (h.trans ?_)).trans ?_
   · istart
     iintro #HR
     imodintro
-    iintro #IH %vs %P Hpre
+    iintro #IH %vs %P %hlen Hpre
     ispecialize HR $$ [IH]
     · unfold isPrecondFor
       imodintro
-      iintro %ρ %Φ %vs Hagree Htyped Hpred
-      ispecialize IH $$ %vs %Φ
+      iintro %ρ %Φ %vs' %hagr' %hlen' Htyped Hpred
+      ispecialize IH $$ %vs' %Φ
       iapply IH
-      iexists ρ
-      iframe
-    icases Hpre with ⟨%ρ, %hagr0, #Htyped0, Hpred0⟩
+      · ipureintro; omega
+      · inext
+        iexists ρ
+        iframe
+        ipureintro
+        exact hagr'
+    icases Hpre with ⟨%ρ, %hagr0, Htyped0, Hpred0⟩
     ispecialize HR $$ %ρ %vs %P
-    iapply HR
+    ispecialize HR $$ [] Htyped0 Hpred0
     · ipureintro
       exact hagr0
-    · iexact Htyped0
-    · iexact Hpred0
+    iexact HR
   · unfold isPrecondFor
     iintro #Hfix
     imodintro
-    iintro %ρ %Φ %vs Hagree Htyped Hpred
+    iintro %ρ %Φ %vs %hagr %hlen Htyped Hpred
     ispecialize Hfix $$ %vs %Φ
     iapply Hfix
-    iexists ρ
-    iframe
+    · ipureintro; omega
+    · inext
+      iexists ρ
+      iframe
+      ipureintro
+      exact hagr
 end Precondition
 
 /-! ## Well-Formedness Proofs -/
@@ -350,7 +351,7 @@ theorem call_correct (W : TinyML.World)
     (∀ v st' ρ' t, Ψ (retTy, t) st' ρ' → t.wfIn st'.decls → t.eval ρ' = v →
       st'.sl W ρ' ∗ R ∗ TinyML.ValHasType W v retTy ⊢ Φ v) →
     @TinyML.Typ.SubList W.Θ (sargs.map Prod.fst) argTys ∧
-    (st.sl W ρ ∗ R ⊢ PredTrans.apply W (fun r => TinyML.ValHasType W r retTy -∗ Φ r) s.pred
+    (st.sl W ρ ∗ R ⊢ PredTrans.apply (TinyML.ValHasType W) (fun r => TinyML.ValHasType W r retTy -∗ Φ r) s.pred
       (Spec.argsEnv ((σ.subst.eval ρ)) s.args
         (sargs.map fun p => p.2.eval ρ))) := by
   intro hlen hwf hσwf hsargs heval hΨ
@@ -380,7 +381,7 @@ theorem call_correct (W : TinyML.World)
       iapply (hΨ v st₃ ρ'' t (VerifM.eval_ret hret) (hst₃_decls ▸ htwf) hteval) $$ Harg)
   exact (sep_mono_left (SpatialContext.interp_env_agree W (VerifM.eval.wf heval).ownsWf hragree).1).trans <|
     (by simpa [howns] using hcall : st.sl W ρ' ∗ R ⊢ _).trans <|
-    PredTrans.apply_env_agree W hwf hagree
+    PredTrans.apply_env_agree (TinyML.ValHasType W) hwf hagree
 
 end CallCorrectness
 
@@ -550,7 +551,7 @@ theorem implement_correct (W : TinyML.World)
             st''.sl W ρ'' ∗ Q ∗ ((TinyML.ValHasType W (result.eval ρ'') retTy -∗ Φ (result.eval ρ'')) -∗ S) ⊢ S) →
       st'.sl W ρ' ∗ Q ⊢ R) →
     st.sl W ρ ∗ TinyML.ValsHaveTypes W vs argTys ∗
-      PredTrans.apply W (fun r => TinyML.ValHasType W r retTy -∗ Φ r) s.pred
+      PredTrans.apply (TinyML.ValHasType W) (fun r => TinyML.ValHasType W r retTy -∗ Φ r) s.pred
         (Spec.argsEnv W.ρ_spec s.args vs) ⊢ R := by
   intro hlen hswf hwf hag heval hbody
   simp only [Spec.implement] at heval
@@ -578,7 +579,7 @@ theorem implement_correct (W : TinyML.World)
       (by omega)
   have hst'_wf : st'.decls.wf := (VerifM.eval.wf hΨ).namesDisjoint
   iapply (show st'.sl W ρ' ∗
-        PredTrans.apply W (fun r => TinyML.ValHasType W r retTy -∗ Φ r) s.pred
+        PredTrans.apply (TinyML.ValHasType W) (fun r => TinyML.ValHasType W r retTy -∗ Φ r) s.pred
           ((σ'.subst.eval ρ')) ⊢ R from
     PredTrans.implement_correct W s.pred W.Δ_spec σ' (body argVars) st' ρ'
       (fun r => TinyML.ValHasType W r retTy -∗ Φ r) R
@@ -603,7 +604,7 @@ theorem implement_correct (W : TinyML.World)
       simpa [TransState.sl] using
         (SpatialContext.interp_env_agree W (VerifM.eval.wf heval).ownsWf hragree).1)
     iexact Howns
-  · iapply (PredTrans.apply_env_agree W hswf (Env.agreeOn_trans hag_base (by
+  · iapply (PredTrans.apply_env_agree (TinyML.ValHasType W) hswf (Env.agreeOn_trans hag_base (by
         simpa [FiniteSubst.base, Signature.declVars] using Env.agreeOn_symm hagree)))
     iexact Happ
 

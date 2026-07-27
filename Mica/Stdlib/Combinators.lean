@@ -19,7 +19,7 @@ namespace Intrinsics
 theorem assert_ret_apply [MicaGS HasLC.hasLC Sig] (W : TinyML.World) (Φ : Runtime.Val → iProp)
     (s : String) (ρ : Env) (φ : Formula) (v : Runtime.Val)
     (hφ : φ.eval (ρ.updateConst .value s v)) :
-    PredTrans.apply W Φ (.ret ⟨s, .assert φ (.ret ())⟩) ρ ⊢ Φ v := by
+    PredTrans.apply (TinyML.ValHasType W) Φ (.ret ⟨s, .assert φ (.ret ())⟩) ρ ⊢ Φ v := by
   simp only [PredTrans.apply, Assertion.pre, Assertion.post]
   refine (forall_elim v).trans ?_
   iintro Hw
@@ -38,8 +38,8 @@ def withPre : Option Formula → PredTrans TinyML.Typ → PredTrans TinyML.Typ
     as a pure fact (vacuous for `none`) alongside the unwrapped application. -/
 theorem withPre_apply [MicaGS HasLC.hasLC Sig] (W : TinyML.World) (Φ : Runtime.Val → iProp)
     (pre : Option Formula) (post : PredTrans TinyML.Typ) (ρ : Env) :
-    PredTrans.apply W Φ (withPre pre post) ρ ⊢
-      iprop(⌜∀ φ, pre = some φ → φ.eval ρ⌝ ∗ PredTrans.apply W Φ post ρ) := by
+    PredTrans.apply (TinyML.ValHasType W) Φ (withPre pre post) ρ ⊢
+      iprop(⌜∀ φ, pre = some φ → φ.eval ρ⌝ ∗ PredTrans.apply (TinyML.ValHasType W) Φ post ρ) := by
   cases pre with
   | none =>
     simp only [withPre]
