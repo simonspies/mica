@@ -24,7 +24,7 @@ itself lives in `SourceTinyML/Assertions.lean`.
 -- Substitution
 -- ---------------------------------------------------------------------------
 
-def Atom.subst (σ : Subst) : Atom τ → Atom τ
+def Atom.subst (σ : Subst) : Atom TinyML.Typ τ → Atom TinyML.Typ τ
   | .isint t  => .isint (t.subst σ)
   | .isbool t => .isbool (t.subst σ)
   | .isinj tag arity t => .isinj tag arity (t.subst σ)
@@ -34,7 +34,7 @@ def Atom.subst (σ : Subst) : Atom τ → Atom τ
 
 
 /-- Convert an instantiated atom into the corresponding verifier context item. -/
-def Atom.toItem (a : Atom τ) (t : Term τ) : CtxItem :=
+def Atom.toItem (a : Atom TinyML.Typ τ) (t : Term τ) : CtxItem :=
   match a with
   | .isint v => .pure (.eq .value v (.unop .ofInt t))
   | .isbool v => .pure (.eq .value v (.unop .ofBool t))
@@ -47,7 +47,7 @@ def Atom.toItem (a : Atom τ) (t : Term τ) : CtxItem :=
 -- Semantics
 -- ---------------------------------------------------------------------------
 
-def Atom.eval (W : TinyML.World) {τ : Srt} (p : Atom τ) (ρ : Env) : τ.denote → iProp :=
+def Atom.eval (W : TinyML.World) {τ : Srt} (p : Atom TinyML.Typ τ) (ρ : Env) : τ.denote → iProp :=
   match p with
   | isint t  => λ v => ⌜.int v = t.eval ρ⌝
   | isbool t => λ v => ⌜.bool v = t.eval ρ⌝
@@ -62,7 +62,7 @@ def Atom.eval (W : TinyML.World) {τ : Srt} (p : Atom τ) (ρ : Env) : τ.denote
 
 
 /-- Try to match a formula against an atom, returning the extracted term if it matches. -/
-def Formula.matchAtom (φ : Formula) (a : Atom τ) : Option (Term τ) :=
+def Formula.matchAtom (φ : Formula) (a : Atom TinyML.Typ τ) : Option (Term τ) :=
   match a with
   | .isint v =>
     match φ with
@@ -82,7 +82,7 @@ def Formula.matchAtom (φ : Formula) (a : Atom τ) : Option (Term τ) :=
   | .rel _ _ => none
 
 omit [MicaGS HasLC.hasLC Sig] in
-theorem Formula.matchAtom_wfIn {φ : Formula} {a : Atom τ} {t : Term τ} {Δ : Signature}
+theorem Formula.matchAtom_wfIn {φ : Formula} {a : Atom TinyML.Typ τ} {t : Term τ} {Δ : Signature}
     (h : φ.matchAtom a = some t) (hφ : φ.wfIn Δ) : t.wfIn Δ := by
   cases a with
   | isint v =>
@@ -100,7 +100,7 @@ theorem Formula.matchAtom_wfIn {φ : Formula} {a : Atom τ} {t : Term τ} {Δ : 
 
 
 omit [MicaGS HasLC.hasLC Sig] in
-theorem Formula.matchAtom_correct {φ : Formula} {a : Atom τ} {t : Term τ}
+theorem Formula.matchAtom_correct {φ : Formula} {a : Atom TinyML.Typ τ} {t : Term τ}
     (h : φ.matchAtom a = some t) : a.toItem t = .pure φ := by
   cases a with
   | isint v =>
@@ -123,10 +123,10 @@ theorem Formula.matchAtom_correct {φ : Formula} {a : Atom τ} {t : Term τ}
 -- ---------------------------------------------------------------------------
 
 /-- Resolve an atom against a list of formulas. -/
-def Atom.resolve (a : Atom τ) (C : List Formula) : Option (Term τ) :=
+def Atom.resolve (a : Atom TinyML.Typ τ) (C : List Formula) : Option (Term τ) :=
   C.findSome? (·.matchAtom a)
 
-theorem Atom.resolve_correct (W : TinyML.World) {a : Atom τ} {C : List Formula} {t : Term τ}
+theorem Atom.resolve_correct (W : TinyML.World) {a : Atom TinyML.Typ τ} {C : List Formula} {t : Term τ}
     (h : a.resolve C = some t) (ρ : Env) (hC : ∀ φ ∈ C, φ.eval ρ) :
     ⊢ (a.toItem t).interp W ρ := by
   obtain ⟨φ, hφ_mem, hφ_match⟩ := List.exists_of_findSome?_eq_some h
@@ -134,7 +134,7 @@ theorem Atom.resolve_correct (W : TinyML.World) {a : Atom τ} {C : List Formula}
   simpa [CtxItem.interp, hC _ hφ_mem] using (pure_intro (PROP := iProp) trivial)
 
 omit [MicaGS HasLC.hasLC Sig] in
-theorem Atom.resolve_wfIn {a : Atom τ} {C : List Formula} {t : Term τ} {Δ : Signature}
+theorem Atom.resolve_wfIn {a : Atom TinyML.Typ τ} {C : List Formula} {t : Term τ} {Δ : Signature}
     (h : a.resolve C = some t) (hwf : ∀ φ ∈ C, φ.wfIn Δ) :
     t.wfIn Δ := by
   obtain ⟨φ, hφ_mem, hφ_match⟩ := List.exists_of_findSome?_eq_some h
@@ -145,7 +145,7 @@ theorem Atom.resolve_wfIn {a : Atom τ} {C : List Formula} {t : Term τ} {Δ : S
 -- Printer
 -- ---------------------------------------------------------------------------
 
-def Atom.toStringHum : {τ : Srt} → Atom τ → String
+def Atom.toStringHum : {τ : Srt} → Atom TinyML.Typ τ → String
   | _, .isint  t => s!"isint {t.toStringHum}"
   | _, .isbool t => s!"isbool {t.toStringHum}"
   | _, .isinj tag arity t => s!"isinj {tag}/{arity} {t.toStringHum}"
@@ -158,7 +158,7 @@ def Atom.toStringHum : {τ : Srt} → Atom τ → String
 -- ---------------------------------------------------------------------------
 
 /-- An atom is well-formed in a signature. -/
-def Atom.wfIn (Δ : Signature) : Atom τ → Prop
+def Atom.wfIn (Δ : Signature) : Atom TinyML.Typ τ → Prop
   | .isint t  => t.wfIn Δ
   | .isbool t => t.wfIn Δ
   | .isinj _ _ t => t.wfIn Δ
@@ -166,7 +166,7 @@ def Atom.wfIn (Δ : Signature) : Atom τ → Prop
   | .arr t _ => t.wfIn Δ
   | .rel name t => (SpecFn.isDefined name t).wfIn Δ ∧ (SpecFn.call name t).wfIn Δ
 
-def Atom.checkWf (p : Atom τ) (Δ : Signature) : Except String Unit :=
+def Atom.checkWf (p : Atom TinyML.Typ τ) (Δ : Signature) : Except String Unit :=
   match p with
   | .isint t  => t.checkWf Δ
   | .isbool t => t.checkWf Δ
@@ -178,7 +178,7 @@ def Atom.checkWf (p : Atom τ) (Δ : Signature) : Except String Unit :=
       (SpecFn.call name t).checkWf Δ
 
 omit [MicaGS HasLC.hasLC Sig] in
-theorem Atom.checkWf_ok {p : Atom τ} {Δ : Signature} (h : p.checkWf Δ = .ok ()) : p.wfIn Δ := by
+theorem Atom.checkWf_ok {p : Atom TinyML.Typ τ} {Δ : Signature} (h : p.checkWf Δ = .ok ()) : p.wfIn Δ := by
   cases p with
   | isint t  => exact Term.checkWf_ok h
   | isbool t => exact Term.checkWf_ok h
@@ -190,7 +190,7 @@ theorem Atom.checkWf_ok {p : Atom τ} {Δ : Signature} (h : p.checkWf Δ = .ok (
     exact ⟨Formula.checkWf_ok hd, Term.checkWf_ok hv⟩
 
 omit [MicaGS HasLC.hasLC Sig] in
-theorem Atom.wfIn_mono {p : Atom τ} {Δ Δ' : Signature}
+theorem Atom.wfIn_mono {p : Atom TinyML.Typ τ} {Δ Δ' : Signature}
     (h : p.wfIn Δ) (hmono : Δ.Subset Δ') (hwf : Δ'.wf) : p.wfIn Δ' := by
   cases p with
   | isint t  => exact Term.wfIn_mono t h hmono hwf
@@ -201,7 +201,7 @@ theorem Atom.wfIn_mono {p : Atom τ} {Δ Δ' : Signature}
   | rel name t =>
     exact ⟨Formula.wfIn_mono _ h.1 hmono hwf, Term.wfIn_mono _ h.2 hmono hwf⟩
 
-theorem Atom.eval_env_agree (W : TinyML.World) {p : Atom τ} {ρ ρ' : Env} {Δ : Signature}
+theorem Atom.eval_env_agree (W : TinyML.World) {p : Atom TinyML.Typ τ} {ρ ρ' : Env} {Δ : Signature}
     (hwf : p.wfIn Δ) (hagree : Env.agreeOn Δ ρ ρ') : p.eval W ρ = p.eval W ρ' := by
   cases p with
   | isint t  => simp [Atom.eval, Term.eval_env_agree hwf hagree]
@@ -216,7 +216,7 @@ theorem Atom.eval_env_agree (W : TinyML.World) {p : Atom τ} {ρ ρ' : Env} {Δ 
         Term.eval_env_agree hwf.2 hagree]
 
 omit [MicaGS HasLC.hasLC Sig] in
-theorem Atom.toItem_wfIn {p : Atom τ} {t : Term τ} {Δ : Signature}
+theorem Atom.toItem_wfIn {p : Atom TinyML.Typ τ} {t : Term τ} {Δ : Signature}
     (hp : p.wfIn Δ) (ht : t.wfIn Δ) :
     (p.toItem t).wfIn Δ := by
   cases p with
@@ -239,7 +239,7 @@ theorem Atom.toItem_wfIn {p : Atom τ} {t : Term τ} {Δ : Signature}
     simp only [Atom.toItem, CtxItem.wfIn, Formula.wfIn]
     exact ⟨hp.1, hp.2, ht⟩
 
-theorem Atom.toItem_eval (W : TinyML.World) {p : Atom τ} {t : Term τ} {ρ : Env} :
+theorem Atom.toItem_eval (W : TinyML.World) {p : Atom TinyML.Typ τ} {t : Term τ} {ρ : Env} :
     CtxItem.interp W ρ (p.toItem t) ⊣⊢ p.eval W ρ (t.eval ρ) := by
   cases p with
   | isint v  => simp [Atom.eval, Atom.toItem, CtxItem.interp, Formula.eval, Term.eval, eq_comm]
@@ -254,7 +254,7 @@ theorem Atom.toItem_eval (W : TinyML.World) {p : Atom τ} {t : Term τ} {ρ : En
   | rel name arg =>
     simp [Atom.eval, Atom.toItem, CtxItem.interp, Formula.eval]
 
-theorem Atom.eval_purePart (W : TinyML.World) {p : Atom τ} {t : Term τ} {ρ : Env} :
+theorem Atom.eval_purePart (W : TinyML.World) {p : Atom TinyML.Typ τ} {t : Term τ} {ρ : Env} :
     p.eval W ρ (t.eval ρ) ⊢ ⌜(p.toItem t).purePart ρ⌝ := by
   cases p with
   | isint v =>
@@ -278,7 +278,7 @@ theorem Atom.eval_purePart (W : TinyML.World) {p : Atom τ} {t : Term τ} {ρ : 
 -- ---------------------------------------------------------------------------
 
 -- @agent: change eval_subst to a bi-entailment in the future.
-theorem Atom.eval_subst (W : TinyML.World) {p : Atom τ} {σ : Subst} {ρ : Env} {Δ Δ' : Signature}
+theorem Atom.eval_subst (W : TinyML.World) {p : Atom TinyML.Typ τ} {σ : Subst} {ρ : Env} {Δ Δ' : Signature}
     (hp : p.wfIn Δ) (hσ : σ.wfIn Δ.vars Δ') (hwfΔ' : Δ'.wf) :
     (p.subst σ).eval W ρ = p.eval W ((σ.eval ρ)) := by
   cases p with
@@ -310,7 +310,7 @@ theorem Atom.eval_subst (W : TinyML.World) {p : Atom τ} {σ : Subst} {ρ : Env}
     simp [Subst.eval]
 
 omit [MicaGS HasLC.hasLC Sig] in
-theorem Atom.subst_wfIn {p : Atom τ} {σ : Subst} {dom : VarCtx} {Δ Δ' : Signature}
+theorem Atom.subst_wfIn {p : Atom TinyML.Typ τ} {σ : Subst} {dom : VarCtx} {Δ Δ' : Signature}
     (hp : p.wfIn Δ) (hσ : σ.wfIn dom Δ') (hdom : Δ.vars ⊆ dom)
     (hsymbols : Δ.SymbolSubset Δ')
     (hwf : Δ'.wf) :
@@ -335,7 +335,7 @@ theorem Atom.subst_wfIn {p : Atom τ} {σ : Subst} {dom : VarCtx} {Δ Δ' : Sign
 
 /-- Candidate resolutions for an atom, each guarded by a provability condition.
     Each pair `(φ, t)` means: if `φ` is provable, then `t` resolves the atom. -/
-def Atom.candidates : Atom τ → List (Formula × Term τ)
+def Atom.candidates : Atom TinyML.Typ τ → List (Formula × Term τ)
   | .isint  v => [(.unpred .isInt v, .unop .toInt v)]
   | .isbool v => [(.unpred .isBool v, .unop .toBool v)]
   | .isinj tag arity v =>
@@ -349,7 +349,7 @@ def Atom.candidates : Atom τ → List (Formula × Term τ)
   | .arr _ _ => []
   | .rel _ _ => []
 
-theorem Atom.candidates_correct (W : TinyML.World) {a : Atom τ} {φ : Formula} {t : Term τ} {ρ : Env}
+theorem Atom.candidates_correct (W : TinyML.World) {a : Atom TinyML.Typ τ} {φ : Formula} {t : Term τ} {ρ : Env}
     (hmem : (φ, t) ∈ a.candidates) (h : φ.eval ρ) : ⊢ (a.toItem t).interp W ρ := by
   cases a with
   | isint v =>
@@ -375,7 +375,7 @@ theorem Atom.candidates_correct (W : TinyML.World) {a : Atom τ} {φ : Formula} 
   | rel name arg => simp [candidates] at hmem
 
 omit [MicaGS HasLC.hasLC Sig] in
-theorem Atom.candidates_wfIn {a : Atom τ} {φ : Formula} {t : Term τ} {Δ : Signature}
+theorem Atom.candidates_wfIn {a : Atom TinyML.Typ τ} {φ : Formula} {t : Term τ} {Δ : Signature}
     (hmem : (φ, t) ∈ a.candidates) (h : a.wfIn Δ) : φ.wfIn Δ ∧ t.wfIn Δ := by
   cases a with
   | isint v =>
@@ -408,7 +408,7 @@ def VerifM.tryCandidates : List (Formula × Term τ) → VerifM (Option (Term τ
     else VerifM.tryCandidates rest
 
 private theorem VerifM.eval_tryCandidates (W : TinyML.World)
-    {candidates : List (Formula × Term τ)} {a : Atom τ}
+    {candidates : List (Formula × Term τ)} {a : Atom TinyML.Typ τ}
     {st : TransState} {ρ : Env} {Q : Option (Term τ) → TransState → Env → Prop}
     (h : VerifM.eval (VerifM.tryCandidates candidates) st ρ Q)
     (hcands : ∀ p ∈ candidates, p ∈ a.candidates)
@@ -694,7 +694,7 @@ private theorem sep_intro_valid_left {P Q : iProp} (h : ⊢ P) : Q ⊢ P ∗ Q :
 /-- Look up an atom in the assertion context.
     Tier 1: syntactic search through the context.
     Tier 2: try candidate resolutions via the SMT solver. -/
-def VerifM.resolve : {τ : Srt} → Atom τ → VerifM (Option (Term τ))
+def VerifM.resolve : {τ : Srt} → Atom TinyML.Typ τ → VerifM (Option (Term τ))
   | _, .own l ty => do
       VerifM.findMatch .ref l ty
   | _, .arr a ty => do
@@ -710,7 +710,7 @@ def VerifM.resolve : {τ : Srt} → Atom τ → VerifM (Option (Term τ))
       | none => VerifM.tryCandidates a.candidates
 
 /-- Helper: resolution of a pure atom via formula matching or SMT candidates. -/
-private theorem VerifM.eval_resolve_pure (W : TinyML.World) {pred : Atom τ} {st : TransState} {ρ : Env}
+private theorem VerifM.eval_resolve_pure (W : TinyML.World) {pred : Atom TinyML.Typ τ} {st : TransState} {ρ : Env}
     {Q : Option (Term τ) → TransState → Env → Prop}
     {R Φ : iProp}
     (h : VerifM.eval (do
@@ -751,7 +751,7 @@ private theorem VerifM.eval_resolve_pure (W : TinyML.World) {pred : Atom τ} {st
         exact (sep_intro_valid_left hpred).trans
           (hsome t st ρ hqsome (Signature.Subset.refl _) Env.agreeOn_refl htwf)
 
-theorem VerifM.eval_resolve (W : TinyML.World) {pred : Atom τ} {st : TransState} {ρ : Env}
+theorem VerifM.eval_resolve (W : TinyML.World) {pred : Atom TinyML.Typ τ} {st : TransState} {ρ : Env}
     {Q : Option (Term τ) → TransState → Env → Prop}
     {R Φ : iProp}
     (h : VerifM.eval (VerifM.resolve pred) st ρ Q)

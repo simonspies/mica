@@ -2928,7 +2928,7 @@ theorem compileApp_correct (reg : Verifier.Registry) (hSound : Verifier.Registry
       have hΔspec_args : W.Δ_spec.Subset st_args.decls := hag.subset.trans hdecls_args
       have hst_args_wf : st_args.decls.wf := (VerifM.eval.wf hΨ_args).namesDisjoint
       have hlen_e : spec.spec.args.length = spec.argTys.length := (hSwf f spec hlookup).1
-      have hwf_pred : spec.spec.pred.wfIn ((W.Δ_spec.declVars (FiniteSubst.base W.Δ_spec).dom).declVars (Spec.argVars spec.spec.args)) := by
+      have hwf_pred : PredTrans.wfIn ((W.Δ_spec.declVars (FiniteSubst.base W.Δ_spec).dom).declVars (Spec.argVars spec.spec.args)) spec.spec.pred := by
         simpa [FiniteSubst.base, Signature.declVars] using (hSwf f spec hlookup).2
       have hbase_wf : (FiniteSubst.base W.Δ_spec).wfIn W.Δ_spec st_args.decls :=
         FiniteSubst.base_wfIn hΔspec_args hwf.wf hst_args_wf hwf.vars
@@ -3023,8 +3023,8 @@ theorem compileApp_correct (reg : Verifier.Registry) (hSound : Verifier.Registry
     have hlen_i : i.spec.args.length = argTys.length := by
       simp only [argTys, List.length_map]; exact hbridge.argLen
     have hwf_pred :
-        i.spec.pred.wfIn ((W.Δ_spec.declVars (FiniteSubst.base W.Δ_spec).dom).declVars
-          (Spec.argVars i.spec.args)) := by
+        PredTrans.wfIn ((W.Δ_spec.declVars (FiniteSubst.base W.Δ_spec).dom).declVars
+          (Spec.argVars i.spec.args)) i.spec.pred := by
       simpa [FiniteSubst.base, Signature.declVars, Verifier.Intrinsic.specArgs] using
         hbridge.specWf W.Δ_spec (hΔreg i hi_mem) hwf.wf
     have hbase_wf : (FiniteSubst.base W.Δ_spec).wfIn W.Δ_spec st_args.decls :=

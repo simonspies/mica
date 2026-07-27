@@ -287,7 +287,7 @@ structure Intrinsic where
       A polymorphic intrinsic is a family of functions with the same
       implementation; only the argument/return types vary per use site, while
       the names and predicate are shared. -/
-  spec     : Spec
+  spec     : Spec TinyML.Typ
   /-- The typing function: given the inferred argument types of a use site,
       compute the type-variable instantiation (or reject with a message). It is
       untrusted — the elaborator re-checks arguments against the instantiated
@@ -391,7 +391,7 @@ theorem toReduce_two_of_arity (name : String)
     (path : Option (String × List String))
     (reduce : Arity.tup .two Runtime.Val → TinyML.Heap → Runtime.Val → TinyML.Heap → Prop)
     (wp : Arity.tup .two Runtime.Val → (Runtime.Val → iProp) → iProp)
-    (argTys : List TinyML.Typ) (retTy : TinyML.Typ) (spec : Spec)
+    (argTys : List TinyML.Typ) (retTy : TinyML.Typ) (spec : Spec TinyML.Typ)
     (typing : TinyML.TypeEnv → List TinyML.Typ →
       Except String (List (TinyML.TyVar × TinyML.Typ)))
     (folSym : Option (FOL.Symbol .two)) (axioms : List Axiom)
@@ -404,7 +404,7 @@ theorem toReduce_three_of_arity (name : String)
     (path : Option (String × List String))
     (reduce : Arity.tup .three Runtime.Val → TinyML.Heap → Runtime.Val → TinyML.Heap → Prop)
     (wp : Arity.tup .three Runtime.Val → (Runtime.Val → iProp) → iProp)
-    (argTys : List TinyML.Typ) (retTy : TinyML.Typ) (spec : Spec)
+    (argTys : List TinyML.Typ) (retTy : TinyML.Typ) (spec : Spec TinyML.Typ)
     (typing : TinyML.TypeEnv → List TinyML.Typ →
       Except String (List (TinyML.TyVar × TinyML.Typ)))
     (folSym : Option (FOL.Symbol .three)) (axioms : List Axiom)
@@ -417,7 +417,7 @@ theorem toReduce_one_of_arity (name : String)
     (path : Option (String × List String))
     (reduce : Arity.tup .one Runtime.Val → TinyML.Heap → Runtime.Val → TinyML.Heap → Prop)
     (wp : Arity.tup .one Runtime.Val → (Runtime.Val → iProp) → iProp)
-    (argTys : List TinyML.Typ) (retTy : TinyML.Typ) (spec : Spec)
+    (argTys : List TinyML.Typ) (retTy : TinyML.Typ) (spec : Spec TinyML.Typ)
     (typing : TinyML.TypeEnv → List TinyML.Typ →
       Except String (List (TinyML.TyVar × TinyML.Typ)))
     (folSym : Option (FOL.Symbol .one)) (axioms : List Axiom)
@@ -430,7 +430,7 @@ theorem toReduce_zero_of_arity (name : String)
     (path : Option (String × List String))
     (reduce : Arity.tup .zero Runtime.Val → TinyML.Heap → Runtime.Val → TinyML.Heap → Prop)
     (wp : Arity.tup .zero Runtime.Val → (Runtime.Val → iProp) → iProp)
-    (argTys : List TinyML.Typ) (retTy : TinyML.Typ) (spec : Spec)
+    (argTys : List TinyML.Typ) (retTy : TinyML.Typ) (spec : Spec TinyML.Typ)
     (typing : TinyML.TypeEnv → List TinyML.Typ →
       Except String (List (TinyML.TyVar × TinyML.Typ)))
     (folSym : Option (FOL.Symbol .zero)) (axioms : List Axiom)
@@ -457,7 +457,7 @@ theorem toWp_two_of_arity (name : String)
     (path : Option (String × List String))
     (reduce : Arity.tup .two Runtime.Val → TinyML.Heap → Runtime.Val → TinyML.Heap → Prop)
     (wp : Arity.tup .two Runtime.Val → (Runtime.Val → iProp) → iProp)
-    (argTys : List TinyML.Typ) (retTy : TinyML.Typ) (spec : Spec)
+    (argTys : List TinyML.Typ) (retTy : TinyML.Typ) (spec : Spec TinyML.Typ)
     (typing : TinyML.TypeEnv → List TinyML.Typ →
       Except String (List (TinyML.TyVar × TinyML.Typ)))
     (folSym : Option (FOL.Symbol .two)) (axioms : List Axiom)
@@ -470,7 +470,7 @@ theorem toWp_three_of_arity (name : String)
     (path : Option (String × List String))
     (reduce : Arity.tup .three Runtime.Val → TinyML.Heap → Runtime.Val → TinyML.Heap → Prop)
     (wp : Arity.tup .three Runtime.Val → (Runtime.Val → iProp) → iProp)
-    (argTys : List TinyML.Typ) (retTy : TinyML.Typ) (spec : Spec)
+    (argTys : List TinyML.Typ) (retTy : TinyML.Typ) (spec : Spec TinyML.Typ)
     (typing : TinyML.TypeEnv → List TinyML.Typ →
       Except String (List (TinyML.TyVar × TinyML.Typ)))
     (folSym : Option (FOL.Symbol .three)) (axioms : List Axiom)
@@ -483,7 +483,7 @@ theorem toWp_one_of_arity (name : String)
     (path : Option (String × List String))
     (reduce : Arity.tup .one Runtime.Val → TinyML.Heap → Runtime.Val → TinyML.Heap → Prop)
     (wp : Arity.tup .one Runtime.Val → (Runtime.Val → iProp) → iProp)
-    (argTys : List TinyML.Typ) (retTy : TinyML.Typ) (spec : Spec)
+    (argTys : List TinyML.Typ) (retTy : TinyML.Typ) (spec : Spec TinyML.Typ)
     (typing : TinyML.TypeEnv → List TinyML.Typ →
       Except String (List (TinyML.TyVar × TinyML.Typ)))
     (folSym : Option (FOL.Symbol .one)) (axioms : List Axiom)
@@ -496,7 +496,7 @@ theorem toWp_zero_of_arity (name : String)
     (path : Option (String × List String))
     (reduce : Arity.tup .zero Runtime.Val → TinyML.Heap → Runtime.Val → TinyML.Heap → Prop)
     (wp : Arity.tup .zero Runtime.Val → (Runtime.Val → iProp) → iProp)
-    (argTys : List TinyML.Typ) (retTy : TinyML.Typ) (spec : Spec)
+    (argTys : List TinyML.Typ) (retTy : TinyML.Typ) (spec : Spec TinyML.Typ)
     (typing : TinyML.TypeEnv → List TinyML.Typ →
       Except String (List (TinyML.TyVar × TinyML.Typ)))
     (folSym : Option (FOL.Symbol .zero)) (axioms : List Axiom)
@@ -516,7 +516,7 @@ def foldSig (Δ : Signature) : List Intrinsic → Signature
 def sigOf (fragment : List Intrinsic) : Signature :=
   foldSig Signature.empty fragment
 
-/-! ### Spec→wp bridge
+/-! ### Spec TinyML.Typ→wp bridge
 
 `compile` routes a `.prim n args` call through `Spec.call` against the
 intrinsic's spec. The resulting `PredTrans.apply` obligation must be bridged

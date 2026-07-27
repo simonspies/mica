@@ -1,47 +1,74 @@
--- SUMMARY: Assertion data for specifications: atoms, the assertion language, predicate transformers, and specs.
-import Mica.SourceTinyML.Types
+-- SUMMARY: Data of atoms, assertions, and completed specifications, parametric in the type language they mention.
 import Mica.FOL.Formulas
 
 /-!
 # Assertion data
 
-The data of the assertion language a specification elaborates into: `Atom`,
-`Assertion`, `PredTrans`, and `Spec`. Everything here needs only `TinyML.Typ`
-and the FOL term/formula language, so it sits *below* typing, which is what lets
-elaboration produce a `Spec` in a single walk.
+The syntax of verifier atoms, assertions, and completed specifications,
+separated from their semantics and from the verifier operations on them
+(`Mica/Verifier/Atoms.lean`, `Mica/Verifier/Assertions.lean`,
+`Mica/Verifier/Specifications.lean`).
 
-Operations, semantic interpretations, and proofs stay in the verifier:
-`Verifier/Atoms.lean`, `Verifier/Assertions.lean`,
-`Verifier/PredicateTransformers.lean`, and `Verifier/Specifications.lean`.
+Everything here is parametric in the type language `T` that atoms mention;
+the verifier instantiates `T := TinyML.Typ`. The parameter exists because a
+TinyML function type carries the specification of the function it describes,
+so `TinyML.Typ` is defined by nesting the types below and cannot be defined
+before them.
+
+For the same reason `Post` is a named structure rather than a pair: a nested
+inductive may not occur inside its own type parameter, so the payload of the
+outer assertion has to be a type constructor other than `Assertion` itself.
 -/
-
--- ---------------------------------------------------------------------------
--- Atoms
--- ---------------------------------------------------------------------------
 
 /-- A sort predicate: asserts that a value-sorted term has a specific sort,
     and extracts the underlying typed value. -/
-inductive Atom : Srt → Type where
-  | isint  : Term .value → Atom .int
-  | isbool : Term .value → Atom .bool
-  | isinj  (tag : Nat) (arity : Nat) : Term .value → Atom .value
-  | own    : Term .value → TinyML.Typ → Atom .value
-  | arr : Term .value → TinyML.Typ → Atom .value
-  | rel    (name : String) : Term .value → Atom .value
+inductive Atom (T : Type) : Srt → Type where
+  | isint  : Term .value → Atom T .int
+  | isbool : Term .value → Atom T .bool
+  | isinj  (tag : Nat) (arity : Nat) : Term .value → Atom T .value
+  | own    : Term .value → T → Atom T .value
+  | arr : Term .value → T → Atom T .value
+  | rel    (name : String) : Term .value → Atom T .value
   deriving DecidableEq
 
+/-- An assertion: a sequence of assumptions, bindings, and case splits ending
+    in a value of type `α`. -/
+inductive Assertion (T : Type) : Type → Type where
+  | ret    : α → Assertion T α
+  | assert : Formula → Assertion T α → Assertion T α
+  | let_   : (v : Var) → Term v.sort → Assertion T α → Assertion T α
+  | pred   : (v : Var) → Atom T v.sort → Assertion T α → Assertion T α
+  | ite    : Formula → Assertion T α → Assertion T α → Assertion T α
+
+/-- The postcondition of a predicate transformer: the name bound to the result
+    value, together with the assertion that must hold of it. -/
+structure Post (T : Type) where
+  name : String
+  body : Assertion T Unit
+
+/-- A predicate transformer: an assertion establishing the precondition and
+    ending in the postcondition the result must satisfy.
+
+    `Spec.pred` spells this type out rather than naming it: `Typ` nests `Spec`,
+    and the nested-inductive elaborator does not unfold definitions. -/
+def PredTrans (T : Type) := Assertion T (Post T)
+
+/-- A complete specification for a (possibly multi-argument) function: the
+    argument names and the predicate transformer describing its behavior. The
+    argument and result *types* live in the enclosing n-ary arrow, not here. -/
+structure Spec (T : Type) where
+  args : List String
+  pred : Assertion T (Post T)
+
+/-- Specifications print as a placeholder. -/
+instance : Repr (Spec T) := ⟨fun _ _ => "<spec>"⟩
+
 -- ---------------------------------------------------------------------------
--- Assertions
+-- Decidable equality
 -- ---------------------------------------------------------------------------
 
-inductive Assertion : Type → Type where
-  | ret    : α → Assertion α
-  | assert : Formula → Assertion α → Assertion α
-  | let_   : (v : Var) → Term v.sort → Assertion α → Assertion α
-  | pred   : (v : Var) → Atom v.sort → Assertion α → Assertion α
-  | ite    : Formula → Assertion α → Assertion α → Assertion α
-
-private def Assertion.decideEq [DecidableEq α] : (a b : Assertion α) → Decidable (a = b)
+private def Assertion.decideEq [DecidableEq T] [DecidableEq α] :
+    (a b : Assertion T α) → Decidable (a = b)
   | .ret a, .ret b => match decEq a b with
     | isTrue h => isTrue (by subst h; rfl)
     | isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
@@ -78,26 +105,11 @@ private def Assertion.decideEq [DecidableEq α] : (a b : Assertion α) → Decid
   | .ite .., .ret _ | .ite .., .assert .. | .ite .., .let_ .. | .ite .., .pred .. =>
     isFalse (by intro h; cases h)
 
-instance [DecidableEq α] : DecidableEq (Assertion α) := Assertion.decideEq
+instance [DecidableEq T] [DecidableEq α] : DecidableEq (Assertion T α) := Assertion.decideEq
 
--- ---------------------------------------------------------------------------
--- Predicate transformers
--- ---------------------------------------------------------------------------
+deriving instance DecidableEq for Post
 
-def PredTrans := Assertion (Pred (Assertion Unit))
+instance [DecidableEq T] : DecidableEq (PredTrans T) := by
+  unfold PredTrans; infer_instance
 
-instance : DecidableEq PredTrans := by
-  unfold PredTrans Pred
-  infer_instance
-
--- ---------------------------------------------------------------------------
--- Specifications
--- ---------------------------------------------------------------------------
-
-/-- A complete specification for a (possibly multi-argument) function: the
-    argument names and the predicate transformer describing its behavior. The
-    argument and result *types* live in the enclosing n-ary arrow, not here. -/
-structure Spec where
-  args : List String
-  pred : PredTrans
-  deriving DecidableEq
+deriving instance DecidableEq for Spec

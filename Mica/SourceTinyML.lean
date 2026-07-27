@@ -1,5 +1,6 @@
 -- SUMMARY: Bundle for `SourceTinyML/`, containing the source language: types, the untyped and typed IRs, elaboration, specifications, and their interpretation.
 
+import Mica.SourceTinyML.Assertions
 import Mica.SourceTinyML.Types
 import Mica.SourceTinyML.Untyped
 import Mica.SourceTinyML.Typed

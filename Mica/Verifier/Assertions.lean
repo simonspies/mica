@@ -25,7 +25,7 @@ Semantic interpretations and VerifM-level operations `Assertion.assume` and
 -- Semantics
 -- ---------------------------------------------------------------------------
 
-def Assertion.pre (W : TinyML.World) (Φ : α → Env → iProp) (m : Assertion α) (ρ : Env) : iProp :=
+def Assertion.pre (W : TinyML.World) (Φ : α → Env → iProp) (m : Assertion TinyML.Typ α) (ρ : Env) : iProp :=
   (match m with
   | .ret a        => Φ a ρ
   | .assert φ k   => ⌜φ.eval ρ⌝ ∗ Assertion.pre W Φ k ρ
@@ -35,7 +35,7 @@ def Assertion.pre (W : TinyML.World) (Φ : α → Env → iProp) (m : Assertion 
       iprop((⌜φ.eval ρ⌝ -∗ Assertion.pre W Φ kt ρ) ∧
             (⌜¬ φ.eval ρ⌝ -∗ Assertion.pre W Φ ke ρ)))
 
-def Assertion.post (W : TinyML.World) {α} (Φ : α → Env → iProp) (m : Assertion α) (ρ : Env) : iProp :=
+def Assertion.post (W : TinyML.World) {α} (Φ : α → Env → iProp) (m : Assertion TinyML.Typ α) (ρ : Env) : iProp :=
   match m with
   | .ret a        => Φ a ρ
   | .assert φ k   => ⌜φ.eval ρ⌝ -∗ Assertion.post W Φ k ρ
@@ -55,7 +55,7 @@ def Assertion.post (W : TinyML.World) {α} (Φ : α → Env → iProp) (m : Asse
     and term it mentions only refers to variables/symbols from `Δ` (extended by its own
     let-bindings). The `retWf` predicate specifies an additional well-formedness
     condition on the return value; by default it is trivially true. -/
-def Assertion.wfIn (retWf : α → Signature → Prop) (Δ : Signature) : Assertion α → Prop
+def Assertion.wfIn (retWf : α → Signature → Prop) (Δ : Signature) : Assertion TinyML.Typ α → Prop
   | .ret a       => retWf a Δ
   | .assert φ k  => φ.wfIn Δ ∧ k.wfIn retWf Δ
   | .let_ v t k  => t.wfIn Δ ∧ k.wfIn retWf (Δ.declVar v)
@@ -64,7 +64,7 @@ def Assertion.wfIn (retWf : α → Signature → Prop) (Δ : Signature) : Assert
 
 
 def Assertion.checkWf (retCheck : α → Signature → Except String Unit)
-    (Δ : Signature) : Assertion α → Except String Unit
+    (Δ : Signature) : Assertion TinyML.Typ α → Except String Unit
   | .ret a       => retCheck a Δ
   | .assert φ k  => do φ.checkWf Δ; k.checkWf retCheck Δ
   | .let_ v t k  => do t.checkWf Δ; k.checkWf retCheck (Δ.declVar v)
@@ -72,7 +72,7 @@ def Assertion.checkWf (retCheck : α → Signature → Except String Unit)
   | .ite φ kt ke => do φ.checkWf Δ; kt.checkWf retCheck Δ; ke.checkWf retCheck Δ
 
 omit [MicaGS HasLC.hasLC Sig] in
-theorem Assertion.checkWf_ok {m : Assertion α} {retCheck : α → Signature → Except String Unit}
+theorem Assertion.checkWf_ok {m : Assertion TinyML.Typ α} {retCheck : α → Signature → Except String Unit}
     {retWf : α → Signature → Prop} {Δ : Signature}
     (hret : ∀ a Δ', retCheck a Δ' = .ok () → retWf a Δ')
     (h : m.checkWf retCheck Δ = .ok ()) : m.wfIn retWf Δ := by
@@ -93,7 +93,7 @@ theorem Assertion.checkWf_ok {m : Assertion α} {retCheck : α → Signature →
     exact ⟨Formula.checkWf_ok h1, iht h2, ihe h3⟩
 
 omit [MicaGS HasLC.hasLC Sig] in
-theorem Assertion.wfIn_mono (m : Assertion α) (retWf : α → Signature → Prop)
+theorem Assertion.wfIn_mono (m : Assertion TinyML.Typ α) (retWf : α → Signature → Prop)
     (hret : ∀ a Δ Δ', Δ.Subset Δ' → Δ'.wf → retWf a Δ → retWf a Δ')
     {Δ Δ' : Signature}
     (h : m.wfIn retWf Δ) (hsub : Δ.Subset Δ') (hwf : Δ'.wf) : m.wfIn retWf Δ' := by
@@ -113,7 +113,7 @@ theorem Assertion.wfIn_mono (m : Assertion α) (retWf : α → Signature → Pro
 -- Environment agreement
 -- ---------------------------------------------------------------------------
 
-theorem Assertion.pre_env_agree (W : TinyML.World) {m : Assertion α} {retWf : α → Signature → Prop}
+theorem Assertion.pre_env_agree (W : TinyML.World) {m : Assertion TinyML.Typ α} {retWf : α → Signature → Prop}
     {Φ : α → Env → iProp} {ρ ρ' : Env} {Δ : Signature}
     (hwf : m.wfIn retWf Δ) (hagree : Env.agreeOn Δ ρ ρ')
     (hΦ : ∀ a Δ ρ₁ ρ₂, retWf a Δ → Env.agreeOn Δ ρ₁ ρ₂ → Φ a ρ₁ ⊢ Φ a ρ₂) :
@@ -173,7 +173,7 @@ theorem Assertion.pre_env_agree (W : TinyML.World) {m : Assertion α} {retWf : �
       iapply hnφ
       iapply Hnφ
 
-theorem Assertion.post_env_agree (W : TinyML.World) {m : Assertion α} {retWf : α → Signature → Prop}
+theorem Assertion.post_env_agree (W : TinyML.World) {m : Assertion TinyML.Typ α} {retWf : α → Signature → Prop}
     {Φ : α → Env → iProp} {ρ ρ' : Env} {Δ : Signature}
     (hwf : m.wfIn retWf Δ) (hagree : Env.agreeOn Δ ρ ρ')
     (hΦ : ∀ a Δ ρ₁ ρ₂, retWf a Δ → Env.agreeOn Δ ρ₁ ρ₂ → Φ a ρ₁ ⊢ Φ a ρ₂) :
@@ -227,7 +227,7 @@ theorem Assertion.post_env_agree (W : TinyML.World) {m : Assertion α} {retWf : 
 
 /-- Combining caller-side `pre` with verifier-side `post`. -/
 theorem Assertion.pre_post_combine (W : TinyML.World) {α : Type}
-    {m : Assertion α}
+    {m : Assertion TinyML.Typ α}
     {Φ : α → Env → iProp} {Ψ : α → Env → iProp}
     {ρ : Env}
     {R : iProp}
@@ -290,7 +290,7 @@ theorem Assertion.pre_post_combine (W : TinyML.World) {α : Type}
 
 /-- Introduce preconditions: assume formulas, declare and bind let-variables.
     Threads a `FiniteSubst` that maps assertion-level names to fresh SMT-level names. -/
-def Assertion.assume (σ : FiniteSubst) : Assertion α → VerifM (FiniteSubst × α)
+def Assertion.assume (σ : FiniteSubst) : Assertion TinyML.Typ α → VerifM (FiniteSubst × α)
   | .ret a => pure (σ, a)
   | .assert φ k => do
     VerifM.assume (.pure (φ.subst σ.subst σ.range.allNames))
@@ -316,7 +316,7 @@ def Assertion.assume (σ : FiniteSubst) : Assertion α → VerifM (FiniteSubst �
 
 /-- Assert postconditions: assert formulas, declare and bind let-variables.
     Threads a `FiniteSubst` that maps assertion-level names to fresh SMT-level names. -/
-def Assertion.prove (σ : FiniteSubst) : Assertion α → VerifM (FiniteSubst × α)
+def Assertion.prove (σ : FiniteSubst) : Assertion TinyML.Typ α → VerifM (FiniteSubst × α)
   | .ret a => pure (σ, a)
   | .assert φ k => do
     VerifM.assert (φ.subst σ.subst σ.range.allNames)
@@ -348,7 +348,7 @@ def Assertion.prove (σ : FiniteSubst) : Assertion α → VerifM (FiniteSubst ×
 -- Correctness theorems
 -- ---------------------------------------------------------------------------
 
-theorem Assertion.assume_correct (W : TinyML.World) (m : Assertion α) (Δ_base : Signature) (σ : FiniteSubst)
+theorem Assertion.assume_correct (W : TinyML.World) (m : Assertion TinyML.Typ α) (Δ_base : Signature) (σ : FiniteSubst)
     (retWf : α → Signature → Prop)
     (st : TransState) (ρ : Env)
     (Ψ : (FiniteSubst × α) → TransState → Env → Prop) (Φ : α → Env → iProp) (R : iProp)
@@ -576,7 +576,7 @@ theorem Assertion.assume_correct (W : TinyML.World) (m : Assertion α) (Δ_base 
         iapply (ihe Δ_base σ { st with asserts := _ :: st.asserts } ρ Ψ hσwf hkewf hassume hpost)
         simp [TransState.sl]
 
-theorem Assertion.prove_correct (W : TinyML.World) (m : Assertion α) (Δ_base : Signature) (σ : FiniteSubst)
+theorem Assertion.prove_correct (W : TinyML.World) (m : Assertion TinyML.Typ α) (Δ_base : Signature) (σ : FiniteSubst)
     (retWf : α → Signature → Prop)
     (st : TransState) (ρ : Env)
     (Ψ : (FiniteSubst × α) → TransState → Env → Prop) (Φ : α → Env → iProp) (R : iProp)

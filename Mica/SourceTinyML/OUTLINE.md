@@ -1,6 +1,6 @@
 **Mica/SourceTinyML**
 
-- `Assertions.lean` — Assertion data for specifications: atoms, the assertion language, predicate transformers, and specs.
+- `Assertions.lean` — Data of atoms, assertions, and completed specifications, parametric in the type language they mention.
 - `LogicalRelation.lean` — Iris logical relations for TinyML values and types, together with soundness proofs for type constraints.
 - `Printer.lean` — Pretty-printing for the untyped TinyML IR and declarations.
 - `Spec.lean` — Abstract syntax for specifications embedded in TinyML programs.
