@@ -17,7 +17,33 @@ variable [MicaGS HasLC.hasLC Sig]
 -- SpecMap
 -- ---------------------------------------------------------------------------
 
-abbrev SpecMap := Finmap (fun _ : TinyML.Var => Spec)
+/-- A function specification bundled with the argument and result types. -/
+structure SpecEntry where
+  argTys : List TinyML.Typ
+  retTy  : TinyML.Typ
+  spec   : Spec
+  deriving DecidableEq
+
+/-- The precondition assertion for a specified function value, reading the
+    argument and result types off the entry. Reducible so it unifies definitionally
+    with the underlying `Spec.isPrecondFor`. -/
+@[reducible] def SpecEntry.isPrecondFor (W : TinyML.World) (e : SpecEntry) (f : Runtime.Val) : iProp :=
+  e.spec.isPrecondFor W e.argTys e.retTy f
+
+instance : Iris.BI.Persistent (SpecEntry.isPrecondFor W e f) := by
+  unfold SpecEntry.isPrecondFor; infer_instance
+
+/-- Well-formedness of an entry: the spec's argument count matches the arrow
+    arity, and its predicate transformer is well-formed. -/
+def SpecEntry.wfIn (e : SpecEntry) (Δ : Signature) : Prop :=
+  e.spec.args.length = e.argTys.length ∧ e.spec.wfIn Δ
+
+omit [MicaGS HasLC.hasLC Sig] in
+theorem SpecEntry.wfIn_mono {e : SpecEntry} {Δ Δ' : Signature}
+    (h : e.wfIn Δ) (hsub : Δ.Subset Δ') (hwf : Δ'.wf) : e.wfIn Δ' :=
+  ⟨h.1, Spec.wfIn_mono h.2 hsub hwf⟩
+
+abbrev SpecMap := Finmap (fun _ : TinyML.Var => SpecEntry)
 
 def SpecMap.satisfiedBy (W : TinyML.World)
     (S : SpecMap) (γ : Runtime.Subst) : iProp :=
@@ -27,7 +53,7 @@ def SpecMap.satisfiedBy (W : TinyML.World)
 instance : Iris.BI.Persistent (SpecMap.satisfiedBy W S γ) := by
   unfold SpecMap.satisfiedBy; infer_instance
 
-theorem SpecMap.project {x : TinyML.Var} {s : Spec} {Q : iProp} (P : iProp)
+theorem SpecMap.project {x : TinyML.Var} {s : SpecEntry} {Q : iProp} (P : iProp)
     (W : TinyML.World) (S : SpecMap) (γ : Runtime.Subst) :
   (P ⊢ S.satisfiedBy W γ) →
   S.lookup x = some s →
@@ -60,7 +86,7 @@ omit [MicaGS HasLC.hasLC Sig] in
 theorem SpecMap.wfIn_mono {S : SpecMap} {Δ Δ' : Signature}
     (h : S.wfIn Δ) (hsub : Δ.Subset Δ') (hwf : Δ'.wf) :
     S.wfIn Δ' :=
-  fun f spec hlookup => Spec.wfIn_mono (h f spec hlookup) hsub hwf
+  fun f spec hlookup => SpecEntry.wfIn_mono (h f spec hlookup) hsub hwf
 
 omit [MicaGS HasLC.hasLC Sig] in
 theorem SpecMap.wfIn_erase {S : SpecMap} {x : TinyML.Var} {Δ : Signature}
@@ -102,18 +128,18 @@ theorem SpecMap.wfIn_eraseAll {keys : List String} {S : SpecMap} {Δ : Signature
   | nil => exact h
   | cons k ks ih => exact ih (SpecMap.wfIn_erase h)
 
-def SpecMap.insertBinder (S : SpecMap) (b : Typed.Binder) (spec : Spec) : SpecMap :=
+def SpecMap.insertBinder (S : SpecMap) (b : Typed.Binder) (spec : SpecEntry) : SpecMap :=
   match b.name with
   | some x => S.insert x spec
   | none => S
 
 omit [MicaGS HasLC.hasLC Sig] in
-@[simp] theorem SpecMap.insertBinder_none {S : SpecMap} {b : Typed.Binder} {spec : Spec}
+@[simp] theorem SpecMap.insertBinder_none {S : SpecMap} {b : Typed.Binder} {spec : SpecEntry}
     (h : b.name = none) : S.insertBinder b spec = S := by
   simp [SpecMap.insertBinder, h]
 
 omit [MicaGS HasLC.hasLC Sig] in
-@[simp] theorem SpecMap.insertBinder_some {S : SpecMap} {b : Typed.Binder} {spec : Spec}
+@[simp] theorem SpecMap.insertBinder_some {S : SpecMap} {b : Typed.Binder} {spec : SpecEntry}
     {x : TinyML.Var} (h : b.name = some x) : S.insertBinder b spec = S.insert x spec := by
   simp [SpecMap.insertBinder, h]
 
@@ -152,12 +178,12 @@ theorem SpecMap.satisfiedBy_preserved {W : TinyML.World}
 
 /-- Generic insert: fresh precondition for `x ↦ fval` plus preservation elsewhere. -/
 theorem SpecMap.satisfiedBy_insert_of_preserved {W : TinyML.World} {S : SpecMap}
-    {γ γ' : Runtime.Subst} {x : TinyML.Var} {fval : Runtime.Val} {spec : Spec}
+    {γ γ' : Runtime.Subst} {x : TinyML.Var} {fval : Runtime.Val} {spec : SpecEntry}
     (hγ' : γ' x = some fval)
     (hγ : ∀ y f, y ≠ x → γ y = some f → γ' y = some f) :
     S.satisfiedBy W γ ∗ spec.isPrecondFor W fval ⊢
       SpecMap.satisfiedBy W (Finmap.insert x spec S) γ' := by
-  simp only [SpecMap.satisfiedBy, Spec.isPrecondFor]
+  simp only [SpecMap.satisfiedBy, SpecEntry.isPrecondFor, Spec.isPrecondFor]
   iintro ⟨#HS, #Hf⟩
   imodintro
   iintro %y %s' %hlookup
@@ -176,13 +202,13 @@ theorem SpecMap.satisfiedBy_insert_of_preserved {W : TinyML.World} {S : SpecMap}
     ipureintro; exact hγ y f hyx hγf
 
 theorem SpecMap.satisfiedBy_insert {W : TinyML.World} {S : SpecMap} {γ : Runtime.Subst}
-    {x : TinyML.Var} {fval : Runtime.Val} {spec : Spec} (hγ : γ x = some fval) :
+    {x : TinyML.Var} {fval : Runtime.Val} {spec : SpecEntry} (hγ : γ x = some fval) :
     S.satisfiedBy W γ ∗ spec.isPrecondFor W fval ⊢
       SpecMap.satisfiedBy W (Finmap.insert x spec S) γ :=
   SpecMap.satisfiedBy_insert_of_preserved hγ (fun _ _ _ hf => hf)
 
 theorem SpecMap.satisfiedBy_insert_update {W : TinyML.World} {S : SpecMap} {γ : Runtime.Subst}
-    {x : TinyML.Var} {v : Runtime.Val} {spec : Spec} :
+    {x : TinyML.Var} {v : Runtime.Val} {spec : SpecEntry} :
     S.satisfiedBy W γ ∗ spec.isPrecondFor W v ⊢
       SpecMap.satisfiedBy W (Finmap.insert x spec S) (γ.update x v) :=
   SpecMap.satisfiedBy_insert_of_preserved
@@ -190,7 +216,7 @@ theorem SpecMap.satisfiedBy_insert_update {W : TinyML.World} {S : SpecMap} {γ :
     (fun y f hyx hf => by simp [Runtime.Subst.update, beq_false_of_ne hyx, hf])
 
 omit [MicaGS HasLC.hasLC Sig] in
-theorem SpecMap.wfIn_insert {S : SpecMap} {x : TinyML.Var} {spec : Spec} {Δ : Signature}
+theorem SpecMap.wfIn_insert {S : SpecMap} {x : TinyML.Var} {spec : SpecEntry} {Δ : Signature}
     (hS : S.wfIn Δ) (hs : spec.wfIn Δ) : SpecMap.wfIn (Finmap.insert x spec S) Δ := by
   intro y s' hlookup
   by_cases hyx : y = x
@@ -198,7 +224,7 @@ theorem SpecMap.wfIn_insert {S : SpecMap} {x : TinyML.Var} {spec : Spec} {Δ : S
   · rw [Finmap.lookup_insert_of_ne _ hyx] at hlookup; exact hS y s' hlookup
 
 theorem SpecMap.satisfiedBy_insertBinder {W : TinyML.World} {S : SpecMap} {γ : Runtime.Subst}
-    {b : Typed.Binder} {fval : Runtime.Val} {spec : Spec}
+    {b : Typed.Binder} {fval : Runtime.Val} {spec : SpecEntry}
     (hγ : ∀ x ty, b = Typed.Binder.named x ty → γ x = some fval) :
     S.satisfiedBy W γ ∗ spec.isPrecondFor W fval ⊢
       SpecMap.satisfiedBy W (S.insertBinder b spec) γ := by
@@ -208,7 +234,7 @@ theorem SpecMap.satisfiedBy_insertBinder {W : TinyML.World} {S : SpecMap} {γ : 
     rw [SpecMap.insertBinder_some rfl]; exact SpecMap.satisfiedBy_insert (hγ x ty rfl)
 
 theorem SpecMap.satisfiedBy_insertBinder_updateBinder {W : TinyML.World} {S : SpecMap} {γ : Runtime.Subst}
-    {b : Typed.Binder} {v : Runtime.Val} {spec : Spec} :
+    {b : Typed.Binder} {v : Runtime.Val} {spec : SpecEntry} :
     S.satisfiedBy W γ ∗ spec.isPrecondFor W v ⊢
       SpecMap.satisfiedBy W (S.insertBinder b spec) (Runtime.Subst.updateBinder b.runtime v γ) := by
   rcases hb : b.name with _ | _
@@ -218,7 +244,7 @@ theorem SpecMap.satisfiedBy_insertBinder_updateBinder {W : TinyML.World} {S : Sp
     exact SpecMap.satisfiedBy_insert_update
 
 omit [MicaGS HasLC.hasLC Sig] in
-theorem SpecMap.wfIn_insertBinder {S : SpecMap} {b : Typed.Binder} {spec : Spec} {Δ : Signature}
+theorem SpecMap.wfIn_insertBinder {S : SpecMap} {b : Typed.Binder} {spec : SpecEntry} {Δ : Signature}
     (hS : S.wfIn Δ) (hs : spec.wfIn Δ) : SpecMap.wfIn (S.insertBinder b spec) Δ := by
   rcases hb : b.name with _ | _
   · rwa [SpecMap.insertBinder_none hb]

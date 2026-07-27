@@ -94,10 +94,10 @@ instance : DecidableEq PredTrans := by
 -- Specifications
 -- ---------------------------------------------------------------------------
 
-/-- A complete specification for a (possibly multi-argument) function, pairing the
-    predicate transformer with the argument and return types from the function annotation. -/
+/-- A complete specification for a (possibly multi-argument) function: the
+    argument names and the predicate transformer describing its behavior. The
+    argument and result *types* live in the enclosing n-ary arrow, not here. -/
 structure Spec where
-  args    : List (String × TinyML.Typ)
-  retTy   : TinyML.Typ
-  pred    : PredTrans
+  args : List String
+  pred : PredTrans
   deriving DecidableEq

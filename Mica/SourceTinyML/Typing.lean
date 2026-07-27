@@ -579,8 +579,9 @@ private def specArgTypes : List Typed.Binder → List String → Except TypeErro
 
 /-- Elaborate a spec body against its function's typed signature, layering the
 spec's arguments on top of the program's global bindings `Γbase`. The argument
-and return types recovered here are exactly the ones the resulting `Spec`
-carries. -/
+and return types recovered here type the spec's leaf expressions; the `Spec`
+itself keeps only the argument names, since the types belong to the function's
+arrow. -/
 def elabSpecBody (env : SpecEnv σ) (Θ : TypeEnv) (Γbase : TyCtx) (body : Typed.Expr)
     (rb : Spec.Body Untyped.Expr) : TypeM σ Spec := do
   let (names, pre) := rb
@@ -594,7 +595,7 @@ def elabSpecBody (env : SpecEnv σ) (Θ : TypeEnv) (Γbase : TyCtx) (body : Type
       let post' ← elabPost env Θ (Γ.extend vname retTy) (ns ++ [vname]) post
       pure (vname, post'))
     Γ₀ names pre
-  pure { args := argTys, retTy := retTy, pred := pred }
+  pure { args := names, pred := pred }
 
 /-- Elaborate a declaration's optional spec against the typed function `body`. -/
 def elabSpec (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TyCtx) (body : Typed.Expr) :
