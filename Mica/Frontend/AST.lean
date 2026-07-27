@@ -80,7 +80,7 @@ inductive BinOp where
   | semi | pipeRight | atAt | assign | concat | append | cons
   deriving Repr, BEq
 
--- Types
+-- Types, patterns, expressions, match arms
 
 mutual
   inductive TypKind where
@@ -89,15 +89,14 @@ mutual
     | arrow (dom cod : Typ)
     | tuple (components : List Typ)
 
+  /-- A type together with its attributes `T [@name payload]`. A type attribute
+  carries a payload for the same reason an expression attribute does: `[@spec]`
+  is written in any type position, and its payload is an expression. -/
   structure Typ where
     loc   : Location
     kind  : TypKind
-    attrs : List String := []   -- type attributes `T [@name]` (name-only, e.g. `[@owned]`)
-end
+    attrs : List Attribute := []
 
--- Patterns, expressions, match arms
-
-mutual
   inductive PatternKind where
     | wildcard
     | binder (name : Option Var) (ty : Option Typ)

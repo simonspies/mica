@@ -129,125 +129,6 @@ private def ElabEnv.bindBinder (env : ElabEnv) : Untyped.Binder → ElabEnv
 private def ElabEnv.isLocal (env : ElabEnv) (name : Var) : Bool :=
   env.locals.elem name
 
--- ---------------------------------------------------------------------------
--- Type elaboration
-
-/-- Apply a single type attribute to an already-elaborated core type. `[@owned]`
-turns a shared `ref A` into an owned `owned A`; unknown names are rejected
-(mirroring how the expression-level `[@owned]` validates `ref`). -/
-private def applyTypAttr (loc : Location) (t : TinyML.Typ) : String → ElabM TinyML.Typ
-  | "owned" =>
-    match t with
-    | .ref inner => .ok (.owned inner)
-    | .array inner => .ok (.ownedArray inner)
-    | _ => err loc (.unsupportedFeature "[@owned] only applies to a 'ref' or 'array' type")
-  | name => err loc (.unsupportedFeature s!"unknown type attribute [@{name}]")
-
-mutual
-def TypKind.elaborate (env : ElabEnv) (loc : Location) : TypKind → ElabM TinyML.Typ
-  | .var v => .ok (.tvar v)
-  | .con path args => do
-    let args' ← Typ.elaborateList env args
-    -- Qualified paths route through the resolver; an alias must point to a
-    -- single-segment target (avoids unbounded chasing).
-    let name ← if path.isQualified then
-      match env.resolver.type_ path with
-      | some (.alias aliasPath) =>
-        if aliasPath.isQualified then
-          err loc (.unsupportedPath path)
-        else .ok aliasPath.head
-      | none => err loc (.unsupportedPath path)
-    else .ok path.head
-    match name with
-    | "int"  => if args'.isEmpty then .ok .int  else err loc (.arityMismatch 0 args'.length)
-    | "bool" => if args'.isEmpty then .ok .bool else err loc (.arityMismatch 0 args'.length)
-    | "unit" => if args'.isEmpty then .ok .unit else err loc (.arityMismatch 0 args'.length)
-    | "char" => if args'.isEmpty then .ok .char else err loc (.arityMismatch 0 args'.length)
-    | "string" => if args'.isEmpty then .ok .string else err loc (.arityMismatch 0 args'.length)
-    | "float" => if args'.isEmpty then .ok .float else err loc (.arityMismatch 0 args'.length)
-    | "ref" =>
-      match args' with
-      | [arg] => .ok (.ref arg)
-      | _ => err loc (.arityMismatch 1 args'.length)
-    | "array" =>
-      match args' with
-      | [arg] => .ok (.array arg)
-      | _ => err loc (.arityMismatch 1 args'.length)
-    | "vec" =>
-      match args' with
-      | [arg] => .ok (.vec arg)
-      | _ => err loc (.arityMismatch 1 args'.length)
-    | _ =>
-      match List.lookup name env.records with
-      | some fields =>
-          if args'.isEmpty then .ok (.tuple (fields.map Prod.snd))
-          else err loc (.arityMismatch 0 args'.length)
-      | none =>
-      match List.lookup name env.types with
-      | some info =>
-          if args'.length = info.arity then .ok (.named info.core args')
-          else err loc (.arityMismatch info.arity args'.length)
-      | none => err loc (.unknownType name)
-  | .arrow dom cod => do
-    let dom' ← Typ.elaborate env dom
-    let cod' ← Typ.elaborate env cod
-    match cod' with
-    | .arrow args ret none => .ok (.arrow (dom' :: args) ret none)
-    | _ => .ok (.arrow [dom'] cod' none)
-  | .tuple ts => do
-    let ts' ← Typ.elaborateList env ts
-    .ok (.tuple ts')
-termination_by k => sizeOf k
-
-/-- Elaborate a surface type: lower its kind, then apply any type attributes
-(`T [@name]`) left-to-right. Single entry point for every type position. -/
-def Typ.elaborate (env : ElabEnv) (ty : Typ) : ElabM TinyML.Typ := do
-  let t ← TypKind.elaborate env ty.loc ty.kind
-  ty.attrs.foldlM (applyTypAttr ty.loc) t
-termination_by sizeOf ty
-decreasing_by cases ty; simp_wf; omega
-
-def Typ.elaborateList (env : ElabEnv) : List Typ → ElabM (List TinyML.Typ)
-  | [] => .ok []
-  | ty :: ts => do
-    let t' ← Typ.elaborate env ty
-    let ts' ← Typ.elaborateList env ts
-    .ok (t' :: ts')
-termination_by ts => sizeOf ts
-end
-
-/-- Elaborate an optional annotation into the untyped IR's type language. -/
-private def elaborateOptTyp (env : ElabEnv) : Option Typ → ElabM (Option Untyped.Typ)
-  | none => .ok none
-  | some ty => do let ty' ← Typ.elaborate env ty; .ok (some (.core ty'))
-
--- ---------------------------------------------------------------------------
--- Pattern helpers
-
-private def patternToBinder (pat : Pattern) : ElabM Untyped.Binder :=
-  match pat.kind with
-  | .wildcard => .ok .none
-  | .binder (some name) _ => .ok (.named name none)
-  | .binder none _ => .ok .none
-  | _ => err pat.loc (.unsupportedPattern "expected a simple binder (variable or wildcard)")
-
-private def patternToBinderTyped (env : ElabEnv) (pat : Pattern) : ElabM Untyped.Binder :=
-  match pat.kind with
-  | .wildcard => .ok .none
-  | .binder none _ => .ok .none
-  | .binder (some n) ty => do
-    let ty' ← elaborateOptTyp env ty
-    .ok (.named n ty')
-  | _ => err pat.loc (.unsupportedPattern "expected a simple binder (variable or wildcard)")
-
-private def patternListToAnnotatedBinders (env : ElabEnv) :
-    List Pattern → ElabM (List Untyped.Binder)
-  | [] => .ok []
-  | p :: ps => do
-    let b ← patternToBinderTyped env p
-    let bs ← patternListToAnnotatedBinders env ps
-    .ok (b :: bs)
-
 private def checkRecordFieldSet (loc : Location) (fieldOrder : List FieldName) :
     List (FieldName × α) → ElabM Unit
   | [] => .ok ()
@@ -282,76 +163,6 @@ private def recordFieldsFor (env : ElabEnv) (loc : Location) (fields : List (Fie
           | some fieldInfo => do
               checkRecordFieldSet loc (fieldInfo.map Prod.fst) fields
               .ok fieldInfo
-
-private def patternRecordFieldsToBinders (env : ElabEnv)
-    : List (FieldName × Pattern) → ElabM (List (FieldName × Untyped.Binder))
-  | [] => .ok []
-  | (name, pat) :: rest => do
-      let binder ← patternToBinderTyped env pat
-      let binders ← patternRecordFieldsToBinders env rest
-      .ok ((name, binder) :: binders)
-
-private def patternToProductBinders (env : ElabEnv) (pat : Pattern) :
-    ElabM (List Untyped.Binder) :=
-  match pat.kind with
-  | .tuple pats => patternListToAnnotatedBinders env pats
-  | .record fields => do
-      let fieldInfo ← recordFieldsFor env pat.loc fields
-      let binders ← patternRecordFieldsToBinders env fields
-      reorderFields pat.loc binders (fieldInfo.map Prod.fst)
-  | _ => err pat.loc (.unsupportedPattern "expected a flat product binder")
-
-private def patternComponentType? (env : ElabEnv) (pat : Pattern) : ElabM (Option TinyML.Typ) :=
-  match pat.kind with
-  | .binder _ (some ty) => do
-      let ty' ← Typ.elaborate env ty
-      .ok (some ty')
-  | .binder _ none | .wildcard => .ok none
-  | _ => err pat.loc (.unsupportedPattern "expected a flat tuple binder")
-
-private def patternComponentTypes? (env : ElabEnv) :
-    List Pattern → ElabM (Option (List TinyML.Typ))
-  | [] => .ok (some [])
-  | p :: ps => do
-      let ty? ← patternComponentType? env p
-      let tys? ← patternComponentTypes? env ps
-      match ty?, tys? with
-      | some ty, some tys => .ok (some (ty :: tys))
-      | _, _ => .ok none
-
-private def patternToProductType (env : ElabEnv) (pat : Pattern) : ElabM TinyML.Typ :=
-  match pat.kind with
-  | .tuple pats => do
-      match ← patternComponentTypes? env pats with
-      | some tys => .ok (TinyML.Typ.tuple tys)
-      | none =>
-          err pat.loc (.unsupportedPattern "tuple function arguments must annotate each component")
-  | .record fields => do
-      let fieldInfo ← recordFieldsFor env pat.loc fields
-      .ok (TinyML.Typ.tuple (fieldInfo.map Prod.snd))
-  | _ => err pat.loc (.unsupportedPattern "expected a flat product binder")
-
-private def isProductPattern (pat : Pattern) : Bool :=
-  match pat.kind with
-  | .tuple (_ :: _) | .record _ => true
-  | _ => false
-
-private def productArgumentName (stem : String) (idx : Nat) : String :=
-  s!"{stem}{idx}"
-
-private def elaborateFunctionArgs (env : ElabEnv) (stem : String) :
-    Nat → List Pattern → Untyped.Expr → ElabM (List Untyped.Binder × Untyped.Expr)
-  | _, [], body => .ok ([], body)
-  | idx, pat :: pats, body => do
-      let (restArgs, restBody) ← elaborateFunctionArgs env stem (idx + 1) pats body
-      if isProductPattern pat then
-        let argName := productArgumentName stem idx
-        let argTy ← patternToProductType env pat
-        let names ← patternToProductBinders env pat
-        .ok (.named argName (some (.core argTy)) :: restArgs, .letProd names (.var argName) restBody)
-      else
-        let arg ← patternToBinderTyped env pat
-        .ok (arg :: restArgs, restBody)
 
 -- ---------------------------------------------------------------------------
 -- Match branch assembly
@@ -429,16 +240,219 @@ private partial def Pattern.lowerLists (pat : Pattern) : Pattern :=
     | kind => kind
   { pat with kind }
 
+private def isProductPattern (pat : Pattern) : Bool :=
+  match pat.kind with
+  | .tuple (_ :: _) | .record _ => true
+  | _ => false
+
+private def productArgumentName (stem : String) (idx : Nat) : String :=
+  s!"{stem}{idx}"
+
 mutual
+partial def elaborateOptTyp (env : ElabEnv) : Option Typ → ElabM (Option Untyped.Typ)
+  | none => .ok none
+  | some ty => do let ty' ← Typ.elaborate env ty; .ok (some ty')
+
+-- ---------------------------------------------------------------------------
+-- Pattern helpers
+
+partial def patternToBinder (pat : Pattern) : ElabM Untyped.Binder :=
+  match pat.kind with
+  | .wildcard => .ok .none
+  | .binder (some name) _ => .ok (.named name none)
+  | .binder none _ => .ok .none
+  | _ => err pat.loc (.unsupportedPattern "expected a simple binder (variable or wildcard)")
+
+partial def patternToBinderTyped (env : ElabEnv) (pat : Pattern) : ElabM Untyped.Binder :=
+  match pat.kind with
+  | .wildcard => .ok .none
+  | .binder none _ => .ok .none
+  | .binder (some n) ty => do
+    let ty' ← elaborateOptTyp env ty
+    .ok (.named n ty')
+  | _ => err pat.loc (.unsupportedPattern "expected a simple binder (variable or wildcard)")
+
+partial def patternListToAnnotatedBinders (env : ElabEnv) :
+    List Pattern → ElabM (List Untyped.Binder)
+  | [] => .ok []
+  | p :: ps => do
+    let b ← patternToBinderTyped env p
+    let bs ← patternListToAnnotatedBinders env ps
+    .ok (b :: bs)
+
+partial def patternRecordFieldsToBinders (env : ElabEnv)
+    : List (FieldName × Pattern) → ElabM (List (FieldName × Untyped.Binder))
+  | [] => .ok []
+  | (name, pat) :: rest => do
+      let binder ← patternToBinderTyped env pat
+      let binders ← patternRecordFieldsToBinders env rest
+      .ok ((name, binder) :: binders)
+
+partial def patternToProductBinders (env : ElabEnv) (pat : Pattern) :
+    ElabM (List Untyped.Binder) :=
+  match pat.kind with
+  | .tuple pats => patternListToAnnotatedBinders env pats
+  | .record fields => do
+      let fieldInfo ← recordFieldsFor env pat.loc fields
+      let binders ← patternRecordFieldsToBinders env fields
+      reorderFields pat.loc binders (fieldInfo.map Prod.fst)
+  | _ => err pat.loc (.unsupportedPattern "expected a flat product binder")
+
+partial def patternComponentType? (env : ElabEnv) (pat : Pattern) : ElabM (Option Untyped.Typ) :=
+  match pat.kind with
+  | .binder _ (some ty) => do
+      let ty' ← Typ.elaborate env ty
+      .ok (some ty')
+  | .binder _ none | .wildcard => .ok none
+  | _ => err pat.loc (.unsupportedPattern "expected a flat tuple binder")
+
+partial def patternComponentTypes? (env : ElabEnv) :
+    List Pattern → ElabM (Option (List Untyped.Typ))
+  | [] => .ok (some [])
+  | p :: ps => do
+      let ty? ← patternComponentType? env p
+      let tys? ← patternComponentTypes? env ps
+      match ty?, tys? with
+      | some ty, some tys => .ok (some (ty :: tys))
+      | _, _ => .ok none
+
+partial def patternToProductType (env : ElabEnv) (pat : Pattern) : ElabM Untyped.Typ :=
+  match pat.kind with
+  | .tuple pats => do
+      match ← patternComponentTypes? env pats with
+      | some tys => .ok (Untyped.Typ.tuple tys)
+      | none =>
+          err pat.loc (.unsupportedPattern "tuple function arguments must annotate each component")
+  | .record fields => do
+      let fieldInfo ← recordFieldsFor env pat.loc fields
+      .ok (Untyped.Typ.tuple (fieldInfo.map (fun f => Untyped.Typ.core f.2)))
+  | _ => err pat.loc (.unsupportedPattern "expected a flat product binder")
+
+partial def elaborateFunctionArgs (env : ElabEnv) (stem : String) :
+    Nat → List Pattern → Untyped.Expr → ElabM (List Untyped.Binder × Untyped.Expr)
+  | _, [], body => .ok ([], body)
+  | idx, pat :: pats, body => do
+      let (restArgs, restBody) ← elaborateFunctionArgs env stem (idx + 1) pats body
+      if isProductPattern pat then
+        let argName := productArgumentName stem idx
+        let argTy ← patternToProductType env pat
+        let names ← patternToProductBinders env pat
+        .ok (.named argName (some argTy) :: restArgs, .letProd names (.var argName) restBody)
+      else
+        let arg ← patternToBinderTyped env pat
+        .ok (arg :: restArgs, restBody)
+
+/-- Elaborate a surface type into the untyped IR's type language: lower its
+kind, then apply any type attributes (`T [@name payload]`) left-to-right.
+Single entry point for every type position, so `[@spec]` is honored wherever a
+type may be written. -/
+partial def Typ.elaborate (env : ElabEnv) : Typ → ElabM Untyped.Typ
+  | ⟨loc, kind, attrs⟩ => do
+      let t ← TypKind.elaborate env loc kind
+      Typ.applyAttrs env loc t attrs
+
+partial def Typ.applyAttrs (env : ElabEnv) (loc : Location) (t : Untyped.Typ) :
+    List Attribute → ElabM Untyped.Typ
+  | [] => .ok t
+  | attr :: attrs => do
+    let t' ← Typ.applyAttr env loc t attr
+    Typ.applyAttrs env loc t' attrs
+
+/-- Apply a single type attribute. `[@owned]` turns a shared `ref A` into an
+owned `owned A` (mirroring how the expression-level `[@owned]` validates
+`ref`); `[@spec]` records a specification on the arrow it annotates, exactly as
+`[@@spec]` does on a declaration. -/
+partial def Typ.applyAttr (env : ElabEnv) (loc : Location) (t : Untyped.Typ) :
+    Attribute → ElabM Untyped.Typ
+  | ⟨"owned", none⟩ =>
+    match t with
+    | .ref inner => .ok (.owned inner)
+    | .array inner => .ok (.ownedArray inner)
+    | _ => err loc (.unsupportedFeature "[@owned] only applies to a 'ref' or 'array' type")
+  | ⟨"owned", some payload⟩ => err payload.loc (.unsupportedFeature "[@owned] takes no payload")
+  | ⟨"spec", none⟩ => err loc (.unsupportedFeature "[@spec] expects a specification payload")
+  | ⟨"spec", some payload⟩ => do
+    let e ← Expr.elaborate env payload
+    match Spec.parse e with
+    | .error msg => err payload.loc (.unsupportedFeature s!"invalid [@spec]: {msg}")
+    | .ok body =>
+      match t with
+      | .arrow args ret none => .ok (.arrow args ret (some body))
+      | .arrow _ _ (some _) =>
+        err loc (.unsupportedFeature "a function type carries at most one [@spec]")
+      | _ => err loc (.unsupportedFeature "[@spec] only applies to a function type")
+  | ⟨name, _⟩ => err loc (.unsupportedFeature s!"unknown type attribute [@{name}]")
+
+partial def TypKind.elaborate (env : ElabEnv) (loc : Location) : TypKind → ElabM Untyped.Typ
+  | .var v => .ok (.core (.tvar v))
+  | .con path args => do
+    let args' ← Typ.elaborateList env args
+    -- Qualified paths route through the resolver; an alias must point to a
+    -- single-segment target (avoids unbounded chasing).
+    let name ← if path.isQualified then
+      match env.resolver.type_ path with
+      | some (.alias aliasPath) =>
+        if aliasPath.isQualified then
+          err loc (.unsupportedPath path)
+        else .ok aliasPath.head
+      | none => err loc (.unsupportedPath path)
+    else .ok path.head
+    match name with
+    | "int"  => if args'.isEmpty then .ok (.core .int)  else err loc (.arityMismatch 0 args'.length)
+    | "bool" => if args'.isEmpty then .ok (.core .bool) else err loc (.arityMismatch 0 args'.length)
+    | "unit" => if args'.isEmpty then .ok (.core .unit) else err loc (.arityMismatch 0 args'.length)
+    | "char" => if args'.isEmpty then .ok (.core .char) else err loc (.arityMismatch 0 args'.length)
+    | "string" => if args'.isEmpty then .ok (.core .string) else err loc (.arityMismatch 0 args'.length)
+    | "float" => if args'.isEmpty then .ok (.core .float) else err loc (.arityMismatch 0 args'.length)
+    | "ref" =>
+      match args' with
+      | [arg] => .ok (.ref arg)
+      | _ => err loc (.arityMismatch 1 args'.length)
+    | "array" =>
+      match args' with
+      | [arg] => .ok (.array arg)
+      | _ => err loc (.arityMismatch 1 args'.length)
+    | "vec" =>
+      match args' with
+      | [arg] => .ok (.vec arg)
+      | _ => err loc (.arityMismatch 1 args'.length)
+    | _ =>
+      match List.lookup name env.records with
+      | some fields =>
+          if args'.isEmpty then .ok (.tuple (fields.map (fun f => Untyped.Typ.core f.2)))
+          else err loc (.arityMismatch 0 args'.length)
+      | none =>
+      match List.lookup name env.types with
+      | some info =>
+          if args'.length = info.arity then .ok (.named info.core args')
+          else err loc (.arityMismatch info.arity args'.length)
+      | none => err loc (.unknownType name)
+  | .arrow dom cod => do
+    let dom' ← Typ.elaborate env dom
+    let cod' ← Typ.elaborate env cod
+    match cod' with
+    | .arrow args ret none => .ok (.arrow (dom' :: args) ret none)
+    | _ => .ok (.arrow [dom'] cod' none)
+  | .tuple ts => do
+    let ts' ← Typ.elaborateList env ts
+    .ok (.tuple ts')
+
+partial def Typ.elaborateList (env : ElabEnv) : List Typ → ElabM (List Untyped.Typ)
+  | [] => .ok []
+  | ty :: ts => do
+    let t' ← Typ.elaborate env ty
+    let ts' ← Typ.elaborateList env ts
+    .ok (t' :: ts')
+
 /-- Elaborate an expression: lower its kind, then apply any expression
 attributes (`e [@name payload]`) left-to-right. This is the single entry point
 for every expression position, so attributes are honored everywhere. -/
-def Expr.elaborate (env : ElabEnv) : Expr → ElabM Untyped.Expr
+partial def Expr.elaborate (env : ElabEnv) : Expr → ElabM Untyped.Expr
   | ⟨loc, kind, attrs⟩ => do
       let e ← ExprKind.elaborate env loc kind
       attrs.foldlM (applyAttr loc) e
 
-def ExprKind.elaborate (env : ElabEnv) (loc : Location) : ExprKind → ElabM Untyped.Expr
+partial def ExprKind.elaborate (env : ElabEnv) (loc : Location) : ExprKind → ElabM Untyped.Expr
   | .const (.int n)  => .ok (.const (.int n))
   | .const (.float f) => .ok (.const (.float f.toBits))
   | .const (.bool b) => .ok (.const (.bool b))
@@ -720,14 +734,14 @@ def ExprKind.elaborate (env : ElabEnv) (loc : Location) : ExprKind → ElabM Unt
 
   | .annot e _ => Expr.elaborate env e
 
-def Expr.elaborateList (env : ElabEnv) : List Expr → ElabM (List Untyped.Expr)
+partial def Expr.elaborateList (env : ElabEnv) : List Expr → ElabM (List Untyped.Expr)
   | [] => .ok []
   | e :: es => do
     let e' ← Expr.elaborate env e
     let es' ← Expr.elaborateList env es
     .ok (e' :: es')
 
-def Expr.elaborateRecordFields (env : ElabEnv)
+partial def Expr.elaborateRecordFields (env : ElabEnv)
     : List (FieldName × Expr) → ElabM (List (FieldName × Untyped.Expr))
   | [] => .ok []
   | (name, e) :: rest => do
@@ -735,7 +749,7 @@ def Expr.elaborateRecordFields (env : ElabEnv)
     let rest' ← Expr.elaborateRecordFields env rest
     .ok ((name, e') :: rest')
 
-def MatchArm.elaborateList (env : ElabEnv)
+partial def MatchArm.elaborateList (env : ElabEnv)
     : List MatchArm → ElabM (List (Constructor × Option Untyped.Binder × Untyped.Expr))
   | [] => .ok []
   | ⟨pat, body⟩ :: arms => do
@@ -778,7 +792,7 @@ def MatchArm.elaborateList (env : ElabEnv)
     let rest ← MatchArm.elaborateList env arms
     .ok ((ctorName, binder, body'') :: rest)
 
-def Pattern.toAnnotatedBinders (env : ElabEnv)
+partial def Pattern.toAnnotatedBinders (env : ElabEnv)
     : List Pattern → ElabM (List Untyped.Binder)
   | [] => .ok []
   | p :: ps => do
@@ -790,6 +804,37 @@ end
 -- ---------------------------------------------------------------------------
 -- Type declaration elaboration
 
+mutual
+  /-- The core type an elaborated type is, provided no pending specification
+  occurs in it. -/
+  private def core? : Untyped.Typ → Option TinyML.Typ
+    | .core t => some t
+    | .sum ts => do pure (.sum (← coreList? ts))
+    | .arrow _ _ (some _) => none
+    | .arrow args ret none => do pure (.arrow (← coreList? args) (← core? ret) none)
+    | .ref t => do pure (.ref (← core? t))
+    | .array t => do pure (.array (← core? t))
+    | .ownedArray t => do pure (.ownedArray (← core? t))
+    | .vec t => do pure (.vec (← core? t))
+    | .owned t => do pure (.owned (← core? t))
+    | .tuple ts => do pure (.tuple (← coreList? ts))
+    | .named n args => do pure (.named n (← coreList? args))
+
+  private def coreList? : List Untyped.Typ → Option (List TinyML.Typ)
+    | [] => some []
+    | t :: ts => do pure ((← core? t) :: (← coreList? ts))
+end
+
+/-- Elaborate a type that must be fully resolved on the spot. A data
+declaration's payloads and fields are stored as core types, and a
+specification's leaves cannot be typechecked before the declaration they
+belong to exists, so `[@spec]` has no meaning here. -/
+private def Typ.elaborateCore (env : ElabEnv) (ty : Typ) : ElabM TinyML.Typ := do
+  let t ← Typ.elaborate env ty
+  match core? t with
+  | some c => .ok c
+  | none => err ty.loc (.unsupportedFeature "[@spec] is not allowed in a type declaration")
+
 private def elaborateCtorDefs (env : ElabEnv) (loc : Location)
     (ctorDefs : List (Constructor × Option Typ)) (tag : Nat) (arity : Nat)
     : ElabM (List TinyML.Typ × List (Constructor × (Nat × Nat × TinyML.Typ))) :=
@@ -800,7 +845,7 @@ private def elaborateCtorDefs (env : ElabEnv) (loc : Location)
       err loc (.duplicateConstructor ctorName)
     else do
     let payloadTy' ← match payloadTy with
-      | some ty => Typ.elaborate env ty
+      | some ty => Typ.elaborateCore env ty
       | none => .ok .unit
     let (restTypes, restCtors) ← elaborateCtorDefs env loc rest (tag + 1) arity
     .ok (payloadTy' :: restTypes,
@@ -841,7 +886,7 @@ private def elaborateRecordDecl (env : ElabEnv) (loc : Location) (name : TypeCon
   let envWithSelf := { env with types := (name, ⟨coreName, 0⟩) :: env.types }
   let newFields ← elaborateFieldDefs env loc name fieldDefs 0
   let fieldTypes ← fieldDefs.mapM (fun (fieldName, ty) => do
-    let ty' ← Typ.elaborate envWithSelf ty
+    let ty' ← Typ.elaborateCore envWithSelf ty
     pure (fieldName, ty'))
   .ok { env with
     types := (name, ⟨coreName, 0⟩) :: env.types
