@@ -913,11 +913,23 @@ def ValDecl.elaborate (env : ElabEnv) (loc : Location)
   match binders with
   | [] => err loc (.unsupportedFeature "declaration with no binders")
   | [pat] =>
+    -- A declaration with no arguments: its annotation is the declaration's own
+    -- type, which is where a `[@spec]` on it belongs.
     let name ← patternToBinder pat
-    let body' ← Expr.elaborate env body
+    let annot ← elaborateOptTyp env retTy
+    let name := match name, annot with
+      | .named n none, some ty => .named n (some ty)
+      | b, _ => b
     if isRec then
-      err loc (.unsupportedFeature "let rec requires function arguments")
-    else
+      -- `let rec f : T = fun x -> ...`: the literal's self-reference is the
+      -- declaration's own name, so recursive calls go through its type.
+      let body' ← Expr.elaborate (env.bindPattern pat) body
+      match body' with
+      | .fix .none args retTy' inner =>
+        .ok { name, body := .fix name args retTy' inner, declMeta := md }
+      | _ => err loc (.unsupportedFeature "let rec requires a function")
+    else do
+      let body' ← Expr.elaborate env body
       .ok { name, body := body', declMeta := md }
   | pat :: args =>
     let name ← patternToBinder pat
