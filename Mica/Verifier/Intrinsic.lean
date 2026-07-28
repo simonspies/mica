@@ -564,7 +564,7 @@ class IntrinsicSound (fragment : outParam (List Intrinsic)) (i : Intrinsic) : Pr
       (vs : List Runtime.Val) (ρ : Env) (Φ : Runtime.Val → iProp),
     ρ.respects i.folSym →
     TinyML.ValsHaveTypes W vs (i.argTys.map (·.subst σ)) ∗
-      PredTrans.apply W (fun r => TinyML.ValHasType W r (i.retTy.subst σ) -∗ Φ r)
+      PredTrans.apply (TinyML.ValHasType W) (fun r => TinyML.ValHasType W r (i.retTy.subst σ) -∗ Φ r)
         i.spec.pred
         (Spec.argsEnv ρ i.spec.args vs) ⊢ i.toWp vs Φ
   wp_sound :

@@ -239,7 +239,7 @@ theorem checkSpec_correct (reg : Verifier.Registry) (hSound : Verifier.Registry.
       have hsub := Runtime.Expr.subst_fix_comp body.runtime fb.runtime bs γ fval vs hlen_vs
       simp only [] at hsub; rw [hsub]
       have hbody' : TinyML.ValsHaveTypes W vs e.argTys ∗
-          PredTrans.apply W (fun r => TinyML.ValHasType W r e.retTy -∗ P r) e.spec.pred
+          PredTrans.apply (TinyML.ValHasType W) (fun r => TinyML.ValHasType W r e.retTy -∗ P r) e.spec.pred
           (Spec.argsEnv ρ_call e.spec.args vs) ⊢
           SpecMap.satisfiedBy W S γ ∗ e.isPrecondFor W fval -∗
             wp W.pctx (Runtime.Expr.subst ((Runtime.Subst.updateBinder fb.runtime fval γ).updateAllBinder bs vs) body.runtime) P := by
@@ -271,7 +271,7 @@ theorem checkSpec_correct (reg : Verifier.Registry) (hSound : Verifier.Registry.
             · have hlen_vals_call : e.spec.args.length ≤ vs.length := by
                 have := hswf.1
                 omega
-              iapply (PredTrans.apply_env_agree W (ρ := Spec.argsEnv ρ_call e.spec.args vs)
+              iapply (PredTrans.apply_env_agree (TinyML.ValHasType W) (ρ := Spec.argsEnv ρ_call e.spec.args vs)
                 (ρ' := Spec.argsEnv W.ρ_spec e.spec.args vs) hswf.2
                 (Spec.argsEnv_agreeOn (Δ := W.Δ_spec) (ρ₁ := ρ_call) (ρ₂ := W.ρ_spec)
                   (Env.agreeOn_symm hagree_call) e.spec.args vs hlen_vals_call))

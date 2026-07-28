@@ -2980,7 +2980,7 @@ theorem compileApp_correct (reg : Verifier.Registry) (hSound : Verifier.Registry
           _ = vs := Terms.Eval.map_eval heval_sargs
       have happly' :
           st_args.sl W ρ_args ∗ R ⊢
-            PredTrans.apply W (fun r => TinyML.ValHasType W r spec.retTy -∗ Φ r) spec.spec.pred
+            PredTrans.apply (TinyML.ValHasType W) (fun r => TinyML.ValHasType W r spec.retTy -∗ Φ r) spec.spec.pred
               (Spec.argsEnv ρ_args spec.spec.args vs) := by
         rw [heval_sargs_map] at happly
         exact happly
@@ -2992,9 +2992,14 @@ theorem compileApp_correct (reg : Verifier.Registry) (hSound : Verifier.Registry
       iapply Hspec
       · ipureintro
         exact hagree_ρ_args
-      · iapply (TinyML.ValsHaveTypes.sub hsub_ty')
+      · ipureintro
+        have := TinyML.Typ.SubList.length_eq hsub_ty'
+        omega
+      · iapply later_intro
+        iapply (TinyML.ValsHaveTypes.sub hsub_ty')
         iexact Hvals
-      · iapply happly'
+      · iapply later_intro
+        iapply happly'
         isplitl [Howns]
         · iexact Howns
         · iexact HR
@@ -3086,7 +3091,7 @@ theorem compileApp_correct (reg : Verifier.Registry) (hSound : Verifier.Registry
         _ = vs := Terms.Eval.map_eval heval_sargs
     have happly' :
         st_args.sl W ρ_args ∗ R ⊢
-          PredTrans.apply W (fun r => TinyML.ValHasType W r retTy -∗ Φ r) i.spec.pred
+          PredTrans.apply (TinyML.ValHasType W) (fun r => TinyML.ValHasType W r retTy -∗ Φ r) i.spec.pred
             (Spec.argsEnv ρ_args i.spec.args vs) := by
       rw [heval_sargs_map] at happly
       exact happly
@@ -3096,7 +3101,7 @@ theorem compileApp_correct (reg : Verifier.Registry) (hSound : Verifier.Registry
       Env.respects_of_agreeOn_extendWithSym (hρreg i hi_mem) (hΔreg i hi_mem) hagree_ρ_args
     iapply (show
         TinyML.ValsHaveTypes W vs argTys ∗
-          PredTrans.apply W (fun r => TinyML.ValHasType W r retTy -∗ Φ r) i.spec.pred
+          PredTrans.apply (TinyML.ValHasType W) (fun r => TinyML.ValHasType W r retTy -∗ Φ r) i.spec.pred
             (Spec.argsEnv ρ_args i.spec.args vs) ⊢ i.toWp vs Φ from
         hbridge.bridge σi W vs ρ_args Φ hρ_args_reg)
     isplitl [Hvals]

@@ -185,8 +185,9 @@ theorem Atom.wfIn_mono {p : Atom TinyML.Typ τ} {Δ Δ' : Signature}
   | rel name t =>
     exact ⟨Formula.wfIn_mono _ h.1 hmono hwf, Term.wfIn_mono _ h.2 hmono hwf⟩
 
-theorem Atom.eval_env_agree (W : TinyML.World) {p : Atom TinyML.Typ τ} {ρ ρ' : Env} {Δ : Signature}
-    (hwf : p.wfIn Δ) (hagree : Env.agreeOn Δ ρ ρ') : p.eval W ρ = p.eval W ρ' := by
+theorem Atom.eval_env_agree {V : TinyML.ValueRelation} {p : Atom TinyML.Typ τ}
+    {ρ ρ' : Env} {Δ : Signature}
+    (hwf : p.wfIn Δ) (hagree : Env.agreeOn Δ ρ ρ') : p.eval V ρ = p.eval V ρ' := by
   cases p with
   | isint t  => simp [Atom.eval, Term.eval_env_agree hwf hagree]
   | isbool t => simp [Atom.eval, Term.eval_env_agree hwf hagree]
@@ -224,7 +225,7 @@ theorem Atom.toItem_wfIn {p : Atom TinyML.Typ τ} {t : Term τ} {Δ : Signature}
     exact ⟨hp.1, hp.2, ht⟩
 
 theorem Atom.toItem_eval (W : TinyML.World) {p : Atom TinyML.Typ τ} {t : Term τ} {ρ : Env} :
-    CtxItem.interp W ρ (p.toItem t) ⊣⊢ p.eval W ρ (t.eval ρ) := by
+    CtxItem.interp W ρ (p.toItem t) ⊣⊢ p.eval (TinyML.ValHasType W) ρ (t.eval ρ) := by
   cases p with
   | isint v  => simp [Atom.eval, Atom.toItem, CtxItem.interp, Formula.eval, Term.eval, eq_comm]
   | isbool v => simp [Atom.eval, Atom.toItem, CtxItem.interp, Formula.eval, Term.eval, eq_comm]
@@ -238,8 +239,9 @@ theorem Atom.toItem_eval (W : TinyML.World) {p : Atom TinyML.Typ τ} {t : Term �
   | rel name arg =>
     simp [Atom.eval, Atom.toItem, CtxItem.interp, Formula.eval]
 
-theorem Atom.eval_purePart (W : TinyML.World) {p : Atom TinyML.Typ τ} {t : Term τ} {ρ : Env} :
-    p.eval W ρ (t.eval ρ) ⊢ ⌜(p.toItem t).purePart ρ⌝ := by
+theorem Atom.eval_purePart {V : TinyML.ValueRelation} {p : Atom TinyML.Typ τ} {t : Term τ}
+    {ρ : Env} :
+    p.eval V ρ (t.eval ρ) ⊢ ⌜(p.toItem t).purePart ρ⌝ := by
   cases p with
   | isint v =>
     simp [Atom.eval, CtxItem.purePart, Atom.toItem, Formula.eval, Term.eval, eq_comm]
@@ -262,9 +264,10 @@ theorem Atom.eval_purePart (W : TinyML.World) {p : Atom TinyML.Typ τ} {t : Term
 -- ---------------------------------------------------------------------------
 
 -- @agent: change eval_subst to a bi-entailment in the future.
-theorem Atom.eval_subst (W : TinyML.World) {p : Atom TinyML.Typ τ} {σ : Subst} {ρ : Env} {Δ Δ' : Signature}
+theorem Atom.eval_subst {V : TinyML.ValueRelation} {p : Atom TinyML.Typ τ} {σ : Subst}
+    {ρ : Env} {Δ Δ' : Signature}
     (hp : p.wfIn Δ) (hσ : σ.wfIn Δ.vars Δ') (hwfΔ' : Δ'.wf) :
-    (p.subst σ).eval W ρ = p.eval W ((σ.eval ρ)) := by
+    (p.subst σ).eval V ρ = p.eval V ((σ.eval ρ)) := by
   cases p with
   | isint t =>
     funext v
@@ -706,7 +709,7 @@ private theorem VerifM.eval_resolve_pure (W : TinyML.World) {pred : Atom TinyML.
       Env.agreeOn st.decls ρ ρ' → st'.sl W ρ' ∗ R ⊢ Φ)
     (hsome : ∀ v st' ρ', Q (.some v) st' ρ' → st.decls.Subset st'.decls →
       Env.agreeOn st.decls ρ ρ' → v.wfIn st'.decls →
-      Atom.eval W pred ρ' (v.eval ρ') ∗ st'.sl W ρ' ∗ R ⊢ Φ) :
+      Atom.eval (TinyML.ValHasType W) pred ρ' (v.eval ρ') ∗ st'.sl W ρ' ∗ R ⊢ Φ) :
     st.sl W ρ ∗ R ⊢ Φ := by
     have hb1 := VerifM.eval_bind h
     have ⟨hctx_q, hholds, hwfAsserts⟩ := VerifM.eval_ctxPure hb1
@@ -715,7 +718,7 @@ private theorem VerifM.eval_resolve_pure (W : TinyML.World) {pred : Atom TinyML.
       simp [hres] at hctx_q
       have hq := VerifM.eval_ret hctx_q
       have htwf : t.wfIn st.decls := Atom.resolve_wfIn hres hwfAsserts
-      have hpred : ⊢ Atom.eval W pred ρ (t.eval ρ) :=
+      have hpred : ⊢ Atom.eval (TinyML.ValHasType W) pred ρ (t.eval ρ) :=
         (Atom.resolve_correct W hres ρ hholds.asserts).trans (Atom.toItem_eval W).1
       exact (sep_intro_valid_left hpred).trans
         (hsome t st ρ hq (Signature.Subset.refl _) Env.agreeOn_refl htwf)
@@ -730,7 +733,7 @@ private theorem VerifM.eval_resolve_pure (W : TinyML.World) {pred : Atom TinyML.
       | some t =>
         have htwf : t.wfIn st.decls := hresult_wf t hr
         have hqsome : Q (.some t) st ρ := by simpa [hr] using hq
-        have hpred : ⊢ Atom.eval W pred ρ (t.eval ρ) :=
+        have hpred : ⊢ Atom.eval (TinyML.ValHasType W) pred ρ (t.eval ρ) :=
           (hresult_eval t hr).trans (Atom.toItem_eval W).1
         exact (sep_intro_valid_left hpred).trans
           (hsome t st ρ hqsome (Signature.Subset.refl _) Env.agreeOn_refl htwf)
@@ -744,7 +747,7 @@ theorem VerifM.eval_resolve (W : TinyML.World) {pred : Atom TinyML.Typ τ} {st :
       Env.agreeOn st.decls ρ ρ' → st'.sl W ρ' ∗ R ⊢ Φ)
     (hsome : ∀ v st' ρ', Q (.some v) st' ρ' → st.decls.Subset st'.decls →
       Env.agreeOn st.decls ρ ρ' → v.wfIn st'.decls →
-      Atom.eval W pred ρ' (v.eval ρ') ∗ st'.sl W ρ' ∗ R ⊢ Φ) :
+      Atom.eval (TinyML.ValHasType W) pred ρ' (v.eval ρ') ∗ st'.sl W ρ' ∗ R ⊢ Φ) :
     st.sl W ρ ∗ R ⊢ Φ := by
   match pred, hwf, hsome, h with
   | .own l ty, hwf, hsome, h =>
@@ -755,7 +758,7 @@ theorem VerifM.eval_resolve (W : TinyML.World) {pred : Atom TinyML.Typ τ} {st :
       have hvwf' : v.wfIn st'.decls := by rw [hdecls]; exact hvwf
       have hsome' := hsome v st' ρ hqsome hsub Env.agreeOn_refl hvwf'
       have heq : SpatialAtom.interp W ρ (SpatialAtom.Kind.ref.atom l v ty) ⊢
-          Atom.eval W (Atom.own l ty) ρ (v.eval ρ) := by
+          Atom.eval (TinyML.ValHasType W) (Atom.own l ty) ρ (v.eval ρ) := by
         simp only [SpatialAtom.Kind.atom, Atom.eval, SpatialAtom.interp]
         exact BIBase.Entails.rfl
       exact (sep_mono heq BIBase.Entails.rfl).trans hsome'
@@ -769,7 +772,7 @@ theorem VerifM.eval_resolve (W : TinyML.World) {pred : Atom TinyML.Typ τ} {st :
       have hvwf' : v.wfIn st'.decls := by rw [hdecls]; exact hvwf
       have hsome' := hsome v st' ρ hqsome hsub Env.agreeOn_refl hvwf'
       have heq : SpatialAtom.interp W ρ (SpatialAtom.Kind.array.atom a v ty) ⊢
-          Atom.eval W (Atom.arr a ty) ρ (v.eval ρ) := by
+          Atom.eval (TinyML.ValHasType W) (Atom.arr a ty) ρ (v.eval ρ) := by
         simp only [SpatialAtom.Kind.atom, Atom.eval, SpatialAtom.interp]
         exact BIBase.Entails.rfl
       exact (sep_mono heq BIBase.Entails.rfl).trans hsome'
@@ -797,7 +800,7 @@ theorem VerifM.eval_resolve (W : TinyML.World) {pred : Atom TinyML.Typ τ} {st :
       simp at hafter
       have hdef : (SpecFn.isDefined name t).eval ρ := hok_sound rfl
       have hqsome : Q (some (SpecFn.call name t)) st ρ := VerifM.eval_ret hafter
-      have hpred : ⊢ Atom.eval W (Atom.rel name t) ρ ((SpecFn.call name t).eval ρ) :=
+      have hpred : ⊢ Atom.eval (TinyML.ValHasType W) (Atom.rel name t) ρ ((SpecFn.call name t).eval ρ) :=
         pure_intro (PROP := iProp) ⟨hdef, rfl⟩
       exact (sep_intro_valid_left hpred).trans (hsome (SpecFn.call name t) st ρ hqsome
         (Signature.Subset.refl _) Env.agreeOn_refl hwf.2)
