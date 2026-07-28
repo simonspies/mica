@@ -31,6 +31,17 @@ def TyCtx.extendBinder (Γ : TyCtx) (b : Typed.Binder) (t : Typ) : TyCtx :=
     (Γ.extend x t) y = Γ y := by
   simp [TyCtx.extend, h]
 
+/-- Extending a context along a list of name/type pairs leaves every name
+    outside that list untouched. -/
+theorem TyCtx.foldl_extend_of_not_mem (Γ : TyCtx) (ps : List (TinyML.Var × Typ))
+    (y : TinyML.Var) (hy : y ∉ ps.map Prod.fst) :
+    (ps.foldl (fun ctx (p : TinyML.Var × Typ) => ctx.extend p.1 p.2) Γ) y = Γ y := by
+  induction ps generalizing Γ with
+  | nil => rfl
+  | cons p ps ih =>
+    simp only [List.map_cons, List.mem_cons, not_or] at hy
+    rw [List.foldl_cons, ih _ (by simpa using hy.2), TyCtx.extend_ne _ _ _ _ hy.1]
+
 /-- Γ ≤ Γ': Γ' extends Γ pointwise. -/
 def TyCtx.le (Γ Γ' : TyCtx) : Prop := ∀ x t, Γ x = some t → Γ' x = some t
 
@@ -296,7 +307,7 @@ mutual
         let typedSelf := Typed.Binder.ofUntyped self selfTy
         let Γ' := typedArgs.foldl extendTyped (extendTyped Γ typedSelf)
         let body' ← check env Θ Γ' body retTy
-        pure (selfTy, .fix typedSelf typedArgs retTy body')
+        pure (selfTy, .fix typedSelf typedArgs retTy none body')
     | .app fn args =>
         match fn.primName? with
         | some n =>
@@ -586,7 +597,7 @@ def elabSpecBody (env : SpecEnv σ) (Θ : TypeEnv) (Γbase : TyCtx) (body : Type
     (rb : Spec.Body Untyped.Expr) : TypeM σ (Spec Typ) := do
   let (names, pre) := rb
   let (argBinders, retTy) ← match body with
-    | .fix _ args retTy _ => pure (args, retTy)
+    | .fix _ args retTy _ _ => pure (args, retTy)
     | _ => TypeM.error (.spec "attached to a non-function declaration")
   let argTys ← TypeM.ofExcept (specArgTypes argBinders names)
   let Γ₀ : TyCtx := argTys.foldl (fun Γ p => Γ.extend p.1 p.2) Γbase

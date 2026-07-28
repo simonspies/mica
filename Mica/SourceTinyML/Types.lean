@@ -431,6 +431,12 @@ structurally recursive. -/
 
 mutual
 
+/-- The type with a top-level arrow's specification dropped; the identity on
+everything else. Used where only the signature of an arrow matters. -/
+def Typ.unspec : Typ → Typ
+  | .arrow args ret _ => .arrow args ret none
+  | t => t
+
 /-- Substitution over `Typ`, replacing each type variable by `σ`. -/
 def Typ.subst (σ : TyVar → Typ) : Typ → Typ
   | .prim p => .prim p

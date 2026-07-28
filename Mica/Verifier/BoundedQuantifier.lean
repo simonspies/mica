@@ -279,7 +279,7 @@ mutual
     | .prim .. => []
     | .unop _ e _ => freeVars e
     | .binop _ l r _ => freeVars l ++ freeVars r
-    | .fix self args _ body =>
+    | .fix self args _ _ body =>
         (freeVars body).filter fun v =>
           self.name != some v && !args.any (·.name == some v)
     | .app (.var _ _) [arg] _ => freeVars arg
@@ -352,7 +352,7 @@ private partial def rewrite : Typed.Expr → LiftM Typed.Expr
   | .app (.prim n inst pty) args ty => do
       if isPrim n then
         match args with
-        | [lo, hi, .fix _ [binder] _ body] => do
+        | [lo, hi, .fix _ [binder] _ _ body] => do
             let lo' ← rewrite lo
             let hi' ← rewrite hi
             let body' ← rewrite body
@@ -365,7 +365,7 @@ private partial def rewrite : Typed.Expr → LiftM Typed.Expr
   | .prim n inst ty => pure (.prim n inst ty)
   | .unop op e ty => do pure (.unop op (← rewrite e) ty)
   | .binop op l r ty => do pure (.binop op (← rewrite l) (← rewrite r) ty)
-  | .fix self args retTy body => do pure (.fix self args retTy (← rewrite body))
+  | .fix self args retTy spec body => do pure (.fix self args retTy spec (← rewrite body))
   | .app fn args ty => do
       pure (.app (← rewrite fn) (← args.mapM rewrite) ty)
   | .ifThenElse c t e ty => do

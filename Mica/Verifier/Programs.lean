@@ -4,13 +4,13 @@ import Mica.SourceTinyML.Untyped
 import Mica.SourceTinyML.Typing
 import Mica.Verifier.PrimitiveLaws
 import Mica.SeparationLogic.Adequacy
-import Mica.Verifier.Functions
 import Mica.Verifier.RelationalEncoding
 import Mica.Verifier.PredicateTransformers
 import Mica.Verifier.Specifications
 import Mica.Engine.Driver
 import Mica.Verifier.Intrinsic
 import Mica.Verifier.BoundedQuantifier
+import Mica.Verifier.Expressions
 
 open Iris Iris.BI
 
@@ -24,11 +24,25 @@ open Verifier.RelationalEncoding.Skolemize (encoderOps DefVal)
     matches the function's arity. -/
 def SpecEntry.ofFunction (s : Spec TinyML.Typ) (e : Expr) : Except String SpecEntry :=
   match e with
-  | .fix _ argBinders retTy _ =>
+  | .fix _ argBinders retTy _ _ =>
     if s.args.length = argBinders.length then
       .ok { argTys := argBinders.map (·.ty), retTy, spec := s }
     else .error s!"spec argument count does not match function arity"
   | _ => .error "SpecEntry.ofFunction: expected function"
+
+omit [MicaGS HasLC.hasLC Sig] in
+/-- A bundled entry describes the function literal it came from: the body is a
+    `fix`, and the entry's argument and result types are the literal's. -/
+theorem SpecEntry.ofFunction_shape {s : Spec TinyML.Typ} {expr : Expr} {e : SpecEntry}
+    (h : SpecEntry.ofFunction s expr = .ok e) :
+    (expr.withSpec e.spec).ty = .arrow e.argTys e.retTy (some e.spec) := by
+  simp only [SpecEntry.ofFunction] at h
+  split at h
+  · split at h
+    · injection h with h; subst h
+      simp [Typed.Expr.withSpec, Typed.Expr.ty]
+    · simp at h
+  · simp at h
 
 omit [MicaGS HasLC.hasLC Sig] in
 /-- A bundled entry's spec-argument count matches its argument-type count. -/
@@ -132,11 +146,11 @@ private def validateDecl (d : Typed.ValDecl (Spec TinyML.Typ)) :
     | some f => .ok f
     | none => .error s!"[@@fn] requires a named declaration"
   match d.body with
-  | .fix _ [arg] _ body =>
+  | .fix _ [arg] _ _ body =>
     match arg.name with
     | some x => .ok (f, x, body)
     | none => .error s!"[@@fn] requires a named unary argument"
-  | .fix _ _ _ _ => .error s!"[@@fn] requires a unary function"
+  | .fix _ _ _ _ _ => .error s!"[@@fn] requires a unary function"
   | _ => .error s!"[@@fn] requires a function body"
 
 private def extend (acc : RelationSpec) (d : Typed.ValDecl (Spec TinyML.Typ)) :
@@ -459,7 +473,9 @@ theorem assemble_correct (prog : Typed.Program (Spec TinyML.Typ))
 
 end RelationSpec
 
-/-- Check an individual declaration. Each declaration's `checkSpec` runs inside a `seq` bracket so its
+/-- Check an individual declaration: attach its completed specification to the
+    function literal and compile that, the same path a `let`-bound specified
+    function takes. The compilation runs inside a `seq` bracket so its
     declarations and assertions don't pollute subsequent verifications. -/
 def ValDecl.check (reg : Verifier.Registry) (Θ : TinyML.TypeEnv) (Δ_spec : Signature)
     (S : SpecMap) (d : Typed.ValDecl (Spec TinyML.Typ)) : VerifM SpecEntry := do
@@ -472,7 +488,9 @@ def ValDecl.check (reg : Verifier.Registry) (Θ : TinyML.TypeEnv) (Δ_spec : Sig
   let () ← match Spec.checkWf e.spec Δ_spec with
     | .ok () => .ret ()
     | .error msg => .fatal msg
-  VerifM.seq (checkSpec reg Θ Δ_spec S d.body e) (pure e)
+  VerifM.seq
+    (do let _ ← compile reg Θ Δ_spec S [] TinyML.TyCtx.empty (d.body.withSpec e.spec); pure ())
+    (pure e)
 
 /-- Check a `let _ = e` declaration: just compile `e` for safety, no spec. -/
 def ValDecl.checkExpr (reg : Verifier.Registry) (Θ : TinyML.TypeEnv) (Δ_spec : Signature) (S : SpecMap) (d : Typed.ValDecl (Spec TinyML.Typ)) : VerifM Unit :=
@@ -618,19 +636,36 @@ theorem ValDecl.check_correct (reg : Verifier.Registry) (hSound : Verifier.Regis
         have h4 := VerifM.eval_ret (VerifM.eval_bind h3)
         have hswf : spec.wfIn W.Δ_spec :=
           ⟨SpecEntry.ofFunction_argLen hentry, Spec.checkWf_ok (by cases u; exact hcheckWf)⟩
-        have ⟨hcheckSpec, hpure⟩ := VerifM.eval_seq h4
-        exact ⟨spec, hswf,
-          by
-            have hcheck :=
-              checkSpec_correct reg hSound W hW S d.body spec γ
-                hswf hSwf hwf st ρ hag hΔreg hρreg hcheckSpec
-            refine BIBase.Entails.trans ?_ hcheck
-            istart
-            iintro ⟨#Hsl, #Hspec⟩
-            isplitl [Hsl]
-            · iexact Hsl
-            · iexact Hspec,
-               VerifM.eval_ret hpure⟩
+        have ⟨hcompileSeq, hpure⟩ := VerifM.eval_seq h4
+        refine ⟨spec, hswf, ?_, VerifM.eval_ret hpure⟩
+        -- The body is compiled as an ordinary specified function literal; its
+        -- own interpretation is exactly the entry's precondition predicate.
+        have hcompile :
+            st.sl W ρ ∗ (S.satisfiedBy W γ ∗
+              Bindings.typedSubst W [] TinyML.TyCtx.empty γ ∗ iprop(emp)) ⊢
+              wp W.pctx ((d.body.withSpec spec.spec).runtime.subst γ)
+                (fun v => spec.isPrecondFor W v) :=
+          compile_correct reg hSound (d.body.withSpec spec.spec) W iprop(emp) S []
+            TinyML.TyCtx.empty st ρ γ _ _ hW (VerifM.eval_bind hcompileSeq)
+            (by intro x x' h; simp at h) (by intro p hp; simp at hp)
+            hSwf hwf hag hΔreg hρreg
+            (fun v ρ' st' se _ _ _ => by
+              rw [SpecEntry.ofFunction_shape hentry]
+              iintro ⟨_, Hty, _⟩
+              unfold SpecEntry.isPrecondFor
+              iapply (TinyML.ValHasType.arrow_some W v spec.argTys spec.retTy spec.spec).1
+              iexact Hty)
+        rw [Typed.Expr.withSpec_runtime] at hcompile
+        refine BIBase.Entails.trans ?_ hcompile
+        istart
+        iintro ⟨#Hsl, #Hspec⟩
+        isplitl [Hsl]
+        · iexact Hsl
+        · isplitl []
+          · iexact Hspec
+          · isplitl []
+            · iapply Bindings.typedSubst_nil
+            · iempintro
 
 theorem Program.check_correct (reg : Verifier.Registry) (hSound : Verifier.Registry.Sound reg)
     (W : TinyML.World) (hW : W.pctx = reg.primCtx)
@@ -701,7 +736,7 @@ theorem Program.check_correct (reg : Verifier.Registry) (hSound : Verifier.Regis
         split at heval
         · -- named, no spec, function value
           rename_i hfunc
-          obtain ⟨self, args, retTy, body, hbody⟩ := Expr.isFunc_elim hfunc
+          obtain ⟨self, args, retTy, spec, body, hbody⟩ := Expr.isFunc_elim hfunc
           have hbody_rt : d.body.runtime.subst γ =
               Runtime.Expr.fix self.runtime (args.map (·.runtime))
                 (body.runtime.subst ((γ.remove' self.runtime).removeAll'

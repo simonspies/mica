@@ -200,6 +200,11 @@ theorem compileProductBindersFrom_length {S : SpecMap} {B : Bindings} {Γ : Tiny
               have hlen := ih htail_wf' hrec_eval
               simp [hlen]
 
+/-- Check that a function body's type is a subtype of its declared return type. -/
+def checkRet (Θ : TinyML.TypeEnv) (retTy bodyTy : TinyML.Typ) : VerifM Unit :=
+  if TinyML.Typ.sub Θ bodyTy retTy then pure ()
+  else VerifM.fatal "fix: body type does not match the return type"
+
 mutual
   def compile (reg : Verifier.Registry) (Θ : TinyML.TypeEnv) (Δ_spec : Signature) (S : SpecMap) (B : Bindings) (Γ : TinyML.TyCtx) : Expr → VerifM (Term .value)
     | .const (.int n)  => pure (.unop .ofInt  (.const (.i n)))
@@ -276,8 +281,11 @@ mutual
         let sterms ← compileExprs reg Θ Δ_spec S B Γ args
         let sargs := (args.map Expr.ty).zip sterms
         VerifM.expectEq "app type annotation mismatch" e.retTy aty
+        -- The specification comes from `S`, so the annotation only has to agree on
+        -- the signature: a recursive self reference is annotated with the
+        -- specified arrow, an ordinary reference with the bare one.
         VerifM.expectEq "app type annotation mismatch"
-          fty (.arrow e.argTys e.retTy none)
+          fty.unspec (.arrow e.argTys e.retTy none)
         let (_, result) ← Spec.call Θ (FiniteSubst.base Δ_spec) e.argTys e.retTy e.spec sargs
         pure result
     | .app (.prim n inst _) args aty => do
@@ -417,7 +425,40 @@ mutual
             (.terop .vecSet (.unop .toVec contents) (.unop .toInt si) sv)
           VerifM.acquire (.spatial (.arrayPointsTo sa contents' elemTy))
         pure (Term.const .unit)
-    | .app _ _ _ | .fix _ _ _ _ => VerifM.fatal "unsupported expression"
+    | .fix self args retTy spec body =>
+        match spec with
+        | none => VerifM.fatal "a function value must carry a specification"
+        | some s =>
+          match extractArgNames args s.args with
+          | .error msg => VerifM.fatal msg
+          | .ok argNames =>
+          match Spec.checkWf s Δ_spec with
+          | .error msg => VerifM.fatal msg
+          | .ok () => do
+            let argTys := args.map Binder.ty
+            -- The closure itself is an opaque value; the recursive occurrence is
+            -- bound to the same constant inside the body.
+            let fv ← VerifM.decl self.name .value
+            let entry : SpecEntry := { argTys := argTys, retTy := retTy, spec := s }
+            let Bself : Bindings := match self.name with
+              | some f => (f, fv) :: B
+              | none => B
+            let Γ' := (argNames.zip argTys).foldl
+              (fun ctx (nameTy : String × TinyML.Typ) => ctx.extend nameTy.1 nameTy.2)
+              (Γ.extendBinder self (.arrow argTys retTy (some s)))
+            let S' := SpecMap.eraseAll argNames (S.insertBinder self entry)
+            -- The body is a separate obligation: the specification's precondition
+            -- and the argument variables must not leak into the continuation.
+            VerifM.seq
+              (do
+                VerifM.persist
+                Spec.implement Δ_spec argTys s fun argVars => do
+                  let se ← compile reg Θ Δ_spec S'
+                    ((argNames.zip argVars).reverse ++ Bself) Γ' body
+                  checkRet Θ retTy body.ty
+                  pure se)
+              (pure (.const (.uninterpreted fv.name .value)))
+    | .app _ _ _ => VerifM.fatal "unsupported expression"
 
   /-- Compile a single match branch: assume the scrutinee is `ofInj i n payload`, then compile the body. -/
   def compileBranch (reg : Verifier.Registry) (Θ : TinyML.TypeEnv) (Δ_spec : Signature) (S : SpecMap) (B : Bindings) (Γ : TinyML.TyCtx)
@@ -854,11 +895,371 @@ theorem compileAssert_correct (reg : Verifier.Registry) (e : Expr)
     trivial
     (by simp [Term.eval])
 
-theorem compileFix_correct (reg : Verifier.Registry) (self : Binder) (args : List Binder) (retTy : TinyML.Typ) (body : Expr) :
-    correctExpr reg (.fix self args retTy body) := by
-  intro W R S B Γ st ρ γ Ψ Φ hW heval _hagree _hbwf _hSwf _hwf _hag _hpost
+/-- The verification context a specified function literal's body is compiled in:
+    the closure's own binding, then its arguments. -/
+def fixBindings (self : Binder) (fv : FOL.Const) (B : Bindings)
+    (argNames : List String) (argVars : List FOL.Const) : Bindings :=
+  (argNames.zip argVars).reverse ++ (match self.name with
+    | some f => (f, fv) :: B
+    | none => B)
+
+/-- The typing context matching `fixBindings`. -/
+def fixTyCtx (self : Binder) (selfTy : TinyML.Typ) (Γ : TinyML.TyCtx)
+    (argNames : List String) (argTys : List TinyML.Typ) : TinyML.TyCtx :=
+  (argNames.zip argTys).foldl
+    (fun ctx (p : String × TinyML.Typ) => ctx.extend p.1 p.2)
+    (Γ.extendBinder self selfTy)
+
+/-- Soundness of the body obligation in `compile`'s `fix` case: with the argument
+    variables supplied by `Spec.implement_correct`, a successful evaluation of the
+    body gives the body's `wp` under the closure's own specification. -/
+theorem compileFixBody_correct (reg : Verifier.Registry)
+    (W : TinyML.World) (hW : W.pctx = reg.primCtx)
+    (S : SpecMap) (B : Bindings) (Γ : TinyML.TyCtx) (γ : Runtime.Subst)
+    (self : Binder) (args : List Binder) (retTy : TinyML.Typ) (s : Spec TinyML.Typ)
+    (body : Expr) (ih : correctExpr reg body)
+    (argNames : List String) (hext : extractArgNames args s.args = Except.ok argNames)
+    (fv : FOL.Const) (fval : Runtime.Val) (vs : List Runtime.Val) (P : Runtime.Val → iProp)
+    {argVars : List FOL.Const} {st' : TransState} {ρ' : Env} {Q : iProp}
+    (hswf : s.wfIn W.Δ_spec) (hSwf : S.wfIn W.Δ_spec) (hwf : W.wf)
+    (hag : W.agrees st'.decls ρ')
+    (hΔreg : Verifier.Registry.symSubset reg W.Δ_spec)
+    (hρreg : Verifier.Registry.symAgree reg W.ρ_spec)
+    (hbwf : B.wfIn st'.decls) (hbagree : B.agreeOnLinked ρ' γ)
+    (hfv_mem : fv ∈ st'.decls.consts) (hfv_sort : fv.sort = .value)
+    (hfv_val : ρ'.consts .value fv.name = fval)
+    (hargVars_mem : ∀ v ∈ argVars, v ∈ st'.decls.consts)
+    (hargVars_sort : ∀ v ∈ argVars, v.sort = .value)
+    (hargVars_lookup : List.Forall₂ (fun av val => ρ'.consts .value av.name = val) argVars vs)
+    (hbody_eval : VerifM.eval
+        (do
+          let se ← compile reg W.Θ W.Δ_spec
+            (SpecMap.eraseAll argNames (S.insertBinder self
+              { argTys := args.map Binder.ty, retTy := retTy, spec := s }))
+            (fixBindings self fv B argNames argVars)
+            (fixTyCtx self (.arrow (args.map Binder.ty) retTy (some s)) Γ argNames
+              (args.map Binder.ty))
+            body
+          checkRet W.Θ retTy body.ty
+          pure se)
+        st' ρ'
+        (fun result st'' ρ'' => ∀ X, result.wfIn st''.decls →
+          st''.sl W ρ'' ∗ Q ∗
+            ((TinyML.ValHasType W (result.eval ρ'') retTy -∗ P (result.eval ρ'')) -∗ X) ⊢ X)) :
+    st'.sl W ρ' ∗ TinyML.ValsHaveTypes W vs (args.map Binder.ty) ∗ Q ⊢
+      (S.satisfiedBy W γ ∗ Bindings.typedSubst W B Γ γ ∗
+        s.isPrecondFor W (TinyML.ValHasType W) (args.map Binder.ty) retTy fval) -∗
+        wp W.pctx (body.runtime.subst
+          ((γ.updateBinder self.runtime fval).updateAllBinder (args.map (·.runtime)) vs)) P := by
+  obtain ⟨hargNames_len, hargs_len, hbs_eq⟩ := extractArgNames_spec hext
+  set argTys := args.map Binder.ty with hargTys_def
+  set bs := args.map (·.runtime) with hbs_def
+  have hbs_runtime : bs = argNames.map Runtime.Binder.named := hbs_eq
+  set selfTy : TinyML.Typ := .arrow argTys retTy (some s) with hselfTy_def
+  set entry : SpecEntry := { argTys := argTys, retTy := retTy, spec := s } with hentry_def
+  set γ_body := (γ.updateBinder self.runtime fval).updateAllBinder bs vs with hγ_body_def
+  set S' : SpecMap := SpecMap.eraseAll argNames (S.insertBinder self entry) with hS'_def
+  set Bbody := fixBindings self fv B argNames argVars with hBbody_def
+  set Γ' := fixTyCtx self selfTy Γ argNames argTys with hΓ'_def
+  have hentry_wf : entry.wfIn W.Δ_spec := ⟨by simp [hentry_def, hargTys_def]; omega, hswf⟩
+  have hS'wf : S'.wfIn W.Δ_spec :=
+    SpecMap.wfIn_eraseAll (SpecMap.wfIn_insertBinder hSwf hentry_wf)
+  have hcompile := VerifM.eval_bind hbody_eval
+  iintro ⟨Howns, #Hvals, HQ⟩
+  ihave %hlen_vals := TinyML.ValsHaveTypes.length_eq $$ Hvals
+  have hlen_nv : argNames.length = argVars.length := by
+    have := hargVars_lookup.length_eq
+    simp [hargTys_def] at hlen_vals
+    omega
+  have hlen_nvl : argNames.length = vs.length := by
+    simp [hargTys_def] at hlen_vals; omega
+  -- The body's bindings agree with the body's substitution.
+  have hbagree_self : Bindings.agreeOnLinked
+      (match self.name with | some f => (f, fv) :: B | none => B) ρ'
+      (γ.updateBinder self.runtime fval) := by
+    cases hname : self.name with
+    | none => simpa [Binder.runtime_of_name_none hname, Runtime.Subst.updateBinder] using hbagree
+    | some f =>
+      have h := Bindings.agreeOnLinked_cons (B := B) (ρ := ρ') (ρ' := ρ') (γ := γ)
+        (x := f) (v := fv) hbagree Env.agreeOn_refl hfv_sort
+      rw [hfv_val] at h
+      simpa [Binder.runtime_of_name_some hname, Runtime.Subst.updateBinder] using h
+  have hagree_body : Bindings.agreeOnLinked Bbody ρ' γ_body := by
+    rw [hBbody_def, hγ_body_def, hbs_runtime, fixBindings]
+    exact Bindings.agreeOnLinked_updateAllBinder _ argNames argVars vs _ ρ'
+      hbagree_self hlen_nv hlen_nvl hargVars_sort hargVars_lookup
+  have hbwf_body : Bindings.wfIn Bbody st'.decls := by
+    intro p hp
+    rw [hBbody_def, fixBindings] at hp
+    rcases List.mem_append.mp hp with h | h
+    · exact hargVars_mem p.2 (List.of_mem_zip (List.mem_reverse.mp h)).2
+    · cases hname : self.name with
+      | none => rw [hname] at h; exact hbwf p h
+      | some f =>
+        rw [hname] at h
+        rcases List.mem_cons.mp h with rfl | h
+        · exact hfv_mem
+        · exact hbwf p h
+  -- Every binding of the body's context has a well-typed value.
+  have hts : TinyML.ValsHaveTypes W vs argTys ∗ Bindings.typedSubst W B Γ γ ∗
+      s.isPrecondFor W (TinyML.ValHasType W) argTys retTy fval ⊢
+      Bindings.typedSubst W Bbody Γ' γ_body := by
+    iintro ⟨#HvalsArg, #HT, #Hrec⟩
+    iapply (Bindings.typedSubst_of_agreeOnLinked (W := W) hagree_body)
+    imodintro
+    iintro %x %x' %t %hmem %hΓ
+    rw [hBbody_def, fixBindings, List.lookup_append] at hmem
+    cases hlk : (argNames.zip argVars).reverse.lookup x with
+    | some x'' =>
+      rw [hlk] at hmem; simp only [Option.some_or, Option.some.injEq] at hmem
+      subst hmem
+      set args' := argNames.zip argTys with hargs'_def
+      have hfst : args'.map Prod.fst = argNames :=
+        List.map_fst_zip (by rw [hargTys_def]; simp; omega)
+      have hsnd : args'.map Prod.snd = argTys :=
+        List.map_snd_zip (by rw [hargTys_def]; simp; omega)
+      iapply (valHasType_lookup_zip_reverse args' argVars vs ρ'
+        (Γ.extendBinder self selfTy) x x'' t
+        (by rw [hfst]; exact hlen_nv)
+        (by rw [hfst]; exact hlen_nvl)
+        (by rw [hfst]; exact hlk)
+        (by rw [hΓ'_def, fixTyCtx] at hΓ; exact hΓ)
+        hargVars_lookup)
+      rw [hsnd]
+      iassumption
+    | none =>
+      rw [hlk] at hmem; simp only [Option.none_or] at hmem
+      have hx_notin : x ∉ argNames :=
+        not_mem_of_lookup_zip_reverse_none argNames argVars x hlen_nv hlk
+      have hΓ₀ : (Γ.extendBinder self selfTy) x = some t := by
+        rw [hΓ'_def, fixTyCtx,
+          TinyML.TyCtx.foldl_extend_of_not_mem _ _ x
+            (by rw [List.map_fst_zip (by rw [hargTys_def]; simp; omega)]; exact hx_notin)] at hΓ
+        exact hΓ
+      have houter : ∀ (y : TinyML.Var) (y' : FOL.Const) (u : TinyML.Typ),
+          B.lookup y = some y' → Γ y = some u →
+          Bindings.typedSubst W B Γ γ ⊢ TinyML.ValHasType W (ρ'.consts .value y'.name) u := by
+        intro y y' u hy hΓy
+        unfold Bindings.typedSubst
+        iintro #HT'
+        ispecialize HT' $$ %y %y' %u %hy %hΓy
+        icases HT' with ⟨%w, %hw, Hw⟩
+        have hγy := (hbagree y y' hy).2
+        rw [hγy] at hw
+        injection hw with hw
+        rw [← hw]
+        iexact Hw
+      cases hname : self.name with
+      | none =>
+        rw [hname] at hmem
+        simp only [TinyML.TyCtx.extendBinder, hname] at hΓ₀
+        iapply (houter x x' t hmem hΓ₀)
+        iexact HT
+      | some f =>
+        rw [hname] at hmem
+        simp only [TinyML.TyCtx.extendBinder, hname] at hΓ₀
+        by_cases hxf : x = f
+        · subst hxf
+          have hx' : x' = fv := by simpa [List.lookup] using hmem.symm
+          have ht : t = selfTy := by simpa using hΓ₀.symm
+          subst hx'; subst ht
+          rw [hfv_val]
+          iapply (TinyML.ValHasType.arrow_some W fval argTys retTy s).2
+          iexact Hrec
+        · have hmem' : B.lookup x = some x' := by
+            have hne : (x == f) = false := by simpa using hxf
+            rw [List.lookup, hne] at hmem; exact hmem
+          have hΓ' : Γ x = some t := by simpa [TinyML.TyCtx.extend, hxf] using hΓ₀
+          iapply (houter x x' t hmem' hΓ')
+          iexact HT
+  -- The body's spec map is satisfied by the body's substitution.
+  have hS'_sat : S.satisfiedBy W γ ∗
+      s.isPrecondFor W (TinyML.ValHasType W) argTys retTy fval ⊢ S'.satisfiedBy W γ_body := by
+    have hinsert : S.satisfiedBy W γ ∗ entry.isPrecondFor W fval ⊢
+        (S.insertBinder self entry).satisfiedBy W (γ.updateBinder self.runtime fval) :=
+      SpecMap.satisfiedBy_insertBinder_updateBinder
+    have herase :
+        (S.insertBinder self entry).satisfiedBy W (γ.updateBinder self.runtime fval) ⊢
+          S'.satisfiedBy W ((γ.updateBinder self.runtime fval).updateAllBinder
+            (argNames.map Runtime.Binder.named) vs) :=
+      SpecMap.satisfiedBy_eraseAll_updateAllBinder hlen_nvl
+    exact hinsert.trans <| by simpa [hγ_body_def, hbs_runtime] using herase
+  -- Compile the body in the extended context.
+  have hbody_wp :
+      st'.sl W ρ' ∗ (S'.satisfiedBy W γ_body ∗ Bindings.typedSubst W Bbody Γ' γ_body ∗ Q) ⊢
+        wp W.pctx (body.runtime.subst γ_body) P := by
+    refine ih W Q S' Bbody Γ' st' ρ' γ_body _ _ hW
+      (VerifM.eval.decls_grow ρ' hcompile) hagree_body hbwf_body hS'wf hwf
+      hag hΔreg hρreg ?_
+    intro v ρ'' st'' se hΨ hse_wf heval_se
+    obtain ⟨_, _, hΨ⟩ := hΨ
+    simp only [checkRet] at hΨ
+    by_cases hsub : TinyML.Typ.sub W.Θ body.ty retTy
+    case neg =>
+      simp [hsub] at hΨ
+      exact (VerifM.eval_fatal (VerifM.eval_bind hΨ)).elim
+    simp [hsub] at hΨ
+    have hΨ' := VerifM.eval_ret hΨ
+    dsimp only at hΨ'
+    rw [← heval_se]
+    refine (show st''.sl W ρ'' ∗ TinyML.ValHasType W (se.eval ρ'') body.ty ∗ Q ⊢
+        st''.sl W ρ'' ∗ Q ∗
+          ((TinyML.ValHasType W (se.eval ρ'') retTy -∗ P (se.eval ρ'')) -∗
+            P (se.eval ρ'')) from ?_).trans (hΨ' _ hse_wf)
+    iintro ⟨Howns', Hty, HQ'⟩
+    iframe Howns' HQ'
+    iintro Hwand
+    iapply Hwand
+    iapply (TinyML.ValHasType.sub (TinyML.Typ.sub_sound hsub))
+    iexact Hty
+  iintro HSat
+  icases HSat with ⟨#HS, #HT, #Hrec⟩
+  iapply hbody_wp
+  iframe Howns HQ
+  isplitl []
+  · iapply hS'_sat
+    isplitl []
+    · iexact HS
+    · iexact Hrec
+  · iapply hts
+    isplitl [Hvals]
+    · iexact Hvals
+    · isplitl []
+      · iexact HT
+      · iexact Hrec
+
+theorem compileFix_correct (reg : Verifier.Registry) (self : Binder) (args : List Binder)
+    (retTy : TinyML.Typ) (spec : Option (Spec TinyML.Typ)) (body : Expr)
+    (ih : correctExpr reg body) :
+    correctExpr reg (.fix self args retTy spec body) := by
+  intro W R S B Γ st ρ γ Ψ Φ hW heval hagree hbwf hSwf hwf hag hΔreg hρreg hpost
   simp only [compile] at heval
-  exact (VerifM.eval_fatal heval).elim
+  cases spec with
+  | none => exact (VerifM.eval_fatal heval).elim
+  | some s =>
+  simp only [Expr.ty] at hpost
+  cases hext : extractArgNames args s.args with
+  | error msg => simp only [hext] at heval; exact (VerifM.eval_fatal heval).elim
+  | ok argNames =>
+  cases hcheck : Spec.checkWf s W.Δ_spec with
+  | error msg => simp only [hext, hcheck] at heval; exact (VerifM.eval_fatal heval).elim
+  | ok u =>
+  cases u
+  simp only [hext, hcheck] at heval
+  have hswf : s.wfIn W.Δ_spec := Spec.checkWf_ok hcheck
+  obtain ⟨hargNames_len, hargs_len, hbs_eq⟩ := extractArgNames_spec hext
+  set argTys := args.map Binder.ty with hargTys_def
+  set bs := args.map (·.runtime) with hbs_def
+  have hbs_runtime : bs = argNames.map Runtime.Binder.named := hbs_eq
+  set fv := st.freshConst self.name .value with hfv_def
+  set st₁ : TransState := { st with decls := st.decls.addConst fv } with hst₁_def
+  set γ' := (γ.remove' self.runtime).removeAll' bs with hγ'_def
+  set fval := Runtime.Val.fix self.runtime bs (body.runtime.subst γ') with hfval_def
+  set ρ₁ := ρ.updateConst .value fv.name fval with hρ₁_def
+  have hdecl := VerifM.eval_decl (VerifM.eval_bind heval) fval
+  obtain ⟨himpl, hcont⟩ := VerifM.eval_seq hdecl
+  -- Facts about the constant standing for the closure.
+  have hfresh : fv.name ∉ st.decls.allNames := st.freshConst_fresh self.name .value
+  have hstwf : st.decls.wf := (VerifM.eval.wf heval).namesDisjoint
+  have hst_sub₁ : st.decls.Subset st₁.decls := Signature.Subset.subset_addConst _ _
+  have hρ_st₁ : Env.agreeOn st.decls ρ ρ₁ := Env.agreeOn_update_fresh_const hfresh
+  have hfv_mem₁ : fv ∈ st₁.decls.consts := List.mem_cons_self ..
+  have hfv_sort : fv.sort = .value := rfl
+  have hsf_wf : (Term.const (.uninterpreted fv.name .value)).wfIn st₁.decls := by
+    simpa [hst₁_def] using
+      (Term.const_wfIn_addConst_of_fresh (Δ := st.decls) (c := fv) hstwf hfresh)
+  have hsf_eval : (Term.const (.uninterpreted fv.name .value)).eval ρ₁ = fval := by
+    simp [hρ₁_def, Term.eval, Const.denote, Env.updateConst]
+  -- The closure satisfies its own specification.
+  have hval : S.satisfiedBy W γ ∗ Bindings.typedSubst W B Γ γ ⊢
+      TinyML.ValHasType W fval (.arrow argTys retTy (some s)) := by
+    refine BIBase.Entails.trans ?_ (TinyML.ValHasType.arrow_some W fval argTys retTy s).2
+    rw [hfval_def]
+    refine Spec.isPrecondFor_fix (by rw [hbs_runtime]; simpa using hargNames_len)
+      (by rw [hargTys_def]; simpa using hargs_len) ?_
+    istart
+    iintro ⟨#HS, #HT⟩
+    imodintro
+    iintro #Hrec %ρ_call %vs %P %hagree_call #Htyped Hpred
+    ihave %hlen_typed := TinyML.ValsHaveTypes.length_eq $$ Htyped
+    have hlen_vs : bs.length = vs.length := by
+      rw [hbs_runtime]; simp only [List.length_map]
+      rw [hargTys_def] at hlen_typed; simp at hlen_typed
+      omega
+    have hsub := Runtime.Expr.subst_fix_comp body.runtime self.runtime bs γ fval vs hlen_vs
+    simp only [] at hsub
+    rw [hsub]
+    have hag_persist : W.agrees (TransState.persist st₁).decls ρ₁ := by
+      simpa using hag.step hst_sub₁ hρ_st₁
+    ihave Hwand := Spec.implement_correct W argTys retTy s _ (TransState.persist st₁) ρ₁ vs P
+      (TinyML.ValsHaveTypes W vs argTys -∗
+        (S.satisfiedBy W γ ∗ Bindings.typedSubst W B Γ γ ∗
+          s.isPrecondFor W (TinyML.ValHasType W) argTys retTy fval) -∗
+          wp W.pctx (body.runtime.subst
+            ((γ.updateBinder self.runtime fval).updateAllBinder bs vs)) P)
+      (by rw [hargTys_def]; simpa using hargs_len.symm) hswf hwf hag_persist
+      (VerifM.eval_persist (VerifM.eval_bind himpl))
+      (fun argVars st' ρ' Q hst_sub hρ_agree hargVars_mem hargVars_sort hargVars_lookup
+          hbody_eval => by
+        have hρ_st' : Env.agreeOn st.decls ρ ρ' :=
+          Env.agreeOn_trans hρ_st₁ (Env.agreeOn_mono hst_sub₁ (by simpa using hρ_agree))
+        iintro ⟨Hsl, HQ⟩ Htyped''
+        iapply (compileFixBody_correct reg W hW S B Γ γ self args retTy s body ih argNames hext
+          fv fval vs P hswf hSwf hwf (hag_persist.step hst_sub hρ_agree) hΔreg hρreg
+          (fun p hp => hst_sub.consts p.2 (hst_sub₁.consts p.2 (hbwf p hp)))
+          (Bindings.agreeOnLinked_env_agree hagree hρ_st' hbwf)
+          (hst_sub.consts fv hfv_mem₁) hfv_sort
+          (by
+            have h := (by simpa using hρ_agree : Env.agreeOn st₁.decls ρ₁ ρ').2.1 fv hfv_mem₁
+            rw [hfv_sort] at h
+            rw [← h, hρ₁_def]
+            simp [Env.updateConst])
+          hargVars_mem hargVars_sort hargVars_lookup hbody_eval)
+        isplitl [Hsl]
+        · iexact Hsl
+        · isplitl [Htyped'']
+          · iexact Htyped''
+          · iexact HQ) $$ [Htyped Hpred]
+    · isplitl []
+      · simp [TransState.sl, TransState.persist]
+        iempintro
+      · isplitl [Htyped]
+        · iexact Htyped
+        · have hlen_call : s.args.length ≤ vs.length := by
+            rw [hargTys_def] at hlen_typed; simp at hlen_typed; omega
+          iapply (PredTrans.apply_env_agree (TinyML.ValHasType W)
+            (ρ := Spec.argsEnv ρ_call s.args vs)
+            (ρ' := Spec.argsEnv W.ρ_spec s.args vs) hswf
+            (Spec.argsEnv_agreeOn (Δ := W.Δ_spec) (ρ₁ := ρ_call) (ρ₂ := W.ρ_spec)
+              (Env.agreeOn_symm hagree_call) s.args vs hlen_call))
+          iexact Hpred
+    ispecialize Hwand $$ [Htyped]
+    · iexact Htyped
+    iapply Hwand
+    isplitl []
+    · iexact HS
+    · isplitl []
+      · iexact HT
+      · iexact Hrec
+  -- The closure value itself: the fresh constant denotes it.
+  unfold Expr.runtime
+  simp only [Runtime.Expr.subst_fix]
+  apply SpatialContext.wp_func
+  refine BIBase.Entails.trans ?_
+    (hpost fval ρ₁ st₁ _ (VerifM.eval_ret hcont) hsf_wf hsf_eval)
+  have hsl : st.sl W ρ ⊢ st₁.sl W ρ₁ := by
+    simp only [TransState.sl_eq, hst₁_def]
+    exact (SpatialContext.interp_env_agree W (VerifM.eval.wf heval).ownsWf hρ_st₁).1
+  istart
+  iintro ⟨Howns, #HS, #HT, HR⟩
+  isplitl [Howns]
+  · iapply hsl; iexact Howns
+  · isplitl []
+    · iapply hval
+      isplitl []
+      · iexact HS
+      · iexact HT
+    · iexact HR
 
 theorem compilePrim_correct (reg : Verifier.Registry) (n : String)
     (inst : List (TinyML.TyVar × TinyML.Typ)) (ty : TinyML.Typ) :
@@ -3553,8 +3954,8 @@ theorem compile_correct (reg : Verifier.Registry) (hSound : Verifier.Registry.So
     simpa using compileCast_correct reg e ty (compile_correct reg hSound e)
   | assert e =>
     simpa using compileAssert_correct reg e (compile_correct reg hSound e)
-  | fix self args retTy body =>
-    simpa using compileFix_correct reg self args retTy body
+  | fix self args retTy spec body =>
+    simpa using compileFix_correct reg self args retTy spec body (compile_correct reg hSound body)
   | letProd names e body =>
     simpa using compileLetProd_correct reg names e body
       (compile_correct reg hSound e) (compile_correct reg hSound body)
