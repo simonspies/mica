@@ -16,6 +16,51 @@ abbrev Bindings := List (TinyML.Var × FOL.Const)
 
 def Bindings.empty : Bindings := []
 
+/-- Drop a name's binding. A declaration that shadows a bound name without
+    binding a value of its own must remove it, or the old constant would stand
+    for the new value. -/
+def Bindings.remove : Bindings → TinyML.Var → Bindings
+  | [], _ => []
+  | (y, c) :: B, x => if y == x then Bindings.remove B x else (y, c) :: Bindings.remove B x
+
+omit [MicaGS HasLC.hasLC Sig] in
+@[simp] theorem Bindings.lookup_remove (B : Bindings) (x y : TinyML.Var) :
+    (B.remove x).lookup y = if y == x then none else B.lookup y := by
+  induction B with
+  | nil => simp [Bindings.remove]
+  | cons p B ih =>
+    obtain ⟨z, c⟩ := p
+    by_cases hzx : z = x
+    · subst hzx
+      simp only [Bindings.remove, beq_self_eq_true, if_true, ih]
+      by_cases hyz : y = z
+      · subst hyz; simp only [List.lookup, beq_self_eq_true, if_true]
+      · have hb : (y == z) = false := by simp [hyz]
+        simp only [List.lookup, hb, Bool.false_eq_true, if_false]
+    · have hzb : (z == x) = false := by simp [hzx]
+      simp only [Bindings.remove, hzb, Bool.false_eq_true, if_false]
+      by_cases hyz : y = z
+      · subst hyz
+        have hyx : (y == x) = false := by simp [hzx]
+        simp only [List.lookup, beq_self_eq_true, hyx, Bool.false_eq_true, if_false]
+      · have hb : (y == z) = false := by simp [hyz]
+        simp only [List.lookup, hb, ih]
+
+omit [MicaGS HasLC.hasLC Sig] in
+theorem Bindings.mem_of_mem_remove {B : Bindings} {x : TinyML.Var} {p : TinyML.Var × FOL.Const}
+    (h : p ∈ B.remove x) : p ∈ B := by
+  induction B with
+  | nil => simp [Bindings.remove] at h
+  | cons q B ih =>
+    obtain ⟨z, c⟩ := q
+    by_cases hzx : z = x
+    · simp [Bindings.remove, hzx] at h
+      exact List.mem_cons_of_mem _ (ih h)
+    · simp [Bindings.remove, hzx, List.mem_cons] at h ⊢
+      rcases h with rfl | h
+      · exact .inl rfl
+      · exact .inr (ih h)
+
 -- Every variable in Bindings is now declared at sort `.value`.
 def Bindings.agreeOnLinked (B : Bindings) (ρ : Env) (γ : Runtime.Subst) :=
   ∀ x x', B.lookup x = some x' →
@@ -46,6 +91,25 @@ theorem Bindings.wfIn_cons {B : Bindings} {decls : Signature} {x : TinyML.Var} {
   rcases hp with rfl | hp
   · exact List.Mem.head _
   · exact List.Mem.tail _ (hbwf p hp)
+
+omit [MicaGS HasLC.hasLC Sig] in
+theorem Bindings.wfIn_remove {B : Bindings} {decls : Signature} (h : B.wfIn decls)
+    (x : TinyML.Var) : (B.remove x).wfIn decls :=
+  fun _ hp => h _ (Bindings.mem_of_mem_remove hp)
+
+omit [MicaGS HasLC.hasLC Sig] in
+/-- Dropping a name's binding survives that name being rebound at runtime: the
+    remaining bindings are all for other names. -/
+theorem Bindings.agreeOnLinked_remove {B : Bindings} {ρ : Env} {γ : Runtime.Subst}
+    (hagree : B.agreeOnLinked ρ γ) (x : TinyML.Var) (v : Runtime.Val) :
+    (B.remove x).agreeOnLinked ρ (Runtime.Subst.update γ x v) := by
+  intro y y' hmem
+  rw [Bindings.lookup_remove] at hmem
+  by_cases hyx : y == x
+  · simp [hyx] at hmem
+  · simp only [hyx, Bool.false_eq_true, if_false] at hmem
+    obtain ⟨hsort, hγ⟩ := hagree y y' hmem
+    exact ⟨hsort, by simp [Runtime.Subst.update, hyx, hγ]⟩
 
 /-- The substitution `γ` maps every binding to a value well-typed by `Γ`. -/
 def Bindings.typedSubst (W : TinyML.World) (B : Bindings) (Γ : TinyML.TyCtx) (γ : Runtime.Subst) : iProp :=
@@ -95,6 +159,44 @@ theorem Bindings.typedSubst_cons {B : Bindings} {Γ : TinyML.TyCtx} {γ : Runtim
     · ipureintro
       simp [Runtime.Subst.update, hyx, hw']
     · iexact Hw'
+
+/-- Typing survives dropping a name's binding and rebinding that name at
+    runtime: no claim is made about the dropped name, and every other binding
+    reads the same value. -/
+theorem Bindings.typedSubst_remove {B : Bindings} {Γ : TinyML.TyCtx} {γ : Runtime.Subst}
+    {x : TinyML.Var} {v : Runtime.Val} :
+    B.typedSubst W Γ γ ⊢ (B.remove x).typedSubst W Γ (Runtime.Subst.update γ x v) := by
+  unfold Bindings.typedSubst
+  iintro #Hts
+  imodintro
+  iintro %y %y' %t %hmem %hΓ
+  rw [Bindings.lookup_remove] at hmem
+  by_cases hyx : y == x
+  · simp [hyx] at hmem
+  · simp only [hyx, Bool.false_eq_true, if_false] at hmem
+    ispecialize Hts $$ %y %y' %t %hmem %hΓ
+    icases Hts with ⟨%w, %hw, Hw⟩
+    iexists w
+    isplitr
+    · ipureintro
+      simp [Runtime.Subst.update, hyx, hw]
+    · iexact Hw
+
+omit [MicaGS HasLC.hasLC Sig] in
+/-- Bind a name to a constant that already denotes the value the name is being
+    bound to. -/
+theorem Bindings.agreeOnLinked_cons_update {B : Bindings} {ρ : Env} {γ : Runtime.Subst}
+    {x : TinyML.Var} {c : FOL.Const} {v : Runtime.Val}
+    (hagree : B.agreeOnLinked ρ γ) (hsort : c.sort = .value)
+    (hval : ρ.consts .value c.name = v) :
+    Bindings.agreeOnLinked ((x, c) :: B) ρ (Runtime.Subst.update γ x v) := by
+  intro y y' hmem
+  by_cases hyx : y == x
+  · simp [List.lookup, hyx] at hmem; subst hmem
+    exact ⟨hsort, by simp [Runtime.Subst.update, hyx, hval]⟩
+  · simp [List.lookup, hyx] at hmem
+    obtain ⟨hsort', hγ⟩ := hagree y y' hmem
+    exact ⟨hsort', by simp [Runtime.Subst.update, hyx, hγ]⟩
 
 omit [MicaGS HasLC.hasLC Sig] in
 theorem Bindings.agreeOnLinked_cons {B : Bindings} {ρ ρ' : Env} {γ : Runtime.Subst}
