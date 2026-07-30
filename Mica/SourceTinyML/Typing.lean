@@ -132,12 +132,6 @@ def Binder.ofUntyped (b : Untyped.Binder) (ty : Typ) : Typed.Binder :=
   | .none => .none ty
   | .named x _ => .named x ty
 
-def Binder.expectedTy (b : Untyped.Binder) (fallback : Typ) : Typ :=
-  match b with
-  | .none => fallback
-  | .named _ (some ty) => ty
-  | .named _ .none => fallback
-
 def extendTyped (Γ : TinyML.TyCtx) (b : Typed.Binder) : TinyML.TyCtx :=
   match b.name with
   | none => Γ
@@ -145,19 +139,6 @@ def extendTyped (Γ : TinyML.TyCtx) (b : Typed.Binder) : TinyML.TyCtx :=
 
 def extendTypedList (Γ : TinyML.TyCtx) (bs : List Typed.Binder) : TinyML.TyCtx :=
   bs.foldl extendTyped Γ
-
-def inferProductBinders (Θ : TypeEnv) :
-    List Untyped.Binder → List Typ → Except TypeError (List Typed.Binder)
-  | [], [] => .ok []
-  | binder :: binders, ty :: tys => do
-      let binderTy := Typed.Binder.expectedTy binder ty
-      if Typ.sub Θ ty binderTy then
-        let typedBinder := Typed.Binder.ofUntyped binder binderTy
-        let rest ← inferProductBinders Θ binders tys
-        .ok (typedBinder :: rest)
-      else
-        .error (.subsumptionFailure ty binderTy)
-  | binders, tys => .error (.arityMismatch tys.length binders.length)
 
 def joinAll (Θ : TypeEnv) : List Typ → Typ
   | [] => .value
@@ -213,12 +194,15 @@ def TypeM.ofExcept : Except TypeError α → TypeM σ α
     (TypeM.ofExcept r : TypeM σ α) s = .ok (a, s') ↔ r = .ok a ∧ s' = s := by
   cases r <;> simp [TypeM.ofExcept, eq_comm]
 
-/-- The built-in primitives, and the translation of a single typed
-    specification expression into its value term and definedness condition.
-    Typing propagates whatever effect the translation carries in `σ`. -/
+/-- The built-in primitives, the translation of a single typed specification
+    expression into its value term and definedness condition, and the globals a
+    specification nested in a type is elaborated against — the program's
+    bindings as of the declaration whose type carries it. Typing propagates
+    whatever effect the translation carries in `σ`. -/
 structure SpecEnv (σ : Type) where
   primitive : String → Option PrimSig
   translate : List String → Typed.Expr → TypeM σ (Term .value × Formula)
+  globals : TinyML.TyCtx
 
 /-- The domain and result types of `ty` applied to `arity` arguments.
     Applications are n-ary and saturated: a wrong argument count is an arity
@@ -275,7 +259,131 @@ theorem checkInferred_runtime (Θ : TypeEnv) :
             rw [checkInferred_runtime Θ rest doms _ hrest]
           · simp at h
 
+/-- Assert all formulas in order before continuing with the assertion body.
+
+Used only to spell out the type constraints of a name a spec binds. That does
+not belong here: an `Assertion` binder should carry the type it binds at, and
+the constraints should be emitted where the assertion is elaborated, which is
+also the layer that knows how a type constrains a term. Until the binders carry
+their types, typing expands the constraints on the spot. -/
+private def assertAll (φs : List Formula) (k : Assertion Typ α) : Assertion Typ α :=
+  φs.foldr .assert k
+
+/-- The formula stating that a leaf's value term is the boolean `true`. -/
+private def holds (v : Term .value) : Formula :=
+  .eq .bool (.unop .toBool v) (.const (.b true))
+
+/-- Resolve a spec-level variable. The leaf translator represents each spec-level
+name by the value-sorted variable of the same name, so resolving one is just a
+scope check. -/
+private def specVar (names : List String) (x : String) : TypeM σ (Term .value) :=
+  if x ∈ names then pure (.var .value x)
+  else TypeM.error (.spec s!"unbound spec variable '{x}'")
+
+/-- Elaborate a spec predicate into the atom binding its payload, checking the
+scrutinee against both the type context and the spec-level scope. -/
+private def elabPred (Γ : TyCtx) (names : List String) (ty : Typ) :
+    Spec.Pred → TypeM σ (Atom Typ .value)
+  | .isinj tag arity scrut => do pure (.isinj tag arity (← specVar names scrut))
+  | .own loc =>
+    match Γ loc with
+    | some (.owned innerTy) =>
+      if innerTy == ty then do pure (.own (← specVar names loc) ty)
+      else TypeM.error (.spec s!"own {loc} must bind {repr innerTy}, not {repr ty}")
+    | some other => TypeM.error (.spec s!"own {loc} requires an owned reference, got {repr other}")
+    | none => TypeM.error (.spec s!"unknown ownership variable '{loc}'")
+  | .arr loc =>
+    match Γ loc with
+    | some (.ownedArray innerTy) =>
+      if (.vec innerTy) == ty then do pure (.arr (← specVar names loc) innerTy)
+      else TypeM.error (.spec s!"arr {loc} must bind a vector snapshot of type {repr (TinyML.Typ.vec innerTy)}, not {repr ty}")
+    | some other => TypeM.error (.spec s!"arr {loc} requires an owned array, got {repr other}")
+    | none => TypeM.error (.spec s!"unknown ownership variable '{loc}'")
+
+/-- Match the spec's bound names against the typed function binders to recover
+each argument's type. -/
+private def specArgTypes : List Typed.Binder → List String → Except TypeError (List (String × Typ))
+  | _, [] => .ok []
+  | [], _ :: _ => .error (.spec "more arguments than the function declares")
+  | b :: bs, n :: ns => do
+    let rest ← specArgTypes bs ns
+    .ok ((n, b.ty) :: rest)
+
+-- Every function below walks one piece of the declaration being elaborated —
+-- a type, a binder, an expression, an assertion — and every call it makes is on
+-- a piece nested inside its own, so the size of that piece is the measure.
+-- `check` is the one exception: it hands its expression to `infer` unchanged,
+-- so it takes the tag that orders it above the others at equal size.
 mutual
+  /-- Translate a type of the untyped IR into the core type it denotes,
+  elaborating every specification it carries. A specification's leaves are
+  typechecked in the program's global context extended with the arrow's own
+  arguments — never with the binders surrounding the annotation, which the
+  function the type describes cannot mention. -/
+  def translate (env : SpecEnv σ) (Θ : TypeEnv) : Untyped.Typ → TypeM σ Typ
+    | .core t => pure t
+    | .sum ts => do pure (.sum (← translateList env Θ ts))
+    | .arrow args ret spec => do
+        let args' ← translateList env Θ args
+        let ret' ← translate env Θ ret
+        match spec with
+        | none => pure (.arrow args' ret' none)
+        | some rb => do
+            let s ← elabSpecBody env Θ env.globals (args'.map Typed.Binder.none) ret' rb
+            pure (.arrow args' ret' (some s))
+    | .ref t => do pure (.ref (← translate env Θ t))
+    | .array t => do pure (.array (← translate env Θ t))
+    | .ownedArray t => do pure (.ownedArray (← translate env Θ t))
+    | .vec t => do pure (.vec (← translate env Θ t))
+    | .owned t => do pure (.owned (← translate env Θ t))
+    | .tuple ts => do pure (.tuple (← translateList env Θ ts))
+    | .named n args => do pure (.named n (← translateList env Θ args))
+  termination_by ty => (sizeOf ty, 0)
+
+  def translateList (env : SpecEnv σ) (Θ : TypeEnv) : List Untyped.Typ → TypeM σ (List Typ)
+    | [] => pure []
+    | t :: ts => do pure ((← translate env Θ t) :: (← translateList env Θ ts))
+  termination_by ts => (sizeOf ts, 0)
+
+  def translateOpt (env : SpecEnv σ) (Θ : TypeEnv) : Option Untyped.Typ → TypeM σ (Option Typ)
+    | none => pure none
+    | some t => do pure (some (← translate env Θ t))
+  termination_by t => (sizeOf t, 0)
+
+  /-- The type a binder is checked at: its own annotation, translated, or the
+  fallback its context supplies. -/
+  def Binder.expectedTy (env : SpecEnv σ) (Θ : TypeEnv) (b : Untyped.Binder) (fallback : Typ) :
+      TypeM σ Typ :=
+    match b with
+    | .named _ (some ty) => translate env Θ ty
+    | _ => pure fallback
+  termination_by (sizeOf b, 0)
+
+  /-- Type a function's argument binders, defaulting an unannotated argument to
+  `value`. -/
+  def typedBinders (env : SpecEnv σ) (Θ : TypeEnv) :
+      List Untyped.Binder → TypeM σ (List Typed.Binder)
+    | [] => pure []
+    | b :: bs => do
+        let ty ← Binder.expectedTy env Θ b .value
+        pure (Typed.Binder.ofUntyped b ty :: (← typedBinders env Θ bs))
+  termination_by bs => (sizeOf bs, 0)
+
+  /-- Type the binders of a product pattern against the component types the
+  bound expression supplies. -/
+  def inferProductBinders (env : SpecEnv σ) (Θ : TypeEnv) :
+      List Untyped.Binder → List Typ → TypeM σ (List Typed.Binder)
+    | [], [] => pure []
+    | binder :: binders, ty :: tys => do
+        let binderTy ← Binder.expectedTy env Θ binder ty
+        if Typ.sub Θ ty binderTy then do
+          let rest ← inferProductBinders env Θ binders tys
+          pure (Typed.Binder.ofUntyped binder binderTy :: rest)
+        else
+          TypeM.error (.subsumptionFailure ty binderTy)
+    | binders, tys => TypeM.error (.arityMismatch tys.length binders.length)
+  termination_by bs _ => (sizeOf bs, 0)
+
   def infer (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx) : Untyped.Expr → TypeM σ (Typ × Typed.Expr)
     | .const c => pure (Typed.Const.ty c, .const c)
     | .var x =>
@@ -300,8 +408,8 @@ mutual
         | some ty => pure (ty, .binop op lhs' rhs' ty)
         | none => TypeM.error (.operatorMismatch op lhsTy rhsTy)
     | .fix self args retTy body => do
-        let retTy := retTy.getD .value
-        let typedArgs := args.map (fun b => Typed.Binder.ofUntyped b (Typed.Binder.expectedTy b .value))
+        let retTy := (← translateOpt env Θ retTy).getD .value
+        let typedArgs ← typedBinders env Θ args
         let selfTy := Typ.arrow (typedArgs.map Binder.ty) retTy none
         let typedSelf := Typed.Binder.ofUntyped self selfTy
         let Γ' := typedArgs.foldl extendTyped (extendTyped Γ typedSelf)
@@ -340,9 +448,12 @@ mutual
     | .letIn name bound body => do
         let (boundTy, bound') ←
           match name with
-          | .named _ (some ty) => do let e' ← check env Θ Γ bound ty; pure (ty, e')
+          | .named _ (some ty) => do
+              let ty' ← translate env Θ ty
+              let e' ← check env Θ Γ bound ty'
+              pure (ty', e')
           | _ => infer env Θ Γ bound
-        let typedName := Typed.Binder.ofUntyped name (match name with | .named _ (some ty) => ty | _ => boundTy)
+        let typedName := Typed.Binder.ofUntyped name boundTy
         let (bodyTy, body') ← infer env Θ (extendTyped Γ typedName) body
         pure (bodyTy, .letIn typedName bound' body')
     | .letProd names bound body => do
@@ -350,7 +461,7 @@ mutual
         let tys ← match boundTy with
           | .tuple tys => pure tys
           | _ => TypeM.error (.typeMismatch (.tuple []) boundTy)
-        let typedNames ← TypeM.ofExcept (inferProductBinders Θ names tys)
+        let typedNames ← inferProductBinders env Θ names tys
         let (bodyTy, body') ← infer env Θ (extendTypedList Γ typedNames) body
         pure (bodyTy, .letProd typedNames bound' body')
     | .ref ownership e => do
@@ -435,6 +546,7 @@ mutual
                       TypeM.error (.arityMismatch ts.length branches.length)
                 | _ => TypeM.error (.notASum scrutTy)
         | _ => TypeM.error (.notASum scrutTy)
+  termination_by e => (sizeOf e, 0)
 
   def check (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx) (e : Untyped.Expr) (expected : Typ) : TypeM σ Typed.Expr := do
     let (actual, e') ← infer env Θ Γ e
@@ -444,6 +556,7 @@ mutual
       pure (.cast e' expected)
     else
       TypeM.error (.subsumptionFailure actual expected)
+  termination_by (sizeOf e, 1)
 
   def inferList (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx) : List Untyped.Expr → TypeM σ (List (Typ × Typed.Expr))
     | [] => pure []
@@ -451,6 +564,7 @@ mutual
         let head ← infer env Θ Γ e
         let tail ← inferList env Θ Γ es
         pure (head :: tail)
+  termination_by es => (sizeOf es, 0)
 
   /-- Check an argument list against the domain types of the function applied. -/
   def checkArgs (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx) :
@@ -461,12 +575,13 @@ mutual
         let args' ← checkArgs env Θ Γ doms args
         pure (arg' :: args')
     | doms, args => TypeM.error (.arityMismatch doms.length args.length)
+  termination_by _ args => (sizeOf args, 0)
 
   def inferBranches (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx) :
       List Typ → List (Untyped.Binder × Untyped.Expr) → TypeM σ (List (Typed.Binder × Typed.Expr))
     | [], [] => pure []
     | ty :: tys, (binder, body) :: rest => do
-        let binderTy := Typed.Binder.expectedTy binder ty
+        let binderTy ← Binder.expectedTy env Θ binder ty
         if Typ.sub Θ ty binderTy then
           let typedBinder := Typed.Binder.ofUntyped binder binderTy
           let (_bodyTy, body') ← infer env Θ (extendTyped Γ typedBinder) body
@@ -475,30 +590,129 @@ mutual
         else
           TypeM.error (.subsumptionFailure ty binderTy)
     | tys, bs => TypeM.error (.arityMismatch tys.length bs.length)
+  termination_by _ bs => (sizeOf bs, 0)
+
+  /-- Elaborate a postcondition into a verifier assertion in one walk: each leaf
+  is typechecked and then translated, and its definedness condition is asserted
+  before the value it guards is bound or tested. -/
+  def elabPost (env : SpecEnv σ) (Θ : TypeEnv) :
+      TyCtx → List String → Spec.Assert Untyped.Expr Untyped.Typ Unit →
+        TypeM σ (Assertion Typ Unit)
+    | _, _, .ret () => pure (.ret ())
+    | Γ, ns, .assert cond rest => do
+      let cond' ← check env Θ Γ cond .bool
+      let (v, defd) ← env.translate ns cond'
+      pure (.assert defd (.assert (holds v) (← elabPost env Θ Γ ns rest)))
+    | Γ, ns, .let_ x e rest => do
+      let (ty, e') ← infer env Θ Γ e
+      let (v, defd) ← env.translate ns e'
+      pure (.assert defd (.let_ ⟨x, .value⟩ v
+        (assertAll (TinyML.typeConstraints ty (.var .value x))
+          (← elabPost env Θ (Γ.extend x ty) (ns ++ [x]) rest))))
+    | Γ, ns, .bind p x ty rest => do
+      let ty ← translate env Θ ty
+      let atom ← elabPred Γ ns ty p
+      pure (.pred ⟨x, .value⟩ atom
+        (assertAll (TinyML.typeConstraints ty (.var .value x))
+          (← elabPost env Θ (Γ.extend x ty) (ns ++ [x]) rest)))
+    | Γ, ns, .ite cond thn els => do
+      let cond' ← check env Θ Γ cond .bool
+      let (v, defd) ← env.translate ns cond'
+      pure (.assert defd (.ite (holds v)
+        (← elabPost env Θ Γ ns thn) (← elabPost env Θ Γ ns els)))
+  termination_by _ _ a => (sizeOf a, 0)
+
+  /-- Elaborate a precondition the same way, ending in the postcondition the
+  result must satisfy — elaborated with the result name bound at the function's
+  return type. -/
+  def elabPre (env : SpecEnv σ) (Θ : TypeEnv) (retTy : Typ) :
+      TyCtx → List String → Spec.Pre Untyped.Expr Untyped.Typ → TypeM σ (PredTrans Typ)
+    | Γ, ns, .ret post => do
+      let body' ← elabPost env Θ (Γ.extend post.name retTy) (ns ++ [post.name]) post.body
+      pure (.ret ⟨post.name, body'⟩)
+    | Γ, ns, .assert cond rest => do
+      let cond' ← check env Θ Γ cond .bool
+      let (v, defd) ← env.translate ns cond'
+      pure (.assert defd (.assert (holds v) (← elabPre env Θ retTy Γ ns rest)))
+    | Γ, ns, .let_ x e rest => do
+      let (ty, e') ← infer env Θ Γ e
+      let (v, defd) ← env.translate ns e'
+      pure (.assert defd (.let_ ⟨x, .value⟩ v
+        (assertAll (TinyML.typeConstraints ty (.var .value x))
+          (← elabPre env Θ retTy (Γ.extend x ty) (ns ++ [x]) rest))))
+    | Γ, ns, .bind p x ty rest => do
+      let ty ← translate env Θ ty
+      let atom ← elabPred Γ ns ty p
+      pure (.pred ⟨x, .value⟩ atom
+        (assertAll (TinyML.typeConstraints ty (.var .value x))
+          (← elabPre env Θ retTy (Γ.extend x ty) (ns ++ [x]) rest)))
+    | Γ, ns, .ite cond thn els => do
+      let cond' ← check env Θ Γ cond .bool
+      let (v, defd) ← env.translate ns cond'
+      pure (.assert defd (.ite (holds v)
+        (← elabPre env Θ retTy Γ ns thn) (← elabPre env Θ retTy Γ ns els)))
+  termination_by _ _ a => (sizeOf a, 0)
+  decreasing_by
+    all_goals first
+      | decreasing_tactic
+      | (obtain ⟨name, body⟩ := post; simp; omega)
+
+  /-- Elaborate a spec body against its function's typed signature, layering the
+  spec's arguments on top of the program's global bindings `Γbase`. The argument
+  and return types recovered here type the spec's leaf expressions; the `Spec`
+  itself keeps only the argument names, since the types belong to the function's
+  arrow. -/
+  def elabSpecBody (env : SpecEnv σ) (Θ : TypeEnv) (Γbase : TyCtx)
+      (argBinders : List Typed.Binder) (retTy : Typ)
+      (rb : Untyped.SpecBody) : TypeM σ (Spec Typ) := do
+    let names := rb.args
+    let argTys ← TypeM.ofExcept (specArgTypes argBinders names)
+    let Γ₀ : TyCtx := argTys.foldl (fun Γ p => Γ.extend p.1 p.2) Γbase
+    let pred ← elabPre env Θ retTy Γ₀ names rb.pre
+    pure { args := names, pred := pred }
+  termination_by (sizeOf rb, 0)
+  decreasing_by obtain ⟨args, pre⟩ := rb; simp; omega
 end
 
 theorem Binder.ofUntyped_runtime (b : Untyped.Binder) (ty : Typ) :
     (Typed.Binder.ofUntyped b ty).runtime = b.runtime := by
   cases b <;> rfl
 
-theorem inferProductBinders_runtime (Θ : TypeEnv) :
-    ∀ (binders : List Untyped.Binder) (tys : List Typ) (typed : List Typed.Binder),
-      inferProductBinders Θ binders tys = .ok typed →
+theorem typedBinders_runtime (env : SpecEnv σ) (Θ : TypeEnv) :
+    ∀ (binders : List Untyped.Binder) (typed : List Typed.Binder) (s s' : σ),
+      typedBinders env Θ binders s = .ok (typed, s') →
         typed.map Typed.Binder.runtime = binders.map Untyped.Binder.runtime
-  | [], [], typed, h => by
-      simp [inferProductBinders] at h
-      subst h
+  | [], typed, s, s', h => by
+      simp [typedBinders] at h
+      rcases h with ⟨rfl, rfl⟩
       rfl
-  | b :: bs, ty :: tys, typed, h => by
+  | b :: bs, typed, s, s', h => by
+      unfold typedBinders at h
+      have ⟨ty, s₀, _hty, hcont⟩ := StateT.bind_ok h
+      have ⟨rest, s₁, hrest, hcont⟩ := StateT.bind_ok hcont
+      rcases (by simpa using hcont) with ⟨rfl, rfl⟩
+      simp [Binder.ofUntyped_runtime, typedBinders_runtime env Θ bs rest s₀ s₁ hrest]
+
+theorem inferProductBinders_runtime (env : SpecEnv σ) (Θ : TypeEnv) :
+    ∀ (binders : List Untyped.Binder) (tys : List Typ) (typed : List Typed.Binder) (s s' : σ),
+      inferProductBinders env Θ binders tys s = .ok (typed, s') →
+        typed.map Typed.Binder.runtime = binders.map Untyped.Binder.runtime
+  | [], [], typed, s, s', h => by
       simp [inferProductBinders] at h
-      split at h
-      · have ⟨rest, hrest, hcont⟩ := Except.bind_ok h
-        cases hcont
-        simp [Binder.ofUntyped_runtime, inferProductBinders_runtime Θ bs tys rest hrest]
-      · cases h
-  | [], _ :: _, typed, h => by
+      rcases h with ⟨rfl, rfl⟩
+      rfl
+  | b :: bs, ty :: tys, typed, s, s', h => by
+      unfold inferProductBinders at h
+      have ⟨binderTy, s₀, _hty, hcont⟩ := StateT.bind_ok h
+      split at hcont
+      · have ⟨rest, s₁, hrest, hcont⟩ := StateT.bind_ok hcont
+        rcases (by simpa using hcont) with ⟨rfl, rfl⟩
+        simp [Binder.ofUntyped_runtime,
+          inferProductBinders_runtime env Θ bs tys rest s₀ s₁ hrest]
+      · simp at hcont
+  | [], _ :: _, typed, s, s', h => by
       simp [inferProductBinders] at h
-  | _ :: _, [], typed, h => by
+  | _ :: _, [], typed, s, s', h => by
       simp [inferProductBinders] at h
 
 /-! ## Specification elaboration
@@ -511,110 +725,16 @@ leaf is handed straight to `env.translate`, so the walk produces a `Spec`
 directly rather than an intermediate typed spec body. This reuses the global
 context from `Program.elaborate`, so a spec may refer to earlier definitions. -/
 
-/-- Assert all formulas in order before continuing with the assertion body. -/
-private def assertAll (φs : List Formula) (k : Assertion Typ α) : Assertion Typ α :=
-  φs.foldr .assert k
-
-/-- The formula stating that a leaf's value term is the boolean `true`. -/
-private def holds (v : Term .value) : Formula :=
-  .eq .bool (.unop .toBool v) (.const (.b true))
-
-/-- Resolve a spec-level variable. The leaf translator represents each spec-level
-name by the value-sorted variable of the same name, so resolving one is just a
-scope check. -/
-private def specVar (names : List String) (x : String) : TypeM σ (Term .value) :=
-  if x ∈ names then pure (.var .value x)
-  else TypeM.error (.spec s!"unbound spec variable '{x}'")
-
-/-- Elaborate a spec predicate into the atom binding its payload, checking the
-scrutinee against both the type context and the spec-level scope. -/
-private def elabPred (Γ : TyCtx) (names : List String) (ty : Typ) :
-    Spec.Pred → TypeM σ (Atom Typ .value)
-  | .isinj tag arity scrut => do pure (.isinj tag arity (← specVar names scrut))
-  | .own loc =>
-    match Γ loc with
-    | some (.owned innerTy) =>
-      if innerTy == ty then do pure (.own (← specVar names loc) ty)
-      else TypeM.error (.spec s!"own {loc} must bind {repr innerTy}, not {repr ty}")
-    | some other => TypeM.error (.spec s!"own {loc} requires an owned reference, got {repr other}")
-    | none => TypeM.error (.spec s!"unknown ownership variable '{loc}'")
-  | .arr loc =>
-    match Γ loc with
-    | some (.ownedArray innerTy) =>
-      if (.vec innerTy) == ty then do pure (.arr (← specVar names loc) innerTy)
-      else TypeM.error (.spec s!"arr {loc} must bind a vector snapshot of type {repr (TinyML.Typ.vec innerTy)}, not {repr ty}")
-    | some other => TypeM.error (.spec s!"arr {loc} requires an owned array, got {repr other}")
-    | none => TypeM.error (.spec s!"unknown ownership variable '{loc}'")
-
-/-- Elaborate a spec assertion into a verifier assertion in one walk: each leaf
-is typechecked and then translated, and its definedness condition is asserted
-before the value it guards is bound or tested. The `inner` callback elaborates
-the return payload in the current type context and spec-level scope. -/
-def elabAssert (env : SpecEnv σ) (Θ : TypeEnv) (inner : TyCtx → List String → α → TypeM σ β) :
-    TyCtx → List String → Spec.Assert Untyped.Expr α → TypeM σ (Assertion Typ β)
-  | Γ, ns, .ret a => do pure (.ret (← inner Γ ns a))
-  | Γ, ns, .assert cond rest => do
-    let cond' ← check env Θ Γ cond .bool
-    let (v, defd) ← env.translate ns cond'
-    pure (.assert defd (.assert (holds v) (← elabAssert env Θ inner Γ ns rest)))
-  | Γ, ns, .let_ x e rest => do
-    let (ty, e') ← infer env Θ Γ e
-    let (v, defd) ← env.translate ns e'
-    pure (.assert defd (.let_ ⟨x, .value⟩ v
-      (assertAll (TinyML.typeConstraints ty (.var .value x))
-        (← elabAssert env Θ inner (Γ.extend x ty) (ns ++ [x]) rest))))
-  | Γ, ns, .bind p x ty rest => do
-    let atom ← elabPred Γ ns ty p
-    pure (.pred ⟨x, .value⟩ atom
-      (assertAll (TinyML.typeConstraints ty (.var .value x))
-        (← elabAssert env Θ inner (Γ.extend x ty) (ns ++ [x]) rest)))
-  | Γ, ns, .ite cond thn els => do
-    let cond' ← check env Θ Γ cond .bool
-    let (v, defd) ← env.translate ns cond'
-    pure (.assert defd (.ite (holds v)
-      (← elabAssert env Θ inner Γ ns thn) (← elabAssert env Θ inner Γ ns els)))
-
-private def elabPost (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TyCtx) (ns : List String)
-    (body : Spec.Assert Untyped.Expr Unit) : TypeM σ (Assertion Typ Unit) :=
-  elabAssert env Θ (fun _ _ () => pure ()) Γ ns body
-
-/-- Match the spec's bound names against the typed function binders to recover
-each argument's type. -/
-private def specArgTypes : List Typed.Binder → List String → Except TypeError (List (String × Typ))
-  | _, [] => .ok []
-  | [], _ :: _ => .error (.spec "more arguments than the function declares")
-  | b :: bs, n :: ns => do
-    let rest ← specArgTypes bs ns
-    .ok ((n, b.ty) :: rest)
-
-/-- Elaborate a spec body against its function's typed signature, layering the
-spec's arguments on top of the program's global bindings `Γbase`. The argument
-and return types recovered here type the spec's leaf expressions; the `Spec`
-itself keeps only the argument names, since the types belong to the function's
-arrow. -/
-def elabSpecBody (env : SpecEnv σ) (Θ : TypeEnv) (Γbase : TyCtx)
-    (argBinders : List Typed.Binder) (retTy : Typ)
-    (rb : Spec.Body Untyped.Expr) : TypeM σ (Spec Typ) := do
-  let names := rb.args
-  let argTys ← TypeM.ofExcept (specArgTypes argBinders names)
-  let Γ₀ : TyCtx := argTys.foldl (fun Γ p => Γ.extend p.1 p.2) Γbase
-  let pred ← elabAssert env Θ
-    (fun Γ ns (post : Spec.Post Untyped.Expr) => do
-      let body' ← elabPost env Θ (Γ.extend post.name retTy) (ns ++ [post.name]) post.body
-      pure ⟨post.name, body'⟩)
-    Γ₀ names rb.pre
-  pure { args := names, pred := pred }
-
 /-- Elaborate a specified function literal: its signature and specification
 first, then its body. Doing the spec before the body is what lets the recursive
 self-reference — and hence every call in the body — be typed at the specified
 arrow, so a recursive call resolves through the type it is annotated with rather
 than through a side table. -/
 def elabSpecifiedFix (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx)
-    (rb : Spec.Body Untyped.Expr) : Untyped.Expr → TypeM σ (Spec Typ × Typed.Expr)
+    (rb : Untyped.SpecBody) : Untyped.Expr → TypeM σ (Spec Typ × Typed.Expr)
   | .fix self args retTy body => do
-      let retTy := retTy.getD .value
-      let typedArgs := args.map (fun b => Typed.Binder.ofUntyped b (Typed.Binder.expectedTy b .value))
+      let retTy := (← translateOpt env Θ retTy).getD .value
+      let typedArgs ← typedBinders env Θ args
       let s ← elabSpecBody env Θ Γ typedArgs retTy rb
       let selfTy := Typ.arrow (typedArgs.map Binder.ty) retTy (some s)
       let typedSelf := Typed.Binder.ofUntyped self selfTy
@@ -626,14 +746,16 @@ def elabSpecifiedFix (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx)
 /-- Check a declaration binder's annotation against the type elaborated for its
 body. A specified declaration's type carries its specification, which no
 annotation mentions, so the annotation is matched against the bare type. -/
-private def checkDeclAnnotation (b : Untyped.Binder) (ty : Typ) : TypeM σ Unit :=
+private def checkDeclAnnotation (env : SpecEnv σ) (Θ : TypeEnv) (b : Untyped.Binder) (ty : Typ) :
+    TypeM σ Unit :=
   match b with
-  | .named _ (some ann) =>
-      if ty.unspec == ann then pure () else TypeM.error (.subsumptionFailure ty ann)
+  | .named _ (some ann) => do
+      let ann' ← translate env Θ ann
+      if ty.unspec == ann' then pure () else TypeM.error (.subsumptionFailure ty ann')
   | _ => pure ()
 
 def ValDecl.elaborate (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx)
-    (d : Untyped.ValDecl (Spec.Body Untyped.Expr)) :
+    (d : Untyped.ValDecl Untyped.SpecBody) :
     TypeM σ (Typed.ValDecl (Spec Typ)) := do
   match d.declMeta.spec with
   | some rb => do
@@ -641,21 +763,22 @@ def ValDecl.elaborate (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx)
       -- declaration's own type — and hence the type every later use is
       -- annotated with — is the specified arrow.
       let (s, body') ← elabSpecifiedFix env Θ Γ rb d.body
-      checkDeclAnnotation d.name body'.ty
+      checkDeclAnnotation env Θ d.name body'.ty
       pure { name := Typed.Binder.ofUntyped d.name body'.ty, body := body',
              declMeta := { spec := some s, relation := d.declMeta.relation } }
   | none => do
       let (bodyTy, body') ←
         match d.name with
         | .named _ (some ty) => do
-            let body' ← check env Θ Γ d.body ty
-            pure (ty, body')
+            let ty' ← translate env Θ ty
+            let body' ← check env Θ Γ d.body ty'
+            pure (ty', body')
         | _ => infer env Θ Γ d.body
       pure { name := Typed.Binder.ofUntyped d.name bodyTy, body := body',
              declMeta := { spec := none, relation := d.declMeta.relation } }
 
 def Program.elaborate (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx) :
-    Untyped.Program (Spec.Body Untyped.Expr) → TypeM σ (TypeEnv × Typed.Program (Spec Typ))
+    Untyped.Program Untyped.SpecBody → TypeM σ (TypeEnv × Typed.Program (Spec Typ))
   | [] => pure (Θ, [])
   | d :: ds => do
       match d with
@@ -663,7 +786,7 @@ def Program.elaborate (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx) :
           let Θ' ← TypeM.ofExcept (extendTypeEnv Θ dty.name dty.body)
           Program.elaborate env Θ' Γ ds
       | .val_ dval =>
-          let d' ← ValDecl.elaborate env Θ Γ dval
+          let d' ← ValDecl.elaborate { env with globals := Γ } Θ Γ dval
           let Γ' := match d'.name.name with
             | some x => Γ.extend x d'.name.ty
             | none => Γ
@@ -756,18 +879,19 @@ mutual
               rcases (by simpa [hty] using hcont) with ⟨⟨rfl, rfl⟩, rfl⟩
               simp [Expr.runtime, Untyped.Expr.runtime, ihL _ _ _ hlhs, ihR _ _ _ hrhs]
     | .fix self args retTy body => by
-        let retTy' := retTy.getD .value
-        let typedArgs := args.map (fun b => Typed.Binder.ofUntyped b (Typed.Binder.expectedTy b .value))
-        let selfTy := Typ.arrow (typedArgs.map Binder.ty) retTy' none
-        let typedSelf := Typed.Binder.ofUntyped self selfTy
-        let Γ' := typedArgs.foldl extendTyped (extendTyped Γ typedSelf)
-        let ih := check_runtime env Θ Γ' body retTy'
         intro s result s' h
         unfold Typed.infer at h
-        have ⟨body', s₀, hbody, hcont⟩ := StateT.bind_ok h
-        rcases (by simpa [retTy', typedArgs, selfTy, typedSelf, Γ', hbody] using hcont)
-          with ⟨⟨rfl, rfl⟩, rfl⟩
-        simp [Expr.runtime, Untyped.Expr.runtime, ih _ _ _ hbody, Binder.ofUntyped_runtime]
+        have ⟨retTy', s₀, _hret, hcont⟩ := StateT.bind_ok h
+        have ⟨typedArgs, s₁, hargs, hcont⟩ := StateT.bind_ok hcont
+        have ⟨body', s₂, hbody, hcont⟩ := StateT.bind_ok hcont
+        let ih := check_runtime env Θ
+          (typedArgs.foldl extendTyped
+            (extendTyped Γ (Typed.Binder.ofUntyped self
+              (Typ.arrow (typedArgs.map Binder.ty) (retTy'.getD .value) none))))
+          body (retTy'.getD .value)
+        rcases (by simpa using hcont) with ⟨⟨rfl, rfl⟩, rfl⟩
+        simp [Expr.runtime, Untyped.Expr.runtime, ih _ _ _ hbody, Binder.ofUntyped_runtime,
+          typedBinders_runtime env Θ args typedArgs s₀ s₁ hargs]
     | .app fn args => by
         let ihFn := infer_runtime env Θ Γ fn
         let ihArgs := checkArgs_runtime env Θ Γ args
@@ -867,16 +991,17 @@ mutual
                   Binder.ofUntyped_runtime]
           | some ty =>
             unfold Typed.infer at h
-            have ⟨bound', s₀, hbound, hcont⟩ := StateT.bind_ok h
-            let typedName := Typed.Binder.ofUntyped (.named x (.some ty)) ty
-            let ihBound := check_runtime env Θ Γ bound ty
+            have ⟨ty', s₀, _hty, hcont⟩ := StateT.bind_ok h
+            have ⟨bound', s₁, hbound, hcont⟩ := StateT.bind_ok hcont
+            let typedName := Typed.Binder.ofUntyped (.named x (.some ty)) ty'
+            let ihBound := check_runtime env Θ Γ bound ty'
             let ihBody := infer_runtime env Θ (extendTyped Γ typedName) body
             have hcont' :
                 (do
                   let p ← infer env Θ (extendTyped Γ typedName) body
-                  pure (p.1, Expr.letIn typedName bound' p.2)) s₀ = .ok (result, s') := by
+                  pure (p.1, Expr.letIn typedName bound' p.2)) s₁ = .ok (result, s') := by
               simpa [typedName] using hcont
-            have ⟨p, s₁, hbody, hcont⟩ := StateT.bind_ok hcont'
+            have ⟨p, s₂, hbody, hcont⟩ := StateT.bind_ok hcont'
             cases p with
             | mk bodyTy body' =>
               rcases (by simpa [hbody] using hcont) with ⟨⟨rfl, rfl⟩, rfl⟩
@@ -896,7 +1021,7 @@ mutual
           | tuple tys =>
             have hcont' :
                 (do
-                  let typedNames ← TypeM.ofExcept (inferProductBinders Θ names tys)
+                  let typedNames ← inferProductBinders env Θ names tys
                   let p ← infer env Θ (extendTypedList Γ typedNames) body
                   pure (p.1, Expr.letProd typedNames bound' p.2)) s₀ = .ok (result, s') := by
               simpa using hcont
@@ -907,8 +1032,7 @@ mutual
             | mk bodyTy body' =>
               rcases (by simpa [hbody] using hcont) with ⟨⟨rfl, rfl⟩, rfl⟩
               simp [Expr.runtime, Untyped.Expr.runtime, ihBound _ _ _ hbound, ihBody _ _ _ hbody,
-                inferProductBinders_runtime Θ names tys typedNames
-                  (TypeM.ofExcept_ok.mp hnames).1]
+                inferProductBinders_runtime env Θ names tys typedNames s₀ s₁ hnames]
           | _ =>
             simp at hcont
     | .ref ownership e => by
@@ -1146,27 +1270,27 @@ mutual
           simp [Typed.inferBranches] at h
         | cons ty tys =>
           obtain ⟨binder, body⟩ := br
-          let binderTy := Typed.Binder.expectedTy binder ty
+          unfold Typed.inferBranches at h
+          have ⟨binderTy, s₀, _hty, hcont⟩ := StateT.bind_ok h
           by_cases hsub : Typ.sub Θ ty binderTy
-          · unfold Typed.inferBranches at h
-            simp [-bind_pure_comp, binderTy, hsub] at h
-            let typedBinder := Typed.Binder.ofUntyped binder binderTy
-            let ihBody := infer_runtime env Θ (extendTyped Γ typedBinder) body
-            have ⟨p, s₀, hbody, hcont⟩ := StateT.bind_ok h
+          · simp [-bind_pure_comp, hsub] at hcont
+            let ihBody :=
+              infer_runtime env Θ (extendTyped Γ (Typed.Binder.ofUntyped binder binderTy)) body
+            have ⟨p, s₁, hbody, hcont⟩ := StateT.bind_ok hcont
             cases p with
             | mk bodyTy body' =>
-              have ⟨rest', s₁, hrest, hcont⟩ := StateT.bind_ok hcont
+              have ⟨rest', s₂, hrest, hcont⟩ := StateT.bind_ok hcont
               simp at hcont
               rcases hcont with ⟨rfl, rfl⟩
               simp [Expr.branchListRuntime, Untyped.Expr.runtime.branchListRuntime,
                 Binder.ofUntyped_runtime, ihBody _ _ _ hbody, ihRest tys _ _ _ hrest]
-          · simp [Typed.inferBranches, binderTy, hsub] at h
+          · simp [hsub] at hcont
 end
 
 /-- The specification a function literal is elaborated against does not change
 what it runs. -/
 theorem elabSpecifiedFix_runtime (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx)
-    (rb : Spec.Body Untyped.Expr) (e : Untyped.Expr) :
+    (rb : Untyped.SpecBody) (e : Untyped.Expr) :
     ∀ {s : σ} {r : Spec Typ × Typed.Expr} {s' : σ},
       Typed.elabSpecifiedFix env Θ Γ rb e s = .ok (r, s') →
       r.2.runtime = e.runtime := by
@@ -1176,15 +1300,18 @@ theorem elabSpecifiedFix_runtime (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.
     simp only [elabSpecifiedFix] at h
     -- The spec's own elaboration stays opaque: `StateT.bind_ok` recovers it
     -- without naming the arguments `elabSpecBody` is applied to.
-    have ⟨_spec, s₀, _hspec, hcont⟩ := StateT.bind_ok h
-    have ⟨body', s₁, hbody, hcont⟩ := StateT.bind_ok hcont
+    have ⟨_retTy, s₀, _hret, hcont⟩ := StateT.bind_ok h
+    have ⟨typedArgs, s₁, hargs, hcont⟩ := StateT.bind_ok hcont
+    have ⟨_spec, s₂, _hspec, hcont⟩ := StateT.bind_ok hcont
+    have ⟨body', s₃, hbody, hcont⟩ := StateT.bind_ok hcont
     rcases hcont with ⟨rfl, rfl⟩
     simp [Expr.runtime, Untyped.Expr.runtime, Binder.ofUntyped_runtime,
-      check_runtime env Θ _ body _ _ _ _ hbody]
+      check_runtime env Θ _ body _ _ _ _ hbody,
+      typedBinders_runtime env Θ args typedArgs s₀ s₁ hargs]
   all_goals simp [elabSpecifiedFix, TypeM.error] at h
 
 theorem ValDecl.elaborate_runtime (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx)
-    (d : Untyped.ValDecl (Spec.Body Untyped.Expr)) :
+    (d : Untyped.ValDecl Untyped.SpecBody) :
     ∀ {s : σ} {d' : Typed.ValDecl (Spec Typ)} {s' : σ},
       Typed.ValDecl.elaborate env Θ Γ d s = .ok (d', s') →
       d'.runtime = d.runtime := by
@@ -1203,12 +1330,13 @@ theorem ValDecl.elaborate_runtime (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML
     match hname : d.name with
     | .named x (some ty) =>
       simp only [ValDecl.elaborate, hspec, hname] at helab
-      have ⟨body', s₀, hcheck, hcont⟩ := StateT.bind_ok helab
+      have ⟨ty', s₀, _hty, hcont⟩ := StateT.bind_ok helab
+      have ⟨body', s₁, hcheck, hcont⟩ := StateT.bind_ok hcont
       have ⟨y, s₂, hy, hcont⟩ := StateT.bind_ok hcont
       rcases (by simpa using hy) with ⟨rfl, rfl⟩
       rcases hcont with ⟨rfl, rfl⟩
       simp [Typed.ValDecl.runtime, Untyped.ValDecl.runtime,
-        check_runtime env Θ Γ d.body ty _ _ _ hcheck, Binder.ofUntyped_runtime, hname]
+        check_runtime env Θ Γ d.body ty' _ _ _ hcheck, Binder.ofUntyped_runtime, hname]
     | .none | .named _ none =>
       simp only [ValDecl.elaborate, hspec, hname] at helab
       have ⟨p, s₀, hinfer, hcont⟩ := StateT.bind_ok helab
@@ -1218,7 +1346,7 @@ theorem ValDecl.elaborate_runtime (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML
         infer_runtime env Θ Γ d.body _ _ _ hinfer, Binder.ofUntyped_runtime, hname]
 
 theorem Program.elaborate_runtime (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx)
-    (prog : Untyped.Program (Spec.Body Untyped.Expr)) :
+    (prog : Untyped.Program Untyped.SpecBody) :
     ∀ {s : σ} {Θ' : TypeEnv} {prog' : Typed.Program (Spec Typ)} {s' : σ},
       Typed.Program.elaborate env Θ Γ prog s = .ok ((Θ', prog'), s') →
       prog'.runtime = prog.runtime := by
@@ -1250,6 +1378,6 @@ theorem Program.elaborate_runtime (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML
       simp at hcont
       rcases hcont with ⟨⟨rfl, rfl⟩, rfl⟩
       have hdecl_rt : dval'.runtime = dval.runtime :=
-        ValDecl.elaborate_runtime env Θ Γ dval hdecl
+        ValDecl.elaborate_runtime _ Θ Γ dval hdecl
       simp [Typed.Program.runtime, Untyped.Program.runtime, hdecl_rt]
       exact congrArg (List.cons dval.runtime) (ih Θ Γ' htail)

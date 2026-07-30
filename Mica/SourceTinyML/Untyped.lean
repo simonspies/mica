@@ -25,33 +25,36 @@ inductive Pred where
   deriving Inhabited
 
 /-- The assertion language, parametric in the embedded leaf expression type `ε`
-(used by `assert`, `let_`, and `ite`). Only `ε := Untyped.Expr` occurs in
+(used by `assert`, `let_`, and `ite`) and in the type language `τ` its binders
+are annotated with. Only `ε := Untyped.Expr` and `τ := Untyped.Typ` occur in
 practice. -/
-inductive Assert (ε : Type) : Type → Type where
-  | ret (val : α) : Assert ε α
-  | assert (cond : ε) (rest : Assert ε α) : Assert ε α
-  | let_ (name : String) (val : ε) (rest : Assert ε α) : Assert ε α
-  /-- Bind the value a predicate exposes. An ownership snapshot is data, never
-  a function, so its annotation is a core type. -/
-  | bind (p : Pred) (name : String) (ty : TinyML.Typ) (rest : Assert ε α) : Assert ε α
-  | ite (cond : ε) (thn els : Assert ε α) : Assert ε α
+inductive Assert (ε τ : Type) : Type → Type where
+  | ret (val : α) : Assert ε τ α
+  | assert (cond : ε) (rest : Assert ε τ α) : Assert ε τ α
+  | let_ (name : String) (val : ε) (rest : Assert ε τ α) : Assert ε τ α
+  | bind (p : Pred) (name : String) (ty : τ) (rest : Assert ε τ α) : Assert ε τ α
+  | ite (cond : ε) (thn els : Assert ε τ α) : Assert ε τ α
 
-instance [Inhabited α] : Inhabited (Assert ε α) := ⟨.ret default⟩
+instance [Inhabited α] : Inhabited (Assert ε τ α) := ⟨.ret default⟩
 
 /-- The postcondition of a specification: the name bound to the result value,
 together with the assertion that must hold of it. A structure, because a nested
 inductive may not occur inside its own type parameter. -/
-structure Post (ε : Type) where
+structure Post (ε τ : Type) where
   name : String
-  body : Assert ε Unit
+  body : Assert ε τ Unit
 
-abbrev Pre (ε : Type) := Assert ε (Post ε)
+abbrev Pre (ε τ : Type) := Assert ε τ (Post ε τ)
 
 /-- A spec body as written: the argument names it binds, together with the
 precondition. Typing turns it into a completed `Spec` (`Assertions.lean`). -/
-structure Body (ε : Type) where
+structure Body (ε τ : Type) where
   args : List String
-  pre : Assert ε (Post ε)
+  pre : Assert ε τ (Post ε τ)
+
+/-- Spec bodies print as a placeholder. `Repr` on the untyped IR exists for
+diagnostics; the readable rendering of a specification is the spec printer. -/
+instance : Repr (Body ε τ) := ⟨fun _ _ => "<spec>"⟩
 
 end Spec
 
@@ -59,38 +62,59 @@ namespace Untyped
 
 open TinyML
 
-inductive Binder where
-  | none
-  | named (name : TinyML.Var) (ty : Option Typ)
-  deriving Repr, Inhabited
+mutual
+  /-- The type language the frontend elaborates into: the core types of the
+  typed IR, plus a type constructor for each shape that may still contain a
+  specification the frontend cannot elaborate — a specification's leaves are
+  expressions, so only typing can turn one into a `Spec`. `Typed.translate`
+  (`Typing.lean`) turns a type into the `TinyML.Typ` it denotes. -/
+  inductive Typ where
+    /-- A fully elaborated type, exactly as the typed IR uses it. -/
+    | core (t : TinyML.Typ)
+    | sum (ts : List Typ)
+    | arrow (args : List Typ) (ret : Typ) (spec : Option (Spec.Body Expr Typ))
+    | ref (t : Typ)
+    | array (t : Typ)
+    | ownedArray (t : Typ)
+    | vec (t : Typ)
+    | owned (t : Typ)
+    | tuple (ts : List Typ)
+    | named (name : TinyML.TypeName) (args : List Typ)
 
-inductive Expr where
-  | const (c : Const)
-  | var (name : TinyML.Var)
-  /-- Reference to a built-in primitive, indexed by name. Resolved from a
-      qualified path by the frontend; the registry (threaded through typing)
-      is the source of its type scheme. -/
-  | prim (name : String)
-  | unop (op : UnOp) (e : Expr)
-  | binop (op : BinOp) (lhs rhs : Expr)
-  | fix (self : Binder) (args : List Binder) (retTy : Option Typ) (body : Expr)
-  | app (fn : Expr) (args : List Expr)
-  | ifThenElse (cond thn els : Expr)
-  | letIn (name : Binder) (bound body : Expr)
-  | letProd (names : List Binder) (bound body : Expr)
-  | ref    (ownership : Ownership) (e : Expr)
-  | deref  (e : Expr)
-  | store  (loc val : Expr)
-  | arrayMake (ownership : Ownership) (len init : Expr)
-  | arrayLen (arr : Expr)
-  | arrayGet (arr idx : Expr)
-  | arraySet (arr idx val : Expr)
-  | assert (e : Expr)
-  | tuple (es : List Expr)
-  | inj (tag : Nat) (arity : Nat) (payload : Expr)
-  | match_ (scrutinee : Expr) (branches : List (Binder × Expr))
+  inductive Binder where
+    | none
+    | named (name : TinyML.Var) (ty : Option Typ)
+
+  inductive Expr where
+    | const (c : Const)
+    | var (name : TinyML.Var)
+    /-- Reference to a built-in primitive, indexed by name. Resolved from a
+        qualified path by the frontend; the registry (threaded through typing)
+        is the source of its type scheme. -/
+    | prim (name : String)
+    | unop (op : UnOp) (e : Expr)
+    | binop (op : BinOp) (lhs rhs : Expr)
+    | fix (self : Binder) (args : List Binder) (retTy : Option Typ) (body : Expr)
+    | app (fn : Expr) (args : List Expr)
+    | ifThenElse (cond thn els : Expr)
+    | letIn (name : Binder) (bound body : Expr)
+    | letProd (names : List Binder) (bound body : Expr)
+    | ref    (ownership : Ownership) (e : Expr)
+    | deref  (e : Expr)
+    | store  (loc val : Expr)
+    | arrayMake (ownership : Ownership) (len init : Expr)
+    | arrayLen (arr : Expr)
+    | arrayGet (arr idx : Expr)
+    | arraySet (arr idx val : Expr)
+    | assert (e : Expr)
+    | tuple (es : List Expr)
+    | inj (tag : Nat) (arity : Nat) (payload : Expr)
+    | match_ (scrutinee : Expr) (branches : List (Binder × Expr))
+end
 
 instance : Inhabited Expr := ⟨.const .unit⟩
+instance : Inhabited Binder := ⟨.none⟩
+instance : Inhabited Typ := ⟨.core .value⟩
 
 /-- Is the expression a function (fix) node? -/
 def Expr.isFunc : Expr → Bool
@@ -105,7 +129,13 @@ theorem Expr.isFunc_elim {e : Expr} (h : e.isFunc = true) :
   exact ⟨_, _, _, _, rfl⟩
 
 
+deriving instance Repr for Typ
+deriving instance Repr for Binder
 deriving instance Repr for Expr
+
+/-- The specification syntax as the untyped IR carries it: leaf expressions are
+untyped terms, and binder annotations are untyped types. -/
+abbrev SpecBody := Spec.Body Expr Typ
 
 abbrev Vars := List TinyML.Var
 abbrev Exprs := List Expr

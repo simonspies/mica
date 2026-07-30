@@ -47,7 +47,7 @@ private def parseArgs : List String → Options → Options
     program never gets stuck.
     Instantiates the generic `Program.verify_adequate` at the concrete stdlib
     registry, discharging its obligations from `Stdlib.registry_sound`. -/
-theorem verify_adequate (p : Untyped.Program (Spec.Body Untyped.Expr)) :
+theorem verify_adequate (p : Untyped.Program Untyped.SpecBody) :
     Smt.Strategy.checks (Program.verify Stdlib.registry p)
       (∀ {e' : Runtime.Expr} {μ' : TinyML.Heap},
         TinyML.Steps Stdlib.registry.primCtx (Untyped.Program.runtime p).expr ∅ e' μ' →

@@ -23,7 +23,8 @@ private def parsePred : Untyped.Expr → M Pred
   | e => .error s!"expected predicate (isinj, own, arr) over a variable, got {repr e}"
 
 private def addProductLets (bound : Untyped.Expr) :
-    Nat → List Untyped.Binder → Assert Untyped.Expr α → M (Assert Untyped.Expr α)
+    Nat → List Untyped.Binder → Assert Untyped.Expr Untyped.Typ α →
+      M (Assert Untyped.Expr Untyped.Typ α)
   | _, [], rest => .ok rest
   | idx, binder :: binders, rest => do
       let rest' ← addProductLets bound (idx + 1) binders rest
@@ -32,8 +33,8 @@ private def addProductLets (bound : Untyped.Expr) :
       | .none => .ok rest'
 
 private def parseAssert (inner : Untyped.Expr → M α)
-    (bareAssert : Untyped.Expr → M (Assert Untyped.Expr α)) :
-    Untyped.Expr → M (Assert Untyped.Expr α)
+    (bareAssert : Untyped.Expr → M (Assert Untyped.Expr Untyped.Typ α)) :
+    Untyped.Expr → M (Assert Untyped.Expr Untyped.Typ α)
   | .app (.var "ret") [e] => do .ok (.ret (← inner e))
   | .app (.app (.var "bind") [e1]) [.fix .none [Untyped.Binder.named x (some ty)] _ e2] => do
     let pred ← parsePred e1
@@ -55,13 +56,13 @@ private def parseAssert (inner : Untyped.Expr → M α)
     .ok (.ite cond (← parseAssert inner bareAssert thn) (← parseAssert inner bareAssert els))
   | e => .error s!"expected assertion, got {repr e}"
 
-private def parsePostBody : Untyped.Expr → M (Assert Untyped.Expr Unit) :=
+private def parsePostBody : Untyped.Expr → M (Assert Untyped.Expr Untyped.Typ Unit) :=
   parseAssert
     (fun | .const .unit => .ok ()
          | e => .error s!"expected (), got {repr e}")
     (fun cond => .ok (.assert cond (.ret ())))
 
-private def parsePre : Untyped.Expr → M (Pre Untyped.Expr) :=
+private def parsePre : Untyped.Expr → M (Pre Untyped.Expr Untyped.Typ) :=
   parseAssert
     (fun | .fix .none [Untyped.Binder.named x _] _ body => do
            let body' ← parsePostBody body
@@ -69,7 +70,7 @@ private def parsePre : Untyped.Expr → M (Pre Untyped.Expr) :=
          | e => .error s!"expected fun v -> ..., got {repr e}")
     (fun _ => .error "bare assert is only allowed in postconditions")
 
-private def peelBinders : Untyped.Expr → M (Body Untyped.Expr)
+private def peelBinders : Untyped.Expr → M Untyped.SpecBody
   | Untyped.Expr.fix .none args _ body => do
     let names ← getNames args
     if names.isEmpty then .error "spec must bind at least one argument"
@@ -85,7 +86,7 @@ where
 
 /-- Recognise a specification's control structure in an elaborated attribute
 payload. -/
-def parse (e : Untyped.Expr) : M (Body Untyped.Expr) :=
+def parse (e : Untyped.Expr) : M Untyped.SpecBody :=
   peelBinders e
 
 end Spec

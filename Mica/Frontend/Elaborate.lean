@@ -216,9 +216,10 @@ def Typ.elaborateList (env : ElabEnv) : List Typ → ElabM (List TinyML.Typ)
 termination_by ts => sizeOf ts
 end
 
-private def elaborateOptTyp (env : ElabEnv) : Option Typ → ElabM (Option TinyML.Typ)
+/-- Elaborate an optional annotation into the untyped IR's type language. -/
+private def elaborateOptTyp (env : ElabEnv) : Option Typ → ElabM (Option Untyped.Typ)
   | none => .ok none
-  | some ty => do let ty' ← Typ.elaborate env ty; .ok (some ty')
+  | some ty => do let ty' ← Typ.elaborate env ty; .ok (some (.core ty'))
 
 -- ---------------------------------------------------------------------------
 -- Pattern helpers
@@ -347,7 +348,7 @@ private def elaborateFunctionArgs (env : ElabEnv) (stem : String) :
         let argName := productArgumentName stem idx
         let argTy ← patternToProductType env pat
         let names ← patternToProductBinders env pat
-        .ok (.named argName (some argTy) :: restArgs, .letProd names (.var argName) restBody)
+        .ok (.named argName (some (.core argTy)) :: restArgs, .letProd names (.var argName) restBody)
       else
         let arg ← patternToBinderTyped env pat
         .ok (arg :: restArgs, restBody)
@@ -862,8 +863,8 @@ def TypeDecl.elaborate (env : ElabEnv) (loc : Location) (decl : TypeDecl)
 
 def ValDecl.elaborate (env : ElabEnv) (loc : Location)
     (isRec : Bool) (binders : List Pattern) (retTy : Option Typ) (body : Expr)
-    (md : TinyML.DeclMeta (Spec.Body Untyped.Expr))
-    : ElabM (Untyped.ValDecl (Spec.Body Untyped.Expr)) := do
+    (md : TinyML.DeclMeta Untyped.SpecBody)
+    : ElabM (Untyped.ValDecl Untyped.SpecBody) := do
   match binders with
   | [] => err loc (.unsupportedFeature "declaration with no binders")
   | [pat] =>
@@ -887,7 +888,7 @@ def ValDecl.elaborate (env : ElabEnv) (loc : Location)
 -- Program elaboration
 
 private def elaborateAttrSpec (env : ElabEnv) (attrs : List Attribute)
-    : ElabM (Option (Spec.Body Untyped.Expr)) :=
+    : ElabM (Option Untyped.SpecBody) :=
   match attrs.find? (·.name == "spec") with
   | none => .ok none
   | some attr =>
@@ -912,7 +913,7 @@ private def hasAttrRelation (attrs : List Attribute) : ElabM Bool :=
         "[@@fn] takes no payload; the function's own name is used for the relation")
 
 def Decl.elaborate (env : ElabEnv) (decl : Decl)
-    : ElabM (ElabEnv × Option (Untyped.Decl (Spec.Body Untyped.Expr))) := do
+    : ElabM (ElabEnv × Option (Untyped.Decl Untyped.SpecBody)) := do
   match decl.kind with
   | .open_ path =>
     if path == Path.single "Mica" then
@@ -935,7 +936,7 @@ def Decl.elaborate (env : ElabEnv) (decl : Decl)
     .ok (env.bindBinder d.name, some (.val_ { d with declMeta := { d.declMeta with relation } }))
 
 private def elaborateDecls (env : ElabEnv) :
-    List Decl → ElabM (List (Untyped.Decl (Spec.Body Untyped.Expr)))
+    List Decl → ElabM (List (Untyped.Decl Untyped.SpecBody))
   | [] => .ok []
   | d :: ds => do
     let (env', optDecl) ← Decl.elaborate env d
@@ -975,7 +976,7 @@ private def predefEnv (resolver : Resolver) : ElabEnv :=
     ctors := TinyML.Predef.all.flatMap predefCtorEntries }
 
 def Program.elaborate (resolver : Resolver) (prog : Frontend.Program) :
-    ElabM (Untyped.Program (Spec.Body Untyped.Expr)) := do
+    ElabM (Untyped.Program Untyped.SpecBody) := do
   let decls ← requireOpenMica prog
   elaborateDecls (predefEnv resolver) decls
 

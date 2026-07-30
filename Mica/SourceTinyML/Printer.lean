@@ -8,6 +8,11 @@ open TinyML
 
 namespace TinyML
 
+/-- Does the type print without parentheses in argument position? -/
+private def Typ.atomic : Typ → Bool
+  | .prim _ | .empty | .value | .tvar _ | .named _ [] => true
+  | _ => false
+
 def Typ.print : Typ → String
   | .prim p => p.print
   | .sum ts => s!"sum ({", ".intercalate (ts.map Typ.print)})"
@@ -26,13 +31,33 @@ def Typ.print : Typ → String
   | .named T args => s!"{T.print} ({", ".intercalate (args.map Typ.print)})"
 where
   wrapArg (t : Typ) (s : String) : String :=
-    match t with
-    | .prim _ | .empty | .value | .tvar _ | .named _ [] => s
-    | _ => s!"({s})"
+    if t.atomic then s else s!"({s})"
 
 end TinyML
 
 namespace Untyped
+
+/-- Print a type of the untyped IR. Like `TinyML.Typ.print`, a specification an
+arrow carries is dropped: there is no surface syntax to print it back into. -/
+def Typ.print : Untyped.Typ → String
+  | .core t => t.print
+  | .sum ts => s!"sum ({", ".intercalate (ts.map Typ.print)})"
+  | .arrow args ret _ =>
+      " -> ".intercalate ((args.map fun arg => wrapArg arg (Typ.print arg)) ++ [Typ.print ret])
+  | .ref t => s!"ref {wrapArg t (Typ.print t)}"
+  | .array t => s!"array {wrapArg t (Typ.print t)}"
+  | .ownedArray t => s!"owned-array {wrapArg t (Typ.print t)}"
+  | .vec t => s!"vec {wrapArg t (Typ.print t)}"
+  | .owned t => s!"owned {wrapArg t (Typ.print t)}"
+  | .tuple ts => s!"({", ".intercalate (ts.map Typ.print)})"
+  | .named T [] => T.print
+  | .named T args => s!"{T.print} ({", ".intercalate (args.map Typ.print)})"
+where
+  wrapArg (t : Untyped.Typ) (s : String) : String :=
+    match t with
+    | .core c => if c.atomic then s else s!"({s})"
+    | .named _ [] => s
+    | _ => s!"({s})"
 
 def BinOp.toString : TinyML.BinOp → String
   | .add => "+" | .sub => "-" | .mul => "*" | .div => "/" | .mod => "mod"
@@ -176,25 +201,22 @@ def Pred.print : Spec.Pred → String
   | .own loc => s!"own {loc}"
   | .arr loc => s!"arr {loc}"
 
-private def typString (ty : Typ) : String :=
-  ty.print
-
-def Assert.print (inner : α → String) : Spec.Assert Untyped.Expr α → String
+def Assert.print (inner : α → String) : Spec.Assert Untyped.Expr Untyped.Typ α → String
   | .ret a => s!"ret {inner a}"
   | .assert cond rest => s!"assert {printExpr cond}; {Assert.print inner rest}"
   | .let_ x e rest => s!"let {x} = {printExpr e} in {Assert.print inner rest}"
   | .bind pred x ty rest =>
-      s!"bind ({Pred.print pred}) (fun ({x} : {typString ty}) -> {Assert.print inner rest})"
+      s!"bind ({Pred.print pred}) (fun ({x} : {ty.print}) -> {Assert.print inner rest})"
   | .ite cond thn els =>
       s!"if {printExpr cond} then {Assert.print inner thn} else {Assert.print inner els}"
 
-def Post.print (post : Spec.Post Untyped.Expr) : String :=
+def Post.print (post : Spec.Post Untyped.Expr Untyped.Typ) : String :=
   s!"fun {post.name} -> {Assert.print (fun () => "()") post.body}"
 
-def Pre.print : Spec.Pre Untyped.Expr → String :=
+def Pre.print : Spec.Pre Untyped.Expr Untyped.Typ → String :=
   Assert.print Post.print
 
-def Body.print (body : Spec.Body Untyped.Expr) : String :=
+def Body.print (body : Untyped.SpecBody) : String :=
   s!"fun {" ".intercalate body.args} -> {Pre.print body.pre}"
 
 end Spec
@@ -205,7 +227,7 @@ class SpecPayloadPrinter (S : Type) where
 instance : SpecPayloadPrinter Untyped.Expr where
   print := Expr.print
 
-instance : SpecPayloadPrinter (Spec.Body Untyped.Expr) where
+instance : SpecPayloadPrinter Untyped.SpecBody where
   print := Spec.Body.print
 
 def ValDecl.print {S : Type} [SpecPayloadPrinter S] (d : Untyped.ValDecl S) : String :=
