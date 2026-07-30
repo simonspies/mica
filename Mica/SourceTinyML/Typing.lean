@@ -3,7 +3,6 @@ import Mica.SourceTinyML.Types
 import Mica.SourceTinyML.Untyped
 import Mica.SourceTinyML.Typed
 import Mica.TinyML.RuntimeExpr
-import Mica.SourceTinyML.Spec
 import Mica.SourceTinyML.Assertions
 import Mica.SourceTinyML.TypeConstraints
 import Mica.Base.Except
@@ -576,8 +575,8 @@ def elabAssert (env : SpecEnv σ) (Θ : TypeEnv) (inner : TyCtx → List String 
       (← elabAssert env Θ inner Γ ns thn) (← elabAssert env Θ inner Γ ns els)))
 
 private def elabPost (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TyCtx) (ns : List String)
-    (post : Spec.Post Untyped.Expr) : TypeM σ (Assertion Typ Unit) :=
-  elabAssert env Θ (fun _ _ () => pure ()) Γ ns post
+    (body : Spec.Assert Untyped.Expr Unit) : TypeM σ (Assertion Typ Unit) :=
+  elabAssert env Θ (fun _ _ () => pure ()) Γ ns body
 
 /-- Match the spec's bound names against the typed function binders to recover
 each argument's type. -/
@@ -596,14 +595,14 @@ arrow. -/
 def elabSpecBody (env : SpecEnv σ) (Θ : TypeEnv) (Γbase : TyCtx)
     (argBinders : List Typed.Binder) (retTy : Typ)
     (rb : Spec.Body Untyped.Expr) : TypeM σ (Spec Typ) := do
-  let (names, pre) := rb
+  let names := rb.args
   let argTys ← TypeM.ofExcept (specArgTypes argBinders names)
   let Γ₀ : TyCtx := argTys.foldl (fun Γ p => Γ.extend p.1 p.2) Γbase
   let pred ← elabAssert env Θ
-    (fun Γ ns (vname, post) => do
-      let post' ← elabPost env Θ (Γ.extend vname retTy) (ns ++ [vname]) post
-      pure ⟨vname, post'⟩)
-    Γ₀ names pre
+    (fun Γ ns (post : Spec.Post Untyped.Expr) => do
+      let body' ← elabPost env Θ (Γ.extend post.name retTy) (ns ++ [post.name]) post.body
+      pure ⟨post.name, body'⟩)
+    Γ₀ names rb.pre
   pure { args := names, pred := pred }
 
 /-- Elaborate a specified function literal: its signature and specification

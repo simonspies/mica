@@ -3,7 +3,6 @@ import Mica.TinyML.Common
 import Mica.SourceTinyML.Types
 import Mica.SourceTinyML.Untyped
 import Mica.SourceTinyML.Typed
-import Mica.SourceTinyML.Spec
 
 open TinyML
 
@@ -189,15 +188,14 @@ def Assert.print (inner : α → String) : Spec.Assert Untyped.Expr α → Strin
   | .ite cond thn els =>
       s!"if {printExpr cond} then {Assert.print inner thn} else {Assert.print inner els}"
 
-def Post.print : Spec.Post Untyped.Expr → String :=
-  Assert.print (fun () => "()")
+def Post.print (post : Spec.Post Untyped.Expr) : String :=
+  s!"fun {post.name} -> {Assert.print (fun () => "()") post.body}"
 
 def Pre.print : Spec.Pre Untyped.Expr → String :=
-  Assert.print (fun (x, post) => s!"fun {x} -> {Post.print post}")
+  Assert.print Post.print
 
 def Body.print (body : Spec.Body Untyped.Expr) : String :=
-  let (args, pre) := body
-  s!"fun {" ".intercalate args} -> {Pre.print pre}"
+  s!"fun {" ".intercalate body.args} -> {Pre.print body.pre}"
 
 end Spec
 

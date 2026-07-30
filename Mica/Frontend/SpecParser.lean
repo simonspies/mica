@@ -1,14 +1,14 @@
 -- SUMMARY: Structural translation from elaborated TinyML terms into the specification language.
-import Mica.SourceTinyML.Spec
 import Mica.SourceTinyML.Untyped
 
 /-!
 # Spec Parser
 
-Translates `Untyped.Expr` (from elaborated `[@@spec ...]` attributes) into the
-`Spec` AST. This recognises only the control structure (`ret`, predicate
-`bind`, `let`, `assert`, `ite`); embedded leaf expressions are preserved
-verbatim as `Untyped.Expr` and typechecked later during elaboration.
+Translates `Untyped.Expr` (from elaborated `[@spec ...]` attributes) into the
+specification syntax of `Untyped.lean`. This recognises only the control
+structure (`ret`, predicate `bind`, `let`, `assert`, `ite`); embedded leaf
+expressions are preserved verbatim as `Untyped.Expr` and typechecked later
+during elaboration.
 -/
 
 namespace Spec
@@ -55,7 +55,7 @@ private def parseAssert (inner : Untyped.Expr → M α)
     .ok (.ite cond (← parseAssert inner bareAssert thn) (← parseAssert inner bareAssert els))
   | e => .error s!"expected assertion, got {repr e}"
 
-private def parsePost : Untyped.Expr → M (Post Untyped.Expr) :=
+private def parsePostBody : Untyped.Expr → M (Assert Untyped.Expr Unit) :=
   parseAssert
     (fun | .const .unit => .ok ()
          | e => .error s!"expected (), got {repr e}")
@@ -64,8 +64,8 @@ private def parsePost : Untyped.Expr → M (Post Untyped.Expr) :=
 private def parsePre : Untyped.Expr → M (Pre Untyped.Expr) :=
   parseAssert
     (fun | .fix .none [Untyped.Binder.named x _] _ body => do
-           let post ← parsePost body
-           .ok (x, post)
+           let body' ← parsePostBody body
+           .ok ⟨x, body'⟩
          | e => .error s!"expected fun v -> ..., got {repr e}")
     (fun _ => .error "bare assert is only allowed in postconditions")
 
@@ -75,7 +75,7 @@ private def peelBinders : Untyped.Expr → M (Body Untyped.Expr)
     if names.isEmpty then .error "spec must bind at least one argument"
     else do
       let pre ← parsePre body
-      .ok (names, pre)
+      .ok ⟨names, pre⟩
   | e => .error s!"expected fun x -> ..., got {repr e}"
 where
   getNames : List Untyped.Binder → M (List String)
@@ -83,6 +83,8 @@ where
     | Untyped.Binder.named x _ :: rest => do let xs ← getNames rest; .ok (x :: xs)
     | Untyped.Binder.none :: _ => .error "unnamed binder in spec is not allowed"
 
+/-- Recognise a specification's control structure in an elaborated attribute
+payload. -/
 def parse (e : Untyped.Expr) : M (Body Untyped.Expr) :=
   peelBinders e
 
