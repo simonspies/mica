@@ -13,5 +13,4 @@ import Mica.Verifier.BoundedQuantifier
 import Mica.Verifier.Expressions
 import Mica.Verifier.RelationalEncoding
 import Mica.Verifier.Specifications
-import Mica.Verifier.SpecMaps
 import Mica.Verifier.Programs
