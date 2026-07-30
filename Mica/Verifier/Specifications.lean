@@ -1,4 +1,4 @@
--- SUMMARY: Verifier operations on function specifications: the call and implementation protocols, their correctness, and specification entries.
+-- SUMMARY: Verifier operations on function specifications: the call and implementation protocols and their correctness.
 import Mica.SourceTinyML.Typed
 import Mica.FOL.Printing
 import Mica.Verifier.PrimitiveLaws
@@ -610,31 +610,3 @@ theorem implement_correct (W : TinyML.World)
 
 end ImplementCorrectness
 end Spec
-
-/-! ## Specification entries
-
-A completed function specification bundled with the argument and result types
-supplied by its arrow: what `ValDecl.check` hands back for a verified
-declaration. -/
-
-/-- A completed function specification together with the argument and result
-    types of the arrow it specifies. Morally a specified arrow type. -/
-structure SpecEntry where
-  argTys : List TinyML.Typ
-  retTy  : TinyML.Typ
-  spec   : Spec TinyML.Typ
-  deriving DecidableEq
-
-/-- The precondition assertion for a specified function value, reading the
-    argument and result types off the entry. Reducible so it unifies definitionally
-    with the underlying `Spec.isPrecondFor`. -/
-@[reducible] def SpecEntry.isPrecondFor (W : TinyML.World) (e : SpecEntry) (f : Runtime.Val) : iProp :=
-  e.spec.isPrecondFor W (TinyML.ValHasType W) e.argTys e.retTy f
-
-instance : Iris.BI.Persistent (SpecEntry.isPrecondFor W e f) := by
-  unfold SpecEntry.isPrecondFor; infer_instance
-
-/-- Well-formedness of an entry: the spec's argument count matches the arrow
-    arity, and its predicate transformer is well-formed. -/
-def SpecEntry.wfIn (e : SpecEntry) (Δ : Signature) : Prop :=
-  e.spec.args.length = e.argTys.length ∧ e.spec.wfIn Δ

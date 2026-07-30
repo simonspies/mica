@@ -19,42 +19,15 @@ open Typed
 open Verifier.RelationalEncoding (FunCtx encodeWith)
 open Verifier.RelationalEncoding.Skolemize (encoderOps DefVal)
 
-/-- Bundle a declaration's spec with the argument and result types of the
-    function literal it annotates. Validates that the spec's argument-name count
-    matches the function's arity. -/
-def SpecEntry.ofFunction (s : Spec TinyML.Typ) (e : Expr) : Except String SpecEntry :=
-  match e with
-  | .fix _ argBinders retTy _ _ =>
-    if s.args.length = argBinders.length then
-      .ok { argTys := argBinders.map (·.ty), retTy, spec := s }
+/-- Check that a declaration's specification names exactly as many arguments as
+    its function literal takes. Elaboration rejects a specification with more
+    names than the literal has binders but not one with fewer, so this is where
+    an under-length specification is caught. -/
+def checkSpecArity (s : Spec TinyML.Typ) : Expr → Except String Unit
+  | .fix _ argBinders _ _ _ =>
+    if s.args.length = argBinders.length then .ok ()
     else .error s!"spec argument count does not match function arity"
-  | _ => .error "SpecEntry.ofFunction: expected function"
-
-omit [MicaGS HasLC.hasLC Sig] in
-/-- A bundled entry describes the function literal it came from: the body is a
-    `fix`, and the entry's argument and result types are the literal's. -/
-theorem SpecEntry.ofFunction_shape {s : Spec TinyML.Typ} {expr : Expr} {e : SpecEntry}
-    (h : SpecEntry.ofFunction s expr = .ok e) :
-    (expr.withSpec e.spec).ty = .arrow e.argTys e.retTy (some e.spec) := by
-  simp only [SpecEntry.ofFunction] at h
-  split at h
-  · split at h
-    · injection h with h; subst h
-      simp [Typed.Expr.withSpec, Typed.Expr.ty]
-    · simp at h
-  · simp at h
-
-omit [MicaGS HasLC.hasLC Sig] in
-/-- A bundled entry's spec-argument count matches its argument-type count. -/
-theorem SpecEntry.ofFunction_argLen {s : Spec TinyML.Typ} {expr : Expr} {e : SpecEntry}
-    (h : SpecEntry.ofFunction s expr = .ok e) : e.spec.args.length = e.argTys.length := by
-  simp only [SpecEntry.ofFunction] at h
-  split at h
-  · split at h
-    · rename_i hlen
-      injection h with h; subst h; simpa using hlen
-    · simp at h
-  · simp at h
+  | _ => .error "specification attached to a non-function declaration"
 
 /-! ## Program-level verification
 
@@ -476,22 +449,25 @@ end RelationSpec
 /-- Check an individual declaration: attach its completed specification to the
     function literal and compile that, the same path a `let`-bound specified
     function takes. The compilation runs inside a `seq` bracket so its
-    declarations and assertions don't pollute subsequent verifications. -/
+    declarations and assertions don't pollute subsequent verifications. Returns
+    the specified arrow the declaration was verified at, which is what binds its
+    name for the declarations that follow. -/
 def ValDecl.check (reg : Verifier.Registry) (Θ : TinyML.TypeEnv) (Δ_spec : Signature)
     (B : Bindings) (Γ : TinyML.TyCtx)
-    (d : Typed.ValDecl (Spec TinyML.Typ)) : VerifM SpecEntry := do
+    (d : Typed.ValDecl (Spec TinyML.Typ)) : VerifM TinyML.Typ := do
   let spec ← match d.declMeta.spec with
     | some s => .ret s
     | none => .fatal "declaration has no spec"
-  let e ← match SpecEntry.ofFunction spec d.body with
-    | .ok s => .ret s
-    | .error msg => .fatal msg
-  let () ← match Spec.checkWf e.spec Δ_spec with
+  let () ← match checkSpecArity spec d.body with
     | .ok () => .ret ()
     | .error msg => .fatal msg
+  let () ← match Spec.checkWf spec Δ_spec with
+    | .ok () => .ret ()
+    | .error msg => .fatal msg
+  let body := d.body.withSpec spec
   VerifM.seq
-    (do let _ ← compile reg Θ Δ_spec B Γ (d.body.withSpec e.spec); pure ())
-    (pure e)
+    (do let _ ← compile reg Θ Δ_spec B Γ body; pure ())
+    (pure body.ty)
 
 /-- Check a `let _ = e` declaration: just compile `e` for safety, no spec. -/
 def ValDecl.checkExpr (reg : Verifier.Registry) (Θ : TinyML.TypeEnv) (Δ_spec : Signature)
@@ -520,15 +496,14 @@ def Program.check (reg : Verifier.Registry) (Θ : TinyML.TypeEnv) (Δ_spec : Sig
         ValDecl.checkExpr reg Θ Δ_spec B Γ d
         Program.check reg Θ Δ_spec (B.remove n) Γ ds
     | _, _ =>
-      let e ← ValDecl.check reg Θ Δ_spec B Γ d
+      let ty ← ValDecl.check reg Θ Δ_spec B Γ d
       match d.name.name with
       | some n =>
         -- The declaration's value is a specified function: declare a constant
-        -- for it and bind the name, so later declarations can apply it through
-        -- its type or pass it as a value.
+        -- for it and bind the name at the arrow it was verified at, so later
+        -- declarations can apply it through its type or pass it as a value.
         let fv ← VerifM.decl (some n) .value
-        Program.check reg Θ Δ_spec ((n, fv) :: B)
-          (Γ.extend n (.arrow e.argTys e.retTy (some e.spec))) ds
+        Program.check reg Θ Δ_spec ((n, fv) :: B) (Γ.extend n ty) ds
       | none => Program.check reg Θ Δ_spec B Γ ds
 
 def Program.verify (reg : Verifier.Registry) (prog : Untyped.Program (Spec.Body Untyped.Expr)) : Smt.Strategy Smt.Strategy.Outcome :=
@@ -620,12 +595,11 @@ theorem ValDecl.check_correct (reg : Verifier.Registry) (hSound : Verifier.Regis
     (hagree : B.agreeOnLinked ρ γ) (hbwf : B.wfIn st.decls)
     (hΔreg : Verifier.Registry.symSubset reg W.Δ_spec)
     (hρreg : Verifier.Registry.symAgree reg W.ρ_spec)
-    {Q : SpecEntry → TransState → Env → Prop}
+    {Q : TinyML.Typ → TransState → Env → Prop}
     (heval : VerifM.eval (ValDecl.check reg W.Θ W.Δ_spec B Γ d) st ρ Q) :
-    ∃ spec, spec.wfIn W.Δ_spec ∧
-            (□ st.sl W ρ ∗ Bindings.typedSubst W B Γ γ ⊢
-              wp W.pctx (d.body.runtime.subst γ) (fun v => spec.isPrecondFor W v)) ∧
-            Q spec st ρ := by
+    ∃ ty, (□ st.sl W ρ ∗ Bindings.typedSubst W B Γ γ ⊢
+              wp W.pctx (d.body.runtime.subst γ) (fun v => TinyML.ValHasType W v ty)) ∧
+          Q ty st ρ := by
   simp only [ValDecl.check] at heval
   cases hspec : d.declMeta.spec with
   | none =>
@@ -634,39 +608,34 @@ theorem ValDecl.check_correct (reg : Verifier.Registry) (hSound : Verifier.Regis
   | some s =>
     simp only [hspec] at heval
     have h2 := VerifM.eval_ret (VerifM.eval_bind heval)
-    cases hentry : SpecEntry.ofFunction s d.body with
+    cases harity : checkSpecArity s d.body with
     | error msg =>
-      simp only [hentry] at h2
+      simp only [harity] at h2
       exact (VerifM.eval_fatal (VerifM.eval_bind h2)).elim
-    | ok spec =>
-      simp only [hentry] at h2
+    | ok u₀ =>
+      simp only [harity] at h2
       have h3 := VerifM.eval_ret (VerifM.eval_bind h2)
-      cases hcheckWf : Spec.checkWf spec.spec W.Δ_spec with
+      cases hcheckWf : Spec.checkWf s W.Δ_spec with
       | error msg =>
         simp only [hcheckWf] at h3
         exact (VerifM.eval_fatal (VerifM.eval_bind h3)).elim
       | ok u =>
         simp only [hcheckWf] at h3
         have h4 := VerifM.eval_ret (VerifM.eval_bind h3)
-        have hswf : spec.wfIn W.Δ_spec :=
-          ⟨SpecEntry.ofFunction_argLen hentry, Spec.checkWf_ok (by cases u; exact hcheckWf)⟩
         have ⟨hcompileSeq, hpure⟩ := VerifM.eval_seq h4
-        refine ⟨spec, hswf, ?_, VerifM.eval_ret hpure⟩
-        -- The body is compiled as an ordinary specified function literal; its
-        -- own interpretation is exactly the entry's precondition predicate.
+        refine ⟨(d.body.withSpec s).ty, ?_, VerifM.eval_ret hpure⟩
+        -- The body is compiled as an ordinary specified function literal, so
+        -- its value is typed at the specified arrow the literal carries.
         have hcompile :
             st.sl W ρ ∗ (Bindings.typedSubst W B Γ γ ∗ iprop(emp)) ⊢
-              wp W.pctx ((d.body.withSpec spec.spec).runtime.subst γ)
-                (fun v => spec.isPrecondFor W v) :=
-          compile_correct reg hSound (d.body.withSpec spec.spec) W iprop(emp) B
+              wp W.pctx ((d.body.withSpec s).runtime.subst γ)
+                (fun v => TinyML.ValHasType W v (d.body.withSpec s).ty) :=
+          compile_correct reg hSound (d.body.withSpec s) W iprop(emp) B
             Γ st ρ γ _ _ hW (VerifM.eval_bind hcompileSeq)
             hagree hbwf
             hwf hag hΔreg hρreg
             (fun v ρ' st' se _ _ _ => by
-              rw [SpecEntry.ofFunction_shape hentry]
               iintro ⟨_, Hty, _⟩
-              unfold SpecEntry.isPrecondFor
-              iapply (TinyML.ValHasType.arrow_some W v spec.argTys spec.retTy spec.spec).1
               iexact Hty)
         rw [Typed.Expr.withSpec_runtime] at hcompile
         refine BIBase.Entails.trans ?_ hcompile
@@ -731,7 +700,7 @@ theorem Program.check_correct (reg : Verifier.Registry) (hSound : Verifier.Regis
       | some _ =>
         -- unnamed, with spec
         simp only [hname, hspec] at heval
-        obtain ⟨spec, _, hwp, hcont⟩ :=
+        obtain ⟨_, hwp, hcont⟩ :=
           ValDecl.check_correct reg hSound W hW B Γ d γ hwf st ρ hag hagree hbwf
             hΔreg hρreg (VerifM.eval_bind heval)
         have hih := ih B Γ γ st ρ hag hagree hbwf hcont
@@ -800,10 +769,9 @@ theorem Program.check_correct (reg : Verifier.Registry) (hSound : Verifier.Regis
               iexact HT)
       | some _ =>
         simp only [hname, hspec] at heval
-        obtain ⟨spec, hswf, hwp, hcont⟩ :=
+        obtain ⟨selfTy, hwp, hcont⟩ :=
           ValDecl.check_correct reg hSound W hW B Γ d γ hwf st ρ hag hagree hbwf
             hΔreg hρreg (VerifM.eval_bind heval)
-        set selfTy := TinyML.Typ.arrow spec.argTys spec.retTy (some spec.spec) with hselfTy_def
         have hcont' : VerifM.eval
             (do let fv ← VerifM.decl (some n) .value
                 Program.check reg W.Θ W.Δ_spec ((n, fv) :: B)
@@ -834,7 +802,7 @@ theorem Program.check_correct (reg : Verifier.Registry) (hSound : Verifier.Regis
           simp only [TransState.sl_eq, hst₁_def]
           exact (SpatialContext.interp_env_agree W (VerifM.eval.wf heval).ownsWf hρ_st₁).1
         have hstep : (□ st.sl W ρ ∗ Bindings.typedSubst W B Γ γ) ∗
-            spec.isPrecondFor W v ⊢
+            TinyML.ValHasType W v selfTy ⊢
             pwp W.pctx ((Typed.Program.runtime ds).subst (γ.update n v)) := by
           refine BIBase.Entails.trans ?_ hih
           istart
@@ -847,8 +815,7 @@ theorem Program.check_correct (reg : Verifier.Registry) (hSound : Verifier.Regis
           · iapply (Bindings.typedSubst_cons (W := W) (B := B) (Γ := Γ) (γ := γ)
               (x := n) (v := fv) (te := selfTy) (w := v))
             · iexact HT
-            · iapply (TinyML.ValHasType.arrow_some W v spec.argTys spec.retTy spec.spec).2
-              iexact Hpre
+            · iexact Hpre
         exact wand_intro hstep
 
 
