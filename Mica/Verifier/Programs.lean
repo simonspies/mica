@@ -40,7 +40,7 @@ has to be available before elaboration starts; the declaration name and relation
 name it needs are both untyped metadata. `RelationSpec.assemble` re-derives the
 same map from the typed program and validates every entry, so nothing here is
 trusted. -/
-def Program.relationMap (prog : Untyped.Program (Spec.Body Untyped.Expr)) : FunCtx :=
+def Program.relationMap (prog : Untyped.Program Untyped.SpecBody) : FunCtx :=
   prog.filterMap fun
     | .val_ d =>
       match d.name, d.declMeta.relation with
@@ -68,6 +68,9 @@ appends to the function map. -/
 def Program.specEnv (reg : Verifier.Registry) (Γfn : FunCtx) :
     Typed.SpecEnv Verifier.BoundedQuantifier.LiftState where
   primitive := reg.sigs
+  -- No declaration is in scope yet; `Program.elaborate` sets the globals of
+  -- each declaration as it reaches it.
+  globals := TinyML.TyCtx.empty
   translate names e := fun st =>
     match Verifier.BoundedQuantifier.rewriteLeaf e st with
     | .error msg => .error (.spec msg)
@@ -81,7 +84,7 @@ def Program.specEnv (reg : Verifier.Registry) (Γfn : FunCtx) :
 its specifications already translated, and the final elaboration state (which
 carries the lifted bounded quantifiers). -/
 def Program.prepare (env : Typed.SpecEnv σ) (s : σ)
-    (prog : Untyped.Program (Spec.Body Untyped.Expr)) :
+    (prog : Untyped.Program Untyped.SpecBody) :
     VerifM (TinyML.TypeEnv × Typed.Program (Spec TinyML.Typ) × σ) :=
   match Typed.Program.elaborate env TinyML.TypeEnv.empty TinyML.TyCtx.empty prog s with
   | .ok ((Θ, typed), s') => .ret (Θ, typed, s')
@@ -506,7 +509,7 @@ def Program.check (reg : Verifier.Registry) (Θ : TinyML.TypeEnv) (Δ_spec : Sig
         Program.check reg Θ Δ_spec ((n, fv) :: B) (Γ.extend n ty) ds
       | none => Program.check reg Θ Δ_spec B Γ ds
 
-def Program.verify (reg : Verifier.Registry) (prog : Untyped.Program (Spec.Body Untyped.Expr)) : Smt.Strategy Smt.Strategy.Outcome :=
+def Program.verify (reg : Verifier.Registry) (prog : Untyped.Program Untyped.SpecBody) : Smt.Strategy Smt.Strategy.Outcome :=
   VerifM.strategy do
     let (Θ, typed, liftSt) ← Program.prepare (Program.specEnv reg (Program.relationMap prog)) {} prog
     Verifier.Registry.introduceRegistry reg
@@ -517,7 +520,7 @@ def Program.verify (reg : Verifier.Registry) (prog : Untyped.Program (Spec.Body 
 
 omit [MicaGS HasLC.hasLC Sig] in
 theorem Program.prepare_correct (env : Typed.SpecEnv σ) (s : σ)
-    (prog : Untyped.Program (Spec.Body Untyped.Expr))
+    (prog : Untyped.Program Untyped.SpecBody)
     (st : TransState) (ρ : Env)
     {Q : (TinyML.TypeEnv × Typed.Program (Spec TinyML.Typ) × σ) → TransState → Env → Prop}
     (heval : VerifM.eval (Program.prepare env s prog) st ρ Q) :
@@ -821,7 +824,7 @@ theorem Program.check_correct (reg : Verifier.Registry) (hSound : Verifier.Regis
 
 omit [MicaGS HasLC.hasLC Sig] in
 theorem Program.verify_correct (reg : Verifier.Registry)
-    (hSound : Verifier.Registry.Sound reg) (p : Untyped.Program (Spec.Body Untyped.Expr)) :
+    (hSound : Verifier.Registry.Sound reg) (p : Untyped.Program Untyped.SpecBody) :
     Smt.Strategy.checks (Program.verify reg p)
       (∀ [MicaGS HasLC.hasLC Sig], ⊢ pwp reg.primCtx (Untyped.Program.runtime p)) := by
   simp only [Smt.Strategy.checks, Program.verify, VerifM.strategy]
@@ -905,7 +908,7 @@ omit [MicaGS HasLC.hasLC Sig] in
     is a value or can step. Derived from `Program.verify_correct` through the
     `pwp`-to-`wp` bridge and `Runtime.Program.adequacy`. -/
 theorem Program.verify_adequate (reg : Verifier.Registry)
-    (hSound : Verifier.Registry.Sound reg) (p : Untyped.Program (Spec.Body Untyped.Expr)) :
+    (hSound : Verifier.Registry.Sound reg) (p : Untyped.Program Untyped.SpecBody) :
     Smt.Strategy.checks (Program.verify reg p)
       (∀ {e' : Runtime.Expr} {μ' : TinyML.Heap},
         TinyML.Steps reg.primCtx (Untyped.Program.runtime p).expr ∅ e' μ' →
