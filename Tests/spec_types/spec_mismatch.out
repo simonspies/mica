@@ -1,0 +1,2 @@
+Status: failed: subsumption failed: TinyML.Typ.arrow [TinyML.Typ.prim (TinyML.PrimitiveType.int)] (TinyML.Typ.prim (TinyML.PrimitiveType.int)) (some <spec>) is not a subtype of TinyML.Typ.arrow [TinyML.Typ.prim (TinyML.PrimitiveType.int)] (TinyML.Typ.prim (TinyML.PrimitiveType.int)) (some <spec>)
+[1]

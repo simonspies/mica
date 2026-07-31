@@ -548,15 +548,52 @@ mutual
         | _ => TypeM.error (.notASum scrutTy)
   termination_by e => (sizeOf e, 0)
 
-  def check (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx) (e : Untyped.Expr) (expected : Typ) : TypeM σ Typed.Expr := do
-    let (actual, e') ← infer env Θ Γ e
-    if actual == expected then
-      pure e'
-    else if Typ.sub Θ actual expected then
-      pure (.cast e' expected)
-    else
-      TypeM.error (.subsumptionFailure actual expected)
-  termination_by (sizeOf e, 1)
+  def check (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx) :
+      Untyped.Expr → Typ → TypeM σ Typed.Expr
+    -- A function literal checked against a specified arrow is elaborated at that
+    -- arrow: it takes the expected signature, records the specification, and its
+    -- self-reference is typed at the specified arrow — the same shape a specified
+    -- declaration gets. Inferring the literal first could never reach a specified
+    -- arrow, since those are invariant and an inferred literal carries no spec.
+    | .fix self args retTy body, .arrow doms ret (some s) => do
+        let typedArgs ← checkBinders env Θ args doms
+        let ann ← translateOpt env Θ retTy
+        if ann.any (· != ret) then
+          TypeM.error (.subsumptionFailure ret (ann.getD ret))
+        else
+          -- The self-reference is typed at the specified arrow, so a recursive
+          -- call goes through the specification.
+          let typedSelf :=
+            Typed.Binder.ofUntyped self (.arrow (typedArgs.map Binder.ty) ret (some s))
+          let Γ' := typedArgs.foldl extendTyped (extendTyped Γ typedSelf)
+          let body' ← check env Θ Γ' body ret
+          pure (.fix typedSelf typedArgs ret (some s) body')
+    -- Everything else is checked by inference, subsuming into the expected type.
+    | e, expected => do
+        let (actual, e') ← infer env Θ Γ e
+        if actual == expected then
+          pure e'
+        else if Typ.sub Θ actual expected then
+          pure (.cast e' expected)
+        else
+          TypeM.error (.subsumptionFailure actual expected)
+  termination_by e => (sizeOf e, 1)
+
+  /-- Type a function literal's binders at the domains its expected arrow
+  supplies. An annotation is allowed, but it has to agree: a specified arrow is
+  invariant, so there is nothing to subsume. -/
+  def checkBinders (env : SpecEnv σ) (Θ : TypeEnv) :
+      List Untyped.Binder → List Typ → TypeM σ (List Typed.Binder)
+    | [], [] => pure []
+    | b :: bs, ty :: tys => do
+        let annotated ← Binder.expectedTy env Θ b ty
+        if annotated == ty then do
+          let rest ← checkBinders env Θ bs tys
+          pure (Typed.Binder.ofUntyped b ty :: rest)
+        else
+          TypeM.error (.subsumptionFailure ty annotated)
+    | bs, tys => TypeM.error (.arityMismatch tys.length bs.length)
+  termination_by bs _ => (sizeOf bs, 0)
 
   def inferList (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx) : List Untyped.Expr → TypeM σ (List (Typ × Typed.Expr))
     | [] => pure []
@@ -693,6 +730,27 @@ theorem typedBinders_runtime (env : SpecEnv σ) (Θ : TypeEnv) :
       rcases (by simpa using hcont) with ⟨rfl, rfl⟩
       simp [Binder.ofUntyped_runtime, typedBinders_runtime env Θ bs rest s₀ s₁ hrest]
 
+theorem checkBinders_runtime (env : SpecEnv σ) (Θ : TypeEnv) :
+    ∀ (binders : List Untyped.Binder) (tys : List Typ) (typed : List Typed.Binder) (s s' : σ),
+      checkBinders env Θ binders tys s = .ok (typed, s') →
+        typed.map Typed.Binder.runtime = binders.map Untyped.Binder.runtime
+  | [], [], typed, s, s', h => by
+      simp [checkBinders] at h
+      rcases h with ⟨rfl, rfl⟩
+      rfl
+  | b :: bs, ty :: tys, typed, s, s', h => by
+      unfold checkBinders at h
+      have ⟨annotated, s₀, _hty, hcont⟩ := StateT.bind_ok h
+      split at hcont
+      · have ⟨rest, s₁, hrest, hcont⟩ := StateT.bind_ok hcont
+        rcases (by simpa using hcont) with ⟨rfl, rfl⟩
+        simp [Binder.ofUntyped_runtime, checkBinders_runtime env Θ bs tys rest s₀ s₁ hrest]
+      · simp at hcont
+  | [], _ :: _, typed, s, s', h => by
+      simp [checkBinders] at h
+  | _ :: _, [], typed, s, s', h => by
+      simp [checkBinders] at h
+
 theorem inferProductBinders_runtime (env : SpecEnv σ) (Θ : TypeEnv) :
     ∀ (binders : List Untyped.Binder) (tys : List Typ) (typed : List Typed.Binder) (s s' : σ),
       inferProductBinders env Θ binders tys s = .ok (typed, s') →
@@ -732,16 +790,27 @@ arrow, so a recursive call resolves through the type it is annotated with rather
 than through a side table. -/
 def elabSpecifiedFix (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx)
     (rb : Untyped.SpecBody) : Untyped.Expr → TypeM σ (Spec Typ × Typed.Expr)
-  | .fix self args retTy body => do
-      let retTy := (← translateOpt env Θ retTy).getD .value
+  | e@(.fix _ args retTy _) => do
+      -- The specification needs the literal's signature, and checking the
+      -- literal needs the specification, so the signature is elaborated first
+      -- and the literal is then checked at the arrow the two describe.
+      let ret := (← translateOpt env Θ retTy).getD .value
       let typedArgs ← typedBinders env Θ args
-      let s ← elabSpecBody env Θ Γ typedArgs retTy rb
-      let selfTy := Typ.arrow (typedArgs.map Binder.ty) retTy (some s)
-      let typedSelf := Typed.Binder.ofUntyped self selfTy
-      let Γ' := typedArgs.foldl extendTyped (extendTyped Γ typedSelf)
-      let body' ← check env Θ Γ' body retTy
-      pure (s, .fix typedSelf typedArgs retTy (some s) body')
+      let s ← elabSpecBody env Θ Γ typedArgs ret rb
+      pure (s, ← check env Θ Γ e (.arrow (typedArgs.map Binder.ty) ret (some s)))
   | _ => TypeM.error (.spec "attached to a non-function declaration")
+
+/-- A declaration is specified once. `[@@spec]` and a specification on the
+declaration's own type are the same mechanism, so giving both would ask for two
+specifications of one function. -/
+private def checkSingleSpec (b : Untyped.Binder) : TypeM σ Unit :=
+  match b with
+  | .named _ (some ann) =>
+      if ann.isSpecified then
+        TypeM.error (.spec
+          "a declaration carries either [@@spec] or a specification on its own type, not both")
+      else pure ()
+  | _ => pure ()
 
 /-- Check a declaration binder's annotation against the type elaborated for its
 body. A specified declaration's type carries its specification, which no
@@ -759,6 +828,7 @@ def ValDecl.elaborate (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx)
     TypeM σ Typed.ValDecl := do
   match d.spec with
   | some rb => do
+      checkSingleSpec d.name
       -- A specified declaration's literal records its specification, so the
       -- declaration's own type — and hence the type every later use is
       -- annotated with — is the specified arrow.
@@ -1190,18 +1260,35 @@ mutual
           | _ =>
             simp at hcont
 
-  theorem check_runtime (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx) (e : Untyped.Expr)
-      (expected : Typ) :
-      ∀ s e' s', Typed.check env Θ Γ e expected s = .ok (e', s') → e'.runtime = e.runtime := by
-      intro s e' s' h
-      unfold Typed.check at h
+  theorem check_runtime (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx) (e : Untyped.Expr) :
+      ∀ (expected : Typ) s e' s',
+        Typed.check env Θ Γ e expected s = .ok (e', s') → e'.runtime = e.runtime := by
+    intro expected s e' s' h
+    rw [Typed.check.eq_def] at h
+    split at h
+    -- A function literal at a specified arrow. Its binders are checked against
+    -- the arrow's domains, so they erase to the literal's own; the arrow and the
+    -- specification leave no trace.
+    case _ self args retTy body doms ret sp =>
+      have ⟨typedArgs, s₀, hargs, hcont⟩ := StateT.bind_ok h
+      have ⟨ann, s₁, _hret, hcont⟩ := StateT.bind_ok hcont
+      by_cases hann : ann.any (· != ret)
+      · simp [hann] at hcont
+      · simp only [hann, if_false, Bool.false_eq_true] at hcont
+        have ⟨body', s₂, hbody, hcont⟩ := StateT.bind_ok hcont
+        rcases (by simpa using hcont) with ⟨rfl, rfl⟩
+        simp [Expr.runtime, Untyped.Expr.runtime, Binder.ofUntyped_runtime,
+          check_runtime env Θ _ body ret _ _ _ hbody,
+          checkBinders_runtime env Θ args doms typedArgs s s₀ hargs]
+    -- Everything else is inference followed by subsumption.
+    case _ =>
       have ⟨p, s₀, hinfer, hcont⟩ := StateT.bind_ok h
       cases p with
       | mk actual e1 =>
         by_cases heq : actual == expected
         · simp [heq] at hcont
           rcases hcont with ⟨rfl, rfl⟩
-          simpa using infer_runtime env Θ Γ e _ _ _ hinfer
+          exact infer_runtime env Θ Γ e _ _ _ hinfer
         · by_cases hsub : Typ.sub Θ actual expected
           · simp [heq, hsub] at hcont
             rcases hcont with ⟨rfl, rfl⟩
@@ -1298,16 +1385,15 @@ theorem elabSpecifiedFix_runtime (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.
   cases e
   case fix self args retTy body =>
     simp only [elabSpecifiedFix] at h
-    -- The spec's own elaboration stays opaque: `StateT.bind_ok` recovers it
-    -- without naming the arguments `elabSpecBody` is applied to.
+    -- The signature and the spec's own elaboration stay opaque: `StateT.bind_ok`
+    -- recovers them without naming what they are applied to. The literal is then
+    -- checked as it stands, so erasure is exactly `check_runtime`.
     have ⟨_retTy, s₀, _hret, hcont⟩ := StateT.bind_ok h
-    have ⟨typedArgs, s₁, hargs, hcont⟩ := StateT.bind_ok hcont
+    have ⟨_typedArgs, s₁, _hargs, hcont⟩ := StateT.bind_ok hcont
     have ⟨_spec, s₂, _hspec, hcont⟩ := StateT.bind_ok hcont
-    have ⟨body', s₃, hbody, hcont⟩ := StateT.bind_ok hcont
+    have ⟨body', s₃, hchecked, hcont⟩ := StateT.bind_ok hcont
     rcases hcont with ⟨rfl, rfl⟩
-    simp [Expr.runtime, Untyped.Expr.runtime, Binder.ofUntyped_runtime,
-      check_runtime env Θ _ body _ _ _ _ hbody,
-      typedBinders_runtime env Θ args typedArgs s₀ s₁ hargs]
+    exact check_runtime env Θ Γ _ _ _ _ _ hchecked
   all_goals simp [elabSpecifiedFix, TypeM.error] at h
 
 theorem ValDecl.elaborate_runtime (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx)
@@ -1321,7 +1407,8 @@ theorem ValDecl.elaborate_runtime (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML
   match hspec : d.spec with
   | some rb =>
     simp only [ValDecl.elaborate, hspec] at helab
-    have ⟨r, s₀, hfix, hcont⟩ := StateT.bind_ok helab
+    have ⟨_, sg, _, helab'⟩ := StateT.bind_ok helab
+    have ⟨r, s₀, hfix, hcont⟩ := StateT.bind_ok helab'
     have ⟨_, s₁, _, hcont⟩ := StateT.bind_ok hcont
     rcases hcont with ⟨rfl, rfl⟩
     simp [Typed.ValDecl.runtime, Untyped.ValDecl.runtime, Binder.ofUntyped_runtime,
