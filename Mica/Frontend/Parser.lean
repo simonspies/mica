@@ -786,12 +786,12 @@ where
     let st := if isRec then advance st else st
     let (first, st) ← parsePatternBinder st
     let (rest, st) ← parseFunArgs st
-    let (_retTy, st) ← parseOptRetTy st
+    let (retTy, st) ← parseOptRetTy st
     let st ← expect .eq st
     let (bound, st) ← parseExpr st
     let st ← expect .kw_in st
     let (body, st) ← parseExpr st
-    .ok (mkExpr p st (.letIn isRec (first :: rest) bound body), st)
+    .ok (mkExpr p st (.letIn isRec (first :: rest) retTy bound body), st)
 
   -- `fun pat pat ... [: T] -> body`
   parseFun : Parser Expr := fun st => do

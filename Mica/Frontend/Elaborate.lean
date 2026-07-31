@@ -663,7 +663,7 @@ partial def ExprKind.elaborate (env : ElabEnv) (loc : Location) : ExprKind → E
     let e' ← Expr.elaborate env e
     .ok (.ifThenElse c' t' e')
 
-  | .letIn isRec binders bound body =>
+  | .letIn isRec binders retTy bound body =>
     match binders with
     | [] => err loc (.unsupportedFeature "let with no binders")
     | [pat] => do
@@ -673,10 +673,19 @@ partial def ExprKind.elaborate (env : ElabEnv) (loc : Location) : ExprKind → E
       else
         let body' ← Expr.elaborate (env.bindPattern pat) body
         if isProductPattern pat then
-          let names ← patternToProductBinders env pat
-          .ok (.letProd names bound' body')
+          if retTy.isSome then
+            err loc (.unsupportedFeature "a destructuring let cannot be annotated")
+          else do
+            let names ← patternToProductBinders env pat
+            .ok (.letProd names bound' body')
         else do
+          -- With no arguments the annotation is the bound value's own type, so
+          -- it lands on the binder and the bound expression is checked at it.
           let name ← patternToBinder pat
+          let annot ← elaborateOptTyp env retTy
+          let name := match name, annot with
+            | .named n none, some ty => .named n (some ty)
+            | b, _ => b
           .ok (.letIn name bound' body')
     | pat :: args => do
       let name ← patternToBinder pat
@@ -686,7 +695,9 @@ partial def ExprKind.elaborate (env : ElabEnv) (loc : Location) : ExprKind → E
       let bound' ← Expr.elaborate boundEnv bound
       let (args', bound'') ← elaborateFunctionArgs env "$param" 0 args bound'
       let body' ← Expr.elaborate (env.bindPattern pat) body
-      .ok (.letIn name (.fix self args' none bound'') body')
+      -- With arguments the annotation is the function's return type.
+      let retTy' ← elaborateOptTyp env retTy
+      .ok (.letIn name (.fix self args' retTy' bound'') body')
 
   | .fun_ [] _ _ =>
     err loc (.unsupportedFeature "function expressions require at least one argument")
