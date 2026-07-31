@@ -80,9 +80,9 @@ private structure TypeInfo where
 
 structure ElabEnv where
   types    : List (TypeConstructor × TypeInfo)                := []
-  ctors    : List (Constructor × (Nat × Nat × TinyML.Typ))   := []
+  ctors    : List (Constructor × (Nat × Nat × Untyped.Typ))  := []
   fields   : List (FieldName × (TypeConstructor × Nat))      := []
-  records  : List (TypeConstructor × List (FieldName × TinyML.Typ)) := []
+  records  : List (TypeConstructor × List (FieldName × Untyped.Typ)) := []
   locals   : List Var                                        := []
   resolver : Resolver
 
@@ -151,7 +151,7 @@ private def reorderFields (loc : Location) (provided : List (FieldName × α)) :
     | none => err loc (.missingField fieldName)
 
 private def recordFieldsFor (env : ElabEnv) (loc : Location) (fields : List (FieldName × α)) :
-    ElabM (List (FieldName × TinyML.Typ)) :=
+    ElabM (List (FieldName × Untyped.Typ)) :=
   match fields with
   | [] => err loc (.unsupportedFeature "empty record pattern")
   | (name, _) :: _ =>
@@ -325,7 +325,7 @@ partial def patternToProductType (env : ElabEnv) (pat : Pattern) : ElabM Untyped
           err pat.loc (.unsupportedPattern "tuple function arguments must annotate each component")
   | .record fields => do
       let fieldInfo ← recordFieldsFor env pat.loc fields
-      .ok (Untyped.Typ.tuple (fieldInfo.map (fun f => Untyped.Typ.core f.2)))
+      .ok (Untyped.Typ.tuple (fieldInfo.map Prod.snd))
   | _ => err pat.loc (.unsupportedPattern "expected a flat product binder")
 
 partial def elaborateFunctionArgs (env : ElabEnv) (stem : String) :
@@ -419,7 +419,7 @@ partial def TypKind.elaborate (env : ElabEnv) (loc : Location) : TypKind → Ela
     | _ =>
       match List.lookup name env.records with
       | some fields =>
-          if args'.isEmpty then .ok (.tuple (fields.map (fun f => Untyped.Typ.core f.2)))
+          if args'.isEmpty then .ok (.tuple (fields.map Prod.snd))
           else err loc (.arityMismatch 0 args'.length)
       | none =>
       match List.lookup name env.types with
@@ -768,7 +768,7 @@ partial def MatchArm.elaborateList (env : ElabEnv)
           | some p =>
             let body' ← Expr.elaborate (env.bindPattern p) body
             match payloadTy with
-            | .tuple _ =>
+            | .tuple _ | .core (.tuple _) =>
                 if isProductPattern p then do
                   let names ← patternToProductBinders env p
                   let argName := "$arg0"
@@ -785,7 +785,7 @@ partial def MatchArm.elaborateList (env : ElabEnv)
           | none =>
             let body' ← Expr.elaborate env body
             match payloadTy with
-            | .prim .unit => pure (none, body')
+            | .core .unit => pure (none, body')
             | _ => err pat.loc (.unsupportedPattern "constructor payload must be matched")
         pure (name, binder, body'')
       | _ => err pat.loc (.unsupportedPattern "only constructor patterns are allowed in match")
@@ -804,40 +804,9 @@ end
 -- ---------------------------------------------------------------------------
 -- Type declaration elaboration
 
-mutual
-  /-- The core type an elaborated type is, provided no pending specification
-  occurs in it. -/
-  private def core? : Untyped.Typ → Option TinyML.Typ
-    | .core t => some t
-    | .sum ts => do pure (.sum (← coreList? ts))
-    | .arrow _ _ (some _) => none
-    | .arrow args ret none => do pure (.arrow (← coreList? args) (← core? ret) none)
-    | .ref t => do pure (.ref (← core? t))
-    | .array t => do pure (.array (← core? t))
-    | .ownedArray t => do pure (.ownedArray (← core? t))
-    | .vec t => do pure (.vec (← core? t))
-    | .owned t => do pure (.owned (← core? t))
-    | .tuple ts => do pure (.tuple (← coreList? ts))
-    | .named n args => do pure (.named n (← coreList? args))
-
-  private def coreList? : List Untyped.Typ → Option (List TinyML.Typ)
-    | [] => some []
-    | t :: ts => do pure ((← core? t) :: (← coreList? ts))
-end
-
-/-- Elaborate a type that must be fully resolved on the spot. A data
-declaration's payloads and fields are stored as core types, and a
-specification's leaves cannot be typechecked before the declaration they
-belong to exists, so `[@spec]` has no meaning here. -/
-private def Typ.elaborateCore (env : ElabEnv) (ty : Typ) : ElabM TinyML.Typ := do
-  let t ← Typ.elaborate env ty
-  match core? t with
-  | some c => .ok c
-  | none => err ty.loc (.unsupportedFeature "[@spec] is not allowed in a type declaration")
-
 private def elaborateCtorDefs (env : ElabEnv) (loc : Location)
     (ctorDefs : List (Constructor × Option Typ)) (tag : Nat) (arity : Nat)
-    : ElabM (List TinyML.Typ × List (Constructor × (Nat × Nat × TinyML.Typ))) :=
+    : ElabM (List Untyped.Typ × List (Constructor × (Nat × Nat × Untyped.Typ))) :=
   match ctorDefs with
   | [] => .ok ([], [])
   | (ctorName, payloadTy) :: rest => do
@@ -845,8 +814,8 @@ private def elaborateCtorDefs (env : ElabEnv) (loc : Location)
       err loc (.duplicateConstructor ctorName)
     else do
     let payloadTy' ← match payloadTy with
-      | some ty => Typ.elaborateCore env ty
-      | none => .ok .unit
+      | some ty => Typ.elaborate env ty
+      | none => .ok (.core .unit)
     let (restTypes, restCtors) ← elaborateCtorDefs env loc rest (tag + 1) arity
     .ok (payloadTy' :: restTypes,
          (ctorName, (tag, arity, payloadTy')) :: restCtors)
@@ -886,7 +855,7 @@ private def elaborateRecordDecl (env : ElabEnv) (loc : Location) (name : TypeCon
   let envWithSelf := { env with types := (name, ⟨coreName, 0⟩) :: env.types }
   let newFields ← elaborateFieldDefs env loc name fieldDefs 0
   let fieldTypes ← fieldDefs.mapM (fun (fieldName, ty) => do
-    let ty' ← Typ.elaborateCore envWithSelf ty
+    let ty' ← Typ.elaborate envWithSelf ty
     pure (fieldName, ty'))
   .ok { env with
     types := (name, ⟨coreName, 0⟩) :: env.types
@@ -1015,12 +984,12 @@ private def requireOpenMica : List Decl → ElabM (List Decl)
 -- Predefined types
 
 private def predefCtorEntries (p : TinyML.Predef) :
-    List (Constructor × (Nat × Nat × TinyML.Typ)) :=
+    List (Constructor × (Nat × Nat × Untyped.Typ)) :=
   let arity := p.ctors.length
   let rec go : List (String × TinyML.Typ) → Nat →
-      List (Constructor × (Nat × Nat × TinyML.Typ))
+      List (Constructor × (Nat × Nat × Untyped.Typ))
     | [], _ => []
-    | (name, payload) :: rest, tag => (name, (tag, arity, payload)) :: go rest (tag + 1)
+    | (name, payload) :: rest, tag => (name, (tag, arity, .core payload)) :: go rest (tag + 1)
   go p.ctors 0
 
 /-- The initial frontend environment derived from the canonical predef catalog.

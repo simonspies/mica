@@ -212,8 +212,11 @@ where
     parenIf (!Expr.isAtom e) (Expr.printPrec e 0)
   fmtBase (e : Expr) : String :=
     parenIf (!Expr.isAtom e) (Expr.printPrec e 0)
+  -- A field value ends at the `;` or `}` that follows it, so a `fun`, `let`,
+  -- `if` or `match` has to be parenthesized to parse back.
   fmtFields (fields : List (FieldName × Expr)) : String :=
-    joinWith "; " (fields.map fun (f, v) => f ++ " = " ++ Expr.printPrec v 0)
+    joinWith "; " (fields.map fun (f, v) =>
+      f ++ " = " ++ parenIf (Expr.isKeywordExpr v) (Expr.printPrec v 0))
   printUnop (op : UnOp) (inner : Expr) : String :=
     match op with
     | .proj n => fmtBase inner ++ s!".{n}"
