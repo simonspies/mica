@@ -467,10 +467,9 @@ def ValDecl.check (reg : Verifier.Registry) (Θ : TinyML.TypeEnv) (Δ_spec : Sig
   let () ← match Spec.checkWf spec Δ_spec with
     | .ok () => .ret ()
     | .error msg => .fatal msg
-  let body := d.body.withSpec spec
   VerifM.seq
-    (do let _ ← compile reg Θ Δ_spec B Γ body; pure ())
-    (pure body.ty)
+    (do let _ ← compile reg Θ Δ_spec B Γ d.body; pure ())
+    (pure d.body.ty)
 
 /-- Check a `let _ = e` declaration: just compile `e` for safety, no spec. -/
 def ValDecl.checkExpr (reg : Verifier.Registry) (Θ : TinyML.TypeEnv) (Δ_spec : Signature)
@@ -626,21 +625,20 @@ theorem ValDecl.check_correct (reg : Verifier.Registry) (hSound : Verifier.Regis
         simp only [hcheckWf] at h3
         have h4 := VerifM.eval_ret (VerifM.eval_bind h3)
         have ⟨hcompileSeq, hpure⟩ := VerifM.eval_seq h4
-        refine ⟨(d.body.withSpec s).ty, ?_, VerifM.eval_ret hpure⟩
+        refine ⟨d.body.ty, ?_, VerifM.eval_ret hpure⟩
         -- The body is compiled as an ordinary specified function literal, so
         -- its value is typed at the specified arrow the literal carries.
         have hcompile :
             st.sl W ρ ∗ (Bindings.typedSubst W B Γ γ ∗ iprop(emp)) ⊢
-              wp W.pctx ((d.body.withSpec s).runtime.subst γ)
-                (fun v => TinyML.ValHasType W v (d.body.withSpec s).ty) :=
-          compile_correct reg hSound (d.body.withSpec s) W iprop(emp) B
+              wp W.pctx (d.body.runtime.subst γ)
+                (fun v => TinyML.ValHasType W v d.body.ty) :=
+          compile_correct reg hSound d.body W iprop(emp) B
             Γ st ρ γ _ _ hW (VerifM.eval_bind hcompileSeq)
             hagree hbwf
             hwf hag hΔreg hρreg
             (fun v ρ' st' se _ _ _ => by
               iintro ⟨_, Hty, _⟩
               iexact Hty)
-        rw [Typed.Expr.withSpec_runtime] at hcompile
         refine BIBase.Entails.trans ?_ hcompile
         istart
         iintro ⟨#Hsl, #HT⟩

@@ -271,13 +271,6 @@ def Expr.ty : Expr → Typ
   | .match_ _ _ ty => ty
   | .cast _ ty => ty
 
-/-- Attach a specification to a function literal; anything else is unchanged.
-    A declaration's `[@@spec]` is completed only in the verifier, so this is how
-    it reaches the `fix` node that verification discharges it against. -/
-def Expr.withSpec (s : Spec Typ) : Expr → Expr
-  | .fix self args retTy _ body => .fix self args retTy (some s) body
-  | e => e
-
 /-- The specification a function literal was elaborated against, if any. This
 is where a declaration's specification lives, together with its arrow type. -/
 def Expr.spec? : Expr → Option (Spec Typ)
@@ -287,10 +280,6 @@ def Expr.spec? : Expr → Option (Spec Typ)
 @[simp] theorem Expr.spec?_fix (self : Binder) (args : List Binder) (retTy : Typ)
     (spec : Option (Spec Typ)) (body : Expr) :
     (Expr.fix self args retTy spec body).spec? = spec := rfl
-
-@[simp] theorem Expr.withSpec_fix (s : Spec Typ) (self : Binder) (args : List Binder)
-    (retTy : Typ) (spec : Option (Spec Typ)) (body : Expr) :
-    (Expr.fix self args retTy spec body).withSpec s = .fix self args retTy (some s) body := rfl
 
 /-- A checked declaration. It carries no specification of its own: the literal
 it binds records the specification it was elaborated against, and so does the
@@ -366,11 +355,6 @@ def ValDecl.runtime (d : Typed.ValDecl) : Runtime.Decl :=
 
 def Program.runtime (prog : Typed.Program) : Runtime.Program :=
   prog.map ValDecl.runtime
-
-/-- Attaching a specification does not change what a function literal runs. -/
-@[simp] theorem Expr.withSpec_runtime (s : Spec Typ) (e : Expr) :
-    (e.withSpec s).runtime = e.runtime := by
-  cases e <;> simp [Expr.withSpec, Expr.runtime]
 
 theorem Expr.branchListRuntime_eq_map (branches : List (Typed.Binder × Typed.Expr)) :
     Expr.branchListRuntime branches =
