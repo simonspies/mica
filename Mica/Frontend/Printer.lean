@@ -90,11 +90,16 @@ private partial def BinOp.rightAssoc : BinOp → Bool
 -- ---------------------------------------------------------------------------
 -- Type printing
 
+-- ---------------------------------------------------------------------------
+-- Pattern printing
+
+mutual
+
 partial def Typ.print (t : Typ) : String :=
   let base := match t.kind with
     | .var name => s!"'{name}"
     | .con path [] => path.toString
-    | .con path [arg] => s!"{printAppArg arg} {path.toString}"
+    | .con path [arg] => s!"{Typ.printAppArg arg} {path.toString}"
     | .con path args => s!"({joinWith ", " (args.map Typ.print)}) {path.toString}"
     | .arrow dom cod =>
       let domStr := match dom.kind with
@@ -102,17 +107,28 @@ partial def Typ.print (t : Typ) : String :=
         | _ => Typ.print dom
       s!"{domStr} -> {Typ.print cod}"
     | .tuple components => joinWith " * " (components.map Typ.print)
-  base ++ joinWith "" (t.attrs.map (fun a => s!" [@{a}]"))
-where
-  -- Type constructor arguments that are themselves applications need parens
-  printAppArg (t : Typ) : String :=
-    match t.kind with
-    | .arrow _ _ => parens (Typ.print t)
-    | .tuple (_ :: _ :: _) => parens (Typ.print t)
-    | _ => Typ.print t
+  -- A type attribute binds to the preceding application, so a compound base
+  -- has to be parenthesized to round-trip with the parser.
+  let baseStr := if t.attrs.isEmpty then base else parenIf (Typ.needsParens t) base
+  baseStr ++ joinWith "" (t.attrs.map Typ.printAttr)
 
--- ---------------------------------------------------------------------------
--- Pattern printing
+/-- Type constructor arguments that are themselves applications need parens. -/
+private partial def Typ.printAppArg (t : Typ) : String :=
+  match t.kind with
+  | .arrow _ _ => parens (Typ.print t)
+  | .tuple (_ :: _ :: _) => parens (Typ.print t)
+  | _ => Typ.print t
+
+private partial def Typ.needsParens (t : Typ) : Bool :=
+  match t.kind with
+  | .arrow _ _ | .tuple (_ :: _ :: _) => true
+  | _ => false
+
+/-- Type attribute `[@name]` or `[@name payload]` (single `@`). -/
+private partial def Typ.printAttr (attr : Attribute) : String :=
+  match attr.payload with
+  | none         => s!" [@{attr.name}]"
+  | some payload => s!" [@{attr.name} {Expr.printPrec payload 0}]"
 
 private partial def Pattern.isAtom (p : Pattern) : Bool :=
   match p.kind with
@@ -242,6 +258,8 @@ where
       let lhsStr := parenIf lhsNeedsParens (Expr.printPrec lhs p)
       let rhsStr := parenIf rhsNeedsParens (Expr.printPrec rhs p)
       parenIf (outerPrec > p) (lhsStr ++ " " ++ BinOp.print op ++ " " ++ rhsStr)
+
+end
 
 partial def Expr.print (e : Expr) : String := Expr.printPrec e 0
 
