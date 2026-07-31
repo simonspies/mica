@@ -756,16 +756,16 @@ private def checkDeclAnnotation (env : SpecEnv σ) (Θ : TypeEnv) (b : Untyped.B
 
 def ValDecl.elaborate (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx)
     (d : Untyped.ValDecl Untyped.SpecBody) :
-    TypeM σ (Typed.ValDecl (Spec Typ)) := do
-  match d.declMeta.spec with
+    TypeM σ Typed.ValDecl := do
+  match d.spec with
   | some rb => do
       -- A specified declaration's literal records its specification, so the
       -- declaration's own type — and hence the type every later use is
       -- annotated with — is the specified arrow.
-      let (s, body') ← elabSpecifiedFix env Θ Γ rb d.body
+      let (_, body') ← elabSpecifiedFix env Θ Γ rb d.body
       checkDeclAnnotation env Θ d.name body'.ty
       pure { name := Typed.Binder.ofUntyped d.name body'.ty, body := body',
-             declMeta := { spec := some s, relation := d.declMeta.relation } }
+             relation := d.relation }
   | none => do
       let (bodyTy, body') ←
         match d.name with
@@ -775,10 +775,10 @@ def ValDecl.elaborate (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx)
             pure (ty', body')
         | _ => infer env Θ Γ d.body
       pure { name := Typed.Binder.ofUntyped d.name bodyTy, body := body',
-             declMeta := { spec := none, relation := d.declMeta.relation } }
+             relation := d.relation }
 
 def Program.elaborate (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx) :
-    Untyped.Program Untyped.SpecBody → TypeM σ (TypeEnv × Typed.Program (Spec Typ))
+    Untyped.Program Untyped.SpecBody → TypeM σ (TypeEnv × Typed.Program)
   | [] => pure (Θ, [])
   | d :: ds => do
       match d with
@@ -1312,13 +1312,13 @@ theorem elabSpecifiedFix_runtime (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.
 
 theorem ValDecl.elaborate_runtime (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx)
     (d : Untyped.ValDecl Untyped.SpecBody) :
-    ∀ {s : σ} {d' : Typed.ValDecl (Spec Typ)} {s' : σ},
+    ∀ {s : σ} {d' : Typed.ValDecl} {s' : σ},
       Typed.ValDecl.elaborate env Θ Γ d s = .ok (d', s') →
       d'.runtime = d.runtime := by
   intro s d' s' helab
   -- Split on whether there is a specification, and then — in its absence — only
   -- on whether there is an annotation; the unannotated cases are identical.
-  match hspec : d.declMeta.spec with
+  match hspec : d.spec with
   | some rb =>
     simp only [ValDecl.elaborate, hspec] at helab
     have ⟨r, s₀, hfix, hcont⟩ := StateT.bind_ok helab
@@ -1347,7 +1347,7 @@ theorem ValDecl.elaborate_runtime (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML
 
 theorem Program.elaborate_runtime (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx)
     (prog : Untyped.Program Untyped.SpecBody) :
-    ∀ {s : σ} {Θ' : TypeEnv} {prog' : Typed.Program (Spec Typ)} {s' : σ},
+    ∀ {s : σ} {Θ' : TypeEnv} {prog' : Typed.Program} {s' : σ},
       Typed.Program.elaborate env Θ Γ prog s = .ok ((Θ', prog'), s') →
       prog'.runtime = prog.runtime := by
   induction prog generalizing Θ Γ with
