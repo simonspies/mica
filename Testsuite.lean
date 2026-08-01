@@ -2,6 +2,7 @@ import Testsuite.Process
 import Testsuite.Test
 import Testsuite.Task
 import Testsuite.Report
+import Testsuite.ParserDiff
 
 /-!
 # Testsuite runner
@@ -23,6 +24,9 @@ Subcommands:
   which registers one Lake job per task so the build monitor shows live
   progress, and hands the failed tasks to `summarize`.
 * `summarize [TASK,FILE ...]` — print the final summary for failed tasks.
+* `parser-diff [--promote]` — differential parser tests: check mica's parse of a
+  generated precedence corpus against OCaml's, via `ocamlc -stop-after parsing
+  -dsource`.
 -/
 
 open System (FilePath)
@@ -33,7 +37,8 @@ def usage : String :=
   "usage: testsuite run [--mica PATH] [--promote] [PATH ...]\n" ++
   "       testsuite list [PATH ...]\n" ++
   "       testsuite run-task [--mica PATH] [--promote] TASK,FILE ...\n" ++
-  "       testsuite summarize [TASK,FILE ...]"
+  "       testsuite summarize [TASK,FILE ...]\n" ++
+  "       testsuite parser-diff [--mica PATH] [--promote]"
 
 /-- Options shared by the `run` and `run-task` subcommands. -/
 structure RunOptions where
@@ -144,6 +149,9 @@ def dispatch : List String → IO UInt32
   | "run-task" :: rest => do runTaskCommand (← IO.ofExcept (parseRunOptions rest {}))
   | "list" :: rest => do listCommand (← IO.ofExcept (rejectFlags "list" rest))
   | "summarize" :: rest => do summarizeCommand (← IO.ofExcept (rejectFlags "summarize" rest))
+  | "parser-diff" :: rest => do
+      let opts ← IO.ofExcept (parseRunOptions rest {})
+      ParserDiff.run (← resolveMica opts.mica) opts.promote
   | _ => do
       IO.eprintln usage
       return 1

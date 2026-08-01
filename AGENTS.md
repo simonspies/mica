@@ -37,6 +37,14 @@ lake run testsuite                # run the test suite (Examples/ and Tests/)
 
 `Examples/` is reserved for case studies; everything else goes in `Tests/<feature>/`. When adding tests for new functionality, lean toward small targeted files in `Tests/`. A test is one `.ml` file; the runner (`Testsuite.lean`) compiles it with ocamlopt and runs mica on it. An optional first-line directive `(* TEST: <flags> [no-compile] [roundtrip] *)` passes flags to mica, skips the ocamlopt phase, or adds a print∘parse fixpoint check of `--print-ocaml`. Without a sibling `foo.out`, the mica run must exit 0; with one, the output must match it (nonzero exits end with a `[<code>]` line). `lake run testsuite --promote PATH` rewrites existing `.out` files with the actual output; create a new expected-output test with `touch foo.out` followed by `--promote`.
 
+### Differential parser tests
+
+`lake run parser-diff` checks mica's parse of a generated precedence corpus
+against OCaml's, using `ocamlc -stop-after parsing -dsource` as the oracle.
+`Tests/parser/parser-diff.baseline` records the expected state: a refactor that
+changes nothing must leave it untouched, and a fix must shrink it by exactly what
+it claims to fix. `--promote` rewrites it. See `Testsuite/ParserDiff.lean`.
+
 **MCP Tools**
 - `lean_diagnostic_messages` after proof work, check for errors (filter to the declaration)
 
