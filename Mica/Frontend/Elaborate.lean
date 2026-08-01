@@ -691,11 +691,21 @@ partial def ExprKind.elaborate (env : ElabEnv) (loc : Location) : ExprKind → E
   | .letIn isRec binders retTy bound body =>
     match binders with
     | [] => err loc (.unsupportedFeature "let with no binders")
-    | [pat] => do
-      let bound' ← Expr.elaborate env bound
-      if isRec then
-        err loc (.unsupportedFeature "let rec requires function arguments")
-      else
+    | [pat] =>
+      if isRec then do
+        -- `let rec f : T = fun x -> ... in ...`: the literal's self-reference
+        -- is the let's own name, so recursive calls go through its type. The
+        -- same shape a recursive declaration gets.
+        let name ← patternToBinder env pat
+        let name ← annotateBinder loc name (← elaborateOptTyp env retTy)
+        let bound' ← Expr.elaborate (env.bindPattern pat) bound
+        match bound' with
+        | .fix .none args retTy' inner => do
+          let body' ← Expr.elaborate (env.bindPattern pat) body
+          .ok (.letIn name (.fix name args retTy' inner) body')
+        | _ => err loc (.unsupportedFeature "let rec requires a function")
+      else do
+        let bound' ← Expr.elaborate env bound
         let body' ← Expr.elaborate (env.bindPattern pat) body
         if isProductPattern pat then
           if retTy.isSome then
