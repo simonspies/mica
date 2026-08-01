@@ -1,5 +1,6 @@
 import Mica.SourceTinyML.Untyped
 import Mica.SourceTinyML.Printer
+import Mica.Frontend.ParenPrinter
 import Mica.Frontend.Parser
 import Mica.Frontend.Printer
 import Mica.Frontend.Elaborate
@@ -16,6 +17,8 @@ private structure Options where
   ansi        : Bool := true
   printOcaml  : Bool := false
   printTinyML : Bool := false
+  parseOnly   : Bool := false
+  parens      : Bool := false
   smtCmdsOnly : Bool := false
   file        : Option String := none
   error       : Option String := none
@@ -34,6 +37,10 @@ private def parseArgs : List String → Options → Options
     parseArgs rest { opts with printOcaml := true }
   | "--print-tiny-ml" :: rest, opts =>
     parseArgs rest { opts with printTinyML := true }
+  | "--parse-only" :: rest, opts =>
+    parseArgs rest { opts with parseOnly := true, printOcaml := true }
+  | "--parens" :: rest, opts =>
+    parseArgs rest { opts with parens := true }
   | "--smt-commands-only" :: rest, opts =>
     parseArgs rest { opts with smtCmdsOnly := true }
   | arg :: rest, opts =>
@@ -61,7 +68,7 @@ def main (args : List String) : IO Unit := do
     IO.Process.exit 1
   match opts.file with
   | none => do
-    IO.eprintln "usage: mica [--verbose] [--no-check] [--ansi|--no-ansi] [--print-ocaml] [--print-tiny-ml] [--smt-commands-only] <file.ml>"
+    IO.eprintln "usage: mica [--verbose] [--no-check] [--ansi|--no-ansi] [--print-ocaml] [--print-tiny-ml] [--parse-only] [--parens] [--smt-commands-only] <file.ml>"
     IO.Process.exit 1
   | some filename => do
     let contents ← IO.FS.readFile filename
@@ -71,7 +78,11 @@ def main (args : List String) : IO Unit := do
         IO.eprintln s!"parse error: {e}"
         IO.Process.exit 1
     if opts.printOcaml then
-      IO.println (Frontend.Program.print frontendProg)
+      IO.println <|
+        if opts.parens then Frontend.Program.printParen frontendProg
+        else Frontend.Program.print frontendProg
+    if opts.parseOnly then
+      return
     let untypedProg ← match Frontend.Program.elaborate Stdlib.stdResolver frontendProg with
       | .ok prog => pure prog
       | .error e => do
