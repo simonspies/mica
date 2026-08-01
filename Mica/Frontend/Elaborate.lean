@@ -265,6 +265,17 @@ private def nameBinder : Option Var → Untyped.Binder
   | none => .none
   | some name => .named name none
 
+/-- A `let` with no arguments has two places to write its type — on the binder
+pattern and after it — and they mean the same thing, so at most one may be
+used. -/
+private def annotateBinder (loc : Location) :
+    Untyped.Binder → Option Untyped.Typ → ElabM Untyped.Binder
+  | b, none => .ok b
+  | .named n none, some ty => .ok (.named n (some ty))
+  | .named _ (some _), some _ =>
+    err loc (.unsupportedFeature "a let is annotated once: on its binder or after it")
+  | .none, some _ => .ok .none
+
 mutual
 partial def elaborateOptTyp (env : ElabEnv) : Option Typ → ElabM (Option Untyped.Typ)
   | none => .ok none
@@ -693,10 +704,7 @@ partial def ExprKind.elaborate (env : ElabEnv) (loc : Location) : ExprKind → E
           -- With no arguments the annotation is the bound value's own type, so
           -- it lands on the binder and the bound expression is checked at it.
           let name ← patternToBinder env pat
-          let annot ← elaborateOptTyp env retTy
-          let name := match name, annot with
-            | .named n none, some ty => .named n (some ty)
-            | b, _ => b
+          let name ← annotateBinder loc name (← elaborateOptTyp env retTy)
           .ok (.letIn name bound' body')
     | pat :: args => do
       let name := nameBinder (← patternToName pat)
@@ -900,10 +908,7 @@ def ValDecl.elaborate (env : ElabEnv) (loc : Location)
     -- A declaration with no arguments: its annotation is the declaration's own
     -- type, which is where a `[@spec]` on it belongs.
     let name ← patternToBinder env pat
-    let annot ← elaborateOptTyp env retTy
-    let name := match name, annot with
-      | .named n none, some ty => .named n (some ty)
-      | b, _ => b
+    let name ← annotateBinder loc name (← elaborateOptTyp env retTy)
     if isRec then
       -- `let rec f : T = fun x -> ...`: the literal's self-reference is the
       -- declaration's own name, so recursive calls go through its type.
