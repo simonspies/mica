@@ -248,6 +248,23 @@ private def isProductPattern (pat : Pattern) : Bool :=
 private def productArgumentName (stem : String) (idx : Nat) : String :=
   s!"{stem}{idx}"
 
+/-- The name of a `let` that takes arguments — just the name, since there is no
+type to put on it: with arguments the annotation is the function's return type,
+written after them. An annotation here is rejected rather than silently dropped.
+(OCaml rejects the syntax outright.) -/
+def patternToName (pat : Pattern) : ElabM (Option Var) :=
+  match pat.kind with
+  | .wildcard => .ok none
+  | .binder _ (some _) =>
+    err pat.loc (.unsupportedFeature "a let with arguments cannot annotate its name")
+  | .binder name none => .ok name
+  | _ => err pat.loc (.unsupportedPattern "expected a simple binder (variable or wildcard)")
+
+/-- The binder a `let`'s name becomes: unannotated, by `patternToName`. -/
+private def nameBinder : Option Var → Untyped.Binder
+  | none => .none
+  | some name => .named name none
+
 mutual
 partial def elaborateOptTyp (env : ElabEnv) : Option Typ → ElabM (Option Untyped.Typ)
   | none => .ok none
@@ -256,14 +273,8 @@ partial def elaborateOptTyp (env : ElabEnv) : Option Typ → ElabM (Option Untyp
 -- ---------------------------------------------------------------------------
 -- Pattern helpers
 
-partial def patternToBinder (pat : Pattern) : ElabM Untyped.Binder :=
-  match pat.kind with
-  | .wildcard => .ok .none
-  | .binder (some name) _ => .ok (.named name none)
-  | .binder none _ => .ok .none
-  | _ => err pat.loc (.unsupportedPattern "expected a simple binder (variable or wildcard)")
-
-partial def patternToBinderTyped (env : ElabEnv) (pat : Pattern) : ElabM Untyped.Binder :=
+/-- A binder pattern together with the type it annotates, if any. -/
+partial def patternToBinder (env : ElabEnv) (pat : Pattern) : ElabM Untyped.Binder :=
   match pat.kind with
   | .wildcard => .ok .none
   | .binder none _ => .ok .none
@@ -276,7 +287,7 @@ partial def patternListToAnnotatedBinders (env : ElabEnv) :
     List Pattern → ElabM (List Untyped.Binder)
   | [] => .ok []
   | p :: ps => do
-    let b ← patternToBinderTyped env p
+    let b ← patternToBinder env p
     let bs ← patternListToAnnotatedBinders env ps
     .ok (b :: bs)
 
@@ -284,7 +295,7 @@ partial def patternRecordFieldsToBinders (env : ElabEnv)
     : List (FieldName × Pattern) → ElabM (List (FieldName × Untyped.Binder))
   | [] => .ok []
   | (name, pat) :: rest => do
-      let binder ← patternToBinderTyped env pat
+      let binder ← patternToBinder env pat
       let binders ← patternRecordFieldsToBinders env rest
       .ok ((name, binder) :: binders)
 
@@ -339,7 +350,7 @@ partial def elaborateFunctionArgs (env : ElabEnv) (stem : String) :
         let names ← patternToProductBinders env pat
         .ok (.named argName (some argTy) :: restArgs, .letProd names (.var argName) restBody)
       else
-        let arg ← patternToBinderTyped env pat
+        let arg ← patternToBinder env pat
         .ok (arg :: restArgs, restBody)
 
 /-- Elaborate a surface type into the untyped IR's type language: lower its
@@ -681,14 +692,14 @@ partial def ExprKind.elaborate (env : ElabEnv) (loc : Location) : ExprKind → E
         else do
           -- With no arguments the annotation is the bound value's own type, so
           -- it lands on the binder and the bound expression is checked at it.
-          let name ← patternToBinderTyped env pat
+          let name ← patternToBinder env pat
           let annot ← elaborateOptTyp env retTy
           let name := match name, annot with
             | .named n none, some ty => .named n (some ty)
             | b, _ => b
           .ok (.letIn name bound' body')
     | pat :: args => do
-      let name ← patternToBinder pat
+      let name := nameBinder (← patternToName pat)
       let self := if isRec then name else .none
       let boundEnv := env.bindPatterns args
       let boundEnv := if isRec then boundEnv.bindPattern pat else boundEnv
@@ -791,7 +802,7 @@ partial def MatchArm.elaborateList (env : ElabEnv)
                 if isProductPattern p then
                   err p.loc (.unsupportedPattern "constructor payload is not a product")
                 else do
-                  let b ← patternToBinderTyped env p
+                  let b ← patternToBinder env p
                   pure (some b, body')
           | none =>
             let body' ← Expr.elaborate env body
@@ -803,13 +814,6 @@ partial def MatchArm.elaborateList (env : ElabEnv)
     let rest ← MatchArm.elaborateList env arms
     .ok ((ctorName, binder, body'') :: rest)
 
-partial def Pattern.toAnnotatedBinders (env : ElabEnv)
-    : List Pattern → ElabM (List Untyped.Binder)
-  | [] => .ok []
-  | p :: ps => do
-    let b ← patternToBinderTyped env p
-    let bs ← Pattern.toAnnotatedBinders env ps
-    .ok (b :: bs)
 end
 
 -- ---------------------------------------------------------------------------
@@ -895,7 +899,7 @@ def ValDecl.elaborate (env : ElabEnv) (loc : Location)
   | [pat] =>
     -- A declaration with no arguments: its annotation is the declaration's own
     -- type, which is where a `[@spec]` on it belongs.
-    let name ← patternToBinderTyped env pat
+    let name ← patternToBinder env pat
     let annot ← elaborateOptTyp env retTy
     let name := match name, annot with
       | .named n none, some ty => .named n (some ty)
@@ -912,7 +916,7 @@ def ValDecl.elaborate (env : ElabEnv) (loc : Location)
       let body' ← Expr.elaborate env body
       .ok { name, body := body', spec }
   | pat :: args =>
-    let name ← patternToBinder pat
+    let name := nameBinder (← patternToName pat)
     let self := if isRec then name else .none
     let retTy' ← elaborateOptTyp env retTy
     let bodyEnv := env.bindPatterns args
