@@ -1,0 +1,2 @@
+elaboration error: Tests/frontend/let_annotation_destructuring.ml:6:3: unsupported feature: a destructuring let cannot be annotated
+[1]

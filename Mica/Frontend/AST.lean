@@ -121,7 +121,7 @@ mutual
     | arraySet (arr idx val : Expr)
     | unop (op : UnOp) (e : Expr)
     | ite (cond thn els : Expr)
-    | letIn (rec : Bool) (binders : List Pattern) (bound body : Expr)
+    | letIn (rec : Bool) (binders : List Pattern) (retTy : Option Typ) (bound body : Expr)
     | fun_ (args : List Pattern) (retTy : Option Typ) (body : Expr)
     | match_ (scrutinee : Expr) (arms : List MatchArm)
     | tuple (es : List Expr)
