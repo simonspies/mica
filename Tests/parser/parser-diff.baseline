@@ -4,148 +4,35 @@ DIVERGE ! f a  ==>  ocaml: (!f) a  |  mica: !(f a)
 DIVERGE ! r.b.c  ==>  ocaml: ((!r).b).c  |  mica: !((r.b).c)
 DIVERGE A of 'a * 'b  ==>  ocaml: | A of 'a * 'b  |  mica: | A of ('a * 'b)
 DIVERGE A of int * int  ==>  ocaml: | A of int * int  |  mica: | A of (int * int)
-DIVERGE a < b @@ c  ==>  ocaml: a < (b @@ c)  |  mica: (a < b) @@ c
-DIVERGE a <= b @@ c  ==>  ocaml: a <= (b @@ c)  |  mica: (a <= b) @@ c
-DIVERGE a <> b @@ c  ==>  ocaml: a <> (b @@ c)  |  mica: (a <> b) @@ c
-DIVERGE a = b @@ c  ==>  ocaml: a = (b @@ c)  |  mica: (a = b) @@ c
-DIVERGE a > b @@ c  ==>  ocaml: a > (b @@ c)  |  mica: (a > b) @@ c
-DIVERGE a >= b @@ c  ==>  ocaml: a >= (b @@ c)  |  mica: (a >= b) @@ c
-DIVERGE a @ b @@ c  ==>  ocaml: a @ (b @@ c)  |  mica: (a @ b) @@ c
-DIVERGE a @@ b && c  ==>  ocaml: (a @@ b) && c  |  mica: a @@ (b && c)
-DIVERGE a @@ b := c  ==>  ocaml: (a @@ b) := c  |  mica: a @@ (b := c)
-DIVERGE a @@ b ; c  ==>  ocaml: a @@ b; c  |  mica: a @@ (b; c)
-DIVERGE a @@ b < c  ==>  ocaml: (a @@ b) < c  |  mica: a @@ (b < c)
-DIVERGE a @@ b <= c  ==>  ocaml: (a @@ b) <= c  |  mica: a @@ (b <= c)
-DIVERGE a @@ b <> c  ==>  ocaml: (a @@ b) <> c  |  mica: a @@ (b <> c)
-DIVERGE a @@ b = c  ==>  ocaml: (a @@ b) = c  |  mica: a @@ (b = c)
-DIVERGE a @@ b > c  ==>  ocaml: (a @@ b) > c  |  mica: a @@ (b > c)
-DIVERGE a @@ b >= c  ==>  ocaml: (a @@ b) >= c  |  mica: a @@ (b >= c)
-DIVERGE a @@ b |> c  ==>  ocaml: (a @@ b) |> c  |  mica: a @@ (b |> c)
-DIVERGE a @@ b || c  ==>  ocaml: (a @@ b) || c  |  mica: a @@ (b || c)
-DIVERGE a ^ b @@ c  ==>  ocaml: a ^ (b @@ c)  |  mica: (a ^ b) @@ c
-DIVERGE a |> b < c  ==>  ocaml: (a |> b) < c  |  mica: a |> (b < c)
-DIVERGE a |> b <= c  ==>  ocaml: (a |> b) <= c  |  mica: a |> (b <= c)
-DIVERGE a |> b <> c  ==>  ocaml: (a |> b) <> c  |  mica: a |> (b <> c)
-DIVERGE a |> b = c  ==>  ocaml: (a |> b) = c  |  mica: a |> (b = c)
-DIVERGE a |> b > c  ==>  ocaml: (a |> b) > c  |  mica: a |> (b > c)
-DIVERGE a |> b >= c  ==>  ocaml: (a |> b) >= c  |  mica: a |> (b >= c)
 GAP     ! r, b  ==>  bare tuple: mica builds tuples only inside parentheses
 GAP     (a, b), c  ==>  bare tuple: mica builds tuples only inside parentheses
 GAP     - a, b  ==>  bare tuple: mica builds tuples only inside parentheses
 GAP     [a, b; c]  ==>  bare tuple: mica builds tuples only inside parentheses
 GAP     [a, b]  ==>  bare tuple: mica builds tuples only inside parentheses
 GAP     a && b, c  ==>  bare tuple: mica builds tuples only inside parentheses
-GAP     a && fun x -> x  ==>  keyword expression as an operator's right operand
-GAP     a && if b then c else d  ==>  keyword expression as an operator's right operand
-GAP     a && let x = b in x  ==>  keyword expression as an operator's right operand
-GAP     a && match b with | _ -> c  ==>  keyword expression as an operator's right operand
 GAP     a * b, c  ==>  bare tuple: mica builds tuples only inside parentheses
-GAP     a * fun x -> x  ==>  keyword expression as an operator's right operand
-GAP     a * if b then c else d  ==>  keyword expression as an operator's right operand
-GAP     a * let x = b in x  ==>  keyword expression as an operator's right operand
-GAP     a * match b with | _ -> c  ==>  keyword expression as an operator's right operand
 GAP     a *. b, c  ==>  bare tuple: mica builds tuples only inside parentheses
-GAP     a *. fun x -> x  ==>  keyword expression as an operator's right operand
-GAP     a *. if b then c else d  ==>  keyword expression as an operator's right operand
-GAP     a *. let x = b in x  ==>  keyword expression as an operator's right operand
-GAP     a *. match b with | _ -> c  ==>  keyword expression as an operator's right operand
 GAP     a + b, c  ==>  bare tuple: mica builds tuples only inside parentheses
-GAP     a + fun x -> x  ==>  keyword expression as an operator's right operand
-GAP     a + if b then c else d  ==>  keyword expression as an operator's right operand
-GAP     a + let x = b in x  ==>  keyword expression as an operator's right operand
-GAP     a + match b with | _ -> c  ==>  keyword expression as an operator's right operand
 GAP     a +. b, c  ==>  bare tuple: mica builds tuples only inside parentheses
-GAP     a +. fun x -> x  ==>  keyword expression as an operator's right operand
-GAP     a +. if b then c else d  ==>  keyword expression as an operator's right operand
-GAP     a +. let x = b in x  ==>  keyword expression as an operator's right operand
-GAP     a +. match b with | _ -> c  ==>  keyword expression as an operator's right operand
 GAP     a - b, c  ==>  bare tuple: mica builds tuples only inside parentheses
-GAP     a - fun x -> x  ==>  keyword expression as an operator's right operand
-GAP     a - if b then c else d  ==>  keyword expression as an operator's right operand
-GAP     a - let x = b in x  ==>  keyword expression as an operator's right operand
-GAP     a - match b with | _ -> c  ==>  keyword expression as an operator's right operand
 GAP     a -. b, c  ==>  bare tuple: mica builds tuples only inside parentheses
-GAP     a -. fun x -> x  ==>  keyword expression as an operator's right operand
-GAP     a -. if b then c else d  ==>  keyword expression as an operator's right operand
-GAP     a -. let x = b in x  ==>  keyword expression as an operator's right operand
-GAP     a -. match b with | _ -> c  ==>  keyword expression as an operator's right operand
 GAP     a / b, c  ==>  bare tuple: mica builds tuples only inside parentheses
-GAP     a / fun x -> x  ==>  keyword expression as an operator's right operand
-GAP     a / if b then c else d  ==>  keyword expression as an operator's right operand
-GAP     a / let x = b in x  ==>  keyword expression as an operator's right operand
-GAP     a / match b with | _ -> c  ==>  keyword expression as an operator's right operand
 GAP     a /. b, c  ==>  bare tuple: mica builds tuples only inside parentheses
-GAP     a /. fun x -> x  ==>  keyword expression as an operator's right operand
-GAP     a /. if b then c else d  ==>  keyword expression as an operator's right operand
-GAP     a /. let x = b in x  ==>  keyword expression as an operator's right operand
-GAP     a /. match b with | _ -> c  ==>  keyword expression as an operator's right operand
 GAP     a :: b, c  ==>  bare tuple: mica builds tuples only inside parentheses
-GAP     a :: fun x -> x  ==>  keyword expression as an operator's right operand
-GAP     a :: if b then c else d  ==>  keyword expression as an operator's right operand
-GAP     a :: let x = b in x  ==>  keyword expression as an operator's right operand
-GAP     a :: match b with | _ -> c  ==>  keyword expression as an operator's right operand
 GAP     a := b, c  ==>  bare tuple: mica builds tuples only inside parentheses
-GAP     a := fun x -> x  ==>  keyword expression as an operator's right operand
-GAP     a := if b then c else d  ==>  keyword expression as an operator's right operand
-GAP     a := let x = b in x  ==>  keyword expression as an operator's right operand
-GAP     a := match b with | _ -> c  ==>  keyword expression as an operator's right operand
 GAP     a ; b, c  ==>  bare tuple: mica builds tuples only inside parentheses
 GAP     a < b, c  ==>  bare tuple: mica builds tuples only inside parentheses
-GAP     a < fun x -> x  ==>  keyword expression as an operator's right operand
-GAP     a < if b then c else d  ==>  keyword expression as an operator's right operand
-GAP     a < let x = b in x  ==>  keyword expression as an operator's right operand
-GAP     a < match b with | _ -> c  ==>  keyword expression as an operator's right operand
 GAP     a <= b, c  ==>  bare tuple: mica builds tuples only inside parentheses
-GAP     a <= fun x -> x  ==>  keyword expression as an operator's right operand
-GAP     a <= if b then c else d  ==>  keyword expression as an operator's right operand
-GAP     a <= let x = b in x  ==>  keyword expression as an operator's right operand
-GAP     a <= match b with | _ -> c  ==>  keyword expression as an operator's right operand
 GAP     a <> b, c  ==>  bare tuple: mica builds tuples only inside parentheses
-GAP     a <> fun x -> x  ==>  keyword expression as an operator's right operand
-GAP     a <> if b then c else d  ==>  keyword expression as an operator's right operand
-GAP     a <> let x = b in x  ==>  keyword expression as an operator's right operand
-GAP     a <> match b with | _ -> c  ==>  keyword expression as an operator's right operand
 GAP     a = b, c  ==>  bare tuple: mica builds tuples only inside parentheses
-GAP     a = fun x -> x  ==>  keyword expression as an operator's right operand
-GAP     a = if b then c else d  ==>  keyword expression as an operator's right operand
-GAP     a = let x = b in x  ==>  keyword expression as an operator's right operand
-GAP     a = match b with | _ -> c  ==>  keyword expression as an operator's right operand
 GAP     a > b, c  ==>  bare tuple: mica builds tuples only inside parentheses
-GAP     a > fun x -> x  ==>  keyword expression as an operator's right operand
-GAP     a > if b then c else d  ==>  keyword expression as an operator's right operand
-GAP     a > let x = b in x  ==>  keyword expression as an operator's right operand
-GAP     a > match b with | _ -> c  ==>  keyword expression as an operator's right operand
 GAP     a >= b, c  ==>  bare tuple: mica builds tuples only inside parentheses
-GAP     a >= fun x -> x  ==>  keyword expression as an operator's right operand
-GAP     a >= if b then c else d  ==>  keyword expression as an operator's right operand
-GAP     a >= let x = b in x  ==>  keyword expression as an operator's right operand
-GAP     a >= match b with | _ -> c  ==>  keyword expression as an operator's right operand
 GAP     a @ b, c  ==>  bare tuple: mica builds tuples only inside parentheses
-GAP     a @ fun x -> x  ==>  keyword expression as an operator's right operand
-GAP     a @ if b then c else d  ==>  keyword expression as an operator's right operand
-GAP     a @ let x = b in x  ==>  keyword expression as an operator's right operand
-GAP     a @ match b with | _ -> c  ==>  keyword expression as an operator's right operand
 GAP     a @@ b, c  ==>  bare tuple: mica builds tuples only inside parentheses
 GAP     a ^ b, c  ==>  bare tuple: mica builds tuples only inside parentheses
-GAP     a ^ fun x -> x  ==>  keyword expression as an operator's right operand
-GAP     a ^ if b then c else d  ==>  keyword expression as an operator's right operand
-GAP     a ^ let x = b in x  ==>  keyword expression as an operator's right operand
-GAP     a ^ match b with | _ -> c  ==>  keyword expression as an operator's right operand
 GAP     a mod b, c  ==>  bare tuple: mica builds tuples only inside parentheses
-GAP     a mod fun x -> x  ==>  keyword expression as an operator's right operand
-GAP     a mod if b then c else d  ==>  keyword expression as an operator's right operand
-GAP     a mod let x = b in x  ==>  keyword expression as an operator's right operand
-GAP     a mod match b with | _ -> c  ==>  keyword expression as an operator's right operand
 GAP     a |> b, c  ==>  bare tuple: mica builds tuples only inside parentheses
-GAP     a |> fun x -> x  ==>  keyword expression as an operator's right operand
-GAP     a |> if b then c else d  ==>  keyword expression as an operator's right operand
-GAP     a |> let x = b in x  ==>  keyword expression as an operator's right operand
-GAP     a |> match b with | _ -> c  ==>  keyword expression as an operator's right operand
 GAP     a || b, c  ==>  bare tuple: mica builds tuples only inside parentheses
-GAP     a || fun x -> x  ==>  keyword expression as an operator's right operand
-GAP     a || if b then c else d  ==>  keyword expression as an operator's right operand
-GAP     a || let x = b in x  ==>  keyword expression as an operator's right operand
-GAP     a || match b with | _ -> c  ==>  keyword expression as an operator's right operand
 GAP     a, (b, c)  ==>  bare tuple: mica builds tuples only inside parentheses
 GAP     a, b  ==>  bare tuple: mica builds tuples only inside parentheses
 GAP     a, b && c  ==>  bare tuple: mica builds tuples only inside parentheses
@@ -174,13 +61,11 @@ GAP     a, b |> c  ==>  bare tuple: mica builds tuples only inside parentheses
 GAP     a, b || c  ==>  bare tuple: mica builds tuples only inside parentheses
 GAP     a, b, c  ==>  bare tuple: mica builds tuples only inside parentheses
 GAP     a, b, c, d  ==>  bare tuple: mica builds tuples only inside parentheses
-GAP     a.(i) <- fun x -> x  ==>  keyword expression as an operator's right operand
-GAP     a.(i) <- if b then c else d  ==>  keyword expression as an operator's right operand
 GAP     a.(i), b  ==>  bare tuple: mica builds tuples only inside parentheses
 GAP     a.(i).u <- b  ==>  field assignment: `<-` accepts only `a.(i)` on the left
 GAP     f ! r  ==>  prefix `!` not accepted as a function argument
 GAP     f a, b  ==>  bare tuple: mica builds tuples only inside parentheses
-GAP     fun x -> x, a  ==>  keyword expression as an operator's right operand
+GAP     fun x -> x, a  ==>  bare tuple: mica builds tuples only inside parentheses
 GAP     if a then b, c else d  ==>  bare tuple: mica builds tuples only inside parentheses
 GAP     int  ==>  type alias: `TypeDeclBody` has only variants and records
 GAP     int list  ==>  type alias: `TypeDeclBody` has only variants and records
@@ -197,9 +82,4 @@ GAP     r.u.v <- b  ==>  field assignment: `<-` accepts only `a.(i)` on the left
 PRINTER ! a.b  ==>  ocaml: (!a).b  |  mica: !(a.b)
 PRINTER ! f a  ==>  ocaml: (!f) a  |  mica: !(f a)
 PRINTER ! r.b.c  ==>  ocaml: ((!r).b).c  |  mica: !((r.b).c)
-PRINTER a @@ b && c  ==>  ocaml: (a @@ b) && c  |  mica: a @@ (b && c)
-PRINTER a @@ b := c  ==>  ocaml: (a @@ b) := c  |  mica: a @@ (b := c)
-PRINTER a @@ b ; c  ==>  ocaml: a @@ b; c  |  mica: a @@ (b; c)
-PRINTER a @@ b |> c  ==>  ocaml: (a @@ b) |> c  |  mica: a @@ (b |> c)
-PRINTER a @@ b || c  ==>  ocaml: (a @@ b) || c  |  mica: a @@ (b || c)
 UNPRINT type t1085 = A of (int -> int)

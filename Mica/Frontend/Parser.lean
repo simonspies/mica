@@ -165,19 +165,37 @@ private partial def collectPathTail (head : String) (acc : List String) : Parser
   | _, _ => return { head, tail := acc.reverse }
 
 -- ---------------------------------------------------------------------------
--- Left-assoc binary expression helper
+-- Infix operators
 
-private partial def parseLAssocLoop
-    (ops : List (Token × BinOp)) (sub : Parser Expr) (lhs : Expr) : Parser Expr := do
-  match ops.find? (·.1 == (← peek)) with
-  | some (_, op) =>
-    advance
-    let rhs ← sub
-    parseLAssocLoop ops sub { loc := between lhs.loc rhs.loc, kind := .binop op lhs rhs }
-  | none => return lhs
-
-private partial def parseLAssoc (ops : List (Token × BinOp)) (sub : Parser Expr) : Parser Expr := do
-  parseLAssocLoop ops sub (← sub)
+/-- The binary operator a token introduces. `<-` is absent: it shares `:=`'s
+level but builds an `arraySet` rather than a `binop`, so the loop handles it
+separately. -/
+private def binOpOf : Token → Option BinOp
+  | .semi       => some .semi
+  | .colonEq    => some .assign
+  | .pipepipe   => some .or
+  | .ampamp     => some .and
+  | .eq         => some .eq
+  | .neq        => some .neq
+  | .lt         => some .lt
+  | .le         => some .le
+  | .gt         => some .gt
+  | .ge         => some .ge
+  | .pipeGt     => some .pipeRight
+  | .caret      => some .concat
+  | .at         => some .append
+  | .atat       => some .atAt
+  | .coloncolon => some .cons
+  | .plus       => some .add
+  | .minus      => some .sub
+  | .plusDot    => some .fadd
+  | .minusDot   => some .fsub
+  | .star       => some .mul
+  | .slash      => some .div
+  | .kw_mod     => some .mod
+  | .starDot    => some .fmul
+  | .slashDot   => some .fdiv
+  | _           => none
 
 -- ---------------------------------------------------------------------------
 -- Type parsing
@@ -419,108 +437,48 @@ private partial def parseOptRetTy : Parser (Option Typ) := do
 -- ---------------------------------------------------------------------------
 -- Expression parsing
 
-private partial def parseExpr : Parser Expr := do
-  let lhs ← parseExprNoSemi
-  if ← consumeIf .semi then
-    let rhs ← parseExpr
-    return { loc := between lhs.loc rhs.loc, kind := .binop .semi lhs rhs }
-  else return lhs
+/-- A whole expression, `;` included. -/
+private partial def parseExpr : Parser Expr := parseExprAt (BinOp.level .semi)
 
--- Expression without top-level `;` — keywords and operators, but not `;`.
-private partial def parseExprNoSemi : Parser Expr := do
+/-- Precedence climbing over `BinOp.level` / `BinOp.assoc`: parse an operand,
+then extend it with every following operator at level `min` or tighter. -/
+private partial def parseExprAt (min : Nat) : Parser Expr := do
+  parseInfix min (← parseOperand)
+
+private partial def parseInfix (min : Nat) (lhs : Expr) : Parser Expr := do
+  match ← peek with
+  -- `a.(i) <- e`, at `:=`'s level and right-associative like it.
+  | .leftArrow =>
+    let lvl := BinOp.level .assign
+    if lvl < min then return lhs
+    advance
+    let rhs ← parseExprAt lvl
+    match lhs.kind with
+    | .arrayGet arr idx =>
+      parseInfix min { loc := between lhs.loc rhs.loc, kind := .arraySet arr idx rhs }
+    | _ => failAt lhs.loc .expectedArrayElementAssignTarget
+  | tok =>
+    let some op := binOpOf tok | return lhs
+    if BinOp.level op < min then return lhs
+    advance
+    let rhs ← parseExprAt (BinOp.operandLevels op).2
+    parseInfix min { loc := between lhs.loc rhs.loc, kind := .binop op lhs rhs }
+
+/-- The operand of the infix loop.
+
+A keyword expression is an operand at every level, matching OCaml, where the
+grammar admits `let`, `fun`, `if` and `match` after any operator even though
+they sit below all of them. Its trailing branch then extends as far right as it
+can, so `a + if b then c else d * e` reads as `a + (if b then c else (d * e))`.
+The loop needs no case for that: the branch is parsed at a fixed level, leaving
+only looser operators behind, which the loop already declines. -/
+private partial def parseOperand : Parser Expr := do
   match ← peek with
   | .kw_let   => parseLet
   | .kw_fun   => parseFun
   | .kw_if    => parseIf
   | .kw_match => parseMatch
-  | _         => parseAssign
-
--- `:=` (ref store) and `<-` (array set), both right-assoc
-private partial def parseAssign : Parser Expr := do
-  let lhs ← parseOr
-  match ← peek with
-  | .colonEq =>
-    advance
-    let rhs ← parseAssign
-    return { loc := between lhs.loc rhs.loc, kind := .binop .assign lhs rhs }
-  | .leftArrow =>
-    advance
-    let rhs ← parseAssign
-    match lhs.kind with
-    | .arrayGet arr idx =>
-      return { loc := between lhs.loc rhs.loc, kind := .arraySet arr idx rhs }
-    | _ => failAt lhs.loc .expectedArrayElementAssignTarget
-  | _ => return lhs
-
--- `||` right-assoc
-private partial def parseOr : Parser Expr := do
-  let lhs ← parseAnd
-  if ← consumeIf .pipepipe then
-    let rhs ← parseOr
-    return { loc := between lhs.loc rhs.loc, kind := .binop .or lhs rhs }
-  else return lhs
-
--- `&&` right-assoc
-private partial def parseAnd : Parser Expr := do
-  let lhs ← parsePipeGt
-  if ← consumeIf .ampamp then
-    let rhs ← parseAnd
-    return { loc := between lhs.loc rhs.loc, kind := .binop .and lhs rhs }
-  else return lhs
-
--- `|>` left-assoc
-private partial def parsePipeGt : Parser Expr := do
-  parsePipeGtRest (← parseAtAt)
-
-private partial def parsePipeGtRest (lhs : Expr) : Parser Expr := do
-  if ← consumeIf .pipeGt then
-    let rhs ← parseAtAt
-    parsePipeGtRest { loc := between lhs.loc rhs.loc, kind := .binop .pipeRight lhs rhs }
-  else return lhs
-
--- `@@` right-assoc
-private partial def parseAtAt : Parser Expr := do
-  let lhs ← parseCmp
-  if ← consumeIf .atat then
-    -- RHS is full expr so `f @@ fun x -> e` works
-    let rhs ← parseExpr
-    return { loc := between lhs.loc rhs.loc, kind := .binop .atAt lhs rhs }
-  else return lhs
-
--- comparison (left-assoc)
-private partial def parseCmp : Parser Expr :=
-  parseLAssoc [(.eq, .eq), (.neq, .neq), (.lt, .lt), (.le, .le), (.gt, .gt), (.ge, .ge)] parseConcat
-
--- `^`/`@` right-assoc, one shared level (matches OCaml: looser than `::`)
-private partial def parseConcat : Parser Expr := do
-  let lhs ← parseCons
-  match ← peek with
-  | .caret =>
-    advance
-    let rhs ← parseConcat
-    return { loc := between lhs.loc rhs.loc, kind := .binop .concat lhs rhs }
-  | .at =>
-    advance
-    let rhs ← parseConcat
-    return { loc := between lhs.loc rhs.loc, kind := .binop .append lhs rhs }
-  | _ => return lhs
-
--- `::` right-assoc, between `@`/`^` and `+`/`-` (matches OCaml)
-private partial def parseCons : Parser Expr := do
-  let lhs ← parseAdd
-  if ← consumeIf .coloncolon then
-    let rhs ← parseCons
-    return { loc := between lhs.loc rhs.loc, kind := .binop .cons lhs rhs }
-  else return lhs
-
--- `+` `-` left-assoc
-private partial def parseAdd : Parser Expr :=
-  parseLAssoc [(.plus, .add), (.minus, .sub), (.plusDot, .fadd), (.minusDot, .fsub)] parseMul
-
--- `*` `/` `mod` left-assoc
-private partial def parseMul : Parser Expr :=
-  parseLAssoc [(.star, .mul), (.slash, .div), (.starDot, .fmul), (.slashDot, .fdiv),
-               (.kw_mod, .mod)] parseUnary
+  | _         => parseUnary
 
 -- prefix unary operators
 private partial def parseUnary : Parser Expr := do
@@ -631,7 +589,7 @@ private partial def parseTupleRest : Parser (List Expr) := do
 
 -- `;`-separated list-literal elements, allowing a trailing `;`
 private partial def parseListElems : Parser (List Expr) := do
-  let e ← parseExprNoSemi
+  let e ← parseExprAt Prec.noSemi
   if ← consumeIf .semi then
     if (← peek) == .rbracket then return [e]
     else return e :: (← parseListElems)
@@ -658,7 +616,7 @@ private partial def parseRecord : Parser Expr := do
 private partial def parseRecordFields : Parser (List (FieldName × Expr)) := do
   let name ← expectIdent
   expect .eq
-  let e ← parseAssign
+  let e ← parseExprAt Prec.noSemi
   if ← consumeIf .semi then
     if (← peek) == .rbrace then return [(name, e)]  -- trailing semicolon
     else return (name, e) :: (← parseRecordFields)
@@ -688,15 +646,16 @@ private partial def parseFun : Parser Expr := exprOf do
   return .fun_ args retTy (← parseExpr)
 
 -- `if c then t else e`
--- Sub-expressions use parseExprNoSemi because `;` binds less tightly
--- than if/then/else in OCaml.
+-- The branches stop at `;`, which is looser than `if` in OCaml, so
+-- `if a then b else c; d` sequences the whole `if`. The condition is delimited
+-- by `then` instead, so it takes a full expression.
 private partial def parseIf : Parser Expr := exprOf do
   expect .kw_if
-  let cond ← parseExprNoSemi
+  let cond ← parseExpr
   expect .kw_then
-  let thn ← parseExprNoSemi
+  let thn ← parseExprAt Prec.noSemi
   expect .kw_else
-  return .ite cond thn (← parseExprNoSemi)
+  return .ite cond thn (← parseExprAt Prec.noSemi)
 
 -- `match e with | P -> e | ...`
 private partial def parseMatch : Parser Expr := exprOf do

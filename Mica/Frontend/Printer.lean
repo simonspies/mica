@@ -76,16 +76,8 @@ partial def BinOp.print : BinOp → String
   | .semi => ";" | .pipeRight => "|>" | .atAt => "@@" | .assign => ":="
   | .concat => "^" | .append => "@" | .cons => "::"
 
-private partial def BinOp.prec : BinOp → Nat
-  | .semi => 1 | .assign => 2 | .or => 3 | .and => 4
-  | .pipeRight => 5 | .atAt => 6
-  | .eq | .neq | .lt | .le | .gt | .ge => 7
-  | .concat | .append => 8 | .cons => 9 | .add | .sub | .fadd | .fsub => 10
-  | .mul | .div | .mod | .fmul | .fdiv => 11
-
-private partial def BinOp.rightAssoc : BinOp → Bool
-  | .semi | .assign | .or | .and | .atAt | .concat | .append | .cons => true
-  | _ => false
+-- Precedence comes from `BinOp.level` / `BinOp.assoc` in `AST.lean`, the same
+-- table the parser climbs. A copy here is what let printer and parser disagree.
 
 -- ---------------------------------------------------------------------------
 -- Type printing
@@ -225,43 +217,24 @@ where
     | _ =>
       let space := if UnOp.needsSpace op then " " else ""
       UnOp.print op ++ space ++ fmtArg inner
+  -- A keyword expression extends as far right as it can, so it needs parens
+  -- wherever an operator could follow it — on either side of an operator, since
+  -- the operator's own right-hand side may be followed by more.
+  operand (e : Expr) (prec : Nat) : String :=
+    parenIf (Expr.isKeywordExpr e) (Expr.printPrec e prec)
   printArrayGet (arr idx : Expr) (outerPrec : Nat) : String :=
-    let p := 11
-    let arrNeedsParens : Bool := match arr.kind with
-      | .binop op _ _ => BinOp.prec op < p
-      | _ => Expr.isKeywordExpr arr
-    let arrStr := parenIf arrNeedsParens (Expr.printPrec arr p)
-    parenIf (outerPrec > p) (arrStr ++ ".(" ++ Expr.printPrec idx 0 ++ ")")
+    let p := Prec.app
+    parenIf (outerPrec > p) (operand arr p ++ ".(" ++ Expr.printPrec idx 0 ++ ")")
   printArraySet (arr idx val : Expr) (outerPrec : Nat) : String :=
-    let p := 2
-    let lhs := printArrayGet arr idx p
-    let rhsNeedsParens : Bool := match val.kind with
-      | .binop op _ _ => BinOp.prec op < p
-      | _ => Expr.isKeywordExpr val
-    let rhs := parenIf rhsNeedsParens (Expr.printPrec val p)
-    parenIf (outerPrec > p) (lhs ++ " <- " ++ rhs)
+    -- `<-` sits at `:=`'s level and is right-associative like it.
+    let p := BinOp.level .assign
+    parenIf (outerPrec > p) (printArrayGet arr idx Prec.app ++ " <- " ++ operand val p)
 
   printBinop (op : BinOp) (lhs rhs : Expr) (outerPrec : Nat) : String :=
-    let p := BinOp.prec op
-    -- Special case: semicolons print with newline
-    if op == .semi then
-      let result := Expr.printPrec lhs (p + 1) ++ ";\n" ++ Expr.printPrec rhs 0
-      parenIf (outerPrec > p) result
-    else
-      let lhsNeedsParens : Bool := match lhs.kind with
-        | .binop lop _ _ =>
-          if BinOp.rightAssoc op then BinOp.prec lop <= p
-          else BinOp.prec lop < p
-        | _ => Expr.isKeywordExpr lhs
-      let rhsNeedsParens : Bool := match rhs.kind with
-        | .binop rop _ _ =>
-          if BinOp.rightAssoc op then BinOp.prec rop < p
-          else BinOp.prec rop <= p
-        -- For @@, don't parenthesize keyword exprs on the RHS
-        | _ => if op == .atAt then false else Expr.isKeywordExpr rhs
-      let lhsStr := parenIf lhsNeedsParens (Expr.printPrec lhs p)
-      let rhsStr := parenIf rhsNeedsParens (Expr.printPrec rhs p)
-      parenIf (outerPrec > p) (lhsStr ++ " " ++ BinOp.print op ++ " " ++ rhsStr)
+    let p := BinOp.level op
+    let (lhsPrec, rhsPrec) := BinOp.operandLevels op
+    let sep := if op == .semi then ";\n" else s!" {BinOp.print op} "
+    parenIf (outerPrec > p) (operand lhs lhsPrec ++ sep ++ operand rhs rhsPrec)
 
 end
 

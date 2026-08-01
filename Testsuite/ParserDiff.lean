@@ -335,11 +335,7 @@ Matching is deliberately loose; the reason text is what carries the meaning.
 
 Order matters: the first matching entry wins, so the broad patterns come last. -/
 def knownGaps : List (String × String) :=
-  [ ("if b then c else d", "keyword expression as an operator's right operand")
-  , ("match b with",       "keyword expression as an operator's right operand")
-  , ("fun x -> x",         "keyword expression as an operator's right operand")
-  , ("let x = b in x",     "keyword expression as an operator's right operand")
-  , ("f ! r",              "prefix `!` not accepted as a function argument")
+  [ ("f ! r",              "prefix `!` not accepted as a function argument")
   , ("r.u <-",             "field assignment: `<-` accepts only `a.(i)` on the left")
   , ("r.u.v <-",           "field assignment: `<-` accepts only `a.(i)` on the left")
   , ("a.(i).u <-",         "field assignment: `<-` accepts only `a.(i)` on the left")
@@ -430,12 +426,12 @@ def run (mica : FilePath) (promote : Bool) : IO UInt32 := do
     IO.println s!"parser-diff: {checked - parserDs.size}/{checked} fixtures agree with OCaml, \
 {parserDs.size} divergent, {gaps.size} rejected by mica"
     -- A cell that the parser gets wrong but that survives a print/reparse is one
-    -- where `Printer.lean`'s precedence table cancels the parser's: the two
-    -- errors compose back to OCaml's reading, which is why these are invisible
-    -- to any test that goes through mica's own printer.
+    -- where `Printer.lean` makes the matching mistake: the two errors compose
+    -- back to OCaml's reading, which is why these are invisible to any test that
+    -- goes through mica's own printer.
     let masked := parserDs.filter fun d => !printerDs.any (·.name == d.name)
     IO.println s!"parser-diff: {printerDs.size} of those survive mica's own printer; \
-{masked.size} are masked by `Printer.lean`'s duplicate precedence table"
+{masked.size} are masked by a matching mistake in `Printer.lean`"
     if !unprintable.isEmpty then
       IO.println s!"parser-diff: {unprintable.size} declaration(s) mica cannot print as valid OCaml"
     pure (baselineLines parserDs printerDs gaps unprintable)

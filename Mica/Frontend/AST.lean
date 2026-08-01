@@ -80,6 +80,63 @@ inductive BinOp where
   | semi | pipeRight | atAt | assign | concat | append | cons
   deriving Repr, BEq
 
+/-- Associativity of an infix operator. -/
+inductive Assoc where
+  | left | right
+  deriving Repr, BEq
+
+/-! ### Operator precedence
+
+The definitions below are the grammar of infix expressions, and the parser and
+the printer are its only two consumers: `Parser.lean` drives one
+precedence-climbing loop from them and `Printer.lean` decides parentheses from
+them. Keeping a second copy anywhere is what let the two drift apart.
+
+The levels are OCaml's, renumbered to start at 1, following the operator
+table in §7.1 of the OCaml manual.
+
+Two levels outside the table are named below because both consumers need them.
+OCaml's comma level, between `||` and `:=`, is absent: tuples are built by their
+own production rather than by the operator loop. -/
+
+/-- Precedence of a binary operator; a higher level binds tighter. -/
+def BinOp.level : BinOp → Nat
+  | .semi                                     => 1
+  | .assign                                   => 2
+  | .or                                       => 3
+  | .and                                      => 4
+  | .eq | .neq | .lt | .le | .gt | .ge
+  | .pipeRight                                => 5
+  | .concat | .append | .atAt                 => 6
+  | .cons                                     => 7
+  | .add | .sub | .fadd | .fsub               => 8
+  | .mul | .div | .mod | .fmul | .fdiv        => 9
+
+/-- Associativity of a binary operator. -/
+def BinOp.assoc : BinOp → Assoc
+  | .eq | .neq | .lt | .le | .gt | .ge | .pipeRight
+  | .add | .sub | .fadd | .fsub
+  | .mul | .div | .mod | .fmul | .fdiv => .left
+  | _                                  => .right
+
+/-- The levels of an operator's left and right operands. The side the operator
+associates towards keeps the operator's own level, so a repeat of it nests
+there; the other side takes one level above, so a repeat of it ends the operand.
+This is the associativity rule itself, shared rather than restated: the parser
+descends to these levels and the printer parenthesizes against them. -/
+def BinOp.operandLevels (op : BinOp) : Nat × Nat :=
+  match BinOp.assoc op with
+  | .left  => (BinOp.level op, BinOp.level op + 1)
+  | .right => (BinOp.level op + 1, BinOp.level op)
+
+/-- The loosest level that stops at `;`. The branches of an `if` sit here: OCaml
+puts `if` above `;`, so `if a then b else c; d` sequences the whole `if`. -/
+def Prec.noSemi : Nat := BinOp.level .semi + 1
+
+/-- Tighter than every binary operator: application, the prefix operators, and
+the postfix forms `e.f` and `e.(i)`. -/
+def Prec.app : Nat := BinOp.level .mul + 1
+
 -- Attributes
 
 /-- The name of an attribute `[@name]`. Which names are meaningful depends on
