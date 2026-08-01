@@ -1,0 +1,2 @@
+elaboration error: Tests/frontend/decl_spec_no_payload.ml:8:1: unsupported feature: [@@spec] expects a specification payload
+[1]

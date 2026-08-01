@@ -1,2 +1,2 @@
-elaboration error: Tests/frontend/decl_attribute_unknown.ml:7:1: unsupported feature: unknown declaration attribute [@@bogus]
+elaboration error: Tests/frontend/decl_attribute_unknown.ml:8:1: unsupported feature: unknown declaration attribute [@@bogus]
 [1]

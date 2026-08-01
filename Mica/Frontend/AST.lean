@@ -141,8 +141,10 @@ mutual
 
   /-- An OCaml attribute `[@name payload]` (expression-level, single `@`) or
   `[@@name payload]` (declaration-level, double `@`). The payload, when present,
-  is a surface expression. -/
+  is a surface expression. `loc` spans the brackets, so an error about the
+  attribute itself points at it rather than at what it is attached to. -/
   structure Attribute where
+    loc     : Location
     name    : String
     payload : Option Expr
 end

@@ -216,13 +216,15 @@ private def elaborateCtorLookup (env : ElabEnv) (loc : Location) (name : String)
 /-- Apply a single expression attribute to an already-elaborated term. One arm
 per supported expression attribute; unknown names are rejected here (mirroring
 how `[@@...]` names are validated). -/
-private def applyAttr (loc : Location) (e : Untyped.Expr) : Attribute → ElabM Untyped.Expr
-  | { name := "owned", payload := none } =>
+private def applyAttr (e : Untyped.Expr) (attr : Attribute) : ElabM Untyped.Expr :=
+  match attr.name, attr.payload with
+  | "owned", none =>
       match e with
       | .ref _ inner => .ok (.ref .owned inner)
       | .arrayMake _ len init => .ok (.arrayMake .owned len init)
-      | _ => err loc (.unsupportedFeature "[@owned] only applies to 'ref' or 'Array.make'")
-  | { name, .. } => err loc (.unsupportedFeature s!"unknown expression attribute [@{name}]")
+      | _ => err attr.loc (.unsupportedFeature "[@owned] only applies to 'ref' or 'Array.make'")
+  | "owned", some payload => err payload.loc (.unsupportedFeature "[@owned] takes no payload")
+  | name, _ => err attr.loc (.unsupportedFeature s!"unknown expression attribute [@{name}]")
 
 private def bareSpecial (loc : Location) (path : Path) : ElabM Untyped.Expr :=
   err loc (.bareSpecialIdentifier path.toString)
@@ -371,29 +373,30 @@ type may be written. -/
 partial def Typ.elaborate (env : ElabEnv) : Typ → ElabM Untyped.Typ
   | ⟨loc, kind, attrs⟩ => do
       let t ← TypKind.elaborate env loc kind
-      Typ.applyAttrs env loc t attrs
+      Typ.applyAttrs env t attrs
 
-partial def Typ.applyAttrs (env : ElabEnv) (loc : Location) (t : Untyped.Typ) :
+partial def Typ.applyAttrs (env : ElabEnv) (t : Untyped.Typ) :
     List Attribute → ElabM Untyped.Typ
   | [] => .ok t
   | attr :: attrs => do
-    let t' ← Typ.applyAttr env loc t attr
-    Typ.applyAttrs env loc t' attrs
+    let t' ← Typ.applyAttr env t attr
+    Typ.applyAttrs env t' attrs
 
 /-- Apply a single type attribute. `[@owned]` turns a shared `ref A` into an
 owned `owned A` (mirroring how the expression-level `[@owned]` validates
 `ref`); `[@spec]` records a specification on the arrow it annotates, exactly as
 `[@@spec]` does on a declaration. -/
-partial def Typ.applyAttr (env : ElabEnv) (loc : Location) (t : Untyped.Typ) :
-    Attribute → ElabM Untyped.Typ
-  | ⟨"owned", none⟩ =>
+partial def Typ.applyAttr (env : ElabEnv) (t : Untyped.Typ) (attr : Attribute) :
+    ElabM Untyped.Typ :=
+  match attr.name, attr.payload with
+  | "owned", none =>
     match t with
     | .ref inner => .ok (.owned inner)
     | .array inner => .ok (.ownedArray inner)
-    | _ => err loc (.unsupportedFeature "[@owned] only applies to a 'ref' or 'array' type")
-  | ⟨"owned", some payload⟩ => err payload.loc (.unsupportedFeature "[@owned] takes no payload")
-  | ⟨"spec", none⟩ => err loc (.unsupportedFeature "[@spec] expects a specification payload")
-  | ⟨"spec", some payload⟩ => do
+    | _ => err attr.loc (.unsupportedFeature "[@owned] only applies to a 'ref' or 'array' type")
+  | "owned", some payload => err payload.loc (.unsupportedFeature "[@owned] takes no payload")
+  | "spec", none => err attr.loc (.unsupportedFeature "[@spec] expects a specification payload")
+  | "spec", some payload => do
     let e ← Expr.elaborate env payload
     match Spec.parse e with
     | .error msg => err payload.loc (.unsupportedFeature s!"invalid [@spec]: {msg}")
@@ -401,9 +404,9 @@ partial def Typ.applyAttr (env : ElabEnv) (loc : Location) (t : Untyped.Typ) :
       match t with
       | .arrow args ret none => .ok (.arrow args ret (some body))
       | .arrow _ _ (some _) =>
-        err loc (.unsupportedFeature "a function type carries at most one [@spec]")
-      | _ => err loc (.unsupportedFeature "[@spec] only applies to a function type")
-  | ⟨name, _⟩ => err loc (.unsupportedFeature s!"unknown type attribute [@{name}]")
+        err attr.loc (.unsupportedFeature "a function type carries at most one [@spec]")
+      | _ => err attr.loc (.unsupportedFeature "[@spec] only applies to a function type")
+  | name, _ => err attr.loc (.unsupportedFeature s!"unknown type attribute [@{name}]")
 
 partial def TypKind.elaborate (env : ElabEnv) (loc : Location) : TypKind → ElabM Untyped.Typ
   | .var v => .ok (.core (.tvar v))
@@ -472,7 +475,7 @@ for every expression position, so attributes are honored everywhere. -/
 partial def Expr.elaborate (env : ElabEnv) : Expr → ElabM Untyped.Expr
   | ⟨loc, kind, attrs⟩ => do
       let e ← ExprKind.elaborate env loc kind
-      attrs.foldlM (applyAttr loc) e
+      attrs.foldlM applyAttr e
 
 partial def ExprKind.elaborate (env : ElabEnv) (loc : Location) : ExprKind → ElabM Untyped.Expr
   | .const (.int n)  => .ok (.const (.int n))
@@ -938,26 +941,28 @@ and whether `[@@fn]` marks it as a spec-level function. Every attribute is
 accounted for — an unknown name is rejected, and neither may be written twice,
 so no attribute is silently ignored. `[@@fn]` takes no payload; the function's
 own name is used for the derived relation. -/
-private def elaborateValAttrs (env : ElabEnv) (loc : Location) :
+private def elaborateValAttrs (env : ElabEnv) :
     Option Untyped.SpecBody → Bool → List Attribute → ElabM (Option Untyped.SpecBody × Bool)
   | spec, fn, [] => .ok (spec, fn)
   | spec, fn, attr :: attrs =>
     match attr.name, attr.payload with
     | "spec", some payload =>
       if spec.isSome then
-        err payload.loc (.unsupportedFeature "a declaration carries at most one [@@spec]")
+        err attr.loc (.unsupportedFeature "a declaration carries at most one [@@spec]")
       else do
         let e ← Expr.elaborate env payload
         match Spec.parse e with
-        | .ok spec' => elaborateValAttrs env loc (some spec') fn attrs
+        | .ok spec' => elaborateValAttrs env (some spec') fn attrs
         | .error msg => err payload.loc (.unsupportedFeature s!"invalid [@@spec]: {msg}")
-    | "spec", none => err loc (.unsupportedFeature "[@@spec] expects a specification payload")
+    | "spec", none =>
+      err attr.loc (.unsupportedFeature "[@@spec] expects a specification payload")
     | "fn", none =>
-      if fn then err loc (.unsupportedFeature "a declaration carries at most one [@@fn]")
-      else elaborateValAttrs env loc spec true attrs
+      if fn then err attr.loc (.unsupportedFeature "a declaration carries at most one [@@fn]")
+      else elaborateValAttrs env spec true attrs
     | "fn", some payload => err payload.loc (.unsupportedFeature
         "[@@fn] takes no payload; the function's own name is used for the relation")
-    | name, _ => err loc (.unsupportedFeature s!"unknown declaration attribute [@@{name}]")
+    | name, _ =>
+      err attr.loc (.unsupportedFeature s!"unknown declaration attribute [@@{name}]")
 
 def Decl.elaborate (env : ElabEnv) (decl : Decl)
     : ElabM (ElabEnv × Option (Untyped.Decl Untyped.SpecBody)) := do
@@ -971,7 +976,7 @@ def Decl.elaborate (env : ElabEnv) (decl : Decl)
     let (env', tdecl') ← TypeDecl.elaborate env decl.loc tdecl
     .ok (env', tdecl'.map Untyped.Decl.type_)
   | .val_ isRec binders retTy body => do
-    let (spec, fn) ← elaborateValAttrs env decl.loc none false decl.attrs
+    let (spec, fn) ← elaborateValAttrs env none false decl.attrs
     let d ← ValDecl.elaborate env decl.loc isRec binders retTy body spec
     -- A `[@@fn]` declaration uses its own name for the derived relation.
     let relation ← if fn then

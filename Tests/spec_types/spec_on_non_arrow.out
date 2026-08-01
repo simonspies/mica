@@ -1,2 +1,2 @@
-elaboration error: Tests/spec_types/spec_on_non_arrow.ml:5:12: unsupported feature: [@spec] only applies to a function type
+elaboration error: Tests/spec_types/spec_on_non_arrow.ml:5:16: unsupported feature: [@spec] only applies to a function type
 [1]

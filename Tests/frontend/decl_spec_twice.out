@@ -1,2 +1,2 @@
-elaboration error: Tests/frontend/decl_spec_twice.ml:9:9: unsupported feature: a declaration carries at most one [@@spec]
+elaboration error: Tests/frontend/decl_spec_twice.ml:9:1: unsupported feature: a declaration carries at most one [@@spec]
 [1]
