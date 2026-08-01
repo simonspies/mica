@@ -187,7 +187,7 @@ private partial def parseTypeAttr : Parser Attribute := fun st => do
       let (e, st) ← parseExpr st
       .ok (some e, st)
   let st ← expect .rbracket st
-  .ok ({ loc := spanTo p st, name, payload }, st)
+  .ok ({ loc := spanTo p st, name := AttrName.ofString name, payload }, st)
 
 -- Fold trailing type attributes `T [@name payload]` into `T.attrs`.
 private partial def parseTypeAttrSuffix (t : Typ) : Parser Typ := fun st =>
@@ -614,7 +614,7 @@ where
         let (e, st) ← parseExpr st
         .ok (some e, st)
     let st ← expect .rbracket st
-    .ok ({ loc := spanTo p st, name, payload }, st)
+    .ok ({ loc := spanTo p st, name := AttrName.ofString name, payload }, st)
 
   parseAppRest (fn : Expr) : Parser Expr := fun st => do
     let (args, st) ← collectArgs st
@@ -985,7 +985,7 @@ where
             let (e, st') ← parseExpr st'
             .ok (some e, st')
         let st' ← expect .rbracket st'
-        let attr : Attribute := { loc := spanTo p st', name, payload }
+        let attr : Attribute := { loc := spanTo p st', name := AttrName.ofString name, payload }
         let (rest, st') ← parseAttrs st'
         .ok (attr :: rest, st')
       | _ => .ok ([], st)

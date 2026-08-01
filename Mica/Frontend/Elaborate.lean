@@ -218,12 +218,12 @@ per supported expression attribute; unknown names are rejected here (mirroring
 how `[@@...]` names are validated). -/
 private def applyAttr (e : Untyped.Expr) (attr : Attribute) : ElabM Untyped.Expr :=
   match attr.name, attr.payload with
-  | "owned", none =>
+  | .owned, none =>
       match e with
       | .ref _ inner => .ok (.ref .owned inner)
       | .arrayMake _ len init => .ok (.arrayMake .owned len init)
       | _ => err attr.loc (.unsupportedFeature "[@owned] only applies to 'ref' or 'Array.make'")
-  | "owned", some payload => err payload.loc (.unsupportedFeature "[@owned] takes no payload")
+  | .owned, some payload => err payload.loc (.unsupportedFeature "[@owned] takes no payload")
   | name, _ => err attr.loc (.unsupportedFeature s!"unknown expression attribute [@{name}]")
 
 private def bareSpecial (loc : Location) (path : Path) : ElabM Untyped.Expr :=
@@ -389,14 +389,14 @@ owned `owned A` (mirroring how the expression-level `[@owned]` validates
 partial def Typ.applyAttr (env : ElabEnv) (t : Untyped.Typ) (attr : Attribute) :
     ElabM Untyped.Typ :=
   match attr.name, attr.payload with
-  | "owned", none =>
+  | .owned, none =>
     match t with
     | .ref inner => .ok (.owned inner)
     | .array inner => .ok (.ownedArray inner)
     | _ => err attr.loc (.unsupportedFeature "[@owned] only applies to a 'ref' or 'array' type")
-  | "owned", some payload => err payload.loc (.unsupportedFeature "[@owned] takes no payload")
-  | "spec", none => err attr.loc (.unsupportedFeature "[@spec] expects a specification payload")
-  | "spec", some payload => do
+  | .owned, some payload => err payload.loc (.unsupportedFeature "[@owned] takes no payload")
+  | .spec, none => err attr.loc (.unsupportedFeature "[@spec] expects a specification payload")
+  | .spec, some payload => do
     let e ← Expr.elaborate env payload
     match Spec.parse e with
     | .error msg => err payload.loc (.unsupportedFeature s!"invalid [@spec]: {msg}")
@@ -962,7 +962,7 @@ private def elaborateValAttrs (env : ElabEnv) (acc : ValAttrs) :
   | [] => .ok acc
   | attr :: attrs =>
     match attr.name, attr.payload with
-    | "spec", some payload =>
+    | .spec, some payload =>
       if acc.spec.isSome then
         err attr.loc (.unsupportedFeature "a declaration carries at most one [@@spec]")
       else do
@@ -970,12 +970,12 @@ private def elaborateValAttrs (env : ElabEnv) (acc : ValAttrs) :
         match Spec.parse e with
         | .ok spec => elaborateValAttrs env { acc with spec := some spec } attrs
         | .error msg => err payload.loc (.unsupportedFeature s!"invalid [@@spec]: {msg}")
-    | "spec", none =>
+    | .spec, none =>
       err attr.loc (.unsupportedFeature "[@@spec] expects a specification payload")
-    | "fn", none =>
+    | .fn, none =>
       if acc.fn then err attr.loc (.unsupportedFeature "a declaration carries at most one [@@fn]")
       else elaborateValAttrs env { acc with fn := true } attrs
-    | "fn", some payload => err payload.loc (.unsupportedFeature
+    | .fn, some payload => err payload.loc (.unsupportedFeature
         "[@@fn] takes no payload; the function's own name is used for the relation")
     | name, _ =>
       err attr.loc (.unsupportedFeature s!"unknown declaration attribute [@@{name}]")

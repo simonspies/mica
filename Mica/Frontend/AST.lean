@@ -80,6 +80,36 @@ inductive BinOp where
   | semi | pipeRight | atAt | assign | concat | append | cons
   deriving Repr, BEq
 
+-- Attributes
+
+/-- The name of an attribute `[@name]`. Which names are meaningful depends on
+where the attribute is written, so an unrecognized one is carried through to
+elaboration, which rejects it by name for that position. -/
+inductive AttrName where
+  | spec
+  | fn
+  | owned
+  | unknown (name : String)
+  deriving Repr, Inhabited, BEq, DecidableEq
+
+namespace AttrName
+
+def ofString : String → AttrName
+  | "spec"  => .spec
+  | "fn"    => .fn
+  | "owned" => .owned
+  | name    => .unknown name
+
+def toString : AttrName → String
+  | .spec         => "spec"
+  | .fn           => "fn"
+  | .owned        => "owned"
+  | .unknown name => name
+
+instance : ToString AttrName := ⟨AttrName.toString⟩
+
+end AttrName
+
 -- Types, patterns, expressions, match arms
 
 mutual
@@ -145,7 +175,7 @@ mutual
   attribute itself points at it rather than at what it is attached to. -/
   structure Attribute where
     loc     : Location
-    name    : String
+    name    : AttrName
     payload : Option Expr
 end
 
