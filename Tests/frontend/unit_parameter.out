@@ -1,0 +1,2 @@
+elaboration error: Tests/frontend/unit_parameter.ml:12:7: unsupported pattern: expected a simple binder (variable or wildcard)
+[1]
