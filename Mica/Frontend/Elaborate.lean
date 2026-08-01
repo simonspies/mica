@@ -681,7 +681,7 @@ partial def ExprKind.elaborate (env : ElabEnv) (loc : Location) : ExprKind → E
         else do
           -- With no arguments the annotation is the bound value's own type, so
           -- it lands on the binder and the bound expression is checked at it.
-          let name ← patternToBinder pat
+          let name ← patternToBinderTyped env pat
           let annot ← elaborateOptTyp env retTy
           let name := match name, annot with
             | .named n none, some ty => .named n (some ty)
@@ -791,7 +791,7 @@ partial def MatchArm.elaborateList (env : ElabEnv)
                 if isProductPattern p then
                   err p.loc (.unsupportedPattern "constructor payload is not a product")
                 else do
-                  let b ← patternToBinder p
+                  let b ← patternToBinderTyped env p
                   pure (some b, body')
           | none =>
             let body' ← Expr.elaborate env body
@@ -895,7 +895,7 @@ def ValDecl.elaborate (env : ElabEnv) (loc : Location)
   | [pat] =>
     -- A declaration with no arguments: its annotation is the declaration's own
     -- type, which is where a `[@spec]` on it belongs.
-    let name ← patternToBinder pat
+    let name ← patternToBinderTyped env pat
     let annot ← elaborateOptTyp env retTy
     let name := match name, annot with
       | .named n none, some ty => .named n (some ty)
