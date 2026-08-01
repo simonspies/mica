@@ -946,29 +946,35 @@ def ValDecl.elaborate (env : ElabEnv) (loc : Location)
 -- ---------------------------------------------------------------------------
 -- Program elaboration
 
-/-- The attributes of a value declaration: the specification `[@@spec]` carries,
-and whether `[@@fn]` marks it as a spec-level function. Every attribute is
-accounted for — an unknown name is rejected, and neither may be written twice,
-so no attribute is silently ignored. `[@@fn]` takes no payload; the function's
-own name is used for the derived relation. -/
-private def elaborateValAttrs (env : ElabEnv) :
-    Option Untyped.SpecBody → Bool → List Attribute → ElabM (Option Untyped.SpecBody × Bool)
-  | spec, fn, [] => .ok (spec, fn)
-  | spec, fn, attr :: attrs =>
+/-- What a value declaration's attributes say about it. -/
+private structure ValAttrs where
+  /-- The specification `[@@spec]` carries. -/
+  spec : Option Untyped.SpecBody := none
+  /-- Whether `[@@fn]` registers it as a spec-level function. The attribute
+  takes no payload; the function's own name is used for the derived relation. -/
+  fn : Bool := false
+
+/-- Read a value declaration's attributes. Every attribute is accounted for —
+an unknown name is rejected, and neither may be written twice — so none is
+silently ignored. -/
+private def elaborateValAttrs (env : ElabEnv) (acc : ValAttrs) :
+    List Attribute → ElabM ValAttrs
+  | [] => .ok acc
+  | attr :: attrs =>
     match attr.name, attr.payload with
     | "spec", some payload =>
-      if spec.isSome then
+      if acc.spec.isSome then
         err attr.loc (.unsupportedFeature "a declaration carries at most one [@@spec]")
       else do
         let e ← Expr.elaborate env payload
         match Spec.parse e with
-        | .ok spec' => elaborateValAttrs env (some spec') fn attrs
+        | .ok spec => elaborateValAttrs env { acc with spec := some spec } attrs
         | .error msg => err payload.loc (.unsupportedFeature s!"invalid [@@spec]: {msg}")
     | "spec", none =>
       err attr.loc (.unsupportedFeature "[@@spec] expects a specification payload")
     | "fn", none =>
-      if fn then err attr.loc (.unsupportedFeature "a declaration carries at most one [@@fn]")
-      else elaborateValAttrs env spec true attrs
+      if acc.fn then err attr.loc (.unsupportedFeature "a declaration carries at most one [@@fn]")
+      else elaborateValAttrs env { acc with fn := true } attrs
     | "fn", some payload => err payload.loc (.unsupportedFeature
         "[@@fn] takes no payload; the function's own name is used for the relation")
     | name, _ =>
@@ -986,10 +992,10 @@ def Decl.elaborate (env : ElabEnv) (decl : Decl)
     let (env', tdecl') ← TypeDecl.elaborate env decl.loc tdecl
     .ok (env', tdecl'.map Untyped.Decl.type_)
   | .val_ isRec binders retTy body => do
-    let (spec, fn) ← elaborateValAttrs env none false decl.attrs
-    let d ← ValDecl.elaborate env decl.loc isRec binders retTy body spec
+    let attrs ← elaborateValAttrs env {} decl.attrs
+    let d ← ValDecl.elaborate env decl.loc isRec binders retTy body attrs.spec
     -- A `[@@fn]` declaration uses its own name for the derived relation.
-    let relation ← if fn then
+    let relation ← if attrs.fn then
       match d.name with
       | .named x _ => .ok (some x)
       | .none => err decl.loc (.unsupportedFeature "[@@fn] requires a named declaration")
