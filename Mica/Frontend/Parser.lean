@@ -177,6 +177,7 @@ private def isPatStart : Token → Bool
 mutual
 -- `[@name expr]` — single `@`, optional expression payload.
 private partial def parseTypeAttr : Parser Attribute := fun st => do
+  let p := peekLoc st
   let st ← expect .lbracket st
   let st ← expect .at st
   let (name, st) ← expectIdent st
@@ -186,7 +187,7 @@ private partial def parseTypeAttr : Parser Attribute := fun st => do
       let (e, st) ← parseExpr st
       .ok (some e, st)
   let st ← expect .rbracket st
-  .ok ({ name, payload }, st)
+  .ok ({ loc := spanTo p st, name := AttrName.ofString name, payload }, st)
 
 -- Fold trailing type attributes `T [@name payload]` into `T.attrs`.
 private partial def parseTypeAttrSuffix (t : Typ) : Parser Typ := fun st =>
@@ -603,6 +604,7 @@ where
 
   -- `[@name expr]` — single `@`, optional expression payload.
   parseExprAttr : Parser Attribute := fun st => do
+    let p := peekLoc st
     let st ← expect .lbracket st
     let st ← expect .at st
     let (name, st) ← expectIdent st
@@ -612,7 +614,7 @@ where
         let (e, st) ← parseExpr st
         .ok (some e, st)
     let st ← expect .rbracket st
-    .ok ({ name, payload }, st)
+    .ok ({ loc := spanTo p st, name := AttrName.ofString name, payload }, st)
 
   parseAppRest (fn : Expr) : Parser Expr := fun st => do
     let (args, st) ← collectArgs st
@@ -972,6 +974,7 @@ where
     | .lbracket =>
       match (advance st |> peekTok) with
       | .atat => do
+        let p := peekLoc st
         let st' := advance (advance st)  -- skip `[` and `@@`
         let (name, st') ← expectIdent st'
         -- An attribute may carry an expression payload (`[@@spec ...]`) or
@@ -982,8 +985,9 @@ where
             let (e, st') ← parseExpr st'
             .ok (some e, st')
         let st' ← expect .rbracket st'
+        let attr : Attribute := { loc := spanTo p st', name := AttrName.ofString name, payload }
         let (rest, st') ← parseAttrs st'
-        .ok ({ name, payload } :: rest, st')
+        .ok (attr :: rest, st')
       | _ => .ok ([], st)
     | _ => .ok ([], st)
 

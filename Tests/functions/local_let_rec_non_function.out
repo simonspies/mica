@@ -1,0 +1,2 @@
+elaboration error: Tests/functions/local_let_rec_non_function.ml:8:3: unsupported feature: let rec requires a function
+[1]

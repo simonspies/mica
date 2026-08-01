@@ -1,0 +1,2 @@
+elaboration error: Tests/frontend/decl_annotation_twice.ml:6:1: unsupported feature: a let is annotated once: on its binder or after it
+[1]

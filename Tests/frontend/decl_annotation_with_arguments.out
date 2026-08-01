@@ -1,0 +1,2 @@
+elaboration error: Tests/frontend/decl_annotation_with_arguments.ml:8:6: unsupported feature: a let with arguments cannot annotate its name
+[1]

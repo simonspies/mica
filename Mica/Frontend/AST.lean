@@ -80,6 +80,36 @@ inductive BinOp where
   | semi | pipeRight | atAt | assign | concat | append | cons
   deriving Repr, BEq
 
+-- Attributes
+
+/-- The name of an attribute `[@name]`. Which names are meaningful depends on
+where the attribute is written, so an unrecognized one is carried through to
+elaboration, which rejects it by name for that position. -/
+inductive AttrName where
+  | spec
+  | fn
+  | owned
+  | unknown (name : String)
+  deriving Repr, Inhabited, BEq, DecidableEq
+
+namespace AttrName
+
+def ofString : String → AttrName
+  | "spec"  => .spec
+  | "fn"    => .fn
+  | "owned" => .owned
+  | name    => .unknown name
+
+def toString : AttrName → String
+  | .spec         => "spec"
+  | .fn           => "fn"
+  | .owned        => "owned"
+  | .unknown name => name
+
+instance : ToString AttrName := ⟨AttrName.toString⟩
+
+end AttrName
+
 -- Types, patterns, expressions, match arms
 
 mutual
@@ -141,9 +171,11 @@ mutual
 
   /-- An OCaml attribute `[@name payload]` (expression-level, single `@`) or
   `[@@name payload]` (declaration-level, double `@`). The payload, when present,
-  is a surface expression. -/
+  is a surface expression. `loc` spans the brackets, so an error about the
+  attribute itself points at it rather than at what it is attached to. -/
   structure Attribute where
-    name    : String
+    loc     : Location
+    name    : AttrName
     payload : Option Expr
 end
 

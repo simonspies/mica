@@ -1,2 +1,2 @@
-elaboration error: Tests/spec_types/spec_twice.ml:4:14: unsupported feature: a function type carries at most one [@spec]
+elaboration error: Tests/spec_types/spec_twice.ml:5:26: unsupported feature: a function type carries at most one [@spec]
 [1]
