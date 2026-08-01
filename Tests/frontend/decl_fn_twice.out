@@ -1,0 +1,2 @@
+elaboration error: Tests/frontend/decl_fn_twice.ml:6:1: unsupported feature: a declaration carries at most one [@@fn]
+[1]

@@ -1,0 +1,2 @@
+elaboration error: Tests/frontend/decl_attribute_unknown.ml:7:1: unsupported feature: unknown declaration attribute [@@bogus]
+[1]
