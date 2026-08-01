@@ -155,9 +155,17 @@ structure ValDecl (S : Type) where
   relation : Option String := none
   deriving Repr, Inhabited
 
+/-- A data declaration as the frontend elaborates it. Its payloads are untyped
+types, so a constructor or field may carry a specification: only typing can
+elaborate one, and typing is also where the declaration reaches `TypeEnv`. -/
+structure DataDecl where
+  tparams : List TyVar
+  payloads : List Typ
+  deriving Repr, Inhabited
+
 structure TypeDecl where
   name : TypeName
-  body : DataDecl
+  body : Untyped.DataDecl
   deriving Repr, Inhabited
 
 inductive Decl (S : Type) where

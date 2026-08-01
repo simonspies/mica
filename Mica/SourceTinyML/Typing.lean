@@ -568,6 +568,19 @@ mutual
           let Γ' := typedArgs.foldl extendTyped (extendTyped Γ typedSelf)
           let body' ← check env Θ Γ' body ret
           pure (.fix typedSelf typedArgs ret (some s) body')
+    -- A tuple checked against a tuple type is checked componentwise. A record
+    -- literal is a tuple, so this is how a field declared at a specified arrow
+    -- receives one: inference alone could never produce a specified arrow, and
+    -- subsumption cannot repair that, since a specified arrow is invariant.
+    --
+    -- Tuples are the only type former that pushes the expected type inward.
+    -- Every other one that can hold a function has the same gap: a constructor
+    -- payload (`Fn (fun x -> ...)`), a reference (`ref (fun x -> ...)`), an
+    -- array element. Each needs its own rule here, and unlike this one they are
+    -- not exact — the type they build subsumes into the expected type rather
+    -- than matching it — so they also need the subsumption step below.
+    | .tuple es, .tuple tys => do
+        pure (.tuple (← checkArgs env Θ Γ tys es))
     -- Everything else is checked by inference, subsuming into the expected type.
     | e, expected => do
         let (actual, e') ← infer env Θ Γ e
@@ -711,6 +724,16 @@ mutual
   decreasing_by obtain ⟨args, pre⟩ := rb; simp; omega
 end
 
+/-- Lower a data declaration's payloads, elaborating any specification they
+carry. A constructor payload is a type like any other, so it may describe a
+specified function; its specification is elaborated once, against the bindings
+in scope where the declaration stands. (A record's fields take a different
+route: the frontend inlines a record type as a tuple, so a field's
+specification is elaborated at each mention of the record type instead.) -/
+def translateDataDecl (env : SpecEnv σ) (Θ : TypeEnv) (d : Untyped.DataDecl) :
+    TypeM σ TinyML.DataDecl := do
+  pure { tparams := d.tparams, payloads := ← translateList env Θ d.payloads }
+
 theorem Binder.ofUntyped_runtime (b : Untyped.Binder) (ty : Typ) :
     (Typed.Binder.ofUntyped b ty).runtime = b.runtime := by
   cases b <;> rfl
@@ -853,7 +876,8 @@ def Program.elaborate (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx) :
   | d :: ds => do
       match d with
       | .type_ dty =>
-          let Θ' ← TypeM.ofExcept (extendTypeEnv Θ dty.name dty.body)
+          let body ← translateDataDecl { env with globals := Γ } Θ dty.body
+          let Θ' ← TypeM.ofExcept (extendTypeEnv Θ dty.name body)
           Program.elaborate env Θ' Γ ds
       | .val_ dval =>
           let d' ← ValDecl.elaborate { env with globals := Γ } Θ Γ dval
@@ -1280,6 +1304,12 @@ mutual
         simp [Expr.runtime, Untyped.Expr.runtime, Binder.ofUntyped_runtime,
           check_runtime env Θ _ body ret _ _ _ hbody,
           checkBinders_runtime env Θ args doms typedArgs s s₀ hargs]
+    -- A tuple against a tuple type: the components erase one by one.
+    case _ es tys =>
+      have ⟨es', s₀, hes, hcont⟩ := StateT.bind_ok h
+      rcases (by simpa using hcont) with ⟨rfl, rfl⟩
+      simp [Expr.runtime, Untyped.Expr.runtime,
+        checkArgs_runtime env Θ Γ es tys s es' s₀ hes]
     -- Everything else is inference followed by subsumption.
     case _ =>
       have ⟨p, s₀, hinfer, hcont⟩ := StateT.bind_ok h
@@ -1448,12 +1478,15 @@ theorem Program.elaborate_runtime (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML
     cases d with
     | type_ dty =>
       unfold Typed.Program.elaborate at h
-      cases hext : extendTypeEnv Θ dty.name dty.body with
+      -- The payloads' own elaboration stays opaque; a type declaration
+      -- contributes nothing to the runtime program either way.
+      have ⟨body, s₀, _hbody, hcont⟩ := StateT.bind_ok h
+      cases hext : extendTypeEnv Θ dty.name body with
       | error err =>
-        simp [hext] at h
+        simp [hext] at hcont
       | ok Θ1 =>
-        simp [hext] at h
-        exact ih Θ1 Γ h
+        simp [hext] at hcont
+        exact ih Θ1 Γ hcont
     | val_ dval =>
       unfold Typed.Program.elaborate at h
       have ⟨dval', s₀, hdecl, hcont⟩ := StateT.bind_ok h
