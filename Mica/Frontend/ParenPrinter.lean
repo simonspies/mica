@@ -151,7 +151,7 @@ partial def Decl.printParen (d : Decl) : String :=
     | none         => " [@@" ++ toString a.name ++ "]"
     | some payload => " [@@" ++ toString a.name ++ " " ++ Expr.printParen payload ++ "]")
   match d.kind with
-  | .open_ path => "open " ++ path.toString
+  | .open_ path => "open " ++ path.toString ++ attrsSuffix
   | .val_ isRec binders retTy body =>
     let recStr := if isRec then "rec " else ""
     "let " ++ recStr ++ sepBy " " (binders.map Pattern.printParen)

@@ -363,7 +363,15 @@ def compare (cases : Array Case) (rejected : Array String)
     | some o, some m =>
       if o != m then
         out := out.push { name := c.name, source := body c.decl, ocaml := body o, mica := body m }
-    | _, _ => pure ()
+    | some o, none =>
+      out := out.push { name := c.name, source := body c.decl, ocaml := body o
+                      , mica := "<missing declaration>" }
+    | none, some m =>
+      out := out.push { name := c.name, source := body c.decl
+                      , ocaml := "<missing declaration>", mica := body m }
+    | none, none =>
+      out := out.push { name := c.name, source := body c.decl
+                      , ocaml := "<missing declaration>", mica := "<missing declaration>" }
   return out
 
 /-- Fixtures OCaml accepts and mica rejects, matched by substring, each with the
