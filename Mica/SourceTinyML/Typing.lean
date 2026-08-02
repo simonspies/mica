@@ -522,7 +522,8 @@ mutual
         pure (.tuple (pairs.map Prod.fst), .tuple (pairs.map Prod.snd))
     | .inj tag arity payload => do
         let (ty, payload') ← infer env Θ Γ payload
-        pure (.sum ((List.replicate arity .empty).set tag ty), .inj tag arity payload')
+        let sumTy : Typ := .sum ((List.replicate arity .empty).set tag ty)
+        pure (sumTy, .inj tag arity payload' sumTy)
     | .match_ scrutinee branches => do
         let (scrutTy, scrut') ← infer env Θ Γ scrutinee
         -- Resolve the scrutinee type: accept sum directly, or unfold a named type and insert a cast.
