@@ -62,6 +62,7 @@ inductive Token where
   | kw_assert
   | kw_true | kw_false
   | kw_mod | kw_and
+  | kw_begin | kw_end
   -- punctuation and operators
   | plus | minus | star | slash
   | plusDot | minusDot | starDot | slashDot
@@ -96,6 +97,7 @@ def Token.toString : Token → String
   | .kw_assert => "assert"
   | .kw_true  => "true"  | .kw_false => "false"
   | .kw_mod   => "mod"   | .kw_and  => "and"
+  | .kw_begin => "begin" | .kw_end  => "end"
   | .plus     => "+"     | .minus   => "-"    | .star  => "*"  | .slash => "/"
   | .plusDot  => "+."    | .minusDot => "-."   | .starDot => "*." | .slashDot => "/."
   | .caret    => "^"
@@ -176,6 +178,7 @@ private def keyword (s : String) : Token :=
   | "assert" => .kw_assert
   | "true"   => .kw_true   | "false"  => .kw_false
   | "mod"    => .kw_mod    | "and"    => .kw_and
+  | "begin"  => .kw_begin  | "end"    => .kw_end
   | "_"      => .underscore
   | s        => .ident s
 

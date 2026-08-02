@@ -105,6 +105,13 @@ def commaCases : List String :=
      , "a.(i), b", "- a, b", "! r, b", "a, b, c, d"
      , "if a then b, c else d", "fun x -> x, a", "let x = a, b in x" ]
 
+/-- `begin e end` is `(e)`: same tree, no node of its own, and a simple
+expression wherever one is expected. -/
+def beginEndCases : List String :=
+  [ "begin a end", "begin a + b end * c", "f begin a end", "begin a; b end"
+  , "begin a end.b", "- begin a end", "begin f a end b", "begin a, b end"
+  , "begin if a then b else c end", "! begin r end", "begin a end.(i)" ]
+
 /-- Pattern-level precedence, exercised in a match arm: `::` against the comma
 level, against constructor application, and against annotation. -/
 def patternCases : List String :=
@@ -170,7 +177,8 @@ private def caseName (n : Nat) : String :=
 def allCases : Array Case := Id.run do
   let mut out : Array Case := #[]
   let mut n : Nat := 0
-  for group in [pairCases, prefixCases, appCases, keywordCases, arraySetCases, commaCases] do
+  for group in [pairCases, prefixCases, appCases, keywordCases, arraySetCases,
+                commaCases, beginEndCases] do
     for body in group do
       out := out.push { name := caseName n, decl := s!"let {caseName n} {params} = {body}" }
       n := n + 1

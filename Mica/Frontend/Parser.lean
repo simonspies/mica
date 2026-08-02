@@ -213,7 +213,7 @@ private def isPatStart : Token → Bool
 
 private def isArgStart : Token → Bool
   | .intLit _ | .floatLit _ | .charLit _ | .stringLit _ | .ident _ | .lparen | .lbrace
-  | .lbracket | .kw_true | .kw_false | .bang => true
+  | .lbracket | .kw_true | .kw_false | .bang | .kw_begin => true
   | _ => false
 
 /-- A record literal starts with `ident =` (a lowercase field name followed by
@@ -592,6 +592,12 @@ private partial def parseAtom : Parser Expr := do
     let elems ← parseListElems
     expect .rbracket
     return { loc := ← spanFrom start, kind := .list elems }
+  | .kw_begin =>
+    -- `begin e end` is `(e)`, with no node of its own.
+    advance
+    let e ← parseExpr
+    expect .kw_end
+    return e
   | .lparen =>
     advance
     -- `()` = unit
