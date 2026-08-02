@@ -315,9 +315,15 @@ private partial def parseType : Parser Typ := do
     return { loc := between t.loc u.loc, kind := .arrow t u }
   else return t
 
-/-- Parse a type expression, excluding arrows.
-    Used for return type annotations where `->` is ambiguous with the function arrow. -/
-private partial def parseTypeNoArrow : Parser Typ := parseTypeProd
+/-- A `let`'s optional return type. It is delimited by the `=` that follows, so
+it may be an arrow: `let f x : int -> int = g x`. -/
+private partial def parseOptRetTy : Parser (Option Typ) := do
+  if ← consumeIf .colon then some <$> parseType else pure none
+
+/-- A `fun`'s optional return type. It is delimited by `->`, which is also the
+arrow constructor, so an arrow has to be parenthesized: `fun x : (int -> int) -> e`. -/
+private partial def parseOptFunRetTy : Parser (Option Typ) := do
+  if ← consumeIf .colon then some <$> parseTypeProd else pure none
 
 -- ---------------------------------------------------------------------------
 -- Pattern parsing
@@ -433,9 +439,6 @@ private partial def parseFunArgs : Parser (List Pattern) := do
     return p :: (← parseFunArgs)
   else return []
 
-private partial def parseOptRetTy : Parser (Option Typ) := do
-  if ← consumeIf .colon then some <$> parseTypeNoArrow else pure none
-
 -- ---------------------------------------------------------------------------
 -- Expression parsing
 
@@ -537,7 +540,12 @@ private partial def parseAccessRest (e : Expr) : Parser Expr := do
   | .ident fname =>
     advance; advance
     parseAccessRest { loc := ← spanFrom e.loc, kind := .unop (.field fname) e }
-  | _ => return e  -- lone dot, leave it
+  | _ =>
+    -- A `.` here can only begin an access, so it commits: reporting it at the
+    -- token that follows beats leaving the dot for an unrelated production.
+    -- `t.1.2` lands here, the lexer having taken `1.2` for a float.
+    advance
+    expected "a field name, a tuple index, or '(' after '.'"
 
 -- prefix `!` (`Prec.prefixOp`): the tightest level, above access as well as
 -- application, so `!r.contents` is `(!r).contents` and `!f x` is `(!f) x`.
@@ -652,7 +660,7 @@ private partial def parseFun : Parser Expr := exprOf do
   expect .kw_fun
   let args ← parseFunArgs
   if args.isEmpty then failAt start .funNoArgs
-  let retTy ← parseOptRetTy
+  let retTy ← parseOptFunRetTy
   expect .arrow
   return .fun_ args retTy (← parseExpr)
 
@@ -675,13 +683,24 @@ private partial def parseMatch : Parser Expr := exprOf do
   expect .kw_with
   return .match_ scrut (← parseMatchArms)
 
+/-- The arms of a `match`. `with` has committed to at least one arm, so a
+missing one is an error here rather than an empty list left for whatever comes
+next to trip over. The leading `|` is optional, as in OCaml. -/
 private partial def parseMatchArms : Parser (List MatchArm) := do
+  let _ ← consumeIf .pipe
+  let arm ← parseMatchArm
+  return arm :: (← parseMatchArmsRest)
+
+private partial def parseMatchArmsRest : Parser (List MatchArm) := do
   if ← consumeIf .pipe then
-    let pat ← parsePattern
-    expect .arrow
-    let body ← parseExpr
-    return { pat, body } :: (← parseMatchArms)
+    let arm ← parseMatchArm
+    return arm :: (← parseMatchArmsRest)
   else return []
+
+private partial def parseMatchArm : Parser MatchArm := do
+  let pat ← parsePattern
+  expect .arrow
+  return { pat, body := ← parseExpr }
 
 end
 

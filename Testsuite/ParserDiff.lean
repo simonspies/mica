@@ -118,6 +118,21 @@ def patternCases : List String :=
   -- A constructor payload is itself a constructor application, not an atom.
   , "A B", "A B y", "A B C", "A B y :: z", "A (B y) :: z" ]
 
+/-- Declaration shapes that the body-level groups above cannot express: the
+`let` header itself, and the arms of a `match` written out. `NAME` is replaced by
+the fixture's generated name. -/
+def declCases : List String :=
+  [ "let NAME x = match x with y -> 0"
+  , "let NAME x = match x with A -> 0 | B -> 1"
+  , "let NAME x = match x with | A -> 0 | B -> 1"
+  , "let NAME x = match x with A y -> y | B -> 0"
+  , "let NAME f x : int -> int = f x"
+  , "let NAME x : int = x"
+  , "let NAME (f : int -> int) x = f x"
+  , "let NAME x = fun y : int -> y"
+  , "let NAME x = (fun y : (int -> int) -> y) x"
+  , "let rec NAME x = NAME x" ]
+
 /-- Type declarations: variants, records, and parameters. `NAME` is replaced by
 the fixture's generated name. -/
 def typeDeclCases : List String :=
@@ -166,8 +181,8 @@ def allCases : Array Case := Id.run do
     out := out.push { name := caseName n
                     , decl := s!"let {caseName n} x = match x with | {pat} -> 0 | _ -> 1" }
     n := n + 1
-  for td in typeDeclCases do
-    out := out.push { name := caseName n, decl := td.replace "NAME" (caseName n) }
+  for d in declCases ++ typeDeclCases do
+    out := out.push { name := caseName n, decl := d.replace "NAME" (caseName n) }
     n := n + 1
   return out
 
@@ -337,13 +352,9 @@ Matching is deliberately loose; the reason text is what carries the meaning.
 
 Order matters: the first matching entry wins, so the broad patterns come last. -/
 def knownGaps : List (String × String) :=
-  [ ("f ! r",              "prefix `!` not accepted as a function argument")
-  , ("r.u <-",             "field assignment: `<-` accepts only `a.(i)` on the left")
+  [ ("r.u <-",             "field assignment: `<-` accepts only `a.(i)` on the left")
   , ("r.u.v <-",           "field assignment: `<-` accepts only `a.(i)` on the left")
   , ("a.(i).u <-",         "field assignment: `<-` accepts only `a.(i)` on the left")
-  , ("A (B y)",            "`parsePatternInner` reads an uppercase head as a binder, \
-so a parenthesized constructor pattern with a payload fails")
-  , ("A []",               "constructor-pattern payload token set omits `[`")
   , ("type",               "type alias: `TypeDeclBody` has only variants and records")
   , (", ",                 "bare tuple: mica builds tuples only inside parentheses") ]
 

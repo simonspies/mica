@@ -70,4 +70,3 @@ GAP     r.u <- a.(i)  ==>  field assignment: `<-` accepts only `a.(i)` on the le
 GAP     r.u <- b  ==>  field assignment: `<-` accepts only `a.(i)` on the left
 GAP     r.u <- b + c  ==>  field assignment: `<-` accepts only `a.(i)` on the left
 GAP     r.u.v <- b  ==>  field assignment: `<-` accepts only `a.(i)` on the left
-UNPRINT type t1090 = A of (int -> int)

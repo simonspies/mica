@@ -1,0 +1,2 @@
+parse error: Tests/frontend/match_no_arms.ml:7:1: expected pattern, got 'EOF'
+[1]

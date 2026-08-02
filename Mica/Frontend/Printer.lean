@@ -116,6 +116,14 @@ private partial def Typ.printAppArg (t : Typ) : String :=
   | .tuple (_ :: _ :: _) => parens (Typ.print t)
   | _ => Typ.print t
 
+/-- A type in a position that a `->` would run past: a `fun`'s return
+annotation, which the arrow of the `fun` itself ends, and a constructor payload.
+A `*` needs no parentheses in either. -/
+private partial def Typ.printNoArrow (t : Typ) : String :=
+  match t.kind with
+  | .arrow _ _ => parens (Typ.print t)
+  | _ => Typ.print t
+
 private partial def Typ.needsParens (t : Typ) : Bool :=
   match t.kind with
   | .arrow _ _ | .tuple (_ :: _ :: _) => true
@@ -201,7 +209,7 @@ private partial def Expr.printPrec (e : Expr) (outerPrec : Nat) : String :=
     "let " ++ recStr ++ joinWith " " (binders.map Pattern.print) ++ retStr ++
     " = " ++ Expr.printPrec bound 0 ++ " in\n" ++ Expr.printPrec body 0
   | .fun_ args retTy body =>
-    let retStr := match retTy with | none => "" | some ty => " : " ++ Typ.print ty
+    let retStr := match retTy with | none => "" | some ty => " : " ++ Typ.printNoArrow ty
     "fun " ++ joinWith " " (args.map Pattern.print) ++ retStr ++
     " -> " ++ Expr.printPrec body 0
   | .match_ scrutinee arms =>
@@ -286,7 +294,9 @@ where
         joinWith "\n" (ctors.map fun (name, payload) =>
           match payload with
           | none => "| " ++ name
-          | some ty => "| " ++ name ++ " of " ++ Typ.print ty)
+          -- `A of int -> int` is a syntax error in OCaml; `A of int * int` is
+          -- not, and there means several arguments rather than one tuple.
+          | some ty => "| " ++ name ++ " of " ++ Typ.printNoArrow ty)
       | .record fields =>
         "{ " ++ joinWith "; " (fields.map fun (name, ty) => name ++ " : " ++ Typ.print ty) ++ " }"
     "type " ++ paramsStr ++ td.name ++ " = " ++ bodyStr
