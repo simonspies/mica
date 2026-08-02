@@ -105,6 +105,12 @@ def commaCases : List String :=
      , "a.(i), b", "- a, b", "! r, b", "a, b, c, d"
      , "if a then b, c else d", "fun x -> x, a", "let x = a, b in x" ]
 
+/-- Record literals, updates, and the punned field `{ a }`, which is `{ a = a }`. -/
+def recordCases : List String :=
+  [ "{ a = b }", "{ a = b; c = d }", "{ a }", "{ a; c }", "{ a; c = d }"
+  , "{ a = b, c }", "{ a = b; c }", "{ r with a }", "{ r with a = b }"
+  , "{ a }.b", "f { a }", "{ a = f b }", "{ a } :: r" ]
+
 /-- `begin e end` is `(e)`: same tree, no node of its own, and a simple
 expression wherever one is expected. -/
 def beginEndCases : List String :=
@@ -123,7 +129,9 @@ def patternCases : List String :=
   , "[] :: z", "A []", "A _", "A (B y)", "(y :: z, w)"
   , "y :: (z, w)", "A 0", "A 'c'"
   -- A constructor payload is itself a constructor application, not an atom.
-  , "A B", "A B y", "A B C", "A B y :: z", "A (B y) :: z" ]
+  , "A B", "A B y", "A B C", "A B y :: z", "A (B y) :: z"
+  -- Punned record fields: `{ u }` is `{ u = u }`.
+  , "{ u }", "{ u; v }", "{ u = y; v }", "{ u } :: z" ]
 
 /-- Declaration shapes that the body-level groups above cannot express: the
 `let` header itself, and the arms of a `match` written out. `NAME` is replaced by
@@ -178,7 +186,7 @@ def allCases : Array Case := Id.run do
   let mut out : Array Case := #[]
   let mut n : Nat := 0
   for group in [pairCases, prefixCases, appCases, keywordCases, arraySetCases,
-                commaCases, beginEndCases] do
+                commaCases, beginEndCases, recordCases] do
     for body in group do
       out := out.push { name := caseName n, decl := s!"let {caseName n} {params} = {body}" }
       n := n + 1

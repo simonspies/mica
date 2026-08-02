@@ -216,12 +216,14 @@ private def isArgStart : Token → Bool
   | .lbracket | .kw_true | .kw_false | .bang | .kw_begin => true
   | _ => false
 
-/-- A record literal starts with `ident =` (a lowercase field name followed by
-`=`); anything else after `{` is the expression of a record update. -/
+/-- A record literal starts with a lowercase field name followed by `=`, or by
+the `;` or `}` that ends a punned field `{ a }`. Anything else after `{` is the
+expression of a record update. -/
 private def isRecordLiteral : Parser Bool := do
   match ← peek with
   | .ident name =>
-    if !name.front.isUpper && name.front != '\'' then return (← peek 1) == .eq else return false
+    if name.front.isUpper || name.front == '\'' then return false
+    return [Token.eq, .semi, .rbrace].contains (← peek 1)
   | _ => return false
 
 mutual
@@ -416,9 +418,11 @@ private partial def parseTuplePatRest : Parser (List Pattern) := do
   if ← consumeIf .comma then return p :: (← parseTuplePatRest) else return [p]
 
 private partial def parseRecordPatFields : Parser (List (FieldName × Pattern)) := do
+  let start ← loc
   let name ← expectIdent
-  expect .eq
-  let pat ← parsePattern
+  -- `{ a }` puns: with no `=`, the field's own name is the binder.
+  let pat ← if ← consumeIf .eq then parsePattern
+            else pure { loc := ← spanFrom start, kind := .binder (some name) none }
   if ← consumeIf .semi then
     -- A trailing `;` leaves the `}` for the caller's `expect .rbrace`.
     if (← peek) == .rbrace then return [(name, pat)]
@@ -649,9 +653,11 @@ private partial def parseRecord : Parser Expr := do
     return { loc := ← spanFrom start, kind := .recordUpdate e fields }
 
 private partial def parseRecordFields : Parser (List (FieldName × Expr)) := do
+  let start ← loc
   let name ← expectIdent
-  expect .eq
-  let e ← parseExprAt Prec.noSemi
+  -- `{ a }` puns: with no `=`, the field's own name is the expression.
+  let e ← if ← consumeIf .eq then parseExprAt Prec.noSemi
+          else pure { loc := ← spanFrom start, kind := .var (Path.single name) }
   if ← consumeIf .semi then
     if (← peek) == .rbrace then return [(name, e)]  -- trailing semicolon
     else return (name, e) :: (← parseRecordFields)
