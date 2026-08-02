@@ -538,10 +538,6 @@ theorem ValHasType.arrow_some (W : World) (v : Runtime.Val) (args : List Typ) (r
       s.isPrecondFor W (ValHasType W) args ret v := by
   exact equiv_iff.mp (ValHasType.unfold W v (.arrow args ret (some s)))
 
-theorem ValHasType.tvar (W : World) (v : Runtime.Val) (x : TyVar) :
-    ValHasType W v (.tvar x) ⊣⊢ iprop(False) := by
-  exact equiv_iff.mp (ValHasType.unfold W v (.tvar x))
-
 theorem ValHasType.ref (W : World) (v : Runtime.Val) (t : Typ) :
     ValHasType W v (.ref t) ⊣⊢
       iprop(∃ l, ⌜v = .loc l⌝ ∗ locinv l (fun w => ValHasType W w t)) := by
@@ -1272,7 +1268,7 @@ mutual
       | none => exact (TinyML.ValHasType.arrow_none W v args ret).1.trans false_elim
       | some _ => iintro _; ipureintro; simp [typeConstraints]
     | empty => exact (TinyML.ValHasType.empty W v).1.trans false_elim
-    | tvar x => exact (TinyML.ValHasType.tvar W v x).1.trans false_elim
+    | tvar x => nomatch x
 
   theorem typeConstraintsList_hold {ts : List TinyML.Typ} {tl : Term .vallist} {ρ : Env}
       {W : TinyML.World} {vs : List Runtime.Val} (htl : tl.eval ρ = vs) :

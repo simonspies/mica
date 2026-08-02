@@ -71,6 +71,7 @@ mutual
   inductive Typ where
     /-- A fully elaborated type, exactly as the typed IR uses it. -/
     | core (t : TinyML.Typ)
+    | tvar (v : TinyML.TyVar)
     | sum (ts : List Typ)
     | arrow (args : List Typ) (ret : Typ) (spec : Option (Spec.Body Expr Typ))
     | ref (t : Typ)

@@ -6,7 +6,7 @@
 - `Semantics.lean` — Semantics of atoms, assertions, and specifications, parametric in the value relation interpreting types.
 - `TypeConstraints.lean` — First-order constraint formulas asserting that a term has a given TinyML type.
 - `Typed.lean` — Typed TinyML IR, with erasure to the runtime IR.
-- `Types.lean` — TinyML types, type declarations, and subtyping structure.
+- `Types.lean` — TinyML types over a parameter of type variables, type declarations, and subtyping.
 - `Typing.lean` — Elaboration and typechecking from the untyped IR to the typed IR.
 - `Untyped.lean` — Untyped TinyML IR and specification syntax, with annotations carried where available.
 - `World.lean` — The fixed meta-level world in which the logical relation interprets types.

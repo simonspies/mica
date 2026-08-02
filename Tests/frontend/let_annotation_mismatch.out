@@ -1,2 +1,2 @@
-Status: failed: subsumption failed: TinyML.Typ.prim (TinyML.PrimitiveType.int) is not a subtype of TinyML.Typ.prim (TinyML.PrimitiveType.bool)
+Status: failed: subsumption failed: int is not a subtype of bool
 [1]

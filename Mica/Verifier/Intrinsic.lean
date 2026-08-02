@@ -280,9 +280,9 @@ structure Intrinsic where
   wp       : Arity.tup arity Runtime.Val → (Runtime.Val → iProp) → iProp
   /-- The intrinsic's argument types, in order. May contain type variables (a
       *scheme*); substituted per use site by the elaborator's instantiation. -/
-  argTys   : List TinyML.Typ
+  argTys   : List TinyML.SchemaTyp
   /-- The intrinsic's result type; likewise a scheme. -/
-  retTy    : TinyML.Typ
+  retTy    : TinyML.SchemaTyp
   /-- The intrinsic's specification: argument names and predicate transformer.
       A polymorphic intrinsic is a family of functions with the same
       implementation; only the argument/return types vary per use site, while
@@ -356,15 +356,15 @@ theorem agreeOn_extend_fresh (i : Intrinsic) {Δ : Signature} (ρ : Env)
             (f := fun a b c => s.interp (a, b, c)) (Δ := Δ) hfresh)
 
 /-- The intrinsic's argument types, in left-to-right order. -/
-def argTysList (i : Intrinsic) : List TinyML.Typ :=
+def argTysList (i : Intrinsic) : List TinyML.SchemaTyp :=
   i.argTys
 
 /-- The intrinsic's result type. -/
-def resultTy (i : Intrinsic) : TinyML.Typ :=
+def resultTy (i : Intrinsic) : TinyML.SchemaTyp :=
   i.retTy
 
 /-- The intrinsic's full arrow (scheme) type. -/
-def arrowType (i : Intrinsic) : TinyML.Typ :=
+def arrowType (i : Intrinsic) : TinyML.SchemaTyp :=
   .arrow i.argTysList i.resultTy none
 
 /-- The typing face of an intrinsic, consumed by the elaborator. -/
@@ -391,7 +391,7 @@ theorem toReduce_two_of_arity (name : String)
     (path : Option (String × List String))
     (reduce : Arity.tup .two Runtime.Val → TinyML.Heap → Runtime.Val → TinyML.Heap → Prop)
     (wp : Arity.tup .two Runtime.Val → (Runtime.Val → iProp) → iProp)
-    (argTys : List TinyML.Typ) (retTy : TinyML.Typ) (spec : Spec TinyML.Typ)
+    (argTys : List TinyML.SchemaTyp) (retTy : TinyML.SchemaTyp) (spec : Spec TinyML.Typ)
     (typing : TinyML.TypeEnv → List TinyML.Typ →
       Except String (List (TinyML.TyVar × TinyML.Typ)))
     (folSym : Option (FOL.Symbol .two)) (axioms : List Axiom)
@@ -404,7 +404,7 @@ theorem toReduce_three_of_arity (name : String)
     (path : Option (String × List String))
     (reduce : Arity.tup .three Runtime.Val → TinyML.Heap → Runtime.Val → TinyML.Heap → Prop)
     (wp : Arity.tup .three Runtime.Val → (Runtime.Val → iProp) → iProp)
-    (argTys : List TinyML.Typ) (retTy : TinyML.Typ) (spec : Spec TinyML.Typ)
+    (argTys : List TinyML.SchemaTyp) (retTy : TinyML.SchemaTyp) (spec : Spec TinyML.Typ)
     (typing : TinyML.TypeEnv → List TinyML.Typ →
       Except String (List (TinyML.TyVar × TinyML.Typ)))
     (folSym : Option (FOL.Symbol .three)) (axioms : List Axiom)
@@ -417,7 +417,7 @@ theorem toReduce_one_of_arity (name : String)
     (path : Option (String × List String))
     (reduce : Arity.tup .one Runtime.Val → TinyML.Heap → Runtime.Val → TinyML.Heap → Prop)
     (wp : Arity.tup .one Runtime.Val → (Runtime.Val → iProp) → iProp)
-    (argTys : List TinyML.Typ) (retTy : TinyML.Typ) (spec : Spec TinyML.Typ)
+    (argTys : List TinyML.SchemaTyp) (retTy : TinyML.SchemaTyp) (spec : Spec TinyML.Typ)
     (typing : TinyML.TypeEnv → List TinyML.Typ →
       Except String (List (TinyML.TyVar × TinyML.Typ)))
     (folSym : Option (FOL.Symbol .one)) (axioms : List Axiom)
@@ -430,7 +430,7 @@ theorem toReduce_zero_of_arity (name : String)
     (path : Option (String × List String))
     (reduce : Arity.tup .zero Runtime.Val → TinyML.Heap → Runtime.Val → TinyML.Heap → Prop)
     (wp : Arity.tup .zero Runtime.Val → (Runtime.Val → iProp) → iProp)
-    (argTys : List TinyML.Typ) (retTy : TinyML.Typ) (spec : Spec TinyML.Typ)
+    (argTys : List TinyML.SchemaTyp) (retTy : TinyML.SchemaTyp) (spec : Spec TinyML.Typ)
     (typing : TinyML.TypeEnv → List TinyML.Typ →
       Except String (List (TinyML.TyVar × TinyML.Typ)))
     (folSym : Option (FOL.Symbol .zero)) (axioms : List Axiom)
@@ -457,7 +457,7 @@ theorem toWp_two_of_arity (name : String)
     (path : Option (String × List String))
     (reduce : Arity.tup .two Runtime.Val → TinyML.Heap → Runtime.Val → TinyML.Heap → Prop)
     (wp : Arity.tup .two Runtime.Val → (Runtime.Val → iProp) → iProp)
-    (argTys : List TinyML.Typ) (retTy : TinyML.Typ) (spec : Spec TinyML.Typ)
+    (argTys : List TinyML.SchemaTyp) (retTy : TinyML.SchemaTyp) (spec : Spec TinyML.Typ)
     (typing : TinyML.TypeEnv → List TinyML.Typ →
       Except String (List (TinyML.TyVar × TinyML.Typ)))
     (folSym : Option (FOL.Symbol .two)) (axioms : List Axiom)
@@ -470,7 +470,7 @@ theorem toWp_three_of_arity (name : String)
     (path : Option (String × List String))
     (reduce : Arity.tup .three Runtime.Val → TinyML.Heap → Runtime.Val → TinyML.Heap → Prop)
     (wp : Arity.tup .three Runtime.Val → (Runtime.Val → iProp) → iProp)
-    (argTys : List TinyML.Typ) (retTy : TinyML.Typ) (spec : Spec TinyML.Typ)
+    (argTys : List TinyML.SchemaTyp) (retTy : TinyML.SchemaTyp) (spec : Spec TinyML.Typ)
     (typing : TinyML.TypeEnv → List TinyML.Typ →
       Except String (List (TinyML.TyVar × TinyML.Typ)))
     (folSym : Option (FOL.Symbol .three)) (axioms : List Axiom)
@@ -483,7 +483,7 @@ theorem toWp_one_of_arity (name : String)
     (path : Option (String × List String))
     (reduce : Arity.tup .one Runtime.Val → TinyML.Heap → Runtime.Val → TinyML.Heap → Prop)
     (wp : Arity.tup .one Runtime.Val → (Runtime.Val → iProp) → iProp)
-    (argTys : List TinyML.Typ) (retTy : TinyML.Typ) (spec : Spec TinyML.Typ)
+    (argTys : List TinyML.SchemaTyp) (retTy : TinyML.SchemaTyp) (spec : Spec TinyML.Typ)
     (typing : TinyML.TypeEnv → List TinyML.Typ →
       Except String (List (TinyML.TyVar × TinyML.Typ)))
     (folSym : Option (FOL.Symbol .one)) (axioms : List Axiom)
@@ -496,7 +496,7 @@ theorem toWp_zero_of_arity (name : String)
     (path : Option (String × List String))
     (reduce : Arity.tup .zero Runtime.Val → TinyML.Heap → Runtime.Val → TinyML.Heap → Prop)
     (wp : Arity.tup .zero Runtime.Val → (Runtime.Val → iProp) → iProp)
-    (argTys : List TinyML.Typ) (retTy : TinyML.Typ) (spec : Spec TinyML.Typ)
+    (argTys : List TinyML.SchemaTyp) (retTy : TinyML.SchemaTyp) (spec : Spec TinyML.Typ)
     (typing : TinyML.TypeEnv → List TinyML.Typ →
       Except String (List (TinyML.TyVar × TinyML.Typ)))
     (folSym : Option (FOL.Symbol .zero)) (axioms : List Axiom)
@@ -563,8 +563,9 @@ class IntrinsicSound (fragment : outParam (List Intrinsic)) (i : Intrinsic) : Pr
     ∀ [MicaGS HasLC.hasLC Sig] (σ : TinyML.TyVar → TinyML.Typ) (W : TinyML.World)
       (vs : List Runtime.Val) (ρ : Env) (Φ : Runtime.Val → iProp),
     ρ.respects i.folSym →
-    TinyML.ValsHaveTypes W vs (i.argTys.map (·.subst σ)) ∗
-      PredTrans.apply (TinyML.ValHasType W) (fun r => TinyML.ValHasType W r (i.retTy.subst σ) -∗ Φ r)
+    TinyML.ValsHaveTypes W vs (i.argTys.map (TinyML.Typ.subst σ)) ∗
+      PredTrans.apply (TinyML.ValHasType W)
+        (fun r => TinyML.ValHasType W r (TinyML.Typ.subst σ i.retTy) -∗ Φ r)
         i.spec.pred
         (Spec.argsEnv ρ i.spec.args vs) ⊢ i.toWp vs Φ
   wp_sound :

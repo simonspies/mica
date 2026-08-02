@@ -724,7 +724,7 @@ theorem Program.check_correct (reg : Verifier.Registry) (hSound : Verifier.Regis
               Runtime.Expr.fix self.runtime (args.map (·.runtime))
                 (body.runtime.subst ((γ.remove' self.runtime).removeAll'
                   (args.map (·.runtime)))) := by
-            rw [hbody]; conv_lhs => unfold Expr.runtime
+            rw [hbody]; conv_lhs => unfold Expr.WithTypeVars.runtime
             simp only [Runtime.Expr.subst_fix]
           rw [hbody_rt]
           set fval := Runtime.Val.fix self.runtime (args.map (·.runtime))
