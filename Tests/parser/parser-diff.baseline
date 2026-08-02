@@ -1,7 +1,3 @@
-DIVERGE ! a.(i)  ==>  ocaml: (!a).(i)  |  mica: !(a.(i))
-DIVERGE ! a.b  ==>  ocaml: (!a).b  |  mica: !(a.b)
-DIVERGE ! f a  ==>  ocaml: (!f) a  |  mica: !(f a)
-DIVERGE ! r.b.c  ==>  ocaml: ((!r).b).c  |  mica: !((r.b).c)
 DIVERGE A of 'a * 'b  ==>  ocaml: | A of 'a * 'b  |  mica: | A of ('a * 'b)
 DIVERGE A of int * int  ==>  ocaml: | A of int * int  |  mica: | A of (int * int)
 GAP     ! r, b  ==>  bare tuple: mica builds tuples only inside parentheses
@@ -63,7 +59,6 @@ GAP     a, b, c  ==>  bare tuple: mica builds tuples only inside parentheses
 GAP     a, b, c, d  ==>  bare tuple: mica builds tuples only inside parentheses
 GAP     a.(i), b  ==>  bare tuple: mica builds tuples only inside parentheses
 GAP     a.(i).u <- b  ==>  field assignment: `<-` accepts only `a.(i)` on the left
-GAP     f ! r  ==>  prefix `!` not accepted as a function argument
 GAP     f a, b  ==>  bare tuple: mica builds tuples only inside parentheses
 GAP     fun x -> x, a  ==>  bare tuple: mica builds tuples only inside parentheses
 GAP     if a then b, c else d  ==>  bare tuple: mica builds tuples only inside parentheses
@@ -79,7 +74,4 @@ GAP     r.u <- a.(i)  ==>  field assignment: `<-` accepts only `a.(i)` on the le
 GAP     r.u <- b  ==>  field assignment: `<-` accepts only `a.(i)` on the left
 GAP     r.u <- b + c  ==>  field assignment: `<-` accepts only `a.(i)` on the left
 GAP     r.u.v <- b  ==>  field assignment: `<-` accepts only `a.(i)` on the left
-PRINTER ! a.b  ==>  ocaml: (!a).b  |  mica: !(a.b)
-PRINTER ! f a  ==>  ocaml: (!f) a  |  mica: !(f a)
-PRINTER ! r.b.c  ==>  ocaml: ((!r).b).c  |  mica: !((r.b).c)
 UNPRINT type t1085 = A of (int -> int)

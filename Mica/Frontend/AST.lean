@@ -95,9 +95,9 @@ them. Keeping a second copy anywhere is what let the two drift apart.
 The levels are OCaml's, renumbered to start at 1, following the operator
 table in §7.1 of the OCaml manual.
 
-Two levels outside the table are named below because both consumers need them.
-OCaml's comma level, between `||` and `:=`, is absent: tuples are built by their
-own production rather than by the operator loop. -/
+The levels outside the binary table are named below because both consumers need
+them. OCaml's comma level, between `||` and `:=`, is absent: tuples are built by
+their own production rather than by the operator loop. -/
 
 /-- Precedence of a binary operator; a higher level binds tighter. -/
 def BinOp.level : BinOp → Nat
@@ -133,9 +133,19 @@ def BinOp.operandLevels (op : BinOp) : Nat × Nat :=
 puts `if` above `;`, so `if a then b else c; d` sequences the whole `if`. -/
 def Prec.noSemi : Nat := BinOp.level .semi + 1
 
-/-- Tighter than every binary operator: application, the prefix operators, and
-the postfix forms `e.f` and `e.(i)`. -/
+/-- Function application, and with it the two unary forms that bind exactly as
+loosely: prefix `-`, whose operand is an application, and `assert`, which sits
+here but takes a single operand at `Prec.access`. Tighter than every binary
+operator, so `- a * b` is `(- a) * b` and `- f a` is `- (f a)`. -/
 def Prec.app : Nat := BinOp.level .mul + 1
+
+/-- Postfix access: `e.f`, `e.n` and `e.(i)`. Tighter than application, so
+`f a.b` is `f (a.b)`. -/
+def Prec.access : Nat := Prec.app + 1
+
+/-- Prefix `!`. Tightest of all, above access as well as application, so
+`!r.contents` is `(!r).contents` and `!f x` is `(!f) x`. -/
+def Prec.prefixOp : Nat := Prec.access + 1
 
 -- Attributes
 

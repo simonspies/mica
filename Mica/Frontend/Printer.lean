@@ -63,10 +63,15 @@ partial def UnOp.print : UnOp → String
   | .proj n     => s!".{n}"
   | .field name => s!".{name}"
 
--- Does this prefix unop need a space before its argument?
-private def UnOp.needsSpace : UnOp → Bool
-  | .neg | .deref => false
+-- Does this prefix unop need a space before its argument? A symbolic one does
+-- not in general, but it glues to a leading operator character into a single
+-- longer operator (`!!`, `--`), so that case takes a space too.
+private def UnOp.needsSpace (op : UnOp) (arg : String) : Bool :=
+  match op with
+  | .neg | .deref => !arg.isEmpty && isOperatorChar arg.front
   | _ => true
+where
+  isOperatorChar (c : Char) : Bool := "!$%&*+-./:<=>?@^|~".contains c
 
 partial def BinOp.print : BinOp → String
   | .add => "+" | .sub => "-" | .mul => "*" | .div => "/" | .mod => "mod"
@@ -174,11 +179,13 @@ private partial def Expr.printPrec (e : Expr) (outerPrec : Nat) : String :=
   | .record fields => "{ " ++ fmtFields fields ++ " }"
   | .recordUpdate base fields =>
     "{ " ++ Expr.printPrec base 0 ++ " with " ++ fmtFields fields ++ " }"
-  | .unop op inner => printUnop op inner
+  | .unop op inner => printUnop op inner outerPrec
   | .arrayGet arr idx => printArrayGet arr idx outerPrec
   | .arraySet arr idx val => printArraySet arr idx val outerPrec
   | .binop op lhs rhs => printBinop op lhs rhs outerPrec
-  | .app fn args => joinWith " " (fmtArg fn :: args.map fmtArg)
+  | .app fn args =>
+    parenIf (outerPrec > Prec.app)
+      (joinWith " " ((fn :: args).map (operand · Prec.access)))
   | .ite cond thn els =>
     "if " ++ Expr.printPrec cond 0 ++ " then " ++ Expr.printPrec thn 0 ++
     " else " ++ Expr.printPrec els 0
@@ -201,34 +208,39 @@ where
     match attr.payload with
     | none         => s!" [@{attr.name}]"
     | some payload => s!" [@{attr.name} {Expr.printPrec payload 0}]"
-  fmtArg (e : Expr) : String :=
-    parenIf (!Expr.isAtom e) (Expr.printPrec e 0)
-  fmtBase (e : Expr) : String :=
-    parenIf (!Expr.isAtom e) (Expr.printPrec e 0)
   -- A field value ends at the `;` or `}` that follows it, so a `fun`, `let`,
   -- `if` or `match` has to be parenthesized to parse back.
   fmtFields (fields : List (FieldName × Expr)) : String :=
     joinWith "; " (fields.map fun (f, v) =>
       f ++ " = " ++ parenIf (Expr.isKeywordExpr v) (Expr.printPrec v 0))
-  printUnop (op : UnOp) (inner : Expr) : String :=
+  -- The three unary levels: postfix access, prefix `!` above it, and prefix `-`
+  -- and `assert` down at application level.
+  printUnop (op : UnOp) (inner : Expr) (outerPrec : Nat) : String :=
+    let prefixOp (p : Nat) (operandPrec : Nat) : String :=
+      let arg := operand inner operandPrec
+      let space := if UnOp.needsSpace op arg then " " else ""
+      parenIf (outerPrec > p) (UnOp.print op ++ space ++ arg)
     match op with
-    | .proj n => fmtBase inner ++ s!".{n}"
-    | .field name => fmtBase inner ++ "." ++ name
-    | _ =>
-      let space := if UnOp.needsSpace op then " " else ""
-      UnOp.print op ++ space ++ fmtArg inner
-  -- A keyword expression extends as far right as it can, so it needs parens
-  -- wherever an operator could follow it — on either side of an operator, since
-  -- the operator's own right-hand side may be followed by more.
+    | .proj n =>
+      parenIf (outerPrec > Prec.access) (operand inner Prec.access ++ s!".{n}")
+    | .field name =>
+      parenIf (outerPrec > Prec.access) (operand inner Prec.access ++ "." ++ name)
+    | .deref  => prefixOp Prec.prefixOp Prec.prefixOp
+    | .neg    => prefixOp Prec.app Prec.app
+    | .assert => prefixOp Prec.app Prec.access
+  -- A subexpression at level `prec`. Every compound form parenthesizes itself
+  -- against `prec`; the one exception is a keyword expression, which extends as
+  -- far right as it can and so needs parens wherever anything could follow it.
   operand (e : Expr) (prec : Nat) : String :=
     parenIf (Expr.isKeywordExpr e) (Expr.printPrec e prec)
   printArrayGet (arr idx : Expr) (outerPrec : Nat) : String :=
-    let p := Prec.app
-    parenIf (outerPrec > p) (operand arr p ++ ".(" ++ Expr.printPrec idx 0 ++ ")")
+    parenIf (outerPrec > Prec.access)
+      (operand arr Prec.access ++ ".(" ++ Expr.printPrec idx 0 ++ ")")
   printArraySet (arr idx val : Expr) (outerPrec : Nat) : String :=
     -- `<-` sits at `:=`'s level and is right-associative like it.
     let p := BinOp.level .assign
-    parenIf (outerPrec > p) (printArrayGet arr idx Prec.app ++ " <- " ++ operand val p)
+    parenIf (outerPrec > p)
+      (printArrayGet arr idx Prec.access ++ " <- " ++ operand val p)
 
   printBinop (op : BinOp) (lhs rhs : Expr) (outerPrec : Nat) : String :=
     let p := BinOp.level op

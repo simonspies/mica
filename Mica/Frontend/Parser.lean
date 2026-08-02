@@ -206,7 +206,7 @@ private def isPatStart : Token → Bool
 
 private def isArgStart : Token → Bool
   | .intLit _ | .floatLit _ | .charLit _ | .stringLit _ | .ident _ | .lparen | .lbrace
-  | .lbracket | .kw_true | .kw_false => true
+  | .lbracket | .kw_true | .kw_false | .bang => true
   | _ => false
 
 /-- A record literal starts with `ident =` (a lowercase field name followed by
@@ -480,22 +480,23 @@ private partial def parseOperand : Parser Expr := do
   | .kw_match => parseMatch
   | _         => parseUnary
 
--- prefix unary operators
+-- prefix `-` (`Prec.app`): looser than application, so `- f a` is `- (f a)`,
+-- and tighter than every binary operator, so `- a * b` is `(- a) * b`.
 private partial def parseUnary : Parser Expr := do
-  let unop (op : UnOp) : Parser Expr := exprOf do
-    advance
-    return .unop op (← parseUnary)
   match ← peek with
-  | .minus     => unop .neg
-  | .kw_assert => unop .assert
-  | .bang      => unop .deref
-  | _          => parseApp
+  | .minus => exprOf do advance; return .unop .neg (← parseUnary)
+  | _      => parseApp
 
 -- function application (left-assoc, juxtaposition), then any expression
 -- attributes `[@name payload]` attached as a postfix to the whole application.
+-- `assert` sits at this level but takes a single operand, so `assert f a` is a
+-- syntax error in OCaml rather than an assertion of `f a`.
 private partial def parseApp : Parser Expr := do
-  let fn ← parsePostfix
-  let app ← parseAppRest fn
+  let app ←
+    if (← peek) == .kw_assert then
+      exprOf do advance; return .unop .assert (← parseAccess)
+    else
+      parseAppRest (← parseAccess)
   parseAttrSuffix (fun e a => { e with attrs := e.attrs ++ [a] }) app
 
 private partial def parseAppRest (fn : Expr) : Parser Expr := do
@@ -508,32 +509,40 @@ private partial def collectArgs : Parser (List Expr) := do
   let t ← peek
   let isAttr := t == .lbracket && ((← peek 1) == .at || (← peek 1) == .atat)
   if isArgStart t && !isAttr then
-    let arg ← parsePostfix
+    let arg ← parseAccess
     return arg :: (← collectArgs)
   else return []
 
--- postfix: `.n` tuple projection, `.field` field access
-private partial def parsePostfix : Parser Expr := do
-  parsePostfixRest (← parseAtom)
+-- postfix access (`Prec.access`): `.n` tuple projection, `.field` field access,
+-- `.(i)` array element. Tighter than application, so `f a.b` is `f (a.b)`.
+private partial def parseAccess : Parser Expr := do
+  parseAccessRest (← parsePrefix)
 
-private partial def parsePostfixRest (e : Expr) : Parser Expr := do
+private partial def parseAccessRest (e : Expr) : Parser Expr := do
   if (← peek) != .dot then return e
   match ← peek 1 with
   | .lparen =>
     advance; advance
     let idx ← parseExpr
     expect .rparen
-    parsePostfixRest { loc := ← spanFrom e.loc, kind := .arrayGet e idx }
+    parseAccessRest { loc := ← spanFrom e.loc, kind := .arrayGet e idx }
   | .intLit n =>
     if n ≥ 1 then
       advance; advance
-      parsePostfixRest { loc := ← spanFrom e.loc, kind := .unop (.proj n.toNat) e }
+      parseAccessRest { loc := ← spanFrom e.loc, kind := .unop (.proj n.toNat) e }
     else
       failAt (← loc 1) .nonPositiveProjIndex
   | .ident fname =>
     advance; advance
-    parsePostfixRest { loc := ← spanFrom e.loc, kind := .unop (.field fname) e }
+    parseAccessRest { loc := ← spanFrom e.loc, kind := .unop (.field fname) e }
   | _ => return e  -- lone dot, leave it
+
+-- prefix `!` (`Prec.prefixOp`): the tightest level, above access as well as
+-- application, so `!r.contents` is `(!r).contents` and `!f x` is `(!f) x`.
+private partial def parsePrefix : Parser Expr := do
+  match ← peek with
+  | .bang => exprOf do advance; return .unop .deref (← parsePrefix)
+  | _     => parseAtom
 
 -- atom: constants, variables, constructors, parens, records
 private partial def parseAtom : Parser Expr := do
