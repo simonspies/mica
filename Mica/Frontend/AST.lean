@@ -96,21 +96,22 @@ The levels are OCaml's, renumbered to start at 1, following the operator
 table in §7.1 of the OCaml manual.
 
 The levels outside the binary table are named below because both consumers need
-them. OCaml's comma level, between `||` and `:=`, is absent: tuples are built by
-their own production rather than by the operator loop. -/
+them. Level 3 is the comma: it belongs to the table by precedence but not by
+shape, a tuple being n-ary rather than a `BinOp`. -/
 
 /-- Precedence of a binary operator; a higher level binds tighter. -/
 def BinOp.level : BinOp → Nat
   | .semi                                     => 1
   | .assign                                   => 2
-  | .or                                       => 3
-  | .and                                      => 4
+  -- 3 is `Prec.comma`
+  | .or                                       => 4
+  | .and                                      => 5
   | .eq | .neq | .lt | .le | .gt | .ge
-  | .pipeRight                                => 5
-  | .concat | .append | .atAt                 => 6
-  | .cons                                     => 7
-  | .add | .sub | .fadd | .fsub               => 8
-  | .mul | .div | .mod | .fmul | .fdiv        => 9
+  | .pipeRight                                => 6
+  | .concat | .append | .atAt                 => 7
+  | .cons                                     => 8
+  | .add | .sub | .fadd | .fsub               => 9
+  | .mul | .div | .mod | .fmul | .fdiv        => 10
 
 /-- Associativity of a binary operator. -/
 def BinOp.assoc : BinOp → Assoc
@@ -132,6 +133,11 @@ def BinOp.operandLevels (op : BinOp) : Nat × Nat :=
 /-- The loosest level that stops at `;`. The branches of an `if` sit here: OCaml
 puts `if` above `;`, so `if a then b else c; d` sequences the whole `if`. -/
 def Prec.noSemi : Nat := BinOp.level .semi + 1
+
+/-- The comma, between `:=` and `||`: `r := a, b` is `r := (a, b)` and `a, b || c`
+is `a, (b || c)`. Needing no enclosing parentheses, it is the operator loop's own
+case rather than a `BinOp`, a tuple being n-ary. -/
+def Prec.comma : Nat := BinOp.level .assign + 1
 
 /-- Function application, and with it the two unary forms that bind exactly as
 loosely: prefix `-`, whose operand is an application, and `assert`, which sits

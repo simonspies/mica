@@ -1,71 +1,8 @@
 DIVERGE A of 'a * 'b  ==>  ocaml: | A of 'a * 'b  |  mica: | A of ('a * 'b)
 DIVERGE A of int * int  ==>  ocaml: | A of int * int  |  mica: | A of (int * int)
-GAP     ! r, b  ==>  bare tuple: mica builds tuples only inside parentheses
-GAP     (a, b), c  ==>  bare tuple: mica builds tuples only inside parentheses
-GAP     - a, b  ==>  bare tuple: mica builds tuples only inside parentheses
-GAP     [a, b; c]  ==>  bare tuple: mica builds tuples only inside parentheses
-GAP     [a, b]  ==>  bare tuple: mica builds tuples only inside parentheses
-GAP     a && b, c  ==>  bare tuple: mica builds tuples only inside parentheses
-GAP     a * b, c  ==>  bare tuple: mica builds tuples only inside parentheses
-GAP     a *. b, c  ==>  bare tuple: mica builds tuples only inside parentheses
-GAP     a + b, c  ==>  bare tuple: mica builds tuples only inside parentheses
-GAP     a +. b, c  ==>  bare tuple: mica builds tuples only inside parentheses
-GAP     a - b, c  ==>  bare tuple: mica builds tuples only inside parentheses
-GAP     a -. b, c  ==>  bare tuple: mica builds tuples only inside parentheses
-GAP     a / b, c  ==>  bare tuple: mica builds tuples only inside parentheses
-GAP     a /. b, c  ==>  bare tuple: mica builds tuples only inside parentheses
-GAP     a :: b, c  ==>  bare tuple: mica builds tuples only inside parentheses
-GAP     a := b, c  ==>  bare tuple: mica builds tuples only inside parentheses
-GAP     a ; b, c  ==>  bare tuple: mica builds tuples only inside parentheses
-GAP     a < b, c  ==>  bare tuple: mica builds tuples only inside parentheses
-GAP     a <= b, c  ==>  bare tuple: mica builds tuples only inside parentheses
-GAP     a <> b, c  ==>  bare tuple: mica builds tuples only inside parentheses
-GAP     a = b, c  ==>  bare tuple: mica builds tuples only inside parentheses
-GAP     a > b, c  ==>  bare tuple: mica builds tuples only inside parentheses
-GAP     a >= b, c  ==>  bare tuple: mica builds tuples only inside parentheses
-GAP     a @ b, c  ==>  bare tuple: mica builds tuples only inside parentheses
-GAP     a @@ b, c  ==>  bare tuple: mica builds tuples only inside parentheses
-GAP     a ^ b, c  ==>  bare tuple: mica builds tuples only inside parentheses
-GAP     a mod b, c  ==>  bare tuple: mica builds tuples only inside parentheses
-GAP     a |> b, c  ==>  bare tuple: mica builds tuples only inside parentheses
-GAP     a || b, c  ==>  bare tuple: mica builds tuples only inside parentheses
-GAP     a, (b, c)  ==>  bare tuple: mica builds tuples only inside parentheses
-GAP     a, b  ==>  bare tuple: mica builds tuples only inside parentheses
-GAP     a, b && c  ==>  bare tuple: mica builds tuples only inside parentheses
-GAP     a, b * c  ==>  bare tuple: mica builds tuples only inside parentheses
-GAP     a, b *. c  ==>  bare tuple: mica builds tuples only inside parentheses
-GAP     a, b + c  ==>  bare tuple: mica builds tuples only inside parentheses
-GAP     a, b +. c  ==>  bare tuple: mica builds tuples only inside parentheses
-GAP     a, b - c  ==>  bare tuple: mica builds tuples only inside parentheses
-GAP     a, b -. c  ==>  bare tuple: mica builds tuples only inside parentheses
-GAP     a, b / c  ==>  bare tuple: mica builds tuples only inside parentheses
-GAP     a, b /. c  ==>  bare tuple: mica builds tuples only inside parentheses
-GAP     a, b :: c  ==>  bare tuple: mica builds tuples only inside parentheses
-GAP     a, b := c  ==>  bare tuple: mica builds tuples only inside parentheses
-GAP     a, b ; c  ==>  bare tuple: mica builds tuples only inside parentheses
-GAP     a, b < c  ==>  bare tuple: mica builds tuples only inside parentheses
-GAP     a, b <= c  ==>  bare tuple: mica builds tuples only inside parentheses
-GAP     a, b <> c  ==>  bare tuple: mica builds tuples only inside parentheses
-GAP     a, b = c  ==>  bare tuple: mica builds tuples only inside parentheses
-GAP     a, b > c  ==>  bare tuple: mica builds tuples only inside parentheses
-GAP     a, b >= c  ==>  bare tuple: mica builds tuples only inside parentheses
-GAP     a, b @ c  ==>  bare tuple: mica builds tuples only inside parentheses
-GAP     a, b @@ c  ==>  bare tuple: mica builds tuples only inside parentheses
-GAP     a, b ^ c  ==>  bare tuple: mica builds tuples only inside parentheses
-GAP     a, b mod c  ==>  bare tuple: mica builds tuples only inside parentheses
-GAP     a, b |> c  ==>  bare tuple: mica builds tuples only inside parentheses
-GAP     a, b || c  ==>  bare tuple: mica builds tuples only inside parentheses
-GAP     a, b, c  ==>  bare tuple: mica builds tuples only inside parentheses
-GAP     a, b, c, d  ==>  bare tuple: mica builds tuples only inside parentheses
-GAP     a.(i), b  ==>  bare tuple: mica builds tuples only inside parentheses
 GAP     a.(i).u <- b  ==>  field assignment: `<-` accepts only `a.(i)` on the left
-GAP     f a, b  ==>  bare tuple: mica builds tuples only inside parentheses
-GAP     fun x -> x, a  ==>  bare tuple: mica builds tuples only inside parentheses
-GAP     if a then b, c else d  ==>  bare tuple: mica builds tuples only inside parentheses
 GAP     int  ==>  type alias: `TypeDeclBody` has only variants and records
 GAP     int list  ==>  type alias: `TypeDeclBody` has only variants and records
-GAP     let x = a, b in x  ==>  bare tuple: mica builds tuples only inside parentheses
-GAP     match x with | y, z -> 0 | _ -> 1  ==>  bare tuple: mica builds tuples only inside parentheses
 GAP     r.u <- a.(i)  ==>  field assignment: `<-` accepts only `a.(i)` on the left
 GAP     r.u <- b  ==>  field assignment: `<-` accepts only `a.(i)` on the left
 GAP     r.u <- b + c  ==>  field assignment: `<-` accepts only `a.(i)` on the left

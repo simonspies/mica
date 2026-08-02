@@ -328,12 +328,21 @@ private partial def parseOptFunRetTy : Parser (Option Typ) := do
 -- ---------------------------------------------------------------------------
 -- Pattern parsing
 
-/-- Pattern with infix `::` (right-assoc): `p1 :: p2` is the prelude cons
-constructor applied to the pair pattern `(p1, p2)`. The loosest pattern level. -/
+/-- A pattern, comma included: `p1, p2` is a tuple pattern, needing no
+parentheses of its own. The loosest pattern level. -/
 private partial def parsePattern : Parser Pattern := do
+  let first ← parsePatternCons
+  if ← consumeIf .comma then
+    let rest ← parseTuplePatRest
+    return { loc := ← spanFrom first.loc, kind := .tuple (first :: rest) }
+  else return first
+
+/-- Pattern with infix `::` (right-assoc): `p1 :: p2` is the prelude cons
+constructor applied to the pair pattern `(p1, p2)`. -/
+private partial def parsePatternCons : Parser Pattern := do
   let lhs ← parsePatternApp
   if ← consumeIf .coloncolon then
-    let rhs ← parsePattern
+    let rhs ← parsePatternCons
     return { loc := between lhs.loc rhs.loc, kind := .cons lhs rhs }
   else return lhs
 
@@ -378,15 +387,12 @@ private partial def parsePatternAtom : Parser Pattern := patOf do
 private partial def parseParenPattern : Parser PatternKind := do
   -- `()` = unit constant
   if ← consumeIf .rparen then return .const .unit
+  -- A tuple pattern needs no parentheses of its own, so `(p, q)` arrives here
+  -- already built by the comma level.
   let pat ← parsePatternAnnot
   match ← peek with
-  | .comma =>
-    -- tuple pattern
-    let rest ← parseTuplePatRest
-    expect .rparen
-    return .tuple (pat :: rest)
   | .rparen => advance; return pat.kind
-  | _ => expected "')' or ',' in pattern"
+  | _ => expected "')' or ':' in pattern"
 
 /-- A pattern carrying the annotation `p : T` that only a parenthesized position
 admits. `Pattern` has a slot for one on a binder alone, so `(C x : T)` is not a
@@ -403,11 +409,11 @@ private partial def parsePatternAnnot : Parser Pattern := do
   | .wildcard         => annotate none
   | _                 => return pat
 
+/-- The components after the first `,`, each below the comma level so that the
+tuple pattern stays flat. -/
 private partial def parseTuplePatRest : Parser (List Pattern) := do
-  if ← consumeIf .comma then
-    let p ← parsePattern
-    return p :: (← parseTuplePatRest)
-  else return []
+  let p ← parsePatternCons
+  if ← consumeIf .comma then return p :: (← parseTuplePatRest) else return [p]
 
 private partial def parseRecordPatFields : Parser (List (FieldName × Pattern)) := do
   let name ← expectIdent
@@ -452,6 +458,13 @@ private partial def parseExprAt (min : Nat) : Parser Expr := do
 
 private partial def parseInfix (min : Nat) (lhs : Expr) : Parser Expr := do
   match ← peek with
+  -- `a, b, c` — one flat tuple, so the comma is its own case rather than a
+  -- right-associative operator building nested pairs.
+  | .comma =>
+    if Prec.comma < min then return lhs
+    advance
+    let rest ← parseTupleRest
+    parseInfix min { loc := ← spanFrom lhs.loc, kind := .tuple (lhs :: rest) }
   -- `a.(i) <- e`, at `:=`'s level and right-associative like it.
   | .leftArrow =>
     let lvl := BinOp.level .assign
@@ -583,13 +596,10 @@ private partial def parseAtom : Parser Expr := do
     advance
     -- `()` = unit
     if ← consumeIf .rparen then return { loc := ← spanFrom start, kind := .const .unit }
+    -- A tuple needs no parentheses of its own, so `(a, b)` arrives here already
+    -- built by the comma level.
     let e ← parseExpr
     match ← peek with
-    | .comma =>
-      -- tuple
-      let rest ← parseTupleRest
-      expect .rparen
-      return { loc := ← spanFrom start, kind := .tuple (e :: rest) }
     | .colon =>
       -- type annotation `(e : T)`
       advance
@@ -597,14 +607,14 @@ private partial def parseAtom : Parser Expr := do
       expect .rparen
       return { loc := ← spanFrom start, kind := .annot e ty }
     | .rparen => advance; return e
-    | _ => expected "')' or ',' in expression"
+    | _ => expected "')' or ':' in expression"
   | _ => expected "expression"
 
+/-- The components after the first `,`, each below the comma level so that the
+tuple stays flat. -/
 private partial def parseTupleRest : Parser (List Expr) := do
-  if ← consumeIf .comma then
-    let e ← parseExpr
-    return e :: (← parseTupleRest)
-  else return []
+  let e ← parseExprAt (Prec.comma + 1)
+  if ← consumeIf .comma then return e :: (← parseTupleRest) else return [e]
 
 -- `;`-separated list-literal elements, allowing a trailing `;`
 private partial def parseListElems : Parser (List Expr) := do
