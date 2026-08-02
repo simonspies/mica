@@ -279,14 +279,21 @@ private partial def parseTypeAtom : Parser Typ := do
     | _ => expected "')' or ',' in type"
   | _ => expected "type"
 
+/-- Postfix type application `T name`, including a qualified constructor:
+`int Queue.t`. An uppercase name here can only open a module path, since a type
+constructor's own name is lowercase, so the path is committed to and its final
+segment checked. -/
 private partial def parseTypeAppSuffix (arg : Typ) : Parser Typ := do
   match ← peek with
   | .ident name =>
-    if !name.front.isUpper && name.front != '\'' then
-      advance
-      let loc ← spanFrom arg.loc
-      parseTypeAppSuffix { loc, kind := .con (Path.single name) [arg] }
-    else return arg
+    if name.front == '\'' then return arg
+    let start ← loc
+    advance
+    let path ← collectPathTail name []
+    if path.last.front.isUpper then
+      failAt (← spanFrom start) (.unexpectedToken "a type constructor name (lowercase)"
+        (.ident path.last))
+    parseTypeAppSuffix { loc := ← spanFrom arg.loc, kind := .con path [arg] }
   | _ => return arg
 
 private partial def parseTypeApp : Parser Typ := do

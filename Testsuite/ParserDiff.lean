@@ -175,6 +175,11 @@ def typeCases : List String :=
   , "int -> int list", "int list -> int", "(int -> int) list"
   , "int * int list", "'a list", "'a -> 'a", "'a * 'b -> 'c"
   , "int array", "int ref list", "(int -> int) -> int"
+  -- Qualified type constructors, whose head is a module path.
+  , "int Queue.t", "int Queue.t list", "int list Queue.t", "Queue.t"
+  , "(int, int) Hashtbl.t", "int Foo.Bar.t", "int Queue.t -> int"
+  , "int Queue.t * int", "Foo.t Bar.t", "Foo.t list", "int Foo.t Bar.t"
+  , "Foo.Bar.t Baz.t", "(Foo.t, Bar.t) Hashtbl.t", "Foo.t Bar.t list"
   , "int list list list", "'a * 'b * 'c -> 'd" ]
 
 private def caseName (n : Nat) : String :=
