@@ -80,6 +80,91 @@ inductive BinOp where
   | semi | pipeRight | atAt | assign | concat | append | cons
   deriving Repr, BEq
 
+/-- Associativity of an infix operator. -/
+inductive Assoc where
+  | left | right
+  deriving Repr, BEq
+
+/-! ### Operator precedence
+
+The definitions below are the grammar of infix expressions, and the parser and
+the printer are its only two consumers: `Parser.lean` drives one
+precedence-climbing loop from them and `Printer.lean` decides parentheses from
+them. Keeping a second copy anywhere is what let the two drift apart.
+
+The levels are OCaml's, renumbered to start at 1, following the operator
+table in §7.1 of the OCaml manual.
+
+The levels outside the binary table are named below because both consumers need
+them. Level 3 is the comma: it belongs to the table by precedence but not by
+shape, a tuple being n-ary rather than a `BinOp`. -/
+
+/-- Precedence of a binary operator; a higher level binds tighter. -/
+def BinOp.level : BinOp → Nat
+  | .semi                                     => 1
+  | .assign                                   => 2
+  -- 3 is `Prec.comma`
+  | .or                                       => 4
+  | .and                                      => 5
+  | .eq | .neq | .lt | .le | .gt | .ge
+  | .pipeRight                                => 6
+  | .concat | .append | .atAt                 => 7
+  | .cons                                     => 8
+  | .add | .sub | .fadd | .fsub               => 9
+  | .mul | .div | .mod | .fmul | .fdiv        => 10
+
+/-- Associativity of a binary operator. -/
+def BinOp.assoc : BinOp → Assoc
+  | .eq | .neq | .lt | .le | .gt | .ge | .pipeRight
+  | .add | .sub | .fadd | .fsub
+  | .mul | .div | .mod | .fmul | .fdiv => .left
+  | _                                  => .right
+
+/-- The levels of an operator's left and right operands. The side the operator
+associates towards keeps the operator's own level, so a repeat of it nests
+there; the other side takes one level above, so a repeat of it ends the operand.
+This is the associativity rule itself, shared rather than restated: the parser
+descends to these levels and the printer parenthesizes against them. -/
+def BinOp.operandLevels (op : BinOp) : Nat × Nat :=
+  match BinOp.assoc op with
+  | .left  => (BinOp.level op, BinOp.level op + 1)
+  | .right => (BinOp.level op + 1, BinOp.level op)
+
+/-- The loosest level that stops at `;`. The branches of an `if` sit here: OCaml
+puts `if` above `;`, so `if a then b else c; d` sequences the whole `if`. -/
+def Prec.noSemi : Nat := BinOp.level .semi + 1
+
+/-- The comma, between `:=` and `||`: `r := a, b` is `r := (a, b)` and `a, b || c`
+is `a, (b || c)`. Needing no enclosing parentheses, it is the operator loop's own
+case rather than a `BinOp`, a tuple being n-ary. -/
+def Prec.comma : Nat := BinOp.level .assign + 1
+
+/-- Function application, and with it the two unary forms that bind exactly as
+loosely: prefix `-`, whose operand is an application, and `assert`, which sits
+here but takes a single operand at `Prec.access`. Tighter than every binary
+operator, so `- a * b` is `(- a) * b` and `- f a` is `- (f a)`. -/
+def Prec.app : Nat := BinOp.level .mul + 1
+
+/-- Postfix access: `e.f`, `e.n` and `e.(i)`. Tighter than application, so
+`f a.b` is `f (a.b)`. -/
+def Prec.access : Nat := Prec.app + 1
+
+/-- Prefix `!`. Tightest of all, above access as well as application, so
+`!r.contents` is `(!r).contents` and `!f x` is `(!f) x`. -/
+def Prec.prefixOp : Nat := Prec.access + 1
+
+/-! Patterns have their own two levels, numbered separately from the expression
+ones above: `::` and, tighter, a constructor payload. The parser spells them out
+as one function per level rather than climbing them, so these are for the
+printer to parenthesize against. -/
+
+/-- Infix `::` in a pattern, right-associative. -/
+def Prec.patCons : Nat := 1
+
+/-- Constructor application in a pattern. Its payload is an atom, so `A B x` is
+not a pattern. -/
+def Prec.patApp : Nat := 2
+
 -- Attributes
 
 /-- The name of an attribute `[@name]`. Which names are meaningful depends on

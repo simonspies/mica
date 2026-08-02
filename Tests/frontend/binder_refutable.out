@@ -1,0 +1,2 @@
+parse error: Tests/frontend/binder_refutable.ml:6:7: this pattern can fail to match; a `let` or `fun` binder must not
+[1]

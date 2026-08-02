@@ -109,8 +109,10 @@ def check (mica : FilePath) (promote : Bool) (tmpDir : FilePath) (idx : Nat) (te
 def roundtrip (mica : FilePath) (tmpDir : FilePath) (idx : Nat) (test : Test) :
     IO Outcome := do
   measure test.label do
+    -- The test's own flags come along, so a test whose syntax outruns the
+    -- elaborator can ask for `--parse-only` and still check the fixpoint.
     let args := fun (file : FilePath) =>
-      #["--no-ansi", "--print-ocaml", "--no-check", file.toString]
+      #["--no-ansi", "--print-ocaml", "--no-check"] ++ test.config.flags ++ #[file.toString]
     let r1 ← runProcess mica.toString (args test.path)
     let .terminated out1 := r1
       | return r1

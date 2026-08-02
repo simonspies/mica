@@ -28,6 +28,11 @@ jobs:
       - name: Run the testsuite
         run: opam exec -- lake run testsuite
 
+      # Differential parser tests: mica's parse of a generated corpus against
+      # OCaml's, with `Tests/parser/parser-diff.baseline` as the expected state.
+      - name: Run the differential parser tests
+        run: opam exec -- lake run parser-diff
+
   check-outlines:
     runs-on: ubuntu-latest
     steps:

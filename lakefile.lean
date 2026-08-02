@@ -40,6 +40,24 @@ script «generate-docs» (args) := do
   if rc ≠ 0 then return rc
   runOverviews
 
+/-- Build mica and the testsuite runner, then run the differential parser tests
+    (`Testsuite/ParserDiff.lean`), which check mica's parse of a generated
+    corpus against OCaml's. `--promote` rewrites the recorded baseline. -/
+script «parser-diff» (args) := do
+  let some mica ← Lake.findLeanExe? `mica
+    | error "mica executable undefined"
+  let some suite ← Lake.findLeanExe? `«testsuite-runner»
+    | error "testsuite-runner executable undefined"
+  let (micaFile, exeFile) ← runBuild do
+    let micaJob ← mica.exe.fetch
+    let suiteJob ← suite.exe.fetch
+    return micaJob.zipWith (fun m s => (m, s)) suiteJob
+  let child ← IO.Process.spawn {
+    cmd := exeFile.toString
+    args := #["parser-diff", "--mica", micaFile.toString] ++ args.toArray
+  }
+  child.wait
+
 /-- Build mica and the testsuite runner (`Testsuite.lean`), ask the runner for
     the task list (`list` → `task,file` lines), and register one Lake job per
     task (`run-task`) so the build monitor shows live progress. Reports are

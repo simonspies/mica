@@ -3,6 +3,7 @@
 - `AST.lean` — Surface syntax trees and source locations for the OCaml frontend.
 - `Elaborate.lean` — Elaboration of surface syntax into the verifier's core language, with frontend-specific checks.
 - `Lexer.lean` — Lexical analysis for the OCaml frontend, including tokens and lexer errors.
+- `ParenPrinter.lean` — Precedence-free printing of frontend syntax, parenthesizing every compound node.
 - `Parser.lean` — Parsing of frontend tokens into surface syntax trees, with integrated frontend errors.
 - `Printer.lean` — Pretty-printing of frontend syntax back into OCaml-like concrete syntax.
 - `Resolver.lean` — Central registry resolving qualified prelude paths to values, types, and constructors.

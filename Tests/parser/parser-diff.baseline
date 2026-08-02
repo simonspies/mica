@@ -1,0 +1,9 @@
+DIVERGE A of 'a * 'b  ==>  ocaml: | A of 'a * 'b  |  mica: | A of ('a * 'b)
+DIVERGE A of int * int  ==>  ocaml: | A of int * int  |  mica: | A of (int * int)
+GAP     a.(i).u <- b  ==>  field assignment: `<-` accepts only `a.(i)` on the left
+GAP     int  ==>  type alias: `TypeDeclBody` has only variants and records
+GAP     int list  ==>  type alias: `TypeDeclBody` has only variants and records
+GAP     r.u <- a.(i)  ==>  field assignment: `<-` accepts only `a.(i)` on the left
+GAP     r.u <- b  ==>  field assignment: `<-` accepts only `a.(i)` on the left
+GAP     r.u <- b + c  ==>  field assignment: `<-` accepts only `a.(i)` on the left
+GAP     r.u.v <- b  ==>  field assignment: `<-` accepts only `a.(i)` on the left

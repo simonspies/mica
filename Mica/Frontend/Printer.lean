@@ -63,10 +63,15 @@ partial def UnOp.print : UnOp → String
   | .proj n     => s!".{n}"
   | .field name => s!".{name}"
 
--- Does this prefix unop need a space before its argument?
-private def UnOp.needsSpace : UnOp → Bool
-  | .neg | .deref => false
+-- Does this prefix unop need a space before its argument? A symbolic one does
+-- not in general, but it glues to a leading operator character into a single
+-- longer operator (`!!`, `--`), so that case takes a space too.
+private def UnOp.needsSpace (op : UnOp) (arg : String) : Bool :=
+  match op with
+  | .neg | .deref => !arg.isEmpty && isOperatorChar arg.front
   | _ => true
+where
+  isOperatorChar (c : Char) : Bool := "!$%&*+-./:<=>?@^|~".contains c
 
 partial def BinOp.print : BinOp → String
   | .add => "+" | .sub => "-" | .mul => "*" | .div => "/" | .mod => "mod"
@@ -76,16 +81,8 @@ partial def BinOp.print : BinOp → String
   | .semi => ";" | .pipeRight => "|>" | .atAt => "@@" | .assign => ":="
   | .concat => "^" | .append => "@" | .cons => "::"
 
-private partial def BinOp.prec : BinOp → Nat
-  | .semi => 1 | .assign => 2 | .or => 3 | .and => 4
-  | .pipeRight => 5 | .atAt => 6
-  | .eq | .neq | .lt | .le | .gt | .ge => 7
-  | .concat | .append => 8 | .cons => 9 | .add | .sub | .fadd | .fsub => 10
-  | .mul | .div | .mod | .fmul | .fdiv => 11
-
-private partial def BinOp.rightAssoc : BinOp → Bool
-  | .semi | .assign | .or | .and | .atAt | .concat | .append | .cons => true
-  | _ => false
+-- Precedence comes from `BinOp.level` / `BinOp.assoc` in `AST.lean`, the same
+-- table the parser climbs. A copy here is what let printer and parser disagree.
 
 -- ---------------------------------------------------------------------------
 -- Type printing
@@ -119,6 +116,14 @@ private partial def Typ.printAppArg (t : Typ) : String :=
   | .tuple (_ :: _ :: _) => parens (Typ.print t)
   | _ => Typ.print t
 
+/-- A type in a position that a `->` would run past: a `fun`'s return
+annotation, which the arrow of the `fun` itself ends, and a constructor payload.
+A `*` needs no parentheses in either. -/
+private partial def Typ.printNoArrow (t : Typ) : String :=
+  match t.kind with
+  | .arrow _ _ => parens (Typ.print t)
+  | _ => Typ.print t
+
 private partial def Typ.needsParens (t : Typ) : Bool :=
   match t.kind with
   | .arrow _ _ | .tuple (_ :: _ :: _) => true
@@ -130,12 +135,10 @@ private partial def Typ.printAttr (attr : Attribute) : String :=
   | none         => s!" [@{attr.name}]"
   | some payload => s!" [@{attr.name} {Expr.printPrec payload 0}]"
 
-private partial def Pattern.isAtom (p : Pattern) : Bool :=
-  match p.kind with
-  | .ctor _ (some _) | .cons _ _ => false
-  | _ => true
-
-partial def Pattern.print (p : Pattern) : String :=
+/-- A pattern at `outerPrec`, over the same three levels the parser uses:
+`Prec.patCons` for `::`, `Prec.patApp` for a constructor payload, and above
+that the atoms, which delimit themselves. -/
+partial def Pattern.printPrec (p : Pattern) (outerPrec : Nat) : String :=
   match p.kind with
   | .wildcard => "_"
   | .binder (some name) none => name
@@ -144,13 +147,21 @@ partial def Pattern.print (p : Pattern) : String :=
   | .binder none (some ty) => s!"(_ : {Typ.print ty})"
   | .const c => Const.print c
   | .nil => "[]"
-  | .cons head tail => s!"{Pattern.print head} :: {Pattern.print tail}"
+  | .cons head tail =>
+    -- `::` is right-associative, so a `::` on the left needs parens.
+    parenIf (outerPrec > Prec.patCons)
+      (Pattern.printPrec head (Prec.patCons + 1) ++ " :: " ++
+       Pattern.printPrec tail Prec.patCons)
   | .ctor path none => path.toString
   | .ctor path (some pat) =>
-    s!"{path.toString} {parenIf (!Pattern.isAtom pat) (Pattern.print pat)}"
-  | .tuple pats => parens (joinWith ", " (pats.map Pattern.print))
+    parenIf (outerPrec > Prec.patApp)
+      (path.toString ++ " " ++ Pattern.printPrec pat (Prec.patApp + 1))
+  | .tuple pats => parens (joinWith ", " (pats.map (Pattern.printPrec · Prec.patCons)))
   | .record fields =>
-    "{ " ++ joinWith "; " (fields.map fun (name, pat) => name ++ " = " ++ Pattern.print pat) ++ " }"
+    "{ " ++ joinWith "; " (fields.map fun (name, pat) =>
+      name ++ " = " ++ Pattern.printPrec pat Prec.patCons) ++ " }"
+
+partial def Pattern.print (p : Pattern) : String := Pattern.printPrec p Prec.patCons
 
 -- ---------------------------------------------------------------------------
 -- Expression printing
@@ -182,11 +193,13 @@ private partial def Expr.printPrec (e : Expr) (outerPrec : Nat) : String :=
   | .record fields => "{ " ++ fmtFields fields ++ " }"
   | .recordUpdate base fields =>
     "{ " ++ Expr.printPrec base 0 ++ " with " ++ fmtFields fields ++ " }"
-  | .unop op inner => printUnop op inner
+  | .unop op inner => printUnop op inner outerPrec
   | .arrayGet arr idx => printArrayGet arr idx outerPrec
   | .arraySet arr idx val => printArraySet arr idx val outerPrec
   | .binop op lhs rhs => printBinop op lhs rhs outerPrec
-  | .app fn args => joinWith " " (fmtArg fn :: args.map fmtArg)
+  | .app fn args =>
+    parenIf (outerPrec > Prec.app)
+      (joinWith " " ((fn :: args).map (operand · Prec.access)))
   | .ite cond thn els =>
     "if " ++ Expr.printPrec cond 0 ++ " then " ++ Expr.printPrec thn 0 ++
     " else " ++ Expr.printPrec els 0
@@ -196,7 +209,7 @@ private partial def Expr.printPrec (e : Expr) (outerPrec : Nat) : String :=
     "let " ++ recStr ++ joinWith " " (binders.map Pattern.print) ++ retStr ++
     " = " ++ Expr.printPrec bound 0 ++ " in\n" ++ Expr.printPrec body 0
   | .fun_ args retTy body =>
-    let retStr := match retTy with | none => "" | some ty => " : " ++ Typ.print ty
+    let retStr := match retTy with | none => "" | some ty => " : " ++ Typ.printNoArrow ty
     "fun " ++ joinWith " " (args.map Pattern.print) ++ retStr ++
     " -> " ++ Expr.printPrec body 0
   | .match_ scrutinee arms =>
@@ -209,59 +222,45 @@ where
     match attr.payload with
     | none         => s!" [@{attr.name}]"
     | some payload => s!" [@{attr.name} {Expr.printPrec payload 0}]"
-  fmtArg (e : Expr) : String :=
-    parenIf (!Expr.isAtom e) (Expr.printPrec e 0)
-  fmtBase (e : Expr) : String :=
-    parenIf (!Expr.isAtom e) (Expr.printPrec e 0)
   -- A field value ends at the `;` or `}` that follows it, so a `fun`, `let`,
   -- `if` or `match` has to be parenthesized to parse back.
   fmtFields (fields : List (FieldName × Expr)) : String :=
     joinWith "; " (fields.map fun (f, v) =>
       f ++ " = " ++ parenIf (Expr.isKeywordExpr v) (Expr.printPrec v 0))
-  printUnop (op : UnOp) (inner : Expr) : String :=
+  -- The three unary levels: postfix access, prefix `!` above it, and prefix `-`
+  -- and `assert` down at application level.
+  printUnop (op : UnOp) (inner : Expr) (outerPrec : Nat) : String :=
+    let prefixOp (p : Nat) (operandPrec : Nat) : String :=
+      let arg := operand inner operandPrec
+      let space := if UnOp.needsSpace op arg then " " else ""
+      parenIf (outerPrec > p) (UnOp.print op ++ space ++ arg)
     match op with
-    | .proj n => fmtBase inner ++ s!".{n}"
-    | .field name => fmtBase inner ++ "." ++ name
-    | _ =>
-      let space := if UnOp.needsSpace op then " " else ""
-      UnOp.print op ++ space ++ fmtArg inner
+    | .proj n =>
+      parenIf (outerPrec > Prec.access) (operand inner Prec.access ++ s!".{n}")
+    | .field name =>
+      parenIf (outerPrec > Prec.access) (operand inner Prec.access ++ "." ++ name)
+    | .deref  => prefixOp Prec.prefixOp Prec.prefixOp
+    | .neg    => prefixOp Prec.app Prec.app
+    | .assert => prefixOp Prec.app Prec.access
+  -- A subexpression at level `prec`. Every compound form parenthesizes itself
+  -- against `prec`; the one exception is a keyword expression, which extends as
+  -- far right as it can and so needs parens wherever anything could follow it.
+  operand (e : Expr) (prec : Nat) : String :=
+    parenIf (Expr.isKeywordExpr e) (Expr.printPrec e prec)
   printArrayGet (arr idx : Expr) (outerPrec : Nat) : String :=
-    let p := 11
-    let arrNeedsParens : Bool := match arr.kind with
-      | .binop op _ _ => BinOp.prec op < p
-      | _ => Expr.isKeywordExpr arr
-    let arrStr := parenIf arrNeedsParens (Expr.printPrec arr p)
-    parenIf (outerPrec > p) (arrStr ++ ".(" ++ Expr.printPrec idx 0 ++ ")")
+    parenIf (outerPrec > Prec.access)
+      (operand arr Prec.access ++ ".(" ++ Expr.printPrec idx 0 ++ ")")
   printArraySet (arr idx val : Expr) (outerPrec : Nat) : String :=
-    let p := 2
-    let lhs := printArrayGet arr idx p
-    let rhsNeedsParens : Bool := match val.kind with
-      | .binop op _ _ => BinOp.prec op < p
-      | _ => Expr.isKeywordExpr val
-    let rhs := parenIf rhsNeedsParens (Expr.printPrec val p)
-    parenIf (outerPrec > p) (lhs ++ " <- " ++ rhs)
+    -- `<-` sits at `:=`'s level and is right-associative like it.
+    let p := BinOp.level .assign
+    parenIf (outerPrec > p)
+      (printArrayGet arr idx Prec.access ++ " <- " ++ operand val p)
 
   printBinop (op : BinOp) (lhs rhs : Expr) (outerPrec : Nat) : String :=
-    let p := BinOp.prec op
-    -- Special case: semicolons print with newline
-    if op == .semi then
-      let result := Expr.printPrec lhs (p + 1) ++ ";\n" ++ Expr.printPrec rhs 0
-      parenIf (outerPrec > p) result
-    else
-      let lhsNeedsParens : Bool := match lhs.kind with
-        | .binop lop _ _ =>
-          if BinOp.rightAssoc op then BinOp.prec lop <= p
-          else BinOp.prec lop < p
-        | _ => Expr.isKeywordExpr lhs
-      let rhsNeedsParens : Bool := match rhs.kind with
-        | .binop rop _ _ =>
-          if BinOp.rightAssoc op then BinOp.prec rop < p
-          else BinOp.prec rop <= p
-        -- For @@, don't parenthesize keyword exprs on the RHS
-        | _ => if op == .atAt then false else Expr.isKeywordExpr rhs
-      let lhsStr := parenIf lhsNeedsParens (Expr.printPrec lhs p)
-      let rhsStr := parenIf rhsNeedsParens (Expr.printPrec rhs p)
-      parenIf (outerPrec > p) (lhsStr ++ " " ++ BinOp.print op ++ " " ++ rhsStr)
+    let p := BinOp.level op
+    let (lhsPrec, rhsPrec) := BinOp.operandLevels op
+    let sep := if op == .semi then ";\n" else s!" {BinOp.print op} "
+    parenIf (outerPrec > p) (operand lhs lhsPrec ++ sep ++ operand rhs rhsPrec)
 
 end
 
@@ -277,7 +276,7 @@ partial def Decl.print (d : Decl) : String :=
     | some payload => "\n[@@" ++ toString attr.name ++ " " ++ Expr.print payload ++ "]"
   let attrsSuffix := joinWith "" attrsStr
   match d.kind with
-  | .open_ path => "open " ++ path.toString
+  | .open_ path => "open " ++ path.toString ++ attrsSuffix
   | .type_ td => printTypeDecl td ++ attrsSuffix
   | .val_ isRec binders retTy body =>
     let recStr := if isRec then "rec " else ""
@@ -295,7 +294,9 @@ where
         joinWith "\n" (ctors.map fun (name, payload) =>
           match payload with
           | none => "| " ++ name
-          | some ty => "| " ++ name ++ " of " ++ Typ.print ty)
+          -- `A of int -> int` is a syntax error in OCaml; `A of int * int` is
+          -- not, and there means several arguments rather than one tuple.
+          | some ty => "| " ++ name ++ " of " ++ Typ.printNoArrow ty)
       | .record fields =>
         "{ " ++ joinWith "; " (fields.map fun (name, ty) => name ++ " : " ++ Typ.print ty) ++ " }"
     "type " ++ paramsStr ++ td.name ++ " = " ++ bodyStr

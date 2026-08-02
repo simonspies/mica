@@ -3,6 +3,7 @@
 import Mica.Frontend.AST
 import Mica.Frontend.Elaborate
 import Mica.Frontend.Lexer
+import Mica.Frontend.ParenPrinter
 import Mica.Frontend.Parser
 import Mica.Frontend.Printer
 import Mica.Frontend.Resolver

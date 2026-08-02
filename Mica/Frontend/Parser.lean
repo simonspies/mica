@@ -16,12 +16,11 @@ namespace Frontend
 inductive ParseErrorKind where
   | unexpectedToken (expected : String) (got : Token)
   | unexpectedEof
-  | invalidRecordField
   | nonPositiveProjIndex
-  | letRecNoArgs
   | funNoArgs
   | nonFinalLowercaseSegment (segment : String)
   | expectedArrayElementAssignTarget
+  | refutableBinder
   deriving Repr, Inhabited
 
 structure ParseError where
@@ -34,12 +33,11 @@ def ParseError.toString (e : ParseError) : String :=
   match e.kind with
   | .unexpectedToken exp got => s!"{loc}: expected {exp}, got '{got}'"
   | .unexpectedEof => s!"{loc}: unexpected end of file"
-  | .invalidRecordField => s!"{loc}: expected field name (identifier) before '=' in record literal"
   | .nonPositiveProjIndex => s!"{loc}: projection index must be at least 1 (projections are 1-based)"
-  | .letRecNoArgs => s!"{loc}: let rec without arguments is not supported"
   | .funNoArgs => s!"{loc}: function expressions require at least one argument"
   | .nonFinalLowercaseSegment seg => s!"{loc}: qualified path segment '{seg}' is lowercase, but only the final component of a module path may be lowercase"
   | .expectedArrayElementAssignTarget => s!"{loc}: `<-` expects an array element `a.(i)` on the left"
+  | .refutableBinder => s!"{loc}: this pattern can fail to match; a `let` or `fun` binder must not"
 
 instance : ToString ParseError := ⟨ParseError.toString⟩
 
@@ -64,37 +62,83 @@ structure ParserState where
   tokens : Array (Location × Token)
   pos    : Nat
 
-abbrev Parser (α : Type) := ParserState → Except ParseError (α × ParserState)
+/-- A parser reads from a token cursor and fails with a `ParseError`. The state
+is threaded by the monad; nothing below passes a `ParserState` by hand. -/
+abbrev Parser (α : Type) := StateT ParserState (Except ParseError) α
 
 -- ---------------------------------------------------------------------------
 -- Primitive combinators
 
-private def peekTok (st : ParserState) : Token :=
-  (st.tokens.getD st.pos (default, .eof)).2
+/-- The located token `n` positions ahead of the cursor, `eof` past the end. -/
+private def peekAt (n : Nat) : Parser (Location × Token) := fun st =>
+  .ok (st.tokens.getD (st.pos + n) (default, .eof), st)
 
-private def peekLoc (st : ParserState) : Location :=
-  (st.tokens.getD st.pos (default, .eof)).1
+/-- The token `n` positions ahead of the cursor. -/
+private def peek (n : Nat := 0) : Parser Token := (·.2) <$> peekAt n
 
-private def advance (st : ParserState) : ParserState :=
-  { st with pos := st.pos + 1 }
+/-- The source location of the token `n` positions ahead of the cursor. -/
+private def loc (n : Nat := 0) : Parser Location := (·.1) <$> peekAt n
 
-private def expect (tok : Token) (st : ParserState) : Except ParseError ParserState :=
-  let t := peekTok st
-  if t == tok then .ok (advance st)
-  else .error { loc := peekLoc st, kind := .unexpectedToken s!"'{tok}'" t }
+/-- Move the cursor past one token. -/
+private def advance : Parser Unit := fun st => .ok ((), { st with pos := st.pos + 1 })
 
-private def expectIdent (st : ParserState) : Except ParseError (String × ParserState) :=
-  match peekTok st with
-  | .ident name => .ok (name, advance st)
-  | t => .error { loc := peekLoc st, kind := .unexpectedToken "identifier" t }
+/-- Fail at `l`. -/
+private def failAt (l : Location) (kind : ParseErrorKind) : Parser α :=
+  throw { loc := l, kind }
+
+/-- Fail at the token under the cursor. -/
+private def fail (kind : ParseErrorKind) : Parser α := do
+  failAt (← loc) kind
+
+/-- Fail reporting that `expected` was wanted where the current token stands. -/
+private def expected (what : String) : Parser α := do
+  fail (.unexpectedToken what (← peek))
+
+/-- Consume `tok`, or fail naming it. -/
+private def expect (tok : Token) : Parser Unit := do
+  if (← peek) == tok then advance else expected s!"'{tok}'"
+
+/-- Consume the current token if it is `tok`; report whether it was. -/
+private def consumeIf (tok : Token) : Parser Bool := do
+  if (← peek) == tok then advance; return true else return false
+
+private def expectIdent : Parser String := do
+  match ← peek with
+  | .ident name => advance; return name
+  | _ => expected "identifier"
 
 /-- Expect an identifier whose first character is uppercase (a constructor name). -/
-private def expectConstructor (st : ParserState) : Except ParseError (String × ParserState) :=
-  match peekTok st with
+private def expectConstructor : Parser String := do
+  match ← peek with
   | .ident name =>
-    if name.front.isUpper then .ok (name, advance st)
-    else .error { loc := peekLoc st, kind := .unexpectedToken "constructor name (uppercase)" (.ident name) }
-  | t => .error { loc := peekLoc st, kind := .unexpectedToken "constructor name" t }
+    if name.front.isUpper then advance; return name
+    else fail (.unexpectedToken "constructor name (uppercase)" (.ident name))
+  | _ => expected "constructor name"
+
+/-- The span from `start` to the end of the last token consumed so far. -/
+private def spanFrom (start : Location) : Parser Location := fun st =>
+  let stop :=
+    if st.pos == 0 then start
+    else (st.tokens.getD (st.pos - 1) (default, .eof)).1
+  .ok ({ start := start.start, stop := stop.stop }, st)
+
+/-- Run `p`, pairing its result with the span it consumed. -/
+private def spanned (p : Parser α) : Parser (Location × α) := do
+  let start ← loc
+  let a ← p
+  return (← spanFrom start, a)
+
+/-- Build a node out of the kind `p` produces and the span `p` consumed. -/
+private def node (mk : Location → κ → α) (p : Parser κ) : Parser α := do
+  let (l, k) ← spanned p
+  return mk l k
+
+private def exprOf : Parser ExprKind → Parser Expr := node fun loc kind => { loc, kind }
+private def patOf  : Parser PatternKind → Parser Pattern := node fun loc kind => { loc, kind }
+private def typOf  : Parser TypKind → Parser Typ := node fun loc kind => { loc, kind }
+
+/-- The span covering two already-built nodes. -/
+private def between (a b : Location) : Location := { start := a.start, stop := b.stop }
 
 /-- Gather a (possibly qualified) path starting with an already-consumed `head`
 identifier. If `head` is uppercase, look ahead for `.dot .ident` runs and append
@@ -107,915 +151,709 @@ In a module path only the final component may be lowercase (it is the
 value/type/constructor name); every earlier segment is a module and must be
 uppercase. So a lowercase segment terminates the path, and a lowercase segment
 followed by a further `.ident` (e.g. `Foo.bar.baz`) is rejected. -/
-private partial def collectPathTail
-    (head : String) (acc : List String) : ParserState → Except ParseError (Path × ParserState)
-  | st =>
-    if !head.front.isUpper then .ok ({ head, tail := acc.reverse }, st)
+private partial def collectPathTail (head : String) (acc : List String) : Parser Path := do
+  if !head.front.isUpper then return { head, tail := acc.reverse }
+  match ← peek, ← peek 1 with
+  | .dot, .ident next =>
+    let segLoc ← loc 1
+    advance; advance
+    if next.front.isUpper then
+      collectPathTail head (next :: acc)
     else
-      match peekTok st with
-      | .dot =>
-        match peekTok (advance st) with
-        | .ident next =>
-          let st' := advance (advance st)
-          if next.front.isUpper then
-            collectPathTail head (next :: acc) st'
-          else
-            -- A lowercase segment must be the final component of the path.
-            match peekTok st' with
-            | .dot =>
-              match peekTok (advance st') with
-              | .ident _ =>
-                .error { loc := peekLoc (advance st), kind := .nonFinalLowercaseSegment next }
-              | _ => .ok ({ head, tail := (next :: acc).reverse }, st')
-            | _ => .ok ({ head, tail := (next :: acc).reverse }, st')
-        | _ => .ok ({ head, tail := acc.reverse }, st)
-      | _ => .ok ({ head, tail := acc.reverse }, st)
-
-/-- Span from `start` location to the end of the last consumed token. -/
-private def spanTo (start : Location) (st : ParserState) : Location :=
-  -- The last consumed token is at pos - 1
-  let stopLoc :=
-    if st.pos == 0 then start
-    else (st.tokens.getD (st.pos - 1) (default, .eof)).1
-  { start := start.start, stop := stopLoc.stop }
-
-private def mkExpr (start : Location) (st : ParserState) (k : ExprKind) : Expr :=
-  { loc := spanTo start st, kind := k }
-
-private def mkPat (start : Location) (st : ParserState) (k : PatternKind) : Pattern :=
-  { loc := spanTo start st, kind := k }
-
-private def mkTyp (start : Location) (st : ParserState) (k : TypKind) : Typ :=
-  { loc := spanTo start st, kind := k }
+      -- A lowercase segment must be the final component of the path.
+      match ← peek, ← peek 1 with
+      | .dot, .ident _ => failAt segLoc (.nonFinalLowercaseSegment next)
+      | _, _ => return { head, tail := (next :: acc).reverse }
+  | _, _ => return { head, tail := acc.reverse }
 
 -- ---------------------------------------------------------------------------
--- Left-assoc binary expression helper
+-- Infix operators
 
-private partial def parseLAssocLoop
-    (ops : List (Token × BinOp)) (sub : Parser Expr) (lhs : Expr) : Parser Expr :=
-  fun st =>
-    match ops.find? (·.1 == peekTok st) with
-    | some (_, op) => do
-      let st' := advance st
-      let (rhs, st') ← sub st'
-      let e : Expr := { loc := { start := lhs.loc.start, stop := rhs.loc.stop }, kind := .binop op lhs rhs }
-      parseLAssocLoop ops sub e st'
-    | none => .ok (lhs, st)
-
-private partial def parseLAssoc (ops : List (Token × BinOp)) (sub : Parser Expr) : Parser Expr :=
-  fun st => do
-    let (lhs, st) ← sub st
-    parseLAssocLoop ops sub lhs st
+/-- The binary operator a token introduces. `<-` is absent: it shares `:=`'s
+level but builds an `arraySet` rather than a `binop`, so the loop handles it
+separately. -/
+private def binOpOf : Token → Option BinOp
+  | .semi       => some .semi
+  | .colonEq    => some .assign
+  | .pipepipe   => some .or
+  | .ampamp     => some .and
+  | .eq         => some .eq
+  | .neq        => some .neq
+  | .lt         => some .lt
+  | .le         => some .le
+  | .gt         => some .gt
+  | .ge         => some .ge
+  | .pipeGt     => some .pipeRight
+  | .caret      => some .concat
+  | .at         => some .append
+  | .atat       => some .atAt
+  | .coloncolon => some .cons
+  | .plus       => some .add
+  | .minus      => some .sub
+  | .plusDot    => some .fadd
+  | .minusDot   => some .fsub
+  | .star       => some .mul
+  | .slash      => some .div
+  | .kw_mod     => some .mod
+  | .starDot    => some .fmul
+  | .slashDot   => some .fdiv
+  | _           => none
 
 -- ---------------------------------------------------------------------------
 -- Type parsing
 
+/-- The first set of `parsePatternAtom`: what can begin a constructor payload,
+and what `parseFunArgs` treats as one more binder. It is maintained by hand and
+has to track that match — a token missing here becomes an error at whatever
+follows the pattern instead. -/
 private def isPatStart : Token → Bool
-  | .ident _ | .underscore | .lparen | .lbrace | .intLit _ | .kw_true | .kw_false => true
+  | .ident _ | .underscore | .lparen | .lbrace | .lbracket
+  | .intLit _ | .charLit _ | .kw_true | .kw_false => true
   | _ => false
+
+private def isArgStart : Token → Bool
+  | .intLit _ | .floatLit _ | .charLit _ | .stringLit _ | .ident _ | .lparen | .lbrace
+  | .lbracket | .kw_true | .kw_false | .bang | .kw_begin => true
+  | _ => false
+
+/-- A record literal starts with a lowercase field name followed by `=`, or by
+the `;` or `}` that ends a punned field `{ a }`. Anything else after `{` is the
+expression of a record update. -/
+private def isRecordLiteral : Parser Bool := do
+  match ← peek with
+  | .ident name =>
+    if name.front.isUpper || name.front == '\'' then return false
+    return [Token.eq, .semi, .rbrace].contains (← peek 1)
+  | _ => return false
 
 mutual
 -- `[@name expr]` — single `@`, optional expression payload.
-private partial def parseTypeAttr : Parser Attribute := fun st => do
-  let p := peekLoc st
-  let st ← expect .lbracket st
-  let st ← expect .at st
-  let (name, st) ← expectIdent st
-  let (payload, st) ← match peekTok st with
-    | .rbracket => .ok (none, st)
-    | _ => do
-      let (e, st) ← parseExpr st
-      .ok (some e, st)
-  let st ← expect .rbracket st
-  .ok ({ loc := spanTo p st, name := AttrName.ofString name, payload }, st)
+private partial def parseAttr (marker : Token) : Parser Attribute := do
+  let start ← loc
+  expect .lbracket
+  expect marker
+  let name ← expectIdent
+  let payload ← if (← peek) == .rbracket then pure none else some <$> parseExpr
+  expect .rbracket
+  return { loc := ← spanFrom start, name := AttrName.ofString name, payload }
 
--- Fold trailing type attributes `T [@name payload]` into `T.attrs`.
-private partial def parseTypeAttrSuffix (t : Typ) : Parser Typ := fun st =>
-  match peekTok st with
-  | .lbracket =>
-    match peekTok (advance st) with
-    | .at => do
-      let (attr, st) ← parseTypeAttr st
-      parseTypeAttrSuffix { t with attrs := t.attrs ++ [attr] } st
-    | _ => .ok (t, st)  -- not a type attribute (e.g. `[@@...]`), leave `[`
-  | _ => .ok (t, st)
+/-- Fold trailing `[@name payload]` attributes into a node. A `[` that opens
+anything else (notably a declaration attribute `[@@...]`) is left alone. -/
+private partial def parseAttrSuffix (attach : α → Attribute → α) (x : α) : Parser α := do
+  if (← peek) == .lbracket && (← peek 1) == .at then
+    let attr ← parseAttr .at
+    parseAttrSuffix attach (attach x attr)
+  else return x
 
-private partial def parseTypeAtom : Parser Typ := fun st =>
-  let p := peekLoc st
-  match peekTok st with
+private partial def parseTypeAttrSuffix (t : Typ) : Parser Typ :=
+  parseAttrSuffix (fun t a => { t with attrs := t.attrs ++ [a] }) t
+
+private partial def parseTypeAtom : Parser Typ := do
+  let start ← loc
+  match ← peek with
   | .ident name =>
+    advance
     if name.front == '\'' then
-      let varName := name.toRawSubstring.drop 1 |>.toString
-      .ok (mkTyp p (advance st) (.var varName), advance st)
-    else do
-      let (path, st') ← collectPathTail name [] (advance st)
-      .ok (mkTyp p st' (.con path []), st')
+      return { loc := ← spanFrom start, kind := .var (name.toRawSubstring.drop 1 |>.toString) }
+    else
+      let path ← collectPathTail name []
+      return { loc := ← spanFrom start, kind := .con path [] }
   | .lparen =>
-    let st' := advance st
-    if peekTok st' == .rparen then
-      .ok (mkTyp p (advance st') (.con (Path.single "unit") []), advance st')
-    else do
-      let (t1, st') ← parseType st'
-      match peekTok st' with
-      | .rparen =>
-        let st'' := advance st'
-        parseTypeAppSuffix t1 st''
-      | .comma =>
-        let (rest, st') ← parseTypeArgList st'
-        let st' ← expect .rparen st'
-        match peekTok st' with
-        | .ident name =>
-          let args := t1 :: rest
-          let (path, st'') ← collectPathTail name [] (advance st')
-          let loc : Location := { start := p.start, stop := (spanTo p st'').stop }
-          .ok ({ loc, kind := .con path args }, st'')
-        | t => .error { loc := peekLoc st', kind := .unexpectedToken "type constructor after '(T1,T2,...)'" t }
-      | t => .error { loc := peekLoc st', kind := .unexpectedToken "')' or ',' in type" t }
-  | t =>
-    .error { loc := peekLoc st, kind := .unexpectedToken "type" t }
+    advance
+    if ← consumeIf .rparen then
+      return { loc := ← spanFrom start, kind := .con (Path.single "unit") [] }
+    let t1 ← parseType
+    match ← peek with
+    | .rparen =>
+      advance
+      parseTypeAppSuffix t1
+    | .comma =>
+      let rest ← parseTypeArgList
+      expect .rparen
+      match ← peek with
+      | .ident name =>
+        advance
+        let path ← collectPathTail name []
+        return { loc := ← spanFrom start, kind := .con path (t1 :: rest) }
+      | _ => expected "type constructor after '(T1,T2,...)'"
+    | _ => expected "')' or ',' in type"
+  | _ => expected "type"
 
-private partial def parseTypeAppSuffix (arg : Typ) : Parser Typ := fun st =>
-  match peekTok st with
+/-- Postfix type application `T name`, including a qualified constructor:
+`int Queue.t`. An uppercase name here can only open a module path, since a type
+constructor's own name is lowercase, so the path is committed to and its final
+segment checked. -/
+private partial def parseTypeAppSuffix (arg : Typ) : Parser Typ := do
+  match ← peek with
   | .ident name =>
-    if !name.front.isUpper && name.front != '\'' then
-      let startLoc := arg.loc
-      let st' := advance st
-      let loc : Location := { start := startLoc.start, stop := (spanTo startLoc st').stop }
-      parseTypeAppSuffix { loc, kind := .con (Path.single name) [arg] } st'
-    else .ok (arg, st)
-  | _ => .ok (arg, st)
+    if name.front == '\'' then return arg
+    let start ← loc
+    advance
+    let path ← collectPathTail name []
+    if path.last.front.isUpper then
+      failAt (← spanFrom start) (.unexpectedToken "a type constructor name (lowercase)"
+        (.ident path.last))
+    parseTypeAppSuffix { loc := ← spanFrom arg.loc, kind := .con path [arg] }
+  | _ => return arg
 
-private partial def parseTypeApp : Parser Typ := fun st => do
-  let (t, st) ← parseTypeAtom st
-  let (t, st) ← parseTypeAppSuffix t st
-  parseTypeAttrSuffix t st
+private partial def parseTypeApp : Parser Typ := do
+  parseTypeAttrSuffix (← parseTypeAppSuffix (← parseTypeAtom))
 
-private partial def parseTypeProdRest : Parser (List Typ) := fun st => do
-  let (t, st) ← parseTypeApp st
-  match peekTok st with
-  | .star =>
-    let (rest, st) ← parseTypeProdRest (advance st)
-    .ok (t :: rest, st)
-  | _ => .ok ([t], st)
+private partial def parseTypeProdRest : Parser (List Typ) := do
+  let t ← parseTypeApp
+  if ← consumeIf .star then return t :: (← parseTypeProdRest) else return [t]
 
-private partial def parseTypeProd : Parser Typ := fun st => do
-  let (t, st) ← parseTypeApp st
-  match peekTok st with
-  | .star =>
-    let (rest, st) ← parseTypeProdRest (advance st)
-    let components := t :: rest
-    let loc : Location := { start := t.loc.start, stop := (spanTo t.loc st).stop }
-    .ok ({ loc, kind := .tuple components }, st)
-  | _ => .ok (t, st)
+private partial def parseTypeProd : Parser Typ := do
+  let start ← loc
+  let comps ← parseTypeProdRest
+  match comps with
+  | [t] => return t
+  | _   => return { loc := ← spanFrom start, kind := .tuple comps }
 
-private partial def parseTypeArgList : Parser (List Typ) := fun st =>
-  match peekTok st with
-  | .comma => do
-    let (t, st) ← parseType (advance st)
-    let (rest, st) ← parseTypeArgList st
-    .ok (t :: rest, st)
-  | _ => .ok ([], st)
+private partial def parseTypeArgList : Parser (List Typ) := do
+  if ← consumeIf .comma then
+    let t ← parseType
+    return t :: (← parseTypeArgList)
+  else return []
 
 /-- Parse a type expression (including arrows). -/
-private partial def parseType : Parser Typ := fun st => do
-  let (t, st) ← parseTypeProd st
-  match peekTok st with
-  | .arrow =>
-    let (u, st) ← parseType (advance st)
-    let loc : Location := { start := t.loc.start, stop := u.loc.stop }
-    .ok ({ loc, kind := .arrow t u }, st)
-  | _ => .ok (t, st)
+private partial def parseType : Parser Typ := do
+  let t ← parseTypeProd
+  if ← consumeIf .arrow then
+    let u ← parseType
+    return { loc := between t.loc u.loc, kind := .arrow t u }
+  else return t
 
-/-- Parse a type expression, excluding arrows.
-    Used for return type annotations where `->` is ambiguous with the function arrow. -/
-private partial def parseTypeNoArrow : Parser Typ := parseTypeProd
+/-- A `let`'s optional return type. It is delimited by the `=` that follows, so
+it may be an arrow: `let f x : int -> int = g x`. -/
+private partial def parseOptRetTy : Parser (Option Typ) := do
+  if ← consumeIf .colon then some <$> parseType else pure none
+
+/-- A `fun`'s optional return type. It is delimited by `->`, which is also the
+arrow constructor, so an arrow has to be parenthesized: `fun x : (int -> int) -> e`. -/
+private partial def parseOptFunRetTy : Parser (Option Typ) := do
+  if ← consumeIf .colon then some <$> parseTypeProd else pure none
 
 -- ---------------------------------------------------------------------------
 -- Pattern parsing
 
-private partial def parsePattern : Parser Pattern := fun st =>
-  let p := peekLoc st
-  match peekTok st with
-  | .underscore =>
-    .ok (mkPat p (advance st) .wildcard, advance st)
-  | .ident name =>
-    if name.front.isUpper then do
-      -- constructor pattern (possibly qualified, e.g. `Option.Some x`)
-      let (path, st') ← collectPathTail name [] (advance st)
-      match peekTok st' with
-      | .ident _ | .underscore | .intLit _ | .charLit _ | .kw_true | .kw_false | .lparen | .lbrace => do
-        let (payload, st'') ← parsePattern st'
-        .ok (mkPat p st'' (.ctor path (some payload)), st'')
-      | _ =>
-        .ok (mkPat p st' (.ctor path none), st')
-    else
-      -- plain binder (no type annotation here; annotated form is `(x : T)`)
-      .ok (mkPat p (advance st) (.binder (some name) none), advance st)
-  | .intLit n =>
-    .ok (mkPat p (advance st) (.const (.int n)), advance st)
-  | .charLit c =>
-    .ok (mkPat p (advance st) (.const (.char c)), advance st)
-  | .kw_true =>
-    .ok (mkPat p (advance st) (.const (.bool true)), advance st)
-  | .kw_false =>
-    .ok (mkPat p (advance st) (.const (.bool false)), advance st)
-  | .lparen =>
-    let st' := advance st
-    -- `()` = unit constant
-    if peekTok st' == .rparen then
-      .ok (mkPat p (advance st') (.const .unit), advance st')
-    else do
-      let (pat, st') ← parsePatternInner st'
-      match peekTok st' with
-      | .comma =>
-        -- tuple pattern
-        let (rest, st') ← parseTuplePatRest st'
-        let st' ← expect .rparen st'
-        .ok (mkPat p st' (.tuple (pat :: rest)), st')
-      | .rparen =>
-        .ok (pat, advance st')
-      | t =>
-        .error { loc := peekLoc st', kind := .unexpectedToken "')' or ',' in pattern" t }
-  | .lbrace => do
-    let st' := advance st
-    let (fields, st') ← parseRecordPatFields st'
-    let st' ← expect .rbrace st'
-    .ok (mkPat p st' (.record fields), st')
-  | .lbracket =>
-    -- `[]` — empty-list pattern (no general list-literal patterns)
-    let st' := advance st
-    match peekTok st' with
-    | .rbracket => .ok (mkPat p (advance st') .nil, advance st')
-    | t => .error { loc := peekLoc st', kind := .unexpectedToken "']' in pattern" t }
-  | t =>
-    .error { loc := peekLoc st, kind := .unexpectedToken "pattern" t }
--- pattern inside parens: allows `(x : T)` annotated binder
-private partial def parsePatternInner : Parser Pattern := fun st =>
-  let p := peekLoc st
-  match peekTok st with
-  | .ident name =>
-    let st' := advance st
-    match peekTok st' with
-    | .colon => do
-      let (ty, st') ← parseType (advance st')
-      .ok (mkPat p st' (.binder (some name) (some ty)), st')
-    | _ =>
-      .ok (mkPat p st' (.binder (some name) none), st')
-  | .underscore =>
-    let st' := advance st
-    match peekTok st' with
-    | .colon => do
-      let (ty, st') ← parseType (advance st')
-      .ok (mkPat p st' (.binder none (some ty)), st')
-    | _ =>
-      .ok (mkPat p st' .wildcard, st')
-  | _ => parsePattern st
-
-private partial def parseTuplePatRest : Parser (List Pattern) := fun st =>
-  match peekTok st with
-  | .comma => do
-    let (p, st) ← parsePattern (advance st)
-    let (rest, st) ← parseTuplePatRest st
-    .ok (p :: rest, st)
-  | _ => .ok ([], st)
-
-private partial def parseRecordPatFields : Parser (List (FieldName × Pattern)) := fun st => do
-  let (name, st) ← expectIdent st
-  let st ← expect .eq st
-  let (pat, st) ← parsePattern st
-  match peekTok st with
-  | .semi =>
-    if peekTok (advance st) == .rbrace then
-      .ok ([(name, pat)], advance st)
-    else do
-      let (rest, st) ← parseRecordPatFields (advance st)
-      .ok ((name, pat) :: rest, st)
-  | _ => .ok ([(name, pat)], st)
+/-- A pattern, comma included: `p1, p2` is a tuple pattern, needing no
+parentheses of its own. The loosest pattern level. -/
+private partial def parsePattern : Parser Pattern := do
+  let first ← parsePatternCons
+  if ← consumeIf .comma then
+    let rest ← parseTuplePatRest
+    return { loc := ← spanFrom first.loc, kind := .tuple (first :: rest) }
+  else return first
 
 /-- Pattern with infix `::` (right-assoc): `p1 :: p2` is the prelude cons
-    constructor applied to the pair pattern `(p1, p2)`. Constructor payloads
-    bind tighter, so only match arms use this entry point. -/
-private partial def parsePatternCons : Parser Pattern := fun st => do
-  let (lhs, st) ← parsePattern st
-  match peekTok st with
-  | .coloncolon => do
-    let (rhs, st') ← parsePatternCons (advance st)
-    let loc : Location := { start := lhs.loc.start, stop := rhs.loc.stop }
-    .ok ({ loc, kind := .cons lhs rhs }, st')
-  | _ => .ok (lhs, st)
+constructor applied to the pair pattern `(p1, p2)`. -/
+private partial def parsePatternCons : Parser Pattern := do
+  let lhs ← parsePatternApp
+  if ← consumeIf .coloncolon then
+    let rhs ← parsePatternCons
+    return { loc := between lhs.loc rhs.loc, kind := .cons lhs rhs }
+  else return lhs
+
+/-- Constructor application `C p`, possibly qualified (`Option.Some x`). The
+payload is itself at this level rather than an atom, so `A B y` is `A (B y)`, as
+in OCaml. -/
+private partial def parsePatternApp : Parser Pattern := do
+  let head ← parsePatternAtom
+  match head.kind with
+  | .ctor path none =>
+    if isPatStart (← peek) then
+      let payload ← parsePatternApp
+      return { loc := ← spanFrom head.loc, kind := .ctor path (some payload) }
+    else return head
+  | _ => return head
+
+/-- A pattern atom. `isPatStart` is this match's first set and has to track it. -/
+private partial def parsePatternAtom : Parser Pattern := patOf do
+  match ← peek with
+  | .underscore => advance; return .wildcard
+  | .ident name =>
+    advance
+    if name.front.isUpper then return .ctor (← collectPathTail name []) none
+    else return .binder (some name) none
+  | .intLit n  => advance; return .const (.int n)
+  | .charLit c => advance; return .const (.char c)
+  | .kw_true   => advance; return .const (.bool true)
+  | .kw_false  => advance; return .const (.bool false)
+  | .lparen => advance; parseParenPattern
+  | .lbrace =>
+    advance
+    let fields ← parseRecordPatFields
+    expect .rbrace
+    return .record fields
+  | .lbracket =>
+    -- `[]` — empty-list pattern (no general list-literal patterns)
+    advance
+    if ← consumeIf .rbracket then return .nil else expected "']' in pattern"
+  | _ => expected "pattern"
+
+/-- The body of a parenthesized pattern, with the `(` already consumed. -/
+private partial def parseParenPattern : Parser PatternKind := do
+  -- `()` = unit constant
+  if ← consumeIf .rparen then return .const .unit
+  -- A tuple pattern needs no parentheses of its own, so `(p, q)` arrives here
+  -- already built by the comma level.
+  let pat ← parsePatternAnnot
+  match ← peek with
+  | .rparen => advance; return pat.kind
+  | _ => expected "')' or ':' in pattern"
+
+/-- A pattern carrying the annotation `p : T` that only a parenthesized position
+admits. `Pattern` has a slot for one on a binder alone, so `(C x : T)` is not a
+pattern mica can represent and the `:` is left to fail as an unclosed `(`. -/
+private partial def parsePatternAnnot : Parser Pattern := do
+  let pat ← parsePattern
+  let annotate (name : Option String) : Parser Pattern := do
+    advance
+    let ty ← parseType
+    return { loc := ← spanFrom pat.loc, kind := .binder name (some ty) }
+  if (← peek) != .colon then return pat
+  match pat.kind with
+  | .binder name none => annotate name
+  | .wildcard         => annotate none
+  | _                 => return pat
+
+/-- The components after the first `,`, each below the comma level so that the
+tuple pattern stays flat. -/
+private partial def parseTuplePatRest : Parser (List Pattern) := do
+  let p ← parsePatternCons
+  if ← consumeIf .comma then return p :: (← parseTuplePatRest) else return [p]
+
+private partial def parseRecordPatFields : Parser (List (FieldName × Pattern)) := do
+  let start ← loc
+  let name ← expectIdent
+  -- `{ a }` puns: with no `=`, the field's own name is the binder.
+  let pat ← if ← consumeIf .eq then parsePattern
+            else pure { loc := ← spanFrom start, kind := .binder (some name) none }
+  if ← consumeIf .semi then
+    -- A trailing `;` leaves the `}` for the caller's `expect .rbrace`.
+    if (← peek) == .rbrace then return [(name, pat)]
+    else return (name, pat) :: (← parseRecordPatFields)
+  else return [(name, pat)]
 
 -- ---------------------------------------------------------------------------
 -- Shared binder helpers
 -- These are top-level so both parseExpr (parseLet/parseFun) and parseDecl
 -- (parseValDecl) can call them directly.
 
-private partial def parsePatternBinder : Parser Pattern := fun st =>
-  let p := peekLoc st
-  match peekTok st with
-  | .underscore => .ok (mkPat p (advance st) .wildcard, advance st)
-  | .ident name => .ok (mkPat p (advance st) (.binder (some name) none), advance st)
-  | .lparen =>
-    let st' := advance st
-    -- `()` is unit
-    if peekTok st' == .rparen then
-      .ok (mkPat p (advance st') (.const .unit), advance st')
-    else do
-      let (pat, st') ← parsePatternInner st'
-      match peekTok st' with
-      | .comma =>
-        let (rest, st') ← parseTuplePatRest st'
-        let st' ← expect .rparen st'
-        .ok (mkPat p st' (.tuple (pat :: rest)), st')
-      | .rparen => .ok (pat, advance st')
-      | t =>
-        .error { loc := peekLoc st', kind := .unexpectedToken "')' in binder" t }
-  | .lbrace => do
-    let st' := advance st
-    let (fields, st') ← parseRecordPatFields st'
-    let st' ← expect .rbrace st'
-    .ok (mkPat p st' (.record fields), st')
-  | t =>
-    .error { loc := peekLoc st, kind := .unexpectedToken "binder" t }
+/-- A `let` or `fun` binder: an atom that binds irrefutably. The refutable
+forms parse the same way as anywhere else and are rejected afterwards, so the
+error names the actual problem instead of the token that follows it. -/
+private partial def parsePatternBinder : Parser Pattern := do
+  let pat ← parsePatternAtom
+  match pat.kind with
+  | .wildcard | .binder .. | .tuple .. | .record .. | .const .unit => return pat
+  | _ => failAt pat.loc .refutableBinder
 
-private partial def parseFunArgs : Parser (List Pattern) := fun st =>
-  if isPatStart (peekTok st) then do
-    let (p, st) ← parsePatternBinder st
-    let (rest, st) ← parseFunArgs st
-    .ok (p :: rest, st)
-  else .ok ([], st)
-
-private partial def parseOptRetTy : Parser (Option Typ) := fun st =>
-  match peekTok st with
-  | .colon => do
-    let (ty, st) ← parseTypeNoArrow (advance st)
-    .ok (some ty, st)
-  | _ => .ok (none, st)
+private partial def parseFunArgs : Parser (List Pattern) := do
+  if isPatStart (← peek) then
+    let p ← parsePatternBinder
+    return p :: (← parseFunArgs)
+  else return []
 
 -- ---------------------------------------------------------------------------
 -- Expression parsing
 
-private partial def parseExpr : Parser Expr := fun st => do
-  let (lhs, st) ← parseExprNoSemi st
-  match peekTok st with
-  | .semi => do
-    let (rhs, st) ← parseExpr (advance st)
-    let loc : Location := { start := lhs.loc.start, stop := rhs.loc.stop }
-    .ok ({ loc, kind := .binop .semi lhs rhs }, st)
-  | _ => .ok (lhs, st)
+/-- A whole expression, `;` included. -/
+private partial def parseExpr : Parser Expr := parseExprAt (BinOp.level .semi)
 
-where
-  -- Expression without top-level `;` — keywords and operators, but not `;`.
-  parseExprNoSemi : Parser Expr := fun st =>
-    match peekTok st with
-    | .kw_let   => parseLet st
-    | .kw_fun   => parseFun st
-    | .kw_if    => parseIf st
-    | .kw_match => parseMatch st
-    | _         => parseAssign st
+/-- Precedence climbing over `BinOp.level` / `BinOp.assoc`: parse an operand,
+then extend it with every following operator at level `min` or tighter. -/
+private partial def parseExprAt (min : Nat) : Parser Expr := do
+  parseInfix min (← parseOperand)
 
-  -- `:=` (ref store) and `<-` (array set), both right-assoc
-  parseAssign : Parser Expr := fun st => do
-    let (lhs, st) ← parseOr st
-    match peekTok st with
-    | .colonEq => do
-      let (rhs, st) ← parseAssign (advance st)
-      let loc : Location := { start := lhs.loc.start, stop := rhs.loc.stop }
-      .ok ({ loc, kind := .binop .assign lhs rhs }, st)
-    | .leftArrow => do
-      let (rhs, st) ← parseAssign (advance st)
-      let loc : Location := { start := lhs.loc.start, stop := rhs.loc.stop }
-      match lhs.kind with
-      | .arrayGet arr idx => .ok ({ loc, kind := .arraySet arr idx rhs }, st)
-      | _ => .error { loc := lhs.loc, kind := .expectedArrayElementAssignTarget }
-    | _ => .ok (lhs, st)
+private partial def parseInfix (min : Nat) (lhs : Expr) : Parser Expr := do
+  match ← peek with
+  -- `a, b, c` — one flat tuple, so the comma is its own case rather than a
+  -- right-associative operator building nested pairs.
+  | .comma =>
+    if Prec.comma < min then return lhs
+    advance
+    let rest ← parseTupleRest
+    parseInfix min { loc := ← spanFrom lhs.loc, kind := .tuple (lhs :: rest) }
+  -- `a.(i) <- e`, at `:=`'s level and right-associative like it.
+  | .leftArrow =>
+    let lvl := BinOp.level .assign
+    if lvl < min then return lhs
+    advance
+    let rhs ← parseExprAt lvl
+    match lhs.kind with
+    | .arrayGet arr idx =>
+      parseInfix min { loc := between lhs.loc rhs.loc, kind := .arraySet arr idx rhs }
+    | _ => failAt lhs.loc .expectedArrayElementAssignTarget
+  | tok =>
+    let some op := binOpOf tok | return lhs
+    if BinOp.level op < min then return lhs
+    advance
+    let rhs ← parseExprAt (BinOp.operandLevels op).2
+    parseInfix min { loc := between lhs.loc rhs.loc, kind := .binop op lhs rhs }
 
-  -- `||` right-assoc
-  parseOr : Parser Expr := fun st => do
-    let (lhs, st) ← parseAnd st
-    match peekTok st with
-    | .pipepipe => do
-      let (rhs, st) ← parseOr (advance st)
-      let loc : Location := { start := lhs.loc.start, stop := rhs.loc.stop }
-      .ok ({ loc, kind := .binop .or lhs rhs }, st)
-    | _ => .ok (lhs, st)
+/-- The operand of the infix loop.
 
-  -- `&&` right-assoc
-  parseAnd : Parser Expr := fun st => do
-    let (lhs, st) ← parsePipeGt st
-    match peekTok st with
-    | .ampamp => do
-      let (rhs, st) ← parseAnd (advance st)
-      let loc : Location := { start := lhs.loc.start, stop := rhs.loc.stop }
-      .ok ({ loc, kind := .binop .and lhs rhs }, st)
-    | _ => .ok (lhs, st)
+A keyword expression is an operand at every level, matching OCaml, where the
+grammar admits `let`, `fun`, `if` and `match` after any operator even though
+they sit below all of them. Its trailing branch then extends as far right as it
+can, so `a + if b then c else d * e` reads as `a + (if b then c else (d * e))`.
+The loop needs no case for that: the branch is parsed at a fixed level, leaving
+only looser operators behind, which the loop already declines. -/
+private partial def parseOperand : Parser Expr := do
+  match ← peek with
+  | .kw_let   => parseLet
+  | .kw_fun   => parseFun
+  | .kw_if    => parseIf
+  | .kw_match => parseMatch
+  | _         => parseUnary
 
-  -- `|>` left-assoc
-  parsePipeGt : Parser Expr := fun st => do
-    let (lhs, st) ← parseAtAt st
-    parsePipeGtRest lhs st
+-- prefix `-` (`Prec.app`): looser than application, so `- f a` is `- (f a)`,
+-- and tighter than every binary operator, so `- a * b` is `(- a) * b`.
+private partial def parseUnary : Parser Expr := do
+  match ← peek with
+  | .minus => exprOf do advance; return .unop .neg (← parseUnary)
+  | _      => parseApp
 
-  parsePipeGtRest (lhs : Expr) : Parser Expr := fun st =>
-    match peekTok st with
-    | .pipeGt => do
-      let (rhs, st) ← parseAtAt (advance st)
-      let loc : Location := { start := lhs.loc.start, stop := rhs.loc.stop }
-      parsePipeGtRest { loc, kind := .binop .pipeRight lhs rhs } st
-    | _ => .ok (lhs, st)
-
-  -- `@@` right-assoc
-  parseAtAt : Parser Expr := fun st => do
-    let (lhs, st) ← parseCmp st
-    match peekTok st with
-    | .atat => do
-      -- RHS is full expr so `f @@ fun x -> e` works
-      let (rhs, st) ← parseExpr (advance st)
-      let loc : Location := { start := lhs.loc.start, stop := rhs.loc.stop }
-      .ok ({ loc, kind := .binop .atAt lhs rhs }, st)
-    | _ => .ok (lhs, st)
-
-  -- comparison (left-assoc)
-  parseCmp : Parser Expr :=
-    parseLAssoc [(.eq, .eq), (.neq, .neq), (.lt, .lt), (.le, .le), (.gt, .gt), (.ge, .ge)] parseConcat
-
-  -- `^`/`@` right-assoc, one shared level (matches OCaml: looser than `::`)
-  parseConcat : Parser Expr := fun st => do
-    let (lhs, st) ← parseCons st
-    match peekTok st with
-    | .caret => do
-      let (rhs, st) ← parseConcat (advance st)
-      let loc : Location := { start := lhs.loc.start, stop := rhs.loc.stop }
-      .ok ({ loc, kind := .binop .concat lhs rhs }, st)
-    | .at => do
-      let (rhs, st) ← parseConcat (advance st)
-      let loc : Location := { start := lhs.loc.start, stop := rhs.loc.stop }
-      .ok ({ loc, kind := .binop .append lhs rhs }, st)
-    | _ => .ok (lhs, st)
-
-  -- `::` right-assoc, between `@`/`^` and `+`/`-` (matches OCaml)
-  parseCons : Parser Expr := fun st => do
-    let (lhs, st) ← parseAdd st
-    match peekTok st with
-    | .coloncolon => do
-      let (rhs, st) ← parseCons (advance st)
-      let loc : Location := { start := lhs.loc.start, stop := rhs.loc.stop }
-      .ok ({ loc, kind := .binop .cons lhs rhs }, st)
-    | _ => .ok (lhs, st)
-
-  -- `+` `-` left-assoc
-  parseAdd : Parser Expr :=
-    parseLAssoc [(.plus, .add), (.minus, .sub), (.plusDot, .fadd), (.minusDot, .fsub)] parseMul
-
-  -- `*` `/` `mod` left-assoc
-  parseMul : Parser Expr :=
-    parseLAssoc [(.star, .mul), (.slash, .div), (.starDot, .fmul), (.slashDot, .fdiv), (.kw_mod, .mod)] parseUnary
-
-  -- prefix unary operators
-  parseUnary : Parser Expr := fun st =>
-    let p := peekLoc st
-    match peekTok st with
-    | .minus => do
-      let (e, st) ← parseUnary (advance st)
-      .ok (mkExpr p st (.unop .neg e), st)
-    | .kw_assert => do
-      let (e, st) ← parseUnary (advance st)
-      .ok (mkExpr p st (.unop .assert e), st)
-    | .bang => do
-      let (e, st) ← parseUnary (advance st)
-      .ok (mkExpr p st (.unop .deref e), st)
-    | _ => parseApp st
-
-  -- function application (left-assoc, juxtaposition), then any expression
-  -- attributes `[@name payload]` attached as a postfix to the whole application.
-  parseApp : Parser Expr := fun st => do
-    let (fn, st) ← parsePostfix st
-    let (app, st) ← parseAppRest fn st
-    parseAttrSuffix app st
-
-  -- Fold trailing expression attributes `e [@name payload]` into `e.attrs`.
-  parseAttrSuffix (e : Expr) : Parser Expr := fun st =>
-    match peekTok st with
-    | .lbracket =>
-      match peekTok (advance st) with
-      | .at => do
-        let (attr, st) ← parseExprAttr st
-        parseAttrSuffix { e with attrs := e.attrs ++ [attr] } st
-      | _ => .ok (e, st)  -- not an expression attribute (e.g. `[@@...]`), leave `[`
-    | _ => .ok (e, st)
-
-  -- `[@name expr]` — single `@`, optional expression payload.
-  parseExprAttr : Parser Attribute := fun st => do
-    let p := peekLoc st
-    let st ← expect .lbracket st
-    let st ← expect .at st
-    let (name, st) ← expectIdent st
-    let (payload, st) ← match peekTok st with
-      | .rbracket => .ok (none, st)
-      | _ => do
-        let (e, st) ← parseExpr st
-        .ok (some e, st)
-    let st ← expect .rbracket st
-    .ok ({ loc := spanTo p st, name := AttrName.ofString name, payload }, st)
-
-  parseAppRest (fn : Expr) : Parser Expr := fun st => do
-    let (args, st) ← collectArgs st
-    if args.isEmpty then .ok (fn, st)
+-- function application (left-assoc, juxtaposition), then any expression
+-- attributes `[@name payload]` attached as a postfix to the whole application.
+-- `assert` sits at this level but takes a single operand, so `assert f a` is a
+-- syntax error in OCaml rather than an assertion of `f a`.
+private partial def parseApp : Parser Expr := do
+  let app ←
+    if (← peek) == .kw_assert then
+      exprOf do advance; return .unop .assert (← parseAccess)
     else
-      let loc : Location := { start := fn.loc.start, stop := (spanTo fn.loc st).stop }
-      .ok ({ loc, kind := .app fn args }, st)
+      parseAppRest (← parseAccess)
+  parseAttrSuffix (fun e a => { e with attrs := e.attrs ++ [a] }) app
 
-  collectArgs : Parser (List Expr) := fun st =>
-    -- `[` starts a list-literal argument unless it opens an attribute `[@...]`
-    let isAttr := peekTok st == .lbracket &&
-      (peekTok (advance st) == .at || peekTok (advance st) == .atat)
-    if isArgStart (peekTok st) && !isAttr then do
-      let (arg, st) ← parsePostfix st
-      let (rest, st) ← collectArgs st
-      .ok (arg :: rest, st)
-    else .ok ([], st)
+private partial def parseAppRest (fn : Expr) : Parser Expr := do
+  let args ← collectArgs
+  if args.isEmpty then return fn
+  else return { loc := ← spanFrom fn.loc, kind := .app fn args }
 
-  isArgStart : Token → Bool
-    | .intLit _ | .floatLit _ | .charLit _ | .stringLit _ | .ident _ | .lparen | .lbrace
-    | .lbracket | .kw_true | .kw_false => true
-    | _ => false
+private partial def collectArgs : Parser (List Expr) := do
+  -- `[` starts a list-literal argument unless it opens an attribute `[@...]`
+  let t ← peek
+  let isAttr := t == .lbracket && ((← peek 1) == .at || (← peek 1) == .atat)
+  if isArgStart t && !isAttr then
+    let arg ← parseAccess
+    return arg :: (← collectArgs)
+  else return []
 
-  -- postfix: `.n` tuple projection, `.field` field access
-  parsePostfix : Parser Expr := fun st => do
-    let (e, st) ← parseAtom st
-    parsePostfixRest e st
+-- postfix access (`Prec.access`): `.n` tuple projection, `.field` field access,
+-- `.(i)` array element. Tighter than application, so `f a.b` is `f (a.b)`.
+private partial def parseAccess : Parser Expr := do
+  parseAccessRest (← parsePrefix)
 
-  parsePostfixRest (e : Expr) : Parser Expr := fun st =>
-    match peekTok st with
-    | .dot =>
-      let st' := advance st
-      match peekTok st' with
-      | .lparen => do
-        let (idx, st'') ← parseExpr (advance st')
-        let st'' ← expect .rparen st''
-        let loc : Location := { start := e.loc.start, stop := (spanTo e.loc st'').stop }
-        parsePostfixRest { loc, kind := .arrayGet e idx } st''
-      | .intLit n =>
-        if n ≥ 1 then
-          let st'' := advance st'
-          let loc : Location := { start := e.loc.start, stop := (spanTo e.loc st'').stop }
-          parsePostfixRest { loc, kind := .unop (.proj n.toNat) e } st''
-        else
-          .error { loc := peekLoc st', kind := .nonPositiveProjIndex }
-      | .ident fname =>
-        let st'' := advance st'
-        let loc : Location := { start := e.loc.start, stop := (spanTo e.loc st'').stop }
-        parsePostfixRest { loc, kind := .unop (.field fname) e } st''
-      | _ => .ok (e, st)  -- lone dot, leave it
-    | _ => .ok (e, st)
+private partial def parseAccessRest (e : Expr) : Parser Expr := do
+  if (← peek) != .dot then return e
+  match ← peek 1 with
+  | .lparen =>
+    advance; advance
+    let idx ← parseExpr
+    expect .rparen
+    parseAccessRest { loc := ← spanFrom e.loc, kind := .arrayGet e idx }
+  | .intLit n =>
+    if n ≥ 1 then
+      advance; advance
+      parseAccessRest { loc := ← spanFrom e.loc, kind := .unop (.proj n.toNat) e }
+    else
+      failAt (← loc 1) .nonPositiveProjIndex
+  | .ident fname =>
+    advance; advance
+    parseAccessRest { loc := ← spanFrom e.loc, kind := .unop (.field fname) e }
+  | _ =>
+    -- A `.` here can only begin an access, so it commits: reporting it at the
+    -- token that follows beats leaving the dot for an unrelated production.
+    -- `t.1.2` lands here, the lexer having taken `1.2` for a float.
+    advance
+    expected "a field name, a tuple index, or '(' after '.'"
 
-  -- atom: constants, variables, constructors, parens, records
-  parseAtom : Parser Expr := fun st =>
-    let p := peekLoc st
-    match peekTok st with
-    | .intLit n  => .ok (mkExpr p (advance st) (.const (.int n)), advance st)
-    | .floatLit f => .ok (mkExpr p (advance st) (.const (.float f)), advance st)
-    | .charLit c => .ok (mkExpr p (advance st) (.const (.char c)), advance st)
-    | .stringLit s => .ok (mkExpr p (advance st) (.const (.string s)), advance st)
-    | .kw_true   => .ok (mkExpr p (advance st) (.const (.bool true)), advance st)
-    | .kw_false  => .ok (mkExpr p (advance st) (.const (.bool false)), advance st)
-    | .ident name => do
-      let (path, st') ← collectPathTail name [] (advance st)
-      if path.last.front.isUpper then
-        .ok (mkExpr p st' (.ctor path), st')
-      else
-        .ok (mkExpr p st' (.var path), st')
-    | .lbrace => parseRecord st
-    | .lbracket =>
-      -- list literal `[]` / `[e1; e2; ...]`; elaboration lowers it to constructors
-      let st' := advance st
-      if peekTok st' == .rbracket then
-        .ok (mkExpr p (advance st') (.list []), advance st')
-      else do
-        let (elems, st') ← parseListElems st'
-        let st' ← expect .rbracket st'
-        .ok (mkExpr p st' (.list elems), st')
-    | .lparen =>
-      let st' := advance st
-      -- `()` = unit
-      if peekTok st' == .rparen then
-        .ok (mkExpr p (advance st') (.const .unit), advance st')
-      else do
-        let (e, st') ← parseExpr st'
-        match peekTok st' with
-        | .comma =>
-          -- tuple
-          let (rest, st') ← parseTupleRest st'
-          let st' ← expect .rparen st'
-          let loc : Location := { start := p.start, stop := (spanTo p st').stop }
-          .ok ({ loc, kind := .tuple (e :: rest) }, st')
-        | .colon =>
-          -- type annotation `(e : T)`
-          let (ty, st') ← parseType (advance st')
-          let st' ← expect .rparen st'
-          let loc : Location := { start := p.start, stop := (spanTo p st').stop }
-          .ok ({ loc, kind := .annot e ty }, st')
-        | .rparen =>
-          .ok (e, advance st')
-        | t =>
-          .error { loc := peekLoc st', kind := .unexpectedToken "')' or ',' in expression" t }
-    | t =>
-      .error { loc := peekLoc st, kind := .unexpectedToken "expression" t }
+-- prefix `!` (`Prec.prefixOp`): the tightest level, above access as well as
+-- application, so `!r.contents` is `(!r).contents` and `!f x` is `(!f) x`.
+private partial def parsePrefix : Parser Expr := do
+  match ← peek with
+  | .bang => exprOf do advance; return .unop .deref (← parsePrefix)
+  | _     => parseAtom
 
-  parseTupleRest : Parser (List Expr) := fun st =>
-    match peekTok st with
-    | .comma => do
-      let (e, st) ← parseExpr (advance st)
-      let (rest, st) ← parseTupleRest st
-      .ok (e :: rest, st)
-    | _ => .ok ([], st)
+-- atom: constants, variables, constructors, parens, records
+private partial def parseAtom : Parser Expr := do
+  let start ← loc
+  let const (c : Const) : Parser Expr := do
+    advance; return { loc := ← spanFrom start, kind := .const c }
+  match ← peek with
+  | .intLit n    => const (.int n)
+  | .floatLit f  => const (.float f)
+  | .charLit c   => const (.char c)
+  | .stringLit s => const (.string s)
+  | .kw_true     => const (.bool true)
+  | .kw_false    => const (.bool false)
+  | .ident name =>
+    advance
+    let path ← collectPathTail name []
+    return { loc := ← spanFrom start
+           , kind := if path.last.front.isUpper then .ctor path else .var path }
+  | .lbrace => parseRecord
+  | .lbracket =>
+    -- list literal `[]` / `[e1; e2; ...]`; elaboration lowers it to constructors
+    advance
+    if ← consumeIf .rbracket then return { loc := ← spanFrom start, kind := .list [] }
+    let elems ← parseListElems
+    expect .rbracket
+    return { loc := ← spanFrom start, kind := .list elems }
+  | .kw_begin =>
+    -- `begin e end` is `(e)`, with no node of its own.
+    advance
+    let e ← parseExpr
+    expect .kw_end
+    return e
+  | .lparen =>
+    advance
+    -- `()` = unit
+    if ← consumeIf .rparen then return { loc := ← spanFrom start, kind := .const .unit }
+    -- A tuple needs no parentheses of its own, so `(a, b)` arrives here already
+    -- built by the comma level.
+    let e ← parseExpr
+    match ← peek with
+    | .colon =>
+      -- type annotation `(e : T)`
+      advance
+      let ty ← parseType
+      expect .rparen
+      return { loc := ← spanFrom start, kind := .annot e ty }
+    | .rparen => advance; return e
+    | _ => expected "')' or ':' in expression"
+  | _ => expected "expression"
 
-  -- `;`-separated list-literal elements, allowing a trailing `;`
-  parseListElems : Parser (List Expr) := fun st => do
-    let (e, st) ← parseExprNoSemi st
-    match peekTok st with
-    | .semi =>
-      let st' := advance st
-      if peekTok st' == .rbracket then .ok ([e], st')
-      else do
-        let (rest, st') ← parseListElems st'
-        .ok (e :: rest, st')
-    | _ => .ok ([e], st)
+/-- The components after the first `,`, each below the comma level so that the
+tuple stays flat. -/
+private partial def parseTupleRest : Parser (List Expr) := do
+  let e ← parseExprAt (Prec.comma + 1)
+  if ← consumeIf .comma then return e :: (← parseTupleRest) else return [e]
 
-  -- `{ f1 = e1; f2 = e2 }` or `{ e with f1 = e1; ... }`
-  -- Lookahead approach: peek to distinguish record literal from record update.
-  -- A record literal starts with `ident =` (lowercase field name followed by `=`).
-  -- Anything else is treated as an expression for record update.
-  parseRecord : Parser Expr := fun st => do
-    let p := peekLoc st
-    let st ← expect .lbrace st
-    if isRecordLiteral st then do
-      let (fields, st) ← parseRecordFields st
-      let st ← expect .rbrace st
-      .ok (mkExpr p st (.record fields), st)
-    else do
-      let (e, st) ← parseExpr st
-      let st ← expect .kw_with st
-      let (fields, st) ← parseRecordFields st
-      let st ← expect .rbrace st
-      .ok (mkExpr p st (.recordUpdate e fields), st)
+-- `;`-separated list-literal elements, allowing a trailing `;`
+private partial def parseListElems : Parser (List Expr) := do
+  let e ← parseExprAt Prec.noSemi
+  if ← consumeIf .semi then
+    if (← peek) == .rbracket then return [e]
+    else return e :: (← parseListElems)
+  else return [e]
 
-  isRecordLiteral (st : ParserState) : Bool :=
-    match peekTok st with
-    | .ident name =>
-      if !name.front.isUpper && name.front != '\'' then
-        peekTok (advance st) == .eq
-      else false
-    | _ => false
+-- `{ f1 = e1; f2 = e2 }` or `{ e with f1 = e1; ... }`
+-- Lookahead approach: peek to distinguish record literal from record update.
+-- A record literal starts with `ident =` (lowercase field name followed by `=`).
+-- Anything else is treated as an expression for record update.
+private partial def parseRecord : Parser Expr := do
+  let start ← loc
+  expect .lbrace
+  if ← isRecordLiteral then
+    let fields ← parseRecordFields
+    expect .rbrace
+    return { loc := ← spanFrom start, kind := .record fields }
+  else
+    let e ← parseExpr
+    expect .kw_with
+    let fields ← parseRecordFields
+    expect .rbrace
+    return { loc := ← spanFrom start, kind := .recordUpdate e fields }
 
-  parseRecordFields : Parser (List (FieldName × Expr)) := fun st => do
-    let (name, st) ← expectIdent st
-    let st ← expect .eq st
-    let (e, st) ← parseExpr.parseAssign st
-    match peekTok st with
-    | .semi =>
-      let st' := advance st
-      match peekTok st' with
-      | .rbrace => .ok ([(name, e)], st')  -- trailing semicolon
-      | _ => do
-        let (rest, st') ← parseRecordFields st'
-        .ok ((name, e) :: rest, st')
-    | _ => .ok ([(name, e)], st)
+private partial def parseRecordFields : Parser (List (FieldName × Expr)) := do
+  let start ← loc
+  let name ← expectIdent
+  -- `{ a }` puns: with no `=`, the field's own name is the expression.
+  let e ← if ← consumeIf .eq then parseExprAt Prec.noSemi
+          else pure { loc := ← spanFrom start, kind := .var (Path.single name) }
+  if ← consumeIf .semi then
+    if (← peek) == .rbrace then return [(name, e)]  -- trailing semicolon
+    else return (name, e) :: (← parseRecordFields)
+  else return [(name, e)]
 
-  -- `let [rec] pat pat ... [: T] = e in body`
-  parseLet : Parser Expr := fun st => do
-    let p := peekLoc st
-    let st ← expect .kw_let st
-    let isRec := peekTok st == .kw_rec
-    let st := if isRec then advance st else st
-    let (first, st) ← parsePatternBinder st
-    let (rest, st) ← parseFunArgs st
-    let (retTy, st) ← parseOptRetTy st
-    let st ← expect .eq st
-    let (bound, st) ← parseExpr st
-    let st ← expect .kw_in st
-    let (body, st) ← parseExpr st
-    .ok (mkExpr p st (.letIn isRec (first :: rest) retTy bound body), st)
+-- `let [rec] pat pat ... [: T] = e in body`
+private partial def parseLet : Parser Expr := exprOf do
+  expect .kw_let
+  let isRec ← consumeIf .kw_rec
+  let first ← parsePatternBinder
+  let rest ← parseFunArgs
+  let retTy ← parseOptRetTy
+  expect .eq
+  let bound ← parseExpr
+  expect .kw_in
+  let body ← parseExpr
+  return .letIn isRec (first :: rest) retTy bound body
 
-  -- `fun pat pat ... [: T] -> body`
-  parseFun : Parser Expr := fun st => do
-    let p := peekLoc st
-    let st ← expect .kw_fun st
-    let (args, st) ← parseFunArgs st
-    if args.isEmpty then
-      .error { loc := p, kind := .funNoArgs }
-    let (retTy, st) ← parseOptRetTy st
-    let st ← expect .arrow st
-    let (body, st) ← parseExpr st
-    .ok (mkExpr p st (.fun_ args retTy body), st)
+-- `fun pat pat ... [: T] -> body`
+private partial def parseFun : Parser Expr := exprOf do
+  let start ← loc
+  expect .kw_fun
+  let args ← parseFunArgs
+  if args.isEmpty then failAt start .funNoArgs
+  let retTy ← parseOptFunRetTy
+  expect .arrow
+  return .fun_ args retTy (← parseExpr)
 
-  -- `if c then t else e`
-  -- Sub-expressions use parseExprNoSemi because `;` binds less tightly
-  -- than if/then/else in OCaml.
-  parseIf : Parser Expr := fun st => do
-    let p := peekLoc st
-    let st ← expect .kw_if st
-    let (cond, st) ← parseExprNoSemi st
-    let st ← expect .kw_then st
-    let (thn, st) ← parseExprNoSemi st
-    let st ← expect .kw_else st
-    let (els, st) ← parseExprNoSemi st
-    .ok (mkExpr p st (.ite cond thn els), st)
+-- `if c then t else e`
+-- The branches stop at `;`, which is looser than `if` in OCaml, so
+-- `if a then b else c; d` sequences the whole `if`. The condition is delimited
+-- by `then` instead, so it takes a full expression.
+private partial def parseIf : Parser Expr := exprOf do
+  expect .kw_if
+  let cond ← parseExpr
+  expect .kw_then
+  let thn ← parseExprAt Prec.noSemi
+  expect .kw_else
+  return .ite cond thn (← parseExprAt Prec.noSemi)
 
-  -- `match e with | P -> e | ...`
-  parseMatch : Parser Expr := fun st => do
-    let p := peekLoc st
-    let st ← expect .kw_match st
-    let (scrut, st) ← parseExpr st
-    let st ← expect .kw_with st
-    let (arms, st) ← parseMatchArms st
-    .ok (mkExpr p st (.match_ scrut arms), st)
+-- `match e with | P -> e | ...`
+private partial def parseMatch : Parser Expr := exprOf do
+  expect .kw_match
+  let scrut ← parseExpr
+  expect .kw_with
+  return .match_ scrut (← parseMatchArms)
 
-  parseMatchArms : Parser (List MatchArm) := fun st =>
-    match peekTok st with
-    | .pipe => do
-      let st' := advance st
-      let (pat, st') ← parsePatternCons st'
-      let st' ← expect .arrow st'
-      let (body, st') ← parseExpr st'
-      let (rest, st') ← parseMatchArms st'
-      .ok ({ pat, body } :: rest, st')
-    | _ => .ok ([], st)
+/-- The arms of a `match`. `with` has committed to at least one arm, so a
+missing one is an error here rather than an empty list left for whatever comes
+next to trip over. The leading `|` is optional, as in OCaml. -/
+private partial def parseMatchArms : Parser (List MatchArm) := do
+  let _ ← consumeIf .pipe
+  let arm ← parseMatchArm
+  return arm :: (← parseMatchArmsRest)
+
+private partial def parseMatchArmsRest : Parser (List MatchArm) := do
+  if ← consumeIf .pipe then
+    let arm ← parseMatchArm
+    return arm :: (← parseMatchArmsRest)
+  else return []
+
+private partial def parseMatchArm : Parser MatchArm := do
+  let pat ← parsePattern
+  expect .arrow
+  return { pat, body := ← parseExpr }
+
+end
 
 -- ---------------------------------------------------------------------------
 -- Declaration parsing
 
-end
+private def parseOpenDecl : Parser DeclKind := do
+  expect .kw_open
+  let head ← expectIdent
+  return .open_ (← collectPathTail head [])
 
-/-- Parse a single top-level declaration. -/
-private partial def parseDecl : Parser Decl := fun st =>
-  let p := peekLoc st
-  match peekTok st with
-  | .kw_open => parseOpenDecl p st
-  | .kw_type => parseTypeDecl p st
-  | .kw_let  => parseValDecl p st
-  | t =>
-    .error { loc := peekLoc st, kind := .unexpectedToken "declaration (open, let, or type)" t }
-where
-  parseOpenDecl (p : Location) : Parser Decl := fun st => do
-    let st ← expect .kw_open st
-    let (head, st) ← expectIdent st
-    let (path, st) ← collectPathTail head [] st
-    .ok ({ loc := spanTo p st, kind := .open_ path, attrs := [] }, st)
+private partial def parseTypeParamList : Parser (List TypeVariable) := do
+  match ← peek with
+  | .ident name =>
+    if name.front == '\'' then
+      advance
+      let varName := name.toRawSubstring.drop 1 |>.toString
+      if ← consumeIf .comma then return varName :: (← parseTypeParamList)
+      else return [varName]
+    else return []
+  | _ => return []
 
-  parseTypeDecl (p : Location) : Parser Decl := fun st => do
-    let st ← expect .kw_type st
-    -- optional type parameters: `'a`, `('a, 'b)`, etc.
-    let (params, st) ← parseTypeParams st
-    let (name, st) ← expectIdent st
-    let st ← expect .eq st
-    -- try to figure out if this is a variant or record
-    let (body, st) ← parseTypeDeclBody st
-    let decl : TypeDecl := { params, name, body }
-    let attrs := #[]
-    .ok ({ loc := spanTo p st, kind := .type_ decl, attrs := attrs.toList }, st)
-
-  parseTypeParams : Parser (List TypeVariable) := fun st =>
-    match peekTok st with
-    | .ident name =>
-      -- type variable: starts with `'`
-      if name.front == '\'' then
-        let varName := name.toRawSubstring.drop 1 |>.toString
-        .ok ([varName], advance st)
-      else .ok ([], st)
-    | .lparen =>
-      let st' := advance st
-      -- check if next is a type variable
-      match peekTok st' with
-      | .ident name =>
-        if name.front == '\'' then do
-          let (params, st') ← parseTypeParamList st'
-          let st' ← expect .rparen st'
-          .ok (params, st')
-        else .ok ([], st)  -- not type params, leave paren
-      | _ => .ok ([], st)  -- not type params, leave paren
-    | _ => .ok ([], st)
-
-  parseTypeParamList : Parser (List TypeVariable) := fun st =>
-    match peekTok st with
+/-- Optional type parameters: `'a`, `('a, 'b)`, etc. A `(` that does not open a
+parameter list is left for the caller. -/
+private def parseTypeParams : Parser (List TypeVariable) := do
+  match ← peek with
+  | .ident name =>
+    if name.front == '\'' then
+      advance
+      return [name.toRawSubstring.drop 1 |>.toString]
+    else return []
+  | .lparen =>
+    match ← peek 1 with
     | .ident name =>
       if name.front == '\'' then
-        let varName := name.toRawSubstring.drop 1 |>.toString
-        let st' := advance st
-        match peekTok st' with
-        | .comma => do
-          let (rest, st') ← parseTypeParamList (advance st')
-          .ok (varName :: rest, st')
-        | _ => .ok ([varName], st')
-      else .ok ([], st)
-    | _ => .ok ([], st)
+        advance
+        let params ← parseTypeParamList
+        expect .rparen
+        return params
+      else return []
+    | _ => return []
+  | _ => return []
 
-  parseTypeDeclBody : Parser TypeDeclBody := fun st =>
-    match peekTok st with
-    | .lbrace => parseRecordBody st
-    | _ => parseVariantBody st
+private partial def parseRecordBodyFields : Parser (List (FieldName × Typ)) := do
+  let name ← expectIdent
+  expect .colon
+  let ty ← parseType
+  if ← consumeIf .semi then
+    if (← peek) == .rbrace then return [(name, ty)]  -- trailing semicolon
+    else return (name, ty) :: (← parseRecordBodyFields)
+  else return [(name, ty)]
 
-  parseRecordBody : Parser TypeDeclBody := fun st => do
-    let st ← expect .lbrace st
-    let (fields, st) ← parseRecordBodyFields st
-    let st ← expect .rbrace st
-    .ok (.record fields, st)
+private partial def parseCtors : Parser (List (Constructor × Option Typ)) := do
+  let name ← expectConstructor
+  let payload ← if ← consumeIf .kw_of then some <$> parseType else pure none
+  if ← consumeIf .pipe then return (name, payload) :: (← parseCtors)
+  else return [(name, payload)]
 
-  parseRecordBodyFields : Parser (List (FieldName × Typ)) := fun st => do
-    let (name, st) ← expectIdent st
-    let st ← expect .colon st
-    let (ty, st) ← parseType st
-    match peekTok st with
-    | .semi =>
-      let st' := advance st
-      match peekTok st' with
-      | .rbrace => .ok ([(name, ty)], st')  -- trailing semicolon
-      | _ => do
-        let (rest, st') ← parseRecordBodyFields st'
-        .ok ((name, ty) :: rest, st')
-    | _ => .ok ([(name, ty)], st)
-
-  parseVariantBody : Parser TypeDeclBody := fun st => do
+private def parseTypeDeclBody : Parser TypeDeclBody := do
+  if ← consumeIf .lbrace then
+    let fields ← parseRecordBodyFields
+    expect .rbrace
+    return .record fields
+  else
     -- optional leading `|`
-    let st := if peekTok st == .pipe then advance st else st
-    let (ctors, st) ← parseCtors st
-    .ok (.variant ctors, st)
+    let _ ← consumeIf .pipe
+    return .variant (← parseCtors)
 
-  parseCtors : Parser (List (Constructor × Option Typ)) := fun st => do
-    let (name, st) ← expectConstructor st
-    let (payload, st) ← parseCtorPayload st
-    match peekTok st with
-    | .pipe => do
-      let (rest, st) ← parseCtors (advance st)
-      .ok ((name, payload) :: rest, st)
-    | _ => .ok ([(name, payload)], st)
+private def parseTypeDecl : Parser DeclKind := do
+  expect .kw_type
+  let params ← parseTypeParams
+  let name ← expectIdent
+  expect .eq
+  return .type_ { params, name, body := ← parseTypeDeclBody }
 
-  parseCtorPayload : Parser (Option Typ) := fun st =>
-    match peekTok st with
-    | .kw_of => do
-      let (ty, st) ← parseType (advance st)
-      .ok (some ty, st)
-    | _ => .ok (none, st)
+private def parseValDecl : Parser DeclKind := do
+  expect .kw_let
+  let isRec ← consumeIf .kw_rec
+  let first ← parsePatternBinder
+  let rest ← parseFunArgs
+  let retTy ← parseOptRetTy
+  expect .eq
+  return .val_ isRec (first :: rest) retTy (← parseExpr)
 
-  parseValDecl (p : Location) : Parser Decl := fun st => do
-    let st ← expect .kw_let st
-    let isRec := peekTok st == .kw_rec
-    let st := if isRec then advance st else st
-    let (first, st) ← parsePatternBinder st
-    let (rest, st) ← parseFunArgs st
-    let (retTy, st) ← parseOptRetTy st
-    let st ← expect .eq st
-    let (body, st) ← parseExpr st
-    -- optional `[@@name expr]` attribute(s)
-    let (attrs, st) ← parseAttrs st
-    .ok ({ loc := spanTo p st, kind := .val_ isRec (first :: rest) retTy body, attrs }, st)
+/-- Trailing `[@@name payload]` attributes on a declaration. -/
+private partial def parseDeclAttrs : Parser (List Attribute) := do
+  if (← peek) == .lbracket && (← peek 1) == .atat then
+    let attr ← parseAttr .atat
+    return attr :: (← parseDeclAttrs)
+  else return []
 
-  -- `[@@name expr]` repeated
-  parseAttrs : Parser (List Attribute) := fun st =>
-    match peekTok st with
-    | .lbracket =>
-      match (advance st |> peekTok) with
-      | .atat => do
-        let p := peekLoc st
-        let st' := advance (advance st)  -- skip `[` and `@@`
-        let (name, st') ← expectIdent st'
-        -- An attribute may carry an expression payload (`[@@spec ...]`) or
-        -- stand alone with none (`[@@fn]`).
-        let (payload, st') ← match peekTok st' with
-          | .rbracket => .ok (none, st')
-          | _ => do
-            let (e, st') ← parseExpr st'
-            .ok (some e, st')
-        let st' ← expect .rbracket st'
-        let attr : Attribute := { loc := spanTo p st', name := AttrName.ofString name, payload }
-        let (rest, st') ← parseAttrs st'
-        .ok (attr :: rest, st')
-      | _ => .ok ([], st)
-    | _ => .ok ([], st)
+/-- Parse a single top-level declaration. Every kind takes the same trailing
+`[@@...]` attributes; which of them are meaningful where is elaboration's call,
+and it rejects the ones that are not. -/
+private def parseDecl : Parser Decl := do
+  let start ← loc
+  let kind ← match ← peek with
+    | .kw_let  => parseValDecl
+    | .kw_open => parseOpenDecl
+    | .kw_type => parseTypeDecl
+    | _        => expected "declaration (open, let, or type)"
+  let attrs ← parseDeclAttrs
+  return { loc := ← spanFrom start, kind, attrs }
 
 -- ---------------------------------------------------------------------------
 -- Top-level program parsing
 
 /-- Parse a sequence of top-level declarations. -/
-private partial def parseProgram : Parser Program := fun st =>
-  match peekTok st with
-  | .eof => .ok ([], st)
-  | .semisemi => parseProgram (advance st)
-  | .kw_open | .kw_let | .kw_type => do
-    let (decl, st) ← parseDecl st
+private partial def parseProgram : Parser Program := do
+  match ← peek with
+  | .eof => return []
+  | .semisemi => advance; parseProgram
+  | .kw_open | .kw_let | .kw_type =>
+    let decl ← parseDecl
     -- skip optional `;;`
-    let st := if peekTok st == .semisemi then advance st else st
-    let (rest, st) ← parseProgram st
-    .ok (decl :: rest, st)
-  | t =>
-    .error { loc := peekLoc st, kind := .unexpectedToken "declaration" t }
+    let _ ← consumeIf .semisemi
+    return decl :: (← parseProgram)
+  | _ => expected "declaration"
 
 /-- Lex and parse `source` (file named `file`). -/
 def parseFile (file : String) (source : String) : Except FrontendError Program := do
   let tokens ← (tokenize file source).mapError .lexError
   let st : ParserState := { file, tokens, pos := 0 }
-  let (prog, st) ← (parseProgram st).mapError .parseError
-  if peekTok st != .eof then
-    .error (.parseError { loc := peekLoc st, kind := .unexpectedToken "end of file" (peekTok st) })
-  else
-    .ok prog
+  let (prog, _) ← (parseProgram st).mapError .parseError
+  .ok prog
 
 end Frontend
