@@ -114,7 +114,9 @@ def patternCases : List String :=
   , "A", "A y", "A (y, z)", "A y :: z", "(A y, B z)"
   , "A y :: B z :: w", "(y, z) :: w", "{ u = y } :: z"
   , "[] :: z", "A []", "A _", "A (B y)", "(y :: z, w)"
-  , "y :: (z, w)", "A 0", "A 'c'" ]
+  , "y :: (z, w)", "A 0", "A 'c'"
+  -- A constructor payload is itself a constructor application, not an atom.
+  , "A B", "A B y", "A B C", "A B y :: z", "A (B y) :: z" ]
 
 /-- Type declarations: variants, records, and parameters. `NAME` is replaced by
 the fixture's generated name. -/

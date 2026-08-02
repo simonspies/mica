@@ -1,0 +1,2 @@
+elaboration error: Tests/frontend/decl_attribute_on_type.ml:7:19: unsupported feature: a type declaration takes no attributes, but carries [@@deriving]
+[1]

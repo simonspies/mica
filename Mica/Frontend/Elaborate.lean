@@ -980,6 +980,16 @@ private def elaborateValAttrs (env : ElabEnv) (acc : ValAttrs) :
     | name, _ =>
       err attr.loc (.unsupportedFeature s!"unknown declaration attribute [@@{name}]")
 
+/-- Attributes are meaningful on a value declaration only. The parser accepts
+`[@@...]` after any declaration, so every other kind rejects them here rather
+than dropping them silently. -/
+def Decl.noAttrs (decl : Decl) (what : String) : ElabM Unit :=
+  match decl.attrs with
+  | [] => .ok ()
+  | attr :: _ =>
+    err attr.loc (.unsupportedFeature s!"{what} declaration takes no attributes, \
+      but carries [@@{attr.name}]")
+
 def Decl.elaborate (env : ElabEnv) (decl : Decl)
     : ElabM (ElabEnv × Option (Untyped.Decl Untyped.SpecBody)) := do
   match decl.kind with
@@ -989,6 +999,7 @@ def Decl.elaborate (env : ElabEnv) (decl : Decl)
     else
       err decl.loc (.unsupportedOpen path)
   | .type_ tdecl => do
+    Decl.noAttrs decl "a type"
     let (env', tdecl') ← TypeDecl.elaborate env decl.loc tdecl
     .ok (env', tdecl'.map Untyped.Decl.type_)
   | .val_ isRec binders retTy body => do
@@ -1017,7 +1028,7 @@ private def requireOpenMica : List Decl → ElabM (List Decl)
   | d :: ds =>
     match d.kind with
     | .open_ path =>
-      if path == Path.single "Mica" then .ok ds
+      if path == Path.single "Mica" then do Decl.noAttrs d "an open"; .ok ds
       else err d.loc (.unsupportedOpen path)
     | _ => err d.loc .missingOpenMica
 

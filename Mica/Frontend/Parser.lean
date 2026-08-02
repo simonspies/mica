@@ -20,6 +20,7 @@ inductive ParseErrorKind where
   | funNoArgs
   | nonFinalLowercaseSegment (segment : String)
   | expectedArrayElementAssignTarget
+  | refutableBinder
   deriving Repr, Inhabited
 
 structure ParseError where
@@ -36,6 +37,7 @@ def ParseError.toString (e : ParseError) : String :=
   | .funNoArgs => s!"{loc}: function expressions require at least one argument"
   | .nonFinalLowercaseSegment seg => s!"{loc}: qualified path segment '{seg}' is lowercase, but only the final component of a module path may be lowercase"
   | .expectedArrayElementAssignTarget => s!"{loc}: `<-` expects an array element `a.(i)` on the left"
+  | .refutableBinder => s!"{loc}: this pattern can fail to match; a `let` or `fun` binder must not"
 
 instance : ToString ParseError := ⟨ParseError.toString⟩
 
@@ -200,8 +202,13 @@ private def binOpOf : Token → Option BinOp
 -- ---------------------------------------------------------------------------
 -- Type parsing
 
+/-- The first set of `parsePatternAtom`: what can begin a constructor payload,
+and what `parseFunArgs` treats as one more binder. It is maintained by hand and
+has to track that match — a token missing here becomes an error at whatever
+follows the pattern instead. -/
 private def isPatStart : Token → Bool
-  | .ident _ | .underscore | .lparen | .lbrace | .intLit _ | .kw_true | .kw_false => true
+  | .ident _ | .underscore | .lparen | .lbrace | .lbracket
+  | .intLit _ | .charLit _ | .kw_true | .kw_false => true
   | _ => false
 
 private def isArgStart : Token → Bool
@@ -315,71 +322,80 @@ private partial def parseTypeNoArrow : Parser Typ := parseTypeProd
 -- ---------------------------------------------------------------------------
 -- Pattern parsing
 
+/-- Pattern with infix `::` (right-assoc): `p1 :: p2` is the prelude cons
+constructor applied to the pair pattern `(p1, p2)`. The loosest pattern level. -/
 private partial def parsePattern : Parser Pattern := do
-  let start ← loc
+  let lhs ← parsePatternApp
+  if ← consumeIf .coloncolon then
+    let rhs ← parsePattern
+    return { loc := between lhs.loc rhs.loc, kind := .cons lhs rhs }
+  else return lhs
+
+/-- Constructor application `C p`, possibly qualified (`Option.Some x`). The
+payload is itself at this level rather than an atom, so `A B y` is `A (B y)`, as
+in OCaml. -/
+private partial def parsePatternApp : Parser Pattern := do
+  let head ← parsePatternAtom
+  match head.kind with
+  | .ctor path none =>
+    if isPatStart (← peek) then
+      let payload ← parsePatternApp
+      return { loc := ← spanFrom head.loc, kind := .ctor path (some payload) }
+    else return head
+  | _ => return head
+
+/-- A pattern atom. `isPatStart` is this match's first set and has to track it. -/
+private partial def parsePatternAtom : Parser Pattern := patOf do
   match ← peek with
-  | .underscore => advance; return { loc := ← spanFrom start, kind := .wildcard }
+  | .underscore => advance; return .wildcard
   | .ident name =>
     advance
-    if name.front.isUpper then
-      -- constructor pattern (possibly qualified, e.g. `Option.Some x`)
-      let path ← collectPathTail name []
-      match ← peek with
-      | .ident _ | .underscore | .intLit _ | .charLit _ | .kw_true | .kw_false
-      | .lparen | .lbrace =>
-        let payload ← parsePattern
-        return { loc := ← spanFrom start, kind := .ctor path (some payload) }
-      | _ => return { loc := ← spanFrom start, kind := .ctor path none }
-    else
-      -- plain binder (no type annotation here; annotated form is `(x : T)`)
-      return { loc := ← spanFrom start, kind := .binder (some name) none }
-  | .intLit n  => advance; return { loc := ← spanFrom start, kind := .const (.int n) }
-  | .charLit c => advance; return { loc := ← spanFrom start, kind := .const (.char c) }
-  | .kw_true   => advance; return { loc := ← spanFrom start, kind := .const (.bool true) }
-  | .kw_false  => advance; return { loc := ← spanFrom start, kind := .const (.bool false) }
-  | .lparen => advance; parseParenPattern start "')' or ',' in pattern"
+    if name.front.isUpper then return .ctor (← collectPathTail name []) none
+    else return .binder (some name) none
+  | .intLit n  => advance; return .const (.int n)
+  | .charLit c => advance; return .const (.char c)
+  | .kw_true   => advance; return .const (.bool true)
+  | .kw_false  => advance; return .const (.bool false)
+  | .lparen => advance; parseParenPattern
   | .lbrace =>
     advance
     let fields ← parseRecordPatFields
     expect .rbrace
-    return { loc := ← spanFrom start, kind := .record fields }
+    return .record fields
   | .lbracket =>
     -- `[]` — empty-list pattern (no general list-literal patterns)
     advance
-    if ← consumeIf .rbracket then return { loc := ← spanFrom start, kind := .nil }
-    else expected "']' in pattern"
+    if ← consumeIf .rbracket then return .nil else expected "']' in pattern"
   | _ => expected "pattern"
 
-/-- The body of a parenthesized pattern, with the `(` already consumed. `unclosed`
-names the error for a stray token where `)` or `,` was due. -/
-private partial def parseParenPattern (start : Location) (unclosed : String) : Parser Pattern := do
+/-- The body of a parenthesized pattern, with the `(` already consumed. -/
+private partial def parseParenPattern : Parser PatternKind := do
   -- `()` = unit constant
-  if ← consumeIf .rparen then return { loc := ← spanFrom start, kind := .const .unit }
-  let pat ← parsePatternInner
+  if ← consumeIf .rparen then return .const .unit
+  let pat ← parsePatternAnnot
   match ← peek with
   | .comma =>
     -- tuple pattern
     let rest ← parseTuplePatRest
     expect .rparen
-    return { loc := ← spanFrom start, kind := .tuple (pat :: rest) }
-  | .rparen => advance; return pat
-  | _ => expected unclosed
+    return .tuple (pat :: rest)
+  | .rparen => advance; return pat.kind
+  | _ => expected "')' or ',' in pattern"
 
--- pattern inside parens: allows `(x : T)` annotated binder
-private partial def parsePatternInner : Parser Pattern := do
-  let start ← loc
-  match ← peek with
-  | .ident name =>
+/-- A pattern carrying the annotation `p : T` that only a parenthesized position
+admits. `Pattern` has a slot for one on a binder alone, so `(C x : T)` is not a
+pattern mica can represent and the `:` is left to fail as an unclosed `(`. -/
+private partial def parsePatternAnnot : Parser Pattern := do
+  let pat ← parsePattern
+  let annotate (name : Option String) : Parser Pattern := do
     advance
-    let ty ← if ← consumeIf .colon then some <$> parseType else pure none
-    return { loc := ← spanFrom start, kind := .binder (some name) ty }
-  | .underscore =>
-    advance
-    if ← consumeIf .colon then
-      let ty ← parseType
-      return { loc := ← spanFrom start, kind := .binder none (some ty) }
-    else return { loc := ← spanFrom start, kind := .wildcard }
-  | _ => parsePattern
+    let ty ← parseType
+    return { loc := ← spanFrom pat.loc, kind := .binder name (some ty) }
+  if (← peek) != .colon then return pat
+  match pat.kind with
+  | .binder name none => annotate name
+  | .wildcard         => annotate none
+  | _                 => return pat
 
 private partial def parseTuplePatRest : Parser (List Pattern) := do
   if ← consumeIf .comma then
@@ -397,33 +413,19 @@ private partial def parseRecordPatFields : Parser (List (FieldName × Pattern)) 
     else return (name, pat) :: (← parseRecordPatFields)
   else return [(name, pat)]
 
-/-- Pattern with infix `::` (right-assoc): `p1 :: p2` is the prelude cons
-    constructor applied to the pair pattern `(p1, p2)`. Constructor payloads
-    bind tighter, so only match arms use this entry point. -/
-private partial def parsePatternCons : Parser Pattern := do
-  let lhs ← parsePattern
-  if ← consumeIf .coloncolon then
-    let rhs ← parsePatternCons
-    return { loc := between lhs.loc rhs.loc, kind := .cons lhs rhs }
-  else return lhs
-
 -- ---------------------------------------------------------------------------
 -- Shared binder helpers
 -- These are top-level so both parseExpr (parseLet/parseFun) and parseDecl
 -- (parseValDecl) can call them directly.
 
+/-- A `let` or `fun` binder: an atom that binds irrefutably. The refutable
+forms parse the same way as anywhere else and are rejected afterwards, so the
+error names the actual problem instead of the token that follows it. -/
 private partial def parsePatternBinder : Parser Pattern := do
-  let start ← loc
-  match ← peek with
-  | .underscore => advance; return { loc := ← spanFrom start, kind := .wildcard }
-  | .ident name => advance; return { loc := ← spanFrom start, kind := .binder (some name) none }
-  | .lparen => advance; parseParenPattern start "')' in binder"
-  | .lbrace =>
-    advance
-    let fields ← parseRecordPatFields
-    expect .rbrace
-    return { loc := ← spanFrom start, kind := .record fields }
-  | _ => expected "binder"
+  let pat ← parsePatternAtom
+  match pat.kind with
+  | .wildcard | .binder .. | .tuple .. | .record .. | .const .unit => return pat
+  | _ => failAt pat.loc .refutableBinder
 
 private partial def parseFunArgs : Parser (List Pattern) := do
   if isPatStart (← peek) then
@@ -675,7 +677,7 @@ private partial def parseMatch : Parser Expr := exprOf do
 
 private partial def parseMatchArms : Parser (List MatchArm) := do
   if ← consumeIf .pipe then
-    let pat ← parsePatternCons
+    let pat ← parsePattern
     expect .arrow
     let body ← parseExpr
     return { pat, body } :: (← parseMatchArms)
@@ -771,21 +773,18 @@ private partial def parseDeclAttrs : Parser (List Attribute) := do
     return attr :: (← parseDeclAttrs)
   else return []
 
-/-- Parse a single top-level declaration.
-
-Only `let` declarations take `[@@...]` attributes today; `type` and `open` reject
-a following `[`. That is a language-scope question rather than a parsing one, so
-it is left as-is here. -/
+/-- Parse a single top-level declaration. Every kind takes the same trailing
+`[@@...]` attributes; which of them are meaningful where is elaboration's call,
+and it rejects the ones that are not. -/
 private def parseDecl : Parser Decl := do
   let start ← loc
-  match ← peek with
-  | .kw_let =>
-    let kind ← parseValDecl
-    let attrs ← parseDeclAttrs
-    return { loc := ← spanFrom start, kind, attrs }
-  | .kw_open => return { loc := ← spanFrom start, kind := ← parseOpenDecl, attrs := [] }
-  | .kw_type => return { loc := ← spanFrom start, kind := ← parseTypeDecl, attrs := [] }
-  | _ => expected "declaration (open, let, or type)"
+  let kind ← match ← peek with
+    | .kw_let  => parseValDecl
+    | .kw_open => parseOpenDecl
+    | .kw_type => parseTypeDecl
+    | _        => expected "declaration (open, let, or type)"
+  let attrs ← parseDeclAttrs
+  return { loc := ← spanFrom start, kind, attrs }
 
 -- ---------------------------------------------------------------------------
 -- Top-level program parsing

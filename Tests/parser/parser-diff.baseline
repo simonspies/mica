@@ -65,13 +65,9 @@ GAP     if a then b, c else d  ==>  bare tuple: mica builds tuples only inside p
 GAP     int  ==>  type alias: `TypeDeclBody` has only variants and records
 GAP     int list  ==>  type alias: `TypeDeclBody` has only variants and records
 GAP     let x = a, b in x  ==>  bare tuple: mica builds tuples only inside parentheses
-GAP     match x with | (A y, B z) -> 0 | _ -> 1  ==>  bare tuple: mica builds tuples only inside parentheses
-GAP     match x with | (y :: z, w) -> 0 | _ -> 1  ==>  bare tuple: mica builds tuples only inside parentheses
-GAP     match x with | A (B y) -> 0 | _ -> 1  ==>  `parsePatternInner` reads an uppercase head as a binder, so a parenthesized constructor pattern with a payload fails
-GAP     match x with | A [] -> 0 | _ -> 1  ==>  constructor-pattern payload token set omits `[`
 GAP     match x with | y, z -> 0 | _ -> 1  ==>  bare tuple: mica builds tuples only inside parentheses
 GAP     r.u <- a.(i)  ==>  field assignment: `<-` accepts only `a.(i)` on the left
 GAP     r.u <- b  ==>  field assignment: `<-` accepts only `a.(i)` on the left
 GAP     r.u <- b + c  ==>  field assignment: `<-` accepts only `a.(i)` on the left
 GAP     r.u.v <- b  ==>  field assignment: `<-` accepts only `a.(i)` on the left
-UNPRINT type t1085 = A of (int -> int)
+UNPRINT type t1090 = A of (int -> int)

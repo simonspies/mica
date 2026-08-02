@@ -147,6 +147,18 @@ def Prec.access : Nat := Prec.app + 1
 `!r.contents` is `(!r).contents` and `!f x` is `(!f) x`. -/
 def Prec.prefixOp : Nat := Prec.access + 1
 
+/-! Patterns have their own two levels, numbered separately from the expression
+ones above: `::` and, tighter, a constructor payload. The parser spells them out
+as one function per level rather than climbing them, so these are for the
+printer to parenthesize against. -/
+
+/-- Infix `::` in a pattern, right-associative. -/
+def Prec.patCons : Nat := 1
+
+/-- Constructor application in a pattern. Its payload is an atom, so `A B x` is
+not a pattern. -/
+def Prec.patApp : Nat := 2
+
 -- Attributes
 
 /-- The name of an attribute `[@name]`. Which names are meaningful depends on

@@ -127,12 +127,10 @@ private partial def Typ.printAttr (attr : Attribute) : String :=
   | none         => s!" [@{attr.name}]"
   | some payload => s!" [@{attr.name} {Expr.printPrec payload 0}]"
 
-private partial def Pattern.isAtom (p : Pattern) : Bool :=
-  match p.kind with
-  | .ctor _ (some _) | .cons _ _ => false
-  | _ => true
-
-partial def Pattern.print (p : Pattern) : String :=
+/-- A pattern at `outerPrec`, over the same three levels the parser uses:
+`Prec.patCons` for `::`, `Prec.patApp` for a constructor payload, and above
+that the atoms, which delimit themselves. -/
+partial def Pattern.printPrec (p : Pattern) (outerPrec : Nat) : String :=
   match p.kind with
   | .wildcard => "_"
   | .binder (some name) none => name
@@ -141,13 +139,21 @@ partial def Pattern.print (p : Pattern) : String :=
   | .binder none (some ty) => s!"(_ : {Typ.print ty})"
   | .const c => Const.print c
   | .nil => "[]"
-  | .cons head tail => s!"{Pattern.print head} :: {Pattern.print tail}"
+  | .cons head tail =>
+    -- `::` is right-associative, so a `::` on the left needs parens.
+    parenIf (outerPrec > Prec.patCons)
+      (Pattern.printPrec head (Prec.patCons + 1) ++ " :: " ++
+       Pattern.printPrec tail Prec.patCons)
   | .ctor path none => path.toString
   | .ctor path (some pat) =>
-    s!"{path.toString} {parenIf (!Pattern.isAtom pat) (Pattern.print pat)}"
-  | .tuple pats => parens (joinWith ", " (pats.map Pattern.print))
+    parenIf (outerPrec > Prec.patApp)
+      (path.toString ++ " " ++ Pattern.printPrec pat (Prec.patApp + 1))
+  | .tuple pats => parens (joinWith ", " (pats.map (Pattern.printPrec · Prec.patCons)))
   | .record fields =>
-    "{ " ++ joinWith "; " (fields.map fun (name, pat) => name ++ " = " ++ Pattern.print pat) ++ " }"
+    "{ " ++ joinWith "; " (fields.map fun (name, pat) =>
+      name ++ " = " ++ Pattern.printPrec pat Prec.patCons) ++ " }"
+
+partial def Pattern.print (p : Pattern) : String := Pattern.printPrec p Prec.patCons
 
 -- ---------------------------------------------------------------------------
 -- Expression printing
@@ -262,7 +268,7 @@ partial def Decl.print (d : Decl) : String :=
     | some payload => "\n[@@" ++ toString attr.name ++ " " ++ Expr.print payload ++ "]"
   let attrsSuffix := joinWith "" attrsStr
   match d.kind with
-  | .open_ path => "open " ++ path.toString
+  | .open_ path => "open " ++ path.toString ++ attrsSuffix
   | .type_ td => printTypeDecl td ++ attrsSuffix
   | .val_ isRec binders retTy body =>
     let recStr := if isRec then "rec " else ""
