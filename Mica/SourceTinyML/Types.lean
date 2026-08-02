@@ -1,4 +1,4 @@
--- SUMMARY: TinyML types, type declarations, and subtyping structure.
+-- SUMMARY: TinyML types over a parameter of type variables, type declarations, and subtyping.
 import Mica.TinyML.Common
 import Mica.SourceTinyML.Assertions
 
@@ -126,88 +126,116 @@ theorem PrimitiveType.unOpTypeOf_bool {op : UnOp} {p p' : PrimitiveType}
   subst hty
   simp
 
-inductive Typ where
+namespace Typ
+
+/-- TinyML types, parameterized by the variables a `tvar` node may carry. Only
+two instantiations are used here: `Typ`, whose `V` is uninhabited, and
+`SchemaTyp`, whose `V` is a source type variable. Type inference adds a third. -/
+inductive WithTypeVars (V : Type) where
   | prim (p : PrimitiveType)
-  | sum (ts : List Typ)
+  | sum (ts : List (WithTypeVars V))
   /-- A function type. `spec` is the specification the function was verified
   against, if it has one; only specified functions are inhabited values. -/
-  | arrow (args : List Typ) (ret : Typ) (spec : Option (Spec Typ))
-  | ref (t: Typ)
+  | arrow (args : List (WithTypeVars V)) (ret : WithTypeVars V)
+      (spec : Option (Spec (WithTypeVars V)))
+  | ref (t : WithTypeVars V)
   /-- Shared array whose elements have type `t`. -/
-  | array (t : Typ)
+  | array (t : WithTypeVars V)
   /-- An owned mutable array. Its contents are tracked by an immutable vector
   snapshot in the ambient spatial context. -/
-  | ownedArray (t : Typ)
+  | ownedArray (t : WithTypeVars V)
   /-- Immutable vector whose elements have type `t`. Unlike `array`, a vector is
   a pure value: its contents live in the value itself, not in the heap. -/
-  | vec (t : Typ)
+  | vec (t : WithTypeVars V)
   /-- An owned reference. Its value interpretation records only that the value
   is a location; points-to ownership lives in the ambient spatial context. -/
-  | owned (t : Typ)
+  | owned (t : WithTypeVars V)
   | empty   -- bottom type (uninhabited)
   | value   -- top type (all runtime values)
-  | tuple (ts : List Typ)
-  | tvar (v : TyVar)
-  | named (T : TypeName) (args : List Typ)
+  | tuple (ts : List (WithTypeVars V))
+  | tvar (v : V)
+  | named (T : TypeName) (args : List (WithTypeVars V))
   deriving Repr
 
-/-- Compatibility name for the unit primitive type. -/
-@[simp] def Typ.unit : Typ := .prim .unit
-/-- Compatibility name for the Boolean primitive type. -/
-@[simp] def Typ.bool : Typ := .prim .bool
-/-- Compatibility name for the integer primitive type. -/
-@[simp] def Typ.int : Typ := .prim .int
-/-- Compatibility name for the character primitive type. -/
-@[simp] def Typ.char : Typ := .prim .char
-/-- Compatibility name for the string primitive type. -/
-@[simp] def Typ.string : Typ := .prim .string
-/-- Compatibility name for the float primitive type. -/
-@[simp] def Typ.float : Typ := .prim .float
-/-- A canonical predefined type application. -/
-@[simp] def Typ.predef (p : Predef) (args : List Typ) : Typ := .named (.predef p) args
-/-- The canonical list type. -/
-@[simp] def Typ.list (elem : Typ) : Typ := .predef .list [elem]
-/-- The canonical option type. -/
-@[simp] def Typ.option (elem : Typ) : Typ := .predef .option [elem]
+namespace WithTypeVars
 
-def Typ.primDecEq (p q : PrimitiveType) : Decidable (Typ.prim p = Typ.prim q) :=
+/-- Abbreviation for the unit primitive type. -/
+@[simp] def unit : WithTypeVars V := .prim .unit
+/-- Abbreviation for the Boolean primitive type. -/
+@[simp] def bool : WithTypeVars V := .prim .bool
+/-- Abbreviation for the integer primitive type. -/
+@[simp] def int : WithTypeVars V := .prim .int
+/-- Abbreviation for the character primitive type. -/
+@[simp] def char : WithTypeVars V := .prim .char
+/-- Abbreviation for the string primitive type. -/
+@[simp] def string : WithTypeVars V := .prim .string
+/-- Abbreviation for the float primitive type. -/
+@[simp] def float : WithTypeVars V := .prim .float
+/-- A canonical predefined type application. -/
+@[simp] def predef (p : Predef) (args : List (WithTypeVars V)) : WithTypeVars V :=
+  .named (.predef p) args
+/-- The canonical list type. -/
+@[simp] def list (elem : WithTypeVars V) : WithTypeVars V := .predef .list [elem]
+/-- The canonical option type. -/
+@[simp] def option (elem : WithTypeVars V) : WithTypeVars V := .predef .option [elem]
+
+end WithTypeVars
+
+-- Both spellings are wanted: `.prim` resolves in the inductive's namespace,
+-- `Typ.prim` in the one named after the type it usually builds.
+export WithTypeVars (prim sum arrow ref array ownedArray vec owned empty value
+  tuple tvar named unit bool int char string float predef list option)
+
+end Typ
+
+/-- The type language the verifier works in. No `tvar` node can be built, so a
+`Typ` is closed by construction. -/
+abbrev Typ := Typ.WithTypeVars Empty
+
+/-- The type language source annotations and polymorphic signatures are written
+in: a `Typ` that may still mention named type variables. -/
+abbrev SchemaTyp := Typ.WithTypeVars TyVar
+
+def Typ.primDecEq {V : Type} (p q : PrimitiveType) :
+    Decidable (Typ.WithTypeVars.prim (V := V) p = .prim q) :=
   match PrimitiveType.decEq p q with
   | isTrue h => isTrue (by subst h; rfl)
   | isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
 
 mutual
 
-def Typ.decEq : (a b : Typ) → Decidable (a = b)
+def Typ.decEq {V : Type} [DecidableEq V] :
+    (a b : Typ.WithTypeVars V) → Decidable (a = b)
   | .prim p, .prim q => Typ.primDecEq p q
   | .empty, .empty | .value, .value => isTrue rfl
   | .sum ss, .sum ts => match Typ.decEqList ss ts with
     | isTrue h => isTrue (by subst h; rfl)
     | isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
   | .arrow ss s sp, .arrow ts t sp' =>
-    match Typ.decEqList ss ts, s.decEq t, Typ.decEqSpec? sp sp' with
+    match Typ.decEqList ss ts, Typ.decEq s t, Typ.decEqSpec? sp sp' with
     | isTrue h1, isTrue h2, isTrue h3 => isTrue (by subst h1; subst h2; subst h3; rfl)
     | isFalse h, _, _ => isFalse (by intro heq; cases heq; exact h rfl)
     | _, isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
     | _, _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
-  | .ref s, .ref t => match s.decEq t with
+  | .ref s, .ref t => match Typ.decEq s t with
     | isTrue h => isTrue (by subst h; rfl)
     | isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
-  | .array s, .array t => match s.decEq t with
+  | .array s, .array t => match Typ.decEq s t with
     | isTrue h => isTrue (by subst h; rfl)
     | isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
-  | .ownedArray s, .ownedArray t => match s.decEq t with
+  | .ownedArray s, .ownedArray t => match Typ.decEq s t with
     | isTrue h => isTrue (by subst h; rfl)
     | isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
-  | .vec s, .vec t => match s.decEq t with
+  | .vec s, .vec t => match Typ.decEq s t with
     | isTrue h => isTrue (by subst h; rfl)
     | isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
-  | .owned s, .owned t => match s.decEq t with
+  | .owned s, .owned t => match Typ.decEq s t with
     | isTrue h => isTrue (by subst h; rfl)
     | isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
   | .tuple ss, .tuple ts => match Typ.decEqList ss ts with
     | isTrue h => isTrue (by subst h; rfl)
     | isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
-  | .tvar v, .tvar w => match (inferInstance : DecidableEq TyVar) v w with
+  | .tvar v, .tvar w => match (inferInstance : DecidableEq V) v w with
     | isTrue h => isTrue (by subst h; rfl)
     | isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
   | .named T args, .named U params =>
@@ -266,10 +294,11 @@ def Typ.decEq : (a b : Typ) → Decidable (a = b)
 termination_by structural a _ => a
 
 /-- Equality of type lists, mutually with `Typ.decEq`. -/
-def Typ.decEqList : (as bs : List Typ) → Decidable (as = bs)
+def Typ.decEqList {V : Type} [DecidableEq V] :
+    (as bs : List (Typ.WithTypeVars V)) → Decidable (as = bs)
   | [], [] => isTrue rfl
   | [], _ :: _ | _ :: _, [] => isFalse (by intro h; cases h)
-  | a :: as, b :: bs => match a.decEq b, Typ.decEqList as bs with
+  | a :: as, b :: bs => match Typ.decEq a b, Typ.decEqList as bs with
     | isTrue h1, isTrue h2 => isTrue (by subst h1; subst h2; rfl)
     | isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
     | _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
@@ -281,7 +310,8 @@ def Typ.decEqList : (as bs : List Typ) → Decidable (as = bs)
 termination_by structural a _ => a
 
 /-- Equality of atoms over TinyML types, mutually with `Typ.decEq`. -/
-def Typ.decEqAtom {s : Srt} : (a b : Atom Typ s) → Decidable (a = b)
+def Typ.decEqAtom {V : Type} [DecidableEq V] {s : Srt} :
+    (a b : Atom (Typ.WithTypeVars V) s) → Decidable (a = b)
   | .isint t, .isint u | .isbool t, .isbool u =>
     match _root_.decEq t u with
     | isTrue h => isTrue (by subst h; rfl)
@@ -310,7 +340,8 @@ def Typ.decEqAtom {s : Srt} : (a b : Atom Typ s) → Decidable (a = b)
 termination_by structural a _ => a
 
 /-- Equality of postcondition assertions, mutually with `Typ.decEq`. -/
-def Typ.decEqPost : (a b : Assertion Typ Unit) → Decidable (a = b)
+def Typ.decEqPost {V : Type} [DecidableEq V] :
+    (a b : Assertion (Typ.WithTypeVars V) Unit) → Decidable (a = b)
   | .ret (), .ret () => isTrue rfl
   | .assert φ k, .assert ψ k' =>
     match _root_.decEq φ ψ, Typ.decEqPost k k' with
@@ -350,7 +381,8 @@ def Typ.decEqPost : (a b : Assertion Typ Unit) → Decidable (a = b)
 termination_by structural a _ => a
 
 /-- Equality of predicate transformers, mutually with `Typ.decEq`. -/
-def Typ.decEqPredTrans : (a b : Assertion Typ (Post Typ)) → Decidable (a = b)
+def Typ.decEqPredTrans {V : Type} [DecidableEq V] :
+    (a b : Assertion (Typ.WithTypeVars V) (Post (Typ.WithTypeVars V))) → Decidable (a = b)
   | .ret p, .ret q =>
     match _root_.decEq p.name q.name, Typ.decEqPost p.body q.body with
     | isTrue h1, isTrue h2 => isTrue (by cases p; cases q; simp_all)
@@ -394,7 +426,8 @@ def Typ.decEqPredTrans : (a b : Assertion Typ (Post Typ)) → Decidable (a = b)
 termination_by structural a _ => a
 
 /-- Equality of specifications, mutually with `Typ.decEq`. -/
-def Typ.decEqSpec : (a b : Spec Typ) → Decidable (a = b)
+def Typ.decEqSpec {V : Type} [DecidableEq V] :
+    (a b : Spec (Typ.WithTypeVars V)) → Decidable (a = b)
   | ⟨as, p⟩, ⟨bs, q⟩ =>
     match _root_.decEq as bs, Typ.decEqPredTrans p q with
     | isTrue h1, isTrue h2 => isTrue (by subst h1; subst h2; rfl)
@@ -403,7 +436,8 @@ def Typ.decEqSpec : (a b : Spec Typ) → Decidable (a = b)
 termination_by structural a _ => a
 
 /-- Equality of optional specifications, mutually with `Typ.decEq`. -/
-def Typ.decEqSpec? : (a b : Option (Spec Typ)) → Decidable (a = b)
+def Typ.decEqSpec? {V : Type} [DecidableEq V] :
+    (a b : Option (Spec (Typ.WithTypeVars V))) → Decidable (a = b)
   | none, none => isTrue rfl
   | none, some _ | some _, none => isFalse (by intro h; cases h)
   | some s, some t =>
@@ -414,10 +448,10 @@ termination_by structural a _ => a
 
 end
 
-instance : DecidableEq Typ := Typ.decEq
+instance {V : Type} [DecidableEq V] : DecidableEq (Typ.WithTypeVars V) := Typ.decEq
 
-instance : BEq Typ := ⟨fun a b => decide (a = b)⟩
-instance : LawfulBEq Typ where
+instance {V : Type} [DecidableEq V] : BEq (Typ.WithTypeVars V) := ⟨fun a b => decide (a = b)⟩
+instance {V : Type} [DecidableEq V] : LawfulBEq (Typ.WithTypeVars V) where
   eq_of_beq h := of_decide_eq_true h
   rfl := by simp [BEq.beq]
 
@@ -426,19 +460,24 @@ instance : LawfulBEq Typ where
 Both descend into an arrow's specification: the `own` and `arr` atoms of a
 specification mention types, so a type variable can occur inside one. Each
 traversal is spelled out over the specification syntax the same way `Typ.decEq`
-is, since `Typ` nests those types and a generic map over them would not be
-structurally recursive. -/
+is, since `Typ` nests those types and a single generic map over them would not
+be structurally recursive.
 
-mutual
+Substitution also changes the variables a type is written over, so it is what
+moves a type between the instantiations of `Typ.WithTypeVars`: `Typ.subst
+Empty.elim` embeds a `Typ` into any of them, and a substitution into `Typ`
+closes a `SchemaTyp`. -/
 
 /-- The type with a top-level arrow's specification dropped; the identity on
 everything else. Used where only the signature of an arrow matters. -/
-def Typ.unspec : Typ → Typ
+def Typ.unspec : Typ.WithTypeVars V → Typ.WithTypeVars V
   | .arrow args ret _ => .arrow args ret none
   | t => t
 
-/-- Substitution over `Typ`, replacing each type variable by `σ`. -/
-def Typ.subst (σ : TyVar → Typ) : Typ → Typ
+mutual
+
+/-- Substitution over a type, replacing each type variable by `σ`. -/
+def Typ.subst (σ : V → Typ.WithTypeVars W) : Typ.WithTypeVars V → Typ.WithTypeVars W
   | .prim p => .prim p
   | .sum ts => .sum (Typ.substList σ ts)
   | .arrow args ret spec =>
@@ -456,13 +495,15 @@ def Typ.subst (σ : TyVar → Typ) : Typ → Typ
 termination_by structural t => t
 
 /-- Substitution over a list of types, mutually with `Typ.subst`. -/
-def Typ.substList (σ : TyVar → Typ) : List Typ → List Typ
+def Typ.substList (σ : V → Typ.WithTypeVars W) :
+    List (Typ.WithTypeVars V) → List (Typ.WithTypeVars W)
   | [] => []
   | t :: ts => Typ.subst σ t :: Typ.substList σ ts
 termination_by structural ts => ts
 
 /-- Substitution in the types an atom mentions, mutually with `Typ.subst`. -/
-def Typ.substAtom (σ : TyVar → Typ) : {s : Srt} → Atom Typ s → Atom Typ s
+def Typ.substAtom (σ : V → Typ.WithTypeVars W) :
+    {s : Srt} → Atom (Typ.WithTypeVars V) s → Atom (Typ.WithTypeVars W) s
   | _, .isint t => .isint t
   | _, .isbool t => .isbool t
   | _, .isinj tag arity t => .isinj tag arity t
@@ -472,7 +513,8 @@ def Typ.substAtom (σ : TyVar → Typ) : {s : Srt} → Atom Typ s → Atom Typ s
 termination_by structural _ a => a
 
 /-- Substitution in a postcondition assertion, mutually with `Typ.subst`. -/
-def Typ.substPost (σ : TyVar → Typ) : Assertion Typ Unit → Assertion Typ Unit
+def Typ.substPost (σ : V → Typ.WithTypeVars W) :
+    Assertion (Typ.WithTypeVars V) Unit → Assertion (Typ.WithTypeVars W) Unit
   | .ret () => .ret ()
   | .assert φ k => .assert φ (Typ.substPost σ k)
   | .let_ v t k => .let_ v t (Typ.substPost σ k)
@@ -481,8 +523,9 @@ def Typ.substPost (σ : TyVar → Typ) : Assertion Typ Unit → Assertion Typ Un
 termination_by structural a => a
 
 /-- Substitution in a predicate transformer, mutually with `Typ.subst`. -/
-def Typ.substPredTrans (σ : TyVar → Typ) :
-    Assertion Typ (Post Typ) → Assertion Typ (Post Typ)
+def Typ.substPredTrans (σ : V → Typ.WithTypeVars W) :
+    Assertion (Typ.WithTypeVars V) (Post (Typ.WithTypeVars V)) →
+      Assertion (Typ.WithTypeVars W) (Post (Typ.WithTypeVars W))
   | .ret p => .ret ⟨p.name, Typ.substPost σ p.body⟩
   | .assert φ k => .assert φ (Typ.substPredTrans σ k)
   | .let_ v t k => .let_ v t (Typ.substPredTrans σ k)
@@ -491,12 +534,14 @@ def Typ.substPredTrans (σ : TyVar → Typ) :
 termination_by structural a => a
 
 /-- Substitution in a specification, mutually with `Typ.subst`. -/
-def Typ.substSpec (σ : TyVar → Typ) : Spec Typ → Spec Typ
+def Typ.substSpec (σ : V → Typ.WithTypeVars W) :
+    Spec (Typ.WithTypeVars V) → Spec (Typ.WithTypeVars W)
   | s => { args := s.args, pred := Typ.substPredTrans σ s.pred }
 termination_by structural s => s
 
 /-- Substitution in an optional specification, mutually with `Typ.subst`. -/
-def Typ.substSpec? (σ : TyVar → Typ) : Option (Spec Typ) → Option (Spec Typ)
+def Typ.substSpec? (σ : V → Typ.WithTypeVars W) :
+    Option (Spec (Typ.WithTypeVars V)) → Option (Spec (Typ.WithTypeVars W))
   | none => none
   | some s => some (Typ.substSpec σ s)
 termination_by structural s => s
@@ -505,8 +550,97 @@ end
 
 mutual
 
+/-- Substitution that may reject a variable, used where a substitution is only
+partial: instantiating a scheme at a solved assignment, say, which fails on a
+variable the assignment does not cover. -/
+def Typ.substM (σ : V → Except ε (Typ.WithTypeVars W)) :
+    Typ.WithTypeVars V → Except ε (Typ.WithTypeVars W)
+  | .prim p => pure (.prim p)
+  | .sum ts => do pure (.sum (← Typ.substListM σ ts))
+  | .arrow args ret spec => do
+      pure (.arrow (← Typ.substListM σ args) (← Typ.substM σ ret)
+        (← Typ.substSpecM? σ spec))
+  | .ref t => do pure (.ref (← Typ.substM σ t))
+  | .array t => do pure (.array (← Typ.substM σ t))
+  | .ownedArray t => do pure (.ownedArray (← Typ.substM σ t))
+  | .vec t => do pure (.vec (← Typ.substM σ t))
+  | .owned t => do pure (.owned (← Typ.substM σ t))
+  | .empty => pure .empty
+  | .value => pure .value
+  | .tuple ts => do pure (.tuple (← Typ.substListM σ ts))
+  | .tvar v => σ v
+  | .named T args => do pure (.named T (← Typ.substListM σ args))
+termination_by structural t => t
+
+/-- Rejecting substitution over a list of types, mutually with `Typ.substM`. -/
+def Typ.substListM (σ : V → Except ε (Typ.WithTypeVars W)) :
+    List (Typ.WithTypeVars V) → Except ε (List (Typ.WithTypeVars W))
+  | [] => pure []
+  | t :: ts => do pure ((← Typ.substM σ t) :: (← Typ.substListM σ ts))
+termination_by structural ts => ts
+
+/-- Rejecting substitution in an atom's types, mutually with `Typ.substM`. -/
+def Typ.substAtomM (σ : V → Except ε (Typ.WithTypeVars W)) :
+    {s : Srt} → Atom (Typ.WithTypeVars V) s → Except ε (Atom (Typ.WithTypeVars W) s)
+  | _, .isint t => pure (.isint t)
+  | _, .isbool t => pure (.isbool t)
+  | _, .isinj tag arity t => pure (.isinj tag arity t)
+  | _, .own t ty => do pure (.own t (← Typ.substM σ ty))
+  | _, .arr t ty => do pure (.arr t (← Typ.substM σ ty))
+  | _, .rel n t => pure (.rel n t)
+termination_by structural _ a => a
+
+/-- Rejecting substitution in a postcondition, mutually with `Typ.substM`. -/
+def Typ.substPostM (σ : V → Except ε (Typ.WithTypeVars W)) :
+    Assertion (Typ.WithTypeVars V) Unit → Except ε (Assertion (Typ.WithTypeVars W) Unit)
+  | .ret () => pure (.ret ())
+  | .assert φ k => do pure (.assert φ (← Typ.substPostM σ k))
+  | .let_ v t k => do pure (.let_ v t (← Typ.substPostM σ k))
+  | .pred v p k => do
+      pure (.pred v (← Typ.substAtomM σ p) (← Typ.substPostM σ k))
+  | .ite φ kt ke => do
+      pure (.ite φ (← Typ.substPostM σ kt) (← Typ.substPostM σ ke))
+termination_by structural a => a
+
+/-- Rejecting substitution in a predicate transformer, mutually with
+`Typ.substM`. -/
+def Typ.substPredTransM (σ : V → Except ε (Typ.WithTypeVars W)) :
+    Assertion (Typ.WithTypeVars V) (Post (Typ.WithTypeVars V)) →
+      Except ε (Assertion (Typ.WithTypeVars W) (Post (Typ.WithTypeVars W)))
+  | .ret p => do pure (.ret ⟨p.name, ← Typ.substPostM σ p.body⟩)
+  | .assert φ k => do pure (.assert φ (← Typ.substPredTransM σ k))
+  | .let_ v t k => do pure (.let_ v t (← Typ.substPredTransM σ k))
+  | .pred v p k => do
+      pure (.pred v (← Typ.substAtomM σ p) (← Typ.substPredTransM σ k))
+  | .ite φ kt ke => do
+      pure (.ite φ (← Typ.substPredTransM σ kt) (← Typ.substPredTransM σ ke))
+termination_by structural a => a
+
+/-- Rejecting substitution in a specification, mutually with `Typ.substM`. -/
+def Typ.substSpecM (σ : V → Except ε (Typ.WithTypeVars W)) :
+    Spec (Typ.WithTypeVars V) → Except ε (Spec (Typ.WithTypeVars W))
+  | ⟨args, pred⟩ => do pure ⟨args, ← Typ.substPredTransM σ pred⟩
+termination_by structural s => s
+
+/-- Rejecting substitution in an optional specification, mutually with
+`Typ.substM`. -/
+def Typ.substSpecM? (σ : V → Except ε (Typ.WithTypeVars W)) :
+    Option (Spec (Typ.WithTypeVars V)) → Except ε (Option (Spec (Typ.WithTypeVars W)))
+  | none => pure none
+  | some s => do pure (some (← Typ.substSpecM σ s))
+termination_by structural s => s
+
+end
+
+/-- Close a schema by instantiating each variable, failing on the first one the
+assignment does not cover. -/
+def SchemaTyp.close (inst : TyVar → Option Typ) (t : SchemaTyp) : Except TyVar Typ :=
+  Typ.substM (fun v => (inst v).elim (.error v) .ok) t
+
+mutual
+
 /-- A type is closed when it contains no type variables. -/
-def Typ.closed : Typ → Bool
+def Typ.closed : Typ.WithTypeVars V → Bool
   | .prim _ => true
   | .sum ts => Typ.closedList ts
   | .arrow args ret spec => Typ.closedList args && Typ.closed ret && Typ.closedSpec? spec
@@ -523,20 +657,20 @@ def Typ.closed : Typ → Bool
 termination_by structural t => t
 
 /-- Closedness of a list of types, mutually with `Typ.closed`. -/
-def Typ.closedList : List Typ → Bool
+def Typ.closedList : List (Typ.WithTypeVars V) → Bool
   | [] => true
   | t :: ts => Typ.closed t && Typ.closedList ts
 termination_by structural ts => ts
 
 /-- Closedness of the types an atom mentions, mutually with `Typ.closed`. -/
-def Typ.closedAtom : {s : Srt} → Atom Typ s → Bool
+def Typ.closedAtom : {s : Srt} → Atom (Typ.WithTypeVars V) s → Bool
   | _, .isint _ | _, .isbool _ | _, .isinj .. | _, .rel .. => true
   | _, .own _ ty => Typ.closed ty
   | _, .arr _ ty => Typ.closed ty
 termination_by structural _ a => a
 
 /-- Closedness of a postcondition assertion, mutually with `Typ.closed`. -/
-def Typ.closedPost : Assertion Typ Unit → Bool
+def Typ.closedPost : Assertion (Typ.WithTypeVars V) Unit → Bool
   | .ret () => true
   | .assert _ k => Typ.closedPost k
   | .let_ _ _ k => Typ.closedPost k
@@ -545,7 +679,7 @@ def Typ.closedPost : Assertion Typ Unit → Bool
 termination_by structural a => a
 
 /-- Closedness of a predicate transformer, mutually with `Typ.closed`. -/
-def Typ.closedPredTrans : Assertion Typ (Post Typ) → Bool
+def Typ.closedPredTrans : Assertion (Typ.WithTypeVars V) (Post (Typ.WithTypeVars V)) → Bool
   | .ret p => Typ.closedPost p.body
   | .assert _ k => Typ.closedPredTrans k
   | .let_ _ _ k => Typ.closedPredTrans k
@@ -554,33 +688,36 @@ def Typ.closedPredTrans : Assertion Typ (Post Typ) → Bool
 termination_by structural a => a
 
 /-- Closedness of a specification, mutually with `Typ.closed`. -/
-def Typ.closedSpec : Spec Typ → Bool
+def Typ.closedSpec : Spec (Typ.WithTypeVars V) → Bool
   | s => Typ.closedPredTrans s.pred
 termination_by structural s => s
 
 /-- Closedness of an optional specification, mutually with `Typ.closed`. -/
-def Typ.closedSpec? : Option (Spec Typ) → Bool
+def Typ.closedSpec? : Option (Spec (Typ.WithTypeVars V)) → Bool
   | none => true
   | some s => Typ.closedSpec s
 termination_by structural s => s
 
 end
 
-@[simp] theorem Typ.substList_eq (σ : TyVar → Typ) (ts : List Typ) :
+@[simp] theorem Typ.substList_eq (σ : V → Typ.WithTypeVars W) (ts : List (Typ.WithTypeVars V)) :
     Typ.substList σ ts = ts.map (Typ.subst σ) := by
   induction ts with
   | nil => rfl
   | cons t ts ih => simp [Typ.substList, ih]
 
-@[simp] theorem Typ.closedList_eq (ts : List Typ) :
+@[simp] theorem Typ.closedList_eq (ts : List (Typ.WithTypeVars V)) :
     Typ.closedList ts = (ts.map Typ.closed).all id := by
   induction ts with
   | nil => rfl
   | cons t ts ih => simp [Typ.closedList, ih]
 
+/-- A data declaration: type parameters, and one payload type per constructor.
+The payloads are schema types, since they mention the declaration's own
+parameters. -/
 structure DataDecl where
   tparams : List TyVar
-  payloads : List Typ
+  payloads : List SchemaTyp
   deriving Repr, Inhabited, DecidableEq
 
 namespace Predef
@@ -598,7 +735,7 @@ def tparams : Predef → List TyVar
   | .list | .option => ["a"]
 
 /-- Ordered constructors. Their position is the runtime injection tag. -/
-def ctors : Predef → List (String × Typ)
+def ctors : Predef → List (String × SchemaTyp)
   | .option => [
       ("None", .unit),
       ("Some", .tvar "a")]
@@ -619,15 +756,14 @@ abbrev TypeEnv := TypeName → Option DataDecl
 
 def TypeEnv.empty : TypeEnv := fun _ => none
 
-/--
-Instantiation is also scaffolding for now: until `Typ` can contain type
-variables, substitution has no observable effect.
--/
+/-- The sum of a declaration's payloads at the given type arguments. Callers
+check the argument count against `tparams` first; a parameter left unmatched by
+a mis-sized application is instantiated at the uninhabited type. -/
 def DataDecl.instantiate (d : DataDecl) (args : List Typ) : Typ :=
   let σ := fun v =>
     match (d.tparams.zip args).find? (fun p => p.1 == v) with
     | some (_, ty) => ty
-    | none => .tvar v
+    | none => .empty
   .sum (d.payloads.map (Typ.subst σ))
 
 def TypeName.unfold (Θ : TypeEnv) (T : TypeName) (args : List Typ) : Option Typ :=

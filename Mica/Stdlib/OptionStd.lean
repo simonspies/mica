@@ -127,7 +127,7 @@ def optionValueDefAxiom : Formula :=
       (unTerm "option_value" (optionSomeTerm (.var .value "value")))
       (.var .value "value")
 
-private def optionTy : TinyML.Typ := .option (.tvar "a")
+private def optionTy : TinyML.SchemaTyp := .option (.tvar "a")
 
 def optionIsSomeB : Pure.Unary where
   name := "option_is_some"

@@ -9,29 +9,40 @@ open TinyML
 namespace TinyML
 
 /-- Does the type print without parentheses in argument position? -/
-private def Typ.atomic : Typ → Bool
+private def Typ.atomic : Typ.WithTypeVars V → Bool
   | .prim _ | .empty | .value | .tvar _ | .named _ [] => true
   | _ => false
 
-def Typ.print : Typ → String
+/-- Print a type, rendering its variables with `pvar`. -/
+def Typ.printWith (pvar : V → String) : Typ.WithTypeVars V → String
   | .prim p => p.print
-  | .sum ts => s!"sum ({", ".intercalate (ts.map Typ.print)})"
-  | .arrow args ret _ =>
-      " -> ".intercalate ((args.map fun arg => wrapArg arg (Typ.print arg)) ++ [Typ.print ret])
-  | .ref t => s!"ref {wrapArg t (Typ.print t)}"
-  | .array t => s!"array {wrapArg t (Typ.print t)}"
-  | .ownedArray t => s!"owned-array {wrapArg t (Typ.print t)}"
-  | .vec t => s!"vec {wrapArg t (Typ.print t)}"
-  | .owned t => s!"owned {wrapArg t (Typ.print t)}"
+  | .sum ts => s!"sum ({", ".intercalate (ts.map (Typ.printWith pvar))})"
+  | .arrow args ret spec =>
+      -- A specification has no surface syntax to print back into, but two
+      -- arrows can differ in nothing else, so at least record that it is there.
+      " -> ".intercalate ((args.map fun arg => wrapArg arg (Typ.printWith pvar arg))
+        ++ [Typ.printWith pvar ret]) ++ (if spec.isSome then " [@@spec]" else "")
+  | .ref t => s!"ref {wrapArg t (Typ.printWith pvar t)}"
+  | .array t => s!"array {wrapArg t (Typ.printWith pvar t)}"
+  | .ownedArray t => s!"owned-array {wrapArg t (Typ.printWith pvar t)}"
+  | .vec t => s!"vec {wrapArg t (Typ.printWith pvar t)}"
+  | .owned t => s!"owned {wrapArg t (Typ.printWith pvar t)}"
   | .empty => "empty"
   | .value => "value"
-  | .tuple ts => s!"({", ".intercalate (ts.map Typ.print)})"
-  | .tvar v => s!"'{v}"
+  | .tuple ts => s!"({", ".intercalate (ts.map (Typ.printWith pvar))})"
+  | .tvar v => pvar v
   | .named T [] => T.print
-  | .named T args => s!"{T.print} ({", ".intercalate (args.map Typ.print)})"
+  | .named T args =>
+      s!"{T.print} ({", ".intercalate (args.map (Typ.printWith pvar))})"
 where
-  wrapArg (t : Typ) (s : String) : String :=
-    if t.atomic then s else s!"({s})"
+  wrapArg (t : Typ.WithTypeVars V) (s : String) : String :=
+    if Typ.atomic t then s else s!"({s})"
+
+/-- Print a closed type. -/
+def Typ.print : Typ → String := Typ.printWith Empty.elim
+
+/-- Print a schema type, showing its variables in source syntax. -/
+def SchemaTyp.print : SchemaTyp → String := Typ.printWith (fun v => s!"'{v}")
 
 end TinyML
 
@@ -41,6 +52,7 @@ namespace Untyped
 arrow carries is dropped: there is no surface syntax to print it back into. -/
 def Typ.print : Untyped.Typ → String
   | .core t => t.print
+  | .tvar v => s!"'{v}"
   | .sum ts => s!"sum ({", ".intercalate (ts.map Typ.print)})"
   | .arrow args ret _ =>
       " -> ".intercalate ((args.map fun arg => wrapArg arg (Typ.print arg)) ++ [Typ.print ret])
@@ -55,7 +67,8 @@ def Typ.print : Untyped.Typ → String
 where
   wrapArg (t : Untyped.Typ) (s : String) : String :=
     match t with
-    | .core c => if c.atomic then s else s!"({s})"
+    | .core c => if TinyML.Typ.atomic c then s else s!"({s})"
+    | .tvar _ => s
     | .named _ [] => s
     | _ => s!"({s})"
 

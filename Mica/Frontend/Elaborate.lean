@@ -409,7 +409,7 @@ partial def Typ.applyAttr (env : ElabEnv) (t : Untyped.Typ) (attr : Attribute) :
   | name, _ => err attr.loc (.unsupportedFeature s!"unknown type attribute [@{name}]")
 
 partial def TypKind.elaborate (env : ElabEnv) (loc : Location) : TypKind → ElabM Untyped.Typ
-  | .var v => .ok (.core (.tvar v))
+  | .var v => .ok (.tvar v)
   | .con path args => do
     let args' ← Typ.elaborateList env args
     -- Qualified paths route through the resolver; an alias must point to a
@@ -1035,13 +1035,34 @@ private def requireOpenMica : List Decl → ElabM (List Decl)
 -- ---------------------------------------------------------------------------
 -- Predefined types
 
+/-- Embed a schema type into the annotation language. Lossy: an arrow's
+specification is dropped, since a source specification is untyped expression
+syntax that a core one cannot be turned back into. Only the predefined
+constructor payloads go through here, and they carry none. -/
+private def schemaAnnotation : TinyML.SchemaTyp → Untyped.Typ
+  | .prim p => .core (.prim p)
+  | .sum ts => .sum (ts.map schemaAnnotation)
+  | .arrow args ret _ =>
+      .arrow (args.map schemaAnnotation) (schemaAnnotation ret) none
+  | .ref t => .ref (schemaAnnotation t)
+  | .array t => .array (schemaAnnotation t)
+  | .ownedArray t => .ownedArray (schemaAnnotation t)
+  | .vec t => .vec (schemaAnnotation t)
+  | .owned t => .owned (schemaAnnotation t)
+  | .empty => .core .empty
+  | .value => .core .value
+  | .tuple ts => .tuple (ts.map schemaAnnotation)
+  | .tvar v => .tvar v
+  | .named n args => .named n (args.map schemaAnnotation)
+
 private def predefCtorEntries (p : TinyML.Predef) :
     List (Constructor × (Nat × Nat × Untyped.Typ)) :=
   let arity := p.ctors.length
-  let rec go : List (String × TinyML.Typ) → Nat →
+  let rec go : List (String × TinyML.SchemaTyp) → Nat →
       List (Constructor × (Nat × Nat × Untyped.Typ))
     | [], _ => []
-    | (name, payload) :: rest, tag => (name, (tag, arity, .core payload)) :: go rest (tag + 1)
+    | (name, payload) :: rest, tag =>
+        (name, (tag, arity, schemaAnnotation payload)) :: go rest (tag + 1)
   go p.ctors 0
 
 /-- The initial frontend environment derived from the canonical predef catalog.

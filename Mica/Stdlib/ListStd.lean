@@ -180,7 +180,7 @@ decreasing_by simp_all [listCons]; omega
 
 /-! ## Intrinsics -/
 
-private def listTy : TinyML.Typ := .list (.tvar "a")
+private def listTy : TinyML.SchemaTyp := .list (.tvar "a")
 
 def listLengthB : Pure.Unary where
   name := "list_length"

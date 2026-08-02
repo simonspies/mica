@@ -298,12 +298,13 @@ mutual
         | .prim n inst _ => do
             let i ← VerifM.expectSome s!"unknown primitive `{n}`"
               (reg.lookup? n)
-            let σi : TinyML.TyVar → TinyML.Typ := fun v => (inst.lookup v).getD (.tvar v)
-            VerifM.expectEq "primitive return type mismatch" (i.retTy.subst σi) aty
+            let σi : TinyML.TyVar → TinyML.Typ := fun v => (inst.lookup v).getD .empty
+            VerifM.expectEq "primitive return type mismatch"
+              (TinyML.Typ.subst σi i.retTy) aty
             let sterms ← compileExprs reg Θ Δ_spec B Γ args
             let sargs := (args.map Expr.ty).zip sterms
             let (_, result) ← Spec.call Θ (FiniteSubst.base Δ_spec)
-              (i.argTys.map (·.subst σi)) (i.retTy.subst σi) i.spec sargs
+              (i.argTys.map (TinyML.Typ.subst σi)) (TinyML.Typ.subst σi i.retTy) i.spec sargs
             pure result
         | _ => VerifM.fatal "application of a function without a specification"
     | .prim n _ _ => VerifM.fatal s!"primitive `{n}` must be applied"
@@ -3434,9 +3435,9 @@ theorem compileApp_correct (reg : Verifier.Registry) (hSound : Verifier.Registry
       (VerifM.eval.decls_grow ρ heval_args) hagree hbwf hwf hag hΔreg hρreg ?_
     intro vs ρ_args st_args sargs hΨ_args hsargs_wf heval_sargs
     obtain ⟨hdecls_args, hagreeOn_args, hΨ_args⟩ := hΨ_args
-    let σi : TinyML.TyVar → TinyML.Typ := fun v => (inst.lookup v).getD (.tvar v)
-    let argTys := i.argTys.map (·.subst σi)
-    let retTy := i.retTy.subst σi
+    let σi : TinyML.TyVar → TinyML.Typ := fun v => (inst.lookup v).getD .empty
+    let argTys := i.argTys.map (TinyML.Typ.subst σi)
+    let retTy := TinyML.Typ.subst σi i.retTy
     let typedArgs := (args.map Expr.ty).zip sargs
     have hlen_sargs : sargs.length = vs.length := by
       simpa [Terms.Eval] using List.Forall₂.length_eq heval_sargs

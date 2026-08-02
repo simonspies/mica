@@ -5,6 +5,7 @@ import Mica.SourceTinyML.Typed
 import Mica.TinyML.RuntimeExpr
 import Mica.SourceTinyML.Assertions
 import Mica.SourceTinyML.TypeConstraints
+import Mica.SourceTinyML.Printer
 import Mica.Base.Except
 
 namespace TinyML
@@ -101,6 +102,7 @@ inductive TypeError where
   | spec (msg : String)
   | unknownPrimitive (name : String)
   | cannotInstantiate (name : String) (msg : String)
+  | unboundTypeVar (name : TyVar)
   deriving Repr, Inhabited, DecidableEq
 
 instance : ToString TypeError where
@@ -108,24 +110,25 @@ instance : ToString TypeError where
     | .undefinedVar name => s!"undefined variable: {name}"
     | .duplicateType name => s!"duplicate type: {name}"
     | .operatorMismatch op lhs rhs =>
-        s!"operator {repr op} cannot be applied to {repr lhs} and {repr rhs}"
+        s!"operator {repr op} cannot be applied to {lhs.print} and {rhs.print}"
     | .unaryMismatch op arg =>
-        s!"operator {repr op} cannot be applied to {repr arg}"
-    | .notAFunction ty => s!"not a function: {repr ty}"
+        s!"operator {repr op} cannot be applied to {arg.print}"
+    | .notAFunction ty => s!"not a function: {ty.print}"
     | .arityMismatch expected actual =>
         s!"arity mismatch: expected {expected}, got {actual}"
     | .typeMismatch expected actual =>
-        s!"type mismatch: expected {repr expected}, got {repr actual}"
-    | .notASum ty => s!"not a sum type: {repr ty}"
-    | .notARef ty => s!"not a ref type: {repr ty}"
-    | .notAnArray ty => s!"not an array type: {repr ty}"
+        s!"type mismatch: expected {expected.print}, got {actual.print}"
+    | .notASum ty => s!"not a sum type: {ty.print}"
+    | .notARef ty => s!"not a ref type: {ty.print}"
+    | .notAnArray ty => s!"not an array type: {ty.print}"
     | .missingReturnType => "missing return type"
     | .subsumptionFailure sub super =>
-        s!"subsumption failed: {repr sub} is not a subtype of {repr super}"
+        s!"subsumption failed: {sub.print} is not a subtype of {super.print}"
     | .spec msg => s!"specification error: {msg}"
     | .unknownPrimitive name => s!"unknown primitive: {name}"
     | .cannotInstantiate name msg =>
         s!"cannot instantiate primitive {name}: {msg}"
+    | .unboundTypeVar name => s!"unbound type variable '{name}"
 
 def Binder.ofUntyped (b : Untyped.Binder) (ty : Typ) : Typed.Binder :=
   match b with
@@ -155,7 +158,7 @@ def extendTypeEnv (Θ : TypeEnv) (name : TypeName) (body : DataDecl) : Except Ty
     untrusted — the elaborator re-checks arguments against the instantiated
     scheme, so a wrong instantiation is rejected, never unsound. -/
 structure PrimSig where
-  scheme : Typ
+  scheme : SchemaTyp
   typing : TypeEnv → List Typ → Except String (List (TyVar × Typ))
 
 /-! ## The typing monad
@@ -322,6 +325,7 @@ mutual
   function the type describes cannot mention. -/
   def translate (env : SpecEnv σ) (Θ : TypeEnv) : Untyped.Typ → TypeM σ Typ
     | .core t => pure t
+    | .tvar v => TypeM.error (.unboundTypeVar v)
     | .sum ts => do pure (.sum (← translateList env Θ ts))
     | .arrow args ret spec => do
         let args' ← translateList env Θ args
@@ -394,8 +398,10 @@ mutual
         match env.primitive n with
         | none => TypeM.error (.unknownPrimitive n)
         | some sig =>
-          if sig.scheme.closed then pure (sig.scheme, .prim n [] sig.scheme)
-          else TypeM.error (.cannotInstantiate n "a polymorphic primitive must be applied")
+          match SchemaTyp.close (fun _ => none) sig.scheme with
+          | .ok ty => pure (ty, .prim n [] ty)
+          | .error _ =>
+            TypeM.error (.cannotInstantiate n "a polymorphic primitive must be applied")
     | .unop op e => do
         let (argTy, e') ← infer env Θ Γ e
         match TinyML.UnOp.typeOf op argTy with
@@ -425,13 +431,13 @@ mutual
             match sig.typing Θ (inferred.map Prod.fst) with
             | .error msg => TypeM.error (.cannotInstantiate n msg)
             | .ok inst =>
-              let ty := sig.scheme.subst fun v => (inst.lookup v).getD (.tvar v)
-              if ty.closed then do
+              match SchemaTyp.close (fun v => inst.lookup v) sig.scheme with
+              | .ok ty => do
                 let (doms, retTy) ← TypeM.ofExcept (domains ty inferred.length)
                 let args' ← TypeM.ofExcept (checkInferred Θ doms inferred)
                 pure (retTy, .app (.prim n inst ty) args' retTy)
-              else
-                TypeM.error (.cannotInstantiate n "unresolved type variables")
+              | .error v =>
+                TypeM.error (.cannotInstantiate n s!"unresolved type variable '{v}")
         | none => do
             let (fnTy, fn') ← infer env Θ Γ fn
             let (doms, retTy) ← TypeM.ofExcept (domains fnTy args.length)
@@ -724,6 +730,37 @@ mutual
   decreasing_by obtain ⟨args, pre⟩ := rb; simp; omega
 end
 
+mutual
+
+/-- Translate a payload type, keeping the declaration's own type parameters as
+variables. A payload that carries a specification has no variables to keep —
+`translate` rejects them everywhere else — so it is translated as an ordinary
+type and embedded. -/
+def translateSchema (env : SpecEnv σ) (Θ : TypeEnv) : Untyped.Typ → TypeM σ SchemaTyp
+  | .core t => pure (Typ.subst Empty.elim t)
+  | .tvar v => pure (.tvar v)
+  | .sum ts => do pure (.sum (← translateSchemaList env Θ ts))
+  | .arrow args ret none => do
+      pure (.arrow (← translateSchemaList env Θ args) (← translateSchema env Θ ret) none)
+  | t@(.arrow _ _ (some _)) => do pure (Typ.subst Empty.elim (← translate env Θ t))
+  | .ref t => do pure (.ref (← translateSchema env Θ t))
+  | .array t => do pure (.array (← translateSchema env Θ t))
+  | .ownedArray t => do pure (.ownedArray (← translateSchema env Θ t))
+  | .vec t => do pure (.vec (← translateSchema env Θ t))
+  | .owned t => do pure (.owned (← translateSchema env Θ t))
+  | .tuple ts => do pure (.tuple (← translateSchemaList env Θ ts))
+  | .named n args => do pure (.named n (← translateSchemaList env Θ args))
+termination_by t => sizeOf t
+
+def translateSchemaList (env : SpecEnv σ) (Θ : TypeEnv) :
+    List Untyped.Typ → TypeM σ (List SchemaTyp)
+  | [] => pure []
+  | t :: ts => do
+      pure ((← translateSchema env Θ t) :: (← translateSchemaList env Θ ts))
+termination_by ts => sizeOf ts
+
+end
+
 /-- Lower a data declaration's payloads, elaborating any specification they
 carry. A constructor payload is a type like any other, so it may describe a
 specified function; its specification is elaborated once, against the bindings
@@ -732,7 +769,7 @@ route: the frontend inlines a record type as a tuple, so a field's
 specification is elaborated at each mention of the record type instead.) -/
 def translateDataDecl (env : SpecEnv σ) (Θ : TypeEnv) (d : Untyped.DataDecl) :
     TypeM σ TinyML.DataDecl := do
-  pure { tparams := d.tparams, payloads := ← translateList env Θ d.payloads }
+  pure { tparams := d.tparams, payloads := ← translateSchemaList env Θ d.payloads }
 
 theorem Binder.ofUntyped_runtime (b : Untyped.Binder) (ty : Typ) :
     (Typed.Binder.ofUntyped b ty).runtime = b.runtime := by
@@ -843,7 +880,7 @@ private def checkDeclAnnotation (env : SpecEnv σ) (Θ : TypeEnv) (b : Untyped.B
   match b with
   | .named _ (some ann) => do
       let ann' ← translate env Θ ann
-      if ty.unspec == ann' then pure () else TypeM.error (.subsumptionFailure ty ann')
+      if Typ.unspec ty == ann' then pure () else TypeM.error (.subsumptionFailure ty ann')
   | _ => pure ()
 
 def ValDecl.elaborate (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx)
@@ -937,11 +974,12 @@ mutual
         cases hp : env.primitive n with
         | none => simp [hp] at h
         | some sig =>
-          by_cases hc : sig.scheme.closed
-          · simp [hp, hc] at h
+          cases hc : SchemaTyp.close (fun _ => none) sig.scheme with
+          | error _ => simp [hp, hc] at h
+          | ok ty =>
+            simp [hp, hc] at h
             rcases h with ⟨⟨rfl, rfl⟩, rfl⟩
             simp [Expr.runtime, Untyped.Expr.runtime]
-          · simp [hp, hc] at h
     | .unop op e => by
         let ih := infer_runtime env Θ Γ e
         intro s result s' h
@@ -1004,8 +1042,11 @@ mutual
             | error msg => simp [hty] at hcont
             | ok inst =>
               simp only [hty] at hcont
-              split at hcont
-              · have ⟨dr, s₁, hdoms, hcont⟩ := StateT.bind_ok hcont
+              cases hinst : SchemaTyp.close (fun v => inst.lookup v) sig.scheme with
+              | error v => simp [hinst] at hcont
+              | ok ty =>
+                simp only [hinst] at hcont
+                have ⟨dr, s₁, hdoms, hcont⟩ := StateT.bind_ok hcont
                 cases dr with
                 | mk doms retTy =>
                   have ⟨args', s₂, hchk, hcont⟩ := StateT.bind_ok hcont
@@ -1014,7 +1055,6 @@ mutual
                     Untyped.Expr.primName?_runtime hpn]
                   rw [checkInferred_runtime Θ inferred _ _ (TypeM.ofExcept_ok.mp hchk).1,
                     ihList _ _ _ hinf]
-              · simp at hcont
         | none =>
           simp only [hpn] at h
           obtain ⟨fp, s₀, hfn, hcont⟩ := StateT.bind_ok h
