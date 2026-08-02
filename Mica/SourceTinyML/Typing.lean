@@ -229,7 +229,7 @@ def checkInferred (Θ : TypeEnv) :
         .ok (arg :: args')
       else if Typ.sub Θ argTy dom then do
         let args' ← checkInferred Θ doms rest
-        .ok (arg.cast dom :: args')
+        .ok (Expr.cast arg dom :: args')
       else .error (.subsumptionFailure argTy dom)
   | doms, rest => .error (.arityMismatch doms.length rest.length)
 
@@ -237,7 +237,7 @@ def checkInferred (Θ : TypeEnv) :
 theorem checkInferred_runtime (Θ : TypeEnv) :
     (pairs : List (Typ × Typed.Expr)) → ∀ doms result,
       checkInferred Θ doms pairs = .ok result →
-      result.map Expr.runtime = (pairs.map Prod.snd).map Expr.runtime
+      result.map Expr.WithTypeVars.runtime = (pairs.map Prod.snd).map Expr.WithTypeVars.runtime
   | [] => by
       intro doms result h
       cases doms <;> simp [checkInferred] at h
@@ -258,7 +258,7 @@ theorem checkInferred_runtime (Θ : TypeEnv) :
           · have ⟨args', hrest, hcont⟩ := Except.bind_ok h
             simp at hcont
             cases hcont
-            simp only [List.map, Expr.runtime]
+            simp only [List.map, Expr.WithTypeVars.runtime]
             rw [checkInferred_runtime Θ rest doms _ hrest]
           · simp at h
 
@@ -416,7 +416,7 @@ mutual
     | .fix self args retTy body => do
         let retTy := (← translateOpt env Θ retTy).getD .value
         let typedArgs ← typedBinders env Θ args
-        let selfTy := Typ.arrow (typedArgs.map Binder.ty) retTy none
+        let selfTy := Typ.arrow (typedArgs.map Binder.WithTypeVars.ty) retTy none
         let typedSelf := Typed.Binder.ofUntyped self selfTy
         let Γ' := typedArgs.foldl extendTyped (extendTyped Γ typedSelf)
         let body' ← check env Θ Γ' body retTy
@@ -570,7 +570,7 @@ mutual
           -- The self-reference is typed at the specified arrow, so a recursive
           -- call goes through the specification.
           let typedSelf :=
-            Typed.Binder.ofUntyped self (.arrow (typedArgs.map Binder.ty) ret (some s))
+            Typed.Binder.ofUntyped self (.arrow (typedArgs.map Binder.WithTypeVars.ty) ret (some s))
           let Γ' := typedArgs.foldl extendTyped (extendTyped Γ typedSelf)
           let body' ← check env Θ Γ' body ret
           pure (.fix typedSelf typedArgs ret (some s) body')
@@ -778,7 +778,7 @@ theorem Binder.ofUntyped_runtime (b : Untyped.Binder) (ty : Typ) :
 theorem typedBinders_runtime (env : SpecEnv σ) (Θ : TypeEnv) :
     ∀ (binders : List Untyped.Binder) (typed : List Typed.Binder) (s s' : σ),
       typedBinders env Θ binders s = .ok (typed, s') →
-        typed.map Typed.Binder.runtime = binders.map Untyped.Binder.runtime
+        typed.map Typed.Binder.WithTypeVars.runtime = binders.map Untyped.Binder.runtime
   | [], typed, s, s', h => by
       simp [typedBinders] at h
       rcases h with ⟨rfl, rfl⟩
@@ -793,7 +793,7 @@ theorem typedBinders_runtime (env : SpecEnv σ) (Θ : TypeEnv) :
 theorem checkBinders_runtime (env : SpecEnv σ) (Θ : TypeEnv) :
     ∀ (binders : List Untyped.Binder) (tys : List Typ) (typed : List Typed.Binder) (s s' : σ),
       checkBinders env Θ binders tys s = .ok (typed, s') →
-        typed.map Typed.Binder.runtime = binders.map Untyped.Binder.runtime
+        typed.map Typed.Binder.WithTypeVars.runtime = binders.map Untyped.Binder.runtime
   | [], [], typed, s, s', h => by
       simp [checkBinders] at h
       rcases h with ⟨rfl, rfl⟩
@@ -814,7 +814,7 @@ theorem checkBinders_runtime (env : SpecEnv σ) (Θ : TypeEnv) :
 theorem inferProductBinders_runtime (env : SpecEnv σ) (Θ : TypeEnv) :
     ∀ (binders : List Untyped.Binder) (tys : List Typ) (typed : List Typed.Binder) (s s' : σ),
       inferProductBinders env Θ binders tys s = .ok (typed, s') →
-        typed.map Typed.Binder.runtime = binders.map Untyped.Binder.runtime
+        typed.map Typed.Binder.WithTypeVars.runtime = binders.map Untyped.Binder.runtime
   | [], [], typed, s, s', h => by
       simp [inferProductBinders] at h
       rcases h with ⟨rfl, rfl⟩
@@ -857,7 +857,7 @@ def elabSpecifiedFix (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx)
       let ret := (← translateOpt env Θ retTy).getD .value
       let typedArgs ← typedBinders env Θ args
       let s ← elabSpecBody env Θ Γ typedArgs ret rb
-      pure (s, ← check env Θ Γ e (.arrow (typedArgs.map Binder.ty) ret (some s)))
+      pure (s, ← check env Θ Γ e (.arrow (typedArgs.map Binder.WithTypeVars.ty) ret (some s)))
   | _ => TypeM.error (.spec "attached to a non-function declaration")
 
 /-- A declaration is specified once. `[@@spec]` and a specification on the
@@ -926,11 +926,11 @@ def Program.elaborate (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx) :
 
 private theorem branchListRuntime_cast_joinAll
     (Θ : TypeEnv) (branches' : List (Typed.Binder × Typed.Expr)) :
-    Expr.branchListRuntime
+    Expr.WithTypeVars.branchListRuntime
       (branches'.map fun x =>
         (x.1, if x.2.ty = joinAll Θ (branches'.map (fun p => p.2.ty)) then x.2
-              else x.2.cast (joinAll Θ (branches'.map (fun p => p.2.ty))))) =
-    Expr.branchListRuntime branches' := by
+              else Expr.cast x.2 (joinAll Θ (branches'.map (fun p => p.2.ty))))) =
+    Expr.WithTypeVars.branchListRuntime branches' := by
   simpa [BEq.beq] using
     Typed.Expr.branchListRuntime_castBodies
       (joinAll Θ (branches'.map (fun p => p.2.ty))) branches'
@@ -958,7 +958,7 @@ mutual
         intro s result s' h
         simp [Typed.infer] at h
         rcases h with ⟨⟨rfl, rfl⟩, rfl⟩
-        simp [Expr.runtime, Untyped.Expr.runtime]
+        simp [Expr.WithTypeVars.runtime, Untyped.Expr.runtime]
     | .var x => by
         intro s result s' h
         unfold Typed.infer at h
@@ -967,7 +967,7 @@ mutual
         | some ty =>
           simp [hΓ] at h
           rcases h with ⟨⟨rfl, rfl⟩, rfl⟩
-          simp [Expr.runtime, Untyped.Expr.runtime]
+          simp [Expr.WithTypeVars.runtime, Untyped.Expr.runtime]
     | .prim n => by
         intro s result s' h
         unfold Typed.infer at h
@@ -979,7 +979,7 @@ mutual
           | ok ty =>
             simp [hp, hc] at h
             rcases h with ⟨⟨rfl, rfl⟩, rfl⟩
-            simp [Expr.runtime, Untyped.Expr.runtime]
+            simp [Expr.WithTypeVars.runtime, Untyped.Expr.runtime]
     | .unop op e => by
         let ih := infer_runtime env Θ Γ e
         intro s result s' h
@@ -992,7 +992,7 @@ mutual
             simp [hty] at hcont
           | some resTy =>
             rcases (by simpa [hty] using hcont) with ⟨⟨rfl, rfl⟩, rfl⟩
-            simp [Expr.runtime, Untyped.Expr.runtime, ih _ _ _ hinfer]
+            simp [Expr.WithTypeVars.runtime, Untyped.Expr.runtime, ih _ _ _ hinfer]
     | .binop op lhs rhs => by
         let ihL := infer_runtime env Θ Γ lhs
         let ihR := infer_runtime env Θ Γ rhs
@@ -1009,7 +1009,7 @@ mutual
               simp [hty] at hcont
             | some resTy =>
               rcases (by simpa [hty] using hcont) with ⟨⟨rfl, rfl⟩, rfl⟩
-              simp [Expr.runtime, Untyped.Expr.runtime, ihL _ _ _ hlhs, ihR _ _ _ hrhs]
+              simp [Expr.WithTypeVars.runtime, Untyped.Expr.runtime, ihL _ _ _ hlhs, ihR _ _ _ hrhs]
     | .fix self args retTy body => by
         intro s result s' h
         unfold Typed.infer at h
@@ -1019,10 +1019,10 @@ mutual
         let ih := check_runtime env Θ
           (typedArgs.foldl extendTyped
             (extendTyped Γ (Typed.Binder.ofUntyped self
-              (Typ.arrow (typedArgs.map Binder.ty) (retTy'.getD .value) none))))
+              (Typ.arrow (typedArgs.map Binder.WithTypeVars.ty) (retTy'.getD .value) none))))
           body (retTy'.getD .value)
         rcases (by simpa using hcont) with ⟨⟨rfl, rfl⟩, rfl⟩
-        simp [Expr.runtime, Untyped.Expr.runtime, ih _ _ _ hbody, Binder.ofUntyped_runtime,
+        simp [Expr.WithTypeVars.runtime, Untyped.Expr.runtime, ih _ _ _ hbody, Binder.ofUntyped_runtime,
           typedBinders_runtime env Θ args typedArgs s₀ s₁ hargs]
     | .app fn args => by
         let ihFn := infer_runtime env Θ Γ fn
@@ -1051,7 +1051,7 @@ mutual
                 | mk doms retTy =>
                   have ⟨args', s₂, hchk, hcont⟩ := StateT.bind_ok hcont
                   rcases (by simpa using hcont) with ⟨⟨rfl, rfl⟩, rfl⟩
-                  simp only [Expr.runtime, Untyped.Expr.runtime,
+                  simp only [Expr.WithTypeVars.runtime, Untyped.Expr.runtime,
                     Untyped.Expr.primName?_runtime hpn]
                   rw [checkInferred_runtime Θ inferred _ _ (TypeM.ofExcept_ok.mp hchk).1,
                     ihList _ _ _ hinf]
@@ -1063,7 +1063,7 @@ mutual
           obtain ⟨doms, retTy⟩ := dr
           obtain ⟨args', s₂, hargs, hcont⟩ := StateT.bind_ok hcont
           rcases (by simpa [hargs] using hcont) with ⟨⟨rfl, rfl⟩, rfl⟩
-          simp [Expr.runtime, Untyped.Expr.runtime, ihFn _ _ _ hfn, ihArgs doms _ _ _ hargs]
+          simp [Expr.WithTypeVars.runtime, Untyped.Expr.runtime, ihFn _ _ _ hfn, ihArgs doms _ _ _ hargs]
     | .ifThenElse cond thn els => by
         let ihCond := check_runtime env Θ Γ cond .bool
         let ihThn := infer_runtime env Θ Γ thn
@@ -1078,18 +1078,18 @@ mutual
           cases ep with
           | mk elsTy els' =>
             rcases (by simpa [hels] using hcont) with ⟨⟨rfl, rfl⟩, rfl⟩
-            simp [Expr.runtime, Untyped.Expr.runtime, ihCond _ _ _ hcond]
+            simp [Expr.WithTypeVars.runtime, Untyped.Expr.runtime, ihCond _ _ _ hcond]
             constructor
             · by_cases hj : thnTy = Typ.join Θ thnTy elsTy
               · rw [if_pos hj]
                 exact ihThn _ _ _ hthn
               · rw [if_neg hj]
-                simpa [Typed.Expr.runtime] using ihThn _ _ _ hthn
+                simpa [Typed.Expr.WithTypeVars.runtime] using ihThn _ _ _ hthn
             · by_cases hj : elsTy = Typ.join Θ thnTy elsTy
               · rw [if_pos hj]
                 exact ihEls _ _ _ hels
               · rw [if_neg hj]
-                simpa [Typed.Expr.runtime] using ihEls _ _ _ hels
+                simpa [Typed.Expr.WithTypeVars.runtime] using ihEls _ _ _ hels
     | .letIn name bound body => by
         intro s result s' h
         cases name with
@@ -1105,7 +1105,7 @@ mutual
             cases q with
             | mk bodyTy body' =>
               rcases (by simpa [typedName, hbody] using hcont) with ⟨⟨rfl, rfl⟩, rfl⟩
-              simp [Expr.runtime, Untyped.Expr.runtime, ihBound _ _ _ hbound, ihBody _ _ _ hbody,
+              simp [Expr.WithTypeVars.runtime, Untyped.Expr.runtime, ihBound _ _ _ hbound, ihBody _ _ _ hbody,
                 Binder.ofUntyped_runtime]
         | named x ann =>
           cases ann with
@@ -1121,7 +1121,7 @@ mutual
               cases q with
               | mk bodyTy body' =>
                 rcases (by simpa [typedName, hbody] using hcont) with ⟨⟨rfl, rfl⟩, rfl⟩
-                simp [Expr.runtime, Untyped.Expr.runtime, ihBound _ _ _ hbound, ihBody _ _ _ hbody,
+                simp [Expr.WithTypeVars.runtime, Untyped.Expr.runtime, ihBound _ _ _ hbound, ihBody _ _ _ hbody,
                   Binder.ofUntyped_runtime]
           | some ty =>
             unfold Typed.infer at h
@@ -1142,7 +1142,7 @@ mutual
               have hname_rt :
                   typedName.runtime = (Untyped.Binder.named x (some ty)).runtime := by
                 simp [typedName, Binder.ofUntyped_runtime]
-              simp [Expr.runtime, Untyped.Expr.runtime, ihBound _ _ _ hbound, ihBody _ _ _ hbody,
+              simp [Expr.WithTypeVars.runtime, Untyped.Expr.runtime, ihBound _ _ _ hbound, ihBody _ _ _ hbody,
                 hname_rt]
     | .letProd names bound body => by
         let ihBound := infer_runtime env Θ Γ bound
@@ -1165,7 +1165,7 @@ mutual
             cases q with
             | mk bodyTy body' =>
               rcases (by simpa [hbody] using hcont) with ⟨⟨rfl, rfl⟩, rfl⟩
-              simp [Expr.runtime, Untyped.Expr.runtime, ihBound _ _ _ hbound, ihBody _ _ _ hbody,
+              simp [Expr.WithTypeVars.runtime, Untyped.Expr.runtime, ihBound _ _ _ hbound, ihBody _ _ _ hbody,
                 inferProductBinders_runtime env Θ names tys typedNames s₀ s₁ hnames]
           | _ =>
             simp at hcont
@@ -1177,7 +1177,7 @@ mutual
         cases p with
         | mk innerTy e1 =>
           rcases (by simpa using hcont) with ⟨⟨rfl, rfl⟩, rfl⟩
-          simp [Expr.runtime, Untyped.Expr.runtime, ih _ _ _ hinfer]
+          simp [Expr.WithTypeVars.runtime, Untyped.Expr.runtime, ih _ _ _ hinfer]
     | .deref e => by
         let ih := infer_runtime env Θ Γ e
         intro s result s' h
@@ -1188,10 +1188,10 @@ mutual
           cases innerTy <;> simp at hcont
           case ref ty =>
             rcases (by simpa using hcont) with ⟨⟨rfl, rfl⟩, rfl⟩
-            simp [Expr.runtime, Untyped.Expr.runtime, ih _ _ _ hinfer]
+            simp [Expr.WithTypeVars.runtime, Untyped.Expr.runtime, ih _ _ _ hinfer]
           case owned ty =>
             rcases (by simpa using hcont) with ⟨⟨rfl, rfl⟩, rfl⟩
-            simp [Expr.runtime, Untyped.Expr.runtime, ih _ _ _ hinfer]
+            simp [Expr.WithTypeVars.runtime, Untyped.Expr.runtime, ih _ _ _ hinfer]
     | .store loc val => by
         let ihLoc := infer_runtime env Θ Γ loc
         intro s result s' h
@@ -1206,12 +1206,12 @@ mutual
             let ihVal := check_runtime env Θ Γ val inner
             have ⟨val', s₁, hval, hcont⟩ := StateT.bind_ok hcont
             rcases (by simpa using hcont) with ⟨⟨rfl, rfl⟩, rfl⟩
-            simp [Expr.runtime, Untyped.Expr.runtime, ihLoc _ _ _ hloc, ihVal _ _ _ hval]
+            simp [Expr.WithTypeVars.runtime, Untyped.Expr.runtime, ihLoc _ _ _ hloc, ihVal _ _ _ hval]
           case owned inner =>
             let ihVal := check_runtime env Θ Γ val inner
             have ⟨val', s₁, hval, hcont⟩ := StateT.bind_ok hcont
             rcases (by simpa using hcont) with ⟨⟨rfl, rfl⟩, rfl⟩
-            simp [Expr.runtime, Untyped.Expr.runtime, ihLoc _ _ _ hloc, ihVal _ _ _ hval]
+            simp [Expr.WithTypeVars.runtime, Untyped.Expr.runtime, ihLoc _ _ _ hloc, ihVal _ _ _ hval]
     | .arrayMake ownership len init => by
         let ihLen := check_runtime env Θ Γ len .int
         let ihInit := infer_runtime env Θ Γ init
@@ -1222,7 +1222,7 @@ mutual
         cases p with
         | mk elemTy init' =>
           rcases (by simpa [hinit] using hcont) with ⟨⟨rfl, rfl⟩, rfl⟩
-          simp [Expr.runtime, Untyped.Expr.runtime, ihLen _ _ _ hlen, ihInit _ _ _ hinit]
+          simp [Expr.WithTypeVars.runtime, Untyped.Expr.runtime, ihLen _ _ _ hlen, ihInit _ _ _ hinit]
     | .arrayLen arr => by
         let ih := infer_runtime env Θ Γ arr
         intro s result s' h
@@ -1233,7 +1233,7 @@ mutual
           cases arrTy <;> simp at hcont
           case array elemTy | ownedArray elemTy =>
             rcases hcont with ⟨⟨rfl, rfl⟩, rfl⟩
-            simp [Expr.runtime, Untyped.Expr.runtime, ih _ _ _ harr]
+            simp [Expr.WithTypeVars.runtime, Untyped.Expr.runtime, ih _ _ _ harr]
     | .arrayGet arr idx => by
         let ihArr := infer_runtime env Θ Γ arr
         let ihIdx := check_runtime env Θ Γ idx .int
@@ -1246,7 +1246,7 @@ mutual
           cases arrTy <;> simp at hcont
           case array elemTy | ownedArray elemTy =>
             rcases hcont with ⟨⟨rfl, rfl⟩, rfl⟩
-            simp [Expr.runtime, Untyped.Expr.runtime, ihArr _ _ _ harr, ihIdx _ _ _ hidx]
+            simp [Expr.WithTypeVars.runtime, Untyped.Expr.runtime, ihArr _ _ _ harr, ihIdx _ _ _ hidx]
     | .arraySet arr idx val => by
         let ihArr := infer_runtime env Θ Γ arr
         let ihIdx := check_runtime env Θ Γ idx .int
@@ -1261,21 +1261,21 @@ mutual
             have ⟨val', s₂, hval, hcont⟩ := StateT.bind_ok hcont
             rcases hcont with ⟨⟨rfl, rfl⟩, rfl⟩
             have hval_rt := check_runtime env Θ Γ val _ _ val' _ hval
-            simp [Expr.runtime, Untyped.Expr.runtime, ihArr _ _ _ harr, ihIdx _ _ _ hidx, hval_rt]
+            simp [Expr.WithTypeVars.runtime, Untyped.Expr.runtime, ihArr _ _ _ harr, ihIdx _ _ _ hidx, hval_rt]
     | .assert e => by
         let ih := check_runtime env Θ Γ e .bool
         intro s result s' h
         unfold Typed.infer at h
         have ⟨e1, s₀, he, hcont⟩ := StateT.bind_ok h
         rcases (by simpa using hcont) with ⟨⟨rfl, rfl⟩, rfl⟩
-        simp [Expr.runtime, Untyped.Expr.runtime, ih _ _ _ he]
+        simp [Expr.WithTypeVars.runtime, Untyped.Expr.runtime, ih _ _ _ he]
     | .tuple es => by
         let ih := inferList_runtime env Θ Γ es
         intro s result s' h
         unfold Typed.infer at h
         have ⟨pairs, s₀, hpairs, hcont⟩ := StateT.bind_ok h
         rcases (by simpa [hpairs] using hcont) with ⟨⟨rfl, rfl⟩, rfl⟩
-        simp [Expr.runtime, Untyped.Expr.runtime, ih _ _ _ hpairs]
+        simp [Expr.WithTypeVars.runtime, Untyped.Expr.runtime, ih _ _ _ hpairs]
     | .inj tag arity payload => by
         let ih := infer_runtime env Θ Γ payload
         intro s result s' h
@@ -1284,7 +1284,7 @@ mutual
         cases p with
         | mk payloadTy payload' =>
           rcases (by simpa using hcont) with ⟨⟨rfl, rfl⟩, rfl⟩
-          simp [Expr.runtime, Untyped.Expr.runtime, ih _ _ _ hpayload]
+          simp [Expr.WithTypeVars.runtime, Untyped.Expr.runtime, ih _ _ _ hpayload]
     | .match_ scrutinee branches => by
         let ihScrut := infer_runtime env Θ Γ scrutinee
         let ihBranches := inferBranches_runtime env Θ Γ branches
@@ -1299,7 +1299,7 @@ mutual
             · simp [-bind_pure_comp, hlen] at hcont
               have ⟨branches', s₁, hbranches, hcont⟩ := StateT.bind_ok hcont
               rcases (by simpa [hbranches] using hcont) with ⟨⟨rfl, rfl⟩, rfl⟩
-              simp [Expr.runtime, Untyped.Expr.runtime]
+              simp [Expr.WithTypeVars.runtime, Untyped.Expr.runtime]
               constructor
               · exact ihScrut _ _ _ hscrut
               · exact (branchListRuntime_cast_joinAll Θ branches').trans
@@ -1316,7 +1316,7 @@ mutual
                 · simp [-bind_pure_comp, hlen] at hcont
                   have ⟨branches', s₁, hbranches, hcont⟩ := StateT.bind_ok hcont
                   rcases (by simpa [hbranches] using hcont) with ⟨⟨rfl, rfl⟩, rfl⟩
-                  simp [Expr.runtime, Untyped.Expr.runtime, ihScrut _ _ _ hscrut]
+                  simp [Expr.WithTypeVars.runtime, Untyped.Expr.runtime, ihScrut _ _ _ hscrut]
                   exact (branchListRuntime_cast_joinAll Θ branches').trans
                     (ihBranches ts _ _ _ hbranches)
                 · simp [hlen] at hcont
@@ -1341,14 +1341,14 @@ mutual
       · simp only [hann, if_false, Bool.false_eq_true] at hcont
         have ⟨body', s₂, hbody, hcont⟩ := StateT.bind_ok hcont
         rcases (by simpa using hcont) with ⟨rfl, rfl⟩
-        simp [Expr.runtime, Untyped.Expr.runtime, Binder.ofUntyped_runtime,
+        simp [Expr.WithTypeVars.runtime, Untyped.Expr.runtime, Binder.ofUntyped_runtime,
           check_runtime env Θ _ body ret _ _ _ hbody,
           checkBinders_runtime env Θ args doms typedArgs s s₀ hargs]
     -- A tuple against a tuple type: the components erase one by one.
     case _ es tys =>
       have ⟨es', s₀, hes, hcont⟩ := StateT.bind_ok h
       rcases (by simpa using hcont) with ⟨rfl, rfl⟩
-      simp [Expr.runtime, Untyped.Expr.runtime,
+      simp [Expr.WithTypeVars.runtime, Untyped.Expr.runtime,
         checkArgs_runtime env Θ Γ es tys s es' s₀ hes]
     -- Everything else is inference followed by subsumption.
     case _ =>
@@ -1362,12 +1362,12 @@ mutual
         · by_cases hsub : Typ.sub Θ actual expected
           · simp [heq, hsub] at hcont
             rcases hcont with ⟨rfl, rfl⟩
-            simp [Expr.runtime, infer_runtime env Θ Γ e _ _ _ hinfer]
+            simp [Expr.WithTypeVars.runtime, infer_runtime env Θ Γ e _ _ _ hinfer]
           · simp [heq, hsub] at hcont
 
   theorem inferList_runtime (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx) :
       (es : List Untyped.Expr) → ∀ s pairs s', Typed.inferList env Θ Γ es s = .ok (pairs, s') →
-        (pairs.map Prod.snd).map Expr.runtime = es.map Untyped.Expr.runtime
+        (pairs.map Prod.snd).map Expr.WithTypeVars.runtime = es.map Untyped.Expr.runtime
     | [] => by
         intro s pairs s' h
         simp [Typed.inferList] at h
@@ -1389,7 +1389,7 @@ mutual
   theorem checkArgs_runtime (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx) :
       (args : List Untyped.Expr) → ∀ doms s result s',
         Typed.checkArgs env Θ Γ doms args s = .ok (result, s') →
-        result.map Expr.runtime = args.map Untyped.Expr.runtime
+        result.map Expr.WithTypeVars.runtime = args.map Untyped.Expr.runtime
     | [] => by
         intro doms s result s' h
         cases doms <;> simp [Typed.checkArgs] at h
@@ -1411,14 +1411,14 @@ mutual
   theorem inferBranches_runtime (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx) :
       (branches : List (Untyped.Binder × Untyped.Expr)) →
       ∀ tys s branches' s', Typed.inferBranches env Θ Γ tys branches s = .ok (branches', s') →
-        Expr.branchListRuntime branches' =
+        Expr.WithTypeVars.branchListRuntime branches' =
           Untyped.Expr.runtime.branchListRuntime branches
     | [] => by
         intro tys s branches' s' h
         cases tys <;> simp [Typed.inferBranches] at h
         case nil =>
           rcases h with ⟨rfl, rfl⟩
-          simp [Expr.branchListRuntime, Untyped.Expr.runtime.branchListRuntime]
+          simp [Expr.WithTypeVars.branchListRuntime, Untyped.Expr.runtime.branchListRuntime]
     | br :: rest => by
         let ihRest := inferBranches_runtime env Θ Γ rest
         intro tys s branches' s' h
@@ -1439,7 +1439,7 @@ mutual
               have ⟨rest', s₂, hrest, hcont⟩ := StateT.bind_ok hcont
               simp at hcont
               rcases hcont with ⟨rfl, rfl⟩
-              simp [Expr.branchListRuntime, Untyped.Expr.runtime.branchListRuntime,
+              simp [Expr.WithTypeVars.branchListRuntime, Untyped.Expr.runtime.branchListRuntime,
                 Binder.ofUntyped_runtime, ihBody _ _ _ hbody, ihRest tys _ _ _ hrest]
           · simp [hsub] at hcont
 end

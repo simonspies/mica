@@ -25,7 +25,7 @@ theorem extractArgNames_spec {argBinders : List Typed.Binder}
     (h : extractArgNames argBinders specArgs = .ok names) :
     names.length = specArgs.length ∧
     argBinders.length = specArgs.length ∧
-    argBinders.map Typed.Binder.runtime = names.map Runtime.Binder.named := by
+    argBinders.map Typed.Binder.WithTypeVars.runtime = names.map Runtime.Binder.named := by
   induction specArgs generalizing argBinders names with
   | nil =>
     cases argBinders with
@@ -50,7 +50,7 @@ theorem extractArgNames_spec {argBinders : List Typed.Binder}
               simp [hrec] at h
               cases h
               obtain ⟨h1, h2, h3⟩ := ih hrec
-              exact ⟨by simp [h1], by simp [h2], by simp [Typed.Binder.runtime, h3]⟩
+              exact ⟨by simp [h1], by simp [h2], by simp [Typed.Binder.WithTypeVars.runtime, h3]⟩
 
 -- ---------------------------------------------------------------------------
 -- FiniteSubst
