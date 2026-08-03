@@ -109,7 +109,9 @@ mutual
     | arraySet (arr idx val : Expr)
     | assert (e : Expr)
     | tuple (es : List Expr)
-    | inj (tag : Nat) (arity : Nat) (payload : Expr)
+    /-- `ty` is the type the constructor was declared under, which the frontend
+    knows from resolving the constructor. -/
+    | inj (tag : Nat) (arity : Nat) (payload : Expr) (ty : TypeName)
     | match_ (scrutinee : Expr) (branches : List (Binder × Expr))
 end
 
@@ -207,7 +209,7 @@ def Expr.runtime : Untyped.Expr → Runtime.Expr
   | .arraySet arr idx val => .arraySet arr.runtime idx.runtime val.runtime
   | .assert e => .assert e.runtime
   | .tuple es => .tuple (es.map Expr.runtime)
-  | .inj tag arity payload => .inj tag arity payload.runtime
+  | .inj tag arity payload _ => .inj tag arity payload.runtime
   | .match_ scrut branches => .match_ scrut.runtime (branchListRuntime branches)
 where
   branchListRuntime : List (Untyped.Binder × Untyped.Expr) → List Runtime.Expr

@@ -73,7 +73,9 @@ inductive Expr.WithTypeVars (V : Type) where
   | arraySet (arr idx val : WithTypeVars V)
   | assert (e : WithTypeVars V)
   | tuple (es : List (WithTypeVars V))
-  | inj (tag : Nat) (arity : Nat) (payload : WithTypeVars V)
+  /-- `ty` is the sum injected into; the verifier checks that its `tag`-th
+      component is the payload's type. -/
+  | inj (tag : Nat) (arity : Nat) (payload : WithTypeVars V) (ty : Typ.WithTypeVars V)
   | match_ (scrutinee : WithTypeVars V)
       (branches : List (Binder.WithTypeVars V × WithTypeVars V)) (ty : Typ.WithTypeVars V)
   | cast (e : WithTypeVars V) (ty : Typ.WithTypeVars V)
@@ -214,11 +216,14 @@ mutual
       exact match exprsDecEq es1 es2 with
       | isTrue h => isTrue (by subst h; rfl)
       | isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
-    case inj.inj t1 a1 p1 t2 a2 p2 => exact match decEq t1 t2, decEq a1 a2, p1.decEq p2 with
-      | isTrue h1, isTrue h2, isTrue h3 => isTrue (by subst h1; subst h2; subst h3; rfl)
-      | isFalse h, _, _ => isFalse (by intro heq; cases heq; exact h rfl)
-      | _, isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
-      | _, _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
+    case inj.inj t1 a1 p1 ty1 t2 a2 p2 ty2 =>
+      exact match decEq t1 t2, decEq a1 a2, Expr.WithTypeVars.decEq p1 p2, decEq ty1 ty2 with
+      | isTrue h1, isTrue h2, isTrue h3, isTrue h4 =>
+        isTrue (by subst h1; subst h2; subst h3; subst h4; rfl)
+      | isFalse h, _, _, _ => isFalse (by intro heq; cases heq; exact h rfl)
+      | _, isFalse h, _, _ => isFalse (by intro heq; cases heq; exact h rfl)
+      | _, _, isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
+      | _, _, _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
     case match_.match_ s1 bs1 t1 s2 bs2 t2 =>
       exact match s1.decEq s2, branchesDecEq bs1 bs2, decEq t1 t2 with
       | isTrue h1, isTrue h2, isTrue h3 => isTrue (by subst h1; subst h2; subst h3; rfl)
@@ -304,7 +309,7 @@ def Expr.WithTypeVars.ty : Expr.WithTypeVars V → Typ.WithTypeVars V
   | .arraySet _ _ _ => .unit
   | .assert _ => .unit
   | .tuple es => .tuple (es.map Expr.WithTypeVars.ty)
-  | .inj tag arity e => .sum ((List.replicate arity .empty).set tag e.ty)
+  | .inj _ _ _ ty => ty
   | .match_ _ _ ty => ty
   | .cast _ ty => ty
 
@@ -378,7 +383,7 @@ mutual
     | .arraySet arr idx val => .arraySet arr.runtime idx.runtime val.runtime
     | .assert e => .assert e.runtime
     | .tuple es => .tuple (es.map Expr.WithTypeVars.runtime)
-    | .inj tag arity payload => .inj tag arity payload.runtime
+    | .inj tag arity payload _ => .inj tag arity payload.runtime
     | .match_ scrut branches _ =>
         .match_ scrut.runtime (Expr.WithTypeVars.branchListRuntime branches)
     | .cast e _ => e.runtime

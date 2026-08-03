@@ -297,7 +297,7 @@ mutual
     | .arraySet arr idx val => freeVars arr ++ freeVars idx ++ freeVars val
     | .assert e => freeVars e
     | .tuple es => es.flatMap freeVars
-    | .inj _ _ payload => freeVars payload
+    | .inj _ _ payload _ => freeVars payload
     | .match_ scrut branches _ => freeVars scrut ++ branchFreeVars branches
     | .cast e _ => freeVars e
 
@@ -383,7 +383,7 @@ private partial def rewrite : Typed.Expr → LiftM Typed.Expr
       pure (.arraySet (← rewrite arr) (← rewrite idx) (← rewrite val))
   | .assert e => do pure (.assert (← rewrite e))
   | .tuple es => do pure (.tuple (← es.mapM rewrite))
-  | .inj tag arity payload => do pure (.inj tag arity (← rewrite payload))
+  | .inj tag arity payload ty => do pure (.inj tag arity (← rewrite payload) ty)
   | .match_ scrut branches ty => do
       pure (.match_ (← rewrite scrut)
         (← branches.mapM fun (b, body) => do pure (b, ← rewrite body)) ty)

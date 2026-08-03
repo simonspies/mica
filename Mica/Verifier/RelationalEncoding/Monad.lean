@@ -176,7 +176,7 @@ def encodeWith {M : Type} (ops : EncoderOps M) (Δ : Signature)
   | .letProd bs bound body, k =>
     encodeWith ops Δ Γ δ bound fun v =>
       encodeWith ops Δ Γ (VarEnv.bindBinders δ bs v) body k
-  | .inj tag arity payload, k =>
+  | .inj tag arity payload _, k =>
     encodeWith ops Δ Γ δ payload fun v =>
       k (.unop (.ofInj tag arity) v)
   | .match_ scrut branches _, k =>
@@ -418,8 +418,8 @@ theorem tuple (es : List Typed.Expr) (ih : EncodeListWithInd es) :
   simp only [encodeWith]
   exact ih hops (fun vs => hk (.unop .ofValList (Terms.toValList vs)))
 
-theorem inj (tag arity : Nat) (payload : Typed.Expr)
-    (ih : EncodeWithInd payload) : EncodeWithInd (.inj tag arity payload) := by
+theorem inj (tag arity : Nat) (payload : Typed.Expr) (ty : TinyML.Typ)
+    (ih : EncodeWithInd payload) : EncodeWithInd (.inj tag arity payload ty) := by
   intro _ _ _ _ _ _ _ hops hk
   simp only [encodeWith]
   refine ih hops ?_
@@ -498,7 +498,7 @@ theorem encodeWith_ind_def : ∀ (e : Typed.Expr), EncodeWithInd e
   | .arraySet arr idx val => Ind.arraySet arr idx val
   | .assert e => Ind.assert e
   | .tuple es => Ind.tuple es (encodeListWith_ind_def es)
-  | .inj tag arity payload => Ind.inj tag arity payload (encodeWith_ind_def payload)
+  | .inj tag arity payload ty => Ind.inj tag arity payload ty (encodeWith_ind_def payload)
   | .match_ scrut branches ty =>
       Ind.match_ scrut branches ty
         (encodeWith_ind_def scrut) (encodeMatchWith_ind_def branches)
@@ -772,9 +772,9 @@ theorem tuple (es : List Typed.Expr) (ih : EncodeListWithIndSig es) :
   intro Δ'' hsub'' hΔ'' vs hvs
   exact hk hsub'' hΔ'' _ ⟨trivial, Terms.toValList_wfIn hvs⟩
 
-theorem inj (tag arity : Nat) (payload : Typed.Expr)
+theorem inj (tag arity : Nat) (payload : Typed.Expr) (ty : TinyML.Typ)
     (ih : EncodeWithIndSig payload) :
-    EncodeWithIndSig (.inj tag arity payload) := by
+    EncodeWithIndSig (.inj tag arity payload ty) := by
   intro _ _ _ _ _ _ _ _ _ hops hsub hΔ' hΓ hδ hk
   simp only [encodeWith]
   refine ih hops hsub hΔ' hΓ hδ ?_
@@ -877,8 +877,8 @@ theorem encodeWith_indWithSig_def : ∀ (e : Typed.Expr), EncodeWithIndSig e
   | .arraySet arr idx val => IndSig.arraySet arr idx val
   | .assert e => IndSig.assert e
   | .tuple es => IndSig.tuple es (encodeListWith_indWithSig_def es)
-  | .inj tag arity payload =>
-      IndSig.inj tag arity payload (encodeWith_indWithSig_def payload)
+  | .inj tag arity payload ty =>
+      IndSig.inj tag arity payload ty (encodeWith_indWithSig_def payload)
   | .match_ scrut branches ty =>
       IndSig.match_ scrut branches ty
         (encodeWith_indWithSig_def scrut)
@@ -1368,9 +1368,9 @@ theorem tuple (es : List Typed.Expr) (ih : EncodeListWithBindBinary es) :
     ⟨trivial, Terms.toValList_wfIn hvs₂⟩
     (by simp [Term.eval, UnOp.eval, toValList_eval_eq hevals])
 
-theorem inj (tag arity : Nat) (payload : Typed.Expr)
+theorem inj (tag arity : Nat) (payload : Typed.Expr) (ty : TinyML.Typ)
     (ih : EncodeWithBindBinary payload) :
-    EncodeWithBindBinary (.inj tag arity payload) := by
+    EncodeWithBindBinary (.inj tag arity payload ty) := by
   intro _ _ _ _ _ _ _ _ _ hops _ _ _ _ _ _ hsub₁ hsub₂ hwf₁ hwf₂ hagree henv hk
   simp only [encodeWith]
   refine ih hops hsub₁ hsub₂ hwf₁ hwf₂ hagree henv ?_
@@ -1505,8 +1505,8 @@ theorem encodeWith_bind_binary_def : ∀ (e : Typed.Expr), EncodeWithBindBinary 
   | .arraySet arr idx val => BindBinary.arraySet arr idx val
   | .assert e => BindBinary.assert e
   | .tuple es => BindBinary.tuple es (encodeListWith_bind_binary_def es)
-  | .inj tag arity payload =>
-      BindBinary.inj tag arity payload (encodeWith_bind_binary_def payload)
+  | .inj tag arity payload ty =>
+      BindBinary.inj tag arity payload ty (encodeWith_bind_binary_def payload)
   | .match_ scrut branches ty =>
       BindBinary.match_ scrut branches ty
         (encodeWith_bind_binary_def scrut)

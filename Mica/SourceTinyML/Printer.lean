@@ -168,7 +168,7 @@ private partial def printApp : Untyped.Expr → String
   | .unop .not e => s!"not {printAtom e}"
   | .ref .owned e => s!"ref {printAtom e} [@owned]"
   | .ref .shared e => s!"ref {printAtom e}"
-  | .inj tag arity e => s!"(inj {tag}/{arity} {printAtom e})"
+  | .inj tag arity e ty => s!"(inj {tag}/{arity} : {ty} {printAtom e})"
   | .assert e => s!"assert {printAtom e}"
   | e => printUnary e
 

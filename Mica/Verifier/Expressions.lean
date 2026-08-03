@@ -203,6 +203,26 @@ def checkRet (Θ : TinyML.TypeEnv) (retTy bodyTy : TinyML.Typ) : VerifM Unit :=
   if TinyML.Typ.sub Θ bodyTy retTy then pure ()
   else VerifM.fatal "fix: body type does not match the return type"
 
+/-- The components of the sum an injection claims to build, when its annotation
+holds up. Checking the annotation here means nothing downstream has to trust the
+elaborator. -/
+def injComponents? (ty : TinyML.Typ) (tag arity : Nat) (payloadTy : TinyML.Typ) :
+    Option (List TinyML.Typ) :=
+  match ty with
+  | .sum ts => if ts.length = arity ∧ ts[tag]? = some payloadTy then some ts else none
+  | _ => none
+
+omit [MicaGS HasLC.hasLC Sig] in
+theorem injComponents?_eq {ty : TinyML.Typ} {tag arity : Nat} {payloadTy : TinyML.Typ}
+    {ts : List TinyML.Typ} (h : injComponents? ty tag arity payloadTy = some ts) :
+    ty = .sum ts ∧ ts.length = arity ∧ ts[tag]? = some payloadTy := by
+  unfold injComponents? at h
+  split at h
+  · split at h
+    · cases h; simp_all
+    · exact absurd h (by simp)
+  · exact absurd h (by simp)
+
 mutual
   def compile (reg : Verifier.Registry) (Θ : TinyML.TypeEnv) (Δ_spec : Signature) (B : Bindings) (Γ : TinyML.TyCtx) : Expr → VerifM (Term .value)
     | .const (.int n)  => pure (.unop .ofInt  (.const (.i n)))
@@ -311,11 +331,12 @@ mutual
     | .tuple es => do
         let terms ← compileExprs reg Θ Δ_spec B Γ es
         pure (.unop .ofValList (Terms.toValList terms))
-    | .inj tag arity payload => do
-        if tag ≥ arity then VerifM.fatal "inj tag out of range"
-        else
-          let s ← compile reg Θ Δ_spec B Γ payload
-          pure (.unop (.ofInj tag arity) s)
+    | .inj tag arity payload ty => do
+        match injComponents? ty tag arity payload.ty with
+        | some _ => do
+            let s ← compile reg Θ Δ_spec B Γ payload
+            pure (.unop (.ofInj tag arity) s)
+        | none => VerifM.fatal "injection type annotation mismatch"
     | .match_ scrut branches ty => do
         let sc ← compile reg Θ Δ_spec B Γ scrut
         match scrut.ty with
@@ -814,17 +835,20 @@ theorem compileVar_correct (reg : Verifier.Registry) (x : String) (vty : TinyML.
     exact SpatialContext.wp_val <| hprep.trans <| hpost'
 
 theorem compileInj_correct (reg : Verifier.Registry) (tag arity : Nat) (payload : Expr)
-    (ihPayload : correctExpr reg payload) :
-    correctExpr reg (.inj tag arity payload) := by
+    (ty : TinyML.Typ) (ihPayload : correctExpr reg payload) :
+    correctExpr reg (.inj tag arity payload ty) := by
   intro W R B Γ st ρ γ Ψ Φ hW heval hagree hbwf hwf hag hΔreg hρreg hpost
   unfold Expr.WithTypeVars.runtime
   simp only [Runtime.Expr.subst]
   simp only [compile] at heval
-  by_cases htag : tag ≥ arity
-  · simp [htag] at heval
+  cases hcomp : injComponents? ty tag arity payload.ty with
+  | none =>
+    simp [hcomp] at heval
     exact (VerifM.eval_fatal heval).elim
-  · push Not at htag
-    simp [show ¬(tag ≥ arity) from Nat.not_le.mpr htag] at heval
+  | some ts =>
+    obtain ⟨hty, hlen_ts, hget_ts⟩ := injComponents?_eq hcomp
+    subst hty
+    simp only [hcomp] at heval
     have heval_p : (compile reg W.Θ W.Δ_spec B Γ payload).eval st ρ _ := VerifM.eval_bind heval
     refine SpatialContext.wp_bind_inj <| ihPayload W R B Γ st ρ γ _ _ hW
       (VerifM.eval.decls_grow ρ heval_p) hagree hbwf hwf hag hΔreg hρreg ?_
@@ -832,9 +856,6 @@ theorem compileInj_correct (reg : Verifier.Registry) (tag arity : Nat) (payload 
     obtain ⟨_hdecls_p, _hagreeOn_p, hΨ_p⟩ := hΨ_p
     obtain hΨ_p := VerifM.eval_ret hΨ_p
     simp only [Expr.WithTypeVars.ty] at hpost
-    let ts := (List.replicate arity TinyML.Typ.empty).set tag payload.ty
-    have hlen_ts : ts.length = arity := by simp [ts]
-    have hget_ts : ts[tag]? = some payload.ty := by simp [ts, htag]
     have hinj : TinyML.ValHasType W v_p payload.ty ⊢
         TinyML.ValHasType W (.inj tag arity v_p) (.sum ts) :=
       TinyML.ValHasType.inj hlen_ts hget_ts
@@ -845,7 +866,7 @@ theorem compileInj_correct (reg : Verifier.Registry) (tag arity : Nat) (payload 
     have hpost' :
         st_p.sl W ρ_p ∗ TinyML.ValHasType W (.inj tag arity v_p) (.sum ts) ∗ R ⊢
           Φ (.inj tag arity v_p) := by
-      simpa [ts, hlen_ts] using
+      simpa [hlen_ts] using
         (hpost (.inj tag arity v_p) ρ_p st_p _ hΨ_p
           (by simp only [Term.wfIn]; exact ⟨trivial, hse_wf_p⟩)
           (by simp [Term.eval, UnOp.eval, heval_se_p]))
@@ -3937,8 +3958,8 @@ theorem compile_correct (reg : Verifier.Registry) (hSound : Verifier.Registry.So
     simpa using compileVar_correct reg x vty
   | prim n inst ty =>
     simpa using compilePrim_correct reg n inst ty
-  | inj tag arity payload =>
-    simpa using compileInj_correct reg tag arity payload (compile_correct reg hSound payload)
+  | inj tag arity payload ty =>
+    simpa using compileInj_correct reg tag arity payload ty (compile_correct reg hSound payload)
   | cast e ty =>
     simpa using compileCast_correct reg e ty (compile_correct reg hSound e)
   | assert e =>
