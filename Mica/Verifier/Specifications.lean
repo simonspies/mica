@@ -48,7 +48,7 @@ def declareArgs (Θ : TinyML.TypeEnv) (σ : FiniteSubst) :
     List String → List TinyML.Typ → List (TinyML.Typ × Term .value) → VerifM FiniteSubst
   | [], [], [] => pure σ
   | name :: names, ty :: tys, (targ, sarg) :: sargs => do
-    if TinyML.Typ.sub Θ targ ty then pure ()
+    if targ = ty then pure ()
     else VerifM.fatal s!"type mismatch in call to spec"
     let argVar ← VerifM.decl (some name) .value
     let σ' := σ.rename ⟨name, .value⟩ argVar.name
@@ -233,7 +233,7 @@ theorem declareArgs_correct (W : TinyML.World) :
     ∃ σ' st' ρ', Ψ σ' st' ρ' ∧
       σ'.wfIn Δ_base st'.decls ∧
       st'.owns = st.owns ∧
-      @TinyML.Typ.SubList W.Θ (sargs.map Prod.fst) argTys ∧
+      sargs.map Prod.fst = argTys ∧
       ((Δ_base.declVars σ.dom).declVars (Spec.argVars argNames)).Subset
         (Δ_base.declVars σ'.dom) ∧
       Env.agreeOn ((Δ_base.declVars σ.dom).declVars (Spec.argVars argNames))
@@ -250,7 +250,7 @@ theorem declareArgs_correct (W : TinyML.World) :
     cases sargs with
     | nil =>
       simp [Spec.declareArgs] at heval
-      exact ⟨σ, st, ρ, VerifM.eval_ret heval, hσwf, rfl, .nil, Signature.Subset.refl _,
+      exact ⟨σ, st, ρ, VerifM.eval_ret heval, hσwf, rfl, rfl, Signature.Subset.refl _,
         by simp [Spec.argVars, Spec.argsEnv]; exact Env.agreeOn_refl⟩
     | cons _ _ =>
       simp [Spec.declareArgs] at heval
@@ -268,7 +268,7 @@ theorem declareArgs_correct (W : TinyML.World) :
     | cons sarg_hd sargs_rest =>
       obtain ⟨targ, sarg⟩ := sarg_hd
       simp only [Spec.declareArgs] at heval
-      by_cases hsub_ty : TinyML.Typ.sub W.Θ targ ty = true
+      by_cases hsub_ty : targ = ty
       · simp [hsub_ty] at heval
         have hdecl := VerifM.eval_decl
           (VerifM.eval_bind (VerifM.eval_ret (VerifM.eval_bind heval)))
@@ -309,12 +309,12 @@ theorem declareArgs_correct (W : TinyML.World) :
         obtain ⟨σ'', st'', ρ'', hΨ, hσ''wf, howns, hsublist, hdom_sub, hagree⟩ :=
           ih tys sargs_rest Δ_base σ' _ ρ₁ Ψ hlen_rest hσ'wf hsargs_rest hassume
         refine ⟨σ'', st'', ρ'', hΨ, hσ''wf, howns,
-          .cons (TinyML.Typ.sub_sound hsub_ty) hsublist, ?_, ?_⟩
+          by simp [hsub_ty, hsublist], ?_, ?_⟩
         · change (((Δ_base.declVars σ.dom).declVar ⟨name, .value⟩).declVars
               (Spec.argVars rest)).Subset (Δ_base.declVars σ''.dom)
           simpa [σ', FiniteSubst.rename_source_eq] using hdom_sub
         · have hlen : rest.length ≤ sargs_rest.length := by
-            have := TinyML.Typ.SubList.length_eq hsublist
+            have := congrArg List.length hsublist
             simp [List.length_map] at this; omega
           have hag_rename := FiniteSubst.rename_agreeOn
             (σ := σ) (Δ_base := Δ_base) (Δ_use := st.decls)
@@ -350,7 +350,7 @@ theorem call_correct (W : TinyML.World)
     VerifM.eval (Spec.call W.Θ σ argTys retTy s sargs) st ρ Ψ →
     (∀ v st' ρ' t, Ψ (retTy, t) st' ρ' → t.wfIn st'.decls → t.eval ρ' = v →
       st'.sl W ρ' ∗ R ∗ TinyML.ValHasType W v retTy ⊢ Φ v) →
-    @TinyML.Typ.SubList W.Θ (sargs.map Prod.fst) argTys ∧
+    sargs.map Prod.fst = argTys ∧
     (st.sl W ρ ∗ R ⊢ PredTrans.apply (TinyML.ValHasType W) (fun r => TinyML.ValHasType W r retTy -∗ Φ r) s.pred
       (Spec.argsEnv ((σ.subst.eval ρ)) s.args
         (sargs.map fun p => p.2.eval ρ))) := by

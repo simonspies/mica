@@ -659,4 +659,69 @@ theorem ValDecl.elaborateSpecified_runtime (env : SpecEnv σ) (Θ : TypeEnv) (Γ
   all_goals simp [ValDecl.elaborateSpecified, TypeM.error] at h
 
 
+theorem ValDecl.elaborate_runtime (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx)
+    (d : Untyped.ValDecl Untyped.SpecBody) :
+    ∀ {s : σ} {d' : Typed.ValDecl} {s' : σ},
+      Typed.ValDecl.elaborate env Θ Γ d s = .ok (d', s') →
+      d'.runtime = d.runtime := by
+  intro s d' s' helab
+  -- Split on whether there is a specification, and then — in its absence — only
+  -- on whether there is an annotation; the unannotated cases are identical.
+  match hspec : d.spec with
+  | some rb =>
+    simp only [ValDecl.elaborate, hspec] at helab
+    have ⟨_, sg, _, helab'⟩ := StateT.bind_ok helab
+    have ⟨r, s₀, hfix, hcont⟩ := StateT.bind_ok helab'
+    have ⟨_, s₁, _, hcont⟩ := StateT.bind_ok hcont
+    rcases hcont with ⟨rfl, rfl⟩
+    simp [Typed.ValDecl.runtime, Untyped.ValDecl.runtime, Binder.ofUntyped_runtime,
+      ValDecl.elaborateSpecified_runtime env Θ Γ rb d.body hfix]
+  | none =>
+    simp only [ValDecl.elaborate, hspec] at helab
+    have ⟨_expected, s₀, _hexp, hcont⟩ := StateT.bind_ok helab
+    have ⟨body', s₁, hbody, hcont⟩ := StateT.bind_ok hcont
+    rcases hcont with ⟨rfl, rfl⟩
+    simp [Typed.ValDecl.runtime, Untyped.ValDecl.runtime, Binder.ofUntyped_runtime,
+      Expr.elaborate_runtime env Θ Γ d.body _ hbody]
+
+theorem Program.elaborate_runtime (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx)
+    (prog : Untyped.Program Untyped.SpecBody) :
+    ∀ {s : σ} {Θ' : TypeEnv} {prog' : Typed.Program} {s' : σ},
+      Typed.Program.elaborate env Θ Γ prog s = .ok ((Θ', prog'), s') →
+      prog'.runtime = prog.runtime := by
+  induction prog generalizing Θ Γ with
+  | nil =>
+    intro s Θ' prog' s' h
+    simp [Typed.Program.elaborate] at h
+    rcases h with ⟨⟨rfl, rfl⟩, rfl⟩
+    simp [Typed.Program.runtime, Untyped.Program.runtime]
+  | cons d ds ih =>
+    intro s Θ' prog' s' h
+    cases d with
+    | type_ dty =>
+      unfold Typed.Program.elaborate at h
+      -- The payloads' own elaboration stays opaque; a type declaration
+      -- contributes nothing to the runtime program either way.
+      have ⟨body, s₀, _hbody, hcont⟩ := StateT.bind_ok h
+      cases hext : extendTypeEnv Θ dty.name body with
+      | error err =>
+        simp [hext] at hcont
+      | ok Θ1 =>
+        simp [hext] at hcont
+        exact ih Θ1 Γ hcont
+    | val_ dval =>
+      unfold Typed.Program.elaborate at h
+      have ⟨dval', s₀, hdecl, hcont⟩ := StateT.bind_ok h
+      let Γ' := match dval'.name.name with
+        | some x => Γ.extend x dval'.name.ty
+        | none => Γ
+      have ⟨tail, s₁, htail, hcont⟩ := StateT.bind_ok hcont
+      rcases tail with ⟨Θ'', ds'⟩
+      simp at hcont
+      rcases hcont with ⟨⟨rfl, rfl⟩, rfl⟩
+      have hdecl_rt : dval'.runtime = dval.runtime :=
+        ValDecl.elaborate_runtime _ Θ Γ dval hdecl
+      simp [Typed.Program.runtime, Untyped.Program.runtime, hdecl_rt]
+      exact congrArg (List.cons dval.runtime) (ih Θ Γ' htail)
+
 end Typed

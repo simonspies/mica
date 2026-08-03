@@ -29,15 +29,16 @@ def invalidArgSym : FOL.Symbol .one where
 
 /-! ## `failwith` -/
 
-/-- `failwith : string -> empty` with precondition `False`: the call is only
-    verifiable in a contradictory context, i.e. on a dead path. At runtime the
-    reduce relation is empty (real OCaml raises). -/
+/-- `failwith : string -> 'a` with precondition `False`: the call is only
+    verifiable in a contradictory context, i.e. on a dead path, so the result
+    type it is used at is whatever that context expects. At runtime the reduce
+    relation is empty (real OCaml raises). -/
 def failwithB : Pure.Unary where
   name     := "failwith"
   path     := some ("failwith", [])
   arg      := .str
-  res      := .empty
-  f        := fun _ => ()
+  res      := .poly "a"
+  f        := fun _ => .unit
   dom      := fun _ => False
   pre      := some fun _ => .false_
   defAxiom := .true_
@@ -49,7 +50,7 @@ def failwith : Intrinsic := failwithB.toIntrinsic
 
 def failwithLawful : failwithB.Lawful where
   argL         := Embedding.lawfulStr
-  resL         := Embedding.lawfulEmpty
+  resL         := Embedding.lawfulPoly "a"
   domSound     := fun _ _ h => (h _ rfl).elim
   semWellTyped := fun _ _ _ hdom => hdom.elim
   specBaseWf   := by apply PredTrans.checkWf_ok; rfl
@@ -61,15 +62,15 @@ instance : IntrinsicSound [failwith] failwith := failwithLawful.sound
 
 /-! ## `invalid_arg` -/
 
-/-- `invalid_arg : string -> empty` with precondition `False`; identical to
+/-- `invalid_arg : string -> 'a` with precondition `False`; identical to
     `failwith` except for the exception it raises in real OCaml, which the
     verifier never observes. -/
 def invalidArgB : Pure.Unary where
   name     := "invalid_arg"
   path     := some ("invalid_arg", [])
   arg      := .str
-  res      := .empty
-  f        := fun _ => ()
+  res      := .poly "a"
+  f        := fun _ => .unit
   dom      := fun _ => False
   pre      := some fun _ => .false_
   defAxiom := .true_
@@ -81,7 +82,7 @@ def invalidArg : Intrinsic := invalidArgB.toIntrinsic
 
 def invalidArgLawful : invalidArgB.Lawful where
   argL         := Embedding.lawfulStr
-  resL         := Embedding.lawfulEmpty
+  resL         := Embedding.lawfulPoly "a"
   domSound     := fun _ _ h => (h _ rfl).elim
   semWellTyped := fun _ _ _ hdom => hdom.elim
   specBaseWf   := by apply PredTrans.checkWf_ok; rfl

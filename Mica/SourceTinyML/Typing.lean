@@ -1160,8 +1160,8 @@ private def checkDeclAnnotation (env : SpecEnv σ) (Θ : TypeEnv) (b : Untyped.B
     TypeM σ Unit :=
   match b with
   | .named _ (some ann) => do
-      let ann' ← translate env Θ ann
-      if Typ.unspec ty == ann' then pure () else TypeM.error (.subsumptionFailure ty ann')
+      let ann' ← Typ.elaborate env Θ ann
+      if Typ.unspec ty == ann' then pure () else TypeM.error (.typeMismatch ann' (Typ.unspec ty))
   | _ => pure ()
 
 def ValDecl.elaborate (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx)
@@ -1173,19 +1173,18 @@ def ValDecl.elaborate (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx)
       -- A specified declaration's literal records its specification, so the
       -- declaration's own type — and hence the type every later use is
       -- annotated with — is the specified arrow.
-      let (_, body') ← elabSpecifiedFix env Θ Γ rb d.body
+      let (_, body') ← ValDecl.elaborateSpecified env Θ Γ rb d.body
       checkDeclAnnotation env Θ d.name body'.ty
       pure { name := Typed.Binder.ofUntyped d.name body'.ty, body := body',
              relation := d.relation }
   | none => do
-      let (bodyTy, body') ←
-        match d.name with
-        | .named _ (some ty) => do
-            let ty' ← translate env Θ ty
-            let body' ← check env Θ Γ d.body ty'
-            pure (ty', body')
-        | _ => infer env Θ Γ d.body
-      pure { name := Typed.Binder.ofUntyped d.name bodyTy, body := body',
+      -- The declaration's own annotation, if it has one, is the only type the
+      -- body is expected at; without one the body decides its own.
+      let expected ← Typ.elaborateOpt env Θ (match d.name with
+        | .named _ (some ty) => some ty
+        | _ => none)
+      let body' ← Expr.elaborate env Θ Γ d.body expected
+      pure { name := Typed.Binder.ofUntyped d.name body'.ty, body := body',
              relation := d.relation }
 
 def Program.elaborate (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx) :
@@ -1194,7 +1193,7 @@ def Program.elaborate (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx) :
   | d :: ds => do
       match d with
       | .type_ dty =>
-          let body ← translateDataDecl { env with globals := Γ } Θ dty.body
+          let body ← DataDecl.elaborate { env with globals := Γ } Θ dty.body
           let Θ' ← TypeM.ofExcept (extendTypeEnv Θ dty.name body)
           Program.elaborate env Θ' Γ ds
       | .val_ dval =>
@@ -1204,7 +1203,6 @@ def Program.elaborate (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx) :
             | none => Γ
           let (Θ', ds') ← Program.elaborate env Θ Γ' ds
           pure (Θ', d' :: ds')
-
 private theorem branchListRuntime_cast_joinAll
     (Θ : TypeEnv) (branches' : List (Typed.Binder × Typed.Expr)) :
     Expr.WithTypeVars.branchListRuntime
@@ -1746,82 +1744,6 @@ theorem elabSpecifiedFix_runtime (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.
     rcases hcont with ⟨rfl, rfl⟩
     exact check_runtime env Θ Γ _ _ _ _ _ hchecked
   all_goals simp [elabSpecifiedFix, TypeM.error] at h
-
-theorem ValDecl.elaborate_runtime (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx)
-    (d : Untyped.ValDecl Untyped.SpecBody) :
-    ∀ {s : σ} {d' : Typed.ValDecl} {s' : σ},
-      Typed.ValDecl.elaborate env Θ Γ d s = .ok (d', s') →
-      d'.runtime = d.runtime := by
-  intro s d' s' helab
-  -- Split on whether there is a specification, and then — in its absence — only
-  -- on whether there is an annotation; the unannotated cases are identical.
-  match hspec : d.spec with
-  | some rb =>
-    simp only [ValDecl.elaborate, hspec] at helab
-    have ⟨_, sg, _, helab'⟩ := StateT.bind_ok helab
-    have ⟨r, s₀, hfix, hcont⟩ := StateT.bind_ok helab'
-    have ⟨_, s₁, _, hcont⟩ := StateT.bind_ok hcont
-    rcases hcont with ⟨rfl, rfl⟩
-    simp [Typed.ValDecl.runtime, Untyped.ValDecl.runtime, Binder.ofUntyped_runtime,
-      elabSpecifiedFix_runtime env Θ Γ rb d.body hfix]
-  | none =>
-    match hname : d.name with
-    | .named x (some ty) =>
-      simp only [ValDecl.elaborate, hspec, hname] at helab
-      have ⟨ty', s₀, _hty, hcont⟩ := StateT.bind_ok helab
-      have ⟨body', s₁, hcheck, hcont⟩ := StateT.bind_ok hcont
-      have ⟨y, s₂, hy, hcont⟩ := StateT.bind_ok hcont
-      rcases (by simpa using hy) with ⟨rfl, rfl⟩
-      rcases hcont with ⟨rfl, rfl⟩
-      simp [Typed.ValDecl.runtime, Untyped.ValDecl.runtime,
-        check_runtime env Θ Γ d.body ty' _ _ _ hcheck, Binder.ofUntyped_runtime, hname]
-    | .none | .named _ none =>
-      simp only [ValDecl.elaborate, hspec, hname] at helab
-      have ⟨p, s₀, hinfer, hcont⟩ := StateT.bind_ok helab
-      obtain ⟨bodyTy, body'⟩ := p
-      rcases hcont with ⟨rfl, rfl⟩
-      simp [Typed.ValDecl.runtime, Untyped.ValDecl.runtime,
-        infer_runtime env Θ Γ d.body _ _ _ hinfer, Binder.ofUntyped_runtime, hname]
-
-theorem Program.elaborate_runtime (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx)
-    (prog : Untyped.Program Untyped.SpecBody) :
-    ∀ {s : σ} {Θ' : TypeEnv} {prog' : Typed.Program} {s' : σ},
-      Typed.Program.elaborate env Θ Γ prog s = .ok ((Θ', prog'), s') →
-      prog'.runtime = prog.runtime := by
-  induction prog generalizing Θ Γ with
-  | nil =>
-    intro s Θ' prog' s' h
-    simp [Typed.Program.elaborate] at h
-    rcases h with ⟨⟨rfl, rfl⟩, rfl⟩
-    simp [Typed.Program.runtime, Untyped.Program.runtime]
-  | cons d ds ih =>
-    intro s Θ' prog' s' h
-    cases d with
-    | type_ dty =>
-      unfold Typed.Program.elaborate at h
-      -- The payloads' own elaboration stays opaque; a type declaration
-      -- contributes nothing to the runtime program either way.
-      have ⟨body, s₀, _hbody, hcont⟩ := StateT.bind_ok h
-      cases hext : extendTypeEnv Θ dty.name body with
-      | error err =>
-        simp [hext] at hcont
-      | ok Θ1 =>
-        simp [hext] at hcont
-        exact ih Θ1 Γ hcont
-    | val_ dval =>
-      unfold Typed.Program.elaborate at h
-      have ⟨dval', s₀, hdecl, hcont⟩ := StateT.bind_ok h
-      let Γ' := match dval'.name.name with
-        | some x => Γ.extend x dval'.name.ty
-        | none => Γ
-      have ⟨tail, s₁, htail, hcont⟩ := StateT.bind_ok hcont
-      rcases tail with ⟨Θ'', ds'⟩
-      simp at hcont
-      rcases hcont with ⟨⟨rfl, rfl⟩, rfl⟩
-      have hdecl_rt : dval'.runtime = dval.runtime :=
-        ValDecl.elaborate_runtime _ Θ Γ dval hdecl
-      simp [Typed.Program.runtime, Untyped.Program.runtime, hdecl_rt]
-      exact congrArg (List.cons dval.runtime) (ih Θ Γ' htail)
 
 
 end Typed

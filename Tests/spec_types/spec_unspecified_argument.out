@@ -1,2 +1,2 @@
-Status: failed: subsumption failed: int -> int is not a subtype of int -> int [@@spec]
+Status: failed: cannot unify int -> int with int -> int [@@spec]
 [1]
