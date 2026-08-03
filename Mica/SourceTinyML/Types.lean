@@ -632,6 +632,60 @@ termination_by structural s => s
 
 end
 
+mutual
+
+/-- Every type variable a type mentions, in order of occurrence and with
+repetitions. Descends into an arrow's specification for the same reason
+substitution does. -/
+def Typ.vars : Typ.WithTypeVars V → List V
+  | .prim _ | .empty | .value => []
+  | .sum ts | .tuple ts | .named _ ts => Typ.varsList ts
+  | .arrow args ret spec => Typ.varsList args ++ Typ.vars ret ++ Typ.varsSpec? spec
+  | .ref t | .array t | .ownedArray t | .vec t | .owned t => Typ.vars t
+  | .tvar v => [v]
+termination_by structural t => t
+
+/-- The variables of a list of types, mutually with `Typ.vars`. -/
+def Typ.varsList : List (Typ.WithTypeVars V) → List V
+  | [] => []
+  | t :: ts => Typ.vars t ++ Typ.varsList ts
+termination_by structural ts => ts
+
+/-- The variables an atom's types mention, mutually with `Typ.vars`. -/
+def Typ.varsAtom : {s : Srt} → Atom (Typ.WithTypeVars V) s → List V
+  | _, .isint _ | _, .isbool _ | _, .isinj .. | _, .rel .. => []
+  | _, .own _ ty | _, .arr _ ty => Typ.vars ty
+termination_by structural _ a => a
+
+/-- The variables a postcondition mentions, mutually with `Typ.vars`. -/
+def Typ.varsPost : Assertion (Typ.WithTypeVars V) Unit → List V
+  | .ret () => []
+  | .assert _ k | .let_ _ _ k => Typ.varsPost k
+  | .pred _ p k => Typ.varsAtom p ++ Typ.varsPost k
+  | .ite _ kt ke => Typ.varsPost kt ++ Typ.varsPost ke
+termination_by structural a => a
+
+/-- The variables a predicate transformer mentions, mutually with `Typ.vars`. -/
+def Typ.varsPredTrans : Assertion (Typ.WithTypeVars V) (Post (Typ.WithTypeVars V)) → List V
+  | .ret p => Typ.varsPost p.body
+  | .assert _ k | .let_ _ _ k => Typ.varsPredTrans k
+  | .pred _ p k => Typ.varsAtom p ++ Typ.varsPredTrans k
+  | .ite _ kt ke => Typ.varsPredTrans kt ++ Typ.varsPredTrans ke
+termination_by structural a => a
+
+/-- The variables a specification mentions, mutually with `Typ.vars`. -/
+def Typ.varsSpec : Spec (Typ.WithTypeVars V) → List V
+  | s => Typ.varsPredTrans s.pred
+termination_by structural s => s
+
+/-- The variables an optional specification mentions, mutually with `Typ.vars`. -/
+def Typ.varsSpec? : Option (Spec (Typ.WithTypeVars V)) → List V
+  | none => []
+  | some s => Typ.varsSpec s
+termination_by structural s => s
+
+end
+
 /-- Close a schema by instantiating each variable, failing on the first one the
 assignment does not cover. -/
 def SchemaTyp.close (inst : TyVar → Option Typ) (t : SchemaTyp) : Except TyVar Typ :=
@@ -759,22 +813,31 @@ def TypeEnv.empty : TypeEnv := fun _ => none
 /-- The sum of a declaration's payloads at the given type arguments. Callers
 check the argument count against `tparams` first; a parameter left unmatched by
 a mis-sized application is instantiated at the uninhabited type. -/
-def DataDecl.instantiate (d : DataDecl) (args : List Typ) : Typ :=
+def DataDecl.instantiate (d : DataDecl) (args : List (Typ.WithTypeVars V)) :
+    Typ.WithTypeVars V :=
   let σ := fun v =>
     match (d.tparams.zip args).find? (fun p => p.1 == v) with
     | some (_, ty) => ty
     | none => .empty
   .sum (d.payloads.map (Typ.subst σ))
 
-def TypeName.unfold (Θ : TypeEnv) (T : TypeName) (args : List Typ) : Option Typ :=
+/-- How many type arguments a name takes, `none` when it has no declaration. -/
+def TypeName.params (Θ : TypeEnv) : TypeName → Option Nat
+  | .user T => (Θ (.user T)).map (·.tparams.length)
+  | .predef p => some p.arity
+
+def TypeName.unfold (Θ : TypeEnv) (T : TypeName) (args : List (Typ.WithTypeVars V)) :
+    Option (Typ.WithTypeVars V) :=
   match T with
   | .user _ => (Θ T).map (·.instantiate args)
   | .predef p =>
       if args.length = p.arity then some (p.decl.instantiate args) else none
 
-@[simp] theorem TypeName.unfold_predef (Θ : TypeEnv) (p : Predef) (args : List Typ) :
+@[simp] theorem TypeName.unfold_predef (Θ : TypeEnv) (p : Predef)
+    (args : List (Typ.WithTypeVars V)) :
     TypeName.unfold Θ (.predef p) args =
       if args.length = p.arity then some (p.decl.instantiate args) else none := rfl
+
 
 /-! ## Weight and depth measures
 

@@ -8,6 +8,7 @@ import Mica.SourceTinyML.Assertions
 import Mica.SourceTinyML.TypeConstraints
 import Mica.SourceTinyML.Unification
 import Mica.SourceTinyML.Typing
+import Mica.SourceTinyML.Erasure
 import Mica.SourceTinyML.Printer
 import Mica.SourceTinyML.World
 import Mica.SourceTinyML.Semantics

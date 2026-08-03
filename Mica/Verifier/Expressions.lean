@@ -203,6 +203,39 @@ def checkRet (Θ : TinyML.TypeEnv) (retTy bodyTy : TinyML.Typ) : VerifM Unit :=
   if TinyML.Typ.sub Θ bodyTy retTy then pure ()
   else VerifM.fatal "fix: body type does not match the return type"
 
+/-- The components of the sum a type is, unfolding a name exactly once. An
+injection's annotation is the name it was declared under, so one step suffices. -/
+def sumComponents? (Θ : TinyML.TypeEnv) : TinyML.Typ → Option (List TinyML.Typ)
+  | .sum ts => some ts
+  | .named T args =>
+      match TinyML.TypeName.unfold Θ T args with
+      | some (.sum ts) => some ts
+      | _ => none
+  | _ => none
+
+omit [MicaGS HasLC.hasLC Sig] in
+theorem sumComponents?_eq {Θ : TinyML.TypeEnv} {ty : TinyML.Typ} {ts : List TinyML.Typ}
+    (h : sumComponents? Θ ty = some ts) :
+    ty = .sum ts ∨ ∃ T args, ty = .named T args ∧ TinyML.TypeName.unfold Θ T args = some (.sum ts) := by
+  unfold sumComponents? at h
+  split at h
+  · exact .inl (by simp_all)
+  · rename_i T args
+    split at h
+    · exact .inr ⟨T, args, rfl, by simp_all⟩
+    · exact absurd h (by simp)
+  · exact absurd h (by simp)
+
+/-- A value of a type is a value of the sum it unfolds to, and back. An injection
+uses the second direction and a `match` the first, which is why neither needs a
+cast to record the unfolding. -/
+theorem valHasType_sumComponents {W : TinyML.World} {v : Runtime.Val} {ty : TinyML.Typ}
+    {ts : List TinyML.Typ} (h : sumComponents? W.Θ ty = some ts) :
+    TinyML.ValHasType W v ty ⊣⊢ TinyML.ValHasType W v (.sum ts) := by
+  rcases sumComponents?_eq h with rfl | ⟨T, args, rfl, hunfold⟩
+  · exact .rfl
+  · exact TinyML.ValHasType.named_of_unfold hunfold
+
 /-- The components of the sum an injection claims to build, when its annotation
 holds up. Checking the annotation here means nothing downstream has to trust the
 elaborator. -/
