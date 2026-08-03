@@ -78,9 +78,17 @@ private structure TypeInfo where
   core  : TinyML.TypeName
   arity : Nat
 
+/-- What a constructor resolves to: its tag among the `arity` constructors of
+`owner`, and the payload it carries. -/
+structure CtorInfo where
+  tag     : Nat
+  arity   : Nat
+  owner   : TinyML.TypeName
+  payload : Untyped.Typ
+
 structure ElabEnv where
   types    : List (TypeConstructor × TypeInfo)                := []
-  ctors    : List (Constructor × (Nat × Nat × Untyped.Typ))  := []
+  ctors    : List (Constructor × CtorInfo)                    := []
   fields   : List (FieldName × (TypeConstructor × Nat))      := []
   records  : List (TypeConstructor × List (FieldName × Untyped.Typ)) := []
   locals   : List Var                                        := []
@@ -187,12 +195,12 @@ private def insertBranch (env : ElabEnv) (loc : Location) (arity : Nat)
     : ElabM (List (Option (Untyped.Binder × Untyped.Expr))) :=
   match List.lookup name env.ctors with
   | none => .error { loc, kind := .unknownConstructor name }
-  | some (tag, arity', _) =>
-    if arity' != arity then
-      .error { loc, kind := .arityMismatch arity arity' }
+  | some info =>
+    if info.arity != arity then
+      .error { loc, kind := .arityMismatch arity info.arity }
     else
       let b := binder.getD .none
-      .ok (listSet acc tag (some (b, body)))
+      .ok (listSet acc info.tag (some (b, body)))
 
 -- ---------------------------------------------------------------------------
 -- Expression elaboration
@@ -210,7 +218,7 @@ private def elaborateBinOp (loc : Location) : BinOp → ElabM TinyML.BinOp
 private def elaborateCtorLookup (env : ElabEnv) (loc : Location) (name : String)
     (arg : Option Untyped.Expr) : ElabM Untyped.Expr :=
   match List.lookup name env.ctors with
-  | some (tag, arity, _) => .ok (.inj tag arity (arg.getD (.const .unit)))
+  | some info => .ok (.inj info.tag info.arity (arg.getD (.const .unit)) info.owner)
   | none => err loc (.unknownConstructor name)
 
 /-- Apply a single expression attribute to an already-elaborated term. One arm
@@ -506,7 +514,7 @@ partial def ExprKind.elaborate (env : ElabEnv) (loc : Location) : ExprKind → E
         | "ref" | "not" => err loc (.bareSpecialIdentifier name)
         | _ =>
           match List.lookup name env.ctors with
-          | some (tag, arity, _) => .ok (.inj tag arity (.const .unit))
+          | some info => .ok (.inj info.tag info.arity (.const .unit) info.owner)
           | none =>
             -- Bare prelude values resolve only when no lexical binder shadows
             -- them; qualified paths always resolve through the resolver.
@@ -747,7 +755,8 @@ partial def ExprKind.elaborate (env : ElabEnv) (loc : Location) : ExprKind → E
     | (ctorName, _, _) :: _ =>
       match List.lookup ctorName env.ctors with
       | none => err loc (.unknownConstructor ctorName)
-      | some (_, arity, _) => do
+      | some info => do
+        let arity := info.arity
         let init : List (Option (Untyped.Binder × Untyped.Expr)) := List.replicate arity none
         let filled ← arms'.foldlM
           (fun acc (name, binder, body) => insertBranch env loc arity acc name binder body)
@@ -763,8 +772,9 @@ partial def ExprKind.elaborate (env : ElabEnv) (loc : Location) : ExprKind → E
     let es' ← Expr.elaborateList env es
     let nil ← elaborateCtorLookup env loc "[]" none
     match List.lookup "::" env.ctors with
-    | some (tag, arity, _) =>
-        .ok (es'.foldr (fun head tail => .inj tag arity (.tuple [head, tail])) nil)
+    | some info =>
+        .ok (es'.foldr
+          (fun head tail => .inj info.tag info.arity (.tuple [head, tail]) info.owner) nil)
     | none => err loc (.unknownConstructor "::")
 
   | .record flds => do
@@ -805,7 +815,7 @@ partial def MatchArm.elaborateList (env : ElabEnv)
           | none => err pat.loc (.unsupportedPath path)
         else .ok path.head
         let payloadTy ← match List.lookup name env.ctors with
-          | some (_, _, ty) => .ok ty
+          | some info => .ok info.payload
           | none => err pat.loc (.unknownConstructor name)
         let (binder, body'') ← match payload with
           | some p =>
@@ -840,9 +850,9 @@ end
 -- ---------------------------------------------------------------------------
 -- Type declaration elaboration
 
-private def elaborateCtorDefs (env : ElabEnv) (loc : Location)
+private def elaborateCtorDefs (env : ElabEnv) (loc : Location) (owner : TinyML.TypeName)
     (ctorDefs : List (Constructor × Option Typ)) (tag : Nat) (arity : Nat)
-    : ElabM (List Untyped.Typ × List (Constructor × (Nat × Nat × Untyped.Typ))) :=
+    : ElabM (List Untyped.Typ × List (Constructor × CtorInfo)) :=
   match ctorDefs with
   | [] => .ok ([], [])
   | (ctorName, payloadTy) :: rest => do
@@ -852,9 +862,9 @@ private def elaborateCtorDefs (env : ElabEnv) (loc : Location)
     let payloadTy' ← match payloadTy with
       | some ty => Typ.elaborate env ty
       | none => .ok (.core .unit)
-    let (restTypes, restCtors) ← elaborateCtorDefs env loc rest (tag + 1) arity
+    let (restTypes, restCtors) ← elaborateCtorDefs env loc owner rest (tag + 1) arity
     .ok (payloadTy' :: restTypes,
-         (ctorName, (tag, arity, payloadTy')) :: restCtors)
+         (ctorName, ⟨tag, arity, owner, payloadTy'⟩) :: restCtors)
 
 private def elaborateVariant (env : ElabEnv) (loc : Location) (name : TypeConstructor)
     (tparams : List TinyML.TyVar) (ctorDefs : List (Constructor × Option Typ))
@@ -866,7 +876,7 @@ private def elaborateVariant (env : ElabEnv) (loc : Location) (name : TypeConstr
   -- constructor payloads and later uses resolve to the named type (not the inlined sum).
   let coreName := TinyML.TypeName.user name
   let envWithSelf := { env with types := (name, ⟨coreName, tparams.length⟩) :: env.types }
-  let (payloadTypes, newCtors) ← elaborateCtorDefs envWithSelf loc ctorDefs 0 arity
+  let (payloadTypes, newCtors) ← elaborateCtorDefs envWithSelf loc coreName ctorDefs 0 arity
   let env' := { envWithSelf with ctors := newCtors ++ env.ctors }
   let decl : Untyped.TypeDecl := { name := coreName, body := { tparams, payloads := payloadTypes } }
   .ok (env', decl)
@@ -1055,14 +1065,13 @@ private def schemaAnnotation : TinyML.SchemaTyp → Untyped.Typ
   | .tvar v => .tvar v
   | .named n args => .named n (args.map schemaAnnotation)
 
-private def predefCtorEntries (p : TinyML.Predef) :
-    List (Constructor × (Nat × Nat × Untyped.Typ)) :=
+private def predefCtorEntries (p : TinyML.Predef) : List (Constructor × CtorInfo) :=
   let arity := p.ctors.length
-  let rec go : List (String × TinyML.SchemaTyp) → Nat →
-      List (Constructor × (Nat × Nat × Untyped.Typ))
+  let owner := TinyML.TypeName.predef p
+  let rec go : List (String × TinyML.SchemaTyp) → Nat → List (Constructor × CtorInfo)
     | [], _ => []
     | (name, payload) :: rest, tag =>
-        (name, (tag, arity, schemaAnnotation payload)) :: go rest (tag + 1)
+        (name, ⟨tag, arity, owner, schemaAnnotation payload⟩) :: go rest (tag + 1)
   go p.ctors 0
 
 /-- The initial frontend environment derived from the canonical predef catalog.

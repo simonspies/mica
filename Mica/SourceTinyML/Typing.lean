@@ -520,7 +520,7 @@ mutual
     | .tuple es => do
         let pairs ← inferList env Θ Γ es
         pure (.tuple (pairs.map Prod.fst), .tuple (pairs.map Prod.snd))
-    | .inj tag arity payload => do
+    | .inj tag arity payload _ => do
         let (ty, payload') ← infer env Θ Γ payload
         let sumTy : Typ := .sum ((List.replicate arity .empty).set tag ty)
         pure (sumTy, .inj tag arity payload' sumTy)
@@ -1277,7 +1277,7 @@ mutual
         have ⟨pairs, s₀, hpairs, hcont⟩ := StateT.bind_ok h
         rcases (by simpa [hpairs] using hcont) with ⟨⟨rfl, rfl⟩, rfl⟩
         simp [Expr.WithTypeVars.runtime, Untyped.Expr.runtime, ih _ _ _ hpairs]
-    | .inj tag arity payload => by
+    | .inj tag arity payload _ => by
         let ih := infer_runtime env Θ Γ payload
         intro s result s' h
         unfold Typed.infer at h
