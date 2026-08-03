@@ -52,19 +52,10 @@ end Infer
 inductive TypeError where
   | undefinedVar (name : TinyML.Var)
   | duplicateType (name : TypeName)
-  | operatorMismatch (op : BinOp) (lhs rhs : Typ)
-  | unaryMismatch (op : UnOp) (arg : Typ)
-  | notAFunction (ty : Typ)
   | arityMismatch (expected actual : Nat)
   | typeMismatch (expected actual : Typ)
-  | notASum (ty : Typ)
-  | notARef (ty : Typ)
-  | notAnArray (ty : Typ)
-  | missingReturnType
-  | subsumptionFailure (sub super : Typ)
   | spec (msg : String)
   | unknownPrimitive (name : String)
-  | cannotInstantiate (name : String) (msg : String)
   | unboundTypeVar (name : TyVar)
   /-- Two types the program requires to be equal are not. -/
   | mismatch (left right : Infer.Typ)
@@ -82,25 +73,12 @@ instance : ToString TypeError where
   toString
     | .undefinedVar name => s!"undefined variable: {name}"
     | .duplicateType name => s!"duplicate type: {name}"
-    | .operatorMismatch op lhs rhs =>
-        s!"operator {repr op} cannot be applied to {lhs.print} and {rhs.print}"
-    | .unaryMismatch op arg =>
-        s!"operator {repr op} cannot be applied to {arg.print}"
-    | .notAFunction ty => s!"not a function: {ty.print}"
     | .arityMismatch expected actual =>
         s!"arity mismatch: expected {expected}, got {actual}"
     | .typeMismatch expected actual =>
         s!"type mismatch: expected {expected.print}, got {actual.print}"
-    | .notASum ty => s!"not a sum type: {ty.print}"
-    | .notARef ty => s!"not a ref type: {ty.print}"
-    | .notAnArray ty => s!"not an array type: {ty.print}"
-    | .missingReturnType => "missing return type"
-    | .subsumptionFailure sub super =>
-        s!"subsumption failed: {sub.print} is not a subtype of {super.print}"
     | .spec msg => s!"specification error: {msg}"
     | .unknownPrimitive name => s!"unknown primitive: {name}"
-    | .cannotInstantiate name msg =>
-        s!"cannot instantiate primitive {name}: {msg}"
     | .unboundTypeVar name => s!"unbound type variable '{name}"
     | .mismatch a b => s!"cannot unify {a.print} with {b.print}"
     | .occurs v t => s!"?{v} occurs in {t.print}"
@@ -333,7 +311,6 @@ def Expr.close (st : State) : Expr → Except TypeError Typed.Expr
   | .match_ e branches ty => do
       let branches ← Expr.closeBranches st branches
       pure (.match_ (← Expr.close st e) branches (← State.close st ty))
-  | .cast e ty => do pure (.cast (← Expr.close st e) (← State.close st ty))
 termination_by structural e => e
 
 def Expr.closeList (st : State) :

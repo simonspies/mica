@@ -183,11 +183,6 @@ theorem Expr.close_runtime {st : Infer.State} {e : Expr} {e' : Typed.Expr}
         subst e'
         simp [Typed.Expr.WithTypeVars.runtime, Expr.close_runtime he,
           Expr.closeBranches_runtime hb]
-  | cast e ty =>
-      cases he : Expr.close st e <;> cases ht : Infer.State.close st ty <;>
-        simp [Expr.close, he, ht] at h
-      case ok.ok e1 t =>
-        subst e'; simp [Typed.Expr.WithTypeVars.runtime, Expr.close_runtime he]
 termination_by sizeOf e
 
 theorem Expr.closeList_runtime {st : Infer.State} {es : List Expr} {es' : List Typed.Expr}
@@ -229,6 +224,10 @@ end
 
 
 end Infer
+
+theorem Binder.ofUntyped_runtime (b : Untyped.Binder) (ty : Typ) :
+    (Typed.Binder.ofUntyped b ty).runtime = b.runtime := by
+  cases b <;> rfl
 
 /-! ## Erasure
 
@@ -657,7 +656,6 @@ theorem ValDecl.elaborateSpecified_runtime (env : SpecEnv σ) (Θ : TypeEnv) (Γ
         rcases hcont with ⟨rfl, rfl⟩
         exact Expr.elaborate_runtime env Θ Γ _ _ hbody
   all_goals simp [ValDecl.elaborateSpecified, TypeM.error] at h
-
 
 theorem ValDecl.elaborate_runtime (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx)
     (d : Untyped.ValDecl Untyped.SpecBody) :

@@ -387,10 +387,6 @@ mutual
           else
             VerifM.fatal "match branch type annotation mismatch"
         | none => VerifM.fatal "match on non-sum type"
-    | .cast e ty => do
-        let se ← compile reg Θ Δ_spec B Γ e
-        if TinyML.Typ.sub Θ e.ty ty then pure se
-        else VerifM.fatal s!"cast type mismatch"
     | .ref ownership e => do
         let v ← compile reg Θ Δ_spec B Γ e
         let l ← VerifM.decl none .value
@@ -906,31 +902,6 @@ theorem compileInj_correct (reg : Verifier.Registry) (tag arity : Nat) (payload 
           (by simp only [Term.wfIn]; exact ⟨trivial, hse_wf_p⟩)
           (by simp [Term.eval, UnOp.eval, heval_se_p]))
     exact SpatialContext.wp_inj <| hprep.trans hpost'
-
-theorem compileCast_correct (reg : Verifier.Registry) (e : Expr) (ty : TinyML.Typ)
-    (ih : correctExpr reg e) :
-    correctExpr reg (.cast e ty) := by
-  intro W R B Γ st ρ γ Ψ Φ hW heval hagree hbwf hwf hag hΔreg hρreg hpost
-  simp only [Expr.WithTypeVars.ty] at hpost
-  simp only [compile] at heval
-  have heval_e : (compile reg W.Θ W.Δ_spec B Γ e).eval st ρ _ := VerifM.eval_bind heval
-  simp [Expr.WithTypeVars.runtime]
-  refine ih W R B Γ st ρ γ _ _ hW (VerifM.eval.decls_grow ρ heval_e) hagree hbwf hwf hag hΔreg hρreg ?_
-  intro v ρ' st' se hΨ hse_wf heval_se
-  obtain ⟨_, _, hΨ⟩ := hΨ
-  cases hsub : TinyML.Typ.sub W.Θ e.ty ty with
-  | false =>
-    simp [hsub] at hΨ
-    exact (VerifM.eval_fatal hΨ).elim
-  | true =>
-    simp [hsub] at hΨ
-    obtain hΨ := VerifM.eval_ret hΨ
-    have hsub' : TinyML.Typ.Sub W.Θ e.ty ty := TinyML.Typ.sub_sound hsub
-    have hprep :
-        st'.sl W ρ' ∗ TinyML.ValHasType W v e.ty ∗ R ⊢
-          st'.sl W ρ' ∗ TinyML.ValHasType W v ty ∗ R :=
-      sep_mono_right (sep_mono_left (TinyML.ValHasType.sub hsub'))
-    exact hprep.trans <| hpost v ρ' st' se hΨ hse_wf heval_se
 
 theorem compileAssert_correct (reg : Verifier.Registry) (e : Expr)
     (ih : correctExpr reg e) :
@@ -3996,8 +3967,6 @@ theorem compile_correct (reg : Verifier.Registry) (hSound : Verifier.Registry.So
     simpa using compilePrim_correct reg n inst ty
   | inj tag arity payload ty =>
     simpa using compileInj_correct reg tag arity payload ty (compile_correct reg hSound payload)
-  | cast e ty =>
-    simpa using compileCast_correct reg e ty (compile_correct reg hSound e)
   | assert e =>
     simpa using compileAssert_correct reg e (compile_correct reg hSound e)
   | fix self args retTy spec body =>

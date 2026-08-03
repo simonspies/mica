@@ -185,7 +185,6 @@ def intrinsic (name : String) (path : String) : Verifier.Intrinsic where
   spec :=
     { args := ["lo", "hi", "body"]
       pred := .assert .false_ (.ret ⟨"ret", .ret ()⟩) }
-  typing := Verifier.monoTyping .three
   folSym := none
   axioms := []
 
@@ -299,7 +298,6 @@ mutual
     | .tuple es => es.flatMap freeVars
     | .inj _ _ payload _ => freeVars payload
     | .match_ scrut branches _ => freeVars scrut ++ branchFreeVars branches
-    | .cast e _ => freeVars e
 
   private def branchFreeVars : List (Typed.Binder × Typed.Expr) → List TinyML.Var
     | [] => []
@@ -387,7 +385,6 @@ private partial def rewrite : Typed.Expr → LiftM Typed.Expr
   | .match_ scrut branches ty => do
       pure (.match_ (← rewrite scrut)
         (← branches.mapM fun (b, body) => do pure (b, ← rewrite body)) ty)
-  | .cast e ty => do pure (.cast (← rewrite e) ty)
 
 /-- Rewrite one typed spec leaf, lifting every bounded-quantifier occurrence in
 it. Lifted symbols accumulate in `syms` in dependency order: `rewrite` descends
