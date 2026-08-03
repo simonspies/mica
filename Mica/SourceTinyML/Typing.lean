@@ -7,128 +7,11 @@ import Mica.SourceTinyML.Assertions
 import Mica.SourceTinyML.TypeConstraints
 import Mica.SourceTinyML.Printer
 import Mica.Base.Except
-
-namespace TinyML
-
-/-! ## Type contexts -/
-
-abbrev TyCtx := TinyML.Var → Option Typ
-
-def TyCtx.empty : TyCtx := fun _ => none
-
-def TyCtx.extend (Γ : TyCtx) (x : TinyML.Var) (t : Typ) : TyCtx :=
-  fun y => if y == x then some t else Γ y
-
-def TyCtx.extendBinder (Γ : TyCtx) (b : Typed.Binder) (t : Typ) : TyCtx :=
-  match b.name with
-  | none => Γ
-  | some x => Γ.extend x t
-
-@[simp] theorem TyCtx.extend_eq (Γ : TyCtx) (x : TinyML.Var) (t : Typ) :
-    (Γ.extend x t) x = some t := by simp [TyCtx.extend]
-
-@[simp] theorem TyCtx.extend_ne (Γ : TyCtx) (x y : TinyML.Var) (t : Typ) (h : y ≠ x) :
-    (Γ.extend x t) y = Γ y := by
-  simp [TyCtx.extend, h]
-
-/-- Extending a context along a list of name/type pairs leaves every name
-    outside that list untouched. -/
-theorem TyCtx.foldl_extend_of_not_mem (Γ : TyCtx) (ps : List (TinyML.Var × Typ))
-    (y : TinyML.Var) (hy : y ∉ ps.map Prod.fst) :
-    (ps.foldl (fun ctx (p : TinyML.Var × Typ) => ctx.extend p.1 p.2) Γ) y = Γ y := by
-  induction ps generalizing Γ with
-  | nil => rfl
-  | cons p ps ih =>
-    simp only [List.map_cons, List.mem_cons, not_or] at hy
-    rw [List.foldl_cons, ih _ (by simpa using hy.2), TyCtx.extend_ne _ _ _ _ hy.1]
-
-/-- Γ ≤ Γ': Γ' extends Γ pointwise. -/
-def TyCtx.le (Γ Γ' : TyCtx) : Prop := ∀ x t, Γ x = some t → Γ' x = some t
-
-instance : LE TyCtx := ⟨TyCtx.le⟩
-
-theorem TyCtx.le_refl (Γ : TyCtx) : Γ ≤ Γ := fun _ _ h => h
-
-theorem TyCtx.le_trans {Γ₁ Γ₂ Γ₃ : TyCtx} (h12 : Γ₁ ≤ Γ₂) (h23 : Γ₂ ≤ Γ₃) : Γ₁ ≤ Γ₃ :=
-  fun x t h => h23 x t (h12 x t h)
-
-/-- Monotonicity of `extendBinder` w.r.t. context ordering. -/
-theorem TyCtx.le_extendBinder_congr {Γ Γ' : TyCtx} (b : Typed.Binder) (t : Typ)
-    (hle : Γ ≤ Γ') : Γ.extendBinder b t ≤ Γ'.extendBinder b t := by
-  intro y ty hy
-  cases hname : b.name with
-  | none =>
-    simp [TyCtx.extendBinder, hname] at hy ⊢
-    exact hle y ty hy
-  | some x =>
-    simp only [TyCtx.extendBinder, hname, TyCtx.extend] at hy ⊢
-    by_cases h : y == x
-    · simp [h] at hy ⊢; exact hy
-    · simp [h] at hy ⊢; exact hle y ty hy
-
--- foldl extend doesn't change the value at x if x doesn't appear in the list.
-theorem TyCtx.foldl_extend_stable
-    (args : List (TinyML.Var × Typ)) (Γ : TyCtx) (x : TinyML.Var)
-    (hx : ∀ a ∈ args, a.1 ≠ x) :
-    (args.foldl (fun ctx a => ctx.extend a.1 a.2) Γ) x = Γ x := by
-  induction args generalizing Γ with
-  | nil => rfl
-  | cons a as ih =>
-    simp only [List.foldl_cons]
-    have := ih (Γ.extend a.1 a.2) (fun a' ha' => hx a' (.tail _ ha'))
-    rw [this]
-    have hne := hx a (.head _)
-    simp [TyCtx.extend, beq_iff_eq, Ne.symm hne]
-
-end TinyML
+import Mica.SourceTinyML.Unification
 
 namespace Typed
 
 open TinyML
-
-inductive TypeError where
-  | undefinedVar (name : TinyML.Var)
-  | duplicateType (name : TypeName)
-  | operatorMismatch (op : BinOp) (lhs rhs : Typ)
-  | unaryMismatch (op : UnOp) (arg : Typ)
-  | notAFunction (ty : Typ)
-  | arityMismatch (expected actual : Nat)
-  | typeMismatch (expected actual : Typ)
-  | notASum (ty : Typ)
-  | notARef (ty : Typ)
-  | notAnArray (ty : Typ)
-  | missingReturnType
-  | subsumptionFailure (sub super : Typ)
-  | spec (msg : String)
-  | unknownPrimitive (name : String)
-  | cannotInstantiate (name : String) (msg : String)
-  | unboundTypeVar (name : TyVar)
-  deriving Repr, Inhabited, DecidableEq
-
-instance : ToString TypeError where
-  toString
-    | .undefinedVar name => s!"undefined variable: {name}"
-    | .duplicateType name => s!"duplicate type: {name}"
-    | .operatorMismatch op lhs rhs =>
-        s!"operator {repr op} cannot be applied to {lhs.print} and {rhs.print}"
-    | .unaryMismatch op arg =>
-        s!"operator {repr op} cannot be applied to {arg.print}"
-    | .notAFunction ty => s!"not a function: {ty.print}"
-    | .arityMismatch expected actual =>
-        s!"arity mismatch: expected {expected}, got {actual}"
-    | .typeMismatch expected actual =>
-        s!"type mismatch: expected {expected.print}, got {actual.print}"
-    | .notASum ty => s!"not a sum type: {ty.print}"
-    | .notARef ty => s!"not a ref type: {ty.print}"
-    | .notAnArray ty => s!"not an array type: {ty.print}"
-    | .missingReturnType => "missing return type"
-    | .subsumptionFailure sub super =>
-        s!"subsumption failed: {sub.print} is not a subtype of {super.print}"
-    | .spec msg => s!"specification error: {msg}"
-    | .unknownPrimitive name => s!"unknown primitive: {name}"
-    | .cannotInstantiate name msg =>
-        s!"cannot instantiate primitive {name}: {msg}"
-    | .unboundTypeVar name => s!"unbound type variable '{name}"
 
 def Binder.ofUntyped (b : Untyped.Binder) (ty : Typ) : Typed.Binder :=
   match b with
@@ -160,42 +43,6 @@ def extendTypeEnv (Θ : TypeEnv) (name : TypeName) (body : DataDecl) : Except Ty
 structure PrimSig where
   scheme : SchemaTyp
   typing : TypeEnv → List Typ → Except String (List (TyVar × Typ))
-
-/-! ## The typing monad
-
-Typing has exactly one effect of its own — failure. The state is there only to
-carry whatever effect the ambient environment's callbacks need, and typing never
-reads or writes it: it merely threads it through. -/
-
-abbrev TypeM (σ : Type) := StateT σ (Except TypeError)
-
-/-- Fail with a type error, discarding the state. -/
-def TypeM.error (e : TypeError) : TypeM σ α := fun _ => .error e
-
-@[simp] theorem TypeM.error_apply (e : TypeError) (s : σ) :
-    (TypeM.error e : TypeM σ α) s = .error e := rfl
-
-@[simp] theorem TypeM.pure_apply (a : α) (s : σ) :
-    (pure a : TypeM σ α) s = .ok (a, s) := rfl
-
-@[simp] theorem TypeM.error_bind (e : TypeError) (g : α → TypeM σ β) :
-    (TypeM.error e >>= g : TypeM σ β) = TypeM.error e := by
-  funext s; rfl
-
-/-- Run a pure `Except` computation in `TypeM`, leaving the state untouched. -/
-def TypeM.ofExcept : Except TypeError α → TypeM σ α
-  | .ok a => fun s => .ok (a, s)
-  | .error e => fun _ => .error e
-
-@[simp] theorem TypeM.ofExcept_pure (a : α) :
-    (TypeM.ofExcept (.ok a) : TypeM σ α) = pure a := rfl
-
-@[simp] theorem TypeM.ofExcept_error (e : TypeError) :
-    (TypeM.ofExcept (.error e) : TypeM σ α) = TypeM.error e := rfl
-
-@[simp] theorem TypeM.ofExcept_ok {r : Except TypeError α} {s s' : σ} {a : α} :
-    (TypeM.ofExcept r : TypeM σ α) s = .ok (a, s') ↔ r = .ok a ∧ s' = s := by
-  cases r <;> simp [TypeM.ofExcept, eq_comm]
 
 /-- The built-in primitives, the translation of a single typed specification
     expression into its value term and definedness condition, and the globals a
@@ -285,7 +132,7 @@ private def specVar (names : List String) (x : String) : TypeM σ (Term .value) 
 
 /-- Elaborate a spec predicate into the atom binding its payload, checking the
 scrutinee against both the type context and the spec-level scope. -/
-private def elabPred (Γ : TyCtx) (names : List String) (ty : Typ) :
+private def Spec.Pred.elaborate (Γ : TyCtx) (names : List String) (ty : Typ) :
     Spec.Pred → TypeM σ (Atom Typ .value)
   | .isinj tag arity scrut => do pure (.isinj tag arity (← specVar names scrut))
   | .own loc =>
@@ -668,7 +515,7 @@ mutual
           (← elabPost env Θ (Γ.extend x ty) (ns ++ [x]) rest))))
     | Γ, ns, .bind p x ty rest => do
       let ty ← translate env Θ ty
-      let atom ← elabPred Γ ns ty p
+      let atom ← Spec.Pred.elaborate Γ ns ty p
       pure (.pred ⟨x, .value⟩ atom
         (assertAll (TinyML.typeConstraints ty (.var .value x))
           (← elabPost env Θ (Γ.extend x ty) (ns ++ [x]) rest)))
@@ -699,7 +546,7 @@ mutual
           (← elabPre env Θ retTy (Γ.extend x ty) (ns ++ [x]) rest))))
     | Γ, ns, .bind p x ty rest => do
       let ty ← translate env Θ ty
-      let atom ← elabPred Γ ns ty p
+      let atom ← Spec.Pred.elaborate Γ ns ty p
       pure (.pred ⟨x, .value⟩ atom
         (assertAll (TinyML.typeConstraints ty (.var .value x))
           (← elabPre env Θ retTy (Γ.extend x ty) (ns ++ [x]) rest)))

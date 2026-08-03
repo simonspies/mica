@@ -1,4 +1,4 @@
--- SUMMARY: Typed TinyML IR, with erasure to the runtime IR.
+-- SUMMARY: Typed TinyML IR, its typing contexts, and erasure to the runtime IR.
 import Mica.TinyML.Common
 import Mica.SourceTinyML.Types
 import Mica.TinyML.RuntimeExpr
@@ -432,3 +432,77 @@ theorem Expr.branchListRuntime_castBodies [DecidableEq V] (ty : Typ.WithTypeVars
     · simp [Expr.WithTypeVars.runtime, h, ih]
 
 end Typed
+
+namespace TinyML
+
+/-! ## Type contexts -/
+
+abbrev TyCtx := TinyML.Var → Option Typ
+
+def TyCtx.empty : TyCtx := fun _ => none
+
+def TyCtx.extend (Γ : TyCtx) (x : TinyML.Var) (t : Typ) : TyCtx :=
+  fun y => if y == x then some t else Γ y
+
+def TyCtx.extendBinder (Γ : TyCtx) (b : Typed.Binder) (t : Typ) : TyCtx :=
+  match b.name with
+  | none => Γ
+  | some x => Γ.extend x t
+
+@[simp] theorem TyCtx.extend_eq (Γ : TyCtx) (x : TinyML.Var) (t : Typ) :
+    (Γ.extend x t) x = some t := by simp [TyCtx.extend]
+
+@[simp] theorem TyCtx.extend_ne (Γ : TyCtx) (x y : TinyML.Var) (t : Typ) (h : y ≠ x) :
+    (Γ.extend x t) y = Γ y := by
+  simp [TyCtx.extend, h]
+
+/-- Extending a context along a list of name/type pairs leaves every name
+    outside that list untouched. -/
+theorem TyCtx.foldl_extend_of_not_mem (Γ : TyCtx) (ps : List (TinyML.Var × Typ))
+    (y : TinyML.Var) (hy : y ∉ ps.map Prod.fst) :
+    (ps.foldl (fun ctx (p : TinyML.Var × Typ) => ctx.extend p.1 p.2) Γ) y = Γ y := by
+  induction ps generalizing Γ with
+  | nil => rfl
+  | cons p ps ih =>
+    simp only [List.map_cons, List.mem_cons, not_or] at hy
+    rw [List.foldl_cons, ih _ (by simpa using hy.2), TyCtx.extend_ne _ _ _ _ hy.1]
+
+/-- Γ ≤ Γ': Γ' extends Γ pointwise. -/
+def TyCtx.le (Γ Γ' : TyCtx) : Prop := ∀ x t, Γ x = some t → Γ' x = some t
+
+instance : LE TyCtx := ⟨TyCtx.le⟩
+
+theorem TyCtx.le_refl (Γ : TyCtx) : Γ ≤ Γ := fun _ _ h => h
+
+theorem TyCtx.le_trans {Γ₁ Γ₂ Γ₃ : TyCtx} (h12 : Γ₁ ≤ Γ₂) (h23 : Γ₂ ≤ Γ₃) : Γ₁ ≤ Γ₃ :=
+  fun x t h => h23 x t (h12 x t h)
+
+/-- Monotonicity of `extendBinder` w.r.t. context ordering. -/
+theorem TyCtx.le_extendBinder_congr {Γ Γ' : TyCtx} (b : Typed.Binder) (t : Typ)
+    (hle : Γ ≤ Γ') : Γ.extendBinder b t ≤ Γ'.extendBinder b t := by
+  intro y ty hy
+  cases hname : b.name with
+  | none =>
+    simp [TyCtx.extendBinder, hname] at hy ⊢
+    exact hle y ty hy
+  | some x =>
+    simp only [TyCtx.extendBinder, hname, TyCtx.extend] at hy ⊢
+    by_cases h : y == x
+    · simp [h] at hy ⊢; exact hy
+    · simp [h] at hy ⊢; exact hle y ty hy
+
+-- foldl extend doesn't change the value at x if x doesn't appear in the list.
+theorem TyCtx.foldl_extend_stable
+    (args : List (TinyML.Var × Typ)) (Γ : TyCtx) (x : TinyML.Var)
+    (hx : ∀ a ∈ args, a.1 ≠ x) :
+    (args.foldl (fun ctx a => ctx.extend a.1 a.2) Γ) x = Γ x := by
+  induction args generalizing Γ with
+  | nil => rfl
+  | cons a as ih =>
+    simp only [List.foldl_cons]
+    have := ih (Γ.extend a.1 a.2) (fun a' ha' => hx a' (.tail _ ha'))
+    rw [this]
+    have hne := hx a (.head _)
+    simp [TyCtx.extend, beq_iff_eq, Ne.symm hne]
+
+end TinyML
