@@ -2,6 +2,7 @@
 import Mica.SourceTinyML.Typed
 import Mica.SourceTinyML.Untyped
 import Mica.SourceTinyML.Typing
+import Mica.SourceTinyML.Erasure
 import Mica.Verifier.PrimitiveLaws
 import Mica.SeparationLogic.Adequacy
 import Mica.Verifier.RelationalEncoding

@@ -40,5 +40,7 @@ let builtin_length : int = List.length [4; 5; 6]
 let appended : int list = [1; 2] @ [3]
 let reversed : int list = List.rev [1; 2; 3]
 let _ = assert (Option.is_some (Some 4))
-let _ = assert (Option.is_none None)
+let _ =
+  let none : int option = None in
+  assert (Option.is_none none)
 let _ = assert (Option.value (Some 9) = 9)

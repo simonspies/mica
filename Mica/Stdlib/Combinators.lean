@@ -310,23 +310,6 @@ def Embedding.lawfulLogical (typ : TinyML.SchemaTyp) : (Embedding.logical typ).L
       iexact H
   intro _ _ _ := .rfl
 
-/-- The empty embedding is lawful: `ValHasType` at `.empty` is `False`, so both
-    typing directions are vacuous. -/
-def Embedding.lawfulEmpty : Embedding.empty.Lawful where
-  project_inject _ := rfl
-  isOf_wf _ _ h := nomatch h
-  isOf_inject _ _ _ h := nomatch h
-  member σ W w := by
-    simp only [Embedding.empty, TinyML.Typ.subst]
-    refine (TinyML.ValHasType.empty W w).trans ?_
-    constructor
-    · exact false_elim
-    · iintro ⟨%x, %hw, H⟩
-      iexact H
-  intro σ W x := by
-    simp only [Embedding.empty, TinyML.Typ.subst]
-    exact false_elim
-
 /-- Vectors are a lawful embedding: exactly the `ValHasType.vec` API. -/
 def Embedding.lawfulVec (elem : TinyML.SchemaTyp) : (Embedding.vec elem).Lawful where
   project_inject _ := rfl
@@ -336,73 +319,6 @@ def Embedding.lawfulVec (elem : TinyML.SchemaTyp) : (Embedding.vec elem).Lawful 
     simpa [Embedding.vec, TinyML.Typ.subst] using TinyML.ValHasType.vec W w (TinyML.Typ.subst σ elem)
   intro σ W l := by
     simpa [Embedding.vec, TinyML.Typ.subst] using TinyML.ValHasType.vec_intro W l (TinyML.Typ.subst σ elem)
-
-/-! ## Scheme matching -/
-
-/-- Render a list of types for intrinsic-instantiation diagnostics. -/
-private def printTypes (tys : List TinyML.Typ) : String :=
-  s!"[{", ".intercalate (tys.map TinyML.Typ.print)}]"
-
-/-- Render a list of scheme types for the same diagnostics. -/
-private def printSchemas (tys : List TinyML.SchemaTyp) : String :=
-  s!"[{", ".intercalate (tys.map TinyML.SchemaTyp.print)}]"
-
-/-- Match type variables occurring in a scheme type against an inferred type.
-    A variable is fixed by its first occurrence; later occurrences are checked
-    by the elaborator against the instantiated scheme, including subtyping. -/
-def matchType (inst : List (TinyML.TyVar × TinyML.Typ))
-    (pattern : TinyML.SchemaTyp) (actual : TinyML.Typ) :
-    Except String (List (TinyML.TyVar × TinyML.Typ)) :=
-  if TinyML.Typ.closed pattern then .ok inst
-  else
-    match pattern, actual with
-    | .tvar v, t => .ok (if inst.lookup v |>.isSome then inst else (v, t) :: inst)
-    | .sum ps, .sum ts => matchTypes inst ps ts
-    | .arrow ps p _, .arrow ts t _ => do
-        let inst ← matchTypes inst ps ts
-        matchType inst p t
-    | .ref p, .ref t | .array p, .array t | .vec p, .vec t | .owned p, .owned t =>
-        matchType inst p t
-    | .tuple ps, .tuple ts => matchTypes inst ps ts
-    -- Constructor syntax is inferred as a sparse structural sum before the
-    -- primitive scheme is known. Recover the parameter of a predefined type
-    -- from the constructor that is present; an empty constructor carries no
-    -- information, so instantiate it at the top value type.
-    | .named (.predef .list) [p], .sum [.unit, .empty] =>
-        matchType inst p .value
-    | .named (.predef .list) [p], .sum [_, .tuple [t, _]] =>
-        matchType inst p t
-    | .named (.predef .option) [p], .sum [.unit, .empty] =>
-        matchType inst p .value
-    | .named (.predef .option) [p], .sum [_, t] =>
-        matchType inst p t
-    | .named P ps, .named T ts =>
-        if P = T then matchTypes inst ps ts
-        else .error s!"expected {TinyML.SchemaTyp.print pattern}, got {actual.print}"
-    | _, _ => .error s!"expected {TinyML.SchemaTyp.print pattern}, got {actual.print}"
-where
-  matchTypes (inst : List (TinyML.TyVar × TinyML.Typ)) :
-      List TinyML.SchemaTyp → List TinyML.Typ →
-        Except String (List (TinyML.TyVar × TinyML.Typ))
-    | [], [] => .ok inst
-    | p :: ps, t :: ts => do
-        let inst ← matchType inst p t
-        matchTypes inst ps ts
-    | ps, ts =>
-        .error s!"expected type arguments {printSchemas ps}, got {printTypes ts}"
-
-/-- Derive a primitive instantiation by structurally matching its argument
-    scheme against the inferred argument types. Arity and the instantiated
-    domains are rechecked by the elaborator. -/
-def schemeTyping (patterns : List TinyML.SchemaTyp) :
-    TinyML.TypeEnv → List TinyML.Typ →
-      Except String (List (TinyML.TyVar × TinyML.Typ)) :=
-  fun _ actuals =>
-    if patterns.length = actuals.length then
-      matchType.matchTypes [] patterns actuals
-    else
-      .error s!"expected {patterns.length} arguments {printSchemas patterns}, got \
-        {actuals.length} arguments {printTypes actuals}"
 
 /-! ## Name-based term builders -/
 
@@ -465,7 +381,6 @@ def Zero.toIntrinsic (b : Zero) : Intrinsic where
     { args  := []
       pred  := .ret ⟨"ret",
         .assert (.eq .value (.var .value "ret") b.opTerm) (.ret ())⟩ }
-  typing := schemeTyping []
   folSym := some b.sym
   axioms := ⟨b.defAxiom, .low⟩ :: (b.typeAxiom.map (⟨·, .low⟩)).toList
 
@@ -603,7 +518,6 @@ def Unary.toIntrinsic (b : Unary) : Intrinsic where
       pred  := withPre (b.pre.map (· "a")) <| .ret ⟨"ret",
         .assert (.eq .value (.var .value "ret")
           (b.opTerm (.var .value "a"))) (.ret ())⟩ }
-  typing := schemeTyping [b.arg.typ]
   folSym := some b.sym
   axioms := ⟨b.defAxiom, .high⟩ :: (b.typeAxiom.map (⟨·, .high⟩)).toList
 
@@ -810,7 +724,6 @@ def Binary.toIntrinsic (b : Binary) : Intrinsic where
       pred  := withPre (b.pre.map (· "a" "b")) <| .ret ⟨"ret",
         .assert (.eq .value (.var .value "ret")
           (b.opTerm (.var .value "a") (.var .value "b"))) (.ret ())⟩ }
-  typing := schemeTyping [b.arg₁.typ, b.arg₂.typ]
   folSym := some b.sym
   axioms := ⟨b.defAxiom, .high⟩ :: (b.typeAxiom.map (⟨·, .high⟩)).toList
 
@@ -1048,7 +961,6 @@ def Ternary.toIntrinsic (b : Ternary) : Intrinsic where
       pred  := withPre (b.pre.map (· "a" "b" "c")) <| .ret ⟨"ret",
         .assert (.eq .value (.var .value "ret")
           (b.opTerm (.var .value "a") (.var .value "b") (.var .value "c"))) (.ret ())⟩ }
-  typing := schemeTyping [b.arg₁.typ, b.arg₂.typ, b.arg₃.typ]
   folSym := some b.sym
   axioms := ⟨b.defAxiom, .high⟩ :: (b.typeAxiom.map (⟨·, .high⟩)).toList
 

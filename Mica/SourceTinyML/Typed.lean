@@ -1,4 +1,4 @@
--- SUMMARY: Typed TinyML IR, with erasure to the runtime IR.
+-- SUMMARY: Typed TinyML IR, its typing contexts, and erasure to the runtime IR.
 import Mica.TinyML.Common
 import Mica.SourceTinyML.Types
 import Mica.TinyML.RuntimeExpr
@@ -78,7 +78,6 @@ inductive Expr.WithTypeVars (V : Type) where
   | inj (tag : Nat) (arity : Nat) (payload : WithTypeVars V) (ty : Typ.WithTypeVars V)
   | match_ (scrutinee : WithTypeVars V)
       (branches : List (Binder.WithTypeVars V × WithTypeVars V)) (ty : Typ.WithTypeVars V)
-  | cast (e : WithTypeVars V) (ty : Typ.WithTypeVars V)
 
 /-- The typed IR the verifier consumes. Its annotations are closed types. -/
 abbrev Expr := Expr.WithTypeVars Empty
@@ -87,7 +86,7 @@ namespace Expr
 -- As for `Typ`: `.fix` resolves in the inductive's namespace, `Expr.fix` in the
 -- one named after the syntax it usually builds.
 export WithTypeVars (const var prim unop binop fix app ifThenElse letIn letProd
-  ref deref store arrayMake arrayLen arrayGet arraySet assert tuple inj match_ cast)
+  ref deref store arrayMake arrayLen arrayGet arraySet assert tuple inj match_)
 end Expr
 
 instance : Inhabited Expr := ⟨.const .unit⟩
@@ -230,10 +229,6 @@ mutual
       | isFalse h, _, _ => isFalse (by intro heq; cases heq; exact h rfl)
       | _, isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
       | _, _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
-    case cast.cast e1 t1 e2 t2 => exact match e1.decEq e2, decEq t1 t2 with
-      | isTrue h1, isTrue h2 => isTrue (by subst h1; subst h2; rfl)
-      | isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
-      | _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
 
   private def exprsDecEq {V : Type} [DecidableEq V] :
       (as bs : List (Expr.WithTypeVars V)) → Decidable (as = bs)
@@ -311,7 +306,6 @@ def Expr.WithTypeVars.ty : Expr.WithTypeVars V → Typ.WithTypeVars V
   | .tuple es => .tuple (es.map Expr.WithTypeVars.ty)
   | .inj _ _ _ ty => ty
   | .match_ _ _ ty => ty
-  | .cast _ ty => ty
 
 /-- The specification a function literal was elaborated against, if any. This
 is where a declaration's specification lives, together with its arrow type. -/
@@ -386,7 +380,6 @@ mutual
     | .inj tag arity payload _ => .inj tag arity payload.runtime
     | .match_ scrut branches _ =>
         .match_ scrut.runtime (Expr.WithTypeVars.branchListRuntime branches)
-    | .cast e _ => e.runtime
 
   /-- Erase `match_` branches to their runtime closures used by `Expr.runtime`. -/
   def Expr.WithTypeVars.branchListRuntime :
@@ -415,20 +408,54 @@ theorem Expr.branchListRuntime_eq_map
     simp only [List.map_cons]
     congr 1
 
-theorem Expr.branchListRuntime_castBodies [DecidableEq V] (ty : Typ.WithTypeVars V)
-    (branches : List (Typed.Binder.WithTypeVars V × Typed.Expr.WithTypeVars V)) :
-    Expr.WithTypeVars.branchListRuntime
-      (branches.map fun p => (p.1, if p.2.ty = ty then p.2 else .cast p.2 ty)) =
-    Expr.WithTypeVars.branchListRuntime branches := by
-  induction branches with
-  | nil =>
-    simp [Expr.WithTypeVars.branchListRuntime]
-  | cons hd rest ih =>
-    obtain ⟨b, e⟩ := hd
-    unfold Expr.WithTypeVars.branchListRuntime
-    simp only [List.map_cons]
-    by_cases h : e.ty = ty
-    · simp [h, ih]
-    · simp [Expr.WithTypeVars.runtime, h, ih]
-
 end Typed
+
+namespace TinyML
+
+/-! ## Type contexts -/
+
+abbrev TyCtx := TinyML.Var → Option Typ
+
+def TyCtx.empty : TyCtx := fun _ => none
+
+def TyCtx.extend (Γ : TyCtx) (x : TinyML.Var) (t : Typ) : TyCtx :=
+  fun y => if y == x then some t else Γ y
+
+def TyCtx.extendBinder (Γ : TyCtx) (b : Typed.Binder) (t : Typ) : TyCtx :=
+  match b.name with
+  | none => Γ
+  | some x => Γ.extend x t
+
+@[simp] theorem TyCtx.extend_eq (Γ : TyCtx) (x : TinyML.Var) (t : Typ) :
+    (Γ.extend x t) x = some t := by simp [TyCtx.extend]
+
+@[simp] theorem TyCtx.extend_ne (Γ : TyCtx) (x y : TinyML.Var) (t : Typ) (h : y ≠ x) :
+    (Γ.extend x t) y = Γ y := by
+  simp [TyCtx.extend, h]
+
+/-- Extending a context along a list of name/type pairs leaves every name
+    outside that list untouched. -/
+theorem TyCtx.foldl_extend_of_not_mem (Γ : TyCtx) (ps : List (TinyML.Var × Typ))
+    (y : TinyML.Var) (hy : y ∉ ps.map Prod.fst) :
+    (ps.foldl (fun ctx (p : TinyML.Var × Typ) => ctx.extend p.1 p.2) Γ) y = Γ y := by
+  induction ps generalizing Γ with
+  | nil => rfl
+  | cons p ps ih =>
+    simp only [List.map_cons, List.mem_cons, not_or] at hy
+    rw [List.foldl_cons, ih _ (by simpa using hy.2), TyCtx.extend_ne _ _ _ _ hy.1]
+
+-- foldl extend doesn't change the value at x if x doesn't appear in the list.
+theorem TyCtx.foldl_extend_stable
+    (args : List (TinyML.Var × Typ)) (Γ : TyCtx) (x : TinyML.Var)
+    (hx : ∀ a ∈ args, a.1 ≠ x) :
+    (args.foldl (fun ctx a => ctx.extend a.1 a.2) Γ) x = Γ x := by
+  induction args generalizing Γ with
+  | nil => rfl
+  | cons a as ih =>
+    simp only [List.foldl_cons]
+    have := ih (Γ.extend a.1 a.2) (fun a' ha' => hx a' (.tail _ ha'))
+    rw [this]
+    have hne := hx a (.head _)
+    simp [TyCtx.extend, beq_iff_eq, Ne.symm hne]
+
+end TinyML

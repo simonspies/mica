@@ -1,2 +1,2 @@
-Status: failed: subsumption failed: int is not a subtype of bool
+Status: failed: cannot unify int with bool
 [1]
