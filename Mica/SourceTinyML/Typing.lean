@@ -99,13 +99,17 @@ private def Spec.Pred.elaborate (Γ : TyCtx) (names : List String) (ty : Typ) :
 -- take the tag that orders them above the others at equal size.
 mutual
   /-- Translate a type of the untyped IR into the core type it denotes,
-  elaborating every specification it carries. A specification's leaves are
+  elaborating every specification it carries. A source type variable survives as
+  itself; what it *means* is settled by whoever consumes the result, since that
+  differs by position — `Infer.Typ.ofSource` makes it rigid or flexible
+  according to the enclosing declaration's signature, and `DataDecl.elaborate`
+  demands it be one of the declaration's parameters. A specification's leaves are
   typechecked in the program's global context extended with the arrow's own
   arguments — never with the binders surrounding the annotation, which the
   function the type describes cannot mention. -/
   def Typ.elaborate (env : SpecEnv σ) (Θ : TypeEnv) : Untyped.Typ → TypeM σ Typ
     | .core t => pure t
-    | .tvar v => TypeM.error (.unboundTypeVar v)
+    | .tvar v => pure (.tvar v)
     | .sum ts => do pure (.sum (← Typ.elaborateList env Θ ts))
     | .arrow args ret spec => do
         let args' ← Typ.elaborateList env Θ args
@@ -447,37 +451,6 @@ mutual
   decreasing_by obtain ⟨args, pre⟩ := rb; simp; omega
 end
 
-mutual
-
-/-- Translate a payload type, keeping the declaration's own type parameters as
-variables. A payload that carries a specification has no variables to keep —
-`Typ.elaborate` rejects them everywhere else — so it is translated as an ordinary
-type and embedded. -/
-def SchemaTyp.elaborate (env : SpecEnv σ) (Θ : TypeEnv) : Untyped.Typ → TypeM σ SchemaTyp
-  | .core t => pure (Typ.subst Empty.elim t)
-  | .tvar v => pure (.tvar v)
-  | .sum ts => do pure (.sum (← SchemaTyp.elaborateList env Θ ts))
-  | .arrow args ret none => do
-      pure (.arrow (← SchemaTyp.elaborateList env Θ args) (← SchemaTyp.elaborate env Θ ret) none)
-  | t@(.arrow _ _ (some _)) => do pure (Typ.subst Empty.elim (← Typ.elaborate env Θ t))
-  | .ref t => do pure (.ref (← SchemaTyp.elaborate env Θ t))
-  | .array t => do pure (.array (← SchemaTyp.elaborate env Θ t))
-  | .ownedArray t => do pure (.ownedArray (← SchemaTyp.elaborate env Θ t))
-  | .vec t => do pure (.vec (← SchemaTyp.elaborate env Θ t))
-  | .owned t => do pure (.owned (← SchemaTyp.elaborate env Θ t))
-  | .tuple ts => do pure (.tuple (← SchemaTyp.elaborateList env Θ ts))
-  | .named n args => do pure (.named n (← SchemaTyp.elaborateList env Θ args))
-termination_by t => sizeOf t
-
-def SchemaTyp.elaborateList (env : SpecEnv σ) (Θ : TypeEnv) :
-    List Untyped.Typ → TypeM σ (List SchemaTyp)
-  | [] => pure []
-  | t :: ts => do
-      pure ((← SchemaTyp.elaborate env Θ t) :: (← SchemaTyp.elaborateList env Θ ts))
-termination_by ts => sizeOf ts
-
-end
-
 /-- Translate a specified function's argument binders. `ValDecl.elaborateSpecified`
 checks that every one of them is annotated before calling this. -/
 def Binder.elaborateList (env : SpecEnv σ) (Θ : TypeEnv) :
@@ -489,10 +462,16 @@ def Binder.elaborateList (env : SpecEnv σ) (Θ : TypeEnv) :
         | _ => pure .value
       pure (Typed.Binder.ofUntyped b ty :: (← Binder.elaborateList env Θ bs))
 
-/-- Elaborate a data declaration's payloads. -/
+/-- Elaborate a data declaration's payloads. A payload may name the
+declaration's own parameters and nothing else: unlike a value declaration, a
+data declaration has no body for inference to solve a variable from, so one that
+is not a parameter stands for nothing. -/
 def DataDecl.elaborate (env : SpecEnv σ) (Θ : TypeEnv) (d : Untyped.DataDecl) :
     TypeM σ TinyML.DataDecl := do
-  pure { tparams := d.tparams, payloads := ← SchemaTyp.elaborateList env Θ d.payloads }
+  let payloads ← Typ.elaborateList env Θ d.payloads
+  match (payloads.flatMap TinyML.Typ.vars).find? (· ∉ d.tparams) with
+  | some v => TypeM.error (.unboundTypeVar v)
+  | none => pure { tparams := d.tparams, payloads }
 
 /-! ## Specification elaboration
 

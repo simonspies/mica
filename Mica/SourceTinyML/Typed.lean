@@ -15,7 +15,7 @@ structure Binder.WithTypeVars (V : Type) where
   deriving Repr
 
 /-- The binder of the typed IR the verifier consumes. -/
-abbrev Binder := Binder.WithTypeVars Empty
+abbrev Binder := Binder.WithTypeVars TyVar
 
 instance : Inhabited Binder := ⟨⟨Option.none, .value⟩⟩
 
@@ -79,8 +79,9 @@ inductive Expr.WithTypeVars (V : Type) where
   | match_ (scrutinee : WithTypeVars V)
       (branches : List (Binder.WithTypeVars V × WithTypeVars V)) (ty : Typ.WithTypeVars V)
 
-/-- The typed IR the verifier consumes. Its annotations are closed types. -/
-abbrev Expr := Expr.WithTypeVars Empty
+/-- The typed IR the verifier consumes. Its annotations may mention the type
+variables the enclosing declaration quantifies over. -/
+abbrev Expr := Expr.WithTypeVars TyVar
 
 namespace Expr
 -- As for `Typ`: `.fix` resolves in the inductive's namespace, `Expr.fix` in the

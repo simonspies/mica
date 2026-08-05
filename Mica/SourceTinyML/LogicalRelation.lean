@@ -75,7 +75,7 @@ mutual
     | .empty      => iprop(False)
     | .arrow _ _ none     => iprop(False)
     | .arrow args ret (some s) => s.isPrecondFor W R args ret v
-    | .tvar _     => iprop(False)
+    | .tvar a     => (W.eta a).holds v
     | .ref t      => iprop(∃ l, ⌜v = .loc l⌝ ∗ locinv l (fun w => R w t))
     | .array t    => iprop(∃ len l, ⌜v = .array len l⌝ ∗ arrayinv len l (fun w => R w t))
     | .ownedArray _ => iprop(∃ len l, ⌜v = .array len l⌝)
@@ -397,9 +397,11 @@ mutual
     match t with
     | .prim _ =>
         exact PrimitiveType.valRelBody_persistent _ v
-    | .value | .empty | .arrow _ _ none | .arrow _ _ (some _) | .tvar _ | .owned _
+    | .value | .empty | .arrow _ _ none | .arrow _ _ (some _) | .owned _
     | .ownedArray _ =>
         infer_instance
+    | .tvar a =>
+        exact (W.eta a).persistent v
     | .ref _ =>
         have := locinv_persistent
         infer_instance
@@ -537,6 +539,10 @@ theorem ValHasType.arrow_some (W : World) (v : Runtime.Val) (args : List Typ) (r
     ValHasType W v (.arrow args ret (some s)) ⊣⊢
       s.isPrecondFor W (ValHasType W) args ret v := by
   exact equiv_iff.mp (ValHasType.unfold W v (.arrow args ret (some s)))
+
+theorem ValHasType.tvar (W : World) (v : Runtime.Val) (a : TyVar) :
+    ValHasType W v (.tvar a) ⊣⊢ (W.eta a).holds v := by
+  exact equiv_iff.mp (ValHasType.unfold W v (.tvar a))
 
 theorem ValHasType.ref (W : World) (v : Runtime.Val) (t : Typ) :
     ValHasType W v (.ref t) ⊣⊢
@@ -1168,7 +1174,7 @@ mutual
       | none => exact (TinyML.ValHasType.arrow_none W v args ret).1.trans false_elim
       | some _ => iintro _; ipureintro; simp [typeConstraints]
     | empty => exact (TinyML.ValHasType.empty W v).1.trans false_elim
-    | tvar x => nomatch x
+    | tvar _ => iintro _; ipureintro; simp [typeConstraints]
 
   theorem typeConstraintsList_hold {ts : List TinyML.Typ} {tl : Term .vallist} {ρ : Env}
       {W : TinyML.World} {vs : List Runtime.Val} (htl : tl.eval ρ = vs) :

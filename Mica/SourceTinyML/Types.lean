@@ -129,8 +129,8 @@ theorem PrimitiveType.unOpTypeOf_bool {op : UnOp} {p p' : PrimitiveType}
 namespace Typ
 
 /-- TinyML types, parameterized by the variables a `tvar` node may carry. Only
-two instantiations are used here: `Typ`, whose `V` is uninhabited, and
-`SchemaTyp`, whose `V` is a source type variable. Type inference adds a third. -/
+one instantiation is used here: `Typ`, whose `V` is a source type variable.
+Type inference adds a second, which admits its metavariables as well. -/
 inductive WithTypeVars (V : Type) where
   | prim (p : PrimitiveType)
   | sum (ts : List (WithTypeVars V))
@@ -188,12 +188,15 @@ export WithTypeVars (prim sum arrow ref array ownedArray vec owned empty value
 
 end Typ
 
-/-- The type language the verifier works in. No `tvar` node can be built, so a
-`Typ` is closed by construction. -/
-abbrev Typ := Typ.WithTypeVars Empty
+/-- The type language the verifier works in. A `tvar` node stands for a type
+variable a polymorphic declaration quantifies over; the logical relation
+interprets it by the world's assignment. -/
+abbrev Typ := Typ.WithTypeVars TyVar
 
-/-- The type language source annotations and polymorphic signatures are written
-in: a `Typ` that may still mention named type variables. -/
+/-- A type every variable of which is implicitly quantified, as an intrinsic's
+registry entry is: a use site instantiates all of them at once. The same
+language as `Typ` — a scheme with an explicit quantifier is `Scheme` — so the
+name records only that intent. -/
 abbrev SchemaTyp := Typ.WithTypeVars TyVar
 
 def Typ.primDecEq {V : Type} (p q : PrimitiveType) :
@@ -464,9 +467,9 @@ is, since `Typ` nests those types and a single generic map over them would not
 be structurally recursive.
 
 Substitution also changes the variables a type is written over, so it is what
-moves a type between the instantiations of `Typ.WithTypeVars`: `Typ.subst
-Empty.elim` embeds a `Typ` into any of them, and a substitution into `Typ`
-closes a `SchemaTyp`. -/
+moves a type between the instantiations of `Typ.WithTypeVars`: inference embeds
+a `Typ` by sending every variable to its rigid counterpart, and closes back by
+sending every solved metavariable to its solution. -/
 
 /-- The type with a top-level arrow's specification dropped; the identity on
 everything else. Used where only the signature of an arrow matters. -/

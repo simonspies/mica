@@ -878,7 +878,8 @@ theorem Program.verify_correct (reg : Verifier.Registry)
     -- environment the elaborator produced, and the specification model the
     -- relational declarations left in the state.
     let W : TinyML.World :=
-      { pctx := reg.primCtx, Θ, Δ_spec := stRel.decls, ρ_spec := ρRel }
+      { pctx := reg.primCtx, Θ, Δ_spec := stRel.decls, ρ_spec := ρRel,
+        eta := TinyML.SemTypeAssign.empty }
     have hcorrect := Program.check_correct reg hSound W rfl
                        [] TinyML.TyCtx.empty typed Runtime.Subst.id
                        ⟨hcheck_eval.1.namesDisjoint, hvars⟩

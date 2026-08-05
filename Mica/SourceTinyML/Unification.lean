@@ -30,6 +30,10 @@ IR: it is solved, or rejected at an elaboration boundary. -/
 
 abbrev MetaVar := Nat
 
+/-- An inference variable. A rigid one is a variable the enclosing declaration
+binds — it stands for a type the declaration's *caller* chooses, so the body may
+not choose it. A flexible one is the unifier's own. Which of the two a source
+`'a` becomes is decided by `Typ.ofSource` from the declaration's signature. -/
 inductive Var where
   | rigid (v : TyVar)
   | flex (v : MetaVar)
@@ -43,7 +47,10 @@ abbrev Typ := TinyML.Typ.WithTypeVars Var
 
 def Typ.print : Typ → String := TinyML.Typ.printWith Var.print
 
-def Typ.ofTyp : TinyML.Typ → Typ := TinyML.Typ.subst Empty.elim
+/-- Embed a verifier-facing type into the inference language. Its variables are
+the ones the enclosing declaration quantifies over, so they embed as rigid: no
+solution the body finds may choose them. -/
+def Typ.ofTyp : TinyML.Typ → Typ := TinyML.Typ.subst (fun v => .tvar (.rigid v))
 
 end Infer
 
@@ -56,6 +63,8 @@ inductive TypeError where
   | typeMismatch (expected actual : Typ)
   | spec (msg : String)
   | unknownPrimitive (name : String)
+  /-- A type variable written where nothing binds it: a data declaration's
+  payload may name only that declaration's own parameters. -/
   | unboundTypeVar (name : TyVar)
   /-- Two types the program requires to be equal are not. -/
   | mismatch (left right : Infer.Typ)
@@ -63,8 +72,6 @@ inductive TypeError where
   | occurs (var : Infer.MetaVar) (inType : Infer.Typ)
   /-- A type the expression leaves undetermined. -/
   | unresolved (var : Infer.MetaVar)
-  /-- A source type variable no use site instantiated. -/
-  | unresolvedRigid (var : TyVar)
   /-- An expression's syntax demands a shape its type does not have. -/
   | notA (shape : String) (ty : Infer.Typ)
   deriving Repr, Inhabited
@@ -83,7 +90,6 @@ instance : ToString TypeError where
     | .mismatch a b => s!"cannot unify {a.print} with {b.print}"
     | .occurs v t => s!"?{v} occurs in {t.print}"
     | .unresolved v => s!"unresolved type metavariable ?{v}"
-    | .unresolvedRigid v => s!"uninstantiated type variable '{v}"
     | .notA shape ty => s!"not {shape}: {ty.print}"
 
 /-! ## The typing monad
@@ -218,22 +224,23 @@ end
 /-! ### Closing an inference type
 
 Closing is the boundary operation: it replaces every solved metavariable by its
-solution and rejects everything still open, so no inference-only type can reach
-the typed IR. -/
+solution and rejects every metavariable still open, so no inference-only type
+can reach the typed IR. A rigid variable is not inference-only — it is the
+declaration's own type variable, and it closes to itself. -/
 
-/-- Reject a variable that survived solving. -/
-private def rejectOpen : Var → Except TypeError TinyML.Typ
-  | .rigid v => .error (.unresolvedRigid v)
+/-- Reject a metavariable that survived solving. -/
+private def rejectUnsolved : Var → Except TypeError TinyML.Typ
+  | .rigid v => .ok (.tvar v)
   | .flex v => .error (.unresolved v)
 
 /-- Close one inference variable: its solution mentions only unsolved
 variables, so closing it either succeeds outright or names what is open. -/
 def closeVar (st : State) : Var → Except TypeError TinyML.Typ
-  | .rigid v => .error (.unresolvedRigid v)
+  | .rigid v => .ok (.tvar v)
   | .flex v =>
       match st.lookup v with
       | none => .error (.unresolved v)
-      | some t => TinyML.Typ.substM rejectOpen t
+      | some t => TinyML.Typ.substM rejectUnsolved t
 
 /-- Close an inference type into the verifier-facing `TinyML.Typ`. -/
 def close (st : State) (t : Typ) : Except TypeError TinyML.Typ :=

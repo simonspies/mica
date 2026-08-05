@@ -1,9 +1,36 @@
--- SUMMARY: The fixed meta-level world in which the logical relation interprets types.
+-- SUMMARY: The fixed meta-level world in which the logical relation interprets types, including its assignment of meanings to type variables.
 import Mica.SourceTinyML.Types
 import Mica.TinyML.OpSem
 import Mica.FOL.Variables
+import Mica.SeparationLogic.Wp
 
 namespace TinyML
+
+/-! ### Semantic types
+
+A type variable has no syntactic meaning to unfold, so the logical relation
+takes its meaning from the world: a predicate on runtime values, given by an
+assignment the world carries. -/
+
+/-- A semantic type: a predicate on runtime values. The predicate carries its
+own persistence proof, since the logical relation is persistent at every type
+and interprets a variable by nothing but this. -/
+structure SemType where
+  holds : Runtime.Val → iProp
+  persistent : ∀ v, Iris.BI.Persistent (holds v)
+
+/-- An assignment of semantic types to type variables. A declaration quantifying
+over its variables is verified at every assignment; a call site picks the one
+its instantiation denotes. -/
+abbrev SemTypeAssign := TyVar → SemType
+
+/-- The assignment a program's top level runs at. Nothing observes it: a
+declaration is generalized where it is installed and instantiated where it is
+used, so no type reaching the top level mentions a variable. -/
+def SemTypeAssign.empty : SemTypeAssign :=
+  fun _ => ⟨fun _ => iprop(False), fun _ => inferInstance⟩
+
+/-! ### The world -/
 
 /-- The fixed model in which the logical relation interprets types and
     specifications: the primitive-operational context its weakest preconditions
@@ -20,6 +47,7 @@ structure World where
   Θ      : TypeEnv
   Δ_spec : Signature
   ρ_spec : Env
+  eta    : SemTypeAssign
 
 set_option linter.dupNamespace false in
 /-- The world's specification signature is well-formed and closed: its names are

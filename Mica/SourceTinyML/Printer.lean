@@ -38,11 +38,8 @@ where
   wrapArg (t : Typ.WithTypeVars V) (s : String) : String :=
     if Typ.atomic t then s else s!"({s})"
 
-/-- Print a closed type. -/
-def Typ.print : Typ → String := Typ.printWith Empty.elim
-
-/-- Print a schema type, showing its variables in source syntax. -/
-def SchemaTyp.print : SchemaTyp → String := Typ.printWith (fun v => s!"'{v}")
+/-- Print a type, showing its variables in source syntax. -/
+def Typ.print : Typ → String := Typ.printWith (fun v => s!"'{v}")
 
 end TinyML
 
