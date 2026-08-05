@@ -74,6 +74,25 @@ theorem ValsRel.ne {n : Nat} {V V' : ValueRelation} (hV : V ≡{n}≡ V') :
       unfold ValsRel
       exact sep_ne.ne (hV v t) (ValsRel.ne hV vs ts)
 
+/-! ### Instantiating the types a definition mentions
+
+Each of the following says that a relation interpreting every type variable the
+way `σ` instantiates it interprets a whole definition the way `σ` instantiates
+*it*. They mirror the `_ne` lemmas above, at bi-entailment rather than at a step
+index: nothing here needs the index, and the logical relation consumes
+`isPrecondFor_subst` as an equivalence. -/
+
+omit [MicaGS HasLC.hasLC Sig] in
+theorem ValsRel.subst {V V' : ValueRelation} {σ : TyVar → Typ}
+    (hV : ∀ v t, V' v t ⊣⊢ V v (Typ.subst σ t)) :
+    ∀ (vs : List Runtime.Val) (ts : List Typ),
+      ValsRel V' vs ts ⊣⊢ ValsRel V vs (ts.map (Typ.subst σ))
+  | [], [] => .rfl
+  | [], _ :: _ | _ :: _, [] => .rfl
+  | v :: vs, t :: ts => by
+      unfold ValsRel
+      exact sep_congr (hV v t) (ValsRel.subst hV vs ts)
+
 end TinyML
 
 -- ---------------------------------------------------------------------------
@@ -113,6 +132,24 @@ theorem Atom.eval_ne {n : Nat} {V V' : TinyML.ValueRelation} (hV : V ≡{n}≡ V
     simp only [Atom.eval]
     exact exists_ne fun _ => exists_ne fun vs =>
       sep_ne.ne .rfl (sep_ne.ne .rfl (sep_ne.ne .rfl (hV (.vec vs) (.vec ty))))
+
+/-- Atom semantics commutes with instantiating the types the atom mentions. -/
+theorem Atom.eval_substTy {V V' : TinyML.ValueRelation} {σ : TinyML.TyVar → TinyML.Typ}
+    (hV : ∀ v t, V' v t ⊣⊢ V v (TinyML.Typ.subst σ t))
+    (p : Atom TinyML.Typ τ) (ρ : Env) (v : τ.denote) :
+    p.eval V' ρ v ⊣⊢ (TinyML.Typ.substAtom σ p).eval V ρ v := by
+  cases p with
+  | isint _ => exact .rfl
+  | isbool _ => exact .rfl
+  | isinj _ _ _ => exact .rfl
+  | rel _ _ => exact .rfl
+  | own l ty =>
+    simp only [Atom.eval, TinyML.Typ.substAtom]
+    exact exists_congr fun _ => sep_congr .rfl (sep_congr .rfl (hV v ty))
+  | arr a ty =>
+    simp only [Atom.eval, TinyML.Typ.substAtom]
+    exact exists_congr fun _ => exists_congr fun vs =>
+      sep_congr .rfl (sep_congr .rfl (sep_congr .rfl (hV (.vec vs) (.vec ty))))
 
 -- ---------------------------------------------------------------------------
 -- Assertions
@@ -172,6 +209,42 @@ theorem Assertion.post_ne {n : Nat} {V V' : TinyML.ValueRelation}
   | ite φ kt ke iht ihe =>
     exact fun ρ => and_ne.ne (wand_ne.ne .rfl (iht ρ)) (wand_ne.ne .rfl (ihe ρ))
 
+/-- A postcondition means at the instantiated relation what its instantiation
+means at the original one. -/
+theorem Assertion.post_subst {V V' : TinyML.ValueRelation}
+    {σ : TinyML.TyVar → TinyML.Typ} {Φ Φ' : Unit → Env → iProp}
+    (hV : ∀ v t, V' v t ⊣⊢ V v (TinyML.Typ.subst σ t))
+    (hΦ : ∀ a ρ, Φ' a ρ ⊣⊢ Φ a ρ) :
+    ∀ (m : Assertion TinyML.Typ Unit) (ρ : Env),
+      Assertion.post V' Φ' m ρ ⊣⊢ Assertion.post V Φ (TinyML.Typ.substPost σ m) ρ := by
+  intro m
+  induction m with
+  | ret a => exact fun ρ => hΦ a ρ
+  | assert φ k ih => exact fun ρ => wand_congr .rfl (ih ρ)
+  | let_ x t k ih => exact fun ρ => ih _
+  | pred x p k ih =>
+    exact fun ρ => forall_congr fun v => wand_congr (Atom.eval_substTy hV p ρ v) (ih _)
+  | ite φ kt ke iht ihe =>
+    exact fun ρ => and_congr (wand_congr .rfl (iht ρ)) (wand_congr .rfl (ihe ρ))
+
+/-- The same for a predicate transformer, whose continuation is a
+postcondition and so carries the substitution through `hΦ`. -/
+theorem Assertion.pre_subst {V V' : TinyML.ValueRelation}
+    {σ : TinyML.TyVar → TinyML.Typ} {Φ Φ' : Post TinyML.Typ → Env → iProp}
+    (hV : ∀ v t, V' v t ⊣⊢ V v (TinyML.Typ.subst σ t))
+    (hΦ : ∀ p ρ, Φ' p ρ ⊣⊢ Φ ⟨p.name, TinyML.Typ.substPost σ p.body⟩ ρ) :
+    ∀ (m : PredTrans TinyML.Typ) (ρ : Env),
+      Assertion.pre V' Φ' m ρ ⊣⊢ Assertion.pre V Φ (TinyML.Typ.substPredTrans σ m) ρ := by
+  intro m
+  induction m with
+  | ret p => exact fun ρ => hΦ p ρ
+  | assert φ k ih => exact fun ρ => sep_congr .rfl (ih ρ)
+  | let_ x t k ih => exact fun ρ => ih _
+  | pred x p k ih =>
+    exact fun ρ => exists_congr fun v => sep_congr (Atom.eval_substTy hV p ρ v) (ih _)
+  | ite φ kt ke iht ihe =>
+    exact fun ρ => and_congr (wand_congr .rfl (iht ρ)) (wand_congr .rfl (ihe ρ))
+
 -- ---------------------------------------------------------------------------
 -- Predicate transformers
 -- ---------------------------------------------------------------------------
@@ -190,6 +263,16 @@ theorem PredTrans.apply_ne {n : Nat} {V V' : TinyML.ValueRelation}
     PredTrans.apply V Φ m ρ ≡{n}≡ PredTrans.apply V' Φ' m ρ :=
   Assertion.pre_ne hV
     (fun _ _ => forall_ne fun v => Assertion.post_ne hV (fun _ _ => hΦ v) _ _) m ρ
+
+/-- Applying a predicate transformer commutes with instantiating the types it
+mentions. -/
+theorem PredTrans.apply_subst {V V' : TinyML.ValueRelation}
+    {σ : TinyML.TyVar → TinyML.Typ} {Φ Φ' : Runtime.Val → iProp}
+    (hV : ∀ v t, V' v t ⊣⊢ V v (TinyML.Typ.subst σ t)) (hΦ : ∀ v, Φ' v ⊣⊢ Φ v)
+    (m : PredTrans TinyML.Typ) (ρ : Env) :
+    PredTrans.apply V' Φ' m ρ ⊣⊢ PredTrans.apply V Φ (TinyML.Typ.substPredTrans σ m) ρ :=
+  Assertion.pre_subst hV
+    (fun _ _ => forall_congr fun v => Assertion.post_subst hV (fun _ _ => hΦ v) _ _) m ρ
 
 -- ---------------------------------------------------------------------------
 -- Specifications
@@ -242,6 +325,27 @@ theorem isPrecondFor_ne {n : Nat} {W : TinyML.World} {V V' : TinyML.ValueRelatio
   refine wand_ne.ne .rfl (wand_ne.ne .rfl
     (wand_ne.ne (later_ne.ne (TinyML.ValsRel.ne hV vs argTys)) (wand_ne.ne ?_ .rfl)))
   exact later_ne.ne (PredTrans.apply_ne hV (fun r => wand_ne.ne (hV r retTy) .rfl) s.pred _)
+
+/-- A specification means at the instantiated relation what its instantiation
+means at the original one: the arrow's argument and result types and every type
+the specification itself mentions are substituted together. -/
+theorem isPrecondFor_subst {W : TinyML.World} {V V' : TinyML.ValueRelation}
+    {σ : TinyML.TyVar → TinyML.Typ}
+    (hV : ∀ v t, V' v t ⊣⊢ V v (TinyML.Typ.subst σ t))
+    (argTys : List TinyML.Typ) (retTy : TinyML.Typ)
+    (f : Runtime.Val) (s : Spec TinyML.Typ) :
+    s.isPrecondFor W V' argTys retTy f ⊣⊢
+      (TinyML.Typ.substSpec σ s).isPrecondFor W V (argTys.map (TinyML.Typ.subst σ))
+        (TinyML.Typ.subst σ retTy) f := by
+  unfold isPrecondFor
+  have hlen : (argTys.map (TinyML.Typ.subst σ)).length = argTys.length := by simp
+  simp only [TinyML.Typ.substSpec, hlen]
+  refine intuitionistically_congr
+    (forall_congr fun ρ => forall_congr fun Φ => forall_congr fun vs => ?_)
+  refine wand_congr .rfl (wand_congr .rfl
+    (wand_congr (later_congr (TinyML.ValsRel.subst hV vs argTys)) (wand_congr ?_ .rfl)))
+  exact later_congr
+    (PredTrans.apply_subst hV (fun r => wand_congr (hV r retTy) .rfl) s.pred _)
 
 /-- Guarding both resource premises makes the specification predicate
     contractive in the value relation: every occurrence of `V` sits under a
