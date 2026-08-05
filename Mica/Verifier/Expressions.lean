@@ -267,11 +267,12 @@ mutual
     | .const (.string s) => pure (.unop .ofString (.const (.str s)))
     | .const (.float b) => pure (.unop .ofFloat (.const (.fp b)))
     | .const .unit     => pure (Term.const .unit)
-    | .var x vty => do
+    | .var x inst vty => do
         let x' ← match B.lookup x with
           | some c => pure c
           | none => VerifM.fatal s!"undefined variable: {x}"
-        VerifM.expectEq s!"type annotation mismatch for variable: {x}" (Γ x |>.getD .value) vty
+        VerifM.expectEq s!"type annotation mismatch for variable: {x}"
+          (((Γ x).map (·.instantiate (TinyML.Typ.ofInst inst))).getD .value) vty
         pure (.const (.uninterpreted x'.name .value))
     | .unop op e uty => do
         let se ← compile reg Θ Δ_spec B Γ e
@@ -786,14 +787,15 @@ theorem compileConst_correct (reg : Verifier.Registry) (c : TinyML.Const) :
     iframe
     exact TinyML.ValHasType.unit_intro W
 
-theorem compileVar_correct (reg : Verifier.Registry) (x : String) (vty : TinyML.Typ) :
-    correctExpr reg (.var x vty) := by
+theorem compileVar_correct (reg : Verifier.Registry) (x : String)
+    (inst : List (TinyML.TyVar × TinyML.Typ)) (vty : TinyML.Typ) :
+    correctExpr reg (.var x inst vty) := by
   intro W R B Γ st ρ γ Ψ Φ hW heval hagree hbwf _hwf _hag hΔreg hρreg hpost
   simp only [compile] at heval
   obtain ⟨x', hbind, heval⟩ : ∃ x', B.lookup x = some x' ∧
       VerifM.eval (do
         VerifM.expectEq s!"type annotation mismatch for variable: {x}"
-          ((Γ x).getD .value) vty
+          (((Γ x).map (·.instantiate (TinyML.Typ.ofInst inst))).getD .value) vty
         pure (Term.const (.uninterpreted x'.name .value))) st ρ Ψ := by
     cases hb : B.lookup x with
     | some c =>
@@ -820,12 +822,14 @@ theorem compileVar_correct (reg : Verifier.Registry) (x : String) (vty : TinyML.
     | mk n s =>
       simp only at hsort; subst hsort
       exact Term.const_wfIn_of_mem hwfst h
-  have htyped {t : TinyML.Typ} (hΓ : Γ x = some t) :
-      B.typedSubst W Γ γ ⊢ TinyML.ValHasType W (ρ.consts .value x'.name) t := by
+  have htyped {s : TinyML.Scheme} (hΓ : Γ x = some s) (σ : TinyML.TyVar → TinyML.Typ) :
+      B.typedSubst W Γ γ ⊢
+        TinyML.ValHasType W (ρ.consts .value x'.name) (s.instantiate σ) := by
     unfold Bindings.typedSubst
     iintro #Hts
-    ispecialize Hts $$ %x %x' %t %hbind %hΓ
+    ispecialize Hts $$ %x %x' %s %hbind %hΓ
     icases Hts with ⟨%v, %hγv, Hvty⟩
+    ispecialize Hvty $$ %σ
     have hv : v = ρ.consts .value x'.name := by
       rw [hγ] at hγv
       exact Option.some.inj hγv.symm
@@ -851,14 +855,14 @@ theorem compileVar_correct (reg : Verifier.Registry) (x : String) (vty : TinyML.
         (hpost (ρ.consts .value x'.name) ρ st (Term.const (.uninterpreted x'.name .value))
           hΨ hwfv (by simp [Term.eval, Const.denote]))
     exact SpatialContext.wp_val <| hprep.trans <| hpost'
-  | some t =>
-    have hΓ : Γ x = some t := hΓx
-    have htv : t = vty := by simpa [hΓx] using hcheck
+  | some s =>
+    have hΓ : Γ x = some s := hΓx
+    have htv : s.instantiate (TinyML.Typ.ofInst inst) = vty := by simpa [hΓx] using hcheck
     have hprep :
         st.sl W ρ ∗ (B.typedSubst W Γ γ ∗ R) ⊢
           st.sl W ρ ∗ TinyML.ValHasType W (ρ.consts .value x'.name) vty ∗ R := by
       rw [← htv]
-      exact sep_mono_right (sep_mono_left (htyped hΓ))
+      exact sep_mono_right (sep_mono_left (htyped hΓ (TinyML.Typ.ofInst inst)))
     have hpost' :
         st.sl W ρ ∗ TinyML.ValHasType W (ρ.consts .value x'.name) vty ∗ R ⊢
           Φ (ρ.consts .value x'.name) :=
@@ -1040,7 +1044,7 @@ theorem compileFixBody_correct (reg : Verifier.Registry)
     iintro ⟨#HvalsArg, #HT, #Hrec⟩
     iapply (Bindings.typedSubst_of_agreeOnLinked (W := W) hagree_body)
     imodintro
-    iintro %x %x' %t %hmem %hΓ
+    iintro %x %x' %sx %σ %hmem %hΓ
     rw [hBbody_def, fixBindings, List.lookup_append] at hmem
     cases hlk : (argNames.zip argVars).reverse.lookup x with
     | some x'' =>
@@ -1052,7 +1056,7 @@ theorem compileFixBody_correct (reg : Verifier.Registry)
       have hsnd : args'.map Prod.snd = argTys :=
         List.map_snd_zip (by rw [hargTys_def]; simp; omega)
       iapply (valHasType_lookup_zip_reverse args' argVars vs ρ'
-        (Γ.extendBinder self selfTy) x x'' t
+        (Γ.extendBinder self selfTy) x x'' sx σ
         (by rw [hfst]; exact hlen_nv)
         (by rw [hfst]; exact hlen_nvl)
         (by rw [hfst]; exact hlk)
@@ -1064,15 +1068,17 @@ theorem compileFixBody_correct (reg : Verifier.Registry)
       rw [hlk] at hmem; simp only [Option.none_or] at hmem
       have hx_notin : x ∉ argNames :=
         not_mem_of_lookup_zip_reverse_none argNames argVars x hlen_nv hlk
-      have hΓ₀ : (Γ.extendBinder self selfTy) x = some t := by
+      have hΓ₀ : (Γ.extendBinder self selfTy) x = some sx := by
         rw [hΓ'_def, fixTyCtx,
           TinyML.TyCtx.foldl_extend_of_not_mem _ _ x
             (by rw [List.map_fst_zip (by rw [hargTys_def]; simp; omega)]; exact hx_notin)] at hΓ
         exact hΓ
-      have houter : ∀ (y : TinyML.Var) (y' : FOL.Const) (u : TinyML.Typ),
+      have houter : ∀ (y : TinyML.Var) (y' : FOL.Const) (u : TinyML.Scheme)
+          (σ' : TinyML.TyVar → TinyML.Typ),
           B.lookup y = some y' → Γ y = some u →
-          Bindings.typedSubst W B Γ γ ⊢ TinyML.ValHasType W (ρ'.consts .value y'.name) u := by
-        intro y y' u hy hΓy
+          Bindings.typedSubst W B Γ γ ⊢
+            TinyML.ValHasType W (ρ'.consts .value y'.name) (u.instantiate σ') := by
+        intro y y' u σ' hy hΓy
         unfold Bindings.typedSubst
         iintro #HT'
         ispecialize HT' $$ %y %y' %u %hy %hΓy
@@ -1081,12 +1087,13 @@ theorem compileFixBody_correct (reg : Verifier.Registry)
         rw [hγy] at hw
         injection hw with hw
         rw [← hw]
+        ispecialize Hw $$ %σ'
         iexact Hw
       cases hname : self.name with
       | none =>
         rw [hname] at hmem
         simp only [TinyML.TyCtx.extendBinder, hname] at hΓ₀
-        iapply (houter x x' t hmem hΓ₀)
+        iapply (houter x x' sx σ hmem hΓ₀)
         iexact HT
       | some f =>
         rw [hname] at hmem
@@ -1094,16 +1101,18 @@ theorem compileFixBody_correct (reg : Verifier.Registry)
         by_cases hxf : x = f
         · subst hxf
           have hx' : x' = fv := by simpa [List.lookup] using hmem.symm
-          have ht : t = selfTy := by simpa using hΓ₀.symm
+          have ht : sx = TinyML.Scheme.mono selfTy := by simpa using hΓ₀.symm
           subst hx'; subst ht
           rw [hfv_val]
+          simp only [TinyML.Scheme.instantiate_mono]
           iapply (TinyML.ValHasType.arrow_some W fval argTys retTy s).2
           iexact Hrec
         · have hmem' : B.lookup x = some x' := by
             have hne : (x == f) = false := by simpa using hxf
             rw [List.lookup, hne] at hmem; exact hmem
-          have hΓ' : Γ x = some t := by simpa [TinyML.TyCtx.extend, hxf] using hΓ₀
-          iapply (houter x x' t hmem' hΓ')
+          have hΓ' : Γ x = some sx := by
+            simpa [TinyML.TyCtx.extendScheme, hxf] using hΓ₀
+          iapply (houter x x' sx σ hmem' hΓ')
           iexact HT
   -- Compile the body in the extended context.
   have hbody_wp :
@@ -3961,8 +3970,8 @@ theorem compile_correct (reg : Verifier.Registry) (hSound : Verifier.Registry.So
   cases e with
   | const c =>
     simpa using compileConst_correct reg c
-  | var x vty =>
-    simpa using compileVar_correct reg x vty
+  | var x inst vty =>
+    simpa using compileVar_correct reg x inst vty
   | prim n inst ty =>
     simpa using compilePrim_correct reg n inst ty
   | inj tag arity payload ty =>

@@ -1,4 +1,4 @@
--- SUMMARY: TinyML types over a parameter of type variables, and type declarations.
+-- SUMMARY: TinyML types over a parameter of type variables, their substitution laws, type schemes, and type declarations.
 import Mica.TinyML.Common
 import Mica.SourceTinyML.Assertions
 
@@ -942,6 +942,38 @@ theorem Typ.substSpec?_congr (σ τ : V → Typ.WithTypeVars W) :
 termination_by structural s => s
 
 end
+
+/-! ## Schemes
+
+What a name is bound at: a type, together with the variables a use site may
+choose. Only a context entry carries a scheme, which is what makes the
+polymorphism rank-1 — no type has a quantifier inside it. A local binding
+quantifies nothing, so its scheme is its type. -/
+
+/-- A type scheme: the variables a use site instantiates, and the type they
+stand in. -/
+structure Scheme where
+  tparams : List TyVar
+  ty : Typ
+  deriving Repr, DecidableEq
+
+/-- The scheme of a binding nothing may instantiate. -/
+def Scheme.mono (t : Typ) : Scheme := ⟨[], t⟩
+
+/-- The substitution an instantiation recorded on a use site stands for. A
+variable the instantiation does not mention is one the scheme does not
+quantify, so what it maps to is never looked at. -/
+def Typ.ofInst (inst : List (TyVar × Typ)) : TyVar → Typ :=
+  fun v => (inst.lookup v).getD .empty
+
+/-- Instantiate a scheme by a substitution: only the quantified variables are
+replaced. -/
+def Scheme.instantiate (s : Scheme) (σ : TyVar → Typ) : Typ :=
+  Typ.subst (fun v => if v ∈ s.tparams then σ v else .tvar v) s.ty
+
+@[simp] theorem Scheme.instantiate_mono (t : Typ) (σ : TyVar → Typ) :
+    (Scheme.mono t).instantiate σ = t := by
+  simp [Scheme.instantiate, Scheme.mono]
 
 /-- A data declaration: type parameters, and one payload type per constructor.
 The payloads are schema types, since they mention the declaration's own

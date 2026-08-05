@@ -273,14 +273,14 @@ mutual
   captured as a value variable. -/
   private def freeVars : Typed.Expr → List TinyML.Var
     | .const _ => []
-    | .var x _ => [x]
+    | .var x _ _ => [x]
     | .prim .. => []
     | .unop _ e _ => freeVars e
     | .binop _ l r _ => freeVars l ++ freeVars r
     | .fix self args _ _ body =>
         (freeVars body).filter fun v =>
           self.name != some v && !args.any (·.name == some v)
-    | .app (.var _ _) [arg] _ => freeVars arg
+    | .app (.var _ _ _) [arg] _ => freeVars arg
     | .app fn args _ => freeVars fn ++ args.flatMap freeVars
     | .ifThenElse c t e _ => freeVars c ++ freeVars t ++ freeVars e
     | .letIn b bound body =>
@@ -331,7 +331,7 @@ private def lift (all : Bool) (binder : Typed.Binder)
   let captured := ((freeVars body).filter (fun v => binder.name != some v)).eraseDups
   let name := liftedName all binder captured body
   let gBody := Typed.Expr.letProd
-    (captured.map (fun x => ⟨some x, .value⟩) ++ [binder]) (.var (name ++ "-x") .value) body
+    (captured.map (fun x => ⟨some x, .value⟩) ++ [binder]) (.var (name ++ "-x") [] .value) body
   let entry : Lifting := { name, all, captured, arg := name ++ "-x", body := gBody }
   let st ← get
   match st.syms.find? (fun s => s.name == name) with
@@ -339,8 +339,8 @@ private def lift (all : Bool) (binder : Typed.Binder)
       if existing == entry then pure ()
       else throw s!"bounded-quantifier digest collision on '{name}'"
   | none => set ({ syms := st.syms ++ [entry] } : LiftState)
-  pure (.app (.var name (.arrow [.value] .bool none))
-    [.tuple (lo :: hi :: captured.map (fun x => Typed.Expr.var x .value))] .bool)
+  pure (.app (.var name [] (.arrow [.value] .bool none))
+    [.tuple (lo :: hi :: captured.map (fun x => Typed.Expr.var x [] .value))] .bool)
 
 /-- Rewrite every bounded-quantifier occurrence in a spec leaf, bottom-up:
 bounds and closure bodies are rewritten first, so inner occurrences are
@@ -358,7 +358,7 @@ private partial def rewrite : Typed.Expr → LiftM Typed.Expr
       else do
         pure (.app (.prim n inst pty) (← args.mapM rewrite) ty)
   | .const c => pure (.const c)
-  | .var x ty => pure (.var x ty)
+  | .var x inst ty => pure (.var x inst ty)
   | .prim n inst ty => pure (.prim n inst ty)
   | .unop op e ty => do pure (.unop op (← rewrite e) ty)
   | .binop op l r ty => do pure (.binop op (← rewrite l) (← rewrite r) ty)

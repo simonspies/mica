@@ -73,14 +73,14 @@ private def Spec.Pred.elaborate (Γ : TyCtx) (names : List String) (ty : Typ) :
     Spec.Pred → TypeM σ (Atom Typ .value)
   | .isinj tag arity scrut => do pure (.isinj tag arity (← resolveSpecVar names scrut))
   | .own loc =>
-    match Γ loc with
+    match (Γ loc).map Scheme.ty with
     | some (.owned innerTy) =>
       if innerTy == ty then do pure (.own (← resolveSpecVar names loc) ty)
       else TypeM.error (.spec s!"own {loc} must bind {repr innerTy}, not {repr ty}")
     | some other => TypeM.error (.spec s!"own {loc} requires an owned reference, got {repr other}")
     | none => TypeM.error (.spec s!"unknown ownership variable '{loc}'")
   | .arr loc =>
-    match Γ loc with
+    match (Γ loc).map Scheme.ty with
     | some (.ownedArray innerTy) =>
       if (.vec innerTy) == ty then do pure (.arr (← resolveSpecVar names loc) innerTy)
       else TypeM.error (.spec s!"arr {loc} must bind a vector snapshot of type {repr (TinyML.Typ.vec innerTy)}, not {repr ty}")
@@ -198,7 +198,13 @@ mutual
         Infer.unify Θ (Typed.Const.ty c) exp
         pure (.const c)
     | .var x, exp => match Γ x with
-        | some ty => do Infer.unify Θ ty exp; pure (.var x ty)
+        | some (tparams, ty) => do
+            -- A use site chooses the variables the binding quantifies; a
+            -- binding that quantifies nothing is used at the type it was
+            -- bound at.
+            let (ty', inst) ← Infer.instantiateAt tparams ty
+            Infer.unify Θ ty' exp
+            pure (.var x inst ty')
         | none => Infer.error (.undefinedVar x)
     | .prim n, exp => match env.primitive n with
         | none => Infer.error (.unknownPrimitive n)

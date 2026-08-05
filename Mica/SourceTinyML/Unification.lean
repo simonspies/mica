@@ -246,18 +246,31 @@ def closeVar (st : State) : Var → Except TypeError TinyML.Typ
 def close (st : State) (t : Typ) : Except TypeError TinyML.Typ :=
   TinyML.Typ.substM (closeVar st) t
 
-/-- Instantiate a schema at fresh metavariables, returning the assignment
-alongside so a `prim` node can record what it was used at. -/
+/-- One fresh metavariable per name. -/
+private def freshVars : List TyVar → State → List (TyVar × Typ) × State
+  | [], st => ([], st)
+  | v :: vs, st =>
+      let (m, st) := st.fresh
+      let (rest, st) := freshVars vs st
+      ((v, m) :: rest, st)
+
+/-- Instantiate a type at fresh metavariables for the given variables,
+returning the assignment alongside so a use site can record what it chose.
+Rigid variables outside `tparams` are left alone: they belong to the
+declaration being elaborated, not to the scheme being used. -/
+def instantiateAt (tparams : List TyVar) (ty : Typ) (st : State) :
+    Typ × List (TyVar × Typ) × State :=
+  let (vars, st) := freshVars tparams st
+  let σ : Var → Typ
+    | .rigid a => (vars.lookup a).getD (.tvar (.rigid a))
+    | .flex m => .tvar (.flex m)
+  (TinyML.Typ.subst σ ty, vars, st)
+
+/-- Instantiate a schema at fresh metavariables. A schema quantifies every
+variable it mentions, which is what a primitive's registry entry is. -/
 def instantiate (s : SchemaTyp) (st : State) :
     Typ × List (TyVar × Typ) × State :=
-  let rec freshVars : List TyVar → State → List (TyVar × Typ) × State
-    | [], st => ([], st)
-    | v :: vs, st =>
-        let (m, st) := st.fresh
-        let (rest, st) := freshVars vs st
-        ((v, m) :: rest, st)
-  let (vars, st) := freshVars (TinyML.Typ.vars s).eraseDups st
-  (TinyML.Typ.subst (fun v => (vars.lookup v).getD (.tvar (.rigid v))) s, vars, st)
+  instantiateAt (TinyML.Typ.vars s).eraseDups (Typ.ofTyp s) st
 
 end State
 
@@ -280,7 +293,9 @@ mutual
 /-- Close a pending expression, rejecting any type it has left open. -/
 def Expr.close (st : State) : Expr → Except TypeError Typed.Expr
   | .const c => pure (.const c)
-  | .var n ty => do pure (.var n (← State.close st ty))
+  | .var n inst ty => do
+      let inst ← inst.mapM fun p => do pure (p.1, ← State.close st p.2)
+      pure (.var n inst (← State.close st ty))
   | .prim n inst ty => do
       let inst ← inst.mapM fun p => do pure (p.1, ← State.close st p.2)
       pure (.prim n inst (← State.close st ty))
@@ -335,13 +350,16 @@ termination_by structural branches => branches
 
 end
 
-/-- Typing context during inference, mapping variables to types with meta variables -/
-abbrev Ctx := TinyML.Var → Option Typ
+/-- Typing context during inference: what each name is bound at, with the
+variables its uses may instantiate and a type that may still mention
+metavariables. -/
+abbrev Ctx := TinyML.Var → Option (List TyVar × Typ)
 
-def Ctx.ofTyCtx (Γ : TinyML.TyCtx) : Ctx := fun x => (Γ x).map Typ.ofTyp
+def Ctx.ofTyCtx (Γ : TinyML.TyCtx) : Ctx :=
+  fun x => (Γ x).map fun s => (s.tparams, Typ.ofTyp s.ty)
 
 def Ctx.extend (Γ : Ctx) (x : TinyML.Var) (ty : Typ) : Ctx :=
-  fun y => if y == x then some ty else Γ y
+  fun y => if y == x then some ([], ty) else Γ y
 
 def Ctx.extendBinder (Γ : Ctx) (b : Binder) : Ctx :=
   match b.name with | none => Γ | some x => Γ.extend x b.ty
@@ -385,6 +403,13 @@ def resolve (ty : Typ) : M σ Typ := do
 def instantiate (s : SchemaTyp) : M σ (Typ × List (TyVar × Typ)) := fun st =>
   let (ty, inst, st') := st.instantiate s
   pure ((ty, inst), st')
+
+/-- Instantiate a context entry at fresh metavariables for the variables it
+quantifies. -/
+def instantiateAt (tparams : List TyVar) (ty : Typ) : M σ (Typ × List (TyVar × Typ)) :=
+  fun st =>
+  let (ty', inst, st') := st.instantiateAt tparams ty
+  pure ((ty', inst), st')
 
 /-- Require a list to have the length the syntax around it demands. -/
 def checkLength (actual expected : Nat) : M σ Unit :=

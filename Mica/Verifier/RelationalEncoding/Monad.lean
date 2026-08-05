@@ -137,7 +137,7 @@ place that pattern-matches on `Typed.Expr`. Errors are reported via
 def encodeWith {M : Type} (ops : EncoderOps M) (Δ : Signature)
     (Γ : FunCtx) (δ : VarEnv) : Typed.Expr → (Term .value → M) → M
   | .const c, k => k (encodeConst c)
-  | .var x _, k =>
+  | .var x _ _, k =>
     match δ.lookup x with
     | some v => k v
     | none => ops.error s!"unbound variable: {x}"
@@ -159,7 +159,7 @@ def encodeWith {M : Type} (ops : EncoderOps M) (Δ : Signature)
   | .tuple es, k =>
     encodeListWith ops Δ Γ δ es fun vs =>
       k (.unop .ofValList (Terms.toValList vs))
-  | .app (.var f _) [arg] _, k =>
+  | .app (.var f _ _) [arg] _, k =>
     match FunCtx.lookup Γ f with
     | none     => ops.error s!"unknown function: {f}"
     | some rel =>
@@ -288,7 +288,8 @@ namespace Ind
 theorem const (c : TinyML.Const) : EncodeWithInd (.const c) := by
   intro _ _ _ _ _ _ _ _ hk; simp only [encodeWith]; exact hk _
 
-theorem var (x : String) (ty : TinyML.Typ) : EncodeWithInd (.var x ty) := by
+theorem var (x : String) (inst : List (TinyML.TyVar × TinyML.Typ)) (ty : TinyML.Typ) :
+    EncodeWithInd (.var x inst ty) := by
   intro _ _ _ _ _ δ _ hops hk
   cases hlookup : δ.lookup x with
   | none => simp only [encodeWith, hlookup]; exact hops.error_ind
@@ -331,7 +332,7 @@ theorem app (fn : Typed.Expr) (args : List Typed.Expr) (ty : TinyML.Typ)
     EncodeWithInd (.app fn args ty) := by
   intro _ _ _ _ Γ _ _ hops hk
   match fn, args with
-  | .var f _, [arg] =>
+  | .var f _ _, [arg] =>
       simp only [encodeWith]
       cases FunCtx.lookup Γ f with
       | none => exact hops.error_ind
@@ -351,7 +352,7 @@ theorem app (fn : Typed.Expr) (args : List Typed.Expr) (ty : TinyML.Typ)
   | .ifThenElse .., _ | .letIn .., _ | .letProd .., _ | .ref .., _ | .deref .., _ | .store .., _
   | .arrayMake .., _ | .arrayLen _, _ | .arrayGet .., _ | .arraySet .., _
   | .assert _, _ | .tuple _, _ | .inj .., _ | .match_ .., _
-  | .var _ _, [] | .var _ _, _ :: _ :: _ =>
+  | .var _ _ _, [] | .var _ _ _, _ :: _ :: _ =>
       simp only [encodeWith]; exact hops.error_ind
 
 theorem fix (self : Typed.Binder) (args : List Typed.Binder) (retTy : TinyML.Typ)
@@ -467,7 +468,7 @@ preservation assumptions, every encoded expression yields a carrier satisfying
 the predicate. -/
 theorem encodeWith_ind_def : ∀ (e : Typed.Expr), EncodeWithInd e
   | .const c => Ind.const c
-  | .var x ty => Ind.var x ty
+  | .var x inst ty => Ind.var x inst ty
   | .prim n inst ty => Ind.prim n inst ty
   | .unop op e ty => Ind.unop op e ty (encodeWith_ind_def e)
   | .binop op e1 e2 ty =>
@@ -600,7 +601,8 @@ theorem const (c : TinyML.Const) : EncodeWithIndSig (.const c) := by
   simp only [encodeWith]
   exact hk (Signature.Subset.refl _) hΔ' _ (encodeConst_wfIn c _)
 
-theorem var (x : String) (ty : TinyML.Typ) : EncodeWithIndSig (.var x ty) := by
+theorem var (x : String) (inst : List (TinyML.TyVar × TinyML.Typ)) (ty : TinyML.Typ) :
+    EncodeWithIndSig (.var x inst ty) := by
   intro _ _ _ _ _ _ _ δ _ hops _ hΔ' _ hδ hk
   cases hlookup : δ.lookup x with
   | none => simp only [encodeWith, hlookup]; exact hops.error_ind
@@ -660,7 +662,7 @@ theorem app (fn : Typed.Expr) (args : List Typed.Expr) (ty : TinyML.Typ)
     EncodeWithIndSig (.app fn args ty) := by
   intro _ _ _ _ Γ Δ _ δ _ hops hsub hΔ' hΓ hδ hk
   match fn, args with
-  | .var f _, [arg] =>
+  | .var f _ _, [arg] =>
       simp only [encodeWith]
       cases hlk : FunCtx.lookup Γ f with
       | none => exact hops.error_ind
@@ -685,7 +687,7 @@ theorem app (fn : Typed.Expr) (args : List Typed.Expr) (ty : TinyML.Typ)
   | .ifThenElse .., _ | .letIn .., _ | .letProd .., _ | .ref .., _ | .deref .., _ | .store .., _
   | .arrayMake .., _ | .arrayLen _, _ | .arrayGet .., _ | .arraySet .., _
   | .assert _, _ | .tuple _, _ | .inj .., _ | .match_ .., _
-  | .var _ _, [] | .var _ _, _ :: _ :: _ =>
+  | .var _ _ _, [] | .var _ _ _, _ :: _ :: _ =>
       simp only [encodeWith]; exact hops.error_ind
 
 theorem fix (self : Typed.Binder) (args : List Typed.Binder) (retTy : TinyML.Typ)
@@ -837,7 +839,7 @@ under the per-operation closure assumptions in `EncoderOpsSig`, every encoded
 expression yields a carrier satisfying `P`. -/
 theorem encodeWith_indWithSig_def : ∀ (e : Typed.Expr), EncodeWithIndSig e
   | .const c => IndSig.const c
-  | .var x ty => IndSig.var x ty
+  | .var x inst ty => IndSig.var x inst ty
   | .prim n inst ty => IndSig.prim n inst ty
   | .unop op e ty => IndSig.unop op e ty (encodeWith_indWithSig_def e)
   | .binop op e1 e2 ty =>
@@ -1133,7 +1135,8 @@ theorem const (c : TinyML.Const) : EncodeWithBindBinary (.const c) := by
     Env.agreeOn_refl Env.agreeOn_refl (encodeConst c) (encodeConst c)
     (encodeConst_wfIn c _) (encodeConst_wfIn c _) (encodeConst_eval c _ _)
 
-theorem var (x : String) (ty : TinyML.Typ) : EncodeWithBindBinary (.var x ty) := by
+theorem var (x : String) (inst : List (TinyML.TyVar × TinyML.Typ)) (ty : TinyML.Typ) :
+    EncodeWithBindBinary (.var x inst ty) := by
   intro _ _ _ _ δ₁ δ₂ _ _ _ hops _ _ _ ρ₁' ρ₂' _ _ _ hwf₁ hwf₂ _ henv hk
   cases h₁ : δ₁.lookup x with
   | none =>
@@ -1228,7 +1231,7 @@ theorem app (fn : Typed.Expr) (args : List Typed.Expr) (ty : TinyML.Typ)
     EncodeWithBindBinary (.app fn args ty) := by
   intro _ _ Γ Δ _ _ _ _ _ hops _ _ _ _ _ _ hsub₁ hsub₂ hwf₁ hwf₂ hagree henv hk
   match fn, args with
-  | .var f _, [arg] =>
+  | .var f _ _, [arg] =>
       simp only [encodeWith]
       cases hlk : FunCtx.lookup Γ f with
       | none => exact hops.error_binary
@@ -1264,7 +1267,7 @@ theorem app (fn : Typed.Expr) (args : List Typed.Expr) (ty : TinyML.Typ)
   | .ifThenElse .., _ | .letIn .., _ | .letProd .., _ | .ref .., _ | .deref .., _ | .store .., _
   | .arrayMake .., _ | .arrayLen _, _ | .arrayGet .., _ | .arraySet .., _
   | .assert _, _ | .tuple _, _ | .inj .., _ | .match_ .., _
-  | .var _ _, [] | .var _ _, _ :: _ :: _ =>
+  | .var _ _ _, [] | .var _ _ _, _ :: _ :: _ =>
       simp only [encodeWith]; exact hops.error_binary
 
 theorem fix (self : Typed.Binder) (args : List Typed.Binder) (retTy : TinyML.Typ)
@@ -1458,7 +1461,7 @@ mutual
 /-- Generic paired-encoding theorem for the shared traversal. -/
 theorem encodeWith_bind_binary_def : ∀ (e : Typed.Expr), EncodeWithBindBinary e
   | .const c => BindBinary.const c
-  | .var x ty => BindBinary.var x ty
+  | .var x inst ty => BindBinary.var x inst ty
   | .prim n inst ty => BindBinary.prim n inst ty
   | .unop op e ty => BindBinary.unop op e ty (encodeWith_bind_binary_def e)
   | .binop op e1 e2 ty =>

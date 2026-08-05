@@ -111,9 +111,13 @@ theorem Bindings.agreeOnLinked_remove {B : Bindings} {ρ : Env} {γ : Runtime.Su
     obtain ⟨hsort, hγ⟩ := hagree y y' hmem
     exact ⟨hsort, by simp [Runtime.Subst.update, hyx, hγ]⟩
 
-/-- The substitution `γ` maps every binding to a value well-typed by `Γ`. -/
+/-- The substitution `γ` maps every binding to a value well-typed by `Γ`, at
+every instantiation of the scheme the context binds it at. A binding that
+quantifies nothing has exactly one instantiation, so this says of it what it
+said before schemes existed. -/
 def Bindings.typedSubst (W : TinyML.World) (B : Bindings) (Γ : TinyML.TyCtx) (γ : Runtime.Subst) : iProp :=
-  iprop(□ ∀ x x' t, ⌜B.lookup x = some x'⌝ -∗ ⌜Γ x = some t⌝ -∗ ∃ v, ⌜γ x = some v⌝ ∗ TinyML.ValHasType W v t)
+  iprop(□ ∀ x x' s, ⌜B.lookup x = some x'⌝ -∗ ⌜Γ x = some s⌝ -∗
+    ∃ v, ⌜γ x = some v⌝ ∗ ∀ σ, TinyML.ValHasType W v (TinyML.Scheme.instantiate s σ))
 
 instance Bindings.typedSubst_persistent {B Γ γ} (W : TinyML.World) : Persistent (Bindings.typedSubst W B Γ γ) :=
   by
@@ -128,10 +132,12 @@ theorem Bindings.typedSubst_nil (W : TinyML.World) (γ : Runtime.Subst) :
   iintro %hlookup
   simp at hlookup
 
-theorem Bindings.typedSubst_cons {B : Bindings} {Γ : TinyML.TyCtx} {γ : Runtime.Subst}
-    {x : TinyML.Var} {v : FOL.Const} {te : TinyML.Typ} {w : Runtime.Val}
-    : ⊢ B.typedSubst W Γ γ -∗ TinyML.ValHasType W w te -∗
-      Bindings.typedSubst W ((x, v) :: B) (Γ.extend x te) (Runtime.Subst.update γ x w) := by
+/-- Extend by a binding whose uses may instantiate it: the value is typed at
+every instantiation of the scheme. -/
+theorem Bindings.typedSubst_cons_scheme {B : Bindings} {Γ : TinyML.TyCtx} {γ : Runtime.Subst}
+    {x : TinyML.Var} {v : FOL.Const} {s : TinyML.Scheme} {w : Runtime.Val}
+    : ⊢ B.typedSubst W Γ γ -∗ (□ ∀ σ, TinyML.ValHasType W w (s.instantiate σ)) -∗
+      Bindings.typedSubst W ((x, v) :: B) (Γ.extendScheme x s) (Runtime.Subst.update γ x w) := by
   iintro #Hts #Hw
   unfold Bindings.typedSubst
   imodintro
@@ -143,7 +149,7 @@ theorem Bindings.typedSubst_cons {B : Bindings} {Γ : TinyML.TyCtx} {γ : Runtim
   by_cases hyx : y == x
   · -- head case: y = x
     simp [List.lookup, hyx] at hmem; subst hmem
-    simp [TinyML.TyCtx.extend, hyx] at hΓ; subst hΓ
+    simp [TinyML.TyCtx.extendScheme, hyx] at hΓ; subst hΓ
     iexists w
     isplitr
     · ipureintro
@@ -151,7 +157,7 @@ theorem Bindings.typedSubst_cons {B : Bindings} {Γ : TinyML.TyCtx} {γ : Runtim
     · iexact Hw
   · -- tail case: y ≠ x
     simp [List.lookup, hyx] at hmem
-    have hΓ' : Γ y = some t := by simp [TinyML.TyCtx.extend, hyx] at hΓ; exact hΓ
+    have hΓ' : Γ y = some t := by simp [TinyML.TyCtx.extendScheme, hyx] at hΓ; exact hΓ
     ispecialize Hts $$ %y %y' %t %hmem %hΓ'
     icases Hts with ⟨%w', %hw', Hw'⟩
     iexists w'
@@ -159,6 +165,20 @@ theorem Bindings.typedSubst_cons {B : Bindings} {Γ : TinyML.TyCtx} {γ : Runtim
     · ipureintro
       simp [Runtime.Subst.update, hyx, hw']
     · iexact Hw'
+
+/-- Extend by a binding nothing may instantiate. -/
+theorem Bindings.typedSubst_cons {B : Bindings} {Γ : TinyML.TyCtx} {γ : Runtime.Subst}
+    {x : TinyML.Var} {v : FOL.Const} {te : TinyML.Typ} {w : Runtime.Val}
+    : ⊢ B.typedSubst W Γ γ -∗ TinyML.ValHasType W w te -∗
+      Bindings.typedSubst W ((x, v) :: B) (Γ.extend x te) (Runtime.Subst.update γ x w) := by
+  iintro #Hts #Hw
+  rw [TinyML.TyCtx.extend_def]
+  iapply (Bindings.typedSubst_cons_scheme (s := TinyML.Scheme.mono te))
+  · iexact Hts
+  · imodintro
+    iintro %σ
+    simp only [TinyML.Scheme.instantiate_mono]
+    iexact Hw
 
 /-- Typing survives dropping a name's binding and rebinding that name at
     runtime: no claim is made about the dropped name, and every other binding
@@ -222,8 +242,8 @@ theorem Bindings.agreeOnLinked_cons {B : Bindings} {ρ ρ' : Env} {γ : Runtime.
 theorem Bindings.typedSubst_of_agreeOnLinked
     {B : Bindings} {Γ : TinyML.TyCtx} {γ : Runtime.Subst} {ρ : Env}
     (hagree : B.agreeOnLinked ρ γ)
-    : ⊢ □ (∀ x x' t, ⌜B.lookup x = some x'⌝ -∗ ⌜Γ x = some t⌝ -∗
-        TinyML.ValHasType W (ρ.consts .value x'.name) t) -∗
+    : ⊢ □ (∀ x x' s σ, ⌜B.lookup x = some x'⌝ -∗ ⌜Γ x = some s⌝ -∗
+        TinyML.ValHasType W (ρ.consts .value x'.name) (TinyML.Scheme.instantiate s σ)) -∗
       B.typedSubst W Γ γ := by
   iintro #Htyped
   unfold Bindings.typedSubst
@@ -238,7 +258,8 @@ theorem Bindings.typedSubst_of_agreeOnLinked
   isplitr
   · ipureintro
     exact hval
-  · ispecialize Htyped $$ %x %x' %t
+  · iintro %σ
+    ispecialize Htyped $$ %x %x' %t %σ
     iapply Htyped
     · ipureintro; exact hmem
     · ipureintro; exact hΓ
@@ -356,14 +377,14 @@ theorem valHasType_lookup_zip_reverse
     (args : List (String × TinyML.Typ))
     (vars : List FOL.Const) (vals : List Runtime.Val)
     (ρ : Env) (Γ₀ : TinyML.TyCtx)
-    (x : String) (x' : FOL.Const) (t : TinyML.Typ)
+    (x : String) (x' : FOL.Const) (s : TinyML.Scheme) (σ : TinyML.TyVar → TinyML.Typ)
     (hlen_v : (args.map Prod.fst).length = vars.length)
     (hlen_vl : (args.map Prod.fst).length = vals.length)
     (hlookup : List.lookup x ((args.map Prod.fst).zip vars).reverse = some x')
-    (hΓ : (args.foldl (fun ctx a => ctx.extend a.1 a.2) Γ₀) x = some t)
+    (hΓ : (args.foldl (fun ctx a => ctx.extend a.1 a.2) Γ₀) x = some s)
     (hlookups : List.Forall₂ (fun av val => ρ.consts .value av.name = val) vars vals)
     : ⊢ TinyML.ValsHaveTypes W vals (args.map Prod.snd) -∗
-        TinyML.ValHasType W (ρ.consts .value x'.name) t := by
+        TinyML.ValHasType W (ρ.consts .value x'.name) (s.instantiate σ) := by
   induction args generalizing vars vals Γ₀ with
   | nil => simp at hlookup
   | cons a as' ih =>
@@ -377,7 +398,7 @@ theorem valHasType_lookup_zip_reverse
         cases hlookups with
         | cons hlk_head hlk_tail =>
           exact (show ⊢ TinyML.ValsHaveTypes W (vl :: vls) (a.2 :: as'.map Prod.snd) -∗
-                TinyML.ValHasType W (ρ.consts .value x'.name) t by
+                TinyML.ValHasType W (ρ.consts .value x'.name) (s.instantiate σ) by
               iintro Hvals
               ihave Hpair := (TinyML.ValsHaveTypes.cons W vl vls a.2 (as'.map Prod.snd)).1 $$ Hvals
               icases Hpair with ⟨Htype_head, Htype_tail⟩
@@ -403,7 +424,8 @@ theorem valHasType_lookup_zip_reverse
                   rw [hΓ_stable] at hΓ
                   have hxa' : x = a.1 := by exact beq_iff_eq.mp hxa
                   subst hxa'
-                  simp [TinyML.TyCtx.extend] at hΓ; subst hΓ
+                  simp at hΓ; subst hΓ
                   rw [← hlk_head]
+                  simp only [TinyML.Scheme.instantiate_mono]
                   iexact Htype_head
                 · simp [List.lookup, hxa] at hlookup)
