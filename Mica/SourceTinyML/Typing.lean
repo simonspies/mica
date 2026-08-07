@@ -38,6 +38,8 @@ structure SpecEnv (σ : Type) where
   primitive : String → Option SchemaTyp
   translate : List String → Typed.Expr → TypeM σ (Term .value × Formula)
   globals : TinyML.TyCtx
+  /-- The type variables the declaration being elaborated binds. -/
+  tvars : List TyVar
 
 /-- Assert all formulas in order before continuing with the assertion body.
 
@@ -99,17 +101,15 @@ private def Spec.Pred.elaborate (Γ : TyCtx) (names : List String) (ty : Typ) :
 -- take the tag that orders them above the others at equal size.
 mutual
   /-- Translate a type of the untyped IR into the core type it denotes,
-  elaborating every specification it carries. A source type variable survives as
-  itself; what it *means* is settled by whoever consumes the result, since that
-  differs by position — `Infer.Typ.ofSource` makes it rigid or flexible
-  according to the enclosing declaration's signature, and `DataDecl.elaborate`
-  demands it be one of the declaration's parameters. A specification's leaves are
-  typechecked in the program's global context extended with the arrow's own
-  arguments — never with the binders surrounding the annotation, which the
-  function the type describes cannot mention. -/
+  elaborating every specification it carries. A type variable must be one
+  `env.tvars` binds — the enclosing declaration's signature, or a data
+  declaration's parameters — since nothing else in a declaration binds one. A
+  specification's leaves are typechecked in the program's global context
+  extended with the arrow's own arguments — never with the binders surrounding
+  the annotation, which the function the type describes cannot mention. -/
   def Typ.elaborate (env : SpecEnv σ) (Θ : TypeEnv) : Untyped.Typ → TypeM σ Typ
     | .core t => pure t
-    | .tvar v => pure (.tvar v)
+    | .tvar v => if v ∈ env.tvars then pure (.tvar v) else TypeM.error (.unboundTypeVar v)
     | .sum ts => do pure (.sum (← Typ.elaborateList env Θ ts))
     | .arrow args ret spec => do
         let args' ← Typ.elaborateList env Θ args
@@ -468,16 +468,12 @@ def Binder.elaborateList (env : SpecEnv σ) (Θ : TypeEnv) :
         | _ => pure .value
       pure (Typed.Binder.ofUntyped b ty :: (← Binder.elaborateList env Θ bs))
 
-/-- Elaborate a data declaration's payloads. A payload may name the
-declaration's own parameters and nothing else: unlike a value declaration, a
-data declaration has no body for inference to solve a variable from, so one that
-is not a parameter stands for nothing. -/
+/-- Elaborate a data declaration's payloads. A data declaration is a binding
+unit like a value declaration, and its parameters are what it binds. -/
 def DataDecl.elaborate (env : SpecEnv σ) (Θ : TypeEnv) (d : Untyped.DataDecl) :
     TypeM σ TinyML.DataDecl := do
-  let payloads ← Typ.elaborateList env Θ d.payloads
-  match (payloads.flatMap TinyML.Typ.vars).find? (· ∉ d.tparams) with
-  | some v => TypeM.error (.unboundTypeVar v)
-  | none => pure { tparams := d.tparams, payloads }
+  let payloads ← Typ.elaborateList { env with tvars := d.tparams } Θ d.payloads
+  pure { tparams := d.tparams, payloads }
 
 /-! ## Specification elaboration
 
@@ -572,7 +568,8 @@ def Program.elaborate (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx) :
           let Θ' ← TypeM.ofExcept (extendTypeEnv Θ dty.name body)
           Program.elaborate env Θ' Γ ds
       | .val_ dval =>
-          let d' ← ValDecl.elaborate { env with globals := Γ } Θ Γ dval
+          let d' ← ValDecl.elaborate
+            { env with globals := Γ, tvars := dval.tvars } Θ Γ dval
           let Γ' := match d'.name.name with
             | some x => Γ.extend x d'.name.ty
             | none => Γ

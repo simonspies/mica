@@ -182,6 +182,53 @@ def Binder.runtime : Untyped.Binder → Runtime.Binder
   | .none => .none
   | .named x _ty => .named x
 
+/-! ## The variables a declaration binds
+
+A declaration's signature is the binding site of its type variables: writing
+`'a` there is what makes the declaration polymorphic in `'a`, and what makes its
+body unable to assume anything about it. It is the only binding site inside a
+declaration, so a variable written anywhere else is rejected rather than
+silently made an inference variable.
+
+The traversal stops at a nested specification. A specification is written
+against the signature it annotates, so the variables it may mention are already
+collected from the types around it. -/
+
+mutual
+
+/-- The type variables an annotation writes down. -/
+def Typ.vars : Untyped.Typ → List TyVar
+  | .core t => TinyML.Typ.vars t
+  | .tvar v => [v]
+  | .sum ts | .tuple ts | .named _ ts => Typ.varsList ts
+  | .arrow args ret _ => Typ.varsList args ++ Typ.vars ret
+  | .ref t | .array t | .ownedArray t | .vec t | .owned t => Typ.vars t
+termination_by structural t => t
+
+def Typ.varsList : List Untyped.Typ → List TyVar
+  | [] => []
+  | t :: ts => Typ.vars t ++ Typ.varsList ts
+termination_by structural ts => ts
+
+end
+
+/-- The type variables a binder's annotation writes down. -/
+def Binder.vars : Untyped.Binder → List TyVar
+  | .none => []
+  | .named _ ann => (ann.map Typ.vars).getD []
+
+/-- The type variables a declaration binds: those written in its own binder's
+annotation and in the signature of the function literal it defines. -/
+def ValDecl.tvars (d : ValDecl S) : List TyVar :=
+  (d.name.vars ++ signature d.body).eraseDups
+where
+  /-- A declaration defines a function literal, whose argument and return
+  annotations are as much its signature as its own annotation is. -/
+  signature : Untyped.Expr → List TyVar
+    | .fix self args retTy _ =>
+        self.vars ++ (args.map Binder.vars).flatten ++ (retTy.map Typ.vars).getD []
+    | _ => []
+
 /-- The primitive name of a bare primitive reference, `none` otherwise. Lets
     callers dispatch on "is this a primitive" without matching on `Expr`. -/
 def Expr.primName? : Expr → Option String

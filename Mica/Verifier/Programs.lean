@@ -80,6 +80,7 @@ def Program.specEnv (reg : Verifier.Registry) (Γfn : FunCtx) :
       match Program.translateLeaf (Verifier.Intrinsic.sigOf reg) Γ names e' with
       | .error msg => .error (.spec msg)
       | .ok r => .ok (r, st')
+  tvars := []
 
 /-- Elaborate a program, returning the type environment, the typed program with
 its specifications already translated, and the final elaboration state (which
