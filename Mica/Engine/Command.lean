@@ -54,16 +54,17 @@ namespace Command
 def toSMTLIB : Command α → String
   | .push => "(push)"
   | .pop => "(pop)"
-  | .declareConst n s => s!"(declare-const {n} {s.toSMTLIB})"
-  | .declareUnary n a r => s!"(declare-fun {n} ({a.toSMTLIB}) {r.toSMTLIB})"
-  | .declareBinary n a1 a2 r => s!"(declare-fun {n} ({a1.toSMTLIB} {a2.toSMTLIB}) {r.toSMTLIB})"
-  | .declareTernary n a1 a2 a3 r =>
-      s!"(declare-fun {n} ({a1.toSMTLIB} {a2.toSMTLIB} {a3.toSMTLIB}) {r.toSMTLIB})"
-  | .declareUnaryRel n a => s!"(declare-fun {n} ({a.toSMTLIB}) Bool)"
-  | .declareBinaryRel n a1 a2 => s!"(declare-fun {n} ({a1.toSMTLIB} {a2.toSMTLIB}) Bool)"
+  | .declareConst n sort => s!"(declare-const {n} {sort.toSMTLIB})"
+  | .declareUnary n arg ret => s!"(declare-fun {n} ({arg.toSMTLIB}) {ret.toSMTLIB})"
+  | .declareBinary n arg1 arg2 ret =>
+      s!"(declare-fun {n} ({arg1.toSMTLIB} {arg2.toSMTLIB}) {ret.toSMTLIB})"
+  | .declareTernary n arg1 arg2 arg3 ret =>
+      s!"(declare-fun {n} ({arg1.toSMTLIB} {arg2.toSMTLIB} {arg3.toSMTLIB}) {ret.toSMTLIB})"
+  | .declareUnaryRel n arg => s!"(declare-fun {n} ({arg.toSMTLIB}) Bool)"
+  | .declareBinaryRel n arg1 arg2 => s!"(declare-fun {n} ({arg1.toSMTLIB} {arg2.toSMTLIB}) Bool)"
   | .assert e => s!"(assert {e.toSMTLIB})"
   | .checkSat => "(check-sat)"
-  | .setOption s => s.toSMTLIB
+  | .setOption opt => opt.toSMTLIB
   | .getOption g => g.toSMTLIB
 
 /-- Parse the solver's response string for a given command. Returns `none` on unexpected output. -/
@@ -99,8 +100,8 @@ def step : Command β → β → State → State
   | .declareUnary n arg ret, (), s => s.addUnary ⟨n, arg, ret⟩
   | .declareBinary n arg1 arg2 ret, (), s => s.addBinary ⟨n, arg1, arg2, ret⟩
   | .declareTernary n arg1 arg2 arg3 ret, (), s => s.addTernary ⟨n, arg1, arg2, arg3, ret⟩
-  | .declareUnaryRel n arg, (), s => Smt.State.addUnaryRel s ⟨n, arg⟩
-  | .declareBinaryRel n arg1 arg2, (), s => Smt.State.addBinaryRel s ⟨n, arg1, arg2⟩
+  | .declareUnaryRel n arg, (), s => s.addUnaryRel ⟨n, arg⟩
+  | .declareBinaryRel n arg1 arg2, (), s => s.addBinaryRel ⟨n, arg1, arg2⟩
   | .assert e, (), s => s.addAssert e
   | .checkSat, _, s => s
   | .setOption _, (), s => s
