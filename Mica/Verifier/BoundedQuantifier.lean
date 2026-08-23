@@ -185,7 +185,7 @@ def intrinsic (name : String) (path : String) : Verifier.Intrinsic where
   spec :=
     { args := ["lo", "hi", "body"]
       pred := .assert .false_ (.ret ⟨"ret", .ret ()⟩) }
-  folSym := none
+  folTerm := none
   axioms := []
 
 /-- Registry entry for `Range.all`. -/

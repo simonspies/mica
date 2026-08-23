@@ -166,7 +166,7 @@ def encodeWith {M : Type} (primitives : PrimEncodings) (ops : EncoderOps M) (Δ 
       encodeWith primitives ops Δ Γ δ arg fun v => ops.call rel v k
   | .app (.prim n _ _) args _, k =>
     encodeListWith primitives ops Δ Γ δ args fun vs =>
-      match encodePrim Δ n vs with
+      match encodePrim primitives Δ n vs with
       | .ok v      => k v
       | .error msg => ops.error msg
   | .letIn b bound body, k =>
@@ -350,7 +350,7 @@ theorem app {primitives : PrimEncodings}
       simp only [encodeWith]
       refine ihArgsList hops ?_
       intro vs
-      cases encodePrim _ n vs with
+      cases encodePrim primitives _ n vs with
       | error _ => simp; exact hops.error_ind
       | ok _    => simp; exact hk _
   | .const _, _ | .unop .., _ | .binop .., _ | .fix .., _ | .app .., _
@@ -680,7 +680,7 @@ theorem ifThenElse {primitives : PrimEncodings} (c t e : Typed.Expr) (ty : TinyM
   have hbWf : (Term.unop UnOp.toBool b).wfIn Δ'' := ⟨trivial, hb⟩
   exact hops.ite_ind hΔ'' hbWf hmtP hmeP
 
-theorem app {primitives : PrimEncodings} (_hlaw : primitives.Lawful)
+theorem app {primitives : PrimEncodings} (hlaw : primitives.Lawful)
     (fn : Typed.Expr) (args : List Typed.Expr) (ty : TinyML.Typ)
     (ihArgs : ∀ a ∈ args, EncodeWithIndSig primitives a) (ihArgsList : EncodeListWithIndSig primitives args) :
     EncodeWithIndSig primitives (.app fn args ty) := by
@@ -702,11 +702,11 @@ theorem app {primitives : PrimEncodings} (_hlaw : primitives.Lawful)
       simp only [encodeWith]
       refine ihArgsList hops hsub hΔ' hΓ hδ ?_
       intro Δ'' hsub'' hΔ'' vs hvs
-      cases hraw : encodePrim Δ n vs with
+      cases hraw : encodePrim primitives Δ n vs with
       | error _ => simp; exact hops.error_ind
       | ok v =>
           simp
-          exact hk hsub'' hΔ'' v (encodePrim_wfIn hraw (hsub.trans hsub'') hΔ'' hvs)
+          exact hk hsub'' hΔ'' v (encodePrim_wfIn hlaw hraw (hsub.trans hsub'') hΔ'' hvs)
   | .const _, _ | .unop .., _ | .binop .., _ | .fix .., _ | .app .., _
   | .ifThenElse .., _ | .letIn .., _ | .letProd .., _ | .ref .., _ | .deref .., _ | .store .., _
   | .arrayMake .., _ | .arrayLen _, _ | .arrayGet .., _ | .arraySet .., _
@@ -1268,7 +1268,7 @@ theorem ifThenElse {primitives : PrimEncodings} (c t e : Typed.Expr) (ty : TinyM
     (ihe hops hsub₁a hsub₂a hwa₁ hwa₂ hagree_a henv_a hka)
   simp only [Term.eval, UnOp.eval]; rw [hevalb]
 
-theorem app {primitives : PrimEncodings} (_hlaw : primitives.Lawful)
+theorem app {primitives : PrimEncodings} (hlaw : primitives.Lawful)
     (fn : Typed.Expr) (args : List Typed.Expr) (ty : TinyML.Typ)
     (ihArgs : ∀ a ∈ args, EncodeWithBindBinary primitives a) (ihArgsList : EncodeListWithBindBinary primitives args) :
     EncodeWithBindBinary primitives (.app fn args ty) := by
@@ -1290,7 +1290,7 @@ theorem app {primitives : PrimEncodings} (_hlaw : primitives.Lawful)
       intro Δa₁ Δa₂ ρa₁ ρa₂ hsa₁ hsa₂ hwa₁ hwa₂ haa₁ haa₂ vs₁ vs₂ hvs₁ hvs₂ hevals
       have hagree_a : Env.agreeOn Δ ρa₁ ρa₂ :=
         Env.agreeOn_of_extensions hsub₁ hsub₂ hagree haa₁ haa₂
-      cases hraw₁ : encodePrim Δ n vs₁ with
+      cases hraw₁ : encodePrim primitives Δ n vs₁ with
       | error msg =>
           have hlen : vs₂.length = vs₁.length := by
             simpa only [List.length_map] using (congrArg List.length hevals).symm
@@ -1303,9 +1303,9 @@ theorem app {primitives : PrimEncodings} (_hlaw : primitives.Lawful)
           obtain ⟨v₂, hraw₂⟩ := encodePrim_ok_irrel (vs' := vs₂) hraw₁ hlen
           simp only [hraw₁, hraw₂]
           exact hk hsa₁ hsa₂ hwa₁ hwa₂ haa₁ haa₂ v₁ v₂
-            (encodePrim_wfIn hraw₁ (hsub₁.trans hsa₁) hwa₁ hvs₁)
-            (encodePrim_wfIn hraw₂ (hsub₂.trans hsa₂) hwa₂ hvs₂)
-            (encodePrim_eval hraw₁ hraw₂ hagree_a hevals)
+            (encodePrim_wfIn hlaw hraw₁ (hsub₁.trans hsa₁) hwa₁ hvs₁)
+            (encodePrim_wfIn hlaw hraw₂ (hsub₂.trans hsa₂) hwa₂ hvs₂)
+            (encodePrim_eval hlaw hraw₁ hraw₂ hagree_a hevals)
   | .const _, _ | .unop .., _ | .binop .., _ | .fix .., _ | .app .., _
   | .ifThenElse .., _ | .letIn .., _ | .letProd .., _ | .ref .., _ | .deref .., _ | .store .., _
   | .arrayMake .., _ | .arrayLen _, _ | .arrayGet .., _ | .arraySet .., _

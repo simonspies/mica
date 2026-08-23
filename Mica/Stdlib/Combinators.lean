@@ -381,7 +381,7 @@ def Zero.toIntrinsic (b : Zero) : Intrinsic where
     { args  := []
       pred  := .ret ⟨"ret",
         .assert (.eq .value (.var .value "ret") b.opTerm) (.ret ())⟩ }
-  folSym := some b.sym
+  folTerm := some (.symbol b.sym)
   axioms := ⟨b.defAxiom, .low⟩ :: (b.typeAxiom.map (⟨·, .low⟩)).toList
 
 @[simp] theorem Zero.toWp_eq (b : Zero) (Q : Runtime.Val → iProp) :
@@ -518,7 +518,7 @@ def Unary.toIntrinsic (b : Unary) : Intrinsic where
       pred  := withPre (b.pre.map (· "a")) <| .ret ⟨"ret",
         .assert (.eq .value (.var .value "ret")
           (b.opTerm (.var .value "a"))) (.ret ())⟩ }
-  folSym := some b.sym
+  folTerm := some (.symbol b.sym)
   axioms := ⟨b.defAxiom, .high⟩ :: (b.typeAxiom.map (⟨·, .high⟩)).toList
 
 @[simp] theorem Unary.toWp_eq (b : Unary) (a : Runtime.Val) (Q : Runtime.Val → iProp) :
@@ -724,7 +724,7 @@ def Binary.toIntrinsic (b : Binary) : Intrinsic where
       pred  := withPre (b.pre.map (· "a" "b")) <| .ret ⟨"ret",
         .assert (.eq .value (.var .value "ret")
           (b.opTerm (.var .value "a") (.var .value "b"))) (.ret ())⟩ }
-  folSym := some b.sym
+  folTerm := some (.symbol b.sym)
   axioms := ⟨b.defAxiom, .high⟩ :: (b.typeAxiom.map (⟨·, .high⟩)).toList
 
 @[simp] theorem Binary.toWp_eq (b : Binary) (a c : Runtime.Val) (Q : Runtime.Val → iProp) :
@@ -961,7 +961,7 @@ def Ternary.toIntrinsic (b : Ternary) : Intrinsic where
       pred  := withPre (b.pre.map (· "a" "b" "c")) <| .ret ⟨"ret",
         .assert (.eq .value (.var .value "ret")
           (b.opTerm (.var .value "a") (.var .value "b") (.var .value "c"))) (.ret ())⟩ }
-  folSym := some b.sym
+  folTerm := some (.symbol b.sym)
   axioms := ⟨b.defAxiom, .high⟩ :: (b.typeAxiom.map (⟨·, .high⟩)).toList
 
 @[simp] theorem Ternary.toWp_eq (b : Ternary) (a c d : Runtime.Val) (Q : Runtime.Val → iProp) :

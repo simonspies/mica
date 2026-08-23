@@ -68,7 +68,7 @@ def Program.specEnv (reg : Verifier.Registry) (Γfn : FunCtx) :
     | .error msg => .error (.spec msg)
     | .ok (e', st') =>
       let Γ := Γfn ++ st'.syms.map (fun s => (s.name, s.name))
-      match Program.translateLeaf [] (Verifier.Intrinsic.sigOf reg) Γ names e' with
+      match Program.translateLeaf reg.primitives (Verifier.Intrinsic.sigOf reg) Γ names e' with
       | .error msg => .error (.spec msg)
       | .ok r => .ok (r, st')
   tvars := []
@@ -506,7 +506,7 @@ def Program.verify (reg : Verifier.Registry) (prog : Untyped.Program Untyped.Spe
   VerifM.strategy do
     let (Θ, typed, liftSt) ← Program.prepare (Program.specEnv reg (Program.relationMap prog)) {} prog
     Verifier.Registry.introduceRegistry reg
-    let relations ← RelationSpec.assemble [] typed liftSt.syms
+    let relations ← RelationSpec.assemble reg.primitives typed liftSt.syms
     Program.check reg Θ relations.delta [] TinyML.TyCtx.empty typed
 
 /-! ## Correctness -/
@@ -828,7 +828,7 @@ theorem Program.verify_correct (reg : Verifier.Registry)
                         let (Θ, typed, liftSt) ←
                           Program.prepare (Program.specEnv reg (Program.relationMap p)) {} p
                         Verifier.Registry.introduceRegistry reg
-                        let relations ← RelationSpec.assemble [] typed liftSt.syms
+                        let relations ← RelationSpec.assemble reg.primitives typed liftSt.syms
                         Program.check reg Θ relations.delta [] TinyML.TyCtx.empty typed)
                       TransState.init Env.init ctx_mid
                       (ScopedM.eval_declareConst hverif)
@@ -848,7 +848,7 @@ theorem Program.verify_correct (reg : Verifier.Registry)
       rw [hvars_setup_eq]
       rfl
     obtain ⟨spec0, stRel, ρRel, hvars, howns, hsub_setup_rel, hag_setup_rel, hcheck_eval⟩ :=
-      RelationSpec.assemble_correct [] (fun _ he => nomatch he)
+      RelationSpec.assemble_correct reg.primitives (Verifier.Registry.primitives_lawful reg)
         typed liftSt.syms hvars_setup howns_setup
         hcheck_eval.1.namesDisjoint hassemble
     have hΔreg : Verifier.Registry.symSubset reg stRel.decls := by
