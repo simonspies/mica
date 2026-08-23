@@ -118,7 +118,7 @@ def BinPred.checkWf : BinPred τ₁ τ₂ → Signature → Except String Unit
     else .error s!"binary predicate {name} not in signature"
   | _, _ => .ok ()
 
-@[simp] def Pattern.wfIn : Pattern → Signature → Prop
+def Pattern.wfIn : Pattern → Signature → Prop
   | .term t, Δ => t.wfIn Δ
   | .unpred p t, Δ => p.wfIn Δ ∧ t.wfIn Δ
   | .binpred p t₁ t₂, Δ => p.wfIn Δ ∧ t₁.wfIn Δ ∧ t₂.wfIn Δ
@@ -128,7 +128,7 @@ def Pattern.checkWf : Pattern → Signature → Except String Unit
   | .unpred p t, Δ => do p.checkWf Δ; t.checkWf Δ
   | .binpred p t₁ t₂, Δ => do p.checkWf Δ; t₁.checkWf Δ; t₂.checkWf Δ
 
-@[simp] def Pattern.List.wfIn (ps : List Pattern) (Δ : Signature) : Prop :=
+def Pattern.List.wfIn (ps : List Pattern) (Δ : Signature) : Prop :=
   ∀ p ∈ ps, p.wfIn Δ
 
 def Pattern.List.checkWf : List Pattern → Signature → Except String Unit
