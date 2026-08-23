@@ -1109,46 +1109,63 @@ def Env.agreeOn (Δ : Signature) (ρ ρ' : Env) : Prop :=
   (∀ u ∈ Δ.unaryRel, ρ.unaryRel u.arg u.name = ρ'.unaryRel u.arg u.name) ∧
   (∀ b ∈ Δ.binaryRel, ρ.binaryRel b.arg1 b.arg2 b.name = ρ'.binaryRel b.arg1 b.arg2 b.name)
 
+theorem Env.agreeOn.intro {Δ : Signature} {ρ ρ' : Env}
+    (vars : ∀ v ∈ Δ.vars, ρ.consts v.sort v.name = ρ'.consts v.sort v.name)
+    (consts : ∀ c ∈ Δ.consts, ρ.consts c.sort c.name = ρ'.consts c.sort c.name)
+    (unary : ∀ u ∈ Δ.unary, ρ.unary u.arg u.ret u.name = ρ'.unary u.arg u.ret u.name)
+    (binary : ∀ b ∈ Δ.binary,
+      ρ.binary b.arg1 b.arg2 b.ret b.name = ρ'.binary b.arg1 b.arg2 b.ret b.name)
+    (ternary : ∀ t ∈ Δ.ternary,
+      ρ.ternary t.arg1 t.arg2 t.arg3 t.ret t.name = ρ'.ternary t.arg1 t.arg2 t.arg3 t.ret t.name)
+    (unaryRel : ∀ u ∈ Δ.unaryRel, ρ.unaryRel u.arg u.name = ρ'.unaryRel u.arg u.name)
+    (binaryRel : ∀ b ∈ Δ.binaryRel,
+      ρ.binaryRel b.arg1 b.arg2 b.name = ρ'.binaryRel b.arg1 b.arg2 b.name) :
+    Env.agreeOn Δ ρ ρ' :=
+  ⟨vars, consts, unary, binary, ternary, unaryRel, binaryRel⟩
+
 theorem Env.agreeOn_refl : Env.agreeOn Δ ρ ρ :=
-  ⟨fun _ _ => rfl, fun _ _ => rfl, fun _ _ => rfl, fun _ _ => rfl, fun _ _ => rfl,
-   fun _ _ => rfl, fun _ _ => rfl⟩
+  .intro (fun _ _ => rfl) (fun _ _ => rfl) (fun _ _ => rfl) (fun _ _ => rfl)
+    (fun _ _ => rfl) (fun _ _ => rfl) (fun _ _ => rfl)
 
 /-- Any two environments agree on the empty signature. -/
 theorem Env.agreeOn_empty (ρ ρ' : Env) : Env.agreeOn Signature.empty ρ ρ' := by
-  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_⟩ <;> intro x hx <;> simp [Signature.empty] at hx
+  refine .intro ?_ ?_ ?_ ?_ ?_ ?_ ?_ <;> intro x hx <;> simp [Signature.empty] at hx
 
 theorem Env.agreeOn_mono {Δ₁ Δ₂ : Signature} (hsub : Δ₁.Subset Δ₂)
     (h : Env.agreeOn Δ₂ ρ ρ') : Env.agreeOn Δ₁ ρ ρ' :=
-  ⟨fun x hx => h.1 x (hsub.vars x hx),
-   fun c hc => h.2.1 c (hsub.consts c hc),
-   fun u hu => h.2.2.1 u (hsub.unary u hu),
-   fun b hb => h.2.2.2.1 b (hsub.binary b hb),
-   fun t ht => h.2.2.2.2.1 t (hsub.ternary t ht),
-   fun u hu => h.2.2.2.2.2.1 u (hsub.unaryRel u hu),
-   fun b hb => h.2.2.2.2.2.2 b (hsub.binaryRel b hb)⟩
+  .intro
+    (fun x hx => h.1 x (hsub.vars x hx))
+    (fun c hc => h.2.1 c (hsub.consts c hc))
+    (fun u hu => h.2.2.1 u (hsub.unary u hu))
+    (fun b hb => h.2.2.2.1 b (hsub.binary b hb))
+    (fun t ht => h.2.2.2.2.1 t (hsub.ternary t ht))
+    (fun u hu => h.2.2.2.2.2.1 u (hsub.unaryRel u hu))
+    (fun b hb => h.2.2.2.2.2.2 b (hsub.binaryRel b hb))
 
 theorem Env.agreeOn_remove {Δ : Signature} {ρ ρ' : Env} {x : String}
     (h : Env.agreeOn Δ ρ ρ') : Env.agreeOn (Δ.remove x) ρ ρ' :=
   Env.agreeOn_mono (Signature.remove_subset Δ x) h
 
 theorem Env.agreeOn_symm {Δ : Signature} {ρ ρ' : Env} (h : Env.agreeOn Δ ρ ρ') : Env.agreeOn Δ ρ' ρ :=
-  ⟨fun v hv => (h.1 v hv).symm,
-   fun c hc => (h.2.1 c hc).symm,
-   fun u hu => (h.2.2.1 u hu).symm,
-   fun b hb => (h.2.2.2.1 b hb).symm,
-   fun t ht => (h.2.2.2.2.1 t ht).symm,
-   fun u hu => (h.2.2.2.2.2.1 u hu).symm,
-   fun b hb => (h.2.2.2.2.2.2 b hb).symm⟩
+  .intro
+    (fun v hv => (h.1 v hv).symm)
+    (fun c hc => (h.2.1 c hc).symm)
+    (fun u hu => (h.2.2.1 u hu).symm)
+    (fun b hb => (h.2.2.2.1 b hb).symm)
+    (fun t ht => (h.2.2.2.2.1 t ht).symm)
+    (fun u hu => (h.2.2.2.2.2.1 u hu).symm)
+    (fun b hb => (h.2.2.2.2.2.2 b hb).symm)
 
 theorem Env.agreeOn_trans {Δ : Signature}
     (h₁₂ : Env.agreeOn Δ ρ₁ ρ₂) (h₂₃ : Env.agreeOn Δ ρ₂ ρ₃) : Env.agreeOn Δ ρ₁ ρ₃ :=
-  ⟨fun x hx => (h₁₂.1 x hx).trans (h₂₃.1 x hx),
-   fun c hc => (h₁₂.2.1 c hc).trans (h₂₃.2.1 c hc),
-   fun u hu => (h₁₂.2.2.1 u hu).trans (h₂₃.2.2.1 u hu),
-   fun b hb => (h₁₂.2.2.2.1 b hb).trans (h₂₃.2.2.2.1 b hb),
-   fun t ht => (h₁₂.2.2.2.2.1 t ht).trans (h₂₃.2.2.2.2.1 t ht),
-   fun u hu => (h₁₂.2.2.2.2.2.1 u hu).trans (h₂₃.2.2.2.2.2.1 u hu),
-   fun b hb => (h₁₂.2.2.2.2.2.2 b hb).trans (h₂₃.2.2.2.2.2.2 b hb)⟩
+  .intro
+    (fun x hx => (h₁₂.1 x hx).trans (h₂₃.1 x hx))
+    (fun c hc => (h₁₂.2.1 c hc).trans (h₂₃.2.1 c hc))
+    (fun u hu => (h₁₂.2.2.1 u hu).trans (h₂₃.2.2.1 u hu))
+    (fun b hb => (h₁₂.2.2.2.1 b hb).trans (h₂₃.2.2.2.1 b hb))
+    (fun t ht => (h₁₂.2.2.2.2.1 t ht).trans (h₂₃.2.2.2.2.1 t ht))
+    (fun u hu => (h₁₂.2.2.2.2.2.1 u hu).trans (h₂₃.2.2.2.2.2.1 u hu))
+    (fun b hb => (h₁₂.2.2.2.2.2.2 b hb).trans (h₂₃.2.2.2.2.2.2 b hb))
 
 /-- Base-signature agreement is stable under extending each side: if `ρ₁` and
     `ρ₂` agree on `Δ`, and each moves to an environment agreeing on a larger
@@ -1166,7 +1183,8 @@ theorem Env.agreeOn_update {ρ ρ' : Env} {Δ : Signature} {τ : Srt} {x : Strin
     Env.agreeOn Δ ρ ρ' →
     Env.agreeOn (Δ.addVar ⟨x, τ⟩) (ρ.updateConst τ x v) (ρ'.updateConst τ x v) :=
   fun hagree =>
-  ⟨fun w hw => by
+  .intro
+   (fun w hw => by
     cases hw with
     | head => simp [Env.updateConst]
     | tail _ hw =>
@@ -1175,19 +1193,19 @@ theorem Env.agreeOn_update {ρ ρ' : Env} {Δ : Signature} {τ : Srt} {x : Strin
         simp [Env.updateConst]
       · simp [Env.updateConst, ht, hagree.1 w hw]
       · simp [Env.updateConst, hn, hagree.1 w hw]
-      · simp [Env.updateConst, hn, hagree.1 w hw],
-   fun c hc => by
+      · simp [Env.updateConst, hn, hagree.1 w hw])
+   (fun c hc => by
      by_cases hn : c.name = x <;> by_cases ht : c.sort = τ
      · cases c; simp only at hn ht; subst hn ht
        simp [Env.updateConst]
      · simp [Env.updateConst, ht, hagree.2.1 c hc]
      · simp [Env.updateConst, hn, hagree.2.1 c hc]
-     · simp [Env.updateConst, hn, hagree.2.1 c hc],
-   fun u hu => by rw [Env.updateConst_unary]; exact hagree.2.2.1 u hu,
-   fun b hb => by rw [Env.updateConst_binary]; exact hagree.2.2.2.1 b hb,
-   fun t ht => by rw [Env.updateConst_ternary]; exact hagree.2.2.2.2.1 t ht,
-   fun u hu => by rw [Env.updateConst_unaryRel]; exact hagree.2.2.2.2.2.1 u hu,
-   fun b hb => by rw [Env.updateConst_binaryRel]; exact hagree.2.2.2.2.2.2 b hb⟩
+     · simp [Env.updateConst, hn, hagree.2.1 c hc])
+   (fun u hu => by rw [Env.updateConst_unary]; exact hagree.2.2.1 u hu)
+   (fun b hb => by rw [Env.updateConst_binary]; exact hagree.2.2.2.1 b hb)
+   (fun t ht => by rw [Env.updateConst_ternary]; exact hagree.2.2.2.2.1 t ht)
+   (fun u hu => by rw [Env.updateConst_unaryRel]; exact hagree.2.2.2.2.2.1 u hu)
+   (fun b hb => by rw [Env.updateConst_binaryRel]; exact hagree.2.2.2.2.2.2 b hb)
 
 theorem Env.agreeOn_declVar {ρ ρ' : Env} {Δ : Signature} {τ : Srt} {x : String} {v : τ.denote} :
     Env.agreeOn Δ ρ ρ' →
@@ -1198,122 +1216,111 @@ theorem Env.agreeOn_declVar {ρ ρ' : Env} {Δ : Signature} {τ : Srt} {x : Stri
 theorem Env.agreeOn_update_fresh_const {ρ : Env} {c : FOL.Const} {u : c.sort.denote}
     {Δ : Signature} (hfresh : c.name ∉ Δ.allNames) :
     Env.agreeOn Δ ρ (ρ.updateConst c.sort c.name u) := by
-  constructor
+  refine .intro ?_ ?_ ?_ ?_ ?_ ?_ ?_
   · intro w hw
     have hne : w.name ≠ c.name := by
-      intro heq
-      apply hfresh
-      rw [← heq]
-      exact Signature.mem_allNames_of_var hw
+      intro heq; apply hfresh; rw [← heq]; exact Signature.mem_allNames_of_var hw
     exact (Env.lookupConst_updateConst_ne' (Or.inl hne)).symm
-  · constructor
-    · intro c' hc'
-      have hne : c'.name ≠ c.name := by
-        intro heq
-        apply hfresh
-        rw [← heq]
-        exact Signature.mem_allNames_of_const hc'
-      exact (Env.lookupConst_updateConst_ne' (Or.inl hne)).symm
-    · constructor
-      · intro u' hu'
-        rw [Env.updateConst_unary]
-      · constructor
-        · intro b' hb'
-          rw [Env.updateConst_binary]
-        · constructor
-          · intro t' ht'
-            rw [Env.updateConst_ternary]
-          · constructor
-            · intro u' hu'
-              rw [Env.updateConst_unaryRel]
-            · intro b' hb'
-              rw [Env.updateConst_binaryRel]
+  · intro c' hc'
+    have hne : c'.name ≠ c.name := by
+      intro heq; apply hfresh; rw [← heq]; exact Signature.mem_allNames_of_const hc'
+    exact (Env.lookupConst_updateConst_ne' (Or.inl hne)).symm
+  · intro _ _; rw [Env.updateConst_unary]
+  · intro _ _; rw [Env.updateConst_binary]
+  · intro _ _; rw [Env.updateConst_ternary]
+  · intro _ _; rw [Env.updateConst_unaryRel]
+  · intro _ _; rw [Env.updateConst_binaryRel]
 
 theorem Env.agreeOn_update_fresh_unary {ρ : Env} {u : FOL.Unary}
     {f : u.arg.denote → u.ret.denote}
     {Δ : Signature} (hfresh : u.name ∉ Δ.allNames) :
     Env.agreeOn Δ ρ (ρ.updateUnary u.arg u.ret u.name f) :=
-  ⟨fun _ _ => rfl,
-   fun _ _ => rfl,
-   fun u' hu' => by
-     have hne : u'.name ≠ u.name := by
-       intro heq; apply hfresh; rw [← heq]; exact Signature.mem_allNames_of_unary hu'
-     simp only [Env.updateUnary]
-     split
-     · next h => exact absurd h.2.2 hne
-     · rfl,
-   fun _ _ => rfl,
-   fun _ _ => rfl,
-   fun _ _ => rfl,
-   fun _ _ => rfl⟩
+  .intro
+    (fun _ _ => rfl)
+    (fun _ _ => rfl)
+    (fun u' hu' => by
+       have hne : u'.name ≠ u.name := by
+         intro heq; apply hfresh; rw [← heq]; exact Signature.mem_allNames_of_unary hu'
+       simp only [Env.updateUnary]
+       split
+       · next h => exact absurd h.2.2 hne
+       · rfl)
+    (fun _ _ => rfl)
+    (fun _ _ => rfl)
+    (fun _ _ => rfl)
+    (fun _ _ => rfl)
 
 theorem Env.agreeOn_update_fresh_binary {ρ : Env} {b : FOL.Binary}
     {f : b.arg1.denote → b.arg2.denote → b.ret.denote}
     {Δ : Signature} (hfresh : b.name ∉ Δ.allNames) :
     Env.agreeOn Δ ρ (ρ.updateBinary b.arg1 b.arg2 b.ret b.name f) :=
-  ⟨fun _ _ => rfl,
-   fun _ _ => rfl,
-   fun _ _ => rfl,
-   fun b' hb' => by
-     have hne : b'.name ≠ b.name := by
-       intro heq; apply hfresh; rw [← heq]; exact Signature.mem_allNames_of_binary hb'
-     simp only [Env.updateBinary]
-     split
-     · next h => exact absurd h.2.2.2 hne
-     · rfl,
-   fun _ _ => rfl,
-   fun _ _ => rfl,
-   fun _ _ => rfl⟩
+  .intro
+    (fun _ _ => rfl)
+    (fun _ _ => rfl)
+    (fun _ _ => rfl)
+    (fun b' hb' => by
+       have hne : b'.name ≠ b.name := by
+         intro heq; apply hfresh; rw [← heq]; exact Signature.mem_allNames_of_binary hb'
+       simp only [Env.updateBinary]
+       split
+       · next h => exact absurd h.2.2.2 hne
+       · rfl)
+    (fun _ _ => rfl)
+    (fun _ _ => rfl)
+    (fun _ _ => rfl)
 
 theorem Env.agreeOn_update_fresh_ternary {ρ : Env} {t : FOL.Ternary}
     {f : t.arg1.denote → t.arg2.denote → t.arg3.denote → t.ret.denote}
     {Δ : Signature} (hfresh : t.name ∉ Δ.allNames) :
     Env.agreeOn Δ ρ (ρ.updateTernary t.arg1 t.arg2 t.arg3 t.ret t.name f) :=
-  ⟨fun _ _ => rfl,
-   fun _ _ => rfl,
-   fun _ _ => rfl,
-   fun _ _ => rfl,
-   fun t' ht' => by
-     have hne : t'.name ≠ t.name := by
-       intro heq; apply hfresh; rw [← heq]; exact Signature.mem_allNames_of_ternary ht'
-     simp only [Env.updateTernary]
-     split
-     · next h => exact absurd h.2.2.2.2 hne
-     · rfl,
-   fun _ _ => rfl,
-   fun _ _ => rfl⟩
+  .intro
+    (fun _ _ => rfl)
+    (fun _ _ => rfl)
+    (fun _ _ => rfl)
+    (fun _ _ => rfl)
+    (fun t' ht' => by
+       have hne : t'.name ≠ t.name := by
+         intro heq; apply hfresh; rw [← heq]; exact Signature.mem_allNames_of_ternary ht'
+       simp only [Env.updateTernary]
+       split
+       · next h => exact absurd h.2.2.2.2 hne
+       · rfl)
+    (fun _ _ => rfl)
+    (fun _ _ => rfl)
 
 theorem Env.agreeOn_update_fresh_unaryRel {ρ : Env} {u : FOL.UnaryRel} {f : u.arg.denote → Prop}
     {Δ : Signature} (hfresh : u.name ∉ Δ.allNames) :
     Env.agreeOn Δ ρ (ρ.updateUnaryRel u.arg u.name f) :=
-  ⟨fun _ _ => rfl,
-   fun _ _ => rfl,
-   fun _ _ => rfl,
-   fun _ _ => rfl,
-   fun _ _ => rfl,
-   fun u' hu' => by
-     have hne : u'.name ≠ u.name := by
-       intro heq; apply hfresh; rw [← heq]; exact Signature.mem_allNames_of_unaryRel hu'
-     simp only [Env.updateUnaryRel]
-     split
-     · next h => exact absurd h.2 hne
-     · rfl,
-   fun _ _ => rfl⟩
+  .intro
+    (fun _ _ => rfl)
+    (fun _ _ => rfl)
+    (fun _ _ => rfl)
+    (fun _ _ => rfl)
+    (fun _ _ => rfl)
+    (fun u' hu' => by
+       have hne : u'.name ≠ u.name := by
+         intro heq; apply hfresh; rw [← heq]; exact Signature.mem_allNames_of_unaryRel hu'
+       simp only [Env.updateUnaryRel]
+       split
+       · next h => exact absurd h.2 hne
+       · rfl)
+    (fun _ _ => rfl)
 
 theorem Env.agreeOn_update_fresh_binaryRel {ρ : Env} {b : FOL.BinaryRel}
     {f : b.arg1.denote → b.arg2.denote → Prop}
     {Δ : Signature} (hfresh : b.name ∉ Δ.allNames) :
     Env.agreeOn Δ ρ (ρ.updateBinaryRel b.arg1 b.arg2 b.name f) :=
-  ⟨fun _ _ => rfl,
-   fun _ _ => rfl,
-   fun _ _ => rfl,
-   fun _ _ => rfl,
-   fun _ _ => rfl,
-   fun _ _ => rfl,
-   fun b' hb' => by
-     have hne : b'.name ≠ b.name := by
-       intro heq; apply hfresh; rw [← heq]; exact Signature.mem_allNames_of_binaryRel hb'
-     simp only [Env.updateBinaryRel]
-     split
-     · next h => exact absurd h.2.2 hne
-     · rfl⟩
+  .intro
+    (fun _ _ => rfl)
+    (fun _ _ => rfl)
+    (fun _ _ => rfl)
+    (fun _ _ => rfl)
+    (fun _ _ => rfl)
+    (fun _ _ => rfl)
+    (fun b' hb' => by
+       have hne : b'.name ≠ b.name := by
+         intro heq; apply hfresh; rw [← heq]; exact Signature.mem_allNames_of_binaryRel hb'
+       simp only [Env.updateBinaryRel]
+       split
+       · next h => exact absurd h.2.2 hne
+       · rfl)

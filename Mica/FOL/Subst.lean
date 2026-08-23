@@ -303,7 +303,8 @@ private theorem Subst.eval_bind_agreeOn {σ : Subst} {ρ : Env} {τ : Srt} {y y'
     Env.agreeOn (Δ.declVar ⟨y, τ⟩)
       ((σ.bind y τ y').eval (ρ.updateConst τ y' v))
       ((σ.eval ρ).updateConst τ y v) := by
-  constructor
+  refine .intro ?_ ?_ (fun _ _ => rfl) (fun _ _ => rfl) (fun _ _ => rfl)
+    (fun _ _ => rfl) (fun _ _ => rfl)
   · intro w hw
     have hw' : w = ⟨y, τ⟩ ∨ w ∈ Δ.vars ∧ w.name ≠ y := by
       simpa using hw
@@ -320,39 +321,24 @@ private theorem Subst.eval_bind_agreeOn {σ : Subst} {ρ : Env} {τ : Srt} {y y'
       simpa [Subst.eval, Env.updateConst, Env.lookupConst] using
         (Term.eval_update_fresh (ρ := ρ) (τ' := w.sort) (x := y') (τ := τ)
           (v := v) (Δ := Δ') (hwf := hσ.1 w hrest.1) hy'_fresh)
-  · constructor
-    · intro c hc
-      have hc' : c ∈ Δ.consts ∧ c.name ≠ y := by
-        simpa using hc
-      have hc_not_var : ⟨c.name, c.sort⟩ ∉ Δ.vars :=
-        Signature.wf_no_var_of_const hwfΔ hc'.1
-      have hc_not_fresh : c.name ≠ y' := by
-        intro hEq
-        apply hy'_fresh
-        rw [← hEq]
-        exact Signature.mem_allNames_of_const (hsymbols.consts c hc'.1)
-      change Term.eval (ρ.updateConst τ y' v) ((σ.bind y τ y').apply c.sort c.name) =
-        (((σ.eval ρ).updateConst τ y v).lookupConst c.sort c.name)
-      rw [Subst.bind, Subst.apply_update_ne (Or.inl hc'.2), Subst.apply_remove_ne hc'.2,
-        Env.lookupConst_updateConst_ne' (Or.inl hc'.2), Subst.eval_lookup]
-      rw [hσ.2 ⟨c.name, c.sort⟩ hc_not_var]
-      simpa [Term.eval, Env.lookupConst] using
-        (Env.lookupConst_updateConst_ne' (ρ := ρ) (τ := τ) (τ' := c.sort) (x := y')
-          (y := c.name) (v := v) (Or.inl hc_not_fresh))
-    · constructor
-      · intro u hu
-        rfl
-      · constructor
-        · intro b hb
-          rfl
-        · constructor
-          · intro t ht
-            rfl
-          · constructor
-            · intro u hu
-              rfl
-            · intro b hb
-              rfl
+  · intro c hc
+    have hc' : c ∈ Δ.consts ∧ c.name ≠ y := by
+      simpa using hc
+    have hc_not_var : ⟨c.name, c.sort⟩ ∉ Δ.vars :=
+      Signature.wf_no_var_of_const hwfΔ hc'.1
+    have hc_not_fresh : c.name ≠ y' := by
+      intro hEq
+      apply hy'_fresh
+      rw [← hEq]
+      exact Signature.mem_allNames_of_const (hsymbols.consts c hc'.1)
+    change Term.eval (ρ.updateConst τ y' v) ((σ.bind y τ y').apply c.sort c.name) =
+      (((σ.eval ρ).updateConst τ y v).lookupConst c.sort c.name)
+    rw [Subst.bind, Subst.apply_update_ne (Or.inl hc'.2), Subst.apply_remove_ne hc'.2,
+      Env.lookupConst_updateConst_ne' (Or.inl hc'.2), Subst.eval_lookup]
+    rw [hσ.2 ⟨c.name, c.sort⟩ hc_not_var]
+    simpa [Term.eval, Env.lookupConst] using
+      (Env.lookupConst_updateConst_ne' (ρ := ρ) (τ := τ) (τ' := c.sort) (x := y')
+        (y := c.name) (v := v) (Or.inl hc_not_fresh))
 
 theorem Formula.eval_subst {σ : Subst} {ρ : Env} {φ : Formula} {Δ Δ' : Signature}
     (hφ : φ.wfIn Δ) (hσ : σ.wfIn Δ.vars Δ') (hsymbols : Δ.SymbolSubset Δ')
