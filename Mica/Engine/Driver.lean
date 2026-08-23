@@ -99,9 +99,9 @@ def preamble : String := s!"
 "
 
 /-- Start a new Z3 session with print-success enabled. -/
-def create (z3Path : String := "z3") (log : LogMode := .quiet) : IO Session := do
+def create (log : LogMode) : IO Session := do
   let child ← IO.Process.spawn {
-    cmd := z3Path
+    cmd := "z3"
     args := #["-in"]
     stdin := .piped
     stdout := .piped
@@ -124,7 +124,7 @@ def create (z3Path : String := "z3") (log : LogMode := .quiet) : IO Session := d
   return { stdin, stdout := child.stdout, child }
 
 /-- Send a command and parse the response. Throws on unexpected output. -/
-def send (s : Session) (cmd : Command α) (log : LogMode := .quiet) : IO α := do
+def send (s : Session) (cmd : Command α) (log : LogMode) : IO α := do
   let query := cmd.toSMTLIB
   match log with
   | .trace => IO.eprintln s!"  > {query}"
@@ -151,7 +151,7 @@ end Session
 namespace Strategy
 
 /-- Execute a strategy against a live Z3 session. -/
-def run (log : LogMode := .quiet) : Strategy α → Session → IO α
+private def run (log : LogMode) : Strategy α → Session → IO α
   | .done a, _ => return a
   | .exec cmd k, session => do
     let response ← session.send cmd log
@@ -159,8 +159,8 @@ def run (log : LogMode := .quiet) : Strategy α → Session → IO α
 
 /-- Run a strategy in a session of its own. Reporting the outcome is the
     caller's job. -/
-def execute (s : Strategy α) (log : LogMode := .quiet) : IO α := do
-  let session ← Session.create "z3" log
+def execute (s : Strategy α) (log : LogMode) : IO α := do
+  let session ← Session.create log
   let result ← run log s session
   session.close
   return result
