@@ -1,6 +1,5 @@
 -- SUMMARY: Abstract SMT states and the satisfiability notion used in the solver interface.
-import Mica.FOL.Printing
-import Mica.FOL.Subst
+import Mica.FOL.Formulas
 
 /-! ## Smt.Frame and Smt.State
 
@@ -166,18 +165,13 @@ theorem State.satisfiable.eval_of_unsat_cons {φ : Formula}
   ∀ ρ, (∀ ψ ∈ asserts, ψ.eval ρ) → (Formula.not φ).eval ρ :=
   by
     unfold State.satisfiable
-    intro hsat ρ hasserts
-    by_contra hev
+    intro hsat ρ hasserts hev
     apply hsat
     exists ρ
     intro ψ hψ
     cases hψ with
-    | head =>
-      simp only [Formula.eval] at hev
-      simp at hev
-      trivial
-    | tail _ hψ =>
-      exact (hasserts _ hψ)
+    | head => exact hev
+    | tail _ hψ => exact hasserts _ hψ
 
 /-- From the unsatisfiability of `¬ φ :: asserts`: every environment satisfying
     `asserts` satisfies `φ`. -/

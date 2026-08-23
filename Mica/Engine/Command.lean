@@ -1,5 +1,6 @@
 -- SUMMARY: SMT commands, their responses, and their effect on the abstract solver state.
 import Mica.Engine.State
+import Mica.FOL.Printing
 
 /-! ## Smt.Command
 
