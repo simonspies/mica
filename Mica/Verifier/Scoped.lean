@@ -444,7 +444,7 @@ theorem ScopedM.eval_bracket {body : ScopedM β} {k : β → ScopedM α}
   -- Decompose the bind trace
   obtain ⟨a, ts_body, tk_rest, hgen_body, hgen_cont, hres_body, hsound_body, hsound_rest,
           hfin_bind, hres_bind⟩ :=
-    Strategy.bind_traceSound hgen_bind hsound_inner
+    Strategy.bind_isSound_decompose hgen_bind hsound_inner
   cases hgen_cont; rename_i tk_k _ hgen_k
   dsimp only at hgen_k
   -- Frame preservation: body only extends the pushed frame
@@ -531,7 +531,7 @@ theorem ScopedM.eval_bind {m : ScopedM α} {k : α → ScopedM β}
   rw [translate_bind] at hgen
   -- Decompose the bind trace
   obtain ⟨a, ts, tk, hgen_s, hgen_k, hres_s, hsound_s, hsound_k, hfin, hresult⟩ :=
-    Strategy.bind_traceSound hgen hsound
+    Strategy.bind_isSound_decompose hgen hsound
   refine ⟨a, (ts.finalState st).flatten, ?_, ?_⟩
   · exact ⟨st, ts.finalState st, hflat, rfl, ts, hgen_s, hsound_s, rfl, hres_s.symm⟩
   · refine ⟨ts.finalState st, st', rfl, hflat', tk, ?_, hsound_k, ?_, ?_⟩

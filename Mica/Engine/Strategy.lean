@@ -59,7 +59,7 @@ theorem bind_generates_decompose {s : Strategy α} {k : α → Strategy β}
       fun st => by simp [Trace.finalState]; exact hfin _, hresult⟩
 
 /-- isSound decomposes through bind. -/
-theorem bind_traceSound {s : Strategy α} {k : α → Strategy β}
+theorem bind_isSound_decompose {s : Strategy α} {k : α → Strategy β}
     {t : Trace β} (hgen : generates (s.bind k) t) {st : State}
     (hsound : Trace.isSound st t) :
     ∃ a ts tk,
