@@ -157,16 +157,13 @@ def run (log : LogMode := .quiet) : Strategy α → Session → IO α
     let response ← session.send cmd log
     run log (k response) session
 
-/-- Top-level entry point: create session, run strategy, print result, close. -/
-def execute (s : Strategy Outcome) (log : LogMode := .quiet) : IO Unit := do
+/-- Run a strategy in a session of its own. Reporting the outcome is the
+    caller's job. -/
+def execute (s : Strategy α) (log : LogMode := .quiet) : IO α := do
   let session ← Session.create "z3" log
-  let outcome ← run log s session
+  let result ← run log s session
   session.close
-  match outcome with
-  | .ok () => IO.println "Successfully verified!"
-  | .error msg => do
-    IO.println "Verification failed. The following error was encountered."
-    IO.println msg
+  return result
 
 end Strategy
 
