@@ -34,7 +34,8 @@ _build/
 .Trashes
 
 # Claude Code / local config
-.claude/
+.claude/*
+!.claude/skills/
 .mcp.json
 
 # Editor
