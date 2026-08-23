@@ -53,14 +53,15 @@ it claims to fix. `--promote` rewrites it. See `Testsuite/ParserDiff.lean`.
 - Never sorry out an existing proof — locally sorry a case or assumption instead. Deleting a working proof means re-proving from scratch.
 - Address Lean's linter warnings.
 - If a proof attempt is abandoned, delete the sorried helpers. No dead code.
-- If a top-down attempt needs more than 4 helper lemmas, stop and consult the user.
-- Before induction, generalize any argument that changes in recursive calls.
 
 ### Writing for discoverability
 
 When adding or renaming declarations, keep the outlines meaningful:
 
-- Add a docstring (`/-- ... -/`) to public definition, theorem, and structure unless self-explanatory. These flow into `<file>.lean.md`.
+- Add a docstring (`/-- ... -/`) to a public definition, theorem, or structure when
+  it can state something the name and the signature do not. A docstring that gives
+  the signature again in prose is a defect: `toSMTLIB : Command α → String` needs
+  none. These flow into `<file>.lean.md`.
 - Add or update the `-- SUMMARY: <one line>` comment at the top of the file if the file's purpose has shifted. Keep it concise (one line); flows into `OUTLINE.md`.
 
 ### Iris proof mode
@@ -83,6 +84,10 @@ When adding or renaming declarations, keep the outlines meaningful:
 
 ## Style Guide
 
+`docs/style-review.md` is a procedure that checks code against the rules below.
+Claude Code users can invoke it as `/style`. Other agents can obey the file
+directly.
+
 **Naming:**
 - Prefer elegant single-word names for definitions (e.g., `eval`, `translate`, `correct`), not multi-word camelCase.
 - Theorems: namespaced under the definition with dots. Suffixes: `_refl`, `_symm`, `_trans`, `_mono`, `_injective`, `_iff`, `_of_X` (from X), `X_of_` (to X).
@@ -91,3 +96,37 @@ When adding or renaming declarations, keep the outlines meaningful:
 
 **File organization:**
 - One definition + its API per section. Importing a definition should give you its basic API.
+
+**Comments:**
+- Restating the signature, the name, or the case list below it is worse than no
+  comment. Comment only what the code cannot state: an invariant, why a choice
+  is sound, what would otherwise surprise the reader.
+- Editing a definition makes you the owner of the comments in its section.
+  Update or delete them.
+- No change narration ("now also handles", "new", "previously"). Git records it.
+- Match the comment density of the file. If no existing case of a data type is
+  commented, do not comment new ones.
+- Use Simplified Technical English (ASD-STE100).
+
+**Uniformity:**
+- Cases of one definition get the same treatment. If one case needs more, give
+  it to all cases or restructure until the difference is gone.
+- Never add a flag, an `Option`, or a default argument to bend one caller.
+- A branch structurally unlike its siblings is a design defect. Say so and ask
+  rather than shipping the special case.
+
+**Names:**
+- Grep for the concept before naming a variable and reuse the name already in
+  use. A second variable of the same concept is primed or role-suffixed, never
+  spelled differently.
+- A definition needs a one-line meaning that does not mention its
+  implementation. If you cannot write that line, do not define it.
+
+**Limitations:**
+- Partial support is documented at the definition that is partial, not in a plan
+  document.
+- Never degrade silently. An unsupported case fails with a message naming what
+  is unsupported.
+- A `TODO` says what breaks without it, or is not written.
+- Say what you left uncovered when you report a task done.
+
