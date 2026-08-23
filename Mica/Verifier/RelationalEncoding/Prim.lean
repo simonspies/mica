@@ -1,7 +1,54 @@
--- SUMMARY: Encoding of saturated intrinsic applications into FOL terms, with well-formedness, arity-irrelevance, and evaluation lemmas.
+-- SUMMARY: The primitive encoding table, and the encoding of saturated intrinsic applications into FOL terms.
+import Mica.Base.Arity
 import Mica.FOL.Formulas
 
 namespace Verifier.RelationalEncoding
+
+/-! ## The primitive encoding table -/
+
+/-- One named primitive encoding. It tells the encoder how to make a value
+    term from a saturated application of an intrinsic. This structure holds
+    data only. `PrimEncoding.Lawful` gives the laws of an entry. The encoder
+    threads a table of these entries, and `encodePrim` starts to read that
+    table in place of the signature in the next step. -/
+structure PrimEncoding where
+  /-- The name of the intrinsic that this entry encodes. `encodePrim` uses
+      this name as the search key. -/
+  name : String
+  /-- The number of arguments that the encoding expects. -/
+  arity : Arity
+  /-- True if you can use the encoding in the signature. An entry that
+      applies a declared symbol needs that declaration. An entry that builds
+      a term without a symbol does not. -/
+  available : Signature → Bool
+  /-- Make the value term for a saturated application. `encodePrim` checks
+      the number of arguments. Therefore the arguments arrive as a tuple. -/
+  encode : Signature → Arity.tup arity (Term .value) → Term .value
+
+/-- The laws that the relational encoder requires of a table entry. -/
+structure PrimEncoding.Lawful (e : PrimEncoding) : Prop where
+  /-- Let the encoding be available in `Δ`. Let `Δ'` extend `Δ`. If the
+      arguments are well-formed in `Δ'`, then the term is also well-formed
+      in `Δ'`. -/
+  wfIn : ∀ {Δ Δ' : Signature} {args : Arity.tup e.arity (Term .value)},
+    e.available Δ = true → Δ.Subset Δ' → Δ'.wf →
+    Arity.All (·.wfIn Δ') e.arity args → (e.encode Δ args).wfIn Δ'
+  /-- The encoding is a pure function of the values of its arguments. Let two
+      environments agree on `Δ`. If each pair of arguments evaluates to the
+      same value, then the two terms also evaluate to the same value. -/
+  eval : ∀ {Δ : Signature} {args₁ args₂ : Arity.tup e.arity (Term .value)}
+      {ρ₁ ρ₂ : Env},
+    e.available Δ = true → Env.agreeOn Δ ρ₁ ρ₂ →
+    Arity.map (Term.eval ρ₁) e.arity args₁ = Arity.map (Term.eval ρ₂) e.arity args₂ →
+    Term.eval ρ₁ (e.encode Δ args₁) = Term.eval ρ₂ (e.encode Δ args₂)
+
+/-- The primitive table of the encoder. It holds one entry for each
+    intrinsic that the encoder can encode. -/
+abbrev PrimEncodings := List PrimEncoding
+
+/-- A table is lawful if each of its entries is lawful. -/
+def PrimEncodings.Lawful (primitives : PrimEncodings) : Prop :=
+  ∀ e ∈ primitives, e.Lawful
 
 /-! ## Intrinsic application encoder -/
 

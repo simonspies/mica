@@ -487,10 +487,11 @@ private def gpack (s : Lifting) : Term .value :=
 /-- Compile the lifted closure body under the packed argument and index matrix
 variables. Binding the TinyML argument to `gpack` shadows the same-named FOL
 variable while retaining that variable inside the packed term. -/
-def compile (s : Lifting) (Γ : FunCtx) (Δ : Signature) : Except String Skolemize.DefVal :=
+def compile (s : Lifting) (primitives : PrimEncodings) (Γ : FunCtx) (Δ : Signature) :
+    Except String Skolemize.DefVal :=
   let Δpi := (Δ.declVar ⟨s.arg, .value⟩).declVar ⟨s.idx, .int⟩
   let env := (VarEnv.ofSignature Δpi).bind s.arg s.gpack
-  encodeWith Skolemize.encoderOps Δpi Γ env s.body
+  encodeWith primitives Skolemize.encoderOps Δpi Γ env s.body
     (fun value => .ok (Skolemize.DefVal.pure value))
 
 /-- Matrix of the value axiom: the bounded quantifier over the lifted
@@ -588,8 +589,9 @@ private theorem gpack_wfIn (hΔ : Δ.wf)
 
 /-- A successfully compiled lifting body is well-formed under its two matrix
 variables. -/
-theorem compile_wfIn (hv : s.Valid Δ) (hΔ : Δ.wf) (hΓ : Γ.wfIn Δ)
-    (henc : s.compile Γ Δ = .ok body) :
+theorem compile_wfIn {primitives : PrimEncodings} (hlaw : primitives.Lawful)
+    (hv : s.Valid Δ) (hΔ : Δ.wf) (hΓ : Γ.wfIn Δ)
+    (henc : s.compile primitives Γ Δ = .ok body) :
     body.wfIn ((Δ.declVar ⟨s.arg, .value⟩).declVar ⟨s.idx, .int⟩) := by
   let Δp := Δ.declVar ⟨s.arg, .value⟩
   let Δpi := Δp.declVar ⟨s.idx, .int⟩
@@ -608,10 +610,10 @@ theorem compile_wfIn (hv : s.Valid Δ) (hΔ : Δ.wf) (hΓ : Γ.wfIn Δ)
   have hi : (⟨s.idx, .int⟩ : Var) ∈ Δpi.vars :=
     Signature.var_mem_declVar Δp ⟨s.idx, .int⟩
   have hcarrier : Skolemize.wfInE Δpi
-      (encodeWith Skolemize.encoderOps Δpi Γ
+      (encodeWith primitives Skolemize.encoderOps Δpi Γ
         ((VarEnv.ofSignature Δpi).bind s.arg s.gpack) s.body
         (fun value => .ok (Skolemize.DefVal.pure value))) := by
-    refine encodeWith_indWithSig Skolemize.encoderOps_wf s.body
+    refine encodeWith_indWithSig (primitives := primitives) hlaw Skolemize.encoderOps_wf s.body
       (Signature.Subset.refl _) hΔpi (FunCtx.splitWfIn_mono hΓ.split (hsubp.trans hsubpi))
       ((VarEnv.ofSignature_wfIn hΔpi).bind (gpack_wfIn hΔpi hp hi)) ?_
     intro Δ' _ _ value hvalue

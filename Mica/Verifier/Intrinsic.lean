@@ -1,4 +1,5 @@
 -- SUMMARY: Data model for verifier intrinsics, with generic theorems characterizing the effect of registry setup.
+import Mica.Base.Arity
 import Mica.TinyML.OpSem
 import Mica.SeparationLogic.Wp
 import Mica.Verifier.PredicateTransformers
@@ -21,29 +22,7 @@ whether a FOL symbol is present. No theorem mentions any particular
 intrinsic by name.
 -/
 
-/-! ## Arity and FOL symbols -/
-
-/-- Arity of an intrinsic. Extend as needed. -/
-inductive Arity
-  | zero
-  | one
-  | two
-  | three
-  deriving DecidableEq, Repr
-
-/-- The number of arguments of an `Arity`. -/
-def Arity.toNat : Arity → Nat
-  | .zero => 0
-  | .one  => 1
-  | .two  => 2
-  | .three => 3
-
-/-- The shape of a tuple of `n` elements of type `α` indexed by an `Arity`. -/
-abbrev Arity.tup : Arity → Type → Type
-  | .zero, _ => Unit
-  | .one,  α => α
-  | .two,  α => α × α
-  | .three, α => α × α × α
+/-! ## FOL symbols -/
 
 /-- A FOL symbol attached to an intrinsic: a function symbol of the given
     arity at the value sort, together with its standard interpretation. -/
