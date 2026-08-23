@@ -1,283 +1,178 @@
--- SUMMARY: Encoding of saturated intrinsic applications into FOL terms, with well-formedness, arity-irrelevance, and evaluation lemmas.
+-- SUMMARY: Encoding of intrinsic applications, driven by an explicit table of primitive encodings.
+import Mica.Base.Arity
 import Mica.FOL.Formulas
 
 namespace Verifier.RelationalEncoding
 
+/-! ## The primitive encoding table -/
+
+/-- One named primitive encoding. It tells the encoder how to make a value
+    term from a saturated application of an intrinsic. This structure holds
+    data only. `PrimEncoding.Lawful` gives the laws that the relational
+    encoder requires of an entry. -/
+structure PrimEncoding where
+  /-- The name of the intrinsic that this entry encodes. `encodePrim` uses
+      this name as the search key. -/
+  name : String
+  /-- The number of arguments that the encoding expects. -/
+  arity : Arity
+  /-- True if you can use the encoding in the signature. An entry that
+      applies a declared symbol needs that declaration. An entry that builds
+      a term without a symbol does not. -/
+  available : Signature → Bool
+  /-- Make the value term for a saturated application. `encodePrim` checks
+      the number of arguments. Therefore the arguments arrive as a tuple. -/
+  encode : Signature → Arity.tup arity (Term .value) → Term .value
+
+/-- The laws that the relational encoder requires of a table entry. -/
+structure PrimEncoding.Lawful (e : PrimEncoding) : Prop where
+  /-- Let the encoding be available in `Δ`. Let `Δ'` extend `Δ`. If the
+      arguments are well-formed in `Δ'`, then the term is also well-formed
+      in `Δ'`. -/
+  wfIn : ∀ {Δ Δ' : Signature} {args : Arity.tup e.arity (Term .value)},
+    e.available Δ = true → Δ.Subset Δ' → Δ'.wf →
+    Arity.All (·.wfIn Δ') e.arity args → (e.encode Δ args).wfIn Δ'
+  /-- The encoding is a pure function of the values of its arguments. Let two
+      environments agree on `Δ`. If each pair of arguments evaluates to the
+      same value, then the two terms also evaluate to the same value. -/
+  eval : ∀ {Δ : Signature} {args₁ args₂ : Arity.tup e.arity (Term .value)}
+      {ρ₁ ρ₂ : Env},
+    e.available Δ = true → Env.agreeOn Δ ρ₁ ρ₂ →
+    Arity.map (Term.eval ρ₁) e.arity args₁ = Arity.map (Term.eval ρ₂) e.arity args₂ →
+    Term.eval ρ₁ (e.encode Δ args₁) = Term.eval ρ₂ (e.encode Δ args₂)
+
+/-- The primitive table of the encoder. It holds one entry for each
+    intrinsic that the encoder can encode. -/
+abbrev PrimEncodings := List PrimEncoding
+
+/-- A table is lawful if each of its entries is lawful. -/
+def PrimEncodings.Lawful (primitives : PrimEncodings) : Prop :=
+  ∀ e ∈ primitives, e.Lawful
+
+/-- Find the encoding for a name. This is the first entry with that `name`. -/
+def PrimEncodings.lookup? (primitives : PrimEncodings) (name : String) : Option PrimEncoding :=
+  primitives.find? (·.name == name)
+
+/-- An encoding that the table returns is an entry of that table. -/
+theorem PrimEncodings.mem_of_lookup? {primitives : PrimEncodings} {name : String}
+    {e : PrimEncoding} (h : primitives.lookup? name = some e) : e ∈ primitives :=
+  List.mem_of_find?_eq_some h
+
+/-- An entry that a lawful table returns is itself lawful. -/
+theorem PrimEncodings.Lawful.lookup? {primitives : PrimEncodings} (hlaw : primitives.Lawful)
+    {name : String} {e : PrimEncoding} (h : primitives.lookup? name = some e) : e.Lawful :=
+  hlaw e (PrimEncodings.mem_of_lookup? h)
+
 /-! ## Intrinsic application encoder -/
 
-/-- Encode an intrinsic application `n vs` into a value-sorted FOL
-term over the intrinsic's uninterpreted symbol. The symbol must already be
-declared in the encoding signature `Δ` at the arity implied by the argument
-count. -/
-def encodePrim (Δ : Signature) (n : String) :
-    List (Term .value) → Except String (Term .value)
-  | [] =>
-    if (⟨n, .value⟩ : FOL.Const) ∈ Δ.consts then
-      .ok (.const (.uninterpreted n .value))
-    else .error s!"relational encoding: unknown nullary intrinsic `{n}`"
-  | [a] =>
-    if (⟨n, .value, .value⟩ : FOL.Unary) ∈ Δ.unary then
-      .ok (.unop (.uninterpreted n .value .value) a)
-    else .error s!"relational encoding: unknown unary intrinsic `{n}`"
-  | [a, b] =>
-    if (⟨n, .value, .value, .value⟩ : FOL.Binary) ∈ Δ.binary then
-      .ok (.binop (.uninterpreted n .value .value .value) a b)
-    else .error s!"relational encoding: unknown binary intrinsic `{n}`"
-  | [a, b, c] =>
-    if (⟨n, .value, .value, .value, .value⟩ : FOL.Ternary) ∈ Δ.ternary then
-      .ok (.terop (.uninterpreted n .value .value .value .value) a b c)
-    else .error s!"relational encoding: unknown ternary intrinsic `{n}`"
-  | _ => .error s!"relational encoding: intrinsic `{n}` applied at unsupported arity"
+/-- Encode a saturated intrinsic application with the primitive table. This
+function makes the two checks that all entries share. It checks that the
+table holds the name. It also checks that the application has the arity of
+the entry. Therefore an entry only makes a term from an argument tuple. -/
+def encodePrim (primitives : PrimEncodings) (Δ : Signature) (name : String)
+    (vs : List (Term .value)) : Except String (Term .value) :=
+  match primitives.lookup? name with
+  | none => .error s!"relational encoding: unknown intrinsic `{name}`"
+  | some encoding =>
+      if hlen : vs.length = encoding.arity.toNat then
+        if encoding.available Δ then
+          .ok (encoding.encode Δ (Arity.ofList encoding.arity vs hlen))
+        else .error s!"relational encoding: unavailable intrinsic `{name}`"
+      else .error s!"relational encoding: intrinsic `{name}` applied at unsupported arity"
 
-/-- A successful intrinsic encoding is well-formed in any extension of the
-signature. The intrinsic symbol's membership is established at the base
-signature `Δ` and lifted to `Δ'`; the freshness and
-uniqueness side conditions of `wfIn` follow from `Δ'.wf`. -/
-theorem encodePrim_wfIn {Δ Δ' : Signature} {n : String} {vs : List (Term .value)}
-    {v : Term .value} (h : encodePrim Δ n vs = .ok v)
+/-- A successful encoding is well-formed in each extension of the signature.
+The encoding is available in the base signature `Δ`. The `wfIn` law of the
+entry then gives well-formedness in `Δ'`. -/
+theorem encodePrim_wfIn {primitives : PrimEncodings} {Δ Δ' : Signature}
+    {n : String} {vs : List (Term .value)} {v : Term .value}
+    (hlaw : primitives.Lawful) (h : encodePrim primitives Δ n vs = .ok v)
     (hsub : Δ.Subset Δ') (hΔ' : Δ'.wf)
     (hvs : ∀ w ∈ vs, w.wfIn Δ') : v.wfIn Δ' := by
-  cases vs with
-  | nil =>
-    simp only [encodePrim] at h
+  unfold encodePrim at h
+  split at h
+  · simp at h
+  · rename_i encoding hlookup
     split at h
-    · rename_i hmem
-      simp only [Except.ok.injEq] at h; subst h
-      have hmem' : (⟨n, .value⟩ : FOL.Const) ∈ Δ'.consts := hsub.consts _ hmem
-      exact ⟨hmem', fun τ' hv => Signature.wf_no_var_of_const hΔ' hmem' hv,
-        fun τ' hc => Signature.wf_unique_const hΔ' hmem' hc⟩
-    · simp at h
-  | cons a tl =>
-    cases tl with
-    | nil =>
-      simp only [encodePrim] at h
+    · rename_i hlen
       split at h
-      · rename_i hmem
-        simp only [Except.ok.injEq] at h; subst h
-        have hmem' : (⟨n, .value, .value⟩ : FOL.Unary) ∈ Δ'.unary := hsub.unary _ hmem
-        exact ⟨⟨hmem', fun τ' hrel => Signature.wf_no_unaryRel_of_unary hΔ' hmem' hrel,
-            fun τ₁' τ₂' hu => Signature.wf_unique_unary hΔ' hmem' hu⟩,
-          hvs a (by simp)⟩
+      · rename_i hav
+        simp only [Except.ok.injEq] at h
+        subst v
+        exact (hlaw.lookup? hlookup).wfIn (by simpa using hav) hsub hΔ'
+          (Arity.ofList_all encoding.arity vs hlen hvs)
       · simp at h
-    | cons b tl2 =>
-      cases tl2 with
-      | nil =>
-        simp only [encodePrim] at h
-        split at h
-        · rename_i hmem
-          simp only [Except.ok.injEq] at h; subst h
-          have hmem' : (⟨n, .value, .value, .value⟩ : FOL.Binary) ∈ Δ'.binary :=
-            hsub.binary _ hmem
-          exact ⟨⟨hmem', fun τ₁' τ₂' hrel => Signature.wf_no_binaryRel_of_binary hΔ' hmem' hrel,
-              fun τ₁' τ₂' τ₃' hb => Signature.wf_unique_binary hΔ' hmem' hb⟩,
-            hvs a (by simp), hvs b (by simp)⟩
-        · simp at h
-      | cons c tl3 =>
-        cases tl3 with
-        | nil =>
-          simp only [encodePrim] at h
-          split at h
-          · rename_i hmem
-            simp only [Except.ok.injEq] at h; subst h
-            have hmem' : (⟨n, .value, .value, .value, .value⟩ : FOL.Ternary) ∈ Δ'.ternary :=
-              hsub.ternary _ hmem
-            exact ⟨⟨hmem', fun τ₁' τ₂' τ₃' τ₄' ht =>
-                Signature.wf_unique_ternary hΔ' hmem' ht⟩,
-              hvs a (by simp), hvs b (by simp), hvs c (by simp)⟩
-          · simp at h
-        | cons d rest =>
-          simp [encodePrim] at h
+    · simp at h
 
-/-- The success of `encodePrim` depends only on the name, signature, and
-argument count, not the argument terms: equal-length argument lists succeed
-together. -/
-theorem encodePrim_ok_irrel {Δ : Signature} {n : String}
+/-- The success of `encodePrim` depends on the name, the signature, and the
+number of arguments. It does not depend on the argument terms. Therefore two
+argument lists of the same length both succeed. -/
+theorem encodePrim_ok_irrel {primitives : PrimEncodings} {Δ : Signature} {n : String}
     {vs vs' : List (Term .value)} {v : Term .value}
-    (h : encodePrim Δ n vs = .ok v) (hlen : vs'.length = vs.length) :
-    ∃ v', encodePrim Δ n vs' = .ok v' := by
-  cases vs with
-  | nil =>
-      cases vs' with
-      | nil => exact ⟨v, h⟩
-      | cons a' tl' =>
-          cases tl' with
-          | nil => simp at hlen
-          | cons b' tl2' =>
-              cases tl2' <;> simp at hlen
-  | cons a tl =>
-      cases tl with
-      | nil =>
-          cases vs' with
-          | nil => simp at hlen
-          | cons a' tl' =>
-              cases tl' with
-              | nil =>
-                  simp only [encodePrim] at h ⊢
-                  split at h <;> simp_all
-              | cons b' tl2' =>
-                  cases tl2' <;> simp at hlen
-      | cons b tl2 =>
-          cases tl2 with
-          | nil =>
-              cases vs' with
-              | nil => simp at hlen
-              | cons a' tl' =>
-                  cases tl' with
-                  | nil => simp at hlen
-                  | cons b' tl2' =>
-                      cases tl2' with
-                      | nil =>
-                          simp only [encodePrim] at h ⊢
-                          split at h <;> simp_all
-                      | cons c' rest => simp at hlen
-          | cons c rest =>
-              cases rest with
-              | nil =>
-                  cases vs' with
-                  | nil => simp at hlen
-                  | cons a' tl' =>
-                      cases tl' with
-                      | nil => simp at hlen
-                      | cons b' tl2' =>
-                          cases tl2' with
-                          | nil => simp at hlen
-                          | cons c' rest' =>
-                              cases rest' with
-                              | nil =>
-                                  simp only [encodePrim] at h ⊢
-                                  split at h <;> simp_all
-                              | cons d' rest'' => simp at hlen
-              | cons d rest' =>
-                  simp [encodePrim] at h
+    (h : encodePrim primitives Δ n vs = .ok v) (hlen : vs'.length = vs.length) :
+    ∃ v', encodePrim primitives Δ n vs' = .ok v' := by
+  unfold encodePrim at h ⊢
+  split at h
+  · simp at h
+  · split at h
+    · rename_i hvs
+      rw [dif_pos (hlen.trans hvs)]
+      split at h
+      · rename_i hav
+        rw [if_pos hav]
+        exact ⟨_, rfl⟩
+      · simp at h
+    · simp at h
 
-/-- The failure of `encodePrim` likewise depends only on the name, signature,
-and argument count: equal-length argument lists fail with the same message. -/
-theorem encodePrim_error_irrel {Δ : Signature} {n : String}
+/-- The failure of `encodePrim` depends on the same three things. Therefore
+two argument lists of the same length fail with the same message. -/
+theorem encodePrim_error_irrel {primitives : PrimEncodings} {Δ : Signature} {n : String}
     {vs vs' : List (Term .value)} {msg : String}
-    (h : encodePrim Δ n vs = .error msg) (hlen : vs'.length = vs.length) :
-    encodePrim Δ n vs' = .error msg := by
-  cases vs with
-  | nil =>
-      cases vs' with
-      | nil => exact h
-      | cons a' tl' =>
-          cases tl' with
-          | nil => simp at hlen
-          | cons b' tl2' =>
-              cases tl2' <;> simp at hlen
-  | cons a tl =>
-      cases tl with
-      | nil =>
-          cases vs' with
-          | nil => simp at hlen
-          | cons a' tl' =>
-              cases tl' with
-              | nil =>
-                  simp only [encodePrim] at h ⊢
-                  split at h <;> simp_all
-              | cons b' tl2' =>
-                  cases tl2' <;> simp at hlen
-      | cons b tl2 =>
-          cases tl2 with
-          | nil =>
-              cases vs' with
-              | nil => simp at hlen
-              | cons a' tl' =>
-                  cases tl' with
-                  | nil => simp at hlen
-                  | cons b' tl2' =>
-                      cases tl2' with
-                      | nil =>
-                          simp only [encodePrim] at h ⊢
-                          split at h <;> simp_all
-                      | cons c' rest => simp at hlen
-          | cons c rest =>
-              cases vs' with
-              | nil => simp at hlen
-              | cons a' tl' =>
-                  cases tl' with
-                  | nil => simp at hlen
-                  | cons b' tl2' =>
-                      cases tl2' with
-                      | nil => simp at hlen
-                      | cons c' rest' =>
-                          cases rest with
-                          | nil =>
-                              cases rest' with
-                              | nil =>
-                                  simp only [encodePrim] at h ⊢
-                                  split at h <;> simp_all
-                              | cons d' rest'' => simp at hlen
-                          | cons d rest'' =>
-                              cases rest' with
-                              | nil => simp at hlen
-                              | cons d' rest''' =>
-                                  simp [encodePrim] at h ⊢
-                                  exact h
+    (h : encodePrim primitives Δ n vs = .error msg) (hlen : vs'.length = vs.length) :
+    encodePrim primitives Δ n vs' = .error msg := by
+  unfold encodePrim at h ⊢
+  split at h
+  · exact h
+  · split at h
+    · rename_i hvs
+      rw [dif_pos (hlen.trans hvs)]
+      split at h
+      · simp at h
+      · rename_i hav
+        rw [if_neg hav]
+        exact h
+    · rename_i hvs
+      rw [dif_neg (fun hvs' => hvs (hlen.symm.trans hvs'))]
+      exact h
 
-/-- `encodePrim` is a pure uninterpreted-symbol application: when the two
-environments agree on the signature `Δ` (hence on the intrinsic symbol)
-and the argument evaluations agree pointwise, the results evaluate equally. -/
-theorem encodePrim_eval {Δ : Signature} {n : String}
+/-- `encodePrim` is a pure function of the values of its arguments. Let two
+environments agree on the signature `Δ`. If each pair of arguments evaluates
+to the same value, then the two results also evaluate to the same value. -/
+theorem encodePrim_eval {primitives : PrimEncodings} {Δ : Signature} {n : String}
     {vs₁ vs₂ : List (Term .value)} {v₁ v₂ : Term .value} {ρ₁ ρ₂ : Env}
-    (h₁ : encodePrim Δ n vs₁ = .ok v₁) (h₂ : encodePrim Δ n vs₂ = .ok v₂)
+    (hlaw : primitives.Lawful)
+    (h₁ : encodePrim primitives Δ n vs₁ = .ok v₁)
+    (h₂ : encodePrim primitives Δ n vs₂ = .ok v₂)
     (hagree : Env.agreeOn Δ ρ₁ ρ₂)
     (hvals : vs₁.map (fun t => Term.eval ρ₁ t) = vs₂.map (fun t => Term.eval ρ₂ t)) :
     Term.eval ρ₁ v₁ = Term.eval ρ₂ v₂ := by
-  rcases vs₁ with _ | ⟨a₁, _ | ⟨b₁, r₁⟩⟩
-  · -- vs₁ = []  (nullary constant)
-    rcases vs₂ with _ | ⟨a₂, t₂⟩
-    · simp only [encodePrim] at h₁ h₂
+  unfold encodePrim at h₁ h₂
+  split at h₁
+  · simp at h₁
+  · rename_i encoding hlookup
+    simp only [hlookup] at h₂
+    split at h₁
+    · rename_i hlen₁
       split at h₁
-      · rename_i hmem
-        rw [if_pos hmem] at h₂
-        simp only [Except.ok.injEq] at h₁ h₂; subst h₁; subst h₂
-        simpa [Term.eval, Const.denote] using hagree.2.1 ⟨n, .value⟩ hmem
+      · rename_i hav
+        split at h₂
+        · rename_i hlen₂
+          simp only [Except.ok.injEq] at h₁ h₂
+          subst v₁
+          subst v₂
+          exact (hlaw.lookup? hlookup).eval (by simpa using hav) hagree
+            (Arity.map_ofList_eq _ _ encoding.arity vs₁ vs₂ hlen₁ hlen₂ hvals)
+        · simp at h₂
       · simp at h₁
-    · simp at hvals
-  · -- vs₁ = [a₁]  (unary)
-    rcases vs₂ with _ | ⟨a₂, _ | ⟨b₂, t₂⟩⟩
-    · simp at hvals
-    · simp only [List.map_cons, List.map_nil, List.cons.injEq] at hvals
-      obtain ⟨ha, _⟩ := hvals
-      simp only [encodePrim] at h₁ h₂
-      split at h₁
-      · rename_i hmem
-        rw [if_pos hmem] at h₂
-        simp only [Except.ok.injEq] at h₁ h₂; subst h₁; subst h₂
-        simp only [Term.eval, UnOp.eval]
-        rw [hagree.2.2.1 ⟨n, .value, .value⟩ hmem, ha]
-      · simp at h₁
-    · simp at hvals
-  · -- vs₁ = b₁ :: r₁
-    rcases r₁ with _ | ⟨c₁, s₁⟩
-    · -- vs₁ = [a₁, b₁]  (binary)
-      rcases vs₂ with _ | ⟨a₂, _ | ⟨b₂, _ | _⟩⟩ <;> try (exfalso; simp at hvals; done)
-      simp only [List.map_cons, List.map_nil, List.cons.injEq] at hvals
-      obtain ⟨ha, hb, _⟩ := hvals
-      simp only [encodePrim] at h₁ h₂
-      split at h₁
-      · rename_i hmem
-        rw [if_pos hmem] at h₂
-        simp only [Except.ok.injEq] at h₁ h₂; subst h₁; subst h₂
-        simp only [Term.eval, BinOp.eval]
-        rw [hagree.2.2.2.1 ⟨n, .value, .value, .value⟩ hmem, ha, hb]
-      · simp at h₁
-    · -- vs₁ length ≥ 3
-      rcases s₁ with _ | ⟨d₁, rest₁⟩
-      · -- vs₁ = [a₁, b₁, c₁]  (ternary)
-        rcases vs₂ with _ | ⟨a₂, _ | ⟨b₂, _ | ⟨c₂, _ | _⟩⟩⟩ <;> try (exfalso; simp at hvals; done)
-        simp only [List.map_cons, List.map_nil, List.cons.injEq] at hvals
-        obtain ⟨ha, hb, hc, _⟩ := hvals
-        simp only [encodePrim] at h₁ h₂
-        split at h₁
-        · rename_i hmem
-          rw [if_pos hmem] at h₂
-          simp only [Except.ok.injEq] at h₁ h₂; subst h₁; subst h₂
-          simp only [Term.eval, TerOp.eval]
-          rw [hagree.2.2.2.2.1 ⟨n, .value, .value, .value, .value⟩ hmem, ha, hb, hc]
-        · simp at h₁
-      · -- vs₁ length > 3: encodePrim errors
-        simp [encodePrim] at h₁
+    · simp at h₁
 
 end Verifier.RelationalEncoding

@@ -7,6 +7,7 @@
 - `FunStd.lean` — `Fun.id`
 - `IntStd.lean` — Integer-arithmetic intrinsics (`Int.min`, `Int.max`) and their soundness instances.
 - `ListStd.lean` — Canonical list representation and polymorphic List intrinsics.
+- `LogicStd.lean` — Logical primitives for specifications only (`Logic.eq`): equality of values, with precondition `False` so that no program can call it.
 - `OptionStd.lean` — Canonical option representation and polymorphic Option intrinsics.
 - `StringStd.lean` — Byte-string intrinsics (`String.length`, `get`, `sub`, `cat`, `equal`, `starts_with`, `ends_with`) and soundness instances.
 - `VecStd.lean` — Immutable-vector intrinsics (`Vec.length`, `Vec.get`, `Vec.set`, `Vec.make`).
