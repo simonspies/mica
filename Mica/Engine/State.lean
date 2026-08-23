@@ -157,7 +157,10 @@ def State.satisfiable (decls : Signature) (asserts : List Formula) : Prop :=
   let _ := decls
   ∃ ρ : Env, ∀ φ ∈ asserts, φ.eval ρ
 
-theorem State.satisfiable.to_impl decls asserts :
+/-- From the unsatisfiability of `φ :: asserts`: every environment satisfying
+    `asserts` refutes `φ`. -/
+theorem State.satisfiable.eval_of_unsat_cons {φ : Formula}
+    (decls : Signature) (asserts : List Formula) :
   ¬ State.satisfiable decls (φ :: asserts) →
   ∀ ρ, (∀ ψ ∈ asserts, ψ.eval ρ) → (Formula.not φ).eval ρ :=
   by
@@ -175,11 +178,14 @@ theorem State.satisfiable.to_impl decls asserts :
     | tail _ hψ =>
       exact (hasserts _ hψ)
 
-theorem State.satisfiable.to_impl' decls asserts :
+/-- From the unsatisfiability of `¬ φ :: asserts`: every environment satisfying
+    `asserts` satisfies `φ`. -/
+theorem State.satisfiable.eval_of_unsat_not_cons {φ : Formula}
+    (decls : Signature) (asserts : List Formula) :
   ¬ State.satisfiable decls (Formula.not φ :: asserts) →
   ∀ ρ, (∀ ψ ∈ asserts, ψ.eval ρ) → φ.eval ρ := by
   intro hsat ρ hasserts
-  obtain h := (State.satisfiable.to_impl decls asserts hsat ρ hasserts)
+  obtain h := (State.satisfiable.eval_of_unsat_cons decls asserts hsat ρ hasserts)
   simp only [Formula.eval] at h
   simp at h
   trivial

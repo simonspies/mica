@@ -605,7 +605,8 @@ private theorem VerifM.translate_eval_rec (m : VerifM α) (st : TransState) (ρ:
           rcases hproof with ⟨hunsat, _⟩ | hfalse
           · have hunsat' : ¬Smt.State.satisfiable st.decls (Formula.not φ :: st.asserts) := by
               simp only [FlatCtx.addAssert] at hunsat; exact hunsat
-            exact Smt.State.satisfiable.to_impl' st.decls st.asserts hunsat' ρ g.asserts
+            exact Smt.State.satisfiable.eval_of_unsat_not_cons
+              st.decls st.asserts hunsat' ρ g.asserts
           · simp [ScopedM.eval_ret] at hfalse
     | high =>
       apply ScopedM.eval_assert at hxx
@@ -616,7 +617,7 @@ private theorem VerifM.translate_eval_rec (m : VerifM α) (st : TransState) (ρ:
       · have hunsat' : ¬Smt.State.satisfiable st.decls
             (Formula.not φ :: guardFormula :: st.asserts) := by
           simp only [FlatCtx.addAssert] at hunsat; exact hunsat
-        refine Smt.State.satisfiable.to_impl' st.decls (guardFormula :: st.asserts)
+        refine Smt.State.satisfiable.eval_of_unsat_not_cons st.decls (guardFormula :: st.asserts)
           hunsat' ρ ?_
         intro ψ hψ
         cases hψ with
