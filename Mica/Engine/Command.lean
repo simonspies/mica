@@ -3,12 +3,7 @@ import Mica.Engine.State
 
 /-! ## Smt.Command
 
-An SMT command, indexed by its response type -- Unit for no meaningful response
-- push, pop, assert: Unit
-- declareConst, declareUnary, declareBinary : Unit
-- declareUnaryRel, declareBinaryRel : Unit
-- checkSat: returns sat/unsat/unknown — Smt.Result
-- setOption, getOption: write/read a solver option -/
+An SMT command, indexed by its response type. -/
 
 namespace Smt
 
@@ -26,11 +21,9 @@ inductive Gettable : Type → Type where
 /-- The settings every session starts with. -/
 def Settable.initial : List Settable := [.timeout 10000]
 
-/-- Serialize a settable option to its SMT-LIB2 string. -/
 def Settable.toSMTLIB : Settable → String
   | .timeout ms => s!"(set-option :timeout {ms})"
 
-/-- Serialize an option read to its SMT-LIB2 string. -/
 def Gettable.toSMTLIB : Gettable α → String
   | .timeout => "(get-option :timeout)"
 
@@ -58,7 +51,6 @@ inductive Command : Type → Type 1 where
 
 namespace Command
 
-/-- Serialize a command to its SMT-LIB2 string. -/
 def toSMTLIB : Command α → String
   | .push => "(push)"
   | .pop => "(pop)"
