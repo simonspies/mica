@@ -2,7 +2,7 @@
 import Mica.Engine.State
 import Mica.FOL.Printing
 
-/-! ## Smt.Command
+/-! ## Command
 
 An SMT command, indexed by its response type. -/
 
@@ -61,7 +61,7 @@ inductive Command : Type → Type 1 where
   | setOption (s : Options.Settable) : Command Unit
   | getOption (g : Options.Gettable α) : Command α
 
-/-! ## Serialization -/
+/-! ## Command.toSMTLIB and Command.parse -/
 
 namespace Command
 
@@ -105,7 +105,7 @@ def parse : (cmd : Command α) → String → Option α
 
 end Command
 
-/-! ## Smt.State.step -/
+/-! ## State.step -/
 
 namespace State
 

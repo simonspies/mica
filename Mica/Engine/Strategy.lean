@@ -1,7 +1,7 @@
 -- SUMMARY: Interactive SMT strategies and their relative semantics.
 import Mica.Engine.Trace
 
-/-! ## Smt.Strategy (Interaction Trees)
+/-! ## Strategy
 
 A strategy is an interaction tree, a tree where each node executes a command and
 branches on the response. The only interesting branching is at checkSat. (Since
@@ -27,7 +27,7 @@ theorem bind_assoc {s : Strategy α} {f : α → Strategy β} {g : β → Strate
   | done a => rfl
   | exec cmd k ih => simp [bind]; funext r; exact ih r
 
-/-! ## Smt.Strategy.generates
+/-! ## Strategy.generates
 
 `generates strategy trace` means that `trace` is a possible execution of `strategy`. -/
 
@@ -37,7 +37,7 @@ inductive generates : Strategy α → Trace α → Prop where
       generates (f r) t →
       generates (.exec cmd f) (.step cmd r t)
 
-/-! ## Bind decomposition -/
+/-! ## Strategy.bind decomposition -/
 
 /-- Any trace of `s.bind k` decomposes into a trace of `s` followed by a trace of `k`. -/
 theorem bind_generates_decompose {s : Strategy α} {k : α → Strategy β}
@@ -97,7 +97,7 @@ theorem bind_isSound_decompose {s : Strategy α} {k : α → Strategy β}
     · simp [Trace.finalState]; exact hsound_tk
     · simp [Trace.finalState]; exact hfin _
 
-/-! ## Strategy.eval: Extensional Semantics
+/-! ## Strategy.eval
 
 `eval s st ret st'` means: there exists a sound execution of `s` starting
 from `st` that results in `ret` with final state `st'`. -/
@@ -115,7 +115,7 @@ theorem eval_done {a : α} {st : State} {ret : α} {st' : State} :
   · rintro ⟨rfl, rfl⟩
     exact ⟨.done ret, .done, trivial, rfl, rfl⟩
 
-/-! ## Smt.Strategy.Outcome and checks -/
+/-! ## Strategy.Outcome and Strategy.checks -/
 
 def Outcome := Except String Unit
 

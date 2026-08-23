@@ -1,7 +1,7 @@
 -- SUMMARY: Execution traces and the soundness condition imposed on solver replies.
 import Mica.Engine.Command
 
-/-! ## Smt.Trace
+/-! ## Trace
 
 A trace is a linear record of one execution: a sequence of command-response
 pairs, ending in a result. -/
@@ -50,7 +50,7 @@ def isSound : State → Trace α → Prop
   | s, .step (.setOption _) () rest => isSound s rest
   | s, .step (.getOption _) _ rest => isSound s rest
 
-/-! ## isSound step lemmas -/
+/-! ## Trace.isSound step lemmas -/
 
 theorem isSound.step_rest {cmd : Command β} {r : β} {rest : Trace α} {st : State}
     (h : isSound st (.step cmd r rest)) : isSound (st.step cmd r) rest := by

@@ -1,7 +1,7 @@
 -- SUMMARY: Execution of SMT strategies against a live Z3 process.
 import Mica.Engine.Strategy
 
-/-! ## Smt.Session (Z3 session) -/
+/-! ## Session -/
 
 namespace Smt
 
@@ -141,7 +141,7 @@ def close (s : Session) : IO Unit := do
 
 end Session
 
-/-! ## Running Strategies -/
+/-! ## Strategy.run and Strategy.execute -/
 
 namespace Strategy
 

@@ -1,7 +1,7 @@
 -- SUMMARY: Abstract SMT states and the satisfiability notion used in the solver interface.
 import Mica.FOL.Formulas
 
-/-! ## Smt.Frame and Smt.State
+/-! ## Frame and State
 
 The solver state: a stack of frames, each recording declarations and assertions.
 The commands (push) and (pop) are used to add a new frame or remove it from the
@@ -18,7 +18,7 @@ def Frame.empty : Frame := ⟨Signature.empty, []⟩
 structure State where
   frames : List Frame
 
-/-! ## Frame Extension -/
+/-! ## Frame.Extends -/
 
 def Frame.Extends (f f' : Frame) : Prop :=
   ∃ vs cs us bs ts urs brs as,
@@ -76,14 +76,14 @@ theorem Frame.Extends.trans {f₁ f₂ f₃ : Frame}
     by simp [hbr₂, hbr₁, List.append_assoc],
     by simp [ha₂, ha₁, List.append_assoc]⟩
 
-/-! ## Smt.Result -/
+/-! ## Result -/
 
 inductive Result where
   | sat
   | unsat
   | unknown
 
-/-! ## Smt.State operations -/
+/-! ## State operations -/
 
 namespace State
 
@@ -146,7 +146,7 @@ def addAssert (s : State) (φ : Formula) : State :=
 
 end State
 
-/-! ## Smt.State.satisfiable -/
+/-! ## State.satisfiable -/
 
 /-- The assertions have a satisfying assignment over the declarations `decls`: an
     environment that makes every formula in `asserts` true. -/
