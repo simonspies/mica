@@ -312,7 +312,7 @@ theorem ScopedM.eval_declareConst {n : String} {s : Srt}
   cases hgen; rename_i rest resp hrest
   cases resp
   simp only [Trace.finalState, State.step, Trace.result] at hsound hst' hret
-  refine ⟨st.addConst ⟨n, s⟩, st', ?_, hflat', rest, hrest, hsound, hst', hret⟩
+  refine ⟨st.addConst ⟨n, s⟩, st', ?_, hflat', rest, hrest, hsound.step_rest, hst', hret⟩
   simp only [State.flatten_addConst, hflat]
 
 theorem ScopedM.eval_declareUnary {n : String} {arg ret : Srt}
@@ -324,7 +324,7 @@ theorem ScopedM.eval_declareUnary {n : String} {arg ret : Srt}
   cases hgen; rename_i rest resp hrest
   cases resp
   simp only [Trace.finalState, State.step, Trace.result] at hsound hst' hret
-  refine ⟨st.addUnary ⟨n, arg, ret⟩, st', ?_, hflat', rest, hrest, hsound, hst', hret⟩
+  refine ⟨st.addUnary ⟨n, arg, ret⟩, st', ?_, hflat', rest, hrest, hsound.step_rest, hst', hret⟩
   simp only [State.flatten_addUnary, hflat]
 
 theorem ScopedM.eval_declareBinary {n : String} {arg1 arg2 ret : Srt}
@@ -336,7 +336,7 @@ theorem ScopedM.eval_declareBinary {n : String} {arg1 arg2 ret : Srt}
   cases hgen; rename_i rest resp hrest
   cases resp
   simp only [Trace.finalState, State.step, Trace.result] at hsound hst' hret
-  refine ⟨st.addBinary ⟨n, arg1, arg2, ret⟩, st', ?_, hflat', rest, hrest, hsound, hst', hret⟩
+  refine ⟨st.addBinary ⟨n, arg1, arg2, ret⟩, st', ?_, hflat', rest, hrest, hsound.step_rest, hst', hret⟩
   simp only [State.flatten_addBinary, hflat]
 
 theorem ScopedM.eval_declareTernary {n : String} {arg1 arg2 arg3 ret : Srt}
@@ -348,7 +348,7 @@ theorem ScopedM.eval_declareTernary {n : String} {arg1 arg2 arg3 ret : Srt}
   cases hgen; rename_i rest resp hrest
   cases resp
   simp only [Trace.finalState, State.step, Trace.result] at hsound hst' hret
-  refine ⟨st.addTernary ⟨n, arg1, arg2, arg3, ret⟩, st', ?_, hflat', rest, hrest, hsound, hst', hret⟩
+  refine ⟨st.addTernary ⟨n, arg1, arg2, arg3, ret⟩, st', ?_, hflat', rest, hrest, hsound.step_rest, hst', hret⟩
   simp only [State.flatten_addTernary, hflat]
 
 theorem ScopedM.eval_declareUnaryRel {n : String} {arg : Srt}
@@ -360,7 +360,7 @@ theorem ScopedM.eval_declareUnaryRel {n : String} {arg : Srt}
   cases hgen; rename_i rest resp hrest
   cases resp
   simp only [Trace.finalState, State.step, Trace.result] at hsound hst' hret
-  refine ⟨st.addUnaryRel ⟨n, arg⟩, st', ?_, hflat', rest, hrest, hsound, hst', hret⟩
+  refine ⟨st.addUnaryRel ⟨n, arg⟩, st', ?_, hflat', rest, hrest, hsound.step_rest, hst', hret⟩
   simp only [State.flatten_addUnaryRel, hflat]
 
 theorem ScopedM.eval_declareBinaryRel {n : String} {arg1 arg2 : Srt}
@@ -372,7 +372,7 @@ theorem ScopedM.eval_declareBinaryRel {n : String} {arg1 arg2 : Srt}
   cases hgen; rename_i rest resp hrest
   cases resp
   simp only [Trace.finalState, State.step, Trace.result] at hsound hst' hret
-  refine ⟨st.addBinaryRel ⟨n, arg1, arg2⟩, st', ?_, hflat', rest, hrest, hsound, hst', hret⟩
+  refine ⟨st.addBinaryRel ⟨n, arg1, arg2⟩, st', ?_, hflat', rest, hrest, hsound.step_rest, hst', hret⟩
   simp only [State.flatten_addBinaryRel, hflat]
 
 theorem ScopedM.eval_assert {e : Formula}
@@ -384,7 +384,7 @@ theorem ScopedM.eval_assert {e : Formula}
   cases hgen; rename_i rest resp hrest
   cases resp
   simp only [Trace.finalState, State.step, Trace.result] at hsound hst' hret
-  refine ⟨st.addAssert e, st', ?_, hflat', rest, hrest, hsound, hst', hret⟩
+  refine ⟨st.addAssert e, st', ?_, hflat', rest, hrest, hsound.step_rest, hst', hret⟩
   rw [State.flatten_addAssert, hflat]
 
 theorem ScopedM.eval_checkSat {k : Result → ScopedM α} {ctx : FlatCtx} {ret : α} {ctx' : FlatCtx} :
@@ -398,15 +398,15 @@ theorem ScopedM.eval_checkSat {k : Result → ScopedM α} {ctx : FlatCtx} {ret :
   dsimp only at hrest
   simp only [Trace.finalState, State.step, Trace.result] at hst' hret
   cases resp with
-  | sat => right; left; exact ⟨st, st', hflat, hflat', rest, hrest, hsound, hst', hret⟩
+  | sat => right; left; exact ⟨st, st', hflat, hflat', rest, hrest, hsound.step_rest, hst', hret⟩
   | unsat =>
     left
-    have hunsat := hsound.1
+    have hunsat := hsound.step_obligation
     have : ctx.decls = st.allDecls ∧ ctx.asserts = st.allAsserts := by
       rw [← hflat]; exact ⟨rfl, rfl⟩
     rw [this.1, this.2]
-    exact ⟨hunsat, st, st', hflat, hflat', rest, hrest, hsound.2, hst', hret⟩
-  | unknown => right; right; exact ⟨st, st', hflat, hflat', rest, hrest, hsound, hst', hret⟩
+    exact ⟨hunsat, st, st', hflat, hflat', rest, hrest, hsound.step_rest, hst', hret⟩
+  | unknown => right; right; exact ⟨st, st', hflat, hflat', rest, hrest, hsound.step_rest, hst', hret⟩
 
 theorem ScopedM.eval_setOption {s : Smt.Options.Settable}
     {k : Unit → ScopedM α} {ctx : FlatCtx} {ret : α} {ctx' : FlatCtx} :
@@ -417,7 +417,7 @@ theorem ScopedM.eval_setOption {s : Smt.Options.Settable}
   cases hgen; rename_i rest resp hrest
   cases resp
   simp only [Trace.finalState, State.step, Trace.result] at hsound hst' hret
-  exact ⟨st, st', hflat, hflat', rest, hrest, hsound, hst', hret⟩
+  exact ⟨st, st', hflat, hflat', rest, hrest, hsound.step_rest, hst', hret⟩
 
 theorem ScopedM.eval_getOption {g : Smt.Options.Gettable β}
     {k : β → ScopedM α} {ctx : FlatCtx} {ret : α} {ctx' : FlatCtx} :
@@ -428,7 +428,7 @@ theorem ScopedM.eval_getOption {g : Smt.Options.Gettable β}
   cases hgen; rename_i rest resp hrest
   dsimp only at hrest
   simp only [Trace.finalState, State.step, Trace.result] at hsound hst' hret
-  exact ⟨resp, st, st', hflat, hflat', rest, hrest, hsound, hst', hret⟩
+  exact ⟨resp, st, st', hflat, hflat', rest, hrest, hsound.step_rest, hst', hret⟩
 
 theorem ScopedM.eval_bracket {body : ScopedM β} {k : β → ScopedM α}
     {ctx : FlatCtx} {ret : α} {ctx' : FlatCtx} :
@@ -440,7 +440,7 @@ theorem ScopedM.eval_bracket {body : ScopedM β} {k : β → ScopedM α}
   -- t = .step .push () bind_trace where bind_trace is (translate body).bind (...)
   cases hgen; rename_i bind_trace _ hgen_bind
   dsimp only at hgen_bind
-  have hsound_inner : Trace.isSound st.push bind_trace := hsound
+  have hsound_inner : Trace.isSound st.push bind_trace := hsound.step_rest
   -- Decompose the bind trace
   obtain ⟨a, ts_body, tk_rest, hgen_body, hgen_cont, hres_body, hsound_body, hsound_rest,
           hfin_bind, hres_bind⟩ :=
@@ -457,7 +457,7 @@ theorem ScopedM.eval_bracket {body : ScopedM β} {k : β → ScopedM α}
   · -- After body: extract isSound for k from the pop step
     simp only [State.push] at hsound_rest
     rw [hfin_body] at hsound_rest
-    simp [Trace.isSound, State.pop] at hsound_rest
+    simp only [Trace.isSound, State.step, State.pop] at hsound_rest
     -- Simplify hst' through the full trace
     simp only [Trace.finalState, State.step, State.push] at hst'
     rw [hfin_bind, hfin_body] at hst'
@@ -467,7 +467,7 @@ theorem ScopedM.eval_bracket {body : ScopedM β} {k : β → ScopedM α}
     rw [hres_bind] at hret
     simp only [Trace.result] at hret
     rw [← hres_body] at hgen_k
-    refine ⟨⟨st.frames⟩, st', ?_, hflat', tk_k, hgen_k, hsound_rest, hst', hret⟩
+    refine ⟨⟨st.frames⟩, st', ?_, hflat', tk_k, hgen_k, hsound_rest.2, hst', hret⟩
     cases st; exact hflat
 
 /-! ## ScopedM.bind -/

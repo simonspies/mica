@@ -76,24 +76,9 @@ theorem bind_isSound_decompose {s : Strategy α} {k : α → Strategy β}
     cases hgen; rename_i rest r hrest
     dsimp only at hrest
     obtain ⟨a, ts, tk, hgens, hgenk, hres, hsound_ts, hsound_tk, hfin, hresult⟩ :=
-      ih r hrest (hsound.step_rest)
-    refine ⟨a, .step cmd r ts, tk, .exec hgens, hgenk, hres, ?_, ?_, fun st' => ?_, hresult⟩
-    · exact Trace.isSound.step_cons hsound_ts (by
-        cases cmd with
-        | push => trivial | pop => trivial
-        | declareConst => cases r; trivial
-        | declareUnary => cases r; trivial
-        | declareBinary => cases r; trivial
-        | declareTernary => cases r; trivial
-        | declareUnaryRel => cases r; trivial
-        | declareBinaryRel => cases r; trivial
-        | assert => cases r; trivial
-        | checkSat => cases r with
-          | sat => trivial
-          | unsat => cases hsound; assumption
-          | unknown => trivial
-        | setOption => cases r; trivial
-        | getOption => trivial)
+      ih r hrest hsound.step_rest
+    refine ⟨a, .step cmd r ts, tk, .exec hgens, hgenk, hres,
+      hsound_ts.step_cons hsound.step_obligation, ?_, fun st' => ?_, hresult⟩
     · simp [Trace.finalState]; exact hsound_tk
     · simp [Trace.finalState]; exact hfin _
 
