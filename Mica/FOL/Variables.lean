@@ -175,26 +175,6 @@ theorem mem_allNames_of_binaryRel {Δ : Signature} {b : FOL.BinaryRel} (h : b �
   simp [allNames]
   exact Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr ⟨b, h, rfl⟩)))))
 
-theorem nodup_allNames_addConst {Δ : Signature} {c : FOL.Const}
-    (hnd : Δ.allNames.Nodup) (hfresh : c.name ∉ Δ.allNames) :
-    (Δ.addConst c).allNames.Nodup := by
-  suffices h : (Δ.addConst c).allNames.Perm (c.name :: Δ.allNames) from
-    h.nodup_iff.mpr (List.nodup_cons.mpr ⟨hfresh, hnd⟩)
-  -- addConst c inserts c.name between vars and consts in allNames
-  -- allNames (addConst c Δ) = vs ++ (c :: cs) ++ us ++ bs ++ urs ++ brs
-  -- c :: allNames Δ           = c :: (vs ++ cs ++ us ++ bs ++ urs ++ brs)
-  -- These are permutations via comm of the first two segments.
-  show (Δ.vars.map Var.name ++ (c.name :: Δ.consts.map FOL.Const.name) ++
-    Δ.unary.map FOL.Unary.name ++ Δ.binary.map FOL.Binary.name ++
-    Δ.ternary.map FOL.Ternary.name ++
-    Δ.unaryRel.map FOL.UnaryRel.name ++ Δ.binaryRel.map FOL.BinaryRel.name).Perm
-    (c.name :: (Δ.vars.map Var.name ++ Δ.consts.map FOL.Const.name ++
-    Δ.unary.map FOL.Unary.name ++ Δ.binary.map FOL.Binary.name ++
-    Δ.ternary.map FOL.Ternary.name ++
-    Δ.unaryRel.map FOL.UnaryRel.name ++ Δ.binaryRel.map FOL.BinaryRel.name))
-  simp only [List.append_assoc]
-  exact List.perm_middle
-
 @[simp] theorem mem_remove_vars {Δ : Signature} {v : Var} {x : String} :
     v ∈ (Δ.remove x).vars ↔ v ∈ Δ.vars ∧ v.name ≠ x := by
   simp [remove]
@@ -271,8 +251,20 @@ theorem remove_allNames {Δ : Signature} {n x : String} (h : n ∈ (Δ.remove x)
       exact (hb.2 hname).elim
 
 theorem wf_addConst {Δ : Signature} {c : FOL.Const}
-    (hΔ : Δ.wf) (hfresh : c.name ∉ Δ.allNames) : (Δ.addConst c).wf :=
-  nodup_allNames_addConst hΔ hfresh
+    (hΔ : Δ.wf) (hfresh : c.name ∉ Δ.allNames) : (Δ.addConst c).wf := by
+  unfold wf at hΔ ⊢
+  suffices h : (Δ.addConst c).allNames.Perm (c.name :: Δ.allNames) from
+    h.nodup_iff.mpr (List.nodup_cons.mpr ⟨hfresh, hΔ⟩)
+  show (Δ.vars.map Var.name ++ (c.name :: Δ.consts.map FOL.Const.name) ++
+    Δ.unary.map FOL.Unary.name ++ Δ.binary.map FOL.Binary.name ++
+    Δ.ternary.map FOL.Ternary.name ++
+    Δ.unaryRel.map FOL.UnaryRel.name ++ Δ.binaryRel.map FOL.BinaryRel.name).Perm
+    (c.name :: (Δ.vars.map Var.name ++ Δ.consts.map FOL.Const.name ++
+    Δ.unary.map FOL.Unary.name ++ Δ.binary.map FOL.Binary.name ++
+    Δ.ternary.map FOL.Ternary.name ++
+    Δ.unaryRel.map FOL.UnaryRel.name ++ Δ.binaryRel.map FOL.BinaryRel.name))
+  simp only [List.append_assoc]
+  exact List.perm_middle
 
 theorem wf_addVar {Δ : Signature} {v : Var}
     (hΔ : Δ.wf) (hfresh : v.name ∉ Δ.allNames) : (Δ.addVar v).wf := by

@@ -230,7 +230,7 @@ theorem TransState.freshConst.wf {hint t} (st : TransState) :
   have hwf' := Signature.wf_addConst hwf.namesDisjoint hfresh
   constructor
   · exact Context.wfIn_mono _ hwf.assertsWf (Signature.Subset.subset_addConst _ _) hwf'
-  · exact Signature.nodup_allNames_addConst hwf.namesDisjoint hfresh
+  · exact hwf'
   · exact SpatialContext.wfIn_mono hwf.ownsWf (Signature.Subset.subset_addConst _ _) hwf'
   · exact hwf.builtins.mono (Signature.Subset.subset_addConst _ _)
 
