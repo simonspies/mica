@@ -14,16 +14,29 @@ namespace Options
     soundness-irrelevant; `Trace.isSound` imposes nothing on them. -/
 inductive Settable where
   | timeout (ms : Nat)
+  | eagerThreshold (bound : Float)
+  | mbqi (on : Bool)
 
 /-- A solver option to read back, indexed by the type parsed from Z3's response. -/
 inductive Gettable : Type → Type where
   | timeout : Gettable Nat
 
+-- Recursive functions are encoded as quantified definitional axioms whose
+-- bodies reference the function again.
+-- Z3's default eager instantiation easily falls into a matching loop. It even
+-- does so _before_ a check-sat is reached when entering a new scope.
+-- To avoid a severe performance penalty, we lower the default from 10.0 to 5.0.
+-- The verifier's quantified axioms are designed for E-matching (with explicit
+-- or Z3-inferred triggers), so model-based quantifier instantiation adds a
+-- second, less predictable search path without being needed by the examples.
 /-- The settings every session starts with. -/
-def Settable.initial : List Settable := [.timeout 10000]
+def Settable.initial : List Settable :=
+  [.timeout 10000, .eagerThreshold 5.0, .mbqi false]
 
 def Settable.toSMTLIB : Settable → String
   | .timeout ms => s!"(set-option :timeout {ms})"
+  | .eagerThreshold bound => s!"(set-option :smt.qi.eager_threshold {bound})"
+  | .mbqi on => s!"(set-option :smt.mbqi {on})"
 
 def Gettable.toSMTLIB : Gettable α → String
   | .timeout => "(get-option :timeout)"
