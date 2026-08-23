@@ -960,6 +960,13 @@ structure Scheme where
 /-- The scheme of a binding nothing may instantiate. -/
 def Scheme.mono (t : Typ) : Scheme := ⟨[], t⟩
 
+def Scheme.gen (t : Typ) : Scheme := ⟨(Typ.vars t).eraseDups, t⟩
+
+def Scheme.free (s : Scheme) : List TyVar := (Typ.vars s.ty).filter (· ∉ s.tparams)
+
+@[simp] theorem Scheme.gen_free (t : Typ) : (Scheme.gen t).free = [] := by
+  simp [Scheme.free, Scheme.gen, List.filter_eq_nil_iff]
+
 /-- The substitution an instantiation recorded on a use site stands for. A
 variable the instantiation does not mention is one the scheme does not
 quantify, so what it maps to is never looked at. -/
@@ -974,6 +981,19 @@ def Scheme.instantiate (s : Scheme) (σ : TyVar → Typ) : Typ :=
 @[simp] theorem Scheme.instantiate_mono (t : Typ) (σ : TyVar → Typ) :
     (Scheme.mono t).instantiate σ = t := by
   simp [Scheme.instantiate, Scheme.mono]
+
+@[simp] theorem Scheme.gen_instantiate (t : Typ) (σ : TyVar → Typ) :
+    (Scheme.gen t).instantiate σ = Typ.subst σ t :=
+  Typ.subst_congr _ _ t fun _ hv => by simp [Scheme.gen, List.mem_eraseDups.mpr hv]
+
+theorem Scheme.subst_instantiate {s : Scheme} {σ : TyVar → Typ}
+    (hσ : ∀ a ∈ s.free, σ a = .tvar a) (σ' : TyVar → Typ) :
+    Typ.subst σ (s.instantiate σ') = s.instantiate (fun a => Typ.subst σ (σ' a)) := by
+  simp only [Scheme.instantiate, Typ.subst_comp]
+  refine Typ.subst_congr _ _ s.ty fun v hv => ?_
+  by_cases h : v ∈ s.tparams
+  · simp [h]
+  · simp only [h, if_false, Typ.subst, hσ v (by simp [Scheme.free, hv, h])]
 
 /-- A data declaration: type parameters, and one payload type per constructor.
 The payloads are schema types, since they mention the declaration's own

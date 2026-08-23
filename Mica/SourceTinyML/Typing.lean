@@ -558,6 +558,14 @@ def ValDecl.elaborate (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx)
       pure { name := Typed.Binder.ofUntyped d.name body'.ty, body := body',
              relation := d.relation }
 
+/-- Only a function literal is generalized. Anything else whose type still has
+a variable to quantify would need a weak variable standing for the type its
+first use fixes it to, and mica has none. -/
+def ValDecl.checkGeneralizable {σ : Type} (d : Typed.ValDecl) : TypeM σ Unit :=
+  match d.body.isFunc, Typ.vars d.name.ty with
+  | false, a :: _ => TypeM.error (.weakTypeVar a)
+  | _, _ => pure ()
+
 def Program.elaborate (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx) :
     Untyped.Program Untyped.SpecBody → TypeM σ (TypeEnv × Typed.Program)
   | [] => pure (Θ, [])
@@ -570,8 +578,9 @@ def Program.elaborate (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx) :
       | .val_ dval =>
           let d' ← ValDecl.elaborate
             { env with globals := Γ, tvars := dval.tvars } Θ Γ dval
+          let () ← ValDecl.checkGeneralizable d'
           let Γ' := match d'.name.name with
-            | some x => Γ.extend x d'.name.ty
+            | some x => Γ.extendScheme x (Scheme.gen d'.name.ty)
             | none => Γ
           let (Θ', ds') ← Program.elaborate env Θ Γ' ds
           pure (Θ', d' :: ds')

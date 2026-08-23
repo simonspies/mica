@@ -319,6 +319,12 @@ def Expr.WithTypeVars.spec? : Expr.WithTypeVars V → Option (Spec (Typ.WithType
   | .fix _ _ _ spec _ => spec
   | _ => none
 
+theorem Expr.spec?_elim {e : Expr.WithTypeVars V} {s : Spec (Typ.WithTypeVars V)}
+    (h : e.spec? = some s) :
+    ∃ self args retTy body, e = .fix self args retTy (some s) body := by
+  cases e <;> simp [Expr.WithTypeVars.spec?] at h
+  exact ⟨_, _, _, _, by rw [h]⟩
+
 @[simp] theorem Expr.spec?_fix (self : Binder.WithTypeVars V)
     (args : List (Binder.WithTypeVars V)) (retTy : Typ.WithTypeVars V)
     (spec : Option (Spec (Typ.WithTypeVars V))) (body : Expr.WithTypeVars V) :
@@ -402,6 +408,15 @@ def ValDecl.runtime (d : Typed.ValDecl) : Runtime.Decl :=
 def Program.runtime (prog : Typed.Program) : Runtime.Program :=
   prog.map ValDecl.runtime
 
+theorem Expr.runtime_subst_of_fix {e : Typed.Expr} {self : Typed.Binder}
+    {args : List Typed.Binder} {retTy : Typ} {spec : Option (Spec Typ)} {body : Typed.Expr}
+    (h : e = .fix self args retTy spec body) (γ : Runtime.Subst) :
+    e.runtime.subst γ =
+      Runtime.Expr.fix self.runtime (args.map (·.runtime))
+        (body.runtime.subst ((γ.remove' self.runtime).removeAll' (args.map (·.runtime)))) := by
+  rw [h]
+  simp only [Expr.WithTypeVars.runtime, Runtime.Expr.subst_fix]
+
 theorem Expr.branchListRuntime_eq_map
     (branches : List (Typed.Binder.WithTypeVars V × Typed.Expr.WithTypeVars V)) :
     Expr.WithTypeVars.branchListRuntime branches =
@@ -442,6 +457,22 @@ def TyCtx.extendBinder (Γ : TyCtx) (b : Typed.Binder) (t : Typ) : TyCtx :=
 
 @[simp] theorem TyCtx.extend_eq (Γ : TyCtx) (x : TinyML.Var) (t : Typ) :
     (Γ.extend x t) x = some (.mono t) := by simp [TyCtx.extend, TyCtx.extendScheme]
+
+/-- Every scheme the context binds quantifies all of its own type variables, so
+nothing in it reads a type assignment. -/
+def TyCtx.Closed (Γ : TyCtx) : Prop :=
+  ∀ x s, Γ x = some s → s.free = []
+
+theorem TyCtx.empty_closed : TyCtx.empty.Closed := by
+  intro _ _ h; simp [TyCtx.empty] at h
+
+theorem TyCtx.Closed.extendScheme {Γ : TyCtx} (hΓ : Γ.Closed) (x : TinyML.Var)
+    {s : Scheme} (hs : s.free = []) : (Γ.extendScheme x s).Closed := by
+  intro y t hy
+  by_cases hyx : y = x
+  · subst hyx; simp [TyCtx.extendScheme] at hy; subst hy; exact hs
+  · rw [TyCtx.extendScheme, if_neg (by simpa using hyx)] at hy
+    exact hΓ y t hy
 
 @[simp] theorem TyCtx.extendScheme_eq (Γ : TyCtx) (x : TinyML.Var) (s : Scheme) :
     (Γ.extendScheme x s) x = some s := by simp [TyCtx.extendScheme]

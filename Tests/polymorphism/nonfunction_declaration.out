@@ -1,0 +1,2 @@
+Status: failed: 'a would need a weak type variable, which mica does not have: only function literals are generalized. This declaration is not a function literal.
+[1]

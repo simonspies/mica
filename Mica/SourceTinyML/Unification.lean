@@ -66,6 +66,10 @@ inductive TypeError where
   /-- A type variable written where nothing binds it: a data declaration's
   payload may name only that declaration's own parameters. -/
   | unboundTypeVar (name : TyVar)
+  /-- A type variable left to quantify over a declaration that is not a
+  function literal. Generalizing it is the value restriction's business, and
+  mica has no weak variable to fall back on. -/
+  | weakTypeVar (name : TyVar)
   /-- Two types the program requires to be equal are not. -/
   | mismatch (left right : Infer.Typ)
   /-- Solving a metavariable would make its solution mention it. -/
@@ -87,6 +91,9 @@ instance : ToString TypeError where
     | .spec msg => s!"specification error: {msg}"
     | .unknownPrimitive name => s!"unknown primitive: {name}"
     | .unboundTypeVar name => s!"unbound type variable '{name}"
+    | .weakTypeVar name =>
+        s!"'{name} would need a weak type variable, which mica does not have: " ++
+        s!"only function literals are generalized. This declaration is not a function literal."
     | .mismatch a b => s!"cannot unify {a.print} with {b.print}"
     | .occurs v t => s!"?{v} occurs in {t.print}"
     | .unresolved v => s!"unresolved type metavariable ?{v}"

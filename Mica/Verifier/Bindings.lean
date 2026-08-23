@@ -136,7 +136,7 @@ theorem Bindings.typedSubst_nil (W : TinyML.World) (γ : Runtime.Subst) :
 every instantiation of the scheme. -/
 theorem Bindings.typedSubst_cons_scheme {B : Bindings} {Γ : TinyML.TyCtx} {γ : Runtime.Subst}
     {x : TinyML.Var} {v : FOL.Const} {s : TinyML.Scheme} {w : Runtime.Val}
-    : ⊢ B.typedSubst W Γ γ -∗ (□ ∀ σ, TinyML.ValHasType W w (s.instantiate σ)) -∗
+    : ⊢ B.typedSubst W Γ γ -∗ (∀ σ, TinyML.ValHasType W w (s.instantiate σ)) -∗
       Bindings.typedSubst W ((x, v) :: B) (Γ.extendScheme x s) (Runtime.Subst.update γ x w) := by
   iintro #Hts #Hw
   unfold Bindings.typedSubst
@@ -175,8 +175,7 @@ theorem Bindings.typedSubst_cons {B : Bindings} {Γ : TinyML.TyCtx} {γ : Runtim
   rw [TinyML.TyCtx.extend_def]
   iapply (Bindings.typedSubst_cons_scheme (s := TinyML.Scheme.mono te))
   · iexact Hts
-  · imodintro
-    iintro %σ
+  · iintro %σ
     simp only [TinyML.Scheme.instantiate_mono]
     iexact Hw
 
@@ -201,6 +200,28 @@ theorem Bindings.typedSubst_remove {B : Bindings} {Γ : TinyML.TyCtx} {γ : Runt
     · ipureintro
       simp [Runtime.Subst.update, hyx, hw]
     · iexact Hw
+
+/-- Typedness transports to every type assignment. This is what makes a
+declaration's verification parametric: the same bindings re-derive its typing at
+every `σ`, so its value can be installed at a scheme rather than at one type. -/
+theorem Bindings.typedSubst_afterInstantiating {B : Bindings} {Γ : TinyML.TyCtx}
+    {γ : Runtime.Subst} (W : TinyML.World) (σ : TinyML.TyVar → TinyML.Typ)
+    (hΓ : Γ.Closed) :
+    B.typedSubst W Γ γ ⊢ B.typedSubst (W.afterInstantiating σ) Γ γ := by
+  unfold Bindings.typedSubst
+  iintro #Hts
+  imodintro
+  iintro %y %y' %s %hmem %hΓy
+  ispecialize Hts $$ %y %y' %s %hmem %hΓy
+  icases Hts with ⟨%w, %hw, Hw⟩
+  iexists w
+  isplitr
+  · ipureintro; exact hw
+  · iintro %σ'
+    iapply (TinyML.ValHasType.subst W σ w (s.instantiate σ')).2
+    rw [TinyML.Scheme.subst_instantiate (fun a ha => by simp [hΓ y s hΓy] at ha) σ']
+    ispecialize Hw $$ %(fun a => TinyML.Typ.subst σ (σ' a))
+    iexact Hw
 
 omit [MicaGS HasLC.hasLC Sig] in
 /-- Bind a name to a constant that already denotes the value the name is being

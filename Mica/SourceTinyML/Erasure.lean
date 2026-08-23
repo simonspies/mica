@@ -713,8 +713,9 @@ theorem Program.elaborate_runtime (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML
     | val_ dval =>
       unfold Typed.Program.elaborate at h
       have ⟨dval', s₀, hdecl, hcont⟩ := StateT.bind_ok h
+      have ⟨_, s₀', _, hcont⟩ := StateT.bind_ok hcont
       let Γ' := match dval'.name.name with
-        | some x => Γ.extend x dval'.name.ty
+        | some x => Γ.extendScheme x (Scheme.gen dval'.name.ty)
         | none => Γ
       have ⟨tail, s₁, htail, hcont⟩ := StateT.bind_ok hcont
       rcases tail with ⟨Θ'', ds'⟩
