@@ -734,7 +734,7 @@ theorem Term.eval_env_le {τ : Srt} {ρ ρ' : Env} (h : Env.le ρ ρ') (t : Term
 
 /-- Agreement on the environment components used by term evaluation. Relation
 interpretations are intentionally ignored. -/
-def Env.termAgree (Δ : Signature) (ρ₁ ρ₂ : Env) : Prop :=
+def Env.agreeOnTerms (Δ : Signature) (ρ₁ ρ₂ : Env) : Prop :=
   (∀ v ∈ Δ.vars, ρ₁.consts v.sort v.name = ρ₂.consts v.sort v.name) ∧
   (∀ c ∈ Δ.consts, ρ₁.consts c.sort c.name = ρ₂.consts c.sort c.name) ∧
   (∀ u ∈ Δ.unary, ρ₁.unary u.arg u.ret u.name = ρ₂.unary u.arg u.ret u.name) ∧
@@ -743,14 +743,14 @@ def Env.termAgree (Δ : Signature) (ρ₁ ρ₂ : Env) : Prop :=
   (∀ t ∈ Δ.ternary, ρ₁.ternary t.arg1 t.arg2 t.arg3 t.ret t.name =
     ρ₂.ternary t.arg1 t.arg2 t.arg3 t.ret t.name)
 
-theorem Env.termAgree_of_agreeOn {Δ : Signature} {ρ₁ ρ₂ : Env}
-    (h : Env.agreeOn Δ ρ₁ ρ₂) : Env.termAgree Δ ρ₁ ρ₂ :=
+theorem Env.agreeOnTerms_of_agreeOn {Δ : Signature} {ρ₁ ρ₂ : Env}
+    (h : Env.agreeOn Δ ρ₁ ρ₂) : Env.agreeOnTerms Δ ρ₁ ρ₂ :=
   ⟨h.1, h.2.1, h.2.2.1, h.2.2.2.1, h.2.2.2.2.1⟩
 
-theorem Env.termAgree_declVar {Δ : Signature} {ρ₁ ρ₂ : Env}
+theorem Env.agreeOnTerms_declVar {Δ : Signature} {ρ₁ ρ₂ : Env}
     {x : String} {τ : Srt} {v : τ.denote}
-    (h : Env.termAgree Δ ρ₁ ρ₂) :
-    Env.termAgree (Δ.declVar ⟨x, τ⟩)
+    (h : Env.agreeOnTerms Δ ρ₁ ρ₂) :
+    Env.agreeOnTerms (Δ.declVar ⟨x, τ⟩)
       (ρ₁.updateConst τ x v) (ρ₂.updateConst τ x v) := by
   refine ⟨?_, ?_, ?_, ?_, ?_⟩
   · intro w hw
@@ -786,8 +786,8 @@ theorem Env.termAgree_declVar {Δ : Signature} {ρ₁ ρ₂ : Env}
     exact h.2.2.2.2 t (Signature.remove_subset Δ x |>.ternary t (by
       simpa [Signature.declVar, Signature.addVar] using ht))
 
-theorem Term.eval_termAgree {t : Term τ} {ρ₁ ρ₂ : Env} {Δ : Signature} :
-    t.wfIn Δ → Env.termAgree Δ ρ₁ ρ₂ → Term.eval ρ₁ t = Term.eval ρ₂ t := by
+theorem Term.eval_agreeOnTerms {t : Term τ} {ρ₁ ρ₂ : Env} {Δ : Signature} :
+    t.wfIn Δ → Env.agreeOnTerms Δ ρ₁ ρ₂ → Term.eval ρ₁ t = Term.eval ρ₂ t := by
   intro hwf hagree
   induction t with
   | var τ y => simp [Term.eval, Env.lookupConst]; exact hagree.1 ⟨y, τ⟩ hwf.1
