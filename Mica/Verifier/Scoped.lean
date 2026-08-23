@@ -89,7 +89,7 @@ theorem flatten_addConst (s : State) (c : FOL.Const) :
   simp only [State.flatten, State.allDecls, State.allAsserts,
              State.modifyTop, State.modifyDecls, State.addConst, FlatCtx.addConst]
   cases s.frames with
-  | nil => simp [Signature.addConst]
+  | nil => simp [Frame.empty, Signature.addConst]
   | cons hd tl =>
     cases hd with
     | mk decls asserts =>
@@ -101,7 +101,7 @@ theorem flatten_addUnary (s : State) (u : FOL.Unary) :
   simp only [State.flatten, State.allDecls, State.allAsserts,
              State.modifyTop, State.modifyDecls, State.addUnary, FlatCtx.addUnary]
   cases s.frames with
-  | nil => simp [Signature.addUnary]
+  | nil => simp [Frame.empty, Signature.addUnary]
   | cons hd tl =>
     cases hd with
     | mk decls asserts =>
@@ -113,7 +113,7 @@ theorem flatten_addBinary (s : State) (b : FOL.Binary) :
   simp only [State.flatten, State.allDecls, State.allAsserts,
              State.modifyTop, State.modifyDecls, State.addBinary, FlatCtx.addBinary]
   cases s.frames with
-  | nil => simp [Signature.addBinary]
+  | nil => simp [Frame.empty, Signature.addBinary]
   | cons hd tl =>
     cases hd with
     | mk decls asserts =>
@@ -125,7 +125,7 @@ theorem flatten_addTernary (s : State) (t : FOL.Ternary) :
   simp only [State.flatten, State.allDecls, State.allAsserts,
              State.modifyTop, State.modifyDecls, State.addTernary, FlatCtx.addTernary]
   cases s.frames with
-  | nil => simp [Signature.addTernary]
+  | nil => simp [Frame.empty, Signature.addTernary]
   | cons hd tl =>
     cases hd with
     | mk decls asserts =>
@@ -137,7 +137,7 @@ theorem flatten_addUnaryRel (s : State) (u : FOL.UnaryRel) :
   simp only [State.flatten, State.allDecls, State.allAsserts,
              State.modifyTop, State.modifyDecls, State.addUnaryRel, FlatCtx.addUnaryRel]
   cases s.frames with
-  | nil => simp [Signature.addUnaryRel]
+  | nil => simp [Frame.empty, Signature.addUnaryRel]
   | cons hd tl =>
     cases hd with
     | mk decls asserts =>
@@ -149,7 +149,7 @@ theorem flatten_addBinaryRel (s : State) (b : FOL.BinaryRel) :
   simp only [State.flatten, State.allDecls, State.allAsserts,
              State.modifyTop, State.modifyDecls, State.addBinaryRel, FlatCtx.addBinaryRel]
   cases s.frames with
-  | nil => simp [Signature.addBinaryRel]
+  | nil => simp [Frame.empty, Signature.addBinaryRel]
   | cons hd tl =>
     cases hd with
     | mk decls asserts =>
@@ -261,7 +261,7 @@ theorem ScopedM.translate_preservesFrames {m : ScopedM α} {f : Frame} {fs : Lis
       Strategy.bind_generates_decompose hgen_outer
     cases hgen_cont; rename_i tk_k hgen_k
     dsimp only at hgen_k
-    have hpf_body := @ih_body ⟨Signature.empty, []⟩ (f :: fs) ts_body hgen_body
+    have hpf_body := @ih_body Frame.empty (f :: fs) ts_body hgen_body
     obtain ⟨fbody, _, hfin_body⟩ := hpf_body
     have hpf_k := ih_k a hgen_k (f := f) (fs := fs)
     obtain ⟨f', hext_k, hfin_k⟩ := hpf_k
@@ -449,11 +449,11 @@ theorem ScopedM.eval_bracket {body : ScopedM β} {k : β → ScopedM α}
   dsimp only at hgen_k
   -- Frame preservation: body only extends the pushed frame
   obtain ⟨fbody, _, hfin_body⟩ := @translate_preservesFrames _ body
-    (f := ⟨Signature.empty, []⟩) (fs := st.frames) (t := ts_body) hgen_body
+    (f := Frame.empty) (fs := st.frames) (t := ts_body) hgen_body
   refine ⟨ts_body.result, (ts_body.finalState st.push).flatten, ?_, ?_⟩
   · -- Witness for body: st.push (flattens to ctx)
     refine ⟨st.push, ts_body.finalState st.push, ?_, rfl, ts_body, hgen_body, hsound_body, rfl, rfl⟩
-    simp [State.push, State.flatten, State.allDecls, State.allAsserts, ← hflat]
+    simp [State.push, Frame.empty, State.flatten, State.allDecls, State.allAsserts, ← hflat]
   · -- After body: extract isSound for k from the pop step
     simp only [State.push] at hsound_rest
     rw [hfin_body] at hsound_rest

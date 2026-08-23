@@ -14,6 +14,8 @@ structure Frame where
   decls : Signature
   asserts : List Formula
 
+def Frame.empty : Frame := ⟨Signature.empty, []⟩
+
 structure State where
   frames : List Frame
 
@@ -87,7 +89,7 @@ inductive Result where
 
 namespace State
 
-def initial : State := ⟨[⟨Signature.empty, []⟩]⟩
+def initial : State := ⟨[Frame.empty]⟩
 
 /-- All declarations visible in the current state. -/
 def allDecls (s : State) : Signature :=
@@ -103,7 +105,7 @@ def allAsserts (s : State) : List Formula :=
   s.frames.flatMap (·.asserts)
 
 def push (s : State) : State :=
-  ⟨⟨Signature.empty, []⟩ :: s.frames⟩
+  ⟨Frame.empty :: s.frames⟩
 
 /-- Remove the top frame. `State.initial` has one frame, so the empty stack is
     reachable only through a `pop` with no matching `push`; that case is a no-op. -/
@@ -117,7 +119,7 @@ def pop (s : State) : State :=
     fresh frame. -/
 def modifyTop (s : State) (f : Frame → Frame) : State :=
   match s.frames with
-  | [] => ⟨[f ⟨Signature.empty, []⟩]⟩
+  | [] => ⟨[f Frame.empty]⟩
   | fr :: rest => ⟨f fr :: rest⟩
 
 def modifyDecls (s : State) (f : Signature → Signature) : State :=
