@@ -68,23 +68,26 @@ def toSMTLIB : Command α → String
   | .setOption opt => opt.toSMTLIB
   | .getOption g => g.toSMTLIB
 
+/-- The acknowledgement `print-success` sends for a command with no response. -/
+private def ack (s : String) : Option Unit := if s == "success" then some () else none
+
 /-- Parse the solver's response string for a given command. Returns `none` on unexpected output. -/
 def parse : (cmd : Command α) → String → Option α
-  | .push, s => if s == "success" then some () else none
-  | .pop, s => if s == "success" then some () else none
-  | .declareConst _ _, s => if s == "success" then some () else none
-  | .declareUnary _ _ _, s => if s == "success" then some () else none
-  | .declareBinary _ _ _ _, s => if s == "success" then some () else none
-  | .declareTernary _ _ _ _ _, s => if s == "success" then some () else none
-  | .declareUnaryRel _ _, s => if s == "success" then some () else none
-  | .declareBinaryRel _ _ _, s => if s == "success" then some () else none
-  | .assert _, s => if s == "success" then some () else none
+  | .push, s => ack s
+  | .pop, s => ack s
+  | .declareConst _ _, s => ack s
+  | .declareUnary _ _ _, s => ack s
+  | .declareBinary _ _ _ _, s => ack s
+  | .declareTernary _ _ _ _ _, s => ack s
+  | .declareUnaryRel _ _, s => ack s
+  | .declareBinaryRel _ _ _, s => ack s
+  | .assert _, s => ack s
   | .checkSat, s =>
     if s == "sat" then some .sat
     else if s == "unsat" then some .unsat
     else if s == "unknown" then some .unknown
     else none
-  | .setOption _, s => if s == "success" then some () else none
+  | .setOption _, s => ack s
   | .getOption g, s => g.parse s
 
 end Command
