@@ -376,6 +376,33 @@ partial def elaborateFunctionArgs (env : ElabEnv) (stem : String) :
         let arg ← patternToBinder env pat
         .ok (arg :: restArgs, restBody)
 
+/-- Elaborate the value introduced by a named surface binding. -/
+private partial def elaborateBinding (env : ElabEnv) (loc : Location) (isRec : Bool)
+    (pat : Pattern) (args : List Pattern) (retTy : Option Typ) (bound : Expr) :
+    ElabM (Untyped.Binder × Untyped.Expr) := do
+  match args with
+  | [] =>
+    let name ← patternToBinder env pat
+    let name ← annotateBinder loc name (← elaborateOptTyp env retTy)
+    if isRec then
+      let bound' ← Expr.elaborate (env.bindPattern pat) bound
+      match bound' with
+      | .fix .none fixArgs fixRetTy inner =>
+        .ok (name, .fix name fixArgs fixRetTy inner)
+      | _ => err loc (.unsupportedFeature "let rec requires a function")
+    else do
+      let bound' ← Expr.elaborate env bound
+      .ok (name, bound')
+  | _ =>
+    let name := nameBinder (← patternToName pat)
+    let self := if isRec then name else .none
+    let boundEnv := env.bindPatterns args
+    let boundEnv := if isRec then boundEnv.bindPattern pat else boundEnv
+    let bound' ← Expr.elaborate boundEnv bound
+    let (args', bound'') ← elaborateFunctionArgs env "$param" 0 args bound'
+    let retTy' ← elaborateOptTyp env retTy
+    .ok (name, .fix self args' retTy' bound'')
+
 /-- Elaborate a surface type into the untyped IR's type language: lower its
 kind, then apply any type attributes (`T [@name payload]`) left-to-right.
 Single entry point for every type position, so `[@spec]` is honored wherever a
@@ -701,45 +728,19 @@ partial def ExprKind.elaborate (env : ElabEnv) (loc : Location) : ExprKind → E
   | .letIn isRec binders retTy bound body =>
     match binders with
     | [] => err loc (.unsupportedFeature "let with no binders")
-    | [pat] =>
-      if isRec then do
-        -- `let rec f : T = fun x -> ... in ...`: the literal's self-reference
-        -- is the let's own name, so recursive calls go through its type. The
-        -- same shape a recursive declaration gets.
-        let name ← patternToBinder env pat
-        let name ← annotateBinder loc name (← elaborateOptTyp env retTy)
-        let bound' ← Expr.elaborate (env.bindPattern pat) bound
-        match bound' with
-        | .fix .none args retTy' inner => do
-          let body' ← Expr.elaborate (env.bindPattern pat) body
-          .ok (.letIn name (.fix name args retTy' inner) body')
-        | _ => err loc (.unsupportedFeature "let rec requires a function")
-      else do
+    | pat :: args =>
+      if args.isEmpty && !isRec && isProductPattern pat then do
         let bound' ← Expr.elaborate env bound
         let body' ← Expr.elaborate (env.bindPattern pat) body
-        if isProductPattern pat then
-          if retTy.isSome then
-            err loc (.unsupportedFeature "a destructuring let cannot be annotated")
-          else do
-            let names ← patternToProductBinders env pat
-            .ok (.letProd names bound' body')
+        if retTy.isSome then
+          err loc (.unsupportedFeature "a destructuring let cannot be annotated")
         else do
-          -- With no arguments the annotation is the bound value's own type, so
-          -- it lands on the binder and the bound expression is checked at it.
-          let name ← patternToBinder env pat
-          let name ← annotateBinder loc name (← elaborateOptTyp env retTy)
-          .ok (.letIn name bound' body')
-    | pat :: args => do
-      let name := nameBinder (← patternToName pat)
-      let self := if isRec then name else .none
-      let boundEnv := env.bindPatterns args
-      let boundEnv := if isRec then boundEnv.bindPattern pat else boundEnv
-      let bound' ← Expr.elaborate boundEnv bound
-      let (args', bound'') ← elaborateFunctionArgs env "$param" 0 args bound'
-      let body' ← Expr.elaborate (env.bindPattern pat) body
-      -- With arguments the annotation is the function's return type.
-      let retTy' ← elaborateOptTyp env retTy
-      .ok (.letIn name (.fix self args' retTy' bound'') body')
+          let names ← patternToProductBinders env pat
+          .ok (.letProd names bound' body')
+      else do
+        let (name, bound') ← elaborateBinding env loc isRec pat args retTy bound
+        let body' ← Expr.elaborate (env.bindPattern pat) body
+        .ok (.letIn name bound' body')
 
   | .fun_ [] _ _ =>
     err loc (.unsupportedFeature "function expressions require at least one argument")
@@ -934,31 +935,9 @@ def ValDecl.elaborate (env : ElabEnv) (loc : Location)
     : ElabM (Untyped.ValDecl Untyped.SpecBody) := do
   match binders with
   | [] => err loc (.unsupportedFeature "declaration with no binders")
-  | [pat] =>
-    -- A declaration with no arguments: its annotation is the declaration's own
-    -- type, which is where a `[@spec]` on it belongs.
-    let name ← patternToBinder env pat
-    let name ← annotateBinder loc name (← elaborateOptTyp env retTy)
-    if isRec then
-      -- `let rec f : T = fun x -> ...`: the literal's self-reference is the
-      -- declaration's own name, so recursive calls go through its type.
-      let body' ← Expr.elaborate (env.bindPattern pat) body
-      match body' with
-      | .fix .none args retTy' inner =>
-        .ok { name, body := .fix name args retTy' inner, spec }
-      | _ => err loc (.unsupportedFeature "let rec requires a function")
-    else do
-      let body' ← Expr.elaborate env body
-      .ok { name, body := body', spec }
   | pat :: args =>
-    let name := nameBinder (← patternToName pat)
-    let self := if isRec then name else .none
-    let retTy' ← elaborateOptTyp env retTy
-    let bodyEnv := env.bindPatterns args
-    let bodyEnv := if isRec then bodyEnv.bindPattern pat else bodyEnv
-    let body' ← Expr.elaborate bodyEnv body
-    let (args', body'') ← elaborateFunctionArgs env "$param" 0 args body'
-    .ok { name, body := .fix self args' retTy' body'', spec }
+    let (name, body') ← elaborateBinding env loc isRec pat args retTy body
+    .ok { name, body := body', spec }
 
 -- ---------------------------------------------------------------------------
 -- Program elaboration

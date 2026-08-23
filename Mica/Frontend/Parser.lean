@@ -226,6 +226,12 @@ private def isRecordLiteral : Parser Bool := do
     return [Token.eq, .semi, .rbrace].contains (← peek 1)
   | _ => return false
 
+private structure Binding where
+  isRec   : Bool
+  binders : List Pattern
+  retTy   : Option Typ
+  body    : Expr
+
 mutual
 -- `[@name expr]` — single `@`, optional expression payload.
 private partial def parseAttr (marker : Token) : Parser Attribute := do
@@ -671,17 +677,21 @@ private partial def parseRecordFields : Parser (List (FieldName × Expr)) := do
   else return [(name, e)]
 
 -- `let [rec] pat pat ... [: T] = e in body`
-private partial def parseLet : Parser Expr := exprOf do
+private partial def parseBinding : Parser Binding := do
   expect .kw_let
   let isRec ← consumeIf .kw_rec
   let first ← parsePatternBinder
   let rest ← parseFunArgs
   let retTy ← parseOptRetTy
   expect .eq
-  let bound ← parseExpr
+  let body ← parseExpr
+  return { isRec, binders := first :: rest, retTy, body }
+
+private partial def parseLet : Parser Expr := exprOf do
+  let binding ← parseBinding
   expect .kw_in
   let body ← parseExpr
-  return .letIn isRec (first :: rest) retTy bound body
+  return .letIn binding.isRec binding.binders binding.retTy binding.body body
 
 -- `fun pat pat ... [: T] -> body`
 private partial def parseFun : Parser Expr := exprOf do
@@ -806,13 +816,8 @@ private def parseTypeDecl : Parser DeclKind := do
   return .type_ { params, name, body := ← parseTypeDeclBody }
 
 private def parseValDecl : Parser DeclKind := do
-  expect .kw_let
-  let isRec ← consumeIf .kw_rec
-  let first ← parsePatternBinder
-  let rest ← parseFunArgs
-  let retTy ← parseOptRetTy
-  expect .eq
-  return .val_ isRec (first :: rest) retTy (← parseExpr)
+  let binding ← parseBinding
+  return .val_ binding.isRec binding.binders binding.retTy binding.body
 
 /-- Trailing `[@@name payload]` attributes on a declaration. -/
 private partial def parseDeclAttrs : Parser (List Attribute) := do
