@@ -81,88 +81,101 @@ end FlatCtx
 
 namespace Smt.State
 
-def flatten (s : State) : FlatCtx :=
-  ⟨s.allDecls, s.allAsserts⟩
+/-- The stack seen as one context. The error state has no such view. -/
+def flatten : State → Option FlatCtx
+  | .frames top rest => some ⟨Frame.allDecls (top :: rest), Frame.allAsserts (top :: rest)⟩
+  | .error => none
+
+theorem valid_of_flatten {s : State} {ctx : FlatCtx} (h : s.flatten = some ctx) : s.valid := by
+  cases s with
+  | frames _ _ => trivial
+  | error => simp [flatten] at h
+
+theorem flatten_of_valid {s : State} (hs : s.valid) : ∃ ctx, s.flatten = some ctx := by
+  cases s with
+  | frames top rest => exact ⟨_, rfl⟩
+  | error => exact hs.elim
 
 theorem flatten_addConst (s : State) (c : FOL.Const) :
-    (s.addConst c).flatten = s.flatten.addConst c.name c.sort := by
-  simp only [State.flatten, State.allDecls, State.allAsserts,
-             State.modifyTop, State.modifyDecls, State.addConst, FlatCtx.addConst]
-  cases s.frames with
-  | nil => simp [Frame.empty, Signature.addConst]
-  | cons hd tl =>
-    cases hd with
+    (s.addConst c).flatten = s.flatten.map (·.addConst c.name c.sort) := by
+  cases s with
+  | error => rfl
+  | frames top rest =>
+    cases top with
     | mk decls asserts =>
       cases decls
-      simp [Signature.addConst, List.flatMap, List.cons_append]
+      simp [State.flatten, Frame.allDecls, Frame.allAsserts,
+        State.modifyTop, State.modifyDecls, State.addConst, FlatCtx.addConst,
+        Signature.addConst, List.flatMap, List.cons_append]
 
 theorem flatten_addUnary (s : State) (u : FOL.Unary) :
-    (s.addUnary u).flatten = s.flatten.addUnary u.name u.arg u.ret := by
-  simp only [State.flatten, State.allDecls, State.allAsserts,
-             State.modifyTop, State.modifyDecls, State.addUnary, FlatCtx.addUnary]
-  cases s.frames with
-  | nil => simp [Frame.empty, Signature.addUnary]
-  | cons hd tl =>
-    cases hd with
+    (s.addUnary u).flatten = s.flatten.map (·.addUnary u.name u.arg u.ret) := by
+  cases s with
+  | error => rfl
+  | frames top rest =>
+    cases top with
     | mk decls asserts =>
       cases decls
-      simp [Signature.addUnary, List.flatMap, List.cons_append]
+      simp [State.flatten, Frame.allDecls, Frame.allAsserts,
+        State.modifyTop, State.modifyDecls, State.addUnary, FlatCtx.addUnary,
+        Signature.addUnary, List.flatMap, List.cons_append]
 
 theorem flatten_addBinary (s : State) (b : FOL.Binary) :
-    (s.addBinary b).flatten = s.flatten.addBinary b.name b.arg1 b.arg2 b.ret := by
-  simp only [State.flatten, State.allDecls, State.allAsserts,
-             State.modifyTop, State.modifyDecls, State.addBinary, FlatCtx.addBinary]
-  cases s.frames with
-  | nil => simp [Frame.empty, Signature.addBinary]
-  | cons hd tl =>
-    cases hd with
+    (s.addBinary b).flatten = s.flatten.map (·.addBinary b.name b.arg1 b.arg2 b.ret) := by
+  cases s with
+  | error => rfl
+  | frames top rest =>
+    cases top with
     | mk decls asserts =>
       cases decls
-      simp [Signature.addBinary, List.flatMap, List.cons_append]
+      simp [State.flatten, Frame.allDecls, Frame.allAsserts,
+        State.modifyTop, State.modifyDecls, State.addBinary, FlatCtx.addBinary,
+        Signature.addBinary, List.flatMap, List.cons_append]
 
 theorem flatten_addTernary (s : State) (t : FOL.Ternary) :
-    (s.addTernary t).flatten = s.flatten.addTernary t.name t.arg1 t.arg2 t.arg3 t.ret := by
-  simp only [State.flatten, State.allDecls, State.allAsserts,
-             State.modifyTop, State.modifyDecls, State.addTernary, FlatCtx.addTernary]
-  cases s.frames with
-  | nil => simp [Frame.empty, Signature.addTernary]
-  | cons hd tl =>
-    cases hd with
+    (s.addTernary t).flatten = s.flatten.map (·.addTernary t.name t.arg1 t.arg2 t.arg3 t.ret) := by
+  cases s with
+  | error => rfl
+  | frames top rest =>
+    cases top with
     | mk decls asserts =>
       cases decls
-      simp [Signature.addTernary, List.flatMap, List.cons_append]
+      simp [State.flatten, Frame.allDecls, Frame.allAsserts,
+        State.modifyTop, State.modifyDecls, State.addTernary, FlatCtx.addTernary,
+        Signature.addTernary, List.flatMap, List.cons_append]
 
 theorem flatten_addUnaryRel (s : State) (u : FOL.UnaryRel) :
-    (s.addUnaryRel u).flatten = s.flatten.addUnaryRel u.name u.arg := by
-  simp only [State.flatten, State.allDecls, State.allAsserts,
-             State.modifyTop, State.modifyDecls, State.addUnaryRel, FlatCtx.addUnaryRel]
-  cases s.frames with
-  | nil => simp [Frame.empty, Signature.addUnaryRel]
-  | cons hd tl =>
-    cases hd with
+    (s.addUnaryRel u).flatten = s.flatten.map (·.addUnaryRel u.name u.arg) := by
+  cases s with
+  | error => rfl
+  | frames top rest =>
+    cases top with
     | mk decls asserts =>
       cases decls
-      simp [Signature.addUnaryRel, List.flatMap, List.cons_append]
+      simp [State.flatten, Frame.allDecls, Frame.allAsserts,
+        State.modifyTop, State.modifyDecls, State.addUnaryRel, FlatCtx.addUnaryRel,
+        Signature.addUnaryRel, List.flatMap, List.cons_append]
 
 theorem flatten_addBinaryRel (s : State) (b : FOL.BinaryRel) :
-    (s.addBinaryRel b).flatten = s.flatten.addBinaryRel b.name b.arg1 b.arg2 := by
-  simp only [State.flatten, State.allDecls, State.allAsserts,
-             State.modifyTop, State.modifyDecls, State.addBinaryRel, FlatCtx.addBinaryRel]
-  cases s.frames with
-  | nil => simp [Frame.empty, Signature.addBinaryRel]
-  | cons hd tl =>
-    cases hd with
+    (s.addBinaryRel b).flatten = s.flatten.map (·.addBinaryRel b.name b.arg1 b.arg2) := by
+  cases s with
+  | error => rfl
+  | frames top rest =>
+    cases top with
     | mk decls asserts =>
       cases decls
-      simp [Signature.addBinaryRel, List.flatMap, List.cons_append]
+      simp [State.flatten, Frame.allDecls, Frame.allAsserts,
+        State.modifyTop, State.modifyDecls, State.addBinaryRel, FlatCtx.addBinaryRel,
+        Signature.addBinaryRel, List.flatMap, List.cons_append]
 
 theorem flatten_addAssert (s : State) (φ : Formula) :
-    (s.addAssert φ).flatten = s.flatten.addAssert φ := by
-  simp only [State.flatten, State.allDecls, State.allAsserts,
-             State.modifyTop, State.addAssert, FlatCtx.addAssert]
-  cases s.frames with
-  | nil => rfl
-  | cons hd tl => cases hd; simp [List.flatMap]
+    (s.addAssert φ).flatten = s.flatten.map (·.addAssert φ) := by
+  cases s with
+  | error => rfl
+  | frames top rest =>
+    cases top
+    simp [State.flatten, Frame.allDecls, Frame.allAsserts,
+      State.modifyTop, State.addAssert, FlatCtx.addAssert, List.flatMap]
 
 end Smt.State
 
@@ -170,7 +183,7 @@ end Smt.State
 
 /-- A trace preserves the stack tail and only extends the top frame. -/
 def Smt.Trace.PreservesFrames (t : Trace α) (f : Frame) (fs : List Frame) : Prop :=
-  ∃ f', f.Extends f' ∧ t.finalState ⟨f :: fs⟩ = ⟨f' :: fs⟩
+  ∃ f', f.Extends f' ∧ t.finalState (.frames f fs) = .frames f' fs
 
 /-- Traces generated by `translate m` preserve the stack: they only extend
     the top frame and leave deeper frames unchanged. -/
@@ -271,22 +284,37 @@ theorem ScopedM.translate_preservesFrames {m : ScopedM α} {f : Frame} {fs : Lis
     simp only [hfin_body, Trace.finalState, State.step, State.pop]
     exact hfin_k
 
+/-- A trace of `translate m` never leaves the stack: it starts and ends on a
+    frame stack, never on `State.error`. -/
+theorem ScopedM.translate_valid {m : ScopedM α} {st : State} {t : Trace α}
+    (hgen : Strategy.generates (translate m) t) (hst : st.valid) :
+    (t.finalState st).valid := by
+  cases st with
+  | error => exact hst.elim
+  | frames top rest =>
+    obtain ⟨_, _, hfin⟩ := translate_preservesFrames (f := top) (fs := rest) hgen
+    rw [hfin]
+    trivial
+
 /-! ## ScopedM.eval: Extensional Semantics with Flat Contexts
 
 `ScopedM.eval m ctx Φ` wraps Strategy.eval with flattening: the user works with
 FlatCtx, and the stacked State is existentially hidden. -/
 
 def ScopedM.eval (m : ScopedM α) (ctx : FlatCtx) (ret : α) (ctx' : FlatCtx) : Prop :=
-  ∃ st st', st.flatten = ctx ∧ st'.flatten = ctx'
+  ∃ st st', st.flatten = some ctx ∧ st'.flatten = some ctx'
   ∧ Strategy.eval (translate m) st ret st'
 
 /-! ## Correspondence -/
 
-theorem ScopedM.strategy_eval_initial_implies_ScopedM_eval {m : ScopedM α} {ret : α} {st' : State} :
+theorem ScopedM.strategy_eval_initial_implies_ScopedM_eval {m : ScopedM α} {ret : α}
+    {st' : State} :
     Strategy.eval (translate m) State.initial ret st' →
-    ScopedM.eval m .empty ret st'.flatten := by
-  intro h
-  exact ⟨State.initial, st', rfl, rfl, h⟩
+    ∃ ctx', ScopedM.eval m .empty ret ctx' := by
+  rintro ⟨t, hgen, hsound, rfl, hret⟩
+  obtain ⟨ctx', hflat'⟩ :=
+    State.flatten_of_valid (translate_valid (st := State.initial) hgen trivial)
+  exact ⟨ctx', State.initial, _, rfl, hflat', t, hgen, hsound, rfl, hret⟩
 
 /-! ## Inversion Lemmas -/
 
@@ -296,11 +324,11 @@ theorem ScopedM.eval_ret {a : α} {ctx : FlatCtx} {ret : α} {ctx' : FlatCtx} :
   constructor
   · rintro ⟨st, st', hflat, hflat', heval⟩
     rw [Strategy.eval_done] at heval
-    exact ⟨heval.1, by rw [← hflat, ← hflat', heval.2]⟩
+    exact ⟨heval.1, Option.some_inj.mp (by rw [← hflat, ← hflat', heval.2])⟩
   · rintro ⟨rfl, rfl⟩
-    exact ⟨⟨[⟨ctx'.decls, ctx'.asserts⟩]⟩, ⟨[⟨ctx'.decls, ctx'.asserts⟩]⟩,
-      by simp [State.flatten, State.allDecls, State.allAsserts],
-      by simp [State.flatten, State.allDecls, State.allAsserts],
+    exact ⟨.frames ⟨ctx'.decls, ctx'.asserts⟩ [], .frames ⟨ctx'.decls, ctx'.asserts⟩ [],
+      by simp [State.flatten, Frame.allDecls, Frame.allAsserts],
+      by simp [State.flatten, Frame.allDecls, Frame.allAsserts],
       Strategy.eval_done.mpr ⟨rfl, rfl⟩⟩
 
 theorem ScopedM.eval_declareConst {n : String} {s : Srt}
@@ -310,7 +338,7 @@ theorem ScopedM.eval_declareConst {n : String} {s : Srt}
   simp only [ScopedM.eval, translate]
   rintro ⟨st, st', hflat, hflat', heval⟩
   obtain ⟨_, _, heval⟩ := Strategy.eval_exec.mp heval
-  exact ⟨st.addConst ⟨n, s⟩, st', by simp only [State.flatten_addConst, hflat], hflat', heval⟩
+  exact ⟨st.addConst ⟨n, s⟩, st', by rw [State.flatten_addConst, hflat]; rfl, hflat', heval⟩
 
 theorem ScopedM.eval_declareUnary {n : String} {arg ret : Srt}
     {k : Unit → ScopedM α} {ctx : FlatCtx} {r : α} {ctx' : FlatCtx} :
@@ -319,7 +347,7 @@ theorem ScopedM.eval_declareUnary {n : String} {arg ret : Srt}
   simp only [ScopedM.eval, translate]
   rintro ⟨st, st', hflat, hflat', heval⟩
   obtain ⟨_, _, heval⟩ := Strategy.eval_exec.mp heval
-  exact ⟨st.addUnary ⟨n, arg, ret⟩, st', by simp only [State.flatten_addUnary, hflat], hflat', heval⟩
+  exact ⟨st.addUnary ⟨n, arg, ret⟩, st', by rw [State.flatten_addUnary, hflat]; rfl, hflat', heval⟩
 
 theorem ScopedM.eval_declareBinary {n : String} {arg1 arg2 ret : Srt}
     {k : Unit → ScopedM α} {ctx : FlatCtx} {r : α} {ctx' : FlatCtx} :
@@ -328,8 +356,7 @@ theorem ScopedM.eval_declareBinary {n : String} {arg1 arg2 ret : Srt}
   simp only [ScopedM.eval, translate]
   rintro ⟨st, st', hflat, hflat', heval⟩
   obtain ⟨_, _, heval⟩ := Strategy.eval_exec.mp heval
-  exact ⟨st.addBinary ⟨n, arg1, arg2, ret⟩, st',
-    by simp only [State.flatten_addBinary, hflat], hflat', heval⟩
+  exact ⟨st.addBinary ⟨n, arg1, arg2, ret⟩, st', by rw [State.flatten_addBinary, hflat]; rfl, hflat', heval⟩
 
 theorem ScopedM.eval_declareTernary {n : String} {arg1 arg2 arg3 ret : Srt}
     {k : Unit → ScopedM α} {ctx : FlatCtx} {r : α} {ctx' : FlatCtx} :
@@ -338,8 +365,7 @@ theorem ScopedM.eval_declareTernary {n : String} {arg1 arg2 arg3 ret : Srt}
   simp only [ScopedM.eval, translate]
   rintro ⟨st, st', hflat, hflat', heval⟩
   obtain ⟨_, _, heval⟩ := Strategy.eval_exec.mp heval
-  exact ⟨st.addTernary ⟨n, arg1, arg2, arg3, ret⟩, st',
-    by simp only [State.flatten_addTernary, hflat], hflat', heval⟩
+  exact ⟨st.addTernary ⟨n, arg1, arg2, arg3, ret⟩, st', by rw [State.flatten_addTernary, hflat]; rfl, hflat', heval⟩
 
 theorem ScopedM.eval_declareUnaryRel {n : String} {arg : Srt}
     {k : Unit → ScopedM α} {ctx : FlatCtx} {r : α} {ctx' : FlatCtx} :
@@ -348,8 +374,7 @@ theorem ScopedM.eval_declareUnaryRel {n : String} {arg : Srt}
   simp only [ScopedM.eval, translate]
   rintro ⟨st, st', hflat, hflat', heval⟩
   obtain ⟨_, _, heval⟩ := Strategy.eval_exec.mp heval
-  exact ⟨st.addUnaryRel ⟨n, arg⟩, st',
-    by simp only [State.flatten_addUnaryRel, hflat], hflat', heval⟩
+  exact ⟨st.addUnaryRel ⟨n, arg⟩, st', by rw [State.flatten_addUnaryRel, hflat]; rfl, hflat', heval⟩
 
 theorem ScopedM.eval_declareBinaryRel {n : String} {arg1 arg2 : Srt}
     {k : Unit → ScopedM α} {ctx : FlatCtx} {r : α} {ctx' : FlatCtx} :
@@ -358,8 +383,7 @@ theorem ScopedM.eval_declareBinaryRel {n : String} {arg1 arg2 : Srt}
   simp only [ScopedM.eval, translate]
   rintro ⟨st, st', hflat, hflat', heval⟩
   obtain ⟨_, _, heval⟩ := Strategy.eval_exec.mp heval
-  exact ⟨st.addBinaryRel ⟨n, arg1, arg2⟩, st',
-    by simp only [State.flatten_addBinaryRel, hflat], hflat', heval⟩
+  exact ⟨st.addBinaryRel ⟨n, arg1, arg2⟩, st', by rw [State.flatten_addBinaryRel, hflat]; rfl, hflat', heval⟩
 
 theorem ScopedM.eval_assert {e : Formula}
     {k : Unit → ScopedM α} {ctx : FlatCtx} {ret : α} {ctx' : FlatCtx} :
@@ -368,7 +392,7 @@ theorem ScopedM.eval_assert {e : Formula}
   simp only [ScopedM.eval, translate]
   rintro ⟨st, st', hflat, hflat', heval⟩
   obtain ⟨_, _, heval⟩ := Strategy.eval_exec.mp heval
-  exact ⟨st.addAssert e, st', by rw [State.flatten_addAssert, hflat], hflat', heval⟩
+  exact ⟨st.addAssert e, st', by rw [State.flatten_addAssert, hflat]; rfl, hflat', heval⟩
 
 theorem ScopedM.eval_checkSat {k : Result → ScopedM α} {ctx : FlatCtx} {ret : α} {ctx' : FlatCtx} :
     ScopedM.eval (.checkSat k) ctx ret ctx' →
@@ -378,11 +402,15 @@ theorem ScopedM.eval_checkSat {k : Result → ScopedM α} {ctx : FlatCtx} {ret :
   simp only [ScopedM.eval, translate]
   rintro ⟨st, st', hflat, hflat', heval⟩
   obtain ⟨resp, hobl, heval⟩ := Strategy.eval_exec.mp heval
-  have hctx : ctx.decls = st.allDecls ∧ ctx.asserts = st.allAsserts := by
-    rw [← hflat]; exact ⟨rfl, rfl⟩
   cases resp with
   | sat => right; left; exact ⟨st, st', hflat, hflat', heval⟩
-  | unsat => left; rw [hctx.1, hctx.2]; exact ⟨hobl, st, st', hflat, hflat', heval⟩
+  | unsat =>
+    left
+    cases st with
+    | error => exact (State.valid_of_flatten hflat).elim
+    | frames top rest =>
+      cases Option.some.inj hflat
+      exact ⟨hobl, _, st', hflat, hflat', heval⟩
   | unknown => right; right; exact ⟨st, st', hflat, hflat', heval⟩
 
 theorem ScopedM.eval_setOption {s : Smt.Options.Settable}
@@ -408,40 +436,46 @@ theorem ScopedM.eval_bracket {body : ScopedM β} {k : β → ScopedM α}
     ScopedM.eval (.bracket body k) ctx ret ctx' →
       ∃ b ctx_body, ScopedM.eval body ctx b ctx_body ∧ ScopedM.eval (k b) ctx ret ctx' := by
   simp only [ScopedM.eval, translate, Strategy.eval]
-  -- Forward: decompose bracket trace into body + k
-  rintro ⟨st, st', hflat, hflat', t, hgen, hsound, hst', hret⟩
-  -- t = .step .push () bind_trace where bind_trace is (translate body).bind (...)
-  cases hgen; rename_i bind_trace _ hgen_bind
-  dsimp only at hgen_bind
-  have hsound_inner : Trace.isSound st.push bind_trace := hsound.step_rest
-  -- Decompose the bind trace
-  obtain ⟨a, ts_body, tk_rest, hgen_body, hgen_cont, hres_body, hsound_body, hsound_rest,
-          hfin_bind, hres_bind⟩ :=
-    Strategy.bind_isSound_decompose hgen_bind hsound_inner
-  cases hgen_cont; rename_i tk_k _ hgen_k
-  dsimp only at hgen_k
-  -- Frame preservation: body only extends the pushed frame
-  obtain ⟨fbody, _, hfin_body⟩ := @translate_preservesFrames _ body
-    (f := Frame.empty) (fs := st.frames) (t := ts_body) hgen_body
-  refine ⟨ts_body.result, (ts_body.finalState st.push).flatten, ?_, ?_⟩
-  · -- Witness for body: st.push (flattens to ctx)
-    refine ⟨st.push, ts_body.finalState st.push, ?_, rfl, ts_body, hgen_body, hsound_body, rfl, rfl⟩
-    simp [State.push, Frame.empty, State.flatten, State.allDecls, State.allAsserts, ← hflat]
-  · -- After body: extract isSound for k from the pop step
-    simp only [State.push] at hsound_rest
-    rw [hfin_body] at hsound_rest
-    simp only [Trace.isSound, State.step, State.pop] at hsound_rest
-    -- Simplify hst' through the full trace
-    simp only [Trace.finalState, State.step, State.push] at hst'
-    rw [hfin_bind, hfin_body] at hst'
-    simp only [Trace.finalState, State.step, State.pop] at hst'
-    -- Simplify hret
-    simp only [Trace.result] at hret
-    rw [hres_bind] at hret
-    simp only [Trace.result] at hret
-    rw [← hres_body] at hgen_k
-    refine ⟨⟨st.frames⟩, st', ?_, hflat', tk_k, hgen_k, hsound_rest.2, hst', hret⟩
-    cases st; exact hflat
+  intro h
+  obtain ⟨st, st', hflat, hflat', t, hgen, hsound, hst', hret⟩ := h
+  cases st with
+  | error => exact (State.valid_of_flatten hflat).elim
+  | frames top rest =>
+    -- t = .step .push () bind_trace where bind_trace is (translate body).bind (...)
+    cases hgen; rename_i bind_trace _ hgen_bind
+    dsimp only at hgen_bind
+    have hsound_inner := hsound.step_rest
+    -- Decompose the bind trace
+    obtain ⟨a, ts_body, tk_rest, hgen_body, hgen_cont, hres_body, hsound_body, hsound_rest,
+            hfin_bind, hres_bind⟩ :=
+      Strategy.bind_isSound_decompose hgen_bind hsound_inner
+    cases hgen_cont; rename_i tk_k _ hgen_k
+    dsimp only at hgen_k
+    -- Frame preservation: body only extends the pushed frame
+    obtain ⟨fbody, _, hfin_body⟩ := @translate_preservesFrames _ body
+      (f := Frame.empty) (fs := top :: rest) (t := ts_body) hgen_body
+    obtain ⟨ctx_body, hflat_body⟩ :=
+      State.flatten_of_valid (translate_valid (st := (State.frames top rest).push) hgen_body trivial)
+    refine ⟨ts_body.result, ctx_body, ?_, ?_⟩
+    · -- Witness for body: the pushed state, which flattens to ctx
+      refine ⟨(State.frames top rest).push, ts_body.finalState (State.frames top rest).push,
+        ?_, hflat_body, ts_body, hgen_body, hsound_body, rfl, rfl⟩
+      rw [← hflat]
+      rfl
+    · -- After body: extract isSound for k from the pop step
+      simp only [State.step, State.push] at hsound_rest
+      rw [hfin_body] at hsound_rest
+      simp only [Trace.isSound, State.step, State.pop] at hsound_rest
+      -- Simplify hst' through the full trace
+      simp only [Trace.finalState, State.step, State.push] at hst'
+      rw [hfin_bind, hfin_body] at hst'
+      simp only [Trace.finalState, State.step, State.pop] at hst'
+      -- Simplify hret
+      simp only [Trace.result] at hret
+      rw [hres_bind] at hret
+      simp only [Trace.result] at hret
+      rw [← hres_body] at hgen_k
+      exact ⟨.frames top rest, st', hflat, hflat', tk_k, hgen_k, hsound_rest.2, hst', hret⟩
 
 /-! ## ScopedM.bind -/
 
@@ -505,9 +539,11 @@ theorem ScopedM.eval_bind {m : ScopedM α} {k : α → ScopedM β}
   -- Decompose the bind trace
   obtain ⟨a, ts, tk, hgen_s, hgen_k, hres_s, hsound_s, hsound_k, hfin, hresult⟩ :=
     Strategy.bind_isSound_decompose hgen hsound
-  refine ⟨a, (ts.finalState st).flatten, ?_, ?_⟩
-  · exact ⟨st, ts.finalState st, hflat, rfl, ts, hgen_s, hsound_s, rfl, hres_s.symm⟩
-  · refine ⟨ts.finalState st, st', rfl, hflat', tk, ?_, hsound_k, ?_, ?_⟩
+  obtain ⟨ctx_mid, hmid⟩ :=
+    State.flatten_of_valid (translate_valid hgen_s (State.valid_of_flatten hflat))
+  refine ⟨a, ctx_mid, ?_, ?_⟩
+  · exact ⟨st, ts.finalState st, hflat, hmid, ts, hgen_s, hsound_s, rfl, hres_s.symm⟩
+  · refine ⟨ts.finalState st, st', hmid, hflat', tk, ?_, hsound_k, ?_, ?_⟩
     · subst hres_s; exact hgen_k
     · rw [← hfin, hst']
     · rw [← hresult, hret]

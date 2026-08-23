@@ -32,9 +32,11 @@ at that point are genuinely unsatisfiable.
 We do not require anything of `sat` or `unknown` responses — the checker must
 handle those conservatively. -/
 
-/-- What one reply must justify. Only `unsat` carries an obligation. -/
+/-- What one reply must justify. Only `unsat` carries an obligation, and only
+    for a valid frame stack. -/
 def obligation : Command β → β → State → Prop
-  | .checkSat, .unsat, s => ¬ State.satisfiable s.allDecls s.allAsserts
+  | .checkSat, .unsat, .frames top rest =>
+      ¬ State.satisfiable (Frame.allDecls (top :: rest)) (Frame.allAsserts (top :: rest))
   | _, _, _ => True
 
 def isSound : State → Trace α → Prop

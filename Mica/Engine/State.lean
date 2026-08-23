@@ -15,8 +15,32 @@ structure Frame where
 
 def Frame.empty : Frame := ⟨Signature.empty, []⟩
 
-structure State where
-  frames : List Frame
+/-- All declarations of a stack of frames, innermost frame first. -/
+def Frame.allDecls (fs : List Frame) : Signature :=
+  ⟨fs.flatMap (·.decls.vars),
+   fs.flatMap (·.decls.consts),
+   fs.flatMap (·.decls.unary),
+   fs.flatMap (·.decls.binary),
+   fs.flatMap (·.decls.ternary),
+   fs.flatMap (·.decls.unaryRel),
+   fs.flatMap (·.decls.binaryRel)⟩
+
+/-- All assertions of a stack of frames, innermost frame first. -/
+def Frame.allAsserts (fs : List Frame) : List Formula :=
+  fs.flatMap (·.asserts)
+
+/-- The solver state: a stack of frames that is never empty, or `error`.
+
+`error` records that an invalid configuration was entered — a `pop` with no
+matching `push`. -/
+inductive State where
+  | frames (top : Frame) (rest : List Frame)
+  | error
+
+/-- The state is a stack of frames rather than `error`. -/
+def State.valid : State → Prop
+  | .frames _ _ => True
+  | .error => False
 
 /-! ## Frame.Extends -/
 
@@ -89,38 +113,23 @@ inductive Result where
 
 namespace State
 
-def initial : State := ⟨[Frame.empty]⟩
+def initial : State := .frames Frame.empty []
 
-/-- All declarations visible in the current state. -/
-def allDecls (s : State) : Signature :=
-  ⟨s.frames.flatMap (·.decls.vars),
-   s.frames.flatMap (·.decls.consts),
-   s.frames.flatMap (·.decls.unary),
-   s.frames.flatMap (·.decls.binary),
-   s.frames.flatMap (·.decls.ternary),
-   s.frames.flatMap (·.decls.unaryRel),
-   s.frames.flatMap (·.decls.binaryRel)⟩
+def push : State → State
+  | .frames top rest => .frames Frame.empty (top :: rest)
+  | .error => .error
 
-def allAsserts (s : State) : List Formula :=
-  s.frames.flatMap (·.asserts)
+/-- Remove the top frame. A `pop` with no matching `push` enters the
+    `error` state. -/
+def pop : State → State
+  | .frames _ (top :: rest) => .frames top rest
+  | .frames _ [] => .error
+  | .error => .error
 
-def push (s : State) : State :=
-  ⟨Frame.empty :: s.frames⟩
-
-/-- Remove the top frame. `State.initial` has one frame, so the empty stack is
-    reachable only through a `pop` with no matching `push`; that case is a no-op. -/
-def pop (s : State) : State :=
-  match s.frames with
-  | [] => s
-  | _ :: rest => ⟨rest⟩
-
-/-- Apply `f` to the top frame. `State.initial` has one frame, so the empty stack
-    is reachable only through a `pop` with no matching `push`; that case starts a
-    fresh frame. -/
 def modifyTop (s : State) (f : Frame → Frame) : State :=
-  match s.frames with
-  | [] => ⟨[f Frame.empty]⟩
-  | fr :: rest => ⟨f fr :: rest⟩
+  match s with
+  | .frames top rest => .frames (f top) rest
+  | .error => .error
 
 def modifyDecls (s : State) (f : Signature → Signature) : State :=
   s.modifyTop (fun fr => ⟨f fr.decls, fr.asserts⟩)
