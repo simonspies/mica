@@ -891,7 +891,6 @@ theorem Term.const_wfIn_addConst_of_fresh {Δ : Signature} {c : FOL.Const}
 
 /-! ### Vallist projections -/
 
--- Projection helpers for repeated `vtail` and indexed `vhead` access on `vallist` terms.
 /-- Apply `vtail` n times to a vallist term. -/
 def vtailN (t : Term .vallist) : Nat → Term .vallist
   | 0     => t

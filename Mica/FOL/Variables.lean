@@ -44,7 +44,7 @@ structure Var where
 abbrev VarCtx := List Var
 
 -- ---------------------------------------------------------------------------
--- Signature: extends VarCtx with named function symbols
+-- Signature: a VarCtx plus named function and relation symbols
 -- ---------------------------------------------------------------------------
 
 namespace FOL
