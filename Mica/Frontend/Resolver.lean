@@ -1,6 +1,5 @@
 -- SUMMARY: Central registry resolving qualified prelude paths to values, types, and constructors.
 import Mica.Frontend.AST
-import Mica.SourceTinyML.Types
 
 /-!
 This file is the single frontend entry point for prelude qualified paths

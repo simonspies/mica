@@ -15,7 +15,6 @@ namespace Frontend
 
 inductive ParseErrorKind where
   | unexpectedToken (expected : String) (got : Token)
-  | unexpectedEof
   | nonPositiveProjIndex
   | funNoArgs
   | nonFinalLowercaseSegment (segment : String)
@@ -32,7 +31,6 @@ def ParseError.toString (e : ParseError) : String :=
   let loc := s!"{e.loc.start.file}:{e.loc.start.line}:{e.loc.start.col}"
   match e.kind with
   | .unexpectedToken exp got => s!"{loc}: expected {exp}, got '{got}'"
-  | .unexpectedEof => s!"{loc}: unexpected end of file"
   | .nonPositiveProjIndex => s!"{loc}: projection index must be at least 1 (projections are 1-based)"
   | .funNoArgs => s!"{loc}: function expressions require at least one argument"
   | .nonFinalLowercaseSegment seg => s!"{loc}: qualified path segment '{seg}' is lowercase, but only the final component of a module path may be lowercase"
@@ -58,7 +56,6 @@ instance : ToString FrontendError := ⟨FrontendError.toString⟩
 -- Parser state and monad
 
 private structure ParserState where
-  file   : String
   tokens : Array (Location × Token)
   pos    : Nat
 
@@ -863,7 +860,7 @@ private partial def parseProgram : Parser Program := do
 /-- Lex and parse `source` (file named `file`). -/
 def parseFile (file : String) (source : String) : Except FrontendError Program := do
   let tokens ← (tokenize file source).mapError .lexError
-  let st : ParserState := { file, tokens, pos := 0 }
+  let st : ParserState := { tokens, pos := 0 }
   let (prog, _) ← (parseProgram st).mapError .parseError
   .ok prog
 
