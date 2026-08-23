@@ -1,0 +1,2 @@
+elaboration error: Tests/polymorphism/record_type_params.ml:7:1: unsupported feature: type parameters on a record declaration
+[1]

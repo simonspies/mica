@@ -1,0 +1,2 @@
+elaboration error: Tests/polymorphism/unbound_record_field_type_var.ml:6:1: unbound type variable 'b
+[1]

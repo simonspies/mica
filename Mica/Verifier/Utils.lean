@@ -18,7 +18,7 @@ def extractArgNames : List Typed.Binder → List String →
   | ⟨some x, _⟩ :: rest, _ :: specRest => do
       let tail ← extractArgNames rest specRest
       .ok (x :: tail)
-  | _, _ => .error "argument mismatch"
+  | _, _ => .error "spec argument count does not match function arity"
 
 theorem extractArgNames_spec {argBinders : List Typed.Binder}
     {specArgs : List String} {names : List String}

@@ -75,7 +75,7 @@ mutual
     | .empty      => iprop(False)
     | .arrow _ _ none     => iprop(False)
     | .arrow args ret (some s) => s.isPrecondFor W R args ret v
-    | .tvar _     => iprop(False)
+    | .tvar a     => (W.eta a).holds v
     | .ref t      => iprop(∃ l, ⌜v = .loc l⌝ ∗ locinv l (fun w => R w t))
     | .array t    => iprop(∃ len l, ⌜v = .array len l⌝ ∗ arrayinv len l (fun w => R w t))
     | .ownedArray _ => iprop(∃ len l, ⌜v = .array len l⌝)
@@ -397,9 +397,11 @@ mutual
     match t with
     | .prim _ =>
         exact PrimitiveType.valRelBody_persistent _ v
-    | .value | .empty | .arrow _ _ none | .arrow _ _ (some _) | .tvar _ | .owned _
+    | .value | .empty | .arrow _ _ none | .arrow _ _ (some _) | .owned _
     | .ownedArray _ =>
         infer_instance
+    | .tvar a =>
+        exact (W.eta a).persistent v
     | .ref _ =>
         have := locinv_persistent
         infer_instance
@@ -537,6 +539,10 @@ theorem ValHasType.arrow_some (W : World) (v : Runtime.Val) (args : List Typ) (r
     ValHasType W v (.arrow args ret (some s)) ⊣⊢
       s.isPrecondFor W (ValHasType W) args ret v := by
   exact equiv_iff.mp (ValHasType.unfold W v (.arrow args ret (some s)))
+
+theorem ValHasType.tvar (W : World) (v : Runtime.Val) (a : TyVar) :
+    ValHasType W v (.tvar a) ⊣⊢ (W.eta a).holds v := by
+  exact equiv_iff.mp (ValHasType.unfold W v (.tvar a))
 
 theorem ValHasType.ref (W : World) (v : Runtime.Val) (t : Typ) :
     ValHasType W v (.ref t) ⊣⊢
@@ -829,6 +835,498 @@ theorem ValsHaveTypes.of_getElem? {W : World} :
       iapply (ValsHaveTypes.of_getElem? (W := W) (vs := vs) (ts := ts) (n := n) (t := t') h')
       iexact Hvs
 
+
+/-! ### Instantiating type variables
+
+    ValHasType (W.afterInstantiating σ) v t ⊣⊢ ValHasType W v (Typ.subst σ t)
+
+A declaration is verified in the world interpreting its variables arbitrarily; a
+use site needs the statement back at the types it chose.
+
+The structural layer comes first, one entailment per direction, parametric in
+the outer approximation and the named-type continuation as `ValRelBody.mono_int`
+is. The fixpoints are closed afterwards: the inner by its induction principle,
+the outer by uniqueness. -/
+
+section Subst
+
+variable {σ : TyVar → Typ}
+
+/-- Each variable interpreted by the type `σ` sends it to. Variables `σ` leaves
+alone keep the meaning `W` gave them, since interpreting `.tvar a` reads `W.eta`
+back. -/
+def SemTypeAssign.ofSubst (W : World) (σ : TyVar → Typ) : SemTypeAssign :=
+  fun a => ⟨fun v => ValHasType W v (σ a), fun _ => inferInstance⟩
+
+/-- The world a declaration instantiated at `σ` is verified in. -/
+def World.afterInstantiating (W : World) (σ : TyVar → Typ) : World :=
+  { W with eta := SemTypeAssign.ofSubst W σ }
+
+@[simp] theorem World.afterInstantiating_eta (W : World) (σ : TyVar → Typ) (a : TyVar)
+    (v : Runtime.Val) : ((W.afterInstantiating σ).eta a).holds v = ValHasType W v (σ a) := rfl
+
+/-- A variable the substitution leaves alone keeps the meaning `W` gave it. -/
+theorem World.afterInstantiating_eta_tvar {σ : TyVar → Typ} (W : World) {a : TyVar}
+    (ha : σ a = .tvar a) (v : Runtime.Val) :
+    ((W.afterInstantiating σ).eta a).holds v ⊣⊢ (W.eta a).holds v := by
+  rw [World.afterInstantiating_eta, ha]
+  exact ValHasType.tvar W v a
+
+/-! Only the assignment changes, so every condition stated about a world carries
+over. -/
+
+@[simp] theorem World.afterInstantiating_pctx (W : World) (σ : TyVar → Typ) :
+    (W.afterInstantiating σ).pctx = W.pctx := rfl
+
+@[simp] theorem World.afterInstantiating_Θ (W : World) (σ : TyVar → Typ) :
+    (W.afterInstantiating σ).Θ = W.Θ := rfl
+
+@[simp] theorem World.afterInstantiating_Δ_spec (W : World) (σ : TyVar → Typ) :
+    (W.afterInstantiating σ).Δ_spec = W.Δ_spec := rfl
+
+@[simp] theorem World.afterInstantiating_ρ_spec (W : World) (σ : TyVar → Typ) :
+    (W.afterInstantiating σ).ρ_spec = W.ρ_spec := rfl
+
+theorem World.wf.afterInstantiating {W : World} (h : W.wf) (σ : TyVar → Typ) :
+    (W.afterInstantiating σ).wf :=
+  ⟨h.wf, h.vars⟩
+
+theorem World.agrees.afterInstantiating {W : World} {Δ : Signature} {ρ : Env} (h : W.agrees Δ ρ)
+    (σ : TyVar → Typ) : (W.afterInstantiating σ).agrees Δ ρ :=
+  ⟨h.subset, h.agree⟩
+
+/-- Specifications read only the world's fixed model, never its assignment. -/
+private theorem isPrecondFor_eta (W : World) (η : SemTypeAssign) :
+    Spec.isPrecondFor { W with eta := η } = Spec.isPrecondFor W := rfl
+
+mutual
+
+private theorem ValRelBody.subst_mp {W : World} {η : SemTypeAssign} {R R' : ValueRelation}
+    {k k' : RecCont} (hR : ∀ w t, R' w t ≡ R w (Typ.subst σ t))
+    (heta : ∀ a w, (η a).holds w ⊢ ValRelBody W R w (σ a) k)
+    (t : Typ) (v : Runtime.Val) :
+    ⊢ □ (∀ w T args, k' w T args -∗ k w T (args.map (Typ.subst σ))) -∗
+      (ValRelBody { W with eta := η } R' v t k' -∗
+        ValRelBody W R v (Typ.subst σ t) k : iProp) := by
+  match t with
+  | .prim _ | .value | .empty | .arrow _ _ none | .ownedArray _ | .owned _ =>
+      simp only [Typ.subst, Typ.substList_eq, Typ.substSpec?, ValRelBody]
+      iintro _ H
+      iexact H
+  | .tvar a =>
+      simp only [Typ.subst, ValRelBody]
+      iintro _ H
+      iapply (heta a v)
+      iexact H
+  | .arrow args ret (some s) =>
+      simp only [Typ.subst, Typ.substList_eq, Typ.substSpec?, ValRelBody, isPrecondFor_eta]
+      iintro _ H
+      iapply (Spec.isPrecondFor_subst (W := W)
+        (fun w u => equiv_iff.mp (hR w u)) args ret v s).1
+      iexact H
+  | .ref u =>
+      simp only [Typ.subst, ValRelBody]
+      iintro _ ⟨%l, %heq, Hinv⟩
+      iexists l
+      isplitr
+      · ipureintro
+        exact heq
+      · iapply (equiv_iff.mp (equiv_dist.mpr fun _ =>
+          Contractive.distLater_dist (f := fun I : Runtime.Val → iProp => locinv l I)
+            fun _ _ w => (hR w u).dist)).1
+        iexact Hinv
+  | .array u =>
+      simp only [Typ.subst, ValRelBody]
+      iintro _ ⟨%len, %l, %heq, Hinv⟩
+      iexists len, l
+      isplitr
+      · ipureintro
+        exact heq
+      · iapply (equiv_iff.mp (equiv_dist.mpr fun _ =>
+          Contractive.distLater_dist (f := fun I : Runtime.Val → iProp => arrayinv len l I)
+            fun _ _ w => (hR w u).dist)).1
+        iexact Hinv
+  | .vec u =>
+      simp only [Typ.subst, ValRelBody]
+      iintro #Hk ⟨%vs, %heq, Hvs⟩
+      iexists vs
+      isplitr
+      · ipureintro
+        exact heq
+      · iapply BigSepL.bigSepL_impl $$ Hvs
+        imodintro
+        iintro %i %w %hget
+        iapply (ValRelBody.subst_mp hR heta u w)
+        iexact Hk
+  | .named T args =>
+      simp only [Typ.subst, Typ.substList_eq, ValRelBody]
+      iintro #Hk Hv
+      iapply Hk
+      iexact Hv
+  | .tuple ts =>
+      simp only [Typ.subst, Typ.substList_eq, ValRelBody]
+      iintro #Hk ⟨%vs, %heq, Hvs⟩
+      iexists vs
+      isplitr
+      · ipureintro
+        exact heq
+      · iapply (ValsRelBody.subst_mp hR heta ts vs)
+        · iexact Hk
+        · iexact Hvs
+  | .sum ts =>
+      simp only [Typ.subst, Typ.substList_eq, ValRelBody]
+      iintro #Hk ⟨%tag, %payload, %heq, Hsum⟩
+      iexists tag, payload
+      isplitr
+      · ipureintro
+        simpa using heq
+      · iapply (ValSumRelBody.subst_mp hR heta ts tag payload)
+        · iexact Hk
+        · iexact Hsum
+
+private theorem ValsRelBody.subst_mp {W : World} {η : SemTypeAssign} {R R' : ValueRelation}
+    {k k' : RecCont} (hR : ∀ w t, R' w t ≡ R w (Typ.subst σ t))
+    (heta : ∀ a w, (η a).holds w ⊢ ValRelBody W R w (σ a) k)
+    (ts : List Typ) (vs : List Runtime.Val) :
+    ⊢ □ (∀ w T args, k' w T args -∗ k w T (args.map (Typ.subst σ))) -∗
+      (ValsRelBody { W with eta := η } R' vs ts k' -∗
+        ValsRelBody W R vs (ts.map (Typ.subst σ)) k : iProp) := by
+  match vs, ts with
+  | [], [] =>
+      simp only [List.map_nil, ValsRelBody]
+      iintro _ H
+      iexact H
+  | v :: vs, t :: ts =>
+      simp only [List.map_cons, ValsRelBody]
+      iintro #Hk ⟨Hv, Hvs⟩
+      isplitl [Hv]
+      · iapply (ValRelBody.subst_mp hR heta t v)
+        · iexact Hk
+        · iexact Hv
+      · iapply (ValsRelBody.subst_mp hR heta ts vs)
+        · iexact Hk
+        · iexact Hvs
+  | [], _ :: _ | _ :: _, [] =>
+      simp only [List.map_nil, List.map_cons, ValsRelBody]
+      iintro _ H
+      iexact H
+
+private theorem ValSumRelBody.subst_mp {W : World} {η : SemTypeAssign} {R R' : ValueRelation}
+    {k k' : RecCont} (hR : ∀ w t, R' w t ≡ R w (Typ.subst σ t))
+    (heta : ∀ a w, (η a).holds w ⊢ ValRelBody W R w (σ a) k)
+    (ts : List Typ) (tag : Nat) (payload : Runtime.Val) :
+    ⊢ □ (∀ w T args, k' w T args -∗ k w T (args.map (Typ.subst σ))) -∗
+      (ValSumRelBody { W with eta := η } R' tag payload ts k' -∗
+        ValSumRelBody W R tag payload (ts.map (Typ.subst σ)) k : iProp) := by
+  match tag, ts with
+  | _, [] =>
+      simp only [List.map_nil, ValSumRelBody]
+      iintro _ H
+      iexact H
+  | 0, t :: _ =>
+      simp only [List.map_cons, ValSumRelBody]
+      iintro #Hk Hv
+      iapply (ValRelBody.subst_mp hR heta t payload)
+      · iexact Hk
+      · iexact Hv
+  | n + 1, _ :: ts =>
+      simp only [List.map_cons, ValSumRelBody]
+      iintro #Hk Hv
+      iapply (ValSumRelBody.subst_mp hR heta ts n payload)
+      · iexact Hk
+      · iexact Hv
+
+end
+
+mutual
+
+private theorem ValRelBody.subst_mpr {W : World} {η : SemTypeAssign} {R R' : ValueRelation}
+    {k k' : RecCont} (hR : ∀ w t, R' w t ≡ R w (Typ.subst σ t))
+    (heta : ∀ a w, ValRelBody W R w (σ a) k ⊢ (η a).holds w)
+    (t : Typ) (v : Runtime.Val) :
+    ⊢ □ (∀ w T args, k w T (args.map (Typ.subst σ)) -∗ k' w T args) -∗
+      (ValRelBody W R v (Typ.subst σ t) k -∗
+        ValRelBody { W with eta := η } R' v t k' : iProp) := by
+  match t with
+  | .prim _ | .value | .empty | .arrow _ _ none | .ownedArray _ | .owned _ =>
+      simp only [Typ.subst, Typ.substList_eq, Typ.substSpec?, ValRelBody]
+      iintro _ H
+      iexact H
+  | .tvar a =>
+      simp only [Typ.subst, ValRelBody]
+      iintro _ H
+      iapply (heta a v)
+      iexact H
+  | .arrow args ret (some s) =>
+      simp only [Typ.subst, Typ.substList_eq, Typ.substSpec?, ValRelBody, isPrecondFor_eta]
+      iintro _ H
+      iapply (Spec.isPrecondFor_subst (W := W)
+        (fun w u => equiv_iff.mp (hR w u)) args ret v s).2
+      iexact H
+  | .ref u =>
+      simp only [Typ.subst, ValRelBody]
+      iintro _ ⟨%l, %heq, Hinv⟩
+      iexists l
+      isplitr
+      · ipureintro
+        exact heq
+      · iapply (equiv_iff.mp (equiv_dist.mpr fun _ =>
+          Contractive.distLater_dist (f := fun I : Runtime.Val → iProp => locinv l I)
+            fun _ _ w => (hR w u).dist)).2
+        iexact Hinv
+  | .array u =>
+      simp only [Typ.subst, ValRelBody]
+      iintro _ ⟨%len, %l, %heq, Hinv⟩
+      iexists len, l
+      isplitr
+      · ipureintro
+        exact heq
+      · iapply (equiv_iff.mp (equiv_dist.mpr fun _ =>
+          Contractive.distLater_dist (f := fun I : Runtime.Val → iProp => arrayinv len l I)
+            fun _ _ w => (hR w u).dist)).2
+        iexact Hinv
+  | .vec u =>
+      simp only [Typ.subst, ValRelBody]
+      iintro #Hk ⟨%vs, %heq, Hvs⟩
+      iexists vs
+      isplitr
+      · ipureintro
+        exact heq
+      · iapply BigSepL.bigSepL_impl $$ Hvs
+        imodintro
+        iintro %i %w %hget
+        iapply (ValRelBody.subst_mpr hR heta u w)
+        iexact Hk
+  | .named T args =>
+      simp only [Typ.subst, Typ.substList_eq, ValRelBody]
+      iintro #Hk Hv
+      iapply Hk
+      iexact Hv
+  | .tuple ts =>
+      simp only [Typ.subst, Typ.substList_eq, ValRelBody]
+      iintro #Hk ⟨%vs, %heq, Hvs⟩
+      iexists vs
+      isplitr
+      · ipureintro
+        exact heq
+      · iapply (ValsRelBody.subst_mpr hR heta ts vs)
+        · iexact Hk
+        · iexact Hvs
+  | .sum ts =>
+      simp only [Typ.subst, Typ.substList_eq, ValRelBody]
+      iintro #Hk ⟨%tag, %payload, %heq, Hsum⟩
+      iexists tag, payload
+      isplitr
+      · ipureintro
+        simpa using heq
+      · iapply (ValSumRelBody.subst_mpr hR heta ts tag payload)
+        · iexact Hk
+        · iexact Hsum
+
+private theorem ValsRelBody.subst_mpr {W : World} {η : SemTypeAssign} {R R' : ValueRelation}
+    {k k' : RecCont} (hR : ∀ w t, R' w t ≡ R w (Typ.subst σ t))
+    (heta : ∀ a w, ValRelBody W R w (σ a) k ⊢ (η a).holds w)
+    (ts : List Typ) (vs : List Runtime.Val) :
+    ⊢ □ (∀ w T args, k w T (args.map (Typ.subst σ)) -∗ k' w T args) -∗
+      (ValsRelBody W R vs (ts.map (Typ.subst σ)) k -∗
+        ValsRelBody { W with eta := η } R' vs ts k' : iProp) := by
+  match vs, ts with
+  | [], [] =>
+      simp only [List.map_nil, ValsRelBody]
+      iintro _ H
+      iexact H
+  | v :: vs, t :: ts =>
+      simp only [List.map_cons, ValsRelBody]
+      iintro #Hk ⟨Hv, Hvs⟩
+      isplitl [Hv]
+      · iapply (ValRelBody.subst_mpr hR heta t v)
+        · iexact Hk
+        · iexact Hv
+      · iapply (ValsRelBody.subst_mpr hR heta ts vs)
+        · iexact Hk
+        · iexact Hvs
+  | [], _ :: _ | _ :: _, [] =>
+      simp only [List.map_nil, List.map_cons, ValsRelBody]
+      iintro _ H
+      iexact H
+
+private theorem ValSumRelBody.subst_mpr {W : World} {η : SemTypeAssign} {R R' : ValueRelation}
+    {k k' : RecCont} (hR : ∀ w t, R' w t ≡ R w (Typ.subst σ t))
+    (heta : ∀ a w, ValRelBody W R w (σ a) k ⊢ (η a).holds w)
+    (ts : List Typ) (tag : Nat) (payload : Runtime.Val) :
+    ⊢ □ (∀ w T args, k w T (args.map (Typ.subst σ)) -∗ k' w T args) -∗
+      (ValSumRelBody W R tag payload (ts.map (Typ.subst σ)) k -∗
+        ValSumRelBody { W with eta := η } R' tag payload ts k' : iProp) := by
+  match tag, ts with
+  | _, [] =>
+      simp only [List.map_nil, ValSumRelBody]
+      iintro _ H
+      iexact H
+  | 0, t :: _ =>
+      simp only [List.map_cons, ValSumRelBody]
+      iintro #Hk Hv
+      iapply (ValRelBody.subst_mpr hR heta t payload)
+      · iexact Hk
+      · iexact Hv
+  | n + 1, _ :: ts =>
+      simp only [List.map_cons, ValSumRelBody]
+      iintro #Hk Hv
+      iapply (ValSumRelBody.subst_mpr hR heta ts n payload)
+      · iexact Hk
+      · iexact Hv
+
+end
+
+
+/-! The inner fixpoint, in each direction. Both go by its induction principle,
+at a predicate that carries the substitution: forwards, the fixpoint's index is
+substituted; backwards, the predicate quantifies over the arguments the index
+could have come from, since substitution does not invert. -/
+
+private theorem ValRelInd.subst_mp {W : World} {η : SemTypeAssign} {R' : ValueRelation}
+    (hR : ∀ w t, R' w t ≡ ValHasType W w (Typ.subst σ t))
+    (heta : ∀ a w, (η a).holds w ≡ ValHasType W w (σ a)) :
+    ∀ (w : Runtime.Val) (T : TypeName) (args : List Typ),
+      ValRelInd { W with eta := η } R' w T args ⊢
+        ValRelInd W (ValHasType W) w T (args.map (Typ.subst σ)) := by
+  letI Φ : RecIdx → iProp := fun x =>
+    ValRelInd W (ValHasType W) x.car.1 x.car.2.1 (x.car.2.2.map (Typ.subst σ))
+  letI : NonExpansive Φ := ⟨fun _ x y h => by
+    obtain ⟨x⟩ := x
+    obtain ⟨y⟩ := y
+    cases LeibnizO.dist_inj h
+    exact Dist.of_eq rfl⟩
+  suffices h : ∀ x : RecIdx,
+      bi_least_fixpoint (ValRelIndF { W with eta := η } R') x ⊢ Φ x by
+    intro w T args
+    exact h ⟨(w, T, args)⟩
+  iapply least_fixpoint_iter (F := ValRelIndF { W with eta := η } R') (Φ := Φ)
+  iintro !> %x HF
+  obtain ⟨v, T', ags⟩ := x
+  simp only [ValRelIndF]
+  icases HF with ⟨%ty, %hunfold, Hv⟩
+  iapply ValRelInd.unfold.2
+  iexists (Typ.subst σ ty)
+  isplitr
+  · ipureintro
+    rw [TypeName.unfold_subst, hunfold]
+    rfl
+  · iapply (ValRelBody.subst_mp (η := η) (k' := RecCont.ofPred Φ) hR
+      (fun a u => (equiv_iff.mp ((heta a u).trans (ValHasType.unfold W u (σ a)))).1) ty v)
+    · imodintro
+      iintro %u %T'' %ags'' H
+      iexact H
+    · iexact Hv
+
+private theorem ValRelInd.subst_mpr {W : World} {η : SemTypeAssign} {R' : ValueRelation}
+    (hR : ∀ w t, R' w t ≡ ValHasType W w (Typ.subst σ t))
+    (heta : ∀ a w, (η a).holds w ≡ ValHasType W w (σ a)) :
+    ∀ (w : Runtime.Val) (T : TypeName) (args : List Typ),
+      ValRelInd W (ValHasType W) w T (args.map (Typ.subst σ)) ⊢
+        ValRelInd { W with eta := η } R' w T args := by
+  letI Φ : RecIdx → iProp := fun x =>
+    iprop(∀ ags : List Typ, ⌜x.car.2.2 = ags.map (Typ.subst σ)⌝ -∗
+      ValRelInd { W with eta := η } R' x.car.1 x.car.2.1 ags)
+  letI : NonExpansive Φ := ⟨fun _ x y h => by
+    obtain ⟨x⟩ := x
+    obtain ⟨y⟩ := y
+    cases LeibnizO.dist_inj h
+    exact Dist.of_eq rfl⟩
+  suffices h : ∀ x : RecIdx,
+      bi_least_fixpoint (ValRelIndF W (ValHasType W)) x ⊢ Φ x by
+    intro w T args
+    refine (h ⟨(w, T, args.map (Typ.subst σ))⟩).trans ?_
+    iintro Hall
+    iapply Hall
+    ipureintro
+    rfl
+  -- The strong induction principle, so that a type variable met inside a
+  -- declaration's payload still has the original fixpoint available: its
+  -- interpretation is fixed by the world, not by what the induction carries.
+  letI K : RecIdx → iProp := fun x =>
+    iprop(Φ x ∧ bi_least_fixpoint (ValRelIndF W (ValHasType W)) x)
+  have hK : ⊢ □ (∀ (u : Runtime.Val) (T : TypeName) (ags : List Typ),
+      RecCont.ofPred K u T ags -∗ ValRelInd W (ValHasType W) u T ags : iProp) := by
+    istart
+    imodintro
+    iintro %u %T %ags H
+    unfold ValRelInd
+    icases H with ⟨-, H2⟩
+    iexact H2
+  have heta' : ∀ a u, ValRelBody W (ValHasType W) u (σ a) (RecCont.ofPred K) ⊢
+      (η a).holds u := by
+    intro a u
+    istart
+    iintro H
+    iapply (equiv_iff.mp ((heta a u).trans (ValHasType.unfold W u (σ a)))).2
+    iapply (ValRelBody.mono_int W (ValHasType W) (σ a) u
+      (k := RecCont.ofPred K) (k' := ValRelInd W (ValHasType W)))
+    · iapply hK
+    · iexact H
+  iapply least_fixpoint_ind (F := ValRelIndF W (ValHasType W)) (Φ := Φ)
+  iintro !> %x HF
+  obtain ⟨v, T', ags⟩ := x
+  simp only [ValRelIndF]
+  icases HF with ⟨%ty, %hunfold, Hv⟩
+  iintro %ags' %hags'
+  subst hags'
+  rw [TypeName.unfold_subst] at hunfold
+  obtain ⟨ty', hty', rfl⟩ := Option.map_eq_some_iff.mp hunfold
+  iapply ValRelInd.unfold.2
+  iexists ty'
+  isplitr
+  · ipureintro
+    exact hty'
+  · iapply (ValRelBody.subst_mpr (η := η) (k := RecCont.ofPred K) hR heta' ty' v)
+    · imodintro
+      iintro %u %T'' %ags'' Hk
+      icases Hk with ⟨Hk, -⟩
+      iapply Hk
+      ipureintro
+      rfl
+    · iexact Hv
+
+/-- **Instantiation.** Both fixpoints are closed here: the inner one by the
+lemmas above, the outer one by uniqueness, since substituting first is itself a
+fixpoint of the instantiated world's functional. -/
+theorem ValHasType.subst (W : World) (σ : TyVar → Typ) (v : Runtime.Val) (t : Typ) :
+    ValHasType (W.afterInstantiating σ) v t ⊣⊢ ValHasType W v (Typ.subst σ t) := by
+  simp only [World.afterInstantiating]
+  let R' : ValueRelation := fun w u => ValHasType W w (Typ.subst σ u)
+  have hR : ∀ (w : Runtime.Val) (u : Typ), R' w u ≡ ValHasType W w (Typ.subst σ u) :=
+    fun _ _ => .rfl
+  have hetamp : ∀ (a : TyVar) (w : Runtime.Val), ValHasType W w (σ a) ⊢
+      ValRelBody W (ValHasType W) w (σ a) (ValRelInd W (ValHasType W)) :=
+    fun a w => (equiv_iff.mp (ValHasType.unfold W w (σ a))).1
+  have hetampr : ∀ (a : TyVar) (w : Runtime.Val),
+      ValRelBody W (ValHasType W) w (σ a) (ValRelInd W (ValHasType W)) ⊢
+        ValHasType W w (σ a) :=
+    fun a w => (equiv_iff.mp (ValHasType.unfold W w (σ a))).2
+  have hfix : R' ≡ ValRelF (W.afterInstantiating σ) R' := by
+    intro w u
+    simp only [ValRelF, World.afterInstantiating]
+    refine (ValHasType.unfold W w (Typ.subst σ u)).trans (equiv_iff.mpr ⟨?_, ?_⟩)
+    · istart
+      iintro H
+      iapply (ValRelBody.subst_mpr (η := SemTypeAssign.ofSubst W σ) hR hetampr u w)
+      · imodintro
+        iintro %x %T %ags Hx
+        iapply (ValRelInd.subst_mpr (η := SemTypeAssign.ofSubst W σ) hR (fun _ _ => .rfl) x T ags)
+        iexact Hx
+      · iexact H
+    · istart
+      iintro H
+      iapply (ValRelBody.subst_mp (η := SemTypeAssign.ofSubst W σ) hR hetamp u w)
+      · imodintro
+        iintro %x %T %ags Hx
+        iapply (ValRelInd.subst_mp (η := SemTypeAssign.ofSubst W σ) hR (fun _ _ => .rfl) x T ags)
+        iexact Hx
+      · iexact H
+  let F : ValueRelation -c> ValueRelation :=
+    { f := ValRelF (W.afterInstantiating σ), contractive := inferInstance }
+  exact equiv_iff.mp (fixpoint_unique (f := F) hfix v t).symm
+
+end Subst
 
 /-! Type preservation for primitive operations. -/
 
@@ -1168,7 +1666,7 @@ mutual
       | none => exact (TinyML.ValHasType.arrow_none W v args ret).1.trans false_elim
       | some _ => iintro _; ipureintro; simp [typeConstraints]
     | empty => exact (TinyML.ValHasType.empty W v).1.trans false_elim
-    | tvar x => nomatch x
+    | tvar _ => iintro _; ipureintro; simp [typeConstraints]
 
   theorem typeConstraintsList_hold {ts : List TinyML.Typ} {tl : Term .vallist} {ρ : Env}
       {W : TinyML.World} {vs : List Runtime.Val} (htl : tl.eval ρ = vs) :

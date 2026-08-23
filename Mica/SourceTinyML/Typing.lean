@@ -38,6 +38,8 @@ structure SpecEnv (σ : Type) where
   primitive : String → Option SchemaTyp
   translate : List String → Typed.Expr → TypeM σ (Term .value × Formula)
   globals : TinyML.TyCtx
+  /-- The type variables the declaration being elaborated binds. -/
+  tvars : List TyVar
 
 /-- Assert all formulas in order before continuing with the assertion body.
 
@@ -73,14 +75,14 @@ private def Spec.Pred.elaborate (Γ : TyCtx) (names : List String) (ty : Typ) :
     Spec.Pred → TypeM σ (Atom Typ .value)
   | .isinj tag arity scrut => do pure (.isinj tag arity (← resolveSpecVar names scrut))
   | .own loc =>
-    match Γ loc with
+    match (Γ loc).map Scheme.ty with
     | some (.owned innerTy) =>
       if innerTy == ty then do pure (.own (← resolveSpecVar names loc) ty)
       else TypeM.error (.spec s!"own {loc} must bind {repr innerTy}, not {repr ty}")
     | some other => TypeM.error (.spec s!"own {loc} requires an owned reference, got {repr other}")
     | none => TypeM.error (.spec s!"unknown ownership variable '{loc}'")
   | .arr loc =>
-    match Γ loc with
+    match (Γ loc).map Scheme.ty with
     | some (.ownedArray innerTy) =>
       if (.vec innerTy) == ty then do pure (.arr (← resolveSpecVar names loc) innerTy)
       else TypeM.error (.spec s!"arr {loc} must bind a vector snapshot of type {repr (TinyML.Typ.vec innerTy)}, not {repr ty}")
@@ -99,13 +101,15 @@ private def Spec.Pred.elaborate (Γ : TyCtx) (names : List String) (ty : Typ) :
 -- take the tag that orders them above the others at equal size.
 mutual
   /-- Translate a type of the untyped IR into the core type it denotes,
-  elaborating every specification it carries. A specification's leaves are
-  typechecked in the program's global context extended with the arrow's own
-  arguments — never with the binders surrounding the annotation, which the
-  function the type describes cannot mention. -/
+  elaborating every specification it carries. A type variable must be one
+  `env.tvars` binds — the enclosing declaration's signature, or a data
+  declaration's parameters — since nothing else in a declaration binds one. A
+  specification's leaves are typechecked in the program's global context
+  extended with the arrow's own arguments — never with the binders surrounding
+  the annotation, which the function the type describes cannot mention. -/
   def Typ.elaborate (env : SpecEnv σ) (Θ : TypeEnv) : Untyped.Typ → TypeM σ Typ
     | .core t => pure t
-    | .tvar v => TypeM.error (.unboundTypeVar v)
+    | .tvar v => if v ∈ env.tvars then pure (.tvar v) else TypeM.error (.unboundTypeVar v)
     | .sum ts => do pure (.sum (← Typ.elaborateList env Θ ts))
     | .arrow args ret spec => do
         let args' ← Typ.elaborateList env Θ args
@@ -194,7 +198,13 @@ mutual
         Infer.unify Θ (Typed.Const.ty c) exp
         pure (.const c)
     | .var x, exp => match Γ x with
-        | some ty => do Infer.unify Θ ty exp; pure (.var x ty)
+        | some (tparams, ty) => do
+            -- A use site chooses the variables the binding quantifies; a
+            -- binding that quantifies nothing is used at the type it was
+            -- bound at.
+            let (ty', inst) ← Infer.instantiateAt tparams ty
+            Infer.unify Θ ty' exp
+            pure (.var x inst ty')
         | none => Infer.error (.undefinedVar x)
     | .prim n, exp => match env.primitive n with
         | none => Infer.error (.unknownPrimitive n)
@@ -447,37 +457,6 @@ mutual
   decreasing_by obtain ⟨args, pre⟩ := rb; simp; omega
 end
 
-mutual
-
-/-- Translate a payload type, keeping the declaration's own type parameters as
-variables. A payload that carries a specification has no variables to keep —
-`Typ.elaborate` rejects them everywhere else — so it is translated as an ordinary
-type and embedded. -/
-def SchemaTyp.elaborate (env : SpecEnv σ) (Θ : TypeEnv) : Untyped.Typ → TypeM σ SchemaTyp
-  | .core t => pure (Typ.subst Empty.elim t)
-  | .tvar v => pure (.tvar v)
-  | .sum ts => do pure (.sum (← SchemaTyp.elaborateList env Θ ts))
-  | .arrow args ret none => do
-      pure (.arrow (← SchemaTyp.elaborateList env Θ args) (← SchemaTyp.elaborate env Θ ret) none)
-  | t@(.arrow _ _ (some _)) => do pure (Typ.subst Empty.elim (← Typ.elaborate env Θ t))
-  | .ref t => do pure (.ref (← SchemaTyp.elaborate env Θ t))
-  | .array t => do pure (.array (← SchemaTyp.elaborate env Θ t))
-  | .ownedArray t => do pure (.ownedArray (← SchemaTyp.elaborate env Θ t))
-  | .vec t => do pure (.vec (← SchemaTyp.elaborate env Θ t))
-  | .owned t => do pure (.owned (← SchemaTyp.elaborate env Θ t))
-  | .tuple ts => do pure (.tuple (← SchemaTyp.elaborateList env Θ ts))
-  | .named n args => do pure (.named n (← SchemaTyp.elaborateList env Θ args))
-termination_by t => sizeOf t
-
-def SchemaTyp.elaborateList (env : SpecEnv σ) (Θ : TypeEnv) :
-    List Untyped.Typ → TypeM σ (List SchemaTyp)
-  | [] => pure []
-  | t :: ts => do
-      pure ((← SchemaTyp.elaborate env Θ t) :: (← SchemaTyp.elaborateList env Θ ts))
-termination_by ts => sizeOf ts
-
-end
-
 /-- Translate a specified function's argument binders. `ValDecl.elaborateSpecified`
 checks that every one of them is annotated before calling this. -/
 def Binder.elaborateList (env : SpecEnv σ) (Θ : TypeEnv) :
@@ -489,10 +468,12 @@ def Binder.elaborateList (env : SpecEnv σ) (Θ : TypeEnv) :
         | _ => pure .value
       pure (Typed.Binder.ofUntyped b ty :: (← Binder.elaborateList env Θ bs))
 
-/-- Elaborate a data declaration's payloads. -/
+/-- Elaborate a data declaration's payloads. A data declaration is a binding
+unit like a value declaration, and its parameters are what it binds. -/
 def DataDecl.elaborate (env : SpecEnv σ) (Θ : TypeEnv) (d : Untyped.DataDecl) :
     TypeM σ TinyML.DataDecl := do
-  pure { tparams := d.tparams, payloads := ← SchemaTyp.elaborateList env Θ d.payloads }
+  let payloads ← Typ.elaborateList { env with tvars := d.tparams } Θ d.payloads
+  pure { tparams := d.tparams, payloads }
 
 /-! ## Specification elaboration
 
@@ -577,6 +558,14 @@ def ValDecl.elaborate (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx)
       pure { name := Typed.Binder.ofUntyped d.name body'.ty, body := body',
              relation := d.relation }
 
+/-- Only a function literal is generalized. Anything else whose type still has
+a variable to quantify would need a weak variable standing for the type its
+first use fixes it to, and mica has none. -/
+def ValDecl.checkGeneralizable {σ : Type} (d : Typed.ValDecl) : TypeM σ Unit :=
+  match d.body.isFunc, Typ.vars d.name.ty with
+  | false, a :: _ => TypeM.error (.weakTypeVar a)
+  | _, _ => pure ()
+
 def Program.elaborate (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx) :
     Untyped.Program Untyped.SpecBody → TypeM σ (TypeEnv × Typed.Program)
   | [] => pure (Θ, [])
@@ -587,9 +576,11 @@ def Program.elaborate (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx) :
           let Θ' ← TypeM.ofExcept (extendTypeEnv Θ dty.name body)
           Program.elaborate env Θ' Γ ds
       | .val_ dval =>
-          let d' ← ValDecl.elaborate { env with globals := Γ } Θ Γ dval
+          let d' ← ValDecl.elaborate
+            { env with globals := Γ, tvars := dval.tvars } Θ Γ dval
+          let () ← ValDecl.checkGeneralizable d'
           let Γ' := match d'.name.name with
-            | some x => Γ.extend x d'.name.ty
+            | some x => Γ.extendScheme x (Scheme.gen d'.name.ty)
             | none => Γ
           let (Θ', ds') ← Program.elaborate env Θ Γ' ds
           pure (Θ', d' :: ds')

@@ -67,9 +67,10 @@ theorem Expr.close_runtime {st : Infer.State} {e : Expr} {e' : Typed.Expr}
   | const c =>
       simpa [Expr.close, Typed.Expr.WithTypeVars.runtime] using
         congrArg Typed.Expr.WithTypeVars.runtime (Except.ok.inj h.symm)
-  | var n ty =>
-      cases ht : Infer.State.close st ty <;> simp [Expr.close, ht] at h
-      case ok t => subst e'; simp [Typed.Expr.WithTypeVars.runtime]
+  | var n inst ty =>
+      cases hi : inst.mapM (fun p => do pure (p.1, ← Infer.State.close st p.2)) <;> simp at hi
+      all_goals cases ht : Infer.State.close st ty <;> simp [Expr.close, hi, ht] at h
+      case ok.ok => subst e'; simp [Typed.Expr.WithTypeVars.runtime]
   | prim n inst ty =>
       cases hi : inst.mapM (fun p => do pure (p.1, ← Infer.State.close st p.2)) <;> simp at hi
       all_goals cases ht : Infer.State.close st ty <;> simp [Expr.close, hi, ht] at h
@@ -343,9 +344,11 @@ theorem Infer.Expr.elaborate_runtime (env : SpecEnv σ) (Θ : TypeEnv) :
       unfold Infer.Expr.elaborate at h
       cases hΓ : Γ x with
       | none => simp [hΓ] at h
-      | some tx =>
+      | some entry =>
+          obtain ⟨tparams, tx⟩ := entry
           simp only [hΓ] at h
           have ⟨_, t₁, u₁, _, hcont⟩ := StateT.bind_ok₂ h
+          have ⟨_, t₂, u₂, _, hcont⟩ := StateT.bind_ok₂ hcont
           rcases (by simpa using hcont) with ⟨⟨rfl, rfl⟩, rfl⟩
           simp [Typed.Expr.WithTypeVars.runtime, Untyped.Expr.runtime]
   | .prim n => by
@@ -710,8 +713,9 @@ theorem Program.elaborate_runtime (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML
     | val_ dval =>
       unfold Typed.Program.elaborate at h
       have ⟨dval', s₀, hdecl, hcont⟩ := StateT.bind_ok h
+      have ⟨_, s₀', _, hcont⟩ := StateT.bind_ok hcont
       let Γ' := match dval'.name.name with
-        | some x => Γ.extend x dval'.name.ty
+        | some x => Γ.extendScheme x (Scheme.gen dval'.name.ty)
         | none => Γ
       have ⟨tail, s₁, htail, hcont⟩ := StateT.bind_ok hcont
       rcases tail with ⟨Θ'', ds'⟩

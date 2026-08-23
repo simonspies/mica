@@ -15,7 +15,7 @@ structure Binder.WithTypeVars (V : Type) where
   deriving Repr
 
 /-- The binder of the typed IR the verifier consumes. -/
-abbrev Binder := Binder.WithTypeVars Empty
+abbrev Binder := Binder.WithTypeVars TyVar
 
 instance : Inhabited Binder := ⟨⟨Option.none, .value⟩⟩
 
@@ -46,7 +46,11 @@ instance {V : Type} [DecidableEq V] : LawfulBEq (Binder.WithTypeVars V) where
 /-- The typed IR, parameterized by the variables its type annotations admit. -/
 inductive Expr.WithTypeVars (V : Type) where
   | const (c : Const)
-  | var (name : TinyML.Var) (ty : Typ.WithTypeVars V)
+  /-- A use of a bound name. `inst` is the instantiation of its scheme solved
+      at this use site — empty for every binding that quantifies nothing —
+      and `ty` is the instantiated type. -/
+  | var (name : TinyML.Var) (inst : List (TyVar × Typ.WithTypeVars V))
+      (ty : Typ.WithTypeVars V)
   /-- Reference to a built-in primitive, indexed by name. `inst` is the
       type-variable instantiation solved at the use site; `ty` is the
       instantiated arrow type derived from the registry's scheme. -/
@@ -79,8 +83,9 @@ inductive Expr.WithTypeVars (V : Type) where
   | match_ (scrutinee : WithTypeVars V)
       (branches : List (Binder.WithTypeVars V × WithTypeVars V)) (ty : Typ.WithTypeVars V)
 
-/-- The typed IR the verifier consumes. Its annotations are closed types. -/
-abbrev Expr := Expr.WithTypeVars Empty
+/-- The typed IR the verifier consumes. Its annotations may mention the type
+variables the enclosing declaration quantifies over. -/
+abbrev Expr := Expr.WithTypeVars TyVar
 
 namespace Expr
 -- As for `Typ`: `.fix` resolves in the inductive's namespace, `Expr.fix` in the
@@ -120,10 +125,11 @@ mutual
     case const.const c1 c2 => exact match decEq c1 c2 with
       | isTrue h => isTrue (by subst h; rfl)
       | isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
-    case var.var n1 t1 n2 t2 => exact match decEq n1 n2, decEq t1 t2 with
-      | isTrue h1, isTrue h2 => isTrue (by subst h1; subst h2; rfl)
-      | isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
-      | _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
+    case var.var n1 i1 t1 n2 i2 t2 => exact match decEq n1 n2, decEq i1 i2, decEq t1 t2 with
+      | isTrue h1, isTrue h2, isTrue h3 => isTrue (by subst h1; subst h2; subst h3; rfl)
+      | isFalse h, _, _ => isFalse (by intro heq; cases heq; exact h rfl)
+      | _, isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
+      | _, _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
     case prim.prim n1 i1 t1 n2 i2 t2 =>
       exact match decEq n1 n2, decEq i1 i2, decEq t1 t2 with
       | isTrue h1, isTrue h2, isTrue h3 =>
@@ -284,7 +290,7 @@ def Const.ty : Const → Typ.WithTypeVars V
 
 def Expr.WithTypeVars.ty : Expr.WithTypeVars V → Typ.WithTypeVars V
   | .const c => Const.ty c
-  | .var _ ty => ty
+  | .var _ _ ty => ty
   | .prim _ _ ty => ty
   | .unop _ _ ty => ty
   | .binop _ _ _ ty => ty
@@ -312,6 +318,12 @@ is where a declaration's specification lives, together with its arrow type. -/
 def Expr.WithTypeVars.spec? : Expr.WithTypeVars V → Option (Spec (Typ.WithTypeVars V))
   | .fix _ _ _ spec _ => spec
   | _ => none
+
+theorem Expr.spec?_elim {e : Expr.WithTypeVars V} {s : Spec (Typ.WithTypeVars V)}
+    (h : e.spec? = some s) :
+    ∃ self args retTy body, e = .fix self args retTy (some s) body := by
+  cases e <;> simp [Expr.WithTypeVars.spec?] at h
+  exact ⟨_, _, _, _, by rw [h]⟩
 
 @[simp] theorem Expr.spec?_fix (self : Binder.WithTypeVars V)
     (args : List (Binder.WithTypeVars V)) (retTy : Typ.WithTypeVars V)
@@ -359,7 +371,7 @@ def Binder.WithTypeVars.runtime : Typed.Binder.WithTypeVars V → Runtime.Binder
 mutual
   def Expr.WithTypeVars.runtime : Typed.Expr.WithTypeVars V → Runtime.Expr
     | .const c => .val (Runtime.Val.ofConst c)
-    | .var x _ => .var x
+    | .var x _ _ => .var x
     | .prim n _ _ => .val (.prim n)
     | .unop op e _ => .unop op e.runtime
     | .binop op l r _ => .binop op l.runtime r.runtime
@@ -396,6 +408,15 @@ def ValDecl.runtime (d : Typed.ValDecl) : Runtime.Decl :=
 def Program.runtime (prog : Typed.Program) : Runtime.Program :=
   prog.map ValDecl.runtime
 
+theorem Expr.runtime_subst_of_fix {e : Typed.Expr} {self : Typed.Binder}
+    {args : List Typed.Binder} {retTy : Typ} {spec : Option (Spec Typ)} {body : Typed.Expr}
+    (h : e = .fix self args retTy spec body) (γ : Runtime.Subst) :
+    e.runtime.subst γ =
+      Runtime.Expr.fix self.runtime (args.map (·.runtime))
+        (body.runtime.subst ((γ.remove' self.runtime).removeAll' (args.map (·.runtime)))) := by
+  rw [h]
+  simp only [Expr.WithTypeVars.runtime, Runtime.Expr.subst_fix]
+
 theorem Expr.branchListRuntime_eq_map
     (branches : List (Typed.Binder.WithTypeVars V × Typed.Expr.WithTypeVars V)) :
     Expr.WithTypeVars.branchListRuntime branches =
@@ -414,12 +435,20 @@ namespace TinyML
 
 /-! ## Type contexts -/
 
-abbrev TyCtx := TinyML.Var → Option Typ
+abbrev TyCtx := TinyML.Var → Option Scheme
 
 def TyCtx.empty : TyCtx := fun _ => none
 
+/-- Bind a name at a scheme its uses may instantiate. -/
+def TyCtx.extendScheme (Γ : TyCtx) (x : TinyML.Var) (s : Scheme) : TyCtx :=
+  fun y => if y == x then some s else Γ y
+
+/-- Bind a name at a type nothing may instantiate. -/
 def TyCtx.extend (Γ : TyCtx) (x : TinyML.Var) (t : Typ) : TyCtx :=
-  fun y => if y == x then some t else Γ y
+  Γ.extendScheme x (.mono t)
+
+@[simp] theorem TyCtx.extend_def (Γ : TyCtx) (x : TinyML.Var) (t : Typ) :
+    Γ.extend x t = Γ.extendScheme x (.mono t) := rfl
 
 def TyCtx.extendBinder (Γ : TyCtx) (b : Typed.Binder) (t : Typ) : TyCtx :=
   match b.name with
@@ -427,11 +456,34 @@ def TyCtx.extendBinder (Γ : TyCtx) (b : Typed.Binder) (t : Typ) : TyCtx :=
   | some x => Γ.extend x t
 
 @[simp] theorem TyCtx.extend_eq (Γ : TyCtx) (x : TinyML.Var) (t : Typ) :
-    (Γ.extend x t) x = some t := by simp [TyCtx.extend]
+    (Γ.extend x t) x = some (.mono t) := by simp [TyCtx.extend, TyCtx.extendScheme]
+
+/-- Every scheme the context binds quantifies all of its own type variables, so
+nothing in it reads a type assignment. -/
+def TyCtx.Closed (Γ : TyCtx) : Prop :=
+  ∀ x s, Γ x = some s → s.free = []
+
+theorem TyCtx.empty_closed : TyCtx.empty.Closed := by
+  intro _ _ h; simp [TyCtx.empty] at h
+
+theorem TyCtx.Closed.extendScheme {Γ : TyCtx} (hΓ : Γ.Closed) (x : TinyML.Var)
+    {s : Scheme} (hs : s.free = []) : (Γ.extendScheme x s).Closed := by
+  intro y t hy
+  by_cases hyx : y = x
+  · subst hyx; simp [TyCtx.extendScheme] at hy; subst hy; exact hs
+  · rw [TyCtx.extendScheme, if_neg (by simpa using hyx)] at hy
+    exact hΓ y t hy
+
+@[simp] theorem TyCtx.extendScheme_eq (Γ : TyCtx) (x : TinyML.Var) (s : Scheme) :
+    (Γ.extendScheme x s) x = some s := by simp [TyCtx.extendScheme]
+
+@[simp] theorem TyCtx.extendScheme_ne (Γ : TyCtx) (x y : TinyML.Var) (s : Scheme)
+    (h : y ≠ x) : (Γ.extendScheme x s) y = Γ y := by
+  simp [TyCtx.extendScheme, h]
 
 @[simp] theorem TyCtx.extend_ne (Γ : TyCtx) (x y : TinyML.Var) (t : Typ) (h : y ≠ x) :
     (Γ.extend x t) y = Γ y := by
-  simp [TyCtx.extend, h]
+  simp [TyCtx.extend, TyCtx.extendScheme, h]
 
 /-- Extending a context along a list of name/type pairs leaves every name
     outside that list untouched. -/
@@ -456,6 +508,6 @@ theorem TyCtx.foldl_extend_stable
     have := ih (Γ.extend a.1 a.2) (fun a' ha' => hx a' (.tail _ ha'))
     rw [this]
     have hne := hx a (.head _)
-    simp [TyCtx.extend, beq_iff_eq, Ne.symm hne]
+    simp [TyCtx.extend, TyCtx.extendScheme, Ne.symm hne]
 
 end TinyML

@@ -1,4 +1,4 @@
--- SUMMARY: TinyML types over a parameter of type variables, and type declarations.
+-- SUMMARY: TinyML types over a parameter of type variables, their substitution laws, type schemes, and type declarations.
 import Mica.TinyML.Common
 import Mica.SourceTinyML.Assertions
 
@@ -129,8 +129,8 @@ theorem PrimitiveType.unOpTypeOf_bool {op : UnOp} {p p' : PrimitiveType}
 namespace Typ
 
 /-- TinyML types, parameterized by the variables a `tvar` node may carry. Only
-two instantiations are used here: `Typ`, whose `V` is uninhabited, and
-`SchemaTyp`, whose `V` is a source type variable. Type inference adds a third. -/
+one instantiation is used here: `Typ`, whose `V` is a source type variable.
+Type inference adds a second, which admits its metavariables as well. -/
 inductive WithTypeVars (V : Type) where
   | prim (p : PrimitiveType)
   | sum (ts : List (WithTypeVars V))
@@ -188,12 +188,15 @@ export WithTypeVars (prim sum arrow ref array ownedArray vec owned empty value
 
 end Typ
 
-/-- The type language the verifier works in. No `tvar` node can be built, so a
-`Typ` is closed by construction. -/
-abbrev Typ := Typ.WithTypeVars Empty
+/-- The type language the verifier works in. A `tvar` node stands for a type
+variable a polymorphic declaration quantifies over; the logical relation
+interprets it by the world's assignment. -/
+abbrev Typ := Typ.WithTypeVars TyVar
 
-/-- The type language source annotations and polymorphic signatures are written
-in: a `Typ` that may still mention named type variables. -/
+/-- A type every variable of which is implicitly quantified, as an intrinsic's
+registry entry is: a use site instantiates all of them at once. The same
+language as `Typ` — a scheme with an explicit quantifier is `Scheme` — so the
+name records only that intent. -/
 abbrev SchemaTyp := Typ.WithTypeVars TyVar
 
 def Typ.primDecEq {V : Type} (p q : PrimitiveType) :
@@ -464,9 +467,9 @@ is, since `Typ` nests those types and a single generic map over them would not
 be structurally recursive.
 
 Substitution also changes the variables a type is written over, so it is what
-moves a type between the instantiations of `Typ.WithTypeVars`: `Typ.subst
-Empty.elim` embeds a `Typ` into any of them, and a substitution into `Typ`
-closes a `SchemaTyp`. -/
+moves a type between the instantiations of `Typ.WithTypeVars`: inference embeds
+a `Typ` by sending every variable to its rigid counterpart, and closes back by
+sending every solved metavariable to its solution. -/
 
 /-- The type with a top-level arrow's specification dropped; the identity on
 everything else. Used where only the signature of an arrow matters. -/
@@ -686,11 +689,311 @@ termination_by structural s => s
 
 end
 
+/-! ### Laws of substitution -/
+
 @[simp] theorem Typ.substList_eq (σ : V → Typ.WithTypeVars W) (ts : List (Typ.WithTypeVars V)) :
     Typ.substList σ ts = ts.map (Typ.subst σ) := by
   induction ts with
   | nil => rfl
   | cons t ts ih => simp [Typ.substList, ih]
+
+mutual
+
+@[simp] theorem Typ.subst_id : ∀ t : Typ.WithTypeVars V, Typ.subst .tvar t = t
+  | .prim _ | .empty | .value | .tvar _ => rfl
+  | .sum ts => by rw [Typ.subst, Typ.substList_id]
+  | .tuple ts => by rw [Typ.subst, Typ.substList_id]
+  | .named T ts => by rw [Typ.subst, Typ.substList_id]
+  | .arrow args ret spec => by
+      rw [Typ.subst, Typ.substList_id, Typ.subst_id ret, Typ.substSpec?_id]
+  | .ref t => by rw [Typ.subst, Typ.subst_id t]
+  | .array t => by rw [Typ.subst, Typ.subst_id t]
+  | .ownedArray t => by rw [Typ.subst, Typ.subst_id t]
+  | .vec t => by rw [Typ.subst, Typ.subst_id t]
+  | .owned t => by rw [Typ.subst, Typ.subst_id t]
+termination_by structural t => t
+
+theorem Typ.substList_id : ∀ ts : List (Typ.WithTypeVars V), Typ.substList .tvar ts = ts
+  | [] => rfl
+  | t :: ts => by rw [Typ.substList, Typ.subst_id t, Typ.substList_id ts]
+termination_by structural ts => ts
+
+theorem Typ.substAtom_id :
+    ∀ {s : Srt} (a : Atom (Typ.WithTypeVars V) s), Typ.substAtom .tvar a = a
+  | _, .isint _ | _, .isbool _ | _, .isinj .. | _, .rel .. => rfl
+  | _, .own _ ty => by rw [Typ.substAtom, Typ.subst_id ty]
+  | _, .arr _ ty => by rw [Typ.substAtom, Typ.subst_id ty]
+termination_by structural _ a => a
+
+theorem Typ.substPost_id :
+    ∀ a : Assertion (Typ.WithTypeVars V) Unit, Typ.substPost .tvar a = a
+  | .ret () => rfl
+  | .assert _ k => by rw [Typ.substPost, Typ.substPost_id k]
+  | .let_ _ _ k => by rw [Typ.substPost, Typ.substPost_id k]
+  | .pred _ p k => by rw [Typ.substPost, Typ.substAtom_id p, Typ.substPost_id k]
+  | .ite _ kt ke => by rw [Typ.substPost, Typ.substPost_id kt, Typ.substPost_id ke]
+termination_by structural a => a
+
+theorem Typ.substPredTrans_id :
+    ∀ a : Assertion (Typ.WithTypeVars V) (Post (Typ.WithTypeVars V)),
+      Typ.substPredTrans .tvar a = a
+  | .ret p => by rw [Typ.substPredTrans, Typ.substPost_id p.body]
+  | .assert _ k => by rw [Typ.substPredTrans, Typ.substPredTrans_id k]
+  | .let_ _ _ k => by rw [Typ.substPredTrans, Typ.substPredTrans_id k]
+  | .pred _ p k => by
+      rw [Typ.substPredTrans, Typ.substAtom_id p, Typ.substPredTrans_id k]
+  | .ite _ kt ke => by
+      rw [Typ.substPredTrans, Typ.substPredTrans_id kt, Typ.substPredTrans_id ke]
+termination_by structural a => a
+
+theorem Typ.substSpec_id : ∀ s : Spec (Typ.WithTypeVars V), Typ.substSpec .tvar s = s
+  | ⟨_, pred⟩ => by rw [Typ.substSpec, Typ.substPredTrans_id pred]
+termination_by structural s => s
+
+theorem Typ.substSpec?_id :
+    ∀ s : Option (Spec (Typ.WithTypeVars V)), Typ.substSpec? .tvar s = s
+  | none => rfl
+  | some s => by rw [Typ.substSpec?, Typ.substSpec_id s]
+termination_by structural s => s
+
+end
+
+mutual
+
+theorem Typ.subst_comp (σ : V → Typ.WithTypeVars W) (τ : W → Typ.WithTypeVars U) :
+    ∀ t : Typ.WithTypeVars V,
+      Typ.subst τ (Typ.subst σ t) = Typ.subst (fun v => Typ.subst τ (σ v)) t
+  | .prim _ | .empty | .value | .tvar _ => rfl
+  | .sum ts => by simp only [Typ.subst, Typ.substList_comp σ τ ts]
+  | .tuple ts => by simp only [Typ.subst, Typ.substList_comp σ τ ts]
+  | .named T ts => by simp only [Typ.subst, Typ.substList_comp σ τ ts]
+  | .arrow args ret spec => by
+      simp only [Typ.subst, Typ.substList_comp σ τ args, Typ.subst_comp σ τ ret,
+        Typ.substSpec?_comp σ τ spec]
+  | .ref t => by simp only [Typ.subst, Typ.subst_comp σ τ t]
+  | .array t => by simp only [Typ.subst, Typ.subst_comp σ τ t]
+  | .ownedArray t => by simp only [Typ.subst, Typ.subst_comp σ τ t]
+  | .vec t => by simp only [Typ.subst, Typ.subst_comp σ τ t]
+  | .owned t => by simp only [Typ.subst, Typ.subst_comp σ τ t]
+termination_by structural t => t
+
+theorem Typ.substList_comp (σ : V → Typ.WithTypeVars W) (τ : W → Typ.WithTypeVars U) :
+    ∀ ts : List (Typ.WithTypeVars V),
+      Typ.substList τ (Typ.substList σ ts) = Typ.substList (fun v => Typ.subst τ (σ v)) ts
+  | [] => rfl
+  | t :: ts => by simp only [Typ.substList, Typ.subst_comp σ τ t, Typ.substList_comp σ τ ts]
+termination_by structural ts => ts
+
+theorem Typ.substAtom_comp (σ : V → Typ.WithTypeVars W) (τ : W → Typ.WithTypeVars U) :
+    ∀ {s : Srt} (a : Atom (Typ.WithTypeVars V) s),
+      Typ.substAtom τ (Typ.substAtom σ a) = Typ.substAtom (fun v => Typ.subst τ (σ v)) a
+  | _, .isint _ | _, .isbool _ | _, .isinj .. | _, .rel .. => rfl
+  | _, .own _ ty => by simp only [Typ.substAtom, Typ.subst_comp σ τ ty]
+  | _, .arr _ ty => by simp only [Typ.substAtom, Typ.subst_comp σ τ ty]
+termination_by structural _ a => a
+
+theorem Typ.substPost_comp (σ : V → Typ.WithTypeVars W) (τ : W → Typ.WithTypeVars U) :
+    ∀ a : Assertion (Typ.WithTypeVars V) Unit,
+      Typ.substPost τ (Typ.substPost σ a) = Typ.substPost (fun v => Typ.subst τ (σ v)) a
+  | .ret () => rfl
+  | .assert _ k => by simp only [Typ.substPost, Typ.substPost_comp σ τ k]
+  | .let_ _ _ k => by simp only [Typ.substPost, Typ.substPost_comp σ τ k]
+  | .pred _ p k => by
+      simp only [Typ.substPost, Typ.substAtom_comp σ τ p, Typ.substPost_comp σ τ k]
+  | .ite _ kt ke => by
+      simp only [Typ.substPost, Typ.substPost_comp σ τ kt, Typ.substPost_comp σ τ ke]
+termination_by structural a => a
+
+theorem Typ.substPredTrans_comp (σ : V → Typ.WithTypeVars W) (τ : W → Typ.WithTypeVars U) :
+    ∀ a : Assertion (Typ.WithTypeVars V) (Post (Typ.WithTypeVars V)),
+      Typ.substPredTrans τ (Typ.substPredTrans σ a) =
+        Typ.substPredTrans (fun v => Typ.subst τ (σ v)) a
+  | .ret p => by simp only [Typ.substPredTrans, Typ.substPost_comp σ τ p.body]
+  | .assert _ k => by simp only [Typ.substPredTrans, Typ.substPredTrans_comp σ τ k]
+  | .let_ _ _ k => by simp only [Typ.substPredTrans, Typ.substPredTrans_comp σ τ k]
+  | .pred _ p k => by
+      simp only [Typ.substPredTrans, Typ.substAtom_comp σ τ p, Typ.substPredTrans_comp σ τ k]
+  | .ite _ kt ke => by
+      simp only [Typ.substPredTrans, Typ.substPredTrans_comp σ τ kt,
+        Typ.substPredTrans_comp σ τ ke]
+termination_by structural a => a
+
+theorem Typ.substSpec_comp (σ : V → Typ.WithTypeVars W) (τ : W → Typ.WithTypeVars U) :
+    ∀ s : Spec (Typ.WithTypeVars V),
+      Typ.substSpec τ (Typ.substSpec σ s) = Typ.substSpec (fun v => Typ.subst τ (σ v)) s
+  | ⟨_, pred⟩ => by simp only [Typ.substSpec, Typ.substPredTrans_comp σ τ pred]
+termination_by structural s => s
+
+theorem Typ.substSpec?_comp (σ : V → Typ.WithTypeVars W) (τ : W → Typ.WithTypeVars U) :
+    ∀ s : Option (Spec (Typ.WithTypeVars V)),
+      Typ.substSpec? τ (Typ.substSpec? σ s) = Typ.substSpec? (fun v => Typ.subst τ (σ v)) s
+  | none => rfl
+  | some s => by simp only [Typ.substSpec?, Typ.substSpec_comp σ τ s]
+termination_by structural s => s
+
+end
+
+mutual
+
+theorem Typ.subst_congr (σ τ : V → Typ.WithTypeVars W) :
+    ∀ (t : Typ.WithTypeVars V), (∀ v ∈ Typ.vars t, σ v = τ v) →
+      Typ.subst σ t = Typ.subst τ t
+  | .prim _, _ | .empty, _ | .value, _ => rfl
+  | .tvar v, h => h v (by simp [Typ.vars])
+  | .sum ts, h => by
+      simp only [Typ.subst, Typ.substList_congr σ τ ts fun v hv => h v (by simp [Typ.vars, hv])]
+  | .tuple ts, h => by
+      simp only [Typ.subst, Typ.substList_congr σ τ ts fun v hv => h v (by simp [Typ.vars, hv])]
+  | .named T ts, h => by
+      simp only [Typ.subst, Typ.substList_congr σ τ ts fun v hv => h v (by simp [Typ.vars, hv])]
+  | .arrow args ret spec, h => by
+      simp only [Typ.subst,
+        Typ.substList_congr σ τ args fun v hv => h v (by simp [Typ.vars, hv]),
+        Typ.subst_congr σ τ ret fun v hv => h v (by simp [Typ.vars, hv]),
+        Typ.substSpec?_congr σ τ spec fun v hv => h v (by simp [Typ.vars, hv])]
+  | .ref t, h => by
+      simp only [Typ.subst, Typ.subst_congr σ τ t fun v hv => h v (by simp [Typ.vars, hv])]
+  | .array t, h => by
+      simp only [Typ.subst, Typ.subst_congr σ τ t fun v hv => h v (by simp [Typ.vars, hv])]
+  | .ownedArray t, h => by
+      simp only [Typ.subst, Typ.subst_congr σ τ t fun v hv => h v (by simp [Typ.vars, hv])]
+  | .vec t, h => by
+      simp only [Typ.subst, Typ.subst_congr σ τ t fun v hv => h v (by simp [Typ.vars, hv])]
+  | .owned t, h => by
+      simp only [Typ.subst, Typ.subst_congr σ τ t fun v hv => h v (by simp [Typ.vars, hv])]
+termination_by structural t => t
+
+theorem Typ.substList_congr (σ τ : V → Typ.WithTypeVars W) :
+    ∀ (ts : List (Typ.WithTypeVars V)), (∀ v ∈ Typ.varsList ts, σ v = τ v) →
+      Typ.substList σ ts = Typ.substList τ ts
+  | [], _ => rfl
+  | t :: ts, h => by
+      simp only [Typ.substList,
+        Typ.subst_congr σ τ t fun v hv => h v (by simp [Typ.varsList, hv]),
+        Typ.substList_congr σ τ ts fun v hv => h v (by simp [Typ.varsList, hv])]
+termination_by structural ts => ts
+
+theorem Typ.substAtom_congr (σ τ : V → Typ.WithTypeVars W) :
+    ∀ {s : Srt} (a : Atom (Typ.WithTypeVars V) s), (∀ v ∈ Typ.varsAtom a, σ v = τ v) →
+      Typ.substAtom σ a = Typ.substAtom τ a
+  | _, .isint _, _ | _, .isbool _, _ | _, .isinj .., _ | _, .rel .., _ => rfl
+  | _, .own _ ty, h => by
+      simp only [Typ.substAtom, Typ.subst_congr σ τ ty fun v hv => h v (by simp [Typ.varsAtom, hv])]
+  | _, .arr _ ty, h => by
+      simp only [Typ.substAtom, Typ.subst_congr σ τ ty fun v hv => h v (by simp [Typ.varsAtom, hv])]
+termination_by structural _ a => a
+
+theorem Typ.substPost_congr (σ τ : V → Typ.WithTypeVars W) :
+    ∀ (a : Assertion (Typ.WithTypeVars V) Unit), (∀ v ∈ Typ.varsPost a, σ v = τ v) →
+      Typ.substPost σ a = Typ.substPost τ a
+  | .ret (), _ => rfl
+  | .assert _ k, h => by
+      simp only [Typ.substPost, Typ.substPost_congr σ τ k fun v hv => h v (by simp [Typ.varsPost, hv])]
+  | .let_ _ _ k, h => by
+      simp only [Typ.substPost, Typ.substPost_congr σ τ k fun v hv => h v (by simp [Typ.varsPost, hv])]
+  | .pred _ p k, h => by
+      simp only [Typ.substPost,
+        Typ.substAtom_congr σ τ p fun v hv => h v (by simp [Typ.varsPost, hv]),
+        Typ.substPost_congr σ τ k fun v hv => h v (by simp [Typ.varsPost, hv])]
+  | .ite _ kt ke, h => by
+      simp only [Typ.substPost,
+        Typ.substPost_congr σ τ kt fun v hv => h v (by simp [Typ.varsPost, hv]),
+        Typ.substPost_congr σ τ ke fun v hv => h v (by simp [Typ.varsPost, hv])]
+termination_by structural a => a
+
+theorem Typ.substPredTrans_congr (σ τ : V → Typ.WithTypeVars W) :
+    ∀ (a : Assertion (Typ.WithTypeVars V) (Post (Typ.WithTypeVars V))),
+      (∀ v ∈ Typ.varsPredTrans a, σ v = τ v) →
+      Typ.substPredTrans σ a = Typ.substPredTrans τ a
+  | .ret p, h => by
+      simp only [Typ.substPredTrans,
+        Typ.substPost_congr σ τ p.body fun v hv => h v (by simp [Typ.varsPredTrans, hv])]
+  | .assert _ k, h => by
+      simp only [Typ.substPredTrans,
+        Typ.substPredTrans_congr σ τ k fun v hv => h v (by simp [Typ.varsPredTrans, hv])]
+  | .let_ _ _ k, h => by
+      simp only [Typ.substPredTrans,
+        Typ.substPredTrans_congr σ τ k fun v hv => h v (by simp [Typ.varsPredTrans, hv])]
+  | .pred _ p k, h => by
+      simp only [Typ.substPredTrans,
+        Typ.substAtom_congr σ τ p fun v hv => h v (by simp [Typ.varsPredTrans, hv]),
+        Typ.substPredTrans_congr σ τ k fun v hv => h v (by simp [Typ.varsPredTrans, hv])]
+  | .ite _ kt ke, h => by
+      simp only [Typ.substPredTrans,
+        Typ.substPredTrans_congr σ τ kt fun v hv => h v (by simp [Typ.varsPredTrans, hv]),
+        Typ.substPredTrans_congr σ τ ke fun v hv => h v (by simp [Typ.varsPredTrans, hv])]
+termination_by structural a => a
+
+theorem Typ.substSpec_congr (σ τ : V → Typ.WithTypeVars W) :
+    ∀ (s : Spec (Typ.WithTypeVars V)), (∀ v ∈ Typ.varsSpec s, σ v = τ v) →
+      Typ.substSpec σ s = Typ.substSpec τ s
+  | ⟨_, pred⟩, h => by
+      simp only [Typ.substSpec,
+        Typ.substPredTrans_congr σ τ pred fun v hv => h v (by simp [Typ.varsSpec, hv])]
+termination_by structural s => s
+
+theorem Typ.substSpec?_congr (σ τ : V → Typ.WithTypeVars W) :
+    ∀ (s : Option (Spec (Typ.WithTypeVars V))), (∀ v ∈ Typ.varsSpec? s, σ v = τ v) →
+      Typ.substSpec? σ s = Typ.substSpec? τ s
+  | none, _ => rfl
+  | some s, h => by
+      simp only [Typ.substSpec?,
+        Typ.substSpec_congr σ τ s fun v hv => h v (by simp [Typ.varsSpec?, hv])]
+termination_by structural s => s
+
+end
+
+/-! ## Schemes
+
+What a name is bound at: a type, together with the variables a use site may
+choose. Only a context entry carries a scheme, which is what makes the
+polymorphism rank-1 — no type has a quantifier inside it. A local binding
+quantifies nothing, so its scheme is its type. -/
+
+/-- A type scheme: the variables a use site instantiates, and the type they
+stand in. -/
+structure Scheme where
+  tparams : List TyVar
+  ty : Typ
+  deriving Repr, DecidableEq
+
+/-- The scheme of a binding nothing may instantiate. -/
+def Scheme.mono (t : Typ) : Scheme := ⟨[], t⟩
+
+def Scheme.gen (t : Typ) : Scheme := ⟨(Typ.vars t).eraseDups, t⟩
+
+def Scheme.free (s : Scheme) : List TyVar := (Typ.vars s.ty).filter (· ∉ s.tparams)
+
+@[simp] theorem Scheme.gen_free (t : Typ) : (Scheme.gen t).free = [] := by
+  simp [Scheme.free, Scheme.gen, List.filter_eq_nil_iff]
+
+/-- The substitution an instantiation recorded on a use site stands for. A
+variable the instantiation does not mention is one the scheme does not
+quantify, so what it maps to is never looked at. -/
+def Typ.ofInst (inst : List (TyVar × Typ)) : TyVar → Typ :=
+  fun v => (inst.lookup v).getD .empty
+
+/-- Instantiate a scheme by a substitution: only the quantified variables are
+replaced. -/
+def Scheme.instantiate (s : Scheme) (σ : TyVar → Typ) : Typ :=
+  Typ.subst (fun v => if v ∈ s.tparams then σ v else .tvar v) s.ty
+
+@[simp] theorem Scheme.instantiate_mono (t : Typ) (σ : TyVar → Typ) :
+    (Scheme.mono t).instantiate σ = t := by
+  simp [Scheme.instantiate, Scheme.mono]
+
+@[simp] theorem Scheme.gen_instantiate (t : Typ) (σ : TyVar → Typ) :
+    (Scheme.gen t).instantiate σ = Typ.subst σ t :=
+  Typ.subst_congr _ _ t fun _ hv => by simp [Scheme.gen, List.mem_eraseDups.mpr hv]
+
+theorem Scheme.subst_instantiate {s : Scheme} {σ : TyVar → Typ}
+    (hσ : ∀ a ∈ s.free, σ a = .tvar a) (σ' : TyVar → Typ) :
+    Typ.subst σ (s.instantiate σ') = s.instantiate (fun a => Typ.subst σ (σ' a)) := by
+  simp only [Scheme.instantiate, Typ.subst_comp]
+  refine Typ.subst_congr _ _ s.ty fun v hv => ?_
+  by_cases h : v ∈ s.tparams
+  · simp [h]
+  · simp only [h, if_false, Typ.subst, hσ v (by simp [Scheme.free, hv, h])]
 
 /-- A data declaration: type parameters, and one payload type per constructor.
 The payloads are schema types, since they mention the declaration's own
@@ -763,6 +1066,46 @@ def TypeName.unfold (Θ : TypeEnv) (T : TypeName) (args : List (Typ.WithTypeVars
     (args : List (Typ.WithTypeVars V)) :
     TypeName.unfold Θ (.predef p) args =
       if args.length = p.arity then some (p.decl.instantiate args) else none := rfl
+
+/-- Looking a parameter up among substituted arguments finds the substituted
+argument, since substitution touches neither the parameter names nor their
+order. -/
+private theorem find?_zip_map {α β γ : Type} [BEq α] (f : β → γ) (p : α → Bool) :
+    ∀ (as : List α) (bs : List β),
+      (as.zip (bs.map f)).find? (fun q => p q.1) =
+        ((as.zip bs).find? (fun q => p q.1)).map (fun q => (q.1, f q.2))
+  | [], _ => rfl
+  | _ :: _, [] => rfl
+  | a :: as, b :: bs => by
+      simp only [List.map_cons, List.zip_cons_cons, List.find?_cons]
+      cases p a
+      · simpa using find?_zip_map f p as bs
+      · simp
+
+/-- Instantiating a declaration commutes with substitution: a parameter is
+replaced by the substituted argument either way, and a payload variable the
+declaration does not bind goes to the uninhabited type either way. -/
+theorem DataDecl.instantiate_subst (d : DataDecl) (σ : V → Typ.WithTypeVars W)
+    (args : List (Typ.WithTypeVars V)) :
+    d.instantiate (args.map (Typ.subst σ)) = Typ.subst σ (d.instantiate args) := by
+  simp only [DataDecl.instantiate, Typ.subst, Typ.substList_eq, List.map_map]
+  refine congrArg _ (List.map_congr_left fun payload _ => ?_)
+  rw [Function.comp_apply, Typ.subst_comp]
+  refine congrArg (Typ.subst · payload) (funext fun v => ?_)
+  rw [find?_zip_map (Typ.subst σ) (· == v) d.tparams args]
+  cases (d.tparams.zip args).find? (fun q => q.1 == v) <;> rfl
+
+/-- Unfolding a name commutes with substitution. -/
+theorem TypeName.unfold_subst (Θ : TypeEnv) (T : TypeName) (σ : V → Typ.WithTypeVars W)
+    (args : List (Typ.WithTypeVars V)) :
+    TypeName.unfold Θ T (args.map (Typ.subst σ)) =
+      (TypeName.unfold Θ T args).map (Typ.subst σ) := by
+  cases T with
+  | user T =>
+      simp [TypeName.unfold, Option.map_map, Function.comp_def, DataDecl.instantiate_subst]
+  | predef p =>
+      by_cases h : args.length = p.arity <;>
+        simp [TypeName.unfold, h, DataDecl.instantiate_subst]
 
 /-! ## Operator typing -/
 

@@ -24,6 +24,7 @@ inductive ElaborateErrorKind where
   | duplicateType (name : String)
   | duplicateField (name : String)
   | missingField (name : String)
+  | unboundTypeVar (name : String)
   | unsupportedRecordUpdate
   | unsupportedPattern (desc : String)
   | unsupportedFeature (desc : String)
@@ -51,6 +52,7 @@ def ElaborateErrorKind.toString : ElaborateErrorKind → String
   | .duplicateType name => s!"duplicate type name '{name}'"
   | .duplicateField name =>
     s!"duplicate field '{name}' (shadowing fields from a previous type is not supported)"
+  | .unboundTypeVar name => s!"unbound type variable '{name}"
   | .unsupportedRecordUpdate => "record update expressions are not supported"
   | .unsupportedPattern desc => s!"unsupported pattern: {desc}"
   | .unsupportedFeature desc => s!"unsupported feature: {desc}"
@@ -903,6 +905,9 @@ private def elaborateRecordDecl (env : ElabEnv) (loc : Location) (name : TypeCon
   let fieldTypes ← fieldDefs.mapM (fun (fieldName, ty) => do
     let ty' ← Typ.elaborate envWithSelf ty
     pure (fieldName, ty'))
+  match (fieldTypes.flatMap fun (_, ty) => Untyped.Typ.vars ty).head? with
+  | some v => return ← err loc (.unboundTypeVar v)
+  | none => pure ()
   .ok { env with
     types := (name, ⟨coreName, 0⟩) :: env.types
     records := (name, fieldTypes) :: env.records
@@ -915,6 +920,8 @@ def TypeDecl.elaborate (env : ElabEnv) (loc : Location) (decl : TypeDecl)
       let (env', decl') ← elaborateVariant env loc decl.name decl.params ctors
       .ok (env', some decl')
   | .record fields => do
+      if !decl.params.isEmpty then
+        return ← err loc (.unsupportedFeature "type parameters on a record declaration")
       let env' ← elaborateRecordDecl env loc decl.name fields
       .ok (env', none)
 
