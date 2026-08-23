@@ -188,6 +188,16 @@ def Formula.toSMTLIB : Formula → String
 -- Human-readable infix printing with minimal parentheses
 -- ---------------------------------------------------------------------------
 
+def Srt.toStringHum : Srt → String
+  | .int     => "int"
+  | .bool    => "bool"
+  | .char    => "char"
+  | .string  => "string"
+  | .float   => "float"
+  | .value   => "value"
+  | .vallist => "value list"
+  | .vec     => "vec"
+
 -- Precedence levels, ordered lowest to highest (constructor order drives Ord).
 private inductive Prec where
   | bottom   -- if/then/else, ∀, ∃  (lowest)
@@ -313,7 +323,7 @@ private def formulaStr (p : Prec) : Formula → String
   | .and φ ψ         => parens (Prec.lt .and_    p) s!"{formulaStr .and_ φ} && {formulaStr .not_ ψ}"
   | .or  φ ψ         => parens (Prec.lt .or_     p) s!"{formulaStr .or_ φ} || {formulaStr .and_ ψ}"
   | .implies φ ψ     => parens (Prec.lt .implies p) s!"{formulaStr .or_ φ} => {formulaStr .implies ψ}"
-  | .forall_ x τ _ φ => parens (Prec.lt .bottom  p) s!"∀ {x} : {repr τ}, {formulaStr .bottom φ}"
-  | .exists_ x τ φ   => parens (Prec.lt .bottom  p) s!"∃ {x} : {repr τ}, {formulaStr .bottom φ}"
+  | .forall_ x τ _ φ => parens (Prec.lt .bottom  p) s!"∀ {x} : {τ.toStringHum}, {formulaStr .bottom φ}"
+  | .exists_ x τ φ   => parens (Prec.lt .bottom  p) s!"∃ {x} : {τ.toStringHum}, {formulaStr .bottom φ}"
 
 def Formula.toStringHum (φ : Formula) : String := formulaStr .bottom φ
