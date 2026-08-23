@@ -99,7 +99,6 @@ def allDecls (s : State) : Signature :=
    s.frames.flatMap (·.decls.unaryRel),
    s.frames.flatMap (·.decls.binaryRel)⟩
 
-/-- All assertions active in the current state. -/
 def allAsserts (s : State) : List Formula :=
   s.frames.flatMap (·.asserts)
 
