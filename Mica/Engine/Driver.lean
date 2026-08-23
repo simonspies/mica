@@ -31,6 +31,10 @@ namespace Session
 -- The verifier's quantified axioms are designed for E-matching (with explicit
 -- or Z3-inferred triggers), so model-based quantifier instantiation adds a
 -- second, less predictable search path without being needed by the examples.
+
+-- The sorts and symbols declared here are the ones `FOL/Printing.lean` emits.
+-- The two must agree name for name: a mismatch is a Z3 parse error at run time,
+-- not a build error.
 /-- The SMT-LIB text every session starts with: the logic and the solver
     options, then the value sort and the operations on it. -/
 def preamble : String := s!"

@@ -13,6 +13,10 @@ Two serialization targets:
 -- SMT-LIB2 serialization
 -- ---------------------------------------------------------------------------
 
+-- The sorts and symbols emitted here are declared by `Smt.Session.preamble` in
+-- `Mica/Engine/Driver.lean`. The two must agree name for name: a mismatch is a
+-- Z3 parse error at run time, not a build error.
+
 def Srt.toSMTLIB : Srt → String
   | .int     => "Int"
   | .bool    => "Bool"
