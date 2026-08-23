@@ -106,15 +106,23 @@ def allAsserts (s : State) : List Formula :=
 def push (s : State) : State :=
   ⟨⟨Signature.empty, []⟩ :: s.frames⟩
 
+/-- Remove the top frame. `State.initial` has one frame, so the empty stack is
+    reachable only through a `pop` with no matching `push`; that case is a no-op. -/
 def pop (s : State) : State :=
   match s.frames with
-  | [] => s  -- underflow: no-op
+  | [] => s
   | _ :: rest => ⟨rest⟩
 
-def modifyDecls (s : State) (f : Signature → Signature) : State :=
+/-- Apply `f` to the top frame. `State.initial` has one frame, so the empty stack
+    is reachable only through a `pop` with no matching `push`; that case starts a
+    fresh frame. -/
+def modifyTop (s : State) (f : Frame → Frame) : State :=
   match s.frames with
-  | [] => ⟨[⟨f Signature.empty, []⟩]⟩
-  | ⟨decls, asserts⟩ :: rest => ⟨⟨f decls, asserts⟩ :: rest⟩
+  | [] => ⟨[f ⟨Signature.empty, []⟩]⟩
+  | fr :: rest => ⟨f fr :: rest⟩
+
+def modifyDecls (s : State) (f : Signature → Signature) : State :=
+  s.modifyTop (fun fr => ⟨f fr.decls, fr.asserts⟩)
 
 def addConst (s : State) (c : FOL.Const) : State :=
   s.modifyDecls (·.addConst c)
@@ -135,9 +143,7 @@ def addBinaryRel (s : State) (b : FOL.BinaryRel) : State :=
   s.modifyDecls (·.addBinaryRel b)
 
 def addAssert (s : State) (φ : Formula) : State :=
-  match s.frames with
-  | [] => ⟨[⟨Signature.empty, [φ]⟩]⟩
-  | ⟨decls, asserts⟩ :: rest => ⟨⟨decls, φ :: asserts⟩ :: rest⟩
+  s.modifyTop (fun fr => ⟨fr.decls, φ :: fr.asserts⟩)
 
 end State
 

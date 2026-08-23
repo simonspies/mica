@@ -87,7 +87,7 @@ def flatten (s : State) : FlatCtx :=
 theorem flatten_addConst (s : State) (c : FOL.Const) :
     (s.addConst c).flatten = s.flatten.addConst c.name c.sort := by
   simp only [State.flatten, State.allDecls, State.allAsserts,
-             State.modifyDecls, State.addConst, FlatCtx.addConst]
+             State.modifyTop, State.modifyDecls, State.addConst, FlatCtx.addConst]
   cases s.frames with
   | nil => simp [Signature.addConst]
   | cons hd tl =>
@@ -99,7 +99,7 @@ theorem flatten_addConst (s : State) (c : FOL.Const) :
 theorem flatten_addUnary (s : State) (u : FOL.Unary) :
     (s.addUnary u).flatten = s.flatten.addUnary u.name u.arg u.ret := by
   simp only [State.flatten, State.allDecls, State.allAsserts,
-             State.modifyDecls, State.addUnary, FlatCtx.addUnary]
+             State.modifyTop, State.modifyDecls, State.addUnary, FlatCtx.addUnary]
   cases s.frames with
   | nil => simp [Signature.addUnary]
   | cons hd tl =>
@@ -111,7 +111,7 @@ theorem flatten_addUnary (s : State) (u : FOL.Unary) :
 theorem flatten_addBinary (s : State) (b : FOL.Binary) :
     (s.addBinary b).flatten = s.flatten.addBinary b.name b.arg1 b.arg2 b.ret := by
   simp only [State.flatten, State.allDecls, State.allAsserts,
-             State.modifyDecls, State.addBinary, FlatCtx.addBinary]
+             State.modifyTop, State.modifyDecls, State.addBinary, FlatCtx.addBinary]
   cases s.frames with
   | nil => simp [Signature.addBinary]
   | cons hd tl =>
@@ -123,7 +123,7 @@ theorem flatten_addBinary (s : State) (b : FOL.Binary) :
 theorem flatten_addTernary (s : State) (t : FOL.Ternary) :
     (s.addTernary t).flatten = s.flatten.addTernary t.name t.arg1 t.arg2 t.arg3 t.ret := by
   simp only [State.flatten, State.allDecls, State.allAsserts,
-             State.modifyDecls, State.addTernary, FlatCtx.addTernary]
+             State.modifyTop, State.modifyDecls, State.addTernary, FlatCtx.addTernary]
   cases s.frames with
   | nil => simp [Signature.addTernary]
   | cons hd tl =>
@@ -135,7 +135,7 @@ theorem flatten_addTernary (s : State) (t : FOL.Ternary) :
 theorem flatten_addUnaryRel (s : State) (u : FOL.UnaryRel) :
     (s.addUnaryRel u).flatten = s.flatten.addUnaryRel u.name u.arg := by
   simp only [State.flatten, State.allDecls, State.allAsserts,
-             State.modifyDecls, State.addUnaryRel, FlatCtx.addUnaryRel]
+             State.modifyTop, State.modifyDecls, State.addUnaryRel, FlatCtx.addUnaryRel]
   cases s.frames with
   | nil => simp [Signature.addUnaryRel]
   | cons hd tl =>
@@ -147,7 +147,7 @@ theorem flatten_addUnaryRel (s : State) (u : FOL.UnaryRel) :
 theorem flatten_addBinaryRel (s : State) (b : FOL.BinaryRel) :
     (s.addBinaryRel b).flatten = s.flatten.addBinaryRel b.name b.arg1 b.arg2 := by
   simp only [State.flatten, State.allDecls, State.allAsserts,
-             State.modifyDecls, State.addBinaryRel, FlatCtx.addBinaryRel]
+             State.modifyTop, State.modifyDecls, State.addBinaryRel, FlatCtx.addBinaryRel]
   cases s.frames with
   | nil => simp [Signature.addBinaryRel]
   | cons hd tl =>
@@ -159,7 +159,7 @@ theorem flatten_addBinaryRel (s : State) (b : FOL.BinaryRel) :
 theorem flatten_addAssert (s : State) (φ : Formula) :
     (s.addAssert φ).flatten = s.flatten.addAssert φ := by
   simp only [State.flatten, State.allDecls, State.allAsserts,
-             State.addAssert, FlatCtx.addAssert]
+             State.modifyTop, State.addAssert, FlatCtx.addAssert]
   cases s.frames with
   | nil => rfl
   | cons hd tl => cases hd; simp [List.flatMap]
