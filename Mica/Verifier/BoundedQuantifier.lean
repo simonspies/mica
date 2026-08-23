@@ -124,7 +124,7 @@ theorem declare_correct (L : SpecFn) (f : TinyML.Var) (axs : List Axiom)
     intro g rel hgr x y
     rcases List.mem_append.mp hgr with hold | hnew
     · obtain ⟨hu, hr⟩ := hΓwf.split g rel hold
-      obtain ⟨her, hec, hed⟩ := SpecFn.agreeOn hagree (hΓwf.rel g rel hold) hu hr
+      obtain ⟨her, hec, hed⟩ := SpecFn.eval_of_agreeOn hagree (hΓwf.rel g rel hold) hu hr
       rw [← her, ← hec, ← hed]
       exact hsplit g rel hold x y
     · simp at hnew; obtain ⟨_, rfl⟩ := hnew
@@ -134,7 +134,7 @@ theorem declare_correct (L : SpecFn) (f : TinyML.Var) (axs : List Axiom)
     intro g rel hgr x y₁ y₂ hy₁ hy₂
     rcases List.mem_append.mp hgr with hold | hnew
     · obtain ⟨hu, hr⟩ := hΓwf.split g rel hold
-      obtain ⟨her, _, _⟩ := SpecFn.agreeOn hagree (hΓwf.rel g rel hold) hu hr
+      obtain ⟨her, _, _⟩ := SpecFn.eval_of_agreeOn hagree (hΓwf.rel g rel hold) hu hr
       rw [← her] at hy₁ hy₂
       exact hdet g rel hold x y₁ y₂ hy₁ hy₂
     · simp at hnew; obtain ⟨_, rfl⟩ := hnew

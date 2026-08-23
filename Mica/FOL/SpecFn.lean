@@ -187,7 +187,7 @@ theorem relates_wfIn {fn : SpecFn} {arg res : Term .value} {Δ : Signature}
 
 /-- Agreement on a signature carrying `fn`'s split symbols transports the
 relational, value, and definedness evaluations between the two environments. -/
-theorem agreeOn {fn : SpecFn} {ρ ρ' : Env} {Δ : Signature}
+theorem eval_of_agreeOn {fn : SpecFn} {ρ ρ' : Env} {Δ : Signature}
     (h : Env.agreeOn Δ ρ ρ')
     (hr : fn.rel ∈ Δ.binaryRel) (hu : fn.func ∈ Δ.unary) (hd : fn.defined ∈ Δ.unaryRel) :
     fn.evalRelates ρ = fn.evalRelates ρ' ∧
