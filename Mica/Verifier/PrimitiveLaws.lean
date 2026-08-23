@@ -332,7 +332,7 @@ theorem wp_arrayGet_inv (W : TinyML.World) {Q : Runtime.Val → iProp}
     {varr vidx : Runtime.Val}
     (harr : Term.eval ρ arr = varr) (hidx : Term.eval ρ idx = vidx)
     (hi : 0 ≤ Term.eval ρ (.unop .toInt idx))
-    (hlt : Term.eval ρ (.unop .toInt idx) < Term.eval ρ (.unop .arrayLengthOf arr))
+    (hlt : Term.eval ρ (.unop .toInt idx) < Term.eval ρ (.unop .arrayLen arr))
     (h : ∀ w, ctx.interp W ρ ∗ TinyML.ValHasType W w elemTy ∗ R ⊢ Q w) :
     ctx.interp W ρ ∗ TinyML.ValHasType W varr (.array elemTy) ∗
       TinyML.ValHasType W vidx .int ∗ R ⊢
@@ -370,7 +370,7 @@ theorem wp_arrayGet_owned (W : TinyML.World) {Q : Runtime.Val → iProp}
     {rest : SpatialContext} {varr vidx : Runtime.Val}
     (harr : Term.eval ρ arr = varr) (hidx : Term.eval ρ idx = vidx)
     (hi : 0 ≤ Term.eval ρ (.unop .toInt idx))
-    (hlt : Term.eval ρ (.unop .toInt idx) < Term.eval ρ (.unop .arrayLengthOf arr))
+    (hlt : Term.eval ρ (.unop .toInt idx) < Term.eval ρ (.unop .arrayLen arr))
     (hresult : result = .binop .vecGet (.unop .toVec contents) (.unop .toInt idx))
     (h : (insert (.arrayPointsTo arr contents elemTy) rest).interp W ρ ∗
       TinyML.ValHasType W (Term.eval ρ result) elemTy ∗ R ⊢ Q (Term.eval ρ result)) :
@@ -450,7 +450,7 @@ theorem wp_arraySet_inv (W : TinyML.World) {Q : Runtime.Val → iProp}
     {varr vidx val : Runtime.Val}
     (harr : Term.eval ρ arr = varr) (hidx : Term.eval ρ idx = vidx)
     (hi : 0 ≤ Term.eval ρ (.unop .toInt idx))
-    (hlt : Term.eval ρ (.unop .toInt idx) < Term.eval ρ (.unop .arrayLengthOf arr))
+    (hlt : Term.eval ρ (.unop .toInt idx) < Term.eval ρ (.unop .arrayLen arr))
     (h : ctx.interp W ρ ∗ TinyML.ValHasType W .unit .unit ∗ R ⊢ Q .unit) :
     ctx.interp W ρ ∗ TinyML.ValHasType W varr (.array elemTy) ∗
       TinyML.ValHasType W vidx .int ∗ TinyML.ValHasType W val elemTy ∗ R ⊢
@@ -491,7 +491,7 @@ theorem wp_arraySet_owned (W : TinyML.World) {Q : Runtime.Val → iProp}
     (harr : Term.eval ρ arr = varr) (hidx : Term.eval ρ idx = vidx)
     (hval : Term.eval ρ val = vval)
     (hi : 0 ≤ Term.eval ρ (.unop .toInt idx))
-    (hlt : Term.eval ρ (.unop .toInt idx) < Term.eval ρ (.unop .arrayLengthOf arr))
+    (hlt : Term.eval ρ (.unop .toInt idx) < Term.eval ρ (.unop .arrayLen arr))
     (hcontents' : contents' = .unop .ofVec
       (.terop .vecSet (.unop .toVec contents) (.unop .toInt idx) val))
     (h : (insert (.arrayPointsTo arr contents' elemTy) rest).interp W ρ ∗

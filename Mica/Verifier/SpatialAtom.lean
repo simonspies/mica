@@ -119,7 +119,7 @@ alongside the atom whenever it enters the verifier's spatial context. -/
 def facts : SpatialAtom → List Formula
   | .pointsTo .. => []
   | .arrayPointsTo a v ty =>
-      .eq .int (.unop .vecLen (.unop .toVec v)) (.unop .arrayLengthOf a) ::
+      .eq .int (.unop .vecLen (.unop .toVec v)) (.unop .arrayLen a) ::
         TinyML.elementConstraints ty v
 
 /-- The pure facts of a well-formed atom are well-formed. -/

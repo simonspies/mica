@@ -42,9 +42,9 @@ def typeConstraints (ty : TinyML.Typ) (t : Term .value) : List Formula :=
   | .prim p => p.typeConstraints t
   | .owned _ => [.unpred .isLoc t]
   | .array _ =>
-      [.binpred .le (.const (.i 0)) (.unop .arrayLengthOf t)]
+      [.binpred .le (.const (.i 0)) (.unop .arrayLen t)]
   | .ownedArray _ =>
-      [.binpred .le (.const (.i 0)) (.unop .arrayLengthOf t)]
+      [.binpred .le (.const (.i 0)) (.unop .arrayLen t)]
   | .vec _ =>
       [.unpred .isVec t,
        .binpred .le (.const (.i 0)) (.unop .vecLen (.unop .toVec t))]

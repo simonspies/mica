@@ -188,7 +188,7 @@ def encodeWith {M : Type} (primitives : PrimEncodings) (ops : EncoderOps M) (Δ 
   | .store .., _  => ops.error "relational encoding: heap store is not supported"
   | .arrayLen arr, k =>
     encodeWith primitives ops Δ Γ δ arr fun v =>
-      k (.unop .ofInt (.unop .arrayLengthOf v))
+      k (.unop .ofInt (.unop .arrayLen v))
   | .arrayMake .., _ | .arrayGet .., _ | .arraySet .., _ =>
       ops.error "relational encoding: arrays are not supported"
   | .assert _, _  => ops.error "relational encoding: `assert` is not supported"
@@ -1378,7 +1378,7 @@ theorem arrayLen {primitives : PrimEncodings}
   refine ih hops hsub₁ hsub₂ hwf₁ hwf₂ hagree henv ?_
   intro Δa₁ Δa₂ ρa₁ ρa₂ hsa₁ hsa₂ hwa₁ hwa₂ haa₁ haa₂ v₁ v₂ hv₁ hv₂ hevalv
   exact hk hsa₁ hsa₂ hwa₁ hwa₂ haa₁ haa₂
-    (.unop .ofInt (.unop .arrayLengthOf v₁)) (.unop .ofInt (.unop .arrayLengthOf v₂))
+    (.unop .ofInt (.unop .arrayLen v₁)) (.unop .ofInt (.unop .arrayLen v₂))
     ⟨trivial, trivial, hv₁⟩ ⟨trivial, trivial, hv₂⟩
     (by simp [Term.eval, UnOp.eval, hevalv])
 

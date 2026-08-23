@@ -61,7 +61,7 @@ inductive UnOp : Srt → Srt → Type where
   | not        : UnOp .bool    .bool
   | ofValList  : UnOp .vallist .value
   | toValList  : UnOp .value   .vallist
-  | arrayLengthOf : UnOp .value .int
+  | arrayLen   : UnOp .value   .int
   | vhead      : UnOp .vallist .value
   | vtail      : UnOp .vallist .vallist
   | visnil     : UnOp .vallist .bool
@@ -587,7 +587,7 @@ theorem Term.wfIn_declVar_of_fresh {t : Term τ} {x : String} {s : Srt}
   | _, .not,     b  => !b
   | _, .ofValList, vs => Runtime.Val.tuple vs
   | _, .toValList, v  => match v with | .tuple vs => vs | _ => []
-  | _, .arrayLengthOf, v => match v with | .array len _ => (len : Int) | _ => 0
+  | _, .arrayLen, v => match v with | .array len _ => (len : Int) | _ => 0
   | _, .vhead,   vs => vs.headD .unit
   | _, .vtail,   vs => vs.tail
   | _, .visnil,  vs => vs.isEmpty
