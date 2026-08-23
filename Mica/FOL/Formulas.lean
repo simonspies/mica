@@ -382,9 +382,6 @@ def Formula.eval (ρ : Env) : Formula → Prop
   | .forall_ x τ _ φ => ∀ v : τ.denote, φ.eval (ρ.updateConst τ x v)
   | .exists_ x τ φ => ∃ v : τ.denote, φ.eval (ρ.updateConst τ x v)
 
-def entails (Γ : Context) (φ : Formula) : Prop :=
-  ∀ ρ : Env, (∀ ψ ∈ Γ, ψ.eval ρ) → φ.eval ρ
-
 theorem Formula.eval_env_agree {φ : Formula} {ρ ρ' : Env} {Δ : Signature} :
     φ.wfIn Δ → Env.agreeOn Δ ρ ρ' → (φ.eval ρ ↔ φ.eval ρ') := by
   intro hwf hagree
