@@ -82,7 +82,6 @@ inductive Result where
   | sat
   | unsat
   | unknown
-  deriving BEq, Repr
 
 /-! ## Smt.State operations -/
 
