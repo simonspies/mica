@@ -18,9 +18,7 @@ def result : Trace α → α
   | .done a => a
   | .step _ _ rest => rest.result
 
-/-! ## Trace.finalState
-
-Walk a trace, advancing the Smt.State at each step. -/
+/-! ## Trace.finalState -/
 
 def finalState (st : State) : Trace α → State
   | .done _ => st
@@ -34,7 +32,6 @@ at that point are genuinely unsatisfiable.
 We do not require anything of `sat` or `unknown` responses — the checker must
 handle those conservatively. -/
 
-/-- Walk a trace maintaining the SMT state, verifying that every `unsat` is justified. -/
 def isSound : State → Trace α → Prop
   | _, .done _ => True
   | s, .step .push () rest => isSound s.push rest
@@ -55,7 +52,6 @@ def isSound : State → Trace α → Prop
 
 /-! ## isSound step lemmas -/
 
-/-- Peeling one step off isSound: the rest is sound from the stepped state. -/
 theorem isSound.step_rest {cmd : Command β} {r : β} {rest : Trace α} {st : State}
     (h : isSound st (.step cmd r rest)) : isSound (st.step cmd r) rest := by
   cases cmd with
@@ -72,7 +68,6 @@ theorem isSound.step_rest {cmd : Command β} {r : β} {rest : Trace α} {st : St
   | setOption s => cases r; exact h
   | getOption g => exact h
 
-/-- Reconstructing isSound for one step from the step obligation and the rest. -/
 theorem isSound.step_cons {cmd : Command β} {r : β} {rest : Trace α} {st : State}
     (hrest : isSound (st.step cmd r) rest)
     (hstep : match cmd, r with
