@@ -57,14 +57,14 @@ instance : ToString FrontendError := ⟨FrontendError.toString⟩
 -- ---------------------------------------------------------------------------
 -- Parser state and monad
 
-structure ParserState where
+private structure ParserState where
   file   : String
   tokens : Array (Location × Token)
   pos    : Nat
 
 /-- A parser reads from a token cursor and fails with a `ParseError`. The state
 is threaded by the monad; nothing below passes a `ParserState` by hand. -/
-abbrev Parser (α : Type) := StateT ParserState (Except ParseError) α
+private abbrev Parser (α : Type) := StateT ParserState (Except ParseError) α
 
 -- ---------------------------------------------------------------------------
 -- Primitive combinators

@@ -86,7 +86,7 @@ where
 
 /-- Recognise a specification's control structure in an elaborated attribute
 payload. -/
-def parse (e : Untyped.Expr) : M Untyped.SpecBody :=
+def parse (e : Untyped.Expr) : Except String Untyped.SpecBody :=
   peelBinders e
 
 end Spec
