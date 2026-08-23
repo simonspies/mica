@@ -444,10 +444,3 @@ theorem Formula.eq_eval_updateConst_of_fresh {Δ : Signature} {ρ : Env}
       (ρ.updateConst c.sort c.name (t.eval ρ)) := by
   simp only [Formula.eval, Term.eval_const_updateConst]
   exact Term.eval_env_agree ht (Env.agreeOn_update_fresh_const hfresh)
-
-
-/-- A single-argument named predicate, represented as `(argName, body)`.
-
-Used by the verifier's predicate-transformer layer to carry binder names for
-human-readable output while keeping the body representation generic over `α`. -/
-def Pred α      := String × α
