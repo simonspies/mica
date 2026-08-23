@@ -829,56 +829,56 @@ private theorem unique_sig_of_nodup_map_binaryRel_name {l : List FOL.BinaryRel} 
 theorem wf_unique_var {Δ : Signature} {x : String} {τ τ' : Srt}
     (hΔ : Δ.wf) (hv : ⟨x, τ⟩ ∈ Δ.vars) (hv' : ⟨x, τ'⟩ ∈ Δ.vars) : τ' = τ :=
   by
-    have hABCDE := (List.nodup_append.mp hΔ).1
-    have hABCD := (List.nodup_append.mp hABCDE).1
-    have hABC := (List.nodup_append.mp hABCD).1
-    have hAB := (List.nodup_append.mp hABC).1
+    have hnd₁ := (List.nodup_append.mp hΔ).1
+    have hnd₂ := (List.nodup_append.mp hnd₁).1
+    have hnd₃ := (List.nodup_append.mp hnd₂).1
+    have hnd₄ := (List.nodup_append.mp hnd₃).1
     exact unique_sort_of_nodup_map_name (l := Δ.vars) (x := x)
-      (List.nodup_append.mp (List.nodup_append.mp hAB).1).1 hv hv'
+      (List.nodup_append.mp (List.nodup_append.mp hnd₄).1).1 hv hv'
 
 theorem wf_unique_const {Δ : Signature} {x : String} {τ τ' : Srt}
     (hΔ : Δ.wf) (hc : ⟨x, τ⟩ ∈ Δ.consts) (hc' : ⟨x, τ'⟩ ∈ Δ.consts) : τ' = τ :=
   by
-    have hABCDE := (List.nodup_append.mp hΔ).1
-    have hABCD := (List.nodup_append.mp hABCDE).1
-    have hABC := (List.nodup_append.mp hABCD).1
-    have hAB := (List.nodup_append.mp hABC).1
+    have hnd₁ := (List.nodup_append.mp hΔ).1
+    have hnd₂ := (List.nodup_append.mp hnd₁).1
+    have hnd₃ := (List.nodup_append.mp hnd₂).1
+    have hnd₄ := (List.nodup_append.mp hnd₃).1
     exact unique_sort_of_nodup_map_const_name (l := Δ.consts) (x := x)
-      (List.nodup_append.mp (List.nodup_append.mp hAB).1).2.1 hc hc'
+      (List.nodup_append.mp (List.nodup_append.mp hnd₄).1).2.1 hc hc'
 
 theorem wf_unique_unary {Δ : Signature} {x : String} {τ₁ τ₂ τ₁' τ₂' : Srt}
     (hΔ : Δ.wf) (hu : ⟨x, τ₁, τ₂⟩ ∈ Δ.unary) (hu' : ⟨x, τ₁', τ₂'⟩ ∈ Δ.unary) :
     τ₁' = τ₁ ∧ τ₂' = τ₂ := by
-  have hABCDE := (List.nodup_append.mp hΔ).1
-  have hABCD := (List.nodup_append.mp hABCDE).1
-  have hABC := (List.nodup_append.mp hABCD).1
-  have hAB := (List.nodup_append.mp hABC).1
+  have hnd₁ := (List.nodup_append.mp hΔ).1
+  have hnd₂ := (List.nodup_append.mp hnd₁).1
+  have hnd₃ := (List.nodup_append.mp hnd₂).1
+  have hnd₄ := (List.nodup_append.mp hnd₃).1
   exact unique_sig_of_nodup_map_unary_name (l := Δ.unary) (x := x)
-    (List.nodup_append.mp hAB).2.1 hu hu'
+    (List.nodup_append.mp hnd₄).2.1 hu hu'
 
 theorem wf_unique_binary {Δ : Signature} {x : String} {τ₁ τ₂ τ₃ τ₁' τ₂' τ₃' : Srt}
     (hΔ : Δ.wf) (hb : ⟨x, τ₁, τ₂, τ₃⟩ ∈ Δ.binary) (hb' : ⟨x, τ₁', τ₂', τ₃'⟩ ∈ Δ.binary) :
     τ₁' = τ₁ ∧ τ₂' = τ₂ ∧ τ₃' = τ₃ := by
-  have hABCDE := (List.nodup_append.mp hΔ).1
-  have hABCD := (List.nodup_append.mp hABCDE).1
-  have hABC := (List.nodup_append.mp hABCD).1
+  have hnd₁ := (List.nodup_append.mp hΔ).1
+  have hnd₂ := (List.nodup_append.mp hnd₁).1
+  have hnd₃ := (List.nodup_append.mp hnd₂).1
   exact unique_sig_of_nodup_map_binary_name (l := Δ.binary) (x := x)
-    (List.nodup_append.mp hABC).2.1 hb hb'
+    (List.nodup_append.mp hnd₃).2.1 hb hb'
 
 theorem wf_unique_ternary {Δ : Signature} {x : String}
     {τ₁ τ₂ τ₃ τ₄ τ₁' τ₂' τ₃' τ₄' : Srt}
     (hΔ : Δ.wf) (ht : ⟨x, τ₁, τ₂, τ₃, τ₄⟩ ∈ Δ.ternary)
     (ht' : ⟨x, τ₁', τ₂', τ₃', τ₄'⟩ ∈ Δ.ternary) :
     τ₁' = τ₁ ∧ τ₂' = τ₂ ∧ τ₃' = τ₃ ∧ τ₄' = τ₄ := by
-  have hABCDE := (List.nodup_append.mp hΔ).1
+  have hnd₁ := (List.nodup_append.mp hΔ).1
   exact unique_sig_of_nodup_map_ternary_name (l := Δ.ternary) (x := x)
-    (List.nodup_append.mp (List.nodup_append.mp hABCDE).1).2.1 ht ht'
+    (List.nodup_append.mp (List.nodup_append.mp hnd₁).1).2.1 ht ht'
 
 theorem wf_unique_unaryRel {Δ : Signature} {x : String} {τ τ' : Srt}
     (hΔ : Δ.wf) (hu : ⟨x, τ⟩ ∈ Δ.unaryRel) (hu' : ⟨x, τ'⟩ ∈ Δ.unaryRel) : τ' = τ := by
-  have hABCDE := (List.nodup_append.mp hΔ).1
+  have hnd₁ := (List.nodup_append.mp hΔ).1
   exact unique_sort_of_nodup_map_unaryRel_name (l := Δ.unaryRel) (x := x)
-    (List.nodup_append.mp hABCDE).2.1 hu hu'
+    (List.nodup_append.mp hnd₁).2.1 hu hu'
 
 theorem wf_unique_binaryRel {Δ : Signature} {x : String} {τ₁ τ₂ τ₁' τ₂' : Srt}
     (hΔ : Δ.wf) (hb : ⟨x, τ₁, τ₂⟩ ∈ Δ.binaryRel) (hb' : ⟨x, τ₁', τ₂'⟩ ∈ Δ.binaryRel) :
@@ -889,13 +889,13 @@ theorem wf_unique_binaryRel {Δ : Signature} {x : String} {τ₁ τ₂ τ₁' τ
 theorem wf_no_const_of_var {Δ : Signature} {x : String} {τ τ' : Srt}
     (hΔ : Δ.wf) (hv : ⟨x, τ⟩ ∈ Δ.vars) : ⟨x, τ'⟩ ∉ Δ.consts := by
   intro hc
-  have hABCDE := (List.nodup_append.mp hΔ).1
-  have hABCD := (List.nodup_append.mp hABCDE).1
-  have hABC := (List.nodup_append.mp hABCD).1
-  have hAB := (List.nodup_append.mp hABC).1
+  have hnd₁ := (List.nodup_append.mp hΔ).1
+  have hnd₂ := (List.nodup_append.mp hnd₁).1
+  have hnd₃ := (List.nodup_append.mp hnd₂).1
+  have hnd₄ := (List.nodup_append.mp hnd₃).1
   have hdisj :
       ∀ a ∈ Δ.vars.map Var.name, ∀ b ∈ Δ.consts.map FOL.Const.name, a ≠ b :=
-    (List.nodup_append.mp (List.nodup_append.mp hAB).1).2.2
+    (List.nodup_append.mp (List.nodup_append.mp hnd₄).1).2.2
   have hxv : x ∈ Δ.vars.map Var.name := List.mem_map.mpr ⟨⟨x, τ⟩, hv, rfl⟩
   have hxc : x ∈ Δ.consts.map FOL.Const.name := List.mem_map.mpr ⟨⟨x, τ'⟩, hc, rfl⟩
   exact hdisj x hxv x hxc rfl
@@ -908,13 +908,13 @@ theorem wf_no_var_of_const {Δ : Signature} {x : String} {τ τ' : Srt}
 theorem wf_no_unaryRel_of_unary {Δ : Signature} {x : String} {τ₁ τ₂ τ' : Srt}
     (hΔ : Δ.wf) (hu : ⟨x, τ₁, τ₂⟩ ∈ Δ.unary) : ⟨x, τ'⟩ ∉ Δ.unaryRel := by
   intro hrel
-  have hABCDE := (List.nodup_append.mp hΔ).1
+  have hnd₁ := (List.nodup_append.mp hΔ).1
   have hdisj :
       ∀ a ∈ (Δ.vars.map Var.name ++ Δ.consts.map FOL.Const.name ++
         Δ.unary.map FOL.Unary.name ++ Δ.binary.map FOL.Binary.name ++
         Δ.ternary.map FOL.Ternary.name),
       ∀ b ∈ Δ.unaryRel.map FOL.UnaryRel.name, a ≠ b :=
-    (List.nodup_append.mp hABCDE).2.2
+    (List.nodup_append.mp hnd₁).2.2
   have hxu :
       x ∈ (Δ.vars.map Var.name ++ Δ.consts.map FOL.Const.name ++
         Δ.unary.map FOL.Unary.name ++ Δ.binary.map FOL.Binary.name ++
