@@ -84,7 +84,7 @@ def parse : (cmd : Command α) → String → Option α
     else if s == "unknown" then some .unknown
     else none
   | .setOption _, s => if s == "success" then some () else none
-  | .getOption g, s => g.parse s.trimAscii.str
+  | .getOption g, s => g.parse s
 
 end Command
 
