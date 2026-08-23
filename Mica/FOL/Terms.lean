@@ -562,6 +562,11 @@ theorem Term.wfIn_declVar_of_fresh {t : Term τ} {x : String} {s : Srt}
     simp only [Term.names, List.mem_append, not_or] at hx
     exact ⟨ihc h.1 hx.1.1, iht h.2.1 hx.1.2, ihe h.2.2 hx.2⟩
 
+/-- Interpret a unary operator. Evaluation is total: a projection applied to a
+value of a different shape, and an out-of-range index, give the default of the
+result sort (`0`, `false`, `[]`, `.unit`). On the SMT side, the corresponding
+cases are underspecified, which means if a formula is unsat, then any value
+can be chosen here.  -/
 @[simp] def UnOp.eval : Env → UnOp τ₁ τ₂ → τ₁.denote → τ₂.denote
   | _, .ofInt,   n  => Runtime.Val.int n
   | _, .ofBool,  b  => Runtime.Val.bool b
@@ -600,6 +605,7 @@ theorem Term.wfIn_declVar_of_fresh {t : Term τ} {x : String} {s : Srt}
   | _, .toVec,   v => match v with | .vec l => l | _ => []
   | ρ, .uninterpreted name _ _, x => ρ.unary τ₁ τ₂ name x
 
+/-- Interpret a binary operator. Totality convention as for `UnOp.eval`. -/
 @[simp] def BinOp.eval : Env → BinOp τ₁ τ₂ τ₃ → τ₁.denote → τ₂.denote → τ₃.denote
   | _, .add,   a, b  => a + b
   | _, .sub,   a, b  => a - b
@@ -626,6 +632,7 @@ theorem Term.wfIn_declVar_of_fresh {t : Term τ} {x : String} {s : Srt}
   | _, .vecMake, n, x => if 0 ≤ n then List.replicate n.toNat x else []
   | ρ, .uninterpreted name _ _ _, x, y => ρ.binary τ₁ τ₂ τ₃ name x y
 
+/-- Interpret a ternary operator. Totality convention as for `UnOp.eval`. -/
 @[simp] def TerOp.eval : Env → TerOp τ₁ τ₂ τ₃ τ₄ → τ₁.denote → τ₂.denote → τ₃.denote → τ₄.denote
   | _, .seqExtract, s, pos, len => (s.drop (Int.toNat pos)).take (Int.toNat len)
   | _, .vecSet, l, i, x => if 0 ≤ i then l.set i.toNat x else l

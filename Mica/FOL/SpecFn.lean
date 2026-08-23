@@ -53,20 +53,18 @@ theorem relName_ne_fn (f : SpecFn) : relName f ≠ f := by
 theorem defName_ne_funcName (f : SpecFn) :
     defName f ≠ funcName f := by
   intro h
-  have hlen := congrArg String.length h
-  simp only [defName, funcName, String.length_append,
-    show ("-func" : String).length = 5 from rfl,
-    show ("-def" : String).length = 4 from rfl] at hlen
-  omega
+  have hd := congrArg String.toList h
+  simp [defName, funcName, String.toList_append,
+    show ("-def" : String).toList = ['-','d','e','f'] from rfl,
+    show ("-func" : String).toList = ['-','f','u','n','c'] from rfl] at hd
 
 theorem relName_ne_funcName (f : SpecFn) :
     relName f ≠ funcName f := by
   intro h
-  have hlen := congrArg String.length h
-  simp only [relName, funcName, String.length_append,
-    show ("-rel" : String).length = 4 from rfl,
-    show ("-func" : String).length = 5 from rfl] at hlen
-  omega
+  have hd := congrArg String.toList h
+  simp [relName, funcName, String.toList_append,
+    show ("-rel" : String).toList = ['-','r','e','l'] from rfl,
+    show ("-func" : String).toList = ['-','f','u','n','c'] from rfl] at hd
 
 theorem relName_ne_defName (f : SpecFn) :
     relName f ≠ defName f := by
