@@ -100,6 +100,16 @@ theorem eval_done {a : α} {st : State} {ret : α} {st' : State} :
   · rintro ⟨rfl, rfl⟩
     exact ⟨.done ret, .done, trivial, rfl, rfl⟩
 
+theorem eval_exec {cmd : Command β} {k : β → Strategy α} {st : State} {ret : α} {st' : State} :
+    eval (.exec cmd k) st ret st' ↔
+      ∃ r, Trace.obligation cmd r st ∧ eval (k r) (st.step cmd r) ret st' := by
+  constructor
+  · rintro ⟨t, hgen, hsound, hst', hret⟩
+    cases hgen; rename_i rest r hrest
+    exact ⟨r, hsound.step_obligation, rest, hrest, hsound.step_rest, hst', hret⟩
+  · rintro ⟨r, hobl, t, hgen, hsound, hst', hret⟩
+    exact ⟨.step cmd r t, .exec hgen, hsound.step_cons hobl, hst', hret⟩
+
 /-! ## Strategy.Outcome and Strategy.checks -/
 
 def Outcome := Except String Unit

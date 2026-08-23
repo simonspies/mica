@@ -307,128 +307,101 @@ theorem ScopedM.eval_declareConst {n : String} {s : Srt}
     {k : Unit → ScopedM α} {ctx : FlatCtx} {ret : α} {ctx' : FlatCtx} :
     ScopedM.eval (.declareConst n s k) ctx ret ctx' →
       ScopedM.eval (k ()) (ctx.addConst n s) ret ctx' := by
-  simp only [ScopedM.eval, translate, Strategy.eval]
-  rintro ⟨st, st', hflat, hflat', t, hgen, hsound, hst', hret⟩
-  cases hgen; rename_i rest resp hrest
-  cases resp
-  simp only [Trace.finalState, State.step, Trace.result] at hsound hst' hret
-  refine ⟨st.addConst ⟨n, s⟩, st', ?_, hflat', rest, hrest, hsound.step_rest, hst', hret⟩
-  simp only [State.flatten_addConst, hflat]
+  simp only [ScopedM.eval, translate]
+  rintro ⟨st, st', hflat, hflat', heval⟩
+  obtain ⟨_, _, heval⟩ := Strategy.eval_exec.mp heval
+  exact ⟨st.addConst ⟨n, s⟩, st', by simp only [State.flatten_addConst, hflat], hflat', heval⟩
 
 theorem ScopedM.eval_declareUnary {n : String} {arg ret : Srt}
     {k : Unit → ScopedM α} {ctx : FlatCtx} {r : α} {ctx' : FlatCtx} :
     ScopedM.eval (.declareUnary n arg ret k) ctx r ctx' →
       ScopedM.eval (k ()) (ctx.addUnary n arg ret) r ctx' := by
-  simp only [ScopedM.eval, translate, Strategy.eval]
-  rintro ⟨st, st', hflat, hflat', t, hgen, hsound, hst', hret⟩
-  cases hgen; rename_i rest resp hrest
-  cases resp
-  simp only [Trace.finalState, State.step, Trace.result] at hsound hst' hret
-  refine ⟨st.addUnary ⟨n, arg, ret⟩, st', ?_, hflat', rest, hrest, hsound.step_rest, hst', hret⟩
-  simp only [State.flatten_addUnary, hflat]
+  simp only [ScopedM.eval, translate]
+  rintro ⟨st, st', hflat, hflat', heval⟩
+  obtain ⟨_, _, heval⟩ := Strategy.eval_exec.mp heval
+  exact ⟨st.addUnary ⟨n, arg, ret⟩, st', by simp only [State.flatten_addUnary, hflat], hflat', heval⟩
 
 theorem ScopedM.eval_declareBinary {n : String} {arg1 arg2 ret : Srt}
     {k : Unit → ScopedM α} {ctx : FlatCtx} {r : α} {ctx' : FlatCtx} :
     ScopedM.eval (.declareBinary n arg1 arg2 ret k) ctx r ctx' →
       ScopedM.eval (k ()) (ctx.addBinary n arg1 arg2 ret) r ctx' := by
-  simp only [ScopedM.eval, translate, Strategy.eval]
-  rintro ⟨st, st', hflat, hflat', t, hgen, hsound, hst', hret⟩
-  cases hgen; rename_i rest resp hrest
-  cases resp
-  simp only [Trace.finalState, State.step, Trace.result] at hsound hst' hret
-  refine ⟨st.addBinary ⟨n, arg1, arg2, ret⟩, st', ?_, hflat', rest, hrest, hsound.step_rest, hst', hret⟩
-  simp only [State.flatten_addBinary, hflat]
+  simp only [ScopedM.eval, translate]
+  rintro ⟨st, st', hflat, hflat', heval⟩
+  obtain ⟨_, _, heval⟩ := Strategy.eval_exec.mp heval
+  exact ⟨st.addBinary ⟨n, arg1, arg2, ret⟩, st',
+    by simp only [State.flatten_addBinary, hflat], hflat', heval⟩
 
 theorem ScopedM.eval_declareTernary {n : String} {arg1 arg2 arg3 ret : Srt}
     {k : Unit → ScopedM α} {ctx : FlatCtx} {r : α} {ctx' : FlatCtx} :
     ScopedM.eval (.declareTernary n arg1 arg2 arg3 ret k) ctx r ctx' →
       ScopedM.eval (k ()) (ctx.addTernary n arg1 arg2 arg3 ret) r ctx' := by
-  simp only [ScopedM.eval, translate, Strategy.eval]
-  rintro ⟨st, st', hflat, hflat', t, hgen, hsound, hst', hret⟩
-  cases hgen; rename_i rest resp hrest
-  cases resp
-  simp only [Trace.finalState, State.step, Trace.result] at hsound hst' hret
-  refine ⟨st.addTernary ⟨n, arg1, arg2, arg3, ret⟩, st', ?_, hflat', rest, hrest, hsound.step_rest, hst', hret⟩
-  simp only [State.flatten_addTernary, hflat]
+  simp only [ScopedM.eval, translate]
+  rintro ⟨st, st', hflat, hflat', heval⟩
+  obtain ⟨_, _, heval⟩ := Strategy.eval_exec.mp heval
+  exact ⟨st.addTernary ⟨n, arg1, arg2, arg3, ret⟩, st',
+    by simp only [State.flatten_addTernary, hflat], hflat', heval⟩
 
 theorem ScopedM.eval_declareUnaryRel {n : String} {arg : Srt}
     {k : Unit → ScopedM α} {ctx : FlatCtx} {r : α} {ctx' : FlatCtx} :
     ScopedM.eval (.declareUnaryRel n arg k) ctx r ctx' →
       ScopedM.eval (k ()) (ctx.addUnaryRel n arg) r ctx' := by
-  simp only [ScopedM.eval, translate, Strategy.eval]
-  rintro ⟨st, st', hflat, hflat', t, hgen, hsound, hst', hret⟩
-  cases hgen; rename_i rest resp hrest
-  cases resp
-  simp only [Trace.finalState, State.step, Trace.result] at hsound hst' hret
-  refine ⟨st.addUnaryRel ⟨n, arg⟩, st', ?_, hflat', rest, hrest, hsound.step_rest, hst', hret⟩
-  simp only [State.flatten_addUnaryRel, hflat]
+  simp only [ScopedM.eval, translate]
+  rintro ⟨st, st', hflat, hflat', heval⟩
+  obtain ⟨_, _, heval⟩ := Strategy.eval_exec.mp heval
+  exact ⟨st.addUnaryRel ⟨n, arg⟩, st',
+    by simp only [State.flatten_addUnaryRel, hflat], hflat', heval⟩
 
 theorem ScopedM.eval_declareBinaryRel {n : String} {arg1 arg2 : Srt}
     {k : Unit → ScopedM α} {ctx : FlatCtx} {r : α} {ctx' : FlatCtx} :
     ScopedM.eval (.declareBinaryRel n arg1 arg2 k) ctx r ctx' →
       ScopedM.eval (k ()) (ctx.addBinaryRel n arg1 arg2) r ctx' := by
-  simp only [ScopedM.eval, translate, Strategy.eval]
-  rintro ⟨st, st', hflat, hflat', t, hgen, hsound, hst', hret⟩
-  cases hgen; rename_i rest resp hrest
-  cases resp
-  simp only [Trace.finalState, State.step, Trace.result] at hsound hst' hret
-  refine ⟨st.addBinaryRel ⟨n, arg1, arg2⟩, st', ?_, hflat', rest, hrest, hsound.step_rest, hst', hret⟩
-  simp only [State.flatten_addBinaryRel, hflat]
+  simp only [ScopedM.eval, translate]
+  rintro ⟨st, st', hflat, hflat', heval⟩
+  obtain ⟨_, _, heval⟩ := Strategy.eval_exec.mp heval
+  exact ⟨st.addBinaryRel ⟨n, arg1, arg2⟩, st',
+    by simp only [State.flatten_addBinaryRel, hflat], hflat', heval⟩
 
 theorem ScopedM.eval_assert {e : Formula}
     {k : Unit → ScopedM α} {ctx : FlatCtx} {ret : α} {ctx' : FlatCtx} :
     ScopedM.eval (.assert e k) ctx ret ctx' →
       ScopedM.eval (k ()) (ctx.addAssert e) ret ctx' := by
-  simp only [ScopedM.eval, translate, Strategy.eval]
-  rintro ⟨st, st', hflat, hflat', t, hgen, hsound, hst', hret⟩
-  cases hgen; rename_i rest resp hrest
-  cases resp
-  simp only [Trace.finalState, State.step, Trace.result] at hsound hst' hret
-  refine ⟨st.addAssert e, st', ?_, hflat', rest, hrest, hsound.step_rest, hst', hret⟩
-  rw [State.flatten_addAssert, hflat]
+  simp only [ScopedM.eval, translate]
+  rintro ⟨st, st', hflat, hflat', heval⟩
+  obtain ⟨_, _, heval⟩ := Strategy.eval_exec.mp heval
+  exact ⟨st.addAssert e, st', by rw [State.flatten_addAssert, hflat], hflat', heval⟩
 
 theorem ScopedM.eval_checkSat {k : Result → ScopedM α} {ctx : FlatCtx} {ret : α} {ctx' : FlatCtx} :
     ScopedM.eval (.checkSat k) ctx ret ctx' →
       (¬ State.satisfiable ctx.decls ctx.asserts ∧ ScopedM.eval (k .unsat) ctx ret ctx')
       ∨ ScopedM.eval (k .sat) ctx ret ctx'
       ∨ ScopedM.eval (k .unknown) ctx ret ctx' := by
-  simp only [ScopedM.eval, translate, Strategy.eval]
-  rintro ⟨st, st', hflat, hflat', t, hgen, hsound, hst', hret⟩
-  cases hgen; rename_i rest resp hrest
-  dsimp only at hrest
-  simp only [Trace.finalState, State.step, Trace.result] at hst' hret
+  simp only [ScopedM.eval, translate]
+  rintro ⟨st, st', hflat, hflat', heval⟩
+  obtain ⟨resp, hobl, heval⟩ := Strategy.eval_exec.mp heval
+  have hctx : ctx.decls = st.allDecls ∧ ctx.asserts = st.allAsserts := by
+    rw [← hflat]; exact ⟨rfl, rfl⟩
   cases resp with
-  | sat => right; left; exact ⟨st, st', hflat, hflat', rest, hrest, hsound.step_rest, hst', hret⟩
-  | unsat =>
-    left
-    have hunsat := hsound.step_obligation
-    have : ctx.decls = st.allDecls ∧ ctx.asserts = st.allAsserts := by
-      rw [← hflat]; exact ⟨rfl, rfl⟩
-    rw [this.1, this.2]
-    exact ⟨hunsat, st, st', hflat, hflat', rest, hrest, hsound.step_rest, hst', hret⟩
-  | unknown => right; right; exact ⟨st, st', hflat, hflat', rest, hrest, hsound.step_rest, hst', hret⟩
+  | sat => right; left; exact ⟨st, st', hflat, hflat', heval⟩
+  | unsat => left; rw [hctx.1, hctx.2]; exact ⟨hobl, st, st', hflat, hflat', heval⟩
+  | unknown => right; right; exact ⟨st, st', hflat, hflat', heval⟩
 
 theorem ScopedM.eval_setOption {s : Smt.Options.Settable}
     {k : Unit → ScopedM α} {ctx : FlatCtx} {ret : α} {ctx' : FlatCtx} :
     ScopedM.eval (.setOption s k) ctx ret ctx' →
       ScopedM.eval (k ()) ctx ret ctx' := by
-  simp only [ScopedM.eval, translate, Strategy.eval]
-  rintro ⟨st, st', hflat, hflat', t, hgen, hsound, hst', hret⟩
-  cases hgen; rename_i rest resp hrest
-  cases resp
-  simp only [Trace.finalState, State.step, Trace.result] at hsound hst' hret
-  exact ⟨st, st', hflat, hflat', rest, hrest, hsound.step_rest, hst', hret⟩
+  simp only [ScopedM.eval, translate]
+  rintro ⟨st, st', hflat, hflat', heval⟩
+  obtain ⟨_, _, heval⟩ := Strategy.eval_exec.mp heval
+  exact ⟨st, st', hflat, hflat', heval⟩
 
 theorem ScopedM.eval_getOption {g : Smt.Options.Gettable β}
     {k : β → ScopedM α} {ctx : FlatCtx} {ret : α} {ctx' : FlatCtx} :
     ScopedM.eval (.getOption g k) ctx ret ctx' →
       ∃ x, ScopedM.eval (k x) ctx ret ctx' := by
-  simp only [ScopedM.eval, translate, Strategy.eval]
-  rintro ⟨st, st', hflat, hflat', t, hgen, hsound, hst', hret⟩
-  cases hgen; rename_i rest resp hrest
-  dsimp only at hrest
-  simp only [Trace.finalState, State.step, Trace.result] at hsound hst' hret
-  exact ⟨resp, st, st', hflat, hflat', rest, hrest, hsound.step_rest, hst', hret⟩
+  simp only [ScopedM.eval, translate]
+  rintro ⟨st, st', hflat, hflat', heval⟩
+  obtain ⟨resp, _, heval⟩ := Strategy.eval_exec.mp heval
+  exact ⟨resp, st, st', hflat, hflat', heval⟩
 
 theorem ScopedM.eval_bracket {body : ScopedM β} {k : β → ScopedM α}
     {ctx : FlatCtx} {ret : α} {ctx' : FlatCtx} :
