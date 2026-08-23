@@ -414,7 +414,7 @@ theorem Formula.eval_subst {σ : Subst} {ρ : Env} {φ : Formula} {Δ Δ' : Sign
         (hbody v).mpr ((Formula.eval_env_agree hwf_body (hagree v)).mpr hv)
 
 theorem Formula.subst_wfIn {φ : Formula} {σ : Subst} {Δ Δ' : Signature}
-    (hwf : φ.wfIn Δ) (hσ : σ.wfIn Δ.vars Δ')
+    (hφ : φ.wfIn Δ) (hσ : σ.wfIn Δ.vars Δ')
     (hsymbols : Δ.SymbolSubset Δ')
     (hwfΔ' : Δ'.wf) :
     (φ.subst σ Δ'.allNames).wfIn Δ' := by
@@ -422,37 +422,37 @@ theorem Formula.subst_wfIn {φ : Formula} {σ : Subst} {Δ Δ' : Signature}
   | true_ | false_ => trivial
   | eq τ a b =>
     simp [Formula.subst, Formula.wfIn]
-    exact ⟨Term.subst_wfIn hwf.1 hσ (by intro x hx; exact hx) hsymbols hwfΔ',
-      Term.subst_wfIn hwf.2 hσ (by intro x hx; exact hx) hsymbols hwfΔ'⟩
+    exact ⟨Term.subst_wfIn hφ.1 hσ (by intro x hx; exact hx) hsymbols hwfΔ',
+      Term.subst_wfIn hφ.2 hσ (by intro x hx; exact hx) hsymbols hwfΔ'⟩
   | unpred p t =>
     simp [Formula.subst, Formula.wfIn]
-    refine ⟨?_, Term.subst_wfIn hwf.2 hσ (by intro x hx; exact hx) hsymbols hwfΔ'⟩
+    refine ⟨?_, Term.subst_wfIn hφ.2 hσ (by intro x hx; exact hx) hsymbols hwfΔ'⟩
     cases p with
     | uninterpreted name τ =>
-      refine ⟨hsymbols.unaryRel _ hwf.1.1, ?_, ?_⟩
+      refine ⟨hsymbols.unaryRel _ hφ.1.1, ?_, ?_⟩
       · intro τ₁ τ₂ hu
-        exact Signature.wf_no_unaryRel_of_unary hwfΔ' hu (hsymbols.unaryRel _ hwf.1.1)
+        exact Signature.wf_no_unaryRel_of_unary hwfΔ' hu (hsymbols.unaryRel _ hφ.1.1)
       · intro τ' hu'
-        exact Signature.wf_unique_unaryRel hwfΔ' (hsymbols.unaryRel _ hwf.1.1) hu'
+        exact Signature.wf_unique_unaryRel hwfΔ' (hsymbols.unaryRel _ hφ.1.1) hu'
     | _ => trivial
   | binpred p a b =>
     simp [Formula.subst, Formula.wfIn]
-    refine ⟨?_, Term.subst_wfIn hwf.2.1 hσ (by intro x hx; exact hx) hsymbols hwfΔ',
-      Term.subst_wfIn hwf.2.2 hσ (by intro x hx; exact hx) hsymbols hwfΔ'⟩
+    refine ⟨?_, Term.subst_wfIn hφ.2.1 hσ (by intro x hx; exact hx) hsymbols hwfΔ',
+      Term.subst_wfIn hφ.2.2 hσ (by intro x hx; exact hx) hsymbols hwfΔ'⟩
     cases p with
     | uninterpreted name τ₁ τ₂ =>
-      refine ⟨hsymbols.binaryRel _ hwf.1.1, ?_, ?_⟩
+      refine ⟨hsymbols.binaryRel _ hφ.1.1, ?_, ?_⟩
       · intro τ₁' τ₂' τ₃' hb
-        exact Signature.wf_no_binaryRel_of_binary hwfΔ' hb (hsymbols.binaryRel _ hwf.1.1)
+        exact Signature.wf_no_binaryRel_of_binary hwfΔ' hb (hsymbols.binaryRel _ hφ.1.1)
       · intro τ₁' τ₂' hb'
-        exact Signature.wf_unique_binaryRel hwfΔ' (hsymbols.binaryRel _ hwf.1.1) hb'
+        exact Signature.wf_unique_binaryRel hwfΔ' (hsymbols.binaryRel _ hφ.1.1) hb'
     | _ => trivial
   | not φ ih =>
-    simpa [Formula.subst, Formula.wfIn] using ih hwf hσ hsymbols hwfΔ'
+    simpa [Formula.subst, Formula.wfIn] using ih hφ hσ hsymbols hwfΔ'
   | and φ ψ ihφ ihψ | or φ ψ ihφ ihψ | implies φ ψ ihφ ihψ =>
     simpa [Formula.subst, Formula.wfIn] using
-      And.intro (ihφ hwf.1 hσ hsymbols hwfΔ')
-        (ihψ hwf.2 hσ hsymbols hwfΔ')
+      And.intro (ihφ hφ.1 hσ hsymbols hwfΔ')
+        (ihψ hφ.2 hσ hsymbols hwfΔ')
   | forall_ y τ ps φ ih =>
     simp only [Formula.subst, Formula.wfIn]
     let y' := Fresh.freshName Δ'.allNames y
@@ -464,10 +464,10 @@ theorem Formula.subst_wfIn {φ : Formula} {σ : Subst} {Δ Δ' : Signature}
       Signature.SymbolSubset.declVar_fresh hsymbols hy'_fresh
     exact ⟨by
       simpa [y', Signature.allNames_declVar_of_not_in hy'_fresh] using
-        Pattern.List.subst_wfIn hwf.1 hσ' (by intro v hv; exact hv) hsymbols' hwf_target,
+        Pattern.List.subst_wfIn hφ.1 hσ' (by intro v hv; exact hv) hsymbols' hwf_target,
       by
         simpa [y', Signature.allNames_declVar_of_not_in hy'_fresh] using
-          ih hwf.2 hσ' hsymbols' hwf_target⟩
+          ih hφ.2 hσ' hsymbols' hwf_target⟩
   | exists_ y τ φ ih =>
     simp only [Formula.subst, Formula.wfIn]
     let y' := Fresh.freshName Δ'.allNames y
@@ -479,4 +479,4 @@ theorem Formula.subst_wfIn {φ : Formula} {σ : Subst} {Δ Δ' : Signature}
       Signature.SymbolSubset.declVar_fresh hsymbols hy'_fresh
     exact (by
       simpa [y', Signature.allNames_declVar_of_not_in hy'_fresh] using
-        ih hwf hσ' hsymbols' hwf_target)
+        ih hφ hσ' hsymbols' hwf_target)
