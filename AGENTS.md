@@ -96,6 +96,7 @@ directly.
 
 **File organization:**
 - One definition + its API per section. Importing a definition should give you its basic API.
+- `private` by default. A declaration becomes public when another file uses it.
 
 **Comments:**
 - Restating the signature, the name, or the case list below it is worse than no
@@ -114,6 +115,9 @@ directly.
 - Never add a flag, an `Option`, or a default argument to bend one caller.
 - A branch structurally unlike its siblings is a design defect. Say so and ask
   rather than shipping the special case.
+- One condition, one place. A `Bool` predicate that mirrors a `match` elsewhere
+  (boolean blindness) drifts from it; let the `match` answer with `Option α`
+  instead, so the data comes with the decision. Think parse, don't validate.
 
 **Names:**
 - Grep for the concept before naming a variable and reuse the name already in
