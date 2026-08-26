@@ -140,10 +140,11 @@ def send (s : Session) (cmd : Command α) (log : LogMode) : IO α := do
   | some r => return r
   | none => throw (IO.userError s!"Unexpected Z3 response for `{query}`: {response}")
 
-/-- Close the session. -/
 def close (s : Session) : IO Unit := do
   s.stdin.putStr "(exit)\n"
   s.stdin.flush
+  -- The exit code carries no information after `(exit)`.
+  discard s.child.wait
 
 end Session
 
