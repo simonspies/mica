@@ -23,14 +23,16 @@ structure Session where
 
 namespace Session
 
--- `(set-option :smt.qi.eager_threshold 5.0)` Recursive functions are encoded
--- as quantified definitional axioms whose bodies reference the function again.
+-- Recursive functions are encoded as quantified definitional axioms whose
+-- bodies reference the function again.
 -- Z3's default eager instantiation easily falls into a matching loop. It even
 -- does so _before_ a check-sat is reached when entering a new scope.
 -- To avoid a severe performance penalty, we lower the default from 10.0 to 5.0.
 -- The verifier's quantified axioms are designed for E-matching (with explicit
 -- or Z3-inferred triggers), so model-based quantifier instantiation adds a
 -- second, less predictable search path without being needed by the examples.
+/-- The SMT-LIB text every session starts with: the logic and the solver
+    options, then the value sort and the operations on it. -/
 def preamble : String := s!"
 ;; preamble
 (set-logic ALL)
@@ -108,7 +110,6 @@ def create (log : LogMode) : IO Session := do
     stderr := .piped
   }
   let stdin := child.stdin
-  -- We first define the preamble that introduces the value type
   stdin.putStr preamble
   stdin.flush
   if log == .script then do
