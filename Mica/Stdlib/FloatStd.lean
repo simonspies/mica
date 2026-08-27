@@ -124,10 +124,10 @@ def floatAbs : Intrinsic := floatAbsB.toIntrinsic
 @[simp] theorem floatAbs_folSym : floatAbs.folSym = some floatAbsSym := rfl
 @[simp] theorem floatAbs_arity : floatAbs.arity = .one := rfl
 
-def floatAbsLawful : floatAbsB.Lawful where
+def floatAbsLawful : floatAbsB.Lawful [] where
   argL         := Embedding.lawfulFloat
   resL         := Embedding.lawfulFloat
-  domSound     := fun _ _ _ => True.intro
+  domSound     := fun _ _ _ _ => True.intro
   semWellTyped := fun _ _ _ _ => .rfl
   specBaseWf   := by apply PredTrans.checkWf_ok; rfl
   defWf        := by apply Formula.checkWf_ok; rfl
@@ -156,10 +156,10 @@ def floatNeg : Intrinsic := floatNegB.toIntrinsic
 @[simp] theorem floatNeg_folSym : floatNeg.folSym = some floatNegSym := rfl
 @[simp] theorem floatNeg_arity : floatNeg.arity = .one := rfl
 
-def floatNegLawful : floatNegB.Lawful where
+def floatNegLawful : floatNegB.Lawful [] where
   argL         := Embedding.lawfulFloat
   resL         := Embedding.lawfulFloat
-  domSound     := fun _ _ _ => True.intro
+  domSound     := fun _ _ _ _ => True.intro
   semWellTyped := fun _ _ _ _ => .rfl
   specBaseWf   := by apply PredTrans.checkWf_ok; rfl
   defWf        := by apply Formula.checkWf_ok; rfl
@@ -188,10 +188,10 @@ def floatSqrt : Intrinsic := floatSqrtB.toIntrinsic
 @[simp] theorem floatSqrt_folSym : floatSqrt.folSym = some floatSqrtSym := rfl
 @[simp] theorem floatSqrt_arity : floatSqrt.arity = .one := rfl
 
-def floatSqrtLawful : floatSqrtB.Lawful where
+def floatSqrtLawful : floatSqrtB.Lawful [] where
   argL         := Embedding.lawfulFloat
   resL         := Embedding.lawfulFloat
-  domSound     := fun _ _ _ => True.intro
+  domSound     := fun _ _ _ _ => True.intro
   semWellTyped := fun _ _ _ _ => .rfl
   specBaseWf   := by apply PredTrans.checkWf_ok; rfl
   defWf        := by apply Formula.checkWf_ok; rfl
@@ -220,10 +220,10 @@ def floatIsNan : Intrinsic := floatIsNanB.toIntrinsic
 @[simp] theorem floatIsNan_folSym : floatIsNan.folSym = some floatIsNanSym := rfl
 @[simp] theorem floatIsNan_arity : floatIsNan.arity = .one := rfl
 
-def floatIsNanLawful : floatIsNanB.Lawful where
+def floatIsNanLawful : floatIsNanB.Lawful [] where
   argL         := Embedding.lawfulFloat
   resL         := Embedding.lawfulBool
-  domSound     := fun _ _ _ => True.intro
+  domSound     := fun _ _ _ _ => True.intro
   semWellTyped := fun _ _ _ _ => .rfl
   specBaseWf   := by apply PredTrans.checkWf_ok; rfl
   defWf        := by apply Formula.checkWf_ok; rfl
@@ -256,10 +256,10 @@ def floatIsFinite : Intrinsic := floatIsFiniteB.toIntrinsic
 @[simp] theorem floatIsFinite_folSym : floatIsFinite.folSym = some floatIsFiniteSym := rfl
 @[simp] theorem floatIsFinite_arity : floatIsFinite.arity = .one := rfl
 
-def floatIsFiniteLawful : floatIsFiniteB.Lawful where
+def floatIsFiniteLawful : floatIsFiniteB.Lawful [] where
   argL         := Embedding.lawfulFloat
   resL         := Embedding.lawfulBool
-  domSound     := fun _ _ _ => True.intro
+  domSound     := fun _ _ _ _ => True.intro
   semWellTyped := fun _ _ _ _ => .rfl
   specBaseWf   := by apply PredTrans.checkWf_ok; rfl
   defWf        := by apply Formula.checkWf_ok; rfl
@@ -288,10 +288,10 @@ def floatOfInt : Intrinsic := floatOfIntB.toIntrinsic
 @[simp] theorem floatOfInt_folSym : floatOfInt.folSym = some floatOfIntSym := rfl
 @[simp] theorem floatOfInt_arity : floatOfInt.arity = .one := rfl
 
-def floatOfIntLawful : floatOfIntB.Lawful where
+def floatOfIntLawful : floatOfIntB.Lawful [] where
   argL         := Embedding.lawfulInt
   resL         := Embedding.lawfulFloat
-  domSound     := fun _ _ _ => True.intro
+  domSound     := fun _ _ _ _ => True.intro
   semWellTyped := fun _ _ _ _ => .rfl
   specBaseWf   := by apply PredTrans.checkWf_ok; rfl
   defWf        := by apply Formula.checkWf_ok; rfl
@@ -322,11 +322,11 @@ def floatAdd : Intrinsic := floatAddB.toIntrinsic
 @[simp] theorem floatAdd_folSym : floatAdd.folSym = some floatAddSym := rfl
 @[simp] theorem floatAdd_arity : floatAdd.arity = .two := rfl
 
-def floatAddLawful : floatAddB.Lawful where
+def floatAddLawful : floatAddB.Lawful [] where
   argL₁        := Embedding.lawfulFloat
   argL₂        := Embedding.lawfulFloat
   resL         := Embedding.lawfulFloat
-  domSound     := fun _ _ _ _ => True.intro
+  domSound     := fun _ _ _ _ _ => True.intro
   semWellTyped := fun _ _ _ _ _ => sep_emp.1
   specBaseWf   := by apply PredTrans.checkWf_ok; rfl
   defWf        := by apply Formula.checkWf_ok; rfl
@@ -351,11 +351,11 @@ def floatSub : Intrinsic := floatSubB.toIntrinsic
 @[simp] theorem floatSub_folSym : floatSub.folSym = some floatSubSym := rfl
 @[simp] theorem floatSub_arity : floatSub.arity = .two := rfl
 
-def floatSubLawful : floatSubB.Lawful where
+def floatSubLawful : floatSubB.Lawful [] where
   argL₁        := Embedding.lawfulFloat
   argL₂        := Embedding.lawfulFloat
   resL         := Embedding.lawfulFloat
-  domSound     := fun _ _ _ _ => True.intro
+  domSound     := fun _ _ _ _ _ => True.intro
   semWellTyped := fun _ _ _ _ _ => sep_emp.1
   specBaseWf   := by apply PredTrans.checkWf_ok; rfl
   defWf        := by apply Formula.checkWf_ok; rfl
@@ -380,11 +380,11 @@ def floatMul : Intrinsic := floatMulB.toIntrinsic
 @[simp] theorem floatMul_folSym : floatMul.folSym = some floatMulSym := rfl
 @[simp] theorem floatMul_arity : floatMul.arity = .two := rfl
 
-def floatMulLawful : floatMulB.Lawful where
+def floatMulLawful : floatMulB.Lawful [] where
   argL₁        := Embedding.lawfulFloat
   argL₂        := Embedding.lawfulFloat
   resL         := Embedding.lawfulFloat
-  domSound     := fun _ _ _ _ => True.intro
+  domSound     := fun _ _ _ _ _ => True.intro
   semWellTyped := fun _ _ _ _ _ => sep_emp.1
   specBaseWf   := by apply PredTrans.checkWf_ok; rfl
   defWf        := by apply Formula.checkWf_ok; rfl
@@ -409,11 +409,11 @@ def floatDiv : Intrinsic := floatDivB.toIntrinsic
 @[simp] theorem floatDiv_folSym : floatDiv.folSym = some floatDivSym := rfl
 @[simp] theorem floatDiv_arity : floatDiv.arity = .two := rfl
 
-def floatDivLawful : floatDivB.Lawful where
+def floatDivLawful : floatDivB.Lawful [] where
   argL₁        := Embedding.lawfulFloat
   argL₂        := Embedding.lawfulFloat
   resL         := Embedding.lawfulFloat
-  domSound     := fun _ _ _ _ => True.intro
+  domSound     := fun _ _ _ _ _ => True.intro
   semWellTyped := fun _ _ _ _ _ => sep_emp.1
   specBaseWf   := by apply PredTrans.checkWf_ok; rfl
   defWf        := by apply Formula.checkWf_ok; rfl
@@ -451,11 +451,11 @@ def floatMin : Intrinsic := floatMinB.toIntrinsic
 @[simp] theorem floatMin_folSym : floatMin.folSym = some floatMinSym := rfl
 @[simp] theorem floatMin_arity : floatMin.arity = .two := rfl
 
-def floatMinLawful : floatMinB.Lawful where
+def floatMinLawful : floatMinB.Lawful [] where
   argL₁        := Embedding.lawfulFloat
   argL₂        := Embedding.lawfulFloat
   resL         := Embedding.lawfulFloat
-  domSound     := fun _ _ _ _ => True.intro
+  domSound     := fun _ _ _ _ _ => True.intro
   semWellTyped := fun _ _ _ _ _ => sep_emp.1
   specBaseWf   := by apply PredTrans.checkWf_ok; rfl
   defWf        := by apply Formula.checkWf_ok; rfl
@@ -493,11 +493,11 @@ def floatMax : Intrinsic := floatMaxB.toIntrinsic
 @[simp] theorem floatMax_folSym : floatMax.folSym = some floatMaxSym := rfl
 @[simp] theorem floatMax_arity : floatMax.arity = .two := rfl
 
-def floatMaxLawful : floatMaxB.Lawful where
+def floatMaxLawful : floatMaxB.Lawful [] where
   argL₁        := Embedding.lawfulFloat
   argL₂        := Embedding.lawfulFloat
   resL         := Embedding.lawfulFloat
-  domSound     := fun _ _ _ _ => True.intro
+  domSound     := fun _ _ _ _ _ => True.intro
   semWellTyped := fun _ _ _ _ _ => sep_emp.1
   specBaseWf   := by apply PredTrans.checkWf_ok; rfl
   defWf        := by apply Formula.checkWf_ok; rfl
@@ -528,11 +528,11 @@ def floatEqual : Intrinsic := floatEqualB.toIntrinsic
 @[simp] theorem floatEqual_folSym : floatEqual.folSym = some floatEqualSym := rfl
 @[simp] theorem floatEqual_arity : floatEqual.arity = .two := rfl
 
-def floatEqualLawful : floatEqualB.Lawful where
+def floatEqualLawful : floatEqualB.Lawful [] where
   argL₁        := Embedding.lawfulFloat
   argL₂        := Embedding.lawfulFloat
   resL         := Embedding.lawfulBool
-  domSound     := fun _ _ _ _ => True.intro
+  domSound     := fun _ _ _ _ _ => True.intro
   semWellTyped := fun _ _ _ _ _ => sep_emp.1
   specBaseWf   := by apply PredTrans.checkWf_ok; rfl
   defWf        := by apply Formula.checkWf_ok; rfl
@@ -557,11 +557,11 @@ def floatLt : Intrinsic := floatLtB.toIntrinsic
 @[simp] theorem floatLt_folSym : floatLt.folSym = some floatLtSym := rfl
 @[simp] theorem floatLt_arity : floatLt.arity = .two := rfl
 
-def floatLtLawful : floatLtB.Lawful where
+def floatLtLawful : floatLtB.Lawful [] where
   argL₁        := Embedding.lawfulFloat
   argL₂        := Embedding.lawfulFloat
   resL         := Embedding.lawfulBool
-  domSound     := fun _ _ _ _ => True.intro
+  domSound     := fun _ _ _ _ _ => True.intro
   semWellTyped := fun _ _ _ _ _ => sep_emp.1
   specBaseWf   := by apply PredTrans.checkWf_ok; rfl
   defWf        := by apply Formula.checkWf_ok; rfl
@@ -586,11 +586,11 @@ def floatLe : Intrinsic := floatLeB.toIntrinsic
 @[simp] theorem floatLe_folSym : floatLe.folSym = some floatLeSym := rfl
 @[simp] theorem floatLe_arity : floatLe.arity = .two := rfl
 
-def floatLeLawful : floatLeB.Lawful where
+def floatLeLawful : floatLeB.Lawful [] where
   argL₁        := Embedding.lawfulFloat
   argL₂        := Embedding.lawfulFloat
   resL         := Embedding.lawfulBool
-  domSound     := fun _ _ _ _ => True.intro
+  domSound     := fun _ _ _ _ _ => True.intro
   semWellTyped := fun _ _ _ _ _ => sep_emp.1
   specBaseWf   := by apply PredTrans.checkWf_ok; rfl
   defWf        := by apply Formula.checkWf_ok; rfl
@@ -616,7 +616,7 @@ def floatNan : Intrinsic := floatNanB.toIntrinsic
 @[simp] theorem floatNan_folSym : floatNan.folSym = some floatNanSym := rfl
 @[simp] theorem floatNan_arity : floatNan.arity = .zero := rfl
 
-def floatNanLawful : floatNanB.Lawful where
+def floatNanLawful : floatNanB.Lawful [] where
   resL         := Embedding.lawfulFloat
   nameFresh    := by decide
   semWellTyped := fun _ _ => .rfl
@@ -639,7 +639,7 @@ def floatInfinity : Intrinsic := floatInfinityB.toIntrinsic
 @[simp] theorem floatInfinity_folSym : floatInfinity.folSym = some floatInfinitySym := rfl
 @[simp] theorem floatInfinity_arity : floatInfinity.arity = .zero := rfl
 
-def floatInfinityLawful : floatInfinityB.Lawful where
+def floatInfinityLawful : floatInfinityB.Lawful [] where
   resL         := Embedding.lawfulFloat
   nameFresh    := by decide
   semWellTyped := fun _ _ => .rfl
@@ -663,7 +663,7 @@ def floatNegInfinity : Intrinsic := floatNegInfinityB.toIntrinsic
     floatNegInfinity.folSym = some floatNegInfinitySym := rfl
 @[simp] theorem floatNegInfinity_arity : floatNegInfinity.arity = .zero := rfl
 
-def floatNegInfinityLawful : floatNegInfinityB.Lawful where
+def floatNegInfinityLawful : floatNegInfinityB.Lawful [] where
   resL         := Embedding.lawfulFloat
   nameFresh    := by decide
   semWellTyped := fun _ _ => .rfl

@@ -650,33 +650,31 @@ end Intrinsic
     spec→wp bridge facts (`specWf`, `bridge`), the opsem↔wp fact (`wp_sound`),
     and the two axiom facts (`axiomWf`, `proof`).
 
-    `specWf`/`bridge` are independent of `fragment`: from a `PredTrans.apply`
-    obligation against `i.spec` (the shape produced by `Spec.call_correct`) and
-    the typing of the arguments, `bridge` derives `i.toWp` — the iProp
-    `Registry.wp_prim` demands of the registry-derived context. Both take the
-    symbol's declaration / interpretation as an explicit side condition: `i.spec`
-    may mention `i.folSym`, so it is only well-formed in a signature declaring
-    that symbol, and the bridge only holds when the environment interprets the
-    symbol by its standard interpretation. These side conditions are discharged
-    by the caller from the registry-derived signature/environment.
+    From a `PredTrans.apply` obligation against `i.spec` (the shape produced by
+    `Spec.call_correct`) and the typing of the arguments, `bridge` derives
+    `i.toWp` — the iProp `Registry.wp_prim` demands of the registry-derived
+    context. `specWf` and `bridge` are stated against `fragment`, since a
+    precondition may mention another intrinsic's symbol. Their signature and
+    interpretation side conditions are discharged by the caller from the
+    registry-derived signature/environment.
 
     `bridge` is a family indexed by the type-variable substitution `σ`: it is
     stated at the argument/result types substituted by `σ`, for every `σ`, with
     the spec's names and predicate transformer shared across instantiations.
 
-    `axiomWf`/`proof` are stated against the dependency `fragment`: each axiom is
-    well-formed in the signature supplied by the fragment, and is satisfied by
-    every environment that respects every FOL symbol in the fragment. -/
+    `axiomWf`/`proof` use the same dependency fragment: each axiom is
+    well-formed in its signature and is satisfied by every environment that
+    respects every FOL symbol in the fragment. -/
 class IntrinsicSound (fragment : outParam (List Intrinsic)) (i : Intrinsic) : Prop where
   /-- The spec's argument-name count matches the intrinsic's arity. -/
   argLen : i.spec.args.length = i.argTys.length
   specWf :
-    ∀ (Δ : Signature), (Signature.empty.extendWithSym i.folSym).Subset Δ → Δ.wf →
+    ∀ (Δ : Signature), (Intrinsic.sigOf fragment).Subset Δ → Δ.wf →
       PredTrans.wfIn (Δ.declVars (Spec.argVars i.specArgs)) i.spec.pred
   bridge :
     ∀ [MicaGS HasLC.hasLC Sig] (σ : TinyML.TyVar → TinyML.Typ) (W : TinyML.World)
       (vs : List Runtime.Val) (ρ : Env) (Φ : Runtime.Val → iProp),
-    ρ.respects i.folSym →
+    (∀ d ∈ fragment, ρ.respects d.folSym) →
     TinyML.ValsHaveTypes W vs (i.argTys.map (TinyML.Typ.subst σ)) ∗
       PredTrans.apply (TinyML.ValHasType W)
         (fun r => TinyML.ValHasType W r (TinyML.Typ.subst σ i.retTy) -∗ Φ r)
@@ -743,6 +741,28 @@ def foldEnv (ρ : Env) (R : Registry) : Env :=
 /-- A target signature contains every FOL symbol contributed by a registry. -/
 def symSubset (R : Registry) (Δ : Signature) : Prop :=
   ∀ i ∈ R, (Signature.empty.extendWithSym i.folSym).Subset Δ
+
+/-- Pointwise containment of a registry's symbols is equivalent to containment
+of the signature obtained by folding those symbols together. -/
+theorem sigOf_subset_of_symSubset {R : Registry} {Δ : Signature}
+    (h : symSubset R Δ) : (Intrinsic.sigOf R).Subset Δ := by
+  suffices ∀ (todo : Registry) (base : Signature),
+      base.Subset Δ →
+      (∀ i ∈ todo, (Signature.empty.extendWithSym i.folSym).Subset Δ) →
+      (Intrinsic.foldSig base todo).Subset Δ by
+    exact this R Signature.empty (Signature.empty_subset Δ) h
+  intro todo
+  induction todo with
+  | nil =>
+      intro base hbase _
+      exact hbase
+  | cons i rest ih =>
+      intro base hbase hsyms
+      apply ih
+      · exact Signature.extendWithSym_subset_of_subset_of_sym hbase
+          (hsyms i (List.Mem.head _))
+      · intro d hd
+        exact hsyms d (List.Mem.tail i hd)
 
 /-- An environment gives every registry FOL symbol its standard interpretation. -/
 def symAgree (R : Registry) (ρ : Env) : Prop :=
@@ -942,8 +962,12 @@ theorem IntrinsicSound.mono {deps deps' : Registry} {i : Intrinsic}
     (h : IntrinsicSound deps i) (hsub : deps ⊆ deps') :
     IntrinsicSound deps' i where
   argLen := h.argLen
-  specWf := h.specWf
-  bridge := h.bridge
+  specWf := by
+    intro Δ hsig hwf
+    exact h.specWf Δ ((Registry.sigOf_subset_of_subset hsub).trans hsig) hwf
+  bridge := by
+    intro _ σ W vs ρ Φ hdeps'
+    exact h.bridge σ W vs ρ Φ (fun d hd => hdeps' d (hsub hd))
   wp_sound := h.wp_sound
   axiomWf := by
     intro Δ hsig hwf φ hφ

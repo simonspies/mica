@@ -75,11 +75,11 @@ def intMin : Intrinsic := intMinB.toIntrinsic
 @[simp] theorem intMin_folSym : intMin.folSym = some intMinSym := rfl
 @[simp] theorem intMin_arity : intMin.arity = .two := rfl
 
-def intMinLawful : intMinB.Lawful where
+def intMinLawful : intMinB.Lawful [] where
   argL₁        := Embedding.lawfulInt
   argL₂        := Embedding.lawfulInt
   resL         := Embedding.lawfulInt
-  domSound     := fun _ _ _ _ => True.intro
+  domSound     := fun _ _ _ _ _ => True.intro
   semWellTyped := fun _ _ _ _ _ => sep_emp.1
   specBaseWf   := by apply PredTrans.checkWf_ok; rfl
   defWf        := by apply Formula.checkWf_ok; rfl
@@ -110,11 +110,11 @@ def intMax : Intrinsic := intMaxB.toIntrinsic
 @[simp] theorem intMax_folSym : intMax.folSym = some intMaxSym := rfl
 @[simp] theorem intMax_arity : intMax.arity = .two := rfl
 
-def intMaxLawful : intMaxB.Lawful where
+def intMaxLawful : intMaxB.Lawful [] where
   argL₁        := Embedding.lawfulInt
   argL₂        := Embedding.lawfulInt
   resL         := Embedding.lawfulInt
-  domSound     := fun _ _ _ _ => True.intro
+  domSound     := fun _ _ _ _ _ => True.intro
   semWellTyped := fun _ _ _ _ _ => sep_emp.1
   specBaseWf   := by apply PredTrans.checkWf_ok; rfl
   defWf        := by apply Formula.checkWf_ok; rfl

@@ -175,10 +175,10 @@ def stringLength : Intrinsic := stringLengthB.toIntrinsic
 @[simp] theorem stringLength_arity : stringLength.arity = .one := rfl
 @[simp] theorem stringLength_folSym : stringLength.folSym = some stringLengthSym := rfl
 
-def stringLengthLawful : stringLengthB.Lawful where
+def stringLengthLawful : stringLengthB.Lawful [] where
   argL         := Embedding.lawfulStr
   resL         := Embedding.lawfulInt
-  domSound     := fun _ _ _ => True.intro
+  domSound     := fun _ _ _ _ => True.intro
   semWellTyped := fun _ _ _ _ => .rfl
   specBaseWf   := by apply PredTrans.checkWf_ok; rfl
   defWf        := by apply Formula.checkWf_ok; rfl
@@ -206,11 +206,11 @@ def stringCat : Intrinsic := stringCatB.toIntrinsic
 @[simp] theorem stringCat_arity : stringCat.arity = .two := rfl
 @[simp] theorem stringCat_folSym : stringCat.folSym = some stringCatSym := rfl
 
-def stringCatLawful : stringCatB.Lawful where
+def stringCatLawful : stringCatB.Lawful [] where
   argL₁        := Embedding.lawfulStr
   argL₂        := Embedding.lawfulStr
   resL         := Embedding.lawfulStr
-  domSound     := fun _ _ _ _ => True.intro
+  domSound     := fun _ _ _ _ _ => True.intro
   semWellTyped := fun _ _ _ _ _ => sep_emp.1
   specBaseWf   := by apply PredTrans.checkWf_ok; rfl
   defWf        := by apply Formula.checkWf_ok; rfl
@@ -238,12 +238,12 @@ def stringGet : Intrinsic := stringGetB.toIntrinsic
 @[simp] theorem stringGet_arity : stringGet.arity = .two := rfl
 @[simp] theorem stringGet_folSym : stringGet.folSym = some stringGetSym := rfl
 
-def stringGetLawful : stringGetB.Lawful where
+def stringGetLawful : stringGetB.Lawful [] where
   argL₁        := Embedding.lawfulStr
   argL₂        := Embedding.lawfulInt
   resL         := Embedding.lawfulChar
   domSound     := by
-    intro ρ s i h
+    intro ρ s i _ h
     have hpre := h stringGetPre rfl
     simpa [stringGetB, stringGetPre, Embedding.str, Embedding.int, Formula.eval, Term.eval,
       Const.denote, Env.lookupConst_updateConst_same,
@@ -254,7 +254,7 @@ def stringGetLawful : stringGetB.Lawful where
   typeWf       := by intro φ h; injection h with h; subst h; apply Formula.checkWf_ok; rfl
   defEval      := by
     have hsym : stringGetB.sym = stringGetSym := rfl
-    intro ρ hresp
+    intro ρ _ hresp
     rw [hsym] at hresp
     simp only [stringGetB, stringGetDefAxiom, Formula.all, Formula.eval]
     intro s i hpre
@@ -290,13 +290,13 @@ def stringSub : Intrinsic := stringSubB.toIntrinsic
 @[simp] theorem stringSub_arity : stringSub.arity = .three := rfl
 @[simp] theorem stringSub_folSym : stringSub.folSym = some stringSubSym := rfl
 
-def stringSubLawful : stringSubB.Lawful where
+def stringSubLawful : stringSubB.Lawful [] where
   argL₁        := Embedding.lawfulStr
   argL₂        := Embedding.lawfulInt
   argL₃        := Embedding.lawfulInt
   resL         := Embedding.lawfulStr
   domSound     := by
-    intro ρ s pos len h
+    intro ρ s pos len _ h
     have hpre := h stringSubPre rfl
     simpa [stringSubB, stringSubPre, Embedding.str, Embedding.int, Formula.eval, Term.eval,
       Const.denote, Env.lookupConst_updateConst_same,
@@ -309,7 +309,7 @@ def stringSubLawful : stringSubB.Lawful where
   typeWf       := by intro φ h; injection h with h; subst h; apply Formula.checkWf_ok; rfl
   defEval      := by
     have hsym : stringSubB.sym = stringSubSym := rfl
-    intro ρ hresp
+    intro ρ _ hresp
     rw [hsym] at hresp
     simp only [stringSubB, stringSubDefAxiom, Formula.all, Formula.eval]
     intro s pos len hpre
@@ -347,11 +347,11 @@ def stringEqual : Intrinsic := stringEqualB.toIntrinsic
 @[simp] theorem stringEqual_arity : stringEqual.arity = .two := rfl
 @[simp] theorem stringEqual_folSym : stringEqual.folSym = some stringEqualSym := rfl
 
-def stringEqualLawful : stringEqualB.Lawful where
+def stringEqualLawful : stringEqualB.Lawful [] where
   argL₁        := Embedding.lawfulStr
   argL₂        := Embedding.lawfulStr
   resL         := Embedding.lawfulBool
-  domSound     := fun _ _ _ _ => True.intro
+  domSound     := fun _ _ _ _ _ => True.intro
   semWellTyped := fun _ _ _ _ _ => sep_emp.1
   specBaseWf   := by apply PredTrans.checkWf_ok; rfl
   defWf        := by apply Formula.checkWf_ok; rfl
@@ -382,11 +382,11 @@ def stringStartsWith : Intrinsic := stringStartsWithB.toIntrinsic
 @[simp] theorem stringStartsWith_folSym :
     stringStartsWith.folSym = some stringStartsWithSym := rfl
 
-def stringStartsWithLawful : stringStartsWithB.Lawful where
+def stringStartsWithLawful : stringStartsWithB.Lawful [] where
   argL₁        := Embedding.lawfulStr
   argL₂        := Embedding.lawfulStr
   resL         := Embedding.lawfulBool
-  domSound     := fun _ _ _ _ => True.intro
+  domSound     := fun _ _ _ _ _ => True.intro
   semWellTyped := fun _ _ _ _ _ => sep_emp.1
   specBaseWf   := by apply PredTrans.checkWf_ok; rfl
   defWf        := by apply Formula.checkWf_ok; rfl
@@ -415,11 +415,11 @@ def stringEndsWith : Intrinsic := stringEndsWithB.toIntrinsic
 @[simp] theorem stringEndsWith_arity : stringEndsWith.arity = .two := rfl
 @[simp] theorem stringEndsWith_folSym : stringEndsWith.folSym = some stringEndsWithSym := rfl
 
-def stringEndsWithLawful : stringEndsWithB.Lawful where
+def stringEndsWithLawful : stringEndsWithB.Lawful [] where
   argL₁        := Embedding.lawfulStr
   argL₂        := Embedding.lawfulStr
   resL         := Embedding.lawfulBool
-  domSound     := fun _ _ _ _ => True.intro
+  domSound     := fun _ _ _ _ _ => True.intro
   semWellTyped := fun _ _ _ _ _ => sep_emp.1
   specBaseWf   := by apply PredTrans.checkWf_ok; rfl
   defWf        := by apply Formula.checkWf_ok; rfl

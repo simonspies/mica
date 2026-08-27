@@ -48,15 +48,15 @@ def failwith : Intrinsic := failwithB.toIntrinsic
 @[simp] theorem failwith_arity : failwith.arity = .one := rfl
 @[simp] theorem failwith_folSym : failwith.folSym = some failwithSym := rfl
 
-def failwithLawful : failwithB.Lawful where
+def failwithLawful : failwithB.Lawful [] where
   argL         := Embedding.lawfulStr
   resL         := Embedding.lawfulPoly "a"
-  domSound     := fun _ _ h => (h _ rfl).elim
+  domSound     := fun _ _ _ h => (h _ rfl).elim
   semWellTyped := fun _ _ _ hdom => hdom.elim
   specBaseWf   := by apply PredTrans.checkWf_ok; rfl
   defWf        := by apply Formula.checkWf_ok; rfl
   typeWf       := fun _ h => nomatch h
-  defEval      := fun _ _ => trivial
+  defEval      := fun _ _ _ => trivial
 
 instance : IntrinsicSound [failwith] failwith := failwithLawful.sound
 
@@ -80,15 +80,15 @@ def invalidArg : Intrinsic := invalidArgB.toIntrinsic
 @[simp] theorem invalidArg_arity : invalidArg.arity = .one := rfl
 @[simp] theorem invalidArg_folSym : invalidArg.folSym = some invalidArgSym := rfl
 
-def invalidArgLawful : invalidArgB.Lawful where
+def invalidArgLawful : invalidArgB.Lawful [] where
   argL         := Embedding.lawfulStr
   resL         := Embedding.lawfulPoly "a"
-  domSound     := fun _ _ h => (h _ rfl).elim
+  domSound     := fun _ _ _ h => (h _ rfl).elim
   semWellTyped := fun _ _ _ hdom => hdom.elim
   specBaseWf   := by apply PredTrans.checkWf_ok; rfl
   defWf        := by apply Formula.checkWf_ok; rfl
   typeWf       := fun _ h => nomatch h
-  defEval      := fun _ _ => trivial
+  defEval      := fun _ _ _ => trivial
 
 instance : IntrinsicSound [invalidArg] invalidArg := invalidArgLawful.sound
 

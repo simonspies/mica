@@ -200,10 +200,10 @@ def listLengthIntrinsic : Intrinsic := listLengthB.toIntrinsic
 @[simp] theorem listLengthIntrinsic_folSym : listLengthIntrinsic.folSym = some listLengthB.sym := rfl
 @[simp] theorem listLengthSym_name : listLengthB.sym.name = "list_length" := rfl
 
-def listLengthLawful : listLengthB.Lawful where
+def listLengthLawful : listLengthB.Lawful [] where
   argL := Embedding.lawfulLogical listTy
   resL := Embedding.lawfulInt
-  domSound := fun _ _ _ => trivial
+  domSound := fun _ _ _ _ => trivial
   semWellTyped := fun _ _ _ _ => affine
   specBaseWf := by apply PredTrans.checkWf_ok; rfl
   defWf := by apply Formula.checkWf_ok; rfl
@@ -231,11 +231,11 @@ def listAppendIntrinsic : Intrinsic := listAppendB.toIntrinsic
 @[simp] theorem listAppendIntrinsic_folSym : listAppendIntrinsic.folSym = some listAppendB.sym := rfl
 @[simp] theorem listAppendSym_name : listAppendB.sym.name = "list_append" := rfl
 
-def listAppendLawful : listAppendB.Lawful where
+def listAppendLawful : listAppendB.Lawful [] where
   argL₁ := Embedding.lawfulLogical listTy
   argL₂ := Embedding.lawfulLogical listTy
   resL := Embedding.lawfulLogical listTy
-  domSound := fun _ _ _ _ => trivial
+  domSound := fun _ _ _ _ _ => trivial
   semWellTyped := by
     refine fun σ W (left : Runtime.Val) (right : Runtime.Val) _ => ?_
     simpa [listAppendB, Embedding.logical, listTy, TinyML.Typ.subst] using
@@ -257,7 +257,7 @@ def listRevB : Pure.Unary where
   dom := fun _ => True
   pre := none
   -- Reverse is deliberately opaque to SMT. Its natural recursive equation
-  -- mentions List.append; intrinsic definitions do not carry dependency lists.
+  -- mentions List.append.
   defAxiom := .true_
 
 def listRevIntrinsic : Intrinsic := listRevB.toIntrinsic
@@ -266,10 +266,10 @@ def listRevIntrinsic : Intrinsic := listRevB.toIntrinsic
 @[simp] theorem listRevIntrinsic_folSym : listRevIntrinsic.folSym = some listRevB.sym := rfl
 @[simp] theorem listRevSym_name : listRevB.sym.name = "list_rev" := rfl
 
-def listRevLawful : listRevB.Lawful where
+def listRevLawful : listRevB.Lawful [] where
   argL := Embedding.lawfulLogical listTy
   resL := Embedding.lawfulLogical listTy
-  domSound := fun _ _ _ => trivial
+  domSound := fun _ _ _ _ => trivial
   semWellTyped := by
     refine fun σ W (value : Runtime.Val) _ => ?_
     simpa [listRevB, Embedding.logical, listTy, TinyML.Typ.subst] using
