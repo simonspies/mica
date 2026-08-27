@@ -19,7 +19,6 @@ inductive LexErrorKind where
   | invalidIntLiteral (text : String)
   | invalidFloatLiteral (text : String)
   | invalidCharEscape (c : Char)
-  | unterminatedCharLiteral
   | invalidStringEscape (text : String)
   | unterminatedStringLiteral
   deriving Repr
@@ -38,7 +37,6 @@ def LexError.toString (e : LexError) : String :=
   | .invalidIntLiteral t => s!"{loc}: invalid integer literal '{t}'"
   | .invalidFloatLiteral t => s!"{loc}: invalid float literal '{t}'"
   | .invalidCharEscape c => s!"{loc}: invalid character escape '\\{c}'"
-  | .unterminatedCharLiteral => s!"{loc}: unterminated character literal"
   | .invalidStringEscape text => s!"{loc}: invalid string escape '\\{text}'"
   | .unterminatedStringLiteral => s!"{loc}: unterminated string literal"
 

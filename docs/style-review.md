@@ -44,6 +44,12 @@ can be the right call when there is no good, abstract concept to name. Factoring
 out a single line can be the right call when it is a meaningful definition or
 when useful lemmas can be proven about it. Finding the balance needs judgment.
 
+A duplicated *decision* is harder to see than duplicated code: a `Bool`
+predicate beside the `match` it has to mirror (boolean blindness), or two
+definitions taking the same input apart the same way. Have the branch return
+what it selects — `Option α`, a variant — so the data comes with the decision
+and there is nothing to keep in sync. That is "parse, don't validate".
+
 Suggest candidates for factoring out, and candidates for inlining. Optimize for
 clarity, readability, and maintainability with a human reader in mind.
 
@@ -101,6 +107,10 @@ to the definition, where the next caller will find it.
 Judgment: one case split at the wrong level is a small cost. The same split
 appearing in three proofs is a missing lemma, and the cost grows with every
 future change to that type.
+
+`private` is the default, and a public name is part of that API: ask of each one
+which file outside this one uses it, and search for the answer (rule 7's
+discipline) rather than assuming one.
 
 ### 6. Partiality
 

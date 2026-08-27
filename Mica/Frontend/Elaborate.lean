@@ -82,13 +82,13 @@ private structure TypeInfo where
 
 /-- What a constructor resolves to: its tag among the `arity` constructors of
 `owner`, and the payload it carries. -/
-structure CtorInfo where
+private structure CtorInfo where
   tag     : Nat
   arity   : Nat
   owner   : TinyML.TypeName
   payload : Untyped.Typ
 
-structure ElabEnv where
+private structure ElabEnv where
   types    : List (TypeConstructor × TypeInfo)                := []
   ctors    : List (Constructor × CtorInfo)                    := []
   fields   : List (FieldName × (TypeConstructor × Nat))      := []
@@ -264,7 +264,7 @@ private def productArgumentName (stem : String) (idx : Nat) : String :=
 type to put on it: with arguments the annotation is the function's return type,
 written after them. An annotation here is rejected rather than silently dropped.
 (OCaml rejects the syntax outright.) -/
-def patternToName (pat : Pattern) : ElabM (Option Var) :=
+private def patternToName (pat : Pattern) : ElabM (Option Var) :=
   match pat.kind with
   | .wildcard => .ok none
   | .binder _ (some _) =>
@@ -289,7 +289,8 @@ private def annotateBinder (loc : Location) :
   | .none, some _ => .ok .none
 
 mutual
-partial def elaborateOptTyp (env : ElabEnv) : Option Typ → ElabM (Option Untyped.Typ)
+private partial def elaborateOptTyp (env : ElabEnv) :
+    Option Typ → ElabM (Option Untyped.Typ)
   | none => .ok none
   | some ty => do let ty' ← Typ.elaborate env ty; .ok (some ty')
 
@@ -297,7 +298,7 @@ partial def elaborateOptTyp (env : ElabEnv) : Option Typ → ElabM (Option Untyp
 -- Pattern helpers
 
 /-- A binder pattern together with the type it annotates, if any. -/
-partial def patternToBinder (env : ElabEnv) (pat : Pattern) : ElabM Untyped.Binder :=
+private partial def patternToBinder (env : ElabEnv) (pat : Pattern) : ElabM Untyped.Binder :=
   match pat.kind with
   | .wildcard => .ok .none
   | .binder none _ => .ok .none
@@ -306,33 +307,20 @@ partial def patternToBinder (env : ElabEnv) (pat : Pattern) : ElabM Untyped.Bind
     .ok (.named n ty')
   | _ => err pat.loc (.unsupportedPattern "expected a simple binder (variable or wildcard)")
 
-partial def patternListToAnnotatedBinders (env : ElabEnv) :
-    List Pattern → ElabM (List Untyped.Binder)
-  | [] => .ok []
-  | p :: ps => do
-    let b ← patternToBinder env p
-    let bs ← patternListToAnnotatedBinders env ps
-    .ok (b :: bs)
-
-partial def patternRecordFieldsToBinders (env : ElabEnv)
-    : List (FieldName × Pattern) → ElabM (List (FieldName × Untyped.Binder))
-  | [] => .ok []
-  | (name, pat) :: rest => do
-      let binder ← patternToBinder env pat
-      let binders ← patternRecordFieldsToBinders env rest
-      .ok ((name, binder) :: binders)
-
-partial def patternToProductBinders (env : ElabEnv) (pat : Pattern) :
+private partial def patternToProductBinders (env : ElabEnv) (pat : Pattern) :
     ElabM (List Untyped.Binder) :=
   match pat.kind with
-  | .tuple pats => patternListToAnnotatedBinders env pats
+  | .tuple pats => pats.mapM (patternToBinder env)
   | .record fields => do
       let fieldInfo ← recordFieldsFor env pat.loc fields
-      let binders ← patternRecordFieldsToBinders env fields
+      let binders ← fields.mapM fun (name, field) => do
+        let binder ← patternToBinder env field
+        .ok (name, binder)
       reorderFields pat.loc binders (fieldInfo.map Prod.fst)
   | _ => err pat.loc (.unsupportedPattern "expected a flat product binder")
 
-partial def patternComponentType? (env : ElabEnv) (pat : Pattern) : ElabM (Option Untyped.Typ) :=
+private partial def patternComponentType? (env : ElabEnv) (pat : Pattern) :
+    ElabM (Option Untyped.Typ) :=
   match pat.kind with
   | .binder _ (some ty) => do
       let ty' ← Typ.elaborate env ty
@@ -340,7 +328,7 @@ partial def patternComponentType? (env : ElabEnv) (pat : Pattern) : ElabM (Optio
   | .binder _ none | .wildcard => .ok none
   | _ => err pat.loc (.unsupportedPattern "expected a flat tuple binder")
 
-partial def patternComponentTypes? (env : ElabEnv) :
+private partial def patternComponentTypes? (env : ElabEnv) :
     List Pattern → ElabM (Option (List Untyped.Typ))
   | [] => .ok (some [])
   | p :: ps => do
@@ -350,7 +338,7 @@ partial def patternComponentTypes? (env : ElabEnv) :
       | some ty, some tys => .ok (some (ty :: tys))
       | _, _ => .ok none
 
-partial def patternToProductType (env : ElabEnv) (pat : Pattern) : ElabM Untyped.Typ :=
+private partial def patternToProductType (env : ElabEnv) (pat : Pattern) : ElabM Untyped.Typ :=
   match pat.kind with
   | .tuple pats => do
       match ← patternComponentTypes? env pats with
@@ -362,7 +350,7 @@ partial def patternToProductType (env : ElabEnv) (pat : Pattern) : ElabM Untyped
       .ok (Untyped.Typ.tuple (fieldInfo.map Prod.snd))
   | _ => err pat.loc (.unsupportedPattern "expected a flat product binder")
 
-partial def elaborateFunctionArgs (env : ElabEnv) (stem : String) :
+private partial def elaborateFunctionArgs (env : ElabEnv) (stem : String) :
     Nat → List Pattern → Untyped.Expr → ElabM (List Untyped.Binder × Untyped.Expr)
   | _, [], body => .ok ([], body)
   | idx, pat :: pats, body => do
@@ -376,16 +364,43 @@ partial def elaborateFunctionArgs (env : ElabEnv) (stem : String) :
         let arg ← patternToBinder env pat
         .ok (arg :: restArgs, restBody)
 
+/-- Elaborate the value introduced by a named surface binding. -/
+private partial def elaborateBinding (env : ElabEnv) (loc : Location) (isRec : Bool)
+    (pat : Pattern) (args : List Pattern) (retTy : Option Typ) (bound : Expr) :
+    ElabM (Untyped.Binder × Untyped.Expr) := do
+  match args with
+  | [] =>
+    let name ← patternToBinder env pat
+    let name ← annotateBinder loc name (← elaborateOptTyp env retTy)
+    if isRec then
+      let bound' ← Expr.elaborate (env.bindPattern pat) bound
+      match bound' with
+      | .fix .none fixArgs fixRetTy inner =>
+        .ok (name, .fix name fixArgs fixRetTy inner)
+      | _ => err loc (.unsupportedFeature "let rec requires a function")
+    else do
+      let bound' ← Expr.elaborate env bound
+      .ok (name, bound')
+  | _ =>
+    let name := nameBinder (← patternToName pat)
+    let self := if isRec then name else .none
+    let boundEnv := env.bindPatterns args
+    let boundEnv := if isRec then boundEnv.bindPattern pat else boundEnv
+    let bound' ← Expr.elaborate boundEnv bound
+    let (args', bound'') ← elaborateFunctionArgs env "$param" 0 args bound'
+    let retTy' ← elaborateOptTyp env retTy
+    .ok (name, .fix self args' retTy' bound'')
+
 /-- Elaborate a surface type into the untyped IR's type language: lower its
 kind, then apply any type attributes (`T [@name payload]`) left-to-right.
 Single entry point for every type position, so `[@spec]` is honored wherever a
 type may be written. -/
-partial def Typ.elaborate (env : ElabEnv) : Typ → ElabM Untyped.Typ
+private partial def Typ.elaborate (env : ElabEnv) : Typ → ElabM Untyped.Typ
   | ⟨loc, kind, attrs⟩ => do
       let t ← TypKind.elaborate env loc kind
       Typ.applyAttrs env t attrs
 
-partial def Typ.applyAttrs (env : ElabEnv) (t : Untyped.Typ) :
+private partial def Typ.applyAttrs (env : ElabEnv) (t : Untyped.Typ) :
     List Attribute → ElabM Untyped.Typ
   | [] => .ok t
   | attr :: attrs => do
@@ -396,7 +411,7 @@ partial def Typ.applyAttrs (env : ElabEnv) (t : Untyped.Typ) :
 owned `owned A` (mirroring how the expression-level `[@owned]` validates
 `ref`); `[@spec]` records a specification on the arrow it annotates, exactly as
 `[@@spec]` does on a declaration. -/
-partial def Typ.applyAttr (env : ElabEnv) (t : Untyped.Typ) (attr : Attribute) :
+private partial def Typ.applyAttr (env : ElabEnv) (t : Untyped.Typ) (attr : Attribute) :
     ElabM Untyped.Typ :=
   match attr.name, attr.payload with
   | .owned, none =>
@@ -418,10 +433,11 @@ partial def Typ.applyAttr (env : ElabEnv) (t : Untyped.Typ) (attr : Attribute) :
       | _ => err attr.loc (.unsupportedFeature "[@spec] only applies to a function type")
   | name, _ => err attr.loc (.unsupportedFeature s!"unknown type attribute [@{name}]")
 
-partial def TypKind.elaborate (env : ElabEnv) (loc : Location) : TypKind → ElabM Untyped.Typ
+private partial def TypKind.elaborate (env : ElabEnv) (loc : Location) :
+    TypKind → ElabM Untyped.Typ
   | .var v => .ok (.tvar v)
   | .con path args => do
-    let args' ← Typ.elaborateList env args
+    let args' ← args.mapM (Typ.elaborate env)
     -- Qualified paths route through the resolver; an alias must point to a
     -- single-segment target (avoids unbounded chasing).
     let name ← if path.isQualified then
@@ -469,25 +485,19 @@ partial def TypKind.elaborate (env : ElabEnv) (loc : Location) : TypKind → Ela
     | .arrow args ret none => .ok (.arrow (dom' :: args) ret none)
     | _ => .ok (.arrow [dom'] cod' none)
   | .tuple ts => do
-    let ts' ← Typ.elaborateList env ts
+    let ts' ← ts.mapM (Typ.elaborate env)
     .ok (.tuple ts')
-
-partial def Typ.elaborateList (env : ElabEnv) : List Typ → ElabM (List Untyped.Typ)
-  | [] => .ok []
-  | ty :: ts => do
-    let t' ← Typ.elaborate env ty
-    let ts' ← Typ.elaborateList env ts
-    .ok (t' :: ts')
 
 /-- Elaborate an expression: lower its kind, then apply any expression
 attributes (`e [@name payload]`) left-to-right. This is the single entry point
 for every expression position, so attributes are honored everywhere. -/
-partial def Expr.elaborate (env : ElabEnv) : Expr → ElabM Untyped.Expr
+private partial def Expr.elaborate (env : ElabEnv) : Expr → ElabM Untyped.Expr
   | ⟨loc, kind, attrs⟩ => do
       let e ← ExprKind.elaborate env loc kind
       attrs.foldlM applyAttr e
 
-partial def ExprKind.elaborate (env : ElabEnv) (loc : Location) : ExprKind → ElabM Untyped.Expr
+private partial def ExprKind.elaborate (env : ElabEnv) (loc : Location) :
+    ExprKind → ElabM Untyped.Expr
   | .const (.int n)  => .ok (.const (.int n))
   | .const (.float f) => .ok (.const (.float f.toBits))
   | .const (.bool b) => .ok (.const (.bool b))
@@ -551,10 +561,10 @@ partial def ExprKind.elaborate (env : ElabEnv) (loc : Location) : ExprKind → E
       else if path.isQualified then
         match env.resolver.value path with
         | some (.userVar n) => do
-          let args' ← Expr.elaborateList env args
+          let args' ← args.mapM (Expr.elaborate env)
           .ok (.app (.var n) args')
         | some (.primitive n _) => do
-          let args' ← Expr.elaborateList env args
+          let args' ← args.mapM (Expr.elaborate env)
           .ok (.app (.prim n) args')
         | some (.special .arrayMake) =>
             match args with
@@ -586,11 +596,11 @@ partial def ExprKind.elaborate (env : ElabEnv) (loc : Location) : ExprKind → E
             | _ => err loc (.arityMismatch 3 args.length)
         | none => do
           let fn' ← Expr.elaborate env fn
-          let args' ← Expr.elaborateList env args
+          let args' ← args.mapM (Expr.elaborate env)
           .ok (.app fn' args')
       else do
         let fn' ← Expr.elaborate env fn
-        let args' ← Expr.elaborateList env args
+        let args' ← args.mapM (Expr.elaborate env)
         .ok (.app fn' args')
     | .ctor path => do
       let name ← if path.isQualified then
@@ -608,7 +618,7 @@ partial def ExprKind.elaborate (env : ElabEnv) (loc : Location) : ExprKind → E
         | none => err loc (.unknownConstructor name)
     | _ => do
       let fn' ← Expr.elaborate env fn
-      let args' ← Expr.elaborateList env args
+      let args' ← args.mapM (Expr.elaborate env)
       .ok (.app fn' args')
 
   | .binop .semi l r => do
@@ -701,45 +711,19 @@ partial def ExprKind.elaborate (env : ElabEnv) (loc : Location) : ExprKind → E
   | .letIn isRec binders retTy bound body =>
     match binders with
     | [] => err loc (.unsupportedFeature "let with no binders")
-    | [pat] =>
-      if isRec then do
-        -- `let rec f : T = fun x -> ... in ...`: the literal's self-reference
-        -- is the let's own name, so recursive calls go through its type. The
-        -- same shape a recursive declaration gets.
-        let name ← patternToBinder env pat
-        let name ← annotateBinder loc name (← elaborateOptTyp env retTy)
-        let bound' ← Expr.elaborate (env.bindPattern pat) bound
-        match bound' with
-        | .fix .none args retTy' inner => do
-          let body' ← Expr.elaborate (env.bindPattern pat) body
-          .ok (.letIn name (.fix name args retTy' inner) body')
-        | _ => err loc (.unsupportedFeature "let rec requires a function")
-      else do
+    | pat :: args =>
+      if args.isEmpty && !isRec && isProductPattern pat then do
         let bound' ← Expr.elaborate env bound
         let body' ← Expr.elaborate (env.bindPattern pat) body
-        if isProductPattern pat then
-          if retTy.isSome then
-            err loc (.unsupportedFeature "a destructuring let cannot be annotated")
-          else do
-            let names ← patternToProductBinders env pat
-            .ok (.letProd names bound' body')
+        if retTy.isSome then
+          err loc (.unsupportedFeature "a destructuring let cannot be annotated")
         else do
-          -- With no arguments the annotation is the bound value's own type, so
-          -- it lands on the binder and the bound expression is checked at it.
-          let name ← patternToBinder env pat
-          let name ← annotateBinder loc name (← elaborateOptTyp env retTy)
-          .ok (.letIn name bound' body')
-    | pat :: args => do
-      let name := nameBinder (← patternToName pat)
-      let self := if isRec then name else .none
-      let boundEnv := env.bindPatterns args
-      let boundEnv := if isRec then boundEnv.bindPattern pat else boundEnv
-      let bound' ← Expr.elaborate boundEnv bound
-      let (args', bound'') ← elaborateFunctionArgs env "$param" 0 args bound'
-      let body' ← Expr.elaborate (env.bindPattern pat) body
-      -- With arguments the annotation is the function's return type.
-      let retTy' ← elaborateOptTyp env retTy
-      .ok (.letIn name (.fix self args' retTy' bound'') body')
+          let names ← patternToProductBinders env pat
+          .ok (.letProd names bound' body')
+      else do
+        let (name, bound') ← elaborateBinding env loc isRec pat args retTy bound
+        let body' ← Expr.elaborate (env.bindPattern pat) body
+        .ok (.letIn name bound' body')
 
   | .fun_ [] _ _ =>
     err loc (.unsupportedFeature "function expressions require at least one argument")
@@ -767,11 +751,11 @@ partial def ExprKind.elaborate (env : ElabEnv) (loc : Location) : ExprKind → E
         .ok (.match_ scrut' branches)
 
   | .tuple es => do
-    let es' ← Expr.elaborateList env es
+    let es' ← es.mapM (Expr.elaborate env)
     .ok (.tuple es')
 
   | .list es => do
-    let es' ← Expr.elaborateList env es
+    let es' ← es.mapM (Expr.elaborate env)
     let nil ← elaborateCtorLookup env loc "[]" none
     match List.lookup "::" env.ctors with
     | some info =>
@@ -781,7 +765,9 @@ partial def ExprKind.elaborate (env : ElabEnv) (loc : Location) : ExprKind → E
 
   | .record flds => do
     let fieldInfo ← recordFieldsFor env loc flds
-    let elaborated ← Expr.elaborateRecordFields env flds
+    let elaborated ← flds.mapM fun (name, e) => do
+      let e' ← Expr.elaborate env e
+      .ok (name, e')
     let es' ← reorderFields loc elaborated (fieldInfo.map Prod.fst)
     .ok (.tuple es')
 
@@ -789,22 +775,7 @@ partial def ExprKind.elaborate (env : ElabEnv) (loc : Location) : ExprKind → E
 
   | .annot e _ => Expr.elaborate env e
 
-partial def Expr.elaborateList (env : ElabEnv) : List Expr → ElabM (List Untyped.Expr)
-  | [] => .ok []
-  | e :: es => do
-    let e' ← Expr.elaborate env e
-    let es' ← Expr.elaborateList env es
-    .ok (e' :: es')
-
-partial def Expr.elaborateRecordFields (env : ElabEnv)
-    : List (FieldName × Expr) → ElabM (List (FieldName × Untyped.Expr))
-  | [] => .ok []
-  | (name, e) :: rest => do
-    let e' ← Expr.elaborate env e
-    let rest' ← Expr.elaborateRecordFields env rest
-    .ok ((name, e') :: rest')
-
-partial def MatchArm.elaborateList (env : ElabEnv)
+private partial def MatchArm.elaborateList (env : ElabEnv)
     : List MatchArm → ElabM (List (Constructor × Option Untyped.Binder × Untyped.Expr))
   | [] => .ok []
   | ⟨pat, body⟩ :: arms => do
@@ -913,7 +884,7 @@ private def elaborateRecordDecl (env : ElabEnv) (loc : Location) (name : TypeCon
     records := (name, fieldTypes) :: env.records
     fields := newFields ++ env.fields }
 
-def TypeDecl.elaborate (env : ElabEnv) (loc : Location) (decl : TypeDecl)
+private def TypeDecl.elaborate (env : ElabEnv) (loc : Location) (decl : TypeDecl)
     : ElabM (ElabEnv × Option Untyped.TypeDecl) :=
   match decl.body with
   | .variant ctors => do
@@ -928,37 +899,15 @@ def TypeDecl.elaborate (env : ElabEnv) (loc : Location) (decl : TypeDecl)
 -- ---------------------------------------------------------------------------
 -- Value declaration elaboration
 
-def ValDecl.elaborate (env : ElabEnv) (loc : Location)
+private def ValDecl.elaborate (env : ElabEnv) (loc : Location)
     (isRec : Bool) (binders : List Pattern) (retTy : Option Typ) (body : Expr)
     (spec : Option Untyped.SpecBody)
     : ElabM (Untyped.ValDecl Untyped.SpecBody) := do
   match binders with
   | [] => err loc (.unsupportedFeature "declaration with no binders")
-  | [pat] =>
-    -- A declaration with no arguments: its annotation is the declaration's own
-    -- type, which is where a `[@spec]` on it belongs.
-    let name ← patternToBinder env pat
-    let name ← annotateBinder loc name (← elaborateOptTyp env retTy)
-    if isRec then
-      -- `let rec f : T = fun x -> ...`: the literal's self-reference is the
-      -- declaration's own name, so recursive calls go through its type.
-      let body' ← Expr.elaborate (env.bindPattern pat) body
-      match body' with
-      | .fix .none args retTy' inner =>
-        .ok { name, body := .fix name args retTy' inner, spec }
-      | _ => err loc (.unsupportedFeature "let rec requires a function")
-    else do
-      let body' ← Expr.elaborate env body
-      .ok { name, body := body', spec }
   | pat :: args =>
-    let name := nameBinder (← patternToName pat)
-    let self := if isRec then name else .none
-    let retTy' ← elaborateOptTyp env retTy
-    let bodyEnv := env.bindPatterns args
-    let bodyEnv := if isRec then bodyEnv.bindPattern pat else bodyEnv
-    let body' ← Expr.elaborate bodyEnv body
-    let (args', body'') ← elaborateFunctionArgs env "$param" 0 args body'
-    .ok { name, body := .fix self args' retTy' body'', spec }
+    let (name, body') ← elaborateBinding env loc isRec pat args retTy body
+    .ok { name, body := body', spec }
 
 -- ---------------------------------------------------------------------------
 -- Program elaboration
@@ -1000,14 +949,14 @@ private def elaborateValAttrs (env : ElabEnv) (acc : ValAttrs) :
 /-- Attributes are meaningful on a value declaration only. The parser accepts
 `[@@...]` after any declaration, so every other kind rejects them here rather
 than dropping them silently. -/
-def Decl.noAttrs (decl : Decl) (what : String) : ElabM Unit :=
+private def Decl.noAttrs (decl : Decl) (what : String) : ElabM Unit :=
   match decl.attrs with
   | [] => .ok ()
   | attr :: _ =>
     err attr.loc (.unsupportedFeature s!"{what} declaration takes no attributes, \
       but carries [@@{attr.name}]")
 
-def Decl.elaborate (env : ElabEnv) (decl : Decl)
+private def Decl.elaborate (env : ElabEnv) (decl : Decl)
     : ElabM (ElabEnv × Option (Untyped.Decl Untyped.SpecBody)) := do
   match decl.kind with
   | .open_ path =>
@@ -1091,7 +1040,7 @@ private def predefEnv (resolver : Resolver) : ElabEnv :=
     ctors := TinyML.Predef.all.flatMap predefCtorEntries }
 
 def Program.elaborate (resolver : Resolver) (prog : Frontend.Program) :
-    ElabM (Untyped.Program Untyped.SpecBody) := do
+    Except ElaborateError (Untyped.Program Untyped.SpecBody) := do
   let decls ← requireOpenMica prog
   elaborateDecls (predefEnv resolver) decls
 

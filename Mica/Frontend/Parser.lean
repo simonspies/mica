@@ -15,7 +15,6 @@ namespace Frontend
 
 inductive ParseErrorKind where
   | unexpectedToken (expected : String) (got : Token)
-  | unexpectedEof
   | nonPositiveProjIndex
   | funNoArgs
   | nonFinalLowercaseSegment (segment : String)
@@ -32,7 +31,6 @@ def ParseError.toString (e : ParseError) : String :=
   let loc := s!"{e.loc.start.file}:{e.loc.start.line}:{e.loc.start.col}"
   match e.kind with
   | .unexpectedToken exp got => s!"{loc}: expected {exp}, got '{got}'"
-  | .unexpectedEof => s!"{loc}: unexpected end of file"
   | .nonPositiveProjIndex => s!"{loc}: projection index must be at least 1 (projections are 1-based)"
   | .funNoArgs => s!"{loc}: function expressions require at least one argument"
   | .nonFinalLowercaseSegment seg => s!"{loc}: qualified path segment '{seg}' is lowercase, but only the final component of a module path may be lowercase"
@@ -57,14 +55,13 @@ instance : ToString FrontendError := ⟨FrontendError.toString⟩
 -- ---------------------------------------------------------------------------
 -- Parser state and monad
 
-structure ParserState where
-  file   : String
+private structure ParserState where
   tokens : Array (Location × Token)
   pos    : Nat
 
 /-- A parser reads from a token cursor and fails with a `ParseError`. The state
 is threaded by the monad; nothing below passes a `ParserState` by hand. -/
-abbrev Parser (α : Type) := StateT ParserState (Except ParseError) α
+private abbrev Parser (α : Type) := StateT ParserState (Except ParseError) α
 
 -- ---------------------------------------------------------------------------
 -- Primitive combinators
@@ -202,20 +199,6 @@ private def binOpOf : Token → Option BinOp
 -- ---------------------------------------------------------------------------
 -- Type parsing
 
-/-- The first set of `parsePatternAtom`: what can begin a constructor payload,
-and what `parseFunArgs` treats as one more binder. It is maintained by hand and
-has to track that match — a token missing here becomes an error at whatever
-follows the pattern instead. -/
-private def isPatStart : Token → Bool
-  | .ident _ | .underscore | .lparen | .lbrace | .lbracket
-  | .intLit _ | .charLit _ | .kw_true | .kw_false => true
-  | _ => false
-
-private def isArgStart : Token → Bool
-  | .intLit _ | .floatLit _ | .charLit _ | .stringLit _ | .ident _ | .lparen | .lbrace
-  | .lbracket | .kw_true | .kw_false | .bang | .kw_begin => true
-  | _ => false
-
 /-- A record literal starts with a lowercase field name followed by `=`, or by
 the `;` or `}` that ends a punned field `{ a }`. Anything else after `{` is the
 expression of a record update. -/
@@ -225,6 +208,12 @@ private def isRecordLiteral : Parser Bool := do
     if name.front.isUpper || name.front == '\'' then return false
     return [Token.eq, .semi, .rbrace].contains (← peek 1)
   | _ => return false
+
+private structure Binding where
+  isRec   : Bool
+  binders : List Pattern
+  retTy   : Option Typ
+  body    : Expr
 
 mutual
 -- `[@name expr]` — single `@`, optional expression payload.
@@ -359,38 +348,43 @@ private partial def parsePatternCons : Parser Pattern := do
 payload is itself at this level rather than an atom, so `A B y` is `A (B y)`, as
 in OCaml. -/
 private partial def parsePatternApp : Parser Pattern := do
-  let head ← parsePatternAtom
+  let some head ← parsePatternAtom? | expected "pattern"
+  parsePatternAppRest head
+
+private partial def parsePatternAppRest (head : Pattern) : Parser Pattern := do
   match head.kind with
   | .ctor path none =>
-    if isPatStart (← peek) then
-      let payload ← parsePatternApp
+    match ← parsePatternAtom? with
+    | some payloadHead =>
+      let payload ← parsePatternAppRest payloadHead
       return { loc := ← spanFrom head.loc, kind := .ctor path (some payload) }
-    else return head
+    | none => return head
   | _ => return head
 
-/-- A pattern atom. `isPatStart` is this match's first set and has to track it. -/
-private partial def parsePatternAtom : Parser Pattern := patOf do
+/-- Parse a pattern atom when the current token starts one. -/
+private partial def parsePatternAtom? : Parser (Option Pattern) := do
   match ← peek with
-  | .underscore => advance; return .wildcard
+  | .underscore => some <$> patOf (do advance; return .wildcard)
   | .ident name =>
-    advance
-    if name.front.isUpper then return .ctor (← collectPathTail name []) none
-    else return .binder (some name) none
-  | .intLit n  => advance; return .const (.int n)
-  | .charLit c => advance; return .const (.char c)
-  | .kw_true   => advance; return .const (.bool true)
-  | .kw_false  => advance; return .const (.bool false)
-  | .lparen => advance; parseParenPattern
-  | .lbrace =>
-    advance
-    let fields ← parseRecordPatFields
-    expect .rbrace
-    return .record fields
-  | .lbracket =>
-    -- `[]` — empty-list pattern (no general list-literal patterns)
-    advance
-    if ← consumeIf .rbracket then return .nil else expected "']' in pattern"
-  | _ => expected "pattern"
+    some <$> patOf do
+      advance
+      if name.front.isUpper then return .ctor (← collectPathTail name []) none
+      else return .binder (some name) none
+  | .intLit n  => some <$> patOf (do advance; return .const (.int n))
+  | .charLit c => some <$> patOf (do advance; return .const (.char c))
+  | .kw_true   => some <$> patOf (do advance; return .const (.bool true))
+  | .kw_false  => some <$> patOf (do advance; return .const (.bool false))
+  | .lparen => some <$> patOf (do advance; parseParenPattern)
+  | .lbrace => some <$> patOf do
+      advance
+      let fields ← parseRecordPatFields
+      expect .rbrace
+      return .record fields
+  | .lbracket => some <$> patOf do
+      -- `[]` — empty-list pattern (no general list-literal patterns)
+      advance
+      if ← consumeIf .rbracket then return .nil else expected "']' in pattern"
+  | _ => return none
 
 /-- The body of a parenthesized pattern, with the `(` already consumed. -/
 private partial def parseParenPattern : Parser PatternKind := do
@@ -445,16 +439,20 @@ private partial def parseRecordPatFields : Parser (List (FieldName × Pattern)) 
 forms parse the same way as anywhere else and are rejected afterwards, so the
 error names the actual problem instead of the token that follows it. -/
 private partial def parsePatternBinder : Parser Pattern := do
-  let pat ← parsePatternAtom
+  let some pat ← parsePatternAtom? | expected "pattern"
+  checkPatternBinder pat
+
+private partial def checkPatternBinder (pat : Pattern) : Parser Pattern := do
   match pat.kind with
   | .wildcard | .binder .. | .tuple .. | .record .. | .const .unit => return pat
   | _ => failAt pat.loc .refutableBinder
 
 private partial def parseFunArgs : Parser (List Pattern) := do
-  if isPatStart (← peek) then
-    let p ← parsePatternBinder
+  match ← parsePatternAtom? with
+  | some pat =>
+    let p ← checkPatternBinder pat
     return p :: (← parseFunArgs)
-  else return []
+  | none => return []
 
 -- ---------------------------------------------------------------------------
 -- Expression parsing
@@ -537,15 +535,21 @@ private partial def collectArgs : Parser (List Expr) := do
   -- `[` starts a list-literal argument unless it opens an attribute `[@...]`
   let t ← peek
   let isAttr := t == .lbracket && ((← peek 1) == .at || (← peek 1) == .atat)
-  if isArgStart t && !isAttr then
-    let arg ← parseAccess
-    return arg :: (← collectArgs)
-  else return []
+  if isAttr then return []
+  match ← parseAccess? with
+  | some arg => return arg :: (← collectArgs)
+  | none => return []
 
 -- postfix access (`Prec.access`): `.n` tuple projection, `.field` field access,
 -- `.(i)` array element. Tighter than application, so `f a.b` is `f (a.b)`.
 private partial def parseAccess : Parser Expr := do
-  parseAccessRest (← parsePrefix)
+  let some e ← parseAccess? | expected "expression"
+  return e
+
+private partial def parseAccess? : Parser (Option Expr) := do
+  match ← parsePrefix? with
+  | some e => some <$> parseAccessRest e
+  | none => return none
 
 private partial def parseAccessRest (e : Expr) : Parser Expr := do
   if (← peek) != .dot then return e
@@ -573,16 +577,19 @@ private partial def parseAccessRest (e : Expr) : Parser Expr := do
 
 -- prefix `!` (`Prec.prefixOp`): the tightest level, above access as well as
 -- application, so `!r.contents` is `(!r).contents` and `!f x` is `(!f) x`.
-private partial def parsePrefix : Parser Expr := do
+private partial def parsePrefix? : Parser (Option Expr) := do
   match ← peek with
-  | .bang => exprOf do advance; return .unop .deref (← parsePrefix)
-  | _     => parseAtom
+  | .bang => some <$> exprOf do
+      advance
+      let some e ← parsePrefix? | expected "expression"
+      return .unop .deref e
+  | _ => parseAtom?
 
 -- atom: constants, variables, constructors, parens, records
-private partial def parseAtom : Parser Expr := do
+private partial def parseAtom? : Parser (Option Expr) := do
   let start ← loc
-  let const (c : Const) : Parser Expr := do
-    advance; return { loc := ← spanFrom start, kind := .const c }
+  let const (c : Const) : Parser (Option Expr) := do
+    advance; return some { loc := ← spanFrom start, kind := .const c }
   match ← peek with
   | .intLit n    => const (.int n)
   | .floatLit f  => const (.float f)
@@ -593,26 +600,28 @@ private partial def parseAtom : Parser Expr := do
   | .ident name =>
     advance
     let path ← collectPathTail name []
-    return { loc := ← spanFrom start
-           , kind := if path.last.front.isUpper then .ctor path else .var path }
-  | .lbrace => parseRecord
+    return some { loc := ← spanFrom start
+                , kind := if path.last.front.isUpper then .ctor path else .var path }
+  | .lbrace => some <$> parseRecord
   | .lbracket =>
     -- list literal `[]` / `[e1; e2; ...]`; elaboration lowers it to constructors
     advance
-    if ← consumeIf .rbracket then return { loc := ← spanFrom start, kind := .list [] }
+    if ← consumeIf .rbracket then
+      return some { loc := ← spanFrom start, kind := .list [] }
     let elems ← parseListElems
     expect .rbracket
-    return { loc := ← spanFrom start, kind := .list elems }
+    return some { loc := ← spanFrom start, kind := .list elems }
   | .kw_begin =>
     -- `begin e end` is `(e)`, with no node of its own.
     advance
     let e ← parseExpr
     expect .kw_end
-    return e
+    return some e
   | .lparen =>
     advance
     -- `()` = unit
-    if ← consumeIf .rparen then return { loc := ← spanFrom start, kind := .const .unit }
+    if ← consumeIf .rparen then
+      return some { loc := ← spanFrom start, kind := .const .unit }
     -- A tuple needs no parentheses of its own, so `(a, b)` arrives here already
     -- built by the comma level.
     let e ← parseExpr
@@ -622,10 +631,10 @@ private partial def parseAtom : Parser Expr := do
       advance
       let ty ← parseType
       expect .rparen
-      return { loc := ← spanFrom start, kind := .annot e ty }
-    | .rparen => advance; return e
+      return some { loc := ← spanFrom start, kind := .annot e ty }
+    | .rparen => advance; return some e
     | _ => expected "')' or ':' in expression"
-  | _ => expected "expression"
+  | _ => return none
 
 /-- The components after the first `,`, each below the comma level so that the
 tuple stays flat. -/
@@ -671,17 +680,21 @@ private partial def parseRecordFields : Parser (List (FieldName × Expr)) := do
   else return [(name, e)]
 
 -- `let [rec] pat pat ... [: T] = e in body`
-private partial def parseLet : Parser Expr := exprOf do
+private partial def parseBinding : Parser Binding := do
   expect .kw_let
   let isRec ← consumeIf .kw_rec
   let first ← parsePatternBinder
   let rest ← parseFunArgs
   let retTy ← parseOptRetTy
   expect .eq
-  let bound ← parseExpr
+  let body ← parseExpr
+  return { isRec, binders := first :: rest, retTy, body }
+
+private partial def parseLet : Parser Expr := exprOf do
+  let binding ← parseBinding
   expect .kw_in
   let body ← parseExpr
-  return .letIn isRec (first :: rest) retTy bound body
+  return .letIn binding.isRec binding.binders binding.retTy binding.body body
 
 -- `fun pat pat ... [: T] -> body`
 private partial def parseFun : Parser Expr := exprOf do
@@ -806,13 +819,8 @@ private def parseTypeDecl : Parser DeclKind := do
   return .type_ { params, name, body := ← parseTypeDeclBody }
 
 private def parseValDecl : Parser DeclKind := do
-  expect .kw_let
-  let isRec ← consumeIf .kw_rec
-  let first ← parsePatternBinder
-  let rest ← parseFunArgs
-  let retTy ← parseOptRetTy
-  expect .eq
-  return .val_ isRec (first :: rest) retTy (← parseExpr)
+  let binding ← parseBinding
+  return .val_ binding.isRec binding.binders binding.retTy binding.body
 
 /-- Trailing `[@@name payload]` attributes on a declaration. -/
 private partial def parseDeclAttrs : Parser (List Attribute) := do
@@ -852,7 +860,7 @@ private partial def parseProgram : Parser Program := do
 /-- Lex and parse `source` (file named `file`). -/
 def parseFile (file : String) (source : String) : Except FrontendError Program := do
   let tokens ← (tokenize file source).mapError .lexError
-  let st : ParserState := { file, tokens, pos := 0 }
+  let st : ParserState := { tokens, pos := 0 }
   let (prog, _) ← (parseProgram st).mapError .parseError
   .ok prog
 
