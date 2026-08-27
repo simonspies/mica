@@ -1,7 +1,7 @@
 -- SUMMARY: Execution of SMT strategies against a live Z3 process.
 import Mica.Engine.Strategy
 
-/-! ## Smt.Session (Z3 session) -/
+/-! ## Session -/
 
 namespace Smt
 
@@ -23,20 +23,15 @@ structure Session where
 
 namespace Session
 
--- `(set-option :smt.qi.eager_threshold 5.0)` Recursive functions are encoded
--- as quantified definitional axioms whose bodies reference the function again.
--- Z3's default eager instantiation easily falls into a matching loop. It even
--- does so _before_ a check-sat is reached when entering a new scope.
--- To avoid a severe performance penalty, we lower the default from 10.0 to 5.0.
--- The verifier's quantified axioms are designed for E-matching (with explicit
--- or Z3-inferred triggers), so model-based quantifier instantiation adds a
--- second, less predictable search path without being needed by the examples.
+-- The sorts and symbols declared here are the ones `FOL/Printing.lean` emits.
+-- The two must agree name for name: a mismatch is a Z3 parse error at run time,
+-- not a build error.
+/-- The SMT-LIB text every session starts with: the logic and the solver
+    options, then the value sort and the operations on it. -/
 def preamble : String := s!"
 ;; preamble
 (set-logic ALL)
 {String.intercalate "\n" (List.map Options.Settable.toSMTLIB Options.Settable.initial)}
-(set-option :smt.qi.eager_threshold 5.0)
-(set-option :smt.mbqi false)
 
 (declare-sort Other 0)
 (declare-sort Loc 0)
@@ -99,16 +94,15 @@ def preamble : String := s!"
 "
 
 /-- Start a new Z3 session with print-success enabled. -/
-def create (z3Path : String := "z3") (log : LogMode := .quiet) : IO Session := do
+def create (log : LogMode) : IO Session := do
   let child ← IO.Process.spawn {
-    cmd := z3Path
+    cmd := "z3"
     args := #["-in"]
     stdin := .piped
     stdout := .piped
     stderr := .piped
   }
   let stdin := child.stdin
-  -- We first define the preamble that introduces the value type
   stdin.putStr preamble
   stdin.flush
   if log == .script then do
@@ -124,7 +118,7 @@ def create (z3Path : String := "z3") (log : LogMode := .quiet) : IO Session := d
   return { stdin, stdout := child.stdout, child }
 
 /-- Send a command and parse the response. Throws on unexpected output. -/
-def send (s : Session) (cmd : Command α) (log : LogMode := .quiet) : IO α := do
+def send (s : Session) (cmd : Command α) (log : LogMode) : IO α := do
   let query := cmd.toSMTLIB
   match log with
   | .trace => IO.eprintln s!"  > {query}"
@@ -139,34 +133,32 @@ def send (s : Session) (cmd : Command α) (log : LogMode := .quiet) : IO α := d
   | some r => return r
   | none => throw (IO.userError s!"Unexpected Z3 response for `{query}`: {response}")
 
-/-- Close the session. -/
 def close (s : Session) : IO Unit := do
   s.stdin.putStr "(exit)\n"
   s.stdin.flush
+  -- The exit code carries no information after `(exit)`.
+  discard s.child.wait
 
 end Session
 
-/-! ## Running Strategies -/
+/-! ## Strategy.run and Strategy.execute -/
 
 namespace Strategy
 
 /-- Execute a strategy against a live Z3 session. -/
-def run (log : LogMode := .quiet) : Strategy α → Session → IO α
+private def run (log : LogMode) : Strategy α → Session → IO α
   | .done a, _ => return a
   | .exec cmd k, session => do
     let response ← session.send cmd log
     run log (k response) session
 
-/-- Top-level entry point: create session, run strategy, print result, close. -/
-def execute (s : Strategy Outcome) (log : LogMode := .quiet) : IO Unit := do
-  let session ← Session.create "z3" log
-  let outcome ← run log s session
+/-- Run a strategy in a session of its own. Reporting the outcome is the
+    caller's job. -/
+def execute (s : Strategy α) (log : LogMode) : IO α := do
+  let session ← Session.create log
+  let result ← run log s session
   session.close
-  match outcome with
-  | .ok () => IO.println "Successfully verified!"
-  | .error msg => do
-    IO.println "Verification failed. The following error was encountered."
-    IO.println msg
+  return result
 
 end Strategy
 

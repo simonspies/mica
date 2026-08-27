@@ -53,20 +53,18 @@ theorem relName_ne_fn (f : SpecFn) : relName f ≠ f := by
 theorem defName_ne_funcName (f : SpecFn) :
     defName f ≠ funcName f := by
   intro h
-  have hlen := congrArg String.length h
-  simp only [defName, funcName, String.length_append,
-    show ("-func" : String).length = 5 from rfl,
-    show ("-def" : String).length = 4 from rfl] at hlen
-  omega
+  have hd := congrArg String.toList h
+  simp [defName, funcName, String.toList_append,
+    show ("-def" : String).toList = ['-','d','e','f'] from rfl,
+    show ("-func" : String).toList = ['-','f','u','n','c'] from rfl] at hd
 
 theorem relName_ne_funcName (f : SpecFn) :
     relName f ≠ funcName f := by
   intro h
-  have hlen := congrArg String.length h
-  simp only [relName, funcName, String.length_append,
-    show ("-rel" : String).length = 4 from rfl,
-    show ("-func" : String).length = 5 from rfl] at hlen
-  omega
+  have hd := congrArg String.toList h
+  simp [relName, funcName, String.toList_append,
+    show ("-rel" : String).toList = ['-','r','e','l'] from rfl,
+    show ("-func" : String).toList = ['-','f','u','n','c'] from rfl] at hd
 
 theorem relName_ne_defName (f : SpecFn) :
     relName f ≠ defName f := by
@@ -187,7 +185,7 @@ theorem relates_wfIn {fn : SpecFn} {arg res : Term .value} {Δ : Signature}
 
 /-- Agreement on a signature carrying `fn`'s split symbols transports the
 relational, value, and definedness evaluations between the two environments. -/
-theorem agreeOn {fn : SpecFn} {ρ ρ' : Env} {Δ : Signature}
+theorem eval_of_agreeOn {fn : SpecFn} {ρ ρ' : Env} {Δ : Signature}
     (h : Env.agreeOn Δ ρ ρ')
     (hr : fn.rel ∈ Δ.binaryRel) (hu : fn.func ∈ Δ.unary) (hd : fn.defined ∈ Δ.unaryRel) :
     fn.evalRelates ρ = fn.evalRelates ρ' ∧

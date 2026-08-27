@@ -276,7 +276,7 @@ def Rel.Det (Γ : FunCtx) (res : String) (Δview : Signature) (m : Rel) : Prop :
     Δview.Subset Δ → Δ.wf → s.Covers Δ → res ∈ s.avoid →
     m s = .ok φ →
     BinaryRelDet Γ ρ₁ ρ₂ →
-    Env.termAgree Δ ρ₁ ρ₂ →
+    Env.agreeOnTerms Δ ρ₁ ρ₂ →
     φ.eval ρ₁ → φ.eval ρ₂ →
     ρ₁.lookupConst .value res = ρ₂.lookupConst .value res
 
@@ -293,7 +293,7 @@ theorem kEq_det {Γ : FunCtx} {res : String} {Δview : Signature}
   subst hrun
   have hvWf : v.wfIn Δ := Term.wfIn_mono _ hv hsub hΔ
   simp only [Formula.eval, Term.eval] at hφ₁ hφ₂
-  have hveq : v.eval ρ₁ = v.eval ρ₂ := Term.eval_termAgree hvWf hagree
+  have hveq : v.eval ρ₁ = v.eval ρ₂ := Term.eval_agreeOnTerms hvWf hagree
   rw [← hφ₁, ← hφ₂, hveq]
 
 theorem Rel.call_det {Γ : FunCtx} {res : String} {Δview : Signature}
@@ -334,24 +334,24 @@ theorem Rel.call_det {Γ : FunCtx} {res : String} {Δview : Signature}
     simp only [Formula.eval] at hφ₁ hφ₂
     rcases hφ₁ with ⟨w₁, hcall₁, hbody₁⟩
     rcases hφ₂ with ⟨w₂, hcall₂, hbody₂⟩
-    have hagree' : Env.termAgree Δ'
+    have hagree' : Env.agreeOnTerms Δ'
         (ρ₁.updateConst .value r w₁) (ρ₂.updateConst .value r w₁) :=
-      Env.termAgree_declVar (x := r) (τ := .value) (v := w₁) hagree
+      Env.agreeOnTerms_declVar (x := r) (τ := .value) (v := w₁) hagree
     have hargEval :
         arg.eval (ρ₁.updateConst .value r w₁) =
           arg.eval (ρ₂.updateConst .value r w₁) :=
-      Term.eval_termAgree hargΔ' hagree'
+      Term.eval_agreeOnTerms hargΔ' hagree'
     simp only [SpecFn.relates, Formula.eval, BinPred.eval, Term.eval] at hcall₁ hcall₂
     have hargEq₂ :
         arg.eval (ρ₂.updateConst .value r w₁) =
           arg.eval (ρ₂.updateConst .value r w₂) := by
-      have hag : Env.termAgree Δ
+      have hag : Env.agreeOnTerms Δ
           (ρ₂.updateConst .value r w₁) (ρ₂.updateConst .value r w₂) :=
-        Env.termAgree_of_agreeOn (Env.agreeOn_trans
+        Env.agreeOnTerms_of_agreeOn (Env.agreeOn_trans
           (Env.agreeOn_symm
             (Env.agreeOn_update_fresh_const (ρ := ρ₂) (c := ⟨r, .value⟩) (u := w₁) hfresh))
           (Env.agreeOn_update_fresh_const (ρ := ρ₂) (c := ⟨r, .value⟩) (u := w₂) hfresh))
-      exact Term.eval_termAgree hargΔ hag
+      exact Term.eval_agreeOnTerms hargΔ hag
     have hw : w₁ = w₂ := by
       have hcall₁base :
           fn.evalRelates ρ₁ (arg.eval (ρ₁.updateConst .value r w₁)) w₁ := by
@@ -399,7 +399,7 @@ theorem Rel.ite_det {Γ : FunCtx} {res : String} {Δview : Signature}
       have hcondΔ : cond.wfIn Δ := Term.wfIn_mono _ hcond hsubView hΔ
       simp only [Formula.iteBool, Formula.eval] at hφ₁ hφ₂
       have hcondEq : cond.eval ρ₁ = cond.eval ρ₂ :=
-        Term.eval_termAgree hcondΔ hagree
+        Term.eval_agreeOnTerms hcondΔ hagree
       cases hc : cond.eval ρ₁
       · have hc₂ : cond.eval ρ₂ = false := by simpa [hcondEq] using hc
         exact he Δ s φe ρ₁ ρ₂ hsubView hΔ hcov hresA heRun hrel hagree
@@ -522,8 +522,8 @@ theorem semrel_functional
               Env.updateConst_binaryRel, Env.updateBinaryRel] at hz₁ hz₂
             simp [hne] at hz₁ hz₂
             exact hρdet f' fn' htail vin' z₁ z₂ hz₁ hz₂
-      have htermAgree :
-          Env.termAgree (bodySig Δ fn x)
+      have hagreeOnTerms :
+          Env.agreeOnTerms (bodySig Δ fn x)
             (relEnv ρ fn x res S a b)
             (relEnv ρ fn x res R a b') := by
         unfold bodySig relEnv
@@ -572,7 +572,7 @@ theorem semrel_functional
         hdetM (bodySig Δ fn x) (relBodySupply Δ fn x res) body
         (relEnv ρ fn x res S a b) (relEnv ρ fn x res R a b')
         (Signature.Subset.refl _) hΔbody hcovBody hresAvoid hrun
-        hrelDet htermAgree hFS hFR
+        hrelDet hagreeOnTerms hFS hFR
       simpa [relEnv, Env.lookupConst_updateConst_same] using hresEq
   intro hy₁ hy₂
   have hy₁S : S vin y₁ := by

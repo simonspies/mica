@@ -811,7 +811,7 @@ theorem Program.verify_correct (reg : Verifier.Registry)
       (∀ [MicaGS HasLC.hasLC Sig], ⊢ pwp reg.primCtx (Untyped.Program.runtime p)) := by
   simp only [Smt.Strategy.checks, Program.verify, VerifM.strategy]
   intro st' heval _inst
-  have h1 := ScopedM.strategy_eval_initial_implies_ScopedM_eval heval
+  obtain ⟨_, h1⟩ := ScopedM.strategy_eval_initial_implies_ScopedM_eval heval
   obtain ⟨a, ctx_mid, hverif, hcont⟩ := ScopedM.eval_bind h1
   match a with
   | .error e =>

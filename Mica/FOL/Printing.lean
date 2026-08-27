@@ -13,6 +13,10 @@ Two serialization targets:
 -- SMT-LIB2 serialization
 -- ---------------------------------------------------------------------------
 
+-- The sorts and symbols emitted here are declared by `Smt.Session.preamble` in
+-- `Mica/Engine/Driver.lean`. The two must agree name for name: a mismatch is a
+-- Z3 parse error at run time, not a build error.
+
 def Srt.toSMTLIB : Srt → String
   | .int     => "Int"
   | .bool    => "Bool"
@@ -48,7 +52,7 @@ def UnOp.toSMTLIB : UnOp τ₁ τ₂ → String
   | .not     => "not"
   | .ofValList => "of_tuple"
   | .toValList => "to_tuple"
-  | .arrayLengthOf => "array_length"
+  | .arrayLen => "array_length"
   | .vhead   => "vhd"
   | .vtail   => "vtl"
   | .visnil  => "is-vnil"
@@ -188,6 +192,16 @@ def Formula.toSMTLIB : Formula → String
 -- Human-readable infix printing with minimal parentheses
 -- ---------------------------------------------------------------------------
 
+def Srt.toStringHum : Srt → String
+  | .int     => "int"
+  | .bool    => "bool"
+  | .char    => "char"
+  | .string  => "string"
+  | .float   => "float"
+  | .value   => "value"
+  | .vallist => "value list"
+  | .vec     => "vec"
+
 -- Precedence levels, ordered lowest to highest (constructor order drives Ord).
 private inductive Prec where
   | bottom   -- if/then/else, ∀, ∃  (lowest)
@@ -244,7 +258,7 @@ private def termStr (p : Prec) : {τ : Srt} → Term τ → String
     | .not     => parens (Prec.lt .not_ p) s!"!{termStr .top a}"
     | .ofValList => s!"tuple({termStr .bottom a})"
     | .toValList => s!"untuple({termStr .bottom a})"
-    | .arrayLengthOf => s!"arrayLength({termStr .bottom a})"
+    | .arrayLen => s!"arrayLength({termStr .bottom a})"
     | .vhead   => s!"hd({termStr .bottom a})"
     | .vtail   => s!"tl({termStr .bottom a})"
     | .visnil  => s!"isnil({termStr .bottom a})"
@@ -313,7 +327,7 @@ private def formulaStr (p : Prec) : Formula → String
   | .and φ ψ         => parens (Prec.lt .and_    p) s!"{formulaStr .and_ φ} && {formulaStr .not_ ψ}"
   | .or  φ ψ         => parens (Prec.lt .or_     p) s!"{formulaStr .or_ φ} || {formulaStr .and_ ψ}"
   | .implies φ ψ     => parens (Prec.lt .implies p) s!"{formulaStr .or_ φ} => {formulaStr .implies ψ}"
-  | .forall_ x τ _ φ => parens (Prec.lt .bottom  p) s!"∀ {x} : {repr τ}, {formulaStr .bottom φ}"
-  | .exists_ x τ φ   => parens (Prec.lt .bottom  p) s!"∃ {x} : {repr τ}, {formulaStr .bottom φ}"
+  | .forall_ x τ _ φ => parens (Prec.lt .bottom  p) s!"∀ {x} : {τ.toStringHum}, {formulaStr .bottom φ}"
+  | .exists_ x τ φ   => parens (Prec.lt .bottom  p) s!"∃ {x} : {τ.toStringHum}, {formulaStr .bottom φ}"
 
 def Formula.toStringHum (φ : Formula) : String := formulaStr .bottom φ

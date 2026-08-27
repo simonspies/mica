@@ -436,7 +436,7 @@ mutual
         VerifM.assert (.binpred .le (.const (.i 0)) (.unop .toInt sl))
         let a ← VerifM.decl none .value
         let sa := Term.const (.uninterpreted a.name .value)
-        VerifM.assume (.pure (.eq .int (.unop .arrayLengthOf sa) (.unop .toInt sl)))
+        VerifM.assume (.pure (.eq .int (.unop .arrayLen sa) (.unop .toInt sl)))
         if ownership = .owned then
           let contents := Term.unop .ofVec (.binop .vecMake (.unop .toInt sl) s_init)
           VerifM.acquire (.spatial (.arrayPointsTo sa contents init.ty))
@@ -448,7 +448,7 @@ mutual
         match arr.ty with
         | .array _ | .ownedArray _ =>
             let sa ← compile reg Θ Δ_spec B Γ arr
-            pure (.unop .ofInt (.unop .arrayLengthOf sa))
+            pure (.unop .ofInt (.unop .arrayLen sa))
         | _ => VerifM.fatal "Array.length operand is not an array"
     | .arrayGet arr idx ty => do
         let (elemTy, owned) ← match arr.ty with
@@ -460,7 +460,7 @@ mutual
         let si ← compile reg Θ Δ_spec B Γ idx
         let sa ← compile reg Θ Δ_spec B Γ arr
         VerifM.assert (.binpred .le (.const (.i 0)) (.unop .toInt si))
-        VerifM.assert (.binpred .lt (.unop .toInt si) (.unop .arrayLengthOf sa))
+        VerifM.assert (.binpred .lt (.unop .toInt si) (.unop .arrayLen sa))
         if owned then
           let contents ← VerifM.findMatchForce .array sa elemTy
           VerifM.acquire (.spatial (.arrayPointsTo sa contents elemTy))
@@ -481,7 +481,7 @@ mutual
         let si ← compile reg Θ Δ_spec B Γ idx
         let sa ← compile reg Θ Δ_spec B Γ arr
         VerifM.assert (.binpred .le (.const (.i 0)) (.unop .toInt si))
-        VerifM.assert (.binpred .lt (.unop .toInt si) (.unop .arrayLengthOf sa))
+        VerifM.assert (.binpred .lt (.unop .toInt si) (.unop .arrayLen sa))
         if owned then
           let contents ← VerifM.findMatchForce .array sa elemTy
           let contents' := Term.unop .ofVec
@@ -1818,16 +1818,16 @@ private theorem VerifM.eval_assertBounds {si sa : Term .value} {α : Type}
     {Q : α → TransState → Env → Prop}
     (h : VerifM.eval (do
       VerifM.assert (.binpred .le (.const (.i 0)) (.unop .toInt si))
-      VerifM.assert (.binpred .lt (.unop .toInt si) (.unop .arrayLengthOf sa))
+      VerifM.assert (.binpred .lt (.unop .toInt si) (.unop .arrayLen sa))
       k) st ρ Q)
     (hsi : si.wfIn st.decls) (hsa : sa.wfIn st.decls) :
     0 ≤ Term.eval ρ (.unop .toInt si) ∧
-    Term.eval ρ (.unop .toInt si) < Term.eval ρ (.unop .arrayLengthOf sa) ∧
+    Term.eval ρ (.unop .toInt si) < Term.eval ρ (.unop .arrayLen sa) ∧
     VerifM.eval k st ρ Q := by
   have hwf1 : (Formula.binpred .le (.const (.i 0)) (.unop .toInt si)).wfIn st.decls := by
     simpa [Formula.wfIn, Term.wfIn, Const.wfIn, UnOp.wfIn, BinPred.wfIn] using hsi
   obtain ⟨hφ1, hcont1⟩ := VerifM.eval_assert (VerifM.eval_bind h) hwf1
-  have hwf2 : (Formula.binpred .lt (.unop .toInt si) (.unop .arrayLengthOf sa)).wfIn st.decls := by
+  have hwf2 : (Formula.binpred .lt (.unop .toInt si) (.unop .arrayLen sa)).wfIn st.decls := by
     simpa [Formula.wfIn, Term.wfIn, UnOp.wfIn, BinPred.wfIn] using And.intro hsi hsa
   obtain ⟨hφ2, hcont2⟩ := VerifM.eval_assert (VerifM.eval_bind hcont1) hwf2
   refine ⟨?_, ?_, hcont2⟩
@@ -1916,10 +1916,10 @@ theorem compileArrayMake_correct (reg : Verifier.Registry) (ownership : TinyML.O
       have hslen_wf_c : slen.wfIn st_c.decls :=
         Term.wfIn_mono slen hslen_wf (Signature.Subset.subset_addConst _ _) hstc_wf
       have heqφ_wf :
-          (CtxItem.pure (Formula.eq Srt.int (.unop .arrayLengthOf sa) (.unop .toInt slen))).wfIn st_c.decls := by
+          (CtxItem.pure (Formula.eq Srt.int (.unop .arrayLen sa) (.unop .toInt slen))).wfIn st_c.decls := by
         refine ⟨⟨trivial, hc_wf⟩, ⟨trivial, hslen_wf_c⟩⟩
       have heqφ_hold :
-          (Formula.eq Srt.int (.unop .arrayLengthOf sa) (.unop .toInt slen)).eval ρ' := by
+          (Formula.eq Srt.int (.unop .arrayLen sa) (.unop .toInt slen)).eval ρ' := by
         simp [Formula.eval, Term.eval, UnOp.eval, hsa_eval, hslen_eval']
         omega
       have hassumeAll := VerifM.eval_assume hassume_eval heqφ_wf heqφ_hold
@@ -1980,10 +1980,10 @@ theorem compileArrayMake_correct (reg : Verifier.Registry) (ownership : TinyML.O
     have hslen_wf_c := Term.wfIn_mono slen hslen_wf (Signature.Subset.subset_addConst _ _) hstc_wf
     have hsinit_wf_c := Term.wfIn_mono s_init hsinit_wf₂ (Signature.Subset.subset_addConst _ _) hstc_wf
     have heq_wf : (CtxItem.pure
-        (.eq .int (.unop .arrayLengthOf sa) (.unop .toInt slen))).wfIn st_c.decls :=
+        (.eq .int (.unop .arrayLen sa) (.unop .toInt slen))).wfIn st_c.decls :=
       ⟨⟨trivial, hc_wf⟩, ⟨trivial, hslen_wf_c⟩⟩
     have heq_hold : Formula.eval ρ'
-        (.eq .int (.unop .arrayLengthOf sa) (.unop .toInt slen)) := by
+        (.eq .int (.unop .arrayLen sa) (.unop .toInt slen)) := by
       simp [Formula.eval, Term.eval, UnOp.eval, hsa_eval, hslen_eval']
       omega
     have hassume := VerifM.eval_assume (VerifM.eval_bind hbody) heq_wf heq_hold
@@ -2060,7 +2060,7 @@ theorem compileArrayLen_correct (reg : Verifier.Registry) (arr : Expr)
       intro v_arr ρ_arr st₁ sa hΨ_arr hsa_wf heval_sa
       obtain ⟨_, _, hΨ_arr⟩ := hΨ_arr
       obtain hret := VerifM.eval_ret hΨ_arr
-      set t : Term .value := .unop .ofInt (.unop .arrayLengthOf sa)
+      set t : Term .value := .unop .ofInt (.unop .arrayLen sa)
       have ht_wf : t.wfIn st₁.decls := by
         exact ⟨trivial, ⟨trivial, hsa_wf⟩⟩
       have hwp :
@@ -2099,7 +2099,7 @@ theorem compileArrayLen_correct (reg : Verifier.Registry) (arr : Expr)
       intro v_arr ρ_arr st₁ sa hΨ_arr hsa_wf heval_sa
       obtain ⟨_, _, hΨ_arr⟩ := hΨ_arr
       obtain hret := VerifM.eval_ret hΨ_arr
-      set t : Term .value := .unop .ofInt (.unop .arrayLengthOf sa)
+      set t : Term .value := .unop .ofInt (.unop .arrayLen sa)
       have ht_wf : t.wfIn st₁.decls := ⟨trivial, ⟨trivial, hsa_wf⟩⟩
       rw [hty]
       istart

@@ -99,7 +99,7 @@ theorem interp_arrayPointsTo_lookup (W : TinyML.World) {ρ : Env}
     {arr contents idx : Term .value} {elemTy : TinyML.Typ} {vidx : Runtime.Val}
     (hidx : Term.eval ρ idx = vidx)
     (hi : 0 ≤ Term.eval ρ (.unop .toInt idx))
-    (hlt : Term.eval ρ (.unop .toInt idx) < Term.eval ρ (.unop .arrayLengthOf arr)) :
+    (hlt : Term.eval ρ (.unop .toInt idx) < Term.eval ρ (.unop .arrayLen arr)) :
     SpatialAtom.interp W ρ (.arrayPointsTo arr contents elemTy) ⊢
       TinyML.ValHasType W vidx .int -∗
       ∃ (loc : Runtime.Location) (vs : List Runtime.Val) (i : Int),

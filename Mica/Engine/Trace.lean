@@ -1,7 +1,7 @@
 -- SUMMARY: Execution traces and the soundness condition imposed on solver replies.
 import Mica.Engine.Command
 
-/-! ## Smt.Trace
+/-! ## Trace
 
 A trace is a linear record of one execution: a sequence of command-response
 pairs, ending in a result. -/
@@ -18,9 +18,7 @@ def result : Trace α → α
   | .done a => a
   | .step _ _ rest => rest.result
 
-/-! ## Trace.finalState
-
-Walk a trace, advancing the Smt.State at each step. -/
+/-! ## Trace.finalState -/
 
 def finalState (st : State) : Trace α → State
   | .done _ => st
@@ -34,64 +32,28 @@ at that point are genuinely unsatisfiable.
 We do not require anything of `sat` or `unknown` responses — the checker must
 handle those conservatively. -/
 
-/-- Walk a trace maintaining the SMT state, verifying that every `unsat` is justified. -/
+/-- What one reply must justify. Only `unsat` carries an obligation, and only
+    for a valid frame stack. -/
+def obligation : Command β → β → State → Prop
+  | .checkSat, .unsat, .frames top rest =>
+      ¬ State.satisfiable (Frame.allDecls (top :: rest)) (Frame.allAsserts (top :: rest))
+  | _, _, _ => True
+
 def isSound : State → Trace α → Prop
   | _, .done _ => True
-  | s, .step .push () rest => isSound s.push rest
-  | s, .step .pop () rest => isSound s.pop rest
-  | s, .step (.declareConst n sort) () rest => isSound (s.addConst ⟨n, sort⟩) rest
-  | s, .step (.declareUnary n arg ret) () rest => isSound (s.addUnary ⟨n, arg, ret⟩) rest
-  | s, .step (.declareBinary n arg1 arg2 ret) () rest => isSound (s.addBinary ⟨n, arg1, arg2, ret⟩) rest
-  | s, .step (.declareTernary n arg1 arg2 arg3 ret) () rest =>
-      isSound (s.addTernary ⟨n, arg1, arg2, arg3, ret⟩) rest
-  | s, .step (.declareUnaryRel n arg) () rest => isSound (s.addUnaryRel ⟨n, arg⟩) rest
-  | s, .step (.declareBinaryRel n arg1 arg2) () rest => isSound (s.addBinaryRel ⟨n, arg1, arg2⟩) rest
-  | s, .step (.assert e) () rest => isSound (s.addAssert e) rest
-  | s, .step .checkSat .unsat rest =>
-      ¬ State.satisfiable s.allDecls s.allAsserts ∧ isSound s rest
-  | s, .step .checkSat _ rest => isSound s rest
-  | s, .step (.setOption _) () rest => isSound s rest
-  | s, .step (.getOption _) _ rest => isSound s rest
+  | s, .step cmd r rest => obligation cmd r s ∧ isSound (s.step cmd r) rest
 
-/-! ## isSound step lemmas -/
+/-! ## Trace.isSound step lemmas -/
 
-/-- Peeling one step off isSound: the rest is sound from the stepped state. -/
+theorem isSound.step_obligation {cmd : Command β} {r : β} {rest : Trace α} {st : State}
+    (h : isSound st (.step cmd r rest)) : obligation cmd r st := h.left
+
 theorem isSound.step_rest {cmd : Command β} {r : β} {rest : Trace α} {st : State}
-    (h : isSound st (.step cmd r rest)) : isSound (st.step cmd r) rest := by
-  cases cmd with
-  | push => exact h
-  | pop => exact h
-  | declareConst n sort => cases r; exact h
-  | declareUnary n arg ret => cases r; exact h
-  | declareBinary n arg1 arg2 ret => cases r; exact h
-  | declareTernary n arg1 arg2 arg3 ret => cases r; exact h
-  | declareUnaryRel n arg => cases r; exact h
-  | declareBinaryRel n arg1 arg2 => cases r; exact h
-  | assert e => cases r; exact h
-  | checkSat => cases r with | sat => exact h | unsat => exact h.2 | unknown => exact h
-  | setOption s => cases r; exact h
-  | getOption g => exact h
+    (h : isSound st (.step cmd r rest)) : isSound (st.step cmd r) rest := h.right
 
-/-- Reconstructing isSound for one step from the step obligation and the rest. -/
 theorem isSound.step_cons {cmd : Command β} {r : β} {rest : Trace α} {st : State}
-    (hrest : isSound (st.step cmd r) rest)
-    (hstep : match cmd, r with
-      | .checkSat, .unsat => ¬ State.satisfiable st.allDecls st.allAsserts
-      | _, _ => True) :
-    isSound st (.step cmd r rest) := by
-  cases cmd with
-  | push => exact hrest
-  | pop => exact hrest
-  | declareConst n sort => cases r; exact hrest
-  | declareUnary n arg ret => cases r; exact hrest
-  | declareBinary n arg1 arg2 ret => cases r; exact hrest
-  | declareTernary n arg1 arg2 arg3 ret => cases r; exact hrest
-  | declareUnaryRel n arg => cases r; exact hrest
-  | declareBinaryRel n arg1 arg2 => cases r; exact hrest
-  | assert e => cases r; exact hrest
-  | checkSat => cases r with | sat => exact hrest | unsat => exact ⟨hstep, hrest⟩ | unknown => exact hrest
-  | setOption s => cases r; exact hrest
-  | getOption g => exact hrest
+    (hrest : isSound (st.step cmd r) rest) (hstep : obligation cmd r st) :
+    isSound st (.step cmd r rest) := ⟨hstep, hrest⟩
 
 end Trace
 

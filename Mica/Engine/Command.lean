@@ -1,14 +1,10 @@
 -- SUMMARY: SMT commands, their responses, and their effect on the abstract solver state.
 import Mica.Engine.State
+import Mica.FOL.Printing
 
-/-! ## Smt.Command
+/-! ## Command
 
-An SMT command, indexed by its response type -- Unit for no meaningful response
-- push, pop, assert: Unit
-- declareConst, declareUnary, declareBinary : Unit
-- declareUnaryRel, declareBinaryRel : Unit
-- checkSat: returns sat/unsat/unknown — Smt.Result
-- setOption, getOption: write/read a solver option -/
+An SMT command, indexed by its response type. -/
 
 namespace Smt
 
@@ -18,19 +14,30 @@ namespace Options
     soundness-irrelevant; `Trace.isSound` imposes nothing on them. -/
 inductive Settable where
   | timeout (ms : Nat)
+  | eagerThreshold (bound : Float)
+  | mbqi (on : Bool)
 
 /-- A solver option to read back, indexed by the type parsed from Z3's response. -/
 inductive Gettable : Type → Type where
   | timeout : Gettable Nat
 
+-- Recursive functions are encoded as quantified definitional axioms whose
+-- bodies reference the function again.
+-- Z3's default eager instantiation easily falls into a matching loop. It even
+-- does so _before_ a check-sat is reached when entering a new scope.
+-- To avoid a severe performance penalty, we lower the default from 10.0 to 5.0.
+-- The verifier's quantified axioms are designed for E-matching (with explicit
+-- or Z3-inferred triggers), so model-based quantifier instantiation adds a
+-- second, less predictable search path without being needed by the examples.
 /-- The settings every session starts with. -/
-def Settable.initial : List Settable := [.timeout 10000]
+def Settable.initial : List Settable :=
+  [.timeout 10000, .eagerThreshold 5.0, .mbqi false]
 
-/-- Serialize a settable option to its SMT-LIB2 string. -/
 def Settable.toSMTLIB : Settable → String
   | .timeout ms => s!"(set-option :timeout {ms})"
+  | .eagerThreshold bound => s!"(set-option :smt.qi.eager_threshold {bound})"
+  | .mbqi on => s!"(set-option :smt.mbqi {on})"
 
-/-- Serialize an option read to its SMT-LIB2 string. -/
 def Gettable.toSMTLIB : Gettable α → String
   | .timeout => "(get-option :timeout)"
 
@@ -54,48 +61,51 @@ inductive Command : Type → Type 1 where
   | setOption (s : Options.Settable) : Command Unit
   | getOption (g : Options.Gettable α) : Command α
 
-/-! ## Serialization -/
+/-! ## Command.toSMTLIB and Command.parse -/
 
 namespace Command
 
-/-- Serialize a command to its SMT-LIB2 string. -/
 def toSMTLIB : Command α → String
   | .push => "(push)"
   | .pop => "(pop)"
-  | .declareConst n s => s!"(declare-const {n} {s.toSMTLIB})"
-  | .declareUnary n a r => s!"(declare-fun {n} ({a.toSMTLIB}) {r.toSMTLIB})"
-  | .declareBinary n a1 a2 r => s!"(declare-fun {n} ({a1.toSMTLIB} {a2.toSMTLIB}) {r.toSMTLIB})"
-  | .declareTernary n a1 a2 a3 r =>
-      s!"(declare-fun {n} ({a1.toSMTLIB} {a2.toSMTLIB} {a3.toSMTLIB}) {r.toSMTLIB})"
-  | .declareUnaryRel n a => s!"(declare-fun {n} ({a.toSMTLIB}) Bool)"
-  | .declareBinaryRel n a1 a2 => s!"(declare-fun {n} ({a1.toSMTLIB} {a2.toSMTLIB}) Bool)"
+  | .declareConst n sort => s!"(declare-const {n} {sort.toSMTLIB})"
+  | .declareUnary n arg ret => s!"(declare-fun {n} ({arg.toSMTLIB}) {ret.toSMTLIB})"
+  | .declareBinary n arg1 arg2 ret =>
+      s!"(declare-fun {n} ({arg1.toSMTLIB} {arg2.toSMTLIB}) {ret.toSMTLIB})"
+  | .declareTernary n arg1 arg2 arg3 ret =>
+      s!"(declare-fun {n} ({arg1.toSMTLIB} {arg2.toSMTLIB} {arg3.toSMTLIB}) {ret.toSMTLIB})"
+  | .declareUnaryRel n arg => s!"(declare-fun {n} ({arg.toSMTLIB}) Bool)"
+  | .declareBinaryRel n arg1 arg2 => s!"(declare-fun {n} ({arg1.toSMTLIB} {arg2.toSMTLIB}) Bool)"
   | .assert e => s!"(assert {e.toSMTLIB})"
   | .checkSat => "(check-sat)"
-  | .setOption s => s.toSMTLIB
+  | .setOption opt => opt.toSMTLIB
   | .getOption g => g.toSMTLIB
+
+/-- The acknowledgement `print-success` sends for a command with no response. -/
+private def ack (s : String) : Option Unit := if s == "success" then some () else none
 
 /-- Parse the solver's response string for a given command. Returns `none` on unexpected output. -/
 def parse : (cmd : Command α) → String → Option α
-  | .push, s => if s == "success" then some () else none
-  | .pop, s => if s == "success" then some () else none
-  | .declareConst _ _, s => if s == "success" then some () else none
-  | .declareUnary _ _ _, s => if s == "success" then some () else none
-  | .declareBinary _ _ _ _, s => if s == "success" then some () else none
-  | .declareTernary _ _ _ _ _, s => if s == "success" then some () else none
-  | .declareUnaryRel _ _, s => if s == "success" then some () else none
-  | .declareBinaryRel _ _ _, s => if s == "success" then some () else none
-  | .assert _, s => if s == "success" then some () else none
+  | .push, s => ack s
+  | .pop, s => ack s
+  | .declareConst _ _, s => ack s
+  | .declareUnary _ _ _, s => ack s
+  | .declareBinary _ _ _ _, s => ack s
+  | .declareTernary _ _ _ _ _, s => ack s
+  | .declareUnaryRel _ _, s => ack s
+  | .declareBinaryRel _ _ _, s => ack s
+  | .assert _, s => ack s
   | .checkSat, s =>
     if s == "sat" then some .sat
     else if s == "unsat" then some .unsat
     else if s == "unknown" then some .unknown
     else none
-  | .setOption _, s => if s == "success" then some () else none
-  | .getOption g, s => g.parse s.trimAscii.str
+  | .setOption _, s => ack s
+  | .getOption g, s => g.parse s
 
 end Command
 
-/-! ## Smt.State.step -/
+/-! ## State.step -/
 
 namespace State
 
@@ -107,8 +117,8 @@ def step : Command β → β → State → State
   | .declareUnary n arg ret, (), s => s.addUnary ⟨n, arg, ret⟩
   | .declareBinary n arg1 arg2 ret, (), s => s.addBinary ⟨n, arg1, arg2, ret⟩
   | .declareTernary n arg1 arg2 arg3 ret, (), s => s.addTernary ⟨n, arg1, arg2, arg3, ret⟩
-  | .declareUnaryRel n arg, (), s => Smt.State.addUnaryRel s ⟨n, arg⟩
-  | .declareBinaryRel n arg1 arg2, (), s => Smt.State.addBinaryRel s ⟨n, arg1, arg2⟩
+  | .declareUnaryRel n arg, (), s => s.addUnaryRel ⟨n, arg⟩
+  | .declareBinaryRel n arg1 arg2, (), s => s.addBinaryRel ⟨n, arg1, arg2⟩
   | .assert e, (), s => s.addAssert e
   | .checkSat, _, s => s
   | .setOption _, (), s => s

@@ -118,7 +118,7 @@ def BinPred.checkWf : BinPred τ₁ τ₂ → Signature → Except String Unit
     else .error s!"binary predicate {name} not in signature"
   | _, _ => .ok ()
 
-@[simp] def Pattern.wfIn : Pattern → Signature → Prop
+def Pattern.wfIn : Pattern → Signature → Prop
   | .term t, Δ => t.wfIn Δ
   | .unpred p t, Δ => p.wfIn Δ ∧ t.wfIn Δ
   | .binpred p t₁ t₂, Δ => p.wfIn Δ ∧ t₁.wfIn Δ ∧ t₂.wfIn Δ
@@ -128,7 +128,7 @@ def Pattern.checkWf : Pattern → Signature → Except String Unit
   | .unpred p t, Δ => do p.checkWf Δ; t.checkWf Δ
   | .binpred p t₁ t₂, Δ => do p.checkWf Δ; t₁.checkWf Δ; t₂.checkWf Δ
 
-@[simp] def Pattern.List.wfIn (ps : List Pattern) (Δ : Signature) : Prop :=
+def Pattern.List.wfIn (ps : List Pattern) (Δ : Signature) : Prop :=
   ∀ p ∈ ps, p.wfIn Δ
 
 def Pattern.List.checkWf : List Pattern → Signature → Except String Unit
@@ -382,9 +382,6 @@ def Formula.eval (ρ : Env) : Formula → Prop
   | .forall_ x τ _ φ => ∀ v : τ.denote, φ.eval (ρ.updateConst τ x v)
   | .exists_ x τ φ => ∃ v : τ.denote, φ.eval (ρ.updateConst τ x v)
 
-def entails (Γ : Context) (φ : Formula) : Prop :=
-  ∀ ρ : Env, (∀ ψ ∈ Γ, ψ.eval ρ) → φ.eval ρ
-
 theorem Formula.eval_env_agree {φ : Formula} {ρ ρ' : Env} {Δ : Signature} :
     φ.wfIn Δ → Env.agreeOn Δ ρ ρ' → (φ.eval ρ ↔ φ.eval ρ') := by
   intro hwf hagree
@@ -444,10 +441,3 @@ theorem Formula.eq_eval_updateConst_of_fresh {Δ : Signature} {ρ : Env}
       (ρ.updateConst c.sort c.name (t.eval ρ)) := by
   simp only [Formula.eval, Term.eval_const_updateConst]
   exact Term.eval_env_agree ht (Env.agreeOn_update_fresh_const hfresh)
-
-
-/-- A single-argument named predicate, represented as `(argName, body)`.
-
-Used by the verifier's predicate-transformer layer to carry binder names for
-human-readable output while keeping the body representation generic over `α`. -/
-def Pred α      := String × α

@@ -1,8 +1,7 @@
 -- SUMMARY: Abstract SMT states and the satisfiability notion used in the solver interface.
-import Mica.FOL.Printing
-import Mica.FOL.Subst
+import Mica.FOL.Formulas
 
-/-! ## Smt.Frame and Smt.State
+/-! ## Frame and State
 
 The solver state: a stack of frames, each recording declarations and assertions.
 The commands (push) and (pop) are used to add a new frame or remove it from the
@@ -14,107 +13,126 @@ structure Frame where
   decls : Signature
   asserts : List Formula
 
-structure State where
-  frames : List Frame
+def Frame.empty : Frame := ⟨Signature.empty, []⟩
 
-/-! ## Frame Extension -/
+/-- All declarations of a stack of frames, innermost frame first. -/
+def Frame.allDecls (fs : List Frame) : Signature :=
+  ⟨fs.flatMap (·.decls.vars),
+   fs.flatMap (·.decls.consts),
+   fs.flatMap (·.decls.unary),
+   fs.flatMap (·.decls.binary),
+   fs.flatMap (·.decls.ternary),
+   fs.flatMap (·.decls.unaryRel),
+   fs.flatMap (·.decls.binaryRel)⟩
 
+/-- All assertions of a stack of frames, innermost frame first. -/
+def Frame.allAsserts (fs : List Frame) : List Formula :=
+  fs.flatMap (·.asserts)
+
+/-- The solver state: a stack of frames that is never empty, or `error`.
+
+`error` records that an invalid configuration was entered — a `pop` with no
+matching `push`. -/
+inductive State where
+  | frames (top : Frame) (rest : List Frame)
+  | error
+
+/-- The state is a stack of frames rather than `error`. -/
+def State.valid : State → Prop
+  | .frames _ _ => True
+  | .error => False
+
+/-! ## Frame.Extends -/
+
+/-- `f.Extends f'` means `f'` was reached from `f` by adding declarations and
+    assertions: every component of `f` is a suffix of the matching one in `f'`. -/
 def Frame.Extends (f f' : Frame) : Prop :=
-  ∃ vs cs us bs ts urs brs as,
-    f'.decls.vars   = vs ++ f.decls.vars ∧
-    f'.decls.consts = cs ++ f.decls.consts ∧
-    f'.decls.unary  = us ++ f.decls.unary ∧
-    f'.decls.binary = bs ++ f.decls.binary ∧
-    f'.decls.ternary = ts ++ f.decls.ternary ∧
-    f'.decls.unaryRel = urs ++ f.decls.unaryRel ∧
-    f'.decls.binaryRel = brs ++ f.decls.binaryRel ∧
-    f'.asserts = as ++ f.asserts
+  f.decls.vars <:+ f'.decls.vars ∧
+  f.decls.consts <:+ f'.decls.consts ∧
+  f.decls.unary <:+ f'.decls.unary ∧
+  f.decls.binary <:+ f'.decls.binary ∧
+  f.decls.ternary <:+ f'.decls.ternary ∧
+  f.decls.unaryRel <:+ f'.decls.unaryRel ∧
+  f.decls.binaryRel <:+ f'.decls.binaryRel ∧
+  f.asserts <:+ f'.asserts
 
 theorem Frame.Extends.refl (f : Frame) : f.Extends f :=
-  ⟨[], [], [], [], [], [], [], [], rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
+  ⟨List.suffix_refl _, List.suffix_refl _, List.suffix_refl _, List.suffix_refl _,
+   List.suffix_refl _, List.suffix_refl _, List.suffix_refl _, List.suffix_refl _⟩
 
 theorem Frame.Extends.addConst (f : Frame) (c : FOL.Const) :
     f.Extends ⟨f.decls.addConst c, f.asserts⟩ :=
-  ⟨[], [c], [], [], [], [], [], [], rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
+  ⟨List.suffix_refl _, List.suffix_cons _ _, List.suffix_refl _, List.suffix_refl _,
+   List.suffix_refl _, List.suffix_refl _, List.suffix_refl _, List.suffix_refl _⟩
 
 theorem Frame.Extends.addUnary (f : Frame) (u : FOL.Unary) :
     f.Extends ⟨f.decls.addUnary u, f.asserts⟩ :=
-  ⟨[], [], [u], [], [], [], [], [], rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
+  ⟨List.suffix_refl _, List.suffix_refl _, List.suffix_cons _ _, List.suffix_refl _,
+   List.suffix_refl _, List.suffix_refl _, List.suffix_refl _, List.suffix_refl _⟩
 
 theorem Frame.Extends.addBinary (f : Frame) (b : FOL.Binary) :
     f.Extends ⟨f.decls.addBinary b, f.asserts⟩ :=
-  ⟨[], [], [], [b], [], [], [], [], rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
+  ⟨List.suffix_refl _, List.suffix_refl _, List.suffix_refl _, List.suffix_cons _ _,
+   List.suffix_refl _, List.suffix_refl _, List.suffix_refl _, List.suffix_refl _⟩
 
 theorem Frame.Extends.addTernary (f : Frame) (t : FOL.Ternary) :
     f.Extends ⟨f.decls.addTernary t, f.asserts⟩ :=
-  ⟨[], [], [], [], [t], [], [], [], rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
+  ⟨List.suffix_refl _, List.suffix_refl _, List.suffix_refl _, List.suffix_refl _,
+   List.suffix_cons _ _, List.suffix_refl _, List.suffix_refl _, List.suffix_refl _⟩
 
 theorem Frame.Extends.addUnaryRel (f : Frame) (u : FOL.UnaryRel) :
     f.Extends ⟨f.decls.addUnaryRel u, f.asserts⟩ :=
-  ⟨[], [], [], [], [], [u], [], [], rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
+  ⟨List.suffix_refl _, List.suffix_refl _, List.suffix_refl _, List.suffix_refl _,
+   List.suffix_refl _, List.suffix_cons _ _, List.suffix_refl _, List.suffix_refl _⟩
 
 theorem Frame.Extends.addBinaryRel (f : Frame) (b : FOL.BinaryRel) :
     f.Extends ⟨f.decls.addBinaryRel b, f.asserts⟩ :=
-  ⟨[], [], [], [], [], [], [b], [], rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
+  ⟨List.suffix_refl _, List.suffix_refl _, List.suffix_refl _, List.suffix_refl _,
+   List.suffix_refl _, List.suffix_refl _, List.suffix_cons _ _, List.suffix_refl _⟩
 
 theorem Frame.Extends.addAssert (f : Frame) (φ : Formula) :
     f.Extends ⟨f.decls, φ :: f.asserts⟩ :=
-  ⟨[], [], [], [], [], [], [], [φ], rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
+  ⟨List.suffix_refl _, List.suffix_refl _, List.suffix_refl _, List.suffix_refl _,
+   List.suffix_refl _, List.suffix_refl _, List.suffix_refl _, List.suffix_cons _ _⟩
 
 theorem Frame.Extends.trans {f₁ f₂ f₃ : Frame}
-    (h₁₂ : f₁.Extends f₂) (h₂₃ : f₂.Extends f₃) : f₁.Extends f₃ := by
-  obtain ⟨vs₁, cs₁, us₁, bs₁, ts₁, urs₁, brs₁, as₁, hv₁, hc₁, hu₁, hb₁, ht₁, hur₁, hbr₁, ha₁⟩ := h₁₂
-  obtain ⟨vs₂, cs₂, us₂, bs₂, ts₂, urs₂, brs₂, as₂, hv₂, hc₂, hu₂, hb₂, ht₂, hur₂, hbr₂, ha₂⟩ := h₂₃
-  exact ⟨vs₂ ++ vs₁, cs₂ ++ cs₁, us₂ ++ us₁, bs₂ ++ bs₁, ts₂ ++ ts₁, urs₂ ++ urs₁, brs₂ ++ brs₁, as₂ ++ as₁,
-    by simp [hv₂, hv₁, List.append_assoc],
-    by simp [hc₂, hc₁, List.append_assoc],
-    by simp [hu₂, hu₁, List.append_assoc],
-    by simp [hb₂, hb₁, List.append_assoc],
-    by simp [ht₂, ht₁, List.append_assoc],
-    by simp [hur₂, hur₁, List.append_assoc],
-    by simp [hbr₂, hbr₁, List.append_assoc],
-    by simp [ha₂, ha₁, List.append_assoc]⟩
+    (h₁₂ : f₁.Extends f₂) (h₂₃ : f₂.Extends f₃) : f₁.Extends f₃ :=
+  ⟨h₁₂.1.trans h₂₃.1, h₁₂.2.1.trans h₂₃.2.1, h₁₂.2.2.1.trans h₂₃.2.2.1,
+   h₁₂.2.2.2.1.trans h₂₃.2.2.2.1, h₁₂.2.2.2.2.1.trans h₂₃.2.2.2.2.1,
+   h₁₂.2.2.2.2.2.1.trans h₂₃.2.2.2.2.2.1, h₁₂.2.2.2.2.2.2.1.trans h₂₃.2.2.2.2.2.2.1,
+   h₁₂.2.2.2.2.2.2.2.trans h₂₃.2.2.2.2.2.2.2⟩
 
-/-! ## Smt.Result -/
+/-! ## Result -/
 
 inductive Result where
   | sat
   | unsat
   | unknown
-  deriving BEq, Repr
 
-/-! ## Smt.State operations -/
+/-! ## State operations -/
 
 namespace State
 
-def initial : State := ⟨[⟨Signature.empty, []⟩]⟩
+def initial : State := .frames Frame.empty []
 
-/-- All declarations visible in the current state. -/
-def allDecls (s : State) : Signature :=
-  ⟨s.frames.flatMap (·.decls.vars),
-   s.frames.flatMap (·.decls.consts),
-   s.frames.flatMap (·.decls.unary),
-   s.frames.flatMap (·.decls.binary),
-   s.frames.flatMap (·.decls.ternary),
-   s.frames.flatMap (·.decls.unaryRel),
-   s.frames.flatMap (·.decls.binaryRel)⟩
+def push : State → State
+  | .frames top rest => .frames Frame.empty (top :: rest)
+  | .error => .error
 
-/-- All assertions active in the current state. -/
-def allAsserts (s : State) : List Formula :=
-  s.frames.flatMap (·.asserts)
+/-- Remove the top frame. A `pop` with no matching `push` enters the
+    `error` state. -/
+def pop : State → State
+  | .frames _ (top :: rest) => .frames top rest
+  | .frames _ [] => .error
+  | .error => .error
 
-def push (s : State) : State :=
-  ⟨⟨Signature.empty, []⟩ :: s.frames⟩
-
-def pop (s : State) : State :=
-  match s.frames with
-  | [] => s  -- underflow: no-op
-  | _ :: rest => ⟨rest⟩
+def modifyTop (s : State) (f : Frame → Frame) : State :=
+  match s with
+  | .frames top rest => .frames (f top) rest
+  | .error => .error
 
 def modifyDecls (s : State) (f : Signature → Signature) : State :=
-  match s.frames with
-  | [] => ⟨[⟨f Signature.empty, []⟩]⟩
-  | ⟨decls, asserts⟩ :: rest => ⟨⟨f decls, asserts⟩ :: rest⟩
+  s.modifyTop (fun fr => ⟨f fr.decls, fr.asserts⟩)
 
 def addConst (s : State) (c : FOL.Const) : State :=
   s.modifyDecls (·.addConst c)
@@ -135,45 +153,44 @@ def addBinaryRel (s : State) (b : FOL.BinaryRel) : State :=
   s.modifyDecls (·.addBinaryRel b)
 
 def addAssert (s : State) (φ : Formula) : State :=
-  match s.frames with
-  | [] => ⟨[⟨Signature.empty, [φ]⟩]⟩
-  | ⟨decls, asserts⟩ :: rest => ⟨⟨decls, φ :: asserts⟩ :: rest⟩
+  s.modifyTop (fun fr => ⟨fr.decls, φ :: fr.asserts⟩)
 
 end State
 
-/-! ## Smt.State.satisfiable -/
+/-! ## State.satisfiable -/
 
-/-- `State.satisfiable decls asserts` means the assertions have a satisfying assignment:
-    there exists an environment making every formula in `asserts` true.
-    The `decls` argument is currently informational (environments are total), but
-    it tracks in-scope declarations and would matter if assignments become partial. -/
+/-- The assertions have a satisfying assignment over the declarations `decls`: an
+    environment that makes every formula in `asserts` true. -/
 def State.satisfiable (decls : Signature) (asserts : List Formula) : Prop :=
+  -- Environments are total, so the declarations do not restrict the assignment.
+  -- They would, if assignments were partial.
   let _ := decls
   ∃ ρ : Env, ∀ φ ∈ asserts, φ.eval ρ
 
-theorem State.satisfiable.to_impl decls asserts :
+/-- From the unsatisfiability of `φ :: asserts`: every environment satisfying
+    `asserts` refutes `φ`. -/
+theorem State.satisfiable.eval_of_unsat_cons {φ : Formula}
+    (decls : Signature) (asserts : List Formula) :
   ¬ State.satisfiable decls (φ :: asserts) →
   ∀ ρ, (∀ ψ ∈ asserts, ψ.eval ρ) → (Formula.not φ).eval ρ :=
   by
     unfold State.satisfiable
-    intro hsat ρ hasserts
-    by_contra hev
+    intro hsat ρ hasserts hev
     apply hsat
     exists ρ
     intro ψ hψ
     cases hψ with
-    | head =>
-      simp only [Formula.eval] at hev
-      simp at hev
-      trivial
-    | tail _ hψ =>
-      exact (hasserts _ hψ)
+    | head => exact hev
+    | tail _ hψ => exact hasserts _ hψ
 
-theorem State.satisfiable.to_impl' decls asserts :
+/-- From the unsatisfiability of `¬ φ :: asserts`: every environment satisfying
+    `asserts` satisfies `φ`. -/
+theorem State.satisfiable.eval_of_unsat_not_cons {φ : Formula}
+    (decls : Signature) (asserts : List Formula) :
   ¬ State.satisfiable decls (Formula.not φ :: asserts) →
   ∀ ρ, (∀ ψ ∈ asserts, ψ.eval ρ) → φ.eval ρ := by
   intro hsat ρ hasserts
-  obtain h := (State.satisfiable.to_impl decls asserts hsat ρ hasserts)
+  obtain h := (State.satisfiable.eval_of_unsat_cons decls asserts hsat ρ hasserts)
   simp only [Formula.eval] at h
   simp at h
   trivial

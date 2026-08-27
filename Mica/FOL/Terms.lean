@@ -61,7 +61,7 @@ inductive UnOp : Srt → Srt → Type where
   | not        : UnOp .bool    .bool
   | ofValList  : UnOp .vallist .value
   | toValList  : UnOp .value   .vallist
-  | arrayLengthOf : UnOp .value .int
+  | arrayLen   : UnOp .value   .int
   | vhead      : UnOp .vallist .value
   | vtail      : UnOp .vallist .vallist
   | visnil     : UnOp .vallist .bool
@@ -562,6 +562,11 @@ theorem Term.wfIn_declVar_of_fresh {t : Term τ} {x : String} {s : Srt}
     simp only [Term.names, List.mem_append, not_or] at hx
     exact ⟨ihc h.1 hx.1.1, iht h.2.1 hx.1.2, ihe h.2.2 hx.2⟩
 
+/-- Interpret a unary operator. Evaluation is total: a projection applied to a
+value of a different shape, and an out-of-range index, give the default of the
+result sort (`0`, `false`, `[]`, `.unit`). On the SMT side, the corresponding
+cases are underspecified, which means if a formula is unsat, then any value
+can be chosen here.  -/
 @[simp] def UnOp.eval : Env → UnOp τ₁ τ₂ → τ₁.denote → τ₂.denote
   | _, .ofInt,   n  => Runtime.Val.int n
   | _, .ofBool,  b  => Runtime.Val.bool b
@@ -587,7 +592,7 @@ theorem Term.wfIn_declVar_of_fresh {t : Term τ} {x : String} {s : Srt}
   | _, .not,     b  => !b
   | _, .ofValList, vs => Runtime.Val.tuple vs
   | _, .toValList, v  => match v with | .tuple vs => vs | _ => []
-  | _, .arrayLengthOf, v => match v with | .array len _ => (len : Int) | _ => 0
+  | _, .arrayLen, v => match v with | .array len _ => (len : Int) | _ => 0
   | _, .vhead,   vs => vs.headD .unit
   | _, .vtail,   vs => vs.tail
   | _, .visnil,  vs => vs.isEmpty
@@ -600,6 +605,7 @@ theorem Term.wfIn_declVar_of_fresh {t : Term τ} {x : String} {s : Srt}
   | _, .toVec,   v => match v with | .vec l => l | _ => []
   | ρ, .uninterpreted name _ _, x => ρ.unary τ₁ τ₂ name x
 
+/-- Interpret a binary operator. Totality convention as for `UnOp.eval`. -/
 @[simp] def BinOp.eval : Env → BinOp τ₁ τ₂ τ₃ → τ₁.denote → τ₂.denote → τ₃.denote
   | _, .add,   a, b  => a + b
   | _, .sub,   a, b  => a - b
@@ -626,6 +632,7 @@ theorem Term.wfIn_declVar_of_fresh {t : Term τ} {x : String} {s : Srt}
   | _, .vecMake, n, x => if 0 ≤ n then List.replicate n.toNat x else []
   | ρ, .uninterpreted name _ _ _, x, y => ρ.binary τ₁ τ₂ τ₃ name x y
 
+/-- Interpret a ternary operator. Totality convention as for `UnOp.eval`. -/
 @[simp] def TerOp.eval : Env → TerOp τ₁ τ₂ τ₃ τ₄ → τ₁.denote → τ₂.denote → τ₃.denote → τ₄.denote
   | _, .seqExtract, s, pos, len => (s.drop (Int.toNat pos)).take (Int.toNat len)
   | _, .vecSet, l, i, x => if 0 ≤ i then l.set i.toNat x else l
@@ -734,7 +741,7 @@ theorem Term.eval_env_le {τ : Srt} {ρ ρ' : Env} (h : Env.le ρ ρ') (t : Term
 
 /-- Agreement on the environment components used by term evaluation. Relation
 interpretations are intentionally ignored. -/
-def Env.termAgree (Δ : Signature) (ρ₁ ρ₂ : Env) : Prop :=
+def Env.agreeOnTerms (Δ : Signature) (ρ₁ ρ₂ : Env) : Prop :=
   (∀ v ∈ Δ.vars, ρ₁.consts v.sort v.name = ρ₂.consts v.sort v.name) ∧
   (∀ c ∈ Δ.consts, ρ₁.consts c.sort c.name = ρ₂.consts c.sort c.name) ∧
   (∀ u ∈ Δ.unary, ρ₁.unary u.arg u.ret u.name = ρ₂.unary u.arg u.ret u.name) ∧
@@ -743,14 +750,14 @@ def Env.termAgree (Δ : Signature) (ρ₁ ρ₂ : Env) : Prop :=
   (∀ t ∈ Δ.ternary, ρ₁.ternary t.arg1 t.arg2 t.arg3 t.ret t.name =
     ρ₂.ternary t.arg1 t.arg2 t.arg3 t.ret t.name)
 
-theorem Env.termAgree_of_agreeOn {Δ : Signature} {ρ₁ ρ₂ : Env}
-    (h : Env.agreeOn Δ ρ₁ ρ₂) : Env.termAgree Δ ρ₁ ρ₂ :=
+theorem Env.agreeOnTerms_of_agreeOn {Δ : Signature} {ρ₁ ρ₂ : Env}
+    (h : Env.agreeOn Δ ρ₁ ρ₂) : Env.agreeOnTerms Δ ρ₁ ρ₂ :=
   ⟨h.1, h.2.1, h.2.2.1, h.2.2.2.1, h.2.2.2.2.1⟩
 
-theorem Env.termAgree_declVar {Δ : Signature} {ρ₁ ρ₂ : Env}
+theorem Env.agreeOnTerms_declVar {Δ : Signature} {ρ₁ ρ₂ : Env}
     {x : String} {τ : Srt} {v : τ.denote}
-    (h : Env.termAgree Δ ρ₁ ρ₂) :
-    Env.termAgree (Δ.declVar ⟨x, τ⟩)
+    (h : Env.agreeOnTerms Δ ρ₁ ρ₂) :
+    Env.agreeOnTerms (Δ.declVar ⟨x, τ⟩)
       (ρ₁.updateConst τ x v) (ρ₂.updateConst τ x v) := by
   refine ⟨?_, ?_, ?_, ?_, ?_⟩
   · intro w hw
@@ -786,8 +793,8 @@ theorem Env.termAgree_declVar {Δ : Signature} {ρ₁ ρ₂ : Env}
     exact h.2.2.2.2 t (Signature.remove_subset Δ x |>.ternary t (by
       simpa [Signature.declVar, Signature.addVar] using ht))
 
-theorem Term.eval_termAgree {t : Term τ} {ρ₁ ρ₂ : Env} {Δ : Signature} :
-    t.wfIn Δ → Env.termAgree Δ ρ₁ ρ₂ → Term.eval ρ₁ t = Term.eval ρ₂ t := by
+theorem Term.eval_agreeOnTerms {t : Term τ} {ρ₁ ρ₂ : Env} {Δ : Signature} :
+    t.wfIn Δ → Env.agreeOnTerms Δ ρ₁ ρ₂ → Term.eval ρ₁ t = Term.eval ρ₂ t := by
   intro hwf hagree
   induction t with
   | var τ y => simp [Term.eval, Env.lookupConst]; exact hagree.1 ⟨y, τ⟩ hwf.1
@@ -884,7 +891,6 @@ theorem Term.const_wfIn_addConst_of_fresh {Δ : Signature} {c : FOL.Const}
 
 /-! ### Vallist projections -/
 
--- Projection helpers for repeated `vtail` and indexed `vhead` access on `vallist` terms.
 /-- Apply `vtail` n times to a vallist term. -/
 def vtailN (t : Term .vallist) : Nat → Term .vallist
   | 0     => t

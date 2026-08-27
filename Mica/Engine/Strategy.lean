@@ -1,7 +1,7 @@
 -- SUMMARY: Interactive SMT strategies and their relative semantics.
 import Mica.Engine.Trace
 
-/-! ## Smt.Strategy (Interaction Trees)
+/-! ## Strategy
 
 A strategy is an interaction tree, a tree where each node executes a command and
 branches on the response. The only interesting branching is at checkSat. (Since
@@ -27,7 +27,7 @@ theorem bind_assoc {s : Strategy α} {f : α → Strategy β} {g : β → Strate
   | done a => rfl
   | exec cmd k ih => simp [bind]; funext r; exact ih r
 
-/-! ## Smt.Strategy.generates
+/-! ## Strategy.generates
 
 `generates strategy trace` means that `trace` is a possible execution of `strategy`. -/
 
@@ -37,7 +37,7 @@ inductive generates : Strategy α → Trace α → Prop where
       generates (f r) t →
       generates (.exec cmd f) (.step cmd r t)
 
-/-! ## Bind decomposition -/
+/-! ## Strategy.bind decomposition -/
 
 /-- Any trace of `s.bind k` decomposes into a trace of `s` followed by a trace of `k`. -/
 theorem bind_generates_decompose {s : Strategy α} {k : α → Strategy β}
@@ -59,7 +59,7 @@ theorem bind_generates_decompose {s : Strategy α} {k : α → Strategy β}
       fun st => by simp [Trace.finalState]; exact hfin _, hresult⟩
 
 /-- isSound decomposes through bind. -/
-theorem bind_traceSound {s : Strategy α} {k : α → Strategy β}
+theorem bind_isSound_decompose {s : Strategy α} {k : α → Strategy β}
     {t : Trace β} (hgen : generates (s.bind k) t) {st : State}
     (hsound : Trace.isSound st t) :
     ∃ a ts tk,
@@ -76,28 +76,13 @@ theorem bind_traceSound {s : Strategy α} {k : α → Strategy β}
     cases hgen; rename_i rest r hrest
     dsimp only at hrest
     obtain ⟨a, ts, tk, hgens, hgenk, hres, hsound_ts, hsound_tk, hfin, hresult⟩ :=
-      ih r hrest (hsound.step_rest)
-    refine ⟨a, .step cmd r ts, tk, .exec hgens, hgenk, hres, ?_, ?_, fun st' => ?_, hresult⟩
-    · exact Trace.isSound.step_cons hsound_ts (by
-        cases cmd with
-        | push => trivial | pop => trivial
-        | declareConst => cases r; trivial
-        | declareUnary => cases r; trivial
-        | declareBinary => cases r; trivial
-        | declareTernary => cases r; trivial
-        | declareUnaryRel => cases r; trivial
-        | declareBinaryRel => cases r; trivial
-        | assert => cases r; trivial
-        | checkSat => cases r with
-          | sat => trivial
-          | unsat => cases hsound; assumption
-          | unknown => trivial
-        | setOption => cases r; trivial
-        | getOption => trivial)
+      ih r hrest hsound.step_rest
+    refine ⟨a, .step cmd r ts, tk, .exec hgens, hgenk, hres,
+      hsound_ts.step_cons hsound.step_obligation, ?_, fun st' => ?_, hresult⟩
     · simp [Trace.finalState]; exact hsound_tk
     · simp [Trace.finalState]; exact hfin _
 
-/-! ## Strategy.eval: Extensional Semantics
+/-! ## Strategy.eval
 
 `eval s st ret st'` means: there exists a sound execution of `s` starting
 from `st` that results in `ret` with final state `st'`. -/
@@ -115,7 +100,17 @@ theorem eval_done {a : α} {st : State} {ret : α} {st' : State} :
   · rintro ⟨rfl, rfl⟩
     exact ⟨.done ret, .done, trivial, rfl, rfl⟩
 
-/-! ## Smt.Strategy.Outcome and checks -/
+theorem eval_exec {cmd : Command β} {k : β → Strategy α} {st : State} {ret : α} {st' : State} :
+    eval (.exec cmd k) st ret st' ↔
+      ∃ r, Trace.obligation cmd r st ∧ eval (k r) (st.step cmd r) ret st' := by
+  constructor
+  · rintro ⟨t, hgen, hsound, hst', hret⟩
+    cases hgen; rename_i rest r hrest
+    exact ⟨r, hsound.step_obligation, rest, hrest, hsound.step_rest, hst', hret⟩
+  · rintro ⟨r, hobl, t, hgen, hsound, hst', hret⟩
+    exact ⟨.step cmd r t, .exec hgen, hsound.step_cons hobl, hst', hret⟩
+
+/-! ## Strategy.Outcome and Strategy.checks -/
 
 def Outcome := Except String Unit
 
@@ -123,7 +118,6 @@ def Outcome := Except String Unit
 def checks (s : Strategy Outcome) (φ : Prop) :=
   ∀ st', eval s State.initial (.ok ()) st' → φ
 
-/-- If `s` checks `φ` and `φ` entails `ψ`, then `s` checks `ψ`. -/
 theorem checks.imp {s : Strategy Outcome} {φ ψ : Prop} (h : s.checks φ) (himp : φ → ψ) :
     s.checks ψ :=
   fun st' he => himp (h st' he)

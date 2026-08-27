@@ -97,9 +97,7 @@ def main (args : List String) : IO Unit := do
       if opts.smtCmdsOnly then .script
       else if opts.verbose then .trace
       else .quiet
-    let session ← Smt.Session.create (log := logMode)
-    let outcome ← Smt.Strategy.run (log := logMode) strategy session
-    session.close
+    let outcome ← Smt.Strategy.execute strategy (log := logMode)
     if opts.smtCmdsOnly then
       return
     match outcome with
