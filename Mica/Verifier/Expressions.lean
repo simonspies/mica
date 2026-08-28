@@ -186,7 +186,7 @@ theorem compileProductBindersFrom_length {B : Bindings} {Γ : TinyML.TyCtx}
                     (ρ.updateConst .value x'.name ((Term.unop UnOp.vhead tl).eval ρ)) :=
                   Env.agreeOn_update_fresh_const hfresh
                 have hhead_same := Term.eval_env_agree hhead_wf hagree_head
-                simpa [Formula.eval, Term.eval, Const.denote, Env.updateConst, Env.updateConst]
+                simpa [Formula.eval, Term.eval, Const.denote, Env.updateConst]
                   using hhead_same
               have hrec_eval := hassume hwf hholds
               have hsub : st.decls.Subset (st.decls.addConst x') :=
@@ -1372,7 +1372,7 @@ theorem compileRefShared_correct (reg : Verifier.Registry) (e : Expr)
             (Term.const_wfIn_addConst_of_fresh (Δ := st₁.decls) (c := c)
               hwf_st₁.namesDisjoint hfresh)
       have hval_eval : Term.eval ρ_e' (Term.const (.uninterpreted c.name .value)) = .loc loc := by
-        simp [Term.eval, Const.denote, ρ_e', Env.updateConst, Env.updateConst]
+        simp [Term.eval, Const.denote, ρ_e', Env.updateConst]
       have hlocTy : locinv loc (fun w => TinyML.ValHasType W w e.ty) ⊢
           TinyML.ValHasType W (.loc loc) (.ref e.ty) := by
         refine Entails.trans ?_ (TinyML.ValHasType.ref W (.loc loc) e.ty).2
@@ -1438,7 +1438,7 @@ theorem compileRefOwned_correct (reg : Verifier.Registry) (e : Expr)
     have hatom_wf : (SpatialAtom.pointsTo sl se e.ty).wfIn st₂.decls := ⟨hsl_wf, hse_wf₂⟩
     have hassumed := VerifM.eval_assumeSpatial (VerifM.eval_bind hdecl_loc) hatom_wf
     have hsl_eval : sl.eval ρ₂ = .loc loc := by
-      simp [sl, ρ₂, c, Term.eval, Const.denote, Env.updateConst, Env.updateConst]
+      simp [sl, ρ₂, c, Term.eval, Const.denote, Env.updateConst]
     have htyped : ∀ φ ∈ TinyML.typeConstraints (.owned e.ty) sl, φ.eval ρ₂ := by
       intro φ hφ
       simp only [TinyML.typeConstraints, List.mem_singleton] at hφ
@@ -1518,7 +1518,7 @@ theorem compileDerefShared_correct (reg : Verifier.Registry) (e : Expr) (ty : Ti
       set ρ₂ : Env := ρ_e.updateConst .value c.name w
       set st₂ : TransState := { st₁ with decls := st₁.decls.addConst c }
       have hsv_eval : sv.eval ρ₂ = w := by
-        simp [sv, ρ₂, Term.eval, Const.denote, Env.updateConst, Env.updateConst]
+        simp [sv, ρ₂, Term.eval, Const.denote, Env.updateConst]
       ihave Hcheck := TinyML.typeConstraints_hold (ty := ty) (t := sv)
         (ρ := ρ₂) (W := W) (v := w) hsv_eval $$ Hw
       ipure Hcheck
@@ -1905,7 +1905,7 @@ theorem compileArrayMake_correct (reg : Verifier.Registry) (ownership : TinyML.O
       set ρ' : Env := ρ_len.updateConst .value c.name (.array n.toNat l)
       set st_c : TransState := { st₂ with decls := st₂.decls.addConst c } with hst_c_def
       have hsa_eval : sa.eval ρ' = .array n.toNat l := by
-        simp [sa, ρ', Term.eval, Const.denote, Env.updateConst, Env.updateConst]
+        simp [sa, ρ', Term.eval, Const.denote, Env.updateConst]
       have hslen_eval' : slen.eval ρ' = .int n :=
         (Term.eval_env_agree hslen_wf
           (Env.agreeOn_update_fresh_const (c := c)
@@ -1962,7 +1962,7 @@ theorem compileArrayMake_correct (reg : Verifier.Registry) (ownership : TinyML.O
     set ρ' : Env := ρ_len.updateConst .value c.name (.array n.toNat l)
     set st_c : TransState := { st₂ with decls := st₂.decls.addConst c }
     have hsa_eval : sa.eval ρ' = .array n.toNat l := by
-      simp [sa, ρ', Term.eval, Const.denote, Env.updateConst, Env.updateConst]
+      simp [sa, ρ', Term.eval, Const.denote, Env.updateConst]
     have hslen_eval' : slen.eval ρ' = .int n :=
       (Term.eval_env_agree hslen_wf
         (Env.agreeOn_update_fresh_const (c := c) (u := Runtime.Val.array n.toNat l) hc_fresh)).symm.trans
@@ -2191,7 +2191,7 @@ theorem compileArrayGet_correct (reg : Verifier.Registry) (arr idx : Expr) (ty :
             set ρ₂ : Env := ρ_arr.updateConst .value c.name w
             set st_c : TransState := { st₂ with decls := st₂.decls.addConst c }
             have hsv_eval : sv.eval ρ₂ = w := by
-              simp [sv, ρ₂, Term.eval, Const.denote, Env.updateConst, Env.updateConst]
+              simp [sv, ρ₂, Term.eval, Const.denote, Env.updateConst]
             ihave Hcheck := TinyML.typeConstraints_hold (ty := elemTy) (t := sv)
               (ρ := ρ₂) (W := W) (v := w) hsv_eval $$ Hw
             ipure Hcheck
@@ -2834,7 +2834,7 @@ theorem compileLetIn_correct (reg : Verifier.Registry) (b : Binder) (e body : Ex
       · intro z hz; cases hz
       · intro z hz; cases hz
     have hρ_body_lookup : ρ_body.consts .value v.name = v_e := by
-      simp [ρ_body, Env.updateConst, Env.updateConst]
+      simp [ρ_body, Env.updateConst]
     have hagree_body : Bindings.agreeOnLinked ((x, v) :: B) ρ_body γ_body := by
       have h := Bindings.agreeOnLinked_cons (x := x) (γ := γ) hagree hρ_agree (hvty := (rfl : v.sort = .value))
       rwa [hρ_body_lookup] at h
@@ -3022,7 +3022,7 @@ theorem compileProductBindersFrom_correct (reg : Verifier.Registry) (body : Expr
                 · intro z hz; cases hz
                 · intro z hz; cases hz
               have hρ_lookup : ρ₁.consts .value x'.name = v := by
-                simp [ρ₁, Env.updateConst, Env.updateConst]
+                simp [ρ₁, Env.updateConst]
               have hagree₁ : Bindings.agreeOnLinked ((x, x') :: B) ρ₁
                   (Runtime.Subst.update γ x v) := by
                 have h := Bindings.agreeOnLinked_cons (x := x) (v := x') (γ := γ)
@@ -3849,7 +3849,7 @@ theorem compileSingleBranch_correct (reg : Verifier.Registry) (binder : Binder) 
         · intro z hz; cases hz
       have hbwf₂ : Bindings.wfIn ((x, xv) :: B) st₂.decls := hst₂_decls ▸ Bindings.wfIn_cons hbwf
       have hρ₁_lookup : ρ₁.consts .value xv.name = payload := by
-        simp [ρ₁, Env.updateConst, Env.updateConst]
+        simp [ρ₁, Env.updateConst]
       have hagree₁ : Bindings.agreeOnLinked ((x, xv) :: B) ρ₁ (Runtime.Subst.update γ x payload) := by
         have h := Bindings.agreeOnLinked_cons (x := x) (v := xv) (γ := γ) hagree hagreeOn_B (hvty := rfl)
         rwa [hρ₁_lookup] at h
