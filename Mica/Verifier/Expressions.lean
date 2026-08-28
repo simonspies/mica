@@ -348,7 +348,7 @@ mutual
           let sterms ← compileExprs reg Θ Δ_spec B Γ args
           let sargs := (args.map Expr.WithTypeVars.ty).zip sterms
           let _ ← compile reg Θ Δ_spec B Γ fn
-          let (_, result) ← Spec.call Θ (FiniteSubst.base Δ_spec) argTys retTy s sargs
+          let (_, result) ← Spec.call (FiniteSubst.base Δ_spec) argTys retTy s sargs
           pure result
       | _ =>
         match fn with
@@ -360,7 +360,7 @@ mutual
               (TinyML.Typ.subst σi i.retTy) aty
             let sterms ← compileExprs reg Θ Δ_spec B Γ args
             let sargs := (args.map Expr.WithTypeVars.ty).zip sterms
-            let (_, result) ← Spec.call Θ (FiniteSubst.base Δ_spec)
+            let (_, result) ← Spec.call (FiniteSubst.base Δ_spec)
               (i.argTys.map (TinyML.Typ.subst σi)) (TinyML.Typ.subst σi i.retTy) i.spec sargs
             pure result
         | _ => VerifM.fatal "application of a function without a specification"
@@ -3327,7 +3327,7 @@ theorem compileAppSpec_correct (reg : Verifier.Registry)
         VerifM.expectEq "specification arity mismatch" s.args.length argTys.length
         let sterms ← compileExprs reg W.Θ W.Δ_spec B Γ args
         let _ ← compile reg W.Θ W.Δ_spec B Γ fn
-        let r ← Spec.call W.Θ (FiniteSubst.base W.Δ_spec) argTys retTy s
+        let r ← Spec.call (FiniteSubst.base W.Δ_spec) argTys retTy s
           ((args.map Expr.WithTypeVars.ty).zip sterms)
         pure r.2) st ρ Ψ)
     (hswf : s.wfIn W.Δ_spec)
@@ -3403,7 +3403,7 @@ theorem compileAppSpec_correct (reg : Verifier.Registry)
   have hbase_wf : (FiniteSubst.base W.Δ_spec).wfIn W.Δ_spec st_fn.decls :=
     FiniteSubst.base_wfIn (hag_fn.subset) hwf.wf hst_fn_wf hwf.vars
   have hcall_eval : VerifM.eval
-      (Spec.call W.Θ (FiniteSubst.base W.Δ_spec) argTys retTy s typedArgs) st_fn ρ_fn
+      (Spec.call (FiniteSubst.base W.Δ_spec) argTys retTy s typedArgs) st_fn ρ_fn
       (fun p st' ρ' => VerifM.eval (pure p.2) st' ρ' Ψ) := VerifM.eval_bind hΨ_fn
   have hcall := Spec.call_correct W argTys retTy s W.Δ_spec (FiniteSubst.base W.Δ_spec)
     typedArgs st_fn ρ_fn (fun p st' ρ' => VerifM.eval (pure p.2) st' ρ' Ψ) Φ R
@@ -3533,7 +3533,7 @@ theorem compileApp_correct (reg : Verifier.Registry) (hSound : Verifier.Registry
       intro p hp
       have hp'' : p.2 ∈ sargs := (List.of_mem_zip hp).2
       exact hsargs_wf _ hp''
-    have hcall_eval : VerifM.eval (Spec.call W.Θ (FiniteSubst.base W.Δ_spec) argTys retTy i.spec typedArgs) st_args ρ_args
+    have hcall_eval : VerifM.eval (Spec.call (FiniteSubst.base W.Δ_spec) argTys retTy i.spec typedArgs) st_args ρ_args
         (fun p st' ρ' => VerifM.eval (pure p.2) st' ρ' Ψ) := VerifM.eval_bind hΨ_args
     have hcall := Spec.call_correct W argTys retTy i.spec W.Δ_spec (FiniteSubst.base W.Δ_spec) typedArgs st_args ρ_args
       (fun p st' ρ' => VerifM.eval (pure p.2) st' ρ' Ψ) Φ R

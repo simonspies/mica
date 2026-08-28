@@ -44,7 +44,7 @@ def checkWf (spec : Spec TinyML.Typ) (Δ : Signature) : Except String Unit :=
 /-- Declare argument variables, check types, and assume equalities for a spec call.
     The argument names come from the spec and the argument types from the enclosing
     arrow. Returns the updated substitution. -/
-def declareArgs (Θ : TinyML.TypeEnv) (σ : FiniteSubst) :
+def declareArgs (σ : FiniteSubst) :
     List String → List TinyML.Typ → List (TinyML.Typ × Term .value) → VerifM FiniteSubst
   | [], [], [] => pure σ
   | name :: names, ty :: tys, (targ, sarg) :: sargs => do
@@ -53,17 +53,17 @@ def declareArgs (Θ : TinyML.TypeEnv) (σ : FiniteSubst) :
     let argVar ← VerifM.decl (some name) .value
     let σ' := σ.rename ⟨name, .value⟩ argVar.name
     VerifM.assume (.pure (.eq .value (.const (.uninterpreted argVar.name .value)) sarg))
-    declareArgs Θ σ' names tys sargs
+    declareArgs σ' names tys sargs
   | _, _, _ => VerifM.fatal "wrong number of arguments"
 
 /-- Full call protocol for a spec: declare argument variables, assume they equal the
     compiled argument terms, check argument types, then invoke `PredTrans.call`. The
     argument and result types come from the enclosing arrow. -/
-def call (Θ : TinyML.TypeEnv) (σ : FiniteSubst)
+def call (σ : FiniteSubst)
     (argTys : List TinyML.Typ) (retTy : TinyML.Typ)
     (s : Spec TinyML.Typ) (sargs : List (TinyML.Typ × Term .value)) :
     VerifM (TinyML.Typ × Term .value) := do
-  let σ' ← declareArgs Θ σ s.args argTys sargs
+  let σ' ← declareArgs σ s.args argTys sargs
   let result ← PredTrans.call σ' s.pred
   VerifM.assumeAll (TinyML.typeConstraints retTy result)
   pure (retTy, result)
@@ -221,7 +221,7 @@ section CallCorrectness
 omit [MicaGS HasLC.hasLC Sig] in
 /-- Correctness of `declareArgs`: after processing all arguments, the resulting
     substitution is well-formed, types match, and the env agrees with `argsEnv`. -/
-theorem declareArgs_correct (W : TinyML.World) :
+theorem declareArgs_correct :
     ∀ (argNames : List String) (argTys : List TinyML.Typ)
       (sargs : List (TinyML.Typ × Term .value))
       (Δ_base : Signature) (σ : FiniteSubst) (st : TransState) (ρ : Env)
@@ -229,7 +229,7 @@ theorem declareArgs_correct (W : TinyML.World) :
     argNames.length = argTys.length →
     σ.wfIn Δ_base st.decls →
     (∀ p ∈ sargs, (p : TinyML.Typ × Term .value).2.wfIn st.decls) →
-    VerifM.eval (Spec.declareArgs W.Θ σ argNames argTys sargs) st ρ Ψ →
+    VerifM.eval (Spec.declareArgs σ argNames argTys sargs) st ρ Ψ →
     ∃ σ' st' ρ', Ψ σ' st' ρ' ∧
       σ'.wfIn Δ_base st'.decls ∧
       st'.owns = st.owns ∧
@@ -347,7 +347,7 @@ theorem call_correct (W : TinyML.World)
     PredTrans.wfIn ((Δ_base.declVars σ.dom).declVars (Spec.argVars s.args)) s.pred →
     σ.wfIn Δ_base st.decls →
     (∀ p ∈ sargs, (p : TinyML.Typ × Term .value).2.wfIn st.decls) →
-    VerifM.eval (Spec.call W.Θ σ argTys retTy s sargs) st ρ Ψ →
+    VerifM.eval (Spec.call σ argTys retTy s sargs) st ρ Ψ →
     (∀ v st' ρ' t, Ψ (retTy, t) st' ρ' → t.wfIn st'.decls → t.eval ρ' = v →
       st'.sl W ρ' ∗ R ∗ TinyML.ValHasType W v retTy ⊢ Φ v) →
     sargs.map Prod.fst = argTys ∧
@@ -358,7 +358,7 @@ theorem call_correct (W : TinyML.World)
   simp only [Spec.call] at heval
   have hb_grow := VerifM.eval.decls_grow ρ (VerifM.eval_bind heval)
   obtain ⟨σ', st', ρ', ⟨hdsub, hragree, hΨ'⟩, hσ'wf, howns, hsublist, hdom_sub, hagree⟩ :=
-    declareArgs_correct W s.args argTys sargs Δ_base σ st ρ _ hlen hσwf hsargs hb_grow
+    declareArgs_correct s.args argTys sargs Δ_base σ st ρ _ hlen hσwf hsargs hb_grow
   refine ⟨hsublist, ?_⟩
   have hwf'' : PredTrans.wfIn (Δ_base.declVars σ'.dom) s.pred :=
     PredTrans.wfIn_mono hwf hdom_sub hσ'wf.srcWf
