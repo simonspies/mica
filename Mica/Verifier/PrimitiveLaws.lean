@@ -190,6 +190,38 @@ theorem wp_ref (W : TinyML.World) {v : Runtime.Val} {Q : Runtime.Val → iProp}
     exact hrearrange.trans ((sep_mono_left hinsert).trans (by simpa [ρ', a, hnewctx] using h loc))
   exact hforall.trans wp.ref
 
+/-- Reference allocation at values, behind the location invariant: the spatial
+context is unchanged and the continuation receives the fresh location already
+typed as a shared reference. -/
+theorem wp_ref_inv (W : TinyML.World) {v : Runtime.Val} {Q : Runtime.Val → iProp}
+    {ctx : SpatialContext} {ρ : Env} {R : iProp} {ty : TinyML.Typ}
+    (h : ∀ loc : Runtime.Location,
+      ctx.interp W ρ ∗ TinyML.ValHasType W (.loc loc) (.ref ty) ∗ R ⊢ Q (.loc loc)) :
+    ctx.interp W ρ ∗ TinyML.ValHasType W v ty ∗ R ⊢ wp W.pctx (.ref (.val v)) Q := by
+  istart
+  iintro ⟨Howns, #Hty, HR⟩
+  iapply (wp.ref_inv (I := fun w => TinyML.ValHasType W w ty))
+  isplitl []
+  · imodintro
+    iexact Hty
+  · iintro %loc Hinv
+    have hlocTy : locinv loc (fun w => TinyML.ValHasType W w ty) ⊢
+        TinyML.ValHasType W (.loc loc) (.ref ty) := by
+      refine Entails.trans ?_ (TinyML.ValHasType.ref W (.loc loc) ty).2
+      iintro Hinv
+      iexists loc
+      isplitr
+      · ipureintro
+        rfl
+      · iexact Hinv
+    iapply (h loc)
+    isplitl [Howns]
+    · iexact Howns
+    · isplitl [Hinv]
+      · iapply hlocTy
+        iexact Hinv
+      · iexact HR
+
 /-- Dereference under evaluation: first evaluate the scrutinee, then dereference
     the resulting value. -/
 theorem wp_bind_deref {e : Runtime.Expr} {Q : Runtime.Val → iProp}
@@ -236,6 +268,29 @@ theorem wp_deref_owned (W : TinyML.World) {Q : Runtime.Val → iProp}
       · iexact Hrest
     · isplitl [HstoredTy]
       · iexact HstoredTy
+      · iexact HR
+
+/-- Dereference at values, behind the location invariant: the spatial context is
+unchanged and the continuation receives the read value's typing. -/
+theorem wp_deref_inv (W : TinyML.World) {vloc : Runtime.Val} {Q : Runtime.Val → iProp}
+    {ctx : SpatialContext} {ρ : Env} {R : iProp} {ty : TinyML.Typ}
+    (h : ∀ w : Runtime.Val, ctx.interp W ρ ∗ TinyML.ValHasType W w ty ∗ R ⊢ Q w) :
+    ctx.interp W ρ ∗ TinyML.ValHasType W vloc (.ref ty) ∗ R ⊢
+      wp W.pctx (.deref (.val vloc)) Q := by
+  istart
+  iintro ⟨Howns, Href, HR⟩
+  ihave Href' := (TinyML.ValHasType.ref W vloc ty).1 $$ Href
+  icases Href' with ⟨%loc, %hvloc, Hinv⟩
+  subst hvloc
+  iapply (wp.deref_inv (l := loc) (I := fun w => TinyML.ValHasType W w ty))
+  isplitl [Hinv]
+  · iexact Hinv
+  · iintro %w #Hw
+    iapply (h w)
+    isplitl [Howns]
+    · iexact Howns
+    · isplitl []
+      · iexact Hw
       · iexact HR
 
 /-- Store under evaluation: first evaluate the value expression, then the
@@ -540,6 +595,32 @@ theorem wp_arraySet_owned (W : TinyML.World) {Q : Runtime.Val → iProp}
     · isplitl []
       · iapply TinyML.ValHasType.unit_intro
       · iexact HR
+
+/-- Store at values, behind the location invariant: the spatial context is
+unchanged, and the new value's typing restores the invariant. -/
+theorem wp_store_inv (W : TinyML.World) {vloc vnew : Runtime.Val} {Q : Runtime.Val → iProp}
+    {ctx : SpatialContext} {ρ : Env} {R : iProp} {ty : TinyML.Typ}
+    (h : ctx.interp W ρ ∗ TinyML.ValHasType W .unit .unit ∗ R ⊢ Q .unit) :
+    ctx.interp W ρ ∗ TinyML.ValHasType W vloc (.ref ty) ∗
+      TinyML.ValHasType W vnew ty ∗ R ⊢
+      wp W.pctx (.store (.val vloc) (.val vnew)) Q := by
+  istart
+  iintro ⟨Howns, Hloc, #Hval, HR⟩
+  ihave Href := (TinyML.ValHasType.ref W vloc ty).1 $$ Hloc
+  icases Href with ⟨%lref, %hvloc, Hinv⟩
+  subst hvloc
+  iapply (wp.store_inv (l := lref) (v := vnew) (I := fun w => TinyML.ValHasType W w ty))
+  isplitl [Hinv]
+  · iexact Hinv
+  · isplitl []
+    · imodintro
+      iexact Hval
+    · iapply h
+      isplitl [Howns]
+      · iexact Howns
+      · isplitl []
+        · iapply TinyML.ValHasType.unit_intro
+        · iexact HR
 
 /-- Store through an owned points-to atom: consume the atom and restore it with
 the stored term replaced. -/

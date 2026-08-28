@@ -1289,54 +1289,26 @@ theorem compileRefShared_correct (reg : Verifier.Registry) (e : Expr)
     TransState.freshConst_fresh st₁ none .value
   have hwf_addConst : TransState.wf { st₁ with decls := st₁.decls.addConst c } :=
     TransState.wf_freshConst _ hwf_st₁
-  have hwp :
-      st₁.sl W ρ_e ∗ TinyML.ValHasType W v_e e.ty ∗ R ⊢ wp W.pctx (.ref (.val v_e)) Φ := by
-    istart
-    iintro ⟨Howns, #Hty, HR⟩
-    iapply (wp.ref_inv (I := fun w => TinyML.ValHasType W w e.ty))
-    isplitl []
-    · imodintro
-      iexact Hty
-    · iintro %loc Hinv
-      have hdecl_eval := VerifM.eval_bind hΨ_e
-      have hdecl := VerifM.eval_decl hdecl_eval (.loc loc)
-      have hret := VerifM.eval_ret hdecl
-      set ρ_e' : Env := ρ_e.updateConst .value c.name (.loc loc)
-      set st₂ : TransState := {
-        decls := st₁.decls.addConst c
-        asserts := st₁.asserts
-        owns := st₁.owns
-      }
-      have hc_wf : (Term.const (.uninterpreted c.name .value)).wfIn st₂.decls :=
-        by
-          simpa [st₂] using
-            (Term.const_wfIn_addConst_of_fresh (Δ := st₁.decls) (c := c)
-              hwf_st₁.namesDisjoint hfresh)
-      have hval_eval : Term.eval ρ_e' (Term.const (.uninterpreted c.name .value)) = .loc loc := by
-        simp [Term.eval, Const.denote, ρ_e', Env.updateConst]
-      have hlocTy : locinv loc (fun w => TinyML.ValHasType W w e.ty) ⊢
-          TinyML.ValHasType W (.loc loc) (.ref e.ty) := by
-        refine Entails.trans ?_ (TinyML.ValHasType.ref W (.loc loc) e.ty).2
-        iintro Hinv
-        iexists loc
-        isplitr
-        · ipureintro
-          rfl
-        · iexact Hinv
-      have hsl_agree : st₁.sl W ρ_e ⊢ st₂.sl W ρ_e' := by
-        simp only [TransState.sl_eq, st₂]
-        apply (SpatialContext.interp_env_agree W hwf_st₁.ownsWf ?_).1
-        exact Env.agreeOn_update_fresh_const (c := c) hfresh
-      iapply (hpost (.loc loc) ρ_e' st₂ (Term.const (.uninterpreted c.name .value))
-        hret hc_wf hval_eval)
-      isplitl [Howns]
-      · iapply hsl_agree
-        iexact Howns
-      · isplitl [Hinv]
-        · iapply hlocTy
-          iexact Hinv
-        · iexact HR
-  exact hwp
+  refine SpatialContext.wp_ref_inv W (ctx := st₁.owns) (ρ := ρ_e) (R := R) (ty := e.ty) ?_
+  intro loc
+  have hdecl_eval := VerifM.eval_bind hΨ_e
+  have hret := VerifM.eval_ret (VerifM.eval_decl hdecl_eval (.loc loc))
+  set ρ_e' : Env := ρ_e.updateConst .value c.name (.loc loc)
+  set st₂ : TransState :=
+    { decls := st₁.decls.addConst c, asserts := st₁.asserts, owns := st₁.owns }
+  have hc_wf : (Term.const (.uninterpreted c.name .value)).wfIn st₂.decls := by
+    simpa [st₂] using
+      (Term.const_wfIn_addConst_of_fresh (Δ := st₁.decls) (c := c)
+        hwf_st₁.namesDisjoint hfresh)
+  have hval_eval : Term.eval ρ_e' (Term.const (.uninterpreted c.name .value)) = .loc loc := by
+    simp [Term.eval, Const.denote, ρ_e', Env.updateConst]
+  have hsl_agree : st₁.sl W ρ_e ⊢ st₂.sl W ρ_e' := by
+    simp only [TransState.sl_eq, st₂]
+    exact (SpatialContext.interp_env_agree W hwf_st₁.ownsWf
+      (Env.agreeOn_update_fresh_const (c := c) hfresh)).1
+  exact (sep_mono_left hsl_agree).trans
+    (hpost (.loc loc) ρ_e' st₂ (Term.const (.uninterpreted c.name .value))
+      hret hc_wf hval_eval)
 
 theorem compileRefOwned_correct (reg : Verifier.Registry) (e : Expr)
     (ih : correctExpr reg e) :
@@ -1442,44 +1414,32 @@ theorem compileDerefShared_correct (reg : Verifier.Registry) (e : Expr) (ty : Ti
       simpa [sv] using
         (Term.const_wfIn_addConst_of_fresh (Δ := st₁.decls) (c := c)
           (VerifM.eval.wf hdecl_eval).namesDisjoint hc_fresh)
-  have hwp :
-      st₁.sl W ρ_e ∗ TinyML.ValHasType W v_e e.ty ∗ R ⊢ wp W.pctx (.deref (.val v_e)) Φ := by
-    rw [href]
-    istart
-    iintro ⟨Howns, Href, HR⟩
-    ihave Href' := (TinyML.ValHasType.ref W v_e ty).1 $$ Href
-    icases Href' with ⟨%loc, %hvloc, Hinv⟩
-    subst hvloc
-    iapply (wp.deref_inv (l := loc) (I := fun w => TinyML.ValHasType W w ty))
-    isplitl [Hinv]
-    · iexact Hinv
-    · iintro %w #Hw
-      have hdecl_w := hdecl w
-      have hassume_eval := VerifM.eval_bind hdecl_w
-      set ρ₂ : Env := ρ_e.updateConst .value c.name w
-      set st₂ : TransState := { st₁ with decls := st₁.decls.addConst c }
-      have hsv_eval : sv.eval ρ₂ = w := by
-        simp [sv, ρ₂, Term.eval, Const.denote, Env.updateConst]
-      ihave Hcheck := TinyML.typeConstraints_hold (ty := ty) (t := sv)
-        (ρ := ρ₂) (W := W) (v := w) hsv_eval $$ Hw
-      ipure Hcheck
-      obtain ⟨st₃, hst₃_decls, hst₃_owns, _, heval_ret⟩ := VerifM.eval_assumeAll hassume_eval
-        (fun φ hφ => TinyML.typeConstraints_wfIn hc_wf φ hφ)
-        (fun φ hφ => Hcheck φ hφ)
-      have hΨ_ret := VerifM.eval_ret heval_ret
-      have hsv_wf : sv.wfIn st₃.decls := hst₃_decls ▸ hc_wf
-      have hsl_agree : st₁.sl W ρ_e ⊢ st₃.sl W ρ₂ := by
-        simp [TransState.sl_eq, st₂, hst₃_owns]
-        exact (SpatialContext.interp_env_agree W (VerifM.eval.wf hdecl_eval).ownsWf
-          (Env.agreeOn_update_fresh_const (c := c) hc_fresh)).1
-      iapply (hpost w ρ₂ st₃ sv hΨ_ret hsv_wf hsv_eval)
-      isplitl [Howns]
-      · iapply hsl_agree
-        iexact Howns
-      · isplitl []
-        · iexact Hw
-        · iexact HR
-  exact hwp
+  rw [href]
+  refine SpatialContext.wp_deref_inv W (ctx := st₁.owns) (ρ := ρ_e) (R := R) (ty := ty) ?_
+  intro w
+  istart
+  iintro ⟨Howns, #Hw, HR⟩
+  have hassume_eval := VerifM.eval_bind (hdecl w)
+  set ρ₂ : Env := ρ_e.updateConst .value c.name w
+  have hsv_eval : sv.eval ρ₂ = w := by
+    simp [sv, ρ₂, Term.eval, Const.denote, Env.updateConst]
+  ihave Hcheck := TinyML.typeConstraints_hold (ty := ty) (t := sv)
+    (ρ := ρ₂) (W := W) (v := w) hsv_eval $$ Hw
+  ipure Hcheck
+  obtain ⟨st₃, hst₃_decls, hst₃_owns, _, heval_ret⟩ := VerifM.eval_assumeAll hassume_eval
+    (fun φ hφ => TinyML.typeConstraints_wfIn hc_wf φ hφ)
+    (fun φ hφ => Hcheck φ hφ)
+  have hsl_agree : SpatialContext.interp W ρ_e st₁.owns ⊢ st₃.sl W ρ₂ := by
+    simp only [TransState.sl_eq, hst₃_owns]
+    exact (SpatialContext.interp_env_agree W (VerifM.eval.wf hdecl_eval).ownsWf
+      (Env.agreeOn_update_fresh_const (c := c) hc_fresh)).1
+  iapply (hpost w ρ₂ st₃ sv (VerifM.eval_ret heval_ret) (hst₃_decls ▸ hc_wf) hsv_eval)
+  isplitl [Howns]
+  · iapply hsl_agree
+    iexact Howns
+  · isplitl []
+    · iexact Hw
+    · iexact HR
 
 theorem compileDerefOwned_correct (reg : Verifier.Registry) (e : Expr) (ty : TinyML.Typ)
     (howned : e.ty = .owned ty)
@@ -1577,28 +1537,9 @@ theorem compileStoreShared_correct (reg : Verifier.Registry) (loc val : Expr)
   have hgoal :
       st₂.sl W ρ_l ∗ TinyML.ValHasType W .unit .unit ∗ R ⊢ Φ .unit :=
     hpost .unit ρ_l st₂ _ hret hunit_wf (by simp [Term.eval])
-  have hwp :
-      st₂.sl W ρ_l ∗ (TinyML.ValHasType W v_l loc.ty ∗ (TinyML.ValHasType W v_v val.ty ∗ R)) ⊢
-        wp W.pctx (.store (.val v_l) (.val v_v)) Φ := by
-    rw [href]
-    istart
-    iintro ⟨Howns, Hloc, #Hval, HR⟩
-    ihave Href := (TinyML.ValHasType.ref W v_l val.ty).1 $$ Hloc
-    icases Href with ⟨%lref, %hv_l, Hinv⟩
-    subst hv_l
-    iapply (wp.store_inv (l := lref) (v := v_v) (I := fun w => TinyML.ValHasType W w val.ty))
-    isplitl [Hinv]
-    · iexact Hinv
-    · isplitl []
-      · imodintro
-        iexact Hval
-      · iapply hgoal
-        isplitl [Howns]
-        · iexact Howns
-        · isplitl []
-          · iapply (TinyML.ValHasType.unit_intro W)
-          · iexact HR
-  exact hwp
+  rw [href]
+  exact SpatialContext.wp_store_inv W (ctx := st₂.owns) (ρ := ρ_l) (R := R) (ty := val.ty)
+    (by simpa [TransState.sl_eq] using hgoal)
 
 theorem compileStoreOwned_correct (reg : Verifier.Registry) (loc val : Expr)
     (howned : loc.ty = .owned val.ty)
