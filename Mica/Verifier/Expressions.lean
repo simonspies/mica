@@ -2474,6 +2474,50 @@ theorem compileUnop_correct (reg : Verifier.Registry) (op : TinyML.UnOp) (e : Ex
     · iexact Hwty
     · iexact HR
 
+/-- The `wp` step shared by the integer binary operations the compiler guards
+with an assertion. `folOp` is the operation the compiled term uses and `g` the
+integer operation it must denote. -/
+private theorem compileIntBinop_correct (W : TinyML.World) {R : iProp}
+    {Φ : Runtime.Val → iProp} {Ψ : Term .value → TransState → Env → Prop}
+    {st : TransState} {ρ : Env} {sl sr : Term .value} {vl vr : Runtime.Val}
+    {op : TinyML.BinOp} (folOp : BinOp .int .int .int) (g : Int → Int → Int)
+    (hpost : ∀ v ρ' st' se, Ψ se st' ρ' → se.wfIn st'.decls → Term.eval ρ' se = v →
+      st'.sl W ρ' ∗ TinyML.ValHasType W v .int ∗ R ⊢ Φ v)
+    (hΨ : Ψ (.unop .ofInt (.binop folOp (.unop .toInt sl) (.unop .toInt sr))) st ρ)
+    (hwf : (Term.unop .ofInt
+      (.binop folOp (.unop .toInt sl) (.unop .toInt sr))).wfIn st.decls)
+    (hop : ∀ a b : Int, vr = .int b → TinyML.evalBinOp op (.int a) (.int b) = some (.int (g a b)))
+    (hterm : ∀ a b : Int, vl = .int a → vr = .int b →
+      Term.eval ρ (.unop .ofInt (.binop folOp (.unop .toInt sl) (.unop .toInt sr)))
+        = Runtime.Val.int (g a b)) :
+    st.sl W ρ ∗ (TinyML.ValHasType W vl .int ∗ (TinyML.ValHasType W vr .int ∗ R)) ⊢
+      wp W.pctx (.binop op (.val vl) (.val vr)) Φ := by
+  istart
+  iintro H
+  icases H with ⟨Howns, Hvl, Hvr, HR⟩
+  ihave Hvl_int := (TinyML.ValHasType.int W vl).1 $$ Hvl
+  ihave Hvr_int := (TinyML.ValHasType.int W vr).1 $$ Hvr
+  icases Hvl_int with ⟨%a, %hvl⟩
+  icases Hvr_int with ⟨%b, %hvr⟩
+  have hq : st.sl W ρ ∗ R ⊢ Φ (.int (g a b)) := by
+    have hgoal :
+        st.sl W ρ ∗ TinyML.ValHasType W (.int (g a b)) .int ∗ R ⊢ Φ (.int (g a b)) :=
+      hpost (.int (g a b)) ρ st _ hΨ hwf (hterm a b hvl hvr)
+    iintro ⟨Howns, HR⟩
+    iapply hgoal
+    isplitl [Howns]
+    · iexact Howns
+    · isplitl []
+      · exact TinyML.ValHasType.int_intro W (g a b)
+      · iexact HR
+  have hopab := hop a b hvr
+  subst hvl hvr
+  iapply (SpatialContext.wp_binop (vl := .int a) (vr := .int b) (res := .int (g a b)) hq)
+  · exact hopab
+  · isplitl [Howns]
+    · iexact Howns
+    · iexact HR
+
 theorem compileBinop_correct (reg : Verifier.Registry) (op : TinyML.BinOp) (l r : Expr) (bty : TinyML.Typ)
     (ihR : correctExpr reg r) (ihL : correctExpr reg l) :
     correctExpr reg (.binop op l r bty) := by
@@ -2524,109 +2568,32 @@ theorem compileBinop_correct (reg : Verifier.Registry) (op : TinyML.BinOp) (l r 
             VerifM.assert (.not (.eq .int (i sr) (.const (.i 0))))
             pure (Term.unop .ofInt (Term.binop fol_op (i sl) (i sr)))).eval st₂ ρ_l Ψ := by
       simpa [hdivmod] using hΨ_l'
-    rcases hdivmod with hdiv | hmod
-    · subst hdiv
-      obtain ⟨hlty, hrty, hty_int⟩ :=
-        TinyML.BinOp.typeOf_arith (op := .div) (by simp) htypeOf
-      have hassert_wf : (Formula.not (.eq .int (.unop .toInt sr) (.const (.i 0)))).wfIn st₂.decls := by
-        simpa [Formula.wfIn, Term.wfIn, Const.wfIn, UnOp.wfIn] using
-          (Term.wfIn_mono sr hsr_wf hdecls_l (VerifM.eval.wf hΨ_div).namesDisjoint)
-      have heval_assert := VerifM.eval_bind hΨ_div
-      have ⟨hne_zero, hΨ_post⟩ := VerifM.eval_assert heval_assert hassert_wf
-      simp [Formula.eval, Term.eval, Const.denote] at hne_zero
-      rw [hsr_ρ_l] at hne_zero
-      obtain hΨ_post := VerifM.eval_ret hΨ_post
-      have hbty : bty = .int := hty_eq.symm.trans hty_int
-      have hwf_sr_l : sr.wfIn st₂.decls :=
-        Term.wfIn_mono sr hsr_wf hdecls_l (VerifM.eval.wf hΨ_div).namesDisjoint
-      have hwf_bin : (Term.unop .ofInt (Term.binop BinOp.div (Term.unop .toInt sl) (Term.unop .toInt sr))).wfIn st₂.decls := by
-        simpa [Term.wfIn, BinOp.wfIn, UnOp.wfIn] using And.intro hsl_wf hwf_sr_l
-      have hΨ_post' : Ψ (Term.unop .ofInt (Term.binop BinOp.div (Term.unop .toInt sl) (Term.unop .toInt sr))) st₂ ρ_l := by
-        simpa using hΨ_post
-      have hwp_int :
-          st₂.sl W ρ_l ∗
-              (TinyML.ValHasType W vl .int ∗ (TinyML.ValHasType W vr .int ∗ R)) ⊢
-            wp W.pctx (.binop .div (.val vl) (.val vr)) Φ := by
-        istart
-        iintro H
-        icases H with ⟨Howns, Hvl, Hvr, HR⟩
-        ihave Hvl_int := (TinyML.ValHasType.int W vl).1 $$ Hvl
-        ihave Hvr_int := (TinyML.ValHasType.int W vr).1 $$ Hvr
-        icases Hvl_int with ⟨%a, %hvl⟩
-        icases Hvr_int with ⟨%b, %hvr⟩
-        subst hvl hvr
-        have hq : st₂.sl W ρ_l ∗ R ⊢ Φ (.int (a / b)) := by
-          have htype : ⊢ TinyML.ValHasType W (.int (a / b)) .int := by
-            exact TinyML.ValHasType.int_intro W (a / b)
-          have hgoal :
-              st₂.sl W ρ_l ∗ TinyML.ValHasType W (.int (a / b)) .int ∗ R ⊢ Φ (.int (a / b)) := by
-            simpa [hbty] using
-              (hpost (.int (a / b)) ρ_l st₂ _ hΨ_post' hwf_bin
-                (by simp [Term.eval, UnOp.eval, BinOp.eval, heval_sl, hsr_ρ_l]))
-          iintro ⟨Howns, HR⟩
-          iapply hgoal
-          isplitl [Howns]
-          · iexact Howns
-          · isplitl []
-            · exact htype
-            · iexact HR
-        iapply (SpatialContext.wp_binop (vl := .int a) (vr := .int b) (res := .int (a / b)) hq)
-        · simp [TinyML.evalBinOp, hne_zero]
-        · isplitl [Howns]
-          · iexact Howns
-          · iexact HR
-      simpa [hlty, hrty] using hwp_int
-    · subst hmod
-      obtain ⟨hlty, hrty, hty_int⟩ :=
-        TinyML.BinOp.typeOf_arith (op := .mod) (by simp) htypeOf
-      have hassert_wf : (Formula.not (.eq .int (.unop .toInt sr) (.const (.i 0)))).wfIn st₂.decls := by
-        simpa [Formula.wfIn, Term.wfIn, Const.wfIn, UnOp.wfIn] using
-          (Term.wfIn_mono sr hsr_wf hdecls_l (VerifM.eval.wf hΨ_div).namesDisjoint)
-      have heval_assert := VerifM.eval_bind hΨ_div
-      have ⟨hne_zero, hΨ_post⟩ := VerifM.eval_assert heval_assert hassert_wf
-      simp [Formula.eval, Term.eval, Const.denote] at hne_zero
-      rw [hsr_ρ_l] at hne_zero
-      obtain hΨ_post := VerifM.eval_ret hΨ_post
-      have hbty : bty = .int := hty_eq.symm.trans hty_int
-      have hwf_sr_l : sr.wfIn st₂.decls :=
-        Term.wfIn_mono sr hsr_wf hdecls_l (VerifM.eval.wf hΨ_div).namesDisjoint
-      have hwf_bin : (Term.unop .ofInt (Term.binop BinOp.mod (Term.unop .toInt sl) (Term.unop .toInt sr))).wfIn st₂.decls := by
-        simpa [Term.wfIn, BinOp.wfIn, UnOp.wfIn] using And.intro hsl_wf hwf_sr_l
-      have hΨ_post' : Ψ (Term.unop .ofInt (Term.binop BinOp.mod (Term.unop .toInt sl) (Term.unop .toInt sr))) st₂ ρ_l := by
-        simpa using hΨ_post
-      have hwp_int :
-          st₂.sl W ρ_l ∗
-              (TinyML.ValHasType W vl .int ∗ (TinyML.ValHasType W vr .int ∗ R)) ⊢
-            wp W.pctx (.binop .mod (.val vl) (.val vr)) Φ := by
-        istart
-        iintro H
-        icases H with ⟨Howns, Hvl, Hvr, HR⟩
-        ihave Hvl_int := (TinyML.ValHasType.int W vl).1 $$ Hvl
-        ihave Hvr_int := (TinyML.ValHasType.int W vr).1 $$ Hvr
-        icases Hvl_int with ⟨%a, %hvl⟩
-        icases Hvr_int with ⟨%b, %hvr⟩
-        subst hvl hvr
-        have hq : st₂.sl W ρ_l ∗ R ⊢ Φ (.int (a % b)) := by
-          have htype : ⊢ TinyML.ValHasType W (.int (a % b)) .int := by
-            exact TinyML.ValHasType.int_intro W (a % b)
-          have hgoal :
-              st₂.sl W ρ_l ∗ TinyML.ValHasType W (.int (a % b)) .int ∗ R ⊢ Φ (.int (a % b)) := by
-            simpa [hbty] using
-              (hpost (.int (a % b)) ρ_l st₂ _ hΨ_post' hwf_bin
-                (by simp [Term.eval, UnOp.eval, BinOp.eval, heval_sl, hsr_ρ_l]))
-          iintro ⟨Howns, HR⟩
-          iapply hgoal
-          isplitl [Howns]
-          · iexact Howns
-          · isplitl []
-            · exact htype
-            · iexact HR
-        iapply (SpatialContext.wp_binop (vl := .int a) (vr := .int b) (res := .int (a % b)) hq)
-        · simp [TinyML.evalBinOp, hne_zero]
-        · isplitl [Howns]
-          · iexact Howns
-          · iexact HR
-      simpa [hlty, hrty] using hwp_int
+    obtain ⟨hlty, hrty, hty_int⟩ :=
+      TinyML.BinOp.typeOf_arith (by tauto) htypeOf
+    have hassert_wf : (Formula.not (.eq .int (.unop .toInt sr) (.const (.i 0)))).wfIn st₂.decls := by
+      simpa [Formula.wfIn, Term.wfIn, Const.wfIn, UnOp.wfIn] using
+        (Term.wfIn_mono sr hsr_wf hdecls_l (VerifM.eval.wf hΨ_div).namesDisjoint)
+    have ⟨hne_zero, hΨ_post⟩ := VerifM.eval_assert (VerifM.eval_bind hΨ_div) hassert_wf
+    simp [Formula.eval, Term.eval, Const.denote] at hne_zero
+    rw [hsr_ρ_l] at hne_zero
+    obtain hΨ_post := VerifM.eval_ret hΨ_post
+    have hbty : bty = .int := hty_eq.symm.trans hty_int
+    have hwf_sr_l : sr.wfIn st₂.decls :=
+      Term.wfIn_mono sr hsr_wf hdecls_l (VerifM.eval.wf hΨ_div).namesDisjoint
+    subst hbty
+    rcases hdivmod with rfl | rfl
+    · simpa [hlty, hrty] using
+        compileIntBinop_correct W BinOp.div (· / ·) hpost (by simpa using hΨ_post)
+          (by simpa [Term.wfIn, BinOp.wfIn, UnOp.wfIn] using And.intro hsl_wf hwf_sr_l)
+          (by intro a b hvr; subst hvr; simp [TinyML.evalBinOp, hne_zero])
+          (by intro a b hvl hvr; subst hvl; subst hvr
+              simp [Term.eval, UnOp.eval, BinOp.eval, heval_sl, hsr_ρ_l])
+    · simpa [hlty, hrty] using
+        compileIntBinop_correct W BinOp.mod (· % ·) hpost (by simpa using hΨ_post)
+          (by simpa [Term.wfIn, BinOp.wfIn, UnOp.wfIn] using And.intro hsl_wf hwf_sr_l)
+          (by intro a b hvr; subst hvr; simp [TinyML.evalBinOp, hne_zero])
+          (by intro a b hvl hvr; subst hvl; subst hvr
+              simp [Term.eval, UnOp.eval, BinOp.eval, heval_sl, hsr_ρ_l])
   · have hndivmod : ¬(op = TinyML.BinOp.div ∨ op = TinyML.BinOp.mod) := hdivmod
     have hΨ_ndiv :
           (do
