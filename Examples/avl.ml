@@ -1,26 +1,29 @@
 open Mica
 
-(* AVL trees with the same public-bound wrapper style as [bst.ml].
+(* AVL trees: self-balancing binary search trees with cached heights.
 
-   Each internal node stores its cached height:
+   Representation: each internal node stores its value and cached height,
 
      Node (value, height, left, right)
 
-   The public handle hides the inclusive lower and upper bounds used by
-   the recursive invariant:
+   packaged in a public handle [Avl (lo, tree, hi)] whose inclusive interval
+   encloses every value.  The invariant [avl_tree_inv (tree, lo, hi)] states,
+   recursively: values lie in the interval, cached heights are exact and
+   nonnegative, and each node's children differ in height by at most one.
+   [avl_tree] states it for handles.
 
-     Avl (min, tree, max)
+   Main functions:
+   - [singleton x] — the one-element tree.
+   - [insert x h] — standard AVL insertion: insert into the selected child,
+     rebuild with a fresh height, rotate ([balance]) when one child grows two
+     levels taller than the other.  Preserves [avl_tree]; the specs also
+     bound how far each rebuild can move the height.
+   - [min h], [max h] — the stored bounds, enclosing every value.
 
-   Insertion is the usual AVL insertion: recursively insert into the
-   selected child, rebuild the node with a fresh height, and rotate when
-   one child is more than one level taller than the other.
-
-   The bound-carrying helpers ([make_node], [balance], [insert_raw]) take
-   the inclusive interval [lo, hi] as extra arguments.  These are ghost
-   bounds: they are unused at runtime and only thread through the [@@spec]
-   obligations so the recursive [avl_tree_inv] invariant can be re-established
-   after each rebuild.  [widen_tree] is a lemma-only function showing the
-   invariant survives widening the interval, exactly as in [bst.ml]. *)
+   The interval parameters [lo]/[hi] of the helpers are ghost: unused at
+   runtime, they exist only for the specifications.  [widen_tree] is a lemma
+   function whose postcondition establishes that the invariant survives
+   widening the interval. *)
 
 type tree = Leaf | Node of int * int * tree * tree
 
@@ -49,10 +52,6 @@ let height_impl (tr: tree) : int =
 [@@spec fun tr ->
   ret (fun result -> assert (result = height tr))];;
 
-(* [avl_tree_inv (tree, lo, hi)] means:
-   - values are in the inclusive BST interval [lo, hi],
-   - cached heights are exact and non-negative,
-   - every node satisfies the AVL balance bound. *)
 let rec avl_tree_inv ((tr : tree), (lo : int), (hi : int)) : bool =
   match tr with
   | Leaf -> true
@@ -98,24 +97,24 @@ let balance (v: int) (lo: int) (hi: int) (l: tree) (r: tree) : tree =
   let rh = height_impl r in
   if lh > rh + 1 then
     match l with
-    | Leaf -> (* unreachable *) make_node v lo hi l r
+    | Leaf -> failwith "unreachable"
     | Node (lv, lh, ll, lr) ->
       if height_impl ll >= height_impl lr then
         make_node lv lo hi ll (make_node v lv hi lr r)
       else
         match lr with
-        | Leaf -> (* unreachable *) make_node v lo hi l r
+        | Leaf -> failwith "unreachable"
         | Node (lrv, lrh, lrl, lrr) ->
           make_node lrv lo hi (make_node lv lo lrv ll lrl) (make_node v lrv hi lrr r)
   else if rh > lh + 1 then
     match r with
-    | Leaf -> (* unreachable *) make_node v lo hi l r
+    | Leaf -> failwith "unreachable"
     | Node (rv, rh, rl, rr) ->
       if height_impl rr >= height_impl rl then
         make_node rv lo hi (make_node v lo rv l rl) rr
       else
         match rl with
-        | Leaf -> (* unreachable *) make_node v lo hi l r
+        | Leaf -> failwith "unreachable"
         | Node (rlv, rlh, rll, rlr) ->
           make_node rlv lo hi (make_node v lo rlv l rll) (make_node rv rlv hi rlr rr)
   else make_node v lo hi l r
@@ -135,9 +134,6 @@ let balance (v: int) (lo: int) (hi: int) (l: tree) (r: tree) : tree =
       (if rh <= lh + 1 then assert (hres = mh + 1) else assert (mh <= hres))
     else assert (mh <= hres))];;
 
-(* Lemma-like function: widening the inclusive interval preserves
-   [avl_tree_inv].  Only the value-in-bounds part of the invariant depends on
-   the bounds; the cached heights and balance conditions are unaffected. *)
 let rec widen_tree (lo: int) (hi: int) (new_lo: int) (new_hi: int) (tr: tree) : unit =
   match tr with
   | Leaf -> ()
