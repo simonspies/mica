@@ -707,85 +707,47 @@ def correctExprs (reg : Verifier.Registry) (es : List Expr) : Prop :=
 theorem compileConst_correct (reg : Verifier.Registry) (c : TinyML.Const) :
     correctExpr reg (.const c) := by
   intro W R B Γ st ρ γ Ψ Φ hW heval _hagree _hbwf _hwf _hag hΔreg hρreg hpost
-  cases c with
-  | int n =>
-    simp only [compile] at heval
-    simp only [Expr.WithTypeVars.runtime, Runtime.Val.ofConst, Runtime.Expr.subst_val]
-    obtain heval := VerifM.eval_ret heval
-    simp only [Expr.WithTypeVars.ty, Const.ty] at hpost
+  -- Every constant takes the same value step. The cases differ only in the
+  -- runtime value, the term compiled for it, and the lemma typing that value.
+  have step : ∀ (ty : TinyML.Typ) (v : Runtime.Val) (t : Term .value),
+      (∀ v ρ' st' se, Ψ se st' ρ' → se.wfIn st'.decls → Term.eval ρ' se = v →
+        st'.sl W ρ' ∗ TinyML.ValHasType W v ty ∗ R ⊢ Φ v) →
+      Ψ t st ρ → t.wfIn st.decls → Term.eval ρ t = v → (⊢ TinyML.ValHasType W v ty) →
+      st.sl W ρ ∗ (B.typedSubst W Γ γ ∗ R) ⊢ wp W.pctx (.val v) Φ := by
+    intro ty v t hpost hΨ hwf hev hval
     refine SpatialContext.wp_val ?_
     istart
     iintro ⟨Howns, -, HR⟩
-    iapply (hpost (.int n) ρ st _ heval
+    iapply (hpost v ρ st t hΨ hwf hev)
+    iframe
+    exact hval
+  cases c <;>
+    simp only [compile] at heval <;>
+    simp only [Expr.WithTypeVars.ty, Const.ty] at hpost <;>
+    simp only [Expr.WithTypeVars.runtime, Runtime.Val.ofConst, Runtime.Expr.subst_val]
+  case int n =>
+    exact step _ (.int n) _ hpost (VerifM.eval_ret heval)
       (by simp [Term.wfIn, Const.wfIn, UnOp.wfIn])
-      (by simp [Term.eval, UnOp.eval, Const.denote]))
-    iframe
-    exact TinyML.ValHasType.int_intro W n
-  | bool b =>
-    simp only [compile] at heval
-    simp only [Expr.WithTypeVars.runtime, Runtime.Val.ofConst, Runtime.Expr.subst_val]
-    obtain heval := VerifM.eval_ret heval
-    simp only [Expr.WithTypeVars.ty, Const.ty] at hpost
-    refine SpatialContext.wp_val ?_
-    istart
-    iintro ⟨Howns, -, HR⟩
-    iapply (hpost (.bool b) ρ st _ heval
+      (by simp [Term.eval, UnOp.eval, Const.denote]) (TinyML.ValHasType.int_intro W n)
+  case bool b =>
+    exact step _ (.bool b) _ hpost (VerifM.eval_ret heval)
       (by simp [Term.wfIn, Const.wfIn, UnOp.wfIn])
-      (by simp [Term.eval, UnOp.eval, Const.denote]))
-    iframe
-    exact TinyML.ValHasType.bool_intro W b
-  | char c =>
-    simp only [compile] at heval
-    simp only [Expr.WithTypeVars.runtime, Runtime.Val.ofConst, Runtime.Expr.subst_val]
-    obtain heval := VerifM.eval_ret heval
-    simp only [Expr.WithTypeVars.ty, Const.ty] at hpost
-    refine SpatialContext.wp_val ?_
-    istart
-    iintro ⟨Howns, -, HR⟩
-    iapply (hpost (.char c) ρ st _ heval
+      (by simp [Term.eval, UnOp.eval, Const.denote]) (TinyML.ValHasType.bool_intro W b)
+  case char c =>
+    exact step _ (.char c) _ hpost (VerifM.eval_ret heval)
       (by simp [Term.wfIn, Const.wfIn, UnOp.wfIn])
-      (by simp [Term.eval, UnOp.eval, Const.denote]))
-    iframe
-    exact TinyML.ValHasType.char_intro W c
-  | string s =>
-    simp only [compile] at heval
-    simp only [Expr.WithTypeVars.runtime, Runtime.Val.ofConst, Runtime.Expr.subst_val]
-    obtain heval := VerifM.eval_ret heval
-    simp only [Expr.WithTypeVars.ty, Const.ty] at hpost
-    refine SpatialContext.wp_val ?_
-    istart
-    iintro ⟨Howns, -, HR⟩
-    iapply (hpost (.str s) ρ st _ heval
+      (by simp [Term.eval, UnOp.eval, Const.denote]) (TinyML.ValHasType.char_intro W c)
+  case string s =>
+    exact step _ (.str s) _ hpost (VerifM.eval_ret heval)
       (by simp [Term.wfIn, Const.wfIn, UnOp.wfIn])
-      (by simp [Term.eval, UnOp.eval, Const.denote]))
-    iframe
-    exact TinyML.ValHasType.string_intro W s
-  | float b =>
-    simp only [compile] at heval
-    simp only [Expr.WithTypeVars.runtime, Runtime.Val.ofConst, Runtime.Expr.subst_val]
-    obtain heval := VerifM.eval_ret heval
-    simp only [Expr.WithTypeVars.ty, Const.ty] at hpost
-    refine SpatialContext.wp_val ?_
-    istart
-    iintro ⟨Howns, -, HR⟩
-    iapply (hpost (.float b) ρ st _ heval
+      (by simp [Term.eval, UnOp.eval, Const.denote]) (TinyML.ValHasType.string_intro W s)
+  case float b =>
+    exact step _ (.float b) _ hpost (VerifM.eval_ret heval)
       (by simp [Term.wfIn, Const.wfIn, UnOp.wfIn])
-      (by simp [Term.eval, UnOp.eval, Const.denote]))
-    iframe
-    exact TinyML.ValHasType.float_intro W b
-  | unit =>
-    simp only [compile] at heval
-    simp only [Expr.WithTypeVars.runtime, Runtime.Val.ofConst, Runtime.Expr.subst_val]
-    obtain heval := VerifM.eval_ret heval
-    simp only [Expr.WithTypeVars.ty, Const.ty] at hpost
-    refine SpatialContext.wp_val ?_
-    istart
-    iintro ⟨Howns, -, HR⟩
-    iapply (hpost .unit ρ st _ heval
-      (by simp [Term.wfIn, Const.wfIn])
-      (by simp [Term.eval]))
-    iframe
-    exact TinyML.ValHasType.unit_intro W
+      (by simp [Term.eval, UnOp.eval, Const.denote]) (TinyML.ValHasType.float_intro W b)
+  case unit =>
+    exact step _ .unit _ hpost (VerifM.eval_ret heval)
+      (by simp [Term.wfIn, Const.wfIn]) (by simp [Term.eval]) (TinyML.ValHasType.unit_intro W)
 
 theorem compileVar_correct (reg : Verifier.Registry) (x : String)
     (inst : List (TinyML.TyVar × TinyML.Typ)) (vty : TinyML.Typ) :
