@@ -186,8 +186,8 @@ theorem Atom.wfIn_mono {p : Atom TinyML.Typ τ} {Δ Δ' : Signature}
     exact ⟨Formula.wfIn_mono _ h.1 hmono hwf, Term.wfIn_mono _ h.2 hmono hwf⟩
 
 theorem Atom.eval_env_agree {V : TinyML.ValueRelation} {p : Atom TinyML.Typ τ}
-    {ρ ρ' : Env} {Δ : Signature}
-    (hwf : p.wfIn Δ) (hagree : Env.agreeOn Δ ρ ρ') : p.eval V ρ = p.eval V ρ' := by
+    {ρ ρ' : Env} {Δ : Signature} (v : τ.denote)
+    (hwf : p.wfIn Δ) (hagree : Env.agreeOn Δ ρ ρ') : p.eval V ρ v ⊣⊢ p.eval V ρ' v := by
   cases p with
   | isint t  => simp [Atom.eval, Term.eval_env_agree hwf hagree]
   | isbool t => simp [Atom.eval, Term.eval_env_agree hwf hagree]
@@ -196,9 +196,9 @@ theorem Atom.eval_env_agree {V : TinyML.ValueRelation} {p : Atom TinyML.Typ τ}
   | arr a ty => simp [Atom.eval, Term.eval_env_agree hwf hagree]
   | rel name t =>
     simp only [Atom.eval]
-    funext v
     rw [(Formula.eval_env_agree hwf.1 hagree),
         Term.eval_env_agree hwf.2 hagree]
+    exact .rfl
 
 omit [MicaGS HasLC.hasLC Sig] in
 theorem Atom.toItem_wfIn {p : Atom TinyML.Typ τ} {t : Term τ} {Δ : Signature}
@@ -263,38 +263,37 @@ theorem Atom.eval_purePart {V : TinyML.ValueRelation} {p : Atom TinyML.Typ τ} {
 -- Substitution lemmas
 -- ---------------------------------------------------------------------------
 
--- @agent: change eval_subst to a bi-entailment in the future.
 theorem Atom.eval_subst {V : TinyML.ValueRelation} {p : Atom TinyML.Typ τ} {σ : Subst}
-    {ρ : Env} {Δ Δ' : Signature}
+    {ρ : Env} {Δ Δ' : Signature} (v : τ.denote)
     (hp : p.wfIn Δ) (hσ : σ.wfIn Δ.vars Δ') (hwfΔ' : Δ'.wf) :
-    (p.subst σ).eval V ρ = p.eval V ((σ.eval ρ)) := by
+    (p.subst σ).eval V ρ v ⊣⊢ p.eval V ((σ.eval ρ)) v := by
   cases p with
   | isint t =>
-    funext v
     simp only [Atom.subst, Atom.eval, ]
     rw [Term.eval_subst hp hσ hwfΔ']
+    exact .rfl
   | isbool t =>
-    funext v
     simp only [Atom.subst, Atom.eval, ]
     rw [Term.eval_subst hp hσ hwfΔ']
+    exact .rfl
   | isinj tag arity t =>
-    funext v
     simp only [Atom.subst, Atom.eval, ]
     rw [Term.eval_subst hp hσ hwfΔ']
+    exact .rfl
   | own l ty =>
-    funext v
     simp only [Atom.subst, Atom.eval, ]
     rw [Term.eval_subst hp hσ hwfΔ']
+    exact .rfl
   | arr a ty =>
-    funext v
     simp only [Atom.subst, Atom.eval, ]
     rw [Term.eval_subst hp hσ hwfΔ']
+    exact .rfl
   | rel name t =>
-    funext v
     simp only [Atom.subst, Atom.eval, SpecFn.isDefined,
       SpecFn.call, Formula.eval, Term.eval, UnPred.eval]
     rw [Term.eval_subst hp.2.2 hσ hwfΔ']
-    simp [Subst.eval]
+    simp only [Subst.eval]
+    exact .rfl
 
 omit [MicaGS HasLC.hasLC Sig] in
 theorem Atom.subst_wfIn {p : Atom TinyML.Typ τ} {σ : Subst} {dom : VarCtx} {Δ Δ' : Signature}
