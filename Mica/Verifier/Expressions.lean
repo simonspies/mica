@@ -3271,6 +3271,25 @@ theorem compileTuple_correct (reg : Verifier.Registry) (es : List Expr)
     hpost (Runtime.Val.tuple vs) ρ' st' (.unop .ofValList (Terms.toValList terms))
       hΨ hwf_tuple heval_tuple
 
+omit [MicaGS HasLC.hasLC Sig] in
+/-- What the type/term pairs handed to `Spec.call` are made of: the first
+components are the argument types and the second are the compiled argument
+terms, which denote the argument values. -/
+private theorem typedArgs_split {tys : List TinyML.Typ} {sargs : List (Term .value)}
+    {ρ : Env} {vs : List Runtime.Val}
+    (hlen : tys.length = sargs.length) (heval : Terms.Eval ρ sargs vs) :
+    (tys.zip sargs).map Prod.fst = tys ∧
+      (tys.zip sargs).map (fun p => p.2.eval ρ) = vs := by
+  have hfst : (tys.zip sargs).map Prod.fst = tys :=
+    List.map_fst_zip (Nat.le_of_eq hlen)
+  have hsnd : (tys.zip sargs).map Prod.snd = sargs :=
+    List.map_snd_zip (Nat.le_of_eq hlen.symm)
+  refine ⟨hfst, ?_⟩
+  calc (tys.zip sargs).map (fun p => p.2.eval ρ)
+      = sargs.map (fun t => t.eval ρ) := by
+          simpa [List.map_map] using congrArg (List.map (fun t => t.eval ρ)) hsnd
+    _ = vs := Terms.Eval.map_eval heval
+
 /-- Application of a function expression whose type carries a specification: the
     arguments and then the function are evaluated, and the function value's own
     interpretation — which is exactly its specification — supplies the call. -/
@@ -3393,24 +3412,14 @@ theorem compileAppSpec_correct (reg : Verifier.Registry)
   ipure Hlen
   have hlen_typed : (args.map Expr.WithTypeVars.ty).length = sargs.length := by
     rw [← Hlen]; exact hlen_sargs.symm
+  obtain ⟨hfst, heval_args_map⟩ := typedArgs_split hlen_typed heval_sargs
   have hsub_ty' : args.map Expr.WithTypeVars.ty = argTys := by
-    simpa [htypedArgs_def, List.map_fst_zip (Nat.le_of_eq hlen_typed)] using hsub_ty
+    simpa [htypedArgs_def, hfst] using hsub_ty
   -- The argument terms still denote the same values in the function's state.
   have heval_sargs_map : typedArgs.map (fun p => p.2.eval ρ_fn) = vs := by
-    have hsnd : List.map Prod.snd ((List.map Expr.WithTypeVars.ty args).zip sargs) = sargs := by
-      simpa using
-        (List.map_snd_zip (l₁ := List.map Expr.WithTypeVars.ty args) (l₂ := sargs)
-          (Nat.le_of_eq hlen_typed.symm))
-    have hcongr : sargs.map (fun t => t.eval ρ_fn) = sargs.map (fun t => t.eval ρ_args) :=
-      List.map_congr_left fun t ht =>
-        Term.eval_env_agree (hsargs_wf t ht) (Env.agreeOn_symm hagreeOn_fn)
-    calc
-      typedArgs.map (fun p => p.2.eval ρ_fn)
-          = sargs.map (fun t => t.eval ρ_fn) := by
-              simpa [htypedArgs_def, List.map_map] using
-                congrArg (List.map (fun t => t.eval ρ_fn)) hsnd
-      _ = sargs.map (fun t => t.eval ρ_args) := hcongr
-      _ = vs := Terms.Eval.map_eval heval_sargs
+    refine Eq.trans (List.map_congr_left fun p hp => ?_) heval_args_map
+    exact Term.eval_env_agree (hsargs_wf _ (List.of_mem_zip hp).2)
+      (Env.agreeOn_symm hagreeOn_fn)
   have happly' :
       st_fn.sl W ρ_fn ∗ R ⊢
         PredTrans.apply (TinyML.ValHasType W) (fun r => TinyML.ValHasType W r retTy -∗ Φ r)
@@ -3528,24 +3537,9 @@ theorem compileApp_correct (reg : Verifier.Registry) (hSound : Verifier.Registry
     ipure Hlen
     have hlen_typed : (args.map Expr.WithTypeVars.ty).length = sargs.length := by
       rw [← Hlen]; exact hlen_sargs.symm
+    obtain ⟨hfst, heval_sargs_map⟩ := typedArgs_split hlen_typed heval_sargs
     have hsub_ty' : args.map Expr.WithTypeVars.ty = argTys := by
-      have hfst : typedArgs.map Prod.fst = args.map Expr.WithTypeVars.ty := by
-        simpa [typedArgs] using
-          (List.map_fst_zip (l₁ := args.map Expr.WithTypeVars.ty) (l₂ := sargs)
-            (Nat.le_of_eq hlen_typed))
-      simpa [hfst] using hsub_ty
-    have heval_sargs_map : typedArgs.map (fun p => p.2.eval ρ_args) = vs := by
-      have hsnd :
-          List.map Prod.snd ((List.map Expr.WithTypeVars.ty args).zip sargs) = sargs := by
-        simpa using
-          (List.map_snd_zip (l₁ := List.map Expr.WithTypeVars.ty args) (l₂ := sargs)
-            (Nat.le_of_eq hlen_typed.symm))
-      calc
-        typedArgs.map (fun p => p.2.eval ρ_args)
-            = sargs.map (fun t => t.eval ρ_args) := by
-                simpa [typedArgs, List.map_map] using
-                  congrArg (List.map (fun t => t.eval ρ_args)) hsnd
-        _ = vs := Terms.Eval.map_eval heval_sargs
+      simpa [typedArgs, hfst] using hsub_ty
     have happly' :
         st_args.sl W ρ_args ∗ R ⊢
           PredTrans.apply (TinyML.ValHasType W) (fun r => TinyML.ValHasType W r retTy -∗ Φ r) i.spec.pred
