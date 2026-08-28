@@ -276,15 +276,10 @@ theorem declareArgs_correct :
         set σ' := σ.rename ⟨name, .value⟩ argVar.name
         set ρ₁ := ρ.updateConst .value argVar.name (sarg.eval ρ)
         have hstwf : st.decls.wf := hσwf.useWf
-        have hfresh_decls : argVar.name ∉ st.decls.allNames :=
-          st.freshConst_fresh (some name) .value
-        have hfresh_range : argVar.name ∉ σ.range.allNames :=
-          hσwf.fresh_range hfresh_decls
+        obtain ⟨hfresh_decls, hfresh_range, hrename⟩ :=
+          FiniteSubst.rename_freshConst hσwf ⟨name, .value⟩
         have hσ'wf : σ'.wfIn Δ_base (st.decls.addConst argVar) := by
-          simpa [σ', argVar] using
-            (FiniteSubst.rename_wfIn (σ := σ) (Δ_base := Δ_base) (Δ_use := st.decls)
-              (v := ⟨name, .value⟩) (name' := argVar.name)
-              hσwf hfresh_range hfresh_decls)
+          simpa [σ', argVar] using hrename
         have hsarg_wf : sarg.wfIn st.decls := hsargs _ (List.mem_cons_self ..)
         have hassume := VerifM.eval_assumePure
           (VerifM.eval_bind (hdecl (sarg.eval ρ)))
@@ -457,15 +452,10 @@ theorem declareImplArgs_correct (W : TinyML.World) :
       set ρ₁ := ρ.updateConst .value argVar.name v
       specialize hdecl v
       have hstwf : st.decls.wf := hσwf.useWf
-      have hfresh_decls : argVar.name ∉ st.decls.allNames :=
-        st.freshConst_fresh (some name) .value
-      have hfresh_range : argVar.name ∉ σ.range.allNames :=
-        hσwf.fresh_range hfresh_decls
+      obtain ⟨hfresh_decls, hfresh_range, hrename⟩ :=
+        FiniteSubst.rename_freshConst hσwf ⟨name, .value⟩
       have hσ'wf : σ'.wfIn Δ_base (st.decls.addConst argVar) := by
-        simpa [σ', argVar] using
-          (FiniteSubst.rename_wfIn (σ := σ) (Δ_base := Δ_base) (Δ_use := st.decls)
-            (v := ⟨name, .value⟩) (name' := argVar.name)
-            hσwf hfresh_range hfresh_decls)
+        simpa [σ', argVar] using hrename
       have hvar_wf : (Term.const (.uninterpreted argVar.name .value)).wfIn (st.decls.addConst argVar) := by
         simpa using
           (Term.const_wfIn_addConst_of_fresh (Δ := st.decls) (c := argVar) hstwf hfresh_decls)
