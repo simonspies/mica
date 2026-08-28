@@ -1,18 +1,26 @@
 open Mica
 
-(* Binary search trees with a global sortedness invariant hidden behind
-   a small public handle.
+(* Binary search trees with a sortedness invariant.
 
-   Clients work with values of type [t].  Internally, a [t] packages
-   the current inclusive lower bound, the raw recursive tree, and the
-   current inclusive upper bound:
+   Representation: a raw recursive tree, [Leaf | Node (value, left, right)],
+   packaged in a public handle
 
-     Bst (min, tree, max)
+     Bst (lo, tree, hi)
 
-   Inserting a value updates those stored bounds with [min_int] and
-   [max_int], so callers do not have to thread ghost bounds by hand.
-   The raw tree predicate still carries bounds down the tree; that is
-   what rules out violations by deeper descendants. *)
+   whose inclusive interval [lo, hi] encloses every value in the tree.  The
+   invariant is the recursive specification function [sorted (tree, lo, hi)]
+   — every value lies in [lo, hi], with the interval tightening at each node
+   — and [valid] states it for handles.
+
+   Main functions:
+   - [singleton x] — the one-element tree.
+   - [insert x h] — insert [x], widening the stored interval as needed;
+     preserves [valid].
+   - [min h], [max h] — the stored bounds, enclosing every value.
+
+   [widen_tree] is a lemma function: it computes nothing, and its
+   postcondition establishes that sortedness survives widening the
+   interval. *)
 
 type tree = Leaf | Node of int * tree * tree
 
@@ -32,10 +40,6 @@ let max_int (x: int) (y: int) : int =
     assert (x <= result);
     assert (y <= result))];;
 
-(* [sorted (tree, lo, hi)] means every value in [tree] lies in the
-   inclusive interval [lo, hi].  Each recursive call tightens the
-   interval with the parent value, so descendants are checked against
-   every ancestor bound. *)
 let rec sorted ((tr : tree), (lo : int), (hi : int)) : bool =
   match tr with
   | Leaf -> true
@@ -45,7 +49,6 @@ let rec sorted ((tr : tree), (lo : int), (hi : int)) : bool =
     right_sorted && left_sorted && lo <= v && v <= hi
 [@@fn];;
 
-(* The public invariant for handles. *)
 let valid (h: t) : bool =
   match h with
   | Bst (lo, tr, hi) ->
@@ -66,9 +69,6 @@ let make_node (v: int) (lo: int) (hi: int) (l: tree) (r: tree) : tree =
     let st = sorted (result, lo, hi) in
     assert (st))];;
 
-(* Lemma-like function: prove that [tr] is still sorted when its
-   inclusive interval is widened.  It returns only [unit]; the useful
-   payload is the postcondition fact about the original tree. *)
 let rec widen_tree (lo: int) (hi: int) (new_lo: int) (new_hi: int) (tr: tree) : unit =
   match tr with
   | Leaf -> ()
