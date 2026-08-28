@@ -1347,7 +1347,7 @@ theorem compileRefShared_correct (reg : Verifier.Registry) (e : Expr)
   have hfresh : c.name ∉ st₁.decls.allNames :=
     TransState.freshConst_fresh st₁ none .value
   have hwf_addConst : TransState.wf { st₁ with decls := st₁.decls.addConst c } :=
-    TransState.freshConst.wf _ hwf_st₁
+    TransState.wf_freshConst _ hwf_st₁
   have hwp :
       st₁.sl W ρ_e ∗ TinyML.ValHasType W v_e e.ty ∗ R ⊢ wp W.pctx (.ref (.val v_e)) Φ := by
     istart
@@ -1434,7 +1434,7 @@ theorem compileRefOwned_correct (reg : Verifier.Registry) (e : Expr)
           hwf_st₁.namesDisjoint hc_fresh)
     have hse_wf₂ : se.wfIn st₂.decls :=
       Term.wfIn_mono se hse_wf (Signature.Subset.subset_addConst _ _)
-        (TransState.freshConst.wf _ hwf_st₁).namesDisjoint
+        (TransState.wf_freshConst _ hwf_st₁).namesDisjoint
     have hatom_wf : (SpatialAtom.pointsTo sl se e.ty).wfIn st₂.decls := ⟨hsl_wf, hse_wf₂⟩
     have hassumed := VerifM.eval_assumeSpatial (VerifM.eval_bind hdecl_loc) hatom_wf
     have hsl_eval : sl.eval ρ₂ = .loc loc := by

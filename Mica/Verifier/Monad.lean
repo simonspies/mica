@@ -364,7 +364,7 @@ private theorem VerifM.eval_rec_preserves_wf (m : VerifM α) (st : TransState) (
     have hfresh := Fresh.freshNumbers_not_mem (hint.getD "_v") st.decls.allNames
     have hagree : Env.agreeOn st.decls ρ (ρ.updateConst t w u) := by
       exact Env.agreeOn_update_fresh_const (c := ⟨w, t⟩) hfresh
-    refine ⟨⟨?_, g.builtins.agree hwf.builtins hagree⟩, TransState.freshConst.wf _ hwf, h⟩
+    refine ⟨⟨?_, g.builtins.agree hwf.builtins hagree⟩, TransState.wf_freshConst _ hwf, h⟩
     intro φ hφ
     exact (Formula.eval_env_agree (hwf.assertsWf φ hφ) hagree).mp (g.asserts φ hφ)
   | declUnaryRel hint τ =>
@@ -377,7 +377,7 @@ private theorem VerifM.eval_rec_preserves_wf (m : VerifM α) (st : TransState) (
     have hagree : Env.agreeOn st.decls ρ (ρ.updateUnaryRel τ u.name f) := by
       exact Env.agreeOn_update_fresh_unaryRel (u := u) hfresh
     refine ⟨⟨?_, g.builtins.agree hwf.builtins hagree⟩,
-      TransState.addUnaryRel.wf st _ hwf hfresh, h⟩
+      TransState.wf_addUnaryRel st _ hwf hfresh, h⟩
     intro φ hφ
     exact (Formula.eval_env_agree (hwf.assertsWf φ hφ) hagree).mp (g.asserts φ hφ)
   | declBinaryRel hint τ₁ τ₂ =>
@@ -390,7 +390,7 @@ private theorem VerifM.eval_rec_preserves_wf (m : VerifM α) (st : TransState) (
     have hagree : Env.agreeOn st.decls ρ (ρ.updateBinaryRel τ₁ τ₂ b.name f) := by
       exact Env.agreeOn_update_fresh_binaryRel (b := b) hfresh
     refine ⟨⟨?_, g.builtins.agree hwf.builtins hagree⟩,
-      TransState.addBinaryRel.wf st _ hwf hfresh, h⟩
+      TransState.wf_addBinaryRel st _ hwf hfresh, h⟩
     intro φ hφ
     exact (Formula.eval_env_agree (hwf.assertsWf φ hφ) hagree).mp (g.asserts φ hφ)
   | declUnary hint τ₁ τ₂ =>
@@ -403,7 +403,7 @@ private theorem VerifM.eval_rec_preserves_wf (m : VerifM α) (st : TransState) (
     have hagree : Env.agreeOn st.decls ρ (ρ.updateUnary τ₁ τ₂ u.name f) := by
       exact Env.agreeOn_update_fresh_unary (u := u) hfresh
     refine ⟨⟨?_, g.builtins.agree hwf.builtins hagree⟩,
-      TransState.addUnary.wf st _ hwf hfresh, h⟩
+      TransState.wf_addUnary st _ hwf hfresh, h⟩
     intro φ hφ
     exact (Formula.eval_env_agree (hwf.assertsWf φ hφ) hagree).mp (g.asserts φ hφ)
   | declBinary hint τ₁ τ₂ τ₃ =>
@@ -416,7 +416,7 @@ private theorem VerifM.eval_rec_preserves_wf (m : VerifM α) (st : TransState) (
     have hagree : Env.agreeOn st.decls ρ (ρ.updateBinary τ₁ τ₂ τ₃ b.name f) := by
       exact Env.agreeOn_update_fresh_binary (b := b) hfresh
     refine ⟨⟨?_, g.builtins.agree hwf.builtins hagree⟩,
-      TransState.addBinary.wf st _ hwf hfresh, h⟩
+      TransState.wf_addBinary st _ hwf hfresh, h⟩
     intro φ hφ
     exact (Formula.eval_env_agree (hwf.assertsWf φ hφ) hagree).mp (g.asserts φ hφ)
   | declTernary hint τ₁ τ₂ τ₃ τ₄ =>
@@ -429,7 +429,7 @@ private theorem VerifM.eval_rec_preserves_wf (m : VerifM α) (st : TransState) (
     have hagree : Env.agreeOn st.decls ρ (ρ.updateTernary τ₁ τ₂ τ₃ τ₄ t.name f) := by
       exact Env.agreeOn_update_fresh_ternary (t := t) hfresh
     refine ⟨⟨?_, g.builtins.agree hwf.builtins hagree⟩,
-      TransState.addTernary.wf st _ hwf hfresh, h⟩
+      TransState.wf_addTernary st _ hwf hfresh, h⟩
     intro φ hφ
     exact (Formula.eval_env_agree (hwf.assertsWf φ hφ) hagree).mp (g.asserts φ hφ)
   | assume item =>
@@ -437,7 +437,7 @@ private theorem VerifM.eval_rec_preserves_wf (m : VerifM α) (st : TransState) (
     | pure φ =>
       simp only [VerifM.eval_rec] at h ⊢
       intro hwf' hφ
-      refine ⟨⟨?_, g.builtins⟩, TransState.addAssert.wf _ hwf hwf', h hwf' hφ⟩
+      refine ⟨⟨?_, g.builtins⟩, TransState.wf_addAssert _ hwf hwf', h hwf' hφ⟩
       intro ψ hψ
       cases hψ with
       | head => exact hφ
@@ -445,7 +445,7 @@ private theorem VerifM.eval_rec_preserves_wf (m : VerifM α) (st : TransState) (
     | spatial a =>
       simp only [VerifM.eval_rec] at h ⊢
       intro hwf'
-      exact ⟨⟨g.asserts, g.builtins⟩, TransState.addSpatial.wf _ hwf hwf', h hwf'⟩
+      exact ⟨⟨g.asserts, g.builtins⟩, TransState.wf_addSpatial _ hwf hwf', h hwf'⟩
   | check φ =>
     simp only [VerifM.eval_rec] at h ⊢
     intro hwf'
