@@ -14,7 +14,8 @@ variable [MicaGS HasLC.hasLC Sig]
 
 abbrev Bindings := List (TinyML.Var × FOL.Const)
 
-def Bindings.empty : Bindings := []
+/-- The bindings a program starts with, paired with `TinyML.TyCtx.empty`. -/
+abbrev Bindings.empty : Bindings := []
 
 /-- Drop a name's binding. A declaration that shadows a bound name without
     binding a value of its own must remove it, or the old constant would stand
@@ -125,8 +126,8 @@ instance Bindings.typedSubst_persistent {B Γ γ} (W : TinyML.World) : Persisten
     unfold Bindings.typedSubst
     infer_instance
 
-theorem Bindings.typedSubst_nil (W : TinyML.World) (γ : Runtime.Subst) :
-    ⊢ Bindings.typedSubst W [] TinyML.TyCtx.empty γ := by
+theorem Bindings.typedSubst_empty (W : TinyML.World) (γ : Runtime.Subst) :
+    ⊢ Bindings.typedSubst W Bindings.empty TinyML.TyCtx.empty γ := by
   unfold Bindings.typedSubst
   imodintro
   iintro %x %x' %t
