@@ -489,17 +489,9 @@ theorem agreeOn_extend_fresh (i : Intrinsic) {Δ : Signature} (ρ : Env)
   revert hfresh
   cases i.folSym <;> exact id
 
-/-- The intrinsic's argument types, in left-to-right order. -/
-def argTysList (i : Intrinsic) : List TinyML.SchemaTyp :=
-  i.argTys
-
-/-- The intrinsic's result type. -/
-def resultTy (i : Intrinsic) : TinyML.SchemaTyp :=
-  i.retTy
-
 /-- The intrinsic's full arrow (scheme) type. -/
 def arrowType (i : Intrinsic) : TinyML.SchemaTyp :=
-  .arrow i.argTysList i.resultTy none
+  .arrow i.argTys i.retTy none
 
 /-- Adapter from the list-shaped argument call (used by OpSem and `wp`) to
     the arity-shaped representation. Out-of-shape calls produce the empty
