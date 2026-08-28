@@ -105,6 +105,14 @@ theorem wp_bind_letProd {names : List Runtime.Binder} {bound body : Runtime.Expr
     R ⊢ wp pctx (.letProd names bound body) Q :=
   h.trans (wp.bind (k := TinyML.K.letProdK names .hole body))
 
+/-- Product destructuring at a tuple value: context unchanged. -/
+theorem wp_letProd_val {names : List Runtime.Binder} {vs : List Runtime.Val}
+    {body : Runtime.Expr} {Q : Runtime.Val → iProp} {R : iProp}
+    (hlen : names.length = vs.length)
+    (h : R ⊢ wp pctx (body.subst (Runtime.Subst.id.updateAllBinder names vs)) Q) :
+    R ⊢ wp pctx (.letProd names (.val (.tuple vs)) body) Q :=
+  h.trans (wp.letProd_val hlen)
+
 /-- Conditional on `true`: context unchanged. -/
 theorem wp_if_true {thn els : Runtime.Expr} {Q : Runtime.Val → iProp}
     {R : iProp}

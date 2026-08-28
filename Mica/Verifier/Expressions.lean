@@ -2605,8 +2605,9 @@ theorem compileLetIn_correct (reg : Verifier.Registry) (b : Binder) (e body : Ex
   simp only [Runtime.Expr.letIn_subst]
   have heval_e_outer : (compile reg W.Θ W.Δ_spec B Γ e).eval st ρ _ := VerifM.eval_bind heval
   have hstart := Helpers.ctx_dup W B Γ st ρ γ R
-  refine (hstart.trans <| ihE W (Bindings.typedSubst W B Γ γ ∗ R) B Γ st ρ γ _ _ hW
-    (VerifM.eval.decls_grow ρ heval_e_outer) hagree hbwf hwf hag hΔreg hρreg ?_).trans wp.letIn
+  refine SpatialContext.wp_letIn (hstart.trans <|
+    ihE W (Bindings.typedSubst W B Γ γ ∗ R) B Γ st ρ γ _ _ hW
+      (VerifM.eval.decls_grow ρ heval_e_outer) hagree hbwf hwf hag hΔreg hρreg ?_)
   intro v_e ρ_e st₁ se hΨ_e hse_wf heval_e
   obtain ⟨hdecls_e, hagreeOn_e, hΨ_e⟩ := hΨ_e
   have hagree_e := Bindings.agreeOnLinked_env_agree hagree hagreeOn_e hbwf
@@ -2999,10 +3000,10 @@ theorem compileLetProd_correct (reg : Verifier.Registry) (names : List Binder) (
         simp [hlen_compile, hlen_vals]
       have hbody_subst := Runtime.Expr.subst_removeAll'_updateAllBinder body.runtime γ
         (names.map Binder.WithTypeVars.runtime) vs hnames_len
-      iapply (wp.letProd_val (ctx := W.pctx) (names := names.map Binder.WithTypeVars.runtime)
-        (vs := vs)
+      iapply (SpatialContext.wp_letProd_val (pctx := W.pctx)
+        (names := names.map Binder.WithTypeVars.runtime) (vs := vs)
         (body := Runtime.Expr.subst (γ.removeAll' (names.map Binder.WithTypeVars.runtime)) body.runtime)
-        hnames_len)
+        hnames_len BIBase.Entails.rfl)
       rw [hbody_subst]
       iapply (compileProductBindersFrom_correct reg body ihBody names tys
         (Term.unop UnOp.toValList se) vs W R B Γ st₁ ρ_e γ Ψ Φ hW
@@ -3670,7 +3671,7 @@ theorem compileSingleBranch_correct (reg : Verifier.Registry) (binder : Binder) 
           (fun v ρ' st' se hΨ' hs hw => hpost v ρ' st' se hΨ' hs hw)
       rw [Binder.runtime_of_name_none hname]
       simp only [Runtime.Expr.subst_fix]
-      refine BIBase.Entails.trans ?_ wp.app_lambda_single
+      refine SpatialContext.wp_app_lambda_single ?_
       simp only [Runtime.Subst.removeAll'_cons, Runtime.Subst.removeAll'_nil]
       rw [Runtime.Expr.subst_remove'_updateBinder body.runtime (γ.remove' .none) .none payload]
       simp only [Runtime.Subst.updateBinder, Runtime.Subst.remove'_none]
@@ -3726,7 +3727,7 @@ theorem compileSingleBranch_correct (reg : Verifier.Registry) (binder : Binder) 
           (fun v ρ' st' se hΨ' hs hw => hpost v ρ' st' se hΨ' hs hw)
       rw [Binder.runtime_of_name_some hname]
       simp only [Runtime.Expr.subst_fix]
-      refine BIBase.Entails.trans ?_ wp.app_lambda_single
+      refine SpatialContext.wp_app_lambda_single ?_
       simp only [Runtime.Subst.removeAll'_cons, Runtime.Subst.removeAll'_nil, Runtime.Subst.remove'_none]
       rw [Runtime.Expr.subst_remove'_updateBinder body.runtime γ (.named x) payload]
       simp only [Runtime.Subst.updateBinder]
