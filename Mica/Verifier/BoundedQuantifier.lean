@@ -409,6 +409,15 @@ namespace Lifting
 /-- Bound index variable of the defining axioms. -/
 def idx (s : Lifting) : String := s.name ++ "-i"
 
+/-- `Δ` extended by the packed argument variable: the scope of the axiom
+matrices, which bind the index themselves. -/
+abbrev argScope (s : Lifting) (Δ : Signature) : Signature :=
+  Δ.declVar ⟨s.arg, .value⟩
+
+/-- `argScope` extended by the bound index: the scope of the compiled body. -/
+abbrev matrixScope (s : Lifting) (Δ : Signature) : Signature :=
+  (s.argScope Δ).declVar ⟨s.idx, .int⟩
+
 /-- Facts required to compile and declare a quantifier symbol: freshness of all
 derived names. Established operationally by `validate`. -/
 structure Valid (s : Lifting) (Δ : Signature) : Prop where
@@ -489,7 +498,7 @@ variables. Binding the TinyML argument to `gpack` shadows the same-named FOL
 variable while retaining that variable inside the packed term. -/
 def compile (s : Lifting) (primitives : PrimEncodings) (Γ : FunCtx) (Δ : Signature) :
     Except String Skolemize.DefVal :=
-  let Δpi := (Δ.declVar ⟨s.arg, .value⟩).declVar ⟨s.idx, .int⟩
+  let Δpi := s.matrixScope Δ
   let env := (VarEnv.ofSignature Δpi).bind s.arg s.gpack
   encodeWith primitives Skolemize.encoderOps Δpi Γ env s.body
     (fun value => .ok (Skolemize.DefVal.pure value))
@@ -587,28 +596,43 @@ private theorem gpack_wfIn (hΔ : Δ.wf)
     exact show UnOp.wfIn .ofInt Δ ∧ (Term.var .int s.idx).wfIn Δ from
       ⟨trivial, var_wfIn hΔ hi⟩
 
+/-- The index variable is fresh for the signature extended by the packed
+variable, so the nested `declVar` is an extension. -/
+private theorem idx_fresh_declVar (harg : s.arg ∉ Δ.allNames)
+    (hidx : s.idx ∉ Δ.allNames) (hai : s.idx ≠ s.arg) :
+    s.idx ∉ (s.argScope Δ).allNames := by
+  rw [Signature.allNames_declVar_of_not_in harg]
+  intro hmem
+  rcases List.mem_cons.mp hmem with h | h
+  · exact hai h
+  · exact hidx h
+
+/-- The signature the matrices are checked in — `Δ` extended by the packed
+argument and the index — is well-formed and declares both matrix variables. -/
+private theorem matrix_vars (hΔ : Δ.wf)
+    (harg : s.arg ∉ Δ.allNames) (hidx : s.idx ∉ Δ.allNames) (hai : s.idx ≠ s.arg) :
+    (s.matrixScope Δ).wf ∧
+      (⟨s.arg, .value⟩ : Var) ∈ (s.matrixScope Δ).vars ∧
+      (⟨s.idx, .int⟩ : Var) ∈ (s.matrixScope Δ).vars :=
+  let hΔp := Signature.wf_declVar hΔ
+  let hsubpi := Signature.subset_declVar_of_fresh (idx_fresh_declVar harg hidx hai)
+  ⟨Signature.wf_declVar hΔp,
+   hsubpi.vars _ (Signature.var_mem_declVar Δ ⟨s.arg, .value⟩),
+   Signature.var_mem_declVar _ ⟨s.idx, .int⟩⟩
+
 /-- A successfully compiled lifting body is well-formed under its two matrix
 variables. -/
 theorem compile_wfIn {primitives : PrimEncodings} (hlaw : primitives.Lawful)
     (hv : s.Valid Δ) (hΔ : Δ.wf) (hΓ : Γ.wfIn Δ)
     (henc : s.compile primitives Γ Δ = .ok body) :
-    body.wfIn ((Δ.declVar ⟨s.arg, .value⟩).declVar ⟨s.idx, .int⟩) := by
-  let Δp := Δ.declVar ⟨s.arg, .value⟩
-  let Δpi := Δp.declVar ⟨s.idx, .int⟩
-  have hΔp : Δp.wf := Signature.wf_declVar hΔ
-  have hΔpi : Δpi.wf := Signature.wf_declVar hΔp
+    body.wfIn (s.matrixScope Δ) := by
+  let Δp := s.argScope Δ
+  let Δpi := s.matrixScope Δ
   have hsubp : Δ.Subset Δp := Signature.subset_declVar_of_fresh hv.argFresh
   have hsubpi : Δp.Subset Δpi :=
-    Signature.subset_declVar_of_fresh (by
-      rw [Signature.allNames_declVar_of_not_in hv.argFresh]
-      intro hmem
-      rcases List.mem_cons.mp hmem with h | h
-      · exact hv.idxNeArg h
-      · exact hv.idxFresh h)
-  have hp : (⟨s.arg, .value⟩ : Var) ∈ Δpi.vars :=
-    hsubpi.vars _ (Signature.var_mem_declVar Δ ⟨s.arg, .value⟩)
-  have hi : (⟨s.idx, .int⟩ : Var) ∈ Δpi.vars :=
-    Signature.var_mem_declVar Δp ⟨s.idx, .int⟩
+    Signature.subset_declVar_of_fresh
+      (idx_fresh_declVar hv.argFresh hv.idxFresh hv.idxNeArg)
+  obtain ⟨hΔpi, hp, hi⟩ := matrix_vars hΔ hv.argFresh hv.idxFresh hv.idxNeArg
   have hcarrier : Skolemize.wfInE Δpi
       (encodeWith primitives Skolemize.encoderOps Δpi Γ
         ((VarEnv.ofSignature Δpi).bind s.arg s.gpack) s.body
@@ -633,34 +657,14 @@ private theorem bounds_wfIn (hΔ : Δ.wf)
   have hiv : s.ivar.wfIn Δ := var_wfIn hΔ hi
   exact ⟨⟨trivial, hlo, hiv⟩, ⟨trivial, hiv, hhi⟩⟩
 
-/-- The index variable is fresh for the signature extended by the packed
-variable, so the nested `declVar` is an extension. -/
-private theorem idx_fresh_declVar (harg : s.arg ∉ Δ.allNames)
-    (hidx : s.idx ∉ Δ.allNames) (hai : s.idx ≠ s.arg) :
-    s.idx ∉ (Δ.declVar ⟨s.arg, .value⟩).allNames := by
-  rw [Signature.allNames_declVar_of_not_in harg]
-  intro hmem
-  rcases List.mem_cons.mp hmem with h | h
-  · exact hai h
-  · exact hidx h
-
 /-- Well-formedness of the value-axiom matrix at the packed-variable
 signature, given a body compiled under both matrix variables. -/
 theorem matrix_wfIn (hΔ : Δ.wf)
-    (hbody : body.wfIn ((Δ.declVar ⟨s.arg, .value⟩).declVar ⟨s.idx, .int⟩))
+    (hbody : body.wfIn (s.matrixScope Δ))
     (harg : s.arg ∉ Δ.allNames) (hidx : s.idx ∉ Δ.allNames) (hai : s.idx ≠ s.arg) :
-    (s.matrix body).wfIn (Δ.declVar ⟨s.arg, .value⟩) := by
-  set Δp := Δ.declVar ⟨s.arg, .value⟩ with hΔp_def
-  set Δpi := Δp.declVar ⟨s.idx, .int⟩ with hΔpi_def
-  have hΔp : Δp.wf := Signature.wf_declVar hΔ
-  have hΔpi : Δpi.wf := Signature.wf_declVar hΔp
-  have hsubpi : Δp.Subset Δpi :=
-    Signature.subset_declVar_of_fresh (idx_fresh_declVar harg hidx hai)
-  have hpvars : (⟨s.arg, .value⟩ : Var) ∈ Δpi.vars :=
-    hsubpi.vars _ (Signature.var_mem_declVar Δ ⟨s.arg, .value⟩)
-  have hivars : (⟨s.idx, .int⟩ : Var) ∈ Δpi.vars :=
-    Signature.var_mem_declVar Δp ⟨s.idx, .int⟩
-  have hholds : body.value.isTrue.wfIn Δpi := ⟨hbody.1, trivial, trivial⟩
+    (s.matrix body).wfIn (s.argScope Δ) := by
+  obtain ⟨hΔpi, hpvars, hivars⟩ := matrix_vars hΔ harg hidx hai
+  have hholds : body.value.isTrue.wfIn _ := ⟨hbody.1, trivial, trivial⟩
   unfold matrix
   split
   · exact ⟨fun _ h => (List.not_mem_nil h).elim,
@@ -670,19 +674,10 @@ theorem matrix_wfIn (hΔ : Δ.wf)
 /-- Well-formedness of the definedness-axiom matrix at the packed-variable
 signature. -/
 theorem defMatrix_wfIn (hΔ : Δ.wf)
-    (hbody : body.wfIn ((Δ.declVar ⟨s.arg, .value⟩).declVar ⟨s.idx, .int⟩))
+    (hbody : body.wfIn (s.matrixScope Δ))
     (harg : s.arg ∉ Δ.allNames) (hidx : s.idx ∉ Δ.allNames) (hai : s.idx ≠ s.arg) :
-    (s.defMatrix body).wfIn (Δ.declVar ⟨s.arg, .value⟩) := by
-  set Δp := Δ.declVar ⟨s.arg, .value⟩ with hΔp_def
-  set Δpi := Δp.declVar ⟨s.idx, .int⟩ with hΔpi_def
-  have hΔp : Δp.wf := Signature.wf_declVar hΔ
-  have hΔpi : Δpi.wf := Signature.wf_declVar hΔp
-  have hsubpi : Δp.Subset Δpi :=
-    Signature.subset_declVar_of_fresh (idx_fresh_declVar harg hidx hai)
-  have hpvars : (⟨s.arg, .value⟩ : Var) ∈ Δpi.vars :=
-    hsubpi.vars _ (Signature.var_mem_declVar Δ ⟨s.arg, .value⟩)
-  have hivars : (⟨s.idx, .int⟩ : Var) ∈ Δpi.vars :=
-    Signature.var_mem_declVar Δp ⟨s.idx, .int⟩
+    (s.defMatrix body).wfIn (s.argScope Δ) := by
+  obtain ⟨hΔpi, hpvars, hivars⟩ := matrix_vars hΔ harg hidx hai
   exact ⟨fun _ h => (List.not_mem_nil h).elim,
     bounds_wfIn hΔpi hpvars hivars,
     hbody.2⟩
@@ -690,19 +685,19 @@ theorem defMatrix_wfIn (hΔ : Δ.wf)
 /-- Well-formedness of the defining axioms. All hypotheses are discharged
 operationally by the assembly step (symbol declarations and name checks). -/
 theorem axioms_wfIn (hΔ : Δ.wf)
-    (hbody : body.wfIn ((Δ.declVar ⟨s.arg, .value⟩).declVar ⟨s.idx, .int⟩))
+    (hbody : body.wfIn (s.matrixScope Δ))
     (hlfun : SpecFn.func s.name ∈ Δ.unary) (hldef : SpecFn.defined s.name ∈ Δ.unaryRel)
     (harg : s.arg ∉ Δ.allNames) (hidx : s.idx ∉ Δ.allNames) (hai : s.idx ≠ s.arg) :
     ∀ ax ∈ s.axioms body, ax.formula.wfIn Δ := by
   intro ax hmem
-  have hΔp : (Δ.declVar ⟨s.arg, .value⟩).wf := Signature.wf_declVar hΔ
-  have hsubp : Δ.Subset (Δ.declVar ⟨s.arg, .value⟩) :=
+  have hΔp : (s.argScope Δ).wf := Signature.wf_declVar hΔ
+  have hsubp : Δ.Subset (s.argScope Δ) :=
     Signature.subset_declVar_of_fresh harg
-  have hpwf : (Term.var .value s.arg).wfIn (Δ.declVar ⟨s.arg, .value⟩) :=
+  have hpwf : (Term.var .value s.arg).wfIn (s.argScope Δ) :=
     var_wfIn hΔp (Signature.var_mem_declVar Δ ⟨s.arg, .value⟩)
-  have hlfun_p : SpecFn.func s.name ∈ (Δ.declVar ⟨s.arg, .value⟩).unary :=
+  have hlfun_p : SpecFn.func s.name ∈ (s.argScope Δ).unary :=
     hsubp.unary _ hlfun
-  have hldef_p : SpecFn.defined s.name ∈ (Δ.declVar ⟨s.arg, .value⟩).unaryRel :=
+  have hldef_p : SpecFn.defined s.name ∈ (s.argScope Δ).unaryRel :=
     hsubp.unaryRel _ hldef
   simp only [axioms, List.mem_cons, List.not_mem_nil, or_false] at hmem
   rcases hmem with rfl | rfl
@@ -768,14 +763,14 @@ theorem extend_agreeOn {ρ : Env}
 /-- The defining axioms hold in the extended environment. Matrix
 well-formedness lets their evaluation be transported past the extension. -/
 theorem axioms_eval {ρ : Env}
-    (hmat : (s.matrix body).wfIn (Δ.declVar ⟨s.arg, .value⟩))
-    (hdefmat : (s.defMatrix body).wfIn (Δ.declVar ⟨s.arg, .value⟩))
+    (hmat : (s.matrix body).wfIn (s.argScope Δ))
+    (hdefmat : (s.defMatrix body).wfIn (s.argScope Δ))
     (hrel : SpecFn.relName s.name ∉ Δ.allNames)
     (hfun : SpecFn.funcName s.name ∉ Δ.allNames)
     (hdef : SpecFn.defName s.name ∉ Δ.allNames) :
     ∀ ax ∈ s.axioms body, ax.formula.eval (s.extend body ρ) := by
   have hagree : Env.agreeOn Δ ρ (s.extend body ρ) := extend_agreeOn hrel hfun hdef
-  have htrans : ∀ (φ : Formula), φ.wfIn (Δ.declVar ⟨s.arg, .value⟩) →
+  have htrans : ∀ (φ : Formula), φ.wfIn (s.argScope Δ) →
       ∀ v, φ.eval ((s.extend body ρ).updateConst .value s.arg v) ↔
         φ.eval (ρ.updateConst .value s.arg v) :=
     fun φ hwf v => (Formula.eval_env_agree hwf (Env.agreeOn_declVar hagree)).symm
@@ -816,7 +811,7 @@ whose graph shape holds by construction. -/
 theorem declare_correct (s : Lifting) (body : Skolemize.DefVal) (Δ : Signature) (Γ : FunCtx)
     (st : TransState) (ρ : Env) {Q : Unit → TransState → Env → Prop}
     (hv : Valid s Δ)
-    (hbody : body.wfIn ((Δ.declVar ⟨s.arg, .value⟩).declVar ⟨s.idx, .int⟩))
+    (hbody : body.wfIn (s.matrixScope Δ))
     (hdecls : st.decls = Δ) (howns : st.owns = []) (hvars : st.decls.vars = [])
     (hwf : Δ.wf) (hΓwf : FunCtx.wfIn Γ Δ)
     (hsplit : FunCtx.splitCompatible Γ ρ)
@@ -846,15 +841,13 @@ theorem declare_correct (s : Lifting) (body : Skolemize.DefVal) (Δ : Signature)
   have hidxext : s.idx ∉ (s.extendSignature Δ).allNames := by
     intro hmem
     apply hh.resFresh
-    show s.idx ∈ ((s.extendSignature Δ).declVar ⟨s.arg, .value⟩).allNames
+    show s.idx ∈ (s.argScope (s.extendSignature Δ)).allNames
     rw [Signature.allNames_declVar_of_not_in hargext]
     exact List.mem_cons_of_mem _ hmem
-  have hbodyext : body.wfIn
-      (((s.extendSignature Δ).declVar ⟨s.arg, .value⟩).declVar ⟨s.idx, .int⟩) := by
+  have hbodyext : body.wfIn (s.matrixScope (s.extendSignature Δ)) := by
     have hsubpi := Signature.Subset.declVar
       (Signature.Subset.declVar hsub ⟨s.arg, .value⟩) ⟨s.idx, .int⟩
-    have hwfpi :
-        (((s.extendSignature Δ).declVar ⟨s.arg, .value⟩).declVar ⟨s.idx, .int⟩).wf :=
+    have hwfpi : (s.matrixScope (s.extendSignature Δ)).wf :=
       Signature.wf_declVar (Signature.wf_declVar hwfext)
     exact ⟨Term.wfIn_mono body.value hbody.1 hsubpi hwfpi,
       Formula.wfIn_mono body.defined hbody.2 hsubpi hwfpi⟩
