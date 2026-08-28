@@ -167,10 +167,6 @@ theorem wfIn_mono {ctx : SpatialContext} {Δ Δ' : Signature}
 /-- Insert an atom into the context (just cons). -/
 abbrev insert (a : SpatialAtom) (ctx : SpatialContext) : SpatialContext := a :: ctx
 
-@[simp] theorem wfIn_insert {a : SpatialAtom} {ctx : SpatialContext} {Δ : Signature} :
-    wfIn (insert a ctx) Δ ↔ a.wfIn Δ ∧ wfIn ctx Δ := by
-  simp [insert, wfIn_cons]
-
 /-- Remove the atom at index `n`, returning the atom and remaining context. -/
 def remove : List SpatialAtom → Nat → Option (SpatialAtom × List SpatialAtom)
   | [],     _     => none

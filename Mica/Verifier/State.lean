@@ -98,12 +98,6 @@ def TransState.sl [MicaGS HasLC.hasLC Sig] (W : TinyML.World)
 def TransState.persist (st : TransState) : TransState :=
   { st with owns := [] }
 
-@[simp] theorem TransState.persist_decls (st : TransState) :
-    st.persist.decls = st.decls := rfl
-
-@[simp] theorem TransState.persist_asserts (st : TransState) :
-    st.persist.asserts = st.asserts := rfl
-
 /-- Translation to `ScopedM`'s flat context. -/
 def TransState.toFlatCtx (st : TransState) : FlatCtx :=
   ⟨st.decls, st.asserts⟩
