@@ -440,11 +440,8 @@ def VerifM.findMatchIn (k : SpatialAtom.Kind) (tq : Term .value) (ty : TinyML.Ty
   | a :: rest => do
       if a.kind == k && a.ty == ty then
         if ← VerifM.test (.eq .value tq a.key) then
-          pure (some (0, a.val))
-        else
-          return (← VerifM.findMatchIn k tq ty rest).map fun (n, v') => (n + 1, v')
-      else
-        return (← VerifM.findMatchIn k tq ty rest).map fun (n, v') => (n + 1, v')
+          return some (0, a.val)
+      return (← VerifM.findMatchIn k tq ty rest).map fun (n, v') => (n + 1, v')
 
 /-- Search the current ownership context for an atom of kind `k` with key `tq`,
     returning its stored value term and consuming the matched entry from
