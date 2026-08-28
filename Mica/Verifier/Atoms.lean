@@ -640,7 +640,7 @@ theorem VerifM.eval_acquire {item : CtxItem} {st : TransState} {ρ : Env}
     ∃ st', st'.decls = st.decls ∧ st'.owns = (st.addItem item).owns ∧ Q () st' ρ := by
   unfold VerifM.acquire at h
   have hb := VerifM.eval_bind h
-  have h1 := VerifM.eval_assume hb hwf (by cases item <;> exact hpure)
+  have h1 := VerifM.eval_assume hb hwf hpure
   have hfacts_wf : ∀ φ ∈ item.facts, φ.wfIn (st.addItem item).decls := by
     have hdecls : (st.addItem item).decls = st.decls := by cases item <;> rfl
     rw [hdecls]

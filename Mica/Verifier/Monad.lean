@@ -784,16 +784,15 @@ theorem VerifM.eval_assumeSpatial {a : SpatialAtom} {st : TransState} {ρ : Env}
 theorem VerifM.eval_assume {item : CtxItem} {st : TransState} {ρ : Env}
     {Q : Unit → TransState → Env → Prop}
     (h : VerifM.eval (.assume item) st ρ Q) :
-    item.wfIn st.decls →
-    (match item with | .pure φ => φ.eval ρ | .spatial _ => True) →
+    item.wfIn st.decls → item.purePart ρ →
     Q () (st.addItem item) ρ :=
   by
     cases item with
     | pure φ =>
-      simp [TransState.addItem]
+      simp [TransState.addItem, CtxItem.purePart]
       exact VerifM.eval_assumePure h
     | spatial a =>
-      simp [TransState.addItem]
+      simp [TransState.addItem, CtxItem.purePart]
       exact VerifM.eval_assumeSpatial h
 
 theorem VerifM.eval_check {e : Effort} {φ : Formula} {st : TransState} {ρ : Env}
