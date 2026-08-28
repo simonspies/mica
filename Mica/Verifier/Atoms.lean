@@ -737,6 +737,29 @@ private theorem VerifM.eval_resolve_pure (W : TinyML.World) {pred : Atom TinyML.
         exact (sep_intro_valid_left hpred).trans
           (hsome t st ρ hqsome (Signature.Subset.refl _) Env.agreeOn_refl htwf)
 
+private theorem VerifM.eval_resolve_spatial (W : TinyML.World) {k : SpatialAtom.Kind}
+    {pred : Atom TinyML.Typ .value} {tq : Term .value} {ty : TinyML.Typ}
+    {st : TransState} {ρ : Env} {Q : Option (Term .value) → TransState → Env → Prop}
+    {R Φ : iProp}
+    (h : VerifM.eval (VerifM.findMatch k tq ty) st ρ Q)
+    (hwf : tq.wfIn st.decls)
+    (hinterp : ∀ v : Term .value, SpatialAtom.interp W ρ (k.atom tq v ty) ⊢
+      Atom.eval (TinyML.ValHasType W) pred ρ (v.eval ρ))
+    (hnone : ∀ st' ρ', Q .none st' ρ' → st.decls.Subset st'.decls →
+      Env.agreeOn st.decls ρ ρ' → st'.sl W ρ' ∗ R ⊢ Φ)
+    (hsome : ∀ v st' ρ', Q (.some v) st' ρ' → st.decls.Subset st'.decls →
+      Env.agreeOn st.decls ρ ρ' → v.wfIn st'.decls →
+      Atom.eval (TinyML.ValHasType W) pred ρ' (v.eval ρ') ∗ st'.sl W ρ' ∗ R ⊢ Φ) :
+    st.sl W ρ ∗ R ⊢ Φ := by
+  refine VerifM.eval_findMatch W (R := R) (Φ := Φ) h hwf ?_ ?_
+  · intros v st' hqsome hdecls hvwf
+    have hsub : st.decls.Subset st'.decls := by rw [hdecls]; exact Signature.Subset.refl _
+    have hvwf' : v.wfIn st'.decls := by rw [hdecls]; exact hvwf
+    exact (sep_mono (hinterp v) BIBase.Entails.rfl).trans
+      (hsome v st' ρ hqsome hsub Env.agreeOn_refl hvwf')
+  · intros hqnone
+    exact hnone st ρ hqnone (Signature.Subset.refl _) Env.agreeOn_refl
+
 theorem VerifM.eval_resolve (W : TinyML.World) {pred : Atom TinyML.Typ τ} {st : TransState} {ρ : Env}
     {Q : Option (Term τ) → TransState → Env → Prop}
     {R Φ : iProp}
@@ -751,32 +774,14 @@ theorem VerifM.eval_resolve (W : TinyML.World) {pred : Atom TinyML.Typ τ} {st :
   match pred, hwf, hsome, h with
   | .own l ty, hwf, hsome, h =>
     simp only [VerifM.resolve] at h
-    refine VerifM.eval_findMatch W (R := R) (Φ := Φ) h hwf ?_ ?_
-    · intros v st' hqsome hdecls hvwf
-      have hsub : st.decls.Subset st'.decls := by rw [hdecls]; exact Signature.Subset.refl _
-      have hvwf' : v.wfIn st'.decls := by rw [hdecls]; exact hvwf
-      have hsome' := hsome v st' ρ hqsome hsub Env.agreeOn_refl hvwf'
-      have heq : SpatialAtom.interp W ρ (SpatialAtom.Kind.ref.atom l v ty) ⊢
-          Atom.eval (TinyML.ValHasType W) (Atom.own l ty) ρ (v.eval ρ) := by
-        simp only [SpatialAtom.Kind.atom, Atom.eval, SpatialAtom.interp]
-        exact BIBase.Entails.rfl
-      exact (sep_mono heq BIBase.Entails.rfl).trans hsome'
-    · intros hqnone
-      exact hnone st ρ hqnone (Signature.Subset.refl _) Env.agreeOn_refl
+    refine VerifM.eval_resolve_spatial W h hwf (fun v => ?_) hnone hsome
+    simp only [SpatialAtom.Kind.atom, Atom.eval, SpatialAtom.interp]
+    exact BIBase.Entails.rfl
   | .arr a ty, hwf, hsome, h =>
     simp only [VerifM.resolve] at h
-    refine VerifM.eval_findMatch W (R := R) (Φ := Φ) h hwf ?_ ?_
-    · intros v st' hqsome hdecls hvwf
-      have hsub : st.decls.Subset st'.decls := by rw [hdecls]; exact Signature.Subset.refl _
-      have hvwf' : v.wfIn st'.decls := by rw [hdecls]; exact hvwf
-      have hsome' := hsome v st' ρ hqsome hsub Env.agreeOn_refl hvwf'
-      have heq : SpatialAtom.interp W ρ (SpatialAtom.Kind.array.atom a v ty) ⊢
-          Atom.eval (TinyML.ValHasType W) (Atom.arr a ty) ρ (v.eval ρ) := by
-        simp only [SpatialAtom.Kind.atom, Atom.eval, SpatialAtom.interp]
-        exact BIBase.Entails.rfl
-      exact (sep_mono heq BIBase.Entails.rfl).trans hsome'
-    · intros hqnone
-      exact hnone st ρ hqnone (Signature.Subset.refl _) Env.agreeOn_refl
+    refine VerifM.eval_resolve_spatial W h hwf (fun v => ?_) hnone hsome
+    simp only [SpatialAtom.Kind.atom, Atom.eval, SpatialAtom.interp]
+    exact BIBase.Entails.rfl
   | .isint t, hwf, hsome, h =>
     simp only [VerifM.resolve] at h
     exact VerifM.eval_resolve_pure W (pred := .isint t) h hwf hnone hsome
