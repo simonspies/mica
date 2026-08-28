@@ -198,53 +198,44 @@ theorem wp_bind_deref {e : Runtime.Expr} {Q : Runtime.Val → iProp}
     R ⊢ wp pctx (.deref e) Q :=
   h.trans (wp.bind (k := TinyML.K.deref .hole))
 
-/-- Dereference at values: the context must contain a matching points-to.
-    Reading preserves ownership.
-
-    Given `remove ctx n = some (.pointsTo lt vt ty, rest)`, we extract the
-    points-to from the context and use it at the head dereference step.
-    The pure premises identify the runtime value `v` with the location named
-    by `lt`, and the continuation premise `h` works with the remaining
-    context. -/
-theorem wp_deref (W : TinyML.World) {Q : Runtime.Val → iProp}
-    {ctx : SpatialContext} {ρ : Env} {R : iProp}
-    {n : Nat} {lt vt : Term .value} {ty : TinyML.Typ} {rest : SpatialContext}
-    {v : Runtime.Val} {loc : Runtime.Location}
-    (h : ctx.interp W ρ ∗ R ⊢ Q (Term.eval ρ vt)) :
-    remove ctx n = some (.pointsTo lt vt ty, rest) →
-    Term.eval ρ lt = v →
-    v = .loc loc →
-    ctx.interp W ρ ∗ R ⊢ wp W.pctx (.deref (.val v)) Q := by
-  intro hrem hlt hv
-  subst hv
-  -- Split the context and rewrite the selected atom to a raw points-to fact.
-  have hsplit : ctx.interp W ρ ⊢
-      (loc ↦ [Term.eval ρ vt] ∗ TinyML.ValHasType W (Term.eval ρ vt) ty) ∗
-        rest.interp W ρ :=
-    (interp_remove W ρ ctx n _ _ hrem).1 |>.trans (sep_mono_left (SpatialAtom.interp_pointsTo W hlt).1)
-  -- Rebuild the original context inside the wand, since reading preserves it.
-  apply (sep_mono_left hsplit).trans
+/-- Dereference through an owned points-to atom: consume the atom, read the
+stored value, and restore the atom unchanged. -/
+theorem wp_deref_owned (W : TinyML.World) {Q : Runtime.Val → iProp}
+    {ρ : Env} {R : iProp}
+    {lt vt : Term .value} {ty : TinyML.Typ}
+    {rest : SpatialContext} {vloc : Runtime.Val}
+    (hloc : Term.eval ρ lt = vloc)
+    (h : (insert (.pointsTo lt vt ty) rest).interp W ρ ∗
+      TinyML.ValHasType W (Term.eval ρ vt) ty ∗ R ⊢ Q (Term.eval ρ vt)) :
+    SpatialAtom.interp W ρ (.pointsTo lt vt ty) ∗ rest.interp W ρ ∗
+      TinyML.ValHasType W vloc (.owned ty) ∗ R ⊢
+      wp W.pctx (.deref (.val vloc)) Q := by
+  simp only [SpatialAtom.interp]
   istart
-  iintro ⟨⟨⟨Hpt, Hty⟩, Hrest⟩, HR⟩
-  iapply wp.deref
+  iintro ⟨Hatom, Hrest, _Howned, HR⟩
+  icases Hatom with ⟨%loc, %hlt, Hpt, #HstoredTy⟩
+  have hlt_orig : Term.eval ρ lt = .loc loc := hlt
+  rw [hloc] at hlt
+  rw [hlt]
+  iapply (wp.deref (l := loc) (v := Term.eval ρ vt))
   isplitl [Hpt]
   · iexact Hpt
   · iintro Hpt
-    have hctx :
-        (loc ↦ [Term.eval ρ vt] ∗ TinyML.ValHasType W (Term.eval ρ vt) ty) ∗
-          rest.interp W ρ ⊢ ctx.interp W ρ :=
-      (sep_mono_left (SpatialAtom.interp_pointsTo W hlt).2).trans (interp_remove W ρ ctx n _ _ hrem).2
-    have hq :
-        (loc ↦ [Term.eval ρ vt] ∗ TinyML.ValHasType W (Term.eval ρ vt) ty) ∗
-          rest.interp W ρ ∗ R ⊢ Q (Term.eval ρ vt) :=
-      sep_assoc.2.trans ((sep_mono_left hctx).trans h)
-    iapply hq
-    isplitl [Hpt Hty]
-    · isplitl [Hpt]
-      · iexact Hpt
-      · iexact Hty
-    · isplitr [HR]
+    iapply h
+    isplitl [Hpt HstoredTy Hrest]
+    · simp only [SpatialContext.interp_insert]
+      isplitl [Hpt HstoredTy]
+      · simp only [SpatialAtom.interp]
+        iexists loc
+        isplitr
+        · ipureintro
+          exact hlt_orig
+        · isplitl [Hpt]
+          · iexact Hpt
+          · iexact HstoredTy
       · iexact Hrest
+    · isplitl [HstoredTy]
+      · iexact HstoredTy
       · iexact HR
 
 /-- Store under evaluation: first evaluate the value expression, then the
@@ -550,47 +541,46 @@ theorem wp_arraySet_owned (W : TinyML.World) {Q : Runtime.Val → iProp}
       · iapply TinyML.ValHasType.unit_intro
       · iexact HR
 
-/-- Store at values: replace the selected points-to atom with the updated one. -/
-theorem wp_store (W : TinyML.World) {Q : Runtime.Val → iProp}
-    {ctx : SpatialContext} {ρ : Env} {R : iProp}
-    {n : Nat} {lt vt_old vt_new : Term .value} {ty : TinyML.Typ} {rest : SpatialContext}
-    {vloc vnew : Runtime.Val} {loc : Runtime.Location}
-    (h : (insert (.pointsTo lt vt_new ty) rest).interp W ρ ∗ R ⊢ Q .unit) :
-    remove ctx n = some (.pointsTo lt vt_old ty, rest) →
-    Term.eval ρ lt = vloc →
-    vloc = .loc loc →
-    Term.eval ρ vt_new = vnew →
-    ctx.interp W ρ ∗ TinyML.ValHasType W vnew ty ∗ R ⊢
+/-- Store through an owned points-to atom: consume the atom and restore it with
+the stored term replaced. -/
+theorem wp_store_owned (W : TinyML.World) {Q : Runtime.Val → iProp}
+    {ρ : Env} {R : iProp}
+    {lt vt_old vt_new : Term .value} {ty : TinyML.Typ} {rest : SpatialContext}
+    {vloc vnew : Runtime.Val}
+    (hloc : Term.eval ρ lt = vloc) (hnew : Term.eval ρ vt_new = vnew)
+    (h : (insert (.pointsTo lt vt_new ty) rest).interp W ρ ∗
+      TinyML.ValHasType W .unit .unit ∗ R ⊢ Q .unit) :
+    SpatialAtom.interp W ρ (.pointsTo lt vt_old ty) ∗ rest.interp W ρ ∗
+      TinyML.ValHasType W vloc (.owned ty) ∗ TinyML.ValHasType W vnew ty ∗ R ⊢
       wp W.pctx (.store (.val vloc) (.val vnew)) Q := by
-  intro hrem hlt hvloc hvnew
-  subst hvloc
-  have hsplit : ctx.interp W ρ ⊢
-      (loc ↦ [Term.eval ρ vt_old] ∗ TinyML.ValHasType W (Term.eval ρ vt_old) ty) ∗
-        rest.interp W ρ :=
-    (interp_remove W ρ ctx n _ _ hrem).1 |>.trans (sep_mono_left (SpatialAtom.interp_pointsTo W hlt).1)
-  apply (sep_mono_left hsplit).trans
+  simp only [SpatialAtom.interp]
   istart
-  iintro ⟨⟨⟨Hold, _HoldTy⟩, Hrest⟩, HnewTy, HR⟩
-  iapply wp.store
+  iintro ⟨Hatom, Hrest, _Howned, #HnewTy, HR⟩
+  icases Hatom with ⟨%loc, %hlt, Hold, _HoldTy⟩
+  have hlt_orig : Term.eval ρ lt = .loc loc := hlt
+  rw [hloc] at hlt
+  rw [hlt]
+  iapply (wp.store (l := loc) (old := Term.eval ρ vt_old) (v := vnew))
   isplitl [Hold]
   · iexact Hold
   · iintro Hnew
-    have hnew : loc ↦ [vnew] ∗ TinyML.ValHasType W vnew ty ⊢
-        SpatialAtom.interp W ρ (.pointsTo lt vt_new ty) := by
-      rw [← hvnew]
-      exact (SpatialAtom.interp_pointsTo W hlt).2
-    have hctx : (loc ↦ [vnew] ∗ TinyML.ValHasType W vnew ty) ∗ rest.interp W ρ ⊢
-        (insert (.pointsTo lt vt_new ty) rest).interp W ρ := by
-      simpa [insert, interp] using (sep_mono_left hnew)
-    have hq : (loc ↦ [vnew] ∗ TinyML.ValHasType W vnew ty) ∗ rest.interp W ρ ∗ R ⊢ Q .unit :=
-      sep_assoc.2.trans ((sep_mono_left hctx).trans h)
-    iapply hq
-    isplitl [Hnew HnewTy]
-    · isplitl [Hnew]
-      · iexact Hnew
-      · iexact HnewTy
-    · isplitr [HR]
+    iapply h
+    isplitl [Hnew HnewTy Hrest]
+    · simp only [SpatialContext.interp_insert]
+      isplitl [Hnew HnewTy]
+      · simp only [SpatialAtom.interp]
+        iexists loc
+        isplitr
+        · ipureintro
+          exact hlt_orig
+        · isplitl [Hnew]
+          · rw [hnew]
+            iexact Hnew
+          · rw [hnew]
+            iexact HnewTy
       · iexact Hrest
+    · isplitl []
+      · iapply TinyML.ValHasType.unit_intro
       · iexact HR
 
 /-- Assert under evaluation: first evaluate the tested expression, then take

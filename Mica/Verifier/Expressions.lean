@@ -1511,38 +1511,13 @@ theorem compileDerefOwned_correct (reg : Verifier.Registry) (e : Expr) (ty : Tin
   have hv_wf' : v.wfIn st₂.decls := by
     rw [hdecls]
     exact hv_wf
-  have hwp :
-      SpatialAtom.interp W ρ_e (.pointsTo se v ty) ∗ st₂.sl W ρ_e ∗
-        (TinyML.ValHasType W v_e (.owned ty) ∗ R) ⊢ wp W.pctx (.deref (.val v_e)) Φ := by
-    simp only [SpatialAtom.interp]
-    istart
-    iintro ⟨Hatom, Howns, _Howned, HR⟩
-    icases Hatom with ⟨%loc, %hse_loc, Hpt, #HstoredTy⟩
-    have hse_loc_orig : se.eval ρ_e = .loc loc := hse_loc
-    rw [heval_se] at hse_loc
-    rw [hse_loc]
-    iapply (wp.deref (l := loc) (v := v.eval ρ_e))
-    isplitl [Hpt]
-    · iexact Hpt
-    · iintro Hpt
-      iapply (hpost (v.eval ρ_e) ρ_e { st₂ with owns := .pointsTo se v ty :: st₂.owns }
-        v hret hv_wf' rfl)
-      isplitl [Hpt HstoredTy Howns]
-      · simp [TransState.sl_eq]
-        isplitl [Hpt HstoredTy]
-        · simp [SpatialAtom.interp]
-          iexists loc
-          isplitr
-          · ipureintro
-            exact hse_loc_orig
-          · isplitl [Hpt]
-            · iexact Hpt
-            · iexact HstoredTy
-        · iexact Howns
-      · isplitl [HstoredTy]
-        · iexact HstoredTy
-        · iexact HR
-  exact hwp
+  simpa [TransState.sl_eq] using
+    (SpatialContext.wp_deref_owned W (rest := st₂.owns) (lt := se) (vt := v) (ty := ty)
+      (R := R) (Q := Φ) heval_se
+      (by
+        simpa [TransState.sl_eq] using
+          hpost (v.eval ρ_e) ρ_e { st₂ with owns := .pointsTo se v ty :: st₂.owns }
+            v hret hv_wf' rfl))
 
 theorem compileDeref_correct (reg : Verifier.Registry) (e : Expr) (ty : TinyML.Typ)
     (ih : correctExpr reg e) :
@@ -1671,41 +1646,13 @@ theorem compileStoreOwned_correct (reg : Verifier.Registry) (loc val : Expr)
   have hret := VerifM.eval_ret hassume
   have hunit_wf : (Term.const .unit).wfIn ({ st₃ with owns := .pointsTo sl sv val.ty :: st₃.owns }).decls := by
     simp [Term.wfIn, Const.wfIn]
-  have hwp :
-      SpatialAtom.interp W ρ_l (.pointsTo sl old val.ty) ∗ st₃.sl W ρ_l ∗
-        (TinyML.ValHasType W v_l (.owned val.ty) ∗ (TinyML.ValHasType W v_v val.ty ∗ R)) ⊢
-          wp W.pctx (.store (.val v_l) (.val v_v)) Φ := by
-    simp only [SpatialAtom.interp]
-    istart
-    iintro ⟨Hatom, Howns, _Howned, #HnewTy, HR⟩
-    icases Hatom with ⟨%lref, %hsl_loc, Hold, _HoldTy⟩
-    have hsl_loc_orig : sl.eval ρ_l = .loc lref := hsl_loc
-    rw [heval_sl] at hsl_loc
-    rw [hsl_loc]
-    iapply (wp.store (l := lref) (old := old.eval ρ_l) (v := v_v))
-    isplitl [Hold]
-    · iexact Hold
-    · iintro Hnew
-      iapply (hpost .unit ρ_l { st₃ with owns := .pointsTo sl sv val.ty :: st₃.owns }
-        (Term.const .unit) hret hunit_wf (by simp [Term.eval]))
-      isplitl [Hnew HnewTy Howns]
-      · simp [TransState.sl_eq]
-        isplitl [Hnew HnewTy]
-        · simp [SpatialAtom.interp]
-          iexists lref
-          isplitr
-          · ipureintro
-            exact hsl_loc_orig
-          · isplitl [Hnew]
-            · rw [heval_sv_l]
-              iexact Hnew
-            · rw [heval_sv_l]
-              iexact HnewTy
-        · iexact Howns
-      · isplitl []
-        · iapply (TinyML.ValHasType.unit_intro W)
-        · iexact HR
-  exact hwp
+  simpa [TransState.sl_eq] using
+    (SpatialContext.wp_store_owned W (rest := st₃.owns) (lt := sl) (vt_old := old)
+      (vt_new := sv) (ty := val.ty) (R := R) (Q := Φ) heval_sl heval_sv_l
+      (by
+        simpa [TransState.sl_eq] using
+          hpost .unit ρ_l { st₃ with owns := .pointsTo sl sv val.ty :: st₃.owns }
+            (Term.const .unit) hret hunit_wf (by simp [Term.eval])))
 
 theorem compileStore_correct (reg : Verifier.Registry) (loc val : Expr)
     (ihVal : correctExpr reg val) (ihLoc : correctExpr reg loc) :
