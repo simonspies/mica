@@ -159,6 +159,29 @@ private def decVal (c : Char) : Nat := c.toNat - '0'.toNat
 private def isOctDigit (c : Char) : Bool := '0' ≤ c && c ≤ '7'
 private def octVal (c : Char) : Nat := c.toNat - '0'.toNat
 
+private def digitVal? (base : Nat) (c : Char) : Option Nat :=
+  let value := hexVal c
+  if isHexDigit c && value < base then some value else none
+
+/-- A digit of `base`, or the OCaml digit separator `_`. -/
+private def isDigitPart (base : Nat) (c : Char) : Bool :=
+  c == '_' || (digitVal? base c).isSome
+
+private def dropSeparators (chars : List Char) : List Char := chars.filter (· != '_')
+
+/-- Parse base-specific digits, ignoring OCaml digit separators. -/
+private def parseDigits (base : Nat) (chars : List Char) : Option Nat :=
+  let digits := dropSeparators chars
+  if digits.isEmpty then none
+  else digits.foldlM (fun n c => (digitVal? base c).map (n * base + ·)) 0
+
+/-- The base that an OCaml `0x`/`0o`/`0b` literal prefix selects. -/
+private def basePrefix? (c : Char) : Option Nat :=
+  if c == 'x' || c == 'X' then some 16
+  else if c == 'o' || c == 'O' then some 8
+  else if c == 'b' || c == 'B' then some 2
+  else none
+
 /-- UTF-8 encoding of a Unicode scalar value, as a byte list. -/
 private def utf8Bytes (n : Nat) : List UInt8 := (Char.ofNat n).toString.toUTF8.data.toList
 
@@ -327,14 +350,31 @@ where
   lexNumber (st : LexState) (acc : Array (Location × Token))
       : Except LexError (Array (Location × Token)) :=
     let p := st.pos
-    let (digits, stDigits) := collectWhile isDigit st
+    let (base, prefixChars, stStart) :=
+      match st.source with
+      | '0' :: c :: _ =>
+        match basePrefix? c with
+        | some base => (base, ['0', c], (st.advance '0').advance c)
+        | none => (10, [], st)
+      | _ => (10, [], st)
+    let (digits, stDigits) := collectWhile (isDigitPart base) stStart
+    if base != 10 then
+      let text := String.ofList (prefixChars ++ digits)
+      match parseDigits base digits with
+      | none => .error { pos := p, kind := .invalidIntLiteral text }
+      | some n =>
+        lex stDigits (acc.push ({ start := p, stop := stDigits.pos }, .intLit (Int.ofNat n)))
+    else lexDecimal p digits stDigits acc
+
+  lexDecimal (p : Position) (digits : List Char) (stDigits : LexState)
+      (acc : Array (Location × Token)) : Except LexError (Array (Location × Token)) :=
     let (fracDigits, stFrac, sawFrac) :=
       match stDigits.source with
       | '.' :: _ =>
         -- A `.` after the integer part starts a float, even with no fractional
         -- digits: OCaml allows a trailing dot (`1.`, `1.e2`). After a numeric
         -- mantissa a `.` only ever introduces a float in this grammar.
-        let (frac, stAfterFrac) := collectWhile isDigit (stDigits.advance '.')
+        let (frac, stAfterFrac) := collectWhile (isDigitPart 10) (stDigits.advance '.')
         (frac, stAfterFrac, true)
       | _ => ([], stDigits, false)
     let parseExp (st0 : LexState) : Except LexError (Option (Bool × Nat) × LexState) :=
@@ -346,11 +386,11 @@ where
           | '+' :: _ => (false, st1.advance '+')
           | '-' :: _ => (true, st1.advance '-')
           | _ => (false, st1)
-        let (expDigits, st3) := collectWhile isDigit st2
-        if expDigits.isEmpty then
+        let (expDigits, st3) := collectWhile (isDigitPart 10) st2
+        if (dropSeparators expDigits).isEmpty then
           .error { pos := st0.pos, kind := .invalidFloatLiteral (String.ofList (digits ++ fracDigits)) }
         else
-          match (String.ofList expDigits).toNat? with
+          match parseDigits 10 expDigits with
           | some e => .ok (some (neg, e), st3)
           | none => .error { pos := st0.pos, kind := .invalidFloatLiteral (String.ofList expDigits) }
       | _ => .ok (none, st0)
@@ -359,23 +399,23 @@ where
     | .ok (expOpt, st') =>
       if sawFrac || expOpt.isSome then
         let mantText := String.ofList (digits ++ fracDigits)
-        match mantText.toNat? with
+        match parseDigits 10 (digits ++ fracDigits) with
         | none => .error { pos := p, kind := .invalidFloatLiteral mantText }
         | some mant =>
           let signedExp : Int :=
             match expOpt with
             | none => 0
             | some (neg, e) => if neg then -Int.ofNat e else Int.ofNat e
-          let shift := signedExp - Int.ofNat fracDigits.length
+          let shift := signedExp - Int.ofNat (dropSeparators fracDigits).length
           let f :=
             if shift < 0 then Float.ofScientific mant true ((-shift).toNat)
             else Float.ofScientific mant false shift.toNat
           lex st' (acc.push ({ start := p, stop := st'.pos }, .floatLit f))
       else
         let text := String.ofList digits
-        match text.toInt? with
-        | some n => lex st' (acc.push ({ start := p, stop := st'.pos }, .intLit n))
-        | none   => .error { pos := p, kind := .invalidIntLiteral text }
+        match parseDigits 10 digits with
+        | some n => lex st' (acc.push ({ start := p, stop := st'.pos }, .intLit (Int.ofNat n)))
+        | none => .error { pos := p, kind := .invalidIntLiteral text }
 
   lexIdent (st : LexState) (acc : Array (Location × Token))
       : Except LexError (Array (Location × Token)) :=
