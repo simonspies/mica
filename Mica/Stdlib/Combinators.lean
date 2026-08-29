@@ -141,6 +141,16 @@ def valInt : Runtime.Val → Int
   | .int n => n
   | _      => 0
 
+/-- 32-bit integer projection of a runtime value, matching FOL's `toInt32`. -/
+def valInt32 : Runtime.Val → BitVec 32
+  | .int32 bits => bits
+  | _ => 0
+
+/-- 64-bit integer projection of a runtime value, matching FOL's `toInt64`. -/
+def valInt64 : Runtime.Val → BitVec 64
+  | .int64 bits => bits
+  | _ => 0
+
 /-- Boolean projection of a runtime value, matching FOL's `toBool`. -/
 def valBool : Runtime.Val → Bool
   | .bool b => b
@@ -169,6 +179,12 @@ def valVec : Runtime.Val → List Runtime.Val
 /-- Integers as `.int` values. -/
 def Embedding.int  : Embedding :=
   ⟨.int, Int, .int, valInt, fun _ _ _ => iprop(emp), some .isInt⟩
+/-- 32-bit integers as `.int32` values. -/
+def Embedding.int32 : Embedding :=
+  ⟨.int32, BitVec 32, .int32, valInt32, fun _ _ _ => iprop(emp), some .isInt32⟩
+/-- 64-bit integers as `.int64` values. -/
+def Embedding.int64 : Embedding :=
+  ⟨.int64, BitVec 64, .int64, valInt64, fun _ _ _ => iprop(emp), some .isInt64⟩
 /-- Booleans as `.bool` values. -/
 def Embedding.bool : Embedding :=
   ⟨.bool, Bool, .bool, valBool, fun _ _ _ => iprop(emp), some .isBool⟩
@@ -236,6 +252,26 @@ def Embedding.lawfulInt : Embedding.int.Lawful where
   member _ W w := pure_member (φ := fun x => w = .int x)
     (by simpa [Embedding.int, TinyML.Typ.subst] using TinyML.ValHasType.int W w)
   intro _ W x := by simpa [Embedding.int, TinyML.Typ.subst] using TinyML.ValHasType.int_intro W x
+
+/-- 32-bit integers are a lawful embedding. -/
+def Embedding.lawfulInt32 : Embedding.int32.Lawful where
+  project_inject _ := rfl
+  isOf_wf _ _ h := by cases h; trivial
+  isOf_inject _ _ _ h := by cases h; simp [Embedding.int32]
+  member _ W w := pure_member (φ := fun x => w = .int32 x)
+    (by simpa [Embedding.int32, TinyML.Typ.subst] using TinyML.ValHasType.int32 W w)
+  intro _ W x := by
+    simpa [Embedding.int32, TinyML.Typ.subst] using TinyML.ValHasType.int32_intro W x
+
+/-- 64-bit integers are a lawful embedding. -/
+def Embedding.lawfulInt64 : Embedding.int64.Lawful where
+  project_inject _ := rfl
+  isOf_wf _ _ h := by cases h; trivial
+  isOf_inject _ _ _ h := by cases h; simp [Embedding.int64]
+  member _ W w := pure_member (φ := fun x => w = .int64 x)
+    (by simpa [Embedding.int64, TinyML.Typ.subst] using TinyML.ValHasType.int64 W w)
+  intro _ W x := by
+    simpa [Embedding.int64, TinyML.Typ.subst] using TinyML.ValHasType.int64_intro W x
 
 /-- Booleans are a lawful embedding. -/
 def Embedding.lawfulBool : Embedding.bool.Lawful where

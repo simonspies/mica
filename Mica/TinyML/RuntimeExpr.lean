@@ -21,6 +21,8 @@ instance : LawfulBEq Binder where
 mutual
   inductive Val where
     | int (n : Int)
+    | int32 (bits : BitVec 32)
+    | int64 (bits : BitVec 64)
     | bool (b : Bool)
     | char (c : UInt8)
     | str (s : List UInt8)
@@ -81,6 +83,8 @@ theorem Expr.isFunc_elim {e : Expr} (h : e.isFunc = true) :
 /-- Runtime erasure of `TinyML.Const` -/
 def Val.ofConst : TinyML.Const → Val
   | .int n  => .int n
+  | .int32 bits => .int32 bits
+  | .int64 bits => .int64 bits
   | .bool b => .bool b
   | .char c => .char c
   | .string s => .str s
@@ -96,6 +100,12 @@ mutual
     all_goals first | exact isFalse (by omega) | skip
     all_goals first | exact isFalse Val.noConfusion | skip
     case int.int a b => exact match decEq a b with
+      | isTrue h => isTrue (by subst h; rfl)
+      | isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
+    case int32.int32 a b => exact match decEq a b with
+      | isTrue h => isTrue (by subst h; rfl)
+      | isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
+    case int64.int64 a b => exact match decEq a b with
       | isTrue h => isTrue (by subst h; rfl)
       | isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
     case bool.bool a b => exact match decEq a b with

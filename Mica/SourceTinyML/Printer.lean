@@ -190,6 +190,12 @@ private partial def printAtom : Untyped.Expr → String
 
 partial def printConst : TinyML.Const → String
   | .int n => if n < 0 then s!"({n})" else s!"{n}"
+  | .int32 bits =>
+      let literal := s!"{bits.toInt}l"
+      if bits.toInt < 0 then s!"({literal})" else literal
+  | .int64 bits =>
+      let literal := s!"{bits.toInt}L"
+      if bits.toInt < 0 then s!"({literal})" else literal
   | .bool b => if b then "true" else "false"
   | .char c => s!"'{Char.ofNat c.toNat}'"
   | .string _ => "\"...\""

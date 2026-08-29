@@ -293,6 +293,8 @@ abbrev Binders := List Binder
 
 def Const.ty : Const → Typ.WithTypeVars V
   | .int _ => .int
+  | .int32 _ => .int32
+  | .int64 _ => .int64
   | .bool _ => .bool
   | .char _ => .char
   | .string _ => .string

@@ -42,6 +42,8 @@ def PrimitiveType.valRelBody : PrimitiveType → Runtime.Val → iProp
   | .unit, v => iprop(⌜v = .unit⌝)
   | .bool, v => iprop(⌜∃ b, v = .bool b⌝)
   | .int, v => iprop(⌜∃ n, v = .int n⌝)
+  | .int32, v => iprop(⌜∃ bits, v = .int32 bits⌝)
+  | .int64, v => iprop(⌜∃ bits, v = .int64 bits⌝)
   | .char, v => iprop(⌜∃ c, v = .char c⌝)
   | .string, v => iprop(⌜∃ s, v = .str s⌝)
   | .float, v => iprop(⌜∃ b, v = .float b⌝)
@@ -502,6 +504,16 @@ theorem ValHasType.int (W : World) (v : Runtime.Val) :
   change ValHasType W v (.prim .int) ⊣⊢ iprop(⌜∃ n, v = .int n⌝)
   exact equiv_iff.mp (ValHasType.unfold W v Typ.int)
 
+theorem ValHasType.int32 (W : World) (v : Runtime.Val) :
+    ValHasType W v Typ.int32 ⊣⊢ iprop(⌜∃ bits, v = .int32 bits⌝) := by
+  change ValHasType W v (.prim .int32) ⊣⊢ iprop(⌜∃ bits, v = .int32 bits⌝)
+  exact equiv_iff.mp (ValHasType.unfold W v Typ.int32)
+
+theorem ValHasType.int64 (W : World) (v : Runtime.Val) :
+    ValHasType W v Typ.int64 ⊣⊢ iprop(⌜∃ bits, v = .int64 bits⌝) := by
+  change ValHasType W v (.prim .int64) ⊣⊢ iprop(⌜∃ bits, v = .int64 bits⌝)
+  exact equiv_iff.mp (ValHasType.unfold W v Typ.int64)
+
 theorem ValHasType.char (W : World) (v : Runtime.Val) :
     ValHasType W v Typ.char ⊣⊢ iprop(⌜∃ c, v = .char c⌝) := by
   change ValHasType W v (.prim .char) ⊣⊢ iprop(⌜∃ c, v = .char c⌝)
@@ -766,6 +778,20 @@ theorem ValHasType.int_intro (W : World) (n : Int) :
   iapply (ValHasType.int W (.int n)).2
   ipureintro
   exact ⟨n, rfl⟩
+
+/-- The canonical proof that a 32-bit integer literal has type `int32`. -/
+theorem ValHasType.int32_intro (W : World) (bits : BitVec 32) :
+    ⊢ ValHasType W (.int32 bits) Typ.int32 := by
+  iapply (ValHasType.int32 W (.int32 bits)).2
+  ipureintro
+  exact ⟨bits, rfl⟩
+
+/-- The canonical proof that a 64-bit integer literal has type `int64`. -/
+theorem ValHasType.int64_intro (W : World) (bits : BitVec 64) :
+    ⊢ ValHasType W (.int64 bits) Typ.int64 := by
+  iapply (ValHasType.int64 W (.int64 bits)).2
+  ipureintro
+  exact ⟨bits, rfl⟩
 
 /-- The canonical proof that a character literal has type `char`. -/
 theorem ValHasType.char_intro (W : World) (c : UInt8) :
@@ -1565,6 +1591,22 @@ theorem PrimitiveType.typeConstraints_hold {p : PrimitiveType} {t : Term .value}
   · refine (TinyML.ValHasType.int W v).1.trans ?_
     iintro %h
     rcases h with ⟨n, rfl⟩
+    ipureintro
+    intro φ hφ
+    simp [PrimitiveType.typeConstraints] at hφ
+    rcases hφ with rfl
+    simp [Formula.eval, ht]
+  · refine (TinyML.ValHasType.int32 W v).1.trans ?_
+    iintro %h
+    rcases h with ⟨bits, rfl⟩
+    ipureintro
+    intro φ hφ
+    simp [PrimitiveType.typeConstraints] at hφ
+    rcases hφ with rfl
+    simp [Formula.eval, ht]
+  · refine (TinyML.ValHasType.int64 W v).1.trans ?_
+    iintro %h
+    rcases h with ⟨bits, rfl⟩
     ipureintro
     intro φ hφ
     simp [PrimitiveType.typeConstraints] at hφ

@@ -88,6 +88,8 @@ mutual
       (Gf : GhostFns) (G B : Bindings) (Γ : TinyML.TyCtx) :
       Expr → VerifM (Term .value)
     | .const (.int n)  => pure (.unop .ofInt  (.const (.i n)))
+    | .const (.int32 bits) => pure (.unop .ofInt32 (.const (.bv bits)))
+    | .const (.int64 bits) => pure (.unop .ofInt64 (.const (.bv bits)))
     | .const (.bool b) => pure (.unop .ofBool (.const (.b b)))
     | .const (.char c) => pure (.unop .ofChar (.const (.char c)))
     | .const (.string s) => pure (.unop .ofString (.const (.str s)))
@@ -424,6 +426,14 @@ theorem compileGhostConst_correct (W : TinyML.World) (Gf : GhostFns) (c : TinyML
     exact step _ (.int n) _ hpost (VerifM.eval_ret heval)
       (by simp [Term.wfIn, Const.wfIn, UnOp.wfIn])
       (by simp [Term.eval, UnOp.eval, Const.denote]) (TinyML.ValHasType.int_intro W n)
+  case int32 bits =>
+    exact step _ (.int32 bits) _ hpost (VerifM.eval_ret heval)
+      (by simp [Term.wfIn, Const.wfIn, UnOp.wfIn])
+      (by simp [Term.eval, UnOp.eval, Const.denote]) (TinyML.ValHasType.int32_intro W bits)
+  case int64 bits =>
+    exact step _ (.int64 bits) _ hpost (VerifM.eval_ret heval)
+      (by simp [Term.wfIn, Const.wfIn, UnOp.wfIn])
+      (by simp [Term.eval, UnOp.eval, Const.denote]) (TinyML.ValHasType.int64_intro W bits)
   case bool b =>
     exact step _ (.bool b) _ hpost (VerifM.eval_ret heval)
       (by simp [Term.wfIn, Const.wfIn, UnOp.wfIn])

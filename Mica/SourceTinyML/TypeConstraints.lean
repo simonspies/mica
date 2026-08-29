@@ -17,6 +17,8 @@ namespace TinyML
 def PrimitiveType.typeConstraints (p : PrimitiveType) (t : Term .value) : List Formula :=
   match p with
   | .int => [.unpred .isInt t]
+  | .int32 => [.unpred .isInt32 t]
+  | .int64 => [.unpred .isInt64 t]
   | .bool => [.unpred .isBool t]
   | .char => [.unpred .isChar t]
   | .string => [.unpred .isStr t]
@@ -27,6 +29,8 @@ def PrimitiveType.typeConstraints (p : PrimitiveType) (t : Term .value) : List F
 theorem PrimitiveType.typeConstraints_wfIn {p : PrimitiveType} {t : Term .value} {Δ : Signature}
     (ht : t.wfIn Δ) : ∀ φ ∈ p.typeConstraints t, φ.wfIn Δ := by
   cases p <;> simp [PrimitiveType.typeConstraints]
+  · simp only [Formula.wfIn]; exact ⟨trivial, ht⟩
+  · simp only [Formula.wfIn]; exact ⟨trivial, ht⟩
   · simp only [Formula.wfIn]; exact ⟨trivial, ht⟩
   · simp only [Formula.wfIn]; exact ⟨trivial, ht⟩
   · simp only [Formula.wfIn]; exact ⟨trivial, ht⟩
