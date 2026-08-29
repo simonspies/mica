@@ -14,21 +14,42 @@ def evalUnOp (op : TinyML.UnOp) (v : Runtime.Val) : Option Runtime.Val :=
   | .proj n, .tuple vs => vs[n]?
   | _, _            => none
 
+def intOp (f : Int → Int → Option Runtime.Val) : Runtime.Val → Runtime.Val → Option Runtime.Val
+  | .int a, .int b => f a b
+  | _, _ => none
+
+def boolOp (f : Bool → Bool → Option Runtime.Val) : Runtime.Val → Runtime.Val → Option Runtime.Val
+  | .bool a, .bool b => f a b
+  | _, _ => none
+
+@[simp] theorem intOp_int (f : Int → Int → Option Runtime.Val) (a b : Int) :
+    intOp f (.int a) (.int b) = f a b := rfl
+
+@[simp] theorem boolOp_bool (f : Bool → Bool → Option Runtime.Val) (a b : Bool) :
+    boolOp f (.bool a) (.bool b) = f a b := rfl
+
+theorem intOp_eq {f : Int → Int → Option Runtime.Val} {v1 v2 w : Runtime.Val}
+    (h : intOp f v1 v2 = some w) : ∃ a b, v1 = .int a ∧ v2 = .int b ∧ f a b = some w := by
+  cases v1 <;> cases v2 <;> simp_all [intOp]
+
+theorem boolOp_eq {f : Bool → Bool → Option Runtime.Val} {v1 v2 w : Runtime.Val}
+    (h : boolOp f v1 v2 = some w) : ∃ a b, v1 = .bool a ∧ v2 = .bool b ∧ f a b = some w := by
+  cases v1 <;> cases v2 <;> simp_all [boolOp]
+
 def evalBinOp (op : TinyML.BinOp) (v1 v2 : Runtime.Val) : Option Runtime.Val :=
-  match op, v1, v2 with
-  | .add, .int a, .int b  => some (.int (a + b))
-  | .sub, .int a, .int b  => some (.int (a - b))
-  | .mul, .int a, .int b  => some (.int (a * b))
-  | .div, .int a, .int b  => if b = 0 then none else some (.int (a / b))
-  | .mod, .int a, .int b  => if b = 0 then none else some (.int (a % b))
-  | .eq,  .int a, .int b  => some (.bool (a == b))
-  | .lt,  .int a, .int b  => some (.bool (a < b))
-  | .le,  .int a, .int b  => some (.bool (a ≤ b))
-  | .gt,  .int a, .int b  => some (.bool (a > b))
-  | .ge,  .int a, .int b  => some (.bool (a ≥ b))
-  | .and, .bool a, .bool b => some (.bool (a && b))
-  | .or,  .bool a, .bool b => some (.bool (a || b))
-  | _, _, _                => none
+  match op with
+  | .add => intOp (fun a b => some (.int (a + b))) v1 v2
+  | .sub => intOp (fun a b => some (.int (a - b))) v1 v2
+  | .mul => intOp (fun a b => some (.int (a * b))) v1 v2
+  | .div => intOp (fun a b => if b = 0 then none else some (.int (a / b))) v1 v2
+  | .mod => intOp (fun a b => if b = 0 then none else some (.int (a % b))) v1 v2
+  | .eq  => intOp (fun a b => some (.bool (a == b))) v1 v2
+  | .lt  => intOp (fun a b => some (.bool (a < b))) v1 v2
+  | .le  => intOp (fun a b => some (.bool (a ≤ b))) v1 v2
+  | .gt  => intOp (fun a b => some (.bool (a > b))) v1 v2
+  | .ge  => intOp (fun a b => some (.bool (a ≥ b))) v1 v2
+  | .and => boolOp (fun a b => some (.bool (a && b))) v1 v2
+  | .or  => boolOp (fun a b => some (.bool (a || b))) v1 v2
 
 /-! ## Evaluation contexts -/
 
