@@ -19,11 +19,11 @@ let create (u : unit) : dyn =
   ret (fun d ->
     let dr = d.data in
     bind (own dr) @@ fun (a : int array [@owned]) ->
-    bind (arr a) @@ fun (w : int vec) ->
+    bind (arr a) @@ fun (v : int vec) ->
     let s = d.size in
-    bind (own s) @@ fun (m : int) ->
-    assert (Vec.length w = 0);
-    assert (m = 0))];;
+    bind (own s) @@ fun (n : int) ->
+    assert (Vec.length v = 0);
+    assert (n = 0))];;
 
 (* Read the element at index [i]. *)
 let get (d : dyn) (i : int) : int =
@@ -39,15 +39,15 @@ let get (d : dyn) (i : int) : int =
   assert (0 <= i && i < n && n <= Vec.length v);
   ret (fun r ->
     let dr2 = d.data in
-    bind (own dr2) @@ fun (b : int array [@owned]) ->
-    bind (arr b) @@ fun (w : int vec) ->
+    bind (own dr2) @@ fun (a2 : int array [@owned]) ->
+    bind (arr a2) @@ fun (v2 : int vec) ->
     let s2 = d.size in
-    bind (own s2) @@ fun (m : int) ->
-    assert (m = n);
-    assert (Vec.length w = Vec.length v);
+    bind (own s2) @@ fun (n2 : int) ->
+    assert (n2 = n);
+    assert (Vec.length v2 = Vec.length v);
     assert (r = Vec.get v i);
     assert (Range.all 0 (Vec.length v) (fun (q : int) : bool ->
-              Vec.get w q = Vec.get v q)))];;
+              Vec.get v2 q = Vec.get v q)))];;
 
 (* Write [x] at index [i]. *)
 let set (d : dyn) (i : int) (x : int) : unit =
@@ -63,15 +63,15 @@ let set (d : dyn) (i : int) (x : int) : unit =
   assert (0 <= i && i < n && n <= Vec.length v);
   ret (fun r ->
     let dr2 = d.data in
-    bind (own dr2) @@ fun (b : int array [@owned]) ->
-    bind (arr b) @@ fun (w : int vec) ->
+    bind (own dr2) @@ fun (a2 : int array [@owned]) ->
+    bind (arr a2) @@ fun (v2 : int vec) ->
     let s2 = d.size in
-    bind (own s2) @@ fun (m : int) ->
-    assert (m = n);
-    assert (Vec.length w = Vec.length v);
-    assert (Vec.get w i = x);
+    bind (own s2) @@ fun (n2 : int) ->
+    assert (n2 = n);
+    assert (Vec.length v2 = Vec.length v);
+    assert (Vec.get v2 i = x);
     assert (Range.all 0 (Vec.length v) (fun (q : int) : bool ->
-              if not (q = i) then Vec.get w q = Vec.get v q else true)))];;
+              if not (q = i) then Vec.get v2 q = Vec.get v q else true)))];;
 
 (* The last element of the live prefix. *)
 let last (d : dyn) : int =
@@ -89,15 +89,15 @@ let last (d : dyn) : int =
   assert (0 < n && n <= Vec.length v);
   ret (fun r ->
     let dr2 = d.data in
-    bind (own dr2) @@ fun (b : int array [@owned]) ->
-    bind (arr b) @@ fun (w : int vec) ->
+    bind (own dr2) @@ fun (a2 : int array [@owned]) ->
+    bind (arr a2) @@ fun (v2 : int vec) ->
     let s2 = d.size in
-    bind (own s2) @@ fun (m : int) ->
-    assert (m = n);
-    assert (Vec.length w = Vec.length v);
+    bind (own s2) @@ fun (n2 : int) ->
+    assert (n2 = n);
+    assert (Vec.length v2 = Vec.length v);
     assert (r = Vec.get v (n - 1));
     assert (Range.all 0 (Vec.length v) (fun (q : int) : bool ->
-              Vec.get w q = Vec.get v q)))];;
+              Vec.get v2 q = Vec.get v q)))];;
 
 (* Remove and return the last element, shrinking the size in place. *)
 let pop (d : dyn) : int =
@@ -116,18 +116,18 @@ let pop (d : dyn) : int =
   assert (0 < n && n <= Vec.length v);
   ret (fun r ->
     let dr2 = d.data in
-    bind (own dr2) @@ fun (b : int array [@owned]) ->
-    bind (arr b) @@ fun (w : int vec) ->
+    bind (own dr2) @@ fun (a2 : int array [@owned]) ->
+    bind (arr a2) @@ fun (v2 : int vec) ->
     let s2 = d.size in
-    bind (own s2) @@ fun (m : int) ->
-    assert (m = n - 1);
-    assert (Vec.length w = Vec.length v);
+    bind (own s2) @@ fun (n2 : int) ->
+    assert (n2 = n - 1);
+    assert (Vec.length v2 = Vec.length v);
     assert (r = Vec.get v (n - 1));
     assert (Range.all 0 (Vec.length v) (fun (q : int) : bool ->
-              Vec.get w q = Vec.get v q)))];;
+              Vec.get v2 q = Vec.get v q)))];;
 
-(* Copy [src.(k .. n-1)] into [dst.(k .. n-1)].  Hand-rolled, until
-   [Array.blit] lands in the stdlib. *)
+(* Copy [src.(k .. n-1)] into [dst.(k .. n-1)].  Hand-rolled until Mica's
+   modeled standard library supports [Array.blit]. *)
 let rec copy_into (src : int array [@owned]) (dst : int array [@owned])
     (k : int) (n : int) : unit =
   if k < n then
@@ -157,9 +157,9 @@ let grow (d : dyn) : unit =
   let s = d.size in
   let a = !dr in
   let n = !s in
-  let c = Array.make (2 * Array.length a + 1) 0 [@owned] in
-  copy_into a c 0 n;
-  dr := c
+  let a2 = Array.make (2 * Array.length a + 1) 0 [@owned] in
+  copy_into a a2 0 n;
+  dr := a2
 [@@spec fun d ->
   let dr = d.data in
   bind (own dr) @@ fun (a : int array [@owned]) ->
@@ -169,14 +169,14 @@ let grow (d : dyn) : unit =
   assert (0 <= n && n <= Vec.length v);
   ret (fun r ->
     let dr2 = d.data in
-    bind (own dr2) @@ fun (b : int array [@owned]) ->
-    bind (arr b) @@ fun (w : int vec) ->
+    bind (own dr2) @@ fun (a2 : int array [@owned]) ->
+    bind (arr a2) @@ fun (v2 : int vec) ->
     let s2 = d.size in
-    bind (own s2) @@ fun (m : int) ->
-    assert (m = n);
-    assert (Vec.length w = 2 * Vec.length v + 1);
+    bind (own s2) @@ fun (n2 : int) ->
+    assert (n2 = n);
+    assert (Vec.length v2 = 2 * Vec.length v + 1);
     assert (Range.all 0 n (fun (q : int) : bool ->
-              Vec.get w q = Vec.get v q)))];;
+              Vec.get v2 q = Vec.get v q)))];;
 
 (* Append [x], reallocating when full. *)
 let push (d : dyn) (x : int) : unit =
@@ -185,8 +185,8 @@ let push (d : dyn) (x : int) : unit =
   let a = !dr in
   let n = !s in
   (if n < Array.length a then () else grow d);
-  let b = !dr in
-  b.(n) <- x;
+  let a2 = !dr in
+  a2.(n) <- x;
   s := n + 1
 [@@spec fun d x ->
   let dr = d.data in
@@ -197,15 +197,15 @@ let push (d : dyn) (x : int) : unit =
   assert (0 <= n && n <= Vec.length v);
   ret (fun r ->
     let dr2 = d.data in
-    bind (own dr2) @@ fun (b : int array [@owned]) ->
-    bind (arr b) @@ fun (w : int vec) ->
+    bind (own dr2) @@ fun (a2 : int array [@owned]) ->
+    bind (arr a2) @@ fun (v2 : int vec) ->
     let s2 = d.size in
-    bind (own s2) @@ fun (m : int) ->
-    assert (m = n + 1);
-    assert (m <= Vec.length w);
-    assert (Vec.get w n = x);
+    bind (own s2) @@ fun (n2 : int) ->
+    assert (n2 = n + 1);
+    assert (n2 <= Vec.length v2);
+    assert (Vec.get v2 n = x);
     assert (Range.all 0 n (fun (q : int) : bool ->
-              Vec.get w q = Vec.get v q)))];;
+              Vec.get v2 q = Vec.get v q)))];;
 
 (* Push [!size], .., [k-1] onto a dynarray already holding [0, .., !size-1]. *)
 let rec fill_from (d : dyn) (k : int) : unit =
@@ -225,13 +225,13 @@ let rec fill_from (d : dyn) (k : int) : unit =
   assert (Range.all 0 n (fun (q : int) : bool -> Vec.get v q = q));
   ret (fun r ->
     let dr2 = d.data in
-    bind (own dr2) @@ fun (b : int array [@owned]) ->
-    bind (arr b) @@ fun (w : int vec) ->
+    bind (own dr2) @@ fun (a2 : int array [@owned]) ->
+    bind (arr a2) @@ fun (v2 : int vec) ->
     let s2 = d.size in
-    bind (own s2) @@ fun (m : int) ->
-    assert (m = k);
-    assert (m <= Vec.length w);
-    assert (Range.all 0 k (fun (q : int) : bool -> Vec.get w q = q)))];;
+    bind (own s2) @@ fun (n2 : int) ->
+    assert (n2 = k);
+    assert (n2 <= Vec.length v2);
+    assert (Range.all 0 k (fun (q : int) : bool -> Vec.get v2 q = q)))];;
 
 (* From [create], a dynarray holding [0, 1, .., k-1].  The pushes cross
    several resizes. *)
@@ -243,10 +243,10 @@ let fill (k : int) : dyn =
   assert (0 <= k);
   ret (fun e ->
     let dr = e.data in
-    bind (own dr) @@ fun (b : int array [@owned]) ->
-    bind (arr b) @@ fun (w : int vec) ->
+    bind (own dr) @@ fun (a : int array [@owned]) ->
+    bind (arr a) @@ fun (v : int vec) ->
     let s = e.size in
-    bind (own s) @@ fun (m : int) ->
-    assert (m = k);
-    assert (m <= Vec.length w);
-    assert (Range.all 0 k (fun (q : int) : bool -> Vec.get w q = q)))];;
+    bind (own s) @@ fun (n : int) ->
+    assert (n = k);
+    assert (n <= Vec.length v);
+    assert (Range.all 0 k (fun (q : int) : bool -> Vec.get v q = q)))];;

@@ -40,7 +40,8 @@ let swap (a : int array [@owned]) (i : int) (j : int) : unit =
 
 (* Lomuto partition of the window [lo, hi] around the pivot [a.(hi)]: [i] marks
    the boundary of the "<= pivot" region, [j] is the scan cursor.  Returns the
-   pivot's final index, smaller elements to its left, larger to its right. *)
+   pivot's final index, elements no greater than it to its left, and greater
+   elements to its right. *)
 let rec partition (a : int array [@owned]) (lo : int) (hi : int) (i : int) (j : int)
     (blo : int option) (bhi : int option) : int =
   if j < hi then

@@ -5,7 +5,7 @@ Sorting algorithms over `int array`s, each verified at one of two levels.
 specifications: the verified property is that every read, write, and swap index
 stays in bounds. **Correctness** uses an owned array (`[@owned]`), whose
 contents the specification binds as an `int vec`, and the postcondition states
-that the final contents are sorted. A dash is work not done, not a property 
+that the final contents are sorted. A dash is work not done, not a property
 known to fail.
 
 | Algorithm | Safety | Correctness |
