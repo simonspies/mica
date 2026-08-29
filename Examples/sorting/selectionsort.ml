@@ -13,10 +13,7 @@ open Mica
 
    Safety ([selectionsort_safe], shared array): shared arrays expose only their
    length in specifications, so the verified property is that every read,
-   write, and swap index stays in bounds.
-
-   Neither variant states that the result is a permutation of the input; that
-   needs multiset equality over vector contents. *)
+   write, and swap index stays in bounds. *)
 
 
 (* -------------------------------------------------------------------- *)

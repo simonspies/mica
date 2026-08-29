@@ -11,9 +11,9 @@ known to fail.
 | Algorithm | Safety | Correctness |
 |---|---|---|
 | `bubblesort.ml` | ✓ | — |
-| `insertionsort.ml` | ✓ | — |
+| `insertionsort.ml` | ✓ | ✓ |
 | `mergesort.ml` | ✓ | — |
-| `quicksort.ml` | ✓ | — |
+| `quicksort.ml` | ✓ | ✓ |
 | `selectionsort.ml` | ✓ | ✓ |
 
 Heapsort lives with the binary min-heap in `../heap.ml`, safety only. No
