@@ -1,0 +1,2 @@
+elaboration error: Tests/frontend/decl_impl_payload.ml:9:9: unsupported feature: [@@impl] takes no payload; the specification it adds is derived from [@@fn]
+[1]

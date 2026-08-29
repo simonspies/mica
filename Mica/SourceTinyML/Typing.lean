@@ -551,7 +551,9 @@ def ValDecl.elaborate (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx)
       -- A specified declaration's literal records its specification, so the
       -- declaration's own type — and hence the type every later use is
       -- annotated with — is the specified arrow.
-      let (_, body') ← ValDecl.elaborateSpecified env Θ Γ none rb d.body
+      -- `d.relation` is the declaration's own name.
+      let (_, body') ← ValDecl.elaborateSpecified env Θ Γ
+        (if d.impl then d.relation else none) rb d.body
       checkDeclAnnotation env Θ d.name body'.ty
       pure { name := Typed.Binder.ofUntyped d.name body'.ty, body := body',
              relation := d.relation }

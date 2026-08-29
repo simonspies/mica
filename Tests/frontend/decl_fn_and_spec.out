@@ -1,0 +1,2 @@
+elaboration error: Tests/frontend/decl_fn_and_spec.ml:7:1: unsupported feature: a declaration carries [@@spec] or [@@fn], not both
+[1]
