@@ -489,17 +489,9 @@ theorem agreeOn_extend_fresh (i : Intrinsic) {Δ : Signature} (ρ : Env)
   revert hfresh
   cases i.folSym <;> exact id
 
-/-- The intrinsic's argument types, in left-to-right order. -/
-def argTysList (i : Intrinsic) : List TinyML.SchemaTyp :=
-  i.argTys
-
-/-- The intrinsic's result type. -/
-def resultTy (i : Intrinsic) : TinyML.SchemaTyp :=
-  i.retTy
-
 /-- The intrinsic's full arrow (scheme) type. -/
 def arrowType (i : Intrinsic) : TinyML.SchemaTyp :=
-  .arrow i.argTysList i.resultTy none
+  .arrow i.argTys i.retTy none
 
 /-- Adapter from the list-shaped argument call (used by OpSem and `wp`) to
     the arity-shaped representation. Out-of-shape calls produce the empty
@@ -1061,7 +1053,7 @@ theorem eval_declSym {n : Arity} (sym : Option (FOL.Symbol n))
       refine ⟨ρ.updateUnary .value .value s.name s.interp,
               Env.agreeOn_update_fresh_unary (u := ⟨s.name, .value, .value⟩) hfresh,
               ?_, ?_⟩
-      · simp [Env.respects, Env.updateUnary, Env.updateUnary]
+      · simp [Env.respects, Env.updateUnary]
       · exact hcont s.interp
   | two =>
     cases sym with
@@ -1075,7 +1067,7 @@ theorem eval_declSym {n : Arity} (sym : Option (FOL.Symbol n))
       refine ⟨ρ.updateBinary .value .value .value s.name (fun a b => s.interp (a, b)),
               Env.agreeOn_update_fresh_binary (b := ⟨s.name, .value, .value, .value⟩) hfresh,
               ?_, ?_⟩
-      · simp [Env.respects, Env.updateBinary, Env.updateBinary]
+      · simp [Env.respects, Env.updateBinary]
       · exact hcont (fun a b => s.interp (a, b))
   | three =>
     cases sym with
@@ -1091,7 +1083,7 @@ theorem eval_declSym {n : Arity} (sym : Option (FOL.Symbol n))
               Env.agreeOn_update_fresh_ternary
                 (t := ⟨s.name, .value, .value, .value, .value⟩) hfresh,
               ?_, ?_⟩
-      · simp [Env.respects, Env.updateTernary, Env.updateTernary]
+      · simp [Env.respects, Env.updateTernary]
       · exact hcont (fun a b c => s.interp (a, b, c))
 
 namespace Intrinsic

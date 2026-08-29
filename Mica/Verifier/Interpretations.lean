@@ -11,7 +11,7 @@ variable [MicaGS HasLC.hasLC Sig]
 
 The syntactic definitions (`SpatialAtom`, `SpatialContext`, `wfIn`, `find`,
 `remove`, and single-atom `SpatialAtom.interp`) live in
-`Mica.SeparationLogic.SpatialAtom`. This file adds context-level
+`Mica.Verifier.SpatialAtom`. This file adds context-level
 interpretation and related lemmas. -/
 
 namespace SpatialAtom

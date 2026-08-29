@@ -14,7 +14,8 @@ variable [MicaGS HasLC.hasLC Sig]
 
 abbrev Bindings := List (TinyML.Var × FOL.Const)
 
-def Bindings.empty : Bindings := []
+/-- The bindings a program starts with, paired with `TinyML.TyCtx.empty`. -/
+abbrev Bindings.empty : Bindings := []
 
 /-- Drop a name's binding. A declaration that shadows a bound name without
     binding a value of its own must remove it, or the old constant would stand
@@ -61,7 +62,8 @@ theorem Bindings.mem_of_mem_remove {B : Bindings} {x : TinyML.Var} {p : TinyML.V
       · exact .inl rfl
       · exact .inr (ih h)
 
--- Every variable in Bindings is now declared at sort `.value`.
+/-- The runtime substitution reads each bound name as the value its verifier
+    constant denotes. Bindings are always at sort `.value`. -/
 def Bindings.agreeOnLinked (B : Bindings) (ρ : Env) (γ : Runtime.Subst) :=
   ∀ x x', B.lookup x = some x' →
     x'.sort = .value ∧ γ x = .some (ρ.consts .value x'.name)
@@ -124,8 +126,8 @@ instance Bindings.typedSubst_persistent {B Γ γ} (W : TinyML.World) : Persisten
     unfold Bindings.typedSubst
     infer_instance
 
-theorem Bindings.typedSubst_nil (W : TinyML.World) (γ : Runtime.Subst) :
-    ⊢ Bindings.typedSubst W [] TinyML.TyCtx.empty γ := by
+theorem Bindings.typedSubst_empty (W : TinyML.World) (γ : Runtime.Subst) :
+    ⊢ Bindings.typedSubst W Bindings.empty TinyML.TyCtx.empty γ := by
   unfold Bindings.typedSubst
   imodintro
   iintro %x %x' %t
@@ -259,7 +261,6 @@ theorem Bindings.agreeOnLinked_cons {B : Bindings} {ρ ρ' : Env} {γ : Runtime.
     rw [hsort] at hρ
     exact ⟨hsort, by simp [Runtime.Subst.update, hyx]; exact hγ.trans (congrArg some hρ.symm)⟩
 
--- If agreeOnLinked holds and values at each binding are well-typed, then typedSubst holds.
 theorem Bindings.typedSubst_of_agreeOnLinked
     {B : Bindings} {Γ : TinyML.TyCtx} {γ : Runtime.Subst} {ρ : Env}
     (hagree : B.agreeOnLinked ρ γ)
@@ -390,10 +391,9 @@ theorem Bindings.agreeOnLinked_updateAllBinder
       rw [findVal_none_of_not_mem names vals x (by omega) hx_notin]
       exact hγ
 
--- For lists with "last wins" semantics: if the reversed-zip lookup finds x' at x,
--- and the foldl-Γ lookup finds type t at x, and Forall₂ relates vars to vals
--- with ValsHaveTypes, then the value at x' has type t.
--- All three structures agree on the "last occurrence" of x.
+/-- The reversed zip, the `foldl` typing context, and the `Forall₂` of values all
+    select the *last* occurrence of a repeated argument name, so the constant the
+    lookup finds carries the type the context assigns. -/
 theorem valHasType_lookup_zip_reverse
     (args : List (String × TinyML.Typ))
     (vars : List FOL.Const) (vals : List Runtime.Val)

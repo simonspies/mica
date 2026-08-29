@@ -144,18 +144,13 @@ theorem PredTrans.call_correct (W : TinyML.World) (pt : PredTrans TinyML.Typ) (�
         have hb2 := VerifM.eval_bind hcont
         have hdecl := VerifM.eval_decl hb2
         set resVar := st₁.freshConst (some postName) .value
-        have hfresh_decls : resVar.name ∉ st₁.decls.allNames :=
-          st₁.freshConst_fresh (some postName) .value
-        have hfresh_range : resVar.name ∉ σ₁.range.allNames :=
-          hσ₁wf.fresh_range hfresh_decls
+        obtain ⟨hfresh_decls, hfresh_range, hrename⟩ :=
+          FiniteSubst.rename_freshConst hσ₁wf ⟨postName, .value⟩
         specialize hdecl v
         have hb3 := VerifM.eval_bind hdecl
         set σ₂ := σ₁.rename ⟨postName, .value⟩ resVar.name
         have hσ₂wf : σ₂.wfIn Δ_base (st₁.decls.addConst resVar) := by
-          simpa [σ₂] using
-            (FiniteSubst.rename_wfIn (σ := σ₁) (Δ_base := Δ_base) (Δ_use := st₁.decls)
-              (v := ⟨postName, .value⟩) (name' := resVar.name)
-              hσ₁wf hfresh_range hfresh_decls)
+          simpa [σ₂] using hrename
         have hwf₁' : Assertion.wfIn (fun _ _ => True) (Δ_base.declVars σ₂.dom) postBody := by
           simpa [σ₂, FiniteSubst.rename_source_eq] using hwf₁
         have hgrow := VerifM.eval.decls_grow (ρ₁.updateConst .value resVar.name v) hb3
@@ -248,10 +243,8 @@ theorem PredTrans.implement_correct (W : TinyML.World) (pt : PredTrans TinyML.Ty
       set resVar := st₂.freshConst (some postName) .value
       have hwfst₂ : st₂.decls.wf := (VerifM.eval.wf hrest).namesDisjoint
       have hσ₁wf₂ : σ₁.wfIn Δ_base st₂.decls := hσ₁wf.mono hdsub_body hwfst₂
-      have hfresh_decls : resVar.name ∉ st₂.decls.allNames :=
-        st₂.freshConst_fresh (some postName) .value
-      have hfresh_range : resVar.name ∉ σ₁.range.allNames :=
-        hσ₁wf₂.fresh_range hfresh_decls
+      obtain ⟨hfresh_decls, hfresh_range, hrename⟩ :=
+        FiniteSubst.rename_freshConst hσ₁wf₂ ⟨postName, .value⟩
       specialize hdecl (result.eval ρ₂)
       have hb3 := VerifM.eval_bind hdecl
       have hassume := VerifM.eval_assumePure hb3
@@ -259,10 +252,7 @@ theorem PredTrans.implement_correct (W : TinyML.World) (pt : PredTrans TinyML.Ty
         (Formula.eq_eval_updateConst_of_fresh (c := resVar) (ρ := ρ₂) hwf_result hfresh_decls)
       set σ₂ := σ₁.rename ⟨postName, .value⟩ resVar.name
       have hσ₂wf : σ₂.wfIn Δ_base (st₂.decls.addConst resVar) := by
-        simpa [σ₂] using
-          (FiniteSubst.rename_wfIn (σ := σ₁) (Δ_base := Δ_base) (Δ_use := st₂.decls)
-            (v := ⟨postName, .value⟩) (name' := resVar.name)
-            hσ₁wf₂ hfresh_range hfresh_decls)
+        simpa [σ₂] using hrename
       have hb4 := VerifM.eval_bind hassume
       have hwf_postBody' : Assertion.wfIn (fun _ _ => True) (Δ_base.declVars σ₂.dom) postBody := by
         simpa [σ₂, FiniteSubst.rename_source_eq] using hwf_postBody

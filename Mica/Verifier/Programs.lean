@@ -507,7 +507,7 @@ def Program.verify (reg : Verifier.Registry) (prog : Untyped.Program Untyped.Spe
     let (Θ, typed, liftSt) ← Program.prepare (Program.specEnv reg (Program.relationMap prog)) {} prog
     Verifier.Registry.introduceRegistry reg
     let relations ← RelationSpec.assemble reg.primitives typed liftSt.syms
-    Program.check reg Θ relations.delta [] TinyML.TyCtx.empty typed
+    Program.check reg Θ relations.delta Bindings.empty TinyML.TyCtx.empty typed
 
 /-! ## Correctness -/
 
@@ -829,7 +829,7 @@ theorem Program.verify_correct (reg : Verifier.Registry)
                           Program.prepare (Program.specEnv reg (Program.relationMap p)) {} p
                         Verifier.Registry.introduceRegistry reg
                         let relations ← RelationSpec.assemble reg.primitives typed liftSt.syms
-                        Program.check reg Θ relations.delta [] TinyML.TyCtx.empty typed)
+                        Program.check reg Θ relations.delta Bindings.empty TinyML.TyCtx.empty typed)
                       TransState.init Env.init ctx_mid
                       (ScopedM.eval_declareConst hverif)
                       TransState.init_holdsFor TransState.init_wf
@@ -865,7 +865,7 @@ theorem Program.verify_correct (reg : Verifier.Registry)
       { pctx := reg.primCtx, Θ, Δ_spec := stRel.decls, ρ_spec := ρRel,
         eta := TinyML.SemTypeAssign.empty }
     have hcorrect := Program.check_correct reg hSound W rfl
-                       [] TinyML.TyCtx.empty typed Runtime.Subst.id
+                       Bindings.empty TinyML.TyCtx.empty typed Runtime.Subst.id
                        ⟨hcheck_eval.1.namesDisjoint, hvars⟩
                        stRel ρRel
                        ⟨Signature.Subset.refl _, Env.agreeOn_refl⟩
@@ -877,13 +877,13 @@ theorem Program.verify_correct (reg : Verifier.Registry)
                        hcheck_eval
     rw [Runtime.Program.subst_id] at hcorrect
     have hctx0 : (⊢ □ stRel.sl W ρRel ∗
-        Bindings.typedSubst W [] TinyML.TyCtx.empty Runtime.Subst.id) := by
+        Bindings.typedSubst W Bindings.empty TinyML.TyCtx.empty Runtime.Subst.id) := by
       istart
       isplitl []
       · simp [TransState.sl, howns]
         imodintro
         iempintro
-      · iapply Bindings.typedSubst_nil
+      · iapply Bindings.typedSubst_empty
     simpa [hrt] using hctx0.trans hcorrect
 
 omit [MicaGS HasLC.hasLC Sig] in

@@ -98,20 +98,6 @@ def TransState.sl [MicaGS HasLC.hasLC Sig] (W : TinyML.World)
 def TransState.persist (st : TransState) : TransState :=
   { st with owns := [] }
 
-@[simp] theorem TransState.persist_decls (st : TransState) :
-    st.persist.decls = st.decls := rfl
-
-@[simp] theorem TransState.persist_asserts (st : TransState) :
-    st.persist.asserts = st.asserts := rfl
-
-theorem TransState.sl_entails_persist [MicaGS HasLC.hasLC Sig] (W : TinyML.World)
-    (st : TransState) (ρ : Env) :
-    st.sl W ρ ⊢ □ st.persist.sl W ρ := by
-  istart
-  iintro _
-  imodintro
-  simp [TransState.persist]
-
 /-- Translation to `ScopedM`'s flat context. -/
 def TransState.toFlatCtx (st : TransState) : FlatCtx :=
   ⟨st.decls, st.asserts⟩
@@ -221,7 +207,7 @@ def TransState.addItem (st : TransState) (item : CtxItem) :=
   | .pure φ => { st with asserts := φ :: st.asserts }
   | .spatial p => { st with owns := p :: st.owns }
 
-theorem TransState.freshConst.wf {hint t} (st : TransState) :
+theorem TransState.wf_freshConst {hint t} (st : TransState) :
     TransState.wf st →
     TransState.wf { st with decls := st.decls.addConst (st.freshConst hint t) } := by
   intro hwf
@@ -234,7 +220,7 @@ theorem TransState.freshConst.wf {hint t} (st : TransState) :
   · exact SpatialContext.wfIn_mono hwf.ownsWf (Signature.Subset.subset_addConst _ _) hwf'
   · exact hwf.builtins.mono (Signature.Subset.subset_addConst _ _)
 
-theorem TransState.addUnary.wf (st : TransState) (u : FOL.Unary) :
+theorem TransState.wf_addUnary (st : TransState) (u : FOL.Unary) :
     TransState.wf st →
     u.name ∉ st.decls.allNames →
     TransState.wf { st with decls := st.decls.addUnary u } := by
@@ -246,7 +232,7 @@ theorem TransState.addUnary.wf (st : TransState) (u : FOL.Unary) :
   · exact SpatialContext.wfIn_mono hwf.ownsWf (Signature.Subset.subset_addUnary _ _) hwf'
   · exact hwf.builtins.mono (Signature.Subset.subset_addUnary _ _)
 
-theorem TransState.addBinary.wf (st : TransState) (b : FOL.Binary) :
+theorem TransState.wf_addBinary (st : TransState) (b : FOL.Binary) :
     TransState.wf st →
     b.name ∉ st.decls.allNames →
     TransState.wf { st with decls := st.decls.addBinary b } := by
@@ -258,7 +244,7 @@ theorem TransState.addBinary.wf (st : TransState) (b : FOL.Binary) :
   · exact SpatialContext.wfIn_mono hwf.ownsWf (Signature.Subset.subset_addBinary _ _) hwf'
   · exact hwf.builtins.mono (Signature.Subset.subset_addBinary _ _)
 
-theorem TransState.addTernary.wf (st : TransState) (t : FOL.Ternary) :
+theorem TransState.wf_addTernary (st : TransState) (t : FOL.Ternary) :
     TransState.wf st →
     t.name ∉ st.decls.allNames →
     TransState.wf { st with decls := st.decls.addTernary t } := by
@@ -270,7 +256,7 @@ theorem TransState.addTernary.wf (st : TransState) (t : FOL.Ternary) :
   · exact SpatialContext.wfIn_mono hwf.ownsWf (Signature.Subset.subset_addTernary _ _) hwf'
   · exact hwf.builtins.mono (Signature.Subset.subset_addTernary _ _)
 
-theorem TransState.addUnaryRel.wf (st : TransState) (u : FOL.UnaryRel) :
+theorem TransState.wf_addUnaryRel (st : TransState) (u : FOL.UnaryRel) :
     TransState.wf st →
     u.name ∉ st.decls.allNames →
     TransState.wf { st with decls := st.decls.addUnaryRel u } := by
@@ -282,7 +268,7 @@ theorem TransState.addUnaryRel.wf (st : TransState) (u : FOL.UnaryRel) :
   · exact SpatialContext.wfIn_mono hwf.ownsWf (Signature.Subset.subset_addUnaryRel _ _) hwf'
   · exact hwf.builtins.mono (Signature.Subset.subset_addUnaryRel _ _)
 
-theorem TransState.addBinaryRel.wf (st : TransState) (b : FOL.BinaryRel) :
+theorem TransState.wf_addBinaryRel (st : TransState) (b : FOL.BinaryRel) :
     TransState.wf st →
     b.name ∉ st.decls.allNames →
     TransState.wf { st with decls := st.decls.addBinaryRel b } := by
@@ -320,7 +306,7 @@ theorem TransState.freshTernary_fresh (st : TransState) (hint : Option String)
     (st.freshTernary hint τ₁ τ₂ τ₃ τ₄).name ∉ st.decls.allNames :=
   Fresh.freshNumbers_not_mem (hint.getD "_h") st.decls.allNames
 
-theorem TransState.addAssert.wf (st : TransState) :
+theorem TransState.wf_addAssert (st : TransState) :
     TransState.wf st →
     φ.wfIn st.decls →
     TransState.wf { st with asserts := φ :: st.asserts } := by
@@ -335,7 +321,7 @@ theorem TransState.addAssert.wf (st : TransState) :
   · exact hwf.ownsWf
   · exact hwf.builtins
 
-theorem TransState.addSpatial.wf (st : TransState) :
+theorem TransState.wf_addSpatial (st : TransState) :
     TransState.wf st →
     a.wfIn st.decls →
     TransState.wf { st with owns := a :: st.owns } := by

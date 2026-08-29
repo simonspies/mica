@@ -239,6 +239,20 @@ theorem FiniteSubst.rename_wfIn {σ : FiniteSubst} {Δ_base Δ_use : Signature}
   · exact hrange_add_wf
   · exact huse_add_wf
 
+/-- Declaring a source variable as the state's next fresh constant: the constant
+    is fresh for the state and for the substitution's range, and renaming the
+    variable to it keeps the finite substitution well-formed at the extended
+    signature. These three facts are always needed together. -/
+theorem FiniteSubst.rename_freshConst {σ : FiniteSubst} {Δ_base : Signature}
+    {st : TransState} (hσ : σ.wfIn Δ_base st.decls) (v : Var) :
+    (st.freshConst (some v.name) v.sort).name ∉ st.decls.allNames ∧
+      (st.freshConst (some v.name) v.sort).name ∉ σ.range.allNames ∧
+      (σ.rename v (st.freshConst (some v.name) v.sort).name).wfIn Δ_base
+        (st.decls.addConst (st.freshConst (some v.name) v.sort)) :=
+  let hdecls := st.freshConst_fresh (some v.name) v.sort
+  let hrange := hσ.fresh_range hdecls
+  ⟨hdecls, hrange, FiniteSubst.rename_wfIn hσ hrange hdecls⟩
+
 theorem FiniteSubst.subst_wfIn_formula_range {σ : FiniteSubst} {φ : Formula}
     {Δ_base Δ_use : Signature}
     (hσ : σ.wfIn Δ_base Δ_use)
