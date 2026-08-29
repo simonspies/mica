@@ -375,6 +375,8 @@ private partial def parsePatternAtom? : Parser (Option Pattern) := do
       if name.front.isUpper then return .ctor (← collectPathTail name []) none
       else return .binder (some name) none
   | .intLit n  => some <$> patOf (do advance; return .const (.int n))
+  | .int32Lit bits => some <$> patOf (do advance; return .const (.int32 bits))
+  | .int64Lit bits => some <$> patOf (do advance; return .const (.int64 bits))
   | .charLit c => some <$> patOf (do advance; return .const (.char c))
   | .kw_true   => some <$> patOf (do advance; return .const (.bool true))
   | .kw_false  => some <$> patOf (do advance; return .const (.bool false))
@@ -513,9 +515,17 @@ private partial def parseOperand : Parser Expr := do
 
 -- prefix `-` (`Prec.app`): looser than application, so `- f a` is `- (f a)`,
 -- and tighter than every binary operator, so `- a * b` is `(- a) * b`.
+-- A `-` in front of a fixed-width literal folds into the literal, as OCaml has
+-- no unary minus on `int32`/`int64`.
 private partial def parseUnary : Parser Expr := do
   match ← peek with
-  | .minus => exprOf do advance; return .unop .neg (← parseUnary)
+  | .minus => exprOf do
+      advance
+      let rhs ← parseUnary
+      match rhs.kind with
+      | .const (.int32 bits) => return .const (.int32 (-bits))
+      | .const (.int64 bits) => return .const (.int64 (-bits))
+      | _ => return .unop .neg rhs
   | _      => parseApp
 
 -- function application (left-assoc, juxtaposition), then any expression
@@ -596,6 +606,8 @@ private partial def parseAtom? : Parser (Option Expr) := do
     advance; return some { loc := ← spanFrom start, kind := .const c }
   match ← peek with
   | .intLit n    => const (.int n)
+  | .int32Lit bits => const (.int32 bits)
+  | .int64Lit bits => const (.int64 bits)
   | .floatLit f  => const (.float f)
   | .charLit c   => const (.char c)
   | .stringLit s => const (.string s)

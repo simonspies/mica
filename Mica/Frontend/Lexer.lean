@@ -17,6 +17,7 @@ inductive LexErrorKind where
   | unexpectedEof (context : String)  -- e.g. "after '", "in comment"
   | unterminatedComment
   | invalidIntLiteral (text : String)
+  | invalidFixedIntLiteral (type : String) (text : String)
   | invalidFloatLiteral (text : String)
   | invalidCharEscape (c : Char)
   | invalidStringEscape (text : String)
@@ -35,6 +36,7 @@ def LexError.toString (e : LexError) : String :=
   | .unexpectedEof ctx => s!"{loc}: unexpected end of input {ctx}"
   | .unterminatedComment => s!"{loc}: unterminated comment"
   | .invalidIntLiteral t => s!"{loc}: invalid integer literal '{t}'"
+  | .invalidFixedIntLiteral type t => s!"{loc}: invalid {type} literal '{t}'"
   | .invalidFloatLiteral t => s!"{loc}: invalid float literal '{t}'"
   | .invalidCharEscape c => s!"{loc}: invalid character escape '\\{c}'"
   | .invalidStringEscape text => s!"{loc}: invalid string escape '\\{text}'"
@@ -47,6 +49,8 @@ instance : ToString LexError := ⟨LexError.toString⟩
 
 inductive Token where
   | intLit  (n : Int)
+  | int32Lit (bits : BitVec 32)
+  | int64Lit (bits : BitVec 64)
   | floatLit (value : Float)
   | charLit (c : Char)
   | stringLit (s : List UInt8)
@@ -84,6 +88,8 @@ inductive Token where
 
 def Token.toString : Token → String
   | .intLit n  => s!"INT({n})"
+  | .int32Lit bits => s!"INT32({bits.toInt})"
+  | .int64Lit bits => s!"INT64({bits.toInt})"
   | .floatLit f => s!"FLOAT({f})"
   | .charLit c => s!"CHAR({c})"
   | .stringLit _ => "STRING"
@@ -362,8 +368,7 @@ where
       let text := String.ofList (prefixChars ++ digits)
       match parseDigits base digits with
       | none => .error { pos := p, kind := .invalidIntLiteral text }
-      | some n =>
-        lex stDigits (acc.push ({ start := p, stop := stDigits.pos }, .intLit (Int.ofNat n)))
+      | some n => lexSuffix p text n stDigits acc
     else lexDecimal p digits stDigits acc
 
   lexDecimal (p : Position) (digits : List Char) (stDigits : LexState)
@@ -414,8 +419,30 @@ where
       else
         let text := String.ofList digits
         match parseDigits 10 digits with
-        | some n => lex st' (acc.push ({ start := p, stop := st'.pos }, .intLit (Int.ofNat n)))
+        | some n => lexSuffix p text n st' acc
         | none => .error { pos := p, kind := .invalidIntLiteral text }
+
+  -- mica is more permissive than OCaml here. OCaml bounds a decimal `l` literal
+  -- by signed range and a hexadecimal, octal or binary one by 2^32; the check
+  -- below uses the wider bound for every base. So mica accepts `4294967295l`
+  -- and `ocamlc` does not. That direction is harmless: such a program still
+  -- fails to compile, only the error comes from `ocamlc` instead of from mica.
+  -- Matching OCaml needs a per-base bound that still admits 2^31, because the
+  -- parser folds the sign into the literal after the magnitude is read here.
+  lexSuffix (p : Position) (text : String) (n : Nat) (st : LexState)
+      (acc : Array (Location × Token)) : Except LexError (Array (Location × Token)) :=
+    match st.source with
+    | 'l' :: _ =>
+      if n < 2 ^ 32 then
+        let st' := st.advance 'l'
+        lex st' (acc.push ({ start := p, stop := st'.pos }, .int32Lit (BitVec.ofNat 32 n)))
+      else .error { pos := p, kind := .invalidFixedIntLiteral "int32" (text ++ "l") }
+    | 'L' :: _ =>
+      if n < 2 ^ 64 then
+        let st' := st.advance 'L'
+        lex st' (acc.push ({ start := p, stop := st'.pos }, .int64Lit (BitVec.ofNat 64 n)))
+      else .error { pos := p, kind := .invalidFixedIntLiteral "int64" (text ++ "L") }
+    | _ => lex st (acc.push ({ start := p, stop := st.pos }, .intLit (Int.ofNat n)))
 
   lexIdent (st : LexState) (acc : Array (Location × Token))
       : Except LexError (Array (Location × Token)) :=

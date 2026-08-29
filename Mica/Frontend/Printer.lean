@@ -42,6 +42,14 @@ private def byteEsc (b : UInt8) : String :=
 
 partial def Const.print : Const → String
   | .int n   => toString n
+  -- A negative fixed-width literal is a constant, not a `neg` node, so it needs
+  -- its own parentheses to stay one token in application position.
+  | .int32 bits =>
+      let literal := s!"{bits.toInt}l"
+      if bits.toInt < 0 then parens literal else literal
+  | .int64 bits =>
+      let literal := s!"{bits.toInt}L"
+      if bits.toInt < 0 then parens literal else literal
   | .float f => toString f
   | .bool b  => if b then "true" else "false"
   | .string s => "\"" ++ joinWith "" (s.map byteEsc) ++ "\""
