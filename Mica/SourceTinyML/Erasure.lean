@@ -637,9 +637,9 @@ theorem Expr.elaborate_runtime (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TyCtx)
     (Infer.Expr.elaborate_runtime env Θ e (Infer.Ctx.ofTyCtx Γ) _ _ _ _ _ _ helab)
 
 theorem ValDecl.elaborateSpecified_runtime (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx)
-    (rb : Untyped.SpecBody) (e : Untyped.Expr) :
+    (self : Option TinyML.Var) (rb : Untyped.SpecBody) (e : Untyped.Expr) :
     ∀ {s : σ} {r : Spec Typ × Typed.Expr} {s' : σ},
-      Typed.ValDecl.elaborateSpecified env Θ Γ rb e s = .ok (r, s') →
+      Typed.ValDecl.elaborateSpecified env Θ Γ self rb e s = .ok (r, s') →
       r.2.runtime = e.runtime := by
   intro s r s' h
   cases e
@@ -676,7 +676,7 @@ theorem ValDecl.elaborate_runtime (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML
     have ⟨_, s₁, _, hcont⟩ := StateT.bind_ok hcont
     rcases hcont with ⟨rfl, rfl⟩
     simp [Typed.ValDecl.runtime, Untyped.ValDecl.runtime, Binder.ofUntyped_runtime,
-      ValDecl.elaborateSpecified_runtime env Θ Γ rb d.body hfix]
+      ValDecl.elaborateSpecified_runtime env Θ Γ _ rb d.body hfix]
   | none =>
     simp only [ValDecl.elaborate, hspec] at helab
     have ⟨_expected, s₀, _hexp, hcont⟩ := StateT.bind_ok helab

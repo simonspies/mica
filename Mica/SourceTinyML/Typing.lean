@@ -489,9 +489,14 @@ context from `Program.elaborate`, so a spec may refer to earlier definitions. -/
 first, then its body. Doing the spec before the body is what lets the recursive
 self-reference — and hence every call in the body — be typed at the specified
 arrow, so a recursive call resolves through the type it is annotated with rather
-than through a side table. -/
+than through a side table.
+
+`self` is the spec-level function the declaration itself defines. The global
+context reaches a declaration without its own name, so the specification is
+given it here; the body reaches itself through the literal's binder. -/
 def ValDecl.elaborateSpecified (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx)
-    (rb : Untyped.SpecBody) : Untyped.Expr → TypeM σ (Spec Typ × Typed.Expr)
+    (self : Option TinyML.Var) (rb : Untyped.SpecBody) :
+    Untyped.Expr → TypeM σ (Spec Typ × Typed.Expr)
   | e@(.fix _ args (some retAnn) _) => do
       -- A specified signature has to be complete: the specification is written
       -- against these types, so leaving one to inference would let the body
@@ -504,9 +509,11 @@ def ValDecl.elaborateSpecified (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.Ty
         -- and the literal is then checked at the arrow the two describe.
         let ret ← Typ.elaborate env Θ retAnn
         let typedArgs ← Binder.elaborateList env Θ args
-        let s ← Spec.Body.elaborate env Θ Γ typedArgs ret rb
-        let body' ← Expr.elaborate env Θ Γ e
-          (some (.arrow (typedArgs.map Binder.WithTypeVars.ty) ret (some s)))
+        let argTys := typedArgs.map Binder.WithTypeVars.ty
+        let s ← Spec.Body.elaborate env Θ
+          (match self with | some f => Γ.extend f (.arrow argTys ret none) | none => Γ)
+          typedArgs ret rb
+        let body' ← Expr.elaborate env Θ Γ e (some (.arrow argTys ret (some s)))
         pure (s, body')
   | .fix _ _ none _ =>
       TypeM.error (.spec "specified functions require a return type annotation")
@@ -544,7 +551,9 @@ def ValDecl.elaborate (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx)
       -- A specified declaration's literal records its specification, so the
       -- declaration's own type — and hence the type every later use is
       -- annotated with — is the specified arrow.
-      let (_, body') ← ValDecl.elaborateSpecified env Θ Γ rb d.body
+      -- `d.relation` is the declaration's own name.
+      let (_, body') ← ValDecl.elaborateSpecified env Θ Γ
+        (if d.impl then d.relation else none) rb d.body
       checkDeclAnnotation env Θ d.name body'.ty
       pure { name := Typed.Binder.ofUntyped d.name body'.ty, body := body',
              relation := d.relation }

@@ -1,0 +1,2 @@
+elaboration error: Tests/frontend/decl_impl_binary.ml:7:1: unsupported feature: [@@fn] requires a function of one named argument; write several as a tuple
+[1]

@@ -919,6 +919,10 @@ private structure ValAttrs where
   /-- Whether `[@@fn]` registers it as a spec-level function. The attribute
   takes no payload; the function's own name is used for the derived relation. -/
   fn : Bool := false
+  /-- Whether `[@@impl]` also elaborates the body as run-time code. The
+  declaration becomes a specified one, so typing then requires every argument
+  and the return type annotated, which `[@@fn]` alone does not. -/
+  impl : Bool := false
 
 /-- Read a value declaration's attributes. Every attribute is accounted for —
 an unknown name is rejected, and neither may be written twice — so none is
@@ -943,6 +947,11 @@ private def elaborateValAttrs (env : ElabEnv) (acc : ValAttrs) :
       else elaborateValAttrs env { acc with fn := true } attrs
     | .fn, some payload => err payload.loc (.unsupportedFeature
         "[@@fn] takes no payload; the function's own name is used for the relation")
+    | .impl, none =>
+      if acc.impl then err attr.loc (.unsupportedFeature "a declaration carries at most one [@@impl]")
+      else elaborateValAttrs env { acc with impl := true } attrs
+    | .impl, some payload => err payload.loc (.unsupportedFeature
+        "[@@impl] takes no payload; the specification it adds is derived from [@@fn]")
     | name, _ =>
       err attr.loc (.unsupportedFeature s!"unknown declaration attribute [@@{name}]")
 
@@ -955,6 +964,21 @@ private def Decl.noAttrs (decl : Decl) (what : String) : ElabM Unit :=
   | attr :: _ =>
     err attr.loc (.unsupportedFeature s!"{what} declaration takes no attributes, \
       but carries [@@{attr.name}]")
+
+/-- `$` is not an identifier character, so no name in the source collides. -/
+private def implResultName : String := "$result"
+
+/-- The result is the value of the spec-level function `f` at `arg`. The
+equality is `Logic.eq` because the result may be a tuple or a constructor
+value, which the surface `=` refuses. -/
+private def implSpec (env : ElabEnv) (loc : Location) (f arg : String) :
+    ElabM Untyped.SpecBody :=
+  match env.resolver.value ⟨"Logic", ["eq"]⟩ with
+  | some (.primitive eq _) =>
+    .ok { args := [arg]
+          pre := .ret ⟨implResultName,
+            .assert (.app (.prim eq) [.var implResultName, .app (.var f) [.var arg]]) (.ret ())⟩ }
+  | _ => err loc (.unsupportedFeature "[@@impl] needs the prelude's Logic.eq")
 
 private def Decl.elaborate (env : ElabEnv) (decl : Decl)
     : ElabM (ElabEnv × Option (Untyped.Decl Untyped.SpecBody)) := do
@@ -970,6 +994,12 @@ private def Decl.elaborate (env : ElabEnv) (decl : Decl)
     .ok (env', tdecl'.map Untyped.Decl.type_)
   | .val_ isRec binders retTy body => do
     let attrs ← elaborateValAttrs env {} decl.attrs
+    -- A declaration carries `[@@spec]`, `[@@fn]`, or `[@@fn] [@@impl]`.
+    if attrs.fn && attrs.spec.isSome then
+      return ← err decl.loc (.unsupportedFeature
+        "a declaration carries [@@spec] or [@@fn], not both")
+    if attrs.impl && !attrs.fn then
+      return ← err decl.loc (.unsupportedFeature "[@@impl] requires [@@fn]")
     let d ← ValDecl.elaborate env decl.loc isRec binders retTy body attrs.spec
     -- A `[@@fn]` declaration uses its own name for the derived relation.
     let relation ← if attrs.fn then
@@ -977,6 +1007,14 @@ private def Decl.elaborate (env : ElabEnv) (decl : Decl)
       | .named x _ => .ok (some x)
       | .none => err decl.loc (.unsupportedFeature "[@@fn] requires a named declaration")
     else .ok none
+    -- Only `[@@impl]` needs the argument by name, so the arity a spec-level
+    -- function is compiled at is checked here and again in `RelationSpec`.
+    let d ← match attrs.impl, relation, d.body with
+      | true, some f, .fix _ [.named arg _] _ _ =>
+        .ok { d with spec := some (← implSpec env decl.loc f arg), impl := true }
+      | true, some _, _ => err decl.loc (.unsupportedFeature
+          "[@@fn] requires a function of one named argument; write several as a tuple")
+      | _, _, _ => .ok d
     .ok (env.bindBinder d.name, some (.val_ { d with relation }))
 
 private def elaborateDecls (env : ElabEnv) :

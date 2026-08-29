@@ -107,10 +107,11 @@ private structure RelationDecl where
   body : Typed.Expr
   bv : Skolemize.DefVal
 
+/-- A specification on the literal is `[@@impl]`'s, which states the result
+against this very axiomatization; the frontend rejects every other pairing of
+`[@@fn]` with a specification. -/
 private def validateDecl (d : Typed.ValDecl) :
     Except String (TinyML.Var × TinyML.Var × Typed.Expr) := do
-  if d.body.spec?.isSome then
-    .error s!"declaration cannot have both [@@spec] and [@@fn]"
   let f ← match d.name.name with
     | some f => .ok f
     | none => .error s!"[@@fn] requires a named declaration"

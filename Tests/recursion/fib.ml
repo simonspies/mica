@@ -1,23 +1,13 @@
 open Mica
 
-(* Recursive specification function for Fibonacci. *)
+(* Recursive specification function for Fibonacci, and its implementation:
+   [@@impl] verifies the body as run-time code against the function it
+   defines, so the tree recursion is written once. *)
 let rec fib (n: int) : int =
   if n < 1 then 0
   else if n < 2 then 1
   else fib (n - 1) + fib (n - 2)
-[@@fn];;
-
-(* Recursive implementation. *)
-let rec fib_impl (n: int) : int =
-  if n < 1 then 0
-  else if n < 2 then 1
-  else fib_impl (n - 1) + fib_impl (n - 2)
-[@@spec fun x ->
-  assert (x >= 0);
-  ret (fun v ->
-    let expected = fib x in
-    assert (v = expected))]
-;;
+[@@fn] [@@impl];;
 
 (* Iterative implementation verified against the tree-recursive spec.
 

@@ -253,12 +253,14 @@ def ValDecl.print {S : Type} [SpecPayloadPrinter S] (d : Untyped.ValDecl S) : St
       let (allArgs, innerBody) := collectAnonArgs args inner
       s!"let {d.name.print} {argsStr allArgs} = {printExpr innerBody}"
     | body => s!"let {d.name.print} = {printExpr body}"
-  let withSpec := match d.spec with
-    | .none => decl
-    | .some e => s!"{decl} [@@spec {SpecPayloadPrinter.print e}]"
-  match d.relation with
-  | .none => withSpec
-  | .some _ => s!"{withSpec} [@@fn]"
+  -- An `[@@impl]` specification is generated, so the attribute prints instead.
+  let withSpec := match d.spec, d.impl with
+    | .some e, false => s!"{decl} [@@spec {SpecPayloadPrinter.print e}]"
+    | _, _ => decl
+  match d.relation, d.impl with
+  | .none, _ => withSpec
+  | .some _, false => s!"{withSpec} [@@fn]"
+  | .some _, true => s!"{withSpec} [@@fn] [@@impl]"
 
 def TypeDecl.print (d : Untyped.TypeDecl) : String :=
   let payloads := (List.range d.body.payloads.length).zip d.body.payloads |>.map

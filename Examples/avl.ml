@@ -43,14 +43,7 @@ let height (tr: tree) : int =
   match tr with
   | Leaf -> 0
   | Node (v, h, l, r) -> h
-[@@fn];;
-
-let height_impl (tr: tree) : int =
-  match tr with
-  | Leaf -> 0
-  | Node (v, h, l, r) -> h
-[@@spec fun tr ->
-  ret (fun result -> assert (result = height tr))];;
+[@@fn] [@@impl];;
 
 let rec avl_tree_inv ((tr : tree), (lo : int), (hi : int)) : bool =
   match tr with
@@ -75,8 +68,8 @@ let avl_tree (h: t) : bool =
 
 
 let make_node (v: int) (lo: int) (hi: int) (l: tree) (r: tree) : tree =
-  let lh = height_impl l in
-  let rh = height_impl r in
+  let lh = height l in
+  let rh = height r in
   let h = max_int lh rh + 1 in
   Node (v, h, l, r)
 [@@spec fun v lo hi l r ->
@@ -93,13 +86,13 @@ let make_node (v: int) (lo: int) (hi: int) (l: tree) (r: tree) : tree =
     assert (hres = mh + 1))];;
 
 let balance (v: int) (lo: int) (hi: int) (l: tree) (r: tree) : tree =
-  let lh = height_impl l in
-  let rh = height_impl r in
+  let lh = height l in
+  let rh = height r in
   if lh > rh + 1 then
     match l with
     | Leaf -> failwith "unreachable"
     | Node (lv, lh, ll, lr) ->
-      if height_impl ll >= height_impl lr then
+      if height ll >= height lr then
         make_node lv lo hi ll (make_node v lv hi lr r)
       else
         match lr with
@@ -110,7 +103,7 @@ let balance (v: int) (lo: int) (hi: int) (l: tree) (r: tree) : tree =
     match r with
     | Leaf -> failwith "unreachable"
     | Node (rv, rh, rl, rr) ->
-      if height_impl rr >= height_impl rl then
+      if height rr >= height rl then
         make_node rv lo hi (make_node v lo rv l rl) rr
       else
         match rl with

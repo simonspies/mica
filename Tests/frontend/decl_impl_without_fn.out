@@ -1,0 +1,2 @@
+elaboration error: Tests/frontend/decl_impl_without_fn.ml:7:1: unsupported feature: [@@impl] requires [@@fn]
+[1]

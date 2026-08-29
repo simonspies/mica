@@ -173,6 +173,7 @@ elaboration, which rejects it by name for that position. -/
 inductive AttrName where
   | spec
   | fn
+  | impl
   | owned
   | unknown (name : String)
   deriving Repr, Inhabited, BEq, DecidableEq
@@ -182,12 +183,14 @@ namespace AttrName
 def ofString : String → AttrName
   | "spec"  => .spec
   | "fn"    => .fn
+  | "impl"  => .impl
   | "owned" => .owned
   | name    => .unknown name
 
 def toString : AttrName → String
   | .spec         => "spec"
   | .fn           => "fn"
+  | .impl         => "impl"
   | .owned        => "owned"
   | .unknown name => name
 
