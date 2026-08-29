@@ -14,7 +14,7 @@ known to fail.
 | `insertionsort.ml` | ✓ | — |
 | `mergesort.ml` | ✓ | — |
 | `quicksort.ml` | ✓ | — |
-| `selectionsort.ml` | ✓ | — |
+| `selectionsort.ml` | ✓ | ✓ |
 
 Heapsort lives with the binary min-heap in `../heap.ml`, safety only. No
 example states that its result is a permutation of its input; that needs
