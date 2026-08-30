@@ -178,11 +178,12 @@ private partial def Expr.isKeywordExpr (e : Expr) : Bool :=
 
 private partial def Expr.printPrec (e : Expr) (outerPrec : Nat) : String :=
   if !e.attrs.isEmpty then
-    -- Expression attributes `e [@name payload]` attach at application precedence,
-    -- so parenthesize any compound base to round-trip with the parser.
+    -- Expression attributes `e [@name payload]` attach at application precedence:
+    -- the base parenthesizes when it is compound, and the whole parenthesizes
+    -- wherever an application would.
     let bare := Expr.printPrec { e with attrs := [] } 0
     let baseStr := parenIf (!Expr.isAtom e) bare
-    baseStr ++ joinWith "" (e.attrs.map printAttr)
+    parenIf (outerPrec > Prec.app) (baseStr ++ joinWith "" (e.attrs.map printAttr))
   else match e.kind with
   | .const c => Const.print c
   | .var path => path.toString
