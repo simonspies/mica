@@ -500,8 +500,8 @@ def compile (s : Lifting) (primitives : PrimEncodings) (Γ : FunCtx) (Δ : Signa
     Except String Skolemize.DefVal :=
   let Δpi := s.matrixScope Δ
   let env := (VarEnv.ofSignature Δpi).bind s.arg s.gpack
-  encodeWith primitives Skolemize.encoderOps Δpi Γ env s.body
-    (fun value => .ok (Skolemize.DefVal.pure value))
+  Expr.fold Skolemize.encoderOps (fun value => .ok (Skolemize.DefVal.pure value))
+    (encode primitives Δpi Γ env s.body)
 
 /-- Matrix of the value axiom: the bounded quantifier over the lifted
 closure's truth. -/
@@ -634,9 +634,9 @@ theorem compile_wfIn {primitives : PrimEncodings} (hlaw : primitives.Lawful)
       (idx_fresh_declVar hv.argFresh hv.idxFresh hv.idxNeArg)
   obtain ⟨hΔpi, hp, hi⟩ := matrix_vars hΔ hv.argFresh hv.idxFresh hv.idxNeArg
   have hcarrier : Skolemize.wfInE Δpi
-      (encodeWith primitives Skolemize.encoderOps Δpi Γ
-        ((VarEnv.ofSignature Δpi).bind s.arg s.gpack) s.body
-        (fun value => .ok (Skolemize.DefVal.pure value))) := by
+      (Expr.fold Skolemize.encoderOps (fun value => .ok (Skolemize.DefVal.pure value))
+        (encode primitives Δpi Γ
+          ((VarEnv.ofSignature Δpi).bind s.arg s.gpack) s.body)) := by
     refine encodeWith_indWithSig (primitives := primitives) hlaw Skolemize.encoderOps_wf s.body
       (Signature.Subset.refl _) hΔpi (FunCtx.splitWfIn_mono hΓ.split (hsubp.trans hsubpi))
       ((VarEnv.ofSignature_wfIn hΔpi).bind (gpack_wfIn hΔpi hp hi)) ?_

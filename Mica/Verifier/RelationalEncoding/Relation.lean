@@ -250,8 +250,8 @@ pinned at result variable `res`. -/
 def relEncodeBody (primitives : PrimEncodings) (Γ : FunCtx) (Δ : Signature)
     (f : TinyML.Var) (fn : SpecFn) (x res : TinyML.Var) (e : Typed.Expr) :
     Except String Formula :=
-  encodeWith primitives encoderOps Δ (ctx Γ f fn)
-    (VarEnv.ofSignature (bodySig Δ fn x)) e (kEq res)
+  Expr.fold encoderOps (kEq res)
+    (encode primitives Δ (ctx Γ f fn) (VarEnv.ofSignature (bodySig Δ fn x)) e)
     (relBodySupply Δ fn x res)
 
 /-- Least-fixpoint relational interpretation of `rec f x := e`. -/
@@ -422,13 +422,16 @@ private def encoderOps_det (Γ : FunCtx) (res : String) :
 /-- Successful relational encodings produce deterministic carriers. -/
 theorem encodeWith_det {primitives : PrimEncodings} {Γ : FunCtx}
     {Δenc : Signature} {res : String}
-    {e : Typed.Expr} {Δview : Signature} {δ : VarEnv} {k : Term .value → Rel}
+    {e : Typed.Expr} {Δview : Signature} {δ : VarEnv}
+    {ret : Term .value → Rel} {k : Term .value → Expr}
     (hlaw : primitives.Lawful)
     (hsubView : Δenc.Subset Δview) (hΔview : Δview.wf)
     (hδ : δ.wfIn Δview)
     (hk : ∀ {Δ : Signature} {v : Term .value},
-        Δview.Subset Δ → Δ.wf → v.wfIn Δ → Rel.Det Γ res Δ (k v)) :
-    Rel.Det Γ res Δview (encodeWith primitives encoderOps Δenc Γ δ e k) :=
+        Δview.Subset Δ → Δ.wf → v.wfIn Δ →
+        Rel.Det Γ res Δ (Expr.fold encoderOps ret (k v))) :
+    Rel.Det Γ res Δview
+      (Expr.fold encoderOps ret (encodeWith primitives Δenc Γ δ e k)) :=
   encodeWith_indWithSig (primitives := primitives) hlaw (encoderOps_det Γ res) e
     hsubView hΔview rfl
     hδ
@@ -454,12 +457,13 @@ theorem semrel_functional
   let F : ValRel → ValRel := semanticBody Formula.sem ρ fn x res body
   let R : ValRel := semrel primitives Γ Δ ρ f fn x res e
   set δ := VarEnv.ofSignature (bodySig Δ fn x) with hδ_def
-  set m := encodeWith primitives encoderOps Δ (ctx Γ f fn) δ e (kEq res) with hm_def
+  set m := Expr.fold encoderOps (kEq res)
+    (encode primitives Δ (ctx Γ f fn) δ e) with hm_def
   have hrun : m (relBodySupply Δ fn x res) = .ok body := by
     simpa [relEncodeBody, hm_def] using henc
   have hR : R = RelationFix.lfp F := by simp [R, F, semrel, semanticFixpoint, henc]
   have hmMono : Rel.Mono m :=
-    encodeWith_ind (primitives := primitives) encoderOps_preservesMono e (kEq_mono res)
+    Expr.fold_ind encoderOps_preservesMono (kEq_mono res) _
   have hmonoBody : SemanticMono Formula.sem body :=
     hmMono (relBodySupply Δ fn x res) body hrun
   have hmono : RelationFix.Mono F := by

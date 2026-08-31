@@ -137,14 +137,14 @@ eventual relation/graph equivalence. -/
 theorem definedIntroAxiom_eval {primitives : PrimEncodings}
     {Γ : FunCtx} {Δ : Signature} {ρ : Env}
     {f : TinyML.Var} {fn : SpecFn} {x res : TinyML.Var} {e : Typed.Expr}
-    {body : DefVal} (henc : encodeBody primitives Γ Δ f fn x res e = .ok body) :
+    {body : DefVal} (henc : splitBody primitives Γ Δ f fn x res e = .ok body) :
     (definedIntroAxiom fn x body).eval
       (defInterpEnv primitives Γ Δ ρ f fn x res e body) := by
   simp only [definedIntroAxiom, Formula.eval]
   intro vin hbody
   have hsem :
       semdef primitives Γ Δ ρ f fn x res e body vin := by
-    exact (semdef_unfold_of_encode (ρ := ρ) (x := x) (res := res) henc vin).mpr hbody
+    exact (semdef_unfold_of_split (ρ := ρ) (x := x) (res := res) henc vin).mpr hbody
   exact (definedCall_eval_defInterpEnv (Γ := Γ) (Δ := Δ) (ρ := ρ)
     (f := f) (fn := fn) (x := x) (res := res) (e := e) (body := body) vin).mpr hsem
 
@@ -158,7 +158,7 @@ theorem semrel_compatible {primitives : PrimEncodings}
     (hlaw : primitives.Lawful)
     {Γ : FunCtx} {Δ : Signature} {ρ : Env}
     {f : TinyML.Var} {fn : SpecFn} {x res : TinyML.Var} {e : Typed.Expr}
-    {body : DefVal} (henc : encodeBody primitives Γ Δ f fn x res e = .ok body)
+    {body : DefVal} (henc : splitBody primitives Γ Δ f fn x res e = .ok body)
     (hΓ : Γ.splitCompatible ρ)
     (hΓwf : Γ.wfIn Δ)
     (hΔ : Δ.wf) (hheadFresh : HeadFresh Δ fn x res)
@@ -201,7 +201,7 @@ theorem valueAxiom_eval {primitives : PrimEncodings}
     (hlaw : primitives.Lawful)
     {Γ : FunCtx} {Δ : Signature} {ρ : Env}
     {f : TinyML.Var} {fn : SpecFn} {x res : TinyML.Var} {e : Typed.Expr}
-    {body : DefVal} (henc : encodeBody primitives Γ Δ f fn x res e = .ok body)
+    {body : DefVal} (henc : splitBody primitives Γ Δ f fn x res e = .ok body)
     (hΓ : Γ.splitCompatible ρ)
     (hΓwf : Γ.wfIn Δ)
     (hΔ : Δ.wf) (hheadFresh : HeadFresh Δ fn x res)
@@ -228,7 +228,7 @@ fixpoint of `semdef`, the `semdef`/`defBody` unfolding goes both ways, so
 theorem definedElimAxiom_eval {primitives : PrimEncodings}
     {Γ : FunCtx} {Δ : Signature} {ρ : Env}
     {f : TinyML.Var} {fn : SpecFn} {x res : TinyML.Var} {e : Typed.Expr}
-    {body : DefVal} (henc : encodeBody primitives Γ Δ f fn x res e = .ok body) :
+    {body : DefVal} (henc : splitBody primitives Γ Δ f fn x res e = .ok body) :
     (definedElimAxiom fn x body).eval
       (defInterpEnv primitives Γ Δ ρ f fn x res e body) := by
   simp only [definedElimAxiom, Formula.all, Formula.eval]
@@ -236,7 +236,7 @@ theorem definedElimAxiom_eval {primitives : PrimEncodings}
   have hsem : semdef primitives Γ Δ ρ f fn x res e body vin :=
     (definedCall_eval_defInterpEnv (Γ := Γ) (Δ := Δ) (ρ := ρ)
       (f := f) (fn := fn) (x := x) (res := res) (e := e) (body := body) vin).mp hdef
-  exact (semdef_unfold_of_encode (ρ := ρ) (x := x) (res := res) henc vin).mp hsem
+  exact (semdef_unfold_of_split (ρ := ρ) (x := x) (res := res) henc vin).mp hsem
 
 /-- Semantic validity of the split axioms under the canonical split
 interpretation. -/
@@ -244,7 +244,7 @@ theorem axioms_eval {primitives : PrimEncodings}
     (hlaw : primitives.Lawful)
     {Γ : FunCtx} {Δ : Signature} {ρ : Env}
     {f : TinyML.Var} {fn : SpecFn} {x res : TinyML.Var} {e : Typed.Expr}
-    {body : DefVal} (henc : encodeBody primitives Γ Δ f fn x res e = .ok body)
+    {body : DefVal} (henc : splitBody primitives Γ Δ f fn x res e = .ok body)
     (hΓ : Γ.splitCompatible ρ)
     (hΓwf : Γ.wfIn Δ)
     (hΔ : Δ.wf) (hheadFresh : HeadFresh Δ fn x res)
@@ -351,7 +351,7 @@ def bundle (primitives : PrimEncodings)
     Except String (String × DefVal × List Axiom) := do
   let res := Fresh.freshName
     (Δ.allNames ++ [x, fn.relName, fn.funcName, fn.defName]) "r"
-  let bv ← encodeBody primitives Γ Δ f fn x res e
+  let bv ← splitBody primitives Γ Δ f fn x res e
   pure (res, bv, axioms fn x bv)
 
 theorem bundle_headFresh
@@ -387,11 +387,11 @@ theorem bundle_wfIn {primitives : PrimEncodings}
     simpa [Δext, bodySig] using bodySig_wf_of_headFresh hΔ hheadFresh
   have hbody_x : bv.wfIn (Δext.declVar ⟨x, .value⟩) := by
     show bv.wfIn (bodySig Δ fn x)
-    exact encode_wfIn_of_gate e hlaw
+    exact split_wfIn_of_gate e hlaw
       (subset_bodySig_of_headFresh hheadFresh)
       (bodySig_wf_of_headFresh hΔ hheadFresh)
       (ctx_splitWfIn_bodySig_of_headFresh hΓwf.split hheadFresh)
-      (encodeBody_def_bodySig henc)
+      (splitBody_def_bodySig henc)
   have hfun_mem : fn.func ∈ (Δext.declVar ⟨x, .value⟩).unary :=
     Signature.mem_remove_unary.mpr ⟨List.Mem.head _, fun heq => hf.argNeFun heq.symm⟩
   have hrel_mem : fn.defined ∈ (Δext.declVar ⟨x, .value⟩).unaryRel :=
@@ -408,7 +408,7 @@ theorem axioms_eval_updateBinaryRel {primitives : PrimEncodings}
     (hlaw : primitives.Lawful)
     {Γ : FunCtx} {Δ : Signature} {ρ : Env}
     {f : TinyML.Var} {fn : SpecFn} {x res : TinyML.Var} {e : Typed.Expr}
-    {body : DefVal} (henc : encodeBody primitives Γ Δ f fn x res e = .ok body)
+    {body : DefVal} (henc : splitBody primitives Γ Δ f fn x res e = .ok body)
     (hΓ : Γ.splitCompatible ρ)
     (hΓwf : Γ.wfIn Δ)
     (hΔ : Δ.wf) (hheadFresh : HeadFresh Δ fn x res)

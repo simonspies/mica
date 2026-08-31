@@ -1,7 +1,7 @@
 **Mica/Verifier/RelationalEncoding**
 
 - `Axioms.lean` — Solver-facing axioms and validity theorems for skolemized relational encoding.
-- `Monad.lean` — Generic monadic skeleton for TinyML-to-FOL encoders.
+- `Monad.lean` — Traversal of TinyML into the encoder intermediate language, and the induction principles it supports.
 - `Prim.lean` — Encoding of intrinsic applications, driven by an explicit table of primitive encodings.
 - `Relation.lean` — Stage 1 — encode a recursive TinyML body as a binary FOL relation defined by least fixpoint.
 - `SkolemizeCommon.lean` — Shared split encoding and semantic infrastructure for Skolemization.
