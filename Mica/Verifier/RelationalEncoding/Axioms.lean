@@ -387,11 +387,7 @@ theorem bundle_wfIn {primitives : PrimEncodings}
     simpa [Δext, bodySig] using bodySig_wf_of_headFresh hΔ hheadFresh
   have hbody_x : bv.wfIn (Δext.declVar ⟨x, .value⟩) := by
     show bv.wfIn (bodySig Δ fn x)
-    exact split_wfIn_of_gate e hlaw
-      (subset_bodySig_of_headFresh hheadFresh)
-      (bodySig_wf_of_headFresh hΔ hheadFresh)
-      (ctx_splitWfIn_bodySig_of_headFresh hΓwf.split hheadFresh)
-      (splitBody_def_bodySig henc)
+    exact splitBody_wfIn_bodySig hlaw hΔ hΓwf.split hheadFresh henc
   have hfun_mem : fn.func ∈ (Δext.declVar ⟨x, .value⟩).unary :=
     Signature.mem_remove_unary.mpr ⟨List.Mem.head _, fun heq => hf.argNeFun heq.symm⟩
   have hrel_mem : fn.defined ∈ (Δext.declVar ⟨x, .value⟩).unaryRel :=
@@ -426,7 +422,7 @@ theorem axioms_eval_updateBinaryRel {primitives : PrimEncodings}
     exact defvalBodySig_wf_of_headFresh hΔ hheadFresh
   have hbody_wf : body.wfIn (Δsmall.declVar ⟨x, .value⟩) := by
     show body.wfIn (defvalBodySig Δ fn x)
-    exact encodeBody_wfIn_defvalBodySig hlaw hΔ hΓwf.split hheadFresh henc
+    exact splitBody_wfIn_defvalBodySig hlaw hΔ hΓwf.split hheadFresh henc
   have hxNeFun : x ≠ fn.funcName := fun heq =>
     var_fresh_splitBase_of_headFresh hheadFresh (heq ▸ Signature.mem_allNames_of_unary
       (Δ := Δsmall) (u := fn.func) (List.Mem.head _))

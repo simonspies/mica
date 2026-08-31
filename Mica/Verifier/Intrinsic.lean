@@ -112,46 +112,6 @@ theorem IntrinsicFOL.term_wfIn {n : Arity} {Δ Δ' : Signature}
       exact ⟨⟨hav', fun τ₁' τ₂' τ₃' τ₄' ht =>
         Signature.wf_unique_ternary hΔ' hav' ht⟩, hargs.1, hargs.2.1, hargs.2.2⟩
 
-/-- Let the encoding be available in `Δ`. Let two environments agree on `Δ`.
-    If the two argument tuples evaluate to the same values, then the two
-    terms also evaluate to the same value. -/
-theorem IntrinsicFOL.term_eval {n : Arity} (f : IntrinsicFOL n) {Δ : Signature}
-    (args₁ args₂ : Arity.tup n (Term .value)) {ρ₁ ρ₂ : Env}
-    (hav : f.available Δ n = true) (hagree : Env.agreeOn Δ ρ₁ ρ₂)
-    (hargs : Arity.map (Term.eval ρ₁) n args₁ = Arity.map (Term.eval ρ₂) n args₂) :
-    Term.eval ρ₁ (f.term n args₁) = Term.eval ρ₂ (f.term n args₂) := by
-  cases f with
-  | direct d =>
-    simp only [IntrinsicFOL.term]
-    rw [d.eval, d.eval, hargs]
-  | symbol s =>
-    cases n with
-    | zero =>
-      simp only [IntrinsicFOL.available, decide_eq_true_eq] at hav
-      simpa [IntrinsicFOL.term, Term.eval, Const.denote] using hagree.2.1 _ hav
-    | one =>
-      simp only [IntrinsicFOL.available, decide_eq_true_eq] at hav
-      change Term.eval ρ₁ args₁ = Term.eval ρ₂ args₂ at hargs
-      simp only [IntrinsicFOL.term, Term.eval, UnOp.eval]
-      rw [hagree.2.2.1 _ hav, hargs]
-    | two =>
-      simp only [IntrinsicFOL.available, decide_eq_true_eq] at hav
-      change (Term.eval ρ₁ args₁.1, Term.eval ρ₁ args₁.2) =
-        (Term.eval ρ₂ args₂.1, Term.eval ρ₂ args₂.2) at hargs
-      injection hargs with ha hb
-      simp only [IntrinsicFOL.term, Term.eval, BinOp.eval]
-      rw [hagree.2.2.2.1 _ hav, ha, hb]
-    | three =>
-      simp only [IntrinsicFOL.available, decide_eq_true_eq] at hav
-      change (Term.eval ρ₁ args₁.1, Term.eval ρ₁ args₁.2.1,
-          Term.eval ρ₁ args₁.2.2) =
-        (Term.eval ρ₂ args₂.1, Term.eval ρ₂ args₂.2.1,
-          Term.eval ρ₂ args₂.2.2) at hargs
-      injection hargs with ha hrest
-      injection hrest with hb hc
-      simp only [IntrinsicFOL.term, Term.eval, TerOp.eval]
-      rw [hagree.2.2.2.2.1 _ hav, ha, hb, hc]
-
 /-! ## Extending signatures and environments with an FOL symbol -/
 
 /-- Extend a signature with the FOL symbol from `s` (if any). -/
@@ -454,8 +414,7 @@ theorem Intrinsic.encoding_lawful (i : Intrinsic) {e : RelationalEncoding.PrimEn
   | some f =>
     simp only [Intrinsic.encoding, hfolTerm, Option.map_some, Option.some.injEq] at h
     subst e
-    exact { wfIn := fun hav hsub hΔ' hargs => f.term_wfIn hsub hΔ' _ hav hargs
-            eval := fun hav hagree hargs => f.term_eval _ _ hav hagree hargs }
+    exact { wfIn := fun hav hsub hΔ' hargs => f.term_wfIn hsub hΔ' _ hav hargs }
 
 /-- A registry is a list of intrinsics. -/
 abbrev Registry := List Intrinsic

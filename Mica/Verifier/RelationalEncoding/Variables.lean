@@ -49,6 +49,12 @@ theorem NameSupply.Covers.declVar {s : NameSupply} {Δ : Signature}
     exact List.mem_cons_of_mem _ (h n hΔn)
 
 
+/-- The supply that reserves exactly the names a signature declares. -/
+def NameSupply.ofSignature (Δ : Signature) : NameSupply := { avoid := Δ.allNames }
+
+theorem NameSupply.ofSignature_covers (Δ : Signature) :
+    (NameSupply.ofSignature Δ).Covers Δ := fun _ h => h
+
 /-! ## Function context -/
 
 /-- Maps TinyML function names to spec-level function symbols. -/
@@ -224,102 +230,6 @@ theorem ofSignature_wfIn {Δ : Signature} (hΔ : Δ.wf) :
     cases sort <;> simp at ha
     rcases ha with ⟨rfl, rfl⟩
     exact var_value_wfIn hΔ haΔ
-
-/-- Paired local environments agree semantically in two FOL environments:
-they share a lookup domain, and corresponding terms are well-formed in the
-respective signatures and evaluate equally. -/
-structure Agree (Δ₁ Δ₂ : Signature) (ρ₁ ρ₂ : Env) (δ₁ δ₂ : VarEnv) : Prop where
-  /-- Both environments bind the same set of TinyML variables. -/
-  sameDomain : ∀ x, (∃ v₁, δ₁.lookup x = some v₁) ↔ (∃ v₂, δ₂.lookup x = some v₂)
-  /-- Corresponding bound terms are well-formed and evaluate equally. -/
-  agree : ∀ x v₁ v₂,
-    δ₁.lookup x = some v₁ →
-    δ₂.lookup x = some v₂ →
-    v₁.wfIn Δ₁ ∧ v₂.wfIn Δ₂ ∧
-      Term.eval ρ₁ v₁ = Term.eval ρ₂ v₂
-
-theorem Agree.bind {Δ₁ Δ₂ : Signature} {ρ₁ ρ₂ : Env}
-    {δ₁ δ₂ : VarEnv} {x : String} {v₁ v₂ : Term .value}
-    (henv : Agree Δ₁ Δ₂ ρ₁ ρ₂ δ₁ δ₂)
-    (hv₁ : v₁.wfIn Δ₁) (hv₂ : v₂.wfIn Δ₂)
-    (heval : Term.eval ρ₁ v₁ = Term.eval ρ₂ v₂) :
-    Agree Δ₁ Δ₂ ρ₁ ρ₂ (δ₁.bind x v₁) (δ₂.bind x v₂) where
-  sameDomain := by
-    intro y
-    by_cases hyx : y = x
-    · subst y
-      simp [lookup_bind]
-    · rw [lookup_bind_of_ne (δ := δ₁) (x := x) (v := v₁) hyx,
-        lookup_bind_of_ne (δ := δ₂) (x := x) (v := v₂) hyx]
-      exact henv.sameDomain y
-  agree := by
-    intro y w₁ w₂ h₁ h₂
-    by_cases hyx : y = x
-    · subst y
-      simp only [lookup_bind, Option.some.injEq] at h₁ h₂
-      subst w₁; subst w₂
-      exact ⟨hv₁, hv₂, heval⟩
-    · have h₁' : δ₁.lookup y = some w₁ := by
-        simpa [lookup_bind_of_ne (δ := δ₁) (x := x) (v := v₁) hyx] using h₁
-      have h₂' : δ₂.lookup y = some w₂ := by
-        simpa [lookup_bind_of_ne (δ := δ₂) (x := x) (v := v₂) hyx] using h₂
-      exact henv.agree y w₁ w₂ h₁' h₂'
-
-theorem Agree.bindBinder {Δ₁ Δ₂ : Signature} {ρ₁ ρ₂ : Env}
-    {δ₁ δ₂ : VarEnv} {b : Typed.Binder} {v₁ v₂ : Term .value}
-    (henv : Agree Δ₁ Δ₂ ρ₁ ρ₂ δ₁ δ₂)
-    (hv₁ : v₁.wfIn Δ₁) (hv₂ : v₂.wfIn Δ₂)
-    (heval : Term.eval ρ₁ v₁ = Term.eval ρ₂ v₂) :
-    Agree Δ₁ Δ₂ ρ₁ ρ₂ (δ₁.bindBinder b v₁) (δ₂.bindBinder b v₂) := by
-  cases b with
-  | mk name ty =>
-      cases name with
-      | none => simpa [bindBinder] using henv
-      | some x => simpa [bindBinder] using henv.bind hv₁ hv₂ heval
-
-theorem prodProj_eval {ρ₁ ρ₂ : Env} {v₁ v₂ : Term .value} (i : Nat)
-    (heval : Term.eval ρ₁ v₁ = Term.eval ρ₂ v₂) :
-    Term.eval ρ₁ (prodProj v₁ i) = Term.eval ρ₂ (prodProj v₂ i) := by
-  simp [prodProj, Term.eval, UnOp.eval, vtailN_eval, heval]
-
-theorem Agree.bindBindersFrom {Δ₁ Δ₂ : Signature} {ρ₁ ρ₂ : Env}
-    {δ₁ δ₂ : VarEnv} {v₁ v₂ : Term .value}
-    (henv : Agree Δ₁ Δ₂ ρ₁ ρ₂ δ₁ δ₂)
-    (hv₁ : v₁.wfIn Δ₁) (hv₂ : v₂.wfIn Δ₂)
-    (heval : Term.eval ρ₁ v₁ = Term.eval ρ₂ v₂) :
-    ∀ bs i,
-      Agree Δ₁ Δ₂ ρ₁ ρ₂
-        (bindBindersFrom δ₁ v₁ bs i) (bindBindersFrom δ₂ v₂ bs i)
-  | [], _ => henv
-  | _ :: bs, i =>
-      Agree.bindBindersFrom
-        (Agree.bindBinder henv
-          (prodProj_wfIn hv₁ i) (prodProj_wfIn hv₂ i) (prodProj_eval i heval))
-        hv₁ hv₂ heval bs (i + 1)
-
-theorem Agree.bindBinders {Δ₁ Δ₂ : Signature} {ρ₁ ρ₂ : Env}
-    {δ₁ δ₂ : VarEnv} {bs : List Typed.Binder} {v₁ v₂ : Term .value}
-    (henv : Agree Δ₁ Δ₂ ρ₁ ρ₂ δ₁ δ₂)
-    (hv₁ : v₁.wfIn Δ₁) (hv₂ : v₂.wfIn Δ₂)
-    (heval : Term.eval ρ₁ v₁ = Term.eval ρ₂ v₂) :
-    Agree Δ₁ Δ₂ ρ₁ ρ₂ (δ₁.bindBinders bs v₁) (δ₂.bindBinders bs v₂) := by
-  simpa [bindBinders] using Agree.bindBindersFrom henv hv₁ hv₂ heval bs 0
-
-theorem Agree.mono {Δ₁ Δ₂ Δ₁' Δ₂' : Signature} {ρ₁ ρ₂ ρ₁' ρ₂' : Env}
-    {δ₁ δ₂ : VarEnv}
-    (hsub₁ : Δ₁.Subset Δ₁') (hsub₂ : Δ₂.Subset Δ₂')
-    (hwf₁ : Δ₁'.wf) (hwf₂ : Δ₂'.wf)
-    (ha₁ : Env.agreeOn Δ₁ ρ₁ ρ₁') (ha₂ : Env.agreeOn Δ₂ ρ₂ ρ₂')
-    (henv : Agree Δ₁ Δ₂ ρ₁ ρ₂ δ₁ δ₂) :
-    Agree Δ₁' Δ₂' ρ₁' ρ₂' δ₁ δ₂ where
-  sameDomain := henv.sameDomain
-  agree := by
-    intro x v₁ v₂ h₁ h₂
-    rcases henv.agree x v₁ v₂ h₁ h₂ with ⟨hv₁, hv₂, heval⟩
-    have hv₁' := Term.wfIn_mono v₁ hv₁ hsub₁ hwf₁
-    have hv₂' := Term.wfIn_mono v₂ hv₂ hsub₂ hwf₂
-    refine ⟨hv₁', hv₂', ?_⟩
-    rw [← Term.eval_env_agree hv₁ ha₁, heval, Term.eval_env_agree hv₂ ha₂]
 
 end VarEnv
 

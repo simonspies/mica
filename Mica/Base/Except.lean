@@ -12,6 +12,14 @@ theorem bind_ok {ε α β} {a : Except ε α} {f : α → Except ε β} {b : β}
   | ok x =>
     exact ⟨x, rfl, h⟩
 
+theorem map_eq_ok {ε α β} {f : α → β} {x : Except ε α} {b : β}
+    (h : f <$> x = .ok b) : ∃ a, x = .ok a ∧ b = f a := by
+  cases x with
+  | error e => simp only [Functor.map, Except.map] at h; cases h
+  | ok a =>
+      simp only [Functor.map, Except.map, Except.ok.injEq] at h
+      exact ⟨a, rfl, h.symm⟩
+
 end Except
 
 namespace StateT

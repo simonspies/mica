@@ -686,6 +686,12 @@ theorem allNames_declVar_of_not_in {Δ : Signature} {x : String} {τ : Srt}
   rw [declVar, remove_eq_of_not_in h]
   simp [allNames, addVar]
 
+/-- Declaring a variable whose name is fresh leaves the other variables alone. -/
+theorem vars_declVar_of_not_in {Δ : Signature} {v : Var}
+    (h : v.name ∉ Δ.allNames) : (Δ.declVar v).vars = v :: Δ.vars := by
+  rw [declVar, remove_eq_of_not_in h]
+  rfl
+
 /-- Declaring a variable on both sides preserves symbol inclusion, provided the
 new name on the right is fresh there: the symbols carried over from `Δ` already
 live in `Δ'`, so they cannot be the ones `declVar y'` drops. -/

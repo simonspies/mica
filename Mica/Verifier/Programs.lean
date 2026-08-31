@@ -18,7 +18,7 @@ open Iris Iris.BI
 variable [MicaGS HasLC.hasLC Sig]
 open Typed
 open Verifier.RelationalEncoding (FunCtx PrimEncodings encode)
-open Verifier.RelationalEncoding.Skolemize (encoderOps DefVal)
+open Verifier.RelationalEncoding.Skolemize (DefVal)
 
 /-! ## Program-level verification
 
@@ -46,8 +46,9 @@ match payloads — so the names alone determine it. -/
 private def Program.translateLeaf (primitives : PrimEncodings) (Δ : Signature)
     (Γfn : FunCtx) (names : List String)
     (e : Typed.Expr) : Except String (Term .value × Formula) := do
-  let dv ← Verifier.RelationalEncoding.Expr.fold encoderOps (fun v => .ok (DefVal.pure v))
-    (encode primitives Δ Γfn (names.map (fun n => (n, .var .value n))) e)
+  let c ← encode primitives Δ Γfn (names.map (fun n => (n, .var .value n))) e
+    (Verifier.RelationalEncoding.NameSupply.ofSignature Δ)
+  let dv := Verifier.RelationalEncoding.Skolemize.ofExpr .id c
   .ok (dv.value, dv.defined)
 
 /-- The environment elaboration resolves specifications against: the registry's

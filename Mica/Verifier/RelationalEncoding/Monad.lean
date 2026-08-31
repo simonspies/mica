@@ -1,6 +1,7 @@
--- SUMMARY: Traversal of TinyML into the encoder intermediate language, and the induction principles it supports.
+-- SUMMARY: Traversal of TinyML into the encoder intermediate language, and its well-formedness.
 import Mica.FOL.Formulas
 import Mica.Base.Fixpoint
+import Mica.Base.Except
 import Mica.SourceTinyML.Typed
 import Mica.Base.Fresh
 import Mica.Verifier.RelationalEncoding.Variables
@@ -9,25 +10,20 @@ import Mica.Verifier.RelationalEncoding.Prim
 /-!
 # From TinyML to the encoder intermediate language
 
-`encode` resolves the pure syntax of a typed TinyML expression into value
-terms, leaving an `Expr`: a tree of calls and conditionals ending in a value,
-or in an error. The traversal is in continuation-passing style, so `ite`
-pushes the continuation into both branches.
+`encodeWith` resolves the pure syntax of a typed TinyML expression into value
+terms and leaves an `Expr`: a tree of calls and conditionals ending in a value.
+The traversal is in continuation-passing style — every leaf hands its value
+term to the continuation; `call` allocates the name of its result and puts the
+continuation under it; for `ite` the continuation is pushed into both branches,
+which are generated from the same supply because their scopes are disjoint.
 
-`Expr.fold` translates that tree into a carrier `M` given `EncoderOps M`. The
-relational and the Skolemized encoding are two such carriers; they differ only
-in how a call and a conditional become first-order logic.
+Because a call names its result, both encodings consume the *same* tree. The
+relational one binds the name existentially, the split one substitutes the
+value function for it; that asymmetry is all that Skolemization is.
 
-Three induction principles are proved once:
-
-* `Expr.fold_ind` — any carrier predicate closed under the operations
-  (`EncoderOpsInd`), by induction on `Expr`;
-* `encodeWith_indWithSig` — any signature-indexed carrier predicate
-  (`EncoderOpsSig`); well-formedness and determinism in a result variable are
-  the instances;
-* `encodeWith_bind_binary` — a binary relation between two carriers
-  (`EncoderOpsBinary`). The two carriers feed a call's continuation different
-  terms, so this one is not an induction on `Expr`.
+`Expr.WfIn` is the well-formedness of the tree: it is established once, by
+induction over `Typed.Expr` (`encodeWith_wfIn`), and consumed by each encoding
+in three cases.
 -/
 
 namespace Verifier.RelationalEncoding
@@ -112,1240 +108,544 @@ theorem encodeBinOp_wfIn {op : TinyML.BinOp} {v1 v2 v : Term .value} {Δ : Signa
       (Term.ite (.unop .toBool v1) (.const (.b true)) (.unop .toBool v2)).wfIn Δ
     exact ⟨trivial, ⟨⟨trivial, h1⟩, trivial, ⟨trivial, h2⟩⟩⟩
 
+
 /-! ## The encoder intermediate language -/
 
 /-- What is left of a TinyML expression once the traversal has resolved its
 pure syntax into value terms: a tree of calls and conditionals ending in a
-value, or in an error naming what the encoder does not support. -/
+value.
+
+* `ret` is the finished value term;
+* `call` applies a relation-marked function and binds its result to a name;
+* `ite` branches on a boolean term. -/
 inductive Expr where
-  | ret   : Term .value → Expr
-  | call  : SpecFn → Term .value → (Term .value → Expr) → Expr
-  | ite   : Term .bool → Expr → Expr → Expr
-  | error : String → Expr
-
-/-- Operations a carrier supplies to interpret `Expr`. What failure means is
-the carrier's choice: an `Except`-valued thunk, or a top-level `Except`. -/
-structure EncoderOps (M : Type) where
-  call  : SpecFn → Term .value → (Term .value → M) → M
-  ite   : Term .bool → M → M → M
-  error : String → M
-
-/-- Translate `Expr` into a carrier, interpreting a returned value with `ret`
-and every other constructor with `ops`. -/
-def Expr.fold {M : Type} (ops : EncoderOps M) (ret : Term .value → M) : Expr → M
-  | .ret v         => ret v
-  | .call fn arg k => ops.call fn arg (fun v => fold ops ret (k v))
-  | .ite cond t e  => ops.ite cond (fold ops ret t) (fold ops ret e)
-  | .error msg     => ops.error msg
+  | ret  : Term .value → Expr
+  | call : SpecFn → Term .value → String → Expr → Expr
+  | ite  : Term .bool → Expr → Expr → Expr
 
 mutual
-/-- Traversal of a typed TinyML expression in continuation-passing style, the
-only place that pattern-matches on `Typed.Expr`. What it cannot resolve into a
-value term becomes an `Expr` constructor, failure included, so it is total. -/
-def encodeWith (primitives : PrimEncodings) (Δ : Signature)
-    (Γ : FunCtx) (δ : VarEnv) : Typed.Expr → (Term .value → Expr) → Expr
-  | .const c, k => k (encodeConst c)
-  | .var x _ _, k =>
+/-- Shared structural traversal of a typed TinyML expression in
+continuation-passing style. The only place that pattern-matches on
+`Typed.Expr`. It either produces an IR expression, drawing call-result names
+from the supply, or the message naming what the encoder does not support. -/
+def encodeWith (primitives : PrimEncodings) (Δ : Signature) (Γ : FunCtx) (δ : VarEnv) :
+    Typed.Expr → (Term .value → NameSupply → Except String Expr) →
+      NameSupply → Except String Expr
+  | .const c, k, s => k (encodeConst c) s
+  | .var x _ _, k, s =>
     match δ.lookup x with
-    | some v => k v
+    | some v => k v s
     | none => .error s!"unbound variable: {x}"
-  | .prim n _ _, _ => .error s!"relational encoding: standalone primitive `{n}` is not supported"
-  | .unop op e _, k =>
-    encodeWith primitives Δ Γ δ e fun v =>
-      match encodeUnOp op v with
-      | .ok v'     => k v'
-      | .error msg => .error msg
-  | .binop op e1 e2 _, k =>
-    encodeWith primitives Δ Γ δ e1 fun v1 =>
-      encodeWith primitives Δ Γ δ e2 fun v2 =>
-        match encodeBinOp op v1 v2 with
-        | .ok v      => k v
-        | .error msg => .error msg
-  | .ifThenElse c t e _, k =>
-    encodeWith primitives Δ Γ δ c fun b =>
-      .ite (.unop .toBool b) (encodeWith primitives Δ Γ δ t k) (encodeWith primitives Δ Γ δ e k)
-  | .tuple es, k =>
-    encodeListWith primitives Δ Γ δ es fun vs =>
-      k (.unop .ofValList (Terms.toValList vs))
-  | .app (.var f _ _) [arg] _, k =>
+  | .prim n _ _, _, _ => .error s!"relational encoding: standalone primitive `{n}` is not supported"
+  | .unop op e _, k, s =>
+    encodeWith primitives Δ Γ δ e (fun v s' => do k (← encodeUnOp op v) s') s
+  | .binop op e1 e2 _, k, s =>
+    encodeWith primitives Δ Γ δ e1 (fun v1 s1 =>
+      encodeWith primitives Δ Γ δ e2 (fun v2 s2 => do k (← encodeBinOp op v1 v2) s2) s1) s
+  | .ifThenElse c t e _, k, s =>
+    encodeWith primitives Δ Γ δ c (fun b s' => do
+      let thenEnc ← encodeWith primitives Δ Γ δ t k s'
+      let elseEnc ← encodeWith primitives Δ Γ δ e k s'
+      .ok (.ite (.unop .toBool b) thenEnc elseEnc)) s
+  | .tuple es, k, s =>
+    encodeListWith primitives Δ Γ δ es
+      (fun vs s' => k (.unop .ofValList (Terms.toValList vs)) s') s
+  | .app (.var f _ _) [arg] _, k, s =>
     match FunCtx.lookup Γ f with
     | none     => .error s!"unknown function: {f}"
     | some rel =>
-      encodeWith primitives Δ Γ δ arg fun v => .call rel v k
-  | .app (.prim n _ _) args _, k =>
-    encodeListWith primitives Δ Γ δ args fun vs =>
-      match encodePrim primitives Δ n vs with
-      | .ok v       => k v
-      | .error msg  => .error msg
-  | .letIn b bound body, k =>
-    encodeWith primitives Δ Γ δ bound fun v =>
-      encodeWith primitives Δ Γ (VarEnv.bindBinder δ b v) body k
-  | .letProd bs bound body, k =>
-    encodeWith primitives Δ Γ δ bound fun v =>
-      encodeWith primitives Δ Γ (VarEnv.bindBinders δ bs v) body k
-  | .inj tag arity payload _, k =>
-    encodeWith primitives Δ Γ δ payload fun v =>
-      k (.unop (.ofInj tag arity) v)
-  | .match_ scrut branches _, k =>
-    encodeWith primitives Δ Γ δ scrut fun v =>
-      encodeMatchWith primitives Δ Γ δ v branches 0 k
-  | .app _ _ _, _ => .error "relational encoding: only unary calls to named top-level functions are supported"
-  | .fix .., _    => .error "relational encoding: nested `fix` is not supported"
-  | .ref .., _    => .error "relational encoding: heap allocation (`ref`) is not supported"
-  | .deref .., _  => .error "relational encoding: heap dereference is not supported"
-  | .store .., _  => .error "relational encoding: heap store is not supported"
-  | .arrayLen arr, k =>
-    encodeWith primitives Δ Γ δ arr fun v =>
-      k (.unop .ofInt (.unop .arrayLen v))
-  | .arrayMake .., _ | .arrayGet .., _ | .arraySet .., _ =>
+      encodeWith primitives Δ Γ δ arg (fun v s' => do
+        let r := s'.fresh "r"
+        .ok (.call rel v r (← k (.var .value r) (s'.reserve r)))) s
+  | .app (.prim n _ _) args _, k, s =>
+    encodeListWith primitives Δ Γ δ args
+      (fun vs s' => do k (← encodePrim primitives Δ n vs) s') s
+  | .letIn b bound body, k, s =>
+    encodeWith primitives Δ Γ δ bound (fun v s' =>
+      encodeWith primitives Δ Γ (VarEnv.bindBinder δ b v) body k s') s
+  | .letProd bs bound body, k, s =>
+    encodeWith primitives Δ Γ δ bound (fun v s' =>
+      encodeWith primitives Δ Γ (VarEnv.bindBinders δ bs v) body k s') s
+  | .inj tag arity payload _, k, s =>
+    encodeWith primitives Δ Γ δ payload
+      (fun v s' => k (.unop (.ofInj tag arity) v) s') s
+  | .match_ scrut branches _, k, s =>
+    encodeWith primitives Δ Γ δ scrut
+      (fun v s' => encodeMatchWith primitives Δ Γ δ v branches 0 k s') s
+  | .app _ _ _, _, _ => .error "relational encoding: only unary calls to named top-level functions are supported"
+  | .fix .., _, _    => .error "relational encoding: nested `fix` is not supported"
+  | .ref .., _, _    => .error "relational encoding: heap allocation (`ref`) is not supported"
+  | .deref .., _, _  => .error "relational encoding: heap dereference is not supported"
+  | .store .., _, _  => .error "relational encoding: heap store is not supported"
+  | .arrayLen arr, k, s =>
+    encodeWith primitives Δ Γ δ arr
+      (fun v s' => k (.unop .ofInt (.unop .arrayLen v)) s') s
+  | .arrayMake .., _, _ | .arrayGet .., _, _ | .arraySet .., _, _ =>
       .error "relational encoding: arrays are not supported"
-  | .assert _, _  => .error "relational encoding: `assert` is not supported"
+  | .assert _, _, _  => .error "relational encoding: `assert` is not supported"
 
 /-- Encode a list of expressions left-to-right, collecting their value terms.
 This is the list companion to `encodeWith`, needed by tuple syntax and later
 other n-ary constructs. -/
-def encodeListWith (primitives : PrimEncodings) (Δ : Signature)
-    (Γ : FunCtx) (δ : VarEnv) : List Typed.Expr → (List (Term .value) → Expr) → Expr
-  | [], k => k []
-  | e :: es, k =>
-    encodeWith primitives Δ Γ δ e fun v =>
-      encodeListWith primitives Δ Γ δ es fun vs => k (v :: vs)
+def encodeListWith (primitives : PrimEncodings) (Δ : Signature) (Γ : FunCtx) (δ : VarEnv) :
+    List Typed.Expr → (List (Term .value) → NameSupply → Except String Expr) →
+      NameSupply → Except String Expr
+  | [], k, s => k [] s
+  | e :: es, k, s =>
+    encodeWith primitives Δ Γ δ e (fun v s' =>
+      encodeListWith primitives Δ Γ δ es (fun vs s'' => k (v :: vs) s'') s') s
 
 /-- Encode a `match_` as an if-let chain. For each non-final branch
-`(b, body)` at index `i`, the code tests whether the scrutinee
-value's tag equals `i`; on the true branch the binder is bound to the
-payload projection before encoding `body`; on the false branch the
-remaining branches are tried. The final branch is dispatched
-unconditionally — the elaborator guarantees an exhaustive list, so the
-trailing case must hold. An empty list (which the elaborator never
-produces) is conservatively encoded as `Expr.error`. -/
+`(b, body)` at index `i`, the code tests whether the scrutinee value's tag
+equals `i`; on the true branch the binder is bound to the payload projection
+before encoding `body`; on the false branch the remaining branches are tried.
+The final branch is dispatched unconditionally — the elaborator guarantees an
+exhaustive list, so the trailing case must hold. An empty list (which the
+elaborator never produces) is conservatively rejected. -/
 def encodeMatchWith (primitives : PrimEncodings) (Δ : Signature)
     (Γ : FunCtx) (δ : VarEnv) (scrut : Term .value) :
-    List (Typed.Binder × Typed.Expr) → Nat → (Term .value → Expr) → Expr
-  | [], _, _ => .error "match: non-exhaustive"
-  | (b, body) :: rest, i, k =>
+    List (Typed.Binder × Typed.Expr) → Nat →
+      (Term .value → NameSupply → Except String Expr) → NameSupply → Except String Expr
+  | [], _, _, _ => .error "match: non-exhaustive"
+  | (b, body) :: rest, i, k, s =>
     let δ' := VarEnv.bindBinder δ b (.unop .payloadOf scrut)
     match rest with
-    | [] => encodeWith primitives Δ Γ δ' body k
-    | _ :: _ =>
-      .ite
-        (.binop .eq (.unop .tagOf scrut) (.const (.i (i : Int))))
-        (encodeWith primitives Δ Γ δ' body k)
-        (encodeMatchWith primitives Δ Γ δ scrut rest (i + 1) k)
+    | [] => encodeWith primitives Δ Γ δ' body k s
+    | _ :: _ => do
+      let thenEnc ← encodeWith primitives Δ Γ δ' body k s
+      let elseEnc ← encodeMatchWith primitives Δ Γ δ scrut rest (i + 1) k s
+      .ok (.ite (.binop .eq (.unop .tagOf scrut) (.const (.i (i : Int)))) thenEnc elseEnc)
 end
 
 /-- The closed form of the traversal: the whole expression is the result, so
-the continuation is `Expr.ret`. -/
+the continuation returns it. -/
 def encode (primitives : PrimEncodings) (Δ : Signature) (Γ : FunCtx) (δ : VarEnv)
-    (e : Typed.Expr) : Expr :=
-  encodeWith primitives Δ Γ δ e .ret
+    (e : Typed.Expr) : NameSupply → Except String Expr :=
+  encodeWith primitives Δ Γ δ e (fun v _ => .ok (.ret v))
 
-/-! ## Semantic interpretation of carriers
+/-! ## Semantic interpretation of encodings
 
-A semantic predicate `sem : M → Env → Prop` explains how a carrier is
+A semantic predicate `sem : M → Env → Prop` explains how an encoding is
 interpreted in an environment. Downstream constructions (e.g. the relational
 encoder's least fixpoint) use these notions on top of the traversal. -/
 
-/-- Semantic interpretation of an encoded carrier in an environment. -/
+/-- Semantic interpretation of an encoded expression in an environment. -/
 abbrev SemPred (M : Type) := M → Env → Prop
 
-/-- A carrier is monotone when its semantic interpretation is stable under
+/-- An encoding is monotone when its semantic interpretation is stable under
 `Env.le`. -/
 def SemanticMono {M : Type} (sem : SemPred M) (m : M) : Prop :=
   ∀ {ρ ρ' : Env}, Env.le ρ ρ' → sem m ρ → sem m ρ'
 
-/-! ## Generic carrier predicates
+/-! ## Well-formedness of the intermediate language -/
 
-Some properties of an encoding depend neither on signatures nor on
-function-context well-formedness. `EncoderOpsInd` packages per-operation
-preservation of such a predicate; `Expr.fold_ind` lifts it to the whole tree. -/
+/-- Well-formedness of an IR expression at a signature and a name supply:
+every term it mentions is well-formed, every call resolves in `Γ`, and every
+call binds a name the supply has not yet handed out. -/
+inductive Expr.WfIn (Γ : FunCtx) : Signature → NameSupply → Expr → Prop where
+  | ret {Δ s v} : v.wfIn Δ → WfIn Γ Δ s (.ret v)
+  | call {Δ s f fn arg r c} :
+      (f, fn) ∈ Γ → arg.wfIn Δ → r ∉ s.avoid →
+      WfIn Γ (Δ.declVar ⟨r, .value⟩) (s.reserve r) c →
+      WfIn Γ Δ s (.call fn arg r c)
+  | ite {Δ s cond t e} :
+      cond.wfIn Δ → WfIn Γ Δ s t → WfIn Γ Δ s e → WfIn Γ Δ s (.ite cond t e)
 
-/-- Per-operation preservation assumptions for an arbitrary carrier predicate. -/
-structure EncoderOpsInd {M : Type} (ops : EncoderOps M) (P : M → Prop) where
-  /-- Calls preserve the predicate when their continuation does. -/
-  call_ind : ∀ {rel arg k},
-    (∀ v, P (k v)) → P (ops.call rel arg k)
-  /-- Conditionals preserve the predicate when both branches do. -/
-  ite_ind : ∀ {cond t e},
-    P t → P e → P (ops.ite cond t e)
-  /-- The error carrier satisfies the predicate. -/
-  error_ind : ∀ {msg}, P (ops.error msg)
+theorem Expr.WfIn.mono {Γ : FunCtx} {Δ Δ' : Signature} {s : NameSupply} {c : Expr}
+    (h : Expr.WfIn Γ Δ s c) (hsub : Δ.Subset Δ') (hwf : Δ'.wf) : Expr.WfIn Γ Δ' s c := by
+  induction h generalizing Δ' with
+  | ret hv => exact .ret (Term.wfIn_mono _ hv hsub hwf)
+  | call hmem harg hr _ ih =>
+      exact .call hmem (Term.wfIn_mono _ harg hsub hwf) hr
+        (ih (Signature.Subset.declVar hsub _) (Signature.wf_declVar hwf))
+  | ite hcond _ _ iht ihe =>
+      exact .ite (Term.wfIn_mono _ hcond hsub hwf) (iht hsub hwf) (ihe hsub hwf)
 
-/-- Translation preserves every carrier predicate that the operations preserve. -/
-theorem Expr.fold_ind {M : Type} {ops : EncoderOps M} {P : M → Prop}
-    {ret : Term .value → M} (hops : EncoderOpsInd ops P) (hret : ∀ v, P (ret v)) :
-    ∀ c : Expr, P (c.fold ops ret)
-  | .ret v      => hret v
-  | .call _ _ k => hops.call_ind (fun v => Expr.fold_ind hops hret (k v))
-  | .ite _ t e  => hops.ite_ind (Expr.fold_ind hops hret t) (Expr.fold_ind hops hret e)
-  | .error _    => hops.error_ind
+/-- Contract on a traversal continuation: at any signature the traversal can
+reach and any supply covering it, a well-formed value term yields a
+well-formed IR expression. -/
+abbrev WfCont (Γ : FunCtx) (Δ : Signature)
+    (k : Term .value → NameSupply → Except String Expr) : Prop :=
+  ∀ {Δ' : Signature} {s : NameSupply}, Δ.Subset Δ' → Δ'.wf → s.Covers Δ' →
+    ∀ v, v.wfIn Δ' → ∀ c, k v s = .ok c → Expr.WfIn Γ Δ' s c
 
-/-! ## Signature-indexed induction
+/-- List-valued companion of `WfCont`. -/
+abbrev WfListCont (Γ : FunCtx) (Δ : Signature)
+    (k : List (Term .value) → NameSupply → Except String Expr) : Prop :=
+  ∀ {Δ' : Signature} {s : NameSupply}, Δ.Subset Δ' → Δ'.wf → s.Covers Δ' →
+    ∀ vs, (∀ v ∈ vs, v.wfIn Δ') → ∀ c, k vs s = .ok c → Expr.WfIn Γ Δ' s c
 
-Each instance supplies its own signature-indexed carrier predicate `P` and its
-own function-context predicate `Pctx`. Given the per-operation assumptions
-packaged in `EncoderOpsSig`, the shared traversal preserves `P`. Well-formedness
-is the canonical instance; determinism in a designated result variable is
-another. -/
+/-- Per-expression statement of `encodeWith_wfIn`. -/
+def EncodeWithWfIn (primitives : PrimEncodings) (e : Typed.Expr) : Prop :=
+  ∀ {Γ : FunCtx} {Δ Δ' : Signature} {δ : VarEnv} {s : NameSupply}
+    {k : Term .value → NameSupply → Except String Expr} {c : Expr},
+    Δ.Subset Δ' → Δ'.wf → δ.wfIn Δ' → s.Covers Δ' → WfCont Γ Δ' k →
+    encodeWith primitives Δ Γ δ e k s = .ok c → Expr.WfIn Γ Δ' s c
 
-/-- Continuation contract for signature-indexed induction: a continuation `k`
-takes a value term well-formed in any signature extending `Δ` to a carrier
-satisfying `P` in that extension. -/
-abbrev SigCont {M : Type} (P : Signature → M → Prop)
-    (Δ : Signature) (k : Term .value → M) : Prop :=
-  ∀ {Δ'}, Δ.Subset Δ' → Δ'.wf →
-    ∀ v, v.wfIn Δ' → P Δ' (k v)
+/-- Per-list statement of `encodeWith_wfIn`. -/
+def EncodeListWithWfIn (primitives : PrimEncodings) (es : List Typed.Expr) : Prop :=
+  ∀ {Γ : FunCtx} {Δ Δ' : Signature} {δ : VarEnv} {s : NameSupply}
+    {k : List (Term .value) → NameSupply → Except String Expr} {c : Expr},
+    Δ.Subset Δ' → Δ'.wf → δ.wfIn Δ' → s.Covers Δ' → WfListCont Γ Δ' k →
+    encodeListWith primitives Δ Γ δ es k s = .ok c → Expr.WfIn Γ Δ' s c
 
-/-- Per-operation closure assumptions for a signature-indexed carrier
-predicate `P`, with a function-context predicate `Pctx` for `call`
-(instantiated e.g. by `FunCtx.wfIn` for well-formedness, or pinned to a
-specific `Γ` for determinism). The shared traversal preserves `P` whenever
-`ops` satisfies these (`encodeWith_indWithSig`). -/
-structure EncoderOpsSig {M : Type} (ops : EncoderOps M)
-    (P : Signature → M → Prop) (Pctx : FunCtx → Signature → Prop) where
-  /-- The function-context predicate is stable under signature extension. -/
-  ctx_mono : ∀ {Γ Δ Δ'}, Pctx Γ Δ → Δ.Subset Δ' → Pctx Γ Δ'
-  /-- A call to a function registered in `Γ` satisfies `P` at `Δ` provided its
-  continuation does. -/
-  call_ind : ∀ {Γ Δ f rel arg k},
-    Δ.wf → Pctx Γ Δ → (f, rel) ∈ Γ → arg.wfIn Δ →
-    SigCont P Δ k →
-    P Δ (ops.call rel arg k)
-  /-- A conditional with a well-formed condition and both branches satisfying
-  `P` satisfies `P`. -/
-  ite_ind : ∀ {Δ cond t e},
-    Δ.wf → cond.wfIn Δ → P Δ t → P Δ e →
-    P Δ (ops.ite cond t e)
-  /-- The error carrier satisfies `P` at every signature. -/
-  error_ind : ∀ {Δ msg}, P Δ (ops.error msg)
-
-/-- Per-expression statement of `encodeWith_indWithSig`. -/
-def EncodeWithIndSig (primitives : PrimEncodings) (e : Typed.Expr) : Prop :=
-  ∀ {M : Type} {ops : EncoderOps M} {ret : Term .value → M}
-    {P : Signature → M → Prop} {Pctx : FunCtx → Signature → Prop}
-    {Γ : FunCtx} {Δ Δ' : Signature} {δ : VarEnv} {k : Term .value → Expr},
-    EncoderOpsSig ops P Pctx →
-    Δ.Subset Δ' → Δ'.wf → Pctx Γ Δ' → δ.wfIn Δ' →
-    SigCont P Δ' (fun v => Expr.fold ops ret (k v)) →
-    P Δ' (Expr.fold ops ret (encodeWith primitives Δ Γ δ e k))
-
-/-- Per-list statement of `encodeWith_indWithSig`. -/
-def EncodeListWithIndSig (primitives : PrimEncodings) (es : List Typed.Expr) : Prop :=
-  ∀ {M : Type} {ops : EncoderOps M} {ret : Term .value → M}
-    {P : Signature → M → Prop} {Pctx : FunCtx → Signature → Prop}
-    {Γ : FunCtx} {Δ Δ' : Signature} {δ : VarEnv} {k : List (Term .value) → Expr},
-    EncoderOpsSig ops P Pctx →
-    Δ.Subset Δ' → Δ'.wf → Pctx Γ Δ' → δ.wfIn Δ' →
-    (∀ {Δ''}, Δ'.Subset Δ'' → Δ''.wf →
-      ∀ vs, (∀ v ∈ vs, v.wfIn Δ'') → P Δ'' (Expr.fold ops ret (k vs))) →
-    P Δ' (Expr.fold ops ret (encodeListWith primitives Δ Γ δ es k))
-
-/-- Per-branch-list statement of `encodeWith_indWithSig`, parametric in the
-scrutinee value and starting index. The scrutinee must be well-formed at the
-current signature so the tag-check and payload projection are. -/
-def EncodeMatchWithIndSig (primitives : PrimEncodings)
+/-- Per-branch-list statement of `encodeWith_wfIn`, parametric in the
+scrutinee value and starting index. -/
+def EncodeMatchWithWfIn (primitives : PrimEncodings)
     (branches : List (Typed.Binder × Typed.Expr)) : Prop :=
-  ∀ {M : Type} {ops : EncoderOps M} {ret : Term .value → M}
-    {P : Signature → M → Prop} {Pctx : FunCtx → Signature → Prop}
-    {Γ : FunCtx} {Δ Δ' : Signature} {δ : VarEnv}
-    {scrut : Term .value} {i : Nat} {k : Term .value → Expr},
-    EncoderOpsSig ops P Pctx →
-    Δ.Subset Δ' → Δ'.wf → Pctx Γ Δ' → δ.wfIn Δ' →
-    scrut.wfIn Δ' →
-    SigCont P Δ' (fun v => Expr.fold ops ret (k v)) →
-    P Δ' (Expr.fold ops ret (encodeMatchWith primitives Δ Γ δ scrut branches i k))
+  ∀ {Γ : FunCtx} {Δ Δ' : Signature} {δ : VarEnv} {s : NameSupply}
+    {scrut : Term .value} {i : Nat}
+    {k : Term .value → NameSupply → Except String Expr} {c : Expr},
+    Δ.Subset Δ' → Δ'.wf → δ.wfIn Δ' → s.Covers Δ' → scrut.wfIn Δ' → WfCont Γ Δ' k →
+    encodeMatchWith primitives Δ Γ δ scrut branches i k s = .ok c → Expr.WfIn Γ Δ' s c
 
-/-! ## Per-case helpers for `encodeWith_indWithSig` -/
+/-! ## Per-case helpers for `encodeWith_wfIn` -/
 
-namespace IndSig
+namespace WfCase
 
 theorem const {primitives : PrimEncodings} (c : TinyML.Const) :
-    EncodeWithIndSig primitives (.const c) := by
-  intro _ _ _ _ _ _ _ _ _ _ _ _ hΔ' _ _ hk
-  simp only [encodeWith]
-  exact hk (Signature.Subset.refl _) hΔ' _ (encodeConst_wfIn c _)
+    EncodeWithWfIn primitives (.const c) := by
+  intro _ _ _ _ _ _ _ _ hΔ' _ hcov hk henc
+  simp only [encodeWith] at henc
+  exact hk (Signature.Subset.refl _) hΔ' hcov _ (encodeConst_wfIn c _) _ henc
 
 theorem var {primitives : PrimEncodings}
     (x : String) (inst : List (TinyML.TyVar × TinyML.Typ)) (ty : TinyML.Typ) :
-    EncodeWithIndSig primitives (.var x inst ty) := by
-  intro _ _ _ _ _ _ _ _ δ _ hops _ hΔ' _ hδ hk
+    EncodeWithWfIn primitives (.var x inst ty) := by
+  intro _ _ _ δ _ _ _ _ hΔ' hδ hcov hk henc
   cases hlookup : δ.lookup x with
-  | none => simp only [encodeWith, hlookup]; exact hops.error_ind
+  | none => simp only [encodeWith, hlookup] at henc; cases henc
   | some v =>
-      simp only [encodeWith, hlookup]
-      exact hk (Signature.Subset.refl _) hΔ' v (hδ x v hlookup)
+      simp only [encodeWith, hlookup] at henc
+      exact hk (Signature.Subset.refl _) hΔ' hcov v (hδ x v hlookup) _ henc
 
 theorem unop {primitives : PrimEncodings} (op : TinyML.UnOp) (e : Typed.Expr) (ty : TinyML.Typ)
-    (ih : EncodeWithIndSig primitives e) : EncodeWithIndSig primitives (.unop op e ty) := by
-  intro M ops _ P Pctx Γ Δ Δ' δ k hops hsub hΔ' hΓ hδ hk
-  simp only [encodeWith]
-  refine ih hops hsub hΔ' hΓ hδ ?_
-  intro Δ'' hsub'' hΔ'' v hv
+    (ih : EncodeWithWfIn primitives e) : EncodeWithWfIn primitives (.unop op e ty) := by
+  intro _ _ _ _ _ _ _ hsub hΔ' hδ hcov hk henc
+  simp only [encodeWith] at henc
+  refine ih hsub hΔ' hδ hcov ?_ henc
+  intro Δ'' s'' hsub'' hΔ'' hcov'' v hv c' henc'
   cases hraw : encodeUnOp op v with
-  | error _ => simp [hraw]; exact hops.error_ind
-  | ok _ =>
-      simp [hraw]
-      exact hk hsub'' hΔ'' _ (encodeUnOp_wfIn hraw hv)
+  | error msg => simp only [hraw, bind, Except.bind] at henc'; cases henc'
+  | ok v' =>
+      simp only [hraw, bind, Except.bind] at henc'
+      exact hk hsub'' hΔ'' hcov'' v' (encodeUnOp_wfIn hraw hv) c' henc'
 
 theorem binop {primitives : PrimEncodings}
     (op : TinyML.BinOp) (e1 e2 : Typed.Expr) (ty : TinyML.Typ)
-    (ih1 : EncodeWithIndSig primitives e1) (ih2 : EncodeWithIndSig primitives e2) :
-    EncodeWithIndSig primitives (.binop op e1 e2 ty) := by
-  intro _ _ _ _ _ _ _ _ δ _ hops hsub hΔ' hΓ hδ hk
-  simp only [encodeWith]
-  refine ih1 hops hsub hΔ' hΓ hδ ?_
-  intro Δ'' hsub'' hΔ'' v1 hv1
-  have hΓ'' := hops.ctx_mono hΓ hsub''
-  refine ih2 hops (hsub.trans hsub'') hΔ'' hΓ''
-    (fun x v h => Term.wfIn_mono v (hδ x v h) hsub'' hΔ'') ?_
-  intro Δ''' hsub''' hΔ''' v2 hv2
+    (ih1 : EncodeWithWfIn primitives e1) (ih2 : EncodeWithWfIn primitives e2) :
+    EncodeWithWfIn primitives (.binop op e1 e2 ty) := by
+  intro _ _ _ δ _ _ _ hsub hΔ' hδ hcov hk henc
+  simp only [encodeWith] at henc
+  refine ih1 hsub hΔ' hδ hcov ?_ henc
+  intro Δa sa hsa hΔa hcova v1 hv1 c1 henc1
+  refine ih2 (hsub.trans hsa) hΔa
+    (fun y w h => Term.wfIn_mono w (hδ y w h) hsa hΔa) hcova ?_ henc1
+  intro Δb sb hsb hΔb hcovb v2 hv2 c2 henc2
   cases hraw : encodeBinOp op v1 v2 with
-  | error _ => simp [hraw]; exact hops.error_ind
-  | ok _ =>
-      simp [hraw]
-      have hv1' := Term.wfIn_mono _ hv1 hsub''' hΔ'''
-      exact hk (hsub''.trans hsub''') hΔ''' _ (encodeBinOp_wfIn hraw hv1' hv2)
+  | error msg => simp only [hraw, bind, Except.bind] at henc2; cases henc2
+  | ok v =>
+      simp only [hraw, bind, Except.bind] at henc2
+      exact hk (hsa.trans hsb) hΔb hcovb v
+        (encodeBinOp_wfIn hraw (Term.wfIn_mono _ hv1 hsb hΔb) hv2) c2 henc2
 
 theorem ifThenElse {primitives : PrimEncodings} (c t e : Typed.Expr) (ty : TinyML.Typ)
-    (ihc : EncodeWithIndSig primitives c) (iht : EncodeWithIndSig primitives t) (ihe : EncodeWithIndSig primitives e) :
-    EncodeWithIndSig primitives (.ifThenElse c t e ty) := by
-  intro M ops ret P Pctx Γ Δ Δ' δ k hops hsub hΔ' hΓ hδ hk
-  simp only [encodeWith]
-  refine ihc hops hsub hΔ' hΓ hδ ?_
-  intro Δ'' hsub'' hΔ'' b hb
-  have hΓ'' := hops.ctx_mono hΓ hsub''
-  have hkmono : SigCont P Δ'' (fun v => Expr.fold ops ret (k v)) :=
-    fun hsub''' hΔ''' v hv => hk (hsub''.trans hsub''') hΔ''' v hv
-  have hδ'' : δ.wfIn Δ'' :=
-    fun x v h => Term.wfIn_mono v (hδ x v h) hsub'' hΔ''
-  have hmtP := iht hops (hsub.trans hsub'') hΔ'' hΓ'' hδ'' hkmono
-  have hmeP := ihe hops (hsub.trans hsub'') hΔ'' hΓ'' hδ'' hkmono
-  have hbWf : (Term.unop UnOp.toBool b).wfIn Δ'' := ⟨trivial, hb⟩
-  exact hops.ite_ind hΔ'' hbWf hmtP hmeP
+    (ihc : EncodeWithWfIn primitives c) (iht : EncodeWithWfIn primitives t)
+    (ihe : EncodeWithWfIn primitives e) :
+    EncodeWithWfIn primitives (.ifThenElse c t e ty) := by
+  intro Γ Δ _ δ _ k _ hsub hΔ' hδ hcov hk henc
+  simp only [encodeWith] at henc
+  refine ihc hsub hΔ' hδ hcov ?_ henc
+  intro Δa sa hsa hΔa hcova b hb c' henc'
+  have hδa : δ.wfIn Δa := fun y w h => Term.wfIn_mono w (hδ y w h) hsa hΔa
+  have hka : WfCont Γ Δa k := fun hs hw hc v hv cc hkc => hk (hsa.trans hs) hw hc v hv cc hkc
+  cases ht : encodeWith primitives Δ Γ δ t k sa with
+  | error msg => simp only [ht, bind, Except.bind] at henc'; cases henc'
+  | ok thenEnc =>
+    cases he : encodeWith primitives Δ Γ δ e k sa with
+    | error msg => simp only [ht, he, bind, Except.bind] at henc'; cases henc'
+    | ok elseEnc =>
+        simp only [ht, he, bind, Except.bind, Except.ok.injEq] at henc'
+        subst henc'
+        exact .ite ⟨trivial, hb⟩
+          (iht (hsub.trans hsa) hΔa hδa hcova hka ht)
+          (ihe (hsub.trans hsa) hΔa hδa hcova hka he)
 
 theorem app {primitives : PrimEncodings} (hlaw : primitives.Lawful)
     (fn : Typed.Expr) (args : List Typed.Expr) (ty : TinyML.Typ)
-    (ihArgs : ∀ a ∈ args, EncodeWithIndSig primitives a) (ihArgsList : EncodeListWithIndSig primitives args) :
-    EncodeWithIndSig primitives (.app fn args ty) := by
-  intro _ _ _ _ _ Γ Δ _ δ _ hops hsub hΔ' hΓ hδ hk
+    (ihArgs : ∀ a ∈ args, EncodeWithWfIn primitives a)
+    (ihArgsList : EncodeListWithWfIn primitives args) :
+    EncodeWithWfIn primitives (.app fn args ty) := by
+  intro Γ Δ _ δ _ k _ hsub hΔ' hδ hcov hk henc
   match fn, args with
   | .var f _ _, [arg] =>
-      simp only [encodeWith]
       cases hlk : FunCtx.lookup Γ f with
-      | none => exact hops.error_ind
-      | some _ =>
-          simp only
-          have hmem := FunCtx.mem_of_lookup hlk
-          refine ihArgs arg (List.mem_singleton.mpr rfl) hops hsub hΔ' hΓ hδ ?_
-          intro Δ'' hsub'' hΔ'' v hv
-          refine hops.call_ind hΔ'' (hops.ctx_mono hΓ hsub'') hmem hv ?_
-          intro Δ''' hsub''' hΔ''' v' hv'
-          exact hk (hsub''.trans hsub''') hΔ''' v' hv'
+      | none => simp only [encodeWith, hlk] at henc; cases henc
+      | some rel =>
+          simp only [encodeWith, hlk] at henc
+          refine ihArgs arg (List.mem_singleton.mpr rfl) hsub hΔ' hδ hcov ?_ henc
+          intro Δa sa hsa hΔa hcova v hv c' henc'
+          have hrfresh : sa.fresh "r" ∉ sa.avoid := NameSupply.fresh_not_in_avoid sa "r"
+          have hrΔ : sa.fresh "r" ∉ Δa.allNames := fun hm => hrfresh (hcova _ hm)
+          have hΔr : (Δa.declVar ⟨sa.fresh "r", .value⟩).wf := Signature.wf_declVar hΔa
+          have hsubr : Δa.Subset (Δa.declVar ⟨sa.fresh "r", .value⟩) :=
+            Signature.subset_declVar_of_fresh hrΔ
+          have hcovr : (sa.reserve (sa.fresh "r")).Covers (Δa.declVar ⟨sa.fresh "r", .value⟩) :=
+            NameSupply.Covers.declVar hcova _ .value
+          cases hkrun : k (.var .value (sa.fresh "r")) (sa.reserve (sa.fresh "r")) with
+          | error msg => simp only [hkrun, bind, Except.bind] at henc'; cases henc'
+          | ok body =>
+              simp only [hkrun, bind, Except.bind, Except.ok.injEq] at henc'
+              subst henc'
+              exact .call (FunCtx.mem_of_lookup hlk) hv hrfresh
+                (hk (hsa.trans hsubr) hΔr hcovr _
+                  (var_value_wfIn hΔr (Signature.var_mem_declVar _ _)) _ hkrun)
   | .prim n _ _, args =>
-      simp only [encodeWith]
-      refine ihArgsList hops hsub hΔ' hΓ hδ ?_
-      intro Δ'' hsub'' hΔ'' vs hvs
+      simp only [encodeWith] at henc
+      refine ihArgsList hsub hΔ' hδ hcov ?_ henc
+      intro Δa sa hsa hΔa hcova vs hvs c' henc'
       cases hraw : encodePrim primitives Δ n vs with
-      | error _ => simp; exact hops.error_ind
+      | error msg => simp only [hraw, bind, Except.bind] at henc'; cases henc'
       | ok v =>
-          simp
-          exact hk hsub'' hΔ'' v (encodePrim_wfIn hlaw hraw (hsub.trans hsub'') hΔ'' hvs)
+          simp only [hraw, bind, Except.bind] at henc'
+          exact hk hsa hΔa hcova v
+            (encodePrim_wfIn hlaw hraw (hsub.trans hsa) hΔa hvs) c' henc'
   | .const _, _ | .unop .., _ | .binop .., _ | .fix .., _ | .app .., _
   | .ifThenElse .., _ | .letIn .., _ | .letProd .., _ | .ref .., _ | .deref .., _ | .store .., _
   | .arrayMake .., _ | .arrayLen _, _ | .arrayGet .., _ | .arraySet .., _
   | .assert _, _ | .tuple _, _ | .inj .., _ | .match_ .., _
   | .var _ _ _, [] | .var _ _ _, _ :: _ :: _ =>
-      simp only [encodeWith]; exact hops.error_ind
+      simp only [encodeWith] at henc; cases henc
 
 theorem fix {primitives : PrimEncodings}
     (self : Typed.Binder) (args : List Typed.Binder) (retTy : TinyML.Typ)
     (spec : Option (Spec TinyML.Typ)) (body : Typed.Expr) :
-    EncodeWithIndSig primitives (.fix self args retTy spec body) :=
-  fun hops _ _ _ _ _ => hops.error_ind
+    EncodeWithWfIn primitives (.fix self args retTy spec body) := by
+  intro _ _ _ _ _ _ _ _ _ _ _ _ henc; simp only [encodeWith] at henc; cases henc
 
-theorem prim {primitives : PrimEncodings} (name : String) (inst : List (TinyML.TyVar × TinyML.Typ))
-    (ty : TinyML.Typ) : EncodeWithIndSig primitives (.prim name inst ty) :=
-  fun hops _ _ _ _ _ => hops.error_ind
+theorem prim {primitives : PrimEncodings} (name : String)
+    (inst : List (TinyML.TyVar × TinyML.Typ)) (ty : TinyML.Typ) :
+    EncodeWithWfIn primitives (.prim name inst ty) := by
+  intro _ _ _ _ _ _ _ _ _ _ _ _ henc; simp only [encodeWith] at henc; cases henc
 
 theorem letIn {primitives : PrimEncodings} (name : Typed.Binder) (bound body : Typed.Expr)
-    (ihBound : EncodeWithIndSig primitives bound) (ihBody : EncodeWithIndSig primitives body) :
-    EncodeWithIndSig primitives (.letIn name bound body) := by
-  intro _ _ _ _ _ _ _ _ δ _ hops hsub hΔ' hΓ hδ hk
-  simp only [encodeWith]
-  refine ihBound hops hsub hΔ' hΓ hδ ?_
-  intro Δ'' hsub'' hΔ'' v hv
-  have hΓ'' := hops.ctx_mono hΓ hsub''
-  exact ihBody hops (hsub.trans hsub'') hΔ'' hΓ''
-    (VarEnv.wfIn.bindBinder
-      (fun y w h => Term.wfIn_mono w (hδ y w h) hsub'' hΔ'') hv)
-    (fun hsub''' hΔ''' w hw => hk (hsub''.trans hsub''') hΔ''' w hw)
+    (ihBound : EncodeWithWfIn primitives bound) (ihBody : EncodeWithWfIn primitives body) :
+    EncodeWithWfIn primitives (.letIn name bound body) := by
+  intro _ _ _ δ _ _ _ hsub hΔ' hδ hcov hk henc
+  simp only [encodeWith] at henc
+  refine ihBound hsub hΔ' hδ hcov ?_ henc
+  intro Δa sa hsa hΔa hcova v hv c' henc'
+  exact ihBody (hsub.trans hsa) hΔa
+    (VarEnv.wfIn.bindBinder (fun y w h => Term.wfIn_mono w (hδ y w h) hsa hΔa) hv) hcova
+    (fun hs hw hc w hw' cc hkc => hk (hsa.trans hs) hw hc w hw' cc hkc) henc'
 
 theorem letProd {primitives : PrimEncodings} (names : List Typed.Binder) (bound body : Typed.Expr)
-    (ihBound : EncodeWithIndSig primitives bound) (ihBody : EncodeWithIndSig primitives body) :
-    EncodeWithIndSig primitives (.letProd names bound body) := by
-  intro _ _ _ _ _ _ _ _ δ _ hops hsub hΔ' hΓ hδ hk
-  simp only [encodeWith]
-  refine ihBound hops hsub hΔ' hΓ hδ ?_
-  intro Δ'' hsub'' hΔ'' v hv
-  have hΓ'' := hops.ctx_mono hΓ hsub''
-  exact ihBody hops (hsub.trans hsub'') hΔ'' hΓ''
-    (VarEnv.wfIn.bindBinders
-      (fun y w h => Term.wfIn_mono w (hδ y w h) hsub'' hΔ'') hv)
-    (fun hsub''' hΔ''' w hw => hk (hsub''.trans hsub''') hΔ''' w hw)
+    (ihBound : EncodeWithWfIn primitives bound) (ihBody : EncodeWithWfIn primitives body) :
+    EncodeWithWfIn primitives (.letProd names bound body) := by
+  intro _ _ _ δ _ _ _ hsub hΔ' hδ hcov hk henc
+  simp only [encodeWith] at henc
+  refine ihBound hsub hΔ' hδ hcov ?_ henc
+  intro Δa sa hsa hΔa hcova v hv c' henc'
+  exact ihBody (hsub.trans hsa) hΔa
+    (VarEnv.wfIn.bindBinders (fun y w h => Term.wfIn_mono w (hδ y w h) hsa hΔa) hv) hcova
+    (fun hs hw hc w hw' cc hkc => hk (hsa.trans hs) hw hc w hw' cc hkc) henc'
 
 theorem ref {primitives : PrimEncodings} (ownership : TinyML.Ownership) (e : Typed.Expr) :
-    EncodeWithIndSig primitives (.ref ownership e) :=
-  fun hops _ _ _ _ _ => hops.error_ind
+    EncodeWithWfIn primitives (.ref ownership e) := by
+  intro _ _ _ _ _ _ _ _ _ _ _ _ henc; simp only [encodeWith] at henc; cases henc
 
 theorem deref {primitives : PrimEncodings} (e : Typed.Expr) (ty : TinyML.Typ) :
-    EncodeWithIndSig primitives (.deref e ty) :=
-  fun hops _ _ _ _ _ => hops.error_ind
+    EncodeWithWfIn primitives (.deref e ty) := by
+  intro _ _ _ _ _ _ _ _ _ _ _ _ henc; simp only [encodeWith] at henc; cases henc
 
 theorem store {primitives : PrimEncodings} (loc val : Typed.Expr) :
-    EncodeWithIndSig primitives (.store loc val) :=
-  fun hops _ _ _ _ _ => hops.error_ind
+    EncodeWithWfIn primitives (.store loc val) := by
+  intro _ _ _ _ _ _ _ _ _ _ _ _ henc; simp only [encodeWith] at henc; cases henc
 
 theorem arrayMake {primitives : PrimEncodings}
     (ownership : TinyML.Ownership) (len init : Typed.Expr) :
-      EncodeWithIndSig primitives (.arrayMake ownership len init) :=
-  fun hops _ _ _ _ _ => hops.error_ind
+    EncodeWithWfIn primitives (.arrayMake ownership len init) := by
+  intro _ _ _ _ _ _ _ _ _ _ _ _ henc; simp only [encodeWith] at henc; cases henc
 
 theorem arrayLen {primitives : PrimEncodings}
-    (arr : Typed.Expr) (ih : EncodeWithIndSig primitives arr) :
-    EncodeWithIndSig primitives (.arrayLen arr) := by
-  intro _ _ _ _ _ _ _ _ _ _ hops hsub hΔ' hΓ hδ hk
-  simp only [encodeWith]
-  refine ih hops hsub hΔ' hΓ hδ ?_
-  intro Δ'' hsub'' hΔ'' v hv
-  exact hk hsub'' hΔ'' _ ⟨trivial, trivial, hv⟩
+    (arr : Typed.Expr) (ih : EncodeWithWfIn primitives arr) :
+    EncodeWithWfIn primitives (.arrayLen arr) := by
+  intro _ _ _ _ _ _ _ hsub hΔ' hδ hcov hk henc
+  simp only [encodeWith] at henc
+  refine ih hsub hΔ' hδ hcov ?_ henc
+  intro Δa sa hsa hΔa hcova v hv c' henc'
+  exact hk hsa hΔa hcova (.unop .ofInt (.unop .arrayLen v)) ⟨trivial, trivial, hv⟩ c' henc'
 
 theorem arrayGet {primitives : PrimEncodings} (arr idx : Typed.Expr) (ty : TinyML.Typ) :
-    EncodeWithIndSig primitives (.arrayGet arr idx ty) :=
-  fun hops _ _ _ _ _ => hops.error_ind
+    EncodeWithWfIn primitives (.arrayGet arr idx ty) := by
+  intro _ _ _ _ _ _ _ _ _ _ _ _ henc; simp only [encodeWith] at henc; cases henc
 
 theorem arraySet {primitives : PrimEncodings} (arr idx val : Typed.Expr) :
-    EncodeWithIndSig primitives (.arraySet arr idx val) :=
-  fun hops _ _ _ _ _ => hops.error_ind
+    EncodeWithWfIn primitives (.arraySet arr idx val) := by
+  intro _ _ _ _ _ _ _ _ _ _ _ _ henc; simp only [encodeWith] at henc; cases henc
 
 theorem assert {primitives : PrimEncodings} (e : Typed.Expr) :
-    EncodeWithIndSig primitives (.assert e) :=
-  fun hops _ _ _ _ _ => hops.error_ind
+    EncodeWithWfIn primitives (.assert e) := by
+  intro _ _ _ _ _ _ _ _ _ _ _ _ henc; simp only [encodeWith] at henc; cases henc
 
 theorem tuple {primitives : PrimEncodings}
-    (es : List Typed.Expr) (ih : EncodeListWithIndSig primitives es) :
-    EncodeWithIndSig primitives (.tuple es) := by
-  intro _ _ _ _ _ _ _ _ δ _ hops hsub hΔ' hΓ hδ hk
-  simp only [encodeWith]
-  refine ih hops hsub hΔ' hΓ hδ ?_
-  intro Δ'' hsub'' hΔ'' vs hvs
-  exact hk hsub'' hΔ'' _ ⟨trivial, Terms.toValList_wfIn hvs⟩
+    (es : List Typed.Expr) (ih : EncodeListWithWfIn primitives es) :
+    EncodeWithWfIn primitives (.tuple es) := by
+  intro _ _ _ _ _ _ _ hsub hΔ' hδ hcov hk henc
+  simp only [encodeWith] at henc
+  refine ih hsub hΔ' hδ hcov ?_ henc
+  intro Δa sa hsa hΔa hcova vs hvs c' henc'
+  exact hk hsa hΔa hcova (.unop .ofValList (Terms.toValList vs))
+    ⟨trivial, Terms.toValList_wfIn hvs⟩ c' henc'
 
-theorem inj {primitives : PrimEncodings} (tag arity : Nat) (payload : Typed.Expr) (ty : TinyML.Typ)
-    (ih : EncodeWithIndSig primitives payload) :
-    EncodeWithIndSig primitives (.inj tag arity payload ty) := by
-  intro _ _ _ _ _ _ _ _ _ _ hops hsub hΔ' hΓ hδ hk
-  simp only [encodeWith]
-  refine ih hops hsub hΔ' hΓ hδ ?_
-  intro Δ'' hsub'' hΔ'' v hv
-  exact hk hsub'' hΔ'' _ ⟨trivial, hv⟩
+theorem inj {primitives : PrimEncodings} (tag arity : Nat) (payload : Typed.Expr)
+    (ty : TinyML.Typ) (ih : EncodeWithWfIn primitives payload) :
+    EncodeWithWfIn primitives (.inj tag arity payload ty) := by
+  intro _ _ _ _ _ _ _ hsub hΔ' hδ hcov hk henc
+  simp only [encodeWith] at henc
+  refine ih hsub hΔ' hδ hcov ?_ henc
+  intro Δa sa hsa hΔa hcova v hv c' henc'
+  exact hk hsa hΔa hcova (.unop (.ofInj tag arity) v) ⟨trivial, hv⟩ c' henc'
 
 theorem match_ {primitives : PrimEncodings}
     (scrut : Typed.Expr) (branches : List (Typed.Binder × Typed.Expr))
-    (ty : TinyML.Typ) (ihScrut : EncodeWithIndSig primitives scrut)
-    (ihBranches : EncodeMatchWithIndSig primitives branches) :
-    EncodeWithIndSig primitives (.match_ scrut branches ty) := by
-  intro _ ops ret _ _ _ _ _ δ k hops hsub hΔ' hΓ hδ hk
-  simp only [encodeWith]
-  refine ihScrut hops hsub hΔ' hΓ hδ ?_
-  intro Δ'' hsub'' hΔ'' v hv
-  have hΓ'' := hops.ctx_mono hΓ hsub''
-  have hδ'' : δ.wfIn Δ'' :=
-    fun y w h => Term.wfIn_mono w (hδ y w h) hsub'' hΔ''
-  have hkmono : SigCont _ Δ'' (fun v => Expr.fold ops ret (k v)) :=
-    fun hs hΔ''' v hv => hk (hsub''.trans hs) hΔ''' v hv
-  exact ihBranches hops (hsub.trans hsub'') hΔ'' hΓ'' hδ'' hv hkmono
+    (ty : TinyML.Typ) (ihScrut : EncodeWithWfIn primitives scrut)
+    (ihBranches : EncodeMatchWithWfIn primitives branches) :
+    EncodeWithWfIn primitives (.match_ scrut branches ty) := by
+  intro Γ _ _ δ _ k _ hsub hΔ' hδ hcov hk henc
+  simp only [encodeWith] at henc
+  refine ihScrut hsub hΔ' hδ hcov ?_ henc
+  intro Δa sa hsa hΔa hcova v hv c' henc'
+  exact ihBranches (hsub.trans hsa) hΔa
+    (fun y w h => Term.wfIn_mono w (hδ y w h) hsa hΔa) hcova hv
+    (fun hs hw hc w hw' cc hkc => hk (hsa.trans hs) hw hc w hw' cc hkc) henc'
 
-theorem match_nil {primitives : PrimEncodings} : EncodeMatchWithIndSig primitives [] := by
-  intro _ _ _ _ _ _ _ _ _ _ _ _ hops _ _ _ _ _ _
-  simp only [encodeMatchWith]
-  exact hops.error_ind
+theorem match_nil {primitives : PrimEncodings} : EncodeMatchWithWfIn primitives [] := by
+  intro _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ henc
+  simp only [encodeMatchWith] at henc; cases henc
 
 theorem match_cons {primitives : PrimEncodings} (b : Typed.Binder) (body : Typed.Expr)
     (rest : List (Typed.Binder × Typed.Expr))
-    (ihBody : EncodeWithIndSig primitives body)
-    (ihRest : EncodeMatchWithIndSig primitives rest) :
-    EncodeMatchWithIndSig primitives ((b, body) :: rest) := by
-  intro _ _ _ _ _ _ _ Δ' _ scrut _ _ hops hsub hΔ' hΓ hδ hscrut hk
-  simp only [encodeMatchWith]
+    (ihBody : EncodeWithWfIn primitives body)
+    (ihRest : EncodeMatchWithWfIn primitives rest) :
+    EncodeMatchWithWfIn primitives ((b, body) :: rest) := by
+  intro Γ Δ Δ' δ s scrut i k _ hsub hΔ' hδ hcov hscrut hk henc
   have hpay : (Term.unop UnOp.payloadOf scrut).wfIn Δ' := ⟨trivial, hscrut⟩
   cases rest with
-  | nil => exact ihBody hops hsub hΔ' hΓ (VarEnv.wfIn.bindBinder hδ hpay) hk
-  | cons _ _ =>
-    exact hops.ite_ind hΔ' ⟨trivial, ⟨trivial, hscrut⟩, trivial⟩
-      (ihBody hops hsub hΔ' hΓ (VarEnv.wfIn.bindBinder hδ hpay) hk)
-      (ihRest hops hsub hΔ' hΓ hδ hscrut hk)
+  | nil =>
+      simp only [encodeMatchWith] at henc
+      exact ihBody hsub hΔ' (VarEnv.wfIn.bindBinder hδ hpay) hcov hk henc
+  | cons r rs =>
+      rw [encodeMatchWith] at henc
+      cases ht : encodeWith primitives Δ Γ (VarEnv.bindBinder δ b (.unop .payloadOf scrut)) body k s with
+      | error msg => simp only [ht, bind, Except.bind] at henc; cases henc
+      | ok thenEnc =>
+        cases he : encodeMatchWith primitives Δ Γ δ scrut (r :: rs) (i + 1) k s with
+        | error msg => simp only [ht, he, bind, Except.bind] at henc; cases henc
+        | ok elseEnc =>
+            simp only [ht, he, bind, Except.bind, Except.ok.injEq] at henc
+            subst henc
+            exact .ite ⟨trivial, ⟨trivial, hscrut⟩, trivial⟩
+              (ihBody hsub hΔ' (VarEnv.wfIn.bindBinder hδ hpay) hcov hk ht)
+              (ihRest hsub hΔ' hδ hcov hscrut hk he)
 
-theorem list_nil {primitives : PrimEncodings} : EncodeListWithIndSig primitives [] := by
-  intro _ _ _ _ _ _ _ _ _ _ _ _ hΔ' _ _ hk
-  simp only [encodeListWith]
-  exact hk (Signature.Subset.refl _) hΔ' [] (by simp)
+theorem list_nil {primitives : PrimEncodings} : EncodeListWithWfIn primitives [] := by
+  intro _ _ _ _ _ _ _ _ hΔ' _ hcov hk henc
+  simp only [encodeListWith] at henc
+  exact hk (Signature.Subset.refl _) hΔ' hcov [] (by simp) _ henc
 
 theorem list_cons {primitives : PrimEncodings} (e : Typed.Expr) (es : List Typed.Expr)
-    (ih : EncodeWithIndSig primitives e) (ihs : EncodeListWithIndSig primitives es) :
-    EncodeListWithIndSig primitives (e :: es) := by
-  intro _ _ _ _ _ Γ Δ Δ' δ k hops hsub hΔ' hΓ hδ hk
-  simp only [encodeListWith]
-  refine ih hops hsub hΔ' hΓ hδ ?_
-  intro Δ'' hsub'' hΔ'' v hv
-  have hΓ'' := hops.ctx_mono hΓ hsub''
-  refine ihs hops (hsub.trans hsub'') hΔ'' hΓ''
-    (fun x v h => Term.wfIn_mono v (hδ x v h) hsub'' hΔ'') ?_
-  intro Δ''' hsub''' hΔ''' vs hvs
-  have hwfs : ∀ q ∈ v :: vs, q.wfIn Δ''' := by
-    intro q hq
-    simp only [List.mem_cons] at hq
-    rcases hq with hq | hq
-    · subst q
-      exact Term.wfIn_mono v hv hsub''' hΔ'''
-    · exact hvs q hq
-  exact hk (hsub''.trans hsub''') hΔ''' (v :: vs) hwfs
+    (ih : EncodeWithWfIn primitives e) (ihs : EncodeListWithWfIn primitives es) :
+    EncodeListWithWfIn primitives (e :: es) := by
+  intro _ _ _ δ _ _ _ hsub hΔ' hδ hcov hk henc
+  simp only [encodeListWith] at henc
+  refine ih hsub hΔ' hδ hcov ?_ henc
+  intro Δa sa hsa hΔa hcova v hv c1 henc1
+  refine ihs (hsub.trans hsa) hΔa
+    (fun y w h => Term.wfIn_mono w (hδ y w h) hsa hΔa) hcova ?_ henc1
+  intro Δb sb hsb hΔb hcovb vs hvs c2 henc2
+  refine hk (hsa.trans hsb) hΔb hcovb (v :: vs) ?_ c2 henc2
+  intro q hq
+  rcases List.mem_cons.mp hq with rfl | hq
+  · exact Term.wfIn_mono _ hv hsb hΔb
+  · exact hvs q hq
 
-end IndSig
+end WfCase
 
 mutual
-/-- Generic signature-indexed induction theorem for the shared traversal:
-under the per-operation closure assumptions in `EncoderOpsSig`, every encoded
-expression yields a carrier satisfying `P`. -/
-theorem encodeWith_indWithSig_def {primitives : PrimEncodings} (hlaw : primitives.Lawful) :
-    ∀ (e : Typed.Expr), EncodeWithIndSig primitives e
-  | .const c => IndSig.const c
-  | .var x inst ty => IndSig.var x inst ty
-  | .prim n inst ty => IndSig.prim n inst ty
-  | .unop op e ty => IndSig.unop op e ty (encodeWith_indWithSig_def hlaw e)
+/-- Every IR expression the traversal produces is well-formed. -/
+theorem encodeWith_wfIn_def {primitives : PrimEncodings} (hlaw : primitives.Lawful) :
+    ∀ (e : Typed.Expr), EncodeWithWfIn primitives e
+  | .const c => WfCase.const c
+  | .var x inst ty => WfCase.var x inst ty
+  | .prim n inst ty => WfCase.prim n inst ty
+  | .unop op e ty => WfCase.unop op e ty (encodeWith_wfIn_def hlaw e)
   | .binop op e1 e2 ty =>
-      IndSig.binop op e1 e2 ty (encodeWith_indWithSig_def hlaw e1) (encodeWith_indWithSig_def hlaw e2)
+      WfCase.binop op e1 e2 ty (encodeWith_wfIn_def hlaw e1) (encodeWith_wfIn_def hlaw e2)
   | .ifThenElse c t e ty =>
-      IndSig.ifThenElse c t e ty (encodeWith_indWithSig_def hlaw c)
-        (encodeWith_indWithSig_def hlaw t) (encodeWith_indWithSig_def hlaw e)
+      WfCase.ifThenElse c t e ty (encodeWith_wfIn_def hlaw c)
+        (encodeWith_wfIn_def hlaw t) (encodeWith_wfIn_def hlaw e)
   | .app fn args ty =>
-      IndSig.app hlaw fn args ty (fun a _ => encodeWith_indWithSig_def hlaw a)
-        (encodeListWith_indWithSig_def hlaw args)
-  | .fix self args retTy spec body => IndSig.fix self args retTy spec body
+      WfCase.app hlaw fn args ty (fun a _ => encodeWith_wfIn_def hlaw a)
+        (encodeListWith_wfIn_def hlaw args)
+  | .fix self args retTy spec body => WfCase.fix self args retTy spec body
   | .letIn name bound body =>
-      IndSig.letIn name bound body
-        (encodeWith_indWithSig_def hlaw bound) (encodeWith_indWithSig_def hlaw body)
+      WfCase.letIn name bound body
+        (encodeWith_wfIn_def hlaw bound) (encodeWith_wfIn_def hlaw body)
   | .letProd names bound body =>
-      IndSig.letProd names bound body
-        (encodeWith_indWithSig_def hlaw bound) (encodeWith_indWithSig_def hlaw body)
-  | .ref ownership e => IndSig.ref ownership e
-  | .deref e ty => IndSig.deref e ty
-  | .store loc val => IndSig.store loc val
-  | .arrayMake ownership len init => IndSig.arrayMake ownership len init
-  | .arrayLen arr => IndSig.arrayLen arr (encodeWith_indWithSig_def hlaw arr)
-  | .arrayGet arr idx ty => IndSig.arrayGet arr idx ty
-  | .arraySet arr idx val => IndSig.arraySet arr idx val
-  | .assert e => IndSig.assert e
-  | .tuple es => IndSig.tuple es (encodeListWith_indWithSig_def hlaw es)
+      WfCase.letProd names bound body
+        (encodeWith_wfIn_def hlaw bound) (encodeWith_wfIn_def hlaw body)
+  | .ref ownership e => WfCase.ref ownership e
+  | .deref e ty => WfCase.deref e ty
+  | .store loc val => WfCase.store loc val
+  | .arrayMake ownership len init => WfCase.arrayMake ownership len init
+  | .arrayLen arr => WfCase.arrayLen arr (encodeWith_wfIn_def hlaw arr)
+  | .arrayGet arr idx ty => WfCase.arrayGet arr idx ty
+  | .arraySet arr idx val => WfCase.arraySet arr idx val
+  | .assert e => WfCase.assert e
+  | .tuple es => WfCase.tuple es (encodeListWith_wfIn_def hlaw es)
   | .inj tag arity payload ty =>
-      IndSig.inj tag arity payload ty (encodeWith_indWithSig_def hlaw payload)
+      WfCase.inj tag arity payload ty (encodeWith_wfIn_def hlaw payload)
   | .match_ scrut branches ty =>
-      IndSig.match_ scrut branches ty
-        (encodeWith_indWithSig_def hlaw scrut)
-        (encodeMatchWith_indWithSig_def hlaw branches)
+      WfCase.match_ scrut branches ty
+        (encodeWith_wfIn_def hlaw scrut)
+        (encodeMatchWith_wfIn_def hlaw branches)
 
-theorem encodeListWith_indWithSig_def {primitives : PrimEncodings} (hlaw : primitives.Lawful) :
-    ∀ (es : List Typed.Expr), EncodeListWithIndSig primitives es
-  | [] => IndSig.list_nil
+theorem encodeListWith_wfIn_def {primitives : PrimEncodings} (hlaw : primitives.Lawful) :
+    ∀ (es : List Typed.Expr), EncodeListWithWfIn primitives es
+  | [] => WfCase.list_nil
   | e :: es =>
-      IndSig.list_cons e es (encodeWith_indWithSig_def hlaw e) (encodeListWith_indWithSig_def hlaw es)
+      WfCase.list_cons e es (encodeWith_wfIn_def hlaw e) (encodeListWith_wfIn_def hlaw es)
 
-theorem encodeMatchWith_indWithSig_def {primitives : PrimEncodings} (hlaw : primitives.Lawful) :
-    ∀ (branches : List (Typed.Binder × Typed.Expr)),
-      EncodeMatchWithIndSig primitives branches
-  | [] => IndSig.match_nil
+theorem encodeMatchWith_wfIn_def {primitives : PrimEncodings} (hlaw : primitives.Lawful) :
+    ∀ (branches : List (Typed.Binder × Typed.Expr)), EncodeMatchWithWfIn primitives branches
+  | [] => WfCase.match_nil
   | (b, body) :: rest =>
-      IndSig.match_cons b body rest
-        (encodeWith_indWithSig_def hlaw body)
-        (encodeMatchWith_indWithSig_def hlaw rest)
+      WfCase.match_cons b body rest
+        (encodeWith_wfIn_def hlaw body)
+        (encodeMatchWith_wfIn_def hlaw rest)
 end
 
-theorem encodeWith_indWithSig {primitives : PrimEncodings} {M : Type} {ops : EncoderOps M}
-    {ret : Term .value → M}
-    {P : Signature → M → Prop} {Pctx : FunCtx → Signature → Prop}
-    (hlaw : primitives.Lawful) (hops : EncoderOpsSig ops P Pctx)
-    {Γ : FunCtx} {Δ Δ' : Signature} {δ : VarEnv} (e : Typed.Expr)
-    {k : Term .value → Expr}
-    (hsub : Δ.Subset Δ') (hΔ' : Δ'.wf) (hΓ : Pctx Γ Δ')
-    (hδ : δ.wfIn Δ')
-    (hk : SigCont P Δ' (fun v => Expr.fold ops ret (k v))) :
-    P Δ' (Expr.fold ops ret (encodeWith primitives Δ Γ δ e k)) :=
-  encodeWith_indWithSig_def hlaw e hops hsub hΔ' hΓ hδ hk
+/-- Well-formedness of the traversal's output. `Δ` gates the intrinsics while
+`Δ'` — any extension of it — carries the local variables the encoding runs
+under. -/
+theorem encodeWith_wfIn {primitives : PrimEncodings} {Γ : FunCtx} {Δ Δ' : Signature}
+    {δ : VarEnv} {s : NameSupply} {k : Term .value → NameSupply → Except String Expr}
+    {c : Expr}
+    (hlaw : primitives.Lawful) (e : Typed.Expr)
+    (hsub : Δ.Subset Δ') (hΔ' : Δ'.wf) (hδ : δ.wfIn Δ') (hcov : s.Covers Δ')
+    (hk : WfCont Γ Δ' k)
+    (henc : encodeWith primitives Δ Γ δ e k s = .ok c) :
+    Expr.WfIn Γ Δ' s c :=
+  encodeWith_wfIn_def hlaw e hsub hΔ' hδ hcov hk henc
 
-/-! ## Generic paired-encoding binary
-
-When two encoders are run on the same TinyML expression, a binary relation `B`
-between their carriers can be lifted from operation-level binary data. The
-primary theorem is stated in bind position, so recursive continuations remain
-in scope throughout the induction. -/
-
-/-- Generic continuation contract for bind-position proofs. The two
-continuations are paired by `B` whenever they are fed value terms that are
-`Term.eval`-equal in some pair of *future* states extending the base
-`(Δ₁, ρ₁)` / `(Δ₂, ρ₂)`. "Future" means the signature only grew
-(`Δ.Subset`) and the environment still agrees on the old symbols
-(`Env.agreeOn`); the fed terms must be well-formed in the future
-signatures. Future quantification is needed because each carrier's `call`
-op declares its own fresh symbols as the monad runs, so the two sides may
-extend to different signatures. -/
-abbrev EncoderContSpec {M₁ M₂ : Type}
-    (B : Signature → Signature → Env → Env → M₁ → M₂ → Prop)
-    (Δ₁ Δ₂ : Signature) (ρ₁ ρ₂ : Env)
-    (k₁ : Term .value → M₁) (k₂ : Term .value → M₂) : Prop :=
-  ∀ {Δ₁' Δ₂' : Signature} {ρ₁' ρ₂' : Env},
-    Δ₁.Subset Δ₁' → Δ₂.Subset Δ₂' →
-    Δ₁'.wf → Δ₂'.wf →
-    Env.agreeOn Δ₁ ρ₁ ρ₁' → Env.agreeOn Δ₂ ρ₂ ρ₂' →
-    ∀ v₁ v₂,
-      v₁.wfIn Δ₁' → v₂.wfIn Δ₂' →
-      Term.eval ρ₁' v₁ = Term.eval ρ₂' v₂ →
-      B Δ₁' Δ₂' ρ₁' ρ₂' (k₁ v₁) (k₂ v₂)
-
-/-- Weakening of the continuation contract: a contract at base `(Δ₁, ρ₁)` /
-`(Δ₂, ρ₂)` restricts to any future state, since futures of the future are
-futures of the base. -/
-theorem EncoderContSpec.mono {M₁ M₂ : Type}
-    {B : Signature → Signature → Env → Env → M₁ → M₂ → Prop}
-    {Δ₁ Δ₂ Δ₁' Δ₂' : Signature} {ρ₁ ρ₂ ρ₁' ρ₂' : Env}
-    {k₁ : Term .value → M₁} {k₂ : Term .value → M₂}
-    (hsub₁ : Δ₁.Subset Δ₁') (hsub₂ : Δ₂.Subset Δ₂')
-    (ha₁ : Env.agreeOn Δ₁ ρ₁ ρ₁') (ha₂ : Env.agreeOn Δ₂ ρ₂ ρ₂')
-    (hk : EncoderContSpec B Δ₁ Δ₂ ρ₁ ρ₂ k₁ k₂) :
-    EncoderContSpec B Δ₁' Δ₂' ρ₁' ρ₂' k₁ k₂ := by
-  intro Δ₁'' Δ₂'' ρ₁'' ρ₂'' hs₁ hs₂ hw₁ hw₂ hag₁ hag₂ v₁ v₂ hv₁ hv₂ heval
-  exact hk (hsub₁.trans hs₁) (hsub₂.trans hs₂) hw₁ hw₂
-    (Env.agreeOn_trans ha₁ (Env.agreeOn_mono hsub₁ hag₁))
-    (Env.agreeOn_trans ha₂ (Env.agreeOn_mono hsub₂ hag₂))
-    v₁ v₂ hv₁ hv₂ heval
-
-/-- Operation-level binary data for the CPS induction theorem. The relation
-`B` is now indexed by the pair of signatures and environments the carriers
-are interpreted in. -/
-structure EncoderOpsBinary {M₁ M₂ : Type} (Γ : FunCtx)
-    (ops₁ : EncoderOps M₁) (ops₂ : EncoderOps M₂)
-    (B : Signature → Signature → Env → Env → M₁ → M₂ → Prop) where
-  /-- A call to a function registered in `Γ` is related when its (well-formed)
-  arguments evaluate equally and its continuations are paired by the
-  continuation contract. -/
-  call_binary : ∀ {Δ₁ Δ₂ ρ₁ ρ₂ f rel arg₁ arg₂ k₁ k₂}, (f, rel) ∈ Γ →
-    arg₁.wfIn Δ₁ → arg₂.wfIn Δ₂ →
-    Term.eval ρ₁ arg₁ = Term.eval ρ₂ arg₂ →
-    EncoderContSpec B Δ₁ Δ₂ ρ₁ ρ₂ k₁ k₂ →
-    B Δ₁ Δ₂ ρ₁ ρ₂ (ops₁.call rel arg₁ k₁) (ops₂.call rel arg₂ k₂)
-  /-- Conditionals preserve the binary property when the conditions evaluate
-  equally and both branches are related. -/
-  ite_binary : ∀ {Δ₁ Δ₂ ρ₁ ρ₂ c₁ c₂ t₁ t₂ e₁ e₂},
-    Term.eval ρ₁ c₁ = Term.eval ρ₂ c₂ →
-    B Δ₁ Δ₂ ρ₁ ρ₂ t₁ t₂ → B Δ₁ Δ₂ ρ₁ ρ₂ e₁ e₂ →
-    B Δ₁ Δ₂ ρ₁ ρ₂ (ops₁.ite c₁ t₁ e₁) (ops₂.ite c₂ t₂ e₂)
-  /-- Error carriers are related in every state. -/
-  error_binary : ∀ {Δ₁ Δ₂ ρ₁ ρ₂ msg}, B Δ₁ Δ₂ ρ₁ ρ₂ (ops₁.error msg) (ops₂.error msg)
-
-/-- Generic continuation contract for list encodings. It is the list-valued
-analogue of `EncoderContSpec`: the continuation may be invoked in any future
-state, provided the paired value lists are well-formed and evaluate
-pointwise equally. -/
-abbrev EncoderListContSpec {M₁ M₂ : Type}
-    (B : Signature → Signature → Env → Env → M₁ → M₂ → Prop)
-    (Δ₁ Δ₂ : Signature) (ρ₁ ρ₂ : Env)
-    (k₁ : List (Term .value) → M₁) (k₂ : List (Term .value) → M₂) : Prop :=
-  ∀ {Δ₁' Δ₂' : Signature} {ρ₁' ρ₂' : Env},
-    Δ₁.Subset Δ₁' → Δ₂.Subset Δ₂' →
-    Δ₁'.wf → Δ₂'.wf →
-    Env.agreeOn Δ₁ ρ₁ ρ₁' → Env.agreeOn Δ₂ ρ₂ ρ₂' →
-    ∀ vs₁ vs₂,
-      (∀ v ∈ vs₁, v.wfIn Δ₁') → (∀ v ∈ vs₂, v.wfIn Δ₂') →
-      vs₁.map (fun v => Term.eval ρ₁' v) =
-        vs₂.map (fun v => Term.eval ρ₂' v) →
-      B Δ₁' Δ₂' ρ₁' ρ₂' (k₁ vs₁) (k₂ vs₂)
-
-/-- Per-expression statement of `encodeWith_bind_binary`. The two encoders
-share a single base signature `Δ` — which doubles as the intrinsic gate — and
-the two environments are required to agree on it (`Env.agreeOn Δ ρ₁' ρ₂'`), so
-that intrinsic (uninterpreted) symbols are interpreted identically on both
-sides. This is what lets the prim case discharge cross-environment evaluation
-equality, just as `call` relies on the witness it freshly introduces. -/
-def EncodeWithBindBinary (primitives : PrimEncodings) (e : Typed.Expr) : Prop :=
-  ∀ {M₁ M₂ : Type} {Γ : FunCtx} {Δ : Signature} {δ₁ δ₂ : VarEnv}
-    {ops₁ : EncoderOps M₁} {ops₂ : EncoderOps M₂}
-    {ret₁ : Term .value → M₁} {ret₂ : Term .value → M₂}
-    {B : Signature → Signature → Env → Env → M₁ → M₂ → Prop},
-    EncoderOpsBinary Γ ops₁ ops₂ B →
-    ∀ {k₁ : Term .value → Expr}
-      {Δ₁' Δ₂' : Signature} {ρ₁' ρ₂' : Env} {k₂ : Term .value → Expr},
-      Δ.Subset Δ₁' → Δ.Subset Δ₂' →
-      Δ₁'.wf → Δ₂'.wf →
-      Env.agreeOn Δ ρ₁' ρ₂' →
-      VarEnv.Agree Δ₁' Δ₂' ρ₁' ρ₂' δ₁ δ₂ →
-      EncoderContSpec B Δ₁' Δ₂' ρ₁' ρ₂'
-        (fun v => Expr.fold ops₁ ret₁ (k₁ v)) (fun v => Expr.fold ops₂ ret₂ (k₂ v)) →
-      B Δ₁' Δ₂' ρ₁' ρ₂'
-        (Expr.fold ops₁ ret₁ (encodeWith primitives Δ Γ δ₁ e k₁))
-        (Expr.fold ops₂ ret₂ (encodeWith primitives Δ Γ δ₂ e k₂))
-
-/-- Per-list statement of `encodeWith_bind_binary`. -/
-def EncodeListWithBindBinary (primitives : PrimEncodings) (es : List Typed.Expr) : Prop :=
-  ∀ {M₁ M₂ : Type} {Γ : FunCtx} {Δ : Signature} {δ₁ δ₂ : VarEnv}
-    {ops₁ : EncoderOps M₁} {ops₂ : EncoderOps M₂}
-    {ret₁ : Term .value → M₁} {ret₂ : Term .value → M₂}
-    {B : Signature → Signature → Env → Env → M₁ → M₂ → Prop},
-    EncoderOpsBinary Γ ops₁ ops₂ B →
-    ∀ {k₁ : List (Term .value) → Expr}
-      {Δ₁' Δ₂' : Signature} {ρ₁' ρ₂' : Env} {k₂ : List (Term .value) → Expr},
-      Δ.Subset Δ₁' → Δ.Subset Δ₂' →
-      Δ₁'.wf → Δ₂'.wf →
-      Env.agreeOn Δ ρ₁' ρ₂' →
-      VarEnv.Agree Δ₁' Δ₂' ρ₁' ρ₂' δ₁ δ₂ →
-      EncoderListContSpec B Δ₁' Δ₂' ρ₁' ρ₂'
-        (fun vs => Expr.fold ops₁ ret₁ (k₁ vs)) (fun vs => Expr.fold ops₂ ret₂ (k₂ vs)) →
-      B Δ₁' Δ₂' ρ₁' ρ₂'
-        (Expr.fold ops₁ ret₁ (encodeListWith primitives Δ Γ δ₁ es k₁))
-        (Expr.fold ops₂ ret₂ (encodeListWith primitives Δ Γ δ₂ es k₂))
-
-/-- Per-branch-list statement of `encodeWith_bind_binary`, parametric in two
-scrutinee values whose evaluations agree, the starting index, and the
-continuations. -/
-def EncodeMatchWithBindBinary (primitives : PrimEncodings)
-    (branches : List (Typed.Binder × Typed.Expr)) : Prop :=
-  ∀ {M₁ M₂ : Type} {Γ : FunCtx} {Δ : Signature} {δ₁ δ₂ : VarEnv}
-    {ops₁ : EncoderOps M₁} {ops₂ : EncoderOps M₂}
-    {ret₁ : Term .value → M₁} {ret₂ : Term .value → M₂}
-    {B : Signature → Signature → Env → Env → M₁ → M₂ → Prop},
-    EncoderOpsBinary Γ ops₁ ops₂ B →
-    ∀ {k₁ : Term .value → Expr}
-      {Δ₁' Δ₂' : Signature} {ρ₁' ρ₂' : Env} {k₂ : Term .value → Expr}
-      {scrut₁ scrut₂ : Term .value} {i : Nat},
-      Δ.Subset Δ₁' → Δ.Subset Δ₂' →
-      Δ₁'.wf → Δ₂'.wf →
-      Env.agreeOn Δ ρ₁' ρ₂' →
-      VarEnv.Agree Δ₁' Δ₂' ρ₁' ρ₂' δ₁ δ₂ →
-      scrut₁.wfIn Δ₁' → scrut₂.wfIn Δ₂' →
-      Term.eval ρ₁' scrut₁ = Term.eval ρ₂' scrut₂ →
-      EncoderContSpec B Δ₁' Δ₂' ρ₁' ρ₂'
-        (fun v => Expr.fold ops₁ ret₁ (k₁ v)) (fun v => Expr.fold ops₂ ret₂ (k₂ v)) →
-      B Δ₁' Δ₂' ρ₁' ρ₂'
-        (Expr.fold ops₁ ret₁ (encodeMatchWith primitives Δ Γ δ₁ scrut₁ branches i k₁))
-        (Expr.fold ops₂ ret₂ (encodeMatchWith primitives Δ Γ δ₂ scrut₂ branches i k₂))
-
-
-/-! ### Eval helpers for the paired-encoding binary -/
-
-/-- `encodeConst` produces closed terms, so their value is environment
-independent. -/
-private theorem encodeConst_eval (c : TinyML.Const) (ρ ρ' : Env) :
-    Term.eval ρ (encodeConst c) = Term.eval ρ' (encodeConst c) :=
-  Term.eval_env_agree (encodeConst_wfIn c Signature.empty) (Env.agreeOn_empty ρ ρ')
-
-/-- `encodeUnOp` is a pure syntactic wrapper: equal arguments yield equal
-results. -/
-private theorem encodeUnOp_eval {op : TinyML.UnOp} {v v' w w' : Term .value}
-    {ρ ρ' : Env} (hv : encodeUnOp op v = .ok v') (hw : encodeUnOp op w = .ok w')
-    (h : Term.eval ρ v = Term.eval ρ' w) :
-    Term.eval ρ v' = Term.eval ρ' w' := by
-  cases op with
-  | neg | not =>
-      simp only [encodeUnOp, Except.ok.injEq] at hv hw
-      subst hv; subst hw
-      simp only [Term.eval, UnOp.eval]; rw [h]
-  | proj n =>
-      simp only [encodeUnOp, Except.ok.injEq] at hv hw
-      subst hv; subst hw
-      simp only [Term.eval, UnOp.eval, vtailN_eval]
-      rw [h]
-
-/-- `encodeBinOp` is a pure syntactic wrapper: equal arguments yield equal
-results. -/
-private theorem encodeBinOp_eval {op : TinyML.BinOp} {a a' b b' c c' : Term .value}
-    {ρ ρ' : Env}
-    (h1 : encodeBinOp op a b = .ok c) (h2 : encodeBinOp op a' b' = .ok c')
-    (ha : Term.eval ρ a = Term.eval ρ' a') (hb : Term.eval ρ b = Term.eval ρ' b') :
-    Term.eval ρ c = Term.eval ρ' c' := by
-  cases op with
-  | add | sub | mul | div | mod | lt | le | gt | ge | eq | and | or =>
-      simp only [encodeBinOp, Except.ok.injEq] at h1 h2
-      subst h1; subst h2
-      simp [Term.eval, UnOp.eval, BinOp.eval, Const.denote, ha, hb, ge_iff_le]
-
-private theorem toValList_eval_eq {ts₁ ts₂ : List (Term .value)} {ρ₁ ρ₂ : Env}
-    (h : ts₁.map (fun t => Term.eval ρ₁ t) = ts₂.map (fun t => Term.eval ρ₂ t)) :
-    Term.eval ρ₁ (Terms.toValList ts₁) = Term.eval ρ₂ (Terms.toValList ts₂) := by
-  induction ts₁ generalizing ts₂ with
-  | nil =>
-      cases ts₂ <;> simp [Terms.toValList, Term.eval, Const.denote] at h ⊢
-  | cons t ts ih =>
-      cases ts₂ with
-      | nil => simp at h
-      | cons u us =>
-          simp only [List.map_cons, List.cons.injEq] at h
-          rcases h with ⟨hhead, htail⟩
-          simp [Terms.toValList, Term.eval, BinOp.eval, hhead, ih htail]
-
-/-- The shape of an `encodeUnOp` result (error, with message) depends only on
-the operator, not the argument. -/
-private theorem encodeUnOp_error_irrel {op : TinyML.UnOp} {v v' : Term .value}
-    {msg : String} (h : encodeUnOp op v = .error msg) :
-    encodeUnOp op v' = .error msg := by
-  cases op <;> simp_all [encodeUnOp]
-
-/-- The shape of an `encodeUnOp` result (success) depends only on the
-operator, not the argument. -/
-private theorem encodeUnOp_ok_irrel {op : TinyML.UnOp} {v v' w : Term .value}
-    (h : encodeUnOp op v = .ok w) : ∃ w', encodeUnOp op v' = .ok w' := by
-  cases op <;> simp_all [encodeUnOp]
-
-/-- The shape of an `encodeBinOp` result (error, with message) depends only on
-the operator, not the arguments. -/
-private theorem encodeBinOp_error_irrel {op : TinyML.BinOp} {a b a' b' : Term .value}
-    {msg : String} (h : encodeBinOp op a b = .error msg) :
-    encodeBinOp op a' b' = .error msg := by
-  cases op <;> simp_all [encodeBinOp]
-
-/-- The shape of an `encodeBinOp` result (success) depends only on the
-operator, not the arguments. -/
-private theorem encodeBinOp_ok_irrel {op : TinyML.BinOp} {a b a' b' c : Term .value}
-    (h : encodeBinOp op a b = .ok c) : ∃ c', encodeBinOp op a' b' = .ok c' := by
-  cases op <;> simp_all [encodeBinOp]
-
-/-! ## Per-case helpers for `encodeWith_bind_binary` -/
-
-namespace BindBinary
-
-theorem const {primitives : PrimEncodings} (c : TinyML.Const) :
-    EncodeWithBindBinary primitives (.const c) := by
-  intro _ _ _ _ _ _ _ _ _ _ _ hops _ _ _ _ _ _ hsub₁ hsub₂ hwf₁ hwf₂ _ _ hk
-  simp only [encodeWith]
-  exact hk (Signature.Subset.refl _) (Signature.Subset.refl _) hwf₁ hwf₂
-    Env.agreeOn_refl Env.agreeOn_refl (encodeConst c) (encodeConst c)
-    (encodeConst_wfIn c _) (encodeConst_wfIn c _) (encodeConst_eval c _ _)
-
-theorem var {primitives : PrimEncodings}
-    (x : String) (inst : List (TinyML.TyVar × TinyML.Typ)) (ty : TinyML.Typ) :
-    EncodeWithBindBinary primitives (.var x inst ty) := by
-  intro _ _ _ _ δ₁ δ₂ _ _ _ _ _ hops _ _ _ ρ₁' ρ₂' _ _ _ hwf₁ hwf₂ _ henv hk
-  cases h₁ : δ₁.lookup x with
-  | none =>
-      have h₂ : δ₂.lookup x = none := by
-        cases h₂ : δ₂.lookup x with
-        | none => rfl
-        | some v₂ =>
-            have : ∃ v₁, δ₁.lookup x = some v₁ := (henv.sameDomain x).mpr ⟨v₂, h₂⟩
-            rcases this with ⟨v₁, hv₁⟩
-            rw [h₁] at hv₁
-            cases hv₁
-      simp only [encodeWith, h₁, h₂]
-      exact hops.error_binary
-  | some v₁ =>
-      obtain ⟨v₂, h₂⟩ := (henv.sameDomain x).mp ⟨v₁, h₁⟩
-      rcases henv.agree x v₁ v₂ h₁ h₂ with ⟨hv₁, hv₂, heval⟩
-      simp only [encodeWith, h₁, h₂]
-      exact hk (Signature.Subset.refl _) (Signature.Subset.refl _) hwf₁ hwf₂
-        Env.agreeOn_refl Env.agreeOn_refl v₁ v₂ hv₁ hv₂ heval
-
-theorem unop {primitives : PrimEncodings} (op : TinyML.UnOp) (e : Typed.Expr) (ty : TinyML.Typ)
-    (ih : EncodeWithBindBinary primitives e) : EncodeWithBindBinary primitives (.unop op e ty) := by
-  intro _ _ _ _ _ _ _ _ _ _ _ hops _ _ _ _ _ _ hsub₁ hsub₂ hwf₁ hwf₂ hagree henv hk
-  simp only [encodeWith]
-  refine ih hops hsub₁ hsub₂ hwf₁ hwf₂ hagree henv ?_
-  intro Δa₁ Δa₂ ρa₁ ρa₂ hsa₁ hsa₂ hwa₁ hwa₂ haa₁ haa₂ v₁ v₂ hv₁ hv₂ hevalv
-  cases hraw₁ : encodeUnOp op v₁ with
-  | error msg =>
-      have hraw₂ := encodeUnOp_error_irrel (v' := v₂) hraw₁
-      simp only [hraw₁, hraw₂]
-      exact hops.error_binary
-  | ok v₁' =>
-      obtain ⟨v₂', hraw₂⟩ := encodeUnOp_ok_irrel (v' := v₂) hraw₁
-      simp only [hraw₁, hraw₂]
-      exact hk hsa₁ hsa₂ hwa₁ hwa₂ haa₁ haa₂ v₁' v₂'
-        (encodeUnOp_wfIn hraw₁ hv₁) (encodeUnOp_wfIn hraw₂ hv₂)
-        (encodeUnOp_eval hraw₁ hraw₂ hevalv)
-
-theorem binop {primitives : PrimEncodings}
-    (op : TinyML.BinOp) (e1 e2 : Typed.Expr) (ty : TinyML.Typ)
-    (ih1 : EncodeWithBindBinary primitives e1) (ih2 : EncodeWithBindBinary primitives e2) :
-    EncodeWithBindBinary primitives (.binop op e1 e2 ty) := by
-  intro _ _ _ Δ _ _ _ _ _ _ _ hops _ _ _ _ _ _ hsub₁ hsub₂ hwf₁ hwf₂ hagree henv hk
-  simp only [encodeWith]
-  refine ih1 hops hsub₁ hsub₂ hwf₁ hwf₂ hagree henv ?_
-  intro Δa₁ Δa₂ ρa₁ ρa₂ hsa₁ hsa₂ hwa₁ hwa₂ haa₁ haa₂ v1₁ v1₂ hv1₁ hv1₂ heval1
-  refine ih2 hops
-    (hsub₁.trans hsa₁) (hsub₂.trans hsa₂) hwa₁ hwa₂
-    (Env.agreeOn_of_extensions hsub₁ hsub₂ hagree haa₁ haa₂)
-    (VarEnv.Agree.mono hsa₁ hsa₂ hwa₁ hwa₂ haa₁ haa₂ henv) ?_
-  intro Δb₁ Δb₂ ρb₁ ρb₂ hsb₁ hsb₂ hwb₁ hwb₂ hab₁ hab₂ v2₁ v2₂ hv2₁ hv2₂ heval2
-  have hev1 : Term.eval ρb₁ v1₁ = Term.eval ρb₂ v1₂ := by
-    rw [← Term.eval_env_agree hv1₁ hab₁, heval1,
-        Term.eval_env_agree hv1₂ hab₂]
-  cases hraw₁ : encodeBinOp op v1₁ v2₁ with
-  | error msg =>
-      have hraw₂ := encodeBinOp_error_irrel (a' := v1₂) (b' := v2₂) hraw₁
-      simp only [hraw₁, hraw₂]
-      exact hops.error_binary
-  | ok v₁' =>
-      obtain ⟨v₂', hraw₂⟩ := encodeBinOp_ok_irrel (a' := v1₂) (b' := v2₂) hraw₁
-      simp only [hraw₁, hraw₂]
-      exact hk (hsa₁.trans hsb₁) (hsa₂.trans hsb₂) hwb₁ hwb₂
-        (Env.agreeOn_trans haa₁ (Env.agreeOn_mono hsa₁ hab₁))
-        (Env.agreeOn_trans haa₂ (Env.agreeOn_mono hsa₂ hab₂))
-        v₁' v₂'
-        (encodeBinOp_wfIn hraw₁ (Term.wfIn_mono v1₁ hv1₁ hsb₁ hwb₁) hv2₁)
-        (encodeBinOp_wfIn hraw₂ (Term.wfIn_mono v1₂ hv1₂ hsb₂ hwb₂) hv2₂)
-        (encodeBinOp_eval hraw₁ hraw₂ hev1 heval2)
-
-theorem ifThenElse {primitives : PrimEncodings} (c t e : Typed.Expr) (ty : TinyML.Typ)
-    (ihc : EncodeWithBindBinary primitives c) (iht : EncodeWithBindBinary primitives t)
-    (ihe : EncodeWithBindBinary primitives e) :
-    EncodeWithBindBinary primitives (.ifThenElse c t e ty) := by
-  intro _ _ _ Δ _ _ _ _ _ _ _ hops _ _ _ _ _ _ hsub₁ hsub₂ hwf₁ hwf₂ hagree henv hk
-  simp only [encodeWith]
-  refine ihc hops hsub₁ hsub₂ hwf₁ hwf₂ hagree henv ?_
-  intro Δa₁ Δa₂ ρa₁ ρa₂ hsa₁ hsa₂ hwa₁ hwa₂ haa₁ haa₂ b₁ b₂ hb₁ hb₂ hevalb
-  have hsub₁a : Δ.Subset Δa₁ := hsub₁.trans hsa₁
-  have hsub₂a : Δ.Subset Δa₂ := hsub₂.trans hsa₂
-  have hagree_a : Env.agreeOn Δ ρa₁ ρa₂ :=
-    Env.agreeOn_of_extensions hsub₁ hsub₂ hagree haa₁ haa₂
-  have henv_a := VarEnv.Agree.mono hsa₁ hsa₂ hwa₁ hwa₂ haa₁ haa₂ henv
-  have hka : EncoderContSpec _ Δa₁ Δa₂ ρa₁ ρa₂ _ _ :=
-    EncoderContSpec.mono hsa₁ hsa₂ haa₁ haa₂ hk
-  refine hops.ite_binary ?_
-    (iht hops hsub₁a hsub₂a hwa₁ hwa₂ hagree_a henv_a hka)
-    (ihe hops hsub₁a hsub₂a hwa₁ hwa₂ hagree_a henv_a hka)
-  simp only [Term.eval, UnOp.eval]; rw [hevalb]
-
-theorem app {primitives : PrimEncodings} (hlaw : primitives.Lawful)
-    (fn : Typed.Expr) (args : List Typed.Expr) (ty : TinyML.Typ)
-    (ihArgs : ∀ a ∈ args, EncodeWithBindBinary primitives a) (ihArgsList : EncodeListWithBindBinary primitives args) :
-    EncodeWithBindBinary primitives (.app fn args ty) := by
-  intro _ _ Γ Δ _ _ _ _ _ _ _ hops _ _ _ _ _ _ hsub₁ hsub₂ hwf₁ hwf₂ hagree henv hk
-  match fn, args with
-  | .var f _ _, [arg] =>
-      simp only [encodeWith]
-      cases hlk : FunCtx.lookup Γ f with
-      | none => exact hops.error_binary
-      | some _ =>
-          simp only
-          refine ihArgs arg (List.mem_singleton.mpr rfl) hops hsub₁ hsub₂ hwf₁ hwf₂ hagree henv ?_
-          intro Δa₁ Δa₂ ρa₁ ρa₂ hsa₁ hsa₂ _ _ haa₁ haa₂ v₁ v₂ hv₁ hv₂ hevalv
-          exact hops.call_binary (FunCtx.mem_of_lookup hlk) hv₁ hv₂ hevalv
-            (EncoderContSpec.mono hsa₁ hsa₂ haa₁ haa₂ hk)
-  | .prim n _ _, args =>
-      simp only [encodeWith]
-      refine ihArgsList hops hsub₁ hsub₂ hwf₁ hwf₂ hagree henv ?_
-      intro Δa₁ Δa₂ ρa₁ ρa₂ hsa₁ hsa₂ hwa₁ hwa₂ haa₁ haa₂ vs₁ vs₂ hvs₁ hvs₂ hevals
-      have hagree_a : Env.agreeOn Δ ρa₁ ρa₂ :=
-        Env.agreeOn_of_extensions hsub₁ hsub₂ hagree haa₁ haa₂
-      cases hraw₁ : encodePrim primitives Δ n vs₁ with
-      | error msg =>
-          have hlen : vs₂.length = vs₁.length := by
-            simpa only [List.length_map] using (congrArg List.length hevals).symm
-          have hraw₂ := encodePrim_error_irrel (vs' := vs₂) hraw₁ hlen
-          simp only [hraw₁, hraw₂]
-          exact hops.error_binary
-      | ok v₁ =>
-          have hlen : vs₂.length = vs₁.length := by
-            simpa only [List.length_map] using (congrArg List.length hevals).symm
-          obtain ⟨v₂, hraw₂⟩ := encodePrim_ok_irrel (vs' := vs₂) hraw₁ hlen
-          simp only [hraw₁, hraw₂]
-          exact hk hsa₁ hsa₂ hwa₁ hwa₂ haa₁ haa₂ v₁ v₂
-            (encodePrim_wfIn hlaw hraw₁ (hsub₁.trans hsa₁) hwa₁ hvs₁)
-            (encodePrim_wfIn hlaw hraw₂ (hsub₂.trans hsa₂) hwa₂ hvs₂)
-            (encodePrim_eval hlaw hraw₁ hraw₂ hagree_a hevals)
-  | .const _, _ | .unop .., _ | .binop .., _ | .fix .., _ | .app .., _
-  | .ifThenElse .., _ | .letIn .., _ | .letProd .., _ | .ref .., _ | .deref .., _ | .store .., _
-  | .arrayMake .., _ | .arrayLen _, _ | .arrayGet .., _ | .arraySet .., _
-  | .assert _, _ | .tuple _, _ | .inj .., _ | .match_ .., _
-  | .var _ _ _, [] | .var _ _ _, _ :: _ :: _ =>
-      simp only [encodeWith]; exact hops.error_binary
-
-theorem fix {primitives : PrimEncodings}
-    (self : Typed.Binder) (args : List Typed.Binder) (retTy : TinyML.Typ)
-    (spec : Option (Spec TinyML.Typ)) (body : Typed.Expr) :
-    EncodeWithBindBinary primitives (.fix self args retTy spec body) := by
-  intro _ _ _ _ _ _ _ _ _ _ _ hops _ _ _ _ _ _ _ _ _ _ _ _ _; exact hops.error_binary
-
-theorem prim {primitives : PrimEncodings} (name : String) (inst : List (TinyML.TyVar × TinyML.Typ))
-    (ty : TinyML.Typ) : EncodeWithBindBinary primitives (.prim name inst ty) := by
-  intro _ _ _ _ _ _ _ _ _ _ _ hops _ _ _ _ _ _ _ _ _ _ _ _ _; exact hops.error_binary
-
-theorem letIn {primitives : PrimEncodings} (name : Typed.Binder) (bound body : Typed.Expr)
-    (ihBound : EncodeWithBindBinary primitives bound) (ihBody : EncodeWithBindBinary primitives body) :
-    EncodeWithBindBinary primitives (.letIn name bound body) := by
-  intro _ _ _ Δ _ _ _ _ _ _ _ hops _ _ _ _ _ _ hsub₁ hsub₂ hwf₁ hwf₂ hagree henv hk
-  simp only [encodeWith]
-  refine ihBound hops hsub₁ hsub₂ hwf₁ hwf₂ hagree henv ?_
-  intro Δa₁ Δa₂ ρa₁ ρa₂ hsa₁ hsa₂ hwa₁ hwa₂ haa₁ haa₂ v₁ v₂ hv₁ hv₂ hevalv
-  have henv_a := VarEnv.Agree.mono hsa₁ hsa₂ hwa₁ hwa₂ haa₁ haa₂ henv
-  have hagree_a : Env.agreeOn Δ ρa₁ ρa₂ :=
-    Env.agreeOn_of_extensions hsub₁ hsub₂ hagree haa₁ haa₂
-  have hka : EncoderContSpec _ Δa₁ Δa₂ ρa₁ ρa₂ _ _ :=
-    EncoderContSpec.mono hsa₁ hsa₂ haa₁ haa₂ hk
-  exact ihBody hops (hsub₁.trans hsa₁) (hsub₂.trans hsa₂) hwa₁ hwa₂
-    hagree_a (VarEnv.Agree.bindBinder henv_a hv₁ hv₂ hevalv) hka
-
-theorem letProd {primitives : PrimEncodings} (names : List Typed.Binder) (bound body : Typed.Expr)
-    (ihBound : EncodeWithBindBinary primitives bound) (ihBody : EncodeWithBindBinary primitives body) :
-    EncodeWithBindBinary primitives (.letProd names bound body) := by
-  intro _ _ _ Δ _ _ _ _ _ _ _ hops _ _ _ _ _ _ hsub₁ hsub₂ hwf₁ hwf₂ hagree henv hk
-  simp only [encodeWith]
-  refine ihBound hops hsub₁ hsub₂ hwf₁ hwf₂ hagree henv ?_
-  intro Δa₁ Δa₂ ρa₁ ρa₂ hsa₁ hsa₂ hwa₁ hwa₂ haa₁ haa₂ v₁ v₂ hv₁ hv₂ hevalv
-  have henv_a := VarEnv.Agree.mono hsa₁ hsa₂ hwa₁ hwa₂ haa₁ haa₂ henv
-  have hagree_a : Env.agreeOn Δ ρa₁ ρa₂ :=
-    Env.agreeOn_of_extensions hsub₁ hsub₂ hagree haa₁ haa₂
-  have hka : EncoderContSpec _ Δa₁ Δa₂ ρa₁ ρa₂ _ _ :=
-    EncoderContSpec.mono hsa₁ hsa₂ haa₁ haa₂ hk
-  exact ihBody hops (hsub₁.trans hsa₁) (hsub₂.trans hsa₂) hwa₁ hwa₂
-    hagree_a (VarEnv.Agree.bindBinders henv_a hv₁ hv₂ hevalv) hka
-
-theorem ref {primitives : PrimEncodings} (ownership : TinyML.Ownership) (e : Typed.Expr) :
-    EncodeWithBindBinary primitives (.ref ownership e) := by
-  intro _ _ _ _ _ _ _ _ _ _ _ hops _ _ _ _ _ _ _ _ _ _ _ _ _; exact hops.error_binary
-
-theorem deref {primitives : PrimEncodings} (e : Typed.Expr) (ty : TinyML.Typ) :
-    EncodeWithBindBinary primitives (.deref e ty) := by
-  intro _ _ _ _ _ _ _ _ _ _ _ hops _ _ _ _ _ _ _ _ _ _ _ _ _; exact hops.error_binary
-
-theorem store {primitives : PrimEncodings} (loc val : Typed.Expr) :
-    EncodeWithBindBinary primitives (.store loc val) := by
-  intro _ _ _ _ _ _ _ _ _ _ _ hops _ _ _ _ _ _ _ _ _ _ _ _ _; exact hops.error_binary
-
-theorem arrayMake {primitives : PrimEncodings}
-    (ownership : TinyML.Ownership) (len init : Typed.Expr) :
-      EncodeWithBindBinary primitives (.arrayMake ownership len init) := by
-  intro _ _ _ _ _ _ _ _ _ _ _ hops _ _ _ _ _ _ _ _ _ _ _ _ _; exact hops.error_binary
-
-theorem arrayLen {primitives : PrimEncodings}
-    (arr : Typed.Expr) (ih : EncodeWithBindBinary primitives arr) :
-    EncodeWithBindBinary primitives (.arrayLen arr) := by
-  intro _ _ _ _ _ _ _ _ _ _ _ hops _ _ _ _ _ _ hsub₁ hsub₂ hwf₁ hwf₂ hagree henv hk
-  simp only [encodeWith]
-  refine ih hops hsub₁ hsub₂ hwf₁ hwf₂ hagree henv ?_
-  intro Δa₁ Δa₂ ρa₁ ρa₂ hsa₁ hsa₂ hwa₁ hwa₂ haa₁ haa₂ v₁ v₂ hv₁ hv₂ hevalv
-  exact hk hsa₁ hsa₂ hwa₁ hwa₂ haa₁ haa₂
-    (.unop .ofInt (.unop .arrayLen v₁)) (.unop .ofInt (.unop .arrayLen v₂))
-    ⟨trivial, trivial, hv₁⟩ ⟨trivial, trivial, hv₂⟩
-    (by simp [Term.eval, UnOp.eval, hevalv])
-
-theorem arrayGet {primitives : PrimEncodings} (arr idx : Typed.Expr) (ty : TinyML.Typ) :
-    EncodeWithBindBinary primitives (.arrayGet arr idx ty) := by
-  intro _ _ _ _ _ _ _ _ _ _ _ hops _ _ _ _ _ _ _ _ _ _ _ _ _; exact hops.error_binary
-
-theorem arraySet {primitives : PrimEncodings} (arr idx val : Typed.Expr) :
-    EncodeWithBindBinary primitives (.arraySet arr idx val) := by
-  intro _ _ _ _ _ _ _ _ _ _ _ hops _ _ _ _ _ _ _ _ _ _ _ _ _; exact hops.error_binary
-
-theorem assert {primitives : PrimEncodings} (e : Typed.Expr) :
-    EncodeWithBindBinary primitives (.assert e) := by
-  intro _ _ _ _ _ _ _ _ _ _ _ hops _ _ _ _ _ _ _ _ _ _ _ _ _; exact hops.error_binary
-
-theorem tuple {primitives : PrimEncodings}
-    (es : List Typed.Expr) (ih : EncodeListWithBindBinary primitives es) :
-    EncodeWithBindBinary primitives (.tuple es) := by
-  intro _ _ _ _ _ _ _ _ _ _ _ hops _ _ _ _ _ _ hsub₁ hsub₂ hwf₁ hwf₂ hagree henv hk
-  simp only [encodeWith]
-  refine ih hops hsub₁ hsub₂ hwf₁ hwf₂ hagree henv ?_
-  intro Δa₁ Δa₂ ρa₁ ρa₂ hsa₁ hsa₂ hwa₁ hwa₂ haa₁ haa₂ vs₁ vs₂ hvs₁ hvs₂ hevals
-  exact hk hsa₁ hsa₂ hwa₁ hwa₂ haa₁ haa₂
-    (.unop .ofValList (Terms.toValList vs₁)) (.unop .ofValList (Terms.toValList vs₂))
-    ⟨trivial, Terms.toValList_wfIn hvs₁⟩
-    ⟨trivial, Terms.toValList_wfIn hvs₂⟩
-    (by simp [Term.eval, UnOp.eval, toValList_eval_eq hevals])
-
-theorem inj {primitives : PrimEncodings} (tag arity : Nat) (payload : Typed.Expr) (ty : TinyML.Typ)
-    (ih : EncodeWithBindBinary primitives payload) :
-    EncodeWithBindBinary primitives (.inj tag arity payload ty) := by
-  intro _ _ _ _ _ _ _ _ _ _ _ hops _ _ _ _ _ _ hsub₁ hsub₂ hwf₁ hwf₂ hagree henv hk
-  simp only [encodeWith]
-  refine ih hops hsub₁ hsub₂ hwf₁ hwf₂ hagree henv ?_
-  intro Δa₁ Δa₂ ρa₁ ρa₂ hsa₁ hsa₂ hwa₁ hwa₂ haa₁ haa₂ v₁ v₂ hv₁ hv₂ hevalv
-  exact hk hsa₁ hsa₂ hwa₁ hwa₂ haa₁ haa₂
-    (.unop (.ofInj tag arity) v₁) (.unop (.ofInj tag arity) v₂)
-    ⟨trivial, hv₁⟩ ⟨trivial, hv₂⟩
-    (by simp [Term.eval, UnOp.eval, hevalv])
-
-theorem match_ {primitives : PrimEncodings}
-    (scrut : Typed.Expr) (branches : List (Typed.Binder × Typed.Expr))
-    (ty : TinyML.Typ) (ihScrut : EncodeWithBindBinary primitives scrut)
-    (ihBranches : EncodeMatchWithBindBinary primitives branches) :
-    EncodeWithBindBinary primitives (.match_ scrut branches ty) := by
-  intro _ _ _ Δ _ _ _ _ _ _ _ hops _ _ _ _ _ _ hsub₁ hsub₂ hwf₁ hwf₂ hagree henv hk
-  simp only [encodeWith]
-  refine ihScrut hops hsub₁ hsub₂ hwf₁ hwf₂ hagree henv ?_
-  intro Δa₁ Δa₂ ρa₁ ρa₂ hsa₁ hsa₂ hwa₁ hwa₂ haa₁ haa₂ v₁ v₂ hv₁ hv₂ hevalv
-  have henv_a := VarEnv.Agree.mono hsa₁ hsa₂ hwa₁ hwa₂ haa₁ haa₂ henv
-  have hagree_a : Env.agreeOn Δ ρa₁ ρa₂ :=
-    Env.agreeOn_of_extensions hsub₁ hsub₂ hagree haa₁ haa₂
-  have hka : EncoderContSpec _ Δa₁ Δa₂ ρa₁ ρa₂ _ _ :=
-    EncoderContSpec.mono hsa₁ hsa₂ haa₁ haa₂ hk
-  exact ihBranches hops (hsub₁.trans hsa₁) (hsub₂.trans hsa₂) hwa₁ hwa₂
-    hagree_a henv_a hv₁ hv₂ hevalv hka
-
-/-- Empty match branch lists encode as the shared match error. -/
-theorem match_nil {primitives : PrimEncodings} : EncodeMatchWithBindBinary primitives [] := by
-  intro _ _ _ _ _ _ _ _ _ _ _ hops _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
-  simp only [encodeMatchWith]; exact hops.error_binary
-
-/-- Binary preservation for a non-empty match branch list. -/
-theorem match_cons {primitives : PrimEncodings} (b : Typed.Binder) (body : Typed.Expr)
-    (rest : List (Typed.Binder × Typed.Expr))
-    (ihBody : EncodeWithBindBinary primitives body)
-    (ihRest : EncodeMatchWithBindBinary primitives rest) :
-    EncodeMatchWithBindBinary primitives ((b, body) :: rest) := by
-  intro _ _ _ Δ _ _ _ _ _ _ _ hops _ Δ₁' Δ₂' ρ₁' ρ₂' _ scrut₁ scrut₂ _
-        hsub₁ hsub₂ hwf₁ hwf₂ hagree henv hscrut₁ hscrut₂ hevalScrut hk
-  simp only [encodeMatchWith]
-  have hpay₁ : (Term.unop UnOp.payloadOf scrut₁).wfIn Δ₁' := ⟨trivial, hscrut₁⟩
-  have hpay₂ : (Term.unop UnOp.payloadOf scrut₂).wfIn Δ₂' := ⟨trivial, hscrut₂⟩
-  have hpayEval : Term.eval ρ₁' (.unop UnOp.payloadOf scrut₁) =
-      Term.eval ρ₂' (.unop UnOp.payloadOf scrut₂) := by
-    simp [Term.eval, UnOp.eval, hevalScrut]
-  cases rest with
-  | nil =>
-    exact ihBody hops hsub₁ hsub₂ hwf₁ hwf₂
-      hagree (VarEnv.Agree.bindBinder henv hpay₁ hpay₂ hpayEval) hk
-  | cons _ _ =>
-    refine hops.ite_binary ?_
-      (ihBody hops hsub₁ hsub₂ hwf₁ hwf₂
-        hagree (VarEnv.Agree.bindBinder henv hpay₁ hpay₂ hpayEval) hk)
-      (ihRest hops hsub₁ hsub₂ hwf₁ hwf₂ hagree henv hscrut₁ hscrut₂ hevalScrut hk)
-    simp [Term.eval, UnOp.eval, BinOp.eval, hevalScrut]
-
-/-- Empty expression lists feed matching empty value lists to their
-continuations. -/
-theorem list_nil {primitives : PrimEncodings} : EncodeListWithBindBinary primitives [] := by
-  intro _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ hsub₁ hsub₂ hwf₁ hwf₂ _ _ hk
-  simp only [encodeListWith]
-  exact hk (Signature.Subset.refl _) (Signature.Subset.refl _) hwf₁ hwf₂
-    Env.agreeOn_refl Env.agreeOn_refl [] [] (by simp) (by simp) (by simp)
-
-/-- Binary preservation for expression lists, threading the head value into the
-tail list continuation. -/
-theorem list_cons {primitives : PrimEncodings} (e : Typed.Expr) (es : List Typed.Expr)
-    (ih : EncodeWithBindBinary primitives e) (ihs : EncodeListWithBindBinary primitives es) :
-    EncodeListWithBindBinary primitives (e :: es) := by
-  intro _ _ _ Δ _ _ _ _ _ _ _ hops _ _ _ _ _ _ hsub₁ hsub₂ hwf₁ hwf₂ hagree henv hk
-  simp only [encodeListWith]
-  refine ih hops hsub₁ hsub₂ hwf₁ hwf₂ hagree henv ?_
-  intro Δa₁ Δa₂ ρa₁ ρa₂ hsa₁ hsa₂ hwa₁ hwa₂ haa₁ haa₂ v₁ v₂ hv₁ hv₂ hevalv
-  refine ihs hops
-    (hsub₁.trans hsa₁) (hsub₂.trans hsa₂) hwa₁ hwa₂
-    (Env.agreeOn_of_extensions hsub₁ hsub₂ hagree haa₁ haa₂)
-    (VarEnv.Agree.mono hsa₁ hsa₂ hwa₁ hwa₂ haa₁ haa₂ henv) ?_
-  intro Δb₁ Δb₂ ρb₁ ρb₂ hsb₁ hsb₂ hwb₁ hwb₂ hab₁ hab₂ vs₁ vs₂ hvs₁ hvs₂ hevals
-  have hevHead : Term.eval ρb₁ v₁ = Term.eval ρb₂ v₂ := by
-    rw [← Term.eval_env_agree hv₁ hab₁, hevalv,
-        Term.eval_env_agree hv₂ hab₂]
-  have hwfs₁ : ∀ q ∈ v₁ :: vs₁, q.wfIn Δb₁ := by
-    intro q hq
-    simp only [List.mem_cons] at hq
-    rcases hq with hq | hq
-    · subst q
-      exact Term.wfIn_mono v₁ hv₁ hsb₁ hwb₁
-    · exact hvs₁ q hq
-  have hwfs₂ : ∀ q ∈ v₂ :: vs₂, q.wfIn Δb₂ := by
-    intro q hq
-    simp only [List.mem_cons] at hq
-    rcases hq with hq | hq
-    · subst q
-      exact Term.wfIn_mono v₂ hv₂ hsb₂ hwb₂
-    · exact hvs₂ q hq
-  exact hk (hsa₁.trans hsb₁) (hsa₂.trans hsb₂) hwb₁ hwb₂
-    (Env.agreeOn_trans haa₁ (Env.agreeOn_mono hsa₁ hab₁))
-    (Env.agreeOn_trans haa₂ (Env.agreeOn_mono hsa₂ hab₂))
-    (v₁ :: vs₁) (v₂ :: vs₂) hwfs₁ hwfs₂ (by simp [hevHead, hevals])
-
-end BindBinary
-
-mutual
-/-- Generic paired-encoding theorem for the shared traversal. -/
-theorem encodeWith_bind_binary_def {primitives : PrimEncodings} (hlaw : primitives.Lawful) :
-    ∀ (e : Typed.Expr), EncodeWithBindBinary primitives e
-  | .const c => BindBinary.const c
-  | .var x inst ty => BindBinary.var x inst ty
-  | .prim n inst ty => BindBinary.prim n inst ty
-  | .unop op e ty => BindBinary.unop op e ty (encodeWith_bind_binary_def hlaw e)
-  | .binop op e1 e2 ty =>
-      BindBinary.binop op e1 e2 ty (encodeWith_bind_binary_def hlaw e1)
-        (encodeWith_bind_binary_def hlaw e2)
-  | .ifThenElse c t e ty =>
-      BindBinary.ifThenElse c t e ty (encodeWith_bind_binary_def hlaw c)
-        (encodeWith_bind_binary_def hlaw t) (encodeWith_bind_binary_def hlaw e)
-  | .app fn args ty =>
-      BindBinary.app hlaw fn args ty (fun a _ => encodeWith_bind_binary_def hlaw a)
-        (encodeListWith_bind_binary_def hlaw args)
-  | .fix self args retTy spec body => BindBinary.fix self args retTy spec body
-  | .letIn name bound body =>
-      BindBinary.letIn name bound body
-        (encodeWith_bind_binary_def hlaw bound) (encodeWith_bind_binary_def hlaw body)
-  | .letProd names bound body =>
-      BindBinary.letProd names bound body
-        (encodeWith_bind_binary_def hlaw bound) (encodeWith_bind_binary_def hlaw body)
-  | .ref ownership e => BindBinary.ref ownership e
-  | .deref e ty => BindBinary.deref e ty
-  | .store loc val => BindBinary.store loc val
-  | .arrayMake ownership len init => BindBinary.arrayMake ownership len init
-  | .arrayLen arr => BindBinary.arrayLen arr (encodeWith_bind_binary_def hlaw arr)
-  | .arrayGet arr idx ty => BindBinary.arrayGet arr idx ty
-  | .arraySet arr idx val => BindBinary.arraySet arr idx val
-  | .assert e => BindBinary.assert e
-  | .tuple es => BindBinary.tuple es (encodeListWith_bind_binary_def hlaw es)
-  | .inj tag arity payload ty =>
-      BindBinary.inj tag arity payload ty (encodeWith_bind_binary_def hlaw payload)
-  | .match_ scrut branches ty =>
-      BindBinary.match_ scrut branches ty
-        (encodeWith_bind_binary_def hlaw scrut)
-        (encodeMatchWith_bind_binary_def hlaw branches)
-
-theorem encodeListWith_bind_binary_def {primitives : PrimEncodings} (hlaw : primitives.Lawful) :
-    ∀ (es : List Typed.Expr), EncodeListWithBindBinary primitives es
-  | [] => BindBinary.list_nil
-  | e :: es =>
-      BindBinary.list_cons e es (encodeWith_bind_binary_def hlaw e)
-        (encodeListWith_bind_binary_def hlaw es)
-
-theorem encodeMatchWith_bind_binary_def {primitives : PrimEncodings} (hlaw : primitives.Lawful) :
-    ∀ (branches : List (Typed.Binder × Typed.Expr)),
-      EncodeMatchWithBindBinary primitives branches
-  | [] => BindBinary.match_nil
-  | (b, body) :: rest =>
-      BindBinary.match_cons b body rest
-        (encodeWith_bind_binary_def hlaw body)
-        (encodeMatchWith_bind_binary_def hlaw rest)
-end
-
-/-- Bind-position paired-encoding theorem. The two encoders are run on the
-same syntax `e` but with independent local environments related by
-`VarEnv.Agree`. The conclusion is quantified over arbitrary *states*
-`(Δ₁', ρ₁')`, `(Δ₂', ρ₂')` extending the initial signatures, so the induction
-can chain inner continuation contracts off the future state reached by the
-outer one. -/
-theorem encodeWith_bind_binary {primitives : PrimEncodings}
-    {M₁ M₂ : Type} {Γ : FunCtx} {Δ : Signature}
-    {δ₁ δ₂ : VarEnv}
-    {ops₁ : EncoderOps M₁} {ops₂ : EncoderOps M₂}
-    {ret₁ : Term .value → M₁} {ret₂ : Term .value → M₂}
-    {B : Signature → Signature → Env → Env → M₁ → M₂ → Prop}
-    (hlaw : primitives.Lawful) (hops : EncoderOpsBinary Γ ops₁ ops₂ B)
-    (e : Typed.Expr) {k₁ : Term .value → Expr}
-    {Δ₁' Δ₂' : Signature} {ρ₁' ρ₂' : Env} {k₂ : Term .value → Expr}
-    (hsub₁ : Δ.Subset Δ₁') (hsub₂ : Δ.Subset Δ₂')
-    (hwf₁ : Δ₁'.wf) (hwf₂ : Δ₂'.wf)
-    (hagree : Env.agreeOn Δ ρ₁' ρ₂')
-    (henv : VarEnv.Agree Δ₁' Δ₂' ρ₁' ρ₂' δ₁ δ₂)
-    (hk : EncoderContSpec B Δ₁' Δ₂' ρ₁' ρ₂'
-      (fun v => Expr.fold ops₁ ret₁ (k₁ v)) (fun v => Expr.fold ops₂ ret₂ (k₂ v))) :
-    B Δ₁' Δ₂' ρ₁' ρ₂'
-      (Expr.fold ops₁ ret₁ (encodeWith primitives Δ Γ δ₁ e k₁))
-      (Expr.fold ops₂ ret₂ (encodeWith primitives Δ Γ δ₂ e k₂)) :=
-  encodeWith_bind_binary_def hlaw e hops hsub₁ hsub₂ hwf₁ hwf₂ hagree henv hk
-
+/-- The continuation that ends the traversal: it returns the value term
+unchanged, and its IR is well-formed wherever the term is. -/
+theorem ret_wfCont {Γ : FunCtx} {Δ : Signature} :
+    WfCont Γ Δ (fun v _ => .ok (.ret v)) := by
+  intro _ _ _ _ _ v hv c henc
+  simp only [Except.ok.injEq] at henc
+  subst henc
+  exact .ret hv
 
 end Verifier.RelationalEncoding

@@ -32,14 +32,6 @@ structure PrimEncoding.Lawful (e : PrimEncoding) : Prop where
   wfIn : ∀ {Δ Δ' : Signature} {args : Arity.tup e.arity (Term .value)},
     e.available Δ = true → Δ.Subset Δ' → Δ'.wf →
     Arity.All (·.wfIn Δ') e.arity args → (e.encode Δ args).wfIn Δ'
-  /-- The encoding is a pure function of the values of its arguments. Let two
-      environments agree on `Δ`. If each pair of arguments evaluates to the
-      same value, then the two terms also evaluate to the same value. -/
-  eval : ∀ {Δ : Signature} {args₁ args₂ : Arity.tup e.arity (Term .value)}
-      {ρ₁ ρ₂ : Env},
-    e.available Δ = true → Env.agreeOn Δ ρ₁ ρ₂ →
-    Arity.map (Term.eval ρ₁) e.arity args₁ = Arity.map (Term.eval ρ₂) e.arity args₂ →
-    Term.eval ρ₁ (e.encode Δ args₁) = Term.eval ρ₂ (e.encode Δ args₂)
 
 /-- The primitive table of the encoder. It holds one entry for each
     intrinsic that the encoder can encode. -/
@@ -102,77 +94,5 @@ theorem encodePrim_wfIn {primitives : PrimEncodings} {Δ Δ' : Signature}
           (Arity.ofList_all encoding.arity vs hlen hvs)
       · simp at h
     · simp at h
-
-/-- The success of `encodePrim` depends on the name, the signature, and the
-number of arguments. It does not depend on the argument terms. Therefore two
-argument lists of the same length both succeed. -/
-theorem encodePrim_ok_irrel {primitives : PrimEncodings} {Δ : Signature} {n : String}
-    {vs vs' : List (Term .value)} {v : Term .value}
-    (h : encodePrim primitives Δ n vs = .ok v) (hlen : vs'.length = vs.length) :
-    ∃ v', encodePrim primitives Δ n vs' = .ok v' := by
-  unfold encodePrim at h ⊢
-  split at h
-  · simp at h
-  · split at h
-    · rename_i hvs
-      rw [dif_pos (hlen.trans hvs)]
-      split at h
-      · rename_i hav
-        rw [if_pos hav]
-        exact ⟨_, rfl⟩
-      · simp at h
-    · simp at h
-
-/-- The failure of `encodePrim` depends on the same three things. Therefore
-two argument lists of the same length fail with the same message. -/
-theorem encodePrim_error_irrel {primitives : PrimEncodings} {Δ : Signature} {n : String}
-    {vs vs' : List (Term .value)} {msg : String}
-    (h : encodePrim primitives Δ n vs = .error msg) (hlen : vs'.length = vs.length) :
-    encodePrim primitives Δ n vs' = .error msg := by
-  unfold encodePrim at h ⊢
-  split at h
-  · exact h
-  · split at h
-    · rename_i hvs
-      rw [dif_pos (hlen.trans hvs)]
-      split at h
-      · simp at h
-      · rename_i hav
-        rw [if_neg hav]
-        exact h
-    · rename_i hvs
-      rw [dif_neg (fun hvs' => hvs (hlen.symm.trans hvs'))]
-      exact h
-
-/-- `encodePrim` is a pure function of the values of its arguments. Let two
-environments agree on the signature `Δ`. If each pair of arguments evaluates
-to the same value, then the two results also evaluate to the same value. -/
-theorem encodePrim_eval {primitives : PrimEncodings} {Δ : Signature} {n : String}
-    {vs₁ vs₂ : List (Term .value)} {v₁ v₂ : Term .value} {ρ₁ ρ₂ : Env}
-    (hlaw : primitives.Lawful)
-    (h₁ : encodePrim primitives Δ n vs₁ = .ok v₁)
-    (h₂ : encodePrim primitives Δ n vs₂ = .ok v₂)
-    (hagree : Env.agreeOn Δ ρ₁ ρ₂)
-    (hvals : vs₁.map (fun t => Term.eval ρ₁ t) = vs₂.map (fun t => Term.eval ρ₂ t)) :
-    Term.eval ρ₁ v₁ = Term.eval ρ₂ v₂ := by
-  unfold encodePrim at h₁ h₂
-  split at h₁
-  · simp at h₁
-  · rename_i encoding hlookup
-    simp only [hlookup] at h₂
-    split at h₁
-    · rename_i hlen₁
-      split at h₁
-      · rename_i hav
-        split at h₂
-        · rename_i hlen₂
-          simp only [Except.ok.injEq] at h₁ h₂
-          subst v₁
-          subst v₂
-          exact (hlaw.lookup? hlookup).eval (by simpa using hav) hagree
-            (Arity.map_ofList_eq _ _ encoding.arity vs₁ vs₂ hlen₁ hlen₂ hvals)
-        · simp at h₂
-      · simp at h₁
-    · simp at h₁
 
 end Verifier.RelationalEncoding
