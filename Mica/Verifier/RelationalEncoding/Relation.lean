@@ -1,5 +1,5 @@
 -- SUMMARY: Stage 1 — encode a recursive TinyML body as a binary FOL relation defined by least fixpoint.
-import Mica.Verifier.RelationalEncoding.Monad
+import Mica.Verifier.RelationalEncoding.Expr
 
 /-!
 # Relational encoding of recursive TinyML bodies

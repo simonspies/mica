@@ -5,7 +5,7 @@ import Mica.SeparationLogic.Wp
 import Mica.Verifier.PredicateTransformers
 import Mica.Verifier.Specifications
 import Mica.FOL.Formulas
-import Mica.Verifier.RelationalEncoding.Prim
+import Mica.Verifier.RelationalEncoding.Expr
 
 open Iris Iris.BI
 

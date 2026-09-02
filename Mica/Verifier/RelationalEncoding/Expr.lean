@@ -1,25 +1,26 @@
--- SUMMARY: Traversal of TinyML into the encoder intermediate language, and its well-formedness.
+-- SUMMARY: The encoder intermediate language, the traversal into it, and its well-formedness.
+import Mica.Base.Arity
 import Mica.FOL.Formulas
 import Mica.Base.Fixpoint
 import Mica.Base.Except
 import Mica.SourceTinyML.Typed
 import Mica.Base.Fresh
 import Mica.Verifier.RelationalEncoding.Variables
-import Mica.Verifier.RelationalEncoding.Prim
 
 /-!
-# From TinyML to the encoder intermediate language
+# The encoder intermediate language
 
-`encodeWith` resolves the pure syntax of a typed TinyML expression into value
-terms and leaves an `Expr`: a tree of calls and conditionals ending in a value.
-The traversal is in continuation-passing style — every leaf hands its value
-term to the continuation; `call` allocates the name of its result and puts the
-continuation under it; for `ite` the continuation is pushed into both branches,
-which are generated from the same supply because their scopes are disjoint.
-
+`Expr` is what is left of a typed TinyML expression once its pure syntax is
+resolved into value terms: a tree of calls and conditionals ending in a value.
 Because a call names its result, both encodings consume the *same* tree. The
 relational one binds the name existentially, the split one substitutes the
 value function for it; that asymmetry is all that Skolemization is.
+
+`encodeWith` builds the tree in continuation-passing style — every leaf hands
+its value term to the continuation; `call` allocates the name of its result and
+puts the continuation under it; for `ite` the continuation is pushed into both
+branches, which are generated from the same supply because their scopes are
+disjoint.
 
 `Expr.WfIn` is the well-formedness of the tree: it is established once, by
 induction over `Typed.Expr` (`encodeWith_wfIn`), and consumed by each encoding
@@ -28,7 +29,134 @@ in three cases.
 
 namespace Verifier.RelationalEncoding
 
-/-! ## Per-operation encoders for constants and primitives -/
+/-! ## The encoder intermediate language -/
+
+/-- What is left of a TinyML expression once the traversal has resolved its
+pure syntax into value terms: a tree of calls and conditionals ending in a
+value.
+
+* `ret` is the finished value term;
+* `call` applies a relation-marked function and binds its result to a name;
+* `ite` branches on a boolean term. -/
+inductive Expr where
+  | ret  : Term .value → Expr
+  | call : SpecFn → Term .value → String → Expr → Expr
+  | ite  : Term .bool → Expr → Expr → Expr
+
+/-- Well-formedness of an IR expression at a signature and a name supply:
+every term it mentions is well-formed, every call resolves in `Γ`, and every
+call binds a name the supply has not yet handed out. -/
+inductive Expr.WfIn (Γ : FunCtx) : Signature → NameSupply → Expr → Prop where
+  | ret {Δ s v} : v.wfIn Δ → WfIn Γ Δ s (.ret v)
+  | call {Δ s f fn arg r c} :
+      (f, fn) ∈ Γ → arg.wfIn Δ → r ∉ s.avoid →
+      WfIn Γ (Δ.declVar ⟨r, .value⟩) (s.reserve r) c →
+      WfIn Γ Δ s (.call fn arg r c)
+  | ite {Δ s cond t e} :
+      cond.wfIn Δ → WfIn Γ Δ s t → WfIn Γ Δ s e → WfIn Γ Δ s (.ite cond t e)
+
+theorem Expr.WfIn.mono {Γ : FunCtx} {Δ Δ' : Signature} {s : NameSupply} {c : Expr}
+    (h : Expr.WfIn Γ Δ s c) (hsub : Δ.Subset Δ') (hwf : Δ'.wf) : Expr.WfIn Γ Δ' s c := by
+  induction h generalizing Δ' with
+  | ret hv => exact .ret (Term.wfIn_mono _ hv hsub hwf)
+  | call hmem harg hr _ ih =>
+      exact .call hmem (Term.wfIn_mono _ harg hsub hwf) hr
+        (ih (Signature.Subset.declVar hsub _) (Signature.wf_declVar hwf))
+  | ite hcond _ _ iht ihe =>
+      exact .ite (Term.wfIn_mono _ hcond hsub hwf) (iht hsub hwf) (ihe hsub hwf)
+
+/-! ## The primitive encoding table -/
+
+/-- One named primitive encoding. It tells the encoder how to make a value
+term from a saturated application of an intrinsic. This structure holds data
+only. `PrimEncoding.Lawful` gives the laws that the relational encoder
+requires of an entry. -/
+structure PrimEncoding where
+  /-- The name of the intrinsic that this entry encodes. `encodePrim` uses
+      this name as the search key. -/
+  name : String
+  /-- The number of arguments that the encoding expects. -/
+  arity : Arity
+  /-- True if you can use the encoding in the signature. An entry that
+      applies a declared symbol needs that declaration. An entry that builds
+      a term without a symbol does not. -/
+  available : Signature → Bool
+  /-- Make the value term for a saturated application. `encodePrim` checks
+      the number of arguments. Therefore the arguments arrive as a tuple. -/
+  encode : Signature → Arity.tup arity (Term .value) → Term .value
+
+/-- The laws that the relational encoder requires of a table entry. -/
+structure PrimEncoding.Lawful (e : PrimEncoding) : Prop where
+  /-- Let the encoding be available in `Δ`. Let `Δ'` extend `Δ`. If the
+      arguments are well-formed in `Δ'`, then the term is also well-formed
+      in `Δ'`. -/
+  wfIn : ∀ {Δ Δ' : Signature} {args : Arity.tup e.arity (Term .value)},
+    e.available Δ = true → Δ.Subset Δ' → Δ'.wf →
+    Arity.All (·.wfIn Δ') e.arity args → (e.encode Δ args).wfIn Δ'
+
+/-- The primitive table of the encoder. It holds one entry for each intrinsic
+that the encoder can encode. -/
+abbrev PrimEncodings := List PrimEncoding
+
+/-- A table is lawful if each of its entries is lawful. -/
+def PrimEncodings.Lawful (primitives : PrimEncodings) : Prop :=
+  ∀ e ∈ primitives, e.Lawful
+
+/-- Find the encoding for a name. This is the first entry with that `name`. -/
+def PrimEncodings.lookup? (primitives : PrimEncodings) (name : String) : Option PrimEncoding :=
+  primitives.find? (·.name == name)
+
+/-- An encoding that the table returns is an entry of that table. -/
+theorem PrimEncodings.mem_of_lookup? {primitives : PrimEncodings} {name : String}
+    {e : PrimEncoding} (h : primitives.lookup? name = some e) : e ∈ primitives :=
+  List.mem_of_find?_eq_some h
+
+/-- An entry that a lawful table returns is itself lawful. -/
+theorem PrimEncodings.Lawful.lookup? {primitives : PrimEncodings} (hlaw : primitives.Lawful)
+    {name : String} {e : PrimEncoding} (h : primitives.lookup? name = some e) : e.Lawful :=
+  hlaw e (PrimEncodings.mem_of_lookup? h)
+
+/-! ## Intrinsic application encoder -/
+
+/-- Encode a saturated intrinsic application with the primitive table. This
+function makes the two checks that all entries share. It checks that the
+table holds the name. It also checks that the application has the arity of
+the entry. Therefore an entry only makes a term from an argument tuple. -/
+def encodePrim (primitives : PrimEncodings) (Δ : Signature) (name : String)
+    (vs : List (Term .value)) : Except String (Term .value) :=
+  match primitives.lookup? name with
+  | none => .error s!"relational encoding: unknown intrinsic `{name}`"
+  | some encoding =>
+      if hlen : vs.length = encoding.arity.toNat then
+        if encoding.available Δ then
+          .ok (encoding.encode Δ (Arity.ofList encoding.arity vs hlen))
+        else .error s!"relational encoding: unavailable intrinsic `{name}`"
+      else .error s!"relational encoding: intrinsic `{name}` applied at unsupported arity"
+
+/-- A successful encoding is well-formed in each extension of the signature.
+The encoding is available in the base signature `Δ`. The `wfIn` law of the
+entry then gives well-formedness in `Δ'`. -/
+theorem encodePrim_wfIn {primitives : PrimEncodings} {Δ Δ' : Signature}
+    {n : String} {vs : List (Term .value)} {v : Term .value}
+    (hlaw : primitives.Lawful) (h : encodePrim primitives Δ n vs = .ok v)
+    (hsub : Δ.Subset Δ') (hΔ' : Δ'.wf)
+    (hvs : ∀ w ∈ vs, w.wfIn Δ') : v.wfIn Δ' := by
+  unfold encodePrim at h
+  split at h
+  · simp at h
+  · rename_i encoding hlookup
+    split at h
+    · rename_i hlen
+      split at h
+      · rename_i hav
+        simp only [Except.ok.injEq] at h
+        subst v
+        exact (hlaw.lookup? hlookup).wfIn (by simpa using hav) hsub hΔ'
+          (Arity.ofList_all encoding.arity vs hlen hvs)
+      · simp at h
+    · simp at h
+
+/-! ## Constant and operator encoders -/
 
 /-- Encode a TinyML constant into a value-sorted FOL term. -/
 def encodeConst : TinyML.Const → Term .value
@@ -60,7 +188,7 @@ def encodeBinOp : TinyML.BinOp → Term .value → Term .value → Except String
   | .and, a, b => .ok (.unop .ofBool (.ite (.unop .toBool a) (.unop .toBool b) (.const (.b false))))
   | .or,  a, b => .ok (.unop .ofBool (.ite (.unop .toBool a) (.const (.b true)) (.unop .toBool b)))
 
-/-! ## Well-formedness lemmas for primitive encoders -/
+/-! ## Well-formedness of the constant and operator encoders -/
 
 theorem encodeConst_wfIn (c : TinyML.Const) (Δ : Signature) :
     (encodeConst c).wfIn Δ := by
@@ -108,20 +236,7 @@ theorem encodeBinOp_wfIn {op : TinyML.BinOp} {v1 v2 v : Term .value} {Δ : Signa
       (Term.ite (.unop .toBool v1) (.const (.b true)) (.unop .toBool v2)).wfIn Δ
     exact ⟨trivial, ⟨⟨trivial, h1⟩, trivial, ⟨trivial, h2⟩⟩⟩
 
-
-/-! ## The encoder intermediate language -/
-
-/-- What is left of a TinyML expression once the traversal has resolved its
-pure syntax into value terms: a tree of calls and conditionals ending in a
-value.
-
-* `ret` is the finished value term;
-* `call` applies a relation-marked function and binds its result to a name;
-* `ite` branches on a boolean term. -/
-inductive Expr where
-  | ret  : Term .value → Expr
-  | call : SpecFn → Term .value → String → Expr → Expr
-  | ite  : Term .bool → Expr → Expr → Expr
+/-! ## The traversal -/
 
 mutual
 /-- Shared structural traversal of a typed TinyML expression in
@@ -223,43 +338,7 @@ def encode (primitives : PrimEncodings) (Δ : Signature) (Γ : FunCtx) (δ : Var
     (e : Typed.Expr) : NameSupply → Except String Expr :=
   encodeWith primitives Δ Γ δ e (fun v _ => .ok (.ret v))
 
-/-! ## Semantic interpretation of encodings
-
-A semantic predicate `sem : M → Env → Prop` explains how an encoding is
-interpreted in an environment. Downstream constructions (e.g. the relational
-encoder's least fixpoint) use these notions on top of the traversal. -/
-
-/-- Semantic interpretation of an encoded expression in an environment. -/
-abbrev SemPred (M : Type) := M → Env → Prop
-
-/-- An encoding is monotone when its semantic interpretation is stable under
-`Env.le`. -/
-def SemanticMono {M : Type} (sem : SemPred M) (m : M) : Prop :=
-  ∀ {ρ ρ' : Env}, Env.le ρ ρ' → sem m ρ → sem m ρ'
-
-/-! ## Well-formedness of the intermediate language -/
-
-/-- Well-formedness of an IR expression at a signature and a name supply:
-every term it mentions is well-formed, every call resolves in `Γ`, and every
-call binds a name the supply has not yet handed out. -/
-inductive Expr.WfIn (Γ : FunCtx) : Signature → NameSupply → Expr → Prop where
-  | ret {Δ s v} : v.wfIn Δ → WfIn Γ Δ s (.ret v)
-  | call {Δ s f fn arg r c} :
-      (f, fn) ∈ Γ → arg.wfIn Δ → r ∉ s.avoid →
-      WfIn Γ (Δ.declVar ⟨r, .value⟩) (s.reserve r) c →
-      WfIn Γ Δ s (.call fn arg r c)
-  | ite {Δ s cond t e} :
-      cond.wfIn Δ → WfIn Γ Δ s t → WfIn Γ Δ s e → WfIn Γ Δ s (.ite cond t e)
-
-theorem Expr.WfIn.mono {Γ : FunCtx} {Δ Δ' : Signature} {s : NameSupply} {c : Expr}
-    (h : Expr.WfIn Γ Δ s c) (hsub : Δ.Subset Δ') (hwf : Δ'.wf) : Expr.WfIn Γ Δ' s c := by
-  induction h generalizing Δ' with
-  | ret hv => exact .ret (Term.wfIn_mono _ hv hsub hwf)
-  | call hmem harg hr _ ih =>
-      exact .call hmem (Term.wfIn_mono _ harg hsub hwf) hr
-        (ih (Signature.Subset.declVar hsub _) (Signature.wf_declVar hwf))
-  | ite hcond _ _ iht ihe =>
-      exact .ite (Term.wfIn_mono _ hcond hsub hwf) (iht hsub hwf) (ihe hsub hwf)
+/-! ## Well-formedness of the traversal -/
 
 /-- Contract on a traversal continuation: at any signature the traversal can
 reach and any supply covering it, a well-formed value term yields a
@@ -647,5 +726,19 @@ theorem ret_wfCont {Γ : FunCtx} {Δ : Signature} :
   simp only [Except.ok.injEq] at henc
   subst henc
   exact .ret hv
+
+/-! ## Semantic interpretation of encodings
+
+A semantic predicate `sem : M → Env → Prop` explains how an encoding is
+interpreted in an environment. Downstream constructions (e.g. the relational
+encoder's least fixpoint) use these notions on top of the traversal. -/
+
+/-- Semantic interpretation of an encoded expression in an environment. -/
+abbrev SemPred (M : Type) := M → Env → Prop
+
+/-- An encoding is monotone when its semantic interpretation is stable under
+`Env.le`. -/
+def SemanticMono {M : Type} (sem : SemPred M) (m : M) : Prop :=
+  ∀ {ρ ρ' : Env}, Env.le ρ ρ' → sem m ρ → sem m ρ'
 
 end Verifier.RelationalEncoding
