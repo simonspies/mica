@@ -15,27 +15,26 @@ relational side picks for them, and `σ` with the value terms the split side
 substituted; `SubstAgree` says the two accounts of those names agree. -/
 theorem ofExpr_sound {Γ : FunCtx} {Δbase : Signature} {res : String} {ρdef : Env}
     (hΓdef : Γ.splitWfIn Δbase) (hΔbase : Δbase.wf) :
-    ∀ {Δ : Signature} {s : NameSupply} {c : Expr} {σ : Subst} {ρrel : Env},
-      Expr.WfIn Γ Δ s c →
-      Δbase.Subset Δ → Δ.SymbolSubset Δbase → s.Covers Δ → res ∈ s.avoid →
+    ∀ {avoid : List String} {Δ : Signature} {c : Expr} {σ : Subst} {ρrel : Env},
+      Expr.WfIn Γ avoid Δ c → res ∈ avoid →
+      Δbase.Subset Δ → Δ.SymbolSubset Δbase →
       σ.wfIn Δ.vars Δbase → Γ.splitSound ρrel →
       Env.agreeOn Δbase ρrel ρdef → SubstAgree Δ ρrel ρdef σ →
       ρrel.lookupConst .value res = ρdef.lookupConst .value res →
       (ofExpr σ c).defined.eval ρdef →
       (ofExpr σ c).value.eval ρdef = ρdef.lookupConst .value res →
       (Relation.ofExpr res c).eval ρrel := by
-  intro Δ s c σ ρrel hc
+  intro avoid Δ c σ ρrel hc hresAvoid
   induction hc generalizing σ ρrel with
-  | @ret Δ s v hv =>
-      intro _ _ _ _ hσ _ _ hagree hres _ hval
+  | @ret Δ v hv =>
+      intro _ _ hσ _ _ hagree hres _ hval
       simp only [ofExpr] at hval
       simp only [Relation.ofExpr, Formula.eval, Term.eval]
       rw [eval_substAgree hagree hv hσ hΔbase, hval, hres]
-  | @call Δ s f fn arg r c hmem harg hr _ ih =>
-      intro hsubBase hsym hcov hresAvoid hσ hΓs hagBase hagree hres hdef hval
+  | @call Δ f fn arg r c hmem harg hr hfresh _ ih =>
+      intro hsubBase hsym hσ hΓs hagBase hagree hres hdef hval
       simp only [ofExpr, Formula.eval] at hdef hval
       obtain ⟨hdefCall, hdefRest⟩ := hdef
-      have hfresh : r ∉ Δ.allNames := fun hm => hr (hcov r hm)
       have hfreshBase : r ∉ Δbase.allNames :=
         fun hm => hfresh (Signature.allNames_subset hsubBase r hm)
       have hres_ne : res ≠ r := fun heq => hr (heq ▸ hresAvoid)
@@ -62,8 +61,6 @@ theorem ofExpr_sound {Γ : FunCtx} {Δbase : Signature} {res : String} {ρdef : 
           Term.eval_update_fresh harg hfresh] using hedge
       · refine ih (hsubBase.trans (Signature.subset_declVar_of_fresh hfresh))
           (Signature.SymbolSubset.declVar hsym _)
-          (NameSupply.Covers.declVar hcov r .value)
-          (by simp [NameSupply.reserve, hresAvoid])
           ?_
           (FunCtx.splitSound_updateConst hΓs .value r _)
           ?_ (substAgree_bind hagree) ?_ hdefRest hval
@@ -75,8 +72,8 @@ theorem ofExpr_sound {Γ : FunCtx} {Δbase : Signature} {res : String} {ρdef : 
             (Env.agreeOn_symm
               (Env.agreeOn_update_fresh_const (c := ⟨r, .value⟩) hfreshBase)) hagBase
         · rw [Env.lookupConst_updateConst_ne hres_ne]; exact hres
-  | @ite Δ s cond t e hcond _ _ iht ihe =>
-      intro hsubBase hsym hcov hresAvoid hσ hΓs hagBase hagree hres hdef hval
+  | @ite Δ cond t e hcond _ _ iht ihe =>
+      intro hsubBase hsym hσ hΓs hagBase hagree hres hdef hval
       simp only [ofExpr, Formula.iteBool, Formula.eval, Term.eval,
         Const.denote] at hdef hval
       simp only [Relation.ofExpr, Formula.iteBool, Formula.eval, Term.eval, Const.denote]
@@ -85,11 +82,11 @@ theorem ofExpr_sound {Γ : FunCtx} {Δbase : Signature} {res : String} {ρdef : 
       constructor
       · intro hc
         have hc2 : Term.eval ρdef (cond.subst σ) = true := by rw [← hcondEval]; exact hc
-        exact iht hsubBase hsym hcov hresAvoid hσ hΓs hagBase hagree hres
+        exact iht hsubBase hsym hσ hΓs hagBase hagree hres
           (hdef.1 hc2) (by simpa [hc2] using hval)
       · intro hc
         have hc2 : Term.eval ρdef (cond.subst σ) = false := by rw [← hcondEval]; exact hc
-        exact ihe hsubBase hsym hcov hresAvoid hσ hΓs hagBase hagree hres
+        exact ihe hsubBase hsym hσ hΓs hagBase hagree hres
           (hdef.2 hc2) (by simpa [hc2] using hval)
 
 /-! ## Transport between split and combined environments -/
@@ -139,15 +136,14 @@ theorem semrel_sound {primitives : PrimEncodings}
   obtain ⟨c, hc, rfl⟩ := Except.map_eq_ok henc
   have hΔbody : (bodySig Δ fn x).wf := bodySig_wf_of_headFresh hΔ hheadFresh
   have hΔrelBody : (Relation.bodySig Δ fn x).wf := relBodySig_wf_of_headFresh hΔ hheadFresh
-  have hcovBody : (relBodySupply Δ fn x res).Covers (bodySig Δ fn x) :=
-    relBodySupply_covers_of_subset (bodySig_subset_sig_of_headFresh hheadFresh)
-  have hresAvoid : res ∈ (relBodySupply Δ fn x res).avoid := by simp [relBodySupply]
-  have hcWf : Expr.WfIn (Relation.ctx Γ f fn) (bodySig Δ fn x) (relBodySupply Δ fn x res) c :=
-    (encodeWith_wfIn hlaw e (subset_relBodySig_of_headFresh hheadFresh) hΔrelBody
+  have hcWf : Expr.WfIn (Relation.ctx Γ f fn) (bodyAvoid fn x res) (bodySig Δ fn x) c :=
+    ((encode_wfIn hlaw e (subset_relBodySig_of_headFresh hheadFresh) hΔrelBody
       (VarEnv.ofSignature_wfIn hΔrelBody)
       (relBodySupply_covers_of_subset
         (relBodySig_subset_bodySig.trans (bodySig_subset_sig_of_headFresh hheadFresh)))
-      ret_wfCont hc).mono relBodySig_subset_bodySig hΔbody
+      hc).weaken bodyAvoid_subset_relBodySupply).mono relBodySig_subset_bodySig hΔbody
+      (names_of_subset_sig (bodySig_subset_sig_of_headFresh hheadFresh)
+        (subset_relBodySig_of_headFresh hheadFresh))
   set φ := Relation.ofExpr res c with hφ_def
   have hrelEnc : Relation.relEncodeBody primitives Γ Δ f fn x res e = .ok φ := by
     simp [Relation.relEncodeBody, hc, hφ_def]
@@ -172,7 +168,8 @@ theorem semrel_sound {primitives : PrimEncodings}
             ((ρsplit.updateConst .value x vin').updateConst .value res vout') = vout') :
       φ.eval ((ρsplit.updateConst .value x vin').updateConst .value res vout') := by
     refine ofExpr_sound (ctx_splitWfIn_bodySig_of_headFresh hΓwf.split hheadFresh) hΔbody
-      hcWf (Signature.Subset.refl _) (Signature.SymbolSubset.refl _) hcovBody hresAvoid
+      hcWf (by simp [bodyAvoid]) (Signature.Subset.refl _)
+      (Signature.SymbolSubset.refl _)
       (Subst.id_wfIn (fun _ h => h) hΔbody)
       (FunCtx.splitSound_updateConst
         (FunCtx.splitSound_updateConst hΓsplit .value x vin') .value res vout')

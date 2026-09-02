@@ -245,10 +245,18 @@ def bodySig (Δ : Signature) (fn : SpecFn) (x : TinyML.Var) : Signature :=
 def sig (Δ : Signature) (fn : SpecFn) (x r : TinyML.Var) : Signature :=
   (bodySig Δ fn x).declVar ⟨r, .value⟩
 
-/-- Body supply: reserves base-signature names plus the relation symbol, the
-stage-2 split names, and the input and result variables. -/
+/-- The names a body encoding must not bind: the relation symbol, the stage-2
+split names, and the input and result variables. -/
+def bodyAvoid (fn : SpecFn) (x res : TinyML.Var) : List String :=
+  [fn.relName, fn.funcName, fn.defName, x, res]
+
+/-- Body supply: reserves the base-signature names on top of `bodyAvoid`. -/
 def relBodySupply (Δ : Signature) (fn : SpecFn) (x res : TinyML.Var) : NameSupply :=
-  { avoid := Δ.allNames ++ [fn.relName, fn.funcName, fn.defName, x, res] }
+  { avoid := Δ.allNames ++ bodyAvoid fn x res }
+
+theorem bodyAvoid_subset_relBodySupply {Δ : Signature} {fn : SpecFn} {x res : TinyML.Var} :
+    ∀ n ∈ bodyAvoid fn x res, n ∈ (relBodySupply Δ fn x res).avoid :=
+  fun _ h => List.mem_append_right _ h
 
 end Relation
 
@@ -280,12 +288,12 @@ theorem relBodySupply_covers_sig (Δ : Signature) (fn : SpecFn) (x res : String)
     (relBodySupply Δ fn x res).Covers (sig Δ fn x res) := by
   intro n hn
   by_contra hcontra
-  have hnΔ   : n ∉ Δ.allNames     := fun h => hcontra (by simp [relBodySupply, h])
-  have hnRel : n ≠ fn.relName     := fun h => hcontra (by simp [relBodySupply, h])
-  have hnFun : n ≠ fn.funcName    := fun h => hcontra (by simp [relBodySupply, h])
-  have hnDef : n ≠ fn.defName     := fun h => hcontra (by simp [relBodySupply, h])
-  have hnX   : n ≠ x              := fun h => hcontra (by simp [relBodySupply, h])
-  have hnRes : n ≠ res            := fun h => hcontra (by simp [relBodySupply, h])
+  have hnΔ   : n ∉ Δ.allNames     := fun h => hcontra (by simp [relBodySupply, bodyAvoid, h])
+  have hnRel : n ≠ fn.relName     := fun h => hcontra (by simp [relBodySupply, bodyAvoid, h])
+  have hnFun : n ≠ fn.funcName    := fun h => hcontra (by simp [relBodySupply, bodyAvoid, h])
+  have hnDef : n ≠ fn.defName     := fun h => hcontra (by simp [relBodySupply, bodyAvoid, h])
+  have hnX   : n ≠ x              := fun h => hcontra (by simp [relBodySupply, bodyAvoid, h])
+  have hnRes : n ≠ res            := fun h => hcontra (by simp [relBodySupply, bodyAvoid, h])
   have h1 : n ∉ (Δ.addBinaryRel fn.rel).allNames :=
     Signature.not_mem_allNames_addBinaryRel hnΔ hnRel
   have h2 : n ∉ ((Δ.addBinaryRel fn.rel).addUnary fn.func).allNames :=

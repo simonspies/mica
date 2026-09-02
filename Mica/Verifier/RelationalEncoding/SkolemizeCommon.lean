@@ -53,28 +53,25 @@ def wfIn (m : DefVal) (Δ : Signature) : Prop :=
 
 end DefVal
 
-theorem ofExpr_wfIn {Γ : FunCtx} {Δ Δσ : Signature} {s : NameSupply} {c : Expr} {σ : Subst}
-    (hc : Expr.WfIn Γ Δ s c) (hΓ : Γ.splitWfIn Δσ) (hΔσ : Δσ.wf) (hcov : s.Covers Δ)
+theorem ofExpr_wfIn {Γ : FunCtx} {avoid : List String} {Δ Δσ : Signature} {c : Expr} {σ : Subst}
+    (hc : Expr.WfIn Γ avoid Δ c) (hΓ : Γ.splitWfIn Δσ) (hΔσ : Δσ.wf)
     (hσ : σ.wfIn Δ.vars Δσ) (hsym : Δ.SymbolSubset Δσ) :
     (ofExpr σ c).wfIn Δσ := by
   induction hc generalizing σ with
   | ret hv => exact ⟨Term.subst_wfIn hv hσ (fun _ h => h) hsym hΔσ, trivial⟩
-  | @call Δ s f fn arg r c hmem harg hr _ ih =>
-      have hfresh : r ∉ Δ.allNames := fun hm => hr (hcov r hm)
+  | @call Δ f fn arg r c hmem harg _ hfresh _ ih =>
       have hsyms := hΓ f fn hmem
       have harg' : (arg.subst σ).wfIn Δσ := Term.subst_wfIn harg hσ (fun _ h => h) hsym hΔσ
       have hσ' : (σ.update .value r (fn.call (arg.subst σ))).wfIn
           (Δ.declVar ⟨r, .value⟩).vars Δσ := by
         rw [Signature.vars_declVar_of_not_in (v := ⟨r, .value⟩) hfresh]
         exact Subst.wfIn_update hσ (SpecFn.call_wfIn hsyms.1 hΔσ harg')
-      have hinner := ih (NameSupply.Covers.declVar hcov r .value) hσ'
-        (Signature.SymbolSubset.declVar hsym _)
+      have hinner := ih hσ' (Signature.SymbolSubset.declVar hsym _)
       exact ⟨hinner.1, SpecFn.isDefined_wfIn hsyms.2 hΔσ harg', hinner.2⟩
-
   | ite hcond _ _ iht ihe =>
       have hcond' := Term.subst_wfIn hcond hσ (fun _ h => h) hsym hΔσ
-      have ht := iht hcov hσ hsym
-      have he := ihe hcov hσ hsym
+      have ht := iht hσ hsym
+      have he := ihe hσ hsym
       exact ⟨⟨hcond', ht.1, he.1⟩, Formula.iteBool_wfIn hcond' ht.2 he.2⟩
 
 /-- The invariant the two encodings are compared under: the environment the
@@ -116,7 +113,7 @@ theorem split_wfIn_of_gate {primitives : PrimEncodings} {Γ : FunCtx}
     (hΔ : Δenc.wf) (hΓ : Γ.splitWfIn Δenc) (hδ : δ.wfIn Δenc) (hcov : s.Covers Δenc)
     (henc : encode primitives Δgate Γ δ e s = .ok c) :
     (ofExpr .id c).wfIn Δenc :=
-  ofExpr_wfIn (encodeWith_wfIn hlaw e hsub hΔ hδ hcov ret_wfCont henc) hΓ hΔ hcov
+  ofExpr_wfIn (encode_wfIn hlaw e hsub hΔ hδ hcov henc) hΓ hΔ
     (Subst.id_wfIn (fun _ h => h) hΔ) (Signature.SymbolSubset.refl _)
 
 /-- Well-formedness of the solver-facing defined/value encoding. -/
@@ -756,6 +753,15 @@ theorem relBodySupply_covers_of_subset {Δ Δ' : Signature} {fn : SpecFn} {x res
     (hsub : Δ'.Subset (sig Δ fn x res)) : (relBodySupply Δ fn x res).Covers Δ' :=
   fun n hn => relBodySupply_covers_sig Δ fn x res n (Signature.allNames_subset hsub n hn)
 
+/-- Every name of a signature the body encodings run in is either a name the
+encoding starts from or one it must not bind. This is the side condition of
+`Expr.WfIn.mono` between two such signatures. -/
+theorem names_of_subset_sig {Δ Δbase Δ' : Signature} {fn : SpecFn} {x res : TinyML.Var}
+    (hsub : Δ'.Subset (sig Δ fn x res)) (hbase : Δ.Subset Δbase) :
+    ∀ n ∈ Δ'.allNames, n ∈ Δbase.allNames ∨ n ∈ bodyAvoid fn x res :=
+  fun n hn => (List.mem_append.mp (relBodySupply_covers_of_subset hsub n hn)).imp
+    (Signature.allNames_subset hbase n) id
+
 /-- Successful split body encodings are well-formed in the split-only body
 signature. -/
 theorem splitBody_wfIn_defvalBodySig {primitives : PrimEncodings}
@@ -855,15 +861,16 @@ theorem relEncodeBody_wfIn_relSig {primitives : PrimEncodings}
   have hcovRel : (relBodySupply Δ fn x res).Covers (Relation.bodySig Δ fn x) :=
     relBodySupply_covers_of_subset
       (relBodySig_subset_bodySig.trans (bodySig_subset_sig_of_headFresh hheadFresh))
-  have hcWf : Expr.WfIn (Relation.ctx Γ f fn) (Relation.bodySig Δ fn x)
-      (relBodySupply Δ fn x res) c :=
-    encodeWith_wfIn hlaw e (subset_relBodySig_of_headFresh hheadFresh) hΔrelBody
-      (VarEnv.ofSignature_wfIn hΔrelBody) hcovRel ret_wfCont hc
-  refine Relation.ofExpr_wfIn
-    (hcWf.mono (relBodySig_subset_relSig_of_headFresh hheadFresh) hsigWf)
+  have hcWf : Expr.WfIn (Relation.ctx Γ f fn) (bodyAvoid fn x res)
+      (Relation.bodySig Δ fn x) c :=
+    (encode_wfIn hlaw e (subset_relBodySig_of_headFresh hheadFresh) hΔrelBody
+      (VarEnv.ofSignature_wfIn hΔrelBody) hcovRel hc).weaken bodyAvoid_subset_relBodySupply
+  exact Relation.ofExpr_wfIn
+    (hcWf.mono (relBodySig_subset_relSig_of_headFresh hheadFresh) hsigWf
+      (names_of_subset_sig
+        (Signature.Subset.declVar relBodySig_subset_bodySig ⟨res, .value⟩)
+        (subset_relBodySig_of_headFresh hheadFresh)))
     (ctx_relWfIn_relSig_of_headFresh hΓfn hheadFresh) hsigWf
-    (relBodySupply_covers_of_subset
-      (by exact Signature.Subset.declVar relBodySig_subset_bodySig ⟨res, .value⟩))
     (Signature.var_mem_declVar _ ⟨res, .value⟩)
 
 

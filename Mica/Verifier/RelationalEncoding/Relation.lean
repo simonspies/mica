@@ -67,31 +67,22 @@ def ofExpr (res : String) : Expr → Formula
 def Formula.sem (φ : Formula) (ρ : Env) : Prop :=
   φ.eval ρ
 
-/-- A call's result name is fresh for the signature it is bound over, so
-declaring it extends the signature. -/
-private theorem call_extends {Δ : Signature} {s : NameSupply}
-    {r : String} (hcov : s.Covers Δ) (hr : r ∉ s.avoid) :
-    Δ.Subset (Δ.declVar ⟨r, .value⟩) :=
-  Signature.subset_declVar_of_fresh (fun hm => hr (hcov r hm))
-
-theorem ofExpr_wfIn {Γ : FunCtx} {res : String} {Δ : Signature} {s : NameSupply} {c : Expr}
-    (hc : Expr.WfIn Γ Δ s c) (hΓ : Γ.relWfIn Δ) (hΔ : Δ.wf) (hcov : s.Covers Δ)
+theorem ofExpr_wfIn {Γ : FunCtx} {res : String} {avoid : List String} {Δ : Signature}
+    {c : Expr} (hc : Expr.WfIn Γ avoid Δ c) (hΓ : Γ.relWfIn Δ) (hΔ : Δ.wf)
     (hres : (⟨res, .value⟩ : Var) ∈ Δ.vars) :
     (ofExpr res c).wfIn Δ := by
   induction hc with
   | ret hv => exact ⟨hv, var_value_wfIn hΔ hres⟩
-  | @call Δ s f fn arg r c hmem harg hr _ ih =>
-      have hsub : Δ.Subset (Δ.declVar ⟨r, .value⟩) := call_extends hcov hr
+  | @call Δ f fn arg r c hmem harg _ hfresh _ ih =>
+      have hsub : Δ.Subset (Δ.declVar ⟨r, .value⟩) := Signature.subset_declVar_of_fresh hfresh
       have hΔ' : (Δ.declVar ⟨r, .value⟩).wf := Signature.wf_declVar hΔ
-      have hcov' : (s.reserve r).Covers (Δ.declVar ⟨r, .value⟩) :=
-        NameSupply.Covers.declVar hcov r .value
       have hrvar : (Term.var .value r).wfIn (Δ.declVar ⟨r, .value⟩) :=
         var_value_wfIn hΔ' (Signature.var_mem_declVar _ _)
       refine ⟨SpecFn.relates_wfIn (hsub.binaryRel _ (hΓ f fn hmem)) hΔ'
         (Term.wfIn_mono _ harg hsub hΔ') hrvar, ?_⟩
-      exact ih (FunCtx.relWfIn_mono hΓ hsub) hΔ' hcov' (hsub.vars _ hres)
+      exact ih (FunCtx.relWfIn_mono hΓ hsub) hΔ' (hsub.vars _ hres)
   | ite hcond _ _ iht ihe =>
-      exact Formula.iteBool_wfIn hcond (iht hΓ hΔ hcov hres) (ihe hΓ hΔ hcov hres)
+      exact Formula.iteBool_wfIn hcond (iht hΓ hΔ hres) (ihe hΓ hΔ hres)
 
 theorem ofExpr_mono (res : String) (c : Expr) : SemanticMono Formula.sem (ofExpr res c) := by
   induction c with
@@ -139,22 +130,18 @@ def Det (Γ : FunCtx) (res : String) (Δ : Signature) (φ : Formula) : Prop :=
     φ.eval ρ₁ → φ.eval ρ₂ →
     ρ₁.lookupConst .value res = ρ₂.lookupConst .value res
 
-theorem ofExpr_det {Γ : FunCtx} {res : String} {Δ : Signature} {s : NameSupply} {c : Expr}
-    (hc : Expr.WfIn Γ Δ s c) (hΔ : Δ.wf) (hcov : s.Covers Δ) (hres : res ∈ s.avoid) :
+theorem ofExpr_det {Γ : FunCtx} {res : String} {avoid : List String} {Δ : Signature}
+    {c : Expr} (hc : Expr.WfIn Γ avoid Δ c) (hΔ : Δ.wf) (hres : res ∈ avoid) :
     Det Γ res Δ (ofExpr res c) := by
   induction hc with
-  | @ret Δ s v hv =>
+  | @ret Δ v hv =>
       intro ρ₁ ρ₂ _ hagree hφ₁ hφ₂
       simp only [ofExpr, Formula.eval, Term.eval] at hφ₁ hφ₂
       rw [← hφ₁, ← hφ₂, Term.eval_agreeOnTerms hv hagree]
-  | @call Δ s f fn arg r c hmem harg hr _ ih =>
+  | @call Δ f fn arg r c hmem harg hr hfresh _ ih =>
       intro ρ₁ ρ₂ hrel hagree hφ₁ hφ₂
-      have hfresh : r ∉ Δ.allNames := fun hm => hr (hcov r hm)
       have hsub : Δ.Subset (Δ.declVar ⟨r, .value⟩) := Signature.subset_declVar_of_fresh hfresh
       have hΔ' : (Δ.declVar ⟨r, .value⟩).wf := Signature.wf_declVar hΔ
-      have hcov' : (s.reserve r).Covers (Δ.declVar ⟨r, .value⟩) :=
-        NameSupply.Covers.declVar hcov r .value
-      have hres' : res ∈ (s.reserve r).avoid := by simp [NameSupply.reserve, hres]
       have hres_ne : res ≠ r := fun heq => hr (heq ▸ hres)
       have hargΔ' : arg.wfIn (Δ.declVar ⟨r, .value⟩) := Term.wfIn_mono _ harg hsub hΔ'
       simp only [ofExpr, Formula.eval] at hφ₁ hφ₂
@@ -183,17 +170,17 @@ theorem ofExpr_det {Γ : FunCtx} {res : String} {Δ : Signature} {s : NameSupply
         intro f' fn' hmem' vin y₁ y₂ hy₁ hy₂
         simp only [SpecFn.evalRelates_updateConst] at hy₁ hy₂
         exact hrel f' fn' hmem' vin y₁ y₂ hy₁ hy₂
-      have := ih hΔ' hcov' hres' _ _ hrelUpd hagree' hbody₁ hbody₂
+      have := ih hΔ' _ _ hrelUpd hagree' hbody₁ hbody₂
       simpa [Env.lookupConst_updateConst_ne hres_ne] using this
-  | @ite Δ s cond t e hcond _ _ iht ihe =>
+  | @ite Δ cond t e hcond _ _ iht ihe =>
       intro ρ₁ ρ₂ hrel hagree hφ₁ hφ₂
       simp only [ofExpr, Formula.iteBool, Formula.eval] at hφ₁ hφ₂
       have hcondEq : cond.eval ρ₁ = cond.eval ρ₂ := Term.eval_agreeOnTerms hcond hagree
       cases hc : cond.eval ρ₁ with
       | false =>
-          exact ihe hΔ hcov hres ρ₁ ρ₂ hrel hagree (hφ₁.2 hc) (hφ₂.2 (by rw [← hcondEq]; exact hc))
+          exact ihe hΔ ρ₁ ρ₂ hrel hagree (hφ₁.2 hc) (hφ₂.2 (by rw [← hcondEq]; exact hc))
       | true =>
-          exact iht hΔ hcov hres ρ₁ ρ₂ hrel hagree (hφ₁.1 hc) (hφ₂.1 (by rw [← hcondEq]; exact hc))
+          exact iht hΔ ρ₁ ρ₂ hrel hagree (hφ₁.1 hc) (hφ₂.1 (by rw [← hcondEq]; exact hc))
 
 /-! ## Body encoding -/
 
@@ -254,18 +241,17 @@ theorem semrel_functional
   have hcovBody : (relBodySupply Δ fn x res).Covers (bodySig Δ fn x) := by
     intro n hn
     by_contra hnAvoid
-    have hnΔ : n ∉ Δ.allNames := fun h => hnAvoid (by simp [relBodySupply, h])
-    have hnRel : n ≠ fn.relName := fun h => hnAvoid (by simp [relBodySupply, h])
-    have hnX : n ≠ x := fun h => hnAvoid (by simp [relBodySupply, h])
+    have hnΔ : n ∉ Δ.allNames := fun h => hnAvoid (by simp [relBodySupply, bodyAvoid, h])
+    have hnRel : n ≠ fn.relName := fun h => hnAvoid (by simp [relBodySupply, bodyAvoid, h])
+    have hnX : n ≠ x := fun h => hnAvoid (by simp [relBodySupply, bodyAvoid, h])
     exact (Signature.not_mem_allNames_declVar
       (Signature.not_mem_allNames_addBinaryRel hnΔ hnRel) hnX)
       (by simpa [bodySig] using hn)
-  have hresAvoid : res ∈ (relBodySupply Δ fn x res).avoid := by simp [relBodySupply]
-  have hcWf : Expr.WfIn (ctx Γ f fn) (bodySig Δ fn x) (relBodySupply Δ fn x res) c :=
-    encodeWith_wfIn hlaw e hsubBody hΔbody (VarEnv.ofSignature_wfIn hΔbody) hcovBody
-      ret_wfCont henc
+  have hcWf : Expr.WfIn (ctx Γ f fn) (bodyAvoid fn x res) (bodySig Δ fn x) c :=
+    (encode_wfIn hlaw e hsubBody hΔbody (VarEnv.ofSignature_wfIn hΔbody)
+      hcovBody henc).weaken bodyAvoid_subset_relBodySupply
   have hdet : Det (ctx Γ f fn) res (bodySig Δ fn x) body :=
-    ofExpr_det hcWf hΔbody hcovBody hresAvoid
+    ofExpr_det hcWf hΔbody (by simp [bodyAvoid])
   let S : ValRel := fun a b => R a b ∧ ∀ b', R a b' → b = b'
   have hSleR : RelationFix.le S R := fun _ _ h => h.1
   have hpre : RelationFix.le (F S) S := by

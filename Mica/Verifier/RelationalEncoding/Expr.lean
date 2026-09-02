@@ -23,7 +23,7 @@ branches, which are generated from the same supply because their scopes are
 disjoint.
 
 `Expr.WfIn` is the well-formedness of the tree: it is established once, by
-induction over `Typed.Expr` (`encodeWith_wfIn`), and consumed by each encoding
+induction over `Typed.Expr` (`encode_wfIn`), and consumed by each encoding
 in three cases.
 -/
 
@@ -43,27 +43,48 @@ inductive Expr where
   | call : SpecFn → Term .value → String → Expr → Expr
   | ite  : Term .bool → Expr → Expr → Expr
 
-/-- Well-formedness of an IR expression at a signature and a name supply:
-every term it mentions is well-formed, every call resolves in `Γ`, and every
-call binds a name the supply has not yet handed out. -/
-inductive Expr.WfIn (Γ : FunCtx) : Signature → NameSupply → Expr → Prop where
-  | ret {Δ s v} : v.wfIn Δ → WfIn Γ Δ s (.ret v)
-  | call {Δ s f fn arg r c} :
-      (f, fn) ∈ Γ → arg.wfIn Δ → r ∉ s.avoid →
-      WfIn Γ (Δ.declVar ⟨r, .value⟩) (s.reserve r) c →
-      WfIn Γ Δ s (.call fn arg r c)
-  | ite {Δ s cond t e} :
-      cond.wfIn Δ → WfIn Γ Δ s t → WfIn Γ Δ s e → WfIn Γ Δ s (.ite cond t e)
+/-- Well-formedness of an IR expression: every term it mentions is well-formed
+in `Δ`, every call resolves in `Γ`, and every call binds a name that is fresh
+for `Δ` and outside `avoid`. Declaring the binder before the continuation makes
+nested binders distinct as well; conditional branches may reuse a name, their
+scopes being disjoint. -/
+inductive Expr.WfIn (Γ : FunCtx) (avoid : List String) : Signature → Expr → Prop where
+  | ret {Δ v} : v.wfIn Δ → WfIn Γ avoid Δ (.ret v)
+  | call {Δ f fn arg r c} :
+      (f, fn) ∈ Γ → arg.wfIn Δ → r ∉ avoid → r ∉ Δ.allNames →
+      WfIn Γ avoid (Δ.declVar ⟨r, .value⟩) c →
+      WfIn Γ avoid Δ (.call fn arg r c)
+  | ite {Δ cond t e} :
+      cond.wfIn Δ → WfIn Γ avoid Δ t → WfIn Γ avoid Δ e → WfIn Γ avoid Δ (.ite cond t e)
 
-theorem Expr.WfIn.mono {Γ : FunCtx} {Δ Δ' : Signature} {s : NameSupply} {c : Expr}
-    (h : Expr.WfIn Γ Δ s c) (hsub : Δ.Subset Δ') (hwf : Δ'.wf) : Expr.WfIn Γ Δ' s c := by
+/-- Protecting fewer names is a weaker requirement. -/
+theorem Expr.WfIn.weaken {Γ : FunCtx} {avoid avoid' : List String} {Δ : Signature} {c : Expr}
+    (h : Expr.WfIn Γ avoid Δ c) (hsub : ∀ n ∈ avoid', n ∈ avoid) :
+    Expr.WfIn Γ avoid' Δ c := by
+  induction h with
+  | ret hv => exact .ret hv
+  | call hmem harg hr hfresh _ ih => exact .call hmem harg (fun hm => hr (hsub _ hm)) hfresh ih
+  | ite hcond _ _ iht ihe => exact .ite hcond iht ihe
+
+/-- Well-formedness transports to an extension that only adds names the call
+binders already avoid. -/
+theorem Expr.WfIn.mono {Γ : FunCtx} {avoid : List String} {Δ Δ' : Signature} {c : Expr}
+    (h : Expr.WfIn Γ avoid Δ c) (hsub : Δ.Subset Δ') (hwf : Δ'.wf)
+    (hnew : ∀ n ∈ Δ'.allNames, n ∈ Δ.allNames ∨ n ∈ avoid) :
+    Expr.WfIn Γ avoid Δ' c := by
   induction h generalizing Δ' with
   | ret hv => exact .ret (Term.wfIn_mono _ hv hsub hwf)
-  | call hmem harg hr _ ih =>
-      exact .call hmem (Term.wfIn_mono _ harg hsub hwf) hr
-        (ih (Signature.Subset.declVar hsub _) (Signature.wf_declVar hwf))
+  | @call Δ f fn arg r c hmem harg hr hfresh _ ih =>
+      have hfresh' : r ∉ Δ'.allNames := fun hm => (hnew r hm).elim hfresh hr
+      refine .call hmem (Term.wfIn_mono _ harg hsub hwf) hr hfresh'
+        (ih (Signature.Subset.declVar hsub _) (Signature.wf_declVar hwf) ?_)
+      intro n hn
+      rw [Signature.allNames_declVar_of_not_in hfresh'] at hn
+      rw [Signature.allNames_declVar_of_not_in hfresh]
+      exact (List.mem_cons.mp hn).elim (fun h => .inl (h ▸ List.mem_cons_self ..))
+        (fun h => (hnew n h).imp (List.mem_cons_of_mem r) id)
   | ite hcond _ _ iht ihe =>
-      exact .ite (Term.wfIn_mono _ hcond hsub hwf) (iht hsub hwf) (ihe hsub hwf)
+      exact .ite (Term.wfIn_mono _ hcond hsub hwf) (iht hsub hwf hnew) (ihe hsub hwf hnew)
 
 /-! ## The primitive encoding table -/
 
@@ -343,52 +364,52 @@ def encode (primitives : PrimEncodings) (Δ : Signature) (Γ : FunCtx) (δ : Var
 /-- Contract on a traversal continuation: at any signature the traversal can
 reach and any supply covering it, a well-formed value term yields a
 well-formed IR expression. -/
-abbrev WfCont (Γ : FunCtx) (Δ : Signature)
+private abbrev WfCont (Γ : FunCtx) (Δ : Signature)
     (k : Term .value → NameSupply → Except String Expr) : Prop :=
   ∀ {Δ' : Signature} {s : NameSupply}, Δ.Subset Δ' → Δ'.wf → s.Covers Δ' →
-    ∀ v, v.wfIn Δ' → ∀ c, k v s = .ok c → Expr.WfIn Γ Δ' s c
+    ∀ v, v.wfIn Δ' → ∀ c, k v s = .ok c → Expr.WfIn Γ s.avoid Δ' c
 
 /-- List-valued companion of `WfCont`. -/
-abbrev WfListCont (Γ : FunCtx) (Δ : Signature)
+private abbrev WfListCont (Γ : FunCtx) (Δ : Signature)
     (k : List (Term .value) → NameSupply → Except String Expr) : Prop :=
   ∀ {Δ' : Signature} {s : NameSupply}, Δ.Subset Δ' → Δ'.wf → s.Covers Δ' →
-    ∀ vs, (∀ v ∈ vs, v.wfIn Δ') → ∀ c, k vs s = .ok c → Expr.WfIn Γ Δ' s c
+    ∀ vs, (∀ v ∈ vs, v.wfIn Δ') → ∀ c, k vs s = .ok c → Expr.WfIn Γ s.avoid Δ' c
 
 /-- Per-expression statement of `encodeWith_wfIn`. -/
-def EncodeWithWfIn (primitives : PrimEncodings) (e : Typed.Expr) : Prop :=
+private def EncodeWithWfIn (primitives : PrimEncodings) (e : Typed.Expr) : Prop :=
   ∀ {Γ : FunCtx} {Δ Δ' : Signature} {δ : VarEnv} {s : NameSupply}
     {k : Term .value → NameSupply → Except String Expr} {c : Expr},
     Δ.Subset Δ' → Δ'.wf → δ.wfIn Δ' → s.Covers Δ' → WfCont Γ Δ' k →
-    encodeWith primitives Δ Γ δ e k s = .ok c → Expr.WfIn Γ Δ' s c
+    encodeWith primitives Δ Γ δ e k s = .ok c → Expr.WfIn Γ s.avoid Δ' c
 
 /-- Per-list statement of `encodeWith_wfIn`. -/
-def EncodeListWithWfIn (primitives : PrimEncodings) (es : List Typed.Expr) : Prop :=
+private def EncodeListWithWfIn (primitives : PrimEncodings) (es : List Typed.Expr) : Prop :=
   ∀ {Γ : FunCtx} {Δ Δ' : Signature} {δ : VarEnv} {s : NameSupply}
     {k : List (Term .value) → NameSupply → Except String Expr} {c : Expr},
     Δ.Subset Δ' → Δ'.wf → δ.wfIn Δ' → s.Covers Δ' → WfListCont Γ Δ' k →
-    encodeListWith primitives Δ Γ δ es k s = .ok c → Expr.WfIn Γ Δ' s c
+    encodeListWith primitives Δ Γ δ es k s = .ok c → Expr.WfIn Γ s.avoid Δ' c
 
 /-- Per-branch-list statement of `encodeWith_wfIn`, parametric in the
 scrutinee value and starting index. -/
-def EncodeMatchWithWfIn (primitives : PrimEncodings)
+private def EncodeMatchWithWfIn (primitives : PrimEncodings)
     (branches : List (Typed.Binder × Typed.Expr)) : Prop :=
   ∀ {Γ : FunCtx} {Δ Δ' : Signature} {δ : VarEnv} {s : NameSupply}
     {scrut : Term .value} {i : Nat}
     {k : Term .value → NameSupply → Except String Expr} {c : Expr},
     Δ.Subset Δ' → Δ'.wf → δ.wfIn Δ' → s.Covers Δ' → scrut.wfIn Δ' → WfCont Γ Δ' k →
-    encodeMatchWith primitives Δ Γ δ scrut branches i k s = .ok c → Expr.WfIn Γ Δ' s c
+    encodeMatchWith primitives Δ Γ δ scrut branches i k s = .ok c → Expr.WfIn Γ s.avoid Δ' c
 
 /-! ## Per-case helpers for `encodeWith_wfIn` -/
 
 namespace WfCase
 
-theorem const {primitives : PrimEncodings} (c : TinyML.Const) :
+private theorem const {primitives : PrimEncodings} (c : TinyML.Const) :
     EncodeWithWfIn primitives (.const c) := by
   intro _ _ _ _ _ _ _ _ hΔ' _ hcov hk henc
   simp only [encodeWith] at henc
   exact hk (Signature.Subset.refl _) hΔ' hcov _ (encodeConst_wfIn c _) _ henc
 
-theorem var {primitives : PrimEncodings}
+private theorem var {primitives : PrimEncodings}
     (x : String) (inst : List (TinyML.TyVar × TinyML.Typ)) (ty : TinyML.Typ) :
     EncodeWithWfIn primitives (.var x inst ty) := by
   intro _ _ _ δ _ _ _ _ hΔ' hδ hcov hk henc
@@ -398,7 +419,8 @@ theorem var {primitives : PrimEncodings}
       simp only [encodeWith, hlookup] at henc
       exact hk (Signature.Subset.refl _) hΔ' hcov v (hδ x v hlookup) _ henc
 
-theorem unop {primitives : PrimEncodings} (op : TinyML.UnOp) (e : Typed.Expr) (ty : TinyML.Typ)
+private theorem unop {primitives : PrimEncodings}
+    (op : TinyML.UnOp) (e : Typed.Expr) (ty : TinyML.Typ)
     (ih : EncodeWithWfIn primitives e) : EncodeWithWfIn primitives (.unop op e ty) := by
   intro _ _ _ _ _ _ _ hsub hΔ' hδ hcov hk henc
   simp only [encodeWith] at henc
@@ -410,7 +432,7 @@ theorem unop {primitives : PrimEncodings} (op : TinyML.UnOp) (e : Typed.Expr) (t
       simp only [hraw, bind, Except.bind] at henc'
       exact hk hsub'' hΔ'' hcov'' v' (encodeUnOp_wfIn hraw hv) c' henc'
 
-theorem binop {primitives : PrimEncodings}
+private theorem binop {primitives : PrimEncodings}
     (op : TinyML.BinOp) (e1 e2 : Typed.Expr) (ty : TinyML.Typ)
     (ih1 : EncodeWithWfIn primitives e1) (ih2 : EncodeWithWfIn primitives e2) :
     EncodeWithWfIn primitives (.binop op e1 e2 ty) := by
@@ -428,7 +450,7 @@ theorem binop {primitives : PrimEncodings}
       exact hk (hsa.trans hsb) hΔb hcovb v
         (encodeBinOp_wfIn hraw (Term.wfIn_mono _ hv1 hsb hΔb) hv2) c2 henc2
 
-theorem ifThenElse {primitives : PrimEncodings} (c t e : Typed.Expr) (ty : TinyML.Typ)
+private theorem ifThenElse {primitives : PrimEncodings} (c t e : Typed.Expr) (ty : TinyML.Typ)
     (ihc : EncodeWithWfIn primitives c) (iht : EncodeWithWfIn primitives t)
     (ihe : EncodeWithWfIn primitives e) :
     EncodeWithWfIn primitives (.ifThenElse c t e ty) := by
@@ -450,7 +472,7 @@ theorem ifThenElse {primitives : PrimEncodings} (c t e : Typed.Expr) (ty : TinyM
           (iht (hsub.trans hsa) hΔa hδa hcova hka ht)
           (ihe (hsub.trans hsa) hΔa hδa hcova hka he)
 
-theorem app {primitives : PrimEncodings} (hlaw : primitives.Lawful)
+private theorem app {primitives : PrimEncodings} (hlaw : primitives.Lawful)
     (fn : Typed.Expr) (args : List Typed.Expr) (ty : TinyML.Typ)
     (ihArgs : ∀ a ∈ args, EncodeWithWfIn primitives a)
     (ihArgsList : EncodeListWithWfIn primitives args) :
@@ -476,9 +498,10 @@ theorem app {primitives : PrimEncodings} (hlaw : primitives.Lawful)
           | ok body =>
               simp only [hkrun, bind, Except.bind, Except.ok.injEq] at henc'
               subst henc'
-              exact .call (FunCtx.mem_of_lookup hlk) hv hrfresh
-                (hk (hsa.trans hsubr) hΔr hcovr _
-                  (var_value_wfIn hΔr (Signature.var_mem_declVar _ _)) _ hkrun)
+              exact .call (FunCtx.mem_of_lookup hlk) hv hrfresh hrΔ
+                ((hk (hsa.trans hsubr) hΔr hcovr _
+                  (var_value_wfIn hΔr (Signature.var_mem_declVar _ _)) _ hkrun).weaken
+                  (fun _ hm => List.mem_cons_of_mem _ hm))
   | .prim n _ _, args =>
       simp only [encodeWith] at henc
       refine ihArgsList hsub hΔ' hδ hcov ?_ henc
@@ -496,18 +519,18 @@ theorem app {primitives : PrimEncodings} (hlaw : primitives.Lawful)
   | .var _ _ _, [] | .var _ _ _, _ :: _ :: _ =>
       simp only [encodeWith] at henc; cases henc
 
-theorem fix {primitives : PrimEncodings}
+private theorem fix {primitives : PrimEncodings}
     (self : Typed.Binder) (args : List Typed.Binder) (retTy : TinyML.Typ)
     (spec : Option (Spec TinyML.Typ)) (body : Typed.Expr) :
     EncodeWithWfIn primitives (.fix self args retTy spec body) := by
   intro _ _ _ _ _ _ _ _ _ _ _ _ henc; simp only [encodeWith] at henc; cases henc
 
-theorem prim {primitives : PrimEncodings} (name : String)
+private theorem prim {primitives : PrimEncodings} (name : String)
     (inst : List (TinyML.TyVar × TinyML.Typ)) (ty : TinyML.Typ) :
     EncodeWithWfIn primitives (.prim name inst ty) := by
   intro _ _ _ _ _ _ _ _ _ _ _ _ henc; simp only [encodeWith] at henc; cases henc
 
-theorem letIn {primitives : PrimEncodings} (name : Typed.Binder) (bound body : Typed.Expr)
+private theorem letIn {primitives : PrimEncodings} (name : Typed.Binder) (bound body : Typed.Expr)
     (ihBound : EncodeWithWfIn primitives bound) (ihBody : EncodeWithWfIn primitives body) :
     EncodeWithWfIn primitives (.letIn name bound body) := by
   intro _ _ _ δ _ _ _ hsub hΔ' hδ hcov hk henc
@@ -518,7 +541,8 @@ theorem letIn {primitives : PrimEncodings} (name : Typed.Binder) (bound body : T
     (VarEnv.wfIn.bindBinder (fun y w h => Term.wfIn_mono w (hδ y w h) hsa hΔa) hv) hcova
     (fun hs hw hc w hw' cc hkc => hk (hsa.trans hs) hw hc w hw' cc hkc) henc'
 
-theorem letProd {primitives : PrimEncodings} (names : List Typed.Binder) (bound body : Typed.Expr)
+private theorem letProd {primitives : PrimEncodings}
+    (names : List Typed.Binder) (bound body : Typed.Expr)
     (ihBound : EncodeWithWfIn primitives bound) (ihBody : EncodeWithWfIn primitives body) :
     EncodeWithWfIn primitives (.letProd names bound body) := by
   intro _ _ _ δ _ _ _ hsub hΔ' hδ hcov hk henc
@@ -529,24 +553,24 @@ theorem letProd {primitives : PrimEncodings} (names : List Typed.Binder) (bound 
     (VarEnv.wfIn.bindBinders (fun y w h => Term.wfIn_mono w (hδ y w h) hsa hΔa) hv) hcova
     (fun hs hw hc w hw' cc hkc => hk (hsa.trans hs) hw hc w hw' cc hkc) henc'
 
-theorem ref {primitives : PrimEncodings} (ownership : TinyML.Ownership) (e : Typed.Expr) :
+private theorem ref {primitives : PrimEncodings} (ownership : TinyML.Ownership) (e : Typed.Expr) :
     EncodeWithWfIn primitives (.ref ownership e) := by
   intro _ _ _ _ _ _ _ _ _ _ _ _ henc; simp only [encodeWith] at henc; cases henc
 
-theorem deref {primitives : PrimEncodings} (e : Typed.Expr) (ty : TinyML.Typ) :
+private theorem deref {primitives : PrimEncodings} (e : Typed.Expr) (ty : TinyML.Typ) :
     EncodeWithWfIn primitives (.deref e ty) := by
   intro _ _ _ _ _ _ _ _ _ _ _ _ henc; simp only [encodeWith] at henc; cases henc
 
-theorem store {primitives : PrimEncodings} (loc val : Typed.Expr) :
+private theorem store {primitives : PrimEncodings} (loc val : Typed.Expr) :
     EncodeWithWfIn primitives (.store loc val) := by
   intro _ _ _ _ _ _ _ _ _ _ _ _ henc; simp only [encodeWith] at henc; cases henc
 
-theorem arrayMake {primitives : PrimEncodings}
+private theorem arrayMake {primitives : PrimEncodings}
     (ownership : TinyML.Ownership) (len init : Typed.Expr) :
     EncodeWithWfIn primitives (.arrayMake ownership len init) := by
   intro _ _ _ _ _ _ _ _ _ _ _ _ henc; simp only [encodeWith] at henc; cases henc
 
-theorem arrayLen {primitives : PrimEncodings}
+private theorem arrayLen {primitives : PrimEncodings}
     (arr : Typed.Expr) (ih : EncodeWithWfIn primitives arr) :
     EncodeWithWfIn primitives (.arrayLen arr) := by
   intro _ _ _ _ _ _ _ hsub hΔ' hδ hcov hk henc
@@ -555,19 +579,19 @@ theorem arrayLen {primitives : PrimEncodings}
   intro Δa sa hsa hΔa hcova v hv c' henc'
   exact hk hsa hΔa hcova (.unop .ofInt (.unop .arrayLen v)) ⟨trivial, trivial, hv⟩ c' henc'
 
-theorem arrayGet {primitives : PrimEncodings} (arr idx : Typed.Expr) (ty : TinyML.Typ) :
+private theorem arrayGet {primitives : PrimEncodings} (arr idx : Typed.Expr) (ty : TinyML.Typ) :
     EncodeWithWfIn primitives (.arrayGet arr idx ty) := by
   intro _ _ _ _ _ _ _ _ _ _ _ _ henc; simp only [encodeWith] at henc; cases henc
 
-theorem arraySet {primitives : PrimEncodings} (arr idx val : Typed.Expr) :
+private theorem arraySet {primitives : PrimEncodings} (arr idx val : Typed.Expr) :
     EncodeWithWfIn primitives (.arraySet arr idx val) := by
   intro _ _ _ _ _ _ _ _ _ _ _ _ henc; simp only [encodeWith] at henc; cases henc
 
-theorem assert {primitives : PrimEncodings} (e : Typed.Expr) :
+private theorem assert {primitives : PrimEncodings} (e : Typed.Expr) :
     EncodeWithWfIn primitives (.assert e) := by
   intro _ _ _ _ _ _ _ _ _ _ _ _ henc; simp only [encodeWith] at henc; cases henc
 
-theorem tuple {primitives : PrimEncodings}
+private theorem tuple {primitives : PrimEncodings}
     (es : List Typed.Expr) (ih : EncodeListWithWfIn primitives es) :
     EncodeWithWfIn primitives (.tuple es) := by
   intro _ _ _ _ _ _ _ hsub hΔ' hδ hcov hk henc
@@ -577,7 +601,7 @@ theorem tuple {primitives : PrimEncodings}
   exact hk hsa hΔa hcova (.unop .ofValList (Terms.toValList vs))
     ⟨trivial, Terms.toValList_wfIn hvs⟩ c' henc'
 
-theorem inj {primitives : PrimEncodings} (tag arity : Nat) (payload : Typed.Expr)
+private theorem inj {primitives : PrimEncodings} (tag arity : Nat) (payload : Typed.Expr)
     (ty : TinyML.Typ) (ih : EncodeWithWfIn primitives payload) :
     EncodeWithWfIn primitives (.inj tag arity payload ty) := by
   intro _ _ _ _ _ _ _ hsub hΔ' hδ hcov hk henc
@@ -586,7 +610,7 @@ theorem inj {primitives : PrimEncodings} (tag arity : Nat) (payload : Typed.Expr
   intro Δa sa hsa hΔa hcova v hv c' henc'
   exact hk hsa hΔa hcova (.unop (.ofInj tag arity) v) ⟨trivial, hv⟩ c' henc'
 
-theorem match_ {primitives : PrimEncodings}
+private theorem match_ {primitives : PrimEncodings}
     (scrut : Typed.Expr) (branches : List (Typed.Binder × Typed.Expr))
     (ty : TinyML.Typ) (ihScrut : EncodeWithWfIn primitives scrut)
     (ihBranches : EncodeMatchWithWfIn primitives branches) :
@@ -599,11 +623,11 @@ theorem match_ {primitives : PrimEncodings}
     (fun y w h => Term.wfIn_mono w (hδ y w h) hsa hΔa) hcova hv
     (fun hs hw hc w hw' cc hkc => hk (hsa.trans hs) hw hc w hw' cc hkc) henc'
 
-theorem match_nil {primitives : PrimEncodings} : EncodeMatchWithWfIn primitives [] := by
+private theorem match_nil {primitives : PrimEncodings} : EncodeMatchWithWfIn primitives [] := by
   intro _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ henc
   simp only [encodeMatchWith] at henc; cases henc
 
-theorem match_cons {primitives : PrimEncodings} (b : Typed.Binder) (body : Typed.Expr)
+private theorem match_cons {primitives : PrimEncodings} (b : Typed.Binder) (body : Typed.Expr)
     (rest : List (Typed.Binder × Typed.Expr))
     (ihBody : EncodeWithWfIn primitives body)
     (ihRest : EncodeMatchWithWfIn primitives rest) :
@@ -628,12 +652,12 @@ theorem match_cons {primitives : PrimEncodings} (b : Typed.Binder) (body : Typed
               (ihBody hsub hΔ' (VarEnv.wfIn.bindBinder hδ hpay) hcov hk ht)
               (ihRest hsub hΔ' hδ hcov hscrut hk he)
 
-theorem list_nil {primitives : PrimEncodings} : EncodeListWithWfIn primitives [] := by
+private theorem list_nil {primitives : PrimEncodings} : EncodeListWithWfIn primitives [] := by
   intro _ _ _ _ _ _ _ _ hΔ' _ hcov hk henc
   simp only [encodeListWith] at henc
   exact hk (Signature.Subset.refl _) hΔ' hcov [] (by simp) _ henc
 
-theorem list_cons {primitives : PrimEncodings} (e : Typed.Expr) (es : List Typed.Expr)
+private theorem list_cons {primitives : PrimEncodings} (e : Typed.Expr) (es : List Typed.Expr)
     (ih : EncodeWithWfIn primitives e) (ihs : EncodeListWithWfIn primitives es) :
     EncodeListWithWfIn primitives (e :: es) := by
   intro _ _ _ δ _ _ _ hsub hΔ' hδ hcov hk henc
@@ -653,7 +677,7 @@ end WfCase
 
 mutual
 /-- Every IR expression the traversal produces is well-formed. -/
-theorem encodeWith_wfIn_def {primitives : PrimEncodings} (hlaw : primitives.Lawful) :
+private theorem encodeWith_wfIn_def {primitives : PrimEncodings} (hlaw : primitives.Lawful) :
     ∀ (e : Typed.Expr), EncodeWithWfIn primitives e
   | .const c => WfCase.const c
   | .var x inst ty => WfCase.var x inst ty
@@ -690,13 +714,13 @@ theorem encodeWith_wfIn_def {primitives : PrimEncodings} (hlaw : primitives.Lawf
         (encodeWith_wfIn_def hlaw scrut)
         (encodeMatchWith_wfIn_def hlaw branches)
 
-theorem encodeListWith_wfIn_def {primitives : PrimEncodings} (hlaw : primitives.Lawful) :
+private theorem encodeListWith_wfIn_def {primitives : PrimEncodings} (hlaw : primitives.Lawful) :
     ∀ (es : List Typed.Expr), EncodeListWithWfIn primitives es
   | [] => WfCase.list_nil
   | e :: es =>
       WfCase.list_cons e es (encodeWith_wfIn_def hlaw e) (encodeListWith_wfIn_def hlaw es)
 
-theorem encodeMatchWith_wfIn_def {primitives : PrimEncodings} (hlaw : primitives.Lawful) :
+private theorem encodeMatchWith_wfIn_def {primitives : PrimEncodings} (hlaw : primitives.Lawful) :
     ∀ (branches : List (Typed.Binder × Typed.Expr)), EncodeMatchWithWfIn primitives branches
   | [] => WfCase.match_nil
   | (b, body) :: rest =>
@@ -705,27 +729,35 @@ theorem encodeMatchWith_wfIn_def {primitives : PrimEncodings} (hlaw : primitives
         (encodeMatchWith_wfIn_def hlaw rest)
 end
 
-/-- Well-formedness of the traversal's output. `Δ` gates the intrinsics while
-`Δ'` — any extension of it — carries the local variables the encoding runs
-under. -/
-theorem encodeWith_wfIn {primitives : PrimEncodings} {Γ : FunCtx} {Δ Δ' : Signature}
+private theorem encodeWith_wfIn {primitives : PrimEncodings} {Γ : FunCtx} {Δ Δ' : Signature}
     {δ : VarEnv} {s : NameSupply} {k : Term .value → NameSupply → Except String Expr}
     {c : Expr}
     (hlaw : primitives.Lawful) (e : Typed.Expr)
     (hsub : Δ.Subset Δ') (hΔ' : Δ'.wf) (hδ : δ.wfIn Δ') (hcov : s.Covers Δ')
     (hk : WfCont Γ Δ' k)
     (henc : encodeWith primitives Δ Γ δ e k s = .ok c) :
-    Expr.WfIn Γ Δ' s c :=
+    Expr.WfIn Γ s.avoid Δ' c :=
   encodeWith_wfIn_def hlaw e hsub hΔ' hδ hcov hk henc
 
 /-- The continuation that ends the traversal: it returns the value term
 unchanged, and its IR is well-formed wherever the term is. -/
-theorem ret_wfCont {Γ : FunCtx} {Δ : Signature} :
+private theorem ret_wfCont {Γ : FunCtx} {Δ : Signature} :
     WfCont Γ Δ (fun v _ => .ok (.ret v)) := by
   intro _ _ _ _ _ v hv c henc
   simp only [Except.ok.injEq] at henc
   subst henc
   exact .ret hv
+
+/-- Well-formedness of the traversal's output. `Δ` gates the intrinsics while
+`Δ'` — any extension of it — carries the local variables the encoding runs
+under, and the call binders avoid every name the supply reserves. -/
+theorem encode_wfIn {primitives : PrimEncodings} {Γ : FunCtx} {Δ Δ' : Signature}
+    {δ : VarEnv} {s : NameSupply} {c : Expr}
+    (hlaw : primitives.Lawful) (e : Typed.Expr)
+    (hsub : Δ.Subset Δ') (hΔ' : Δ'.wf) (hδ : δ.wfIn Δ') (hcov : s.Covers Δ')
+    (henc : encode primitives Δ Γ δ e s = .ok c) :
+    Expr.WfIn Γ s.avoid Δ' c :=
+  encodeWith_wfIn hlaw e hsub hΔ' hδ hcov ret_wfCont henc
 
 /-! ## Semantic interpretation of encodings
 
