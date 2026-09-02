@@ -133,20 +133,9 @@ theorem semrel_sound {primitives : PrimEncodings}
       vout →
       semrel primitives Γ Δ ρ f fn x res e vin vout := by
   intro hsem hval
-  obtain ⟨c, hc, rfl⟩ := Except.map_eq_ok henc
+  obtain ⟨c, rfl, hrelEnc, hcWf⟩ := splitBody_witness hlaw hΔ hheadFresh henc
   have hΔbody : (bodySig Δ fn x).wf := bodySig_wf_of_headFresh hΔ hheadFresh
-  have hΔrelBody : (Relation.bodySig Δ fn x).wf := relBodySig_wf_of_headFresh hΔ hheadFresh
-  have hcWf : Expr.WfIn (Relation.ctx Γ f fn) (bodyAvoid fn x res) (bodySig Δ fn x) c :=
-    ((encode_wfIn hlaw e (subset_relBodySig_of_headFresh hheadFresh) hΔrelBody
-      (VarEnv.ofSignature_wfIn hΔrelBody)
-      (relBodySupply_covers_of_subset
-        (relBodySig_subset_bodySig.trans (bodySig_subset_sig_of_headFresh hheadFresh)))
-      hc).weaken bodyAvoid_subset_relBodySupply).mono relBodySig_subset_bodySig hΔbody
-      (names_of_subset_sig (bodySig_subset_sig_of_headFresh hheadFresh)
-        (subset_relBodySig_of_headFresh hheadFresh))
-  set φ := Relation.ofExpr res c with hφ_def
-  have hrelEnc : Relation.relEncodeBody primitives Γ Δ f fn x res e = .ok φ := by
-    simp [Relation.relEncodeBody, hc, hφ_def]
+  set φ := Relation.ofExpr res c
   let R : ValRel := semrel primitives Γ Δ ρ f fn x res e
   let F : Srt.value.denote → Srt.value.denote := semFunc R
   let D : Srt.value.denote → Prop := semdef primitives Γ Δ ρ f fn x res e (ofExpr .id c)

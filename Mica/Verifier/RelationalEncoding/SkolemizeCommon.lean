@@ -402,6 +402,11 @@ theorem FunCtx.splitSound_of_compatible {Γ : FunCtx} {ρ : Env}
   intro f fn hmem x y hsplit
   exact (hΓ f fn hmem x y).mpr hsplit
 
+theorem FunCtx.splitComplete_of_compatible {Γ : FunCtx} {ρ : Env}
+    (hΓ : Γ.splitCompatible ρ) : Γ.splitComplete ρ := by
+  intro f fn hmem x y hrel
+  exact (hΓ f fn hmem x y).mp hrel
+
 /-- The newly introduced relation and split symbols do not collide with the
 relation names already present in the tail function context. -/
 def FunCtx.freshFn (Γ : FunCtx) (fn : SpecFn) : Prop :=
@@ -437,7 +442,31 @@ theorem splitSound_cons_relSplitEnv
         Env.updateBinaryRel, Env.updateUnary, Env.updateUnaryRel,
         hnames.1, hnames.2.1, hnames.2.2] using hΓ g fn' htail x y hsplit'
 
-
+/-- Extending a split-complete context with a fresh head function preserves
+split completeness when the head relation implies the chosen split predicate
+and value function. -/
+theorem splitComplete_cons_relSplitEnv
+    {Γ : FunCtx} {ρ : Env} {f : TinyML.Var} {fn : SpecFn}
+    {R : ValRel} {D : Srt.value.denote → Prop}
+    {F : Srt.value.denote → Srt.value.denote}
+    (hΓ : FunCtx.splitComplete Γ ρ)
+    (hfresh : FunCtx.freshFn Γ fn)
+    (hRF : ∀ x y, R x y → D x ∧ F x = y) :
+    FunCtx.splitComplete ((f, fn) :: Γ) (relSplitEnv ρ fn R D F) := by
+  intro g fn' hmem x y hrel
+  cases hmem with
+  | head =>
+      have hrel' : R x y := by simpa [relSplitEnv_evalRelates] using hrel
+      simpa [relSplitEnv_evalDefined, relSplitEnv_evalCall] using hRF x y hrel'
+  | tail _ htail =>
+      have hnames := hfresh g fn' htail
+      have hrel' : fn'.evalRelates ρ x y := by
+        simpa [SpecFn.evalRelates, SpecFn.rel, relSplitEnv,
+          Env.updateBinaryRel, Env.updateUnary, Env.updateUnaryRel,
+          hnames.1, hnames.2.1, hnames.2.2] using hrel
+      simpa [SpecFn.evalDefined, SpecFn.evalCall, SpecFn.defined, SpecFn.func,
+        relSplitEnv, Env.updateBinaryRel, Env.updateUnary, Env.updateUnaryRel,
+        hnames.1, hnames.2.1, hnames.2.2] using hΓ g fn' htail x y hrel'
 
 /-! ### Body-signature transport helpers -/
 
@@ -739,15 +768,6 @@ theorem ctx_splitWfIn_defvalBodySig_of_headFresh
         g fn' htail
 
 
-/-- If the split defined/value body encoder succeeds, the relational body
-encoder succeeds too: both translate the same IR expression. -/
-theorem splitBody_relEncodeBody {primitives : PrimEncodings} {Γ : FunCtx} {Δ : Signature}
-    {f : TinyML.Var} {fn : SpecFn} {x res : TinyML.Var} {e : Typed.Expr}
-    {body : DefVal} (henc : splitBody primitives Γ Δ f fn x res e = .ok body) :
-    ∃ φ, Relation.relEncodeBody primitives Γ Δ f fn x res e = .ok φ := by
-  obtain ⟨c, hc, _⟩ := Except.map_eq_ok henc
-  exact ⟨Relation.ofExpr res c, by simp [Relation.relEncodeBody, hc]⟩
-
 /-- The body supply covers every signature the body encodings run in. -/
 theorem relBodySupply_covers_of_subset {Δ Δ' : Signature} {fn : SpecFn} {x res : TinyML.Var}
     (hsub : Δ'.Subset (sig Δ fn x res)) : (relBodySupply Δ fn x res).Covers Δ' :=
@@ -873,6 +893,28 @@ theorem relEncodeBody_wfIn_relSig {primitives : PrimEncodings}
     (ctx_relWfIn_relSig_of_headFresh hΓfn hheadFresh) hsigWf
     (Signature.var_mem_declVar _ ⟨res, .value⟩)
 
+
+/-- A successful split body encoding exposes the shared IR expression behind
+it: the split body is its split reading, the relational body encoding is its
+relational reading, and it is well-formed in the body signature. -/
+theorem splitBody_witness {primitives : PrimEncodings} {Γ : FunCtx} {Δ : Signature}
+    {f : TinyML.Var} {fn : SpecFn} {x res : TinyML.Var} {e : Typed.Expr} {body : DefVal}
+    (hlaw : primitives.Lawful) (hΔ : Δ.wf) (hheadFresh : HeadFresh Δ fn x res)
+    (henc : splitBody primitives Γ Δ f fn x res e = .ok body) :
+    ∃ c, body = ofExpr .id c ∧
+      Relation.relEncodeBody primitives Γ Δ f fn x res e = .ok (Relation.ofExpr res c) ∧
+      Expr.WfIn (Relation.ctx Γ f fn) (bodyAvoid fn x res) (bodySig Δ fn x) c := by
+  obtain ⟨c, hc, rfl⟩ := Except.map_eq_ok henc
+  have hΔrelBody : (Relation.bodySig Δ fn x).wf := relBodySig_wf_of_headFresh hΔ hheadFresh
+  refine ⟨c, rfl, by simp [Relation.relEncodeBody, hc], ?_⟩
+  exact ((encode_wfIn hlaw e (subset_relBodySig_of_headFresh hheadFresh) hΔrelBody
+      (VarEnv.ofSignature_wfIn hΔrelBody)
+      (relBodySupply_covers_of_subset
+        (relBodySig_subset_bodySig.trans (bodySig_subset_sig_of_headFresh hheadFresh)))
+      hc).weaken bodyAvoid_subset_relBodySupply).mono relBodySig_subset_bodySig
+      (bodySig_wf_of_headFresh hΔ hheadFresh)
+      (names_of_subset_sig (bodySig_subset_sig_of_headFresh hheadFresh)
+        (subset_relBodySig_of_headFresh hheadFresh))
 
 /-- `splitEnv` (extended with `x ↦ vin`) and `relSplitEnv` (extended with
 `x ↦ vin, res ↦ vout`) agree on the split-only body signature. The body's

@@ -134,20 +134,9 @@ theorem semrel_complete {primitives : PrimEncodings}
         ((defInterpEnv primitives Γ Δ ρ f fn x res e body).updateConst .value x vin) =
       vout := by
   intro hrel
-  obtain ⟨c, hc, rfl⟩ := Except.map_eq_ok henc
+  obtain ⟨c, rfl, hrelEnc, hcWf⟩ := splitBody_witness hlaw hΔ hheadFresh henc
   have hΔbody : (bodySig Δ fn x).wf := bodySig_wf_of_headFresh hΔ hheadFresh
-  have hΔrelBody : (Relation.bodySig Δ fn x).wf := relBodySig_wf_of_headFresh hΔ hheadFresh
-  have hcWf : Expr.WfIn (Relation.ctx Γ f fn) (bodyAvoid fn x res) (bodySig Δ fn x) c :=
-    ((encode_wfIn hlaw e (subset_relBodySig_of_headFresh hheadFresh) hΔrelBody
-      (VarEnv.ofSignature_wfIn hΔrelBody)
-      (relBodySupply_covers_of_subset
-        (relBodySig_subset_bodySig.trans (bodySig_subset_sig_of_headFresh hheadFresh)))
-      hc).weaken bodyAvoid_subset_relBodySupply).mono relBodySig_subset_bodySig hΔbody
-      (names_of_subset_sig (bodySig_subset_sig_of_headFresh hheadFresh)
-        (subset_relBodySig_of_headFresh hheadFresh))
-  set φ := Relation.ofExpr res c with hφ_def
-  have hrelEnc : Relation.relEncodeBody primitives Γ Δ f fn x res e = .ok φ := by
-    simp [Relation.relEncodeBody, hc, hφ_def]
+  set φ := Relation.ofExpr res c
   let R : ValRel := semrel primitives Γ Δ ρ f fn x res e
   let D : Srt.value.denote → Prop := semdef primitives Γ Δ ρ f fn x res e (ofExpr .id c)
   let F : Srt.value.denote → Srt.value.denote := semFunc R
@@ -159,29 +148,11 @@ theorem semrel_complete {primitives : PrimEncodings}
       RelationFix.le (Relation.semanticBody Formula.sem ρ fn x res φ S) S := by
     intro vin vout hbody
     let ρS := relSplitEnv ρ fn S D F
-    have hΓS : (Relation.ctx Γ f fn).splitComplete ρS := by
-      intro g fn' hmem a b hcall
-      cases hmem with
-      | head =>
-          have hhead :
-              fn.evalRelates ρS a b →
-                fn.evalDefined ρS a ∧ fn.evalCall ρS a = b := by
-            simp [SpecFn.evalRelates, SpecFn.evalDefined, SpecFn.evalCall,
-              SpecFn.rel, SpecFn.defined, SpecFn.func,
-              ρS, relSplitEnv, S, Env.updateBinaryRel, Env.updateUnary,
-              Env.updateUnaryRel]
-          exact hhead hcall
-      | tail _ htail =>
-          have hnames := freshFn_of_headFresh hΓwf hheadFresh g fn' htail
-          have htailComplete :
-              fn'.evalRelates ρS a b →
-                fn'.evalDefined ρS a ∧ fn'.evalCall ρS a = b := by
-            simpa [SpecFn.evalRelates, SpecFn.evalDefined, SpecFn.evalCall,
-              SpecFn.rel, SpecFn.defined, SpecFn.func,
-              ρS, relSplitEnv, Env.updateBinaryRel, Env.updateUnary,
-              Env.updateUnaryRel, hnames.1, hnames.2.1, hnames.2.2]
-              using (hΓ g fn' htail a b).mp
-          exact htailComplete hcall
+    have hΓS : (Relation.ctx Γ f fn).splitComplete ρS :=
+      splitComplete_cons_relSplitEnv
+        (FunCtx.splitComplete_of_compatible hΓ)
+        (freshFn_of_headFresh hΓwf hheadFresh)
+        (fun _ _ h => h)
     have hbodyρS :
         φ.eval ((ρS.updateConst .value x vin).updateConst .value res vout) := by
       simpa [ρS] using
