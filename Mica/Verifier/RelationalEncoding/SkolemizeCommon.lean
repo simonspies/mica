@@ -1,4 +1,4 @@
--- SUMMARY: Shared split encoding and semantic infrastructure for Skolemization.
+-- SUMMARY: Shared split encoding, semantic infrastructure, and the agreement of the relational and defined/value readings.
 import Mica.Verifier.RelationalEncoding.Relation
 import Mica.FOL.Subst
 
@@ -185,6 +185,21 @@ theorem semFunc_spec {R : ValRel} {x : Srt.value.denote}
   unfold semDefined semFunc at *
   exact Classical.epsilon_spec h
 
+/-- The relation presented by a definedness predicate and a value function:
+the value function's graph, restricted to the definedness domain. -/
+def graph (D : Srt.value.denote → Prop) (F : Srt.value.denote → Srt.value.denote) : ValRel :=
+  fun a b => D a ∧ F a = b
+
+/-- A candidate definedness predicate within the domain of `R`, paired with the
+value function chosen from `R`, presents a sub-relation of `R`. -/
+theorem graph_le {R : ValRel} {D : Srt.value.denote → Prop}
+    (hdom : PredicateFix.le D (semDefined R)) :
+    RelationFix.le (graph D (semFunc R)) R := by
+  intro a b hab
+  have hchosen : R a (semFunc R a) := semFunc_spec (hdom a hab.1)
+  rw [hab.2] at hchosen
+  exact hchosen
+
 /-- Interpret the solver-facing split symbols for a relation name using a
 chosen value function `F` and a candidate definedness predicate `D`. -/
 def splitEnv (ρ : Env) (fn : SpecFn)
@@ -369,43 +384,12 @@ def FunCtx.splitCompatible (Γ : FunCtx) (ρ : Env) : Prop :=
   ∀ f fn, (f, fn) ∈ Γ →
     ∀ x y, fn.evalRelates ρ x y ↔ fn.evalDefined ρ x ∧ fn.evalCall ρ x = y
 
-/-- Completeness half of split compatibility: relational calls imply the
-defined/value presentation. This is the half used by relational-to-split
-directional proofs. -/
-def FunCtx.splitComplete (Γ : FunCtx) (ρ : Env) : Prop :=
-  ∀ f fn, (f, fn) ∈ Γ →
-    ∀ x y, fn.evalRelates ρ x y → fn.evalDefined ρ x ∧ fn.evalCall ρ x = y
-
-/-- Soundness half of split compatibility: the defined/value presentation
-implies the relational call. This is the half used by split-to-relational
-directional proofs. -/
-def FunCtx.splitSound (Γ : FunCtx) (ρ : Env) : Prop :=
-  ∀ f fn, (f, fn) ∈ Γ →
-    ∀ x y, fn.evalDefined ρ x ∧ fn.evalCall ρ x = y → fn.evalRelates ρ x y
-
-theorem FunCtx.splitComplete_updateConst {Γ : FunCtx} {ρ : Env}
-    (hΓ : Γ.splitComplete ρ) (τ : Srt) (x : String) (v : τ.denote) :
-    Γ.splitComplete (ρ.updateConst τ x v) := by
-  intro f fn hmem a b hcall
+theorem FunCtx.splitCompatible_updateConst {Γ : FunCtx} {ρ : Env}
+    (hΓ : Γ.splitCompatible ρ) (τ : Srt) (x : String) (v : τ.denote) :
+    Γ.splitCompatible (ρ.updateConst τ x v) := by
+  intro f fn hmem a b
   simpa [Env.updateConst_unary, Env.updateConst_unaryRel, Env.updateConst_binaryRel]
-    using hΓ f fn hmem a b hcall
-
-theorem FunCtx.splitSound_updateConst {Γ : FunCtx} {ρ : Env}
-    (hΓ : Γ.splitSound ρ) (τ : Srt) (x : String) (v : τ.denote) :
-    Γ.splitSound (ρ.updateConst τ x v) := by
-  intro f fn hmem a b hsplit
-  apply hΓ f fn hmem a b
-  simpa [Env.updateConst_unary, Env.updateConst_unaryRel] using hsplit
-
-theorem FunCtx.splitSound_of_compatible {Γ : FunCtx} {ρ : Env}
-    (hΓ : Γ.splitCompatible ρ) : Γ.splitSound ρ := by
-  intro f fn hmem x y hsplit
-  exact (hΓ f fn hmem x y).mpr hsplit
-
-theorem FunCtx.splitComplete_of_compatible {Γ : FunCtx} {ρ : Env}
-    (hΓ : Γ.splitCompatible ρ) : Γ.splitComplete ρ := by
-  intro f fn hmem x y hrel
-  exact (hΓ f fn hmem x y).mp hrel
+    using hΓ f fn hmem a b
 
 /-- The newly introduced relation and split symbols do not collide with the
 relation names already present in the tail function context. -/
@@ -415,58 +399,23 @@ def FunCtx.freshFn (Γ : FunCtx) (fn : SpecFn) : Prop :=
 
 namespace Skolemize
 
-/-- Extending a split-sound context with a fresh head function preserves split
-soundness when the head relation is sound for the chosen split predicate and
-value function. -/
-theorem splitSound_cons_relSplitEnv
+/-- Extending a split-compatible context with a fresh head function preserves
+split compatibility, provided the head relation is the graph of the chosen
+definedness predicate and value function. -/
+theorem splitCompatible_cons_relSplitEnv
     {Γ : FunCtx} {ρ : Env} {f : TinyML.Var} {fn : SpecFn}
-    {R : ValRel} {D : Srt.value.denote → Prop}
-    {F : Srt.value.denote → Srt.value.denote}
-    (hΓ : FunCtx.splitSound Γ ρ)
-    (hfresh : FunCtx.freshFn Γ fn)
-    (hRF : ∀ x y, D x ∧ F x = y → R x y) :
-    FunCtx.splitSound ((f, fn) :: Γ) (relSplitEnv ρ fn R D F) := by
-  intro g fn' hmem x y hsplit
+    {D : Srt.value.denote → Prop} {F : Srt.value.denote → Srt.value.denote}
+    (hΓ : FunCtx.splitCompatible Γ ρ) (hfresh : FunCtx.freshFn Γ fn) :
+    FunCtx.splitCompatible ((f, fn) :: Γ) (relSplitEnv ρ fn (graph D F) D F) := by
+  intro g fn' hmem x y
   cases hmem with
-  | head =>
-      have hsplit' : D x ∧ F x = y := by
-        simpa [relSplitEnv_evalDefined, relSplitEnv_evalCall] using hsplit
-      simpa [relSplitEnv_evalRelates] using hRF x y hsplit'
+  | head => exact relSplitEnv_graph fn ρ (fun _ _ => Iff.rfl) x y
   | tail _ htail =>
       have hnames := hfresh g fn' htail
-      have hsplit' : fn'.evalDefined ρ x ∧ fn'.evalCall ρ x = y := by
-        simpa [SpecFn.evalDefined, SpecFn.evalCall, SpecFn.defined, SpecFn.func,
-          relSplitEnv, Env.updateBinaryRel, Env.updateUnary, Env.updateUnaryRel,
-          hnames.1, hnames.2.1, hnames.2.2] using hsplit
-      simpa [SpecFn.evalRelates, SpecFn.rel, relSplitEnv,
-        Env.updateBinaryRel, Env.updateUnary, Env.updateUnaryRel,
-        hnames.1, hnames.2.1, hnames.2.2] using hΓ g fn' htail x y hsplit'
-
-/-- Extending a split-complete context with a fresh head function preserves
-split completeness when the head relation implies the chosen split predicate
-and value function. -/
-theorem splitComplete_cons_relSplitEnv
-    {Γ : FunCtx} {ρ : Env} {f : TinyML.Var} {fn : SpecFn}
-    {R : ValRel} {D : Srt.value.denote → Prop}
-    {F : Srt.value.denote → Srt.value.denote}
-    (hΓ : FunCtx.splitComplete Γ ρ)
-    (hfresh : FunCtx.freshFn Γ fn)
-    (hRF : ∀ x y, R x y → D x ∧ F x = y) :
-    FunCtx.splitComplete ((f, fn) :: Γ) (relSplitEnv ρ fn R D F) := by
-  intro g fn' hmem x y hrel
-  cases hmem with
-  | head =>
-      have hrel' : R x y := by simpa [relSplitEnv_evalRelates] using hrel
-      simpa [relSplitEnv_evalDefined, relSplitEnv_evalCall] using hRF x y hrel'
-  | tail _ htail =>
-      have hnames := hfresh g fn' htail
-      have hrel' : fn'.evalRelates ρ x y := by
-        simpa [SpecFn.evalRelates, SpecFn.rel, relSplitEnv,
-          Env.updateBinaryRel, Env.updateUnary, Env.updateUnaryRel,
-          hnames.1, hnames.2.1, hnames.2.2] using hrel
-      simpa [SpecFn.evalDefined, SpecFn.evalCall, SpecFn.defined, SpecFn.func,
+      simpa [SpecFn.evalRelates, SpecFn.evalDefined, SpecFn.evalCall,
+        SpecFn.rel, SpecFn.defined, SpecFn.func,
         relSplitEnv, Env.updateBinaryRel, Env.updateUnary, Env.updateUnaryRel,
-        hnames.1, hnames.2.1, hnames.2.2] using hΓ g fn' htail x y hrel'
+        hnames.1, hnames.2.1, hnames.2.2] using hΓ g fn' htail x y
 
 /-! ### Body-signature transport helpers -/
 
@@ -941,6 +890,124 @@ theorem splitEnv_relSplitEnv_agreeOn_defvalBodySig
     Env.agreeOn_update_fresh_const (c := ⟨res, .value⟩)
       (res_fresh_defvalBodySig_of_headFresh hfresh)
   exact Env.agreeOn_trans hagX hagRes
+
+/-! ## The two readings of the IR agree
+
+Both encodings consume the same `Expr`, so their agreement is a three-case
+induction on it. `Δ` grows with the names the calls bind, `ρrel` with the
+witnesses the relational side picks for them, and `σ` with the value terms the
+split side substituted; `SubstAgree` says the two accounts of those names
+agree. -/
+theorem ofExpr_iff {Γ : FunCtx} {Δbase : Signature} {res : String} {ρdef : Env}
+    (hΓdef : Γ.splitWfIn Δbase) (hΔbase : Δbase.wf) :
+    ∀ {avoid : List String} {Δ : Signature} {c : Expr} {σ : Subst} {ρrel : Env},
+      Expr.WfIn Γ avoid Δ c → res ∈ avoid →
+      Δbase.Subset Δ → Δ.SymbolSubset Δbase →
+      σ.wfIn Δ.vars Δbase → Γ.splitCompatible ρrel →
+      Env.agreeOn Δbase ρrel ρdef → SubstAgree Δ ρrel ρdef σ →
+      ρrel.lookupConst .value res = ρdef.lookupConst .value res →
+      ((Relation.ofExpr res c).eval ρrel ↔
+        (ofExpr σ c).defined.eval ρdef ∧
+          (ofExpr σ c).value.eval ρdef = ρdef.lookupConst .value res) := by
+  intro avoid Δ c σ ρrel hc hresAvoid
+  induction hc generalizing σ ρrel with
+  | @ret Δ v hv =>
+      intro _ _ hσ _ _ hagree hres
+      simp only [Relation.ofExpr, ofExpr, Formula.eval, Term.eval, true_and]
+      rw [eval_substAgree hagree hv hσ hΔbase, hres]
+  | @call Δ f fn arg r c hmem harg hr hfresh _ ih =>
+      intro hsubBase hsym hσ hΓc hagBase hagree hres
+      have hfreshBase : r ∉ Δbase.allNames :=
+        fun hm => hfresh (Signature.allNames_subset hsubBase r hm)
+      have hres_ne : res ≠ r := fun heq => hr (heq ▸ hresAvoid)
+      have hsyms := hΓdef f fn hmem
+      have hargEval : Term.eval ρrel arg = Term.eval ρdef (arg.subst σ) :=
+        eval_substAgree hagree harg hσ hΔbase
+      have hunary : ρrel.unary .value .value fn.funcName =
+          ρdef.unary .value .value fn.funcName := hagBase.2.2.1 fn.func hsyms.1
+      have hunaryRel : ρrel.unaryRel .value fn.defName =
+          ρdef.unaryRel .value fn.defName := hagBase.2.2.2.2.2.1 fn.defined hsyms.2
+      have hdefIff : fn.evalDefined ρrel (Term.eval ρrel arg) ↔
+          (fn.isDefined (arg.subst σ)).eval ρdef := by
+        rw [show fn.evalDefined ρrel = fn.evalDefined ρdef from hunaryRel, hargEval]
+        simp [SpecFn.isDefined, SpecFn.evalDefined, SpecFn.defined, Formula.eval, UnPred.eval]
+      have hcallEq : fn.evalCall ρrel (Term.eval ρrel arg) =
+          Term.eval ρdef (fn.call (arg.subst σ)) := by
+        rw [show fn.evalCall ρrel = fn.evalCall ρdef from hunary, hargEval]
+        simp [SpecFn.call, SpecFn.evalCall, SpecFn.func, Term.eval]
+      have ih' := ih (hsubBase.trans (Signature.subset_declVar_of_fresh hfresh))
+        (Signature.SymbolSubset.declVar hsym _)
+        (by
+          rw [Signature.vars_declVar_of_not_in (v := ⟨r, .value⟩) hfresh]
+          exact Subst.wfIn_update hσ
+            (SpecFn.call_wfIn hsyms.1 hΔbase
+              (Term.subst_wfIn harg hσ (fun _ h => h) hsym hΔbase)))
+        (FunCtx.splitCompatible_updateConst hΓc .value r _)
+        (Env.agreeOn_trans
+          (Env.agreeOn_symm
+            (Env.agreeOn_update_fresh_const (c := ⟨r, .value⟩) hfreshBase)) hagBase)
+        (substAgree_bind hagree)
+        (by rw [Env.lookupConst_updateConst_ne hres_ne]; exact hres)
+      simp only [Relation.ofExpr, ofExpr, Formula.eval]
+      constructor
+      · rintro ⟨w, hcall, hrest⟩
+        have hcall' : fn.evalRelates ρrel (Term.eval ρrel arg) w := by
+          simpa [SpecFn.relates, SpecFn.evalRelates, SpecFn.rel, Formula.eval, BinPred.eval,
+            Term.eval, Env.updateConst_binaryRel, Env.lookupConst_updateConst_same,
+            Term.eval_update_fresh harg hfresh] using hcall
+        obtain ⟨hdefRel, hcallRel⟩ := (hΓc f fn hmem _ w).mp hcall'
+        have hw : w = Term.eval ρdef (fn.call (arg.subst σ)) := by
+          rw [← hcallRel]; exact hcallEq
+        subst hw
+        obtain ⟨hrestDef, hrestVal⟩ := ih'.mp hrest
+        exact ⟨⟨hdefIff.mp hdefRel, hrestDef⟩, hrestVal⟩
+      · rintro ⟨⟨hdefCall, hdefRest⟩, hval⟩
+        refine ⟨Term.eval ρdef (fn.call (arg.subst σ)), ?_, ih'.mpr ⟨hdefRest, hval⟩⟩
+        have hedge := (hΓc f fn hmem (Term.eval ρrel arg)
+          (Term.eval ρdef (fn.call (arg.subst σ)))).mpr ⟨hdefIff.mpr hdefCall, hcallEq⟩
+        simpa [SpecFn.relates, Formula.eval, BinPred.eval, Term.eval,
+          Env.updateConst_binaryRel, Env.lookupConst_updateConst_same,
+          Term.eval_update_fresh harg hfresh] using hedge
+  | @ite Δ cond t e hcond _ _ iht ihe =>
+      intro hsubBase hsym hσ hΓc hagBase hagree hres
+      have hcondEval : Term.eval ρrel cond = Term.eval ρdef (cond.subst σ) :=
+        eval_substAgree hagree hcond hσ hΔbase
+      have ht := iht hsubBase hsym hσ hΓc hagBase hagree hres
+      have he := ihe hsubBase hsym hσ hΓc hagBase hagree hres
+      simp only [Relation.ofExpr, ofExpr, Formula.iteBool, Formula.eval, Term.eval,
+        Const.denote]
+      cases hcv : Term.eval ρrel cond with
+      | false =>
+          have hc2 : Term.eval ρdef (cond.subst σ) = false := by rw [← hcondEval]; exact hcv
+          simp [hc2, he]
+      | true =>
+          have hc2 : Term.eval ρdef (cond.subst σ) = true := by rw [← hcondEval]; exact hcv
+          simp [hc2, ht]
+
+/-- At a split-compatible environment the two readings of one body agree: the
+relational formula holds at `vout` exactly when the split body is defined and
+evaluates to `vout`. -/
+theorem body_eval_iff {Γ : FunCtx} {Δ : Signature} {ρsplit : Env}
+    {f : TinyML.Var} {fn : SpecFn} {x res : TinyML.Var} {c : Expr}
+    (hΓdef : Γ.splitWfIn Δ) (hΔ : Δ.wf) (hheadFresh : HeadFresh Δ fn x res)
+    (hcWf : Expr.WfIn (Relation.ctx Γ f fn) (bodyAvoid fn x res) (bodySig Δ fn x) c)
+    (hΓsplit : (Relation.ctx Γ f fn).splitCompatible ρsplit)
+    (vin vout : Srt.value.denote) :
+    (Relation.ofExpr res c).eval
+        ((ρsplit.updateConst .value x vin).updateConst .value res vout) ↔
+      ((ofExpr .id c).defined.eval
+          ((ρsplit.updateConst .value x vin).updateConst .value res vout) ∧
+        (ofExpr .id c).value.eval
+          ((ρsplit.updateConst .value x vin).updateConst .value res vout) = vout) := by
+  have hΔbody : (bodySig Δ fn x).wf := bodySig_wf_of_headFresh hΔ hheadFresh
+  have h := ofExpr_iff (res := res)
+    (ctx_splitWfIn_bodySig_of_headFresh hΓdef hheadFresh) hΔbody
+    hcWf (by simp [bodyAvoid]) (Signature.Subset.refl _) (Signature.SymbolSubset.refl _)
+    (Subst.id_wfIn (fun _ h => h) hΔbody)
+    (FunCtx.splitCompatible_updateConst
+      (FunCtx.splitCompatible_updateConst hΓsplit .value x vin) .value res vout)
+    Env.agreeOn_refl substAgree_refl rfl
+  simpa [Env.lookupConst_updateConst_same] using h
 
 /-- Evaluating the relational body formula in the combined `relSplitEnv` is
 equivalent to the abstract semantic body operator. -/
