@@ -6,33 +6,6 @@ open Relation
 
 namespace Skolemize
 
-/-! ## Transport between split and combined environments -/
-
-theorem defval_eval_transport_to_relSplit_domain {primitives : PrimEncodings}
-    {Γ : FunCtx} {Δ : Signature} {ρ : Env}
-    {f : TinyML.Var} {fn : SpecFn} {x res : TinyML.Var} {e : Typed.Expr}
-    {body : DefVal} {R : ValRel}
-    {P : Srt.value.denote → Prop} {F : Srt.value.denote → Srt.value.denote}
-    (hlaw : primitives.Lawful)
-    (henc : splitBody primitives Γ Δ f fn x res e = .ok body)
-    (hΓdef : Γ.splitWfIn Δ) (hΔ : Δ.wf) (hheadFresh : HeadFresh Δ fn x res)
-    (vin : Srt.value.denote)
-    (hdefBody : defBody ρ fn x body F P vin) :
-    let vbody := body.value.eval (defEnv ρ fn x P F vin)
-    body.defined.eval (((relSplitEnv ρ fn R P F).updateConst .value x vin).updateConst .value res vbody) ∧
-      body.value.eval (((relSplitEnv ρ fn R P F).updateConst .value x vin).updateConst .value res vbody) =
-        vbody := by
-  let vbody := body.value.eval (defEnv ρ fn x P F vin)
-  have hbody : body.wfIn (defvalBodySig Δ fn x) :=
-    splitBody_wfIn_defvalBodySig hlaw hΔ hΓdef hheadFresh henc
-  have hag : Env.agreeOn (defvalBodySig Δ fn x)
-      (defEnv ρ fn x P F vin)
-      (((relSplitEnv ρ fn R P F).updateConst .value x vin).updateConst .value res vbody) :=
-    splitEnv_relSplitEnv_agreeOn_defvalBodySig (R := R) (D := P) (F := F)
-      hheadFresh vin vbody
-  exact ⟨(Formula.eval_env_agree hbody.2 hag).mp hdefBody,
-    (Term.eval_env_agree hbody.1 hag).symm⟩
-
 /-- Split definedness plus the split body value gives a relational edge. This
 is the converse half of the relation/split fixpoint equivalence. -/
 theorem semrel_sound {primitives : PrimEncodings}
@@ -71,16 +44,17 @@ theorem semrel_sound {primitives : PrimEncodings}
       R vin' ((ofExpr .id c).value.eval (defEnv ρ fn x P F vin')) := by
     intro P vin' hle hdefBody
     let vbody := (ofExpr .id c).value.eval (defEnv ρ fn x P F vin')
-    let ρP := relSplitEnv ρ fn (graph P F) P F
+    let ρP := splitEnv ρ fn (graph P F) P F
     have hΓP : (Relation.ctx Γ f fn).splitCompatible ρP :=
-      splitCompatible_cons_relSplitEnv hΓ (freshFn_of_headFresh hΓwf hheadFresh)
+      splitCompatible_cons_splitEnv hΓ (freshFn_of_headFresh hΓwf hheadFresh)
+    have hres := defval_eval_updateConst_res (ρ := ρ) (D := P) (F := F)
+      hlaw hΔ hΓwf.split hheadFresh henc vin' vbody
     have hsplitP :
         (ofExpr .id c).defined.eval
             ((ρP.updateConst .value x vin').updateConst .value res vbody) ∧
           (ofExpr .id c).value.eval
             ((ρP.updateConst .value x vin').updateConst .value res vbody) = vbody :=
-      defval_eval_transport_to_relSplit_domain (R := graph P F) (P := P)
-        hlaw henc hΓwf.split hΔ hheadFresh vin' hdefBody
+      ⟨hres.1.mpr hdefBody, hres.2⟩
     have hbodyGraph :
         Relation.semanticBody Formula.sem ρ fn x res φ (graph P F) vin' vbody :=
       (rel_body_eval_iff (D := P) (F := F) hlaw hΓwf.rel hΔ hheadFresh hrelEnc

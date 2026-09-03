@@ -60,7 +60,7 @@ theorem declare_correct (L : SpecFn) (f : TinyML.Var) (axs : List Axiom)
     (hdet : Relation.BinaryRelDet Γ ρ ρ)
     (haxwf : ∀ ax ∈ axs, ax.formula.wfIn
       (((Δ.addBinaryRel (rel L)).addUnary (func L)).addUnaryRel (defined L)))
-    (haxeval : ∀ ax ∈ axs, ax.formula.eval (Skolemize.relSplitEnv ρ L R D F))
+    (haxeval : ∀ ax ∈ axs, ax.formula.eval (Skolemize.splitEnv ρ L R D F))
     (heval : VerifM.eval (declare L axs) st ρ Q) :
     ∃ st' ρ',
       st'.decls = ((Δ.addBinaryRel (rel L)).addUnary (func L)).addUnaryRel (defined L) ∧
@@ -87,7 +87,7 @@ theorem declare_correct (L : SpecFn) (f : TinyML.Var) (axs : List Axiom)
       .value (defName L) D
   have hst3 : st3.decls = Δext := by
     simp only [st3, Δext, hdecls]
-  have hρ3 : ρ3 = Skolemize.relSplitEnv ρ L R D F := by
+  have hρ3 : ρ3 = Skolemize.splitEnv ρ L R D F := by
     rfl
   have hsub : Δ.Subset Δext :=
     ((Signature.Subset.subset_addBinaryRel _ _).trans
@@ -95,7 +95,7 @@ theorem declare_correct (L : SpecFn) (f : TinyML.Var) (axs : List Axiom)
       (Signature.Subset.subset_addUnaryRel _ _)
   obtain ⟨st4, hst4, howns4, _, hQ4⟩ :=
     VerifM.eval_assumeAxioms h4 (fun ax hax => hst3 ▸ haxwf ax hax)
-      (fun ax hax => by simpa [Skolemize.relSplitEnv] using haxeval ax hax)
+      (fun ax hax => by simpa [Skolemize.splitEnv] using haxeval ax hax)
   have howns4' : st4.owns = [] := by rw [howns4]; exact howns
   have hvars4 : st4.decls.vars = [] := by
     rw [hst4, hst3]
@@ -105,7 +105,7 @@ theorem declare_correct (L : SpecFn) (f : TinyML.Var) (axs : List Axiom)
   have hwf4 : st4.decls.wf := by rw [hst4, hst3]; exact hwfext
   have hagree : Env.agreeOn Δ ρ ρ3 := by
     rw [hρ3]
-    exact Skolemize.relSplitEnv_agreeOn hrelFresh hfunFresh hdefFresh
+    exact Skolemize.splitEnv_agreeOn hrelFresh hfunFresh hdefFresh
   have hΓwf' : FunCtx.wfIn (Γ ++ [(f, L)]) st4.decls := by
     rw [hst4, hst3]
     refine ⟨?_, ?_⟩
@@ -129,7 +129,7 @@ theorem declare_correct (L : SpecFn) (f : TinyML.Var) (axs : List Axiom)
       exact hsplit g rel hold x y
     · simp at hnew; obtain ⟨_, rfl⟩ := hnew
       rw [hρ3]
-      exact Skolemize.relSplitEnv_graph rel ρ hgraph x y
+      exact Skolemize.splitEnv_graph rel ρ hgraph x y
   have hdet' : Relation.BinaryRelDet (Γ ++ [(f, L)]) ρ3 ρ3 := by
     intro g rel hgr x y₁ y₂ hy₁ hy₂
     rcases List.mem_append.mp hgr with hold | hnew
@@ -139,8 +139,8 @@ theorem declare_correct (L : SpecFn) (f : TinyML.Var) (axs : List Axiom)
       exact hdet g rel hold x y₁ y₂ hy₁ hy₂
     · simp at hnew; obtain ⟨_, rfl⟩ := hnew
       rw [hρ3] at hy₁ hy₂
-      obtain ⟨_, heq₁⟩ := (Skolemize.relSplitEnv_graph rel ρ hgraph x y₁).mp hy₁
-      obtain ⟨_, heq₂⟩ := (Skolemize.relSplitEnv_graph rel ρ hgraph x y₂).mp hy₂
+      obtain ⟨_, heq₁⟩ := (Skolemize.splitEnv_graph rel ρ hgraph x y₁).mp hy₁
+      obtain ⟨_, heq₂⟩ := (Skolemize.splitEnv_graph rel ρ hgraph x y₂).mp hy₂
       exact heq₁.symm.trans heq₂
   have hsub4 : st.decls.Subset st4.decls := by
     rw [hst4, hst3, hdecls]
@@ -849,7 +849,7 @@ theorem declare_correct (s : Lifting) (body : Skolemize.DefVal) (Δ : Signature)
     s.axioms_wfIn hwfext hbodyext (List.Mem.head _) (List.Mem.head _)
       hargext hidxext hv.idxNeArg
   have haxeval : ∀ ax ∈ s.axioms body,
-      ax.formula.eval (Skolemize.relSplitEnv ρ s.name
+      ax.formula.eval (Skolemize.splitEnv ρ s.name
         (s.relinterp body ρ) (s.definterp body ρ) (s.funcinterp body ρ)) :=
     s.axioms_eval (Δ := Δ)
       (s.matrix_wfIn hwf hbody hv.argFresh hv.idxFresh hv.idxNeArg)

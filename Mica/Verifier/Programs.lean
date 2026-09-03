@@ -290,14 +290,14 @@ private theorem declareAndAssume_correct {primitives : PrimEncodings}
           info.f rel_name info.arg info.res info.body info.bv
       have hgraph : ∀ a b, R a b ↔ D a ∧ F a = b := fun a b =>
         Skolemize.bundle_semrel_compatible hlaw hinfoEq hsplit hΓwf_acc hΔwf_acc hf hdet a b
-      have henv : Skolemize.relSplitEnv ρ rel_name R D F
+      have henv : Skolemize.splitEnv ρ rel_name R D F
           = (Skolemize.defInterpEnv primitives acc.functionMap acc.delta ρ
               info.f rel_name info.arg info.res info.body info.bv).updateBinaryRel
             .value .value (SpecFn.relName rel_name) R := by
-        simp only [Skolemize.relSplitEnv, Skolemize.defInterpEnv, Skolemize.splitEnv]
-        apply Env.ext <;> rfl
+        simp only [Skolemize.defInterpEnv]
+        exact Skolemize.splitEnv_updateBinaryRel.symm
       have haxeval : ∀ ax ∈ info.axs,
-          ax.formula.eval (Skolemize.relSplitEnv ρ rel_name R D F) := by
+          ax.formula.eval (Skolemize.splitEnv ρ rel_name R D F) := by
         rw [henv]
         exact Skolemize.bundle_eval_updateBinaryRel hlaw
           hinfoEq hsplit hΓwf_acc hΔwf_acc hf hdet R

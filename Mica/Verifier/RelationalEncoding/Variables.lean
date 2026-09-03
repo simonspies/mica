@@ -273,8 +273,9 @@ def bodySig (Δ : Signature) (fn : SpecFn) (x : TinyML.Var) : Signature :=
 def sig (Δ : Signature) (fn : SpecFn) (x res : TinyML.Var) : Signature :=
   (bodySig Δ fn x).declVar ⟨res, .value⟩
 
-/-- Signature containing only the solver-facing split symbols and input
-variable used by the defined/value body. -/
+/-- The body signature without the binary relation. The defined/value body and
+the axioms emitted for it are well-formed here, which is what makes them
+insensitive to how the relation is interpreted. -/
 def defvalBodySig (Δ : Signature) (fn : SpecFn) (x : TinyML.Var) : Signature :=
   (((Δ.addUnary fn.func).addUnaryRel fn.defined).declVar ⟨x, .value⟩)
 
