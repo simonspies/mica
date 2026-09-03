@@ -4,7 +4,7 @@ import Mica.FOL.Printing
 import Mica.FOL.Subst
 import Mica.Verifier.Interpretations
 import Mica.Verifier.Monad
-import Mica.Verifier.RelationalEncoding.SkolemizeCompleteness
+import Mica.Verifier.RelationalEncoding.Skolemize
 
 open Iris Iris.BI
 
