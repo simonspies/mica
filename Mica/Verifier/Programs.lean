@@ -275,9 +275,12 @@ private theorem declareAndAssume_correct {primitives : PrimEncodings}
           rename_i tup hinfoTuple
           obtain ⟨res, bv, axs⟩ := tup
           cases hext
-          exact ⟨{ relFresh := hrel_in, funFresh := hfun_in, defFresh := hdef_in,
-                   argFresh := harg_in, argNeRel := harg_eq_rel,
-                   argNeFun := harg_eq_fun, argNeDef := harg_eq_def }, rfl, rfl, hinfoTuple⟩
+          refine ⟨{ symFresh := ?_, argFresh := ?_ }, rfl, rfl, hinfoTuple⟩
+          · intro n hn
+            simp only [SpecFn.names, List.mem_cons, List.not_mem_nil, or_false] at hn
+            rcases hn with rfl | rfl | rfl
+            exacts [hrel_in, hfun_in, hdef_in]
+          · simp [SpecFn.names, harg_in, harg_eq_rel, harg_eq_fun, harg_eq_def]
       have hΓwf_acc : FunCtx.wfIn acc.functionMap acc.delta := hacc ▸ hΓwf
       have hΔwf_acc : acc.delta.wf := hacc ▸ hwf
       -- The chosen interpretations: the ground-truth relation and its split.
@@ -304,8 +307,8 @@ private theorem declareAndAssume_correct {primitives : PrimEncodings}
       obtain ⟨st4, ρ4, hst4_decls, howns4, hvars4, hwf4, hsub4, hagree4,
         hΓwf4, hsplit4, hdet4, hcont⟩ :=
         SpecFn.declare_correct rel_name info.f info.axs R F D acc.delta acc.functionMap st ρ
-          hf.relFresh hf.funFresh hf.defFresh hgraph hacc.symm howns hvars
-          (hf.wf_addSplit hΔwf_acc) hΓwf_acc hsplit hdet
+          hf.relFresh hf.funcFresh hf.defFresh hgraph hacc.symm howns hvars
+          (hf.base_wf hΔwf_acc) hΓwf_acc hsplit hdet
           (Skolemize.bundle_wfIn hlaw hinfoEq hΔwf_acc hΓwf_acc hf) haxeval
           (VerifM.eval_bind heval)
       have hdelta4 : info.spec.delta = st4.decls := by rw [hspec_delta, hst4_decls]

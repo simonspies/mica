@@ -16,6 +16,33 @@ structure DefVal where
   defined : Formula
   deriving DecidableEq
 
+namespace DefVal
+
+/-- A defined/value encoding is well-formed when both its value term and its
+definedness formula are well-formed. -/
+def wfIn (m : DefVal) (Δ : Signature) : Prop :=
+  m.value.wfIn Δ ∧ m.defined.wfIn Δ
+
+theorem wfIn.mono {m : DefVal} {Δ Δ' : Signature}
+    (h : m.wfIn Δ) (hsub : Δ.Subset Δ') (hΔ' : Δ'.wf) : m.wfIn Δ' :=
+  ⟨Term.wfIn_mono _ h.1 hsub hΔ', Formula.wfIn_mono _ h.2 hsub hΔ'⟩
+
+/-- The definedness component of a `DefVal` encoding is monotone in the
+environment's uninterpreted predicates. -/
+def Mono (m : DefVal) : Prop :=
+  SemanticMono (fun m ρ => m.defined.eval ρ) m
+
+/-- A call's definedness condition is monotone in the environment's
+uninterpreted predicates. -/
+theorem isDefined_mono (fn : SpecFn) (arg : Term .value) {ρ ρ' : Env}
+    (hle : Env.le ρ ρ') (hdef : (fn.isDefined arg).eval ρ) :
+    (fn.isDefined arg).eval ρ' := by
+  simp only [SpecFn.isDefined, Formula.eval, UnPred.eval] at hdef ⊢
+  rw [← Term.eval_env_le hle arg]
+  exact hle.2.2.2.2.1 .value (fn.defName) (arg.eval ρ) hdef
+
+end DefVal
+
 /-! ## From the IR to a defined/value pair -/
 
 /-- Translate the IR into a value term paired with its definedness condition.
@@ -34,24 +61,6 @@ def ofExpr (σ : Subst) : Expr → DefVal
       let elseVal := ofExpr σ e
       { value := .ite cond' thenVal.value elseVal.value
         defined := Formula.iteBool cond' thenVal.defined elseVal.defined }
-
-/-- Defined/value encoding of a pure typed TinyML expression for SMT emission.
-Calls are encoded using total value functions and separate definedness
-predicates, so this encoding introduces no existential witnesses. -/
-def split (primitives : PrimEncodings) (Γ : FunCtx) (Δ : Signature) (e : Typed.Expr) :
-    Except String DefVal :=
-  ofExpr .id <$> encode primitives Δ Γ (VarEnv.ofSignature Δ) e (NameSupply.ofSignature Δ)
-
-/-! ## Well-formedness of `split` -/
-
-namespace DefVal
-
-/-- A defined/value encoding is well-formed when both its value term and its
-definedness formula are well-formed. -/
-def wfIn (m : DefVal) (Δ : Signature) : Prop :=
-  m.value.wfIn Δ ∧ m.defined.wfIn Δ
-
-end DefVal
 
 theorem ofExpr_wfIn {Γ : FunCtx} {avoid : List String} {Δ Δσ : Signature} {c : Expr} {σ : Subst}
     (hc : Expr.WfIn Γ avoid Δ c) (hΓ : Γ.splitWfIn Δσ) (hΔσ : Δσ.wf)
@@ -74,40 +83,11 @@ theorem ofExpr_wfIn {Γ : FunCtx} {avoid : List String} {Δ Δσ : Signature} {c
       have he := ihe hσ hsym
       exact ⟨⟨hcond', ht.1, he.1⟩, Formula.iteBool_wfIn hcond' ht.2 he.2⟩
 
-/-- The invariant the two encodings are compared under: the environment the
-relational side reads and the one the split side reads after its substitution
-give every term of `Δ` the same value. -/
-def SubstAgree (Δ : Signature) (ρrel ρdef : Env) (σ : Subst) : Prop :=
-  Env.agreeOnTerms Δ ρrel (σ.eval ρdef)
-
-theorem substAgree_refl {Δ : Signature} {ρ : Env} : SubstAgree Δ ρ ρ .id :=
-  Env.agreeOnTerms_of_agreeOn Env.agreeOn_refl
-
-/-- Reading a term of `Δ` on either side of `SubstAgree` gives the same value. -/
-theorem eval_substAgree {Δ Δσ : Signature} {ρrel ρdef : Env} {σ : Subst}
-    {τ : Srt} {t : Term τ}
-    (hagree : SubstAgree Δ ρrel ρdef σ) (ht : t.wfIn Δ)
-    (hσ : σ.wfIn Δ.vars Δσ) (hΔσ : Δσ.wf) :
-    Term.eval ρrel t = Term.eval ρdef (t.subst σ) := by
-  rw [Term.eval_subst ht hσ hΔσ]
-  exact Term.eval_agreeOnTerms ht hagree
-
-/-- Binding a call's result extends the invariant: the relational side reads the
-witness it chose, the split side the value term it substituted. -/
-theorem substAgree_bind {Δ : Signature} {ρrel ρdef : Env} {σ : Subst}
-    {r : String} {t : Term .value}
-    (hagree : SubstAgree Δ ρrel ρdef σ) :
-    SubstAgree (Δ.declVar ⟨r, .value⟩) (ρrel.updateConst .value r (Term.eval ρdef t))
-      ρdef (σ.update .value r t) := by
-  unfold SubstAgree
-  rw [Subst.eval_update]
-  exact Env.agreeOnTerms_declVar hagree
-
-/-- Well-formedness of a split encoding whose traversal gate signature `Δgate`
-may differ from the signature `Δenc` the local environment lives in (the two
-coincide for `split`, but the body encodings gate on the outer signature while
-encoding into a body signature). -/
-theorem split_wfIn_of_gate {primitives : PrimEncodings} {Γ : FunCtx}
+/-- Well-formedness of a successfully encoded body read as a `DefVal`. The
+traversal gate signature `Δgate` may differ from the signature `Δenc` the local
+environment lives in: the body encodings gate on the outer signature while
+encoding into a body signature. -/
+theorem ofExpr_wfIn_of_encode {primitives : PrimEncodings} {Γ : FunCtx}
     {Δgate Δenc : Signature} {δ : VarEnv} {s : NameSupply} {c : Expr}
     (e : Typed.Expr) (hlaw : primitives.Lawful) (hsub : Δgate.Subset Δenc)
     (hΔ : Δenc.wf) (hΓ : Γ.splitWfIn Δenc) (hδ : δ.wfIn Δenc) (hcov : s.Covers Δenc)
@@ -115,34 +95,6 @@ theorem split_wfIn_of_gate {primitives : PrimEncodings} {Γ : FunCtx}
     (ofExpr .id c).wfIn Δenc :=
   ofExpr_wfIn (encode_wfIn hlaw e hsub hΔ hδ hcov henc) hΓ hΔ
     (Subst.id_wfIn (fun _ h => h) hΔ) (Signature.SymbolSubset.refl _)
-
-/-- Well-formedness of the solver-facing defined/value encoding. -/
-theorem split_wfIn {primitives : PrimEncodings} {Γ : FunCtx} {Δ : Signature} (e : Typed.Expr)
-    {m : DefVal} (hlaw : primitives.Lawful) (hΔ : Δ.wf) (hΓ : Γ.splitWfIn Δ)
-    (henc : split primitives Γ Δ e = .ok m) : m.wfIn Δ := by
-  obtain ⟨c, hc, rfl⟩ := Except.map_eq_ok henc
-  exact split_wfIn_of_gate e hlaw (Signature.Subset.refl _) hΔ hΓ
-    (VarEnv.ofSignature_wfIn hΔ) (NameSupply.ofSignature_covers Δ) hc
-
-/-! ## Monotonicity of `split` definedness -/
-
-namespace DefVal
-
-/-- The definedness component of a `DefVal` encoding is monotone in the
-environment's uninterpreted predicates. -/
-def Mono (m : DefVal) : Prop :=
-  SemanticMono (fun m ρ => m.defined.eval ρ) m
-
-/-- A call's definedness condition is monotone in the environment's
-uninterpreted predicates. -/
-theorem isDefined_mono (fn : SpecFn) (arg : Term .value) {ρ ρ' : Env}
-    (hle : Env.le ρ ρ') (hdef : (fn.isDefined arg).eval ρ) :
-    (fn.isDefined arg).eval ρ' := by
-  simp only [SpecFn.isDefined, Formula.eval, UnPred.eval] at hdef ⊢
-  rw [← Term.eval_env_le hle arg]
-  exact hle.2.2.2.2.1 .value (fn.defName) (arg.eval ρ) hdef
-
-end DefVal
 
 /-- The definedness of a split encoding is monotone in the environment's
 uninterpreted predicates. -/
@@ -159,8 +111,12 @@ theorem ofExpr_mono (σ : Subst) (c : Expr) : DefVal.Mono (ofExpr σ c) := by
       refine ⟨fun hcond => iht σ hle (hdef.1 ?_), fun hcond => ihe σ hle (hdef.2 ?_)⟩ <;>
         rw [Term.eval_env_le hle] <;> exact hcond
 
+/-! ## Body encoding -/
 
-/-! ## Body Encoding -/
+variable {primitives : PrimEncodings} {Γ : FunCtx} {Δ : Signature} {ρ : Env}
+variable {f : TinyML.Var} {fn : SpecFn} {x res : TinyML.Var} {e : Typed.Expr}
+variable {body : DefVal} {φ : Formula}
+variable {D : Srt.value.denote → Prop} {F : Srt.value.denote → Srt.value.denote}
 
 /-- Encode a function body using the solver-facing defined/value presentation.
 It translates the very IR expression that `Relation.relEncodeBody` translates
@@ -170,7 +126,69 @@ def splitBody (primitives : PrimEncodings) (Γ : FunCtx) (Δ : Signature)
     Except String DefVal :=
   ofExpr .id <$> Relation.encodeBody primitives Γ Δ f fn x res e
 
-/-! ## Semantic Infrastructure -/
+/-- Successful split body encodings are well-formed in the split-only body
+signature, so they do not depend on how the head relation is interpreted. -/
+theorem splitBody_wfIn_splitBodySig
+    (hlaw : primitives.Lawful) (hΔ : Δ.wf) (hΓ : Γ.splitWfIn Δ)
+    (hfresh : HeadFresh Δ fn x res)
+    (henc : splitBody primitives Γ Δ f fn x res e = .ok body) :
+    body.wfIn (splitBodySig Δ fn x) := by
+  obtain ⟨c, hc, rfl⟩ := Except.map_eq_ok henc
+  have hΔbody := hfresh.toInfoFresh.splitBodySig_wf (x := x) hΔ
+  exact ofExpr_wfIn_of_encode e hlaw hfresh.toInfoFresh.subset_splitBodySig hΔbody
+    (ctx_splitWfIn_splitBodySig hΓ hfresh)
+    (varEnv_splitBodySig (Δ := Δ) (fn := fn) (x := x) ▸ VarEnv.ofSignature_wfIn hΔbody)
+    hfresh.covers_splitBodySig hc
+
+theorem splitBody_wfIn_bodySig
+    (hlaw : primitives.Lawful) (hΔ : Δ.wf) (hΓ : Γ.splitWfIn Δ)
+    (hfresh : HeadFresh Δ fn x res)
+    (henc : splitBody primitives Γ Δ f fn x res e = .ok body) :
+    body.wfIn (bodySig Δ fn x) :=
+  (splitBody_wfIn_splitBodySig hlaw hΔ hΓ hfresh henc).mono splitBodySig_subset_bodySig
+    (hfresh.toInfoFresh.bodySig_wf hΔ)
+
+/-- A successful split body encoding exposes the shared IR expression behind
+it: the split body is its split reading, the relational body encoding is its
+relational reading, and it is well-formed in the body signature. -/
+theorem splitBody_witness
+    (hlaw : primitives.Lawful) (hΔ : Δ.wf) (hfresh : HeadFresh Δ fn x res)
+    (henc : splitBody primitives Γ Δ f fn x res e = .ok body) :
+    ∃ c, body = ofExpr .id c ∧
+      Relation.relEncodeBody primitives Γ Δ f fn x res e = .ok (Relation.ofExpr res c) ∧
+      Expr.WfIn (Relation.ctx Γ f fn) (bodyAvoid fn x res) (bodySig Δ fn x) c := by
+  obtain ⟨c, hc, rfl⟩ := Except.map_eq_ok henc
+  have hΔrel := hfresh.toInfoFresh.relBodySig_wf (x := x) hΔ
+  refine ⟨c, rfl, by simp [Relation.relEncodeBody, hc], ?_⟩
+  exact ((encode_wfIn hlaw e hfresh.toInfoFresh.subset_relBodySig hΔrel
+      (VarEnv.ofSignature_wfIn hΔrel) hfresh.covers_relBodySig hc).weaken
+      bodyAvoid_subset_relBodySupply).mono relBodySig_subset_bodySig
+      (hfresh.toInfoFresh.bodySig_wf hΔ)
+      (names_of_subset_sig hfresh.bodySig_subset_sig hfresh.toInfoFresh.subset_relBodySig)
+
+/-- Relational body encodings are well-formed in the relational run signature. -/
+theorem relEncodeBody_wfIn
+    (hlaw : primitives.Lawful) (hΓ : Γ.relWfIn Δ) (hΔ : Δ.wf)
+    (hfresh : HeadFresh Δ fn x res)
+    (henc : Relation.relEncodeBody primitives Γ Δ f fn x res e = .ok φ) :
+    φ.wfIn (Relation.sig Δ fn x res) := by
+  obtain ⟨c, hc, rfl⟩ := Except.map_eq_ok henc
+  have hΔrel := hfresh.toInfoFresh.relBodySig_wf (x := x) hΔ
+  have hsig := hfresh.relSig_wf hΔ
+  have hcWf : Expr.WfIn (Relation.ctx Γ f fn) (bodyAvoid fn x res)
+      (Relation.bodySig Δ fn x) c :=
+    (encode_wfIn hlaw e hfresh.toInfoFresh.subset_relBodySig hΔrel
+      (VarEnv.ofSignature_wfIn hΔrel) hfresh.covers_relBodySig hc).weaken
+      bodyAvoid_subset_relBodySupply
+  exact Relation.ofExpr_wfIn
+    (hcWf.mono hfresh.relBodySig_subset_relSig hsig
+      (names_of_subset_sig
+        (Signature.Subset.declVar relBodySig_subset_bodySig ⟨res, .value⟩)
+        hfresh.toInfoFresh.subset_relBodySig))
+    (ctx_relWfIn_relSig hΓ hfresh) hsig (Signature.var_mem_declVar _ ⟨res, .value⟩)
+
+/-! ## Relations as a definedness predicate and a value function -/
+
 def semDefined (R : ValRel) (x : Srt.value.denote) : Prop :=
   ∃ y, R x y
 
@@ -200,6 +218,8 @@ theorem graph_le {R : ValRel} {D : Srt.value.denote → Prop}
   rw [hab.2] at hchosen
   exact hchosen
 
+/-! ## Environments interpreting the head symbols -/
+
 /-- The environment that interprets `fn`: its binary relation, its value
 function, and its definedness predicate. The defined/value encoding never
 mentions the relation, so its readings do not depend on `R`. -/
@@ -210,9 +230,7 @@ def splitEnv (ρ : Env) (fn : SpecFn)
     |>.updateUnaryRel .value (fn.defName) D
 
 /-- Interpreting the triple's three fresh names leaves `Δ`-agreement intact. -/
-theorem splitEnv_agreeOn {Δ : Signature} {fn : SpecFn} {ρ : Env}
-    {R : Srt.value.denote → Srt.value.denote → Prop}
-    {D : Srt.value.denote → Prop} {F : Srt.value.denote → Srt.value.denote}
+theorem splitEnv_agreeOn {R : ValRel}
     (hrel : fn.relName ∉ Δ.allNames)
     (hfun : fn.funcName ∉ Δ.allNames)
     (hdef : fn.defName ∉ Δ.allNames) :
@@ -223,25 +241,19 @@ theorem splitEnv_agreeOn {Δ : Signature} {fn : SpecFn} {ρ : Env}
       (Env.agreeOn_update_fresh_unary (u := fn.func) (f := F) hfun)
       (Env.agreeOn_update_fresh_unaryRel (u := fn.defined) (f := D) hdef))
 
-theorem splitEnv_evalDefined (fn : SpecFn) (ρ : Env)
-    {R : Srt.value.denote → Srt.value.denote → Prop}
-    {D : Srt.value.denote → Prop} {F : Srt.value.denote → Srt.value.denote}
+theorem splitEnv_evalDefined (fn : SpecFn) (ρ : Env) {R : ValRel}
     (v : Srt.value.denote) :
     SpecFn.evalDefined fn (splitEnv ρ fn R D F) v ↔ D v := by
   simp [splitEnv, SpecFn.evalDefined, SpecFn.defined, SpecFn.defName,
     Env.updateUnaryRel, Env.updateUnary, Env.updateBinaryRel]
 
-theorem splitEnv_evalCall (fn : SpecFn) (ρ : Env)
-    {R : Srt.value.denote → Srt.value.denote → Prop}
-    {D : Srt.value.denote → Prop} {F : Srt.value.denote → Srt.value.denote}
+theorem splitEnv_evalCall (fn : SpecFn) (ρ : Env) {R : ValRel}
     (v : Srt.value.denote) :
     SpecFn.evalCall fn (splitEnv ρ fn R D F) v = F v := by
   simp [splitEnv, SpecFn.evalCall, SpecFn.func, SpecFn.funcName,
     Env.updateUnaryRel, Env.updateUnary, Env.updateBinaryRel]
 
-theorem splitEnv_evalRelates (fn : SpecFn) (ρ : Env)
-    {R : Srt.value.denote → Srt.value.denote → Prop}
-    {D : Srt.value.denote → Prop} {F : Srt.value.denote → Srt.value.denote}
+theorem splitEnv_evalRelates (fn : SpecFn) (ρ : Env) {R : ValRel}
     (a b : Srt.value.denote) :
     SpecFn.evalRelates fn (splitEnv ρ fn R D F) a b ↔ R a b := by
   simp [splitEnv, SpecFn.evalRelates, SpecFn.rel, SpecFn.relName,
@@ -249,9 +261,7 @@ theorem splitEnv_evalRelates (fn : SpecFn) (ρ : Env)
 
 /-- With graph-shaped interpretations, the interpreted environment presents
 the relation as the graph of the value function on the definedness domain. -/
-theorem splitEnv_graph (fn : SpecFn) (ρ : Env)
-    {R : Srt.value.denote → Srt.value.denote → Prop}
-    {D : Srt.value.denote → Prop} {F : Srt.value.denote → Srt.value.denote}
+theorem splitEnv_graph (fn : SpecFn) (ρ : Env) {R : ValRel}
     (hgraph : ∀ a b, R a b ↔ D a ∧ F a = b) (a b : Srt.value.denote) :
     SpecFn.evalRelates fn (splitEnv ρ fn R D F) a b ↔
       SpecFn.evalDefined fn (splitEnv ρ fn R D F) a ∧
@@ -259,25 +269,37 @@ theorem splitEnv_graph (fn : SpecFn) (ρ : Env)
   simp only [splitEnv_evalRelates, splitEnv_evalDefined, splitEnv_evalCall]
   exact hgraph a b
 
-/-- Environment for evaluating a split encoded body at input `vin`, with
-recursive calls interpreted by `D` and `F`. The relation is read as their
-graph, which keeps the environment compatible; the body never consults it. -/
+/-- Choosing the relation up front and overwriting it afterwards give the same
+environment. -/
+theorem splitEnv_updateBinaryRel {R R' : ValRel} :
+    (splitEnv ρ fn R D F).updateBinaryRel .value .value fn.relName R' =
+      splitEnv ρ fn R' D F := by
+  refine Env.ext rfl rfl rfl rfl rfl ?_
+  funext τ₁ τ₂ name
+  simp only [splitEnv, Env.updateBinaryRel, Env.updateUnary, Env.updateUnaryRel]
+  split <;> rfl
+
+/-- The environment of a split candidate: the head relation is read as the
+graph of the candidate, which keeps the environment compatible while the split
+body never consults it. -/
+def graphEnv (ρ : Env) (fn : SpecFn) (D : Srt.value.denote → Prop)
+    (F : Srt.value.denote → Srt.value.denote) : Env :=
+  splitEnv ρ fn (graph D F) D F
+
+/-- Environment for evaluating a split encoded body at input `vin`. -/
 def defEnv (ρ : Env) (fn : SpecFn) (x : String)
     (D : Srt.value.denote → Prop)
     (F : Srt.value.denote → Srt.value.denote)
     (vin : Srt.value.denote) : Env :=
-  (splitEnv ρ fn (graph D F) D F).updateConst .value x vin
+  (graphEnv ρ fn D F).updateConst .value x vin
 
 /-- Increasing the candidate definedness predicate increases the corresponding
 environments. -/
-theorem splitEnv_le {ρ : Env} {fn : SpecFn}
-    {D D' : Srt.value.denote → Prop}
-    {F : Srt.value.denote → Srt.value.denote}
-    (hDD' : PredicateFix.le D D') :
-    Env.le (splitEnv ρ fn (graph D F) D F) (splitEnv ρ fn (graph D' F) D' F) := by
+theorem graphEnv_le {D D' : Srt.value.denote → Prop} (hDD' : PredicateFix.le D D') :
+    Env.le (graphEnv ρ fn D F) (graphEnv ρ fn D' F) := by
   refine ⟨rfl, rfl, rfl, rfl, ?_, ?_⟩
   · intro τ name a h
-    simp only [splitEnv, Env.updateUnaryRel] at h ⊢
+    simp only [graphEnv, splitEnv, Env.updateUnaryRel] at h ⊢
     split at h
     · rename_i heq
       rcases heq with ⟨rfl, rfl⟩
@@ -286,7 +308,8 @@ theorem splitEnv_le {ρ : Env} {fn : SpecFn}
       simp only [dif_neg hne]
       exact h
   · intro τ₁ τ₂ name a b h
-    simp only [splitEnv, Env.updateUnaryRel, Env.updateUnary, Env.updateBinaryRel] at h ⊢
+    simp only [graphEnv, splitEnv, Env.updateUnaryRel, Env.updateUnary,
+      Env.updateBinaryRel] at h ⊢
     split at h
     · rename_i heq
       rcases heq with ⟨rfl, rfl, rfl⟩
@@ -296,32 +319,41 @@ theorem splitEnv_le {ρ : Env} {fn : SpecFn}
       simp only [dif_neg hne]
       exact h
 
-/-- Choosing the relation up front and overwriting it afterwards give the same
-environment. -/
-theorem splitEnv_updateBinaryRel {ρ : Env} {fn : SpecFn} {R R' : ValRel}
-    {D : Srt.value.denote → Prop} {F : Srt.value.denote → Srt.value.denote} :
-    (splitEnv ρ fn R D F).updateBinaryRel .value .value fn.relName R' =
-      splitEnv ρ fn R' D F := by
-  refine Env.ext rfl rfl rfl rfl rfl ?_
-  funext τ₁ τ₂ name
-  simp only [splitEnv, Env.updateBinaryRel, Env.updateUnary, Env.updateUnaryRel]
-  split <;> rfl
+/-- Extending a split-compatible context with a fresh head function preserves
+split compatibility: in `graphEnv` the head relation is a graph by construction. -/
+theorem splitCompatible_cons
+    (hΓ : FunCtx.splitCompatible Γ ρ) (hfresh : FunCtx.freshFn Γ fn) :
+    FunCtx.splitCompatible ((f, fn) :: Γ) (graphEnv ρ fn D F) := by
+  intro g fn' hmem a b
+  cases hmem with
+  | head => exact splitEnv_graph fn ρ (fun _ _ => Iff.rfl) a b
+  | tail _ htail =>
+      have hnames := hfresh g fn' htail
+      simpa [SpecFn.evalRelates, SpecFn.evalDefined, SpecFn.evalCall,
+        SpecFn.rel, SpecFn.defined, SpecFn.func,
+        graphEnv, splitEnv, Env.updateBinaryRel, Env.updateUnary, Env.updateUnaryRel,
+        hnames.1, hnames.2.1, hnames.2.2] using hΓ g fn' htail a b
 
-/-- The unary body operator induced by the definedness component of a
-`DefVal` body under a fixed recursive value function. -/
+/-! ## The split body operator -/
+
+/-- The definedness a split body claims at `vin` under a recursive candidate. -/
 def defBody (ρ : Env) (fn : SpecFn) (x : String) (body : DefVal)
     (F : Srt.value.denote → Srt.value.denote) :
     (Srt.value.denote → Prop) → Srt.value.denote → Prop :=
   fun D vin => body.defined.eval (defEnv ρ fn x D F vin)
 
+/-- The value a split body computes at `vin` under a recursive candidate. -/
+def valBody (ρ : Env) (fn : SpecFn) (x : String) (body : DefVal)
+    (F : Srt.value.denote → Srt.value.denote) (D : Srt.value.denote → Prop)
+    (vin : Srt.value.denote) : Srt.value.denote :=
+  body.value.eval (defEnv ρ fn x D F vin)
+
 /-- The definedness body operator is monotone whenever the encoded body has
 monotone definedness. -/
-theorem defBody_mono {ρ : Env} {fn : SpecFn} {x : String} {body : DefVal}
-    {F : Srt.value.denote → Srt.value.denote}
-    (hbody : DefVal.Mono body) :
+theorem defBody_mono {x : String} (hbody : DefVal.Mono body) :
     PredicateFix.Mono (defBody ρ fn x body F) := by
   intro D D' hDD' vin hdef
-  exact hbody (Env.le.updateConst (splitEnv_le (ρ := ρ) (fn := fn)
+  exact hbody (Env.le.updateConst (graphEnv_le (ρ := ρ) (fn := fn)
     (D := D) (D' := D') (F := F) hDD') .value x vin) hdef
 
 /-- Semantic definedness for the split presentation: the least fixpoint of the
@@ -340,15 +372,12 @@ noncomputable def defInterpEnv (primitives : PrimEncodings)
     (Γ : FunCtx) (Δ : Signature) (ρ : Env)
     (f : TinyML.Var) (fn : SpecFn) (x res : TinyML.Var) (e : Typed.Expr)
     (body : DefVal) : Env :=
-  let R := semrel primitives Γ Δ ρ f fn x res e
-  let D := semdef primitives Γ Δ ρ f fn x res e body
-  splitEnv ρ fn (graph D (semFunc R)) D (semFunc R)
+  graphEnv ρ fn (semdef primitives Γ Δ ρ f fn x res e body)
+    (semFunc (semrel primitives Γ Δ ρ f fn x res e))
 
 /-- Unfolding principle specialized to a successfully encoded `DefVal` body. -/
-theorem semdef_unfold_of_split {primitives : PrimEncodings}
-    {Γ : FunCtx} {Δ : Signature} {ρ : Env}
-    {f : TinyML.Var} {fn : SpecFn} {x res : TinyML.Var} {e : Typed.Expr}
-    {body : DefVal} (henc : splitBody primitives Γ Δ f fn x res e = .ok body)
+theorem semdef_unfold
+    (henc : splitBody primitives Γ Δ f fn x res e = .ok body)
     (vin : Srt.value.denote) :
     semdef primitives Γ Δ ρ f fn x res e body vin ↔
       defBody ρ fn x body
@@ -359,523 +388,28 @@ theorem semdef_unfold_of_split {primitives : PrimEncodings}
 
 /-- Under the canonical split interpretation, the definedness symbol denotes
 `semdef`. -/
-theorem definedCall_eval_defInterpEnv {primitives : PrimEncodings}
-    {Γ : FunCtx} {Δ : Signature} {ρ : Env}
-    {f : TinyML.Var} {fn : SpecFn} {x res : TinyML.Var} {e : Typed.Expr}
-    {body : DefVal} (vin : Srt.value.denote) :
+theorem defInterpEnv_isDefined (vin : Srt.value.denote) :
     (fn.isDefined (.var .value x)).eval
       ((defInterpEnv primitives Γ Δ ρ f fn x res e body).updateConst .value x vin)
       ↔ semdef primitives Γ Δ ρ f fn x res e body vin := by
-  simp [SpecFn.isDefined, SpecFn.isDefined, Formula.eval, UnPred.eval, Term.eval,
+  simp [SpecFn.isDefined, Formula.eval, UnPred.eval, Term.eval,
     Env.lookupConst_updateConst_same]
-  unfold defInterpEnv splitEnv
+  unfold defInterpEnv graphEnv splitEnv
   simp [Env.updateConst_unaryRel, Env.updateUnaryRel]
 
 /-- Under the canonical split interpretation, the value symbol denotes the
 chosen witness function of `semrel`. -/
-theorem valueCall_eval_defInterpEnv {primitives : PrimEncodings}
-    {Γ : FunCtx} {Δ : Signature} {ρ : Env}
-    {f : TinyML.Var} {fn : SpecFn} {x res : TinyML.Var} {e : Typed.Expr}
-    {body : DefVal} (vin : Srt.value.denote) :
+theorem defInterpEnv_call (vin : Srt.value.denote) :
     (fn.call (.var .value x)).eval
       ((defInterpEnv primitives Γ Δ ρ f fn x res e body).updateConst .value x vin)
       =
     semFunc (semrel primitives Γ Δ ρ f fn x res e) vin := by
-  simp only [SpecFn.call, SpecFn.call, Term.eval, UnOp.eval, Env.lookupConst_updateConst_same]
+  simp only [SpecFn.call, Term.eval, UnOp.eval, Env.lookupConst_updateConst_same]
   rw [Env.updateConst_unary]
   change ((ρ.updateUnary .value .value (fn.funcName)
     (semFunc (semrel primitives Γ Δ ρ f fn x res e))).unary .value .value (fn.funcName) vin =
       semFunc (semrel primitives Γ Δ ρ f fn x res e) vin)
   simp [Env.updateUnary]
-
-
-end Skolemize
-
-/-! ## Split Compatibility -/
-/-- A binary relational interpretation and the split defined/value symbols
-agree for every relation-marked function in the context. -/
-def FunCtx.splitCompatible (Γ : FunCtx) (ρ : Env) : Prop :=
-  ∀ f fn, (f, fn) ∈ Γ →
-    ∀ x y, fn.evalRelates ρ x y ↔ fn.evalDefined ρ x ∧ fn.evalCall ρ x = y
-
-theorem FunCtx.splitCompatible_updateConst {Γ : FunCtx} {ρ : Env}
-    (hΓ : Γ.splitCompatible ρ) (τ : Srt) (x : String) (v : τ.denote) :
-    Γ.splitCompatible (ρ.updateConst τ x v) := by
-  intro f fn hmem a b
-  simpa [Env.updateConst_unary, Env.updateConst_unaryRel, Env.updateConst_binaryRel]
-    using hΓ f fn hmem a b
-
-/-- The newly introduced relation and split symbols do not collide with the
-relation names already present in the tail function context. -/
-def FunCtx.freshFn (Γ : FunCtx) (fn : SpecFn) : Prop :=
-  ∀ g fn', (g, fn') ∈ Γ →
-    fn'.relName ≠ fn.relName ∧ fn'.funcName ≠ fn.funcName ∧ fn'.defName ≠ fn.defName
-
-namespace Skolemize
-
-/-- Extending a split-compatible context with a fresh head function preserves
-split compatibility, provided the head relation is the graph of the chosen
-definedness predicate and value function. -/
-theorem splitCompatible_cons_splitEnv
-    {Γ : FunCtx} {ρ : Env} {f : TinyML.Var} {fn : SpecFn}
-    {D : Srt.value.denote → Prop} {F : Srt.value.denote → Srt.value.denote}
-    (hΓ : FunCtx.splitCompatible Γ ρ) (hfresh : FunCtx.freshFn Γ fn) :
-    FunCtx.splitCompatible ((f, fn) :: Γ) (splitEnv ρ fn (graph D F) D F) := by
-  intro g fn' hmem x y
-  cases hmem with
-  | head => exact splitEnv_graph fn ρ (fun _ _ => Iff.rfl) x y
-  | tail _ htail =>
-      have hnames := hfresh g fn' htail
-      simpa [SpecFn.evalRelates, SpecFn.evalDefined, SpecFn.evalCall,
-        SpecFn.rel, SpecFn.defined, SpecFn.func,
-        splitEnv, Env.updateBinaryRel, Env.updateUnary, Env.updateUnaryRel,
-        hnames.1, hnames.2.1, hnames.2.2] using hΓ g fn' htail x y
-
-/-! ## Body signatures and freshness -/
-
-/-! ### Body-signature transport helpers -/
-
-/-- The body signatures declare the same value variables, so they induce the
-same encoder environment. -/
-theorem varEnv_defvalBodySig {Δ : Signature} {fn : SpecFn} {x : TinyML.Var} :
-    VarEnv.ofSignature (Relation.bodySig Δ fn x) =
-      VarEnv.ofSignature (defvalBodySig Δ fn x) := by
-  simp [VarEnv.ofSignature, Relation.bodySig, defvalBodySig, Signature.declVar,
-    Signature.addBinaryRel, Signature.addUnary, Signature.addUnaryRel,
-    Signature.remove, Signature.addVar]
-
-theorem varEnv_bodySig {Δ : Signature} {fn : SpecFn} {x : TinyML.Var} :
-    VarEnv.ofSignature (Relation.bodySig Δ fn x) = VarEnv.ofSignature (bodySig Δ fn x) := by
-  simp [VarEnv.ofSignature, Relation.bodySig, bodySig, Signature.declVar,
-    Signature.addBinaryRel, Signature.addUnary, Signature.addUnaryRel,
-    Signature.remove, Signature.addVar]
-
-/-! ### Freshness and signature infrastructure -/
-
-/-- Freshness assumptions for the common Skolemization signature, in the exact
-order in which `sig` introduces the head relation symbols and bound variables. -/
-structure HeadFresh (Δ : Signature) (fn : SpecFn) (x res : String) : Prop where
-  relFresh : fn.relName ∉ Δ.allNames
-  funFresh :
-    fn.funcName ∉ (Δ.addBinaryRel fn.rel).allNames
-  defFresh :
-    fn.defName ∉
-    ((Δ.addBinaryRel fn.rel).addUnary fn.func).allNames
-  argFresh :
-    x ∉
-    (((Δ.addBinaryRel fn.rel).addUnary fn.func).addUnaryRel
-      (fn.defined)).allNames
-  resFresh :
-    res ∉
-    ((((Δ.addBinaryRel fn.rel).addUnary fn.func).addUnaryRel
-      (fn.defined)).declVar ⟨x, .value⟩).allNames
-
-/-! ### Subset lemmas -/
-
-theorem relBase_subset_bodyBase {Δ : Signature} {fn : SpecFn} :
-    (Δ.addBinaryRel fn.rel).Subset
-      (((Δ.addBinaryRel fn.rel).addUnary fn.func).addUnaryRel
-        (fn.defined)) :=
-  (Signature.Subset.subset_addUnary _ fn.func).trans
-    (Signature.Subset.subset_addUnaryRel _ (fn.defined))
-
-theorem subset_bodySig_of_headFresh {Δ : Signature} {fn : SpecFn} {x res : String}
-    (hfresh : HeadFresh Δ fn x res) :
-    Δ.Subset (bodySig Δ fn x) := by
-  unfold bodySig
-  exact
-    (((Signature.Subset.subset_addBinaryRel Δ fn.rel).trans
-      (Signature.Subset.subset_addUnary _ fn.func)).trans
-      (Signature.Subset.subset_addUnaryRel _ (fn.defined))).trans
-      (Signature.subset_declVar_of_fresh (Δ :=
-        (((Δ.addBinaryRel fn.rel).addUnary fn.func).addUnaryRel
-          (fn.defined))) (v := ⟨x, .value⟩) hfresh.argFresh)
-
-theorem subset_relBodySig_of_headFresh {Δ : Signature} {fn : SpecFn} {x res : String}
-    (hfresh : HeadFresh Δ fn x res) :
-    Δ.Subset (Relation.bodySig Δ fn x) := by
-  unfold Relation.bodySig
-  exact (Signature.Subset.subset_addBinaryRel Δ fn.rel).trans
-    (Signature.subset_declVar_of_fresh (Δ := Δ.addBinaryRel fn.rel)
-      (v := ⟨x, .value⟩) (by
-        intro h
-        exact hfresh.argFresh (Signature.allNames_subset
-          (relBase_subset_bodyBase (Δ := Δ) (fn := fn)) _ h)))
-
-theorem splitBase_subset_bodyBase {Δ : Signature} {fn : SpecFn} :
-    ((Δ.addUnary fn.func).addUnaryRel (fn.defined)).Subset
-      (((Δ.addBinaryRel fn.rel).addUnary fn.func).addUnaryRel
-        (fn.defined)) := by
-  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, fun a ha => List.mem_cons_of_mem _ ha⟩ <;>
-    intro a ha <;>
-    simpa [Signature.addUnary, Signature.addUnaryRel, Signature.addBinaryRel] using ha
-
-theorem relBodySig_subset_bodySig {Δ : Signature} {fn : SpecFn} {x : String} :
-    (Relation.bodySig Δ fn x).Subset (bodySig Δ fn x) := by
-  unfold Relation.bodySig bodySig
-  exact Signature.Subset.declVar relBase_subset_bodyBase ⟨x, .value⟩
-
-theorem defvalBodySig_subset_bodySig {Δ : Signature} {fn : SpecFn} {x : String} :
-    (defvalBodySig Δ fn x).Subset (bodySig Δ fn x) := by
-  unfold defvalBodySig bodySig
-  exact Signature.Subset.declVar splitBase_subset_bodyBase ⟨x, .value⟩
-
-theorem subset_defvalBodySig_of_headFresh {Δ : Signature} {fn : SpecFn} {x res : String}
-    (hfresh : HeadFresh Δ fn x res) :
-    Δ.Subset (defvalBodySig Δ fn x) := by
-  unfold defvalBodySig
-  exact ((Signature.Subset.subset_addUnary Δ fn.func).trans
-    (Signature.Subset.subset_addUnaryRel _ (fn.defined))).trans
-    (Signature.subset_declVar_of_fresh (Δ :=
-      ((Δ.addUnary fn.func).addUnaryRel (fn.defined)))
-      (v := ⟨x, .value⟩) (by
-        intro h
-        exact hfresh.argFresh (Signature.allNames_subset
-          (splitBase_subset_bodyBase (Δ := Δ) (fn := fn)) _ h)))
-
-theorem bodySig_subset_sig_of_headFresh {Δ : Signature} {fn : SpecFn} {x res : String}
-    (hfresh : HeadFresh Δ fn x res) :
-    (bodySig Δ fn x).Subset (sig Δ fn x res) := by
-  unfold sig
-  exact Signature.subset_declVar_of_fresh (Δ := bodySig Δ fn x) (v := ⟨res, .value⟩)
-    (by simpa [bodySig] using hfresh.resFresh)
-
-theorem relBodySig_subset_relSig_of_headFresh {Δ : Signature} {fn : SpecFn} {x res : String}
-    (hfresh : HeadFresh Δ fn x res) :
-    (Relation.bodySig Δ fn x).Subset (Relation.sig Δ fn x res) := by
-  unfold Relation.sig
-  exact Signature.subset_declVar_of_fresh (Δ := Relation.bodySig Δ fn x) (v := ⟨res, .value⟩)
-    (by
-      intro h
-      exact hfresh.resFresh (Signature.allNames_subset
-        (relBodySig_subset_bodySig (Δ := Δ) (fn := fn) (x := x)) _ h))
-
-/-! ### Well-formedness lemmas -/
-
-theorem bodySig_wf_of_headFresh {Δ : Signature} {fn : SpecFn} {x res : String}
-    (hΔ : Δ.wf) (hfresh : HeadFresh Δ fn x res) :
-    (bodySig Δ fn x).wf := by
-  unfold bodySig
-  have hrel :
-      (Δ.addBinaryRel fn.rel).wf :=
-    Signature.wf_addBinaryRel hΔ hfresh.relFresh
-  have hfun :
-      ((Δ.addBinaryRel fn.rel).addUnary fn.func).wf :=
-    Signature.wf_addUnary hrel hfresh.funFresh
-  have hdef :
-      (((Δ.addBinaryRel fn.rel).addUnary fn.func).addUnaryRel
-        (fn.defined)).wf :=
-    Signature.wf_addUnaryRel hfun hfresh.defFresh
-  exact Signature.wf_declVar hdef
-
-theorem relBodySig_wf_of_headFresh {Δ : Signature} {fn : SpecFn} {x res : String}
-    (hΔ : Δ.wf) (hfresh : HeadFresh Δ fn x res) :
-    (Relation.bodySig Δ fn x).wf := by
-  unfold Relation.bodySig
-  exact Signature.wf_declVar (Signature.wf_addBinaryRel hΔ hfresh.relFresh)
-
-theorem var_fresh_splitBase_of_headFresh
-    {Δ : Signature} {fn : SpecFn} {x res : String}
-    (hfresh : HeadFresh Δ fn x res) :
-    x ∉ ((Δ.addUnary fn.func).addUnaryRel (fn.defined)).allNames := by
-  intro h
-  exact hfresh.argFresh (Signature.allNames_subset
-    (splitBase_subset_bodyBase (Δ := Δ) (fn := fn)) _ h)
-
-/-- The split-only body signature is well-formed under the existing head
-freshness assumptions. -/
-theorem defvalBodySig_wf_of_headFresh {Δ : Signature} {fn : SpecFn} {x res : String}
-    (hΔ : Δ.wf) (hfresh : HeadFresh Δ fn x res) :
-    (defvalBodySig Δ fn x).wf := by
-  unfold defvalBodySig
-  exact Signature.wf_declVar
-    (Signature.wf_addUnaryRel
-      (Signature.wf_addUnary hΔ (fun h =>
-        hfresh.funFresh (Signature.allNames_subset
-          (Signature.Subset.subset_addBinaryRel Δ fn.rel) _ h)))
-      (fun h =>
-        hfresh.defFresh (Signature.allNames_subset
-          (by
-            constructor <;> intro a ha
-            · simpa [Signature.addUnary, Signature.addBinaryRel] using ha
-            · simpa [Signature.addUnary, Signature.addBinaryRel] using ha
-            · simpa [Signature.addUnary, Signature.addBinaryRel] using ha
-            · simpa [Signature.addUnary, Signature.addBinaryRel] using ha
-            · simpa [Signature.addUnary, Signature.addBinaryRel] using ha
-            · simpa [Signature.addUnary, Signature.addBinaryRel] using ha
-            · exact List.mem_cons_of_mem _ ha) _ h)))
-
-theorem sig_wf_of_headFresh {Δ : Signature} {fn : SpecFn} {x res : String}
-    (hΔ : Δ.wf) (hfresh : HeadFresh Δ fn x res) :
-    (sig Δ fn x res).wf := by
-  unfold sig
-  exact Signature.wf_declVar (bodySig_wf_of_headFresh hΔ hfresh)
-
-/-! ### Freshness derivations -/
-
-theorem freshFn_of_headFresh {Γ : FunCtx} {Δ : Signature} {fn : SpecFn} {x res : String}
-    (hΓ : Γ.wfIn Δ) (hfresh : HeadFresh Δ fn x res) :
-    FunCtx.freshFn Γ fn := by
-  intro g fn' hmem
-  have hrel'_mem : fn'.relName ∈ Δ.allNames :=
-    Signature.mem_allNames_of_binaryRel (hΓ.rel g fn' hmem)
-  have hfun_mem : (fn').funcName ∈ Δ.allNames :=
-    Signature.mem_allNames_of_unary (hΓ.split g fn' hmem).1
-  have hdef_mem : (fn').defName ∈ Δ.allNames :=
-    Signature.mem_allNames_of_unaryRel (hΓ.split g fn' hmem).2
-  refine ⟨?_, ?_, ?_⟩
-  · intro h
-    exact hfresh.relFresh (h ▸ hrel'_mem)
-  · intro h
-    exact hfresh.funFresh (h ▸ Signature.allNames_subset
-      (Signature.Subset.subset_addBinaryRel Δ fn.rel) _ hfun_mem)
-  · intro h
-    exact hfresh.defFresh (h ▸ Signature.allNames_subset
-      ((Signature.Subset.subset_addBinaryRel Δ fn.rel).trans
-        (Signature.Subset.subset_addUnary _ fn.func)) _ hdef_mem)
-
-
-theorem ctx_relWfIn_relSig_of_headFresh
-    {Γ : FunCtx} {Δ : Signature} {f : TinyML.Var} {fn : SpecFn} {x res : TinyML.Var}
-    (hΓfn : Γ.relWfIn Δ) (hfresh : HeadFresh Δ fn x res) :
-    (Relation.ctx Γ f fn).relWfIn (Relation.sig Δ fn x res) := by
-  intro g fn' hmem
-  cases hmem with
-  | head =>
-      have hxFresh :
-          x ∉ (Δ.addBinaryRel fn.rel).allNames := by
-        intro h
-        exact hfresh.argFresh (Signature.allNames_subset
-          (relBase_subset_bodyBase (Δ := Δ) (fn := fn)) _ h)
-      exact (relBodySig_subset_relSig_of_headFresh hfresh).binaryRel _
-        (by
-          unfold Relation.bodySig
-          exact (Signature.subset_declVar_of_fresh
-            (Δ := Δ.addBinaryRel fn.rel)
-            (v := ⟨x, .value⟩) hxFresh).binaryRel _
-            (List.Mem.head _))
-  | tail _ htail =>
-      exact ((subset_relBodySig_of_headFresh hfresh).trans
-        (relBodySig_subset_relSig_of_headFresh hfresh)).binaryRel _ (hΓfn g fn' htail)
-
-theorem ctx_splitWfIn_bodySig_of_headFresh
-    {Γ : FunCtx} {Δ : Signature} {f : TinyML.Var} {fn : SpecFn} {x res : TinyML.Var}
-    (hΓdef : Γ.splitWfIn Δ) (hfresh : HeadFresh Δ fn x res) :
-    (Relation.ctx Γ f fn).splitWfIn (bodySig Δ fn x) := by
-  intro g fn' hmem
-  cases hmem with
-  | head =>
-      unfold bodySig
-      refine ⟨?_, ?_⟩
-      · exact Signature.Subset.unary
-          ((Signature.Subset.subset_addUnaryRel _ (fn.defined)).trans
-            (Signature.subset_declVar_of_fresh (Δ :=
-              (((Δ.addBinaryRel fn.rel).addUnary fn.func).addUnaryRel
-                (fn.defined))) (v := ⟨x, .value⟩) hfresh.argFresh))
-          fn.func (List.Mem.head _)
-      · exact Signature.Subset.unaryRel
-          (Signature.subset_declVar_of_fresh (Δ :=
-            (((Δ.addBinaryRel fn.rel).addUnary fn.func).addUnaryRel
-              (fn.defined))) (v := ⟨x, .value⟩) hfresh.argFresh)
-          (fn.defined) (List.Mem.head _)
-  | tail _ htail =>
-      exact FunCtx.splitWfIn_mono hΓdef (subset_bodySig_of_headFresh hfresh) g fn' htail
-
-theorem ctx_splitWfIn_defvalBodySig_of_headFresh
-    {Γ : FunCtx} {Δ : Signature} {f : TinyML.Var} {fn : SpecFn} {x res : TinyML.Var}
-    (hΓdef : Γ.splitWfIn Δ) (hfresh : HeadFresh Δ fn x res) :
-    (Relation.ctx Γ f fn).splitWfIn (defvalBodySig Δ fn x) := by
-  intro g fn' hmem
-  cases hmem with
-  | head =>
-      unfold defvalBodySig
-      refine ⟨?_, ?_⟩
-      · exact Signature.Subset.unary
-          ((Signature.Subset.subset_addUnaryRel _ (fn.defined)).trans
-            (Signature.subset_declVar_of_fresh (Δ :=
-              ((Δ.addUnary fn.func).addUnaryRel (fn.defined)))
-              (v := ⟨x, .value⟩) (var_fresh_splitBase_of_headFresh hfresh)))
-          fn.func (List.Mem.head _)
-      · exact Signature.Subset.unaryRel
-          (Signature.subset_declVar_of_fresh (Δ :=
-            ((Δ.addUnary fn.func).addUnaryRel (fn.defined)))
-            (v := ⟨x, .value⟩) (var_fresh_splitBase_of_headFresh hfresh))
-          (fn.defined) (List.Mem.head _)
-  | tail _ htail =>
-      exact FunCtx.splitWfIn_mono hΓdef (subset_defvalBodySig_of_headFresh hfresh)
-        g fn' htail
-
-
-/-- The body supply covers every signature the body encodings run in. -/
-theorem relBodySupply_covers_of_subset {Δ Δ' : Signature} {fn : SpecFn} {x res : TinyML.Var}
-    (hsub : Δ'.Subset (sig Δ fn x res)) : (relBodySupply Δ fn x res).Covers Δ' :=
-  fun n hn => relBodySupply_covers_sig Δ fn x res n (Signature.allNames_subset hsub n hn)
-
-/-- Every name of a signature the body encodings run in is either a name the
-encoding starts from or one it must not bind. This is the side condition of
-`Expr.WfIn.mono` between two such signatures. -/
-theorem names_of_subset_sig {Δ Δbase Δ' : Signature} {fn : SpecFn} {x res : TinyML.Var}
-    (hsub : Δ'.Subset (sig Δ fn x res)) (hbase : Δ.Subset Δbase) :
-    ∀ n ∈ Δ'.allNames, n ∈ Δbase.allNames ∨ n ∈ bodyAvoid fn x res :=
-  fun n hn => (List.mem_append.mp (relBodySupply_covers_of_subset hsub n hn)).imp
-    (Signature.allNames_subset hbase n) id
-
-/-- Successful split body encodings are well-formed in the split-only body
-signature. -/
-theorem splitBody_wfIn_defvalBodySig {primitives : PrimEncodings}
-    {Γ : FunCtx} {Δ : Signature}
-    {f : TinyML.Var} {fn : SpecFn} {x res : TinyML.Var} {e : Typed.Expr}
-    {body : DefVal}
-    (hlaw : primitives.Lawful)
-    (hΔ : Δ.wf) (hΓdef : Γ.splitWfIn Δ)
-    (hheadFresh : HeadFresh Δ fn x res)
-    (henc : splitBody primitives Γ Δ f fn x res e = .ok body) :
-    body.wfIn (defvalBodySig Δ fn x) := by
-  obtain ⟨c, hc, rfl⟩ := Except.map_eq_ok henc
-  refine split_wfIn_of_gate e hlaw
-    (subset_defvalBodySig_of_headFresh hheadFresh)
-    (defvalBodySig_wf_of_headFresh hΔ hheadFresh)
-    (ctx_splitWfIn_defvalBodySig_of_headFresh hΓdef hheadFresh)
-    (varEnv_defvalBodySig (Δ := Δ) (fn := fn) (x := x) ▸
-      VarEnv.ofSignature_wfIn (defvalBodySig_wf_of_headFresh hΔ hheadFresh))
-    (relBodySupply_covers_of_subset
-      (defvalBodySig_subset_bodySig.trans (bodySig_subset_sig_of_headFresh hheadFresh)))
-    hc
-
-/-- Successful split body encodings are well-formed in the full body
-signature. -/
-theorem splitBody_wfIn_bodySig {primitives : PrimEncodings}
-    {Γ : FunCtx} {Δ : Signature}
-    {f : TinyML.Var} {fn : SpecFn} {x res : TinyML.Var} {e : Typed.Expr}
-    {body : DefVal}
-    (hlaw : primitives.Lawful)
-    (hΔ : Δ.wf) (hΓdef : Γ.splitWfIn Δ)
-    (hheadFresh : HeadFresh Δ fn x res)
-    (henc : splitBody primitives Γ Δ f fn x res e = .ok body) :
-    body.wfIn (bodySig Δ fn x) := by
-  obtain ⟨c, hc, rfl⟩ := Except.map_eq_ok henc
-  refine split_wfIn_of_gate e hlaw
-    (subset_bodySig_of_headFresh hheadFresh)
-    (bodySig_wf_of_headFresh hΔ hheadFresh)
-    (ctx_splitWfIn_bodySig_of_headFresh hΓdef hheadFresh)
-    (varEnv_bodySig (Δ := Δ) (fn := fn) (x := x) ▸
-      VarEnv.ofSignature_wfIn (bodySig_wf_of_headFresh hΔ hheadFresh))
-    (relBodySupply_covers_of_subset (bodySig_subset_sig_of_headFresh hheadFresh))
-    hc
-
-
-/-- The split body never mentions the result variable, so pinning `res` does not
-change what it reads. -/
-theorem defval_eval_updateConst_res {primitives : PrimEncodings}
-    {Γ : FunCtx} {Δ : Signature} {ρ : Env}
-    {f : TinyML.Var} {fn : SpecFn} {x res : TinyML.Var} {e : Typed.Expr}
-    {body : DefVal} {D : Srt.value.denote → Prop}
-    {F : Srt.value.denote → Srt.value.denote}
-    (hlaw : primitives.Lawful) (hΔ : Δ.wf) (hΓdef : Γ.splitWfIn Δ)
-    (hheadFresh : HeadFresh Δ fn x res)
-    (henc : splitBody primitives Γ Δ f fn x res e = .ok body)
-    (vin vout : Srt.value.denote) :
-    (body.defined.eval ((defEnv ρ fn x D F vin).updateConst .value res vout) ↔
-        body.defined.eval (defEnv ρ fn x D F vin)) ∧
-      body.value.eval ((defEnv ρ fn x D F vin).updateConst .value res vout) =
-        body.value.eval (defEnv ρ fn x D F vin) := by
-  have hbody : body.wfIn (bodySig Δ fn x) :=
-    splitBody_wfIn_bodySig hlaw hΔ hΓdef hheadFresh henc
-  have hag : Env.agreeOn (bodySig Δ fn x) (defEnv ρ fn x D F vin)
-      ((defEnv ρ fn x D F vin).updateConst .value res vout) :=
-    Env.agreeOn_update_fresh_const (c := ⟨res, .value⟩)
-      (by simpa [bodySig] using hheadFresh.resFresh)
-  exact ⟨(Formula.eval_env_agree hbody.2 hag).symm, (Term.eval_env_agree hbody.1 hag).symm⟩
-
-theorem relEnv_splitEnv_agreeOn_relSig
-    {Δ : Signature} {ρ : Env} {fn : SpecFn} {x res : String}
-    {R : ValRel} {D : Srt.value.denote → Prop}
-    {F : Srt.value.denote → Srt.value.denote}
-    (hfresh : HeadFresh Δ fn x res) (vin vout : Srt.value.denote) :
-    Env.agreeOn (Relation.sig Δ fn x res)
-      (Relation.relEnv ρ fn x res R vin vout)
-      (((splitEnv ρ fn R D F).updateConst .value x vin).updateConst .value res vout) := by
-  let ρbin := ρ.updateBinaryRel .value .value fn.relName R
-  let ρfun := ρbin.updateUnary .value .value (fn.funcName) F
-  have hbase :
-      Env.agreeOn (Δ.addBinaryRel fn.rel) ρbin
-        (splitEnv ρ fn R D F) := by
-    have hfun : Env.agreeOn (Δ.addBinaryRel fn.rel) ρbin ρfun := by
-      simpa [ρbin, ρfun] using
-        (Env.agreeOn_update_fresh_unary (ρ := ρbin) (u := fn.func)
-          (f := F) (Δ := Δ.addBinaryRel fn.rel) hfresh.funFresh)
-    have hdef :
-        Env.agreeOn (Δ.addBinaryRel fn.rel) ρfun
-          (splitEnv ρ fn R D F) := by
-      have hdefFresh : fn.defName ∉ (Δ.addBinaryRel fn.rel).allNames := by
-        intro h
-        exact hfresh.defFresh (Signature.allNames_subset
-          (Signature.Subset.subset_addUnary _ fn.func) _ h)
-      simpa [splitEnv, ρbin, ρfun] using
-        (Env.agreeOn_update_fresh_unaryRel (ρ := ρfun) (u := fn.defined)
-          (f := D) (Δ := Δ.addBinaryRel fn.rel) hdefFresh)
-    exact Env.agreeOn_trans hfun hdef
-  simpa [Relation.relEnv, Relation.sig, Relation.bodySig] using
-    (Env.agreeOn_declVar
-      (Env.agreeOn_declVar hbase : Env.agreeOn
-        ((Δ.addBinaryRel fn.rel).declVar ⟨x, .value⟩)
-        ((ρ.updateBinaryRel .value .value fn.relName R).updateConst .value x vin)
-        ((splitEnv ρ fn R D F).updateConst .value x vin)) :
-      Env.agreeOn
-        (((Δ.addBinaryRel fn.rel).declVar ⟨x, .value⟩).declVar
-          ⟨res, .value⟩)
-        (((ρ.updateBinaryRel .value .value fn.relName R).updateConst .value x vin).updateConst
-          .value res vout)
-        (((splitEnv ρ fn R D F).updateConst .value x vin).updateConst .value res vout))
-
-theorem relEncodeBody_wfIn_relSig {primitives : PrimEncodings}
-    {Γ : FunCtx} {Δ : Signature}
-    {f : TinyML.Var} {fn : SpecFn} {x res : TinyML.Var} {e : Typed.Expr}
-    {φ : Formula}
-    (hlaw : primitives.Lawful)
-    (hΓfn : Γ.relWfIn Δ) (hΔ : Δ.wf) (hheadFresh : HeadFresh Δ fn x res)
-    (hrelEnc : Relation.relEncodeBody primitives Γ Δ f fn x res e = .ok φ) :
-    φ.wfIn (Relation.sig Δ fn x res) := by
-  obtain ⟨c, hc, rfl⟩ := Except.map_eq_ok hrelEnc
-  have hΔrelBody : (Relation.bodySig Δ fn x).wf := relBodySig_wf_of_headFresh hΔ hheadFresh
-  have hsigWf : (Relation.sig Δ fn x res).wf := Signature.wf_declVar hΔrelBody
-  have hcovRel : (relBodySupply Δ fn x res).Covers (Relation.bodySig Δ fn x) :=
-    relBodySupply_covers_of_subset
-      (relBodySig_subset_bodySig.trans (bodySig_subset_sig_of_headFresh hheadFresh))
-  have hcWf : Expr.WfIn (Relation.ctx Γ f fn) (bodyAvoid fn x res)
-      (Relation.bodySig Δ fn x) c :=
-    (encode_wfIn hlaw e (subset_relBodySig_of_headFresh hheadFresh) hΔrelBody
-      (VarEnv.ofSignature_wfIn hΔrelBody) hcovRel hc).weaken bodyAvoid_subset_relBodySupply
-  exact Relation.ofExpr_wfIn
-    (hcWf.mono (relBodySig_subset_relSig_of_headFresh hheadFresh) hsigWf
-      (names_of_subset_sig
-        (Signature.Subset.declVar relBodySig_subset_bodySig ⟨res, .value⟩)
-        (subset_relBodySig_of_headFresh hheadFresh)))
-    (ctx_relWfIn_relSig_of_headFresh hΓfn hheadFresh) hsigWf
-    (Signature.var_mem_declVar _ ⟨res, .value⟩)
-
-
-/-- A successful split body encoding exposes the shared IR expression behind
-it: the split body is its split reading, the relational body encoding is its
-relational reading, and it is well-formed in the body signature. -/
-theorem splitBody_witness {primitives : PrimEncodings} {Γ : FunCtx} {Δ : Signature}
-    {f : TinyML.Var} {fn : SpecFn} {x res : TinyML.Var} {e : Typed.Expr} {body : DefVal}
-    (hlaw : primitives.Lawful) (hΔ : Δ.wf) (hheadFresh : HeadFresh Δ fn x res)
-    (henc : splitBody primitives Γ Δ f fn x res e = .ok body) :
-    ∃ c, body = ofExpr .id c ∧
-      Relation.relEncodeBody primitives Γ Δ f fn x res e = .ok (Relation.ofExpr res c) ∧
-      Expr.WfIn (Relation.ctx Γ f fn) (bodyAvoid fn x res) (bodySig Δ fn x) c := by
-  obtain ⟨c, hc, rfl⟩ := Except.map_eq_ok henc
-  have hΔrelBody : (Relation.bodySig Δ fn x).wf := relBodySig_wf_of_headFresh hΔ hheadFresh
-  refine ⟨c, rfl, by simp [Relation.relEncodeBody, hc], ?_⟩
-  exact ((encode_wfIn hlaw e (subset_relBodySig_of_headFresh hheadFresh) hΔrelBody
-      (VarEnv.ofSignature_wfIn hΔrelBody)
-      (relBodySupply_covers_of_subset
-        (relBodySig_subset_bodySig.trans (bodySig_subset_sig_of_headFresh hheadFresh)))
-      hc).weaken bodyAvoid_subset_relBodySupply).mono relBodySig_subset_bodySig
-      (bodySig_wf_of_headFresh hΔ hheadFresh)
-      (names_of_subset_sig (bodySig_subset_sig_of_headFresh hheadFresh)
-        (subset_relBodySig_of_headFresh hheadFresh))
 
 /-! ## The two readings of the IR agree
 
@@ -884,7 +418,36 @@ induction on it. `Δ` grows with the names the calls bind, `ρrel` with the
 witnesses the relational side picks for them, and `σ` with the value terms the
 split side substituted; `SubstAgree` says the two accounts of those names
 agree. -/
-theorem ofExpr_iff {Γ : FunCtx} {Δbase : Signature} {res : String} {ρdef : Env}
+
+/-- The invariant the two encodings are compared under: the environment the
+relational side reads and the one the split side reads after its substitution
+give every term of `Δ` the same value. -/
+def SubstAgree (Δ : Signature) (ρrel ρdef : Env) (σ : Subst) : Prop :=
+  Env.agreeOnTerms Δ ρrel (σ.eval ρdef)
+
+theorem substAgree_refl {ρ : Env} : SubstAgree Δ ρ ρ .id :=
+  Env.agreeOnTerms_of_agreeOn Env.agreeOn_refl
+
+/-- Reading a term of `Δ` on either side of `SubstAgree` gives the same value. -/
+theorem eval_substAgree {Δ Δσ : Signature} {ρrel ρdef : Env} {σ : Subst}
+    {τ : Srt} {t : Term τ}
+    (hagree : SubstAgree Δ ρrel ρdef σ) (ht : t.wfIn Δ)
+    (hσ : σ.wfIn Δ.vars Δσ) (hΔσ : Δσ.wf) :
+    Term.eval ρrel t = Term.eval ρdef (t.subst σ) := by
+  rw [Term.eval_subst ht hσ hΔσ]
+  exact Term.eval_agreeOnTerms ht hagree
+
+/-- Binding a call's result extends the invariant: the relational side reads the
+witness it chose, the split side the value term it substituted. -/
+theorem substAgree_bind {ρrel ρdef : Env} {σ : Subst} {r : String} {t : Term .value}
+    (hagree : SubstAgree Δ ρrel ρdef σ) :
+    SubstAgree (Δ.declVar ⟨r, .value⟩) (ρrel.updateConst .value r (Term.eval ρdef t))
+      ρdef (σ.update .value r t) := by
+  unfold SubstAgree
+  rw [Subst.eval_update]
+  exact Env.agreeOnTerms_declVar hagree
+
+theorem ofExpr_iff {Δbase : Signature} {res : String} {ρdef : Env}
     (hΓdef : Γ.splitWfIn Δbase) (hΔbase : Δbase.wf) :
     ∀ {avoid : List String} {Δ : Signature} {c : Expr} {σ : Subst} {ρrel : Env},
       Expr.WfIn Γ avoid Δ c → res ∈ avoid →
@@ -973,9 +536,8 @@ theorem ofExpr_iff {Γ : FunCtx} {Δbase : Signature} {res : String} {ρdef : En
 /-- At a split-compatible environment the two readings of one body agree: the
 relational formula holds at `vout` exactly when the split body is defined and
 evaluates to `vout`. -/
-theorem body_eval_iff {Γ : FunCtx} {Δ : Signature} {ρsplit : Env}
-    {f : TinyML.Var} {fn : SpecFn} {x res : TinyML.Var} {c : Expr}
-    (hΓdef : Γ.splitWfIn Δ) (hΔ : Δ.wf) (hheadFresh : HeadFresh Δ fn x res)
+theorem body_eval_iff {ρsplit : Env} {c : Expr}
+    (hΓdef : Γ.splitWfIn Δ) (hΔ : Δ.wf) (hfresh : HeadFresh Δ fn x res)
     (hcWf : Expr.WfIn (Relation.ctx Γ f fn) (bodyAvoid fn x res) (bodySig Δ fn x) c)
     (hΓsplit : (Relation.ctx Γ f fn).splitCompatible ρsplit)
     (vin vout : Srt.value.denote) :
@@ -985,9 +547,8 @@ theorem body_eval_iff {Γ : FunCtx} {Δ : Signature} {ρsplit : Env}
           ((ρsplit.updateConst .value x vin).updateConst .value res vout) ∧
         (ofExpr .id c).value.eval
           ((ρsplit.updateConst .value x vin).updateConst .value res vout) = vout) := by
-  have hΔbody : (bodySig Δ fn x).wf := bodySig_wf_of_headFresh hΔ hheadFresh
-  have h := ofExpr_iff (res := res)
-    (ctx_splitWfIn_bodySig_of_headFresh hΓdef hheadFresh) hΔbody
+  have hΔbody := hfresh.toInfoFresh.bodySig_wf (x := x) hΔ
+  have h := ofExpr_iff (res := res) (ctx_splitWfIn_bodySig hΓdef hfresh) hΔbody
     hcWf (by simp [bodyAvoid]) (Signature.Subset.refl _) (Signature.SymbolSubset.refl _)
     (Subst.id_wfIn (fun _ h => h) hΔbody)
     (FunCtx.splitCompatible_updateConst
@@ -995,40 +556,92 @@ theorem body_eval_iff {Γ : FunCtx} {Δ : Signature} {ρsplit : Env}
     Env.agreeOn_refl substAgree_refl rfl
   simpa [Env.lookupConst_updateConst_same] using h
 
-/-- Evaluating the relational body formula in the combined `splitEnv` is
-equivalent to the abstract semantic body operator. -/
-theorem rel_body_eval_iff {primitives : PrimEncodings}
-    {Γ : FunCtx} {Δ : Signature} {ρ : Env}
-    {f : TinyML.Var} {fn : SpecFn} {x res : TinyML.Var} {e : Typed.Expr}
-    {φ : Formula} {R : ValRel}
-    {D : Srt.value.denote → Prop} {F : Srt.value.denote → Srt.value.denote}
-    (hlaw : primitives.Lawful)
-    (hΓrel : Γ.relWfIn Δ) (hΔ : Δ.wf) (hheadFresh : HeadFresh Δ fn x res)
-    (hrelEnc : relEncodeBody primitives Γ Δ f fn x res e = .ok φ)
+/-- The split body never mentions the result variable, so pinning `res` does not
+change what it reads. -/
+theorem splitBody_eval_updateConst_res
+    (hlaw : primitives.Lawful) (hΔ : Δ.wf) (hΓ : Γ.splitWfIn Δ)
+    (hfresh : HeadFresh Δ fn x res)
+    (henc : splitBody primitives Γ Δ f fn x res e = .ok body)
     (vin vout : Srt.value.denote) :
-    φ.eval (((splitEnv ρ fn R D F).updateConst .value x vin).updateConst
-        .value res vout) ↔
+    (body.defined.eval ((defEnv ρ fn x D F vin).updateConst .value res vout) ↔
+        body.defined.eval (defEnv ρ fn x D F vin)) ∧
+      body.value.eval ((defEnv ρ fn x D F vin).updateConst .value res vout) =
+        body.value.eval (defEnv ρ fn x D F vin) := by
+  have hbody : body.wfIn (bodySig Δ fn x) := splitBody_wfIn_bodySig hlaw hΔ hΓ hfresh henc
+  have hag : Env.agreeOn (bodySig Δ fn x) (defEnv ρ fn x D F vin)
+      ((defEnv ρ fn x D F vin).updateConst .value res vout) :=
+    Env.agreeOn_update_fresh_const (c := ⟨res, .value⟩) hfresh.resFresh_bodySig
+  exact ⟨(Formula.eval_env_agree hbody.2 hag).symm, (Term.eval_env_agree hbody.1 hag).symm⟩
+
+/-- The relational run environment and the split environment pinned at `x` and
+`res` agree on everything the relational body can read. -/
+theorem relEnv_agreeOn_splitEnv {R : ValRel}
+    (hfresh : HeadFresh Δ fn x res) (vin vout : Srt.value.denote) :
+    Env.agreeOn (Relation.sig Δ fn x res)
+      (Relation.relEnv ρ fn x res R vin vout)
+      (((splitEnv ρ fn R D F).updateConst .value x vin).updateConst .value res vout) := by
+  have hdefFresh : fn.defName ∉ (relBase Δ fn).allNames :=
+    Signature.not_mem_allNames_addBinaryRel hfresh.toInfoFresh.defFresh
+      (SpecFn.defName_ne_relName fn)
+  have hbase : Env.agreeOn (relBase Δ fn)
+      (ρ.updateBinaryRel .value .value fn.relName R) (splitEnv ρ fn R D F) :=
+    Env.agreeOn_trans
+      (Env.agreeOn_update_fresh_unary (u := fn.func) (f := F)
+        (Signature.not_mem_allNames_addBinaryRel hfresh.toInfoFresh.funcFresh
+          (SpecFn.funcName_ne_relName fn)))
+      (Env.agreeOn_update_fresh_unaryRel (u := fn.defined) (f := D) hdefFresh)
+  exact Env.agreeOn_declVar (Env.agreeOn_declVar hbase)
+
+/-- Evaluating the relational body formula in the split environment is the
+abstract semantic body operator. -/
+theorem rel_body_eval_iff {R : ValRel}
+    (hlaw : primitives.Lawful) (hΓ : Γ.relWfIn Δ) (hΔ : Δ.wf)
+    (hfresh : HeadFresh Δ fn x res)
+    (henc : relEncodeBody primitives Γ Δ f fn x res e = .ok φ)
+    (vin vout : Srt.value.denote) :
+    φ.eval (((splitEnv ρ fn R D F).updateConst .value x vin).updateConst .value res vout) ↔
       Relation.semanticBody Formula.sem ρ fn x res φ R vin vout := by
-  have hφwf : φ.wfIn (Relation.sig Δ fn x res) :=
-    relEncodeBody_wfIn_relSig hlaw hΓrel hΔ hheadFresh hrelEnc
-  have hag :=
-    relEnv_splitEnv_agreeOn_relSig (Δ := Δ) (ρ := ρ) (fn := fn)
-      (x := x) (res := res) (R := R) (D := D) (F := F) hheadFresh vin vout
+  have hφwf := relEncodeBody_wfIn hlaw hΓ hΔ hfresh henc
   unfold Relation.semanticBody Formula.sem
-  exact (Formula.eval_env_agree hφwf hag).symm
+  exact (Formula.eval_env_agree hφwf
+    (relEnv_agreeOn_splitEnv (D := D) (F := F) hfresh vin vout)).symm
+
+/-- Reading the relational body at the graph of a split candidate gives the
+graph of the split body operator. This is the step both fixpoint directions
+turn on. -/
+theorem semanticBody_graph
+    (hlaw : primitives.Lawful) (hΓ : Γ.splitCompatible ρ) (hΓwf : Γ.wfIn Δ) (hΔ : Δ.wf)
+    (hfresh : HeadFresh Δ fn x res)
+    (henc : splitBody primitives Γ Δ f fn x res e = .ok body)
+    (hrelEnc : relEncodeBody primitives Γ Δ f fn x res e = .ok φ)
+    (D : Srt.value.denote → Prop) (F : Srt.value.denote → Srt.value.denote) :
+    Relation.semanticBody Formula.sem ρ fn x res φ (graph D F) =
+      graph (defBody ρ fn x body F D) (valBody ρ fn x body F D) := by
+  obtain ⟨c, rfl, hrelEnc', hcWf⟩ := splitBody_witness hlaw hΔ hfresh henc
+  obtain rfl : φ = Relation.ofExpr res c := by
+    injection hrelEnc'.symm.trans hrelEnc with heq
+    exact heq.symm
+  have hΓsplit : (Relation.ctx Γ f fn).splitCompatible (graphEnv ρ fn D F) :=
+    splitCompatible_cons hΓ (hfresh.toInfoFresh.freshFn hΓwf)
+  funext vin vout
+  have hres := splitBody_eval_updateConst_res (ρ := ρ) (D := D) (F := F)
+    hlaw hΔ hΓwf.split hfresh henc vin vout
+  simp only [defEnv] at hres
+  exact propext
+    (((rel_body_eval_iff (R := graph D F) (D := D) (F := F)
+        hlaw hΓwf.rel hΔ hfresh hrelEnc' vin vout).symm).trans
+      ((body_eval_iff hΓwf.split hΔ hfresh hcWf hΓsplit vin vout).trans
+        (and_congr hres.1 (by rw [hres.2]; exact Iff.rfl))))
 
 /-! ## Soundness: split definedness and value imply the relational encoding -/
 
 /-- Split definedness plus the split body value gives a relational edge. This
 is the converse half of the relation/split fixpoint equivalence. -/
-theorem semrel_sound {primitives : PrimEncodings}
-    {Γ : FunCtx} {Δ : Signature} {ρ : Env}
-    {f : TinyML.Var} {fn : SpecFn} {x res : TinyML.Var} {e : Typed.Expr}
-    {body : DefVal} (hlaw : primitives.Lawful)
+theorem semrel_sound
+    (hlaw : primitives.Lawful)
     (henc : splitBody primitives Γ Δ f fn x res e = .ok body)
-    (hΓ : Γ.splitCompatible ρ)
-    (hΓwf : Γ.wfIn Δ)
-    (hΔ : Δ.wf) (hheadFresh : HeadFresh Δ fn x res)
+    (hΓ : Γ.splitCompatible ρ) (hΓwf : Γ.wfIn Δ)
+    (hΔ : Δ.wf) (hfresh : HeadFresh Δ fn x res)
     (vin vout : Srt.value.denote) :
     semdef primitives Γ Δ ρ f fn x res e body vin →
       body.value.eval
@@ -1036,92 +649,66 @@ theorem semrel_sound {primitives : PrimEncodings}
       vout →
       semrel primitives Γ Δ ρ f fn x res e vin vout := by
   intro hsem hval
-  obtain ⟨c, rfl, hrelEnc, hcWf⟩ := splitBody_witness hlaw hΔ hheadFresh henc
-  set φ := Relation.ofExpr res c
-  let R : ValRel := semrel primitives Γ Δ ρ f fn x res e
-  let F : Srt.value.denote → Srt.value.denote := semFunc R
-  let D : Srt.value.denote → Prop := semdef primitives Γ Δ ρ f fn x res e (ofExpr .id c)
-  have hmonoBody : RelationFix.Mono (Relation.semanticBody Formula.sem ρ fn x res φ) :=
-    Relation.semanticBody_mono_of_semanticMono (Relation.ofExpr_mono res c)
-  have hrel_eq :
-      R = RelationFix.lfp (Relation.semanticBody Formula.sem ρ fn x res φ) := by
-    simp [R, Relation.semrel, Relation.semanticFixpoint, hrelEnc]
-  have hpreR :
-      RelationFix.le (Relation.semanticBody Formula.sem ρ fn x res φ R) R := by
-    rw [hrel_eq]
-    exact RelationFix.lfp_prefixed hmonoBody
+  obtain ⟨c, rfl, hrelEnc, _⟩ := splitBody_witness hlaw hΔ hfresh henc
+  have hmono := Relation.semanticBody_mono_of_semanticMono
+    (ρ := ρ) (fn := fn) (x := x) (res := res) (Relation.ofExpr_mono res c)
+  have hpreR : RelationFix.le
+      (Relation.semanticBody Formula.sem ρ fn x res (Relation.ofExpr res c)
+        (semrel primitives Γ Δ ρ f fn x res e))
+      (semrel primitives Γ Δ ρ f fn x res e) := by
+    rw [show semrel primitives Γ Δ ρ f fn x res e =
+        RelationFix.lfp (Relation.semanticBody Formula.sem ρ fn x res (Relation.ofExpr res c))
+      from by simp [Relation.semrel, Relation.semanticFixpoint, hrelEnc]]
+    exact RelationFix.lfp_prefixed hmono
   -- Reading the body at the graph of a split candidate contained in `R` turns a
   -- split definedness obligation into a relational edge.
   have hstep : ∀ (P : Srt.value.denote → Prop) (vin' : Srt.value.denote),
-      RelationFix.le (graph P F) R → defBody ρ fn x (ofExpr .id c) F P vin' →
-      R vin' ((ofExpr .id c).value.eval (defEnv ρ fn x P F vin')) := by
+      RelationFix.le (graph P (semFunc (semrel primitives Γ Δ ρ f fn x res e)))
+        (semrel primitives Γ Δ ρ f fn x res e) →
+      defBody ρ fn x (ofExpr .id c)
+        (semFunc (semrel primitives Γ Δ ρ f fn x res e)) P vin' →
+      semrel primitives Γ Δ ρ f fn x res e vin'
+        (valBody ρ fn x (ofExpr .id c)
+          (semFunc (semrel primitives Γ Δ ρ f fn x res e)) P vin') := by
     intro P vin' hle hdefBody
-    let vbody := (ofExpr .id c).value.eval (defEnv ρ fn x P F vin')
-    let ρP := splitEnv ρ fn (graph P F) P F
-    have hΓP : (Relation.ctx Γ f fn).splitCompatible ρP :=
-      splitCompatible_cons_splitEnv hΓ (freshFn_of_headFresh hΓwf hheadFresh)
-    have hres := defval_eval_updateConst_res (ρ := ρ) (D := P) (F := F)
-      hlaw hΔ hΓwf.split hheadFresh henc vin' vbody
-    have hsplitP :
-        (ofExpr .id c).defined.eval
-            ((ρP.updateConst .value x vin').updateConst .value res vbody) ∧
-          (ofExpr .id c).value.eval
-            ((ρP.updateConst .value x vin').updateConst .value res vbody) = vbody :=
-      ⟨hres.1.mpr hdefBody, hres.2⟩
-    have hbodyGraph :
-        Relation.semanticBody Formula.sem ρ fn x res φ (graph P F) vin' vbody :=
-      (rel_body_eval_iff (D := P) (F := F) hlaw hΓwf.rel hΔ hheadFresh hrelEnc
-        vin' vbody).mp
-        ((body_eval_iff hΓwf.split hΔ hheadFresh hcWf hΓP vin' vbody).mpr hsplitP)
-    exact hpreR vin' vbody (hmonoBody hle vin' vbody hbodyGraph)
-  have hdomain : PredicateFix.le D (semDefined R) := by
-    unfold D semdef
+    refine hpreR _ _ (hmono hle _ _ ?_)
+    rw [semanticBody_graph hlaw hΓ hΓwf hΔ hfresh henc hrelEnc P _]
+    exact ⟨hdefBody, rfl⟩
+  have hdomain : PredicateFix.le (semdef primitives Γ Δ ρ f fn x res e (ofExpr .id c))
+      (semDefined (semrel primitives Γ Δ ρ f fn x res e)) := by
+    unfold semdef
     apply PredicateFix.lfp_le_of_prefixed
     intro vin' hdefBody
-    exact ⟨_, hstep (semDefined R) vin' (graph_le (fun _ h => h)) hdefBody⟩
-  have hdefBody : defBody ρ fn x (ofExpr .id c) F D vin := by
-    simpa [D, F] using
-      (semdef_unfold_of_split (ρ := ρ) (x := x) (res := res) henc vin).mp hsem
-  have hvalEq : (ofExpr .id c).value.eval (defEnv ρ fn x D F vin) = vout := by
-    simpa [D, F, R, defInterpEnv, defEnv] using hval
-  rw [← hvalEq]
-  exact hstep D vin (graph_le hdomain) hdefBody
+    exact ⟨_, hstep _ vin' (graph_le (fun _ h => h)) hdefBody⟩
+  rw [← show valBody ρ fn x (ofExpr .id c)
+        (semFunc (semrel primitives Γ Δ ρ f fn x res e))
+        (semdef primitives Γ Δ ρ f fn x res e (ofExpr .id c)) vin = vout
+      from by simpa [valBody, defEnv, defInterpEnv] using hval]
+  exact hstep _ vin (graph_le hdomain) ((semdef_unfold henc vin).mp hsem)
 
-theorem relation_semrel_functional_of_encodeBody {primitives : PrimEncodings}
-    {Γ : FunCtx} {Δ : Signature} {ρ : Env}
-    {f : TinyML.Var} {fn : SpecFn} {x res : TinyML.Var} {e : Typed.Expr}
-    {body : DefVal} (hlaw : primitives.Lawful)
+theorem semrel_functional
+    (hlaw : primitives.Lawful)
     (henc : splitBody primitives Γ Δ f fn x res e = .ok body)
-    (hΔ : Δ.wf) (hΓwf : Γ.wfIn Δ)
-    (hheadFresh : HeadFresh Δ fn x res)
+    (hΔ : Δ.wf) (hΓwf : Γ.wfIn Δ) (hfresh : HeadFresh Δ fn x res)
     (hρdet : Relation.BinaryRelDet Γ ρ ρ)
     (vin y₁ y₂ : Srt.value.denote) :
     semrel primitives Γ Δ ρ f fn x res e vin y₁ →
       semrel primitives Γ Δ ρ f fn x res e vin y₂ →
       y₁ = y₂ := by
   obtain ⟨c, hc, rfl⟩ := Except.map_eq_ok henc
-  have hresFreshR : res ∉ (Relation.bodySig Δ fn x).allNames := by
-    intro hres
-    exact hheadFresh.resFresh (Signature.allNames_subset
-      (relBodySig_subset_bodySig (Δ := Δ) (fn := fn) (x := x)) _ hres)
   exact Relation.semrel_functional (primitives := primitives) hlaw hc hΓwf.rel
-    hheadFresh.relFresh
-    (subset_relBodySig_of_headFresh hheadFresh)
-    (relBodySig_wf_of_headFresh hΔ hheadFresh)
-    hresFreshR hρdet vin y₁ y₂
+    hfresh.toInfoFresh.relFresh hfresh.toInfoFresh.subset_relBodySig
+    (hfresh.toInfoFresh.relBodySig_wf hΔ) hfresh.resFresh_relBodySig hρdet vin y₁ y₂
 
 /-- If the split body is defined at an input, then the body value is the
-canonical value chosen from the relational semantics. This is the exact
-soundness fact needed by the completeness direction when it builds the graph
-of the split interpretation inside the relational fixpoint. -/
-theorem semFunc_eq_of_semdef_value {primitives : PrimEncodings}
-    {Γ : FunCtx} {Δ : Signature} {ρ : Env}
-    {f : TinyML.Var} {fn : SpecFn} {x res : TinyML.Var} {e : Typed.Expr}
-    {body : DefVal} (hlaw : primitives.Lawful)
+canonical value chosen from the relational semantics. This is what the
+completeness direction needs when it builds the graph of the split
+interpretation inside the relational fixpoint. -/
+theorem semFunc_eq
+    (hlaw : primitives.Lawful)
     (henc : splitBody primitives Γ Δ f fn x res e = .ok body)
-    (hΓ : Γ.splitCompatible ρ)
-    (hΓwf : Γ.wfIn Δ)
-    (hΔ : Δ.wf) (hheadFresh : HeadFresh Δ fn x res)
+    (hΓ : Γ.splitCompatible ρ) (hΓwf : Γ.wfIn Δ)
+    (hΔ : Δ.wf) (hfresh : HeadFresh Δ fn x res)
     (hρdet : Relation.BinaryRelDet Γ ρ ρ)
     (vin vout : Srt.value.denote) :
     semdef primitives Γ Δ ρ f fn x res e body vin →
@@ -1130,28 +717,20 @@ theorem semFunc_eq_of_semdef_value {primitives : PrimEncodings}
       vout →
       semFunc (semrel primitives Γ Δ ρ f fn x res e) vin = vout := by
   intro hdefined hval
-  let R : ValRel := semrel primitives Γ Δ ρ f fn x res e
-  have hrelBody : R vin vout := by
-    simpa [R] using
-      semrel_sound hlaw henc hΓ hΓwf hΔ hheadFresh vin vout hdefined hval
-  have hdefinedR : semDefined R vin := ⟨vout, hrelBody⟩
-  have hchosen : R vin (semFunc R vin) := semFunc_spec hdefinedR
-  exact relation_semrel_functional_of_encodeBody hlaw henc hΔ hΓwf hheadFresh hρdet vin
-      (semFunc R vin) vout (by simpa [R] using hchosen) (by simpa [R] using hrelBody)
+  have hrelBody := semrel_sound hlaw henc hΓ hΓwf hΔ hfresh vin vout hdefined hval
+  exact semrel_functional hlaw henc hΔ hΓwf hfresh hρdet vin _ vout
+    (semFunc_spec ⟨vout, hrelBody⟩) hrelBody
 
 /-! ## Completeness: the relational encoding implies split definedness and value -/
 
 /-- A relational edge through the semantic body determines the split
 definedness predicate and the value computed by the split body. This is one
 half of the relation/split fixpoint equivalence. -/
-theorem semrel_complete {primitives : PrimEncodings}
-    {Γ : FunCtx} {Δ : Signature} {ρ : Env}
-    {f : TinyML.Var} {fn : SpecFn} {x res : TinyML.Var} {e : Typed.Expr}
-    {body : DefVal} (hlaw : primitives.Lawful)
+theorem semrel_complete
+    (hlaw : primitives.Lawful)
     (henc : splitBody primitives Γ Δ f fn x res e = .ok body)
-    (hΓ : Γ.splitCompatible ρ)
-    (hΓwf : Γ.wfIn Δ)
-    (hΔ : Δ.wf) (hheadFresh : HeadFresh Δ fn x res)
+    (hΓ : Γ.splitCompatible ρ) (hΓwf : Γ.wfIn Δ)
+    (hΔ : Δ.wf) (hfresh : HeadFresh Δ fn x res)
     (hρdet : Relation.BinaryRelDet Γ ρ ρ)
     (vin vout : Srt.value.denote) :
     semrel primitives Γ Δ ρ f fn x res e vin vout →
@@ -1160,56 +739,33 @@ theorem semrel_complete {primitives : PrimEncodings}
         ((defInterpEnv primitives Γ Δ ρ f fn x res e body).updateConst .value x vin) =
       vout := by
   intro hrel
-  obtain ⟨c, rfl, hrelEnc, hcWf⟩ := splitBody_witness hlaw hΔ hheadFresh henc
-  set φ := Relation.ofExpr res c
-  let R : ValRel := semrel primitives Γ Δ ρ f fn x res e
-  let D : Srt.value.denote → Prop := semdef primitives Γ Δ ρ f fn x res e (ofExpr .id c)
-  let F : Srt.value.denote → Srt.value.denote := semFunc R
-  have hrel_eq :
-      R = RelationFix.lfp (Relation.semanticBody Formula.sem ρ fn x res φ) := by
-    simp [R, Relation.semrel, Relation.semanticFixpoint, hrelEnc]
+  obtain ⟨c, rfl, hrelEnc, _⟩ := splitBody_witness hlaw hΔ hfresh henc
+  set D := semdef primitives Γ Δ ρ f fn x res e (ofExpr .id c) with hD
+  set F := semFunc (semrel primitives Γ Δ ρ f fn x res e) with hF
   -- The graph of the split presentation is a prefixed point of the relational
   -- body, so it contains the relational fixpoint.
-  have hpre :
-      RelationFix.le (Relation.semanticBody Formula.sem ρ fn x res φ (graph D F))
-        (graph D F) := by
-    intro vin vout hbody
-    let ρS := splitEnv ρ fn (graph D F) D F
-    have hΓS : (Relation.ctx Γ f fn).splitCompatible ρS :=
-      splitCompatible_cons_splitEnv hΓ (freshFn_of_headFresh hΓwf hheadFresh)
-    have hbodyρS :
-        φ.eval ((ρS.updateConst .value x vin).updateConst .value res vout) := by
-      simpa [ρS] using
-        (rel_body_eval_iff (D := D) (F := F) hlaw hΓwf.rel hΔ hheadFresh hrelEnc
-          vin vout).mpr hbody
-    have hres := defval_eval_updateConst_res (ρ := ρ) (D := D) (F := F)
-      hlaw hΔ hΓwf.split hheadFresh henc vin vout
-    have hsplit :
-        (ofExpr .id c).defined.eval (defEnv ρ fn x D F vin) ∧
-          (ofExpr .id c).value.eval (defEnv ρ fn x D F vin) = vout :=
-      have hpinned := (body_eval_iff hΓwf.split hΔ hheadFresh hcWf hΓS vin vout).mp hbodyρS
-      ⟨hres.1.mp hpinned.1, hres.2.symm.trans hpinned.2⟩
-    have hdefined : D vin :=
-      (semdef_unfold_of_split (ρ := ρ) (x := x) (res := res) henc vin).mpr
-        (by simpa [D, F, defBody, defEnv] using hsplit.1)
-    have hfun : F vin = vout := by
-      simpa [D, F, R, defInterpEnv] using
-        semFunc_eq_of_semdef_value hlaw henc hΓ hΓwf hΔ hheadFresh hρdet
-          vin vout (by simpa [D] using hdefined)
-          (by simpa [D, F, R, defInterpEnv] using hsplit.2)
-    exact ⟨hdefined, hfun⟩
+  have hpre : RelationFix.le
+      (Relation.semanticBody Formula.sem ρ fn x res (Relation.ofExpr res c) (graph D F))
+      (graph D F) := by
+    intro vin' vout' hbody
+    rw [semanticBody_graph hlaw hΓ hΓwf hΔ hfresh henc hrelEnc D F] at hbody
+    have hdefined : D vin' := (semdef_unfold henc vin').mpr hbody.1
+    refine ⟨hdefined, ?_⟩
+    rw [← hbody.2, hF]
+    exact semFunc_eq hlaw henc hΓ hΓwf hΔ hfresh hρdet vin' _ hdefined
+      (by simp [valBody, defEnv, defInterpEnv, hD])
   have hS : graph D F vin vout :=
-    RelationFix.lfp_le_of_prefixed hpre vin vout (by simpa [R, hrel_eq] using hrel)
-  have hdefined : D vin := hS.1
-  let vbody :=
-    (ofExpr .id c).value.eval
-      ((defInterpEnv primitives Γ Δ ρ f fn x res e (ofExpr .id c)).updateConst .value x vin)
-  have hbody_eq_fun : vbody = F vin :=
-    (by
-      simpa [D, F, R, defInterpEnv, vbody] using
-        semFunc_eq_of_semdef_value hlaw henc hΓ hΓwf hΔ hheadFresh hρdet
-          vin vbody (by simpa [D] using hdefined) rfl : F vin = vbody).symm
-  exact ⟨by simpa [D] using hdefined, by simpa [vbody] using hbody_eq_fun.trans hS.2⟩
+    RelationFix.lfp_le_of_prefixed hpre vin vout
+      (by rw [show RelationFix.lfp
+            (Relation.semanticBody Formula.sem ρ fn x res (Relation.ofExpr res c)) =
+          semrel primitives Γ Δ ρ f fn x res e
+        from by simp [Relation.semrel, Relation.semanticFixpoint, hrelEnc]]; exact hrel)
+  refine ⟨hS.1, ?_⟩
+  have hval : valBody ρ fn x (ofExpr .id c) F D vin = F vin := by
+    rw [hF]
+    exact (semFunc_eq hlaw henc hΓ hΓwf hΔ hfresh hρdet vin _ hS.1
+      (by simp [valBody, defEnv, defInterpEnv, hD])).symm
+  simpa [valBody, defEnv, defInterpEnv] using hval.trans hS.2
 
 end Skolemize
 end Verifier.RelationalEncoding

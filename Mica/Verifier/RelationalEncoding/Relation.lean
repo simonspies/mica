@@ -184,10 +184,6 @@ theorem ofExpr_det {Γ : FunCtx} {res : String} {avoid : List String} {Δ : Sign
 
 /-! ## Body encoding -/
 
-/-- Extend the function context so recursive calls to `f` resolve to `fn`. -/
-def ctx (Γ : FunCtx) (f : TinyML.Var) (fn : SpecFn) : FunCtx :=
-  (f, fn) :: Γ
-
 /-- The encoder IR of `rec f x := e`'s body. Both encodings consume it. -/
 def encodeBody (primitives : PrimEncodings) (Γ : FunCtx) (Δ : Signature)
     (f : TinyML.Var) (fn : SpecFn) (x res : TinyML.Var) (e : Typed.Expr) :
@@ -237,21 +233,21 @@ theorem semrel_functional
   have hxres : x ≠ res := by
     intro h
     exact hresFresh (by
-      simp [bodySig, Signature.declVar, Signature.addVar, Signature.allNames, h])
+      simp [bodySig, relBase, Signature.declVar, Signature.addVar, Signature.allNames, h])
   have hcovBody : (relBodySupply Δ fn x res).Covers (bodySig Δ fn x) := by
     intro n hn
     by_contra hnAvoid
-    have hnΔ : n ∉ Δ.allNames := fun h => hnAvoid (by simp [relBodySupply, bodyAvoid, h])
-    have hnRel : n ≠ fn.relName := fun h => hnAvoid (by simp [relBodySupply, bodyAvoid, h])
-    have hnX : n ≠ x := fun h => hnAvoid (by simp [relBodySupply, bodyAvoid, h])
+    have hnΔ : n ∉ Δ.allNames := fun h => hnAvoid (by simp [relBodySupply, bodyAvoid, SpecFn.names, h])
+    have hnRel : n ≠ fn.relName := fun h => hnAvoid (by simp [relBodySupply, bodyAvoid, SpecFn.names, h])
+    have hnX : n ≠ x := fun h => hnAvoid (by simp [relBodySupply, bodyAvoid, SpecFn.names, h])
     exact (Signature.not_mem_allNames_declVar
       (Signature.not_mem_allNames_addBinaryRel hnΔ hnRel) hnX)
-      (by simpa [bodySig] using hn)
+      (by simpa [bodySig, relBase] using hn)
   have hcWf : Expr.WfIn (ctx Γ f fn) (bodyAvoid fn x res) (bodySig Δ fn x) c :=
     (encode_wfIn hlaw e hsubBody hΔbody (VarEnv.ofSignature_wfIn hΔbody)
       hcovBody henc).weaken bodyAvoid_subset_relBodySupply
   have hdet : Det (ctx Γ f fn) res (bodySig Δ fn x) body :=
-    ofExpr_det hcWf hΔbody (by simp [bodyAvoid])
+    ofExpr_det hcWf hΔbody (by simp [bodyAvoid, SpecFn.names])
   let S : ValRel := fun a b => R a b ∧ ∀ b', R a b' → b = b'
   have hSleR : RelationFix.le S R := fun _ _ h => h.1
   have hpre : RelationFix.le (F S) S := by

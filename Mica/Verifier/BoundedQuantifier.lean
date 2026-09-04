@@ -635,7 +635,7 @@ theorem compile_wfIn {primitives : PrimEncodings} (hlaw : primitives.Lawful)
   obtain ⟨hΔpi, hp, hi⟩ := matrix_vars hΔ hv.argFresh hv.idxFresh hv.idxNeArg
   simp only [compile] at henc
   obtain ⟨c, hc, rfl⟩ := Except.map_eq_ok henc
-  exact Skolemize.split_wfIn_of_gate s.body hlaw (Signature.Subset.refl _) hΔpi
+  exact Skolemize.ofExpr_wfIn_of_encode s.body hlaw (Signature.Subset.refl _) hΔpi
     (FunCtx.splitWfIn_mono hΓ.split (hsubp.trans hsubpi))
     ((VarEnv.ofSignature_wfIn hΔpi).bind (gpack_wfIn hΔpi hp hi))
     (NameSupply.ofSignature_covers _) hc
@@ -820,21 +820,27 @@ theorem declare_correct (s : Lifting) (body : Skolemize.DefVal) (Δ : Signature)
       Relation.BinaryRelDet (Γ ++ [(s.name, s.name)]) ρ' ρ' ∧
       Q () st' ρ' := by
   have hf : Skolemize.InfoFresh Δ s.name s.arg :=
-    { relFresh := hv.relFresh, funFresh := hv.funFresh, defFresh := hv.defFresh,
-      argFresh := hv.argFresh, argNeRel := hv.argNeRel,
-      argNeFun := hv.argNeFun, argNeDef := hv.argNeDef }
+    { symFresh := by
+        intro n hn
+        simp only [SpecFn.names, List.mem_cons, List.not_mem_nil, or_false] at hn
+        rcases hn with rfl | rfl | rfl
+        exacts [hv.relFresh, hv.funFresh, hv.defFresh]
+      argFresh := by
+        simp [SpecFn.names, hv.argFresh, hv.argNeRel, hv.argNeFun, hv.argNeDef] }
   have hh : Skolemize.HeadFresh Δ s.name s.arg s.idx :=
-    Skolemize.headFresh_of_fresh hf hv.idxFresh hv.idxNeRel hv.idxNeFun
-      hv.idxNeDef hv.idxNeArg
-  have hwfext : (s.extendSignature Δ).wf := hf.wf_addSplit hwf
+    { toInfoFresh := hf
+      resFresh := by
+        simp [SpecFn.names, hv.idxFresh, hv.idxNeRel, hv.idxNeFun, hv.idxNeDef,
+          hv.idxNeArg] }
+  have hwfext : (s.extendSignature Δ).wf := hf.base_wf hwf
   have hsub : Δ.Subset (s.extendSignature Δ) :=
     ((Signature.Subset.subset_addBinaryRel _ _).trans
       (Signature.Subset.subset_addUnary _ _)).trans
       (Signature.Subset.subset_addUnaryRel _ _)
-  have hargext : s.arg ∉ (s.extendSignature Δ).allNames := hh.argFresh
+  have hargext : s.arg ∉ (s.extendSignature Δ).allNames := hf.argFresh_base
   have hidxext : s.idx ∉ (s.extendSignature Δ).allNames := by
     intro hmem
-    apply hh.resFresh
+    apply hh.resFresh_bodySig
     show s.idx ∈ (s.argScope (s.extendSignature Δ)).allNames
     rw [Signature.allNames_declVar_of_not_in hargext]
     exact List.mem_cons_of_mem _ hmem

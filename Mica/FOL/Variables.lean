@@ -476,6 +476,23 @@ theorem Subset.addConst {Δ Δ' : Signature} (h : Δ.Subset Δ') (c : FOL.Const)
    fun x hx => by cases hx with | head => left | tail _ hmem => right; exact h.consts x hmem,
    h.unary, h.binary, h.ternary, h.unaryRel, h.binaryRel⟩
 
+theorem Subset.addUnary {Δ Δ' : Signature} (h : Δ.Subset Δ') (u : FOL.Unary) :
+    (Δ.addUnary u).Subset (Δ'.addUnary u) :=
+  ⟨h.vars, h.consts,
+   fun x hx => by cases hx with | head => left | tail _ hmem => right; exact h.unary x hmem,
+   h.binary, h.ternary, h.unaryRel, h.binaryRel⟩
+
+theorem Subset.addUnaryRel {Δ Δ' : Signature} (h : Δ.Subset Δ') (u : FOL.UnaryRel) :
+    (Δ.addUnaryRel u).Subset (Δ'.addUnaryRel u) :=
+  ⟨h.vars, h.consts, h.unary, h.binary, h.ternary,
+   fun x hx => by cases hx with | head => left | tail _ hmem => right; exact h.unaryRel x hmem,
+   h.binaryRel⟩
+
+theorem Subset.addBinaryRel {Δ Δ' : Signature} (h : Δ.Subset Δ') (b : FOL.BinaryRel) :
+    (Δ.addBinaryRel b).Subset (Δ'.addBinaryRel b) :=
+  ⟨h.vars, h.consts, h.unary, h.binary, h.ternary, h.unaryRel,
+   fun x hx => by cases hx with | head => left | tail _ hmem => right; exact h.binaryRel x hmem⟩
+
 theorem Subset.subset_addVar (Δ : Signature) (v : Var) :
     Δ.Subset (Δ.addVar v) :=
   ⟨fun _ hx => List.mem_cons_of_mem _ hx, fun _ h => h, fun _ h => h, fun _ h => h, fun _ h => h, fun _ h => h, fun _ h => h⟩

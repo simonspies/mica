@@ -80,6 +80,13 @@ theorem funcName_ne_relName (f : SpecFn) : funcName f ≠ relName f :=
 theorem defName_ne_relName (f : SpecFn) : defName f ≠ relName f :=
   fun h => relName_ne_defName f h.symm
 
+/-- The three solver-facing symbol names a spec function introduces. -/
+def names (f : SpecFn) : List String := [relName f, funcName f, defName f]
+
+theorem names_nodup (f : SpecFn) : (names f).Nodup := by
+  simp [names, relName_ne_funcName f, relName_ne_defName f,
+    (defName_ne_funcName f).symm]
+
 /-- Solver-facing definedness predicate symbol for a spec-level function name. -/
 def defined (f : SpecFn) : FOL.UnaryRel :=
   ⟨defName f, .value⟩
