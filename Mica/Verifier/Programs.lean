@@ -48,7 +48,7 @@ private def Program.translateLeaf (primitives : PrimEncodings) (Δ : Signature)
     (e : Typed.Expr) : Except String (Term .value × Formula) := do
   let c ← encode primitives Δ Γfn (names.map (fun n => (n, .var .value n))) e
     (Verifier.RelationalEncoding.NameSupply.ofSignature Δ)
-  let dv := Verifier.RelationalEncoding.Skolemize.ofExpr .id c
+  let dv := Verifier.RelationalEncoding.Expr.toDefVal .id c
   .ok (dv.value, dv.defined)
 
 /-- The environment elaboration resolves specifications against: the registry's
@@ -148,7 +148,7 @@ private def extend (primitives : PrimEncodings) (acc : RelationSpec) (d : Typed.
       else if arg = defName then
         .error s!"[@@fn] argument name '{arg}' clashes with derived definedness name"
       else
-        let (res, bv, axs) ← Skolemize.bundle primitives acc.functionMap acc.delta f rel arg body
+        let (res, bv, axs) ← Skolemize.encode primitives acc.functionMap acc.delta f rel arg body
         let spec := { symbols := acc.symbols ++ [SpecFn.rel rel],
                       axioms := acc.axioms ++ axs,
                       functionMap := acc.functionMap ++ [(f, rel)],
@@ -224,8 +224,8 @@ private structure Inv (acc : RelationSpec) (st : TransState) (ρ : Env) : Prop w
   vars : st.decls.vars = []
   wf : st.decls.wf
   Γwf : FunCtx.wfIn acc.functionMap st.decls
-  split : FunCtx.splitCompatible acc.functionMap ρ
-  det : Relation.BinaryRelDet acc.functionMap ρ ρ
+  split : FunCtx.Agreement acc.functionMap ρ
+  det : FunCtx.Functional acc.functionMap ρ ρ
 
 omit [MicaGS HasLC.hasLC Sig] in
 /-- Declaring one relation-marked declaration preserves the assembly
@@ -255,11 +255,11 @@ private theorem declareAndAssume_correct {primitives : PrimEncodings}
       simp only [hext] at heval
       -- Unfold `extend` once to expose its construction facts about `info`.
       obtain ⟨hf, hspec_delta, hspec_fm, hinfoEq⟩ :
-          Skolemize.InfoFresh acc.delta rel_name info.arg ∧
+          SpecFnFresh acc.delta rel_name info.arg ∧
           info.spec.delta = ((acc.delta.addBinaryRel (SpecFn.rel rel_name)).addUnary
               (SpecFn.func rel_name)).addUnaryRel (SpecFn.defined rel_name) ∧
           info.spec.functionMap = acc.functionMap ++ [(info.f, rel_name)] ∧
-          Skolemize.bundle primitives acc.functionMap acc.delta info.f rel_name info.arg info.body
+          Skolemize.encode primitives acc.functionMap acc.delta info.f rel_name info.arg info.body
             = .ok (info.res, info.bv, info.axs) := by
         unfold extend at hext
         simp only [hrel, bind, Except.bind] at hext
@@ -284,39 +284,39 @@ private theorem declareAndAssume_correct {primitives : PrimEncodings}
       have hΓwf_acc : FunCtx.wfIn acc.functionMap acc.delta := hacc ▸ hΓwf
       have hΔwf_acc : acc.delta.wf := hacc ▸ hwf
       -- The chosen interpretations: the ground-truth relation and its split.
-      set R : Relation.ValRel :=
-        Relation.semrel primitives acc.functionMap acc.delta ρ
+      set R : ValRel :=
+        SpecFn.Semantics.rel primitives acc.functionMap acc.delta ρ
           info.f rel_name info.arg info.res info.body
-      set F := Skolemize.semFunc R
+      set F := ValRel.toFunc R
       set D : Srt.value.denote → Prop :=
-        Skolemize.semdef primitives acc.functionMap acc.delta ρ
+        SpecFn.Semantics.defined primitives acc.functionMap acc.delta ρ
           info.f rel_name info.arg info.res info.body info.bv
       have hgraph : ∀ a b, R a b ↔ D a ∧ F a = b := fun a b =>
-        Skolemize.bundle_semrel_compatible hlaw hinfoEq hsplit hΓwf_acc hΔwf_acc hf hdet a b
-      have henv : Skolemize.splitEnv ρ rel_name R D F
-          = (Skolemize.defInterpEnv primitives acc.functionMap acc.delta ρ
+        Skolemize.encode_agreement hlaw hinfoEq hsplit hΓwf_acc hΔwf_acc hf hdet a b
+      have henv : SpecFn.Env.both ρ rel_name R D F
+          = (SpecFn.Semantics.env primitives acc.functionMap acc.delta ρ
               info.f rel_name info.arg info.res info.body info.bv).updateBinaryRel
             .value .value (SpecFn.relName rel_name) R := by
-        simp only [Skolemize.defInterpEnv]
-        exact Skolemize.splitEnv_updateBinaryRel.symm
+        simp only [SpecFn.Semantics.env]
+        exact SpecFn.Env.both_updateBinaryRel.symm
       have haxeval : ∀ ax ∈ info.axs,
-          ax.formula.eval (Skolemize.splitEnv ρ rel_name R D F) := by
+          ax.formula.eval (SpecFn.Env.both ρ rel_name R D F) := by
         rw [henv]
-        exact Skolemize.bundle_eval_updateBinaryRel hlaw
+        exact Skolemize.encode_eval_updateBinaryRel hlaw
           hinfoEq hsplit hΓwf_acc hΔwf_acc hf hdet R
       obtain ⟨st4, ρ4, hst4_decls, howns4, hvars4, hwf4, hsub4, hagree4,
         hΓwf4, hsplit4, hdet4, hcont⟩ :=
         SpecFn.declare_correct rel_name info.f info.axs R F D acc.delta acc.functionMap st ρ
           hf.relFresh hf.funcFresh hf.defFresh hgraph hacc.symm howns hvars
-          (hf.base_wf hΔwf_acc) hΓwf_acc hsplit hdet
-          (Skolemize.bundle_wfIn hlaw hinfoEq hΔwf_acc hΓwf_acc hf) haxeval
+          (hf.sigBoth_wf hΔwf_acc) hΓwf_acc hsplit hdet
+          (Skolemize.encode_wfIn hlaw hinfoEq hΔwf_acc hΓwf_acc hf) haxeval
           (VerifM.eval_bind heval)
       have hdelta4 : info.spec.delta = st4.decls := by rw [hspec_delta, hst4_decls]
       have hΓwf4' : FunCtx.wfIn info.spec.functionMap st4.decls := by
         rw [hspec_fm]; exact hΓwf4
-      have hsplit4' : FunCtx.splitCompatible info.spec.functionMap ρ4 := by
+      have hsplit4' : FunCtx.Agreement info.spec.functionMap ρ4 := by
         rw [hspec_fm]; exact hsplit4
-      have hdet4' : Relation.BinaryRelDet info.spec.functionMap ρ4 ρ4 := by
+      have hdet4' : FunCtx.Functional info.spec.functionMap ρ4 ρ4 := by
         rw [hspec_fm]; exact hdet4
       exact ⟨info.spec, st4, ρ4,
         ⟨hdelta4, howns4, hvars4, hwf4, hΓwf4', hsplit4', hdet4'⟩,
@@ -435,9 +435,9 @@ theorem assemble_correct (primitives : PrimEncodings) (hlaw : primitives.Lawful)
   have hrest := hassembleFrom hownsWf
   have hempty_Γwf : FunCtx.wfIn empty.functionMap st.decls :=
     ⟨fun _ _ h => (List.not_mem_nil h).elim, fun _ _ h => (List.not_mem_nil h).elim⟩
-  have hempty_split : FunCtx.splitCompatible empty.functionMap ρ :=
+  have hempty_split : FunCtx.Agreement empty.functionMap ρ :=
     fun _ _ h => (List.not_mem_nil h).elim
-  have hempty_det : Relation.BinaryRelDet
+  have hempty_det : FunCtx.Functional
       empty.functionMap ρ ρ :=
     fun _ _ h => (List.not_mem_nil h).elim
   obtain ⟨acc, st1, ρ1, hinv1, hsub1, hag1, hcont⟩ :=

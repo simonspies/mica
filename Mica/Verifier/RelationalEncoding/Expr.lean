@@ -128,7 +128,7 @@ def PrimEncodings.lookup? (primitives : PrimEncodings) (name : String) : Option 
   primitives.find? (·.name == name)
 
 /-- An encoding that the table returns is an entry of that table. -/
-theorem PrimEncodings.mem_of_lookup? {primitives : PrimEncodings} {name : String}
+private theorem PrimEncodings.mem_of_lookup? {primitives : PrimEncodings} {name : String}
     {e : PrimEncoding} (h : primitives.lookup? name = some e) : e ∈ primitives :=
   List.mem_of_find?_eq_some h
 
@@ -157,7 +157,7 @@ def encodePrim (primitives : PrimEncodings) (Δ : Signature) (name : String)
 /-- A successful encoding is well-formed in each extension of the signature.
 The encoding is available in the base signature `Δ`. The `wfIn` law of the
 entry then gives well-formedness in `Δ'`. -/
-theorem encodePrim_wfIn {primitives : PrimEncodings} {Δ Δ' : Signature}
+private theorem encodePrim_wfIn {primitives : PrimEncodings} {Δ Δ' : Signature}
     {n : String} {vs : List (Term .value)} {v : Term .value}
     (hlaw : primitives.Lawful) (h : encodePrim primitives Δ n vs = .ok v)
     (hsub : Δ.Subset Δ') (hΔ' : Δ'.wf)
@@ -180,7 +180,7 @@ theorem encodePrim_wfIn {primitives : PrimEncodings} {Δ Δ' : Signature}
 /-! ## Constant and operator encoders -/
 
 /-- Encode a TinyML constant into a value-sorted FOL term. -/
-def encodeConst : TinyML.Const → Term .value
+private def encodeConst : TinyML.Const → Term .value
   | .int  n => .unop .ofInt  (.const (.i n))
   | .bool b => .unop .ofBool (.const (.b b))
   | .char c => .unop .ofChar (.const (.char c))
@@ -189,13 +189,13 @@ def encodeConst : TinyML.Const → Term .value
   | .unit   => .const .unit
 
 /-- Encode a TinyML unary op acting on a value-sorted argument. -/
-def encodeUnOp : TinyML.UnOp → Term .value → Except String (Term .value)
+private def encodeUnOp : TinyML.UnOp → Term .value → Except String (Term .value)
   | .neg,    v => .ok (.unop .ofInt  (.unop .neg (.unop .toInt  v)))
   | .not,    v => .ok (.unop .ofBool (.unop .not (.unop .toBool v)))
   | .proj n, v => .ok (.unop .vhead (vtailN (.unop .toValList v) n))
 
 /-- Encode a TinyML binary op acting on two value-sorted arguments. -/
-def encodeBinOp : TinyML.BinOp → Term .value → Term .value → Except String (Term .value)
+private def encodeBinOp : TinyML.BinOp → Term .value → Term .value → Except String (Term .value)
   | .add, a, b => .ok (.unop .ofInt  (.binop .add  (.unop .toInt a) (.unop .toInt b)))
   | .sub, a, b => .ok (.unop .ofInt  (.binop .sub  (.unop .toInt a) (.unop .toInt b)))
   | .mul, a, b => .ok (.unop .ofInt  (.binop .mul  (.unop .toInt a) (.unop .toInt b)))
@@ -211,11 +211,11 @@ def encodeBinOp : TinyML.BinOp → Term .value → Term .value → Except String
 
 /-! ## Well-formedness of the constant and operator encoders -/
 
-theorem encodeConst_wfIn (c : TinyML.Const) (Δ : Signature) :
+private theorem encodeConst_wfIn (c : TinyML.Const) (Δ : Signature) :
     (encodeConst c).wfIn Δ := by
   cases c <;> simp [encodeConst, Term.wfIn, UnOp.wfIn, Const.wfIn]
 
-theorem encodeUnOp_wfIn {op : TinyML.UnOp} {v v' : Term .value} {Δ : Signature}
+private theorem encodeUnOp_wfIn {op : TinyML.UnOp} {v v' : Term .value} {Δ : Signature}
     (h : encodeUnOp op v = .ok v') (hv : v.wfIn Δ) : v'.wfIn Δ := by
   cases op with
   | neg =>
@@ -233,7 +233,7 @@ theorem encodeUnOp_wfIn {op : TinyML.UnOp} {v v' : Term .value} {Δ : Signature}
     change UnOp.vhead.wfIn Δ ∧ (vtailN (.unop .toValList v) n).wfIn Δ
     exact ⟨trivial, ht⟩
 
-theorem encodeBinOp_wfIn {op : TinyML.BinOp} {v1 v2 v : Term .value} {Δ : Signature}
+private theorem encodeBinOp_wfIn {op : TinyML.BinOp} {v1 v2 v : Term .value} {Δ : Signature}
     (h : encodeBinOp op v1 v2 = .ok v) (h1 : v1.wfIn Δ) (h2 : v2.wfIn Δ) :
     v.wfIn Δ := by
   cases op
@@ -264,7 +264,7 @@ mutual
 continuation-passing style. The only place that pattern-matches on
 `Typed.Expr`. It either produces an IR expression, drawing call-result names
 from the supply, or the message naming what the encoder does not support. -/
-def encodeWith (primitives : PrimEncodings) (Δ : Signature) (Γ : FunCtx) (δ : VarEnv) :
+private def encodeWith (primitives : PrimEncodings) (Δ : Signature) (Γ : FunCtx) (δ : VarEnv) :
     Typed.Expr → (Term .value → NameSupply → Except String Expr) →
       NameSupply → Except String Expr
   | .const c, k, s => k (encodeConst c) s
@@ -323,7 +323,7 @@ def encodeWith (primitives : PrimEncodings) (Δ : Signature) (Γ : FunCtx) (δ :
 /-- Encode a list of expressions left-to-right, collecting their value terms.
 This is the list companion to `encodeWith`, needed by tuple syntax and later
 other n-ary constructs. -/
-def encodeListWith (primitives : PrimEncodings) (Δ : Signature) (Γ : FunCtx) (δ : VarEnv) :
+private def encodeListWith (primitives : PrimEncodings) (Δ : Signature) (Γ : FunCtx) (δ : VarEnv) :
     List Typed.Expr → (List (Term .value) → NameSupply → Except String Expr) →
       NameSupply → Except String Expr
   | [], k, s => k [] s
@@ -338,7 +338,7 @@ before encoding `body`; on the false branch the remaining branches are tried.
 The final branch is dispatched unconditionally — the elaborator guarantees an
 exhaustive list, so the trailing case must hold. An empty list (which the
 elaborator never produces) is conservatively rejected. -/
-def encodeMatchWith (primitives : PrimEncodings) (Δ : Signature)
+private def encodeMatchWith (primitives : PrimEncodings) (Δ : Signature)
     (Γ : FunCtx) (δ : VarEnv) (scrut : Term .value) :
     List (Typed.Binder × Typed.Expr) → Nat →
       (Term .value → NameSupply → Except String Expr) → NameSupply → Except String Expr
@@ -759,18 +759,16 @@ theorem encode_wfIn {primitives : PrimEncodings} {Γ : FunCtx} {Δ Δ' : Signatu
     Expr.WfIn Γ s.avoid Δ' c :=
   encodeWith_wfIn hlaw e hsub hΔ' hδ hcov ret_wfCont henc
 
-/-! ## Semantic interpretation of encodings
+/-! ## Reading an encoding in an environment
 
-A semantic predicate `sem : M → Env → Prop` explains how an encoding is
-interpreted in an environment. Downstream constructions (e.g. the relational
-encoder's least fixpoint) use these notions on top of the traversal. -/
+An encoding is read in an environment by an `Eval`. The two readings of the IR
+supply one each: `Formula.eval` and `DefVal`'s definedness component. -/
 
-/-- Semantic interpretation of an encoded expression in an environment. -/
-abbrev SemPred (M : Type) := M → Env → Prop
+abbrev Eval (M : Type) := Env → M → Prop
 
-/-- An encoding is monotone when its semantic interpretation is stable under
-`Env.le`. -/
-def SemanticMono {M : Type} (sem : SemPred M) (m : M) : Prop :=
-  ∀ {ρ ρ' : Env}, Env.le ρ ρ' → sem m ρ → sem m ρ'
+/-- An encoding is monotone when its reading is stable under `Env.le`, so that
+growing the environment's uninterpreted predicates cannot invalidate it. -/
+def Eval.Mono {M : Type} (eval : Eval M) (m : M) : Prop :=
+  ∀ {ρ ρ' : Env}, Env.le ρ ρ' → eval ρ m → eval ρ' m
 
 end Verifier.RelationalEncoding

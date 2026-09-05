@@ -56,11 +56,11 @@ theorem declare_correct (L : SpecFn) (f : TinyML.Var) (axs : List Axiom)
     (hdecls : st.decls = Δ) (howns : st.owns = []) (hvars : st.decls.vars = [])
     (hwfext : (((Δ.addBinaryRel (rel L)).addUnary (func L)).addUnaryRel (defined L)).wf)
     (hΓwf : FunCtx.wfIn Γ Δ)
-    (hsplit : FunCtx.splitCompatible Γ ρ)
-    (hdet : Relation.BinaryRelDet Γ ρ ρ)
+    (hsplit : FunCtx.Agreement Γ ρ)
+    (hdet : FunCtx.Functional Γ ρ ρ)
     (haxwf : ∀ ax ∈ axs, ax.formula.wfIn
       (((Δ.addBinaryRel (rel L)).addUnary (func L)).addUnaryRel (defined L)))
-    (haxeval : ∀ ax ∈ axs, ax.formula.eval (Skolemize.splitEnv ρ L R D F))
+    (haxeval : ∀ ax ∈ axs, ax.formula.eval (SpecFn.Env.both ρ L R D F))
     (heval : VerifM.eval (declare L axs) st ρ Q) :
     ∃ st' ρ',
       st'.decls = ((Δ.addBinaryRel (rel L)).addUnary (func L)).addUnaryRel (defined L) ∧
@@ -68,8 +68,8 @@ theorem declare_correct (L : SpecFn) (f : TinyML.Var) (axs : List Axiom)
       st.decls.Subset st'.decls ∧
       Env.agreeOn st.decls ρ ρ' ∧
       FunCtx.wfIn (Γ ++ [(f, L)]) st'.decls ∧
-      FunCtx.splitCompatible (Γ ++ [(f, L)]) ρ' ∧
-      Relation.BinaryRelDet (Γ ++ [(f, L)]) ρ' ρ' ∧
+      FunCtx.Agreement (Γ ++ [(f, L)]) ρ' ∧
+      FunCtx.Functional (Γ ++ [(f, L)]) ρ' ρ' ∧
       Q () st' ρ' := by
   simp only [declare] at heval
   obtain ⟨_, h1⟩ := VerifM.eval_declBinaryRelExact (VerifM.eval_bind heval)
@@ -87,7 +87,7 @@ theorem declare_correct (L : SpecFn) (f : TinyML.Var) (axs : List Axiom)
       .value (defName L) D
   have hst3 : st3.decls = Δext := by
     simp only [st3, Δext, hdecls]
-  have hρ3 : ρ3 = Skolemize.splitEnv ρ L R D F := by
+  have hρ3 : ρ3 = SpecFn.Env.both ρ L R D F := by
     rfl
   have hsub : Δ.Subset Δext :=
     ((Signature.Subset.subset_addBinaryRel _ _).trans
@@ -95,7 +95,7 @@ theorem declare_correct (L : SpecFn) (f : TinyML.Var) (axs : List Axiom)
       (Signature.Subset.subset_addUnaryRel _ _)
   obtain ⟨st4, hst4, howns4, _, hQ4⟩ :=
     VerifM.eval_assumeAxioms h4 (fun ax hax => hst3 ▸ haxwf ax hax)
-      (fun ax hax => by simpa [Skolemize.splitEnv] using haxeval ax hax)
+      (fun ax hax => by simpa [SpecFn.Env.both] using haxeval ax hax)
   have howns4' : st4.owns = [] := by rw [howns4]; exact howns
   have hvars4 : st4.decls.vars = [] := by
     rw [hst4, hst3]
@@ -105,7 +105,7 @@ theorem declare_correct (L : SpecFn) (f : TinyML.Var) (axs : List Axiom)
   have hwf4 : st4.decls.wf := by rw [hst4, hst3]; exact hwfext
   have hagree : Env.agreeOn Δ ρ ρ3 := by
     rw [hρ3]
-    exact Skolemize.splitEnv_agreeOn hrelFresh hfunFresh hdefFresh
+    exact SpecFn.Env.both_agreeOn hrelFresh hfunFresh hdefFresh
   have hΓwf' : FunCtx.wfIn (Γ ++ [(f, L)]) st4.decls := by
     rw [hst4, hst3]
     refine ⟨?_, ?_⟩
@@ -116,31 +116,31 @@ theorem declare_correct (L : SpecFn) (f : TinyML.Var) (axs : List Axiom)
         exact List.Mem.head _
     · intro x rel hxr
       rcases List.mem_append.mp hxr with hold | hnew
-      · obtain ⟨hu, hr⟩ := hΓwf.split x rel hold
+      · obtain ⟨hu, hr⟩ := hΓwf.func x rel hold
         exact ⟨hsub.unary _ hu, hsub.unaryRel _ hr⟩
       · simp at hnew; obtain ⟨_, rfl⟩ := hnew
         exact ⟨List.Mem.head _, List.Mem.head _⟩
-  have hsplit' : FunCtx.splitCompatible (Γ ++ [(f, L)]) ρ3 := by
+  have hsplit' : FunCtx.Agreement (Γ ++ [(f, L)]) ρ3 := by
     intro g rel hgr x y
     rcases List.mem_append.mp hgr with hold | hnew
-    · obtain ⟨hu, hr⟩ := hΓwf.split g rel hold
+    · obtain ⟨hu, hr⟩ := hΓwf.func g rel hold
       obtain ⟨her, hec, hed⟩ := SpecFn.eval_of_agreeOn hagree (hΓwf.rel g rel hold) hu hr
       rw [← her, ← hec, ← hed]
       exact hsplit g rel hold x y
     · simp at hnew; obtain ⟨_, rfl⟩ := hnew
       rw [hρ3]
-      exact Skolemize.splitEnv_graph rel ρ hgraph x y
-  have hdet' : Relation.BinaryRelDet (Γ ++ [(f, L)]) ρ3 ρ3 := by
+      exact SpecFn.Env.both_agreement rel ρ hgraph x y
+  have hdet' : FunCtx.Functional (Γ ++ [(f, L)]) ρ3 ρ3 := by
     intro g rel hgr x y₁ y₂ hy₁ hy₂
     rcases List.mem_append.mp hgr with hold | hnew
-    · obtain ⟨hu, hr⟩ := hΓwf.split g rel hold
+    · obtain ⟨hu, hr⟩ := hΓwf.func g rel hold
       obtain ⟨her, _, _⟩ := SpecFn.eval_of_agreeOn hagree (hΓwf.rel g rel hold) hu hr
       rw [← her] at hy₁ hy₂
       exact hdet g rel hold x y₁ y₂ hy₁ hy₂
     · simp at hnew; obtain ⟨_, rfl⟩ := hnew
       rw [hρ3] at hy₁ hy₂
-      obtain ⟨_, heq₁⟩ := (Skolemize.splitEnv_graph rel ρ hgraph x y₁).mp hy₁
-      obtain ⟨_, heq₂⟩ := (Skolemize.splitEnv_graph rel ρ hgraph x y₂).mp hy₂
+      obtain ⟨_, heq₁⟩ := (SpecFn.Env.both_agreement rel ρ hgraph x y₁).mp hy₁
+      obtain ⟨_, heq₂⟩ := (SpecFn.Env.both_agreement rel ρ hgraph x y₂).mp hy₂
       exact heq₁.symm.trans heq₂
   have hsub4 : st.decls.Subset st4.decls := by
     rw [hst4, hst3, hdecls]
@@ -500,7 +500,7 @@ def compile (s : Lifting) (primitives : PrimEncodings) (Γ : FunCtx) (Δ : Signa
     Except String Skolemize.DefVal :=
   let Δpi := s.matrixScope Δ
   let env := (VarEnv.ofSignature Δpi).bind s.arg s.gpack
-  Skolemize.ofExpr .id <$>
+  Expr.toDefVal .id <$>
     encode primitives Δpi Γ env s.body (NameSupply.ofSignature Δpi)
 
 /-- Matrix of the value axiom: the bounded quantifier over the lifted
@@ -635,8 +635,8 @@ theorem compile_wfIn {primitives : PrimEncodings} (hlaw : primitives.Lawful)
   obtain ⟨hΔpi, hp, hi⟩ := matrix_vars hΔ hv.argFresh hv.idxFresh hv.idxNeArg
   simp only [compile] at henc
   obtain ⟨c, hc, rfl⟩ := Except.map_eq_ok henc
-  exact Skolemize.ofExpr_wfIn_of_encode s.body hlaw (Signature.Subset.refl _) hΔpi
-    (FunCtx.splitWfIn_mono hΓ.split (hsubp.trans hsubpi))
+  exact Expr.toDefVal_wfIn_of_encode s.body hlaw (Signature.Subset.refl _) hΔpi
+    (FunCtx.funcWfIn_mono hΓ.func (hsubp.trans hsubpi))
     ((VarEnv.ofSignature_wfIn hΔpi).bind (gpack_wfIn hΔpi hp hi))
     (NameSupply.ofSignature_covers _) hc
 
@@ -808,18 +808,18 @@ theorem declare_correct (s : Lifting) (body : Skolemize.DefVal) (Δ : Signature)
     (hbody : body.wfIn (s.matrixScope Δ))
     (hdecls : st.decls = Δ) (howns : st.owns = []) (hvars : st.decls.vars = [])
     (hwf : Δ.wf) (hΓwf : FunCtx.wfIn Γ Δ)
-    (hsplit : FunCtx.splitCompatible Γ ρ)
-    (hdet : Relation.BinaryRelDet Γ ρ ρ)
+    (hsplit : FunCtx.Agreement Γ ρ)
+    (hdet : FunCtx.Functional Γ ρ ρ)
     (heval : VerifM.eval (s.declare body) st ρ Q) :
     ∃ st' ρ',
       st'.decls = s.extendSignature Δ ∧ st'.owns = [] ∧ st'.decls.vars = [] ∧
       st'.decls.wf ∧ st.decls.Subset st'.decls ∧
       Env.agreeOn st.decls ρ ρ' ∧
       FunCtx.wfIn (Γ ++ [(s.name, s.name)]) st'.decls ∧
-      FunCtx.splitCompatible (Γ ++ [(s.name, s.name)]) ρ' ∧
-      Relation.BinaryRelDet (Γ ++ [(s.name, s.name)]) ρ' ρ' ∧
+      FunCtx.Agreement (Γ ++ [(s.name, s.name)]) ρ' ∧
+      FunCtx.Functional (Γ ++ [(s.name, s.name)]) ρ' ρ' ∧
       Q () st' ρ' := by
-  have hf : Skolemize.InfoFresh Δ s.name s.arg :=
+  have hf : SpecFnFresh Δ s.name s.arg :=
     { symFresh := by
         intro n hn
         simp only [SpecFn.names, List.mem_cons, List.not_mem_nil, or_false] at hn
@@ -827,20 +827,20 @@ theorem declare_correct (s : Lifting) (body : Skolemize.DefVal) (Δ : Signature)
         exacts [hv.relFresh, hv.funFresh, hv.defFresh]
       argFresh := by
         simp [SpecFn.names, hv.argFresh, hv.argNeRel, hv.argNeFun, hv.argNeDef] }
-  have hh : Skolemize.HeadFresh Δ s.name s.arg s.idx :=
-    { toInfoFresh := hf
+  have hh : EquationFresh Δ s.name s.arg s.idx :=
+    { toSpecFnFresh := hf
       resFresh := by
         simp [SpecFn.names, hv.idxFresh, hv.idxNeRel, hv.idxNeFun, hv.idxNeDef,
           hv.idxNeArg] }
-  have hwfext : (s.extendSignature Δ).wf := hf.base_wf hwf
+  have hwfext : (s.extendSignature Δ).wf := hf.sigBoth_wf hwf
   have hsub : Δ.Subset (s.extendSignature Δ) :=
     ((Signature.Subset.subset_addBinaryRel _ _).trans
       (Signature.Subset.subset_addUnary _ _)).trans
       (Signature.Subset.subset_addUnaryRel _ _)
-  have hargext : s.arg ∉ (s.extendSignature Δ).allNames := hf.argFresh_base
+  have hargext : s.arg ∉ (s.extendSignature Δ).allNames := hf.argFresh_sigBoth
   have hidxext : s.idx ∉ (s.extendSignature Δ).allNames := by
     intro hmem
-    apply hh.resFresh_bodySig
+    apply hh.resFresh_sigBothArg
     show s.idx ∈ (s.argScope (s.extendSignature Δ)).allNames
     rw [Signature.allNames_declVar_of_not_in hargext]
     exact List.mem_cons_of_mem _ hmem
@@ -855,7 +855,7 @@ theorem declare_correct (s : Lifting) (body : Skolemize.DefVal) (Δ : Signature)
     s.axioms_wfIn hwfext hbodyext (List.Mem.head _) (List.Mem.head _)
       hargext hidxext hv.idxNeArg
   have haxeval : ∀ ax ∈ s.axioms body,
-      ax.formula.eval (Skolemize.splitEnv ρ s.name
+      ax.formula.eval (SpecFn.Env.both ρ s.name
         (s.relinterp body ρ) (s.definterp body ρ) (s.funcinterp body ρ)) :=
     s.axioms_eval (Δ := Δ)
       (s.matrix_wfIn hwf hbody hv.argFresh hv.idxFresh hv.idxNeArg)
