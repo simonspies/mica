@@ -1,4 +1,4 @@
--- SUMMARY: Name supply, function context, local variable environments, and the head signatures and freshness conditions of the relational encoding.
+-- SUMMARY: Fresh-name allocation, function context, local variable environments, and the head signatures and freshness conditions of the relational encoding.
 import Mica.FOL.SpecFn
 import Mica.Base.Fixpoint
 import Mica.SourceTinyML.Typed
@@ -6,54 +6,29 @@ import Mica.Base.Fresh
 
 namespace Verifier.RelationalEncoding
 
-/-! ## Name supply for fresh-name allocation -/
+/-! ## Fresh-name allocation
 
-/-- Avoid list used to generate fresh names. -/
-structure NameSupply where
-  avoid : List String
+The traversal threads the list of names that it must not bind. `Expr.WfIn`
+reads the same list.
+-/
 
-/-- Allocate a name not in the avoid list, derived from `base`. -/
-def NameSupply.fresh (s : NameSupply) (base : String) : String :=
-  Fresh.freshName s.avoid base
+/-- Every name that `Δ` declares is already in the avoid list. -/
+def Covers (avoid : List String) (Δ : Signature) : Prop :=
+  ∀ n ∈ Δ.allNames, n ∈ avoid
 
-/-- Reserve a name in the supply so it is never returned by `fresh` again. -/
-def NameSupply.reserve (s : NameSupply) (name : String) : NameSupply :=
-  { avoid := name :: s.avoid }
+theorem Covers.allNames (Δ : Signature) : Covers Δ.allNames Δ := fun _ h => h
 
-theorem NameSupply.fresh_not_in_avoid (s : NameSupply) (base : String) :
-    s.fresh base ∉ s.avoid :=
-  Fresh.freshName_not_in_avoid s.avoid base
-
-/-- A supply *covers* a signature when every name declared in the signature is
-already reserved. Reservation extends across `reserve`. -/
-def NameSupply.Covers (s : NameSupply) (Δ : Signature) : Prop :=
-  ∀ n, n ∈ Δ.allNames → n ∈ s.avoid
-
-theorem NameSupply.Covers.reserve {s : NameSupply} {Δ : Signature}
-    (h : s.Covers Δ) (name : String) : (s.reserve name).Covers Δ := by
-  intro n hn
-  exact List.mem_cons_of_mem _ (h n hn)
-
-/-- Reserving a name not currently in the signature covers the corresponding
-`declVar` extension. -/
-theorem NameSupply.Covers.declVar {s : NameSupply} {Δ : Signature}
-    (h : s.Covers Δ) (name : String) (τ : Srt) :
-    (s.reserve name).Covers (Δ.declVar ⟨name, τ⟩) := by
+/-- Reserving a name that the signature does not declare covers the
+corresponding `declVar` extension. -/
+theorem Covers.declVar {avoid : List String} {Δ : Signature}
+    (h : Covers avoid Δ) (name : String) (τ : Srt) :
+    Covers (name :: avoid) (Δ.declVar ⟨name, τ⟩) := by
   intro n hn
   have hn' : n ∈ name :: (Δ.remove name).allNames := by
     simpa [Signature.declVar, Signature.addVar, Signature.allNames] using hn
   cases hn' with
-  | head => simp [NameSupply.reserve]
-  | tail _ ht =>
-    have hΔn : n ∈ Δ.allNames := Signature.remove_allNames_subset ht
-    exact List.mem_cons_of_mem _ (h n hΔn)
-
-
-/-- The supply that reserves exactly the names a signature declares. -/
-def NameSupply.ofSignature (Δ : Signature) : NameSupply := { avoid := Δ.allNames }
-
-theorem NameSupply.ofSignature_covers (Δ : Signature) :
-    (NameSupply.ofSignature Δ).Covers Δ := fun _ h => h
+  | head => simp
+  | tail _ ht => exact List.mem_cons_of_mem _ (h n (Signature.remove_allNames_subset ht))
 
 /-! ## Function context -/
 
@@ -198,6 +173,10 @@ private theorem lookup_bind_of_ne {δ : VarEnv} {x y : String} {v : Term .value}
     simp [hxy]
   simp [lookup, bind, List.lookup, hbeq]
 
+theorem wfIn.mono {Δ Δ' : Signature} {δ : VarEnv}
+    (henv : δ.wfIn Δ) (hsub : Δ.Subset Δ') (hΔ' : Δ'.wf) : δ.wfIn Δ' :=
+  fun x v hlookup => Term.wfIn_mono _ (henv x v hlookup) hsub hΔ'
+
 theorem wfIn.bind {Δ : Signature} {δ : VarEnv} {x : String} {v : Term .value}
     (henv : δ.wfIn Δ) (hv : v.wfIn Δ) :
     (δ.bind x v).wfIn Δ := by
@@ -331,8 +310,8 @@ end SpecFn.Sig
 
 /-! ## Name allocation for a head
 
-The two body encodings share one supply, so neither can bind a name the other
-needs.
+The two body encodings share one avoid list, so neither can bind a name the
+other needs.
 -/
 
 namespace SpecFn
@@ -343,25 +322,25 @@ variable, and the result variable. -/
 def reserved (fn : SpecFn) (x res : TinyML.Var) : List String :=
   fn.names ++ [x, res]
 
-/-- The supply the body encodings run in: the names of `Δ` on top of the
+/-- The avoid list the body encodings run in: the names of `Δ` on top of the
 reserved ones. -/
-def supply (Δ : Signature) (fn : SpecFn) (x res : TinyML.Var) : NameSupply :=
-  { avoid := Δ.allNames ++ reserved fn x res }
+def avoid (Δ : Signature) (fn : SpecFn) (x res : TinyML.Var) : List String :=
+  Δ.allNames ++ reserved fn x res
 
-theorem reserved_subset_supply {Δ : Signature} {fn : SpecFn} {x res : TinyML.Var} :
-    ∀ n ∈ reserved fn x res, n ∈ (supply Δ fn x res).avoid :=
+theorem reserved_subset_avoid {Δ : Signature} {fn : SpecFn} {x res : TinyML.Var} :
+    ∀ n ∈ reserved fn x res, n ∈ avoid Δ fn x res :=
   fun _ h => List.mem_append_right _ h
 
-private theorem supply_covers_bothArgRes (Δ : Signature) (fn : SpecFn) (x res : String) :
-    (supply Δ fn x res).Covers (Sig.bothArgRes Δ fn x res) := by
+private theorem avoid_covers_bothArgRes (Δ : Signature) (fn : SpecFn) (x res : String) :
+    Covers (avoid Δ fn x res) (Sig.bothArgRes Δ fn x res) := by
   intro n hn
   by_contra hcontra
-  have hnΔ   : n ∉ Δ.allNames  := fun h => hcontra (by simp [supply, h])
-  have hnRel : n ≠ fn.relName  := fun h => hcontra (by simp [supply, reserved, names, h])
-  have hnFun : n ≠ fn.funcName := fun h => hcontra (by simp [supply, reserved, names, h])
-  have hnDef : n ≠ fn.defName  := fun h => hcontra (by simp [supply, reserved, names, h])
-  have hnX   : n ≠ x           := fun h => hcontra (by simp [supply, reserved, names, h])
-  have hnRes : n ≠ res         := fun h => hcontra (by simp [supply, reserved, names, h])
+  have hnΔ   : n ∉ Δ.allNames  := fun h => hcontra (by simp [avoid, h])
+  have hnRel : n ≠ fn.relName  := fun h => hcontra (by simp [avoid, reserved, names, h])
+  have hnFun : n ≠ fn.funcName := fun h => hcontra (by simp [avoid, reserved, names, h])
+  have hnDef : n ≠ fn.defName  := fun h => hcontra (by simp [avoid, reserved, names, h])
+  have hnX   : n ≠ x           := fun h => hcontra (by simp [avoid, reserved, names, h])
+  have hnRes : n ≠ res         := fun h => hcontra (by simp [avoid, reserved, names, h])
   have hboth : n ∉ (Sig.both Δ fn).allNames :=
     Signature.not_mem_allNames_addUnaryRel
       (Signature.not_mem_allNames_addUnary
@@ -375,10 +354,10 @@ private theorem supply_covers_bothArgRes (Δ : Signature) (fn : SpecFn) (x res :
 
 variable {Δ : Signature} {fn : SpecFn} {x res : String}
 
-/-- The supply covers every signature the body encodings run in. -/
-private theorem supply_covers_of_subset {Δ' : Signature}
-    (hsub : Δ'.Subset (Sig.bothArgRes Δ fn x res)) : (supply Δ fn x res).Covers Δ' :=
-  fun n hn => supply_covers_bothArgRes Δ fn x res n (Signature.allNames_subset hsub n hn)
+/-- The avoid list covers every signature the body encodings run in. -/
+private theorem avoid_covers_of_subset {Δ' : Signature}
+    (hsub : Δ'.Subset (Sig.bothArgRes Δ fn x res)) : Covers (avoid Δ fn x res) Δ' :=
+  fun n hn => avoid_covers_bothArgRes Δ fn x res n (Signature.allNames_subset hsub n hn)
 
 /-- Every name of a signature the body encodings run in is either a name the
 encoding starts from or one it must not bind. This is the side condition of
@@ -386,7 +365,7 @@ encoding starts from or one it must not bind. This is the side condition of
 theorem names_of_subset_bothArgRes {Δbase Δ' : Signature}
     (hsub : Δ'.Subset (Sig.bothArgRes Δ fn x res)) (hbase : Δ.Subset Δbase) :
     ∀ n ∈ Δ'.allNames, n ∈ Δbase.allNames ∨ n ∈ reserved fn x res :=
-  fun n hn => (List.mem_append.mp (supply_covers_of_subset hsub n hn)).imp
+  fun n hn => (List.mem_append.mp (avoid_covers_of_subset hsub n hn)).imp
     (Signature.allNames_subset hbase n) id
 
 end SpecFn
@@ -407,9 +386,9 @@ structure SpecFnFresh (Δ : Signature) (fn : SpecFn) (x : String) : Prop where
   symFresh : ∀ n ∈ fn.names, n ∉ Δ.allNames
   argFresh : x ∉ Δ.allNames ++ fn.names
 
-/-- `SpecFnFresh` with the variable that pins the equation's result, new for
+/-- `SpecFnFresh` together with the variable that pins the result, new for
 everything before it. -/
-structure EquationFresh (Δ : Signature) (fn : SpecFn) (x res : String) : Prop
+structure SpecFnFresh.WithRes (Δ : Signature) (fn : SpecFn) (x res : String) : Prop
     extends SpecFnFresh Δ fn x where
   resFresh : res ∉ Δ.allNames ++ fn.names ++ [x]
 
@@ -486,10 +465,10 @@ theorem unused {Γ : FunCtx} (hΓ : Γ.wfIn Δ) : Γ.unused fn := by
 
 end SpecFnFresh
 
-namespace EquationFresh
+namespace SpecFnFresh.WithRes
 open SpecFn.Sig
 
-variable (h : EquationFresh Δ fn x res)
+variable (h : SpecFnFresh.WithRes Δ fn x res)
 include h
 
 private theorem resNe : res ∉ Δ.allNames ∧ res ≠ fn.relName ∧ res ≠ fn.funcName ∧
@@ -519,17 +498,17 @@ theorem sigRelArg_subset_sigRelArgRes :
 theorem sigRelArgRes_wf (hΔ : Δ.wf) : (relArgRes Δ fn x res).wf :=
   Signature.wf_declVar (h.sigRelArg_wf hΔ)
 
-/-- The body supply covers a body signature, phrased for the `Expr.WfIn` side
-conditions that need it. -/
-theorem covers_sigRelArg : (SpecFn.supply Δ fn x res).Covers (relArg Δ fn x) :=
-  SpecFn.supply_covers_of_subset
+/-- The body avoid list covers a body signature, phrased for the `Expr.WfIn`
+side conditions that need it. -/
+theorem covers_sigRelArg : Covers (SpecFn.avoid Δ fn x res) (relArg Δ fn x) :=
+  SpecFn.avoid_covers_of_subset
     (relArg_subset_bothArg.trans h.sigBothArg_subset_sigBothArgRes)
 
-theorem covers_sigFuncArg : (SpecFn.supply Δ fn x res).Covers (funcArg Δ fn x) :=
-  SpecFn.supply_covers_of_subset
+theorem covers_sigFuncArg : Covers (SpecFn.avoid Δ fn x res) (funcArg Δ fn x) :=
+  SpecFn.avoid_covers_of_subset
     (funcArg_subset_bothArg.trans h.sigBothArg_subset_sigBothArgRes)
 
-end EquationFresh
+end SpecFnFresh.WithRes
 
 /-! ## The function context under a fresh head -/
 
@@ -537,7 +516,7 @@ open SpecFn.Sig in
 /-- Extending a context that is well-formed in `Δ` with a fresh head keeps every
 relation of the tail well-formed in the relational run signature. -/
 theorem FunCtx.recursive_relWfIn_relArgRes {Γ : FunCtx} {f : TinyML.Var}
-    (hΓ : Γ.relWfIn Δ) (h : EquationFresh Δ fn x res) :
+    (hΓ : Γ.relWfIn Δ) (h : SpecFnFresh.WithRes Δ fn x res) :
     (Γ.recursive f fn).relWfIn (relArgRes Δ fn x res) := by
   intro g fn' hmem
   cases hmem with
@@ -564,13 +543,13 @@ private theorem FunCtx.recursive_funcWfIn_declVar {Γ : FunCtx} {Δbase : Signat
   | tail _ htail => exact FunCtx.funcWfIn_mono hΓ hsub g fn' htail
 
 theorem FunCtx.recursive_funcWfIn_bothArg {Γ : FunCtx} {f : TinyML.Var}
-    (hΓ : Γ.funcWfIn Δ) (h : EquationFresh Δ fn x res) :
+    (hΓ : Γ.funcWfIn Δ) (h : SpecFnFresh.WithRes Δ fn x res) :
     (Γ.recursive f fn).funcWfIn (SpecFn.Sig.bothArg Δ fn x) :=
   FunCtx.recursive_funcWfIn_declVar hΓ h.subset_sigBothArg h.argFresh_sigBoth
     (List.Mem.head _) (List.Mem.head _)
 
 theorem FunCtx.recursive_funcWfIn_funcArg {Γ : FunCtx} {f : TinyML.Var}
-    (hΓ : Γ.funcWfIn Δ) (h : EquationFresh Δ fn x res) :
+    (hΓ : Γ.funcWfIn Δ) (h : SpecFnFresh.WithRes Δ fn x res) :
     (Γ.recursive f fn).funcWfIn (SpecFn.Sig.funcArg Δ fn x) :=
   FunCtx.recursive_funcWfIn_declVar hΓ h.subset_sigFuncArg h.argFresh_sigFunc
     (List.Mem.head _) (List.Mem.head _)

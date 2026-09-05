@@ -46,8 +46,8 @@ end Skolemize
 
 open Skolemize
 
-variable {primitives : PrimEncodings} {Γ : FunCtx} {Δ : Signature} {ρ : Env}
-variable {f : TinyML.Var} {fn : SpecFn} {x res : TinyML.Var} {e : Typed.Expr}
+variable {sd : SpecDef} {Γ : FunCtx} {Δ : Signature} {ρ : Env}
+variable {fn : SpecFn} {x res : TinyML.Var}
 variable {body : DefVal} {φ : Formula}
 variable {D : Srt.value.denote → Prop} {F : Srt.value.denote → Srt.value.denote}
 
@@ -98,10 +98,10 @@ traversal gate signature `Δgate` may differ from the signature `Δenc` the loca
 environment lives in: the body encodings gate on the outer signature while
 encoding into a body signature. -/
 theorem toDefVal_wfIn_of_encode {primitives : PrimEncodings} {Γ : FunCtx}
-    {Δgate Δenc : Signature} {δ : VarEnv} {s : NameSupply} {c : Expr}
+    {Δgate Δenc : Signature} {δ : VarEnv} {avoid : List String} {c : Expr}
     (e : Typed.Expr) (hlaw : primitives.Lawful) (hsub : Δgate.Subset Δenc)
-    (hΔ : Δenc.wf) (hΓ : Γ.funcWfIn Δenc) (hδ : δ.wfIn Δenc) (hcov : s.Covers Δenc)
-    (henc : encode primitives Δgate Γ δ e s = .ok c) :
+    (hΔ : Δenc.wf) (hΓ : Γ.funcWfIn Δenc) (hδ : δ.wfIn Δenc) (hcov : Covers avoid Δenc)
+    (henc : encode primitives Δgate Γ δ e avoid = .ok c) :
     (Expr.toDefVal .id c).wfIn Δenc :=
   toDefVal_wfIn (encode_wfIn hlaw e hsub hΔ hδ hcov henc) hΓ hΔ
     (Subst.id_wfIn (fun _ h => h) hΔ) (Signature.SymbolSubset.refl _)
@@ -128,30 +128,29 @@ end Expr
 /-- Encode a function body using the solver-facing defined/value presentation.
 It translates the very IR expression that `encodeFormula` translates
 relationally. -/
-def encodeDefVal (primitives : PrimEncodings) (Γ : FunCtx) (Δ : Signature)
-    (f : TinyML.Var) (fn : SpecFn) (x res : TinyML.Var) (e : Typed.Expr) :
-    Except String DefVal :=
-  Expr.toDefVal .id <$> encodeBody primitives Γ Δ f fn x res e
+def encodeDefVal (sd : SpecDef) : Except String DefVal :=
+  Expr.toDefVal .id <$> encodeBody sd
 
 /-- Successful func-form body encodings are well-formed in the relation-free body
 signature, so they do not depend on how the head relation is interpreted. -/
 theorem encodeDefVal_wfIn_funcArg
-    (hlaw : primitives.Lawful) (hΔ : Δ.wf) (hΓ : Γ.funcWfIn Δ)
-    (hfresh : EquationFresh Δ fn x res)
-    (henc : encodeDefVal primitives Γ Δ f fn x res e = .ok body) :
-    body.wfIn (SpecFn.Sig.funcArg Δ fn x) := by
+    (hlaw : sd.primitives.Lawful) (hΔ : sd.Δ.wf) (hΓ : sd.Γ.funcWfIn sd.Δ)
+    (hfresh : sd.Fresh)
+    (henc : encodeDefVal sd = .ok body) :
+    body.wfIn (SpecFn.Sig.funcArg sd.Δ sd.fn sd.x) := by
   obtain ⟨c, hc, rfl⟩ := Except.map_eq_ok henc
-  have hΔbody := hfresh.toSpecFnFresh.sigFuncArg_wf (x := x) hΔ
-  exact Expr.toDefVal_wfIn_of_encode e hlaw hfresh.toSpecFnFresh.subset_sigFuncArg hΔbody
+  have hΔbody := hfresh.toSpecFnFresh.sigFuncArg_wf (x := sd.x) hΔ
+  exact Expr.toDefVal_wfIn_of_encode sd.e hlaw hfresh.toSpecFnFresh.subset_sigFuncArg hΔbody
     (FunCtx.recursive_funcWfIn_funcArg hΓ hfresh)
-    (VarEnv.ofSignature_funcArg (Δ := Δ) (fn := fn) (x := x) ▸ VarEnv.ofSignature_wfIn hΔbody)
+    (VarEnv.ofSignature_funcArg (Δ := sd.Δ) (fn := sd.fn) (x := sd.x) ▸
+      VarEnv.ofSignature_wfIn hΔbody)
     hfresh.covers_sigFuncArg hc
 
 theorem encodeDefVal_wfIn_bothArg
-    (hlaw : primitives.Lawful) (hΔ : Δ.wf) (hΓ : Γ.funcWfIn Δ)
-    (hfresh : EquationFresh Δ fn x res)
-    (henc : encodeDefVal primitives Γ Δ f fn x res e = .ok body) :
-    body.wfIn (SpecFn.Sig.bothArg Δ fn x) :=
+    (hlaw : sd.primitives.Lawful) (hΔ : sd.Δ.wf) (hΓ : sd.Γ.funcWfIn sd.Δ)
+    (hfresh : sd.Fresh)
+    (henc : encodeDefVal sd = .ok body) :
+    body.wfIn (SpecFn.Sig.bothArg sd.Δ sd.fn sd.x) :=
   (encodeDefVal_wfIn_funcArg hlaw hΔ hΓ hfresh henc).mono SpecFn.Sig.funcArg_subset_bothArg
     (hfresh.toSpecFnFresh.sigBothArg_wf hΔ)
 
@@ -159,17 +158,18 @@ theorem encodeDefVal_wfIn_bothArg
 it: the func-form body is its `toDefVal` reading, the relational body encoding
 is its `toFormula` reading, and it is well-formed in the body signature. -/
 private theorem encodeDefVal_witness
-    (hlaw : primitives.Lawful) (hΔ : Δ.wf) (hfresh : EquationFresh Δ fn x res)
-    (henc : encodeDefVal primitives Γ Δ f fn x res e = .ok body) :
+    (hlaw : sd.primitives.Lawful) (hΔ : sd.Δ.wf) (hfresh : sd.Fresh)
+    (henc : encodeDefVal sd = .ok body) :
     ∃ c, body = Expr.toDefVal .id c ∧
-      encodeFormula primitives Γ Δ f fn x res e = .ok (Expr.toFormula res c) ∧
-      Expr.WfIn (FunCtx.recursive Γ f fn) (SpecFn.reserved fn x res) (SpecFn.Sig.bothArg Δ fn x) c := by
+      encodeFormula sd = .ok (Expr.toFormula sd.res c) ∧
+      Expr.WfIn (FunCtx.recursive sd.Γ sd.f sd.fn) (SpecFn.reserved sd.fn sd.x sd.res)
+        (SpecFn.Sig.bothArg sd.Δ sd.fn sd.x) c := by
   obtain ⟨c, hc, rfl⟩ := Except.map_eq_ok henc
-  have hΔrel := hfresh.toSpecFnFresh.sigRelArg_wf (x := x) hΔ
+  have hΔrel := hfresh.toSpecFnFresh.sigRelArg_wf (x := sd.x) hΔ
   refine ⟨c, rfl, by simp [encodeFormula, hc], ?_⟩
-  exact ((encode_wfIn hlaw e hfresh.toSpecFnFresh.subset_sigRelArg hΔrel
+  exact ((encode_wfIn hlaw sd.e hfresh.toSpecFnFresh.subset_sigRelArg hΔrel
       (VarEnv.ofSignature_wfIn hΔrel) hfresh.covers_sigRelArg hc).weaken
-      SpecFn.reserved_subset_supply).mono SpecFn.Sig.relArg_subset_bothArg
+      SpecFn.reserved_subset_avoid).mono SpecFn.Sig.relArg_subset_bothArg
       (hfresh.toSpecFnFresh.sigBothArg_wf hΔ)
       (SpecFn.names_of_subset_bothArgRes hfresh.sigBothArg_subset_sigBothArgRes hfresh.toSpecFnFresh.subset_sigRelArg)
 
@@ -354,38 +354,31 @@ end Skolemize
 
 /-- What the definedness predicate denotes: the least fixpoint of the encoded
 definedness condition, read with the value function chosen from the relation. -/
-noncomputable def _root_.SpecFn.Semantics.defined (primitives : PrimEncodings)
-    (Γ : FunCtx) (Δ : Signature) (ρ : Env)
-    (f : TinyML.Var) (fn : SpecFn) (x res : TinyML.Var) (e : Typed.Expr)
-    (body : DefVal) : Srt.value.denote → Prop :=
-  PredicateFix.lfp (Skolemize.eval ρ fn x body
-    (ValRel.toFunc (SpecFn.Semantics.rel primitives Γ Δ ρ f fn x res e)))
+noncomputable def _root_.SpecFn.Semantics.defined (sd : SpecDef) (ρ : Env) (body : DefVal) :
+    Srt.value.denote → Prop :=
+  PredicateFix.lfp
+    (Skolemize.eval ρ sd.fn sd.x body (ValRel.toFunc (SpecFn.Semantics.rel sd ρ)))
 
 /-- The environment the three symbols denote, read off the relation. -/
-noncomputable def _root_.SpecFn.Semantics.env (primitives : PrimEncodings)
-    (Γ : FunCtx) (Δ : Signature) (ρ : Env)
-    (f : TinyML.Var) (fn : SpecFn) (x res : TinyML.Var) (e : Typed.Expr)
-    (body : DefVal) : Env :=
-  SpecFn.Env.graph ρ fn (SpecFn.Semantics.defined primitives Γ Δ ρ f fn x res e body)
-    (ValRel.toFunc (SpecFn.Semantics.rel primitives Γ Δ ρ f fn x res e))
+noncomputable def _root_.SpecFn.Semantics.env (sd : SpecDef) (ρ : Env) (body : DefVal) : Env :=
+  SpecFn.Env.graph ρ sd.fn (SpecFn.Semantics.defined sd ρ body)
+    (ValRel.toFunc (SpecFn.Semantics.rel sd ρ))
 
 /-- Unfolding principle specialized to a successfully encoded `DefVal` body. -/
 theorem _root_.SpecFn.Semantics.defined_unfold
-    (henc : encodeDefVal primitives Γ Δ f fn x res e = .ok body)
-    (vin : Srt.value.denote) :
-    SpecFn.Semantics.defined primitives Γ Δ ρ f fn x res e body vin ↔
-      Skolemize.eval ρ fn x body
-        (ValRel.toFunc (SpecFn.Semantics.rel primitives Γ Δ ρ f fn x res e))
-        (SpecFn.Semantics.defined primitives Γ Δ ρ f fn x res e body) vin := by
+    (henc : encodeDefVal sd = .ok body) (vin : Srt.value.denote) :
+    SpecFn.Semantics.defined sd ρ body vin ↔
+      Skolemize.eval ρ sd.fn sd.x body (ValRel.toFunc (SpecFn.Semantics.rel sd ρ))
+        (SpecFn.Semantics.defined sd ρ body) vin := by
   obtain ⟨c, _, rfl⟩ := Except.map_eq_ok henc
   exact PredicateFix.lfp_unfold (eval_mono (Expr.toDefVal_mono _ c)) vin
 
 /-- Under the canonical interpretation, the definedness symbol denotes
 `SpecFn.Semantics.defined`. -/
 theorem _root_.SpecFn.Semantics.env_isDefined (vin : Srt.value.denote) :
-    (fn.isDefined (.var .value x)).eval
-      ((SpecFn.Semantics.env primitives Γ Δ ρ f fn x res e body).updateConst .value x vin)
-      ↔ SpecFn.Semantics.defined primitives Γ Δ ρ f fn x res e body vin := by
+    (sd.fn.isDefined (.var .value sd.x)).eval
+      ((SpecFn.Semantics.env sd ρ body).updateConst .value sd.x vin)
+      ↔ SpecFn.Semantics.defined sd ρ body vin := by
   simp [SpecFn.isDefined, Formula.eval, UnPred.eval, Term.eval,
     Env.lookupConst_updateConst_same]
   unfold SpecFn.Semantics.env SpecFn.Env.graph SpecFn.Env.both
@@ -394,15 +387,15 @@ theorem _root_.SpecFn.Semantics.env_isDefined (vin : Srt.value.denote) :
 /-- Under the canonical interpretation, the value symbol denotes the
 chosen witness function of `SpecFn.Semantics.rel`. -/
 theorem _root_.SpecFn.Semantics.env_call (vin : Srt.value.denote) :
-    (fn.call (.var .value x)).eval
-      ((SpecFn.Semantics.env primitives Γ Δ ρ f fn x res e body).updateConst .value x vin)
+    (sd.fn.call (.var .value sd.x)).eval
+      ((SpecFn.Semantics.env sd ρ body).updateConst .value sd.x vin)
       =
-    ValRel.toFunc (SpecFn.Semantics.rel primitives Γ Δ ρ f fn x res e) vin := by
+    ValRel.toFunc (SpecFn.Semantics.rel sd ρ) vin := by
   simp only [SpecFn.call, Term.eval, UnOp.eval, Env.lookupConst_updateConst_same]
   rw [Env.updateConst_unary]
-  change ((ρ.updateUnary .value .value (fn.funcName)
-    (ValRel.toFunc (SpecFn.Semantics.rel primitives Γ Δ ρ f fn x res e))).unary .value .value (fn.funcName) vin =
-      ValRel.toFunc (SpecFn.Semantics.rel primitives Γ Δ ρ f fn x res e) vin)
+  change ((ρ.updateUnary .value .value sd.fn.funcName
+    (ValRel.toFunc (SpecFn.Semantics.rel sd ρ))).unary .value .value sd.fn.funcName vin =
+      ValRel.toFunc (SpecFn.Semantics.rel sd ρ) vin)
   simp [Env.updateUnary]
 
 namespace Skolemize
@@ -533,7 +526,7 @@ private theorem toDefVal_iff {Δbase : Signature} {res : String} {ρdef : Env}
 relational formula holds at `vout` exactly when the func-form body is defined and
 evaluates to `vout`. -/
 private theorem body_eval_iff {ρboth : Env} {c : Expr}
-    (hΓdef : Γ.funcWfIn Δ) (hΔ : Δ.wf) (hfresh : EquationFresh Δ fn x res)
+    (hΓdef : Γ.funcWfIn Δ) (hΔ : Δ.wf) (hfresh : SpecFnFresh.WithRes Δ fn x res)
     (hcWf : Expr.WfIn (FunCtx.recursive Γ f fn) (SpecFn.reserved fn x res) (SpecFn.Sig.bothArg Δ fn x) c)
     (hΓagree : (FunCtx.recursive Γ f fn).Agreement ρboth)
     (vin vout : Srt.value.denote) :
@@ -555,24 +548,28 @@ private theorem body_eval_iff {ρboth : Env} {c : Expr}
 /-- The func-form body never mentions the result variable, so pinning `res` does not
 change what it reads. -/
 private theorem encodeDefVal_eval_updateConst_res
-    (hlaw : primitives.Lawful) (hΔ : Δ.wf) (hΓ : Γ.funcWfIn Δ)
-    (hfresh : EquationFresh Δ fn x res)
-    (henc : encodeDefVal primitives Γ Δ f fn x res e = .ok body)
+    (hlaw : sd.primitives.Lawful) (hΔ : sd.Δ.wf) (hΓ : sd.Γ.funcWfIn sd.Δ)
+    (hfresh : sd.Fresh)
+    (henc : encodeDefVal sd = .ok body)
     (vin vout : Srt.value.denote) :
-    (body.defined.eval ((SpecFn.Env.graphArg ρ fn x D F vin).updateConst .value res vout) ↔
-        body.defined.eval (SpecFn.Env.graphArg ρ fn x D F vin)) ∧
-      body.value.eval ((SpecFn.Env.graphArg ρ fn x D F vin).updateConst .value res vout) =
-        body.value.eval (SpecFn.Env.graphArg ρ fn x D F vin) := by
-  have hbody : body.wfIn (SpecFn.Sig.bothArg Δ fn x) := encodeDefVal_wfIn_bothArg hlaw hΔ hΓ hfresh henc
-  have hag : Env.agreeOn (SpecFn.Sig.bothArg Δ fn x) (SpecFn.Env.graphArg ρ fn x D F vin)
-      ((SpecFn.Env.graphArg ρ fn x D F vin).updateConst .value res vout) :=
-    Env.agreeOn_update_fresh_const (c := ⟨res, .value⟩) hfresh.resFresh_sigBothArg
+    (body.defined.eval
+        ((SpecFn.Env.graphArg ρ sd.fn sd.x D F vin).updateConst .value sd.res vout) ↔
+        body.defined.eval (SpecFn.Env.graphArg ρ sd.fn sd.x D F vin)) ∧
+      body.value.eval
+          ((SpecFn.Env.graphArg ρ sd.fn sd.x D F vin).updateConst .value sd.res vout) =
+        body.value.eval (SpecFn.Env.graphArg ρ sd.fn sd.x D F vin) := by
+  have hbody : body.wfIn (SpecFn.Sig.bothArg sd.Δ sd.fn sd.x) :=
+    encodeDefVal_wfIn_bothArg hlaw hΔ hΓ hfresh henc
+  have hag : Env.agreeOn (SpecFn.Sig.bothArg sd.Δ sd.fn sd.x)
+      (SpecFn.Env.graphArg ρ sd.fn sd.x D F vin)
+      ((SpecFn.Env.graphArg ρ sd.fn sd.x D F vin).updateConst .value sd.res vout) :=
+    Env.agreeOn_update_fresh_const (c := ⟨sd.res, .value⟩) hfresh.resFresh_sigBothArg
   exact ⟨(Formula.eval_env_agree hbody.2 hag).symm, (Term.eval_env_agree hbody.1 hag).symm⟩
 
 /-- The relational run environment and the three-symbol environment pinned at `x` and
 `res` agree on everything the relational body can read. -/
 private theorem rel_agreeOn_both {R : ValRel}
-    (hfresh : EquationFresh Δ fn x res) (vin vout : Srt.value.denote) :
+    (hfresh : SpecFnFresh.WithRes Δ fn x res) (vin vout : Srt.value.denote) :
     Env.agreeOn (SpecFn.Sig.relArgRes Δ fn x res)
       (SpecFn.Env.rel ρ fn x res R vin vout)
       (((SpecFn.Env.both ρ fn R D F).updateConst .value x vin).updateConst .value res vout) := by
@@ -589,36 +586,38 @@ private theorem rel_agreeOn_both {R : ValRel}
   exact Env.agreeOn_declVar (Env.agreeOn_declVar hbase)
 
 /-- Relational body encodings are well-formed in the relational run signature. -/
-private theorem relEncodeBody_wfIn
-    (hlaw : primitives.Lawful) (hΓ : Γ.relWfIn Δ) (hΔ : Δ.wf)
-    (hfresh : EquationFresh Δ fn x res)
-    (henc : encodeFormula primitives Γ Δ f fn x res e = .ok φ) :
-    φ.wfIn (SpecFn.Sig.relArgRes Δ fn x res) := by
+private theorem encodeFormula_wfIn
+    (hlaw : sd.primitives.Lawful) (hΓ : sd.Γ.relWfIn sd.Δ) (hΔ : sd.Δ.wf)
+    (hfresh : sd.Fresh)
+    (henc : encodeFormula sd = .ok φ) :
+    φ.wfIn (SpecFn.Sig.relArgRes sd.Δ sd.fn sd.x sd.res) := by
   obtain ⟨c, hc, rfl⟩ := Except.map_eq_ok henc
-  have hΔrel := hfresh.toSpecFnFresh.sigRelArg_wf (x := x) hΔ
+  have hΔrel := hfresh.toSpecFnFresh.sigRelArg_wf (x := sd.x) hΔ
   have hsig := hfresh.sigRelArgRes_wf hΔ
-  have hcWf : Expr.WfIn (FunCtx.recursive Γ f fn) (SpecFn.reserved fn x res)
-      (SpecFn.Sig.relArg Δ fn x) c :=
-    (encode_wfIn hlaw e hfresh.toSpecFnFresh.subset_sigRelArg hΔrel
+  have hcWf : Expr.WfIn (FunCtx.recursive sd.Γ sd.f sd.fn) (SpecFn.reserved sd.fn sd.x sd.res)
+      (SpecFn.Sig.relArg sd.Δ sd.fn sd.x) c :=
+    (encode_wfIn hlaw sd.e hfresh.toSpecFnFresh.subset_sigRelArg hΔrel
       (VarEnv.ofSignature_wfIn hΔrel) hfresh.covers_sigRelArg hc).weaken
-      SpecFn.reserved_subset_supply
+      SpecFn.reserved_subset_avoid
   exact Expr.toFormula_wfIn
     (hcWf.mono hfresh.sigRelArg_subset_sigRelArgRes hsig
       (SpecFn.names_of_subset_bothArgRes
-        (Signature.Subset.declVar SpecFn.Sig.relArg_subset_bothArg ⟨res, .value⟩)
+        (Signature.Subset.declVar SpecFn.Sig.relArg_subset_bothArg ⟨sd.res, .value⟩)
         hfresh.toSpecFnFresh.subset_sigRelArg))
-    (FunCtx.recursive_relWfIn_relArgRes hΓ hfresh) hsig (Signature.var_mem_declVar _ ⟨res, .value⟩)
+    (FunCtx.recursive_relWfIn_relArgRes hΓ hfresh) hsig
+    (Signature.var_mem_declVar _ ⟨sd.res, .value⟩)
 
 /-- Evaluating the relational body formula in the three-symbol environment is one
 unfolding of the relational body. -/
 private theorem rel_body_eval_iff {R : ValRel}
-    (hlaw : primitives.Lawful) (hΓ : Γ.relWfIn Δ) (hΔ : Δ.wf)
-    (hfresh : EquationFresh Δ fn x res)
-    (henc : encodeFormula primitives Γ Δ f fn x res e = .ok φ)
+    (hlaw : sd.primitives.Lawful) (hΓ : sd.Γ.relWfIn sd.Δ) (hΔ : sd.Δ.wf)
+    (hfresh : sd.Fresh)
+    (henc : encodeFormula sd = .ok φ)
     (vin vout : Srt.value.denote) :
-    φ.eval (((SpecFn.Env.both ρ fn R D F).updateConst .value x vin).updateConst .value res vout) ↔
-      Relation.eval φ ρ fn x res R vin vout := by
-  have hφwf := relEncodeBody_wfIn hlaw hΓ hΔ hfresh henc
+    φ.eval (((SpecFn.Env.both ρ sd.fn R D F).updateConst .value sd.x vin).updateConst
+        .value sd.res vout) ↔
+      Relation.eval φ ρ sd.fn sd.x sd.res R vin vout := by
+  have hφwf := encodeFormula_wfIn hlaw hΓ hΔ hfresh henc
   unfold Relation.eval
   exact (Formula.eval_env_agree hφwf
     (rel_agreeOn_both (D := D) (F := F) hfresh vin vout)).symm
@@ -627,18 +626,19 @@ private theorem rel_body_eval_iff {R : ValRel}
 graph of the func-form body operator. This is the step both fixpoint directions
 turn on. -/
 private theorem relEval_ofDefFunc
-    (hlaw : primitives.Lawful) (hΓ : Γ.Agreement ρ) (hΓwf : Γ.wfIn Δ) (hΔ : Δ.wf)
-    (hfresh : EquationFresh Δ fn x res)
-    (henc : encodeDefVal primitives Γ Δ f fn x res e = .ok body)
-    (hrelEnc : encodeFormula primitives Γ Δ f fn x res e = .ok φ)
+    (hlaw : sd.primitives.Lawful) (hΓ : sd.Γ.Agreement ρ) (hΓwf : sd.Γ.wfIn sd.Δ) (hΔ : sd.Δ.wf)
+    (hfresh : sd.Fresh)
+    (henc : encodeDefVal sd = .ok body)
+    (hrelEnc : encodeFormula sd = .ok φ)
     (D : Srt.value.denote → Prop) (F : Srt.value.denote → Srt.value.denote) :
-    Relation.eval φ ρ fn x res (ValRel.ofDefFunc D F) =
-      ValRel.ofDefFunc (Skolemize.eval ρ fn x body F D) (Skolemize.value ρ fn x body F D) := by
+    Relation.eval φ ρ sd.fn sd.x sd.res (ValRel.ofDefFunc D F) =
+      ValRel.ofDefFunc (Skolemize.eval ρ sd.fn sd.x body F D)
+        (Skolemize.value ρ sd.fn sd.x body F D) := by
   obtain ⟨c, rfl, hrelEnc', hcWf⟩ := encodeDefVal_witness hlaw hΔ hfresh henc
-  obtain rfl : φ = Expr.toFormula res c := by
+  obtain rfl : φ = Expr.toFormula sd.res c := by
     injection hrelEnc'.symm.trans hrelEnc with heq
     exact heq.symm
-  have hΓagree : (FunCtx.recursive Γ f fn).Agreement (SpecFn.Env.graph ρ fn D F) :=
+  have hΓagree : (FunCtx.recursive sd.Γ sd.f sd.fn).Agreement (SpecFn.Env.graph ρ sd.fn D F) :=
     FunCtx.Agreement.cons hΓ (hfresh.toSpecFnFresh.unused hΓwf)
   funext vin vout
   have hres := encodeDefVal_eval_updateConst_res (ρ := ρ) (D := D) (F := F)
@@ -654,89 +654,72 @@ end Skolemize
 
 /-! ## Soundness: the func-form definedness and value imply a relational edge -/
 
+private theorem rel_of_eval
+    (hlaw : sd.primitives.Lawful)
+    (henc : encodeDefVal sd = .ok body)
+    (hΓ : sd.Γ.Agreement ρ) (hΓwf : sd.Γ.wfIn sd.Δ)
+    (hΔ : sd.Δ.wf) (hfresh : sd.Fresh)
+    (P : Srt.value.denote → Prop) (vin : Srt.value.denote)
+    (hle : RelationFix.le
+      (ValRel.ofDefFunc P (ValRel.toFunc (SpecFn.Semantics.rel sd ρ)))
+      (SpecFn.Semantics.rel sd ρ))
+    (hdef : Skolemize.eval ρ sd.fn sd.x body (ValRel.toFunc (SpecFn.Semantics.rel sd ρ)) P vin) :
+    SpecFn.Semantics.rel sd ρ vin
+      (Skolemize.value ρ sd.fn sd.x body (ValRel.toFunc (SpecFn.Semantics.rel sd ρ)) P vin) := by
+  obtain ⟨c, rfl, hrelEnc, _⟩ := encodeDefVal_witness hlaw hΔ hfresh henc
+  have hmono := Relation.eval_mono
+    (ρ := ρ) (fn := sd.fn) (x := sd.x) (res := sd.res) (Expr.toFormula_mono sd.res c)
+  have hpreR : RelationFix.le
+      (Relation.eval (Expr.toFormula sd.res c) ρ sd.fn sd.x sd.res (SpecFn.Semantics.rel sd ρ))
+      (SpecFn.Semantics.rel sd ρ) := by
+    rw [show SpecFn.Semantics.rel sd ρ =
+        RelationFix.lfp (Relation.eval (Expr.toFormula sd.res c) ρ sd.fn sd.x sd.res)
+      from by simp [SpecFn.Semantics.rel, Relation.fixpoint, hrelEnc]]
+    exact RelationFix.lfp_prefixed hmono
+  refine hpreR _ _ (hmono hle _ _ ?_)
+  rw [relEval_ofDefFunc hlaw hΓ hΓwf hΔ hfresh henc hrelEnc P _]
+  exact ⟨hdef, rfl⟩
+
 /-- Func-form definedness plus the func-form body value gives a relational edge.
 This is the converse half of the fixpoint equivalence. -/
 theorem _root_.SpecFn.Semantics.rel_sound
-    (hlaw : primitives.Lawful)
-    (henc : encodeDefVal primitives Γ Δ f fn x res e = .ok body)
-    (hΓ : Γ.Agreement ρ) (hΓwf : Γ.wfIn Δ)
-    (hΔ : Δ.wf) (hfresh : EquationFresh Δ fn x res)
+    (hlaw : sd.primitives.Lawful)
+    (henc : encodeDefVal sd = .ok body)
+    (hΓ : sd.Γ.Agreement ρ) (hΓwf : sd.Γ.wfIn sd.Δ)
+    (hΔ : sd.Δ.wf) (hfresh : sd.Fresh)
     (vin vout : Srt.value.denote) :
-    SpecFn.Semantics.defined primitives Γ Δ ρ f fn x res e body vin →
-      body.value.eval
-        ((SpecFn.Semantics.env primitives Γ Δ ρ f fn x res e body).updateConst .value x vin) =
-      vout →
-      SpecFn.Semantics.rel primitives Γ Δ ρ f fn x res e vin vout := by
+    SpecFn.Semantics.defined sd ρ body vin →
+      body.value.eval ((SpecFn.Semantics.env sd ρ body).updateConst .value sd.x vin) = vout →
+      SpecFn.Semantics.rel sd ρ vin vout := by
   intro hsem hval
-  obtain ⟨c, rfl, hrelEnc, _⟩ := encodeDefVal_witness hlaw hΔ hfresh henc
-  have hmono := Relation.eval_mono
-    (ρ := ρ) (fn := fn) (x := x) (res := res) (Expr.toFormula_mono res c)
-  have hpreR : RelationFix.le
-      (Relation.eval (Expr.toFormula res c) ρ fn x res
-        (SpecFn.Semantics.rel primitives Γ Δ ρ f fn x res e))
-      (SpecFn.Semantics.rel primitives Γ Δ ρ f fn x res e) := by
-    rw [show SpecFn.Semantics.rel primitives Γ Δ ρ f fn x res e =
-        RelationFix.lfp (Relation.eval (Expr.toFormula res c) ρ fn x res)
-      from by simp [SpecFn.Semantics.rel, Relation.fixpoint, hrelEnc]]
-    exact RelationFix.lfp_prefixed hmono
-  -- Reading the body at the graph of a func-form candidate contained in `R` turns
-  -- a func-form definedness obligation into a relational edge.
-  have hstep : ∀ (P : Srt.value.denote → Prop) (vin' : Srt.value.denote),
-      RelationFix.le (ValRel.ofDefFunc P (ValRel.toFunc (SpecFn.Semantics.rel primitives Γ Δ ρ f fn x res e)))
-        (SpecFn.Semantics.rel primitives Γ Δ ρ f fn x res e) →
-      Skolemize.eval ρ fn x (Expr.toDefVal .id c)
-        (ValRel.toFunc (SpecFn.Semantics.rel primitives Γ Δ ρ f fn x res e)) P vin' →
-      SpecFn.Semantics.rel primitives Γ Δ ρ f fn x res e vin'
-        (Skolemize.value ρ fn x (Expr.toDefVal .id c)
-          (ValRel.toFunc (SpecFn.Semantics.rel primitives Γ Δ ρ f fn x res e)) P vin') := by
-    intro P vin' hle hdefBody
-    refine hpreR _ _ (hmono hle _ _ ?_)
-    rw [relEval_ofDefFunc hlaw hΓ hΓwf hΔ hfresh henc hrelEnc P _]
-    exact ⟨hdefBody, rfl⟩
-  have hdomain : PredicateFix.le (SpecFn.Semantics.defined primitives Γ Δ ρ f fn x res e (Expr.toDefVal .id c))
-      (ValRel.toDef (SpecFn.Semantics.rel primitives Γ Δ ρ f fn x res e)) := by
+  have hstep := rel_of_eval hlaw henc hΓ hΓwf hΔ hfresh
+  have hdomain : PredicateFix.le (SpecFn.Semantics.defined sd ρ body)
+      (ValRel.toDef (SpecFn.Semantics.rel sd ρ)) := by
     unfold SpecFn.Semantics.defined
     apply PredicateFix.lfp_le_of_prefixed
-    intro vin' hdefBody
-    exact ⟨_, hstep _ vin' (ValRel.ofDefFunc_le (fun _ h => h)) hdefBody⟩
-  rw [← show Skolemize.value ρ fn x (Expr.toDefVal .id c)
-        (ValRel.toFunc (SpecFn.Semantics.rel primitives Γ Δ ρ f fn x res e))
-        (SpecFn.Semantics.defined primitives Γ Δ ρ f fn x res e (Expr.toDefVal .id c)) vin = vout
+    intro vin' hdef
+    exact ⟨_, hstep _ vin' (ValRel.ofDefFunc_le (fun _ h => h)) hdef⟩
+  rw [← show Skolemize.value ρ sd.fn sd.x body (ValRel.toFunc (SpecFn.Semantics.rel sd ρ))
+        (SpecFn.Semantics.defined sd ρ body) vin = vout
       from by simpa [Skolemize.value, SpecFn.Env.graphArg, SpecFn.Semantics.env] using hval]
-  exact hstep _ vin (ValRel.ofDefFunc_le hdomain) ((SpecFn.Semantics.defined_unfold henc vin).mp hsem)
-
-theorem _root_.SpecFn.Semantics.rel_functional
-    (hlaw : primitives.Lawful)
-    (henc : encodeDefVal primitives Γ Δ f fn x res e = .ok body)
-    (hΔ : Δ.wf) (hΓwf : Γ.wfIn Δ) (hfresh : EquationFresh Δ fn x res)
-    (hρdet : FunCtx.Functional Γ ρ ρ)
-    (vin y₁ y₂ : Srt.value.denote) :
-    SpecFn.Semantics.rel primitives Γ Δ ρ f fn x res e vin y₁ →
-      SpecFn.Semantics.rel primitives Γ Δ ρ f fn x res e vin y₂ →
-      y₁ = y₂ := by
-  obtain ⟨c, hc, rfl⟩ := Except.map_eq_ok henc
-  exact SpecFn.Semantics.rel_functional_of_encodeBody (primitives := primitives) hlaw hc hΓwf.rel
-    hfresh.toSpecFnFresh.relFresh hfresh.toSpecFnFresh.subset_sigRelArg
-    (hfresh.toSpecFnFresh.sigRelArg_wf hΔ) hfresh.resFresh_sigRelArg hρdet vin y₁ y₂
+  exact hstep _ vin (ValRel.ofDefFunc_le hdomain)
+    ((SpecFn.Semantics.defined_unfold henc vin).mp hsem)
 
 /-- If the func-form body is defined at an input, then the body value is the one
 chosen from the relation. This is what the completeness direction needs when it
 builds the graph of the func-form interpretation inside the relational fixpoint. -/
 private theorem Skolemize.toFunc_eq
-    (hlaw : primitives.Lawful)
-    (henc : encodeDefVal primitives Γ Δ f fn x res e = .ok body)
-    (hΓ : Γ.Agreement ρ) (hΓwf : Γ.wfIn Δ)
-    (hΔ : Δ.wf) (hfresh : EquationFresh Δ fn x res)
-    (hρdet : FunCtx.Functional Γ ρ ρ)
+    (hlaw : sd.primitives.Lawful)
+    (henc : encodeDefVal sd = .ok body)
+    (hΓ : sd.Γ.Agreement ρ) (hΓwf : sd.Γ.wfIn sd.Δ)
+    (hΔ : sd.Δ.wf) (hfresh : sd.Fresh)
     (vin vout : Srt.value.denote) :
-    SpecFn.Semantics.defined primitives Γ Δ ρ f fn x res e body vin →
-      body.value.eval
-        ((SpecFn.Semantics.env primitives Γ Δ ρ f fn x res e body).updateConst .value x vin) =
-      vout →
-      ValRel.toFunc (SpecFn.Semantics.rel primitives Γ Δ ρ f fn x res e) vin = vout := by
+    SpecFn.Semantics.defined sd ρ body vin →
+      body.value.eval ((SpecFn.Semantics.env sd ρ body).updateConst .value sd.x vin) = vout →
+      ValRel.toFunc (SpecFn.Semantics.rel sd ρ) vin = vout := by
   intro hdefined hval
   have hrelBody := SpecFn.Semantics.rel_sound hlaw henc hΓ hΓwf hΔ hfresh vin vout hdefined hval
-  exact SpecFn.Semantics.rel_functional hlaw henc hΔ hΓwf hfresh hρdet vin _ vout
+  exact SpecFn.Semantics.rel_functional hlaw hΓwf.rel hΓ hΔ hfresh vin _ vout
     (ValRel.toFunc_spec ⟨vout, hrelBody⟩) hrelBody
 
 /-! ## Completeness: a relational edge implies func-form definedness and value -/
@@ -745,43 +728,40 @@ private theorem Skolemize.toFunc_eq
 predicate and the value computed by the func-form body. This is one half of the
 fixpoint equivalence. -/
 theorem _root_.SpecFn.Semantics.rel_complete
-    (hlaw : primitives.Lawful)
-    (henc : encodeDefVal primitives Γ Δ f fn x res e = .ok body)
-    (hΓ : Γ.Agreement ρ) (hΓwf : Γ.wfIn Δ)
-    (hΔ : Δ.wf) (hfresh : EquationFresh Δ fn x res)
-    (hρdet : FunCtx.Functional Γ ρ ρ)
+    (hlaw : sd.primitives.Lawful)
+    (henc : encodeDefVal sd = .ok body)
+    (hΓ : sd.Γ.Agreement ρ) (hΓwf : sd.Γ.wfIn sd.Δ)
+    (hΔ : sd.Δ.wf) (hfresh : sd.Fresh)
     (vin vout : Srt.value.denote) :
-    SpecFn.Semantics.rel primitives Γ Δ ρ f fn x res e vin vout →
-      SpecFn.Semantics.defined primitives Γ Δ ρ f fn x res e body vin ∧
-      body.value.eval
-        ((SpecFn.Semantics.env primitives Γ Δ ρ f fn x res e body).updateConst .value x vin) =
-      vout := by
+    SpecFn.Semantics.rel sd ρ vin vout →
+      SpecFn.Semantics.defined sd ρ body vin ∧
+      body.value.eval ((SpecFn.Semantics.env sd ρ body).updateConst .value sd.x vin) = vout := by
   intro hrel
   obtain ⟨c, rfl, hrelEnc, _⟩ := encodeDefVal_witness hlaw hΔ hfresh henc
-  set D := SpecFn.Semantics.defined primitives Γ Δ ρ f fn x res e (Expr.toDefVal .id c) with hD
-  set F := ValRel.toFunc (SpecFn.Semantics.rel primitives Γ Δ ρ f fn x res e) with hF
+  set D := SpecFn.Semantics.defined sd ρ (Expr.toDefVal .id c) with hD
+  set F := ValRel.toFunc (SpecFn.Semantics.rel sd ρ) with hF
   -- The graph of the func-form presentation is a prefixed point of the relational
   -- body, so it contains the relational fixpoint.
   have hpre : RelationFix.le
-      (Relation.eval (Expr.toFormula res c) ρ fn x res (ValRel.ofDefFunc D F))
+      (Relation.eval (Expr.toFormula sd.res c) ρ sd.fn sd.x sd.res (ValRel.ofDefFunc D F))
       (ValRel.ofDefFunc D F) := by
     intro vin' vout' hbody
     rw [relEval_ofDefFunc hlaw hΓ hΓwf hΔ hfresh henc hrelEnc D F] at hbody
     have hdefined : D vin' := (SpecFn.Semantics.defined_unfold henc vin').mpr hbody.1
     refine ⟨hdefined, ?_⟩
     rw [← hbody.2, hF]
-    exact toFunc_eq hlaw henc hΓ hΓwf hΔ hfresh hρdet vin' _ hdefined
+    exact toFunc_eq hlaw henc hΓ hΓwf hΔ hfresh vin' _ hdefined
       (by simp [Skolemize.value, SpecFn.Env.graphArg, SpecFn.Semantics.env, hD])
   have hS : ValRel.ofDefFunc D F vin vout :=
     RelationFix.lfp_le_of_prefixed hpre vin vout
       (by rw [show RelationFix.lfp
-            (Relation.eval (Expr.toFormula res c) ρ fn x res) =
-          SpecFn.Semantics.rel primitives Γ Δ ρ f fn x res e
+            (Relation.eval (Expr.toFormula sd.res c) ρ sd.fn sd.x sd.res) =
+          SpecFn.Semantics.rel sd ρ
         from by simp [SpecFn.Semantics.rel, Relation.fixpoint, hrelEnc]]; exact hrel)
   refine ⟨hS.1, ?_⟩
-  have hval : Skolemize.value ρ fn x (Expr.toDefVal .id c) F D vin = F vin := by
+  have hval : Skolemize.value ρ sd.fn sd.x (Expr.toDefVal .id c) F D vin = F vin := by
     rw [hF]
-    exact (toFunc_eq hlaw henc hΓ hΓwf hΔ hfresh hρdet vin _ hS.1
+    exact (toFunc_eq hlaw henc hΓ hΓwf hΔ hfresh vin _ hS.1
       (by simp [Skolemize.value, SpecFn.Env.graphArg, SpecFn.Semantics.env, hD])).symm
   simpa [Skolemize.value, SpecFn.Env.graphArg, SpecFn.Semantics.env] using hval.trans hS.2
 
