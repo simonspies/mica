@@ -29,12 +29,12 @@ theorem wfIn.mono {m : DefVal} {Δ Δ' : Signature}
 
 /-- The definedness component of a `DefVal` encoding is monotone in the
 environment's uninterpreted predicates. -/
-def Mono (m : DefVal) : Prop :=
+private def Mono (m : DefVal) : Prop :=
   SemanticMono (fun m ρ => m.defined.eval ρ) m
 
 /-- A call's definedness condition is monotone in the environment's
 uninterpreted predicates. -/
-theorem isDefined_mono (fn : SpecFn) (arg : Term .value) {ρ ρ' : Env}
+private theorem isDefined_mono (fn : SpecFn) (arg : Term .value) {ρ ρ' : Env}
     (hle : Env.le ρ ρ') (hdef : (fn.isDefined arg).eval ρ) :
     (fn.isDefined arg).eval ρ' := by
   simp only [SpecFn.isDefined, Formula.eval, UnPred.eval] at hdef ⊢
@@ -98,7 +98,7 @@ theorem ofExpr_wfIn_of_encode {primitives : PrimEncodings} {Γ : FunCtx}
 
 /-- The definedness of a split encoding is monotone in the environment's
 uninterpreted predicates. -/
-theorem ofExpr_mono (σ : Subst) (c : Expr) : DefVal.Mono (ofExpr σ c) := by
+private theorem ofExpr_mono (σ : Subst) (c : Expr) : DefVal.Mono (ofExpr σ c) := by
   induction c generalizing σ with
   | ret v => intro ρ ρ' _ hdef; simp [ofExpr, Formula.eval]
   | call fn arg r c ih =>
@@ -151,7 +151,7 @@ theorem splitBody_wfIn_bodySig
 /-- A successful split body encoding exposes the shared IR expression behind
 it: the split body is its split reading, the relational body encoding is its
 relational reading, and it is well-formed in the body signature. -/
-theorem splitBody_witness
+private theorem splitBody_witness
     (hlaw : primitives.Lawful) (hΔ : Δ.wf) (hfresh : HeadFresh Δ fn x res)
     (henc : splitBody primitives Γ Δ f fn x res e = .ok body) :
     ∃ c, body = ofExpr .id c ∧
@@ -165,27 +165,6 @@ theorem splitBody_witness
       bodyAvoid_subset_relBodySupply).mono relBodySig_subset_bodySig
       (hfresh.toInfoFresh.bodySig_wf hΔ)
       (names_of_subset_sig hfresh.bodySig_subset_sig hfresh.toInfoFresh.subset_relBodySig)
-
-/-- Relational body encodings are well-formed in the relational run signature. -/
-theorem relEncodeBody_wfIn
-    (hlaw : primitives.Lawful) (hΓ : Γ.relWfIn Δ) (hΔ : Δ.wf)
-    (hfresh : HeadFresh Δ fn x res)
-    (henc : Relation.relEncodeBody primitives Γ Δ f fn x res e = .ok φ) :
-    φ.wfIn (Relation.sig Δ fn x res) := by
-  obtain ⟨c, hc, rfl⟩ := Except.map_eq_ok henc
-  have hΔrel := hfresh.toInfoFresh.relBodySig_wf (x := x) hΔ
-  have hsig := hfresh.relSig_wf hΔ
-  have hcWf : Expr.WfIn (Relation.ctx Γ f fn) (bodyAvoid fn x res)
-      (Relation.bodySig Δ fn x) c :=
-    (encode_wfIn hlaw e hfresh.toInfoFresh.subset_relBodySig hΔrel
-      (VarEnv.ofSignature_wfIn hΔrel) hfresh.covers_relBodySig hc).weaken
-      bodyAvoid_subset_relBodySupply
-  exact Relation.ofExpr_wfIn
-    (hcWf.mono hfresh.relBodySig_subset_relSig hsig
-      (names_of_subset_sig
-        (Signature.Subset.declVar relBodySig_subset_bodySig ⟨res, .value⟩)
-        hfresh.toInfoFresh.subset_relBodySig))
-    (ctx_relWfIn_relSig hΓ hfresh) hsig (Signature.var_mem_declVar _ ⟨res, .value⟩)
 
 /-! ## Relations as a definedness predicate and a value function -/
 
@@ -210,7 +189,7 @@ def graph (D : Srt.value.denote → Prop) (F : Srt.value.denote → Srt.value.de
 
 /-- A candidate definedness predicate within the domain of `R`, paired with the
 value function chosen from `R`, presents a sub-relation of `R`. -/
-theorem graph_le {R : ValRel} {D : Srt.value.denote → Prop}
+private theorem graph_le {R : ValRel} {D : Srt.value.denote → Prop}
     (hdom : PredicateFix.le D (semDefined R)) :
     RelationFix.le (graph D (semFunc R)) R := by
   intro a b hab
@@ -241,19 +220,19 @@ theorem splitEnv_agreeOn {R : ValRel}
       (Env.agreeOn_update_fresh_unary (u := fn.func) (f := F) hfun)
       (Env.agreeOn_update_fresh_unaryRel (u := fn.defined) (f := D) hdef))
 
-theorem splitEnv_evalDefined (fn : SpecFn) (ρ : Env) {R : ValRel}
+private theorem splitEnv_evalDefined (fn : SpecFn) (ρ : Env) {R : ValRel}
     (v : Srt.value.denote) :
     SpecFn.evalDefined fn (splitEnv ρ fn R D F) v ↔ D v := by
   simp [splitEnv, SpecFn.evalDefined, SpecFn.defined, SpecFn.defName,
     Env.updateUnaryRel, Env.updateUnary, Env.updateBinaryRel]
 
-theorem splitEnv_evalCall (fn : SpecFn) (ρ : Env) {R : ValRel}
+private theorem splitEnv_evalCall (fn : SpecFn) (ρ : Env) {R : ValRel}
     (v : Srt.value.denote) :
     SpecFn.evalCall fn (splitEnv ρ fn R D F) v = F v := by
   simp [splitEnv, SpecFn.evalCall, SpecFn.func, SpecFn.funcName,
     Env.updateUnaryRel, Env.updateUnary, Env.updateBinaryRel]
 
-theorem splitEnv_evalRelates (fn : SpecFn) (ρ : Env) {R : ValRel}
+private theorem splitEnv_evalRelates (fn : SpecFn) (ρ : Env) {R : ValRel}
     (a b : Srt.value.denote) :
     SpecFn.evalRelates fn (splitEnv ρ fn R D F) a b ↔ R a b := by
   simp [splitEnv, SpecFn.evalRelates, SpecFn.rel, SpecFn.relName,
@@ -282,12 +261,12 @@ theorem splitEnv_updateBinaryRel {R R' : ValRel} :
 /-- The environment of a split candidate: the head relation is read as the
 graph of the candidate, which keeps the environment compatible while the split
 body never consults it. -/
-def graphEnv (ρ : Env) (fn : SpecFn) (D : Srt.value.denote → Prop)
+private def graphEnv (ρ : Env) (fn : SpecFn) (D : Srt.value.denote → Prop)
     (F : Srt.value.denote → Srt.value.denote) : Env :=
   splitEnv ρ fn (graph D F) D F
 
 /-- Environment for evaluating a split encoded body at input `vin`. -/
-def defEnv (ρ : Env) (fn : SpecFn) (x : String)
+private def defEnv (ρ : Env) (fn : SpecFn) (x : String)
     (D : Srt.value.denote → Prop)
     (F : Srt.value.denote → Srt.value.denote)
     (vin : Srt.value.denote) : Env :=
@@ -295,7 +274,7 @@ def defEnv (ρ : Env) (fn : SpecFn) (x : String)
 
 /-- Increasing the candidate definedness predicate increases the corresponding
 environments. -/
-theorem graphEnv_le {D D' : Srt.value.denote → Prop} (hDD' : PredicateFix.le D D') :
+private theorem graphEnv_le {D D' : Srt.value.denote → Prop} (hDD' : PredicateFix.le D D') :
     Env.le (graphEnv ρ fn D F) (graphEnv ρ fn D' F) := by
   refine ⟨rfl, rfl, rfl, rfl, ?_, ?_⟩
   · intro τ name a h
@@ -321,7 +300,7 @@ theorem graphEnv_le {D D' : Srt.value.denote → Prop} (hDD' : PredicateFix.le D
 
 /-- Extending a split-compatible context with a fresh head function preserves
 split compatibility: in `graphEnv` the head relation is a graph by construction. -/
-theorem splitCompatible_cons
+private theorem splitCompatible_cons
     (hΓ : FunCtx.splitCompatible Γ ρ) (hfresh : FunCtx.freshFn Γ fn) :
     FunCtx.splitCompatible ((f, fn) :: Γ) (graphEnv ρ fn D F) := by
   intro g fn' hmem a b
@@ -343,14 +322,14 @@ def defBody (ρ : Env) (fn : SpecFn) (x : String) (body : DefVal)
   fun D vin => body.defined.eval (defEnv ρ fn x D F vin)
 
 /-- The value a split body computes at `vin` under a recursive candidate. -/
-def valBody (ρ : Env) (fn : SpecFn) (x : String) (body : DefVal)
+private def valBody (ρ : Env) (fn : SpecFn) (x : String) (body : DefVal)
     (F : Srt.value.denote → Srt.value.denote) (D : Srt.value.denote → Prop)
     (vin : Srt.value.denote) : Srt.value.denote :=
   body.value.eval (defEnv ρ fn x D F vin)
 
 /-- The definedness body operator is monotone whenever the encoded body has
 monotone definedness. -/
-theorem defBody_mono {x : String} (hbody : DefVal.Mono body) :
+private theorem defBody_mono {x : String} (hbody : DefVal.Mono body) :
     PredicateFix.Mono (defBody ρ fn x body F) := by
   intro D D' hDD' vin hdef
   exact hbody (Env.le.updateConst (graphEnv_le (ρ := ρ) (fn := fn)
@@ -422,14 +401,14 @@ agree. -/
 /-- The invariant the two encodings are compared under: the environment the
 relational side reads and the one the split side reads after its substitution
 give every term of `Δ` the same value. -/
-def SubstAgree (Δ : Signature) (ρrel ρdef : Env) (σ : Subst) : Prop :=
+private def SubstAgree (Δ : Signature) (ρrel ρdef : Env) (σ : Subst) : Prop :=
   Env.agreeOnTerms Δ ρrel (σ.eval ρdef)
 
-theorem substAgree_refl {ρ : Env} : SubstAgree Δ ρ ρ .id :=
+private theorem substAgree_refl {ρ : Env} : SubstAgree Δ ρ ρ .id :=
   Env.agreeOnTerms_of_agreeOn Env.agreeOn_refl
 
 /-- Reading a term of `Δ` on either side of `SubstAgree` gives the same value. -/
-theorem eval_substAgree {Δ Δσ : Signature} {ρrel ρdef : Env} {σ : Subst}
+private theorem eval_substAgree {Δ Δσ : Signature} {ρrel ρdef : Env} {σ : Subst}
     {τ : Srt} {t : Term τ}
     (hagree : SubstAgree Δ ρrel ρdef σ) (ht : t.wfIn Δ)
     (hσ : σ.wfIn Δ.vars Δσ) (hΔσ : Δσ.wf) :
@@ -439,7 +418,7 @@ theorem eval_substAgree {Δ Δσ : Signature} {ρrel ρdef : Env} {σ : Subst}
 
 /-- Binding a call's result extends the invariant: the relational side reads the
 witness it chose, the split side the value term it substituted. -/
-theorem substAgree_bind {ρrel ρdef : Env} {σ : Subst} {r : String} {t : Term .value}
+private theorem substAgree_bind {ρrel ρdef : Env} {σ : Subst} {r : String} {t : Term .value}
     (hagree : SubstAgree Δ ρrel ρdef σ) :
     SubstAgree (Δ.declVar ⟨r, .value⟩) (ρrel.updateConst .value r (Term.eval ρdef t))
       ρdef (σ.update .value r t) := by
@@ -447,7 +426,7 @@ theorem substAgree_bind {ρrel ρdef : Env} {σ : Subst} {r : String} {t : Term 
   rw [Subst.eval_update]
   exact Env.agreeOnTerms_declVar hagree
 
-theorem ofExpr_iff {Δbase : Signature} {res : String} {ρdef : Env}
+private theorem ofExpr_iff {Δbase : Signature} {res : String} {ρdef : Env}
     (hΓdef : Γ.splitWfIn Δbase) (hΔbase : Δbase.wf) :
     ∀ {avoid : List String} {Δ : Signature} {c : Expr} {σ : Subst} {ρrel : Env},
       Expr.WfIn Γ avoid Δ c → res ∈ avoid →
@@ -536,7 +515,7 @@ theorem ofExpr_iff {Δbase : Signature} {res : String} {ρdef : Env}
 /-- At a split-compatible environment the two readings of one body agree: the
 relational formula holds at `vout` exactly when the split body is defined and
 evaluates to `vout`. -/
-theorem body_eval_iff {ρsplit : Env} {c : Expr}
+private theorem body_eval_iff {ρsplit : Env} {c : Expr}
     (hΓdef : Γ.splitWfIn Δ) (hΔ : Δ.wf) (hfresh : HeadFresh Δ fn x res)
     (hcWf : Expr.WfIn (Relation.ctx Γ f fn) (bodyAvoid fn x res) (bodySig Δ fn x) c)
     (hΓsplit : (Relation.ctx Γ f fn).splitCompatible ρsplit)
@@ -558,7 +537,7 @@ theorem body_eval_iff {ρsplit : Env} {c : Expr}
 
 /-- The split body never mentions the result variable, so pinning `res` does not
 change what it reads. -/
-theorem splitBody_eval_updateConst_res
+private theorem splitBody_eval_updateConst_res
     (hlaw : primitives.Lawful) (hΔ : Δ.wf) (hΓ : Γ.splitWfIn Δ)
     (hfresh : HeadFresh Δ fn x res)
     (henc : splitBody primitives Γ Δ f fn x res e = .ok body)
@@ -575,7 +554,7 @@ theorem splitBody_eval_updateConst_res
 
 /-- The relational run environment and the split environment pinned at `x` and
 `res` agree on everything the relational body can read. -/
-theorem relEnv_agreeOn_splitEnv {R : ValRel}
+private theorem relEnv_agreeOn_splitEnv {R : ValRel}
     (hfresh : HeadFresh Δ fn x res) (vin vout : Srt.value.denote) :
     Env.agreeOn (Relation.sig Δ fn x res)
       (Relation.relEnv ρ fn x res R vin vout)
@@ -592,9 +571,30 @@ theorem relEnv_agreeOn_splitEnv {R : ValRel}
       (Env.agreeOn_update_fresh_unaryRel (u := fn.defined) (f := D) hdefFresh)
   exact Env.agreeOn_declVar (Env.agreeOn_declVar hbase)
 
+/-- Relational body encodings are well-formed in the relational run signature. -/
+private theorem relEncodeBody_wfIn
+    (hlaw : primitives.Lawful) (hΓ : Γ.relWfIn Δ) (hΔ : Δ.wf)
+    (hfresh : HeadFresh Δ fn x res)
+    (henc : Relation.relEncodeBody primitives Γ Δ f fn x res e = .ok φ) :
+    φ.wfIn (Relation.sig Δ fn x res) := by
+  obtain ⟨c, hc, rfl⟩ := Except.map_eq_ok henc
+  have hΔrel := hfresh.toInfoFresh.relBodySig_wf (x := x) hΔ
+  have hsig := hfresh.relSig_wf hΔ
+  have hcWf : Expr.WfIn (Relation.ctx Γ f fn) (bodyAvoid fn x res)
+      (Relation.bodySig Δ fn x) c :=
+    (encode_wfIn hlaw e hfresh.toInfoFresh.subset_relBodySig hΔrel
+      (VarEnv.ofSignature_wfIn hΔrel) hfresh.covers_relBodySig hc).weaken
+      bodyAvoid_subset_relBodySupply
+  exact Relation.ofExpr_wfIn
+    (hcWf.mono hfresh.relBodySig_subset_relSig hsig
+      (names_of_subset_sig
+        (Signature.Subset.declVar relBodySig_subset_bodySig ⟨res, .value⟩)
+        hfresh.toInfoFresh.subset_relBodySig))
+    (ctx_relWfIn_relSig hΓ hfresh) hsig (Signature.var_mem_declVar _ ⟨res, .value⟩)
+
 /-- Evaluating the relational body formula in the split environment is the
 abstract semantic body operator. -/
-theorem rel_body_eval_iff {R : ValRel}
+private theorem rel_body_eval_iff {R : ValRel}
     (hlaw : primitives.Lawful) (hΓ : Γ.relWfIn Δ) (hΔ : Δ.wf)
     (hfresh : HeadFresh Δ fn x res)
     (henc : relEncodeBody primitives Γ Δ f fn x res e = .ok φ)
@@ -609,7 +609,7 @@ theorem rel_body_eval_iff {R : ValRel}
 /-- Reading the relational body at the graph of a split candidate gives the
 graph of the split body operator. This is the step both fixpoint directions
 turn on. -/
-theorem semanticBody_graph
+private theorem semanticBody_graph
     (hlaw : primitives.Lawful) (hΓ : Γ.splitCompatible ρ) (hΓwf : Γ.wfIn Δ) (hΔ : Δ.wf)
     (hfresh : HeadFresh Δ fn x res)
     (henc : splitBody primitives Γ Δ f fn x res e = .ok body)
@@ -704,7 +704,7 @@ theorem semrel_functional
 canonical value chosen from the relational semantics. This is what the
 completeness direction needs when it builds the graph of the split
 interpretation inside the relational fixpoint. -/
-theorem semFunc_eq
+private theorem semFunc_eq
     (hlaw : primitives.Lawful)
     (henc : splitBody primitives Γ Δ f fn x res e = .ok body)
     (hΓ : Γ.splitCompatible ρ) (hΓwf : Γ.wfIn Δ)

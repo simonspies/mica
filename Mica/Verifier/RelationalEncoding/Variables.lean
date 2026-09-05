@@ -176,7 +176,7 @@ def ofSignature (Δ : Signature) : VarEnv :=
     | _ => none
 
 /-- The encoder environment reads only the declared variables. -/
-theorem ofSignature_congr {Δ Δ' : Signature} (h : Δ.vars = Δ'.vars) :
+private theorem ofSignature_congr {Δ Δ' : Signature} (h : Δ.vars = Δ'.vars) :
     ofSignature Δ = ofSignature Δ' := by
   rw [ofSignature, ofSignature, h]
 
@@ -278,21 +278,21 @@ def base (Δ : Signature) (fn : SpecFn) : Signature :=
 
 variable {Δ : Signature} {fn : SpecFn} {x res : String}
 
-theorem subset_relBase (Δ : Signature) (fn : SpecFn) : Δ.Subset (relBase Δ fn) :=
+private theorem subset_relBase (Δ : Signature) (fn : SpecFn) : Δ.Subset (relBase Δ fn) :=
   Signature.Subset.subset_addBinaryRel _ _
 
-theorem subset_splitBase (Δ : Signature) (fn : SpecFn) : Δ.Subset (splitBase Δ fn) :=
+private theorem subset_splitBase (Δ : Signature) (fn : SpecFn) : Δ.Subset (splitBase Δ fn) :=
   (Signature.Subset.subset_addUnary _ _).trans (Signature.Subset.subset_addUnaryRel _ _)
 
-theorem relBase_subset_base (Δ : Signature) (fn : SpecFn) :
+private theorem relBase_subset_base (Δ : Signature) (fn : SpecFn) :
     (relBase Δ fn).Subset (base Δ fn) :=
   subset_splitBase _ _
 
-theorem splitBase_subset_base (Δ : Signature) (fn : SpecFn) :
+private theorem splitBase_subset_base (Δ : Signature) (fn : SpecFn) :
     (splitBase Δ fn).Subset (base Δ fn) :=
   ((subset_relBase Δ fn).addUnary fn.func).addUnaryRel fn.defined
 
-theorem subset_base (Δ : Signature) (fn : SpecFn) : Δ.Subset (base Δ fn) :=
+private theorem subset_base (Δ : Signature) (fn : SpecFn) : Δ.Subset (base Δ fn) :=
   (subset_relBase Δ fn).trans (relBase_subset_base Δ fn)
 
 namespace Relation
@@ -382,7 +382,7 @@ theorem relBodySupply_covers_sig (Δ : Signature) (fn : SpecFn) (x res : String)
     (show n ≠ (⟨res, .value⟩ : Var).name from hnRes) hn
 
 /-- The body supply covers every signature the body encodings run in. -/
-theorem relBodySupply_covers_of_subset {Δ' : Signature}
+private theorem relBodySupply_covers_of_subset {Δ' : Signature}
     (hsub : Δ'.Subset (sig Δ fn x res)) : (relBodySupply Δ fn x res).Covers Δ' :=
   fun n hn => relBodySupply_covers_sig Δ fn x res n (Signature.allNames_subset hsub n hn)
 
