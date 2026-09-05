@@ -47,7 +47,7 @@ private def Program.translateLeaf (primitives : PrimEncodings) (Δ : Signature)
     (Γfn : FunCtx) (names : List String)
     (e : Typed.Expr) : Except String (Term .value × Formula) := do
   let c ← encode primitives Δ Γfn (names.map (fun n => (n, .var .value n))) e
-    Δ.allNames
+    (Δ.allNames ++ names)
   let dv := Verifier.RelationalEncoding.Expr.toDefVal .id c
   .ok (dv.value, dv.defined)
 

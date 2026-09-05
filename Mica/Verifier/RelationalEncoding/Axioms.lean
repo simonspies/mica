@@ -129,7 +129,7 @@ private theorem SpecFn.Axioms.definedIntro_eval {sd : SpecDef} {ρ : Env}
 func-form definedness fixpoint and the chosen value
 function. This is a theorem of the two encodings, not an external invariant:
 tail compatibility handles old function symbols, freshness prevents the new
-symbols from clobbering them, and the paired-encoding completeness/soundness proof handles the
+symbols from clobbering them, and the equivalence proof for the shared IR handles the
 recursive body. -/
 private theorem SpecFn.Semantics.rel_agreement {sd : SpecDef} {ρ : Env}
     (hlaw : sd.primitives.Lawful)
@@ -222,10 +222,8 @@ private theorem SpecFn.Axioms.all_eval {sd : SpecDef} {ρ : Env}
 /-! ## The verifier-facing entry point
 
 `encode` is the top-level entry point for the verifier: given a relation-marked
-function and its body, it returns the data needed to declare solver symbols
-and assume axioms (the binary relation symbol, the value function, the
-definedness predicate, a fresh pinned result variable, the encoded body, and
-the guarded solver-facing axioms over the func-form symbols).
+function and its body, it returns the encoded body and the guarded solver-facing
+axioms over the func-form symbols.
 
 The lemmas below lift the corresponding `SpecFn.Axioms.*` results to the `encode`
 level. -/
