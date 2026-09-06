@@ -586,6 +586,9 @@ theorem implement_correct (W : TinyML.World)
       (∀ v ∈ argVars, v ∈ st'.decls.consts) →
       (∀ v ∈ argVars, v.sort = .value) →
       List.Forall₂ (fun av val => ρ'.consts .value av.name = val) argVars vs →
+      (∀ v ∈ ghostVars, v ∈ st'.decls.consts) →
+      (∀ v ∈ ghostVars, v.sort = .value) →
+      List.Forall₂ (fun gv val => ρ'.consts .value gv.name = val) ghostVars gs →
       VerifM.eval (body argVars ghostVars) st' ρ'
         (fun result st'' ρ'' =>
           ∀ (S : iProp), result.wfIn st''.decls →
@@ -614,7 +617,7 @@ theorem implement_correct (W : TinyML.World)
       W.Δ_spec σ₁ st₁ ρ₁ _ (by simp) hσ₁wf (VerifM.eval_bind hΨ₁) $$ Hgvals
   ipure Hgdecl
   obtain ⟨σ', ghostVars, st', ρ', hΨ, hσ'wf, hdsub₂, hragree₂, howns₂, hdom_sub₂, hagree₂,
-    _, _, _⟩ := Hgdecl
+    hmem_gdecls, hgsorts, hglookups⟩ := Hgdecl
   have hdsub : st.decls.Subset st'.decls := hdsub₁.trans hdsub₂
   have hragree : Env.agreeOn st.decls ρ ρ' :=
     Env.agreeOn_trans hragree₁ (Env.agreeOn_mono hdsub₁ hragree₂)
@@ -683,6 +686,15 @@ theorem implement_correct (W : TinyML.World)
           have hsort := hsorts _ hav
           cases hsort
           exact Term.const_wfIn_of_mem hst'_wf (hmem_decls' _ hav)
+        · exact fun v hv => hdsub'.consts v (hmem_gdecls v hv)
+        · exact hgsorts
+        · refine Terms.Eval.lookup_const (Terms.Eval.env_agree (ρ := ρ') ?_ hragree' hglookups)
+          intro t ht
+          obtain ⟨gv, hgv, rfl⟩ := List.mem_map.mp ht
+          obtain ⟨_, _⟩ := gv
+          have hsort := hgsorts _ hgv
+          cases hsort
+          exact Term.const_wfIn_of_mem hst'_wf (hmem_gdecls _ hgv)
         · exact hbody_eval))
   isplitr [Happ]
   · iapply (show st.sl W ρ' ⊢ st'.sl W ρ' by simp [howns, TransState.sl])
