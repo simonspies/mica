@@ -1,0 +1,5 @@
+let bump (n : int) : int= n + 1[@@spec
+                                 fun n ->
+                                   assert (n < hi);
+                                   ret (fun v -> assert (v <= hi))]
+let use (n : int) : int= bump n

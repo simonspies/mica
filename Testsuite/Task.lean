@@ -35,26 +35,36 @@ def plan (tests : Array Test) : Array (TaskKind × Test) :=
     ++ tests.map ((TaskKind.check, ·))
     ++ (tests.filter (·.config.roundtrip)).map ((TaskKind.roundtrip, ·))
 
-def ocamlopt (args : Array String) (cwd : FilePath) : IO ProcessResult := do
+/-- Run an external tool, reporting a missing executable as a failed run. -/
+def tool (cmd : String) (args : Array String) (cwd : FilePath) : IO ProcessResult := do
   try
-    runProcess "ocamlopt" args (some cwd)
+    runProcess cmd args (some cwd)
   catch e =>
     pure (.terminated {
       exitCode := 127
       stdout := ""
-      stderr := s!"failed to run ocamlopt: {e}\n"
+      stderr := s!"failed to run {cmd}: {e}\n"
     })
+
+def ppxDir (cwd : FilePath) : FilePath := cwd / "ppx"
+
+def buildPpx (cwd : FilePath) : IO Outcome :=
+  measure (relativeLabel cwd (ppxDir cwd)) <|
+    tool "dune" #["build", "@all", "@runtest"] (ppxDir cwd)
 
 /-- Compile the stdlib stub `mica.ml`, which the per-test compiles link against. -/
 def compileStdlib (cwd tmpDir : FilePath) : IO Outcome := do
   let path := cwd / "mica.ml"
   measure (relativeLabel cwd path) <|
-    ocamlopt #["-c", path.toString, "-o", "mica.cmx"] tmpDir
+    tool "ocamlopt" #["-c", path.toString, "-o", "mica.cmx"] tmpDir
 
-def compile (tmpDir : FilePath) (idx : Nat) (test : Test) : IO Outcome := do
+def compile (cwd tmpDir : FilePath) (idx : Nat) (test : Test) : IO Outcome := do
   let out := tmpDir / s!"example_{idx}.cmx"
+  let ppx := ppxDir cwd / "_build" / "default" / "ppx_mica_ghost.exe"
   measure test.label <|
-    ocamlopt #["-I", tmpDir.toString, "-c", test.path.toString, "-o", out.toString] tmpDir
+    tool "ocamlopt"
+      #["-I", tmpDir.toString, "-ppx", s!"{ppx} --as-ppx",
+        "-c", test.path.toString, "-o", out.toString] tmpDir
 
 def ensureNewline (s : String) : String :=
   if s.isEmpty || s.endsWith "\n" then s else s ++ "\n"
@@ -133,9 +143,9 @@ def roundtrip (mica : FilePath) (tmpDir : FilePath) (idx : Nat) (test : Test) :
       return .terminated { exitCode := 1, stdout := "roundtrip: print is not a fixpoint\n" ++ d, stderr := "" }
 
 /-- Dispatch one task. -/
-def perform (mica : FilePath) (promote : Bool) (tmpDir : FilePath) (idx : Nat) :
+def perform (mica : FilePath) (promote : Bool) (cwd tmpDir : FilePath) (idx : Nat) :
     TaskKind × Test → IO Outcome
-  | (.compile, test) => compile tmpDir idx test
+  | (.compile, test) => compile cwd tmpDir idx test
   | (.check, test) => check mica promote tmpDir idx test
   | (.roundtrip, test) => roundtrip mica tmpDir idx test
 

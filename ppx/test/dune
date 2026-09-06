@@ -1,0 +1,15 @@
+; The rewriter's output on `erase.ml` must be `erase.expected`.
+(rule
+ (targets erase.actual)
+ (deps
+  (:ppx ../ppx_mica_ghost.exe)
+  (:input erase.ml))
+ (action
+  (with-stdout-to
+   %{targets}
+   (run %{ppx} --impl %{input}))))
+
+(rule
+ (alias runtest)
+ (action
+  (diff erase.expected erase.actual)))

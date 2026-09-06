@@ -58,11 +58,11 @@ script «parser-diff» (args) := do
   }
   child.wait
 
-/-- Build mica and the testsuite runner (`Testsuite.lean`), ask the runner for
-    the task list (`list` → `task,file` lines), and register one Lake job per
-    task (`run-task`) so the build monitor shows live progress. Reports are
-    printed once all jobs have finished; the summary is delegated back to the
-    runner (`summarize`). -/
+/-- Build mica and the testsuite runner (`Testsuite.lean`), have the runner
+    build what the tasks share (`prepare`), ask it for the task list (`list` →
+    `task,file` lines), and register one Lake job per task (`run-task`) so the
+    build monitor shows live progress. Reports are printed once all jobs have
+    finished; the summary is delegated back to the runner (`summarize`). -/
 script testsuite (args) := do
   let some mica ← Lake.findLeanExe? `mica
     | error "mica executable undefined"
@@ -73,6 +73,9 @@ script testsuite (args) := do
     let suiteJob ← suite.exe.fetch
     return micaJob.zipWith (fun m s => (m, s)) suiteJob
   let (flags, paths) := args.partition (·.startsWith "-")
+  let prepared ← IO.Process.output { cmd := exeFile.toString, args := #["prepare"] }
+  if prepared.exitCode != 0 then
+    error s!"preparing the testsuite failed: {prepared.stdout}{prepared.stderr}"
   let listOut ← IO.Process.output {
     cmd := exeFile.toString
     args := #["list"] ++ paths.toArray

@@ -17,6 +17,9 @@ jobs:
           ocaml-compiler: 5.4.x
       - name: Print OCaml version
         run: opam exec -- ocamlopt -version
+      # The testsuite builds `ppx/`, the rewriter that erases the ghost fragment.
+      - name: Install the ppx dependencies
+        run: opam install -y dune ppxlib
       - name: Install Z3
         run: |
           Z3_VERSION=4.15.4

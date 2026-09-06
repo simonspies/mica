@@ -1,0 +1,3 @@
+(executable
+ (name ppx_mica_ghost)
+ (libraries ppxlib))
