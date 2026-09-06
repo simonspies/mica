@@ -6,6 +6,7 @@
 - `BoundedQuantifier.lean` — Lambda lifting of spec-level bounded quantifiers (Range.all/Range.exists) into axiomatized function symbols.
 - `Compilation.lean` — Compilation of individual TinyML constructs to verifier terms, shared by the run-time and ghost layers.
 - `Expressions.lean` — Compilation of typed TinyML expressions into verifier terms, with weakest-precondition correctness proofs.
+- `Ghost.lean` — Compilation of the ghost fragment of TinyML into verifier terms, with entailment correctness proofs.
 - `Guard.lean` — The guard constant deactivating quantified axioms in low-effort checks, effort levels, and guarded axioms.
 - `Interpretations.lean` — Iris interpretations of spatial atoms and contexts, with lemmas relating syntax to separation-logic assertions.
 - `Intrinsic.lean` — Data model for verifier intrinsics, with generic theorems characterizing the effect of registry setup.

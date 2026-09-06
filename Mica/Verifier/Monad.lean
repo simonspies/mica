@@ -64,6 +64,9 @@ instance : Monad VerifM where
 def VerifM.ctxPure (f : List Formula → α) : VerifM α :=
   VerifM.ctx (fun st => (f st.asserts, st.owns))
 
+def VerifM.decls : VerifM Signature :=
+  VerifM.ctx (fun st => (st.decls, st.owns))
+
 /-- Drop the current spatial context, keeping only the persistent verifier state. -/
 def VerifM.persist : VerifM Unit :=
   VerifM.ctx (fun st => ((), (TransState.persist st).owns))
@@ -1003,6 +1006,12 @@ theorem VerifM.eval_ctx {f : TransState → α × SpatialContext}
     ∧ st.holdsFor ρ
     ∧ st.asserts.wfIn st.decls :=
   ⟨fun howns => (h.2.2 howns).2.2, h.1.ownsWf, h.2.1, h.1.assertsWf⟩
+
+theorem VerifM.eval_decls {st : TransState} {ρ : Env}
+    {Q : Signature → TransState → Env → Prop} (h : VerifM.eval VerifM.decls st ρ Q) :
+    Q st.decls st ρ :=
+  let ⟨hq, howns, _, _⟩ := VerifM.eval_ctx h
+  hq howns
 
 theorem VerifM.eval_ctxPure {f : List Formula → α} {st : TransState} {ρ : Env}
     {Q : α → TransState → Env → Prop}
