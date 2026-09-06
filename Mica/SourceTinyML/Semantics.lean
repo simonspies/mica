@@ -1,5 +1,6 @@
 -- SUMMARY: Semantics of atoms, assertions, and specifications, parametric in the value relation interpreting types.
 import Mica.SourceTinyML.Assertions
+import Mica.SourceTinyML.Typed
 import Mica.SourceTinyML.World
 import Mica.SeparationLogic.Wp
 import Mica.FOL.SpecFn
@@ -539,3 +540,13 @@ theorem isPrecondFor_contractive {n : Nat} {W : TinyML.World}
         (fun r => wand_ne.ne ((hV m hm) r retTy) .rfl) s.pred _
 
 end Spec
+
+-- ---------------------------------------------------------------------------
+-- Measures
+-- ---------------------------------------------------------------------------
+
+/-- The measure read where the specification's parameters stand for the
+    arguments. A negative measure ranks at zero, from which no call is possible. -/
+def Typed.Measure.denote (measure : Typed.Measure) (s : Spec TinyML.Typ) (ρ : Env)
+    (vs gs : List Runtime.Val) : Nat :=
+  (Term.eval (Spec.argsEnv ρ s.allArgs (vs ++ gs)) measure.term).toNat
