@@ -1,0 +1,2 @@
+Status: failed: specification error: ghost parameter 'x' shadows a name the specification already binds
+[1]

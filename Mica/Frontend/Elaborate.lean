@@ -223,18 +223,13 @@ private def elaborateCtorLookup (env : ElabEnv) (loc : Location) (name : String)
   | some info => .ok (.inj info.tag info.arity (arg.getD (.const .unit)) info.owner)
   | none => err loc (.unknownConstructor name)
 
-/-- Apply a single expression attribute to an already-elaborated term. One arm
-per supported expression attribute; unknown names are rejected here (mirroring
-how `[@@...]` names are validated). -/
-private def applyAttr (e : Untyped.Expr) (attr : Attribute) : ElabM Untyped.Expr :=
-  match attr.name, attr.payload with
-  | .owned, none =>
-      match e with
-      | .ref _ inner => .ok (.ref .owned inner)
-      | .arrayMake _ len init => .ok (.arrayMake .owned len init)
-      | _ => err attr.loc (.unsupportedFeature "[@owned] only applies to 'ref' or 'Array.make'")
-  | .owned, some payload => err payload.loc (.unsupportedFeature "[@owned] takes no payload")
-  | name, _ => err attr.loc (.unsupportedFeature s!"unknown expression attribute [@{name}]")
+/-- The items a `[@ghost ...]` or `[@@ghost ...]` payload lists. The payload
+parses as an application spine, so an item that is itself an application needs
+a type annotation, as in `[@ghost (height l : int)]`. -/
+private def ghostArgs (payload : Expr) : List Expr :=
+  match payload.kind with
+  | .app fn args => fn :: args
+  | _ => [payload]
 
 private def bareSpecial (loc : Location) (path : Path) : ElabM Untyped.Expr :=
   err loc (.bareSpecialIdentifier path.toString)
@@ -488,13 +483,38 @@ private partial def TypKind.elaborate (env : ElabEnv) (loc : Location) :
     let ts' ← ts.mapM (Typ.elaborate env)
     .ok (.tuple ts')
 
+/-- Apply a single expression attribute to an already-elaborated term. One arm
+per supported expression attribute; unknown names are rejected here (mirroring
+how `[@@...]` names are validated). -/
+private partial def applyAttr (env : ElabEnv) (e : Untyped.Expr) (attr : Attribute) :
+    ElabM Untyped.Expr :=
+  match attr.name, attr.payload with
+  | .owned, none =>
+      match e with
+      | .ref _ inner => .ok (.ref .owned inner)
+      | .arrayMake _ len init => .ok (.arrayMake .owned len init)
+      | _ => err attr.loc (.unsupportedFeature "[@owned] only applies to 'ref' or 'Array.make'")
+  | .owned, some payload => err payload.loc (.unsupportedFeature "[@owned] takes no payload")
+  | .ghost, some payload =>
+      match e with
+      | .app fn args [] => do
+          let gargs ← (ghostArgs payload).mapM (Expr.elaborate env)
+          .ok (.app fn args gargs)
+      | .app _ _ _ =>
+          err attr.loc (.unsupportedFeature "an application carries at most one [@ghost]")
+      | _ =>
+          err attr.loc (.unsupportedFeature "[@ghost] only applies to a function application")
+  | .ghost, none =>
+      err attr.loc (.unsupportedFeature "[@ghost] expects its ghost arguments as the payload")
+  | name, _ => err attr.loc (.unsupportedFeature s!"unknown expression attribute [@{name}]")
+
 /-- Elaborate an expression: lower its kind, then apply any expression
 attributes (`e [@name payload]`) left-to-right. This is the single entry point
 for every expression position, so attributes are honored everywhere. -/
 private partial def Expr.elaborate (env : ElabEnv) : Expr → ElabM Untyped.Expr
   | ⟨loc, kind, attrs⟩ => do
       let e ← ExprKind.elaborate env loc kind
-      attrs.foldlM applyAttr e
+      attrs.foldlM (applyAttr env) e
 
 private partial def ExprKind.elaborate (env : ElabEnv) (loc : Location) :
     ExprKind → ElabM Untyped.Expr
@@ -923,6 +943,24 @@ private structure ValAttrs where
   declaration becomes a specified one, so typing then requires every argument
   and the return type annotated, which `[@@fn]` alone does not. -/
   impl : Bool := false
+  /-- The specification-only parameters `[@@ghost]` declares. -/
+  ghost : List (String × Untyped.Typ) := []
+
+/-- A `[@@ghost]` parameter is an annotated name, since nothing else fixes the
+type it is used at. -/
+private def ghostParam (env : ElabEnv) (e : Expr) : ElabM (String × Untyped.Typ) :=
+  match e.kind with
+  | .annot name ty =>
+    match name.kind with
+    | .var path =>
+      if path.isQualified then
+        err name.loc (.unsupportedFeature "a ghost parameter is a plain name")
+      else do
+        let ty' ← Typ.elaborate env ty
+        .ok (path.head, ty')
+    | _ => err name.loc (.unsupportedFeature "a ghost parameter is a plain name")
+  | _ => err e.loc (.unsupportedFeature
+      "[@@ghost] takes annotated parameters, as in [@@ghost (lo : int) (hi : int)]")
 
 /-- Read a value declaration's attributes. Every attribute is accounted for —
 an unknown name is rejected, and neither may be written twice — so none is
@@ -952,6 +990,14 @@ private def elaborateValAttrs (env : ElabEnv) (acc : ValAttrs) :
       else elaborateValAttrs env { acc with impl := true } attrs
     | .impl, some payload => err payload.loc (.unsupportedFeature
         "[@@impl] takes no payload; the specification it adds is derived from [@@fn]")
+    | .ghost, some payload =>
+      if !acc.ghost.isEmpty then
+        err attr.loc (.unsupportedFeature "a declaration carries at most one [@@ghost]")
+      else do
+        let ghost ← (ghostArgs payload).mapM (ghostParam env)
+        elaborateValAttrs env { acc with ghost } attrs
+    | .ghost, none =>
+      err attr.loc (.unsupportedFeature "[@@ghost] expects its ghost parameters as the payload")
     | name, _ =>
       err attr.loc (.unsupportedFeature s!"unknown declaration attribute [@@{name}]")
 
@@ -1000,7 +1046,10 @@ private def Decl.elaborate (env : ElabEnv) (decl : Decl)
         "a declaration carries [@@spec] or [@@fn], not both")
     if attrs.impl && !attrs.fn then
       return ← err decl.loc (.unsupportedFeature "[@@impl] requires [@@fn]")
-    let d ← ValDecl.elaborate env decl.loc isRec binders retTy body attrs.spec
+    if !attrs.ghost.isEmpty && attrs.spec.isNone then
+      return ← err decl.loc (.unsupportedFeature "[@@ghost] requires [@@spec]")
+    let spec := attrs.spec.map fun sb => { sb with ghost := attrs.ghost }
+    let d ← ValDecl.elaborate env decl.loc isRec binders retTy body spec
     -- A `[@@fn]` declaration uses its own name for the derived relation.
     let relation ← if attrs.fn then
       match d.name with

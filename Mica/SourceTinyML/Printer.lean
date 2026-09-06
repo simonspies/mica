@@ -235,13 +235,19 @@ def Body.print (body : Untyped.SpecBody) : String :=
 end Spec
 
 class SpecPayloadPrinter (S : Type) where
-  print : S → String
+  attributes : S → List String
 
 instance : SpecPayloadPrinter Untyped.Expr where
-  print := Expr.print
+  attributes e := [s!"[@@spec {Expr.print e}]"]
 
 instance : SpecPayloadPrinter Untyped.SpecBody where
-  print := Spec.Body.print
+  attributes s :=
+    [s!"[@@spec {Spec.Body.print s}]"] ++
+      match s.ghost with
+      | [] => []
+      | ghost =>
+        let params := ghost.map fun (x, ty) => s!"({x} : {ty.print})"
+        [s!"[@@ghost {" ".intercalate params}]"]
 
 def ValDecl.print {S : Type} [SpecPayloadPrinter S] (d : Untyped.ValDecl S) : String :=
   let decl := match d.body with
@@ -257,13 +263,14 @@ def ValDecl.print {S : Type} [SpecPayloadPrinter S] (d : Untyped.ValDecl S) : St
       s!"let {d.name.print} {argsStr allArgs} = {printExpr innerBody}"
     | body => s!"let {d.name.print} = {printExpr body}"
   -- An `[@@impl]` specification is generated, so the attribute prints instead.
-  let withSpec := match d.spec, d.impl with
-    | .some e, false => s!"{decl} [@@spec {SpecPayloadPrinter.print e}]"
-    | _, _ => decl
-  match d.relation, d.impl with
-  | .none, _ => withSpec
-  | .some _, false => s!"{withSpec} [@@fn]"
-  | .some _, true => s!"{withSpec} [@@fn] [@@impl]"
+  let spec := match d.spec, d.impl with
+    | .some e, false => SpecPayloadPrinter.attributes e
+    | _, _ => []
+  let relation := match d.relation, d.impl with
+    | .none, _ => []
+    | .some _, false => ["[@@fn]"]
+    | .some _, true => ["[@@fn]", "[@@impl]"]
+  " ".intercalate (decl :: (spec ++ relation))
 
 def TypeDecl.print (d : Untyped.TypeDecl) : String :=
   let payloads := (List.range d.body.payloads.length).zip d.body.payloads |>.map
