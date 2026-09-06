@@ -78,6 +78,19 @@ private def checkGhostNames (bound : List String) : List String → Except TypeE
       .error (.spec s!"ghost parameter '{x}' shadows a name the specification already binds")
     else checkGhostNames (x :: bound) xs
 
+/-- The types a call's ghost arguments are checked at. Only a specified
+function declares ghost parameters. -/
+private def Infer.ghostDoms (spec : Option (Spec Infer.Typ)) (gargs : List Untyped.Expr) :
+    Infer.M σ (List Infer.Typ) :=
+  match spec with
+  | none =>
+      if gargs.isEmpty then pure []
+      else Infer.error (.spec "[@ghost] on a call to an unspecified function")
+  | some s =>
+      if s.ghost.length == gargs.length then pure (s.ghost.map Prod.snd)
+      else Infer.error (.spec
+        s!"ghost argument count: the callee declares {s.ghost.length}, the call passes {gargs.length}")
+
 /-- Elaborate a spec predicate into the atom binding its payload, checking the
 scrutinee against both the type context and the spec-level scope. -/
 private def Spec.Pred.elaborate (Γ : TyCtx) (names : List String) (ty : Typ) :
@@ -253,13 +266,15 @@ mutual
         let self' ← Infer.Binder.elaborateAt env Θ self fnTy
         let Γ' := (Infer.Ctx.extendList (Γ.extendBinder self') args').extendGhost spec
         pure (.fix self' args' ret spec (← Infer.Expr.elaborate env Θ Γ' body ret))
-    | .app fn args, exp => do
+    | .app fn args gargs, exp => do
         let fnTy ← Infer.fresh
         let fn' ← Infer.Expr.elaborate env Θ Γ fn fnTy
-        let (doms, ret, _) ← Infer.Constraint.arrow Θ fnTy args.length
+        let (doms, ret, spec) ← Infer.Constraint.arrow Θ fnTy args.length
         let args' ← Infer.Expr.elaborateList env Θ Γ args doms
+        let ghostDoms ← Infer.ghostDoms spec gargs
+        let gargs' ← Infer.Expr.elaborateList env Θ Γ gargs ghostDoms
         Infer.unify Θ ret exp
-        pure (.app fn' args' ret)
+        pure (.app fn' args' gargs' ret)
     | .ifThenElse cond thn els, exp => do
         -- Both branches are elaborated at the expected type rather than the
         -- first fixing the type of the second, so a branch that does not return

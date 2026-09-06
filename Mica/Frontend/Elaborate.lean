@@ -514,7 +514,7 @@ private partial def ExprKind.elaborate (env : ElabEnv) (loc : Location) :
       | some (.primitive n kind) =>
         (match kind with
         | .function => .ok (.prim n)
-        | .nullary => .ok (.app (.prim n) []))
+        | .nullary => .ok (.app (.prim n) [] []))
       | some (.special _) => bareSpecial loc path
       | none => err loc (.unsupportedPath path)
     else
@@ -532,7 +532,7 @@ private partial def ExprKind.elaborate (env : ElabEnv) (loc : Location) :
             -- them; qualified paths always resolve through the resolver.
             match env.resolver.value path with
             | some (.primitive n .function) => .ok (.prim n)
-            | some (.primitive n .nullary) => .ok (.app (.prim n) [])
+            | some (.primitive n .nullary) => .ok (.app (.prim n) [] [])
             | _ => .ok (.var name)
 
   | .ctor path =>
@@ -562,10 +562,10 @@ private partial def ExprKind.elaborate (env : ElabEnv) (loc : Location) :
         match env.resolver.value path with
         | some (.userVar n) => do
           let args' ← args.mapM (Expr.elaborate env)
-          .ok (.app (.var n) args')
+          .ok (.app (.var n) args' [])
         | some (.primitive n _) => do
           let args' ← args.mapM (Expr.elaborate env)
-          .ok (.app (.prim n) args')
+          .ok (.app (.prim n) args' [])
         | some (.special .arrayMake) =>
             match args with
             | [len, init] => do
@@ -597,11 +597,11 @@ private partial def ExprKind.elaborate (env : ElabEnv) (loc : Location) :
         | none => do
           let fn' ← Expr.elaborate env fn
           let args' ← args.mapM (Expr.elaborate env)
-          .ok (.app fn' args')
+          .ok (.app fn' args' [])
       else do
         let fn' ← Expr.elaborate env fn
         let args' ← args.mapM (Expr.elaborate env)
-        .ok (.app fn' args')
+        .ok (.app fn' args' [])
     | .ctor path => do
       let name ← if path.isQualified then
         match env.resolver.ctor path with
@@ -619,7 +619,7 @@ private partial def ExprKind.elaborate (env : ElabEnv) (loc : Location) :
     | _ => do
       let fn' ← Expr.elaborate env fn
       let args' ← args.mapM (Expr.elaborate env)
-      .ok (.app fn' args')
+      .ok (.app fn' args' [])
 
   | .binop .semi l r => do
     let l' ← Expr.elaborate env l
@@ -629,7 +629,7 @@ private partial def ExprKind.elaborate (env : ElabEnv) (loc : Location) :
   | .binop .atAt f a => do
     let fn' ← Expr.elaborate env f
     let arg' ← Expr.elaborate env a
-    .ok (.app fn' [arg'])
+    .ok (.app fn' [arg'] [])
   | .binop .assign l v => do
     let loc' ← Expr.elaborate env l
     let val' ← Expr.elaborate env v
@@ -650,11 +650,11 @@ private partial def ExprKind.elaborate (env : ElabEnv) (loc : Location) :
   | .binop .concat l r => do
     let l' ← Expr.elaborate env l
     let r' ← Expr.elaborate env r
-    .ok (.app (.prim "string_cat") [l', r'])
+    .ok (.app (.prim "string_cat") [l', r'] [])
   | .binop .append l r => do
     let l' ← Expr.elaborate env l
     let r' ← Expr.elaborate env r
-    .ok (.app (.prim "list_append") [l', r'])
+    .ok (.app (.prim "list_append") [l', r'] [])
   | .binop .cons head tail => do
     let head' ← Expr.elaborate env head
     let tail' ← Expr.elaborate env tail
@@ -662,19 +662,19 @@ private partial def ExprKind.elaborate (env : ElabEnv) (loc : Location) :
   | .binop .fadd l r => do
     let l' ← Expr.elaborate env l
     let r' ← Expr.elaborate env r
-    .ok (.app (.prim "float_add") [l', r'])
+    .ok (.app (.prim "float_add") [l', r'] [])
   | .binop .fsub l r => do
     let l' ← Expr.elaborate env l
     let r' ← Expr.elaborate env r
-    .ok (.app (.prim "float_sub") [l', r'])
+    .ok (.app (.prim "float_sub") [l', r'] [])
   | .binop .fmul l r => do
     let l' ← Expr.elaborate env l
     let r' ← Expr.elaborate env r
-    .ok (.app (.prim "float_mul") [l', r'])
+    .ok (.app (.prim "float_mul") [l', r'] [])
   | .binop .fdiv l r => do
     let l' ← Expr.elaborate env l
     let r' ← Expr.elaborate env r
-    .ok (.app (.prim "float_div") [l', r'])
+    .ok (.app (.prim "float_div") [l', r'] [])
   | .binop op l r => do
     let op' ← elaborateBinOp loc op
     let l' ← Expr.elaborate env l
@@ -977,7 +977,7 @@ private def implSpec (env : ElabEnv) (loc : Location) (f arg : String) :
   | some (.primitive eq _) =>
     .ok { args := [arg], ghost := []
           pre := .ret ⟨implResultName,
-            .assert (.app (.prim eq) [.var implResultName, .app (.var f) [.var arg]]) (.ret ())⟩ }
+            .assert (.app (.prim eq) [.var implResultName, .app (.var f) [.var arg] []] []) (.ret ())⟩ }
   | _ => err loc (.unsupportedFeature "[@@impl] needs the prelude's Logic.eq")
 
 private def Decl.elaborate (env : ElabEnv) (decl : Decl)

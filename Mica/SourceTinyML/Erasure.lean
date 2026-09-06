@@ -96,10 +96,11 @@ theorem Expr.close_runtime {st : Infer.State} {e : Expr} {e' : Typed.Expr}
         subst e'
         simp [Typed.Expr.WithTypeVars.runtime, Binder.close_runtime hs,
           Binder.closeList_runtime ha, Expr.close_runtime hb]
-  | app fn args ty =>
+  | app fn args gargs ty =>
       cases hf : Expr.close st fn <;> cases ha : Expr.closeList st args <;>
-        cases ht : Infer.State.close st ty <;> simp [Expr.close, hf, ha, ht] at h
-      case ok.ok.ok fn' args' t =>
+        cases hg : Expr.closeList st gargs <;>
+        cases ht : Infer.State.close st ty <;> simp [Expr.close, hf, ha, hg, ht] at h
+      case ok.ok.ok.ok fn' args' gargs' t =>
         subst e'
         simp [Typed.Expr.WithTypeVars.runtime, Expr.close_runtime hf,
           Expr.closeList_runtime ha]
@@ -402,7 +403,7 @@ theorem Infer.Expr.elaborate_runtime (env : SpecEnv σ) (Θ : TypeEnv) :
         Infer.fixSignature_runtime env Θ args _ _ _ _ _ _ _ hsig,
         Infer.Binder.elaborateAt_runtime env Θ self _ _ _ _ _ _ hself,
         Infer.Expr.elaborate_runtime env Θ body _ _ _ _ _ _ _ hbody]
-  | .app fn args => by
+  | .app fn args gargs => by
       intro Γ ty st st' s s' p h
       unfold Infer.Expr.elaborate at h
       have ⟨_, t₁, u₁, _, hcont⟩ := StateT.bind_ok₂ h
@@ -410,6 +411,8 @@ theorem Infer.Expr.elaborate_runtime (env : SpecEnv σ) (Θ : TypeEnv) :
       have ⟨_, t₃, u₃, _, hcont⟩ := StateT.bind_ok₂ hcont
       have ⟨args', t₄, u₄, hargs, hcont⟩ := StateT.bind_ok₂ hcont
       have ⟨_, t₅, u₅, _, hcont⟩ := StateT.bind_ok₂ hcont
+      have ⟨gargs', t₆, u₆, _, hcont⟩ := StateT.bind_ok₂ hcont
+      have ⟨_, t₇, u₇, _, hcont⟩ := StateT.bind_ok₂ hcont
       rcases (by simpa using hcont) with ⟨⟨rfl, rfl⟩, rfl⟩
       simp [Typed.Expr.WithTypeVars.runtime, Untyped.Expr.runtime,
         Infer.Expr.elaborate_runtime env Θ fn _ _ _ _ _ _ _ hfn,

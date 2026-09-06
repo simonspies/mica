@@ -333,7 +333,7 @@ mutual
         else do
           VerifM.assume (.pure sc.isFalse)
           compile reg Θ Δ_spec B Γ els
-    | .app fn args aty =>
+    | .app fn args _ aty =>
       -- A function expression whose type carries a specification is applied
       -- through it: the specification is read off the type, and the function
       -- value's own interpretation supplies the call.
@@ -3251,10 +3251,10 @@ theorem compileAppSpec_correct (reg : Verifier.Registry)
     · iexact HR
 
 theorem compileApp_correct (reg : Verifier.Registry) (hSound : Verifier.Registry.Sound reg)
-    (fn : Expr) (args : List Expr) (aty : TinyML.Typ)
+    (fn : Expr) (args gargs : List Expr) (aty : TinyML.Typ)
     (ihFn : correctExpr reg fn)
     (ihArgs : correctExprs reg args) :
-    correctExpr reg (.app fn args aty) := by
+    correctExpr reg (.app fn args gargs aty) := by
   intro W R B Γ st ρ γ Ψ Φ hW heval hagree hbwf hwf hag hΔreg hρreg hpost
   simp only [Expr.WithTypeVars.ty] at hpost
   unfold Expr.WithTypeVars.runtime
@@ -3816,8 +3816,8 @@ theorem compile_correct (reg : Verifier.Registry) (hSound : Verifier.Registry.So
   | ifThenElse cond thn els ty =>
     simpa using compileIfThenElse_correct reg cond thn els ty
       (compile_correct reg hSound cond) (compile_correct reg hSound thn) (compile_correct reg hSound els)
-  | app fn args aty =>
-    simpa using compileApp_correct reg hSound fn args aty (compile_correct reg hSound fn)
+  | app fn args gargs aty =>
+    simpa using compileApp_correct reg hSound fn args gargs aty (compile_correct reg hSound fn)
       (compileExprs_correct reg hSound args)
   | tuple es =>
     simpa using compileTuple_correct reg es (compileExprs_correct reg hSound es)

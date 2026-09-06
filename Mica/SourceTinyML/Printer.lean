@@ -161,7 +161,10 @@ private partial def printMul : Untyped.Expr → String
   | e => printApp e
 
 private partial def printApp : Untyped.Expr → String
-  | .app fn args => s!"{printApp fn} {" ".intercalate (args.map printUnary)}"
+  | .app fn args gargs =>
+      let call := s!"{printApp fn} {" ".intercalate (args.map printUnary)}"
+      if gargs.isEmpty then call
+      else s!"({call} [@ghost {" ".intercalate (gargs.map printUnary)}])"
   | .unop .not e => s!"not {printAtom e}"
   | .ref .owned e => s!"ref {printAtom e} [@owned]"
   | .ref .shared e => s!"ref {printAtom e}"

@@ -99,7 +99,9 @@ mutual
     | unop (op : UnOp) (e : Expr)
     | binop (op : BinOp) (lhs rhs : Expr)
     | fix (self : Binder) (args : List Binder) (retTy : Option Typ) (body : Expr)
-    | app (fn : Expr) (args : List Expr)
+    /-- `gargs` are the ghost arguments written `[@ghost g1 g2]`: they are
+    specification-level, so `Expr.runtime` drops them. -/
+    | app (fn : Expr) (args : List Expr) (gargs : List Expr)
     | ifThenElse (cond thn els : Expr)
     | letIn (name : Binder) (bound body : Expr)
     | letProd (names : List Binder) (bound body : Expr)
@@ -249,7 +251,7 @@ def Expr.runtime : Untyped.Expr → Runtime.Expr
   | .unop op e => .unop op e.runtime
   | .binop op l r => .binop op l.runtime r.runtime
   | .fix self args _ body => .fix (self.runtime) (args.map (·.runtime)) body.runtime
-  | .app fn args => .app fn.runtime (args.map Expr.runtime)
+  | .app fn args _ => .app fn.runtime (args.map Expr.runtime)
   | .ifThenElse c t e => .ifThenElse c.runtime t.runtime e.runtime
   | .letIn b bound body => .letIn (b.runtime) bound.runtime body.runtime
   | .letProd bs bound body => .letProd (bs.map (·.runtime)) bound.runtime body.runtime

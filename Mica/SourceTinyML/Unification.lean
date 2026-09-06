@@ -315,8 +315,9 @@ def Expr.close (st : State) : Expr → Except TypeError Typed.Expr
         (← State.close st ret)
         (← TinyML.Typ.substSpecM? (State.closeVar st) spec)
         (← Expr.close st body))
-  | .app fn args ty => do
-      pure (.app (← Expr.close st fn) (← Expr.closeList st args) (← State.close st ty))
+  | .app fn args gargs ty => do
+      pure (.app (← Expr.close st fn) (← Expr.closeList st args)
+        (← Expr.closeList st gargs) (← State.close st ty))
   | .ifThenElse c t e ty => do
       pure (.ifThenElse (← Expr.close st c) (← Expr.close st t) (← Expr.close st e)
         (← State.close st ty))
