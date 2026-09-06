@@ -17,12 +17,46 @@ abbrev Bindings := List (TinyML.Var × FOL.Const)
 /-- The bindings a program starts with, paired with `TinyML.TyCtx.empty`. -/
 abbrev Bindings.empty : Bindings := []
 
+/-- The ghost declarations in scope, each at the arrow it was checked at. A
+    ghost function has no value, so it has no `Bindings` entry, and the type its
+    use site carries is checked against this arrow rather than trusted. -/
+abbrev GhostFns := List (TinyML.Var × TinyML.Typ)
+
+abbrev GhostFns.empty : GhostFns := []
+
+/-- Ghost code is pure, so a ghost declaration's proof reads nothing from the
+    state it was checked in: this is a side condition rather than a resource.
+    The type assignment is quantified because a declaration whose body calls a
+    ghost function is itself checked at each assignment of its type variables. -/
+def GhostFns.wellTyped (W : TinyML.World) (Gf : GhostFns) : Prop :=
+  ∀ (η : TinyML.SemTypeAssign) f argTys retTy s,
+    Gf.lookup f = some (.arrow argTys retTy (some s)) →
+      ⊢ Spec.isGhostPrecondFor { W with eta := η } (TinyML.ValHasType { W with eta := η })
+          argTys retTy s
+
+theorem GhostFns.wellTyped.empty (W : TinyML.World) : GhostFns.wellTyped W .empty :=
+  fun _ _ _ _ _ h => by simp [GhostFns.empty] at h
+
+theorem GhostFns.wellTyped.eta {W : TinyML.World} {Gf : GhostFns} {η : TinyML.SemTypeAssign}
+    (h : GhostFns.wellTyped W Gf) : GhostFns.wellTyped { W with eta := η } Gf :=
+  fun η' => h η'
+
 /-- Drop a name's binding. A declaration that shadows a bound name without
     binding a value of its own must remove it, or the old constant would stand
     for the new value. -/
 def Bindings.remove : Bindings → TinyML.Var → Bindings
   | [], _ => []
   | (y, c) :: B, x => if y == x then Bindings.remove B x else (y, c) :: Bindings.remove B x
+
+/-- A binder of either kind shadows a name bound the other way without binding
+    a value for it there, so the other list has to lose it: within a scope a name
+    is bound once, ghost or run-time. -/
+def Bindings.removeAll (B : Bindings) : List TinyML.Var → Bindings
+  | [] => B
+  | x :: xs => (B.remove x).removeAll xs
+
+def Bindings.removeBinders (B : Bindings) (bs : List Typed.Binder) : Bindings :=
+  B.removeAll (bs.filterMap (·.name))
 
 omit [MicaGS HasLC.hasLC Sig] in
 @[simp] theorem Bindings.lookup_remove (B : Bindings) (x y : TinyML.Var) :
@@ -261,12 +295,23 @@ theorem Bindings.agreeOnLinked_cons {B : Bindings} {ρ ρ' : Env} {γ : Runtime.
     rw [hsort] at hρ
     exact ⟨hsort, by simp [Runtime.Subst.update, hyx]; exact hγ.trans (congrArg some hρ.symm)⟩
 
+/-- `typedSubst` read through the verifier constant standing for each name
+rather than through a substitution: the form a binder's typing is built in,
+where the substitution is not yet in hand. -/
+def Bindings.typedEnv (W : TinyML.World) (B : Bindings) (Γ : TinyML.TyCtx) (ρ : Env) : iProp :=
+  iprop(□ ∀ x x' s σ, ⌜B.lookup x = some x'⌝ -∗ ⌜Γ x = some s⌝ -∗
+    TinyML.ValHasType W (ρ.consts .value x'.name) (TinyML.Scheme.instantiate s σ))
+
+instance Bindings.typedEnv_persistent {B Γ ρ} (W : TinyML.World) :
+    Persistent (Bindings.typedEnv W B Γ ρ) := by
+  unfold Bindings.typedEnv
+  infer_instance
+
 theorem Bindings.typedSubst_of_agreeOnLinked
     {B : Bindings} {Γ : TinyML.TyCtx} {γ : Runtime.Subst} {ρ : Env}
     (hagree : B.agreeOnLinked ρ γ)
-    : ⊢ □ (∀ x x' s σ, ⌜B.lookup x = some x'⌝ -∗ ⌜Γ x = some s⌝ -∗
-        TinyML.ValHasType W (ρ.consts .value x'.name) (TinyML.Scheme.instantiate s σ)) -∗
-      B.typedSubst W Γ γ := by
+    : ⊢ B.typedEnv W Γ ρ -∗ B.typedSubst W Γ γ := by
+  unfold Bindings.typedEnv
   iintro #Htyped
   unfold Bindings.typedSubst
   imodintro
