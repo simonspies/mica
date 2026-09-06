@@ -167,6 +167,8 @@ structure ValDecl (S : Type) where
   then generated rather than written. -/
   impl : Bool := false
   mode : Mode := .runtime
+  /-- The `[@@decreases]` measure, over the specification's parameters. -/
+  decreases : Option Expr := none
   deriving Repr, Inhabited
 
 /-- A data declaration as the frontend elaborates it. Its payloads are untyped

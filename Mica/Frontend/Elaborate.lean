@@ -953,6 +953,7 @@ private structure ValAttrs where
   ghost : List (String × Untyped.Typ) := []
   /-- Whether `[@@ghost]` without a payload makes the whole declaration ghost. -/
   mode : TinyML.Mode := .runtime
+  decreases : Option Untyped.Expr := none
 
 /-- A `[@@ghost]` parameter is an annotated name, since nothing else fixes the
 type it is used at. -/
@@ -1008,6 +1009,16 @@ private def elaborateValAttrs (env : ElabEnv) (acc : ValAttrs) :
         | some payload => do
           let ghost ← (ghostArgs payload).mapM (ghostParam env)
           elaborateValAttrs env { acc with ghost } attrs
+    -- The measure's free names are the specification's parameters, which are
+    -- not in scope here; typing binds them.
+    | .decreases, some payload =>
+      if acc.decreases.isSome then
+        err attr.loc (.unsupportedFeature "a declaration carries at most one [@@decreases]")
+      else do
+        let e ← Expr.elaborate env payload
+        elaborateValAttrs env { acc with decreases := some e } attrs
+    | .decreases, none =>
+      err attr.loc (.unsupportedFeature "[@@decreases] expects a measure expression as payload")
     | name, _ =>
       err attr.loc (.unsupportedFeature s!"unknown declaration attribute [@@{name}]")
 
@@ -1058,6 +1069,12 @@ private def Decl.elaborate (env : ElabEnv) (decl : Decl)
       return ← err decl.loc (.unsupportedFeature "[@@impl] requires [@@fn]")
     if (!attrs.ghost.isEmpty || attrs.mode == .ghost) && attrs.spec.isNone then
       return ← err decl.loc (.unsupportedFeature "[@@ghost] requires [@@spec]")
+    -- Only a recursive ghost call is checked against a measure.
+    if attrs.decreases.isSome && attrs.mode != .ghost then
+      return ← err decl.loc (.unsupportedFeature "[@@decreases] requires [@@ghost]")
+    if attrs.decreases.isSome && !isRec then
+      return ← err decl.loc (.unsupportedFeature
+        "[@@decreases] requires a recursive declaration")
     let spec := attrs.spec.map fun sb => { sb with ghost := attrs.ghost }
     let d ← ValDecl.elaborate env decl.loc isRec binders retTy body spec
     -- A `[@@fn]` declaration uses its own name for the derived relation.
@@ -1074,7 +1091,8 @@ private def Decl.elaborate (env : ElabEnv) (decl : Decl)
       | true, some _, _ => err decl.loc (.unsupportedFeature
           "[@@fn] requires a function of one named argument; write several as a tuple")
       | _, _, _ => .ok d
-    .ok (env.bindBinder d.name, some (.val_ { d with relation, mode := attrs.mode }))
+    .ok (env.bindBinder d.name,
+      some (.val_ { d with relation, mode := attrs.mode, decreases := attrs.decreases }))
 
 private def elaborateDecls (env : ElabEnv) :
     List Decl → ElabM (List (Untyped.Decl Untyped.SpecBody))

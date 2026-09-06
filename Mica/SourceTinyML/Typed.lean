@@ -341,6 +341,15 @@ theorem Expr.spec?_elim {e : Expr.WithTypeVars V} {s : Spec (Typ.WithTypeVars V)
     (spec : Option (Spec (Typ.WithTypeVars V))) (body : Expr.WithTypeVars V) :
     (Expr.WithTypeVars.fix self args retTy spec body).spec? = spec := rfl
 
+/-- A partial integer expression used to rank recursive ghost calls. The
+    definedness condition must hold before the term is used as a rank. -/
+structure Measure where
+  term : Term .int
+  defined : Formula
+  deriving BEq
+
+instance : Repr Measure := ⟨fun _ _ => "<measure>"⟩
+
 /-- A checked declaration. It carries no specification of its own: the literal
 it binds records the specification it was elaborated against, and so does the
 declaration's arrow type. -/
@@ -350,6 +359,7 @@ structure ValDecl where
   /-- The spec-level relation this declaration is registered as, if `[@@fn]`. -/
   relation : Option String := none
   mode : Mode := .runtime
+  decreases : Option Measure := none
   deriving Repr, BEq, Inhabited
 
 abbrev Program := List ValDecl

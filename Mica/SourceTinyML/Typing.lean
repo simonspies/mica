@@ -60,6 +60,9 @@ private def resolveSpecVar (names : List String) (x : String) : TypeM σ (Term .
   if x ∈ names then pure (.var .value x)
   else TypeM.error (.spec s!"unbound spec variable '{x}'")
 
+private def Spec.scope (Γbase : TyCtx) (argTys ghost : List (String × Typ)) : TyCtx :=
+  (argTys ++ ghost).foldl (fun Γ p => Γ.extend p.1 p.2) Γbase
+
 /-- Match the spec's bound names against the typed function binders to recover
 each argument's type. -/
 private def extractSpecArgTypes : List Typed.Binder → List String → Except TypeError (List (String × Typ))
@@ -477,8 +480,7 @@ mutual
     TypeM.ofExcept (checkGhostNames rb.args (rb.ghost.map Prod.fst))
     let ghost ← Spec.Ghost.elaborate env Θ rb.ghost
     let names := rb.args ++ ghost.map Prod.fst
-    let Γ₀ : TyCtx := (argTys ++ ghost).foldl (fun Γ p => Γ.extend p.1 p.2) Γbase
-    let pred ← Spec.Pre.elaborate env Θ retTy Γ₀ names rb.pre
+    let pred ← Spec.Pre.elaborate env Θ retTy (Spec.scope Γbase argTys ghost) names rb.pre
     -- No arrow declares a ghost parameter, so the precondition opens by
     -- assuming its type. The caller proves it of the argument it passes.
     let tyc := ghost.flatMap fun p => TinyML.typeConstraints p.2 (.var .value p.1)
@@ -530,10 +532,13 @@ than through a side table.
 
 `self` is the spec-level function the declaration itself defines. The global
 context reaches a declaration without its own name, so the specification is
-given it here; the body reaches itself through the literal's binder. -/
+given it here; the body reaches itself through the literal's binder.
+
+`dec` is the `[@@decreases]` measure, elaborated in the specification's scope
+but without `self`: a measure may not call the function it measures. -/
 def ValDecl.elaborateSpecified (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx)
-    (self : Option TinyML.Var) (rb : Untyped.SpecBody) :
-    Untyped.Expr → TypeM σ (Spec Typ × Typed.Expr)
+    (self : Option TinyML.Var) (rb : Untyped.SpecBody) (dec : Option Untyped.Expr) :
+    Untyped.Expr → TypeM σ (Spec Typ × Option Measure × Typed.Expr)
   | e@(.fix _ args (some retAnn) _) => do
       -- A specified signature has to be complete: the specification is written
       -- against these types, so leaving one to inference would let the body
@@ -550,8 +555,13 @@ def ValDecl.elaborateSpecified (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.Ty
         let s ← Spec.Body.elaborate env Θ
           (match self with | some f => Γ.extend f (.arrow argTys ret none) | none => Γ)
           typedArgs ret rb
+        let dec' ← dec.mapM fun m => do
+          let specArgTys ← TypeM.ofExcept (extractSpecArgTypes typedArgs s.args)
+          let m' ← Expr.elaborate env Θ (Spec.scope Γ specArgTys s.ghost) m (some .int)
+          let (v, defd) ← env.translate s.allArgs m'
+          pure { term := Term.unop .toInt v, defined := defd }
         let body' ← Expr.elaborate env Θ Γ e (some (.arrow argTys ret (some s)))
-        pure (s, body')
+        pure (s, dec', body')
   | .fix _ _ none _ =>
       TypeM.error (.spec "specified functions require a return type annotation")
   | _ => TypeM.error (.spec "attached to a non-function declaration")
@@ -589,11 +599,11 @@ def ValDecl.elaborate (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx)
       -- declaration's own type — and hence the type every later use is
       -- annotated with — is the specified arrow.
       -- `d.relation` is the declaration's own name.
-      let (_, body') ← ValDecl.elaborateSpecified env Θ Γ
-        (if d.impl then d.relation else none) rb d.body
+      let (_, dec', body') ← ValDecl.elaborateSpecified env Θ Γ
+        (if d.impl then d.relation else none) rb d.decreases d.body
       checkDeclAnnotation env Θ d.name body'.ty
       pure { name := Typed.Binder.ofUntyped d.name body'.ty, body := body',
-             relation := d.relation, mode := d.mode }
+             relation := d.relation, mode := d.mode, decreases := dec' }
   | none => do
       -- The declaration's own annotation, if it has one, is the only type the
       -- body is expected at; without one the body decides its own.

@@ -643,10 +643,11 @@ theorem Expr.elaborate_runtime (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TyCtx)
     (Infer.Expr.elaborate_runtime env Θ e (Infer.Ctx.ofTyCtx Γ) _ _ _ _ _ _ helab)
 
 theorem ValDecl.elaborateSpecified_runtime (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx)
-    (self : Option TinyML.Var) (rb : Untyped.SpecBody) (e : Untyped.Expr) :
-    ∀ {s : σ} {r : Spec Typ × Typed.Expr} {s' : σ},
-      Typed.ValDecl.elaborateSpecified env Θ Γ self rb e s = .ok (r, s') →
-      r.2.runtime = e.runtime := by
+    (self : Option TinyML.Var) (rb : Untyped.SpecBody) (dec : Option Untyped.Expr)
+    (e : Untyped.Expr) :
+    ∀ {s : σ} {r : Spec Typ × Option Measure × Typed.Expr} {s' : σ},
+      Typed.ValDecl.elaborateSpecified env Θ Γ self rb dec e s = .ok (r, s') →
+      r.2.2.runtime = e.runtime := by
   intro s r s' h
   cases e
   case fix self args retTy body =>
@@ -661,7 +662,8 @@ theorem ValDecl.elaborateSpecified_runtime (env : SpecEnv σ) (Θ : TypeEnv) (Γ
         have ⟨_retTy, s₀, _hret, hcont⟩ := StateT.bind_ok h
         have ⟨_typedArgs, s₁, _hargs, hcont⟩ := StateT.bind_ok hcont
         have ⟨_spec, s₂, _hspec, hcont⟩ := StateT.bind_ok hcont
-        have ⟨body', s₃, hbody, hcont⟩ := StateT.bind_ok hcont
+        have ⟨_dec, s₃, _hdec, hcont⟩ := StateT.bind_ok hcont
+        have ⟨body', s₄, hbody, hcont⟩ := StateT.bind_ok hcont
         rcases hcont with ⟨rfl, rfl⟩
         exact Expr.elaborate_runtime env Θ Γ _ _ hbody
   all_goals simp [ValDecl.elaborateSpecified, TypeM.error] at h
@@ -684,7 +686,7 @@ theorem ValDecl.elaborate_runtime (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML
     cases hmode : d.mode <;>
       simp [Typed.ValDecl.runtime?, Untyped.Decl.runtime, hmode, Typed.ValDecl.runtime,
         Untyped.ValDecl.runtime, Binder.ofUntyped_runtime,
-        ValDecl.elaborateSpecified_runtime env Θ Γ _ rb d.body hfix]
+        ValDecl.elaborateSpecified_runtime env Θ Γ _ rb d.decreases d.body hfix]
   | none =>
     simp only [ValDecl.elaborate, hspec] at helab
     have ⟨_expected, s₀, _hexp, hcont⟩ := StateT.bind_ok helab

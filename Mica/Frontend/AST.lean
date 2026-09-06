@@ -175,6 +175,7 @@ inductive AttrName where
   | fn
   | impl
   | ghost
+  | decreases
   | owned
   | unknown (name : String)
   deriving Repr, Inhabited, BEq, DecidableEq
@@ -182,18 +183,20 @@ inductive AttrName where
 namespace AttrName
 
 def ofString : String → AttrName
-  | "spec"  => .spec
-  | "fn"    => .fn
-  | "impl"  => .impl
-  | "ghost" => .ghost
-  | "owned" => .owned
-  | name    => .unknown name
+  | "spec"      => .spec
+  | "fn"        => .fn
+  | "impl"      => .impl
+  | "ghost"     => .ghost
+  | "decreases" => .decreases
+  | "owned"     => .owned
+  | name        => .unknown name
 
 def toString : AttrName → String
   | .spec         => "spec"
   | .fn           => "fn"
   | .impl         => "impl"
   | .ghost        => "ghost"
+  | .decreases    => "decreases"
   | .owned        => "owned"
   | .unknown name => name
 

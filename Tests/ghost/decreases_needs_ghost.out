@@ -1,0 +1,2 @@
+elaboration error: Tests/ghost/decreases_needs_ghost.ml:4:1: unsupported feature: [@@decreases] requires [@@ghost]
+[1]
