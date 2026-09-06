@@ -103,7 +103,9 @@ mutual
     specification-level, so `Expr.runtime` drops them. -/
     | app (fn : Expr) (args : List Expr) (gargs : List Expr)
     | ifThenElse (cond thn els : Expr)
-    | letIn (name : Binder) (bound body : Expr)
+    /-- `mode` is `.ghost` for `let%ghost`: the binding exists only for the
+    verifier, so `Expr.runtime` drops it. -/
+    | letIn (mode : Mode) (name : Binder) (bound body : Expr)
     | letProd (names : List Binder) (bound body : Expr)
     | ref    (ownership : Ownership) (e : Expr)
     | deref  (e : Expr)
@@ -253,7 +255,8 @@ def Expr.runtime : Untyped.Expr → Runtime.Expr
   | .fix self args _ body => .fix (self.runtime) (args.map (·.runtime)) body.runtime
   | .app fn args _ => .app fn.runtime (args.map Expr.runtime)
   | .ifThenElse c t e => .ifThenElse c.runtime t.runtime e.runtime
-  | .letIn b bound body => .letIn (b.runtime) bound.runtime body.runtime
+  | .letIn .ghost _ _ body => body.runtime
+  | .letIn .runtime b bound body => .letIn (b.runtime) bound.runtime body.runtime
   | .letProd bs bound body => .letProd (bs.map (·.runtime)) bound.runtime body.runtime
   | .ref _ e => .ref e.runtime
   | .deref e => .deref e.runtime

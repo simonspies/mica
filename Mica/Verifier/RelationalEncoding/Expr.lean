@@ -295,7 +295,7 @@ private def encodeWith (primitives : PrimEncodings) (Δ : Signature) (Γ : FunCt
   | .app (.prim n _ _) args [] _, k, avoid =>
     encodeListWith primitives Δ Γ δ args
       (fun vs avoid' => do k (← encodePrim primitives Δ n vs) avoid') avoid
-  | .letIn b bound body, k, avoid =>
+  | .letIn _ b bound body, k, avoid =>
     encodeWith primitives Δ Γ δ bound (fun v avoid' =>
       encodeWith primitives Δ Γ (VarEnv.bindBinder δ b v) body k avoid') avoid
   | .letProd bs bound body, k, avoid =>
@@ -529,9 +529,10 @@ private theorem app {primitives : PrimEncodings} (hlaw : primitives.Lawful)
   | .prim .., _, _ :: _ =>
       simp only [encodeWith] at henc; cases henc
 
-private theorem letIn {primitives : PrimEncodings} (name : Typed.Binder) (bound body : Typed.Expr)
+private theorem letIn {primitives : PrimEncodings} (mode : TinyML.Mode) (name : Typed.Binder)
+    (bound body : Typed.Expr)
     (ihBound : EncodeWithWfIn primitives bound) (ihBody : EncodeWithWfIn primitives body) :
-    EncodeWithWfIn primitives (.letIn name bound body) := by
+    EncodeWithWfIn primitives (.letIn mode name bound body) := by
   intro _ _ _ δ _ _ _ hsub hΔ' hδ hcov hk henc
   simp only [encodeWith] at henc
   refine ihBound hsub hΔ' hδ hcov ?_ henc
@@ -662,8 +663,8 @@ private theorem encodeWith_wfIn_def {primitives : PrimEncodings} (hlaw : primiti
       WfCase.app hlaw fn args gargs ty (fun a _ => encodeWith_wfIn_def hlaw a)
         (encodeListWith_wfIn_def hlaw args)
   | .fix .. => WfCase.unsupported (by simp [encodeWith])
-  | .letIn name bound body =>
-      WfCase.letIn name bound body
+  | .letIn mode name bound body =>
+      WfCase.letIn mode name bound body
         (encodeWith_wfIn_def hlaw bound) (encodeWith_wfIn_def hlaw body)
   | .letProd names bound body =>
       WfCase.letProd names bound body

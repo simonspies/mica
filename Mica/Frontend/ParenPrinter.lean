@@ -112,9 +112,10 @@ partial def Expr.printParen (e : Expr) : String :=
     | .ite cond thn els =>
       wrap ("if " ++ Expr.printParen cond ++ " then " ++ Expr.printParen thn
             ++ " else " ++ Expr.printParen els)
-    | .letIn isRec binders retTy bound body =>
+    | .letIn ext isRec binders retTy bound body =>
+      let extStr := match ext with | none => "" | some e => "%" ++ ExtName.toString e
       let recStr := if isRec then "rec " else ""
-      wrap ("let " ++ recStr ++ sepBy " " (binders.map Pattern.printParen)
+      wrap ("let" ++ extStr ++ " " ++ recStr ++ sepBy " " (binders.map Pattern.printParen)
             ++ Expr.printParenRetTy retTy ++ " = " ++ Expr.printParen bound
             ++ " in " ++ Expr.printParen body)
     | .fun_ args retTy body =>

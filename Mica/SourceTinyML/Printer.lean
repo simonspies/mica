@@ -106,8 +106,8 @@ private partial def collectAnonArgs (args : List Untyped.Binder) (body : Untyped
 mutual
 
 partial def printExpr : Untyped.Expr → String
-  | .letIn .none bound body => s!"{printOr bound};\n{printExpr body}"
-  | .letIn name bound body => printLetIn name bound body
+  | .letIn .runtime .none bound body => s!"{printOr bound};\n{printExpr body}"
+  | .letIn mode name bound body => printLetIn mode name bound body
   | .letProd names bound body => s!"let ({", ".intercalate (names.map Binder.print)}) = {printExpr bound} in\n{printExpr body}"
   | .ifThenElse cond thn els =>
     s!"if {printExpr cond} then {printExpr thn} else {printExpr els}"
@@ -118,20 +118,22 @@ partial def printExpr : Untyped.Expr → String
   | .store l r => s!"{printOr l} := {printOr r}"
   | e => printOr e
 
-partial def printLetIn (name : Untyped.Binder) (bound body : Untyped.Expr) : String :=
+partial def printLetIn (mode : Mode) (name : Untyped.Binder)
+    (bound body : Untyped.Expr) : String :=
+  let «let» := match mode with | .runtime => "let" | .ghost => "let%ghost"
   match bound with
   | .fix (.named f _) args _ inner =>
     let (allArgs, innerBody) := collectFixArgs f args inner
     let nameMatchesF := match name with | .named n _ => n == f | .none => false
     if nameMatchesF then
-      s!"let rec {f} {argsStr allArgs} = {printExpr innerBody} in\n{printExpr body}"
+      s!"{«let»} rec {f} {argsStr allArgs} = {printExpr innerBody} in\n{printExpr body}"
     else
-      s!"let {name.print} = (let rec {f} {argsStr allArgs} = {printExpr innerBody} in {f}) in\n{printExpr body}"
+      s!"{«let»} {name.print} = (let rec {f} {argsStr allArgs} = {printExpr innerBody} in {f}) in\n{printExpr body}"
   | .fix .none args _ inner =>
     let (allArgs, innerBody) := collectAnonArgs args inner
-    s!"let {name.print} {argsStr allArgs} = {printExpr innerBody} in\n{printExpr body}"
+    s!"{«let»} {name.print} {argsStr allArgs} = {printExpr innerBody} in\n{printExpr body}"
   | _ =>
-    s!"let {name.print} = {printExpr bound} in\n{printExpr body}"
+    s!"{«let»} {name.print} = {printExpr bound} in\n{printExpr body}"
 
 private partial def printOr : Untyped.Expr → String
   | .binop .or lhs rhs => s!"{printAnd lhs} || {printOr rhs}"

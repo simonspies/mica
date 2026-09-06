@@ -112,13 +112,15 @@ theorem Expr.close_runtime {st : Infer.State} {e : Expr} {e' : Typed.Expr}
         subst e'
         simp [Typed.Expr.WithTypeVars.runtime, Expr.close_runtime hc,
           Expr.close_runtime ht, Expr.close_runtime he]
-  | letIn b x body =>
+  | letIn m b x body =>
       cases hb : Binder.close st b <;> cases hx : Expr.close st x <;>
         cases hbody : Expr.close st body <;> simp [Expr.close, hb, hx, hbody] at h
       case ok.ok.ok b' x' body' =>
         subst e'
-        simp [Typed.Expr.WithTypeVars.runtime, Binder.close_runtime hb,
-          Expr.close_runtime hx, Expr.close_runtime hbody]
+        cases m
+        · simp [Typed.Expr.WithTypeVars.runtime, Binder.close_runtime hb,
+            Expr.close_runtime hx, Expr.close_runtime hbody]
+        · simp [Typed.Expr.WithTypeVars.runtime, Expr.close_runtime hbody]
   | letProd bs x body =>
       cases hbs : bs.mapM (Binder.close st) <;> cases hx : Expr.close st x <;>
         cases hbody : Expr.close st body <;> simp [Expr.close, hbs, hx, hbody] at h
@@ -428,17 +430,18 @@ theorem Infer.Expr.elaborate_runtime (env : SpecEnv σ) (Θ : TypeEnv) :
         Infer.Expr.elaborate_runtime env Θ cond _ _ _ _ _ _ _ hc,
         Infer.Expr.elaborate_runtime env Θ thn _ _ _ _ _ _ _ ht,
         Infer.Expr.elaborate_runtime env Θ els _ _ _ _ _ _ _ he]
-  | .letIn name bound body => by
+  | .letIn mode name bound body => by
       intro Γ ty st st' s s' p h
       unfold Infer.Expr.elaborate at h
       have ⟨name', t₁, u₁, hname, hcont⟩ := StateT.bind_ok₂ h
       have ⟨bound', t₂, u₂, hbound, hcont⟩ := StateT.bind_ok₂ hcont
       have ⟨body', t₃, u₃, hbody, hcont⟩ := StateT.bind_ok₂ hcont
       rcases (by simpa using hcont) with ⟨⟨rfl, rfl⟩, rfl⟩
-      simp [Typed.Expr.WithTypeVars.runtime, Untyped.Expr.runtime,
-        Infer.Binder.elaborate_runtime env Θ name _ _ _ _ _ hname,
-        Infer.Expr.elaborate_runtime env Θ bound _ _ _ _ _ _ _ hbound,
-        Infer.Expr.elaborate_runtime env Θ body _ _ _ _ _ _ _ hbody]
+      cases mode <;>
+        simp [Typed.Expr.WithTypeVars.runtime, Untyped.Expr.runtime,
+          Infer.Binder.elaborate_runtime env Θ name _ _ _ _ _ hname,
+          Infer.Expr.elaborate_runtime env Θ bound _ _ _ _ _ _ _ hbound,
+          Infer.Expr.elaborate_runtime env Θ body _ _ _ _ _ _ _ hbody]
   | .letProd names bound body => by
       intro Γ ty st st' s s' p h
       unfold Infer.Expr.elaborate at h

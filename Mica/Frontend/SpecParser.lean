@@ -46,10 +46,10 @@ private def parseAssert (inner : Untyped.Expr → M α)
     .ok (.bind pred x ty rest)
   | .app (.app (.var "bind") [_] []) [.fix .none [Untyped.Binder.named _ none] _ _] [] =>
     .error "bind continuation binder must be type-annotated"
-  | .letIn (Untyped.Binder.named x _) bound body => do
+  | .letIn _ (Untyped.Binder.named x _) bound body => do
     let rest ← parseAssert inner bareAssert body
     .ok (.let_ x bound rest)
-  | .letIn .none (.assert cond) body => do
+  | .letIn _ .none (.assert cond) body => do
     let rest ← parseAssert inner bareAssert body
     .ok (.assert cond rest)
   | .letProd names bound body => do

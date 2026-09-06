@@ -644,7 +644,7 @@ private partial def ExprKind.elaborate (env : ElabEnv) (loc : Location) :
   | .binop .semi l r => do
     let l' ← Expr.elaborate env l
     let r' ← Expr.elaborate env r
-    .ok (.letIn .none l' r')
+    .ok (.letIn .runtime .none l' r')
   | .binop .pipeRight a f
   | .binop .atAt f a => do
     let fn' ← Expr.elaborate env f
@@ -728,11 +728,17 @@ private partial def ExprKind.elaborate (env : ElabEnv) (loc : Location) :
     let e' ← Expr.elaborate env e
     .ok (.ifThenElse c' t' e')
 
-  | .letIn isRec binders retTy bound body =>
+  | .letIn ext isRec binders retTy bound body => do
+    let mode ← match ext with
+      | .none => .ok .runtime
+      | some .ghost => .ok .ghost
+      | some (.unknown name) => err loc (.unsupportedFeature s!"the extension node 'let%{name}'")
     match binders with
     | [] => err loc (.unsupportedFeature "let with no binders")
     | pat :: args =>
       if args.isEmpty && !isRec && isProductPattern pat then do
+        if mode == .ghost then
+          return ← err loc (.unsupportedFeature "a ghost binding of a tuple pattern")
         let bound' ← Expr.elaborate env bound
         let body' ← Expr.elaborate (env.bindPattern pat) body
         if retTy.isSome then
@@ -743,7 +749,7 @@ private partial def ExprKind.elaborate (env : ElabEnv) (loc : Location) :
       else do
         let (name, bound') ← elaborateBinding env loc isRec pat args retTy bound
         let body' ← Expr.elaborate (env.bindPattern pat) body
-        .ok (.letIn name bound' body')
+        .ok (.letIn mode name bound' body')
 
   | .fun_ [] _ _ =>
     err loc (.unsupportedFeature "function expressions require at least one argument")

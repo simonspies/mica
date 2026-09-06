@@ -173,7 +173,7 @@ private partial def Expr.isAtom (e : Expr) : Bool :=
 
 private partial def Expr.isKeywordExpr (e : Expr) : Bool :=
   match e.kind with
-  | .letIn _ _ _ _ _ | .fun_ _ _ _ | .ite _ _ _ | .match_ _ _ => true
+  | .letIn _ _ _ _ _ _ | .fun_ _ _ _ | .ite _ _ _ | .match_ _ _ => true
   | _ => false
 
 private partial def Expr.printPrec (e : Expr) (outerPrec : Nat) : String :=
@@ -204,10 +204,11 @@ private partial def Expr.printPrec (e : Expr) (outerPrec : Nat) : String :=
   | .ite cond thn els =>
     "if " ++ Expr.printPrec cond 0 ++ " then " ++ Expr.printPrec thn 0 ++
     " else " ++ Expr.printPrec els 0
-  | .letIn isRec binders retTy bound body =>
+  | .letIn ext isRec binders retTy bound body =>
+    let extStr := match ext with | none => "" | some e => "%" ++ ExtName.toString e
     let recStr := if isRec then "rec " else ""
     let retStr := match retTy with | none => "" | some ty => " : " ++ Typ.print ty
-    "let " ++ recStr ++ joinWith " " (binders.map Pattern.print) ++ retStr ++
+    "let" ++ extStr ++ " " ++ recStr ++ joinWith " " (binders.map Pattern.print) ++ retStr ++
     " = " ++ Expr.printPrec bound 0 ++ " in\n" ++ Expr.printPrec body 0
   | .fun_ args retTy body =>
     let retStr := match retTy with | none => "" | some ty => " : " ++ Typ.printNoArrow ty

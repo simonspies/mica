@@ -284,10 +284,11 @@ mutual
         let thn' ← Infer.Expr.elaborate env Θ Γ thn exp
         let els' ← Infer.Expr.elaborate env Θ Γ els exp
         pure (.ifThenElse cond' thn' els' exp)
-    | .letIn name bound body, exp => do
+    | .letIn mode name bound body, exp => do
         let name' ← Infer.Binder.elaborate env Θ name
         let bound' ← Infer.Expr.elaborate env Θ Γ bound name'.ty
-        pure (.letIn name' bound' (← Infer.Expr.elaborate env Θ (Γ.extendBinder name') body exp))
+        pure (.letIn mode name' bound'
+          (← Infer.Expr.elaborate env Θ (Γ.extendBinder name') body exp))
     | .letProd names bound body, exp => do
         let names' ← Infer.Binder.elaborateList env Θ names
         let bound' ← Infer.Expr.elaborate env Θ Γ bound (.tuple (names'.map (·.ty)))

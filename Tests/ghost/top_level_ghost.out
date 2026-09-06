@@ -1,0 +1,2 @@
+parse error: Tests/ghost/top_level_ghost.ml:4:1: a top-level declaration takes no extension node; 'let%ghost' is only an expression
+[1]

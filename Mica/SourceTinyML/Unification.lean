@@ -321,8 +321,8 @@ def Expr.close (st : State) : Expr → Except TypeError Typed.Expr
   | .ifThenElse c t e ty => do
       pure (.ifThenElse (← Expr.close st c) (← Expr.close st t) (← Expr.close st e)
         (← State.close st ty))
-  | .letIn b x body => do
-      pure (.letIn (← Binder.close st b) (← Expr.close st x) (← Expr.close st body))
+  | .letIn m b x body => do
+      pure (.letIn m (← Binder.close st b) (← Expr.close st x) (← Expr.close st body))
   | .letProd bs x body => do
       pure (.letProd (← bs.mapM (Binder.close st)) (← Expr.close st x) (← Expr.close st body))
   | .ref o e => do pure (.ref o (← Expr.close st e))

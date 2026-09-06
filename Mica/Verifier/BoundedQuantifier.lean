@@ -270,7 +270,7 @@ mutual
     | .app (.var _ _ _) [arg] _ _ => freeVars arg
     | .app fn args gargs _ => freeVars fn ++ args.flatMap freeVars ++ gargs.flatMap freeVars
     | .ifThenElse c t e _ => freeVars c ++ freeVars t ++ freeVars e
-    | .letIn b bound body =>
+    | .letIn _ b bound body =>
         freeVars bound ++ (freeVars body).filter (fun v => b.name != some v)
     | .letProd bs bound body =>
         freeVars bound ++ (freeVars body).filter (fun v => !bs.any (·.name == some v))
@@ -356,7 +356,7 @@ private partial def rewrite : Typed.Expr → LiftM Typed.Expr
       pure (.app (← rewrite fn) (← args.mapM rewrite) [] ty)
   | .ifThenElse c t e ty => do
       pure (.ifThenElse (← rewrite c) (← rewrite t) (← rewrite e) ty)
-  | .letIn b bound body => do pure (.letIn b (← rewrite bound) (← rewrite body))
+  | .letIn m b bound body => do pure (.letIn m b (← rewrite bound) (← rewrite body))
   | .letProd bs bound body => do
       pure (.letProd bs (← rewrite bound) (← rewrite body))
   | .ref ownership e => do pure (.ref ownership (← rewrite e))

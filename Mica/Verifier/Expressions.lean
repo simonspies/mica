@@ -305,7 +305,9 @@ mutual
             s!"unsupported binary operator: {repr op}"
             (compileOp op sl sr)
           pure t
-    | .letIn b e body => do
+    | .letIn .ghost _ _ _ =>
+        VerifM.fatal "a ghost binding (let%ghost)"
+    | .letIn .runtime b e body => do
         let se ← compile reg Θ Δ_spec B Γ e
         VerifM.expectEq "let type annotation mismatch" b.ty e.ty
         match b.name with
@@ -2486,9 +2488,17 @@ theorem compileBinop_correct (reg : Verifier.Registry) (op : TinyML.BinOp) (l r 
       · iexact Hwty
       · iexact HR
 
+/-- A ghost binding has no run-time code to verify. The runtime compiler rejects
+it, so the claim holds for want of a run. -/
+theorem compileLetInGhost_correct (reg : Verifier.Registry) (b : Binder) (e body : Expr) :
+    correctExpr reg (.letIn .ghost b e body) := by
+  intro _ _ _ _ _ _ _ _ _ _ heval
+  simp only [compile] at heval
+  exact (VerifM.eval_fatal heval).elim
+
 theorem compileLetIn_correct (reg : Verifier.Registry) (b : Binder) (e body : Expr)
     (ihE : correctExpr reg e) (ihBody : correctExpr reg body) :
-    correctExpr reg (.letIn b e body) := by
+    correctExpr reg (.letIn .runtime b e body) := by
   intro W R B Γ st ρ γ Ψ Φ hW heval hagree hbwf hwf hag hΔreg hρreg hpost
   simp only [compile] at heval
   simp only [Expr.WithTypeVars.ty] at hpost
@@ -3811,8 +3821,12 @@ theorem compile_correct (reg : Verifier.Registry) (hSound : Verifier.Registry.So
     simpa using compileUnop_correct reg op e uty (compile_correct reg hSound e)
   | binop op l r bty =>
     simpa using compileBinop_correct reg op l r bty (compile_correct reg hSound r) (compile_correct reg hSound l)
-  | letIn b e body =>
-    simpa using compileLetIn_correct reg b e body (compile_correct reg hSound e) (compile_correct reg hSound body)
+  | letIn mode b e body =>
+    cases mode with
+    | ghost => simpa using compileLetInGhost_correct reg b e body
+    | runtime =>
+      simpa using compileLetIn_correct reg b e body
+        (compile_correct reg hSound e) (compile_correct reg hSound body)
   | ifThenElse cond thn els ty =>
     simpa using compileIfThenElse_correct reg cond thn els ty
       (compile_correct reg hSound cond) (compile_correct reg hSound thn) (compile_correct reg hSound els)
