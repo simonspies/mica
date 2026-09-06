@@ -593,7 +593,7 @@ def ValDecl.elaborate (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx)
         (if d.impl then d.relation else none) rb d.body
       checkDeclAnnotation env Θ d.name body'.ty
       pure { name := Typed.Binder.ofUntyped d.name body'.ty, body := body',
-             relation := d.relation }
+             relation := d.relation, mode := d.mode }
   | none => do
       -- The declaration's own annotation, if it has one, is the only type the
       -- body is expected at; without one the body decides its own.
@@ -602,7 +602,7 @@ def ValDecl.elaborate (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx)
         | _ => none)
       let body' ← Expr.elaborate env Θ Γ d.body expected
       pure { name := Typed.Binder.ofUntyped d.name body'.ty, body := body',
-             relation := d.relation }
+             relation := d.relation, mode := d.mode }
 
 /-- Only a function literal is generalized. Anything else whose type still has
 a variable to quantify would need a weak variable standing for the type its

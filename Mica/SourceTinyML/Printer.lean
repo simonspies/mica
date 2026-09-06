@@ -272,7 +272,8 @@ def ValDecl.print {S : Type} [SpecPayloadPrinter S] (d : Untyped.ValDecl S) : St
     | .none, _ => []
     | .some _, false => ["[@@fn]"]
     | .some _, true => ["[@@fn]", "[@@impl]"]
-  " ".intercalate (decl :: (spec ++ relation))
+  let mode := match d.mode with | .runtime => [] | .ghost => ["[@@ghost]"]
+  " ".intercalate (decl :: (spec ++ relation ++ mode))
 
 def TypeDecl.print (d : Untyped.TypeDecl) : String :=
   let payloads := (List.range d.body.payloads.length).zip d.body.payloads |>.map

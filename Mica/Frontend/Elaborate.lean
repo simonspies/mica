@@ -951,6 +951,8 @@ private structure ValAttrs where
   impl : Bool := false
   /-- The specification-only parameters `[@@ghost]` declares. -/
   ghost : List (String × Untyped.Typ) := []
+  /-- Whether `[@@ghost]` without a payload makes the whole declaration ghost. -/
+  mode : TinyML.Mode := .runtime
 
 /-- A `[@@ghost]` parameter is an annotated name, since nothing else fixes the
 type it is used at. -/
@@ -996,14 +998,16 @@ private def elaborateValAttrs (env : ElabEnv) (acc : ValAttrs) :
       else elaborateValAttrs env { acc with impl := true } attrs
     | .impl, some payload => err payload.loc (.unsupportedFeature
         "[@@impl] takes no payload; the specification it adds is derived from [@@fn]")
-    | .ghost, some payload =>
-      if !acc.ghost.isEmpty then
+    -- `[@@ghost]` declares the parameters that exist only for the verifier, and
+    -- with no payload declares that the whole declaration does.
+    | .ghost, payload =>
+      if acc.mode == .ghost || !acc.ghost.isEmpty then
         err attr.loc (.unsupportedFeature "a declaration carries at most one [@@ghost]")
-      else do
-        let ghost ← (ghostArgs payload).mapM (ghostParam env)
-        elaborateValAttrs env { acc with ghost } attrs
-    | .ghost, none =>
-      err attr.loc (.unsupportedFeature "[@@ghost] expects its ghost parameters as the payload")
+      else match payload with
+        | none => elaborateValAttrs env { acc with mode := .ghost } attrs
+        | some payload => do
+          let ghost ← (ghostArgs payload).mapM (ghostParam env)
+          elaborateValAttrs env { acc with ghost } attrs
     | name, _ =>
       err attr.loc (.unsupportedFeature s!"unknown declaration attribute [@@{name}]")
 
@@ -1052,7 +1056,7 @@ private def Decl.elaborate (env : ElabEnv) (decl : Decl)
         "a declaration carries [@@spec] or [@@fn], not both")
     if attrs.impl && !attrs.fn then
       return ← err decl.loc (.unsupportedFeature "[@@impl] requires [@@fn]")
-    if !attrs.ghost.isEmpty && attrs.spec.isNone then
+    if (!attrs.ghost.isEmpty || attrs.mode == .ghost) && attrs.spec.isNone then
       return ← err decl.loc (.unsupportedFeature "[@@ghost] requires [@@spec]")
     let spec := attrs.spec.map fun sb => { sb with ghost := attrs.ghost }
     let d ← ValDecl.elaborate env decl.loc isRec binders retTy body spec
@@ -1070,7 +1074,7 @@ private def Decl.elaborate (env : ElabEnv) (decl : Decl)
       | true, some _, _ => err decl.loc (.unsupportedFeature
           "[@@fn] requires a function of one named argument; write several as a tuple")
       | _, _, _ => .ok d
-    .ok (env.bindBinder d.name, some (.val_ { d with relation }))
+    .ok (env.bindBinder d.name, some (.val_ { d with relation, mode := attrs.mode }))
 
 private def elaborateDecls (env : ElabEnv) :
     List Decl → ElabM (List (Untyped.Decl Untyped.SpecBody))

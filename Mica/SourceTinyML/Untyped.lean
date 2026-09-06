@@ -166,6 +166,7 @@ structure ValDecl (S : Type) where
   /-- Whether `[@@impl]` also verifies the body as run-time code. Its `spec` is
   then generated rather than written. -/
   impl : Bool := false
+  mode : Mode := .runtime
   deriving Repr, Inhabited
 
 /-- A data declaration as the frontend elaborates it. Its payloads are untyped
@@ -282,7 +283,9 @@ def ValDecl.runtime {S : Type} (d : Untyped.ValDecl S) : Runtime.Decl :=
   { name := d.name.runtime, body := d.body.runtime }
 
 def Decl.runtime {S : Type} : Untyped.Decl S → Option Runtime.Decl
-  | .val_ d => some d.runtime
+  | .val_ d => match d.mode with
+    | .runtime => some d.runtime
+    | .ghost => none
   | .type_ _ => none
 
 def Program.runtime {S : Type} (prog : Untyped.Program S) : Runtime.Program :=

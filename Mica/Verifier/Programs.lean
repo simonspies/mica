@@ -476,6 +476,9 @@ def Program.check (reg : Verifier.Registry) (Θ : TinyML.TypeEnv) (Δ_spec : Sig
     Bindings → TinyML.TyCtx → Typed.Program → VerifM Unit
   | _, _, [] => pure ()
   | B, Γ, d :: ds => do
+    match d.mode with
+    | .ghost => VerifM.fatal "a ghost declaration ([@@ghost])"
+    | .runtime =>
     match d.name.name, d.body.spec? with
     | none, none =>
       ValDecl.checkExpr reg Θ Δ_spec B Γ d
@@ -635,24 +638,30 @@ theorem Program.check_correct (reg : Verifier.Registry) (hSound : Verifier.Regis
   induction prog generalizing B Γ γ st ρ with
   | nil =>
     intro _ _
-    simp only [Typed.Program.runtime, List.map_nil, Runtime.Program.subst]
+    simp only [Typed.Program.runtime, List.filterMap_nil, Runtime.Program.subst]
     refine BIBase.Entails.trans ?_ pwp_nil
     istart
     iintro _
     iempintro
   | cons d ds ih =>
     intro hΓ heval
+    cases hmode : d.mode with
+    | ghost =>
+      -- A ghost declaration is not verified yet, so there is nothing to relate.
+      simp only [Program.check, hmode] at heval
+      exact (VerifM.eval_fatal heval).elim
+    | runtime =>
     have hpwp_unfold :
         wp W.pctx (d.body.runtime.subst γ) (fun v =>
           pwp W.pctx ((Typed.Program.runtime ds).subst (Runtime.Subst.updateBinder d.name.runtime v γ)))
         ⊢ pwp W.pctx ((Typed.Program.runtime (d :: ds)).subst γ) := by
-      simp only [Typed.Program.runtime, Typed.ValDecl.runtime,
-        Runtime.Program.subst, Runtime.Decl.subst, List.map_cons]
+      simp only [Typed.Program.runtime, Typed.ValDecl.runtime?, hmode, Typed.ValDecl.runtime,
+        Runtime.Program.subst, Runtime.Decl.subst, List.filterMap_cons]
       refine BIBase.Entails.trans (wp.mono fun v => ?_) pwp_cons
       rw [Runtime.Program.subst_remove_update]
       exact .rfl
     refine BIBase.Entails.trans ?_ hpwp_unfold
-    simp only [Program.check] at heval
+    simp only [Program.check, hmode] at heval
     cases hname : d.name.name with
     | none =>
       -- unnamed: pwp continuation does not depend on `v`

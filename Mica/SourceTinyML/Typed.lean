@@ -349,6 +349,7 @@ structure ValDecl where
   body : Expr
   /-- The spec-level relation this declaration is registered as, if `[@@fn]`. -/
   relation : Option String := none
+  mode : Mode := .runtime
   deriving Repr, BEq, Inhabited
 
 abbrev Program := List ValDecl
@@ -417,8 +418,13 @@ end
 def ValDecl.runtime (d : Typed.ValDecl) : Runtime.Decl :=
   { name := d.name.runtime, body := d.body.runtime }
 
+def ValDecl.runtime? (d : Typed.ValDecl) : Option Runtime.Decl :=
+  match d.mode with
+  | .runtime => some d.runtime
+  | .ghost => none
+
 def Program.runtime (prog : Typed.Program) : Runtime.Program :=
-  prog.map ValDecl.runtime
+  prog.filterMap ValDecl.runtime?
 
 theorem Expr.runtime_subst_of_fix {e : Typed.Expr} {self : Typed.Binder}
     {args : List Typed.Binder} {retTy : Typ} {spec : Option (Spec Typ)} {body : Typed.Expr}

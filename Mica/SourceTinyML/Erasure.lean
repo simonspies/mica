@@ -670,7 +670,7 @@ theorem ValDecl.elaborate_runtime (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML
     (d : Untyped.ValDecl Untyped.SpecBody) :
     ∀ {s : σ} {d' : Typed.ValDecl} {s' : σ},
       Typed.ValDecl.elaborate env Θ Γ d s = .ok (d', s') →
-      d'.runtime = d.runtime := by
+      Typed.ValDecl.runtime? d' = Untyped.Decl.runtime (.val_ d) := by
   intro s d' s' helab
   -- Split on whether there is a specification, and then — in its absence — only
   -- on whether there is an annotation; the unannotated cases are identical.
@@ -681,15 +681,19 @@ theorem ValDecl.elaborate_runtime (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML
     have ⟨r, s₀, hfix, hcont⟩ := StateT.bind_ok helab'
     have ⟨_, s₁, _, hcont⟩ := StateT.bind_ok hcont
     rcases hcont with ⟨rfl, rfl⟩
-    simp [Typed.ValDecl.runtime, Untyped.ValDecl.runtime, Binder.ofUntyped_runtime,
-      ValDecl.elaborateSpecified_runtime env Θ Γ _ rb d.body hfix]
+    cases hmode : d.mode <;>
+      simp [Typed.ValDecl.runtime?, Untyped.Decl.runtime, hmode, Typed.ValDecl.runtime,
+        Untyped.ValDecl.runtime, Binder.ofUntyped_runtime,
+        ValDecl.elaborateSpecified_runtime env Θ Γ _ rb d.body hfix]
   | none =>
     simp only [ValDecl.elaborate, hspec] at helab
     have ⟨_expected, s₀, _hexp, hcont⟩ := StateT.bind_ok helab
     have ⟨body', s₁, hbody, hcont⟩ := StateT.bind_ok hcont
     rcases hcont with ⟨rfl, rfl⟩
-    simp [Typed.ValDecl.runtime, Untyped.ValDecl.runtime, Binder.ofUntyped_runtime,
-      Expr.elaborate_runtime env Θ Γ d.body _ hbody]
+    cases hmode : d.mode <;>
+      simp [Typed.ValDecl.runtime?, Untyped.Decl.runtime, hmode, Typed.ValDecl.runtime,
+        Untyped.ValDecl.runtime, Binder.ofUntyped_runtime,
+        Expr.elaborate_runtime env Θ Γ d.body _ hbody]
 
 theorem Program.elaborate_runtime (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx)
     (prog : Untyped.Program Untyped.SpecBody) :
@@ -727,9 +731,11 @@ theorem Program.elaborate_runtime (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML
       rcases tail with ⟨Θ'', ds'⟩
       simp at hcont
       rcases hcont with ⟨⟨rfl, rfl⟩, rfl⟩
-      have hdecl_rt : dval'.runtime = dval.runtime :=
+      have hdecl_rt : Typed.ValDecl.runtime? dval' = Untyped.Decl.runtime (.val_ dval) :=
         ValDecl.elaborate_runtime _ Θ Γ dval hdecl
-      simp [Typed.Program.runtime, Untyped.Program.runtime, hdecl_rt]
-      exact congrArg (List.cons dval.runtime) (ih Θ Γ' htail)
+      have htail_rt := ih Θ Γ' htail
+      simp only [Typed.Program.runtime, Untyped.Program.runtime, List.filterMap_cons, hdecl_rt]
+      cases Untyped.Decl.runtime (Untyped.Decl.val_ dval) <;>
+        simpa [Typed.Program.runtime, Untyped.Program.runtime] using htail_rt
 
 end Typed
