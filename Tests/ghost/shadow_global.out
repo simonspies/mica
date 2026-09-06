@@ -1,0 +1,2 @@
+Status: failed: a ghost expression cannot call `lemma`: it is not a ghost function
+[1]

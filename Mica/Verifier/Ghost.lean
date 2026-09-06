@@ -156,8 +156,8 @@ mutual
           VerifM.assume (.pure sc.isFalse)
           compileGhostExpr Θ Δ_spec Gf G B Γ els
     | .app (.var f _ _) args gargs aty =>
-      match Gf.lookup f with
-      | some ⟨.arrow argTys retTy (some s), guard⟩ =>
+      match G.lookup f, B.lookup f, Gf.lookup f with
+      | none, none, some ⟨.arrow argTys retTy (some s), guard⟩ =>
         match Spec.checkWf s Δ_spec with
         | .error msg => VerifM.fatal msg
         | .ok () => do
@@ -170,7 +170,10 @@ mutual
             ((args.map Expr.WithTypeVars.ty).zip sterms)
             ((gargs.map Expr.WithTypeVars.ty).zip gterms)
           pure result
-      | _ => VerifM.fatal s!"a ghost expression cannot call `{f}`: it is not a ghost function"
+      | none, none, _ =>
+        VerifM.fatal s!"a ghost expression cannot call `{f}`: it is not a ghost function"
+      | _, _, _ =>
+        VerifM.fatal s!"a ghost expression cannot call `{f}`: it is shadowed by a value"
     | .app .. => VerifM.fatal "a ghost expression can only call a ghost function"
     | .prim n _ _ => VerifM.fatal s!"primitive `{n}` must be applied"
     | .tuple es => do
@@ -1271,7 +1274,7 @@ theorem compileGhostApp_correct (W : TinyML.World) (Gf : GhostFns)
   | var f inst fty =>
     simp only [compileGhostExpr] at heval
     split at heval
-    case _ argTys retTy s guard hlookup =>
+    case _ argTys retTy s guard hG hB hlookup =>
       cases hcheck : Spec.checkWf s W.Δ_spec with
       | error msg => rw [hcheck] at heval; exact (VerifM.eval_fatal heval).elim
       | ok u =>
@@ -1450,8 +1453,8 @@ theorem compileGhostApp_correct (W : TinyML.World) (Gf : GhostFns)
           isplitl [Howns]
           · iexact Howns
           · iexact HR
-    case _ =>
-      exact (VerifM.eval_fatal heval).elim
+    case _ => exact (VerifM.eval_fatal heval).elim
+    case _ => exact (VerifM.eval_fatal heval).elim
   | _ =>
     simp only [compileGhostExpr] at heval
     exact (VerifM.eval_fatal heval).elim

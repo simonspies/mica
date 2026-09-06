@@ -494,10 +494,10 @@ def Program.check (reg : Verifier.Registry) (Θ : TinyML.TypeEnv) (Δ_spec : Sig
     -- earlier one of the same name, which is therefore dropped: nothing here
     -- gives the new value a specification.
       if d.body.isFunc then
-        Program.check reg Θ Δ_spec Γfn Gf (B.remove n) Γ ds
+        Program.check reg Θ Δ_spec Γfn (Gf.remove n) (B.remove n) Γ ds
       else
         ValDecl.checkExpr reg Θ Δ_spec Γfn Gf B Γ d
-        Program.check reg Θ Δ_spec Γfn Gf (B.remove n) Γ ds
+        Program.check reg Θ Δ_spec Γfn (Gf.remove n) (B.remove n) Γ ds
     | _, _ =>
       let ty ← ValDecl.check reg Θ Δ_spec Γfn Gf B Γ d
       match d.name.name with
@@ -508,7 +508,7 @@ def Program.check (reg : Verifier.Registry) (Θ : TinyML.TypeEnv) (Δ_spec : Sig
         -- The arrow's type variables are generalized, the verification having
         -- gone through at every assignment of them.
         let fv ← VerifM.decl (some n) .value
-        Program.check reg Θ Δ_spec Γfn Gf ((n, fv) :: B) (Γ.extendScheme n (TinyML.Scheme.gen ty)) ds
+        Program.check reg Θ Δ_spec Γfn (Gf.remove n) ((n, fv) :: B) (Γ.extendScheme n (TinyML.Scheme.gen ty)) ds
       | none => Program.check reg Θ Δ_spec Γfn Gf B Γ ds
 
 def Program.verify (reg : Verifier.Registry) (prog : Untyped.Program Untyped.SpecBody) : Smt.Strategy Smt.Strategy.Outcome :=
@@ -739,12 +739,12 @@ theorem Program.check_correct (reg : Verifier.Registry) (hSound : Verifier.Regis
           apply SpatialContext.wp_func
           rw [hupd fval]
           have heval' : VerifM.eval
-              (Program.check reg W.Θ W.Δ_spec Γfn Gf (B.remove n) Γ ds) st ρ
+              (Program.check reg W.Θ W.Δ_spec Γfn (Gf.remove n) (B.remove n) Γ ds) st ρ
               (fun _ _ _ => True) := by
             convert heval
           have hih := ih (B.remove n) Γ (γ.update n fval) st ρ hag
             (Bindings.agreeOnLinked_remove_update hagree n fval) (Bindings.wfIn_remove hbwf n)
-            hGf hΓ heval'
+            (hGf.remove n) hΓ heval'
           refine BIBase.Entails.trans ?_ hih
           istart
           iintro ⟨#Hsl, #HT⟩
@@ -756,7 +756,7 @@ theorem Program.check_correct (reg : Verifier.Registry) (hSound : Verifier.Regis
           have hbind := VerifM.eval_bind heval
           have ⟨_, hcont⟩ := VerifM.eval_seq hbind
           have hcont' : VerifM.eval
-              (Program.check reg W.Θ W.Δ_spec Γfn Gf (B.remove n) Γ ds) st ρ
+              (Program.check reg W.Θ W.Δ_spec Γfn (Gf.remove n) (B.remove n) Γ ds) st ρ
               (fun _ _ _ => True) :=
             VerifM.eval_ret hcont
           have hwp := ValDecl.checkExpr_correct reg hSound W hW B Γ d γ hwf st ρ hag
@@ -767,7 +767,7 @@ theorem Program.check_correct (reg : Verifier.Registry) (hSound : Verifier.Regis
           rw [hupd v]
           have hih := ih (B.remove n) Γ (γ.update n v)
             st ρ hag (Bindings.agreeOnLinked_remove_update hagree n v)
-            (Bindings.wfIn_remove hbwf n) hGf hΓ
+            (Bindings.wfIn_remove hbwf n) (hGf.remove n) hΓ
             hcont'
           exact wand_intro (sep_elim_left.trans <| by
             refine BIBase.Entails.trans ?_ hih
@@ -798,7 +798,7 @@ theorem Program.check_correct (reg : Verifier.Registry) (hSound : Verifier.Regis
             hbody hwf st ρ hag hagree hbwf hΔreg hρreg hGf (VerifM.eval_bind heval)).2
         have hcont' : VerifM.eval
             (do let fv ← VerifM.decl (some n) .value
-                Program.check reg W.Θ W.Δ_spec Γfn Gf ((n, fv) :: B)
+                Program.check reg W.Θ W.Δ_spec Γfn (Gf.remove n) ((n, fv) :: B)
                   (Γ.extendScheme n (TinyML.Scheme.gen selfTy)) ds) st ρ
             (fun _ _ _ => True) := by
           convert hcont
@@ -823,7 +823,7 @@ theorem Program.check_correct (reg : Verifier.Registry) (hSound : Verifier.Regis
         have hbwf₁ : Bindings.wfIn ((n, fv) :: B) st₁.decls := Bindings.wfIn_cons hbwf
         have hGf₁ := hGf.step hst_sub₁ hρ_st₁ (VerifM.eval.wf hdecl).namesDisjoint
         have hih := ih ((n, fv) :: B) (Γ.extendScheme n (TinyML.Scheme.gen selfTy))
-          (γ.update n v) st₁ ρ₁ hag₁ hagree₁ hbwf₁ hGf₁
+          (γ.update n v) st₁ ρ₁ hag₁ hagree₁ hbwf₁ (hGf₁.remove n)
           (hΓ.extendScheme n (TinyML.Scheme.gen_free selfTy)) hdecl
         have hsl₁ : st.sl W ρ ⊢ st₁.sl W ρ₁ := by
           simp only [TransState.sl_eq, hst₁_def]

@@ -56,6 +56,29 @@ theorem GhostFns.wellTyped.empty (W : TinyML.World) (Δ : Signature) (ρ : Env) 
     GhostFns.wellTyped W Δ ρ .empty :=
   fun _ _ _ _ _ _ h => by simp [GhostFns.empty] at h
 
+/-- A run-time declaration hides every earlier ghost declaration of its name. -/
+def GhostFns.remove (Gf : GhostFns) (x : TinyML.Var) : GhostFns :=
+  Gf.filter fun p => p.1 != x
+
+omit [MicaGS HasLC.hasLC Sig] in
+@[simp] private theorem GhostFns.lookup_remove (Gf : GhostFns) (x y : TinyML.Var) :
+    (Gf.remove x).lookup y = if y == x then none else Gf.lookup y := by
+  induction Gf with
+  | nil => simp [GhostFns.remove]
+  | cons p Gf ih =>
+    obtain ⟨z, entry⟩ := p
+    by_cases hzx : z = x <;> by_cases hyz : y = z <;> by_cases hyx : y = x <;>
+      simp_all [GhostFns.remove, List.lookup_cons] <;> aesop
+
+theorem GhostFns.wellTyped.remove {W : TinyML.World} {Δ : Signature} {ρ : Env}
+    {Gf : GhostFns} (h : GhostFns.wellTyped W Δ ρ Gf) (x : TinyML.Var) :
+    GhostFns.wellTyped W Δ ρ (Gf.remove x) := by
+  intro η f argTys retTy s guard hlookup
+  rw [GhostFns.lookup_remove] at hlookup
+  split at hlookup
+  · contradiction
+  · exact h η f argTys retTy s guard hlookup
+
 theorem GhostFns.wellTyped.step {W : TinyML.World} {Δ Δ' : Signature} {ρ ρ' : Env}
     {Gf : GhostFns} (h : GhostFns.wellTyped W Δ ρ Gf)
     (hΔ : Δ.Subset Δ') (hρ : Env.agreeOn Δ ρ ρ') (hwf : Δ'.wf) :
