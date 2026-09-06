@@ -170,6 +170,7 @@ def intrinsic (name : String) (path : String) : Verifier.Intrinsic where
   retTy := .bool
   spec :=
     { args := ["lo", "hi", "body"]
+      ghost := []
       pred := .assert .false_ (.ret ⟨"ret", .ret ()⟩) }
   folTerm := none
   axioms := []

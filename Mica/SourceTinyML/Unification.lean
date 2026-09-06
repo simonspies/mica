@@ -374,6 +374,13 @@ def Ctx.extendBinder (Γ : Ctx) (b : Binder) : Ctx :=
 def Ctx.extendList (Γ : Ctx) (bs : List Binder) : Ctx :=
   bs.foldl Ctx.extendBinder Γ
 
+/-- The ghost parameters a specification declares are in scope in the body of
+the function it specifies, so that the body can pass them on to the calls it
+makes. -/
+def Ctx.extendGhost (Γ : Ctx) : Option (Spec Typ) → Ctx
+  | none => Γ
+  | some s => s.ghost.foldl (fun Γ p => Γ.extend p.1 p.2) Γ
+
 
 /-! ## The inference monad
 

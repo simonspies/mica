@@ -76,7 +76,7 @@ private def peelBinders : Untyped.Expr → M Untyped.SpecBody
     if names.isEmpty then .error "spec must bind at least one argument"
     else do
       let pre ← parsePre body
-      .ok ⟨names, pre⟩
+      .ok ⟨names, [], pre⟩
   | e => .error s!"expected fun x -> ..., got {repr e}"
 where
   getNames : List Untyped.Binder → M (List String)

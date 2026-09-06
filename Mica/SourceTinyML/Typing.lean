@@ -69,6 +69,15 @@ private def extractSpecArgTypes : List Typed.Binder → List String → Except T
     let rest ← extractSpecArgTypes bs ns
     .ok ((n, b.ty) :: rest)
 
+/-- Reject a ghost parameter that takes a name the specification already binds:
+nothing at a use site tells the two apart. -/
+private def checkGhostNames (bound : List String) : List String → Except TypeError Unit
+  | [] => .ok ()
+  | x :: xs =>
+    if x ∈ bound then
+      .error (.spec s!"ghost parameter '{x}' shadows a name the specification already binds")
+    else checkGhostNames (x :: bound) xs
+
 /-- Elaborate a spec predicate into the atom binding its payload, checking the
 scrutinee against both the type context and the spec-level scope. -/
 private def Spec.Pred.elaborate (Γ : TyCtx) (names : List String) (ty : Typ) :
@@ -242,7 +251,7 @@ mutual
         let (args', ret, spec) ← Infer.fixSignature env Θ args retTy exp
         let fnTy : Infer.Typ := .arrow (args'.map (·.ty)) ret spec
         let self' ← Infer.Binder.elaborateAt env Θ self fnTy
-        let Γ' := Infer.Ctx.extendList (Γ.extendBinder self') args'
+        let Γ' := (Infer.Ctx.extendList (Γ.extendBinder self') args').extendGhost spec
         pure (.fix self' args' ret spec (← Infer.Expr.elaborate env Θ Γ' body ret))
     | .app fn args, exp => do
         let fnTy ← Infer.fresh
@@ -448,13 +457,25 @@ mutual
   def Spec.Body.elaborate (env : SpecEnv σ) (Θ : TypeEnv) (Γbase : TyCtx)
       (argBinders : List Typed.Binder) (retTy : Typ)
       (rb : Untyped.SpecBody) : TypeM σ (Spec Typ) := do
-    let names := rb.args
-    let argTys ← TypeM.ofExcept (extractSpecArgTypes argBinders names)
-    let Γ₀ : TyCtx := argTys.foldl (fun Γ p => Γ.extend p.1 p.2) Γbase
+    let argTys ← TypeM.ofExcept (extractSpecArgTypes argBinders rb.args)
+    TypeM.ofExcept (checkGhostNames rb.args (rb.ghost.map Prod.fst))
+    let ghost ← Spec.Ghost.elaborate env Θ rb.ghost
+    let names := rb.args ++ ghost.map Prod.fst
+    let Γ₀ : TyCtx := (argTys ++ ghost).foldl (fun Γ p => Γ.extend p.1 p.2) Γbase
     let pred ← Spec.Pre.elaborate env Θ retTy Γ₀ names rb.pre
-    pure { args := names, pred := pred }
+    -- No arrow declares a ghost parameter, so the precondition opens by
+    -- assuming its type. The caller proves it of the argument it passes.
+    let tyc := ghost.flatMap fun p => TinyML.typeConstraints p.2 (.var .value p.1)
+    pure { args := rb.args, ghost := ghost, pred := assertAll tyc pred }
   termination_by (sizeOf rb, 0)
-  decreasing_by obtain ⟨args, pre⟩ := rb; simp; omega
+  decreasing_by all_goals (obtain ⟨args, ghost, pre⟩ := rb; simp; omega)
+
+  def Spec.Ghost.elaborate (env : SpecEnv σ) (Θ : TypeEnv) :
+      List (String × Untyped.Typ) → TypeM σ (List (String × Typ))
+    | [] => pure []
+    | (x, t) :: ps => do
+        pure ((x, ← Typ.elaborate env Θ t) :: (← Spec.Ghost.elaborate env Θ ps))
+  termination_by ps => (sizeOf ps, 0)
 end
 
 /-- Translate a specified function's argument binders. `ValDecl.elaborateSpecified`

@@ -47,9 +47,12 @@ structure Post (ε τ : Type) where
 abbrev Pre (ε τ : Type) := Assert ε τ (Post ε τ)
 
 /-- A spec body as written: the argument names it binds, together with the
-precondition. Typing turns it into a completed `Spec` (`Assertions.lean`). -/
+precondition. Typing turns it into a completed `Spec` (`Assertions.lean`).
+
+`ghost` are the specification-only parameters `[@@ghost]` declares. -/
 structure Body (ε τ : Type) where
   args : List String
+  ghost : List (String × τ)
   pre : Assert ε τ (Post ε τ)
 
 /-- Spec bodies print as a placeholder. `Repr` on the untyped IR exists for

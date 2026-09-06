@@ -975,7 +975,7 @@ private def implSpec (env : ElabEnv) (loc : Location) (f arg : String) :
     ElabM Untyped.SpecBody :=
   match env.resolver.value ⟨"Logic", ["eq"]⟩ with
   | some (.primitive eq _) =>
-    .ok { args := [arg]
+    .ok { args := [arg], ghost := []
           pre := .ret ⟨implResultName,
             .assert (.app (.prim eq) [.var implResultName, .app (.var f) [.var arg]]) (.ret ())⟩ }
   | _ => err loc (.unsupportedFeature "[@@impl] needs the prelude's Logic.eq")
