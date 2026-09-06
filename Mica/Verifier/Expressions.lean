@@ -105,8 +105,15 @@ mutual
             s!"unsupported binary operator: {repr op}"
             (compileOp op sl sr)
           pure t
-    | .letIn .ghost _ _ _ =>
-        VerifM.fatal "a ghost binding (let%ghost)"
+    | .letIn .ghost b e body => do
+        let se ← compileGhostExpr Θ Δ_spec Gf G B Γ e
+        VerifM.expectEq "ghost let type annotation mismatch" b.ty e.ty
+        match b.name with
+        | none => compile reg Θ Δ_spec Γfn Gf G B Γ body
+        | some x =>
+          let x' ← VerifM.decl (some x) .value
+          VerifM.assume (.pure (Formula.eq .value (.const (.uninterpreted x'.name .value)) se))
+          compile reg Θ Δ_spec Γfn Gf ((x, x') :: G) (B.remove x) (Γ.extend x e.ty) body
     | .letIn .runtime b e body => do
         let se ← compile reg Θ Δ_spec Γfn Gf G B Γ e
         VerifM.expectEq "let type annotation mismatch" b.ty e.ty
@@ -2442,13 +2449,128 @@ theorem compileBinop_correct (reg : Verifier.Registry) (op : TinyML.BinOp) (l r 
       · iexact Hwty
       · iexact HR
 
-/-- A ghost binding has no run-time code to verify. The runtime compiler rejects
-it, so the claim holds for want of a run. -/
-theorem compileLetInGhost_correct (reg : Verifier.Registry) (b : Binder) (e body : Expr) :
+/-- A ghost binding is erased, so the run-time program is the body alone. The
+    ghost expression's obligation is discharged in the scope it is written in
+    and leaves an update, which the body's weakest precondition absorbs. -/
+theorem compileLetInGhost_correct (reg : Verifier.Registry) (b : Binder) (e body : Expr)
+    (ihBody : correctExpr reg body) :
     correctExpr reg (.letIn .ghost b e body) := by
-  intro _ _ _ _ _ _ _ _ _ _ _ _ _ _ heval
+  intro W R Γfn Gf G B Γ st ρ γg γ Ψ Φ hW heval hgagree hgwf hGf hagree hbwf hwf hag
+    hΔreg hρreg hpost
   simp only [compile] at heval
-  exact (VerifM.eval_fatal heval).elim
+  simp only [Expr.WithTypeVars.ty] at hpost
+  unfold Expr.WithTypeVars.runtime
+  refine SpatialContext.wp_bupd (BIBase.Entails.trans ?_
+    ((compileGhostExpr_correct W Gf hGf hwf e G B Γ γg γ
+        (R := iprop(Bindings.typedScope W G B Γ γg γ ∗ R))
+        (Φ := fun _ => wp W.pctx (body.runtime.subst γ) Φ)
+        hag hgagree hgwf hagree hbwf (VerifM.eval.decls_grow ρ (VerifM.eval_bind heval))
+        ?_).trans (bupd_mono (exists_elim fun _ => .rfl))))
+  · iintro ⟨Howns, #HT, HR⟩
+    isplitl [Howns]
+    · iexact Howns
+    · isplitl []
+      · iexact HT
+      · isplitl []
+        · iexact HT
+        · iexact HR
+  · intro v st₁ ρ₁ t hΨ ht_wf ht_eval
+    obtain ⟨hdecls, hagreeOn, hΨ⟩ := hΨ
+    obtain ⟨_, hΨ⟩ := VerifM.eval_bind_expectEq hΨ
+    have hagree₁ := Bindings.agreeOnLinked_env_agree hagree hagreeOn hbwf
+    have hgagree₁ := Bindings.agreeOnLinked_env_agree hgagree hagreeOn hgwf
+    have hbwf₁ : B.wfIn st₁.decls := fun p hp => hdecls.consts _ (hbwf p hp)
+    have hgwf₁ : G.wfIn st₁.decls := fun p hp => hdecls.consts _ (hgwf p hp)
+    have hag₁ := hag.step hdecls hagreeOn
+    have hcont : ∀ v ρ' st' se, (fun se st' ρ' =>
+          st₁.decls.Subset st'.decls ∧ Env.agreeOn st₁.decls ρ₁ ρ' ∧ Ψ se st' ρ') se st' ρ' →
+        se.wfIn st'.decls → Term.eval ρ' se = v →
+        st'.sl W ρ' ∗ TinyML.ValHasType W v body.ty ∗ R ⊢ Φ v :=
+      fun v ρ' st' se hΨ' hs hw => hpost v ρ' st' se hΨ'.2.2 hs hw
+    cases hname : b.name with
+    | none =>
+      simp [hname] at hΨ
+      refine BIBase.Entails.trans ?_ (ihBody W R Γfn Gf G B Γ st₁ ρ₁ γg γ _ _ hW
+        (VerifM.eval.decls_grow ρ₁ hΨ) hgagree₁ hgwf₁ hGf hagree₁ hbwf₁ hwf hag₁
+        hΔreg hρreg hcont)
+      iintro ⟨Howns, _Hv, #HT, HR⟩
+      isplitl [Howns]
+      · iexact Howns
+      · isplitl []
+        · iexact HT
+        · iexact HR
+    | some x =>
+      simp [hname] at hΨ
+      set x' : FOL.Const := ⟨Fresh.freshNumbers x st₁.decls.allNames, .value⟩ with hx'_def
+      have hfresh : x'.name ∉ st₁.decls.allNames :=
+        Fresh.freshNumbers_not_mem x st₁.decls.allNames
+      set st₂ : TransState :=
+        { decls := st₁.decls.addConst x',
+          asserts := (Formula.eq .value (.const (.uninterpreted x'.name .value)) t) :: st₁.asserts,
+          owns := st₁.owns } with hst₂_def
+      set ρ₂ := ρ₁.updateConst .value x'.name v with hρ₂_def
+      have hagreeOn₂ : Env.agreeOn st₁.decls ρ₁ ρ₂ :=
+        Env.agreeOn_update_fresh_const hfresh
+      have hΨ_body : (compile reg W.Θ W.Δ_spec Γfn Gf ((x, x') :: G) (B.remove x)
+          (Γ.extend x e.ty) body).eval st₂ ρ₂ Ψ := by
+        have hdecl := VerifM.eval_decl (VerifM.eval_bind hΨ)
+        have h := VerifM.eval_assumePure (VerifM.eval_bind (hdecl v))
+        apply h
+        · have hstwf : st₁.decls.wf := (VerifM.eval.wf hΨ).namesDisjoint
+          simpa [x'] using
+            (Formula.eq_wfIn_addConst_of_fresh (Δ := st₁.decls) (c := x') hstwf ht_wf hfresh)
+        · simp only [Formula.eval, Term.eval, Const.denote]
+          have : v = Term.eval ρ₂ t := by
+            rw [Term.eval_env_agree ht_wf (Env.agreeOn_symm hagreeOn₂)]
+            exact ht_eval.symm
+          simpa [ρ₂, Env.updateConst] using this
+      have hρ₂_lookup : ρ₂.consts .value x'.name = v := by simp [ρ₂, Env.updateConst]
+      have hρ_agree : Env.agreeOn (Signature.ofConsts (G.map Prod.snd)) ρ₂ ρ₁ := by
+        refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+        · intro y hy; cases hy
+        · intro y' hy'
+          obtain ⟨p, hp, rfl⟩ := List.mem_map.mp hy'
+          exact (hagreeOn₂.2.1 p.2 (hgwf₁ p hp)).symm
+        · intro z hz; cases hz
+        · intro z hz; cases hz
+        · intro z hz; cases hz
+        · intro z hz; cases hz
+        · intro z hz; cases hz
+      have hgagree₂ : Bindings.agreeOnLinked ((x, x') :: G) ρ₂ (Runtime.Subst.update γg x v) := by
+        have h := Bindings.agreeOnLinked_cons (B := G) (x := x) (v := x') (γ := γg)
+          hgagree₁ hρ_agree (hvty := rfl)
+        rwa [hρ₂_lookup] at h
+      have hagree₂ : Bindings.agreeOnLinked (B.remove x) ρ₂ γ :=
+        Bindings.agreeOnLinked_remove
+          (Bindings.agreeOnLinked_env_agree hagree₁ hagreeOn₂ hbwf₁) x
+      have hgwf₂ : Bindings.wfIn ((x, x') :: G) st₂.decls := Bindings.wfIn_cons hgwf₁
+      have hbwf₂ : Bindings.wfIn (B.remove x) st₂.decls := fun p hp =>
+        (Signature.Subset.subset_addConst st₁.decls x').consts _
+          (hbwf₁ p (Bindings.mem_of_mem_remove hp))
+      have hag₂ := hag₁.step (Signature.Subset.subset_addConst st₁.decls x') hagreeOn₂
+      refine BIBase.Entails.trans ?_ (ihBody W R Γfn Gf ((x, x') :: G) (B.remove x)
+        (Γ.extend x e.ty) st₂ ρ₂ (Runtime.Subst.update γg x v) γ _ _ hW
+        (VerifM.eval.decls_grow ρ₂ hΨ_body) hgagree₂ hgwf₂ hGf hagree₂ hbwf₂ hwf hag₂
+        hΔreg hρreg (fun v ρ' st' se hΨ' hs hw =>
+          hcont v ρ' st' se
+            ⟨(Signature.Subset.subset_addConst st₁.decls x').trans hΨ'.1,
+              Env.agreeOn_trans hagreeOn₂ (Env.agreeOn_mono
+                (Signature.Subset.subset_addConst st₁.decls x') hΨ'.2.1),
+              hΨ'.2.2⟩ hs hw))
+      have hinterp_eq : SpatialContext.interp W ρ₁ st₁.owns ⊢
+          SpatialContext.interp W ρ₂ st₁.owns :=
+        (SpatialContext.interp_env_agree W (VerifM.eval.wf hΨ).ownsWf hagreeOn₂).1
+      iintro ⟨Howns, Hv, #HT, HR⟩
+      isplitl [Howns]
+      · simp only [TransState.sl_eq]
+        iapply hinterp_eq
+        iexact Howns
+      · isplitl [Hv]
+        · iapply (Bindings.typedScope_cons_ghost (W := W) (G := G) (B := B) (Γ := Γ)
+            (γg := γg) (γ := γ) (x := x) (v := x') (te := e.ty) (w := v))
+          · iexact HT
+          · iexact Hv
+        · iexact HR
 
 theorem compileLetIn_correct (reg : Verifier.Registry) (b : Binder) (e body : Expr)
     (ihE : correctExpr reg e) (ihBody : correctExpr reg body) :
@@ -3817,7 +3939,8 @@ theorem compile_correct (reg : Verifier.Registry) (hSound : Verifier.Registry.So
     simpa using compileBinop_correct reg op l r bty (compile_correct reg hSound r) (compile_correct reg hSound l)
   | letIn mode b e body =>
     cases mode with
-    | ghost => simpa using compileLetInGhost_correct reg b e body
+    | ghost =>
+      simpa using compileLetInGhost_correct reg b e body (compile_correct reg hSound body)
     | runtime =>
       simpa using compileLetIn_correct reg b e body
         (compile_correct reg hSound e) (compile_correct reg hSound body)

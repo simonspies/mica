@@ -787,6 +787,16 @@ theorem wp_app_lambda_single {b : Runtime.Binder} {body : Runtime.Expr} {v : Run
   h.trans wp.app_lambda_single
 
 
+/-- Ghost code moves ownership without taking a step, so a weakest precondition
+    absorbs the update it leaves behind. -/
+theorem wp_bupd {e : Runtime.Expr} {Φ : Runtime.Val → iProp} {R : iProp}
+    (h : R ⊢ iprop(|==> wp pctx e Φ)) : R ⊢ wp pctx e Φ := by
+  refine h.trans ?_
+  iintro H
+  unfold _root_.wp
+  imod H
+  iassumption
+
 /-- Strengthen the postcondition of a `wp` using a persistent resource:
     if `R` (persistent) entails `wp pctx e P`, and `R` together with `P v` entails `Q v`,
     then `R` entails `wp pctx e Q`. -/
