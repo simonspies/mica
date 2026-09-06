@@ -331,6 +331,147 @@ instance : Iris.BI.Persistent (isPrecondFor W V argTys retTy f s) := by
   unfold isPrecondFor
   infer_instance
 
+/-- The ghost analogue of `isPrecondFor`: the specification `s` is realizable
+    at argument types `argTys` and result type `retTy`, meaning that given
+    arguments related at those types and a proof of the precondition, a value
+    satisfying the postcondition exists. This is what a ghost function
+    guarantees.
+
+    Ghost code is erased, so there is no application left to take a step: where
+    `isPrecondFor` concludes with the weakest precondition of the call, this
+    concludes that a value exists. No premise is guarded, because there is no
+    beta step to discharge a guard with. -/
+def isGhostPrecondFor (W : TinyML.World) (V : TinyML.ValueRelation)
+    (argTys : List TinyML.Typ) (retTy : TinyML.Typ) (s : Spec TinyML.Typ) : iProp :=
+  iprop(□ ∀ (ρ : Env) (Φ : Runtime.Val → iProp) (vs gs : List Runtime.Val),
+      ⌜Env.agreeOn W.Δ_spec W.ρ_spec ρ⌝ -∗
+      ⌜vs.length = argTys.length⌝ -∗
+      ⌜gs.length = s.ghost.length⌝ -∗
+      TinyML.ValsRel V vs argTys -∗
+      TinyML.ValsRel V gs (s.ghost.map Prod.snd) -∗
+      PredTrans.apply V (fun r => V r retTy -∗ Φ r) s.pred
+        (argsEnv ρ s.allArgs (vs ++ gs)) -∗
+      |==> ∃ v, Φ v)
+
+instance : Iris.BI.Persistent (isGhostPrecondFor W V argTys retTy s) := by
+  unfold isGhostPrecondFor
+  infer_instance
+
+/-- Use a realizable specification: an obligation held against every value the
+    specification admits is discharged by the value it produces. -/
+theorem isGhostPrecondFor.apply {W : TinyML.World} {V : TinyML.ValueRelation}
+    {argTys : List TinyML.Typ} {retTy : TinyML.Typ} {s : Spec TinyML.Typ}
+    {ρ : Env} {Φ : Runtime.Val → iProp} {vs gs : List Runtime.Val}
+    (hρ : Env.agreeOn W.Δ_spec W.ρ_spec ρ)
+    (hvs : vs.length = argTys.length) (hgs : gs.length = s.ghost.length) :
+    isGhostPrecondFor W V argTys retTy s ∗ TinyML.ValsRel V vs argTys ∗
+        TinyML.ValsRel V gs (s.ghost.map Prod.snd) ∗
+        PredTrans.apply V (fun r => V r retTy -∗ Φ r) s.pred (argsEnv ρ s.allArgs (vs ++ gs)) ⊢
+      |==> ∃ v, Φ v := by
+  unfold isGhostPrecondFor
+  istart
+  iintro ⟨#Hr, Hvs, Hgs, H⟩
+  ispecialize Hr $$ %ρ %Φ %vs %gs %hρ %hvs %hgs
+  ispecialize Hr $$ Hvs
+  ispecialize Hr $$ Hgs
+  ispecialize Hr $$ H
+  iexact Hr
+
+/-- A ghost specification holds for arguments whose measure is below `k`.
+
+    The measure is a natural number: a declaration whose written measure goes
+    negative ranks those arguments at zero, and a call from rank zero is
+    impossible, since a call must lower a nonnegative measure. -/
+def isGhostPrecondForAt (W : TinyML.World) (V : TinyML.ValueRelation)
+    (argTys : List TinyML.Typ) (retTy : TinyML.Typ) (s : Spec TinyML.Typ)
+    (μ : List Runtime.Val → List Runtime.Val → Nat) (k : Nat) : iProp :=
+  iprop(□ ∀ (ρ : Env) (Φ : Runtime.Val → iProp) (vs gs : List Runtime.Val),
+      ⌜Env.agreeOn W.Δ_spec W.ρ_spec ρ⌝ -∗
+      ⌜vs.length = argTys.length⌝ -∗
+      ⌜gs.length = s.ghost.length⌝ -∗
+      ⌜μ vs gs < k⌝ -∗
+      TinyML.ValsRel V vs argTys -∗
+      TinyML.ValsRel V gs (s.ghost.map Prod.snd) -∗
+      PredTrans.apply V (fun r => V r retTy -∗ Φ r) s.pred
+        (argsEnv ρ s.allArgs (vs ++ gs)) -∗
+      |==> ∃ v, Φ v)
+
+instance : Iris.BI.Persistent (isGhostPrecondForAt W V argTys retTy s μ k) := by
+  unfold isGhostPrecondForAt
+  infer_instance
+
+theorem isGhostPrecondForAt.apply {W : TinyML.World} {V : TinyML.ValueRelation}
+    {argTys : List TinyML.Typ} {retTy : TinyML.Typ} {s : Spec TinyML.Typ}
+    {μ : List Runtime.Val → List Runtime.Val → Nat} {k : Nat}
+    {ρ : Env} {Φ : Runtime.Val → iProp} {vs gs : List Runtime.Val}
+    (hρ : Env.agreeOn W.Δ_spec W.ρ_spec ρ)
+    (hvs : vs.length = argTys.length) (hgs : gs.length = s.ghost.length)
+    (hrank : μ vs gs < k) :
+    isGhostPrecondForAt W V argTys retTy s μ k ∗ TinyML.ValsRel V vs argTys ∗
+        TinyML.ValsRel V gs (s.ghost.map Prod.snd) ∗
+        PredTrans.apply V (fun r => V r retTy -∗ Φ r) s.pred (argsEnv ρ s.allArgs (vs ++ gs)) ⊢
+      |==> ∃ v, Φ v := by
+  unfold isGhostPrecondForAt
+  istart
+  iintro ⟨#Hr, Hvs, Hgs, H⟩
+  ispecialize Hr $$ %ρ %Φ %vs %gs %hρ %hvs %hgs %hrank
+  ispecialize Hr $$ Hvs
+  ispecialize Hr $$ Hgs
+  ispecialize Hr $$ H
+  iexact Hr
+
+theorem isGhostPrecondForAt.mono {W : TinyML.World} {V : TinyML.ValueRelation}
+    {argTys : List TinyML.Typ} {retTy : TinyML.Typ} {s : Spec TinyML.Typ}
+    {μ : List Runtime.Val → List Runtime.Val → Nat} {j k : Nat} (hjk : j ≤ k) :
+    isGhostPrecondForAt W V argTys retTy s μ k ⊢ isGhostPrecondForAt W V argTys retTy s μ j := by
+  unfold isGhostPrecondForAt
+  iintro #H
+  imodintro
+  iintro %ρ %Φ %vs %gs %hρ %hvs %hgs %hrank Hvs Hgs Hpred
+  have hrank' : μ vs gs < k := by omega
+  ispecialize H $$ %ρ %Φ %vs %gs %hρ %hvs %hgs %hrank' Hvs Hgs Hpred
+  iexact H
+
+/-- Every bound together is the unranked guarantee: any arguments are below
+    one of them. -/
+theorem isGhostPrecondForAt.forall_iff {W : TinyML.World} {V : TinyML.ValueRelation}
+    {argTys : List TinyML.Typ} {retTy : TinyML.Typ} {s : Spec TinyML.Typ}
+    (μ : List Runtime.Val → List Runtime.Val → Nat) :
+    (iprop(∀ k, isGhostPrecondForAt W V argTys retTy s μ k)) ⊣⊢
+      isGhostPrecondFor W V argTys retTy s := by
+  constructor
+  · unfold isGhostPrecondForAt isGhostPrecondFor
+    iintro H
+    ihave #H' := H
+    imodintro
+    iintro %ρ %Φ %vs %gs %hρ %hvs %hgs Hvs Hgs Hpred
+    have hrank : μ vs gs < μ vs gs + 1 := by omega
+    ispecialize H' $$ %(μ vs gs + 1) %ρ %Φ %vs %gs %hρ %hvs %hgs %hrank
+      Hvs Hgs Hpred
+    iexact H'
+  · unfold isGhostPrecondForAt isGhostPrecondFor
+    iintro #H
+    iintro %k
+    imodintro
+    iintro %ρ %Φ %vs %gs %hρ %hvs %hgs %_ Hvs Hgs Hpred
+    ispecialize H $$ %ρ %Φ %vs %gs %hρ %hvs %hgs Hvs Hgs Hpred
+    iexact H
+
+/-- Prove a ghost declaration by strong induction, with recursive guarantees
+    available only below the current bound. -/
+theorem isGhostPrecondFor.induction {W : TinyML.World} {V : TinyML.ValueRelation}
+    {argTys : List TinyML.Typ} {retTy : TinyML.Typ} {s : Spec TinyML.Typ}
+    (μ : List Runtime.Val → List Runtime.Val → Nat)
+    (step : ∀ k : Nat,
+      (∀ j < k, ⊢ isGhostPrecondForAt W V argTys retTy s μ j) →
+      ⊢ isGhostPrecondForAt W V argTys retTy s μ k) :
+    ⊢ isGhostPrecondFor W V argTys retTy s := by
+  apply BIBase.Entails.trans ?_ (isGhostPrecondForAt.forall_iff μ).mp
+  apply forall_intro
+  intro k
+  induction k using Nat.strong_induction_on with
+  | h k ih => exact step k ih
+
 /-- The specification predicate is non-expansive in the value relation. The
     argument relation occurs negatively and the result relation positively, so
     this is the strongest uniform statement available. -/
