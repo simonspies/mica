@@ -29,10 +29,6 @@ namespace Spec
 
 /-! ## Definitions -/
 
-/-- The list of SMT variables corresponding to a spec's arguments. -/
-def argVars (args : List String) : List Var :=
-  args.map fun name => ⟨name, .value⟩
-
 /-- A spec is well-formed when its predicate transformer is well-formed in the
     context extended with all argument variables. -/
 def wfIn (spec : Spec TinyML.Typ) (Δ : Signature) : Prop :=
@@ -225,6 +221,175 @@ theorem argsEnv_agreeOn {Δ : Signature} {ρ₁ ρ₂ : Env}
         ih (Env.agreeOn_declVar h) vs (by simp [List.length] at hlen ⊢; omega)
 
 end EnvironmentAgreement
+
+/-! ## Argument Substitution -/
+section ArgumentSubstitution
+
+/-- A `[@@decreases]` measure is written over the callee's parameter names — for
+    `widen` with parameters `lo hi`, the measure `hi - lo` is a term whose
+    constants are `lo` and `hi`. At a recursive call `widen (lo + 1) hi`, the
+    verifier has to emit an SMT assertion about the measure at that call's actual
+    arguments, in the caller's own constants. This is that rewriting: replace
+    each parameter constant with the term compiled for the corresponding
+    argument. Later parameters of the same name shadow earlier ones, as
+    `argsEnv` does.
+
+    Its consumer is `GhostFns.Guard.condition`, which builds the formula
+    asserted at every recursive ghost call:
+
+        measure.defined[σ] ∧ 0 ≤ measure.term[σ] ∧ measure.term[σ] < rank -/
+def argSubst (σ : Subst) (names : List String) (terms : List (Term .value)) : Subst :=
+  (names.zip terms).foldl (fun σ p => σ.update .value p.1 p.2) σ
+
+omit [MicaGS HasLC.hasLC Sig] in
+/-- A variable no parameter shadows keeps its declaration. -/
+theorem mem_declVars_of_not_mem {Δ : Signature} {names : List String} {v : Var}
+    (hv : v ∈ Δ.vars) (hn : v.name ∉ names) : v ∈ (Δ.declVars (argVars names)).vars := by
+  induction names generalizing Δ with
+  | nil => simpa [argVars, Signature.declVars] using hv
+  | cons m rest ih =>
+    simp only [List.mem_cons, not_or] at hn
+    refine ih ?_ hn.2
+    simp only [Signature.declVar, Signature.addVar, Signature.remove, List.mem_cons]
+    exact Or.inr (List.mem_filter.mpr ⟨hv, by simpa using hn.1⟩)
+
+omit [MicaGS HasLC.hasLC Sig] in
+/-- A parameter is declared in the parameter scope. -/
+theorem mem_declVars_of_mem {Δ : Signature} {names : List String} {n : String} (hn : n ∈ names) :
+    (⟨n, .value⟩ : Var) ∈ (Δ.declVars (argVars names)).vars := by
+  induction names generalizing Δ with
+  | nil => cases hn
+  | cons m rest ih =>
+    simp only [argVars, List.map, Signature.declVars, List.foldl_cons]
+    by_cases hrest : n ∈ rest
+    · exact ih hrest
+    · have hnm : n = m := (List.mem_cons.mp hn).resolve_right hrest
+      subst hnm
+      exact mem_declVars_of_not_mem (by simp [Signature.declVar, Signature.addVar]) hrest
+
+omit [MicaGS HasLC.hasLC Sig] in
+/-- Reading the parameters out of the substitution gives the argument values. -/
+theorem argSubst_apply {ρ : Env} :
+    ∀ (names : List String) (terms : List (Term .value)) (vals : List Runtime.Val)
+      (σ : Subst) (ρ₀ : Env),
+      names.length = terms.length → Terms.Eval ρ terms vals →
+      (∀ (τ : Srt) (y : String), Term.eval ρ (σ.apply τ y) = ρ₀.consts τ y) →
+      ∀ (τ : Srt) (y : String),
+        Term.eval ρ ((argSubst σ names terms).apply τ y) =
+          (argsEnv ρ₀ names vals).consts τ y := by
+  intro names
+  induction names with
+  | nil =>
+    intro terms vals σ ρ₀ hlen hvals hσ τ y
+    cases terms with
+    | cons _ _ => simp at hlen
+    | nil => cases hvals; simpa [argSubst, argsEnv] using hσ τ y
+  | cons n rest ih =>
+    intro terms vals σ ρ₀ hlen hvals hσ τ y
+    cases terms with
+    | nil => simp at hlen
+    | cons t ts =>
+      cases hvals with
+      | cons hval hvals =>
+        rename_i v vs
+        refine ih ts vs (σ.update .value n t) (ρ₀.updateConst .value n v)
+          (by simpa using hlen) hvals ?_ τ y
+        intro τ' y'
+        by_cases hy : τ' = .value ∧ y' = n
+        · obtain ⟨rfl, rfl⟩ := hy
+          simp [Subst.update, Subst.apply, Env.updateConst, hval]
+        · rw [Subst.apply_update_ne (by tauto), hσ]
+          simp only [Env.updateConst]
+          split
+          · next h => exact absurd ⟨h.1, h.2⟩ hy
+          · rfl
+
+omit [MicaGS HasLC.hasLC Sig] in
+/-- A name no parameter binds reads the same value. -/
+theorem argsEnv_consts_of_not_mem {ρ : Env} :
+    ∀ (names : List String) (vals : List Runtime.Val) {τ : Srt} {y : String},
+      y ∉ names → (argsEnv ρ names vals).consts τ y = ρ.consts τ y := by
+  intro names
+  induction names generalizing ρ with
+  | nil => intro vals τ y _; rfl
+  | cons n rest ih =>
+    intro vals τ y hy
+    cases vals with
+    | nil => rfl
+    | cons v vs =>
+      simp only [List.mem_cons, not_or] at hy
+      rw [argsEnv, ih vs hy.2]
+      simp only [Env.updateConst]
+      split
+      · next h => exact absurd h.2 hy.1
+      · rfl
+
+omit [MicaGS HasLC.hasLC Sig] in
+/-- Binding the parameters changes no symbol interpretation. -/
+theorem argsEnv_symbols {ρ : Env} :
+    ∀ (names : List String) (vals : List Runtime.Val),
+      (argsEnv ρ names vals).unary = ρ.unary ∧
+      (argsEnv ρ names vals).binary = ρ.binary ∧
+      (argsEnv ρ names vals).ternary = ρ.ternary := by
+  intro names
+  induction names generalizing ρ with
+  | nil => intro vals; exact ⟨rfl, rfl, rfl⟩
+  | cons n rest ih =>
+    intro vals
+    cases vals with
+    | nil => exact ⟨rfl, rfl, rfl⟩
+    | cons v vs => rw [argsEnv]; exact ih vs
+
+omit [MicaGS HasLC.hasLC Sig] in
+/-- Reading a pure term after substituting the actual arguments is the same as
+    reading it where the parameters stand for the argument values. The term's
+    well-formedness in the parameter scope is what rules out a constant that a
+    parameter shadows, which the two sides would read differently. -/
+theorem eval_argSubst {Δ : Signature} {names : List String}
+    {terms : List (Term .value)} {vals : List Runtime.Val} {ρ : Env}
+    (hlen : names.length = terms.length) (hvals : Terms.Eval ρ terms vals) :
+    ∀ {τ : Srt} (t : Term τ), t.wfIn (Δ.declVars (argVars names)) →
+      Term.eval ρ (t.subst (argSubst Subst.id names terms)) =
+        Term.eval (argsEnv ρ names vals) t := by
+  have hsym := argsEnv_symbols (ρ := ρ) names vals
+  intro τ t
+  induction t with
+  | var τ y =>
+    intro _
+    exact argSubst_apply names terms vals Subst.id ρ hlen hvals
+      (fun _ _ => rfl) τ y
+  | const c =>
+    intro hwf
+    cases c with
+    | uninterpreted name τ =>
+      have hname : name ∉ names := fun hn =>
+        hwf.2.1 .value (mem_declVars_of_mem hn)
+      simpa [Term.subst, Term.eval, Const.denote] using
+        (argsEnv_consts_of_not_mem names vals hname).symm
+    | _ => rfl
+  | unop op a iha =>
+    intro hwf
+    simp only [Term.subst, Term.eval, iha hwf.2]
+    cases op with
+    | uninterpreted name _ _ => simp only [UnOp.eval, hsym.1]
+    | _ => rfl
+  | binop op a b iha ihb =>
+    intro hwf
+    simp only [Term.subst, Term.eval, iha hwf.2.1, ihb hwf.2.2]
+    cases op with
+    | uninterpreted name _ _ _ => simp only [BinOp.eval, hsym.2.1]
+    | _ => rfl
+  | terop op a b c iha ihb ihc =>
+    intro hwf
+    simp only [Term.subst, Term.eval, iha hwf.2.1, ihb hwf.2.2.1, ihc hwf.2.2.2]
+    cases op with
+    | uninterpreted name _ _ _ _ => simp only [TerOp.eval, hsym.2.2]
+    | _ => rfl
+  | ite c t e ihc iht ihe =>
+    intro hwf
+    simp only [Term.subst, Term.eval, ihc hwf.1, iht hwf.2.1, ihe hwf.2.2]
+
+end ArgumentSubstitution
 
 /-! ## Call Protocol Correctness -/
 section CallCorrectness

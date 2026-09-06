@@ -280,6 +280,10 @@ theorem PredTrans.apply_subst {V V' : TinyML.ValueRelation}
 
 namespace Spec
 
+/-- The list of SMT variables corresponding to a spec's arguments. -/
+def argVars (args : List String) : List Var :=
+  args.map fun name => ⟨name, .value⟩
+
 /-- Build an environment binding each argument name to its value, left-to-right.
     Later arguments shadow earlier ones with the same name. -/
 def argsEnv (ρ : Env) : List String → List Runtime.Val → Env
