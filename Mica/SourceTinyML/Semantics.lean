@@ -286,12 +286,28 @@ def argsEnv (ρ : Env) : List String → List Runtime.Val → Env
   | [], _ | _, [] => ρ
   | name :: rest, v :: vs => argsEnv (ρ.updateConst .value name v) rest vs
 
+omit [MicaGS HasLC.hasLC Sig] in
+theorem argsEnv_append (ρ : Env) :
+    ∀ (names names' : List String) (vs gs : List Runtime.Val), names.length = vs.length →
+      argsEnv ρ (names ++ names') (vs ++ gs) = argsEnv (argsEnv ρ names vs) names' gs
+  | [], _, [], _, _ => rfl
+  | _ :: _, _, [], _, h => by simp at h
+  | [], _, _ :: _, _, h => by simp at h
+  | n :: ns, names', v :: vs, gs, h => by
+      simp only [List.cons_append, argsEnv]
+      exact argsEnv_append _ ns names' vs gs (by simpa using h)
+
 /-- `f` satisfies the specification `s` at argument types `argTys` and result
     type `retTy`: applying it to arguments related at `argTys` and a proof of
     the precondition yields the postcondition, with the result related at
     `retTy`. Types are interpreted using `V` in world `W`.
 
-    Both resource premises are guarded. That is what makes the predicate
+    A ghost argument is related at the type its ghost parameter declares, the
+    same way a run-time argument is related at the arrow's. Nothing distinguishes
+    the two here: a ghost argument has no run-time footprint, but it still stands
+    for a value of a type the specification may reason about.
+
+    Every resource premise is guarded. That is what makes the predicate
     contractive in `V` — every occurrence of the value relation sits under the
     `later` — while leaving the conclusion unguarded, so a caller holding this
     predicate can use it directly. The guard is discharged by the function's own
@@ -301,12 +317,14 @@ def argsEnv (ρ : Env) : List String → List Runtime.Val → Env
 def isPrecondFor (W : TinyML.World) (V : TinyML.ValueRelation)
     (argTys : List TinyML.Typ) (retTy : TinyML.Typ)
     (f : Runtime.Val) (s : Spec TinyML.Typ) : iProp :=
-  iprop(□ ∀ (ρ : Env) (Φ : Runtime.Val → iProp) (vs : List Runtime.Val),
+  iprop(□ ∀ (ρ : Env) (Φ : Runtime.Val → iProp) (vs gs : List Runtime.Val),
       ⌜Env.agreeOn W.Δ_spec W.ρ_spec ρ⌝ -∗
       ⌜vs.length = argTys.length⌝ -∗
+      ⌜gs.length = s.ghost.length⌝ -∗
       ▷ TinyML.ValsRel V vs argTys -∗
+      ▷ TinyML.ValsRel V gs (s.ghost.map Prod.snd) -∗
         ▷ PredTrans.apply V (fun r => V r retTy -∗ Φ r) s.pred
-          (argsEnv ρ s.args vs) -∗
+          (argsEnv ρ s.allArgs (vs ++ gs)) -∗
         wp W.pctx (Runtime.Expr.app (.val f) (vs.map fun v => .val v)) Φ)
 
 instance : Iris.BI.Persistent (isPrecondFor W V argTys retTy f s) := by
@@ -321,9 +339,12 @@ theorem isPrecondFor_ne {n : Nat} {W : TinyML.World} {V V' : TinyML.ValueRelatio
     (f : Runtime.Val) (s : Spec TinyML.Typ) :
     s.isPrecondFor W V argTys retTy f ≡{n}≡ s.isPrecondFor W V' argTys retTy f := by
   unfold isPrecondFor
-  refine intuitionistically_ne.ne (forall_ne fun ρ => forall_ne fun Φ => forall_ne fun vs => ?_)
-  refine wand_ne.ne .rfl (wand_ne.ne .rfl
-    (wand_ne.ne (later_ne.ne (TinyML.ValsRel.ne hV vs argTys)) (wand_ne.ne ?_ .rfl)))
+  refine intuitionistically_ne.ne (forall_ne fun ρ => forall_ne fun Φ => forall_ne fun vs =>
+    forall_ne fun gs => ?_)
+  refine wand_ne.ne .rfl (wand_ne.ne .rfl (wand_ne.ne .rfl
+    (wand_ne.ne (later_ne.ne (TinyML.ValsRel.ne hV vs argTys))
+      (wand_ne.ne (later_ne.ne (TinyML.ValsRel.ne hV gs (s.ghost.map Prod.snd)))
+        (wand_ne.ne ?_ .rfl)))))
   exact later_ne.ne (PredTrans.apply_ne hV (fun r => wand_ne.ne (hV r retTy) .rfl) s.pred _)
 
 /-- A specification means at the instantiated relation what its instantiation
@@ -339,11 +360,14 @@ theorem isPrecondFor_subst {W : TinyML.World} {V V' : TinyML.ValueRelation}
         (TinyML.Typ.subst σ retTy) f := by
   unfold isPrecondFor
   have hlen : (argTys.map (TinyML.Typ.subst σ)).length = argTys.length := by simp
-  simp only [TinyML.Typ.substSpec, hlen]
+  simp only [TinyML.Typ.substSpec, hlen, Spec.allArgs, TinyML.Typ.substGhost_fst,
+    TinyML.Typ.substGhost_length, TinyML.Typ.substGhost_snd]
   refine intuitionistically_congr
-    (forall_congr fun ρ => forall_congr fun Φ => forall_congr fun vs => ?_)
-  refine wand_congr .rfl (wand_congr .rfl
-    (wand_congr (later_congr (TinyML.ValsRel.subst hV vs argTys)) (wand_congr ?_ .rfl)))
+    (forall_congr fun ρ => forall_congr fun Φ => forall_congr fun vs => forall_congr fun gs => ?_)
+  refine wand_congr .rfl (wand_congr .rfl (wand_congr .rfl
+    (wand_congr (later_congr (TinyML.ValsRel.subst hV vs argTys))
+      (wand_congr (later_congr (TinyML.ValsRel.subst hV gs (s.ghost.map Prod.snd)))
+        (wand_congr ?_ .rfl)))))
   exact later_congr
     (PredTrans.apply_subst hV (fun r => wand_congr (hV r retTy) .rfl) s.pred _)
 
@@ -357,10 +381,14 @@ theorem isPrecondFor_contractive {n : Nat} {W : TinyML.World}
     (f : Runtime.Val) (s : Spec TinyML.Typ) :
     s.isPrecondFor W V argTys retTy f ≡{n}≡ s.isPrecondFor W V' argTys retTy f := by
   unfold isPrecondFor
-  refine intuitionistically_ne.ne (forall_ne fun ρ => forall_ne fun Φ => forall_ne fun vs => ?_)
-  refine wand_ne.ne .rfl (wand_ne.ne .rfl (wand_ne.ne ?_ (wand_ne.ne ?_ .rfl)))
+  refine intuitionistically_ne.ne (forall_ne fun ρ => forall_ne fun Φ => forall_ne fun vs =>
+    forall_ne fun gs => ?_)
+  refine wand_ne.ne .rfl (wand_ne.ne .rfl (wand_ne.ne .rfl
+    (wand_ne.ne ?_ (wand_ne.ne ?_ (wand_ne.ne ?_ .rfl)))))
   · exact Iris.OFE.Contractive.distLater_dist (f := fun P : iProp => iprop(▷ P))
       fun m hm => TinyML.ValsRel.ne (hV m hm) vs argTys
+  · exact Iris.OFE.Contractive.distLater_dist (f := fun P : iProp => iprop(▷ P))
+      fun m hm => TinyML.ValsRel.ne (hV m hm) gs (s.ghost.map Prod.snd)
   · exact Iris.OFE.Contractive.distLater_dist (f := fun P : iProp => iprop(▷ P))
       fun m hm => PredTrans.apply_ne (hV m hm)
         (fun r => wand_ne.ne ((hV m hm) r retTy) .rfl) s.pred _

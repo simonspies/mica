@@ -348,7 +348,7 @@ mutual
           let sterms ← compileExprs reg Θ Δ_spec B Γ args
           let sargs := (args.map Expr.WithTypeVars.ty).zip sterms
           let _ ← compile reg Θ Δ_spec B Γ fn
-          let (_, result) ← Spec.call (FiniteSubst.base Δ_spec) argTys retTy s sargs
+          let (_, result) ← Spec.call (FiniteSubst.base Δ_spec) argTys retTy s sargs []
           pure result
       | _ =>
         match fn with
@@ -361,7 +361,7 @@ mutual
             let sterms ← compileExprs reg Θ Δ_spec B Γ args
             let sargs := (args.map Expr.WithTypeVars.ty).zip sterms
             let (_, result) ← Spec.call (FiniteSubst.base Δ_spec)
-              (i.argTys.map (TinyML.Typ.subst σi)) (TinyML.Typ.subst σi i.retTy) i.spec sargs
+              (i.argTys.map (TinyML.Typ.subst σi)) (TinyML.Typ.subst σi i.retTy) i.spec sargs []
             pure result
         | _ => VerifM.fatal "application of a function without a specification"
     | .prim n _ _ => VerifM.fatal s!"primitive `{n}` must be applied"
@@ -513,7 +513,7 @@ mutual
             VerifM.seq
               (do
                 VerifM.persist
-                Spec.implement Δ_spec argTys s fun argVars => do
+                Spec.implement Δ_spec argTys s fun argVars _ghostVars => do
                   let se ← compile reg Θ Δ_spec
                     ((argNames.zip argVars).reverse ++ Bself) Γ' body
                   checkRet retTy body.ty
@@ -1151,7 +1151,7 @@ theorem compileFix_typed (reg : Verifier.Registry)
   istart
   iintro #HT
   imodintro
-  iintro #Hrec %ρ_call %vs %P %hagree_call #Htyped Hpred
+  iintro #Hrec %ρ_call %vs %gs %P %hagree_call %hglen_call #Htyped #Hgtyped Hpred
   ihave %hlen_typed := TinyML.ValsHaveTypes.length_eq $$ Htyped
   have hlen_vs : bs.length = vs.length := by
     rw [hbs_runtime]; simp only [List.length_map]
@@ -1161,15 +1161,15 @@ theorem compileFix_typed (reg : Verifier.Registry)
   simp only [] at hsub
   rw [hsub]
   have hag_persist : W.agrees (TransState.persist st₁).decls ρ₁ := by simpa using hag
-  ihave Hwand := Spec.implement_correct W argTys retTy s _ (TransState.persist st₁) ρ₁ vs P
+  ihave Hwand := Spec.implement_correct W argTys retTy s _ (TransState.persist st₁) ρ₁ vs gs P
     (TinyML.ValsHaveTypes W vs argTys -∗
       (Bindings.typedSubst W B Γ γ ∗
         s.isPrecondFor W (TinyML.ValHasType W) argTys retTy fval) -∗
         wp W.pctx (body.runtime.subst
           ((γ.updateBinder self.runtime fval).updateAllBinder bs vs)) P)
-    (by rw [hargTys_def]; simpa using hargs_len.symm) hswf hwf hag_persist
+    (by rw [hargTys_def]; simpa using hargs_len.symm) hglen_call.symm hswf hwf hag_persist
     (VerifM.eval_persist (VerifM.eval_bind himpl))
-    (fun argVars st' ρ' Q hst_sub hρ_agree hargVars_mem hargVars_sort hargVars_lookup
+    (fun argVars ghostVars st' ρ' Q hst_sub hρ_agree hargVars_mem hargVars_sort hargVars_lookup
         hbody_eval => by
       have hρ_st' : Env.agreeOn st₁.decls ρ₁ ρ' := by simpa using hρ_agree
       iintro ⟨Hsl, HQ⟩ Htyped''
@@ -1194,14 +1194,17 @@ theorem compileFix_typed (reg : Verifier.Registry)
       iempintro
     · isplitl [Htyped]
       · iexact Htyped
-      · have hlen_call : s.args.length ≤ vs.length := by
-          rw [hargTys_def] at hlen_typed; simp at hlen_typed; omega
-        iapply (PredTrans.apply_env_agree (TinyML.ValHasType W)
-          (ρ := Spec.argsEnv ρ_call s.args vs)
-          (ρ' := Spec.argsEnv W.ρ_spec s.args vs) hswf
-          (Spec.argsEnv_agreeOn (Δ := W.Δ_spec) (ρ₁ := ρ_call) (ρ₂ := W.ρ_spec)
-            (Env.agreeOn_symm hagree_call) s.args vs hlen_call))
-        iexact Hpred
+      · isplitl []
+        · iexact Hgtyped
+        · have hlen_call : s.allArgs.length ≤ (vs ++ gs).length := by
+            rw [hargTys_def] at hlen_typed; simp [Spec.allArgs] at hlen_typed ⊢
+            omega
+          iapply (PredTrans.apply_env_agree (TinyML.ValHasType W)
+            (ρ := Spec.argsEnv ρ_call s.allArgs (vs ++ gs))
+            (ρ' := Spec.argsEnv W.ρ_spec s.allArgs (vs ++ gs)) hswf
+            (Spec.argsEnv_agreeOn (Δ := W.Δ_spec) (ρ₁ := ρ_call) (ρ₂ := W.ρ_spec)
+              (Env.agreeOn_symm hagree_call) s.allArgs (vs ++ gs) hlen_call))
+          iexact Hpred
   ispecialize Hwand $$ [Htyped]
   · iexact Htyped
   iapply Hwand
@@ -3098,7 +3101,7 @@ theorem compileAppSpec_correct (reg : Verifier.Registry)
         let sterms ← compileExprs reg W.Θ W.Δ_spec B Γ args
         let _ ← compile reg W.Θ W.Δ_spec B Γ fn
         let r ← Spec.call (FiniteSubst.base W.Δ_spec) argTys retTy s
-          ((args.map Expr.WithTypeVars.ty).zip sterms)
+          ((args.map Expr.WithTypeVars.ty).zip sterms) []
         pure r.2) st ρ Ψ)
     (hswf : s.wfIn W.Δ_spec)
     (hagree : B.agreeOnLinked ρ γ) (hbwf : B.wfIn st.decls)
@@ -3168,16 +3171,17 @@ theorem compileAppSpec_correct (reg : Verifier.Registry)
     intro p hp
     exact hsargs_wf_fn _ (List.of_mem_zip hp).2
   have hwf_pred : PredTrans.wfIn
-      ((W.Δ_spec.declVars (FiniteSubst.base W.Δ_spec).dom).declVars (Spec.argVars s.args)) s.pred := by
+      ((W.Δ_spec.declVars (FiniteSubst.base W.Δ_spec).dom).declVars
+        (Spec.argVars s.allArgs)) s.pred := by
     simpa [FiniteSubst.base, Signature.declVars] using hswf
   have hbase_wf : (FiniteSubst.base W.Δ_spec).wfIn W.Δ_spec st_fn.decls :=
     FiniteSubst.base_wfIn (hag_fn.subset) hwf.wf hst_fn_wf hwf.vars
   have hcall_eval : VerifM.eval
-      (Spec.call (FiniteSubst.base W.Δ_spec) argTys retTy s typedArgs) st_fn ρ_fn
+      (Spec.call (FiniteSubst.base W.Δ_spec) argTys retTy s typedArgs []) st_fn ρ_fn
       (fun p st' ρ' => VerifM.eval (pure p.2) st' ρ' Ψ) := VerifM.eval_bind hΨ_fn
   have hcall := Spec.call_correct W argTys retTy s W.Δ_spec (FiniteSubst.base W.Δ_spec)
-    typedArgs st_fn ρ_fn (fun p st' ρ' => VerifM.eval (pure p.2) st' ρ' Ψ) Φ R
-    hlen_e hwf_pred hbase_wf htypedArgs_wf hcall_eval
+    typedArgs [] st_fn ρ_fn (fun p st' ρ' => VerifM.eval (pure p.2) st' ρ' Ψ) Φ R
+    hlen_e hwf_pred hbase_wf htypedArgs_wf nofun hcall_eval
     (fun v st' ρ' t hΨ hwf heval => by
       have h := hpost v ρ' st' t (VerifM.eval_ret hΨ) hwf heval
       rw [← hret_eq] at h
@@ -3190,7 +3194,9 @@ theorem compileAppSpec_correct (reg : Verifier.Registry)
       · isplitl [Hty]
         · iexact Hty
         · iexact HR')
-  obtain ⟨hsub_ty, happly⟩ := hcall
+  obtain ⟨hsub_ty, hsub_gty, happly⟩ := hcall
+  -- The call passes no ghost argument, so the callee declares none.
+  have hghost_nil : s.ghost = [] := by simpa using hsub_gty.symm
   rw [hfnty]
   refine (sep_mono_right (sep_mono_left
     (TinyML.ValHasType.arrow_some W fval argTys retTy s).1)).trans ?_
@@ -3212,7 +3218,7 @@ theorem compileAppSpec_correct (reg : Verifier.Registry)
   have happly' :
       st_fn.sl W ρ_fn ∗ R ⊢
         PredTrans.apply (TinyML.ValHasType W) (fun r => TinyML.ValHasType W r retTy -∗ Φ r)
-          s.pred (Spec.argsEnv ρ_fn s.args vs) := by
+          s.pred (Spec.argsEnv ρ_fn s.allArgs (vs ++ [])) := by
     rw [heval_sargs_map] at happly
     exact happly
   have hagree_ρ_fn : Env.agreeOn W.Δ_spec W.ρ_spec ρ_fn :=
@@ -3221,15 +3227,23 @@ theorem compileAppSpec_correct (reg : Verifier.Registry)
   ispecialize Hspec $$ %ρ_fn
   ispecialize Hspec $$ %Φ
   ispecialize Hspec $$ %vs
+  ispecialize Hspec $$ %([] : List Runtime.Val)
   iapply Hspec
   · ipureintro
     exact hagree_ρ_fn
   · ipureintro
     have := congrArg List.length hsub_ty'
     omega
+  · ipureintro
+    simp [hghost_nil]
   · iapply later_intro
     rw [← hsub_ty']
     iexact Hvals
+  · iapply later_intro
+    rw [hghost_nil]
+    simp only [List.map_nil]
+    iapply (TinyML.ValsHaveTypes.nil W).2
+    iempintro
   · iapply later_intro
     iapply happly'
     isplitl [Howns]
@@ -3283,7 +3297,7 @@ theorem compileApp_correct (reg : Verifier.Registry) (hSound : Verifier.Registry
       simp only [argTys, List.length_map]; exact hbridge.argLen
     have hwf_pred :
         PredTrans.wfIn ((W.Δ_spec.declVars (FiniteSubst.base W.Δ_spec).dom).declVars
-          (Spec.argVars i.spec.args)) i.spec.pred := by
+          (Spec.argVars i.spec.allArgs)) i.spec.pred := by
       simpa [FiniteSubst.base, Signature.declVars, Verifier.Intrinsic.specArgs] using
         hbridge.specWf W.Δ_spec
           (Verifier.Registry.sigOf_subset_of_symSubset hΔreg) hwf.wf
@@ -3293,11 +3307,13 @@ theorem compileApp_correct (reg : Verifier.Registry) (hSound : Verifier.Registry
       intro p hp
       have hp'' : p.2 ∈ sargs := (List.of_mem_zip hp).2
       exact hsargs_wf _ hp''
-    have hcall_eval : VerifM.eval (Spec.call (FiniteSubst.base W.Δ_spec) argTys retTy i.spec typedArgs) st_args ρ_args
+    have hcall_eval : VerifM.eval
+        (Spec.call (FiniteSubst.base W.Δ_spec) argTys retTy i.spec typedArgs []) st_args ρ_args
         (fun p st' ρ' => VerifM.eval (pure p.2) st' ρ' Ψ) := VerifM.eval_bind hΨ_args
-    have hcall := Spec.call_correct W argTys retTy i.spec W.Δ_spec (FiniteSubst.base W.Δ_spec) typedArgs st_args ρ_args
+    have hcall := Spec.call_correct W argTys retTy i.spec W.Δ_spec (FiniteSubst.base W.Δ_spec)
+      typedArgs [] st_args ρ_args
       (fun p st' ρ' => VerifM.eval (pure p.2) st' ρ' Ψ) Φ R
-      hlen_i hwf_pred hbase_wf htypedArgs_wf hcall_eval
+      hlen_i hwf_pred hbase_wf htypedArgs_wf nofun hcall_eval
       (fun v st' ρ' t hΨ hwf heval => by
         have hret_eq' : retTy = aty := hret_eq
         have h := hpost v ρ' st' t (VerifM.eval_ret hΨ) hwf heval
@@ -3311,7 +3327,10 @@ theorem compileApp_correct (reg : Verifier.Registry) (hSound : Verifier.Registry
         · isplitl [Hty]
           · iexact Hty
           · iexact HR')
-    obtain ⟨hsub_ty, happly⟩ := hcall
+    obtain ⟨hsub_ty, hsub_gty, happly⟩ := hcall
+    -- The call passes no ghost argument, so the intrinsic declares none.
+    have hghost_nil : i.spec.ghost = [] := by simpa using hsub_gty.symm
+    simp only [Spec.allArgs, hghost_nil, List.map_nil, List.append_nil] at happly
     refine SpatialContext.wp_val ?_
     rw [hW]
     refine BIBase.Entails.trans ?_ (Verifier.Registry.wp_prim reg hSound)

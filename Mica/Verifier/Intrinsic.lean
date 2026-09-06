@@ -589,10 +589,10 @@ to the `i.toWp` iProp consumed by the registry-derived `Registry.wp_prim`. The
 bridge is one of the per-intrinsic obligations captured by `IntrinsicSound`
 below. The aggregate over the registry is the def `Registry.Sound`. -/
 
-/-- Argument list for the spec view: the spec's own argument names paired with
-    their types. -/
+/-- The names the spec view binds. An intrinsic declares no ghost parameter, so
+    `allArgs` adds nothing to `spec.args`. -/
 def specArgs (i : Intrinsic) : List String :=
-  i.spec.args
+  i.spec.allArgs
 
 end Intrinsic
 

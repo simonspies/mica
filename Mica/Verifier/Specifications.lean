@@ -36,10 +36,10 @@ def argVars (args : List String) : List Var :=
 /-- A spec is well-formed when its predicate transformer is well-formed in the
     context extended with all argument variables. -/
 def wfIn (spec : Spec TinyML.Typ) (Δ : Signature) : Prop :=
-  PredTrans.wfIn (Δ.declVars (argVars spec.args)) spec.pred
+  PredTrans.wfIn (Δ.declVars (argVars spec.allArgs)) spec.pred
 
 def checkWf (spec : Spec TinyML.Typ) (Δ : Signature) : Except String Unit :=
-  PredTrans.checkWf (Δ.declVars (argVars spec.args)) spec.pred
+  PredTrans.checkWf (Δ.declVars (argVars spec.allArgs)) spec.pred
 
 /-- Declare argument variables, check types, and assume equalities for a spec call.
     The argument names come from the spec and the argument types from the enclosing
@@ -61,10 +61,11 @@ def declareArgs (σ : FiniteSubst) :
     argument and result types come from the enclosing arrow. -/
 def call (σ : FiniteSubst)
     (argTys : List TinyML.Typ) (retTy : TinyML.Typ)
-    (s : Spec TinyML.Typ) (sargs : List (TinyML.Typ × Term .value)) :
+    (s : Spec TinyML.Typ) (sargs sgargs : List (TinyML.Typ × Term .value)) :
     VerifM (TinyML.Typ × Term .value) := do
   let σ' ← declareArgs σ s.args argTys sargs
-  let result ← PredTrans.call σ' s.pred
+  let σ'' ← declareArgs σ' (s.ghost.map Prod.fst) (s.ghost.map Prod.snd) sgargs
+  let result ← PredTrans.call σ'' s.pred
   VerifM.assumeAll (TinyML.typeConstraints retTy result)
   pure (retTy, result)
 
@@ -86,9 +87,10 @@ def declareImplArgs (σ : FiniteSubst) :
     assume type constraints, then invoke `PredTrans.implement`. Dual to `call`.
     The argument types come from the enclosing arrow. -/
 def implement (Δ_base : Signature) (argTys : List TinyML.Typ) (s : Spec TinyML.Typ)
-    (body : List FOL.Const → VerifM (Term .value)) : VerifM Unit := do
+    (body : List FOL.Const → List FOL.Const → VerifM (Term .value)) : VerifM Unit := do
   let (σ, argVars) ← declareImplArgs (FiniteSubst.base Δ_base) s.args argTys
-  PredTrans.implement σ s.pred (body argVars)
+  let (σ', ghostVars) ← declareImplArgs σ (s.ghost.map Prod.fst) (s.ghost.map Prod.snd)
+  PredTrans.implement σ' s.pred (body argVars ghostVars)
 
 /-! ## Precondition Proofs -/
 section Precondition
@@ -98,18 +100,20 @@ section Precondition
 theorem isPrecondFor_intro (W : TinyML.World) (V : TinyML.ValueRelation)
     (argTys : List TinyML.Typ) (retTy : TinyML.Typ) (s : Spec TinyML.Typ)
     (f : Runtime.Val) :
-    iprop(□ ∀ (ρ : Env) (vs : List Runtime.Val) (P : Runtime.Val → iProp),
+    iprop(□ ∀ (ρ : Env) (vs gs : List Runtime.Val) (P : Runtime.Val → iProp),
       (⌜Env.agreeOn W.Δ_spec W.ρ_spec ρ⌝ ∗ ⌜vs.length = argTys.length⌝ ∗
+        ⌜gs.length = s.ghost.length⌝ ∗
         ▷ TinyML.ValsRel V vs argTys ∗
+        ▷ TinyML.ValsRel V gs (s.ghost.map Prod.snd) ∗
         ▷ PredTrans.apply V (fun r => V r retTy -∗ P r) s.pred
-          (argsEnv ρ s.args vs)) -∗
+          (argsEnv ρ s.allArgs (vs ++ gs))) -∗
         wp W.pctx (Runtime.Expr.app (.val f) (vs.map Runtime.Expr.val)) P) ⊢
       s.isPrecondFor W V argTys retTy f := by
   unfold isPrecondFor
   iintro #H
   imodintro
-  iintro %ρ %Φ %vs Hagree Hlen Htyped Hpred
-  ispecialize H $$ %ρ %vs %Φ
+  iintro %ρ %Φ %vs %gs Hagree Hlen Hglen Htyped Hgtyped Hpred
+  ispecialize H $$ %ρ %vs %gs %Φ
   iapply H
   iframe
 
@@ -123,19 +127,22 @@ theorem isPrecondFor_fix {W : TinyML.World} {V : TinyML.ValueRelation}
     (hargs : args.length = s.args.length)
     (hargTys : argTys.length = s.args.length)
     (h : R ⊢ □ (s.isPrecondFor W V argTys retTy (.fix f args e) -∗
-        ∀ (ρ : Env) (vs : List Runtime.Val) (P : Runtime.Val → iProp),
+        ∀ (ρ : Env) (vs gs : List Runtime.Val) (P : Runtime.Val → iProp),
           ⌜Env.agreeOn W.Δ_spec W.ρ_spec ρ⌝ -∗
+          ⌜gs.length = s.ghost.length⌝ -∗
           TinyML.ValsRel V vs argTys -∗
+          TinyML.ValsRel V gs (s.ghost.map Prod.snd) -∗
           PredTrans.apply V (fun r => V r retTy -∗ P r) s.pred
-              (argsEnv ρ s.args vs) -∗
+              (argsEnv ρ s.allArgs (vs ++ gs)) -∗
           wp W.pctx (e.subst ((Runtime.Subst.id.updateBinder f (.fix f args e)).updateAllBinder args vs)) P)) :
     R ⊢ s.isPrecondFor W V argTys retTy (.fix f args e) := by
   refine (SpatialContext.wp_fix' (pctx := W.pctx) (f := f) (args := args) (e := e) (Φ := fun P vs =>
-      iprop(∃ ρ : Env,
-        ⌜Env.agreeOn W.Δ_spec W.ρ_spec ρ⌝ ∗
+      iprop(∃ (ρ : Env) (gs : List Runtime.Val),
+        ⌜Env.agreeOn W.Δ_spec W.ρ_spec ρ⌝ ∗ ⌜gs.length = s.ghost.length⌝ ∗
           TinyML.ValsRel V vs argTys ∗
+          TinyML.ValsRel V gs (s.ghost.map Prod.snd) ∗
           PredTrans.apply V (fun r => V r retTy -∗ P r) s.pred
-            (argsEnv ρ s.args vs))) (h.trans ?_)).trans ?_
+            (argsEnv ρ s.allArgs (vs ++ gs)))) (h.trans ?_)).trans ?_
   · istart
     iintro #HR
     imodintro
@@ -143,33 +150,37 @@ theorem isPrecondFor_fix {W : TinyML.World} {V : TinyML.ValueRelation}
     ispecialize HR $$ [IH]
     · unfold isPrecondFor
       imodintro
-      iintro %ρ %Φ %vs' %hagr' %hlen' Htyped Hpred
+      iintro %ρ %Φ %vs' %gs' %hagr' %hlen' %hglen' Htyped Hgtyped Hpred
       ispecialize IH $$ %vs' %Φ
       iapply IH
       · ipureintro; omega
       · inext
         iexists ρ
+        iexists gs'
         iframe
         ipureintro
-        exact hagr'
-    icases Hpre with ⟨%ρ, %hagr0, Htyped0, Hpred0⟩
-    ispecialize HR $$ %ρ %vs %P
-    ispecialize HR $$ [] Htyped0 Hpred0
+        exact ⟨hagr', hglen'⟩
+    icases Hpre with ⟨%ρ, %gs, %hagr0, %hglen0, Htyped0, Hgtyped0, Hpred0⟩
+    ispecialize HR $$ %ρ %vs %gs %P
+    ispecialize HR $$ [] [] Htyped0 Hgtyped0 Hpred0
     · ipureintro
       exact hagr0
+    · ipureintro
+      exact hglen0
     iexact HR
   · unfold isPrecondFor
     iintro #Hfix
     imodintro
-    iintro %ρ %Φ %vs %hagr %hlen Htyped Hpred
+    iintro %ρ %Φ %vs %gs %hagr %hlen %hglen Htyped Hgtyped Hpred
     ispecialize Hfix $$ %vs %Φ
     iapply Hfix
     · ipureintro; omega
     · inext
       iexists ρ
+      iexists gs
       iframe
       ipureintro
-      exact hagr
+      exact ⟨hagr, hglen⟩
 end Precondition
 
 /-! ## Well-Formedness Proofs -/
@@ -184,7 +195,7 @@ omit [MicaGS HasLC.hasLC Sig] in
 theorem wfIn_mono {spec : Spec TinyML.Typ} {Δ Δ' : Signature}
     (h : spec.wfIn Δ) (hsub : Δ.Subset Δ') (hwf : Δ'.wf) :
     spec.wfIn Δ' :=
-  PredTrans.wfIn_mono h (Signature.Subset.declVars hsub (argVars spec.args))
+  PredTrans.wfIn_mono h (Signature.Subset.declVars hsub (argVars spec.allArgs))
     (Signature.wf_declVars hwf)
 
 end WellFormedness
@@ -334,29 +345,67 @@ theorem declareArgs_correct :
 
 theorem call_correct (W : TinyML.World)
     (argTys : List TinyML.Typ) (retTy : TinyML.Typ) (s : Spec TinyML.Typ) (Δ_base : Signature)
-    (σ : FiniteSubst) (sargs : List (TinyML.Typ × Term .value))
+    (σ : FiniteSubst) (sargs sgargs : List (TinyML.Typ × Term .value))
     (st : TransState) (ρ : Env)
     (Ψ : (TinyML.Typ × Term .value) → TransState → Env → Prop)
     (Φ : Runtime.Val → iProp) (R : iProp) :
     s.args.length = argTys.length →
-    PredTrans.wfIn ((Δ_base.declVars σ.dom).declVars (Spec.argVars s.args)) s.pred →
+    PredTrans.wfIn ((Δ_base.declVars σ.dom).declVars (Spec.argVars s.allArgs)) s.pred →
     σ.wfIn Δ_base st.decls →
     (∀ p ∈ sargs, (p : TinyML.Typ × Term .value).2.wfIn st.decls) →
-    VerifM.eval (Spec.call σ argTys retTy s sargs) st ρ Ψ →
+    (∀ p ∈ sgargs, (p : TinyML.Typ × Term .value).2.wfIn st.decls) →
+    VerifM.eval (Spec.call σ argTys retTy s sargs sgargs) st ρ Ψ →
     (∀ v st' ρ' t, Ψ (retTy, t) st' ρ' → t.wfIn st'.decls → t.eval ρ' = v →
       st'.sl W ρ' ∗ R ∗ TinyML.ValHasType W v retTy ⊢ Φ v) →
-    sargs.map Prod.fst = argTys ∧
+    sargs.map Prod.fst = argTys ∧ sgargs.map Prod.fst = s.ghost.map Prod.snd ∧
     (st.sl W ρ ∗ R ⊢ PredTrans.apply (TinyML.ValHasType W) (fun r => TinyML.ValHasType W r retTy -∗ Φ r) s.pred
-      (Spec.argsEnv ((σ.subst.eval ρ)) s.args
-        (sargs.map fun p => p.2.eval ρ))) := by
-  intro hlen hwf hσwf hsargs heval hΨ
+      (Spec.argsEnv ((σ.subst.eval ρ)) s.allArgs
+        ((sargs.map fun p => p.2.eval ρ) ++ (sgargs.map fun p => p.2.eval ρ)))) := by
+  intro hlen hwf hσwf hsargs hsgargs heval hΨ
   simp only [Spec.call] at heval
   have hb_grow := VerifM.eval.decls_grow ρ (VerifM.eval_bind heval)
-  obtain ⟨σ', st', ρ', ⟨hdsub, hragree, hΨ'⟩, hσ'wf, howns, hsublist, hdom_sub, hagree⟩ :=
+  obtain ⟨σ₁, st₁, ρ₁, ⟨hdsub₁, hragree₁, hΨ₁⟩, hσ₁wf, howns₁, hsublist, hdom_sub₁, hagree₁⟩ :=
     declareArgs_correct s.args argTys sargs Δ_base σ st ρ _ hlen hσwf hsargs hb_grow
-  refine ⟨hsublist, ?_⟩
+  have hst₁wf : st₁.decls.wf := hσ₁wf.useWf
+  have hsgargs₁ : ∀ p ∈ sgargs, (p : TinyML.Typ × Term .value).2.wfIn st₁.decls :=
+    fun p hp => Term.wfIn_mono _ (hsgargs p hp) hdsub₁ hst₁wf
+  have hsgargs_eval : sgargs.map (fun p => p.2.eval ρ₁) = sgargs.map (fun p => p.2.eval ρ) :=
+    List.map_congr_left fun p hp =>
+      Term.eval_env_agree (hsgargs p hp) (Env.agreeOn_symm hragree₁)
+  have hb_grow₂ := VerifM.eval.decls_grow ρ₁ (VerifM.eval_bind hΨ₁)
+  obtain ⟨σ', st', ρ', ⟨hdsub₂, hragree₂, hΨ'⟩, hσ'wf, howns₂, hsublist₂, hdom_sub₂, hagree₂⟩ :=
+    declareArgs_correct (s.ghost.map Prod.fst) (s.ghost.map Prod.snd) sgargs Δ_base σ₁ st₁ ρ₁ _
+      (by simp) hσ₁wf hsgargs₁ hb_grow₂
+  refine ⟨hsublist, hsublist₂, ?_⟩
+  have howns : st'.owns = st.owns := howns₂.trans howns₁
+  have hragree : Env.agreeOn st.decls ρ ρ' :=
+    Env.agreeOn_trans hragree₁ (Env.agreeOn_mono hdsub₁ hragree₂)
+  have hdecl_split : (Δ_base.declVars σ.dom).declVars (Spec.argVars s.allArgs)
+      = ((Δ_base.declVars σ.dom).declVars (Spec.argVars s.args)).declVars
+          (Spec.argVars (s.ghost.map Prod.fst)) := by
+    simp [Spec.argVars, Spec.allArgs, Signature.declVars, List.foldl_append]
+  have hargsEnv_split : Spec.argsEnv ((σ.subst.eval ρ)) s.allArgs
+        ((sargs.map fun p => p.2.eval ρ) ++ (sgargs.map fun p => p.2.eval ρ))
+      = Spec.argsEnv (Spec.argsEnv ((σ.subst.eval ρ)) s.args (sargs.map fun p => p.2.eval ρ))
+          (s.ghost.map Prod.fst) (sgargs.map fun p => p.2.eval ρ) := by
+    refine Spec.argsEnv_append _ _ _ _ _ ?_
+    have := congrArg List.length hsublist
+    simp [List.length_map] at this ⊢; omega
+  have hagree : Env.agreeOn ((Δ_base.declVars σ.dom).declVars (Spec.argVars s.allArgs))
+      ((σ'.subst.eval ρ'))
+      (Spec.argsEnv ((σ.subst.eval ρ)) s.allArgs
+        ((sargs.map fun p => p.2.eval ρ) ++ (sgargs.map fun p => p.2.eval ρ))) := by
+    have hstep := Spec.argsEnv_agreeOn hagree₁ (s.ghost.map Prod.fst)
+      (sgargs.map fun p => p.2.eval ρ) (by
+        have := congrArg List.length hsublist₂
+        simp [List.length_map] at this ⊢; omega)
+    rw [hsgargs_eval] at hagree₂
+    rw [hdecl_split, hargsEnv_split]
+    exact Env.agreeOn_trans (Env.agreeOn_mono
+      (Signature.Subset.declVars hdom_sub₁ (Spec.argVars (s.ghost.map Prod.fst))) hagree₂) hstep
   have hwf'' : PredTrans.wfIn (Δ_base.declVars σ'.dom) s.pred :=
-    PredTrans.wfIn_mono hwf hdom_sub hσ'wf.srcWf
+    PredTrans.wfIn_mono (hdecl_split ▸ hwf)
+      ((hdom_sub₁.declVars _).trans hdom_sub₂) hσ'wf.srcWf
   have hcall := PredTrans.call_correct W s.pred Δ_base σ' st' ρ'
     _ (fun r => TinyML.ValHasType W r retTy -∗ Φ r) R
     hwf'' hσ'wf (VerifM.eval_bind hΨ')
@@ -522,71 +571,118 @@ theorem declareImplArgs_correct (W : TinyML.World) :
 
 theorem implement_correct (W : TinyML.World)
     (argTys : List TinyML.Typ) (retTy : TinyML.Typ) (s : Spec TinyML.Typ)
-    (body : List FOL.Const → VerifM (Term .value))
-    (st : TransState) (ρ : Env) (vs : List Runtime.Val) (Φ : Runtime.Val → iProp) (R : iProp) :
+    (body : List FOL.Const → List FOL.Const → VerifM (Term .value))
+    (st : TransState) (ρ : Env) (vs gs : List Runtime.Val)
+    (Φ : Runtime.Val → iProp) (R : iProp) :
     s.args.length = argTys.length →
+    s.ghost.length = gs.length →
     s.wfIn W.Δ_spec →
     W.wf →
     W.agrees st.decls ρ →
     VerifM.eval (Spec.implement W.Δ_spec argTys s body) st ρ (fun _ _ _ => True) →
-    (∀ (argVars : List FOL.Const) (st' : TransState) (ρ' : Env) (Q : iProp),
+    (∀ (argVars ghostVars : List FOL.Const) (st' : TransState) (ρ' : Env) (Q : iProp),
       st.decls.Subset st'.decls →
       Env.agreeOn st.decls ρ ρ' →
       (∀ v ∈ argVars, v ∈ st'.decls.consts) →
       (∀ v ∈ argVars, v.sort = .value) →
       List.Forall₂ (fun av val => ρ'.consts .value av.name = val) argVars vs →
-      VerifM.eval (body argVars) st' ρ'
+      VerifM.eval (body argVars ghostVars) st' ρ'
         (fun result st'' ρ'' =>
           ∀ (S : iProp), result.wfIn st''.decls →
             st''.sl W ρ'' ∗ Q ∗ ((TinyML.ValHasType W (result.eval ρ'') retTy -∗ Φ (result.eval ρ'')) -∗ S) ⊢ S) →
       st'.sl W ρ' ∗ Q ⊢ R) →
     st.sl W ρ ∗ TinyML.ValsHaveTypes W vs argTys ∗
+      TinyML.ValsHaveTypes W gs (s.ghost.map Prod.snd) ∗
       PredTrans.apply (TinyML.ValHasType W) (fun r => TinyML.ValHasType W r retTy -∗ Φ r) s.pred
-        (Spec.argsEnv W.ρ_spec s.args vs) ⊢ R := by
-  intro hlen hswf hwf hag heval hbody
+        (Spec.argsEnv W.ρ_spec s.allArgs (vs ++ gs)) ⊢ R := by
+  intro hlen hglen hswf hwf hag heval hbody
   simp only [Spec.implement] at heval
   have hb := VerifM.eval_bind heval
   iintro H
-  icases H with ⟨Howns, Hvals, Happ⟩
+  icases H with ⟨Howns, Hvals, Hgvals, Happ⟩
   iintuitionistic Hvals
+  iintuitionistic Hgvals
   ihave %hlen_vals := TinyML.ValsHaveTypes.length_eq $$ Hvals
   ihave Hdecl := declareImplArgs_correct W s.args argTys vs W.Δ_spec (FiniteSubst.base W.Δ_spec) st ρ _
       hlen
       (FiniteSubst.base_wfIn hag.subset hwf.wf (VerifM.eval.wf heval).namesDisjoint hwf.vars)
       hb $$ Hvals
   ipure Hdecl
-  obtain ⟨σ', argVars, st', ρ', hΨ, hσ'wf, hdsub, hragree, howns, hdom_sub, hagree,
+  obtain ⟨σ₁, argVars, st₁, ρ₁, hΨ₁, hσ₁wf, hdsub₁, hragree₁, howns₁, hdom_sub₁, hagree₁,
     hmem_decls, hsorts, hlookups⟩ := Hdecl
+  ihave Hgdecl := declareImplArgs_correct W (s.ghost.map Prod.fst) (s.ghost.map Prod.snd) gs
+      W.Δ_spec σ₁ st₁ ρ₁ _ (by simp) hσ₁wf (VerifM.eval_bind hΨ₁) $$ Hgvals
+  ipure Hgdecl
+  obtain ⟨σ', ghostVars, st', ρ', hΨ, hσ'wf, hdsub₂, hragree₂, howns₂, hdom_sub₂, hagree₂,
+    _, _, _⟩ := Hgdecl
+  have hdsub : st.decls.Subset st'.decls := hdsub₁.trans hdsub₂
+  have hragree : Env.agreeOn st.decls ρ ρ' :=
+    Env.agreeOn_trans hragree₁ (Env.agreeOn_mono hdsub₁ hragree₂)
+  have howns : st'.owns = st.owns := howns₂.trans howns₁
+  have hdecl_split : W.Δ_spec.declVars (Spec.argVars s.allArgs)
+      = (W.Δ_spec.declVars (Spec.argVars s.args)).declVars
+          (Spec.argVars (s.ghost.map Prod.fst)) := by
+    simp [Spec.argVars, Spec.allArgs, Signature.declVars, List.foldl_append]
+  have hargsEnv_split : ∀ ρ₀ : Env, Spec.argsEnv ρ₀ s.allArgs (vs ++ gs)
+      = Spec.argsEnv (Spec.argsEnv ρ₀ s.args vs) (s.ghost.map Prod.fst) gs := fun ρ₀ =>
+    Spec.argsEnv_append _ _ _ _ _ (by omega)
   have hag_base :
-      Env.agreeOn (W.Δ_spec.declVars (Spec.argVars s.args))
-        (Spec.argsEnv W.ρ_spec s.args vs)
-            (Spec.argsEnv (((FiniteSubst.base W.Δ_spec).subst.eval ρ)) s.args vs) :=
+      Env.agreeOn (W.Δ_spec.declVars (Spec.argVars s.allArgs))
+        (Spec.argsEnv W.ρ_spec s.allArgs (vs ++ gs))
+            (Spec.argsEnv (((FiniteSubst.base W.Δ_spec).subst.eval ρ)) s.allArgs (vs ++ gs)) :=
     Spec.argsEnv_agreeOn (Δ := W.Δ_spec)
       (ρ₁ := W.ρ_spec)
       (ρ₂ := ((FiniteSubst.base W.Δ_spec).subst.eval ρ))
       (by simpa [FiniteSubst.base, ] using hag.agree)
-      s.args vs
-      (by omega)
+      s.allArgs (vs ++ gs)
+      (by simp [Spec.allArgs]; omega)
+  have hagree : Env.agreeOn (W.Δ_spec.declVars (Spec.argVars s.allArgs))
+      ((σ'.subst.eval ρ'))
+      (Spec.argsEnv (((FiniteSubst.base W.Δ_spec).subst.eval ρ)) s.allArgs (vs ++ gs)) := by
+    have hstep := Spec.argsEnv_agreeOn hagree₁ (s.ghost.map Prod.fst) gs (by simp; omega)
+    rw [hdecl_split, hargsEnv_split]
+    refine Env.agreeOn_trans (Env.agreeOn_mono
+      (Signature.Subset.declVars ?_ (Spec.argVars (s.ghost.map Prod.fst))) hagree₂) ?_
+    · simpa [FiniteSubst.base, Signature.declVars] using hdom_sub₁
+    · simpa [FiniteSubst.base, Signature.declVars] using hstep
+  have hswf' : PredTrans.wfIn (((W.Δ_spec.declVars (FiniteSubst.base W.Δ_spec).dom).declVars
+      (Spec.argVars s.args)).declVars (Spec.argVars (s.ghost.map Prod.fst))) s.pred := by
+    have h := hswf
+    unfold Spec.wfIn at h
+    rw [hdecl_split] at h
+    simpa [FiniteSubst.base, Signature.declVars] using h
   have hst'_wf : st'.decls.wf := (VerifM.eval.wf hΨ).namesDisjoint
+  have hmem_decls' : ∀ v ∈ argVars, v ∈ st'.decls.consts :=
+    fun v hv => hdsub₂.consts v (hmem_decls v hv)
+  have hlookups' : List.Forall₂
+      (fun t val => Term.eval ρ' t = val)
+      (argVars.map (fun av => Term.const (.uninterpreted av.name .value))) vs := by
+    refine Terms.Eval.env_agree (ρ := ρ₁) ?_ hragree₂ hlookups
+    intro t ht
+    obtain ⟨av, hav, rfl⟩ := List.mem_map.mp ht
+    obtain ⟨_, _⟩ := av
+    have hsort := hsorts _ hav
+    cases hsort
+    exact Term.const_wfIn_of_mem ((VerifM.eval.wf hΨ₁).namesDisjoint) (hmem_decls _ hav)
   iapply (show st'.sl W ρ' ∗
         PredTrans.apply (TinyML.ValHasType W) (fun r => TinyML.ValHasType W r retTy -∗ Φ r) s.pred
           ((σ'.subst.eval ρ')) ⊢ R from
-    PredTrans.implement_correct W s.pred W.Δ_spec σ' (body argVars) st' ρ'
+    PredTrans.implement_correct W s.pred W.Δ_spec σ' (body argVars ghostVars) st' ρ'
       (fun r => TinyML.ValHasType W r retTy -∗ Φ r) R
-      (PredTrans.wfIn_mono hswf hdom_sub hσ'wf.srcWf)
+      (PredTrans.wfIn_mono hswf' (hdom_sub₁.declVars _ |>.trans hdom_sub₂) hσ'wf.srcWf)
       hσ'wf hΨ
       (fun st'' ρ'' Q hdsub' hragree' hbody_eval => by
-        apply hbody argVars st'' ρ'' Q
+        apply hbody argVars ghostVars st'' ρ'' Q
           (hdsub.trans hdsub')
           (Env.agreeOn_trans hragree (Env.agreeOn_mono hdsub hragree'))
-          (fun v hv => hdsub'.consts v (hmem_decls v hv)) hsorts
-        · refine Terms.Eval.lookup_const (Terms.Eval.env_agree (ρ := ρ') ?_ hragree' hlookups)
+          (fun v hv => hdsub'.consts v (hmem_decls' v hv)) hsorts
+        · refine Terms.Eval.lookup_const (Terms.Eval.env_agree (ρ := ρ') ?_ hragree' hlookups')
           intro t ht
           obtain ⟨av, hav, rfl⟩ := List.mem_map.mp ht
           obtain ⟨_, _⟩ := av
           have hsort := hsorts _ hav
           cases hsort
-          exact Term.const_wfIn_of_mem hst'_wf (hmem_decls _ hav)
+          exact Term.const_wfIn_of_mem hst'_wf (hmem_decls' _ hav)
         · exact hbody_eval))
   isplitr [Happ]
   · iapply (show st.sl W ρ' ⊢ st'.sl W ρ' by simp [howns, TransState.sl])
@@ -594,8 +690,8 @@ theorem implement_correct (W : TinyML.World)
       simpa [TransState.sl] using
         (SpatialContext.interp_env_agree W (VerifM.eval.wf heval).ownsWf hragree).1)
     iexact Howns
-  · iapply (PredTrans.apply_env_agree (TinyML.ValHasType W) hswf (Env.agreeOn_trans hag_base (by
-        simpa [FiniteSubst.base, Signature.declVars] using Env.agreeOn_symm hagree)))
+  · iapply (PredTrans.apply_env_agree (TinyML.ValHasType W) hswf
+      (Env.agreeOn_trans hag_base (Env.agreeOn_symm hagree)))
     iexact Happ
 
 end ImplementCorrectness
