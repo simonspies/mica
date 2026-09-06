@@ -69,6 +69,28 @@ theorem GhostFns.wellTyped.step {W : TinyML.World} {Δ Δ' : Signature} {ρ ρ' 
     exact ⟨Term.wfIn_mono _ hrank hΔ hwf, hmwf,
       Term.eval_env_agree hrank hρ ▸ hreal⟩
 
+/-- Strong induction on the rank. The type assignment is quantified inside the
+    induction because a recursive call is checked at every one of them. -/
+theorem Spec.isGhostPrecondFor.induction_eta {W : TinyML.World}
+    {argTys : List TinyML.Typ} {retTy : TinyML.Typ} {s : Spec TinyML.Typ}
+    (μ : List Runtime.Val → List Runtime.Val → Nat)
+    (step : ∀ (k : Nat) (η : TinyML.SemTypeAssign),
+      (∀ j < k, ∀ η', ⊢ Spec.isGhostPrecondForAt { W with eta := η' }
+          (TinyML.ValHasType { W with eta := η' }) argTys retTy s μ j) →
+      ⊢ Spec.isGhostPrecondForAt { W with eta := η } (TinyML.ValHasType { W with eta := η })
+          argTys retTy s μ k)
+    (η : TinyML.SemTypeAssign) :
+    ⊢ Spec.isGhostPrecondFor { W with eta := η } (TinyML.ValHasType { W with eta := η })
+        argTys retTy s := by
+  have key : ∀ (k : Nat) (η : TinyML.SemTypeAssign),
+      ⊢ Spec.isGhostPrecondForAt { W with eta := η } (TinyML.ValHasType { W with eta := η })
+          argTys retTy s μ k := by
+    intro k
+    induction k using Nat.strong_induction_on with
+    | _ k ih => exact fun η => step k η fun j hj η' => ih j hj η'
+  exact BIBase.Entails.trans (forall_intro fun k => key k η)
+    (Spec.isGhostPrecondForAt.forall_iff μ).mp
+
 theorem GhostFns.wellTyped.eta {W : TinyML.World} {Δ : Signature} {ρ : Env}
     {Gf : GhostFns} {η : TinyML.SemTypeAssign}
     (h : GhostFns.wellTyped W Δ ρ Gf) :

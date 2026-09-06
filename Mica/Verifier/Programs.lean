@@ -478,7 +478,11 @@ def Program.check (reg : Verifier.Registry) (Θ : TinyML.TypeEnv) (Δ_spec : Sig
   | _, _, [] => pure ()
   | B, Γ, d :: ds => do
     match d.mode with
-    | .ghost => VerifM.fatal "a ghost declaration ([@@ghost])"
+    | .ghost =>
+      -- A ghost declaration binds no run-time value: it only becomes callable
+      -- from the ghost code of the declarations that follow it.
+      let entry ← ValDecl.checkGhost Θ Δ_spec Gf d
+      Program.check reg Θ Δ_spec Γfn (entry :: Gf) (B.remove entry.1) Γ ds
     | .runtime =>
     match d.name.name, d.body.spec? with
     | none, none =>
@@ -660,9 +664,17 @@ theorem Program.check_correct (reg : Verifier.Registry) (hSound : Verifier.Regis
     intro hΓ heval
     cases hmode : d.mode with
     | ghost =>
-      -- A ghost declaration is not verified yet, so there is nothing to relate.
       simp only [Program.check, hmode] at heval
-      exact (VerifM.eval_fatal heval).elim
+      obtain ⟨entry, hGf_entry, hcont⟩ :=
+        ValDecl.checkGhost_correct W Gf hwf d hag hGf (VerifM.eval_bind heval)
+      have hih := ih (Gf := entry :: Gf) (B.remove entry.1) Γ γ st ρ hag
+        (Bindings.agreeOnLinked_remove hagree entry.1) (Bindings.wfIn_remove hbwf entry.1)
+        hGf_entry hΓ hcont
+      have hscope : □ st.sl W ρ ∗ Bindings.typedSubst W B Γ γ ⊢
+          □ st.sl W ρ ∗ Bindings.typedSubst W (B.remove entry.1) Γ γ :=
+        sep_mono .rfl (Bindings.typedSubst_remove (fun _ _ => rfl))
+      have hih := hscope.trans hih
+      simpa [Typed.Program.runtime, Typed.ValDecl.runtime?, hmode] using hih
     | runtime =>
     have hpwp_unfold :
         wp W.pctx (d.body.runtime.subst γ) (fun v =>

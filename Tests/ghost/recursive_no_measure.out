@@ -1,0 +1,2 @@
+Status: failed: a recursive ghost declaration needs a [@@decreases] measure: ge_zero
+[1]
