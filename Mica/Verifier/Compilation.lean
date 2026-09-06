@@ -1,4 +1,4 @@
--- SUMMARY: Compilation of individual TinyML constructs to verifier terms, shared by the run-time and ghost layers.
+-- SUMMARY: The pieces the run-time and ghost compilation layers share: individual TinyML constructs and the shape of their correctness statements.
 import Mica.SourceTinyML.Typed
 import Mica.SourceTinyML.Typing
 import Mica.TinyML.OpSem
@@ -254,3 +254,33 @@ theorem injComponents?_eq {Θ : TinyML.TypeEnv} {ty : TinyML.Typ} {tag arity : N
     · cases h; simp_all
     · exact absurd h (by simp)
   · exact absurd h (by simp)
+
+/-! ### Reshuffling the correctness statement
+
+Both layers carry the same context — the spatial state, the typing of the scope,
+and a frame — and both need it rearranged at a bind. -/
+
+namespace Helpers
+
+theorem ctx_dup (W : TinyML.World)
+    (G B : Bindings) (Γ : TinyML.TyCtx)
+    (st : TransState) (ρ : Env) (γg γ : Runtime.Subst) (R : iProp) :
+    st.sl W ρ ∗ (Bindings.typedScope W G B Γ γg γ ∗ R) ⊢
+      st.sl W ρ ∗
+        (Bindings.typedScope W G B Γ γg γ ∗
+          (Bindings.typedScope W G B Γ γg γ ∗ R)) := by
+  iintro ⟨Howns, #HT, HR⟩
+  iframe # ∗
+
+theorem ctx_push (W : TinyML.World)
+    (G B : Bindings) (Γ : TinyML.TyCtx)
+    (st : TransState) (ρ : Env) (γg γ : Runtime.Subst) (R : iProp)
+    (v : Runtime.Val) (ty : TinyML.Typ) :
+    st.sl W ρ ∗ TinyML.ValHasType W v ty ∗ (Bindings.typedScope W G B Γ γg γ ∗ R) ⊢
+      st.sl W ρ ∗
+        (Bindings.typedScope W G B Γ γg γ ∗
+          (TinyML.ValHasType W v ty ∗ R)) := by
+  iintro ⟨Howns, Hv, #HT, HR⟩
+  iframe # ∗
+
+end Helpers

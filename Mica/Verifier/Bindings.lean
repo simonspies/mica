@@ -371,6 +371,24 @@ theorem Bindings.typedScope_cons {G B : Bindings} {Γ : TinyML.TyCtx} {γg γ : 
     · iexact Hb
     · iexact Hw
 
+/-- A ghost binder: the mirror of `typedScope_cons`. Only the ghost reading of
+the name changes, because no run-time substitution ever reaches it. -/
+theorem Bindings.typedScope_cons_ghost {G B : Bindings} {Γ : TinyML.TyCtx}
+    {γg γ : Runtime.Subst} {x : TinyML.Var} {v : FOL.Const} {w : Runtime.Val}
+    {te : TinyML.Typ}
+    : ⊢ Bindings.typedScope W G B Γ γg γ -∗ TinyML.ValHasType W w te -∗
+      Bindings.typedScope W ((x, v) :: G) (B.remove x) (Γ.extend x te)
+        (Runtime.Subst.update γg x w) γ := by
+  unfold Bindings.typedScope
+  iintro ⟨#Hg, #Hb⟩ #Hw
+  isplitl []
+  · iapply (Bindings.typedSubst_cons (W := W))
+    · iexact Hg
+    · iexact Hw
+  · iapply (Bindings.typedSubst_remove (W := W) (B := B) (Γ := Γ) (Γ' := Γ.extend x te)
+      (γ := γ) (x := x) (fun y hy => TinyML.TyCtx.extend_ne Γ x y te hy))
+    iexact Hb
+
 omit [MicaGS HasLC.hasLC Sig] in
 /-- Bind a name to a constant that already denotes the value the name is being
     bound to. -/
@@ -459,6 +477,26 @@ theorem Bindings.valHasType_of_typedSubst {B : Bindings} {Γ : TinyML.TyCtx}
   rw [← hw]
   ispecialize Hw $$ %σ
   iexact Hw
+
+
+/-- Read one name's typing out of the scope, whichever half of it binds the
+name. -/
+theorem Bindings.typedScope_valHasType (W : TinyML.World) {G B : Bindings}
+    {Γ : TinyML.TyCtx} {γg γ : Runtime.Subst} {ρ : Env}
+    {x : TinyML.Var} {x' : FOL.Const} {u : TinyML.Scheme}
+    (σ : TinyML.TyVar → TinyML.Typ)
+    (hgagree : G.agreeOnLinked ρ γg) (hagree : B.agreeOnLinked ρ γ)
+    (hx : G.lookup x = some x' ∨ B.lookup x = some x') (hΓ : Γ x = some u) :
+    Bindings.typedScope W G B Γ γg γ ⊢
+      TinyML.ValHasType W (ρ.consts .value x'.name) (u.instantiate σ) := by
+  unfold Bindings.typedScope
+  rcases hx with hx | hx
+  · iintro ⟨#Hg, -⟩
+    iapply (Bindings.valHasType_of_typedSubst (W := W) hgagree σ hx hΓ)
+    iexact Hg
+  · iintro ⟨-, #Hb⟩
+    iapply (Bindings.valHasType_of_typedSubst (W := W) hagree σ hx hΓ)
+    iexact Hb
 
 omit [MicaGS HasLC.hasLC Sig] in
 theorem findVal_none_of_not_mem

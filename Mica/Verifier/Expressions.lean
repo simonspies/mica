@@ -9,6 +9,7 @@ import Mica.Verifier.Assertions
 import Mica.Verifier.PredicateTransformers
 import Mica.Verifier.Specifications
 import Mica.Verifier.Compilation
+import Mica.Verifier.Ghost
 import Mica.Engine.Driver
 import Mica.Base.Fresh
 import Mica.Verifier.Intrinsic
@@ -379,31 +380,6 @@ theorem compileBranches_length_get (reg : Verifier.Registry) (Θ : TinyML.TypeEn
         have hk : k < bs.length := Nat.lt_of_succ_lt_succ hj
         have : idx + 1 + k = idx + (k + 1) := by omega
         rw [ih_get k hk, this]
-
-namespace Helpers
-
-theorem ctx_dup (W : TinyML.World)
-    (G B : Bindings) (Γ : TinyML.TyCtx)
-    (st : TransState) (ρ : Env) (γg γ : Runtime.Subst) (R : iProp) :
-    st.sl W ρ ∗ (Bindings.typedScope W G B Γ γg γ ∗ R) ⊢
-      st.sl W ρ ∗
-        (Bindings.typedScope W G B Γ γg γ ∗
-          (Bindings.typedScope W G B Γ γg γ ∗ R)) := by
-  iintro ⟨Howns, #HT, HR⟩
-  iframe # ∗
-
-theorem ctx_push (W : TinyML.World)
-    (G B : Bindings) (Γ : TinyML.TyCtx)
-    (st : TransState) (ρ : Env) (γg γ : Runtime.Subst) (R : iProp)
-    (v : Runtime.Val) (ty : TinyML.Typ) :
-    st.sl W ρ ∗ TinyML.ValHasType W v ty ∗ (Bindings.typedScope W G B Γ γg γ ∗ R) ⊢
-      st.sl W ρ ∗
-        (Bindings.typedScope W G B Γ γg γ ∗
-          (TinyML.ValHasType W v ty ∗ R)) := by
-  iintro ⟨Howns, Hv, #HT, HR⟩
-  iframe # ∗
-
-end Helpers
 
 
 /-! ### Correctness -/
@@ -3081,24 +3057,6 @@ theorem compileTuple_correct (reg : Verifier.Registry) (es : List Expr)
     hpost (Runtime.Val.tuple vs) ρ' st' (.unop .ofValList (Terms.toValList terms))
       hΨ hwf_tuple heval_tuple
 
-omit [MicaGS HasLC.hasLC Sig] in
-/-- What the type/term pairs handed to `Spec.call` are made of: the first
-components are the argument types and the second are the compiled argument
-terms, which denote the argument values. -/
-private theorem typedArgs_split {tys : List TinyML.Typ} {sargs : List (Term .value)}
-    {ρ : Env} {vs : List Runtime.Val}
-    (hlen : tys.length = sargs.length) (heval : Terms.Eval ρ sargs vs) :
-    (tys.zip sargs).map Prod.fst = tys ∧
-      (tys.zip sargs).map (fun p => p.2.eval ρ) = vs := by
-  have hfst : (tys.zip sargs).map Prod.fst = tys :=
-    List.map_fst_zip (Nat.le_of_eq hlen)
-  have hsnd : (tys.zip sargs).map Prod.snd = sargs :=
-    List.map_snd_zip (Nat.le_of_eq hlen.symm)
-  refine ⟨hfst, ?_⟩
-  calc (tys.zip sargs).map (fun p => p.2.eval ρ)
-      = sargs.map (fun t => t.eval ρ) := by
-          simpa [List.map_map] using congrArg (List.map (fun t => t.eval ρ)) hsnd
-    _ = vs := Terms.Eval.map_eval heval
 
 /-- Application of a function expression whose type carries a specification: the
     arguments and then the function are evaluated, and the function value's own
