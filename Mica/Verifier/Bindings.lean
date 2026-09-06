@@ -147,6 +147,40 @@ theorem Bindings.agreeOnLinked_remove {B : Bindings} {ρ : Env} {γ : Runtime.Su
     obtain ⟨hsort, hγ⟩ := hagree y y' hmem
     exact ⟨hsort, by simp [Runtime.Subst.update, hyx, hγ]⟩
 
+omit [MicaGS HasLC.hasLC Sig] in
+theorem Bindings.mem_of_mem_removeAll {B : Bindings} {xs : List TinyML.Var}
+    {p : TinyML.Var × FOL.Const} (h : p ∈ B.removeAll xs) : p ∈ B := by
+  induction xs generalizing B with
+  | nil => exact h
+  | cons x xs ih => exact Bindings.mem_of_mem_remove (ih h)
+
+omit [MicaGS HasLC.hasLC Sig] in
+/-- Removal only drops bindings, so a name the result still binds, it binds the
+    same way, and that name is none of the removed ones. Every invariant on `B`
+    that reads it through a lookup carries over. -/
+theorem Bindings.lookup_removeAll_eq_some {B : Bindings} {xs : List TinyML.Var}
+    {y : TinyML.Var} {y' : FOL.Const} :
+    (B.removeAll xs).lookup y = some y' ↔ B.lookup y = some y' ∧ y ∉ xs := by
+  induction xs generalizing B with
+  | nil => simp [Bindings.removeAll]
+  | cons x xs ih =>
+    rw [Bindings.removeAll, ih, Bindings.lookup_remove]
+    by_cases hyx : y = x
+    · simp [hyx]
+    · simp [hyx]
+
+omit [MicaGS HasLC.hasLC Sig] in
+theorem Bindings.lookup_of_lookup_removeAll {B : Bindings} {xs : List TinyML.Var}
+    {y : TinyML.Var} {y' : FOL.Const} (h : (B.removeAll xs).lookup y = some y') :
+    B.lookup y = some y' :=
+  (Bindings.lookup_removeAll_eq_some.mp h).1
+
+omit [MicaGS HasLC.hasLC Sig] in
+theorem Bindings.agreeOnLinked_removeAll {B : Bindings} {ρ : Env} {γ : Runtime.Subst}
+    (hagree : B.agreeOnLinked ρ γ) (xs : List TinyML.Var) :
+    (B.removeAll xs).agreeOnLinked ρ γ :=
+  fun _ _ hmem => hagree _ _ (Bindings.lookup_of_lookup_removeAll hmem)
+
 /-- The substitution `γ` maps every binding to a value well-typed by `Γ`, at
 every instantiation of the scheme the context binds it at. A binding that
 quantifies nothing has exactly one instantiation, so this says of it what it
