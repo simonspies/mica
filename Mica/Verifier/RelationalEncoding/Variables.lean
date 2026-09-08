@@ -1,4 +1,4 @@
--- SUMMARY: Name supply, function context, and local variable environments for relational encoding.
+-- SUMMARY: Fresh-name allocation, function context, local variable environments, and the head signatures and freshness conditions of the relational encoding.
 import Mica.FOL.SpecFn
 import Mica.Base.Fixpoint
 import Mica.SourceTinyML.Typed
@@ -6,48 +6,29 @@ import Mica.Base.Fresh
 
 namespace Verifier.RelationalEncoding
 
-/-! ## Name supply for fresh-name allocation -/
+/-! ## Fresh-name allocation
 
-/-- Avoid list used to generate fresh names. -/
-structure NameSupply where
-  avoid : List String
+The traversal threads the list of names that it must not bind. `Expr.WfIn`
+reads the same list.
+-/
 
-/-- Allocate a name not in the avoid list, derived from `base`. -/
-def NameSupply.fresh (s : NameSupply) (base : String) : String :=
-  Fresh.freshName s.avoid base
+/-- Every name that `Δ` declares is already in the avoid list. -/
+def Covers (avoid : List String) (Δ : Signature) : Prop :=
+  ∀ n ∈ Δ.allNames, n ∈ avoid
 
-/-- Reserve a name in the supply so it is never returned by `fresh` again. -/
-def NameSupply.reserve (s : NameSupply) (name : String) : NameSupply :=
-  { avoid := name :: s.avoid }
+theorem Covers.allNames (Δ : Signature) : Covers Δ.allNames Δ := fun _ h => h
 
-theorem NameSupply.fresh_not_in_avoid (s : NameSupply) (base : String) :
-    s.fresh base ∉ s.avoid :=
-  Fresh.freshName_not_in_avoid s.avoid base
-
-/-- A supply *covers* a signature when every name declared in the signature is
-already reserved. Reservation extends across `reserve`. -/
-def NameSupply.Covers (s : NameSupply) (Δ : Signature) : Prop :=
-  ∀ n, n ∈ Δ.allNames → n ∈ s.avoid
-
-theorem NameSupply.Covers.reserve {s : NameSupply} {Δ : Signature}
-    (h : s.Covers Δ) (name : String) : (s.reserve name).Covers Δ := by
-  intro n hn
-  exact List.mem_cons_of_mem _ (h n hn)
-
-/-- Reserving a name not currently in the signature covers the corresponding
-`declVar` extension. -/
-theorem NameSupply.Covers.declVar {s : NameSupply} {Δ : Signature}
-    (h : s.Covers Δ) (name : String) (τ : Srt) :
-    (s.reserve name).Covers (Δ.declVar ⟨name, τ⟩) := by
+/-- Reserving a name that the signature does not declare covers the
+corresponding `declVar` extension. -/
+theorem Covers.declVar {avoid : List String} {Δ : Signature}
+    (h : Covers avoid Δ) (name : String) (τ : Srt) :
+    Covers (name :: avoid) (Δ.declVar ⟨name, τ⟩) := by
   intro n hn
   have hn' : n ∈ name :: (Δ.remove name).allNames := by
     simpa [Signature.declVar, Signature.addVar, Signature.allNames] using hn
   cases hn' with
-  | head => simp [NameSupply.reserve]
-  | tail _ ht =>
-    have hΔn : n ∈ Δ.allNames := Signature.remove_allNames_subset ht
-    exact List.mem_cons_of_mem _ (h n hΔn)
-
+  | head => simp
+  | tail _ ht => exact List.mem_cons_of_mem _ (h n (Signature.remove_allNames_subset ht))
 
 /-! ## Function context -/
 
@@ -79,12 +60,12 @@ theorem FunCtx.relWfIn_mono {Γ : FunCtx} {Δ Δ' : Signature}
 
 /-- Every relation in `Γ` has its solver-facing value function and definedness
 predicate registered in `Δ`. -/
-def FunCtx.splitWfIn (Γ : FunCtx) (Δ : Signature) : Prop :=
+def FunCtx.funcWfIn (Γ : FunCtx) (Δ : Signature) : Prop :=
   ∀ x (fn : SpecFn), (x, fn) ∈ Γ →
     fn.func ∈ Δ.unary ∧ fn.defined ∈ Δ.unaryRel
 
-theorem FunCtx.splitWfIn_mono {Γ : FunCtx} {Δ Δ' : Signature}
-    (h : Γ.splitWfIn Δ) (hsub : Δ.Subset Δ') : Γ.splitWfIn Δ' := by
+theorem FunCtx.funcWfIn_mono {Γ : FunCtx} {Δ Δ' : Signature}
+    (h : Γ.funcWfIn Δ) (hsub : Δ.Subset Δ') : Γ.funcWfIn Δ' := by
   intro x fn hxr
   exact ⟨hsub.unary _ (h x fn hxr).1, hsub.unaryRel _ (h x fn hxr).2⟩
 
@@ -93,11 +74,33 @@ symbols (the binary relation, the value function, and the definedness predicate)
 registered in `Δ`. -/
 structure FunCtx.wfIn (Γ : FunCtx) (Δ : Signature) : Prop where
   rel : Γ.relWfIn Δ
-  split : Γ.splitWfIn Δ
+  func : Γ.funcWfIn Δ
 
 theorem FunCtx.wfIn_mono {Γ : FunCtx} {Δ Δ' : Signature}
     (h : Γ.wfIn Δ) (hsub : Δ.Subset Δ') : Γ.wfIn Δ' :=
-  ⟨FunCtx.relWfIn_mono h.rel hsub, FunCtx.splitWfIn_mono h.split hsub⟩
+  ⟨FunCtx.relWfIn_mono h.rel hsub, FunCtx.funcWfIn_mono h.func hsub⟩
+
+/-- In `ρ`, the relation symbol of every function in `Γ` reads as the graph of
+that function's value function and definedness predicate. -/
+def FunCtx.Agreement (Γ : FunCtx) (ρ : Env) : Prop :=
+  ∀ f fn, (f, fn) ∈ Γ →
+    ∀ x y, fn.evalRelates ρ x y ↔ fn.evalDefined ρ x ∧ fn.evalCall ρ x = y
+
+theorem FunCtx.Agreement.updateConst {Γ : FunCtx} {ρ : Env}
+    (hΓ : Γ.Agreement ρ) (τ : Srt) (x : String) (v : τ.denote) :
+    Γ.Agreement (ρ.updateConst τ x v) := by
+  intro f fn hmem a b
+  simpa [Env.updateConst_unary, Env.updateConst_unaryRel, Env.updateConst_binaryRel]
+    using hΓ f fn hmem a b
+
+/-- The symbols of `fn` do not collide with those of any function in `Γ`. -/
+def FunCtx.unused (Γ : FunCtx) (fn : SpecFn) : Prop :=
+  ∀ g fn', (g, fn') ∈ Γ →
+    fn'.relName ≠ fn.relName ∧ fn'.funcName ≠ fn.funcName ∧ fn'.defName ≠ fn.defName
+
+/-- Extend the context so recursive calls to `f` resolve to `fn`. -/
+def FunCtx.recursive (Γ : FunCtx) (f : TinyML.Var) (fn : SpecFn) : FunCtx :=
+  (f, fn) :: Γ
 
 /-! ## Value-variable well-formedness -/
 
@@ -136,7 +139,7 @@ def bindBinder (ρ : VarEnv) (b : Typed.Binder) (v : Term .value) : VarEnv :=
 def prodProj (v : Term .value) (i : Nat) : Term .value :=
   .unop .vhead (vtailN (.unop .toValList v) i)
 
-def bindBindersFrom (ρ : VarEnv) (v : Term .value) : List Typed.Binder → Nat → VarEnv
+private def bindBindersFrom (ρ : VarEnv) (v : Term .value) : List Typed.Binder → Nat → VarEnv
   | [], _ => ρ
   | b :: bs, i => bindBindersFrom (ρ.bindBinder b (prodProj v i)) v bs (i + 1)
 
@@ -151,6 +154,11 @@ def ofSignature (Δ : Signature) : VarEnv :=
     | .value => some (v.name, .var .value v.name)
     | _ => none
 
+/-- The encoder environment reads only the declared variables. -/
+private theorem ofSignature_congr {Δ Δ' : Signature} (h : Δ.vars = Δ'.vars) :
+    ofSignature Δ = ofSignature Δ' := by
+  rw [ofSignature, ofSignature, h]
+
 /-- Every term stored in a local environment is well-formed in `Δ`. -/
 def wfIn (δ : VarEnv) (Δ : Signature) : Prop :=
   ∀ x v, δ.lookup x = some v → v.wfIn Δ
@@ -159,11 +167,15 @@ def wfIn (δ : VarEnv) (Δ : Signature) : Prop :=
     (δ.bind x v).lookup x = some v := by
   simp [lookup, bind]
 
-theorem lookup_bind_of_ne {δ : VarEnv} {x y : String} {v : Term .value}
+private theorem lookup_bind_of_ne {δ : VarEnv} {x y : String} {v : Term .value}
     (hxy : y ≠ x) : (δ.bind x v).lookup y = δ.lookup y := by
   have hbeq : (y == x) = false := by
     simp [hxy]
   simp [lookup, bind, List.lookup, hbeq]
+
+theorem wfIn.mono {Δ Δ' : Signature} {δ : VarEnv}
+    (henv : δ.wfIn Δ) (hsub : Δ.Subset Δ') (hΔ' : Δ'.wf) : δ.wfIn Δ' :=
+  fun x v hlookup => Term.wfIn_mono _ (henv x v hlookup) hsub hΔ'
 
 theorem wfIn.bind {Δ : Signature} {δ : VarEnv} {x : String} {v : Term .value}
     (henv : δ.wfIn Δ) (hv : v.wfIn Δ) :
@@ -196,7 +208,7 @@ theorem prodProj_wfIn {Δ : Signature} {v : Term .value} (hv : v.wfIn Δ) (i : N
   change UnOp.vhead.wfIn Δ ∧ (vtailN (.unop .toValList v) i).wfIn Δ
   exact And.intro trivial (vtailN_wfIn hto i)
 
-theorem wfIn.bindBindersFrom {Δ : Signature} {δ : VarEnv} {v : Term .value}
+private theorem wfIn.bindBindersFrom {Δ : Signature} {δ : VarEnv} {v : Term .value}
     (henv : δ.wfIn Δ) (hv : v.wfIn Δ) :
     ∀ bs i, (bindBindersFrom δ v bs i).wfIn Δ
   | [], _ => henv
@@ -225,167 +237,321 @@ theorem ofSignature_wfIn {Δ : Signature} (hΔ : Δ.wf) :
     rcases ha with ⟨rfl, rfl⟩
     exact var_value_wfIn hΔ haΔ
 
-/-- Paired local environments agree semantically in two FOL environments:
-they share a lookup domain, and corresponding terms are well-formed in the
-respective signatures and evaluate equally. -/
-structure Agree (Δ₁ Δ₂ : Signature) (ρ₁ ρ₂ : Env) (δ₁ δ₂ : VarEnv) : Prop where
-  /-- Both environments bind the same set of TinyML variables. -/
-  sameDomain : ∀ x, (∃ v₁, δ₁.lookup x = some v₁) ↔ (∃ v₂, δ₂.lookup x = some v₂)
-  /-- Corresponding bound terms are well-formed and evaluate equally. -/
-  agree : ∀ x v₁ v₂,
-    δ₁.lookup x = some v₁ →
-    δ₂.lookup x = some v₂ →
-    v₁.wfIn Δ₁ ∧ v₂.wfIn Δ₂ ∧
-      Term.eval ρ₁ v₁ = Term.eval ρ₂ v₂
-
-theorem Agree.bind {Δ₁ Δ₂ : Signature} {ρ₁ ρ₂ : Env}
-    {δ₁ δ₂ : VarEnv} {x : String} {v₁ v₂ : Term .value}
-    (henv : Agree Δ₁ Δ₂ ρ₁ ρ₂ δ₁ δ₂)
-    (hv₁ : v₁.wfIn Δ₁) (hv₂ : v₂.wfIn Δ₂)
-    (heval : Term.eval ρ₁ v₁ = Term.eval ρ₂ v₂) :
-    Agree Δ₁ Δ₂ ρ₁ ρ₂ (δ₁.bind x v₁) (δ₂.bind x v₂) where
-  sameDomain := by
-    intro y
-    by_cases hyx : y = x
-    · subst y
-      simp [lookup_bind]
-    · rw [lookup_bind_of_ne (δ := δ₁) (x := x) (v := v₁) hyx,
-        lookup_bind_of_ne (δ := δ₂) (x := x) (v := v₂) hyx]
-      exact henv.sameDomain y
-  agree := by
-    intro y w₁ w₂ h₁ h₂
-    by_cases hyx : y = x
-    · subst y
-      simp only [lookup_bind, Option.some.injEq] at h₁ h₂
-      subst w₁; subst w₂
-      exact ⟨hv₁, hv₂, heval⟩
-    · have h₁' : δ₁.lookup y = some w₁ := by
-        simpa [lookup_bind_of_ne (δ := δ₁) (x := x) (v := v₁) hyx] using h₁
-      have h₂' : δ₂.lookup y = some w₂ := by
-        simpa [lookup_bind_of_ne (δ := δ₂) (x := x) (v := v₂) hyx] using h₂
-      exact henv.agree y w₁ w₂ h₁' h₂'
-
-theorem Agree.bindBinder {Δ₁ Δ₂ : Signature} {ρ₁ ρ₂ : Env}
-    {δ₁ δ₂ : VarEnv} {b : Typed.Binder} {v₁ v₂ : Term .value}
-    (henv : Agree Δ₁ Δ₂ ρ₁ ρ₂ δ₁ δ₂)
-    (hv₁ : v₁.wfIn Δ₁) (hv₂ : v₂.wfIn Δ₂)
-    (heval : Term.eval ρ₁ v₁ = Term.eval ρ₂ v₂) :
-    Agree Δ₁ Δ₂ ρ₁ ρ₂ (δ₁.bindBinder b v₁) (δ₂.bindBinder b v₂) := by
-  cases b with
-  | mk name ty =>
-      cases name with
-      | none => simpa [bindBinder] using henv
-      | some x => simpa [bindBinder] using henv.bind hv₁ hv₂ heval
-
-theorem prodProj_eval {ρ₁ ρ₂ : Env} {v₁ v₂ : Term .value} (i : Nat)
-    (heval : Term.eval ρ₁ v₁ = Term.eval ρ₂ v₂) :
-    Term.eval ρ₁ (prodProj v₁ i) = Term.eval ρ₂ (prodProj v₂ i) := by
-  simp [prodProj, Term.eval, UnOp.eval, vtailN_eval, heval]
-
-theorem Agree.bindBindersFrom {Δ₁ Δ₂ : Signature} {ρ₁ ρ₂ : Env}
-    {δ₁ δ₂ : VarEnv} {v₁ v₂ : Term .value}
-    (henv : Agree Δ₁ Δ₂ ρ₁ ρ₂ δ₁ δ₂)
-    (hv₁ : v₁.wfIn Δ₁) (hv₂ : v₂.wfIn Δ₂)
-    (heval : Term.eval ρ₁ v₁ = Term.eval ρ₂ v₂) :
-    ∀ bs i,
-      Agree Δ₁ Δ₂ ρ₁ ρ₂
-        (bindBindersFrom δ₁ v₁ bs i) (bindBindersFrom δ₂ v₂ bs i)
-  | [], _ => henv
-  | _ :: bs, i =>
-      Agree.bindBindersFrom
-        (Agree.bindBinder henv
-          (prodProj_wfIn hv₁ i) (prodProj_wfIn hv₂ i) (prodProj_eval i heval))
-        hv₁ hv₂ heval bs (i + 1)
-
-theorem Agree.bindBinders {Δ₁ Δ₂ : Signature} {ρ₁ ρ₂ : Env}
-    {δ₁ δ₂ : VarEnv} {bs : List Typed.Binder} {v₁ v₂ : Term .value}
-    (henv : Agree Δ₁ Δ₂ ρ₁ ρ₂ δ₁ δ₂)
-    (hv₁ : v₁.wfIn Δ₁) (hv₂ : v₂.wfIn Δ₂)
-    (heval : Term.eval ρ₁ v₁ = Term.eval ρ₂ v₂) :
-    Agree Δ₁ Δ₂ ρ₁ ρ₂ (δ₁.bindBinders bs v₁) (δ₂.bindBinders bs v₂) := by
-  simpa [bindBinders] using Agree.bindBindersFrom henv hv₁ hv₂ heval bs 0
-
-theorem Agree.mono {Δ₁ Δ₂ Δ₁' Δ₂' : Signature} {ρ₁ ρ₂ ρ₁' ρ₂' : Env}
-    {δ₁ δ₂ : VarEnv}
-    (hsub₁ : Δ₁.Subset Δ₁') (hsub₂ : Δ₂.Subset Δ₂')
-    (hwf₁ : Δ₁'.wf) (hwf₂ : Δ₂'.wf)
-    (ha₁ : Env.agreeOn Δ₁ ρ₁ ρ₁') (ha₂ : Env.agreeOn Δ₂ ρ₂ ρ₂')
-    (henv : Agree Δ₁ Δ₂ ρ₁ ρ₂ δ₁ δ₂) :
-    Agree Δ₁' Δ₂' ρ₁' ρ₂' δ₁ δ₂ where
-  sameDomain := henv.sameDomain
-  agree := by
-    intro x v₁ v₂ h₁ h₂
-    rcases henv.agree x v₁ v₂ h₁ h₂ with ⟨hv₁, hv₂, heval⟩
-    have hv₁' := Term.wfIn_mono v₁ hv₁ hsub₁ hwf₁
-    have hv₂' := Term.wfIn_mono v₂ hv₂ hsub₂ hwf₂
-    refine ⟨hv₁', hv₂', ?_⟩
-    rw [← Term.eval_env_agree hv₁ ha₁, heval, Term.eval_env_agree hv₂ ha₂]
-
 end VarEnv
 
-namespace Relation
+end Verifier.RelationalEncoding
 
-/-- Signature extended for encoding the body of `rec f x := e`: adds the input
-variable `x : value` and the binary predicate `fn.relName ⊆ value × value`, but
-not the result variable. -/
-def bodySig (Δ : Signature) (fn : SpecFn) (x : TinyML.Var) : Signature :=
-  (Δ.addBinaryRel fn.rel).declVar ⟨x, .value⟩
+/-! ## Head signature extensions
 
-/-- Run signature: `bodySig Δ fn x` extended with the pinned result variable `r`. -/
-def sig (Δ : Signature) (fn : SpecFn) (x r : TinyML.Var) : Signature :=
-  (bodySig Δ fn x).declVar ⟨r, .value⟩
+Encoding `rec f x := e` declares three solver-facing symbols on top of `Δ`: the
+binary relation, the value function, and the definedness predicate. The
+relational encoding reads only the relation, the func-form encoding only the
+value function and the definedness predicate, and their equivalence needs all
+three. `rel`, `func` and `both` say which of the symbols a signature declares;
+the suffix `Arg` adds the input variable and `Res` the pinned result variable.
+-/
 
-/-- Body supply: reserves base-signature names plus the relation symbol, the
-stage-2 split names, and the input and result variables. -/
-def relBodySupply (Δ : Signature) (fn : SpecFn) (x res : TinyML.Var) : NameSupply :=
-  { avoid := Δ.allNames ++ [fn.relName, fn.funcName, fn.defName, x, res] }
+namespace SpecFn.Sig
+open Verifier.RelationalEncoding
 
-end Relation
+def rel (Δ : Signature) (fn : SpecFn) : Signature :=
+  Δ.addBinaryRel fn.rel
 
-namespace Skolemize
+def func (Δ : Signature) (fn : SpecFn) : Signature :=
+  (Δ.addUnary fn.func).addUnaryRel fn.defined
 
-/-- Signature used to encode the body expression of `rec f x := e`. It
-contains the binary relation, the split value/definedness symbols, and the
-input variable. -/
-def bodySig (Δ : Signature) (fn : SpecFn) (x : TinyML.Var) : Signature :=
-  ((((Δ.addBinaryRel fn.rel).addUnary fn.func).addUnaryRel
-    fn.defined).declVar ⟨x, .value⟩)
+def both (Δ : Signature) (fn : SpecFn) : Signature :=
+  func (rel Δ fn) fn
 
-/-- Common run signature used for the relational pinned-result continuation. -/
-def sig (Δ : Signature) (fn : SpecFn) (x res : TinyML.Var) : Signature :=
-  (bodySig Δ fn x).declVar ⟨res, .value⟩
+def relArg (Δ : Signature) (fn : SpecFn) (x : TinyML.Var) : Signature :=
+  (rel Δ fn).declVar ⟨x, .value⟩
 
-/-- Signature containing only the solver-facing split symbols and input
-variable used by the defined/value body. -/
-def defvalBodySig (Δ : Signature) (fn : SpecFn) (x : TinyML.Var) : Signature :=
-  (((Δ.addUnary fn.func).addUnaryRel fn.defined).declVar ⟨x, .value⟩)
+def relArgRes (Δ : Signature) (fn : SpecFn) (x res : TinyML.Var) : Signature :=
+  (relArg Δ fn x).declVar ⟨res, .value⟩
 
-end Skolemize
+/-- The body signature without the binary relation. The func-form body and the
+axioms emitted for it are well-formed here, which is what makes them insensitive
+to how the relation is interpreted. -/
+def funcArg (Δ : Signature) (fn : SpecFn) (x : TinyML.Var) : Signature :=
+  (func Δ fn).declVar ⟨x, .value⟩
 
-namespace Skolemize
-open Relation
+def bothArg (Δ : Signature) (fn : SpecFn) (x : TinyML.Var) : Signature :=
+  (both Δ fn).declVar ⟨x, .value⟩
 
-/-- The shared body supply covers the combined Skolemization run signature. -/
-theorem relBodySupply_covers_sig (Δ : Signature) (fn : SpecFn) (x res : String) :
-    (relBodySupply Δ fn x res).Covers (sig Δ fn x res) := by
+private def bothArgRes (Δ : Signature) (fn : SpecFn) (x res : TinyML.Var) : Signature :=
+  (bothArg Δ fn x).declVar ⟨res, .value⟩
+
+variable {Δ : Signature} {fn : SpecFn} {x res : String}
+
+private theorem subset_rel (Δ : Signature) (fn : SpecFn) : Δ.Subset (rel Δ fn) :=
+  Signature.Subset.subset_addBinaryRel _ _
+
+private theorem subset_func (Δ : Signature) (fn : SpecFn) : Δ.Subset (func Δ fn) :=
+  (Signature.Subset.subset_addUnary _ _).trans (Signature.Subset.subset_addUnaryRel _ _)
+
+private theorem rel_subset_both (Δ : Signature) (fn : SpecFn) :
+    (rel Δ fn).Subset (both Δ fn) :=
+  subset_func _ _
+
+private theorem func_subset_both (Δ : Signature) (fn : SpecFn) :
+    (func Δ fn).Subset (both Δ fn) :=
+  ((subset_rel Δ fn).addUnary fn.func).addUnaryRel fn.defined
+
+private theorem subset_both (Δ : Signature) (fn : SpecFn) : Δ.Subset (both Δ fn) :=
+  (subset_rel Δ fn).trans (rel_subset_both Δ fn)
+
+theorem relArg_subset_bothArg : (relArg Δ fn x).Subset (bothArg Δ fn x) :=
+  Signature.Subset.declVar (rel_subset_both Δ fn) _
+
+theorem funcArg_subset_bothArg : (funcArg Δ fn x).Subset (bothArg Δ fn x) :=
+  Signature.Subset.declVar (func_subset_both Δ fn) _
+
+end SpecFn.Sig
+
+/-! ## Name allocation for a head
+
+The two body encodings share one avoid list, so neither can bind a name the
+other needs.
+-/
+
+namespace SpecFn
+open Verifier.RelationalEncoding
+
+/-- The names a body encoding must not bind: `fn`'s three symbols, the input
+variable, and the result variable. -/
+def reserved (fn : SpecFn) (x res : TinyML.Var) : List String :=
+  fn.names ++ [x, res]
+
+/-- The avoid list the body encodings run in: the names of `Δ` on top of the
+reserved ones. -/
+def avoid (Δ : Signature) (fn : SpecFn) (x res : TinyML.Var) : List String :=
+  Δ.allNames ++ reserved fn x res
+
+theorem reserved_subset_avoid {Δ : Signature} {fn : SpecFn} {x res : TinyML.Var} :
+    ∀ n ∈ reserved fn x res, n ∈ avoid Δ fn x res :=
+  fun _ h => List.mem_append_right _ h
+
+private theorem avoid_covers_bothArgRes (Δ : Signature) (fn : SpecFn) (x res : String) :
+    Covers (avoid Δ fn x res) (Sig.bothArgRes Δ fn x res) := by
   intro n hn
   by_contra hcontra
-  have hnΔ   : n ∉ Δ.allNames     := fun h => hcontra (by simp [relBodySupply, h])
-  have hnRel : n ≠ fn.relName     := fun h => hcontra (by simp [relBodySupply, h])
-  have hnFun : n ≠ fn.funcName    := fun h => hcontra (by simp [relBodySupply, h])
-  have hnDef : n ≠ fn.defName     := fun h => hcontra (by simp [relBodySupply, h])
-  have hnX   : n ≠ x              := fun h => hcontra (by simp [relBodySupply, h])
-  have hnRes : n ≠ res            := fun h => hcontra (by simp [relBodySupply, h])
-  have h1 : n ∉ (Δ.addBinaryRel fn.rel).allNames :=
-    Signature.not_mem_allNames_addBinaryRel hnΔ hnRel
-  have h2 : n ∉ ((Δ.addBinaryRel fn.rel).addUnary fn.func).allNames :=
-    Signature.not_mem_allNames_addUnary h1 (by simpa [SpecFn.func] using hnFun)
-  have h3 : n ∉ (((Δ.addBinaryRel fn.rel).addUnary fn.func).addUnaryRel
-      fn.defined).allNames :=
-    Signature.not_mem_allNames_addUnaryRel h2 (by simpa [SpecFn.defined] using hnDef)
-  have h4 := Signature.not_mem_allNames_declVar h3 (show n ≠ (⟨x, .value⟩ : Var).name from hnX)
-  have h5 := Signature.not_mem_allNames_declVar h4 (show n ≠ (⟨res, .value⟩ : Var).name from hnRes)
-  exact h5 (by simpa [sig, bodySig] using hn)
+  have hnΔ   : n ∉ Δ.allNames  := fun h => hcontra (by simp [avoid, h])
+  have hnRel : n ≠ fn.relName  := fun h => hcontra (by simp [avoid, reserved, names, h])
+  have hnFun : n ≠ fn.funcName := fun h => hcontra (by simp [avoid, reserved, names, h])
+  have hnDef : n ≠ fn.defName  := fun h => hcontra (by simp [avoid, reserved, names, h])
+  have hnX   : n ≠ x           := fun h => hcontra (by simp [avoid, reserved, names, h])
+  have hnRes : n ≠ res         := fun h => hcontra (by simp [avoid, reserved, names, h])
+  have hboth : n ∉ (Sig.both Δ fn).allNames :=
+    Signature.not_mem_allNames_addUnaryRel
+      (Signature.not_mem_allNames_addUnary
+        (Signature.not_mem_allNames_addBinaryRel (b := fn.rel) hnΔ hnRel)
+        (by simpa [func] using hnFun))
+      (by simpa [defined] using hnDef)
+  have hbody := Signature.not_mem_allNames_declVar hboth
+    (show n ≠ (⟨x, .value⟩ : Var).name from hnX)
+  exact Signature.not_mem_allNames_declVar hbody
+    (show n ≠ (⟨res, .value⟩ : Var).name from hnRes) hn
 
-end Skolemize
+variable {Δ : Signature} {fn : SpecFn} {x res : String}
+
+/-- The avoid list covers every signature the body encodings run in. -/
+private theorem avoid_covers_of_subset {Δ' : Signature}
+    (hsub : Δ'.Subset (Sig.bothArgRes Δ fn x res)) : Covers (avoid Δ fn x res) Δ' :=
+  fun n hn => avoid_covers_bothArgRes Δ fn x res n (Signature.allNames_subset hsub n hn)
+
+/-- Every name of a signature the body encodings run in is either a name the
+encoding starts from or one it must not bind. This is the side condition of
+`Expr.WfIn.mono` between two such signatures. -/
+theorem names_of_subset_bothArgRes {Δbase Δ' : Signature}
+    (hsub : Δ'.Subset (Sig.bothArgRes Δ fn x res)) (hbase : Δ.Subset Δbase) :
+    ∀ n ∈ Δ'.allNames, n ∈ Δbase.allNames ∨ n ∈ reserved fn x res :=
+  fun n hn => (List.mem_append.mp (avoid_covers_of_subset hsub n hn)).imp
+    (Signature.allNames_subset hbase n) id
+
+end SpecFn
+
+namespace Verifier.RelationalEncoding
+
+/-- The relational and the func-form body signature declare the same value
+variables, so they induce the same encoder environment. -/
+theorem VarEnv.ofSignature_funcArg {Δ : Signature} {fn : SpecFn} {x : String} :
+    VarEnv.ofSignature (SpecFn.Sig.relArg Δ fn x)
+      = VarEnv.ofSignature (SpecFn.Sig.funcArg Δ fn x) :=
+  VarEnv.ofSignature_congr rfl
+
+/-! ## Freshness of the head names -/
+
+/-- The head's three symbols and its argument are new for `Δ` and distinct. -/
+structure SpecFnFresh (Δ : Signature) (fn : SpecFn) (x : String) : Prop where
+  symFresh : ∀ n ∈ fn.names, n ∉ Δ.allNames
+  argFresh : x ∉ Δ.allNames ++ fn.names
+
+/-- `SpecFnFresh` together with the variable that pins the result, new for
+everything before it. -/
+structure SpecFnFresh.WithRes (Δ : Signature) (fn : SpecFn) (x res : String) : Prop
+    extends SpecFnFresh Δ fn x where
+  resFresh : res ∉ Δ.allNames ++ fn.names ++ [x]
+
+variable {Δ : Signature} {fn : SpecFn} {x res : String}
+
+namespace SpecFnFresh
+open SpecFn.Sig
+
+variable (h : SpecFnFresh Δ fn x)
+include h
+
+theorem relFresh : fn.relName ∉ Δ.allNames := h.symFresh _ (by simp [SpecFn.names])
+theorem funcFresh : fn.funcName ∉ Δ.allNames := h.symFresh _ (by simp [SpecFn.names])
+theorem defFresh : fn.defName ∉ Δ.allNames := h.symFresh _ (by simp [SpecFn.names])
+
+theorem argNe : x ∉ Δ.allNames ∧ x ≠ fn.relName ∧ x ≠ fn.funcName ∧ x ≠ fn.defName := by
+  simpa [SpecFn.names, not_or] using h.argFresh
+
+private theorem argFresh_sigRel : x ∉ (rel Δ fn).allNames :=
+  Signature.not_mem_allNames_addBinaryRel h.argNe.1 h.argNe.2.1
+
+theorem argFresh_sigFunc : x ∉ (func Δ fn).allNames :=
+  Signature.not_mem_allNames_addUnaryRel
+    (Signature.not_mem_allNames_addUnary h.argNe.1 h.argNe.2.2.1) h.argNe.2.2.2
+
+theorem argFresh_sigBoth : x ∉ (both Δ fn).allNames :=
+  Signature.not_mem_allNames_addUnaryRel
+    (Signature.not_mem_allNames_addUnary h.argFresh_sigRel h.argNe.2.2.1) h.argNe.2.2.2
+
+private theorem sigRel_wf (hΔ : Δ.wf) : (rel Δ fn).wf :=
+  Signature.wf_addBinaryRel hΔ h.relFresh
+
+private theorem sigFunc_wf (hΔ : Δ.wf) : (func Δ fn).wf :=
+  Signature.wf_addUnaryRel (Signature.wf_addUnary hΔ h.funcFresh)
+    (Signature.not_mem_allNames_addUnary h.defFresh (SpecFn.defName_ne_funcName fn))
+
+/-- Declaring the head's three symbols on top of a well-formed `Δ` keeps the
+signature well-formed: the symbols are new for `Δ` and pairwise distinct. -/
+theorem sigBoth_wf (hΔ : Δ.wf) : (both Δ fn).wf :=
+  Signature.wf_addUnaryRel
+    (Signature.wf_addUnary (h.sigRel_wf hΔ)
+      (Signature.not_mem_allNames_addBinaryRel h.funcFresh (SpecFn.funcName_ne_relName fn)))
+    (Signature.not_mem_allNames_addUnary
+      (Signature.not_mem_allNames_addBinaryRel h.defFresh (SpecFn.defName_ne_relName fn))
+      (SpecFn.defName_ne_funcName fn))
+
+theorem sigRelArg_wf (hΔ : Δ.wf) : (relArg Δ fn x).wf :=
+  Signature.wf_declVar (h.sigRel_wf hΔ)
+
+theorem sigFuncArg_wf (hΔ : Δ.wf) : (funcArg Δ fn x).wf :=
+  Signature.wf_declVar (h.sigFunc_wf hΔ)
+
+theorem sigBothArg_wf (hΔ : Δ.wf) : (bothArg Δ fn x).wf :=
+  Signature.wf_declVar (h.sigBoth_wf hΔ)
+
+theorem subset_sigRelArg : Δ.Subset (relArg Δ fn x) :=
+  (subset_rel Δ fn).trans (Signature.subset_declVar_of_fresh h.argFresh_sigRel)
+
+theorem subset_sigFuncArg : Δ.Subset (funcArg Δ fn x) :=
+  (subset_func Δ fn).trans (Signature.subset_declVar_of_fresh h.argFresh_sigFunc)
+
+private theorem subset_sigBothArg : Δ.Subset (bothArg Δ fn x) :=
+  (subset_both Δ fn).trans (Signature.subset_declVar_of_fresh h.argFresh_sigBoth)
+
+/-- The head symbols do not collide with those already present in `Γ`. -/
+theorem unused {Γ : FunCtx} (hΓ : Γ.wfIn Δ) : Γ.unused fn := by
+  intro g fn' hmem
+  exact ⟨fun heq => h.relFresh
+      (heq ▸ Signature.mem_allNames_of_binaryRel (hΓ.rel g fn' hmem)),
+    fun heq => h.funcFresh
+      (heq ▸ Signature.mem_allNames_of_unary (hΓ.func g fn' hmem).1),
+    fun heq => h.defFresh
+      (heq ▸ Signature.mem_allNames_of_unaryRel (hΓ.func g fn' hmem).2)⟩
+
+end SpecFnFresh
+
+namespace SpecFnFresh.WithRes
+open SpecFn.Sig
+
+variable (h : SpecFnFresh.WithRes Δ fn x res)
+include h
+
+private theorem resNe : res ∉ Δ.allNames ∧ res ≠ fn.relName ∧ res ≠ fn.funcName ∧
+    res ≠ fn.defName ∧ res ≠ x := by
+  simpa [SpecFn.names, not_or, and_assoc] using h.resFresh
+
+theorem resFresh_sigRelArg : res ∉ (relArg Δ fn x).allNames :=
+  Signature.not_mem_allNames_declVar
+    (Signature.not_mem_allNames_addBinaryRel h.resNe.1 h.resNe.2.1) h.resNe.2.2.2.2
+
+theorem resFresh_sigBothArg : res ∉ (bothArg Δ fn x).allNames :=
+  Signature.not_mem_allNames_declVar
+    (Signature.not_mem_allNames_addUnaryRel
+      (Signature.not_mem_allNames_addUnary
+        (Signature.not_mem_allNames_addBinaryRel h.resNe.1 h.resNe.2.1) h.resNe.2.2.1)
+      h.resNe.2.2.2.1)
+    h.resNe.2.2.2.2
+
+theorem sigBothArg_subset_sigBothArgRes :
+    (bothArg Δ fn x).Subset (bothArgRes Δ fn x res) :=
+  Signature.subset_declVar_of_fresh h.resFresh_sigBothArg
+
+theorem sigRelArg_subset_sigRelArgRes :
+    (relArg Δ fn x).Subset (relArgRes Δ fn x res) :=
+  Signature.subset_declVar_of_fresh h.resFresh_sigRelArg
+
+theorem sigRelArgRes_wf (hΔ : Δ.wf) : (relArgRes Δ fn x res).wf :=
+  Signature.wf_declVar (h.sigRelArg_wf hΔ)
+
+/-- The body avoid list covers a body signature, phrased for the `Expr.WfIn`
+side conditions that need it. -/
+theorem covers_sigRelArg : Covers (SpecFn.avoid Δ fn x res) (relArg Δ fn x) :=
+  SpecFn.avoid_covers_of_subset
+    (relArg_subset_bothArg.trans h.sigBothArg_subset_sigBothArgRes)
+
+theorem covers_sigFuncArg : Covers (SpecFn.avoid Δ fn x res) (funcArg Δ fn x) :=
+  SpecFn.avoid_covers_of_subset
+    (funcArg_subset_bothArg.trans h.sigBothArg_subset_sigBothArgRes)
+
+end SpecFnFresh.WithRes
+
+/-! ## The function context under a fresh head -/
+
+open SpecFn.Sig in
+/-- Extending a context that is well-formed in `Δ` with a fresh head keeps every
+relation of the tail well-formed in the relational run signature. -/
+theorem FunCtx.recursive_relWfIn_relArgRes {Γ : FunCtx} {f : TinyML.Var}
+    (hΓ : Γ.relWfIn Δ) (h : SpecFnFresh.WithRes Δ fn x res) :
+    (Γ.recursive f fn).relWfIn (relArgRes Δ fn x res) := by
+  intro g fn' hmem
+  cases hmem with
+  | head =>
+      exact h.sigRelArg_subset_sigRelArgRes.binaryRel _
+        ((Signature.subset_declVar_of_fresh h.argFresh_sigRel).binaryRel _ (List.Mem.head _))
+  | tail _ htail =>
+      exact (h.subset_sigRelArg.trans h.sigRelArg_subset_sigRelArgRes).binaryRel _
+        (hΓ g fn' htail)
+
+/-- The head's own func-form symbols live in every signature that declares them,
+and the tail's survive by monotonicity. -/
+private theorem FunCtx.recursive_funcWfIn_declVar {Γ : FunCtx} {Δbase : Signature}
+    {f : TinyML.Var}
+    (hΓ : Γ.funcWfIn Δ) (hsub : Δ.Subset (Δbase.declVar ⟨x, .value⟩))
+    (hfresh : x ∉ Δbase.allNames)
+    (hfunc : fn.func ∈ Δbase.unary) (hdef : fn.defined ∈ Δbase.unaryRel) :
+    (Γ.recursive f fn).funcWfIn (Δbase.declVar ⟨x, .value⟩) := by
+  intro g fn' hmem
+  cases hmem with
+  | head =>
+      exact ⟨(Signature.subset_declVar_of_fresh hfresh).unary _ hfunc,
+        (Signature.subset_declVar_of_fresh hfresh).unaryRel _ hdef⟩
+  | tail _ htail => exact FunCtx.funcWfIn_mono hΓ hsub g fn' htail
+
+theorem FunCtx.recursive_funcWfIn_bothArg {Γ : FunCtx} {f : TinyML.Var}
+    (hΓ : Γ.funcWfIn Δ) (h : SpecFnFresh.WithRes Δ fn x res) :
+    (Γ.recursive f fn).funcWfIn (SpecFn.Sig.bothArg Δ fn x) :=
+  FunCtx.recursive_funcWfIn_declVar hΓ h.subset_sigBothArg h.argFresh_sigBoth
+    (List.Mem.head _) (List.Mem.head _)
+
+theorem FunCtx.recursive_funcWfIn_funcArg {Γ : FunCtx} {f : TinyML.Var}
+    (hΓ : Γ.funcWfIn Δ) (h : SpecFnFresh.WithRes Δ fn x res) :
+    (Γ.recursive f fn).funcWfIn (SpecFn.Sig.funcArg Δ fn x) :=
+  FunCtx.recursive_funcWfIn_declVar hΓ h.subset_sigFuncArg h.argFresh_sigFunc
+    (List.Mem.head _) (List.Mem.head _)
+
 end Verifier.RelationalEncoding

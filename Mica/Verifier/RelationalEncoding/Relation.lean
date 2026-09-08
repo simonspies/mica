@@ -1,5 +1,5 @@
 -- SUMMARY: Stage 1 — encode a recursive TinyML body as a binary FOL relation defined by least fixpoint.
-import Mica.Verifier.RelationalEncoding.Monad
+import Mica.Verifier.RelationalEncoding.Expr
 
 /-!
 # Relational encoding of recursive TinyML bodies
@@ -8,43 +8,162 @@ First stage of the encoding. A recursive definition `rec f x := e` becomes a
 binary FOL relation, interpreted as the least fixpoint of the encoded body
 operator. Diverging inputs are absent from the relation.
 -/
-def Formula.iteBool (cond : Term .bool) (φ ψ : Formula) : Formula :=
-  .and (.implies (.eq .bool cond (.const (.b true)))  φ)
-       (.implies (.eq .bool cond (.const (.b false))) ψ)
-
-theorem Formula.iteBool_wfIn {cond : Term .bool} {φ ψ : Formula} {Δ : Signature}
-    (hc : cond.wfIn Δ) (hφ : φ.wfIn Δ) (hψ : ψ.wfIn Δ) :
-    (Formula.iteBool cond φ ψ).wfIn Δ := by
-  simp [Formula.iteBool, Formula.wfIn, Term.wfIn, Const.wfIn, hc, hφ, hψ]
-
 namespace Verifier.RelationalEncoding
-namespace Relation
 
 abbrev ValRel : Type := RelationFix.Rel Srt.value.denote Srt.value.denote
 
-def relEnv (ρ : Env) (fn : SpecFn) (x res : TinyML.Var)
-    (self : ValRel) (vin vout : Srt.value.denote) : Env :=
-  let ρ1 := ρ.updateBinaryRel .value .value fn.relName self
-  let ρ2 := ρ1.updateConst .value x vin
-  ρ2.updateConst .value res vout
+/-- Interpret `fn`'s relation as `R` and pin the input and result variables. -/
+def _root_.SpecFn.Env.rel (ρ : Env) (fn : SpecFn) (x res : TinyML.Var)
+    (R : ValRel) (vin vout : Srt.value.denote) : Env :=
+  ((ρ.updateBinaryRel .value .value fn.relName R).updateConst .value x vin).updateConst
+    .value res vout
 
-def semanticBody {M : Type} (sem : SemPred M)
-    (ρ : Env) (fn : SpecFn) (x res : TinyML.Var) (m : M) : ValRel → ValRel :=
-  fun self vin vout => sem m (relEnv ρ fn x res self vin vout)
+/-! ## Reading the IR as a formula -/
 
-def semanticFixpoint {M : Type} (encoded : Except String M) (sem : SemPred M)
-    (ρ : Env) (fn : SpecFn) (x res : TinyML.Var) : ValRel :=
-  match encoded with
-  | .error _ => fun _ _ => False
-  | .ok m    => RelationFix.lfp (semanticBody sem ρ fn x res m)
+/-- Translate the IR into a formula pinned at the result variable `res`: a call
+binds its result name existentially and asserts the relation. -/
+def Expr.toFormula (res : String) : Expr → Formula
+  | .ret v           => .eq .value v (.var .value res)
+  | .call fn arg r c => .exists_ r .value (.and (fn.relates arg (.var .value r)) (toFormula res c))
+  | .ite cond t e    => Formula.iteBool cond (toFormula res t) (toFormula res e)
 
-theorem semanticBody_mono_of_semanticMono {M : Type} {sem : SemPred M}
-    {ρ : Env} {fn : SpecFn} {x res : TinyML.Var} {m : M}
-    (hm : SemanticMono sem m) :
-    RelationFix.Mono (semanticBody sem ρ fn x res m) := by
+theorem Expr.toFormula_wfIn {Γ : FunCtx} {res : String} {avoid : List String} {Δ : Signature}
+    {c : Expr} (hc : Expr.WfIn Γ avoid Δ c) (hΓ : Γ.relWfIn Δ) (hΔ : Δ.wf)
+    (hres : (⟨res, .value⟩ : Var) ∈ Δ.vars) :
+    (toFormula res c).wfIn Δ := by
+  induction hc with
+  | ret hv => exact ⟨hv, var_value_wfIn hΔ hres⟩
+  | @call Δ f fn arg r c hmem harg _ hfresh _ ih =>
+      have hsub : Δ.Subset (Δ.declVar ⟨r, .value⟩) := Signature.subset_declVar_of_fresh hfresh
+      have hΔ' : (Δ.declVar ⟨r, .value⟩).wf := Signature.wf_declVar hΔ
+      have hrvar : (Term.var .value r).wfIn (Δ.declVar ⟨r, .value⟩) :=
+        var_value_wfIn hΔ' (Signature.var_mem_declVar _ _)
+      refine ⟨SpecFn.relates_wfIn (hsub.binaryRel _ (hΓ f fn hmem)) hΔ'
+        (Term.wfIn_mono _ harg hsub hΔ') hrvar, ?_⟩
+      exact ih (FunCtx.relWfIn_mono hΓ hsub) hΔ' (hsub.vars _ hres)
+  | ite hcond _ _ iht ihe =>
+      exact Formula.iteBool_wfIn hcond (iht hΓ hΔ hres) (ihe hΓ hΔ hres)
+
+theorem Expr.toFormula_mono (res : String) (c : Expr) :
+    Eval.Mono Formula.eval (toFormula res c) := by
+  induction c with
+  | ret v =>
+      intro ρ ρ' hle h
+      simp only [toFormula, Formula.eval] at h ⊢
+      rw [← Term.eval_env_le hle, ← Term.eval_env_le hle]; exact h
+  | call fn arg r c ih =>
+      intro ρ ρ' hle h
+      simp only [toFormula, Formula.eval] at h ⊢
+      rcases h with ⟨w, hcall, hbody⟩
+      refine ⟨w, ?_, ih (hle.updateConst .value r w) hbody⟩
+      simp only [SpecFn.relates, Formula.eval, BinPred.eval] at hcall ⊢
+      have hleU : Env.le (ρ.updateConst .value r w) (ρ'.updateConst .value r w) :=
+        Env.le.updateConst hle .value r w
+      rw [← Term.eval_env_le hleU, ← Term.eval_env_le hleU]
+      exact hleU.2.2.2.2.2 _ _ _ _ _ hcall
+  | ite cond t e iht ihe =>
+      intro ρ ρ' hle h
+      simp only [toFormula, Formula.iteBool, Formula.eval] at h ⊢
+      constructor
+      · intro hcond
+        exact iht hle (h.1 (by rw [Term.eval_env_le hle]; exact hcond))
+      · intro hcond
+        exact ihe hle (h.2 (by rw [Term.eval_env_le hle]; exact hcond))
+
+/-! ## Determinism -/
+
+/-- The relation symbols of `Γ` relate each input to at most one output, across
+the two environments. -/
+private def FunCtx.Functional (Γ : FunCtx) (ρ₁ ρ₂ : Env) : Prop :=
+  ∀ f fn, (f, fn) ∈ Γ →
+    ∀ vin y₁ y₂,
+      fn.evalRelates ρ₁ vin y₁ →
+      fn.evalRelates ρ₂ vin y₂ →
+      y₁ = y₂
+
+/-- Relations that read as graphs are single-valued. -/
+private theorem FunCtx.Agreement.functional {Γ : FunCtx} {ρ : Env} (h : Γ.Agreement ρ) :
+    Γ.Functional ρ ρ := fun f fn hmem vin y₁ y₂ h₁ h₂ =>
+  ((h f fn hmem vin y₁).mp h₁).2.symm.trans ((h f fn hmem vin y₂).mp h₂).2
+
+/-- A relational formula determines `res` when two environments that agree on
+the terms of `Δ` and on the relations of `Γ` and both satisfy it must also agree
+on `res`. -/
+private def _root_.Formula.Determines (φ : Formula) (Γ : FunCtx) (Δ : Signature)
+    (res : String) : Prop :=
+  ∀ ρ₁ ρ₂, Γ.Functional ρ₁ ρ₂ → Env.agreeOnTerms Δ ρ₁ ρ₂ →
+    φ.eval ρ₁ → φ.eval ρ₂ →
+    ρ₁.lookupConst .value res = ρ₂.lookupConst .value res
+
+private theorem Expr.toFormula_determines {Γ : FunCtx} {res : String} {avoid : List String}
+    {Δ : Signature} {c : Expr} (hc : Expr.WfIn Γ avoid Δ c) (hΔ : Δ.wf) (hres : res ∈ avoid) :
+    (toFormula res c).Determines Γ Δ res := by
+  induction hc with
+  | @ret Δ v hv =>
+      intro ρ₁ ρ₂ _ hagree hφ₁ hφ₂
+      simp only [toFormula, Formula.eval, Term.eval] at hφ₁ hφ₂
+      rw [← hφ₁, ← hφ₂, Term.eval_agreeOnTerms hv hagree]
+  | @call Δ f fn arg r c hmem harg hr hfresh _ ih =>
+      intro ρ₁ ρ₂ hrel hagree hφ₁ hφ₂
+      have hsub : Δ.Subset (Δ.declVar ⟨r, .value⟩) := Signature.subset_declVar_of_fresh hfresh
+      have hΔ' : (Δ.declVar ⟨r, .value⟩).wf := Signature.wf_declVar hΔ
+      have hres_ne : res ≠ r := fun heq => hr (heq ▸ hres)
+      have hargΔ' : arg.wfIn (Δ.declVar ⟨r, .value⟩) := Term.wfIn_mono _ harg hsub hΔ'
+      simp only [toFormula, Formula.eval] at hφ₁ hφ₂
+      rcases hφ₁ with ⟨w₁, hcall₁, hbody₁⟩
+      rcases hφ₂ with ⟨w₂, hcall₂, hbody₂⟩
+      have hagree' : Env.agreeOnTerms (Δ.declVar ⟨r, .value⟩)
+          (ρ₁.updateConst .value r w₁) (ρ₂.updateConst .value r w₁) :=
+        Env.agreeOnTerms_declVar (x := r) (τ := .value) (v := w₁) hagree
+      simp only [SpecFn.relates, Formula.eval, BinPred.eval, Term.eval] at hcall₁ hcall₂
+      have hw : w₁ = w₂ := by
+        refine hrel f fn hmem (arg.eval (ρ₁.updateConst .value r w₁)) w₁ w₂ ?_ ?_
+        · simpa [SpecFn.evalRelates, Env.updateConst_binaryRel,
+            Env.lookupConst_updateConst_same] using hcall₁
+        · rw [Term.eval_agreeOnTerms hargΔ' hagree',
+            Term.eval_agreeOnTerms harg
+              (Env.agreeOnTerms_of_agreeOn (Env.agreeOn_trans
+                (Env.agreeOn_symm (Env.agreeOn_update_fresh_const
+                  (ρ := ρ₂) (c := ⟨r, .value⟩) (u := w₁) hfresh))
+                (Env.agreeOn_update_fresh_const
+                  (ρ := ρ₂) (c := ⟨r, .value⟩) (u := w₂) hfresh)))]
+          simpa [SpecFn.evalRelates, Env.updateConst_binaryRel,
+            Env.lookupConst_updateConst_same] using hcall₂
+      subst hw
+      have hrelUpd : FunCtx.Functional Γ
+          (ρ₁.updateConst .value r w₁) (ρ₂.updateConst .value r w₁) := by
+        intro f' fn' hmem' vin y₁ y₂ hy₁ hy₂
+        simp only [SpecFn.evalRelates_updateConst] at hy₁ hy₂
+        exact hrel f' fn' hmem' vin y₁ y₂ hy₁ hy₂
+      have := ih hΔ' _ _ hrelUpd hagree' hbody₁ hbody₂
+      simpa [Env.lookupConst_updateConst_ne hres_ne] using this
+  | @ite Δ cond t e hcond _ _ iht ihe =>
+      intro ρ₁ ρ₂ hrel hagree hφ₁ hφ₂
+      simp only [toFormula, Formula.iteBool, Formula.eval] at hφ₁ hφ₂
+      have hcondEq : cond.eval ρ₁ = cond.eval ρ₂ := Term.eval_agreeOnTerms hcond hagree
+      cases hc : cond.eval ρ₁ with
+      | false =>
+          exact ihe hΔ ρ₁ ρ₂ hrel hagree (hφ₁.2 hc) (hφ₂.2 (by rw [← hcondEq]; exact hc))
+      | true =>
+          exact iht hΔ ρ₁ ρ₂ hrel hagree (hφ₁.1 hc) (hφ₂.1 (by rw [← hcondEq]; exact hc))
+
+/-! ## The relation a formula denotes -/
+
+namespace Relation
+
+/-- One unfolding of an encoded body: read the formula in the environment that
+interprets the head relation as the recursive candidate. -/
+def eval (φ : Formula) (ρ : Env) (fn : SpecFn) (x res : TinyML.Var) : ValRel → ValRel :=
+  fun self vin vout => φ.eval (SpecFn.Env.rel ρ fn x res self vin vout)
+
+def fixpoint (φ : Formula) (ρ : Env) (fn : SpecFn) (x res : TinyML.Var) : ValRel :=
+  RelationFix.lfp (eval φ ρ fn x res)
+
+theorem eval_mono {φ : Formula} {ρ : Env} {fn : SpecFn} {x res : TinyML.Var}
+    (hm : Eval.Mono Formula.eval φ) : RelationFix.Mono (eval φ ρ fn x res) := by
   intro S S' hSS' vin vout hF
-  have hle : Env.le (relEnv ρ fn x res S vin vout)
-                    (relEnv ρ fn x res S' vin vout) := by
+  have hle : Env.le (SpecFn.Env.rel ρ fn x res S vin vout)
+                    (SpecFn.Env.rel ρ fn x res S' vin vout) := by
     refine Env.le.updateConst (Env.le.updateConst ?_ _ _ _) _ _ _
     refine ⟨rfl, rfl, rfl, rfl, fun _ _ _ h => h, ?_⟩
     intro τ₁ τ₂ name a b
@@ -55,530 +174,176 @@ theorem semanticBody_mono_of_semanticMono {M : Type} {sem : SemPred M}
     · intro h; exact h
   exact hm hle hF
 
-abbrev Rel : Type := NameSupply → Except String Formula
+end Relation
 
-def Rel.error (msg : String) : Rel := fun _ => .error msg
+/-! ## Reading the head relation as a candidate -/
 
-def Rel.call (fn : SpecFn) (arg : Term .value) (k : Term .value → Rel) : Rel :=
-  fun s =>
-    let r := s.fresh "r"
-    let s' := s.reserve r
-    do
-      let φ ← k (.var .value r) s'
-      .ok (.exists_ r .value (.and (fn.relates arg (.var .value r)) φ))
-
-def Rel.ite (cond : Term .bool) (thenEnc elseEnc : Rel) : Rel :=
-  fun s => do
-    let φt ← thenEnc s
-    let φe ← elseEnc s
-    .ok (Formula.iteBool cond φt φe)
-
-def encoderOps : EncoderOps Rel where
-  call  := Rel.call
-  ite   := Rel.ite
-  error := Rel.error
-
-def Rel.wfIn (Δ : Signature) (m : Rel) : Prop :=
-  ∀ Δ' s φ, Δ.Subset Δ' → Δ'.wf → s.Covers Δ' →
-    m s = .ok φ → φ.wfIn Δ'
-
-theorem Rel.error_wfIn {Δ : Signature} {msg : String} :
-    Rel.wfIn Δ (Rel.error msg) := by
-  intro Δ' s φ _ _ _ hrun
-  simp [Rel.error] at hrun
-
-theorem Rel.call_wfIn {Δ : Signature} {fn : SpecFn} {arg : Term .value}
-    (hrel : fn.rel ∈ Δ.binaryRel)
-    (harg : arg.wfIn Δ)
-    {k : Term .value → Rel}
-    (hk : ∀ {Δ'}, Δ.Subset Δ' → Δ'.wf →
-      ∀ v, v.wfIn Δ' → Rel.wfIn Δ' (k v)) :
-    Rel.wfIn Δ (Rel.call fn arg k) := by
-  intro Δ' s φ hsub hΔ' hcov hrun
-  simp only [Rel.call] at hrun
-  set r := s.fresh "r" with hr
-  set s' := s.reserve r with hs'
-  set Δ'' := Δ'.declVar ⟨r, .value⟩ with hΔ''
-  have hfresh_avoid : r ∉ s.avoid := by
-    simpa [hr] using NameSupply.fresh_not_in_avoid s "r"
-  have hfresh : r ∉ Δ'.allNames := fun hmem => hfresh_avoid (hcov r hmem)
-  have hΔ''wf : Δ''.wf := by simpa [hΔ''] using Signature.wf_declVar hΔ'
-  have hsub'' : Δ'.Subset Δ'' := by
-    simpa [hΔ''] using (Signature.subset_declVar_of_fresh (Δ := Δ') (v := ⟨r, .value⟩) hfresh)
-  have hsubt : Δ.Subset Δ'' := hsub.trans hsub''
-  have harg'' : arg.wfIn Δ'' :=
-    Term.wfIn_mono _ harg hsubt hΔ''wf
-  have hrvar : (Term.var .value r).wfIn Δ'' :=
-    var_value_wfIn hΔ''wf (by simp [hΔ''])
-  have hrel'' : fn.rel ∈ Δ''.binaryRel :=
-    hsub''.binaryRel _ (hsub.binaryRel _ hrel)
-  have hcov' : s'.Covers Δ'' := by
-    simpa [hΔ'', hs'] using NameSupply.Covers.declVar hcov r .value
-  cases hinner : k (.var .value r) s' with
-  | error msg => simp [hinner, bind, Except.bind] at hrun
-  | ok inner =>
-    simp [hinner, bind, Except.bind] at hrun
-    subst hrun
-    have hkWf : Rel.wfIn Δ'' (k (.var .value r)) :=
-      hk hsubt hΔ''wf _ hrvar
-    have hinnerWf : inner.wfIn Δ'' :=
-      hkWf Δ'' s' inner (Signature.Subset.refl _) hΔ''wf hcov' hinner
-    exact ⟨SpecFn.relates_wfIn hrel'' hΔ''wf harg'' hrvar, hinnerWf⟩
-
-theorem Rel.ite_wfIn {Δ : Signature} {cond : Term .bool}
-    {thenEnc elseEnc : Rel}
-    (hcond : cond.wfIn Δ) (ht : Rel.wfIn Δ thenEnc) (he : Rel.wfIn Δ elseEnc) :
-    Rel.wfIn Δ (Rel.ite cond thenEnc elseEnc) := by
-  intro Δ' s φ hsub hΔ' hcov hrun
-  simp only [Rel.ite, Bind.bind, Except.bind] at hrun
-  cases htRun : thenEnc s with
-  | error msg => simp only [htRun] at hrun; cases hrun
-  | ok φt =>
-    cases heRun : elseEnc s with
-    | error msg => simp only [htRun, heRun] at hrun; cases hrun
-    | ok φe =>
-      simp only [htRun, heRun, Except.ok.injEq] at hrun
-      subst hrun
-      have hφt := ht Δ' s φt hsub hΔ' hcov htRun
-      have hφe := he Δ' s φe hsub hΔ' hcov heRun
-      exact Formula.iteBool_wfIn (Term.wfIn_mono _ hcond hsub hΔ') hφt hφe
-
-def encoderOps_wf : EncoderOpsSig encoderOps Rel.wfIn FunCtx.relWfIn where
-  ctx_mono := fun hΓ hsub => FunCtx.relWfIn_mono hΓ hsub
-  call_ind := by
-    intro Γ Δ f fn arg k hΔ hΓ hmem harg hk
-    exact Rel.call_wfIn (hΓ f fn hmem) harg hk
-  ite_ind := by
-    intro Δ cond t e _ hcond ht he
-    exact Rel.ite_wfIn hcond ht he
-  error_ind := Rel.error_wfIn
-
-def Formula.sem (φ : Formula) (ρ : Env) : Prop :=
-  φ.eval ρ
-
-def Rel.Mono (m : Rel) : Prop :=
-  ∀ s φ, m s = .ok φ → SemanticMono Formula.sem φ
-
-theorem Rel.error_mono {msg : String} : Rel.Mono (Rel.error msg) := by
-  intro _ _ hrun; simp [Rel.error] at hrun
-
-theorem Rel.call_mono {fn : SpecFn} {arg : Term .value}
-    {k : Term .value → Rel}
-    (hk : ∀ v, Rel.Mono (k v)) :
-    Rel.Mono (Rel.call fn arg k) := by
-  intro s φ hrun ρ ρ' hle hφ
-  simp only [Rel.call, Bind.bind, Except.bind] at hrun
-  set r : String := s.fresh "r" with hr
-  set s' : NameSupply := s.reserve r with hs'
-  cases hinner : k (.var .value r) s' with
-  | error msg => simp [hinner] at hrun
-  | ok inner =>
-    simp [hinner] at hrun
-    subst hrun
-    have hkMono := hk (.var .value r)
-    unfold Formula.sem at hφ ⊢
-    simp only [Formula.eval] at hφ ⊢
-    rcases hφ with ⟨w, hcall_ev, hbody⟩
-    refine ⟨w, ?_, ?_⟩
-    · simp only [SpecFn.relates, Formula.eval, BinPred.eval] at hcall_ev ⊢
-      have hleU : Env.le (ρ.updateConst .value r w) (ρ'.updateConst .value r w) :=
-        Env.le.updateConst hle .value r w
-      rw [← Term.eval_env_le hleU, ← Term.eval_env_le hleU]
-      exact hleU.2.2.2.2.2 _ _ _ _ _ hcall_ev
-    · exact hkMono s' inner hinner (hle.updateConst .value r w) hbody
-
-theorem Rel.ite_mono {cond : Term .bool} {t e : Rel}
-    (ht : Rel.Mono t) (he : Rel.Mono e) :
-    Rel.Mono (Rel.ite cond t e) := by
-  intro s φ hrun ρ ρ' hle hφ
-  simp only [Rel.ite, Bind.bind, Except.bind] at hrun
-  cases htRun : t s with
-  | error msg => simp [htRun] at hrun
-  | ok φt =>
-    cases heRun : e s with
-    | error msg => simp [htRun, heRun] at hrun
-    | ok φe =>
-      simp [htRun, heRun] at hrun
-      subst hrun
-      unfold Formula.sem at hφ ⊢
-      simp only [Formula.iteBool, Formula.eval] at hφ ⊢
-      constructor
-      · intro hcond
-        have hcond' : cond.eval ρ = true := by
-          rw [Term.eval_env_le hle]; exact hcond
-        exact ht s φt htRun hle (hφ.1 hcond')
-      · intro hcond
-        have hcond' : cond.eval ρ = false := by
-          rw [Term.eval_env_le hle]; exact hcond
-        exact he s φe heRun hle (hφ.2 hcond')
-
-def encoderOps_preservesMono :
-    EncoderOpsInd encoderOps Rel.Mono where
-  call_ind := Rel.call_mono
-  ite_ind  := Rel.ite_mono
-  error_ind := Rel.error_mono
-
-def kEq (res : String) : Term .value → Rel :=
-  fun v _ => .ok (.eq .value v (.var .value res))
-
-theorem kEq_wfCont {Δ : Signature} {res : String}
-    (hres : (⟨res, .value⟩ : Var) ∈ Δ.vars) :
-    ∀ {Δ'}, Δ.Subset Δ' → Δ'.wf →
-      ∀ v, v.wfIn Δ' → Rel.wfIn Δ' (kEq res v) := by
-  intro Δ' hsub hΔ' v hv Δ'' s φ hsub' hΔ'' _ hrun
-  simp only [kEq, Except.ok.injEq] at hrun
-  subst hrun
-  exact ⟨Term.wfIn_mono _ hv hsub' hΔ'',
-    var_value_wfIn hΔ'' ((hsub.trans hsub').vars _ hres)⟩
-
-theorem kEq_mono (res : String) :
-    ∀ v, Rel.Mono (kEq res v) := by
-  intro v s φ hrun ρ ρ' hle
-  simp only [kEq, Except.ok.injEq] at hrun
-  subst hrun
-  intro h
-  unfold Formula.sem at h ⊢
-  simp only [Formula.eval] at h ⊢
-  rw [← Term.eval_env_le hle, ← Term.eval_env_le hle]; exact h
-
-/-- Extend the function context so recursive calls to `f` resolve to `fn`. -/
-def ctx (Γ : FunCtx) (f : TinyML.Var) (fn : SpecFn) : FunCtx :=
-  (f, fn) :: Γ
-
-/-- Relational body encoding: encodes `rec f x := e` into a closed FOL formula
-pinned at result variable `res`. -/
-def relEncodeBody (primitives : PrimEncodings) (Γ : FunCtx) (Δ : Signature)
-    (f : TinyML.Var) (fn : SpecFn) (x res : TinyML.Var) (e : Typed.Expr) :
-    Except String Formula :=
-  encodeWith primitives encoderOps Δ (ctx Γ f fn)
-    (VarEnv.ofSignature (bodySig Δ fn x)) e (kEq res)
-    (relBodySupply Δ fn x res)
-
-/-- Least-fixpoint relational interpretation of `rec f x := e`. -/
-def semrel (primitives : PrimEncodings)
-    (Γ : FunCtx) (Δ : Signature) (ρ : Env)
-    (f : TinyML.Var) (fn : SpecFn) (x res : TinyML.Var) (e : Typed.Expr) :
-    ValRel :=
-  semanticFixpoint (relEncodeBody primitives Γ Δ f fn x res e) Formula.sem ρ fn x res
-
-/-- Cross-environment determinism for the relation symbols registered in `Γ`. -/
-def BinaryRelDet (Γ : FunCtx) (ρ₁ ρ₂ : Env) : Prop :=
-  ∀ f fn, (f, fn) ∈ Γ →
-    ∀ vin y₁ y₂,
-      fn.evalRelates ρ₁ vin y₁ →
-      fn.evalRelates ρ₂ vin y₂ →
-      y₁ = y₂
-
-/-- A relational carrier is deterministic in `res` at any extension of its
-view signature. -/
-def Rel.Det (Γ : FunCtx) (res : String) (Δview : Signature) (m : Rel) : Prop :=
-  ∀ Δ s φ ρ₁ ρ₂,
-    Δview.Subset Δ → Δ.wf → s.Covers Δ → res ∈ s.avoid →
-    m s = .ok φ →
-    BinaryRelDet Γ ρ₁ ρ₂ →
-    Env.agreeOnTerms Δ ρ₁ ρ₂ →
-    φ.eval ρ₁ → φ.eval ρ₂ →
-    ρ₁.lookupConst .value res = ρ₂.lookupConst .value res
-
-theorem Rel.error_det {Γ : FunCtx} {res : String} {Δview : Signature}
-    {msg : String} : Rel.Det Γ res Δview (Rel.error msg) := by
-  intro Δ s φ ρ₁ ρ₂ _ _ _ _ hrun _ _ _ _
-  simp [Rel.error] at hrun
-
-theorem kEq_det {Γ : FunCtx} {res : String} {Δview : Signature}
-    {v : Term .value} (hv : v.wfIn Δview) :
-    Rel.Det Γ res Δview (kEq res v) := by
-  intro Δ s φ ρ₁ ρ₂ hsub hΔ _ _ hrun _ hagree hφ₁ hφ₂
-  simp only [kEq, Except.ok.injEq] at hrun
-  subst hrun
-  have hvWf : v.wfIn Δ := Term.wfIn_mono _ hv hsub hΔ
-  simp only [Formula.eval, Term.eval] at hφ₁ hφ₂
-  have hveq : v.eval ρ₁ = v.eval ρ₂ := Term.eval_agreeOnTerms hvWf hagree
-  rw [← hφ₁, ← hφ₂, hveq]
-
-theorem Rel.call_det {Γ : FunCtx} {res : String} {Δview : Signature}
-    {f : TinyML.Var} {fn : SpecFn} {arg : Term .value}
-    (hmem : (f, fn) ∈ Γ) (harg : arg.wfIn Δview)
-    {k : Term .value → Rel}
-    (hk : ∀ {Δ : Signature} {v : Term .value},
-            Δview.Subset Δ → Δ.wf → v.wfIn Δ → Rel.Det Γ res Δ (k v)) :
-    Rel.Det Γ res Δview (Rel.call fn arg k) := by
-  intro Δ s φ ρ₁ ρ₂ hsubView hΔ hcov hresA hrun hrel hagree hφ₁ hφ₂
-  simp only [Rel.call, Bind.bind, Except.bind] at hrun
-  set r : String := s.fresh "r" with hr
-  set s' : NameSupply := s.reserve r with hs'
-  set Δ' : Signature := Δ.declVar ⟨r, .value⟩ with hΔ'def
-  have hfresh_avoid : r ∉ s.avoid := by
-    simpa [hr] using NameSupply.fresh_not_in_avoid s "r"
-  have hfresh : r ∉ Δ.allNames := fun hmem => hfresh_avoid (hcov r hmem)
-  have hΔ'wf : Δ'.wf := by simpa [hΔ'def] using Signature.wf_declVar hΔ
-  have hsub' : Δ.Subset Δ' := by
-    simpa [hΔ'def] using
-      (Signature.subset_declVar_of_fresh (Δ := Δ) (v := ⟨r, .value⟩) hfresh)
-  have hsubView' : Δview.Subset Δ' := hsubView.trans hsub'
-  have hcov' : s'.Covers Δ' := by
-    simpa [hΔ'def, hs'] using NameSupply.Covers.declVar hcov r .value
-  have hresA' : res ∈ s'.avoid := by
-    simp [hs', NameSupply.reserve, hresA]
-  have hres_ne_r : res ≠ r := by
-    intro heq; exact hfresh_avoid (by simpa [heq] using hresA)
-  have hrvar : (Term.var .value r).wfIn Δ' :=
-    var_value_wfIn hΔ'wf (by simp [hΔ'def])
-  have hargΔ : arg.wfIn Δ := Term.wfIn_mono _ harg hsubView hΔ
-  have hargΔ' : arg.wfIn Δ' := Term.wfIn_mono _ hargΔ hsub' hΔ'wf
-  cases hinner : k (.var .value r) s' with
-  | error msg => simp [hinner] at hrun
-  | ok inner =>
-    simp [hinner] at hrun
-    subst hrun
-    simp only [Formula.eval] at hφ₁ hφ₂
-    rcases hφ₁ with ⟨w₁, hcall₁, hbody₁⟩
-    rcases hφ₂ with ⟨w₂, hcall₂, hbody₂⟩
-    have hagree' : Env.agreeOnTerms Δ'
-        (ρ₁.updateConst .value r w₁) (ρ₂.updateConst .value r w₁) :=
-      Env.agreeOnTerms_declVar (x := r) (τ := .value) (v := w₁) hagree
-    have hargEval :
-        arg.eval (ρ₁.updateConst .value r w₁) =
-          arg.eval (ρ₂.updateConst .value r w₁) :=
-      Term.eval_agreeOnTerms hargΔ' hagree'
-    simp only [SpecFn.relates, Formula.eval, BinPred.eval, Term.eval] at hcall₁ hcall₂
-    have hargEq₂ :
-        arg.eval (ρ₂.updateConst .value r w₁) =
-          arg.eval (ρ₂.updateConst .value r w₂) := by
-      have hag : Env.agreeOnTerms Δ
-          (ρ₂.updateConst .value r w₁) (ρ₂.updateConst .value r w₂) :=
-        Env.agreeOnTerms_of_agreeOn (Env.agreeOn_trans
-          (Env.agreeOn_symm
-            (Env.agreeOn_update_fresh_const (ρ := ρ₂) (c := ⟨r, .value⟩) (u := w₁) hfresh))
-          (Env.agreeOn_update_fresh_const (ρ := ρ₂) (c := ⟨r, .value⟩) (u := w₂) hfresh))
-      exact Term.eval_agreeOnTerms hargΔ hag
-    have hw : w₁ = w₂ := by
-      have hcall₁base :
-          fn.evalRelates ρ₁ (arg.eval (ρ₁.updateConst .value r w₁)) w₁ := by
-        simpa [SpecFn.evalRelates, Env.updateConst_binaryRel,
-          Env.lookupConst_updateConst_same] using hcall₁
-      have hcall₂base :
-          fn.evalRelates ρ₂ (arg.eval (ρ₂.updateConst .value r w₂)) w₂ := by
-        simpa [SpecFn.evalRelates, Env.updateConst_binaryRel,
-          Env.lookupConst_updateConst_same] using hcall₂
-      apply hrel f fn hmem (arg.eval (ρ₁.updateConst .value r w₁))
-      · exact hcall₁base
-      · rw [hargEval, hargEq₂]
-        exact hcall₂base
-    subst w₂
-    have hrelUpd :
-        BinaryRelDet Γ
-          (ρ₁.updateConst .value r w₁) (ρ₂.updateConst .value r w₁) := by
-      intro f' fn' hmem' vin y₁ y₂ hy₁ hy₂
-      simp only [SpecFn.evalRelates_updateConst] at hy₁ hy₂
-      exact hrel f' fn' hmem' vin y₁ y₂ hy₁ hy₂
-    have hkDet : Rel.Det Γ res Δ' (k (.var .value r)) :=
-      hk hsubView' hΔ'wf hrvar
-    have hresEqUpd :=
-      hkDet Δ' s' inner
-        (ρ₁.updateConst .value r w₁) (ρ₂.updateConst .value r w₁)
-        (Signature.Subset.refl _) hΔ'wf hcov' hresA' hinner
-        hrelUpd hagree' hbody₁ hbody₂
-    simpa [Env.lookupConst_updateConst_ne hres_ne_r] using hresEqUpd
-
-theorem Rel.ite_det {Γ : FunCtx} {res : String} {Δview : Signature}
-    {cond : Term .bool} {t e : Rel}
-    (hcond : cond.wfIn Δview)
-    (ht : Rel.Det Γ res Δview t) (he : Rel.Det Γ res Δview e) :
-    Rel.Det Γ res Δview (Rel.ite cond t e) := by
-  intro Δ s φ ρ₁ ρ₂ hsubView hΔ hcov hresA hrun hrel hagree hφ₁ hφ₂
-  simp only [Rel.ite, Bind.bind, Except.bind] at hrun
-  cases htRun : t s with
-  | error msg => simp [htRun] at hrun
-  | ok φt =>
-    cases heRun : e s with
-    | error msg => simp [htRun, heRun] at hrun
-    | ok φe =>
-      simp [htRun, heRun] at hrun
-      subst hrun
-      have hcondΔ : cond.wfIn Δ := Term.wfIn_mono _ hcond hsubView hΔ
-      simp only [Formula.iteBool, Formula.eval] at hφ₁ hφ₂
-      have hcondEq : cond.eval ρ₁ = cond.eval ρ₂ :=
-        Term.eval_agreeOnTerms hcondΔ hagree
-      cases hc : cond.eval ρ₁
-      · have hc₂ : cond.eval ρ₂ = false := by simpa [hcondEq] using hc
-        exact he Δ s φe ρ₁ ρ₂ hsubView hΔ hcov hresA heRun hrel hagree
-          (hφ₁.2 hc) (hφ₂.2 hc₂)
-      · have hc₂ : cond.eval ρ₂ = true := by simpa [hcondEq] using hc
-        exact ht Δ s φt ρ₁ ρ₂ hsubView hΔ hcov hresA htRun hrel hagree
-          (hφ₁.1 hc) (hφ₂.1 hc₂)
-
-private def encoderOps_det (Γ : FunCtx) (res : String) :
-    EncoderOpsSig encoderOps (fun Δview m => Rel.Det Γ res Δview m)
-      (fun Γ' _ => Γ' = Γ) where
-  ctx_mono := fun h _ => h
-  call_ind := by
-    intro Γ' _ _ _ _ _ _ hΓeq hmem harg hk
-    subst hΓeq
-    exact Rel.call_det hmem harg (fun hsub hΔ hv => hk hsub hΔ _ hv)
-  ite_ind := fun _ hcond ht he => Rel.ite_det hcond ht he
-  error_ind := Rel.error_det
-
-/-- Successful relational encodings produce deterministic carriers. -/
-theorem encodeWith_det {primitives : PrimEncodings} {Γ : FunCtx}
-    {Δenc : Signature} {res : String}
-    {e : Typed.Expr} {Δview : Signature} {δ : VarEnv} {k : Term .value → Rel}
-    (hlaw : primitives.Lawful)
-    (hsubView : Δenc.Subset Δview) (hΔview : Δview.wf)
-    (hδ : δ.wfIn Δview)
-    (hk : ∀ {Δ : Signature} {v : Term .value},
-        Δview.Subset Δ → Δ.wf → v.wfIn Δ → Rel.Det Γ res Δ (k v)) :
-    Rel.Det Γ res Δview (encodeWith primitives encoderOps Δenc Γ δ e k) :=
-  encodeWith_indWithSig (primitives := primitives) hlaw (encoderOps_det Γ res) e
-    hsubView hΔview rfl
-    hδ
-    (fun hsub hΔ' _ hv => hk hsub hΔ' hv)
-
-/-- The relational semantics induced by an encoded pure body is functional. -/
-theorem semrel_functional
-    {primitives : PrimEncodings} {Γ : FunCtx} {Δ : Signature} {ρ : Env}
-    {f : TinyML.Var} {fn : SpecFn} {x res : TinyML.Var} {e : Typed.Expr}
-    {body : Formula}
-    (hlaw : primitives.Lawful)
-    (henc : relEncodeBody primitives Γ Δ f fn x res e = .ok body)
-    (hΓ : Γ.relWfIn Δ)
-    (hrelFresh : fn.relName ∉ Δ.allNames)
-    (hsubBody : Δ.Subset (bodySig Δ fn x))
-    (hΔbody : (bodySig Δ fn x).wf)
-    (hresFresh : res ∉ (bodySig Δ fn x).allNames)
-    (hρdet : BinaryRelDet Γ ρ ρ)
-    (vin y₁ y₂ : Srt.value.denote) :
-    semrel primitives Γ Δ ρ f fn x res e vin y₁ →
-      semrel primitives Γ Δ ρ f fn x res e vin y₂ →
-      y₁ = y₂ := by
-  let F : ValRel → ValRel := semanticBody Formula.sem ρ fn x res body
-  let R : ValRel := semrel primitives Γ Δ ρ f fn x res e
-  set δ := VarEnv.ofSignature (bodySig Δ fn x) with hδ_def
-  set m := encodeWith primitives encoderOps Δ (ctx Γ f fn) δ e (kEq res) with hm_def
-  have hrun : m (relBodySupply Δ fn x res) = .ok body := by
-    simpa [relEncodeBody, hm_def] using henc
-  have hR : R = RelationFix.lfp F := by simp [R, F, semrel, semanticFixpoint, henc]
-  have hmMono : Rel.Mono m :=
-    encodeWith_ind (primitives := primitives) encoderOps_preservesMono e (kEq_mono res)
-  have hmonoBody : SemanticMono Formula.sem body :=
-    hmMono (relBodySupply Δ fn x res) body hrun
-  have hmono : RelationFix.Mono F := by
-    simpa [F] using
-      (semanticBody_mono_of_semanticMono
-        (ρ := ρ) (fn := fn) (x := x) (res := res) hmonoBody)
-  have hdetM : Rel.Det (ctx Γ f fn) res (bodySig Δ fn x) m :=
-    by
-      simpa [hm_def] using
-        encodeWith_det (primitives := primitives) (Γ := ctx Γ f fn) (Δenc := Δ)
-          (res := res) (e := e) (Δview := bodySig Δ fn x) (δ := δ)
-          hlaw hsubBody hΔbody
-          (by simpa [hδ_def] using VarEnv.ofSignature_wfIn hΔbody)
-          (fun _ _ hv => kEq_det hv)
+open SpecFn.Sig in
+/-- Two runs of an encoded body that read the head relation differently still
+agree on every term of the body signature: they differ only in the head
+relation and in the result variable, and the body signature declares neither. -/
+private theorem Env.rel_agreeOnTerms {Δ : Signature} {ρ : Env} {fn : SpecFn}
+    {x res : TinyML.Var} {R R' : ValRel} {a b b' : Srt.value.denote}
+    (hresFresh : res ∉ (relArg Δ fn x).allNames) :
+    Env.agreeOnTerms (relArg Δ fn x)
+      (SpecFn.Env.rel ρ fn x res R a b) (SpecFn.Env.rel ρ fn x res R' a b') := by
   have hxres : x ≠ res := by
     intro h
     exact hresFresh (by
-      simp [bodySig, Signature.declVar, Signature.addVar, Signature.allNames, h])
-  have hcovBody : (relBodySupply Δ fn x res).Covers (bodySig Δ fn x) := by
-    intro n hn
-    by_contra hnAvoid
-    have hnΔ : n ∉ Δ.allNames := fun h => hnAvoid (by simp [relBodySupply, h])
-    have hnRel : n ≠ fn.relName := fun h => hnAvoid (by simp [relBodySupply, h])
-    have hnX : n ≠ x := fun h => hnAvoid (by simp [relBodySupply, h])
-    exact (Signature.not_mem_allNames_declVar
-      (Signature.not_mem_allNames_addBinaryRel hnΔ hnRel) hnX)
-      (by simpa [bodySig] using hn)
-  have hresAvoid : res ∈ (relBodySupply Δ fn x res).avoid := by simp [relBodySupply]
-  let S : ValRel := fun a b => R a b ∧ ∀ b', R a b' → b = b'
-  have hSleR : RelationFix.le S R := fun _ _ h => h.1
-  have hpre : RelationFix.le (F S) S := by
-    intro a b hFS
-    constructor
-    · rw [hR]
-      have hFR : F R a b := hmono hSleR a b hFS
-      rw [hR] at hFR
-      exact RelationFix.lfp_prefixed hmono a b hFR
-    · intro b' hRb'
-      have hFR : F R a b' := by
-        have hFRlfp : F (RelationFix.lfp F) a b' := by
-          rw [hR] at hRb'
-          exact (RelationFix.lfp_unfold hmono a b').mp hRb'
-        simpa [hR] using hFRlfp
-      have hrelDet :
-          BinaryRelDet (ctx Γ f fn)
-            (relEnv ρ fn x res S a b)
-            (relEnv ρ fn x res R a b') := by
-        intro f' fn' hmem' vin' z₁ z₂ hz₁ hz₂
-        cases hmem' with
-        | head =>
-            simp [SpecFn.evalRelates, SpecFn.rel, relEnv,
-              Env.updateConst_binaryRel, Env.updateBinaryRel] at hz₁ hz₂
-            exact hz₁.2 z₂ hz₂
-        | tail _ htail =>
-            have hrel'_mem : fn'.rel ∈ Δ.binaryRel :=
-              hΓ f' fn' htail
-            have hne : fn'.relName ≠ fn.relName := fun h =>
-              hrelFresh (h ▸ Signature.mem_allNames_of_binaryRel hrel'_mem)
-            simp only [SpecFn.evalRelates, SpecFn.rel, relEnv,
-              Env.updateConst_binaryRel, Env.updateBinaryRel] at hz₁ hz₂
-            simp [hne] at hz₁ hz₂
-            exact hρdet f' fn' htail vin' z₁ z₂ hz₁ hz₂
-      have hagreeOnTerms :
-          Env.agreeOnTerms (bodySig Δ fn x)
-            (relEnv ρ fn x res S a b)
-            (relEnv ρ fn x res R a b') := by
-        unfold bodySig relEnv
-        refine ⟨?_, ?_, ?_, ?_, ?_⟩
-        · intro v hv
-          have hv' : v ∈ ⟨x, .value⟩ ::
-              ((Δ.addBinaryRel fn.rel).remove x).vars := by
-            simpa [Signature.declVar, Signature.addVar] using hv
-          cases hv' with
-          | head =>
-              simp [Env.updateConst, Env.updateBinaryRel, hxres]
-          | tail _ htail =>
-              have hneX : v.name ≠ x := by
-                intro hxv
-                have hmem : v.name ∈
-                    ((Δ.addBinaryRel fn.rel).remove x).allNames :=
-                  Signature.mem_allNames_of_var htail
-                exact Signature.remove_allNames hmem hxv
-              have hneRes : v.name ≠ res := by
-                intro hres
-                have hmem : v.name ∈ (bodySig Δ fn x).allNames := by
-                  exact Signature.mem_allNames_of_var hv
-                exact hresFresh (hres ▸ hmem)
-              simp [Env.updateConst, Env.updateBinaryRel, hneX, hneRes]
-        · intro c hc
-          have hneX : c.name ≠ x := by
-            intro hcx
-            have hmem : c.name ∈
-                ((Δ.addBinaryRel fn.rel).remove x).allNames :=
-              Signature.mem_allNames_of_const (by
-                simpa [bodySig, Signature.declVar, Signature.addVar] using hc)
-            exact Signature.remove_allNames hmem hcx
-          have hneRes : c.name ≠ res := by
-            intro hres
-            have hmem : c.name ∈ (bodySig Δ fn x).allNames :=
-              Signature.mem_allNames_of_const hc
-            exact hresFresh (hres ▸ hmem)
-          simp [Env.updateConst, Env.updateBinaryRel, hneX, hneRes]
-        · intro u hu
-          simp [Env.updateConst_unary, Env.updateBinaryRel]
-        · intro bin hbin
-          simp [Env.updateConst_binary, Env.updateBinaryRel]
-        · intro t ht
-          simp [Env.updateConst_ternary, Env.updateBinaryRel]
-      have hresEq :=
-        hdetM (bodySig Δ fn x) (relBodySupply Δ fn x res) body
-        (relEnv ρ fn x res S a b) (relEnv ρ fn x res R a b')
-        (Signature.Subset.refl _) hΔbody hcovBody hresAvoid hrun
-        hrelDet hagreeOnTerms hFS hFR
-      simpa [relEnv, Env.lookupConst_updateConst_same] using hresEq
-  intro hy₁ hy₂
-  have hy₁S : S vin y₁ := by
-    change R vin y₁ at hy₁
-    rw [hR] at hy₁
-    exact RelationFix.lfp_le_of_prefixed hpre vin y₁ hy₁
-  exact hy₁S.2 y₂ hy₂
-end Relation
+      simp [relArg, rel, Signature.declVar, Signature.addVar, Signature.allNames, h])
+  unfold relArg SpecFn.Env.rel
+  refine ⟨?_, ?_, ?_, ?_, ?_⟩
+  · intro v hv
+    have hv' : v ∈ ⟨x, .value⟩ :: ((Δ.addBinaryRel fn.rel).remove x).vars := by
+      simpa [rel, Signature.declVar, Signature.addVar] using hv
+    cases hv' with
+    | head => simp [_root_.Env.updateConst, _root_.Env.updateBinaryRel, hxres]
+    | tail _ htail =>
+        have hneX : v.name ≠ x := fun hxv =>
+          Signature.remove_allNames (Signature.mem_allNames_of_var htail) hxv
+        have hneRes : v.name ≠ res := fun hres =>
+          hresFresh (hres ▸ Signature.mem_allNames_of_var hv)
+        simp [_root_.Env.updateConst, _root_.Env.updateBinaryRel, hneX, hneRes]
+  · intro c hc
+    have hneX : c.name ≠ x := fun hcx =>
+      Signature.remove_allNames
+        (Signature.mem_allNames_of_const
+          (by simpa [rel, Signature.declVar, Signature.addVar] using hc)) hcx
+    have hneRes : c.name ≠ res := fun hres =>
+      hresFresh (hres ▸ Signature.mem_allNames_of_const hc)
+    simp [_root_.Env.updateConst, _root_.Env.updateBinaryRel, hneX, hneRes]
+  · intro u _; simp [_root_.Env.updateConst_unary, _root_.Env.updateBinaryRel]
+  · intro bin _; simp [_root_.Env.updateConst_binary, _root_.Env.updateBinaryRel]
+  · intro t _; simp [_root_.Env.updateConst_ternary, _root_.Env.updateBinaryRel]
+
+/-- Reading the head relation as a candidate that is single-valued against `R`
+keeps the extended context functional: the head is single-valued by assumption,
+and the tail reads through to `ρ`. -/
+private theorem FunCtx.recursive_functional {Γ : FunCtx} {Δ : Signature} {ρ : Env}
+    {f : TinyML.Var} {fn : SpecFn} {x res : TinyML.Var} {R S : ValRel}
+    {a b b' : Srt.value.denote}
+    (hΓ : Γ.relWfIn Δ) (hrelFresh : fn.relName ∉ Δ.allNames) (hρ : Γ.Functional ρ ρ)
+    (hSR : ∀ u v, S u v → ∀ w, R u w → v = w) :
+    FunCtx.Functional (Γ.recursive f fn)
+      (SpecFn.Env.rel ρ fn x res S a b) (SpecFn.Env.rel ρ fn x res R a b') := by
+  intro g fn' hmem vin z₁ z₂ hz₁ hz₂
+  cases hmem with
+  | head =>
+      simp [SpecFn.evalRelates, SpecFn.rel, SpecFn.Env.rel,
+        _root_.Env.updateConst_binaryRel, _root_.Env.updateBinaryRel] at hz₁ hz₂
+      exact hSR vin z₁ hz₁ z₂ hz₂
+  | tail _ htail =>
+      have hne : fn'.relName ≠ fn.relName := fun h =>
+        hrelFresh (h ▸ Signature.mem_allNames_of_binaryRel (hΓ g fn' htail))
+      simp only [SpecFn.evalRelates, SpecFn.rel, SpecFn.Env.rel,
+        _root_.Env.updateConst_binaryRel, _root_.Env.updateBinaryRel] at hz₁ hz₂
+      simp [hne] at hz₁ hz₂
+      exact hρ g fn' htail vin z₁ z₂ hz₁ hz₂
+
+/-! ## Body encoding -/
+
+/-- The definition of one spec function, `fn := rec f x := e`, together with the
+context it is defined in. -/
+structure SpecDef where
+  primitives : PrimEncodings
+  Γ : FunCtx
+  Δ : Signature
+  f : TinyML.Var
+  fn : SpecFn
+  x : TinyML.Var
+  e : Typed.Expr
+
+namespace SpecDef
+
+/-- The variable the equation pins the result to, chosen outside `Δ`, the head
+symbols, and the argument. -/
+def res (sd : SpecDef) : TinyML.Var :=
+  Fresh.freshName (sd.Δ.allNames ++ sd.fn.names ++ [sd.x]) "r"
+
+/-- The head symbols and the argument are new for `Δ`, and so is the result
+variable. -/
+abbrev Fresh (sd : SpecDef) : Prop := SpecFnFresh.WithRes sd.Δ sd.fn sd.x sd.res
+
+/-- Freshness of the head is all the caller has to give: the result variable
+is chosen fresh. -/
+theorem fresh {sd : SpecDef} (hf : SpecFnFresh sd.Δ sd.fn sd.x) : sd.Fresh :=
+  { toSpecFnFresh := hf, resFresh := Fresh.freshName_not_in_avoid _ _ }
+
+end SpecDef
+
+/-- The encoder IR of the definition's body. Both readings consume it. -/
+def encodeBody (sd : SpecDef) : Except String Expr :=
+  encode sd.primitives sd.Δ (sd.Γ.recursive sd.f sd.fn)
+    (VarEnv.ofSignature (SpecFn.Sig.relArg sd.Δ sd.fn sd.x)) sd.e
+    (SpecFn.avoid sd.Δ sd.fn sd.x sd.res)
+
+/-- The definition's body as a closed FOL formula pinned at its result variable. -/
+def encodeFormula (sd : SpecDef) : Except String Formula :=
+  Expr.toFormula sd.res <$> encodeBody sd
+
 end Verifier.RelationalEncoding
+
+/-! ## What the relation symbol denotes -/
+
+namespace SpecFn.Semantics
+open Verifier.RelationalEncoding
+
+/-- Least-fixpoint relational interpretation of one definition. A body that
+fails to encode denotes the empty relation. -/
+def rel (sd : SpecDef) (ρ : Env) : ValRel :=
+  match encodeFormula sd with
+  | .error _ => fun _ _ => False
+  | .ok φ    => Relation.fixpoint φ ρ sd.fn sd.x sd.res
+
+/-- The relation induced by an encoded pure body is functional. -/
+theorem rel_functional {sd : SpecDef} {ρ : Env}
+    (hlaw : sd.primitives.Lawful) (hΓwf : sd.Γ.relWfIn sd.Δ) (hΓ : sd.Γ.Agreement ρ)
+    (hΔ : sd.Δ.wf) (hfresh : sd.Fresh)
+    (vin y₁ y₂ : Srt.value.denote) :
+    rel sd ρ vin y₁ → rel sd ρ vin y₂ → y₁ = y₂ := by
+  cases henc : encodeBody sd with
+  | error msg => intro h; simp [rel, encodeFormula, henc] at h
+  | ok c =>
+      have hΔbody := hfresh.toSpecFnFresh.sigRelArg_wf (x := sd.x) hΔ
+      let F : ValRel → ValRel := Relation.eval (Expr.toFormula sd.res c) ρ sd.fn sd.x sd.res
+      let R : ValRel := rel sd ρ
+      have hR : R = RelationFix.lfp F := by
+        simp [R, F, rel, Relation.fixpoint, encodeFormula, henc]
+      have hmono : RelationFix.Mono F :=
+        Relation.eval_mono (ρ := ρ) (fn := sd.fn) (x := sd.x) (res := sd.res)
+          (Expr.toFormula_mono sd.res c)
+      have hdet : (Expr.toFormula sd.res c).Determines
+          (sd.Γ.recursive sd.f sd.fn) (Sig.relArg sd.Δ sd.fn sd.x) sd.res :=
+        Expr.toFormula_determines
+          ((encode_wfIn hlaw sd.e hfresh.toSpecFnFresh.subset_sigRelArg hΔbody
+            (VarEnv.ofSignature_wfIn hΔbody) hfresh.covers_sigRelArg henc).weaken
+            reserved_subset_avoid)
+          hΔbody (by simp [reserved, names])
+      -- The part of `R` that relates its input to exactly one output.
+      let S : ValRel := fun a b => R a b ∧ ∀ b', R a b' → b = b'
+      have hpre : RelationFix.le (F S) S := by
+        intro a b hFS
+        have hFR : F R a b := hmono (fun _ _ h => h.1) a b hFS
+        constructor
+        · rw [hR]
+          exact RelationFix.lfp_prefixed hmono a b (by rw [← hR]; exact hFR)
+        · intro b' hRb'
+          have hFR' : F R a b' := by
+            have h := (RelationFix.lfp_unfold hmono a b').mp (by rw [← hR]; exact hRb')
+            rw [← hR] at h
+            exact h
+          have hresEq :=
+            hdet (SpecFn.Env.rel ρ sd.fn sd.x sd.res S a b)
+              (SpecFn.Env.rel ρ sd.fn sd.x sd.res R a b')
+              (FunCtx.recursive_functional hΓwf hfresh.toSpecFnFresh.relFresh hΓ.functional
+                (fun _ _ hv _ hw => hv.2 _ hw))
+              (Env.rel_agreeOnTerms hfresh.resFresh_sigRelArg) hFS hFR'
+          simpa [SpecFn.Env.rel, _root_.Env.lookupConst_updateConst_same] using hresEq
+      intro hy₁ hy₂
+      have hy₁S : S vin y₁ := by
+        change R vin y₁ at hy₁
+        rw [hR] at hy₁
+        exact RelationFix.lfp_le_of_prefixed hpre vin y₁ hy₁
+      exact hy₁S.2 y₂ hy₂
+
+end SpecFn.Semantics

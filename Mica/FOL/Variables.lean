@@ -476,6 +476,23 @@ theorem Subset.addConst {Δ Δ' : Signature} (h : Δ.Subset Δ') (c : FOL.Const)
    fun x hx => by cases hx with | head => left | tail _ hmem => right; exact h.consts x hmem,
    h.unary, h.binary, h.ternary, h.unaryRel, h.binaryRel⟩
 
+theorem Subset.addUnary {Δ Δ' : Signature} (h : Δ.Subset Δ') (u : FOL.Unary) :
+    (Δ.addUnary u).Subset (Δ'.addUnary u) :=
+  ⟨h.vars, h.consts,
+   fun x hx => by cases hx with | head => left | tail _ hmem => right; exact h.unary x hmem,
+   h.binary, h.ternary, h.unaryRel, h.binaryRel⟩
+
+theorem Subset.addUnaryRel {Δ Δ' : Signature} (h : Δ.Subset Δ') (u : FOL.UnaryRel) :
+    (Δ.addUnaryRel u).Subset (Δ'.addUnaryRel u) :=
+  ⟨h.vars, h.consts, h.unary, h.binary, h.ternary,
+   fun x hx => by cases hx with | head => left | tail _ hmem => right; exact h.unaryRel x hmem,
+   h.binaryRel⟩
+
+theorem Subset.addBinaryRel {Δ Δ' : Signature} (h : Δ.Subset Δ') (b : FOL.BinaryRel) :
+    (Δ.addBinaryRel b).Subset (Δ'.addBinaryRel b) :=
+  ⟨h.vars, h.consts, h.unary, h.binary, h.ternary, h.unaryRel,
+   fun x hx => by cases hx with | head => left | tail _ hmem => right; exact h.binaryRel x hmem⟩
+
 theorem Subset.subset_addVar (Δ : Signature) (v : Var) :
     Δ.Subset (Δ.addVar v) :=
   ⟨fun _ hx => List.mem_cons_of_mem _ hx, fun _ h => h, fun _ h => h, fun _ h => h, fun _ h => h, fun _ h => h, fun _ h => h⟩
@@ -685,6 +702,12 @@ theorem allNames_declVar_of_not_in {Δ : Signature} {x : String} {τ : Srt}
     (h : x ∉ Δ.allNames) : (Δ.declVar ⟨x, τ⟩).allNames = x :: Δ.allNames := by
   rw [declVar, remove_eq_of_not_in h]
   simp [allNames, addVar]
+
+/-- Declaring a variable whose name is fresh leaves the other variables alone. -/
+theorem vars_declVar_of_not_in {Δ : Signature} {v : Var}
+    (h : v.name ∉ Δ.allNames) : (Δ.declVar v).vars = v :: Δ.vars := by
+  rw [declVar, remove_eq_of_not_in h]
+  rfl
 
 /-- Declaring a variable on both sides preserves symbol inclusion, provided the
 new name on the right is fresh there: the symbols carried over from `Δ` already

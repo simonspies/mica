@@ -55,6 +55,11 @@ def Formula.all (x : String) (τ : Srt) (body : Formula) : Formula :=
 def Formula.iff (φ ψ : Formula) : Formula :=
   .and (.implies φ ψ) (.implies ψ φ)
 
+/-- Case split on a boolean-sorted condition, as the two guarded branches. -/
+def Formula.iteBool (cond : Term .bool) (φ ψ : Formula) : Formula :=
+  .and (.implies (.eq .bool cond (.const (.b true)))  φ)
+       (.implies (.eq .bool cond (.const (.b false))) ψ)
+
 /-- The value-sorted term is the encoded boolean `true`. -/
 @[simp]
 def Term.isTrue (t : Term .value) : Formula :=
@@ -147,6 +152,11 @@ def Formula.wfIn : Formula → Signature → Prop
   | .implies φ ψ, Δ      => φ.wfIn Δ ∧ ψ.wfIn Δ
   | .forall_ x τ ps φ, Δ => Pattern.List.wfIn ps (Δ.declVar ⟨x, τ⟩) ∧ φ.wfIn (Δ.declVar ⟨x, τ⟩)
   | .exists_ x τ φ, Δ    => φ.wfIn (Δ.declVar ⟨x, τ⟩)
+
+theorem Formula.iteBool_wfIn {cond : Term .bool} {φ ψ : Formula} {Δ : Signature}
+    (hc : cond.wfIn Δ) (hφ : φ.wfIn Δ) (hψ : ψ.wfIn Δ) :
+    (Formula.iteBool cond φ ψ).wfIn Δ := by
+  simp [Formula.iteBool, Formula.wfIn, Term.wfIn, Const.wfIn, hc, hφ, hψ]
 
 def Formula.checkWf : Formula → Signature → Except String Unit
   | .true_, _            => .ok ()

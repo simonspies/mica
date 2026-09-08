@@ -241,6 +241,19 @@ theorem Subst.eval_lookup (σ : Subst) (ρ : Env) (τ : Srt) (x : String) :
     (σ.eval ρ).lookupConst τ x = Term.eval ρ (σ.apply τ x) := by
   simp [Subst.eval, Env.lookupConst]
 
+@[simp] theorem Subst.id_eval (ρ : Env) : Subst.id.eval ρ = ρ := rfl
+
+/-- Extending a substitution with `x ↦ t` extends its induced environment with
+the value of `t`. -/
+theorem Subst.eval_update (σ : Subst) (ρ : Env) (τ : Srt) (x : String) (t : Term τ) :
+    (σ.update τ x t).eval ρ = (σ.eval ρ).updateConst τ x (Term.eval ρ t) := by
+  refine Env.ext ?_ rfl rfl rfl rfl rfl
+  funext τ' y
+  simp only [Subst.eval, Subst.update, Subst.apply, Env.updateConst]
+  split
+  · next h => obtain ⟨rfl, rfl⟩ := h; rfl
+  · rfl
+
 theorem Term.eval_subst {σ : Subst} {ρ : Env} {t : Term τ} {Δ Δ' : Signature}
     (ht : t.wfIn Δ) (hσ : σ.wfIn Δ.vars Δ') (hwfΔ' : Δ'.wf) :
     Term.eval ρ (t.subst σ) = Term.eval (σ.eval ρ) t := by
