@@ -436,3 +436,20 @@ theorem FiniteSubst.base_wfIn {Δ_base Δ_use : Signature}
       simp [FiniteSubst.base, Signature.declVars, hvars] at hv
     · exact hbasewf
   · simpa [FiniteSubst.base, Signature.declVars] using hbasewf
+
+/-- What the type/term pairs handed to `Spec.call` are made of: the first
+components are the argument types and the second are the compiled argument
+terms, which denote the argument values. -/
+theorem typedArgs_split {tys : List TinyML.Typ} {sargs : List (Term .value)}
+    {ρ : Env} {vs : List Runtime.Val}
+    (hlen : tys.length = sargs.length) (heval : Terms.Eval ρ sargs vs) :
+    (tys.zip sargs).map Prod.fst = tys ∧
+      (tys.zip sargs).map (fun p => p.2.eval ρ) = vs := by
+  have hfst : (tys.zip sargs).map Prod.fst = tys := List.map_fst_zip (Nat.le_of_eq hlen)
+  have hsnd : (tys.zip sargs).map Prod.snd = sargs :=
+    List.map_snd_zip (Nat.le_of_eq hlen.symm)
+  refine ⟨hfst, ?_⟩
+  calc (tys.zip sargs).map (fun p => p.2.eval ρ)
+      = sargs.map (fun t => t.eval ρ) := by
+          simpa [List.map_map] using congrArg (List.map (fun t => t.eval ρ)) hsnd
+    _ = vs := Terms.Eval.map_eval heval

@@ -16,10 +16,11 @@ namespace Spec
 private abbrev M := Except String
 
 private def parsePred : Untyped.Expr → M Pred
-  | .app (.var "isinj") [.const (.int tag), .const (.int arity), .var scrut] =>
+  | .app _ _ (_ :: _) => .error "ghost arguments are not supported on specification predicates"
+  | .app (.var "isinj") [.const (.int tag), .const (.int arity), .var scrut] [] =>
     .ok (.isinj tag.toNat arity.toNat scrut)
-  | .app (.var "own") [.var loc] => .ok (.own loc)
-  | .app (.var "arr") [.var loc] => .ok (.arr loc)
+  | .app (.var "own") [.var loc] [] => .ok (.own loc)
+  | .app (.var "arr") [.var loc] [] => .ok (.arr loc)
   | e => .error s!"expected predicate (isinj, own, arr) over a variable, got {repr e}"
 
 private def addProductLets (bound : Untyped.Expr) :
@@ -35,17 +36,20 @@ private def addProductLets (bound : Untyped.Expr) :
 private def parseAssert (inner : Untyped.Expr → M α)
     (bareAssert : Untyped.Expr → M (Assert Untyped.Expr Untyped.Typ α)) :
     Untyped.Expr → M (Assert Untyped.Expr Untyped.Typ α)
-  | .app (.var "ret") [e] => do .ok (.ret (← inner e))
-  | .app (.app (.var "bind") [e1]) [.fix .none [Untyped.Binder.named x (some ty)] _ e2] => do
+  | .app _ _ (_ :: _)
+  | .app (.app (.var "bind") _ (_ :: _)) _ _ =>
+    .error "ghost arguments are not supported on specification combinators"
+  | .app (.var "ret") [e] [] => do .ok (.ret (← inner e))
+  | .app (.app (.var "bind") [e1] []) [.fix .none [Untyped.Binder.named x (some ty)] _ e2] [] => do
     let pred ← parsePred e1
     let rest ← parseAssert inner bareAssert e2
     .ok (.bind pred x ty rest)
-  | .app (.app (.var "bind") [_]) [.fix .none [Untyped.Binder.named _ none] _ _] =>
+  | .app (.app (.var "bind") [_] []) [.fix .none [Untyped.Binder.named _ none] _ _] [] =>
     .error "bind continuation binder must be type-annotated"
-  | .letIn (Untyped.Binder.named x _) bound body => do
+  | .letIn _ (Untyped.Binder.named x _) bound body => do
     let rest ← parseAssert inner bareAssert body
     .ok (.let_ x bound rest)
-  | .letIn .none (.assert cond) body => do
+  | .letIn _ .none (.assert cond) body => do
     let rest ← parseAssert inner bareAssert body
     .ok (.assert cond rest)
   | .letProd names bound body => do
@@ -76,7 +80,7 @@ private def peelBinders : Untyped.Expr → M Untyped.SpecBody
     if names.isEmpty then .error "spec must bind at least one argument"
     else do
       let pre ← parsePre body
-      .ok ⟨names, pre⟩
+      .ok ⟨names, [], pre⟩
   | e => .error s!"expected fun x -> ..., got {repr e}"
 where
   getNames : List Untyped.Binder → M (List String)

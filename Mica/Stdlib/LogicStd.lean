@@ -61,6 +61,7 @@ def logicEq : Intrinsic where
   retTy := .bool
   spec :=
     { args := ["a", "b"]
+      ghost := []
       pred := .assert .false_ (.ret ⟨"ret", .ret ()⟩) }
   folTerm := some (.direct logicEqDirect)
   axioms := []

@@ -74,6 +74,7 @@ inductive Token where
   | arrow                           -- ->
   | leftArrow                       -- <-
   | dot | comma | bang              -- . , !
+  | percent                         -- %
   | pipe | underscore               -- | _
   | lparen | rparen
   | lbracket | rbracket
@@ -107,6 +108,7 @@ def Token.toString : Token → String
   | .semi     => ";"     | .semisemi => ";;"
   | .arrow    => "->"    | .leftArrow => "<-"
   | .dot      => "."     | .comma   => ","   | .bang  => "!"
+  | .percent  => "%"
   | .pipe     => "|"     | .underscore => "_"
   | .lparen   => "("     | .rparen  => ")"
   | .lbracket => "["     | .rbracket => "]"
@@ -275,7 +277,7 @@ where
             | '^' => some .caret
             | '>' => some .gt       | ':' => some .colon   | ';' => some .semi
             | '.' => some .dot      | ',' => some .comma   | '!' => some .bang
-            | '|' => some .pipe     | '@' => some .at
+            | '|' => some .pipe     | '@' => some .at    | '%' => some .percent
             | ')' => some .rparen
             | '[' => some .lbracket | ']' => some .rbracket
             | '{' => some .lbrace   | '}' => some .rbrace

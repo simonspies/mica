@@ -5,6 +5,14 @@ namespace TinyML
 
 abbrev Var := String
 
+/-- Whether code runs, or exists only for the verifier. Ghost code is deleted
+before compilation, so it may not touch the heap and nothing that runs may
+depend on it. -/
+inductive Mode where
+  | runtime
+  | ghost
+  deriving Repr, BEq, Inhabited, DecidableEq
+
 /-- Whether a mutable allocation is owned directly or shared through an invariant. -/
 inductive Ownership where
   | owned

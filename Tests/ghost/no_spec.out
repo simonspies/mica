@@ -1,0 +1,2 @@
+elaboration error: Tests/ghost/no_spec.ml:4:1: unsupported feature: [@@ghost] requires [@@spec]
+[1]

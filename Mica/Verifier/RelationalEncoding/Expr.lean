@@ -285,17 +285,17 @@ private def encodeWith (primitives : PrimEncodings) (Δ : Signature) (Γ : FunCt
   | .tuple es, k, avoid =>
     encodeListWith primitives Δ Γ δ es
       (fun vs avoid' => k (.unop .ofValList (Terms.toValList vs)) avoid') avoid
-  | .app (.var f _ _) [arg] _, k, avoid =>
+  | .app (.var f _ _) [arg] [] _, k, avoid =>
     match FunCtx.lookup Γ f with
     | none     => .error s!"unknown function: {f}"
     | some rel =>
       encodeWith primitives Δ Γ δ arg (fun v avoid' => do
         let r := Fresh.freshName avoid' "r"
         .ok (.call rel v r (← k (.var .value r) (r :: avoid')))) avoid
-  | .app (.prim n _ _) args _, k, avoid =>
+  | .app (.prim n _ _) args [] _, k, avoid =>
     encodeListWith primitives Δ Γ δ args
       (fun vs avoid' => do k (← encodePrim primitives Δ n vs) avoid') avoid
-  | .letIn b bound body, k, avoid =>
+  | .letIn _ b bound body, k, avoid =>
     encodeWith primitives Δ Γ δ bound (fun v avoid' =>
       encodeWith primitives Δ Γ (VarEnv.bindBinder δ b v) body k avoid') avoid
   | .letProd bs bound body, k, avoid =>
@@ -307,7 +307,10 @@ private def encodeWith (primitives : PrimEncodings) (Δ : Signature) (Γ : FunCt
   | .match_ scrut branches _, k, avoid =>
     encodeWith primitives Δ Γ δ scrut
       (fun v avoid' => encodeMatchWith primitives Δ Γ δ v branches 0 k avoid') avoid
-  | .app _ _ _, _, _ => .error "relational encoding: only unary calls to named top-level functions are supported"
+  | .app _ _ gargs _, _, _ =>
+    .error (if gargs.isEmpty then
+      "relational encoding: only unary calls to named top-level functions are supported"
+      else "relational encoding: ghost arguments are not supported")
   | .fix .., _, _    => .error "relational encoding: nested `fix` is not supported"
   | .ref .., _, _    => .error "relational encoding: heap allocation (`ref`) is not supported"
   | .deref .., _, _  => .error "relational encoding: heap dereference is not supported"
@@ -477,13 +480,13 @@ private theorem ifThenElse {primitives : PrimEncodings} (c t e : Typed.Expr) (ty
           (ihe (hsub.trans hsa) hΔa hδa hcova hka he)
 
 private theorem app {primitives : PrimEncodings} (hlaw : primitives.Lawful)
-    (fn : Typed.Expr) (args : List Typed.Expr) (ty : TinyML.Typ)
+    (fn : Typed.Expr) (args gargs : List Typed.Expr) (ty : TinyML.Typ)
     (ihArgs : ∀ a ∈ args, EncodeWithWfIn primitives a)
     (ihArgsList : EncodeListWithWfIn primitives args) :
-    EncodeWithWfIn primitives (.app fn args ty) := by
+    EncodeWithWfIn primitives (.app fn args gargs ty) := by
   intro Γ Δ _ δ _ k _ hsub hΔ' hδ hcov hk henc
-  match fn, args with
-  | .var f _ _, [arg] =>
+  match fn, args, gargs with
+  | .var f _ _, [arg], [] =>
       cases hlk : FunCtx.lookup Γ f with
       | none => simp only [encodeWith, hlk] at henc; cases henc
       | some rel =>
@@ -508,7 +511,7 @@ private theorem app {primitives : PrimEncodings} (hlaw : primitives.Lawful)
                 ((hk (hsa.trans hsubr) hΔr hcovr _
                   (var_value_wfIn hΔr (Signature.var_mem_declVar _ _)) _ hkrun).weaken
                   (fun _ hm => List.mem_cons_of_mem _ hm))
-  | .prim n _ _, args =>
+  | .prim n _ _, args, [] =>
       simp only [encodeWith] at henc
       refine ihArgsList hsub hΔ' hδ hcov ?_ henc
       intro Δa avoidA hsa hΔa hcova vs hvs c' henc'
@@ -518,16 +521,18 @@ private theorem app {primitives : PrimEncodings} (hlaw : primitives.Lawful)
           simp only [hraw, bind, Except.bind] at henc'
           exact hk hsa hΔa hcova v
             (encodePrim_wfIn hlaw hraw (hsub.trans hsa) hΔa hvs) c' henc'
-  | .const _, _ | .unop .., _ | .binop .., _ | .fix .., _ | .app .., _
-  | .ifThenElse .., _ | .letIn .., _ | .letProd .., _ | .ref .., _ | .deref .., _ | .store .., _
-  | .arrayMake .., _ | .arrayLen _, _ | .arrayGet .., _ | .arraySet .., _
-  | .assert _, _ | .tuple _, _ | .inj .., _ | .match_ .., _
-  | .var _ _ _, [] | .var _ _ _, _ :: _ :: _ =>
+  | .const _, _, _ | .unop .., _, _ | .binop .., _, _ | .fix .., _, _ | .app .., _, _
+  | .ifThenElse .., _, _ | .letIn .., _, _ | .letProd .., _, _ | .ref .., _, _ | .deref .., _, _
+  | .store .., _, _ | .arrayMake .., _, _ | .arrayLen _, _, _ | .arrayGet .., _, _
+  | .arraySet .., _, _ | .assert _, _, _ | .tuple _, _, _ | .inj .., _, _ | .match_ .., _, _
+  | .var _ _ _, [], _ | .var _ _ _, _ :: _ :: _, _ | .var _ _ _, [_], _ :: _
+  | .prim .., _, _ :: _ =>
       simp only [encodeWith] at henc; cases henc
 
-private theorem letIn {primitives : PrimEncodings} (name : Typed.Binder) (bound body : Typed.Expr)
+private theorem letIn {primitives : PrimEncodings} (mode : TinyML.Mode) (name : Typed.Binder)
+    (bound body : Typed.Expr)
     (ihBound : EncodeWithWfIn primitives bound) (ihBody : EncodeWithWfIn primitives body) :
-    EncodeWithWfIn primitives (.letIn name bound body) := by
+    EncodeWithWfIn primitives (.letIn mode name bound body) := by
   intro _ _ _ δ _ _ _ hsub hΔ' hδ hcov hk henc
   simp only [encodeWith] at henc
   refine ihBound hsub hΔ' hδ hcov ?_ henc
@@ -654,12 +659,12 @@ private theorem encodeWith_wfIn_def {primitives : PrimEncodings} (hlaw : primiti
   | .ifThenElse c t e ty =>
       WfCase.ifThenElse c t e ty (encodeWith_wfIn_def hlaw c)
         (encodeWith_wfIn_def hlaw t) (encodeWith_wfIn_def hlaw e)
-  | .app fn args ty =>
-      WfCase.app hlaw fn args ty (fun a _ => encodeWith_wfIn_def hlaw a)
+  | .app fn args gargs ty =>
+      WfCase.app hlaw fn args gargs ty (fun a _ => encodeWith_wfIn_def hlaw a)
         (encodeListWith_wfIn_def hlaw args)
   | .fix .. => WfCase.unsupported (by simp [encodeWith])
-  | .letIn name bound body =>
-      WfCase.letIn name bound body
+  | .letIn mode name bound body =>
+      WfCase.letIn mode name bound body
         (encodeWith_wfIn_def hlaw bound) (encodeWith_wfIn_def hlaw body)
   | .letProd names bound body =>
       WfCase.letProd names bound body

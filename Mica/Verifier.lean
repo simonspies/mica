@@ -10,6 +10,8 @@ import Mica.Verifier.Utils
 import Mica.Verifier.Assertions
 import Mica.Verifier.Intrinsic
 import Mica.Verifier.BoundedQuantifier
+import Mica.Verifier.Compilation
+import Mica.Verifier.Ghost
 import Mica.Verifier.Expressions
 import Mica.Verifier.RelationalEncoding
 import Mica.Verifier.Specifications

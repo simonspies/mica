@@ -47,9 +47,12 @@ structure Post (ε τ : Type) where
 abbrev Pre (ε τ : Type) := Assert ε τ (Post ε τ)
 
 /-- A spec body as written: the argument names it binds, together with the
-precondition. Typing turns it into a completed `Spec` (`Assertions.lean`). -/
+precondition. Typing turns it into a completed `Spec` (`Assertions.lean`).
+
+`ghost` are the specification-only parameters `[@@ghost]` declares. -/
 structure Body (ε τ : Type) where
   args : List String
+  ghost : List (String × τ)
   pre : Assert ε τ (Post ε τ)
 
 /-- Spec bodies print as a placeholder. `Repr` on the untyped IR exists for
@@ -96,9 +99,13 @@ mutual
     | unop (op : UnOp) (e : Expr)
     | binop (op : BinOp) (lhs rhs : Expr)
     | fix (self : Binder) (args : List Binder) (retTy : Option Typ) (body : Expr)
-    | app (fn : Expr) (args : List Expr)
+    /-- `gargs` are the ghost arguments written `[@ghost g1 g2]`: they are
+    specification-level, so `Expr.runtime` drops them. -/
+    | app (fn : Expr) (args : List Expr) (gargs : List Expr)
     | ifThenElse (cond thn els : Expr)
-    | letIn (name : Binder) (bound body : Expr)
+    /-- `mode` is `.ghost` for `let%ghost`: the binding exists only for the
+    verifier, so `Expr.runtime` drops it. -/
+    | letIn (mode : Mode) (name : Binder) (bound body : Expr)
     | letProd (names : List Binder) (bound body : Expr)
     | ref    (ownership : Ownership) (e : Expr)
     | deref  (e : Expr)
@@ -159,6 +166,9 @@ structure ValDecl (S : Type) where
   /-- Whether `[@@impl]` also verifies the body as run-time code. Its `spec` is
   then generated rather than written. -/
   impl : Bool := false
+  mode : Mode := .runtime
+  /-- The `[@@decreases]` measure, over the specification's parameters. -/
+  decreases : Option Expr := none
   deriving Repr, Inhabited
 
 /-- A data declaration as the frontend elaborates it. Its payloads are untyped
@@ -246,9 +256,10 @@ def Expr.runtime : Untyped.Expr → Runtime.Expr
   | .unop op e => .unop op e.runtime
   | .binop op l r => .binop op l.runtime r.runtime
   | .fix self args _ body => .fix (self.runtime) (args.map (·.runtime)) body.runtime
-  | .app fn args => .app fn.runtime (args.map Expr.runtime)
+  | .app fn args _ => .app fn.runtime (args.map Expr.runtime)
   | .ifThenElse c t e => .ifThenElse c.runtime t.runtime e.runtime
-  | .letIn b bound body => .letIn (b.runtime) bound.runtime body.runtime
+  | .letIn .ghost _ _ body => body.runtime
+  | .letIn .runtime b bound body => .letIn (b.runtime) bound.runtime body.runtime
   | .letProd bs bound body => .letProd (bs.map (·.runtime)) bound.runtime body.runtime
   | .ref _ e => .ref e.runtime
   | .deref e => .deref e.runtime
@@ -274,7 +285,9 @@ def ValDecl.runtime {S : Type} (d : Untyped.ValDecl S) : Runtime.Decl :=
   { name := d.name.runtime, body := d.body.runtime }
 
 def Decl.runtime {S : Type} : Untyped.Decl S → Option Runtime.Decl
-  | .val_ d => some d.runtime
+  | .val_ d => match d.mode with
+    | .runtime => some d.runtime
+    | .ghost => none
   | .type_ _ => none
 
 def Program.runtime {S : Type} (prog : Untyped.Program S) : Runtime.Program :=

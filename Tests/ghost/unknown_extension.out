@@ -1,0 +1,2 @@
+elaboration error: Tests/ghost/unknown_extension.ml:5:3: unsupported feature: the extension node 'let%magic'
+[1]

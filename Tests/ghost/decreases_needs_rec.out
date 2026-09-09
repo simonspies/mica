@@ -1,0 +1,2 @@
+elaboration error: Tests/ghost/decreases_needs_rec.ml:4:1: unsupported feature: [@@decreases] requires a recursive declaration
+[1]

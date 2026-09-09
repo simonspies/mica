@@ -174,6 +174,8 @@ inductive AttrName where
   | spec
   | fn
   | impl
+  | ghost
+  | decreases
   | owned
   | unknown (name : String)
   deriving Repr, Inhabited, BEq, DecidableEq
@@ -181,22 +183,49 @@ inductive AttrName where
 namespace AttrName
 
 def ofString : String → AttrName
-  | "spec"  => .spec
-  | "fn"    => .fn
-  | "impl"  => .impl
-  | "owned" => .owned
-  | name    => .unknown name
+  | "spec"      => .spec
+  | "fn"        => .fn
+  | "impl"      => .impl
+  | "ghost"     => .ghost
+  | "decreases" => .decreases
+  | "owned"     => .owned
+  | name        => .unknown name
 
 def toString : AttrName → String
   | .spec         => "spec"
   | .fn           => "fn"
   | .impl         => "impl"
+  | .ghost        => "ghost"
+  | .decreases    => "decreases"
   | .owned        => "owned"
   | .unknown name => name
 
 instance : ToString AttrName := ⟨AttrName.toString⟩
 
 end AttrName
+
+-- Extension nodes
+
+/-- The name of an extension node `let%name`. As for an attribute, an
+unrecognized name is carried through to elaboration, which rejects it. -/
+inductive ExtName where
+  | ghost
+  | unknown (name : String)
+  deriving Repr, Inhabited, BEq, DecidableEq
+
+namespace ExtName
+
+def ofString : String → ExtName
+  | "ghost" => .ghost
+  | name    => .unknown name
+
+def toString : ExtName → String
+  | .ghost        => "ghost"
+  | .unknown name => name
+
+instance : ToString ExtName := ⟨ExtName.toString⟩
+
+end ExtName
 
 -- Types, patterns, expressions, match arms
 
@@ -239,7 +268,10 @@ mutual
     | arraySet (arr idx val : Expr)
     | unop (op : UnOp) (e : Expr)
     | ite (cond thn els : Expr)
-    | letIn (rec : Bool) (binders : List Pattern) (retTy : Option Typ) (bound body : Expr)
+    /-- `ext` is the extension node the binding is written under, as in
+    `let%ghost x = e in body`. -/
+    | letIn (ext : Option ExtName) (rec : Bool) (binders : List Pattern)
+        (retTy : Option Typ) (bound body : Expr)
     | fun_ (args : List Pattern) (retTy : Option Typ) (body : Expr)
     | match_ (scrutinee : Expr) (arms : List MatchArm)
     | tuple (es : List Expr)

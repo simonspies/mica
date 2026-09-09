@@ -170,6 +170,7 @@ def intrinsic (name : String) (path : String) : Verifier.Intrinsic where
   retTy := .bool
   spec :=
     { args := ["lo", "hi", "body"]
+      ghost := []
       pred := .assert .false_ (.ret ⟨"ret", .ret ()⟩) }
   folTerm := none
   axioms := []
@@ -266,10 +267,10 @@ mutual
     | .fix self args _ _ body =>
         (freeVars body).filter fun v =>
           self.name != some v && !args.any (·.name == some v)
-    | .app (.var _ _ _) [arg] _ => freeVars arg
-    | .app fn args _ => freeVars fn ++ args.flatMap freeVars
+    | .app (.var _ _ _) [arg] _ _ => freeVars arg
+    | .app fn args gargs _ => freeVars fn ++ args.flatMap freeVars ++ gargs.flatMap freeVars
     | .ifThenElse c t e _ => freeVars c ++ freeVars t ++ freeVars e
-    | .letIn b bound body =>
+    | .letIn _ b bound body =>
         freeVars bound ++ (freeVars body).filter (fun v => b.name != some v)
     | .letProd bs bound body =>
         freeVars bound ++ (freeVars body).filter (fun v => !bs.any (·.name == some v))
@@ -326,14 +327,15 @@ private def lift (all : Bool) (binder : Typed.Binder)
       else throw s!"bounded-quantifier digest collision on '{name}'"
   | none => set ({ syms := st.syms ++ [entry] } : LiftState)
   pure (.app (.var name [] (.arrow [.value] .bool none))
-    [.tuple (lo :: hi :: captured.map (fun x => Typed.Expr.var x [] .value))] .bool)
+    [.tuple (lo :: hi :: captured.map (fun x => Typed.Expr.var x [] .value))] [] .bool)
 
 /-- Rewrite every bounded-quantifier occurrence in a spec leaf, bottom-up:
 bounds and closure bodies are rewritten first, so inner occurrences are
 lifted before — and their calls captured by — outer ones. -/
 private partial def rewrite : Typed.Expr → LiftM Typed.Expr
-  | .app (.prim n inst pty) args ty => do
-      if isPrim n then
+  | .app (.prim n inst pty) args gargs ty => do
+      if !gargs.isEmpty then throw "ghost arguments are not supported inside a bounded quantifier"
+      else if isPrim n then
         match args with
         | [lo, hi, .fix _ [binder] _ _ body] => do
             let lo' ← rewrite lo
@@ -342,18 +344,19 @@ private partial def rewrite : Typed.Expr → LiftM Typed.Expr
             lift (n = allName) binder body' lo' hi'
         | _ => throw "Range.all/Range.exists expect a literal single-argument function"
       else do
-        pure (.app (.prim n inst pty) (← args.mapM rewrite) ty)
+        pure (.app (.prim n inst pty) (← args.mapM rewrite) [] ty)
   | .const c => pure (.const c)
   | .var x inst ty => pure (.var x inst ty)
   | .prim n inst ty => pure (.prim n inst ty)
   | .unop op e ty => do pure (.unop op (← rewrite e) ty)
   | .binop op l r ty => do pure (.binop op (← rewrite l) (← rewrite r) ty)
   | .fix self args retTy spec body => do pure (.fix self args retTy spec (← rewrite body))
-  | .app fn args ty => do
-      pure (.app (← rewrite fn) (← args.mapM rewrite) ty)
+  | .app fn args gargs ty => do
+      if !gargs.isEmpty then throw "ghost arguments are not supported inside a bounded quantifier"
+      pure (.app (← rewrite fn) (← args.mapM rewrite) [] ty)
   | .ifThenElse c t e ty => do
       pure (.ifThenElse (← rewrite c) (← rewrite t) (← rewrite e) ty)
-  | .letIn b bound body => do pure (.letIn b (← rewrite bound) (← rewrite body))
+  | .letIn m b bound body => do pure (.letIn m b (← rewrite bound) (← rewrite body))
   | .letProd bs bound body => do
       pure (.letProd bs (← rewrite bound) (← rewrite body))
   | .ref ownership e => do pure (.ref ownership (← rewrite e))

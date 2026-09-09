@@ -315,13 +315,14 @@ def Expr.close (st : State) : Expr → Except TypeError Typed.Expr
         (← State.close st ret)
         (← TinyML.Typ.substSpecM? (State.closeVar st) spec)
         (← Expr.close st body))
-  | .app fn args ty => do
-      pure (.app (← Expr.close st fn) (← Expr.closeList st args) (← State.close st ty))
+  | .app fn args gargs ty => do
+      pure (.app (← Expr.close st fn) (← Expr.closeList st args)
+        (← Expr.closeList st gargs) (← State.close st ty))
   | .ifThenElse c t e ty => do
       pure (.ifThenElse (← Expr.close st c) (← Expr.close st t) (← Expr.close st e)
         (← State.close st ty))
-  | .letIn b x body => do
-      pure (.letIn (← Binder.close st b) (← Expr.close st x) (← Expr.close st body))
+  | .letIn m b x body => do
+      pure (.letIn m (← Binder.close st b) (← Expr.close st x) (← Expr.close st body))
   | .letProd bs x body => do
       pure (.letProd (← bs.mapM (Binder.close st)) (← Expr.close st x) (← Expr.close st body))
   | .ref o e => do pure (.ref o (← Expr.close st e))
@@ -373,6 +374,13 @@ def Ctx.extendBinder (Γ : Ctx) (b : Binder) : Ctx :=
 
 def Ctx.extendList (Γ : Ctx) (bs : List Binder) : Ctx :=
   bs.foldl Ctx.extendBinder Γ
+
+/-- The ghost parameters a specification declares are in scope in the body of
+the function it specifies, so that the body can pass them on to the calls it
+makes. -/
+def Ctx.extendGhost (Γ : Ctx) : Option (Spec Typ) → Ctx
+  | none => Γ
+  | some s => s.ghost.foldl (fun Γ p => Γ.extend p.1 p.2) Γ
 
 
 /-! ## The inference monad

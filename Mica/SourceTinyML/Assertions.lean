@@ -55,10 +55,19 @@ def PredTrans (T : Type) := Assertion T (Post T)
 
 /-- A complete specification for a (possibly multi-argument) function: the
     argument names and the predicate transformer describing its behavior. The
-    argument and result *types* live in the enclosing n-ary arrow, not here. -/
+    argument and result *types* live in the enclosing n-ary arrow, not here.
+
+    `ghost` are the specification-only parameters, which a call site binds to
+    specification-level expressions of its own. They carry their types because
+    no arrow declares them. -/
 structure Spec (T : Type) where
   args : List String
+  ghost : List (String × T)
   pred : Assertion T (Post T)
+
+/-- The names a specification binds, run-time arguments first. -/
+def Spec.allArgs (s : Spec T) : List String :=
+  s.args ++ s.ghost.map Prod.fst
 
 /-- Specifications print as a placeholder. -/
 instance : Repr (Spec T) := ⟨fun _ _ => "<spec>"⟩

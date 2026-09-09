@@ -60,6 +60,9 @@ private def resolveSpecVar (names : List String) (x : String) : TypeM σ (Term .
   if x ∈ names then pure (.var .value x)
   else TypeM.error (.spec s!"unbound spec variable '{x}'")
 
+private def Spec.scope (Γbase : TyCtx) (argTys ghost : List (String × Typ)) : TyCtx :=
+  (argTys ++ ghost).foldl (fun Γ p => Γ.extend p.1 p.2) Γbase
+
 /-- Match the spec's bound names against the typed function binders to recover
 each argument's type. -/
 private def extractSpecArgTypes : List Typed.Binder → List String → Except TypeError (List (String × Typ))
@@ -68,6 +71,28 @@ private def extractSpecArgTypes : List Typed.Binder → List String → Except T
   | b :: bs, n :: ns => do
     let rest ← extractSpecArgTypes bs ns
     .ok ((n, b.ty) :: rest)
+
+/-- Reject a ghost parameter that takes a name the specification already binds:
+nothing at a use site tells the two apart. -/
+private def checkGhostNames (bound : List String) : List String → Except TypeError Unit
+  | [] => .ok ()
+  | x :: xs =>
+    if x ∈ bound then
+      .error (.spec s!"ghost parameter '{x}' shadows a name the specification already binds")
+    else checkGhostNames (x :: bound) xs
+
+/-- The types a call's ghost arguments are checked at. Only a specified
+function declares ghost parameters. -/
+private def Infer.ghostDoms (spec : Option (Spec Infer.Typ)) (gargs : List Untyped.Expr) :
+    Infer.M σ (List Infer.Typ) :=
+  match spec with
+  | none =>
+      if gargs.isEmpty then pure []
+      else Infer.error (.spec "[@ghost] on a call to an unspecified function")
+  | some s =>
+      if s.ghost.length == gargs.length then pure (s.ghost.map Prod.snd)
+      else Infer.error (.spec
+        s!"ghost argument count: the callee declares {s.ghost.length}, the call passes {gargs.length}")
 
 /-- Elaborate a spec predicate into the atom binding its payload, checking the
 scrutinee against both the type context and the spec-level scope. -/
@@ -242,15 +267,17 @@ mutual
         let (args', ret, spec) ← Infer.fixSignature env Θ args retTy exp
         let fnTy : Infer.Typ := .arrow (args'.map (·.ty)) ret spec
         let self' ← Infer.Binder.elaborateAt env Θ self fnTy
-        let Γ' := Infer.Ctx.extendList (Γ.extendBinder self') args'
+        let Γ' := (Infer.Ctx.extendList (Γ.extendBinder self') args').extendGhost spec
         pure (.fix self' args' ret spec (← Infer.Expr.elaborate env Θ Γ' body ret))
-    | .app fn args, exp => do
+    | .app fn args gargs, exp => do
         let fnTy ← Infer.fresh
         let fn' ← Infer.Expr.elaborate env Θ Γ fn fnTy
-        let (doms, ret, _) ← Infer.Constraint.arrow Θ fnTy args.length
+        let (doms, ret, spec) ← Infer.Constraint.arrow Θ fnTy args.length
         let args' ← Infer.Expr.elaborateList env Θ Γ args doms
+        let ghostDoms ← Infer.ghostDoms spec gargs
+        let gargs' ← Infer.Expr.elaborateList env Θ Γ gargs ghostDoms
         Infer.unify Θ ret exp
-        pure (.app fn' args' ret)
+        pure (.app fn' args' gargs' ret)
     | .ifThenElse cond thn els, exp => do
         -- Both branches are elaborated at the expected type rather than the
         -- first fixing the type of the second, so a branch that does not return
@@ -260,10 +287,11 @@ mutual
         let thn' ← Infer.Expr.elaborate env Θ Γ thn exp
         let els' ← Infer.Expr.elaborate env Θ Γ els exp
         pure (.ifThenElse cond' thn' els' exp)
-    | .letIn name bound body, exp => do
+    | .letIn mode name bound body, exp => do
         let name' ← Infer.Binder.elaborate env Θ name
         let bound' ← Infer.Expr.elaborate env Θ Γ bound name'.ty
-        pure (.letIn name' bound' (← Infer.Expr.elaborate env Θ (Γ.extendBinder name') body exp))
+        pure (.letIn mode name' bound'
+          (← Infer.Expr.elaborate env Θ (Γ.extendBinder name') body exp))
     | .letProd names bound body, exp => do
         let names' ← Infer.Binder.elaborateList env Θ names
         let bound' ← Infer.Expr.elaborate env Θ Γ bound (.tuple (names'.map (·.ty)))
@@ -448,13 +476,24 @@ mutual
   def Spec.Body.elaborate (env : SpecEnv σ) (Θ : TypeEnv) (Γbase : TyCtx)
       (argBinders : List Typed.Binder) (retTy : Typ)
       (rb : Untyped.SpecBody) : TypeM σ (Spec Typ) := do
-    let names := rb.args
-    let argTys ← TypeM.ofExcept (extractSpecArgTypes argBinders names)
-    let Γ₀ : TyCtx := argTys.foldl (fun Γ p => Γ.extend p.1 p.2) Γbase
-    let pred ← Spec.Pre.elaborate env Θ retTy Γ₀ names rb.pre
-    pure { args := names, pred := pred }
+    let argTys ← TypeM.ofExcept (extractSpecArgTypes argBinders rb.args)
+    TypeM.ofExcept (checkGhostNames rb.args (rb.ghost.map Prod.fst))
+    let ghost ← Spec.Ghost.elaborate env Θ rb.ghost
+    let names := rb.args ++ ghost.map Prod.fst
+    let pred ← Spec.Pre.elaborate env Θ retTy (Spec.scope Γbase argTys ghost) names rb.pre
+    -- No arrow declares a ghost parameter, so the precondition opens by
+    -- assuming its type. The caller proves it of the argument it passes.
+    let tyc := ghost.flatMap fun p => TinyML.typeConstraints p.2 (.var .value p.1)
+    pure { args := rb.args, ghost := ghost, pred := assertAll tyc pred }
   termination_by (sizeOf rb, 0)
-  decreasing_by obtain ⟨args, pre⟩ := rb; simp; omega
+  decreasing_by all_goals (obtain ⟨args, ghost, pre⟩ := rb; simp; omega)
+
+  def Spec.Ghost.elaborate (env : SpecEnv σ) (Θ : TypeEnv) :
+      List (String × Untyped.Typ) → TypeM σ (List (String × Typ))
+    | [] => pure []
+    | (x, t) :: ps => do
+        pure ((x, ← Typ.elaborate env Θ t) :: (← Spec.Ghost.elaborate env Θ ps))
+  termination_by ps => (sizeOf ps, 0)
 end
 
 /-- Translate a specified function's argument binders. `ValDecl.elaborateSpecified`
@@ -493,10 +532,13 @@ than through a side table.
 
 `self` is the spec-level function the declaration itself defines. The global
 context reaches a declaration without its own name, so the specification is
-given it here; the body reaches itself through the literal's binder. -/
+given it here; the body reaches itself through the literal's binder.
+
+`dec` is the `[@@decreases]` measure, elaborated in the specification's scope
+but without `self`: a measure may not call the function it measures. -/
 def ValDecl.elaborateSpecified (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx)
-    (self : Option TinyML.Var) (rb : Untyped.SpecBody) :
-    Untyped.Expr → TypeM σ (Spec Typ × Typed.Expr)
+    (self : Option TinyML.Var) (rb : Untyped.SpecBody) (dec : Option Untyped.Expr) :
+    Untyped.Expr → TypeM σ (Spec Typ × Option Measure × Typed.Expr)
   | e@(.fix _ args (some retAnn) _) => do
       -- A specified signature has to be complete: the specification is written
       -- against these types, so leaving one to inference would let the body
@@ -513,8 +555,13 @@ def ValDecl.elaborateSpecified (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.Ty
         let s ← Spec.Body.elaborate env Θ
           (match self with | some f => Γ.extend f (.arrow argTys ret none) | none => Γ)
           typedArgs ret rb
+        let dec' ← dec.mapM fun m => do
+          let specArgTys ← TypeM.ofExcept (extractSpecArgTypes typedArgs s.args)
+          let m' ← Expr.elaborate env Θ (Spec.scope Γ specArgTys s.ghost) m (some .int)
+          let (v, defd) ← env.translate s.allArgs m'
+          pure { term := Term.unop .toInt v, defined := defd }
         let body' ← Expr.elaborate env Θ Γ e (some (.arrow argTys ret (some s)))
-        pure (s, body')
+        pure (s, dec', body')
   | .fix _ _ none _ =>
       TypeM.error (.spec "specified functions require a return type annotation")
   | _ => TypeM.error (.spec "attached to a non-function declaration")
@@ -552,11 +599,11 @@ def ValDecl.elaborate (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx)
       -- declaration's own type — and hence the type every later use is
       -- annotated with — is the specified arrow.
       -- `d.relation` is the declaration's own name.
-      let (_, body') ← ValDecl.elaborateSpecified env Θ Γ
-        (if d.impl then d.relation else none) rb d.body
+      let (_, dec', body') ← ValDecl.elaborateSpecified env Θ Γ
+        (if d.impl then d.relation else none) rb d.decreases d.body
       checkDeclAnnotation env Θ d.name body'.ty
       pure { name := Typed.Binder.ofUntyped d.name body'.ty, body := body',
-             relation := d.relation }
+             relation := d.relation, mode := d.mode, decreases := dec' }
   | none => do
       -- The declaration's own annotation, if it has one, is the only type the
       -- body is expected at; without one the body decides its own.
@@ -565,7 +612,7 @@ def ValDecl.elaborate (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx)
         | _ => none)
       let body' ← Expr.elaborate env Θ Γ d.body expected
       pure { name := Typed.Binder.ofUntyped d.name body'.ty, body := body',
-             relation := d.relation }
+             relation := d.relation, mode := d.mode }
 
 /-- Only a function literal is generalized. Anything else whose type still has
 a variable to quantify would need a weak variable standing for the type its

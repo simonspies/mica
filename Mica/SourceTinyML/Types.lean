@@ -431,11 +431,25 @@ termination_by structural a _ => a
 /-- Equality of specifications, mutually with `Typ.decEq`. -/
 def Typ.decEqSpec {V : Type} [DecidableEq V] :
     (a b : Spec (Typ.WithTypeVars V)) → Decidable (a = b)
-  | ⟨as, p⟩, ⟨bs, q⟩ =>
-    match _root_.decEq as bs, Typ.decEqPredTrans p q with
-    | isTrue h1, isTrue h2 => isTrue (by subst h1; subst h2; rfl)
-    | isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
-    | _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
+  | ⟨as, gs, p⟩, ⟨bs, hs, q⟩ =>
+    match _root_.decEq as bs, Typ.decEqGhost gs hs, Typ.decEqPredTrans p q with
+    | isTrue h1, isTrue h2, isTrue h3 => isTrue (by subst h1; subst h2; subst h3; rfl)
+    | isFalse h, _, _ => isFalse (by intro heq; cases heq; exact h rfl)
+    | _, isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
+    | _, _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
+termination_by structural a _ => a
+
+/-- Equality of ghost parameter lists, mutually with `Typ.decEq`. -/
+def Typ.decEqGhost {V : Type} [DecidableEq V] :
+    (a b : List (String × Typ.WithTypeVars V)) → Decidable (a = b)
+  | [], [] => isTrue rfl
+  | [], _ :: _ | _ :: _, [] => isFalse (by intro h; cases h)
+  | (x, t) :: rest, (y, u) :: rest' =>
+    match _root_.decEq x y, Typ.decEq t u, Typ.decEqGhost rest rest' with
+    | isTrue h1, isTrue h2, isTrue h3 => isTrue (by subst h1; subst h2; subst h3; rfl)
+    | isFalse h, _, _ => isFalse (by intro heq; cases heq; exact h rfl)
+    | _, isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
+    | _, _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
 termination_by structural a _ => a
 
 /-- Equality of optional specifications, mutually with `Typ.decEq`. -/
@@ -539,8 +553,17 @@ termination_by structural a => a
 /-- Substitution in a specification, mutually with `Typ.subst`. -/
 def Typ.substSpec (σ : V → Typ.WithTypeVars W) :
     Spec (Typ.WithTypeVars V) → Spec (Typ.WithTypeVars W)
-  | s => { args := s.args, pred := Typ.substPredTrans σ s.pred }
+  | s => { args := s.args, ghost := Typ.substGhost σ s.ghost,
+           pred := Typ.substPredTrans σ s.pred }
 termination_by structural s => s
+
+/-- Substitution in a specification's ghost parameters, mutually with
+`Typ.subst`. -/
+def Typ.substGhost (σ : V → Typ.WithTypeVars W) :
+    List (String × Typ.WithTypeVars V) → List (String × Typ.WithTypeVars W)
+  | [] => []
+  | (x, t) :: rest => (x, Typ.subst σ t) :: Typ.substGhost σ rest
+termination_by structural g => g
 
 /-- Substitution in an optional specification, mutually with `Typ.subst`. -/
 def Typ.substSpec? (σ : V → Typ.WithTypeVars W) :
@@ -622,8 +645,17 @@ termination_by structural a => a
 /-- Rejecting substitution in a specification, mutually with `Typ.substM`. -/
 def Typ.substSpecM (σ : V → Except ε (Typ.WithTypeVars W)) :
     Spec (Typ.WithTypeVars V) → Except ε (Spec (Typ.WithTypeVars W))
-  | ⟨args, pred⟩ => do pure ⟨args, ← Typ.substPredTransM σ pred⟩
+  | ⟨args, ghost, pred⟩ => do
+      pure ⟨args, ← Typ.substGhostM σ ghost, ← Typ.substPredTransM σ pred⟩
 termination_by structural s => s
+
+/-- Rejecting substitution in ghost parameters, mutually with `Typ.substM`. -/
+def Typ.substGhostM (σ : V → Except ε (Typ.WithTypeVars W)) :
+    List (String × Typ.WithTypeVars V) →
+      Except ε (List (String × Typ.WithTypeVars W))
+  | [] => pure []
+  | (x, t) :: rest => do pure ((x, ← Typ.substM σ t) :: (← Typ.substGhostM σ rest))
+termination_by structural g => g
 
 /-- Rejecting substitution in an optional specification, mutually with
 `Typ.substM`. -/
@@ -678,8 +710,15 @@ termination_by structural a => a
 
 /-- The variables a specification mentions, mutually with `Typ.vars`. -/
 def Typ.varsSpec : Spec (Typ.WithTypeVars V) → List V
-  | s => Typ.varsPredTrans s.pred
+  | s => Typ.varsGhost s.ghost ++ Typ.varsPredTrans s.pred
 termination_by structural s => s
+
+/-- The variables a specification's ghost parameters mention, mutually with
+`Typ.vars`. -/
+def Typ.varsGhost : List (String × Typ.WithTypeVars V) → List V
+  | [] => []
+  | (_, t) :: rest => Typ.vars t ++ Typ.varsGhost rest
+termination_by structural g => g
 
 /-- The variables an optional specification mentions, mutually with `Typ.vars`. -/
 def Typ.varsSpec? : Option (Spec (Typ.WithTypeVars V)) → List V
@@ -747,8 +786,38 @@ theorem Typ.substPredTrans_id :
 termination_by structural a => a
 
 theorem Typ.substSpec_id : ∀ s : Spec (Typ.WithTypeVars V), Typ.substSpec .tvar s = s
-  | ⟨_, pred⟩ => by rw [Typ.substSpec, Typ.substPredTrans_id pred]
+  | ⟨_, ghost, pred⟩ => by
+      rw [Typ.substSpec, Typ.substGhost_id ghost, Typ.substPredTrans_id pred]
 termination_by structural s => s
+
+theorem Typ.substGhost_id :
+    ∀ g : List (String × Typ.WithTypeVars V), Typ.substGhost .tvar g = g
+  | [] => rfl
+  | (_, t) :: rest => by rw [Typ.substGhost, Typ.subst_id t, Typ.substGhost_id rest]
+termination_by structural g => g
+
+@[simp] theorem Typ.substGhost_fst (σ : V → Typ.WithTypeVars W) :
+    ∀ g : List (String × Typ.WithTypeVars V),
+      (Typ.substGhost σ g).map Prod.fst = g.map Prod.fst
+  | [] => rfl
+  | (_, _) :: rest => by rw [Typ.substGhost, List.map_cons, List.map_cons,
+      Typ.substGhost_fst σ rest]
+
+@[simp] theorem Typ.substGhost_snd (σ : V → Typ.WithTypeVars W) :
+    ∀ g : List (String × Typ.WithTypeVars V),
+      (Typ.substGhost σ g).map Prod.snd = (g.map Prod.snd).map (Typ.subst σ)
+  | [] => rfl
+  | (_, _) :: rest => by rw [Typ.substGhost, List.map_cons, List.map_cons, List.map_cons,
+      Typ.substGhost_snd σ rest]
+
+@[simp] theorem Typ.substGhost_length (σ : V → Typ.WithTypeVars W)
+    (g : List (String × Typ.WithTypeVars V)) : (Typ.substGhost σ g).length = g.length := by
+  have := congrArg List.length (Typ.substGhost_fst σ g); simpa using this
+
+@[simp] theorem Spec.allArgs_substSpec (σ : V → Typ.WithTypeVars W)
+    (s : Spec (Typ.WithTypeVars V)) : (Typ.substSpec σ s).allArgs = s.allArgs := by
+  obtain ⟨_, ghost, _⟩ := s
+  rw [Typ.substSpec, Spec.allArgs, Spec.allArgs, Typ.substGhost_fst]
 
 theorem Typ.substSpec?_id :
     ∀ s : Option (Spec (Typ.WithTypeVars V)), Typ.substSpec? .tvar s = s
@@ -821,8 +890,19 @@ termination_by structural a => a
 theorem Typ.substSpec_comp (σ : V → Typ.WithTypeVars W) (τ : W → Typ.WithTypeVars U) :
     ∀ s : Spec (Typ.WithTypeVars V),
       Typ.substSpec τ (Typ.substSpec σ s) = Typ.substSpec (fun v => Typ.subst τ (σ v)) s
-  | ⟨_, pred⟩ => by simp only [Typ.substSpec, Typ.substPredTrans_comp σ τ pred]
+  | ⟨_, ghost, pred⟩ => by
+      simp only [Typ.substSpec, Typ.substGhost_comp σ τ ghost,
+        Typ.substPredTrans_comp σ τ pred]
 termination_by structural s => s
+
+theorem Typ.substGhost_comp (σ : V → Typ.WithTypeVars W) (τ : W → Typ.WithTypeVars U) :
+    ∀ g : List (String × Typ.WithTypeVars V),
+      Typ.substGhost τ (Typ.substGhost σ g) =
+        Typ.substGhost (fun v => Typ.subst τ (σ v)) g
+  | [] => rfl
+  | (_, t) :: rest => by
+      simp only [Typ.substGhost, Typ.subst_comp σ τ t, Typ.substGhost_comp σ τ rest]
+termination_by structural g => g
 
 theorem Typ.substSpec?_comp (σ : V → Typ.WithTypeVars W) (τ : W → Typ.WithTypeVars U) :
     ∀ s : Option (Spec (Typ.WithTypeVars V)),
@@ -927,10 +1007,21 @@ termination_by structural a => a
 theorem Typ.substSpec_congr (σ τ : V → Typ.WithTypeVars W) :
     ∀ (s : Spec (Typ.WithTypeVars V)), (∀ v ∈ Typ.varsSpec s, σ v = τ v) →
       Typ.substSpec σ s = Typ.substSpec τ s
-  | ⟨_, pred⟩, h => by
+  | ⟨_, ghost, pred⟩, h => by
       simp only [Typ.substSpec,
+        Typ.substGhost_congr σ τ ghost fun v hv => h v (by simp [Typ.varsSpec, hv]),
         Typ.substPredTrans_congr σ τ pred fun v hv => h v (by simp [Typ.varsSpec, hv])]
 termination_by structural s => s
+
+theorem Typ.substGhost_congr (σ τ : V → Typ.WithTypeVars W) :
+    ∀ (g : List (String × Typ.WithTypeVars V)), (∀ v ∈ Typ.varsGhost g, σ v = τ v) →
+      Typ.substGhost σ g = Typ.substGhost τ g
+  | [], _ => rfl
+  | (_, t) :: rest, h => by
+      simp only [Typ.substGhost,
+        Typ.subst_congr σ τ t fun v hv => h v (by simp [Typ.varsGhost, hv]),
+        Typ.substGhost_congr σ τ rest fun v hv => h v (by simp [Typ.varsGhost, hv])]
+termination_by structural g => g
 
 theorem Typ.substSpec?_congr (σ τ : V → Typ.WithTypeVars W) :
     ∀ (s : Option (Spec (Typ.WithTypeVars V))), (∀ v ∈ Typ.varsSpec? s, σ v = τ v) →

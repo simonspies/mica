@@ -106,8 +106,8 @@ private partial def collectAnonArgs (args : List Untyped.Binder) (body : Untyped
 mutual
 
 partial def printExpr : Untyped.Expr → String
-  | .letIn .none bound body => s!"{printOr bound};\n{printExpr body}"
-  | .letIn name bound body => printLetIn name bound body
+  | .letIn .runtime .none bound body => s!"{printOr bound};\n{printExpr body}"
+  | .letIn mode name bound body => printLetIn mode name bound body
   | .letProd names bound body => s!"let ({", ".intercalate (names.map Binder.print)}) = {printExpr bound} in\n{printExpr body}"
   | .ifThenElse cond thn els =>
     s!"if {printExpr cond} then {printExpr thn} else {printExpr els}"
@@ -118,20 +118,22 @@ partial def printExpr : Untyped.Expr → String
   | .store l r => s!"{printOr l} := {printOr r}"
   | e => printOr e
 
-partial def printLetIn (name : Untyped.Binder) (bound body : Untyped.Expr) : String :=
+partial def printLetIn (mode : Mode) (name : Untyped.Binder)
+    (bound body : Untyped.Expr) : String :=
+  let «let» := match mode with | .runtime => "let" | .ghost => "let%ghost"
   match bound with
   | .fix (.named f _) args _ inner =>
     let (allArgs, innerBody) := collectFixArgs f args inner
     let nameMatchesF := match name with | .named n _ => n == f | .none => false
     if nameMatchesF then
-      s!"let rec {f} {argsStr allArgs} = {printExpr innerBody} in\n{printExpr body}"
+      s!"{«let»} rec {f} {argsStr allArgs} = {printExpr innerBody} in\n{printExpr body}"
     else
-      s!"let {name.print} = (let rec {f} {argsStr allArgs} = {printExpr innerBody} in {f}) in\n{printExpr body}"
+      s!"{«let»} {name.print} = (let rec {f} {argsStr allArgs} = {printExpr innerBody} in {f}) in\n{printExpr body}"
   | .fix .none args _ inner =>
     let (allArgs, innerBody) := collectAnonArgs args inner
-    s!"let {name.print} {argsStr allArgs} = {printExpr innerBody} in\n{printExpr body}"
+    s!"{«let»} {name.print} {argsStr allArgs} = {printExpr innerBody} in\n{printExpr body}"
   | _ =>
-    s!"let {name.print} = {printExpr bound} in\n{printExpr body}"
+    s!"{«let»} {name.print} = {printExpr bound} in\n{printExpr body}"
 
 private partial def printOr : Untyped.Expr → String
   | .binop .or lhs rhs => s!"{printAnd lhs} || {printOr rhs}"
@@ -161,7 +163,10 @@ private partial def printMul : Untyped.Expr → String
   | e => printApp e
 
 private partial def printApp : Untyped.Expr → String
-  | .app fn args => s!"{printApp fn} {" ".intercalate (args.map printUnary)}"
+  | .app fn args gargs =>
+      let call := s!"{printApp fn} {" ".intercalate (args.map printUnary)}"
+      if gargs.isEmpty then call
+      else s!"({call} [@ghost {" ".intercalate (gargs.map printUnary)}])"
   | .unop .not e => s!"not {printAtom e}"
   | .ref .owned e => s!"ref {printAtom e} [@owned]"
   | .ref .shared e => s!"ref {printAtom e}"
@@ -232,13 +237,19 @@ def Body.print (body : Untyped.SpecBody) : String :=
 end Spec
 
 class SpecPayloadPrinter (S : Type) where
-  print : S → String
+  attributes : S → List String
 
 instance : SpecPayloadPrinter Untyped.Expr where
-  print := Expr.print
+  attributes e := [s!"[@@spec {Expr.print e}]"]
 
 instance : SpecPayloadPrinter Untyped.SpecBody where
-  print := Spec.Body.print
+  attributes s :=
+    [s!"[@@spec {Spec.Body.print s}]"] ++
+      match s.ghost with
+      | [] => []
+      | ghost =>
+        let params := ghost.map fun (x, ty) => s!"({x} : {ty.print})"
+        [s!"[@@ghost {" ".intercalate params}]"]
 
 def ValDecl.print {S : Type} [SpecPayloadPrinter S] (d : Untyped.ValDecl S) : String :=
   let decl := match d.body with
@@ -254,13 +265,16 @@ def ValDecl.print {S : Type} [SpecPayloadPrinter S] (d : Untyped.ValDecl S) : St
       s!"let {d.name.print} {argsStr allArgs} = {printExpr innerBody}"
     | body => s!"let {d.name.print} = {printExpr body}"
   -- An `[@@impl]` specification is generated, so the attribute prints instead.
-  let withSpec := match d.spec, d.impl with
-    | .some e, false => s!"{decl} [@@spec {SpecPayloadPrinter.print e}]"
-    | _, _ => decl
-  match d.relation, d.impl with
-  | .none, _ => withSpec
-  | .some _, false => s!"{withSpec} [@@fn]"
-  | .some _, true => s!"{withSpec} [@@fn] [@@impl]"
+  let spec := match d.spec, d.impl with
+    | .some e, false => SpecPayloadPrinter.attributes e
+    | _, _ => []
+  let relation := match d.relation, d.impl with
+    | .none, _ => []
+    | .some _, false => ["[@@fn]"]
+    | .some _, true => ["[@@fn]", "[@@impl]"]
+  let mode := match d.mode with | .runtime => [] | .ghost => ["[@@ghost]"]
+  let decreases := d.decreases.toList.map fun e => s!"[@@decreases {Expr.print e}]"
+  " ".intercalate (decl :: (spec ++ relation ++ mode ++ decreases))
 
 def TypeDecl.print (d : Untyped.TypeDecl) : String :=
   let payloads := (List.range d.body.payloads.length).zip d.body.payloads |>.map

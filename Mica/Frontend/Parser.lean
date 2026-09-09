@@ -20,6 +20,7 @@ inductive ParseErrorKind where
   | nonFinalLowercaseSegment (segment : String)
   | expectedArrayElementAssignTarget
   | refutableBinder
+  | topLevelExtension (name : ExtName)
   deriving Repr, Inhabited
 
 structure ParseError where
@@ -36,6 +37,7 @@ def ParseError.toString (e : ParseError) : String :=
   | .nonFinalLowercaseSegment seg => s!"{loc}: qualified path segment '{seg}' is lowercase, but only the final component of a module path may be lowercase"
   | .expectedArrayElementAssignTarget => s!"{loc}: `<-` expects an array element `a.(i)` on the left"
   | .refutableBinder => s!"{loc}: this pattern can fail to match; a `let` or `fun` binder must not"
+  | .topLevelExtension name => s!"{loc}: a top-level declaration takes no extension node; 'let%{name}' is only an expression"
 
 instance : ToString ParseError := ⟨ParseError.toString⟩
 
@@ -210,6 +212,8 @@ private def isRecordLiteral : Parser Bool := do
   | _ => return false
 
 private structure Binding where
+  /-- The extension node the binding is written under, as in `let%ghost`. -/
+  ext     : Option ExtName
   isRec   : Bool
   binders : List Pattern
   retTy   : Option Typ
@@ -679,22 +683,24 @@ private partial def parseRecordFields : Parser (List (FieldName × Expr)) := do
     else return (name, e) :: (← parseRecordFields)
   else return [(name, e)]
 
--- `let [rec] pat pat ... [: T] = e in body`
+-- `let[%ext] [rec] pat pat ... [: T] = e in body`
 private partial def parseBinding : Parser Binding := do
   expect .kw_let
+  let ext ← if ← consumeIf .percent then some <$> ExtName.ofString <$> expectIdent
+            else pure none
   let isRec ← consumeIf .kw_rec
   let first ← parsePatternBinder
   let rest ← parseFunArgs
   let retTy ← parseOptRetTy
   expect .eq
   let body ← parseExpr
-  return { isRec, binders := first :: rest, retTy, body }
+  return { ext, isRec, binders := first :: rest, retTy, body }
 
 private partial def parseLet : Parser Expr := exprOf do
   let binding ← parseBinding
   expect .kw_in
   let body ← parseExpr
-  return .letIn binding.isRec binding.binders binding.retTy binding.body body
+  return .letIn binding.ext binding.isRec binding.binders binding.retTy binding.body body
 
 -- `fun pat pat ... [: T] -> body`
 private partial def parseFun : Parser Expr := exprOf do
@@ -819,7 +825,10 @@ private def parseTypeDecl : Parser DeclKind := do
   return .type_ { params, name, body := ← parseTypeDeclBody }
 
 private def parseValDecl : Parser DeclKind := do
+  let start ← loc
   let binding ← parseBinding
+  if let some ext := binding.ext then
+    failAt (← spanFrom start) (.topLevelExtension ext)
   return .val_ binding.isRec binding.binders binding.retTy binding.body
 
 /-- Trailing `[@@name payload]` attributes on a declaration. -/

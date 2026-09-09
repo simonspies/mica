@@ -223,18 +223,13 @@ private def elaborateCtorLookup (env : ElabEnv) (loc : Location) (name : String)
   | some info => .ok (.inj info.tag info.arity (arg.getD (.const .unit)) info.owner)
   | none => err loc (.unknownConstructor name)
 
-/-- Apply a single expression attribute to an already-elaborated term. One arm
-per supported expression attribute; unknown names are rejected here (mirroring
-how `[@@...]` names are validated). -/
-private def applyAttr (e : Untyped.Expr) (attr : Attribute) : ElabM Untyped.Expr :=
-  match attr.name, attr.payload with
-  | .owned, none =>
-      match e with
-      | .ref _ inner => .ok (.ref .owned inner)
-      | .arrayMake _ len init => .ok (.arrayMake .owned len init)
-      | _ => err attr.loc (.unsupportedFeature "[@owned] only applies to 'ref' or 'Array.make'")
-  | .owned, some payload => err payload.loc (.unsupportedFeature "[@owned] takes no payload")
-  | name, _ => err attr.loc (.unsupportedFeature s!"unknown expression attribute [@{name}]")
+/-- The items a `[@ghost ...]` or `[@@ghost ...]` payload lists. The payload
+parses as an application spine, so an item that is itself an application needs
+a type annotation, as in `[@ghost (height l : int)]`. -/
+private def ghostArgs (payload : Expr) : List Expr :=
+  match payload.kind with
+  | .app fn args => fn :: args
+  | _ => [payload]
 
 private def bareSpecial (loc : Location) (path : Path) : ElabM Untyped.Expr :=
   err loc (.bareSpecialIdentifier path.toString)
@@ -488,13 +483,38 @@ private partial def TypKind.elaborate (env : ElabEnv) (loc : Location) :
     let ts' ← ts.mapM (Typ.elaborate env)
     .ok (.tuple ts')
 
+/-- Apply a single expression attribute to an already-elaborated term. One arm
+per supported expression attribute; unknown names are rejected here (mirroring
+how `[@@...]` names are validated). -/
+private partial def applyAttr (env : ElabEnv) (e : Untyped.Expr) (attr : Attribute) :
+    ElabM Untyped.Expr :=
+  match attr.name, attr.payload with
+  | .owned, none =>
+      match e with
+      | .ref _ inner => .ok (.ref .owned inner)
+      | .arrayMake _ len init => .ok (.arrayMake .owned len init)
+      | _ => err attr.loc (.unsupportedFeature "[@owned] only applies to 'ref' or 'Array.make'")
+  | .owned, some payload => err payload.loc (.unsupportedFeature "[@owned] takes no payload")
+  | .ghost, some payload =>
+      match e with
+      | .app fn args [] => do
+          let gargs ← (ghostArgs payload).mapM (Expr.elaborate env)
+          .ok (.app fn args gargs)
+      | .app _ _ _ =>
+          err attr.loc (.unsupportedFeature "an application carries at most one [@ghost]")
+      | _ =>
+          err attr.loc (.unsupportedFeature "[@ghost] only applies to a function application")
+  | .ghost, none =>
+      err attr.loc (.unsupportedFeature "[@ghost] expects its ghost arguments as the payload")
+  | name, _ => err attr.loc (.unsupportedFeature s!"unknown expression attribute [@{name}]")
+
 /-- Elaborate an expression: lower its kind, then apply any expression
 attributes (`e [@name payload]`) left-to-right. This is the single entry point
 for every expression position, so attributes are honored everywhere. -/
 private partial def Expr.elaborate (env : ElabEnv) : Expr → ElabM Untyped.Expr
   | ⟨loc, kind, attrs⟩ => do
       let e ← ExprKind.elaborate env loc kind
-      attrs.foldlM applyAttr e
+      attrs.foldlM (applyAttr env) e
 
 private partial def ExprKind.elaborate (env : ElabEnv) (loc : Location) :
     ExprKind → ElabM Untyped.Expr
@@ -514,7 +534,7 @@ private partial def ExprKind.elaborate (env : ElabEnv) (loc : Location) :
       | some (.primitive n kind) =>
         (match kind with
         | .function => .ok (.prim n)
-        | .nullary => .ok (.app (.prim n) []))
+        | .nullary => .ok (.app (.prim n) [] []))
       | some (.special _) => bareSpecial loc path
       | none => err loc (.unsupportedPath path)
     else
@@ -532,7 +552,7 @@ private partial def ExprKind.elaborate (env : ElabEnv) (loc : Location) :
             -- them; qualified paths always resolve through the resolver.
             match env.resolver.value path with
             | some (.primitive n .function) => .ok (.prim n)
-            | some (.primitive n .nullary) => .ok (.app (.prim n) [])
+            | some (.primitive n .nullary) => .ok (.app (.prim n) [] [])
             | _ => .ok (.var name)
 
   | .ctor path =>
@@ -562,10 +582,10 @@ private partial def ExprKind.elaborate (env : ElabEnv) (loc : Location) :
         match env.resolver.value path with
         | some (.userVar n) => do
           let args' ← args.mapM (Expr.elaborate env)
-          .ok (.app (.var n) args')
+          .ok (.app (.var n) args' [])
         | some (.primitive n _) => do
           let args' ← args.mapM (Expr.elaborate env)
-          .ok (.app (.prim n) args')
+          .ok (.app (.prim n) args' [])
         | some (.special .arrayMake) =>
             match args with
             | [len, init] => do
@@ -597,11 +617,11 @@ private partial def ExprKind.elaborate (env : ElabEnv) (loc : Location) :
         | none => do
           let fn' ← Expr.elaborate env fn
           let args' ← args.mapM (Expr.elaborate env)
-          .ok (.app fn' args')
+          .ok (.app fn' args' [])
       else do
         let fn' ← Expr.elaborate env fn
         let args' ← args.mapM (Expr.elaborate env)
-        .ok (.app fn' args')
+        .ok (.app fn' args' [])
     | .ctor path => do
       let name ← if path.isQualified then
         match env.resolver.ctor path with
@@ -619,17 +639,17 @@ private partial def ExprKind.elaborate (env : ElabEnv) (loc : Location) :
     | _ => do
       let fn' ← Expr.elaborate env fn
       let args' ← args.mapM (Expr.elaborate env)
-      .ok (.app fn' args')
+      .ok (.app fn' args' [])
 
   | .binop .semi l r => do
     let l' ← Expr.elaborate env l
     let r' ← Expr.elaborate env r
-    .ok (.letIn .none l' r')
+    .ok (.letIn .runtime .none l' r')
   | .binop .pipeRight a f
   | .binop .atAt f a => do
     let fn' ← Expr.elaborate env f
     let arg' ← Expr.elaborate env a
-    .ok (.app fn' [arg'])
+    .ok (.app fn' [arg'] [])
   | .binop .assign l v => do
     let loc' ← Expr.elaborate env l
     let val' ← Expr.elaborate env v
@@ -650,11 +670,11 @@ private partial def ExprKind.elaborate (env : ElabEnv) (loc : Location) :
   | .binop .concat l r => do
     let l' ← Expr.elaborate env l
     let r' ← Expr.elaborate env r
-    .ok (.app (.prim "string_cat") [l', r'])
+    .ok (.app (.prim "string_cat") [l', r'] [])
   | .binop .append l r => do
     let l' ← Expr.elaborate env l
     let r' ← Expr.elaborate env r
-    .ok (.app (.prim "list_append") [l', r'])
+    .ok (.app (.prim "list_append") [l', r'] [])
   | .binop .cons head tail => do
     let head' ← Expr.elaborate env head
     let tail' ← Expr.elaborate env tail
@@ -662,19 +682,19 @@ private partial def ExprKind.elaborate (env : ElabEnv) (loc : Location) :
   | .binop .fadd l r => do
     let l' ← Expr.elaborate env l
     let r' ← Expr.elaborate env r
-    .ok (.app (.prim "float_add") [l', r'])
+    .ok (.app (.prim "float_add") [l', r'] [])
   | .binop .fsub l r => do
     let l' ← Expr.elaborate env l
     let r' ← Expr.elaborate env r
-    .ok (.app (.prim "float_sub") [l', r'])
+    .ok (.app (.prim "float_sub") [l', r'] [])
   | .binop .fmul l r => do
     let l' ← Expr.elaborate env l
     let r' ← Expr.elaborate env r
-    .ok (.app (.prim "float_mul") [l', r'])
+    .ok (.app (.prim "float_mul") [l', r'] [])
   | .binop .fdiv l r => do
     let l' ← Expr.elaborate env l
     let r' ← Expr.elaborate env r
-    .ok (.app (.prim "float_div") [l', r'])
+    .ok (.app (.prim "float_div") [l', r'] [])
   | .binop op l r => do
     let op' ← elaborateBinOp loc op
     let l' ← Expr.elaborate env l
@@ -708,11 +728,17 @@ private partial def ExprKind.elaborate (env : ElabEnv) (loc : Location) :
     let e' ← Expr.elaborate env e
     .ok (.ifThenElse c' t' e')
 
-  | .letIn isRec binders retTy bound body =>
+  | .letIn ext isRec binders retTy bound body => do
+    let mode ← match ext with
+      | .none => .ok .runtime
+      | some .ghost => .ok .ghost
+      | some (.unknown name) => err loc (.unsupportedFeature s!"the extension node 'let%{name}'")
     match binders with
     | [] => err loc (.unsupportedFeature "let with no binders")
     | pat :: args =>
       if args.isEmpty && !isRec && isProductPattern pat then do
+        if mode == .ghost then
+          return ← err loc (.unsupportedFeature "a ghost binding of a tuple pattern")
         let bound' ← Expr.elaborate env bound
         let body' ← Expr.elaborate (env.bindPattern pat) body
         if retTy.isSome then
@@ -723,7 +749,7 @@ private partial def ExprKind.elaborate (env : ElabEnv) (loc : Location) :
       else do
         let (name, bound') ← elaborateBinding env loc isRec pat args retTy bound
         let body' ← Expr.elaborate (env.bindPattern pat) body
-        .ok (.letIn name bound' body')
+        .ok (.letIn mode name bound' body')
 
   | .fun_ [] _ _ =>
     err loc (.unsupportedFeature "function expressions require at least one argument")
@@ -923,6 +949,27 @@ private structure ValAttrs where
   declaration becomes a specified one, so typing then requires every argument
   and the return type annotated, which `[@@fn]` alone does not. -/
   impl : Bool := false
+  /-- The specification-only parameters `[@@ghost]` declares. -/
+  ghost : List (String × Untyped.Typ) := []
+  /-- Whether `[@@ghost]` without a payload makes the whole declaration ghost. -/
+  mode : TinyML.Mode := .runtime
+  decreases : Option Untyped.Expr := none
+
+/-- A `[@@ghost]` parameter is an annotated name, since nothing else fixes the
+type it is used at. -/
+private def ghostParam (env : ElabEnv) (e : Expr) : ElabM (String × Untyped.Typ) :=
+  match e.kind with
+  | .annot name ty =>
+    match name.kind with
+    | .var path =>
+      if path.isQualified then
+        err name.loc (.unsupportedFeature "a ghost parameter is a plain name")
+      else do
+        let ty' ← Typ.elaborate env ty
+        .ok (path.head, ty')
+    | _ => err name.loc (.unsupportedFeature "a ghost parameter is a plain name")
+  | _ => err e.loc (.unsupportedFeature
+      "[@@ghost] takes annotated parameters, as in [@@ghost (lo : int) (hi : int)]")
 
 /-- Read a value declaration's attributes. Every attribute is accounted for —
 an unknown name is rejected, and neither may be written twice — so none is
@@ -952,6 +999,26 @@ private def elaborateValAttrs (env : ElabEnv) (acc : ValAttrs) :
       else elaborateValAttrs env { acc with impl := true } attrs
     | .impl, some payload => err payload.loc (.unsupportedFeature
         "[@@impl] takes no payload; the specification it adds is derived from [@@fn]")
+    -- `[@@ghost]` declares the parameters that exist only for the verifier, and
+    -- with no payload declares that the whole declaration does.
+    | .ghost, payload =>
+      if acc.mode == .ghost || !acc.ghost.isEmpty then
+        err attr.loc (.unsupportedFeature "a declaration carries at most one [@@ghost]")
+      else match payload with
+        | none => elaborateValAttrs env { acc with mode := .ghost } attrs
+        | some payload => do
+          let ghost ← (ghostArgs payload).mapM (ghostParam env)
+          elaborateValAttrs env { acc with ghost } attrs
+    -- The measure's free names are the specification's parameters, which are
+    -- not in scope here; typing binds them.
+    | .decreases, some payload =>
+      if acc.decreases.isSome then
+        err attr.loc (.unsupportedFeature "a declaration carries at most one [@@decreases]")
+      else do
+        let e ← Expr.elaborate env payload
+        elaborateValAttrs env { acc with decreases := some e } attrs
+    | .decreases, none =>
+      err attr.loc (.unsupportedFeature "[@@decreases] expects a measure expression as payload")
     | name, _ =>
       err attr.loc (.unsupportedFeature s!"unknown declaration attribute [@@{name}]")
 
@@ -975,9 +1042,9 @@ private def implSpec (env : ElabEnv) (loc : Location) (f arg : String) :
     ElabM Untyped.SpecBody :=
   match env.resolver.value ⟨"Logic", ["eq"]⟩ with
   | some (.primitive eq _) =>
-    .ok { args := [arg]
+    .ok { args := [arg], ghost := []
           pre := .ret ⟨implResultName,
-            .assert (.app (.prim eq) [.var implResultName, .app (.var f) [.var arg]]) (.ret ())⟩ }
+            .assert (.app (.prim eq) [.var implResultName, .app (.var f) [.var arg] []] []) (.ret ())⟩ }
   | _ => err loc (.unsupportedFeature "[@@impl] needs the prelude's Logic.eq")
 
 private def Decl.elaborate (env : ElabEnv) (decl : Decl)
@@ -1000,7 +1067,16 @@ private def Decl.elaborate (env : ElabEnv) (decl : Decl)
         "a declaration carries [@@spec] or [@@fn], not both")
     if attrs.impl && !attrs.fn then
       return ← err decl.loc (.unsupportedFeature "[@@impl] requires [@@fn]")
-    let d ← ValDecl.elaborate env decl.loc isRec binders retTy body attrs.spec
+    if (!attrs.ghost.isEmpty || attrs.mode == .ghost) && attrs.spec.isNone then
+      return ← err decl.loc (.unsupportedFeature "[@@ghost] requires [@@spec]")
+    -- Only a recursive ghost call is checked against a measure.
+    if attrs.decreases.isSome && attrs.mode != .ghost then
+      return ← err decl.loc (.unsupportedFeature "[@@decreases] requires [@@ghost]")
+    if attrs.decreases.isSome && !isRec then
+      return ← err decl.loc (.unsupportedFeature
+        "[@@decreases] requires a recursive declaration")
+    let spec := attrs.spec.map fun sb => { sb with ghost := attrs.ghost }
+    let d ← ValDecl.elaborate env decl.loc isRec binders retTy body spec
     -- A `[@@fn]` declaration uses its own name for the derived relation.
     let relation ← if attrs.fn then
       match d.name with
@@ -1015,7 +1091,8 @@ private def Decl.elaborate (env : ElabEnv) (decl : Decl)
       | true, some _, _ => err decl.loc (.unsupportedFeature
           "[@@fn] requires a function of one named argument; write several as a tuple")
       | _, _, _ => .ok d
-    .ok (env.bindBinder d.name, some (.val_ { d with relation }))
+    .ok (env.bindBinder d.name,
+      some (.val_ { d with relation, mode := attrs.mode, decreases := attrs.decreases }))
 
 private def elaborateDecls (env : ElabEnv) :
     List Decl → ElabM (List (Untyped.Decl Untyped.SpecBody))

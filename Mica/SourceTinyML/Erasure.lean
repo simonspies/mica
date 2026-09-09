@@ -96,10 +96,11 @@ theorem Expr.close_runtime {st : Infer.State} {e : Expr} {e' : Typed.Expr}
         subst e'
         simp [Typed.Expr.WithTypeVars.runtime, Binder.close_runtime hs,
           Binder.closeList_runtime ha, Expr.close_runtime hb]
-  | app fn args ty =>
+  | app fn args gargs ty =>
       cases hf : Expr.close st fn <;> cases ha : Expr.closeList st args <;>
-        cases ht : Infer.State.close st ty <;> simp [Expr.close, hf, ha, ht] at h
-      case ok.ok.ok fn' args' t =>
+        cases hg : Expr.closeList st gargs <;>
+        cases ht : Infer.State.close st ty <;> simp [Expr.close, hf, ha, hg, ht] at h
+      case ok.ok.ok.ok fn' args' gargs' t =>
         subst e'
         simp [Typed.Expr.WithTypeVars.runtime, Expr.close_runtime hf,
           Expr.closeList_runtime ha]
@@ -111,13 +112,15 @@ theorem Expr.close_runtime {st : Infer.State} {e : Expr} {e' : Typed.Expr}
         subst e'
         simp [Typed.Expr.WithTypeVars.runtime, Expr.close_runtime hc,
           Expr.close_runtime ht, Expr.close_runtime he]
-  | letIn b x body =>
+  | letIn m b x body =>
       cases hb : Binder.close st b <;> cases hx : Expr.close st x <;>
         cases hbody : Expr.close st body <;> simp [Expr.close, hb, hx, hbody] at h
       case ok.ok.ok b' x' body' =>
         subst e'
-        simp [Typed.Expr.WithTypeVars.runtime, Binder.close_runtime hb,
-          Expr.close_runtime hx, Expr.close_runtime hbody]
+        cases m
+        · simp [Typed.Expr.WithTypeVars.runtime, Binder.close_runtime hb,
+            Expr.close_runtime hx, Expr.close_runtime hbody]
+        · simp [Typed.Expr.WithTypeVars.runtime, Expr.close_runtime hbody]
   | letProd bs x body =>
       cases hbs : bs.mapM (Binder.close st) <;> cases hx : Expr.close st x <;>
         cases hbody : Expr.close st body <;> simp [Expr.close, hbs, hx, hbody] at h
@@ -402,7 +405,7 @@ theorem Infer.Expr.elaborate_runtime (env : SpecEnv σ) (Θ : TypeEnv) :
         Infer.fixSignature_runtime env Θ args _ _ _ _ _ _ _ hsig,
         Infer.Binder.elaborateAt_runtime env Θ self _ _ _ _ _ _ hself,
         Infer.Expr.elaborate_runtime env Θ body _ _ _ _ _ _ _ hbody]
-  | .app fn args => by
+  | .app fn args gargs => by
       intro Γ ty st st' s s' p h
       unfold Infer.Expr.elaborate at h
       have ⟨_, t₁, u₁, _, hcont⟩ := StateT.bind_ok₂ h
@@ -410,6 +413,8 @@ theorem Infer.Expr.elaborate_runtime (env : SpecEnv σ) (Θ : TypeEnv) :
       have ⟨_, t₃, u₃, _, hcont⟩ := StateT.bind_ok₂ hcont
       have ⟨args', t₄, u₄, hargs, hcont⟩ := StateT.bind_ok₂ hcont
       have ⟨_, t₅, u₅, _, hcont⟩ := StateT.bind_ok₂ hcont
+      have ⟨gargs', t₆, u₆, _, hcont⟩ := StateT.bind_ok₂ hcont
+      have ⟨_, t₇, u₇, _, hcont⟩ := StateT.bind_ok₂ hcont
       rcases (by simpa using hcont) with ⟨⟨rfl, rfl⟩, rfl⟩
       simp [Typed.Expr.WithTypeVars.runtime, Untyped.Expr.runtime,
         Infer.Expr.elaborate_runtime env Θ fn _ _ _ _ _ _ _ hfn,
@@ -425,17 +430,18 @@ theorem Infer.Expr.elaborate_runtime (env : SpecEnv σ) (Θ : TypeEnv) :
         Infer.Expr.elaborate_runtime env Θ cond _ _ _ _ _ _ _ hc,
         Infer.Expr.elaborate_runtime env Θ thn _ _ _ _ _ _ _ ht,
         Infer.Expr.elaborate_runtime env Θ els _ _ _ _ _ _ _ he]
-  | .letIn name bound body => by
+  | .letIn mode name bound body => by
       intro Γ ty st st' s s' p h
       unfold Infer.Expr.elaborate at h
       have ⟨name', t₁, u₁, hname, hcont⟩ := StateT.bind_ok₂ h
       have ⟨bound', t₂, u₂, hbound, hcont⟩ := StateT.bind_ok₂ hcont
       have ⟨body', t₃, u₃, hbody, hcont⟩ := StateT.bind_ok₂ hcont
       rcases (by simpa using hcont) with ⟨⟨rfl, rfl⟩, rfl⟩
-      simp [Typed.Expr.WithTypeVars.runtime, Untyped.Expr.runtime,
-        Infer.Binder.elaborate_runtime env Θ name _ _ _ _ _ hname,
-        Infer.Expr.elaborate_runtime env Θ bound _ _ _ _ _ _ _ hbound,
-        Infer.Expr.elaborate_runtime env Θ body _ _ _ _ _ _ _ hbody]
+      cases mode <;>
+        simp [Typed.Expr.WithTypeVars.runtime, Untyped.Expr.runtime,
+          Infer.Binder.elaborate_runtime env Θ name _ _ _ _ _ hname,
+          Infer.Expr.elaborate_runtime env Θ bound _ _ _ _ _ _ _ hbound,
+          Infer.Expr.elaborate_runtime env Θ body _ _ _ _ _ _ _ hbody]
   | .letProd names bound body => by
       intro Γ ty st st' s s' p h
       unfold Infer.Expr.elaborate at h
@@ -637,10 +643,11 @@ theorem Expr.elaborate_runtime (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TyCtx)
     (Infer.Expr.elaborate_runtime env Θ e (Infer.Ctx.ofTyCtx Γ) _ _ _ _ _ _ helab)
 
 theorem ValDecl.elaborateSpecified_runtime (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx)
-    (self : Option TinyML.Var) (rb : Untyped.SpecBody) (e : Untyped.Expr) :
-    ∀ {s : σ} {r : Spec Typ × Typed.Expr} {s' : σ},
-      Typed.ValDecl.elaborateSpecified env Θ Γ self rb e s = .ok (r, s') →
-      r.2.runtime = e.runtime := by
+    (self : Option TinyML.Var) (rb : Untyped.SpecBody) (dec : Option Untyped.Expr)
+    (e : Untyped.Expr) :
+    ∀ {s : σ} {r : Spec Typ × Option Measure × Typed.Expr} {s' : σ},
+      Typed.ValDecl.elaborateSpecified env Θ Γ self rb dec e s = .ok (r, s') →
+      r.2.2.runtime = e.runtime := by
   intro s r s' h
   cases e
   case fix self args retTy body =>
@@ -655,7 +662,8 @@ theorem ValDecl.elaborateSpecified_runtime (env : SpecEnv σ) (Θ : TypeEnv) (Γ
         have ⟨_retTy, s₀, _hret, hcont⟩ := StateT.bind_ok h
         have ⟨_typedArgs, s₁, _hargs, hcont⟩ := StateT.bind_ok hcont
         have ⟨_spec, s₂, _hspec, hcont⟩ := StateT.bind_ok hcont
-        have ⟨body', s₃, hbody, hcont⟩ := StateT.bind_ok hcont
+        have ⟨_dec, s₃, _hdec, hcont⟩ := StateT.bind_ok hcont
+        have ⟨body', s₄, hbody, hcont⟩ := StateT.bind_ok hcont
         rcases hcont with ⟨rfl, rfl⟩
         exact Expr.elaborate_runtime env Θ Γ _ _ hbody
   all_goals simp [ValDecl.elaborateSpecified, TypeM.error] at h
@@ -664,7 +672,7 @@ theorem ValDecl.elaborate_runtime (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML
     (d : Untyped.ValDecl Untyped.SpecBody) :
     ∀ {s : σ} {d' : Typed.ValDecl} {s' : σ},
       Typed.ValDecl.elaborate env Θ Γ d s = .ok (d', s') →
-      d'.runtime = d.runtime := by
+      Typed.ValDecl.runtime? d' = Untyped.Decl.runtime (.val_ d) := by
   intro s d' s' helab
   -- Split on whether there is a specification, and then — in its absence — only
   -- on whether there is an annotation; the unannotated cases are identical.
@@ -675,15 +683,19 @@ theorem ValDecl.elaborate_runtime (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML
     have ⟨r, s₀, hfix, hcont⟩ := StateT.bind_ok helab'
     have ⟨_, s₁, _, hcont⟩ := StateT.bind_ok hcont
     rcases hcont with ⟨rfl, rfl⟩
-    simp [Typed.ValDecl.runtime, Untyped.ValDecl.runtime, Binder.ofUntyped_runtime,
-      ValDecl.elaborateSpecified_runtime env Θ Γ _ rb d.body hfix]
+    cases hmode : d.mode <;>
+      simp [Typed.ValDecl.runtime?, Untyped.Decl.runtime, hmode, Typed.ValDecl.runtime,
+        Untyped.ValDecl.runtime, Binder.ofUntyped_runtime,
+        ValDecl.elaborateSpecified_runtime env Θ Γ _ rb d.decreases d.body hfix]
   | none =>
     simp only [ValDecl.elaborate, hspec] at helab
     have ⟨_expected, s₀, _hexp, hcont⟩ := StateT.bind_ok helab
     have ⟨body', s₁, hbody, hcont⟩ := StateT.bind_ok hcont
     rcases hcont with ⟨rfl, rfl⟩
-    simp [Typed.ValDecl.runtime, Untyped.ValDecl.runtime, Binder.ofUntyped_runtime,
-      Expr.elaborate_runtime env Θ Γ d.body _ hbody]
+    cases hmode : d.mode <;>
+      simp [Typed.ValDecl.runtime?, Untyped.Decl.runtime, hmode, Typed.ValDecl.runtime,
+        Untyped.ValDecl.runtime, Binder.ofUntyped_runtime,
+        Expr.elaborate_runtime env Θ Γ d.body _ hbody]
 
 theorem Program.elaborate_runtime (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx)
     (prog : Untyped.Program Untyped.SpecBody) :
@@ -721,9 +733,11 @@ theorem Program.elaborate_runtime (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML
       rcases tail with ⟨Θ'', ds'⟩
       simp at hcont
       rcases hcont with ⟨⟨rfl, rfl⟩, rfl⟩
-      have hdecl_rt : dval'.runtime = dval.runtime :=
+      have hdecl_rt : Typed.ValDecl.runtime? dval' = Untyped.Decl.runtime (.val_ dval) :=
         ValDecl.elaborate_runtime _ Θ Γ dval hdecl
-      simp [Typed.Program.runtime, Untyped.Program.runtime, hdecl_rt]
-      exact congrArg (List.cons dval.runtime) (ih Θ Γ' htail)
+      have htail_rt := ih Θ Γ' htail
+      simp only [Typed.Program.runtime, Untyped.Program.runtime, List.filterMap_cons, hdecl_rt]
+      cases Untyped.Decl.runtime (Untyped.Decl.val_ dval) <;>
+        simpa [Typed.Program.runtime, Untyped.Program.runtime] using htail_rt
 
 end Typed

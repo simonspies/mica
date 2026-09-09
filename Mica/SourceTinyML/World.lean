@@ -76,4 +76,15 @@ theorem World.agrees.step {W : World} {Δ Δ' : Signature} {ρ ρ' : Env}
   subset := hag.subset.trans hΔ
   agree := Env.agreeOn_trans hag.agree (Env.agreeOn_mono hag.subset hρ)
 
+/-- Neither condition mentions the type assignment. -/
+theorem World.wf.eta {W : World} (h : W.wf) (η : SemTypeAssign) : { W with eta := η }.wf where
+  wf := h.wf
+  vars := h.vars
+
+/-- Neither condition mentions the type assignment. -/
+theorem World.agrees.eta {W : World} {Δ : Signature} {ρ : Env}
+    (h : W.agrees Δ ρ) (η : SemTypeAssign) : { W with eta := η }.agrees Δ ρ where
+  subset := h.subset
+  agree := h.agree
+
 end TinyML

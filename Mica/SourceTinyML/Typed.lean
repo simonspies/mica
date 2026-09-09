@@ -64,9 +64,14 @@ inductive Expr.WithTypeVars (V : Type) where
   | fix (self : Binder.WithTypeVars V) (args : List (Binder.WithTypeVars V))
       (retTy : Typ.WithTypeVars V) (spec : Option (Spec (Typ.WithTypeVars V)))
       (body : WithTypeVars V)
-  | app (fn : WithTypeVars V) (args : List (WithTypeVars V)) (ty : Typ.WithTypeVars V)
+  /-- `gargs` are the ghost arguments the call supplies for the callee's ghost
+      parameters: they are specification-level, so `Expr.runtime` drops them. -/
+  | app (fn : WithTypeVars V) (args : List (WithTypeVars V))
+      (gargs : List (WithTypeVars V)) (ty : Typ.WithTypeVars V)
   | ifThenElse (cond thn els : WithTypeVars V) (ty : Typ.WithTypeVars V)
-  | letIn (name : Binder.WithTypeVars V) (bound body : WithTypeVars V)
+  /-- `mode` is `.ghost` for `let%ghost`: the binding exists only for the
+      verifier, so `Expr.runtime` drops it. -/
+  | letIn (mode : Mode) (name : Binder.WithTypeVars V) (bound body : WithTypeVars V)
   | letProd (names : List (Binder.WithTypeVars V)) (bound body : WithTypeVars V)
   | ref    (ownership : Ownership) (e : WithTypeVars V)
   | deref  (e : WithTypeVars V) (ty : Typ.WithTypeVars V)
@@ -160,12 +165,15 @@ mutual
       | _, _, isFalse h, _, _ => isFalse (by intro heq; cases heq; exact h rfl)
       | _, _, _, isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
       | _, _, _, _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
-    case app.app f1 args1 t1 f2 args2 t2 =>
-      exact match f1.decEq f2, exprsDecEq args1 args2, decEq t1 t2 with
-      | isTrue h1, isTrue h2, isTrue h3 => isTrue (by subst h1; subst h2; subst h3; rfl)
-      | isFalse h, _, _ => isFalse (by intro heq; cases heq; exact h rfl)
-      | _, isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
-      | _, _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
+    case app.app f1 args1 gargs1 t1 f2 args2 gargs2 t2 =>
+      exact match f1.decEq f2, exprsDecEq args1 args2, exprsDecEq gargs1 gargs2,
+          decEq t1 t2 with
+      | isTrue h1, isTrue h2, isTrue h3, isTrue h4 =>
+        isTrue (by subst h1; subst h2; subst h3; subst h4; rfl)
+      | isFalse h, _, _, _ => isFalse (by intro heq; cases heq; exact h rfl)
+      | _, isFalse h, _, _ => isFalse (by intro heq; cases heq; exact h rfl)
+      | _, _, isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
+      | _, _, _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
     case ifThenElse.ifThenElse c1 t1 e1 ty1 c2 t2 e2 ty2 =>
       exact match c1.decEq c2, t1.decEq t2, e1.decEq e2, decEq ty1 ty2 with
       | isTrue h1, isTrue h2, isTrue h3, isTrue h4 =>
@@ -174,11 +182,14 @@ mutual
       | _, isFalse h, _, _ => isFalse (by intro heq; cases heq; exact h rfl)
       | _, _, isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
       | _, _, _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
-    case letIn.letIn b1 d1 y1 b2 d2 y2 => exact match decEq b1 b2, d1.decEq d2, y1.decEq y2 with
-      | isTrue h1, isTrue h2, isTrue h3 => isTrue (by subst h1; subst h2; subst h3; rfl)
-      | isFalse h, _, _ => isFalse (by intro heq; cases heq; exact h rfl)
-      | _, isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
-      | _, _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
+    case letIn.letIn m1 b1 d1 y1 m2 b2 d2 y2 =>
+      exact match decEq m1 m2, decEq b1 b2, d1.decEq d2, y1.decEq y2 with
+      | isTrue h1, isTrue h2, isTrue h3, isTrue h4 =>
+        isTrue (by subst h1; subst h2; subst h3; subst h4; rfl)
+      | isFalse h, _, _, _ => isFalse (by intro heq; cases heq; exact h rfl)
+      | _, isFalse h, _, _ => isFalse (by intro heq; cases heq; exact h rfl)
+      | _, _, isFalse h, _ => isFalse (by intro heq; cases heq; exact h rfl)
+      | _, _, _, isFalse h => isFalse (by intro heq; cases heq; exact h rfl)
     case letProd.letProd bs1 d1 y1 bs2 d2 y2 => exact match decEq bs1 bs2, d1.decEq d2, y1.decEq y2 with
       | isTrue h1, isTrue h2, isTrue h3 => isTrue (by subst h1; subst h2; subst h3; rfl)
       | isFalse h, _, _ => isFalse (by intro heq; cases heq; exact h rfl)
@@ -295,9 +306,9 @@ def Expr.WithTypeVars.ty : Expr.WithTypeVars V → Typ.WithTypeVars V
   | .unop _ _ ty => ty
   | .binop _ _ _ ty => ty
   | .fix _ args retTy spec _ => .arrow (args.map (·.ty)) retTy spec
-  | .app _ _ ty => ty
+  | .app _ _ _ ty => ty
   | .ifThenElse _ _ _ ty => ty
-  | .letIn _ _ body => body.ty
+  | .letIn _ _ _ body => body.ty
   | .letProd _ _ body => body.ty
   | .ref .owned e => .owned e.ty
   | .ref .shared e => .ref e.ty
@@ -330,6 +341,15 @@ theorem Expr.spec?_elim {e : Expr.WithTypeVars V} {s : Spec (Typ.WithTypeVars V)
     (spec : Option (Spec (Typ.WithTypeVars V))) (body : Expr.WithTypeVars V) :
     (Expr.WithTypeVars.fix self args retTy spec body).spec? = spec := rfl
 
+/-- A partial integer expression used to rank recursive ghost calls. The
+    definedness condition must hold before the term is used as a rank. -/
+structure Measure where
+  term : Term .int
+  defined : Formula
+  deriving BEq
+
+instance : Repr Measure := ⟨fun _ _ => "<measure>"⟩
+
 /-- A checked declaration. It carries no specification of its own: the literal
 it binds records the specification it was elaborated against, and so does the
 declaration's arrow type. -/
@@ -338,6 +358,8 @@ structure ValDecl where
   body : Expr
   /-- The spec-level relation this declaration is registered as, if `[@@fn]`. -/
   relation : Option String := none
+  mode : Mode := .runtime
+  decreases : Option Measure := none
   deriving Repr, BEq, Inhabited
 
 abbrev Program := List ValDecl
@@ -376,9 +398,10 @@ mutual
     | .unop op e _ => .unop op e.runtime
     | .binop op l r _ => .binop op l.runtime r.runtime
     | .fix self args _ _ body => .fix (self.runtime) (args.map (·.runtime)) body.runtime
-    | .app fn args _ => .app fn.runtime (args.map Expr.WithTypeVars.runtime)
+    | .app fn args _ _ => .app fn.runtime (args.map Expr.WithTypeVars.runtime)
     | .ifThenElse c t e _ => .ifThenElse c.runtime t.runtime e.runtime
-    | .letIn b bound body => .letIn (b.runtime) bound.runtime body.runtime
+    | .letIn .ghost _ _ body => body.runtime
+    | .letIn .runtime b bound body => .letIn (b.runtime) bound.runtime body.runtime
     | .letProd bs bound body => .letProd (bs.map (·.runtime)) bound.runtime body.runtime
     | .ref _ e => .ref e.runtime
     | .deref e _ => .deref e.runtime
@@ -405,8 +428,13 @@ end
 def ValDecl.runtime (d : Typed.ValDecl) : Runtime.Decl :=
   { name := d.name.runtime, body := d.body.runtime }
 
+def ValDecl.runtime? (d : Typed.ValDecl) : Option Runtime.Decl :=
+  match d.mode with
+  | .runtime => some d.runtime
+  | .ghost => none
+
 def Program.runtime (prog : Typed.Program) : Runtime.Program :=
-  prog.map ValDecl.runtime
+  prog.filterMap ValDecl.runtime?
 
 theorem Expr.runtime_subst_of_fix {e : Typed.Expr} {self : Typed.Binder}
     {args : List Typed.Binder} {retTy : Typ} {spec : Option (Spec Typ)} {body : Typed.Expr}

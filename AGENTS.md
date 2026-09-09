@@ -35,7 +35,14 @@ opam exec -- lake run testsuite   # run the test suite (Examples/ and Tests/)
 
 ### Test suite
 
-`Examples/` is reserved for case studies; everything else goes in `Tests/<feature>/`. When adding tests for new functionality, lean toward small targeted files in `Tests/`. A test is one `.ml` file; the runner (`Testsuite.lean`) compiles it with ocamlopt and runs mica on it. An optional first-line directive `(* TEST: <flags> [no-compile] [roundtrip] *)` passes flags to mica, skips the ocamlopt phase, or adds a print∘parse fixpoint check of `--print-ocaml`. Without a sibling `foo.out`, the mica run must exit 0; with one, the output must match it (nonzero exits end with a `[<code>]` line). `opam exec -- lake run testsuite --promote PATH` rewrites existing `.out` files with the actual output; create a new expected-output test with `touch foo.out` followed by `--promote`.
+`Examples/` is reserved for case studies; everything else goes in `Tests/<feature>/`. When adding tests for new functionality, lean toward small targeted files in `Tests/`. A test is one `.ml` file; the runner (`Testsuite.lean`) compiles it with ocamlopt (through the ghost-erasing ppx, see below) and runs mica on it. An optional first-line directive `(* TEST: <flags> [no-compile] [roundtrip] *)` passes flags to mica, skips the ocamlopt phase, or adds a print∘parse fixpoint check of `--print-ocaml`. Without a sibling `foo.out`, the mica run must exit 0; with one, the output must match it (nonzero exits end with a `[<code>]` line). `opam exec -- lake run testsuite --promote PATH` rewrites existing `.out` files with the actual output; create a new expected-output test with `touch foo.out` followed by `--promote`.
+
+### The ghost ppx
+
+`ppx/` is a self-contained dune project holding `ppx_mica_ghost`, the rewriter
+that deletes Mica's ghost fragment (`let%ghost`, `[@@ghost]` declarations,
+`ghost` attributes) so that a verified source file compiles to a program without
+it.
 
 ### Differential parser tests
 

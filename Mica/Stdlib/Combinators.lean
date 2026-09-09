@@ -380,6 +380,7 @@ def Zero.toIntrinsic (b : Zero) : Intrinsic where
   retTy  := b.res.typ
   spec   :=
     { args  := []
+      ghost := []
       pred  := .ret ⟨"ret",
         .assert (.eq .value (.var .value "ret") b.opTerm) (.ret ())⟩ }
   folTerm := some (.symbol b.sym)
@@ -520,6 +521,7 @@ def Unary.toIntrinsic (b : Unary) : Intrinsic where
   retTy  := b.res.typ
   spec   :=
     { args  := ["a"]
+      ghost := []
       pred  := withPre (b.pre.map (· "a")) <| .ret ⟨"ret",
         .assert (.eq .value (.var .value "ret")
           (b.opTerm (.var .value "a"))) (.ret ())⟩ }
@@ -732,6 +734,7 @@ def Binary.toIntrinsic (b : Binary) : Intrinsic where
   retTy  := b.res.typ
   spec   :=
     { args  := ["a", "b"]
+      ghost := []
       pred  := withPre (b.pre.map (· "a" "b")) <| .ret ⟨"ret",
         .assert (.eq .value (.var .value "ret")
           (b.opTerm (.var .value "a") (.var .value "b"))) (.ret ())⟩ }
@@ -972,6 +975,7 @@ def Ternary.toIntrinsic (b : Ternary) : Intrinsic where
   retTy  := b.res.typ
   spec   :=
     { args  := ["a", "b", "c"]
+      ghost := []
       pred  := withPre (b.pre.map (· "a" "b" "c")) <| .ret ⟨"ret",
         .assert (.eq .value (.var .value "ret")
           (b.opTerm (.var .value "a") (.var .value "b") (.var .value "c"))) (.ret ())⟩ }
