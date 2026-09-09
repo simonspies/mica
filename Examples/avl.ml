@@ -20,10 +20,11 @@ open Mica
      bound how far each rebuild can move the height.
    - [min h], [max h] — the stored bounds, enclosing every value.
 
-   The interval parameters [lo]/[hi] of the helpers are ghost: unused at
-   runtime, they exist only for the specifications.  [widen_tree] is a lemma
-   function whose postcondition establishes that the invariant survives
-   widening the interval. *)
+   The interval parameters [lo]/[hi] of the helpers are ghost: they are erased
+   before the program is compiled and exist only for the specifications.
+   [widen_tree] is a ghost declaration, a lemma proved by induction on the
+   height of the tree, establishing that the invariant survives widening the
+   interval. *)
 
 type tree = Leaf | Node of int * int * tree * tree
 
@@ -67,12 +68,13 @@ let avl_tree (h: t) : bool =
 [@@fn];;
 
 
-let make_node (v: int) (lo: int) (hi: int) (l: tree) (r: tree) : tree =
+let make_node (v: int) (l: tree) (r: tree) : tree =
   let lh = height l in
   let rh = height r in
   let h = max_int lh rh + 1 in
   Node (v, h, l, r)
-[@@spec fun v lo hi l r ->
+[@@ghost (lo : int) (hi : int)]
+[@@spec fun v l r ->
   assert (lo <= v && v <= hi);
   assert (avl_tree_inv (l, lo, v));
   assert (avl_tree_inv (r, v, hi));
@@ -85,7 +87,7 @@ let make_node (v: int) (lo: int) (hi: int) (l: tree) (r: tree) : tree =
     let mh = if lh < rh then rh else lh in
     assert (hres = mh + 1))];;
 
-let balance (v: int) (lo: int) (hi: int) (l: tree) (r: tree) : tree =
+let balance (v: int) (l: tree) (r: tree) : tree =
   let lh = height l in
   let rh = height r in
   if lh > rh + 1 then
@@ -93,25 +95,30 @@ let balance (v: int) (lo: int) (hi: int) (l: tree) (r: tree) : tree =
     | Leaf -> failwith "unreachable"
     | Node (lv, lh, ll, lr) ->
       if height ll >= height lr then
-        make_node lv lo hi ll (make_node v lv hi lr r)
+        (make_node lv ll (make_node v lr r [@ghost lv hi]) [@ghost lo hi])
       else
         match lr with
         | Leaf -> failwith "unreachable"
         | Node (lrv, lrh, lrl, lrr) ->
-          make_node lrv lo hi (make_node lv lo lrv ll lrl) (make_node v lrv hi lrr r)
+          (make_node lrv
+             (make_node lv ll lrl [@ghost lo lrv])
+             (make_node v lrr r [@ghost lrv hi]) [@ghost lo hi])
   else if rh > lh + 1 then
     match r with
     | Leaf -> failwith "unreachable"
     | Node (rv, rh, rl, rr) ->
       if height rr >= height rl then
-        make_node rv lo hi (make_node v lo rv l rl) rr
+        (make_node rv (make_node v l rl [@ghost lo rv]) rr [@ghost lo hi])
       else
         match rl with
         | Leaf -> failwith "unreachable"
         | Node (rlv, rlh, rll, rlr) ->
-          make_node rlv lo hi (make_node v lo rlv l rll) (make_node rv rlv hi rlr rr)
-  else make_node v lo hi l r
-[@@spec fun v lo hi l r ->
+          (make_node rlv
+             (make_node v l rll [@ghost lo rlv])
+             (make_node rv rlr rr [@ghost rlv hi]) [@ghost lo hi])
+  else (make_node v l r [@ghost lo hi])
+[@@ghost (lo : int) (hi : int)]
+[@@spec fun v l r ->
   assert (lo <= v && v <= hi);
   assert (avl_tree_inv (l, lo, v));
   assert (avl_tree_inv (r, v, hi));
@@ -135,20 +142,23 @@ let rec widen_tree (lo: int) (hi: int) (new_lo: int) (new_hi: int) (tr: tree) : 
     assert (v <= new_hi);
     widen_tree lo v new_lo v l;
     widen_tree v hi v new_hi r
+[@@ghost]
 [@@spec fun lo hi new_lo new_hi tr ->
   assert (new_lo <= lo && hi <= new_hi);
   assert (avl_tree_inv (tr, lo, hi));
   ret (fun result ->
-    assert (avl_tree_inv (tr, new_lo, new_hi)))];;
+    assert (avl_tree_inv (tr, new_lo, new_hi)))]
+[@@decreases height tr];;
 
-let rec insert_raw (x: int) (lo: int) (hi: int) (tr: tree) : tree =
+let rec insert_raw (x: int) (tr: tree) : tree =
   match tr with
   | Leaf -> Node (x, 1, Leaf, Leaf)
   | Node (v, h, l, r) ->
-    if x < v then balance v lo hi (insert_raw x lo v l) r
-    else if v < x then balance v lo hi l (insert_raw x v hi r)
+    if x < v then (balance v (insert_raw x l [@ghost lo v]) r [@ghost lo hi])
+    else if v < x then (balance v l (insert_raw x r [@ghost v hi]) [@ghost lo hi])
     else tr
-[@@spec fun x lo hi tr ->
+[@@ghost (lo : int) (hi : int)]
+[@@spec fun x tr ->
   assert (lo <= x && x <= hi);
   assert (avl_tree_inv (tr, lo, hi));
   ret (fun result ->
@@ -167,8 +177,8 @@ let insert (x: int) (h: t) : t =
   | Avl (lo, tr, hi) ->
     let new_lo = min_int x lo in
     let new_hi = max_int x hi in
-    widen_tree lo hi new_lo new_hi tr;
-    Avl (new_lo, insert_raw x new_lo new_hi tr, new_hi)
+    let%ghost _ = widen_tree lo hi new_lo new_hi tr in
+    Avl (new_lo, (insert_raw x tr [@ghost new_lo new_hi]), new_hi)
 [@@spec fun x h ->
   assert (avl_tree h);
   ret (fun result -> assert (avl_tree result))];;
