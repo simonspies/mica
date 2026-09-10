@@ -87,7 +87,6 @@ def Program.prepare (env : Typed.SpecEnv σ) (s : σ)
 /-- Globally assembled metadata for declarations marked with `[@@fn]`. -/
 structure RelationSpec where
   symbols : List FOL.BinaryRel
-  axioms : List Axiom
   functionMap : List (TinyML.Var × String)
   delta : Signature
 
@@ -96,7 +95,7 @@ namespace RelationSpec
 open Verifier.RelationalEncoding
 
 def empty : RelationSpec :=
-  { symbols := [], axioms := [], functionMap := [], delta := Signature.empty }
+  { symbols := [], functionMap := [], delta := Signature.empty }
 
 private structure RelationDecl where
   spec : RelationSpec
@@ -148,21 +147,29 @@ private def extend (primitives : PrimEncodings) (acc : RelationSpec) (d : Typed.
           { primitives, Γ := acc.functionMap, Δ := acc.delta, f, fn := rel, x := arg, e := body }
         let (bv, axs) ← Skolemize.encode sd
         let spec := { symbols := acc.symbols ++ [SpecFn.rel rel],
-                      axioms := acc.axioms ++ axs,
                       functionMap := acc.functionMap ++ [(f, rel)],
                       delta := ((acc.delta.addBinaryRel (SpecFn.rel rel)).addUnary
                                   (SpecFn.func rel)).addUnaryRel (SpecFn.defined rel) }
         .ok { spec, sd, axs, bv }
 
+/-- With a measure the definedness axioms are replaced by a proof: the
+termination check establishes definedness at every input, so only the value
+axiom is assumed. -/
+private def RelationDecl.declare (info : RelationDecl) : Option Typed.Measure → VerifM Unit
+  | none => SpecFn.declare info.sd.fn info.axs
+  | some m => do
+    SpecFn.declare info.sd.fn (Skolemize.SpecFn.Axioms.measured info.sd.fn info.sd.x info.bv)
+    Termination.check info.sd.fn info.sd.x m info.bv
+
 private def declareAndAssume (primitives : PrimEncodings) (acc : RelationSpec)
     (d : Typed.ValDecl) : VerifM RelationSpec := do
   match d.relation with
   | none => pure acc
-  | some rel =>
+  | some _ =>
       match extend primitives acc d with
       | .error msg => VerifM.fatal msg
       | .ok info => do
-          SpecFn.declare rel info.axs
+          info.declare d.decreases
           pure info.spec
 
 /-- Declare a bounded quantifier's solver-facing triple and its defining
@@ -180,7 +187,6 @@ private def declareLifting (primitives : PrimEncodings) (acc : RelationSpec)
       | .ok body => do
           s.declare body
           pure { symbols := acc.symbols ++ [SpecFn.rel s.name],
-                 axioms := acc.axioms ++ s.axioms body,
                  functionMap := acc.functionMap ++ [(s.name, s.name)],
                  delta := s.extendSignature acc.delta }
 
@@ -302,24 +308,52 @@ private theorem declareAndAssume_correct {primitives : PrimEncodings}
         rw [← hfnsd]
         exact Skolemize.encode_eval_updateBinaryRel hlawsd hinfoEq (hΓsd ▸ hΓagree)
           (hΓsd ▸ hΔsd ▸ hΓwf_acc) (hΔsd ▸ hΔwf_acc) hsdFresh R
-      obtain ⟨st4, ρ4, hst4_decls, howns4, hvars4, hwf4, hsub4, hagree4,
-        hΓwf4, hΓagree4, hcont⟩ :=
-        SpecFn.declare_correct rel_name info.sd.f info.axs R F D acc.delta acc.functionMap st ρ
+      have hdecl (axs : List Axiom) (hsub : ∀ ax ∈ axs, ax ∈ info.axs)
+          {Q' : Unit → TransState → Env → Prop}
+          (h : VerifM.eval (SpecFn.declare info.sd.fn axs) st ρ Q') :=
+        SpecFn.declare_correct rel_name info.sd.f axs R F D acc.delta acc.functionMap st ρ
           hf.relFresh hf.funcFresh hf.defFresh hgraph hacc.symm howns hvars
           (hf.sigBoth_wf hΔwf_acc) hΓwf_acc hΓagree
           (fun ax hax => by
             have := Skolemize.encode_wfIn hlawsd hinfoEq (hΔsd ▸ hΔwf_acc)
-              (hΓsd ▸ hΔsd ▸ hΓwf_acc) hsdFresh ax hax
-            rwa [hΔsd, hfnsd] at this) haxeval
-          (VerifM.eval_bind heval)
-      have hdelta4 : info.spec.delta = st4.decls := by rw [hspec_delta, hst4_decls]
-      have hΓwf4' : FunCtx.wfIn info.spec.functionMap st4.decls := by
-        rw [hspec_fm]; exact hΓwf4
-      have hΓagree4' : FunCtx.Agreement info.spec.functionMap ρ4 := by
-        rw [hspec_fm]; exact hΓagree4
-      exact ⟨info.spec, st4, ρ4,
-        ⟨hdelta4, howns4, hvars4, hwf4, hΓwf4', hΓagree4'⟩,
-        hsub4, hagree4, VerifM.eval_ret hcont⟩
+              (hΓsd ▸ hΔsd ▸ hΓwf_acc) hsdFresh ax (hsub ax hax)
+            rwa [hΔsd, hfnsd] at this)
+          (fun ax hax => haxeval ax (hsub ax hax)) (hfnsd ▸ h)
+      -- Either form declares a sublist of the encoded axioms. A measure then
+      -- adds the totality assertion, which touches no field the invariant reads.
+      have hrun : ∃ axs, (∀ ax ∈ axs, ax ∈ info.axs) ∧
+          VerifM.eval (SpecFn.declare info.sd.fn axs) st ρ
+            (fun _ st' ρ' => ρ' = SpecFn.Env.both ρ rel_name R D F →
+              ∃ st'', st''.decls = st'.decls ∧ st''.owns = st'.owns ∧
+                Q info.spec st'' ρ') := by
+        have h := VerifM.eval_bind heval
+        cases hm : d.decreases with
+        | none =>
+          simp only [RelationDecl.declare, hm] at h
+          exact ⟨info.axs, fun _ hax => hax,
+            h.mono fun _ st' _ hQ _ => ⟨st', rfl, rfl, VerifM.eval_ret hQ⟩⟩
+        | some m =>
+          simp only [RelationDecl.declare, hm] at h
+          refine ⟨_, Skolemize.encode_measured hinfoEq, (VerifM.eval_bind h).mono ?_⟩
+          intro _ st' ρ' hc hρ'
+          have hclose : ∀ v, info.bv.defined.eval (ρ'.updateConst .value info.sd.x v) →
+              (info.sd.fn.isDefined (.var .value info.sd.x)).eval
+                (ρ'.updateConst .value info.sd.x v) := by
+            rw [hρ']; exact Skolemize.encode_closed hinfoEq haxeval
+          exact ⟨{ st' with asserts := Termination.total info.sd.fn info.sd.x :: st'.asserts },
+            rfl, rfl, VerifM.eval_ret (Termination.check_correct hclose hc)⟩
+      obtain ⟨axs, hsub, hrun⟩ := hrun
+      obtain ⟨st4, ρ4, hρ4, hst4_decls, howns4, hvars4, hwf4, hsub4, hagree4,
+        hΓwf4, hΓagree4, hcont⟩ := hdecl axs hsub hrun
+      obtain ⟨st5, hst5_decls, howns5, hQ5⟩ := hcont hρ4
+      refine ⟨info.spec, st5, ρ4, ⟨?_, ?_, ?_, ?_, ?_, ?_⟩, ?_, hagree4, hQ5⟩
+      · rw [hspec_delta, hst5_decls, hst4_decls]
+      · rw [howns5, howns4]
+      · rw [hst5_decls]; exact hvars4
+      · rw [hst5_decls]; exact hwf4
+      · rw [hspec_fm, hst5_decls]; exact hΓwf4
+      · rw [hspec_fm]; exact hΓagree4
+      · rw [hst5_decls]; exact hsub4
 
 omit [MicaGS HasLC.hasLC Sig] in
 private theorem assembleFrom_correct {primitives : PrimEncodings}
@@ -380,7 +414,6 @@ private theorem declareLifting_correct {primitives : PrimEncodings}
           acc.functionMap st ρ v.down hbody hacc.symm howns hvars
           (hacc ▸ hwf) (hacc ▸ hΓwf) hΓagree (VerifM.eval_bind heval)
       exact ⟨{ symbols := acc.symbols ++ [SpecFn.rel s.name],
-               axioms := acc.axioms ++ s.axioms body,
                functionMap := acc.functionMap ++ [(s.name, s.name)],
                delta := s.extendSignature acc.delta }, st4, ρ4,
         ⟨hdelta.symm, howns4, hvars4, hwf4, hΓwf4, hΓagree4⟩,
@@ -445,7 +478,7 @@ theorem assemble_correct (primitives : PrimEncodings) (hlaw : primitives.Lawful)
   refine ⟨result, stRel, ρRel, hinvRel.vars, hinvRel.owns, hsub1.trans hsubRel,
     Env.agreeOn_trans hag1 (Env.agreeOn_mono hsub1 hagRel), ?_⟩
   have hresD := hinvRel.delta
-  obtain ⟨_, _, _, _⟩ := result
+  obtain ⟨_, _, _⟩ := result
   simp only at hresD; subst hresD
   exact hQ
 

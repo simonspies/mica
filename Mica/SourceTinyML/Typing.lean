@@ -524,6 +524,12 @@ leaf is handed straight to `env.translate`, so the walk produces a `Spec`
 directly rather than an intermediate typed spec body. This reuses the global
 context from `Program.elaborate`, so a spec may refer to earlier definitions. -/
 
+private def Measure.elaborate (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx)
+    (names : List String) (m : Untyped.Expr) : TypeM σ Measure := do
+  let m' ← Expr.elaborate env Θ Γ m (some .int)
+  let (v, defd) ← env.translate names m'
+  pure { term := Term.unop .toInt v, defined := defd }
+
 /-- Elaborate a specified function literal: its signature and specification
 first, then its body. Doing the spec before the body is what lets the recursive
 self-reference — and hence every call in the body — be typed at the specified
@@ -557,9 +563,7 @@ def ValDecl.elaborateSpecified (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.Ty
           typedArgs ret rb
         let dec' ← dec.mapM fun m => do
           let specArgTys ← TypeM.ofExcept (extractSpecArgTypes typedArgs s.args)
-          let m' ← Expr.elaborate env Θ (Spec.scope Γ specArgTys s.ghost) m (some .int)
-          let (v, defd) ← env.translate s.allArgs m'
-          pure { term := Term.unop .toInt v, defined := defd }
+          Measure.elaborate env Θ (Spec.scope Γ specArgTys s.ghost) s.allArgs m
         let body' ← Expr.elaborate env Θ Γ e (some (.arrow argTys ret (some s)))
         pure (s, dec', body')
   | .fix _ _ none _ =>
@@ -611,8 +615,12 @@ def ValDecl.elaborate (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx)
         | .named _ (some ty) => some ty
         | _ => none)
       let body' ← Expr.elaborate env Θ Γ d.body expected
+      let dec' ← d.decreases.mapM fun m =>
+        match body' with
+        | .fix _ [⟨some x, ty⟩] _ _ _ => Measure.elaborate env Θ (Γ.extend x ty) [x] m
+        | _ => TypeM.error (.spec "[@@decreases] requires a named unary function")
       pure { name := Typed.Binder.ofUntyped d.name body'.ty, body := body',
-             relation := d.relation, mode := d.mode }
+             relation := d.relation, mode := d.mode, decreases := dec' }
 
 /-- Only a function literal is generalized. Anything else whose type still has
 a variable to quantify would need a weak variable standing for the type its

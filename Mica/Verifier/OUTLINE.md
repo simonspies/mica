@@ -14,7 +14,7 @@
 - `PredicateTransformers.lean` — Verifier operations on predicate transformers: the call and implementation protocols and their well-formedness.
 - `PrimitiveLaws.lean` — Spatially lifted weakest-precondition laws for TinyML primitive operations.
 - `Programs.lean` — End-to-end preparation and verification of programs, from typed elaboration to program-level soundness.
-- `RelationalEncoding.lean` — Bundle for RelationalEncoding/, the two-stage encoding of recursive functions into FOL axioms.
+- `RelationalEncoding.lean` — Bundle for RelationalEncoding/, the two-stage encoding and termination checks for specification functions.
 - `Scoped.lean` — Scoped SMT command language and its translation to solver strategies and flat contexts.
 - `SpatialAtom.lean` — Syntactic spatial atoms and contexts for verifier state, together with their well-formedness conditions and basic operations.
 - `Specifications.lean` — Verifier operations on function specifications: the call and implementation protocols and their correctness.

@@ -1073,9 +1073,8 @@ private def Decl.elaborate (env : ElabEnv) (decl : Decl)
       return ← err decl.loc (.unsupportedFeature "[@@impl] requires [@@fn]")
     if (!attrs.ghost.isEmpty || attrs.mode == .ghost) && attrs.spec.isNone then
       return ← err decl.loc (.unsupportedFeature "[@@ghost] requires [@@spec]")
-    -- Only a recursive ghost call is checked against a measure.
-    if attrs.decreases.isSome && attrs.mode != .ghost then
-      return ← err decl.loc (.unsupportedFeature "[@@decreases] requires [@@ghost]")
+    if attrs.decreases.isSome && attrs.mode != .ghost && !attrs.fn then
+      return ← err decl.loc (.unsupportedFeature "[@@decreases] requires [@@ghost] or [@@fn]")
     if attrs.decreases.isSome && !isRec then
       return ← err decl.loc (.unsupportedFeature
         "[@@decreases] requires a recursive declaration")

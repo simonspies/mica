@@ -24,6 +24,10 @@ Together, the two definedness implications make `f_def(x)` equivalent to the
 body being defined, and the value axiom pins `f_val(x)` to the encoded body
 value on that domain.
 
+A declaration whose definedness is proved outright, by the termination check
+that `[@@decreases]` triggers, needs neither implication: `f_def(x)` then holds
+at every input, so only the value axiom is emitted (`SpecFn.Axioms.measured`).
+
 For a fibonacci-style definition
 
 ```text
@@ -82,6 +86,16 @@ are quantified, so they are guarded (`.high`). -/
 def SpecFn.Axioms.all (fn : SpecFn) (x : TinyML.Var) (body : DefVal) : List Axiom :=
   [⟨SpecFn.Axioms.definedIntro fn x body, .high⟩, ⟨SpecFn.Axioms.value fn x body, .high⟩,
    ⟨SpecFn.Axioms.definedElim fn x body, .high⟩]
+
+/-- The subset of `SpecFn.Axioms.all` emitted once definedness is proved to hold
+at every input. Both definedness implications then say nothing the totality
+assertion does not already say, so the value axiom is all that remains. -/
+def SpecFn.Axioms.measured (fn : SpecFn) (x : TinyML.Var) (body : DefVal) : List Axiom :=
+  [⟨SpecFn.Axioms.value fn x body, .high⟩]
+
+theorem SpecFn.Axioms.measured_subset_all {fn : SpecFn} {x : TinyML.Var} {body : DefVal} :
+    ∀ ax ∈ SpecFn.Axioms.measured fn x body, ax ∈ SpecFn.Axioms.all fn x body := by
+  simp [SpecFn.Axioms.measured, SpecFn.Axioms.all]
 
 private theorem SpecFn.Axioms.all_wfIn {Δ : Signature} {fn : SpecFn} {x : String} {body : DefVal}
     (hΔx : (Δ.declVar ⟨x, .value⟩).wf)
@@ -246,6 +260,23 @@ private theorem encode_inv {sd : SpecDef} {bv : DefVal} {axs : List Axiom}
   rename_i bv' henc
   cases hinfo
   exact ⟨henc, rfl⟩
+
+theorem encode_measured {sd : SpecDef} {bv : DefVal} {axs : List Axiom}
+    (hinfo : Skolemize.encode sd = .ok (bv, axs)) :
+    ∀ ax ∈ SpecFn.Axioms.measured sd.fn sd.x bv, ax ∈ axs := by
+  obtain ⟨_, rfl⟩ := encode_inv hinfo
+  exact SpecFn.Axioms.measured_subset_all
+
+/-- `definedIntro` read as a closure property: the encoded body being defined at
+a value closes definedness of `fn` under that value. This is what the
+termination check inducts on. -/
+theorem encode_closed {sd : SpecDef} {bv : DefVal} {axs : List Axiom} {ρ : Env}
+    (hinfo : Skolemize.encode sd = .ok (bv, axs))
+    (haxs : ∀ ax ∈ axs, ax.formula.eval ρ) :
+    ∀ v, bv.defined.eval (ρ.updateConst .value sd.x v) →
+      (sd.fn.isDefined (.var .value sd.x)).eval (ρ.updateConst .value sd.x v) := by
+  obtain ⟨_, rfl⟩ := encode_inv hinfo
+  exact haxs _ (List.Mem.head _)
 
 theorem encode_wfIn {sd : SpecDef} {bv : DefVal} {axs : List Axiom}
     (hlaw : sd.primitives.Lawful)

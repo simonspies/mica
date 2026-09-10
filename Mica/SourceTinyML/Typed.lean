@@ -343,7 +343,7 @@ theorem Expr.spec?_elim {e : Expr.WithTypeVars V} {s : Spec (Typ.WithTypeVars V)
     (spec : Option (Spec (Typ.WithTypeVars V))) (body : Expr.WithTypeVars V) :
     (Expr.WithTypeVars.fix self args retTy spec body).spec? = spec := rfl
 
-/-- A partial integer expression used to rank recursive ghost calls. The
+/-- A partial integer expression used to rank recursive calls. The
     definedness condition must hold before the term is used as a rank. -/
 structure Measure where
   term : Term .int

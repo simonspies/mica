@@ -167,7 +167,7 @@ structure ValDecl (S : Type) where
   then generated rather than written. -/
   impl : Bool := false
   mode : Mode := .runtime
-  /-- The `[@@decreases]` measure, over the specification's parameters. -/
+  /-- The `[@@decreases]` measure, over the spec or function parameters. -/
   decreases : Option Expr := none
   deriving Repr, Inhabited
 
