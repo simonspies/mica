@@ -117,7 +117,7 @@ def floatAbsB : Pure.Unary where
   f        := FloatBits.abs
   dom      := fun _ => True
   pre      := none
-  defAxiom := floatAbsDefAxiom
+  enc      := .symbol floatAbsDefAxiom
 
 def floatAbs : Intrinsic := floatAbsB.toIntrinsic
 
@@ -130,9 +130,9 @@ def floatAbsLawful : floatAbsB.Lawful [] where
   domSound     := fun _ _ _ _ => True.intro
   semWellTyped := fun _ _ _ _ => .rfl
   specBaseWf   := by apply PredTrans.checkWf_ok; rfl
-  defWf        := by apply Formula.checkWf_ok; rfl
+  encWf        := by apply Formula.checkWf_ok; rfl
   typeWf       := by intro φ h; injection h with h; subst h; apply Formula.checkWf_ok; rfl
-  defEval      := by intrinsic_def_eval [unTerm, floatAbsB, floatAbsDefAxiom]; intros; rfl
+  encEval      := by intrinsic_def_eval [unTerm, floatAbsB, floatAbsDefAxiom]; intros; rfl
 
 instance : IntrinsicSound [floatAbs] floatAbs := floatAbsLawful.sound
 
@@ -149,7 +149,7 @@ def floatNegB : Pure.Unary where
   f        := FloatBits.neg
   dom      := fun _ => True
   pre      := none
-  defAxiom := floatNegDefAxiom
+  enc      := .symbol floatNegDefAxiom
 
 def floatNeg : Intrinsic := floatNegB.toIntrinsic
 
@@ -162,9 +162,9 @@ def floatNegLawful : floatNegB.Lawful [] where
   domSound     := fun _ _ _ _ => True.intro
   semWellTyped := fun _ _ _ _ => .rfl
   specBaseWf   := by apply PredTrans.checkWf_ok; rfl
-  defWf        := by apply Formula.checkWf_ok; rfl
+  encWf        := by apply Formula.checkWf_ok; rfl
   typeWf       := by intro φ h; injection h with h; subst h; apply Formula.checkWf_ok; rfl
-  defEval      := by intrinsic_def_eval [unTerm, floatNegB, floatNegDefAxiom]; intros; rfl
+  encEval      := by intrinsic_def_eval [unTerm, floatNegB, floatNegDefAxiom]; intros; rfl
 
 instance : IntrinsicSound [floatNeg] floatNeg := floatNegLawful.sound
 
@@ -181,7 +181,7 @@ def floatSqrtB : Pure.Unary where
   f        := FloatBits.sqrt
   dom      := fun _ => True
   pre      := none
-  defAxiom := floatSqrtDefAxiom
+  enc      := .symbol floatSqrtDefAxiom
 
 def floatSqrt : Intrinsic := floatSqrtB.toIntrinsic
 
@@ -194,9 +194,9 @@ def floatSqrtLawful : floatSqrtB.Lawful [] where
   domSound     := fun _ _ _ _ => True.intro
   semWellTyped := fun _ _ _ _ => .rfl
   specBaseWf   := by apply PredTrans.checkWf_ok; rfl
-  defWf        := by apply Formula.checkWf_ok; rfl
+  encWf        := by apply Formula.checkWf_ok; rfl
   typeWf       := by intro φ h; injection h with h; subst h; apply Formula.checkWf_ok; rfl
-  defEval      := by intrinsic_def_eval [unTerm, floatSqrtB, floatSqrtDefAxiom]; intros; rfl
+  encEval      := by intrinsic_def_eval [unTerm, floatSqrtB, floatSqrtDefAxiom]; intros; rfl
 
 instance : IntrinsicSound [floatSqrt] floatSqrt := floatSqrtLawful.sound
 
@@ -213,7 +213,7 @@ def floatIsNanB : Pure.Unary where
   f        := FloatBits.isNaN
   dom      := fun _ => True
   pre      := none
-  defAxiom := floatIsNanDefAxiom
+  enc      := .symbol floatIsNanDefAxiom
 
 def floatIsNan : Intrinsic := floatIsNanB.toIntrinsic
 
@@ -226,9 +226,9 @@ def floatIsNanLawful : floatIsNanB.Lawful [] where
   domSound     := fun _ _ _ _ => True.intro
   semWellTyped := fun _ _ _ _ => .rfl
   specBaseWf   := by apply PredTrans.checkWf_ok; rfl
-  defWf        := by apply Formula.checkWf_ok; rfl
+  encWf        := by apply Formula.checkWf_ok; rfl
   typeWf       := by intro φ h; injection h with h; subst h; apply Formula.checkWf_ok; rfl
-  defEval      := by intrinsic_def_eval [unTerm, floatIsNanB, floatIsNanDefAxiom]; intros; rfl
+  encEval      := by intrinsic_def_eval [unTerm, floatIsNanB, floatIsNanDefAxiom]; intros; rfl
 
 instance : IntrinsicSound [floatIsNan] floatIsNan := floatIsNanLawful.sound
 
@@ -249,7 +249,7 @@ def floatIsFiniteB : Pure.Unary where
   f        := FloatBits.isFinite
   dom      := fun _ => True
   pre      := none
-  defAxiom := floatIsFiniteDefAxiom
+  enc      := .symbol floatIsFiniteDefAxiom
 
 def floatIsFinite : Intrinsic := floatIsFiniteB.toIntrinsic
 
@@ -262,9 +262,9 @@ def floatIsFiniteLawful : floatIsFiniteB.Lawful [] where
   domSound     := fun _ _ _ _ => True.intro
   semWellTyped := fun _ _ _ _ => .rfl
   specBaseWf   := by apply PredTrans.checkWf_ok; rfl
-  defWf        := by apply Formula.checkWf_ok; rfl
+  encWf        := by apply Formula.checkWf_ok; rfl
   typeWf       := by intro φ h; injection h with h; subst h; apply Formula.checkWf_ok; rfl
-  defEval      := by intrinsic_def_eval [unTerm, floatIsFiniteB, floatIsFiniteDefAxiom, FloatBits.isFinite]; intros; rfl
+  encEval      := by intrinsic_def_eval [unTerm, floatIsFiniteB, floatIsFiniteDefAxiom, FloatBits.isFinite]; intros; rfl
 
 instance : IntrinsicSound [floatIsFinite] floatIsFinite := floatIsFiniteLawful.sound
 
@@ -281,7 +281,7 @@ def floatOfIntB : Pure.Unary where
   f        := FloatBits.ofInt
   dom      := fun _ => True
   pre      := none
-  defAxiom := floatOfIntDefAxiom
+  enc      := .symbol floatOfIntDefAxiom
 
 def floatOfInt : Intrinsic := floatOfIntB.toIntrinsic
 
@@ -294,9 +294,9 @@ def floatOfIntLawful : floatOfIntB.Lawful [] where
   domSound     := fun _ _ _ _ => True.intro
   semWellTyped := fun _ _ _ _ => .rfl
   specBaseWf   := by apply PredTrans.checkWf_ok; rfl
-  defWf        := by apply Formula.checkWf_ok; rfl
+  encWf        := by apply Formula.checkWf_ok; rfl
   typeWf       := by intro φ h; injection h with h; subst h; apply Formula.checkWf_ok; rfl
-  defEval      := by intrinsic_def_eval [unTerm, floatOfIntB, floatOfIntDefAxiom]; intros; rfl
+  encEval      := by intrinsic_def_eval [unTerm, floatOfIntB, floatOfIntDefAxiom]; intros; rfl
 
 instance : IntrinsicSound [floatOfInt] floatOfInt := floatOfIntLawful.sound
 
@@ -315,7 +315,7 @@ def floatAddB : Pure.Binary where
   f        := FloatBits.add
   dom      := fun _ _ => True
   pre      := none
-  defAxiom := binFloatDefAxiom floatAddSym .fpAdd
+  enc      := .symbol (binFloatDefAxiom floatAddSym .fpAdd)
 
 def floatAdd : Intrinsic := floatAddB.toIntrinsic
 
@@ -329,9 +329,9 @@ def floatAddLawful : floatAddB.Lawful [] where
   domSound     := fun _ _ _ _ _ => True.intro
   semWellTyped := fun _ _ _ _ _ => sep_emp.1
   specBaseWf   := by apply PredTrans.checkWf_ok; rfl
-  defWf        := by apply Formula.checkWf_ok; rfl
+  encWf        := by apply Formula.checkWf_ok; rfl
   typeWf       := by intro φ h; injection h with h; subst h; apply Formula.checkWf_ok; rfl
-  defEval      := by intrinsic_def_eval [binTerm, floatAddB, floatAddSym, binFloatDefAxiom]; intros; rfl
+  encEval      := by intrinsic_def_eval [binTerm, floatAddB, floatAddSym, binFloatDefAxiom]; intros; rfl
 
 instance : IntrinsicSound [floatAdd] floatAdd := floatAddLawful.sound
 
@@ -344,7 +344,7 @@ def floatSubB : Pure.Binary where
   f        := FloatBits.sub
   dom      := fun _ _ => True
   pre      := none
-  defAxiom := binFloatDefAxiom floatSubSym .fpSub
+  enc      := .symbol (binFloatDefAxiom floatSubSym .fpSub)
 
 def floatSub : Intrinsic := floatSubB.toIntrinsic
 
@@ -358,9 +358,9 @@ def floatSubLawful : floatSubB.Lawful [] where
   domSound     := fun _ _ _ _ _ => True.intro
   semWellTyped := fun _ _ _ _ _ => sep_emp.1
   specBaseWf   := by apply PredTrans.checkWf_ok; rfl
-  defWf        := by apply Formula.checkWf_ok; rfl
+  encWf        := by apply Formula.checkWf_ok; rfl
   typeWf       := by intro φ h; injection h with h; subst h; apply Formula.checkWf_ok; rfl
-  defEval      := by intrinsic_def_eval [binTerm, floatSubB, floatSubSym, binFloatDefAxiom]; intros; rfl
+  encEval      := by intrinsic_def_eval [binTerm, floatSubB, floatSubSym, binFloatDefAxiom]; intros; rfl
 
 instance : IntrinsicSound [floatSub] floatSub := floatSubLawful.sound
 
@@ -373,7 +373,7 @@ def floatMulB : Pure.Binary where
   f        := FloatBits.mul
   dom      := fun _ _ => True
   pre      := none
-  defAxiom := binFloatDefAxiom floatMulSym .fpMul
+  enc      := .symbol (binFloatDefAxiom floatMulSym .fpMul)
 
 def floatMul : Intrinsic := floatMulB.toIntrinsic
 
@@ -387,9 +387,9 @@ def floatMulLawful : floatMulB.Lawful [] where
   domSound     := fun _ _ _ _ _ => True.intro
   semWellTyped := fun _ _ _ _ _ => sep_emp.1
   specBaseWf   := by apply PredTrans.checkWf_ok; rfl
-  defWf        := by apply Formula.checkWf_ok; rfl
+  encWf        := by apply Formula.checkWf_ok; rfl
   typeWf       := by intro φ h; injection h with h; subst h; apply Formula.checkWf_ok; rfl
-  defEval      := by intrinsic_def_eval [binTerm, floatMulB, floatMulSym, binFloatDefAxiom]; intros; rfl
+  encEval      := by intrinsic_def_eval [binTerm, floatMulB, floatMulSym, binFloatDefAxiom]; intros; rfl
 
 instance : IntrinsicSound [floatMul] floatMul := floatMulLawful.sound
 
@@ -402,7 +402,7 @@ def floatDivB : Pure.Binary where
   f        := FloatBits.div
   dom      := fun _ _ => True
   pre      := none
-  defAxiom := binFloatDefAxiom floatDivSym .fpDiv
+  enc      := .symbol (binFloatDefAxiom floatDivSym .fpDiv)
 
 def floatDiv : Intrinsic := floatDivB.toIntrinsic
 
@@ -416,9 +416,9 @@ def floatDivLawful : floatDivB.Lawful [] where
   domSound     := fun _ _ _ _ _ => True.intro
   semWellTyped := fun _ _ _ _ _ => sep_emp.1
   specBaseWf   := by apply PredTrans.checkWf_ok; rfl
-  defWf        := by apply Formula.checkWf_ok; rfl
+  encWf        := by apply Formula.checkWf_ok; rfl
   typeWf       := by intro φ h; injection h with h; subst h; apply Formula.checkWf_ok; rfl
-  defEval      := by intrinsic_def_eval [binTerm, floatDivB, floatDivSym, binFloatDefAxiom]; intros; rfl
+  encEval      := by intrinsic_def_eval [binTerm, floatDivB, floatDivSym, binFloatDefAxiom]; intros; rfl
 
 instance : IntrinsicSound [floatDiv] floatDiv := floatDivLawful.sound
 
@@ -444,7 +444,7 @@ def floatMinB : Pure.Binary where
   f        := FloatBits.min
   dom      := fun _ _ => True
   pre      := none
-  defAxiom := floatMinDefAxiom
+  enc      := .symbol floatMinDefAxiom
 
 def floatMin : Intrinsic := floatMinB.toIntrinsic
 
@@ -458,9 +458,9 @@ def floatMinLawful : floatMinB.Lawful [] where
   domSound     := fun _ _ _ _ _ => True.intro
   semWellTyped := fun _ _ _ _ _ => sep_emp.1
   specBaseWf   := by apply PredTrans.checkWf_ok; rfl
-  defWf        := by apply Formula.checkWf_ok; rfl
+  encWf        := by apply Formula.checkWf_ok; rfl
   typeWf       := by intro φ h; injection h with h; subst h; apply Formula.checkWf_ok; rfl
-  defEval      := by intrinsic_def_eval [binTerm, floatMinB, floatMinDefAxiom, FloatBits.min]; intros; rfl
+  encEval      := by intrinsic_def_eval [binTerm, floatMinB, floatMinDefAxiom, FloatBits.min]; intros; rfl
 
 instance : IntrinsicSound [floatMin] floatMin := floatMinLawful.sound
 
@@ -486,7 +486,7 @@ def floatMaxB : Pure.Binary where
   f        := FloatBits.max
   dom      := fun _ _ => True
   pre      := none
-  defAxiom := floatMaxDefAxiom
+  enc      := .symbol floatMaxDefAxiom
 
 def floatMax : Intrinsic := floatMaxB.toIntrinsic
 
@@ -500,9 +500,9 @@ def floatMaxLawful : floatMaxB.Lawful [] where
   domSound     := fun _ _ _ _ _ => True.intro
   semWellTyped := fun _ _ _ _ _ => sep_emp.1
   specBaseWf   := by apply PredTrans.checkWf_ok; rfl
-  defWf        := by apply Formula.checkWf_ok; rfl
+  encWf        := by apply Formula.checkWf_ok; rfl
   typeWf       := by intro φ h; injection h with h; subst h; apply Formula.checkWf_ok; rfl
-  defEval      := by intrinsic_def_eval [binTerm, floatMaxB, floatMaxDefAxiom, FloatBits.max]; intros; rfl
+  encEval      := by intrinsic_def_eval [binTerm, floatMaxB, floatMaxDefAxiom, FloatBits.max]; intros; rfl
 
 instance : IntrinsicSound [floatMax] floatMax := floatMaxLawful.sound
 
@@ -521,7 +521,7 @@ def floatEqualB : Pure.Binary where
   f        := FloatBits.eq
   dom      := fun _ _ => True
   pre      := none
-  defAxiom := binFloatBoolDefAxiom floatEqualSym .fpEq
+  enc      := .symbol (binFloatBoolDefAxiom floatEqualSym .fpEq)
 
 def floatEqual : Intrinsic := floatEqualB.toIntrinsic
 
@@ -535,9 +535,9 @@ def floatEqualLawful : floatEqualB.Lawful [] where
   domSound     := fun _ _ _ _ _ => True.intro
   semWellTyped := fun _ _ _ _ _ => sep_emp.1
   specBaseWf   := by apply PredTrans.checkWf_ok; rfl
-  defWf        := by apply Formula.checkWf_ok; rfl
+  encWf        := by apply Formula.checkWf_ok; rfl
   typeWf       := by intro φ h; injection h with h; subst h; apply Formula.checkWf_ok; rfl
-  defEval      := by intrinsic_def_eval [binTerm, floatEqualB, floatEqualSym, binFloatBoolDefAxiom]; intros; rfl
+  encEval      := by intrinsic_def_eval [binTerm, floatEqualB, floatEqualSym, binFloatBoolDefAxiom]; intros; rfl
 
 instance : IntrinsicSound [floatEqual] floatEqual := floatEqualLawful.sound
 
@@ -550,7 +550,7 @@ def floatLtB : Pure.Binary where
   f        := FloatBits.lt
   dom      := fun _ _ => True
   pre      := none
-  defAxiom := binFloatBoolDefAxiom floatLtSym .fpLt
+  enc      := .symbol (binFloatBoolDefAxiom floatLtSym .fpLt)
 
 def floatLt : Intrinsic := floatLtB.toIntrinsic
 
@@ -564,9 +564,9 @@ def floatLtLawful : floatLtB.Lawful [] where
   domSound     := fun _ _ _ _ _ => True.intro
   semWellTyped := fun _ _ _ _ _ => sep_emp.1
   specBaseWf   := by apply PredTrans.checkWf_ok; rfl
-  defWf        := by apply Formula.checkWf_ok; rfl
+  encWf        := by apply Formula.checkWf_ok; rfl
   typeWf       := by intro φ h; injection h with h; subst h; apply Formula.checkWf_ok; rfl
-  defEval      := by intrinsic_def_eval [binTerm, floatLtB, floatLtSym, binFloatBoolDefAxiom]; intros; rfl
+  encEval      := by intrinsic_def_eval [binTerm, floatLtB, floatLtSym, binFloatBoolDefAxiom]; intros; rfl
 
 instance : IntrinsicSound [floatLt] floatLt := floatLtLawful.sound
 
@@ -579,7 +579,7 @@ def floatLeB : Pure.Binary where
   f        := FloatBits.le
   dom      := fun _ _ => True
   pre      := none
-  defAxiom := binFloatBoolDefAxiom floatLeSym .fpLe
+  enc      := .symbol (binFloatBoolDefAxiom floatLeSym .fpLe)
 
 def floatLe : Intrinsic := floatLeB.toIntrinsic
 
@@ -593,9 +593,9 @@ def floatLeLawful : floatLeB.Lawful [] where
   domSound     := fun _ _ _ _ _ => True.intro
   semWellTyped := fun _ _ _ _ _ => sep_emp.1
   specBaseWf   := by apply PredTrans.checkWf_ok; rfl
-  defWf        := by apply Formula.checkWf_ok; rfl
+  encWf        := by apply Formula.checkWf_ok; rfl
   typeWf       := by intro φ h; injection h with h; subst h; apply Formula.checkWf_ok; rfl
-  defEval      := by intrinsic_def_eval [binTerm, floatLeB, floatLeSym, binFloatBoolDefAxiom]; intros; rfl
+  encEval      := by intrinsic_def_eval [binTerm, floatLeB, floatLeSym, binFloatBoolDefAxiom]; intros; rfl
 
 instance : IntrinsicSound [floatLe] floatLe := floatLeLawful.sound
 
@@ -609,7 +609,7 @@ def floatNanB : Pure.Zero where
   path     := some ("Float", ["nan"])
   res      := .float
   f        := FloatBits.nan
-  defAxiom := zeroFloatDefAxiom floatNanSym .fpNaN
+  enc      := .symbol (zeroFloatDefAxiom floatNanSym .fpNaN)
 
 def floatNan : Intrinsic := floatNanB.toIntrinsic
 
@@ -621,9 +621,9 @@ def floatNanLawful : floatNanB.Lawful [] where
   nameFresh    := by decide
   semWellTyped := fun _ _ => .rfl
   specBaseWf   := by apply PredTrans.checkWf_ok; rfl
-  defWf        := by apply Formula.checkWf_ok; rfl
+  encWf        := by apply Formula.checkWf_ok; rfl
   typeWf       := by intro φ h; injection h with h; subst h; apply Formula.checkWf_ok; rfl
-  defEval      := by intrinsic_def_eval [constTerm, floatNanB, floatNanSym, zeroFloatDefAxiom]
+  encEval      := by intrinsic_def_eval [constTerm, floatNanB, floatNanSym, zeroFloatDefAxiom]
 
 instance : IntrinsicSound [floatNan] floatNan := floatNanLawful.sound
 
@@ -632,7 +632,7 @@ def floatInfinityB : Pure.Zero where
   path     := some ("Float", ["infinity"])
   res      := .float
   f        := FloatBits.posInf
-  defAxiom := zeroFloatDefAxiom floatInfinitySym .fpPosInf
+  enc      := .symbol (zeroFloatDefAxiom floatInfinitySym .fpPosInf)
 
 def floatInfinity : Intrinsic := floatInfinityB.toIntrinsic
 
@@ -644,9 +644,9 @@ def floatInfinityLawful : floatInfinityB.Lawful [] where
   nameFresh    := by decide
   semWellTyped := fun _ _ => .rfl
   specBaseWf   := by apply PredTrans.checkWf_ok; rfl
-  defWf        := by apply Formula.checkWf_ok; rfl
+  encWf        := by apply Formula.checkWf_ok; rfl
   typeWf       := by intro φ h; injection h with h; subst h; apply Formula.checkWf_ok; rfl
-  defEval      := by intrinsic_def_eval [constTerm, floatInfinityB, floatInfinitySym, zeroFloatDefAxiom]
+  encEval      := by intrinsic_def_eval [constTerm, floatInfinityB, floatInfinitySym, zeroFloatDefAxiom]
 
 instance : IntrinsicSound [floatInfinity] floatInfinity := floatInfinityLawful.sound
 
@@ -655,7 +655,7 @@ def floatNegInfinityB : Pure.Zero where
   path     := some ("Float", ["neg_infinity"])
   res      := .float
   f        := FloatBits.negInf
-  defAxiom := zeroFloatDefAxiom floatNegInfinitySym .fpNegInf
+  enc      := .symbol (zeroFloatDefAxiom floatNegInfinitySym .fpNegInf)
 
 def floatNegInfinity : Intrinsic := floatNegInfinityB.toIntrinsic
 
@@ -668,9 +668,9 @@ def floatNegInfinityLawful : floatNegInfinityB.Lawful [] where
   nameFresh    := by decide
   semWellTyped := fun _ _ => .rfl
   specBaseWf   := by apply PredTrans.checkWf_ok; rfl
-  defWf        := by apply Formula.checkWf_ok; rfl
+  encWf        := by apply Formula.checkWf_ok; rfl
   typeWf       := by intro φ h; injection h with h; subst h; apply Formula.checkWf_ok; rfl
-  defEval      := by intrinsic_def_eval [constTerm, floatNegInfinityB, floatNegInfinitySym, zeroFloatDefAxiom]
+  encEval      := by intrinsic_def_eval [constTerm, floatNegInfinityB, floatNegInfinitySym, zeroFloatDefAxiom]
 
 instance : IntrinsicSound [floatNegInfinity] floatNegInfinity := floatNegInfinityLawful.sound
 

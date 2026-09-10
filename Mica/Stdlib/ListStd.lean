@@ -192,7 +192,7 @@ def listLengthB : Pure.Unary where
   pre := none
   -- Recursive equations cause unrelated quantified proofs to diverge in Z3;
   -- keep the symbol opaque while retaining its executable, typed semantics.
-  defAxiom := .true_
+  enc      := .symbol .true_
 
 def listLengthIntrinsic : Intrinsic := listLengthB.toIntrinsic
 
@@ -206,9 +206,9 @@ def listLengthLawful : listLengthB.Lawful [] where
   domSound := fun _ _ _ _ => trivial
   semWellTyped := fun _ _ _ _ => affine
   specBaseWf := by apply PredTrans.checkWf_ok; rfl
-  defWf := by apply Formula.checkWf_ok; rfl
+  encWf := by apply Formula.checkWf_ok; rfl
   typeWf := by intro φ h; injection h with h; subst h; apply Formula.checkWf_ok; rfl
-  defEval := by simp [listLengthB, Formula.eval]
+  encEval := by simp [Pure.Unary.encEval, listLengthB, Formula.eval]
 
 instance : IntrinsicSound [listLengthIntrinsic] listLengthIntrinsic :=
   listLengthLawful.sound
@@ -223,7 +223,7 @@ def listAppendB : Pure.Binary where
   dom := fun _ _ => True
   pre := none
   -- See `listLengthB`: recursive list equations are intentionally opaque.
-  defAxiom := .true_
+  enc      := .symbol .true_
 
 def listAppendIntrinsic : Intrinsic := listAppendB.toIntrinsic
 
@@ -241,9 +241,9 @@ def listAppendLawful : listAppendB.Lawful [] where
     simpa [listAppendB, Embedding.logical, listTy, TinyML.Typ.subst] using
       listAppend_typed W left right (σ "a")
   specBaseWf := by apply PredTrans.checkWf_ok; rfl
-  defWf := by apply Formula.checkWf_ok; rfl
+  encWf := by apply Formula.checkWf_ok; rfl
   typeWf := fun _ h => nomatch h
-  defEval := by simp [listAppendB, Formula.eval]
+  encEval := by simp [Pure.Binary.encEval, listAppendB, Formula.eval]
 
 instance : IntrinsicSound [listAppendIntrinsic] listAppendIntrinsic :=
   listAppendLawful.sound
@@ -258,7 +258,7 @@ def listRevB : Pure.Unary where
   pre := none
   -- Reverse is deliberately opaque to SMT. Its natural recursive equation
   -- mentions List.append.
-  defAxiom := .true_
+  enc      := .symbol .true_
 
 def listRevIntrinsic : Intrinsic := listRevB.toIntrinsic
 
@@ -275,9 +275,9 @@ def listRevLawful : listRevB.Lawful [] where
     simpa [listRevB, Embedding.logical, listTy, TinyML.Typ.subst] using
       listRev_typed W value (σ "a")
   specBaseWf := by apply PredTrans.checkWf_ok; rfl
-  defWf := by apply Formula.checkWf_ok; rfl
+  encWf := by apply Formula.checkWf_ok; rfl
   typeWf := fun _ h => nomatch h
-  defEval := by simp [listRevB, Formula.eval]
+  encEval := by simp [Pure.Unary.encEval, listRevB, Formula.eval]
 
 instance : IntrinsicSound [listRevIntrinsic] listRevIntrinsic :=
   listRevLawful.sound

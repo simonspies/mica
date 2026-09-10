@@ -90,7 +90,7 @@ def vecLengthB : Pure.Unary where
   f        := (fun l => (l.length : Int) : List Runtime.Val → Int)
   dom      := fun _ => True
   pre      := none
-  defAxiom := vecLengthDefAxiom
+  enc      := .symbol vecLengthDefAxiom
 
 def vecLength : Intrinsic := vecLengthB.toIntrinsic
 
@@ -104,9 +104,9 @@ def vecLengthLawful : vecLengthB.Lawful [] where
   domSound     := fun _ _ _ _ => True.intro
   semWellTyped := fun _ _ _ _ => affine
   specBaseWf   := by apply PredTrans.checkWf_ok; rfl
-  defWf        := by apply Formula.checkWf_ok; rfl
+  encWf        := by apply Formula.checkWf_ok; rfl
   typeWf       := by intro φ h; injection h with h; subst h; apply Formula.checkWf_ok; rfl
-  defEval      := by
+  encEval      := by
     intrinsic_def_eval [unTerm, vecOf, UnOp.eval, vecLengthB, vecLengthDefAxiom]
     intro v
     rfl
@@ -126,7 +126,7 @@ def vecGetB : Pure.Binary where
     if 0 ≤ i then (l[i.toNat]?).getD .unit else .unit
   dom      := (fun l n => 0 ≤ n ∧ n < (l.length : Int) : List Runtime.Val → Int → Prop)
   pre      := some vecBoundsPre
-  defAxiom := vecGetDefAxiom
+  enc      := .symbol vecGetDefAxiom
 
 def vecGet : Intrinsic := vecGetB.toIntrinsic
 
@@ -155,9 +155,9 @@ def vecGetLawful : vecGetB.Lawful [] where
     refine sep_emp.1.trans ?_
     exact BigSepL.bigSepL_lookup (Φ := fun _ w => TinyML.ValHasType W w (σ "a")) hget
   specBaseWf   := by apply PredTrans.checkWf_ok; rfl
-  defWf        := by apply Formula.checkWf_ok; rfl
+  encWf        := by apply Formula.checkWf_ok; rfl
   typeWf       := by intro φ h; exact nomatch h
-  defEval      := by
+  encEval      := by
     intrinsic_def_eval [binTerm, vecOf, intOf, UnOp.eval, BinOp.eval, vecGetB, vecGetDefAxiom]
     intros
     rfl
@@ -180,7 +180,7 @@ def vecSetB : Pure.Ternary where
   dom      := (fun l n _ => 0 ≤ n ∧ n < (l.length : Int) :
                 List Runtime.Val → Int → Runtime.Val → Prop)
   pre      := some fun v i _ => vecBoundsPre v i
-  defAxiom := vecSetDefAxiom
+  enc      := .symbol vecSetDefAxiom
 
 def vecSet : Intrinsic := vecSetB.toIntrinsic
 
@@ -214,9 +214,9 @@ def vecSetLawful : vecSetB.Lawful [] where
     refine (sep_mono_left sep_elim_right).trans ?_
     exact (sep_mono_left (forall_elim x)).trans wand_elim_left
   specBaseWf   := by apply PredTrans.checkWf_ok; rfl
-  defWf        := by apply Formula.checkWf_ok; rfl
+  encWf        := by apply Formula.checkWf_ok; rfl
   typeWf       := by intro φ h; injection h with h; subst h; apply Formula.checkWf_ok; rfl
-  defEval      := by
+  encEval      := by
     intrinsic_def_eval [terTerm, vecOf, intOf, UnOp.eval, TerOp.eval, vecSetB, vecSetDefAxiom]
     intros
     rfl
@@ -237,7 +237,7 @@ def vecMakeB : Pure.Binary where
     if 0 ≤ len then List.replicate len.toNat x else []
   dom      := (fun m _ => 0 ≤ m : Int → Runtime.Val → Prop)
   pre      := some fun n _ => .binpred .le (.const (.i 0)) (intOf n)
-  defAxiom := vecMakeDefAxiom
+  enc      := .symbol vecMakeDefAxiom
 
 def vecMake : Intrinsic := vecMakeB.toIntrinsic
 
@@ -268,9 +268,9 @@ def vecMakeLawful : vecMakeB.Lawful [] where
     obtain rfl : List.replicate m.toNat x = vs := by injection hv
     iexact Hs
   specBaseWf   := by apply PredTrans.checkWf_ok; rfl
-  defWf        := by apply Formula.checkWf_ok; rfl
+  encWf        := by apply Formula.checkWf_ok; rfl
   typeWf       := by intro φ h; injection h with h; subst h; apply Formula.checkWf_ok; rfl
-  defEval      := by
+  encEval      := by
     intrinsic_def_eval [binTerm, vecOf, intOf, UnOp.eval, BinOp.eval, vecMakeB, vecMakeDefAxiom]
     intros
     rfl

@@ -887,7 +887,7 @@ theorem Program.verify_correct (reg : Verifier.Registry)
       rw [hvars_setup_eq]
       rfl
     obtain ⟨spec0, stRel, ρRel, hvars, howns, hsub_setup_rel, hag_setup_rel, hcheck_eval⟩ :=
-      RelationSpec.assemble_correct reg.primitives (Verifier.Registry.primitives_lawful reg)
+      RelationSpec.assemble_correct reg.primitives (Verifier.Registry.primitives_lawful hSound)
         typed liftSt.syms hvars_setup howns_setup
         hcheck_eval.1.namesDisjoint hassemble
     have hΔreg : Verifier.Registry.symSubset reg stRel.decls := by
