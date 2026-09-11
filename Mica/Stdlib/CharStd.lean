@@ -54,7 +54,7 @@ def charCodeB : Pure.Unary where
   f        := (fun c => (c.toNat : Int) : UInt8 → Int)
   dom      := fun _ => True
   pre      := none
-  defAxiom := charCodeDefAxiom
+  enc      := .symbol charCodeDefAxiom
 
 def charCode : Intrinsic := charCodeB.toIntrinsic
 
@@ -67,9 +67,9 @@ def charCodeLawful : charCodeB.Lawful [] where
   domSound     := fun _ _ _ _ => True.intro
   semWellTyped := fun _ _ _ _ => .rfl
   specBaseWf   := by apply PredTrans.checkWf_ok; rfl
-  defWf        := by apply Formula.checkWf_ok; rfl
+  encWf        := by apply Formula.checkWf_ok; rfl
   typeWf       := by intro φ h; injection h with h; subst h; apply Formula.checkWf_ok; rfl
-  defEval      := by
+  encEval      := by
     intrinsic_def_eval [unTerm, charCodeB, charCodeDefAxiom]
     intro v
     rfl
@@ -103,7 +103,7 @@ def charChrB : Pure.Unary where
   f        := charChrByte
   dom      := (fun n => 0 ≤ n ∧ n < 256 : Int → Prop)
   pre      := some charChrPre
-  defAxiom := charChrDefAxiom
+  enc      := .symbol charChrDefAxiom
 
 def charChr : Intrinsic := charChrB.toIntrinsic
 
@@ -120,13 +120,13 @@ def charChrLawful : charChrB.Lawful [] where
       Env.lookupConst_updateConst_same, valInt] using hpre
   semWellTyped := fun _ _ _ _ => .rfl
   specBaseWf   := by apply PredTrans.checkWf_ok; rfl
-  defWf        := by apply Formula.checkWf_ok; rfl
+  encWf        := by apply Formula.checkWf_ok; rfl
   typeWf       := by intro φ h; injection h with h; subst h; apply Formula.checkWf_ok; rfl
-  defEval      := by
+  encEval      := by
     have hsym : charChrB.sym = charChrSym := rfl
     intro ρ _ hresp
     rw [hsym] at hresp
-    simp only [charChrB, charChrDefAxiom, Formula.eval]
+    simp only [charChrDefAxiom, Formula.eval]
     intro x hpre
     have hun : (ρ.updateConst .value "n" x).unary .value .value "char_chr" =
         charChrSym.interp := by
@@ -160,7 +160,7 @@ def charEqualB : Pure.Binary where
   f        := (fun x y => x == y : UInt8 → UInt8 → Bool)
   dom      := fun _ _ => True
   pre      := none
-  defAxiom := charEqualDefAxiom
+  enc      := .symbol charEqualDefAxiom
 
 def charEqual : Intrinsic := charEqualB.toIntrinsic
 
@@ -174,9 +174,9 @@ def charEqualLawful : charEqualB.Lawful [] where
   domSound     := fun _ _ _ _ _ => True.intro
   semWellTyped := fun _ _ _ _ _ => sep_emp.1
   specBaseWf   := by apply PredTrans.checkWf_ok; rfl
-  defWf        := by apply Formula.checkWf_ok; rfl
+  encWf        := by apply Formula.checkWf_ok; rfl
   typeWf       := by intro φ h; injection h with h; subst h; apply Formula.checkWf_ok; rfl
-  defEval      := by
+  encEval      := by
     intrinsic_def_eval [binTerm, charEqualB, charEqualDefAxiom, Bool.beq_eq_decide_eq]
     intros; rfl
 

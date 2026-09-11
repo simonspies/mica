@@ -194,6 +194,8 @@ private theorem encodePrim_wfIn {primitives : PrimEncodings} {Δ Δ' : Signature
 /-- Encode a TinyML constant into a value-sorted FOL term. -/
 private def encodeConst : TinyML.Const → Term .value
   | .int  n => .unop .ofInt  (.const (.i n))
+  | .int32 bits => .unop .ofInt32 (.const (.bv bits))
+  | .int64 bits => .unop .ofInt64 (.const (.bv bits))
   | .bool b => .unop .ofBool (.const (.b b))
   | .char c => .unop .ofChar (.const (.char c))
   | .string s => .unop .ofString (.const (.str s))

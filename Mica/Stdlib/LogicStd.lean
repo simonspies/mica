@@ -40,13 +40,8 @@ program as unreachable. The runtime relation is empty, like the relation of
 
 /-- The encoding of logical equality as a plain value term. It uses no
     quantifier. -/
-def logicEqDirect : FOL.Direct .two where
-  interp := fun (a, b) => .bool (decide (a = b))
-  encode := fun (a, b) => .unop .ofBool (.binop .eq a b)
-  wfIn := by
-    intro Δ args hargs
-    exact ⟨trivial, ⟨trivial, hargs.1, hargs.2⟩⟩
-  eval := by intro ρ args; rcases args with ⟨a, b⟩; rfl
+def logicEqDirect : FOL.Direct .two :=
+  fun (a, b) => .unop .ofBool (.binop .eq a b)
 
 /-- `Logic.eq`: equality of values, for specifications only. The comment at
     the top of this section says which equality this is, and why no program
@@ -97,6 +92,9 @@ def logicEq : Intrinsic where
   proof := by
     intro _ _ a ha
     cases ha
+  folWf := by
+    rintro _ ⟨rfl⟩ Δ ⟨a, b⟩ hargs
+    exact ⟨trivial, ⟨trivial, hargs.1, hargs.2⟩⟩
 
 instance : IntrinsicSound [] logicEq := logicEqSound
 

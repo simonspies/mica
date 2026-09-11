@@ -39,16 +39,26 @@ end FloatBits
 inductive UnOp : Srt → Srt → Type where
   | ofInt      : UnOp .int     .value
   | ofBool     : UnOp .bool    .value
+  | ofInt32    : UnOp (.bv 32) .value
+  | ofInt64    : UnOp (.bv 64) .value
   | ofChar     : UnOp .char    .value
   | ofString   : UnOp .string  .value
   | ofFloat    : UnOp .float   .value
   | toInt      : UnOp .value   .int
   | toBool     : UnOp .value   .bool
+  | toInt32    : UnOp .value   (.bv 32)
+  | toInt64    : UnOp .value   (.bv 64)
   | toChar     : UnOp .value   .char
   | toString   : UnOp .value   .string
   | toFloat    : UnOp .value   .float
   | charToInt  : UnOp .char    .int
   | intToChar  : UnOp .int     .char
+  | intToBv (width : Nat) : UnOp .int (.bv width)
+  | bvToNat (width : Nat) : UnOp (.bv width) .int
+  | bvNeg (width : Nat) : UnOp (.bv width) (.bv width)
+  | bvNot (width : Nat) : UnOp (.bv width) (.bv width)
+  | bvSignExtend (width result : Nat) (le : width ≤ result) : UnOp (.bv width) (.bv result)
+  | bvExtractLsb (width result : Nat) (le : result ≤ width) : UnOp (.bv width) (.bv result)
   | seqLen     : UnOp .string  .int
   | fpAbs      : UnOp .float   .float
   | fpNeg      : UnOp .float   .float
@@ -85,6 +95,21 @@ inductive BinOp : Srt → Srt → Srt → Type where
   | gt   : BinOp .int   .int     .bool
   | ge   : BinOp .int   .int     .bool
   | eq   : BinOp τ      τ        .bool
+  | bvAdd  (width : Nat) : BinOp (.bv width) (.bv width) (.bv width)
+  | bvSub  (width : Nat) : BinOp (.bv width) (.bv width) (.bv width)
+  | bvMul  (width : Nat) : BinOp (.bv width) (.bv width) (.bv width)
+  | bvSDiv (width : Nat) : BinOp (.bv width) (.bv width) (.bv width)
+  | bvUDiv (width : Nat) : BinOp (.bv width) (.bv width) (.bv width)
+  | bvSRem (width : Nat) : BinOp (.bv width) (.bv width) (.bv width)
+  | bvURem (width : Nat) : BinOp (.bv width) (.bv width) (.bv width)
+  | bvAnd  (width : Nat) : BinOp (.bv width) (.bv width) (.bv width)
+  | bvOr   (width : Nat) : BinOp (.bv width) (.bv width) (.bv width)
+  | bvXor  (width : Nat) : BinOp (.bv width) (.bv width) (.bv width)
+  | bvSLt  (width : Nat) : BinOp (.bv width) (.bv width) .bool
+  | bvULt  (width : Nat) : BinOp (.bv width) (.bv width) .bool
+  | bvShl  (width : Nat) : BinOp (.bv width) (.bv width) (.bv width)
+  | bvAShr (width : Nat) : BinOp (.bv width) (.bv width) (.bv width)
+  | bvLShr (width : Nat) : BinOp (.bv width) (.bv width) (.bv width)
   | seqConcat : BinOp .string .string .string
   | seqNth : BinOp .string .int .char
   | seqPrefixOf : BinOp .string .string .bool
@@ -111,6 +136,7 @@ inductive TerOp : Srt → Srt → Srt → Srt → Type where
 inductive Const : Srt → Type where
   | i    : Int  → Const .int
   | b    : Bool → Const .bool
+  | bv (bits : BitVec width) : Const (.bv width)
   | char : UInt8 → Const .char
   | str  : List UInt8 → Const .string
   | fp   : UInt64 → Const .float
@@ -125,6 +151,7 @@ inductive Const : Srt → Type where
 @[simp] def Const.denote : Env → Const τ → τ.denote
   | _, .i n  => n
   | _, .b v  => v
+  | _, .bv bits => bits
   | _, .char c => c
   | _, .str s => s
   | _, .fp bits => bits
@@ -570,16 +597,26 @@ can be chosen here.  -/
 @[simp] def UnOp.eval : Env → UnOp τ₁ τ₂ → τ₁.denote → τ₂.denote
   | _, .ofInt,   n  => Runtime.Val.int n
   | _, .ofBool,  b  => Runtime.Val.bool b
+  | _, .ofInt32, bits => Runtime.Val.int32 bits
+  | _, .ofInt64, bits => Runtime.Val.int64 bits
   | _, .ofChar,  c  => Runtime.Val.char c
   | _, .ofString, s => Runtime.Val.str s
   | _, .ofFloat, b => Runtime.Val.float b
   | _, .toInt,   v  => match v with | .int n => n | _ => 0
   | _, .toBool,  v  => match v with | .bool b => b | _ => false
+  | _, .toInt32, v => match v with | .int32 bits => bits | _ => 0
+  | _, .toInt64, v => match v with | .int64 bits => bits | _ => 0
   | _, .toChar,  v  => match v with | .char c => c | _ => 0
   | _, .toString, v => match v with | .str s => s | _ => []
   | _, .toFloat, v => match v with | .float b => b | _ => 0
   | _, .charToInt, c => c.toNat
   | _, .intToChar, n => UInt8.ofNat (Int.toNat (n % 256))
+  | _, .intToBv width, n => BitVec.ofInt width n
+  | _, .bvToNat _, bits => (bits.toNat : Int)
+  | _, .bvNeg _, bits => -bits
+  | _, .bvNot _, bits => ~~~bits
+  | _, .bvSignExtend _ result _, bits => bits.signExtend result
+  | _, .bvExtractLsb _ result _, bits => bits.extractLsb' 0 result
   | _, .seqLen, s => (s.length : Int)
   | _, .fpAbs, a => FloatBits.abs a
   | _, .fpNeg, a => FloatBits.neg a
@@ -616,6 +653,21 @@ can be chosen here.  -/
   | _, .gt,    a, b  => decide (a > b)
   | _, .ge,    a, b  => decide (a ≥ b)
   | _, .eq,    a, b  => decide (a = b)
+  | _, .bvAdd _, a, b => a + b
+  | _, .bvSub _, a, b => a - b
+  | _, .bvMul _, a, b => a * b
+  | _, .bvSDiv _, a, b => a.smtSDiv b
+  | _, .bvUDiv _, a, b => a.smtUDiv b
+  | _, .bvSRem _, a, b => a.srem b
+  | _, .bvURem _, a, b => a.umod b
+  | _, .bvAnd _, a, b => a &&& b
+  | _, .bvOr _, a, b => a ||| b
+  | _, .bvXor _, a, b => a ^^^ b
+  | _, .bvSLt _, a, b => a.slt b
+  | _, .bvULt _, a, b => a.ult b
+  | _, .bvShl _, a, b => a <<< b
+  | _, .bvAShr _, a, b => a.sshiftRight' b
+  | _, .bvLShr _, a, b => a >>> b
   | _, .seqConcat, a, b => a ++ b
   | _, .seqNth, s, i => s[Int.toNat i]?.getD 0
   | _, .seqPrefixOf, a, b => a.isPrefixOf b

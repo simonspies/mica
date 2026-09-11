@@ -31,16 +31,11 @@ structure FOL.Symbol (n : Arity) where
   name   : String
   interp : Arity.tup n (Srt.value).denote → (Srt.value).denote
 
-/-- A direct encoding of an intrinsic. It makes a value term from the
-    argument terms. It also carries the two facts that the relational encoder
-    needs. -/
-structure FOL.Direct (n : Arity) where
-  interp : Arity.tup n (Srt.value).denote → (Srt.value).denote
-  encode : Arity.tup n (Term .value) → Term .value
-  wfIn : ∀ (Δ : Signature) (args : Arity.tup n (Term .value)),
-    Arity.All (·.wfIn Δ) n args → (encode args).wfIn Δ
-  eval : ∀ (ρ : Env) (args : Arity.tup n (Term .value)),
-    Term.eval ρ (encode args) = interp (Arity.map (Term.eval ρ) n args)
+/-- A direct encoding of an intrinsic: it makes a value term from the argument
+    terms. Nothing ties the term to the intrinsic's meaning at this layer; the
+    tie is the intrinsic's own specification, which `IntrinsicSound.bridge`
+    discharges. -/
+abbrev FOL.Direct (n : Arity) := Arity.tup n (Term .value) → Term .value
 
 /-- How an intrinsic appears to the solver. A `symbol` encoding applies a
     declared uninterpreted symbol. A `direct` encoding makes a value term
@@ -71,7 +66,7 @@ def IntrinsicFOL.available (Δ : Signature) : (n : Arity) → IntrinsicFOL n →
 /-- Make the solver term for an encoding and its arguments. -/
 def IntrinsicFOL.term : (n : Arity) → IntrinsicFOL n →
     Arity.tup n (Term .value) → Term .value
-  | _, .direct d, args => d.encode args
+  | _, .direct d, args => d args
   | .zero, .symbol s, _ => .const (.uninterpreted s.name .value)
   | .one, .symbol s, a => .unop (.uninterpreted s.name .value .value) a
   | .two, .symbol s, (a, b) =>
@@ -79,15 +74,23 @@ def IntrinsicFOL.term : (n : Arity) → IntrinsicFOL n →
   | .three, .symbol s, (a, b, c) =>
       .terop (.uninterpreted s.name .value .value .value .value) a b c
 
+/-- The law the relational encoder needs of an encoding. A symbol encoding
+    obeys it as soon as the symbol is declared, so only a direct encoding
+    carries an obligation. -/
+def IntrinsicFOL.Lawful : {n : Arity} → IntrinsicFOL n → Prop
+  | n, .direct d => ∀ (Δ : Signature) (args : Arity.tup n (Term .value)),
+      Arity.All (·.wfIn Δ) n args → (d args).wfIn Δ
+  | _, .symbol _ => True
+
 /-- Let the encoding be available in `Δ`. If the arguments are well-formed
     in `Δ'`, then the term is also well-formed in `Δ'`. -/
 theorem IntrinsicFOL.term_wfIn {n : Arity} {Δ Δ' : Signature}
     (hsub : Δ.Subset Δ') (hΔ' : Δ'.wf)
-    (f : IntrinsicFOL n) (args : Arity.tup n (Term .value))
+    (f : IntrinsicFOL n) (hlaw : f.Lawful) (args : Arity.tup n (Term .value))
     (hav : f.available Δ n = true) (hargs : Arity.All (·.wfIn Δ') n args) :
     (f.term n args).wfIn Δ' := by
   cases f with
-  | direct d => exact d.wfIn Δ' args hargs
+  | direct d => exact hlaw Δ' args hargs
   | symbol s =>
     cases n with
     | zero =>
@@ -406,15 +409,21 @@ def Intrinsic.encoding (i : Intrinsic) : Option RelationalEncoding.PrimEncoding 
       available := fun Δ => f.available Δ i.arity
       encode := fun _ args => f.term i.arity args }
 
+/-- The law an intrinsic's encoding must obey, as carried by
+    `IntrinsicSound`. -/
+def Intrinsic.folLawful (i : Intrinsic) : Prop :=
+  ∀ f, i.folTerm = some f → IntrinsicFOL.Lawful f
+
 /-- Each entry that an intrinsic gives obeys the laws of the encoder. -/
-theorem Intrinsic.encoding_lawful (i : Intrinsic) {e : RelationalEncoding.PrimEncoding}
-    (h : i.encoding = some e) : e.Lawful := by
+theorem Intrinsic.encoding_lawful (i : Intrinsic) (hlaw : i.folLawful)
+    {e : RelationalEncoding.PrimEncoding} (h : i.encoding = some e) : e.Lawful := by
   cases hfolTerm : i.folTerm with
   | none => simp [Intrinsic.encoding, hfolTerm] at h
   | some f =>
     simp only [Intrinsic.encoding, hfolTerm, Option.map_some, Option.some.injEq] at h
     subst e
-    exact { wfIn := fun hav hsub hΔ' hargs => f.term_wfIn hsub hΔ' _ hav hargs }
+    exact { wfIn := fun hav hsub hΔ' hargs =>
+      f.term_wfIn hsub hΔ' (hlaw f hfolTerm) _ hav hargs }
 
 /-- A registry is a list of intrinsics. -/
 abbrev Registry := List Intrinsic
@@ -424,12 +433,6 @@ abbrev Registry := List Intrinsic
     that name as unknown. -/
 def Registry.primitives (R : Registry) : RelationalEncoding.PrimEncodings :=
   R.filterMap Intrinsic.encoding
-
-/-- Each table that comes from a registry is lawful. -/
-theorem Registry.primitives_lawful (R : Registry) : R.primitives.Lawful := by
-  intro e he
-  obtain ⟨i, _, hi⟩ := List.mem_filterMap.mp he
-  exact i.encoding_lawful hi
 
 /-- Embed a pure (heap-independent, heap-preserving) relation as a heap-aware
     `reduce` field. -/
@@ -641,6 +644,8 @@ class IntrinsicSound (fragment : outParam (List Intrinsic)) (i : Intrinsic) : Pr
   proof : ∀ ρ : Env,
             (∀ d ∈ fragment, ρ.respects d.folSym) →
             ∀ a ∈ i.axioms, Formula.eval ρ a.formula
+  /-- A direct encoding makes a well-formed term from well-formed arguments. -/
+  folWf : i.folLawful
 
 namespace Registry
 
@@ -808,6 +813,12 @@ theorem SoundIn.get {R todo : Registry} (h : SoundIn R todo) :
 theorem Sound.get {R : Registry} (h : Sound R) {i : Intrinsic} (hi : i ∈ R) :
     IntrinsicSound R i := SoundIn.get h i hi
 
+/-- Each table that comes from a sound registry is lawful. -/
+theorem primitives_lawful {R : Registry} (hSound : Sound R) : R.primitives.Lawful := by
+  intro e he
+  obtain ⟨i, hmem, hi⟩ := List.mem_filterMap.mp he
+  exact i.encoding_lawful (Sound.get hSound hmem).folWf hi
+
 /-- The wp rule for primitive calls: a sound registry's spec context (`wpCtx`)
     entails the weakest precondition at its operational context (`primCtx`).
     Dispatches the per-intrinsic `IntrinsicSound.wp_sound` obligation at the
@@ -926,6 +937,7 @@ theorem IntrinsicSound.mono {deps deps' : Registry} {i : Intrinsic}
   proof := by
     intro ρ hdeps' φ hφ
     exact h.proof ρ (fun d hd => hdeps' d (hsub hd)) φ hφ
+  folWf := h.folWf
 
 /-! ## SMT setup loop -/
 

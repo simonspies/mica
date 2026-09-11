@@ -68,7 +68,7 @@ def intMinB : Pure.Binary where
   f        := (min : Int → Int → Int)
   dom      := fun _ _ => True
   pre      := none
-  defAxiom := intMinDefAxiom
+  enc      := .symbol intMinDefAxiom
 
 def intMin : Intrinsic := intMinB.toIntrinsic
 
@@ -82,9 +82,9 @@ def intMinLawful : intMinB.Lawful [] where
   domSound     := fun _ _ _ _ _ => True.intro
   semWellTyped := fun _ _ _ _ _ => sep_emp.1
   specBaseWf   := by apply PredTrans.checkWf_ok; rfl
-  defWf        := by apply Formula.checkWf_ok; rfl
+  encWf        := by apply Formula.checkWf_ok; rfl
   typeWf       := by intro φ h; injection h with h; subst h; apply Formula.checkWf_ok; rfl
-  defEval      := by
+  encEval      := by
     intrinsic_def_eval [binTerm, intMinB, intMinDefAxiom]
     intro x y
     rw [min_def, Bool.cond_decide]; congr 1
@@ -103,7 +103,7 @@ def intMaxB : Pure.Binary where
   f        := (max : Int → Int → Int)
   dom      := fun _ _ => True
   pre      := none
-  defAxiom := intMaxDefAxiom
+  enc      := .symbol intMaxDefAxiom
 
 def intMax : Intrinsic := intMaxB.toIntrinsic
 
@@ -117,9 +117,9 @@ def intMaxLawful : intMaxB.Lawful [] where
   domSound     := fun _ _ _ _ _ => True.intro
   semWellTyped := fun _ _ _ _ _ => sep_emp.1
   specBaseWf   := by apply PredTrans.checkWf_ok; rfl
-  defWf        := by apply Formula.checkWf_ok; rfl
+  encWf        := by apply Formula.checkWf_ok; rfl
   typeWf       := by intro φ h; injection h with h; subst h; apply Formula.checkWf_ok; rfl
-  defEval      := by
+  encEval      := by
     intrinsic_def_eval [binTerm, intMaxB, intMaxDefAxiom]
     intro x y
     rw [max_comm, max_def, Bool.cond_decide]; congr 1

@@ -32,6 +32,8 @@ inductive UnOp where
 
 inductive Const where
   | int  (n : Int)
+  | int32 (bits : BitVec 32)
+  | int64 (bits : BitVec 64)
   | bool (b : Bool)
   | char (c : UInt8)
   | string (s : List UInt8)

@@ -59,6 +59,8 @@ structure Location where
 
 inductive Const where
   | int (n : Int)
+  | int32 (bits : BitVec 32)
+  | int64 (bits : BitVec 64)
   | float (value : Float)
   | bool (b : Bool)
   | string (s : List UInt8)

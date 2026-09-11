@@ -33,6 +33,8 @@ inductive PrimitiveType where
   | unit
   | bool
   | int
+  | int32
+  | int64
   | char
   | string
   | float
@@ -47,6 +49,8 @@ def PrimitiveType.print : PrimitiveType → String
   | .unit => "unit"
   | .bool => "bool"
   | .int => "int"
+  | .int32 => "int32"
+  | .int64 => "int64"
   | .char => "char"
   | .string => "string"
   | .float => "float"
@@ -165,6 +169,10 @@ namespace WithTypeVars
 @[simp] def bool : WithTypeVars V := .prim .bool
 /-- Abbreviation for the integer primitive type. -/
 @[simp] def int : WithTypeVars V := .prim .int
+/-- Abbreviation for the 32-bit integer primitive type. -/
+@[simp] def int32 : WithTypeVars V := .prim .int32
+/-- Abbreviation for the 64-bit integer primitive type. -/
+@[simp] def int64 : WithTypeVars V := .prim .int64
 /-- Abbreviation for the character primitive type. -/
 @[simp] def char : WithTypeVars V := .prim .char
 /-- Abbreviation for the string primitive type. -/
@@ -184,7 +192,7 @@ end WithTypeVars
 -- Both spellings are wanted: `.prim` resolves in the inductive's namespace,
 -- `Typ.prim` in the one named after the type it usually builds.
 export WithTypeVars (prim sum arrow ref array ownedArray vec owned empty value
-  tuple tvar named unit bool int char string float predef list option)
+  tuple tvar named unit bool int int32 int64 char string float predef list option)
 
 end Typ
 

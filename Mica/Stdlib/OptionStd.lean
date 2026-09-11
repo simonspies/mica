@@ -137,7 +137,7 @@ def optionIsSomeB : Pure.Unary where
   f := optionIsSome
   dom := fun _ => True
   pre := none
-  defAxiom := optionIsSomeDefAxiom
+  enc      := .symbol optionIsSomeDefAxiom
 
 def optionIsSomeIntrinsic : Intrinsic := optionIsSomeB.toIntrinsic
 
@@ -152,9 +152,9 @@ def optionIsSomeLawful : optionIsSomeB.Lawful [] where
   domSound := fun _ _ _ _ => trivial
   semWellTyped := fun _ _ _ _ => affine
   specBaseWf := by apply PredTrans.checkWf_ok; rfl
-  defWf := by apply Formula.checkWf_ok; rfl
+  encWf := by apply Formula.checkWf_ok; rfl
   typeWf := by intro φ h; injection h with h; subst h; apply Formula.checkWf_ok; rfl
-  defEval := by
+  encEval := by
     intrinsic_def_eval [unTerm, optionIsSomeB, optionIsSomeDefAxiom,
       optionNoneTerm, optionSomeTerm, optionNone, optionSome, optionIsSome,
       Embedding.logical]
@@ -170,7 +170,7 @@ def optionIsNoneB : Pure.Unary where
   f := optionIsNone
   dom := fun _ => True
   pre := none
-  defAxiom := optionIsNoneDefAxiom
+  enc      := .symbol optionIsNoneDefAxiom
 
 def optionIsNoneIntrinsic : Intrinsic := optionIsNoneB.toIntrinsic
 
@@ -185,9 +185,9 @@ def optionIsNoneLawful : optionIsNoneB.Lawful [] where
   domSound := fun _ _ _ _ => trivial
   semWellTyped := fun _ _ _ _ => affine
   specBaseWf := by apply PredTrans.checkWf_ok; rfl
-  defWf := by apply Formula.checkWf_ok; rfl
+  encWf := by apply Formula.checkWf_ok; rfl
   typeWf := by intro φ h; injection h with h; subst h; apply Formula.checkWf_ok; rfl
-  defEval := by
+  encEval := by
     intrinsic_def_eval [unTerm, optionIsNoneB, optionIsNoneDefAxiom,
       optionNoneTerm, optionSomeTerm, optionNone, optionSome, optionIsNone,
       Embedding.logical]
@@ -203,7 +203,7 @@ def optionValueB : Pure.Unary where
   f := optionValue
   dom := fun option => ∃ value, option = optionSome value
   pre := some optionSomePre
-  defAxiom := optionValueDefAxiom
+  enc      := .symbol optionValueDefAxiom
 
 def optionValueIntrinsic : Intrinsic := optionValueB.toIntrinsic
 
@@ -228,9 +228,9 @@ def optionValueLawful : optionValueB.Lawful [] where
     simpa [optionValueB, Embedding.logical, Embedding.poly, optionTy,
       TinyML.Typ.subst] using optionValue_typed W option value (σ "a") hvalue
   specBaseWf := by apply PredTrans.checkWf_ok; rfl
-  defWf := by apply Formula.checkWf_ok; rfl
+  encWf := by apply Formula.checkWf_ok; rfl
   typeWf := fun _ h => nomatch h
-  defEval := by
+  encEval := by
     intrinsic_def_eval [unTerm, optionValueB, optionValueDefAxiom,
       optionSomeTerm, optionSome, optionValue, Embedding.logical]
 

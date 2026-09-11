@@ -215,6 +215,9 @@ are both false, and it contributes no solver symbols or axioms. -/
   proof := by
     intro _ _ a ha
     cases ha
+  folWf := by
+    intro f hf
+    cases hf
 
 instance : Verifier.IntrinsicSound [] allIntrinsic := intrinsicSound _ _
 

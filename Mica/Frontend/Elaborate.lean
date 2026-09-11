@@ -445,6 +445,8 @@ private partial def TypKind.elaborate (env : ElabEnv) (loc : Location) :
     else .ok path.head
     match name with
     | "int"  => if args'.isEmpty then .ok (.core .int)  else err loc (.arityMismatch 0 args'.length)
+    | "int32" => if args'.isEmpty then .ok (.core .int32) else err loc (.arityMismatch 0 args'.length)
+    | "int64" => if args'.isEmpty then .ok (.core .int64) else err loc (.arityMismatch 0 args'.length)
     | "bool" => if args'.isEmpty then .ok (.core .bool) else err loc (.arityMismatch 0 args'.length)
     | "unit" => if args'.isEmpty then .ok (.core .unit) else err loc (.arityMismatch 0 args'.length)
     | "char" => if args'.isEmpty then .ok (.core .char) else err loc (.arityMismatch 0 args'.length)
@@ -519,6 +521,8 @@ private partial def Expr.elaborate (env : ElabEnv) : Expr → ElabM Untyped.Expr
 private partial def ExprKind.elaborate (env : ElabEnv) (loc : Location) :
     ExprKind → ElabM Untyped.Expr
   | .const (.int n)  => .ok (.const (.int n))
+  | .const (.int32 bits) => .ok (.const (.int32 bits))
+  | .const (.int64 bits) => .ok (.const (.int64 bits))
   | .const (.float f) => .ok (.const (.float f.toBits))
   | .const (.bool b) => .ok (.const (.bool b))
   | .const (.char c) =>

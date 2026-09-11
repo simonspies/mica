@@ -95,12 +95,17 @@ theorem compileOp_eval {op : TinyML.BinOp} {sl sr : Term .value} {ρ : Env}
     t.eval ρ = w := by
   subst hsl hsr
   cases op <;>
-    simp only [compileOp, Option.some.injEq] at hcomp <;>
-    (try simp at hcomp) <;>
-    subst hcomp <;>
-    (cases h1 : sl.eval ρ <;> cases h2 : sr.eval ρ) <;>
-    simp_all [TinyML.evalBinOp, Term.eval, UnOp.eval, BinOp.eval, Const.denote,
-              Bool.cond_eq_ite, ge_iff_le, Bool.beq_eq_decide_eq]
+    simp only [compileOp, TinyML.evalBinOp, Option.some.injEq] at hcomp heval <;>
+    (try simp at hcomp)
+  case and | or =>
+    all_goals
+      obtain ⟨a, b, h1, h2, hw⟩ := TinyML.boolOp_eq heval
+      subst hcomp
+      simp_all [Term.eval, UnOp.eval, Bool.cond_eq_ite]
+  all_goals
+    obtain ⟨a, b, h1, h2, hw⟩ := TinyML.intOp_eq heval
+    subst hcomp
+    simp_all [Term.eval, UnOp.eval, BinOp.eval, ge_iff_le, Bool.beq_eq_decide_eq]
 
 
 /-! ### Compiler and Top-Level Verifier -/

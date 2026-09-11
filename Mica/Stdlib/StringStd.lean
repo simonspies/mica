@@ -168,7 +168,7 @@ def stringLengthB : Pure.Unary where
   f        := (fun s => (s.length : Int) : List UInt8 → Int)
   dom      := fun _ => True
   pre      := none
-  defAxiom := stringLengthDefAxiom
+  enc      := .symbol stringLengthDefAxiom
 
 def stringLength : Intrinsic := stringLengthB.toIntrinsic
 
@@ -181,9 +181,9 @@ def stringLengthLawful : stringLengthB.Lawful [] where
   domSound     := fun _ _ _ _ => True.intro
   semWellTyped := fun _ _ _ _ => .rfl
   specBaseWf   := by apply PredTrans.checkWf_ok; rfl
-  defWf        := by apply Formula.checkWf_ok; rfl
+  encWf        := by apply Formula.checkWf_ok; rfl
   typeWf       := by intro φ h; injection h with h; subst h; apply Formula.checkWf_ok; rfl
-  defEval      := by intrinsic_def_eval [unTerm, stringLengthB, stringLengthDefAxiom]; intros; rfl
+  encEval      := by intrinsic_def_eval [unTerm, stringLengthB, stringLengthDefAxiom]; intros; rfl
 
 instance : IntrinsicSound [stringLength] stringLength := stringLengthLawful.sound
 
@@ -199,7 +199,7 @@ def stringCatB : Pure.Binary where
   f        := (fun x y => x ++ y : List UInt8 → List UInt8 → List UInt8)
   dom      := fun _ _ => True
   pre      := none
-  defAxiom := stringCatDefAxiom
+  enc      := .symbol stringCatDefAxiom
 
 def stringCat : Intrinsic := stringCatB.toIntrinsic
 
@@ -213,9 +213,9 @@ def stringCatLawful : stringCatB.Lawful [] where
   domSound     := fun _ _ _ _ _ => True.intro
   semWellTyped := fun _ _ _ _ _ => sep_emp.1
   specBaseWf   := by apply PredTrans.checkWf_ok; rfl
-  defWf        := by apply Formula.checkWf_ok; rfl
+  encWf        := by apply Formula.checkWf_ok; rfl
   typeWf       := by intro φ h; injection h with h; subst h; apply Formula.checkWf_ok; rfl
-  defEval      := by intrinsic_def_eval [binTerm, stringCatB, stringCatDefAxiom]; intros; rfl
+  encEval      := by intrinsic_def_eval [binTerm, stringCatB, stringCatDefAxiom]; intros; rfl
 
 instance : IntrinsicSound [stringCat] stringCat := stringCatLawful.sound
 
@@ -231,7 +231,7 @@ def stringGetB : Pure.Binary where
   f        := stringGetByte
   dom      := (fun s i => 0 ≤ i ∧ i < (s.length : Int) : List UInt8 → Int → Prop)
   pre      := some stringGetPre
-  defAxiom := stringGetDefAxiom
+  enc      := .symbol stringGetDefAxiom
 
 def stringGet : Intrinsic := stringGetB.toIntrinsic
 
@@ -250,13 +250,13 @@ def stringGetLawful : stringGetB.Lawful [] where
       Env.lookupConst_updateConst_ne (show "a" ≠ "b" by decide), valStr, valInt] using hpre
   semWellTyped := fun _ _ _ _ _ => sep_emp.1
   specBaseWf   := by apply PredTrans.checkWf_ok; rfl
-  defWf        := by apply Formula.checkWf_ok; rfl
+  encWf        := by apply Formula.checkWf_ok; rfl
   typeWf       := by intro φ h; injection h with h; subst h; apply Formula.checkWf_ok; rfl
-  defEval      := by
+  encEval      := by
     have hsym : stringGetB.sym = stringGetSym := rfl
     intro ρ _ hresp
     rw [hsym] at hresp
-    simp only [stringGetB, stringGetDefAxiom, Formula.all, Formula.eval]
+    simp only [stringGetDefAxiom, Formula.all, Formula.eval]
     intro s i hpre
     have hbin : (((ρ.updateConst .value "s" s).updateConst .value "i" i).binary
         .value .value .value "string_get") = fun a b => stringGetSym.interp (a, b) := by
@@ -283,7 +283,7 @@ def stringSubB : Pure.Ternary where
   dom      := (fun s pos len => 0 ≤ pos ∧ 0 ≤ len ∧ pos + len ≤ (s.length : Int) :
                 List UInt8 → Int → Int → Prop)
   pre      := some stringSubPre
-  defAxiom := stringSubDefAxiom
+  enc      := .symbol stringSubDefAxiom
 
 def stringSub : Intrinsic := stringSubB.toIntrinsic
 
@@ -305,13 +305,13 @@ def stringSubLawful : stringSubB.Lawful [] where
       Env.lookupConst_updateConst_ne (show "b" ≠ "c" by decide), valStr, valInt] using hpre
   semWellTyped := fun _ _ _ _ _ _ => emp_sep.1.trans emp_sep.1
   specBaseWf   := by apply PredTrans.checkWf_ok; rfl
-  defWf        := by apply Formula.checkWf_ok; rfl
+  encWf        := by apply Formula.checkWf_ok; rfl
   typeWf       := by intro φ h; injection h with h; subst h; apply Formula.checkWf_ok; rfl
-  defEval      := by
+  encEval      := by
     have hsym : stringSubB.sym = stringSubSym := rfl
     intro ρ _ hresp
     rw [hsym] at hresp
-    simp only [stringSubB, stringSubDefAxiom, Formula.all, Formula.eval]
+    simp only [stringSubDefAxiom, Formula.all, Formula.eval]
     intro s pos len hpre
     have hter : ((((ρ.updateConst .value "s" s).updateConst .value "pos" pos).updateConst
           .value "len" len).ternary .value .value .value .value "string_sub") =
@@ -340,7 +340,7 @@ def stringEqualB : Pure.Binary where
   f        := (fun x y => x == y : List UInt8 → List UInt8 → Bool)
   dom      := fun _ _ => True
   pre      := none
-  defAxiom := stringEqualDefAxiom
+  enc      := .symbol stringEqualDefAxiom
 
 def stringEqual : Intrinsic := stringEqualB.toIntrinsic
 
@@ -354,9 +354,9 @@ def stringEqualLawful : stringEqualB.Lawful [] where
   domSound     := fun _ _ _ _ _ => True.intro
   semWellTyped := fun _ _ _ _ _ => sep_emp.1
   specBaseWf   := by apply PredTrans.checkWf_ok; rfl
-  defWf        := by apply Formula.checkWf_ok; rfl
+  encWf        := by apply Formula.checkWf_ok; rfl
   typeWf       := by intro φ h; injection h with h; subst h; apply Formula.checkWf_ok; rfl
-  defEval      := by
+  encEval      := by
     intrinsic_def_eval [binTerm, stringEqualB, stringEqualDefAxiom, Bool.beq_eq_decide_eq]
     intros; rfl
 
@@ -374,7 +374,7 @@ def stringStartsWithB : Pure.Binary where
   f        := (fun x y => x.isPrefixOf y : List UInt8 → List UInt8 → Bool)
   dom      := fun _ _ => True
   pre      := none
-  defAxiom := stringStartsWithDefAxiom
+  enc      := .symbol stringStartsWithDefAxiom
 
 def stringStartsWith : Intrinsic := stringStartsWithB.toIntrinsic
 
@@ -389,9 +389,9 @@ def stringStartsWithLawful : stringStartsWithB.Lawful [] where
   domSound     := fun _ _ _ _ _ => True.intro
   semWellTyped := fun _ _ _ _ _ => sep_emp.1
   specBaseWf   := by apply PredTrans.checkWf_ok; rfl
-  defWf        := by apply Formula.checkWf_ok; rfl
+  encWf        := by apply Formula.checkWf_ok; rfl
   typeWf       := by intro φ h; injection h with h; subst h; apply Formula.checkWf_ok; rfl
-  defEval      := by
+  encEval      := by
     intrinsic_def_eval [binTerm, stringStartsWithB, stringStartsWithDefAxiom]; intros; rfl
 
 instance : IntrinsicSound [stringStartsWith] stringStartsWith := stringStartsWithLawful.sound
@@ -408,7 +408,7 @@ def stringEndsWithB : Pure.Binary where
   f        := (fun x y => x.isSuffixOf y : List UInt8 → List UInt8 → Bool)
   dom      := fun _ _ => True
   pre      := none
-  defAxiom := stringEndsWithDefAxiom
+  enc      := .symbol stringEndsWithDefAxiom
 
 def stringEndsWith : Intrinsic := stringEndsWithB.toIntrinsic
 
@@ -422,9 +422,9 @@ def stringEndsWithLawful : stringEndsWithB.Lawful [] where
   domSound     := fun _ _ _ _ _ => True.intro
   semWellTyped := fun _ _ _ _ _ => sep_emp.1
   specBaseWf   := by apply PredTrans.checkWf_ok; rfl
-  defWf        := by apply Formula.checkWf_ok; rfl
+  encWf        := by apply Formula.checkWf_ok; rfl
   typeWf       := by intro φ h; injection h with h; subst h; apply Formula.checkWf_ok; rfl
-  defEval      := by
+  encEval      := by
     intrinsic_def_eval [binTerm, stringEndsWithB, stringEndsWithDefAxiom]; intros; rfl
 
 instance : IntrinsicSound [stringEndsWith] stringEndsWith := stringEndsWithLawful.sound

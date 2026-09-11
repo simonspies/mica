@@ -32,7 +32,7 @@ def funIdB : Pure.Unary where
   f        := (id : Runtime.Val → Runtime.Val)
   dom      := fun _ => True
   pre      := none
-  defAxiom := funIdDefAxiom
+  enc      := .symbol funIdDefAxiom
 
 def funId : Intrinsic := funIdB.toIntrinsic
 
@@ -46,9 +46,9 @@ def funIdLawful : funIdB.Lawful [] where
   domSound     := fun _ _ _ _ => True.intro
   semWellTyped := fun _ _ _ _ => .rfl
   specBaseWf   := by apply PredTrans.checkWf_ok; rfl
-  defWf        := by apply Formula.checkWf_ok; rfl
+  encWf        := by apply Formula.checkWf_ok; rfl
   typeWf       := by intro φ h; exact nomatch h
-  defEval      := by
+  encEval      := by
     intrinsic_def_eval [unTerm, funIdB, funIdDefAxiom]
 
 instance : IntrinsicSound [funId] funId := funIdLawful.sound

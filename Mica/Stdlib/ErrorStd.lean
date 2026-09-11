@@ -41,7 +41,7 @@ def failwithB : Pure.Unary where
   f        := fun _ => .unit
   dom      := fun _ => False
   pre      := some fun _ => .false_
-  defAxiom := .true_
+  enc      := .symbol .true_
 
 def failwith : Intrinsic := failwithB.toIntrinsic
 
@@ -54,9 +54,9 @@ def failwithLawful : failwithB.Lawful [] where
   domSound     := fun _ _ _ h => (h _ rfl).elim
   semWellTyped := fun _ _ _ hdom => hdom.elim
   specBaseWf   := by apply PredTrans.checkWf_ok; rfl
-  defWf        := by apply Formula.checkWf_ok; rfl
+  encWf        := by apply Formula.checkWf_ok; rfl
   typeWf       := fun _ h => nomatch h
-  defEval      := fun _ _ _ => trivial
+  encEval      := fun _ _ _ => trivial
 
 instance : IntrinsicSound [failwith] failwith := failwithLawful.sound
 
@@ -73,7 +73,7 @@ def invalidArgB : Pure.Unary where
   f        := fun _ => .unit
   dom      := fun _ => False
   pre      := some fun _ => .false_
-  defAxiom := .true_
+  enc      := .symbol .true_
 
 def invalidArg : Intrinsic := invalidArgB.toIntrinsic
 
@@ -86,9 +86,9 @@ def invalidArgLawful : invalidArgB.Lawful [] where
   domSound     := fun _ _ _ h => (h _ rfl).elim
   semWellTyped := fun _ _ _ hdom => hdom.elim
   specBaseWf   := by apply PredTrans.checkWf_ok; rfl
-  defWf        := by apply Formula.checkWf_ok; rfl
+  encWf        := by apply Formula.checkWf_ok; rfl
   typeWf       := fun _ h => nomatch h
-  defEval      := fun _ _ _ => trivial
+  encEval      := fun _ _ _ => trivial
 
 instance : IntrinsicSound [invalidArg] invalidArg := invalidArgLawful.sound
 
