@@ -37,6 +37,14 @@ def fixBindings (self : Binder) (fv : FOL.Const) (B : Bindings)
     | some f => (f, fv) :: B
     | none => B)) ghostNames
 
+/-- The ghost functions matching `fixBindings`. Every name the closure binds
+    hides the ghost function of that name. -/
+def fixGhostFns (self : Binder) (Gf : GhostFns)
+    (argNames ghostNames : List String) : GhostFns :=
+  ((match self.name with
+    | some f => Gf.remove f
+    | none => Gf).removeAll argNames).removeAll ghostNames
+
 /-- The ghost bindings matching `fixBindings`: the specification's ghost
     parameters, over the ghost names the closure and its arguments shadow. -/
 def fixGhostBindings (self : Binder) (G : Bindings) (argNames : List String)
@@ -124,14 +132,15 @@ mutual
         | some x =>
           let x' ← VerifM.decl (some x) .value
           VerifM.assume (.pure (Formula.eq .value (.const (.uninterpreted x'.name .value)) se))
-          compile reg Θ Δ_spec Γfn Gf (G.remove x) ((x, x') :: B) (Γ.extend x e.ty) body
+          compile reg Θ Δ_spec Γfn (Gf.remove x) (G.remove x) ((x, x') :: B)
+            (Γ.extend x e.ty) body
     | .letProd names e body => do
         let se ← compile reg Θ Δ_spec Γfn Gf G B Γ e
         let tys ← match e.ty with
           | .tuple tys => pure tys
           | _ => VerifM.fatal "letProd expected tuple type"
         let (B', Γ') ← compileProductBinders B Γ names tys se
-        compile reg Θ Δ_spec Γfn Gf (G.removeBinders names) B' Γ' body
+        compile reg Θ Δ_spec Γfn (Gf.removeBinders names) (G.removeBinders names) B' Γ' body
     | .ifThenElse cond thn els ty => do
         let sc ← compile reg Θ Δ_spec Γfn Gf G B Γ cond
         VerifM.expectEq "if condition type mismatch" cond.ty .bool
@@ -331,7 +340,7 @@ mutual
               (do
                 VerifM.persist
                 Spec.implement Δ_spec argTys s fun argVars ghostVars => do
-                  let se ← compile reg Θ Δ_spec Γfn Gf
+                  let se ← compile reg Θ Δ_spec Γfn (fixGhostFns self Gf argNames ghostNames)
                     (fixGhostBindings self G argNames ghostNames ghostVars)
                     (fixBindings self fv B argNames argVars ghostNames)
                     (fixTyCtx self (.arrow argTys retTy (some s)) Γ argNames argTys s.ghost)
@@ -352,7 +361,7 @@ mutual
         VerifM.assumeAll (TinyML.typeConstraints ty_i (.const (.uninterpreted xv.name .value)))
         match binder.name with
         | some x =>
-          compile reg Θ Δ_spec Γfn Gf (G.remove x) ((x, xv) :: B)
+          compile reg Θ Δ_spec Γfn (Gf.remove x) (G.remove x) ((x, xv) :: B)
             (Γ.extendBinder binder ty_i) body
         | none =>
           compile reg Θ Δ_spec Γfn Gf G B (Γ.extendBinder binder ty_i) body
@@ -750,7 +759,8 @@ theorem compileFixBody_correct (reg : Verifier.Registry)
     (hghostVars_lookup : List.Forall₂ (fun gv val => ρ'.consts .value gv.name = val) ghostVars gs)
     (hbody_eval : VerifM.eval
         (do
-          let se ← compile reg W.Θ W.Δ_spec Γfn Gf
+          let se ← compile reg W.Θ W.Δ_spec Γfn
+            (fixGhostFns self Gf argNames (s.ghost.map Prod.fst))
             (fixGhostBindings self G argNames (s.ghost.map Prod.fst) ghostVars)
             (fixBindings self fv B argNames argVars (s.ghost.map Prod.fst))
             (fixTyCtx self (.arrow (args.map Binder.WithTypeVars.ty) retTy (some s)) Γ argNames
@@ -779,6 +789,7 @@ theorem compileFixBody_correct (reg : Verifier.Registry)
   set γg_body := γg.updateAllBinder (ghostNames.map Runtime.Binder.named) gs with hγg_body_def
   set Bbody := fixBindings self fv B argNames argVars ghostNames with hBbody_def
   set Gbody := fixGhostBindings self G argNames ghostNames ghostVars with hGbody_def
+  set Gfbody := fixGhostFns self Gf argNames ghostNames with hGfbody_def
   set Γ' := fixTyCtx self selfTy Γ argNames argTys s.ghost with hΓ'_def
   have hcompile := VerifM.eval_bind hbody_eval
   iintro ⟨Howns, #Hvals, #Hgvals, HQ⟩
@@ -969,9 +980,16 @@ theorem compileFixBody_correct (reg : Verifier.Registry)
   have hbody_wp :
       st'.sl W ρ' ∗ (Bindings.typedScope W Gbody Bbody Γ' γg_body γ_body ∗ Q) ⊢
         wp W.pctx (body.runtime.subst γ_body) P := by
-    refine ih W Q Γfn Gf Gbody
+    have hGf_body : GhostFns.wellTyped W st'.decls ρ' Gfbody := by
+      rw [hGfbody_def, fixGhostFns]
+      refine GhostFns.wellTyped.removeAll (GhostFns.wellTyped.removeAll ?_ argNames) ghostNames
+      cases self.name with
+      | none => exact hGf
+      | some f => exact hGf.remove f
+    refine ih W Q Γfn Gfbody Gbody
       Bbody Γ' st' ρ' γg_body γ_body _ _ hW
-      (VerifM.eval.decls_grow ρ' hcompile) hgagree_body hgwf_body hGf hagree_body hbwf_body hwf
+      (VerifM.eval.decls_grow ρ' hcompile) hgagree_body hgwf_body hGf_body
+      hagree_body hbwf_body hwf
       hag hΔreg hρreg ?_
     intro v ρ'' st'' se hΨ hse_wf heval_se
     obtain ⟨_, _, hΨ⟩ := hΨ
@@ -2697,7 +2715,7 @@ theorem compileLetIn_correct (reg : Verifier.Registry) (b : Binder) (e body : Ex
           using hbody'
     have hagreeOn_body_e : Env.agreeOn st₁.decls ρ_e ρ_body :=
       Env.agreeOn_update_fresh_const hfresh
-    have hΨ_body : (compile reg W.Θ W.Δ_spec Γfn Gf (G.remove x) ((x, v) :: B)
+    have hΨ_body : (compile reg W.Θ W.Δ_spec Γfn (Gf.remove x) (G.remove x) ((x, v) :: B)
         (Γ.extend x e.ty) body).eval st₂ ρ_body Ψ := by
       have hdecl_eval := VerifM.eval_bind hΨ_e
       have hdecl := VerifM.eval_decl hdecl_eval
@@ -2759,9 +2777,11 @@ theorem compileLetIn_correct (reg : Verifier.Registry) (b : Binder) (e body : Ex
     have hGf_body := hGf_e.step
       (Signature.Subset.subset_addConst st₁.decls v) hagreeOn_body_e
       (VerifM.eval.wf hΨ_body).namesDisjoint
-    refine hres.trans <| ihBody W R Γfn Gf (G.remove x) ((x, v) :: B) (Γ.extend x e.ty) st₂ ρ_body
+    refine hres.trans <| ihBody W R Γfn (Gf.remove x) (G.remove x) ((x, v) :: B)
+      (Γ.extend x e.ty) st₂ ρ_body
       γg γ_body _ _ hW
-      (VerifM.eval.decls_grow ρ_body hΨ_body) hgagree_body hgwf₂ hGf_body hagree_body hbwf₂ hwf
+      (VerifM.eval.decls_grow ρ_body hΨ_body) hgagree_body hgwf₂ (hGf_body.remove x)
+      hagree_body hbwf₂ hwf
       hspecInv_body hΔreg hρreg ?_
     intro v' ρ' st' se' hΨ hs hw
     obtain ⟨_, _, hΨ'⟩ := hΨ
@@ -2777,7 +2797,8 @@ theorem compileProductBindersFrom_correct (reg : Verifier.Registry) (body : Expr
       W.pctx = reg.primCtx →
       VerifM.eval (compileProductBindersFrom B Γ names tys tl) st ρ
         (fun p st' ρ' =>
-          (compile reg W.Θ W.Δ_spec Γfn Gf (G.removeBinders names) p.1 p.2 body).eval st' ρ' Ψ) →
+          (compile reg W.Θ W.Δ_spec Γfn (Gf.removeBinders names) (G.removeBinders names)
+            p.1 p.2 body).eval st' ρ' Ψ) →
       G.agreeOnLinked ρ γg →
       G.wfIn st.decls →
       GhostFns.wellTyped W st.decls ρ Gf →
@@ -2801,7 +2822,8 @@ theorem compileProductBindersFrom_correct (reg : Verifier.Registry) (body : Expr
       htl_wf, htl_eval, hpost => by
       simp only [compileProductBindersFrom] at heval
       have hbody_eval : (compile reg W.Θ W.Δ_spec Γfn Gf G B Γ body).eval st ρ Ψ := by
-        simpa [Bindings.removeBinders, Bindings.removeAll] using VerifM.eval_ret heval
+        simpa [Bindings.removeBinders, Bindings.removeAll, GhostFns.removeBinders,
+          GhostFns.removeAll] using VerifM.eval_ret heval
       cases vals with
       | nil =>
           have hbody_wp :=
@@ -2865,9 +2887,10 @@ theorem compileProductBindersFrom_correct (reg : Verifier.Registry) (body : Expr
           cases hname : b.name with
           | none =>
               simp [hname] at hcont
-              have hrec := compileProductBindersFrom_correct reg body ihBody bs tys
+              have hrec := compileProductBindersFrom_correct (Gf := Gf) reg body ihBody bs tys
                 (Term.unop UnOp.vtail tl) vs W R G B Γ st ρ γ Ψ Φ hW
-                (by simpa [Bindings.removeBinders, Bindings.removeAll, hname] using hcont)
+                (by simpa [Bindings.removeBinders, Bindings.removeAll, GhostFns.removeBinders,
+                  GhostFns.removeAll, hname] using hcont)
                 hgagree hgwf hGf hagree hbwf hwf hag hΔreg hρreg
                 htail_wf htail_eval hpost
               refine (show st.sl W ρ ∗
@@ -2952,11 +2975,13 @@ theorem compileProductBindersFrom_correct (reg : Verifier.Registry) (body : Expr
               have hGf₁ := hGf.step
                 (Signature.Subset.subset_addConst st.decls x') hagreeOn_body
                 (Signature.wf_addConst (VerifM.eval.wf hdecl_eval).namesDisjoint hfresh)
-              have hrec := compileProductBindersFrom_correct reg body ihBody bs tys
+              have hrec := compileProductBindersFrom_correct (Gf := Gf.remove x)
+                reg body ihBody bs tys
                 (Term.unop UnOp.vtail tl) vs W R (G.remove x) ((x, x') :: B)
                 (Γ.extend x ty) st₂ ρ₁ (Runtime.Subst.update γ x v) Ψ Φ hW
-                (by simpa [Bindings.removeBinders, Bindings.removeAll, hname] using hrec_eval)
-                hgagree₁ hgwf₁ hGf₁ hagree₁ hbwf₁ hwf
+                (by simpa [Bindings.removeBinders, Bindings.removeAll, GhostFns.removeBinders,
+                  GhostFns.removeAll, hname] using hrec_eval)
+                hgagree₁ hgwf₁ (hGf₁.remove x) hagree₁ hbwf₁ hwf
                 hspecInv hΔreg hρreg
                 (by
                   have htail_wf₁ := Term.wfIn_mono (Term.unop UnOp.vtail tl) htail_wf
@@ -3025,7 +3050,8 @@ theorem compileLetProd_correct (reg : Verifier.Registry) (names : List Binder) (
       have hprod_body :
           (do
             let p ← compileProductBinders B Γ names tys se
-            compile reg W.Θ W.Δ_spec Γfn Gf (G.removeBinders names) p.1 p.2 body).eval st₁ ρ_e Ψ :=
+            compile reg W.Θ W.Δ_spec Γfn (Gf.removeBinders names) (G.removeBinders names)
+              p.1 p.2 body).eval st₁ ρ_e Ψ :=
         VerifM.eval_ret hpure_eval
       have hprod_eval := VerifM.eval_bind hprod_body
       have hagree_e := Bindings.agreeOnLinked_env_agree hagree hagreeOn_e hbwf
@@ -3862,7 +3888,7 @@ theorem compileSingleBranch_correct (reg : Verifier.Registry) (binder : Binder) 
         Bindings.agreeOnLinked_remove
           (Bindings.agreeOnLinked_env_agree hgagree hagreeOn_st hgwf) x
       have heval_body'' :
-          (compile reg W.Θ W.Δ_spec Γfn Gf (G.remove x) ((x, xv) :: B)
+          (compile reg W.Θ W.Δ_spec Γfn (Gf.remove x) (G.remove x) ((x, xv) :: B)
             (Γ.extendBinder binder ty_i) body).eval st₂ ρ₁ Ψ := by
         simpa [ρ₁, xv, hint, TinyML.TyCtx.extendBinder, hname] using heval_body'
       have hspecInv₁ := hag.step
@@ -3876,9 +3902,11 @@ theorem compileSingleBranch_correct (reg : Verifier.Registry) (binder : Binder) 
                   (Runtime.Subst.update γ x payload) ∗
                 (R)) ⊢
             wp W.pctx (body.runtime.subst (Runtime.Subst.update γ x payload)) Φ :=
-        ihBody W (R) Γfn Gf (G.remove x) ((x, xv) :: B) (Γ.extendBinder binder ty_i) st₂ ρ₁
+        ihBody W (R) Γfn (Gf.remove x) (G.remove x) ((x, xv) :: B)
+          (Γ.extendBinder binder ty_i) st₂ ρ₁
           γg (Runtime.Subst.update γ x payload) Ψ Φ hW heval_body''
-          hgagree₁ hgwf₂ (hst₂_decls ▸ hGf₁) hagree₁ hbwf₂
+          hgagree₁ hgwf₂ ((hst₂_decls ▸ hGf₁ : GhostFns.wellTyped W st₂.decls ρ₁ Gf).remove x)
+          hagree₁ hbwf₂
           hwf (hst₂_decls ▸ hspecInv₁)
           hΔreg hρreg
           (fun v ρ' st' se hΨ' hs hw => hpost v ρ' st' se hΨ' hs hw)

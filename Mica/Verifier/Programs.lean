@@ -35,7 +35,7 @@ def Program.relationMap (prog : Untyped.Program Untyped.SpecBody) : FunCtx :=
   prog.filterMap fun
     | .val_ d =>
       match d.name, d.relation with
-      | .named f _, some rel => some (f, rel)
+      | .named f _, some rel => some (f, rel.name)
       | _, _ => none
     | .type_ _ => none
 
@@ -123,7 +123,7 @@ private def extend (primitives : PrimEncodings) (acc : RelationSpec) (d : Typed.
     Except String RelationDecl := do
   match d.relation with
   | none => .error "internal error: expected relation declaration"
-  | some rel => do
+  | some ⟨rel, _⟩ => do
       let (f, arg, body) ← validateDecl d
       let relName := SpecFn.relName rel
       let funName := SpecFn.funcName rel
@@ -250,7 +250,7 @@ private theorem declareAndAssume_correct {primitives : PrimEncodings}
     simp only [hrel] at heval
     exact ⟨acc, st, ρ, ⟨hacc, howns, hvars, hwf, hΓwf, hΓagree⟩,
       Signature.Subset.refl _, Env.agreeOn_refl, VerifM.eval_ret heval⟩
-  | some rel_name =>
+  | some rel =>
     simp only [hrel] at heval
     cases hext : extend primitives acc d with
     | error msg => simp only [hext] at heval; exact (VerifM.eval_fatal heval).elim
@@ -259,11 +259,11 @@ private theorem declareAndAssume_correct {primitives : PrimEncodings}
       -- Unfold `extend` once to expose its construction facts about `info`.
       obtain ⟨hprimsd, hΓsd, hΔsd, hfnsd, hf, hspec_delta, hspec_fm, hinfoEq⟩ :
           info.sd.primitives = primitives ∧
-          info.sd.Γ = acc.functionMap ∧ info.sd.Δ = acc.delta ∧ info.sd.fn = rel_name ∧
-          SpecFnFresh acc.delta rel_name info.sd.x ∧
-          info.spec.delta = ((acc.delta.addBinaryRel (SpecFn.rel rel_name)).addUnary
-              (SpecFn.func rel_name)).addUnaryRel (SpecFn.defined rel_name) ∧
-          info.spec.functionMap = acc.functionMap ++ [(info.sd.f, rel_name)] ∧
+          info.sd.Γ = acc.functionMap ∧ info.sd.Δ = acc.delta ∧ info.sd.fn = rel.name ∧
+          SpecFnFresh acc.delta rel.name info.sd.x ∧
+          info.spec.delta = ((acc.delta.addBinaryRel (SpecFn.rel rel.name)).addUnary
+              (SpecFn.func rel.name)).addUnaryRel (SpecFn.defined rel.name) ∧
+          info.spec.functionMap = acc.functionMap ++ [(info.sd.f, rel.name)] ∧
           Skolemize.encode info.sd = .ok (info.bv, info.axs) := by
         unfold extend at hext
         simp only [hrel, bind, Except.bind] at hext
@@ -297,13 +297,13 @@ private theorem declareAndAssume_correct {primitives : PrimEncodings}
       have hgraph : ∀ a b, R a b ↔ D a ∧ F a = b := fun a b =>
         Skolemize.encode_agreement hlawsd hinfoEq (hΓsd ▸ hΓagree)
           (hΓsd ▸ hΔsd ▸ hΓwf_acc) (hΔsd ▸ hΔwf_acc) hsdFresh a b
-      have henv : SpecFn.Env.both ρ rel_name R D F
+      have henv : SpecFn.Env.both ρ rel.name R D F
           = (SpecFn.Semantics.env info.sd ρ info.bv).updateBinaryRel
-            .value .value (SpecFn.relName rel_name) R := by
+            .value .value (SpecFn.relName rel.name) R := by
         simp only [SpecFn.Semantics.env, hfnsd]
         exact SpecFn.Env.both_updateBinaryRel.symm
       have haxeval : ∀ ax ∈ info.axs,
-          ax.formula.eval (SpecFn.Env.both ρ rel_name R D F) := by
+          ax.formula.eval (SpecFn.Env.both ρ rel.name R D F) := by
         rw [henv]
         rw [← hfnsd]
         exact Skolemize.encode_eval_updateBinaryRel hlawsd hinfoEq (hΓsd ▸ hΓagree)
@@ -311,7 +311,7 @@ private theorem declareAndAssume_correct {primitives : PrimEncodings}
       have hdecl (axs : List Axiom) (hsub : ∀ ax ∈ axs, ax ∈ info.axs)
           {Q' : Unit → TransState → Env → Prop}
           (h : VerifM.eval (SpecFn.declare info.sd.fn axs) st ρ Q') :=
-        SpecFn.declare_correct rel_name info.sd.f axs R F D acc.delta acc.functionMap st ρ
+        SpecFn.declare_correct rel.name info.sd.f axs R F D acc.delta acc.functionMap st ρ
           hf.relFresh hf.funcFresh hf.defFresh hgraph hacc.symm howns hvars
           (hf.sigBoth_wf hΔwf_acc) hΓwf_acc hΓagree
           (fun ax hax => by
@@ -323,7 +323,7 @@ private theorem declareAndAssume_correct {primitives : PrimEncodings}
       -- adds the totality assertion, which touches no field the invariant reads.
       have hrun : ∃ axs, (∀ ax ∈ axs, ax ∈ info.axs) ∧
           VerifM.eval (SpecFn.declare info.sd.fn axs) st ρ
-            (fun _ st' ρ' => ρ' = SpecFn.Env.both ρ rel_name R D F →
+            (fun _ st' ρ' => ρ' = SpecFn.Env.both ρ rel.name R D F →
               ∃ st'', st''.decls = st'.decls ∧ st''.owns = st'.owns ∧
                 Q info.spec st'' ρ') := by
         have h := VerifM.eval_bind heval
@@ -510,27 +510,30 @@ def Program.check (reg : Verifier.Registry) (Θ : TinyML.TypeEnv) (Δ_spec : Sig
     Bindings → TinyML.TyCtx → Typed.Program → VerifM Unit
   | _, _, [] => pure ()
   | B, Γ, d :: ds => do
+    -- The entry is added after the handling below, because that handling drops
+    -- the name from the ghost table when it binds a run-time value of it.
+    let fn ← ValDecl.checkGhostFn Θ Δ_spec Gf d
     match d.mode with
     | .ghost =>
       -- A ghost declaration binds no run-time value: it only becomes callable
       -- from the ghost code of the declarations that follow it.
       let entry ← ValDecl.checkGhost Θ Δ_spec Gf d
-      Program.check reg Θ Δ_spec Γfn (entry :: Gf) (B.remove entry.1) Γ ds
+      Program.check reg Θ Δ_spec Γfn (fn ++ entry :: Gf) (B.remove entry.1) Γ ds
     | .runtime =>
     match d.name.name, d.body.spec? with
     | none, none =>
       ValDecl.checkExpr reg Θ Δ_spec Γfn Gf B Γ d
-      Program.check reg Θ Δ_spec Γfn Gf B Γ ds
+      Program.check reg Θ Δ_spec Γfn (fn ++ Gf) B Γ ds
     | some n, none =>
     -- Named declaration without a spec: skip if it's a function definition
     -- (no code executes), otherwise check it. The new binding shadows any
     -- earlier one of the same name, which is therefore dropped: nothing here
     -- gives the new value a specification.
       if d.body.isFunc then
-        Program.check reg Θ Δ_spec Γfn (Gf.remove n) (B.remove n) Γ ds
+        Program.check reg Θ Δ_spec Γfn (fn ++ Gf.remove n) (B.remove n) Γ ds
       else
         ValDecl.checkExpr reg Θ Δ_spec Γfn Gf B Γ d
-        Program.check reg Θ Δ_spec Γfn (Gf.remove n) (B.remove n) Γ ds
+        Program.check reg Θ Δ_spec Γfn (fn ++ Gf.remove n) (B.remove n) Γ ds
     | _, _ =>
       let ty ← ValDecl.check reg Θ Δ_spec Γfn Gf B Γ d
       match d.name.name with
@@ -541,8 +544,9 @@ def Program.check (reg : Verifier.Registry) (Θ : TinyML.TypeEnv) (Δ_spec : Sig
         -- The arrow's type variables are generalized, the verification having
         -- gone through at every assignment of them.
         let fv ← VerifM.decl (some n) .value
-        Program.check reg Θ Δ_spec Γfn (Gf.remove n) ((n, fv) :: B) (Γ.extendScheme n (TinyML.Scheme.gen ty)) ds
-      | none => Program.check reg Θ Δ_spec Γfn Gf B Γ ds
+        Program.check reg Θ Δ_spec Γfn (fn ++ Gf.remove n) ((n, fv) :: B)
+          (Γ.extendScheme n (TinyML.Scheme.gen ty)) ds
+      | none => Program.check reg Θ Δ_spec Γfn (fn ++ Gf) B Γ ds
 
 def Program.verify (reg : Verifier.Registry) (prog : Untyped.Program Untyped.SpecBody) : Smt.Strategy Smt.Strategy.Outcome :=
   VerifM.strategy do
@@ -695,14 +699,17 @@ theorem Program.check_correct (reg : Verifier.Registry) (hSound : Verifier.Regis
     iempintro
   | cons d ds ih =>
     intro hΓ heval
+    simp only [Program.check] at heval
+    obtain ⟨fn, hfn, heval⟩ :=
+      ValDecl.checkGhostFn_correct W Gf hwf d hag hGf (VerifM.eval_bind heval)
     cases hmode : d.mode with
     | ghost =>
-      simp only [Program.check, hmode] at heval
+      simp only [hmode] at heval
       obtain ⟨entry, hGf_entry, hcont⟩ :=
         ValDecl.checkGhost_correct W Gf hwf d hag hGf (VerifM.eval_bind heval)
-      have hih := ih (Gf := entry :: Gf) (B.remove entry.1) Γ γ st ρ hag
+      have hih := ih (Gf := fn ++ entry :: Gf) (B.remove entry.1) Γ γ st ρ hag
         (Bindings.agreeOnLinked_remove hagree entry.1) (Bindings.wfIn_remove hbwf entry.1)
-        hGf_entry hΓ hcont
+        (hfn.append (hGf_entry.append hGf)) hΓ hcont
       have hscope : □ st.sl W ρ ∗ Bindings.typedSubst W B Γ γ ⊢
           □ st.sl W ρ ∗ Bindings.typedSubst W (B.remove entry.1) Γ γ :=
         sep_mono .rfl (Bindings.typedSubst_remove (fun _ _ => rfl))
@@ -719,7 +726,7 @@ theorem Program.check_correct (reg : Verifier.Registry) (hSound : Verifier.Regis
       rw [Runtime.Program.subst_remove_update]
       exact .rfl
     refine BIBase.Entails.trans ?_ hpwp_unfold
-    simp only [Program.check, hmode] at heval
+    simp only [hmode] at heval
     cases hname : d.name.name with
     | none =>
       -- unnamed: pwp continuation does not depend on `v`
@@ -731,7 +738,8 @@ theorem Program.check_correct (reg : Verifier.Registry) (hSound : Verifier.Regis
         simp only [hname, hspec] at heval
         have hbind := VerifM.eval_bind heval
         have ⟨_, hcont⟩ := VerifM.eval_seq hbind
-        have hih := ih B Γ γ st ρ hag hagree hbwf hGf hΓ (VerifM.eval_ret hcont)
+        have hih := ih (Gf := fn ++ Gf) B Γ γ st ρ hag hagree hbwf (hfn.append hGf) hΓ
+          (VerifM.eval_ret hcont)
         have hwp := ValDecl.checkExpr_correct reg hSound W hW B Γ d γ hwf st ρ hag
           hagree hbwf hΔreg hρreg hGf hbind hih
         refine hwp.trans (wp.mono ?_)
@@ -743,7 +751,7 @@ theorem Program.check_correct (reg : Verifier.Registry) (hSound : Verifier.Regis
         obtain ⟨_, hcont⟩ := ValDecl.check_correct reg hSound W hW B Γ d γ
           self args retTy sp body hbody hwf st ρ hag hagree hbwf hΔreg hρreg hGf
           (VerifM.eval_bind heval)
-        have hih := ih B Γ γ st ρ hag hagree hbwf hGf hΓ hcont
+        have hih := ih (Gf := fn ++ Gf) B Γ γ st ρ hag hagree hbwf (hfn.append hGf) hΓ hcont
         rw [Typed.Expr.runtime_subst_of_fix hbody]
         refine SpatialContext.wp_func ?_
         rw [hupd _]
@@ -772,12 +780,12 @@ theorem Program.check_correct (reg : Verifier.Registry) (hSound : Verifier.Regis
           apply SpatialContext.wp_func
           rw [hupd fval]
           have heval' : VerifM.eval
-              (Program.check reg W.Θ W.Δ_spec Γfn (Gf.remove n) (B.remove n) Γ ds) st ρ
+              (Program.check reg W.Θ W.Δ_spec Γfn (fn ++ Gf.remove n) (B.remove n) Γ ds) st ρ
               (fun _ _ _ => True) := by
             convert heval
-          have hih := ih (B.remove n) Γ (γ.update n fval) st ρ hag
+          have hih := ih (Gf := fn ++ Gf.remove n) (B.remove n) Γ (γ.update n fval) st ρ hag
             (Bindings.agreeOnLinked_remove_update hagree n fval) (Bindings.wfIn_remove hbwf n)
-            (hGf.remove n) hΓ heval'
+            (hfn.append (hGf.remove n)) hΓ heval'
           refine BIBase.Entails.trans ?_ hih
           istart
           iintro ⟨#Hsl, #HT⟩
@@ -789,7 +797,7 @@ theorem Program.check_correct (reg : Verifier.Registry) (hSound : Verifier.Regis
           have hbind := VerifM.eval_bind heval
           have ⟨_, hcont⟩ := VerifM.eval_seq hbind
           have hcont' : VerifM.eval
-              (Program.check reg W.Θ W.Δ_spec Γfn (Gf.remove n) (B.remove n) Γ ds) st ρ
+              (Program.check reg W.Θ W.Δ_spec Γfn (fn ++ Gf.remove n) (B.remove n) Γ ds) st ρ
               (fun _ _ _ => True) :=
             VerifM.eval_ret hcont
           have hwp := ValDecl.checkExpr_correct reg hSound W hW B Γ d γ hwf st ρ hag
@@ -798,9 +806,9 @@ theorem Program.check_correct (reg : Verifier.Registry) (hSound : Verifier.Regis
           refine SpatialContext.wp_strengthen_persistent hwp ?_
           intro v
           rw [hupd v]
-          have hih := ih (B.remove n) Γ (γ.update n v)
+          have hih := ih (Gf := fn ++ Gf.remove n) (B.remove n) Γ (γ.update n v)
             st ρ hag (Bindings.agreeOnLinked_remove_update hagree n v)
-            (Bindings.wfIn_remove hbwf n) (hGf.remove n) hΓ
+            (Bindings.wfIn_remove hbwf n) (hfn.append (hGf.remove n)) hΓ
             hcont'
           exact wand_intro (sep_elim_left.trans <| by
             refine BIBase.Entails.trans ?_ hih
@@ -831,7 +839,7 @@ theorem Program.check_correct (reg : Verifier.Registry) (hSound : Verifier.Regis
             hbody hwf st ρ hag hagree hbwf hΔreg hρreg hGf (VerifM.eval_bind heval)).2
         have hcont' : VerifM.eval
             (do let fv ← VerifM.decl (some n) .value
-                Program.check reg W.Θ W.Δ_spec Γfn (Gf.remove n) ((n, fv) :: B)
+                Program.check reg W.Θ W.Δ_spec Γfn (fn ++ Gf.remove n) ((n, fv) :: B)
                   (Γ.extendScheme n (TinyML.Scheme.gen selfTy)) ds) st ρ
             (fun _ _ _ => True) := by
           convert hcont
@@ -855,8 +863,11 @@ theorem Program.check_correct (reg : Verifier.Registry) (hSound : Verifier.Regis
             (Bindings.agreeOnLinked_env_agree hagree hρ_st₁ hbwf) rfl hval₁
         have hbwf₁ : Bindings.wfIn ((n, fv) :: B) st₁.decls := Bindings.wfIn_cons hbwf
         have hGf₁ := hGf.step hst_sub₁ hρ_st₁ (VerifM.eval.wf hdecl).namesDisjoint
-        have hih := ih ((n, fv) :: B) (Γ.extendScheme n (TinyML.Scheme.gen selfTy))
-          (γ.update n v) st₁ ρ₁ hag₁ hagree₁ hbwf₁ (hGf₁.remove n)
+        have hih := ih (Gf := fn ++ Gf.remove n) ((n, fv) :: B)
+          (Γ.extendScheme n (TinyML.Scheme.gen selfTy))
+          (γ.update n v) st₁ ρ₁ hag₁ hagree₁ hbwf₁
+          ((hfn.step hst_sub₁ hρ_st₁ (VerifM.eval.wf hdecl).namesDisjoint).append
+            (hGf₁.remove n))
           (hΓ.extendScheme n (TinyML.Scheme.gen_free selfTy)) hdecl
         have hsl₁ : st.sl W ρ ⊢ st₁.sl W ρ₁ := by
           simp only [TransState.sl_eq, hst₁_def]

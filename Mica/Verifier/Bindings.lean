@@ -56,6 +56,25 @@ theorem GhostFns.wellTyped.empty (W : TinyML.World) (Δ : Signature) (ρ : Env) 
     GhostFns.wellTyped W Δ ρ .empty :=
   fun _ _ _ _ _ _ h => by simp [GhostFns.empty] at h
 
+omit [MicaGS HasLC.hasLC Sig] in
+private theorem GhostFns.lookup_append (Gf Gf' : GhostFns) (x : TinyML.Var) :
+    (Gf ++ Gf').lookup x = (Gf.lookup x).or (Gf'.lookup x) := by
+  induction Gf with
+  | nil => simp
+  | cons p Gf ih =>
+    rw [List.cons_append, List.lookup_cons, List.lookup_cons]
+    split <;> simp [ih]
+
+theorem GhostFns.wellTyped.append {W : TinyML.World} {Δ : Signature} {ρ : Env}
+    {Gf Gf' : GhostFns} (h : GhostFns.wellTyped W Δ ρ Gf)
+    (h' : GhostFns.wellTyped W Δ ρ Gf') :
+    GhostFns.wellTyped W Δ ρ (Gf ++ Gf') := by
+  intro η f argTys retTy s guard hlookup
+  rw [GhostFns.lookup_append] at hlookup
+  cases hf : Gf.lookup f with
+  | some e => rw [hf] at hlookup; exact h η f argTys retTy s guard (hf.trans hlookup)
+  | none => rw [hf] at hlookup; exact h' η f argTys retTy s guard hlookup
+
 /-- A run-time declaration hides every earlier ghost declaration of its name. -/
 def GhostFns.remove (Gf : GhostFns) (x : TinyML.Var) : GhostFns :=
   Gf.filter fun p => p.1 != x
@@ -70,6 +89,14 @@ omit [MicaGS HasLC.hasLC Sig] in
     by_cases hzx : z = x <;> by_cases hyz : y = z <;> by_cases hyx : y = x <;>
       simp_all [GhostFns.remove, List.lookup_cons] <;> aesop
 
+/-- A run-time binder hides the ghost function of its name. -/
+def GhostFns.removeAll (Gf : GhostFns) : List TinyML.Var → GhostFns
+  | [] => Gf
+  | x :: xs => (Gf.remove x).removeAll xs
+
+def GhostFns.removeBinders (Gf : GhostFns) (bs : List Typed.Binder) : GhostFns :=
+  Gf.removeAll (bs.filterMap (·.name))
+
 theorem GhostFns.wellTyped.remove {W : TinyML.World} {Δ : Signature} {ρ : Env}
     {Gf : GhostFns} (h : GhostFns.wellTyped W Δ ρ Gf) (x : TinyML.Var) :
     GhostFns.wellTyped W Δ ρ (Gf.remove x) := by
@@ -78,6 +105,17 @@ theorem GhostFns.wellTyped.remove {W : TinyML.World} {Δ : Signature} {ρ : Env}
   split at hlookup
   · contradiction
   · exact h η f argTys retTy s guard hlookup
+
+theorem GhostFns.wellTyped.removeAll {W : TinyML.World} {Δ : Signature} {ρ : Env} :
+    ∀ {Gf : GhostFns} (_ : GhostFns.wellTyped W Δ ρ Gf) (xs : List TinyML.Var),
+      GhostFns.wellTyped W Δ ρ (Gf.removeAll xs)
+  | _, h, [] => h
+  | _, h, _ :: xs => GhostFns.wellTyped.removeAll (h.remove _) xs
+
+theorem GhostFns.wellTyped.removeBinders {W : TinyML.World} {Δ : Signature} {ρ : Env}
+    {Gf : GhostFns} (h : GhostFns.wellTyped W Δ ρ Gf) (bs : List Typed.Binder) :
+    GhostFns.wellTyped W Δ ρ (Gf.removeBinders bs) :=
+  h.removeAll _
 
 theorem GhostFns.wellTyped.step {W : TinyML.World} {Δ Δ' : Signature} {ρ ρ' : Env}
     {Gf : GhostFns} (h : GhostFns.wellTyped W Δ ρ Gf)

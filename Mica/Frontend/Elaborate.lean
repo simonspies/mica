@@ -952,15 +952,16 @@ private def ValDecl.elaborate (env : ElabEnv) (loc : Location)
 private structure ValAttrs where
   /-- The specification `[@@spec]` carries. -/
   spec : Option Untyped.SpecBody := none
-  /-- Whether `[@@fn]` registers it as a spec-level function. The attribute
-  takes no payload; the function's own name is used for the derived relation. -/
-  fn : Bool := false
+  /-- Whether `[@@fn]` registers it as a spec-level function, and whether the
+  `ghost` payload was written. The relation takes the declaration's own name,
+  which `Decl.elaborate` supplies. -/
+  fn : Option Bool := none
   /-- Whether `[@@impl]` also elaborates the body as run-time code. The
   declaration becomes a specified one, so typing then requires every argument
   and the return type annotated, which `[@@fn]` alone does not. -/
   impl : Bool := false
   /-- The specification-only parameters `[@@ghost]` declares. -/
-  ghost : List (String × Untyped.Typ) := []
+  params : List (String × Untyped.Typ) := []
   /-- Whether `[@@ghost]` without a payload makes the whole declaration ghost. -/
   mode : TinyML.Mode := .runtime
   decreases : Option Untyped.Expr := none
@@ -981,6 +982,12 @@ private def ghostParam (env : ElabEnv) (e : Expr) : ElabM (String × Untyped.Typ
   | _ => err e.loc (.unsupportedFeature
       "[@@ghost] takes annotated parameters, as in [@@ghost (lo : int) (hi : int)]")
 
+/-- `[@@fn ghost]` is the only payload `[@@fn]` takes. -/
+private def isGhostPayload (e : Expr) : Bool :=
+  match e.kind with
+  | .var path => !path.isQualified && path.head == "ghost"
+  | _ => false
+
 /-- Read a value declaration's attributes. Every attribute is accounted for —
 an unknown name is rejected, and neither may be written twice — so none is
 silently ignored. -/
@@ -999,11 +1006,17 @@ private def elaborateValAttrs (env : ElabEnv) (acc : ValAttrs) :
         | .error msg => err payload.loc (.unsupportedFeature s!"invalid [@@spec]: {msg}")
     | .spec, none =>
       err attr.loc (.unsupportedFeature "[@@spec] expects a specification payload")
-    | .fn, none =>
-      if acc.fn then err attr.loc (.unsupportedFeature "a declaration carries at most one [@@fn]")
-      else elaborateValAttrs env { acc with fn := true } attrs
-    | .fn, some payload => err payload.loc (.unsupportedFeature
-        "[@@fn] takes no payload; the function's own name is used for the relation")
+    | .fn, payload =>
+      if acc.fn.isSome then
+        err attr.loc (.unsupportedFeature "a declaration carries at most one [@@fn]")
+      else match payload with
+        | none => elaborateValAttrs env { acc with fn := some false } attrs
+        | some payload =>
+          if isGhostPayload payload then
+            elaborateValAttrs env { acc with fn := some true } attrs
+          else err payload.loc (.unsupportedFeature
+            "[@@fn] takes no payload other than `ghost`, which makes the function \
+             callable from ghost code")
     | .impl, none =>
       if acc.impl then err attr.loc (.unsupportedFeature "a declaration carries at most one [@@impl]")
       else elaborateValAttrs env { acc with impl := true } attrs
@@ -1012,13 +1025,13 @@ private def elaborateValAttrs (env : ElabEnv) (acc : ValAttrs) :
     -- `[@@ghost]` declares the parameters that exist only for the verifier, and
     -- with no payload declares that the whole declaration does.
     | .ghost, payload =>
-      if acc.mode == .ghost || !acc.ghost.isEmpty then
+      if acc.mode == .ghost || !acc.params.isEmpty then
         err attr.loc (.unsupportedFeature "a declaration carries at most one [@@ghost]")
       else match payload with
         | none => elaborateValAttrs env { acc with mode := .ghost } attrs
         | some payload => do
-          let ghost ← (ghostArgs payload).mapM (ghostParam env)
-          elaborateValAttrs env { acc with ghost } attrs
+          let params ← (ghostArgs payload).mapM (ghostParam env)
+          elaborateValAttrs env { acc with params } attrs
     -- The measure's free names are the specification's parameters, which are
     -- not in scope here; typing binds them.
     | .decreases, some payload =>
@@ -1072,31 +1085,32 @@ private def Decl.elaborate (env : ElabEnv) (decl : Decl)
   | .val_ isRec binders retTy body => do
     let attrs ← elaborateValAttrs env {} decl.attrs
     -- A declaration carries `[@@spec]`, `[@@fn]`, or `[@@fn] [@@impl]`.
-    if attrs.fn && attrs.spec.isSome then
+    if attrs.fn.isSome && attrs.spec.isSome then
       return ← err decl.loc (.unsupportedFeature
         "a declaration carries [@@spec] or [@@fn], not both")
-    if attrs.impl && !attrs.fn then
+    if attrs.impl && attrs.fn.isNone then
       return ← err decl.loc (.unsupportedFeature "[@@impl] requires [@@fn]")
-    if (!attrs.ghost.isEmpty || attrs.mode == .ghost) && attrs.spec.isNone then
+    if (!attrs.params.isEmpty || attrs.mode == .ghost) && attrs.spec.isNone then
       return ← err decl.loc (.unsupportedFeature "[@@ghost] requires [@@spec]")
-    if attrs.decreases.isSome && attrs.mode != .ghost && !attrs.fn then
+    if attrs.decreases.isSome && attrs.mode != .ghost && attrs.fn.isNone then
       return ← err decl.loc (.unsupportedFeature "[@@decreases] requires [@@ghost] or [@@fn]")
     if attrs.decreases.isSome && !isRec then
       return ← err decl.loc (.unsupportedFeature
         "[@@decreases] requires a recursive declaration")
-    let spec := attrs.spec.map fun sb => { sb with ghost := attrs.ghost }
+    let spec := attrs.spec.map fun sb => { sb with ghost := attrs.params }
     let d ← ValDecl.elaborate env decl.loc isRec binders retTy body spec attrs.decreases
     -- A `[@@fn]` declaration uses its own name for the derived relation.
-    let relation ← if attrs.fn then
-      match d.name with
-      | .named x _ => .ok (some x)
-      | .none => err decl.loc (.unsupportedFeature "[@@fn] requires a named declaration")
-    else .ok none
+    let relation ← match attrs.fn with
+      | none => (.ok none : ElabM (Option TinyML.Relation))
+      | some ghost =>
+        match d.name with
+        | .named x _ => .ok (some ⟨x, ghost⟩)
+        | .none => err decl.loc (.unsupportedFeature "[@@fn] requires a named declaration")
     -- Only `[@@impl]` needs the argument by name, so the arity a spec-level
     -- function is compiled at is checked here and again in `RelationSpec`.
     let d ← match attrs.impl, relation, d.body with
       | true, some f, .fix _ [.named arg _] _ _ =>
-        .ok { d with spec := some (← implSpec env decl.loc f arg), impl := true }
+        .ok { d with spec := some (← implSpec env decl.loc f.name arg), impl := true }
       | true, some _, _ => err decl.loc (.unsupportedFeature
           "[@@fn] requires a function of one named argument; write several as a tuple")
       | _, _, _ => .ok d

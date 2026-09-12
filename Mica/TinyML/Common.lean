@@ -13,6 +13,13 @@ inductive Mode where
   | ghost
   deriving Repr, BEq, Inhabited, DecidableEq
 
+/-- What `[@@fn]` records: the name the spec-level symbols take, and whether
+ghost code can call the function. -/
+structure Relation where
+  name : Var
+  ghost : Bool := false
+  deriving Repr, Inhabited, BEq, DecidableEq
+
 /-- Whether a mutable allocation is owned directly or shared through an invariant. -/
 inductive Ownership where
   | owned

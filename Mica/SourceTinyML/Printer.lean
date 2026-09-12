@@ -276,11 +276,13 @@ def ValDecl.print {S : Type} [SpecPayloadPrinter S] (d : Untyped.ValDecl S) : St
     | _, _ => []
   let relation := match d.relation, d.impl with
     | .none, _ => []
-    | .some _, false => ["[@@fn]"]
-    | .some _, true => ["[@@fn]", "[@@impl]"]
+    | .some r, false => [fn r]
+    | .some r, true => [fn r, "[@@impl]"]
   let mode := match d.mode with | .runtime => [] | .ghost => ["[@@ghost]"]
   let decreases := d.decreases.toList.map fun e => s!"[@@decreases {Expr.print e}]"
   " ".intercalate (decl :: (spec ++ relation ++ mode ++ decreases))
+where
+  fn (r : TinyML.Relation) : String := if r.ghost then "[@@fn ghost]" else "[@@fn]"
 
 def TypeDecl.print (d : Untyped.TypeDecl) : String :=
   let payloads := (List.range d.body.payloads.length).zip d.body.payloads |>.map

@@ -604,7 +604,7 @@ def ValDecl.elaborate (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx)
       -- annotated with — is the specified arrow.
       -- `d.relation` is the declaration's own name.
       let (_, dec', body') ← ValDecl.elaborateSpecified env Θ Γ
-        (if d.impl then d.relation else none) rb d.decreases d.body
+        (if d.impl then d.relation.map (·.name) else none) rb d.decreases d.body
       checkDeclAnnotation env Θ d.name body'.ty
       pure { name := Typed.Binder.ofUntyped d.name body'.ty, body := body',
              relation := d.relation, mode := d.mode, decreases := dec' }
