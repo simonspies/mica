@@ -13,12 +13,22 @@ inductive Mode where
   | ghost
   deriving Repr, BEq, Inhabited, DecidableEq
 
-/-- What `[@@fn]` records: the name the spec-level symbols take, and whether
-ghost code can call the function. -/
+/-- Whether a spec-level function's defining equation reaches the solver
+context. An opaque one goes out through its unfolding function instead. -/
+inductive Transparency where
+  | transparent
+  | opaque
+  deriving Repr, Inhabited, BEq, DecidableEq
+
+/-- What `[@@fn]` records. The name is the one the spec-level symbols take. -/
 structure Relation where
   name : Var
   ghost : Bool := false
+  transparency : Transparency := .transparent
   deriving Repr, Inhabited, BEq, DecidableEq
+
+/-- The ghost function an opaque `[@@fn]` publishes. -/
+def Relation.unfoldName (r : Relation) : Var := r.name ++ "_unfold"
 
 /-- Whether a mutable allocation is owned directly or shared through an invariant. -/
 inductive Ownership where

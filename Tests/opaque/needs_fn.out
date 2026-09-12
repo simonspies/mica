@@ -1,0 +1,2 @@
+elaboration error: Tests/opaque/needs_fn.ml:4:1: unsupported feature: [@@opaque] requires [@@fn]
+[1]

@@ -727,16 +727,14 @@ theorem Program.elaborate_runtime (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML
       unfold Typed.Program.elaborate at h
       have ⟨dval', s₀, hdecl, hcont⟩ := StateT.bind_ok h
       have ⟨_, s₀', _, hcont⟩ := StateT.bind_ok hcont
-      let Γ' := match dval'.name.name with
-        | some x => Γ.extendScheme x (Scheme.gen dval'.name.ty)
-        | none => Γ
+      have ⟨_, s₀'', _, hcont⟩ := StateT.bind_ok hcont
       have ⟨tail, s₁, htail, hcont⟩ := StateT.bind_ok hcont
       rcases tail with ⟨Θ'', ds'⟩
       simp at hcont
       rcases hcont with ⟨⟨rfl, rfl⟩, rfl⟩
       have hdecl_rt : Typed.ValDecl.runtime? dval' = Untyped.Decl.runtime (.val_ dval) :=
         ValDecl.elaborate_runtime _ Θ Γ dval hdecl
-      have htail_rt := ih Θ Γ' htail
+      have htail_rt := ih Θ _ htail
       simp only [Typed.Program.runtime, Untyped.Program.runtime, List.filterMap_cons, hdecl_rt]
       cases Untyped.Decl.runtime (Untyped.Decl.val_ dval) <;>
         simpa [Typed.Program.runtime, Untyped.Program.runtime] using htail_rt
