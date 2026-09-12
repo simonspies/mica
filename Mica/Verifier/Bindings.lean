@@ -70,6 +70,14 @@ omit [MicaGS HasLC.hasLC Sig] in
     by_cases hzx : z = x <;> by_cases hyz : y = z <;> by_cases hyx : y = x <;>
       simp_all [GhostFns.remove, List.lookup_cons] <;> aesop
 
+/-- A run-time binder hides the ghost function of its name. -/
+def GhostFns.removeAll (Gf : GhostFns) : List TinyML.Var → GhostFns
+  | [] => Gf
+  | x :: xs => (Gf.remove x).removeAll xs
+
+def GhostFns.removeBinders (Gf : GhostFns) (bs : List Typed.Binder) : GhostFns :=
+  Gf.removeAll (bs.filterMap (·.name))
+
 theorem GhostFns.wellTyped.remove {W : TinyML.World} {Δ : Signature} {ρ : Env}
     {Gf : GhostFns} (h : GhostFns.wellTyped W Δ ρ Gf) (x : TinyML.Var) :
     GhostFns.wellTyped W Δ ρ (Gf.remove x) := by
@@ -78,6 +86,17 @@ theorem GhostFns.wellTyped.remove {W : TinyML.World} {Δ : Signature} {ρ : Env}
   split at hlookup
   · contradiction
   · exact h η f argTys retTy s guard hlookup
+
+theorem GhostFns.wellTyped.removeAll {W : TinyML.World} {Δ : Signature} {ρ : Env} :
+    ∀ {Gf : GhostFns} (_ : GhostFns.wellTyped W Δ ρ Gf) (xs : List TinyML.Var),
+      GhostFns.wellTyped W Δ ρ (Gf.removeAll xs)
+  | _, h, [] => h
+  | _, h, _ :: xs => GhostFns.wellTyped.removeAll (h.remove _) xs
+
+theorem GhostFns.wellTyped.removeBinders {W : TinyML.World} {Δ : Signature} {ρ : Env}
+    {Gf : GhostFns} (h : GhostFns.wellTyped W Δ ρ Gf) (bs : List Typed.Binder) :
+    GhostFns.wellTyped W Δ ρ (Gf.removeBinders bs) :=
+  h.removeAll _
 
 theorem GhostFns.wellTyped.step {W : TinyML.World} {Δ Δ' : Signature} {ρ ρ' : Env}
     {Gf : GhostFns} (h : GhostFns.wellTyped W Δ ρ Gf)

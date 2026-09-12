@@ -1890,6 +1890,10 @@ private def ghostBodyArgs (argNames : List String) (argVars : List FOL.Const)
 private def ghostBodyGhosts (ghostNames : List String) (ghostVars : List FOL.Const) : Bindings :=
   (ghostNames.zip ghostVars).reverse
 
+/-- A parameter hides the ghost function of its name. -/
+private def ghostBodyFns (Gf : GhostFns) (argNames ghostNames : List String) : GhostFns :=
+  (Gf.removeAll argNames).removeAll ghostNames
+
 private def ghostBodyTyCtx (argNames : List String) (argTys : List TinyML.Typ)
     (ghost : List (String × TinyML.Typ)) : TinyML.TyCtx :=
   ghost.foldl (fun ctx p => ctx.extend p.1 p.2)
@@ -1948,7 +1952,9 @@ def ValDecl.checkGhost (Θ : TinyML.TypeEnv) (Δ_spec : Signature)
         (do
           VerifM.persist
           Spec.implement Δ_spec argTys s fun argVars ghostVars => do
-            let Gf' ← ValDecl.ghostSelf Δ_spec Gf self d.decreases ty s argVars ghostVars
+            let Gf' ← ValDecl.ghostSelf Δ_spec
+              (ghostBodyFns Gf argNames (s.ghost.map Prod.fst)) self d.decreases ty s
+              argVars ghostVars
             let se ← compileGhostExpr Θ Δ_spec Gf'
               (ghostBodyGhosts (s.ghost.map Prod.fst) ghostVars)
               (ghostBodyArgs argNames argVars (s.ghost.map Prod.fst))
@@ -2274,9 +2280,10 @@ theorem ValDecl.checkGhost_correct (W : TinyML.World) (Gf : GhostFns) (hwf : W.w
           argNames _ k _ hswf hslen hlen_args (hag'.eta η') hpersist_owns himpl ?_
         intro vs gs argVars ghostVars st₁ ρ₁ Ψ hst_sub hρ_agree _ _ _ _ _ _ _ _ _ hev
         simp only [ValDecl.ghostSelf, hself] at hev
-        exact ⟨Gf, st₁, ρ₁, Signature.Subset.refl _, Env.agreeOn_refl, .rfl,
+        exact ⟨_, st₁, ρ₁, Signature.Subset.refl _, Env.agreeOn_refl, .rfl,
           GhostFns.wellTyped.eta
-            (hGf'.step hst_sub hρ_agree (VerifM.eval.wf hev).namesDisjoint),
+            (((hGf'.step hst_sub hρ_agree
+              (VerifM.eval.wf hev).namesDisjoint).removeAll argNames).removeAll _),
           VerifM.eval_ret hev⟩
       | some g =>
         cases hdec : d.decreases with
@@ -2369,8 +2376,9 @@ theorem ValDecl.checkGhost_correct (W : TinyML.World) (Gf : GhostFns) (hwf : W.w
           · have hne : (f'' == g) = false := by simpa using hg
             rw [List.lookup, hne] at hlookup''
             exact GhostFns.wellTyped.eta
-              (hGf'.step (hst_sub.trans hsub₂) (Env.agreeOn_trans hρ_agree
-                (Env.agreeOn_mono hst_sub hagree₂)) (Signature.wf_addConst hstwf hfresh))
+              (((hGf'.step (hst_sub.trans hsub₂) (Env.agreeOn_trans hρ_agree
+                (Env.agreeOn_mono hst_sub hagree₂)) (Signature.wf_addConst hstwf hfresh)).removeAll
+                argNames).removeAll _)
               η'' f'' argTys'' retTy'' s'' guard'' hlookup''
     · have hne : (f' == f) = false := by simpa using hf
       have hlookup' : Gf.lookup f' = some ⟨.arrow argTys' retTy' (some s'), guard'⟩ := by
