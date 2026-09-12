@@ -7,6 +7,7 @@ import Mica.Verifier.Scoped
 import Mica.Verifier.Monad
 import Mica.Verifier.Bindings
 import Mica.Verifier.Utils
+import Mica.Verifier.Lemma
 import Mica.Verifier.Assertions
 import Mica.Verifier.Intrinsic
 import Mica.Verifier.BoundedQuantifier

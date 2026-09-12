@@ -87,6 +87,10 @@ def SpecFn.Axioms.all (fn : SpecFn) (x : TinyML.Var) (body : DefVal) : List Axio
   [⟨SpecFn.Axioms.definedIntro fn x body, .high⟩, ⟨SpecFn.Axioms.value fn x body, .high⟩,
    ⟨SpecFn.Axioms.definedElim fn x body, .high⟩]
 
+/-- The axiom the solver e-matches on to unfold a recursive definition. -/
+def SpecFn.Axioms.equation (fn : SpecFn) (x : TinyML.Var) (body : DefVal) : Axiom :=
+  ⟨SpecFn.Axioms.value fn x body, .high⟩
+
 /-- The subset of `SpecFn.Axioms.all` emitted once definedness is proved to hold
 at every input. Both definedness implications then say nothing the totality
 assertion does not already say, so the value axiom is all that remains. -/
@@ -260,6 +264,12 @@ private theorem encode_inv {sd : SpecDef} {bv : DefVal} {axs : List Axiom}
   rename_i bv' henc
   cases hinfo
   exact ⟨henc, rfl⟩
+
+theorem encode_equation {sd : SpecDef} {bv : DefVal} {axs : List Axiom}
+    (hinfo : Skolemize.encode sd = .ok (bv, axs)) :
+    SpecFn.Axioms.equation sd.fn sd.x bv ∈ axs := by
+  obtain ⟨_, rfl⟩ := encode_inv hinfo
+  simp [SpecFn.Axioms.equation, SpecFn.Axioms.all]
 
 theorem encode_measured {sd : SpecDef} {bv : DefVal} {axs : List Axiom}
     (hinfo : Skolemize.encode sd = .ok (bv, axs)) :

@@ -630,6 +630,26 @@ def ValDecl.checkGeneralizable {σ : Type} (d : Typed.ValDecl) : TypeM σ Unit :
   | false, a :: _ => TypeM.error (.weakTypeVar a)
   | _, _ => pure ()
 
+/-- The unfolding function an opaque `[@@fn]` publishes, and its argument type.
+The name binds no value: only the type context learns it, and the verifier says
+what it means. A declaration that is not unary publishes nothing, and the
+verifier rejects it. -/
+private def ValDecl.unfolding? (d : Typed.ValDecl) : Option (TinyML.Var × TinyML.Typ) :=
+  match d.relation with
+  | some r => match r.transparency, d.name.ty with
+    | .opaque, .arrow [argTy] _ _ => some (r.unfoldName, argTy)
+    | _, _ => none
+  | none => none
+
+private def ValDecl.extendUnfolding (Γ : TinyML.TyCtx) (d : Typed.ValDecl) :
+    TypeM σ TinyML.TyCtx :=
+  match ValDecl.unfolding? d with
+  | none => pure Γ
+  | some (n, argTy) =>
+    if (Γ n).isSome then
+      TypeM.error (.spec s!"the unfolding function '{n}' conflicts with an existing declaration")
+    else pure (Γ.extendScheme n (Scheme.gen (.arrow [argTy] .unit none)))
+
 def Program.elaborate (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx) :
     Untyped.Program Untyped.SpecBody → TypeM σ (TypeEnv × Typed.Program)
   | [] => pure (Θ, [])
@@ -646,7 +666,8 @@ def Program.elaborate (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx) :
           let Γ' := match d'.name.name with
             | some x => Γ.extendScheme x (Scheme.gen d'.name.ty)
             | none => Γ
-          let (Θ', ds') ← Program.elaborate env Θ Γ' ds
+          let Γ'' ← ValDecl.extendUnfolding Γ' d'
+          let (Θ', ds') ← Program.elaborate env Θ Γ'' ds
           pure (Θ', d' :: ds')
 
 end Typed

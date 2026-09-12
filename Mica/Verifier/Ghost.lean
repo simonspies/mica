@@ -1,8 +1,9 @@
--- SUMMARY: Compilation and verification of the ghost fragment: ghost expressions, ghost declarations with a termination measure, and the lemma that makes a spec-level function callable from ghost code.
+-- SUMMARY: Compilation and verification of the ghost fragment: ghost expressions, ghost declarations with a termination measure, and the ghost entries a declaration contributes.
 import Mica.SourceTinyML.Typed
 import Mica.Verifier.Compilation
 import Mica.Verifier.Bindings
 import Mica.Verifier.Specifications
+import Mica.Verifier.Lemma
 
 open Iris Iris.BI
 
@@ -2003,6 +2004,32 @@ def ValDecl.checkGhostFn (Θ : TinyML.TypeEnv) (Δ_spec : Signature)
         s!"[@@fn ghost] requires a named function of one named argument: {rel}"
   | _ => pure []
 
+/-- The unfolding function an opaque declaration publishes: its withheld fact,
+    at its own argument type. -/
+def ValDecl.publish (Δ_spec : Signature) (ls : Lemmas) (d : Typed.ValDecl) :
+    VerifM GhostFns :=
+  match d.relation with
+  | some r =>
+    match r.transparency with
+    | .transparent => pure []
+    | .opaque =>
+      match ls.ofDeclaration d.name.name, d.name.ty with
+      | some l, .arrow [ty] _ _ =>
+        match l.publish Δ_spec r.unfoldName ty with
+        | .ok entry => pure [entry]
+        | .error msg => VerifM.fatal msg
+      | _, _ => VerifM.fatal
+          s!"[@@opaque] requires a unary function that withholds its equation: {r.name}"
+  | none => pure []
+
+/-- The ghost entries a declaration contributes: the function `[@@fn ghost]`
+    makes callable, and the unfolding function `[@@opaque]` publishes. -/
+def ValDecl.ghostEntries (Θ : TinyML.TypeEnv) (Δ_spec : Signature)
+    (Gf : GhostFns) (ls : Lemmas) (d : Typed.ValDecl) : VerifM GhostFns := do
+  let fn ← ValDecl.checkGhostFn Θ Δ_spec Gf d
+  let unf ← ValDecl.publish Δ_spec ls d
+  pure (fn ++ unf)
+
 /-- The body's scope holds its parameters and nothing else, so its typing
     invariant comes entirely from the arguments the specification relates. -/
 private theorem ValDecl.checkGhostBody_correct (W : TinyML.World) (Gf : GhostFns) (hwf : W.wf)
@@ -2469,5 +2496,46 @@ theorem ValDecl.checkGhostFn_correct (W : TinyML.World) (Gf : GhostFns) (hwf : W
           | [], hbody | ⟨none, _⟩ :: _, hbody | _ :: _ :: _, hbody =>
             simp only [hname, hbody] at heval; exact (VerifM.eval_fatal heval).elim
         | _ => simp only [hname, hbody] at heval; exact (VerifM.eval_fatal heval).elim
+
+theorem ValDecl.publish_correct (W : TinyML.World) (ls : Lemmas) (d : Typed.ValDecl)
+    {st : TransState} {ρ : Env}
+    (hls : ls.Sound W.Δ_spec W.ρ_spec)
+    {Q : GhostFns → TransState → Env → Prop}
+    (heval : VerifM.eval (ValDecl.publish W.Δ_spec ls d) st ρ Q) :
+    ∃ unf, GhostFns.wellTyped W st.decls ρ unf ∧ Q unf st ρ := by
+  simp only [ValDecl.publish] at heval
+  cases hrel : d.relation with
+  | none => simp only [hrel] at heval
+            exact ⟨[], GhostFns.wellTyped.empty W _ ρ, VerifM.eval_ret heval⟩
+  | some r =>
+    simp only [hrel] at heval
+    cases ht : r.transparency with
+    | transparent => simp only [ht] at heval
+                     exact ⟨[], GhostFns.wellTyped.empty W _ ρ, VerifM.eval_ret heval⟩
+    | «opaque» =>
+      simp only [ht] at heval
+      split at heval
+      · rename_i l ty _ _ hl _
+        split at heval
+        · rename_i entry hp
+          exact ⟨[entry],
+            Lemma.publish_wellTyped W st.decls ρ (Lemmas.ofDeclaration_sound hls hl) hp,
+            VerifM.eval_ret heval⟩
+        · exact (VerifM.eval_fatal heval).elim
+      · exact (VerifM.eval_fatal heval).elim
+
+theorem ValDecl.ghostEntries_correct (W : TinyML.World) (Gf : GhostFns) (hwf : W.wf)
+    (ls : Lemmas) (d : Typed.ValDecl)
+    {st : TransState} {ρ : Env} (hag : W.agrees st.decls ρ)
+    (hls : ls.Sound W.Δ_spec W.ρ_spec)
+    (hGf : GhostFns.wellTyped W st.decls ρ Gf)
+    {Q : GhostFns → TransState → Env → Prop}
+    (heval : VerifM.eval (ValDecl.ghostEntries W.Θ W.Δ_spec Gf ls d) st ρ Q) :
+    ∃ fn, GhostFns.wellTyped W st.decls ρ fn ∧ Q fn st ρ := by
+  simp only [ValDecl.ghostEntries] at heval
+  obtain ⟨fn, hfn, heval⟩ :=
+    ValDecl.checkGhostFn_correct W Gf hwf d hag hGf (VerifM.eval_bind heval)
+  obtain ⟨unf, hunf, heval⟩ := ValDecl.publish_correct W ls d hls (VerifM.eval_bind heval)
+  exact ⟨fn ++ unf, hfn.append hunf, VerifM.eval_ret heval⟩
 
 end Declarations
