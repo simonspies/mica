@@ -26,6 +26,7 @@ def registry : Registry := [
   Intrinsics.failwith,
   Intrinsics.invalidArg,
   Intrinsics.logicEq,
+  Intrinsics.logicSize,
   Intrinsics.vecMake,
   Intrinsics.vecSet,
   Intrinsics.vecGet,

@@ -23,7 +23,7 @@ open Mica
    The interval parameters [lo]/[hi] of the helpers are ghost: they are erased
    before the program is compiled and exist only for the specifications.
    [widen_tree] is a ghost declaration, a lemma proved by induction on the
-   height of the tree, establishing that the invariant survives widening the
+   structure of the tree, establishing that the invariant survives widening the
    interval. *)
 
 type tree = Leaf | Node of int * int * tree * tree
@@ -58,7 +58,7 @@ let rec avl_tree_inv ((tr : tree), (lo : int), (hi : int)) : bool =
     right_ok && left_ok && lo <= v && v <= hi &&
     h = mh + 1 && lh <= rh + 1 && rh <= lh + 1 &&
     0 <= lh && 0 <= rh
-[@@fn];;
+[@@fn] [@@decreases Logic.size tr];;
 
 let avl_tree (h: t) : bool =
   match h with
@@ -148,7 +148,7 @@ let rec widen_tree (lo: int) (hi: int) (new_lo: int) (new_hi: int) (tr: tree) : 
   assert (avl_tree_inv (tr, lo, hi));
   ret (fun result ->
     assert (avl_tree_inv (tr, new_lo, new_hi)))]
-[@@decreases height tr];;
+[@@decreases Logic.size tr];;
 
 let rec insert_raw (x: int) (tr: tree) : tree =
   match tr with
