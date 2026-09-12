@@ -178,6 +178,7 @@ inductive AttrName where
   | impl
   | ghost
   | decreases
+  | opaque
   | owned
   | unknown (name : String)
   deriving Repr, Inhabited, BEq, DecidableEq
@@ -190,6 +191,7 @@ def ofString : String → AttrName
   | "impl"      => .impl
   | "ghost"     => .ghost
   | "decreases" => .decreases
+  | "opaque"    => .opaque
   | "owned"     => .owned
   | name        => .unknown name
 
@@ -199,6 +201,7 @@ def toString : AttrName → String
   | .impl         => "impl"
   | .ghost        => "ghost"
   | .decreases    => "decreases"
+  | .opaque       => "opaque"
   | .owned        => "owned"
   | .unknown name => name
 

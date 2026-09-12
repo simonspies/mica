@@ -1993,7 +1993,7 @@ def Spec.ofRelation (rel : SpecFn) (arg : String) : Spec TinyML.Typ :=
 def ValDecl.checkGhostFn (Θ : TinyML.TypeEnv) (Δ_spec : Signature)
     (Gf : GhostFns) (d : Typed.ValDecl) : VerifM GhostFns :=
   match d.relation with
-  | some ⟨rel, true⟩ =>
+  | some ⟨rel, true, _⟩ =>
     match d.name.name, d.body with
     | some f, .fix self [⟨some x, xty⟩] retTy _ body => do
       let entry ← ValDecl.prove Θ Δ_spec Gf f self [⟨some x, xty⟩] retTy body
@@ -2448,7 +2448,7 @@ theorem ValDecl.checkGhostFn_correct (W : TinyML.World) (Gf : GhostFns) (hwf : W
   | none => simp only [hrel] at heval; exact ⟨[], GhostFns.wellTyped.empty W _ ρ,
       VerifM.eval_ret heval⟩
   | some rel =>
-    obtain ⟨relName, ghost⟩ := rel
+    obtain ⟨relName, ghost, _⟩ := rel
     cases ghost with
     | false =>
       simp only [hrel] at heval

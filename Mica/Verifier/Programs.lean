@@ -123,7 +123,7 @@ private def extend (primitives : PrimEncodings) (acc : RelationSpec) (d : Typed.
     Except String RelationDecl := do
   match d.relation with
   | none => .error "internal error: expected relation declaration"
-  | some ⟨rel, _⟩ => do
+  | some ⟨rel, _, _⟩ => do
       let (f, arg, body) ← validateDecl d
       let relName := SpecFn.relName rel
       let funName := SpecFn.funcName rel

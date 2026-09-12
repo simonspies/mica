@@ -960,6 +960,8 @@ private structure ValAttrs where
   declaration becomes a specified one, so typing then requires every argument
   and the return type annotated, which `[@@fn]` alone does not. -/
   impl : Bool := false
+  /-- What `[@@opaque]` sets. -/
+  transparency : TinyML.Transparency := .transparent
   /-- The specification-only parameters `[@@ghost]` declares. -/
   params : List (String × Untyped.Typ) := []
   /-- Whether `[@@ghost]` without a payload makes the whole declaration ghost. -/
@@ -1022,6 +1024,12 @@ private def elaborateValAttrs (env : ElabEnv) (acc : ValAttrs) :
       else elaborateValAttrs env { acc with impl := true } attrs
     | .impl, some payload => err payload.loc (.unsupportedFeature
         "[@@impl] takes no payload; the specification it adds is derived from [@@fn]")
+    | .opaque, none =>
+      if acc.transparency == .opaque then
+        err attr.loc (.unsupportedFeature "a declaration carries at most one [@@opaque]")
+      else elaborateValAttrs env { acc with transparency := .opaque } attrs
+    | .opaque, some payload => err payload.loc (.unsupportedFeature
+        "[@@opaque] takes no payload")
     -- `[@@ghost]` declares the parameters that exist only for the verifier, and
     -- with no payload declares that the whole declaration does.
     | .ghost, payload =>
@@ -1090,6 +1098,8 @@ private def Decl.elaborate (env : ElabEnv) (decl : Decl)
         "a declaration carries [@@spec] or [@@fn], not both")
     if attrs.impl && attrs.fn.isNone then
       return ← err decl.loc (.unsupportedFeature "[@@impl] requires [@@fn]")
+    if attrs.transparency == .opaque && attrs.fn.isNone then
+      return ← err decl.loc (.unsupportedFeature "[@@opaque] requires [@@fn]")
     if (!attrs.params.isEmpty || attrs.mode == .ghost) && attrs.spec.isNone then
       return ← err decl.loc (.unsupportedFeature "[@@ghost] requires [@@spec]")
     if attrs.decreases.isSome && attrs.mode != .ghost && attrs.fn.isNone then
@@ -1104,7 +1114,7 @@ private def Decl.elaborate (env : ElabEnv) (decl : Decl)
       | none => (.ok none : ElabM (Option TinyML.Relation))
       | some ghost =>
         match d.name with
-        | .named x _ => .ok (some ⟨x, ghost⟩)
+        | .named x _ => .ok (some ⟨x, ghost, attrs.transparency⟩)
         | .none => err decl.loc (.unsupportedFeature "[@@fn] requires a named declaration")
     -- Only `[@@impl]` needs the argument by name, so the arity a spec-level
     -- function is compiled at is checked here and again in `RelationSpec`.
