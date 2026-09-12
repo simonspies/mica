@@ -96,10 +96,10 @@ mutual
     | .const (.float b) => pure (.unop .ofFloat (.const (.fp b)))
     | .const .unit     => pure (Term.const .unit)
     | .var x inst vty => do
-        let x' ← match G.lookup x, B.lookup x, Gf.lookup x with
+        let x' ← match G.lookup x, Gf.lookup x, B.lookup x with
           | some c, _, _ => pure c
-          | none, some c, _ => pure c
-          | none, none, some _ => VerifM.fatal s!"ghost function used as a value: {x}"
+          | none, some _, _ => VerifM.fatal s!"ghost function used as a value: {x}"
+          | none, none, some c => pure c
           | none, none, none => VerifM.fatal s!"undefined variable: {x}"
         VerifM.expectEq s!"type annotation mismatch for variable: {x}"
           (((Γ x).map (·.instantiate (TinyML.Typ.ofInst inst))).getD .value) vty
@@ -158,8 +158,8 @@ mutual
           VerifM.assume (.pure sc.isFalse)
           compileGhostExpr Θ Δ_spec Gf G B Γ els
     | .app (.var f _ _) args gargs aty =>
-      match G.lookup f, B.lookup f, Gf.lookup f with
-      | none, none, some ⟨.arrow argTys retTy (some s), guard⟩ =>
+      match G.lookup f, Gf.lookup f, B.lookup f with
+      | none, some ⟨.arrow argTys retTy (some s), guard⟩, _ =>
         match Spec.checkWf s Δ_spec with
         | .error msg => VerifM.fatal msg
         | .ok () => do
@@ -172,7 +172,7 @@ mutual
             ((args.map Expr.WithTypeVars.ty).zip sterms)
             ((gargs.map Expr.WithTypeVars.ty).zip gterms)
           pure result
-      | none, none, _ =>
+      | none, some _, _ | none, none, none =>
         VerifM.fatal s!"a ghost expression cannot call `{f}`: it is not a ghost function"
       | _, _, _ =>
         VerifM.fatal s!"a ghost expression cannot call `{f}`: it is shadowed by a value"
@@ -459,7 +459,6 @@ theorem compileGhostVar_correct (W : TinyML.World) (Gf : GhostFns) (x : String)
     correctGhostExpr W Gf (.var x inst vty) := by
   intro G B Γ γg γ st ρ Ψ R Φ _hag hgagree hgwf hagree hbwf hGf heval hpost
   simp only [compileGhostExpr] at heval
-  -- A ghost name shadows a run-time one, so the ghost bindings are read first.
   obtain ⟨x', hbind, heval⟩ : ∃ x', (G.lookup x = some x' ∨ B.lookup x = some x') ∧
       VerifM.eval (do
         VerifM.expectEq s!"type annotation mismatch for variable: {x}"
@@ -470,17 +469,17 @@ theorem compileGhostVar_correct (W : TinyML.World) (Gf : GhostFns) (x : String)
       simp only [hg] at heval
       exact ⟨c, Or.inl rfl, VerifM.eval_ret (VerifM.eval_bind heval)⟩
     | none =>
-      cases hb : B.lookup x with
-      | some c =>
-        simp only [hg, hb] at heval
-        exact ⟨c, Or.inr rfl, VerifM.eval_ret (VerifM.eval_bind heval)⟩
+      cases hgf : Gf.lookup x with
+      | some _ =>
+        simp only [hg, hgf] at heval
+        exact (VerifM.eval_fatal (VerifM.eval_bind heval)).elim
       | none =>
-        cases hgf : Gf.lookup x with
-        | some _ =>
-          simp only [hg, hb, hgf] at heval
-          exact (VerifM.eval_fatal (VerifM.eval_bind heval)).elim
+        cases hb : B.lookup x with
+        | some c =>
+          simp only [hg, hgf, hb] at heval
+          exact ⟨c, Or.inr rfl, VerifM.eval_ret (VerifM.eval_bind heval)⟩
         | none =>
-          simp only [hg, hb, hgf] at heval
+          simp only [hg, hgf, hb] at heval
           exact (VerifM.eval_fatal (VerifM.eval_bind heval)).elim
   obtain ⟨hcheck, hcont⟩ := VerifM.eval_bind_expectEq heval
   simp only [Expr.WithTypeVars.ty] at hpost
@@ -1284,7 +1283,7 @@ theorem compileGhostApp_correct (W : TinyML.World) (Gf : GhostFns)
   | var f inst fty =>
     simp only [compileGhostExpr] at heval
     split at heval
-    case _ argTys retTy s guard hG hB hlookup =>
+    case _ argTys retTy s guard hG hlookup =>
       cases hcheck : Spec.checkWf s W.Δ_spec with
       | error msg => rw [hcheck] at heval; exact (VerifM.eval_fatal heval).elim
       | ok u =>
@@ -1463,6 +1462,7 @@ theorem compileGhostApp_correct (W : TinyML.World) (Gf : GhostFns)
           isplitl [Howns]
           · iexact Howns
           · iexact HR
+    case _ => exact (VerifM.eval_fatal heval).elim
     case _ => exact (VerifM.eval_fatal heval).elim
     case _ => exact (VerifM.eval_fatal heval).elim
   | _ =>
