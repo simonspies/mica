@@ -99,7 +99,8 @@ private theorem obligation_correct {fn : SpecFn} {x rank : String}
       Env.lookupConst_updateConst_same] using (hm' _ v).symm
 
 /-- Prove total definedness from the body, without recursive definedness
-axioms. The quantified induction hypothesis belongs only to this query. -/
+axioms. The quantified induction hypothesis belongs only to this query. The
+caller records the totality this establishes, outside the query's scope. -/
 def check (fn : SpecFn) (x : String) (m : Typed.Measure)
     (body : Skolemize.DefVal) : VerifM Unit := do
   let Δ ← VerifM.decls
@@ -108,8 +109,7 @@ def check (fn : SpecFn) (x : String) (m : Typed.Measure)
   match m.term.checkWf (Δ.declVar ⟨x, .value⟩),
       body.defined.checkWf (Δ.declVar ⟨x, .value⟩), φ.checkWf Δ, (total fn x).checkWf Δ with
   | .ok (), .ok (), .ok (), .ok () => do
-    if ← VerifM.check .high φ then
-      VerifM.assume (.pure (total fn x))
+    if ← VerifM.check .high φ then pure ()
     else VerifM.failed s!"termination check failed for {fn}"
   | .error msg, _, _, _ | _, .error msg, _, _ | _, _, .error msg, _ | _, _, _, .error msg =>
     VerifM.fatal msg
@@ -120,7 +120,7 @@ theorem check_correct {fn : SpecFn} {x : String} {m : Typed.Measure}
     (hclose : ∀ v, body.defined.eval (ρ.updateConst .value x v) →
       (fn.isDefined (.var .value x)).eval (ρ.updateConst .value x v))
     (h : VerifM.eval (check fn x m body) st ρ Q) :
-    Q () { st with asserts := total fn x :: st.asserts } ρ := by
+    (total fn x).wfIn st.decls ∧ (total fn x).eval ρ ∧ Q () st ρ := by
   simp only [check] at h
   have h := VerifM.eval_decls (VerifM.eval_bind h)
   split at h
@@ -131,9 +131,9 @@ theorem check_correct {fn : SpecFn} {x : String} {m : Typed.Measure}
     | true =>
       have hfresh := Fresh.freshName_not_in_avoid (x :: st.decls.allNames) "rank"
       simp only [List.mem_cons, not_or] at hfresh
-      apply VerifM.eval_assumePure h (Formula.checkWf_ok ht)
-      exact obligation_correct hfresh.2 hfresh.1 (Term.checkWf_ok hm)
+      have htotal := obligation_correct hfresh.2 hfresh.1 (Term.checkWf_ok hm)
         (Formula.checkWf_ok hb) hclose (hb' rfl)
+      exact ⟨Formula.checkWf_ok ht, htotal, VerifM.eval_ret h⟩
   all_goals exact (VerifM.eval_fatal h).elim
 
 end Verifier.RelationalEncoding.Termination

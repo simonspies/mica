@@ -26,7 +26,9 @@ value on that domain.
 
 A declaration whose definedness is proved outright, by the termination check
 that `[@@decreases]` triggers, needs neither implication: `f_def(x)` then holds
-at every input, so only the value axiom is emitted (`SpecFn.Axioms.measured`).
+at every input. A declaration marked `[@@opaque]` keeps the value axiom out of
+the solver context. Its unfolding function hands out one instance per call.
+`SpecFn.Axioms.persistent` is what remains after both.
 
 For a fibonacci-style definition
 
@@ -87,19 +89,39 @@ def SpecFn.Axioms.all (fn : SpecFn) (x : TinyML.Var) (body : DefVal) : List Axio
   [⟨SpecFn.Axioms.definedIntro fn x body, .high⟩, ⟨SpecFn.Axioms.value fn x body, .high⟩,
    ⟨SpecFn.Axioms.definedElim fn x body, .high⟩]
 
-/-- The axiom the solver e-matches on to unfold a recursive definition. -/
+/-- The axiom the solver e-matches on to unfold a recursive definition.
+`[@@opaque]` withholds it. -/
 def SpecFn.Axioms.equation (fn : SpecFn) (x : TinyML.Var) (body : DefVal) : Axiom :=
   ⟨SpecFn.Axioms.value fn x body, .high⟩
 
-/-- The subset of `SpecFn.Axioms.all` emitted once definedness is proved to hold
-at every input. Both definedness implications then say nothing the totality
-assertion does not already say, so the value axiom is all that remains. -/
-def SpecFn.Axioms.measured (fn : SpecFn) (x : TinyML.Var) (body : DefVal) : List Axiom :=
-  [⟨SpecFn.Axioms.value fn x body, .high⟩]
+/-- What an opaque declaration keeps out of the solver context. -/
+def SpecFn.Axioms.withheld (t : TinyML.Transparency)
+    (fn : SpecFn) (x : TinyML.Var) (body : DefVal) : List Axiom :=
+  match t with
+  | .transparent => []
+  | .opaque => [SpecFn.Axioms.equation fn x body]
 
-theorem SpecFn.Axioms.measured_subset_all {fn : SpecFn} {x : TinyML.Var} {body : DefVal} :
-    ∀ ax ∈ SpecFn.Axioms.measured fn x body, ax ∈ SpecFn.Axioms.all fn x body := by
-  simp [SpecFn.Axioms.measured, SpecFn.Axioms.all]
+/-- What stays in the solver context. A measure drops the two definedness
+implications, which then say nothing new; `[@@opaque]` drops the equation. -/
+def SpecFn.Axioms.persistent (measured : Bool) (t : TinyML.Transparency)
+    (fn : SpecFn) (x : TinyML.Var) (body : DefVal) : List Axiom :=
+  (if measured then []
+    else [⟨SpecFn.Axioms.definedIntro fn x body, .high⟩,
+          ⟨SpecFn.Axioms.definedElim fn x body, .high⟩]) ++
+    (match t with
+     | .transparent => [SpecFn.Axioms.equation fn x body]
+     | .opaque => [])
+
+theorem SpecFn.Axioms.withheld_subset_all {t : TinyML.Transparency}
+    {fn : SpecFn} {x : TinyML.Var} {body : DefVal} :
+    ∀ ax ∈ SpecFn.Axioms.withheld t fn x body, ax ∈ SpecFn.Axioms.all fn x body := by
+  cases t <;> simp [SpecFn.Axioms.withheld, SpecFn.Axioms.equation, SpecFn.Axioms.all]
+
+theorem SpecFn.Axioms.persistent_subset_all {measured : Bool} {t : TinyML.Transparency}
+    {fn : SpecFn} {x : TinyML.Var} {body : DefVal} :
+    ∀ ax ∈ SpecFn.Axioms.persistent measured t fn x body, ax ∈ SpecFn.Axioms.all fn x body := by
+  cases measured <;> cases t <;>
+    simp +contextual [SpecFn.Axioms.persistent, SpecFn.Axioms.equation, SpecFn.Axioms.all]
 
 private theorem SpecFn.Axioms.all_wfIn {Δ : Signature} {fn : SpecFn} {x : String} {body : DefVal}
     (hΔx : (Δ.declVar ⟨x, .value⟩).wf)
@@ -265,17 +287,24 @@ private theorem encode_inv {sd : SpecDef} {bv : DefVal} {axs : List Axiom}
   cases hinfo
   exact ⟨henc, rfl⟩
 
+/-- The withheld axioms are ones the encoder emitted, so their validity is
+already proved. -/
+theorem encode_withheld {sd : SpecDef} {bv : DefVal} {axs : List Axiom}
+    {t : TinyML.Transparency} (hinfo : Skolemize.encode sd = .ok (bv, axs)) :
+    ∀ ax ∈ SpecFn.Axioms.withheld t sd.fn sd.x bv, ax ∈ axs := by
+  obtain ⟨_, rfl⟩ := encode_inv hinfo
+  exact SpecFn.Axioms.withheld_subset_all
+
 theorem encode_equation {sd : SpecDef} {bv : DefVal} {axs : List Axiom}
     (hinfo : Skolemize.encode sd = .ok (bv, axs)) :
-    SpecFn.Axioms.equation sd.fn sd.x bv ∈ axs := by
-  obtain ⟨_, rfl⟩ := encode_inv hinfo
-  simp [SpecFn.Axioms.equation, SpecFn.Axioms.all]
+    SpecFn.Axioms.equation sd.fn sd.x bv ∈ axs :=
+  encode_withheld (t := .opaque) hinfo _ (by simp [SpecFn.Axioms.withheld])
 
-theorem encode_measured {sd : SpecDef} {bv : DefVal} {axs : List Axiom}
-    (hinfo : Skolemize.encode sd = .ok (bv, axs)) :
-    ∀ ax ∈ SpecFn.Axioms.measured sd.fn sd.x bv, ax ∈ axs := by
+theorem encode_persistent {sd : SpecDef} {bv : DefVal} {axs : List Axiom}
+    {measured : Bool} {t : TinyML.Transparency} (hinfo : Skolemize.encode sd = .ok (bv, axs)) :
+    ∀ ax ∈ SpecFn.Axioms.persistent measured t sd.fn sd.x bv, ax ∈ axs := by
   obtain ⟨_, rfl⟩ := encode_inv hinfo
-  exact SpecFn.Axioms.measured_subset_all
+  exact SpecFn.Axioms.persistent_subset_all
 
 /-- `definedIntro` read as a closure property: the encoded body being defined at
 a value closes definedness of `fn` under that value. This is what the

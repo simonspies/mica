@@ -8,7 +8,7 @@ let rec countdown (n : int) : int =
 [@@fn] [@@opaque] [@@decreases n]
 ;;
 
-(* Opacity is independent of the measure and of ghost callability. *)
+(* Opacity composes with every other [@@fn] attribute. *)
 let rec sum (n : int) : int =
   if n <= 0 then 0 else n + sum (n - 1)
 [@@fn ghost] [@@opaque] [@@impl] [@@decreases n]

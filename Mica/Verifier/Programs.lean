@@ -163,23 +163,32 @@ private def extend (primitives : PrimEncodings) (acc : RelationSpec) (d : Typed.
         .ok { spec, sd, axs, bv }
 
 /-- With a measure the definedness axioms are replaced by a proof: the
-termination check establishes definedness at every input, so only the value
-axiom is assumed. -/
-private def RelationDecl.declare (info : RelationDecl) : Option Typed.Measure → VerifM Unit
-  | none => SpecFn.declare info.sd.fn info.axs
+termination check establishes definedness at every input. The check is one of
+the declaration's own proofs, so it runs with the withheld fact. Only the
+totality survives the bracket. -/
+private def RelationDecl.declare (info : RelationDecl) (t : TinyML.Transparency) :
+    Option Typed.Measure → VerifM Unit
+  | none =>
+    SpecFn.declare info.sd.fn
+      (Skolemize.SpecFn.Axioms.persistent false t info.sd.fn info.sd.x info.bv)
   | some m => do
-    SpecFn.declare info.sd.fn (Skolemize.SpecFn.Axioms.measured info.sd.fn info.sd.x info.bv)
-    Termination.check info.sd.fn info.sd.x m info.bv
+    SpecFn.declare info.sd.fn
+      (Skolemize.SpecFn.Axioms.persistent true t info.sd.fn info.sd.x info.bv)
+    VerifM.seq
+      (do
+        VerifM.assumeAxioms (Skolemize.SpecFn.Axioms.withheld t info.sd.fn info.sd.x info.bv)
+        Termination.check info.sd.fn info.sd.x m info.bv)
+      (VerifM.assume (.pure (Termination.total info.sd.fn info.sd.x)))
 
 private def declareAndAssume (primitives : PrimEncodings) (acc : RelationSpec)
     (d : Typed.ValDecl) : VerifM RelationSpec := do
   match d.relation with
   | none => pure acc
-  | some _ =>
+  | some r =>
       match extend primitives acc d with
       | .error msg => VerifM.fatal msg
       | .ok info => do
-          info.declare d.decreases
+          info.declare r.transparency d.decreases
           pure info.spec
 
 /-- Declare a bounded quantifier's solver-facing triple and its defining
@@ -343,39 +352,56 @@ private theorem declareAndAssume_correct {primitives : PrimEncodings}
               (hΓsd ▸ hΔsd ▸ hΓwf_acc) hsdFresh ax (hsub ax hax)
             rwa [hΔsd, hfnsd] at this)
           (fun ax hax => haxeval ax (hsub ax hax)) (hfnsd ▸ h)
+      -- Every encoded axiom holds once the three symbols are declared, whether
+      -- or not it stays in the context.
+      have hcurrent {st' : TransState} {ρ' : Env}
+          (hd : st'.decls = ((acc.delta.addBinaryRel (SpecFn.rel rel.name)).addUnary
+            (SpecFn.func rel.name)).addUnaryRel (SpecFn.defined rel.name))
+          (hρ : ρ' = SpecFn.Env.both ρ rel.name R D F) :
+          ∀ ax ∈ info.axs, ax.formula.wfIn st'.decls ∧ ax.formula.eval ρ' := by
+        intro ax hax
+        refine ⟨?_, hρ ▸ haxeval ax hax⟩
+        rw [hd, ← hΔsd, ← hfnsd]
+        exact Skolemize.encode_wfIn hlawsd hinfoEq (hΔsd ▸ hΔwf_acc)
+          (hΓsd ▸ hΔsd ▸ hΓwf_acc) hsdFresh ax hax
       -- Either form declares a sublist of the encoded axioms. A measure then
       -- adds the totality assertion, which touches no field the invariant reads.
       have hrun : ∃ axs, (∀ ax ∈ axs, ax ∈ info.axs) ∧
           VerifM.eval (SpecFn.declare info.sd.fn axs) st ρ
-            (fun _ st' ρ' => ρ' = SpecFn.Env.both ρ rel.name R D F →
+            (fun _ st' ρ' =>
+              st'.decls = ((acc.delta.addBinaryRel (SpecFn.rel rel.name)).addUnary
+                (SpecFn.func rel.name)).addUnaryRel (SpecFn.defined rel.name) →
+              ρ' = SpecFn.Env.both ρ rel.name R D F →
               ∃ st'', st''.decls = st'.decls ∧ st''.owns = st'.owns ∧
                 Q info.spec st'' ρ') := by
         have h := VerifM.eval_bind heval
         cases hm : d.decreases with
         | none =>
           simp only [RelationDecl.declare, hm] at h
-          exact ⟨info.axs, fun _ hax => hax,
-            h.mono fun _ st' _ hQ _ => ⟨st', rfl, rfl, VerifM.eval_ret hQ⟩⟩
+          exact ⟨_, Skolemize.encode_persistent hinfoEq,
+            h.mono fun _ st' _ hQ _ _ => ⟨st', rfl, rfl, VerifM.eval_ret hQ⟩⟩
         | some m =>
           simp only [RelationDecl.declare, hm] at h
-          refine ⟨_, Skolemize.encode_measured hinfoEq, (VerifM.eval_bind h).mono ?_⟩
-          intro _ st' ρ' hc hρ'
+          refine ⟨_, Skolemize.encode_persistent hinfoEq, (VerifM.eval_bind h).mono ?_⟩
+          intro _ st' ρ' hc hd' hρ'
           have hclose : ∀ v, info.bv.defined.eval (ρ'.updateConst .value info.sd.x v) →
               (info.sd.fn.isDefined (.var .value info.sd.x)).eval
                 (ρ'.updateConst .value info.sd.x v) := by
             rw [hρ']; exact Skolemize.encode_closed hinfoEq haxeval
+          obtain ⟨hproof, hcont⟩ := VerifM.eval_seq hc
+          have hlocal := fun ax (hax : ax ∈ Skolemize.SpecFn.Axioms.withheld
+              rel.transparency info.sd.fn info.sd.x info.bv) =>
+            hcurrent hd' hρ' ax (Skolemize.encode_withheld hinfoEq ax hax)
+          obtain ⟨st₀, hd₀, _, _, hcheck⟩ := VerifM.eval_assumeAxioms
+            (VerifM.eval_bind hproof) (fun ax hax => (hlocal ax hax).1)
+            (fun ax hax => (hlocal ax hax).2)
+          obtain ⟨hwt, ht, _⟩ := Termination.check_correct hclose hcheck
           exact ⟨{ st' with asserts := Termination.total info.sd.fn info.sd.x :: st'.asserts },
-            rfl, rfl, VerifM.eval_ret (Termination.check_correct hclose hc)⟩
+            rfl, rfl, VerifM.eval_ret (VerifM.eval_assumePure hcont (hd₀ ▸ hwt) ht)⟩
       obtain ⟨axs, hsub, hrun⟩ := hrun
       obtain ⟨st4, ρ4, hρ4, hst4_decls, howns4, hvars4, hwf4, hsub4, hagree4,
         hΓwf4, hΓagree4, hcont⟩ := hdecl axs hsub hrun
-      obtain ⟨st5, hst5_decls, howns5, hQ5⟩ := hcont hρ4
-      have hcurrent : ∀ ax ∈ info.axs, ax.formula.wfIn st4.decls ∧ ax.formula.eval ρ4 := by
-        intro ax hax
-        refine ⟨?_, hρ4 ▸ haxeval ax hax⟩
-        rw [hst4_decls, ← hΔsd, ← hfnsd]
-        exact Skolemize.encode_wfIn hlawsd hinfoEq (hΔsd ▸ hΔwf_acc)
-          (hΓsd ▸ hΔsd ▸ hΓwf_acc) hsdFresh ax hax
+      obtain ⟨st5, hst5_decls, howns5, hQ5⟩ := hcont hst4_decls hρ4
       refine ⟨info.spec, st5, ρ4, ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_⟩, ?_, hagree4, hQ5⟩
       · rw [hspec_delta, hst5_decls, hst4_decls]
       · rw [howns5, howns4]
@@ -388,7 +414,7 @@ private theorem declareAndAssume_correct {primitives : PrimEncodings}
         rcases hspec_lemmas l hl with hl' | hfact
         · exact (hu l hl').mono hsub4 hagree4 hwf4
         · simp only [Lemma.Sound, hfact]
-          exact hcurrent _ (Skolemize.encode_equation hinfoEq)
+          exact hcurrent hst4_decls hρ4 _ (Skolemize.encode_equation hinfoEq)
       · rw [hst5_decls]; exact hsub4
 
 omit [MicaGS HasLC.hasLC Sig] in
@@ -516,7 +542,7 @@ theorem assemble_correct (primitives : PrimEncodings) (hlaw : primitives.Lawful)
   refine ⟨result, stRel, ρRel, hinvRel.vars, hinvRel.owns, hsub1.trans hsubRel,
     Env.agreeOn_trans hag1 (Env.agreeOn_mono hsub1 hagRel), hinvRel.lemmas, ?_⟩
   have hresD := hinvRel.delta
-  obtain ⟨_, _, _⟩ := result
+  obtain ⟨_, _, _, _⟩ := result
   simp only at hresD; subst hresD
   exact hQ
 
@@ -524,15 +550,18 @@ end RelationSpec
 
 /-- Check an individual declaration by compiling its body, which is a specified
     function literal and so takes exactly the path a `let`-bound one does. The
-    compilation runs inside a `seq` bracket so its declarations and assertions
-    don't pollute subsequent verifications. Returns the specified arrow the
-    declaration was verified at, which is what binds its name for the
+    compilation and its axioms run inside a `seq` bracket, so neither reaches
+    the verifications that follow. Returns the specified arrow
+    the declaration was verified at, which is what binds its name for the
     declarations that follow. -/
 def ValDecl.check (reg : Verifier.Registry) (Θ : TinyML.TypeEnv) (Δ_spec : Signature)
     (Γfn : FunCtx) (Gf : GhostFns) (B : Bindings) (Γ : TinyML.TyCtx)
-    (d : Typed.ValDecl) : VerifM TinyML.Typ :=
+    (axs : List Axiom) (d : Typed.ValDecl) : VerifM TinyML.Typ :=
   VerifM.seq
-    (do let _ ← compile reg Θ Δ_spec Γfn Gf Bindings.empty B Γ d.body; pure ())
+    (do
+      VerifM.assumeAxioms axs
+      let _ ← compile reg Θ Δ_spec Γfn Gf Bindings.empty B Γ d.body
+      pure ())
     (pure d.body.ty)
 
 /-- Check a `let _ = e` declaration: just compile `e` for safety, no spec. -/
@@ -573,7 +602,7 @@ def Program.check (reg : Verifier.Registry) (Θ : TinyML.TypeEnv) (Δ_spec : Sig
         ValDecl.checkExpr reg Θ Δ_spec Γfn Gf B Γ d
         Program.check reg Θ Δ_spec ls Γfn (fn ++ Gf.remove n) (B.remove n) Γ ds
     | _, _ =>
-      let ty ← ValDecl.check reg Θ Δ_spec Γfn Gf B Γ d
+      let ty ← ValDecl.check reg Θ Δ_spec Γfn Gf B Γ (ls.enterDeclaration d.name.name) d
       match d.name.name with
       | some n =>
         -- The declaration's value is a specified function: declare a constant
@@ -678,7 +707,8 @@ theorem ValDecl.checkExpr_correct (reg : Verifier.Registry) (hSound : Verifier.R
 theorem ValDecl.check_correct (reg : Verifier.Registry)
     (hSound : Verifier.Registry.Sound reg)
     (W : TinyML.World) (hW : W.pctx = reg.primCtx)
-    (B : Bindings) (Γ : TinyML.TyCtx)
+    (B : Bindings) (Γ : TinyML.TyCtx) (axs : List Axiom)
+    (haxs : ∀ ax ∈ axs, ax.formula.wfIn W.Δ_spec ∧ ax.formula.eval W.ρ_spec)
     (d : Typed.ValDecl) (γ : Runtime.Subst)
     (self : Typed.Binder) (args : List Typed.Binder) (retTy : TinyML.Typ)
     (s : Spec TinyML.Typ) (body : Typed.Expr)
@@ -691,7 +721,7 @@ theorem ValDecl.check_correct (reg : Verifier.Registry)
     (hρreg : Verifier.Registry.symAgree reg W.ρ_spec)
     (hGf : GhostFns.wellTyped W st.decls ρ Gf)
     {Q : TinyML.Typ → TransState → Env → Prop}
-    (heval : VerifM.eval (ValDecl.check reg W.Θ W.Δ_spec Γfn Gf B Γ d) st ρ Q) :
+    (heval : VerifM.eval (ValDecl.check reg W.Θ W.Δ_spec Γfn Gf B Γ axs d) st ρ Q) :
     (Bindings.typedSubst W B Γ γ ⊢
         TinyML.ValHasType W
           (Runtime.Val.fix self.runtime (args.map (·.runtime))
@@ -704,13 +734,17 @@ theorem ValDecl.check_correct (reg : Verifier.Registry)
   have hty : d.body.ty = .arrow (args.map Typed.Binder.WithTypeVars.ty) retTy (some s) := by
     rw [hbody]; simp [Typed.Expr.WithTypeVars.ty]
   rw [hty]
-  have hc := VerifM.eval_bind hcompileSeq
+  obtain ⟨st₀, hd₀, _, _, hcompile⟩ := VerifM.eval_assumeAxioms
+    (VerifM.eval_bind hcompileSeq)
+    (fun ax ha => Formula.wfIn_mono _ (haxs ax ha).1 hag.subset hcompileSeq.1.namesDisjoint)
+    (fun ax ha => (Formula.eval_env_agree (haxs ax ha).1 hag.agree).mp (haxs ax ha).2)
+  have hc := VerifM.eval_bind hcompile
   rw [hbody] at hc
   exact (Bindings.typedScope_of_typedSubst W Runtime.Subst.id).trans
     (compileFix_typed reg W hW Γfn Gf Bindings.empty B Γ Runtime.Subst.id γ
-      self args retTy s body (compile_correct reg hSound body) hwf hag
-      (Bindings.agreeOnLinked_empty ρ _) (Bindings.wfIn_empty st.decls) hGf
-      hagree hbwf hΔreg hρreg hc)
+      self args retTy s body (compile_correct reg hSound body) hwf (hd₀ ▸ hag)
+      (Bindings.agreeOnLinked_empty ρ _) (Bindings.wfIn_empty st₀.decls) (hd₀ ▸ hGf)
+      hagree (hd₀ ▸ hbwf) hΔreg hρreg hc)
 
 theorem Program.check_correct (reg : Verifier.Registry) (hSound : Verifier.Registry.Sound reg)
     (W : TinyML.World) (hW : W.pctx = reg.primCtx)
@@ -739,6 +773,7 @@ theorem Program.check_correct (reg : Verifier.Registry) (hSound : Verifier.Regis
   | cons d ds ih =>
     intro hΓ heval
     simp only [Program.check] at heval
+    have haxs := Lemmas.enterDeclaration_sound hls
     obtain ⟨fn, hfn, heval⟩ :=
       ValDecl.ghostEntries_correct W Gf hwf _ d hag hls hGf (VerifM.eval_bind heval)
     cases hmode : d.mode with
@@ -787,7 +822,7 @@ theorem Program.check_correct (reg : Verifier.Registry) (hSound : Verifier.Regis
         -- unnamed, with spec
         simp only [hname, hspec] at heval
         obtain ⟨self, args, retTy, body, hbody⟩ := Typed.Expr.spec?_elim hspec
-        obtain ⟨_, hcont⟩ := ValDecl.check_correct reg hSound W hW B Γ d γ
+        obtain ⟨_, hcont⟩ := ValDecl.check_correct reg hSound W hW B Γ _ (haxs none) d γ
           self args retTy sp body hbody hwf st ρ hag hagree hbwf hΔreg hρreg hGf
           (VerifM.eval_bind heval)
         have hih := ih (Gf := fn ++ Gf) B Γ γ st ρ hag hagree hbwf (hfn.append hGf) hΓ hcont
@@ -870,11 +905,12 @@ theorem Program.check_correct (reg : Verifier.Registry) (hSound : Verifier.Regis
           rw [TinyML.Scheme.gen_instantiate]
           refine BIBase.Entails.trans (Bindings.typedSubst_afterInstantiating W σ hΓ) ?_
           refine BIBase.Entails.trans ?_ (TinyML.ValHasType.subst W σ v selfTy).1
-          exact (ValDecl.check_correct reg hSound (W.afterInstantiating σ) hW B Γ d γ
+          exact (ValDecl.check_correct reg hSound (W.afterInstantiating σ) hW B Γ _
+            (haxs (some n)) d γ
             self args retTy sp body hbody (hwf.afterInstantiating σ) st ρ
             (hag.afterInstantiating σ) hagree hbwf hΔreg hρreg hGf (VerifM.eval_bind heval)).1
         have hcont :=
-          (ValDecl.check_correct reg hSound W hW B Γ d γ self args retTy sp body
+          (ValDecl.check_correct reg hSound W hW B Γ _ (haxs (some n)) d γ self args retTy sp body
             hbody hwf st ρ hag hagree hbwf hΔreg hρreg hGf (VerifM.eval_bind heval)).2
         have hcont' : VerifM.eval
             (do let fv ← VerifM.decl (some n) .value

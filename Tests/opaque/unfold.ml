@@ -13,3 +13,11 @@ let zero (u : unit) : int =
 [@@spec fun u -> ret (fun r -> assert (r = countdown 0))]
 ;;
 
+(* Unfolding at each argument of a chain reaches the base case. *)
+let zero_of_two (u : unit) : int =
+  let%ghost _ = countdown_unfold 2 in
+  let%ghost _ = countdown_unfold 1 in
+  let%ghost _ = countdown_unfold 0 in
+  0
+[@@spec fun u -> ret (fun r -> assert (r = countdown 2))]
+;;

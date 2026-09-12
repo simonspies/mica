@@ -1,4 +1,4 @@
--- SUMMARY: Facts kept out of the solver context and published to proofs as ghost functions.
+-- SUMMARY: Facts kept out of the solver context, which a check takes into its query or publishes as a ghost function.
 import Mica.Verifier.Bindings
 import Mica.Verifier.Guard
 
@@ -122,6 +122,12 @@ def ofDeclaration (ls : Lemmas) : Option TinyML.Var → Option Lemma
   | none => none
   | some f => ls.find? fun l => l.kind == .definingEquation f
 
+/-- What a declaration's own check takes into its query. -/
+def enterDeclaration (ls : Lemmas) (f : Option TinyML.Var) : List Axiom :=
+  match ls.ofDeclaration f with
+  | none => []
+  | some l => [l.fact]
+
 def Sound (ls : Lemmas) (Δ : Signature) (ρ : Env) : Prop :=
   ∀ l ∈ ls, l.Sound Δ ρ
 
@@ -138,5 +144,18 @@ theorem ofDeclaration_sound {ls : Lemmas} {Δ : Signature} {ρ : Env} {l : Lemma
   cases f with
   | none => simp [ofDeclaration] at hl
   | some f => exact h l (List.mem_of_find?_eq_some (by simpa [ofDeclaration] using hl))
+
+omit [MicaGS HasLC.hasLC Sig] in
+theorem enterDeclaration_sound {ls : Lemmas} {Δ : Signature} {ρ : Env}
+    (h : ls.Sound Δ ρ) (f : Option TinyML.Var) :
+    ∀ ax ∈ ls.enterDeclaration f, ax.formula.wfIn Δ ∧ ax.formula.eval ρ := by
+  intro ax hax
+  unfold enterDeclaration at hax
+  split at hax
+  · simp at hax
+  · rename_i l hl
+    simp only [List.mem_singleton] at hax
+    subst hax
+    exact ofDeclaration_sound h hl
 
 end Lemmas
