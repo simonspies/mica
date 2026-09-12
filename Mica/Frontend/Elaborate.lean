@@ -345,24 +345,28 @@ private partial def patternToProductType (env : ElabEnv) (pat : Pattern) : ElabM
       .ok (Untyped.Typ.tuple (fieldInfo.map Prod.snd))
   | _ => err pat.loc (.unsupportedPattern "expected a flat product binder")
 
+/-- The argument binders, and the scope they open. A product pattern becomes one
+argument of the product type, and a destructuring `let` binds the names it
+writes. Everything written in the argument scope goes under that `let`. -/
 private partial def elaborateFunctionArgs (env : ElabEnv) (stem : String) :
-    Nat → List Pattern → Untyped.Expr → ElabM (List Untyped.Binder × Untyped.Expr)
-  | _, [], body => .ok ([], body)
-  | idx, pat :: pats, body => do
-      let (restArgs, restBody) ← elaborateFunctionArgs env stem (idx + 1) pats body
+    Nat → List Pattern → ElabM (List Untyped.Binder × (Untyped.Expr → Untyped.Expr))
+  | _, [] => .ok ([], id)
+  | idx, pat :: pats => do
+      let (restArgs, restScope) ← elaborateFunctionArgs env stem (idx + 1) pats
       if isProductPattern pat then
         let argName := productArgumentName stem idx
         let argTy ← patternToProductType env pat
         let names ← patternToProductBinders env pat
-        .ok (.named argName (some argTy) :: restArgs, .letProd names (.var argName) restBody)
+        .ok (.named argName (some argTy) :: restArgs,
+          fun e => .letProd names (.var argName) (restScope e))
       else
         let arg ← patternToBinder env pat
-        .ok (arg :: restArgs, restBody)
+        .ok (arg :: restArgs, restScope)
 
 /-- Elaborate the value introduced by a named surface binding. -/
 private partial def elaborateBinding (env : ElabEnv) (loc : Location) (isRec : Bool)
     (pat : Pattern) (args : List Pattern) (retTy : Option Typ) (bound : Expr) :
-    ElabM (Untyped.Binder × Untyped.Expr) := do
+    ElabM (Untyped.Binder × Untyped.Expr × (Untyped.Expr → Untyped.Expr)) := do
   match args with
   | [] =>
     let name ← patternToBinder env pat
@@ -371,20 +375,20 @@ private partial def elaborateBinding (env : ElabEnv) (loc : Location) (isRec : B
       let bound' ← Expr.elaborate (env.bindPattern pat) bound
       match bound' with
       | .fix .none fixArgs fixRetTy inner =>
-        .ok (name, .fix name fixArgs fixRetTy inner)
+        .ok (name, .fix name fixArgs fixRetTy inner, id)
       | _ => err loc (.unsupportedFeature "let rec requires a function")
     else do
       let bound' ← Expr.elaborate env bound
-      .ok (name, bound')
+      .ok (name, bound', id)
   | _ =>
     let name := nameBinder (← patternToName pat)
     let self := if isRec then name else .none
     let boundEnv := env.bindPatterns args
     let boundEnv := if isRec then boundEnv.bindPattern pat else boundEnv
     let bound' ← Expr.elaborate boundEnv bound
-    let (args', bound'') ← elaborateFunctionArgs env "$param" 0 args bound'
+    let (args', scope) ← elaborateFunctionArgs env "$param" 0 args
     let retTy' ← elaborateOptTyp env retTy
-    .ok (name, .fix self args' retTy' bound'')
+    .ok (name, .fix self args' retTy' (scope bound'), scope)
 
 /-- Elaborate a surface type into the untyped IR's type language: lower its
 kind, then apply any type attributes (`T [@name payload]`) left-to-right.
@@ -751,7 +755,7 @@ private partial def ExprKind.elaborate (env : ElabEnv) (loc : Location) :
           let names ← patternToProductBinders env pat
           .ok (.letProd names bound' body')
       else do
-        let (name, bound') ← elaborateBinding env loc isRec pat args retTy bound
+        let (name, bound', _) ← elaborateBinding env loc isRec pat args retTy bound
         let body' ← Expr.elaborate (env.bindPattern pat) body
         .ok (.letIn mode name bound' body')
 
@@ -760,8 +764,8 @@ private partial def ExprKind.elaborate (env : ElabEnv) (loc : Location) :
   | .fun_ args retTy body => do
     let retTy' ← elaborateOptTyp env retTy
     let body' ← Expr.elaborate (env.bindPatterns args) body
-    let (args', body'') ← elaborateFunctionArgs env "$param" 0 args body'
-    .ok (.fix .none args' retTy' body'')
+    let (args', scope) ← elaborateFunctionArgs env "$param" 0 args
+    .ok (.fix .none args' retTy' (scope body'))
 
   | .match_ scrut arms => do
     let scrut' ← Expr.elaborate env scrut
@@ -929,15 +933,17 @@ private def TypeDecl.elaborate (env : ElabEnv) (loc : Location) (decl : TypeDecl
 -- ---------------------------------------------------------------------------
 -- Value declaration elaboration
 
+/-- The measure is written in the argument scope, so it goes under the same
+`let` as the body and may name a component of a product argument. -/
 private def ValDecl.elaborate (env : ElabEnv) (loc : Location)
     (isRec : Bool) (binders : List Pattern) (retTy : Option Typ) (body : Expr)
-    (spec : Option Untyped.SpecBody)
+    (spec : Option Untyped.SpecBody) (decreases : Option Untyped.Expr)
     : ElabM (Untyped.ValDecl Untyped.SpecBody) := do
   match binders with
   | [] => err loc (.unsupportedFeature "declaration with no binders")
   | pat :: args =>
-    let (name, body') ← elaborateBinding env loc isRec pat args retTy body
-    .ok { name, body := body', spec }
+    let (name, body', scope) ← elaborateBinding env loc isRec pat args retTy body
+    .ok { name, body := body', spec, decreases := decreases.map scope }
 
 -- ---------------------------------------------------------------------------
 -- Program elaboration
@@ -1073,14 +1079,13 @@ private def Decl.elaborate (env : ElabEnv) (decl : Decl)
       return ← err decl.loc (.unsupportedFeature "[@@impl] requires [@@fn]")
     if (!attrs.ghost.isEmpty || attrs.mode == .ghost) && attrs.spec.isNone then
       return ← err decl.loc (.unsupportedFeature "[@@ghost] requires [@@spec]")
-    -- Only a recursive ghost call is checked against a measure.
-    if attrs.decreases.isSome && attrs.mode != .ghost then
-      return ← err decl.loc (.unsupportedFeature "[@@decreases] requires [@@ghost]")
+    if attrs.decreases.isSome && attrs.mode != .ghost && !attrs.fn then
+      return ← err decl.loc (.unsupportedFeature "[@@decreases] requires [@@ghost] or [@@fn]")
     if attrs.decreases.isSome && !isRec then
       return ← err decl.loc (.unsupportedFeature
         "[@@decreases] requires a recursive declaration")
     let spec := attrs.spec.map fun sb => { sb with ghost := attrs.ghost }
-    let d ← ValDecl.elaborate env decl.loc isRec binders retTy body spec
+    let d ← ValDecl.elaborate env decl.loc isRec binders retTy body spec attrs.decreases
     -- A `[@@fn]` declaration uses its own name for the derived relation.
     let relation ← if attrs.fn then
       match d.name with
@@ -1096,7 +1101,7 @@ private def Decl.elaborate (env : ElabEnv) (decl : Decl)
           "[@@fn] requires a function of one named argument; write several as a tuple")
       | _, _, _ => .ok d
     .ok (env.bindBinder d.name,
-      some (.val_ { d with relation, mode := attrs.mode, decreases := attrs.decreases }))
+      some (.val_ { d with relation, mode := attrs.mode }))
 
 private def elaborateDecls (env : ElabEnv) :
     List Decl → ElabM (List (Untyped.Decl Untyped.SpecBody))

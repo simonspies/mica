@@ -691,6 +691,7 @@ theorem ValDecl.elaborate_runtime (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML
     simp only [ValDecl.elaborate, hspec] at helab
     have ⟨_expected, s₀, _hexp, hcont⟩ := StateT.bind_ok helab
     have ⟨body', s₁, hbody, hcont⟩ := StateT.bind_ok hcont
+    have ⟨_dec, s₂, _hdec, hcont⟩ := StateT.bind_ok hcont
     rcases hcont with ⟨rfl, rfl⟩
     cases hmode : d.mode <;>
       simp [Typed.ValDecl.runtime?, Untyped.Decl.runtime, hmode, Typed.ValDecl.runtime,

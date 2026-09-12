@@ -31,7 +31,7 @@ inductive Gettable : Type → Type where
 -- second, less predictable search path without being needed by the examples.
 /-- The settings every session starts with. -/
 def Settable.initial : List Settable :=
-  [.timeout 10000, .eagerThreshold 5.0, .mbqi false]
+  [.timeout 20000, .eagerThreshold 5.0, .mbqi false]
 
 def Settable.toSMTLIB : Settable → String
   | .timeout ms => s!"(set-option :timeout {ms})"

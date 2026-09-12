@@ -61,14 +61,13 @@ theorem declare_correct (L : SpecFn) (f : TinyML.Var) (axs : List Axiom)
       (((Δ.addBinaryRel (rel L)).addUnary (func L)).addUnaryRel (defined L)))
     (haxeval : ∀ ax ∈ axs, ax.formula.eval (SpecFn.Env.both ρ L R D F))
     (heval : VerifM.eval (declare L axs) st ρ Q) :
-    ∃ st' ρ',
+    ∃ st' ρ', ρ' = SpecFn.Env.both ρ L R D F ∧
       st'.decls = ((Δ.addBinaryRel (rel L)).addUnary (func L)).addUnaryRel (defined L) ∧
       st'.owns = [] ∧ st'.decls.vars = [] ∧ st'.decls.wf ∧
       st.decls.Subset st'.decls ∧
       Env.agreeOn st.decls ρ ρ' ∧
       FunCtx.wfIn (Γ ++ [(f, L)]) st'.decls ∧
-      FunCtx.Agreement (Γ ++ [(f, L)]) ρ' ∧
-      Q () st' ρ' := by
+      FunCtx.Agreement (Γ ++ [(f, L)]) ρ' ∧ Q () st' ρ' := by
   simp only [declare] at heval
   obtain ⟨_, h1⟩ := VerifM.eval_declBinaryRelExact (VerifM.eval_bind heval)
   obtain ⟨_, h2⟩ := VerifM.eval_declUnaryExact (VerifM.eval_bind (h1 R))
@@ -134,7 +133,7 @@ theorem declare_correct (L : SpecFn) (f : TinyML.Var) (axs : List Axiom)
   have hagree4 : Env.agreeOn st.decls ρ ρ3 := by
     rw [hdecls]
     exact hagree
-  exact ⟨st4, ρ3, by rw [hst4, hst3], howns4', hvars4, hwf4, hsub4,
+  exact ⟨st4, ρ3, hρ3, by rw [hst4, hst3], howns4', hvars4, hwf4, hsub4,
     hagree4, hΓwf', hΓagree', hQ4⟩
 
 end SpecFn
@@ -851,10 +850,12 @@ theorem declare_correct (s : Lifting) (body : Skolemize.DefVal) (Δ : Signature)
       (s.matrix_wfIn hwf hbody hv.argFresh hv.idxFresh hv.idxNeArg)
       (s.defMatrix_wfIn hwf hbody hv.argFresh hv.idxFresh hv.idxNeArg)
       hv.relFresh hv.funcFresh hv.defFresh
-  exact SpecFn.declare_correct s.name s.name (s.axioms body)
-    (s.relinterp body ρ) (s.funcinterp body ρ) (s.definterp body ρ) Δ Γ st ρ
-    hv.relFresh hv.funcFresh hv.defFresh (fun _ _ => Iff.rfl)
-    hdecls howns hvars hwfext hΓwf hΓagree haxwf haxeval heval
+  obtain ⟨st', ρ', _, hrest⟩ :=
+    SpecFn.declare_correct s.name s.name (s.axioms body)
+      (s.relinterp body ρ) (s.funcinterp body ρ) (s.definterp body ρ) Δ Γ st ρ
+      hv.relFresh hv.funcFresh hv.defFresh (fun _ _ => Iff.rfl)
+      hdecls howns hvars hwfext hΓwf hΓagree haxwf haxeval heval
+  exact ⟨st', ρ', hrest⟩
 
 end Lifting
 

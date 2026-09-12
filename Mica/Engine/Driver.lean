@@ -54,6 +54,15 @@ def preamble : String := s!"
 ))
 (declare-const unit_val Other)
 
+;; Constraints for the under specified values (e.g., vtail of unit is vtail)
+(assert (forall ((v Value)) (! (=> (not ((_ is of_inj) v))
+  (and (= (tag_of v) 0) (= (arity_of v) 0) (= (payload_of v) (of_other unit_val))))
+  :pattern ((tag_of v)))))
+(assert (forall ((v Value)) (! (=> (not ((_ is of_tuple) v)) (= (to_tuple v) vnil))
+  :pattern ((to_tuple v)))))
+(assert (= (vhd vnil) (of_other unit_val)))
+(assert (= (vtl vnil) vnil))
+
 ;; A `Value` constructor would need to expose both length and location
 (declare-fun array_length (Value) Int)
 
