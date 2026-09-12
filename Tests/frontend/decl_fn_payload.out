@@ -1,0 +1,2 @@
+elaboration error: Tests/frontend/decl_fn_payload.ml:7:7: unsupported feature: [@@fn] takes no payload other than `ghost`, which makes the function callable from ghost code
+[1]

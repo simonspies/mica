@@ -162,7 +162,7 @@ structure ValDecl (S : Type) where
   /-- The specification written as `[@@spec]`, still unelaborated. -/
   spec : Option S := none
   /-- The spec-level relation this declaration is registered as, if `[@@fn]`. -/
-  relation : Option String := none
+  relation : Option TinyML.Relation := none
   /-- Whether `[@@impl]` also verifies the body as run-time code. Its `spec` is
   then generated rather than written. -/
   impl : Bool := false

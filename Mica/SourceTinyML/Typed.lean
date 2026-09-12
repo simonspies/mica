@@ -359,7 +359,7 @@ structure ValDecl where
   name : Binder
   body : Expr
   /-- The spec-level relation this declaration is registered as, if `[@@fn]`. -/
-  relation : Option String := none
+  relation : Option TinyML.Relation := none
   mode : Mode := .runtime
   decreases : Option Measure := none
   deriving Repr, BEq, Inhabited

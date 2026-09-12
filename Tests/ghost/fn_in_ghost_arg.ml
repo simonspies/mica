@@ -2,8 +2,8 @@
 open Mica
 
 (* A ghost argument is ghost code, and ghost code may only call a ghost
-   function. A [@@fn] function stands for a specification-level symbol, which
-   the ghost layer cannot type against a run-time value. *)
+   function. Without the `ghost` payload the verifier never checks a [@@fn]
+   body as a proof, so a ghost call has nothing to apply. *)
 let bump (x : int) : int = x + 1
 [@@spec fun x ->
   assert (x < hi);
