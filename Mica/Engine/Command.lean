@@ -68,14 +68,14 @@ namespace Command
 def toSMTLIB : Command α → String
   | .push => "(push)"
   | .pop => "(pop)"
-  | .declareConst n sort => s!"(declare-const {n} {sort.toSMTLIB})"
-  | .declareUnary n arg ret => s!"(declare-fun {n} ({arg.toSMTLIB}) {ret.toSMTLIB})"
+  | .declareConst n sort => s!"(declare-const {symbolToSMTLIB n} {sort.toSMTLIB})"
+  | .declareUnary n arg ret => s!"(declare-fun {symbolToSMTLIB n} ({arg.toSMTLIB}) {ret.toSMTLIB})"
   | .declareBinary n arg1 arg2 ret =>
-      s!"(declare-fun {n} ({arg1.toSMTLIB} {arg2.toSMTLIB}) {ret.toSMTLIB})"
+      s!"(declare-fun {symbolToSMTLIB n} ({arg1.toSMTLIB} {arg2.toSMTLIB}) {ret.toSMTLIB})"
   | .declareTernary n arg1 arg2 arg3 ret =>
-      s!"(declare-fun {n} ({arg1.toSMTLIB} {arg2.toSMTLIB} {arg3.toSMTLIB}) {ret.toSMTLIB})"
-  | .declareUnaryRel n arg => s!"(declare-fun {n} ({arg.toSMTLIB}) Bool)"
-  | .declareBinaryRel n arg1 arg2 => s!"(declare-fun {n} ({arg1.toSMTLIB} {arg2.toSMTLIB}) Bool)"
+      s!"(declare-fun {symbolToSMTLIB n} ({arg1.toSMTLIB} {arg2.toSMTLIB} {arg3.toSMTLIB}) {ret.toSMTLIB})"
+  | .declareUnaryRel n arg => s!"(declare-fun {symbolToSMTLIB n} ({arg.toSMTLIB}) Bool)"
+  | .declareBinaryRel n arg1 arg2 => s!"(declare-fun {symbolToSMTLIB n} ({arg1.toSMTLIB} {arg2.toSMTLIB}) Bool)"
   | .assert e => s!"(assert {e.toSMTLIB})"
   | .checkSat => "(check-sat)"
   | .setOption opt => opt.toSMTLIB
