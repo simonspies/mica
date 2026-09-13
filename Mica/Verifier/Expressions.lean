@@ -116,7 +116,7 @@ mutual
             (compileOp op sl sr)
           pure t
     | .letIn .ghost b e body => do
-        let se ← compileGhostExpr Θ Δ_spec Gf G B Γ e
+        let se ← compileGhostExpr reg Θ Δ_spec Gf G B Γ e
         VerifM.expectEq "ghost let type annotation mismatch" b.ty e.ty
         match b.name with
         | none => compile reg Θ Δ_spec Γfn Gf G B Γ body
@@ -174,7 +174,7 @@ mutual
           let sterms ← compileExprs reg Θ Δ_spec Γfn Gf G B Γ args
           let sargs := (args.map Expr.WithTypeVars.ty).zip sterms
           let _ ← compile reg Θ Δ_spec Γfn Gf G B Γ fn
-          let gterms ← compileGhostExprs Θ Δ_spec Gf G B Γ gargs
+          let gterms ← compileGhostExprs reg Θ Δ_spec Gf G B Γ gargs
           let (_, result) ← Spec.call (FiniteSubst.base Δ_spec) argTys retTy s sargs
             ((gargs.map Expr.WithTypeVars.ty).zip gterms)
           pure result
@@ -2508,7 +2508,8 @@ theorem compileBinop_correct (reg : Verifier.Registry) (op : TinyML.BinOp) (l r 
 /-- A ghost binding is erased, so the run-time program is the body alone. The
     ghost expression's obligation is discharged in the scope it is written in
     and leaves an update, which the body's weakest precondition absorbs. -/
-theorem compileLetInGhost_correct (reg : Verifier.Registry) (b : Binder) (e body : Expr)
+theorem compileLetInGhost_correct (reg : Verifier.Registry)
+    (hSound : Verifier.Registry.Sound reg) (b : Binder) (e body : Expr)
     (ihBody : correctExpr reg body) :
     correctExpr reg (.letIn .ghost b e body) := by
   intro W R Γfn Gf G B Γ st ρ γg γ Ψ Φ hW heval hgagree hgwf hGf hagree hbwf hwf hag
@@ -2517,7 +2518,7 @@ theorem compileLetInGhost_correct (reg : Verifier.Registry) (b : Binder) (e body
   simp only [Expr.WithTypeVars.ty] at hpost
   unfold Expr.WithTypeVars.runtime
   refine SpatialContext.wp_bupd (BIBase.Entails.trans ?_
-    ((compileGhostExpr_correct W Gf hwf e G B Γ γg γ
+    ((compileGhostExpr_correct reg hSound W Gf hwf hΔreg hρreg e G B Γ γg γ
         (R := iprop(Bindings.typedScope W G B Γ γg γ ∗ R))
         (Φ := fun _ => wp W.pctx (body.runtime.subst γ) Φ)
         hag hgagree hgwf hagree hbwf hGf (VerifM.eval.decls_grow ρ (VerifM.eval_bind heval))
@@ -3260,7 +3261,7 @@ theorem compileTuple_correct (reg : Verifier.Registry) (es : List Expr)
 /-- Application of a function expression whose type carries a specification: the
     arguments and then the function are evaluated, and the function value's own
     interpretation — which is exactly its specification — supplies the call. -/
-theorem compileAppSpec_correct (reg : Verifier.Registry)
+theorem compileAppSpec_correct (reg : Verifier.Registry) (hSound : Verifier.Registry.Sound reg)
     (fn : Expr) (args gargs : List Expr) (aty : TinyML.Typ)
     (argTys : List TinyML.Typ) (retTy : TinyML.Typ) (s : Spec TinyML.Typ)
     (hfnty : fn.ty = .arrow argTys retTy (some s))
@@ -3275,7 +3276,7 @@ theorem compileAppSpec_correct (reg : Verifier.Registry)
         VerifM.expectEq "specification arity mismatch" s.args.length argTys.length
         let sterms ← compileExprs reg W.Θ W.Δ_spec Γfn Gf G B Γ args
         let _ ← compile reg W.Θ W.Δ_spec Γfn Gf G B Γ fn
-        let gterms ← compileGhostExprs W.Θ W.Δ_spec Gf G B Γ gargs
+        let gterms ← compileGhostExprs reg W.Θ W.Δ_spec Gf G B Γ gargs
         let r ← Spec.call (FiniteSubst.base W.Δ_spec) argTys retTy s
           ((args.map Expr.WithTypeVars.ty).zip sterms)
           ((gargs.map Expr.WithTypeVars.ty).zip gterms)
@@ -3365,7 +3366,7 @@ theorem compileAppSpec_correct (reg : Verifier.Registry)
   -- The ghost arguments are ghost code: they take no step, and the update their
   -- obligation leaves is absorbed by the call's weakest precondition.
   refine SpatialContext.wp_bupd (BIBase.Entails.trans ?_
-    ((compileGhostExprs_correct W Gf hwf gargs G B Γ γg γ
+    ((compileGhostExprs_correct reg hSound W Gf hwf hΔreg hρreg gargs G B Γ γg γ
         (R := iprop(TinyML.ValHasType W fval fn.ty ∗
           (TinyML.ValsHaveTypes W vs (args.map Expr.WithTypeVars.ty) ∗ R)))
         (Φ := fun _ => wp W.pctx ((Runtime.Expr.val fval).app (vs.map Runtime.Expr.val)) Φ)
@@ -3520,7 +3521,7 @@ theorem compileApp_correct (reg : Verifier.Registry) (hSound : Verifier.Registry
     | ok u =>
       cases u
       rw [hcheck] at heval
-      exact compileAppSpec_correct reg fn args gargs aty argTys retTy s hfnty ihFn ihArgs
+      exact compileAppSpec_correct reg hSound fn args gargs aty argTys retTy s hfnty ihFn ihArgs
         W R B Γ st ρ γ Ψ Φ hW heval (Spec.checkWf_ok hcheck) hgagree hgwf hGf hagree hbwf hwf hag
         hΔreg hρreg hpost
   case _ =>
@@ -4108,7 +4109,7 @@ theorem compile_correct (reg : Verifier.Registry) (hSound : Verifier.Registry.So
   | letIn mode b e body =>
     cases mode with
     | ghost =>
-      simpa using compileLetInGhost_correct reg b e body (compile_correct reg hSound body)
+      simpa using compileLetInGhost_correct reg hSound b e body (compile_correct reg hSound body)
     | runtime =>
       simpa using compileLetIn_correct reg b e body
         (compile_correct reg hSound e) (compile_correct reg hSound body)

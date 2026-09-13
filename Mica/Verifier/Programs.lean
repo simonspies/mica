@@ -579,12 +579,12 @@ def Program.check (reg : Verifier.Registry) (Θ : TinyML.TypeEnv) (Δ_spec : Sig
   | B, Γ, d :: ds => do
     -- The entries are added after the handling below, because that handling
     -- drops the name from the ghost table when it binds a run-time value of it.
-    let fn ← ValDecl.ghostEntries Θ Δ_spec Gf ls d
+    let fn ← ValDecl.ghostEntries reg Θ Δ_spec Gf ls d
     match d.mode with
     | .ghost =>
       -- A ghost declaration binds no run-time value: it only becomes callable
       -- from the ghost code of the declarations that follow it.
-      let entry ← ValDecl.checkGhost Θ Δ_spec Gf d
+      let entry ← ValDecl.checkGhost reg Θ Δ_spec Gf d
       Program.check reg Θ Δ_spec ls Γfn (fn ++ entry :: Gf) (B.remove entry.1) Γ ds
     | .runtime =>
     match d.name.name, d.body.spec? with
@@ -775,12 +775,12 @@ theorem Program.check_correct (reg : Verifier.Registry) (hSound : Verifier.Regis
     simp only [Program.check] at heval
     have haxs := Lemmas.enterDeclaration_sound hls
     obtain ⟨fn, hfn, heval⟩ :=
-      ValDecl.ghostEntries_correct W Gf hwf _ d hag hls hGf (VerifM.eval_bind heval)
+      ValDecl.ghostEntries_correct reg hSound W Gf hwf hΔreg hρreg _ d hag hls hGf (VerifM.eval_bind heval)
     cases hmode : d.mode with
     | ghost =>
       simp only [hmode] at heval
       obtain ⟨entry, hGf_entry, hcont⟩ :=
-        ValDecl.checkGhost_correct W Gf hwf d hag hGf (VerifM.eval_bind heval)
+        ValDecl.checkGhost_correct reg hSound W Gf hwf hΔreg hρreg d hag hGf (VerifM.eval_bind heval)
       have hih := ih (Gf := fn ++ entry :: Gf) (B.remove entry.1) Γ γ st ρ hag
         (Bindings.agreeOnLinked_remove hagree entry.1) (Bindings.wfIn_remove hbwf entry.1)
         (hfn.append (hGf_entry.append hGf)) hΓ hcont
