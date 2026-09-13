@@ -78,10 +78,12 @@ mutual
   A call of a ghost function asserts the callee's precondition and assumes its
   postcondition, which is what moves ownership.
 
+  A call of a primitive does the same against the primitive's specification.
+
   Nothing here may take a run-time step, so a closure, an application of
-  anything but a ghost function, and every heap operation are rejected rather
-  than compiled. `Array.length` is the exception among the array operations: it
-  reads no element, so it is a term.
+  anything but a ghost function or a primitive, and every heap operation are
+  rejected rather than compiled. `Array.length` is the exception among the
+  array operations: it reads no element, so it is a term.
 
   Bindings go to `G`, never to `B`, and shadowed run-time names are dropped from
   `B`: within ghost code every name is ghost, but the same `G`/`B` split has to
@@ -179,7 +181,19 @@ mutual
           a [@@fn] declaration needs [@@fn ghost]"
       | _, _, _ =>
         VerifM.fatal s!"a ghost expression cannot call `{f}`: it is shadowed by a value"
-    | .app .. => VerifM.fatal "a ghost expression can only call a ghost function"
+    | .app (.prim n inst _) args gargs aty => do
+        let i ← VerifM.expectSome s!"unknown primitive `{n}`" (reg.lookup? n)
+        let _ ← VerifM.expectSome
+          s!"primitive `{n}` is available in run-time code only" i.mode.ghost?
+        let σi : TinyML.TyVar → TinyML.Typ := fun v => (inst.lookup v).getD .empty
+        VerifM.expectEq "primitive return type mismatch" (TinyML.Typ.subst σi i.retTy) aty
+        VerifM.expectEq "a primitive takes no ghost argument" gargs.length 0
+        let sterms ← compileGhostExprs reg Θ Δ_spec Gf G B Γ args
+        let (_, result) ← Spec.call (FiniteSubst.base Δ_spec)
+          (i.argTys.map (TinyML.Typ.subst σi)) (TinyML.Typ.subst σi i.retTy) i.spec
+          ((args.map Expr.WithTypeVars.ty).zip sterms) []
+        pure result
+    | .app .. => VerifM.fatal "a ghost expression can only call a ghost function or a primitive"
     | .prim n _ _ => VerifM.fatal s!"primitive `{n}` must be applied"
     | .tuple es => do
         let terms ← compileGhostExprs reg Θ Δ_spec Gf G B Γ es
@@ -1276,8 +1290,9 @@ theorem compileGhostIfThenElse_correct (reg : Verifier.Registry) (W : TinyML.Wor
 precondition of an application, a value of the result type exists at which the
 obligation holds. For a primitive, `IntrinsicSound.pre_bupd` gives that value in
 place of `IntrinsicSound.pre_wp`. -/
-theorem compileGhostApp_correct (reg : Verifier.Registry) (W : TinyML.World) (Gf : GhostFns)
-    (hwf : W.wf)
+theorem compileGhostApp_correct (reg : Verifier.Registry) (hSound : reg.Sound)
+    (W : TinyML.World) (Gf : GhostFns) (hwf : W.wf)
+    (hΔreg : reg.symSubset W.Δ_spec) (hρreg : reg.symAgree W.ρ_spec)
     (fn : Expr) (args gargs : List Expr) (aty : TinyML.Typ)
     (ihArgs : correctGhostExprs reg W Gf args) (ihGArgs : correctGhostExprs reg W Gf gargs) :
     correctGhostExpr reg W Gf (.app fn args gargs aty) := by
@@ -1469,6 +1484,80 @@ theorem compileGhostApp_correct (reg : Verifier.Registry) (W : TinyML.World) (Gf
     case _ => exact (VerifM.eval_fatal heval).elim
     case _ => exact (VerifM.eval_fatal heval).elim
     case _ => exact (VerifM.eval_fatal heval).elim
+  | prim n inst fty =>
+    simp only [compileGhostExpr] at heval
+    obtain ⟨i, hilookup, heval⟩ := VerifM.eval_bind_expectSome heval
+    obtain ⟨u, hmode, heval⟩ := VerifM.eval_bind_expectSome heval
+    cases u
+    obtain ⟨hret_eq, heval⟩ := VerifM.eval_bind_expectEq heval
+    obtain ⟨_hgargs_nil, heval⟩ := VerifM.eval_bind_expectEq heval
+    have hisound := hSound.get (Verifier.Registry.mem_of_lookup? hilookup)
+    refine bupd_absorb (ihArgs G B Γ γg γ (R := R) (Φ := fun _ => iprop(|==> ∃ v, Φ v))
+      hag hgagree hgwf hagree hbwf hGf (VerifM.eval.decls_grow ρ (VerifM.eval_bind heval)) ?_)
+    intro vs st_args ρ_args sargs hΨ_args hsargs_wf heval_sargs
+    obtain ⟨hdecls_args, hagreeOn_args, hΨ_args⟩ := hΨ_args
+    let σi : TinyML.TyVar → TinyML.Typ := fun v => (inst.lookup v).getD .empty
+    let argTys := i.argTys.map (TinyML.Typ.subst σi)
+    let retTy := TinyML.Typ.subst σi i.retTy
+    let typedArgs := (args.map Expr.WithTypeVars.ty).zip sargs
+    have hag_args : W.agrees st_args.decls ρ_args := hag.step hdecls_args hagreeOn_args
+    have hst_args_wf : st_args.decls.wf := (VerifM.eval.wf hΨ_args).namesDisjoint
+    have hlen_i : i.spec.args.length = argTys.length := by
+      simp only [argTys, List.length_map]; exact hisound.arg_len
+    have hwf_pred :
+        PredTrans.wfIn ((W.Δ_spec.declVars (FiniteSubst.base W.Δ_spec).dom).declVars
+          (Spec.argVars i.spec.allArgs)) i.spec.pred := by
+      simpa [FiniteSubst.base, Signature.declVars, Verifier.Intrinsic.specArgs] using
+        hisound.spec_wf W.Δ_spec (Verifier.Registry.sigOf_subset_of_symSubset hΔreg) hwf.wf
+    have hbase_wf : (FiniteSubst.base W.Δ_spec).wfIn W.Δ_spec st_args.decls :=
+      FiniteSubst.base_wfIn hag_args.subset hwf.wf hst_args_wf hwf.vars
+    have hcall_eval : VerifM.eval
+        (Spec.call (FiniteSubst.base W.Δ_spec) argTys retTy i.spec typedArgs []) st_args ρ_args
+        (fun p st' ρ' => VerifM.eval (pure p.2) st' ρ' Ψ) := VerifM.eval_bind hΨ_args
+    obtain ⟨hsub_ty, hsub_gty, happly⟩ :=
+      Spec.call_correct W argTys retTy i.spec W.Δ_spec (FiniteSubst.base W.Δ_spec)
+        typedArgs [] st_args ρ_args (fun p st' ρ' => VerifM.eval (pure p.2) st' ρ' Ψ) Φ R
+        hlen_i hwf_pred hbase_wf (fun p hp => hsargs_wf _ (List.of_mem_zip hp).2) nofun
+        hcall_eval
+        (fun v st' ρ' t hΨ' hwft heval' => by
+          have h := hpost v st' ρ' t (VerifM.eval_ret hΨ') hwft heval'
+          rw [← (hret_eq : retTy = aty)] at h
+          iintro ⟨Howns', HR', Hty⟩
+          iapply h
+          isplitl [Howns']
+          · iexact Howns'
+          · isplitl [Hty]
+            · iexact Hty
+            · iexact HR')
+    -- The call passes no ghost argument, so the intrinsic declares none.
+    have hghost_nil : i.spec.ghost = [] := by simpa using hsub_gty.symm
+    simp only [Spec.allArgs, hghost_nil, List.map_nil, List.append_nil] at happly
+    have hρ_args_reg : ∀ d ∈ reg, ρ_args.respects d.symbol := fun d hd =>
+      Env.respects_of_agreeOn_extendWithSym (hρreg d hd) (hΔreg d hd) hag_args.agree
+    refine BIBase.Entails.trans ?_
+      (hisound.pre_bupd (Verifier.Intrinsic.Mode.ne_runtime_of_ghost? hmode) vs Φ)
+    istart
+    iintro ⟨Howns, #Hvals, HR⟩
+    ihave %Hlen := TinyML.ValsHaveTypes.length_eq $$ Hvals
+    have hlen_typed : (args.map Expr.WithTypeVars.ty).length = sargs.length := by
+      rw [← Hlen]; simpa [Terms.Eval] using (List.Forall₂.length_eq heval_sargs).symm
+    obtain ⟨hfst, heval_sargs_map⟩ := typedArgs_split hlen_typed heval_sargs
+    have hsub_ty' : args.map Expr.WithTypeVars.ty = argTys := by
+      simpa [typedArgs, hfst] using hsub_ty
+    have happly' :
+        st_args.sl W ρ_args ∗ R ⊢
+          PredTrans.apply (TinyML.ValHasType W) (fun r => TinyML.ValHasType W r retTy -∗ Φ r)
+            i.spec.pred (Spec.argsEnv ρ_args i.spec.args vs) := by
+      rw [heval_sargs_map] at happly
+      exact happly
+    iapply (hisound.spec_sound σi W vs ρ_args Φ hρ_args_reg)
+    isplitl []
+    · rw [show i.argTys.map (TinyML.Typ.subst σi) = _ from hsub_ty'.symm]
+      iexact Hvals
+    · iapply happly'
+      isplitl [Howns]
+      · iexact Howns
+      · iexact HR
   | _ =>
     simp only [compileGhostExpr] at heval
     exact (VerifM.eval_fatal heval).elim
@@ -1839,7 +1928,7 @@ theorem compileGhostExpr_correct (reg : Verifier.Registry) (hSound : reg.Sound)
       (compileGhostExpr_correct reg hSound W Gf hwf hΔreg hρreg cond) (compileGhostExpr_correct reg hSound W Gf hwf hΔreg hρreg thn)
       (compileGhostExpr_correct reg hSound W Gf hwf hΔreg hρreg els)
   | app fn args gargs aty =>
-    exact compileGhostApp_correct reg W Gf hwf fn args gargs aty
+    exact compileGhostApp_correct reg hSound W Gf hwf hΔreg hρreg fn args gargs aty
       (compileGhostExprs_correct reg hSound W Gf hwf hΔreg hρreg args)
       (compileGhostExprs_correct reg hSound W Gf hwf hΔreg hρreg gargs)
   | tuple es =>
