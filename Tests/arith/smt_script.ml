@@ -1,7 +1,8 @@
-(* TEST: --smt-commands-only *)
+(* TEST: --smt-commands-only --timeout=30000 *)
 open Mica
 
-(* Pins the SMT script generated for a minimal verified function. *)
+(* Pins the SMT script generated for a minimal verified function. The
+   preamble shows the budget from [--timeout]. *)
 let id_ (x: int) : int = x
 [@@spec fun x -> ret (fun v -> assert (v = x))];;
 

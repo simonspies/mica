@@ -2,7 +2,7 @@
 
 ;; preamble
 (set-logic ALL)
-(set-option :timeout 20000)
+(set-option :timeout 30000)
 (set-option :smt.qi.eager_threshold 5.000000)
 (set-option :smt.mbqi false)
 

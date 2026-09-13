@@ -29,9 +29,12 @@ inductive Gettable : Type → Type where
 -- The verifier's quantified axioms are designed for E-matching (with explicit
 -- or Z3-inferred triggers), so model-based quantifier instantiation adds a
 -- second, less predictable search path without being needed by the examples.
+/-- The default solver budget per query, in milliseconds. -/
+def defaultTimeout : Nat := 20000
+
 /-- The settings every session starts with. -/
-def Settable.initial : List Settable :=
-  [.timeout 20000, .eagerThreshold 5.0, .mbqi false]
+def Settable.initial (timeout : Nat) : List Settable :=
+  [.timeout timeout, .eagerThreshold 5.0, .mbqi false]
 
 def Settable.toSMTLIB : Settable → String
   | .timeout ms => s!"(set-option :timeout {ms})"
