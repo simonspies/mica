@@ -50,6 +50,7 @@ def logicEq : Intrinsic where
   arity := .two
   name := "logic_eq"
   path := some ("Logic", ["eq"])
+  mode := .ghost
   sem := fun _ _ _ _ => False
   pre := fun _ _ => iprop(False)
   argTys := [.tvar "a", .tvar "a"]
@@ -79,8 +80,9 @@ def logicEq : Intrinsic where
     iintro H
     icases H with ⟨_, %hfalse, _⟩
     exact hfalse.elim
-  pre_wp := by
-    intro _ _ _ vs _
+  pre_wp := fun h => absurd rfl h
+  pre_bupd := by
+    intro _ _ vs _
     match vs with
     | [] => exact false_elim
     | [_] => exact false_elim
@@ -175,6 +177,7 @@ def logicSize : Intrinsic where
   arity := .one
   name := "logic_size"
   path := some ("Logic", ["size"])
+  mode := .ghost
   sem := fun _ _ _ _ => False
   pre := fun _ _ => iprop(False)
   argTys := [.tvar "a"]
@@ -241,8 +244,9 @@ private theorem logicSizeAxioms_eval {ρ : Env} (h : ρ.respects (some logicSize
     iintro H
     icases H with ⟨_, %hfalse, _⟩
     exact hfalse.elim
-  pre_wp := by
-    intro _ _ _ vs _
+  pre_wp := fun h => absurd rfl h
+  pre_bupd := by
+    intro _ _ vs _
     match vs with
     | [] => exact false_elim
     | [_] => exact false_elim

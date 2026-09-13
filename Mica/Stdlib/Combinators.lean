@@ -444,6 +444,7 @@ def Zero.toIntrinsic (b : Zero) : Intrinsic where
   arity  := .zero
   name   := b.name
   path   := b.path
+  mode   := .both
   sem    := Sem.pure fun () v => v = b.res.inject b.f
   pre    := fun () Q => Q (b.res.inject b.f)
   argTys := []
@@ -516,8 +517,15 @@ theorem Zero.Lawful.opEval {dependencies : Registry} {b : Zero}
     IntrinsicSound (b.toIntrinsic :: dependencies) b.toIntrinsic where
   arg_len := rfl
   spec_wf := fun _ hsub hwf => spec_wf_of_base l.specBaseWf hsub hwf
+  pre_bupd := by
+    intro _ _ vs Φ
+    match vs with
+    | _ :: _ => exact false_elim
+    | [] =>
+      rw [Zero.toPre_eq]
+      exact BIBase.Entails.trans (exists_intro (b.res.inject b.f)) bupd_intro
   pre_wp := by
-    intro _ ctx hctx vs Φ
+    intro _ _ ctx hctx vs Φ
     match vs with
     | _ :: _ => exact false_elim
     | [] =>
@@ -650,6 +658,7 @@ def Unary.toIntrinsic (b : Unary) : Intrinsic where
   arity  := .one
   name   := b.name
   path   := b.path
+  mode   := .both
   sem    := Sem.pure fun a v =>
     ∃ x, a = b.arg.inject x ∧ b.dom x ∧ v = b.res.inject (b.f x)
   pre    := fun a Q => iprop(∃ x, ⌜a = b.arg.inject x ∧ b.dom x⌝ ∗ Q (b.res.inject (b.f x)))
@@ -749,8 +758,20 @@ theorem Unary.Lawful.opEval {dependencies : Registry} {b : Unary}
     IntrinsicSound (b.toIntrinsic :: dependencies) b.toIntrinsic where
   arg_len := rfl
   spec_wf := fun _ hsub hwf => spec_wf_of_base l.specBaseWf hsub hwf
+  pre_bupd := by
+    intro _ _ vs Φ
+    match vs with
+    | [] => exact false_elim
+    | _ :: _ :: _ => exact false_elim
+    | [a] =>
+      rw [Unary.toPre_eq]
+      refine BIBase.Entails.trans ?_ bupd_intro
+      istart
+      iintro ⟨%x, %_, HΦ⟩
+      iexists (b.res.inject (b.f x))
+      iexact HΦ
   pre_wp := by
-    intro _ ctx hctx vs Φ
+    intro _ _ ctx hctx vs Φ
     match vs with
     | [] => exact false_elim
     | _ :: _ :: _ => exact false_elim
@@ -927,6 +948,7 @@ def Binary.toIntrinsic (b : Binary) : Intrinsic where
   arity  := .two
   name   := b.name
   path   := b.path
+  mode   := .both
   sem    := Sem.pure fun (a, c) v =>
     ∃ x y, a = b.arg₁.inject x ∧ c = b.arg₂.inject y ∧ b.dom x y ∧ v = b.res.inject (b.f x y)
   pre    := fun (a, c) Q =>
@@ -1039,8 +1061,21 @@ theorem Binary.Lawful.opEval {dependencies : Registry} {b : Binary}
     IntrinsicSound (b.toIntrinsic :: dependencies) b.toIntrinsic where
   arg_len := rfl
   spec_wf := fun _ hsub hwf => spec_wf_of_base l.specBaseWf hsub hwf
+  pre_bupd := by
+    intro _ _ vs Φ
+    match vs with
+    | [] => exact false_elim
+    | [_] => exact false_elim
+    | _ :: _ :: _ :: _ => exact false_elim
+    | [a, c] =>
+      rw [Binary.toPre_eq]
+      refine BIBase.Entails.trans ?_ bupd_intro
+      istart
+      iintro ⟨%x, %y, %_, HΦ⟩
+      iexists (b.res.inject (b.f x y))
+      iexact HΦ
   pre_wp := by
-    intro _ ctx hctx vs Φ
+    intro _ _ ctx hctx vs Φ
     match vs with
     | [] => exact false_elim
     | [_] => exact false_elim
@@ -1238,6 +1273,7 @@ def Ternary.toIntrinsic (b : Ternary) : Intrinsic where
   arity  := .three
   name   := b.name
   path   := b.path
+  mode   := .both
   sem    := Sem.pure fun (a, c, d) v =>
     ∃ x y z, a = b.arg₁.inject x ∧ c = b.arg₂.inject y ∧ d = b.arg₃.inject z ∧
       b.dom x y z ∧ v = b.res.inject (b.f x y z)
@@ -1361,8 +1397,22 @@ theorem Ternary.Lawful.opEval {dependencies : Registry} {b : Ternary}
     IntrinsicSound (b.toIntrinsic :: dependencies) b.toIntrinsic where
   arg_len := rfl
   spec_wf := fun _ hsub hwf => spec_wf_of_base l.specBaseWf hsub hwf
+  pre_bupd := by
+    intro _ _ vs Φ
+    match vs with
+    | [] => exact false_elim
+    | [_] => exact false_elim
+    | [_, _] => exact false_elim
+    | _ :: _ :: _ :: _ :: _ => exact false_elim
+    | [a, c, d] =>
+      rw [Ternary.toPre_eq]
+      refine BIBase.Entails.trans ?_ bupd_intro
+      istart
+      iintro ⟨%x, %y, %z, %_, HΦ⟩
+      iexists (b.res.inject (b.f x y z))
+      iexact HΦ
   pre_wp := by
-    intro _ ctx hctx vs Φ
+    intro _ _ ctx hctx vs Φ
     match vs with
     | [] => exact false_elim
     | [_] => exact false_elim

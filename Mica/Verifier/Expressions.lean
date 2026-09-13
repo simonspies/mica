@@ -183,6 +183,8 @@ mutual
         | .prim n inst _ => do
             let i ← VerifM.expectSome s!"unknown primitive `{n}`"
               (reg.lookup? n)
+            let _ ← VerifM.expectSome
+              s!"primitive `{n}` is available in ghost code only" i.mode.runtime?
             let σi : TinyML.TyVar → TinyML.Typ := fun v => (inst.lookup v).getD .empty
             VerifM.expectEq "primitive return type mismatch"
               (TinyML.Typ.subst σi i.retTy) aty
@@ -3525,6 +3527,8 @@ theorem compileApp_correct (reg : Verifier.Registry) (hSound : Verifier.Registry
   cases fn with
   | prim n inst fty =>
     obtain ⟨i, hilookup, heval⟩ := VerifM.eval_bind_expectSome heval
+    obtain ⟨u, hmode, heval⟩ := VerifM.eval_bind_expectSome heval
+    cases u
     obtain ⟨hret_eq, heval⟩ := VerifM.eval_bind_expectEq heval
     obtain ⟨_hgargs_nil, heval⟩ := VerifM.eval_bind_expectEq heval
     have heval_args : (compileExprs reg W.Θ W.Δ_spec Γfn Gf G B Γ args).eval st ρ _ :=
@@ -3585,7 +3589,11 @@ theorem compileApp_correct (reg : Verifier.Registry) (hSound : Verifier.Registry
     simp only [Spec.allArgs, hghost_nil, List.map_nil, List.append_nil] at happly
     refine SpatialContext.wp_val ?_
     rw [hW]
-    refine BIBase.Entails.trans ?_ (Verifier.Registry.wp_prim reg hSound)
+    refine BIBase.Entails.trans ?_ (Verifier.Registry.wp_prim reg hSound
+      (fun i' hi' => by
+        rw [hilookup] at hi'
+        cases hi'
+        exact Verifier.Intrinsic.Mode.ne_ghost_of_runtime? hmode))
     show _ ⊢ reg.wpCtx n vs Φ
     have hctx_eq : reg.wpCtx n vs Φ = i.toPre vs Φ := by
       simp only [Verifier.Registry.wpCtx, hilookup]

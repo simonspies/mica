@@ -370,6 +370,29 @@ theorem Env.respects_of_agreeOn_extendWithSym {n : Arity} {Δ : Signature}
 
 namespace Verifier
 
+/-- Where an intrinsic may be called from. -/
+inductive Intrinsic.Mode where
+  | runtime
+  | ghost
+  | both
+  deriving Repr, BEq, Inhabited, DecidableEq
+
+def Intrinsic.Mode.runtime? : Intrinsic.Mode → Option Unit
+  | .ghost => none
+  | .runtime | .both => some ()
+
+def Intrinsic.Mode.ghost? : Intrinsic.Mode → Option Unit
+  | .runtime => none
+  | .ghost | .both => some ()
+
+@[simp] theorem Intrinsic.Mode.ne_ghost_of_runtime? {m : Intrinsic.Mode}
+    (h : m.runtime? = some ()) : m ≠ .ghost := by
+  cases m <;> simp_all [Intrinsic.Mode.runtime?]
+
+@[simp] theorem Intrinsic.Mode.ne_runtime_of_ghost? {m : Intrinsic.Mode}
+    (h : m.ghost? = some ()) : m ≠ .runtime := by
+  cases m <;> simp_all [Intrinsic.Mode.ghost?]
+
 /-- A single intrinsic: name, runtime, separation-logic, typing-scheme, and SMT
     facets. The `name` field is the payload of the `Val.prim` constructor;
     surface-level qualified paths are resolved to this string. -/
@@ -378,6 +401,8 @@ structure Intrinsic where
   name     : String
   /-- Optional surface module path used by concrete stdlibs to build frontend resolvers. -/
   path     : Option (String × List String)
+  mode     : Intrinsic.Mode
+  /-- A `.ghost` intrinsic never runs, so its relation is empty. -/
   sem      : Arity.tup arity Runtime.Val → TinyML.Heap → Runtime.Val → TinyML.Heap → Prop
   pre      : Arity.tup arity Runtime.Val → (Runtime.Val → iProp) → iProp
   /-- The intrinsic's argument types, in order. May contain type variables (a
@@ -472,46 +497,46 @@ def toCall (i : Intrinsic) :
     `arity` field is destructured explicitly so that the dependent `sem`
     field's match reduces. -/
 theorem toCall_two_of_arity (name : String)
-    (path : Option (String × List String))
+    (path : Option (String × List String)) (mode : Intrinsic.Mode)
     (sem : Arity.tup .two Runtime.Val → TinyML.Heap → Runtime.Val → TinyML.Heap → Prop)
     (pre : Arity.tup .two Runtime.Val → (Runtime.Val → iProp) → iProp)
     (argTys : List TinyML.SchemaTyp) (retTy : TinyML.SchemaTyp) (spec : Spec TinyML.Typ)
     (encode : Option (IntrinsicFOL .two)) (axioms : List Axiom)
     (a b v : Runtime.Val) (μ μ' : TinyML.Heap) :
-    (Intrinsic.mk .two name path sem pre argTys retTy spec encode axioms).toCall [a, b] μ v μ'
+    (Intrinsic.mk .two name path mode sem pre argTys retTy spec encode axioms).toCall [a, b] μ v μ'
       = sem (a, b) μ v μ' := rfl
 
 /-- Unfolding lemma for `toCall` at arity-three, three args. -/
 theorem toCall_three_of_arity (name : String)
-    (path : Option (String × List String))
+    (path : Option (String × List String)) (mode : Intrinsic.Mode)
     (sem : Arity.tup .three Runtime.Val → TinyML.Heap → Runtime.Val → TinyML.Heap → Prop)
     (pre : Arity.tup .three Runtime.Val → (Runtime.Val → iProp) → iProp)
     (argTys : List TinyML.SchemaTyp) (retTy : TinyML.SchemaTyp) (spec : Spec TinyML.Typ)
     (encode : Option (IntrinsicFOL .three)) (axioms : List Axiom)
     (a b c v : Runtime.Val) (μ μ' : TinyML.Heap) :
-    (Intrinsic.mk .three name path sem pre argTys retTy spec encode axioms).toCall [a, b, c] μ v μ'
+    (Intrinsic.mk .three name path mode sem pre argTys retTy spec encode axioms).toCall [a, b, c] μ v μ'
       = sem (a, b, c) μ v μ' := rfl
 
 /-- Unfolding lemma for `toCall` at arity-one, one arg. -/
 theorem toCall_one_of_arity (name : String)
-    (path : Option (String × List String))
+    (path : Option (String × List String)) (mode : Intrinsic.Mode)
     (sem : Arity.tup .one Runtime.Val → TinyML.Heap → Runtime.Val → TinyML.Heap → Prop)
     (pre : Arity.tup .one Runtime.Val → (Runtime.Val → iProp) → iProp)
     (argTys : List TinyML.SchemaTyp) (retTy : TinyML.SchemaTyp) (spec : Spec TinyML.Typ)
     (encode : Option (IntrinsicFOL .one)) (axioms : List Axiom)
     (a v : Runtime.Val) (μ μ' : TinyML.Heap) :
-    (Intrinsic.mk .one name path sem pre argTys retTy spec encode axioms).toCall [a] μ v μ'
+    (Intrinsic.mk .one name path mode sem pre argTys retTy spec encode axioms).toCall [a] μ v μ'
       = sem a μ v μ' := rfl
 
 /-- Unfolding lemma for `toCall` at arity-zero, no args. -/
 theorem toCall_zero_of_arity (name : String)
-    (path : Option (String × List String))
+    (path : Option (String × List String)) (mode : Intrinsic.Mode)
     (sem : Arity.tup .zero Runtime.Val → TinyML.Heap → Runtime.Val → TinyML.Heap → Prop)
     (pre : Arity.tup .zero Runtime.Val → (Runtime.Val → iProp) → iProp)
     (argTys : List TinyML.SchemaTyp) (retTy : TinyML.SchemaTyp) (spec : Spec TinyML.Typ)
     (encode : Option (IntrinsicFOL .zero)) (axioms : List Axiom)
     (v : Runtime.Val) (μ μ' : TinyML.Heap) :
-    (Intrinsic.mk .zero name path sem pre argTys retTy spec encode axioms).toCall [] μ v μ'
+    (Intrinsic.mk .zero name path mode sem pre argTys retTy spec encode axioms).toCall [] μ v μ'
       = sem () μ v μ' := rfl
 
 /-- Adapter from the list-shaped argument call to the arity-shaped `pre`
@@ -530,46 +555,46 @@ def toPre (i : Intrinsic) :
     `arity` field is destructured explicitly so that the dependent `pre`
     field's match reduces. -/
 theorem toPre_two_of_arity (name : String)
-    (path : Option (String × List String))
+    (path : Option (String × List String)) (mode : Intrinsic.Mode)
     (sem : Arity.tup .two Runtime.Val → TinyML.Heap → Runtime.Val → TinyML.Heap → Prop)
     (pre : Arity.tup .two Runtime.Val → (Runtime.Val → iProp) → iProp)
     (argTys : List TinyML.SchemaTyp) (retTy : TinyML.SchemaTyp) (spec : Spec TinyML.Typ)
     (encode : Option (IntrinsicFOL .two)) (axioms : List Axiom)
     (a b : Runtime.Val) (Q : Runtime.Val → iProp) :
-    (Intrinsic.mk .two name path sem pre argTys retTy spec encode axioms).toPre [a, b] Q
+    (Intrinsic.mk .two name path mode sem pre argTys retTy spec encode axioms).toPre [a, b] Q
       = pre (a, b) Q := rfl
 
 /-- Unfolding lemma for `toPre` at arity-three, three args. -/
 theorem toPre_three_of_arity (name : String)
-    (path : Option (String × List String))
+    (path : Option (String × List String)) (mode : Intrinsic.Mode)
     (sem : Arity.tup .three Runtime.Val → TinyML.Heap → Runtime.Val → TinyML.Heap → Prop)
     (pre : Arity.tup .three Runtime.Val → (Runtime.Val → iProp) → iProp)
     (argTys : List TinyML.SchemaTyp) (retTy : TinyML.SchemaTyp) (spec : Spec TinyML.Typ)
     (encode : Option (IntrinsicFOL .three)) (axioms : List Axiom)
     (a b c : Runtime.Val) (Q : Runtime.Val → iProp) :
-    (Intrinsic.mk .three name path sem pre argTys retTy spec encode axioms).toPre [a, b, c] Q
+    (Intrinsic.mk .three name path mode sem pre argTys retTy spec encode axioms).toPre [a, b, c] Q
       = pre (a, b, c) Q := rfl
 
 /-- Unfolding lemma for `toPre` at arity-one, one arg. -/
 theorem toPre_one_of_arity (name : String)
-    (path : Option (String × List String))
+    (path : Option (String × List String)) (mode : Intrinsic.Mode)
     (sem : Arity.tup .one Runtime.Val → TinyML.Heap → Runtime.Val → TinyML.Heap → Prop)
     (pre : Arity.tup .one Runtime.Val → (Runtime.Val → iProp) → iProp)
     (argTys : List TinyML.SchemaTyp) (retTy : TinyML.SchemaTyp) (spec : Spec TinyML.Typ)
     (encode : Option (IntrinsicFOL .one)) (axioms : List Axiom)
     (a : Runtime.Val) (Q : Runtime.Val → iProp) :
-    (Intrinsic.mk .one name path sem pre argTys retTy spec encode axioms).toPre [a] Q
+    (Intrinsic.mk .one name path mode sem pre argTys retTy spec encode axioms).toPre [a] Q
       = pre a Q := rfl
 
 /-- Unfolding lemma for `toPre` at arity-zero, no args. -/
 theorem toPre_zero_of_arity (name : String)
-    (path : Option (String × List String))
+    (path : Option (String × List String)) (mode : Intrinsic.Mode)
     (sem : Arity.tup .zero Runtime.Val → TinyML.Heap → Runtime.Val → TinyML.Heap → Prop)
     (pre : Arity.tup .zero Runtime.Val → (Runtime.Val → iProp) → iProp)
     (argTys : List TinyML.SchemaTyp) (retTy : TinyML.SchemaTyp) (spec : Spec TinyML.Typ)
     (encode : Option (IntrinsicFOL .zero)) (axioms : List Axiom)
     (Q : Runtime.Val → iProp) :
-    (Intrinsic.mk .zero name path sem pre argTys retTy spec encode axioms).toPre [] Q
+    (Intrinsic.mk .zero name path mode sem pre argTys retTy spec encode axioms).toPre [] Q
       = pre () Q := rfl
 
 /-- Fold a registry fragment's FOL symbols into a starting signature. The
@@ -601,9 +626,14 @@ end Intrinsic
 
 /-- Per-intrinsic soundness obligation, discharged together for each intrinsic
     and aggregated over a registry by `Registry.Sound`. It bundles the two
-    specification facts (`spec_wf`, `spec_sound`), the fact tying the
-    precondition to the operational semantics (`pre_wp`), and the two axiom
+    specification facts (`spec_wf`, `spec_sound`), the facts tying the
+    precondition to what consumes it (`pre_wp`, `pre_bupd`), and the two axiom
     facts (`axioms_wf`, `axioms_sound`).
+
+    The two precondition facts are owed by mode. A call that takes a step must
+    give the weakest precondition of that step (`pre_wp`); a call from ghost
+    code, which takes no step, must instead give a value outright
+    (`pre_bupd`). A `.both` intrinsic owes both.
 
     From a `PredTrans.apply` obligation against `i.spec` (the shape produced by
     `Spec.call_correct`) and the typing of the arguments, `spec_sound` derives
@@ -636,11 +666,14 @@ class IntrinsicSound (fragment : outParam (List Intrinsic)) (i : Intrinsic) : Pr
         (fun r => TinyML.ValHasType W r (TinyML.Typ.subst σ i.retTy) -∗ Φ r)
         i.spec.pred
         (Spec.argsEnv ρ i.spec.args vs) ⊢ i.toPre vs Φ
-  pre_wp :
+  pre_wp : i.mode ≠ .ghost →
     ∀ [MicaGS HasLC.hasLC Sig] (ctx : TinyML.PrimCtx),
       (∀ vs μ v μ', ctx i.name vs μ v μ' ↔ i.toCall vs μ v μ') →
       ∀ (vs : List Runtime.Val) (Φ : Runtime.Val → iProp),
         i.toPre vs Φ ⊢ wp ctx (.app (.val (.prim i.name)) (vs.map Runtime.Expr.val)) Φ
+  pre_bupd : i.mode ≠ .runtime →
+    ∀ [MicaGS.{0} HasLC.hasLC Sig] (vs : List Runtime.Val) (Φ : Runtime.Val → iProp),
+      (i.toPre vs Φ ⊢ |==> ∃ v, Φ v)
   axioms_wf : ∀ {Δ : Signature}, (Intrinsic.sigOf fragment).Subset Δ → Δ.wf →
                 ∀ a ∈ i.axioms, Formula.wfIn a.formula Δ
   axioms_sound : ∀ ρ : Env,
@@ -827,6 +860,7 @@ theorem primitives_lawful {R : Registry} (hSound : Sound R) : R.primitives.Lawfu
     looked-up entry; `primCtx` agrees with that entry's `toCall` at its name
     by construction. -/
 theorem wp_prim [MicaGS HasLC.hasLC Sig] (R : Registry) (hSound : R.Sound) {n : String}
+    (hmode : ∀ i, R.lookup? n = some i → i.mode ≠ .ghost)
     {vs : List Runtime.Val} {Q : Runtime.Val → iProp} :
     R.wpCtx n vs Q ⊢ wp R.primCtx (.app (.val (.prim n)) (vs.map Runtime.Expr.val)) Q := by
   unfold wpCtx
@@ -835,7 +869,8 @@ theorem wp_prim [MicaGS HasLC.hasLC Sig] (R : Registry) (hSound : R.Sound) {n : 
     exact false_elim
   | some i =>
     obtain rfl := lookup?_name h
-    refine (hSound.get (mem_of_lookup? h)).pre_wp R.primCtx (fun vs μ v μ' => ?_) vs Q
+    refine (hSound.get (mem_of_lookup? h)).pre_wp (hmode i h) R.primCtx
+      (fun vs μ v μ' => ?_) vs Q
     simp [primCtx, h]
 
 theorem stdEnv_eq_foldEnv (R : Registry) : stdEnv R = foldEnv Env.empty R := rfl
@@ -933,6 +968,7 @@ theorem IntrinsicSound.mono {deps deps' : Registry} {i : Intrinsic}
     intro _ σ W vs ρ Φ hdeps'
     exact h.spec_sound σ W vs ρ Φ (fun d hd => hdeps' d (hsub hd))
   pre_wp := h.pre_wp
+  pre_bupd := h.pre_bupd
   axioms_wf := by
     intro Δ hsig hwf φ hφ
     exact h.axioms_wf ((Registry.sigOf_subset_of_subset hsub).trans hsig) hwf φ hφ

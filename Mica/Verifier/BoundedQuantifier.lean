@@ -163,6 +163,7 @@ def intrinsic (name : String) (path : String) : Verifier.Intrinsic where
   arity := .three
   name := name
   path := some ("Range", [path])
+  mode := .ghost
   sem := fun _ _ _ _ => False
   pre := fun _ _ => iprop(False)
   argTys := [.int, .int, .arrow [.int] .bool none]
@@ -200,8 +201,9 @@ are both false, and it contributes no solver symbols or axioms. -/
     iintro H
     icases H with ⟨_, %hfalse, _⟩
     exact hfalse.elim
-  pre_wp := by
-    intro _ _ _ vs _
+  pre_wp := fun h => absurd rfl h
+  pre_bupd := by
+    intro _ _ vs _
     match vs with
     | [] => exact false_elim
     | [_] => exact false_elim
