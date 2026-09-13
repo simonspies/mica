@@ -163,15 +163,16 @@ def intrinsic (name : String) (path : String) : Verifier.Intrinsic where
   arity := .three
   name := name
   path := some ("Range", [path])
-  reduce := fun _ _ _ _ => False
-  wp := fun _ _ => iprop(False)
+  mode := .ghost
+  sem := fun _ _ _ _ => False
+  pre := fun _ _ => iprop(False)
   argTys := [.int, .int, .arrow [.int] .bool none]
   retTy := .bool
   spec :=
     { args := ["lo", "hi", "body"]
       ghost := []
       pred := .assert .false_ (.ret ⟨"ret", .ret ()⟩) }
-  folTerm := none
+  encode := none
   axioms := []
 
 /-- Registry entry for `Range.all`. -/
@@ -182,39 +183,40 @@ def existsIntrinsic : Verifier.Intrinsic := intrinsic existsName "exists"
 
 @[simp] theorem allIntrinsic_arity : allIntrinsic.arity = .three := rfl
 @[simp] theorem existsIntrinsic_arity : existsIntrinsic.arity = .three := rfl
-@[simp] theorem allIntrinsic_folSym : allIntrinsic.folSym = none := rfl
-@[simp] theorem existsIntrinsic_folSym : existsIntrinsic.folSym = none := rfl
+@[simp] theorem allIntrinsic_symbol : allIntrinsic.symbol = none := rfl
+@[simp] theorem existsIntrinsic_symbol : existsIntrinsic.symbol = none := rfl
 
 /-- A forbidden intrinsic is sound: its specification and weakest precondition
 are both false, and it contributes no solver symbols or axioms. -/
 @[reducible] def intrinsicSound (name path : String) :
     Verifier.IntrinsicSound [] (intrinsic name path) where
-  argLen := rfl
-  specWf := by
+  arg_len := rfl
+  spec_wf := by
     intro Δ _ _
     simp [intrinsic, Verifier.Intrinsic.specArgs, PredTrans.wfIn, Assertion.wfIn]
     trivial
-  bridge := by
+  spec_sound := by
     intro _ σ Θ vs ρ Φ _
     simp only [intrinsic, PredTrans.apply, Assertion.pre]
     iintro H
     icases H with ⟨_, %hfalse, _⟩
     exact hfalse.elim
-  wp_sound := by
-    intro _ _ _ vs _
+  pre_wp := fun h => absurd rfl h
+  pre_bupd := by
+    intro _ _ vs _
     match vs with
     | [] => exact false_elim
     | [_] => exact false_elim
     | [_, _] => exact false_elim
     | [_, _, _] => exact false_elim
     | _ :: _ :: _ :: _ :: _ => exact false_elim
-  axiomWf := by
+  axioms_wf := by
     intro _ _ _ a ha
     cases ha
-  proof := by
+  axioms_sound := by
     intro _ _ a ha
     cases ha
-  folWf := by
+  encode_sound := by
     intro f hf
     cases hf
 

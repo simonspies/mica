@@ -37,7 +37,7 @@ def funIdB : Pure.Unary where
 def funId : Intrinsic := funIdB.toIntrinsic
 
 @[simp] theorem funId_arity : funId.arity = .one := rfl
-@[simp] theorem funId_folSym : funId.folSym = some funIdB.sym := rfl
+@[simp] theorem funId_symbol : funId.symbol = some funIdB.sym := rfl
 @[simp] theorem funIdSym_name : funIdB.sym.name = "fun_id" := rfl
 
 def funIdLawful : funIdB.Lawful [] where

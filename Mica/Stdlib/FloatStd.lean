@@ -121,7 +121,7 @@ def floatAbsB : Pure.Unary where
 
 def floatAbs : Intrinsic := floatAbsB.toIntrinsic
 
-@[simp] theorem floatAbs_folSym : floatAbs.folSym = some floatAbsSym := rfl
+@[simp] theorem floatAbs_symbol : floatAbs.symbol = some floatAbsSym := rfl
 @[simp] theorem floatAbs_arity : floatAbs.arity = .one := rfl
 
 def floatAbsLawful : floatAbsB.Lawful [] where
@@ -153,7 +153,7 @@ def floatNegB : Pure.Unary where
 
 def floatNeg : Intrinsic := floatNegB.toIntrinsic
 
-@[simp] theorem floatNeg_folSym : floatNeg.folSym = some floatNegSym := rfl
+@[simp] theorem floatNeg_symbol : floatNeg.symbol = some floatNegSym := rfl
 @[simp] theorem floatNeg_arity : floatNeg.arity = .one := rfl
 
 def floatNegLawful : floatNegB.Lawful [] where
@@ -185,7 +185,7 @@ def floatSqrtB : Pure.Unary where
 
 def floatSqrt : Intrinsic := floatSqrtB.toIntrinsic
 
-@[simp] theorem floatSqrt_folSym : floatSqrt.folSym = some floatSqrtSym := rfl
+@[simp] theorem floatSqrt_symbol : floatSqrt.symbol = some floatSqrtSym := rfl
 @[simp] theorem floatSqrt_arity : floatSqrt.arity = .one := rfl
 
 def floatSqrtLawful : floatSqrtB.Lawful [] where
@@ -217,7 +217,7 @@ def floatIsNanB : Pure.Unary where
 
 def floatIsNan : Intrinsic := floatIsNanB.toIntrinsic
 
-@[simp] theorem floatIsNan_folSym : floatIsNan.folSym = some floatIsNanSym := rfl
+@[simp] theorem floatIsNan_symbol : floatIsNan.symbol = some floatIsNanSym := rfl
 @[simp] theorem floatIsNan_arity : floatIsNan.arity = .one := rfl
 
 def floatIsNanLawful : floatIsNanB.Lawful [] where
@@ -253,7 +253,7 @@ def floatIsFiniteB : Pure.Unary where
 
 def floatIsFinite : Intrinsic := floatIsFiniteB.toIntrinsic
 
-@[simp] theorem floatIsFinite_folSym : floatIsFinite.folSym = some floatIsFiniteSym := rfl
+@[simp] theorem floatIsFinite_symbol : floatIsFinite.symbol = some floatIsFiniteSym := rfl
 @[simp] theorem floatIsFinite_arity : floatIsFinite.arity = .one := rfl
 
 def floatIsFiniteLawful : floatIsFiniteB.Lawful [] where
@@ -285,7 +285,7 @@ def floatOfIntB : Pure.Unary where
 
 def floatOfInt : Intrinsic := floatOfIntB.toIntrinsic
 
-@[simp] theorem floatOfInt_folSym : floatOfInt.folSym = some floatOfIntSym := rfl
+@[simp] theorem floatOfInt_symbol : floatOfInt.symbol = some floatOfIntSym := rfl
 @[simp] theorem floatOfInt_arity : floatOfInt.arity = .one := rfl
 
 def floatOfIntLawful : floatOfIntB.Lawful [] where
@@ -319,7 +319,7 @@ def floatAddB : Pure.Binary where
 
 def floatAdd : Intrinsic := floatAddB.toIntrinsic
 
-@[simp] theorem floatAdd_folSym : floatAdd.folSym = some floatAddSym := rfl
+@[simp] theorem floatAdd_symbol : floatAdd.symbol = some floatAddSym := rfl
 @[simp] theorem floatAdd_arity : floatAdd.arity = .two := rfl
 
 def floatAddLawful : floatAddB.Lawful [] where
@@ -348,7 +348,7 @@ def floatSubB : Pure.Binary where
 
 def floatSub : Intrinsic := floatSubB.toIntrinsic
 
-@[simp] theorem floatSub_folSym : floatSub.folSym = some floatSubSym := rfl
+@[simp] theorem floatSub_symbol : floatSub.symbol = some floatSubSym := rfl
 @[simp] theorem floatSub_arity : floatSub.arity = .two := rfl
 
 def floatSubLawful : floatSubB.Lawful [] where
@@ -377,7 +377,7 @@ def floatMulB : Pure.Binary where
 
 def floatMul : Intrinsic := floatMulB.toIntrinsic
 
-@[simp] theorem floatMul_folSym : floatMul.folSym = some floatMulSym := rfl
+@[simp] theorem floatMul_symbol : floatMul.symbol = some floatMulSym := rfl
 @[simp] theorem floatMul_arity : floatMul.arity = .two := rfl
 
 def floatMulLawful : floatMulB.Lawful [] where
@@ -406,7 +406,7 @@ def floatDivB : Pure.Binary where
 
 def floatDiv : Intrinsic := floatDivB.toIntrinsic
 
-@[simp] theorem floatDiv_folSym : floatDiv.folSym = some floatDivSym := rfl
+@[simp] theorem floatDiv_symbol : floatDiv.symbol = some floatDivSym := rfl
 @[simp] theorem floatDiv_arity : floatDiv.arity = .two := rfl
 
 def floatDivLawful : floatDivB.Lawful [] where
@@ -448,7 +448,7 @@ def floatMinB : Pure.Binary where
 
 def floatMin : Intrinsic := floatMinB.toIntrinsic
 
-@[simp] theorem floatMin_folSym : floatMin.folSym = some floatMinSym := rfl
+@[simp] theorem floatMin_symbol : floatMin.symbol = some floatMinSym := rfl
 @[simp] theorem floatMin_arity : floatMin.arity = .two := rfl
 
 def floatMinLawful : floatMinB.Lawful [] where
@@ -490,7 +490,7 @@ def floatMaxB : Pure.Binary where
 
 def floatMax : Intrinsic := floatMaxB.toIntrinsic
 
-@[simp] theorem floatMax_folSym : floatMax.folSym = some floatMaxSym := rfl
+@[simp] theorem floatMax_symbol : floatMax.symbol = some floatMaxSym := rfl
 @[simp] theorem floatMax_arity : floatMax.arity = .two := rfl
 
 def floatMaxLawful : floatMaxB.Lawful [] where
@@ -525,7 +525,7 @@ def floatEqualB : Pure.Binary where
 
 def floatEqual : Intrinsic := floatEqualB.toIntrinsic
 
-@[simp] theorem floatEqual_folSym : floatEqual.folSym = some floatEqualSym := rfl
+@[simp] theorem floatEqual_symbol : floatEqual.symbol = some floatEqualSym := rfl
 @[simp] theorem floatEqual_arity : floatEqual.arity = .two := rfl
 
 def floatEqualLawful : floatEqualB.Lawful [] where
@@ -554,7 +554,7 @@ def floatLtB : Pure.Binary where
 
 def floatLt : Intrinsic := floatLtB.toIntrinsic
 
-@[simp] theorem floatLt_folSym : floatLt.folSym = some floatLtSym := rfl
+@[simp] theorem floatLt_symbol : floatLt.symbol = some floatLtSym := rfl
 @[simp] theorem floatLt_arity : floatLt.arity = .two := rfl
 
 def floatLtLawful : floatLtB.Lawful [] where
@@ -583,7 +583,7 @@ def floatLeB : Pure.Binary where
 
 def floatLe : Intrinsic := floatLeB.toIntrinsic
 
-@[simp] theorem floatLe_folSym : floatLe.folSym = some floatLeSym := rfl
+@[simp] theorem floatLe_symbol : floatLe.symbol = some floatLeSym := rfl
 @[simp] theorem floatLe_arity : floatLe.arity = .two := rfl
 
 def floatLeLawful : floatLeB.Lawful [] where
@@ -613,7 +613,7 @@ def floatNanB : Pure.Zero where
 
 def floatNan : Intrinsic := floatNanB.toIntrinsic
 
-@[simp] theorem floatNan_folSym : floatNan.folSym = some floatNanSym := rfl
+@[simp] theorem floatNan_symbol : floatNan.symbol = some floatNanSym := rfl
 @[simp] theorem floatNan_arity : floatNan.arity = .zero := rfl
 
 def floatNanLawful : floatNanB.Lawful [] where
@@ -636,7 +636,7 @@ def floatInfinityB : Pure.Zero where
 
 def floatInfinity : Intrinsic := floatInfinityB.toIntrinsic
 
-@[simp] theorem floatInfinity_folSym : floatInfinity.folSym = some floatInfinitySym := rfl
+@[simp] theorem floatInfinity_symbol : floatInfinity.symbol = some floatInfinitySym := rfl
 @[simp] theorem floatInfinity_arity : floatInfinity.arity = .zero := rfl
 
 def floatInfinityLawful : floatInfinityB.Lawful [] where
@@ -659,8 +659,8 @@ def floatNegInfinityB : Pure.Zero where
 
 def floatNegInfinity : Intrinsic := floatNegInfinityB.toIntrinsic
 
-@[simp] theorem floatNegInfinity_folSym :
-    floatNegInfinity.folSym = some floatNegInfinitySym := rfl
+@[simp] theorem floatNegInfinity_symbol :
+    floatNegInfinity.symbol = some floatNegInfinitySym := rfl
 @[simp] theorem floatNegInfinity_arity : floatNegInfinity.arity = .zero := rfl
 
 def floatNegInfinityLawful : floatNegInfinityB.Lawful [] where

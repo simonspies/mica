@@ -197,7 +197,7 @@ def listLengthB : Pure.Unary where
 def listLengthIntrinsic : Intrinsic := listLengthB.toIntrinsic
 
 @[simp] theorem listLengthIntrinsic_arity : listLengthIntrinsic.arity = .one := rfl
-@[simp] theorem listLengthIntrinsic_folSym : listLengthIntrinsic.folSym = some listLengthB.sym := rfl
+@[simp] theorem listLengthIntrinsic_symbol : listLengthIntrinsic.symbol = some listLengthB.sym := rfl
 @[simp] theorem listLengthSym_name : listLengthB.sym.name = "list_length" := rfl
 
 def listLengthLawful : listLengthB.Lawful [] where
@@ -228,7 +228,7 @@ def listAppendB : Pure.Binary where
 def listAppendIntrinsic : Intrinsic := listAppendB.toIntrinsic
 
 @[simp] theorem listAppendIntrinsic_arity : listAppendIntrinsic.arity = .two := rfl
-@[simp] theorem listAppendIntrinsic_folSym : listAppendIntrinsic.folSym = some listAppendB.sym := rfl
+@[simp] theorem listAppendIntrinsic_symbol : listAppendIntrinsic.symbol = some listAppendB.sym := rfl
 @[simp] theorem listAppendSym_name : listAppendB.sym.name = "list_append" := rfl
 
 def listAppendLawful : listAppendB.Lawful [] where
@@ -263,7 +263,7 @@ def listRevB : Pure.Unary where
 def listRevIntrinsic : Intrinsic := listRevB.toIntrinsic
 
 @[simp] theorem listRevIntrinsic_arity : listRevIntrinsic.arity = .one := rfl
-@[simp] theorem listRevIntrinsic_folSym : listRevIntrinsic.folSym = some listRevB.sym := rfl
+@[simp] theorem listRevIntrinsic_symbol : listRevIntrinsic.symbol = some listRevB.sym := rfl
 @[simp] theorem listRevSym_name : listRevB.sym.name = "list_rev" := rfl
 
 def listRevLawful : listRevB.Lawful [] where

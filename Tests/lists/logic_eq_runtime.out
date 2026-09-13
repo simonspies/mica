@@ -1,2 +1,2 @@
-Status: failed: assertion failed
+Status: failed: primitive `logic_eq` is available in ghost code only
 [1]

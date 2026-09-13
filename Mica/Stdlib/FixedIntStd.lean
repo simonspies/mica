@@ -233,8 +233,8 @@ private def constB (fx : Fixed) (op : FixedConst) : Pure.Zero where
 def int32Const (op : FixedConst) : Intrinsic := (constB fixed32 op).toIntrinsic
 def int64Const (op : FixedConst) : Intrinsic := (constB fixed64 op).toIntrinsic
 
-@[simp] theorem int32Const_folSym (op : FixedConst) : (int32Const op).folSym = none := rfl
-@[simp] theorem int64Const_folSym (op : FixedConst) : (int64Const op).folSym = none := rfl
+@[simp] theorem int32Const_symbol (op : FixedConst) : (int32Const op).symbol = none := rfl
+@[simp] theorem int64Const_symbol (op : FixedConst) : (int64Const op).symbol = none := rfl
 
 /-- `specBaseWf` is the one obligation that does not generalize over `fx`:
     `PredTrans.checkWf` only reduces once the intrinsic name and the encoded
@@ -299,8 +299,8 @@ private def unaryB (fx : Fixed) (op : FixedUnary) : Pure.Unary where
 def int32Unary (op : FixedUnary) : Intrinsic := (unaryB fixed32 op).toIntrinsic
 def int64Unary (op : FixedUnary) : Intrinsic := (unaryB fixed64 op).toIntrinsic
 
-@[simp] theorem int32Unary_folSym (op : FixedUnary) : (int32Unary op).folSym = none := rfl
-@[simp] theorem int64Unary_folSym (op : FixedUnary) : (int64Unary op).folSym = none := rfl
+@[simp] theorem int32Unary_symbol (op : FixedUnary) : (int32Unary op).symbol = none := rfl
+@[simp] theorem int64Unary_symbol (op : FixedUnary) : (int64Unary op).symbol = none := rfl
 
 private def unaryLawful {fx : Fixed} (fl : fx.Lawful) (op : FixedUnary)
     (specBaseWf : PredTrans.wfIn
@@ -427,8 +427,8 @@ private def binaryB (fx : Fixed) (op : FixedBinary) : Pure.Binary where
 def int32Binary (op : FixedBinary) : Intrinsic := (binaryB fixed32 op).toIntrinsic
 def int64Binary (op : FixedBinary) : Intrinsic := (binaryB fixed64 op).toIntrinsic
 
-@[simp] theorem int32Binary_folSym (op : FixedBinary) : (int32Binary op).folSym = none := rfl
-@[simp] theorem int64Binary_folSym (op : FixedBinary) : (int64Binary op).folSym = none := rfl
+@[simp] theorem int32Binary_symbol (op : FixedBinary) : (int32Binary op).symbol = none := rfl
+@[simp] theorem int64Binary_symbol (op : FixedBinary) : (int64Binary op).symbol = none := rfl
 
 private theorem binaryDomSound {fx : Fixed} (fl : fx.Lawful) (op : FixedBinary) :
     ∀ (ρ : Env) (x y : BitVec fx.width),
@@ -551,9 +551,9 @@ private def compareB (fx : Fixed) : FixedCompare → Pure.Binary
 def int32Compare (op : FixedCompare) : Intrinsic := (compareB fixed32 op).toIntrinsic
 def int64Compare (op : FixedCompare) : Intrinsic := (compareB fixed64 op).toIntrinsic
 
-@[simp] theorem int32Compare_folSym (op : FixedCompare) : (int32Compare op).folSym = none := by
+@[simp] theorem int32Compare_symbol (op : FixedCompare) : (int32Compare op).symbol = none := by
   cases op <;> rfl
-@[simp] theorem int64Compare_folSym (op : FixedCompare) : (int64Compare op).folSym = none := by
+@[simp] theorem int64Compare_symbol (op : FixedCompare) : (int64Compare op).symbol = none := by
   cases op <;> rfl
 
 private def compareLawful {fx : Fixed} (fl : fx.Lawful) (op : FixedCompare)
@@ -648,8 +648,8 @@ private def shiftB (fx : Fixed) (op : FixedShift) : Pure.Binary where
 def int32Shift (op : FixedShift) : Intrinsic := (shiftB fixed32 op).toIntrinsic
 def int64Shift (op : FixedShift) : Intrinsic := (shiftB fixed64 op).toIntrinsic
 
-@[simp] theorem int32Shift_folSym (op : FixedShift) : (int32Shift op).folSym = none := rfl
-@[simp] theorem int64Shift_folSym (op : FixedShift) : (int64Shift op).folSym = none := rfl
+@[simp] theorem int32Shift_symbol (op : FixedShift) : (int32Shift op).symbol = none := rfl
+@[simp] theorem int64Shift_symbol (op : FixedShift) : (int64Shift op).symbol = none := rfl
 
 private theorem shiftDomSound (fx : Fixed) :
     ∀ (ρ : Env) (bits : BitVec fx.width) (count : Int),
@@ -752,12 +752,12 @@ def int64ToInt : Intrinsic := int64ToIntB.toIntrinsic
 def int64OfInt32 : Intrinsic := int64OfInt32B.toIntrinsic
 def int64ToInt32 : Intrinsic := int64ToInt32B.toIntrinsic
 
-@[simp] theorem int32OfInt_folSym : int32OfInt.folSym = none := rfl
-@[simp] theorem int64OfInt_folSym : int64OfInt.folSym = none := rfl
-@[simp] theorem int32ToInt_folSym : int32ToInt.folSym = none := rfl
-@[simp] theorem int64ToInt_folSym : int64ToInt.folSym = none := rfl
-@[simp] theorem int64OfInt32_folSym : int64OfInt32.folSym = none := rfl
-@[simp] theorem int64ToInt32_folSym : int64ToInt32.folSym = none := rfl
+@[simp] theorem int32OfInt_symbol : int32OfInt.symbol = none := rfl
+@[simp] theorem int64OfInt_symbol : int64OfInt.symbol = none := rfl
+@[simp] theorem int32ToInt_symbol : int32ToInt.symbol = none := rfl
+@[simp] theorem int64ToInt_symbol : int64ToInt.symbol = none := rfl
+@[simp] theorem int64OfInt32_symbol : int64OfInt32.symbol = none := rfl
+@[simp] theorem int64ToInt32_symbol : int64ToInt32.symbol = none := rfl
 
 private def ofIntLawful {fx : Fixed} (fl : fx.Lawful)
     (specBaseWf : PredTrans.wfIn

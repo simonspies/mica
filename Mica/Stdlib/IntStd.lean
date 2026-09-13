@@ -57,8 +57,8 @@ def intMaxDefAxiom : Formula :=
 
 /-- `Int.min`: arity-two integer intrinsic, built by `Pure.Binary`. Its spec ties
     the result to the `int_min` FOL symbol; the defining axiom pins that symbol
-    down for the solver, while the standard interpretation pins it down for the
-    soundness bridge. -/
+    down for the solver, while the standard interpretation pins it down for
+    `spec_sound`. -/
 def intMinB : Pure.Binary where
   name     := "int_min"
   path     := some ("Int", ["min"])
@@ -72,7 +72,7 @@ def intMinB : Pure.Binary where
 
 def intMin : Intrinsic := intMinB.toIntrinsic
 
-@[simp] theorem intMin_folSym : intMin.folSym = some intMinSym := rfl
+@[simp] theorem intMin_symbol : intMin.symbol = some intMinSym := rfl
 @[simp] theorem intMin_arity : intMin.arity = .two := rfl
 
 def intMinLawful : intMinB.Lawful [] where
@@ -107,7 +107,7 @@ def intMaxB : Pure.Binary where
 
 def intMax : Intrinsic := intMaxB.toIntrinsic
 
-@[simp] theorem intMax_folSym : intMax.folSym = some intMaxSym := rfl
+@[simp] theorem intMax_symbol : intMax.symbol = some intMaxSym := rfl
 @[simp] theorem intMax_arity : intMax.arity = .two := rfl
 
 def intMaxLawful : intMaxB.Lawful [] where

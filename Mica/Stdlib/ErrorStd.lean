@@ -31,7 +31,7 @@ def invalidArgSym : FOL.Symbol .one where
 
 /-- `failwith : string -> 'a` with precondition `False`: the call is only
     verifiable in a contradictory context, i.e. on a dead path, so the result
-    type it is used at is whatever that context expects. At runtime the reduce
+    type it is used at is whatever that context expects. At runtime the `sem`
     relation is empty (real OCaml raises). -/
 def failwithB : Pure.Unary where
   name     := "failwith"
@@ -46,7 +46,7 @@ def failwithB : Pure.Unary where
 def failwith : Intrinsic := failwithB.toIntrinsic
 
 @[simp] theorem failwith_arity : failwith.arity = .one := rfl
-@[simp] theorem failwith_folSym : failwith.folSym = some failwithSym := rfl
+@[simp] theorem failwith_symbol : failwith.symbol = some failwithSym := rfl
 
 def failwithLawful : failwithB.Lawful [] where
   argL         := Embedding.lawfulStr
@@ -78,7 +78,7 @@ def invalidArgB : Pure.Unary where
 def invalidArg : Intrinsic := invalidArgB.toIntrinsic
 
 @[simp] theorem invalidArg_arity : invalidArg.arity = .one := rfl
-@[simp] theorem invalidArg_folSym : invalidArg.folSym = some invalidArgSym := rfl
+@[simp] theorem invalidArg_symbol : invalidArg.symbol = some invalidArgSym := rfl
 
 def invalidArgLawful : invalidArgB.Lawful [] where
   argL         := Embedding.lawfulStr

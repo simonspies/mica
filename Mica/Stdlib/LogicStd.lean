@@ -50,49 +50,51 @@ def logicEq : Intrinsic where
   arity := .two
   name := "logic_eq"
   path := some ("Logic", ["eq"])
-  reduce := fun _ _ _ _ => False
-  wp := fun _ _ => iprop(False)
+  mode := .ghost
+  sem := fun _ _ _ _ => False
+  pre := fun _ _ => iprop(False)
   argTys := [.tvar "a", .tvar "a"]
   retTy := .bool
   spec :=
     { args := ["a", "b"]
       ghost := []
       pred := .assert .false_ (.ret ⟨"ret", .ret ()⟩) }
-  folTerm := some (.direct logicEqDirect)
+  encode := some (.direct logicEqDirect)
   axioms := []
 
 @[simp] theorem logicEq_arity : logicEq.arity = .two := rfl
-@[simp] theorem logicEq_folSym : logicEq.folSym = none := rfl
+@[simp] theorem logicEq_symbol : logicEq.symbol = none := rfl
 
 /-- The intrinsic is sound, and it needs no other intrinsic to be sound. Both
     its specification and its weakest precondition are false, and it adds no
     axiom. -/
 @[reducible] def logicEqSound : IntrinsicSound [] logicEq where
-  argLen := rfl
-  specWf := by
+  arg_len := rfl
+  spec_wf := by
     intro Δ _ _
     simp [logicEq, Intrinsic.specArgs, PredTrans.wfIn, Assertion.wfIn]
     trivial
-  bridge := by
+  spec_sound := by
     intro _ σ W vs ρ Φ _
     simp only [logicEq, PredTrans.apply, Assertion.pre]
     iintro H
     icases H with ⟨_, %hfalse, _⟩
     exact hfalse.elim
-  wp_sound := by
-    intro _ _ _ vs _
+  pre_wp := fun h => absurd rfl h
+  pre_bupd := by
+    intro _ _ vs _
     match vs with
     | [] => exact false_elim
     | [_] => exact false_elim
     | [_, _] => exact false_elim
     | _ :: _ :: _ :: _ => exact false_elim
-  axiomWf := by
+  axioms_wf := by
     intro _ _ _ a ha
     cases ha
-  proof := by
+  axioms_sound := by
     intro _ _ a ha
     cases ha
-  folWf := by
+  encode_sound := by
     rintro _ ⟨rfl⟩ Δ ⟨a, b⟩ hargs
     exact ⟨trivial, ⟨trivial, hargs.1, hargs.2⟩⟩
 
@@ -175,19 +177,20 @@ def logicSize : Intrinsic where
   arity := .one
   name := "logic_size"
   path := some ("Logic", ["size"])
-  reduce := fun _ _ _ _ => False
-  wp := fun _ _ => iprop(False)
+  mode := .ghost
+  sem := fun _ _ _ _ => False
+  pre := fun _ _ => iprop(False)
   argTys := [.tvar "a"]
   retTy := .int
   spec :=
     { args := ["a"]
       ghost := []
       pred := .assert .false_ (.ret ⟨"ret", .ret ()⟩) }
-  folTerm := some (.symbol logicSizeSym)
+  encode := some (.symbol logicSizeSym)
   axioms := logicSizeAxioms
 
 @[simp] theorem logicSize_arity : logicSize.arity = .one := rfl
-@[simp] theorem logicSize_folSym : logicSize.folSym = some logicSizeSym := rfl
+@[simp] theorem logicSize_symbol : logicSize.symbol = some logicSizeSym := rfl
 
 private theorem respects_updateConst {ρ : Env} (h : ρ.respects (some logicSizeSym))
     (x : String) (w : Runtime.Val) :
@@ -230,30 +233,31 @@ private theorem logicSizeAxioms_eval {ρ : Env} (h : ρ.respects (some logicSize
 /-- The intrinsic is sound. Both its specification and its weakest precondition
     are false, so only the axioms carry content. -/
 @[reducible] def logicSizeSound : IntrinsicSound [logicSize] logicSize where
-  argLen := rfl
-  specWf := by
+  arg_len := rfl
+  spec_wf := by
     intro Δ _ _
     simp [logicSize, Intrinsic.specArgs, PredTrans.wfIn, Assertion.wfIn]
     trivial
-  bridge := by
+  spec_sound := by
     intro _ σ W vs ρ Φ _
     simp only [logicSize, PredTrans.apply, Assertion.pre]
     iintro H
     icases H with ⟨_, %hfalse, _⟩
     exact hfalse.elim
-  wp_sound := by
-    intro _ _ _ vs _
+  pre_wp := fun h => absurd rfl h
+  pre_bupd := by
+    intro _ _ vs _
     match vs with
     | [] => exact false_elim
     | [_] => exact false_elim
     | _ :: _ :: _ => exact false_elim
-  axiomWf := by
+  axioms_wf := by
     intro Δ hsub hwf a ha
     exact Formula.wfIn_mono _ (logicSizeAxioms_wfIn a ha) hsub hwf
-  proof := by
+  axioms_sound := by
     intro ρ hdeps a ha
     exact logicSizeAxioms_eval (by simpa [logicSize] using hdeps logicSize (by simp)) a ha
-  folWf := by
+  encode_sound := by
     rintro _ ⟨rfl⟩
     trivial
 

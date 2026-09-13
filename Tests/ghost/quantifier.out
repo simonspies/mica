@@ -1,2 +1,2 @@
-Status: failed: a ghost expression can only call a ghost function
+Status: failed: a ghost expression cannot build a closure
 [1]

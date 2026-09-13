@@ -100,12 +100,12 @@ private theorem respects_argsEnv_three {s : FOL.Symbol .three} :
       refine respects_argsEnv_three rest vs ?_
       simpa only [Env.respects, Env.updateConst_ternary] using h
 
-/-! ## `specWf`: predicate-transformer well-formedness -/
+/-! ## `spec_wf`: predicate-transformer well-formedness -/
 
-/-- The `specWf` obligation from a base well-formedness fact in the fragment's
+/-- The `spec_wf` obligation from a base well-formedness fact in the fragment's
     signature: monotonicity carries it to any signature containing that
     signature. -/
-theorem specWf_of_base {fragment : Registry} {i : Intrinsic}
+theorem spec_wf_of_base {fragment : Registry} {i : Intrinsic}
     (hbase : PredTrans.wfIn
       ((Intrinsic.sigOf fragment).declVars (Spec.argVars i.specArgs)) i.spec.pred)
     {Δ : Signature} (hsub : (Intrinsic.sigOf fragment).Subset Δ) (hwf : Δ.wf) :
@@ -444,8 +444,9 @@ def Zero.toIntrinsic (b : Zero) : Intrinsic where
   arity  := .zero
   name   := b.name
   path   := b.path
-  reduce := Reduce.pure fun () v => v = b.res.inject b.f
-  wp     := fun () Q => Q (b.res.inject b.f)
+  mode   := .both
+  sem    := Sem.pure fun () v => v = b.res.inject b.f
+  pre    := fun () Q => Q (b.res.inject b.f)
   argTys := []
   retTy  := b.res.typ
   spec   :=
@@ -453,20 +454,20 @@ def Zero.toIntrinsic (b : Zero) : Intrinsic where
       ghost := []
       pred  := .ret ⟨"ret",
         .assert (.eq .value (.var .value "ret") b.opTerm) (.ret ())⟩ }
-  folTerm := some b.fol
+  encode := some b.fol
   axioms := b.axioms
 
-@[simp] theorem Zero.toWp_eq (b : Zero) (Q : Runtime.Val → iProp) :
-    b.toIntrinsic.toWp [] Q = Q (b.res.inject b.f) := rfl
+@[simp] theorem Zero.toPre_eq (b : Zero) (Q : Runtime.Val → iProp) :
+    b.toIntrinsic.toPre [] Q = Q (b.res.inject b.f) := rfl
 
-@[simp] theorem Zero.toReduce_eq (b : Zero) (v : Runtime.Val) (μ μ' : TinyML.Heap) :
-    b.toIntrinsic.toReduce [] μ v μ' = (v = b.res.inject b.f ∧ μ' = μ) := rfl
+@[simp] theorem Zero.toCall_eq (b : Zero) (v : Runtime.Val) (μ μ' : TinyML.Heap) :
+    b.toIntrinsic.toCall [] μ v μ' = (v = b.res.inject b.f ∧ μ' = μ) := rfl
 
 /-- What the encoding must tell the solver truthfully. A `symbol` encoding must
     satisfy its defining axiom. A `direct` encoding must compute `f`. -/
 def Zero.encEval (b : Zero) (dependencies : Registry) : Prop :=
   match b.enc with
-  | .symbol φ => ∀ ρ : Env, (∀ d ∈ dependencies, ρ.respects d.folSym) →
+  | .symbol φ => ∀ ρ : Env, (∀ d ∈ dependencies, ρ.respects d.symbol) →
       ρ.respects (some b.sym) → Formula.eval ρ φ
   | .direct e => ∀ ρ : Env, Term.eval ρ (e ()) = b.res.inject b.f
 
@@ -491,7 +492,7 @@ structure Zero.Lawful (dependencies : Registry) (b : Zero) where
     spec's own environment, to what `f` computes. -/
 theorem Zero.Lawful.opEval {dependencies : Registry} {b : Zero}
     (l : b.Lawful dependencies) (ρ : Env)
-    (hρ : ∀ d ∈ b.toIntrinsic :: dependencies, ρ.respects d.folSym) :
+    (hρ : ∀ d ∈ b.toIntrinsic :: dependencies, ρ.respects d.symbol) :
     Term.eval (ρ.updateConst .value "ret" (b.res.inject b.f)) b.opTerm
       = b.res.inject b.f := by
   have hev := l.encEval
@@ -502,7 +503,7 @@ theorem Zero.Lawful.opEval {dependencies : Registry} {b : Zero}
     exact hev _
   | symbol φ =>
     have hresp : ρ.respects (some b.sym) := by
-      simpa [Intrinsic.folSym, Zero.toIntrinsic, Zero.fol, hb]
+      simpa [Intrinsic.symbol, Zero.toIntrinsic, Zero.fol, hb]
         using hρ b.toIntrinsic (by simp)
     have hconst : (ρ.updateConst .value "ret" (b.res.inject b.f)).lookupConst
         .value b.name = b.res.inject b.f := by
@@ -514,10 +515,17 @@ theorem Zero.Lawful.opEval {dependencies : Registry} {b : Zero}
 @[reducible] def Zero.Lawful.sound {dependencies : Registry} {b : Zero}
     (l : b.Lawful dependencies) :
     IntrinsicSound (b.toIntrinsic :: dependencies) b.toIntrinsic where
-  argLen := rfl
-  specWf := fun _ hsub hwf => specWf_of_base l.specBaseWf hsub hwf
-  wp_sound := by
-    intro _ ctx hctx vs Φ
+  arg_len := rfl
+  spec_wf := fun _ hsub hwf => spec_wf_of_base l.specBaseWf hsub hwf
+  pre_bupd := by
+    intro _ _ vs Φ
+    match vs with
+    | _ :: _ => exact false_elim
+    | [] =>
+      rw [Zero.toPre_eq]
+      exact BIBase.Entails.trans (exists_intro (b.res.inject b.f)) bupd_intro
+  pre_wp := by
+    intro _ _ ctx hctx vs Φ
     match vs with
     | _ :: _ => exact false_elim
     | [] =>
@@ -525,21 +533,21 @@ theorem Zero.Lawful.opEval {dependencies : Registry} {b : Zero}
           ctx b.toIntrinsic.name [] μ v μ' ↔ v = b.res.inject b.f ∧ μ' = μ := by
         intro μ v μ'
         rw [hctx]
-        simp only [Zero.toIntrinsic, Intrinsic.toReduce_zero_of_arity, Reduce.pure]
-      rw [Zero.toWp_eq]
+        simp only [Zero.toIntrinsic, Intrinsic.toCall_zero_of_arity, Sem.pure]
+      rw [Zero.toPre_eq]
       istart
       iintro HΦ
       iapply (wp.prim_pure hred ⟨b.res.inject b.f, rfl⟩)
       iintro %v %hv
       subst hv
       iexact HΦ
-  bridge := by
+  spec_sound := by
     intro _ σ W vs ρ Φ hρ
     show TinyML.ValsHaveTypes W vs [] ∗ _ ⊢ _
     match vs with
     | _ :: _ => exact (sep_mono_left (valsHaveTypes_off_shape _ (by simp))).trans sep_elim_left
     | [] =>
-      simp only [Zero.toIntrinsic, Intrinsic.toWp_zero_of_arity]
+      simp only [Zero.toIntrinsic, Intrinsic.toPre_zero_of_arity]
       refine (sep_mono_left (TinyML.ValsHaveTypes.nil W).1).trans ?_
       refine emp_sep.1.trans ?_
       refine (assert_ret_apply W _ "ret" _ _ (b.res.inject b.f) ?_).trans ?_
@@ -547,7 +555,7 @@ theorem Zero.Lawful.opEval {dependencies : Registry} {b : Zero}
       · iintro Hwand
         iapply Hwand
         exact (l.semWellTyped σ W).trans (l.resL.intro σ W b.f)
-  axiomWf := by
+  axioms_wf := by
     intro Δ hsub hwf a hφ
     simp only [Zero.toIntrinsic, Zero.axioms] at hφ
     have hw := l.encWf
@@ -560,7 +568,7 @@ theorem Zero.Lawful.opEval {dependencies : Registry} {b : Zero}
       rcases hφ with rfl | ⟨ψ, hψ, rfl⟩
       · exact Formula.wfIn_mono _ hw hsub hwf
       · exact Formula.wfIn_mono _ (l.typeWf ψ hψ) hsub hwf
-  proof := by
+  axioms_sound := by
     intro ρ hdeps a hφ
     simp only [Zero.toIntrinsic, Zero.axioms] at hφ
     have hev := l.encEval
@@ -570,7 +578,7 @@ theorem Zero.Lawful.opEval {dependencies : Registry} {b : Zero}
       rw [hb] at hφ
       simp only [Zero.encEval, hb] at hev
       have hresp : ρ.respects (some b.sym) := by
-        simpa [Intrinsic.folSym, Zero.toIntrinsic, Zero.fol, hb]
+        simpa [Intrinsic.symbol, Zero.toIntrinsic, Zero.fol, hb]
           using hdeps b.toIntrinsic (by simp)
       simp only [List.mem_cons, Option.mem_toList, Option.map_eq_some_iff,
         Zero.typeAxiom, hb] at hφ
@@ -582,7 +590,7 @@ theorem Zero.Lawful.opEval {dependencies : Registry} {b : Zero}
           simpa [Env.respects, Env.lookupConst, Zero.sym] using hresp
         rw [hconst]
         exact l.resL.isOf_inject _ _ p hp
-  folWf := by
+  encode_sound := by
     intro f hf
     simp only [Zero.toIntrinsic, Option.some.injEq] at hf
     subst hf
@@ -600,7 +608,7 @@ SMT defining axiom. From this alone the `Intrinsic` and its FOL symbol are built
 (`toIntrinsic`). The proof obligations live in `Pure.Unary.Lawful`. -/
 
 /-- The computational data of a pure unary intrinsic. `dom` is the carrier-level
-    domain guarding `reduce`/`wp`; `pre` is the matching FOL precondition as a
+    domain guarding `sem`/`pre`; `pre` is the matching FOL precondition as a
     function of the spec's argument name (the builder applies it at `"a"`). For
     total intrinsics: `dom := fun _ => True`, `pre := none`. -/
 structure Unary where
@@ -650,9 +658,10 @@ def Unary.toIntrinsic (b : Unary) : Intrinsic where
   arity  := .one
   name   := b.name
   path   := b.path
-  reduce := Reduce.pure fun a v =>
+  mode   := .both
+  sem    := Sem.pure fun a v =>
     ∃ x, a = b.arg.inject x ∧ b.dom x ∧ v = b.res.inject (b.f x)
-  wp     := fun a Q => iprop(∃ x, ⌜a = b.arg.inject x ∧ b.dom x⌝ ∗ Q (b.res.inject (b.f x)))
+  pre    := fun a Q => iprop(∃ x, ⌜a = b.arg.inject x ∧ b.dom x⌝ ∗ Q (b.res.inject (b.f x)))
   argTys := [b.arg.typ]
   retTy  := b.res.typ
   spec   :=
@@ -661,15 +670,15 @@ def Unary.toIntrinsic (b : Unary) : Intrinsic where
       pred  := withPre (b.pre.map (· "a")) <| .ret ⟨"ret",
         .assert (.eq .value (.var .value "ret")
           (b.opTerm (.var .value "a"))) (.ret ())⟩ }
-  folTerm := some b.fol
+  encode := some b.fol
   axioms := b.axioms
 
-@[simp] theorem Unary.toWp_eq (b : Unary) (a : Runtime.Val) (Q : Runtime.Val → iProp) :
-    b.toIntrinsic.toWp [a] Q
+@[simp] theorem Unary.toPre_eq (b : Unary) (a : Runtime.Val) (Q : Runtime.Val → iProp) :
+    b.toIntrinsic.toPre [a] Q
       = iprop(∃ x, ⌜a = b.arg.inject x ∧ b.dom x⌝ ∗ Q (b.res.inject (b.f x))) := rfl
 
-@[simp] theorem Unary.toReduce_eq (b : Unary) (a v : Runtime.Val) (μ μ' : TinyML.Heap) :
-    b.toIntrinsic.toReduce [a] μ v μ' =
+@[simp] theorem Unary.toCall_eq (b : Unary) (a v : Runtime.Val) (μ μ' : TinyML.Heap) :
+    b.toIntrinsic.toCall [a] μ v μ' =
       ((∃ x, a = b.arg.inject x ∧ b.dom x ∧ v = b.res.inject (b.f x)) ∧ μ' = μ) := rfl
 
 @[simp] theorem Unary.spec_pred (b : Unary) :
@@ -688,7 +697,7 @@ def Unary.toIntrinsic (b : Unary) : Intrinsic where
     satisfy its defining axiom. A `direct` encoding must compute `f`. -/
 def Unary.encEval (b : Unary) (dependencies : Registry) : Prop :=
   match b.enc with
-  | .symbol φ => ∀ ρ : Env, (∀ d ∈ dependencies, ρ.respects d.folSym) →
+  | .symbol φ => ∀ ρ : Env, (∀ d ∈ dependencies, ρ.respects d.symbol) →
       ρ.respects (some b.sym) → Formula.eval ρ φ
   | .direct e => ∀ (ρ : Env) (x : b.arg.carrier),
       ρ.lookupConst .value "a" = b.arg.inject x →
@@ -702,7 +711,7 @@ structure Unary.Lawful (dependencies : Registry) (b : Unary) where
   argL         : b.arg.Lawful
   resL         : b.res.Lawful
   domSound     : ∀ (ρ : Env) (x : b.arg.carrier),
-                 (∀ d ∈ dependencies, ρ.respects d.folSym) →
+                 (∀ d ∈ dependencies, ρ.respects d.symbol) →
                  (∀ p, b.pre = some p →
                    (p "a").eval (ρ.updateConst .value "a" (b.arg.inject x))) →
                  b.dom x
@@ -721,7 +730,7 @@ structure Unary.Lawful (dependencies : Registry) (b : Unary) where
     spec's own environment, to what `f` computes. -/
 theorem Unary.Lawful.opEval {dependencies : Registry} {b : Unary}
     (l : b.Lawful dependencies) (ρ : Env) (x : b.arg.carrier)
-    (hρ : ∀ d ∈ b.toIntrinsic :: dependencies, ρ.respects d.folSym) :
+    (hρ : ∀ d ∈ b.toIntrinsic :: dependencies, ρ.respects d.symbol) :
     Term.eval ((Spec.argsEnv ρ b.toIntrinsic.specArgs [b.arg.inject x]).updateConst
         .value "ret" (b.res.inject (b.f x))) (b.opTerm (.var .value "a"))
       = b.res.inject (b.f x) := by
@@ -733,7 +742,7 @@ theorem Unary.Lawful.opEval {dependencies : Registry} {b : Unary}
     exact hev _ x rfl
   | symbol φ =>
     have hresp : ρ.respects (some b.sym) := by
-      simpa [Intrinsic.folSym, Unary.toIntrinsic, Unary.fol, hb]
+      simpa [Intrinsic.symbol, Unary.toIntrinsic, Unary.fol, hb]
         using hρ b.toIntrinsic (by simp)
     have hun : (Spec.argsEnv ρ b.toIntrinsic.specArgs [b.arg.inject x]).unary
         .value .value b.name = b.sym.interp := by
@@ -747,10 +756,22 @@ theorem Unary.Lawful.opEval {dependencies : Registry} {b : Unary}
 @[reducible] def Unary.Lawful.sound {dependencies : Registry} {b : Unary}
     (l : b.Lawful dependencies) :
     IntrinsicSound (b.toIntrinsic :: dependencies) b.toIntrinsic where
-  argLen := rfl
-  specWf := fun _ hsub hwf => specWf_of_base l.specBaseWf hsub hwf
-  wp_sound := by
-    intro _ ctx hctx vs Φ
+  arg_len := rfl
+  spec_wf := fun _ hsub hwf => spec_wf_of_base l.specBaseWf hsub hwf
+  pre_bupd := by
+    intro _ _ vs Φ
+    match vs with
+    | [] => exact false_elim
+    | _ :: _ :: _ => exact false_elim
+    | [a] =>
+      rw [Unary.toPre_eq]
+      refine BIBase.Entails.trans ?_ bupd_intro
+      istart
+      iintro ⟨%x, %_, HΦ⟩
+      iexists (b.res.inject (b.f x))
+      iexact HΦ
+  pre_wp := by
+    intro _ _ ctx hctx vs Φ
     match vs with
     | [] => exact false_elim
     | _ :: _ :: _ => exact false_elim
@@ -760,7 +781,7 @@ theorem Unary.Lawful.opEval {dependencies : Registry} {b : Unary}
             ↔ v = b.res.inject (b.f x) ∧ μ' = μ := by
         intro x hdom μ v μ'
         rw [hctx]
-        simp only [Unary.toIntrinsic, Intrinsic.toReduce_one_of_arity, Reduce.pure]
+        simp only [Unary.toIntrinsic, Intrinsic.toCall_one_of_arity, Sem.pure]
         constructor
         · rintro ⟨⟨x', hx, _, hv⟩, hμ⟩
           have hxx : x = x' := by
@@ -778,7 +799,7 @@ theorem Unary.Lawful.opEval {dependencies : Registry} {b : Unary}
       iintro %v %hv
       subst hv
       iexact HΦ
-  bridge := by
+  spec_sound := by
     intro _ σ W vs ρ Φ hρ
     simp only [Unary.argTys_map_subst, Unary.retTy_subst, Unary.spec_pred]
     match vs with
@@ -803,7 +824,7 @@ theorem Unary.Lawful.opEval {dependencies : Registry} {b : Unary}
       · iapply (l.resL.intro σ W (b.f x))
         iapply (l.semWellTyped σ W x hdom)
         iexact Hrel
-      simp only [Unary.toIntrinsic, Intrinsic.toWp_one_of_arity]
+      simp only [Unary.toIntrinsic, Intrinsic.toPre_one_of_arity]
       iexists x
       isplitr [Hpost Hty]
       · ipureintro; exact ⟨rfl, hdom⟩
@@ -817,7 +838,7 @@ theorem Unary.Lawful.opEval {dependencies : Registry} {b : Unary}
         iintro ⟨Hwand, Hty⟩
         iapply Hwand
         iexact Hty
-  axiomWf := by
+  axioms_wf := by
     intro Δ hsub hwf a hφ
     simp only [Unary.toIntrinsic, Unary.axioms] at hφ
     have hw := l.encWf
@@ -830,7 +851,7 @@ theorem Unary.Lawful.opEval {dependencies : Registry} {b : Unary}
       rcases hφ with rfl | ⟨ψ, hψ, rfl⟩
       · exact Formula.wfIn_mono _ hw hsub hwf
       · exact Formula.wfIn_mono _ (l.typeWf ψ hψ) hsub hwf
-  proof := by
+  axioms_sound := by
     intro ρ hdeps a hφ
     simp only [Unary.toIntrinsic, Unary.axioms] at hφ
     have hev := l.encEval
@@ -840,7 +861,7 @@ theorem Unary.Lawful.opEval {dependencies : Registry} {b : Unary}
       rw [hb] at hφ
       simp only [Unary.encEval, hb] at hev
       have hresp : ρ.respects (some b.sym) := by
-        simpa [Intrinsic.folSym, Unary.toIntrinsic, Unary.fol, hb]
+        simpa [Intrinsic.symbol, Unary.toIntrinsic, Unary.fol, hb]
           using hdeps b.toIntrinsic (by simp)
       simp only [List.mem_cons, Option.mem_toList, Option.map_eq_some_iff,
         Unary.typeAxiom, hb] at hφ
@@ -855,7 +876,7 @@ theorem Unary.Lawful.opEval {dependencies : Registry} {b : Unary}
         simp only [Unary.opTerm, Unary.fol, hb, IntrinsicFOL.term, Term.eval,
           UnOp.eval, Env.lookupConst_updateConst_same, hu, Unary.sym]
         exact l.resL.isOf_inject _ _ p hp
-  folWf := by
+  encode_sound := by
     intro f hf
     simp only [Unary.toIntrinsic, Option.some.injEq] at hf
     subst hf
@@ -873,7 +894,7 @@ the SMT defining axiom. From this alone the `Intrinsic` and its FOL symbol are
 built (`toIntrinsic`). The proof obligations live in `Pure.Binary.Lawful`. -/
 
 /-- The computational data of a pure binary intrinsic. `dom` is the carrier-level
-    domain guarding `reduce`/`wp`; `pre` is the matching FOL precondition as a
+    domain guarding `sem`/`pre`; `pre` is the matching FOL precondition as a
     function of the spec's argument names (the builder applies it at `"a"`/`"b"`).
     For total intrinsics: `dom := fun _ _ => True`, `pre := none`. -/
 structure Binary where
@@ -922,14 +943,15 @@ def Binary.axioms (b : Binary) : List Axiom :=
   | .symbol φ => ⟨φ, .high⟩ :: (b.typeAxiom.map (⟨·, .high⟩)).toList
 
 /-- The intrinsic built from `b`: a literal `Intrinsic.mk` so the arity-unfolding
-    lemmas (`toReduce_two_of_arity`, `toWp_two_of_arity`) keep firing by `rfl`. -/
+    lemmas (`toCall_two_of_arity`, `toPre_two_of_arity`) keep firing by `rfl`. -/
 def Binary.toIntrinsic (b : Binary) : Intrinsic where
   arity  := .two
   name   := b.name
   path   := b.path
-  reduce := Reduce.pure fun (a, c) v =>
+  mode   := .both
+  sem    := Sem.pure fun (a, c) v =>
     ∃ x y, a = b.arg₁.inject x ∧ c = b.arg₂.inject y ∧ b.dom x y ∧ v = b.res.inject (b.f x y)
-  wp     := fun (a, c) Q =>
+  pre    := fun (a, c) Q =>
     iprop(∃ x y, ⌜a = b.arg₁.inject x ∧ c = b.arg₂.inject y ∧ b.dom x y⌝ ∗
       Q (b.res.inject (b.f x y)))
   argTys := [b.arg₁.typ, b.arg₂.typ]
@@ -940,16 +962,16 @@ def Binary.toIntrinsic (b : Binary) : Intrinsic where
       pred  := withPre (b.pre.map (· "a" "b")) <| .ret ⟨"ret",
         .assert (.eq .value (.var .value "ret")
           (b.opTerm (.var .value "a") (.var .value "b"))) (.ret ())⟩ }
-  folTerm := some b.fol
+  encode := some b.fol
   axioms := b.axioms
 
-@[simp] theorem Binary.toWp_eq (b : Binary) (a c : Runtime.Val) (Q : Runtime.Val → iProp) :
-    b.toIntrinsic.toWp [a, c] Q =
+@[simp] theorem Binary.toPre_eq (b : Binary) (a c : Runtime.Val) (Q : Runtime.Val → iProp) :
+    b.toIntrinsic.toPre [a, c] Q =
       iprop(∃ x y, ⌜a = b.arg₁.inject x ∧ c = b.arg₂.inject y ∧ b.dom x y⌝ ∗
         Q (b.res.inject (b.f x y))) := rfl
 
-@[simp] theorem Binary.toReduce_eq (b : Binary) (a c v : Runtime.Val) (μ μ' : TinyML.Heap) :
-    b.toIntrinsic.toReduce [a, c] μ v μ' =
+@[simp] theorem Binary.toCall_eq (b : Binary) (a c v : Runtime.Val) (μ μ' : TinyML.Heap) :
+    b.toIntrinsic.toCall [a, c] μ v μ' =
       ((∃ x y, a = b.arg₁.inject x ∧ c = b.arg₂.inject y ∧ b.dom x y ∧
         v = b.res.inject (b.f x y)) ∧ μ' = μ) := rfl
 
@@ -970,7 +992,7 @@ def Binary.toIntrinsic (b : Binary) : Intrinsic where
     satisfy its defining axiom. A `direct` encoding must compute `f`. -/
 def Binary.encEval (b : Binary) (dependencies : Registry) : Prop :=
   match b.enc with
-  | .symbol φ => ∀ ρ : Env, (∀ d ∈ dependencies, ρ.respects d.folSym) →
+  | .symbol φ => ∀ ρ : Env, (∀ d ∈ dependencies, ρ.respects d.symbol) →
       ρ.respects (some b.sym) → Formula.eval ρ φ
   | .direct e => ∀ (ρ : Env) (x : b.arg₁.carrier) (y : b.arg₂.carrier),
       ρ.lookupConst .value "a" = b.arg₁.inject x →
@@ -984,7 +1006,7 @@ structure Binary.Lawful (dependencies : Registry) (b : Binary) where
   argL₂        : b.arg₂.Lawful
   resL         : b.res.Lawful
   domSound     : ∀ (ρ : Env) (x : b.arg₁.carrier) (y : b.arg₂.carrier),
-                 (∀ d ∈ dependencies, ρ.respects d.folSym) →
+                 (∀ d ∈ dependencies, ρ.respects d.symbol) →
                  (∀ p, b.pre = some p →
                    (p "a" "b").eval ((ρ.updateConst .value "a" (b.arg₁.inject x)).updateConst
                      .value "b" (b.arg₂.inject y))) →
@@ -1005,7 +1027,7 @@ structure Binary.Lawful (dependencies : Registry) (b : Binary) where
     spec's own environment, to what `f` computes. -/
 theorem Binary.Lawful.opEval {dependencies : Registry} {b : Binary}
     (l : b.Lawful dependencies) (ρ : Env) (x : b.arg₁.carrier) (y : b.arg₂.carrier)
-    (hρ : ∀ d ∈ b.toIntrinsic :: dependencies, ρ.respects d.folSym) :
+    (hρ : ∀ d ∈ b.toIntrinsic :: dependencies, ρ.respects d.symbol) :
     Term.eval ((Spec.argsEnv ρ b.toIntrinsic.specArgs
         [b.arg₁.inject x, b.arg₂.inject y]).updateConst
         .value "ret" (b.res.inject (b.f x y)))
@@ -1019,7 +1041,7 @@ theorem Binary.Lawful.opEval {dependencies : Registry} {b : Binary}
     exact hev _ x y rfl rfl
   | symbol φ =>
     have hresp : ρ.respects (some b.sym) := by
-      simpa [Intrinsic.folSym, Binary.toIntrinsic, Binary.fol, hb]
+      simpa [Intrinsic.symbol, Binary.toIntrinsic, Binary.fol, hb]
         using hρ b.toIntrinsic (by simp)
     have hbin : (Spec.argsEnv ρ b.toIntrinsic.specArgs
         [b.arg₁.inject x, b.arg₂.inject y]).binary .value .value .value b.name
@@ -1037,10 +1059,23 @@ theorem Binary.Lawful.opEval {dependencies : Registry} {b : Binary}
 @[reducible] def Binary.Lawful.sound {dependencies : Registry} {b : Binary}
     (l : b.Lawful dependencies) :
     IntrinsicSound (b.toIntrinsic :: dependencies) b.toIntrinsic where
-  argLen := rfl
-  specWf := fun _ hsub hwf => specWf_of_base l.specBaseWf hsub hwf
-  wp_sound := by
-    intro _ ctx hctx vs Φ
+  arg_len := rfl
+  spec_wf := fun _ hsub hwf => spec_wf_of_base l.specBaseWf hsub hwf
+  pre_bupd := by
+    intro _ _ vs Φ
+    match vs with
+    | [] => exact false_elim
+    | [_] => exact false_elim
+    | _ :: _ :: _ :: _ => exact false_elim
+    | [a, c] =>
+      rw [Binary.toPre_eq]
+      refine BIBase.Entails.trans ?_ bupd_intro
+      istart
+      iintro ⟨%x, %y, %_, HΦ⟩
+      iexists (b.res.inject (b.f x y))
+      iexact HΦ
+  pre_wp := by
+    intro _ _ ctx hctx vs Φ
     match vs with
     | [] => exact false_elim
     | [_] => exact false_elim
@@ -1051,7 +1086,7 @@ theorem Binary.Lawful.opEval {dependencies : Registry} {b : Binary}
             ↔ v = b.res.inject (b.f x y) ∧ μ' = μ := by
         intro x y hdom μ v μ'
         rw [hctx]
-        simp only [Binary.toIntrinsic, Intrinsic.toReduce_two_of_arity, Reduce.pure]
+        simp only [Binary.toIntrinsic, Intrinsic.toCall_two_of_arity, Sem.pure]
         constructor
         · rintro ⟨⟨x', y', hx, hy, _, hv⟩, hμ⟩
           have hxx : x = x' := by
@@ -1073,7 +1108,7 @@ theorem Binary.Lawful.opEval {dependencies : Registry} {b : Binary}
       iintro %v %hv
       subst hv
       iexact HΦ
-  bridge := by
+  spec_sound := by
     intro _ σ W vs ρ Φ hρ
     simp only [Binary.argTys_map_subst, Binary.retTy_subst, Binary.spec_pred]
     show TinyML.ValsHaveTypes W vs [TinyML.Typ.subst σ b.arg₁.typ, TinyML.Typ.subst σ b.arg₂.typ] ∗ _ ⊢ _
@@ -1108,7 +1143,7 @@ theorem Binary.Lawful.opEval {dependencies : Registry} {b : Binary}
         isplitl [Hrel1]
         · iexact Hrel1
         · iexact Hrel2
-      simp only [Binary.toIntrinsic, Intrinsic.toWp_two_of_arity]
+      simp only [Binary.toIntrinsic, Intrinsic.toPre_two_of_arity]
       iexists x
       iexists y
       isplitr [Hpost Hty]
@@ -1124,7 +1159,7 @@ theorem Binary.Lawful.opEval {dependencies : Registry} {b : Binary}
         iintro ⟨Hwand, Hty⟩
         iapply Hwand
         iexact Hty
-  axiomWf := by
+  axioms_wf := by
     intro Δ hsub hwf a hφ
     simp only [Binary.toIntrinsic, Binary.axioms] at hφ
     have hw := l.encWf
@@ -1137,7 +1172,7 @@ theorem Binary.Lawful.opEval {dependencies : Registry} {b : Binary}
       rcases hφ with rfl | ⟨ψ, hψ, rfl⟩
       · exact Formula.wfIn_mono _ hw hsub hwf
       · exact Formula.wfIn_mono _ (l.typeWf ψ hψ) hsub hwf
-  proof := by
+  axioms_sound := by
     intro ρ hdeps a hφ
     simp only [Binary.toIntrinsic, Binary.axioms] at hφ
     have hev := l.encEval
@@ -1147,7 +1182,7 @@ theorem Binary.Lawful.opEval {dependencies : Registry} {b : Binary}
       rw [henc] at hφ
       simp only [Binary.encEval, henc] at hev
       have hresp : ρ.respects (some b.sym) := by
-        simpa [Intrinsic.folSym, Binary.toIntrinsic, Binary.fol, henc]
+        simpa [Intrinsic.symbol, Binary.toIntrinsic, Binary.fol, henc]
           using hdeps b.toIntrinsic (by simp)
       simp only [List.mem_cons, Option.mem_toList, Option.map_eq_some_iff,
         Binary.typeAxiom, henc] at hφ
@@ -1163,7 +1198,7 @@ theorem Binary.Lawful.opEval {dependencies : Registry} {b : Binary}
           BinOp.eval, Env.lookupConst_updateConst_same,
           Env.lookupConst_updateConst_ne (show "a" ≠ "b" by decide), hb, Binary.sym]
         exact l.resL.isOf_inject _ _ p hp
-  folWf := by
+  encode_sound := by
     intro f hf
     simp only [Binary.toIntrinsic, Option.some.injEq] at hf
     subst hf
@@ -1181,7 +1216,7 @@ the SMT defining axiom. From this alone the `Intrinsic` and its FOL symbol are
 built (`toIntrinsic`). The proof obligations live in `Pure.Ternary.Lawful`. -/
 
 /-- The computational data of a pure ternary intrinsic. `dom` is the carrier-level
-    domain guarding `reduce`/`wp`; `pre` is the matching FOL precondition as a
+    domain guarding `sem`/`pre`; `pre` is the matching FOL precondition as a
     function of the spec's argument names (the builder applies it at
     `"a"`/`"b"`/`"c"`). For total intrinsics: `dom := fun _ _ _ => True`,
     `pre := none`. -/
@@ -1233,15 +1268,16 @@ def Ternary.axioms (b : Ternary) : List Axiom :=
   | .symbol φ => ⟨φ, .high⟩ :: (b.typeAxiom.map (⟨·, .high⟩)).toList
 
 /-- The intrinsic built from `b`: a literal `Intrinsic.mk` so the arity-unfolding
-    lemmas (`toReduce_three_of_arity`, `toWp_three_of_arity`) keep firing by `rfl`. -/
+    lemmas (`toCall_three_of_arity`, `toPre_three_of_arity`) keep firing by `rfl`. -/
 def Ternary.toIntrinsic (b : Ternary) : Intrinsic where
   arity  := .three
   name   := b.name
   path   := b.path
-  reduce := Reduce.pure fun (a, c, d) v =>
+  mode   := .both
+  sem    := Sem.pure fun (a, c, d) v =>
     ∃ x y z, a = b.arg₁.inject x ∧ c = b.arg₂.inject y ∧ d = b.arg₃.inject z ∧
       b.dom x y z ∧ v = b.res.inject (b.f x y z)
-  wp     := fun (a, c, d) Q =>
+  pre    := fun (a, c, d) Q =>
     iprop(∃ x y z, ⌜a = b.arg₁.inject x ∧ c = b.arg₂.inject y ∧ d = b.arg₃.inject z ∧
       b.dom x y z⌝ ∗ Q (b.res.inject (b.f x y z)))
   argTys := [b.arg₁.typ, b.arg₂.typ, b.arg₃.typ]
@@ -1252,16 +1288,16 @@ def Ternary.toIntrinsic (b : Ternary) : Intrinsic where
       pred  := withPre (b.pre.map (· "a" "b" "c")) <| .ret ⟨"ret",
         .assert (.eq .value (.var .value "ret")
           (b.opTerm (.var .value "a") (.var .value "b") (.var .value "c"))) (.ret ())⟩ }
-  folTerm := some b.fol
+  encode := some b.fol
   axioms := b.axioms
 
-@[simp] theorem Ternary.toWp_eq (b : Ternary) (a c d : Runtime.Val) (Q : Runtime.Val → iProp) :
-    b.toIntrinsic.toWp [a, c, d] Q =
+@[simp] theorem Ternary.toPre_eq (b : Ternary) (a c d : Runtime.Val) (Q : Runtime.Val → iProp) :
+    b.toIntrinsic.toPre [a, c, d] Q =
       iprop(∃ x y z, ⌜a = b.arg₁.inject x ∧ c = b.arg₂.inject y ∧ d = b.arg₃.inject z ∧
         b.dom x y z⌝ ∗ Q (b.res.inject (b.f x y z))) := rfl
 
-@[simp] theorem Ternary.toReduce_eq (b : Ternary) (a c d v : Runtime.Val) (μ μ' : TinyML.Heap) :
-    b.toIntrinsic.toReduce [a, c, d] μ v μ' =
+@[simp] theorem Ternary.toCall_eq (b : Ternary) (a c d v : Runtime.Val) (μ μ' : TinyML.Heap) :
+    b.toIntrinsic.toCall [a, c, d] μ v μ' =
       ((∃ x y z, a = b.arg₁.inject x ∧ c = b.arg₂.inject y ∧ d = b.arg₃.inject z ∧
         b.dom x y z ∧ v = b.res.inject (b.f x y z)) ∧ μ' = μ) := rfl
 
@@ -1282,7 +1318,7 @@ def Ternary.toIntrinsic (b : Ternary) : Intrinsic where
     satisfy its defining axiom. A `direct` encoding must compute `f`. -/
 def Ternary.encEval (b : Ternary) (dependencies : Registry) : Prop :=
   match b.enc with
-  | .symbol φ => ∀ ρ : Env, (∀ d ∈ dependencies, ρ.respects d.folSym) →
+  | .symbol φ => ∀ ρ : Env, (∀ d ∈ dependencies, ρ.respects d.symbol) →
       ρ.respects (some b.sym) → Formula.eval ρ φ
   | .direct e => ∀ (ρ : Env) (x : b.arg₁.carrier) (y : b.arg₂.carrier)
       (z : b.arg₃.carrier),
@@ -1300,7 +1336,7 @@ structure Ternary.Lawful (dependencies : Registry) (b : Ternary) where
   argL₃        : b.arg₃.Lawful
   resL         : b.res.Lawful
   domSound     : ∀ (ρ : Env) (x : b.arg₁.carrier) (y : b.arg₂.carrier) (z : b.arg₃.carrier),
-                 (∀ d ∈ dependencies, ρ.respects d.folSym) →
+                 (∀ d ∈ dependencies, ρ.respects d.symbol) →
                  (∀ p, b.pre = some p →
                    (p "a" "b" "c").eval (((ρ.updateConst .value "a"
                      (b.arg₁.inject x)).updateConst .value "b"
@@ -1324,7 +1360,7 @@ structure Ternary.Lawful (dependencies : Registry) (b : Ternary) where
 theorem Ternary.Lawful.opEval {dependencies : Registry} {b : Ternary}
     (l : b.Lawful dependencies) (ρ : Env) (x : b.arg₁.carrier) (y : b.arg₂.carrier)
     (z : b.arg₃.carrier)
-    (hρ : ∀ d ∈ b.toIntrinsic :: dependencies, ρ.respects d.folSym) :
+    (hρ : ∀ d ∈ b.toIntrinsic :: dependencies, ρ.respects d.symbol) :
     Term.eval ((Spec.argsEnv ρ b.toIntrinsic.specArgs
         [b.arg₁.inject x, b.arg₂.inject y, b.arg₃.inject z]).updateConst
         .value "ret" (b.res.inject (b.f x y z)))
@@ -1338,7 +1374,7 @@ theorem Ternary.Lawful.opEval {dependencies : Registry} {b : Ternary}
     exact hev _ x y z rfl rfl rfl
   | symbol φ =>
     have hresp : ρ.respects (some b.sym) := by
-      simpa [Intrinsic.folSym, Ternary.toIntrinsic, Ternary.fol, hb]
+      simpa [Intrinsic.symbol, Ternary.toIntrinsic, Ternary.fol, hb]
         using hρ b.toIntrinsic (by simp)
     have hter : (Spec.argsEnv ρ b.toIntrinsic.specArgs
         [b.arg₁.inject x, b.arg₂.inject y, b.arg₃.inject z]).ternary
@@ -1359,10 +1395,24 @@ theorem Ternary.Lawful.opEval {dependencies : Registry} {b : Ternary}
 @[reducible] def Ternary.Lawful.sound {dependencies : Registry} {b : Ternary}
     (l : b.Lawful dependencies) :
     IntrinsicSound (b.toIntrinsic :: dependencies) b.toIntrinsic where
-  argLen := rfl
-  specWf := fun _ hsub hwf => specWf_of_base l.specBaseWf hsub hwf
-  wp_sound := by
-    intro _ ctx hctx vs Φ
+  arg_len := rfl
+  spec_wf := fun _ hsub hwf => spec_wf_of_base l.specBaseWf hsub hwf
+  pre_bupd := by
+    intro _ _ vs Φ
+    match vs with
+    | [] => exact false_elim
+    | [_] => exact false_elim
+    | [_, _] => exact false_elim
+    | _ :: _ :: _ :: _ :: _ => exact false_elim
+    | [a, c, d] =>
+      rw [Ternary.toPre_eq]
+      refine BIBase.Entails.trans ?_ bupd_intro
+      istart
+      iintro ⟨%x, %y, %z, %_, HΦ⟩
+      iexists (b.res.inject (b.f x y z))
+      iexact HΦ
+  pre_wp := by
+    intro _ _ ctx hctx vs Φ
     match vs with
     | [] => exact false_elim
     | [_] => exact false_elim
@@ -1374,7 +1424,7 @@ theorem Ternary.Lawful.opEval {dependencies : Registry} {b : Ternary}
             ↔ v = b.res.inject (b.f x y z) ∧ μ' = μ := by
         intro x y z hdom μ v μ'
         rw [hctx]
-        simp only [Ternary.toIntrinsic, Intrinsic.toReduce_three_of_arity, Reduce.pure]
+        simp only [Ternary.toIntrinsic, Intrinsic.toCall_three_of_arity, Sem.pure]
         constructor
         · rintro ⟨⟨x', y', z', hx, hy, hz, _, hv⟩, hμ⟩
           have hxx : x = x' := by
@@ -1399,7 +1449,7 @@ theorem Ternary.Lawful.opEval {dependencies : Registry} {b : Ternary}
       iintro %v %hv
       subst hv
       iexact HΦ
-  bridge := by
+  spec_sound := by
     intro _ σ W vs ρ Φ hρ
     simp only [Ternary.argTys_map_subst, Ternary.retTy_subst, Ternary.spec_pred]
     show TinyML.ValsHaveTypes W vs
@@ -1443,7 +1493,7 @@ theorem Ternary.Lawful.opEval {dependencies : Registry} {b : Ternary}
         · isplitl [Hrel2]
           · iexact Hrel2
           · iexact Hrel3
-      simp only [Ternary.toIntrinsic, Intrinsic.toWp_three_of_arity]
+      simp only [Ternary.toIntrinsic, Intrinsic.toPre_three_of_arity]
       iexists x
       iexists y
       iexists z
@@ -1460,7 +1510,7 @@ theorem Ternary.Lawful.opEval {dependencies : Registry} {b : Ternary}
         iintro ⟨Hwand, Hty⟩
         iapply Hwand
         iexact Hty
-  axiomWf := by
+  axioms_wf := by
     intro Δ hsub hwf a hφ
     simp only [Ternary.toIntrinsic, Ternary.axioms] at hφ
     have hw := l.encWf
@@ -1473,7 +1523,7 @@ theorem Ternary.Lawful.opEval {dependencies : Registry} {b : Ternary}
       rcases hφ with rfl | ⟨ψ, hψ, rfl⟩
       · exact Formula.wfIn_mono _ hw hsub hwf
       · exact Formula.wfIn_mono _ (l.typeWf ψ hψ) hsub hwf
-  proof := by
+  axioms_sound := by
     intro ρ hdeps a hφ
     simp only [Ternary.toIntrinsic, Ternary.axioms] at hφ
     have hev := l.encEval
@@ -1483,7 +1533,7 @@ theorem Ternary.Lawful.opEval {dependencies : Registry} {b : Ternary}
       rw [henc] at hφ
       simp only [Ternary.encEval, henc] at hev
       have hresp : ρ.respects (some b.sym) := by
-        simpa [Intrinsic.folSym, Ternary.toIntrinsic, Ternary.fol, henc]
+        simpa [Intrinsic.symbol, Ternary.toIntrinsic, Ternary.fol, henc]
           using hdeps b.toIntrinsic (by simp)
       simp only [List.mem_cons, Option.mem_toList, Option.map_eq_some_iff,
         Ternary.typeAxiom, henc] at hφ
@@ -1503,7 +1553,7 @@ theorem Ternary.Lawful.opEval {dependencies : Registry} {b : Ternary}
           Env.lookupConst_updateConst_ne (show "b" ≠ "c" by decide),
           ht, Ternary.sym]
         exact l.resL.isOf_inject _ _ p hp
-  folWf := by
+  encode_sound := by
     intro f hf
     simp only [Ternary.toIntrinsic, Option.some.injEq] at hf
     subst hf

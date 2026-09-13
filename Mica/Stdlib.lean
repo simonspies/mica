@@ -141,7 +141,7 @@ theorem registry_sound : Registry.Sound registry := by
 
 theorem registry_wf : Registry.Wf registry := by
   -- The per-symbol freshness side conditions reduce to literal-name
-  -- disequalities; the `@[simp]` `*_folSym`/`*Sym_name` lemmas expose the
+  -- disequalities; the `@[simp]` `*_symbol`/`*Sym_name` lemmas expose the
   -- names, so this stays generic over the registry contents.
   simp [registry, Registry.Wf, Registry.WfFrom, Signature.extendWithSym,
     Signature.empty, Signature.addConst, Signature.addUnary, Signature.addBinary,
