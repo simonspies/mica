@@ -2518,10 +2518,11 @@ theorem compileLetInGhost_correct (reg : Verifier.Registry)
   simp only [Expr.WithTypeVars.ty] at hpost
   unfold Expr.WithTypeVars.runtime
   refine SpatialContext.wp_bupd (BIBase.Entails.trans ?_
-    ((compileGhostExpr_correct reg hSound W Gf hwf hΔreg hρreg e G B Γ γg γ
+    ((compileGhostExpr_correct reg hSound e W Gf G B Γ γg γ
         (R := iprop(Bindings.typedScope W G B Γ γg γ ∗ R))
         (Φ := fun _ => wp W.pctx (body.runtime.subst γ) Φ)
-        hag hgagree hgwf hagree hbwf hGf (VerifM.eval.decls_grow ρ (VerifM.eval_bind heval))
+        hwf hag hΔreg hρreg hgagree hgwf hagree hbwf hGf
+          (VerifM.eval.decls_grow ρ (VerifM.eval_bind heval))
         ?_).trans (bupd_mono (exists_elim fun _ => .rfl))))
   · iintro ⟨Howns, #HT, HR⟩
     isplitl [Howns]
@@ -3366,11 +3367,11 @@ theorem compileAppSpec_correct (reg : Verifier.Registry) (hSound : Verifier.Regi
   -- The ghost arguments are ghost code: they take no step, and the update their
   -- obligation leaves is absorbed by the call's weakest precondition.
   refine SpatialContext.wp_bupd (BIBase.Entails.trans ?_
-    ((compileGhostExprs_correct reg hSound W Gf hwf hΔreg hρreg gargs G B Γ γg γ
+    ((compileGhostExprs_correct reg hSound gargs W Gf G B Γ γg γ
         (R := iprop(TinyML.ValHasType W fval fn.ty ∗
           (TinyML.ValsHaveTypes W vs (args.map Expr.WithTypeVars.ty) ∗ R)))
         (Φ := fun _ => wp W.pctx ((Runtime.Expr.val fval).app (vs.map Runtime.Expr.val)) Φ)
-        hag_fn hgagree_fn hgwf_fn hagree_fn hbwf_fn hGf_fn
+        hwf hag_fn hΔreg hρreg hgagree_fn hgwf_fn hagree_fn hbwf_fn hGf_fn
         (VerifM.eval.decls_grow ρ_fn heval_gargs) ?_).trans
       (bupd_mono (exists_elim fun _ => .rfl))))
   · iintro ⟨Howns, #Hfval, #HT, #Hvals, HR⟩
