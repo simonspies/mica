@@ -779,8 +779,7 @@ theorem wp.prim {ctx : TinyML.PrimCtx} {n : String} {vs : List Runtime.Val}
   · iexact HQ
 
 /-- Primitive-call rule for pure contexts: at `n`/`vs`, `ctx` is
-    heap-independent and heap-preserving, with at least one result. Covers
-    every current stdlib intrinsic (`Verifier.Reduce.pure`). -/
+    heap-independent and heap-preserving, with at least one result. -/
 theorem wp.prim_pure {ctx : TinyML.PrimCtx} {n : String} {vs : List Runtime.Val}
     {rel : Runtime.Val → Prop} {Q : Runtime.Val → iProp}
     (hctx : ∀ μ v μ', ctx n vs μ v μ' ↔ rel v ∧ μ' = μ) (hne : ∃ v, rel v) :

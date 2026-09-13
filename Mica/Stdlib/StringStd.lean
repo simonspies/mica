@@ -173,7 +173,7 @@ def stringLengthB : Pure.Unary where
 def stringLength : Intrinsic := stringLengthB.toIntrinsic
 
 @[simp] theorem stringLength_arity : stringLength.arity = .one := rfl
-@[simp] theorem stringLength_folSym : stringLength.folSym = some stringLengthSym := rfl
+@[simp] theorem stringLength_symbol : stringLength.symbol = some stringLengthSym := rfl
 
 def stringLengthLawful : stringLengthB.Lawful [] where
   argL         := Embedding.lawfulStr
@@ -204,7 +204,7 @@ def stringCatB : Pure.Binary where
 def stringCat : Intrinsic := stringCatB.toIntrinsic
 
 @[simp] theorem stringCat_arity : stringCat.arity = .two := rfl
-@[simp] theorem stringCat_folSym : stringCat.folSym = some stringCatSym := rfl
+@[simp] theorem stringCat_symbol : stringCat.symbol = some stringCatSym := rfl
 
 def stringCatLawful : stringCatB.Lawful [] where
   argL₁        := Embedding.lawfulStr
@@ -236,7 +236,7 @@ def stringGetB : Pure.Binary where
 def stringGet : Intrinsic := stringGetB.toIntrinsic
 
 @[simp] theorem stringGet_arity : stringGet.arity = .two := rfl
-@[simp] theorem stringGet_folSym : stringGet.folSym = some stringGetSym := rfl
+@[simp] theorem stringGet_symbol : stringGet.symbol = some stringGetSym := rfl
 
 def stringGetLawful : stringGetB.Lawful [] where
   argL₁        := Embedding.lawfulStr
@@ -288,7 +288,7 @@ def stringSubB : Pure.Ternary where
 def stringSub : Intrinsic := stringSubB.toIntrinsic
 
 @[simp] theorem stringSub_arity : stringSub.arity = .three := rfl
-@[simp] theorem stringSub_folSym : stringSub.folSym = some stringSubSym := rfl
+@[simp] theorem stringSub_symbol : stringSub.symbol = some stringSubSym := rfl
 
 def stringSubLawful : stringSubB.Lawful [] where
   argL₁        := Embedding.lawfulStr
@@ -345,7 +345,7 @@ def stringEqualB : Pure.Binary where
 def stringEqual : Intrinsic := stringEqualB.toIntrinsic
 
 @[simp] theorem stringEqual_arity : stringEqual.arity = .two := rfl
-@[simp] theorem stringEqual_folSym : stringEqual.folSym = some stringEqualSym := rfl
+@[simp] theorem stringEqual_symbol : stringEqual.symbol = some stringEqualSym := rfl
 
 def stringEqualLawful : stringEqualB.Lawful [] where
   argL₁        := Embedding.lawfulStr
@@ -379,8 +379,8 @@ def stringStartsWithB : Pure.Binary where
 def stringStartsWith : Intrinsic := stringStartsWithB.toIntrinsic
 
 @[simp] theorem stringStartsWith_arity : stringStartsWith.arity = .two := rfl
-@[simp] theorem stringStartsWith_folSym :
-    stringStartsWith.folSym = some stringStartsWithSym := rfl
+@[simp] theorem stringStartsWith_symbol :
+    stringStartsWith.symbol = some stringStartsWithSym := rfl
 
 def stringStartsWithLawful : stringStartsWithB.Lawful [] where
   argL₁        := Embedding.lawfulStr
@@ -413,7 +413,7 @@ def stringEndsWithB : Pure.Binary where
 def stringEndsWith : Intrinsic := stringEndsWithB.toIntrinsic
 
 @[simp] theorem stringEndsWith_arity : stringEndsWith.arity = .two := rfl
-@[simp] theorem stringEndsWith_folSym : stringEndsWith.folSym = some stringEndsWithSym := rfl
+@[simp] theorem stringEndsWith_symbol : stringEndsWith.symbol = some stringEndsWithSym := rfl
 
 def stringEndsWithLawful : stringEndsWithB.Lawful [] where
   argL₁        := Embedding.lawfulStr

@@ -14,8 +14,8 @@ open Iris Iris.BI
 A `Registry` is a list of intrinsics; the verifier derives from it the two
 total contexts that lower layers consume: `TinyML.PrimCtx` (OpSem) and
 `WpCtx` (separation logic). Each entry contributes one FOL symbol (or
-none), a list of FOL axioms, and the runtime/wp/spec facets of a built-in
-function.
+none), a list of FOL axioms, and the semantics, precondition, and spec
+facets of a built-in function.
 
 Theorems in this module are proved for *every possible registry*: induction
 on the list, with a per-intrinsic step that case-analyzes on arity and on
@@ -33,7 +33,7 @@ structure FOL.Symbol (n : Arity) where
 
 /-- A direct encoding of an intrinsic: it makes a value term from the argument
     terms. Nothing ties the term to the intrinsic's meaning at this layer; the
-    tie is the intrinsic's own specification, which `IntrinsicSound.bridge`
+    tie is the intrinsic's own specification, which `IntrinsicSound.spec_sound`
     discharges. -/
 abbrev FOL.Direct (n : Arity) := Arity.tup n (Term .value) → Term .value
 
@@ -378,8 +378,8 @@ structure Intrinsic where
   name     : String
   /-- Optional surface module path used by concrete stdlibs to build frontend resolvers. -/
   path     : Option (String × List String)
-  reduce   : Arity.tup arity Runtime.Val → TinyML.Heap → Runtime.Val → TinyML.Heap → Prop
-  wp       : Arity.tup arity Runtime.Val → (Runtime.Val → iProp) → iProp
+  sem      : Arity.tup arity Runtime.Val → TinyML.Heap → Runtime.Val → TinyML.Heap → Prop
+  pre      : Arity.tup arity Runtime.Val → (Runtime.Val → iProp) → iProp
   /-- The intrinsic's argument types, in order. May contain type variables (a
       *scheme*); substituted per use site by the elaborator's instantiation. -/
   argTys   : List TinyML.SchemaTyp
@@ -390,20 +390,20 @@ structure Intrinsic where
       implementation; only the argument/return types vary per use site, while
       the names and predicate are shared. -/
   spec     : Spec TinyML.Typ
-  folTerm  : Option (IntrinsicFOL arity)
+  encode   : Option (IntrinsicFOL arity)
   axioms   : List Axiom
 
 /-- The uninterpreted symbol that an intrinsic declares. A `direct` encoding
     declares no symbol. -/
-def Intrinsic.folSym (i : Intrinsic) : Option (FOL.Symbol i.arity) :=
-  i.folTerm.bind IntrinsicFOL.sym
+def Intrinsic.symbol (i : Intrinsic) : Option (FOL.Symbol i.arity) :=
+  i.encode.bind IntrinsicFOL.sym
 
 /-- The table entry that an intrinsic gives to the relational encoder. An
     intrinsic without a FOL encoding gives no entry. This function keeps
     declarations and expression encodings apart. A `symbol` entry reads the
     signature. A `direct` entry only makes a term. -/
-def Intrinsic.encoding (i : Intrinsic) : Option RelationalEncoding.PrimEncoding :=
-  i.folTerm.map fun f =>
+def Intrinsic.primEncoding (i : Intrinsic) : Option RelationalEncoding.PrimEncoding :=
+  i.encode.map fun f =>
     { name := i.name
       arity := i.arity
       available := fun Δ => f.available Δ i.arity
@@ -411,19 +411,19 @@ def Intrinsic.encoding (i : Intrinsic) : Option RelationalEncoding.PrimEncoding 
 
 /-- The law an intrinsic's encoding must obey, as carried by
     `IntrinsicSound`. -/
-def Intrinsic.folLawful (i : Intrinsic) : Prop :=
-  ∀ f, i.folTerm = some f → IntrinsicFOL.Lawful f
+def Intrinsic.encodeLawful (i : Intrinsic) : Prop :=
+  ∀ f, i.encode = some f → IntrinsicFOL.Lawful f
 
 /-- Each entry that an intrinsic gives obeys the laws of the encoder. -/
-theorem Intrinsic.encoding_lawful (i : Intrinsic) (hlaw : i.folLawful)
-    {e : RelationalEncoding.PrimEncoding} (h : i.encoding = some e) : e.Lawful := by
-  cases hfolTerm : i.folTerm with
-  | none => simp [Intrinsic.encoding, hfolTerm] at h
+theorem Intrinsic.primEncoding_lawful (i : Intrinsic) (hlaw : i.encodeLawful)
+    {e : RelationalEncoding.PrimEncoding} (h : i.primEncoding = some e) : e.Lawful := by
+  cases hencode : i.encode with
+  | none => simp [Intrinsic.primEncoding, hencode] at h
   | some f =>
-    simp only [Intrinsic.encoding, hfolTerm, Option.map_some, Option.some.injEq] at h
+    simp only [Intrinsic.primEncoding, hencode, Option.map_some, Option.some.injEq] at h
     subst e
     exact { wfIn := fun hav hsub hΔ' hargs =>
-      f.term_wfIn hsub hΔ' (hlaw f hfolTerm) _ hav hargs }
+      f.term_wfIn hsub hΔ' (hlaw f hencode) _ hav hargs }
 
 /-- A registry is a list of intrinsics. -/
 abbrev Registry := List Intrinsic
@@ -432,11 +432,11 @@ abbrev Registry := List Intrinsic
     without a FOL encoding gives no entry. Therefore `encodePrim` rejects
     that name as unknown. -/
 def Registry.primitives (R : Registry) : RelationalEncoding.PrimEncodings :=
-  R.filterMap Intrinsic.encoding
+  R.filterMap Intrinsic.primEncoding
 
 /-- Embed a pure (heap-independent, heap-preserving) relation as a heap-aware
-    `reduce` field. -/
-def Reduce.pure {α : Type} (rel : α → Runtime.Val → Prop) :
+    `sem` field. -/
+def Sem.pure {α : Type} (rel : α → Runtime.Val → Prop) :
     α → TinyML.Heap → Runtime.Val → TinyML.Heap → Prop :=
   fun a μ v μ' => rel a v ∧ μ' = μ
 
@@ -445,138 +445,138 @@ namespace Intrinsic
 /-- Extending an environment with an intrinsic's fresh FOL symbol preserves
     agreement on the prefix signature. -/
 theorem agreeOn_extend_fresh (i : Intrinsic) {Δ : Signature} (ρ : Env)
-    (hfresh : match i.folSym with | none => True | some sym => sym.name ∉ Δ.allNames) :
-    Env.agreeOn Δ ρ (ρ.extendWithSym i.folSym) := by
-  refine Env.agreeOn_extendWithSym_fresh i.folSym ρ ?_
+    (hfresh : match i.symbol with | none => True | some sym => sym.name ∉ Δ.allNames) :
+    Env.agreeOn Δ ρ (ρ.extendWithSym i.symbol) := by
+  refine Env.agreeOn_extendWithSym_fresh i.symbol ρ ?_
   revert hfresh
-  cases i.folSym <;> exact id
+  cases i.symbol <;> exact id
 
 /-- The intrinsic's full arrow (scheme) type. -/
-def arrowType (i : Intrinsic) : TinyML.SchemaTyp :=
+def type (i : Intrinsic) : TinyML.SchemaTyp :=
   .arrow i.argTys i.retTy none
 
-/-- Adapter from the list-shaped argument call (used by OpSem and `wp`) to
-    the arity-shaped representation. Out-of-shape calls produce the empty
+/-- Adapter from the list-shaped argument call (the shape `PrimCtx` uses) to
+    the arity-shaped `sem` field. Out-of-shape calls produce the empty
     relation. -/
-def toReduce (i : Intrinsic) :
+def toCall (i : Intrinsic) :
     List Runtime.Val → TinyML.Heap → Runtime.Val → TinyML.Heap → Prop :=
   fun vs μ v μ' =>
-    match i.arity, i.reduce, vs with
+    match i.arity, i.sem, vs with
     | .zero, r, []          => r () μ v μ'
     | .one,  r, [a]         => r a μ v μ'
     | .two,  r, [a, b]      => r (a, b) μ v μ'
     | .three, r, [a, b, c]  => r (a, b, c) μ v μ'
     | _,     _, _           => False
 
-/-- Unfolding lemma for `toReduce` at arity-two, two args. The intrinsic's
-    `arity` field is destructured explicitly so that the dependent `reduce`
+/-- Unfolding lemma for `toCall` at arity-two, two args. The intrinsic's
+    `arity` field is destructured explicitly so that the dependent `sem`
     field's match reduces. -/
-theorem toReduce_two_of_arity (name : String)
+theorem toCall_two_of_arity (name : String)
     (path : Option (String × List String))
-    (reduce : Arity.tup .two Runtime.Val → TinyML.Heap → Runtime.Val → TinyML.Heap → Prop)
-    (wp : Arity.tup .two Runtime.Val → (Runtime.Val → iProp) → iProp)
+    (sem : Arity.tup .two Runtime.Val → TinyML.Heap → Runtime.Val → TinyML.Heap → Prop)
+    (pre : Arity.tup .two Runtime.Val → (Runtime.Val → iProp) → iProp)
     (argTys : List TinyML.SchemaTyp) (retTy : TinyML.SchemaTyp) (spec : Spec TinyML.Typ)
-    (folTerm : Option (IntrinsicFOL .two)) (axioms : List Axiom)
+    (encode : Option (IntrinsicFOL .two)) (axioms : List Axiom)
     (a b v : Runtime.Val) (μ μ' : TinyML.Heap) :
-    (Intrinsic.mk .two name path reduce wp argTys retTy spec folTerm axioms).toReduce [a, b] μ v μ'
-      = reduce (a, b) μ v μ' := rfl
+    (Intrinsic.mk .two name path sem pre argTys retTy spec encode axioms).toCall [a, b] μ v μ'
+      = sem (a, b) μ v μ' := rfl
 
-/-- Unfolding lemma for `toReduce` at arity-three, three args. -/
-theorem toReduce_three_of_arity (name : String)
+/-- Unfolding lemma for `toCall` at arity-three, three args. -/
+theorem toCall_three_of_arity (name : String)
     (path : Option (String × List String))
-    (reduce : Arity.tup .three Runtime.Val → TinyML.Heap → Runtime.Val → TinyML.Heap → Prop)
-    (wp : Arity.tup .three Runtime.Val → (Runtime.Val → iProp) → iProp)
+    (sem : Arity.tup .three Runtime.Val → TinyML.Heap → Runtime.Val → TinyML.Heap → Prop)
+    (pre : Arity.tup .three Runtime.Val → (Runtime.Val → iProp) → iProp)
     (argTys : List TinyML.SchemaTyp) (retTy : TinyML.SchemaTyp) (spec : Spec TinyML.Typ)
-    (folTerm : Option (IntrinsicFOL .three)) (axioms : List Axiom)
+    (encode : Option (IntrinsicFOL .three)) (axioms : List Axiom)
     (a b c v : Runtime.Val) (μ μ' : TinyML.Heap) :
-    (Intrinsic.mk .three name path reduce wp argTys retTy spec folTerm axioms).toReduce [a, b, c] μ v μ'
-      = reduce (a, b, c) μ v μ' := rfl
+    (Intrinsic.mk .three name path sem pre argTys retTy spec encode axioms).toCall [a, b, c] μ v μ'
+      = sem (a, b, c) μ v μ' := rfl
 
-/-- Unfolding lemma for `toReduce` at arity-one, one arg. -/
-theorem toReduce_one_of_arity (name : String)
+/-- Unfolding lemma for `toCall` at arity-one, one arg. -/
+theorem toCall_one_of_arity (name : String)
     (path : Option (String × List String))
-    (reduce : Arity.tup .one Runtime.Val → TinyML.Heap → Runtime.Val → TinyML.Heap → Prop)
-    (wp : Arity.tup .one Runtime.Val → (Runtime.Val → iProp) → iProp)
+    (sem : Arity.tup .one Runtime.Val → TinyML.Heap → Runtime.Val → TinyML.Heap → Prop)
+    (pre : Arity.tup .one Runtime.Val → (Runtime.Val → iProp) → iProp)
     (argTys : List TinyML.SchemaTyp) (retTy : TinyML.SchemaTyp) (spec : Spec TinyML.Typ)
-    (folTerm : Option (IntrinsicFOL .one)) (axioms : List Axiom)
+    (encode : Option (IntrinsicFOL .one)) (axioms : List Axiom)
     (a v : Runtime.Val) (μ μ' : TinyML.Heap) :
-    (Intrinsic.mk .one name path reduce wp argTys retTy spec folTerm axioms).toReduce [a] μ v μ'
-      = reduce a μ v μ' := rfl
+    (Intrinsic.mk .one name path sem pre argTys retTy spec encode axioms).toCall [a] μ v μ'
+      = sem a μ v μ' := rfl
 
-/-- Unfolding lemma for `toReduce` at arity-zero, no args. -/
-theorem toReduce_zero_of_arity (name : String)
+/-- Unfolding lemma for `toCall` at arity-zero, no args. -/
+theorem toCall_zero_of_arity (name : String)
     (path : Option (String × List String))
-    (reduce : Arity.tup .zero Runtime.Val → TinyML.Heap → Runtime.Val → TinyML.Heap → Prop)
-    (wp : Arity.tup .zero Runtime.Val → (Runtime.Val → iProp) → iProp)
+    (sem : Arity.tup .zero Runtime.Val → TinyML.Heap → Runtime.Val → TinyML.Heap → Prop)
+    (pre : Arity.tup .zero Runtime.Val → (Runtime.Val → iProp) → iProp)
     (argTys : List TinyML.SchemaTyp) (retTy : TinyML.SchemaTyp) (spec : Spec TinyML.Typ)
-    (folTerm : Option (IntrinsicFOL .zero)) (axioms : List Axiom)
+    (encode : Option (IntrinsicFOL .zero)) (axioms : List Axiom)
     (v : Runtime.Val) (μ μ' : TinyML.Heap) :
-    (Intrinsic.mk .zero name path reduce wp argTys retTy spec folTerm axioms).toReduce [] μ v μ'
-      = reduce () μ v μ' := rfl
+    (Intrinsic.mk .zero name path sem pre argTys retTy spec encode axioms).toCall [] μ v μ'
+      = sem () μ v μ' := rfl
 
-/-- Adapter from the list-shaped argument call to the arity-shaped `wp`
+/-- Adapter from the list-shaped argument call to the arity-shaped `pre`
     field. Out-of-shape calls produce `False`. -/
-def toWp (i : Intrinsic) :
+def toPre (i : Intrinsic) :
     List Runtime.Val → (Runtime.Val → iProp) → iProp :=
   fun vs Q =>
-    match i.arity, i.wp, vs with
+    match i.arity, i.pre, vs with
     | .zero, w, []          => w () Q
     | .one,  w, [a]         => w a Q
     | .two,  w, [a, b]      => w (a, b) Q
     | .three, w, [a, b, c]  => w (a, b, c) Q
     | _,     _, _           => iprop(False)
 
-/-- Unfolding lemma for `toWp` at arity-two, two args. The intrinsic's
-    `arity` field is destructured explicitly so that the dependent `wp`
+/-- Unfolding lemma for `toPre` at arity-two, two args. The intrinsic's
+    `arity` field is destructured explicitly so that the dependent `pre`
     field's match reduces. -/
-theorem toWp_two_of_arity (name : String)
+theorem toPre_two_of_arity (name : String)
     (path : Option (String × List String))
-    (reduce : Arity.tup .two Runtime.Val → TinyML.Heap → Runtime.Val → TinyML.Heap → Prop)
-    (wp : Arity.tup .two Runtime.Val → (Runtime.Val → iProp) → iProp)
+    (sem : Arity.tup .two Runtime.Val → TinyML.Heap → Runtime.Val → TinyML.Heap → Prop)
+    (pre : Arity.tup .two Runtime.Val → (Runtime.Val → iProp) → iProp)
     (argTys : List TinyML.SchemaTyp) (retTy : TinyML.SchemaTyp) (spec : Spec TinyML.Typ)
-    (folTerm : Option (IntrinsicFOL .two)) (axioms : List Axiom)
+    (encode : Option (IntrinsicFOL .two)) (axioms : List Axiom)
     (a b : Runtime.Val) (Q : Runtime.Val → iProp) :
-    (Intrinsic.mk .two name path reduce wp argTys retTy spec folTerm axioms).toWp [a, b] Q
-      = wp (a, b) Q := rfl
+    (Intrinsic.mk .two name path sem pre argTys retTy spec encode axioms).toPre [a, b] Q
+      = pre (a, b) Q := rfl
 
-/-- Unfolding lemma for `toWp` at arity-three, three args. -/
-theorem toWp_three_of_arity (name : String)
+/-- Unfolding lemma for `toPre` at arity-three, three args. -/
+theorem toPre_three_of_arity (name : String)
     (path : Option (String × List String))
-    (reduce : Arity.tup .three Runtime.Val → TinyML.Heap → Runtime.Val → TinyML.Heap → Prop)
-    (wp : Arity.tup .three Runtime.Val → (Runtime.Val → iProp) → iProp)
+    (sem : Arity.tup .three Runtime.Val → TinyML.Heap → Runtime.Val → TinyML.Heap → Prop)
+    (pre : Arity.tup .three Runtime.Val → (Runtime.Val → iProp) → iProp)
     (argTys : List TinyML.SchemaTyp) (retTy : TinyML.SchemaTyp) (spec : Spec TinyML.Typ)
-    (folTerm : Option (IntrinsicFOL .three)) (axioms : List Axiom)
+    (encode : Option (IntrinsicFOL .three)) (axioms : List Axiom)
     (a b c : Runtime.Val) (Q : Runtime.Val → iProp) :
-    (Intrinsic.mk .three name path reduce wp argTys retTy spec folTerm axioms).toWp [a, b, c] Q
-      = wp (a, b, c) Q := rfl
+    (Intrinsic.mk .three name path sem pre argTys retTy spec encode axioms).toPre [a, b, c] Q
+      = pre (a, b, c) Q := rfl
 
-/-- Unfolding lemma for `toWp` at arity-one, one arg. -/
-theorem toWp_one_of_arity (name : String)
+/-- Unfolding lemma for `toPre` at arity-one, one arg. -/
+theorem toPre_one_of_arity (name : String)
     (path : Option (String × List String))
-    (reduce : Arity.tup .one Runtime.Val → TinyML.Heap → Runtime.Val → TinyML.Heap → Prop)
-    (wp : Arity.tup .one Runtime.Val → (Runtime.Val → iProp) → iProp)
+    (sem : Arity.tup .one Runtime.Val → TinyML.Heap → Runtime.Val → TinyML.Heap → Prop)
+    (pre : Arity.tup .one Runtime.Val → (Runtime.Val → iProp) → iProp)
     (argTys : List TinyML.SchemaTyp) (retTy : TinyML.SchemaTyp) (spec : Spec TinyML.Typ)
-    (folTerm : Option (IntrinsicFOL .one)) (axioms : List Axiom)
+    (encode : Option (IntrinsicFOL .one)) (axioms : List Axiom)
     (a : Runtime.Val) (Q : Runtime.Val → iProp) :
-    (Intrinsic.mk .one name path reduce wp argTys retTy spec folTerm axioms).toWp [a] Q
-      = wp a Q := rfl
+    (Intrinsic.mk .one name path sem pre argTys retTy spec encode axioms).toPre [a] Q
+      = pre a Q := rfl
 
-/-- Unfolding lemma for `toWp` at arity-zero, no args. -/
-theorem toWp_zero_of_arity (name : String)
+/-- Unfolding lemma for `toPre` at arity-zero, no args. -/
+theorem toPre_zero_of_arity (name : String)
     (path : Option (String × List String))
-    (reduce : Arity.tup .zero Runtime.Val → TinyML.Heap → Runtime.Val → TinyML.Heap → Prop)
-    (wp : Arity.tup .zero Runtime.Val → (Runtime.Val → iProp) → iProp)
+    (sem : Arity.tup .zero Runtime.Val → TinyML.Heap → Runtime.Val → TinyML.Heap → Prop)
+    (pre : Arity.tup .zero Runtime.Val → (Runtime.Val → iProp) → iProp)
     (argTys : List TinyML.SchemaTyp) (retTy : TinyML.SchemaTyp) (spec : Spec TinyML.Typ)
-    (folTerm : Option (IntrinsicFOL .zero)) (axioms : List Axiom)
+    (encode : Option (IntrinsicFOL .zero)) (axioms : List Axiom)
     (Q : Runtime.Val → iProp) :
-    (Intrinsic.mk .zero name path reduce wp argTys retTy spec folTerm axioms).toWp [] Q
-      = wp () Q := rfl
+    (Intrinsic.mk .zero name path sem pre argTys retTy spec encode axioms).toPre [] Q
+      = pre () Q := rfl
 
 /-- Fold a registry fragment's FOL symbols into a starting signature. The
     general fold underlying `sigOf` and the registry-derived signatures. -/
 def foldSig (Δ : Signature) : List Intrinsic → Signature
   | []        => Δ
-  | i :: rest => foldSig (Δ.extendWithSym i.folSym) rest
+  | i :: rest => foldSig (Δ.extendWithSym i.symbol) rest
 
 /-- The FOL signature intrinsic axioms are expressed in: the empty signature
     extended with the FOL symbols of a registry fragment. The fragment may
@@ -584,13 +584,13 @@ def foldSig (Δ : Signature) : List Intrinsic → Signature
 def sigOf (fragment : List Intrinsic) : Signature :=
   foldSig Signature.empty fragment
 
-/-! ### Spec TinyML.Typ→wp bridge
+/-! ### From the specification to the precondition
 
 `compile` routes a `.prim n args` call through `Spec.call` against the
-intrinsic's spec. The resulting `PredTrans.apply` obligation must be bridged
-to the `i.toWp` iProp consumed by the registry-derived `Registry.wp_prim`. The
-bridge is one of the per-intrinsic obligations captured by `IntrinsicSound`
-below. The aggregate over the registry is the def `Registry.Sound`. -/
+intrinsic's spec. The resulting `PredTrans.apply` obligation must give the
+`i.toPre` iProp consumed by the registry-derived `Registry.wp_prim`. That step
+is one of the per-intrinsic obligations captured by `IntrinsicSound` below. The
+aggregate over the registry is the def `Registry.Sound`. -/
 
 /-- The names the spec view binds. An intrinsic declares no ghost parameter, so
     `allArgs` adds nothing to `spec.args`. -/
@@ -601,51 +601,53 @@ end Intrinsic
 
 /-- Per-intrinsic soundness obligation, discharged together for each intrinsic
     and aggregated over a registry by `Registry.Sound`. It bundles the two
-    spec→wp bridge facts (`specWf`, `bridge`), the opsem↔wp fact (`wp_sound`),
-    and the two axiom facts (`axiomWf`, `proof`).
+    specification facts (`spec_wf`, `spec_sound`), the fact tying the
+    precondition to the operational semantics (`pre_wp`), and the two axiom
+    facts (`axioms_wf`, `axioms_sound`).
 
     From a `PredTrans.apply` obligation against `i.spec` (the shape produced by
-    `Spec.call_correct`) and the typing of the arguments, `bridge` derives
-    `i.toWp` — the iProp `Registry.wp_prim` demands of the registry-derived
-    context. `specWf` and `bridge` are stated against `fragment`, since a
+    `Spec.call_correct`) and the typing of the arguments, `spec_sound` derives
+    `i.toPre` — the iProp `Registry.wp_prim` demands of the registry-derived
+    context. `spec_wf` and `spec_sound` are stated against `fragment`, since a
     precondition may mention another intrinsic's symbol. Their signature and
     interpretation side conditions are discharged by the caller from the
     registry-derived signature/environment.
 
-    `bridge` is a family indexed by the type-variable substitution `σ`: it is
-    stated at the argument/result types substituted by `σ`, for every `σ`, with
-    the spec's names and predicate transformer shared across instantiations.
+    `spec_sound` is a family indexed by the type-variable substitution `σ`: it
+    is stated at the argument/result types substituted by `σ`, for every `σ`,
+    with the spec's names and predicate transformer shared across
+    instantiations.
 
-    `axiomWf`/`proof` use the same dependency fragment: each axiom is
+    `axioms_wf`/`axioms_sound` use the same dependency fragment: each axiom is
     well-formed in its signature and is satisfied by every environment that
     respects every FOL symbol in the fragment. -/
 class IntrinsicSound (fragment : outParam (List Intrinsic)) (i : Intrinsic) : Prop where
   /-- The spec's argument-name count matches the intrinsic's arity. -/
-  argLen : i.spec.args.length = i.argTys.length
-  specWf :
+  arg_len : i.spec.args.length = i.argTys.length
+  spec_wf :
     ∀ (Δ : Signature), (Intrinsic.sigOf fragment).Subset Δ → Δ.wf →
       PredTrans.wfIn (Δ.declVars (Spec.argVars i.specArgs)) i.spec.pred
-  bridge :
+  spec_sound :
     ∀ [MicaGS HasLC.hasLC Sig] (σ : TinyML.TyVar → TinyML.Typ) (W : TinyML.World)
       (vs : List Runtime.Val) (ρ : Env) (Φ : Runtime.Val → iProp),
-    (∀ d ∈ fragment, ρ.respects d.folSym) →
+    (∀ d ∈ fragment, ρ.respects d.symbol) →
     TinyML.ValsHaveTypes W vs (i.argTys.map (TinyML.Typ.subst σ)) ∗
       PredTrans.apply (TinyML.ValHasType W)
         (fun r => TinyML.ValHasType W r (TinyML.Typ.subst σ i.retTy) -∗ Φ r)
         i.spec.pred
-        (Spec.argsEnv ρ i.spec.args vs) ⊢ i.toWp vs Φ
-  wp_sound :
+        (Spec.argsEnv ρ i.spec.args vs) ⊢ i.toPre vs Φ
+  pre_wp :
     ∀ [MicaGS HasLC.hasLC Sig] (ctx : TinyML.PrimCtx),
-      (∀ vs μ v μ', ctx i.name vs μ v μ' ↔ i.toReduce vs μ v μ') →
+      (∀ vs μ v μ', ctx i.name vs μ v μ' ↔ i.toCall vs μ v μ') →
       ∀ (vs : List Runtime.Val) (Φ : Runtime.Val → iProp),
-        i.toWp vs Φ ⊢ wp ctx (.app (.val (.prim i.name)) (vs.map Runtime.Expr.val)) Φ
-  axiomWf : ∀ {Δ : Signature}, (Intrinsic.sigOf fragment).Subset Δ → Δ.wf →
-            ∀ a ∈ i.axioms, Formula.wfIn a.formula Δ
-  proof : ∀ ρ : Env,
-            (∀ d ∈ fragment, ρ.respects d.folSym) →
-            ∀ a ∈ i.axioms, Formula.eval ρ a.formula
+        i.toPre vs Φ ⊢ wp ctx (.app (.val (.prim i.name)) (vs.map Runtime.Expr.val)) Φ
+  axioms_wf : ∀ {Δ : Signature}, (Intrinsic.sigOf fragment).Subset Δ → Δ.wf →
+                ∀ a ∈ i.axioms, Formula.wfIn a.formula Δ
+  axioms_sound : ∀ ρ : Env,
+                   (∀ d ∈ fragment, ρ.respects d.symbol) →
+                   ∀ a ∈ i.axioms, Formula.eval ρ a.formula
   /-- A direct encoding makes a well-formed term from well-formed arguments. -/
-  folWf : i.folLawful
+  encode_sound : i.encodeLawful
 
 namespace Registry
 
@@ -668,13 +670,13 @@ theorem lookup?_name {R : Registry} {n : String} {i : Intrinsic}
 /-- The arrow schemes of all registered intrinsics, keyed by name; handed to the
     elaborator, which instantiates one at every use site. -/
 def sigs (R : Registry) : String → Option TinyML.SchemaTyp :=
-  fun n => (R.lookup? n).map Intrinsic.arrowType
+  fun n => (R.lookup? n).map Intrinsic.type
 
 /-- Build the operational-semantics context from a registry. -/
 def primCtx (R : Registry) : TinyML.PrimCtx :=
   fun n vs μ v μ' =>
     match R.lookup? n with
-    | some i => i.toReduce vs μ v μ'
+    | some i => i.toCall vs μ v μ'
     | none   => False
 
 /-- Build the `wp` context from a registry. Names not in `R` map to the
@@ -682,21 +684,21 @@ def primCtx (R : Registry) : TinyML.PrimCtx :=
 def wpCtx (R : Registry) : WpCtx :=
   fun n vs Q =>
     match R.lookup? n with
-    | some i => i.toWp vs Q
+    | some i => i.toPre vs Q
     | none   => iprop(False)
 
 /-- The aggregated FOL environment: each intrinsic's FOL symbol receives
     its standard interpretation. -/
 def stdEnv (R : Registry) : Env :=
-  R.foldl (fun ρ i => ρ.extendWithSym i.folSym) Env.empty
+  R.foldl (fun ρ i => ρ.extendWithSym i.symbol) Env.empty
 
 /-- Extend an arbitrary base environment with a registry. -/
 def foldEnv (ρ : Env) (R : Registry) : Env :=
-  R.foldl (fun ρ i => ρ.extendWithSym i.folSym) ρ
+  R.foldl (fun ρ i => ρ.extendWithSym i.symbol) ρ
 
 /-- A target signature contains every FOL symbol contributed by a registry. -/
 def symSubset (R : Registry) (Δ : Signature) : Prop :=
-  ∀ i ∈ R, (Signature.empty.extendWithSym i.folSym).Subset Δ
+  ∀ i ∈ R, (Signature.empty.extendWithSym i.symbol).Subset Δ
 
 /-- Pointwise containment of a registry's symbols is equivalent to containment
 of the signature obtained by folding those symbols together. -/
@@ -704,7 +706,7 @@ theorem sigOf_subset_of_symSubset {R : Registry} {Δ : Signature}
     (h : symSubset R Δ) : (Intrinsic.sigOf R).Subset Δ := by
   suffices ∀ (todo : Registry) (base : Signature),
       base.Subset Δ →
-      (∀ i ∈ todo, (Signature.empty.extendWithSym i.folSym).Subset Δ) →
+      (∀ i ∈ todo, (Signature.empty.extendWithSym i.symbol).Subset Δ) →
       (Intrinsic.foldSig base todo).Subset Δ by
     exact this R Signature.empty (Signature.empty_subset Δ) h
   intro todo
@@ -722,7 +724,7 @@ theorem sigOf_subset_of_symSubset {R : Registry} {Δ : Signature}
 
 /-- An environment gives every registry FOL symbol its standard interpretation. -/
 def symAgree (R : Registry) (ρ : Env) : Prop :=
-  ∀ i ∈ R, ρ.respects i.folSym
+  ∀ i ∈ R, ρ.respects i.symbol
 
 /-- Folding intrinsic symbols into a larger starting signature gives a larger
     final signature. -/
@@ -739,22 +741,22 @@ theorem subset_foldSig (R : Registry) (Δ : Signature) :
   induction R generalizing Δ with
   | nil => exact Signature.Subset.refl _
   | cons i rest ih =>
-    exact (Signature.subset_extendWithSym Δ i.folSym).trans (ih _)
+    exact (Signature.subset_extendWithSym Δ i.symbol).trans (ih _)
 
 /-- The signature for a registry contains the FOL symbol of every member,
     independent of where that member appears in the list. -/
 theorem extendWithSym_subset_sigOf_of_mem {R : Registry} {i : Intrinsic}
     (hi : i ∈ R) :
-    (Signature.empty.extendWithSym i.folSym).Subset (Intrinsic.sigOf R) := by
+    (Signature.empty.extendWithSym i.symbol).Subset (Intrinsic.sigOf R) := by
   induction R with
   | nil => cases hi
   | cons j rest ih =>
     cases hi with
     | head =>
-      exact subset_foldSig rest (Signature.empty.extendWithSym i.folSym)
+      exact subset_foldSig rest (Signature.empty.extendWithSym i.symbol)
     | tail _ hmem =>
       exact (ih hmem).trans
-        (foldSig_mono rest (Signature.empty_subset (Signature.empty.extendWithSym j.folSym)))
+        (foldSig_mono rest (Signature.empty_subset (Signature.empty.extendWithSym j.symbol)))
 
 /-- Registry-fragment signatures are monotone with respect to membership
     inclusion, not list order. -/
@@ -784,8 +786,8 @@ theorem sigOf_subset_of_subset {deps R : Registry} (hsub : deps ⊆ R) :
 def WfFrom : Signature → Registry → Prop
   | _, [] => True
   | Δ, i :: rest =>
-      (match i.folSym with | none => True | some sym => sym.name ∉ Δ.allNames) ∧
-      WfFrom (Δ.extendWithSym i.folSym) rest
+      (match i.symbol with | none => True | some sym => sym.name ∉ Δ.allNames) ∧
+      WfFrom (Δ.extendWithSym i.symbol) rest
 
 abbrev Wf (R : Registry) : Prop := WfFrom Signature.empty R
 
@@ -817,12 +819,12 @@ theorem Sound.get {R : Registry} (h : Sound R) {i : Intrinsic} (hi : i ∈ R) :
 theorem primitives_lawful {R : Registry} (hSound : Sound R) : R.primitives.Lawful := by
   intro e he
   obtain ⟨i, hmem, hi⟩ := List.mem_filterMap.mp he
-  exact i.encoding_lawful (Sound.get hSound hmem).folWf hi
+  exact i.primEncoding_lawful (Sound.get hSound hmem).encode_sound hi
 
 /-- The wp rule for primitive calls: a sound registry's spec context (`wpCtx`)
     entails the weakest precondition at its operational context (`primCtx`).
-    Dispatches the per-intrinsic `IntrinsicSound.wp_sound` obligation at the
-    looked-up entry; `primCtx` agrees with that entry's `toReduce` at its name
+    Dispatches the per-intrinsic `IntrinsicSound.pre_wp` obligation at the
+    looked-up entry; `primCtx` agrees with that entry's `toCall` at its name
     by construction. -/
 theorem wp_prim [MicaGS HasLC.hasLC Sig] (R : Registry) (hSound : R.Sound) {n : String}
     {vs : List Runtime.Val} {Q : Runtime.Val → iProp} :
@@ -833,7 +835,7 @@ theorem wp_prim [MicaGS HasLC.hasLC Sig] (R : Registry) (hSound : R.Sound) {n : 
     exact false_elim
   | some i =>
     obtain rfl := lookup?_name h
-    refine (hSound.get (mem_of_lookup? h)).wp_sound R.primCtx (fun vs μ v μ' => ?_) vs Q
+    refine (hSound.get (mem_of_lookup? h)).pre_wp R.primCtx (fun vs μ v μ' => ?_) vs Q
     simp [primCtx, h]
 
 theorem stdEnv_eq_foldEnv (R : Registry) : stdEnv R = foldEnv Env.empty R := rfl
@@ -849,19 +851,19 @@ theorem foldEnv_agreeOn_base {Δ : Signature} {R : Registry} (ρ : Env)
   | cons i rest ih =>
     rcases hWf with ⟨hfresh, hrest⟩
     simp only [foldEnv, List.foldl_cons]
-    have hstep : Env.agreeOn Δ ρ (ρ.extendWithSym i.folSym) :=
+    have hstep : Env.agreeOn Δ ρ (ρ.extendWithSym i.symbol) :=
       i.agreeOn_extend_fresh ρ hfresh
-    have htail : Env.agreeOn (Δ.extendWithSym i.folSym)
-        (ρ.extendWithSym i.folSym) (foldEnv (ρ.extendWithSym i.folSym) rest) :=
-      ih (ρ := ρ.extendWithSym i.folSym) hrest
+    have htail : Env.agreeOn (Δ.extendWithSym i.symbol)
+        (ρ.extendWithSym i.symbol) (foldEnv (ρ.extendWithSym i.symbol) rest) :=
+      ih (ρ := ρ.extendWithSym i.symbol) hrest
     exact Env.agreeOn_trans hstep
-      (Env.agreeOn_mono (Signature.subset_extendWithSym Δ i.folSym) htail)
+      (Env.agreeOn_mono (Signature.subset_extendWithSym Δ i.symbol) htail)
 
 /-- Folding a well-formed registry makes the final environment respect every
     symbol introduced by the registry. -/
 theorem foldEnv_respects {Δ : Signature} {R : Registry} (ρ : Env)
     (hWf : WfFrom Δ R) :
-    ∀ i ∈ R, (foldEnv ρ R).respects i.folSym := by
+    ∀ i ∈ R, (foldEnv ρ R).respects i.symbol := by
   induction R generalizing Δ ρ with
   | nil =>
     intro i hi; cases hi
@@ -871,16 +873,16 @@ theorem foldEnv_respects {Δ : Signature} {R : Registry} (ρ : Env)
     simp only [foldEnv, List.foldl_cons]
     cases hj with
     | head =>
-      have hrespects : (ρ.extendWithSym i.folSym).respects i.folSym :=
-        Env.respects_extendWithSym ρ i.folSym
-      refine Env.respects_of_agreeOn_extendWithSym (Δ := Δ.extendWithSym i.folSym) hrespects ?_ ?_
+      have hrespects : (ρ.extendWithSym i.symbol).respects i.symbol :=
+        Env.respects_extendWithSym ρ i.symbol
+      refine Env.respects_of_agreeOn_extendWithSym (Δ := Δ.extendWithSym i.symbol) hrespects ?_ ?_
       · exact Signature.extendWithSym_mono (Signature.empty_subset _) _
-      · exact foldEnv_agreeOn_base (ρ.extendWithSym i.folSym) hrest
+      · exact foldEnv_agreeOn_base (ρ.extendWithSym i.symbol) hrest
     | tail _ hjrest =>
-      exact ih (ρ := ρ.extendWithSym i.folSym) hrest j hjrest
+      exact ih (ρ := ρ.extendWithSym i.symbol) hrest j hjrest
 
 theorem stdEnv_respects {R : Registry} (hWf : Wf R) :
-    ∀ i ∈ R, (stdEnv R).respects i.folSym := by
+    ∀ i ∈ R, (stdEnv R).respects i.symbol := by
   simpa [stdEnv_eq_foldEnv] using foldEnv_respects (Δ := Signature.empty) Env.empty hWf
 
 /-- Generic registry axiom satisfaction: if the registry is sound by subset,
@@ -888,7 +890,7 @@ theorem stdEnv_respects {R : Registry} (hWf : Wf R) :
     registered axiom evaluates to true in that environment. -/
 theorem satisfies_of_respects {R : Registry}
     (hSound : Sound R)
-    (hRespect : ∀ i ∈ R, ρ.respects i.folSym) :
+    (hRespect : ∀ i ∈ R, ρ.respects i.symbol) :
     ∀ i ∈ R, ∀ a ∈ i.axioms, Formula.eval ρ a.formula := by
   suffices h :
       ∀ todo, SoundIn R todo →
@@ -906,7 +908,7 @@ theorem satisfies_of_respects {R : Registry}
     cases hj with
     | head =>
       intro φ hφ
-      exact hiSound.proof ρ (fun d hd => hRespect d hd) φ hφ
+      exact hiSound.axioms_sound ρ (fun d hd => hRespect d hd) φ hφ
     | tail _ hjrest =>
       intro φ hφ
       exact ih hrestSound j hjrest φ hφ
@@ -923,21 +925,21 @@ end Registry
 theorem IntrinsicSound.mono {deps deps' : Registry} {i : Intrinsic}
     (h : IntrinsicSound deps i) (hsub : deps ⊆ deps') :
     IntrinsicSound deps' i where
-  argLen := h.argLen
-  specWf := by
+  arg_len := h.arg_len
+  spec_wf := by
     intro Δ hsig hwf
-    exact h.specWf Δ ((Registry.sigOf_subset_of_subset hsub).trans hsig) hwf
-  bridge := by
+    exact h.spec_wf Δ ((Registry.sigOf_subset_of_subset hsub).trans hsig) hwf
+  spec_sound := by
     intro _ σ W vs ρ Φ hdeps'
-    exact h.bridge σ W vs ρ Φ (fun d hd => hdeps' d (hsub hd))
-  wp_sound := h.wp_sound
-  axiomWf := by
+    exact h.spec_sound σ W vs ρ Φ (fun d hd => hdeps' d (hsub hd))
+  pre_wp := h.pre_wp
+  axioms_wf := by
     intro Δ hsig hwf φ hφ
-    exact h.axiomWf ((Registry.sigOf_subset_of_subset hsub).trans hsig) hwf φ hφ
-  proof := by
+    exact h.axioms_wf ((Registry.sigOf_subset_of_subset hsub).trans hsig) hwf φ hφ
+  axioms_sound := by
     intro ρ hdeps' φ hφ
-    exact h.proof ρ (fun d hd => hdeps' d (hsub hd)) φ hφ
-  folWf := h.folWf
+    exact h.axioms_sound ρ (fun d hd => hdeps' d (hsub hd)) φ hφ
+  encode_sound := h.encode_sound
 
 /-! ## SMT setup loop -/
 
@@ -955,7 +957,7 @@ namespace Intrinsic
 /-- Declare the FOL symbol of this intrinsic in the verifier. A `direct`
     encoding declares no symbol. Therefore this function does nothing for
     such an intrinsic. -/
-def declFOLSym (i : Intrinsic) : VerifM Unit := declSym i.folSym
+def declFOLSym (i : Intrinsic) : VerifM Unit := declSym i.symbol
 
 end Intrinsic
 
@@ -1061,16 +1063,16 @@ namespace Intrinsic
 
 /-- Effect of `declFOLSym`: extends the signature with `i`'s FOL symbol,
     leaves owns and asserts untouched, and produces a post-decl environment
-    that respects `i.folSym` (when present), agreeing with the original on
+    that respects `i.symbol` (when present), agreeing with the original on
     the original signature. -/
 theorem eval_declFOLSym (i : Intrinsic) {st : TransState} {ρ : Env}
     {Q : Unit → TransState → Env → Prop}
     (heval : VerifM.eval i.declFOLSym st ρ Q) :
     ∃ ρ' : Env,
       Env.agreeOn st.decls ρ ρ' ∧
-      ρ'.respects i.folSym ∧
-      Q () { st with decls := st.decls.extendWithSym i.folSym } ρ' :=
-  eval_declSym i.folSym heval
+      ρ'.respects i.symbol ∧
+      Q () { st with decls := st.decls.extendWithSym i.symbol } ρ' :=
+  eval_declSym i.symbol heval
 
 end Intrinsic
 
@@ -1089,7 +1091,7 @@ theorem eval_declFOLSyms (R : Registry)
       st'.owns = st.owns ∧
       st'.asserts = st.asserts ∧
       (∀ ρ'' : Env, Env.agreeOn st'.decls ρ' ρ'' →
-        ∀ d ∈ R, ρ''.respects d.folSym) ∧
+        ∀ d ∈ R, ρ''.respects d.symbol) ∧
       Env.agreeOn st.decls ρ ρ' ∧
       Q () st' ρ' := by
   induction R generalizing st ρ Q with
@@ -1104,13 +1106,13 @@ theorem eval_declFOLSyms (R : Registry)
     simp only [declFOLSyms] at heval
     have h1 := VerifM.eval_bind heval
     obtain ⟨ρ1, hag1, hiRespect, hcont⟩ := Intrinsic.eval_declFOLSym i h1
-    set st1 : TransState := { st with decls := st.decls.extendWithSym i.folSym }
+    set st1 : TransState := { st with decls := st.decls.extendWithSym i.symbol }
     obtain ⟨st', ρ', hsub2, hdep2, hvars2, howns2, hass2, hrestStable, hag2, hQ⟩ :=
       ih hcont
     have hsub1 : st.decls.Subset st1.decls := Signature.subset_extendWithSym _ _
     have hiStable :
         ∀ ρ'' : Env, Env.agreeOn st'.decls ρ' ρ'' →
-          ρ''.respects i.folSym := by
+          ρ''.respects i.symbol := by
       intro ρ'' hag
       refine Env.respects_of_agreeOn_extendWithSym (Δ := st1.decls) hiRespect ?_ ?_
       · exact Signature.extendWithSym_mono (Signature.empty_subset _) _
@@ -1133,7 +1135,7 @@ theorem eval_assumeAxioms_in (full todo : Registry)
     (hSig : (Intrinsic.sigOf full).Subset st.decls)
     (hRespect :
       ∀ ρ' : Env, Env.agreeOn st.decls ρ ρ' →
-        ∀ d ∈ full, ρ'.respects d.folSym)
+        ∀ d ∈ full, ρ'.respects d.symbol)
     {Q : Unit → TransState → Env → Prop}
     (heval : VerifM.eval (assumeAxioms todo) st ρ Q) :
     ∃ st',
@@ -1150,9 +1152,9 @@ theorem eval_assumeAxioms_in (full todo : Registry)
     have h1 := VerifM.eval_bind heval
     rcases hSound with ⟨hiSound, hrestSound⟩
     have hwfAxioms : ∀ a ∈ i.axioms, a.formula.wfIn st.decls := fun a ha =>
-      hiSound.axiomWf hSig (VerifM.eval.wf h1).namesDisjoint a ha
+      hiSound.axioms_wf hSig (VerifM.eval.wf h1).namesDisjoint a ha
     have hevalAxioms : ∀ a ∈ i.axioms, a.formula.eval ρ :=
-      hiSound.proof ρ (fun d hd => hRespect ρ Env.agreeOn_refl d hd)
+      hiSound.axioms_sound ρ (fun d hd => hRespect ρ Env.agreeOn_refl d hd)
     obtain ⟨st1, hdecls1, howns1, hass1, hcont⟩ :=
       VerifM.eval_assumeAxioms h1 hwfAxioms hevalAxioms
     have hSig1 : (Intrinsic.sigOf full).Subset st1.decls := by
@@ -1160,7 +1162,7 @@ theorem eval_assumeAxioms_in (full todo : Registry)
       exact hSig
     have hRespect1 :
         ∀ ρ' : Env, Env.agreeOn st1.decls ρ ρ' →
-          ∀ d ∈ full, ρ'.respects d.folSym := by
+          ∀ d ∈ full, ρ'.respects d.symbol := by
       intro ρ' hag d hd
       exact hRespect ρ' (by rwa [hdecls1] at hag) d hd
     obtain ⟨st', hdecls2, howns2, ⟨extra2, hass2⟩, hQ⟩ :=
@@ -1184,7 +1186,7 @@ theorem eval_introduceRegistry (R : Registry)
       st'.owns = st.owns ∧
       (∃ extra, st'.asserts = extra ++ st.asserts) ∧
       (∀ ρ'' : Env, Env.agreeOn st'.decls ρ' ρ'' →
-        ∀ d ∈ R, ρ''.respects d.folSym) ∧
+        ∀ d ∈ R, ρ''.respects d.symbol) ∧
       Env.agreeOn st.decls ρ ρ' ∧
       Q () st' ρ' := by
   unfold introduceRegistry at heval

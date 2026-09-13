@@ -142,8 +142,8 @@ def optionIsSomeB : Pure.Unary where
 def optionIsSomeIntrinsic : Intrinsic := optionIsSomeB.toIntrinsic
 
 @[simp] theorem optionIsSomeIntrinsic_arity : optionIsSomeIntrinsic.arity = .one := rfl
-@[simp] theorem optionIsSomeIntrinsic_folSym :
-    optionIsSomeIntrinsic.folSym = some optionIsSomeB.sym := rfl
+@[simp] theorem optionIsSomeIntrinsic_symbol :
+    optionIsSomeIntrinsic.symbol = some optionIsSomeB.sym := rfl
 @[simp] theorem optionIsSomeSym_name : optionIsSomeB.sym.name = "option_is_some" := rfl
 
 def optionIsSomeLawful : optionIsSomeB.Lawful [] where
@@ -175,8 +175,8 @@ def optionIsNoneB : Pure.Unary where
 def optionIsNoneIntrinsic : Intrinsic := optionIsNoneB.toIntrinsic
 
 @[simp] theorem optionIsNoneIntrinsic_arity : optionIsNoneIntrinsic.arity = .one := rfl
-@[simp] theorem optionIsNoneIntrinsic_folSym :
-    optionIsNoneIntrinsic.folSym = some optionIsNoneB.sym := rfl
+@[simp] theorem optionIsNoneIntrinsic_symbol :
+    optionIsNoneIntrinsic.symbol = some optionIsNoneB.sym := rfl
 @[simp] theorem optionIsNoneSym_name : optionIsNoneB.sym.name = "option_is_none" := rfl
 
 def optionIsNoneLawful : optionIsNoneB.Lawful [] where
@@ -208,8 +208,8 @@ def optionValueB : Pure.Unary where
 def optionValueIntrinsic : Intrinsic := optionValueB.toIntrinsic
 
 @[simp] theorem optionValueIntrinsic_arity : optionValueIntrinsic.arity = .one := rfl
-@[simp] theorem optionValueIntrinsic_folSym :
-    optionValueIntrinsic.folSym = some optionValueB.sym := rfl
+@[simp] theorem optionValueIntrinsic_symbol :
+    optionValueIntrinsic.symbol = some optionValueB.sym := rfl
 @[simp] theorem optionValueSym_name : optionValueB.sym.name = "option_value" := rfl
 
 def optionValueLawful : optionValueB.Lawful [] where

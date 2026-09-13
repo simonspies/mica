@@ -95,7 +95,7 @@ def vecLengthB : Pure.Unary where
 def vecLength : Intrinsic := vecLengthB.toIntrinsic
 
 @[simp] theorem vecLength_arity : vecLength.arity = .one := rfl
-@[simp] theorem vecLength_folSym : vecLength.folSym = some vecLengthB.sym := rfl
+@[simp] theorem vecLength_symbol : vecLength.symbol = some vecLengthB.sym := rfl
 @[simp] theorem vecLengthSym_name : vecLengthB.sym.name = "val_vec_length" := rfl
 
 def vecLengthLawful : vecLengthB.Lawful [] where
@@ -131,7 +131,7 @@ def vecGetB : Pure.Binary where
 def vecGet : Intrinsic := vecGetB.toIntrinsic
 
 @[simp] theorem vecGet_arity : vecGet.arity = .two := rfl
-@[simp] theorem vecGet_folSym : vecGet.folSym = some vecGetB.sym := rfl
+@[simp] theorem vecGet_symbol : vecGet.symbol = some vecGetB.sym := rfl
 @[simp] theorem vecGetSym_name : vecGetB.sym.name = "val_vec_get" := rfl
 
 def vecGetLawful : vecGetB.Lawful [] where
@@ -185,7 +185,7 @@ def vecSetB : Pure.Ternary where
 def vecSet : Intrinsic := vecSetB.toIntrinsic
 
 @[simp] theorem vecSet_arity : vecSet.arity = .three := rfl
-@[simp] theorem vecSet_folSym : vecSet.folSym = some vecSetB.sym := rfl
+@[simp] theorem vecSet_symbol : vecSet.symbol = some vecSetB.sym := rfl
 @[simp] theorem vecSetSym_name : vecSetB.sym.name = "val_vec_set" := rfl
 
 def vecSetLawful : vecSetB.Lawful [] where
@@ -242,7 +242,7 @@ def vecMakeB : Pure.Binary where
 def vecMake : Intrinsic := vecMakeB.toIntrinsic
 
 @[simp] theorem vecMake_arity : vecMake.arity = .two := rfl
-@[simp] theorem vecMake_folSym : vecMake.folSym = some vecMakeB.sym := rfl
+@[simp] theorem vecMake_symbol : vecMake.symbol = some vecMakeB.sym := rfl
 @[simp] theorem vecMakeSym_name : vecMakeB.sym.name = "val_vec_make" := rfl
 
 def vecMakeLawful : vecMakeB.Lawful [] where

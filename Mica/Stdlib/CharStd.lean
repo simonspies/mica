@@ -59,7 +59,7 @@ def charCodeB : Pure.Unary where
 def charCode : Intrinsic := charCodeB.toIntrinsic
 
 @[simp] theorem charCode_arity : charCode.arity = .one := rfl
-@[simp] theorem charCode_folSym : charCode.folSym = some charCodeSym := rfl
+@[simp] theorem charCode_symbol : charCode.symbol = some charCodeSym := rfl
 
 def charCodeLawful : charCodeB.Lawful [] where
   argL         := Embedding.lawfulChar
@@ -108,7 +108,7 @@ def charChrB : Pure.Unary where
 def charChr : Intrinsic := charChrB.toIntrinsic
 
 @[simp] theorem charChr_arity : charChr.arity = .one := rfl
-@[simp] theorem charChr_folSym : charChr.folSym = some charChrSym := rfl
+@[simp] theorem charChr_symbol : charChr.symbol = some charChrSym := rfl
 
 def charChrLawful : charChrB.Lawful [] where
   argL         := Embedding.lawfulInt
@@ -165,7 +165,7 @@ def charEqualB : Pure.Binary where
 def charEqual : Intrinsic := charEqualB.toIntrinsic
 
 @[simp] theorem charEqual_arity : charEqual.arity = .two := rfl
-@[simp] theorem charEqual_folSym : charEqual.folSym = some charEqualSym := rfl
+@[simp] theorem charEqual_symbol : charEqual.symbol = some charEqualSym := rfl
 
 def charEqualLawful : charEqualB.Lawful [] where
   argL₁        := Embedding.lawfulChar

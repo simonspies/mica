@@ -3530,7 +3530,7 @@ theorem compileApp_correct (reg : Verifier.Registry) (hSound : Verifier.Registry
     have heval_args : (compileExprs reg W.Θ W.Δ_spec Γfn Gf G B Γ args).eval st ρ _ :=
       VerifM.eval_bind heval
     have hi_mem : i ∈ reg := Verifier.Registry.mem_of_lookup? hilookup
-    have hbridge := Verifier.Registry.Sound.get hSound hi_mem
+    have hisound := Verifier.Registry.Sound.get hSound hi_mem
     simp only [Expr.WithTypeVars.runtime, Runtime.Expr.subst_val]
     refine SpatialContext.wp_bind_app ?_
     refine ihArgs W R Γfn Gf G B Γ st ρ γg γ _ _ hW
@@ -3546,12 +3546,12 @@ theorem compileApp_correct (reg : Verifier.Registry) (hSound : Verifier.Registry
     have hΔspec_args : W.Δ_spec.Subset st_args.decls := hag.subset.trans hdecls_args
     have hst_args_wf : st_args.decls.wf := (VerifM.eval.wf hΨ_args).namesDisjoint
     have hlen_i : i.spec.args.length = argTys.length := by
-      simp only [argTys, List.length_map]; exact hbridge.argLen
+      simp only [argTys, List.length_map]; exact hisound.arg_len
     have hwf_pred :
         PredTrans.wfIn ((W.Δ_spec.declVars (FiniteSubst.base W.Δ_spec).dom).declVars
           (Spec.argVars i.spec.allArgs)) i.spec.pred := by
       simpa [FiniteSubst.base, Signature.declVars, Verifier.Intrinsic.specArgs] using
-        hbridge.specWf W.Δ_spec
+        hisound.spec_wf W.Δ_spec
           (Verifier.Registry.sigOf_subset_of_symSubset hΔreg) hwf.wf
     have hbase_wf : (FiniteSubst.base W.Δ_spec).wfIn W.Δ_spec st_args.decls :=
       FiniteSubst.base_wfIn hΔspec_args hwf.wf hst_args_wf hwf.vars
@@ -3587,7 +3587,7 @@ theorem compileApp_correct (reg : Verifier.Registry) (hSound : Verifier.Registry
     rw [hW]
     refine BIBase.Entails.trans ?_ (Verifier.Registry.wp_prim reg hSound)
     show _ ⊢ reg.wpCtx n vs Φ
-    have hctx_eq : reg.wpCtx n vs Φ = i.toWp vs Φ := by
+    have hctx_eq : reg.wpCtx n vs Φ = i.toPre vs Φ := by
       simp only [Verifier.Registry.wpCtx, hilookup]
     rw [hctx_eq]
     istart
@@ -3608,15 +3608,15 @@ theorem compileApp_correct (reg : Verifier.Registry) (hSound : Verifier.Registry
       exact happly
     have hagree_ρ_args : Env.agreeOn W.Δ_spec W.ρ_spec ρ_args :=
       Env.agreeOn_trans hag.agree (Env.agreeOn_mono hag.subset hagreeOn_args)
-    have hρ_args_reg : ∀ d ∈ reg, ρ_args.respects d.folSym := by
+    have hρ_args_reg : ∀ d ∈ reg, ρ_args.respects d.symbol := by
       intro d hd
       exact Env.respects_of_agreeOn_extendWithSym
         (hρreg d hd) (hΔreg d hd) hagree_ρ_args
     iapply (show
         TinyML.ValsHaveTypes W vs argTys ∗
           PredTrans.apply (TinyML.ValHasType W) (fun r => TinyML.ValHasType W r retTy -∗ Φ r) i.spec.pred
-            (Spec.argsEnv ρ_args i.spec.args vs) ⊢ i.toWp vs Φ from
-        hbridge.bridge σi W vs ρ_args Φ hρ_args_reg)
+            (Spec.argsEnv ρ_args i.spec.args vs) ⊢ i.toPre vs Φ from
+        hisound.spec_sound σi W vs ρ_args Φ hρ_args_reg)
     isplitl [Hvals]
     · rw [← hsub_ty']
       iexact Hvals
