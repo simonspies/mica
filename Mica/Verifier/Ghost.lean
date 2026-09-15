@@ -2199,7 +2199,7 @@ private def ValDecl.ghostSelf (Δ_spec : Signature) (Gf : GhostFns) (self : Bind
     the arrow the body was checked at, so a call at a different instantiation of
     a polymorphic declaration fails the call's type check. -/
 def ValDecl.prove (reg : Verifier.Registry) (Θ : TinyML.TypeEnv) (Δ_spec : Signature) (Gf : GhostFns)
-    (axs : List Axiom) (f : TinyML.Var) (self : Binder) (args : List Binder)
+    (ls : Lemmas) (f : TinyML.Var) (self : Binder) (args : List Binder)
     (retTy : TinyML.Typ) (body : Expr) (s : Spec TinyML.Typ)
     (decreases : Option Typed.Measure) : VerifM (TinyML.Var × GhostFns.Entry) :=
   match extractArgNames args s.args with
@@ -2213,11 +2213,11 @@ def ValDecl.prove (reg : Verifier.Registry) (Θ : TinyML.TypeEnv) (Δ_spec : Sig
     VerifM.seq
       (do
         VerifM.persist
-        VerifM.assumeAxioms axs
         Spec.implement Δ_spec argTys s fun argVars ghostVars => do
           let Gf' ← ValDecl.ghostSelf Δ_spec
             (ghostBodyFns Gf argNames (s.ghost.map Prod.fst)) self decreases ty s
             argVars ghostVars
+          ls.assumeInstance self.name argVars
           let se ← compileGhostExpr reg Θ Δ_spec Gf'
             (ghostBodyGhosts (s.ghost.map Prod.fst) ghostVars)
             (ghostBodyArgs argNames argVars (s.ghost.map Prod.fst))
@@ -2228,11 +2228,11 @@ def ValDecl.prove (reg : Verifier.Registry) (Θ : TinyML.TypeEnv) (Δ_spec : Sig
 
 /-- Check a ghost declaration against the specification it was written with. -/
 def ValDecl.checkGhost (reg : Verifier.Registry) (Θ : TinyML.TypeEnv) (Δ_spec : Signature)
-    (Gf : GhostFns) (d : Typed.ValDecl) : VerifM (TinyML.Var × GhostFns.Entry) := do
+    (Gf : GhostFns) (ls : Lemmas) (d : Typed.ValDecl) : VerifM (TinyML.Var × GhostFns.Entry) := do
   let f ← VerifM.expectSome "a ghost declaration must be named" d.name.name
   match d.body with
   | .fix self args retTy (some s) body =>
-      ValDecl.prove reg Θ Δ_spec Gf [] f self args retTy body s d.decreases
+      ValDecl.prove reg Θ Δ_spec Gf ls f self args retTy body s d.decreases
   | _ => VerifM.fatal "a ghost declaration must be a specified function"
 
 /-- `$` is not an identifier character, so no name in the source collides. -/
@@ -2251,12 +2251,12 @@ def Spec.ofRelation (rel : SpecFn) (arg : String) : Spec TinyML.Typ :=
 /-- Make a spec-level function callable from ghost code, with its own body as
     the proof. A declaration without the `ghost` payload gets no entry. -/
 def ValDecl.checkGhostFn (reg : Verifier.Registry) (Θ : TinyML.TypeEnv) (Δ_spec : Signature)
-    (Gf : GhostFns) (axs : List Axiom) (d : Typed.ValDecl) : VerifM GhostFns :=
+    (Gf : GhostFns) (ls : Lemmas) (d : Typed.ValDecl) : VerifM GhostFns :=
   match d.relation with
   | some ⟨rel, true, _⟩ =>
     match d.name.name, d.body with
     | some f, .fix self [⟨some x, xty⟩] retTy _ body => do
-      let entry ← ValDecl.prove reg Θ Δ_spec Gf axs f self [⟨some x, xty⟩] retTy body
+      let entry ← ValDecl.prove reg Θ Δ_spec Gf ls f self [⟨some x, xty⟩] retTy body
         (Spec.ofRelation rel x) d.decreases
       pure [entry]
     | _, _ => VerifM.fatal
@@ -2285,7 +2285,7 @@ def ValDecl.publish (Δ_spec : Signature) (ls : Lemmas) (d : Typed.ValDecl) :
     makes callable, and the unfolding function `[@@opaque]` publishes. -/
 def ValDecl.ghostEntries (reg : Verifier.Registry) (Θ : TinyML.TypeEnv) (Δ_spec : Signature)
     (Gf : GhostFns) (ls : Lemmas) (d : Typed.ValDecl) : VerifM GhostFns := do
-  let fn ← ValDecl.checkGhostFn reg Θ Δ_spec Gf (ls.enterDeclaration d.name.name) d
+  let fn ← ValDecl.checkGhostFn reg Θ Δ_spec Gf ls d
   let unf ← ValDecl.publish Δ_spec ls d
   pure (fn ++ unf)
 
@@ -2296,6 +2296,7 @@ private theorem ValDecl.checkGhostBody_correct (reg : Verifier.Registry) (hSound
     (hΔreg : reg.symSubset W.Δ_spec) (hρreg : reg.symAgree W.ρ_spec)
     (s : Spec TinyML.Typ) (argTys : List TinyML.Typ) (retTy : TinyML.Typ) (body : Expr)
     (argNames : List String) (vs gs : List Runtime.Val) (Φ : Runtime.Val → iProp)
+    (ls : Lemmas) (hls : ls.Sound W.Δ_spec W.ρ_spec) (f : Option TinyML.Var)
     {argVars ghostVars : List FOL.Const} {st' : TransState} {ρ' : Env} {Q : iProp}
     (hag : W.agrees st'.decls ρ')
     (hGf : GhostFns.wellTyped W st'.decls ρ' Gf)
@@ -2308,6 +2309,7 @@ private theorem ValDecl.checkGhostBody_correct (reg : Verifier.Registry) (hSound
     (hghostVars_lookup : List.Forall₂ (fun gv val => ρ'.consts .value gv.name = val) ghostVars gs)
     (hbody_eval : VerifM.eval
         (do
+          ls.assumeInstance f argVars
           let se ← compileGhostExpr reg W.Θ W.Δ_spec Gf
             (ghostBodyGhosts (s.ghost.map Prod.fst) ghostVars)
             (ghostBodyArgs argNames argVars (s.ghost.map Prod.fst))
@@ -2329,6 +2331,10 @@ private theorem ValDecl.checkGhostBody_correct (reg : Verifier.Registry) (hSound
   set Bbody := ghostBodyArgs argNames argVars ghostNames with hBbody_def
   set Gbody := ghostBodyGhosts ghostNames ghostVars with hGbody_def
   set Γ' := ghostBodyTyCtx argNames argTys s.ghost with hΓ'_def
+  obtain ⟨φs, hbody_eval⟩ := Lemmas.assumeInstance_correct hwf hls hag hargVars_mem hargVars_sort
+    (VerifM.eval_bind hbody_eval)
+  -- `sl` does not use the assertions, so `st₀.sl` is `st'.sl`.
+  set st₀ : TransState := { st' with asserts := φs ++ st'.asserts }
   have hcompile := VerifM.eval_bind hbody_eval
   iintro ⟨Howns, #Hvals, #Hgvals, HQ⟩
   ihave %hlen_vals := TinyML.ValsHaveTypes.length_eq $$ Hvals
@@ -2401,7 +2407,7 @@ private theorem ValDecl.checkGhostBody_correct (reg : Verifier.Registry) (hSound
       hΓ hargVars_lookup)
     rw [hsnd]
     iassumption
-  have hbody : st'.sl W ρ' ∗ (Bindings.typedScope W Gbody Bbody Γ' γg_body γ_body ∗ Q) ⊢
+  have hbody : st₀.sl W ρ' ∗ (Bindings.typedScope W Gbody Bbody Γ' γg_body γ_body ∗ Q) ⊢
       |==> ∃ v, Φ v := by
     refine compileGhostExpr_correct reg hSound body W Gf Gbody Bbody Γ' γg_body γ_body
       hwf hag hΔreg hρreg hgagree_body hgwf_body hagree_body hbwf_body hGf
@@ -2428,7 +2434,9 @@ private theorem ValDecl.checkGhostBody_correct (reg : Verifier.Registry) (hSound
     rw [← hsub]
     iexact Hty
   iapply hbody
-  iframe Howns
+  isplitl [Howns]
+  · iapply (show st'.sl W ρ' ⊢ st₀.sl W ρ' from .rfl)
+    iexact Howns
   unfold Bindings.typedScope
   isplitl []
   · isplitl []
@@ -2477,11 +2485,13 @@ private theorem ValDecl.checkGhostRank_correct (reg : Verifier.Registry) (hSound
     (argNames : List String)
     (μ : List Runtime.Val → List Runtime.Val → Nat) (k : Nat)
     (bodyGf : List FOL.Const → List FOL.Const → VerifM GhostFns)
+    (ls : Lemmas) (hls : ls.Sound W.Δ_spec W.ρ_spec) (f : Option TinyML.Var)
     (hswf : s.wfIn W.Δ_spec) (hslen : s.args.length = argTys.length)
     (hlen_args : argNames.length = argTys.length)
     {st : TransState} {ρ : Env} (hag : W.agrees st.decls ρ) (howns : st.owns = [])
     (himpl : VerifM.eval (Spec.implement W.Δ_spec argTys s (fun argVars ghostVars => do
           let Gf' ← bodyGf argVars ghostVars
+          ls.assumeInstance f argVars
           let se ← compileGhostExpr reg W.Θ W.Δ_spec Gf'
             (ghostBodyGhosts (s.ghost.map Prod.fst) ghostVars)
             (ghostBodyArgs argNames argVars (s.ghost.map Prod.fst))
@@ -2518,7 +2528,7 @@ private theorem ValDecl.checkGhostRank_correct (reg : Verifier.Registry) (hSound
           (VerifM.eval_bind hbody_eval)
       iintro ⟨Hsl, HQ⟩ Htyped Hgtyped
       iapply (ValDecl.checkGhostBody_correct reg hSound W Gf' hwf hΔreg hρreg s argTys retTy body argNames vs gs Φ
-        (hag.step (hst_sub.trans hst_sub') (Env.agreeOn_trans hρ_agree
+        ls hls f (hag.step (hst_sub.trans hst_sub') (Env.agreeOn_trans hρ_agree
           (Env.agreeOn_mono hst_sub hρ_agree')))
         hGf' hlen_args
         (fun v hv => hst_sub'.consts v (hargVars_mem v hv)) hargVars_sort
@@ -2560,15 +2570,15 @@ private theorem ValDecl.checkGhostRank_correct (reg : Verifier.Registry) (hSound
 theorem ValDecl.prove_correct (reg : Verifier.Registry) (hSound : reg.Sound)
     (W : TinyML.World) (Gf : GhostFns) (hwf : W.wf)
     (hΔreg : reg.symSubset W.Δ_spec) (hρreg : reg.symAgree W.ρ_spec)
-    (axs : List Axiom) (f : TinyML.Var) (self : Binder) (args : List Binder)
+    (ls : Lemmas) (f : TinyML.Var) (self : Binder) (args : List Binder)
     (retTy : TinyML.Typ) (body : Expr) (s : Spec TinyML.Typ)
     (decreases : Option Typed.Measure)
     {st : TransState} {ρ : Env} (hag : W.agrees st.decls ρ)
-    (haxs : ∀ ax ∈ axs, ax.formula.wfIn W.Δ_spec ∧ ax.formula.eval W.ρ_spec)
+    (hls : ls.Sound W.Δ_spec W.ρ_spec)
     (hGf : GhostFns.wellTyped W st.decls ρ Gf)
     {Q : (TinyML.Var × GhostFns.Entry) → TransState → Env → Prop}
     (heval : VerifM.eval
-      (ValDecl.prove reg W.Θ W.Δ_spec Gf axs f self args retTy body s decreases) st ρ Q) :
+      (ValDecl.prove reg W.Θ W.Δ_spec Gf ls f self args retTy body s decreases) st ρ Q) :
     ∃ entry, GhostFns.wellTyped W st.decls ρ [entry] ∧ Q entry st ρ := by
   simp only [ValDecl.prove] at heval
   cases hext : extractArgNames args s.args with
@@ -2587,12 +2597,9 @@ theorem ValDecl.prove_correct (reg : Verifier.Registry) (hSound : reg.Sound)
     have hlen_args : argNames.length = (args.map Binder.WithTypeVars.ty).length := by
       simpa using hargNames_len.trans hargs_len.symm
     obtain ⟨himpl_seq, hcont⟩ := VerifM.eval_seq heval
-    obtain ⟨st₀, hd₀, ho₀, _, himpl⟩ := VerifM.eval_assumeAxioms
-      (VerifM.eval_bind (VerifM.eval_persist (VerifM.eval_bind himpl_seq)))
-      (fun ax ha => Formula.wfIn_mono _ (haxs ax ha).1 hag.subset himpl_seq.1.namesDisjoint)
-      (fun ax ha => (Formula.eval_env_agree (haxs ax ha).1 hag.agree).mp (haxs ax ha).2)
-    have hag' : W.agrees st₀.decls ρ := by simpa [hd₀] using hag
-    have hGf' : GhostFns.wellTyped W st₀.decls ρ Gf := by simpa [hd₀] using hGf
+    have himpl := VerifM.eval_persist (VerifM.eval_bind himpl_seq)
+    have hag' : W.agrees (TransState.persist st).decls ρ := hag
+    have hGf' : GhostFns.wellTyped W (TransState.persist st).decls ρ Gf := hGf
     refine ⟨(f, ⟨.arrow (args.map Binder.WithTypeVars.ty) retTy (some s), none⟩), ?_,
       VerifM.eval_ret hcont⟩
     intro η f' argTys' retTy' s' guard' hlookup
@@ -2602,13 +2609,13 @@ theorem ValDecl.prove_correct (reg : Verifier.Registry) (hSound : reg.Sound)
         GhostFns.Entry.mk.injEq] at hlookup
       obtain ⟨hty, hguard⟩ := hlookup
       cases hty; cases hguard
-      have hpersist_owns : st₀.owns = [] := ho₀
+      have hpersist_owns : (TransState.persist st).owns = [] := rfl
       cases hself : self.name with
       | none =>
         refine Spec.isGhostPrecondFor.induction_eta (fun _ _ => 0) ?_ η
         intro k η' _
         refine ValDecl.checkGhostRank_correct reg hSound { W with eta := η' } (hwf.eta η') hΔreg hρreg _ retTy s body
-          argNames _ k _ hswf hslen hlen_args (hag'.eta η') hpersist_owns himpl ?_
+          argNames _ k _ ls hls self.name hswf hslen hlen_args (hag'.eta η') hpersist_owns himpl ?_
         intro vs gs argVars ghostVars st₁ ρ₁ Ψ hst_sub hρ_agree _ _ _ _ _ _ _ _ _ hev
         simp only [ValDecl.ghostSelf, hself] at hev
         exact ⟨_, st₁, ρ₁, Signature.Subset.refl _, Env.agreeOn_refl, .rfl,
@@ -2622,7 +2629,7 @@ theorem ValDecl.prove_correct (reg : Verifier.Registry) (hSound : reg.Sound)
           refine Spec.isGhostPrecondFor.induction_eta (fun _ _ => 0) ?_ η
           intro k η' _
           refine ValDecl.checkGhostRank_correct reg hSound { W with eta := η' } (hwf.eta η') hΔreg hρreg _ retTy s body
-            argNames _ k _ hswf hslen hlen_args (hag'.eta η') hpersist_owns himpl ?_
+            argNames _ k _ ls hls self.name hswf hslen hlen_args (hag'.eta η') hpersist_owns himpl ?_
           intro vs gs argVars ghostVars st₁ ρ₁ Ψ _ _ _ _ _ _ _ _ _ _ _ hev
           simp only [ValDecl.ghostSelf, hself, hdec] at hev
           exact (VerifM.eval_fatal hev).elim
@@ -2630,7 +2637,7 @@ theorem ValDecl.prove_correct (reg : Verifier.Registry) (hSound : reg.Sound)
           refine Spec.isGhostPrecondFor.induction_eta (measure.denote s W.ρ_spec) ?_ η
           intro k η' ih
           refine ValDecl.checkGhostRank_correct reg hSound { W with eta := η' } (hwf.eta η') hΔreg hρreg _ retTy s body
-            argNames _ k _ hswf hslen hlen_args (hag'.eta η') hpersist_owns himpl ?_
+            argNames _ k _ ls hls self.name hswf hslen hlen_args (hag'.eta η') hpersist_owns himpl ?_
           intro vs gs argVars ghostVars st₁ ρ₁ Ψ hst_sub hρ_agree hargVars_mem hargVars_sort
             hargVars_lookup hghostVars_mem hghostVars_sort hghostVars_lookup hlen_vs hlen_gs
             hrank hev
@@ -2718,11 +2725,12 @@ theorem ValDecl.prove_correct (reg : Verifier.Registry) (hSound : reg.Sound)
 theorem ValDecl.checkGhost_correct (reg : Verifier.Registry) (hSound : reg.Sound)
     (W : TinyML.World) (Gf : GhostFns) (hwf : W.wf)
     (hΔreg : reg.symSubset W.Δ_spec) (hρreg : reg.symAgree W.ρ_spec)
-    (d : Typed.ValDecl)
+    (ls : Lemmas) (d : Typed.ValDecl)
     {st : TransState} {ρ : Env} (hag : W.agrees st.decls ρ)
+    (hls : ls.Sound W.Δ_spec W.ρ_spec)
     (hGf : GhostFns.wellTyped W st.decls ρ Gf)
     {Q : (TinyML.Var × GhostFns.Entry) → TransState → Env → Prop}
-    (heval : VerifM.eval (ValDecl.checkGhost reg W.Θ W.Δ_spec Gf d) st ρ Q) :
+    (heval : VerifM.eval (ValDecl.checkGhost reg W.Θ W.Δ_spec Gf ls d) st ρ Q) :
     ∃ entry, GhostFns.wellTyped W st.decls ρ [entry] ∧ Q entry st ρ := by
   simp only [ValDecl.checkGhost] at heval
   obtain ⟨f, _, heval⟩ := VerifM.eval_bind_expectSome heval
@@ -2732,19 +2740,19 @@ theorem ValDecl.checkGhost_correct (reg : Verifier.Registry) (hSound : reg.Sound
     | none => simp only [hbody] at heval; exact (VerifM.eval_fatal heval).elim
     | some s =>
       simp only [hbody] at heval
-      exact ValDecl.prove_correct reg hSound W Gf hwf hΔreg hρreg [] f self args retTy body s d.decreases hag
-        (by simp) hGf heval
+      exact ValDecl.prove_correct reg hSound W Gf hwf hΔreg hρreg ls f self args retTy body s d.decreases hag
+        hls hGf heval
   | _ => simp only [hbody] at heval; exact (VerifM.eval_fatal heval).elim
 
 theorem ValDecl.checkGhostFn_correct (reg : Verifier.Registry) (hSound : reg.Sound)
     (W : TinyML.World) (Gf : GhostFns) (hwf : W.wf)
     (hΔreg : reg.symSubset W.Δ_spec) (hρreg : reg.symAgree W.ρ_spec)
-    (axs : List Axiom) (d : Typed.ValDecl)
+    (ls : Lemmas) (d : Typed.ValDecl)
     {st : TransState} {ρ : Env} (hag : W.agrees st.decls ρ)
-    (haxs : ∀ ax ∈ axs, ax.formula.wfIn W.Δ_spec ∧ ax.formula.eval W.ρ_spec)
+    (hls : ls.Sound W.Δ_spec W.ρ_spec)
     (hGf : GhostFns.wellTyped W st.decls ρ Gf)
     {Q : GhostFns → TransState → Env → Prop}
-    (heval : VerifM.eval (ValDecl.checkGhostFn reg W.Θ W.Δ_spec Gf axs d) st ρ Q) :
+    (heval : VerifM.eval (ValDecl.checkGhostFn reg W.Θ W.Δ_spec Gf ls d) st ρ Q) :
     ∃ fn, GhostFns.wellTyped W st.decls ρ fn ∧ Q fn st ρ := by
   simp only [ValDecl.checkGhostFn] at heval
   cases hrel : d.relation with
@@ -2766,8 +2774,8 @@ theorem ValDecl.checkGhostFn_correct (reg : Verifier.Registry) (hSound : reg.Sou
           match args, hbody with
           | [⟨some x, xty⟩], hbody =>
             simp only [hname, hbody] at heval
-            obtain ⟨entry, hentry, hQ⟩ := ValDecl.prove_correct reg hSound W Gf hwf hΔreg hρreg axs f self
-              [⟨some x, xty⟩] retTy body (Spec.ofRelation relName x) d.decreases hag haxs
+            obtain ⟨entry, hentry, hQ⟩ := ValDecl.prove_correct reg hSound W Gf hwf hΔreg hρreg ls f self
+              [⟨some x, xty⟩] retTy body (Spec.ofRelation relName x) d.decreases hag hls
               hGf heval
             exact ⟨[entry], hentry, hQ⟩
           | [], hbody | ⟨none, _⟩ :: _, hbody | _ :: _ :: _, hbody =>
@@ -2813,8 +2821,8 @@ theorem ValDecl.ghostEntries_correct (reg : Verifier.Registry) (hSound : reg.Sou
     ∃ fn, GhostFns.wellTyped W st.decls ρ fn ∧ Q fn st ρ := by
   simp only [ValDecl.ghostEntries] at heval
   obtain ⟨fn, hfn, heval⟩ :=
-    ValDecl.checkGhostFn_correct reg hSound W Gf hwf hΔreg hρreg _ d hag
-      (Lemmas.enterDeclaration_sound hls _) hGf (VerifM.eval_bind heval)
+    ValDecl.checkGhostFn_correct reg hSound W Gf hwf hΔreg hρreg ls d hag hls hGf
+      (VerifM.eval_bind heval)
   obtain ⟨unf, hunf, heval⟩ := ValDecl.publish_correct W ls d hls (VerifM.eval_bind heval)
   exact ⟨fn ++ unf, hfn.append hunf, VerifM.eval_ret heval⟩
 

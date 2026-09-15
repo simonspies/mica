@@ -1107,6 +1107,9 @@ private def Decl.elaborate (env : ElabEnv) (decl : Decl)
     if attrs.decreases.isSome && !isRec then
       return ← err decl.loc (.unsupportedFeature
         "[@@decreases] requires a recursive declaration")
+    if attrs.transparency == .opaque && !isRec then
+      return ← err decl.loc (.unsupportedFeature
+        "[@@opaque] requires a recursive declaration")
     let spec := attrs.spec.map fun sb => { sb with ghost := attrs.params }
     let d ← ValDecl.elaborate env decl.loc isRec binders retTy body spec attrs.decreases
     -- A `[@@fn]` declaration uses its own name for the derived relation.

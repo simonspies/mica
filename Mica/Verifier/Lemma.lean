@@ -1,6 +1,7 @@
 -- SUMMARY: Facts kept out of the solver context, which a check takes into its query or publishes as a ghost function.
 import Mica.Verifier.Bindings
 import Mica.Verifier.Guard
+import Mica.Verifier.Monad
 
 open Iris Iris.BI
 
@@ -110,6 +111,53 @@ theorem publish_wellTyped (W : TinyML.World) (Δ : Signature) (ρ : Env) {l : Le
     simp only [List.lookup, hne] at hlookup
     exact absurd hlookup (by simp)
 
+/-! ## Instantiation
+
+A check assumes the fact only at a known argument. The instance has no
+quantifier, so the solver makes no more instances. -/
+
+/-- For the fact `∀ x. φ`, the formula `φ` with `t` in place of `x`. -/
+def instantiate (l : Lemma) (Δ : Signature) (t : Term .value) : Option Formula :=
+  match l.fact.formula with
+  | .forall_ x .value _ φ => some (φ.subst (Subst.id.update .value x t) Δ.allNames)
+  | _ => none
+
+omit [MicaGS HasLC.hasLC Sig] in
+theorem instantiate_sound {l : Lemma} {Δ_spec Δ : Signature} {ρ_spec ρ : Env}
+    {t : Term .value} {φ : Formula}
+    (h : l.Sound Δ_spec ρ_spec) (hspecwf : Δ_spec.wf) (hvars : Δ_spec.vars = [])
+    (hsub : Δ_spec.Subset Δ)
+    (hag : Env.agreeOn Δ_spec ρ_spec ρ) (hwf : Δ.wf) (ht : t.wfIn Δ)
+    (hi : l.instantiate Δ t = some φ) : φ.wfIn Δ ∧ φ.eval ρ := by
+  obtain ⟨hlwf, hlev⟩ := h
+  unfold instantiate at hi
+  split at hi
+  case h_2 => exact absurd hi (by simp)
+  rename_i x ps body hform
+  cases hi
+  rw [hform] at hlwf hlev
+  have hbody : body.wfIn (Δ_spec.declVar ⟨x, .value⟩) := hlwf.2
+  have hσ : (Subst.id.update .value x t).wfIn (Δ_spec.declVar ⟨x, .value⟩).vars Δ :=
+    ⟨fun v hv => by
+        by_cases hvx : v = ⟨x, .value⟩
+        · subst hvx; simpa [Subst.update, Subst.apply] using ht
+        · have hv' : v ∈ Δ_spec.vars := by
+            simp only [Signature.declVar, Signature.addVar, Signature.remove, List.mem_cons,
+              List.mem_filter] at hv
+            exact (hv.resolve_left hvx).1
+          simp [hvars] at hv',
+     fun v hv => by
+        have hvx : ¬(v.sort = .value ∧ v.name = x) := fun ⟨hs, hn⟩ =>
+          hv (by cases v; simp only at hs hn; subst hs hn; exact Signature.var_mem_declVar _ _)
+        simp [Subst.update, Subst.apply, Subst.id, hvx]⟩
+  have hsym : (Δ_spec.declVar ⟨x, .value⟩).SymbolSubset Δ :=
+    Signature.SymbolSubset.declVar
+      ⟨hsub.consts, hsub.unary, hsub.binary, hsub.ternary, hsub.unaryRel, hsub.binaryRel⟩ _
+  refine ⟨Formula.subst_wfIn hbody hσ hsym hwf, ?_⟩
+  rw [Formula.eval_subst hbody hσ hsym (Signature.wf_declVar hspecwf) hwf, Subst.eval_update,
+    Subst.id_eval]
+  exact ((Formula.eval_env_agree hlwf hag).mp hlev) (Term.eval ρ t)
+
 end Lemma
 
 abbrev Lemmas := List Lemma
@@ -122,11 +170,18 @@ def ofDeclaration (ls : Lemmas) : Option TinyML.Var → Option Lemma
   | none => none
   | some f => ls.find? fun l => l.kind == .definingEquation f
 
-/-- What a declaration's own check takes into its query. -/
-def enterDeclaration (ls : Lemmas) (f : Option TinyML.Var) : List Axiom :=
-  match ls.ofDeclaration f with
-  | none => []
-  | some l => [l.fact]
+/-- Assume the withheld equation of `f` at the argument of a body of `f`. A
+    local function called `f` also gets it. This is sound because the equation
+    is true at every value. -/
+def assumeInstance (ls : Lemmas) (f : Option TinyML.Var) (argVars : List FOL.Const) :
+    VerifM Unit :=
+  match ls.ofDeclaration f, argVars with
+  | some l, [a] => do
+    let Δ ← VerifM.decls
+    match l.instantiate Δ (.const (.uninterpreted a.name .value)) with
+    | some φ => VerifM.assume (.pure φ)
+    | none => pure ()
+  | _, _ => pure ()
 
 def Sound (ls : Lemmas) (Δ : Signature) (ρ : Env) : Prop :=
   ∀ l ∈ ls, l.Sound Δ ρ
@@ -146,16 +201,26 @@ theorem ofDeclaration_sound {ls : Lemmas} {Δ : Signature} {ρ : Env} {l : Lemma
   | some f => exact h l (List.mem_of_find?_eq_some (by simpa [ofDeclaration] using hl))
 
 omit [MicaGS HasLC.hasLC Sig] in
-theorem enterDeclaration_sound {ls : Lemmas} {Δ : Signature} {ρ : Env}
-    (h : ls.Sound Δ ρ) (f : Option TinyML.Var) :
-    ∀ ax ∈ ls.enterDeclaration f, ax.formula.wfIn Δ ∧ ax.formula.eval ρ := by
-  intro ax hax
-  unfold enterDeclaration at hax
-  split at hax
-  · simp at hax
-  · rename_i l hl
-    simp only [List.mem_singleton] at hax
-    subst hax
-    exact ofDeclaration_sound h hl
+theorem assumeInstance_correct {ls : Lemmas} {W : TinyML.World} (hW : W.wf)
+    (hls : ls.Sound W.Δ_spec W.ρ_spec) {f : Option TinyML.Var} {argVars : List FOL.Const}
+    {st : TransState} {ρ : Env} {Q : Unit → TransState → Env → Prop}
+    (hag : W.agrees st.decls ρ)
+    (hmem : ∀ v ∈ argVars, v ∈ st.decls.consts) (hsort : ∀ v ∈ argVars, v.sort = .value)
+    (h : VerifM.eval (ls.assumeInstance f argVars) st ρ Q) :
+    ∃ φs, Q () { st with asserts := φs ++ st.asserts } ρ := by
+  unfold assumeInstance at h
+  split at h
+  · rename_i l a hl
+    have h := VerifM.eval_decls (VerifM.eval_bind h)
+    split at h
+    · rename_i φ hi
+      have hwf := (VerifM.eval.wf h).namesDisjoint
+      have ha : (⟨a.name, .value⟩ : FOL.Const) ∈ st.decls.consts := by
+        have := hmem a (by simp); rwa [← hsort a (by simp)]
+      obtain ⟨hφwf, hφ⟩ := Lemma.instantiate_sound (ofDeclaration_sound hls hl) hW.wf hW.vars
+        hag.subset hag.agree hwf (Term.const_wfIn_of_mem hwf ha) hi
+      exact ⟨[φ], VerifM.eval_assumePure h hφwf hφ⟩
+    · exact ⟨[], VerifM.eval_ret h⟩
+  · exact ⟨[], VerifM.eval_ret h⟩
 
 end Lemmas
