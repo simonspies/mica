@@ -75,12 +75,15 @@ def SpecFn.Axioms.value (fn : SpecFn) (x : TinyML.Var) (body : DefVal) : Formula
       (.eq .value (fn.call (.var .value x)) body.value))
 
 /-- Converse of `SpecFn.Axioms.definedIntro`: if the function is defined on `x`, then the
-encoded body is defined on `x`. Experimental — exposing this lets the SMT
-backend propagate definedness from a parent call into its recursive subterms.
-Unlike its converse it carries no trigger, so the solver instantiates it
-without a matching pattern. -/
+encoded body is defined on `x`. The solver uses it to derive definedness of
+recursive calls.
+
+The trigger is `f_def(x)`. Without an explicit trigger, the solver can pick
+`f_def` at a recursive call in `body.defined`. Then each instance creates a new
+match, and instantiation does not stop. -/
 private def SpecFn.Axioms.definedElim (fn : SpecFn) (x : TinyML.Var) (body : DefVal) : Formula :=
-  .all x .value
+  .forall_ x .value
+    [.unpred (.uninterpreted fn.defName .value) (.var .value x)]
     (.implies (fn.isDefined (.var .value x)) body.defined)
 
 /-- The solver-facing axioms emitted for a relation-marked function. All three
@@ -142,7 +145,8 @@ private theorem SpecFn.Axioms.all_wfIn {Δ : Signature} {fn : SpecFn} {x : Strin
       hbody.2, hdef⟩
   · exact ⟨(by intro p hp; simp only [List.mem_singleton] at hp; subst hp; exact hcall),
       hdef, hcall, hbody.1⟩
-  · exact ⟨(by intro p hp; cases hp), hdef, hbody.2⟩
+  · exact ⟨(by intro p hp; simp only [List.mem_singleton] at hp; subst hp; exact hdef),
+      hdef, hbody.2⟩
 
 
 /-- The relation the current recursive body denotes is exactly the graph of the
@@ -237,7 +241,7 @@ fixpoint of `SpecFn.Semantics.defined`, the `SpecFn.Semantics.defined`/`Skolemiz
 private theorem SpecFn.Axioms.definedElim_eval {sd : SpecDef} {ρ : Env}
     {body : DefVal} (henc : encodeDefVal sd = .ok body) :
     (SpecFn.Axioms.definedElim sd.fn sd.x body).eval (SpecFn.Semantics.env sd ρ body) := by
-  simp only [SpecFn.Axioms.definedElim, Formula.all, Formula.eval]
+  simp only [SpecFn.Axioms.definedElim, Formula.eval]
   intro vin hdef
   exact (SpecFn.Semantics.defined_unfold (ρ := ρ) henc vin).mp
     ((SpecFn.Semantics.env_isDefined (sd := sd) (ρ := ρ) (body := body) vin).mp hdef)

@@ -1579,7 +1579,15 @@ theorem PrimitiveType.typeConstraints_hold {p : PrimitiveType} {t : Term .value}
     {W : TinyML.World} {v : Runtime.Val} (ht : t.eval ρ = v) :
     TinyML.ValHasType W v (.prim p) ⊢ ⌜∀ φ ∈ p.typeConstraints t, φ.eval ρ⌝ := by
   cases p
-  · iintro _; ipureintro; simp [PrimitiveType.typeConstraints]
+  · refine (TinyML.ValHasType.unit W v).1.trans ?_
+    iintro %h
+    subst h
+    ipureintro
+    intro φ hφ
+    simp only [PrimitiveType.typeConstraints, List.mem_cons, List.not_mem_nil,
+      or_false] at hφ
+    rcases hφ with rfl
+    simp [Formula.eval, Term.eval, ht]
   · refine (TinyML.ValHasType.bool W v).1.trans ?_
     iintro %h
     rcases h with ⟨b, rfl⟩
@@ -1691,16 +1699,19 @@ mutual
       iintro Hty
       icases Hty with ⟨%vs, Hty'⟩
       icases Hty' with ⟨%hv, hvs⟩
+      ihave %hlen := (ValsHaveTypes.length_eq (W := W) (vs := vs) (ts := ts)) $$ hvs
       ihave %htail := (typeConstraintsList_hold (ts := ts) (tl := .unop .toValList t)
         (ρ := ρ) (W := W) (vs := vs) (by simp [Term.eval, UnOp.eval, ht, hv])) $$ hvs
       iclear hvs
       ipureintro
       intro φ hφ
-      cases hφ with
-      | head =>
-        simp [Formula.eval, ht, hv]
-      | tail _ hφ =>
-        exact htail φ hφ
+      simp only [typeConstraints, List.mem_cons] at hφ
+      rcases hφ with rfl | rfl | hφ
+      · simp [Formula.eval, ht, hv]
+      · simp only [Formula.eval, Term.eval, UnOp.eval, ht, hv]
+        exact congrArg Runtime.Val.tuple
+          (TinyML.components_eval (ts := ts) (by simp [Term.eval, UnOp.eval, ht, hv]) hlen).symm
+      · exact htail φ hφ
     | sum _ | ref _ | value | named _ _ =>
       iintro _; ipureintro; simp [typeConstraints]
     | arrow args ret spec =>

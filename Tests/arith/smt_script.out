@@ -209,7 +209,7 @@
 (declare-fun countdown-func (Value) Value)
 (declare-fun countdown-def (Value) Bool)
 (assert (forall ((n Value)) (! (=> (= guard! true) (=> (and (=> (= (to_bool (of_bool (>= (to_int (of_int 0)) (to_int n)))) true) true) (=> (= (to_bool (of_bool (>= (to_int (of_int 0)) (to_int n)))) false) (and (countdown-def (of_int (- (to_int n) (to_int (of_int 1))))) true))) (countdown-def n))) :pattern ((countdown-def n)))))
-(assert (forall ((n Value)) (=> (= guard! true) (=> (countdown-def n) (and (=> (= (to_bool (of_bool (>= (to_int (of_int 0)) (to_int n)))) true) true) (=> (= (to_bool (of_bool (>= (to_int (of_int 0)) (to_int n)))) false) (and (countdown-def (of_int (- (to_int n) (to_int (of_int 1))))) true)))))))
+(assert (forall ((n Value)) (! (=> (= guard! true) (=> (countdown-def n) (and (=> (= (to_bool (of_bool (>= (to_int (of_int 0)) (to_int n)))) true) true) (=> (= (to_bool (of_bool (>= (to_int (of_int 0)) (to_int n)))) false) (and (countdown-def (of_int (- (to_int n) (to_int (of_int 1))))) true))))) :pattern ((countdown-def n)))))
 (assert (forall ((n Value)) (! (=> (= guard! true) (=> (countdown-def n) (= (countdown-func n) (ite (to_bool (of_bool (>= (to_int (of_int 0)) (to_int n)))) (of_int 0) (countdown-func (of_int (- (to_int n) (to_int (of_int 1))))))))) :pattern ((countdown-func n)))))
 (declare-fun countdown_measured-rel (Value Value) Bool)
 (declare-fun countdown_measured-func (Value) Value)

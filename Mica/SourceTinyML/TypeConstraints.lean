@@ -23,24 +23,54 @@ def PrimitiveType.typeConstraints (p : PrimitiveType) (t : Term .value) : List F
   | .char => [.unpred .isChar t]
   | .string => [.unpred .isStr t]
   | .float => [.unpred .isFloat t]
-  | .unit => []
+  | .unit => [.eq .value t (.const .unit)]
 
 /-- Primitive type constraints only reference free variables of the constrained term. -/
 theorem PrimitiveType.typeConstraints_wfIn {p : PrimitiveType} {t : Term .value} {Δ : Signature}
     (ht : t.wfIn Δ) : ∀ φ ∈ p.typeConstraints t, φ.wfIn Δ := by
-  cases p <;> simp [PrimitiveType.typeConstraints]
-  · simp only [Formula.wfIn]; exact ⟨trivial, ht⟩
-  · simp only [Formula.wfIn]; exact ⟨trivial, ht⟩
-  · simp only [Formula.wfIn]; exact ⟨trivial, ht⟩
-  · simp only [Formula.wfIn]; exact ⟨trivial, ht⟩
-  · simp only [Formula.wfIn]; exact ⟨trivial, ht⟩
-  · simp only [Formula.wfIn]; exact ⟨trivial, ht⟩
-  · simp only [Formula.wfIn]; exact ⟨trivial, ht⟩
+  cases p <;>
+    simp only [PrimitiveType.typeConstraints, List.mem_singleton, forall_eq] <;>
+    refine ⟨?_, ?_⟩ <;> first | exact ht | trivial
+
+/-- The first `ts.length` elements of `tl`. -/
+def components (ts : List TinyML.Typ) (tl : Term .vallist) : Term .vallist :=
+  match ts with
+  | [] => .const .vnil
+  | _ :: rest => .binop .vcons (.unop .vhead tl) (components rest (.unop .vtail tl))
+
+theorem components_wfIn {ts : List TinyML.Typ} {tl : Term .vallist} {Δ : Signature}
+    (htl : tl.wfIn Δ) : (components ts tl).wfIn Δ := by
+  induction ts generalizing tl with
+  | nil => simp [components, Term.wfIn, Const.wfIn]
+  | cons _ rest ih =>
+    exact ⟨trivial, ⟨trivial, htl⟩, ih (by simp only [Term.wfIn]; exact ⟨trivial, htl⟩)⟩
+
+/-- On a list with one element per type, `components` is the identity. -/
+theorem components_eval {ts : List TinyML.Typ} {tl : Term .vallist} {ρ : Env}
+    {vs : List Runtime.Val} (htl : tl.eval ρ = vs) (hlen : vs.length = ts.length) :
+    (components ts tl).eval ρ = vs := by
+  induction ts generalizing tl vs with
+  | nil =>
+    cases vs with
+    | nil => simp [components, Term.eval]
+    | cons _ _ => simp at hlen
+  | cons _ rest ih =>
+    cases vs with
+    | nil => simp at hlen
+    | cons v vs' =>
+      have htail : (Term.unop UnOp.vtail tl).eval ρ = vs' := by
+        simp [Term.eval, UnOp.eval, htl]
+      simp only [components, Term.eval, BinOp.eval, UnOp.eval, htl, List.headD_cons,
+        ih htail (by simpa using hlen)]
 
 mutual
 /-- Generate SMT formulas asserting that a value-sorted term has a given TinyML type.
     For `int`: `is-of_int(t)`, for `bool`: `is-of_bool(t)`,
-    for `tuple ts`: `is-of_tuple(t)` plus recursive constraints on elements. -/
+    for `tuple ts`: `is-of_tuple(t)`, `t = of_tuple(components ts (to_tuple t))`,
+    and recursive constraints on elements.
+    The equation for tuples and the one for `unit` say that a value has no other
+    content. Without them, the solver cannot prove that a `match` which rebuilds
+    its argument returns an equal value. -/
 def typeConstraints (ty : TinyML.Typ) (t : Term .value) : List Formula :=
   match ty with
   | .prim p => p.typeConstraints t
@@ -54,6 +84,7 @@ def typeConstraints (ty : TinyML.Typ) (t : Term .value) : List Formula :=
        .binpred .le (.const (.i 0)) (.unop .vecLen (.unop .toVec t))]
   | .tuple ts =>
       .unpred .isTuple t ::
+      .eq .value t (.unop .ofValList (components ts (.unop .toValList t))) ::
       typeConstraintsList ts (.unop .toValList t)
   | _ => []
 
@@ -110,13 +141,20 @@ mutual
       · simp only [Formula.wfIn, Term.wfIn]; exact ⟨trivial, trivial, ⟨trivial, ⟨trivial, ht⟩⟩⟩
       · cases hfalse
     | tuple ts =>
+      have htl : (Term.unop UnOp.toValList t).wfIn Δ := by
+        simp only [Term.wfIn]; exact ⟨trivial, ht⟩
       simp only [typeConstraints]
       intro φ hφ
       cases hφ with
       | head =>
         simp only [Formula.wfIn]; exact ⟨trivial, ht⟩
       | tail _ hφ =>
-        exact typeConstraintsList_wfIn (by simp only [Term.wfIn]; exact ⟨trivial, ht⟩) φ hφ
+        cases hφ with
+        | head =>
+          simp only [Formula.wfIn]
+          exact ⟨ht, trivial, components_wfIn htl⟩
+        | tail _ hφ =>
+          exact typeConstraintsList_wfIn htl φ hφ
     | _ => simp [typeConstraints]
 
   theorem typeConstraintsList_wfIn {ts : List TinyML.Typ} {tl : Term .vallist} {Δ : Signature}

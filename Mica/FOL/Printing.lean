@@ -17,6 +17,12 @@ Two serialization targets:
 -- `Mica/Engine/Driver.lean`. The two must agree name for name: a mismatch is a
 -- Z3 parse error at run time, not a build error.
 
+/-- `x'` is not a simple SMT-LIB symbol, so it prints as `|x'|`. A simple symbol
+prints unchanged. -/
+def symbolToSMTLIB (name : String) : String :=
+  let simple (c : Char) := c.isAlphanum || "~!@$%^&*_-+=<>.?/".contains c
+  if name.all simple then name else s!"|{name}|"
+
 def Srt.toSMTLIB : Srt → String
   | .int     => "Int"
   | .bool    => "Bool"
@@ -74,7 +80,7 @@ def UnOp.toSMTLIB : UnOp τ₁ τ₂ → String
   | .vecLen  => "vec_length"
   | .ofVec   => "of_vec"
   | .toVec   => "to_vec"
-  | .uninterpreted name _ _ => name
+  | .uninterpreted name _ _ => symbolToSMTLIB name
 
 def BinOp.toSMTLIB : BinOp τ₁ τ₂ τ₃ → String
   | .add   => "+"
@@ -115,12 +121,12 @@ def BinOp.toSMTLIB : BinOp τ₁ τ₂ τ₃ → String
   | .vcons => "vcons"
   | .vecGet  => "vec_get"
   | .vecMake => "vec_make"
-  | .uninterpreted name _ _ _ => name
+  | .uninterpreted name _ _ _ => symbolToSMTLIB name
 
 def TerOp.toSMTLIB : TerOp τ₁ τ₂ τ₃ τ₄ → String
   | .seqExtract => "seq.extract"
   | .vecSet => "vec_set"
-  | .uninterpreted name _ _ _ _ => name
+  | .uninterpreted name _ _ _ _ => symbolToSMTLIB name
 
 def UnPred.toSMTLIB : UnPred τ → String
   | .isInt   => "is-of_int"
@@ -134,12 +140,12 @@ def UnPred.toSMTLIB : UnPred τ → String
   | .isTuple => "is-of_tuple"
   | .isOfInj => "is-of_inj"
   | .isVec   => "is-of_vec"
-  | .uninterpreted name _ => name
+  | .uninterpreted name _ => symbolToSMTLIB name
 
 def BinPred.toSMTLIB : BinPred τ₁ τ₂ → String
   | .lt => "<"
   | .le => "<="
-  | .uninterpreted name _ _ => name
+  | .uninterpreted name _ _ => symbolToSMTLIB name
 
 private def hexDigit (n : Nat) : Char :=
   match n with
@@ -176,7 +182,7 @@ private def byteToHum (b : UInt8) : String :=
   else s!"\\x{byteHex b}"
 
 def Term.toSMTLIB : Term τ → String
-  | .var _ name   => name
+  | .var _ name   => symbolToSMTLIB name
   | .const (.i n)   => if n ≥ 0 then s!"{n}" else s!"(- {-n})"
   | .const (.b b)   => if b then "true" else "false"
   | .const (.bv (width := width) bits) => s!"(_ bv{bits.toNat} {width})"
@@ -188,7 +194,7 @@ def Term.toSMTLIB : Term τ → String
   | .const .fpNegInf => "(_ -oo 11 53)"
   | .const .unit    => "(of_other unit_val)"
   | .const .vnil    => "vnil"
-  | .const (.uninterpreted name _) => name
+  | .const (.uninterpreted name _) => symbolToSMTLIB name
   | .unop op a    => s!"({op.toSMTLIB} {a.toSMTLIB})"
   | .binop op a b => s!"({op.toSMTLIB} {a.toSMTLIB} {b.toSMTLIB})"
   | .terop op a b c => s!"({op.toSMTLIB} {a.toSMTLIB} {b.toSMTLIB} {c.toSMTLIB})"
@@ -213,8 +219,8 @@ def Formula.toSMTLIB : Formula → String
     let body := match ps with
       | [] => φ.toSMTLIB
       | ps => s!"(! {φ.toSMTLIB} :pattern ({" ".intercalate (ps.map Pattern.toSMTLIB)}))"
-    s!"(forall (({x} {τ.toSMTLIB})) {body})"
-  | .exists_ x τ φ  => s!"(exists (({x} {τ.toSMTLIB})) {φ.toSMTLIB})"
+    s!"(forall (({symbolToSMTLIB x} {τ.toSMTLIB})) {body})"
+  | .exists_ x τ φ  => s!"(exists (({symbolToSMTLIB x} {τ.toSMTLIB})) {φ.toSMTLIB})"
 
 
 -- ---------------------------------------------------------------------------
