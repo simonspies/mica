@@ -139,6 +139,48 @@ theorem interp_arrayPointsTo_lookup (W : TinyML.World) {ρ : Env}
             · imodintro
               iexact HvecTy
 
+/-- An owned-array atom types every element its snapshot holds in bounds. -/
+theorem interp_arrayPointsTo_elem (W : TinyML.World) {ρ : Env}
+    {arr contents idx : Term .value} {elemTy : TinyML.Typ}
+    (hi : 0 ≤ Term.eval ρ (.unop .toInt idx))
+    (hlt : Term.eval ρ (.unop .toInt idx) < Term.eval ρ (.unop .arrayLen arr)) :
+    SpatialAtom.interp W ρ (.arrayPointsTo arr contents elemTy) ⊢
+      SpatialAtom.interp W ρ (.arrayPointsTo arr contents elemTy) ∗
+      TinyML.ValHasType W
+        (Term.eval ρ (.binop .vecGet (.unop .toVec contents) (.unop .toInt idx))) elemTy := by
+  simp only [SpatialAtom.interp]
+  istart
+  iintro ⟨%loc, %vs, %ha, %hv, Hpt, #HvecTy⟩
+  have hi' : 0 ≤ Term.eval ρ (.unop .toInt idx) := hi
+  have hlt' : (Term.eval ρ (.unop .toInt idx)).toNat < vs.length := by
+    have : Term.eval ρ (.unop .toInt idx) < (vs.length : Int) := by
+      simpa [Term.eval, UnOp.eval, ha] using hlt
+    exact (Int.toNat_lt hi').2 this
+  obtain ⟨w, hw⟩ : ∃ w, vs[(Term.eval ρ (.unop .toInt idx)).toNat]? = some w :=
+    ⟨_, List.getElem?_eq_getElem hlt'⟩
+  have hresult :
+      Term.eval ρ (.binop .vecGet (.unop .toVec contents) (.unop .toInt idx)) = w := by
+    rw [Term.eval]
+    generalize Term.eval ρ (.unop .toInt idx) = I at hi' hw ⊢
+    simp [BinOp.eval, Term.eval, UnOp.eval, hv, hi', hw]
+  ihave Helem := (TinyML.ValHasType.vec W (.vec vs) elemTy).1 $$ HvecTy
+  icases Helem with ⟨%ws, %hws, Htys⟩
+  have hws_eq : ws = vs := Runtime.Val.vec.inj hws.symm
+  subst ws
+  ihave Hty := (BigSepL.bigSepL_lookup (Φ := fun _ w => TinyML.ValHasType W w elemTy)
+    hw) $$ Htys
+  rw [hresult]
+  isplitl [Hpt]
+  · iexists loc, vs
+    isplitr
+    · ipureintro; exact ha
+    · isplitr
+      · ipureintro; exact hv
+      · isplitl [Hpt]
+        · iexact Hpt
+        · iexact HvecTy
+  · iexact Hty
+
 /-- An atom's interpretation implies its pure facts. -/
 theorem interp_facts (W : TinyML.World) {ρ : Env} (a : SpatialAtom) :
     interp W ρ a ⊢ ⌜∀ φ ∈ a.facts, φ.eval ρ⌝ ∗ interp W ρ a := by

@@ -292,8 +292,7 @@ mutual
         VerifM.expectEq "array index must be int" idx.ty .int
         let si ← compile reg Θ Δ_spec Γfn Gf G B Γ idx
         let sa ← compile reg Θ Δ_spec Γfn Gf G B Γ arr
-        VerifM.assert (.binpred .le (.const (.i 0)) (.unop .toInt si))
-        VerifM.assert (.binpred .lt (.unop .toInt si) (.unop .arrayLen sa))
+        VerifM.assertBounds si sa
         if owned then
           let contents ← VerifM.findMatchForce .array sa elemTy
           VerifM.acquire (.spatial (.arrayPointsTo sa contents elemTy))
@@ -313,8 +312,7 @@ mutual
         let sv ← compile reg Θ Δ_spec Γfn Gf G B Γ val
         let si ← compile reg Θ Δ_spec Γfn Gf G B Γ idx
         let sa ← compile reg Θ Δ_spec Γfn Gf G B Γ arr
-        VerifM.assert (.binpred .le (.const (.i 0)) (.unop .toInt si))
-        VerifM.assert (.binpred .lt (.unop .toInt si) (.unop .arrayLen sa))
+        VerifM.assertBounds si sa
         if owned then
           let contents ← VerifM.findMatchForce .array sa elemTy
           let contents' := Term.unop .ofVec
@@ -1604,29 +1602,6 @@ theorem compileStore_correct (reg : Verifier.Registry) (loc val : Expr)
       simp only [compile, hty] at heval
       exact (VerifM.eval_fatal (VerifM.eval_bind heval)).elim
 
-omit [MicaGS HasLC.hasLC Sig] in
-/-- Peel the two bounds assertions guarding an array access. -/
-private theorem VerifM.eval_assertBounds {si sa : Term .value} {α : Type}
-    {k : VerifM α} {st : TransState} {ρ : Env}
-    {Q : α → TransState → Env → Prop}
-    (h : VerifM.eval (do
-      VerifM.assert (.binpred .le (.const (.i 0)) (.unop .toInt si))
-      VerifM.assert (.binpred .lt (.unop .toInt si) (.unop .arrayLen sa))
-      k) st ρ Q)
-    (hsi : si.wfIn st.decls) (hsa : sa.wfIn st.decls) :
-    0 ≤ Term.eval ρ (.unop .toInt si) ∧
-    Term.eval ρ (.unop .toInt si) < Term.eval ρ (.unop .arrayLen sa) ∧
-    VerifM.eval k st ρ Q := by
-  have hwf1 : (Formula.binpred .le (.const (.i 0)) (.unop .toInt si)).wfIn st.decls := by
-    simpa [Formula.wfIn, Term.wfIn, Const.wfIn, UnOp.wfIn, BinPred.wfIn] using hsi
-  obtain ⟨hφ1, hcont1⟩ := VerifM.eval_assert (VerifM.eval_bind h) hwf1
-  have hwf2 : (Formula.binpred .lt (.unop .toInt si) (.unop .arrayLen sa)).wfIn st.decls := by
-    simpa [Formula.wfIn, Term.wfIn, UnOp.wfIn, BinPred.wfIn] using And.intro hsi hsa
-  obtain ⟨hφ2, hcont2⟩ := VerifM.eval_assert (VerifM.eval_bind hcont1) hwf2
-  refine ⟨?_, ?_, hcont2⟩
-  · simpa [Formula.eval, BinPred.eval, Term.eval, Const.denote] using hφ1
-  · simpa [Formula.eval, BinPred.eval] using hφ2
-
 /-- Array allocation correctness: after evaluating the initial value and the
 length, the shared branch allocates behind the array invariant while the
 owned branch acquires a fresh owned-array atom. -/
@@ -1968,7 +1943,7 @@ theorem compileArrayGet_correct (reg : Verifier.Registry) (arr idx : Expr) (ty :
       Term.wfIn_mono si hsi_wf hdecls_arr (VerifM.eval.wf hΨ_arr).namesDisjoint
     have hsi_ρ_arr : si.eval ρ_arr = v_idx := by
       rw [Term.eval_env_agree hsi_wf (Env.agreeOn_symm hagreeOn_arr)]; exact heval_si
-    obtain ⟨hi, hlt, hcont2⟩ := VerifM.eval_assertBounds hΨ_arr hsi_wf₂ hsa_wf
+    obtain ⟨hi, hlt, hcont2⟩ := VerifM.eval_assertBounds (VerifM.eval_bind hΨ_arr) hsi_wf₂ hsa_wf
     have hdecl_eval := VerifM.eval_bind hcont2
     have hdecl := VerifM.eval_decl hdecl_eval
     set c : FOL.Const := st₂.freshConst none .value
@@ -2054,7 +2029,7 @@ theorem compileArrayGet_correct (reg : Verifier.Registry) (arr idx : Expr) (ty :
     have hsi_wf₂ := Term.wfIn_mono si hsi_wf hdecls_arr (VerifM.eval.wf hΨ_arr).namesDisjoint
     have hsi_eval : si.eval ρ_arr = v_idx := by
       rw [Term.eval_env_agree hsi_wf (Env.agreeOn_symm hagreeOn_arr)]; exact heval_si
-    obtain ⟨hi, hlt, hcont2⟩ := VerifM.eval_assertBounds hΨ_arr hsi_wf₂ hsa_wf
+    obtain ⟨hi, hlt, hcont2⟩ := VerifM.eval_assertBounds (VerifM.eval_bind hΨ_arr) hsi_wf₂ hsa_wf
     have hfind := VerifM.eval_bind hcont2
     rw [hty, hidxty]
     refine VerifM.eval_findMatchForce W
@@ -2161,7 +2136,7 @@ theorem compileArraySet_correct (reg : Verifier.Registry) (arr idx val : Expr)
     have hsi_ρ_arr : si.eval ρ_arr = v_idx := by
       rw [Term.eval_env_agree hsi_wf (Env.agreeOn_symm hagreeOn_arr)]; exact heval_si
     -- Discharge the two bounds obligations.
-    obtain ⟨hi, hlt, hcont2⟩ := VerifM.eval_assertBounds hΨ_arr hsi_wf₃ hsa_wf
+    obtain ⟨hi, hlt, hcont2⟩ := VerifM.eval_assertBounds (VerifM.eval_bind hΨ_arr) hsi_wf₃ hsa_wf
     have hret := VerifM.eval_ret (VerifM.eval_ret (VerifM.eval_bind hcont2))
     have hunit_wf : (Term.const .unit).wfIn st₃.decls := by simp [Term.wfIn, Const.wfIn]
     have hgoal :
@@ -2250,7 +2225,7 @@ theorem compileArraySet_correct (reg : Verifier.Registry) (arr idx val : Expr)
       rw [Term.eval_env_agree hsv_wf₂ (Env.agreeOn_symm hagreeOn_arr)]
       rw [Term.eval_env_agree hsv_wf (Env.agreeOn_symm hagreeOn_idx)]
       exact heval_sv
-    obtain ⟨hi, hlt, hcont2⟩ := VerifM.eval_assertBounds hΨ_arr hsi_wf₃ hsa_wf
+    obtain ⟨hi, hlt, hcont2⟩ := VerifM.eval_assertBounds (VerifM.eval_bind hΨ_arr) hsi_wf₃ hsa_wf
     have hfind := VerifM.eval_bind hcont2
     rw [hty, hidxty, ← helemTy]
     refine VerifM.eval_findMatchForce W

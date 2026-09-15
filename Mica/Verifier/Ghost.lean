@@ -81,9 +81,11 @@ mutual
   A call of a primitive does the same against the primitive's specification.
 
   Nothing here may take a run-time step, so a closure, an application of
-  anything but a ghost function or a primitive, and every heap operation are
-  rejected rather than compiled. `Array.length` is the exception among the
-  array operations: it reads no element, so it is a term.
+  anything but a ghost function or a primitive, allocation, and every write are
+  rejected rather than compiled. A read of an owned reference or an owned array
+  is the value its points-to atom already records, so it is a term. A shared
+  read has no such atom, and it is rejected. `Array.length` reads no element,
+  so it is a term for both kinds of array.
 
   Bindings go to `G`, never to `B`, and shadowed run-time names are dropped from
   `B`: within ghost code every name is ghost, but the same `G`/`B` split has to
@@ -219,7 +221,16 @@ mutual
             VerifM.fatal "match branch type annotation mismatch"
         | none => VerifM.fatal "match on non-sum type"
     | .ref .. => VerifM.fatal "a ghost expression cannot allocate"
-    | .deref .. => VerifM.fatal "a ghost expression cannot read the heap"
+    | .deref e ty => do
+        match e.ty with
+        | .owned ty' => do
+            VerifM.expectEq "deref type annotation mismatch" ty' ty
+            let lq ← compileGhostExpr reg Θ Δ_spec Gf G B Γ e
+            let v ← VerifM.findMatchForce .ref lq ty
+            VerifM.assume (.spatial (.pointsTo lq v ty))
+            pure v
+        | .ref _ => VerifM.fatal "a ghost expression cannot read a shared reference"
+        | _ => VerifM.fatal "deref operand is not a reference"
     | .store .. => VerifM.fatal "a ghost expression cannot write the heap"
     | .arrayMake .. => VerifM.fatal "a ghost expression cannot allocate"
     | .arrayLen arr => do
@@ -228,7 +239,19 @@ mutual
             let sa ← compileGhostExpr reg Θ Δ_spec Gf G B Γ arr
             pure (.unop .ofInt (.unop .arrayLen sa))
         | _ => VerifM.fatal "Array.length operand is not an array"
-    | .arrayGet .. => VerifM.fatal "a ghost expression cannot read the heap"
+    | .arrayGet arr idx ty => do
+        match arr.ty with
+        | .ownedArray elemTy => do
+            VerifM.expectEq "array get element type mismatch" elemTy ty
+            VerifM.expectEq "array index must be int" idx.ty .int
+            let si ← compileGhostExpr reg Θ Δ_spec Gf G B Γ idx
+            let sa ← compileGhostExpr reg Θ Δ_spec Gf G B Γ arr
+            VerifM.assertBounds si sa
+            let contents ← VerifM.findMatchForce .array sa elemTy
+            VerifM.acquire (.spatial (.arrayPointsTo sa contents elemTy))
+            pure (.binop .vecGet (.unop .toVec contents) (.unop .toInt si))
+        | .array _ => VerifM.fatal "a ghost expression cannot read a shared array"
+        | _ => VerifM.fatal "Array.get operand is not an array"
     | .arraySet .. => VerifM.fatal "a ghost expression cannot write the heap"
     | .fix .. => VerifM.fatal "a ghost expression cannot build a closure"
 
@@ -836,6 +859,126 @@ theorem compileGhostArrayLen_correct (reg : Verifier.Registry) (arr : Expr)
       · iexact HR
   | prim _ | sum _ | arrow _ _ | ref _ | vec _ | owned _ | empty | value | tuple _ | tvar _
   | named _ _ =>
+    intro W Gf G B Γ _γg _γ _st _ρ _Ψ _R _Φ _ _ _ _ _ _ _ _ _ heval _
+    simp only [compileGhostExpr, hty] at heval
+    exact (VerifM.eval_fatal heval).elim
+
+theorem compileGhostDeref_correct (reg : Verifier.Registry) (e : Expr) (ty : TinyML.Typ)
+    (ih : correctGhostExpr reg e) :
+    correctGhostExpr reg (.deref e ty) := by
+  cases hty : e.ty with
+  | owned ty' =>
+    intro W Gf G B Γ γg γ st ρ Ψ R Φ hwf hag hΔreg hρreg hgagree hgwf hagree hbwf hGf heval hpost
+    simp only [compileGhostExpr, hty] at heval
+    simp only [Expr.WithTypeVars.ty] at hpost
+    obtain ⟨hannot, heval⟩ := VerifM.eval_bind_expectEq heval
+    subst hannot
+    have heval_e := VerifM.eval_bind heval
+    refine bupd_forget (ih W Gf G B Γ γg γ (R := R) (Φ := fun _ => iprop(∃ v, Φ v))
+      hwf hag hΔreg hρreg hgagree hgwf hagree hbwf hGf (VerifM.eval.decls_grow ρ heval_e) ?_)
+    intro v_e st₁ ρ_e se hΨ_e hse_wf _heval_se
+    obtain ⟨_, _, hΨ_e⟩ := hΨ_e
+    rw [hty]
+    refine VerifM.eval_findMatchForce W (R := TinyML.ValHasType W v_e (.owned ty') ∗ R)
+      (Φ := iprop(∃ v, Φ v)) (VerifM.eval_bind hΨ_e) hse_wf ?_
+    intro v st₂ hQ hdecls hv_wf
+    have hatom_wf : (SpatialAtom.pointsTo se v ty').wfIn st₂.decls := by
+      rw [hdecls]; exact ⟨hse_wf, hv_wf⟩
+    have hret := VerifM.eval_ret (VerifM.eval_assumeSpatial (VerifM.eval_bind hQ) hatom_wf)
+    have hstep := hpost (v.eval ρ_e) { st₂ with owns := .pointsTo se v ty' :: st₂.owns } ρ_e v
+      hret (by show v.wfIn st₂.decls; rw [hdecls]; exact hv_wf) rfl
+    simp only [TransState.sl_eq, SpatialContext.interp_cons, SpatialAtom.Kind.atom,
+      SpatialAtom.interp] at hstep ⊢
+    istart
+    iintro ⟨⟨%loc, %hloc, Hpt, #Hty⟩, Howns, _Hown, HR⟩
+    iexists (v.eval ρ_e)
+    iapply hstep
+    isplitl [Hpt Howns]
+    · isplitl [Hpt]
+      · iexists loc
+        isplitr
+        · ipureintro; exact hloc
+        · isplitl [Hpt]
+          · iexact Hpt
+          · iexact Hty
+      · iexact Howns
+    · isplitl []
+      · iexact Hty
+      · iexact HR
+  | prim _ | sum _ | arrow _ _ | ref _ | array _ | ownedArray _ | vec _ | empty | value | tuple _
+  | tvar _ | named _ _ =>
+    intro W Gf G B Γ _γg _γ _st _ρ _Ψ _R _Φ _ _ _ _ _ _ _ _ _ heval _
+    simp only [compileGhostExpr, hty] at heval
+    exact (VerifM.eval_fatal heval).elim
+
+theorem compileGhostArrayGet_correct (reg : Verifier.Registry) (arr idx : Expr)
+    (ty : TinyML.Typ) (ihIdx : correctGhostExpr reg idx) (ihArr : correctGhostExpr reg arr) :
+    correctGhostExpr reg (.arrayGet arr idx ty) := by
+  cases hty : arr.ty with
+  | ownedArray elemTy =>
+    intro W Gf G B Γ γg γ st ρ Ψ R Φ hwf hag hΔreg hρreg hgagree hgwf hagree hbwf hGf heval hpost
+    simp only [compileGhostExpr, hty] at heval
+    simp only [Expr.WithTypeVars.ty] at hpost
+    obtain ⟨helem, heval₁⟩ := VerifM.eval_bind_expectEq heval
+    obtain ⟨_hidxty, heval₂⟩ := VerifM.eval_bind_expectEq heval₁
+    subst ty
+    have heval_idx := VerifM.eval_bind heval₂
+    refine bupd_absorb (BIBase.Entails.trans (Helpers.ctx_dup W G B Γ st ρ γg γ R)
+      (ihIdx W Gf G B Γ γg γ (R := iprop(Bindings.typedScope W G B Γ γg γ ∗ R))
+        (Φ := fun _ => iprop(|==> ∃ v, Φ v))
+        hwf hag hΔreg hρreg hgagree hgwf hagree hbwf hGf (VerifM.eval.decls_grow ρ heval_idx) ?_))
+    intro v_idx st₁ ρ_idx si hΨ_idx hsi_wf _heval_si
+    obtain ⟨hdecls_idx, hagreeOn_idx, hΨ_idx⟩ := hΨ_idx
+    have hag_idx := hag.step hdecls_idx hagreeOn_idx
+    have hGf_idx := hGf.step hdecls_idx hagreeOn_idx (VerifM.eval.wf hΨ_idx).namesDisjoint
+    have hagree_idx := Bindings.agreeOnLinked_env_agree hagree hagreeOn_idx hbwf
+    have hgagree_idx := Bindings.agreeOnLinked_env_agree hgagree hagreeOn_idx hgwf
+    have hbwf_idx : B.wfIn st₁.decls := fun p hp => hdecls_idx.consts _ (hbwf p hp)
+    have hgwf_idx : G.wfIn st₁.decls := fun p hp => hdecls_idx.consts _ (hgwf p hp)
+    have heval_arr := VerifM.eval_bind hΨ_idx
+    refine bupd_forget (BIBase.Entails.trans (Helpers.ctx_push W G B Γ st₁ ρ_idx γg γ R v_idx idx.ty)
+      (ihArr W Gf G B Γ γg γ (R := iprop(TinyML.ValHasType W v_idx idx.ty ∗ R))
+        (Φ := fun _ => iprop(∃ v, Φ v))
+        hwf hag_idx hΔreg hρreg hgagree_idx hgwf_idx hagree_idx hbwf_idx hGf_idx
+          (VerifM.eval.decls_grow ρ_idx heval_arr) ?_))
+    intro v_arr st₂ ρ_arr sa hΨ_arr hsa_wf _heval_sa
+    obtain ⟨hdecls_arr, _hagreeOn_arr, hΨ_arr⟩ := hΨ_arr
+    have hsi_wf₂ := Term.wfIn_mono si hsi_wf hdecls_arr (VerifM.eval.wf hΨ_arr).namesDisjoint
+    obtain ⟨hi, hlt, hcont⟩ := VerifM.eval_assertBounds (VerifM.eval_bind hΨ_arr) hsi_wf₂ hsa_wf
+    refine VerifM.eval_findMatchForce W
+      (R := TinyML.ValHasType W v_arr arr.ty ∗ TinyML.ValHasType W v_idx idx.ty ∗ R)
+      (Φ := iprop(∃ v, Φ v)) (VerifM.eval_bind hcont) hsa_wf ?_
+    intro contents st₃ hQ hdecls hcontents_wf
+    have hatom_wf : (SpatialAtom.arrayPointsTo sa contents elemTy).wfIn st₃.decls := by
+      rw [hdecls]; exact ⟨hsa_wf, hcontents_wf⟩
+    let result : Term .value := .binop .vecGet (.unop .toVec contents) (.unop .toInt si)
+    refine BIBase.Entails.trans (sep_mono_left (SpatialAtom.interp_arrayPointsTo_elem W hi hlt)) ?_
+    have hshuffle :
+        (SpatialAtom.interp W ρ_arr (.arrayPointsTo sa contents elemTy) ∗
+          TinyML.ValHasType W (Term.eval ρ_arr result) elemTy) ∗ st₃.sl W ρ_arr ∗
+          (TinyML.ValHasType W v_arr arr.ty ∗ TinyML.ValHasType W v_idx idx.ty ∗ R) ⊢
+        SpatialAtom.interp W ρ_arr (.arrayPointsTo sa contents elemTy) ∗ st₃.sl W ρ_arr ∗
+          (TinyML.ValHasType W (Term.eval ρ_arr result) elemTy ∗ R) := by
+      iintro ⟨⟨Hatom, Hty⟩, Howns, _Harr, _Hidx, HR⟩
+      isplitl [Hatom]
+      · iexact Hatom
+      · isplitl [Howns]
+        · iexact Howns
+        · isplitl [Hty]
+          · iexact Hty
+          · iexact HR
+    refine BIBase.Entails.trans hshuffle ?_
+    refine VerifM.eval_acquireSpatial W
+      (R := TinyML.ValHasType W (Term.eval ρ_arr result) elemTy ∗ R)
+      (Φ := iprop(∃ v, Φ v)) (VerifM.eval_bind hQ) hatom_wf ?_
+    intro st₄ hq₄ hdecls₄ _howns₄
+    refine BIBase.Entails.trans ?_ (exists_intro (Term.eval ρ_arr result))
+    exact hpost (Term.eval ρ_arr result) st₄ ρ_arr result (VerifM.eval_ret hq₄)
+      (by rw [hdecls₄, hdecls]
+          exact ⟨trivial, ⟨trivial, hcontents_wf⟩, ⟨trivial, hsi_wf₂⟩⟩)
+      rfl
+  | prim _ | sum _ | arrow _ _ | ref _ | array _ | vec _ | owned _ | empty | value | tuple _
+  | tvar _ | named _ _ =>
     intro W Gf G B Γ _γg _γ _st _ρ _Ψ _R _Φ _ _ _ _ _ _ _ _ _ heval _
     simp only [compileGhostExpr, hty] at heval
     exact (VerifM.eval_fatal heval).elim
@@ -1921,13 +2064,14 @@ theorem compileGhostExpr_correct (reg : Verifier.Registry) (hSound : reg.Sound)
   | ref ownership e =>
     exact compileGhostRejected_correct reg _ (fun _ _ _ _ _ _ => ⟨_, rfl⟩)
   | deref e ty =>
-    exact compileGhostRejected_correct reg _ (fun _ _ _ _ _ _ => ⟨_, rfl⟩)
+    exact compileGhostDeref_correct reg e ty (compileGhostExpr_correct reg hSound e)
   | store loc val =>
     exact compileGhostRejected_correct reg _ (fun _ _ _ _ _ _ => ⟨_, rfl⟩)
   | arrayMake ownership len init =>
     exact compileGhostRejected_correct reg _ (fun _ _ _ _ _ _ => ⟨_, rfl⟩)
   | arrayGet arr idx ty =>
-    exact compileGhostRejected_correct reg _ (fun _ _ _ _ _ _ => ⟨_, rfl⟩)
+    exact compileGhostArrayGet_correct reg arr idx ty (compileGhostExpr_correct reg hSound idx)
+      (compileGhostExpr_correct reg hSound arr)
   | arraySet arr idx val =>
     exact compileGhostRejected_correct reg _ (fun _ _ _ _ _ _ => ⟨_, rfl⟩)
   | inj tag arity payload ty =>
