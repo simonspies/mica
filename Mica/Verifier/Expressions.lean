@@ -340,6 +340,7 @@ mutual
               (do
                 VerifM.persist
                 Spec.implement Δ_spec argTys s fun argVars ghostVars => do
+                  ls.assumeInstance self.name argVars
                   let se ← compile reg Θ Δ_spec Γfn ls (fixGhostFns self Gf argNames ghostNames)
                     (fixGhostBindings self G argNames ghostNames ghostVars)
                     (fixBindings self fv B argNames argVars ghostNames)
@@ -763,6 +764,7 @@ theorem compileFixBody_correct (reg : Verifier.Registry)
     (hghostVars_lookup : List.Forall₂ (fun gv val => ρ'.consts .value gv.name = val) ghostVars gs)
     (hbody_eval : VerifM.eval
         (do
+          ls.assumeInstance self.name argVars
           let se ← compile reg W.Θ W.Δ_spec Γfn ls
             (fixGhostFns self Gf argNames (s.ghost.map Prod.fst))
             (fixGhostBindings self G argNames (s.ghost.map Prod.fst) ghostVars)
@@ -795,6 +797,10 @@ theorem compileFixBody_correct (reg : Verifier.Registry)
   set Gbody := fixGhostBindings self G argNames ghostNames ghostVars with hGbody_def
   set Gfbody := fixGhostFns self Gf argNames ghostNames with hGfbody_def
   set Γ' := fixTyCtx self selfTy Γ argNames argTys s.ghost with hΓ'_def
+  obtain ⟨φs, hbody_eval⟩ := Lemmas.assumeInstance_correct hwf hls hag hargVars_mem hargVars_sort
+    (VerifM.eval_bind hbody_eval)
+  -- `sl` does not use the assertions, so `st₀.sl` is `st'.sl`.
+  set st₀ : TransState := { st' with asserts := φs ++ st'.asserts }
   have hcompile := VerifM.eval_bind hbody_eval
   iintro ⟨Howns, #Hvals, #Hgvals, HQ⟩
   ihave %hlen_vals := TinyML.ValsHaveTypes.length_eq $$ Hvals
@@ -982,7 +988,7 @@ theorem compileFixBody_correct (reg : Verifier.Registry)
           iexact HT
   -- Compile the body in the extended context.
   have hbody_wp :
-      st'.sl W ρ' ∗ (Bindings.typedScope W Gbody Bbody Γ' γg_body γ_body ∗ Q) ⊢
+      st₀.sl W ρ' ∗ (Bindings.typedScope W Gbody Bbody Γ' γg_body γ_body ∗ Q) ⊢
         wp W.pctx (body.runtime.subst γ_body) P := by
     have hGf_body : GhostFns.wellTyped W st'.decls ρ' Gfbody := by
       rw [hGfbody_def, fixGhostFns]
@@ -991,7 +997,7 @@ theorem compileFixBody_correct (reg : Verifier.Registry)
       | none => exact hGf
       | some f => exact hGf.remove f
     refine ih W Q Γfn ls Gfbody Gbody
-      Bbody Γ' st' ρ' γg_body γ_body _ _ hW hls
+      Bbody Γ' st₀ ρ' γg_body γ_body _ _ hW hls
       (VerifM.eval.decls_grow ρ' hcompile) hgagree_body hgwf_body hGf_body
       hagree_body hbwf_body hwf
       hag hΔreg hρreg ?_
@@ -1035,7 +1041,10 @@ theorem compileFixBody_correct (reg : Verifier.Registry)
         · iexact Hrec
   iintro #HSat
   iapply hbody_wp
-  iframe Howns HQ
+  isplitl [Howns]
+  · iapply (show st'.sl W ρ' ⊢ st₀.sl W ρ' from .rfl)
+    iexact Howns
+  iframe HQ
   iapply hscope
   isplitl []
   · iexact Hvals

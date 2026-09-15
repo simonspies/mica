@@ -13,8 +13,9 @@ inductive Mode where
   | ghost
   deriving Repr, BEq, Inhabited, DecidableEq
 
-/-- Whether a spec-level function's defining equation reaches the solver
-context. An opaque one goes out through its unfolding function instead. -/
+/-- Whether the defining equation of a spec-level function is in the solver
+context. The bodies of an opaque declaration find the equation by the name that
+`let rec` binds. Thus an opaque declaration must use `let rec`. -/
 inductive Transparency where
   | transparent
   | opaque

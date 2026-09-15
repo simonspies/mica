@@ -1,7 +1,7 @@
 open Mica
 
-(* The implementation and the ghost body are proofs about this declaration, so
-   they run with the equation it withholds from everyone else. *)
+(* The implementation and the ghost body get the withheld equation at their
+   argument. *)
 let rec sum (n : int) : int =
   if n <= 0 then 0 else n + sum (n - 1)
 [@@fn ghost] [@@opaque] [@@impl] [@@decreases n]
