@@ -1,19 +1,8 @@
 open Mica
 
-(* In-place selection sort, in a functional-correctness variant and a safety
-   variant, for comparison.  Both repeatedly find a minimal element of the
-   unsorted suffix and swap it to the front, with the same body.
-
-   Functional correctness ([selectionsort], owned array): the specification
-   binds the array contents as an [int vec], and the postcondition states that
-   the final contents are sorted, as a bounded quantifier over index pairs.
-   [find_min] returns the index of a minimal element of the suffix and leaves
-   the array unchanged; [sel_sort] swaps it to the front and recurses, carrying
-   the classic invariant that the sorted prefix bounds the suffix from below.
-
-   Safety ([selectionsort_safe], shared array): shared arrays expose only their
-   length in specifications, so the verified property is that every read,
-   write, and swap index stays in bounds. *)
+(* Selection sort.  The array variants swap a minimal element of the unsorted
+   suffix to its front.  The list variant takes out a least element and sorts
+   the rest. *)
 
 
 (* -------------------------------------------------------------------- *)
@@ -131,3 +120,56 @@ let rec sel_sort_safe (a : int array) (k : int) (n : int) : unit =
 let selectionsort_safe (a : int array) : unit =
   sel_sort_safe a 0 (Array.length a)
 [@@spec fun a -> ret (fun r -> assert (true))];;
+
+
+(* -------------------------------------------------------------------- *)
+(* List variant                                                         *)
+(* -------------------------------------------------------------------- *)
+
+(* Adjacent elements are in order. *)
+let rec sorted (l : int list) : bool =
+  match l with
+  | [] -> true
+  | x :: rest ->
+    (match rest with
+     | [] -> true
+     | y :: _ -> x <= y) && sorted rest
+[@@fn];;
+
+(* Every element of [l] is at least [b]. *)
+let rec all_ge ((l : int list), (b : int)) : bool =
+  match l with
+  | [] -> true
+  | x :: rest -> b <= x && all_ge (rest, b)
+[@@fn];;
+
+(* The least element of [m :: l], and the other elements.  The ghost [b] is a
+   lower bound, which carries over to the other elements. *)
+let rec select_list (m : int) (l : int list) : int * int list =
+  match l with
+  | [] -> (m, [])
+  | x :: rest ->
+    if x < m then
+      (let (k, r) = (select_list x rest [@ghost b]) in (k, m :: r))
+    else
+      (let (k, r) = (select_list m rest [@ghost b]) in (k, x :: r))
+[@@spec fun m l ->
+  ret (fun ((k : int), (r : int list)) ->
+    assert (k <= m);
+    assert (all_ge (r, k));
+    assert (if all_ge (m :: l, b) then b <= k && all_ge (r, b) else true))]
+[@@ghost (b : int)];;
+
+(* The ghost [b] is a lower bound on [l], which carries over to the head of
+   the result. *)
+let rec selectionsort_list (l : int list) : int list =
+  match l with
+  | [] -> []
+  | x :: rest ->
+    let (m, r) = (select_list x rest [@ghost b]) in
+    m :: (selectionsort_list r [@ghost m])
+[@@spec fun l ->
+  ret (fun r ->
+    assert (sorted r);
+    assert (if all_ge (l, b) then sorted (b :: r) else true))]
+[@@ghost (b : int)];;
