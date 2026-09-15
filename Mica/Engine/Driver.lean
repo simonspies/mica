@@ -28,10 +28,10 @@ namespace Session
 -- not a build error.
 /-- The SMT-LIB text every session starts with: the logic and the solver
     options, then the value sort and the operations on it. -/
-def preamble : String := s!"
+def preamble (timeout : Nat) : String := s!"
 ;; preamble
 (set-logic ALL)
-{String.intercalate "\n" (List.map Options.Settable.toSMTLIB Options.Settable.initial)}
+{String.intercalate "\n" (List.map Options.Settable.toSMTLIB (Options.Settable.initial timeout))}
 
 (declare-sort Other 0)
 (declare-sort Loc 0)
@@ -105,7 +105,7 @@ def preamble : String := s!"
 "
 
 /-- Start a new Z3 session with print-success enabled. -/
-def create (log : LogMode) : IO Session := do
+def create (log : LogMode) (timeout : Nat) : IO Session := do
   let child ← IO.Process.spawn {
     cmd := "z3"
     args := #["-in"]
@@ -114,11 +114,11 @@ def create (log : LogMode) : IO Session := do
     stderr := .piped
   }
   let stdin := child.stdin
-  stdin.putStr preamble
+  stdin.putStr (preamble timeout)
   stdin.flush
   if log == .script then do
     IO.println "(set-option :print-success true)"
-    IO.print preamble
+    IO.print (preamble timeout)
   -- Then we turn on interactive mode, and from here on parse the responses
   stdin.putStr "(set-option :print-success true)\n"
   stdin.flush
@@ -165,8 +165,8 @@ private def run (log : LogMode) : Strategy α → Session → IO α
 
 /-- Run a strategy in a session of its own. Reporting the outcome is the
     caller's job. -/
-def execute (s : Strategy α) (log : LogMode) : IO α := do
-  let session ← Session.create log
+def execute (s : Strategy α) (log : LogMode) (timeout : Nat) : IO α := do
+  let session ← Session.create log timeout
   let result ← run log s session
   session.close
   return result

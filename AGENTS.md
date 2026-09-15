@@ -30,6 +30,7 @@ Two lake scripts govern regeneration:
 lake build                        # build the project
 lake env lean <file>              # build a single file
 lake exe mica <file.ml>           # run the verifier on an OCaml source file
+lake exe mica --timeout=60000 <file.ml>  # raise the solver budget per query (ms)
 opam exec -- lake run testsuite   # run the test suite (Examples/ and Tests/)
 ```
 
