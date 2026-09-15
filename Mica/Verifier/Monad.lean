@@ -76,6 +76,10 @@ def VerifM.assert (φ : Formula) : VerifM Unit := do
   if ← VerifM.check .high φ then pure ()
   else VerifM.failed s!"assertion failed"
 
+def VerifM.assertBounds (si sa : Term .value) : VerifM Unit := do
+  VerifM.assert (.binpred .le (.const (.i 0)) (.unop .toInt si))
+  VerifM.assert (.binpred .lt (.unop .toInt si) (.unop .arrayLen sa))
+
 /-- Quick provability test at low effort: guarded axioms are invisible, so a
 `false` answer is fast and is normal control flow. -/
 def VerifM.test (φ : Formula) : VerifM Bool :=
@@ -822,6 +826,23 @@ theorem VerifM.eval_assert {φ : Formula} {st : TransState} {ρ : Env}
   | false =>
     simp at hq
     exact (VerifM.eval_failed hq).elim
+
+theorem VerifM.eval_assertBounds {si sa : Term .value} {st : TransState} {ρ : Env}
+    {Q : Unit → TransState → Env → Prop}
+    (h : VerifM.eval (VerifM.assertBounds si sa) st ρ Q)
+    (hsi : si.wfIn st.decls) (hsa : sa.wfIn st.decls) :
+    0 ≤ Term.eval ρ (.unop .toInt si) ∧
+    Term.eval ρ (.unop .toInt si) < Term.eval ρ (.unop .arrayLen sa) ∧
+    Q () st ρ := by
+  have hwf1 : (Formula.binpred .le (.const (.i 0)) (.unop .toInt si)).wfIn st.decls := by
+    simpa [Formula.wfIn, Term.wfIn, Const.wfIn, UnOp.wfIn, BinPred.wfIn] using hsi
+  obtain ⟨hφ1, hcont1⟩ := VerifM.eval_assert (VerifM.eval_bind h) hwf1
+  have hwf2 : (Formula.binpred .lt (.unop .toInt si) (.unop .arrayLen sa)).wfIn st.decls := by
+    simpa [Formula.wfIn, Term.wfIn, UnOp.wfIn, BinPred.wfIn] using And.intro hsi hsa
+  obtain ⟨hφ2, hcont2⟩ := VerifM.eval_assert hcont1 hwf2
+  refine ⟨?_, ?_, hcont2⟩
+  · simpa [Formula.eval, BinPred.eval, Term.eval, Const.denote] using hφ1
+  · simpa [Formula.eval, BinPred.eval] using hφ2
 
 theorem VerifM.eval_expectEq [DecidableEq α] [Repr α]
     {msg : String} {actual expected : α} {st : TransState} {ρ : Env}
