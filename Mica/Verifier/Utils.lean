@@ -352,7 +352,7 @@ theorem FiniteSubst.rename_agreeOn {σ : FiniteSubst} {Δ_base Δ_use : Signatur
       simp [Signature.declVar, Signature.addVar] at hw
       rcases hw with rfl | hw
       · simp [FiniteSubst.rename, Subst.eval, Env.updateConst, Subst.apply,
-          Subst.update, Term.eval, Const.denote]
+          Subst.update, Term.eval, Const.eval]
       · rcases hw with ⟨hwsrc, hwne⟩
         have hwne' : w.name ≠ v.name := hwne
         change Term.eval (ρ.updateConst v.sort name' u)

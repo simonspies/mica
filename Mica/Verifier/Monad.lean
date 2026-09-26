@@ -847,7 +847,7 @@ theorem VerifM.eval_assertBounds {si sa : Term .value} {st : TransState} {ρ : E
     simpa [Formula.wfIn, Term.wfIn, UnOp.wfIn, BinPred.wfIn] using And.intro hsi hsa
   obtain ⟨hφ2, hcont2⟩ := VerifM.eval_assert hcont1 hwf2
   refine ⟨?_, ?_, hcont2⟩
-  · simpa [Formula.eval, BinPred.eval, Term.eval, Const.denote] using hφ1
+  · simpa [Formula.eval, BinPred.eval, Term.eval, Const.eval] using hφ1
   · simpa [Formula.eval, BinPred.eval] using hφ2
 
 theorem VerifM.eval_expectEq [DecidableEq α] [Repr α]

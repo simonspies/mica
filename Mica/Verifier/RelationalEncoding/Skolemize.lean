@@ -513,7 +513,7 @@ private theorem toDefVal_iff {Δbase : Signature} {res : String} {ρdef : Env}
       have ht := iht hsubBase hsym hσ hΓc hagBase hagree hres
       have he := ihe hsubBase hsym hσ hΓc hagBase hagree hres
       simp only [Expr.toFormula, Expr.toDefVal, Formula.iteBool, Formula.eval, Term.eval,
-        Const.denote]
+        Const.eval]
       cases hcv : Term.eval ρrel cond with
       | false =>
           have hc2 : Term.eval ρdef (cond.subst σ) = false := by rw [← hcondEval]; exact hcv

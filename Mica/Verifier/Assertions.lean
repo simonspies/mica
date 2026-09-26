@@ -399,7 +399,7 @@ theorem Assertion.assume_correct (W : TinyML.World) (m : Assertion TinyML.Typ α
               (ρ.updateConst v.sort v'.name u)) := by
         have hconst : ((.const (.uninterpreted v'.name v.sort) : Term v.sort).eval
             (ρ.updateConst v.sort v'.name u)) = u := by
-          simp [Term.eval, Const.denote, Env.updateConst]
+          simp [Term.eval, Const.eval, Env.updateConst]
         rw [hconst]
         have hagree := FiniteSubst.eval_update_fresh (σ := σ) (ρ := ρ)
           (τ := v.sort) (name' := v'.name) (u := u) hσwf hv'_fresh_range

@@ -352,7 +352,7 @@ theorem Atom.candidates_correct (W : TinyML.World) {a : Atom TinyML.Typ τ} {φ 
     · exact (pure_intro (PROP := iProp) trivial).trans true_emp.1
   | isinj tag arity v =>
     simp [candidates] at hmem; obtain ⟨rfl, rfl⟩ := hmem
-    simp [Formula.eval, UnPred.eval, Term.eval, UnOp.eval, Const.denote] at h
+    simp [Formula.eval, UnPred.eval, Term.eval, UnOp.eval, Const.eval] at h
     simp [toItem, CtxItem.interp, Formula.eval, Term.eval, UnOp.eval]
     cases hv : v.eval ρ <;> simp_all
     exact (pure_intro (PROP := iProp) trivial).trans true_emp.1

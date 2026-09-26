@@ -361,7 +361,7 @@ theorem eval_argSubst {Δ : Signature} {names : List String}
     | uninterpreted name τ =>
       have hname : name ∉ names := fun hn =>
         hwf.2.1 .value (mem_declVars_of_mem hn)
-      simpa [Term.subst, Term.eval, Const.denote] using
+      simpa [Term.subst, Term.eval, Const.eval] using
         (argsEnv_consts_of_not_mem names vals hname).symm
     | _ => rfl
   | unop op a iha =>
@@ -718,7 +718,7 @@ theorem declareImplArgs_correct (W : TinyML.World) :
         have h1 := hragree'.consts argVar (hst₂_decls ▸ List.mem_cons_self ..)
         have h1' : Term.eval ρ' (Term.const (.uninterpreted argVar.name .value)) =
             Term.eval ρ₁ (Term.const (.uninterpreted argVar.name .value)) := by
-          simpa [Term.eval, Const.denote, Env.lookupConst] using h1.symm
+          simpa [Term.eval, Const.eval, Env.lookupConst] using h1.symm
         exact h1'.trans hvar_eval
 
 theorem implement_correct (W : TinyML.World)

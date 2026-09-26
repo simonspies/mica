@@ -272,5 +272,5 @@ theorem SMTLIB.defaults_eval : ∀ φ ∈ SMTLIB.defaults, ∀ ρ : Env, φ.eval
   intro φ hφ ρ
   simp only [SMTLIB.defaults, List.mem_cons, List.not_mem_nil, or_false] at hφ
   rcases hφ with rfl | rfl | rfl | rfl <;>
-    simp [Formula.eval, Term.eval, UnOp.eval, UnPred.eval, Const.denote] <;>
+    simp [Formula.eval, Term.eval, UnOp.eval, UnPred.eval, Const.eval] <;>
     intro v <;> cases v <;> simp

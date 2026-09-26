@@ -44,7 +44,7 @@ theorem Env.supportsGuarding.agree {Δ : Signature} {ρ ρ' : Env}
     (h : ρ.supportsGuarding) : ρ'.supportsGuarding := by
   have heq := hagree.consts guardConst hΔ
   simp only [guardConst] at heq
-  simp only [Env.supportsGuarding, guardFormula, Formula.eval, Term.eval, Const.denote,
+  simp only [Env.supportsGuarding, guardFormula, Formula.eval, Term.eval, Const.eval,
     guardConst] at h ⊢
   rw [← heq]
   exact h
@@ -52,7 +52,7 @@ theorem Env.supportsGuarding.agree {Δ : Signature} {ρ ρ' : Env}
 /-- Pinning the guard constant establishes guard support. -/
 theorem Env.supportsGuarding_updateConst (ρ : Env) :
     (ρ.updateConst guardConst.sort guardConst.name true).supportsGuarding := by
-  simp [Env.supportsGuarding, guardFormula, Formula.eval, Term.eval, Const.denote,
+  simp [Env.supportsGuarding, guardFormula, Formula.eval, Term.eval, Const.eval,
     Env.updateConst, guardConst]
 
 /-! ## Guarded formulas -/

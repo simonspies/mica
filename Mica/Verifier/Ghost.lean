@@ -474,31 +474,31 @@ theorem compileGhostConst_correct (reg : Verifier.Registry) (c : TinyML.Const) :
   case int n =>
     exact step _ (.int n) _ hpost (VerifM.eval_ret heval)
       (by simp [Term.wfIn, Const.wfIn, UnOp.wfIn])
-      (by simp [Term.eval, UnOp.eval, Const.denote]) (TinyML.ValHasType.int_intro W n)
+      (by simp [Term.eval, UnOp.eval, Const.eval]) (TinyML.ValHasType.int_intro W n)
   case int32 bits =>
     exact step _ (.int32 bits) _ hpost (VerifM.eval_ret heval)
       (by simp [Term.wfIn, Const.wfIn, UnOp.wfIn])
-      (by simp [Term.eval, UnOp.eval, Const.denote]) (TinyML.ValHasType.int32_intro W bits)
+      (by simp [Term.eval, UnOp.eval, Const.eval]) (TinyML.ValHasType.int32_intro W bits)
   case int64 bits =>
     exact step _ (.int64 bits) _ hpost (VerifM.eval_ret heval)
       (by simp [Term.wfIn, Const.wfIn, UnOp.wfIn])
-      (by simp [Term.eval, UnOp.eval, Const.denote]) (TinyML.ValHasType.int64_intro W bits)
+      (by simp [Term.eval, UnOp.eval, Const.eval]) (TinyML.ValHasType.int64_intro W bits)
   case bool b =>
     exact step _ (.bool b) _ hpost (VerifM.eval_ret heval)
       (by simp [Term.wfIn, Const.wfIn, UnOp.wfIn])
-      (by simp [Term.eval, UnOp.eval, Const.denote]) (TinyML.ValHasType.bool_intro W b)
+      (by simp [Term.eval, UnOp.eval, Const.eval]) (TinyML.ValHasType.bool_intro W b)
   case char c =>
     exact step _ (.char c) _ hpost (VerifM.eval_ret heval)
       (by simp [Term.wfIn, Const.wfIn, UnOp.wfIn])
-      (by simp [Term.eval, UnOp.eval, Const.denote]) (TinyML.ValHasType.char_intro W c)
+      (by simp [Term.eval, UnOp.eval, Const.eval]) (TinyML.ValHasType.char_intro W c)
   case string s =>
     exact step _ (.str s) _ hpost (VerifM.eval_ret heval)
       (by simp [Term.wfIn, Const.wfIn, UnOp.wfIn])
-      (by simp [Term.eval, UnOp.eval, Const.denote]) (TinyML.ValHasType.string_intro W s)
+      (by simp [Term.eval, UnOp.eval, Const.eval]) (TinyML.ValHasType.string_intro W s)
   case float b =>
     exact step _ (.float b) _ hpost (VerifM.eval_ret heval)
       (by simp [Term.wfIn, Const.wfIn, UnOp.wfIn])
-      (by simp [Term.eval, UnOp.eval, Const.denote]) (TinyML.ValHasType.float_intro W b)
+      (by simp [Term.eval, UnOp.eval, Const.eval]) (TinyML.ValHasType.float_intro W b)
   case unit =>
     exact step _ .unit _ hpost (VerifM.eval_ret heval)
       (by simp [Term.wfIn, Const.wfIn]) (by simp [Term.eval]) (TinyML.ValHasType.unit_intro W)
@@ -551,7 +551,7 @@ theorem compileGhostVar_correct (reg : Verifier.Registry) (x : String)
       exact Term.const_wfIn_of_mem hwfst hconst
   have hteval : Term.eval ρ (Term.const (.uninterpreted x'.name .value))
       = ρ.consts .value x'.name := by
-    simp [Term.eval, Const.denote]
+    simp [Term.eval, Const.eval]
   have htyped : Bindings.typedScope W G B Γ γg γ ⊢
       TinyML.ValHasType W (ρ.consts .value x'.name) vty := by
     cases hΓx : Γ x with
@@ -764,7 +764,7 @@ theorem compileGhostAssert_correct (reg : Verifier.Registry) (e : Expr)
   obtain ⟨hφ, hcont⟩ := VerifM.eval_assert (VerifM.eval_bind hΨ_e) hwf_φ
   have hΨ_pure := VerifM.eval_ret hcont
   have hvtrue : v_e = .bool true := by
-    simp only [Formula.eval, Term.eval, UnOp.eval, Const.denote] at hφ
+    simp only [Formula.eval, Term.eval, UnOp.eval, Const.eval] at hφ
     rw [heval_se] at hφ
     cases v_e <;> simp_all
   subst hvtrue
@@ -1386,7 +1386,7 @@ theorem compileGhostIfThenElse_correct (reg : Verifier.Registry)
   · subst hfalse_val
     have heval_els : (compileGhostExpr reg W.Θ W.Δ_spec Gf G B Γ els).eval st_els ρ_c Ψ :=
       hfalse_cont hwf_eq (by
-        simp only [Term.isFalse, Formula.eval, Term.eval, UnOp.eval, Const.denote]
+        simp only [Term.isFalse, Formula.eval, Term.eval, UnOp.eval, Const.eval]
         exact heval_c)
     have hres : st_els.sl W ρ_c ∗ (Bindings.typedScope W G B Γ γg γ ∗ R) ⊢ |==> ∃ v, Φ v :=
       ihEls W Gf G B Γ γg γ (R := R) (Φ := Φ) hwf hag_c hΔreg hρreg hgagree_c hgwf_c hagree_c hbwf_c
@@ -1404,7 +1404,7 @@ theorem compileGhostIfThenElse_correct (reg : Verifier.Registry)
   · subst htrue_val
     have heval_thn : (compileGhostExpr reg W.Θ W.Δ_spec Gf G B Γ thn).eval st_thn ρ_c Ψ :=
       htrue_cont hwf_ne (by
-        simp only [Term.isFalse, Formula.eval, Term.eval, UnOp.eval, Const.denote]
+        simp only [Term.isFalse, Formula.eval, Term.eval, UnOp.eval, Const.eval]
         rw [heval_c]
         simp)
     have hres : st_thn.sl W ρ_c ∗ (Bindings.typedScope W G B Γ γg γ ∗ R) ⊢ |==> ∃ v, Φ v :=
@@ -1589,7 +1589,7 @@ theorem compileGhostApp_correct (reg : Verifier.Registry) (hSound : reg.Sound)
             rw [Term.eval_agreeOn hmwf
               (Spec.argsEnv_agreeOn (Env.agreeOn_symm hagree_ρ_g) s.allArgs (vs ++ gs) hlenargs)]
           simp only [GhostFns.Guard.condition, Formula.eval, Term.eval, BinPred.eval,
-            Const.denote] at hcond
+            Const.eval] at hcond
           obtain ⟨-, hnonneg, hlt⟩ := hcond
           have hrank : g.measure.denote s W.ρ_spec vs gs < (Term.eval ρ_g g.rank).toNat := by
             rw [← hdenote]
@@ -1820,7 +1820,7 @@ theorem compileGhostSingleBranch_correct (reg : Verifier.Registry)
   have heval_assumeAll :=
     VerifM.eval_assumePure (VerifM.eval_bind (hdecl payload)) hformula_wf hformula_eval
   have hxv_eval : (Term.const (.uninterpreted xv.name .value)).eval ρ₁ = payload := by
-    simp [Term.eval, Const.denote, ρ₁, Env.updateConst]
+    simp [Term.eval, Const.eval, ρ₁, Env.updateConst]
   have hinterp_eq : SpatialContext.interp W ρ st.owns ⊢ SpatialContext.interp W ρ₁ st.owns :=
     (SpatialContext.interp_agreeOn W (VerifM.eval.wf heval_decl).ownsWf
       (Env.agreeOn_update_fresh_const hxv_fresh)).1
@@ -2427,7 +2427,7 @@ private theorem constTerms_eval {ρ : Env} :
   | a :: rest, _, h => by
     cases h with
     | cons hhead htail =>
-      exact .cons (by simpa [Term.eval, Const.denote] using hhead) (constTerms_eval htail)
+      exact .cons (by simpa [Term.eval, Const.eval] using hhead) (constTerms_eval htail)
 
 omit [MicaGS HasLC.hasLC Sig] in
 /-- Argument constants keep their values as the verifier state grows. -/

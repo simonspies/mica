@@ -89,7 +89,7 @@ private theorem obligation_correct {fn : SpecFn} {x rank : String}
   · intro y hy
     have hy' : 0 ≤ m.term.eval (ρ.updateConst .value x y) ∧
         m.term.eval (ρ.updateConst .value x y) < m.term.eval (ρ.updateConst .value x v) := by
-      simpa only [Formula.eval, BinPred.eval, Term.eval, Const.denote,
+      simpa only [Formula.eval, BinPred.eval, Term.eval, Const.eval,
         Env.lookupConst_updateConst_ne' (Or.inl hne), Env.lookupConst_updateConst_same,
         ← hm'] using hy
     have hd := ih y hy'.1 hy'.2

@@ -509,7 +509,7 @@ theorem Zero.Lawful.opEval {dependencies : Registry} {b : Zero}
         .value b.name = b.res.inject b.f := by
       rw [Env.lookupConst_updateConst_ne l.nameFresh]
       simpa [Env.respects, Zero.sym] using hresp
-    simpa [IntrinsicFOL.term, Term.eval, Const.denote] using hconst
+    simpa [IntrinsicFOL.term, Term.eval, Const.eval] using hconst
 
 /-- The `IntrinsicSound` instance for a pure zero-arity intrinsic. -/
 @[reducible] def Zero.Lawful.sound {dependencies : Registry} {b : Zero}
@@ -585,7 +585,7 @@ theorem Zero.Lawful.opEval {dependencies : Registry} {b : Zero}
       rcases hφ with rfl | ⟨ψ, ⟨p, hp, rfl⟩, rfl⟩
       · exact hev ρ (fun d hd => hdeps d (List.mem_cons_of_mem _ hd)) hresp
       · simp only [Formula.eval, Zero.opTerm, Zero.fol, hb, IntrinsicFOL.term,
-          Term.eval, Const.denote]
+          Term.eval, Const.eval]
         have hconst : ρ.consts .value b.sym.name = b.res.inject b.f := by
           simpa [Env.respects, Env.lookupConst, Zero.sym] using hresp
         rw [hconst]
@@ -1577,7 +1577,7 @@ macro_rules
     Pure.Ternary.sym,
     Embedding.int, Embedding.bool, Embedding.char, Embedding.str, Embedding.float,
     Embedding.poly, Embedding.vec,
-     Const.denote, valInt, valBool, valChar, valStr, valFloat, valVec, $xs,*]))
+     Const.eval, valInt, valBool, valChar, valStr, valFloat, valVec, $xs,*]))
 
 end Intrinsics
 end Stdlib

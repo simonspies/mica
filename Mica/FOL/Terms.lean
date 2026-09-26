@@ -581,7 +581,7 @@ theorem Term.checkWf_ok {t : Term τ} {Δ : Signature} (h : t.checkWf Δ = .ok (
 
 /-! ## Evaluation -/
 
-@[simp] def Const.denote : Env → Const τ → τ.denote
+@[simp] def Const.eval : Env → Const τ → τ.denote
   | _, .i n  => n
   | _, .b v  => v
   | _, .bv bits => bits
@@ -698,7 +698,7 @@ fixes a default, `SMTLIB.defaults_eval` ensures that it is the same as here. -/
 
 def Term.eval (ρ : Env) : Term τ → τ.denote
   | .var τ y      => ρ.lookupConst τ y
-  | .const c      => c.denote ρ
+  | .const c      => c.eval ρ
   | .unop op a    => op.eval ρ (Term.eval ρ a)
   | .binop op a b => op.eval ρ (Term.eval ρ a) (Term.eval ρ b)
   | .terop op a b c => op.eval ρ (Term.eval ρ a) (Term.eval ρ b) (Term.eval ρ c)
@@ -707,7 +707,7 @@ def Term.eval (ρ : Env) : Term τ → τ.denote
 @[simp] theorem Term.eval_const_updateConst {ρ : Env} {τ : Srt} {x : String}
     {v : τ.denote} :
     (Term.const (.uninterpreted x τ)).eval (ρ.updateConst τ x v) = v := by
-  simp [Term.eval, Const.denote, Env.updateConst]
+  simp [Term.eval, Const.eval, Env.updateConst]
 
 theorem Term.eval_updateConst_of_fresh {t : Term τ'} {x : String} {τ : Srt}
     {v : τ.denote} {ρ : Env} (hx : x ∉ t.names) :
@@ -746,7 +746,7 @@ theorem Term.eval_le {τ : Srt} {ρ ρ' : Env} (h : Env.le ρ ρ') (t : Term τ)
   induction t with
   | var τ y => simp [Term.eval, Env.lookupConst, h.consts]
   | const c =>
-    cases c <;> simp [Term.eval, Const.denote, h.consts]
+    cases c <;> simp [Term.eval, Const.eval, h.consts]
   | unop op a iha =>
     simp only [Term.eval]; rw [iha]
     cases op <;> simp [UnOp.eval, h.unary]
@@ -864,7 +864,7 @@ theorem Term.evalList.lookup_const {ρ : Env} {avs : List Decl.Const} {vs : List
       simp only [List.map_cons, List.cons.injEq] at hts
       obtain ⟨rfl, rfl⟩ := hts
       constructor
-      · simp [Term.eval, Const.denote] at hhead; exact hhead
+      · simp [Term.eval, Const.eval] at hhead; exact hhead
       · exact ih rfl
 
 /-! ## Tuples
@@ -919,5 +919,5 @@ theorem Term.tuple_eval {ρ : Env} {ts : List (Term .value)} {vs : List Runtime.
     (h : Term.evalList ρ ts vs) : (Term.tuple ts).eval ρ = .tuple vs := by
   suffices (toValList ts).eval ρ = vs by simp [Term.tuple, Term.eval, UnOp.eval, this]
   induction h with
-  | nil => simp [toValList, Term.eval, Const.denote]
+  | nil => simp [toValList, Term.eval, Const.eval]
   | cons hhead _ ih => simp [toValList, Term.eval, BinOp.eval, hhead, ih]

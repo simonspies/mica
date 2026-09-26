@@ -237,7 +237,7 @@ theorem Term.eval_subst {σ : Subst} {ρ : Env} {t : Term τ} {Δ Δ' : Signatur
     cases c with
     | uninterpreted name _ =>
       rename_i τ1
-      simp [Const.denote, Subst.eval]
+      simp [Const.eval, Subst.eval]
       symm
       have hvar : σ.apply τ1 name = .var τ1 name := hσ.2 ⟨name, τ1⟩ (ht.2.1 τ1)
       rw [hvar]
