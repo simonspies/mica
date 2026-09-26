@@ -2,7 +2,6 @@
 
 - `Env.lean` — Environments interpreting the names of a signature, and agreement between them.
 - `Formulas.lean` — First-order formulas together with their Tarski semantics and well-formedness conditions.
-- `Printing.lean` — Human-readable notation for first-order syntax.
 - `Signature.lean` — Signatures: the variables and symbols in scope, with their sorts.
 - `Sorts.lean` — Sorts of the first-order logic and the Lean type each one denotes.
 - `Subst.lean` — Capture-avoiding substitution for first-order syntax and its well-formedness conditions.

@@ -1,7 +1,6 @@
 -- SUMMARY: Verifier operations on assertions: assume and prove, well-formedness conditions, and correctness lemmas.
 import Mica.SourceTinyML.Typed
 import Mica.Verifier.Interpretations
-import Mica.FOL.Printing
 import Mica.Verifier.Utils
 import Mica.Verifier.Monad
 import Mica.Verifier.Atoms
@@ -306,7 +305,7 @@ def Assertion.prove (σ : FiniteSubst) : Assertion TinyML.Typ α → VerifM (Fin
       let σ' := σ.rename v v'.name
       VerifM.assume (.pure (.eq v.sort (.const (.uninterpreted v'.name v.sort)) t))
       Assertion.prove σ' k
-    | none => VerifM.fatal s!"could not resolve predicate `{p.toStringHum}` for {v.name}"
+    | none => VerifM.fatal s!"could not resolve predicate `{p.toString}` for {v.name}"
   | .ite φ kt ke => do
     let branch ← VerifM.all [true, false]
     if branch then do

@@ -1,6 +1,6 @@
 -- SUMMARY: Verifier operations on atoms: context items, resolution procedures, well-formedness, and correctness lemmas.
 import Mica.SourceTinyML.Semantics
-import Mica.FOL.Printing
+import Mica.Engine.SMTLIB
 import Mica.FOL.Subst
 import Mica.Verifier.Interpretations
 import Mica.Verifier.Monad
@@ -129,13 +129,13 @@ theorem Atom.resolve_wfIn {a : Atom TinyML.Typ τ} {C : List Formula} {t : Term 
 -- Printer
 -- ---------------------------------------------------------------------------
 
-def Atom.toStringHum : {τ : Srt} → Atom TinyML.Typ τ → String
-  | _, .isint  t => s!"isint {t.toStringHum}"
-  | _, .isbool t => s!"isbool {t.toStringHum}"
-  | _, .isinj tag arity t => s!"isinj {tag}/{arity} {t.toStringHum}"
-  | _, .own t ty => s!"own {t.toStringHum} : {reprStr ty}"
-  | _, .arr t ty => s!"arr {t.toStringHum} : {reprStr ty}"
-  | _, .rel name t => s!"call {name} {t.toStringHum}"
+def Atom.toString : {τ : Srt} → Atom TinyML.Typ τ → String
+  | _, .isint  t => s!"isint {t.toSMTLIB}"
+  | _, .isbool t => s!"isbool {t.toSMTLIB}"
+  | _, .isinj tag arity t => s!"isinj {tag}/{arity} {t.toSMTLIB}"
+  | _, .own t ty => s!"own {t.toSMTLIB} : {reprStr ty}"
+  | _, .arr t ty => s!"arr {t.toSMTLIB} : {reprStr ty}"
+  | _, .rel name t => s!"call {name} {t.toSMTLIB}"
 
 -- ---------------------------------------------------------------------------
 -- Well-formedness

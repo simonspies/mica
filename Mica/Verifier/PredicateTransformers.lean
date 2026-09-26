@@ -1,6 +1,5 @@
 -- SUMMARY: Verifier operations on predicate transformers: the call and implementation protocols and their well-formedness.
 import Mica.SourceTinyML.Typed
-import Mica.FOL.Printing
 import Mica.Verifier.Monad
 import Mica.Verifier.Atoms
 import Mica.Verifier.Assertions

@@ -2,7 +2,6 @@
 import Mica.SourceTinyML.Typed
 import Mica.SourceTinyML.Typing
 import Mica.TinyML.OpSem
-import Mica.FOL.Printing
 import Mica.FOL.Subst
 import Mica.SourceTinyML.LogicalRelation
 

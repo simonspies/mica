@@ -1,6 +1,5 @@
 -- SUMMARY: Verifier operations on function specifications: the call and implementation protocols and their correctness.
 import Mica.SourceTinyML.Typed
-import Mica.FOL.Printing
 import Mica.Verifier.PrimitiveLaws
 import Mica.Verifier.Monad
 import Mica.Verifier.Assertions
