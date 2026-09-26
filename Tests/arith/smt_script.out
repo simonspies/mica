@@ -220,6 +220,7 @@
 (pop)
 (assert (forall ((n Value)) (countdown_measured-def n)))
 (push)
+(push)
 (declare-const _v Value)
 (push)
 (declare-const x Value)
@@ -239,3 +240,4 @@
 (pop)
 (pop)
 (declare-const id_ Value)
+(pop)

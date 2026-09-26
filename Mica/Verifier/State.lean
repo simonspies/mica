@@ -184,35 +184,16 @@ def TransState.freshConst (hint : Option String) (t : Srt) (st : TransState) : D
   let x' := Fresh.freshNumbers base st.decls.allNames
   ⟨x', t⟩
 
-def TransState.freshUnaryRel (st : TransState) (hint : Option String) (τ : Srt) : Decl.UnaryRel :=
-  ⟨Fresh.freshNumbers (hint.getD "_p") st.decls.allNames, τ⟩
-
-def TransState.freshBinaryRel (st : TransState) (hint : Option String) (τ₁ τ₂ : Srt) :
-    Decl.BinaryRel :=
-  ⟨Fresh.freshNumbers (hint.getD "_r") st.decls.allNames, τ₁, τ₂⟩
-
-def TransState.freshUnary (st : TransState) (hint : Option String) (τ₁ τ₂ : Srt) : Decl.Unary :=
-  ⟨Fresh.freshNumbers (hint.getD "_f") st.decls.allNames, τ₁, τ₂⟩
-
-def TransState.freshBinary (st : TransState) (hint : Option String) (τ₁ τ₂ τ₃ : Srt) :
-    Decl.Binary :=
-  ⟨Fresh.freshNumbers (hint.getD "_g") st.decls.allNames, τ₁, τ₂, τ₃⟩
-
-def TransState.freshTernary (st : TransState) (hint : Option String) (τ₁ τ₂ τ₃ τ₄ : Srt) :
-    Decl.Ternary :=
-  ⟨Fresh.freshNumbers (hint.getD "_h") st.decls.allNames, τ₁, τ₂, τ₃, τ₄⟩
-
 def TransState.addItem (st : TransState) (item : CtxItem) :=
   match item with
   | .pure φ => { st with asserts := φ :: st.asserts }
   | .spatial p => { st with owns := p :: st.owns }
 
-theorem TransState.wf_freshConst {hint t} (st : TransState) :
+theorem TransState.wf_addConst (st : TransState) (c : Decl.Const) :
     TransState.wf st →
-    TransState.wf { st with decls := st.decls.addConst (st.freshConst hint t) } := by
-  intro hwf
-  have hfresh : (st.freshConst hint t).name ∉ st.decls.allNames :=
-    Fresh.freshNumbers_not_mem (hint.getD "_v") st.decls.allNames
+    c.name ∉ st.decls.allNames →
+    TransState.wf { st with decls := st.decls.addConst c } := by
+  intro hwf hfresh
   have hwf' := Signature.wf_addConst hwf.namesDisjoint hfresh
   constructor
   · exact Context.wfIn_mono _ hwf.assertsWf (Signature.Subset.subset_addConst _ _) hwf'
@@ -284,27 +265,6 @@ theorem TransState.wf_addBinaryRel (st : TransState) (b : Decl.BinaryRel) :
 theorem TransState.freshConst_fresh (st : TransState) (hint : Option String) (τ : Srt) :
     (st.freshConst hint τ).name ∉ st.decls.allNames :=
   Fresh.freshNumbers_not_mem (hint.getD "_v") st.decls.allNames
-
-theorem TransState.freshUnaryRel_fresh (st : TransState) (hint : Option String) (τ : Srt) :
-    (st.freshUnaryRel hint τ).name ∉ st.decls.allNames :=
-  Fresh.freshNumbers_not_mem (hint.getD "_p") st.decls.allNames
-
-theorem TransState.freshBinaryRel_fresh (st : TransState) (hint : Option String) (τ₁ τ₂ : Srt) :
-    (st.freshBinaryRel hint τ₁ τ₂).name ∉ st.decls.allNames :=
-  Fresh.freshNumbers_not_mem (hint.getD "_r") st.decls.allNames
-
-theorem TransState.freshUnary_fresh (st : TransState) (hint : Option String) (τ₁ τ₂ : Srt) :
-    (st.freshUnary hint τ₁ τ₂).name ∉ st.decls.allNames :=
-  Fresh.freshNumbers_not_mem (hint.getD "_f") st.decls.allNames
-
-theorem TransState.freshBinary_fresh (st : TransState) (hint : Option String) (τ₁ τ₂ τ₃ : Srt) :
-    (st.freshBinary hint τ₁ τ₂ τ₃).name ∉ st.decls.allNames :=
-  Fresh.freshNumbers_not_mem (hint.getD "_g") st.decls.allNames
-
-theorem TransState.freshTernary_fresh (st : TransState) (hint : Option String)
-    (τ₁ τ₂ τ₃ τ₄ : Srt) :
-    (st.freshTernary hint τ₁ τ₂ τ₃ τ₄).name ∉ st.decls.allNames :=
-  Fresh.freshNumbers_not_mem (hint.getD "_h") st.decls.allNames
 
 theorem TransState.wf_addAssert (st : TransState) :
     TransState.wf st →

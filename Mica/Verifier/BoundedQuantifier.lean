@@ -32,11 +32,11 @@ namespace SpecFn
 open Verifier.RelationalEncoding
 
 /-- Declare the solver-facing triple of `L` and assume its defining axioms. -/
-def declare (L : SpecFn) (axs : List Axiom) : VerifM Unit := do
-  VerifM.declBinaryRelExact (SpecFn.rel L)
-  VerifM.declUnaryExact (SpecFn.func L)
-  VerifM.declUnaryRelExact (SpecFn.defined L)
-  VerifM.assumeAxioms axs
+def declare (L : SpecFn) (axs : List Axiom) : SeqM Unit := do
+  SeqM.declBinaryRel (SpecFn.rel L)
+  SeqM.declUnary (SpecFn.func L)
+  SeqM.declUnaryRel (SpecFn.defined L)
+  SeqM.assumeAxioms axs
 
 /-- Declaring the triple of a fresh symbol `L` — with interpretations whose
 relation is the graph of the value function on the definedness domain, and
@@ -60,7 +60,7 @@ theorem declare_correct (L : SpecFn) (f : TinyML.Var) (axs : List Axiom)
     (haxwf : ∀ ax ∈ axs, ax.formula.wfIn
       (((Δ.addBinaryRel (rel L)).addUnary (func L)).addUnaryRel (defined L)))
     (haxeval : ∀ ax ∈ axs, ax.formula.eval (SpecFn.Env.both ρ L R D F))
-    (heval : VerifM.eval (declare L axs) st ρ Q) :
+    (heval : SeqM.eval (declare L axs) st ρ Q) :
     ∃ st' ρ', ρ' = SpecFn.Env.both ρ L R D F ∧
       st'.decls = ((Δ.addBinaryRel (rel L)).addUnary (func L)).addUnaryRel (defined L) ∧
       st'.owns = [] ∧ st'.decls.vars = [] ∧ st'.decls.wf ∧
@@ -69,9 +69,9 @@ theorem declare_correct (L : SpecFn) (f : TinyML.Var) (axs : List Axiom)
       FunCtx.wfIn (Γ ++ [(f, L)]) st'.decls ∧
       FunCtx.Agreement (Γ ++ [(f, L)]) ρ' ∧ Q () st' ρ' := by
   simp only [declare] at heval
-  obtain ⟨_, h1⟩ := VerifM.eval_declBinaryRelExact (VerifM.eval_bind heval)
-  obtain ⟨_, h2⟩ := VerifM.eval_declUnaryExact (VerifM.eval_bind (h1 R))
-  obtain ⟨_, h3⟩ := VerifM.eval_declUnaryRelExact (VerifM.eval_bind (h2 F))
+  obtain ⟨_, h1⟩ := SeqM.eval_declBinaryRel (SeqM.eval_bind heval)
+  obtain ⟨_, h2⟩ := SeqM.eval_declUnary (SeqM.eval_bind (h1 R))
+  obtain ⟨_, h3⟩ := SeqM.eval_declUnaryRel (SeqM.eval_bind (h2 F))
   have h4 := h3 D
   set Δext : Signature :=
     ((Δ.addBinaryRel (rel L)).addUnary (func L)).addUnaryRel (defined L)
@@ -91,7 +91,7 @@ theorem declare_correct (L : SpecFn) (f : TinyML.Var) (axs : List Axiom)
       (Signature.Subset.subset_addUnary _ _)).trans
       (Signature.Subset.subset_addUnaryRel _ _)
   obtain ⟨st4, hst4, howns4, _, hQ4⟩ :=
-    VerifM.eval_assumeAxioms h4 (fun ax hax => hst3 ▸ haxwf ax hax)
+    SeqM.eval_assumeAxioms h4 (fun ax hax => hst3 ▸ haxwf ax hax)
       (fun ax hax => by simpa [SpecFn.Env.both] using haxeval ax hax)
   have howns4' : st4.owns = [] := by rw [howns4]; exact howns
   have hvars4 : st4.decls.vars = [] := by
@@ -534,7 +534,7 @@ def extendSignature (s : Lifting) (Δ : Signature) : Signature :=
     (SpecFn.func s.name)).addUnaryRel (SpecFn.defined s.name)
 
 /-- Declare and axiomatize one validated quantifier symbol. -/
-def declare (s : Lifting) (body : Skolemize.DefVal) : VerifM Unit :=
+def declare (s : Lifting) (body : Skolemize.DefVal) : SeqM Unit :=
   SpecFn.declare s.name (s.axioms body)
 
 /-- Canonical interpretation of the quantifier symbol's definedness predicate:
@@ -794,7 +794,7 @@ theorem declare_correct (s : Lifting) (body : Skolemize.DefVal) (Δ : Signature)
     (hdecls : st.decls = Δ) (howns : st.owns = []) (hvars : st.decls.vars = [])
     (hwf : Δ.wf) (hΓwf : FunCtx.wfIn Γ Δ)
     (hΓagree : FunCtx.Agreement Γ ρ)
-    (heval : VerifM.eval (s.declare body) st ρ Q) :
+    (heval : SeqM.eval (s.declare body) st ρ Q) :
     ∃ st' ρ',
       st'.decls = s.extendSignature Δ ∧ st'.owns = [] ∧ st'.decls.vars = [] ∧
       st'.decls.wf ∧ st.decls.Subset st'.decls ∧
