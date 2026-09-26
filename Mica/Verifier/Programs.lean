@@ -81,9 +81,9 @@ its specifications already translated, and the final elaboration state (which
 carries the lifted bounded quantifiers). -/
 def Program.prepare (env : Typed.SpecEnv σ) (s : σ)
     (prog : Untyped.Program Untyped.SpecBody) :
-    SeqM (TinyML.TypeEnv × Typed.Program × σ) :=
+    SeqM (TinyML.TypeEnv × TinyML.TyCtx × Typed.Program × σ) :=
   match Typed.Program.elaborate env TinyML.TypeEnv.empty TinyML.TyCtx.empty prog s with
-  | .ok ((Θ, typed), s') => .ret (Θ, typed, s')
+  | .ok ((Θ, Γ, typed), s') => .ret (Θ, Γ, typed, s')
   | .error err => .fatal (toString err)
 
 namespace Verifier.Env
@@ -214,11 +214,12 @@ specifications lifted. Quantifier symbols are declared after all program
 declarations: assembly never consults specs, and the only cross-references
 between lifted bodies — inner occurrences captured by outer ones — respect the
 lift order, which elaboration preserves. -/
-def assemble (reg : Registry) (Θ : TinyML.TypeEnv) (prog : Typed.Program)
+def assemble (reg : Registry) (Θ : TinyML.TypeEnv) (Γ : TinyML.TyCtx) (prog : Typed.Program)
     (liftings : List Verifier.BoundedQuantifier.Lifting) : SeqM Env := do
   let Δ ← SeqM.decls
   let env ← assembleFrom
-    { registry := reg, typeDeclarations := Θ, signature := Δ, lemmas := [], specFunctions := [] }
+    { registry := reg, typeDeclarations := Θ, signature := Δ, lemmas := [], specFunctions := [],
+      liftings, globals := Γ }
     prog
   assembleLiftings env liftings
 
@@ -498,14 +499,14 @@ private theorem assembleLiftings_correct {reg : Registry}
 
 omit [MicaGS HasLC.hasLC Sig] in
 theorem assemble_correct (reg : Registry) (hlaw : reg.primitives.Lawful)
-    (Θ : TinyML.TypeEnv) (prog : Typed.Program)
+    (Θ : TinyML.TypeEnv) (Γ : TinyML.TyCtx) (prog : Typed.Program)
     (liftings : List Verifier.BoundedQuantifier.Lifting)
     {st : TransState} {ρ : _root_.Env}
     {Q : Env → TransState → _root_.Env → Prop}
     (hvars0 : st.decls.vars = [])
     (howns0 : st.owns = [])
     (hwf0 : st.decls.wf)
-    (heval : SeqM.eval (assemble reg Θ prog liftings) st ρ Q) :
+    (heval : SeqM.eval (assemble reg Θ Γ prog liftings) st ρ Q) :
     ∃ env stRel ρRel,
       env.registry = reg ∧
       env.signature = stRel.decls ∧
@@ -593,9 +594,10 @@ def Program.check (env : Verifier.Env) (Gf : GhostFns) :
 
 def Program.verify (reg : Verifier.Registry) (prog : Untyped.Program Untyped.SpecBody) : Smt.Strategy Smt.Strategy.Outcome :=
   SeqM.strategy do
-    let (Θ, typed, liftSt) ← Program.prepare (Program.specEnv reg (Program.relationMap prog)) {} prog
+    let (Θ, Γ, typed, liftSt) ←
+      Program.prepare (Program.specEnv reg (Program.relationMap prog)) {} prog
     Verifier.Registry.introduceRegistry reg
-    let env ← Verifier.Env.assemble reg Θ typed liftSt.syms
+    let env ← Verifier.Env.assemble reg Θ Γ typed liftSt.syms
     SeqM.check <| Program.check env GhostFns.empty Bindings.empty TinyML.TyCtx.empty typed
 
 /-! ## Correctness -/
@@ -604,18 +606,18 @@ omit [MicaGS HasLC.hasLC Sig] in
 theorem Program.prepare_correct (env : Typed.SpecEnv σ) (s : σ)
     (prog : Untyped.Program Untyped.SpecBody)
     (st : TransState) (ρ : Env)
-    {Q : (TinyML.TypeEnv × Typed.Program × σ) → TransState → Env → Prop}
+    {Q : (TinyML.TypeEnv × TinyML.TyCtx × Typed.Program × σ) → TransState → Env → Prop}
     (heval : SeqM.eval (Program.prepare env s prog) st ρ Q) :
-    ∃ Θ typed s', Typed.Program.runtime typed = Untyped.Program.runtime prog ∧
-      Q (Θ, typed, s') st ρ := by
+    ∃ Θ Γ typed s', Typed.Program.runtime typed = Untyped.Program.runtime prog ∧
+      Q (Θ, Γ, typed, s') st ρ := by
   unfold Program.prepare at heval
   cases helab : Typed.Program.elaborate env TinyML.TypeEnv.empty TinyML.TyCtx.empty prog s with
   | error err =>
     simp [helab] at heval
     exact (SeqM.eval_fatal heval).elim
   | ok prepared =>
-    rcases prepared with ⟨⟨Θ, typed⟩, s'⟩
-    refine ⟨Θ, typed, s',
+    rcases prepared with ⟨⟨Θ, Γ, typed⟩, s'⟩
+    refine ⟨Θ, Γ, typed, s',
       Typed.Program.elaborate_runtime env TinyML.TypeEnv.empty TinyML.TyCtx.empty prog helab, ?_⟩
     simp [helab] at heval
     exact SeqM.eval_ret heval
@@ -902,7 +904,7 @@ theorem Program.verify_correct (reg : Verifier.Registry)
       (∀ [MicaGS HasLC.hasLC Sig], ⊢ pwp reg.primCtx (Untyped.Program.runtime p)) := by
   intro st' heval _inst
   have hbind := SeqM.eval_bind (SeqM.strategy_correct heval Env.init TransState.init_holdsFor)
-  obtain ⟨Θ, typed, liftSt, hrt, hrest⟩ :=
+  obtain ⟨Θ, Γ, typed, liftSt, hrt, hrest⟩ :=
     Program.prepare_correct (Program.specEnv reg (Program.relationMap p)) {} p
       TransState.init Env.init hbind
   dsimp only at hrest
@@ -918,7 +920,7 @@ theorem Program.verify_correct (reg : Verifier.Registry)
   obtain ⟨env, stRel, ρRel, hreg, hsig, hvars, howns, hsub_setup_rel, hag_setup_rel, hlem,
     hcheck_eval⟩ :=
     Verifier.Env.assemble_correct reg (Verifier.Registry.primitives_lawful hSound)
-      Θ typed liftSt.syms hvars_setup howns_setup
+      Θ Γ typed liftSt.syms hvars_setup howns_setup
       hcheck_eval.1.namesDisjoint hassemble
   have hΔreg : Verifier.Registry.symSubset reg stRel.decls := by
     intro i hi

@@ -522,7 +522,7 @@ spec's arguments taking the function's argument types, `bind` binders their
 annotated types, and the postcondition result the return type — and each typed
 leaf is handed straight to `env.translate`, so the walk produces a `Spec`
 directly rather than an intermediate typed spec body. This reuses the global
-context from `Program.elaborate`, so a spec may refer to earlier definitions. -/
+context from `Decl.elaborate`, so a spec may refer to earlier definitions. -/
 
 private def Measure.elaborate (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx)
     (names : List String) (m : Untyped.Expr) : TypeM σ Measure := do
@@ -650,24 +650,29 @@ private def ValDecl.extendUnfolding (Γ : TinyML.TyCtx) (d : Typed.ValDecl) :
       TypeM.error (.spec s!"the unfolding function '{n}' conflicts with an existing declaration")
     else pure (Γ.extendScheme n (Scheme.gen (.arrow [argTy] .unit none)))
 
+/-- Elaborate one declaration after the declarations that `Θ` and `Γ` record,
+and extend both by it. A type declaration has no typed counterpart. -/
+def Decl.elaborate (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx) :
+    Untyped.Decl Untyped.SpecBody → TypeM σ (TypeEnv × TinyML.TyCtx × Option Typed.ValDecl)
+  | .type_ dty => do
+      let body ← DataDecl.elaborate { env with globals := Γ } Θ dty.body
+      let Θ' ← TypeM.ofExcept (extendTypeEnv Θ dty.name body)
+      pure (Θ', Γ, none)
+  | .val_ dval => do
+      let d' ← ValDecl.elaborate { env with globals := Γ, tvars := dval.tvars } Θ Γ dval
+      let () ← ValDecl.checkGeneralizable d'
+      let Γ' := match d'.name.name with
+        | some x => Γ.extendScheme x (Scheme.gen d'.name.ty)
+        | none => Γ
+      let Γ'' ← ValDecl.extendUnfolding Γ' d'
+      pure (Θ, Γ'', some d')
+
 def Program.elaborate (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx) :
-    Untyped.Program Untyped.SpecBody → TypeM σ (TypeEnv × Typed.Program)
-  | [] => pure (Θ, [])
+    Untyped.Program Untyped.SpecBody → TypeM σ (TypeEnv × TinyML.TyCtx × Typed.Program)
+  | [] => pure (Θ, Γ, [])
   | d :: ds => do
-      match d with
-      | .type_ dty =>
-          let body ← DataDecl.elaborate { env with globals := Γ } Θ dty.body
-          let Θ' ← TypeM.ofExcept (extendTypeEnv Θ dty.name body)
-          Program.elaborate env Θ' Γ ds
-      | .val_ dval =>
-          let d' ← ValDecl.elaborate
-            { env with globals := Γ, tvars := dval.tvars } Θ Γ dval
-          let () ← ValDecl.checkGeneralizable d'
-          let Γ' := match d'.name.name with
-            | some x => Γ.extendScheme x (Scheme.gen d'.name.ty)
-            | none => Γ
-          let Γ'' ← ValDecl.extendUnfolding Γ' d'
-          let (Θ', ds') ← Program.elaborate env Θ Γ'' ds
-          pure (Θ', d' :: ds')
+      let (Θ', Γ', d') ← Decl.elaborate env Θ Γ d
+      let (Θ'', Γ'', ds') ← Program.elaborate env Θ' Γ' ds
+      pure (Θ'', Γ'', d'.toList ++ ds')
 
 end Typed

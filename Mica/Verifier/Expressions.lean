@@ -743,7 +743,7 @@ theorem compileFix_typed (env : Verifier.Env) (W : TinyML.World) (henv : env.wf 
         (Runtime.Val.fix self.runtime (args.map (·.runtime))
           (body.runtime.subst ((γ.remove' self.runtime).removeAll' (args.map (·.runtime)))))
         (.arrow (args.map Binder.WithTypeVars.ty) retTy (some s)) := by
-  obtain ⟨reg, Θ, Δ, ls, fns⟩ := env
+  obtain ⟨reg, Θ, Δ, ls, fns, lfs, gls⟩ := env
   obtain ⟨-, -, -, rfl, rfl, -, -, -⟩ := id henv
   simp only [compile] at heval
   cases hext : extractArgNames args s.args with
@@ -858,7 +858,7 @@ theorem compileFix_correct (self : Binder) (args : List Binder)
   | some s =>
   simp only [Expr.WithTypeVars.ty] at hpost
   have hval := compileFix_typed env W henv S γg γ self args retTy s body ih hS heval
-  obtain ⟨reg, Θ, Δ, ls, fns⟩ := env
+  obtain ⟨reg, Θ, Δ, ls, fns, lfs, gls⟩ := env
   obtain ⟨-, -, -, rfl, rfl, -, -, -⟩ := id henv
   simp only [compile] at heval
   cases hext : extractArgNames args s.args with
@@ -2455,7 +2455,7 @@ theorem compileAppSpec_correct
       st'.sl W ρ' ∗ TinyML.ValHasType W v aty ∗ R ⊢ Φ v) :
     st.sl W ρ ∗ (S.typed W γg γ ∗ R) ⊢
       wp W.pctx (.app (fn.runtime.subst γ) (args.map (fun e => e.runtime.subst γ))) Φ := by
-  obtain ⟨reg, Θ, Δ, ls, fns⟩ := env
+  obtain ⟨reg, Θ, Δ, ls, fns, lfs, gls⟩ := env
   obtain ⟨-, -, -, rfl, rfl, -, -, -⟩ := id henv
   obtain ⟨hret_eq, heval⟩ := VerifM.eval_bind_expectEq heval
   obtain ⟨hlen_e, heval⟩ := VerifM.eval_bind_expectEq heval
@@ -2670,7 +2670,7 @@ theorem compileApp_correct
   case _ =>
   cases fn with
   | prim n inst fty =>
-    obtain ⟨reg, Θ, Δ, ls, fns⟩ := env
+    obtain ⟨reg, Θ, Δ, ls, fns, lfs, gls⟩ := env
     obtain ⟨-, -, -, rfl, rfl, -, -, -⟩ := id henv
     obtain ⟨i, hilookup, heval⟩ := VerifM.eval_bind_expectSome heval
     obtain ⟨u, hmode, heval⟩ := VerifM.eval_bind_expectSome heval

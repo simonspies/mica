@@ -698,45 +698,59 @@ theorem ValDecl.elaborate_runtime (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML
         Untyped.ValDecl.runtime, Binder.ofUntyped_runtime,
         Expr.elaborate_runtime env Θ Γ d.body _ hbody]
 
+theorem Decl.elaborate_runtime (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx)
+    (d : Untyped.Decl Untyped.SpecBody) :
+    ∀ {s : σ} {Θ' : TypeEnv} {Γ' : TinyML.TyCtx} {d' : Option Typed.ValDecl} {s' : σ},
+      Typed.Decl.elaborate env Θ Γ d s = .ok ((Θ', Γ', d'), s') →
+      d'.bind Typed.ValDecl.runtime? = d.runtime := by
+  intro s Θ' Γ' d' s' h
+  cases d with
+  | type_ dty =>
+    unfold Typed.Decl.elaborate at h
+    -- A type declaration contributes nothing to the runtime program.
+    have ⟨body, s₀, _hbody, hcont⟩ := StateT.bind_ok h
+    cases hext : extendTypeEnv Θ dty.name body with
+    | error err =>
+      simp [hext, TypeM.error, StateT.map, Functor.map, Except.map] at hcont
+    | ok Θ1 =>
+      simp [hext, StateT.map, Functor.map, Except.map] at hcont
+      rcases hcont with ⟨⟨rfl, rfl, rfl⟩, rfl⟩
+      rfl
+  | val_ dval =>
+    unfold Typed.Decl.elaborate at h
+    have ⟨dval', s₀, hdecl, hcont⟩ := StateT.bind_ok h
+    have ⟨_, s₀', _, hcont⟩ := StateT.bind_ok hcont
+    have ⟨_, s₀'', _, hcont⟩ := StateT.bind_ok hcont
+    rcases hcont with ⟨⟨rfl, rfl, rfl⟩, rfl⟩
+    exact ValDecl.elaborate_runtime _ Θ Γ dval hdecl
+
 theorem Program.elaborate_runtime (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx)
     (prog : Untyped.Program Untyped.SpecBody) :
-    ∀ {s : σ} {Θ' : TypeEnv} {prog' : Typed.Program} {s' : σ},
-      Typed.Program.elaborate env Θ Γ prog s = .ok ((Θ', prog'), s') →
+    ∀ {s : σ} {Θ' : TypeEnv} {Γ' : TinyML.TyCtx} {prog' : Typed.Program} {s' : σ},
+      Typed.Program.elaborate env Θ Γ prog s = .ok ((Θ', Γ', prog'), s') →
       prog'.runtime = prog.runtime := by
   induction prog generalizing Θ Γ with
   | nil =>
-    intro s Θ' prog' s' h
+    intro s Θ' Γ' prog' s' h
     simp [Typed.Program.elaborate] at h
-    rcases h with ⟨⟨rfl, rfl⟩, rfl⟩
+    rcases h with ⟨⟨rfl, rfl, rfl⟩, rfl⟩
     simp [Typed.Program.runtime, Untyped.Program.runtime]
   | cons d ds ih =>
-    intro s Θ' prog' s' h
-    cases d with
-    | type_ dty =>
-      unfold Typed.Program.elaborate at h
-      -- The payloads' own elaboration stays opaque; a type declaration
-      -- contributes nothing to the runtime program either way.
-      have ⟨body, s₀, _hbody, hcont⟩ := StateT.bind_ok h
-      cases hext : extendTypeEnv Θ dty.name body with
-      | error err =>
-        simp [hext] at hcont
-      | ok Θ1 =>
-        simp [hext] at hcont
-        exact ih Θ1 Γ hcont
-    | val_ dval =>
-      unfold Typed.Program.elaborate at h
-      have ⟨dval', s₀, hdecl, hcont⟩ := StateT.bind_ok h
-      have ⟨_, s₀', _, hcont⟩ := StateT.bind_ok hcont
-      have ⟨_, s₀'', _, hcont⟩ := StateT.bind_ok hcont
-      have ⟨tail, s₁, htail, hcont⟩ := StateT.bind_ok hcont
-      rcases tail with ⟨Θ'', ds'⟩
-      simp at hcont
-      rcases hcont with ⟨⟨rfl, rfl⟩, rfl⟩
-      have hdecl_rt : Typed.ValDecl.runtime? dval' = Untyped.Decl.runtime (.val_ dval) :=
-        ValDecl.elaborate_runtime _ Θ Γ dval hdecl
-      have htail_rt := ih Θ _ htail
-      simp only [Typed.Program.runtime, Untyped.Program.runtime, List.filterMap_cons, hdecl_rt]
-      cases Untyped.Decl.runtime (Untyped.Decl.val_ dval) <;>
-        simpa [Typed.Program.runtime, Untyped.Program.runtime] using htail_rt
+    intro s Θ' Γ' prog' s' h
+    unfold Typed.Program.elaborate at h
+    have ⟨⟨Θ₁, Γ₁, d'⟩, s₁, hd, hcont⟩ := StateT.bind_ok h
+    have ⟨⟨Θ₂, Γ₂, ds'⟩, s₂, hds, hcont⟩ := StateT.bind_ok hcont
+    simp at hcont
+    rcases hcont with ⟨⟨rfl, rfl, rfl⟩, rfl⟩
+    have hd_rt := Decl.elaborate_runtime env Θ Γ d hd
+    have hds_rt := ih Θ₁ Γ₁ hds
+    simp only [Typed.Program.runtime, Untyped.Program.runtime, List.filterMap_append,
+      List.filterMap_cons] at hds_rt ⊢
+    rw [hds_rt, ← hd_rt]
+    cases d' with
+    | none => rfl
+    | some d' =>
+      simp only [Option.bind_some, Option.toList, List.filterMap_cons, List.filterMap_nil]
+      cases d'.runtime? <;> rfl
 
 end Typed

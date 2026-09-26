@@ -1,6 +1,7 @@
 -- SUMMARY: The environment and the scope the compilers work in, with the invariants that tie them to a world and a verifier state.
 import Mica.Verifier.Lemma
 import Mica.Verifier.Intrinsic
+import Mica.Verifier.BoundedQuantifier
 
 open Iris Iris.BI
 
@@ -8,12 +9,17 @@ namespace Verifier
 
 /-! ## Environment -/
 
+/-- What the declarations so far make known to the declarations after them. -/
 structure Env where
   registry         : Registry
   typeDeclarations : TinyML.TypeEnv
   signature        : Signature
   lemmas           : Lemmas
   specFunctions    : RelationalEncoding.FunCtx
+  liftings         : List BoundedQuantifier.Lifting
+  /-- The types elaboration gives the declared names. It also has the names
+      that have no value in the verifier, unlike `Scope.typingContext`. -/
+  globals          : TinyML.TyCtx
 
 structure Env.wf (env : Env) (W : TinyML.World) : Prop where
   sound            : env.registry.Sound
