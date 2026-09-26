@@ -368,10 +368,10 @@ private theorem declareAndAssume_correct {reg : Registry}
         | none =>
           simp only [RelationDecl.declare, hm] at h
           exact ⟨_, Skolemize.encode_persistent hinfoEq,
-            h.mono fun _ st' _ hQ _ _ => ⟨st', rfl, rfl, SeqM.eval_ret hQ⟩⟩
+            SeqM.eval_mono h fun _ st' _ hQ _ _ => ⟨st', rfl, rfl, SeqM.eval_ret hQ⟩⟩
         | some m =>
           simp only [RelationDecl.declare, hm] at h
-          refine ⟨_, Skolemize.encode_persistent hinfoEq, (SeqM.eval_bind h).mono ?_⟩
+          refine ⟨_, Skolemize.encode_persistent hinfoEq, SeqM.eval_mono (SeqM.eval_bind h) ?_⟩
           intro _ st' ρ' hc hd' hρ'
           have hclose : ∀ v, info.bv.defined.eval (ρ'.updateConst .value info.sd.x v) →
               (info.sd.fn.isDefined (.var .value info.sd.x)).eval

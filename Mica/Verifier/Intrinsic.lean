@@ -1189,7 +1189,7 @@ theorem eval_assumeAxioms_in (full todo : Registry)
     have h1 := SeqM.eval_bind heval
     rcases hSound with ⟨hiSound, hrestSound⟩
     have hwfAxioms : ∀ a ∈ i.axioms, a.formula.wfIn st.decls := fun a ha =>
-      hiSound.axioms_wf hSig (SeqM.eval.wf h1).namesDisjoint a ha
+      hiSound.axioms_wf hSig (SeqM.eval_wf h1).namesDisjoint a ha
     have hevalAxioms : ∀ a ∈ i.axioms, a.formula.eval ρ :=
       hiSound.axioms_sound ρ (fun d hd => hRespect ρ Env.agreeOn_refl d hd)
     obtain ⟨st1, hdecls1, howns1, hass1, hcont⟩ :=

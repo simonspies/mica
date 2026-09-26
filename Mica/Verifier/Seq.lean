@@ -130,7 +130,7 @@ private def eval_rec : SeqM α → TransState → Env → (α → TransState →
   | .fatal _, _, _, _ => False
   | .decls, st, ρ, P => P st.decls st ρ
 
-private theorem eval_rec.mono {m : SeqM α} {st : TransState} {ρ : Env}
+private theorem eval_rec_mono {m : SeqM α} {st : TransState} {ρ : Env}
     {P Q : α → TransState → Env → Prop} (h : m.eval_rec st ρ P)
     (hPQ : ∀ a st' ρ', P a st' ρ' → Q a st' ρ') : m.eval_rec st ρ Q := by
   induction m generalizing st ρ with
@@ -156,7 +156,7 @@ private theorem eval_rec_preserves_wf (m : SeqM α) (st : TransState) (ρ : Env)
   | ret => exact ⟨g, hwf, h⟩
   | bind m f ihm ihf =>
     simp only [eval_rec] at h ⊢
-    exact eval_rec.mono (ihm st ρ h g hwf) fun _ _ _ ⟨g', hwf', hr⟩ => ihf _ _ _ hr g' hwf'
+    exact eval_rec_mono (ihm st ρ h g hwf) fun _ _ _ ⟨g', hwf', hr⟩ => ihf _ _ _ hr g' hwf'
   | declConst c =>
     exact ⟨h.1, fun u => ⟨holdsFor_of_agree g hwf (Env.agreeOn_update_fresh_const h.1),
       TransState.wf_addConst st c hwf h.1, h.2 u⟩⟩
@@ -190,16 +190,16 @@ private theorem eval_rec_preserves_wf (m : SeqM α) (st : TransState) (ρ : Env)
 def eval (m : SeqM α) (st : TransState) (ρ : Env) (Q : α → TransState → Env → Prop) : Prop :=
   st.wf ∧ st.holdsFor ρ ∧ m.eval_rec st ρ fun a st' ρ' => st'.wf ∧ st'.holdsFor ρ' ∧ Q a st' ρ'
 
-theorem eval.wf {m : SeqM α} {st : TransState} {ρ : Env} {Q : α → TransState → Env → Prop}
+theorem eval_wf {m : SeqM α} {st : TransState} {ρ : Env} {Q : α → TransState → Env → Prop}
     (h : m.eval st ρ Q) : st.wf := h.1
 
-theorem eval.holdsFor {m : SeqM α} {st : TransState} {ρ : Env}
+theorem eval_holdsFor {m : SeqM α} {st : TransState} {ρ : Env}
     {Q : α → TransState → Env → Prop} (h : m.eval st ρ Q) : st.holdsFor ρ := h.2.1
 
-theorem eval.mono {m : SeqM α} {st : TransState} {ρ : Env}
+theorem eval_mono {m : SeqM α} {st : TransState} {ρ : Env}
     {P Q : α → TransState → Env → Prop} (h : m.eval st ρ P)
     (hPQ : ∀ a st' ρ', P a st' ρ' → Q a st' ρ') : m.eval st ρ Q :=
-  ⟨h.1, h.2.1, eval_rec.mono h.2.2 fun a st' ρ' ⟨hwf', g', hp⟩ => ⟨hwf', g', hPQ a st' ρ' hp⟩⟩
+  ⟨h.1, h.2.1, eval_rec_mono h.2.2 fun a st' ρ' ⟨hwf', g', hp⟩ => ⟨hwf', g', hPQ a st' ρ' hp⟩⟩
 
 theorem eval_ret {a : α} {st : TransState} {ρ : Env} {Q : α → TransState → Env → Prop}
     (h : (SeqM.ret a).eval st ρ Q) : Q a st ρ :=
@@ -209,7 +209,7 @@ theorem eval_bind {m : SeqM α} {k : α → SeqM β} {st : TransState} {ρ : Env
     {Q : β → TransState → Env → Prop} (h : (m.bind k).eval st ρ Q) :
     m.eval st ρ fun a st' ρ' => (k a).eval st' ρ' Q := by
   obtain ⟨hwf, g, h⟩ := h
-  refine ⟨hwf, g, eval_rec.mono (eval_rec_preserves_wf m st ρ h g hwf) ?_⟩
+  refine ⟨hwf, g, eval_rec_mono (eval_rec_preserves_wf m st ρ h g hwf) ?_⟩
   intro a st' ρ' ⟨g', hwf', hk⟩
   exact ⟨hwf', g', hwf', g', hk⟩
 
@@ -325,7 +325,7 @@ private theorem translate_eval_rec (m : SeqM α) (st : TransState) (ρ : Env)
       cases hr
     have hm' := eval_rec_preserves_wf m st ρ (ihm st ρ hm g hwf) g hwf
     simp only [eval_rec]
-    refine eval_rec.mono hm' ?_
+    refine eval_rec_mono hm' ?_
     rintro a' st'' ρ' ⟨g', hwf', rfl, rfl, rfl⟩
     exact ihf a' st'' ρ' hk g' hwf'
   | declConst c | declUnary c | declBinary c | declTernary c | declUnaryRel c
@@ -376,7 +376,7 @@ theorem eval_of_translate (m : SeqM α) (st : TransState) (ρ : Env)
     (h : ScopedM.eval (m.translate st) st.toFlatCtx (.ok (a, st')) ctx')
     (g : st.holdsFor ρ) (hwf : st.wf) :
     m.eval st ρ fun a' st'' _ => a' = a ∧ st'' = st' ∧ ctx' = st'.toFlatCtx :=
-  ⟨hwf, g, eval_rec.mono (eval_rec_preserves_wf m st ρ (translate_eval_rec m st ρ h g hwf) g hwf)
+  ⟨hwf, g, eval_rec_mono (eval_rec_preserves_wf m st ρ (translate_eval_rec m st ρ h g hwf) g hwf)
     fun _ _ _ ⟨g', hwf', hq⟩ => ⟨hwf', g', hq⟩⟩
 
 end SeqM
@@ -403,5 +403,5 @@ theorem SeqM.strategy_correct {m : SeqM α} {a : α} {s : Smt.State}
     cases hr
   obtain ⟨hr, _⟩ := ScopedM.eval_ret.mp hcont
   cases hr
-  exact SeqM.eval.mono (SeqM.eval_of_translate _ _ ρ hm hρ TransState.init_wf)
+  exact SeqM.eval_mono (SeqM.eval_of_translate _ _ ρ hm hρ TransState.init_wf)
     fun _ _ _ ⟨ha, _⟩ => ha
