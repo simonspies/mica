@@ -199,7 +199,7 @@ mutual
     | .prim n _ _ => VerifM.fatal s!"primitive `{n}` must be applied"
     | .tuple es => do
         let terms ← compileGhostExprs reg Θ Δ_spec Gf G B Γ es
-        pure (.unop .ofValList (Terms.toValList terms))
+        pure (Term.tuple terms)
     | .inj tag arity payload ty => do
         match injComponents? Θ ty tag arity payload.ty with
         | some _ => do
@@ -1011,9 +1011,8 @@ theorem compileGhostTuple_correct (reg : Verifier.Registry) (es : List Expr)
       · iexact HR
   refine hstep.trans ?_
   refine BIBase.Entails.trans ?_ (exists_intro (Runtime.Val.tuple vs))
-  exact hpost (Runtime.Val.tuple vs) st' ρ' (.unop .ofValList (Terms.toValList terms)) hΨ
-    (by simp only [Term.wfIn]; exact ⟨trivial, Terms.toValList_wfIn hwf_terms⟩)
-    (by simp [Term.eval, UnOp.eval, Terms.toValList_eval heval_terms])
+  exact hpost (Runtime.Val.tuple vs) st' ρ' (Term.tuple terms) hΨ
+    (Term.tuple_wfIn hwf_terms) (Term.tuple_eval heval_terms)
 
 theorem compileGhostLetIn_correct (reg : Verifier.Registry)
     (mode : TinyML.Mode) (b : Binder) (e body : Expr)

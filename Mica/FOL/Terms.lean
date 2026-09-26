@@ -807,58 +807,7 @@ theorem Term.const_wfIn_addConst_of_fresh {Δ : Signature} {c : Decl.Const}
     (Term.const (.uninterpreted x τ)).eval (ρ.updateConst τ x v) = v := by
   simp [Term.eval, Const.denote, Env.updateConst]
 
-/-! ### Vallist projections -/
-
-/-- Apply `vtail` n times to a vallist term. -/
-def vtailN (t : Term .vallist) : Nat → Term .vallist
-  | 0     => t
-  | n + 1 => .unop .vtail (vtailN t n)
-
-@[simp] theorem vtailN_freeVars (t : Term .vallist) (n : Nat) :
-    (vtailN t n).freeVars = t.freeVars := by
-  induction n with
-  | zero => simp [vtailN]
-  | succ n ih => simp [vtailN, Term.freeVars, ih]
-
-theorem vtailN_wfIn {t : Term .vallist} {Δ : Signature} (ht : t.wfIn Δ) (n : Nat) :
-    (vtailN t n).wfIn Δ := by
-  induction n with
-  | zero => simpa [vtailN]
-  | succ n ih => simp only [vtailN, Term.wfIn]; exact ⟨trivial, ih⟩
-
-@[simp] theorem vtailN_eval (t : Term .vallist) (ρ : Env) :
-    ∀ n, (vtailN t n).eval ρ = List.drop n (t.eval ρ)
-  | 0 => by simp [vtailN]
-  | n + 1 => by
-    simp only [vtailN, Term.eval, UnOp.eval, vtailN_eval t ρ n]
-    rw [List.tail_drop]
-
-theorem vhead_vtailN_eval {vs : List Runtime.Val} {w : Runtime.Val} {n : Nat}
-    (h : vs[n]? = some w) (t : Term .vallist) (ρ : Env) (ht : t.eval ρ = vs) :
-    (Term.unop .vhead (vtailN t n)).eval ρ = w := by
-  simp [Term.eval, UnOp.eval, ht, h]
-
 /-! ### Lists of value terms -/
-
-/-- Pack a list of value-sorted terms into a `vallist`-sorted term using
-    `.vcons` and `.vnil`. -/
-def Terms.toValList : List (Term .value) → Term .vallist
-  | [] => .const .vnil
-  | t :: ts => .binop .vcons t (toValList ts)
-
-@[simp] theorem Terms.toValList_nil : toValList [] = .const .vnil := rfl
-@[simp] theorem Terms.toValList_cons (t : Term .value) (ts : List (Term .value)) :
-    toValList (t :: ts) = .binop .vcons t (toValList ts) := rfl
-
-/-- If all terms in `ts` are well-formed in `Δ`, then `toValList ts` is
-    well-formed in `Δ`. -/
-theorem Terms.toValList_wfIn {ts : List (Term .value)} {Δ : Signature}
-    (h : ∀ t ∈ ts, t.wfIn Δ) : (toValList ts).wfIn Δ := by
-  induction ts with
-  | nil => trivial
-  | cons t ts ih =>
-    simp only [toValList, Term.wfIn]
-    exact ⟨trivial, h t (.head _), ih (fun q hq => h q (.tail _ hq))⟩
 
 /-- A list of terms evaluates to a list of values. -/
 def Terms.Eval (ρ : Env) (ts : List (Term .value)) (vs : List Runtime.Val) : Prop :=
@@ -869,12 +818,6 @@ theorem Terms.Eval.map_eval {ρ : Env} {ts : List (Term .value)} {vs : List Runt
   induction h with
   | nil => rfl
   | cons h _ ih => simp [h, ih]
-
-theorem Terms.toValList_eval {ρ : Env} {ts : List (Term .value)} {vs : List Runtime.Val}
-    (h : Terms.Eval ρ ts vs) : (Terms.toValList ts).eval ρ = vs := by
-  induction h with
-  | nil => simp [Terms.toValList, Term.eval, Const.denote]
-  | cons hhead _ ih => simp [Terms.toValList, Term.eval, BinOp.eval, hhead, ih]
 
 theorem Terms.Eval.env_agree {ρ ρ' : Env} {Δ : Signature}
     {ts : List (Term .value)} {vs : List Runtime.Val}
@@ -939,3 +882,58 @@ theorem Terms.Eval.lookup_const {ρ : Env} {avs : List Decl.Const} {vs : List Ru
       constructor
       · simp [Term.eval, Const.denote] at hhead; exact hhead
       · exact ih rfl
+
+/-! ### Tuples -/
+
+private def vtailN (t : Term .vallist) : Nat → Term .vallist
+  | 0     => t
+  | n + 1 => .unop .vtail (vtailN t n)
+
+private theorem vtailN_wfIn {t : Term .vallist} {Δ : Signature} (ht : t.wfIn Δ) (n : Nat) :
+    (vtailN t n).wfIn Δ := by
+  induction n with
+  | zero => simpa [vtailN]
+  | succ n ih => simp only [vtailN, Term.wfIn]; exact ⟨trivial, ih⟩
+
+private theorem vtailN_eval (t : Term .vallist) (ρ : Env) :
+    ∀ n, (vtailN t n).eval ρ = List.drop n (t.eval ρ)
+  | 0 => by simp [vtailN]
+  | n + 1 => by
+    simp only [vtailN, Term.eval, UnOp.eval, vtailN_eval t ρ n]
+    rw [List.tail_drop]
+
+/-- Component `n` of a tuple. -/
+def Term.proj (t : Term .value) (n : Nat) : Term .value :=
+  .unop .vhead (vtailN (.unop .toValList t) n)
+
+theorem Term.proj_wfIn {t : Term .value} {Δ : Signature} (ht : t.wfIn Δ) (n : Nat) :
+    (t.proj n).wfIn Δ :=
+  ⟨trivial, vtailN_wfIn (t := .unop .toValList t) ⟨trivial, ht⟩ n⟩
+
+theorem Term.proj_eval {t : Term .value} {ρ : Env} {vs : List Runtime.Val} {n : Nat}
+    {v : Runtime.Val} (ht : t.eval ρ = .tuple vs) (hn : vs[n]? = some v) :
+    (t.proj n).eval ρ = v := by
+  simp [Term.proj, Term.eval, UnOp.eval, vtailN_eval, ht, hn]
+
+private def toValList : List (Term .value) → Term .vallist
+  | [] => .const .vnil
+  | t :: ts => .binop .vcons t (toValList ts)
+
+/-- The tuple of the given components. -/
+def Term.tuple (ts : List (Term .value)) : Term .value :=
+  .unop .ofValList (toValList ts)
+
+theorem Term.tuple_wfIn {ts : List (Term .value)} {Δ : Signature}
+    (h : ∀ t ∈ ts, t.wfIn Δ) : (Term.tuple ts).wfIn Δ := by
+  refine ⟨trivial, ?_⟩
+  induction ts with
+  | nil => trivial
+  | cons t ts ih =>
+    exact ⟨trivial, h t (.head _), ih (fun q hq => h q (.tail _ hq))⟩
+
+theorem Term.tuple_eval {ρ : Env} {ts : List (Term .value)} {vs : List Runtime.Val}
+    (h : Terms.Eval ρ ts vs) : (Term.tuple ts).eval ρ = .tuple vs := by
+  suffices (toValList ts).eval ρ = vs by simp [Term.tuple, Term.eval, UnOp.eval, this]
+  induction h with
+  | nil => simp [toValList, Term.eval, Const.denote]
+  | cons hhead _ ih => simp [toValList, Term.eval, BinOp.eval, hhead, ih]

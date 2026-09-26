@@ -200,7 +200,7 @@ mutual
     | .prim n _ _ => VerifM.fatal s!"primitive `{n}` must be applied"
     | .tuple es => do
         let terms ← compileExprs reg Θ Δ_spec Γfn ls Gf G B Γ es
-        pure (.unop .ofValList (Terms.toValList terms))
+        pure (Term.tuple terms)
     | .inj tag arity payload ty => do
         match injComponents? Θ ty tag arity payload.ty with
         | some _ => do
@@ -3225,11 +3225,9 @@ theorem compileTuple_correct (reg : Verifier.Registry) (es : List Expr)
   intro vs ρ' st' terms hΨ hwf_terms heval_terms
   obtain ⟨_, _, hΨ⟩ := hΨ
   obtain hΨ := VerifM.eval_ret hΨ
-  have heval_tuple : (Term.unop .ofValList (Terms.toValList terms)).eval ρ' = Runtime.Val.tuple vs := by
-    simp [Term.eval, UnOp.eval, Terms.toValList_eval heval_terms]
-  have hwf_tuple : (Term.unop UnOp.ofValList (Terms.toValList terms)).wfIn st'.decls := by
-    simp only [Term.wfIn]
-    exact ⟨trivial, Terms.toValList_wfIn hwf_terms⟩
+  have heval_tuple : (Term.tuple terms).eval ρ' = Runtime.Val.tuple vs :=
+    Term.tuple_eval heval_terms
+  have hwf_tuple : (Term.tuple terms).wfIn st'.decls := Term.tuple_wfIn hwf_terms
   refine SpatialContext.wp_tuple ?_
   have hstep :
       st'.sl W ρ' ∗ TinyML.ValsHaveTypes W vs (es.map Expr.WithTypeVars.ty) ∗ (R) ⊢
@@ -3245,7 +3243,7 @@ theorem compileTuple_correct (reg : Verifier.Registry) (es : List Expr)
         · iexact Hvals
       · iexact HR
   exact hstep.trans <|
-    hpost (Runtime.Val.tuple vs) ρ' st' (.unop .ofValList (Terms.toValList terms))
+    hpost (Runtime.Val.tuple vs) ρ' st' (Term.tuple terms)
       hΨ hwf_tuple heval_tuple
 
 

@@ -206,7 +206,7 @@ private def encodeConst : TinyML.Const → Term .value
 private def encodeUnOp : TinyML.UnOp → Term .value → Term .value
   | .neg,    v => .unop .ofInt  (.unop .neg (.unop .toInt  v))
   | .not,    v => .unop .ofBool (.unop .not (.unop .toBool v))
-  | .proj n, v => .unop .vhead (vtailN (.unop .toValList v) n)
+  | .proj n, v => Term.proj v n
 
 /-- Encode a TinyML binary op acting on two value-sorted arguments. -/
 private def encodeBinOp : TinyML.BinOp → Term .value → Term .value → Term .value
@@ -234,13 +234,7 @@ private theorem encodeUnOp_wfIn {op : TinyML.UnOp} {v : Term .value} {Δ : Signa
   cases op with
   | neg => exact ⟨trivial, trivial, trivial, hv⟩
   | not => exact ⟨trivial, trivial, trivial, hv⟩
-  | proj n =>
-    have ht : (vtailN (.unop .toValList v) n).wfIn Δ := by
-      apply vtailN_wfIn
-      change UnOp.toValList.wfIn Δ ∧ v.wfIn Δ
-      exact ⟨trivial, hv⟩
-    change UnOp.vhead.wfIn Δ ∧ (vtailN (.unop .toValList v) n).wfIn Δ
-    exact ⟨trivial, ht⟩
+  | proj n => exact Term.proj_wfIn hv n
 
 private theorem encodeBinOp_wfIn {op : TinyML.BinOp} {v1 v2 : Term .value} {Δ : Signature}
     (h1 : v1.wfIn Δ) (h2 : v2.wfIn Δ) : (encodeBinOp op v1 v2).wfIn Δ := by
@@ -286,7 +280,7 @@ private def encodeWith (primitives : PrimEncodings) (Δ : Signature) (Γ : FunCt
       .ok (.ite (.unop .toBool b) thenEnc elseEnc)) avoid
   | .tuple es, k, avoid =>
     encodeListWith primitives Δ Γ δ es
-      (fun vs avoid' => k (.unop .ofValList (Terms.toValList vs)) avoid') avoid
+      (fun vs avoid' => k (Term.tuple vs) avoid') avoid
   | .app (.var f _ _) [arg] [] _, k, avoid =>
     match FunCtx.lookup Γ f with
     | none     => .error s!"unknown function: {f}"
@@ -571,8 +565,8 @@ private theorem tuple {primitives : PrimEncodings}
   simp only [encodeWith] at henc
   refine ih hsub hΔ' hδ hcov ?_ henc
   intro Δa avoidA hsa hΔa hcova vs hvs c' henc'
-  exact hk hsa hΔa hcova (.unop .ofValList (Terms.toValList vs))
-    ⟨trivial, Terms.toValList_wfIn hvs⟩ c' henc'
+  exact hk hsa hΔa hcova (Term.tuple vs)
+    (Term.tuple_wfIn hvs) c' henc'
 
 private theorem inj {primitives : PrimEncodings} (tag arity : Nat) (payload : Typed.Expr)
     (ty : TinyML.Typ) (ih : EncodeWithWfIn primitives payload) :

@@ -47,15 +47,15 @@ def compileUnop (op : TinyML.UnOp) (s : Term .value) : Option (Term .value) :=
   match op with
   | .neg => some (Term.unop .ofInt  (Term.unop .neg (i s)))
   | .not => some (Term.unop .ofBool (Term.unop .not (b s)))
-  | .proj n => some (.unop .vhead (vtailN (.unop .toValList s) n))
+  | .proj n => some (Term.proj s n)
 
 omit [MicaGS HasLC.hasLC Sig] in
 theorem compileUnop_wfIn {op : TinyML.UnOp} {s : Term .value} {Δ : Signature}
     (hs : s.wfIn Δ) {t : Term .value} (heq : compileUnop op s = some t) :
     t.wfIn Δ := by
-  cases op <;> simp [compileUnop] at heq <;> subst heq <;>
-    simp only [Term.wfIn, UnOp.wfIn, true_and]
-  all_goals first | exact hs | (have : (Term.unop UnOp.toValList s).wfIn _ := ⟨trivial, hs⟩; exact vtailN_wfIn this _)
+  cases op <;> simp [compileUnop] at heq <;> subst heq
+  case proj n => exact Term.proj_wfIn hs n
+  all_goals simp only [Term.wfIn, UnOp.wfIn, true_and]; exact hs
 
 omit [MicaGS HasLC.hasLC Sig] in
 theorem compileUnop_eval {op : TinyML.UnOp} {s : Term .value} {ρ : Env}
@@ -68,7 +68,7 @@ theorem compileUnop_eval {op : TinyML.UnOp} {s : Term .value} {ρ : Env}
   | proj n =>
     simp only [compileUnop, Option.some.injEq] at hcomp; subst hcomp
     cases h : s.eval ρ <;> simp_all [TinyML.evalUnOp]
-    exact vhead_vtailN_eval heval _ ρ (by simp [Term.eval, UnOp.eval, h])
+    exact Term.proj_eval h heval
   | neg | not =>
     simp only [compileUnop, Option.some.injEq] at hcomp
     subst hcomp
