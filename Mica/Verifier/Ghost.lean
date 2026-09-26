@@ -1069,7 +1069,7 @@ theorem compileGhostLetIn_correct (reg : Verifier.Registry)
       apply h
       · have hstwf : st₁.decls.wf := (VerifM.eval.wf hΨ).namesDisjoint
         simpa [x'] using
-          (Formula.eq_wfIn_addConst_of_fresh (Δ := st₁.decls) (c := x') hstwf ht_wf hfresh)
+          (Formula.define_wfIn (Δ := st₁.decls) (c := x') hstwf ht_wf hfresh)
       · simp only [Formula.eval, Term.eval, Const.denote]
         have : v = Term.eval ρ₂ t := by
           rw [Term.eval_agreeOn ht_wf (Env.agreeOn_symm hagreeOn₂)]
@@ -1227,7 +1227,7 @@ theorem compileGhostProductBindersFrom_correct (reg : Verifier.Registry) (W : Ti
                     (Term.unop UnOp.vhead tl)).wfIn st₁.decls := by
                 have hstwf : st.decls.wf := (VerifM.eval.wf hdecl_eval).namesDisjoint
                 simpa [x', st₁] using
-                  (Formula.eq_wfIn_addConst_of_fresh (Δ := st.decls) (c := x')
+                  (Formula.define_wfIn (Δ := st.decls) (c := x')
                     hstwf hhead_wf hfresh)
               have hagreeOn_body : Env.agreeOn st.decls ρ ρ₁ :=
                 Env.agreeOn_update_fresh_const hfresh
@@ -2683,7 +2683,7 @@ theorem ValDecl.prove_correct (reg : Verifier.Registry) (hSound : reg.Sound)
           have hsub₂ : st₁.decls.Subset st₂.decls := Signature.Subset.subset_addConst _ _
           have hagree₂ : Env.agreeOn st₁.decls ρ₁ ρ₂ := Env.agreeOn_update_fresh_const hfresh
           have hφ_wf : (Formula.eq .int (.const (.uninterpreted rv.name .int)) m).wfIn st₂.decls :=
-            Formula.eq_wfIn_addConst_of_fresh (Δ := st₁.decls) (c := rv) hstwf hm_wf hfresh
+            Formula.define_wfIn (Δ := st₁.decls) (c := rv) hstwf hm_wf hfresh
           have hφ_eval : (Formula.eq .int (.const (.uninterpreted rv.name .int)) m).eval ρ₂ := by
             simp only [Formula.eval, Term.eval_const_updateConst, hρ₂_def]
             exact Term.eval_agreeOn hm_wf hagree₂

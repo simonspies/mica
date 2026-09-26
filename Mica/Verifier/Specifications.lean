@@ -461,11 +461,11 @@ theorem declareArgs_correct :
           (VerifM.eval_bind (hdecl (sarg.eval ρ)))
           (by
             simpa [argVar] using
-              (Formula.eq_wfIn_addConst_of_fresh
+              (Formula.define_wfIn
                 (Δ := st.decls) (c := argVar) hstwf hsarg_wf hfresh_decls))
           (by
             simpa [argVar] using
-              (Formula.eq_eval_updateConst_of_fresh
+              (Formula.define_eval
                 (Δ := st.decls) (ρ := ρ) (c := argVar) hsarg_wf hfresh_decls))
         have hstwf_add : (st.decls.addConst argVar).wf := Signature.wf_addConst hstwf hfresh_decls
         have hsargs_rest : ∀ p ∈ sargs_rest, (p : TinyML.Typ × Term .value).2.wfIn

@@ -177,7 +177,7 @@ theorem compileProductBindersFrom_length {B : Bindings} {Γ : TinyML.TyCtx}
                   (Formula.eq .value (.const (.uninterpreted x'.name .value))
                     (Term.unop UnOp.vhead tl)).wfIn { st with decls := st.decls.addConst x' }.decls := by
                 simpa [x'] using
-                  (Formula.eq_wfIn_addConst_of_fresh (Δ := st.decls) (c := x')
+                  (Formula.define_wfIn (Δ := st.decls) (c := x')
                     hstwf hhead_wf hfresh)
               have hholds :
                   (Formula.eq .value (.const (.uninterpreted x'.name .value))

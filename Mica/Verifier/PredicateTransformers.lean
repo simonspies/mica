@@ -248,8 +248,8 @@ theorem PredTrans.implement_correct (W : TinyML.World) (pt : PredTrans TinyML.Ty
       specialize hdecl (result.eval ρ₂)
       have hb3 := VerifM.eval_bind hdecl
       have hassume := VerifM.eval_assumePure hb3
-        (Formula.eq_wfIn_addConst_of_fresh (c := resVar) hwfst₂ hwf_result hfresh_decls)
-        (Formula.eq_eval_updateConst_of_fresh (c := resVar) (ρ := ρ₂) hwf_result hfresh_decls)
+        (Formula.define_wfIn (c := resVar) hwfst₂ hwf_result hfresh_decls)
+        (Formula.define_eval (c := resVar) (ρ := ρ₂) hwf_result hfresh_decls)
       set σ₂ := σ₁.rename ⟨postName, .value⟩ resVar.name
       have hσ₂wf : σ₂.wfIn Δ_base (st₂.decls.addConst resVar) := by
         simpa [σ₂] using hrename

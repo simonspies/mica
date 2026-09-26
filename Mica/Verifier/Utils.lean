@@ -307,7 +307,7 @@ theorem FiniteSubst.decl_eq_wfIn {σ : FiniteSubst} {Δ_base Δ_use : Signature}
     (hfresh : c.name ∉ Δ_use.allNames) :
     (Formula.eq c.sort (.const (.uninterpreted c.name c.sort)) (t.subst σ.subst)).wfIn
       (Δ_use.addConst c) :=
-  Formula.eq_wfIn_addConst_of_fresh hσ.useWf (FiniteSubst.subst_wfIn_term hσ ht) hfresh
+  Formula.define_wfIn hσ.useWf (FiniteSubst.subst_wfIn_term hσ ht) hfresh
 
 theorem FiniteSubst.decl_eq_eval {σ : FiniteSubst} {Δ_base Δ_use : Signature} {ρ : Env}
     {c : Decl.Const} {t : Term c.sort}
@@ -316,7 +316,7 @@ theorem FiniteSubst.decl_eq_eval {σ : FiniteSubst} {Δ_base Δ_use : Signature}
     (Formula.eq c.sort (.const (.uninterpreted c.name c.sort)) (t.subst σ.subst)).eval
       (ρ.updateConst c.sort c.name (t.eval (σ.subst.eval ρ))) := by
   rw [← FiniteSubst.eval_subst_term hσ ht]
-  exact Formula.eq_eval_updateConst_of_fresh (FiniteSubst.subst_wfIn_term hσ ht) hfresh
+  exact Formula.define_eval (FiniteSubst.subst_wfIn_term hσ ht) hfresh
 
 /-- The core agreement transfer: environments agreeing on the substitution's range induce
     substituted environments agreeing on the source signature. Shared by `eval_agreeOn` and

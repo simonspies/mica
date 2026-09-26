@@ -72,6 +72,10 @@ def Term.isTrue (t : Term .value) : Formula :=
 def Term.isFalse (t : Term .value) : Formula :=
   .eq .value t (.unop .ofBool (.const (.b false)))
 
+/-- The definition of the constant `c` as `t`. -/
+def Formula.define (c : Decl.Const) (t : Term c.sort) : Formula :=
+  .eq c.sort (.const (.uninterpreted c.name c.sort)) t
+
 def Pattern.freeVars : Pattern → List Var
   | .term t => t.freeVars
   | .unpred _ t => t.freeVars
@@ -439,19 +443,18 @@ theorem Formula.eval_agreeOn {φ : Formula} {ρ ρ' : Env} {Δ : Signature} :
     · intro ⟨v, hv⟩; exact ⟨v, (ih hwf (Env.agreeOn_declVar hagree)).mpr hv⟩
 
 /-- If `t` is wf in `Δ` and `c` is fresh for `Δ`, then `c = t` is wf in `Δ.addConst c`. -/
-theorem Formula.eq_wfIn_addConst_of_fresh {Δ : Signature} {c : Decl.Const}
+theorem Formula.define_wfIn {Δ : Signature} {c : Decl.Const}
     {t : Term c.sort} (hΔwf : Δ.wf) (ht : t.wfIn Δ)
     (hfresh : c.name ∉ Δ.allNames) :
-    (Formula.eq c.sort (.const (.uninterpreted c.name c.sort)) t).wfIn (Δ.addConst c) :=
+    (Formula.define c t).wfIn (Δ.addConst c) :=
   ⟨Term.const_wfIn_addConst_of_fresh hΔwf hfresh,
    Term.wfIn_mono t ht (Signature.Subset.subset_addConst _ _)
      (Signature.wf_addConst hΔwf hfresh)⟩
 
 /-- Updating the env at a fresh name makes the equality `c = t` hold. -/
-theorem Formula.eq_eval_updateConst_of_fresh {Δ : Signature} {ρ : Env}
+theorem Formula.define_eval {Δ : Signature} {ρ : Env}
     {c : Decl.Const} {t : Term c.sort} (ht : t.wfIn Δ)
     (hfresh : c.name ∉ Δ.allNames) :
-    (Formula.eq c.sort (.const (.uninterpreted c.name c.sort)) t).eval
-      (ρ.updateConst c.sort c.name (t.eval ρ)) := by
-  simp only [Formula.eval, Term.eval_const_updateConst]
+    (Formula.define c t).eval (ρ.updateConst c.sort c.name (t.eval ρ)) := by
+  simp only [Formula.define, Formula.eval, Term.eval_const_updateConst]
   exact Term.eval_agreeOn ht (Env.agreeOn_update_fresh_const hfresh)

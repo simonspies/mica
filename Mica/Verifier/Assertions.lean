@@ -647,8 +647,8 @@ theorem Assertion.prove_correct (W : TinyML.World) (m : Assertion TinyML.Typ α)
             specialize hdecl (t.eval ρ')
             have hb3 := VerifM.eval_bind hdecl
             have hassume := VerifM.eval_assumePure hb3
-              (Formula.eq_wfIn_addConst_of_fresh (c := v') hwfst' htwf hv'_fresh_decls)
-              (Formula.eq_eval_updateConst_of_fresh (c := v') (ρ := ρ') htwf hv'_fresh_decls)
+              (Formula.define_wfIn (c := v') hwfst' htwf hv'_fresh_decls)
+              (Formula.define_eval (c := v') (ρ := ρ') htwf hv'_fresh_decls)
             set σ' := σ.rename v v'.name
             have hσ'wf : σ'.wfIn Δ_base (st'.decls.addConst v') := by
               simpa [σ'] using hrename
