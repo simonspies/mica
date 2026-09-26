@@ -437,29 +437,71 @@ theorem allNames_subset {Δ Δ' : Signature} (h : Δ.Subset Δ') :
 theorem Subset.addVar {Δ Δ' : Signature} (h : Δ.Subset Δ') (v : Var) :
     (Δ.addVar v).Subset (Δ'.addVar v) :=
   ⟨fun x hx => by cases hx with | head => left | tail _ hmem => right; exact h.vars x hmem,
-   h.consts, h.unary, h.binary, h.ternary, h.unaryRel, h.binaryRel⟩
+   h.consts,
+   h.unary,
+   h.binary,
+   h.ternary,
+   h.unaryRel,
+   h.binaryRel⟩
 
-theorem Subset.addConst {Δ Δ' : Signature} (h : Δ.Subset Δ') (c : Decl.Const) :
-    (Δ.addConst c).Subset (Δ'.addConst c) :=
+theorem Subset.addConst {Δ Δ' : Signature} (h : Δ.Subset Δ') (s : Decl.Const) :
+    (Δ.addConst s).Subset (Δ'.addConst s) :=
   ⟨h.vars,
    fun x hx => by cases hx with | head => left | tail _ hmem => right; exact h.consts x hmem,
-   h.unary, h.binary, h.ternary, h.unaryRel, h.binaryRel⟩
+   h.unary,
+   h.binary,
+   h.ternary,
+   h.unaryRel,
+   h.binaryRel⟩
 
-theorem Subset.addUnary {Δ Δ' : Signature} (h : Δ.Subset Δ') (u : Decl.Unary) :
-    (Δ.addUnary u).Subset (Δ'.addUnary u) :=
-  ⟨h.vars, h.consts,
+theorem Subset.addUnary {Δ Δ' : Signature} (h : Δ.Subset Δ') (s : Decl.Unary) :
+    (Δ.addUnary s).Subset (Δ'.addUnary s) :=
+  ⟨h.vars,
+   h.consts,
    fun x hx => by cases hx with | head => left | tail _ hmem => right; exact h.unary x hmem,
-   h.binary, h.ternary, h.unaryRel, h.binaryRel⟩
+   h.binary,
+   h.ternary,
+   h.unaryRel,
+   h.binaryRel⟩
 
-theorem Subset.addUnaryRel {Δ Δ' : Signature} (h : Δ.Subset Δ') (u : Decl.UnaryRel) :
-    (Δ.addUnaryRel u).Subset (Δ'.addUnaryRel u) :=
-  ⟨h.vars, h.consts, h.unary, h.binary, h.ternary,
+theorem Subset.addBinary {Δ Δ' : Signature} (h : Δ.Subset Δ') (s : Decl.Binary) :
+    (Δ.addBinary s).Subset (Δ'.addBinary s) :=
+  ⟨h.vars,
+   h.consts,
+   h.unary,
+   fun x hx => by cases hx with | head => left | tail _ hmem => right; exact h.binary x hmem,
+   h.ternary,
+   h.unaryRel,
+   h.binaryRel⟩
+
+theorem Subset.addTernary {Δ Δ' : Signature} (h : Δ.Subset Δ') (s : Decl.Ternary) :
+    (Δ.addTernary s).Subset (Δ'.addTernary s) :=
+  ⟨h.vars,
+   h.consts,
+   h.unary,
+   h.binary,
+   fun x hx => by cases hx with | head => left | tail _ hmem => right; exact h.ternary x hmem,
+   h.unaryRel,
+   h.binaryRel⟩
+
+theorem Subset.addUnaryRel {Δ Δ' : Signature} (h : Δ.Subset Δ') (s : Decl.UnaryRel) :
+    (Δ.addUnaryRel s).Subset (Δ'.addUnaryRel s) :=
+  ⟨h.vars,
+   h.consts,
+   h.unary,
+   h.binary,
+   h.ternary,
    fun x hx => by cases hx with | head => left | tail _ hmem => right; exact h.unaryRel x hmem,
    h.binaryRel⟩
 
-theorem Subset.addBinaryRel {Δ Δ' : Signature} (h : Δ.Subset Δ') (b : Decl.BinaryRel) :
-    (Δ.addBinaryRel b).Subset (Δ'.addBinaryRel b) :=
-  ⟨h.vars, h.consts, h.unary, h.binary, h.ternary, h.unaryRel,
+theorem Subset.addBinaryRel {Δ Δ' : Signature} (h : Δ.Subset Δ') (s : Decl.BinaryRel) :
+    (Δ.addBinaryRel s).Subset (Δ'.addBinaryRel s) :=
+  ⟨h.vars,
+   h.consts,
+   h.unary,
+   h.binary,
+   h.ternary,
+   h.unaryRel,
    fun x hx => by cases hx with | head => left | tail _ hmem => right; exact h.binaryRel x hmem⟩
 
 theorem Subset.subset_addVar (Δ : Signature) (v : Var) :
@@ -590,22 +632,31 @@ theorem wf_declVars {Δ : Signature} {vs : List Var} (hΔ : Δ.wf) : (Δ.declVar
   | cons v vs ih =>
     simpa [declVars] using ih (wf_declVar (Δ := Δ) (v := v) hΔ)
 
-/-- A name absent from a signature and distinct from a new binary relation name
-remains absent after adding that binary relation. -/
-theorem not_mem_allNames_addBinaryRel {Δ : Signature} {b : Decl.BinaryRel} {x : String}
-    (hΔ : x ∉ Δ.allNames) (hb : x ≠ b.name) :
-    x ∉ (Δ.addBinaryRel b).allNames := by
-  intro h
-  simp [Signature.allNames, Signature.addBinaryRel] at h
-  rcases h with h | h | h | h | h | h | h | h
-  · exact hΔ (by simp [Signature.allNames, h])
-  · exact hΔ (by simp [Signature.allNames, h])
-  · exact hΔ (by simp [Signature.allNames, h])
-  · exact hΔ (by simp [Signature.allNames, h])
-  · exact hΔ (by simp [Signature.allNames, h])
-  · exact hΔ (by simp [Signature.allNames, h])
-  · exact hb h
-  · exact hΔ (by simp [Signature.allNames, h])
+/-! ### Names absent after adding a symbol -/
+
+theorem not_mem_allNames_addConst {Δ : Signature} {s : Decl.Const} {x : String}
+    (hΔ : x ∉ Δ.allNames) (hs : x ≠ s.name) : x ∉ (Δ.addConst s).allNames := by
+  simp_all [allNames, addConst]
+
+theorem not_mem_allNames_addUnary {Δ : Signature} {s : Decl.Unary} {x : String}
+    (hΔ : x ∉ Δ.allNames) (hs : x ≠ s.name) : x ∉ (Δ.addUnary s).allNames := by
+  simp_all [allNames, addUnary]
+
+theorem not_mem_allNames_addBinary {Δ : Signature} {s : Decl.Binary} {x : String}
+    (hΔ : x ∉ Δ.allNames) (hs : x ≠ s.name) : x ∉ (Δ.addBinary s).allNames := by
+  simp_all [allNames, addBinary]
+
+theorem not_mem_allNames_addTernary {Δ : Signature} {s : Decl.Ternary} {x : String}
+    (hΔ : x ∉ Δ.allNames) (hs : x ≠ s.name) : x ∉ (Δ.addTernary s).allNames := by
+  simp_all [allNames, addTernary]
+
+theorem not_mem_allNames_addUnaryRel {Δ : Signature} {s : Decl.UnaryRel} {x : String}
+    (hΔ : x ∉ Δ.allNames) (hs : x ≠ s.name) : x ∉ (Δ.addUnaryRel s).allNames := by
+  simp_all [allNames, addUnaryRel]
+
+theorem not_mem_allNames_addBinaryRel {Δ : Signature} {s : Decl.BinaryRel} {x : String}
+    (hΔ : x ∉ Δ.allNames) (hs : x ≠ s.name) : x ∉ (Δ.addBinaryRel s).allNames := by
+  simp_all [allNames, addBinaryRel]
 
 /-- A name absent from a signature and distinct from a new variable name remains
 absent after declaring that variable. -/
@@ -618,40 +669,6 @@ theorem not_mem_allNames_declVar {Δ : Signature} {v : Var} {x : String}
   cases h' with
   | head => exact hv rfl
   | tail _ htail => exact hΔ (Signature.remove_allNames_subset htail)
-
-/-- A name absent from a signature and distinct from a new unary function name
-remains absent after adding that unary function. -/
-theorem not_mem_allNames_addUnary {Δ : Signature} {u : Decl.Unary} {x : String}
-    (hΔ : x ∉ Δ.allNames) (hu : x ≠ u.name) :
-    x ∉ (Δ.addUnary u).allNames := by
-  intro h
-  simp [Signature.allNames, Signature.addUnary] at h
-  rcases h with h | h | h | h | h | h | h | h
-  · exact hΔ (by simp [Signature.allNames, h])
-  · exact hΔ (by simp [Signature.allNames, h])
-  · exact hu h
-  · exact hΔ (by simp [Signature.allNames, h])
-  · exact hΔ (by simp [Signature.allNames, h])
-  · exact hΔ (by simp [Signature.allNames, h])
-  · exact hΔ (by simp [Signature.allNames, h])
-  · exact hΔ (by simp [Signature.allNames, h])
-
-/-- A name absent from a signature and distinct from a new unary relation name
-remains absent after adding that unary relation. -/
-theorem not_mem_allNames_addUnaryRel {Δ : Signature} {u : Decl.UnaryRel} {x : String}
-    (hΔ : x ∉ Δ.allNames) (hu : x ≠ u.name) :
-    x ∉ (Δ.addUnaryRel u).allNames := by
-  intro h
-  simp [Signature.allNames, Signature.addUnaryRel] at h
-  rcases h with h | h | h | h | h | h | h | h
-  · exact hΔ (by simp [Signature.allNames, h])
-  · exact hΔ (by simp [Signature.allNames, h])
-  · exact hΔ (by simp [Signature.allNames, h])
-  · exact hΔ (by simp [Signature.allNames, h])
-  · exact hΔ (by simp [Signature.allNames, h])
-  · exact hu h
-  · exact hΔ (by simp [Signature.allNames, h])
-  · exact hΔ (by simp [Signature.allNames, h])
 
 /-- Declaring a variable whose name is fresh for the signature extends it. -/
 theorem subset_declVar_of_fresh {Δ : Signature} {v : Var}

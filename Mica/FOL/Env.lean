@@ -134,10 +134,6 @@ theorem Env.agreeOn_refl : Env.agreeOn Δ ρ ρ :=
   .intro (fun _ _ => rfl) (fun _ _ => rfl) (fun _ _ => rfl) (fun _ _ => rfl)
     (fun _ _ => rfl) (fun _ _ => rfl) (fun _ _ => rfl)
 
-/-- Any two environments agree on the empty signature. -/
-theorem Env.agreeOn_empty (ρ ρ' : Env) : Env.agreeOn Signature.empty ρ ρ' := by
-  refine .intro ?_ ?_ ?_ ?_ ?_ ?_ ?_ <;> intro x hx <;> simp [Signature.empty] at hx
-
 theorem Env.agreeOn_mono {Δ₁ Δ₂ : Signature} (hsub : Δ₁.Subset Δ₂)
     (h : Env.agreeOn Δ₂ ρ ρ') : Env.agreeOn Δ₁ ρ ρ' :=
   .intro
@@ -173,18 +169,6 @@ theorem Env.agreeOn_trans {Δ : Signature}
     (fun t ht => (h₁₂.ternary t ht).trans (h₂₃.ternary t ht))
     (fun u hu => (h₁₂.unaryRel u hu).trans (h₂₃.unaryRel u hu))
     (fun b hb => (h₁₂.binaryRel b hb).trans (h₂₃.binaryRel b hb))
-
-/-- Base-signature agreement is stable under extending each side: if `ρ₁` and
-    `ρ₂` agree on `Δ`, and each moves to an environment agreeing on a larger
-    signature (`Δ ⊆ Δ₁`, `Δ ⊆ Δ₂`), then the two extended environments still
-    agree on `Δ`. -/
-theorem Env.agreeOn_of_extensions {Δ Δ₁ Δ₂ : Signature} {ρ₁ ρ₂ ρ₁' ρ₂' : Env}
-    (hsub₁ : Δ.Subset Δ₁) (hsub₂ : Δ.Subset Δ₂)
-    (hbase : Env.agreeOn Δ ρ₁ ρ₂)
-    (h₁ : Env.agreeOn Δ₁ ρ₁ ρ₁') (h₂ : Env.agreeOn Δ₂ ρ₂ ρ₂') :
-    Env.agreeOn Δ ρ₁' ρ₂' :=
-  Env.agreeOn_trans (Env.agreeOn_symm (Env.agreeOn_mono hsub₁ h₁))
-    (Env.agreeOn_trans hbase (Env.agreeOn_mono hsub₂ h₂))
 
 theorem Env.agreeOn_update {ρ ρ' : Env} {Δ : Signature} {τ : Srt} {x : String} {v : τ.denote} :
     Env.agreeOn Δ ρ ρ' →

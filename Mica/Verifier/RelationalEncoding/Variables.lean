@@ -332,7 +332,7 @@ private theorem avoid_covers_bothArgRes (Δ : Signature) (fn : SpecFn) (x res : 
   have hboth : n ∉ (Sig.both Δ fn).allNames :=
     Signature.not_mem_allNames_addUnaryRel
       (Signature.not_mem_allNames_addUnary
-        (Signature.not_mem_allNames_addBinaryRel (b := fn.rel) hnΔ hnRel)
+        (Signature.not_mem_allNames_addBinaryRel (s := fn.rel) hnΔ hnRel)
         (by simpa [func] using hnFun))
       (by simpa [defined] using hnDef)
   have hbody := Signature.not_mem_allNames_declVar hboth

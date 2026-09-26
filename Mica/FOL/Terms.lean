@@ -838,32 +838,6 @@ theorem Term.evalList.cons {ρ : Env} {t : Term .value} {v : Runtime.Val}
     Term.evalList ρ (t :: ts) (v :: vs) :=
   List.Forall₂.cons hhead htail
 
-theorem Term.evalList.of_pairs {ρ : Env} {pairs : List (α × Term .value)} {vs : List Runtime.Val}
-    (h : List.Forall₂ (fun p v => p.2.eval ρ = v) pairs vs) :
-    Term.evalList ρ (pairs.map Prod.snd) vs := by
-  induction h with
-  | nil => exact .nil
-  | cons h _ ih => exact .cons h ih
-
-theorem Term.evalList.lookup_var {ρ : Env} {avs : List Var} {vs : List Runtime.Val}
-    (h : Term.evalList ρ (avs.map (fun av => .var .value av.name)) vs) :
-    List.Forall₂ (fun av val => ρ.lookupConst .value av.name = val) avs vs := by
-  generalize hts : avs.map (fun av => Term.var .value av.name) = ts at h
-  induction h generalizing avs with
-  | nil =>
-    cases avs with
-    | nil => exact .nil
-    | cons _ _ => simp at hts
-  | cons hhead htail ih =>
-    cases avs with
-    | nil => simp at hts
-    | cons av avs' =>
-      simp only [List.map_cons, List.cons.injEq] at hts
-      obtain ⟨rfl, rfl⟩ := hts
-      constructor
-      · exact hhead
-      · exact ih rfl
-
 theorem Term.evalList.lookup_const {ρ : Env} {avs : List Decl.Const} {vs : List Runtime.Val}
     (h : Term.evalList ρ (avs.map (fun av => .const (.uninterpreted av.name .value))) vs) :
     List.Forall₂ (fun av val => ρ.consts .value av.name = val) avs vs := by
