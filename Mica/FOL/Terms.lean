@@ -3,6 +3,7 @@ import Mica.FOL.Env
 import Mica.Base.FloatBits
 import Mica.Base.Except
 import Batteries.Data.List.Basic
+import Mathlib.Tactic.SplitIfs
 
 /-!
 # Terms
@@ -277,42 +278,31 @@ theorem Term.wfIn_declVar_of_fresh {t : Term τ} {x : String} {s : Srt}
   | unop op a ih =>
     cases op with
     | uninterpreted name τ₁ τ₂ =>
-      have hparts : x ≠ name ∧ x ∉ a.names := by simpa [Term.names] using hx
-      have hname : name ≠ x := Ne.symm hparts.1
-      have ha : x ∉ a.names := hparts.2
-      refine ⟨?_, ih h.2 ha⟩
-      simpa [UnOp.wfIn, Signature.declVar, Signature.addVar, Signature.remove, hname] using h.1
-    | _ =>
-      refine ⟨trivial, ih h.2 ?_⟩
-      simpa [Term.names] using hx
+      simp only [Term.names, List.mem_cons, not_or] at hx
+      refine ⟨?_, ih h.2 hx.2⟩
+      simpa [UnOp.wfIn, Signature.declVar, Signature.addVar, Signature.remove, Ne.symm hx.1]
+        using h.1
+    | _ => exact ⟨trivial, ih h.2 (by simpa [Term.names] using hx)⟩
   | binop op a b iha ihb =>
-    have ha : x ∉ a.names := by
-      cases op <;> simp_all [Term.names]
-    have hb : x ∉ b.names := by
-      cases op <;> simp_all [Term.names]
-    refine ⟨?_, iha h.2.1 ha, ihb h.2.2 hb⟩
     cases op with
     | uninterpreted name τ₁ τ₂ τ₃ =>
-      have hparts : x ≠ name ∧ x ∉ a.names ∧ x ∉ b.names := by
-        simpa [Term.names] using hx
-      have hname : name ≠ x := Ne.symm hparts.1
-      simpa [BinOp.wfIn, Signature.declVar, Signature.addVar, Signature.remove, hname] using h.1
-    | _ => trivial
+      simp only [Term.names, List.mem_cons, List.mem_append, not_or] at hx
+      refine ⟨?_, iha h.2.1 hx.2.1, ihb h.2.2 hx.2.2⟩
+      simpa [BinOp.wfIn, Signature.declVar, Signature.addVar, Signature.remove, Ne.symm hx.1]
+        using h.1
+    | _ =>
+      simp only [Term.names, List.mem_append, not_or] at hx
+      exact ⟨trivial, iha h.2.1 hx.1, ihb h.2.2 hx.2⟩
   | terop op a b c iha ihb ihc =>
-    have ha : x ∉ a.names := by
-      cases op <;> simp_all [Term.names]
-    have hb : x ∉ b.names := by
-      cases op <;> simp_all [Term.names]
-    have hc : x ∉ c.names := by
-      cases op <;> simp_all [Term.names]
-    refine ⟨?_, iha h.2.1 ha, ihb h.2.2.1 hb, ihc h.2.2.2 hc⟩
     cases op with
     | uninterpreted name τ₁ τ₂ τ₃ τ₄ =>
-      have hparts : x ≠ name ∧ x ∉ a.names ∧ x ∉ b.names ∧ x ∉ c.names := by
-        simpa [Term.names] using hx
-      have hname : name ≠ x := Ne.symm hparts.1
-      simpa [TerOp.wfIn, Signature.declVar, Signature.addVar, Signature.remove, hname] using h.1
-    | _ => trivial
+      simp only [Term.names, List.mem_cons, List.mem_append, not_or] at hx
+      refine ⟨?_, iha h.2.1 hx.2.1.1, ihb h.2.2.1 hx.2.1.2, ihc h.2.2.2 hx.2.2⟩
+      simpa [TerOp.wfIn, Signature.declVar, Signature.addVar, Signature.remove, Ne.symm hx.1]
+        using h.1
+    | _ =>
+      simp only [Term.names, List.mem_append, not_or] at hx
+      exact ⟨trivial, iha h.2.1 hx.1.1, ihb h.2.2.1 hx.1.2, ihc h.2.2.2 hx.2⟩
   | ite c t e ihc iht ihe =>
     simp only [Term.names, List.mem_append, not_or] at hx
     exact ⟨ihc h.1 hx.1.1, iht h.2.1 hx.1.2, ihe h.2.2 hx.2⟩
@@ -403,23 +393,9 @@ private theorem Const.checkWf_ok {c : Const τ} {Δ : Signature} (h : c.checkWf 
   cases c with
   | uninterpreted name τ =>
     simp only [Const.checkWf] at h
-    split at h
-    · rename_i hmem
-      split at h
-      · simp at h
-      · rename_i hvar
-        split at h
-        · simp at h
-        · rename_i hdup
-          refine ⟨hmem, ?_, ?_⟩
-          · intro τ' hv
-            exact hvar (List.mem_map_of_mem hv)
-          · intro τ' hc'
-            rcases decEq τ' τ with hne | h
-            · exfalso; apply hdup; apply List.any_eq_true.mpr
-              refine ⟨⟨name, τ'⟩, hc', ?_⟩; simp [hne]
-            · exact h
-    · simp at h
+    split_ifs at h with hmem hvar hdup
+    simp at hdup
+    exact ⟨hmem, fun _ hv => hvar (List.mem_map_of_mem hv), fun _ hc' => hdup _ hc' rfl⟩
   | _ => trivial
 
 private theorem UnOp.checkWf_ok {op : UnOp τ₁ τ₂} {Δ : Signature} (h : op.checkWf Δ = .ok ()) :
@@ -427,32 +403,9 @@ private theorem UnOp.checkWf_ok {op : UnOp τ₁ τ₂} {Δ : Signature} (h : op
   cases op with
   | uninterpreted name τ₁ τ₂ =>
     simp only [UnOp.checkWf] at h
-    split at h
-    · rename_i hmem
-      split at h
-      · simp at h
-      · rename_i hpred
-        split at h
-        · simp at h
-        · rename_i hdup
-          refine ⟨hmem, ?_, ?_⟩
-          · intro τ' hrel
-            exact hpred (List.mem_map_of_mem hrel)
-          · intro τ₁' τ₂' hu'
-            by_cases harg : τ₁' = τ₁
-            · by_cases hret : τ₂' = τ₂
-              · exact ⟨harg, hret⟩
-              · exfalso
-                apply hdup
-                apply List.any_eq_true.mpr
-                refine ⟨⟨name, τ₁', τ₂'⟩, hu', ?_⟩
-                simp [harg, hret]
-            · exfalso
-              apply hdup
-              apply List.any_eq_true.mpr
-              refine ⟨⟨name, τ₁', τ₂'⟩, hu', ?_⟩
-              simp [harg]
-    · simp at h
+    split_ifs at h with hmem hpred hdup
+    simp at hdup
+    exact ⟨hmem, fun _ hrel => hpred (List.mem_map_of_mem hrel), fun _ _ hu' => hdup _ hu' rfl⟩
   | _ => trivial
 
 private theorem BinOp.checkWf_ok {op : BinOp τ₁ τ₂ τ₃} {Δ : Signature}
@@ -460,102 +413,28 @@ private theorem BinOp.checkWf_ok {op : BinOp τ₁ τ₂ τ₃} {Δ : Signature}
   cases op with
   | uninterpreted name τ₁ τ₂ τ₃ =>
     simp only [BinOp.checkWf] at h
-    split at h
-    · rename_i hmem
-      split at h
-      · simp at h
-      · rename_i hpred
-        split at h
-        · simp at h
-        · rename_i hdup
-          refine ⟨hmem, ?_, ?_⟩
-          · intro τ₁' τ₂' hrel
-            exact hpred (List.mem_map_of_mem hrel)
-          · intro τ₁' τ₂' τ₃' hb'
-            by_cases harg1 : τ₁' = τ₁
-            · by_cases harg2 : τ₂' = τ₂
-              · by_cases hret : τ₃' = τ₃
-                · exact ⟨harg1, harg2, hret⟩
-                · exfalso
-                  apply hdup
-                  apply List.any_eq_true.mpr
-                  refine ⟨⟨name, τ₁', τ₂', τ₃'⟩, hb', ?_⟩
-                  simp [harg1, harg2, hret]
-              · exfalso
-                apply hdup
-                apply List.any_eq_true.mpr
-                refine ⟨⟨name, τ₁', τ₂', τ₃'⟩, hb', ?_⟩
-                simp [harg1, harg2]
-            · exfalso
-              apply hdup
-              apply List.any_eq_true.mpr
-              refine ⟨⟨name, τ₁', τ₂', τ₃'⟩, hb', ?_⟩
-              simp [harg1]
-    · simp at h
+    split_ifs at h with hmem hpred hdup
+    simp [and_assoc] at hdup
+    exact ⟨hmem, fun _ _ hrel => hpred (List.mem_map_of_mem hrel), fun _ _ _ hb' => hdup _ hb' rfl⟩
   | _ => trivial
 
 private theorem TerOp.checkWf_ok {op : TerOp τ₁ τ₂ τ₃ τ₄} {Δ : Signature}
     (h : op.checkWf Δ = .ok ()) : op.wfIn Δ := by
   cases op with
-  | seqExtract => trivial
   | uninterpreted name τ₁ τ₂ τ₃ τ₄ =>
     simp only [TerOp.checkWf] at h
-    split at h
-    · rename_i hmem
-      split at h
-      · simp at h
-      · rename_i hdup
-        refine ⟨hmem, ?_⟩
-        intro τ₁' τ₂' τ₃' τ₄' ht'
-        by_cases harg1 : τ₁' = τ₁
-        · by_cases harg2 : τ₂' = τ₂
-          · by_cases harg3 : τ₃' = τ₃
-            · by_cases hret : τ₄' = τ₄
-              · exact ⟨harg1, harg2, harg3, hret⟩
-              · exfalso
-                apply hdup
-                apply List.any_eq_true.mpr
-                refine ⟨⟨name, τ₁', τ₂', τ₃', τ₄'⟩, ht', ?_⟩
-                simp [harg1, harg2, harg3, hret]
-            · exfalso
-              apply hdup
-              apply List.any_eq_true.mpr
-              refine ⟨⟨name, τ₁', τ₂', τ₃', τ₄'⟩, ht', ?_⟩
-              simp [harg1, harg2, harg3]
-          · exfalso
-            apply hdup
-            apply List.any_eq_true.mpr
-            refine ⟨⟨name, τ₁', τ₂', τ₃', τ₄'⟩, ht', ?_⟩
-            simp [harg1, harg2]
-        · exfalso
-          apply hdup
-          apply List.any_eq_true.mpr
-          refine ⟨⟨name, τ₁', τ₂', τ₃', τ₄'⟩, ht', ?_⟩
-          simp [harg1]
-    · simp at h
+    split_ifs at h with hmem hdup
+    simp [and_assoc] at hdup
+    exact ⟨hmem, fun _ _ _ _ ht' => hdup _ ht' rfl⟩
   | _ => trivial
 
 theorem Term.checkWf_ok {t : Term τ} {Δ : Signature} (h : t.checkWf Δ = .ok ()) : t.wfIn Δ := by
   induction t generalizing Δ with
   | var τ x =>
     simp only [Term.checkWf] at h
-    split at h
-    · rename_i hmem
-      split at h
-      · simp at h
-      · rename_i hconst
-        split at h
-        · simp at h
-        · rename_i hdup
-          refine ⟨hmem, ?_, ?_⟩
-          · intro τ' hc
-            exact hconst (List.mem_map_of_mem hc)
-          · intro τ' hv'
-            rcases decEq τ' τ with hne | h
-            · exfalso; apply hdup; apply List.any_eq_true.mpr
-              refine ⟨⟨x, τ'⟩, hv', ?_⟩; simp [hne]
-            · exact h
-    · simp at h
+    split_ifs at h with hmem hconst hdup
+    simp at hdup
+    exact ⟨hmem, fun _ hc => hconst (List.mem_map_of_mem hc), fun _ hv' => hdup _ hv' rfl⟩
   | const c =>
     simpa [Term.checkWf] using (Const.checkWf_ok h)
   | unop op a iha =>
@@ -851,21 +730,11 @@ theorem Term.evalList_agreeOn {ρ ρ' : Env} {Δ : Signature}
 theorem Term.evalList.lookup_const {ρ : Env} {avs : List Decl.Const} {vs : List Runtime.Val}
     (h : Term.evalList ρ (avs.map (fun av => .const (.uninterpreted av.name .value))) vs) :
     List.Forall₂ (fun av val => ρ.consts .value av.name = val) avs vs := by
-  generalize hts : avs.map (fun av => Term.const (.uninterpreted av.name .value)) = ts at h
-  induction h generalizing avs with
-  | nil =>
-    cases avs with
-    | nil => exact .nil
-    | cons _ _ => simp at hts
-  | cons hhead htail ih =>
-    cases avs with
-    | nil => simp at hts
-    | cons av avs' =>
-      simp only [List.map_cons, List.cons.injEq] at hts
-      obtain ⟨rfl, rfl⟩ := hts
-      constructor
-      · simp [Term.eval, Const.eval] at hhead; exact hhead
-      · exact ih rfl
+  induction avs generalizing vs with
+  | nil => cases h; exact .nil
+  | cons av avs ih =>
+    cases h with
+    | cons hhead htail => exact .cons (by simpa [Term.eval] using hhead) (ih htail)
 
 /-! ## Tuples
 
