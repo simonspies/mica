@@ -1166,6 +1166,17 @@ def TypeName.unfold (Θ : TypeEnv) (T : TypeName) (args : List (Typ.WithTypeVars
     TypeName.unfold Θ (.predef p) args =
       if args.length = p.arity then some (p.decl.instantiate args) else none := rfl
 
+/-- More declarations unfold a named type as before, where it unfolds at all. -/
+theorem TypeName.unfold_mono {Θ Θ' : TypeEnv} (hΘ : ∀ T d, Θ T = some d → Θ' T = some d)
+    {T : TypeName} {args : List (Typ.WithTypeVars V)} (h : (TypeName.unfold Θ T args).isSome) :
+    TypeName.unfold Θ' T args = TypeName.unfold Θ T args := by
+  cases T with
+  | user n =>
+    simp only [TypeName.unfold, Option.isSome_map] at h ⊢
+    obtain ⟨d, hd⟩ := Option.isSome_iff_exists.mp h
+    rw [hd, hΘ _ d hd]
+  | predef p => rfl
+
 /-- Looking a parameter up among substituted arguments finds the substituted
 argument, since substitution touches neither the parameter names nor their
 order. -/
