@@ -418,7 +418,7 @@ def correctGhostExprs (reg : Verifier.Registry) (es : List Expr) : Prop :=
   B.wfIn st.decls →
   GhostFns.wellTyped W st.decls ρ Gf →
   VerifM.eval (compileGhostExprs reg W.Θ W.Δ_spec Gf G B Γ es) st ρ Ψ →
-  (∀ vs st' ρ' ts, Ψ ts st' ρ' → (∀ t ∈ ts, t.wfIn st'.decls) → Terms.Eval ρ' ts vs →
+  (∀ vs st' ρ' ts, Ψ ts st' ρ' → (∀ t ∈ ts, t.wfIn st'.decls) → Term.evalList ρ' ts vs →
     st'.sl W ρ' ∗ TinyML.ValsHaveTypes W vs (es.map Expr.WithTypeVars.ty) ∗ R ⊢ Φ vs) →
   st.sl W ρ ∗ (Bindings.typedScope W G B Γ γg γ ∗ R) ⊢ |==> ∃ vs, Φ vs
 
@@ -1487,7 +1487,7 @@ theorem compileGhostApp_correct (reg : Verifier.Registry) (hSound : reg.Sound)
       have hbwf_args : B.wfIn st_args.decls := fun p hp => hdecls_args.consts _ (hbwf p hp)
       have hgwf_args : G.wfIn st_args.decls := fun p hp => hdecls_args.consts _ (hgwf p hp)
       have hlen_sargs : sargs.length = vs.length := by
-        simpa [Terms.Eval] using List.Forall₂.length_eq heval_sargs
+        simpa [Term.evalList] using List.Forall₂.length_eq heval_sargs
       have heval_gargs := VerifM.eval_bind hΨ_args
       refine bupd_absorb (BIBase.Entails.trans ?_
         (ihGArgs W Gf G B Γ γg γ
@@ -1552,7 +1552,7 @@ theorem compileGhostApp_correct (reg : Verifier.Registry) (hSound : reg.Sound)
         rw [← Hlen]; exact hlen_sargs.symm
       have hlen_gtyped : (gargs.map Expr.WithTypeVars.ty).length = gterms.length := by
         rw [← Hglen]
-        simpa [Terms.Eval] using (List.Forall₂.length_eq heval_gterms).symm
+        simpa [Term.evalList] using (List.Forall₂.length_eq heval_gterms).symm
       obtain ⟨hfst, heval_args_map⟩ := typedArgs_split hlen_typed heval_sargs
       obtain ⟨hgfst, heval_gargs_map⟩ := typedArgs_split hlen_gtyped heval_gterms
       have hsub_ty' : args.map Expr.WithTypeVars.ty = argTys := by
@@ -1601,9 +1601,9 @@ theorem compileGhostApp_correct (reg : Verifier.Registry) (hSound : reg.Sound)
         | some g =>
           obtain ⟨-, hmwf, hreal⟩ := hentry
           obtain ⟨hlen_g, hcond⟩ := hguard.1 g rfl
-          have hterms_eval : Terms.Eval ρ_g (sargs ++ gterms) (vs ++ gs) :=
+          have hterms_eval : Term.evalList ρ_g (sargs ++ gterms) (vs ++ gs) :=
             List.rel_append
-              (Terms.Eval.env_agree hsargs_wf hagreeOn_g heval_sargs) heval_gterms
+              (Term.evalList_agreeOn hsargs_wf hagreeOn_g heval_sargs) heval_gterms
           have hsubst := Spec.eval_argSubst (Δ := W.Δ_spec) (names := s.allArgs)
             (terms := sargs ++ gterms) (vals := vs ++ gs) hlen_g.symm hterms_eval
             g.measure.term hmwf
@@ -1702,7 +1702,7 @@ theorem compileGhostApp_correct (reg : Verifier.Registry) (hSound : reg.Sound)
     iintro ⟨Howns, #Hvals, HR⟩
     ihave %Hlen := TinyML.ValsHaveTypes.length_eq $$ Hvals
     have hlen_typed : (args.map Expr.WithTypeVars.ty).length = sargs.length := by
-      rw [← Hlen]; simpa [Terms.Eval] using (List.Forall₂.length_eq heval_sargs).symm
+      rw [← Hlen]; simpa [Term.evalList] using (List.Forall₂.length_eq heval_sargs).symm
     obtain ⟨hfst, heval_sargs_map⟩ := typedArgs_split hlen_typed heval_sargs
     have hsub_ty' : args.map Expr.WithTypeVars.ty = argTys := by
       simpa [typedArgs, hfst] using hsub_ty
@@ -2028,9 +2028,9 @@ theorem compileGhostExprsCons_correct (reg : Verifier.Registry)
     rcases hu with rfl | hu
     · exact ht_wf
     · exact Term.wfIn_mono _ (hwf_rest u hu) hdecls_e hwfst'
-  have heval_cons : Terms.Eval ρ' (t :: ts_rest) (v :: vs) :=
-    Terms.Eval.cons ht_eval
-      (Terms.Eval.env_agree (fun u hu => hwf_rest u hu) hagreeOn_e heval_ts_rest)
+  have heval_cons : Term.evalList ρ' (t :: ts_rest) (v :: vs) :=
+    Term.evalList.cons ht_eval
+      (Term.evalList_agreeOn (fun u hu => hwf_rest u hu) hagreeOn_e heval_ts_rest)
   iintro ⟨Hsl, Hv, Hvs, HR⟩
   iexists (v :: vs)
   iapply (hpost (v :: vs) st' ρ' (t :: ts_rest) hΨ_e hwf_cons heval_cons)
@@ -2449,7 +2449,7 @@ omit [MicaGS HasLC.hasLC Sig] in
 private theorem constTerms_eval {ρ : Env} :
     ∀ {vars : List Decl.Const} {vals : List Runtime.Val},
       List.Forall₂ (fun av val => ρ.consts .value av.name = val) vars vals →
-      Terms.Eval ρ (vars.map fun c => Term.const (.uninterpreted c.name .value)) vals
+      Term.evalList ρ (vars.map fun c => Term.const (.uninterpreted c.name .value)) vals
   | [], _, h => by cases h; exact .nil
   | a :: rest, _, h => by
     cases h with
@@ -2649,7 +2649,7 @@ theorem ValDecl.prove_correct (reg : Verifier.Registry) (hSound : reg.Sound)
             have h₁ := hargVars_lookup.length_eq
             have h₂ := hghostVars_lookup.length_eq
             simp [Spec.allArgs]; omega
-          have hterms_eval : Terms.Eval ρ₁
+          have hterms_eval : Term.evalList ρ₁
               ((argVars ++ ghostVars).map fun c =>
                 (Term.const (.uninterpreted c.name .value) : Term .value)) (vs ++ gs) := by
             rw [List.map_append]

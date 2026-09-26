@@ -511,7 +511,7 @@ def correctExprs (reg : Verifier.Registry) (es : List Expr) : Prop :=
     Verifier.Registry.symAgree reg W.ρ_spec →
     (∀ vs ρ' st' terms, Ψ terms st' ρ' →
       (∀ t ∈ terms, t.wfIn st'.decls) →
-      Terms.Eval ρ' terms vs →
+      Term.evalList ρ' terms vs →
        st'.sl W ρ' ∗ TinyML.ValsHaveTypes W vs (es.map Expr.WithTypeVars.ty) ∗ (R) ⊢ Φ vs) →
     st.sl W ρ ∗ (Bindings.typedScope W G B Γ γg γ ∗ R) ⊢ wps W.pctx (es.map (fun e => e.runtime.subst γ)) Φ
 
@@ -3315,7 +3315,7 @@ theorem compileAppSpec_correct (reg : Verifier.Registry) (hSound : Verifier.Regi
   have heval_fn : (compile reg W.Θ W.Δ_spec Γfn ls Gf G B Γ fn).eval st_args ρ_args _ :=
     VerifM.eval_bind hΨ_args
   have hlen_sargs : sargs.length = vs.length := by
-    simpa [Terms.Eval] using List.Forall₂.length_eq heval_sargs
+    simpa [Term.evalList] using List.Forall₂.length_eq heval_sargs
   -- The ghost arguments are compiled after the function, so the scope's typing
   -- has to survive the function's own compilation: it travels in the frame.
   have hctx' : st_args.sl W ρ_args ∗ TinyML.ValsHaveTypes W vs (args.map Expr.WithTypeVars.ty) ∗
@@ -3443,7 +3443,7 @@ theorem compileAppSpec_correct (reg : Verifier.Registry) (hSound : Verifier.Regi
     rw [← Hlen]; exact hlen_sargs.symm
   have hlen_gtyped : (gargs.map Expr.WithTypeVars.ty).length = gterms.length := by
     rw [← Hglen]
-    simpa [Terms.Eval] using (List.Forall₂.length_eq heval_gterms).symm
+    simpa [Term.evalList] using (List.Forall₂.length_eq heval_gterms).symm
   obtain ⟨hfst, heval_args_map⟩ := typedArgs_split hlen_typed heval_sargs
   obtain ⟨hgfst, heval_gargs_map⟩ := typedArgs_split hlen_gtyped heval_gterms
   have hsub_ty' : args.map Expr.WithTypeVars.ty = argTys := by
@@ -3536,7 +3536,7 @@ theorem compileApp_correct (reg : Verifier.Registry) (hSound : Verifier.Registry
     let retTy := TinyML.Typ.subst σi i.retTy
     let typedArgs := (args.map Expr.WithTypeVars.ty).zip sargs
     have hlen_sargs : sargs.length = vs.length := by
-      simpa [Terms.Eval] using List.Forall₂.length_eq heval_sargs
+      simpa [Term.evalList] using List.Forall₂.length_eq heval_sargs
     have hΔspec_args : W.Δ_spec.Subset st_args.decls := hag.subset.trans hdecls_args
     have hst_args_wf : st_args.decls.wf := (VerifM.eval.wf hΨ_args).namesDisjoint
     have hlen_i : i.spec.args.length = argTys.length := by
@@ -4007,9 +4007,9 @@ theorem compileExprsCons_correct (reg : Verifier.Registry) (e : Expr) (rest : Li
     rcases ht with rfl | ht
     · exact hse_wf
     · exact Term.wfIn_mono _ (hwf_rest t ht) hdecls_e hwfst'
-  have heval_cons : Terms.Eval ρ' (se :: rest_terms) (v :: vs) :=
-    Terms.Eval.cons heval_se
-      (Terms.Eval.env_agree
+  have heval_cons : Term.evalList ρ' (se :: rest_terms) (v :: vs) :=
+    Term.evalList.cons heval_se
+      (Term.evalList_agreeOn
         (fun t ht => hwf_rest t ht)
         hagreeOn_e
         heval_rest)

@@ -810,20 +810,20 @@ theorem Term.const_wfIn_addConst_of_fresh {Δ : Signature} {c : Decl.Const}
 /-! ### Lists of value terms -/
 
 /-- A list of terms evaluates to a list of values. -/
-def Terms.Eval (ρ : Env) (ts : List (Term .value)) (vs : List Runtime.Val) : Prop :=
+def Term.evalList (ρ : Env) (ts : List (Term .value)) (vs : List Runtime.Val) : Prop :=
   List.Forall₂ (fun t v => t.eval ρ = v) ts vs
 
-theorem Terms.Eval.map_eval {ρ : Env} {ts : List (Term .value)} {vs : List Runtime.Val}
-    (h : Terms.Eval ρ ts vs) : ts.map (fun t => t.eval ρ) = vs := by
+theorem Term.evalList.map_eval {ρ : Env} {ts : List (Term .value)} {vs : List Runtime.Val}
+    (h : Term.evalList ρ ts vs) : ts.map (fun t => t.eval ρ) = vs := by
   induction h with
   | nil => rfl
   | cons h _ ih => simp [h, ih]
 
-theorem Terms.Eval.env_agree {ρ ρ' : Env} {Δ : Signature}
+theorem Term.evalList_agreeOn {ρ ρ' : Env} {Δ : Signature}
     {ts : List (Term .value)} {vs : List Runtime.Val}
     (hwf : ∀ t ∈ ts, t.wfIn Δ)
     (hagree : Env.agreeOn Δ ρ ρ')
-    (h : Terms.Eval ρ ts vs) : Terms.Eval ρ' ts vs := by
+    (h : Term.evalList ρ ts vs) : Term.evalList ρ' ts vs := by
   induction h with
   | nil => exact .nil
   | @cons t v ts' vs' htv _ ih =>
@@ -831,22 +831,22 @@ theorem Terms.Eval.env_agree {ρ ρ' : Env} {Δ : Signature}
     · rw [Term.eval_agreeOn (hwf t (.head _)) (Env.agreeOn_symm hagree)]; exact htv
     · exact ih (fun q hq => hwf q (.tail _ hq))
 
-theorem Terms.Eval.cons {ρ : Env} {t : Term .value} {v : Runtime.Val}
+theorem Term.evalList.cons {ρ : Env} {t : Term .value} {v : Runtime.Val}
     {ts : List (Term .value)} {vs : List Runtime.Val}
     (hhead : t.eval ρ = v)
-    (htail : Terms.Eval ρ ts vs) :
-    Terms.Eval ρ (t :: ts) (v :: vs) :=
+    (htail : Term.evalList ρ ts vs) :
+    Term.evalList ρ (t :: ts) (v :: vs) :=
   List.Forall₂.cons hhead htail
 
-theorem Terms.Eval.of_pairs {ρ : Env} {pairs : List (α × Term .value)} {vs : List Runtime.Val}
+theorem Term.evalList.of_pairs {ρ : Env} {pairs : List (α × Term .value)} {vs : List Runtime.Val}
     (h : List.Forall₂ (fun p v => p.2.eval ρ = v) pairs vs) :
-    Terms.Eval ρ (pairs.map Prod.snd) vs := by
+    Term.evalList ρ (pairs.map Prod.snd) vs := by
   induction h with
   | nil => exact .nil
   | cons h _ ih => exact .cons h ih
 
-theorem Terms.Eval.lookup_var {ρ : Env} {avs : List Var} {vs : List Runtime.Val}
-    (h : Terms.Eval ρ (avs.map (fun av => .var .value av.name)) vs) :
+theorem Term.evalList.lookup_var {ρ : Env} {avs : List Var} {vs : List Runtime.Val}
+    (h : Term.evalList ρ (avs.map (fun av => .var .value av.name)) vs) :
     List.Forall₂ (fun av val => ρ.lookupConst .value av.name = val) avs vs := by
   generalize hts : avs.map (fun av => Term.var .value av.name) = ts at h
   induction h generalizing avs with
@@ -864,8 +864,8 @@ theorem Terms.Eval.lookup_var {ρ : Env} {avs : List Var} {vs : List Runtime.Val
       · exact hhead
       · exact ih rfl
 
-theorem Terms.Eval.lookup_const {ρ : Env} {avs : List Decl.Const} {vs : List Runtime.Val}
-    (h : Terms.Eval ρ (avs.map (fun av => .const (.uninterpreted av.name .value))) vs) :
+theorem Term.evalList.lookup_const {ρ : Env} {avs : List Decl.Const} {vs : List Runtime.Val}
+    (h : Term.evalList ρ (avs.map (fun av => .const (.uninterpreted av.name .value))) vs) :
     List.Forall₂ (fun av val => ρ.consts .value av.name = val) avs vs := by
   generalize hts : avs.map (fun av => Term.const (.uninterpreted av.name .value)) = ts at h
   induction h generalizing avs with
@@ -932,7 +932,7 @@ theorem Term.tuple_wfIn {ts : List (Term .value)} {Δ : Signature}
     exact ⟨trivial, h t (.head _), ih (fun q hq => h q (.tail _ hq))⟩
 
 theorem Term.tuple_eval {ρ : Env} {ts : List (Term .value)} {vs : List Runtime.Val}
-    (h : Terms.Eval ρ ts vs) : (Term.tuple ts).eval ρ = .tuple vs := by
+    (h : Term.evalList ρ ts vs) : (Term.tuple ts).eval ρ = .tuple vs := by
   suffices (toValList ts).eval ρ = vs by simp [Term.tuple, Term.eval, UnOp.eval, this]
   induction h with
   | nil => simp [toValList, Term.eval, Const.denote]

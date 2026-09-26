@@ -272,7 +272,7 @@ omit [MicaGS HasLC.hasLC Sig] in
 theorem argSubst_apply {ρ : Env} :
     ∀ (names : List String) (terms : List (Term .value)) (vals : List Runtime.Val)
       (σ : Subst) (ρ₀ : Env),
-      names.length = terms.length → Terms.Eval ρ terms vals →
+      names.length = terms.length → Term.evalList ρ terms vals →
       (∀ (τ : Srt) (y : String), Term.eval ρ (σ.apply τ y) = ρ₀.consts τ y) →
       ∀ (τ : Srt) (y : String),
         Term.eval ρ ((argSubst σ names terms).apply τ y) =
@@ -347,7 +347,7 @@ omit [MicaGS HasLC.hasLC Sig] in
     parameter shadows, which the two sides would read differently. -/
 theorem eval_argSubst {Δ : Signature} {names : List String}
     {terms : List (Term .value)} {vals : List Runtime.Val} {ρ : Env}
-    (hlen : names.length = terms.length) (hvals : Terms.Eval ρ terms vals) :
+    (hlen : names.length = terms.length) (hvals : Term.evalList ρ terms vals) :
     ∀ {τ : Srt} (t : Term τ), t.wfIn (Δ.declVars (argVars names)) →
       Term.eval ρ (t.subst (argSubst Subst.id names terms)) =
         Term.eval (argsEnv ρ names vals) t := by
@@ -613,7 +613,7 @@ def DeclareImplArgs.Result (argNames : List String) (vs : List Runtime.Val)
       (argsEnv ((σ.subst.eval ρ)) argNames vs) ∧
     (∀ v ∈ implVars, v ∈ st'.decls.consts) ∧
     (∀ v ∈ implVars, v.sort = .value) ∧
-    Terms.Eval ρ' (implVars.map (fun av => .const (.uninterpreted av.name .value))) vs
+    Term.evalList ρ' (implVars.map (fun av => .const (.uninterpreted av.name .value))) vs
 
 theorem declareImplArgs_correct (W : TinyML.World) :
     ∀ (argNames : List String) (argTys : List TinyML.Typ) (vs : List Runtime.Val)
@@ -825,7 +825,7 @@ theorem implement_correct (W : TinyML.World)
   have hlookups' : List.Forall₂
       (fun t val => Term.eval ρ' t = val)
       (argVars.map (fun av => Term.const (.uninterpreted av.name .value))) vs := by
-    refine Terms.Eval.env_agree (ρ := ρ₁) ?_ hragree₂ hlookups
+    refine Term.evalList_agreeOn (ρ := ρ₁) ?_ hragree₂ hlookups
     intro t ht
     obtain ⟨av, hav, rfl⟩ := List.mem_map.mp ht
     obtain ⟨_, _⟩ := av
@@ -844,7 +844,7 @@ theorem implement_correct (W : TinyML.World)
           (hdsub.trans hdsub')
           (Env.agreeOn_trans hragree (Env.agreeOn_mono hdsub hragree'))
           (fun v hv => hdsub'.consts v (hmem_decls' v hv)) hsorts
-        · refine Terms.Eval.lookup_const (Terms.Eval.env_agree (ρ := ρ') ?_ hragree' hlookups')
+        · refine Term.evalList.lookup_const (Term.evalList_agreeOn (ρ := ρ') ?_ hragree' hlookups')
           intro t ht
           obtain ⟨av, hav, rfl⟩ := List.mem_map.mp ht
           obtain ⟨_, _⟩ := av
@@ -853,7 +853,7 @@ theorem implement_correct (W : TinyML.World)
           exact Term.const_wfIn_of_mem hst'_wf (hmem_decls' _ hav)
         · exact fun v hv => hdsub'.consts v (hmem_gdecls v hv)
         · exact hgsorts
-        · refine Terms.Eval.lookup_const (Terms.Eval.env_agree (ρ := ρ') ?_ hragree' hglookups)
+        · refine Term.evalList.lookup_const (Term.evalList_agreeOn (ρ := ρ') ?_ hragree' hglookups)
           intro t ht
           obtain ⟨gv, hgv, rfl⟩ := List.mem_map.mp ht
           obtain ⟨_, _⟩ := gv
