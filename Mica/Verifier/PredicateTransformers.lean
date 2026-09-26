@@ -21,30 +21,6 @@ correctness proofs. `PredTrans.apply`, the semantics, lives in
 -/
 
 -- ---------------------------------------------------------------------------
--- Well-formedness
--- ---------------------------------------------------------------------------
-
-/-- A predicate transformer is well-formed when its outer assertion is well-formed
-    and each inner postcondition assertion is also well-formed (in the extended context). -/
-def PredTrans.wfIn (Δ : Signature) (pt : PredTrans TinyML.Typ) : Prop :=
-  Assertion.wfIn
-    (fun post Δ' => Assertion.wfIn (fun _ _ => True) (Δ'.declVar ⟨post.name, .value⟩) post.body)
-    Δ pt
-
-
-def PredTrans.checkWf (Δ : Signature) (pt : PredTrans TinyML.Typ) : Except String Unit :=
-  Assertion.checkWf
-    (fun post Δ' => Assertion.checkWf (fun _ _ => .ok ()) (Δ'.declVar ⟨post.name, .value⟩) post.body)
-    Δ pt
-
-omit [MicaGS HasLC.hasLC Sig] in
-theorem PredTrans.checkWf_ok {pt : PredTrans TinyML.Typ} {Δ : Signature}
-    (h : pt.checkWf Δ = .ok ()) : pt.wfIn Δ :=
-  Assertion.checkWf_ok
-    (fun _ _ hok => Assertion.checkWf_ok (fun _ _ _ => trivial) hok)
-    h
-
--- ---------------------------------------------------------------------------
 -- Verifier operations
 -- ---------------------------------------------------------------------------
 
@@ -67,35 +43,6 @@ def PredTrans.implement (σ : FiniteSubst) (pt : PredTrans TinyML.Typ) (body : V
   let resVar ← VerifM.define (some postName) result
   let (_, ()) ← Assertion.prove (σ₁.rename ⟨postName, .value⟩ resVar.name) postBody
   pure ()
-
--- ---------------------------------------------------------------------------
--- Properties
--- ---------------------------------------------------------------------------
-
-omit [MicaGS HasLC.hasLC Sig] in
-theorem PredTrans.wfIn_mono {pt : PredTrans TinyML.Typ} {Δ Δ' : Signature}
-    (h : pt.wfIn Δ) (hsub : Δ.Subset Δ') (hwf : Δ'.wf) : pt.wfIn Δ' := by
-  unfold PredTrans.wfIn at h ⊢
-  exact Assertion.wfIn_mono pt _
-    (fun post ds ds' hsub' hwf' hpost =>
-      Assertion.wfIn_mono post.body _ (fun _ _ _ _ _ h => h) hpost
-        (Signature.Subset.declVar hsub' ⟨post.name, .value⟩)
-        (Signature.wf_declVar hwf'))
-    h hsub hwf
-
-theorem PredTrans.apply_agreeOn (V : TinyML.ValueRelation) {pt : PredTrans TinyML.Typ} {Φ : Runtime.Val → iProp}
-    {ρ ρ' : Env} {Δ : Signature}
-    (hwf : pt.wfIn Δ) (hagree : Env.agreeOn Δ ρ ρ') :
-    PredTrans.apply V Φ pt ρ ⊢ PredTrans.apply V Φ pt ρ' := by
-  unfold PredTrans.apply at ⊢
-  apply Assertion.pre_agreeOn V hwf hagree
-  intro ⟨postName, postBody⟩ Δ' ρ₁ ρ₂ hwf_post hagree_post
-  apply forall_intro
-  intro v
-  exact (forall_elim v).trans <|
-    Assertion.post_agreeOn V hwf_post
-      (Env.agreeOn_declVar hagree_post)
-      (fun _ _ _ _ _ _ => .rfl)
 
 -- ---------------------------------------------------------------------------
 -- Correctness

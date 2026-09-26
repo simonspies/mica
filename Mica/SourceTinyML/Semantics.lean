@@ -1,5 +1,5 @@
 -- SUMMARY: Semantics of atoms, assertions, and specifications, parametric in the value relation interpreting types.
-import Mica.SourceTinyML.Assertions
+import Mica.SourceTinyML.WellFormedness
 import Mica.SourceTinyML.Typed
 import Mica.SourceTinyML.World
 import Mica.SeparationLogic.Wp
@@ -152,6 +152,21 @@ theorem Atom.eval_substTy {V V' : TinyML.ValueRelation} {σ : TinyML.TyVar → T
     exact exists_congr fun _ => exists_congr fun vs =>
       sep_congr .rfl (sep_congr .rfl (sep_congr .rfl (hV (.vec vs) (.vec ty))))
 
+theorem Atom.eval_agreeOn {V : TinyML.ValueRelation} {p : Atom TinyML.Typ τ}
+    {ρ ρ' : Env} {Δ : Signature} (v : τ.denote)
+    (hwf : p.wfIn Δ) (hagree : Env.agreeOn Δ ρ ρ') : p.eval V ρ v ⊣⊢ p.eval V ρ' v := by
+  cases p with
+  | isint t  => simp [Atom.eval, Term.eval_agreeOn hwf hagree]
+  | isbool t => simp [Atom.eval, Term.eval_agreeOn hwf hagree]
+  | isinj tag arity t => simp [Atom.eval, Term.eval_agreeOn hwf hagree]
+  | own l ty => simp [Atom.eval, Term.eval_agreeOn hwf hagree]
+  | arr a ty => simp [Atom.eval, Term.eval_agreeOn hwf hagree]
+  | rel name t =>
+    simp only [Atom.eval]
+    rw [(Formula.eval_agreeOn hwf.1 hagree),
+        Term.eval_agreeOn hwf.2 hagree]
+    exact .rfl
+
 -- ---------------------------------------------------------------------------
 -- Assertions
 -- ---------------------------------------------------------------------------
@@ -246,6 +261,116 @@ theorem Assertion.pre_subst {V V' : TinyML.ValueRelation}
   | ite φ kt ke iht ihe =>
     exact fun ρ => and_congr (wand_congr .rfl (iht ρ)) (wand_congr .rfl (ihe ρ))
 
+theorem Assertion.pre_agreeOn (V : TinyML.ValueRelation) {m : Assertion TinyML.Typ α} {retWf : α → Signature → Prop}
+    {Φ : α → Env → iProp} {ρ ρ' : Env} {Δ : Signature}
+    (hwf : m.wfIn retWf Δ) (hagree : Env.agreeOn Δ ρ ρ')
+    (hΦ : ∀ a Δ ρ₁ ρ₂, retWf a Δ → Env.agreeOn Δ ρ₁ ρ₂ → Φ a ρ₁ ⊢ Φ a ρ₂) :
+    Assertion.pre V Φ m ρ ⊢ Assertion.pre V Φ m ρ' := by
+  induction m generalizing Δ ρ ρ' with
+  | ret a => exact hΦ a Δ ρ ρ' hwf hagree
+  | assert φ k ih =>
+    obtain ⟨hφwf, hkwf⟩ := hwf
+    simp only [Assertion.pre]
+    istart
+    iintro ⟨%hφ, Hk⟩
+    isplitr
+    · ipureintro
+      exact (Formula.eval_agreeOn hφwf hagree).mp hφ
+    · iapply (ih hkwf hagree)
+      iexact Hk
+  | let_ v t k ih =>
+    obtain ⟨htwf, hkwf⟩ := hwf
+    simp only [Assertion.pre]
+    rw [← Term.eval_agreeOn htwf hagree]
+    exact ih hkwf (Env.agreeOn_declVar hagree)
+  | pred v p k ih =>
+    obtain ⟨hpwf, hkwf⟩ := hwf
+    simp only [Assertion.pre]
+    istart
+    iintro ⟨%w, Hsep⟩
+    iexists w
+    iapply (sep_mono (Atom.eval_agreeOn w hpwf hagree).1
+      (ih hkwf (Env.agreeOn_declVar hagree)))
+    iexact Hsep
+  | ite φ kt ke iht ihe =>
+    obtain ⟨hφwf, hktwf, hkewf⟩ := hwf
+    simp only [Assertion.pre]
+    apply BI.and_intro
+    · apply BI.and_elim_l.trans
+      iintro Hkt
+      iintro Hφ
+      have hφ : BIBase.Entails (⌜φ.eval ρ'⌝ : iProp) ⌜φ.eval ρ⌝ := by
+        iintro %hφ
+        ipureintro
+        exact (Formula.eval_agreeOn hφwf hagree).mpr hφ
+      iapply (iht hktwf hagree)
+      iapply Hkt
+      iapply hφ
+      iapply Hφ
+    · apply BI.and_elim_r.trans
+      iintro Hke
+      iintro Hnφ
+      have hnφ : BIBase.Entails (⌜¬ φ.eval ρ'⌝ : iProp) ⌜¬ φ.eval ρ⌝ := by
+        iintro %hnφ
+        ipureintro
+        exact mt (Formula.eval_agreeOn hφwf hagree).mp hnφ
+      iapply (ihe hkewf hagree)
+      iapply Hke
+      iapply hnφ
+      iapply Hnφ
+
+theorem Assertion.post_agreeOn (V : TinyML.ValueRelation) {m : Assertion TinyML.Typ α} {retWf : α → Signature → Prop}
+    {Φ : α → Env → iProp} {ρ ρ' : Env} {Δ : Signature}
+    (hwf : m.wfIn retWf Δ) (hagree : Env.agreeOn Δ ρ ρ')
+    (hΦ : ∀ a Δ ρ₁ ρ₂, retWf a Δ → Env.agreeOn Δ ρ₁ ρ₂ → Φ a ρ₁ ⊢ Φ a ρ₂) :
+    Assertion.post V Φ m ρ ⊢ Assertion.post V Φ m ρ' := by
+  induction m generalizing Δ ρ ρ' with
+  | ret a => exact hΦ a Δ ρ ρ' hwf hagree
+  | assert φ k ih =>
+    obtain ⟨hφwf, hkwf⟩ := hwf
+    simp only [Assertion.post]
+    iintro H
+    iintro %hφ
+    have hφ' : φ.eval ρ := (Formula.eval_agreeOn hφwf hagree).mpr hφ
+    iapply (ih hkwf hagree)
+    iapply H
+    ipureintro
+    exact hφ'
+  | let_ v t k ih =>
+    obtain ⟨htwf, hkwf⟩ := hwf
+    simp only [Assertion.post]
+    rw [← Term.eval_agreeOn htwf hagree]
+    exact ih hkwf (Env.agreeOn_declVar hagree)
+  | pred v p k ih =>
+    obtain ⟨hpwf, hkwf⟩ := hwf
+    simp only [Assertion.post]
+    iintro H
+    iintro %w Hw
+    iapply (ih hkwf (Env.agreeOn_declVar hagree))
+    iapply H
+    iapply (Atom.eval_agreeOn w hpwf hagree).2
+    iexact Hw
+  | ite φ kt ke iht ihe =>
+    obtain ⟨hφwf, hktwf, hkewf⟩ := hwf
+    simp only [Assertion.post]
+    apply BI.and_intro
+    · apply BI.and_elim_l.trans
+      iintro Hkt
+      iintro %hφ
+      have hφ' : φ.eval ρ := (Formula.eval_agreeOn hφwf hagree).mpr hφ
+      iapply (iht hktwf hagree)
+      iapply Hkt
+      ipureintro
+      exact hφ'
+    · apply BI.and_elim_r.trans
+      iintro Hke
+      iintro %hnφ
+      have hnφ' : ¬ φ.eval ρ := mt (Formula.eval_agreeOn hφwf hagree).mp hnφ
+      iapply (ihe hkewf hagree)
+      iapply Hke
+      ipureintro
+      exact hnφ'
+
 -- ---------------------------------------------------------------------------
 -- Predicate transformers
 -- ---------------------------------------------------------------------------
@@ -275,15 +400,25 @@ theorem PredTrans.apply_subst {V V' : TinyML.ValueRelation}
   Assertion.pre_subst hV
     (fun _ _ => forall_congr fun v => Assertion.post_subst hV (fun _ _ => hΦ v) _ _) m ρ
 
+theorem PredTrans.apply_agreeOn (V : TinyML.ValueRelation) {pt : PredTrans TinyML.Typ} {Φ : Runtime.Val → iProp}
+    {ρ ρ' : Env} {Δ : Signature}
+    (hwf : pt.wfIn Δ) (hagree : Env.agreeOn Δ ρ ρ') :
+    PredTrans.apply V Φ pt ρ ⊢ PredTrans.apply V Φ pt ρ' := by
+  unfold PredTrans.apply at ⊢
+  apply Assertion.pre_agreeOn V hwf hagree
+  intro ⟨postName, postBody⟩ Δ' ρ₁ ρ₂ hwf_post hagree_post
+  apply forall_intro
+  intro v
+  exact (forall_elim v).trans <|
+    Assertion.post_agreeOn V hwf_post
+      (Env.agreeOn_declVar hagree_post)
+      (fun _ _ _ _ _ _ => .rfl)
+
 -- ---------------------------------------------------------------------------
 -- Specifications
 -- ---------------------------------------------------------------------------
 
 namespace Spec
-
-/-- The list of SMT variables corresponding to a spec's arguments. -/
-def argVars (args : List String) : List Var :=
-  args.map fun name => ⟨name, .value⟩
 
 /-- Build an environment binding each argument name to its value, left-to-right.
     Later arguments shadow earlier ones with the same name. -/
@@ -538,6 +673,27 @@ theorem isPrecondFor_contractive {n : Nat} {W : TinyML.World}
   · exact Iris.OFE.Contractive.distLater_dist (f := fun P : iProp => iprop(▷ P))
       fun m hm => PredTrans.apply_ne (hV m hm)
         (fun r => wand_ne.ne ((hV m hm) r retTy) .rfl) s.pred _
+
+omit [MicaGS HasLC.hasLC Sig] in
+/-- `argsEnv` preserves `agreeOn`: if two envs agree on `Δ`,
+    then after applying the same updates, they agree on `argVars args ++ Δ`. -/
+theorem argsEnv_agreeOn {Δ : Signature} {ρ₁ ρ₂ : Env}
+    (h : Env.agreeOn Δ ρ₁ ρ₂) :
+    ∀ (args : List String) (vals : List Runtime.Val),
+    args.length ≤ vals.length →
+    Env.agreeOn (Δ.declVars (argVars args))
+      (argsEnv ρ₁ args vals) (argsEnv ρ₂ args vals) := by
+  intro args
+  induction args generalizing Δ ρ₁ ρ₂ with
+  | nil => intro vals _; simp only [argVars, List.map, argsEnv, Signature.declVars]; exact h
+  | cons name rest ih =>
+    intro vals hlen
+    cases vals with
+    | nil => simp at hlen
+    | cons v vs =>
+      simp only [argsEnv, argVars, List.map]
+      simpa [Signature.declVars] using
+        ih (Env.agreeOn_declVar h) vs (by simp [List.length] at hlen ⊢; omega)
 
 end Spec
 
