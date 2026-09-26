@@ -201,8 +201,8 @@ def Term.wfIn : Term τ → Signature → Prop
   | .terop op a b c, Δ => op.wfIn Δ ∧ a.wfIn Δ ∧ b.wfIn Δ ∧ c.wfIn Δ
   | .ite c t e, Δ   => c.wfIn Δ ∧ t.wfIn Δ ∧ e.wfIn Δ
 
-private theorem Const.wfIn_mono {c : Const τ} {Δ Δ' : Signature} (h : c.wfIn Δ)
-    (hsub : Δ.Subset Δ') (hwf : Δ'.wf) : c.wfIn Δ' := by
+theorem Const.wfIn_mono {c : Const τ} {Δ Δ' : Signature} (h : c.wfIn Δ)
+    (hsub : Δ.SymbolSubset Δ') (hwf : Δ'.wf) : c.wfIn Δ' := by
   cases c with
   | uninterpreted name τ =>
     refine ⟨hsub.consts _ h.1, ?_, ?_⟩
@@ -212,8 +212,8 @@ private theorem Const.wfIn_mono {c : Const τ} {Δ Δ' : Signature} (h : c.wfIn 
       exact Signature.wf_unique_const hwf (hsub.consts _ h.1) hc'
   | _ => trivial
 
-private theorem UnOp.wfIn_mono {op : UnOp τ₁ τ₂} {Δ Δ' : Signature} (h : op.wfIn Δ)
-    (hsub : Δ.Subset Δ') (hwf : Δ'.wf) : op.wfIn Δ' := by
+theorem UnOp.wfIn_mono {op : UnOp τ₁ τ₂} {Δ Δ' : Signature} (h : op.wfIn Δ)
+    (hsub : Δ.SymbolSubset Δ') (hwf : Δ'.wf) : op.wfIn Δ' := by
   cases op with
   | uninterpreted name τ₁ τ₂ =>
     refine ⟨hsub.unary _ h.1, ?_, ?_⟩
@@ -223,8 +223,8 @@ private theorem UnOp.wfIn_mono {op : UnOp τ₁ τ₂} {Δ Δ' : Signature} (h :
       exact Signature.wf_unique_unary hwf (hsub.unary _ h.1) hu'
   | _ => trivial
 
-private theorem BinOp.wfIn_mono {op : BinOp τ₁ τ₂ τ₃} {Δ Δ' : Signature} (h : op.wfIn Δ)
-    (hsub : Δ.Subset Δ') (hwf : Δ'.wf) : op.wfIn Δ' := by
+theorem BinOp.wfIn_mono {op : BinOp τ₁ τ₂ τ₃} {Δ Δ' : Signature} (h : op.wfIn Δ)
+    (hsub : Δ.SymbolSubset Δ') (hwf : Δ'.wf) : op.wfIn Δ' := by
   cases op with
   | uninterpreted name τ₁ τ₂ τ₃ =>
     refine ⟨hsub.binary _ h.1, ?_, ?_⟩
@@ -234,8 +234,8 @@ private theorem BinOp.wfIn_mono {op : BinOp τ₁ τ₂ τ₃} {Δ Δ' : Signatu
       exact Signature.wf_unique_binary hwf (hsub.binary _ h.1) hb'
   | _ => trivial
 
-private theorem TerOp.wfIn_mono {op : TerOp τ₁ τ₂ τ₃ τ₄} {Δ Δ' : Signature}
-    (h : op.wfIn Δ) (hsub : Δ.Subset Δ') (hwf : Δ'.wf) : op.wfIn Δ' := by
+theorem TerOp.wfIn_mono {op : TerOp τ₁ τ₂ τ₃ τ₄} {Δ Δ' : Signature}
+    (h : op.wfIn Δ) (hsub : Δ.SymbolSubset Δ') (hwf : Δ'.wf) : op.wfIn Δ' := by
   cases op with
   | seqExtract => trivial
   | uninterpreted name τ₁ τ₂ τ₃ τ₄ =>
@@ -252,12 +252,12 @@ theorem Term.wfIn_mono (t : Term τ) (h : t.wfIn Δ) (hsub : Δ.Subset Δ') (hwf
       exact Signature.wf_no_const_of_var hwf (hsub.vars _ h.1) hconst
     · intro τ' hv'
       exact Signature.wf_unique_var hwf (hsub.vars _ h.1) hv'
-  | const c => exact Const.wfIn_mono h hsub hwf
-  | unop op a iha => exact ⟨UnOp.wfIn_mono h.1 hsub hwf, iha h.2 hsub hwf⟩
+  | const c => exact Const.wfIn_mono h hsub.symbolSubset hwf
+  | unop op a iha => exact ⟨UnOp.wfIn_mono h.1 hsub.symbolSubset hwf, iha h.2 hsub hwf⟩
   | binop op a b iha ihb =>
-    exact ⟨BinOp.wfIn_mono h.1 hsub hwf, iha h.2.1 hsub hwf, ihb h.2.2 hsub hwf⟩
+    exact ⟨BinOp.wfIn_mono h.1 hsub.symbolSubset hwf, iha h.2.1 hsub hwf, ihb h.2.2 hsub hwf⟩
   | terop op a b c iha ihb ihc =>
-    exact ⟨TerOp.wfIn_mono h.1 hsub hwf, iha h.2.1 hsub hwf, ihb h.2.2.1 hsub hwf,
+    exact ⟨TerOp.wfIn_mono h.1 hsub.symbolSubset hwf, iha h.2.1 hsub hwf, ihb h.2.2.1 hsub hwf,
       ihc h.2.2.2 hsub hwf⟩
   | ite c t e ihc iht ihe => exact ⟨ihc h.1 hsub hwf, iht h.2.1 hsub hwf, ihe h.2.2 hsub hwf⟩
 

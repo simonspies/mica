@@ -608,6 +608,9 @@ theorem SymbolSubset.trans {Δ₁ Δ₂ Δ₃ : Signature}
    fun u hu => h₂₃.unaryRel u (h₁₂.unaryRel u hu),
    fun b hb => h₂₃.binaryRel b (h₁₂.binaryRel b hb)⟩
 
+theorem Subset.symbolSubset {Δ Δ' : Signature} (h : Δ.Subset Δ') : Δ.SymbolSubset Δ' :=
+  ⟨h.consts, h.unary, h.binary, h.ternary, h.unaryRel, h.binaryRel⟩
+
 theorem SymbolSubset.subset_addConst (Δ : Signature) (c : Decl.Const) :
     Δ.SymbolSubset (Δ.addConst c) :=
   ⟨fun _ hc' => List.mem_cons_of_mem _ hc', fun _ hu => hu, fun _ hb => hb,
