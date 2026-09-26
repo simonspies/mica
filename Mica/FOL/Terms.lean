@@ -1,5 +1,5 @@
 -- SUMMARY: Typed first-order terms, their Tarski semantics, and their well-formedness conditions.
-import Mica.FOL.Variables
+import Mica.FOL.Env
 import Mica.Base.FloatBits
 import Mica.Base.Except
 import Batteries.Data.List.Basic
@@ -758,60 +758,6 @@ theorem Term.eval_env_le {τ : Srt} {ρ ρ' : Env} (h : Env.le ρ ρ') (t : Term
     cases op <;> simp [TerOp.eval, h.2.2.2.1]
   | ite c t e ihc iht ihe =>
     simp only [Term.eval]; rw [ihc, iht, ihe]
-
-/-- Agreement on the environment components used by term evaluation. Relation
-interpretations are intentionally ignored. -/
-def Env.agreeOnTerms (Δ : Signature) (ρ₁ ρ₂ : Env) : Prop :=
-  (∀ v ∈ Δ.vars, ρ₁.consts v.sort v.name = ρ₂.consts v.sort v.name) ∧
-  (∀ c ∈ Δ.consts, ρ₁.consts c.sort c.name = ρ₂.consts c.sort c.name) ∧
-  (∀ u ∈ Δ.unary, ρ₁.unary u.arg u.ret u.name = ρ₂.unary u.arg u.ret u.name) ∧
-  (∀ b ∈ Δ.binary, ρ₁.binary b.arg1 b.arg2 b.ret b.name =
-    ρ₂.binary b.arg1 b.arg2 b.ret b.name) ∧
-  (∀ t ∈ Δ.ternary, ρ₁.ternary t.arg1 t.arg2 t.arg3 t.ret t.name =
-    ρ₂.ternary t.arg1 t.arg2 t.arg3 t.ret t.name)
-
-theorem Env.agreeOnTerms_of_agreeOn {Δ : Signature} {ρ₁ ρ₂ : Env}
-    (h : Env.agreeOn Δ ρ₁ ρ₂) : Env.agreeOnTerms Δ ρ₁ ρ₂ :=
-  ⟨h.1, h.2.1, h.2.2.1, h.2.2.2.1, h.2.2.2.2.1⟩
-
-theorem Env.agreeOnTerms_declVar {Δ : Signature} {ρ₁ ρ₂ : Env}
-    {x : String} {τ : Srt} {v : τ.denote}
-    (h : Env.agreeOnTerms Δ ρ₁ ρ₂) :
-    Env.agreeOnTerms (Δ.declVar ⟨x, τ⟩)
-      (ρ₁.updateConst τ x v) (ρ₂.updateConst τ x v) := by
-  refine ⟨?_, ?_, ?_, ?_, ?_⟩
-  · intro w hw
-    have hw' : w ∈ ⟨x, τ⟩ :: (Δ.remove x).vars := by
-      simpa [Signature.declVar, Signature.addVar] using hw
-    cases hw' with
-    | head => simp [Env.updateConst]
-    | tail _ htail =>
-      by_cases hn : w.name = x <;> by_cases ht : w.sort = τ
-      · cases w; simp only at hn ht; subst hn ht; simp [Env.updateConst]
-      · simp [Env.updateConst, ht, h.1 w (Signature.remove_subset Δ x |>.vars w htail)]
-      · simp [Env.updateConst, hn, h.1 w (Signature.remove_subset Δ x |>.vars w htail)]
-      · simp [Env.updateConst, hn, h.1 w (Signature.remove_subset Δ x |>.vars w htail)]
-  · intro c hc
-    have hcΔ : c ∈ Δ.consts :=
-      Signature.remove_subset Δ x |>.consts c (by
-        simpa [Signature.declVar, Signature.addVar] using hc)
-    by_cases hn : c.name = x <;> by_cases ht : c.sort = τ
-    · cases c; simp only at hn ht; subst hn ht; simp [Env.updateConst]
-    · simp [Env.updateConst, ht, h.2.1 c hcΔ]
-    · simp [Env.updateConst, hn, h.2.1 c hcΔ]
-    · simp [Env.updateConst, hn, h.2.1 c hcΔ]
-  · intro u hu
-    rw [Env.updateConst_unary, Env.updateConst_unary]
-    exact h.2.2.1 u (Signature.remove_subset Δ x |>.unary u (by
-      simpa [Signature.declVar, Signature.addVar] using hu))
-  · intro b hb
-    rw [Env.updateConst_binary, Env.updateConst_binary]
-    exact h.2.2.2.1 b (Signature.remove_subset Δ x |>.binary b (by
-      simpa [Signature.declVar, Signature.addVar] using hb))
-  · intro t ht
-    rw [Env.updateConst_ternary, Env.updateConst_ternary]
-    exact h.2.2.2.2 t (Signature.remove_subset Δ x |>.ternary t (by
-      simpa [Signature.declVar, Signature.addVar] using ht))
 
 theorem Term.eval_agreeOnTerms {t : Term τ} {ρ₁ ρ₂ : Env} {Δ : Signature} :
     t.wfIn Δ → Env.agreeOnTerms Δ ρ₁ ρ₂ → Term.eval ρ₁ t = Term.eval ρ₂ t := by
