@@ -27,6 +27,12 @@ theorem Env.ext {e1 e2 : Env}
     (h5 : e1.unaryRel = e2.unaryRel) (h6 : e1.binaryRel = e2.binaryRel) : e1 = e2 := by
   cases e1; cases e2; congr
 
+def Env.empty : Env :=
+  ⟨fun _ _ => default, fun _ _ _ _ => default, fun _ _ _ _ _ => default,
+   fun _ _ _ _ _ _ _ => default, fun _ _ _ => False, fun _ _ _ _ _ => False⟩
+
+instance : Inhabited Env := { default := Env.empty }
+
 def Env.lookupConst (ρ : Env) (τ : Srt) (x : String) : τ.denote := ρ.consts τ x
 
 def Env.updateConst (ρ : Env) (τ : Srt) (x : String) (v : τ.denote) : Env :=
@@ -57,12 +63,6 @@ def Env.updateBinaryRel (ρ : Env) (τ₁ τ₂ : Srt) (x : String)
     (f : τ₁.denote → τ₂.denote → Prop) : Env :=
   { ρ with binaryRel := fun τ₁' τ₂' y =>
     if h : τ₁' = τ₁ ∧ τ₂' = τ₂ ∧ y = x then h.1 ▸ h.2.1 ▸ f else ρ.binaryRel τ₁' τ₂' y }
-
-def Env.empty : Env :=
-  ⟨fun _ _ => default, fun _ _ _ _ => default, fun _ _ _ _ _ => default,
-   fun _ _ _ _ _ _ _ => default, fun _ _ _ => False, fun _ _ _ _ _ => False⟩
-
-instance : Inhabited Env := { default := Env.empty }
 
 @[simp] theorem Env.lookupConst_updateConst_same {ρ : Env} {τ : Srt} {x : String} {v : τ.denote} :
     (ρ.updateConst τ x v).lookupConst τ x = v := by
@@ -134,21 +134,6 @@ theorem Env.agreeOn_refl : Env.agreeOn Δ ρ ρ :=
   .intro (fun _ _ => rfl) (fun _ _ => rfl) (fun _ _ => rfl) (fun _ _ => rfl)
     (fun _ _ => rfl) (fun _ _ => rfl) (fun _ _ => rfl)
 
-theorem Env.agreeOn_mono {Δ₁ Δ₂ : Signature} (hsub : Δ₁.Subset Δ₂)
-    (h : Env.agreeOn Δ₂ ρ ρ') : Env.agreeOn Δ₁ ρ ρ' :=
-  .intro
-    (fun x hx => h.vars x (hsub.vars x hx))
-    (fun c hc => h.consts c (hsub.consts c hc))
-    (fun u hu => h.unary u (hsub.unary u hu))
-    (fun b hb => h.binary b (hsub.binary b hb))
-    (fun t ht => h.ternary t (hsub.ternary t ht))
-    (fun u hu => h.unaryRel u (hsub.unaryRel u hu))
-    (fun b hb => h.binaryRel b (hsub.binaryRel b hb))
-
-theorem Env.agreeOn_remove {Δ : Signature} {ρ ρ' : Env} {x : String}
-    (h : Env.agreeOn Δ ρ ρ') : Env.agreeOn (Δ.remove x) ρ ρ' :=
-  Env.agreeOn_mono (Signature.remove_subset Δ x) h
-
 theorem Env.agreeOn_symm {Δ : Signature} {ρ ρ' : Env} (h : Env.agreeOn Δ ρ ρ') : Env.agreeOn Δ ρ' ρ :=
   .intro
     (fun v hv => (h.vars v hv).symm)
@@ -169,6 +154,21 @@ theorem Env.agreeOn_trans {Δ : Signature}
     (fun t ht => (h₁₂.ternary t ht).trans (h₂₃.ternary t ht))
     (fun u hu => (h₁₂.unaryRel u hu).trans (h₂₃.unaryRel u hu))
     (fun b hb => (h₁₂.binaryRel b hb).trans (h₂₃.binaryRel b hb))
+
+theorem Env.agreeOn_mono {Δ₁ Δ₂ : Signature} (hsub : Δ₁.Subset Δ₂)
+    (h : Env.agreeOn Δ₂ ρ ρ') : Env.agreeOn Δ₁ ρ ρ' :=
+  .intro
+    (fun x hx => h.vars x (hsub.vars x hx))
+    (fun c hc => h.consts c (hsub.consts c hc))
+    (fun u hu => h.unary u (hsub.unary u hu))
+    (fun b hb => h.binary b (hsub.binary b hb))
+    (fun t ht => h.ternary t (hsub.ternary t ht))
+    (fun u hu => h.unaryRel u (hsub.unaryRel u hu))
+    (fun b hb => h.binaryRel b (hsub.binaryRel b hb))
+
+theorem Env.agreeOn_remove {Δ : Signature} {ρ ρ' : Env} {x : String}
+    (h : Env.agreeOn Δ ρ ρ') : Env.agreeOn (Δ.remove x) ρ ρ' :=
+  Env.agreeOn_mono (Signature.remove_subset Δ x) h
 
 theorem Env.agreeOn_update {ρ ρ' : Env} {Δ : Signature} {τ : Srt} {x : String} {v : τ.denote} :
     Env.agreeOn Δ ρ ρ' →

@@ -116,20 +116,6 @@ inductive Const : Srt → Type where
   | uninterpreted : String → (τ : Srt) → Const τ
   deriving DecidableEq, Repr
 
-@[simp] def Const.denote : Env → Const τ → τ.denote
-  | _, .i n  => n
-  | _, .b v  => v
-  | _, .bv bits => bits
-  | _, .char c => c
-  | _, .str s => s
-  | _, .fp bits => bits
-  | _, .fpNaN => FloatBits.nan
-  | _, .fpPosInf => FloatBits.posInf
-  | _, .fpNegInf => FloatBits.negInf
-  | _, .unit => Runtime.Val.unit
-  | _, .vnil => []
-  | ρ, .uninterpreted name _ => ρ.consts τ name
-
 inductive Term : Srt → Type where
   | var   : (τ : Srt) → String → Term τ
   | const : Const τ → Term τ
@@ -189,6 +175,158 @@ def TerOp.wfIn : TerOp τ₁ τ₂ τ₃ τ₄ → Signature → Prop
           τ₁' = τ₁ ∧ τ₂' = τ₂ ∧ τ₃' = τ₃ ∧ τ₄' = τ₄)
   | _, _ => True
 
+def Term.wfIn : Term τ → Signature → Prop
+  | .var τ x, Δ     => ⟨x, τ⟩ ∈ Δ.vars
+                     ∧ (∀ τ', ⟨x, τ'⟩ ∉ Δ.consts)
+                     ∧ (∀ τ', ⟨x, τ'⟩ ∈ Δ.vars → τ' = τ)
+  | .const c, Δ     => c.wfIn Δ
+  | .unop op a, Δ   => op.wfIn Δ ∧ a.wfIn Δ
+  | .binop op a b, Δ => op.wfIn Δ ∧ a.wfIn Δ ∧ b.wfIn Δ
+  | .terop op a b c, Δ => op.wfIn Δ ∧ a.wfIn Δ ∧ b.wfIn Δ ∧ c.wfIn Δ
+  | .ite c t e, Δ   => c.wfIn Δ ∧ t.wfIn Δ ∧ e.wfIn Δ
+
+private theorem Const.wfIn_mono {c : Const τ} {Δ Δ' : Signature} (h : c.wfIn Δ)
+    (hsub : Δ.Subset Δ') (hwf : Δ'.wf) : c.wfIn Δ' := by
+  cases c with
+  | uninterpreted name τ =>
+    refine ⟨hsub.consts _ h.1, ?_, ?_⟩
+    · intro τ' hvar
+      exact Signature.wf_no_var_of_const hwf (hsub.consts _ h.1) hvar
+    · intro τ' hc'
+      exact Signature.wf_unique_const hwf (hsub.consts _ h.1) hc'
+  | _ => trivial
+
+private theorem UnOp.wfIn_mono {op : UnOp τ₁ τ₂} {Δ Δ' : Signature} (h : op.wfIn Δ)
+    (hsub : Δ.Subset Δ') (hwf : Δ'.wf) : op.wfIn Δ' := by
+  cases op with
+  | uninterpreted name τ₁ τ₂ =>
+    refine ⟨hsub.unary _ h.1, ?_, ?_⟩
+    · intro τ' hrel
+      exact Signature.wf_no_unaryRel_of_unary hwf (hsub.unary _ h.1) hrel
+    · intro τ₁' τ₂' hu'
+      exact Signature.wf_unique_unary hwf (hsub.unary _ h.1) hu'
+  | _ => trivial
+
+private theorem BinOp.wfIn_mono {op : BinOp τ₁ τ₂ τ₃} {Δ Δ' : Signature} (h : op.wfIn Δ)
+    (hsub : Δ.Subset Δ') (hwf : Δ'.wf) : op.wfIn Δ' := by
+  cases op with
+  | uninterpreted name τ₁ τ₂ τ₃ =>
+    refine ⟨hsub.binary _ h.1, ?_, ?_⟩
+    · intro τ₁' τ₂' hrel
+      exact Signature.wf_no_binaryRel_of_binary hwf (hsub.binary _ h.1) hrel
+    · intro τ₁' τ₂' τ₃' hb'
+      exact Signature.wf_unique_binary hwf (hsub.binary _ h.1) hb'
+  | _ => trivial
+
+private theorem TerOp.wfIn_mono {op : TerOp τ₁ τ₂ τ₃ τ₄} {Δ Δ' : Signature}
+    (h : op.wfIn Δ) (hsub : Δ.Subset Δ') (hwf : Δ'.wf) : op.wfIn Δ' := by
+  cases op with
+  | seqExtract => trivial
+  | uninterpreted name τ₁ τ₂ τ₃ τ₄ =>
+    refine ⟨hsub.ternary _ h.1, ?_⟩
+    intro τ₁' τ₂' τ₃' τ₄' ht'
+    exact Signature.wf_unique_ternary hwf (hsub.ternary _ h.1) ht'
+  | _ => trivial
+
+theorem Term.wfIn_mono (t : Term τ) (h : t.wfIn Δ) (hsub : Δ.Subset Δ') (hwf : Δ'.wf) : t.wfIn Δ' := by
+  induction t generalizing Δ Δ' with
+  | var τ x =>
+    refine ⟨hsub.vars _ h.1, ?_, ?_⟩
+    · intro τ' hconst
+      exact Signature.wf_no_const_of_var hwf (hsub.vars _ h.1) hconst
+    · intro τ' hv'
+      exact Signature.wf_unique_var hwf (hsub.vars _ h.1) hv'
+  | const c => exact Const.wfIn_mono h hsub hwf
+  | unop op a iha => exact ⟨UnOp.wfIn_mono h.1 hsub hwf, iha h.2 hsub hwf⟩
+  | binop op a b iha ihb =>
+    exact ⟨BinOp.wfIn_mono h.1 hsub hwf, iha h.2.1 hsub hwf, ihb h.2.2 hsub hwf⟩
+  | terop op a b c iha ihb ihc =>
+    exact ⟨TerOp.wfIn_mono h.1 hsub hwf, iha h.2.1 hsub hwf, ihb h.2.2.1 hsub hwf,
+      ihc h.2.2.2 hsub hwf⟩
+  | ite c t e ihc iht ihe => exact ⟨ihc h.1 hsub hwf, iht h.2.1 hsub hwf, ihe h.2.2 hsub hwf⟩
+
+/-- A term remains well-formed when a variable whose name it does not
+reference is declared around it. -/
+theorem Term.wfIn_declVar_of_fresh {t : Term τ} {x : String} {s : Srt}
+    { Δ : Signature } (h : t.wfIn Δ) (hx : x ∉ t.names) :
+    t.wfIn (Δ.declVar ⟨x, s⟩) := by
+  induction t generalizing Δ with
+  | var τ y =>
+    have hne : y ≠ x := by simpa [Term.names, ne_eq, eq_comm] using hx
+    simpa [Term.wfIn, Signature.declVar, Signature.addVar, Signature.remove, hne] using h
+  | const c =>
+    cases c with
+    | uninterpreted name τ =>
+      have hne : name ≠ x := by simpa [Term.names, ne_eq, eq_comm] using hx
+      simpa [Term.wfIn, Const.wfIn, Signature.declVar, Signature.addVar,
+        Signature.remove, hne] using h
+    | _ => trivial
+  | unop op a ih =>
+    cases op with
+    | uninterpreted name τ₁ τ₂ =>
+      have hparts : x ≠ name ∧ x ∉ a.names := by simpa [Term.names] using hx
+      have hname : name ≠ x := Ne.symm hparts.1
+      have ha : x ∉ a.names := hparts.2
+      refine ⟨?_, ih h.2 ha⟩
+      simpa [UnOp.wfIn, Signature.declVar, Signature.addVar, Signature.remove, hname] using h.1
+    | _ =>
+      refine ⟨trivial, ih h.2 ?_⟩
+      simpa [Term.names] using hx
+  | binop op a b iha ihb =>
+    have ha : x ∉ a.names := by
+      cases op <;> simp_all [Term.names]
+    have hb : x ∉ b.names := by
+      cases op <;> simp_all [Term.names]
+    refine ⟨?_, iha h.2.1 ha, ihb h.2.2 hb⟩
+    cases op with
+    | uninterpreted name τ₁ τ₂ τ₃ =>
+      have hparts : x ≠ name ∧ x ∉ a.names ∧ x ∉ b.names := by
+        simpa [Term.names] using hx
+      have hname : name ≠ x := Ne.symm hparts.1
+      simpa [BinOp.wfIn, Signature.declVar, Signature.addVar, Signature.remove, hname] using h.1
+    | _ => trivial
+  | terop op a b c iha ihb ihc =>
+    have ha : x ∉ a.names := by
+      cases op <;> simp_all [Term.names]
+    have hb : x ∉ b.names := by
+      cases op <;> simp_all [Term.names]
+    have hc : x ∉ c.names := by
+      cases op <;> simp_all [Term.names]
+    refine ⟨?_, iha h.2.1 ha, ihb h.2.2.1 hb, ihc h.2.2.2 hc⟩
+    cases op with
+    | uninterpreted name τ₁ τ₂ τ₃ τ₄ =>
+      have hparts : x ≠ name ∧ x ∉ a.names ∧ x ∉ b.names ∧ x ∉ c.names := by
+        simpa [Term.names] using hx
+      have hname : name ≠ x := Ne.symm hparts.1
+      simpa [TerOp.wfIn, Signature.declVar, Signature.addVar, Signature.remove, hname] using h.1
+    | _ => trivial
+  | ite c t e ihc iht ihe =>
+    simp only [Term.names, List.mem_append, not_or] at hx
+    exact ⟨ihc h.1 hx.1.1, iht h.2.1 hx.1.2, ihe h.2.2 hx.2⟩
+
+/-! simple helper lemmas -/
+
+/-- A constant-term is well-formed whenever it is in the signature's consts. -/
+theorem Term.const_wfIn_of_mem {Δ : Signature} {name : String} {τ : Srt}
+    (hwf : Δ.wf) (hmem : ⟨name, τ⟩ ∈ Δ.consts) :
+    (Term.const (.uninterpreted name τ)).wfIn Δ :=
+  ⟨hmem,
+    fun _ hvar => Signature.wf_no_var_of_const hwf hmem hvar,
+    fun _ hc' => Signature.wf_unique_const hwf hmem hc'⟩
+
+/-- The variable just declared is well-formed in the declaring signature. -/
+theorem Term.var_wfIn_declVar {Δ : Signature} {x : String} {τ : Srt}
+    (hwf : (Δ.declVar ⟨x, τ⟩).wf) : (Term.var τ x).wfIn (Δ.declVar ⟨x, τ⟩) :=
+  ⟨Signature.var_mem_declVar Δ ⟨x, τ⟩,
+   fun _ hc => Signature.wf_no_const_of_var hwf (Signature.var_mem_declVar Δ ⟨x, τ⟩) hc,
+   fun _ hv => Signature.wf_unique_var hwf (Signature.var_mem_declVar Δ ⟨x, τ⟩) hv⟩
+
+/-- A fresh uninterpreted constant is well-formed in a signature extended by itself. -/
+theorem Term.const_wfIn_addConst_of_fresh {Δ : Signature} {c : Decl.Const}
+    (hΔwf : Δ.wf) (hfresh : c.name ∉ Δ.allNames) :
+    (Term.const (.uninterpreted c.name c.sort)).wfIn (Δ.addConst c) :=
+  Term.const_wfIn_of_mem (Signature.wf_addConst hΔwf hfresh) (List.Mem.head _)
+
 def Const.checkWf : Const τ → Signature → Except String Unit
   | .uninterpreted name τ, Δ =>
     if ⟨name, τ⟩ ∈ Δ.consts then
@@ -232,16 +370,6 @@ def TerOp.checkWf : TerOp τ₁ τ₂ τ₃ τ₄ → Signature → Except Strin
       else .ok ()
     else .error s!"ternary op {name} not in signature"
   | _, _ => .ok ()
-
-def Term.wfIn : Term τ → Signature → Prop
-  | .var τ x, Δ     => ⟨x, τ⟩ ∈ Δ.vars
-                     ∧ (∀ τ', ⟨x, τ'⟩ ∉ Δ.consts)
-                     ∧ (∀ τ', ⟨x, τ'⟩ ∈ Δ.vars → τ' = τ)
-  | .const c, Δ     => c.wfIn Δ
-  | .unop op a, Δ   => op.wfIn Δ ∧ a.wfIn Δ
-  | .binop op a b, Δ => op.wfIn Δ ∧ a.wfIn Δ ∧ b.wfIn Δ
-  | .terop op a b c, Δ => op.wfIn Δ ∧ a.wfIn Δ ∧ b.wfIn Δ ∧ c.wfIn Δ
-  | .ite c t e, Δ   => c.wfIn Δ ∧ t.wfIn Δ ∧ e.wfIn Δ
 
 def Term.checkWf : Term τ → Signature → Except String Unit
   | .var τ x, Δ     =>
@@ -438,124 +566,19 @@ theorem Term.checkWf_ok {t : Term τ} {Δ : Signature} (h : t.checkWf Δ = .ok (
     have ⟨_, h2, h3⟩ := Except.bind_ok h23
     exact ⟨ihc h1, iht h2, ihe h3⟩
 
-private theorem Const.wfIn_mono {c : Const τ} {Δ Δ' : Signature} (h : c.wfIn Δ)
-    (hsub : Δ.Subset Δ') (hwf : Δ'.wf) : c.wfIn Δ' := by
-  cases c with
-  | uninterpreted name τ =>
-    refine ⟨hsub.consts _ h.1, ?_, ?_⟩
-    · intro τ' hvar
-      exact Signature.wf_no_var_of_const hwf (hsub.consts _ h.1) hvar
-    · intro τ' hc'
-      exact Signature.wf_unique_const hwf (hsub.consts _ h.1) hc'
-  | _ => trivial
-
-private theorem UnOp.wfIn_mono {op : UnOp τ₁ τ₂} {Δ Δ' : Signature} (h : op.wfIn Δ)
-    (hsub : Δ.Subset Δ') (hwf : Δ'.wf) : op.wfIn Δ' := by
-  cases op with
-  | uninterpreted name τ₁ τ₂ =>
-    refine ⟨hsub.unary _ h.1, ?_, ?_⟩
-    · intro τ' hrel
-      exact Signature.wf_no_unaryRel_of_unary hwf (hsub.unary _ h.1) hrel
-    · intro τ₁' τ₂' hu'
-      exact Signature.wf_unique_unary hwf (hsub.unary _ h.1) hu'
-  | _ => trivial
-
-private theorem BinOp.wfIn_mono {op : BinOp τ₁ τ₂ τ₃} {Δ Δ' : Signature} (h : op.wfIn Δ)
-    (hsub : Δ.Subset Δ') (hwf : Δ'.wf) : op.wfIn Δ' := by
-  cases op with
-  | uninterpreted name τ₁ τ₂ τ₃ =>
-    refine ⟨hsub.binary _ h.1, ?_, ?_⟩
-    · intro τ₁' τ₂' hrel
-      exact Signature.wf_no_binaryRel_of_binary hwf (hsub.binary _ h.1) hrel
-    · intro τ₁' τ₂' τ₃' hb'
-      exact Signature.wf_unique_binary hwf (hsub.binary _ h.1) hb'
-  | _ => trivial
-
-private theorem TerOp.wfIn_mono {op : TerOp τ₁ τ₂ τ₃ τ₄} {Δ Δ' : Signature}
-    (h : op.wfIn Δ) (hsub : Δ.Subset Δ') (hwf : Δ'.wf) : op.wfIn Δ' := by
-  cases op with
-  | seqExtract => trivial
-  | uninterpreted name τ₁ τ₂ τ₃ τ₄ =>
-    refine ⟨hsub.ternary _ h.1, ?_⟩
-    intro τ₁' τ₂' τ₃' τ₄' ht'
-    exact Signature.wf_unique_ternary hwf (hsub.ternary _ h.1) ht'
-  | _ => trivial
-
-theorem Term.wfIn_mono (t : Term τ) (h : t.wfIn Δ) (hsub : Δ.Subset Δ') (hwf : Δ'.wf) : t.wfIn Δ' := by
-  induction t generalizing Δ Δ' with
-  | var τ x =>
-    refine ⟨hsub.vars _ h.1, ?_, ?_⟩
-    · intro τ' hconst
-      exact Signature.wf_no_const_of_var hwf (hsub.vars _ h.1) hconst
-    · intro τ' hv'
-      exact Signature.wf_unique_var hwf (hsub.vars _ h.1) hv'
-  | const c => exact Const.wfIn_mono h hsub hwf
-  | unop op a iha => exact ⟨UnOp.wfIn_mono h.1 hsub hwf, iha h.2 hsub hwf⟩
-  | binop op a b iha ihb =>
-    exact ⟨BinOp.wfIn_mono h.1 hsub hwf, iha h.2.1 hsub hwf, ihb h.2.2 hsub hwf⟩
-  | terop op a b c iha ihb ihc =>
-    exact ⟨TerOp.wfIn_mono h.1 hsub hwf, iha h.2.1 hsub hwf, ihb h.2.2.1 hsub hwf,
-      ihc h.2.2.2 hsub hwf⟩
-  | ite c t e ihc iht ihe => exact ⟨ihc h.1 hsub hwf, iht h.2.1 hsub hwf, ihe h.2.2 hsub hwf⟩
-
-/-- A term remains well-formed when a variable whose name it does not
-reference is declared around it. -/
-theorem Term.wfIn_declVar_of_fresh {t : Term τ} {x : String} {s : Srt}
-    { Δ : Signature } (h : t.wfIn Δ) (hx : x ∉ t.names) :
-    t.wfIn (Δ.declVar ⟨x, s⟩) := by
-  induction t generalizing Δ with
-  | var τ y =>
-    have hne : y ≠ x := by simpa [Term.names, ne_eq, eq_comm] using hx
-    simpa [Term.wfIn, Signature.declVar, Signature.addVar, Signature.remove, hne] using h
-  | const c =>
-    cases c with
-    | uninterpreted name τ =>
-      have hne : name ≠ x := by simpa [Term.names, ne_eq, eq_comm] using hx
-      simpa [Term.wfIn, Const.wfIn, Signature.declVar, Signature.addVar,
-        Signature.remove, hne] using h
-    | _ => trivial
-  | unop op a ih =>
-    cases op with
-    | uninterpreted name τ₁ τ₂ =>
-      have hparts : x ≠ name ∧ x ∉ a.names := by simpa [Term.names] using hx
-      have hname : name ≠ x := Ne.symm hparts.1
-      have ha : x ∉ a.names := hparts.2
-      refine ⟨?_, ih h.2 ha⟩
-      simpa [UnOp.wfIn, Signature.declVar, Signature.addVar, Signature.remove, hname] using h.1
-    | _ =>
-      refine ⟨trivial, ih h.2 ?_⟩
-      simpa [Term.names] using hx
-  | binop op a b iha ihb =>
-    have ha : x ∉ a.names := by
-      cases op <;> simp_all [Term.names]
-    have hb : x ∉ b.names := by
-      cases op <;> simp_all [Term.names]
-    refine ⟨?_, iha h.2.1 ha, ihb h.2.2 hb⟩
-    cases op with
-    | uninterpreted name τ₁ τ₂ τ₃ =>
-      have hparts : x ≠ name ∧ x ∉ a.names ∧ x ∉ b.names := by
-        simpa [Term.names] using hx
-      have hname : name ≠ x := Ne.symm hparts.1
-      simpa [BinOp.wfIn, Signature.declVar, Signature.addVar, Signature.remove, hname] using h.1
-    | _ => trivial
-  | terop op a b c iha ihb ihc =>
-    have ha : x ∉ a.names := by
-      cases op <;> simp_all [Term.names]
-    have hb : x ∉ b.names := by
-      cases op <;> simp_all [Term.names]
-    have hc : x ∉ c.names := by
-      cases op <;> simp_all [Term.names]
-    refine ⟨?_, iha h.2.1 ha, ihb h.2.2.1 hb, ihc h.2.2.2 hc⟩
-    cases op with
-    | uninterpreted name τ₁ τ₂ τ₃ τ₄ =>
-      have hparts : x ≠ name ∧ x ∉ a.names ∧ x ∉ b.names ∧ x ∉ c.names := by
-        simpa [Term.names] using hx
-      have hname : name ≠ x := Ne.symm hparts.1
-      simpa [TerOp.wfIn, Signature.declVar, Signature.addVar, Signature.remove, hname] using h.1
-    | _ => trivial
-  | ite c t e ihc iht ihe =>
-    simp only [Term.names, List.mem_append, not_or] at hx
-    exact ⟨ihc h.1 hx.1.1, iht h.2.1 hx.1.2, ihe h.2.2 hx.2⟩
+@[simp] def Const.denote : Env → Const τ → τ.denote
+  | _, .i n  => n
+  | _, .b v  => v
+  | _, .bv bits => bits
+  | _, .char c => c
+  | _, .str s => s
+  | _, .fp bits => bits
+  | _, .fpNaN => FloatBits.nan
+  | _, .fpPosInf => FloatBits.posInf
+  | _, .fpNegInf => FloatBits.negInf
+  | _, .unit => Runtime.Val.unit
+  | _, .vnil => []
+  | ρ, .uninterpreted name _ => ρ.consts τ name
 
 /-- Interpret a unary operator. Evaluation is total: a projection applied to a
 value of a different shape, and an out-of-range index, give the default of the
@@ -665,6 +688,12 @@ def Term.eval (ρ : Env) : Term τ → τ.denote
   | .binop op a b => op.eval ρ (Term.eval ρ a) (Term.eval ρ b)
   | .terop op a b c => op.eval ρ (Term.eval ρ a) (Term.eval ρ b) (Term.eval ρ c)
   | .ite c t e    => bif Term.eval ρ c then Term.eval ρ t else Term.eval ρ e
+
+/-- Evaluating a constant term at an updated env yields the updated value. -/
+@[simp] theorem Term.eval_const_updateConst {ρ : Env} {τ : Srt} {x : String}
+    {v : τ.denote} :
+    (Term.const (.uninterpreted x τ)).eval (ρ.updateConst τ x v) = v := by
+  simp [Term.eval, Const.denote, Env.updateConst]
 
 /-- Updating the constant environment at a name not referenced by a term does
 not change the term's value. -/
@@ -778,40 +807,18 @@ theorem Term.eval_update_fresh {t : Term τ'} {x : String} {τ : Srt} {v : τ.de
       exact Env.lookupConst_updateConst_ne' (Or.inl hne))
     (fun _ _ => rfl) (fun _ _ => rfl) (fun _ _ => rfl) (fun _ _ => rfl) (fun _ _ => rfl))
 
-/-! simple helper lemmas -/
-
-/-- A constant-term is well-formed whenever it is in the signature's consts. -/
-theorem Term.const_wfIn_of_mem {Δ : Signature} {name : String} {τ : Srt}
-    (hwf : Δ.wf) (hmem : ⟨name, τ⟩ ∈ Δ.consts) :
-    (Term.const (.uninterpreted name τ)).wfIn Δ :=
-  ⟨hmem,
-    fun _ hvar => Signature.wf_no_var_of_const hwf hmem hvar,
-    fun _ hc' => Signature.wf_unique_const hwf hmem hc'⟩
-
-/-- The variable just declared is well-formed in the declaring signature. -/
-theorem Term.var_wfIn_declVar {Δ : Signature} {x : String} {τ : Srt}
-    (hwf : (Δ.declVar ⟨x, τ⟩).wf) : (Term.var τ x).wfIn (Δ.declVar ⟨x, τ⟩) :=
-  ⟨Signature.var_mem_declVar Δ ⟨x, τ⟩,
-   fun _ hc => Signature.wf_no_const_of_var hwf (Signature.var_mem_declVar Δ ⟨x, τ⟩) hc,
-   fun _ hv => Signature.wf_unique_var hwf (Signature.var_mem_declVar Δ ⟨x, τ⟩) hv⟩
-
-/-- A fresh uninterpreted constant is well-formed in a signature extended by itself. -/
-theorem Term.const_wfIn_addConst_of_fresh {Δ : Signature} {c : Decl.Const}
-    (hΔwf : Δ.wf) (hfresh : c.name ∉ Δ.allNames) :
-    (Term.const (.uninterpreted c.name c.sort)).wfIn (Δ.addConst c) :=
-  Term.const_wfIn_of_mem (Signature.wf_addConst hΔwf hfresh) (List.Mem.head _)
-
-/-- Evaluating a constant term at an updated env yields the updated value. -/
-@[simp] theorem Term.eval_const_updateConst {ρ : Env} {τ : Srt} {x : String}
-    {v : τ.denote} :
-    (Term.const (.uninterpreted x τ)).eval (ρ.updateConst τ x v) = v := by
-  simp [Term.eval, Const.denote, Env.updateConst]
-
 /-! ### Lists of value terms -/
 
 /-- A list of terms evaluates to a list of values. -/
 def Term.evalList (ρ : Env) (ts : List (Term .value)) (vs : List Runtime.Val) : Prop :=
   List.Forall₂ (fun t v => t.eval ρ = v) ts vs
+
+theorem Term.evalList.cons {ρ : Env} {t : Term .value} {v : Runtime.Val}
+    {ts : List (Term .value)} {vs : List Runtime.Val}
+    (hhead : t.eval ρ = v)
+    (htail : Term.evalList ρ ts vs) :
+    Term.evalList ρ (t :: ts) (v :: vs) :=
+  List.Forall₂.cons hhead htail
 
 theorem Term.evalList.map_eval {ρ : Env} {ts : List (Term .value)} {vs : List Runtime.Val}
     (h : Term.evalList ρ ts vs) : ts.map (fun t => t.eval ρ) = vs := by
@@ -830,13 +837,6 @@ theorem Term.evalList_agreeOn {ρ ρ' : Env} {Δ : Signature}
     constructor
     · rw [Term.eval_agreeOn (hwf t (.head _)) (Env.agreeOn_symm hagree)]; exact htv
     · exact ih (fun q hq => hwf q (.tail _ hq))
-
-theorem Term.evalList.cons {ρ : Env} {t : Term .value} {v : Runtime.Val}
-    {ts : List (Term .value)} {vs : List Runtime.Val}
-    (hhead : t.eval ρ = v)
-    (htail : Term.evalList ρ ts vs) :
-    Term.evalList ρ (t :: ts) (v :: vs) :=
-  List.Forall₂.cons hhead htail
 
 theorem Term.evalList.lookup_const {ρ : Env} {avs : List Decl.Const} {vs : List Runtime.Val}
     (h : Term.evalList ρ (avs.map (fun av => .const (.uninterpreted av.name .value))) vs) :

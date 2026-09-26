@@ -109,40 +109,9 @@ def allNames (Δ : Signature) : List String :=
 
 def wf (Δ : Signature) : Prop := Δ.allNames.Nodup
 
-theorem mem_allNames_of_var {Δ : Signature} {v : Var} (h : v ∈ Δ.vars) :
-    v.name ∈ Δ.allNames := by
-  simp [allNames]
-  exact Or.inl ⟨v, h, rfl⟩
+def ofConsts (consts : List Decl.Const) : Signature := ⟨[], consts, [], [], [], [], []⟩
 
-theorem mem_allNames_of_const {Δ : Signature} {c : Decl.Const} (h : c ∈ Δ.consts) :
-    c.name ∈ Δ.allNames := by
-  simp [allNames]
-  exact Or.inr (Or.inl ⟨c, h, rfl⟩)
-
-theorem mem_allNames_of_unary {Δ : Signature} {u : Decl.Unary} (h : u ∈ Δ.unary) :
-    u.name ∈ Δ.allNames := by
-  simp [allNames]
-  exact Or.inr (Or.inr (Or.inl ⟨u, h, rfl⟩))
-
-theorem mem_allNames_of_binary {Δ : Signature} {b : Decl.Binary} (h : b ∈ Δ.binary) :
-    b.name ∈ Δ.allNames := by
-  simp [allNames]
-  exact Or.inr (Or.inr (Or.inr (Or.inl ⟨b, h, rfl⟩)))
-
-theorem mem_allNames_of_ternary {Δ : Signature} {t : Decl.Ternary} (h : t ∈ Δ.ternary) :
-    t.name ∈ Δ.allNames := by
-  simp [allNames]
-  exact Or.inr (Or.inr (Or.inr (Or.inr (Or.inl ⟨t, h, rfl⟩))))
-
-theorem mem_allNames_of_unaryRel {Δ : Signature} {u : Decl.UnaryRel} (h : u ∈ Δ.unaryRel) :
-    u.name ∈ Δ.allNames := by
-  simp [allNames]
-  exact Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inl ⟨u, h, rfl⟩)))))
-
-theorem mem_allNames_of_binaryRel {Δ : Signature} {b : Decl.BinaryRel} (h : b ∈ Δ.binaryRel) :
-    b.name ∈ Δ.allNames := by
-  simp [allNames]
-  exact Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr ⟨b, h, rfl⟩)))))
+@[simp] theorem ofConsts_consts (consts : List Decl.Const) : (ofConsts consts).consts = consts := rfl
 
 @[simp] theorem mem_remove_vars {Δ : Signature} {v : Var} {x : String} :
     v ∈ (Δ.remove x).vars ↔ v ∈ Δ.vars ∧ v.name ≠ x := by
@@ -196,154 +165,52 @@ theorem mem_allNames_of_binaryRel {Δ : Signature} {b : Decl.BinaryRel} (h : b �
 @[simp] theorem mem_declVar_binaryRel {Δ : Signature} {v : Var} {b : Decl.BinaryRel} :
     b ∈ (Δ.declVar v).binaryRel ↔ b ∈ Δ.binaryRel ∧ b.name ≠ v.name := mem_remove_binaryRel
 
-theorem remove_allNames {Δ : Signature} {n x : String} (h : n ∈ (Δ.remove x).allNames) :
-    n ≠ x := by
-  intro hnx
-  subst hnx
+/-- A freshly declared variable is in the resulting signature's variables. -/
+theorem var_mem_declVar (Δ : Signature) (v : Var) : v ∈ (Δ.declVar v).vars :=
+  List.Mem.head _
+
+theorem remove_eq_of_not_in {Δ : Signature} {x : String} (h : x ∉ Δ.allNames) :
+    Δ.remove x = Δ := by
   cases Δ with
   | mk vars consts unary binary ternary unaryRel binaryRel =>
-    simp [allNames, remove] at h
-    rcases h with h | h | h | h | h | h | h
-    · rcases h with ⟨v, hv, hname⟩
-      exact (hv.2 hname).elim
-    · rcases h with ⟨c, hc, hname⟩
-      exact (hc.2 hname).elim
-    · rcases h with ⟨u, hu, hname⟩
-      exact (hu.2 hname).elim
-    · rcases h with ⟨b, hb, hname⟩
-      exact (hb.2 hname).elim
-    · rcases h with ⟨t, ht, hname⟩
-      exact (ht.2 hname).elim
-    · rcases h with ⟨u, hu, hname⟩
-      exact (hu.2 hname).elim
-    · rcases h with ⟨b, hb, hname⟩
-      exact (hb.2 hname).elim
+    simp [allNames] at h
+    rcases h with ⟨hvars, hconsts, hunary, hbinary, hternary, hunaryRel, hbinaryRel⟩
+    have hvars' : List.filter (fun v : Var => v.name != x) vars = vars := by
+      apply List.filter_eq_self.2
+      intro v hv
+      simp [hvars v hv]
+    have hconsts' : List.filter (fun c : Decl.Const => c.name != x) consts = consts := by
+      apply List.filter_eq_self.2
+      intro c hc
+      simp [hconsts c hc]
+    have hunary' : List.filter (fun u : Decl.Unary => u.name != x) unary = unary := by
+      apply List.filter_eq_self.2
+      intro u hu
+      simp [hunary u hu]
+    have hbinary' : List.filter (fun b : Decl.Binary => b.name != x) binary = binary := by
+      apply List.filter_eq_self.2
+      intro b hb
+      simp [hbinary b hb]
+    have hternary' : List.filter (fun t : Decl.Ternary => t.name != x) ternary = ternary := by
+      apply List.filter_eq_self.2
+      intro t ht
+      simp [hternary t ht]
+    have hunaryRel' : List.filter (fun u : Decl.UnaryRel => u.name != x) unaryRel = unaryRel := by
+      apply List.filter_eq_self.2
+      intro u hu
+      simp [hunaryRel u hu]
+    have hbinaryRel' : List.filter (fun b : Decl.BinaryRel => b.name != x) binaryRel = binaryRel := by
+      apply List.filter_eq_self.2
+      intro b hb
+      simp [hbinaryRel b hb]
+    simp [remove,
+      hvars', hconsts', hunary', hbinary', hternary', hunaryRel', hbinaryRel']
 
-theorem wf_addConst {Δ : Signature} {c : Decl.Const}
-    (hΔ : Δ.wf) (hfresh : c.name ∉ Δ.allNames) : (Δ.addConst c).wf := by
-  unfold wf at hΔ ⊢
-  suffices h : (Δ.addConst c).allNames.Perm (c.name :: Δ.allNames) from
-    h.nodup_iff.mpr (List.nodup_cons.mpr ⟨hfresh, hΔ⟩)
-  show (Δ.vars.map Var.name ++ (c.name :: Δ.consts.map Decl.Const.name) ++
-    Δ.unary.map Decl.Unary.name ++ Δ.binary.map Decl.Binary.name ++
-    Δ.ternary.map Decl.Ternary.name ++
-    Δ.unaryRel.map Decl.UnaryRel.name ++ Δ.binaryRel.map Decl.BinaryRel.name).Perm
-    (c.name :: (Δ.vars.map Var.name ++ Δ.consts.map Decl.Const.name ++
-    Δ.unary.map Decl.Unary.name ++ Δ.binary.map Decl.Binary.name ++
-    Δ.ternary.map Decl.Ternary.name ++
-    Δ.unaryRel.map Decl.UnaryRel.name ++ Δ.binaryRel.map Decl.BinaryRel.name))
-  simp only [List.append_assoc]
-  exact List.perm_middle
-
-theorem wf_addVar {Δ : Signature} {v : Var}
-    (hΔ : Δ.wf) (hfresh : v.name ∉ Δ.allNames) : (Δ.addVar v).wf := by
-  unfold wf at hΔ ⊢
-  suffices h : (Δ.addVar v).allNames.Perm (v.name :: Δ.allNames) from
-    h.nodup_iff.mpr (List.nodup_cons.mpr ⟨hfresh, hΔ⟩)
-  show ((v :: Δ.vars).map Var.name ++ Δ.consts.map Decl.Const.name ++
-    Δ.unary.map Decl.Unary.name ++ Δ.binary.map Decl.Binary.name ++
-    Δ.ternary.map Decl.Ternary.name ++
-    Δ.unaryRel.map Decl.UnaryRel.name ++ Δ.binaryRel.map Decl.BinaryRel.name).Perm
-    (v.name :: (Δ.vars.map Var.name ++ Δ.consts.map Decl.Const.name ++
-    Δ.unary.map Decl.Unary.name ++ Δ.binary.map Decl.Binary.name ++
-    Δ.ternary.map Decl.Ternary.name ++
-    Δ.unaryRel.map Decl.UnaryRel.name ++ Δ.binaryRel.map Decl.BinaryRel.name))
-  simp
-
-theorem wf_addUnaryRel {Δ : Signature} {u : Decl.UnaryRel}
-    (hΔ : Δ.wf) (hfresh : u.name ∉ Δ.allNames) : (Δ.addUnaryRel u).wf := by
-  unfold wf at hΔ ⊢
-  suffices h : (Δ.addUnaryRel u).allNames.Perm (u.name :: Δ.allNames) from
-    h.nodup_iff.mpr (List.nodup_cons.mpr ⟨hfresh, hΔ⟩)
-  show (Δ.vars.map Var.name ++ Δ.consts.map Decl.Const.name ++
-    Δ.unary.map Decl.Unary.name ++ Δ.binary.map Decl.Binary.name ++
-    Δ.ternary.map Decl.Ternary.name ++
-    (u.name :: Δ.unaryRel.map Decl.UnaryRel.name) ++ Δ.binaryRel.map Decl.BinaryRel.name).Perm
-    (u.name :: (Δ.vars.map Var.name ++ Δ.consts.map Decl.Const.name ++
-    Δ.unary.map Decl.Unary.name ++ Δ.binary.map Decl.Binary.name ++
-    Δ.ternary.map Decl.Ternary.name ++
-    Δ.unaryRel.map Decl.UnaryRel.name ++ Δ.binaryRel.map Decl.BinaryRel.name))
-  exact (List.perm_middle.append_right _)
-
-theorem wf_addBinaryRel {Δ : Signature} {b : Decl.BinaryRel}
-    (hΔ : Δ.wf) (hfresh : b.name ∉ Δ.allNames) : (Δ.addBinaryRel b).wf := by
-  unfold wf at hΔ ⊢
-  suffices h : (Δ.addBinaryRel b).allNames.Perm (b.name :: Δ.allNames) from
-    h.nodup_iff.mpr (List.nodup_cons.mpr ⟨hfresh, hΔ⟩)
-  show (Δ.vars.map Var.name ++ Δ.consts.map Decl.Const.name ++
-    Δ.unary.map Decl.Unary.name ++ Δ.binary.map Decl.Binary.name ++
-    Δ.ternary.map Decl.Ternary.name ++
-    Δ.unaryRel.map Decl.UnaryRel.name ++ (b.name :: Δ.binaryRel.map Decl.BinaryRel.name)).Perm
-    (b.name :: (Δ.vars.map Var.name ++ Δ.consts.map Decl.Const.name ++
-    Δ.unary.map Decl.Unary.name ++ Δ.binary.map Decl.Binary.name ++
-    Δ.ternary.map Decl.Ternary.name ++
-    Δ.unaryRel.map Decl.UnaryRel.name ++ Δ.binaryRel.map Decl.BinaryRel.name))
-  exact List.perm_middle
-
-theorem wf_addUnary {Δ : Signature} {u : Decl.Unary}
-    (hΔ : Δ.wf) (hfresh : u.name ∉ Δ.allNames) : (Δ.addUnary u).wf := by
-  unfold wf at hΔ ⊢
-  suffices h : (Δ.addUnary u).allNames.Perm (u.name :: Δ.allNames) from
-    h.nodup_iff.mpr (List.nodup_cons.mpr ⟨hfresh, hΔ⟩)
-  show (Δ.vars.map Var.name ++ Δ.consts.map Decl.Const.name ++
-    (u.name :: Δ.unary.map Decl.Unary.name) ++ Δ.binary.map Decl.Binary.name ++
-    Δ.ternary.map Decl.Ternary.name ++
-    Δ.unaryRel.map Decl.UnaryRel.name ++ Δ.binaryRel.map Decl.BinaryRel.name).Perm
-    (u.name :: (Δ.vars.map Var.name ++ Δ.consts.map Decl.Const.name ++
-    Δ.unary.map Decl.Unary.name ++ Δ.binary.map Decl.Binary.name ++
-    Δ.ternary.map Decl.Ternary.name ++
-    Δ.unaryRel.map Decl.UnaryRel.name ++ Δ.binaryRel.map Decl.BinaryRel.name))
-  change ((Δ.vars.map Var.name ++ Δ.consts.map Decl.Const.name ++
-    u.name :: Δ.unary.map Decl.Unary.name) ++ Δ.binary.map Decl.Binary.name ++
-    Δ.ternary.map Decl.Ternary.name ++
-    Δ.unaryRel.map Decl.UnaryRel.name ++ Δ.binaryRel.map Decl.BinaryRel.name).Perm
-    (u.name :: (((Δ.vars.map Var.name ++ Δ.consts.map Decl.Const.name ++
-    Δ.unary.map Decl.Unary.name) ++ Δ.binary.map Decl.Binary.name) ++
-    Δ.ternary.map Decl.Ternary.name ++
-    Δ.unaryRel.map Decl.UnaryRel.name ++ Δ.binaryRel.map Decl.BinaryRel.name))
-  exact (((List.perm_middle.append_right _).append_right _).append_right _).append_right _
-
-theorem wf_addBinary {Δ : Signature} {b : Decl.Binary}
-    (hΔ : Δ.wf) (hfresh : b.name ∉ Δ.allNames) : (Δ.addBinary b).wf := by
-  unfold wf at hΔ ⊢
-  suffices h : (Δ.addBinary b).allNames.Perm (b.name :: Δ.allNames) from
-    h.nodup_iff.mpr (List.nodup_cons.mpr ⟨hfresh, hΔ⟩)
-  show (Δ.vars.map Var.name ++ Δ.consts.map Decl.Const.name ++
-    Δ.unary.map Decl.Unary.name ++ (b.name :: Δ.binary.map Decl.Binary.name) ++
-    Δ.ternary.map Decl.Ternary.name ++
-    Δ.unaryRel.map Decl.UnaryRel.name ++ Δ.binaryRel.map Decl.BinaryRel.name).Perm
-    (b.name :: (Δ.vars.map Var.name ++ Δ.consts.map Decl.Const.name ++
-    Δ.unary.map Decl.Unary.name ++ Δ.binary.map Decl.Binary.name ++
-    Δ.ternary.map Decl.Ternary.name ++
-    Δ.unaryRel.map Decl.UnaryRel.name ++ Δ.binaryRel.map Decl.BinaryRel.name))
-  change ((Δ.vars.map Var.name ++ Δ.consts.map Decl.Const.name ++
-    Δ.unary.map Decl.Unary.name ++ b.name :: Δ.binary.map Decl.Binary.name) ++
-    Δ.ternary.map Decl.Ternary.name ++
-    Δ.unaryRel.map Decl.UnaryRel.name ++ Δ.binaryRel.map Decl.BinaryRel.name).Perm
-    (b.name :: (((Δ.vars.map Var.name ++ Δ.consts.map Decl.Const.name ++
-    Δ.unary.map Decl.Unary.name) ++ Δ.binary.map Decl.Binary.name) ++
-    Δ.ternary.map Decl.Ternary.name ++
-    Δ.unaryRel.map Decl.UnaryRel.name ++ Δ.binaryRel.map Decl.BinaryRel.name))
-  exact ((List.perm_middle.append_right _).append_right _).append_right _
-
-theorem wf_addTernary {Δ : Signature} {t : Decl.Ternary}
-    (hΔ : Δ.wf) (hfresh : t.name ∉ Δ.allNames) : (Δ.addTernary t).wf := by
-  unfold wf at hΔ ⊢
-  suffices h : (Δ.addTernary t).allNames.Perm (t.name :: Δ.allNames) from
-    h.nodup_iff.mpr (List.nodup_cons.mpr ⟨hfresh, hΔ⟩)
-  show (Δ.vars.map Var.name ++ Δ.consts.map Decl.Const.name ++
-    Δ.unary.map Decl.Unary.name ++ Δ.binary.map Decl.Binary.name ++
-    (t.name :: Δ.ternary.map Decl.Ternary.name) ++
-    Δ.unaryRel.map Decl.UnaryRel.name ++ Δ.binaryRel.map Decl.BinaryRel.name).Perm
-    (t.name :: (Δ.vars.map Var.name ++ Δ.consts.map Decl.Const.name ++
-    Δ.unary.map Decl.Unary.name ++ Δ.binary.map Decl.Binary.name ++
-    Δ.ternary.map Decl.Ternary.name ++
-    Δ.unaryRel.map Decl.UnaryRel.name ++ Δ.binaryRel.map Decl.BinaryRel.name))
-  exact (List.perm_middle.append_right _).append_right _
-
-def ofConsts (consts : List Decl.Const) : Signature := ⟨[], consts, [], [], [], [], []⟩
-
-@[simp] theorem ofConsts_consts (consts : List Decl.Const) : (ofConsts consts).consts = consts := rfl
+/-- Declaring a variable whose name is fresh leaves the other variables alone. -/
+theorem vars_declVar_of_not_in {Δ : Signature} {v : Var}
+    (h : v.name ∉ Δ.allNames) : (Δ.declVar v).vars = v :: Δ.vars := by
+  rw [declVar, remove_eq_of_not_in h]
+  rfl
 
 structure Subset (Δ₁ Δ₂ : Signature) : Prop where
   vars   : ∀ x ∈ Δ₁.vars, x ∈ Δ₂.vars
@@ -354,16 +221,18 @@ structure Subset (Δ₁ Δ₂ : Signature) : Prop where
   unaryRel : ∀ u ∈ Δ₁.unaryRel, u ∈ Δ₂.unaryRel
   binaryRel : ∀ b ∈ Δ₁.binaryRel, b ∈ Δ₂.binaryRel
 
-structure SymbolSubset (Δ₁ Δ₂ : Signature) : Prop where
-  consts : ∀ c ∈ Δ₁.consts, c ∈ Δ₂.consts
-  unary  : ∀ u ∈ Δ₁.unary, u ∈ Δ₂.unary
-  binary : ∀ b ∈ Δ₁.binary, b ∈ Δ₂.binary
-  ternary : ∀ t ∈ Δ₁.ternary, t ∈ Δ₂.ternary
-  unaryRel : ∀ u ∈ Δ₁.unaryRel, u ∈ Δ₂.unaryRel
-  binaryRel : ∀ b ∈ Δ₁.binaryRel, b ∈ Δ₂.binaryRel
-
 theorem Subset.refl (Δ : Signature) : Δ.Subset Δ :=
   ⟨fun _ h => h, fun _ h => h, fun _ h => h, fun _ h => h, fun _ h => h, fun _ h => h, fun _ h => h⟩
+
+theorem Subset.trans {Δ₁ Δ₂ Δ₃ : Signature} (h₁₂ : Δ₁.Subset Δ₂) (h₂₃ : Δ₂.Subset Δ₃) :
+    Δ₁.Subset Δ₃ :=
+  ⟨fun x hx => h₂₃.vars x (h₁₂.vars x hx),
+   fun c hc => h₂₃.consts c (h₁₂.consts c hc),
+   fun u hu => h₂₃.unary u (h₁₂.unary u hu),
+   fun b hb => h₂₃.binary b (h₁₂.binary b hb),
+   fun t ht => h₂₃.ternary t (h₁₂.ternary t ht),
+   fun u hu => h₂₃.unaryRel u (h₁₂.unaryRel u hu),
+   fun b hb => h₂₃.binaryRel b (h₁₂.binaryRel b hb)⟩
 
 /-- The empty signature is a subset of any signature. -/
 theorem empty_subset (Δ : Signature) : Signature.empty.Subset Δ :=
@@ -375,64 +244,34 @@ theorem empty_subset (Δ : Signature) : Signature.empty.Subset Δ :=
    fun _ h => by simp [Signature.empty] at h,
    fun _ h => by simp [Signature.empty] at h⟩
 
-theorem SymbolSubset.refl (Δ : Signature) : Δ.SymbolSubset Δ :=
-  ⟨fun _ h => h, fun _ h => h, fun _ h => h, fun _ h => h, fun _ h => h, fun _ h => h⟩
+theorem Subset.subset_addVar (Δ : Signature) (v : Var) :
+    Δ.Subset (Δ.addVar v) :=
+  ⟨fun _ hx => List.mem_cons_of_mem _ hx, fun _ h => h, fun _ h => h, fun _ h => h, fun _ h => h, fun _ h => h, fun _ h => h⟩
 
-theorem SymbolSubset.trans {Δ₁ Δ₂ Δ₃ : Signature}
-    (h₁₂ : Δ₁.SymbolSubset Δ₂) (h₂₃ : Δ₂.SymbolSubset Δ₃) : Δ₁.SymbolSubset Δ₃ :=
-  ⟨fun c hc => h₂₃.consts c (h₁₂.consts c hc),
-   fun u hu => h₂₃.unary u (h₁₂.unary u hu),
-   fun b hb => h₂₃.binary b (h₁₂.binary b hb),
-   fun t ht => h₂₃.ternary t (h₁₂.ternary t ht),
-   fun u hu => h₂₃.unaryRel u (h₁₂.unaryRel u hu),
-   fun b hb => h₂₃.binaryRel b (h₁₂.binaryRel b hb)⟩
+theorem Subset.subset_addConst (Δ : Signature) (c : Decl.Const) :
+    Δ.Subset (Δ.addConst c) :=
+  ⟨fun _ h => h, fun _ hc => List.mem_cons_of_mem _ hc, fun _ h => h, fun _ h => h, fun _ h => h, fun _ h => h, fun _ h => h⟩
 
-theorem SymbolSubset.subset_addConst (Δ : Signature) (c : Decl.Const) :
-    Δ.SymbolSubset (Δ.addConst c) :=
-  ⟨fun _ hc' => List.mem_cons_of_mem _ hc', fun _ hu => hu, fun _ hb => hb,
-   fun _ ht => ht, fun _ hu => hu, fun _ hb => hb⟩
+theorem Subset.subset_addUnary (Δ : Signature) (u : Decl.Unary) :
+    Δ.Subset (Δ.addUnary u) :=
+  ⟨fun _ h => h, fun _ h => h, fun _ hu => List.mem_cons_of_mem _ hu, fun _ h => h, fun _ h => h, fun _ h => h, fun _ h => h⟩
 
-theorem SymbolSubset.declVar {Δ Δ' : Signature} (h : Δ.SymbolSubset Δ') (v : Var) :
-    (Δ.declVar v).SymbolSubset Δ' := by
-  constructor
-  · intro c hc
-    rcases Signature.mem_remove_consts.mp (by simpa [Signature.declVar, Signature.addVar] using hc) with ⟨hc, _⟩
-    exact h.consts c hc
-  · intro u hu
-    rcases Signature.mem_remove_unary.mp (by simpa [Signature.declVar, Signature.addVar] using hu) with ⟨hu, _⟩
-    exact h.unary u hu
-  · intro b hb
-    rcases Signature.mem_remove_binary.mp (by simpa [Signature.declVar, Signature.addVar] using hb) with ⟨hb, _⟩
-    exact h.binary b hb
-  · intro t ht
-    rcases Signature.mem_remove_ternary.mp (by simpa [Signature.declVar, Signature.addVar] using ht) with ⟨ht, _⟩
-    exact h.ternary t ht
-  · intro u hu
-    rcases Signature.mem_remove_unaryRel.mp (by simpa [Signature.declVar, Signature.addVar] using hu) with ⟨hu, _⟩
-    exact h.unaryRel u hu
-  · intro b hb
-    rcases Signature.mem_remove_binaryRel.mp (by simpa [Signature.declVar, Signature.addVar] using hb) with ⟨hb, _⟩
-    exact h.binaryRel b hb
+theorem Subset.subset_addBinary (Δ : Signature) (b : Decl.Binary) :
+    Δ.Subset (Δ.addBinary b) :=
+  ⟨fun _ h => h, fun _ h => h, fun _ h => h, fun _ hb => List.mem_cons_of_mem _ hb, fun _ h => h, fun _ h => h, fun _ h => h⟩
 
-/-- Declaring variables adds no non-variable symbols, so a symbol-subset survives. -/
-theorem SymbolSubset.declVars {Δ Δ' : Signature} (h : Δ.SymbolSubset Δ') (vs : List Var) :
-    (Δ.declVars vs).SymbolSubset Δ' := by
-  induction vs generalizing Δ with
-  | nil => simpa [declVars] using h
-  | cons v vs ih => simpa [declVars] using ih (SymbolSubset.declVar h v)
+theorem Subset.subset_addTernary (Δ : Signature) (t : Decl.Ternary) :
+    Δ.Subset (Δ.addTernary t) :=
+  ⟨fun _ h => h, fun _ h => h, fun _ h => h, fun _ h => h,
+   fun _ ht => List.mem_cons_of_mem _ ht, fun _ h => h, fun _ h => h⟩
 
-theorem allNames_subset {Δ Δ' : Signature} (h : Δ.Subset Δ') :
-    ∀ n ∈ Δ.allNames, n ∈ Δ'.allNames := by
-  intro n hn
-  simp only [allNames, List.mem_append, List.mem_map] at hn ⊢
-  rcases hn with ⟨⟨⟨⟨⟨⟨v, hv, rfl⟩ | ⟨c, hc, rfl⟩⟩ | ⟨u, hu, rfl⟩⟩ | ⟨b, hb, rfl⟩⟩ | ⟨t, ht, rfl⟩⟩ | ⟨u, hu, rfl⟩⟩ | ⟨b, hb, rfl⟩
-  · left; left; left; left; left; left; exact ⟨v, h.vars v hv, rfl⟩
-  · left; left; left; left; left; right; exact ⟨c, h.consts c hc, rfl⟩
-  · left; left; left; left; right; exact ⟨u, h.unary u hu, rfl⟩
-  · left; left; left; right; exact ⟨b, h.binary b hb, rfl⟩
-  · left; left; right; exact ⟨t, h.ternary t ht, rfl⟩
-  · left; right; exact ⟨u, h.unaryRel u hu, rfl⟩
-  · right; exact ⟨b, h.binaryRel b hb, rfl⟩
+theorem Subset.subset_addUnaryRel (Δ : Signature) (u : Decl.UnaryRel) :
+    Δ.Subset (Δ.addUnaryRel u) :=
+  ⟨fun _ h => h, fun _ h => h, fun _ h => h, fun _ h => h, fun _ h => h, fun _ hu => List.mem_cons_of_mem _ hu, fun _ h => h⟩
+
+theorem Subset.subset_addBinaryRel (Δ : Signature) (b : Decl.BinaryRel) :
+    Δ.Subset (Δ.addBinaryRel b) :=
+  ⟨fun _ h => h, fun _ h => h, fun _ h => h, fun _ h => h, fun _ h => h, fun _ h => h, fun _ hb => List.mem_cons_of_mem _ hb⟩
 
 theorem Subset.addVar {Δ Δ' : Signature} (h : Δ.Subset Δ') (v : Var) :
     (Δ.addVar v).Subset (Δ'.addVar v) :=
@@ -504,45 +343,6 @@ theorem Subset.addBinaryRel {Δ Δ' : Signature} (h : Δ.Subset Δ') (s : Decl.B
    h.unaryRel,
    fun x hx => by cases hx with | head => left | tail _ hmem => right; exact h.binaryRel x hmem⟩
 
-theorem Subset.subset_addVar (Δ : Signature) (v : Var) :
-    Δ.Subset (Δ.addVar v) :=
-  ⟨fun _ hx => List.mem_cons_of_mem _ hx, fun _ h => h, fun _ h => h, fun _ h => h, fun _ h => h, fun _ h => h, fun _ h => h⟩
-
-theorem Subset.subset_addConst (Δ : Signature) (c : Decl.Const) :
-    Δ.Subset (Δ.addConst c) :=
-  ⟨fun _ h => h, fun _ hc => List.mem_cons_of_mem _ hc, fun _ h => h, fun _ h => h, fun _ h => h, fun _ h => h, fun _ h => h⟩
-
-theorem Subset.subset_addUnary (Δ : Signature) (u : Decl.Unary) :
-    Δ.Subset (Δ.addUnary u) :=
-  ⟨fun _ h => h, fun _ h => h, fun _ hu => List.mem_cons_of_mem _ hu, fun _ h => h, fun _ h => h, fun _ h => h, fun _ h => h⟩
-
-theorem Subset.subset_addBinary (Δ : Signature) (b : Decl.Binary) :
-    Δ.Subset (Δ.addBinary b) :=
-  ⟨fun _ h => h, fun _ h => h, fun _ h => h, fun _ hb => List.mem_cons_of_mem _ hb, fun _ h => h, fun _ h => h, fun _ h => h⟩
-
-theorem Subset.subset_addTernary (Δ : Signature) (t : Decl.Ternary) :
-    Δ.Subset (Δ.addTernary t) :=
-  ⟨fun _ h => h, fun _ h => h, fun _ h => h, fun _ h => h,
-   fun _ ht => List.mem_cons_of_mem _ ht, fun _ h => h, fun _ h => h⟩
-
-theorem Subset.subset_addUnaryRel (Δ : Signature) (u : Decl.UnaryRel) :
-    Δ.Subset (Δ.addUnaryRel u) :=
-  ⟨fun _ h => h, fun _ h => h, fun _ h => h, fun _ h => h, fun _ h => h, fun _ hu => List.mem_cons_of_mem _ hu, fun _ h => h⟩
-
-theorem Subset.subset_addBinaryRel (Δ : Signature) (b : Decl.BinaryRel) :
-    Δ.Subset (Δ.addBinaryRel b) :=
-  ⟨fun _ h => h, fun _ h => h, fun _ h => h, fun _ h => h, fun _ h => h, fun _ h => h, fun _ hb => List.mem_cons_of_mem _ hb⟩
-
-theorem Subset.trans {Δ₁ Δ₂ Δ₃ : Signature} (h₁₂ : Δ₁.Subset Δ₂) (h₂₃ : Δ₂.Subset Δ₃) :
-    Δ₁.Subset Δ₃ :=
-  ⟨fun x hx => h₂₃.vars x (h₁₂.vars x hx),
-   fun c hc => h₂₃.consts c (h₁₂.consts c hc),
-   fun u hu => h₂₃.unary u (h₁₂.unary u hu),
-   fun b hb => h₂₃.binary b (h₁₂.binary b hb),
-   fun t ht => h₂₃.ternary t (h₁₂.ternary t ht),
-   fun u hu => h₂₃.unaryRel u (h₁₂.unaryRel u hu),
-   fun b hb => h₂₃.binaryRel b (h₁₂.binaryRel b hb)⟩
-
 theorem remove_subset (Δ : Signature) (x : String) : (Δ.remove x).Subset Δ :=
   ⟨fun _ h => (mem_remove_vars.mp h).1,
    fun _ h => (mem_remove_consts.mp h).1,
@@ -552,85 +352,131 @@ theorem remove_subset (Δ : Signature) (x : String) : (Δ.remove x).Subset Δ :=
    fun _ h => (mem_remove_unaryRel.mp h).1,
    fun _ h => (mem_remove_binaryRel.mp h).1⟩
 
+theorem Subset.remove {Δ Δ' : Signature} (h : Δ.Subset Δ') (x : String) :
+    (Δ.remove x).Subset (Δ'.remove x) := by
+  constructor
+  · intro v hv
+    rcases mem_remove_vars.mp hv with ⟨hv, hx⟩
+    exact mem_remove_vars.mpr ⟨h.vars v hv, hx⟩
+  · intro c hc
+    rcases mem_remove_consts.mp hc with ⟨hc, hx⟩
+    exact mem_remove_consts.mpr ⟨h.consts c hc, hx⟩
+  · intro u hu
+    rcases mem_remove_unary.mp hu with ⟨hu, hx⟩
+    exact mem_remove_unary.mpr ⟨h.unary u hu, hx⟩
+  · intro b hb
+    rcases mem_remove_binary.mp hb with ⟨hb, hx⟩
+    exact mem_remove_binary.mpr ⟨h.binary b hb, hx⟩
+  · intro t ht
+    rcases mem_remove_ternary.mp ht with ⟨ht, hx⟩
+    exact mem_remove_ternary.mpr ⟨h.ternary t ht, hx⟩
+  · intro u hu
+    rcases mem_remove_unaryRel.mp hu with ⟨hu, hx⟩
+    exact mem_remove_unaryRel.mpr ⟨h.unaryRel u hu, hx⟩
+  · intro b hb
+    rcases mem_remove_binaryRel.mp hb with ⟨hb, hx⟩
+    exact mem_remove_binaryRel.mpr ⟨h.binaryRel b hb, hx⟩
+
+theorem Subset.declVar {Δ Δ' : Signature} (h : Δ.Subset Δ') (v : Var) :
+    (Δ.declVar v).Subset (Δ'.declVar v) := by
+  simpa [declVar] using (Subset.addVar (Subset.remove h v.name) v)
+
+theorem Subset.declVars {Δ Δ' : Signature} (h : Δ.Subset Δ') (vs : List Var) :
+    (Δ.declVars vs).Subset (Δ'.declVars vs) := by
+  induction vs generalizing Δ Δ' with
+  | nil => simpa [declVars] using h
+  | cons v vs ih =>
+    simpa [declVars] using ih (Subset.declVar h v)
+
+/-- Declaring a variable whose name is fresh for the signature extends it. -/
+theorem subset_declVar_of_fresh {Δ : Signature} {v : Var}
+    (hfresh : v.name ∉ Δ.allNames) : Δ.Subset (Δ.declVar v) := by
+  have heq : Δ.declVar v = Δ.addVar v := by
+    show (Δ.remove v.name).addVar v = Δ.addVar v
+    rw [Signature.remove_eq_of_not_in hfresh]
+  rw [heq]
+  exact Signature.Subset.subset_addVar Δ v
+
+theorem allNames_subset {Δ Δ' : Signature} (h : Δ.Subset Δ') :
+    ∀ n ∈ Δ.allNames, n ∈ Δ'.allNames := by
+  intro n hn
+  simp only [allNames, List.mem_append, List.mem_map] at hn ⊢
+  rcases hn with ⟨⟨⟨⟨⟨⟨v, hv, rfl⟩ | ⟨c, hc, rfl⟩⟩ | ⟨u, hu, rfl⟩⟩ | ⟨b, hb, rfl⟩⟩ | ⟨t, ht, rfl⟩⟩ | ⟨u, hu, rfl⟩⟩ | ⟨b, hb, rfl⟩
+  · left; left; left; left; left; left; exact ⟨v, h.vars v hv, rfl⟩
+  · left; left; left; left; left; right; exact ⟨c, h.consts c hc, rfl⟩
+  · left; left; left; left; right; exact ⟨u, h.unary u hu, rfl⟩
+  · left; left; left; right; exact ⟨b, h.binary b hb, rfl⟩
+  · left; left; right; exact ⟨t, h.ternary t ht, rfl⟩
+  · left; right; exact ⟨u, h.unaryRel u hu, rfl⟩
+  · right; exact ⟨b, h.binaryRel b hb, rfl⟩
+
 theorem remove_allNames_subset {Δ : Signature} {x n : String} (h : n ∈ (Δ.remove x).allNames) :
     n ∈ Δ.allNames :=
   allNames_subset (remove_subset Δ x) _ h
 
-theorem remove_eq_of_not_in {Δ : Signature} {x : String} (h : x ∉ Δ.allNames) :
-    Δ.remove x = Δ := by
+theorem mem_allNames_of_var {Δ : Signature} {v : Var} (h : v ∈ Δ.vars) :
+    v.name ∈ Δ.allNames := by
+  simp [allNames]
+  exact Or.inl ⟨v, h, rfl⟩
+
+theorem mem_allNames_of_const {Δ : Signature} {c : Decl.Const} (h : c ∈ Δ.consts) :
+    c.name ∈ Δ.allNames := by
+  simp [allNames]
+  exact Or.inr (Or.inl ⟨c, h, rfl⟩)
+
+theorem mem_allNames_of_unary {Δ : Signature} {u : Decl.Unary} (h : u ∈ Δ.unary) :
+    u.name ∈ Δ.allNames := by
+  simp [allNames]
+  exact Or.inr (Or.inr (Or.inl ⟨u, h, rfl⟩))
+
+theorem mem_allNames_of_binary {Δ : Signature} {b : Decl.Binary} (h : b ∈ Δ.binary) :
+    b.name ∈ Δ.allNames := by
+  simp [allNames]
+  exact Or.inr (Or.inr (Or.inr (Or.inl ⟨b, h, rfl⟩)))
+
+theorem mem_allNames_of_ternary {Δ : Signature} {t : Decl.Ternary} (h : t ∈ Δ.ternary) :
+    t.name ∈ Δ.allNames := by
+  simp [allNames]
+  exact Or.inr (Or.inr (Or.inr (Or.inr (Or.inl ⟨t, h, rfl⟩))))
+
+theorem mem_allNames_of_unaryRel {Δ : Signature} {u : Decl.UnaryRel} (h : u ∈ Δ.unaryRel) :
+    u.name ∈ Δ.allNames := by
+  simp [allNames]
+  exact Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inl ⟨u, h, rfl⟩)))))
+
+theorem mem_allNames_of_binaryRel {Δ : Signature} {b : Decl.BinaryRel} (h : b ∈ Δ.binaryRel) :
+    b.name ∈ Δ.allNames := by
+  simp [allNames]
+  exact Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr ⟨b, h, rfl⟩)))))
+
+theorem remove_allNames {Δ : Signature} {n x : String} (h : n ∈ (Δ.remove x).allNames) :
+    n ≠ x := by
+  intro hnx
+  subst hnx
   cases Δ with
   | mk vars consts unary binary ternary unaryRel binaryRel =>
-    simp [allNames] at h
-    rcases h with ⟨hvars, hconsts, hunary, hbinary, hternary, hunaryRel, hbinaryRel⟩
-    have hvars' : List.filter (fun v : Var => v.name != x) vars = vars := by
-      apply List.filter_eq_self.2
-      intro v hv
-      simp [hvars v hv]
-    have hconsts' : List.filter (fun c : Decl.Const => c.name != x) consts = consts := by
-      apply List.filter_eq_self.2
-      intro c hc
-      simp [hconsts c hc]
-    have hunary' : List.filter (fun u : Decl.Unary => u.name != x) unary = unary := by
-      apply List.filter_eq_self.2
-      intro u hu
-      simp [hunary u hu]
-    have hbinary' : List.filter (fun b : Decl.Binary => b.name != x) binary = binary := by
-      apply List.filter_eq_self.2
-      intro b hb
-      simp [hbinary b hb]
-    have hternary' : List.filter (fun t : Decl.Ternary => t.name != x) ternary = ternary := by
-      apply List.filter_eq_self.2
-      intro t ht
-      simp [hternary t ht]
-    have hunaryRel' : List.filter (fun u : Decl.UnaryRel => u.name != x) unaryRel = unaryRel := by
-      apply List.filter_eq_self.2
-      intro u hu
-      simp [hunaryRel u hu]
-    have hbinaryRel' : List.filter (fun b : Decl.BinaryRel => b.name != x) binaryRel = binaryRel := by
-      apply List.filter_eq_self.2
-      intro b hb
-      simp [hbinaryRel b hb]
-    simp [remove,
-      hvars', hconsts', hunary', hbinary', hternary', hunaryRel', hbinaryRel']
+    simp [allNames, remove] at h
+    rcases h with h | h | h | h | h | h | h
+    · rcases h with ⟨v, hv, hname⟩
+      exact (hv.2 hname).elim
+    · rcases h with ⟨c, hc, hname⟩
+      exact (hc.2 hname).elim
+    · rcases h with ⟨u, hu, hname⟩
+      exact (hu.2 hname).elim
+    · rcases h with ⟨b, hb, hname⟩
+      exact (hb.2 hname).elim
+    · rcases h with ⟨t, ht, hname⟩
+      exact (ht.2 hname).elim
+    · rcases h with ⟨u, hu, hname⟩
+      exact (hu.2 hname).elim
+    · rcases h with ⟨b, hb, hname⟩
+      exact (hb.2 hname).elim
 
-private theorem allNames_remove_sublist (Δ : Signature) (x : String) :
-    List.Sublist (Δ.remove x).allNames Δ.allNames := by
-  cases Δ with
-  | mk vars consts unary binary ternary unaryRel binaryRel =>
-    simp [remove, allNames]
-    apply List.Sublist.append
-    · exact (List.filter_sublist (l := vars) (p := fun v : Var => v.name != x)).map Var.name
-    · apply List.Sublist.append
-      · exact (List.filter_sublist (l := consts) (p := fun c : Decl.Const => c.name != x)).map Decl.Const.name
-      · apply List.Sublist.append
-        · exact (List.filter_sublist (l := unary) (p := fun u : Decl.Unary => u.name != x)).map Decl.Unary.name
-        · apply List.Sublist.append
-          · exact (List.filter_sublist (l := binary) (p := fun b : Decl.Binary => b.name != x)).map Decl.Binary.name
-          · apply List.Sublist.append
-            · exact (List.filter_sublist (l := ternary) (p := fun t : Decl.Ternary => t.name != x)).map Decl.Ternary.name
-            · apply List.Sublist.append
-              · exact (List.filter_sublist (l := unaryRel) (p := fun u : Decl.UnaryRel => u.name != x)).map Decl.UnaryRel.name
-              · exact (List.filter_sublist (l := binaryRel) (p := fun b : Decl.BinaryRel => b.name != x)).map Decl.BinaryRel.name
-
-theorem wf_remove {Δ : Signature} (hΔ : Δ.wf) (x : String) : (Δ.remove x).wf := by
-  rw [wf] at hΔ ⊢
-  exact hΔ.sublist (allNames_remove_sublist Δ x)
-
-private theorem wf_remove_addVar {Δ : Signature} {x : String} {τ : Srt}
-    (hΔ : Δ.wf) : ((Δ.remove x).addVar ⟨x, τ⟩).wf := by
-  apply wf_addVar (wf_remove hΔ x)
-  intro hx
-  exact remove_allNames hx rfl
-
-theorem wf_declVar {Δ : Signature} {v : Var} (hΔ : Δ.wf) : (Δ.declVar v).wf := by
-  simpa [declVar] using (wf_remove_addVar (Δ := Δ) (x := v.name) (τ := v.sort) hΔ)
-
-theorem wf_declVars {Δ : Signature} {vs : List Var} (hΔ : Δ.wf) : (Δ.declVars vs).wf := by
-  induction vs generalizing Δ with
-  | nil =>
-    simpa [declVars] using hΔ
-  | cons v vs ih =>
-    simpa [declVars] using ih (wf_declVar (Δ := Δ) (v := v) hΔ)
+/-- Declaring a variable whose name is fresh just prepends that name. -/
+theorem allNames_declVar_of_not_in {Δ : Signature} {x : String} {τ : Srt}
+    (h : x ∉ Δ.allNames) : (Δ.declVar ⟨x, τ⟩).allNames = x :: Δ.allNames := by
+  rw [declVar, remove_eq_of_not_in h]
+  simp [allNames, addVar]
 
 /-! ### Names absent after adding a symbol -/
 
@@ -670,53 +516,166 @@ theorem not_mem_allNames_declVar {Δ : Signature} {v : Var} {x : String}
   | head => exact hv rfl
   | tail _ htail => exact hΔ (Signature.remove_allNames_subset htail)
 
-/-- Declaring a variable whose name is fresh for the signature extends it. -/
-theorem subset_declVar_of_fresh {Δ : Signature} {v : Var}
-    (hfresh : v.name ∉ Δ.allNames) : Δ.Subset (Δ.declVar v) := by
-  have heq : Δ.declVar v = Δ.addVar v := by
-    show (Δ.remove v.name).addVar v = Δ.addVar v
-    rw [Signature.remove_eq_of_not_in hfresh]
-  rw [heq]
-  exact Signature.Subset.subset_addVar Δ v
+theorem wf_addVar {Δ : Signature} {v : Var}
+    (hΔ : Δ.wf) (hfresh : v.name ∉ Δ.allNames) : (Δ.addVar v).wf := by
+  unfold wf at hΔ ⊢
+  suffices h : (Δ.addVar v).allNames.Perm (v.name :: Δ.allNames) from
+    h.nodup_iff.mpr (List.nodup_cons.mpr ⟨hfresh, hΔ⟩)
+  show ((v :: Δ.vars).map Var.name ++ Δ.consts.map Decl.Const.name ++
+    Δ.unary.map Decl.Unary.name ++ Δ.binary.map Decl.Binary.name ++
+    Δ.ternary.map Decl.Ternary.name ++
+    Δ.unaryRel.map Decl.UnaryRel.name ++ Δ.binaryRel.map Decl.BinaryRel.name).Perm
+    (v.name :: (Δ.vars.map Var.name ++ Δ.consts.map Decl.Const.name ++
+    Δ.unary.map Decl.Unary.name ++ Δ.binary.map Decl.Binary.name ++
+    Δ.ternary.map Decl.Ternary.name ++
+    Δ.unaryRel.map Decl.UnaryRel.name ++ Δ.binaryRel.map Decl.BinaryRel.name))
+  simp
 
-/-- A freshly declared variable is in the resulting signature's variables. -/
-theorem var_mem_declVar (Δ : Signature) (v : Var) : v ∈ (Δ.declVar v).vars :=
-  List.Mem.head _
+theorem wf_addConst {Δ : Signature} {c : Decl.Const}
+    (hΔ : Δ.wf) (hfresh : c.name ∉ Δ.allNames) : (Δ.addConst c).wf := by
+  unfold wf at hΔ ⊢
+  suffices h : (Δ.addConst c).allNames.Perm (c.name :: Δ.allNames) from
+    h.nodup_iff.mpr (List.nodup_cons.mpr ⟨hfresh, hΔ⟩)
+  show (Δ.vars.map Var.name ++ (c.name :: Δ.consts.map Decl.Const.name) ++
+    Δ.unary.map Decl.Unary.name ++ Δ.binary.map Decl.Binary.name ++
+    Δ.ternary.map Decl.Ternary.name ++
+    Δ.unaryRel.map Decl.UnaryRel.name ++ Δ.binaryRel.map Decl.BinaryRel.name).Perm
+    (c.name :: (Δ.vars.map Var.name ++ Δ.consts.map Decl.Const.name ++
+    Δ.unary.map Decl.Unary.name ++ Δ.binary.map Decl.Binary.name ++
+    Δ.ternary.map Decl.Ternary.name ++
+    Δ.unaryRel.map Decl.UnaryRel.name ++ Δ.binaryRel.map Decl.BinaryRel.name))
+  simp only [List.append_assoc]
+  exact List.perm_middle
 
-/-- Declaring a variable whose name is fresh just prepends that name. -/
-theorem allNames_declVar_of_not_in {Δ : Signature} {x : String} {τ : Srt}
-    (h : x ∉ Δ.allNames) : (Δ.declVar ⟨x, τ⟩).allNames = x :: Δ.allNames := by
-  rw [declVar, remove_eq_of_not_in h]
-  simp [allNames, addVar]
+theorem wf_addUnary {Δ : Signature} {u : Decl.Unary}
+    (hΔ : Δ.wf) (hfresh : u.name ∉ Δ.allNames) : (Δ.addUnary u).wf := by
+  unfold wf at hΔ ⊢
+  suffices h : (Δ.addUnary u).allNames.Perm (u.name :: Δ.allNames) from
+    h.nodup_iff.mpr (List.nodup_cons.mpr ⟨hfresh, hΔ⟩)
+  show (Δ.vars.map Var.name ++ Δ.consts.map Decl.Const.name ++
+    (u.name :: Δ.unary.map Decl.Unary.name) ++ Δ.binary.map Decl.Binary.name ++
+    Δ.ternary.map Decl.Ternary.name ++
+    Δ.unaryRel.map Decl.UnaryRel.name ++ Δ.binaryRel.map Decl.BinaryRel.name).Perm
+    (u.name :: (Δ.vars.map Var.name ++ Δ.consts.map Decl.Const.name ++
+    Δ.unary.map Decl.Unary.name ++ Δ.binary.map Decl.Binary.name ++
+    Δ.ternary.map Decl.Ternary.name ++
+    Δ.unaryRel.map Decl.UnaryRel.name ++ Δ.binaryRel.map Decl.BinaryRel.name))
+  change ((Δ.vars.map Var.name ++ Δ.consts.map Decl.Const.name ++
+    u.name :: Δ.unary.map Decl.Unary.name) ++ Δ.binary.map Decl.Binary.name ++
+    Δ.ternary.map Decl.Ternary.name ++
+    Δ.unaryRel.map Decl.UnaryRel.name ++ Δ.binaryRel.map Decl.BinaryRel.name).Perm
+    (u.name :: (((Δ.vars.map Var.name ++ Δ.consts.map Decl.Const.name ++
+    Δ.unary.map Decl.Unary.name) ++ Δ.binary.map Decl.Binary.name) ++
+    Δ.ternary.map Decl.Ternary.name ++
+    Δ.unaryRel.map Decl.UnaryRel.name ++ Δ.binaryRel.map Decl.BinaryRel.name))
+  exact (((List.perm_middle.append_right _).append_right _).append_right _).append_right _
 
-/-- Declaring a variable whose name is fresh leaves the other variables alone. -/
-theorem vars_declVar_of_not_in {Δ : Signature} {v : Var}
-    (h : v.name ∉ Δ.allNames) : (Δ.declVar v).vars = v :: Δ.vars := by
-  rw [declVar, remove_eq_of_not_in h]
-  rfl
+theorem wf_addBinary {Δ : Signature} {b : Decl.Binary}
+    (hΔ : Δ.wf) (hfresh : b.name ∉ Δ.allNames) : (Δ.addBinary b).wf := by
+  unfold wf at hΔ ⊢
+  suffices h : (Δ.addBinary b).allNames.Perm (b.name :: Δ.allNames) from
+    h.nodup_iff.mpr (List.nodup_cons.mpr ⟨hfresh, hΔ⟩)
+  show (Δ.vars.map Var.name ++ Δ.consts.map Decl.Const.name ++
+    Δ.unary.map Decl.Unary.name ++ (b.name :: Δ.binary.map Decl.Binary.name) ++
+    Δ.ternary.map Decl.Ternary.name ++
+    Δ.unaryRel.map Decl.UnaryRel.name ++ Δ.binaryRel.map Decl.BinaryRel.name).Perm
+    (b.name :: (Δ.vars.map Var.name ++ Δ.consts.map Decl.Const.name ++
+    Δ.unary.map Decl.Unary.name ++ Δ.binary.map Decl.Binary.name ++
+    Δ.ternary.map Decl.Ternary.name ++
+    Δ.unaryRel.map Decl.UnaryRel.name ++ Δ.binaryRel.map Decl.BinaryRel.name))
+  change ((Δ.vars.map Var.name ++ Δ.consts.map Decl.Const.name ++
+    Δ.unary.map Decl.Unary.name ++ b.name :: Δ.binary.map Decl.Binary.name) ++
+    Δ.ternary.map Decl.Ternary.name ++
+    Δ.unaryRel.map Decl.UnaryRel.name ++ Δ.binaryRel.map Decl.BinaryRel.name).Perm
+    (b.name :: (((Δ.vars.map Var.name ++ Δ.consts.map Decl.Const.name ++
+    Δ.unary.map Decl.Unary.name) ++ Δ.binary.map Decl.Binary.name) ++
+    Δ.ternary.map Decl.Ternary.name ++
+    Δ.unaryRel.map Decl.UnaryRel.name ++ Δ.binaryRel.map Decl.BinaryRel.name))
+  exact ((List.perm_middle.append_right _).append_right _).append_right _
 
-/-- Declaring a variable on both sides preserves symbol inclusion, provided the
-new name on the right is fresh there: the symbols carried over from `Δ` already
-live in `Δ'`, so they cannot be the ones `declVar y'` drops. -/
-theorem SymbolSubset.declVar_fresh {Δ Δ' : Signature} {y y' : String} {τ : Srt}
-    (h : Δ.SymbolSubset Δ') (hfresh : y' ∉ Δ'.allNames) :
-    (Δ.declVar ⟨y, τ⟩).SymbolSubset (Δ'.declVar ⟨y', τ⟩) := by
-  constructor <;> intro s hs <;>
-    simp only [Signature.mem_declVar_consts, Signature.mem_declVar_unary,
-      Signature.mem_declVar_binary, Signature.mem_declVar_ternary,
-      Signature.mem_declVar_unaryRel, Signature.mem_declVar_binaryRel] at hs ⊢
-  · exact ⟨h.consts s hs.1, fun hEq =>
-      hfresh (hEq ▸ Signature.mem_allNames_of_const (h.consts s hs.1))⟩
-  · exact ⟨h.unary s hs.1, fun hEq =>
-      hfresh (hEq ▸ Signature.mem_allNames_of_unary (h.unary s hs.1))⟩
-  · exact ⟨h.binary s hs.1, fun hEq =>
-      hfresh (hEq ▸ Signature.mem_allNames_of_binary (h.binary s hs.1))⟩
-  · exact ⟨h.ternary s hs.1, fun hEq =>
-      hfresh (hEq ▸ Signature.mem_allNames_of_ternary (h.ternary s hs.1))⟩
-  · exact ⟨h.unaryRel s hs.1, fun hEq =>
-      hfresh (hEq ▸ Signature.mem_allNames_of_unaryRel (h.unaryRel s hs.1))⟩
-  · exact ⟨h.binaryRel s hs.1, fun hEq =>
-      hfresh (hEq ▸ Signature.mem_allNames_of_binaryRel (h.binaryRel s hs.1))⟩
+theorem wf_addTernary {Δ : Signature} {t : Decl.Ternary}
+    (hΔ : Δ.wf) (hfresh : t.name ∉ Δ.allNames) : (Δ.addTernary t).wf := by
+  unfold wf at hΔ ⊢
+  suffices h : (Δ.addTernary t).allNames.Perm (t.name :: Δ.allNames) from
+    h.nodup_iff.mpr (List.nodup_cons.mpr ⟨hfresh, hΔ⟩)
+  show (Δ.vars.map Var.name ++ Δ.consts.map Decl.Const.name ++
+    Δ.unary.map Decl.Unary.name ++ Δ.binary.map Decl.Binary.name ++
+    (t.name :: Δ.ternary.map Decl.Ternary.name) ++
+    Δ.unaryRel.map Decl.UnaryRel.name ++ Δ.binaryRel.map Decl.BinaryRel.name).Perm
+    (t.name :: (Δ.vars.map Var.name ++ Δ.consts.map Decl.Const.name ++
+    Δ.unary.map Decl.Unary.name ++ Δ.binary.map Decl.Binary.name ++
+    Δ.ternary.map Decl.Ternary.name ++
+    Δ.unaryRel.map Decl.UnaryRel.name ++ Δ.binaryRel.map Decl.BinaryRel.name))
+  exact (List.perm_middle.append_right _).append_right _
+
+theorem wf_addUnaryRel {Δ : Signature} {u : Decl.UnaryRel}
+    (hΔ : Δ.wf) (hfresh : u.name ∉ Δ.allNames) : (Δ.addUnaryRel u).wf := by
+  unfold wf at hΔ ⊢
+  suffices h : (Δ.addUnaryRel u).allNames.Perm (u.name :: Δ.allNames) from
+    h.nodup_iff.mpr (List.nodup_cons.mpr ⟨hfresh, hΔ⟩)
+  show (Δ.vars.map Var.name ++ Δ.consts.map Decl.Const.name ++
+    Δ.unary.map Decl.Unary.name ++ Δ.binary.map Decl.Binary.name ++
+    Δ.ternary.map Decl.Ternary.name ++
+    (u.name :: Δ.unaryRel.map Decl.UnaryRel.name) ++ Δ.binaryRel.map Decl.BinaryRel.name).Perm
+    (u.name :: (Δ.vars.map Var.name ++ Δ.consts.map Decl.Const.name ++
+    Δ.unary.map Decl.Unary.name ++ Δ.binary.map Decl.Binary.name ++
+    Δ.ternary.map Decl.Ternary.name ++
+    Δ.unaryRel.map Decl.UnaryRel.name ++ Δ.binaryRel.map Decl.BinaryRel.name))
+  exact (List.perm_middle.append_right _)
+
+theorem wf_addBinaryRel {Δ : Signature} {b : Decl.BinaryRel}
+    (hΔ : Δ.wf) (hfresh : b.name ∉ Δ.allNames) : (Δ.addBinaryRel b).wf := by
+  unfold wf at hΔ ⊢
+  suffices h : (Δ.addBinaryRel b).allNames.Perm (b.name :: Δ.allNames) from
+    h.nodup_iff.mpr (List.nodup_cons.mpr ⟨hfresh, hΔ⟩)
+  show (Δ.vars.map Var.name ++ Δ.consts.map Decl.Const.name ++
+    Δ.unary.map Decl.Unary.name ++ Δ.binary.map Decl.Binary.name ++
+    Δ.ternary.map Decl.Ternary.name ++
+    Δ.unaryRel.map Decl.UnaryRel.name ++ (b.name :: Δ.binaryRel.map Decl.BinaryRel.name)).Perm
+    (b.name :: (Δ.vars.map Var.name ++ Δ.consts.map Decl.Const.name ++
+    Δ.unary.map Decl.Unary.name ++ Δ.binary.map Decl.Binary.name ++
+    Δ.ternary.map Decl.Ternary.name ++
+    Δ.unaryRel.map Decl.UnaryRel.name ++ Δ.binaryRel.map Decl.BinaryRel.name))
+  exact List.perm_middle
+
+private theorem allNames_remove_sublist (Δ : Signature) (x : String) :
+    List.Sublist (Δ.remove x).allNames Δ.allNames := by
+  cases Δ with
+  | mk vars consts unary binary ternary unaryRel binaryRel =>
+    simp [remove, allNames]
+    apply List.Sublist.append
+    · exact (List.filter_sublist (l := vars) (p := fun v : Var => v.name != x)).map Var.name
+    · apply List.Sublist.append
+      · exact (List.filter_sublist (l := consts) (p := fun c : Decl.Const => c.name != x)).map Decl.Const.name
+      · apply List.Sublist.append
+        · exact (List.filter_sublist (l := unary) (p := fun u : Decl.Unary => u.name != x)).map Decl.Unary.name
+        · apply List.Sublist.append
+          · exact (List.filter_sublist (l := binary) (p := fun b : Decl.Binary => b.name != x)).map Decl.Binary.name
+          · apply List.Sublist.append
+            · exact (List.filter_sublist (l := ternary) (p := fun t : Decl.Ternary => t.name != x)).map Decl.Ternary.name
+            · apply List.Sublist.append
+              · exact (List.filter_sublist (l := unaryRel) (p := fun u : Decl.UnaryRel => u.name != x)).map Decl.UnaryRel.name
+              · exact (List.filter_sublist (l := binaryRel) (p := fun b : Decl.BinaryRel => b.name != x)).map Decl.BinaryRel.name
+
+theorem wf_remove {Δ : Signature} (hΔ : Δ.wf) (x : String) : (Δ.remove x).wf := by
+  rw [wf] at hΔ ⊢
+  exact hΔ.sublist (allNames_remove_sublist Δ x)
+
+private theorem wf_remove_addVar {Δ : Signature} {x : String} {τ : Srt}
+    (hΔ : Δ.wf) : ((Δ.remove x).addVar ⟨x, τ⟩).wf := by
+  apply wf_addVar (wf_remove hΔ x)
+  intro hx
+  exact remove_allNames hx rfl
+
+theorem wf_declVar {Δ : Signature} {v : Var} (hΔ : Δ.wf) : (Δ.declVar v).wf := by
+  simpa [declVar] using (wf_remove_addVar (Δ := Δ) (x := v.name) (τ := v.sort) hΔ)
+
+theorem wf_declVars {Δ : Signature} {vs : List Var} (hΔ : Δ.wf) : (Δ.declVars vs).wf := by
+  induction vs generalizing Δ with
+  | nil =>
+    simpa [declVars] using hΔ
+  | cons v vs ih =>
+    simpa [declVars] using ih (wf_declVar (Δ := Δ) (v := v) hΔ)
 
 private theorem unique_sort_of_nodup_map_name {l : List Var} {x : String} {τ τ' : Srt}
     (hnd : (l.map Var.name).Nodup) (hv : ⟨x, τ⟩ ∈ l) (hv' : ⟨x, τ'⟩ ∈ l) : τ' = τ := by
@@ -949,40 +908,81 @@ theorem wf_no_binaryRel_of_binary {Δ : Signature} {x : String} {τ₁ τ₂ τ�
     List.mem_map.mpr ⟨(⟨x, τ₁', τ₂'⟩ : Decl.BinaryRel), hrel, rfl⟩
   exact hdisj x hxb x hxr rfl
 
-theorem Subset.remove {Δ Δ' : Signature} (h : Δ.Subset Δ') (x : String) :
-    (Δ.remove x).Subset (Δ'.remove x) := by
+structure SymbolSubset (Δ₁ Δ₂ : Signature) : Prop where
+  consts : ∀ c ∈ Δ₁.consts, c ∈ Δ₂.consts
+  unary  : ∀ u ∈ Δ₁.unary, u ∈ Δ₂.unary
+  binary : ∀ b ∈ Δ₁.binary, b ∈ Δ₂.binary
+  ternary : ∀ t ∈ Δ₁.ternary, t ∈ Δ₂.ternary
+  unaryRel : ∀ u ∈ Δ₁.unaryRel, u ∈ Δ₂.unaryRel
+  binaryRel : ∀ b ∈ Δ₁.binaryRel, b ∈ Δ₂.binaryRel
+
+theorem SymbolSubset.refl (Δ : Signature) : Δ.SymbolSubset Δ :=
+  ⟨fun _ h => h, fun _ h => h, fun _ h => h, fun _ h => h, fun _ h => h, fun _ h => h⟩
+
+theorem SymbolSubset.trans {Δ₁ Δ₂ Δ₃ : Signature}
+    (h₁₂ : Δ₁.SymbolSubset Δ₂) (h₂₃ : Δ₂.SymbolSubset Δ₃) : Δ₁.SymbolSubset Δ₃ :=
+  ⟨fun c hc => h₂₃.consts c (h₁₂.consts c hc),
+   fun u hu => h₂₃.unary u (h₁₂.unary u hu),
+   fun b hb => h₂₃.binary b (h₁₂.binary b hb),
+   fun t ht => h₂₃.ternary t (h₁₂.ternary t ht),
+   fun u hu => h₂₃.unaryRel u (h₁₂.unaryRel u hu),
+   fun b hb => h₂₃.binaryRel b (h₁₂.binaryRel b hb)⟩
+
+theorem SymbolSubset.subset_addConst (Δ : Signature) (c : Decl.Const) :
+    Δ.SymbolSubset (Δ.addConst c) :=
+  ⟨fun _ hc' => List.mem_cons_of_mem _ hc', fun _ hu => hu, fun _ hb => hb,
+   fun _ ht => ht, fun _ hu => hu, fun _ hb => hb⟩
+
+theorem SymbolSubset.declVar {Δ Δ' : Signature} (h : Δ.SymbolSubset Δ') (v : Var) :
+    (Δ.declVar v).SymbolSubset Δ' := by
   constructor
-  · intro v hv
-    rcases mem_remove_vars.mp hv with ⟨hv, hx⟩
-    exact mem_remove_vars.mpr ⟨h.vars v hv, hx⟩
   · intro c hc
-    rcases mem_remove_consts.mp hc with ⟨hc, hx⟩
-    exact mem_remove_consts.mpr ⟨h.consts c hc, hx⟩
+    rcases Signature.mem_remove_consts.mp (by simpa [Signature.declVar, Signature.addVar] using hc) with ⟨hc, _⟩
+    exact h.consts c hc
   · intro u hu
-    rcases mem_remove_unary.mp hu with ⟨hu, hx⟩
-    exact mem_remove_unary.mpr ⟨h.unary u hu, hx⟩
+    rcases Signature.mem_remove_unary.mp (by simpa [Signature.declVar, Signature.addVar] using hu) with ⟨hu, _⟩
+    exact h.unary u hu
   · intro b hb
-    rcases mem_remove_binary.mp hb with ⟨hb, hx⟩
-    exact mem_remove_binary.mpr ⟨h.binary b hb, hx⟩
+    rcases Signature.mem_remove_binary.mp (by simpa [Signature.declVar, Signature.addVar] using hb) with ⟨hb, _⟩
+    exact h.binary b hb
   · intro t ht
-    rcases mem_remove_ternary.mp ht with ⟨ht, hx⟩
-    exact mem_remove_ternary.mpr ⟨h.ternary t ht, hx⟩
+    rcases Signature.mem_remove_ternary.mp (by simpa [Signature.declVar, Signature.addVar] using ht) with ⟨ht, _⟩
+    exact h.ternary t ht
   · intro u hu
-    rcases mem_remove_unaryRel.mp hu with ⟨hu, hx⟩
-    exact mem_remove_unaryRel.mpr ⟨h.unaryRel u hu, hx⟩
+    rcases Signature.mem_remove_unaryRel.mp (by simpa [Signature.declVar, Signature.addVar] using hu) with ⟨hu, _⟩
+    exact h.unaryRel u hu
   · intro b hb
-    rcases mem_remove_binaryRel.mp hb with ⟨hb, hx⟩
-    exact mem_remove_binaryRel.mpr ⟨h.binaryRel b hb, hx⟩
+    rcases Signature.mem_remove_binaryRel.mp (by simpa [Signature.declVar, Signature.addVar] using hb) with ⟨hb, _⟩
+    exact h.binaryRel b hb
 
-theorem Subset.declVar {Δ Δ' : Signature} (h : Δ.Subset Δ') (v : Var) :
-    (Δ.declVar v).Subset (Δ'.declVar v) := by
-  simpa [declVar] using (Subset.addVar (Subset.remove h v.name) v)
-
-theorem Subset.declVars {Δ Δ' : Signature} (h : Δ.Subset Δ') (vs : List Var) :
-    (Δ.declVars vs).Subset (Δ'.declVars vs) := by
-  induction vs generalizing Δ Δ' with
+/-- Declaring variables adds no non-variable symbols, so a symbol-subset survives. -/
+theorem SymbolSubset.declVars {Δ Δ' : Signature} (h : Δ.SymbolSubset Δ') (vs : List Var) :
+    (Δ.declVars vs).SymbolSubset Δ' := by
+  induction vs generalizing Δ with
   | nil => simpa [declVars] using h
-  | cons v vs ih =>
-    simpa [declVars] using ih (Subset.declVar h v)
+  | cons v vs ih => simpa [declVars] using ih (SymbolSubset.declVar h v)
+
+/-- Declaring a variable on both sides preserves symbol inclusion, provided the
+new name on the right is fresh there: the symbols carried over from `Δ` already
+live in `Δ'`, so they cannot be the ones `declVar y'` drops. -/
+theorem SymbolSubset.declVar_fresh {Δ Δ' : Signature} {y y' : String} {τ : Srt}
+    (h : Δ.SymbolSubset Δ') (hfresh : y' ∉ Δ'.allNames) :
+    (Δ.declVar ⟨y, τ⟩).SymbolSubset (Δ'.declVar ⟨y', τ⟩) := by
+  constructor <;> intro s hs <;>
+    simp only [Signature.mem_declVar_consts, Signature.mem_declVar_unary,
+      Signature.mem_declVar_binary, Signature.mem_declVar_ternary,
+      Signature.mem_declVar_unaryRel, Signature.mem_declVar_binaryRel] at hs ⊢
+  · exact ⟨h.consts s hs.1, fun hEq =>
+      hfresh (hEq ▸ Signature.mem_allNames_of_const (h.consts s hs.1))⟩
+  · exact ⟨h.unary s hs.1, fun hEq =>
+      hfresh (hEq ▸ Signature.mem_allNames_of_unary (h.unary s hs.1))⟩
+  · exact ⟨h.binary s hs.1, fun hEq =>
+      hfresh (hEq ▸ Signature.mem_allNames_of_binary (h.binary s hs.1))⟩
+  · exact ⟨h.ternary s hs.1, fun hEq =>
+      hfresh (hEq ▸ Signature.mem_allNames_of_ternary (h.ternary s hs.1))⟩
+  · exact ⟨h.unaryRel s hs.1, fun hEq =>
+      hfresh (hEq ▸ Signature.mem_allNames_of_unaryRel (h.unaryRel s hs.1))⟩
+  · exact ⟨h.binaryRel s hs.1, fun hEq =>
+      hfresh (hEq ▸ Signature.mem_allNames_of_binaryRel (h.binaryRel s hs.1))⟩
 
 end Signature
