@@ -96,6 +96,9 @@ When adding or renaming declarations, keep the outlines meaningful:
 Claude Code users can invoke it as `/style`. Other agents can obey the file
 directly.
 
+`docs/folder-cleanup.md` is a procedure that restructures a folder together with
+the user, as a series of commits. Claude Code users can invoke it as `/cleanup`.
+
 **Naming:**
 - Prefer elegant single-word names for definitions (e.g., `eval`, `translate`, `correct`), not multi-word camelCase.
 - Theorems: namespaced under the definition with dots. Suffixes: `_refl`, `_symm`, `_trans`, `_mono`, `_injective`, `_iff`, `_of_X` (from X), `X_of_` (to X).
