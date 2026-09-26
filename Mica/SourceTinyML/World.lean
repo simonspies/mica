@@ -87,4 +87,29 @@ theorem World.agrees.eta {W : World} {Δ : Signature} {ρ : Env}
   subset := h.subset
   agree := h.agree
 
+/-- `W'` extends `W`: it keeps the runtime and the type assignment, and it has
+    more types and spec symbols, with the same meaning for the old ones. -/
+structure World.Subset (W W' : World) : Prop where
+  pctx : W'.pctx = W.pctx
+  eta : W'.eta = W.eta
+  types : ∀ t d, W.Θ t = some d → W'.Θ t = some d
+  signature : W.Δ_spec.Subset W'.Δ_spec
+  agree : Env.agreeOn W.Δ_spec W.ρ_spec W'.ρ_spec
+
+theorem World.subset_refl (W : World) : W.Subset W where
+  pctx := rfl
+  eta := rfl
+  types _ _ h := h
+  signature := Signature.Subset.refl _
+  agree := Env.agreeOn_refl
+
+/-- Both worlds at the assignment `η`. -/
+theorem World.subset_withEta {W W' : World} (h : W.Subset W') (η : SemTypeAssign) :
+    World.Subset { W with eta := η } { W' with eta := η } where
+  pctx := h.pctx
+  eta := rfl
+  types := h.types
+  signature := h.signature
+  agree := h.agree
+
 end TinyML

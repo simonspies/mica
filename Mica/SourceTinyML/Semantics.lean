@@ -697,6 +697,328 @@ theorem argsEnv_agreeOn {Δ : Signature} {ρ₁ ρ₂ : Env}
 
 end Spec
 
+/-! ## Agreement of value relations
+
+Two value relations that agree on the types well formed in `Δ` and `Θ` give the
+same meaning to the atoms, assertions and specifications that mention only such
+types. Arrows are the only types whose meaning depends on more than the type
+environment and the assignment: a specification is read in the spec
+environment, so two worlds must agree on the symbols it mentions. -/
+
+namespace TinyML
+
+/-- `R` and `R'` agree on the types well formed in `Δ` and `Θ`. -/
+abbrev ValueRelation.agreeOn (Δ : Signature) (Θ : TypeEnv) (R R' : ValueRelation) : iProp :=
+  iprop(∀ w u, ⌜Typ.wfIn Δ Θ u⌝ -∗ (R w u ∗-∗ R' w u))
+
+omit [MicaGS HasLC.hasLC Sig] in
+theorem ValueRelation.agreeOn_symm {Δ : Signature} {Θ : TypeEnv} {R R' : ValueRelation} :
+    ValueRelation.agreeOn Δ Θ R R' ⊢ ValueRelation.agreeOn Δ Θ R' R := by
+  simp only [ValueRelation.agreeOn, wandIff]
+  iintro H %w %u %hu
+  isplit
+  · icases H $$ %w %u %hu with ⟨-, H2⟩
+    iexact H2
+  · icases H $$ %w %u %hu with ⟨H1, -⟩
+    iexact H1
+
+omit [MicaGS HasLC.hasLC Sig] in
+/-- Relations that agree give a well-formed type the same values. -/
+theorem ValueRelation.agreeOn_iff {Δ : Signature} {Θ : TypeEnv} {R R' : ValueRelation}
+    (h : ⊢ ValueRelation.agreeOn Δ Θ R R') {t : Typ} (ht : Typ.wfIn Δ Θ t) (v : Runtime.Val) :
+    R v t ⊣⊢ R' v t := by
+  simp only [ValueRelation.agreeOn, wandIff] at h
+  constructor
+  · iintro Hv
+    icases h $$ %v %t %ht with ⟨H1, -⟩
+    iapply H1 $$ Hv
+  · iintro Hv
+    icases h $$ %v %t %ht with ⟨-, H2⟩
+    iapply H2 $$ Hv
+
+omit [MicaGS HasLC.hasLC Sig] in
+theorem ValueRelation.agreeOn_symm_intuitionistically {Δ : Signature} {Θ : TypeEnv}
+    {R R' : ValueRelation} :
+    iprop(□ ValueRelation.agreeOn Δ Θ R R') ⊢ iprop(□ ValueRelation.agreeOn Δ Θ R' R) :=
+  intuitionistically_mono ValueRelation.agreeOn_symm
+
+section AgreeOn
+
+variable {Δ : Signature} {Θ : TypeEnv} {V V' : ValueRelation}
+
+omit [MicaGS HasLC.hasLC Sig] in
+theorem ValueRelation.agreeOn_vals :
+    ∀ (vs : List Runtime.Val) (ts : List Typ), (∀ t ∈ ts, Typ.wfIn Δ Θ t) →
+      ⊢ □ ValueRelation.agreeOn Δ Θ V V' -∗ ValsRel V vs ts -∗ ValsRel V' vs ts
+  | [], [], _ => by
+      simp only [ValsRel]
+      iintro _ H
+      iexact H
+  | v :: vs, t :: ts, h => by
+      simp only [ValsRel]
+      iintro #HR ⟨Hv, Hvs⟩
+      isplitl [Hv]
+      · icases HR $$ %v %t %(h t (.head _)) with ⟨H1, -⟩
+        iapply H1 $$ Hv
+      · iapply ValueRelation.agreeOn_vals vs ts (fun t ht => h t (.tail _ ht))
+        · iexact HR
+        · iexact Hvs
+  | [], _ :: _, _ | _ :: _, [], _ => by
+      simp only [ValsRel]
+      iintro _ H
+      iexact H
+
+theorem ValueRelation.agreeOn_atom {τ : Srt}
+    (p : Atom Typ τ) (hp : ∀ t ∈ p.types, Typ.wfIn Δ Θ t) (ρ : Env) (v : τ.denote) :
+    ⊢ □ ValueRelation.agreeOn Δ Θ V V' -∗ p.eval V ρ v -∗ p.eval V' ρ v := by
+  cases p with
+  | isint _ | isbool _ | isinj _ _ _ | rel _ _ =>
+    simp only [Atom.eval]
+    iintro _ H
+    iexact H
+  | own l ty =>
+    simp only [Atom.eval]
+    iintro #HR ⟨%loc, %hl, Hpt, Hv⟩
+    iexists loc
+    isplitr
+    · ipureintro
+      exact hl
+    isplitl [Hpt]
+    · iexact Hpt
+    · icases HR $$ %v %ty %(hp ty (.head _)) with ⟨H1, -⟩
+      iapply H1 $$ Hv
+  | arr a ty =>
+    simp only [Atom.eval]
+    iintro #HR ⟨%loc, %vs, %ha, %hv, Hpt, Hv⟩
+    iexists loc, vs
+    isplitr
+    · ipureintro
+      exact ha
+    isplitr
+    · ipureintro
+      exact hv
+    isplitl [Hpt]
+    · iexact Hpt
+    · icases HR $$ %(.vec vs) %(.vec ty) %(.vec (hp ty (.head _))) with ⟨H1, -⟩
+      iapply H1 $$ Hv
+
+theorem ValueRelation.agreeOn_post {ret : α → List Typ}
+    {Φ Φ' : α → Env → iProp}
+    (hΦ : ∀ a ρ, (∀ t ∈ ret a, Typ.wfIn Δ Θ t) →
+      ⊢ □ ValueRelation.agreeOn Δ Θ V V' -∗ Φ a ρ -∗ Φ' a ρ) :
+    ∀ (m : Assertion Typ α), (∀ t ∈ m.types ret, Typ.wfIn Δ Θ t) → ∀ ρ,
+      ⊢ □ ValueRelation.agreeOn Δ Θ V V' -∗ Assertion.post V Φ m ρ -∗ Assertion.post V' Φ' m ρ := by
+  intro m
+  induction m with
+  | ret a => exact fun h ρ => hΦ a ρ h
+  | assert φ k ih =>
+    intro h ρ
+    simp only [Assertion.post]
+    iintro #HR H %hφ
+    iapply ih h ρ
+    · iexact HR
+    · iapply H
+      ipureintro
+      exact hφ
+  | let_ x t k ih =>
+    intro h ρ
+    exact ih h _
+  | pred x p k ih =>
+    intro h ρ
+    simp only [Assertion.types] at h
+    simp only [Assertion.post]
+    iintro #HR H %v Hp
+    iapply ih (fun t ht => h t (List.mem_append_right _ ht)) _
+    · iexact HR
+    · iapply H
+      iapply (ValueRelation.agreeOn_atom (V := V') (V' := V) p
+        (fun t ht => h t (List.mem_append_left _ ht)) ρ v)
+      · iapply ValueRelation.agreeOn_symm_intuitionistically
+        iexact HR
+      · iexact Hp
+  | ite φ kt ke iht ihe =>
+    intro h ρ
+    simp only [Assertion.types] at h
+    simp only [Assertion.post]
+    iintro #HR H
+    isplit
+    · iintro %hφ
+      icases H with ⟨H1, -⟩
+      iapply iht (fun t ht => h t (List.mem_append_left _ ht)) ρ
+      · iexact HR
+      · iapply H1
+        ipureintro
+        exact hφ
+    · iintro %hφ
+      icases H with ⟨-, H2⟩
+      iapply ihe (fun t ht => h t (List.mem_append_right _ ht)) ρ
+      · iexact HR
+      · iapply H2
+        ipureintro
+        exact hφ
+
+theorem ValueRelation.agreeOn_pre {ret : α → List Typ}
+    {Φ Φ' : α → Env → iProp}
+    (hΦ : ∀ a ρ, (∀ t ∈ ret a, Typ.wfIn Δ Θ t) →
+      ⊢ □ ValueRelation.agreeOn Δ Θ V V' -∗ Φ a ρ -∗ Φ' a ρ) :
+    ∀ (m : Assertion Typ α), (∀ t ∈ m.types ret, Typ.wfIn Δ Θ t) → ∀ ρ,
+      ⊢ □ ValueRelation.agreeOn Δ Θ V V' -∗ Assertion.pre V Φ m ρ -∗ Assertion.pre V' Φ' m ρ := by
+  intro m
+  induction m with
+  | ret a => exact fun h ρ => hΦ a ρ h
+  | assert φ k ih =>
+    intro h ρ
+    simp only [Assertion.pre]
+    iintro #HR ⟨%hφ, H⟩
+    isplitr
+    · ipureintro
+      exact hφ
+    · iapply ih h ρ
+      · iexact HR
+      · iexact H
+  | let_ x t k ih =>
+    intro h ρ
+    exact ih h _
+  | pred x p k ih =>
+    intro h ρ
+    simp only [Assertion.types] at h
+    simp only [Assertion.pre]
+    iintro #HR ⟨%v, Hp, H⟩
+    iexists v
+    isplitl [Hp]
+    · iapply (ValueRelation.agreeOn_atom p (fun t ht => h t (List.mem_append_left _ ht)) ρ v)
+      · iexact HR
+      · iexact Hp
+    · iapply ih (fun t ht => h t (List.mem_append_right _ ht)) _
+      · iexact HR
+      · iexact H
+  | ite φ kt ke iht ihe =>
+    intro h ρ
+    simp only [Assertion.types] at h
+    simp only [Assertion.pre]
+    iintro #HR H
+    isplit
+    · iintro %hφ
+      icases H with ⟨H1, -⟩
+      iapply iht (fun t ht => h t (List.mem_append_left _ ht)) ρ
+      · iexact HR
+      · iapply H1
+        ipureintro
+        exact hφ
+    · iintro %hφ
+      icases H with ⟨-, H2⟩
+      iapply ihe (fun t ht => h t (List.mem_append_right _ ht)) ρ
+      · iexact HR
+      · iapply H2
+        ipureintro
+        exact hφ
+
+theorem ValueRelation.agreeOn_apply {Φ Φ' : Runtime.Val → iProp}
+    (hΦ : ∀ v, ⊢ □ ValueRelation.agreeOn Δ Θ V V' -∗ Φ v -∗ Φ' v)
+    (m : PredTrans Typ) (hm : ∀ t ∈ m.types fun post => post.body.types fun _ => [], Typ.wfIn Δ Θ t)
+    (ρ : Env) :
+    ⊢ □ ValueRelation.agreeOn Δ Θ V V' -∗ PredTrans.apply V Φ m ρ -∗ PredTrans.apply V' Φ' m ρ := by
+  unfold PredTrans.apply
+  refine ValueRelation.agreeOn_pre (fun post ρ' hpost => ?_) m hm ρ
+  iintro #HR H %v
+  iapply (ValueRelation.agreeOn_post (ret := fun _ => [])
+    (fun _ _ _ => hΦ v) post.body hpost)
+  · iexact HR
+  · iexact H
+
+end AgreeOn
+
+variable {W₀ W₁ W₂ : World} {V V' : ValueRelation}
+
+/-- Two worlds that extend `W₀` read a specification well formed in `W₀` at the
+    same arguments alike: the first at its own spec environment, the second at
+    any environment that agrees with its own. -/
+private theorem Spec.apply_argsEnv_iff (h₁ : W₀.Subset W₁) (h₂ : W₀.Subset W₂)
+    {s : Spec Typ} (hs : s.wfIn W₀.Δ_spec) {ρ : Env} (hρ : Env.agreeOn W₂.Δ_spec W₂.ρ_spec ρ)
+    (V : ValueRelation) (Φ : Runtime.Val → iProp) {vs : List Runtime.Val}
+    (hvs : s.allArgs.length ≤ vs.length) :
+    PredTrans.apply V Φ s.pred (Spec.argsEnv W₁.ρ_spec s.allArgs vs) ⊣⊢
+      PredTrans.apply V Φ s.pred (Spec.argsEnv ρ s.allArgs vs) := by
+  have hag : Env.agreeOn W₀.Δ_spec W₁.ρ_spec ρ :=
+    Env.agreeOn_trans (Env.agreeOn_symm h₁.agree)
+      (Env.agreeOn_trans h₂.agree (Env.agreeOn_mono h₂.signature hρ))
+  have hargs := Spec.argsEnv_agreeOn hag s.allArgs vs hvs
+  exact ⟨PredTrans.apply_agreeOn V hs hargs, PredTrans.apply_agreeOn V hs (Env.agreeOn_symm hargs)⟩
+
+omit [MicaGS HasLC.hasLC Sig] in
+/-- The result premise of a call, read at relations that agree. -/
+private theorem ValueRelation.agreeOn_ret {ret : Typ} (hret : Typ.wfIn W₀.Δ_spec W₀.Θ ret)
+    (Φ : Runtime.Val → iProp) (r : Runtime.Val) :
+    ⊢ □ ValueRelation.agreeOn W₀.Δ_spec W₀.Θ V' V -∗ (V' r ret -∗ Φ r) -∗ (V r ret -∗ Φ r) := by
+  iintro #HR' Hw Hv
+  iapply Hw
+  icases HR' $$ %r %ret %hret with ⟨-, H2⟩
+  iapply H2 $$ Hv
+
+/-- Two worlds that extend `W₀` read alike a specified arrow well formed in `W₀`. -/
+theorem ValueRelation.agreeOn_isPrecondFor (h₁ : W₀.Subset W₁) (h₂ : W₀.Subset W₂)
+    {args : List Typ} {ret : Typ} {s : Spec Typ}
+    (hT : Typ.wfIn W₀.Δ_spec W₀.Θ (.arrow args ret (some s))) (f : Runtime.Val) :
+    ⊢ □ ▷ ValueRelation.agreeOn W₀.Δ_spec W₀.Θ V V' -∗
+      Spec.isPrecondFor W₁ V args ret f s -∗ Spec.isPrecondFor W₂ V' args ret f s := by
+  obtain _ | _ | _ | _ | _ | ⟨hargs, hret, hs, hlen, htys⟩ := hT
+  unfold Spec.isPrecondFor
+  iintro #HR #H
+  imodintro
+  iintro %ρ %Φ %vs %gs %hρ %hvs %hgs Hvs Hgs Hpred
+  have heq := Spec.apply_argsEnv_iff h₁ h₂ hs hρ V (fun r => V r ret -∗ Φ r) (vs := vs ++ gs)
+    (by simp [Spec.allArgs, hvs, hgs, hlen])
+  rw [h₂.pctx, ← h₁.pctx]
+  iapply H $$ %W₁.ρ_spec %Φ %vs %gs %Env.agreeOn_refl %hvs %hgs [Hvs] [Hgs] [Hpred]
+  · inext
+    iapply ValueRelation.agreeOn_vals vs args hargs
+    · iapply ValueRelation.agreeOn_symm_intuitionistically
+      iexact HR
+    · iexact Hvs
+  · inext
+    iapply ValueRelation.agreeOn_vals gs _ fun t ht => htys t (List.mem_append_left _ ht)
+    · iapply ValueRelation.agreeOn_symm_intuitionistically
+      iexact HR
+    · iexact Hgs
+  · inext
+    iapply heq.2
+    iapply ValueRelation.agreeOn_apply (V := V') (V' := V) (ValueRelation.agreeOn_ret hret Φ) s.pred
+      fun t ht => htys t (List.mem_append_right _ ht)
+    · iapply ValueRelation.agreeOn_symm_intuitionistically
+      iexact HR
+    · iexact Hpred
+
+/-- The ghost analogue of `ValueRelation.agreeOn_isPrecondFor`. -/
+theorem ValueRelation.agreeOn_isGhostPrecondFor (h₁ : W₀.Subset W₁) (h₂ : W₀.Subset W₂)
+    {args : List Typ} {ret : Typ} {s : Spec Typ}
+    (hT : Typ.wfIn W₀.Δ_spec W₀.Θ (.arrow args ret (some s))) :
+    ⊢ □ ValueRelation.agreeOn W₀.Δ_spec W₀.Θ V V' -∗
+      Spec.isGhostPrecondFor W₁ V args ret s -∗ Spec.isGhostPrecondFor W₂ V' args ret s := by
+  obtain _ | _ | _ | _ | _ | ⟨hargs, hret, hs, hlen, htys⟩ := hT
+  unfold Spec.isGhostPrecondFor
+  iintro #HR #H
+  imodintro
+  iintro %ρ %Φ %vs %gs %hρ %hvs %hgs Hvs Hgs Hpred
+  have heq := Spec.apply_argsEnv_iff h₁ h₂ hs hρ V (fun r => V r ret -∗ Φ r) (vs := vs ++ gs)
+    (by simp [Spec.allArgs, hvs, hgs, hlen])
+  iapply H $$ %W₁.ρ_spec %Φ %vs %gs %Env.agreeOn_refl %hvs %hgs [Hvs] [Hgs] [Hpred]
+  · iapply ValueRelation.agreeOn_vals vs args hargs
+    · iapply ValueRelation.agreeOn_symm_intuitionistically
+      iexact HR
+    · iexact Hvs
+  · iapply ValueRelation.agreeOn_vals gs _ fun t ht => htys t (List.mem_append_left _ ht)
+    · iapply ValueRelation.agreeOn_symm_intuitionistically
+      iexact HR
+    · iexact Hgs
+  · iapply heq.2
+    iapply ValueRelation.agreeOn_apply (V := V') (V' := V) (ValueRelation.agreeOn_ret hret Φ) s.pred
+      fun t ht => htys t (List.mem_append_right _ ht)
+    · iapply ValueRelation.agreeOn_symm_intuitionistically
+      iexact HR
+    · iexact Hpred
+
+end TinyML
+
 -- ---------------------------------------------------------------------------
 -- Measures
 -- ---------------------------------------------------------------------------

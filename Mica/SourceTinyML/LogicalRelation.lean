@@ -1416,6 +1416,291 @@ theorem ValHasType.eta_local (W : World) {η₁ η₂ : SemTypeAssign} {t : Typ}
     (η₂ := SemTypeAssign.ofSubst { W with eta := η₂ } τ) (fun a v => hpt a v) v t).trans
     (hsub η₂).symm)
 
+section Agreement
+
+/-! A world that extends `W₀` gives the types well formed in `W₀` the values
+that `W₀` gives them. The proofs go between two worlds `W₁` and `W₂` that both
+extend `W₀`, because the Löb induction needs both directions. -/
+
+variable {W₀ W₁ W₂ : World}
+
+mutual
+
+private theorem ValRelBody.of_agreeOn (h₁ : W₀.Subset W₁) (h₂ : W₀.Subset W₂)
+    {R R' : ValueRelation}
+    {k k' : RecCont} (t : Typ) (ht : Typ.wfIn W₀.Δ_spec W₀.Θ t) (v : Runtime.Val) :
+    ⊢ □ ▷ ValueRelation.agreeOn W₀.Δ_spec W₀.Θ R R' -∗
+      □ (∀ w T args, ⌜Typ.wfIn W₀.Δ_spec W₀.Θ (.named T args)⌝ → k w T args -∗ k' w T args) -∗
+      (ValRelBody W₁ R v t k -∗ ValRelBody W₂ R' v t k' : iProp) := by
+  match t with
+  | .prim _ | .value | .empty | .arrow _ _ none | .ownedArray _ | .owned _ =>
+      simp only [ValRelBody]
+      iintro _ _ H
+      iexact H
+  | .tvar a =>
+      simp only [ValRelBody]
+      rw [h₁.eta, h₂.eta]
+      iintro _ _ H
+      iexact H
+  | .arrow args ret (some s) =>
+      simp only [ValRelBody]
+      iintro #HR _ H
+      iapply (ValueRelation.agreeOn_isPrecondFor h₁ h₂ ht v)
+      · iexact HR
+      · iexact H
+  | .ref u =>
+      have hu : Typ.wfIn W₀.Δ_spec W₀.Θ u := by cases ht; assumption
+      simp only [ValRelBody, ValueRelation.agreeOn, wandIff]
+      iintro #HR _ ⟨%l, %heq, Hinv⟩
+      iexists l
+      isplitr
+      · ipureintro
+        exact heq
+      · unfold locinv
+        iapply inv_iff $$ Hinv
+        inext
+        imodintro
+        isplit
+        · iintro ⟨%w, Hpt, Hw⟩
+          iexists w
+          isplitl [Hpt]
+          · iexact Hpt
+          · icases HR $$ %w %u %hu with ⟨H1, -⟩
+            iapply H1 $$ Hw
+        · iintro ⟨%w, Hpt, Hw⟩
+          iexists w
+          isplitl [Hpt]
+          · iexact Hpt
+          · icases HR $$ %w %u %hu with ⟨-, H2⟩
+            iapply H2 $$ Hw
+  | .array u =>
+      have hu : Typ.wfIn W₀.Δ_spec W₀.Θ u := by cases ht; assumption
+      simp only [ValRelBody, ValueRelation.agreeOn, wandIff]
+      iintro #HR _ ⟨%len, %l, %heq, Hinv⟩
+      iexists len, l
+      isplitr
+      · ipureintro
+        exact heq
+      · unfold arrayinv
+        iapply inv_iff $$ Hinv
+        inext
+        imodintro
+        isplit
+        · iintro ⟨%ws, %hlen, Hpt, Hws⟩
+          iexists ws
+          isplitr
+          · ipureintro
+            exact hlen
+          isplitl [Hpt]
+          · iexact Hpt
+          · iapply BigSepL.bigSepL_impl $$ Hws
+            imodintro
+            iintro %i %w %_ Hw
+            icases HR $$ %w %u %hu with ⟨H1, -⟩
+            iapply H1 $$ Hw
+        · iintro ⟨%ws, %hlen, Hpt, Hws⟩
+          iexists ws
+          isplitr
+          · ipureintro
+            exact hlen
+          isplitl [Hpt]
+          · iexact Hpt
+          · iapply BigSepL.bigSepL_impl $$ Hws
+            imodintro
+            iintro %i %w %_ Hw
+            icases HR $$ %w %u %hu with ⟨-, H2⟩
+            iapply H2 $$ Hw
+  | .vec u =>
+      have hu : Typ.wfIn W₀.Δ_spec W₀.Θ u := by cases ht; assumption
+      simp only [ValRelBody]
+      iintro #HR #Hk ⟨%vs, %heq, Hvs⟩
+      iexists vs
+      isplitr
+      · ipureintro
+        exact heq
+      · iapply BigSepL.bigSepL_impl $$ Hvs
+        imodintro
+        iintro %i %w %_
+        iapply (ValRelBody.of_agreeOn h₁ h₂ u hu w)
+        · iexact HR
+        · iexact Hk
+  | .named T args =>
+      simp only [ValRelBody]
+      iintro _ #Hk Hv
+      iapply Hk
+      · ipureintro
+        exact ht
+      · iexact Hv
+  | .tuple ts =>
+      have hts : ∀ t ∈ ts, Typ.wfIn W₀.Δ_spec W₀.Θ t := by cases ht; assumption
+      simp only [ValRelBody]
+      iintro #HR #Hk ⟨%vs, %heq, Hvs⟩
+      iexists vs
+      isplitr
+      · ipureintro
+        exact heq
+      · iapply (ValsRelBody.of_agreeOn h₁ h₂ ts hts vs)
+        · iexact HR
+        · iexact Hk
+        · iexact Hvs
+  | .sum ts =>
+      have hts : ∀ t ∈ ts, Typ.wfIn W₀.Δ_spec W₀.Θ t := by cases ht; assumption
+      simp only [ValRelBody]
+      iintro #HR #Hk ⟨%tag, %payload, %heq, Hsum⟩
+      iexists tag, payload
+      isplitr
+      · ipureintro
+        exact heq
+      · iapply (ValSumRelBody.of_agreeOn h₁ h₂ ts hts tag payload)
+        · iexact HR
+        · iexact Hk
+        · iexact Hsum
+
+private theorem ValsRelBody.of_agreeOn (h₁ : W₀.Subset W₁) (h₂ : W₀.Subset W₂)
+    {R R' : ValueRelation}
+    {k k' : RecCont} (ts : List Typ) (hts : ∀ t ∈ ts, Typ.wfIn W₀.Δ_spec W₀.Θ t) (vs : List Runtime.Val) :
+    ⊢ □ ▷ ValueRelation.agreeOn W₀.Δ_spec W₀.Θ R R' -∗
+      □ (∀ w T args, ⌜Typ.wfIn W₀.Δ_spec W₀.Θ (.named T args)⌝ → k w T args -∗ k' w T args) -∗
+      (ValsRelBody W₁ R vs ts k -∗ ValsRelBody W₂ R' vs ts k' : iProp) := by
+  match vs, ts with
+  | [], [] =>
+      simp only [ValsRelBody]
+      iintro _ _ H
+      iexact H
+  | v :: vs, t :: ts =>
+      simp only [ValsRelBody]
+      iintro #HR #Hk ⟨Hv, Hvs⟩
+      isplitl [Hv]
+      · iapply (ValRelBody.of_agreeOn h₁ h₂ t (hts t (.head _)) v)
+        · iexact HR
+        · iexact Hk
+        · iexact Hv
+      · iapply (ValsRelBody.of_agreeOn h₁ h₂ ts (fun t ht => hts t (.tail _ ht)) vs)
+        · iexact HR
+        · iexact Hk
+        · iexact Hvs
+  | [], _ :: _ | _ :: _, [] =>
+      simp only [ValsRelBody]
+      iintro _ _ H
+      iexact H
+
+private theorem ValSumRelBody.of_agreeOn (h₁ : W₀.Subset W₁) (h₂ : W₀.Subset W₂)
+    {R R' : ValueRelation}
+    {k k' : RecCont} (ts : List Typ) (hts : ∀ t ∈ ts, Typ.wfIn W₀.Δ_spec W₀.Θ t) (tag : Nat)
+    (payload : Runtime.Val) :
+    ⊢ □ ▷ ValueRelation.agreeOn W₀.Δ_spec W₀.Θ R R' -∗
+      □ (∀ w T args, ⌜Typ.wfIn W₀.Δ_spec W₀.Θ (.named T args)⌝ → k w T args -∗ k' w T args) -∗
+      (ValSumRelBody W₁ R tag payload ts k -∗ ValSumRelBody W₂ R' tag payload ts k' : iProp) := by
+  match tag, ts with
+  | _, [] =>
+      simp only [ValSumRelBody]
+      iintro _ _ H
+      iexact H
+  | 0, t :: _ =>
+      simp only [ValSumRelBody]
+      iintro #HR #Hk Hv
+      iapply (ValRelBody.of_agreeOn h₁ h₂ t (hts t (.head _)) payload)
+      · iexact HR
+      · iexact Hk
+      · iexact Hv
+  | n + 1, _ :: ts =>
+      simp only [ValSumRelBody]
+      iintro #HR #Hk Hv
+      iapply (ValSumRelBody.of_agreeOn h₁ h₂ ts (fun t ht => hts t (.tail _ ht)) n payload)
+      · iexact HR
+      · iexact Hk
+      · iexact Hv
+
+end
+
+private theorem ValRelInd.of_agreeOn (h₁ : W₀.Subset W₁) (h₂ : W₀.Subset W₂)
+    (hΘ : TypeEnv.wfIn W₀.Δ_spec W₀.Θ) {R R' : ValueRelation} :
+    ⊢ □ ▷ ValueRelation.agreeOn W₀.Δ_spec W₀.Θ R R' -∗
+      □ (∀ w T args, ⌜Typ.wfIn W₀.Δ_spec W₀.Θ (.named T args)⌝ →
+        ValRelInd W₁ R w T args -∗ ValRelInd W₂ R' w T args : iProp) := by
+  letI Φ : RecIdx → iProp := fun x =>
+    iprop(⌜Typ.wfIn W₀.Δ_spec W₀.Θ (.named x.car.2.1 x.car.2.2)⌝ -∗
+      ValRelInd W₂ R' x.car.1 x.car.2.1 x.car.2.2)
+  letI : NonExpansive Φ := ⟨fun _ x y h => by
+    obtain ⟨x⟩ := x
+    obtain ⟨y⟩ := y
+    cases LeibnizO.dist_inj h
+    exact Dist.of_eq rfl⟩
+  iintro #HR
+  imodintro
+  iintro %w %T %args %hok HI
+  ihave Hstep : iprop(□ (∀ y, ValRelIndF W₁ R Φ y -∗ Φ y)) $$ []
+  · iintro !> %x HF
+    obtain ⟨v, T', ags⟩ := x
+    simp only [ValRelIndF]
+    icases HF with ⟨%ty, %hunfold, Hv⟩
+    iintro %hok'
+    obtain ⟨hunf, hargs⟩ : (TypeName.unfold W₀.Θ T' ags).isSome ∧
+        ∀ a ∈ ags, Typ.wfIn W₀.Δ_spec W₀.Θ a := by
+      cases hok'; exact ⟨‹_›, ‹_›⟩
+    have h₀ : TypeName.unfold W₀.Θ T' ags = some ty :=
+      (TypeName.unfold_mono h₁.types hunf).symm.trans hunfold
+    iapply ValRelInd.unfold.2
+    iexists ty
+    isplitr
+    · ipureintro
+      exact (TypeName.unfold_mono h₂.types hunf).trans h₀
+    · iapply (ValRelBody.of_agreeOn (k := RecCont.ofPred Φ) h₁ h₂ ty (Typ.wfIn_unfold hΘ hargs h₀) v)
+      · iexact HR
+      · imodintro
+        iintro %u %T'' %ags'' %hok'' Hu
+        iapply Hu
+        ipureintro
+        exact hok''
+      · iexact Hv
+  have hiter : ⊢ □ (∀ y, ValRelIndF W₁ R Φ y -∗ Φ y) -∗
+      ValRelInd W₁ R w T args -∗ ⌜Typ.wfIn W₀.Δ_spec W₀.Θ (.named T args)⌝ -∗ ValRelInd W₂ R' w T args := by
+    rw [show ValRelInd W₁ R w T args =
+      bi_least_fixpoint (ValRelIndF W₁ R) ⟨(w, T, args)⟩ from rfl]
+    iintro #H HI'
+    iapply (least_fixpoint_iter (F := ValRelIndF W₁ R) (Φ := Φ)) $$ H %(⟨(w, T, args)⟩ : RecIdx)
+    iexact HI'
+  iapply hiter $$ Hstep HI
+  ipureintro
+  exact hok
+
+private theorem ValHasType.of_agreeOn (h₁ : W₀.Subset W₁) (h₂ : W₀.Subset W₂)
+    (hΘ : TypeEnv.wfIn W₀.Δ_spec W₀.Θ) (w : Runtime.Val) (u : Typ)
+    (hu : Typ.wfIn W₀.Δ_spec W₀.Θ u) :
+    ⊢ □ ▷ ValueRelation.agreeOn W₀.Δ_spec W₀.Θ (ValHasType W₁) (ValHasType W₂) -∗
+      ValHasType W₁ w u -∗ ValHasType W₂ w u := by
+  iintro #HR H
+  iapply (equiv_iff.mp (ValHasType.unfold W₂ w u)).2
+  iapply (ValRelBody.of_agreeOn h₁ h₂ u hu w)
+  · iexact HR
+  · iapply ValRelInd.of_agreeOn h₁ h₂ hΘ
+    iexact HR
+  · iapply (equiv_iff.mp (ValHasType.unfold W₁ w u)).1
+    iexact H
+
+/-- Two worlds that extend `W₀` give the types well formed in `W₀` the same
+values. Löb induction closes the outer fixpoint, whose recursive occurrences are
+all guarded; the inner one goes by `ValRelInd.of_agreeOn`. -/
+theorem ValHasType.agreeOn (h₁ : W₀.Subset W₁) (h₂ : W₀.Subset W₂)
+    (hΘ : TypeEnv.wfIn W₀.Δ_spec W₀.Θ) :
+    ⊢ ValueRelation.agreeOn W₀.Δ_spec W₀.Θ (ValHasType W₁) (ValHasType W₂) := by
+  iloeb as IH
+  ihave IH' : iprop(□ ▷ ValueRelation.agreeOn W₀.Δ_spec W₀.Θ (ValHasType W₂) (ValHasType W₁))
+    $$ []
+  · imodintro
+    inext
+    iapply ValueRelation.agreeOn_symm
+    iexact IH
+  simp only [ValueRelation.agreeOn, wandIff]
+  iintro %w %u %hu
+  isplit
+  · iapply ValHasType.of_agreeOn h₁ h₂ hΘ w u hu
+    iexact IH
+  · iapply ValHasType.of_agreeOn h₂ h₁ hΘ w u hu
+    iexact IH'
+
+end Agreement
+
 section Scheme
 
 /-- `η₀`, with the variables `xs` reassigned by `η`. -/
@@ -1468,6 +1753,18 @@ theorem ValHasScheme.eta_closed (W : World) (v : Runtime.Val) {s : Scheme}
   · refine (ValHasType.eta_local W (fun a ha v => ?_) v).1
     simp only [SemTypeAssign.override, if_pos (hvars a ha)]
     exact ⟨.rfl, .rfl⟩
+
+/-- Schemes whose types are well formed in the smaller of two worlds read alike
+    in both. -/
+theorem ValHasScheme.of_subset {W₀ W : World} (h : W₀.Subset W)
+    (hΘ : TypeEnv.wfIn W₀.Δ_spec W₀.Θ) {s : Scheme}
+    (hs : Typ.wfIn W₀.Δ_spec W₀.Θ s.ty) (v : Runtime.Val) :
+    ValHasScheme W₀ v s ⊢ ValHasScheme W v s := by
+  unfold ValHasScheme
+  rw [h.eta]
+  exact forall_mono fun η =>
+    (ValueRelation.agreeOn_iff (ValHasType.agreeOn (World.subset_refl _)
+      (World.subset_withEta h (W₀.eta.override s.tparams η)) hΘ) hs v).1
 
 end Scheme
 
