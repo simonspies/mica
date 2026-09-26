@@ -171,7 +171,7 @@ theorem PredTrans.call_correct (W : TinyML.World) (pt : PredTrans TinyML.Typ) (�
             apply hΨ _ st₂ ρ₂ (.const (.uninterpreted resVar.name .value)) hret
             · exact Term.const_wfIn_of_mem hwfst₂ (hsub.consts resVar (List.Mem.head _))
             · simp only [Term.eval, Const.denote]
-              have := hagree.2.1 resVar (List.Mem.head _)
+              have := hagree.consts resVar (List.Mem.head _)
               simpa [Env.lookupConst, Env.updateConst] using this.symm)
         have hinterp_bi :
             st₁.sl W ρ₁ ⊣⊢ st₁.sl W (ρ₁.updateConst .value resVar.name v) :=

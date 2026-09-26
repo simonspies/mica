@@ -1082,7 +1082,7 @@ theorem compileGhostLetIn_correct (reg : Verifier.Registry)
       · intro y hy; cases hy
       · intro y' hy'
         obtain ⟨p, hp, rfl⟩ := List.mem_map.mp hy'
-        exact (hagreeOn₂.2.1 p.2 (hgwf₁ p hp)).symm
+        exact (hagreeOn₂.consts p.2 (hgwf₁ p hp)).symm
       · intro z hz; cases hz
       · intro z hz; cases hz
       · intro z hz; cases hz
@@ -1248,7 +1248,7 @@ theorem compileGhostProductBindersFrom_correct (reg : Verifier.Registry) (W : Ti
                 · intro y hy; cases hy
                 · intro y' hy'
                   obtain ⟨p, hp, rfl⟩ := List.mem_map.mp hy'
-                  exact (hagreeOn_body.2.1 p.2 (hgwf p hp)).symm
+                  exact (hagreeOn_body.consts p.2 (hgwf p hp)).symm
                 · intro z hz; cases hz
                 · intro z hz; cases hz
                 · intro z hz; cases hz
@@ -1896,7 +1896,7 @@ theorem compileGhostSingleBranch_correct (reg : Verifier.Registry)
       · intro w hw; cases hw
       · intro c hc
         obtain ⟨p, hp, rfl⟩ := List.mem_map.mp hc
-        exact (hagreeOn_st.2.1 p.2 (hgwf p hp)).symm
+        exact (hagreeOn_st.consts p.2 (hgwf p hp)).symm
       · intro z hz; cases hz
       · intro z hz; cases hz
       · intro z hz; cases hz
@@ -2471,7 +2471,7 @@ private theorem constLookups_env_agree {Δ : Signature} {ρ ρ' : Env}
     | cons hhead htail =>
       refine .cons ?_ (constLookups_env_agree hagree
         (fun c hc => hmem c (.tail _ hc)) (fun c hc => hsort c (.tail _ hc)) htail)
-      have hc := hagree.2.1 a (hmem a (.head _))
+      have hc := hagree.consts a (hmem a (.head _))
       rw [hsort a (.head _)] at hc
       rw [← hc]; exact hhead
 

@@ -39,7 +39,7 @@ private theorem isDefined_mono (fn : SpecFn) (arg : Term .value) {ρ ρ' : Env}
     (fn.isDefined arg).eval ρ' := by
   simp only [SpecFn.isDefined, Formula.eval, UnPred.eval] at hdef ⊢
   rw [← Term.eval_env_le hle arg]
-  exact hle.2.2.2.2.1 .value (fn.defName) (arg.eval ρ) hdef
+  exact hle.unaryRel .value (fn.defName) (arg.eval ρ) hdef
 
 end DefVal
 end Skolemize
@@ -462,9 +462,9 @@ private theorem toDefVal_iff {Δbase : Signature} {res : String} {ρdef : Env}
       have hargEval : Term.eval ρrel arg = Term.eval ρdef (arg.subst σ) :=
         eval_substAgree hagree harg hσ hΔbase
       have hunary : ρrel.unary .value .value fn.funcName =
-          ρdef.unary .value .value fn.funcName := hagBase.2.2.1 fn.func hsyms.1
+          ρdef.unary .value .value fn.funcName := hagBase.unary fn.func hsyms.1
       have hunaryRel : ρrel.unaryRel .value fn.defName =
-          ρdef.unaryRel .value fn.defName := hagBase.2.2.2.2.2.1 fn.defined hsyms.2
+          ρdef.unaryRel .value fn.defName := hagBase.unaryRel fn.defined hsyms.2
       have hdefIff : fn.evalDefined ρrel (Term.eval ρrel arg) ↔
           (fn.isDefined (arg.subst σ)).eval ρdef := by
         rw [show fn.evalDefined ρrel = fn.evalDefined ρdef from hunaryRel, hargEval]

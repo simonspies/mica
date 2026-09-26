@@ -728,7 +728,7 @@ theorem declareImplArgs_correct (W : TinyML.World) :
         | inl h => subst h; rfl
         | inr h => exact hsorts w h
       · refine List.Forall₂.cons ?_ hlookups
-        have h1 := hragree'.2.1 argVar (hst₂_decls ▸ List.mem_cons_self ..)
+        have h1 := hragree'.consts argVar (hst₂_decls ▸ List.mem_cons_self ..)
         have h1' : Term.eval ρ' (Term.const (.uninterpreted argVar.name .value)) =
             Term.eval ρ₁ (Term.const (.uninterpreted argVar.name .value)) := by
           simpa [Term.eval, Const.denote, Env.lookupConst] using h1.symm

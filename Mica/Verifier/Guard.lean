@@ -42,7 +42,7 @@ declaring the guard. -/
 theorem Env.supportsGuarding.agree {Δ : Signature} {ρ ρ' : Env}
     (hΔ : Δ.supportsGuarding) (hagree : Env.agreeOn Δ ρ ρ')
     (h : ρ.supportsGuarding) : ρ'.supportsGuarding := by
-  have heq := hagree.2.1 guardConst hΔ
+  have heq := hagree.consts guardConst hΔ
   simp only [guardConst] at heq
   simp only [Env.supportsGuarding, guardFormula, Formula.eval, Term.eval, Const.denote,
     guardConst] at h ⊢

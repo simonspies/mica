@@ -100,10 +100,13 @@ theorem Env.updateConst_binaryRel {ρ : Env} {τ : Srt} {x : String} {v : τ.den
 unary/binary/ternary operators is fixed, while the uninterpreted predicate
 interpretations may grow. Term evaluation is invariant under it (see
 `Term.eval_env_le`); formula evaluation is not. -/
-def Env.le (ρ ρ' : Env) : Prop :=
-  ρ.consts = ρ'.consts ∧ ρ.unary = ρ'.unary ∧ ρ.binary = ρ'.binary ∧ ρ.ternary = ρ'.ternary ∧
-  (∀ τ name a, ρ.unaryRel τ name a → ρ'.unaryRel τ name a) ∧
-  ∀ τ₁ τ₂ name a b, ρ.binaryRel τ₁ τ₂ name a b → ρ'.binaryRel τ₁ τ₂ name a b
+structure Env.le (ρ ρ' : Env) : Prop where
+  consts : ρ.consts = ρ'.consts
+  unary : ρ.unary = ρ'.unary
+  binary : ρ.binary = ρ'.binary
+  ternary : ρ.ternary = ρ'.ternary
+  unaryRel : ∀ τ name a, ρ.unaryRel τ name a → ρ'.unaryRel τ name a
+  binaryRel : ∀ τ₁ τ₂ name a b, ρ.binaryRel τ₁ τ₂ name a b → ρ'.binaryRel τ₁ τ₂ name a b
 
 theorem Env.le.refl (ρ : Env) : Env.le ρ ρ :=
   ⟨rfl, rfl, rfl, rfl, fun _ _ _ h => h, fun _ _ _ _ _ h => h⟩
@@ -111,32 +114,21 @@ theorem Env.le.refl (ρ : Env) : Env.le ρ ρ :=
 theorem Env.le.updateConst {ρ ρ' : Env} (h : Env.le ρ ρ')
     (τ : Srt) (x : String) (v : τ.denote) :
     Env.le (ρ.updateConst τ x v) (ρ'.updateConst τ x v) := by
-  refine ⟨?_, h.2.1, h.2.2.1, h.2.2.2.1, h.2.2.2.2.1, h.2.2.2.2.2⟩
-  simp only [Env.updateConst, h.1]
+  refine ⟨?_, h.unary, h.binary, h.ternary, h.unaryRel, h.binaryRel⟩
+  simp only [Env.updateConst, h.consts]
 
-def Env.agreeOn (Δ : Signature) (ρ ρ' : Env) : Prop :=
-  (∀ v ∈ Δ.vars, ρ.consts v.sort v.name = ρ'.consts v.sort v.name) ∧
-  (∀ c ∈ Δ.consts, ρ.consts c.sort c.name = ρ'.consts c.sort c.name) ∧
-  (∀ u ∈ Δ.unary, ρ.unary u.arg u.ret u.name = ρ'.unary u.arg u.ret u.name) ∧
-  (∀ b ∈ Δ.binary, ρ.binary b.arg1 b.arg2 b.ret b.name = ρ'.binary b.arg1 b.arg2 b.ret b.name) ∧
-  (∀ t ∈ Δ.ternary, ρ.ternary t.arg1 t.arg2 t.arg3 t.ret t.name =
-    ρ'.ternary t.arg1 t.arg2 t.arg3 t.ret t.name) ∧
-  (∀ u ∈ Δ.unaryRel, ρ.unaryRel u.arg u.name = ρ'.unaryRel u.arg u.name) ∧
-  (∀ b ∈ Δ.binaryRel, ρ.binaryRel b.arg1 b.arg2 b.name = ρ'.binaryRel b.arg1 b.arg2 b.name)
-
-theorem Env.agreeOn.intro {Δ : Signature} {ρ ρ' : Env}
-    (vars : ∀ v ∈ Δ.vars, ρ.consts v.sort v.name = ρ'.consts v.sort v.name)
-    (consts : ∀ c ∈ Δ.consts, ρ.consts c.sort c.name = ρ'.consts c.sort c.name)
-    (unary : ∀ u ∈ Δ.unary, ρ.unary u.arg u.ret u.name = ρ'.unary u.arg u.ret u.name)
-    (binary : ∀ b ∈ Δ.binary,
-      ρ.binary b.arg1 b.arg2 b.ret b.name = ρ'.binary b.arg1 b.arg2 b.ret b.name)
-    (ternary : ∀ t ∈ Δ.ternary,
-      ρ.ternary t.arg1 t.arg2 t.arg3 t.ret t.name = ρ'.ternary t.arg1 t.arg2 t.arg3 t.ret t.name)
-    (unaryRel : ∀ u ∈ Δ.unaryRel, ρ.unaryRel u.arg u.name = ρ'.unaryRel u.arg u.name)
-    (binaryRel : ∀ b ∈ Δ.binaryRel,
-      ρ.binaryRel b.arg1 b.arg2 b.name = ρ'.binaryRel b.arg1 b.arg2 b.name) :
-    Env.agreeOn Δ ρ ρ' :=
-  ⟨vars, consts, unary, binary, ternary, unaryRel, binaryRel⟩
+structure Env.agreeOn (Δ : Signature) (ρ ρ' : Env) : Prop where
+  intro ::
+  vars : ∀ v ∈ Δ.vars, ρ.consts v.sort v.name = ρ'.consts v.sort v.name
+  consts : ∀ c ∈ Δ.consts, ρ.consts c.sort c.name = ρ'.consts c.sort c.name
+  unary : ∀ u ∈ Δ.unary, ρ.unary u.arg u.ret u.name = ρ'.unary u.arg u.ret u.name
+  binary : ∀ b ∈ Δ.binary,
+    ρ.binary b.arg1 b.arg2 b.ret b.name = ρ'.binary b.arg1 b.arg2 b.ret b.name
+  ternary : ∀ t ∈ Δ.ternary,
+    ρ.ternary t.arg1 t.arg2 t.arg3 t.ret t.name = ρ'.ternary t.arg1 t.arg2 t.arg3 t.ret t.name
+  unaryRel : ∀ u ∈ Δ.unaryRel, ρ.unaryRel u.arg u.name = ρ'.unaryRel u.arg u.name
+  binaryRel : ∀ b ∈ Δ.binaryRel,
+    ρ.binaryRel b.arg1 b.arg2 b.name = ρ'.binaryRel b.arg1 b.arg2 b.name
 
 theorem Env.agreeOn_refl : Env.agreeOn Δ ρ ρ :=
   .intro (fun _ _ => rfl) (fun _ _ => rfl) (fun _ _ => rfl) (fun _ _ => rfl)
@@ -149,13 +141,13 @@ theorem Env.agreeOn_empty (ρ ρ' : Env) : Env.agreeOn Signature.empty ρ ρ' :=
 theorem Env.agreeOn_mono {Δ₁ Δ₂ : Signature} (hsub : Δ₁.Subset Δ₂)
     (h : Env.agreeOn Δ₂ ρ ρ') : Env.agreeOn Δ₁ ρ ρ' :=
   .intro
-    (fun x hx => h.1 x (hsub.vars x hx))
-    (fun c hc => h.2.1 c (hsub.consts c hc))
-    (fun u hu => h.2.2.1 u (hsub.unary u hu))
-    (fun b hb => h.2.2.2.1 b (hsub.binary b hb))
-    (fun t ht => h.2.2.2.2.1 t (hsub.ternary t ht))
-    (fun u hu => h.2.2.2.2.2.1 u (hsub.unaryRel u hu))
-    (fun b hb => h.2.2.2.2.2.2 b (hsub.binaryRel b hb))
+    (fun x hx => h.vars x (hsub.vars x hx))
+    (fun c hc => h.consts c (hsub.consts c hc))
+    (fun u hu => h.unary u (hsub.unary u hu))
+    (fun b hb => h.binary b (hsub.binary b hb))
+    (fun t ht => h.ternary t (hsub.ternary t ht))
+    (fun u hu => h.unaryRel u (hsub.unaryRel u hu))
+    (fun b hb => h.binaryRel b (hsub.binaryRel b hb))
 
 theorem Env.agreeOn_remove {Δ : Signature} {ρ ρ' : Env} {x : String}
     (h : Env.agreeOn Δ ρ ρ') : Env.agreeOn (Δ.remove x) ρ ρ' :=
@@ -163,24 +155,24 @@ theorem Env.agreeOn_remove {Δ : Signature} {ρ ρ' : Env} {x : String}
 
 theorem Env.agreeOn_symm {Δ : Signature} {ρ ρ' : Env} (h : Env.agreeOn Δ ρ ρ') : Env.agreeOn Δ ρ' ρ :=
   .intro
-    (fun v hv => (h.1 v hv).symm)
-    (fun c hc => (h.2.1 c hc).symm)
-    (fun u hu => (h.2.2.1 u hu).symm)
-    (fun b hb => (h.2.2.2.1 b hb).symm)
-    (fun t ht => (h.2.2.2.2.1 t ht).symm)
-    (fun u hu => (h.2.2.2.2.2.1 u hu).symm)
-    (fun b hb => (h.2.2.2.2.2.2 b hb).symm)
+    (fun v hv => (h.vars v hv).symm)
+    (fun c hc => (h.consts c hc).symm)
+    (fun u hu => (h.unary u hu).symm)
+    (fun b hb => (h.binary b hb).symm)
+    (fun t ht => (h.ternary t ht).symm)
+    (fun u hu => (h.unaryRel u hu).symm)
+    (fun b hb => (h.binaryRel b hb).symm)
 
 theorem Env.agreeOn_trans {Δ : Signature}
     (h₁₂ : Env.agreeOn Δ ρ₁ ρ₂) (h₂₃ : Env.agreeOn Δ ρ₂ ρ₃) : Env.agreeOn Δ ρ₁ ρ₃ :=
   .intro
-    (fun x hx => (h₁₂.1 x hx).trans (h₂₃.1 x hx))
-    (fun c hc => (h₁₂.2.1 c hc).trans (h₂₃.2.1 c hc))
-    (fun u hu => (h₁₂.2.2.1 u hu).trans (h₂₃.2.2.1 u hu))
-    (fun b hb => (h₁₂.2.2.2.1 b hb).trans (h₂₃.2.2.2.1 b hb))
-    (fun t ht => (h₁₂.2.2.2.2.1 t ht).trans (h₂₃.2.2.2.2.1 t ht))
-    (fun u hu => (h₁₂.2.2.2.2.2.1 u hu).trans (h₂₃.2.2.2.2.2.1 u hu))
-    (fun b hb => (h₁₂.2.2.2.2.2.2 b hb).trans (h₂₃.2.2.2.2.2.2 b hb))
+    (fun x hx => (h₁₂.vars x hx).trans (h₂₃.vars x hx))
+    (fun c hc => (h₁₂.consts c hc).trans (h₂₃.consts c hc))
+    (fun u hu => (h₁₂.unary u hu).trans (h₂₃.unary u hu))
+    (fun b hb => (h₁₂.binary b hb).trans (h₂₃.binary b hb))
+    (fun t ht => (h₁₂.ternary t ht).trans (h₂₃.ternary t ht))
+    (fun u hu => (h₁₂.unaryRel u hu).trans (h₂₃.unaryRel u hu))
+    (fun b hb => (h₁₂.binaryRel b hb).trans (h₂₃.binaryRel b hb))
 
 /-- Base-signature agreement is stable under extending each side: if `ρ₁` and
     `ρ₂` agree on `Δ`, and each moves to an environment agreeing on a larger
@@ -206,21 +198,21 @@ theorem Env.agreeOn_update {ρ ρ' : Env} {Δ : Signature} {τ : Srt} {x : Strin
       by_cases hn : w.name = x <;> by_cases ht : w.sort = τ
       · cases w; simp only at hn ht; subst hn ht
         simp [Env.updateConst]
-      · simp [Env.updateConst, ht, hagree.1 w hw]
-      · simp [Env.updateConst, hn, hagree.1 w hw]
-      · simp [Env.updateConst, hn, hagree.1 w hw])
+      · simp [Env.updateConst, ht, hagree.vars w hw]
+      · simp [Env.updateConst, hn, hagree.vars w hw]
+      · simp [Env.updateConst, hn, hagree.vars w hw])
    (fun c hc => by
      by_cases hn : c.name = x <;> by_cases ht : c.sort = τ
      · cases c; simp only at hn ht; subst hn ht
        simp [Env.updateConst]
-     · simp [Env.updateConst, ht, hagree.2.1 c hc]
-     · simp [Env.updateConst, hn, hagree.2.1 c hc]
-     · simp [Env.updateConst, hn, hagree.2.1 c hc])
-   (fun u hu => by rw [Env.updateConst_unary]; exact hagree.2.2.1 u hu)
-   (fun b hb => by rw [Env.updateConst_binary]; exact hagree.2.2.2.1 b hb)
-   (fun t ht => by rw [Env.updateConst_ternary]; exact hagree.2.2.2.2.1 t ht)
-   (fun u hu => by rw [Env.updateConst_unaryRel]; exact hagree.2.2.2.2.2.1 u hu)
-   (fun b hb => by rw [Env.updateConst_binaryRel]; exact hagree.2.2.2.2.2.2 b hb)
+     · simp [Env.updateConst, ht, hagree.consts c hc]
+     · simp [Env.updateConst, hn, hagree.consts c hc]
+     · simp [Env.updateConst, hn, hagree.consts c hc])
+   (fun u hu => by rw [Env.updateConst_unary]; exact hagree.unary u hu)
+   (fun b hb => by rw [Env.updateConst_binary]; exact hagree.binary b hb)
+   (fun t ht => by rw [Env.updateConst_ternary]; exact hagree.ternary t ht)
+   (fun u hu => by rw [Env.updateConst_unaryRel]; exact hagree.unaryRel u hu)
+   (fun b hb => by rw [Env.updateConst_binaryRel]; exact hagree.binaryRel b hb)
 
 theorem Env.agreeOn_declVar {ρ ρ' : Env} {Δ : Signature} {τ : Srt} {x : String} {v : τ.denote} :
     Env.agreeOn Δ ρ ρ' →
@@ -342,18 +334,18 @@ theorem Env.agreeOn_update_fresh_binaryRel {ρ : Env} {b : Decl.BinaryRel}
 
 /-- Agreement on the environment components used by term evaluation. Relation
 interpretations are intentionally ignored. -/
-def Env.agreeOnTerms (Δ : Signature) (ρ₁ ρ₂ : Env) : Prop :=
-  (∀ v ∈ Δ.vars, ρ₁.consts v.sort v.name = ρ₂.consts v.sort v.name) ∧
-  (∀ c ∈ Δ.consts, ρ₁.consts c.sort c.name = ρ₂.consts c.sort c.name) ∧
-  (∀ u ∈ Δ.unary, ρ₁.unary u.arg u.ret u.name = ρ₂.unary u.arg u.ret u.name) ∧
-  (∀ b ∈ Δ.binary, ρ₁.binary b.arg1 b.arg2 b.ret b.name =
-    ρ₂.binary b.arg1 b.arg2 b.ret b.name) ∧
-  (∀ t ∈ Δ.ternary, ρ₁.ternary t.arg1 t.arg2 t.arg3 t.ret t.name =
-    ρ₂.ternary t.arg1 t.arg2 t.arg3 t.ret t.name)
+structure Env.agreeOnTerms (Δ : Signature) (ρ₁ ρ₂ : Env) : Prop where
+  vars : ∀ v ∈ Δ.vars, ρ₁.consts v.sort v.name = ρ₂.consts v.sort v.name
+  consts : ∀ c ∈ Δ.consts, ρ₁.consts c.sort c.name = ρ₂.consts c.sort c.name
+  unary : ∀ u ∈ Δ.unary, ρ₁.unary u.arg u.ret u.name = ρ₂.unary u.arg u.ret u.name
+  binary : ∀ b ∈ Δ.binary,
+    ρ₁.binary b.arg1 b.arg2 b.ret b.name = ρ₂.binary b.arg1 b.arg2 b.ret b.name
+  ternary : ∀ t ∈ Δ.ternary,
+    ρ₁.ternary t.arg1 t.arg2 t.arg3 t.ret t.name = ρ₂.ternary t.arg1 t.arg2 t.arg3 t.ret t.name
 
 theorem Env.agreeOnTerms_of_agreeOn {Δ : Signature} {ρ₁ ρ₂ : Env}
     (h : Env.agreeOn Δ ρ₁ ρ₂) : Env.agreeOnTerms Δ ρ₁ ρ₂ :=
-  ⟨h.1, h.2.1, h.2.2.1, h.2.2.2.1, h.2.2.2.2.1⟩
+  ⟨h.vars, h.consts, h.unary, h.binary, h.ternary⟩
 
 theorem Env.agreeOnTerms_declVar {Δ : Signature} {ρ₁ ρ₂ : Env}
     {x : String} {τ : Srt} {v : τ.denote}
@@ -369,27 +361,27 @@ theorem Env.agreeOnTerms_declVar {Δ : Signature} {ρ₁ ρ₂ : Env}
     | tail _ htail =>
       by_cases hn : w.name = x <;> by_cases ht : w.sort = τ
       · cases w; simp only at hn ht; subst hn ht; simp [Env.updateConst]
-      · simp [Env.updateConst, ht, h.1 w (Signature.remove_subset Δ x |>.vars w htail)]
-      · simp [Env.updateConst, hn, h.1 w (Signature.remove_subset Δ x |>.vars w htail)]
-      · simp [Env.updateConst, hn, h.1 w (Signature.remove_subset Δ x |>.vars w htail)]
+      · simp [Env.updateConst, ht, h.vars w (Signature.remove_subset Δ x |>.vars w htail)]
+      · simp [Env.updateConst, hn, h.vars w (Signature.remove_subset Δ x |>.vars w htail)]
+      · simp [Env.updateConst, hn, h.vars w (Signature.remove_subset Δ x |>.vars w htail)]
   · intro c hc
     have hcΔ : c ∈ Δ.consts :=
       Signature.remove_subset Δ x |>.consts c (by
         simpa [Signature.declVar, Signature.addVar] using hc)
     by_cases hn : c.name = x <;> by_cases ht : c.sort = τ
     · cases c; simp only at hn ht; subst hn ht; simp [Env.updateConst]
-    · simp [Env.updateConst, ht, h.2.1 c hcΔ]
-    · simp [Env.updateConst, hn, h.2.1 c hcΔ]
-    · simp [Env.updateConst, hn, h.2.1 c hcΔ]
+    · simp [Env.updateConst, ht, h.consts c hcΔ]
+    · simp [Env.updateConst, hn, h.consts c hcΔ]
+    · simp [Env.updateConst, hn, h.consts c hcΔ]
   · intro u hu
     rw [Env.updateConst_unary, Env.updateConst_unary]
-    exact h.2.2.1 u (Signature.remove_subset Δ x |>.unary u (by
+    exact h.unary u (Signature.remove_subset Δ x |>.unary u (by
       simpa [Signature.declVar, Signature.addVar] using hu))
   · intro b hb
     rw [Env.updateConst_binary, Env.updateConst_binary]
-    exact h.2.2.2.1 b (Signature.remove_subset Δ x |>.binary b (by
+    exact h.binary b (Signature.remove_subset Δ x |>.binary b (by
       simpa [Signature.declVar, Signature.addVar] using hb))
   · intro t ht
     rw [Env.updateConst_ternary, Env.updateConst_ternary]
-    exact h.2.2.2.2 t (Signature.remove_subset Δ x |>.ternary t (by
+    exact h.ternary t (Signature.remove_subset Δ x |>.ternary t (by
       simpa [Signature.declVar, Signature.addVar] using ht))

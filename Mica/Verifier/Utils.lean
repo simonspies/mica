@@ -335,12 +335,12 @@ private theorem FiniteSubst.eval_agreeOn_range {σ : FiniteSubst} {ρ ρ' : Env}
       fun hv => Signature.wf_no_var_of_const hσ.srcWf hc hv
     have hvar : σ.subst.apply c.sort c.name = Term.var c.sort c.name := hσ.subst.2 _ hnot
     simp [Subst.eval, Term.eval, hvar]
-    exact hagree.2.1 c (hsymbols.consts c hc)
-  · exact fun u hu => hagree.2.2.1 u (hsymbols.unary u hu)
-  · exact fun b hb => hagree.2.2.2.1 b (hsymbols.binary b hb)
-  · exact fun t ht => hagree.2.2.2.2.1 t (hsymbols.ternary t ht)
-  · exact fun u hu => hagree.2.2.2.2.2.1 u (hsymbols.unaryRel u hu)
-  · exact fun b hb => hagree.2.2.2.2.2.2 b (hsymbols.binaryRel b hb)
+    exact hagree.consts c (hsymbols.consts c hc)
+  · exact fun u hu => hagree.unary u (hsymbols.unary u hu)
+  · exact fun b hb => hagree.binary b (hsymbols.binary b hb)
+  · exact fun t ht => hagree.ternary t (hsymbols.ternary t ht)
+  · exact fun u hu => hagree.unaryRel u (hsymbols.unaryRel u hu)
+  · exact fun b hb => hagree.binaryRel b (hsymbols.binaryRel b hb)
 
 theorem FiniteSubst.eval_agreeOn {σ : FiniteSubst} {ρ ρ' : Env}
     {Δ_base Δ_use : Signature}

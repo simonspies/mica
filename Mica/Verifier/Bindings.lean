@@ -229,7 +229,7 @@ theorem Bindings.agreeOnLinked_env_agree {B : Bindings} {decls : Signature} {ρ 
   obtain ⟨l₁, l₂, heq, _⟩ := List.lookup_eq_some_iff.mp hmem
   have hmem' : (x, x') ∈ B := by rw [heq]; simp
   have hdecl := hwf _ hmem'
-  have henv' := henv.2.1 x' hdecl
+  have henv' := henv.consts x' hdecl
   rw [hsort] at henv'
   exact ⟨hsort, hγ.trans (congrArg some henv')⟩
 
@@ -529,7 +529,7 @@ theorem Bindings.agreeOnLinked_cons {B : Bindings} {ρ ρ' : Env} {γ : Runtime.
     have hmem_snd : y' ∈ B.map Prod.snd := by
       obtain ⟨l₁, l₂, heq, _⟩ := List.lookup_eq_some_iff.mp hmem
       exact List.mem_map.mpr ⟨(y, y'), by rw [heq]; simp, rfl⟩
-    have hρ := hρ_agree.2.1 y' hmem_snd
+    have hρ := hρ_agree.consts y' hmem_snd
     rw [hsort] at hρ
     exact ⟨hsort, by simp [Runtime.Subst.update, hyx]; exact hγ.trans (congrArg some hρ.symm)⟩
 

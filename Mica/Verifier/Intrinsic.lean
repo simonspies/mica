@@ -348,22 +348,22 @@ theorem Env.respects_of_agreeOn_extendWithSym {n : Arity} {Δ : Signature}
     | zero =>
       have hmem : ⟨s'.name, .value⟩ ∈ Δ.consts :=
         hsub.consts _ (by simp [Signature.extendWithSym, Signature.empty, Signature.addConst])
-      have heq := hagree.2.1 ⟨s'.name, .value⟩ hmem
+      have heq := hagree.consts ⟨s'.name, .value⟩ hmem
       simpa [Env.respects, Env.lookupConst] using heq.symm.trans hrespects
     | one =>
       have hmem : ⟨s'.name, .value, .value⟩ ∈ Δ.unary :=
         hsub.unary _ (by simp [Signature.extendWithSym, Signature.empty, Signature.addUnary])
-      have heq := hagree.2.2.1 ⟨s'.name, .value, .value⟩ hmem
+      have heq := hagree.unary ⟨s'.name, .value, .value⟩ hmem
       simpa [Env.respects] using heq.symm.trans hrespects
     | two =>
       have hmem : ⟨s'.name, .value, .value, .value⟩ ∈ Δ.binary :=
         hsub.binary _ (by simp [Signature.extendWithSym, Signature.empty, Signature.addBinary])
-      have heq := hagree.2.2.2.1 ⟨s'.name, .value, .value, .value⟩ hmem
+      have heq := hagree.binary ⟨s'.name, .value, .value, .value⟩ hmem
       simpa [Env.respects] using heq.symm.trans hrespects
     | three =>
       have hmem : ⟨s'.name, .value, .value, .value, .value⟩ ∈ Δ.ternary :=
         hsub.ternary _ (by simp [Signature.extendWithSym, Signature.empty, Signature.addTernary])
-      have heq := hagree.2.2.2.2.1 ⟨s'.name, .value, .value, .value, .value⟩ hmem
+      have heq := hagree.ternary ⟨s'.name, .value, .value, .value, .value⟩ hmem
       simpa [Env.respects] using heq.symm.trans hrespects
 
 /-! ## The intrinsic structure -/

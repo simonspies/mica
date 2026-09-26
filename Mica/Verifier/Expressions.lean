@@ -1152,7 +1152,7 @@ theorem compileFix_typed (reg : Verifier.Registry)
         (Bindings.agreeOnLinked_env_agree hagree hρ_st' hbwf)
         (hst_sub.consts fv hfv_mem) hfv_sort
         (by
-          have h := hρ_st'.2.1 fv hfv_mem
+          have h := hρ_st'.consts fv hfv_mem
           rw [hfv_sort] at h
           rw [← h]
           exact hfv_val)
@@ -2578,7 +2578,7 @@ theorem compileLetInGhost_correct (reg : Verifier.Registry)
         · intro y hy; cases hy
         · intro y' hy'
           obtain ⟨p, hp, rfl⟩ := List.mem_map.mp hy'
-          exact (hagreeOn₂.2.1 p.2 (hgwf₁ p hp)).symm
+          exact (hagreeOn₂.consts p.2 (hgwf₁ p hp)).symm
         · intro z hz; cases hz
         · intro z hz; cases hz
         · intro z hz; cases hz
@@ -2734,8 +2734,8 @@ theorem compileLetIn_correct (reg : Verifier.Registry) (b : Binder) (e body : Ex
         cases hy
       · intro y' hy'
         obtain ⟨p, hp, rfl⟩ := List.mem_map.mp hy'
-        exact ((hagreeOn_e.2.1 p.2 (hbwf p hp)).trans
-          (hagreeOn_body_e.2.1 p.2 (hbwf_e p hp))).symm
+        exact ((hagreeOn_e.consts p.2 (hbwf p hp)).trans
+          (hagreeOn_body_e.consts p.2 (hbwf_e p hp))).symm
       · intro z hz; cases hz
       · intro z hz; cases hz
       · intro z hz; cases hz
@@ -2943,7 +2943,7 @@ theorem compileProductBindersFrom_correct (reg : Verifier.Registry) (body : Expr
                 · intro y hy; cases hy
                 · intro y' hy'
                   obtain ⟨p, hp, rfl⟩ := List.mem_map.mp hy'
-                  exact (hagreeOn_body.2.1 p.2 (hbwf p hp)).symm
+                  exact (hagreeOn_body.consts p.2 (hbwf p hp)).symm
                 · intro z hz; cases hz
                 · intro z hz; cases hz
                 · intro z hz; cases hz
@@ -3870,7 +3870,7 @@ theorem compileSingleBranch_correct (reg : Verifier.Registry) (binder : Binder) 
           cases hw
         · intro c hc
           obtain ⟨p, hp, rfl⟩ := List.mem_map.mp hc
-          exact (hagreeOn_st.2.1 p.2 (hbwf p hp)).symm
+          exact (hagreeOn_st.consts p.2 (hbwf p hp)).symm
         · intro z hz; cases hz
         · intro z hz; cases hz
         · intro z hz; cases hz

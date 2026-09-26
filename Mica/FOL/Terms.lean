@@ -704,11 +704,11 @@ theorem Term.eval_env_agree {t : Term τ} {ρ ρ' : Env} {Δ : Signature} :
     t.wfIn Δ → Env.agreeOn Δ ρ ρ' → Term.eval ρ t = Term.eval ρ' t := by
   intro hwf hagree
   induction t with
-  | var τ y => simp [Term.eval, Env.lookupConst]; exact hagree.1 ⟨y, τ⟩ hwf.1
+  | var τ y => simp [Term.eval, Env.lookupConst]; exact hagree.vars ⟨y, τ⟩ hwf.1
   | const c =>
     simp only [Term.eval]
     cases c with
-    | uninterpreted name _ => exact hagree.2.1 ⟨name, _⟩ hwf.1
+    | uninterpreted name _ => exact hagree.consts ⟨name, _⟩ hwf.1
     | _ => rfl
   | unop op a iha =>
     simp only [Term.eval]
@@ -716,7 +716,7 @@ theorem Term.eval_env_agree {t : Term τ} {ρ ρ' : Env} {Δ : Signature} :
     cases op with
     | uninterpreted name _ _ =>
       simp only [UnOp.eval]
-      exact congrFun (hagree.2.2.1 ⟨name, _, _⟩ hwf.1.1) _
+      exact congrFun (hagree.unary ⟨name, _, _⟩ hwf.1.1) _
     | _ => rfl
   | binop op a b iha ihb =>
     simp only [Term.eval]
@@ -724,7 +724,7 @@ theorem Term.eval_env_agree {t : Term τ} {ρ ρ' : Env} {Δ : Signature} :
     cases op with
     | uninterpreted name _ _ _ =>
       simp only [BinOp.eval]
-      exact congrFun (congrFun (hagree.2.2.2.1 ⟨name, _, _, _⟩ hwf.1.1) _) _
+      exact congrFun (congrFun (hagree.binary ⟨name, _, _, _⟩ hwf.1.1) _) _
     | _ => rfl
   | terop op a b c iha ihb ihc =>
     simp only [Term.eval]
@@ -733,7 +733,7 @@ theorem Term.eval_env_agree {t : Term τ} {ρ ρ' : Env} {Δ : Signature} :
     | uninterpreted name _ _ _ _ =>
       simp only [TerOp.eval]
       exact congrFun (congrFun (congrFun
-        (hagree.2.2.2.2.1 ⟨name, _, _, _, _⟩ hwf.1.1) _) _) _
+        (hagree.ternary ⟨name, _, _, _, _⟩ hwf.1.1) _) _) _
     | _ => rfl
   | ite c t e ihc iht ihe =>
     simp [Term.eval]
@@ -744,18 +744,18 @@ invariant under `Env.le`. -/
 theorem Term.eval_env_le {τ : Srt} {ρ ρ' : Env} (h : Env.le ρ ρ') (t : Term τ) :
     t.eval ρ = t.eval ρ' := by
   induction t with
-  | var τ y => simp [Term.eval, Env.lookupConst, h.1]
+  | var τ y => simp [Term.eval, Env.lookupConst, h.consts]
   | const c =>
-    cases c <;> simp [Term.eval, Const.denote, h.1]
+    cases c <;> simp [Term.eval, Const.denote, h.consts]
   | unop op a iha =>
     simp only [Term.eval]; rw [iha]
-    cases op <;> simp [UnOp.eval, h.2.1]
+    cases op <;> simp [UnOp.eval, h.unary]
   | binop op a b iha ihb =>
     simp only [Term.eval]; rw [iha, ihb]
-    cases op <;> simp [BinOp.eval, h.2.2.1]
+    cases op <;> simp [BinOp.eval, h.binary]
   | terop op a b c iha ihb ihc =>
     simp only [Term.eval]; rw [iha, ihb, ihc]
-    cases op <;> simp [TerOp.eval, h.2.2.2.1]
+    cases op <;> simp [TerOp.eval, h.ternary]
   | ite c t e ihc iht ihe =>
     simp only [Term.eval]; rw [ihc, iht, ihe]
 
@@ -763,11 +763,11 @@ theorem Term.eval_agreeOnTerms {t : Term τ} {ρ₁ ρ₂ : Env} {Δ : Signature
     t.wfIn Δ → Env.agreeOnTerms Δ ρ₁ ρ₂ → Term.eval ρ₁ t = Term.eval ρ₂ t := by
   intro hwf hagree
   induction t with
-  | var τ y => simp [Term.eval, Env.lookupConst]; exact hagree.1 ⟨y, τ⟩ hwf.1
+  | var τ y => simp [Term.eval, Env.lookupConst]; exact hagree.vars ⟨y, τ⟩ hwf.1
   | const c =>
     simp only [Term.eval]
     cases c with
-    | uninterpreted name _ => exact hagree.2.1 ⟨name, _⟩ hwf.1
+    | uninterpreted name _ => exact hagree.consts ⟨name, _⟩ hwf.1
     | _ => rfl
   | unop op a iha =>
     simp only [Term.eval]
@@ -775,7 +775,7 @@ theorem Term.eval_agreeOnTerms {t : Term τ} {ρ₁ ρ₂ : Env} {Δ : Signature
     cases op with
     | uninterpreted name _ _ =>
       simp only [UnOp.eval]
-      exact congrFun (hagree.2.2.1 ⟨name, _, _⟩ hwf.1.1) _
+      exact congrFun (hagree.unary ⟨name, _, _⟩ hwf.1.1) _
     | _ => rfl
   | binop op a b iha ihb =>
     simp only [Term.eval]
@@ -783,7 +783,7 @@ theorem Term.eval_agreeOnTerms {t : Term τ} {ρ₁ ρ₂ : Env} {Δ : Signature
     cases op with
     | uninterpreted name _ _ _ =>
       simp only [BinOp.eval]
-      exact congrFun (congrFun (hagree.2.2.2.1 ⟨name, _, _, _⟩ hwf.1.1) _) _
+      exact congrFun (congrFun (hagree.binary ⟨name, _, _, _⟩ hwf.1.1) _) _
     | _ => rfl
   | terop op a b c iha ihb ihc =>
     simp only [Term.eval]
@@ -791,7 +791,7 @@ theorem Term.eval_agreeOnTerms {t : Term τ} {ρ₁ ρ₂ : Env} {Δ : Signature
     cases op with
     | uninterpreted name _ _ _ _ =>
       simp only [TerOp.eval]
-      exact congrFun (congrFun (congrFun (hagree.2.2.2.2 ⟨name, _, _, _, _⟩ hwf.1.1) _) _) _
+      exact congrFun (congrFun (congrFun (hagree.ternary ⟨name, _, _, _, _⟩ hwf.1.1) _) _) _
     | _ => rfl
   | ite c t e ihc iht ihe =>
     simp [Term.eval]
@@ -800,31 +800,18 @@ theorem Term.eval_agreeOnTerms {t : Term τ} {ρ₁ ρ₂ : Env} {Δ : Signature
 theorem Term.eval_update_fresh {t : Term τ'} {x : String} {τ : Srt} {v : τ.denote} {ρ : Env}
     {Δ : Signature} (hwf : t.wfIn Δ) (hfresh : x ∉ Δ.allNames) :
     Term.eval (ρ.updateConst τ x v) t = Term.eval ρ t :=
-  Term.eval_env_agree hwf
-    ⟨
-      (fun w hw => by
-        have hne : w.name ≠ x := by
-          intro heq
-          exact hfresh (heq ▸ Signature.mem_allNames_of_var hw)
-        exact Env.lookupConst_updateConst_ne' (Or.inl hne)),
-      ⟨
-        (fun c hc => by
-          have hne : c.name ≠ x := by
-            intro heq
-            exact hfresh (heq ▸ Signature.mem_allNames_of_const hc)
-          exact Env.lookupConst_updateConst_ne' (Or.inl hne)),
-        ⟨
-          (fun _ _ => rfl),
-          ⟨
-            (fun _ _ => rfl),
-            ⟨
-              (fun _ _ => rfl),
-              ⟨(fun _ _ => rfl), (fun _ _ => rfl)⟩
-            ⟩
-          ⟩
-        ⟩
-      ⟩
-    ⟩
+  Term.eval_env_agree hwf (.intro
+    (fun w hw => by
+      have hne : w.name ≠ x := by
+        intro heq
+        exact hfresh (heq ▸ Signature.mem_allNames_of_var hw)
+      exact Env.lookupConst_updateConst_ne' (Or.inl hne))
+    (fun c hc => by
+      have hne : c.name ≠ x := by
+        intro heq
+        exact hfresh (heq ▸ Signature.mem_allNames_of_const hc)
+      exact Env.lookupConst_updateConst_ne' (Or.inl hne))
+    (fun _ _ => rfl) (fun _ _ => rfl) (fun _ _ => rfl) (fun _ _ => rfl) (fun _ _ => rfl))
 
 /-! simple helper lemmas -/
 

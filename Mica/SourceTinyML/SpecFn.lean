@@ -197,6 +197,6 @@ theorem eval_of_agreeOn {fn : SpecFn} {ρ ρ' : Env} {Δ : Signature}
     (hr : fn.rel ∈ Δ.binaryRel) (hu : fn.func ∈ Δ.unary) (hd : fn.defined ∈ Δ.unaryRel) :
     fn.evalRelates ρ = fn.evalRelates ρ' ∧
       fn.evalCall ρ = fn.evalCall ρ' ∧ fn.evalDefined ρ = fn.evalDefined ρ' :=
-  ⟨h.2.2.2.2.2.2 _ hr, h.2.2.1 _ hu, h.2.2.2.2.2.1 _ hd⟩
+  ⟨h.binaryRel _ hr, h.unary _ hu, h.unaryRel _ hd⟩
 
 end SpecFn

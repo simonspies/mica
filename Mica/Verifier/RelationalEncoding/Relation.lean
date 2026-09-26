@@ -60,7 +60,7 @@ theorem Expr.toFormula_mono (res : String) (c : Expr) :
       have hleU : Env.le (ρ.updateConst .value r w) (ρ'.updateConst .value r w) :=
         Env.le.updateConst hle .value r w
       rw [← Term.eval_env_le hleU, ← Term.eval_env_le hleU]
-      exact hleU.2.2.2.2.2 _ _ _ _ _ hcall
+      exact hleU.binaryRel _ _ _ _ _ hcall
   | ite cond t e iht ihe =>
       intro ρ ρ' hle h
       simp only [toFormula, Formula.iteBool, Formula.eval] at h ⊢
