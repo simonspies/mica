@@ -30,7 +30,7 @@ and accumulating the spec map for use by subsequent declarations. -/
 /-- The `[@@fn]` function map, read off the *untyped* program. Specification
 leaves are translated during elaboration, so the map that resolves their calls
 has to be available before elaboration starts; the declaration name and relation
-name it needs are both untyped metadata. `RelationSpec.assemble` re-derives the
+name it needs are both untyped metadata. `Env.assemble` re-derives the
 same map from the typed program and validates every entry, so nothing here is
 trusted. -/
 def Program.relationMap (prog : Untyped.Program Untyped.SpecBody) : FunCtx :=
@@ -86,23 +86,12 @@ def Program.prepare (env : Typed.SpecEnv σ) (s : σ)
   | .ok ((Θ, typed), s') => .ret (Θ, typed, s')
   | .error err => .fatal (toString err)
 
-/-- Globally assembled metadata for declarations marked with `[@@fn]`. -/
-structure RelationSpec where
-  symbols : List Decl.BinaryRel
-  /-- The facts opaque declarations withhold. -/
-  lemmas : Lemmas
-  functionMap : List (TinyML.Var × String)
-  delta : Signature
-
-namespace RelationSpec
+namespace Verifier.Env
 
 open Verifier.RelationalEncoding
 
-def empty : RelationSpec :=
-  { symbols := [], lemmas := [], functionMap := [], delta := Signature.empty }
-
 private structure RelationDecl where
-  spec : RelationSpec
+  env : Env
   sd : SpecDef
   axs : List Axiom
   bv : Skolemize.DefVal
@@ -123,8 +112,7 @@ private def validateDecl (d : Typed.ValDecl) :
   | .fix _ _ _ _ _ => .error s!"[@@fn] requires a unary function"
   | _ => .error s!"[@@fn] requires a function body"
 
-private def extend (primitives : PrimEncodings) (acc : RelationSpec) (d : Typed.ValDecl) :
-    Except String RelationDecl := do
+private def extend (env : Env) (d : Typed.ValDecl) : Except String RelationDecl := do
   match d.relation with
   | none => .error "internal error: expected relation declaration"
   | some r => do
@@ -133,13 +121,13 @@ private def extend (primitives : PrimEncodings) (acc : RelationSpec) (d : Typed.
       let relName := SpecFn.relName rel
       let funName := SpecFn.funcName rel
       let defName := SpecFn.defName rel
-      if relName ∈ acc.delta.allNames then
+      if relName ∈ env.signature.allNames then
         .error s!"derived relation name '{relName}' for [@@fn] conflicts with an existing symbol"
-      else if funName ∈ acc.delta.allNames then
+      else if funName ∈ env.signature.allNames then
         .error s!"derived value-function name '{funName}' for [@@fn] conflicts with an existing symbol"
-      else if defName ∈ acc.delta.allNames then
+      else if defName ∈ env.signature.allNames then
         .error s!"derived definedness name '{defName}' for [@@fn] conflicts with an existing symbol"
-      else if arg ∈ acc.delta.allNames then
+      else if arg ∈ env.signature.allNames then
         .error s!"[@@fn] argument name '{arg}' conflicts with a global symbol"
       else if arg = relName then
         .error s!"[@@fn] argument name '{arg}' clashes with derived relation name"
@@ -149,19 +137,20 @@ private def extend (primitives : PrimEncodings) (acc : RelationSpec) (d : Typed.
         .error s!"[@@fn] argument name '{arg}' clashes with derived definedness name"
       else
         let sd : SpecDef :=
-          { primitives, Γ := acc.functionMap, Δ := acc.delta, f, fn := rel, x := arg, e := body }
+          { primitives := env.registry.primitives, Γ := env.specFunctions, Δ := env.signature,
+            f, fn := rel, x := arg, e := body }
         let (bv, axs) ← Skolemize.encode sd
         let lemmas := match r.transparency with
-          | .transparent => acc.lemmas
-          | .opaque => acc.lemmas ++
+          | .transparent => env.lemmas
+          | .opaque => env.lemmas ++
               [{ kind := .definingEquation f,
                  fact := Skolemize.SpecFn.Axioms.equation rel arg bv }]
-        let spec := { symbols := acc.symbols ++ [SpecFn.rel rel],
-                      lemmas,
-                      functionMap := acc.functionMap ++ [(f, rel)],
-                      delta := ((acc.delta.addBinaryRel (SpecFn.rel rel)).addUnary
-                                  (SpecFn.func rel)).addUnaryRel (SpecFn.defined rel) }
-        .ok { spec, sd, axs, bv }
+        let env' := { env with
+                       lemmas,
+                       specFunctions := env.specFunctions ++ [(f, rel)],
+                       signature := ((env.signature.addBinaryRel (SpecFn.rel rel)).addUnary
+                                      (SpecFn.func rel)).addUnaryRel (SpecFn.defined rel) }
+        .ok { env := env', sd, axs, bv }
 
 /-- With a measure the definedness axioms are replaced by a proof: the
 termination check establishes definedness at every input. The check is one of
@@ -180,112 +169,110 @@ private def RelationDecl.declare (info : RelationDecl) (t : TinyML.Transparency)
       Termination.check info.sd.fn info.sd.x m info.bv
     SeqM.assume (Termination.total info.sd.fn info.sd.x)
 
-private def declareAndAssume (primitives : PrimEncodings) (acc : RelationSpec)
-    (d : Typed.ValDecl) : SeqM RelationSpec := do
+private def declareAndAssume (env : Env) (d : Typed.ValDecl) : SeqM Env := do
   match d.relation with
-  | none => pure acc
+  | none => pure env
   | some r =>
-      match extend primitives acc d with
+      match extend env d with
       | .error msg => SeqM.fatal msg
       | .ok info => do
           info.declare r.transparency d.decreases
-          pure info.spec
+          pure info.env
 
 /-- Declare a bounded quantifier's solver-facing triple and its defining
-axioms on top of the accumulated relation spec. All freshness and membership
-conditions needed by the soundness proof are checked operationally by
-`validate`. -/
-private def declareLifting (primitives : PrimEncodings) (acc : RelationSpec)
-    (s : Verifier.BoundedQuantifier.Lifting) :
-    SeqM RelationSpec :=
-  match s.validate acc.delta with
+axioms. All freshness and membership conditions needed by the soundness proof
+are checked operationally by `validate`. -/
+private def declareLifting (env : Env) (s : Verifier.BoundedQuantifier.Lifting) : SeqM Env :=
+  match s.validate env.signature with
   | .error msg => SeqM.fatal msg
   | .ok _ =>
-      match s.compile primitives acc.functionMap acc.delta with
+      match s.compile env.registry.primitives env.specFunctions env.signature with
       | .error msg => SeqM.fatal msg
       | .ok body => do
           s.declare body
-          pure { symbols := acc.symbols ++ [SpecFn.rel s.name],
-                 lemmas := acc.lemmas,
-                 functionMap := acc.functionMap ++ [(s.name, s.name)],
-                 delta := s.extendSignature acc.delta }
+          pure { env with
+                 specFunctions := env.specFunctions ++ [(s.name, s.name)],
+                 signature := s.extendSignature env.signature }
 
-private def assembleFrom (primitives : PrimEncodings) :
-    RelationSpec → Typed.Program → SeqM RelationSpec
-  | acc, [] => pure acc
-  | acc, d :: ds => do
-      let acc' ← declareAndAssume primitives acc d
-      assembleFrom primitives acc' ds
+private def assembleFrom : Env → Typed.Program → SeqM Env
+  | env, [] => pure env
+  | env, d :: ds => do
+      let env' ← declareAndAssume env d
+      assembleFrom env' ds
 
 /-- Compile and declare the lifted bounded quantifiers in lift order. Earlier
 symbols are available while compiling later bodies, which supports nesting. -/
-private def assembleLiftings (primitives : PrimEncodings) :
-    RelationSpec → List Verifier.BoundedQuantifier.Lifting → SeqM RelationSpec
-  | acc, [] => pure acc
-  | acc, s :: ss => do
-      let acc' ← declareLifting primitives acc s
-      assembleLiftings primitives acc' ss
+private def assembleLiftings : Env → List Verifier.BoundedQuantifier.Lifting → SeqM Env
+  | env, [] => pure env
+  | env, s :: ss => do
+      let env' ← declareLifting env s
+      assembleLiftings env' ss
 
-/-- Assemble the global relation signature and function-name map for a typed
-program together with the bounded quantifiers its specifications lifted.
-Quantifier symbols are declared after all program declarations: assembly never
-consults specs, and the only cross-references between lifted bodies — inner
-occurrences captured by outer ones — respect the lift order, which elaboration
-preserves. -/
-def assemble (primitives : PrimEncodings) (prog : Typed.Program)
-    (liftings : List Verifier.BoundedQuantifier.Lifting) : SeqM RelationSpec := do
+/-- The environment of a typed program: the symbols declared so far, and the
+spec functions of the program together with the bounded quantifiers its
+specifications lifted. Quantifier symbols are declared after all program
+declarations: assembly never consults specs, and the only cross-references
+between lifted bodies — inner occurrences captured by outer ones — respect the
+lift order, which elaboration preserves. -/
+def assemble (reg : Registry) (Θ : TinyML.TypeEnv) (prog : Typed.Program)
+    (liftings : List Verifier.BoundedQuantifier.Lifting) : SeqM Env := do
   let Δ ← SeqM.decls
-  let acc ← assembleFrom primitives { RelationSpec.empty with delta := Δ } prog
-  assembleLiftings primitives acc liftings
+  let env ← assembleFrom
+    { registry := reg, typeDeclarations := Θ, signature := Δ, lemmas := [], specFunctions := [] }
+    prog
+  assembleLiftings env liftings
 
-/-- The invariant pack threaded through relation assembly: the accumulated
-delta mirrors the declared signature, the state is spec-level (no owned
-locations, no variables), and the accumulated function map is well-formed and
-interpreted in agreement with its func-form reading. -/
-private structure Inv (acc : RelationSpec) (st : TransState) (ρ : Env) : Prop where
-  delta : acc.delta = st.decls
+/-- The invariant threaded through assembly: the signature mirrors the declared
+one, the state is spec-level (no owned locations, no variables), and the spec
+functions are well-formed and interpreted in agreement with their func-form
+reading. -/
+private structure Inv (reg : Registry) (env : Env) (st : TransState) (ρ : _root_.Env) : Prop where
+  registry : env.registry = reg
+  signature : env.signature = st.decls
   owns : st.owns = []
   vars : st.decls.vars = []
   wf : st.decls.wf
-  Γwf : FunCtx.wfIn acc.functionMap st.decls
-  Γagree : FunCtx.Agreement acc.functionMap ρ
-  lemmas : acc.lemmas.Sound st.decls ρ
+  Γwf : FunCtx.wfIn env.specFunctions st.decls
+  Γagree : FunCtx.Agreement env.specFunctions ρ
+  lemmas : env.lemmas.Sound st.decls ρ
 
 omit [MicaGS HasLC.hasLC Sig] in
 /-- Declaring one relation-marked declaration preserves the assembly
 invariants; the signature only grows and the environment is only extended
 with fresh interpretations. -/
-private theorem declareAndAssume_correct {primitives : PrimEncodings}
-    (hlaw : primitives.Lawful) (d : Typed.ValDecl)
-    (acc : RelationSpec) (st : TransState) (ρ : Env)
-    {Q : RelationSpec → TransState → Env → Prop}
-    (hinv : Inv acc st ρ)
-    (heval : SeqM.eval (declareAndAssume primitives acc d) st ρ Q) :
-    ∃ acc' st' ρ', Inv acc' st' ρ' ∧
+private theorem declareAndAssume_correct {reg : Registry}
+    (hlaw : reg.primitives.Lawful) (d : Typed.ValDecl)
+    (env : Env) (st : TransState) (ρ : _root_.Env)
+    {Q : Env → TransState → _root_.Env → Prop}
+    (hinv : Inv reg env st ρ)
+    (heval : SeqM.eval (declareAndAssume env d) st ρ Q) :
+    ∃ env' st' ρ', Inv reg env' st' ρ' ∧
       st.decls.Subset st'.decls ∧ Env.agreeOn st.decls ρ ρ' ∧
-      Q acc' st' ρ' := by
-  obtain ⟨hacc, howns, hvars, hwf, hΓwf, hΓagree, hu⟩ := hinv
+      Q env' st' ρ' := by
+  obtain ⟨hreg, hacc, howns, hvars, hwf, hΓwf, hΓagree, hu⟩ := hinv
   simp only [declareAndAssume] at heval
   cases hrel : d.relation with
   | none =>
     simp only [hrel] at heval
-    exact ⟨acc, st, ρ, ⟨hacc, howns, hvars, hwf, hΓwf, hΓagree, hu⟩,
+    exact ⟨env, st, ρ, ⟨hreg, hacc, howns, hvars, hwf, hΓwf, hΓagree, hu⟩,
       Signature.Subset.refl _, Env.agreeOn_refl, SeqM.eval_ret heval⟩
   | some rel =>
     simp only [hrel] at heval
-    cases hext : extend primitives acc d with
+    cases hext : extend env d with
     | error msg => simp only [hext] at heval; exact (SeqM.eval_fatal heval).elim
     | ok info =>
       simp only [hext] at heval
       -- Unfold `extend` once to expose its construction facts about `info`.
-      obtain ⟨hprimsd, hΓsd, hΔsd, hfnsd, hf, hspec_delta, hspec_fm, hspec_lemmas, hinfoEq⟩ :
-          info.sd.primitives = primitives ∧
-          info.sd.Γ = acc.functionMap ∧ info.sd.Δ = acc.delta ∧ info.sd.fn = rel.name ∧
-          SpecFnFresh acc.delta rel.name info.sd.x ∧
-          info.spec.delta = ((acc.delta.addBinaryRel (SpecFn.rel rel.name)).addUnary
+      obtain ⟨hprimsd, hΓsd, hΔsd, hfnsd, hf, hspec_delta, hspec_fm, hspec_reg, hspec_lemmas,
+          hinfoEq⟩ :
+          info.sd.primitives = env.registry.primitives ∧
+          info.sd.Γ = env.specFunctions ∧ info.sd.Δ = env.signature ∧ info.sd.fn = rel.name ∧
+          SpecFnFresh env.signature rel.name info.sd.x ∧
+          info.env.signature = ((env.signature.addBinaryRel (SpecFn.rel rel.name)).addUnary
               (SpecFn.func rel.name)).addUnaryRel (SpecFn.defined rel.name) ∧
-          info.spec.functionMap = acc.functionMap ++ [(info.sd.f, rel.name)] ∧
-          (∀ l ∈ info.spec.lemmas, l ∈ acc.lemmas ∨
+          info.env.specFunctions = env.specFunctions ++ [(info.sd.f, rel.name)] ∧
+          info.env.registry = env.registry ∧
+          (∀ l ∈ info.env.lemmas, l ∈ env.lemmas ∨
             l.fact = Skolemize.SpecFn.Axioms.equation info.sd.fn info.sd.x info.bv) ∧
           Skolemize.encode info.sd = .ok (info.bv, info.axs) := by
         unfold extend at hext
@@ -302,7 +289,7 @@ private theorem declareAndAssume_correct {primitives : PrimEncodings}
           rename_i tup hinfoTuple
           obtain ⟨bv, axs⟩ := tup
           cases hext
-          refine ⟨rfl, rfl, rfl, rfl, { symFresh := ?_, argFresh := ?_ }, rfl, rfl, ?_,
+          refine ⟨rfl, rfl, rfl, rfl, { symFresh := ?_, argFresh := ?_ }, rfl, rfl, rfl, ?_,
             hinfoTuple⟩
           · intro n hn
             simp only [SpecFn.names, List.mem_cons, List.not_mem_nil, or_false] at hn
@@ -318,15 +305,16 @@ private theorem declareAndAssume_correct {primitives : PrimEncodings}
               · simp only [List.mem_singleton] at hl
                 subst hl
                 exact Or.inr rfl
-      have hΓwf_acc : FunCtx.wfIn acc.functionMap acc.delta := hacc ▸ hΓwf
-      have hΔwf_acc : acc.delta.wf := hacc ▸ hwf
+      have hΓwf_acc : FunCtx.wfIn env.specFunctions env.signature := hacc ▸ hΓwf
+      have hΔwf_acc : env.signature.wf := hacc ▸ hwf
       -- The chosen interpretations: the ground-truth relation and its func-form reading.
       set R : ValRel := SpecFn.Semantics.rel info.sd ρ
       set F := ValRel.toFunc R
       set D : Srt.value.denote → Prop := SpecFn.Semantics.defined info.sd ρ info.bv
       have hsdFresh : info.sd.Fresh :=
         SpecDef.fresh (hΔsd ▸ hfnsd ▸ hf)
-      have hlawsd : info.sd.primitives.Lawful := hprimsd ▸ hlaw
+      have hlaw' : env.registry.primitives.Lawful := hreg ▸ hlaw
+      have hlawsd : info.sd.primitives.Lawful := hprimsd ▸ hlaw'
       have hgraph : ∀ a b, R a b ↔ D a ∧ F a = b := fun a b =>
         Skolemize.encode_agreement hlawsd hinfoEq (hΓsd ▸ hΓagree)
           (hΓsd ▸ hΔsd ▸ hΓwf_acc) (hΔsd ▸ hΔwf_acc) hsdFresh a b
@@ -342,9 +330,9 @@ private theorem declareAndAssume_correct {primitives : PrimEncodings}
         exact Skolemize.encode_eval_updateBinaryRel hlawsd hinfoEq (hΓsd ▸ hΓagree)
           (hΓsd ▸ hΔsd ▸ hΓwf_acc) (hΔsd ▸ hΔwf_acc) hsdFresh R
       have hdecl (axs : List Axiom) (hsub : ∀ ax ∈ axs, ax ∈ info.axs)
-          {Q' : Unit → TransState → Env → Prop}
+          {Q' : Unit → TransState → _root_.Env → Prop}
           (h : SeqM.eval (SpecFn.declare info.sd.fn axs) st ρ Q') :=
-        SpecFn.declare_correct rel.name info.sd.f axs R F D acc.delta acc.functionMap st ρ
+        SpecFn.declare_correct rel.name info.sd.f axs R F D env.signature env.specFunctions st ρ
           hf.relFresh hf.funcFresh hf.defFresh hgraph hacc.symm howns hvars
           (hf.sigBoth_wf hΔwf_acc) hΓwf_acc hΓagree
           (fun ax hax => by
@@ -354,8 +342,8 @@ private theorem declareAndAssume_correct {primitives : PrimEncodings}
           (fun ax hax => haxeval ax (hsub ax hax)) (hfnsd ▸ h)
       -- Every encoded axiom holds once the three symbols are declared, whether
       -- or not it stays in the context.
-      have hcurrent {st' : TransState} {ρ' : Env}
-          (hd : st'.decls = ((acc.delta.addBinaryRel (SpecFn.rel rel.name)).addUnary
+      have hcurrent {st' : TransState} {ρ' : _root_.Env}
+          (hd : st'.decls = ((env.signature.addBinaryRel (SpecFn.rel rel.name)).addUnary
             (SpecFn.func rel.name)).addUnaryRel (SpecFn.defined rel.name))
           (hρ : ρ' = SpecFn.Env.both ρ rel.name R D F) :
           ∀ ax ∈ info.axs, ax.formula.wfIn st'.decls ∧ ax.formula.eval ρ' := by
@@ -369,11 +357,11 @@ private theorem declareAndAssume_correct {primitives : PrimEncodings}
       have hrun : ∃ axs, (∀ ax ∈ axs, ax ∈ info.axs) ∧
           SeqM.eval (SpecFn.declare info.sd.fn axs) st ρ
             (fun _ st' ρ' =>
-              st'.decls = ((acc.delta.addBinaryRel (SpecFn.rel rel.name)).addUnary
+              st'.decls = ((env.signature.addBinaryRel (SpecFn.rel rel.name)).addUnary
                 (SpecFn.func rel.name)).addUnaryRel (SpecFn.defined rel.name) →
               ρ' = SpecFn.Env.both ρ rel.name R D F →
               ∃ st'', st''.decls = st'.decls ∧ st''.owns = st'.owns ∧
-                Q info.spec st'' ρ') := by
+                Q info.env st'' ρ') := by
         have h := SeqM.eval_bind heval
         cases hm : d.decreases with
         | none =>
@@ -402,7 +390,8 @@ private theorem declareAndAssume_correct {primitives : PrimEncodings}
       obtain ⟨st4, ρ4, hρ4, hst4_decls, howns4, hvars4, hwf4, hsub4, hagree4,
         hΓwf4, hΓagree4, hcont⟩ := hdecl axs hsub hrun
       obtain ⟨st5, hst5_decls, howns5, hQ5⟩ := hcont hst4_decls hρ4
-      refine ⟨info.spec, st5, ρ4, ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_⟩, ?_, hagree4, hQ5⟩
+      refine ⟨info.env, st5, ρ4, ⟨hspec_reg.trans hreg, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩, ?_, hagree4,
+        hQ5⟩
       · rw [hspec_delta, hst5_decls, hst4_decls]
       · rw [howns5, howns4]
       · rw [hst5_decls]; exact hvars4
@@ -418,133 +407,129 @@ private theorem declareAndAssume_correct {primitives : PrimEncodings}
       · rw [hst5_decls]; exact hsub4
 
 omit [MicaGS HasLC.hasLC Sig] in
-private theorem assembleFrom_correct {primitives : PrimEncodings}
-    (hlaw : primitives.Lawful) (prog : Typed.Program) :
-    ∀ (acc : RelationSpec) (st : TransState) (ρ : Env)
-      {Q : RelationSpec → TransState → Env → Prop},
-      Inv acc st ρ →
-      SeqM.eval (assembleFrom primitives acc prog) st ρ Q →
-      ∃ result stRel ρRel, Inv result stRel ρRel ∧
+private theorem assembleFrom_correct {reg : Registry}
+    (hlaw : reg.primitives.Lawful) (prog : Typed.Program) :
+    ∀ (env : Env) (st : TransState) (ρ : _root_.Env)
+      {Q : Env → TransState → _root_.Env → Prop},
+      Inv reg env st ρ →
+      SeqM.eval (assembleFrom env prog) st ρ Q →
+      ∃ result stRel ρRel, Inv reg result stRel ρRel ∧
         st.decls.Subset stRel.decls ∧ Env.agreeOn st.decls ρ ρRel ∧
         Q result stRel ρRel := by
   induction prog with
   | nil =>
-    intro acc st ρ Q hinv heval
+    intro env st ρ Q hinv heval
     simp only [assembleFrom] at heval
-    exact ⟨acc, st, ρ, hinv, Signature.Subset.refl _, Env.agreeOn_refl,
+    exact ⟨env, st, ρ, hinv, Signature.Subset.refl _, Env.agreeOn_refl,
       SeqM.eval_ret heval⟩
   | cons d ds ih =>
-    intro acc st ρ Q hinv heval
+    intro env st ρ Q hinv heval
     simp only [assembleFrom] at heval
-    obtain ⟨acc', st', ρ', hinv', hsub', hag', hcont⟩ :=
-      declareAndAssume_correct hlaw d acc st ρ hinv (SeqM.eval_bind heval)
-    obtain ⟨result, stRel, ρRel, hinvRel, hsubRel, hagRel, hQ⟩ := ih acc' st' ρ' hinv' hcont
+    obtain ⟨env', st', ρ', hinv', hsub', hag', hcont⟩ :=
+      declareAndAssume_correct hlaw d env st ρ hinv (SeqM.eval_bind heval)
+    obtain ⟨result, stRel, ρRel, hinvRel, hsubRel, hagRel, hQ⟩ := ih env' st' ρ' hinv' hcont
     exact ⟨result, stRel, ρRel, hinvRel, hsub'.trans hsubRel,
       Env.agreeOn_trans hag' (Env.agreeOn_mono hsub' hagRel), hQ⟩
 
 omit [MicaGS HasLC.hasLC Sig] in
 /-- Compiling and declaring one lifted bounded quantifier preserves the
 assembly invariants. -/
-private theorem declareLifting_correct {primitives : PrimEncodings}
-    (hlaw : primitives.Lawful) (s : Verifier.BoundedQuantifier.Lifting)
-    (acc : RelationSpec) (st : TransState) (ρ : Env)
-    {Q : RelationSpec → TransState → Env → Prop}
-    (hinv : Inv acc st ρ)
-    (heval : SeqM.eval (declareLifting primitives acc s) st ρ Q) :
-    ∃ acc' st' ρ', Inv acc' st' ρ' ∧
+private theorem declareLifting_correct {reg : Registry}
+    (hlaw : reg.primitives.Lawful) (s : Verifier.BoundedQuantifier.Lifting)
+    (env : Env) (st : TransState) (ρ : _root_.Env)
+    {Q : Env → TransState → _root_.Env → Prop}
+    (hinv : Inv reg env st ρ)
+    (heval : SeqM.eval (declareLifting env s) st ρ Q) :
+    ∃ env' st' ρ', Inv reg env' st' ρ' ∧
       st.decls.Subset st'.decls ∧ Env.agreeOn st.decls ρ ρ' ∧
-      Q acc' st' ρ' := by
-  obtain ⟨hacc, howns, hvars, hwf, hΓwf, hΓagree, hu⟩ := hinv
+      Q env' st' ρ' := by
+  obtain ⟨hreg, hacc, howns, hvars, hwf, hΓwf, hΓagree, hu⟩ := hinv
   simp only [declareLifting] at heval
-  cases hvalid : s.validate acc.delta with
+  cases hvalid : s.validate env.signature with
   | error msg =>
     simp only [hvalid] at heval
     exact (SeqM.eval_fatal heval).elim
   | ok v =>
     simp only [hvalid] at heval
-    cases hcompile : s.compile primitives acc.functionMap acc.delta with
+    cases hcompile : s.compile env.registry.primitives env.specFunctions env.signature with
     | error msg =>
       simp only [hcompile] at heval
       exact (SeqM.eval_fatal heval).elim
     | ok body =>
       simp only [hcompile] at heval
-      have hbody := Verifier.BoundedQuantifier.Lifting.compile_wfIn hlaw
+      have hbody := Verifier.BoundedQuantifier.Lifting.compile_wfIn (hreg ▸ hlaw)
         v.down (hacc ▸ hwf) (hacc ▸ hΓwf) hcompile
       obtain ⟨st4, ρ4, hdelta, howns4, hvars4, hwf4, hsub4, hagree4,
         hΓwf4, hΓagree4, hcont⟩ :=
-        Verifier.BoundedQuantifier.Lifting.declare_correct s body acc.delta
-          acc.functionMap st ρ v.down hbody hacc.symm howns hvars
+        Verifier.BoundedQuantifier.Lifting.declare_correct s body env.signature
+          env.specFunctions st ρ v.down hbody hacc.symm howns hvars
           (hacc ▸ hwf) (hacc ▸ hΓwf) hΓagree (SeqM.eval_bind heval)
-      exact ⟨{ symbols := acc.symbols ++ [SpecFn.rel s.name],
-               lemmas := acc.lemmas,
-               functionMap := acc.functionMap ++ [(s.name, s.name)],
-               delta := s.extendSignature acc.delta }, st4, ρ4,
-        ⟨hdelta.symm, howns4, hvars4, hwf4, hΓwf4, hΓagree4, hu.mono hsub4 hagree4 hwf4⟩,
+      exact ⟨{ env with
+               specFunctions := env.specFunctions ++ [(s.name, s.name)],
+               signature := s.extendSignature env.signature }, st4, ρ4,
+        ⟨hreg, hdelta.symm, howns4, hvars4, hwf4, hΓwf4, hΓagree4, hu.mono hsub4 hagree4 hwf4⟩,
         hsub4, hagree4, SeqM.eval_ret hcont⟩
 
 omit [MicaGS HasLC.hasLC Sig] in
-private theorem assembleLiftings_correct {primitives : PrimEncodings}
-    (hlaw : primitives.Lawful) (ss : List Verifier.BoundedQuantifier.Lifting) :
-    ∀ (acc : RelationSpec) (st : TransState) (ρ : Env)
-      {Q : RelationSpec → TransState → Env → Prop},
-      Inv acc st ρ →
-      SeqM.eval (assembleLiftings primitives acc ss) st ρ Q →
-      ∃ result stRel ρRel, Inv result stRel ρRel ∧
+private theorem assembleLiftings_correct {reg : Registry}
+    (hlaw : reg.primitives.Lawful) (ss : List Verifier.BoundedQuantifier.Lifting) :
+    ∀ (env : Env) (st : TransState) (ρ : _root_.Env)
+      {Q : Env → TransState → _root_.Env → Prop},
+      Inv reg env st ρ →
+      SeqM.eval (assembleLiftings env ss) st ρ Q →
+      ∃ result stRel ρRel, Inv reg result stRel ρRel ∧
         st.decls.Subset stRel.decls ∧ Env.agreeOn st.decls ρ ρRel ∧
         Q result stRel ρRel := by
   induction ss with
   | nil =>
-    intro acc st ρ Q hinv heval
+    intro env st ρ Q hinv heval
     simp only [assembleLiftings] at heval
-    exact ⟨acc, st, ρ, hinv, Signature.Subset.refl _, Env.agreeOn_refl,
+    exact ⟨env, st, ρ, hinv, Signature.Subset.refl _, Env.agreeOn_refl,
       SeqM.eval_ret heval⟩
   | cons s ss ih =>
-    intro acc st ρ Q hinv heval
+    intro env st ρ Q hinv heval
     simp only [assembleLiftings] at heval
-    obtain ⟨acc1, st1, ρ1, hinv1, hsub1, hag1, hcont1⟩ :=
-      declareLifting_correct hlaw s acc st ρ hinv (SeqM.eval_bind heval)
+    obtain ⟨env1, st1, ρ1, hinv1, hsub1, hag1, hcont1⟩ :=
+      declareLifting_correct hlaw s env st ρ hinv (SeqM.eval_bind heval)
     obtain ⟨result, stRel, ρRel, hinvRel, hsubRel, hagRel, hQ⟩ :=
-      ih acc1 st1 ρ1 hinv1 hcont1
+      ih env1 st1 ρ1 hinv1 hcont1
     exact ⟨result, stRel, ρRel, hinvRel, hsub1.trans hsubRel,
       Env.agreeOn_trans hag1 (Env.agreeOn_mono hsub1 hagRel), hQ⟩
 
 omit [MicaGS HasLC.hasLC Sig] in
-theorem assemble_correct (primitives : PrimEncodings) (hlaw : primitives.Lawful)
-    (prog : Typed.Program)
+theorem assemble_correct (reg : Registry) (hlaw : reg.primitives.Lawful)
+    (Θ : TinyML.TypeEnv) (prog : Typed.Program)
     (liftings : List Verifier.BoundedQuantifier.Lifting)
-    {st : TransState} {ρ : Env}
-    {Q : RelationSpec → TransState → Env → Prop}
+    {st : TransState} {ρ : _root_.Env}
+    {Q : Env → TransState → _root_.Env → Prop}
     (hvars0 : st.decls.vars = [])
     (howns0 : st.owns = [])
     (hwf0 : st.decls.wf)
-    (heval : SeqM.eval (RelationSpec.assemble primitives prog liftings) st ρ Q) :
-    ∃ spec0 : RelationSpec, ∃ stRel ρRel,
+    (heval : SeqM.eval (assemble reg Θ prog liftings) st ρ Q) :
+    ∃ env stRel ρRel,
+      env.registry = reg ∧
+      env.signature = stRel.decls ∧
       stRel.decls.vars = [] ∧
       stRel.owns = [] ∧
       st.decls.Subset stRel.decls ∧
       Env.agreeOn st.decls ρ ρRel ∧
-      spec0.lemmas.Sound stRel.decls ρRel ∧
-      Q { spec0 with delta := stRel.decls } stRel ρRel := by
-  unfold RelationSpec.assemble at heval
+      env.lemmas.Sound stRel.decls ρRel ∧
+      Q env stRel ρRel := by
+  unfold assemble at heval
   have hrest := SeqM.eval_decls (SeqM.eval_bind heval)
-  have hempty_Γwf : FunCtx.wfIn empty.functionMap st.decls :=
-    ⟨fun _ _ h => (List.not_mem_nil h).elim, fun _ _ h => (List.not_mem_nil h).elim⟩
-  have hempty_Γagree : FunCtx.Agreement empty.functionMap ρ :=
-    fun _ _ h => (List.not_mem_nil h).elim
-  obtain ⟨acc, st1, ρ1, hinv1, hsub1, hag1, hcont⟩ :=
-    assembleFrom_correct hlaw prog { empty with delta := st.decls } st ρ
-      ⟨rfl, howns0, hvars0, hwf0, hempty_Γwf, hempty_Γagree, by simp [empty, Lemmas.Sound]⟩
+  obtain ⟨env1, st1, ρ1, hinv1, hsub1, hag1, hcont⟩ :=
+    assembleFrom_correct hlaw prog _ st ρ
+      ⟨rfl, rfl, howns0, hvars0, hwf0,
+        ⟨fun _ _ h => (List.not_mem_nil h).elim, fun _ _ h => (List.not_mem_nil h).elim⟩,
+        fun _ _ h => (List.not_mem_nil h).elim, by simp [Lemmas.Sound]⟩
       (SeqM.eval_bind hrest)
   obtain ⟨result, stRel, ρRel, hinvRel, hsubRel, hagRel, hQ⟩ :=
-    assembleLiftings_correct hlaw liftings acc st1 ρ1 hinv1 hcont
-  refine ⟨result, stRel, ρRel, hinvRel.vars, hinvRel.owns, hsub1.trans hsubRel,
-    Env.agreeOn_trans hag1 (Env.agreeOn_mono hsub1 hagRel), hinvRel.lemmas, ?_⟩
-  have hresD := hinvRel.delta
-  obtain ⟨_, _, _, _⟩ := result
-  simp only at hresD; subst hresD
-  exact hQ
+    assembleLiftings_correct hlaw liftings env1 st1 ρ1 hinv1 hcont
+  exact ⟨result, stRel, ρRel, hinvRel.registry, hinvRel.signature, hinvRel.vars, hinvRel.owns,
+    hsub1.trans hsubRel, Env.agreeOn_trans hag1 (Env.agreeOn_mono hsub1 hagRel),
+    hinvRel.lemmas, hQ⟩
 
-end RelationSpec
+end Verifier.Env
 
 /-- Check a declaration by compiling its body. The `seq` bracket keeps the
     assumptions of the body out of later checks. Later declarations see the
@@ -610,9 +595,8 @@ def Program.verify (reg : Verifier.Registry) (prog : Untyped.Program Untyped.Spe
   SeqM.strategy do
     let (Θ, typed, liftSt) ← Program.prepare (Program.specEnv reg (Program.relationMap prog)) {} prog
     Verifier.Registry.introduceRegistry reg
-    let relations ← RelationSpec.assemble reg.primitives typed liftSt.syms
-    SeqM.check <| Program.check ⟨reg, Θ, relations.delta, relations.lemmas⟩
-      GhostFns.empty Bindings.empty TinyML.TyCtx.empty typed
+    let env ← Verifier.Env.assemble reg Θ typed liftSt.syms
+    SeqM.check <| Program.check env GhostFns.empty Bindings.empty TinyML.TyCtx.empty typed
 
 /-! ## Correctness -/
 
@@ -931,10 +915,10 @@ theorem Program.verify_correct (reg : Verifier.Registry)
   have hvars_setup : st_setup.decls.vars = [] := by
     rw [hvars_setup_eq]
     rfl
-  obtain ⟨spec0, stRel, ρRel, hvars, howns, hsub_setup_rel, hag_setup_rel, hlem,
+  obtain ⟨env, stRel, ρRel, hreg, hsig, hvars, howns, hsub_setup_rel, hag_setup_rel, hlem,
     hcheck_eval⟩ :=
-    RelationSpec.assemble_correct reg.primitives (Verifier.Registry.primitives_lawful hSound)
-      typed liftSt.syms hvars_setup howns_setup
+    Verifier.Env.assemble_correct reg (Verifier.Registry.primitives_lawful hSound)
+      Θ typed liftSt.syms hvars_setup howns_setup
       hcheck_eval.1.namesDisjoint hassemble
   have hΔreg : Verifier.Registry.symSubset reg stRel.decls := by
     intro i hi
@@ -947,11 +931,11 @@ theorem Program.verify_correct (reg : Verifier.Registry)
   -- environment the elaborator produced, and the specification model the
   -- relational declarations left in the state.
   let W : TinyML.World :=
-    { pctx := reg.primCtx, Θ, Δ_spec := stRel.decls, ρ_spec := ρRel,
-      eta := TinyML.SemTypeAssign.empty }
+    { pctx := reg.primCtx, Θ := env.typeDeclarations, Δ_spec := stRel.decls,
+      ρ_spec := ρRel, eta := TinyML.SemTypeAssign.empty }
   have hcorrect := Program.check_correct _ W
-                     ⟨hSound, ⟨hcheck_eval.1.namesDisjoint, hvars⟩, rfl, rfl, rfl, hlem, hΔreg,
-                       hρreg⟩
+                     ⟨hreg ▸ hSound, ⟨hcheck_eval.1.namesDisjoint, hvars⟩, by simp [W, hreg], rfl,
+                       hsig.symm, hlem, hreg ▸ hΔreg, hreg ▸ hρreg⟩
                      Bindings.empty TinyML.TyCtx.empty typed Runtime.Subst.id
                      stRel ρRel
                      ⟨Signature.Subset.refl _, Env.agreeOn_refl⟩

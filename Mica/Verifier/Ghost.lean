@@ -1219,7 +1219,7 @@ theorem compileGhostApp_correct
     (ihArgs : correctGhostExprs args) (ihGArgs : correctGhostExprs gargs) :
     correctGhostExpr (.app fn args gargs aty) := by
   intro env W S γg γ st ρ Ψ R Φ henv hS heval hpost
-  obtain ⟨reg, Θ, Δ, ls⟩ := env
+  obtain ⟨reg, Θ, Δ, ls, fns⟩ := env
   obtain ⟨-, -, -, rfl, rfl, -, -, -⟩ := id henv
   simp only [Expr.WithTypeVars.ty] at hpost
   cases fn with
@@ -2160,7 +2160,7 @@ theorem ValDecl.prove_correct (env : Verifier.Env) (W : TinyML.World) (henv : en
     {Q : (TinyML.Var × GhostFns.Entry) → TransState → Env → Prop}
     (heval : VerifM.eval (ValDecl.prove env Gf f self args retTy body s decreases) st ρ Q) :
     ∃ entry, GhostFns.wellTyped W st.decls ρ [entry] ∧ Q entry st ρ := by
-  obtain ⟨reg, Θ, Δ, ls⟩ := env
+  obtain ⟨reg, Θ, Δ, ls, fns⟩ := env
   obtain ⟨-, -, -, rfl, rfl, -, -, -⟩ := id henv
   simp only [ValDecl.prove] at heval
   cases hext : extractArgNames args s.args with

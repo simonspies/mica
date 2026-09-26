@@ -13,6 +13,7 @@ structure Env where
   typeDeclarations : TinyML.TypeEnv
   signature        : Signature
   lemmas           : Lemmas
+  specFunctions    : RelationalEncoding.FunCtx
 
 structure Env.wf (env : Env) (W : TinyML.World) : Prop where
   sound            : env.registry.Sound
