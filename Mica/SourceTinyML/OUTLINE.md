@@ -5,6 +5,7 @@
 - `LogicalRelation.lean` — Iris logical relations for TinyML values and types, together with soundness proofs for type constraints.
 - `Printer.lean` — Pretty-printing for the untyped TinyML IR and declarations.
 - `Semantics.lean` — Semantics of atoms, assertions, and specifications, parametric in the value relation interpreting types.
+- `SpecFn.lean` — Solver-facing symbol vocabulary for specification-level function names.
 - `TypeConstraints.lean` — First-order constraint formulas asserting that a term has a given TinyML type.
 - `Typed.lean` — Typed TinyML IR, its typing contexts, and erasure to the runtime IR.
 - `Types.lean` — TinyML types over a parameter of type variables, their substitution laws, type schemes, and type declarations.

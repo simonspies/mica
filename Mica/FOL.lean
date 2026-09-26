@@ -3,6 +3,5 @@
 import Mica.FOL.Variables
 import Mica.FOL.Terms
 import Mica.FOL.Formulas
-import Mica.FOL.SpecFn
 import Mica.FOL.Subst
 import Mica.FOL.Printing

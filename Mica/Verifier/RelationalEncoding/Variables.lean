@@ -1,5 +1,5 @@
 -- SUMMARY: Fresh-name allocation, function context, local variable environments, and the head signatures and freshness conditions of the relational encoding.
-import Mica.FOL.SpecFn
+import Mica.SourceTinyML.SpecFn
 import Mica.Base.Fixpoint
 import Mica.SourceTinyML.Typed
 import Mica.Base.Fresh

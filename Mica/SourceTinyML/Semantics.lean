@@ -3,7 +3,7 @@ import Mica.SourceTinyML.Assertions
 import Mica.SourceTinyML.Typed
 import Mica.SourceTinyML.World
 import Mica.SeparationLogic.Wp
-import Mica.FOL.SpecFn
+import Mica.SourceTinyML.SpecFn
 
 open Iris Iris.BI Iris.OFE
 

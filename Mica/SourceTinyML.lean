@@ -11,5 +11,6 @@ import Mica.SourceTinyML.Typing
 import Mica.SourceTinyML.Erasure
 import Mica.SourceTinyML.Printer
 import Mica.SourceTinyML.World
+import Mica.SourceTinyML.SpecFn
 import Mica.SourceTinyML.Semantics
 import Mica.SourceTinyML.LogicalRelation

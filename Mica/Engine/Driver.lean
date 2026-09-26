@@ -23,7 +23,7 @@ structure Session where
 
 namespace Session
 
--- The sorts and symbols declared here are the ones `FOL/Printing.lean` emits.
+-- The sorts and symbols declared here are the ones `Engine/SMTLIB.lean` emits.
 -- The two must agree name for name: a mismatch is a Z3 parse error at run time,
 -- not a build error.
 /-- The SMT-LIB text every session starts with: the logic and the solver
