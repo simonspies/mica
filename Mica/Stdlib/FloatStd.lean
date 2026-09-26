@@ -50,21 +50,21 @@ def floatAbsSym : FOL.Symbol .one where
 def floatNegSym : FOL.Symbol .one where
   name := "float_neg"; interp := fun a => .float (FloatBits.neg (valFloat a))
 def floatSqrtSym : FOL.Symbol .one where
-  name := "float_sqrt"; interp := fun a => .float (FloatBits.sqrt (valFloat a))
+  name := "float_sqrt"; interp := fun a => .float (FloatBits.sqrt .nearestTiesToEven (valFloat a))
 def floatIsNanSym : FOL.Symbol .one where
   name := "float_is_nan"; interp := fun a => .bool (FloatBits.isNaN (valFloat a))
 def floatIsFiniteSym : FOL.Symbol .one where
   name := "float_is_finite"; interp := fun a => .bool (FloatBits.isFinite (valFloat a))
 def floatOfIntSym : FOL.Symbol .one where
-  name := "float_of_int"; interp := fun a => .float (FloatBits.ofInt (valInt a))
+  name := "float_of_int"; interp := fun a => .float (FloatBits.ofInt .nearestTiesToEven (valInt a))
 def floatAddSym : FOL.Symbol .two where
-  name := "float_add"; interp := fun (a, b) => .float (FloatBits.add (valFloat a) (valFloat b))
+  name := "float_add"; interp := fun (a, b) => .float (FloatBits.add .nearestTiesToEven (valFloat a) (valFloat b))
 def floatSubSym : FOL.Symbol .two where
-  name := "float_sub"; interp := fun (a, b) => .float (FloatBits.sub (valFloat a) (valFloat b))
+  name := "float_sub"; interp := fun (a, b) => .float (FloatBits.sub .nearestTiesToEven (valFloat a) (valFloat b))
 def floatMulSym : FOL.Symbol .two where
-  name := "float_mul"; interp := fun (a, b) => .float (FloatBits.mul (valFloat a) (valFloat b))
+  name := "float_mul"; interp := fun (a, b) => .float (FloatBits.mul .nearestTiesToEven (valFloat a) (valFloat b))
 def floatDivSym : FOL.Symbol .two where
-  name := "float_div"; interp := fun (a, b) => .float (FloatBits.div (valFloat a) (valFloat b))
+  name := "float_div"; interp := fun (a, b) => .float (FloatBits.div .nearestTiesToEven (valFloat a) (valFloat b))
 def floatMinSym : FOL.Symbol .two where
   name := "float_min"; interp := fun (a, b) => .float (FloatBits.min (valFloat a) (valFloat b))
 def floatMaxSym : FOL.Symbol .two where
@@ -178,7 +178,7 @@ def floatSqrtB : Pure.Unary where
   path     := some ("Float", ["sqrt"])
   arg      := .float
   res      := .float
-  f        := FloatBits.sqrt
+  f        := FloatBits.sqrt .nearestTiesToEven
   dom      := fun _ => True
   pre      := none
   enc      := .symbol floatSqrtDefAxiom
@@ -278,7 +278,7 @@ def floatOfIntB : Pure.Unary where
   path     := some ("Float", ["of_int"])
   arg      := .int
   res      := .float
-  f        := FloatBits.ofInt
+  f        := FloatBits.ofInt .nearestTiesToEven
   dom      := fun _ => True
   pre      := none
   enc      := .symbol floatOfIntDefAxiom
@@ -312,7 +312,7 @@ def floatAddB : Pure.Binary where
   arg₁     := .float
   arg₂     := .float
   res      := .float
-  f        := FloatBits.add
+  f        := FloatBits.add .nearestTiesToEven
   dom      := fun _ _ => True
   pre      := none
   enc      := .symbol (binFloatDefAxiom floatAddSym .fpAdd)
@@ -341,7 +341,7 @@ def floatSubB : Pure.Binary where
   arg₁     := .float
   arg₂     := .float
   res      := .float
-  f        := FloatBits.sub
+  f        := FloatBits.sub .nearestTiesToEven
   dom      := fun _ _ => True
   pre      := none
   enc      := .symbol (binFloatDefAxiom floatSubSym .fpSub)
@@ -370,7 +370,7 @@ def floatMulB : Pure.Binary where
   arg₁     := .float
   arg₂     := .float
   res      := .float
-  f        := FloatBits.mul
+  f        := FloatBits.mul .nearestTiesToEven
   dom      := fun _ _ => True
   pre      := none
   enc      := .symbol (binFloatDefAxiom floatMulSym .fpMul)
@@ -399,7 +399,7 @@ def floatDivB : Pure.Binary where
   arg₁     := .float
   arg₂     := .float
   res      := .float
-  f        := FloatBits.div
+  f        := FloatBits.div .nearestTiesToEven
   dom      := fun _ _ => True
   pre      := none
   enc      := .symbol (binFloatDefAxiom floatDivSym .fpDiv)

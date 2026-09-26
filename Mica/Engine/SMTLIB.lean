@@ -16,6 +16,9 @@ def symbolToSMTLIB (name : String) : String :=
   let simple (c : Char) := c.isAlphanum || "~!@$%^&*_-+=<>.?/".contains c
   if name.all simple then name else s!"|{name}|"
 
+def RoundingMode.toSMTLIB : RoundingMode → String
+  | .nearestTiesToEven => "roundNearestTiesToEven"
+
 def Srt.toSMTLIB : Srt → String
   | .int     => "Int"
   | .bool    => "Bool"
@@ -53,11 +56,11 @@ def UnOp.toSMTLIB : UnOp τ₁ τ₂ → String
   | .seqLen => "seq.len"
   | .fpAbs => "fp.abs"
   | .fpNeg => "fp.neg"
-  | .fpSqrt => "fp.sqrt roundNearestTiesToEven"
+  | .fpSqrt => s!"fp.sqrt {RoundingMode.nearestTiesToEven.toSMTLIB}"
   | .fpIsNaN => "fp.isNaN"
   | .fpIsInfinite => "fp.isInfinite"
   | .fpIsNegative => "fp.isNegative"
-  | .fpOfInt => "(_ to_fp 11 53) roundNearestTiesToEven"
+  | .fpOfInt => s!"(_ to_fp 11 53) {RoundingMode.nearestTiesToEven.toSMTLIB}"
   | .neg     => "-"
   | .not     => "not"
   | .ofValList => "of_tuple"
@@ -104,10 +107,10 @@ def BinOp.toSMTLIB : BinOp τ₁ τ₂ τ₃ → String
   | .seqNth => "seq.nth"
   | .seqPrefixOf => "seq.prefixof"
   | .seqSuffixOf => "seq.suffixof"
-  | .fpAdd => "fp.add roundNearestTiesToEven"
-  | .fpSub => "fp.sub roundNearestTiesToEven"
-  | .fpMul => "fp.mul roundNearestTiesToEven"
-  | .fpDiv => "fp.div roundNearestTiesToEven"
+  | .fpAdd => s!"fp.add {RoundingMode.nearestTiesToEven.toSMTLIB}"
+  | .fpSub => s!"fp.sub {RoundingMode.nearestTiesToEven.toSMTLIB}"
+  | .fpMul => s!"fp.mul {RoundingMode.nearestTiesToEven.toSMTLIB}"
+  | .fpDiv => s!"fp.div {RoundingMode.nearestTiesToEven.toSMTLIB}"
   | .fpEq  => "fp.eq"
   | .fpLt  => "fp.lt"
   | .fpLe  => "fp.leq"
