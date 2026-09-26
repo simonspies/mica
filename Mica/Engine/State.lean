@@ -1,5 +1,5 @@
 -- SUMMARY: Abstract SMT states and the satisfiability notion used in the solver interface.
-import Mica.FOL.Formulas
+import Mica.FirstOrderLogic.Formulas
 
 /-! ## Frame and State
 
@@ -60,32 +60,32 @@ theorem Frame.Extends.refl (f : Frame) : f.Extends f :=
   ⟨List.suffix_refl _, List.suffix_refl _, List.suffix_refl _, List.suffix_refl _,
    List.suffix_refl _, List.suffix_refl _, List.suffix_refl _, List.suffix_refl _⟩
 
-theorem Frame.Extends.addConst (f : Frame) (c : FOL.Const) :
+theorem Frame.Extends.addConst (f : Frame) (c : Decl.Const) :
     f.Extends ⟨f.decls.addConst c, f.asserts⟩ :=
   ⟨List.suffix_refl _, List.suffix_cons _ _, List.suffix_refl _, List.suffix_refl _,
    List.suffix_refl _, List.suffix_refl _, List.suffix_refl _, List.suffix_refl _⟩
 
-theorem Frame.Extends.addUnary (f : Frame) (u : FOL.Unary) :
+theorem Frame.Extends.addUnary (f : Frame) (u : Decl.Unary) :
     f.Extends ⟨f.decls.addUnary u, f.asserts⟩ :=
   ⟨List.suffix_refl _, List.suffix_refl _, List.suffix_cons _ _, List.suffix_refl _,
    List.suffix_refl _, List.suffix_refl _, List.suffix_refl _, List.suffix_refl _⟩
 
-theorem Frame.Extends.addBinary (f : Frame) (b : FOL.Binary) :
+theorem Frame.Extends.addBinary (f : Frame) (b : Decl.Binary) :
     f.Extends ⟨f.decls.addBinary b, f.asserts⟩ :=
   ⟨List.suffix_refl _, List.suffix_refl _, List.suffix_refl _, List.suffix_cons _ _,
    List.suffix_refl _, List.suffix_refl _, List.suffix_refl _, List.suffix_refl _⟩
 
-theorem Frame.Extends.addTernary (f : Frame) (t : FOL.Ternary) :
+theorem Frame.Extends.addTernary (f : Frame) (t : Decl.Ternary) :
     f.Extends ⟨f.decls.addTernary t, f.asserts⟩ :=
   ⟨List.suffix_refl _, List.suffix_refl _, List.suffix_refl _, List.suffix_refl _,
    List.suffix_cons _ _, List.suffix_refl _, List.suffix_refl _, List.suffix_refl _⟩
 
-theorem Frame.Extends.addUnaryRel (f : Frame) (u : FOL.UnaryRel) :
+theorem Frame.Extends.addUnaryRel (f : Frame) (u : Decl.UnaryRel) :
     f.Extends ⟨f.decls.addUnaryRel u, f.asserts⟩ :=
   ⟨List.suffix_refl _, List.suffix_refl _, List.suffix_refl _, List.suffix_refl _,
    List.suffix_refl _, List.suffix_cons _ _, List.suffix_refl _, List.suffix_refl _⟩
 
-theorem Frame.Extends.addBinaryRel (f : Frame) (b : FOL.BinaryRel) :
+theorem Frame.Extends.addBinaryRel (f : Frame) (b : Decl.BinaryRel) :
     f.Extends ⟨f.decls.addBinaryRel b, f.asserts⟩ :=
   ⟨List.suffix_refl _, List.suffix_refl _, List.suffix_refl _, List.suffix_refl _,
    List.suffix_refl _, List.suffix_refl _, List.suffix_cons _ _, List.suffix_refl _⟩
@@ -134,22 +134,22 @@ def modifyTop (s : State) (f : Frame → Frame) : State :=
 def modifyDecls (s : State) (f : Signature → Signature) : State :=
   s.modifyTop (fun fr => ⟨f fr.decls, fr.asserts⟩)
 
-def addConst (s : State) (c : FOL.Const) : State :=
+def addConst (s : State) (c : Decl.Const) : State :=
   s.modifyDecls (·.addConst c)
 
-def addUnary (s : State) (u : FOL.Unary) : State :=
+def addUnary (s : State) (u : Decl.Unary) : State :=
   s.modifyDecls (·.addUnary u)
 
-def addBinary (s : State) (b : FOL.Binary) : State :=
+def addBinary (s : State) (b : Decl.Binary) : State :=
   s.modifyDecls (·.addBinary b)
 
-def addTernary (s : State) (t : FOL.Ternary) : State :=
+def addTernary (s : State) (t : Decl.Ternary) : State :=
   s.modifyDecls (·.addTernary t)
 
-def addUnaryRel (s : State) (u : FOL.UnaryRel) : State :=
+def addUnaryRel (s : State) (u : Decl.UnaryRel) : State :=
   s.modifyDecls (·.addUnaryRel u)
 
-def addBinaryRel (s : State) (b : FOL.BinaryRel) : State :=
+def addBinaryRel (s : State) (b : Decl.BinaryRel) : State :=
   s.modifyDecls (·.addBinaryRel b)
 
 def addAssert (s : State) (φ : Formula) : State :=

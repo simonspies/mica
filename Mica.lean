@@ -1,6 +1,6 @@
 import Mica.Base
 import Mica.TinyML
-import Mica.FOL
+import Mica.FirstOrderLogic
 import Mica.SeparationLogic
 import Mica.SourceTinyML
 import Mica.Engine

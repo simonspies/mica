@@ -1,5 +1,5 @@
 -- SUMMARY: Syntactic spatial atoms and contexts for verifier state, together with their well-formedness conditions and basic operations.
-import Mica.FOL.Terms
+import Mica.FirstOrderLogic.Terms
 import Mica.SeparationLogic.Wp
 import Mica.SourceTinyML.LogicalRelation
 import Mica.SourceTinyML.Types

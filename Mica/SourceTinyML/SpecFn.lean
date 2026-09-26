@@ -1,5 +1,5 @@
 -- SUMMARY: Solver-facing symbol vocabulary for specification-level function names.
-import Mica.FOL.Formulas
+import Mica.FirstOrderLogic.Formulas
 
 /-!
 # Specification function symbols
@@ -88,15 +88,15 @@ theorem names_nodup (f : SpecFn) : (names f).Nodup := by
     (defName_ne_funcName f).symm]
 
 /-- Solver-facing definedness predicate symbol for a spec-level function name. -/
-def defined (f : SpecFn) : FOL.UnaryRel :=
+def defined (f : SpecFn) : Decl.UnaryRel :=
   ⟨defName f, .value⟩
 
 /-- Solver-facing value function symbol for a spec-level function name. -/
-def func (f : SpecFn) : FOL.Unary :=
+def func (f : SpecFn) : Decl.Unary :=
   ⟨funcName f, .value, .value⟩
 
 /-- Solver-facing binary relation symbol for a spec-level function name. -/
-def rel (f : SpecFn) : FOL.BinaryRel :=
+def rel (f : SpecFn) : Decl.BinaryRel :=
   ⟨relName f, .value, .value⟩
 
 /-- Apply the solver-facing value function for frontend function name `f`. -/
@@ -197,6 +197,6 @@ theorem eval_of_agreeOn {fn : SpecFn} {ρ ρ' : Env} {Δ : Signature}
     (hr : fn.rel ∈ Δ.binaryRel) (hu : fn.func ∈ Δ.unary) (hd : fn.defined ∈ Δ.unaryRel) :
     fn.evalRelates ρ = fn.evalRelates ρ' ∧
       fn.evalCall ρ = fn.evalCall ρ' ∧ fn.evalDefined ρ = fn.evalDefined ρ' :=
-  ⟨h.2.2.2.2.2.2 _ hr, h.2.2.1 _ hu, h.2.2.2.2.2.1 _ hd⟩
+  ⟨h.binaryRel _ hr, h.unary _ hu, h.unaryRel _ hd⟩
 
 end SpecFn

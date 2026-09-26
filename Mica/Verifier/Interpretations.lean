@@ -18,15 +18,15 @@ namespace SpatialAtom
 
 /-- Interpreting a well-formed atom only depends on the environment values of
     symbols in the ambient signature. -/
-theorem interp_env_agree (W : TinyML.World) {a : SpatialAtom} {Δ : Signature} {ρ ρ' : Env}
+theorem interp_agreeOn (W : TinyML.World) {a : SpatialAtom} {Δ : Signature} {ρ ρ' : Env}
     (hwf : a.wfIn Δ) (hagree : Env.agreeOn Δ ρ ρ') :
     interp W ρ a ⊣⊢ interp W ρ' a := by
   cases a with
   | pointsTo l v ty =>
-    simp only [interp, Term.eval_env_agree hwf.1 hagree, Term.eval_env_agree hwf.2 hagree]
+    simp only [interp, Term.eval_agreeOn hwf.1 hagree, Term.eval_agreeOn hwf.2 hagree]
     exact ⟨BIBase.Entails.rfl, BIBase.Entails.rfl⟩
   | arrayPointsTo a v ty =>
-    simp only [interp, Term.eval_env_agree hwf.1 hagree, Term.eval_env_agree hwf.2 hagree]
+    simp only [interp, Term.eval_agreeOn hwf.1 hagree, Term.eval_agreeOn hwf.2 hagree]
     exact ⟨BIBase.Entails.rfl, BIBase.Entails.rfl⟩
 
 /-- If a points-to atom's location term evaluates to `loc`, its interpretation
@@ -227,14 +227,14 @@ def interp (W : TinyML.World) (ρ : Env) : SpatialContext → iProp
 
 /-- Interpreting a well-formed context only depends on the environment values of
     symbols in the ambient signature. -/
-theorem interp_env_agree (W : TinyML.World) {ctx : SpatialContext} {Δ : Signature} {ρ ρ' : Env}
+theorem interp_agreeOn (W : TinyML.World) {ctx : SpatialContext} {Δ : Signature} {ρ ρ' : Env}
     (hwf : wfIn ctx Δ) (hagree : Env.agreeOn Δ ρ ρ') :
     interp W ρ ctx ⊣⊢ interp W ρ' ctx := by
   induction ctx with
   | nil => simp [interp]
   | cons a ctx ih =>
     have ha : SpatialAtom.interp W ρ a ⊣⊢ SpatialAtom.interp W ρ' a :=
-      SpatialAtom.interp_env_agree W (hwf a (by simp)) hagree
+      SpatialAtom.interp_agreeOn W (hwf a (by simp)) hagree
     have htail : wfIn ctx Δ := (wfIn_cons a ctx Δ).1 hwf |>.2
     have hctx : interp W ρ ctx ⊣⊢ interp W ρ' ctx := ih htail
     simp only [interp]

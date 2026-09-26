@@ -219,7 +219,7 @@ private theorem logicSizeAxioms_eval {ρ : Env} (h : ρ.respects (some logicSize
   simp only [logicSizeAxioms, List.mem_cons, List.not_mem_nil, or_false] at ha
   rcases ha with rfl | rfl | rfl | rfl | rfl | rfl <;>
     simp only [sizeAxiom, Formula.eval] <;> intro w <;>
-    simp only [szInt, hsz, sizeVar, sizeComponents, Term.eval, UnOp.eval, Const.denote,
+    simp only [szInt, hsz, sizeVar, sizeComponents, Term.eval, UnOp.eval, Const.eval,
       Env.lookupConst_updateConst_same, UnPred.eval, BinPred.eval, BinOp.eval]
   · exact size_nonneg w
   · rintro ⟨hinj, htup⟩; cases w <;> simp_all [size]

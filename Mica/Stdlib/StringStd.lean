@@ -246,7 +246,7 @@ def stringGetLawful : stringGetB.Lawful [] where
     intro ρ s i _ h
     have hpre := h stringGetPre rfl
     simpa [stringGetB, stringGetPre, Embedding.str, Embedding.int, Formula.eval, Term.eval,
-      Const.denote, Env.lookupConst_updateConst_same,
+      Const.eval, Env.lookupConst_updateConst_same,
       Env.lookupConst_updateConst_ne (show "a" ≠ "b" by decide), valStr, valInt] using hpre
   semWellTyped := fun _ _ _ _ _ => sep_emp.1
   specBaseWf   := by apply PredTrans.checkWf_ok; rfl
@@ -299,7 +299,7 @@ def stringSubLawful : stringSubB.Lawful [] where
     intro ρ s pos len _ h
     have hpre := h stringSubPre rfl
     simpa [stringSubB, stringSubPre, Embedding.str, Embedding.int, Formula.eval, Term.eval,
-      Const.denote, Env.lookupConst_updateConst_same,
+      Const.eval, Env.lookupConst_updateConst_same,
       Env.lookupConst_updateConst_ne (show "a" ≠ "b" by decide),
       Env.lookupConst_updateConst_ne (show "a" ≠ "c" by decide),
       Env.lookupConst_updateConst_ne (show "b" ≠ "c" by decide), valStr, valInt] using hpre

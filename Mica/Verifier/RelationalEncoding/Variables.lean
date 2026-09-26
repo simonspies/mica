@@ -1,5 +1,5 @@
 -- SUMMARY: Fresh-name allocation, function context, local variable environments, and the head signatures and freshness conditions of the relational encoding.
-import Mica.FOL.SpecFn
+import Mica.SourceTinyML.SpecFn
 import Mica.Base.Fixpoint
 import Mica.SourceTinyML.Typed
 import Mica.Base.Fresh
@@ -136,12 +136,9 @@ def bindBinder (ρ : VarEnv) (b : Typed.Binder) (v : Term .value) : VarEnv :=
   | none => ρ
   | some x => ρ.bind x v
 
-def prodProj (v : Term .value) (i : Nat) : Term .value :=
-  .unop .vhead (vtailN (.unop .toValList v) i)
-
 private def bindBindersFrom (ρ : VarEnv) (v : Term .value) : List Typed.Binder → Nat → VarEnv
   | [], _ => ρ
-  | b :: bs, i => bindBindersFrom (ρ.bindBinder b (prodProj v i)) v bs (i + 1)
+  | b :: bs, i => bindBindersFrom (ρ.bindBinder b (v.proj i)) v bs (i + 1)
 
 def bindBinders (ρ : VarEnv) (bs : List Typed.Binder) (v : Term .value) : VarEnv :=
   bindBindersFrom ρ v bs 0
@@ -199,22 +196,13 @@ theorem wfIn.bindBinder {Δ : Signature} {δ : VarEnv} {b : Typed.Binder}
       | none => simpa [bindBinder] using henv
       | some x => simpa [bindBinder] using henv.bind hv
 
-theorem prodProj_wfIn {Δ : Signature} {v : Term .value} (hv : v.wfIn Δ) (i : Nat) :
-    (prodProj v i).wfIn Δ := by
-  unfold prodProj
-  have hto : (Term.unop UnOp.toValList v).wfIn Δ := by
-    change UnOp.toValList.wfIn Δ ∧ v.wfIn Δ
-    exact And.intro trivial hv
-  change UnOp.vhead.wfIn Δ ∧ (vtailN (.unop .toValList v) i).wfIn Δ
-  exact And.intro trivial (vtailN_wfIn hto i)
-
 private theorem wfIn.bindBindersFrom {Δ : Signature} {δ : VarEnv} {v : Term .value}
     (henv : δ.wfIn Δ) (hv : v.wfIn Δ) :
     ∀ bs i, (bindBindersFrom δ v bs i).wfIn Δ
   | [], _ => henv
   | _ :: bs, i =>
       wfIn.bindBindersFrom
-        (wfIn.bindBinder henv (prodProj_wfIn hv i)) hv bs (i + 1)
+        (wfIn.bindBinder henv (Term.proj_wfIn hv i)) hv bs (i + 1)
 
 theorem wfIn.bindBinders {Δ : Signature} {δ : VarEnv} {bs : List Typed.Binder}
     {v : Term .value} (henv : δ.wfIn Δ) (hv : v.wfIn Δ) :
@@ -344,7 +332,7 @@ private theorem avoid_covers_bothArgRes (Δ : Signature) (fn : SpecFn) (x res : 
   have hboth : n ∉ (Sig.both Δ fn).allNames :=
     Signature.not_mem_allNames_addUnaryRel
       (Signature.not_mem_allNames_addUnary
-        (Signature.not_mem_allNames_addBinaryRel (b := fn.rel) hnΔ hnRel)
+        (Signature.not_mem_allNames_addBinaryRel (s := fn.rel) hnΔ hnRel)
         (by simpa [func] using hnFun))
       (by simpa [defined] using hnDef)
   have hbody := Signature.not_mem_allNames_declVar hboth

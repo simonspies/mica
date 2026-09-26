@@ -1,6 +1,6 @@
 -- SUMMARY: First-order constraint formulas asserting that a term has a given TinyML type.
 import Mica.SourceTinyML.Types
-import Mica.FOL.Formulas
+import Mica.FirstOrderLogic.Formulas
 import Mica.Base.Fresh
 
 /-!

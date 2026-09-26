@@ -4,7 +4,7 @@ import Mica.SourceTinyML.Types
 import Mica.SourceTinyML.TypeConstraints
 import Mica.TinyML.RuntimeExpr
 import Mica.TinyML.OpSem
-import Mica.FOL.Formulas
+import Mica.FirstOrderLogic.Formulas
 import Mica.Base.Fresh
 import Mica.SeparationLogic.Wp
 import Mica.SourceTinyML.World

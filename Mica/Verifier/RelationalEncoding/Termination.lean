@@ -77,8 +77,8 @@ private theorem obligation_correct {fn : SpecFn} {x rank : String}
   have hag (r : Int) (v : Srt.value.denote) :=
     Env.agreeOn_declVar (τ := Srt.value) (x := x) (v := v)
       (Env.agreeOn_update_fresh_const (ρ := ρ) (c := ⟨rank, .int⟩) (u := r) hfresh)
-  have hm' (r : Int) (v : Srt.value.denote) := Term.eval_env_agree hm (hag r v)
-  have hb' (r : Int) (v : Srt.value.denote) := Formula.eval_env_agree hb (hag r v)
+  have hm' (r : Int) (v : Srt.value.denote) := Term.eval_agreeOn hm (hag r v)
+  have hb' (r : Int) (v : Srt.value.denote) := Formula.eval_agreeOn hb (hag r v)
   simp only [obligation, Formula.all, Formula.eval] at h
   change ∀ v, (fn.isDefined (.var .value x)).eval (ρ.updateConst .value x v)
   apply induction (fun v => m.term.eval (ρ.updateConst .value x v))
@@ -89,7 +89,7 @@ private theorem obligation_correct {fn : SpecFn} {x rank : String}
   · intro y hy
     have hy' : 0 ≤ m.term.eval (ρ.updateConst .value x y) ∧
         m.term.eval (ρ.updateConst .value x y) < m.term.eval (ρ.updateConst .value x v) := by
-      simpa only [Formula.eval, BinPred.eval, Term.eval, Const.denote,
+      simpa only [Formula.eval, BinPred.eval, Term.eval, Const.eval,
         Env.lookupConst_updateConst_ne' (Or.inl hne), Env.lookupConst_updateConst_same,
         ← hm'] using hy
     have hd := ih y hy'.1 hy'.2

@@ -108,31 +108,31 @@ def TransState.toFlatCtx (st : TransState) : FlatCtx :=
 @[simp] theorem TransState.toFlatCtx_asserts (st : TransState) :
     st.toFlatCtx.asserts = st.asserts := rfl
 
-@[simp] theorem TransState.toFlatCtx_addConst (st : TransState) (c : FOL.Const) :
+@[simp] theorem TransState.toFlatCtx_addConst (st : TransState) (c : Decl.Const) :
     { st with decls := st.decls.addConst c }.toFlatCtx = st.toFlatCtx.addConst c.name c.sort := by
   simp [toFlatCtx, FlatCtx.addConst]
 
-@[simp] theorem TransState.toFlatCtx_addUnary (st : TransState) (u : FOL.Unary) :
+@[simp] theorem TransState.toFlatCtx_addUnary (st : TransState) (u : Decl.Unary) :
     { st with decls := st.decls.addUnary u }.toFlatCtx =
       st.toFlatCtx.addUnary u.name u.arg u.ret := by
   simp [toFlatCtx, FlatCtx.addUnary]
 
-@[simp] theorem TransState.toFlatCtx_addBinary (st : TransState) (b : FOL.Binary) :
+@[simp] theorem TransState.toFlatCtx_addBinary (st : TransState) (b : Decl.Binary) :
     { st with decls := st.decls.addBinary b }.toFlatCtx =
       st.toFlatCtx.addBinary b.name b.arg1 b.arg2 b.ret := by
   simp [toFlatCtx, FlatCtx.addBinary]
 
-@[simp] theorem TransState.toFlatCtx_addTernary (st : TransState) (t : FOL.Ternary) :
+@[simp] theorem TransState.toFlatCtx_addTernary (st : TransState) (t : Decl.Ternary) :
     { st with decls := st.decls.addTernary t }.toFlatCtx =
       st.toFlatCtx.addTernary t.name t.arg1 t.arg2 t.arg3 t.ret := by
   simp [toFlatCtx, FlatCtx.addTernary]
 
-@[simp] theorem TransState.toFlatCtx_addUnaryRel (st : TransState) (u : FOL.UnaryRel) :
+@[simp] theorem TransState.toFlatCtx_addUnaryRel (st : TransState) (u : Decl.UnaryRel) :
     { st with decls := st.decls.addUnaryRel u }.toFlatCtx =
       st.toFlatCtx.addUnaryRel u.name u.arg := by
   simp [toFlatCtx, FlatCtx.addUnaryRel]
 
-@[simp] theorem TransState.toFlatCtx_addBinaryRel (st : TransState) (b : FOL.BinaryRel) :
+@[simp] theorem TransState.toFlatCtx_addBinaryRel (st : TransState) (b : Decl.BinaryRel) :
     { st with decls := st.decls.addBinaryRel b }.toFlatCtx =
       st.toFlatCtx.addBinaryRel b.name b.arg1 b.arg2 := by
   simp [toFlatCtx, FlatCtx.addBinaryRel]
@@ -179,27 +179,27 @@ theorem TransState.init_holdsFor : TransState.init.holdsFor Env.init where
   builtins := ⟨by simpa [Env.init] using
     Env.supportsGuarding_updateConst Env.empty⟩
 
-def TransState.freshConst (hint : Option String) (t : Srt) (st : TransState) : FOL.Const :=
+def TransState.freshConst (hint : Option String) (t : Srt) (st : TransState) : Decl.Const :=
   let base := hint.getD "_v"
   let x' := Fresh.freshNumbers base st.decls.allNames
   ⟨x', t⟩
 
-def TransState.freshUnaryRel (st : TransState) (hint : Option String) (τ : Srt) : FOL.UnaryRel :=
+def TransState.freshUnaryRel (st : TransState) (hint : Option String) (τ : Srt) : Decl.UnaryRel :=
   ⟨Fresh.freshNumbers (hint.getD "_p") st.decls.allNames, τ⟩
 
 def TransState.freshBinaryRel (st : TransState) (hint : Option String) (τ₁ τ₂ : Srt) :
-    FOL.BinaryRel :=
+    Decl.BinaryRel :=
   ⟨Fresh.freshNumbers (hint.getD "_r") st.decls.allNames, τ₁, τ₂⟩
 
-def TransState.freshUnary (st : TransState) (hint : Option String) (τ₁ τ₂ : Srt) : FOL.Unary :=
+def TransState.freshUnary (st : TransState) (hint : Option String) (τ₁ τ₂ : Srt) : Decl.Unary :=
   ⟨Fresh.freshNumbers (hint.getD "_f") st.decls.allNames, τ₁, τ₂⟩
 
 def TransState.freshBinary (st : TransState) (hint : Option String) (τ₁ τ₂ τ₃ : Srt) :
-    FOL.Binary :=
+    Decl.Binary :=
   ⟨Fresh.freshNumbers (hint.getD "_g") st.decls.allNames, τ₁, τ₂, τ₃⟩
 
 def TransState.freshTernary (st : TransState) (hint : Option String) (τ₁ τ₂ τ₃ τ₄ : Srt) :
-    FOL.Ternary :=
+    Decl.Ternary :=
   ⟨Fresh.freshNumbers (hint.getD "_h") st.decls.allNames, τ₁, τ₂, τ₃, τ₄⟩
 
 def TransState.addItem (st : TransState) (item : CtxItem) :=
@@ -220,7 +220,7 @@ theorem TransState.wf_freshConst {hint t} (st : TransState) :
   · exact SpatialContext.wfIn_mono hwf.ownsWf (Signature.Subset.subset_addConst _ _) hwf'
   · exact hwf.builtins.mono (Signature.Subset.subset_addConst _ _)
 
-theorem TransState.wf_addUnary (st : TransState) (u : FOL.Unary) :
+theorem TransState.wf_addUnary (st : TransState) (u : Decl.Unary) :
     TransState.wf st →
     u.name ∉ st.decls.allNames →
     TransState.wf { st with decls := st.decls.addUnary u } := by
@@ -232,7 +232,7 @@ theorem TransState.wf_addUnary (st : TransState) (u : FOL.Unary) :
   · exact SpatialContext.wfIn_mono hwf.ownsWf (Signature.Subset.subset_addUnary _ _) hwf'
   · exact hwf.builtins.mono (Signature.Subset.subset_addUnary _ _)
 
-theorem TransState.wf_addBinary (st : TransState) (b : FOL.Binary) :
+theorem TransState.wf_addBinary (st : TransState) (b : Decl.Binary) :
     TransState.wf st →
     b.name ∉ st.decls.allNames →
     TransState.wf { st with decls := st.decls.addBinary b } := by
@@ -244,7 +244,7 @@ theorem TransState.wf_addBinary (st : TransState) (b : FOL.Binary) :
   · exact SpatialContext.wfIn_mono hwf.ownsWf (Signature.Subset.subset_addBinary _ _) hwf'
   · exact hwf.builtins.mono (Signature.Subset.subset_addBinary _ _)
 
-theorem TransState.wf_addTernary (st : TransState) (t : FOL.Ternary) :
+theorem TransState.wf_addTernary (st : TransState) (t : Decl.Ternary) :
     TransState.wf st →
     t.name ∉ st.decls.allNames →
     TransState.wf { st with decls := st.decls.addTernary t } := by
@@ -256,7 +256,7 @@ theorem TransState.wf_addTernary (st : TransState) (t : FOL.Ternary) :
   · exact SpatialContext.wfIn_mono hwf.ownsWf (Signature.Subset.subset_addTernary _ _) hwf'
   · exact hwf.builtins.mono (Signature.Subset.subset_addTernary _ _)
 
-theorem TransState.wf_addUnaryRel (st : TransState) (u : FOL.UnaryRel) :
+theorem TransState.wf_addUnaryRel (st : TransState) (u : Decl.UnaryRel) :
     TransState.wf st →
     u.name ∉ st.decls.allNames →
     TransState.wf { st with decls := st.decls.addUnaryRel u } := by
@@ -268,7 +268,7 @@ theorem TransState.wf_addUnaryRel (st : TransState) (u : FOL.UnaryRel) :
   · exact SpatialContext.wfIn_mono hwf.ownsWf (Signature.Subset.subset_addUnaryRel _ _) hwf'
   · exact hwf.builtins.mono (Signature.Subset.subset_addUnaryRel _ _)
 
-theorem TransState.wf_addBinaryRel (st : TransState) (b : FOL.BinaryRel) :
+theorem TransState.wf_addBinaryRel (st : TransState) (b : Decl.BinaryRel) :
     TransState.wf st →
     b.name ∉ st.decls.allNames →
     TransState.wf { st with decls := st.decls.addBinaryRel b } := by

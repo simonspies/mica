@@ -96,7 +96,7 @@ private theorem toIntTerm_eval (width : Nat) :
   have hcast : ∀ n : Nat, ((2 : Int) * (n : Int) < ((2 ^ width : Nat) : Int)) ↔
       2 * n < 2 ^ width := fun n => by
     rw [show ((2 : Int) * (n : Int)) = ((2 * n : Nat) : Int) by push_cast; ring, Nat.cast_lt]
-  simp only [toIntTerm, Term.eval, UnOp.eval, BinOp.eval, Const.denote, BitVec.toInt,
+  simp only [toIntTerm, Term.eval, UnOp.eval, BinOp.eval, Const.eval, BitVec.toInt,
     Bool.cond_eq_ite, decide_eq_true_eq, hpow]
   rcases Nat.lt_or_ge (2 * (Term.eval ρ bits).toNat) (2 ^ width) with h | h
   · rw [if_pos ((hcast _).2 h), if_pos h]
@@ -441,7 +441,7 @@ private theorem binaryDomSound {fx : Fixed} (fl : fx.Lawful) (op : FixedBinary) 
   cases op <;> try trivial
   all_goals
     have hp := h (divisorNonzero fx) rfl
-    simp only [divisorNonzero, Formula.eval, Term.eval, fl.toEval, Const.denote,
+    simp only [divisorNonzero, Formula.eval, Term.eval, fl.toEval, Const.eval,
       Env.lookupConst_updateConst_same] at hp
     simpa [FixedBinary.dom, FixedBinary.guard, BinaryGuard.dom, hpi] using hp
 

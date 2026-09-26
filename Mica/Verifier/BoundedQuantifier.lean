@@ -469,10 +469,10 @@ private def pvar (s : Lifting) : Term .value := .var .value s.arg
 private def ivar (s : Lifting) : Term .int := .var .int s.idx
 
 /-- Lower bound: the packed tuple's first component. -/
-private def lo (s : Lifting) : Term .int := .unop .toInt (VarEnv.prodProj s.pvar 0)
+private def lo (s : Lifting) : Term .int := .unop .toInt (s.pvar.proj 0)
 
 /-- Upper bound: the packed tuple's second component. -/
-private def hi (s : Lifting) : Term .int := .unop .toInt (VarEnv.prodProj s.pvar 1)
+private def hi (s : Lifting) : Term .int := .unop .toInt (s.pvar.proj 1)
 
 /-- The bounds premise `lo ≤ i ∧ i < hi`. -/
 private def bounds (s : Lifting) : Formula :=
@@ -482,9 +482,9 @@ private def bounds (s : Lifting) : Formula :=
 (positions `2..`) followed by the index. Matches the destructuring order of
 the closure's `letProd`. -/
 private def gpack (s : Lifting) : Term .value :=
-  .unop .ofValList (Terms.toValList
-    ((List.range s.captured.length).map (fun k => VarEnv.prodProj s.pvar (k + 2))
-      ++ [.unop .ofInt s.ivar]))
+  Term.tuple
+    ((List.range s.captured.length).map (fun k => s.pvar.proj (k + 2))
+      ++ [.unop .ofInt s.ivar])
 
 /-- Compile the lifted closure body under the packed argument and index matrix
 variables. Binding the TinyML argument to `gpack` shadows the same-named FOL
@@ -568,22 +568,14 @@ private theorem var_wfIn {Δ : Signature} {x : String} {τ : Srt}
 
 variable {s : Lifting} {Δ : Signature} {body : Skolemize.DefVal}
 
-private theorem prodProj_wfIn {x : String} (k : Nat)
-    (hΔ : Δ.wf) (hmem : (⟨x, .value⟩ : Var) ∈ Δ.vars) :
-    (VarEnv.prodProj (.var .value x) k).wfIn Δ :=
-  show UnOp.wfIn .vhead Δ ∧ (vtailN (.unop .toValList (.var .value x)) k).wfIn Δ from
-    ⟨trivial, vtailN_wfIn (t := .unop .toValList (.var .value x))
-      ⟨trivial, var_wfIn hΔ hmem⟩ k⟩
-
 private theorem gpack_wfIn (hΔ : Δ.wf)
     (hp : (⟨s.arg, .value⟩ : Var) ∈ Δ.vars) (hi : (⟨s.idx, .int⟩ : Var) ∈ Δ.vars) :
     s.gpack.wfIn Δ := by
-  refine show UnOp.wfIn .ofValList Δ ∧ (Terms.toValList _).wfIn Δ from
-    ⟨trivial, Terms.toValList_wfIn ?_⟩
+  refine Term.tuple_wfIn ?_
   intro t ht
   rcases List.mem_append.mp ht with hmem | hmem
   · obtain ⟨k, _, rfl⟩ := List.mem_map.mp hmem
-    exact prodProj_wfIn _ hΔ hp
+    exact Term.proj_wfIn (var_wfIn hΔ hp) _
   · simp only [List.mem_singleton] at hmem
     subst hmem
     exact show UnOp.wfIn .ofInt Δ ∧ (Term.var .int s.idx).wfIn Δ from
@@ -636,11 +628,11 @@ theorem compile_wfIn {primitives : PrimEncodings} (hlaw : primitives.Lawful)
 private theorem bounds_wfIn (hΔ : Δ.wf)
     (hp : (⟨s.arg, .value⟩ : Var) ∈ Δ.vars) (hi : (⟨s.idx, .int⟩ : Var) ∈ Δ.vars) :
     s.bounds.wfIn Δ := by
-  have hproj : ∀ k, (VarEnv.prodProj s.pvar k).wfIn Δ := fun k => prodProj_wfIn k hΔ hp
+  have hproj : ∀ k, (s.pvar.proj k).wfIn Δ := fun k => Term.proj_wfIn (var_wfIn hΔ hp) k
   have hlo : s.lo.wfIn Δ :=
-    show UnOp.wfIn .toInt Δ ∧ (VarEnv.prodProj s.pvar 0).wfIn Δ from ⟨trivial, hproj 0⟩
+    show UnOp.wfIn .toInt Δ ∧ (s.pvar.proj 0).wfIn Δ from ⟨trivial, hproj 0⟩
   have hhi : s.hi.wfIn Δ :=
-    show UnOp.wfIn .toInt Δ ∧ (VarEnv.prodProj s.pvar 1).wfIn Δ from ⟨trivial, hproj 1⟩
+    show UnOp.wfIn .toInt Δ ∧ (s.pvar.proj 1).wfIn Δ from ⟨trivial, hproj 1⟩
   have hiv : s.ivar.wfIn Δ := var_wfIn hΔ hi
   exact ⟨⟨trivial, hlo, hiv⟩, ⟨trivial, hiv, hhi⟩⟩
 
@@ -760,7 +752,7 @@ theorem axioms_eval {ρ : Env}
   have htrans : ∀ (φ : Formula), φ.wfIn (s.argScope Δ) →
       ∀ v, φ.eval ((s.extend body ρ).updateConst .value s.arg v) ↔
         φ.eval (ρ.updateConst .value s.arg v) :=
-    fun φ hwf v => (Formula.eval_env_agree hwf (Env.agreeOn_declVar hagree)).symm
+    fun φ hwf v => (Formula.eval_agreeOn hwf (Env.agreeOn_declVar hagree)).symm
   intro ax hmem
   simp only [axioms, List.mem_cons, List.not_mem_nil, or_false] at hmem
   rcases hmem with rfl | rfl

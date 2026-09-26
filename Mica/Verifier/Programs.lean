@@ -87,7 +87,7 @@ def Program.prepare (env : Typed.SpecEnv σ) (s : σ)
 
 /-- Globally assembled metadata for declarations marked with `[@@fn]`. -/
 structure RelationSpec where
-  symbols : List FOL.BinaryRel
+  symbols : List Decl.BinaryRel
   /-- The facts opaque declarations withhold. -/
   lemmas : Lemmas
   functionMap : List (TinyML.Var × String)
@@ -925,7 +925,7 @@ theorem Program.check_correct (reg : Verifier.Registry) (hSound : Verifier.Regis
           simp [hρ₁_def, Env.updateConst]
         have hagree₁ : Bindings.agreeOnLinked ((n, fv) :: B) ρ₁ (γ.update n v) :=
           Bindings.agreeOnLinked_cons_update
-            (Bindings.agreeOnLinked_env_agree hagree hρ_st₁ hbwf) rfl hval₁
+            (Bindings.agreeOnLinked_agreeOn hagree hρ_st₁ hbwf) rfl hval₁
         have hbwf₁ : Bindings.wfIn ((n, fv) :: B) st₁.decls := Bindings.wfIn_cons hbwf
         have hGf₁ := hGf.step hst_sub₁ hρ_st₁ (VerifM.eval.wf hdecl).namesDisjoint
         have hih := ih (Gf := fn ++ Gf.remove n) ((n, fv) :: B)
@@ -936,7 +936,7 @@ theorem Program.check_correct (reg : Verifier.Registry) (hSound : Verifier.Regis
           (hΓ.extendScheme n (TinyML.Scheme.gen_free selfTy)) hdecl
         have hsl₁ : st.sl W ρ ⊢ st₁.sl W ρ₁ := by
           simp only [TransState.sl_eq, hst₁_def]
-          exact (SpatialContext.interp_env_agree W (VerifM.eval.wf heval).ownsWf hρ_st₁).1
+          exact (SpatialContext.interp_agreeOn W (VerifM.eval.wf heval).ownsWf hρ_st₁).1
         refine BIBase.Entails.trans ?_ hih
         istart
         iintro ⟨#Hsl, #HT⟩

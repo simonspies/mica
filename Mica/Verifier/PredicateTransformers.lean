@@ -1,6 +1,5 @@
 -- SUMMARY: Verifier operations on predicate transformers: the call and implementation protocols and their well-formedness.
 import Mica.SourceTinyML.Typed
-import Mica.FOL.Printing
 import Mica.Verifier.Monad
 import Mica.Verifier.Atoms
 import Mica.Verifier.Assertions
@@ -65,10 +64,8 @@ def PredTrans.call (σ : FiniteSubst) (pt : PredTrans TinyML.Typ) : VerifM (Term
 def PredTrans.implement (σ : FiniteSubst) (pt : PredTrans TinyML.Typ) (body : VerifM (Term .value)) : VerifM Unit := do
   let (σ₁, ⟨postName, postBody⟩) ← Assertion.assume σ pt
   let result ← body
-  let resVar ← VerifM.decl (some postName) .value
-  let σ₂ := σ₁.rename ⟨postName, .value⟩ resVar.name
-  VerifM.assume (.pure (.eq .value (.const (.uninterpreted resVar.name .value)) result))
-  let (_, ()) ← Assertion.prove σ₂ postBody
+  let resVar ← VerifM.define (some postName) result
+  let (_, ()) ← Assertion.prove (σ₁.rename ⟨postName, .value⟩ resVar.name) postBody
   pure ()
 
 -- ---------------------------------------------------------------------------
@@ -86,17 +83,17 @@ theorem PredTrans.wfIn_mono {pt : PredTrans TinyML.Typ} {Δ Δ' : Signature}
         (Signature.wf_declVar hwf'))
     h hsub hwf
 
-theorem PredTrans.apply_env_agree (V : TinyML.ValueRelation) {pt : PredTrans TinyML.Typ} {Φ : Runtime.Val → iProp}
+theorem PredTrans.apply_agreeOn (V : TinyML.ValueRelation) {pt : PredTrans TinyML.Typ} {Φ : Runtime.Val → iProp}
     {ρ ρ' : Env} {Δ : Signature}
     (hwf : pt.wfIn Δ) (hagree : Env.agreeOn Δ ρ ρ') :
     PredTrans.apply V Φ pt ρ ⊢ PredTrans.apply V Φ pt ρ' := by
   unfold PredTrans.apply at ⊢
-  apply Assertion.pre_env_agree V hwf hagree
+  apply Assertion.pre_agreeOn V hwf hagree
   intro ⟨postName, postBody⟩ Δ' ρ₁ ρ₂ hwf_post hagree_post
   apply forall_intro
   intro v
   exact (forall_elim v).trans <|
-    Assertion.post_env_agree V hwf_post
+    Assertion.post_agreeOn V hwf_post
       (Env.agreeOn_declVar hagree_post)
       (fun _ _ _ _ _ _ => .rfl)
 
@@ -134,7 +131,7 @@ theorem PredTrans.call_correct (W : TinyML.World) (pt : PredTrans TinyML.Typ) (�
       (fun ⟨postName, postBody⟩ Δ' ρ₁ ρ₂ hwf_post hagree =>
         forall_intro fun v =>
           (forall_elim v).trans <|
-            Assertion.post_env_agree (TinyML.ValHasType W) hwf_post
+            Assertion.post_agreeOn (TinyML.ValHasType W) hwf_post
               (Env.agreeOn_declVar hagree)
               (fun _ _ _ _ _ _ => .rfl))
       hσwf hwf hb
@@ -170,14 +167,14 @@ theorem PredTrans.call_correct (W : TinyML.World) (pt : PredTrans TinyML.Typ) (�
             have hwfst₂ : st₂.decls.wf := (VerifM.eval.wf hcont').namesDisjoint
             apply hΨ _ st₂ ρ₂ (.const (.uninterpreted resVar.name .value)) hret
             · exact Term.const_wfIn_of_mem hwfst₂ (hsub.consts resVar (List.Mem.head _))
-            · simp only [Term.eval, Const.denote]
-              have := hagree.2.1 resVar (List.Mem.head _)
+            · simp only [Term.eval, Const.eval]
+              have := hagree.consts resVar (List.Mem.head _)
               simpa [Env.lookupConst, Env.updateConst] using this.symm)
         have hinterp_bi :
             st₁.sl W ρ₁ ⊣⊢ st₁.sl W (ρ₁.updateConst .value resVar.name v) :=
-          SpatialContext.interp_env_agree W (VerifM.eval.wf hcont).ownsWf
+          SpatialContext.interp_agreeOn W (VerifM.eval.wf hcont).ownsWf
             (Env.agreeOn_update_fresh_const (c := resVar) hfresh_decls)
-        exact (sep_mono_left hinterp_bi.1).trans <| hassume.trans <| Assertion.post_env_agree (TinyML.ValHasType W) hwf₁'
+        exact (sep_mono_left hinterp_bi.1).trans <| hassume.trans <| Assertion.post_agreeOn (TinyML.ValHasType W) hwf₁'
           (by
             simpa [σ₂, Env.agreeOn, Env.updateConst] using
               (FiniteSubst.rename_agreeOn (σ := σ₁) (Δ_base := Δ_base) (Δ_use := st₁.decls)
@@ -225,7 +222,7 @@ theorem PredTrans.implement_correct (W : TinyML.World) (pt : PredTrans TinyML.Ty
       apply forall_intro
       intro v
       exact (forall_elim v).trans <|
-        Assertion.post_env_agree (TinyML.ValHasType W) hwf_post
+        Assertion.post_agreeOn (TinyML.ValHasType W) hwf_post
           (Env.agreeOn_symm (Env.agreeOn_declVar hagree))
           (fun _ _ _ _ _ _ => .rfl))
     hσwf hwf hb_grow
@@ -238,18 +235,12 @@ theorem PredTrans.implement_correct (W : TinyML.World) (pt : PredTrans TinyML.Ty
       refine hbody st₁ ρ₁ _ hdsub_st hagree_st ?_
       refine (VerifM.eval.decls_grow ρ₁ hcont_body).mono ?_
       intro result st₂ ρ₂ ⟨hdsub_body, hagree_body, hrest⟩ S hwf_result
-      have hb2 := VerifM.eval_bind hrest
-      have hdecl := VerifM.eval_decl hb2
       set resVar := st₂.freshConst (some postName) .value
       have hwfst₂ : st₂.decls.wf := (VerifM.eval.wf hrest).namesDisjoint
       have hσ₁wf₂ : σ₁.wfIn Δ_base st₂.decls := hσ₁wf.mono hdsub_body hwfst₂
       obtain ⟨hfresh_decls, hfresh_range, hrename⟩ :=
         FiniteSubst.rename_freshConst hσ₁wf₂ ⟨postName, .value⟩
-      specialize hdecl (result.eval ρ₂)
-      have hb3 := VerifM.eval_bind hdecl
-      have hassume := VerifM.eval_assumePure hb3
-        (Formula.eq_wfIn_addConst_of_fresh (c := resVar) hwfst₂ hwf_result hfresh_decls)
-        (Formula.eq_eval_updateConst_of_fresh (c := resVar) (ρ := ρ₂) hwf_result hfresh_decls)
+      have hassume := VerifM.eval_define (VerifM.eval_bind hrest) hwf_result
       set σ₂ := σ₁.rename ⟨postName, .value⟩ resVar.name
       have hσ₂wf : σ₂.wfIn Δ_base (st₂.decls.addConst resVar) := by
         simpa [σ₂] using hrename
@@ -287,7 +278,7 @@ theorem PredTrans.implement_correct (W : TinyML.World) (pt : PredTrans TinyML.Ty
           (((σ₁.subst.eval ρ₁).updateConst .value postName (result.eval ρ₂))) ⊢
           Assertion.post (TinyML.ValHasType W) (fun () _ => Φ (result.eval ρ₂)) postBody
             ((σ₂.subst.eval (ρ₂.updateConst .value resVar.name (result.eval ρ₂)))) := by
-        exact Assertion.post_env_agree (TinyML.ValHasType W) hwf_postBody'
+        exact Assertion.post_agreeOn (TinyML.ValHasType W) hwf_postBody'
           (by
             simpa [Env.agreeOn, ]
               using (Env.agreeOn_symm (Env.agreeOn_trans hag_rename hag_eval')))
@@ -296,7 +287,7 @@ theorem PredTrans.implement_correct (W : TinyML.World) (pt : PredTrans TinyML.Ty
             ⊢
           st₃.sl W (ρ₂.updateConst .value resVar.name (result.eval ρ₂)) := by
         simpa using
-          (SpatialContext.interp_env_agree W (VerifM.eval.wf hrest).ownsWf
+          (SpatialContext.interp_agreeOn W (VerifM.eval.wf hrest).ownsWf
             (Env.agreeOn_update_fresh_const hfresh_decls)).1
       have hpre_final :
           st₂.sl W ρ₂ ∗ (Φ (result.eval ρ₂) -∗ S) ⊢

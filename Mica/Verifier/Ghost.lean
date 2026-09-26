@@ -141,8 +141,7 @@ mutual
         match b.name with
         | none => compileGhostExpr reg Θ Δ_spec Gf G B Γ body
         | some x =>
-          let x' ← VerifM.decl (some x) .value
-          VerifM.assume (.pure (Formula.eq .value (.const (.uninterpreted x'.name .value)) se))
+          let x' ← VerifM.define (some x) se
           compileGhostExpr reg Θ Δ_spec Gf ((x, x') :: G) (B.remove x) (Γ.extend x e.ty) body
     | .letProd names e body => do
         let se ← compileGhostExpr reg Θ Δ_spec Gf G B Γ e
@@ -199,7 +198,7 @@ mutual
     | .prim n _ _ => VerifM.fatal s!"primitive `{n}` must be applied"
     | .tuple es => do
         let terms ← compileGhostExprs reg Θ Δ_spec Gf G B Γ es
-        pure (.unop .ofValList (Terms.toValList terms))
+        pure (Term.tuple terms)
     | .inj tag arity payload ty => do
         match injComponents? Θ ty tag arity payload.ty with
         | some _ => do
@@ -418,7 +417,7 @@ def correctGhostExprs (reg : Verifier.Registry) (es : List Expr) : Prop :=
   B.wfIn st.decls →
   GhostFns.wellTyped W st.decls ρ Gf →
   VerifM.eval (compileGhostExprs reg W.Θ W.Δ_spec Gf G B Γ es) st ρ Ψ →
-  (∀ vs st' ρ' ts, Ψ ts st' ρ' → (∀ t ∈ ts, t.wfIn st'.decls) → Terms.Eval ρ' ts vs →
+  (∀ vs st' ρ' ts, Ψ ts st' ρ' → (∀ t ∈ ts, t.wfIn st'.decls) → Term.evalList ρ' ts vs →
     st'.sl W ρ' ∗ TinyML.ValsHaveTypes W vs (es.map Expr.WithTypeVars.ty) ∗ R ⊢ Φ vs) →
   st.sl W ρ ∗ (Bindings.typedScope W G B Γ γg γ ∗ R) ⊢ |==> ∃ vs, Φ vs
 
@@ -475,31 +474,31 @@ theorem compileGhostConst_correct (reg : Verifier.Registry) (c : TinyML.Const) :
   case int n =>
     exact step _ (.int n) _ hpost (VerifM.eval_ret heval)
       (by simp [Term.wfIn, Const.wfIn, UnOp.wfIn])
-      (by simp [Term.eval, UnOp.eval, Const.denote]) (TinyML.ValHasType.int_intro W n)
+      (by simp [Term.eval, UnOp.eval, Const.eval]) (TinyML.ValHasType.int_intro W n)
   case int32 bits =>
     exact step _ (.int32 bits) _ hpost (VerifM.eval_ret heval)
       (by simp [Term.wfIn, Const.wfIn, UnOp.wfIn])
-      (by simp [Term.eval, UnOp.eval, Const.denote]) (TinyML.ValHasType.int32_intro W bits)
+      (by simp [Term.eval, UnOp.eval, Const.eval]) (TinyML.ValHasType.int32_intro W bits)
   case int64 bits =>
     exact step _ (.int64 bits) _ hpost (VerifM.eval_ret heval)
       (by simp [Term.wfIn, Const.wfIn, UnOp.wfIn])
-      (by simp [Term.eval, UnOp.eval, Const.denote]) (TinyML.ValHasType.int64_intro W bits)
+      (by simp [Term.eval, UnOp.eval, Const.eval]) (TinyML.ValHasType.int64_intro W bits)
   case bool b =>
     exact step _ (.bool b) _ hpost (VerifM.eval_ret heval)
       (by simp [Term.wfIn, Const.wfIn, UnOp.wfIn])
-      (by simp [Term.eval, UnOp.eval, Const.denote]) (TinyML.ValHasType.bool_intro W b)
+      (by simp [Term.eval, UnOp.eval, Const.eval]) (TinyML.ValHasType.bool_intro W b)
   case char c =>
     exact step _ (.char c) _ hpost (VerifM.eval_ret heval)
       (by simp [Term.wfIn, Const.wfIn, UnOp.wfIn])
-      (by simp [Term.eval, UnOp.eval, Const.denote]) (TinyML.ValHasType.char_intro W c)
+      (by simp [Term.eval, UnOp.eval, Const.eval]) (TinyML.ValHasType.char_intro W c)
   case string s =>
     exact step _ (.str s) _ hpost (VerifM.eval_ret heval)
       (by simp [Term.wfIn, Const.wfIn, UnOp.wfIn])
-      (by simp [Term.eval, UnOp.eval, Const.denote]) (TinyML.ValHasType.string_intro W s)
+      (by simp [Term.eval, UnOp.eval, Const.eval]) (TinyML.ValHasType.string_intro W s)
   case float b =>
     exact step _ (.float b) _ hpost (VerifM.eval_ret heval)
       (by simp [Term.wfIn, Const.wfIn, UnOp.wfIn])
-      (by simp [Term.eval, UnOp.eval, Const.denote]) (TinyML.ValHasType.float_intro W b)
+      (by simp [Term.eval, UnOp.eval, Const.eval]) (TinyML.ValHasType.float_intro W b)
   case unit =>
     exact step _ .unit _ hpost (VerifM.eval_ret heval)
       (by simp [Term.wfIn, Const.wfIn]) (by simp [Term.eval]) (TinyML.ValHasType.unit_intro W)
@@ -552,7 +551,7 @@ theorem compileGhostVar_correct (reg : Verifier.Registry) (x : String)
       exact Term.const_wfIn_of_mem hwfst hconst
   have hteval : Term.eval ρ (Term.const (.uninterpreted x'.name .value))
       = ρ.consts .value x'.name := by
-    simp [Term.eval, Const.denote]
+    simp [Term.eval, Const.eval]
   have htyped : Bindings.typedScope W G B Γ γg γ ⊢
       TinyML.ValHasType W (ρ.consts .value x'.name) vty := by
     cases hΓx : Γ x with
@@ -658,8 +657,8 @@ theorem compileGhostBinop_correct (reg : Verifier.Registry)
   obtain ⟨hdecls_r, hagreeOn_r, hΨ_r⟩ := hΨ_r
   have hag_r := hag.step hdecls_r hagreeOn_r
   have hGf_r := hGf.step hdecls_r hagreeOn_r (VerifM.eval.wf hΨ_r).namesDisjoint
-  have hagree_r := Bindings.agreeOnLinked_env_agree hagree hagreeOn_r hbwf
-  have hgagree_r := Bindings.agreeOnLinked_env_agree hgagree hagreeOn_r hgwf
+  have hagree_r := Bindings.agreeOnLinked_agreeOn hagree hagreeOn_r hbwf
+  have hgagree_r := Bindings.agreeOnLinked_agreeOn hgagree hagreeOn_r hgwf
   have hbwf_r : B.wfIn st₁.decls := fun p hp => hdecls_r.consts _ (hbwf p hp)
   have hgwf_r : G.wfIn st₁.decls := fun p hp => hdecls_r.consts _ (hgwf p hp)
   have heval_l := VerifM.eval_bind hΨ_r
@@ -673,7 +672,7 @@ theorem compileGhostBinop_correct (reg : Verifier.Registry)
   obtain ⟨ty, htypeOf, hΨ_l⟩ := VerifM.eval_bind_expectSome hΨ_l
   obtain ⟨hty_eq, hΨ_l'⟩ := VerifM.eval_bind_expectEq hΨ_l
   have hsr_ρ_l : sr.eval ρ_l = vr := by
-    rw [Term.eval_env_agree hsr_wf (Env.agreeOn_symm hagreeOn_l)]
+    rw [Term.eval_agreeOn hsr_wf (Env.agreeOn_symm hagreeOn_l)]
     exact heval_sr
   by_cases hdivmod : op = .div ∨ op = .mod
   · have hΨ_div :
@@ -765,7 +764,7 @@ theorem compileGhostAssert_correct (reg : Verifier.Registry) (e : Expr)
   obtain ⟨hφ, hcont⟩ := VerifM.eval_assert (VerifM.eval_bind hΨ_e) hwf_φ
   have hΨ_pure := VerifM.eval_ret hcont
   have hvtrue : v_e = .bool true := by
-    simp only [Formula.eval, Term.eval, UnOp.eval, Const.denote] at hφ
+    simp only [Formula.eval, Term.eval, UnOp.eval, Const.eval] at hφ
     rw [heval_se] at hφ
     cases v_e <;> simp_all
   subst hvtrue
@@ -931,8 +930,8 @@ theorem compileGhostArrayGet_correct (reg : Verifier.Registry) (arr idx : Expr)
     obtain ⟨hdecls_idx, hagreeOn_idx, hΨ_idx⟩ := hΨ_idx
     have hag_idx := hag.step hdecls_idx hagreeOn_idx
     have hGf_idx := hGf.step hdecls_idx hagreeOn_idx (VerifM.eval.wf hΨ_idx).namesDisjoint
-    have hagree_idx := Bindings.agreeOnLinked_env_agree hagree hagreeOn_idx hbwf
-    have hgagree_idx := Bindings.agreeOnLinked_env_agree hgagree hagreeOn_idx hgwf
+    have hagree_idx := Bindings.agreeOnLinked_agreeOn hagree hagreeOn_idx hbwf
+    have hgagree_idx := Bindings.agreeOnLinked_agreeOn hgagree hagreeOn_idx hgwf
     have hbwf_idx : B.wfIn st₁.decls := fun p hp => hdecls_idx.consts _ (hbwf p hp)
     have hgwf_idx : G.wfIn st₁.decls := fun p hp => hdecls_idx.consts _ (hgwf p hp)
     have heval_arr := VerifM.eval_bind hΨ_idx
@@ -1011,9 +1010,8 @@ theorem compileGhostTuple_correct (reg : Verifier.Registry) (es : List Expr)
       · iexact HR
   refine hstep.trans ?_
   refine BIBase.Entails.trans ?_ (exists_intro (Runtime.Val.tuple vs))
-  exact hpost (Runtime.Val.tuple vs) st' ρ' (.unop .ofValList (Terms.toValList terms)) hΨ
-    (by simp only [Term.wfIn]; exact ⟨trivial, Terms.toValList_wfIn hwf_terms⟩)
-    (by simp [Term.eval, UnOp.eval, Terms.toValList_eval heval_terms])
+  exact hpost (Runtime.Val.tuple vs) st' ρ' (Term.tuple terms) hΨ
+    (Term.tuple_wfIn hwf_terms) (Term.tuple_eval heval_terms)
 
 theorem compileGhostLetIn_correct (reg : Verifier.Registry)
     (mode : TinyML.Mode) (b : Binder) (e body : Expr)
@@ -1030,8 +1028,8 @@ theorem compileGhostLetIn_correct (reg : Verifier.Registry)
   intro v st₁ ρ₁ t hΨ ht_wf ht_eval
   obtain ⟨hdecls, hagreeOn, hΨ⟩ := hΨ
   obtain ⟨_, hΨ⟩ := VerifM.eval_bind_expectEq hΨ
-  have hagree₁ := Bindings.agreeOnLinked_env_agree hagree hagreeOn hbwf
-  have hgagree₁ := Bindings.agreeOnLinked_env_agree hgagree hagreeOn hgwf
+  have hagree₁ := Bindings.agreeOnLinked_agreeOn hagree hagreeOn hbwf
+  have hgagree₁ := Bindings.agreeOnLinked_agreeOn hgagree hagreeOn hgwf
   have hbwf₁ : B.wfIn st₁.decls := fun p hp => hdecls.consts _ (hbwf p hp)
   have hgwf₁ : G.wfIn st₁.decls := fun p hp => hdecls.consts _ (hgwf p hp)
   have hag₁ := hag.step hdecls hagreeOn
@@ -1054,35 +1052,27 @@ theorem compileGhostLetIn_correct (reg : Verifier.Registry)
       · iexact HR
   | some x =>
     simp [hname] at hΨ
-    set x' : FOL.Const := ⟨Fresh.freshNumbers x st₁.decls.allNames, .value⟩ with hx'_def
+    set x' : Decl.Const := ⟨Fresh.freshNumbers x st₁.decls.allNames, .value⟩ with hx'_def
     have hfresh : x'.name ∉ st₁.decls.allNames :=
       Fresh.freshNumbers_not_mem x st₁.decls.allNames
     set st₂ : TransState :=
       { decls := st₁.decls.addConst x',
-        asserts := (Formula.eq .value (.const (.uninterpreted x'.name .value)) t) :: st₁.asserts,
+        asserts := Formula.define x' t :: st₁.asserts,
         owns := st₁.owns } with hst₂_def
     set ρ₂ := ρ₁.updateConst .value x'.name v with hρ₂_def
     have hagreeOn₂ : Env.agreeOn st₁.decls ρ₁ ρ₂ := Env.agreeOn_update_fresh_const hfresh
     have hΨ_body : (compileGhostExpr reg W.Θ W.Δ_spec Gf ((x, x') :: G) (B.remove x)
         (Γ.extend x e.ty) body).eval st₂ ρ₂ Ψ := by
-      have hdecl := VerifM.eval_decl (VerifM.eval_bind hΨ)
-      have h := VerifM.eval_assumePure (VerifM.eval_bind (hdecl v))
-      apply h
-      · have hstwf : st₁.decls.wf := (VerifM.eval.wf hΨ).namesDisjoint
-        simpa [x'] using
-          (Formula.eq_wfIn_addConst_of_fresh (Δ := st₁.decls) (c := x') hstwf ht_wf hfresh)
-      · simp only [Formula.eval, Term.eval, Const.denote]
-        have : v = Term.eval ρ₂ t := by
-          rw [Term.eval_env_agree ht_wf (Env.agreeOn_symm hagreeOn₂)]
-          exact ht_eval.symm
-        simpa [ρ₂, Env.updateConst] using this
+      have h := VerifM.eval_define (VerifM.eval_bind hΨ) ht_wf
+      rw [ht_eval] at h
+      exact h
     have hρ₂_lookup : ρ₂.consts .value x'.name = v := by simp [ρ₂, Env.updateConst]
     have hρ_agree : Env.agreeOn (Signature.ofConsts (G.map Prod.snd)) ρ₂ ρ₁ := by
       refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
       · intro y hy; cases hy
       · intro y' hy'
         obtain ⟨p, hp, rfl⟩ := List.mem_map.mp hy'
-        exact (hagreeOn₂.2.1 p.2 (hgwf₁ p hp)).symm
+        exact (hagreeOn₂.consts p.2 (hgwf₁ p hp)).symm
       · intro z hz; cases hz
       · intro z hz; cases hz
       · intro z hz; cases hz
@@ -1094,7 +1084,7 @@ theorem compileGhostLetIn_correct (reg : Verifier.Registry)
       rwa [hρ₂_lookup] at h
     have hagree₂ : Bindings.agreeOnLinked (B.remove x) ρ₂ γ :=
       Bindings.agreeOnLinked_remove
-        (Bindings.agreeOnLinked_env_agree hagree₁ hagreeOn₂ hbwf₁) x
+        (Bindings.agreeOnLinked_agreeOn hagree₁ hagreeOn₂ hbwf₁) x
     have hgwf₂ : Bindings.wfIn ((x, x') :: G) st₂.decls := Bindings.wfIn_cons hgwf₁
     have hbwf₂ : Bindings.wfIn (B.remove x) st₂.decls := fun p hp =>
       (Signature.Subset.subset_addConst st₁.decls x').consts _
@@ -1113,7 +1103,7 @@ theorem compileGhostLetIn_correct (reg : Verifier.Registry)
             hΨ'.2.2⟩ hs hw))
     have hinterp_eq : SpatialContext.interp W ρ₁ st₁.owns ⊢
         SpatialContext.interp W ρ₂ st₁.owns :=
-      (SpatialContext.interp_env_agree W (VerifM.eval.wf hΨ).ownsWf hagreeOn₂).1
+      (SpatialContext.interp_agreeOn W (VerifM.eval.wf hΨ).ownsWf hagreeOn₂).1
     iintro ⟨Howns, Hv, #HT, HR⟩
     isplitl [Howns]
     · simp only [TransState.sl_eq]
@@ -1130,11 +1120,11 @@ theorem compileGhostLetIn_correct (reg : Verifier.Registry)
 at the component type, and the run-time reading of a shadowed name is dropped. -/
 theorem compileGhostProductBindersFrom_correct (reg : Verifier.Registry) (W : TinyML.World) (Gf : GhostFns)
     (body : Expr) (ihBody : correctGhostExpr reg body) :
-    ∀ (names : List Binder) (tys : List TinyML.Typ) (tl : Term .vallist)
-      (vals : List Runtime.Val) (G B : Bindings) (Γ : TinyML.TyCtx)
+    ∀ (names : List Binder) (tys : List TinyML.Typ) (se : Term .value) (i : Nat)
+      (allVals vals : List Runtime.Val) (G B : Bindings) (Γ : TinyML.TyCtx)
       (γg γ : Runtime.Subst) (st : TransState) (ρ : Env)
       (Ψ : Term .value → TransState → Env → Prop) (R : iProp) (Φ : Runtime.Val → iProp),
-      VerifM.eval (compileProductBindersFrom G Γ names tys tl) st ρ
+      VerifM.eval (compileProductBindersFrom G Γ names tys se i) st ρ
         (fun p st' ρ' =>
           (compileGhostExpr reg W.Θ W.Δ_spec Gf p.1 (B.removeBinders names) p.2 body).eval st' ρ' Ψ) →
       W.wf →
@@ -1146,15 +1136,16 @@ theorem compileGhostProductBindersFrom_correct (reg : Verifier.Registry) (W : Ti
       B.agreeOnLinked ρ γ →
       B.wfIn st.decls →
       GhostFns.wellTyped W st.decls ρ Gf →
-      tl.wfIn st.decls →
-      Term.eval ρ tl = vals →
+      se.wfIn st.decls →
+      se.eval ρ = .tuple allVals →
+      allVals.drop i = vals →
       (∀ v st' ρ' t, Ψ t st' ρ' → t.wfIn st'.decls → Term.eval ρ' t = v →
         st'.sl W ρ' ∗ TinyML.ValHasType W v body.ty ∗ R ⊢ Φ v) →
       st.sl W ρ ∗ (TinyML.ValsHaveTypes W vals tys ∗
         (Bindings.typedScope W G B Γ γg γ ∗ R)) ⊢ |==> ∃ v, Φ v
-  | [], [], tl, vals, G, B, Γ, γg, γ, st, ρ, Ψ, R, Φ,
-      heval, hwf, hag, hΔreg, hρreg, hgagree, hgwf, hagree, hbwf, hGf, _htl_wf, _htl_eval,
-      hpost => by
+  | [], [], se, i, allVals, vals, G, B, Γ, γg, γ, st, ρ, Ψ, R, Φ,
+      heval, hwf, hag, hΔreg, hρreg, hgagree, hgwf, hagree, hbwf, hGf, _hse_wf, _hse_eval,
+      _hdrop, hpost => by
       simp only [compileProductBindersFrom] at heval
       have hbody_eval : (compileGhostExpr reg W.Θ W.Δ_spec Gf G B Γ body).eval st ρ Ψ := by
         simpa [Bindings.removeBinders, Bindings.removeAll] using VerifM.eval_ret heval
@@ -1172,16 +1163,16 @@ theorem compileGhostProductBindersFrom_correct (reg : Verifier.Registry) (W : Ti
           ihave Hfalse := (TinyML.ValsHaveTypes.cons_nil W v vs).1 $$ Hvals
           iapply false_elim
           iexact Hfalse
-  | [], _ty :: _tys, _tl, _vals, _G, _B, _Γ, _γg, _γ, _st, _ρ, _Ψ, _R, _Φ,
-      heval, _, _, _, _, _, _, _, _, _, _, _, _ => by
+  | [], _ty :: _tys, _se, _i, _allVals, _vals, _G, _B, _Γ, _γg, _γ, _st, _ρ, _Ψ, _R, _Φ,
+      heval, _, _, _, _, _, _, _, _, _, _, _, _, _ => by
       simp only [compileProductBindersFrom] at heval
       exact (VerifM.eval_fatal heval).elim
-  | _b :: _bs, [], _tl, _vals, _G, _B, _Γ, _γg, _γ, _st, _ρ, _Ψ, _R, _Φ,
-      heval, _, _, _, _, _, _, _, _, _, _, _, _ => by
+  | _b :: _bs, [], _se, _i, _allVals, _vals, _G, _B, _Γ, _γg, _γ, _st, _ρ, _Ψ, _R, _Φ,
+      heval, _, _, _, _, _, _, _, _, _, _, _, _, _ => by
       simp only [compileProductBindersFrom] at heval
       exact (VerifM.eval_fatal heval).elim
-  | b :: bs, ty :: tys, tl, vals, G, B, Γ, γg, γ, st, ρ, Ψ, R, Φ,
-      heval, hwf, hag, hΔreg, hρreg, hgagree, hgwf, hagree, hbwf, hGf, htl_wf, htl_eval, hpost => by
+  | b :: bs, ty :: tys, se, i, allVals, vals, G, B, Γ, γg, γ, st, ρ, Ψ, R, Φ,
+      heval, hwf, hag, hΔreg, hρreg, hgagree, hgwf, hagree, hbwf, hGf, hse_wf, hse_eval, hdrop, hpost => by
       cases vals with
       | nil =>
           iintro ⟨_Hsl, Hvals, _Hctx⟩
@@ -1191,19 +1182,19 @@ theorem compileGhostProductBindersFrom_correct (reg : Verifier.Registry) (W : Ti
       | cons v vs =>
           simp only [compileProductBindersFrom] at heval
           obtain ⟨hbty, hcont⟩ := VerifM.eval_expectEq (VerifM.eval_bind heval)
-          have hhead_wf : (Term.unop UnOp.vhead tl).wfIn st.decls := ⟨trivial, htl_wf⟩
-          have htail_wf : (Term.unop UnOp.vtail tl).wfIn st.decls := ⟨trivial, htl_wf⟩
-          have hhead_eval : (Term.unop UnOp.vhead tl).eval ρ = v := by
-            simp [Term.eval, UnOp.eval, htl_eval]
-          have htail_eval : (Term.unop UnOp.vtail tl).eval ρ = vs := by
-            simp [Term.eval, UnOp.eval, htl_eval]
+          have hhead_wf := Term.proj_wfIn hse_wf i
+          have hhead_eval : (se.proj i).eval ρ = v :=
+            Term.proj_eval hse_eval (by have := congrArg (·[0]?) hdrop; simpa using this)
+          have htail_drop : allVals.drop (i + 1) = vs := by
+            have := congrArg (List.drop 1) hdrop
+            simpa [List.drop_drop, Nat.add_comm] using this
           cases hname : b.name with
           | none =>
               simp [hname] at hcont
               have hrec := compileGhostProductBindersFrom_correct reg W Gf body ihBody bs tys
-                (Term.unop UnOp.vtail tl) vs G B Γ γg γ st ρ Ψ R Φ
+                se (i + 1) allVals vs G B Γ γg γ st ρ Ψ R Φ
                 (by simpa [Bindings.removeBinders, Bindings.removeAll, hname] using hcont)
-                hwf hag hΔreg hρreg hgagree hgwf hagree hbwf hGf htail_wf htail_eval hpost
+                hwf hag hΔreg hρreg hgagree hgwf hagree hbwf hGf hse_wf hse_eval htail_drop hpost
               refine BIBase.Entails.trans ?_ hrec
               iintro ⟨Hsl, Hvals, Hctx⟩
               ihave Hpair := (TinyML.ValsHaveTypes.cons W v vs ty tys).1 $$ Hvals
@@ -1215,40 +1206,22 @@ theorem compileGhostProductBindersFrom_correct (reg : Verifier.Registry) (W : Ti
                 · iexact Hctx
           | some x =>
               simp [hname] at hcont
-              have hdecl_eval := VerifM.eval_bind hcont
-              have hdecl := VerifM.eval_decl hdecl_eval
               set x' := st.freshConst (some x) .value
               set st₁ : TransState := { st with decls := st.decls.addConst x' }
               set ρ₁ := ρ.updateConst .value x'.name v
-              have hassume := VerifM.eval_assumePure (VerifM.eval_bind (hdecl v))
-              have hfresh : x'.name ∉ st.decls.allNames := by
-                simpa [x'] using TransState.freshConst_fresh st (some x) .value
-              have hformula_wf :
-                  (Formula.eq .value (.const (.uninterpreted x'.name .value))
-                    (Term.unop UnOp.vhead tl)).wfIn st₁.decls := by
-                have hstwf : st.decls.wf := (VerifM.eval.wf hdecl_eval).namesDisjoint
-                simpa [x', st₁] using
-                  (Formula.eq_wfIn_addConst_of_fresh (Δ := st.decls) (c := x')
-                    hstwf hhead_wf hfresh)
+              have hfresh : x'.name ∉ st.decls.allNames := st.freshConst_fresh (some x) .value
+              have hrec_eval := VerifM.eval_define (VerifM.eval_bind hcont) hhead_wf
+              rw [hhead_eval] at hrec_eval
+              set st₂ : TransState := { st₁ with
+                asserts := Formula.define x' (se.proj i) :: st₁.asserts }
               have hagreeOn_body : Env.agreeOn st.decls ρ ρ₁ :=
                 Env.agreeOn_update_fresh_const hfresh
-              have hformula_eval :
-                  (Formula.eq .value (.const (.uninterpreted x'.name .value))
-                    (Term.unop UnOp.vhead tl)).eval ρ₁ := by
-                have hval_same : v = (Term.unop UnOp.vhead tl).eval ρ₁ :=
-                  hhead_eval.symm.trans (Term.eval_env_agree hhead_wf hagreeOn_body)
-                simpa [Formula.eval, Term.eval, Const.denote, ρ₁, Env.updateConst]
-                  using hval_same
-              have hrec_eval := hassume hformula_wf hformula_eval
-              set st₂ : TransState := { st₁ with
-                asserts := (Formula.eq .value (.const (.uninterpreted x'.name .value))
-                  (Term.unop UnOp.vhead tl)) :: st₁.asserts }
               have hρ_agree : Env.agreeOn (Signature.ofConsts (G.map Prod.snd)) ρ₁ ρ := by
                 refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
                 · intro y hy; cases hy
                 · intro y' hy'
                   obtain ⟨p, hp, rfl⟩ := List.mem_map.mp hy'
-                  exact (hagreeOn_body.2.1 p.2 (hgwf p hp)).symm
+                  exact (hagreeOn_body.consts p.2 (hgwf p hp)).symm
                 · intro z hz; cases hz
                 · intro z hz; cases hz
                 · intro z hz; cases hz
@@ -1265,7 +1238,7 @@ theorem compileGhostProductBindersFrom_correct (reg : Verifier.Registry) (W : Ti
                 simpa [st₂, st₁] using Bindings.wfIn_cons hgwf
               have hagree₁ : Bindings.agreeOnLinked (B.remove x) ρ₁ γ :=
                 Bindings.agreeOnLinked_remove
-                  (Bindings.agreeOnLinked_env_agree hagree hagreeOn_body hbwf) x
+                  (Bindings.agreeOnLinked_agreeOn hagree hagreeOn_body hbwf) x
               have hbwf₁ : Bindings.wfIn (B.remove x) st₂.decls := fun p hp =>
                 (Signature.Subset.subset_addConst st.decls x').consts _
                   (hbwf p (Bindings.mem_of_mem_remove hp))
@@ -1273,20 +1246,21 @@ theorem compileGhostProductBindersFrom_correct (reg : Verifier.Registry) (W : Ti
                 (Signature.Subset.subset_addConst st.decls x') hagreeOn_body
               have hGf₁ := hGf.step
                 (Signature.Subset.subset_addConst st.decls x') hagreeOn_body
-                (Signature.wf_addConst (VerifM.eval.wf hdecl_eval).namesDisjoint hfresh)
+                (Signature.wf_addConst (VerifM.eval.wf hcont).namesDisjoint hfresh)
               have hrec := compileGhostProductBindersFrom_correct reg W Gf body ihBody bs tys
-                (Term.unop UnOp.vtail tl) vs ((x, x') :: G) (B.remove x) (Γ.extend x ty)
+                se (i + 1) allVals vs ((x, x') :: G) (B.remove x) (Γ.extend x ty)
                 (Runtime.Subst.update γg x v) γ st₂ ρ₁ Ψ R Φ
                 (by simpa [Bindings.removeBinders, Bindings.removeAll, hname] using hrec_eval)
                 hwf hag₁ hΔreg hρreg hgagree₁ hgwf₁ hagree₁ hbwf₁ hGf₁
                 (by
-                  have htail_wf₁ := Term.wfIn_mono (Term.unop UnOp.vtail tl) htail_wf
+                  have hse_wf₁ := Term.wfIn_mono se hse_wf
                     (Signature.Subset.subset_addConst st.decls x')
-                    (Signature.wf_addConst (VerifM.eval.wf hdecl_eval).namesDisjoint hfresh)
-                  simpa [st₂, st₁] using htail_wf₁)
+                    (Signature.wf_addConst (VerifM.eval.wf hcont).namesDisjoint hfresh)
+                  simpa [st₂, st₁] using hse_wf₁)
                 (by
-                  rw [Term.eval_env_agree htail_wf (Env.agreeOn_symm hagreeOn_body)]
-                  exact htail_eval)
+                  rw [Term.eval_agreeOn hse_wf (Env.agreeOn_symm hagreeOn_body)]
+                  exact hse_eval)
+                htail_drop
                 hpost
               refine BIBase.Entails.trans ?_ hrec
               iintro ⟨Hsl, Hvals, #HT, HR⟩
@@ -1294,7 +1268,7 @@ theorem compileGhostProductBindersFrom_correct (reg : Verifier.Registry) (W : Ti
               icases Hpair with ⟨Hv, Hvs⟩
               have hinterp_eq : SpatialContext.interp W ρ st.owns ⊢
                   SpatialContext.interp W ρ₁ st.owns :=
-                (SpatialContext.interp_env_agree W (VerifM.eval.wf hdecl_eval).ownsWf
+                (SpatialContext.interp_agreeOn W (VerifM.eval.wf hcont).ownsWf
                   (Env.agreeOn_update_fresh_const hfresh)).1
               isplitl [Hsl]
               · simp only [TransState.sl_eq]
@@ -1327,8 +1301,8 @@ theorem compileGhostLetProd_correct (reg : Verifier.Registry)
   | tuple tys =>
       simp [hty] at hΨ_e
       have hprod_eval := VerifM.eval_bind (VerifM.eval_ret (VerifM.eval_bind hΨ_e))
-      have hagree_e := Bindings.agreeOnLinked_env_agree hagree hagreeOn_e hbwf
-      have hgagree_e := Bindings.agreeOnLinked_env_agree hgagree hagreeOn_e hgwf
+      have hagree_e := Bindings.agreeOnLinked_agreeOn hagree hagreeOn_e hbwf
+      have hgagree_e := Bindings.agreeOnLinked_agreeOn hgagree hagreeOn_e hgwf
       have hbwf_e : B.wfIn st₁.decls := fun p hp => hdecls_e.consts _ (hbwf p hp)
       have hgwf_e : G.wfIn st₁.decls := fun p hp => hdecls_e.consts _ (hgwf p hp)
       have hag_e := hag.step hdecls_e hagreeOn_e
@@ -1339,9 +1313,9 @@ theorem compileGhostLetProd_correct (reg : Verifier.Registry)
       icases Htuple with ⟨%vs, %hveq, Hvals⟩
       subst hveq
       iapply (compileGhostProductBindersFrom_correct reg W Gf body ihBody names tys
-        (Term.unop UnOp.toValList se) vs G B Γ γg γ st₁ ρ_e _ R Φ
-        hprod_eval hwf hag_e hΔreg hρreg hgagree_e hgwf_e hagree_e hbwf_e hGf_e ⟨trivial, hse_wf⟩
-        (by simp [Term.eval, UnOp.eval, heval_se]) hpost)
+        se 0 vs vs G B Γ γg γ st₁ ρ_e _ R Φ
+        hprod_eval hwf hag_e hΔreg hρreg hgagree_e hgwf_e hagree_e hbwf_e hGf_e hse_wf
+        heval_se rfl hpost)
       isplitl [Hsl]
       · iexact Hsl
       · isplitl [Hvals]
@@ -1369,8 +1343,8 @@ theorem compileGhostIfThenElse_correct (reg : Verifier.Registry)
         (VerifM.eval.decls_grow ρ (VerifM.eval_bind heval)) ?_))
   intro v_c st₁ ρ_c sc hΨ_c hsc_wf heval_c
   obtain ⟨hdecls_c, hagreeOn_c, hΨ_c⟩ := hΨ_c
-  have hagree_c := Bindings.agreeOnLinked_env_agree hagree hagreeOn_c hbwf
-  have hgagree_c := Bindings.agreeOnLinked_env_agree hgagree hagreeOn_c hgwf
+  have hagree_c := Bindings.agreeOnLinked_agreeOn hagree hagreeOn_c hbwf
+  have hgagree_c := Bindings.agreeOnLinked_agreeOn hgagree hagreeOn_c hgwf
   have hbwf_c : B.wfIn st₁.decls := fun p hp => hdecls_c.consts _ (hbwf p hp)
   have hgwf_c : G.wfIn st₁.decls := fun p hp => hdecls_c.consts _ (hgwf p hp)
   have hag_c := hag.step hdecls_c hagreeOn_c
@@ -1412,7 +1386,7 @@ theorem compileGhostIfThenElse_correct (reg : Verifier.Registry)
   · subst hfalse_val
     have heval_els : (compileGhostExpr reg W.Θ W.Δ_spec Gf G B Γ els).eval st_els ρ_c Ψ :=
       hfalse_cont hwf_eq (by
-        simp only [Term.isFalse, Formula.eval, Term.eval, UnOp.eval, Const.denote]
+        simp only [Term.isFalse, Formula.eval, Term.eval, UnOp.eval, Const.eval]
         exact heval_c)
     have hres : st_els.sl W ρ_c ∗ (Bindings.typedScope W G B Γ γg γ ∗ R) ⊢ |==> ∃ v, Φ v :=
       ihEls W Gf G B Γ γg γ (R := R) (Φ := Φ) hwf hag_c hΔreg hρreg hgagree_c hgwf_c hagree_c hbwf_c
@@ -1430,7 +1404,7 @@ theorem compileGhostIfThenElse_correct (reg : Verifier.Registry)
   · subst htrue_val
     have heval_thn : (compileGhostExpr reg W.Θ W.Δ_spec Gf G B Γ thn).eval st_thn ρ_c Ψ :=
       htrue_cont hwf_ne (by
-        simp only [Term.isFalse, Formula.eval, Term.eval, UnOp.eval, Const.denote]
+        simp only [Term.isFalse, Formula.eval, Term.eval, UnOp.eval, Const.eval]
         rw [heval_c]
         simp)
     have hres : st_thn.sl W ρ_c ∗ (Bindings.typedScope W G B Γ γg γ ∗ R) ⊢ |==> ∃ v, Φ v :=
@@ -1483,12 +1457,12 @@ theorem compileGhostApp_correct (reg : Verifier.Registry) (hSound : reg.Sound)
       have hag_args := hag.step hdecls_args hagreeOn_args
       have hGf_args := hGf.step hdecls_args hagreeOn_args
         (VerifM.eval.wf hΨ_args).namesDisjoint
-      have hagree_args := Bindings.agreeOnLinked_env_agree hagree hagreeOn_args hbwf
-      have hgagree_args := Bindings.agreeOnLinked_env_agree hgagree hagreeOn_args hgwf
+      have hagree_args := Bindings.agreeOnLinked_agreeOn hagree hagreeOn_args hbwf
+      have hgagree_args := Bindings.agreeOnLinked_agreeOn hgagree hagreeOn_args hgwf
       have hbwf_args : B.wfIn st_args.decls := fun p hp => hdecls_args.consts _ (hbwf p hp)
       have hgwf_args : G.wfIn st_args.decls := fun p hp => hdecls_args.consts _ (hgwf p hp)
       have hlen_sargs : sargs.length = vs.length := by
-        simpa [Terms.Eval] using List.Forall₂.length_eq heval_sargs
+        simpa [Term.evalList] using List.Forall₂.length_eq heval_sargs
       have heval_gargs := VerifM.eval_bind hΨ_args
       refine bupd_absorb (BIBase.Entails.trans ?_
         (ihGArgs W Gf G B Γ γg γ
@@ -1553,7 +1527,7 @@ theorem compileGhostApp_correct (reg : Verifier.Registry) (hSound : reg.Sound)
         rw [← Hlen]; exact hlen_sargs.symm
       have hlen_gtyped : (gargs.map Expr.WithTypeVars.ty).length = gterms.length := by
         rw [← Hglen]
-        simpa [Terms.Eval] using (List.Forall₂.length_eq heval_gterms).symm
+        simpa [Term.evalList] using (List.Forall₂.length_eq heval_gterms).symm
       obtain ⟨hfst, heval_args_map⟩ := typedArgs_split hlen_typed heval_sargs
       obtain ⟨hgfst, heval_gargs_map⟩ := typedArgs_split hlen_gtyped heval_gterms
       have hsub_ty' : args.map Expr.WithTypeVars.ty = argTys := by
@@ -1568,7 +1542,7 @@ theorem compileGhostApp_correct (reg : Verifier.Registry) (hSound : reg.Sound)
       -- made in; the ghost arguments were compiled there, so they need no transport.
       have heval_sargs_map : typedArgs.map (fun p => p.2.eval ρ_g) = vs := by
         refine Eq.trans (List.map_congr_left fun p hp => ?_) heval_args_map
-        exact Term.eval_env_agree (hsargs_wf _ (List.of_mem_zip hp).2)
+        exact Term.eval_agreeOn (hsargs_wf _ (List.of_mem_zip hp).2)
           (Env.agreeOn_symm hagreeOn_g)
       have happly' :
           st_g.sl W ρ_g ∗ R ⊢
@@ -1602,9 +1576,9 @@ theorem compileGhostApp_correct (reg : Verifier.Registry) (hSound : reg.Sound)
         | some g =>
           obtain ⟨-, hmwf, hreal⟩ := hentry
           obtain ⟨hlen_g, hcond⟩ := hguard.1 g rfl
-          have hterms_eval : Terms.Eval ρ_g (sargs ++ gterms) (vs ++ gs) :=
+          have hterms_eval : Term.evalList ρ_g (sargs ++ gterms) (vs ++ gs) :=
             List.rel_append
-              (Terms.Eval.env_agree hsargs_wf hagreeOn_g heval_sargs) heval_gterms
+              (Term.evalList_agreeOn hsargs_wf hagreeOn_g heval_sargs) heval_gterms
           have hsubst := Spec.eval_argSubst (Δ := W.Δ_spec) (names := s.allArgs)
             (terms := sargs ++ gterms) (vals := vs ++ gs) hlen_g.symm hterms_eval
             g.measure.term hmwf
@@ -1612,10 +1586,10 @@ theorem compileGhostApp_correct (reg : Verifier.Registry) (hSound : reg.Sound)
             rw [← hlen_g, List.Forall₂.length_eq hterms_eval]
           have hdenote : g.measure.denote s ρ_g vs gs = g.measure.denote s W.ρ_spec vs gs := by
             simp only [Typed.Measure.denote]
-            rw [Term.eval_env_agree hmwf
+            rw [Term.eval_agreeOn hmwf
               (Spec.argsEnv_agreeOn (Env.agreeOn_symm hagree_ρ_g) s.allArgs (vs ++ gs) hlenargs)]
           simp only [GhostFns.Guard.condition, Formula.eval, Term.eval, BinPred.eval,
-            Const.denote] at hcond
+            Const.eval] at hcond
           obtain ⟨-, hnonneg, hlt⟩ := hcond
           have hrank : g.measure.denote s W.ρ_spec vs gs < (Term.eval ρ_g g.rank).toNat := by
             rw [← hdenote]
@@ -1703,7 +1677,7 @@ theorem compileGhostApp_correct (reg : Verifier.Registry) (hSound : reg.Sound)
     iintro ⟨Howns, #Hvals, HR⟩
     ihave %Hlen := TinyML.ValsHaveTypes.length_eq $$ Hvals
     have hlen_typed : (args.map Expr.WithTypeVars.ty).length = sargs.length := by
-      rw [← Hlen]; simpa [Terms.Eval] using (List.Forall₂.length_eq heval_sargs).symm
+      rw [← Hlen]; simpa [Term.evalList] using (List.Forall₂.length_eq heval_sargs).symm
     obtain ⟨hfst, heval_sargs_map⟩ := typedArgs_split hlen_typed heval_sargs
     have hsub_ty' : args.map Expr.WithTypeVars.ty = argTys := by
       simpa [typedArgs, hfst] using hsub_ty
@@ -1764,8 +1738,8 @@ theorem compileGhostMatch_correct (reg : Verifier.Registry)
         have hag_scrut := hag.step hdecls_scrut hagreeOn_scrut
         have hGf_scrut := hGf.step hdecls_scrut hagreeOn_scrut
           (VerifM.eval.wf hΨ_scrut).namesDisjoint
-        have hagree_scrut := Bindings.agreeOnLinked_env_agree hagree hagreeOn_scrut hbwf
-        have hgagree_scrut := Bindings.agreeOnLinked_env_agree hgagree hagreeOn_scrut hgwf
+        have hagree_scrut := Bindings.agreeOnLinked_agreeOn hagree hagreeOn_scrut hbwf
+        have hgagree_scrut := Bindings.agreeOnLinked_agreeOn hgagree hagreeOn_scrut hgwf
         have hbwf_scrut : B.wfIn st_scrut.decls := fun p hp => hdecls_scrut.consts _ (hbwf p hp)
         have hgwf_scrut : G.wfIn st_scrut.decls := fun p hp => hdecls_scrut.consts _ (hgwf p hp)
         iintro ⟨Hsl, Hscrut, #HT, HR⟩
@@ -1841,14 +1815,14 @@ theorem compileGhostSingleBranch_correct (reg : Verifier.Registry)
   have hformula_eval : Formula.eval ρ₁
       (Formula.eq .value sc (.unop (.ofInj i n) (.const (.uninterpreted xv.name .value)))) := by
     simp [Formula.eval, Term.eval, UnOp.eval]
-    rw [Term.eval_env_agree hsc_wf (Env.agreeOn_symm hagreeOn_st), hsc_eval]
+    rw [Term.eval_agreeOn hsc_wf (Env.agreeOn_symm hagreeOn_st), hsc_eval]
     simp [ρ₁, Env.updateConst]
   have heval_assumeAll :=
     VerifM.eval_assumePure (VerifM.eval_bind (hdecl payload)) hformula_wf hformula_eval
   have hxv_eval : (Term.const (.uninterpreted xv.name .value)).eval ρ₁ = payload := by
-    simp [Term.eval, Const.denote, ρ₁, Env.updateConst]
+    simp [Term.eval, Const.eval, ρ₁, Env.updateConst]
   have hinterp_eq : SpatialContext.interp W ρ st.owns ⊢ SpatialContext.interp W ρ₁ st.owns :=
-    (SpatialContext.interp_env_agree W (VerifM.eval.wf heval_decl).ownsWf
+    (SpatialContext.interp_agreeOn W (VerifM.eval.wf heval_decl).ownsWf
       (Env.agreeOn_update_fresh_const hxv_fresh)).1
   istart
   iintro ⟨Howns, Hpay, #HT, HR⟩
@@ -1867,9 +1841,9 @@ theorem compileGhostSingleBranch_correct (reg : Verifier.Registry)
   | none =>
     simp [hname] at heval_body'
     have hagree₁ : B.agreeOnLinked ρ₁ γ :=
-      Bindings.agreeOnLinked_env_agree hagree hagreeOn_st hbwf
+      Bindings.agreeOnLinked_agreeOn hagree hagreeOn_st hbwf
     have hgagree₁ : G.agreeOnLinked ρ₁ γg :=
-      Bindings.agreeOnLinked_env_agree hgagree hagreeOn_st hgwf
+      Bindings.agreeOnLinked_agreeOn hgagree hagreeOn_st hgwf
     have hbwf₁ : B.wfIn st₂.decls := hst₂_decls ▸ fun p hp => List.Mem.tail _ (hbwf p hp)
     have hgwf₁ : G.wfIn st₂.decls := hst₂_decls ▸ fun p hp => List.Mem.tail _ (hgwf p hp)
     have hag₁ := hag.step (Signature.Subset.subset_addConst st.decls xv) hagreeOn_st
@@ -1896,7 +1870,7 @@ theorem compileGhostSingleBranch_correct (reg : Verifier.Registry)
       · intro w hw; cases hw
       · intro c hc
         obtain ⟨p, hp, rfl⟩ := List.mem_map.mp hc
-        exact (hagreeOn_st.2.1 p.2 (hgwf p hp)).symm
+        exact (hagreeOn_st.consts p.2 (hgwf p hp)).symm
       · intro z hz; cases hz
       · intro z hz; cases hz
       · intro z hz; cases hz
@@ -1911,7 +1885,7 @@ theorem compileGhostSingleBranch_correct (reg : Verifier.Registry)
     have hgwf₂ : Bindings.wfIn ((x, xv) :: G) st₂.decls := hst₂_decls ▸ Bindings.wfIn_cons hgwf
     have hagree₁ : Bindings.agreeOnLinked (B.remove x) ρ₁ γ :=
       Bindings.agreeOnLinked_remove
-        (Bindings.agreeOnLinked_env_agree hagree hagreeOn_st hbwf) x
+        (Bindings.agreeOnLinked_agreeOn hagree hagreeOn_st hbwf) x
     have hbwf₂ : Bindings.wfIn (B.remove x) st₂.decls := hst₂_decls ▸ fun p hp =>
       List.Mem.tail _ (hbwf p (Bindings.mem_of_mem_remove hp))
     have hag₁ := hag.step (Signature.Subset.subset_addConst st.decls xv) hagreeOn_st
@@ -2000,8 +1974,8 @@ theorem compileGhostExprsCons_correct (reg : Verifier.Registry)
   have hag_rest := hag.step hdecls_rest hagreeOn_rest
   have hGf_rest := hGf.step hdecls_rest hagreeOn_rest
     (VerifM.eval.wf hΨ_rest).namesDisjoint
-  have hgagree_rest := Bindings.agreeOnLinked_env_agree hgagree hagreeOn_rest hgwf
-  have hagree_rest := Bindings.agreeOnLinked_env_agree hagree hagreeOn_rest hbwf
+  have hgagree_rest := Bindings.agreeOnLinked_agreeOn hgagree hagreeOn_rest hgwf
+  have hagree_rest := Bindings.agreeOnLinked_agreeOn hagree hagreeOn_rest hbwf
   have hgwf_rest : G.wfIn st_rest.decls := fun p hp => hdecls_rest.consts _ (hgwf p hp)
   have hbwf_rest : B.wfIn st_rest.decls := fun p hp => hdecls_rest.consts _ (hbwf p hp)
   have heval_e := VerifM.eval_bind hΨ_rest
@@ -2029,9 +2003,9 @@ theorem compileGhostExprsCons_correct (reg : Verifier.Registry)
     rcases hu with rfl | hu
     · exact ht_wf
     · exact Term.wfIn_mono _ (hwf_rest u hu) hdecls_e hwfst'
-  have heval_cons : Terms.Eval ρ' (t :: ts_rest) (v :: vs) :=
-    Terms.Eval.cons ht_eval
-      (Terms.Eval.env_agree (fun u hu => hwf_rest u hu) hagreeOn_e heval_ts_rest)
+  have heval_cons : Term.evalList ρ' (t :: ts_rest) (v :: vs) :=
+    Term.evalList.cons ht_eval
+      (Term.evalList_agreeOn (fun u hu => hwf_rest u hu) hagreeOn_e heval_ts_rest)
   iintro ⟨Hsl, Hv, Hvs, HR⟩
   iexists (v :: vs)
   iapply (hpost (v :: vs) st' ρ' (t :: ts_rest) hΨ_e hwf_cons heval_cons)
@@ -2143,11 +2117,11 @@ rank, and a recursive call must lower it.
 section Declarations
 
 /-- A ghost parameter binds over the arguments, so it takes the name from them. -/
-private def ghostBodyArgs (argNames : List String) (argVars : List FOL.Const)
+private def ghostBodyArgs (argNames : List String) (argVars : List Decl.Const)
     (ghostNames : List String) : Bindings :=
   Bindings.removeAll (argNames.zip argVars).reverse ghostNames
 
-private def ghostBodyGhosts (ghostNames : List String) (ghostVars : List FOL.Const) : Bindings :=
+private def ghostBodyGhosts (ghostNames : List String) (ghostVars : List Decl.Const) : Bindings :=
   (ghostNames.zip ghostVars).reverse
 
 /-- A parameter hides the ghost function of its name. -/
@@ -2172,16 +2146,14 @@ private def GhostFns.Guard.declare (Δ_spec : Signature) (measure : Typed.Measur
     match m.checkWf Δ with
     | .error msg => VerifM.fatal msg
     | .ok () => do
-      let rv ← VerifM.decl (some "rank") .int
-      let r : Term .int := .const (.uninterpreted rv.name .int)
-      VerifM.assume (.pure (.eq .int r m))
-      pure ⟨measure, r⟩
+      let rv ← VerifM.define (some "rank") m
+      pure ⟨measure, .const (.uninterpreted rv.name .int)⟩
 
 /-- A recursive declaration is callable from its own body, under the rank its
     measure gives its own arguments. -/
 private def ValDecl.ghostSelf (Δ_spec : Signature) (Gf : GhostFns) (self : Binder)
     (decreases : Option Typed.Measure) (ty : TinyML.Typ) (s : Spec TinyML.Typ)
-    (argVars ghostVars : List FOL.Const) : VerifM GhostFns :=
+    (argVars ghostVars : List Decl.Const) : VerifM GhostFns :=
   match self.name, decreases with
   | none, _ => pure Gf
   | some g, none =>
@@ -2297,7 +2269,7 @@ private theorem ValDecl.checkGhostBody_correct (reg : Verifier.Registry) (hSound
     (s : Spec TinyML.Typ) (argTys : List TinyML.Typ) (retTy : TinyML.Typ) (body : Expr)
     (argNames : List String) (vs gs : List Runtime.Val) (Φ : Runtime.Val → iProp)
     (ls : Lemmas) (hls : ls.Sound W.Δ_spec W.ρ_spec) (f : Option TinyML.Var)
-    {argVars ghostVars : List FOL.Const} {st' : TransState} {ρ' : Env} {Q : iProp}
+    {argVars ghostVars : List Decl.Const} {st' : TransState} {ρ' : Env} {Q : iProp}
     (hag : W.agrees st'.decls ρ')
     (hGf : GhostFns.wellTyped W st'.decls ρ' Gf)
     (hlen_args : argNames.length = argTys.length)
@@ -2448,20 +2420,20 @@ private theorem ValDecl.checkGhostBody_correct (reg : Verifier.Registry) (hSound
 
 omit [MicaGS HasLC.hasLC Sig] in
 private theorem constTerms_eval {ρ : Env} :
-    ∀ {vars : List FOL.Const} {vals : List Runtime.Val},
+    ∀ {vars : List Decl.Const} {vals : List Runtime.Val},
       List.Forall₂ (fun av val => ρ.consts .value av.name = val) vars vals →
-      Terms.Eval ρ (vars.map fun c => Term.const (.uninterpreted c.name .value)) vals
+      Term.evalList ρ (vars.map fun c => Term.const (.uninterpreted c.name .value)) vals
   | [], _, h => by cases h; exact .nil
   | a :: rest, _, h => by
     cases h with
     | cons hhead htail =>
-      exact .cons (by simpa [Term.eval, Const.denote] using hhead) (constTerms_eval htail)
+      exact .cons (by simpa [Term.eval, Const.eval] using hhead) (constTerms_eval htail)
 
 omit [MicaGS HasLC.hasLC Sig] in
 /-- Argument constants keep their values as the verifier state grows. -/
-private theorem constLookups_env_agree {Δ : Signature} {ρ ρ' : Env}
+private theorem constLookups_agreeOn {Δ : Signature} {ρ ρ' : Env}
     (hagree : Env.agreeOn Δ ρ ρ') :
-    ∀ {vars : List FOL.Const} {vals : List Runtime.Val},
+    ∀ {vars : List Decl.Const} {vals : List Runtime.Val},
       (∀ v ∈ vars, v ∈ Δ.consts) → (∀ v ∈ vars, v.sort = .value) →
       List.Forall₂ (fun av val => ρ.consts .value av.name = val) vars vals →
       List.Forall₂ (fun av val => ρ'.consts .value av.name = val) vars vals
@@ -2469,9 +2441,9 @@ private theorem constLookups_env_agree {Δ : Signature} {ρ ρ' : Env}
   | a :: rest, _, hmem, hsort, h => by
     cases h with
     | cons hhead htail =>
-      refine .cons ?_ (constLookups_env_agree hagree
+      refine .cons ?_ (constLookups_agreeOn hagree
         (fun c hc => hmem c (.tail _ hc)) (fun c hc => hsort c (.tail _ hc)) htail)
-      have hc := hagree.2.1 a (hmem a (.head _))
+      have hc := hagree.consts a (hmem a (.head _))
       rw [hsort a (.head _)] at hc
       rw [← hc]; exact hhead
 
@@ -2484,7 +2456,7 @@ private theorem ValDecl.checkGhostRank_correct (reg : Verifier.Registry) (hSound
     (argTys : List TinyML.Typ) (retTy : TinyML.Typ) (s : Spec TinyML.Typ) (body : Expr)
     (argNames : List String)
     (μ : List Runtime.Val → List Runtime.Val → Nat) (k : Nat)
-    (bodyGf : List FOL.Const → List FOL.Const → VerifM GhostFns)
+    (bodyGf : List Decl.Const → List Decl.Const → VerifM GhostFns)
     (ls : Lemmas) (hls : ls.Sound W.Δ_spec W.ρ_spec) (f : Option TinyML.Var)
     (hswf : s.wfIn W.Δ_spec) (hslen : s.args.length = argTys.length)
     (hlen_args : argNames.length = argTys.length)
@@ -2498,7 +2470,7 @@ private theorem ValDecl.checkGhostRank_correct (reg : Verifier.Registry) (hSound
             (ghostBodyTyCtx argNames argTys s.ghost) body
           checkRet retTy body.ty
           pure se)) st ρ (fun _ _ _ => True))
-    (hbodyGf : ∀ (vs gs : List Runtime.Val) (argVars ghostVars : List FOL.Const)
+    (hbodyGf : ∀ (vs gs : List Runtime.Val) (argVars ghostVars : List Decl.Const)
         (st' : TransState) (ρ' : Env) (Ψ : GhostFns → TransState → Env → Prop),
       st.decls.Subset st'.decls → Env.agreeOn st.decls ρ ρ' →
       (∀ v ∈ argVars, v ∈ st'.decls.consts) → (∀ v ∈ argVars, v.sort = .value) →
@@ -2532,9 +2504,9 @@ private theorem ValDecl.checkGhostRank_correct (reg : Verifier.Registry) (hSound
           (Env.agreeOn_mono hst_sub hρ_agree')))
         hGf' hlen_args
         (fun v hv => hst_sub'.consts v (hargVars_mem v hv)) hargVars_sort
-        (constLookups_env_agree hρ_agree' hargVars_mem hargVars_sort hargVars_lookup)
+        (constLookups_agreeOn hρ_agree' hargVars_mem hargVars_sort hargVars_lookup)
         (fun v hv => hst_sub'.consts v (hghostVars_mem v hv)) hghostVars_sort
-        (constLookups_env_agree hρ_agree' hghostVars_mem hghostVars_sort hghostVars_lookup)
+        (constLookups_agreeOn hρ_agree' hghostVars_mem hghostVars_sort hghostVars_lookup)
         hrest)
       isplitl [Hsl]
       · iapply hsl_step
@@ -2553,7 +2525,7 @@ private theorem ValDecl.checkGhostRank_correct (reg : Verifier.Registry) (hSound
         · iexact Hgvals
         · have hlen_call : s.allArgs.length ≤ (vs ++ gs).length := by
             simp [Spec.allArgs]; omega
-          iapply (PredTrans.apply_env_agree (TinyML.ValHasType W)
+          iapply (PredTrans.apply_agreeOn (TinyML.ValHasType W)
             (ρ := Spec.argsEnv ρ_call s.allArgs (vs ++ gs))
             (ρ' := Spec.argsEnv W.ρ_spec s.allArgs (vs ++ gs)) hswf
             (Spec.argsEnv_agreeOn (Δ := W.Δ_spec) (ρ₁ := ρ_call) (ρ₂ := W.ρ_spec)
@@ -2650,7 +2622,7 @@ theorem ValDecl.prove_correct (reg : Verifier.Registry) (hSound : reg.Sound)
             have h₁ := hargVars_lookup.length_eq
             have h₂ := hghostVars_lookup.length_eq
             simp [Spec.allArgs]; omega
-          have hterms_eval : Terms.Eval ρ₁
+          have hterms_eval : Term.evalList ρ₁
               ((argVars ++ ghostVars).map fun c =>
                 (Term.const (.uninterpreted c.name .value) : Term .value)) (vs ++ gs) := by
             rw [List.map_append]
@@ -2678,29 +2650,23 @@ theorem ValDecl.prove_correct (reg : Verifier.Registry) (hSound : reg.Sound)
           have hownsWf := (VerifM.eval.wf hev).ownsWf
           set rv := st₁.freshConst (some "rank") .int with hrv_def
           have hfresh : rv.name ∉ st₁.decls.allNames := st₁.freshConst_fresh (some "rank") .int
-          have hev := VerifM.eval_decl (VerifM.eval_bind hev) (Term.eval ρ₁ m)
+          have hev := VerifM.eval_define (VerifM.eval_bind hev) hm_wf
           set st₂ : TransState := { st₁ with decls := st₁.decls.addConst rv } with hst₂_def
           set ρ₂ := ρ₁.updateConst .int rv.name (Term.eval ρ₁ m) with hρ₂_def
           have hsub₂ : st₁.decls.Subset st₂.decls := Signature.Subset.subset_addConst _ _
           have hagree₂ : Env.agreeOn st₁.decls ρ₁ ρ₂ := Env.agreeOn_update_fresh_const hfresh
-          have hφ_wf : (Formula.eq .int (.const (.uninterpreted rv.name .int)) m).wfIn st₂.decls :=
-            Formula.eq_wfIn_addConst_of_fresh (Δ := st₁.decls) (c := rv) hstwf hm_wf hfresh
-          have hφ_eval : (Formula.eq .int (.const (.uninterpreted rv.name .int)) m).eval ρ₂ := by
-            simp only [Formula.eval, Term.eval_const_updateConst, hρ₂_def]
-            exact Term.eval_env_agree hm_wf hagree₂
-          have hev := VerifM.eval_assumePure (VerifM.eval_bind hev) hφ_wf hφ_eval
           have hr_wf : (Term.const (.uninterpreted rv.name .int) : Term .int).wfIn st₂.decls :=
             Term.const_wfIn_addConst_of_fresh (Δ := st₁.decls) (c := rv) hstwf hfresh
           have hrank_eq : (Term.eval ρ₂ (Term.const (.uninterpreted rv.name .int))).toNat =
               measure.denote s W.ρ_spec vs gs := by
             simp only [Term.eval_const_updateConst, hρ₂_def, Typed.Measure.denote]
             rw [Spec.eval_argSubst (Δ := W.Δ_spec) hlen_terms hterms_eval measure.term hmeasure_wf,
-              Term.eval_env_agree hmeasure_wf (Spec.argsEnv_agreeOn (Δ := W.Δ_spec)
+              Term.eval_agreeOn hmeasure_wf (Spec.argsEnv_agreeOn (Δ := W.Δ_spec)
                 (Env.agreeOn_symm hag₁.agree) s.allArgs (vs ++ gs) hlen_call)]
           have hΨ := VerifM.eval_ret hev
           refine ⟨_, _, ρ₂, ?_, hagree₂, ?_, ?_, hΨ⟩
           · exact hsub₂
-          · exact (SpatialContext.interp_env_agree _ hownsWf hagree₂).1
+          · exact (SpatialContext.interp_agreeOn _ hownsWf hagree₂).1
           intro η'' f'' argTys'' retTy'' s'' guard'' hlookup''
           by_cases hg : f'' = g
           · subst hg

@@ -1,5 +1,5 @@
 -- SUMMARY: The guard constant deactivating quantified axioms in low-effort checks, effort levels, and guarded axioms.
-import Mica.FOL.Formulas
+import Mica.FirstOrderLogic.Formulas
 
 /-! ## The guard constant
 
@@ -11,7 +11,7 @@ performance, the guard is moved inside of quantifiers, which allows Z3 to
 share quantifier instantiations across different asserts. (Otherwise, it
 could only start to instantiate them once the guard is enabled.) -/
 
-def guardConst : FOL.Const := ⟨"guard!", .bool⟩
+def guardConst : Decl.Const := ⟨"guard!", .bool⟩
 
 /-- The formula pinning the guard to true; asserted inside high-effort checks. -/
 def guardFormula : Formula :=
@@ -42,9 +42,9 @@ declaring the guard. -/
 theorem Env.supportsGuarding.agree {Δ : Signature} {ρ ρ' : Env}
     (hΔ : Δ.supportsGuarding) (hagree : Env.agreeOn Δ ρ ρ')
     (h : ρ.supportsGuarding) : ρ'.supportsGuarding := by
-  have heq := hagree.2.1 guardConst hΔ
+  have heq := hagree.consts guardConst hΔ
   simp only [guardConst] at heq
-  simp only [Env.supportsGuarding, guardFormula, Formula.eval, Term.eval, Const.denote,
+  simp only [Env.supportsGuarding, guardFormula, Formula.eval, Term.eval, Const.eval,
     guardConst] at h ⊢
   rw [← heq]
   exact h
@@ -52,7 +52,7 @@ theorem Env.supportsGuarding.agree {Δ : Signature} {ρ ρ' : Env}
 /-- Pinning the guard constant establishes guard support. -/
 theorem Env.supportsGuarding_updateConst (ρ : Env) :
     (ρ.updateConst guardConst.sort guardConst.name true).supportsGuarding := by
-  simp [Env.supportsGuarding, guardFormula, Formula.eval, Term.eval, Const.denote,
+  simp [Env.supportsGuarding, guardFormula, Formula.eval, Term.eval, Const.eval,
     Env.updateConst, guardConst]
 
 /-! ## Guarded formulas -/

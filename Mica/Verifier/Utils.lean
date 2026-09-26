@@ -1,8 +1,7 @@
 -- SUMMARY: Supporting infrastructure for verifier finite substitutions and argument-handling helpers.
 import Mica.SourceTinyML.Typed
 import Mica.TinyML.OpSem
-import Mica.FOL.Printing
-import Mica.FOL.Subst
+import Mica.FirstOrderLogic.Subst
 import Mica.Base.Fresh
 import Mica.Base.Except
 import Mica.SourceTinyML.LogicalRelation
@@ -184,7 +183,7 @@ theorem FiniteSubst.rename_source_wf {σ : FiniteSubst} {Δ : Signature}
   rw [FiniteSubst.rename_source_eq]
   exact Signature.wf_declVar h
 
-private theorem subst_wfIn_dom_congr {σ : Subst} {dom dom' : VarCtx} {Δ : Signature}
+private theorem subst_wfIn_dom_congr {σ : Subst} {dom dom' : List Var} {Δ : Signature}
     (hσ : σ.wfIn dom Δ) (h₁ : dom' ⊆ dom) (h₂ : dom ⊆ dom') :
     σ.wfIn dom' Δ :=
   ⟨fun v hv => hσ.1 v (h₁ hv),
@@ -295,29 +294,6 @@ theorem FiniteSubst.eval_subst_term {σ : FiniteSubst} {t : Term τ} {ρ : Env}
     Term.eval ρ (t.subst σ.subst) = Term.eval (σ.subst.eval ρ) t :=
   Term.eval_subst ht hσ.subst hσ.rangeWf
 
-/-! ### Declaring a source variable as a fresh use-site constant
-
-When an assertion's let-bound variable `v` is declared as a fresh verifier constant `c`,
-the verifier assumes the equation `c = t[σ]`. These two lemmas supply its well-formedness
-and its truth in the updated environment. -/
-
-theorem FiniteSubst.decl_eq_wfIn {σ : FiniteSubst} {Δ_base Δ_use : Signature}
-    {c : FOL.Const} {t : Term c.sort}
-    (hσ : σ.wfIn Δ_base Δ_use) (ht : t.wfIn (Δ_base.declVars σ.dom))
-    (hfresh : c.name ∉ Δ_use.allNames) :
-    (Formula.eq c.sort (.const (.uninterpreted c.name c.sort)) (t.subst σ.subst)).wfIn
-      (Δ_use.addConst c) :=
-  Formula.eq_wfIn_addConst_of_fresh hσ.useWf (FiniteSubst.subst_wfIn_term hσ ht) hfresh
-
-theorem FiniteSubst.decl_eq_eval {σ : FiniteSubst} {Δ_base Δ_use : Signature} {ρ : Env}
-    {c : FOL.Const} {t : Term c.sort}
-    (hσ : σ.wfIn Δ_base Δ_use) (ht : t.wfIn (Δ_base.declVars σ.dom))
-    (hfresh : c.name ∉ Δ_use.allNames) :
-    (Formula.eq c.sort (.const (.uninterpreted c.name c.sort)) (t.subst σ.subst)).eval
-      (ρ.updateConst c.sort c.name (t.eval (σ.subst.eval ρ))) := by
-  rw [← FiniteSubst.eval_subst_term hσ ht]
-  exact Formula.eq_eval_updateConst_of_fresh (FiniteSubst.subst_wfIn_term hσ ht) hfresh
-
 /-- The core agreement transfer: environments agreeing on the substitution's range induce
     substituted environments agreeing on the source signature. Shared by `eval_agreeOn` and
     `eval_update_fresh`, which differ only in where the range agreement comes from. -/
@@ -329,18 +305,18 @@ private theorem FiniteSubst.eval_agreeOn_range {σ : FiniteSubst} {ρ ρ' : Env}
   have hsymbols := hσ.srcSymbolSubset
   refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
   · intro v hv
-    exact Term.eval_env_agree (hσ.subst.1 v hv) hagree
+    exact Term.eval_agreeOn (hσ.subst.1 v hv) hagree
   · intro c hc
     have hnot : ⟨c.name, c.sort⟩ ∉ (Δ_base.declVars σ.dom).vars :=
       fun hv => Signature.wf_no_var_of_const hσ.srcWf hc hv
     have hvar : σ.subst.apply c.sort c.name = Term.var c.sort c.name := hσ.subst.2 _ hnot
     simp [Subst.eval, Term.eval, hvar]
-    exact hagree.2.1 c (hsymbols.consts c hc)
-  · exact fun u hu => hagree.2.2.1 u (hsymbols.unary u hu)
-  · exact fun b hb => hagree.2.2.2.1 b (hsymbols.binary b hb)
-  · exact fun t ht => hagree.2.2.2.2.1 t (hsymbols.ternary t ht)
-  · exact fun u hu => hagree.2.2.2.2.2.1 u (hsymbols.unaryRel u hu)
-  · exact fun b hb => hagree.2.2.2.2.2.2 b (hsymbols.binaryRel b hb)
+    exact hagree.consts c (hsymbols.consts c hc)
+  · exact fun u hu => hagree.unary u (hsymbols.unary u hu)
+  · exact fun b hb => hagree.binary b (hsymbols.binary b hb)
+  · exact fun t ht => hagree.ternary t (hsymbols.ternary t ht)
+  · exact fun u hu => hagree.unaryRel u (hsymbols.unaryRel u hu)
+  · exact fun b hb => hagree.binaryRel b (hsymbols.binaryRel b hb)
 
 theorem FiniteSubst.eval_agreeOn {σ : FiniteSubst} {ρ ρ' : Env}
     {Δ_base Δ_use : Signature}
@@ -376,7 +352,7 @@ theorem FiniteSubst.rename_agreeOn {σ : FiniteSubst} {Δ_base Δ_use : Signatur
       simp [Signature.declVar, Signature.addVar] at hw
       rcases hw with rfl | hw
       · simp [FiniteSubst.rename, Subst.eval, Env.updateConst, Subst.apply,
-          Subst.update, Term.eval, Const.denote]
+          Subst.update, Term.eval, Const.eval]
       · rcases hw with ⟨hwsrc, hwne⟩
         have hwne' : w.name ≠ v.name := hwne
         change Term.eval (ρ.updateConst v.sort name' u)
@@ -385,7 +361,7 @@ theorem FiniteSubst.rename_agreeOn {σ : FiniteSubst} {Δ_base Δ_use : Signatur
           ((σ.subst.eval ρ).updateConst v.sort v.name u).lookupConst w.sort w.name
         rw [Subst.apply_update_ne (Or.inl hwne'), Subst.apply_remove_ne hwne',
           Env.lookupConst_updateConst_ne' (Or.inl hwne'), Subst.eval_lookup]
-        exact (Term.eval_env_agree (hsubst.1 w hwsrc)
+        exact (Term.eval_agreeOn (hsubst.1 w hwsrc)
           (Env.agreeOn_update_fresh_const (c := ⟨name', v.sort⟩) hfresh)).symm
     · intro c hc
       simp [Signature.declVar, Signature.addVar] at hc
@@ -442,7 +418,7 @@ components are the argument types and the second are the compiled argument
 terms, which denote the argument values. -/
 theorem typedArgs_split {tys : List TinyML.Typ} {sargs : List (Term .value)}
     {ρ : Env} {vs : List Runtime.Val}
-    (hlen : tys.length = sargs.length) (heval : Terms.Eval ρ sargs vs) :
+    (hlen : tys.length = sargs.length) (heval : Term.evalList ρ sargs vs) :
     (tys.zip sargs).map Prod.fst = tys ∧
       (tys.zip sargs).map (fun p => p.2.eval ρ) = vs := by
   have hfst : (tys.zip sargs).map Prod.fst = tys := List.map_fst_zip (Nat.le_of_eq hlen)
@@ -452,4 +428,4 @@ theorem typedArgs_split {tys : List TinyML.Typ} {sargs : List (Term .value)}
   calc (tys.zip sargs).map (fun p => p.2.eval ρ)
       = sargs.map (fun t => t.eval ρ) := by
           simpa [List.map_map] using congrArg (List.map (fun t => t.eval ρ)) hsnd
-    _ = vs := Terms.Eval.map_eval heval
+    _ = vs := Term.evalList.map_eval heval

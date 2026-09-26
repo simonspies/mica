@@ -116,7 +116,7 @@ def charChrLawful : charChrB.Lawful [] where
   domSound     := by
     intro ρ n _ h
     have hpre := h charChrPre rfl
-    simpa [charChrB, charChrPre, Embedding.int, Formula.eval, Term.eval, Const.denote,
+    simpa [charChrB, charChrPre, Embedding.int, Formula.eval, Term.eval, Const.eval,
       Env.lookupConst_updateConst_same, valInt] using hpre
   semWellTyped := fun _ _ _ _ => .rfl
   specBaseWf   := by apply PredTrans.checkWf_ok; rfl
@@ -133,7 +133,7 @@ def charChrLawful : charChrB.Lawful [] where
       rw [Env.updateConst_unary]
       simpa [Env.respects] using hresp
     have hbounds : 0 ≤ valInt x ∧ valInt x < 256 := by
-      simpa [charChrPre, Formula.eval, Term.eval, Const.denote,
+      simpa [charChrPre, Formula.eval, Term.eval, Const.eval,
         Env.lookupConst_updateConst_same, valInt] using hpre
     simp [unTerm, Term.eval, Env.lookupConst_updateConst_same, hun, charChrSym]
     cases x <;> simp [valInt, charChrByte] at hbounds ⊢

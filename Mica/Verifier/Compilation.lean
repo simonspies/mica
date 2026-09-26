@@ -47,15 +47,15 @@ def compileUnop (op : TinyML.UnOp) (s : Term .value) : Option (Term .value) :=
   match op with
   | .neg => some (Term.unop .ofInt  (Term.unop .neg (i s)))
   | .not => some (Term.unop .ofBool (Term.unop .not (b s)))
-  | .proj n => some (.unop .vhead (vtailN (.unop .toValList s) n))
+  | .proj n => some (Term.proj s n)
 
 omit [MicaGS HasLC.hasLC Sig] in
 theorem compileUnop_wfIn {op : TinyML.UnOp} {s : Term .value} {Δ : Signature}
     (hs : s.wfIn Δ) {t : Term .value} (heq : compileUnop op s = some t) :
     t.wfIn Δ := by
-  cases op <;> simp [compileUnop] at heq <;> subst heq <;>
-    simp only [Term.wfIn, UnOp.wfIn, true_and]
-  all_goals first | exact hs | (have : (Term.unop UnOp.toValList s).wfIn _ := ⟨trivial, hs⟩; exact vtailN_wfIn this _)
+  cases op <;> simp [compileUnop] at heq <;> subst heq
+  case proj n => exact Term.proj_wfIn hs n
+  all_goals simp only [Term.wfIn, UnOp.wfIn, true_and]; exact hs
 
 omit [MicaGS HasLC.hasLC Sig] in
 theorem compileUnop_eval {op : TinyML.UnOp} {s : Term .value} {ρ : Env}
@@ -68,7 +68,7 @@ theorem compileUnop_eval {op : TinyML.UnOp} {s : Term .value} {ρ : Env}
   | proj n =>
     simp only [compileUnop, Option.some.injEq] at hcomp; subst hcomp
     cases h : s.eval ρ <;> simp_all [TinyML.evalUnOp]
-    exact vhead_vtailN_eval heval _ ρ (by simp [Term.eval, UnOp.eval, h])
+    exact Term.proj_eval h heval
   | neg | not =>
     simp only [compileUnop, Option.some.injEq] at hcomp
     subst hcomp
@@ -111,36 +111,33 @@ theorem compileOp_eval {op : TinyML.BinOp} {sl sr : Term .value} {ρ : Env}
 /-! ### Compiler and Top-Level Verifier -/
 
 def compileProductBindersFrom (B : Bindings) (Γ : TinyML.TyCtx)
-    (names : List Binder) (tys : List TinyML.Typ) (tl : Term .vallist) :
+    (names : List Binder) (tys : List TinyML.Typ) (se : Term .value) (i : Nat) :
     VerifM (Bindings × TinyML.TyCtx) := do
   match names, tys with
   | [], [] => pure (B, Γ)
   | b :: bs, ty :: tys => do
       VerifM.expectEq "letProd binder type mismatch" b.ty ty
-      let si := Term.unop UnOp.vhead tl
-      let rest := Term.unop UnOp.vtail tl
       match b.name with
-      | none => compileProductBindersFrom B Γ bs tys rest
+      | none => compileProductBindersFrom B Γ bs tys se (i + 1)
       | some x =>
-          let x' ← VerifM.decl (some x) .value
-          VerifM.assume (.pure (Formula.eq .value (.const (.uninterpreted x'.name .value)) si))
-          compileProductBindersFrom ((x, x') :: B) (Γ.extend x ty) bs tys rest
+          let x' ← VerifM.define (some x) (se.proj i)
+          compileProductBindersFrom ((x, x') :: B) (Γ.extend x ty) bs tys se (i + 1)
   | _, _ => VerifM.fatal "letProd arity mismatch"
 
 def compileProductBinders (B : Bindings) (Γ : TinyML.TyCtx)
     (names : List Binder) (tys : List TinyML.Typ) (se : Term .value) :
     VerifM (Bindings × TinyML.TyCtx) :=
-  compileProductBindersFrom B Γ names tys (.unop .toValList se)
+  compileProductBindersFrom B Γ names tys se 0
 
 omit [MicaGS HasLC.hasLC Sig] in
 theorem compileProductBindersFrom_length {B : Bindings} {Γ : TinyML.TyCtx}
-    {names : List Binder} {tys : List TinyML.Typ} {tl : Term .vallist}
+    {names : List Binder} {tys : List TinyML.Typ} {se : Term .value} {i : Nat}
     {st : TransState} {ρ : Env}
     {Ψ : Bindings × TinyML.TyCtx → TransState → Env → Prop}
-    (htl_wf : tl.wfIn st.decls)
-    (heval : VerifM.eval (compileProductBindersFrom B Γ names tys tl) st ρ Ψ) :
+    (hse_wf : se.wfIn st.decls)
+    (heval : VerifM.eval (compileProductBindersFrom B Γ names tys se i) st ρ Ψ) :
     names.length = tys.length := by
-  induction names generalizing B Γ tys tl st ρ Ψ with
+  induction names generalizing B Γ tys i st ρ Ψ with
   | nil =>
       cases tys with
       | nil => rfl
@@ -159,44 +156,17 @@ theorem compileProductBindersFrom_length {B : Bindings} {Γ : TinyML.TyCtx}
           cases hname : b.name with
           | none =>
               simp [hname] at hcont
-              have htail_wf : (Term.unop UnOp.vtail tl).wfIn st.decls := ⟨trivial, htl_wf⟩
-              simp [ih htail_wf hcont]
+              simp [ih hse_wf hcont]
           | some x =>
               simp [hname] at hcont
-              have hdecl_eval := VerifM.eval_bind hcont
-              have hdecl := VerifM.eval_decl hdecl_eval
-              let x' := st.freshConst (some x) .value
-              have hafter_decl := hdecl ((Term.unop UnOp.vhead tl).eval ρ)
-              have hassume := VerifM.eval_assumePure (VerifM.eval_bind hafter_decl)
-              have hstwf : st.decls.wf := (VerifM.eval.wf hdecl_eval).namesDisjoint
-              have hfresh : x'.name ∉ st.decls.allNames := by
-                simpa [x'] using TransState.freshConst_fresh st (some x) .value
-              have hhead_wf : (Term.unop UnOp.vhead tl).wfIn st.decls := ⟨trivial, htl_wf⟩
-              have htail_wf : (Term.unop UnOp.vtail tl).wfIn st.decls := ⟨trivial, htl_wf⟩
-              have hwf :
-                  (Formula.eq .value (.const (.uninterpreted x'.name .value))
-                    (Term.unop UnOp.vhead tl)).wfIn { st with decls := st.decls.addConst x' }.decls := by
-                simpa [x'] using
-                  (Formula.eq_wfIn_addConst_of_fresh (Δ := st.decls) (c := x')
-                    hstwf hhead_wf hfresh)
-              have hholds :
-                  (Formula.eq .value (.const (.uninterpreted x'.name .value))
-                    (Term.unop UnOp.vhead tl)).eval
-                      (ρ.updateConst .value x'.name ((Term.unop UnOp.vhead tl).eval ρ)) := by
-                have hagree_head : Env.agreeOn st.decls ρ
-                    (ρ.updateConst .value x'.name ((Term.unop UnOp.vhead tl).eval ρ)) :=
-                  Env.agreeOn_update_fresh_const hfresh
-                have hhead_same := Term.eval_env_agree hhead_wf hagree_head
-                simpa [Formula.eval, Term.eval, Const.denote, Env.updateConst]
-                  using hhead_same
-              have hrec_eval := hassume hwf hholds
-              have hsub : st.decls.Subset (st.decls.addConst x') :=
-                Signature.Subset.subset_addConst st.decls x'
-              have hstwf' : (st.decls.addConst x').wf :=
-                Signature.wf_addConst hstwf hfresh
-              have htail_wf' : (Term.unop UnOp.vtail tl).wfIn (st.decls.addConst x') :=
-                Term.wfIn_mono (Term.unop UnOp.vtail tl) htail_wf hsub hstwf'
-              have hlen := ih htail_wf' hrec_eval
+              have hstwf : st.decls.wf := (VerifM.eval.wf hcont).namesDisjoint
+              have hfresh := st.freshConst_fresh (some x) .value
+              have hrec_eval :=
+                VerifM.eval_define (VerifM.eval_bind hcont) (Term.proj_wfIn hse_wf i)
+              have hse_wf' : se.wfIn (st.decls.addConst (st.freshConst (some x) .value)) :=
+                Term.wfIn_mono se hse_wf (Signature.Subset.subset_addConst _ _)
+                  (Signature.wf_addConst hstwf hfresh)
+              have hlen := ih hse_wf' hrec_eval
               simp [hlen]
 
 /-- Check that a function body's type is its declared return type. Unification

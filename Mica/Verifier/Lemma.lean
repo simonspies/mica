@@ -27,7 +27,7 @@ omit [MicaGS HasLC.hasLC Sig] in
 theorem Sound.mono {l : Lemma} {Δ Δ' : Signature} {ρ ρ' : Env}
     (h : l.Sound Δ ρ) (hs : Δ.Subset Δ') (ha : Env.agreeOn Δ ρ ρ') (hw : Δ'.wf) :
     l.Sound Δ' ρ' :=
-  ⟨Formula.wfIn_mono _ h.1 hs hw, (Formula.eval_env_agree h.1 ha).mp h.2⟩
+  ⟨Formula.wfIn_mono _ h.1 hs hw, (Formula.eval_agreeOn h.1 ha).mp h.2⟩
 
 /-! ## Publication
 
@@ -67,9 +67,9 @@ private theorem instance_eval {Δ : Signature} {ρ ρ' : Env} {x : String} {ps :
     have h := Fresh.freshName_not_in_avoid (x :: Δ.allNames) "result"
     simp only [List.mem_cons, not_or] at h
     exact Signature.not_mem_allNames_declVar h.2 h.1
-  exact (Formula.eval_env_agree hwf.2.2 (Δ := Δ.declVar ⟨x, .value⟩)
+  exact (Formula.eval_agreeOn hwf.2.2 (Δ := Δ.declVar ⟨x, .value⟩)
     (Env.agreeOn_update_fresh_const (c := ⟨resultName Δ x, .value⟩) hres)).mp
-    (((Formula.eval_env_agree hwf hag).mp hev) v hφ)
+    (((Formula.eval_agreeOn hwf hag).mp hev) v hφ)
 
 /-- A call proves the premise at its argument and gets the conclusion there. -/
 theorem publish_wellTyped (W : TinyML.World) (Δ : Signature) (ρ : Env) {l : Lemma}
@@ -156,7 +156,7 @@ theorem instantiate_sound {l : Lemma} {Δ_spec Δ : Signature} {ρ_spec ρ : Env
   refine ⟨Formula.subst_wfIn hbody hσ hsym hwf, ?_⟩
   rw [Formula.eval_subst hbody hσ hsym (Signature.wf_declVar hspecwf) hwf, Subst.eval_update,
     Subst.id_eval]
-  exact ((Formula.eval_env_agree hlwf hag).mp hlev) (Term.eval ρ t)
+  exact ((Formula.eval_agreeOn hlwf hag).mp hlev) (Term.eval ρ t)
 
 end Lemma
 
@@ -173,7 +173,7 @@ def ofDeclaration (ls : Lemmas) : Option TinyML.Var → Option Lemma
 /-- Assume the withheld equation of `f` at the argument of a body of `f`. A
     local function called `f` also gets it. This is sound because the equation
     is true at every value. -/
-def assumeInstance (ls : Lemmas) (f : Option TinyML.Var) (argVars : List FOL.Const) :
+def assumeInstance (ls : Lemmas) (f : Option TinyML.Var) (argVars : List Decl.Const) :
     VerifM Unit :=
   match ls.ofDeclaration f, argVars with
   | some l, [a] => do
@@ -202,7 +202,7 @@ theorem ofDeclaration_sound {ls : Lemmas} {Δ : Signature} {ρ : Env} {l : Lemma
 
 omit [MicaGS HasLC.hasLC Sig] in
 theorem assumeInstance_correct {ls : Lemmas} {W : TinyML.World} (hW : W.wf)
-    (hls : ls.Sound W.Δ_spec W.ρ_spec) {f : Option TinyML.Var} {argVars : List FOL.Const}
+    (hls : ls.Sound W.Δ_spec W.ρ_spec) {f : Option TinyML.Var} {argVars : List Decl.Const}
     {st : TransState} {ρ : Env} {Q : Unit → TransState → Env → Prop}
     (hag : W.agrees st.decls ρ)
     (hmem : ∀ v ∈ argVars, v ∈ st.decls.consts) (hsort : ∀ v ∈ argVars, v.sort = .value)
@@ -215,7 +215,7 @@ theorem assumeInstance_correct {ls : Lemmas} {W : TinyML.World} (hW : W.wf)
     split at h
     · rename_i φ hi
       have hwf := (VerifM.eval.wf h).namesDisjoint
-      have ha : (⟨a.name, .value⟩ : FOL.Const) ∈ st.decls.consts := by
+      have ha : (⟨a.name, .value⟩ : Decl.Const) ∈ st.decls.consts := by
         have := hmem a (by simp); rwa [← hsort a (by simp)]
       obtain ⟨hφwf, hφ⟩ := Lemma.instantiate_sound (ofDeclaration_sound hls hl) hW.wf hW.vars
         hag.subset hag.agree hwf (Term.const_wfIn_of_mem hwf ha) hi

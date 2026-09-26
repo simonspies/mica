@@ -142,7 +142,7 @@ def vecGetLawful : vecGetB.Lawful [] where
     intro ρ l n _ h
     have hpre := h vecBoundsPre rfl
     simpa [vecGetB, vecBoundsPre, vecOf, intOf, Embedding.vec, Embedding.int,
-      Formula.eval, Term.eval, Const.denote, Env.lookupConst_updateConst_same,
+      Formula.eval, Term.eval, Const.eval, Env.lookupConst_updateConst_same,
       Env.lookupConst_updateConst_ne (show "a" ≠ "b" by decide), valVec, valInt] using hpre
   semWellTyped := by
     refine fun σ W (l : List Runtime.Val) (n : Int) hdom => ?_
@@ -197,7 +197,7 @@ def vecSetLawful : vecSetB.Lawful [] where
     intro ρ l n x _ h
     have hpre := h _ rfl
     simpa [vecSetB, vecBoundsPre, vecOf, intOf, Embedding.vec, Embedding.int, Embedding.poly,
-      Formula.eval, Term.eval, Const.denote, Env.lookupConst_updateConst_same,
+      Formula.eval, Term.eval, Const.eval, Env.lookupConst_updateConst_same,
       Env.lookupConst_updateConst_ne (show "a" ≠ "b" by decide),
       Env.lookupConst_updateConst_ne (show "a" ≠ "c" by decide),
       Env.lookupConst_updateConst_ne (show "b" ≠ "c" by decide), valVec, valInt] using hpre
@@ -253,7 +253,7 @@ def vecMakeLawful : vecMakeB.Lawful [] where
     intro ρ m x _ h
     have hpre := h _ rfl
     simpa [vecMakeB, intOf, Embedding.int, Embedding.poly, Formula.eval, Term.eval,
-      Const.denote, Env.lookupConst_updateConst_same,
+      Const.eval, Env.lookupConst_updateConst_same,
       Env.lookupConst_updateConst_ne (show "a" ≠ "b" by decide), valInt] using hpre
   semWellTyped := by
     refine fun σ W (m : Int) (x : Runtime.Val) hdom => ?_
