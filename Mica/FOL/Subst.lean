@@ -3,6 +3,17 @@ import Mica.FOL.Terms
 import Mica.FOL.Formulas
 import Mica.Base.Fresh
 
+/-!
+# Substitution
+
+A substitution replaces variables with terms. In a formula, it renames the
+bound variables so that no binder captures a variable of a substituted term.
+Substitution keeps well-formedness, and evaluating a substituted term or formula
+is the same as evaluating the original in a changed environment.
+-/
+
+/-! ## Substitutions -/
+
 def Subst := (τ : Srt) → String → Term τ
 
 def Subst.id : Subst := fun τ x => .var τ x
@@ -15,6 +26,7 @@ def Subst.update (σ : Subst) (τ : Srt) (x : String) (s : Term τ) : Subst := f
 def Subst.remove (σ : Subst) (x : String) : Subst := fun τ y =>
   if y = x then .var τ y else σ τ y
 
+/-- `σ` below the binder `y`, which becomes `y'`. -/
 def Subst.bind (σ : Subst) (y : String) (τ : Srt) (y' : String) : Subst :=
   (σ.remove y).update τ y (.var τ y')
 
@@ -35,6 +47,10 @@ theorem Subst.apply_remove_ne {σ : Subst} {τ : Srt} {x y : String}
     (h : y ≠ x) : (σ.remove x).apply τ y = σ.apply τ y := by
   simp [Subst.remove, Subst.apply, h]
 
+/-! ## Well-formedness -/
+
+/-- `σ` maps each variable of `dom` to a term that is well-formed in `Δ`, and
+each other variable to itself. -/
 def Subst.wfIn (σ : Subst) (dom : List Var) (Δ : Signature) : Prop :=
   (∀ v ∈ dom, (σ.apply v.sort v.name).wfIn Δ) ∧
   (∀ v, v ∉ dom → σ.apply v.sort v.name = .var v.sort v.name)
@@ -113,8 +129,7 @@ private theorem Subst.wfIn_bind {σ : Subst} {Δ Δ'' : Signature} {y y' : Strin
   simpa [Subst.bind, Signature.declVar, Signature.addVar] using
     (Subst.wfIn_update (σ := σ.remove y) (dom := (Δ.remove y).vars) (x := y) hσ_erase hvarwf)
 
-/-- The binder step of `Formula.subst`: rebinding `y` to a name `y'` fresh for
-the target signature maps the source binder scope into the target binder scope. -/
+/-- The binder case of `Formula.subst`. -/
 theorem Subst.wfIn_bind_fresh {σ : Subst} {Δ Δ' : Signature} {y y' : String} {τ : Srt}
     (hσ : σ.wfIn Δ.vars Δ') (hwfΔ' : Δ'.wf) (hfresh : y' ∉ Δ'.allNames) :
     (σ.bind y τ y').wfIn (Δ.declVar ⟨y, τ⟩).vars (Δ'.declVar ⟨y', τ⟩) :=
@@ -123,6 +138,9 @@ theorem Subst.wfIn_bind_fresh {σ : Subst} {Δ Δ' : Signature} {y y' : String} 
     (Subst.wfIn_mono hσ (Signature.subset_declVar_of_fresh hfresh) hwf_target)
     (Term.var_wfIn_declVar hwf_target)
 
+/-! ## Evaluation -/
+
+/-- The environment in which each variable has the value of its image under `σ`. -/
 def Subst.eval (σ : Subst) (ρ : Env) : Env :=
   { ρ with consts := fun τ x => Term.eval ρ (σ.apply τ x) }
 
@@ -132,8 +150,6 @@ theorem Subst.eval_lookup (σ : Subst) (ρ : Env) (τ : Srt) (x : String) :
 
 @[simp] theorem Subst.id_eval (ρ : Env) : Subst.id.eval ρ = ρ := rfl
 
-/-- Extending a substitution with `x ↦ t` extends its induced environment with
-the value of `t`. -/
 theorem Subst.eval_update (σ : Subst) (ρ : Env) (τ : Srt) (x : String) (t : Term τ) :
     (σ.update τ x t).eval ρ = (σ.eval ρ).updateConst τ x (Term.eval ρ t) := by
   refine Env.ext ?_ rfl rfl rfl rfl rfl
@@ -142,6 +158,8 @@ theorem Subst.eval_update (σ : Subst) (ρ : Env) (τ : Srt) (x : String) (t : T
   split
   · next h => obtain ⟨rfl, rfl⟩ := h; rfl
   · rfl
+
+/-! ## Terms -/
 
 def Term.subst (σ : Subst) : Term τ → Term τ
   | .var τ y   => σ.apply τ y
@@ -246,11 +264,15 @@ theorem Term.eval_subst {σ : Subst} {ρ : Env} {t : Term τ} {Δ Δ' : Signatur
   | ite c t e ihc iht ihe =>
     simp [Term.subst, Term.eval, ihc ht.1 hσ hwfΔ', iht ht.2.1 hσ hwfΔ', ihe ht.2.2 hσ hwfΔ']
 
+/-! ## Formulas -/
+
 def Pattern.subst (σ : Subst) : Pattern → Pattern
   | .term t => .term (t.subst σ)
   | .unpred p t => .unpred p (t.subst σ)
   | .binpred p t₁ t₂ => .binpred p (t₁.subst σ) (t₂.subst σ)
 
+/-- Each binder gets a name outside `avoid`, so that it captures no variable of
+the substituted terms. -/
 def Formula.subst (σ : Subst) (avoid : List String) : Formula → Formula
   | .true_  => .true_
   | .false_ => .false_

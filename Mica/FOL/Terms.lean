@@ -4,6 +4,17 @@ import Mica.Base.FloatBits
 import Mica.Base.Except
 import Batteries.Data.List.Basic
 
+/-!
+# Terms
+
+A term is a variable, a constant, or an operation on terms. Each term has a
+sort. A term is well-formed in a signature when the signature declares each
+name that the term uses, with the sorts that the term uses. The value of a term
+depends on an environment.
+-/
+
+/-! ## Syntax -/
+
 inductive UnOp : Srt → Srt → Type where
   | ofInt      : UnOp .int     .value
   | ofBool     : UnOp .bool    .value
@@ -125,6 +136,8 @@ inductive Term : Srt → Type where
   | ite   : Term .bool → Term τ → Term τ → Term τ
   deriving DecidableEq
 
+/-! ## Names -/
+
 def Term.freeVars : Term τ → List Var
   | .var τ y   => [⟨y, τ⟩]
   | .const _   => []
@@ -133,9 +146,9 @@ def Term.freeVars : Term τ → List Var
   | .terop _ a b c => a.freeVars ++ b.freeVars ++ c.freeVars
   | .ite c t e => c.freeVars ++ t.freeVars ++ e.freeVars
 
-/-- Names of variables and uninterpreted symbols referenced by a term. Unlike
-`freeVars`, this includes constants and function symbols, so it is suitable
-for choosing a quantifier binder that cannot shadow anything in the term. -/
+/-- All names that the term uses, including the symbols. `freeVars` gives only
+the variables. A binder with a name outside this list cannot capture a name of
+the term. -/
 def Term.names : Term τ → List String
   | .var _ x => [x]
   | .const (.uninterpreted name _) => [name]
@@ -147,6 +160,8 @@ def Term.names : Term τ → List String
   | .terop (.uninterpreted name _ _ _ _) a b c => name :: (a.names ++ b.names ++ c.names)
   | .terop _ a b c => a.names ++ b.names ++ c.names
   | .ite c t e => c.names ++ t.names ++ e.names
+
+/-! ## Well-formedness -/
 
 def Const.wfIn : Const τ → Signature → Prop
   | .uninterpreted name τ, Δ => ⟨name, τ⟩ ∈ Δ.consts
@@ -245,8 +260,6 @@ theorem Term.wfIn_mono (t : Term τ) (h : t.wfIn Δ) (hsub : Δ.Subset Δ') (hwf
       ihc h.2.2.2 hsub hwf⟩
   | ite c t e ihc iht ihe => exact ⟨ihc h.1 hsub hwf, iht h.2.1 hsub hwf, ihe h.2.2 hsub hwf⟩
 
-/-- A term remains well-formed when a variable whose name it does not
-reference is declared around it. -/
 theorem Term.wfIn_declVar_of_fresh {t : Term τ} {x : String} {s : Srt}
     { Δ : Signature } (h : t.wfIn Δ) (hx : x ∉ t.names) :
     t.wfIn (Δ.declVar ⟨x, s⟩) := by
@@ -304,9 +317,6 @@ theorem Term.wfIn_declVar_of_fresh {t : Term τ} {x : String} {s : Srt}
     simp only [Term.names, List.mem_append, not_or] at hx
     exact ⟨ihc h.1 hx.1.1, iht h.2.1 hx.1.2, ihe h.2.2 hx.2⟩
 
-/-! simple helper lemmas -/
-
-/-- A constant-term is well-formed whenever it is in the signature's consts. -/
 theorem Term.const_wfIn_of_mem {Δ : Signature} {name : String} {τ : Srt}
     (hwf : Δ.wf) (hmem : ⟨name, τ⟩ ∈ Δ.consts) :
     (Term.const (.uninterpreted name τ)).wfIn Δ :=
@@ -314,18 +324,21 @@ theorem Term.const_wfIn_of_mem {Δ : Signature} {name : String} {τ : Srt}
     fun _ hvar => Signature.wf_no_var_of_const hwf hmem hvar,
     fun _ hc' => Signature.wf_unique_const hwf hmem hc'⟩
 
-/-- The variable just declared is well-formed in the declaring signature. -/
 theorem Term.var_wfIn_declVar {Δ : Signature} {x : String} {τ : Srt}
     (hwf : (Δ.declVar ⟨x, τ⟩).wf) : (Term.var τ x).wfIn (Δ.declVar ⟨x, τ⟩) :=
   ⟨Signature.var_mem_declVar Δ ⟨x, τ⟩,
    fun _ hc => Signature.wf_no_const_of_var hwf (Signature.var_mem_declVar Δ ⟨x, τ⟩) hc,
    fun _ hv => Signature.wf_unique_var hwf (Signature.var_mem_declVar Δ ⟨x, τ⟩) hv⟩
 
-/-- A fresh uninterpreted constant is well-formed in a signature extended by itself. -/
 theorem Term.const_wfIn_addConst_of_fresh {Δ : Signature} {c : Decl.Const}
     (hΔwf : Δ.wf) (hfresh : c.name ∉ Δ.allNames) :
     (Term.const (.uninterpreted c.name c.sort)).wfIn (Δ.addConst c) :=
   Term.const_wfIn_of_mem (Signature.wf_addConst hΔwf hfresh) (List.Mem.head _)
+
+/-! ### Checking well-formedness
+
+`checkWf` succeeds only on a well-formed term (`checkWf_ok`). When it fails,
+its message names the first problem that it finds. -/
 
 def Const.checkWf : Const τ → Signature → Except String Unit
   | .uninterpreted name τ, Δ =>
@@ -566,6 +579,8 @@ theorem Term.checkWf_ok {t : Term τ} {Δ : Signature} (h : t.checkWf Δ = .ok (
     have ⟨_, h2, h3⟩ := Except.bind_ok h23
     exact ⟨ihc h1, iht h2, ihe h3⟩
 
+/-! ## Evaluation -/
+
 @[simp] def Const.denote : Env → Const τ → τ.denote
   | _, .i n  => n
   | _, .b v  => v
@@ -580,11 +595,11 @@ theorem Term.checkWf_ok {t : Term τ} {Δ : Signature} (h : t.checkWf Δ = .ok (
   | _, .vnil => []
   | ρ, .uninterpreted name _ => ρ.consts τ name
 
-/-- Interpret a unary operator. Evaluation is total: a projection applied to a
-value of a different shape, and an out-of-range index, give the default of the
-result sort (`0`, `false`, `[]`, `.unit`). On the SMT side, the corresponding
-cases are underspecified, which means if a formula is unsat, then any value
-can be chosen here.  -/
+/-- Evaluation is total. An operation outside its domain gives the default value
+of its result sort (`0`, `false`, `[]`, `.unit`): for example, a projection of a
+value of a different shape, or an index out of range. The solver leaves most of
+these cases unspecified, so most defaults can be chosen freely. Where the solver
+fixes a default, `SMTLIB.defaults_eval` ensures that it is the same as here. -/
 @[simp] def UnOp.eval : Env → UnOp τ₁ τ₂ → τ₁.denote → τ₂.denote
   | _, .ofInt,   n  => Runtime.Val.int n
   | _, .ofBool,  b  => Runtime.Val.bool b
@@ -633,7 +648,7 @@ can be chosen here.  -/
   | _, .toVec,   v => match v with | .vec l => l | _ => []
   | ρ, .uninterpreted name _ _, x => ρ.unary τ₁ τ₂ name x
 
-/-- Interpret a binary operator. Totality convention as for `UnOp.eval`. -/
+/-- Outside its domain, an operation gives a default value, as in `UnOp.eval`. -/
 @[simp] def BinOp.eval : Env → BinOp τ₁ τ₂ τ₃ → τ₁.denote → τ₂.denote → τ₃.denote
   | _, .add,   a, b  => a + b
   | _, .sub,   a, b  => a - b
@@ -675,7 +690,7 @@ can be chosen here.  -/
   | _, .vecMake, n, x => if 0 ≤ n then List.replicate n.toNat x else []
   | ρ, .uninterpreted name _ _ _, x, y => ρ.binary τ₁ τ₂ τ₃ name x y
 
-/-- Interpret a ternary operator. Totality convention as for `UnOp.eval`. -/
+/-- Outside its domain, an operation gives a default value, as in `UnOp.eval`. -/
 @[simp] def TerOp.eval : Env → TerOp τ₁ τ₂ τ₃ τ₄ → τ₁.denote → τ₂.denote → τ₃.denote → τ₄.denote
   | _, .seqExtract, s, pos, len => (s.drop (Int.toNat pos)).take (Int.toNat len)
   | _, .vecSet, l, i, x => if 0 ≤ i then l.set i.toNat x else l
@@ -689,14 +704,11 @@ def Term.eval (ρ : Env) : Term τ → τ.denote
   | .terop op a b c => op.eval ρ (Term.eval ρ a) (Term.eval ρ b) (Term.eval ρ c)
   | .ite c t e    => bif Term.eval ρ c then Term.eval ρ t else Term.eval ρ e
 
-/-- Evaluating a constant term at an updated env yields the updated value. -/
 @[simp] theorem Term.eval_const_updateConst {ρ : Env} {τ : Srt} {x : String}
     {v : τ.denote} :
     (Term.const (.uninterpreted x τ)).eval (ρ.updateConst τ x v) = v := by
   simp [Term.eval, Const.denote, Env.updateConst]
 
-/-- Updating the constant environment at a name not referenced by a term does
-not change the term's value. -/
 theorem Term.eval_updateConst_of_fresh {t : Term τ'} {x : String} {τ : Srt}
     {v : τ.denote} {ρ : Env} (hx : x ∉ t.names) :
     Term.eval (ρ.updateConst τ x v) t = Term.eval ρ t := by
@@ -729,8 +741,6 @@ theorem Term.eval_updateConst_of_fresh {t : Term τ'} {x : String} {τ : Srt}
     simp only [Term.names, List.mem_append, not_or] at hx
     simp [Term.eval, ihc hx.1.1, iht hx.1.2, ihe hx.2]
 
-/-- Term evaluation only depends on `consts`, `unary`, `binary`, and `ternary`, so it is
-invariant under `Env.le`. -/
 theorem Term.eval_le {τ : Srt} {ρ ρ' : Env} (h : Env.le ρ ρ') (t : Term τ) :
     t.eval ρ = t.eval ρ' := by
   induction t with
@@ -807,9 +817,9 @@ theorem Term.eval_update_fresh {t : Term τ'} {x : String} {τ : Srt} {v : τ.de
       exact Env.lookupConst_updateConst_ne' (Or.inl hne))
     (fun _ _ => rfl) (fun _ _ => rfl) (fun _ _ => rfl) (fun _ _ => rfl) (fun _ _ => rfl))
 
-/-! ### Lists of value terms -/
+/-! ## Lists of value terms -/
 
-/-- A list of terms evaluates to a list of values. -/
+/-- Each term of `ts` has the value at the same position in `vs`. -/
 def Term.evalList (ρ : Env) (ts : List (Term .value)) (vs : List Runtime.Val) : Prop :=
   List.Forall₂ (fun t v => t.eval ρ = v) ts vs
 
@@ -857,7 +867,9 @@ theorem Term.evalList.lookup_const {ρ : Env} {avs : List Decl.Const} {vs : List
       · simp [Term.eval, Const.denote] at hhead; exact hhead
       · exact ih rfl
 
-/-! ### Tuples -/
+/-! ## Tuples
+
+A tuple is a value that holds a list of values. -/
 
 private def vtailN (t : Term .vallist) : Nat → Term .vallist
   | 0     => t
@@ -876,7 +888,6 @@ private theorem vtailN_eval (t : Term .vallist) (ρ : Env) :
     simp only [vtailN, Term.eval, UnOp.eval, vtailN_eval t ρ n]
     rw [List.tail_drop]
 
-/-- Component `n` of a tuple. -/
 def Term.proj (t : Term .value) (n : Nat) : Term .value :=
   .unop .vhead (vtailN (.unop .toValList t) n)
 
@@ -893,7 +904,6 @@ private def toValList : List (Term .value) → Term .vallist
   | [] => .const .vnil
   | t :: ts => .binop .vcons t (toValList ts)
 
-/-- The tuple of the given components. -/
 def Term.tuple (ts : List (Term .value)) : Term .value :=
   .unop .ofValList (toValList ts)
 

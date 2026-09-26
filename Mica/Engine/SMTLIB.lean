@@ -2,12 +2,16 @@
 import Mica.FOL.Formulas
 import Mica.Base.Hex
 
--- ---------------------------------------------------------------------------
--- SMT-LIB2 serialization
--- ---------------------------------------------------------------------------
+/-!
+# SMT-LIB printing
 
-/-- The sorts and symbols that the printing below uses, with the axioms that
-constrain them. Every solver session starts with these declarations. -/
+The input format of the SMT solver for sorts, terms, and formulas, and the
+declarations of the sorts and symbols that the printed text uses.
+-/
+
+/-- Preliminary declarations used in the SMTLIB encoding below. These
+    declarations must be supplied as a preamble before using any of the
+    encodings below. -/
 def SMTLIB.declarations : String := "(declare-sort Other 0)
 (declare-sort Loc 0)
 (declare-sort Vec 0)

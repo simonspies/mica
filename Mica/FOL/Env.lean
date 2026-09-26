@@ -1,16 +1,19 @@
 -- SUMMARY: Environments interpreting the names of a signature, and agreement between them.
 import Mica.FOL.Signature
 
--- ---------------------------------------------------------------------------
--- Environments
--- ---------------------------------------------------------------------------
+/-!
+# Environments
 
-/-- An interpretation environment for evaluation.
+An environment gives a meaning to each name: a value to each variable and
+constant, a function to each function symbol, and a predicate to each relation
+symbol. Two environments agree on a signature when they give the same meaning to
+each name that the signature declares.
+-/
 
-There is intentionally no separate variable environment. SMT-LIB and Z3 see only a
-nullary symbol name like `x`; they do not distinguish, at evaluation time, between
-`Term.var τ x` and an uninterpreted constant printed as `x`. We therefore interpret both
-through the same `consts` map so the Lean semantics matches the SMT semantics. -/
+/-! ## Environments -/
+
+/-- Variables and constants share the map `consts`, because the solver sees both
+as nullary symbols and does not distinguish them. -/
 structure Env where
   consts : (τ : Srt) → String → τ.denote
   unary  : (τ₁ τ₂ : Srt) → String → τ₁.denote → τ₂.denote
@@ -96,10 +99,11 @@ theorem Env.updateConst_unaryRel {ρ : Env} {τ : Srt} {x : String} {v : τ.deno
 theorem Env.updateConst_binaryRel {ρ : Env} {τ : Srt} {x : String} {v : τ.denote} :
     (ρ.updateConst τ x v).binaryRel = ρ.binaryRel := rfl
 
-/-- Extension order on environments: the interpretation of constants and of the
-unary/binary/ternary operators is fixed, while the uninterpreted predicate
-interpretations may grow. Term evaluation is invariant under it (see
-`Term.eval_le`); formula evaluation is not. -/
+/-! ## Extension -/
+
+/-- `ρ'` interprets the constants and functions as `ρ` does, and each relation
+of `ρ'` holds where the relation of `ρ` holds. Terms have the same value in both
+(`Term.eval_le`), but formulas can change. -/
 structure Env.le (ρ ρ' : Env) : Prop where
   consts : ρ.consts = ρ'.consts
   unary : ρ.unary = ρ'.unary
@@ -117,6 +121,9 @@ theorem Env.le.updateConst {ρ ρ' : Env} (h : Env.le ρ ρ')
   refine ⟨?_, h.unary, h.binary, h.ternary, h.unaryRel, h.binaryRel⟩
   simp only [Env.updateConst, h.consts]
 
+/-! ## Agreement on a signature -/
+
+/-- `ρ` and `ρ'` give the same meaning to each name that `Δ` declares. -/
 structure Env.agreeOn (Δ : Signature) (ρ ρ' : Env) : Prop where
   intro ::
   vars : ∀ v ∈ Δ.vars, ρ.consts v.sort v.name = ρ'.consts v.sort v.name
@@ -316,8 +323,7 @@ theorem Env.agreeOn_update_fresh_binaryRel {ρ : Env} {b : Decl.BinaryRel}
        · next h => exact absurd h.2.2 hne
        · rfl)
 
-/-- Agreement on the environment components used by term evaluation. Relation
-interpretations are intentionally ignored. -/
+/-- `agreeOn` without the relations, which terms do not use. -/
 structure Env.agreeOnTerms (Δ : Signature) (ρ₁ ρ₂ : Env) : Prop where
   vars : ∀ v ∈ Δ.vars, ρ₁.consts v.sort v.name = ρ₂.consts v.sort v.name
   consts : ∀ c ∈ Δ.consts, ρ₁.consts c.sort c.name = ρ₂.consts c.sort c.name

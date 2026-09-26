@@ -1,18 +1,22 @@
 -- SUMMARY: Signatures: the variables and symbols in scope, with their sorts.
 import Mica.FOL.Sorts
 
--- ---------------------------------------------------------------------------
--- Variables and Contexts
--- ---------------------------------------------------------------------------
+/-!
+# Signatures
+
+A signature lists the names that a term or a formula can use: variables,
+constants, functions, and relations, each with its sorts. A signature is
+well-formed when each name occurs only once.
+-/
+
+/-! ## Variables -/
 
 structure Var where
   name : String
   sort : Srt
   deriving DecidableEq, Repr
 
--- ---------------------------------------------------------------------------
--- Signature: variables plus named function and relation symbols
--- ---------------------------------------------------------------------------
+/-! ## Symbol declarations -/
 
 namespace Decl
 
@@ -55,6 +59,8 @@ structure BinaryRel where
 
 end Decl
 
+/-! ## Signatures -/
+
 structure Signature where
   vars   : List Var
   consts : List Decl.Const
@@ -93,10 +99,10 @@ def remove (Δ : Signature) (x : String) : Signature :=
     unaryRel := Δ.unaryRel.filter (·.name != x)
     binaryRel := Δ.binaryRel.filter (·.name != x) }
 
-/-- Declare a variable with binder-shadowing semantics. -/
+/-- Add a variable and remove all other declarations of its name, as a binder
+hides the outer uses of its name. -/
 def declVar (Δ : Signature) (v : Var) : Signature := (Δ.remove v.name).addVar v
 
-/-- Declare several variables left-to-right with binder-shadowing semantics. -/
 def declVars (Δ : Signature) (vs : List Var) : Signature := vs.foldl declVar Δ
 
 def allNames (Δ : Signature) : List String :=
@@ -105,11 +111,14 @@ def allNames (Δ : Signature) : List String :=
   Δ.ternary.map Decl.Ternary.name ++
   Δ.unaryRel.map Decl.UnaryRel.name ++ Δ.binaryRel.map Decl.BinaryRel.name
 
+/-- No name is declared twice. -/
 def wf (Δ : Signature) : Prop := Δ.allNames.Nodup
 
 def ofConsts (consts : List Decl.Const) : Signature := ⟨[], consts, [], [], [], [], []⟩
 
 @[simp] theorem ofConsts_consts (consts : List Decl.Const) : (ofConsts consts).consts = consts := rfl
+
+/-! ### Membership -/
 
 @[simp] theorem mem_remove_vars {Δ : Signature} {v : Var} {x : String} :
     v ∈ (Δ.remove x).vars ↔ v ∈ Δ.vars ∧ v.name ≠ x := by
@@ -139,8 +148,6 @@ def ofConsts (consts : List Decl.Const) : Signature := ⟨[], consts, [], [], []
     b ∈ (Δ.remove x).binaryRel ↔ b ∈ Δ.binaryRel ∧ b.name ≠ x := by
   simp [remove]
 
-/-! ### Membership in a declaring signature -/
-
 @[simp] theorem mem_declVar_vars {Δ : Signature} {v w : Var} :
     w ∈ (Δ.declVar v).vars ↔ w = v ∨ (w ∈ Δ.vars ∧ w.name ≠ v.name) := by
   simp [declVar, addVar]
@@ -163,7 +170,6 @@ def ofConsts (consts : List Decl.Const) : Signature := ⟨[], consts, [], [], []
 @[simp] theorem mem_declVar_binaryRel {Δ : Signature} {v : Var} {b : Decl.BinaryRel} :
     b ∈ (Δ.declVar v).binaryRel ↔ b ∈ Δ.binaryRel ∧ b.name ≠ v.name := mem_remove_binaryRel
 
-/-- A freshly declared variable is in the resulting signature's variables. -/
 theorem var_mem_declVar (Δ : Signature) (v : Var) : v ∈ (Δ.declVar v).vars :=
   List.Mem.head _
 
@@ -172,11 +178,12 @@ theorem remove_eq_of_not_in {Δ : Signature} {x : String} (h : x ∉ Δ.allNames
   cases Δ
   simp_all [allNames, remove, List.filter_eq_self]
 
-/-- Declaring a variable whose name is fresh leaves the other variables alone. -/
 theorem vars_declVar_of_not_in {Δ : Signature} {v : Var}
     (h : v.name ∉ Δ.allNames) : (Δ.declVar v).vars = v :: Δ.vars := by
   rw [declVar, remove_eq_of_not_in h]
   rfl
+
+/-! ### Inclusion -/
 
 structure Subset (Δ₁ Δ₂ : Signature) : Prop where
   vars   : ∀ x ∈ Δ₁.vars, x ∈ Δ₂.vars
@@ -200,7 +207,6 @@ theorem Subset.trans {Δ₁ Δ₂ Δ₃ : Signature} (h₁₂ : Δ₁.Subset Δ�
    fun u hu => h₂₃.unaryRel u (h₁₂.unaryRel u hu),
    fun b hb => h₂₃.binaryRel b (h₁₂.binaryRel b hb)⟩
 
-/-- The empty signature is a subset of any signature. -/
 theorem empty_subset (Δ : Signature) : Signature.empty.Subset Δ :=
   ⟨fun _ h => by simp [Signature.empty] at h,
    fun _ h => by simp [Signature.empty] at h,
@@ -339,7 +345,6 @@ theorem Subset.declVars {Δ Δ' : Signature} (h : Δ.Subset Δ') (vs : List Var)
   | cons v vs ih =>
     simpa [declVars] using ih (Subset.declVar h v)
 
-/-- Declaring a variable whose name is fresh for the signature extends it. -/
 theorem subset_declVar_of_fresh {Δ : Signature} {v : Var}
     (hfresh : v.name ∉ Δ.allNames) : Δ.Subset (Δ.declVar v) := by
   have heq : Δ.declVar v = Δ.addVar v := by
@@ -364,6 +369,8 @@ theorem allNames_subset {Δ Δ' : Signature} (h : Δ.Subset Δ') :
 theorem remove_allNames_subset {Δ : Signature} {x n : String} (h : n ∈ (Δ.remove x).allNames) :
     n ∈ Δ.allNames :=
   allNames_subset (remove_subset Δ x) _ h
+
+/-! ### Names -/
 
 theorem mem_allNames_of_var {Δ : Signature} {v : Var} (h : v ∈ Δ.vars) :
     v.name ∈ Δ.allNames := by
@@ -405,13 +412,10 @@ theorem remove_allNames {Δ : Signature} {n x : String} (h : n ∈ (Δ.remove x)
   rintro rfl
   simp [allNames, remove, and_assoc] at h
 
-/-- Declaring a variable whose name is fresh just prepends that name. -/
 theorem allNames_declVar_of_not_in {Δ : Signature} {x : String} {τ : Srt}
     (h : x ∉ Δ.allNames) : (Δ.declVar ⟨x, τ⟩).allNames = x :: Δ.allNames := by
   rw [declVar, remove_eq_of_not_in h]
   simp [allNames, addVar]
-
-/-! ### Names absent after adding a symbol -/
 
 theorem not_mem_allNames_addConst {Δ : Signature} {s : Decl.Const} {x : String}
     (hΔ : x ∉ Δ.allNames) (hs : x ≠ s.name) : x ∉ (Δ.addConst s).allNames := by
@@ -437,8 +441,6 @@ theorem not_mem_allNames_addBinaryRel {Δ : Signature} {s : Decl.BinaryRel} {x :
     (hΔ : x ∉ Δ.allNames) (hs : x ≠ s.name) : x ∉ (Δ.addBinaryRel s).allNames := by
   simp_all [allNames, addBinaryRel]
 
-/-- A name absent from a signature and distinct from a new variable name remains
-absent after declaring that variable. -/
 theorem not_mem_allNames_declVar {Δ : Signature} {v : Var} {x : String}
     (hΔ : x ∉ Δ.allNames) (hv : x ≠ v.name) :
     x ∉ (Δ.declVar v).allNames := by
@@ -448,6 +450,8 @@ theorem not_mem_allNames_declVar {Δ : Signature} {v : Var} {x : String}
   cases h' with
   | head => exact hv rfl
   | tail _ htail => exact hΔ (Signature.remove_allNames_subset htail)
+
+/-! ### Well-formedness -/
 
 theorem wf_addVar {Δ : Signature} {v : Var}
     (hΔ : Δ.wf) (hfresh : v.name ∉ Δ.allNames) : (Δ.addVar v).wf :=
@@ -593,6 +597,9 @@ theorem wf_no_binaryRel_of_binary {Δ : Signature} {x : String} {τ₁ τ₂ τ�
   simp only [wf, allNames, List.nodup_append] at hΔ
   exact hΔ.2.2 x (by simp [List.mem_map_of_mem hb]) x (List.mem_map_of_mem hrel) rfl
 
+/-! ### Symbol inclusion -/
+
+/-- `Subset` without the variables. -/
 structure SymbolSubset (Δ₁ Δ₂ : Signature) : Prop where
   consts : ∀ c ∈ Δ₁.consts, c ∈ Δ₂.consts
   unary  : ∀ u ∈ Δ₁.unary, u ∈ Δ₂.unary
@@ -627,16 +634,15 @@ theorem SymbolSubset.declVar {Δ Δ' : Signature} (h : Δ.SymbolSubset Δ') (v :
    fun _ h' => h.unaryRel _ (mem_declVar_unaryRel.mp h').1,
    fun _ h' => h.binaryRel _ (mem_declVar_binaryRel.mp h').1⟩
 
-/-- Declaring variables adds no non-variable symbols, so a symbol-subset survives. -/
+/-- `declVars` adds no symbols other than variables. -/
 theorem SymbolSubset.declVars {Δ Δ' : Signature} (h : Δ.SymbolSubset Δ') (vs : List Var) :
     (Δ.declVars vs).SymbolSubset Δ' := by
   induction vs generalizing Δ with
   | nil => simpa [declVars] using h
   | cons v vs ih => simpa [declVars] using ih (SymbolSubset.declVar h v)
 
-/-- Declaring a variable on both sides preserves symbol inclusion, provided the
-new name on the right is fresh there: the symbols carried over from `Δ` already
-live in `Δ'`, so they cannot be the ones `declVar y'` drops. -/
+/-- The symbols of `Δ` are in `Δ'`, so none of them has the name `y'` that
+`declVar` removes on the right. -/
 theorem SymbolSubset.declVar_fresh {Δ Δ' : Signature} {y y' : String} {τ : Srt}
     (h : Δ.SymbolSubset Δ') (hfresh : y' ∉ Δ'.allNames) :
     (Δ.declVar ⟨y, τ⟩).SymbolSubset (Δ'.declVar ⟨y', τ⟩) := by

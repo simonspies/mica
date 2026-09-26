@@ -2,6 +2,16 @@
 import Mica.FOL.Terms
 import Mica.Base.Except
 
+/-!
+# Formulas
+
+A formula states a property of terms. It is built from equations and
+predicates with the connectives and the quantifiers of first-order logic. A
+formula is well-formed in a signature when its terms are.
+-/
+
+/-! ## Syntax -/
+
 inductive UnPred : Srt → Type where
   | isInt   : UnPred .value
   | isBool  : UnPred .value
@@ -23,10 +33,8 @@ inductive BinPred : Srt → Srt → Type where
   | uninterpreted : String → (τ₁ τ₂ : Srt) → BinPred τ₁ τ₂
   deriving DecidableEq, Repr
 
-/-- SMT trigger patterns attached to universal quantifiers.
-
-They are syntactic metadata for the SMT backend: formulas check and rename
-them like ordinary syntax, but the Lean semantics of formulas ignores them. -/
+/-- A trigger for the solver on a universal quantifier. Well-formedness and
+substitution treat a pattern as syntax, but evaluation ignores it. -/
 inductive Pattern where
   | term    : Term τ → Pattern
   | unpred  : UnPred τ → Term τ → Pattern
@@ -47,27 +55,26 @@ inductive Formula where
   | exists_ : String → Srt → Formula → Formula
   deriving DecidableEq
 
+/-! ## Derived forms -/
+
 /-- Universal quantifier without SMT triggers. -/
 @[simp]
 def Formula.all (x : String) (τ : Srt) (body : Formula) : Formula :=
   .forall_ x τ [] body
 
-/-- Bi-implication, encoded as the two implications. -/
 @[simp]
 def Formula.iff (φ ψ : Formula) : Formula :=
   .and (.implies φ ψ) (.implies ψ φ)
 
-/-- Case split on a boolean-sorted condition, as the two guarded branches. -/
+/-- Case split on a boolean condition, as two guarded implications. -/
 def Formula.iteBool (cond : Term .bool) (φ ψ : Formula) : Formula :=
   .and (.implies (.eq .bool cond (.const (.b true)))  φ)
        (.implies (.eq .bool cond (.const (.b false))) ψ)
 
-/-- The value-sorted term is the encoded boolean `true`. -/
 @[simp]
 def Term.isTrue (t : Term .value) : Formula :=
   .eq .value t (.unop .ofBool (.const (.b true)))
 
-/-- The value-sorted term is the encoded boolean `false`. -/
 @[simp]
 def Term.isFalse (t : Term .value) : Formula :=
   .eq .value t (.unop .ofBool (.const (.b false)))
@@ -75,6 +82,8 @@ def Term.isFalse (t : Term .value) : Formula :=
 /-- The definition of the constant `c` as `t`. -/
 def Formula.define (c : Decl.Const) (t : Term c.sort) : Formula :=
   .eq c.sort (.const (.uninterpreted c.name c.sort)) t
+
+/-! ## Free variables -/
 
 def Pattern.freeVars : Pattern → List Var
   | .term t => t.freeVars
@@ -93,6 +102,8 @@ def Formula.freeVars : Formula → List Var
   | .implies φ ψ  => φ.freeVars ++ ψ.freeVars
   | .forall_ y τ ps φ => (ps.flatMap Pattern.freeVars ++ φ.freeVars).filter (· != ⟨y, τ⟩)
   | .exists_ y τ φ => φ.freeVars.filter (· != ⟨y, τ⟩)
+
+/-! ## Well-formedness -/
 
 def UnPred.wfIn : UnPred τ → Signature → Prop
   | .uninterpreted name τ, Δ => ⟨name, τ⟩ ∈ Δ.unaryRel
@@ -190,7 +201,8 @@ theorem Formula.iteBool_wfIn {cond : Term .bool} {φ ψ : Formula} {Δ : Signatu
     (Formula.iteBool cond φ ψ).wfIn Δ := by
   simp [Formula.iteBool, Formula.wfIn, Term.wfIn, Const.wfIn, hc, hφ, hψ]
 
-/-- If `t` is wf in `Δ` and `c` is fresh for `Δ`, then `c = t` is wf in `Δ.addConst c`. -/
+/-- The definition `c = t` of a constant `c` that is fresh for `Δ` is
+well-formed after `c` is declared. -/
 theorem Formula.define_wfIn {Δ : Signature} {c : Decl.Const}
     {t : Term c.sort} (hΔwf : Δ.wf) (ht : t.wfIn Δ)
     (hfresh : c.name ∉ Δ.allNames) :
@@ -198,6 +210,11 @@ theorem Formula.define_wfIn {Δ : Signature} {c : Decl.Const}
   ⟨Term.const_wfIn_addConst_of_fresh hΔwf hfresh,
    Term.wfIn_mono t ht (Signature.Subset.subset_addConst _ _)
      (Signature.wf_addConst hΔwf hfresh)⟩
+
+/-! ### Checking well-formedness
+
+`checkWf` succeeds only on a well-formed formula (`checkWf_ok`). When it fails,
+its message names the first problem that it finds. -/
 
 def UnPred.checkWf : UnPred τ → Signature → Except String Unit
   | .uninterpreted name τ, Δ =>
@@ -369,6 +386,9 @@ theorem Formula.checkWf_ok {φ : Formula} {Δ : Signature} (h : φ.checkWf Δ = 
     simp only [Formula.checkWf] at h
     exact ih h
 
+/-! ## Contexts -/
+
+/-- The hypotheses of a proof goal. -/
 abbrev Context := List Formula
 
 def Context.wfIn (Γ : Context) (Δ : Signature) : Prop :=
@@ -376,6 +396,8 @@ def Context.wfIn (Γ : Context) (Δ : Signature) : Prop :=
 
 theorem Context.wfIn_mono (Γ : Context) (h : Γ.wfIn Δ) (hsub : Δ.Subset Δ') (hwf : Δ'.wf) : Γ.wfIn Δ' :=
   fun φ hφ => Formula.wfIn_mono φ (h φ hφ) hsub hwf
+
+/-! ## Evaluation -/
 
 @[simp] def UnPred.eval : Env → UnPred τ → τ.denote → Prop
   | _, .isInt,   v => match v with | .int _ => True | _ => False
@@ -451,7 +473,8 @@ theorem Formula.eval_agreeOn {φ : Formula} {ρ ρ' : Env} {Δ : Signature} :
     · intro ⟨v, hv⟩; exact ⟨v, (ih hwf (Env.agreeOn_declVar hagree)).mp hv⟩
     · intro ⟨v, hv⟩; exact ⟨v, (ih hwf (Env.agreeOn_declVar hagree)).mpr hv⟩
 
-/-- Updating the env at a fresh name makes the equality `c = t` hold. -/
+/-- The definition `c = t` of a fresh constant `c` holds when `c` has the value
+of `t`. -/
 theorem Formula.define_eval {Δ : Signature} {ρ : Env}
     {c : Decl.Const} {t : Term c.sort} (ht : t.wfIn Δ)
     (hfresh : c.name ∉ Δ.allNames) :

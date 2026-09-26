@@ -1,5 +1,6 @@
 -- SUMMARY: Upper-case hexadecimal digits of bytes and 64-bit words.
 
+/-- The hex digit of `n`, for `n < 16`. -/
 def hexDigit (n : Nat) : Char :=
   match n with
   | 0 => '0' | 1 => '1' | 2 => '2' | 3 => '3'

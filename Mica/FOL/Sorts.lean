@@ -1,9 +1,12 @@
 -- SUMMARY: Sorts of the first-order logic and the Lean type each one denotes.
 import Mica.TinyML.RuntimeExpr
 
--- ---------------------------------------------------------------------------
--- Sorts
--- ---------------------------------------------------------------------------
+/-!
+# Sorts
+
+Each term of the logic has a sort. A sort denotes a Lean type, and the solver
+has a matching sort.
+-/
 
 inductive Srt where
   | int
@@ -17,6 +20,7 @@ inductive Srt where
   | vec
   deriving DecidableEq, Repr
 
+/-- Values of the runtime language have the sort `value`. -/
 @[reducible] def Srt.denote : Srt → Type
   | .int => Int
   | .bool => Bool
