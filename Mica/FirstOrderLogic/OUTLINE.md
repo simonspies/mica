@@ -1,4 +1,4 @@
-**Mica/FOL**
+**Mica/FirstOrderLogic**
 
 - `Env.lean` — Environments interpreting the names of a signature, and agreement between them.
 - `Formulas.lean` — First-order formulas together with their Tarski semantics and well-formedness conditions.

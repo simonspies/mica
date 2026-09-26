@@ -2,7 +2,7 @@
 import Mica.SourceTinyML.Typed
 import Mica.SourceTinyML.Typing
 import Mica.TinyML.OpSem
-import Mica.FOL.Subst
+import Mica.FirstOrderLogic.Subst
 import Mica.SourceTinyML.LogicalRelation
 
 open Iris Iris.BI

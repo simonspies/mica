@@ -1,6 +1,6 @@
 -- SUMMARY: The encoder intermediate language, the traversal into it, and its well-formedness.
 import Mica.Base.Arity
-import Mica.FOL.Formulas
+import Mica.FirstOrderLogic.Formulas
 import Mica.Base.Fixpoint
 import Mica.Base.Except
 import Mica.SourceTinyML.Typed

@@ -1,5 +1,5 @@
 -- SUMMARY: Data of atoms, assertions, and completed specifications, parametric in the type language they mention.
-import Mica.FOL.Formulas
+import Mica.FirstOrderLogic.Formulas
 
 /-!
 # Assertion data

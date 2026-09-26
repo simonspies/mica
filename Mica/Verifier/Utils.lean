@@ -1,7 +1,7 @@
 -- SUMMARY: Supporting infrastructure for verifier finite substitutions and argument-handling helpers.
 import Mica.SourceTinyML.Typed
 import Mica.TinyML.OpSem
-import Mica.FOL.Subst
+import Mica.FirstOrderLogic.Subst
 import Mica.Base.Fresh
 import Mica.Base.Except
 import Mica.SourceTinyML.LogicalRelation

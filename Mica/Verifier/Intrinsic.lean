@@ -4,7 +4,7 @@ import Mica.TinyML.OpSem
 import Mica.SeparationLogic.Wp
 import Mica.Verifier.PredicateTransformers
 import Mica.Verifier.Specifications
-import Mica.FOL.Formulas
+import Mica.FirstOrderLogic.Formulas
 import Mica.Verifier.RelationalEncoding.Expr
 
 open Iris Iris.BI

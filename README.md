@@ -68,7 +68,7 @@ lake exe mica <file>         # the main executable
 | `Main.lean` | CLI entry point for parsing, elaboration, printing, and verification |
 | `Mica/Frontend/` | Lexer, parser, pretty-printer, spec parser, and elaboration from OCaml syntax to TinyML |
 | `Mica/TinyML/` | Core language syntax, typing, printer, operational semantics, heap model, and weakest-precondition interface |
-| `Mica/FOL/` | First-order logic syntax, semantics, substitution, deduction, and printing |
+| `Mica/FirstOrderLogic/` | First-order logic: sorts, signatures, terms, formulas, their semantics, and substitution |
 | `Mica/Engine/` | Generic infrastructure for interactive SMT sessions and drivers |
 | `Mica/Verifier/` | Specification language, checking program expressions, and the verifier correctness development |
 | `Mica/Base/` | Shared utilities |

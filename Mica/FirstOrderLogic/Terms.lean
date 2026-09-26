@@ -1,5 +1,5 @@
 -- SUMMARY: Typed first-order terms, their Tarski semantics, and their well-formedness conditions.
-import Mica.FOL.Env
+import Mica.FirstOrderLogic.Env
 import Mica.Base.FloatBits
 import Mica.Base.Except
 import Batteries.Data.List.Basic

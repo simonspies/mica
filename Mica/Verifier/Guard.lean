@@ -1,5 +1,5 @@
 -- SUMMARY: The guard constant deactivating quantified axioms in low-effort checks, effort levels, and guarded axioms.
-import Mica.FOL.Formulas
+import Mica.FirstOrderLogic.Formulas
 
 /-! ## The guard constant
 

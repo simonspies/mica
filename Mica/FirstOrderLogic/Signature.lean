@@ -1,5 +1,5 @@
 -- SUMMARY: Signatures: the variables and symbols in scope, with their sorts.
-import Mica.FOL.Sorts
+import Mica.FirstOrderLogic.Sorts
 import Mathlib.Data.List.Nodup
 
 /-!

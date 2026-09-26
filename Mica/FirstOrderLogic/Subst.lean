@@ -1,6 +1,6 @@
 -- SUMMARY: Capture-avoiding substitution for first-order syntax and its well-formedness conditions.
-import Mica.FOL.Terms
-import Mica.FOL.Formulas
+import Mica.FirstOrderLogic.Terms
+import Mica.FirstOrderLogic.Formulas
 import Mica.Base.Fresh
 
 /-!

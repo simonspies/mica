@@ -1,5 +1,5 @@
 -- SUMMARY: Solver-facing symbol vocabulary for specification-level function names.
-import Mica.FOL.Formulas
+import Mica.FirstOrderLogic.Formulas
 
 /-!
 # Specification function symbols

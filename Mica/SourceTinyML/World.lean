@@ -1,7 +1,7 @@
 -- SUMMARY: The fixed meta-level world in which the logical relation interprets types, including its assignment of meanings to type variables.
 import Mica.SourceTinyML.Types
 import Mica.TinyML.OpSem
-import Mica.FOL.Env
+import Mica.FirstOrderLogic.Env
 import Mica.SeparationLogic.Wp
 
 namespace TinyML

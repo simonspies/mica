@@ -1,5 +1,5 @@
 -- SUMMARY: Abstract SMT states and the satisfiability notion used in the solver interface.
-import Mica.FOL.Formulas
+import Mica.FirstOrderLogic.Formulas
 
 /-! ## Frame and State
 

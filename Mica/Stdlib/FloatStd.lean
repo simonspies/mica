@@ -7,7 +7,7 @@ open Iris Iris.BI
 /-! ## Derived `FloatBits` operations
 
 `is_finite`, `min`, and `max` are defined here from the `FloatBits` primitives
-(decode/compute/encode ops in `Mica/FOL/Terms.lean`), with exactly the `bif`-structure
+(decode/compute/encode ops in `Mica/FirstOrderLogic/Terms.lean`), with exactly the `bif`-structure
 used by their definitional axioms below, so those axioms hold by `rfl` and add no assumptions
 beyond the primitives. They are kept out of the FOL layer because no term-level
 `UnOp`/`BinOp` head reduces to them; only the intrinsics here use them. -/

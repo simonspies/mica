@@ -1,5 +1,5 @@
 -- SUMMARY: Environments interpreting the names of a signature, and agreement between them.
-import Mica.FOL.Signature
+import Mica.FirstOrderLogic.Signature
 
 /-!
 # Environments

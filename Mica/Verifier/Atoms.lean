@@ -1,7 +1,7 @@
 -- SUMMARY: Verifier operations on atoms: context items, resolution procedures, well-formedness, and correctness lemmas.
 import Mica.SourceTinyML.Semantics
 import Mica.Engine.SMTLIB
-import Mica.FOL.Subst
+import Mica.FirstOrderLogic.Subst
 import Mica.Verifier.Interpretations
 import Mica.Verifier.Monad
 import Mica.Verifier.RelationalEncoding.Skolemize

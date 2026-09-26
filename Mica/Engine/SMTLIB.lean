@@ -1,5 +1,5 @@
 -- SUMMARY: Serialization of first-order syntax to SMT-LIB.
-import Mica.FOL.Formulas
+import Mica.FirstOrderLogic.Formulas
 import Mica.Base.Hex
 
 /-!
