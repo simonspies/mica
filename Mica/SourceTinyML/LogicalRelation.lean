@@ -193,12 +193,14 @@ mutual
         · iexact Hv
 end
 
-/-! Mixed OFE continuity in the outer approximation and inner continuation. -/
+/-! Mixed OFE continuity in the outer approximation, the inner continuation, and
+the type assignment. -/
 
 mutual
-  private theorem ValRelBody.dist {n : Nat} {W : World} {R S : ValueRelation} {k k' : RecCont}
+  private theorem ValRelBody.dist {n : Nat} {W : World} {η η' : SemTypeAssign}
+      (hη : ∀ a v, (η a).holds v ≡{n}≡ (η' a).holds v) {R S : ValueRelation} {k k' : RecCont}
       (hR : DistLater n R S) (hk : k ≡{n}≡ k') (t : Typ) (v : Runtime.Val) :
-      ValRelBody W R v t k ≡{n}≡ ValRelBody W S v t k' := by
+      ValRelBody { W with eta := η } R v t k ≡{n}≡ ValRelBody { W with eta := η' } S v t k' := by
     unfold ValRelBody
     match t with
     | .ref t =>
@@ -221,55 +223,60 @@ mutual
     | .tuple ts =>
         refine exists_ne fun vs => ?_
         refine sep_ne.ne (.of_eq rfl) ?_
-        exact ValsRelBody.dist hR hk ts vs
+        exact ValsRelBody.dist hη hR hk ts vs
     | .vec t =>
         refine exists_ne fun vs => ?_
         refine sep_ne.ne (.of_eq rfl) ?_
         exact Iris.Algebra.BigOpL.bigOpL_gen_proper (· ≡{n}≡ ·) Dist.rfl (sep_ne.ne · ·)
-          (fun _ => ValRelBody.dist hR hk t _)
+          (fun _ => ValRelBody.dist hη hR hk t _)
     | .sum ts =>
         refine exists_ne fun tag => ?_
         refine exists_ne fun payload => ?_
         refine sep_ne.ne (.of_eq rfl) ?_
-        exact ValSumRelBody.dist hR hk ts tag payload
+        exact ValSumRelBody.dist hη hR hk ts tag payload
     | .arrow args ret (some s) =>
-        exact Spec.isPrecondFor_contractive hR args ret v s
+        exact Spec.isPrecondFor_contractive (W := W) hR args ret v s
     | .prim _ =>
         exact Dist.rfl
-    | .value | .empty | .arrow _ _ none | .tvar _ | .owned _ =>
+    | .tvar a =>
+        exact hη a v
+    | .value | .empty | .arrow _ _ none | .owned _ =>
         exact Dist.rfl
 
-  private theorem ValsRelBody.dist {n : Nat} {W : World} {R S : ValueRelation} {k k' : RecCont}
+  private theorem ValsRelBody.dist {n : Nat} {W : World} {η η' : SemTypeAssign}
+      (hη : ∀ a v, (η a).holds v ≡{n}≡ (η' a).holds v) {R S : ValueRelation} {k k' : RecCont}
       (hR : DistLater n R S) (hk : k ≡{n}≡ k') (ts : List Typ) (vs : List Runtime.Val) :
-      ValsRelBody W R vs ts k ≡{n}≡ ValsRelBody W S vs ts k' := by
+      ValsRelBody { W with eta := η } R vs ts k ≡{n}≡ ValsRelBody { W with eta := η' } S vs ts k' := by
     unfold ValsRelBody
     match vs, ts with
     | [], [] =>
         exact Dist.rfl
     | v :: vs, t :: ts =>
         refine sep_ne.ne ?_ ?_
-        · exact ValRelBody.dist hR hk t v
-        · exact ValsRelBody.dist hR hk ts vs
+        · exact ValRelBody.dist hη hR hk t v
+        · exact ValsRelBody.dist hη hR hk ts vs
     | [], _ :: _ | _ :: _, [] =>
         exact Dist.rfl
 
-  private theorem ValSumRelBody.dist {n : Nat} {W : World} {R S : ValueRelation} {k k' : RecCont}
+  private theorem ValSumRelBody.dist {n : Nat} {W : World} {η η' : SemTypeAssign}
+      (hη : ∀ a v, (η a).holds v ≡{n}≡ (η' a).holds v) {R S : ValueRelation} {k k' : RecCont}
       (hR : DistLater n R S) (hk : k ≡{n}≡ k') (ts : List Typ) (tag : Nat)
       (payload : Runtime.Val) :
-      ValSumRelBody W R tag payload ts k ≡{n}≡ ValSumRelBody W S tag payload ts k' := by
+      ValSumRelBody { W with eta := η } R tag payload ts k ≡{n}≡
+        ValSumRelBody { W with eta := η' } S tag payload ts k' := by
     unfold ValSumRelBody
     match tag, ts with
     | _, [] =>
         exact Dist.rfl
     | 0, t :: _ =>
-        exact ValRelBody.dist hR hk t payload
+        exact ValRelBody.dist hη hR hk t payload
     | n + 1, _ :: ts =>
-        exact ValSumRelBody.dist hR hk ts n payload
+        exact ValSumRelBody.dist hη hR hk ts n payload
 end
 
 private instance ValRelBody.contractive (W : World) (k : RecCont) (v : Runtime.Val) (t : Typ) :
     Contractive (fun R : ValueRelation => ValRelBody W R v t k) where
-  distLater_dist hR := ValRelBody.dist hR Dist.rfl t v
+  distLater_dist hR := ValRelBody.dist (W := W) (fun _ _ => .rfl) hR Dist.rfl t v
 
 /-- One unfolding of the inner recursive type interpretation. -/
 private def ValRelIndF (W : World) (R : ValueRelation) (Φ : RecIdx → iProp) (x : RecIdx) : iProp :=
@@ -352,7 +359,7 @@ private instance ValRelF.contractive (W : World) : Contractive (ValRelF W) where
     unfold ValRelF
     have hk : ValRelInd W R ≡{n}≡ ValRelInd W S :=
       Contractive.distLater_dist (f := fun R : ValueRelation => ValRelInd W R) hR
-    exact ValRelBody.dist hR hk t v
+    exact ValRelBody.dist (W := W) (fun _ _ => .rfl) hR hk t v
 
 /-- The mixed recursive value relation. -/
 def ValHasType (W : World) : ValueRelation :=
@@ -1353,6 +1360,116 @@ theorem ValHasType.subst (W : World) (σ : TyVar → Typ) (v : Runtime.Val) (t :
   exact equiv_iff.mp (fixpoint_unique (f := F) hfix v t).symm
 
 end Subst
+
+/-! ### Changing the type assignment -/
+
+private theorem ValRelInd.eta_dist {n : Nat} {W : World} {η η' : SemTypeAssign}
+    (hη : ∀ a v, (η a).holds v ≡{n}≡ (η' a).holds v) (R : ValueRelation) :
+    ValRelInd { W with eta := η } R ≡{n}≡ ValRelInd { W with eta := η' } R := by
+  intro v T args
+  unfold ValRelInd Iris.bi_least_fixpoint
+  refine forall_ne fun Φ => ?_
+  refine wand_ne.ne ?_ (.of_eq rfl)
+  refine intuitionistically_ne.ne ?_
+  refine forall_ne fun x => ?_
+  refine wand_ne.ne ?_ (.of_eq rfl)
+  obtain ⟨w, T', args'⟩ := x
+  refine exists_ne fun ty => ?_
+  refine sep_ne.ne (.of_eq rfl) ?_
+  exact ValRelBody.dist hη (fun _ _ => .rfl) Dist.rfl ty w
+
+/-- Assignments that agree up to equivalence give the same values. -/
+theorem ValHasType.eta_congr (W : World) {η₁ η₂ : SemTypeAssign}
+    (h : ∀ a v, (η₁ a).holds v ⊣⊢ (η₂ a).holds v) (v : Runtime.Val) (t : Typ) :
+    ValHasType { W with eta := η₁ } v t ⊣⊢ ValHasType { W with eta := η₂ } v t := by
+  refine equiv_iff.mp (equiv_dist.mpr fun n => ?_)
+  have hη : ∀ a v, (η₁ a).holds v ≡{n}≡ (η₂ a).holds v := fun a v =>
+    (equiv_iff.mpr (h a v)).dist
+  let F₁ : ValueRelation -c> ValueRelation := { f := ValRelF { W with eta := η₁ } }
+  let F₂ : ValueRelation -c> ValueRelation := { f := ValRelF { W with eta := η₂ } }
+  have hF : F₁ ≡{n}≡ F₂ := fun R w u =>
+    ValRelBody.dist hη (fun _ _ => .rfl) (ValRelInd.eta_dist hη R) u w
+  exact OFE.ContractiveHom.fixpoint_ne.ne hF v t
+
+/-- A type reads the assignment only at its own variables. -/
+theorem ValHasType.eta_local (W : World) {η₁ η₂ : SemTypeAssign} {t : Typ}
+    (h : ∀ a ∈ Typ.vars t, ∀ v, (η₁ a).holds v ⊣⊢ (η₂ a).holds v) (v : Runtime.Val) :
+    ValHasType { W with eta := η₁ } v t ⊣⊢ ValHasType { W with eta := η₂ } v t := by
+  classical
+  let τ : TyVar → Typ := fun a => if a ∈ Typ.vars t then .tvar a else .empty
+  have hτ : Typ.subst τ t = t := by
+    rw [Typ.subst_congr τ .tvar t fun a ha => by simp [τ, ha], Typ.subst_id]
+  have hpt : ∀ a v,
+      ValHasType { W with eta := η₁ } v (τ a) ⊣⊢ ValHasType { W with eta := η₂ } v (τ a) := by
+    intro a v
+    by_cases ha : a ∈ Typ.vars t
+    · simp only [τ, if_pos ha]
+      exact (ValHasType.tvar { W with eta := η₁ } v a).trans
+        ((h a ha v).trans (ValHasType.tvar { W with eta := η₂ } v a).symm)
+    · simp only [τ, if_neg ha]
+      exact (ValHasType.empty { W with eta := η₁ } v).trans
+        (ValHasType.empty { W with eta := η₂ } v).symm
+  have hsub := fun (η : SemTypeAssign) =>
+    (ValHasType.subst { W with eta := η } τ v t).symm
+  rw [hτ] at hsub
+  exact (hsub η₁).trans ((ValHasType.eta_congr W (η₁ := SemTypeAssign.ofSubst _ τ)
+    (η₂ := SemTypeAssign.ofSubst { W with eta := η₂ } τ) (fun a v => hpt a v) v t).trans
+    (hsub η₂).symm)
+
+section Scheme
+
+/-- `η₀`, with the variables `xs` reassigned by `η`. -/
+def SemTypeAssign.override (η₀ : SemTypeAssign) (xs : List TyVar) (η : SemTypeAssign) :
+    SemTypeAssign :=
+  fun a => if a ∈ xs then η a else η₀ a
+
+/-- `v` has the scheme `s`: it has the type of `s` at every assignment of
+    semantic types to the parameters of `s`. -/
+def ValHasScheme (W : World) (v : Runtime.Val) (s : Scheme) : iProp :=
+  iprop(∀ η, ValHasType { W with eta := SemTypeAssign.override W.eta s.tparams η } v s.ty)
+
+instance (W : World) (v : Runtime.Val) (s : Scheme) : Persistent (ValHasScheme W v s) := by
+  unfold ValHasScheme
+  infer_instance
+
+/-- A use site instantiates a scheme at a syntactic substitution. -/
+theorem ValHasScheme.instantiate (W : World) (v : Runtime.Val) (s : Scheme)
+    (σ : TyVar → Typ) : ValHasScheme W v s ⊢ ValHasType W v (s.instantiate σ) := by
+  classical
+  let σ' : TyVar → Typ := fun a => if a ∈ s.tparams then σ a else .tvar a
+  have hpt : ∀ a v, ((SemTypeAssign.override W.eta s.tparams (SemTypeAssign.ofSubst W σ)) a).holds v ⊣⊢
+      ((SemTypeAssign.ofSubst W σ') a).holds v := by
+    intro a v
+    by_cases ha : a ∈ s.tparams
+    · simp only [SemTypeAssign.override, if_pos ha, SemTypeAssign.ofSubst, σ']
+      exact ⟨.rfl, .rfl⟩
+    · simp only [SemTypeAssign.override, if_neg ha, SemTypeAssign.ofSubst, σ']
+      exact (ValHasType.tvar W v a).symm
+  unfold ValHasScheme
+  refine (forall_elim (SemTypeAssign.ofSubst W σ)).trans ?_
+  refine (ValHasType.eta_congr W hpt v s.ty).1.trans ?_
+  exact (ValHasType.subst W σ' v s.ty).1
+
+/-- A closed scheme does not read the assignment of the world. -/
+theorem ValHasScheme.eta_closed (W : World) (v : Runtime.Val) {s : Scheme}
+    (hs : s.free = []) (η : SemTypeAssign) :
+    ValHasScheme W v s ⊣⊢ ValHasScheme { W with eta := η } v s := by
+  have hvars : ∀ a ∈ Typ.vars s.ty, a ∈ s.tparams := by
+    intro a ha
+    by_contra hn
+    have : a ∈ s.free := List.mem_filter.mpr ⟨ha, by simpa using hn⟩
+    simp [hs] at this
+  unfold ValHasScheme
+  refine ⟨forall_intro fun η' => (forall_elim η').trans ?_,
+    forall_intro fun η' => (forall_elim η').trans ?_⟩
+  · refine (ValHasType.eta_local W (fun a ha v => ?_) v).1
+    simp only [SemTypeAssign.override, if_pos (hvars a ha)]
+    exact ⟨.rfl, .rfl⟩
+  · refine (ValHasType.eta_local W (fun a ha v => ?_) v).1
+    simp only [SemTypeAssign.override, if_pos (hvars a ha)]
+    exact ⟨.rfl, .rfl⟩
+
+end Scheme
 
 /-! Type preservation for primitive operations. -/
 
