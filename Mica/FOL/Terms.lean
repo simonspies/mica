@@ -16,114 +16,114 @@ depends on an environment.
 /-! ## Syntax -/
 
 inductive UnOp : Srt → Srt → Type where
-  | ofInt      : UnOp .int     .value
-  | ofBool     : UnOp .bool    .value
-  | ofInt32    : UnOp (.bv 32) .value
-  | ofInt64    : UnOp (.bv 64) .value
-  | ofChar     : UnOp .char    .value
-  | ofString   : UnOp .string  .value
-  | ofFloat    : UnOp .float   .value
-  | toInt      : UnOp .value   .int
-  | toBool     : UnOp .value   .bool
-  | toInt32    : UnOp .value   (.bv 32)
-  | toInt64    : UnOp .value   (.bv 64)
-  | toChar     : UnOp .value   .char
-  | toString   : UnOp .value   .string
-  | toFloat    : UnOp .value   .float
-  | charToInt  : UnOp .char    .int
-  | intToChar  : UnOp .int     .char
-  | intToBv (width : Nat) : UnOp .int (.bv width)
-  | bvToNat (width : Nat) : UnOp (.bv width) .int
-  | bvNeg (width : Nat) : UnOp (.bv width) (.bv width)
-  | bvNot (width : Nat) : UnOp (.bv width) (.bv width)
-  | bvSignExtend (width result : Nat) (le : width ≤ result) : UnOp (.bv width) (.bv result)
-  | bvExtractLsb (width result : Nat) (le : result ≤ width) : UnOp (.bv width) (.bv result)
-  | seqLen     : UnOp .string  .int
-  | fpAbs      : UnOp .float   .float
-  | fpNeg      : UnOp .float   .float
-  | fpSqrt     : UnOp .float   .float
-  | fpIsNaN      : UnOp .float   .bool
-  | fpIsInfinite : UnOp .float   .bool
-  | fpIsNegative : UnOp .float   .bool
-  | fpOfInt    : UnOp .int     .float
-  | neg        : UnOp .int     .int
-  | not        : UnOp .bool    .bool
-  | ofValList  : UnOp .vallist .value
-  | toValList  : UnOp .value   .vallist
-  | arrayLen   : UnOp .value   .int
-  | vhead      : UnOp .vallist .value
-  | vtail      : UnOp .vallist .vallist
-  | visnil     : UnOp .vallist .bool
-  | ofInj (tag : Nat) (arity : Nat) : UnOp .value .value
-  | tagOf                           : UnOp .value .int
-  | arityOf                         : UnOp .value .int
-  | payloadOf                       : UnOp .value .value
-  | vecLen     : UnOp .vec   .int
-  | ofVec      : UnOp .vec   .value
-  | toVec      : UnOp .value .vec
+  | ofInt         : UnOp .int     .value
+  | ofBool        : UnOp .bool    .value
+  | ofInt32       : UnOp (.bv 32) .value
+  | ofInt64       : UnOp (.bv 64) .value
+  | ofChar        : UnOp .char    .value
+  | ofString      : UnOp .string  .value
+  | ofFloat       : UnOp .float   .value
+  | toInt         : UnOp .value   .int
+  | toBool        : UnOp .value   .bool
+  | toInt32       : UnOp .value   (.bv 32)
+  | toInt64       : UnOp .value   (.bv 64)
+  | toChar        : UnOp .value   .char
+  | toString      : UnOp .value   .string
+  | toFloat       : UnOp .value   .float
+  | charToInt     : UnOp .char    .int
+  | intToChar     : UnOp .int     .char
+  | intToBv       : (width : Nat) → UnOp .int (.bv width)
+  | bvToNat       : (width : Nat) → UnOp (.bv width) .int
+  | bvNeg         : (width : Nat) → UnOp (.bv width) (.bv width)
+  | bvNot         : (width : Nat) → UnOp (.bv width) (.bv width)
+  | bvSignExtend  : (width result : Nat) → (le : width ≤ result) → UnOp (.bv width) (.bv result)
+  | bvExtractLsb  : (width result : Nat) → (le : result ≤ width) → UnOp (.bv width) (.bv result)
+  | seqLen        : UnOp .string  .int
+  | fpAbs         : UnOp .float   .float
+  | fpNeg         : UnOp .float   .float
+  | fpSqrt        : UnOp .float   .float
+  | fpIsNaN       : UnOp .float   .bool
+  | fpIsInfinite  : UnOp .float   .bool
+  | fpIsNegative  : UnOp .float   .bool
+  | fpOfInt       : UnOp .int     .float
+  | neg           : UnOp .int     .int
+  | not           : UnOp .bool    .bool
+  | ofValList     : UnOp .vallist .value
+  | toValList     : UnOp .value   .vallist
+  | arrayLen      : UnOp .value   .int
+  | vhead         : UnOp .vallist .value
+  | vtail         : UnOp .vallist .vallist
+  | visnil        : UnOp .vallist .bool
+  | ofInj         : (tag arity : Nat) → UnOp .value .value
+  | tagOf         : UnOp .value   .int
+  | arityOf       : UnOp .value   .int
+  | payloadOf     : UnOp .value   .value
+  | vecLen        : UnOp .vec     .int
+  | ofVec         : UnOp .vec     .value
+  | toVec         : UnOp .value   .vec
   | uninterpreted : String → (τ₁ τ₂ : Srt) → UnOp τ₁ τ₂
   deriving DecidableEq, Repr
 
 inductive BinOp : Srt → Srt → Srt → Type where
-  | add  : BinOp .int   .int     .int
-  | sub  : BinOp .int   .int     .int
-  | mul  : BinOp .int   .int     .int
-  | div  : BinOp .int   .int     .int
-  | mod  : BinOp .int   .int     .int
-  | less : BinOp .int   .int     .bool
-  | gt   : BinOp .int   .int     .bool
-  | ge   : BinOp .int   .int     .bool
-  | eq   : BinOp τ      τ        .bool
-  | bvAdd  (width : Nat) : BinOp (.bv width) (.bv width) (.bv width)
-  | bvSub  (width : Nat) : BinOp (.bv width) (.bv width) (.bv width)
-  | bvMul  (width : Nat) : BinOp (.bv width) (.bv width) (.bv width)
-  | bvSDiv (width : Nat) : BinOp (.bv width) (.bv width) (.bv width)
-  | bvUDiv (width : Nat) : BinOp (.bv width) (.bv width) (.bv width)
-  | bvSRem (width : Nat) : BinOp (.bv width) (.bv width) (.bv width)
-  | bvURem (width : Nat) : BinOp (.bv width) (.bv width) (.bv width)
-  | bvAnd  (width : Nat) : BinOp (.bv width) (.bv width) (.bv width)
-  | bvOr   (width : Nat) : BinOp (.bv width) (.bv width) (.bv width)
-  | bvXor  (width : Nat) : BinOp (.bv width) (.bv width) (.bv width)
-  | bvSLt  (width : Nat) : BinOp (.bv width) (.bv width) .bool
-  | bvULt  (width : Nat) : BinOp (.bv width) (.bv width) .bool
-  | bvShl  (width : Nat) : BinOp (.bv width) (.bv width) (.bv width)
-  | bvAShr (width : Nat) : BinOp (.bv width) (.bv width) (.bv width)
-  | bvLShr (width : Nat) : BinOp (.bv width) (.bv width) (.bv width)
-  | seqConcat : BinOp .string .string .string
-  | seqNth : BinOp .string .int .char
-  | seqPrefixOf : BinOp .string .string .bool
-  | seqSuffixOf : BinOp .string .string .bool
-  | fpAdd : BinOp .float .float .float
-  | fpSub : BinOp .float .float .float
-  | fpMul : BinOp .float .float .float
-  | fpDiv : BinOp .float .float .float
-  | fpEq  : BinOp .float .float .bool
-  | fpLt  : BinOp .float .float .bool
-  | fpLe  : BinOp .float .float .bool
-  | vcons : BinOp .value .vallist .vallist
-  | vecGet  : BinOp .vec .int   .value
-  | vecMake : BinOp .int .value .vec
+  | add           : BinOp .int    .int     .int
+  | sub           : BinOp .int    .int     .int
+  | mul           : BinOp .int    .int     .int
+  | div           : BinOp .int    .int     .int
+  | mod           : BinOp .int    .int     .int
+  | less          : BinOp .int    .int     .bool
+  | gt            : BinOp .int    .int     .bool
+  | ge            : BinOp .int    .int     .bool
+  | eq            : BinOp τ       τ        .bool
+  | bvAdd         : (width : Nat) → BinOp (.bv width) (.bv width) (.bv width)
+  | bvSub         : (width : Nat) → BinOp (.bv width) (.bv width) (.bv width)
+  | bvMul         : (width : Nat) → BinOp (.bv width) (.bv width) (.bv width)
+  | bvSDiv        : (width : Nat) → BinOp (.bv width) (.bv width) (.bv width)
+  | bvUDiv        : (width : Nat) → BinOp (.bv width) (.bv width) (.bv width)
+  | bvSRem        : (width : Nat) → BinOp (.bv width) (.bv width) (.bv width)
+  | bvURem        : (width : Nat) → BinOp (.bv width) (.bv width) (.bv width)
+  | bvAnd         : (width : Nat) → BinOp (.bv width) (.bv width) (.bv width)
+  | bvOr          : (width : Nat) → BinOp (.bv width) (.bv width) (.bv width)
+  | bvXor         : (width : Nat) → BinOp (.bv width) (.bv width) (.bv width)
+  | bvSLt         : (width : Nat) → BinOp (.bv width) (.bv width) .bool
+  | bvULt         : (width : Nat) → BinOp (.bv width) (.bv width) .bool
+  | bvShl         : (width : Nat) → BinOp (.bv width) (.bv width) (.bv width)
+  | bvAShr        : (width : Nat) → BinOp (.bv width) (.bv width) (.bv width)
+  | bvLShr        : (width : Nat) → BinOp (.bv width) (.bv width) (.bv width)
+  | seqConcat     : BinOp .string .string  .string
+  | seqNth        : BinOp .string .int     .char
+  | seqPrefixOf   : BinOp .string .string  .bool
+  | seqSuffixOf   : BinOp .string .string  .bool
+  | fpAdd         : BinOp .float  .float   .float
+  | fpSub         : BinOp .float  .float   .float
+  | fpMul         : BinOp .float  .float   .float
+  | fpDiv         : BinOp .float  .float   .float
+  | fpEq          : BinOp .float  .float   .bool
+  | fpLt          : BinOp .float  .float   .bool
+  | fpLe          : BinOp .float  .float   .bool
+  | vcons         : BinOp .value  .vallist .vallist
+  | vecGet        : BinOp .vec    .int     .value
+  | vecMake       : BinOp .int    .value   .vec
   | uninterpreted : String → (τ₁ τ₂ τ₃ : Srt) → BinOp τ₁ τ₂ τ₃
   deriving DecidableEq, Repr
 
 inductive TerOp : Srt → Srt → Srt → Srt → Type where
-  | seqExtract : TerOp .string .int .int .string
-  | vecSet : TerOp .vec .int .value .vec
+  | seqExtract    : TerOp .string .int .int   .string
+  | vecSet        : TerOp .vec    .int .value .vec
   | uninterpreted : String → (τ₁ τ₂ τ₃ τ₄ : Srt) → TerOp τ₁ τ₂ τ₃ τ₄
   deriving DecidableEq, Repr
 
 inductive Const : Srt → Type where
-  | i    : Int  → Const .int
-  | b    : Bool → Const .bool
-  | bv (bits : BitVec width) : Const (.bv width)
-  | char : UInt8 → Const .char
-  | str  : List UInt8 → Const .string
-  | fp   : UInt64 → Const .float
-  | fpNaN    : Const .float
-  | fpPosInf : Const .float
-  | fpNegInf : Const .float
-  | unit : Const .value
-  | vnil : Const .vallist
+  | i             : Int → Const .int
+  | b             : Bool → Const .bool
+  | bv            : BitVec width → Const (.bv width)
+  | char          : UInt8 → Const .char
+  | str           : List UInt8 → Const .string
+  | fp            : UInt64 → Const .float
+  | fpNaN         : Const .float
+  | fpPosInf      : Const .float
+  | fpNegInf      : Const .float
+  | unit          : Const .value
+  | vnil          : Const .vallist
   | uninterpreted : String → (τ : Srt) → Const τ
   deriving DecidableEq, Repr
 
