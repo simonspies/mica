@@ -99,7 +99,7 @@ theorem Env.updateConst_binaryRel {ρ : Env} {τ : Srt} {x : String} {v : τ.den
 /-- Extension order on environments: the interpretation of constants and of the
 unary/binary/ternary operators is fixed, while the uninterpreted predicate
 interpretations may grow. Term evaluation is invariant under it (see
-`Term.eval_env_le`); formula evaluation is not. -/
+`Term.eval_le`); formula evaluation is not. -/
 structure Env.le (ρ ρ' : Env) : Prop where
   consts : ρ.consts = ρ'.consts
   unary : ρ.unary = ρ'.unary

@@ -700,48 +700,9 @@ theorem Term.eval_updateConst_of_fresh {t : Term τ'} {x : String} {τ : Srt}
     simp only [Term.names, List.mem_append, not_or] at hx
     simp [Term.eval, ihc hx.1.1, iht hx.1.2, ihe hx.2]
 
-theorem Term.eval_env_agree {t : Term τ} {ρ ρ' : Env} {Δ : Signature} :
-    t.wfIn Δ → Env.agreeOn Δ ρ ρ' → Term.eval ρ t = Term.eval ρ' t := by
-  intro hwf hagree
-  induction t with
-  | var τ y => simp [Term.eval, Env.lookupConst]; exact hagree.vars ⟨y, τ⟩ hwf.1
-  | const c =>
-    simp only [Term.eval]
-    cases c with
-    | uninterpreted name _ => exact hagree.consts ⟨name, _⟩ hwf.1
-    | _ => rfl
-  | unop op a iha =>
-    simp only [Term.eval]
-    rw [iha hwf.2]
-    cases op with
-    | uninterpreted name _ _ =>
-      simp only [UnOp.eval]
-      exact congrFun (hagree.unary ⟨name, _, _⟩ hwf.1.1) _
-    | _ => rfl
-  | binop op a b iha ihb =>
-    simp only [Term.eval]
-    rw [iha hwf.2.1, ihb hwf.2.2]
-    cases op with
-    | uninterpreted name _ _ _ =>
-      simp only [BinOp.eval]
-      exact congrFun (congrFun (hagree.binary ⟨name, _, _, _⟩ hwf.1.1) _) _
-    | _ => rfl
-  | terop op a b c iha ihb ihc =>
-    simp only [Term.eval]
-    rw [iha hwf.2.1, ihb hwf.2.2.1, ihc hwf.2.2.2]
-    cases op with
-    | uninterpreted name _ _ _ _ =>
-      simp only [TerOp.eval]
-      exact congrFun (congrFun (congrFun
-        (hagree.ternary ⟨name, _, _, _, _⟩ hwf.1.1) _) _) _
-    | _ => rfl
-  | ite c t e ihc iht ihe =>
-    simp [Term.eval]
-    rw [ihc hwf.1, iht hwf.2.1, ihe hwf.2.2]
-
 /-- Term evaluation only depends on `consts`, `unary`, `binary`, and `ternary`, so it is
 invariant under `Env.le`. -/
-theorem Term.eval_env_le {τ : Srt} {ρ ρ' : Env} (h : Env.le ρ ρ') (t : Term τ) :
+theorem Term.eval_le {τ : Srt} {ρ ρ' : Env} (h : Env.le ρ ρ') (t : Term τ) :
     t.eval ρ = t.eval ρ' := by
   induction t with
   | var τ y => simp [Term.eval, Env.lookupConst, h.consts]
@@ -797,10 +758,14 @@ theorem Term.eval_agreeOnTerms {t : Term τ} {ρ₁ ρ₂ : Env} {Δ : Signature
     simp [Term.eval]
     rw [ihc hwf.1, iht hwf.2.1, ihe hwf.2.2]
 
+theorem Term.eval_agreeOn {t : Term τ} {ρ ρ' : Env} {Δ : Signature}
+    (hwf : t.wfIn Δ) (hagree : Env.agreeOn Δ ρ ρ') : Term.eval ρ t = Term.eval ρ' t :=
+  Term.eval_agreeOnTerms hwf (Env.agreeOnTerms_of_agreeOn hagree)
+
 theorem Term.eval_update_fresh {t : Term τ'} {x : String} {τ : Srt} {v : τ.denote} {ρ : Env}
     {Δ : Signature} (hwf : t.wfIn Δ) (hfresh : x ∉ Δ.allNames) :
     Term.eval (ρ.updateConst τ x v) t = Term.eval ρ t :=
-  Term.eval_env_agree hwf (.intro
+  Term.eval_agreeOn hwf (.intro
     (fun w hw => by
       have hne : w.name ≠ x := by
         intro heq
@@ -920,7 +885,7 @@ theorem Terms.Eval.env_agree {ρ ρ' : Env} {Δ : Signature}
   | nil => exact .nil
   | @cons t v ts' vs' htv _ ih =>
     constructor
-    · rw [Term.eval_env_agree (hwf t (.head _)) (Env.agreeOn_symm hagree)]; exact htv
+    · rw [Term.eval_agreeOn (hwf t (.head _)) (Env.agreeOn_symm hagree)]; exact htv
     · exact ih (fun q hq => hwf q (.tail _ hq))
 
 theorem Terms.Eval.cons {ρ : Env} {t : Term .value} {v : Runtime.Val}

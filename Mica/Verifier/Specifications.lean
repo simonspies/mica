@@ -474,7 +474,7 @@ theorem declareArgs_correct :
             (Signature.Subset.subset_addConst _ _) hstwf_add
         have hsargs_eval : sargs_rest.map (fun p => p.2.eval ρ₁) =
             sargs_rest.map (fun p => p.2.eval ρ) :=
-          List.map_congr_left fun p hp => Term.eval_env_agree
+          List.map_congr_left fun p hp => Term.eval_agreeOn
             (hsargs p (List.mem_cons_of_mem _ hp))
             (Env.agreeOn_symm (Env.agreeOn_update_fresh_const hfresh_decls))
         obtain ⟨σ'', st'', ρ'', hΨ, hσ''wf, howns, hsublist, hdom_sub, hagree⟩ :=
@@ -536,7 +536,7 @@ theorem call_correct (W : TinyML.World)
     fun p hp => Term.wfIn_mono _ (hsgargs p hp) hdsub₁ hst₁wf
   have hsgargs_eval : sgargs.map (fun p => p.2.eval ρ₁) = sgargs.map (fun p => p.2.eval ρ) :=
     List.map_congr_left fun p hp =>
-      Term.eval_env_agree (hsgargs p hp) (Env.agreeOn_symm hragree₁)
+      Term.eval_agreeOn (hsgargs p hp) (Env.agreeOn_symm hragree₁)
   have hb_grow₂ := VerifM.eval.decls_grow ρ₁ (VerifM.eval_bind hΨ₁)
   obtain ⟨σ', st', ρ', ⟨hdsub₂, hragree₂, hΨ'⟩, hσ'wf, howns₂, hsublist₂, hdom_sub₂, hagree₂⟩ :=
     declareArgs_correct (s.ghost.map Prod.fst) (s.ghost.map Prod.snd) sgargs Δ_base σ₁ st₁ ρ₁ _
@@ -588,9 +588,9 @@ theorem call_correct (W : TinyML.World)
       · iframe HR Hty
         simp [TransState.sl, hst₃_owns]; iassumption
       iapply (hΨ v st₃ ρ'' t (VerifM.eval_ret hret) (hst₃_decls ▸ htwf) hteval) $$ Harg)
-  exact (sep_mono_left (SpatialContext.interp_env_agree W (VerifM.eval.wf heval).ownsWf hragree).1).trans <|
+  exact (sep_mono_left (SpatialContext.interp_agreeOn W (VerifM.eval.wf heval).ownsWf hragree).1).trans <|
     (by simpa [howns] using hcall : st.sl W ρ' ∗ R ⊢ _).trans <|
-    PredTrans.apply_env_agree (TinyML.ValHasType W) hwf hagree
+    PredTrans.apply_agreeOn (TinyML.ValHasType W) hwf hagree
 
 end CallCorrectness
 
@@ -865,9 +865,9 @@ theorem implement_correct (W : TinyML.World)
   · iapply (show st.sl W ρ' ⊢ st'.sl W ρ' by simp [howns, TransState.sl])
     iapply (show st.sl W ρ ⊢ st.sl W ρ' by
       simpa [TransState.sl] using
-        (SpatialContext.interp_env_agree W (VerifM.eval.wf heval).ownsWf hragree).1)
+        (SpatialContext.interp_agreeOn W (VerifM.eval.wf heval).ownsWf hragree).1)
     iexact Howns
-  · iapply (PredTrans.apply_env_agree (TinyML.ValHasType W) hswf
+  · iapply (PredTrans.apply_agreeOn (TinyML.ValHasType W) hswf
       (Env.agreeOn_trans hag_base (Env.agreeOn_symm hagree)))
     iexact Happ
 

@@ -373,7 +373,7 @@ private theorem VerifM.eval_rec_preserves_wf (m : VerifM α) (st : TransState) (
       exact Env.agreeOn_update_fresh_const (c := ⟨w, t⟩) hfresh
     refine ⟨⟨?_, g.builtins.agree hwf.builtins hagree⟩, TransState.wf_freshConst _ hwf, h⟩
     intro φ hφ
-    exact (Formula.eval_env_agree (hwf.assertsWf φ hφ) hagree).mp (g.asserts φ hφ)
+    exact (Formula.eval_agreeOn (hwf.assertsWf φ hφ) hagree).mp (g.asserts φ hφ)
   | declUnaryRel hint τ =>
     simp only [VerifM.eval_rec] at h
     simp only [VerifM.eval_rec]
@@ -386,7 +386,7 @@ private theorem VerifM.eval_rec_preserves_wf (m : VerifM α) (st : TransState) (
     refine ⟨⟨?_, g.builtins.agree hwf.builtins hagree⟩,
       TransState.wf_addUnaryRel st _ hwf hfresh, h⟩
     intro φ hφ
-    exact (Formula.eval_env_agree (hwf.assertsWf φ hφ) hagree).mp (g.asserts φ hφ)
+    exact (Formula.eval_agreeOn (hwf.assertsWf φ hφ) hagree).mp (g.asserts φ hφ)
   | declBinaryRel hint τ₁ τ₂ =>
     simp only [VerifM.eval_rec] at h
     simp only [VerifM.eval_rec]
@@ -399,7 +399,7 @@ private theorem VerifM.eval_rec_preserves_wf (m : VerifM α) (st : TransState) (
     refine ⟨⟨?_, g.builtins.agree hwf.builtins hagree⟩,
       TransState.wf_addBinaryRel st _ hwf hfresh, h⟩
     intro φ hφ
-    exact (Formula.eval_env_agree (hwf.assertsWf φ hφ) hagree).mp (g.asserts φ hφ)
+    exact (Formula.eval_agreeOn (hwf.assertsWf φ hφ) hagree).mp (g.asserts φ hφ)
   | declUnary hint τ₁ τ₂ =>
     simp only [VerifM.eval_rec] at h
     simp only [VerifM.eval_rec]
@@ -412,7 +412,7 @@ private theorem VerifM.eval_rec_preserves_wf (m : VerifM α) (st : TransState) (
     refine ⟨⟨?_, g.builtins.agree hwf.builtins hagree⟩,
       TransState.wf_addUnary st _ hwf hfresh, h⟩
     intro φ hφ
-    exact (Formula.eval_env_agree (hwf.assertsWf φ hφ) hagree).mp (g.asserts φ hφ)
+    exact (Formula.eval_agreeOn (hwf.assertsWf φ hφ) hagree).mp (g.asserts φ hφ)
   | declBinary hint τ₁ τ₂ τ₃ =>
     simp only [VerifM.eval_rec] at h
     simp only [VerifM.eval_rec]
@@ -425,7 +425,7 @@ private theorem VerifM.eval_rec_preserves_wf (m : VerifM α) (st : TransState) (
     refine ⟨⟨?_, g.builtins.agree hwf.builtins hagree⟩,
       TransState.wf_addBinary st _ hwf hfresh, h⟩
     intro φ hφ
-    exact (Formula.eval_env_agree (hwf.assertsWf φ hφ) hagree).mp (g.asserts φ hφ)
+    exact (Formula.eval_agreeOn (hwf.assertsWf φ hφ) hagree).mp (g.asserts φ hφ)
   | declTernary hint τ₁ τ₂ τ₃ τ₄ =>
     simp only [VerifM.eval_rec] at h
     simp only [VerifM.eval_rec]
@@ -438,7 +438,7 @@ private theorem VerifM.eval_rec_preserves_wf (m : VerifM α) (st : TransState) (
     refine ⟨⟨?_, g.builtins.agree hwf.builtins hagree⟩,
       TransState.wf_addTernary st _ hwf hfresh, h⟩
     intro φ hφ
-    exact (Formula.eval_env_agree (hwf.assertsWf φ hφ) hagree).mp (g.asserts φ hφ)
+    exact (Formula.eval_agreeOn (hwf.assertsWf φ hφ) hagree).mp (g.asserts φ hφ)
   | assume item =>
     cases item with
     | pure φ =>

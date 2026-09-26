@@ -38,7 +38,7 @@ private theorem isDefined_mono (fn : SpecFn) (arg : Term .value) {ρ ρ' : Env}
     (hle : Env.le ρ ρ') (hdef : (fn.isDefined arg).eval ρ) :
     (fn.isDefined arg).eval ρ' := by
   simp only [SpecFn.isDefined, Formula.eval, UnPred.eval] at hdef ⊢
-  rw [← Term.eval_env_le hle arg]
+  rw [← Term.eval_le hle arg]
   exact hle.unaryRel .value (fn.defName) (arg.eval ρ) hdef
 
 end DefVal
@@ -119,7 +119,7 @@ private theorem toDefVal_mono (σ : Subst) (c : Expr) : DefVal.Mono (Expr.toDefV
       intro ρ ρ' hle hdef
       simp only [Expr.toDefVal, Formula.iteBool, Formula.eval] at hdef ⊢
       refine ⟨fun hcond => iht σ hle (hdef.1 ?_), fun hcond => ihe σ hle (hdef.2 ?_)⟩ <;>
-        rw [Term.eval_env_le hle] <;> exact hcond
+        rw [Term.eval_le hle] <;> exact hcond
 
 end Expr
 
@@ -564,7 +564,7 @@ private theorem encodeDefVal_eval_updateConst_res
       (SpecFn.Env.graphArg ρ sd.fn sd.x D F vin)
       ((SpecFn.Env.graphArg ρ sd.fn sd.x D F vin).updateConst .value sd.res vout) :=
     Env.agreeOn_update_fresh_const (c := ⟨sd.res, .value⟩) hfresh.resFresh_sigBothArg
-  exact ⟨(Formula.eval_env_agree hbody.2 hag).symm, (Term.eval_env_agree hbody.1 hag).symm⟩
+  exact ⟨(Formula.eval_agreeOn hbody.2 hag).symm, (Term.eval_agreeOn hbody.1 hag).symm⟩
 
 /-- The relational run environment and the three-symbol environment pinned at `x` and
 `res` agree on everything the relational body can read. -/
@@ -619,7 +619,7 @@ private theorem rel_body_eval_iff {R : ValRel}
       Relation.eval φ ρ sd.fn sd.x sd.res R vin vout := by
   have hφwf := encodeFormula_wfIn hlaw hΓ hΔ hfresh henc
   unfold Relation.eval
-  exact (Formula.eval_env_agree hφwf
+  exact (Formula.eval_agreeOn hφwf
     (rel_agreeOn_both (D := D) (F := F) hfresh vin vout)).symm
 
 /-- Reading the relational body at the graph of a func-form candidate gives the

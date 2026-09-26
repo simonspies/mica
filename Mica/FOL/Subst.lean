@@ -388,10 +388,10 @@ theorem Formula.eval_subst {σ : Subst} {ρ : Env} {φ : Formula} {Δ Δ' : Sign
         ((σ.eval ρ).updateConst τ y v) :=
       Subst.eval_bind_agreeOn (ρ := ρ) (Δ := Δ) (Δ' := Δ') hσ hsymbols hwfΔ hy'_fresh
     constructor <;> intro h v
-    · exact (Formula.eval_env_agree hwf_body (hagree v)).mp
+    · exact (Formula.eval_agreeOn hwf_body (hagree v)).mp
         ((hbody v).mp (by simpa [y', Signature.allNames_declVar_of_not_in hy'_fresh] using h v))
     · simpa [y', Signature.allNames_declVar_of_not_in hy'_fresh] using
-        (hbody v).mpr ((Formula.eval_env_agree hwf_body (hagree v)).mpr (h v))
+        (hbody v).mpr ((Formula.eval_agreeOn hwf_body (hagree v)).mpr (h v))
   | exists_ y τ φ ih =>
     simp only [Formula.subst, Formula.eval]
     let y' := Fresh.freshName Δ'.allNames y
@@ -407,10 +407,10 @@ theorem Formula.eval_subst {σ : Subst} {ρ : Env} {φ : Formula} {Δ Δ' : Sign
         ((σ.eval ρ).updateConst τ y v) :=
       Subst.eval_bind_agreeOn (ρ := ρ) (Δ := Δ) (Δ' := Δ') hσ hsymbols hwfΔ hy'_fresh
     constructor <;> rintro ⟨v, hv⟩ <;> refine ⟨v, ?_⟩
-    · exact (Formula.eval_env_agree hwf_body (hagree v)).mp
+    · exact (Formula.eval_agreeOn hwf_body (hagree v)).mp
         ((hbody v).mp (by simpa [y', Signature.allNames_declVar_of_not_in hy'_fresh] using hv))
     · simpa [y', Signature.allNames_declVar_of_not_in hy'_fresh] using
-        (hbody v).mpr ((Formula.eval_env_agree hwf_body (hagree v)).mpr hv)
+        (hbody v).mpr ((Formula.eval_agreeOn hwf_body (hagree v)).mpr hv)
 
 theorem Formula.subst_wfIn {φ : Formula} {σ : Subst} {Δ Δ' : Signature}
     (hφ : φ.wfIn Δ) (hσ : σ.wfIn Δ.vars Δ')

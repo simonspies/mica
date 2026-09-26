@@ -50,7 +50,7 @@ theorem Expr.toFormula_mono (res : String) (c : Expr) :
   | ret v =>
       intro ρ ρ' hle h
       simp only [toFormula, Formula.eval] at h ⊢
-      rw [← Term.eval_env_le hle, ← Term.eval_env_le hle]; exact h
+      rw [← Term.eval_le hle, ← Term.eval_le hle]; exact h
   | call fn arg r c ih =>
       intro ρ ρ' hle h
       simp only [toFormula, Formula.eval] at h ⊢
@@ -59,16 +59,16 @@ theorem Expr.toFormula_mono (res : String) (c : Expr) :
       simp only [SpecFn.relates, Formula.eval, BinPred.eval] at hcall ⊢
       have hleU : Env.le (ρ.updateConst .value r w) (ρ'.updateConst .value r w) :=
         Env.le.updateConst hle .value r w
-      rw [← Term.eval_env_le hleU, ← Term.eval_env_le hleU]
+      rw [← Term.eval_le hleU, ← Term.eval_le hleU]
       exact hleU.binaryRel _ _ _ _ _ hcall
   | ite cond t e iht ihe =>
       intro ρ ρ' hle h
       simp only [toFormula, Formula.iteBool, Formula.eval] at h ⊢
       constructor
       · intro hcond
-        exact iht hle (h.1 (by rw [Term.eval_env_le hle]; exact hcond))
+        exact iht hle (h.1 (by rw [Term.eval_le hle]; exact hcond))
       · intro hcond
-        exact ihe hle (h.2 (by rw [Term.eval_env_le hle]; exact hcond))
+        exact ihe hle (h.2 (by rw [Term.eval_le hle]; exact hcond))
 
 /-! ## Determinism -/
 

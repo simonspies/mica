@@ -185,19 +185,19 @@ theorem Atom.wfIn_mono {p : Atom TinyML.Typ τ} {Δ Δ' : Signature}
   | rel name t =>
     exact ⟨Formula.wfIn_mono _ h.1 hmono hwf, Term.wfIn_mono _ h.2 hmono hwf⟩
 
-theorem Atom.eval_env_agree {V : TinyML.ValueRelation} {p : Atom TinyML.Typ τ}
+theorem Atom.eval_agreeOn {V : TinyML.ValueRelation} {p : Atom TinyML.Typ τ}
     {ρ ρ' : Env} {Δ : Signature} (v : τ.denote)
     (hwf : p.wfIn Δ) (hagree : Env.agreeOn Δ ρ ρ') : p.eval V ρ v ⊣⊢ p.eval V ρ' v := by
   cases p with
-  | isint t  => simp [Atom.eval, Term.eval_env_agree hwf hagree]
-  | isbool t => simp [Atom.eval, Term.eval_env_agree hwf hagree]
-  | isinj tag arity t => simp [Atom.eval, Term.eval_env_agree hwf hagree]
-  | own l ty => simp [Atom.eval, Term.eval_env_agree hwf hagree]
-  | arr a ty => simp [Atom.eval, Term.eval_env_agree hwf hagree]
+  | isint t  => simp [Atom.eval, Term.eval_agreeOn hwf hagree]
+  | isbool t => simp [Atom.eval, Term.eval_agreeOn hwf hagree]
+  | isinj tag arity t => simp [Atom.eval, Term.eval_agreeOn hwf hagree]
+  | own l ty => simp [Atom.eval, Term.eval_agreeOn hwf hagree]
+  | arr a ty => simp [Atom.eval, Term.eval_agreeOn hwf hagree]
   | rel name t =>
     simp only [Atom.eval]
-    rw [(Formula.eval_env_agree hwf.1 hagree),
-        Term.eval_env_agree hwf.2 hagree]
+    rw [(Formula.eval_agreeOn hwf.1 hagree),
+        Term.eval_agreeOn hwf.2 hagree]
     exact .rfl
 
 omit [MicaGS HasLC.hasLC Sig] in

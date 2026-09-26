@@ -396,7 +396,7 @@ private theorem SpecFn.Axioms.all_eval_updateBinaryRel {sd : SpecDef} {ρ : Env}
           .value .value sd.fn.relName R) :=
     Env.agreeOn_update_fresh_binaryRel
       (b := sd.fn.rel) hrelFresh_small
-  exact (Formula.eval_env_agree hax_wf hagree).mp hbase
+  exact (Formula.eval_agreeOn hax_wf hagree).mp hbase
 
 /-- Agreement of the three symbols at the newly declared relation. -/
 theorem encode_agreement {sd : SpecDef} {ρ : Env} {bv : DefVal} {axs : List Axiom}

@@ -128,7 +128,7 @@ theorem GhostFns.wellTyped.step {W : TinyML.World} {Δ Δ' : Signature} {ρ ρ' 
   | some g =>
     obtain ⟨hrank, hmwf, hreal⟩ := h
     exact ⟨Term.wfIn_mono _ hrank hΔ hwf, hmwf,
-      Term.eval_env_agree hrank hρ ▸ hreal⟩
+      Term.eval_agreeOn hrank hρ ▸ hreal⟩
 
 /-- Strong induction on the rank. The type assignment is quantified inside the
     induction because a recursive call is checked at every one of them. -/
@@ -221,7 +221,7 @@ def Bindings.wfIn (B : Bindings) (decls : Signature) : Prop :=
   ∀ p ∈ B, p.2 ∈ decls.consts
 
 omit [MicaGS HasLC.hasLC Sig] in
-theorem Bindings.agreeOnLinked_env_agree {B : Bindings} {decls : Signature} {ρ ρ' : Env} {γ : Runtime.Subst}
+theorem Bindings.agreeOnLinked_agreeOn {B : Bindings} {decls : Signature} {ρ ρ' : Env} {γ : Runtime.Subst}
     (hagr : B.agreeOnLinked ρ γ) (henv : Env.agreeOn decls ρ ρ')
     (hwf : B.wfIn decls) : B.agreeOnLinked ρ' γ := by
   intro x x' hmem

@@ -159,7 +159,7 @@ theorem wp_ref (W : TinyML.World) {v : Runtime.Val} {Q : Runtime.Val → iProp}
     let a : SpatialAtom := .pointsTo (.const (.uninterpreted name .value)) vt ty
     have hagree : Env.agreeOn Δ ρ ρ' := Env.agreeOn_update_fresh_const (c := ⟨name, .value⟩) hfresh
     have hctxeq : ctx.interp W ρ ⊢ ctx.interp W ρ' := by
-      exact (SpatialContext.interp_env_agree W hctx hagree).1
+      exact (SpatialContext.interp_agreeOn W hctx hagree).1
     have hveq : Term.eval ρ' vt = v := by
       simpa [ρ'] using (Term.eval_update_fresh (t := vt) hvt hfresh).trans hv
     have hloc : Term.eval ρ' (.const (.uninterpreted name .value)) = .loc loc := by

@@ -396,17 +396,17 @@ def Formula.eval (ρ : Env) : Formula → Prop
   | .forall_ x τ _ φ => ∀ v : τ.denote, φ.eval (ρ.updateConst τ x v)
   | .exists_ x τ φ => ∃ v : τ.denote, φ.eval (ρ.updateConst τ x v)
 
-theorem Formula.eval_env_agree {φ : Formula} {ρ ρ' : Env} {Δ : Signature} :
+theorem Formula.eval_agreeOn {φ : Formula} {ρ ρ' : Env} {Δ : Signature} :
     φ.wfIn Δ → Env.agreeOn Δ ρ ρ' → (φ.eval ρ ↔ φ.eval ρ') := by
   intro hwf hagree
   induction φ generalizing Δ ρ ρ' with
   | true_ | false_ => rfl
   | eq τ a b =>
     simp only [Formula.eval]
-    rw [Term.eval_env_agree hwf.1 hagree, Term.eval_env_agree hwf.2 hagree]
+    rw [Term.eval_agreeOn hwf.1 hagree, Term.eval_agreeOn hwf.2 hagree]
   | unpred p v =>
     simp only [Formula.eval]
-    rw [Term.eval_env_agree hwf.2 hagree]
+    rw [Term.eval_agreeOn hwf.2 hagree]
     cases p with
     | uninterpreted name τ =>
       simp only [UnPred.eval]
@@ -415,7 +415,7 @@ theorem Formula.eval_env_agree {φ : Formula} {ρ ρ' : Env} {Δ : Signature} :
     | _ => rfl
   | binpred p a b =>
     simp only [Formula.eval]
-    rw [Term.eval_env_agree hwf.2.1 hagree, Term.eval_env_agree hwf.2.2 hagree]
+    rw [Term.eval_agreeOn hwf.2.1 hagree, Term.eval_agreeOn hwf.2.2 hagree]
     cases p with
     | uninterpreted name τ₁ τ₂ =>
       simp only [BinPred.eval]
@@ -454,4 +454,4 @@ theorem Formula.eq_eval_updateConst_of_fresh {Δ : Signature} {ρ : Env}
     (Formula.eq c.sort (.const (.uninterpreted c.name c.sort)) t).eval
       (ρ.updateConst c.sort c.name (t.eval ρ)) := by
   simp only [Formula.eval, Term.eval_const_updateConst]
-  exact Term.eval_env_agree ht (Env.agreeOn_update_fresh_const hfresh)
+  exact Term.eval_agreeOn ht (Env.agreeOn_update_fresh_const hfresh)

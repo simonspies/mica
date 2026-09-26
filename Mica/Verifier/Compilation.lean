@@ -186,7 +186,7 @@ theorem compileProductBindersFrom_length {B : Bindings} {Γ : TinyML.TyCtx}
                 have hagree_head : Env.agreeOn st.decls ρ
                     (ρ.updateConst .value x'.name ((Term.unop UnOp.vhead tl).eval ρ)) :=
                   Env.agreeOn_update_fresh_const hfresh
-                have hhead_same := Term.eval_env_agree hhead_wf hagree_head
+                have hhead_same := Term.eval_agreeOn hhead_wf hagree_head
                 simpa [Formula.eval, Term.eval, Const.denote, Env.updateConst]
                   using hhead_same
               have hrec_eval := hassume hwf hholds

@@ -658,8 +658,8 @@ theorem compileGhostBinop_correct (reg : Verifier.Registry)
   obtain ⟨hdecls_r, hagreeOn_r, hΨ_r⟩ := hΨ_r
   have hag_r := hag.step hdecls_r hagreeOn_r
   have hGf_r := hGf.step hdecls_r hagreeOn_r (VerifM.eval.wf hΨ_r).namesDisjoint
-  have hagree_r := Bindings.agreeOnLinked_env_agree hagree hagreeOn_r hbwf
-  have hgagree_r := Bindings.agreeOnLinked_env_agree hgagree hagreeOn_r hgwf
+  have hagree_r := Bindings.agreeOnLinked_agreeOn hagree hagreeOn_r hbwf
+  have hgagree_r := Bindings.agreeOnLinked_agreeOn hgagree hagreeOn_r hgwf
   have hbwf_r : B.wfIn st₁.decls := fun p hp => hdecls_r.consts _ (hbwf p hp)
   have hgwf_r : G.wfIn st₁.decls := fun p hp => hdecls_r.consts _ (hgwf p hp)
   have heval_l := VerifM.eval_bind hΨ_r
@@ -673,7 +673,7 @@ theorem compileGhostBinop_correct (reg : Verifier.Registry)
   obtain ⟨ty, htypeOf, hΨ_l⟩ := VerifM.eval_bind_expectSome hΨ_l
   obtain ⟨hty_eq, hΨ_l'⟩ := VerifM.eval_bind_expectEq hΨ_l
   have hsr_ρ_l : sr.eval ρ_l = vr := by
-    rw [Term.eval_env_agree hsr_wf (Env.agreeOn_symm hagreeOn_l)]
+    rw [Term.eval_agreeOn hsr_wf (Env.agreeOn_symm hagreeOn_l)]
     exact heval_sr
   by_cases hdivmod : op = .div ∨ op = .mod
   · have hΨ_div :
@@ -931,8 +931,8 @@ theorem compileGhostArrayGet_correct (reg : Verifier.Registry) (arr idx : Expr)
     obtain ⟨hdecls_idx, hagreeOn_idx, hΨ_idx⟩ := hΨ_idx
     have hag_idx := hag.step hdecls_idx hagreeOn_idx
     have hGf_idx := hGf.step hdecls_idx hagreeOn_idx (VerifM.eval.wf hΨ_idx).namesDisjoint
-    have hagree_idx := Bindings.agreeOnLinked_env_agree hagree hagreeOn_idx hbwf
-    have hgagree_idx := Bindings.agreeOnLinked_env_agree hgagree hagreeOn_idx hgwf
+    have hagree_idx := Bindings.agreeOnLinked_agreeOn hagree hagreeOn_idx hbwf
+    have hgagree_idx := Bindings.agreeOnLinked_agreeOn hgagree hagreeOn_idx hgwf
     have hbwf_idx : B.wfIn st₁.decls := fun p hp => hdecls_idx.consts _ (hbwf p hp)
     have hgwf_idx : G.wfIn st₁.decls := fun p hp => hdecls_idx.consts _ (hgwf p hp)
     have heval_arr := VerifM.eval_bind hΨ_idx
@@ -1030,8 +1030,8 @@ theorem compileGhostLetIn_correct (reg : Verifier.Registry)
   intro v st₁ ρ₁ t hΨ ht_wf ht_eval
   obtain ⟨hdecls, hagreeOn, hΨ⟩ := hΨ
   obtain ⟨_, hΨ⟩ := VerifM.eval_bind_expectEq hΨ
-  have hagree₁ := Bindings.agreeOnLinked_env_agree hagree hagreeOn hbwf
-  have hgagree₁ := Bindings.agreeOnLinked_env_agree hgagree hagreeOn hgwf
+  have hagree₁ := Bindings.agreeOnLinked_agreeOn hagree hagreeOn hbwf
+  have hgagree₁ := Bindings.agreeOnLinked_agreeOn hgagree hagreeOn hgwf
   have hbwf₁ : B.wfIn st₁.decls := fun p hp => hdecls.consts _ (hbwf p hp)
   have hgwf₁ : G.wfIn st₁.decls := fun p hp => hdecls.consts _ (hgwf p hp)
   have hag₁ := hag.step hdecls hagreeOn
@@ -1073,7 +1073,7 @@ theorem compileGhostLetIn_correct (reg : Verifier.Registry)
           (Formula.eq_wfIn_addConst_of_fresh (Δ := st₁.decls) (c := x') hstwf ht_wf hfresh)
       · simp only [Formula.eval, Term.eval, Const.denote]
         have : v = Term.eval ρ₂ t := by
-          rw [Term.eval_env_agree ht_wf (Env.agreeOn_symm hagreeOn₂)]
+          rw [Term.eval_agreeOn ht_wf (Env.agreeOn_symm hagreeOn₂)]
           exact ht_eval.symm
         simpa [ρ₂, Env.updateConst] using this
     have hρ₂_lookup : ρ₂.consts .value x'.name = v := by simp [ρ₂, Env.updateConst]
@@ -1094,7 +1094,7 @@ theorem compileGhostLetIn_correct (reg : Verifier.Registry)
       rwa [hρ₂_lookup] at h
     have hagree₂ : Bindings.agreeOnLinked (B.remove x) ρ₂ γ :=
       Bindings.agreeOnLinked_remove
-        (Bindings.agreeOnLinked_env_agree hagree₁ hagreeOn₂ hbwf₁) x
+        (Bindings.agreeOnLinked_agreeOn hagree₁ hagreeOn₂ hbwf₁) x
     have hgwf₂ : Bindings.wfIn ((x, x') :: G) st₂.decls := Bindings.wfIn_cons hgwf₁
     have hbwf₂ : Bindings.wfIn (B.remove x) st₂.decls := fun p hp =>
       (Signature.Subset.subset_addConst st₁.decls x').consts _
@@ -1113,7 +1113,7 @@ theorem compileGhostLetIn_correct (reg : Verifier.Registry)
             hΨ'.2.2⟩ hs hw))
     have hinterp_eq : SpatialContext.interp W ρ₁ st₁.owns ⊢
         SpatialContext.interp W ρ₂ st₁.owns :=
-      (SpatialContext.interp_env_agree W (VerifM.eval.wf hΨ).ownsWf hagreeOn₂).1
+      (SpatialContext.interp_agreeOn W (VerifM.eval.wf hΨ).ownsWf hagreeOn₂).1
     iintro ⟨Howns, Hv, #HT, HR⟩
     isplitl [Howns]
     · simp only [TransState.sl_eq]
@@ -1236,7 +1236,7 @@ theorem compileGhostProductBindersFrom_correct (reg : Verifier.Registry) (W : Ti
                   (Formula.eq .value (.const (.uninterpreted x'.name .value))
                     (Term.unop UnOp.vhead tl)).eval ρ₁ := by
                 have hval_same : v = (Term.unop UnOp.vhead tl).eval ρ₁ :=
-                  hhead_eval.symm.trans (Term.eval_env_agree hhead_wf hagreeOn_body)
+                  hhead_eval.symm.trans (Term.eval_agreeOn hhead_wf hagreeOn_body)
                 simpa [Formula.eval, Term.eval, Const.denote, ρ₁, Env.updateConst]
                   using hval_same
               have hrec_eval := hassume hformula_wf hformula_eval
@@ -1265,7 +1265,7 @@ theorem compileGhostProductBindersFrom_correct (reg : Verifier.Registry) (W : Ti
                 simpa [st₂, st₁] using Bindings.wfIn_cons hgwf
               have hagree₁ : Bindings.agreeOnLinked (B.remove x) ρ₁ γ :=
                 Bindings.agreeOnLinked_remove
-                  (Bindings.agreeOnLinked_env_agree hagree hagreeOn_body hbwf) x
+                  (Bindings.agreeOnLinked_agreeOn hagree hagreeOn_body hbwf) x
               have hbwf₁ : Bindings.wfIn (B.remove x) st₂.decls := fun p hp =>
                 (Signature.Subset.subset_addConst st.decls x').consts _
                   (hbwf p (Bindings.mem_of_mem_remove hp))
@@ -1285,7 +1285,7 @@ theorem compileGhostProductBindersFrom_correct (reg : Verifier.Registry) (W : Ti
                     (Signature.wf_addConst (VerifM.eval.wf hdecl_eval).namesDisjoint hfresh)
                   simpa [st₂, st₁] using htail_wf₁)
                 (by
-                  rw [Term.eval_env_agree htail_wf (Env.agreeOn_symm hagreeOn_body)]
+                  rw [Term.eval_agreeOn htail_wf (Env.agreeOn_symm hagreeOn_body)]
                   exact htail_eval)
                 hpost
               refine BIBase.Entails.trans ?_ hrec
@@ -1294,7 +1294,7 @@ theorem compileGhostProductBindersFrom_correct (reg : Verifier.Registry) (W : Ti
               icases Hpair with ⟨Hv, Hvs⟩
               have hinterp_eq : SpatialContext.interp W ρ st.owns ⊢
                   SpatialContext.interp W ρ₁ st.owns :=
-                (SpatialContext.interp_env_agree W (VerifM.eval.wf hdecl_eval).ownsWf
+                (SpatialContext.interp_agreeOn W (VerifM.eval.wf hdecl_eval).ownsWf
                   (Env.agreeOn_update_fresh_const hfresh)).1
               isplitl [Hsl]
               · simp only [TransState.sl_eq]
@@ -1327,8 +1327,8 @@ theorem compileGhostLetProd_correct (reg : Verifier.Registry)
   | tuple tys =>
       simp [hty] at hΨ_e
       have hprod_eval := VerifM.eval_bind (VerifM.eval_ret (VerifM.eval_bind hΨ_e))
-      have hagree_e := Bindings.agreeOnLinked_env_agree hagree hagreeOn_e hbwf
-      have hgagree_e := Bindings.agreeOnLinked_env_agree hgagree hagreeOn_e hgwf
+      have hagree_e := Bindings.agreeOnLinked_agreeOn hagree hagreeOn_e hbwf
+      have hgagree_e := Bindings.agreeOnLinked_agreeOn hgagree hagreeOn_e hgwf
       have hbwf_e : B.wfIn st₁.decls := fun p hp => hdecls_e.consts _ (hbwf p hp)
       have hgwf_e : G.wfIn st₁.decls := fun p hp => hdecls_e.consts _ (hgwf p hp)
       have hag_e := hag.step hdecls_e hagreeOn_e
@@ -1369,8 +1369,8 @@ theorem compileGhostIfThenElse_correct (reg : Verifier.Registry)
         (VerifM.eval.decls_grow ρ (VerifM.eval_bind heval)) ?_))
   intro v_c st₁ ρ_c sc hΨ_c hsc_wf heval_c
   obtain ⟨hdecls_c, hagreeOn_c, hΨ_c⟩ := hΨ_c
-  have hagree_c := Bindings.agreeOnLinked_env_agree hagree hagreeOn_c hbwf
-  have hgagree_c := Bindings.agreeOnLinked_env_agree hgagree hagreeOn_c hgwf
+  have hagree_c := Bindings.agreeOnLinked_agreeOn hagree hagreeOn_c hbwf
+  have hgagree_c := Bindings.agreeOnLinked_agreeOn hgagree hagreeOn_c hgwf
   have hbwf_c : B.wfIn st₁.decls := fun p hp => hdecls_c.consts _ (hbwf p hp)
   have hgwf_c : G.wfIn st₁.decls := fun p hp => hdecls_c.consts _ (hgwf p hp)
   have hag_c := hag.step hdecls_c hagreeOn_c
@@ -1483,8 +1483,8 @@ theorem compileGhostApp_correct (reg : Verifier.Registry) (hSound : reg.Sound)
       have hag_args := hag.step hdecls_args hagreeOn_args
       have hGf_args := hGf.step hdecls_args hagreeOn_args
         (VerifM.eval.wf hΨ_args).namesDisjoint
-      have hagree_args := Bindings.agreeOnLinked_env_agree hagree hagreeOn_args hbwf
-      have hgagree_args := Bindings.agreeOnLinked_env_agree hgagree hagreeOn_args hgwf
+      have hagree_args := Bindings.agreeOnLinked_agreeOn hagree hagreeOn_args hbwf
+      have hgagree_args := Bindings.agreeOnLinked_agreeOn hgagree hagreeOn_args hgwf
       have hbwf_args : B.wfIn st_args.decls := fun p hp => hdecls_args.consts _ (hbwf p hp)
       have hgwf_args : G.wfIn st_args.decls := fun p hp => hdecls_args.consts _ (hgwf p hp)
       have hlen_sargs : sargs.length = vs.length := by
@@ -1568,7 +1568,7 @@ theorem compileGhostApp_correct (reg : Verifier.Registry) (hSound : reg.Sound)
       -- made in; the ghost arguments were compiled there, so they need no transport.
       have heval_sargs_map : typedArgs.map (fun p => p.2.eval ρ_g) = vs := by
         refine Eq.trans (List.map_congr_left fun p hp => ?_) heval_args_map
-        exact Term.eval_env_agree (hsargs_wf _ (List.of_mem_zip hp).2)
+        exact Term.eval_agreeOn (hsargs_wf _ (List.of_mem_zip hp).2)
           (Env.agreeOn_symm hagreeOn_g)
       have happly' :
           st_g.sl W ρ_g ∗ R ⊢
@@ -1612,7 +1612,7 @@ theorem compileGhostApp_correct (reg : Verifier.Registry) (hSound : reg.Sound)
             rw [← hlen_g, List.Forall₂.length_eq hterms_eval]
           have hdenote : g.measure.denote s ρ_g vs gs = g.measure.denote s W.ρ_spec vs gs := by
             simp only [Typed.Measure.denote]
-            rw [Term.eval_env_agree hmwf
+            rw [Term.eval_agreeOn hmwf
               (Spec.argsEnv_agreeOn (Env.agreeOn_symm hagree_ρ_g) s.allArgs (vs ++ gs) hlenargs)]
           simp only [GhostFns.Guard.condition, Formula.eval, Term.eval, BinPred.eval,
             Const.denote] at hcond
@@ -1764,8 +1764,8 @@ theorem compileGhostMatch_correct (reg : Verifier.Registry)
         have hag_scrut := hag.step hdecls_scrut hagreeOn_scrut
         have hGf_scrut := hGf.step hdecls_scrut hagreeOn_scrut
           (VerifM.eval.wf hΨ_scrut).namesDisjoint
-        have hagree_scrut := Bindings.agreeOnLinked_env_agree hagree hagreeOn_scrut hbwf
-        have hgagree_scrut := Bindings.agreeOnLinked_env_agree hgagree hagreeOn_scrut hgwf
+        have hagree_scrut := Bindings.agreeOnLinked_agreeOn hagree hagreeOn_scrut hbwf
+        have hgagree_scrut := Bindings.agreeOnLinked_agreeOn hgagree hagreeOn_scrut hgwf
         have hbwf_scrut : B.wfIn st_scrut.decls := fun p hp => hdecls_scrut.consts _ (hbwf p hp)
         have hgwf_scrut : G.wfIn st_scrut.decls := fun p hp => hdecls_scrut.consts _ (hgwf p hp)
         iintro ⟨Hsl, Hscrut, #HT, HR⟩
@@ -1841,14 +1841,14 @@ theorem compileGhostSingleBranch_correct (reg : Verifier.Registry)
   have hformula_eval : Formula.eval ρ₁
       (Formula.eq .value sc (.unop (.ofInj i n) (.const (.uninterpreted xv.name .value)))) := by
     simp [Formula.eval, Term.eval, UnOp.eval]
-    rw [Term.eval_env_agree hsc_wf (Env.agreeOn_symm hagreeOn_st), hsc_eval]
+    rw [Term.eval_agreeOn hsc_wf (Env.agreeOn_symm hagreeOn_st), hsc_eval]
     simp [ρ₁, Env.updateConst]
   have heval_assumeAll :=
     VerifM.eval_assumePure (VerifM.eval_bind (hdecl payload)) hformula_wf hformula_eval
   have hxv_eval : (Term.const (.uninterpreted xv.name .value)).eval ρ₁ = payload := by
     simp [Term.eval, Const.denote, ρ₁, Env.updateConst]
   have hinterp_eq : SpatialContext.interp W ρ st.owns ⊢ SpatialContext.interp W ρ₁ st.owns :=
-    (SpatialContext.interp_env_agree W (VerifM.eval.wf heval_decl).ownsWf
+    (SpatialContext.interp_agreeOn W (VerifM.eval.wf heval_decl).ownsWf
       (Env.agreeOn_update_fresh_const hxv_fresh)).1
   istart
   iintro ⟨Howns, Hpay, #HT, HR⟩
@@ -1867,9 +1867,9 @@ theorem compileGhostSingleBranch_correct (reg : Verifier.Registry)
   | none =>
     simp [hname] at heval_body'
     have hagree₁ : B.agreeOnLinked ρ₁ γ :=
-      Bindings.agreeOnLinked_env_agree hagree hagreeOn_st hbwf
+      Bindings.agreeOnLinked_agreeOn hagree hagreeOn_st hbwf
     have hgagree₁ : G.agreeOnLinked ρ₁ γg :=
-      Bindings.agreeOnLinked_env_agree hgagree hagreeOn_st hgwf
+      Bindings.agreeOnLinked_agreeOn hgagree hagreeOn_st hgwf
     have hbwf₁ : B.wfIn st₂.decls := hst₂_decls ▸ fun p hp => List.Mem.tail _ (hbwf p hp)
     have hgwf₁ : G.wfIn st₂.decls := hst₂_decls ▸ fun p hp => List.Mem.tail _ (hgwf p hp)
     have hag₁ := hag.step (Signature.Subset.subset_addConst st.decls xv) hagreeOn_st
@@ -1911,7 +1911,7 @@ theorem compileGhostSingleBranch_correct (reg : Verifier.Registry)
     have hgwf₂ : Bindings.wfIn ((x, xv) :: G) st₂.decls := hst₂_decls ▸ Bindings.wfIn_cons hgwf
     have hagree₁ : Bindings.agreeOnLinked (B.remove x) ρ₁ γ :=
       Bindings.agreeOnLinked_remove
-        (Bindings.agreeOnLinked_env_agree hagree hagreeOn_st hbwf) x
+        (Bindings.agreeOnLinked_agreeOn hagree hagreeOn_st hbwf) x
     have hbwf₂ : Bindings.wfIn (B.remove x) st₂.decls := hst₂_decls ▸ fun p hp =>
       List.Mem.tail _ (hbwf p (Bindings.mem_of_mem_remove hp))
     have hag₁ := hag.step (Signature.Subset.subset_addConst st.decls xv) hagreeOn_st
@@ -2000,8 +2000,8 @@ theorem compileGhostExprsCons_correct (reg : Verifier.Registry)
   have hag_rest := hag.step hdecls_rest hagreeOn_rest
   have hGf_rest := hGf.step hdecls_rest hagreeOn_rest
     (VerifM.eval.wf hΨ_rest).namesDisjoint
-  have hgagree_rest := Bindings.agreeOnLinked_env_agree hgagree hagreeOn_rest hgwf
-  have hagree_rest := Bindings.agreeOnLinked_env_agree hagree hagreeOn_rest hbwf
+  have hgagree_rest := Bindings.agreeOnLinked_agreeOn hgagree hagreeOn_rest hgwf
+  have hagree_rest := Bindings.agreeOnLinked_agreeOn hagree hagreeOn_rest hbwf
   have hgwf_rest : G.wfIn st_rest.decls := fun p hp => hdecls_rest.consts _ (hgwf p hp)
   have hbwf_rest : B.wfIn st_rest.decls := fun p hp => hdecls_rest.consts _ (hbwf p hp)
   have heval_e := VerifM.eval_bind hΨ_rest
@@ -2459,7 +2459,7 @@ private theorem constTerms_eval {ρ : Env} :
 
 omit [MicaGS HasLC.hasLC Sig] in
 /-- Argument constants keep their values as the verifier state grows. -/
-private theorem constLookups_env_agree {Δ : Signature} {ρ ρ' : Env}
+private theorem constLookups_agreeOn {Δ : Signature} {ρ ρ' : Env}
     (hagree : Env.agreeOn Δ ρ ρ') :
     ∀ {vars : List Decl.Const} {vals : List Runtime.Val},
       (∀ v ∈ vars, v ∈ Δ.consts) → (∀ v ∈ vars, v.sort = .value) →
@@ -2469,7 +2469,7 @@ private theorem constLookups_env_agree {Δ : Signature} {ρ ρ' : Env}
   | a :: rest, _, hmem, hsort, h => by
     cases h with
     | cons hhead htail =>
-      refine .cons ?_ (constLookups_env_agree hagree
+      refine .cons ?_ (constLookups_agreeOn hagree
         (fun c hc => hmem c (.tail _ hc)) (fun c hc => hsort c (.tail _ hc)) htail)
       have hc := hagree.consts a (hmem a (.head _))
       rw [hsort a (.head _)] at hc
@@ -2532,9 +2532,9 @@ private theorem ValDecl.checkGhostRank_correct (reg : Verifier.Registry) (hSound
           (Env.agreeOn_mono hst_sub hρ_agree')))
         hGf' hlen_args
         (fun v hv => hst_sub'.consts v (hargVars_mem v hv)) hargVars_sort
-        (constLookups_env_agree hρ_agree' hargVars_mem hargVars_sort hargVars_lookup)
+        (constLookups_agreeOn hρ_agree' hargVars_mem hargVars_sort hargVars_lookup)
         (fun v hv => hst_sub'.consts v (hghostVars_mem v hv)) hghostVars_sort
-        (constLookups_env_agree hρ_agree' hghostVars_mem hghostVars_sort hghostVars_lookup)
+        (constLookups_agreeOn hρ_agree' hghostVars_mem hghostVars_sort hghostVars_lookup)
         hrest)
       isplitl [Hsl]
       · iapply hsl_step
@@ -2553,7 +2553,7 @@ private theorem ValDecl.checkGhostRank_correct (reg : Verifier.Registry) (hSound
         · iexact Hgvals
         · have hlen_call : s.allArgs.length ≤ (vs ++ gs).length := by
             simp [Spec.allArgs]; omega
-          iapply (PredTrans.apply_env_agree (TinyML.ValHasType W)
+          iapply (PredTrans.apply_agreeOn (TinyML.ValHasType W)
             (ρ := Spec.argsEnv ρ_call s.allArgs (vs ++ gs))
             (ρ' := Spec.argsEnv W.ρ_spec s.allArgs (vs ++ gs)) hswf
             (Spec.argsEnv_agreeOn (Δ := W.Δ_spec) (ρ₁ := ρ_call) (ρ₂ := W.ρ_spec)
@@ -2687,7 +2687,7 @@ theorem ValDecl.prove_correct (reg : Verifier.Registry) (hSound : reg.Sound)
             Formula.eq_wfIn_addConst_of_fresh (Δ := st₁.decls) (c := rv) hstwf hm_wf hfresh
           have hφ_eval : (Formula.eq .int (.const (.uninterpreted rv.name .int)) m).eval ρ₂ := by
             simp only [Formula.eval, Term.eval_const_updateConst, hρ₂_def]
-            exact Term.eval_env_agree hm_wf hagree₂
+            exact Term.eval_agreeOn hm_wf hagree₂
           have hev := VerifM.eval_assumePure (VerifM.eval_bind hev) hφ_wf hφ_eval
           have hr_wf : (Term.const (.uninterpreted rv.name .int) : Term .int).wfIn st₂.decls :=
             Term.const_wfIn_addConst_of_fresh (Δ := st₁.decls) (c := rv) hstwf hfresh
@@ -2695,12 +2695,12 @@ theorem ValDecl.prove_correct (reg : Verifier.Registry) (hSound : reg.Sound)
               measure.denote s W.ρ_spec vs gs := by
             simp only [Term.eval_const_updateConst, hρ₂_def, Typed.Measure.denote]
             rw [Spec.eval_argSubst (Δ := W.Δ_spec) hlen_terms hterms_eval measure.term hmeasure_wf,
-              Term.eval_env_agree hmeasure_wf (Spec.argsEnv_agreeOn (Δ := W.Δ_spec)
+              Term.eval_agreeOn hmeasure_wf (Spec.argsEnv_agreeOn (Δ := W.Δ_spec)
                 (Env.agreeOn_symm hag₁.agree) s.allArgs (vs ++ gs) hlen_call)]
           have hΨ := VerifM.eval_ret hev
           refine ⟨_, _, ρ₂, ?_, hagree₂, ?_, ?_, hΨ⟩
           · exact hsub₂
-          · exact (SpatialContext.interp_env_agree _ hownsWf hagree₂).1
+          · exact (SpatialContext.interp_agreeOn _ hownsWf hagree₂).1
           intro η'' f'' argTys'' retTy'' s'' guard'' hlookup''
           by_cases hg : f'' = g
           · subst hg

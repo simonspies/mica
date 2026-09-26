@@ -760,7 +760,7 @@ theorem axioms_eval {ρ : Env}
   have htrans : ∀ (φ : Formula), φ.wfIn (s.argScope Δ) →
       ∀ v, φ.eval ((s.extend body ρ).updateConst .value s.arg v) ↔
         φ.eval (ρ.updateConst .value s.arg v) :=
-    fun φ hwf v => (Formula.eval_env_agree hwf (Env.agreeOn_declVar hagree)).symm
+    fun φ hwf v => (Formula.eval_agreeOn hwf (Env.agreeOn_declVar hagree)).symm
   intro ax hmem
   simp only [axioms, List.mem_cons, List.not_mem_nil, or_false] at hmem
   rcases hmem with rfl | rfl

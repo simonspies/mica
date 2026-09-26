@@ -329,7 +329,7 @@ private theorem FiniteSubst.eval_agreeOn_range {σ : FiniteSubst} {ρ ρ' : Env}
   have hsymbols := hσ.srcSymbolSubset
   refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
   · intro v hv
-    exact Term.eval_env_agree (hσ.subst.1 v hv) hagree
+    exact Term.eval_agreeOn (hσ.subst.1 v hv) hagree
   · intro c hc
     have hnot : ⟨c.name, c.sort⟩ ∉ (Δ_base.declVars σ.dom).vars :=
       fun hv => Signature.wf_no_var_of_const hσ.srcWf hc hv
@@ -385,7 +385,7 @@ theorem FiniteSubst.rename_agreeOn {σ : FiniteSubst} {Δ_base Δ_use : Signatur
           ((σ.subst.eval ρ).updateConst v.sort v.name u).lookupConst w.sort w.name
         rw [Subst.apply_update_ne (Or.inl hwne'), Subst.apply_remove_ne hwne',
           Env.lookupConst_updateConst_ne' (Or.inl hwne'), Subst.eval_lookup]
-        exact (Term.eval_env_agree (hsubst.1 w hwsrc)
+        exact (Term.eval_agreeOn (hsubst.1 w hwsrc)
           (Env.agreeOn_update_fresh_const (c := ⟨name', v.sort⟩) hfresh)).symm
     · intro c hc
       simp [Signature.declVar, Signature.addVar] at hc
