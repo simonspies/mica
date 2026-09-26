@@ -29,15 +29,6 @@ def SMTLIB.declarations : String := "(declare-sort Other 0)
 ))
 (declare-const unit_val Other)
 
-;; Constraints for the under specified values (e.g., vtail of unit is vtail)
-(assert (forall ((v Value)) (! (=> (not ((_ is of_inj) v))
-  (and (= (tag_of v) 0) (= (arity_of v) 0) (= (payload_of v) (of_other unit_val))))
-  :pattern ((tag_of v)))))
-(assert (forall ((v Value)) (! (=> (not ((_ is of_tuple) v)) (= (to_tuple v) vnil))
-  :pattern ((to_tuple v)))))
-(assert (= (vhd vnil) (of_other unit_val)))
-(assert (= (vtl vnil) vnil))
-
 ;; A `Value` constructor would need to expose both length and location
 (declare-fun array_length (Value) Int)
 
@@ -257,3 +248,25 @@ def Formula.toSMTLIB : Formula → String
       | ps => s!"(! {φ.toSMTLIB} :pattern ({" ".intercalate (ps.map Pattern.toSMTLIB)}))"
     s!"(forall (({symbolToSMTLIB x} {τ.toSMTLIB})) {body})"
   | .exists_ x τ φ  => s!"(exists (({symbolToSMTLIB x} {τ.toSMTLIB})) {φ.toSMTLIB})"
+
+/-- The values that `UnOp.eval` gives outside the domain of an operation, in the
+cases where the solver does not leave them unspecified. -/
+def SMTLIB.defaults : List Formula :=
+  let v : Term .value := .var .value "v"
+  [ .forall_ "v" .value [.term (.unop .tagOf v)]
+      (.implies (.not (.unpred .isOfInj v))
+        (.and (.eq .int (.unop .tagOf v) (.const (.i 0)))
+          (.and (.eq .int (.unop .arityOf v) (.const (.i 0)))
+            (.eq .value (.unop .payloadOf v) (.const .unit))))),
+    .forall_ "v" .value [.term (.unop .toValList v)]
+      (.implies (.not (.unpred .isTuple v))
+        (.eq .vallist (.unop .toValList v) (.const .vnil))),
+    .eq .value (.unop .vhead (.const .vnil)) (.const .unit),
+    .eq .vallist (.unop .vtail (.const .vnil)) (.const .vnil) ]
+
+theorem SMTLIB.defaults_eval : ∀ φ ∈ SMTLIB.defaults, ∀ ρ : Env, φ.eval ρ := by
+  intro φ hφ ρ
+  simp only [SMTLIB.defaults, List.mem_cons, List.not_mem_nil, or_false] at hφ
+  rcases hφ with rfl | rfl | rfl | rfl <;>
+    simp [Formula.eval, Term.eval, UnOp.eval, UnPred.eval, Const.denote] <;>
+    intro v <;> cases v <;> simp

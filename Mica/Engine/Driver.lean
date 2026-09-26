@@ -24,13 +24,15 @@ structure Session where
 namespace Session
 
 /-- The SMT-LIB text every session starts with: the logic, the solver options,
-    and `SMTLIB.declarations`. -/
+    `SMTLIB.declarations`, and `SMTLIB.defaults`. -/
 def preamble (timeout : Nat) : String := s!"
 ;; preamble
 (set-logic ALL)
 {String.intercalate "\n" (List.map Options.Settable.toSMTLIB (Options.Settable.initial timeout))}
 
 {SMTLIB.declarations}
+{String.intercalate "\n" (SMTLIB.defaults.map fun φ => (Command.assert φ).toSMTLIB)}
+
 ;; verification
 "
 
