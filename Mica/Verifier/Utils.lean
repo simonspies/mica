@@ -302,7 +302,7 @@ the verifier assumes the equation `c = t[σ]`. These two lemmas supply its well-
 and its truth in the updated environment. -/
 
 theorem FiniteSubst.decl_eq_wfIn {σ : FiniteSubst} {Δ_base Δ_use : Signature}
-    {c : FOL.Const} {t : Term c.sort}
+    {c : Decl.Const} {t : Term c.sort}
     (hσ : σ.wfIn Δ_base Δ_use) (ht : t.wfIn (Δ_base.declVars σ.dom))
     (hfresh : c.name ∉ Δ_use.allNames) :
     (Formula.eq c.sort (.const (.uninterpreted c.name c.sort)) (t.subst σ.subst)).wfIn
@@ -310,7 +310,7 @@ theorem FiniteSubst.decl_eq_wfIn {σ : FiniteSubst} {Δ_base Δ_use : Signature}
   Formula.eq_wfIn_addConst_of_fresh hσ.useWf (FiniteSubst.subst_wfIn_term hσ ht) hfresh
 
 theorem FiniteSubst.decl_eq_eval {σ : FiniteSubst} {Δ_base Δ_use : Signature} {ρ : Env}
-    {c : FOL.Const} {t : Term c.sort}
+    {c : Decl.Const} {t : Term c.sort}
     (hσ : σ.wfIn Δ_base Δ_use) (ht : t.wfIn (Δ_base.declVars σ.dom))
     (hfresh : c.name ∉ Δ_use.allNames) :
     (Formula.eq c.sort (.const (.uninterpreted c.name c.sort)) (t.subst σ.subst)).eval

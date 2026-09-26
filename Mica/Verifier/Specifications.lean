@@ -69,7 +69,7 @@ def call (σ : FiniteSubst)
     declare a fresh variable, assume its type constraints, and rename in `σ`.
     Returns the final substitution and the list of declared argument variables. -/
 def declareImplArgs (σ : FiniteSubst) :
-    List String → List TinyML.Typ → VerifM (FiniteSubst × List FOL.Const)
+    List String → List TinyML.Typ → VerifM (FiniteSubst × List Decl.Const)
   | [], [] => pure (σ, [])
   | name :: names, ty :: tys => do
     let argVar ← VerifM.decl (some name) .value
@@ -83,7 +83,7 @@ def declareImplArgs (σ : FiniteSubst) :
     assume type constraints, then invoke `PredTrans.implement`. Dual to `call`.
     The argument types come from the enclosing arrow. -/
 def implement (Δ_base : Signature) (argTys : List TinyML.Typ) (s : Spec TinyML.Typ)
-    (body : List FOL.Const → List FOL.Const → VerifM (Term .value)) : VerifM Unit := do
+    (body : List Decl.Const → List Decl.Const → VerifM (Term .value)) : VerifM Unit := do
   let (σ, argVars) ← declareImplArgs (FiniteSubst.base Δ_base) s.args argTys
   let (σ', ghostVars) ← declareImplArgs σ (s.ghost.map Prod.fst) (s.ghost.map Prod.snd)
   PredTrans.implement σ' s.pred (body argVars ghostVars)
@@ -600,7 +600,7 @@ section ImplementCorrectness
 /-- Correctness payload for `declareImplArgs`. -/
 def DeclareImplArgs.Result (argNames : List String) (vs : List Runtime.Val)
     (Δ_base : Signature) (σ : FiniteSubst) (st : TransState) (ρ : Env)
-    (Ψ : (FiniteSubst × List FOL.Const) → TransState → Env → Prop) : Prop :=
+    (Ψ : (FiniteSubst × List Decl.Const) → TransState → Env → Prop) : Prop :=
   ∃ σ' implVars st' ρ', Ψ (σ', implVars) st' ρ' ∧
     σ'.wfIn Δ_base st'.decls ∧
     st.decls.Subset st'.decls ∧
@@ -618,7 +618,7 @@ def DeclareImplArgs.Result (argNames : List String) (vs : List Runtime.Val)
 theorem declareImplArgs_correct (W : TinyML.World) :
     ∀ (argNames : List String) (argTys : List TinyML.Typ) (vs : List Runtime.Val)
       (Δ_base : Signature) (σ : FiniteSubst) (st : TransState) (ρ : Env)
-      (Ψ : (FiniteSubst × List FOL.Const) → TransState → Env → Prop),
+      (Ψ : (FiniteSubst × List Decl.Const) → TransState → Env → Prop),
     argNames.length = argTys.length →
     σ.wfIn Δ_base st.decls →
     VerifM.eval (Spec.declareImplArgs σ argNames argTys) st ρ Ψ →
@@ -736,7 +736,7 @@ theorem declareImplArgs_correct (W : TinyML.World) :
 
 theorem implement_correct (W : TinyML.World)
     (argTys : List TinyML.Typ) (retTy : TinyML.Typ) (s : Spec TinyML.Typ)
-    (body : List FOL.Const → List FOL.Const → VerifM (Term .value))
+    (body : List Decl.Const → List Decl.Const → VerifM (Term .value))
     (st : TransState) (ρ : Env) (vs gs : List Runtime.Val)
     (Φ : Runtime.Val → iProp) (R : iProp) :
     s.args.length = argTys.length →
@@ -745,7 +745,7 @@ theorem implement_correct (W : TinyML.World)
     W.wf →
     W.agrees st.decls ρ →
     VerifM.eval (Spec.implement W.Δ_spec argTys s body) st ρ (fun _ _ _ => True) →
-    (∀ (argVars ghostVars : List FOL.Const) (st' : TransState) (ρ' : Env) (Q : iProp),
+    (∀ (argVars ghostVars : List Decl.Const) (st' : TransState) (ρ' : Env) (Q : iProp),
       st.decls.Subset st'.decls →
       Env.agreeOn st.decls ρ ρ' →
       (∀ v ∈ argVars, v ∈ st'.decls.consts) →

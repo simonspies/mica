@@ -30,8 +30,8 @@ weakest-precondition calculus. -/
 /-- The run-time bindings a specified function literal's body is compiled in:
     the closure's own binding, then its arguments, less the names its ghost
     parameters take. -/
-def fixBindings (self : Binder) (fv : FOL.Const) (B : Bindings)
-    (argNames : List String) (argVars : List FOL.Const)
+def fixBindings (self : Binder) (fv : Decl.Const) (B : Bindings)
+    (argNames : List String) (argVars : List Decl.Const)
     (ghostNames : List String) : Bindings :=
   Bindings.removeAll ((argNames.zip argVars).reverse ++ (match self.name with
     | some f => (f, fv) :: B
@@ -48,7 +48,7 @@ def fixGhostFns (self : Binder) (Gf : GhostFns)
 /-- The ghost bindings matching `fixBindings`: the specification's ghost
     parameters, over the ghost names the closure and its arguments shadow. -/
 def fixGhostBindings (self : Binder) (G : Bindings) (argNames : List String)
-    (ghostNames : List String) (ghostVars : List FOL.Const) : Bindings :=
+    (ghostNames : List String) (ghostVars : List Decl.Const) : Bindings :=
   (ghostNames.zip ghostVars).reverse ++ (match self.name with
     | some f => G.remove f
     | none => G).removeAll argNames
@@ -745,8 +745,8 @@ theorem compileFixBody_correct (reg : Verifier.Registry)
     (self : Binder) (args : List Binder) (retTy : TinyML.Typ) (s : Spec TinyML.Typ)
     (body : Expr) (ih : correctExpr reg body)
     (argNames : List String) (hext : extractArgNames args s.args = Except.ok argNames)
-    (fv : FOL.Const) (fval : Runtime.Val) (vs gs : List Runtime.Val) (P : Runtime.Val → iProp)
-    {argVars ghostVars : List FOL.Const} {st' : TransState} {ρ' : Env} {Q : iProp}
+    (fv : Decl.Const) (fval : Runtime.Val) (vs gs : List Runtime.Val) (P : Runtime.Val → iProp)
+    {argVars ghostVars : List Decl.Const} {st' : TransState} {ρ' : Env} {Q : iProp}
     (hwf : W.wf) (hls : ls.Sound W.Δ_spec W.ρ_spec)
     (hag : W.agrees st'.decls ρ')
     (hΔreg : Verifier.Registry.symSubset reg W.Δ_spec)
@@ -1267,7 +1267,7 @@ theorem compileRefShared_correct (reg : Verifier.Registry) (e : Expr)
   intro v_e ρ_e st₁ se hΨ_e hse_wf heval_se
   obtain ⟨_hdecls_e, _hagreeOn_e, hΨ_e⟩ := hΨ_e
   have hwf_st₁ := VerifM.eval.wf hΨ_e
-  set c : FOL.Const := st₁.freshConst none .value
+  set c : Decl.Const := st₁.freshConst none .value
   have hfresh : c.name ∉ st₁.decls.allNames :=
     TransState.freshConst_fresh st₁ none .value
   have hwf_addConst : TransState.wf { st₁ with decls := st₁.decls.addConst c } :=
@@ -1308,7 +1308,7 @@ theorem compileRefOwned_correct (reg : Verifier.Registry) (e : Expr)
   intro v_e ρ_e st₁ se hΨ_e hse_wf heval_se
   obtain ⟨_hdecls_e, _hagreeOn_e, hΨ_e⟩ := hΨ_e
   have hdecl_eval := VerifM.eval_bind hΨ_e
-  set c : FOL.Const := st₁.freshConst none .value
+  set c : Decl.Const := st₁.freshConst none .value
   set sl : Term .value := .const (.uninterpreted c.name .value)
   have hdecl := VerifM.eval_decl hdecl_eval
   have hwf_st₁ := VerifM.eval.wf hΨ_e
@@ -1390,7 +1390,7 @@ theorem compileDerefShared_correct (reg : Verifier.Registry) (e : Expr) (ty : Ti
   obtain ⟨_hdecls_e, _hagreeOn_e, hΨ_e⟩ := hΨ_e
   have hdecl_eval := VerifM.eval_bind hΨ_e
   have hdecl := VerifM.eval_decl hdecl_eval
-  set c : FOL.Const := st₁.freshConst none .value
+  set c : Decl.Const := st₁.freshConst none .value
   set sv : Term .value := .const (.uninterpreted c.name .value)
   have hc_fresh : c.name ∉ st₁.decls.allNames :=
     TransState.freshConst_fresh st₁ none .value
@@ -1662,7 +1662,7 @@ theorem compileArrayMake_correct (reg : Verifier.Registry) (ownership : TinyML.O
   have hdecl_eval := VerifM.eval_bind hcont
   have hdecl := VerifM.eval_decl hdecl_eval
   have hst₂_wf : st₂.wf := VerifM.eval.wf hdecl_eval
-  set c : FOL.Const := st₂.freshConst none .value
+  set c : Decl.Const := st₂.freshConst none .value
   set sa : Term .value := .const (.uninterpreted c.name .value)
   have hc_fresh : c.name ∉ st₂.decls.allNames := TransState.freshConst_fresh st₂ none .value
   have hc_wf : sa.wfIn (st₂.decls.addConst c) := by
@@ -1960,7 +1960,7 @@ theorem compileArrayGet_correct (reg : Verifier.Registry) (arr idx : Expr) (ty :
     obtain ⟨hi, hlt, hcont2⟩ := VerifM.eval_assertBounds (VerifM.eval_bind hΨ_arr) hsi_wf₂ hsa_wf
     have hdecl_eval := VerifM.eval_bind hcont2
     have hdecl := VerifM.eval_decl hdecl_eval
-    set c : FOL.Const := st₂.freshConst none .value
+    set c : Decl.Const := st₂.freshConst none .value
     set sv : Term .value := .const (.uninterpreted c.name .value)
     have hc_fresh : c.name ∉ st₂.decls.allNames := TransState.freshConst_fresh st₂ none .value
     have hc_wf : sv.wfIn (st₂.decls.addConst c) := by
@@ -2549,7 +2549,7 @@ theorem compileLetInGhost_correct (reg : Verifier.Registry)
         · iexact HR
     | some x =>
       simp [hname] at hΨ
-      set x' : FOL.Const := ⟨Fresh.freshNumbers x st₁.decls.allNames, .value⟩ with hx'_def
+      set x' : Decl.Const := ⟨Fresh.freshNumbers x st₁.decls.allNames, .value⟩ with hx'_def
       have hfresh : x'.name ∉ st₁.decls.allNames :=
         Fresh.freshNumbers_not_mem x st₁.decls.allNames
       set st₂ : TransState :=
@@ -2677,7 +2677,7 @@ theorem compileLetIn_correct (reg : Verifier.Registry) (b : Binder) (e body : Ex
     simp [hname] at hΨ_e
     set base := x
     set x' := Fresh.freshNumbers base st₁.decls.allNames
-    set v : FOL.Const := ⟨x', .value⟩
+    set v : Decl.Const := ⟨x', .value⟩
     have _hvty : v.sort = .value := rfl
     have hfresh : v.name ∉ st₁.decls.allNames :=
       Fresh.freshNumbers_not_mem base st₁.decls.allNames

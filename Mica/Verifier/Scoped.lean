@@ -96,7 +96,7 @@ theorem flatten_of_valid {s : State} (hs : s.valid) : ∃ ctx, s.flatten = some 
   | frames top rest => exact ⟨_, rfl⟩
   | error => exact hs.elim
 
-theorem flatten_addConst (s : State) (c : FOL.Const) :
+theorem flatten_addConst (s : State) (c : Decl.Const) :
     (s.addConst c).flatten = s.flatten.map (·.addConst c.name c.sort) := by
   cases s with
   | error => rfl
@@ -108,7 +108,7 @@ theorem flatten_addConst (s : State) (c : FOL.Const) :
         State.modifyTop, State.modifyDecls, State.addConst, FlatCtx.addConst,
         Signature.addConst, List.flatMap, List.cons_append]
 
-theorem flatten_addUnary (s : State) (u : FOL.Unary) :
+theorem flatten_addUnary (s : State) (u : Decl.Unary) :
     (s.addUnary u).flatten = s.flatten.map (·.addUnary u.name u.arg u.ret) := by
   cases s with
   | error => rfl
@@ -120,7 +120,7 @@ theorem flatten_addUnary (s : State) (u : FOL.Unary) :
         State.modifyTop, State.modifyDecls, State.addUnary, FlatCtx.addUnary,
         Signature.addUnary, List.flatMap, List.cons_append]
 
-theorem flatten_addBinary (s : State) (b : FOL.Binary) :
+theorem flatten_addBinary (s : State) (b : Decl.Binary) :
     (s.addBinary b).flatten = s.flatten.map (·.addBinary b.name b.arg1 b.arg2 b.ret) := by
   cases s with
   | error => rfl
@@ -132,7 +132,7 @@ theorem flatten_addBinary (s : State) (b : FOL.Binary) :
         State.modifyTop, State.modifyDecls, State.addBinary, FlatCtx.addBinary,
         Signature.addBinary, List.flatMap, List.cons_append]
 
-theorem flatten_addTernary (s : State) (t : FOL.Ternary) :
+theorem flatten_addTernary (s : State) (t : Decl.Ternary) :
     (s.addTernary t).flatten = s.flatten.map (·.addTernary t.name t.arg1 t.arg2 t.arg3 t.ret) := by
   cases s with
   | error => rfl
@@ -144,7 +144,7 @@ theorem flatten_addTernary (s : State) (t : FOL.Ternary) :
         State.modifyTop, State.modifyDecls, State.addTernary, FlatCtx.addTernary,
         Signature.addTernary, List.flatMap, List.cons_append]
 
-theorem flatten_addUnaryRel (s : State) (u : FOL.UnaryRel) :
+theorem flatten_addUnaryRel (s : State) (u : Decl.UnaryRel) :
     (s.addUnaryRel u).flatten = s.flatten.map (·.addUnaryRel u.name u.arg) := by
   cases s with
   | error => rfl
@@ -156,7 +156,7 @@ theorem flatten_addUnaryRel (s : State) (u : FOL.UnaryRel) :
         State.modifyTop, State.modifyDecls, State.addUnaryRel, FlatCtx.addUnaryRel,
         Signature.addUnaryRel, List.flatMap, List.cons_append]
 
-theorem flatten_addBinaryRel (s : State) (b : FOL.BinaryRel) :
+theorem flatten_addBinaryRel (s : State) (b : Decl.BinaryRel) :
     (s.addBinaryRel b).flatten = s.flatten.map (·.addBinaryRel b.name b.arg1 b.arg2) := by
   cases s with
   | error => rfl

@@ -11,7 +11,7 @@ performance, the guard is moved inside of quantifiers, which allows Z3 to
 share quantifier instantiations across different asserts. (Otherwise, it
 could only start to instantiate them once the guard is enabled.) -/
 
-def guardConst : FOL.Const := ⟨"guard!", .bool⟩
+def guardConst : Decl.Const := ⟨"guard!", .bool⟩
 
 /-- The formula pinning the guard to true; asserted inside high-effort checks. -/
 def guardFormula : Formula :=

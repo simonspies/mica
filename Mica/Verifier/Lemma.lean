@@ -173,7 +173,7 @@ def ofDeclaration (ls : Lemmas) : Option TinyML.Var → Option Lemma
 /-- Assume the withheld equation of `f` at the argument of a body of `f`. A
     local function called `f` also gets it. This is sound because the equation
     is true at every value. -/
-def assumeInstance (ls : Lemmas) (f : Option TinyML.Var) (argVars : List FOL.Const) :
+def assumeInstance (ls : Lemmas) (f : Option TinyML.Var) (argVars : List Decl.Const) :
     VerifM Unit :=
   match ls.ofDeclaration f, argVars with
   | some l, [a] => do
@@ -202,7 +202,7 @@ theorem ofDeclaration_sound {ls : Lemmas} {Δ : Signature} {ρ : Env} {l : Lemma
 
 omit [MicaGS HasLC.hasLC Sig] in
 theorem assumeInstance_correct {ls : Lemmas} {W : TinyML.World} (hW : W.wf)
-    (hls : ls.Sound W.Δ_spec W.ρ_spec) {f : Option TinyML.Var} {argVars : List FOL.Const}
+    (hls : ls.Sound W.Δ_spec W.ρ_spec) {f : Option TinyML.Var} {argVars : List Decl.Const}
     {st : TransState} {ρ : Env} {Q : Unit → TransState → Env → Prop}
     (hag : W.agrees st.decls ρ)
     (hmem : ∀ v ∈ argVars, v ∈ st.decls.consts) (hsort : ∀ v ∈ argVars, v.sort = .value)
@@ -215,7 +215,7 @@ theorem assumeInstance_correct {ls : Lemmas} {W : TinyML.World} (hW : W.wf)
     split at h
     · rename_i φ hi
       have hwf := (VerifM.eval.wf h).namesDisjoint
-      have ha : (⟨a.name, .value⟩ : FOL.Const) ∈ st.decls.consts := by
+      have ha : (⟨a.name, .value⟩ : Decl.Const) ∈ st.decls.consts := by
         have := hmem a (by simp); rwa [← hsort a (by simp)]
       obtain ⟨hφwf, hφ⟩ := Lemma.instantiate_sound (ofDeclaration_sound hls hl) hW.wf hW.vars
         hag.subset hag.agree hwf (Term.const_wfIn_of_mem hwf ha) hi

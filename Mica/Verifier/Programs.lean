@@ -87,7 +87,7 @@ def Program.prepare (env : Typed.SpecEnv σ) (s : σ)
 
 /-- Globally assembled metadata for declarations marked with `[@@fn]`. -/
 structure RelationSpec where
-  symbols : List FOL.BinaryRel
+  symbols : List Decl.BinaryRel
   /-- The facts opaque declarations withhold. -/
   lemmas : Lemmas
   functionMap : List (TinyML.Var × String)

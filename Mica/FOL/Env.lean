@@ -228,7 +228,7 @@ theorem Env.agreeOn_declVar {ρ ρ' : Env} {Δ : Signature} {τ : Srt} {x : Stri
   intro hagree
   simpa [Signature.declVar] using (Env.agreeOn_update (Env.agreeOn_remove hagree))
 
-theorem Env.agreeOn_update_fresh_const {ρ : Env} {c : FOL.Const} {u : c.sort.denote}
+theorem Env.agreeOn_update_fresh_const {ρ : Env} {c : Decl.Const} {u : c.sort.denote}
     {Δ : Signature} (hfresh : c.name ∉ Δ.allNames) :
     Env.agreeOn Δ ρ (ρ.updateConst c.sort c.name u) := by
   refine .intro ?_ ?_ ?_ ?_ ?_ ?_ ?_
@@ -246,7 +246,7 @@ theorem Env.agreeOn_update_fresh_const {ρ : Env} {c : FOL.Const} {u : c.sort.de
   · intro _ _; rw [Env.updateConst_unaryRel]
   · intro _ _; rw [Env.updateConst_binaryRel]
 
-theorem Env.agreeOn_update_fresh_unary {ρ : Env} {u : FOL.Unary}
+theorem Env.agreeOn_update_fresh_unary {ρ : Env} {u : Decl.Unary}
     {f : u.arg.denote → u.ret.denote}
     {Δ : Signature} (hfresh : u.name ∉ Δ.allNames) :
     Env.agreeOn Δ ρ (ρ.updateUnary u.arg u.ret u.name f) :=
@@ -265,7 +265,7 @@ theorem Env.agreeOn_update_fresh_unary {ρ : Env} {u : FOL.Unary}
     (fun _ _ => rfl)
     (fun _ _ => rfl)
 
-theorem Env.agreeOn_update_fresh_binary {ρ : Env} {b : FOL.Binary}
+theorem Env.agreeOn_update_fresh_binary {ρ : Env} {b : Decl.Binary}
     {f : b.arg1.denote → b.arg2.denote → b.ret.denote}
     {Δ : Signature} (hfresh : b.name ∉ Δ.allNames) :
     Env.agreeOn Δ ρ (ρ.updateBinary b.arg1 b.arg2 b.ret b.name f) :=
@@ -284,7 +284,7 @@ theorem Env.agreeOn_update_fresh_binary {ρ : Env} {b : FOL.Binary}
     (fun _ _ => rfl)
     (fun _ _ => rfl)
 
-theorem Env.agreeOn_update_fresh_ternary {ρ : Env} {t : FOL.Ternary}
+theorem Env.agreeOn_update_fresh_ternary {ρ : Env} {t : Decl.Ternary}
     {f : t.arg1.denote → t.arg2.denote → t.arg3.denote → t.ret.denote}
     {Δ : Signature} (hfresh : t.name ∉ Δ.allNames) :
     Env.agreeOn Δ ρ (ρ.updateTernary t.arg1 t.arg2 t.arg3 t.ret t.name f) :=
@@ -303,7 +303,7 @@ theorem Env.agreeOn_update_fresh_ternary {ρ : Env} {t : FOL.Ternary}
     (fun _ _ => rfl)
     (fun _ _ => rfl)
 
-theorem Env.agreeOn_update_fresh_unaryRel {ρ : Env} {u : FOL.UnaryRel} {f : u.arg.denote → Prop}
+theorem Env.agreeOn_update_fresh_unaryRel {ρ : Env} {u : Decl.UnaryRel} {f : u.arg.denote → Prop}
     {Δ : Signature} (hfresh : u.name ∉ Δ.allNames) :
     Env.agreeOn Δ ρ (ρ.updateUnaryRel u.arg u.name f) :=
   .intro
@@ -321,7 +321,7 @@ theorem Env.agreeOn_update_fresh_unaryRel {ρ : Env} {u : FOL.UnaryRel} {f : u.a
        · rfl)
     (fun _ _ => rfl)
 
-theorem Env.agreeOn_update_fresh_binaryRel {ρ : Env} {b : FOL.BinaryRel}
+theorem Env.agreeOn_update_fresh_binaryRel {ρ : Env} {b : Decl.BinaryRel}
     {f : b.arg1.denote → b.arg2.denote → Prop}
     {Δ : Signature} (hfresh : b.name ∉ Δ.allNames) :
     Env.agreeOn Δ ρ (ρ.updateBinaryRel b.arg1 b.arg2 b.name f) :=

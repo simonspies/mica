@@ -12,7 +12,7 @@ variable [MicaGS HasLC.hasLC Sig]
 
 /-! ### Bindings -/
 
-abbrev Bindings := List (TinyML.Var × FOL.Const)
+abbrev Bindings := List (TinyML.Var × Decl.Const)
 
 /-- The bindings a program starts with, paired with `TinyML.TyCtx.empty`. -/
 abbrev Bindings.empty : Bindings := []
@@ -197,7 +197,7 @@ omit [MicaGS HasLC.hasLC Sig] in
         simp only [List.lookup, hb, ih]
 
 omit [MicaGS HasLC.hasLC Sig] in
-theorem Bindings.mem_of_mem_remove {B : Bindings} {x : TinyML.Var} {p : TinyML.Var × FOL.Const}
+theorem Bindings.mem_of_mem_remove {B : Bindings} {x : TinyML.Var} {p : TinyML.Var × Decl.Const}
     (h : p ∈ B.remove x) : p ∈ B := by
   induction B with
   | nil => simp [Bindings.remove] at h
@@ -234,7 +234,7 @@ theorem Bindings.agreeOnLinked_env_agree {B : Bindings} {decls : Signature} {ρ 
   exact ⟨hsort, hγ.trans (congrArg some henv')⟩
 
 omit [MicaGS HasLC.hasLC Sig] in
-theorem Bindings.wfIn_cons {B : Bindings} {decls : Signature} {x : TinyML.Var} {v : FOL.Const}
+theorem Bindings.wfIn_cons {B : Bindings} {decls : Signature} {x : TinyML.Var} {v : Decl.Const}
     (hbwf : B.wfIn decls) :
     Bindings.wfIn ((x, v) :: B) (decls.addConst v) := by
   intro p hp
@@ -264,14 +264,14 @@ theorem Bindings.agreeOnLinked_remove_update {B : Bindings} {ρ : Env} {γ : Run
 
 omit [MicaGS HasLC.hasLC Sig] in
 theorem Bindings.mem_of_mem_removeAll {B : Bindings} {xs : List TinyML.Var}
-    {p : TinyML.Var × FOL.Const} (h : p ∈ B.removeAll xs) : p ∈ B := by
+    {p : TinyML.Var × Decl.Const} (h : p ∈ B.removeAll xs) : p ∈ B := by
   induction xs generalizing B with
   | nil => exact h
   | cons x xs ih => exact Bindings.mem_of_mem_remove (ih h)
 
 omit [MicaGS HasLC.hasLC Sig] in
 theorem Bindings.lookup_removeAll_eq_some {B : Bindings} {xs : List TinyML.Var}
-    {y : TinyML.Var} {y' : FOL.Const} :
+    {y : TinyML.Var} {y' : Decl.Const} :
     (B.removeAll xs).lookup y = some y' ↔ B.lookup y = some y' ∧ y ∉ xs := by
   induction xs generalizing B with
   | nil => simp [Bindings.removeAll]
@@ -283,7 +283,7 @@ theorem Bindings.lookup_removeAll_eq_some {B : Bindings} {xs : List TinyML.Var}
 
 omit [MicaGS HasLC.hasLC Sig] in
 theorem Bindings.lookup_of_lookup_removeAll {B : Bindings} {xs : List TinyML.Var}
-    {y : TinyML.Var} {y' : FOL.Const} (h : (B.removeAll xs).lookup y = some y') :
+    {y : TinyML.Var} {y' : Decl.Const} (h : (B.removeAll xs).lookup y = some y') :
     B.lookup y = some y' :=
   (Bindings.lookup_removeAll_eq_some.mp h).1
 
@@ -330,7 +330,7 @@ theorem Bindings.typedSubst_empty (W : TinyML.World) (Γ : TinyML.TyCtx) (γ : R
 /-- Extend by a binding whose uses may instantiate it: the value is typed at
 every instantiation of the scheme. -/
 theorem Bindings.typedSubst_cons_scheme {B : Bindings} {Γ : TinyML.TyCtx} {γ : Runtime.Subst}
-    {x : TinyML.Var} {v : FOL.Const} {s : TinyML.Scheme} {w : Runtime.Val}
+    {x : TinyML.Var} {v : Decl.Const} {s : TinyML.Scheme} {w : Runtime.Val}
     : ⊢ B.typedSubst W Γ γ -∗ (∀ σ, TinyML.ValHasType W w (s.instantiate σ)) -∗
       Bindings.typedSubst W ((x, v) :: B) (Γ.extendScheme x s) (Runtime.Subst.update γ x w) := by
   iintro #Hts #Hw
@@ -363,7 +363,7 @@ theorem Bindings.typedSubst_cons_scheme {B : Bindings} {Γ : TinyML.TyCtx} {γ :
 
 /-- Extend by a binding nothing may instantiate. -/
 theorem Bindings.typedSubst_cons {B : Bindings} {Γ : TinyML.TyCtx} {γ : Runtime.Subst}
-    {x : TinyML.Var} {v : FOL.Const} {te : TinyML.Typ} {w : Runtime.Val}
+    {x : TinyML.Var} {v : Decl.Const} {te : TinyML.Typ} {w : Runtime.Val}
     : ⊢ B.typedSubst W Γ γ -∗ TinyML.ValHasType W w te -∗
       Bindings.typedSubst W ((x, v) :: B) (Γ.extend x te) (Runtime.Subst.update γ x w) := by
   iintro #Hts #Hw
@@ -465,7 +465,7 @@ theorem Bindings.typedScope_of_typedSubst {B : Bindings} {Γ : TinyML.TyCtx}
 /-- A run-time binder: the name joins `B` at the type the context now gives it,
 and leaves `G`, where the same context would otherwise type it wrongly. -/
 theorem Bindings.typedScope_cons {G B : Bindings} {Γ : TinyML.TyCtx} {γg γ : Runtime.Subst}
-    {x : TinyML.Var} {v : FOL.Const} {w : Runtime.Val} {te : TinyML.Typ}
+    {x : TinyML.Var} {v : Decl.Const} {w : Runtime.Val} {te : TinyML.Typ}
     : ⊢ Bindings.typedScope W G B Γ γg γ -∗ TinyML.ValHasType W w te -∗
       Bindings.typedScope W (G.remove x) ((x, v) :: B) (Γ.extend x te) γg
         (Runtime.Subst.update γ x w) := by
@@ -482,7 +482,7 @@ theorem Bindings.typedScope_cons {G B : Bindings} {Γ : TinyML.TyCtx} {γg γ : 
 /-- A ghost binder: the mirror of `typedScope_cons`. Only the ghost reading of
 the name changes, because no run-time substitution ever reaches it. -/
 theorem Bindings.typedScope_cons_ghost {G B : Bindings} {Γ : TinyML.TyCtx}
-    {γg γ : Runtime.Subst} {x : TinyML.Var} {v : FOL.Const} {w : Runtime.Val}
+    {γg γ : Runtime.Subst} {x : TinyML.Var} {v : Decl.Const} {w : Runtime.Val}
     {te : TinyML.Typ}
     : ⊢ Bindings.typedScope W G B Γ γg γ -∗ TinyML.ValHasType W w te -∗
       Bindings.typedScope W ((x, v) :: G) (B.remove x) (Γ.extend x te)
@@ -501,7 +501,7 @@ omit [MicaGS HasLC.hasLC Sig] in
 /-- Bind a name to a constant that already denotes the value the name is being
     bound to. -/
 theorem Bindings.agreeOnLinked_cons_update {B : Bindings} {ρ : Env} {γ : Runtime.Subst}
-    {x : TinyML.Var} {c : FOL.Const} {v : Runtime.Val}
+    {x : TinyML.Var} {c : Decl.Const} {v : Runtime.Val}
     (hagree : B.agreeOnLinked ρ γ) (hsort : c.sort = .value)
     (hval : ρ.consts .value c.name = v) :
     Bindings.agreeOnLinked ((x, c) :: B) ρ (Runtime.Subst.update γ x v) := by
@@ -515,7 +515,7 @@ theorem Bindings.agreeOnLinked_cons_update {B : Bindings} {ρ : Env} {γ : Runti
 
 omit [MicaGS HasLC.hasLC Sig] in
 theorem Bindings.agreeOnLinked_cons {B : Bindings} {ρ ρ' : Env} {γ : Runtime.Subst}
-    {x : TinyML.Var} {v : FOL.Const}
+    {x : TinyML.Var} {v : Decl.Const}
     (hagree : B.agreeOnLinked ρ γ)
     (hρ_agree : Env.agreeOn (Signature.ofConsts (B.map Prod.snd)) ρ' ρ)
     (hvty : v.sort = .value) :
@@ -571,7 +571,7 @@ theorem Bindings.typedSubst_of_agreeOnLinked
 /-- Read one bound name's typing out of the substitution. -/
 theorem Bindings.valHasType_of_typedSubst {B : Bindings} {Γ : TinyML.TyCtx}
     {γ : Runtime.Subst} {ρ : Env} (hagree : B.agreeOnLinked ρ γ)
-    {y : TinyML.Var} {y' : FOL.Const} {u : TinyML.Scheme} (σ : TinyML.TyVar → TinyML.Typ)
+    {y : TinyML.Var} {y' : Decl.Const} {u : TinyML.Scheme} (σ : TinyML.TyVar → TinyML.Typ)
     (hy : B.lookup y = some y') (hΓ : Γ y = some u) :
     B.typedSubst W Γ γ ⊢ TinyML.ValHasType W (ρ.consts .value y'.name) (u.instantiate σ) := by
   unfold Bindings.typedSubst
@@ -590,7 +590,7 @@ theorem Bindings.valHasType_of_typedSubst {B : Bindings} {Γ : TinyML.TyCtx}
 name. -/
 theorem Bindings.typedScope_valHasType (W : TinyML.World) {G B : Bindings}
     {Γ : TinyML.TyCtx} {γg γ : Runtime.Subst} {ρ : Env}
-    {x : TinyML.Var} {x' : FOL.Const} {u : TinyML.Scheme}
+    {x : TinyML.Var} {x' : Decl.Const} {u : TinyML.Scheme}
     (σ : TinyML.TyVar → TinyML.Typ)
     (hgagree : G.agreeOnLinked ρ γg) (hagree : B.agreeOnLinked ρ γ)
     (hx : G.lookup x = some x' ∨ B.lookup x = some x') (hΓ : Γ x = some u) :
@@ -622,7 +622,7 @@ theorem findVal_none_of_not_mem
 
 omit [MicaGS HasLC.hasLC Sig] in
 theorem not_mem_of_lookup_zip_reverse_none
-    (ns : List String) (avs : List FOL.Const) (x : String)
+    (ns : List String) (avs : List Decl.Const) (x : String)
     (hlen : ns.length = avs.length)
     (h : List.lookup x (ns.zip avs).reverse = none) :
     x ∉ ns := by
@@ -640,7 +640,7 @@ theorem not_mem_of_lookup_zip_reverse_none
 
 omit [MicaGS HasLC.hasLC Sig] in
 theorem Bindings.agreeOnLinked_zip_reverse
-    (names : List String) (vars : List FOL.Const) (vals : List Runtime.Val)
+    (names : List String) (vars : List Decl.Const) (vals : List Runtime.Val)
     (γ : Runtime.Subst) (ρ : Env)
     (hlen_nv : names.length = vars.length)
     (hlen_nvl : names.length = vals.length)
@@ -684,7 +684,7 @@ theorem Bindings.agreeOnLinked_zip_reverse
 
 omit [MicaGS HasLC.hasLC Sig] in
 theorem Bindings.agreeOnLinked_updateAllBinder
-    (B : Bindings) (names : List String) (vars : List FOL.Const) (vals : List Runtime.Val)
+    (B : Bindings) (names : List String) (vars : List Decl.Const) (vals : List Runtime.Val)
     (γ : Runtime.Subst) (ρ : Env)
     (hB : B.agreeOnLinked ρ γ)
     (hlen_nv : names.length = vars.length)
@@ -715,9 +715,9 @@ theorem Bindings.agreeOnLinked_updateAllBinder
     lookup finds carries the type the context assigns. -/
 theorem valHasType_lookup_zip_reverse
     (args : List (String × TinyML.Typ))
-    (vars : List FOL.Const) (vals : List Runtime.Val)
+    (vars : List Decl.Const) (vals : List Runtime.Val)
     (ρ : Env) (Γ₀ : TinyML.TyCtx)
-    (x : String) (x' : FOL.Const) (s : TinyML.Scheme) (σ : TinyML.TyVar → TinyML.Typ)
+    (x : String) (x' : Decl.Const) (s : TinyML.Scheme) (σ : TinyML.TyVar → TinyML.Typ)
     (hlen_v : (args.map Prod.fst).length = vars.length)
     (hlen_vl : (args.map Prod.fst).length = vals.length)
     (hlookup : List.lookup x ((args.map Prod.fst).zip vars).reverse = some x')

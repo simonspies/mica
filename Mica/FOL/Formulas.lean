@@ -439,7 +439,7 @@ theorem Formula.eval_env_agree {φ : Formula} {ρ ρ' : Env} {Δ : Signature} :
     · intro ⟨v, hv⟩; exact ⟨v, (ih hwf (Env.agreeOn_declVar hagree)).mpr hv⟩
 
 /-- If `t` is wf in `Δ` and `c` is fresh for `Δ`, then `c = t` is wf in `Δ.addConst c`. -/
-theorem Formula.eq_wfIn_addConst_of_fresh {Δ : Signature} {c : FOL.Const}
+theorem Formula.eq_wfIn_addConst_of_fresh {Δ : Signature} {c : Decl.Const}
     {t : Term c.sort} (hΔwf : Δ.wf) (ht : t.wfIn Δ)
     (hfresh : c.name ∉ Δ.allNames) :
     (Formula.eq c.sort (.const (.uninterpreted c.name c.sort)) t).wfIn (Δ.addConst c) :=
@@ -449,7 +449,7 @@ theorem Formula.eq_wfIn_addConst_of_fresh {Δ : Signature} {c : FOL.Const}
 
 /-- Updating the env at a fresh name makes the equality `c = t` hold. -/
 theorem Formula.eq_eval_updateConst_of_fresh {Δ : Signature} {ρ : Env}
-    {c : FOL.Const} {t : Term c.sort} (ht : t.wfIn Δ)
+    {c : Decl.Const} {t : Term c.sort} (ht : t.wfIn Δ)
     (hfresh : c.name ∉ Δ.allNames) :
     (Formula.eq c.sort (.const (.uninterpreted c.name c.sort)) t).eval
       (ρ.updateConst c.sort c.name (t.eval ρ)) := by

@@ -88,15 +88,15 @@ theorem names_nodup (f : SpecFn) : (names f).Nodup := by
     (defName_ne_funcName f).symm]
 
 /-- Solver-facing definedness predicate symbol for a spec-level function name. -/
-def defined (f : SpecFn) : FOL.UnaryRel :=
+def defined (f : SpecFn) : Decl.UnaryRel :=
   ⟨defName f, .value⟩
 
 /-- Solver-facing value function symbol for a spec-level function name. -/
-def func (f : SpecFn) : FOL.Unary :=
+def func (f : SpecFn) : Decl.Unary :=
   ⟨funcName f, .value, .value⟩
 
 /-- Solver-facing binary relation symbol for a spec-level function name. -/
-def rel (f : SpecFn) : FOL.BinaryRel :=
+def rel (f : SpecFn) : Decl.BinaryRel :=
   ⟨relName f, .value, .value⟩
 
 /-- Apply the solver-facing value function for frontend function name `f`. -/

@@ -1054,7 +1054,7 @@ theorem compileGhostLetIn_correct (reg : Verifier.Registry)
       · iexact HR
   | some x =>
     simp [hname] at hΨ
-    set x' : FOL.Const := ⟨Fresh.freshNumbers x st₁.decls.allNames, .value⟩ with hx'_def
+    set x' : Decl.Const := ⟨Fresh.freshNumbers x st₁.decls.allNames, .value⟩ with hx'_def
     have hfresh : x'.name ∉ st₁.decls.allNames :=
       Fresh.freshNumbers_not_mem x st₁.decls.allNames
     set st₂ : TransState :=
@@ -2143,11 +2143,11 @@ rank, and a recursive call must lower it.
 section Declarations
 
 /-- A ghost parameter binds over the arguments, so it takes the name from them. -/
-private def ghostBodyArgs (argNames : List String) (argVars : List FOL.Const)
+private def ghostBodyArgs (argNames : List String) (argVars : List Decl.Const)
     (ghostNames : List String) : Bindings :=
   Bindings.removeAll (argNames.zip argVars).reverse ghostNames
 
-private def ghostBodyGhosts (ghostNames : List String) (ghostVars : List FOL.Const) : Bindings :=
+private def ghostBodyGhosts (ghostNames : List String) (ghostVars : List Decl.Const) : Bindings :=
   (ghostNames.zip ghostVars).reverse
 
 /-- A parameter hides the ghost function of its name. -/
@@ -2181,7 +2181,7 @@ private def GhostFns.Guard.declare (Δ_spec : Signature) (measure : Typed.Measur
     measure gives its own arguments. -/
 private def ValDecl.ghostSelf (Δ_spec : Signature) (Gf : GhostFns) (self : Binder)
     (decreases : Option Typed.Measure) (ty : TinyML.Typ) (s : Spec TinyML.Typ)
-    (argVars ghostVars : List FOL.Const) : VerifM GhostFns :=
+    (argVars ghostVars : List Decl.Const) : VerifM GhostFns :=
   match self.name, decreases with
   | none, _ => pure Gf
   | some g, none =>
@@ -2297,7 +2297,7 @@ private theorem ValDecl.checkGhostBody_correct (reg : Verifier.Registry) (hSound
     (s : Spec TinyML.Typ) (argTys : List TinyML.Typ) (retTy : TinyML.Typ) (body : Expr)
     (argNames : List String) (vs gs : List Runtime.Val) (Φ : Runtime.Val → iProp)
     (ls : Lemmas) (hls : ls.Sound W.Δ_spec W.ρ_spec) (f : Option TinyML.Var)
-    {argVars ghostVars : List FOL.Const} {st' : TransState} {ρ' : Env} {Q : iProp}
+    {argVars ghostVars : List Decl.Const} {st' : TransState} {ρ' : Env} {Q : iProp}
     (hag : W.agrees st'.decls ρ')
     (hGf : GhostFns.wellTyped W st'.decls ρ' Gf)
     (hlen_args : argNames.length = argTys.length)
@@ -2448,7 +2448,7 @@ private theorem ValDecl.checkGhostBody_correct (reg : Verifier.Registry) (hSound
 
 omit [MicaGS HasLC.hasLC Sig] in
 private theorem constTerms_eval {ρ : Env} :
-    ∀ {vars : List FOL.Const} {vals : List Runtime.Val},
+    ∀ {vars : List Decl.Const} {vals : List Runtime.Val},
       List.Forall₂ (fun av val => ρ.consts .value av.name = val) vars vals →
       Terms.Eval ρ (vars.map fun c => Term.const (.uninterpreted c.name .value)) vals
   | [], _, h => by cases h; exact .nil
@@ -2461,7 +2461,7 @@ omit [MicaGS HasLC.hasLC Sig] in
 /-- Argument constants keep their values as the verifier state grows. -/
 private theorem constLookups_env_agree {Δ : Signature} {ρ ρ' : Env}
     (hagree : Env.agreeOn Δ ρ ρ') :
-    ∀ {vars : List FOL.Const} {vals : List Runtime.Val},
+    ∀ {vars : List Decl.Const} {vals : List Runtime.Val},
       (∀ v ∈ vars, v ∈ Δ.consts) → (∀ v ∈ vars, v.sort = .value) →
       List.Forall₂ (fun av val => ρ.consts .value av.name = val) vars vals →
       List.Forall₂ (fun av val => ρ'.consts .value av.name = val) vars vals
@@ -2484,7 +2484,7 @@ private theorem ValDecl.checkGhostRank_correct (reg : Verifier.Registry) (hSound
     (argTys : List TinyML.Typ) (retTy : TinyML.Typ) (s : Spec TinyML.Typ) (body : Expr)
     (argNames : List String)
     (μ : List Runtime.Val → List Runtime.Val → Nat) (k : Nat)
-    (bodyGf : List FOL.Const → List FOL.Const → VerifM GhostFns)
+    (bodyGf : List Decl.Const → List Decl.Const → VerifM GhostFns)
     (ls : Lemmas) (hls : ls.Sound W.Δ_spec W.ρ_spec) (f : Option TinyML.Var)
     (hswf : s.wfIn W.Δ_spec) (hslen : s.args.length = argTys.length)
     (hlen_args : argNames.length = argTys.length)
@@ -2498,7 +2498,7 @@ private theorem ValDecl.checkGhostRank_correct (reg : Verifier.Registry) (hSound
             (ghostBodyTyCtx argNames argTys s.ghost) body
           checkRet retTy body.ty
           pure se)) st ρ (fun _ _ _ => True))
-    (hbodyGf : ∀ (vs gs : List Runtime.Val) (argVars ghostVars : List FOL.Const)
+    (hbodyGf : ∀ (vs gs : List Runtime.Val) (argVars ghostVars : List Decl.Const)
         (st' : TransState) (ρ' : Env) (Ψ : GhostFns → TransState → Env → Prop),
       st.decls.Subset st'.decls → Env.agreeOn st.decls ρ ρ' →
       (∀ v ∈ argVars, v ∈ st'.decls.consts) → (∀ v ∈ argVars, v.sort = .value) →

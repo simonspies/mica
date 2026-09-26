@@ -16,7 +16,7 @@ abbrev VarCtx := List Var
 -- Signature: a VarCtx plus named function and relation symbols
 -- ---------------------------------------------------------------------------
 
-namespace FOL
+namespace Decl
 
 structure Const where
   name : String
@@ -55,16 +55,16 @@ structure BinaryRel where
   arg2 : Srt
   deriving DecidableEq, Repr
 
-end FOL
+end Decl
 
 structure Signature where
   vars   : VarCtx
-  consts : List FOL.Const
-  unary  : List FOL.Unary
-  binary : List FOL.Binary
-  ternary : List FOL.Ternary
-  unaryRel  : List FOL.UnaryRel
-  binaryRel : List FOL.BinaryRel
+  consts : List Decl.Const
+  unary  : List Decl.Unary
+  binary : List Decl.Binary
+  ternary : List Decl.Ternary
+  unaryRel  : List Decl.UnaryRel
+  binaryRel : List Decl.BinaryRel
 
 namespace Signature
 
@@ -80,12 +80,12 @@ def empty : Signature := ⟨[], [], [], [], [], [], []⟩
 
 def addVar (Δ : Signature) (v : Var) : Signature := { Δ with vars := v :: Δ.vars }
 
-def addConst (Δ : Signature) (c : FOL.Const) : Signature := { Δ with consts := c :: Δ.consts }
-def addUnary (Δ : Signature) (u : FOL.Unary) : Signature := { Δ with unary := u :: Δ.unary }
-def addBinary (Δ : Signature) (b : FOL.Binary) : Signature := { Δ with binary := b :: Δ.binary }
-def addTernary (Δ : Signature) (t : FOL.Ternary) : Signature := { Δ with ternary := t :: Δ.ternary }
-def addUnaryRel (Δ : Signature) (u : FOL.UnaryRel) : Signature := { Δ with unaryRel := u :: Δ.unaryRel }
-def addBinaryRel (Δ : Signature) (b : FOL.BinaryRel) : Signature := { Δ with binaryRel := b :: Δ.binaryRel }
+def addConst (Δ : Signature) (c : Decl.Const) : Signature := { Δ with consts := c :: Δ.consts }
+def addUnary (Δ : Signature) (u : Decl.Unary) : Signature := { Δ with unary := u :: Δ.unary }
+def addBinary (Δ : Signature) (b : Decl.Binary) : Signature := { Δ with binary := b :: Δ.binary }
+def addTernary (Δ : Signature) (t : Decl.Ternary) : Signature := { Δ with ternary := t :: Δ.ternary }
+def addUnaryRel (Δ : Signature) (u : Decl.UnaryRel) : Signature := { Δ with unaryRel := u :: Δ.unaryRel }
+def addBinaryRel (Δ : Signature) (b : Decl.BinaryRel) : Signature := { Δ with binaryRel := b :: Δ.binaryRel }
 def remove (Δ : Signature) (x : String) : Signature :=
   { vars := Δ.vars.filter (·.name != x)
     consts := Δ.consts.filter (·.name != x)
@@ -102,10 +102,10 @@ def declVar (Δ : Signature) (v : Var) : Signature := (Δ.remove v.name).addVar 
 def declVars (Δ : Signature) (vs : List Var) : Signature := vs.foldl declVar Δ
 
 def allNames (Δ : Signature) : List String :=
-  Δ.vars.map Var.name ++ Δ.consts.map FOL.Const.name ++
-  Δ.unary.map FOL.Unary.name ++ Δ.binary.map FOL.Binary.name ++
-  Δ.ternary.map FOL.Ternary.name ++
-  Δ.unaryRel.map FOL.UnaryRel.name ++ Δ.binaryRel.map FOL.BinaryRel.name
+  Δ.vars.map Var.name ++ Δ.consts.map Decl.Const.name ++
+  Δ.unary.map Decl.Unary.name ++ Δ.binary.map Decl.Binary.name ++
+  Δ.ternary.map Decl.Ternary.name ++
+  Δ.unaryRel.map Decl.UnaryRel.name ++ Δ.binaryRel.map Decl.BinaryRel.name
 
 def wf (Δ : Signature) : Prop := Δ.allNames.Nodup
 
@@ -114,32 +114,32 @@ theorem mem_allNames_of_var {Δ : Signature} {v : Var} (h : v ∈ Δ.vars) :
   simp [allNames]
   exact Or.inl ⟨v, h, rfl⟩
 
-theorem mem_allNames_of_const {Δ : Signature} {c : FOL.Const} (h : c ∈ Δ.consts) :
+theorem mem_allNames_of_const {Δ : Signature} {c : Decl.Const} (h : c ∈ Δ.consts) :
     c.name ∈ Δ.allNames := by
   simp [allNames]
   exact Or.inr (Or.inl ⟨c, h, rfl⟩)
 
-theorem mem_allNames_of_unary {Δ : Signature} {u : FOL.Unary} (h : u ∈ Δ.unary) :
+theorem mem_allNames_of_unary {Δ : Signature} {u : Decl.Unary} (h : u ∈ Δ.unary) :
     u.name ∈ Δ.allNames := by
   simp [allNames]
   exact Or.inr (Or.inr (Or.inl ⟨u, h, rfl⟩))
 
-theorem mem_allNames_of_binary {Δ : Signature} {b : FOL.Binary} (h : b ∈ Δ.binary) :
+theorem mem_allNames_of_binary {Δ : Signature} {b : Decl.Binary} (h : b ∈ Δ.binary) :
     b.name ∈ Δ.allNames := by
   simp [allNames]
   exact Or.inr (Or.inr (Or.inr (Or.inl ⟨b, h, rfl⟩)))
 
-theorem mem_allNames_of_ternary {Δ : Signature} {t : FOL.Ternary} (h : t ∈ Δ.ternary) :
+theorem mem_allNames_of_ternary {Δ : Signature} {t : Decl.Ternary} (h : t ∈ Δ.ternary) :
     t.name ∈ Δ.allNames := by
   simp [allNames]
   exact Or.inr (Or.inr (Or.inr (Or.inr (Or.inl ⟨t, h, rfl⟩))))
 
-theorem mem_allNames_of_unaryRel {Δ : Signature} {u : FOL.UnaryRel} (h : u ∈ Δ.unaryRel) :
+theorem mem_allNames_of_unaryRel {Δ : Signature} {u : Decl.UnaryRel} (h : u ∈ Δ.unaryRel) :
     u.name ∈ Δ.allNames := by
   simp [allNames]
   exact Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inl ⟨u, h, rfl⟩)))))
 
-theorem mem_allNames_of_binaryRel {Δ : Signature} {b : FOL.BinaryRel} (h : b ∈ Δ.binaryRel) :
+theorem mem_allNames_of_binaryRel {Δ : Signature} {b : Decl.BinaryRel} (h : b ∈ Δ.binaryRel) :
     b.name ∈ Δ.allNames := by
   simp [allNames]
   exact Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr ⟨b, h, rfl⟩)))))
@@ -148,27 +148,27 @@ theorem mem_allNames_of_binaryRel {Δ : Signature} {b : FOL.BinaryRel} (h : b �
     v ∈ (Δ.remove x).vars ↔ v ∈ Δ.vars ∧ v.name ≠ x := by
   simp [remove]
 
-@[simp] theorem mem_remove_consts {Δ : Signature} {c : FOL.Const} {x : String} :
+@[simp] theorem mem_remove_consts {Δ : Signature} {c : Decl.Const} {x : String} :
     c ∈ (Δ.remove x).consts ↔ c ∈ Δ.consts ∧ c.name ≠ x := by
   simp [remove]
 
-@[simp] theorem mem_remove_unary {Δ : Signature} {u : FOL.Unary} {x : String} :
+@[simp] theorem mem_remove_unary {Δ : Signature} {u : Decl.Unary} {x : String} :
     u ∈ (Δ.remove x).unary ↔ u ∈ Δ.unary ∧ u.name ≠ x := by
   simp [remove]
 
-@[simp] theorem mem_remove_binary {Δ : Signature} {b : FOL.Binary} {x : String} :
+@[simp] theorem mem_remove_binary {Δ : Signature} {b : Decl.Binary} {x : String} :
     b ∈ (Δ.remove x).binary ↔ b ∈ Δ.binary ∧ b.name ≠ x := by
   simp [remove]
 
-@[simp] theorem mem_remove_ternary {Δ : Signature} {t : FOL.Ternary} {x : String} :
+@[simp] theorem mem_remove_ternary {Δ : Signature} {t : Decl.Ternary} {x : String} :
     t ∈ (Δ.remove x).ternary ↔ t ∈ Δ.ternary ∧ t.name ≠ x := by
   simp [remove]
 
-@[simp] theorem mem_remove_unaryRel {Δ : Signature} {u : FOL.UnaryRel} {x : String} :
+@[simp] theorem mem_remove_unaryRel {Δ : Signature} {u : Decl.UnaryRel} {x : String} :
     u ∈ (Δ.remove x).unaryRel ↔ u ∈ Δ.unaryRel ∧ u.name ≠ x := by
   simp [remove]
 
-@[simp] theorem mem_remove_binaryRel {Δ : Signature} {b : FOL.BinaryRel} {x : String} :
+@[simp] theorem mem_remove_binaryRel {Δ : Signature} {b : Decl.BinaryRel} {x : String} :
     b ∈ (Δ.remove x).binaryRel ↔ b ∈ Δ.binaryRel ∧ b.name ≠ x := by
   simp [remove]
 
@@ -178,22 +178,22 @@ theorem mem_allNames_of_binaryRel {Δ : Signature} {b : FOL.BinaryRel} (h : b �
     w ∈ (Δ.declVar v).vars ↔ w = v ∨ (w ∈ Δ.vars ∧ w.name ≠ v.name) := by
   simp [declVar, addVar]
 
-@[simp] theorem mem_declVar_consts {Δ : Signature} {v : Var} {c : FOL.Const} :
+@[simp] theorem mem_declVar_consts {Δ : Signature} {v : Var} {c : Decl.Const} :
     c ∈ (Δ.declVar v).consts ↔ c ∈ Δ.consts ∧ c.name ≠ v.name := mem_remove_consts
 
-@[simp] theorem mem_declVar_unary {Δ : Signature} {v : Var} {u : FOL.Unary} :
+@[simp] theorem mem_declVar_unary {Δ : Signature} {v : Var} {u : Decl.Unary} :
     u ∈ (Δ.declVar v).unary ↔ u ∈ Δ.unary ∧ u.name ≠ v.name := mem_remove_unary
 
-@[simp] theorem mem_declVar_binary {Δ : Signature} {v : Var} {b : FOL.Binary} :
+@[simp] theorem mem_declVar_binary {Δ : Signature} {v : Var} {b : Decl.Binary} :
     b ∈ (Δ.declVar v).binary ↔ b ∈ Δ.binary ∧ b.name ≠ v.name := mem_remove_binary
 
-@[simp] theorem mem_declVar_ternary {Δ : Signature} {v : Var} {t : FOL.Ternary} :
+@[simp] theorem mem_declVar_ternary {Δ : Signature} {v : Var} {t : Decl.Ternary} :
     t ∈ (Δ.declVar v).ternary ↔ t ∈ Δ.ternary ∧ t.name ≠ v.name := mem_remove_ternary
 
-@[simp] theorem mem_declVar_unaryRel {Δ : Signature} {v : Var} {u : FOL.UnaryRel} :
+@[simp] theorem mem_declVar_unaryRel {Δ : Signature} {v : Var} {u : Decl.UnaryRel} :
     u ∈ (Δ.declVar v).unaryRel ↔ u ∈ Δ.unaryRel ∧ u.name ≠ v.name := mem_remove_unaryRel
 
-@[simp] theorem mem_declVar_binaryRel {Δ : Signature} {v : Var} {b : FOL.BinaryRel} :
+@[simp] theorem mem_declVar_binaryRel {Δ : Signature} {v : Var} {b : Decl.BinaryRel} :
     b ∈ (Δ.declVar v).binaryRel ↔ b ∈ Δ.binaryRel ∧ b.name ≠ v.name := mem_remove_binaryRel
 
 theorem remove_allNames {Δ : Signature} {n x : String} (h : n ∈ (Δ.remove x).allNames) :
@@ -219,19 +219,19 @@ theorem remove_allNames {Δ : Signature} {n x : String} (h : n ∈ (Δ.remove x)
     · rcases h with ⟨b, hb, hname⟩
       exact (hb.2 hname).elim
 
-theorem wf_addConst {Δ : Signature} {c : FOL.Const}
+theorem wf_addConst {Δ : Signature} {c : Decl.Const}
     (hΔ : Δ.wf) (hfresh : c.name ∉ Δ.allNames) : (Δ.addConst c).wf := by
   unfold wf at hΔ ⊢
   suffices h : (Δ.addConst c).allNames.Perm (c.name :: Δ.allNames) from
     h.nodup_iff.mpr (List.nodup_cons.mpr ⟨hfresh, hΔ⟩)
-  show (Δ.vars.map Var.name ++ (c.name :: Δ.consts.map FOL.Const.name) ++
-    Δ.unary.map FOL.Unary.name ++ Δ.binary.map FOL.Binary.name ++
-    Δ.ternary.map FOL.Ternary.name ++
-    Δ.unaryRel.map FOL.UnaryRel.name ++ Δ.binaryRel.map FOL.BinaryRel.name).Perm
-    (c.name :: (Δ.vars.map Var.name ++ Δ.consts.map FOL.Const.name ++
-    Δ.unary.map FOL.Unary.name ++ Δ.binary.map FOL.Binary.name ++
-    Δ.ternary.map FOL.Ternary.name ++
-    Δ.unaryRel.map FOL.UnaryRel.name ++ Δ.binaryRel.map FOL.BinaryRel.name))
+  show (Δ.vars.map Var.name ++ (c.name :: Δ.consts.map Decl.Const.name) ++
+    Δ.unary.map Decl.Unary.name ++ Δ.binary.map Decl.Binary.name ++
+    Δ.ternary.map Decl.Ternary.name ++
+    Δ.unaryRel.map Decl.UnaryRel.name ++ Δ.binaryRel.map Decl.BinaryRel.name).Perm
+    (c.name :: (Δ.vars.map Var.name ++ Δ.consts.map Decl.Const.name ++
+    Δ.unary.map Decl.Unary.name ++ Δ.binary.map Decl.Binary.name ++
+    Δ.ternary.map Decl.Ternary.name ++
+    Δ.unaryRel.map Decl.UnaryRel.name ++ Δ.binaryRel.map Decl.BinaryRel.name))
   simp only [List.append_assoc]
   exact List.perm_middle
 
@@ -240,110 +240,110 @@ theorem wf_addVar {Δ : Signature} {v : Var}
   unfold wf at hΔ ⊢
   suffices h : (Δ.addVar v).allNames.Perm (v.name :: Δ.allNames) from
     h.nodup_iff.mpr (List.nodup_cons.mpr ⟨hfresh, hΔ⟩)
-  show ((v :: Δ.vars).map Var.name ++ Δ.consts.map FOL.Const.name ++
-    Δ.unary.map FOL.Unary.name ++ Δ.binary.map FOL.Binary.name ++
-    Δ.ternary.map FOL.Ternary.name ++
-    Δ.unaryRel.map FOL.UnaryRel.name ++ Δ.binaryRel.map FOL.BinaryRel.name).Perm
-    (v.name :: (Δ.vars.map Var.name ++ Δ.consts.map FOL.Const.name ++
-    Δ.unary.map FOL.Unary.name ++ Δ.binary.map FOL.Binary.name ++
-    Δ.ternary.map FOL.Ternary.name ++
-    Δ.unaryRel.map FOL.UnaryRel.name ++ Δ.binaryRel.map FOL.BinaryRel.name))
+  show ((v :: Δ.vars).map Var.name ++ Δ.consts.map Decl.Const.name ++
+    Δ.unary.map Decl.Unary.name ++ Δ.binary.map Decl.Binary.name ++
+    Δ.ternary.map Decl.Ternary.name ++
+    Δ.unaryRel.map Decl.UnaryRel.name ++ Δ.binaryRel.map Decl.BinaryRel.name).Perm
+    (v.name :: (Δ.vars.map Var.name ++ Δ.consts.map Decl.Const.name ++
+    Δ.unary.map Decl.Unary.name ++ Δ.binary.map Decl.Binary.name ++
+    Δ.ternary.map Decl.Ternary.name ++
+    Δ.unaryRel.map Decl.UnaryRel.name ++ Δ.binaryRel.map Decl.BinaryRel.name))
   simp
 
-theorem wf_addUnaryRel {Δ : Signature} {u : FOL.UnaryRel}
+theorem wf_addUnaryRel {Δ : Signature} {u : Decl.UnaryRel}
     (hΔ : Δ.wf) (hfresh : u.name ∉ Δ.allNames) : (Δ.addUnaryRel u).wf := by
   unfold wf at hΔ ⊢
   suffices h : (Δ.addUnaryRel u).allNames.Perm (u.name :: Δ.allNames) from
     h.nodup_iff.mpr (List.nodup_cons.mpr ⟨hfresh, hΔ⟩)
-  show (Δ.vars.map Var.name ++ Δ.consts.map FOL.Const.name ++
-    Δ.unary.map FOL.Unary.name ++ Δ.binary.map FOL.Binary.name ++
-    Δ.ternary.map FOL.Ternary.name ++
-    (u.name :: Δ.unaryRel.map FOL.UnaryRel.name) ++ Δ.binaryRel.map FOL.BinaryRel.name).Perm
-    (u.name :: (Δ.vars.map Var.name ++ Δ.consts.map FOL.Const.name ++
-    Δ.unary.map FOL.Unary.name ++ Δ.binary.map FOL.Binary.name ++
-    Δ.ternary.map FOL.Ternary.name ++
-    Δ.unaryRel.map FOL.UnaryRel.name ++ Δ.binaryRel.map FOL.BinaryRel.name))
+  show (Δ.vars.map Var.name ++ Δ.consts.map Decl.Const.name ++
+    Δ.unary.map Decl.Unary.name ++ Δ.binary.map Decl.Binary.name ++
+    Δ.ternary.map Decl.Ternary.name ++
+    (u.name :: Δ.unaryRel.map Decl.UnaryRel.name) ++ Δ.binaryRel.map Decl.BinaryRel.name).Perm
+    (u.name :: (Δ.vars.map Var.name ++ Δ.consts.map Decl.Const.name ++
+    Δ.unary.map Decl.Unary.name ++ Δ.binary.map Decl.Binary.name ++
+    Δ.ternary.map Decl.Ternary.name ++
+    Δ.unaryRel.map Decl.UnaryRel.name ++ Δ.binaryRel.map Decl.BinaryRel.name))
   exact (List.perm_middle.append_right _)
 
-theorem wf_addBinaryRel {Δ : Signature} {b : FOL.BinaryRel}
+theorem wf_addBinaryRel {Δ : Signature} {b : Decl.BinaryRel}
     (hΔ : Δ.wf) (hfresh : b.name ∉ Δ.allNames) : (Δ.addBinaryRel b).wf := by
   unfold wf at hΔ ⊢
   suffices h : (Δ.addBinaryRel b).allNames.Perm (b.name :: Δ.allNames) from
     h.nodup_iff.mpr (List.nodup_cons.mpr ⟨hfresh, hΔ⟩)
-  show (Δ.vars.map Var.name ++ Δ.consts.map FOL.Const.name ++
-    Δ.unary.map FOL.Unary.name ++ Δ.binary.map FOL.Binary.name ++
-    Δ.ternary.map FOL.Ternary.name ++
-    Δ.unaryRel.map FOL.UnaryRel.name ++ (b.name :: Δ.binaryRel.map FOL.BinaryRel.name)).Perm
-    (b.name :: (Δ.vars.map Var.name ++ Δ.consts.map FOL.Const.name ++
-    Δ.unary.map FOL.Unary.name ++ Δ.binary.map FOL.Binary.name ++
-    Δ.ternary.map FOL.Ternary.name ++
-    Δ.unaryRel.map FOL.UnaryRel.name ++ Δ.binaryRel.map FOL.BinaryRel.name))
+  show (Δ.vars.map Var.name ++ Δ.consts.map Decl.Const.name ++
+    Δ.unary.map Decl.Unary.name ++ Δ.binary.map Decl.Binary.name ++
+    Δ.ternary.map Decl.Ternary.name ++
+    Δ.unaryRel.map Decl.UnaryRel.name ++ (b.name :: Δ.binaryRel.map Decl.BinaryRel.name)).Perm
+    (b.name :: (Δ.vars.map Var.name ++ Δ.consts.map Decl.Const.name ++
+    Δ.unary.map Decl.Unary.name ++ Δ.binary.map Decl.Binary.name ++
+    Δ.ternary.map Decl.Ternary.name ++
+    Δ.unaryRel.map Decl.UnaryRel.name ++ Δ.binaryRel.map Decl.BinaryRel.name))
   exact List.perm_middle
 
-theorem wf_addUnary {Δ : Signature} {u : FOL.Unary}
+theorem wf_addUnary {Δ : Signature} {u : Decl.Unary}
     (hΔ : Δ.wf) (hfresh : u.name ∉ Δ.allNames) : (Δ.addUnary u).wf := by
   unfold wf at hΔ ⊢
   suffices h : (Δ.addUnary u).allNames.Perm (u.name :: Δ.allNames) from
     h.nodup_iff.mpr (List.nodup_cons.mpr ⟨hfresh, hΔ⟩)
-  show (Δ.vars.map Var.name ++ Δ.consts.map FOL.Const.name ++
-    (u.name :: Δ.unary.map FOL.Unary.name) ++ Δ.binary.map FOL.Binary.name ++
-    Δ.ternary.map FOL.Ternary.name ++
-    Δ.unaryRel.map FOL.UnaryRel.name ++ Δ.binaryRel.map FOL.BinaryRel.name).Perm
-    (u.name :: (Δ.vars.map Var.name ++ Δ.consts.map FOL.Const.name ++
-    Δ.unary.map FOL.Unary.name ++ Δ.binary.map FOL.Binary.name ++
-    Δ.ternary.map FOL.Ternary.name ++
-    Δ.unaryRel.map FOL.UnaryRel.name ++ Δ.binaryRel.map FOL.BinaryRel.name))
-  change ((Δ.vars.map Var.name ++ Δ.consts.map FOL.Const.name ++
-    u.name :: Δ.unary.map FOL.Unary.name) ++ Δ.binary.map FOL.Binary.name ++
-    Δ.ternary.map FOL.Ternary.name ++
-    Δ.unaryRel.map FOL.UnaryRel.name ++ Δ.binaryRel.map FOL.BinaryRel.name).Perm
-    (u.name :: (((Δ.vars.map Var.name ++ Δ.consts.map FOL.Const.name ++
-    Δ.unary.map FOL.Unary.name) ++ Δ.binary.map FOL.Binary.name) ++
-    Δ.ternary.map FOL.Ternary.name ++
-    Δ.unaryRel.map FOL.UnaryRel.name ++ Δ.binaryRel.map FOL.BinaryRel.name))
+  show (Δ.vars.map Var.name ++ Δ.consts.map Decl.Const.name ++
+    (u.name :: Δ.unary.map Decl.Unary.name) ++ Δ.binary.map Decl.Binary.name ++
+    Δ.ternary.map Decl.Ternary.name ++
+    Δ.unaryRel.map Decl.UnaryRel.name ++ Δ.binaryRel.map Decl.BinaryRel.name).Perm
+    (u.name :: (Δ.vars.map Var.name ++ Δ.consts.map Decl.Const.name ++
+    Δ.unary.map Decl.Unary.name ++ Δ.binary.map Decl.Binary.name ++
+    Δ.ternary.map Decl.Ternary.name ++
+    Δ.unaryRel.map Decl.UnaryRel.name ++ Δ.binaryRel.map Decl.BinaryRel.name))
+  change ((Δ.vars.map Var.name ++ Δ.consts.map Decl.Const.name ++
+    u.name :: Δ.unary.map Decl.Unary.name) ++ Δ.binary.map Decl.Binary.name ++
+    Δ.ternary.map Decl.Ternary.name ++
+    Δ.unaryRel.map Decl.UnaryRel.name ++ Δ.binaryRel.map Decl.BinaryRel.name).Perm
+    (u.name :: (((Δ.vars.map Var.name ++ Δ.consts.map Decl.Const.name ++
+    Δ.unary.map Decl.Unary.name) ++ Δ.binary.map Decl.Binary.name) ++
+    Δ.ternary.map Decl.Ternary.name ++
+    Δ.unaryRel.map Decl.UnaryRel.name ++ Δ.binaryRel.map Decl.BinaryRel.name))
   exact (((List.perm_middle.append_right _).append_right _).append_right _).append_right _
 
-theorem wf_addBinary {Δ : Signature} {b : FOL.Binary}
+theorem wf_addBinary {Δ : Signature} {b : Decl.Binary}
     (hΔ : Δ.wf) (hfresh : b.name ∉ Δ.allNames) : (Δ.addBinary b).wf := by
   unfold wf at hΔ ⊢
   suffices h : (Δ.addBinary b).allNames.Perm (b.name :: Δ.allNames) from
     h.nodup_iff.mpr (List.nodup_cons.mpr ⟨hfresh, hΔ⟩)
-  show (Δ.vars.map Var.name ++ Δ.consts.map FOL.Const.name ++
-    Δ.unary.map FOL.Unary.name ++ (b.name :: Δ.binary.map FOL.Binary.name) ++
-    Δ.ternary.map FOL.Ternary.name ++
-    Δ.unaryRel.map FOL.UnaryRel.name ++ Δ.binaryRel.map FOL.BinaryRel.name).Perm
-    (b.name :: (Δ.vars.map Var.name ++ Δ.consts.map FOL.Const.name ++
-    Δ.unary.map FOL.Unary.name ++ Δ.binary.map FOL.Binary.name ++
-    Δ.ternary.map FOL.Ternary.name ++
-    Δ.unaryRel.map FOL.UnaryRel.name ++ Δ.binaryRel.map FOL.BinaryRel.name))
-  change ((Δ.vars.map Var.name ++ Δ.consts.map FOL.Const.name ++
-    Δ.unary.map FOL.Unary.name ++ b.name :: Δ.binary.map FOL.Binary.name) ++
-    Δ.ternary.map FOL.Ternary.name ++
-    Δ.unaryRel.map FOL.UnaryRel.name ++ Δ.binaryRel.map FOL.BinaryRel.name).Perm
-    (b.name :: (((Δ.vars.map Var.name ++ Δ.consts.map FOL.Const.name ++
-    Δ.unary.map FOL.Unary.name) ++ Δ.binary.map FOL.Binary.name) ++
-    Δ.ternary.map FOL.Ternary.name ++
-    Δ.unaryRel.map FOL.UnaryRel.name ++ Δ.binaryRel.map FOL.BinaryRel.name))
+  show (Δ.vars.map Var.name ++ Δ.consts.map Decl.Const.name ++
+    Δ.unary.map Decl.Unary.name ++ (b.name :: Δ.binary.map Decl.Binary.name) ++
+    Δ.ternary.map Decl.Ternary.name ++
+    Δ.unaryRel.map Decl.UnaryRel.name ++ Δ.binaryRel.map Decl.BinaryRel.name).Perm
+    (b.name :: (Δ.vars.map Var.name ++ Δ.consts.map Decl.Const.name ++
+    Δ.unary.map Decl.Unary.name ++ Δ.binary.map Decl.Binary.name ++
+    Δ.ternary.map Decl.Ternary.name ++
+    Δ.unaryRel.map Decl.UnaryRel.name ++ Δ.binaryRel.map Decl.BinaryRel.name))
+  change ((Δ.vars.map Var.name ++ Δ.consts.map Decl.Const.name ++
+    Δ.unary.map Decl.Unary.name ++ b.name :: Δ.binary.map Decl.Binary.name) ++
+    Δ.ternary.map Decl.Ternary.name ++
+    Δ.unaryRel.map Decl.UnaryRel.name ++ Δ.binaryRel.map Decl.BinaryRel.name).Perm
+    (b.name :: (((Δ.vars.map Var.name ++ Δ.consts.map Decl.Const.name ++
+    Δ.unary.map Decl.Unary.name) ++ Δ.binary.map Decl.Binary.name) ++
+    Δ.ternary.map Decl.Ternary.name ++
+    Δ.unaryRel.map Decl.UnaryRel.name ++ Δ.binaryRel.map Decl.BinaryRel.name))
   exact ((List.perm_middle.append_right _).append_right _).append_right _
 
-theorem wf_addTernary {Δ : Signature} {t : FOL.Ternary}
+theorem wf_addTernary {Δ : Signature} {t : Decl.Ternary}
     (hΔ : Δ.wf) (hfresh : t.name ∉ Δ.allNames) : (Δ.addTernary t).wf := by
   unfold wf at hΔ ⊢
   suffices h : (Δ.addTernary t).allNames.Perm (t.name :: Δ.allNames) from
     h.nodup_iff.mpr (List.nodup_cons.mpr ⟨hfresh, hΔ⟩)
-  show (Δ.vars.map Var.name ++ Δ.consts.map FOL.Const.name ++
-    Δ.unary.map FOL.Unary.name ++ Δ.binary.map FOL.Binary.name ++
-    (t.name :: Δ.ternary.map FOL.Ternary.name) ++
-    Δ.unaryRel.map FOL.UnaryRel.name ++ Δ.binaryRel.map FOL.BinaryRel.name).Perm
-    (t.name :: (Δ.vars.map Var.name ++ Δ.consts.map FOL.Const.name ++
-    Δ.unary.map FOL.Unary.name ++ Δ.binary.map FOL.Binary.name ++
-    Δ.ternary.map FOL.Ternary.name ++
-    Δ.unaryRel.map FOL.UnaryRel.name ++ Δ.binaryRel.map FOL.BinaryRel.name))
+  show (Δ.vars.map Var.name ++ Δ.consts.map Decl.Const.name ++
+    Δ.unary.map Decl.Unary.name ++ Δ.binary.map Decl.Binary.name ++
+    (t.name :: Δ.ternary.map Decl.Ternary.name) ++
+    Δ.unaryRel.map Decl.UnaryRel.name ++ Δ.binaryRel.map Decl.BinaryRel.name).Perm
+    (t.name :: (Δ.vars.map Var.name ++ Δ.consts.map Decl.Const.name ++
+    Δ.unary.map Decl.Unary.name ++ Δ.binary.map Decl.Binary.name ++
+    Δ.ternary.map Decl.Ternary.name ++
+    Δ.unaryRel.map Decl.UnaryRel.name ++ Δ.binaryRel.map Decl.BinaryRel.name))
   exact (List.perm_middle.append_right _).append_right _
 
-def ofConsts (consts : List FOL.Const) : Signature := ⟨[], consts, [], [], [], [], []⟩
+def ofConsts (consts : List Decl.Const) : Signature := ⟨[], consts, [], [], [], [], []⟩
 
-@[simp] theorem ofConsts_consts (consts : List FOL.Const) : (ofConsts consts).consts = consts := rfl
+@[simp] theorem ofConsts_consts (consts : List Decl.Const) : (ofConsts consts).consts = consts := rfl
 
 structure Subset (Δ₁ Δ₂ : Signature) : Prop where
   vars   : ∀ x ∈ Δ₁.vars, x ∈ Δ₂.vars
@@ -387,7 +387,7 @@ theorem SymbolSubset.trans {Δ₁ Δ₂ Δ₃ : Signature}
    fun u hu => h₂₃.unaryRel u (h₁₂.unaryRel u hu),
    fun b hb => h₂₃.binaryRel b (h₁₂.binaryRel b hb)⟩
 
-theorem SymbolSubset.subset_addConst (Δ : Signature) (c : FOL.Const) :
+theorem SymbolSubset.subset_addConst (Δ : Signature) (c : Decl.Const) :
     Δ.SymbolSubset (Δ.addConst c) :=
   ⟨fun _ hc' => List.mem_cons_of_mem _ hc', fun _ hu => hu, fun _ hb => hb,
    fun _ ht => ht, fun _ hu => hu, fun _ hb => hb⟩
@@ -439,25 +439,25 @@ theorem Subset.addVar {Δ Δ' : Signature} (h : Δ.Subset Δ') (v : Var) :
   ⟨fun x hx => by cases hx with | head => left | tail _ hmem => right; exact h.vars x hmem,
    h.consts, h.unary, h.binary, h.ternary, h.unaryRel, h.binaryRel⟩
 
-theorem Subset.addConst {Δ Δ' : Signature} (h : Δ.Subset Δ') (c : FOL.Const) :
+theorem Subset.addConst {Δ Δ' : Signature} (h : Δ.Subset Δ') (c : Decl.Const) :
     (Δ.addConst c).Subset (Δ'.addConst c) :=
   ⟨h.vars,
    fun x hx => by cases hx with | head => left | tail _ hmem => right; exact h.consts x hmem,
    h.unary, h.binary, h.ternary, h.unaryRel, h.binaryRel⟩
 
-theorem Subset.addUnary {Δ Δ' : Signature} (h : Δ.Subset Δ') (u : FOL.Unary) :
+theorem Subset.addUnary {Δ Δ' : Signature} (h : Δ.Subset Δ') (u : Decl.Unary) :
     (Δ.addUnary u).Subset (Δ'.addUnary u) :=
   ⟨h.vars, h.consts,
    fun x hx => by cases hx with | head => left | tail _ hmem => right; exact h.unary x hmem,
    h.binary, h.ternary, h.unaryRel, h.binaryRel⟩
 
-theorem Subset.addUnaryRel {Δ Δ' : Signature} (h : Δ.Subset Δ') (u : FOL.UnaryRel) :
+theorem Subset.addUnaryRel {Δ Δ' : Signature} (h : Δ.Subset Δ') (u : Decl.UnaryRel) :
     (Δ.addUnaryRel u).Subset (Δ'.addUnaryRel u) :=
   ⟨h.vars, h.consts, h.unary, h.binary, h.ternary,
    fun x hx => by cases hx with | head => left | tail _ hmem => right; exact h.unaryRel x hmem,
    h.binaryRel⟩
 
-theorem Subset.addBinaryRel {Δ Δ' : Signature} (h : Δ.Subset Δ') (b : FOL.BinaryRel) :
+theorem Subset.addBinaryRel {Δ Δ' : Signature} (h : Δ.Subset Δ') (b : Decl.BinaryRel) :
     (Δ.addBinaryRel b).Subset (Δ'.addBinaryRel b) :=
   ⟨h.vars, h.consts, h.unary, h.binary, h.ternary, h.unaryRel,
    fun x hx => by cases hx with | head => left | tail _ hmem => right; exact h.binaryRel x hmem⟩
@@ -466,28 +466,28 @@ theorem Subset.subset_addVar (Δ : Signature) (v : Var) :
     Δ.Subset (Δ.addVar v) :=
   ⟨fun _ hx => List.mem_cons_of_mem _ hx, fun _ h => h, fun _ h => h, fun _ h => h, fun _ h => h, fun _ h => h, fun _ h => h⟩
 
-theorem Subset.subset_addConst (Δ : Signature) (c : FOL.Const) :
+theorem Subset.subset_addConst (Δ : Signature) (c : Decl.Const) :
     Δ.Subset (Δ.addConst c) :=
   ⟨fun _ h => h, fun _ hc => List.mem_cons_of_mem _ hc, fun _ h => h, fun _ h => h, fun _ h => h, fun _ h => h, fun _ h => h⟩
 
-theorem Subset.subset_addUnary (Δ : Signature) (u : FOL.Unary) :
+theorem Subset.subset_addUnary (Δ : Signature) (u : Decl.Unary) :
     Δ.Subset (Δ.addUnary u) :=
   ⟨fun _ h => h, fun _ h => h, fun _ hu => List.mem_cons_of_mem _ hu, fun _ h => h, fun _ h => h, fun _ h => h, fun _ h => h⟩
 
-theorem Subset.subset_addBinary (Δ : Signature) (b : FOL.Binary) :
+theorem Subset.subset_addBinary (Δ : Signature) (b : Decl.Binary) :
     Δ.Subset (Δ.addBinary b) :=
   ⟨fun _ h => h, fun _ h => h, fun _ h => h, fun _ hb => List.mem_cons_of_mem _ hb, fun _ h => h, fun _ h => h, fun _ h => h⟩
 
-theorem Subset.subset_addTernary (Δ : Signature) (t : FOL.Ternary) :
+theorem Subset.subset_addTernary (Δ : Signature) (t : Decl.Ternary) :
     Δ.Subset (Δ.addTernary t) :=
   ⟨fun _ h => h, fun _ h => h, fun _ h => h, fun _ h => h,
    fun _ ht => List.mem_cons_of_mem _ ht, fun _ h => h, fun _ h => h⟩
 
-theorem Subset.subset_addUnaryRel (Δ : Signature) (u : FOL.UnaryRel) :
+theorem Subset.subset_addUnaryRel (Δ : Signature) (u : Decl.UnaryRel) :
     Δ.Subset (Δ.addUnaryRel u) :=
   ⟨fun _ h => h, fun _ h => h, fun _ h => h, fun _ h => h, fun _ h => h, fun _ hu => List.mem_cons_of_mem _ hu, fun _ h => h⟩
 
-theorem Subset.subset_addBinaryRel (Δ : Signature) (b : FOL.BinaryRel) :
+theorem Subset.subset_addBinaryRel (Δ : Signature) (b : Decl.BinaryRel) :
     Δ.Subset (Δ.addBinaryRel b) :=
   ⟨fun _ h => h, fun _ h => h, fun _ h => h, fun _ h => h, fun _ h => h, fun _ h => h, fun _ hb => List.mem_cons_of_mem _ hb⟩
 
@@ -524,27 +524,27 @@ theorem remove_eq_of_not_in {Δ : Signature} {x : String} (h : x ∉ Δ.allNames
       apply List.filter_eq_self.2
       intro v hv
       simp [hvars v hv]
-    have hconsts' : List.filter (fun c : FOL.Const => c.name != x) consts = consts := by
+    have hconsts' : List.filter (fun c : Decl.Const => c.name != x) consts = consts := by
       apply List.filter_eq_self.2
       intro c hc
       simp [hconsts c hc]
-    have hunary' : List.filter (fun u : FOL.Unary => u.name != x) unary = unary := by
+    have hunary' : List.filter (fun u : Decl.Unary => u.name != x) unary = unary := by
       apply List.filter_eq_self.2
       intro u hu
       simp [hunary u hu]
-    have hbinary' : List.filter (fun b : FOL.Binary => b.name != x) binary = binary := by
+    have hbinary' : List.filter (fun b : Decl.Binary => b.name != x) binary = binary := by
       apply List.filter_eq_self.2
       intro b hb
       simp [hbinary b hb]
-    have hternary' : List.filter (fun t : FOL.Ternary => t.name != x) ternary = ternary := by
+    have hternary' : List.filter (fun t : Decl.Ternary => t.name != x) ternary = ternary := by
       apply List.filter_eq_self.2
       intro t ht
       simp [hternary t ht]
-    have hunaryRel' : List.filter (fun u : FOL.UnaryRel => u.name != x) unaryRel = unaryRel := by
+    have hunaryRel' : List.filter (fun u : Decl.UnaryRel => u.name != x) unaryRel = unaryRel := by
       apply List.filter_eq_self.2
       intro u hu
       simp [hunaryRel u hu]
-    have hbinaryRel' : List.filter (fun b : FOL.BinaryRel => b.name != x) binaryRel = binaryRel := by
+    have hbinaryRel' : List.filter (fun b : Decl.BinaryRel => b.name != x) binaryRel = binaryRel := by
       apply List.filter_eq_self.2
       intro b hb
       simp [hbinaryRel b hb]
@@ -559,16 +559,16 @@ private theorem allNames_remove_sublist (Δ : Signature) (x : String) :
     apply List.Sublist.append
     · exact (List.filter_sublist (l := vars) (p := fun v : Var => v.name != x)).map Var.name
     · apply List.Sublist.append
-      · exact (List.filter_sublist (l := consts) (p := fun c : FOL.Const => c.name != x)).map FOL.Const.name
+      · exact (List.filter_sublist (l := consts) (p := fun c : Decl.Const => c.name != x)).map Decl.Const.name
       · apply List.Sublist.append
-        · exact (List.filter_sublist (l := unary) (p := fun u : FOL.Unary => u.name != x)).map FOL.Unary.name
+        · exact (List.filter_sublist (l := unary) (p := fun u : Decl.Unary => u.name != x)).map Decl.Unary.name
         · apply List.Sublist.append
-          · exact (List.filter_sublist (l := binary) (p := fun b : FOL.Binary => b.name != x)).map FOL.Binary.name
+          · exact (List.filter_sublist (l := binary) (p := fun b : Decl.Binary => b.name != x)).map Decl.Binary.name
           · apply List.Sublist.append
-            · exact (List.filter_sublist (l := ternary) (p := fun t : FOL.Ternary => t.name != x)).map FOL.Ternary.name
+            · exact (List.filter_sublist (l := ternary) (p := fun t : Decl.Ternary => t.name != x)).map Decl.Ternary.name
             · apply List.Sublist.append
-              · exact (List.filter_sublist (l := unaryRel) (p := fun u : FOL.UnaryRel => u.name != x)).map FOL.UnaryRel.name
-              · exact (List.filter_sublist (l := binaryRel) (p := fun b : FOL.BinaryRel => b.name != x)).map FOL.BinaryRel.name
+              · exact (List.filter_sublist (l := unaryRel) (p := fun u : Decl.UnaryRel => u.name != x)).map Decl.UnaryRel.name
+              · exact (List.filter_sublist (l := binaryRel) (p := fun b : Decl.BinaryRel => b.name != x)).map Decl.BinaryRel.name
 
 theorem wf_remove {Δ : Signature} (hΔ : Δ.wf) (x : String) : (Δ.remove x).wf := by
   rw [wf] at hΔ ⊢
@@ -592,7 +592,7 @@ theorem wf_declVars {Δ : Signature} {vs : List Var} (hΔ : Δ.wf) : (Δ.declVar
 
 /-- A name absent from a signature and distinct from a new binary relation name
 remains absent after adding that binary relation. -/
-theorem not_mem_allNames_addBinaryRel {Δ : Signature} {b : FOL.BinaryRel} {x : String}
+theorem not_mem_allNames_addBinaryRel {Δ : Signature} {b : Decl.BinaryRel} {x : String}
     (hΔ : x ∉ Δ.allNames) (hb : x ≠ b.name) :
     x ∉ (Δ.addBinaryRel b).allNames := by
   intro h
@@ -621,7 +621,7 @@ theorem not_mem_allNames_declVar {Δ : Signature} {v : Var} {x : String}
 
 /-- A name absent from a signature and distinct from a new unary function name
 remains absent after adding that unary function. -/
-theorem not_mem_allNames_addUnary {Δ : Signature} {u : FOL.Unary} {x : String}
+theorem not_mem_allNames_addUnary {Δ : Signature} {u : Decl.Unary} {x : String}
     (hΔ : x ∉ Δ.allNames) (hu : x ≠ u.name) :
     x ∉ (Δ.addUnary u).allNames := by
   intro h
@@ -638,7 +638,7 @@ theorem not_mem_allNames_addUnary {Δ : Signature} {u : FOL.Unary} {x : String}
 
 /-- A name absent from a signature and distinct from a new unary relation name
 remains absent after adding that unary relation. -/
-theorem not_mem_allNames_addUnaryRel {Δ : Signature} {u : FOL.UnaryRel} {x : String}
+theorem not_mem_allNames_addUnaryRel {Δ : Signature} {u : Decl.UnaryRel} {x : String}
     (hΔ : x ∉ Δ.allNames) (hu : x ≠ u.name) :
     x ∉ (Δ.addUnaryRel u).allNames := by
   intro h
@@ -715,22 +715,22 @@ private theorem unique_sort_of_nodup_map_name {l : List Var} {x : String} {τ τ
       · exact absurd (List.mem_map_of_mem hmem) hnd.1
       · exact ih hnd.2 hmem hmem'
 
-private theorem unique_sort_of_nodup_map_const_name {l : List FOL.Const} {x : String} {τ τ' : Srt}
-    (hnd : (l.map FOL.Const.name).Nodup) (hc : ⟨x, τ⟩ ∈ l) (hc' : ⟨x, τ'⟩ ∈ l) : τ' = τ := by
+private theorem unique_sort_of_nodup_map_const_name {l : List Decl.Const} {x : String} {τ τ' : Srt}
+    (hnd : (l.map Decl.Const.name).Nodup) (hc : ⟨x, τ⟩ ∈ l) (hc' : ⟨x, τ'⟩ ∈ l) : τ' = τ := by
   induction l with
   | nil => simp at hc
   | cons v vs ih =>
     rw [List.map, List.nodup_cons] at hnd
     rcases List.mem_cons.mp hc with rfl | hmem
     · rcases List.mem_cons.mp hc' with heq | hmem'
-      · exact (FOL.Const.mk.inj heq).2
+      · exact (Decl.Const.mk.inj heq).2
       · exact absurd (List.mem_map_of_mem hmem') hnd.1
     · rcases List.mem_cons.mp hc' with rfl | hmem'
       · exact absurd (List.mem_map_of_mem hmem) hnd.1
       · exact ih hnd.2 hmem hmem'
 
-private theorem unique_sig_of_nodup_map_unary_name {l : List FOL.Unary} {x : String}
-    {τ₁ τ₂ τ₁' τ₂' : Srt} (hnd : (l.map FOL.Unary.name).Nodup)
+private theorem unique_sig_of_nodup_map_unary_name {l : List Decl.Unary} {x : String}
+    {τ₁ τ₂ τ₁' τ₂' : Srt} (hnd : (l.map Decl.Unary.name).Nodup)
     (hu : ⟨x, τ₁, τ₂⟩ ∈ l) (hu' : ⟨x, τ₁', τ₂'⟩ ∈ l) : τ₁' = τ₁ ∧ τ₂' = τ₂ := by
   induction l with
   | nil => simp at hu
@@ -738,15 +738,15 @@ private theorem unique_sig_of_nodup_map_unary_name {l : List FOL.Unary} {x : Str
     rw [List.map, List.nodup_cons] at hnd
     rcases List.mem_cons.mp hu with rfl | hmem
     · rcases List.mem_cons.mp hu' with heq | hmem'
-      · rcases FOL.Unary.mk.inj heq with ⟨_, harg, hret⟩
+      · rcases Decl.Unary.mk.inj heq with ⟨_, harg, hret⟩
         exact ⟨harg, hret⟩
       · exact absurd (List.mem_map_of_mem hmem') hnd.1
     · rcases List.mem_cons.mp hu' with rfl | hmem'
       · exact absurd (List.mem_map_of_mem hmem) hnd.1
       · exact ih hnd.2 hmem hmem'
 
-private theorem unique_sig_of_nodup_map_binary_name {l : List FOL.Binary} {x : String}
-    {τ₁ τ₂ τ₃ τ₁' τ₂' τ₃' : Srt} (hnd : (l.map FOL.Binary.name).Nodup)
+private theorem unique_sig_of_nodup_map_binary_name {l : List Decl.Binary} {x : String}
+    {τ₁ τ₂ τ₃ τ₁' τ₂' τ₃' : Srt} (hnd : (l.map Decl.Binary.name).Nodup)
     (hb : ⟨x, τ₁, τ₂, τ₃⟩ ∈ l) (hb' : ⟨x, τ₁', τ₂', τ₃'⟩ ∈ l) :
     τ₁' = τ₁ ∧ τ₂' = τ₂ ∧ τ₃' = τ₃ := by
   induction l with
@@ -755,15 +755,15 @@ private theorem unique_sig_of_nodup_map_binary_name {l : List FOL.Binary} {x : S
     rw [List.map, List.nodup_cons] at hnd
     rcases List.mem_cons.mp hb with rfl | hmem
     · rcases List.mem_cons.mp hb' with heq | hmem'
-      · rcases FOL.Binary.mk.inj heq with ⟨_, harg1, harg2, hret⟩
+      · rcases Decl.Binary.mk.inj heq with ⟨_, harg1, harg2, hret⟩
         exact ⟨harg1, harg2, hret⟩
       · exact absurd (List.mem_map_of_mem hmem') hnd.1
     · rcases List.mem_cons.mp hb' with rfl | hmem'
       · exact absurd (List.mem_map_of_mem hmem) hnd.1
       · exact ih hnd.2 hmem hmem'
 
-private theorem unique_sig_of_nodup_map_ternary_name {l : List FOL.Ternary} {x : String}
-    {τ₁ τ₂ τ₃ τ₄ τ₁' τ₂' τ₃' τ₄' : Srt} (hnd : (l.map FOL.Ternary.name).Nodup)
+private theorem unique_sig_of_nodup_map_ternary_name {l : List Decl.Ternary} {x : String}
+    {τ₁ τ₂ τ₃ τ₄ τ₁' τ₂' τ₃' τ₄' : Srt} (hnd : (l.map Decl.Ternary.name).Nodup)
     (ht : ⟨x, τ₁, τ₂, τ₃, τ₄⟩ ∈ l) (ht' : ⟨x, τ₁', τ₂', τ₃', τ₄'⟩ ∈ l) :
     τ₁' = τ₁ ∧ τ₂' = τ₂ ∧ τ₃' = τ₃ ∧ τ₄' = τ₄ := by
   induction l with
@@ -772,15 +772,15 @@ private theorem unique_sig_of_nodup_map_ternary_name {l : List FOL.Ternary} {x :
     rw [List.map, List.nodup_cons] at hnd
     rcases List.mem_cons.mp ht with rfl | hmem
     · rcases List.mem_cons.mp ht' with heq | hmem'
-      · rcases FOL.Ternary.mk.inj heq with ⟨_, harg1, harg2, harg3, hret⟩
+      · rcases Decl.Ternary.mk.inj heq with ⟨_, harg1, harg2, harg3, hret⟩
         exact ⟨harg1, harg2, harg3, hret⟩
       · exact absurd (List.mem_map_of_mem hmem') hnd.1
     · rcases List.mem_cons.mp ht' with rfl | hmem'
       · exact absurd (List.mem_map_of_mem hmem) hnd.1
       · exact ih hnd.2 hmem hmem'
 
-private theorem unique_sort_of_nodup_map_unaryRel_name {l : List FOL.UnaryRel} {x : String}
-    {τ τ' : Srt} (hnd : (l.map FOL.UnaryRel.name).Nodup)
+private theorem unique_sort_of_nodup_map_unaryRel_name {l : List Decl.UnaryRel} {x : String}
+    {τ τ' : Srt} (hnd : (l.map Decl.UnaryRel.name).Nodup)
     (hu : ⟨x, τ⟩ ∈ l) (hu' : ⟨x, τ'⟩ ∈ l) : τ' = τ := by
   induction l with
   | nil => simp at hu
@@ -788,14 +788,14 @@ private theorem unique_sort_of_nodup_map_unaryRel_name {l : List FOL.UnaryRel} {
     rw [List.map, List.nodup_cons] at hnd
     rcases List.mem_cons.mp hu with rfl | hmem
     · rcases List.mem_cons.mp hu' with heq | hmem'
-      · exact (FOL.UnaryRel.mk.inj heq).2
+      · exact (Decl.UnaryRel.mk.inj heq).2
       · exact absurd (List.mem_map_of_mem hmem') hnd.1
     · rcases List.mem_cons.mp hu' with rfl | hmem'
       · exact absurd (List.mem_map_of_mem hmem) hnd.1
       · exact ih hnd.2 hmem hmem'
 
-private theorem unique_sig_of_nodup_map_binaryRel_name {l : List FOL.BinaryRel} {x : String}
-    {τ₁ τ₂ τ₁' τ₂' : Srt} (hnd : (l.map FOL.BinaryRel.name).Nodup)
+private theorem unique_sig_of_nodup_map_binaryRel_name {l : List Decl.BinaryRel} {x : String}
+    {τ₁ τ₂ τ₁' τ₂' : Srt} (hnd : (l.map Decl.BinaryRel.name).Nodup)
     (hb : ⟨x, τ₁, τ₂⟩ ∈ l) (hb' : ⟨x, τ₁', τ₂'⟩ ∈ l) : τ₁' = τ₁ ∧ τ₂' = τ₂ := by
   induction l with
   | nil => simp at hb
@@ -803,7 +803,7 @@ private theorem unique_sig_of_nodup_map_binaryRel_name {l : List FOL.BinaryRel} 
     rw [List.map, List.nodup_cons] at hnd
     rcases List.mem_cons.mp hb with rfl | hmem
     · rcases List.mem_cons.mp hb' with heq | hmem'
-      · rcases FOL.BinaryRel.mk.inj heq with ⟨_, harg1, harg2⟩
+      · rcases Decl.BinaryRel.mk.inj heq with ⟨_, harg1, harg2⟩
         exact ⟨harg1, harg2⟩
       · exact absurd (List.mem_map_of_mem hmem') hnd.1
     · rcases List.mem_cons.mp hb' with rfl | hmem'
@@ -878,10 +878,10 @@ theorem wf_no_const_of_var {Δ : Signature} {x : String} {τ τ' : Srt}
   have hnd₃ := (List.nodup_append.mp hnd₂).1
   have hnd₄ := (List.nodup_append.mp hnd₃).1
   have hdisj :
-      ∀ a ∈ Δ.vars.map Var.name, ∀ b ∈ Δ.consts.map FOL.Const.name, a ≠ b :=
+      ∀ a ∈ Δ.vars.map Var.name, ∀ b ∈ Δ.consts.map Decl.Const.name, a ≠ b :=
     (List.nodup_append.mp (List.nodup_append.mp hnd₄).1).2.2
   have hxv : x ∈ Δ.vars.map Var.name := List.mem_map.mpr ⟨⟨x, τ⟩, hv, rfl⟩
-  have hxc : x ∈ Δ.consts.map FOL.Const.name := List.mem_map.mpr ⟨⟨x, τ'⟩, hc, rfl⟩
+  have hxc : x ∈ Δ.consts.map Decl.Const.name := List.mem_map.mpr ⟨⟨x, τ'⟩, hc, rfl⟩
   exact hdisj x hxv x hxc rfl
 
 theorem wf_no_var_of_const {Δ : Signature} {x : String} {τ τ' : Srt}
@@ -894,42 +894,42 @@ theorem wf_no_unaryRel_of_unary {Δ : Signature} {x : String} {τ₁ τ₂ τ' :
   intro hrel
   have hnd₁ := (List.nodup_append.mp hΔ).1
   have hdisj :
-      ∀ a ∈ (Δ.vars.map Var.name ++ Δ.consts.map FOL.Const.name ++
-        Δ.unary.map FOL.Unary.name ++ Δ.binary.map FOL.Binary.name ++
-        Δ.ternary.map FOL.Ternary.name),
-      ∀ b ∈ Δ.unaryRel.map FOL.UnaryRel.name, a ≠ b :=
+      ∀ a ∈ (Δ.vars.map Var.name ++ Δ.consts.map Decl.Const.name ++
+        Δ.unary.map Decl.Unary.name ++ Δ.binary.map Decl.Binary.name ++
+        Δ.ternary.map Decl.Ternary.name),
+      ∀ b ∈ Δ.unaryRel.map Decl.UnaryRel.name, a ≠ b :=
     (List.nodup_append.mp hnd₁).2.2
   have hxu :
-      x ∈ (Δ.vars.map Var.name ++ Δ.consts.map FOL.Const.name ++
-        Δ.unary.map FOL.Unary.name ++ Δ.binary.map FOL.Binary.name ++
-        Δ.ternary.map FOL.Ternary.name) := by
-    have hxunary : x ∈ Δ.unary.map FOL.Unary.name :=
-      List.mem_map.mpr ⟨(⟨x, τ₁, τ₂⟩ : FOL.Unary), hu, rfl⟩
+      x ∈ (Δ.vars.map Var.name ++ Δ.consts.map Decl.Const.name ++
+        Δ.unary.map Decl.Unary.name ++ Δ.binary.map Decl.Binary.name ++
+        Δ.ternary.map Decl.Ternary.name) := by
+    have hxunary : x ∈ Δ.unary.map Decl.Unary.name :=
+      List.mem_map.mpr ⟨(⟨x, τ₁, τ₂⟩ : Decl.Unary), hu, rfl⟩
     simp [List.mem_append, hxunary]
-  have hxr : x ∈ Δ.unaryRel.map FOL.UnaryRel.name :=
-    List.mem_map.mpr ⟨(⟨x, τ'⟩ : FOL.UnaryRel), hrel, rfl⟩
+  have hxr : x ∈ Δ.unaryRel.map Decl.UnaryRel.name :=
+    List.mem_map.mpr ⟨(⟨x, τ'⟩ : Decl.UnaryRel), hrel, rfl⟩
   exact hdisj x hxu x hxr rfl
 
 theorem wf_no_binaryRel_of_binary {Δ : Signature} {x : String} {τ₁ τ₂ τ₃ τ₁' τ₂' : Srt}
     (hΔ : Δ.wf) (hb : ⟨x, τ₁, τ₂, τ₃⟩ ∈ Δ.binary) : ⟨x, τ₁', τ₂'⟩ ∉ Δ.binaryRel := by
   intro hrel
   have hdisj :
-      ∀ a ∈ (Δ.vars.map Var.name ++ Δ.consts.map FOL.Const.name ++
-        Δ.unary.map FOL.Unary.name ++ Δ.binary.map FOL.Binary.name ++
-        Δ.ternary.map FOL.Ternary.name ++
-        Δ.unaryRel.map FOL.UnaryRel.name),
-      ∀ b ∈ Δ.binaryRel.map FOL.BinaryRel.name, a ≠ b :=
+      ∀ a ∈ (Δ.vars.map Var.name ++ Δ.consts.map Decl.Const.name ++
+        Δ.unary.map Decl.Unary.name ++ Δ.binary.map Decl.Binary.name ++
+        Δ.ternary.map Decl.Ternary.name ++
+        Δ.unaryRel.map Decl.UnaryRel.name),
+      ∀ b ∈ Δ.binaryRel.map Decl.BinaryRel.name, a ≠ b :=
     (List.nodup_append.mp hΔ).2.2
   have hxb :
-      x ∈ (Δ.vars.map Var.name ++ Δ.consts.map FOL.Const.name ++
-        Δ.unary.map FOL.Unary.name ++ Δ.binary.map FOL.Binary.name ++
-        Δ.ternary.map FOL.Ternary.name ++
-        Δ.unaryRel.map FOL.UnaryRel.name) := by
-    have hxbinary : x ∈ Δ.binary.map FOL.Binary.name :=
-      List.mem_map.mpr ⟨(⟨x, τ₁, τ₂, τ₃⟩ : FOL.Binary), hb, rfl⟩
+      x ∈ (Δ.vars.map Var.name ++ Δ.consts.map Decl.Const.name ++
+        Δ.unary.map Decl.Unary.name ++ Δ.binary.map Decl.Binary.name ++
+        Δ.ternary.map Decl.Ternary.name ++
+        Δ.unaryRel.map Decl.UnaryRel.name) := by
+    have hxbinary : x ∈ Δ.binary.map Decl.Binary.name :=
+      List.mem_map.mpr ⟨(⟨x, τ₁, τ₂, τ₃⟩ : Decl.Binary), hb, rfl⟩
     simp [List.mem_append, hxbinary]
-  have hxr : x ∈ Δ.binaryRel.map FOL.BinaryRel.name :=
-    List.mem_map.mpr ⟨(⟨x, τ₁', τ₂'⟩ : FOL.BinaryRel), hrel, rfl⟩
+  have hxr : x ∈ Δ.binaryRel.map Decl.BinaryRel.name :=
+    List.mem_map.mpr ⟨(⟨x, τ₁', τ₂'⟩ : Decl.BinaryRel), hrel, rfl⟩
   exact hdisj x hxb x hxr rfl
 
 theorem Subset.remove {Δ Δ' : Signature} (h : Δ.Subset Δ') (x : String) :

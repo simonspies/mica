@@ -202,7 +202,7 @@ def Const.checkWf : Const τ → Signature → Except String Unit
 def UnOp.checkWf : UnOp τ₁ τ₂ → Signature → Except String Unit
   | .uninterpreted name τ₁ τ₂, Δ =>
     if ⟨name, τ₁, τ₂⟩ ∈ Δ.unary then
-      if name ∈ Δ.unaryRel.map FOL.UnaryRel.name then
+      if name ∈ Δ.unaryRel.map Decl.UnaryRel.name then
         .error s!"unary op {name} conflicts with a unary predicate"
       else if Δ.unary.any (fun u => u.name == name && (u.arg != τ₁ || u.ret != τ₂)) then
         .error s!"unary op {name} has multiple signatures in signature"
@@ -213,7 +213,7 @@ def UnOp.checkWf : UnOp τ₁ τ₂ → Signature → Except String Unit
 def BinOp.checkWf : BinOp τ₁ τ₂ τ₃ → Signature → Except String Unit
   | .uninterpreted name τ₁ τ₂ τ₃, Δ =>
     if ⟨name, τ₁, τ₂, τ₃⟩ ∈ Δ.binary then
-      if name ∈ Δ.binaryRel.map FOL.BinaryRel.name then
+      if name ∈ Δ.binaryRel.map Decl.BinaryRel.name then
         .error s!"binary op {name} conflicts with a binary predicate"
       else if Δ.binary.any
           (fun b => b.name == name && (b.arg1 != τ₁ || b.arg2 != τ₂ || b.ret != τ₃)) then
@@ -246,7 +246,7 @@ def Term.wfIn : Term τ → Signature → Prop
 def Term.checkWf : Term τ → Signature → Except String Unit
   | .var τ x, Δ     =>
     if ⟨x, τ⟩ ∈ Δ.vars then
-      if x ∈ Δ.consts.map FOL.Const.name then .error s!"variable {repr x} conflicts with a constant"
+      if x ∈ Δ.consts.map Decl.Const.name then .error s!"variable {repr x} conflicts with a constant"
       else if Δ.vars.any (fun v => v.name == x && v.sort != τ) then
         .error s!"variable {repr x} has multiple sorts in scope"
       else .ok ()
@@ -844,7 +844,7 @@ theorem Term.var_wfIn_declVar {Δ : Signature} {x : String} {τ : Srt}
    fun _ hv => Signature.wf_unique_var hwf (Signature.var_mem_declVar Δ ⟨x, τ⟩) hv⟩
 
 /-- A fresh uninterpreted constant is well-formed in a signature extended by itself. -/
-theorem Term.const_wfIn_addConst_of_fresh {Δ : Signature} {c : FOL.Const}
+theorem Term.const_wfIn_addConst_of_fresh {Δ : Signature} {c : Decl.Const}
     (hΔwf : Δ.wf) (hfresh : c.name ∉ Δ.allNames) :
     (Term.const (.uninterpreted c.name c.sort)).wfIn (Δ.addConst c) :=
   Term.const_wfIn_of_mem (Signature.wf_addConst hΔwf hfresh) (List.Mem.head _)
@@ -969,7 +969,7 @@ theorem Terms.Eval.lookup_var {ρ : Env} {avs : List Var} {vs : List Runtime.Val
       · exact hhead
       · exact ih rfl
 
-theorem Terms.Eval.lookup_const {ρ : Env} {avs : List FOL.Const} {vs : List Runtime.Val}
+theorem Terms.Eval.lookup_const {ρ : Env} {avs : List Decl.Const} {vs : List Runtime.Val}
     (h : Terms.Eval ρ (avs.map (fun av => .const (.uninterpreted av.name .value))) vs) :
     List.Forall₂ (fun av val => ρ.consts .value av.name = val) avs vs := by
   generalize hts : avs.map (fun av => Term.const (.uninterpreted av.name .value)) = ts at h

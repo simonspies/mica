@@ -24,17 +24,17 @@ inductive VerifM : Type → Type 1 where
   | ret : α → VerifM α
   | bind : VerifM α → (α → VerifM β) → VerifM β
   /-- Declare a fresh SMT constant. -/
-  | decl : Option String → Srt → VerifM FOL.Const
+  | decl : Option String → Srt → VerifM Decl.Const
   /-- Declare a fresh unary relation symbol with the given hint and argument sort. -/
-  | declUnaryRel : Option String → Srt → VerifM FOL.UnaryRel
+  | declUnaryRel : Option String → Srt → VerifM Decl.UnaryRel
   /-- Declare a fresh binary relation symbol with the given hint and argument sorts. -/
-  | declBinaryRel : Option String → Srt → Srt → VerifM FOL.BinaryRel
+  | declBinaryRel : Option String → Srt → Srt → VerifM Decl.BinaryRel
   /-- Declare a fresh unary function symbol with the given hint, argument and result sorts. -/
-  | declUnary : Option String → Srt → Srt → VerifM FOL.Unary
+  | declUnary : Option String → Srt → Srt → VerifM Decl.Unary
   /-- Declare a fresh binary function symbol with the given hint, argument and result sorts. -/
-  | declBinary : Option String → Srt → Srt → Srt → VerifM FOL.Binary
+  | declBinary : Option String → Srt → Srt → Srt → VerifM Decl.Binary
   /-- Declare a fresh ternary function symbol with the given hint, arguments and result sort. -/
-  | declTernary : Option String → Srt → Srt → Srt → Srt → VerifM FOL.Ternary
+  | declTernary : Option String → Srt → Srt → Srt → Srt → VerifM Decl.Ternary
   /-- Add a context item to the verifier state (permanent, no check). -/
   | assume : CtxItem → VerifM Unit
   /-- Check whether φ is provable from the current context. Returns `true` if
@@ -97,32 +97,32 @@ def VerifM.expectSome (msg : String) (x : Option α) : VerifM α := do
   | none => VerifM.fatal msg
 
 /-- Declare a constant with a specific name, failing if a different name was assigned. -/
-def VerifM.declConstExact (c : FOL.Const) : VerifM Unit := do
+def VerifM.declConstExact (c : Decl.Const) : VerifM Unit := do
   let c' ← VerifM.decl (some c.name) c.sort
   VerifM.expectEq "declConstExact" c'.name c.name
 
 /-- Declare a unary relation with a specific name, failing if a different name was assigned. -/
-def VerifM.declUnaryRelExact (u : FOL.UnaryRel) : VerifM Unit := do
+def VerifM.declUnaryRelExact (u : Decl.UnaryRel) : VerifM Unit := do
   let u' ← VerifM.declUnaryRel (some u.name) u.arg
   VerifM.expectEq "declUnaryRelExact" u'.name u.name
 
 /-- Declare a binary relation with a specific name, failing if a different name was assigned. -/
-def VerifM.declBinaryRelExact (b : FOL.BinaryRel) : VerifM Unit := do
+def VerifM.declBinaryRelExact (b : Decl.BinaryRel) : VerifM Unit := do
   let b' ← VerifM.declBinaryRel (some b.name) b.arg1 b.arg2
   VerifM.expectEq "declBinaryRelExact" b'.name b.name
 
 /-- Declare a unary function with a specific name, failing if a different name was assigned. -/
-def VerifM.declUnaryExact (u : FOL.Unary) : VerifM Unit := do
+def VerifM.declUnaryExact (u : Decl.Unary) : VerifM Unit := do
   let u' ← VerifM.declUnary (some u.name) u.arg u.ret
   VerifM.expectEq "declUnaryExact" u'.name u.name
 
 /-- Declare a binary function with a specific name, failing if a different name was assigned. -/
-def VerifM.declBinaryExact (b : FOL.Binary) : VerifM Unit := do
+def VerifM.declBinaryExact (b : Decl.Binary) : VerifM Unit := do
   let b' ← VerifM.declBinary (some b.name) b.arg1 b.arg2 b.ret
   VerifM.expectEq "declBinaryExact" b'.name b.name
 
 /-- Declare a ternary function with a specific name, failing if a different name was assigned. -/
-def VerifM.declTernaryExact (t : FOL.Ternary) : VerifM Unit := do
+def VerifM.declTernaryExact (t : Decl.Ternary) : VerifM Unit := do
   let t' ← VerifM.declTernary (some t.name) t.arg1 t.arg2 t.arg3 t.ret
   VerifM.expectEq "declTernaryExact" t'.name t.name
 
@@ -728,14 +728,14 @@ theorem VerifM.eval_fatal {st : TransState} {ρ : Env} {Q : α → TransState �
   h.2.2
 
 theorem VerifM.eval_decl {hint : Option String} {t : Srt} {st : TransState} {ρ : Env}
-    {Q : FOL.Const → TransState → Env → Prop}
+    {Q : Decl.Const → TransState → Env → Prop}
     (h : VerifM.eval (.decl hint t) st ρ Q) :
     let c := st.freshConst hint t
     ∀ u, Q c { st with decls := st.decls.addConst c } (ρ.updateConst t c.name u) :=
   fun u => (h.2.2 u).2.2
 
 theorem VerifM.eval_declUnaryRel {hint : Option String} {τ : Srt} {st : TransState} {ρ : Env}
-    {Q : FOL.UnaryRel → TransState → Env → Prop}
+    {Q : Decl.UnaryRel → TransState → Env → Prop}
     (h : VerifM.eval (.declUnaryRel hint τ) st ρ Q) :
     let u := st.freshUnaryRel hint τ
     u.name ∉ st.decls.allNames ∧
@@ -743,7 +743,7 @@ theorem VerifM.eval_declUnaryRel {hint : Option String} {τ : Srt} {st : TransSt
   ⟨st.freshUnaryRel_fresh hint τ, fun f => (h.2.2 f).2.2⟩
 
 theorem VerifM.eval_declBinaryRel {hint : Option String} {τ₁ τ₂ : Srt} {st : TransState}
-    {ρ : Env} {Q : FOL.BinaryRel → TransState → Env → Prop}
+    {ρ : Env} {Q : Decl.BinaryRel → TransState → Env → Prop}
     (h : VerifM.eval (.declBinaryRel hint τ₁ τ₂) st ρ Q) :
     let b := st.freshBinaryRel hint τ₁ τ₂
     b.name ∉ st.decls.allNames ∧
@@ -751,7 +751,7 @@ theorem VerifM.eval_declBinaryRel {hint : Option String} {τ₁ τ₂ : Srt} {st
   ⟨st.freshBinaryRel_fresh hint τ₁ τ₂, fun f => (h.2.2 f).2.2⟩
 
 theorem VerifM.eval_declUnary {hint : Option String} {τ₁ τ₂ : Srt} {st : TransState}
-    {ρ : Env} {Q : FOL.Unary → TransState → Env → Prop}
+    {ρ : Env} {Q : Decl.Unary → TransState → Env → Prop}
     (h : VerifM.eval (.declUnary hint τ₁ τ₂) st ρ Q) :
     let u := st.freshUnary hint τ₁ τ₂
     u.name ∉ st.decls.allNames ∧
@@ -759,7 +759,7 @@ theorem VerifM.eval_declUnary {hint : Option String} {τ₁ τ₂ : Srt} {st : T
   ⟨st.freshUnary_fresh hint τ₁ τ₂, fun f => (h.2.2 f).2.2⟩
 
 theorem VerifM.eval_declBinary {hint : Option String} {τ₁ τ₂ τ₃ : Srt} {st : TransState}
-    {ρ : Env} {Q : FOL.Binary → TransState → Env → Prop}
+    {ρ : Env} {Q : Decl.Binary → TransState → Env → Prop}
     (h : VerifM.eval (.declBinary hint τ₁ τ₂ τ₃) st ρ Q) :
     let b := st.freshBinary hint τ₁ τ₂ τ₃
     b.name ∉ st.decls.allNames ∧
@@ -768,7 +768,7 @@ theorem VerifM.eval_declBinary {hint : Option String} {τ₁ τ₂ τ₃ : Srt} 
 
 theorem VerifM.eval_declTernary {hint : Option String} {τ₁ τ₂ τ₃ τ₄ : Srt}
     {st : TransState} {ρ : Env}
-    {Q : FOL.Ternary → TransState → Env → Prop}
+    {Q : Decl.Ternary → TransState → Env → Prop}
     (h : VerifM.eval (.declTernary hint τ₁ τ₂ τ₃ τ₄) st ρ Q) :
     let t := st.freshTernary hint τ₁ τ₂ τ₃ τ₄
     t.name ∉ st.decls.allNames ∧
@@ -870,7 +870,7 @@ theorem VerifM.eval_expectSome
     simp [hx] at h
     exact ⟨y, rfl, VerifM.eval_ret h⟩
 
-theorem VerifM.eval_declConstExact {c : FOL.Const} {st : TransState} {ρ : Env}
+theorem VerifM.eval_declConstExact {c : Decl.Const} {st : TransState} {ρ : Env}
     {Q : Unit → TransState → Env → Prop}
     (h : VerifM.eval (VerifM.declConstExact c) st ρ Q) :
     c.name ∉ st.decls.allNames ∧
@@ -891,7 +891,7 @@ theorem VerifM.eval_declConstExact {c : FOL.Const} {st : TransState} {ρ : Env}
     rw [hceq] at hq
     exact hq
 
-theorem VerifM.eval_declUnaryRelExact {u : FOL.UnaryRel} {st : TransState} {ρ : Env}
+theorem VerifM.eval_declUnaryRelExact {u : Decl.UnaryRel} {st : TransState} {ρ : Env}
     {Q : Unit → TransState → Env → Prop}
     (h : VerifM.eval (VerifM.declUnaryRelExact u) st ρ Q) :
     u.name ∉ st.decls.allNames ∧
@@ -910,7 +910,7 @@ theorem VerifM.eval_declUnaryRelExact {u : FOL.UnaryRel} {st : TransState} {ρ :
   rw [hueq] at hq
   exact hq
 
-theorem VerifM.eval_declBinaryRelExact {b : FOL.BinaryRel} {st : TransState} {ρ : Env}
+theorem VerifM.eval_declBinaryRelExact {b : Decl.BinaryRel} {st : TransState} {ρ : Env}
     {Q : Unit → TransState → Env → Prop}
     (h : VerifM.eval (VerifM.declBinaryRelExact b) st ρ Q) :
     b.name ∉ st.decls.allNames ∧
@@ -929,7 +929,7 @@ theorem VerifM.eval_declBinaryRelExact {b : FOL.BinaryRel} {st : TransState} {ρ
   rw [hbeq] at hq
   exact hq
 
-theorem VerifM.eval_declUnaryExact {u : FOL.Unary} {st : TransState} {ρ : Env}
+theorem VerifM.eval_declUnaryExact {u : Decl.Unary} {st : TransState} {ρ : Env}
     {Q : Unit → TransState → Env → Prop}
     (h : VerifM.eval (VerifM.declUnaryExact u) st ρ Q) :
     u.name ∉ st.decls.allNames ∧
@@ -948,7 +948,7 @@ theorem VerifM.eval_declUnaryExact {u : FOL.Unary} {st : TransState} {ρ : Env}
   rw [hueq] at hq
   exact hq
 
-theorem VerifM.eval_declBinaryExact {b : FOL.Binary} {st : TransState} {ρ : Env}
+theorem VerifM.eval_declBinaryExact {b : Decl.Binary} {st : TransState} {ρ : Env}
     {Q : Unit → TransState → Env → Prop}
     (h : VerifM.eval (VerifM.declBinaryExact b) st ρ Q) :
     b.name ∉ st.decls.allNames ∧
@@ -967,7 +967,7 @@ theorem VerifM.eval_declBinaryExact {b : FOL.Binary} {st : TransState} {ρ : Env
   rw [hbeq] at hq
   exact hq
 
-theorem VerifM.eval_declTernaryExact {t : FOL.Ternary} {st : TransState} {ρ : Env}
+theorem VerifM.eval_declTernaryExact {t : Decl.Ternary} {st : TransState} {ρ : Env}
     {Q : Unit → TransState → Env → Prop}
     (h : VerifM.eval (VerifM.declTernaryExact t) st ρ Q) :
     t.name ∉ st.decls.allNames ∧
