@@ -296,7 +296,7 @@ theorem Atom.eval_subst {V : TinyML.ValueRelation} {p : Atom TinyML.Typ τ} {σ 
     exact .rfl
 
 omit [MicaGS HasLC.hasLC Sig] in
-theorem Atom.subst_wfIn {p : Atom TinyML.Typ τ} {σ : Subst} {dom : VarCtx} {Δ Δ' : Signature}
+theorem Atom.subst_wfIn {p : Atom TinyML.Typ τ} {σ : Subst} {dom : List Var} {Δ Δ' : Signature}
     (hp : p.wfIn Δ) (hσ : σ.wfIn dom Δ') (hdom : Δ.vars ⊆ dom)
     (hsymbols : Δ.SymbolSubset Δ')
     (hwf : Δ'.wf) :

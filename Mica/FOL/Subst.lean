@@ -35,16 +35,16 @@ theorem Subst.apply_remove_ne {σ : Subst} {τ : Srt} {x y : String}
     (h : y ≠ x) : (σ.remove x).apply τ y = σ.apply τ y := by
   simp [Subst.remove, Subst.apply, h]
 
-def Subst.wfIn (σ : Subst) (dom : VarCtx) (Δ : Signature) : Prop :=
+def Subst.wfIn (σ : Subst) (dom : List Var) (Δ : Signature) : Prop :=
   (∀ v ∈ dom, (σ.apply v.sort v.name).wfIn Δ) ∧
   (∀ v, v ∉ dom → σ.apply v.sort v.name = .var v.sort v.name)
 
-theorem Subst.wfIn_mono {σ : Subst} {dom : VarCtx} {Δ Δ' : Signature}
+theorem Subst.wfIn_mono {σ : Subst} {dom : List Var} {Δ Δ' : Signature}
     (hσ : σ.wfIn dom Δ) (hsub : Δ.Subset Δ') (hwf : Δ'.wf) :
     σ.wfIn dom Δ' :=
   ⟨fun v hv => Term.wfIn_mono _ (hσ.1 v hv) hsub hwf, hσ.2⟩
 
-theorem Subst.id_wfIn {dom : VarCtx} {Δ : Signature} (hsub : dom ⊆ Δ.vars) (hwf : Δ.wf) :
+theorem Subst.id_wfIn {dom : List Var} {Δ : Signature} (hsub : dom ⊆ Δ.vars) (hwf : Δ.wf) :
     Subst.id.wfIn dom Δ :=
   ⟨fun v hv => by
       refine ⟨hsub hv, ?_, ?_⟩
@@ -54,7 +54,7 @@ theorem Subst.id_wfIn {dom : VarCtx} {Δ : Signature} (hsub : dom ⊆ Δ.vars) (
         exact Signature.wf_unique_var hwf (hsub hv) hv',
     fun _ _ => rfl⟩
 
-theorem Subst.wfIn_update {σ : Subst} {dom : VarCtx} {τ : Srt} {x : String} {t : Term τ} {Δ : Signature}
+theorem Subst.wfIn_update {σ : Subst} {dom : List Var} {τ : Srt} {x : String} {t : Term τ} {Δ : Signature}
     (hσ : σ.wfIn dom Δ) (ht : t.wfIn Δ) :
     (σ.update τ x t).wfIn (⟨x, τ⟩ :: dom) Δ :=
   ⟨fun v hv => by
@@ -86,7 +86,7 @@ theorem Subst.wfIn_update {σ : Subst} {dom : VarCtx} {τ : Srt} {x : String} {t
       · rw [Subst.apply_update_ne (Or.inl hname)]
         exact hσ.2 v hvdom⟩
 
-theorem Subst.wfIn_remove {σ : Subst} {dom : VarCtx} {Δ : Signature} {x : String}
+theorem Subst.wfIn_remove {σ : Subst} {dom : List Var} {Δ : Signature} {x : String}
     (hσ : σ.wfIn dom Δ) :
     (σ.remove x).wfIn (dom.filter (fun v => v.name != x)) Δ := by
   refine ⟨?_, ?_⟩
@@ -151,7 +151,7 @@ def Term.subst (σ : Subst) : Term τ → Term τ
   | .terop op a b c => .terop op (a.subst σ) (b.subst σ) (c.subst σ)
   | .ite c t e => .ite (c.subst σ) (t.subst σ) (e.subst σ)
 
-theorem Term.subst_wfIn {t : Term τ} {σ : Subst} {dom : VarCtx} {Δ Δ' : Signature}
+theorem Term.subst_wfIn {t : Term τ} {σ : Subst} {dom : List Var} {Δ Δ' : Signature}
     (ht : t.wfIn Δ) (hσ : σ.wfIn dom Δ') (hdom : Δ.vars ⊆ dom)
     (hsymbols : Δ.SymbolSubset Δ')
     (hwf : Δ'.wf) :
@@ -269,7 +269,7 @@ def Formula.subst (σ : Subst) (avoid : List String) : Formula → Formula
     let y' := Fresh.freshName avoid y
     .exists_ y' τ (Formula.subst (σ.bind y τ y') (y' :: avoid) φ)
 
-private theorem Pattern.subst_wfIn {p : Pattern} {σ : Subst} {dom : VarCtx}
+private theorem Pattern.subst_wfIn {p : Pattern} {σ : Subst} {dom : List Var}
     {Δ Δ' : Signature}
     (hp : p.wfIn Δ) (hσ : σ.wfIn dom Δ') (hdom : Δ.vars ⊆ dom)
     (hsymbols : Δ.SymbolSubset Δ') (hwf : Δ'.wf) :
@@ -302,7 +302,7 @@ private theorem Pattern.subst_wfIn {p : Pattern} {σ : Subst} {dom : VarCtx}
     | _ => trivial
 
 private theorem Pattern.List.subst_wfIn {ps : List Pattern} {σ : Subst}
-    {dom : VarCtx} {Δ Δ' : Signature}
+    {dom : List Var} {Δ Δ' : Signature}
     (hps : Pattern.List.wfIn ps Δ) (hσ : σ.wfIn dom Δ') (hdom : Δ.vars ⊆ dom)
     (hsymbols : Δ.SymbolSubset Δ') (hwf : Δ'.wf) :
     Pattern.List.wfIn (ps.map (Pattern.subst σ)) Δ' := by

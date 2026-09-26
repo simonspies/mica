@@ -183,7 +183,7 @@ theorem FiniteSubst.rename_source_wf {σ : FiniteSubst} {Δ : Signature}
   rw [FiniteSubst.rename_source_eq]
   exact Signature.wf_declVar h
 
-private theorem subst_wfIn_dom_congr {σ : Subst} {dom dom' : VarCtx} {Δ : Signature}
+private theorem subst_wfIn_dom_congr {σ : Subst} {dom dom' : List Var} {Δ : Signature}
     (hσ : σ.wfIn dom Δ) (h₁ : dom' ⊆ dom) (h₂ : dom ⊆ dom') :
     σ.wfIn dom' Δ :=
   ⟨fun v hv => hσ.1 v (h₁ hv),
