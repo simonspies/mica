@@ -6,6 +6,7 @@
 - `BoundedQuantifier.lean` — Lambda lifting of spec-level bounded quantifiers (Range.all/Range.exists) into axiomatized function symbols.
 - `Compilation.lean` — The pieces the run-time and ghost compilation layers share: individual TinyML constructs and the shape of their correctness statements.
 - `Context.lean` — The environment and the scope the compilers work in, with the invariants that tie them to a world and a verifier state.
+- `Declaration.lean` — One declaration at a time: elaborate it, declare the spec functions it defines, check it, and bind what it defines for the declarations after it.
 - `Expressions.lean` — Compilation of typed TinyML expressions into verifier terms, with weakest-precondition correctness proofs.
 - `Ghost.lean` — Compilation and verification of the ghost fragment: ghost expressions, ghost declarations with a termination measure, and the ghost entries a declaration contributes.
 - `Guard.lean` — The guard constant deactivating quantified axioms in low-effort checks, effort levels, and guarded axioms.
@@ -15,7 +16,7 @@
 - `Monad.lean` — Verification monad with SMT operations, branching, and its operational and semantic correctness interfaces.
 - `PredicateTransformers.lean` — Verifier operations on predicate transformers: the call and implementation protocols and their well-formedness.
 - `PrimitiveLaws.lean` — Spatially lifted weakest-precondition laws for TinyML primitive operations.
-- `Programs.lean` — End-to-end preparation and verification of programs, from typed elaboration to program-level soundness.
+- `Programs.lean` — Verification of whole programs, one declaration after the other, and program-level soundness.
 - `RelationalEncoding.lean` — Bundle for RelationalEncoding/, the two-stage encoding and termination checks for specification functions.
 - `Scoped.lean` — Scoped SMT command language and its translation to solver strategies and flat contexts.
 - `Seq.lean` — The sequential verification monad: declarations, assumptions, and bracketed checks, composed without branching so that a run returns a value.

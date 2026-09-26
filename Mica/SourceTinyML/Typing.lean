@@ -667,12 +667,39 @@ def Decl.elaborate (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx) :
       let Γ'' ← ValDecl.extendUnfolding Γ' d'
       pure (Θ, Γ'', some d')
 
-def Program.elaborate (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx) :
-    Untyped.Program Untyped.SpecBody → TypeM σ (TypeEnv × TinyML.TyCtx × Typed.Program)
-  | [] => pure (Θ, Γ, [])
-  | d :: ds => do
-      let (Θ', Γ', d') ← Decl.elaborate env Θ Γ d
-      let (Θ'', Γ'', ds') ← Program.elaborate env Θ' Γ' ds
-      pure (Θ'', Γ'', d'.toList ++ ds')
+/-- Elaboration only adds type declarations, and only the one a type declaration
+names. -/
+theorem Decl.elaborate_types {σ : Type} {spec : Typed.SpecEnv σ}
+    {Θ Θ' : TinyML.TypeEnv} {Γ Γ' : TinyML.TyCtx} {d : Untyped.Decl Untyped.SpecBody}
+    {d' : Option Typed.ValDecl} {s s' : σ}
+    (h : Decl.elaborate spec Θ Γ d s = .ok ((Θ', Γ', d'), s')) :
+    (∀ T dd, Θ T = some dd → Θ' T = some dd) ∧
+    (∀ T, (∀ dty, d = .type_ dty → T ≠ dty.name) → Θ' T = Θ T) := by
+  cases d with
+  | type_ dty =>
+    unfold Decl.elaborate at h
+    have ⟨body, s₀, _, hcont⟩ := StateT.bind_ok h
+    cases hext : extendTypeEnv Θ dty.name body with
+    | error err =>
+      simp [hext, TypeM.error, StateT.map, Functor.map, Except.map] at hcont
+    | ok Θ1 =>
+      simp [hext, StateT.map, Functor.map, Except.map] at hcont
+      rcases hcont with ⟨⟨rfl, rfl, rfl⟩, rfl⟩
+      unfold extendTypeEnv at hext
+      split at hext
+      · cases hext
+      · rename_i hnone
+        cases hext
+        refine ⟨fun T dd hT => ?_, fun T hT => ?_⟩
+        · have hne : T ≠ dty.name := fun h => by subst h; simp [hnone] at hT
+          simp [hne, hT]
+        · simp [hT dty rfl]
+  | val_ dval =>
+    unfold Decl.elaborate at h
+    have ⟨_, _, _, hcont⟩ := StateT.bind_ok h
+    have ⟨_, _, _, hcont⟩ := StateT.bind_ok hcont
+    have ⟨_, _, _, hcont⟩ := StateT.bind_ok hcont
+    rcases hcont with ⟨⟨rfl, rfl, rfl⟩, rfl⟩
+    exact ⟨fun _ _ h => h, fun _ _ => rfl⟩
 
 end Typed

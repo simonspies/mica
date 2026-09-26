@@ -364,8 +364,6 @@ structure ValDecl where
   decreases : Option Measure := none
   deriving Repr, BEq, Inhabited
 
-abbrev Program := List ValDecl
-
 def Binder.WithTypeVars.runtime : Typed.Binder.WithTypeVars V → Runtime.Binder
   | ⟨Option.none, _⟩ => .none
   | ⟨some x, _⟩ => .named x
@@ -434,9 +432,6 @@ def ValDecl.runtime? (d : Typed.ValDecl) : Option Runtime.Decl :=
   match d.mode with
   | .runtime => some d.runtime
   | .ghost => none
-
-def Program.runtime (prog : Typed.Program) : Runtime.Program :=
-  prog.filterMap ValDecl.runtime?
 
 theorem Expr.runtime_subst_of_fix {e : Typed.Expr} {self : Typed.Binder}
     {args : List Typed.Binder} {retTy : Typ} {spec : Option (Spec Typ)} {body : Typed.Expr}

@@ -1246,6 +1246,14 @@ theorem eval_introduceRegistry (R : Registry)
   · intro ρ'' hag d hd
     exact hstable ρ'' (by rwa [hdecls2] at hag) d hd
 
+theorem symAgree_agreeOn {reg : Registry} {Δ : Signature} (h : reg.symAgree ρ)
+    (hsub : reg.symSubset Δ) (hag : Env.agreeOn Δ ρ ρ') : reg.symAgree ρ' :=
+  fun i hi => Env.respects_of_agreeOn_extendWithSym (h i hi) (hsub i hi) hag
+
+theorem symSubset_mono {reg : Registry} {Δ Δ' : Signature} (h : reg.symSubset Δ)
+    (hsub : Δ.Subset Δ') : reg.symSubset Δ' :=
+  fun i hi => (h i hi).trans hsub
+
 end Registry
 
 end Verifier

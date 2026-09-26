@@ -22,10 +22,10 @@ occurrence that survives the pass fails verification normally.
 
 /-! ## Declaring a spec-function symbol triple
 
-Generic infrastructure, shared with relation assembly in `Programs.lean`:
+Generic infrastructure, shared with the declaration of `[@@fn]` functions in `Declaration.lean`:
 declaring the three solver symbols of a spec function whose relation
 interpretation is the graph of its value function on its definedness domain,
-and assuming its valid defining axioms, preserves the relation-assembly
+and assuming its valid defining axioms, preserves the spec-function declaration
 invariants. -/
 
 namespace SpecFn
@@ -41,7 +41,7 @@ def declare (L : SpecFn) (axs : List Axiom) : SeqM Unit := do
 /-- Declaring the triple of a fresh symbol `L` — with interpretations whose
 relation is the graph of the value function on the definedness domain, and
 defining axioms that are well-formed and valid in the extended
-signature/environment — preserves the relation-assembly invariants and
+signature/environment — preserves the spec-function declaration invariants and
 extends the function context by `(f, L)`. -/
 theorem declare_correct (L : SpecFn) (f : TinyML.Var) (axs : List Axiom)
     (R : Srt.value.denote → Srt.value.denote → Prop)
@@ -232,13 +232,13 @@ accumulates its lifted symbols in the elaboration state. Each occurrence
 `Range.all lo hi (fun i -> body)` in a spec leaf is replaced by a plain call
 `L (lo, hi, x̄)` of a symbol `L = "range-<digest>"` named after the closure's
 content, over the packed bounds and captured variables `x̄`; the closure is recorded as a lifted
-function body `let (x̄, i) = arg in body` to be axiomatized during assembly.
+function body `let (x̄, i) = arg in body` to be axiomatized when it is declared.
 Only spec leaves change — declaration bodies, hence the program's runtime
 erasure, are never touched.
 
 The rewrite itself is `partial` and unverified: no proof depends on its
 equations. Rewritten leaves are encoded from scratch, and name freshness is
-validated operationally during assembly. -/
+validated operationally when it is declared. -/
 
 /-- One lifted occurrence of a bounded quantifier: the quantifier symbol's base
 name, the quantifier kind, the captured spec variables (first-occurrence
@@ -662,7 +662,7 @@ theorem defMatrix_wfIn (hΔ : Δ.wf)
     hbody.2⟩
 
 /-- Well-formedness of the defining axioms. All hypotheses are discharged
-operationally by the assembly step (symbol declarations and name checks). -/
+operationally when it is declared (symbol declarations and name checks). -/
 theorem axioms_wfIn (hΔ : Δ.wf)
     (hbody : body.wfIn (s.matrixScope Δ))
     (hlfun : SpecFn.func s.name ∈ Δ.unary) (hldef : SpecFn.defined s.name ∈ Δ.unaryRel)
@@ -784,7 +784,7 @@ theorem axioms_eval {ρ : Env}
       simp [Term.eval]
 
 /-- Declaring a validated quantifier symbol preserves the global
-relation-assembly invariants: the generic triple declaration
+spec-function declaration invariants: the generic triple declaration
 (`SpecFn.declare_correct`) instantiated with the canonical interpretations,
 whose graph shape holds by construction. -/
 theorem declare_correct (s : Lifting) (body : Skolemize.DefVal) (Δ : Signature) (Γ : FunCtx)

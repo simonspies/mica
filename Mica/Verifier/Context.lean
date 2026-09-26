@@ -9,7 +9,6 @@ namespace Verifier
 
 /-! ## Environment -/
 
-/-- What the declarations so far make known to the declarations after them. -/
 structure Env where
   registry         : Registry
   typeDeclarations : TinyML.TypeEnv
@@ -31,10 +30,15 @@ structure Env.wf (env : Env) (W : TinyML.World) : Prop where
   symbols          : env.registry.symSubset W.Δ_spec
   interpretations  : env.registry.symAgree W.ρ_spec
 
-/-- None of the conditions mentions the type assignment. -/
 theorem Env.wf.eta {env : Env} {W : TinyML.World} (h : env.wf W) (η : TinyML.SemTypeAssign) :
     env.wf { W with eta := η } :=
   { h with world := h.world.eta η }
+
+/-- The environment before the first declaration: the registry, with the
+symbols `Δ` its setup declared. -/
+def Env.initial (reg : Registry) (Δ : Signature) : Env :=
+  { registry := reg, typeDeclarations := TinyML.TypeEnv.empty, signature := Δ, lemmas := [],
+    specFunctions := [], liftings := [], globals := TinyML.TyCtx.empty }
 
 /-! ## Scope -/
 
@@ -45,6 +49,8 @@ structure Scope where
   typingContext   : TinyML.TyCtx
 
 namespace Scope
+
+def empty : Scope := ⟨GhostFns.empty, Bindings.empty, Bindings.empty, TinyML.TyCtx.empty⟩
 
 def bindRuntime (S : Scope) (x : TinyML.Var) (c : Decl.Const) (ty : TinyML.Typ) : Scope :=
   { ghostFns := S.ghostFns.remove x
@@ -380,5 +386,86 @@ theorem typed_bindParameters {names : List TinyML.Var} {vars ghostVars : List De
   · iexact Hgs
 
 end Scope
+
+/-! ## Between declarations -/
+
+variable [MicaGS HasLC.hasLC Sig]
+
+/-- The world the declarations so far define, read under `ρ`. -/
+def Env.world (env : Env) (ρ : _root_.Env) : TinyML.World :=
+  { pctx := env.registry.primCtx, Θ := env.typeDeclarations, Δ_spec := env.signature,
+    ρ_spec := ρ, eta := TinyML.SemTypeAssign.empty }
+
+/-- `env` describes the verifier state `st` under `ρ`. -/
+structure Env.supportedBy (env : Env) (st : TransState) (ρ : _root_.Env) : Prop where
+  sound : env.registry.Sound
+  signature : env.signature = st.decls
+  specFunctionsWf : RelationalEncoding.FunCtx.wfIn env.specFunctions st.decls
+  specFunctionsAgree : RelationalEncoding.FunCtx.Agreement env.specFunctions ρ
+  lemmas : env.lemmas.Sound st.decls ρ
+  symbols : env.registry.symSubset st.decls
+  interpretations : env.registry.symAgree ρ
+  types : TinyML.TypeEnv.wfIn st.decls env.typeDeclarations
+
+/-- `S` is a scope that carries over to a larger world: its types are closed and
+well formed, and its ghost functions have no guard. -/
+structure Scope.supportedBy (S : Scope) (env : Env) (st : TransState) (ρ : _root_.Env)
+    (γ : Runtime.Subst) : Prop where
+  closed : S.typingContext.Closed
+  types : ∀ x s, S.typingContext x = some s →
+    TinyML.Typ.wfIn st.decls env.typeDeclarations s.ty
+  ghostFnsWf : S.ghostFns.wfIn st.decls env.typeDeclarations
+  ghostFns : S.ghostFns.wellTyped (env.world ρ) st.decls ρ
+  runtimeLinked : S.runtimeBindings.agreeOnLinked ρ γ
+  runtimeDeclared : S.runtimeBindings.wfIn st.decls
+
+variable {env env' : Env} {S : Scope} {st st' : TransState} {ρ ρ' : _root_.Env}
+  {γ : Runtime.Subst}
+
+omit [MicaGS HasLC.hasLC Sig] in
+theorem Env.wf_of_supportedBy (h : env.supportedBy st ρ) (hst : st.wf)
+    (hvars : st.decls.vars = []) : env.wf (env.world ρ) := by
+  have hΔ : (env.world ρ).Δ_spec = st.decls := h.signature
+  exact
+    { sound := h.sound
+      world := ⟨hΔ ▸ hst.namesDisjoint, hΔ ▸ hvars⟩
+      primitives := rfl
+      typeDeclarations := rfl
+      signature := rfl
+      lemmas := hΔ ▸ h.lemmas
+      symbols := hΔ ▸ h.symbols
+      interpretations := h.interpretations }
+
+omit [MicaGS HasLC.hasLC Sig] in
+theorem Env.agrees_of_supportedBy (h : env.supportedBy st ρ) : (env.world ρ).agrees st.decls ρ :=
+  ⟨by rw [show (env.world ρ).Δ_spec = st.decls from h.signature]; exact Signature.Subset.refl _,
+    Env.agreeOn_refl⟩
+
+omit [MicaGS HasLC.hasLC Sig] in
+theorem Env.typesWf_of_supportedBy (h : env.supportedBy st ρ) :
+    TinyML.TypeEnv.wfIn (env.world ρ).Δ_spec (env.world ρ).Θ := by
+  simpa [Env.world, h.signature] using h.types
+
+theorem Scope.wfIn_of_supportedBy (henv : env.supportedBy st ρ) (h : S.supportedBy env st ρ γ)
+    (hG : S.ghostBindings = []) (γg : Runtime.Subst) : S.wfIn (env.world ρ) st.decls ρ γg γ where
+  agrees := Env.agrees_of_supportedBy henv
+  ghostFns := h.ghostFns
+  ghostLinked := by rw [hG]; exact Bindings.agreeOnLinked_empty ρ γg
+  ghostDeclared := by rw [hG]; exact Bindings.wfIn_empty _
+  runtimeLinked := h.runtimeLinked
+  runtimeDeclared := h.runtimeDeclared
+
+/-- The scope survives a larger state and a larger world. -/
+theorem Scope.supportedBy_mono (h : S.supportedBy env st ρ γ) (henv : env.supportedBy st ρ) (hwf : st'.decls.wf)
+    (hsub : st.decls.Subset st'.decls) (hag : Env.agreeOn st.decls ρ ρ')
+    (hΘ : ∀ T d, env.typeDeclarations T = some d → env'.typeDeclarations T = some d)
+    (hW : (env.world ρ).Subset (env'.world ρ')) : S.supportedBy env' st' ρ' γ where
+  closed := h.closed
+  types x s hx := TinyML.Typ.wfIn_mono hsub hwf hΘ (h.types x s hx)
+  ghostFnsWf := GhostFns.wfIn_mono h.ghostFnsWf hsub hwf hΘ
+  ghostFns := GhostFns.wellTyped_of_subset hW (Env.typesWf_of_supportedBy henv)
+    (by simpa [Env.world, henv.signature] using h.ghostFnsWf) h.ghostFns
+  runtimeLinked := Bindings.agreeOnLinked_agreeOn h.runtimeLinked hag h.runtimeDeclared
+  runtimeDeclared p hp := hsub.consts _ (h.runtimeDeclared p hp)
 
 end Verifier

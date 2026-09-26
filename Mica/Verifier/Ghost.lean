@@ -1873,34 +1873,34 @@ private def ValDecl.ghostSelf (Δ_spec : Signature) (Gf : GhostFns) (self : Bind
     a polymorphic declaration fails the call's type check. -/
 def ValDecl.prove (env : Verifier.Env) (Gf : GhostFns) (f : TinyML.Var) (self : Binder) (args : List Binder)
     (retTy : TinyML.Typ) (body : Expr) (s : Spec TinyML.Typ)
-    (decreases : Option Typed.Measure) : VerifM (TinyML.Var × GhostFns.Entry) :=
+    (decreases : Option Typed.Measure) : SeqM (TinyML.Var × GhostFns.Entry) :=
   match extractArgNames args s.args with
-  | .error msg => VerifM.fatal msg
+  | .error msg => SeqM.fatal msg
   | .ok argNames =>
-  match Spec.checkWf s env.signature with
-  | .error msg => VerifM.fatal msg
+  let argTys := args.map Binder.WithTypeVars.ty
+  let ty : TinyML.Typ := .arrow argTys retTy (some s)
+  match TinyML.Typ.checkWf env.signature env.typeDeclarations ty with
+  | .error msg => SeqM.fatal msg
   | .ok () => do
-    let argTys := args.map Binder.WithTypeVars.ty
-    let ty : TinyML.Typ := .arrow argTys retTy (some s)
-    VerifM.seq
-      (do
-        VerifM.persist
-        Spec.implement env.signature argTys s fun argVars ghostVars => do
-          let Gf' ← ValDecl.ghostSelf env.signature Gf self decreases ty s argVars ghostVars
-          env.lemmas.assumeInstance self.name argVars
-          let se ← compileGhostExpr env
-            (ghostBodyScope Gf' argNames argVars argTys s.ghost ghostVars) body
-          checkRet retTy body.ty
-          pure se)
-      (pure (f, ⟨ty, none⟩))
+    SeqM.check do
+      VerifM.persist
+      Spec.implement env.signature argTys s fun argVars ghostVars => do
+        let Gf' ← ValDecl.ghostSelf env.signature Gf self decreases ty s argVars ghostVars
+        env.lemmas.assumeInstance self.name argVars
+        let se ← compileGhostExpr env
+          (ghostBodyScope Gf' argNames argVars argTys s.ghost ghostVars) body
+        checkRet retTy body.ty
+        pure se
+    pure (f, ⟨ty, none⟩)
 
 /-- Check a ghost declaration against the specification it was written with. -/
-def ValDecl.checkGhost (env : Verifier.Env) (Gf : GhostFns) (d : Typed.ValDecl) : VerifM (TinyML.Var × GhostFns.Entry) := do
-  let f ← VerifM.expectSome "a ghost declaration must be named" d.name.name
-  match d.body with
-  | .fix self args retTy (some s) body =>
+def ValDecl.checkGhost (env : Verifier.Env) (Gf : GhostFns) (d : Typed.ValDecl) :
+    SeqM (TinyML.Var × GhostFns.Entry) :=
+  match d.name.name, d.body with
+  | none, _ => SeqM.fatal "a ghost declaration must be named"
+  | some f, .fix self args retTy (some s) body =>
       ValDecl.prove env Gf f self args retTy body s d.decreases
-  | _ => VerifM.fatal "a ghost declaration must be a specified function"
+  | some _, _ => SeqM.fatal "a ghost declaration must be a specified function"
 
 /-- `$` is not an identifier character, so no name in the source collides. -/
 private def fnResultName : String := "$result"
@@ -1917,7 +1917,7 @@ def Spec.ofRelation (rel : SpecFn) (arg : String) : Spec TinyML.Typ :=
 
 /-- Make a spec-level function callable from ghost code, with its own body as
     the proof. A declaration without the `ghost` payload gets no entry. -/
-def ValDecl.checkGhostFn (env : Verifier.Env) (Gf : GhostFns) (d : Typed.ValDecl) : VerifM GhostFns :=
+def ValDecl.checkGhostFn (env : Verifier.Env) (Gf : GhostFns) (d : Typed.ValDecl) : SeqM GhostFns :=
   match d.relation with
   | some ⟨rel, true, _⟩ =>
     match d.name.name, d.body with
@@ -1925,14 +1925,14 @@ def ValDecl.checkGhostFn (env : Verifier.Env) (Gf : GhostFns) (d : Typed.ValDecl
       let entry ← ValDecl.prove env Gf f self [⟨some x, xty⟩] retTy body
         (Spec.ofRelation rel x) d.decreases
       pure [entry]
-    | _, _ => VerifM.fatal
+    | _, _ => SeqM.fatal
         s!"[@@fn ghost] requires a named function of one named argument: {rel}"
   | _ => pure []
 
 /-- The unfolding function an opaque declaration publishes: its withheld fact,
     at its own argument type. -/
 def ValDecl.publish (env : Verifier.Env) (d : Typed.ValDecl) :
-    VerifM GhostFns :=
+    SeqM GhostFns :=
   match d.relation with
   | some r =>
     match r.transparency with
@@ -1941,16 +1941,18 @@ def ValDecl.publish (env : Verifier.Env) (d : Typed.ValDecl) :
       match env.lemmas.ofDeclaration d.name.name, d.name.ty with
       | some l, .arrow [ty] _ _ =>
         match l.publish env.signature r.unfoldName ty with
-        | .ok entry => pure [entry]
-        | .error msg => VerifM.fatal msg
-      | _, _ => VerifM.fatal
+        | .ok entry => do
+          SeqM.ofExcept (TinyML.Typ.checkWf env.signature env.typeDeclarations entry.2.ty)
+          pure [entry]
+        | .error msg => SeqM.fatal msg
+      | _, _ => SeqM.fatal
           s!"[@@opaque] requires a unary function that withholds its equation: {r.name}"
   | none => pure []
 
 /-- The ghost entries a declaration contributes: the function `[@@fn ghost]`
     makes callable, and the unfolding function `[@@opaque]` publishes. -/
 def ValDecl.ghostEntries (env : Verifier.Env) (Gf : GhostFns) (d : Typed.ValDecl) :
-    VerifM GhostFns := do
+    SeqM GhostFns := do
   let fn ← ValDecl.checkGhostFn env Gf d
   let unf ← ValDecl.publish env d
   pure (fn ++ unf)
@@ -2158,32 +2160,36 @@ theorem ValDecl.prove_correct (env : Verifier.Env) (W : TinyML.World) (henv : en
     {st : TransState} {ρ : Env} (hag : W.agrees st.decls ρ)
     (hGf : GhostFns.wellTyped W st.decls ρ Gf)
     {Q : (TinyML.Var × GhostFns.Entry) → TransState → Env → Prop}
-    (heval : VerifM.eval (ValDecl.prove env Gf f self args retTy body s decreases) st ρ Q) :
-    ∃ entry, GhostFns.wellTyped W st.decls ρ [entry] ∧ Q entry st ρ := by
+    (heval : SeqM.eval (ValDecl.prove env Gf f self args retTy body s decreases) st ρ Q) :
+    ∃ entry, GhostFns.wfIn W.Δ_spec W.Θ [entry] ∧ GhostFns.wellTyped W st.decls ρ [entry] ∧
+      Q entry st ρ := by
   obtain ⟨reg, Θ, Δ, ls, fns, lfs, gls⟩ := env
   obtain ⟨-, -, -, rfl, rfl, -, -, -⟩ := id henv
   simp only [ValDecl.prove] at heval
   cases hext : extractArgNames args s.args with
-    | error msg => simp only [hext] at heval; exact (VerifM.eval_fatal heval).elim
+    | error msg => simp only [hext] at heval; exact (SeqM.eval_fatal heval).elim
     | ok argNames =>
     simp only [hext] at heval
-    cases hcheck : Spec.checkWf s W.Δ_spec with
-    | error msg => simp only [hcheck] at heval; exact (VerifM.eval_fatal heval).elim
+    cases hcheck : TinyML.Typ.checkWf W.Δ_spec W.Θ
+        (.arrow (args.map Binder.WithTypeVars.ty) retTy (some s)) with
+    | error msg => simp only [hcheck] at heval; exact (SeqM.eval_fatal heval).elim
     | ok u =>
     cases u
     simp only [hcheck] at heval
     obtain ⟨hargNames_len, hargs_len, _⟩ := extractArgNames_spec hext
-    have hswf : s.wfIn W.Δ_spec := Spec.checkWf_ok hcheck
+    have htywf := TinyML.Typ.checkWf_ok _ hcheck
+    have hswf : s.wfIn W.Δ_spec := by cases htywf; assumption
     have hslen : s.args.length = (args.map Binder.WithTypeVars.ty).length := by
       simpa using hargs_len.symm
     have hlen_args : argNames.length = (args.map Binder.WithTypeVars.ty).length := by
       simpa using hargNames_len.trans hargs_len.symm
-    obtain ⟨himpl_seq, hcont⟩ := VerifM.eval_seq heval
+    obtain ⟨himpl_seq, hcont⟩ := SeqM.eval_check (SeqM.eval_bind heval)
     have himpl := VerifM.eval_persist (VerifM.eval_bind himpl_seq)
     have hag' : W.agrees (TransState.persist st).decls ρ := hag
     have hGf' : GhostFns.wellTyped W (TransState.persist st).decls ρ Gf := hGf
-    refine ⟨(f, ⟨.arrow (args.map Binder.WithTypeVars.ty) retTy (some s), none⟩), ?_,
-      VerifM.eval_ret hcont⟩
+    refine ⟨(f, ⟨.arrow (args.map Binder.WithTypeVars.ty) retTy (some s), none⟩),
+      fun p hp => by cases List.mem_singleton.mp hp; exact ⟨rfl, htywf⟩, ?_,
+      SeqM.eval_ret hcont⟩
     intro η f' argTys' retTy' s' guard' hlookup
     by_cases hf : f' = f
     · subst hf
@@ -2300,92 +2306,95 @@ theorem ValDecl.checkGhost_correct (env : Verifier.Env) (W : TinyML.World) (henv
     {st : TransState} {ρ : Env} (hag : W.agrees st.decls ρ)
     (hGf : GhostFns.wellTyped W st.decls ρ Gf)
     {Q : (TinyML.Var × GhostFns.Entry) → TransState → Env → Prop}
-    (heval : VerifM.eval (ValDecl.checkGhost env Gf d) st ρ Q) :
-    ∃ entry, GhostFns.wellTyped W st.decls ρ [entry] ∧ Q entry st ρ := by
+    (heval : SeqM.eval (ValDecl.checkGhost env Gf d) st ρ Q) :
+    ∃ entry, GhostFns.wfIn W.Δ_spec W.Θ [entry] ∧ GhostFns.wellTyped W st.decls ρ [entry] ∧
+      Q entry st ρ := by
   simp only [ValDecl.checkGhost] at heval
-  obtain ⟨f, _, heval⟩ := VerifM.eval_bind_expectSome heval
-  cases hbody : d.body with
-  | fix self args retTy spec body =>
-    cases spec with
-    | none => simp only [hbody] at heval; exact (VerifM.eval_fatal heval).elim
-    | some s =>
-      simp only [hbody] at heval
-      exact ValDecl.prove_correct env W henv Gf f self args retTy body s d.decreases hag
-        hGf heval
-  | _ => simp only [hbody] at heval; exact (VerifM.eval_fatal heval).elim
+  split at heval
+  · exact (SeqM.eval_fatal heval).elim
+  · exact ValDecl.prove_correct env W henv Gf _ _ _ _ _ _ d.decreases hag hGf heval
+  · exact (SeqM.eval_fatal heval).elim
 
 theorem ValDecl.checkGhostFn_correct (env : Verifier.Env) (W : TinyML.World) (henv : env.wf W)
     (Gf : GhostFns) (d : Typed.ValDecl)
     {st : TransState} {ρ : Env} (hag : W.agrees st.decls ρ)
     (hGf : GhostFns.wellTyped W st.decls ρ Gf)
     {Q : GhostFns → TransState → Env → Prop}
-    (heval : VerifM.eval (ValDecl.checkGhostFn env Gf d) st ρ Q) :
-    ∃ fn, GhostFns.wellTyped W st.decls ρ fn ∧ Q fn st ρ := by
+    (heval : SeqM.eval (ValDecl.checkGhostFn env Gf d) st ρ Q) :
+    ∃ fn, GhostFns.wfIn W.Δ_spec W.Θ fn ∧ GhostFns.wellTyped W st.decls ρ fn ∧ Q fn st ρ := by
   simp only [ValDecl.checkGhostFn] at heval
   cases hrel : d.relation with
-  | none => simp only [hrel] at heval; exact ⟨[], GhostFns.wellTyped.empty W _ ρ,
-      VerifM.eval_ret heval⟩
+  | none => simp only [hrel] at heval; exact ⟨[], nofun, GhostFns.wellTyped.empty W _ ρ,
+      SeqM.eval_ret heval⟩
   | some rel =>
     obtain ⟨relName, ghost, _⟩ := rel
     cases ghost with
     | false =>
       simp only [hrel] at heval
-      exact ⟨[], GhostFns.wellTyped.empty W _ ρ, VerifM.eval_ret heval⟩
+      exact ⟨[], nofun, GhostFns.wellTyped.empty W _ ρ, SeqM.eval_ret heval⟩
     | true =>
       simp only [hrel] at heval
       cases hname : d.name.name with
-      | none => simp only [hname] at heval; exact (VerifM.eval_fatal heval).elim
+      | none => simp only [hname] at heval; exact (SeqM.eval_fatal heval).elim
       | some f =>
         cases hbody : d.body with
         | fix self args retTy spec body =>
           match args, hbody with
           | [⟨some x, xty⟩], hbody =>
             simp only [hname, hbody] at heval
-            obtain ⟨entry, hentry, hQ⟩ := ValDecl.prove_correct env W henv Gf f self
+            obtain ⟨entry, hwf, hentry, hQ⟩ := ValDecl.prove_correct env W henv Gf f self
               [⟨some x, xty⟩] retTy body (Spec.ofRelation relName x) d.decreases hag hGf heval
-            exact ⟨[entry], hentry, hQ⟩
+            exact ⟨[entry], hwf, hentry, hQ⟩
           | [], hbody | ⟨none, _⟩ :: _, hbody | _ :: _ :: _, hbody =>
-            simp only [hname, hbody] at heval; exact (VerifM.eval_fatal heval).elim
-        | _ => simp only [hname, hbody] at heval; exact (VerifM.eval_fatal heval).elim
+            simp only [hname, hbody] at heval; exact (SeqM.eval_fatal heval).elim
+        | _ => simp only [hname, hbody] at heval; exact (SeqM.eval_fatal heval).elim
 
 theorem ValDecl.publish_correct (env : Verifier.Env) (W : TinyML.World) (henv : env.wf W)
     (d : Typed.ValDecl) {st : TransState} {ρ : Env}
     {Q : GhostFns → TransState → Env → Prop}
-    (heval : VerifM.eval (ValDecl.publish env d) st ρ Q) :
-    ∃ unf, GhostFns.wellTyped W st.decls ρ unf ∧ Q unf st ρ := by
+    (heval : SeqM.eval (ValDecl.publish env d) st ρ Q) :
+    ∃ unf, GhostFns.wfIn W.Δ_spec W.Θ unf ∧ GhostFns.wellTyped W st.decls ρ unf ∧
+      Q unf st ρ := by
   simp only [ValDecl.publish] at heval
   cases hrel : d.relation with
   | none => simp only [hrel] at heval
-            exact ⟨[], GhostFns.wellTyped.empty W _ ρ, VerifM.eval_ret heval⟩
+            exact ⟨[], nofun, GhostFns.wellTyped.empty W _ ρ, SeqM.eval_ret heval⟩
   | some r =>
     simp only [hrel] at heval
     cases ht : r.transparency with
     | transparent => simp only [ht] at heval
-                     exact ⟨[], GhostFns.wellTyped.empty W _ ρ, VerifM.eval_ret heval⟩
+                     exact ⟨[], nofun, GhostFns.wellTyped.empty W _ ρ, SeqM.eval_ret heval⟩
     | «opaque» =>
       simp only [ht] at heval
       split at heval
       · rename_i l ty _ _ hl _
         split at heval
         · rename_i entry hp
-          exact ⟨[entry],
+          obtain ⟨u, hok, heval⟩ := SeqM.eval_ofExcept (SeqM.eval_bind heval)
+          cases u
+          refine ⟨[entry], fun p hp' => ?_,
             Lemma.publish_wellTyped W st.decls ρ (Lemmas.ofDeclaration_sound henv.lemmas hl)
               (henv.signature ▸ hp),
-            VerifM.eval_ret heval⟩
-        · exact (VerifM.eval_fatal heval).elim
-      · exact (VerifM.eval_fatal heval).elim
+            SeqM.eval_ret heval⟩
+          cases List.mem_singleton.mp hp'
+          refine ⟨Lemma.publish_guard hp, ?_⟩
+          rw [henv.signature, henv.typeDeclarations]
+          exact TinyML.Typ.checkWf_ok _ hok
+        · exact (SeqM.eval_fatal heval).elim
+      · exact (SeqM.eval_fatal heval).elim
 
 theorem ValDecl.ghostEntries_correct (env : Verifier.Env) (W : TinyML.World) (henv : env.wf W)
     (Gf : GhostFns) (d : Typed.ValDecl)
     {st : TransState} {ρ : Env} (hag : W.agrees st.decls ρ)
     (hGf : GhostFns.wellTyped W st.decls ρ Gf)
     {Q : GhostFns → TransState → Env → Prop}
-    (heval : VerifM.eval (ValDecl.ghostEntries env Gf d) st ρ Q) :
-    ∃ fn, GhostFns.wellTyped W st.decls ρ fn ∧ Q fn st ρ := by
+    (heval : SeqM.eval (ValDecl.ghostEntries env Gf d) st ρ Q) :
+    ∃ fn, GhostFns.wfIn W.Δ_spec W.Θ fn ∧ GhostFns.wellTyped W st.decls ρ fn ∧ Q fn st ρ := by
   simp only [ValDecl.ghostEntries] at heval
-  obtain ⟨fn, hfn, heval⟩ :=
-    ValDecl.checkGhostFn_correct env W henv Gf d hag hGf (VerifM.eval_bind heval)
-  obtain ⟨unf, hunf, heval⟩ := ValDecl.publish_correct env W henv d (VerifM.eval_bind heval)
-  exact ⟨fn ++ unf, hfn.append hunf, VerifM.eval_ret heval⟩
+  obtain ⟨fn, hfnwf, hfn, heval⟩ :=
+    ValDecl.checkGhostFn_correct env W henv Gf d hag hGf (SeqM.eval_bind heval)
+  obtain ⟨unf, hunfwf, hunf, heval⟩ :=
+    ValDecl.publish_correct env W henv d (SeqM.eval_bind heval)
+  exact ⟨fn ++ unf, GhostFns.wfIn_append hfnwf hunfwf, hfn.append hunf, SeqM.eval_ret heval⟩
 
 end Declarations

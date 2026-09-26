@@ -5,8 +5,8 @@ import Mica.SourceTinyML.Typing
 # Erasure
 
 Elaboration does not affect the runtime semantics of the program.
-`Program.elaborate_runtime` at the end is what the verifier uses to relate a
-source program to the runtime program it is verified against.
+`Decl.elaborate_runtime` at the end is what the verifier uses to relate a
+source declaration to the runtime declaration it is verified against.
 -/
 
 namespace Typed
@@ -723,34 +723,5 @@ theorem Decl.elaborate_runtime (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.Ty
     have ⟨_, s₀'', _, hcont⟩ := StateT.bind_ok hcont
     rcases hcont with ⟨⟨rfl, rfl, rfl⟩, rfl⟩
     exact ValDecl.elaborate_runtime _ Θ Γ dval hdecl
-
-theorem Program.elaborate_runtime (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx)
-    (prog : Untyped.Program Untyped.SpecBody) :
-    ∀ {s : σ} {Θ' : TypeEnv} {Γ' : TinyML.TyCtx} {prog' : Typed.Program} {s' : σ},
-      Typed.Program.elaborate env Θ Γ prog s = .ok ((Θ', Γ', prog'), s') →
-      prog'.runtime = prog.runtime := by
-  induction prog generalizing Θ Γ with
-  | nil =>
-    intro s Θ' Γ' prog' s' h
-    simp [Typed.Program.elaborate] at h
-    rcases h with ⟨⟨rfl, rfl, rfl⟩, rfl⟩
-    simp [Typed.Program.runtime, Untyped.Program.runtime]
-  | cons d ds ih =>
-    intro s Θ' Γ' prog' s' h
-    unfold Typed.Program.elaborate at h
-    have ⟨⟨Θ₁, Γ₁, d'⟩, s₁, hd, hcont⟩ := StateT.bind_ok h
-    have ⟨⟨Θ₂, Γ₂, ds'⟩, s₂, hds, hcont⟩ := StateT.bind_ok hcont
-    simp at hcont
-    rcases hcont with ⟨⟨rfl, rfl, rfl⟩, rfl⟩
-    have hd_rt := Decl.elaborate_runtime env Θ Γ d hd
-    have hds_rt := ih Θ₁ Γ₁ hds
-    simp only [Typed.Program.runtime, Untyped.Program.runtime, List.filterMap_append,
-      List.filterMap_cons] at hds_rt ⊢
-    rw [hds_rt, ← hd_rt]
-    cases d' with
-    | none => rfl
-    | some d' =>
-      simp only [Option.bind_some, Option.toList, List.filterMap_cons, List.filterMap_nil]
-      cases d'.runtime? <;> rfl
 
 end Typed

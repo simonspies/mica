@@ -56,6 +56,15 @@ def publish (l : Lemma) (Δ : Signature) (name : TinyML.Var) (ty : TinyML.Typ) :
   | _ => .error s!"the fact published as '{name}' is not a quantified implication"
 
 omit [MicaGS HasLC.hasLC Sig] in
+theorem publish_guard {l : Lemma} {Δ : Signature} {name : TinyML.Var} {ty : TinyML.Typ}
+    {entry : TinyML.Var × GhostFns.Entry} (h : l.publish Δ name ty = .ok entry) :
+    entry.2.guard = none := by
+  unfold publish at h
+  split at h
+  · cases h; rfl
+  · cases h
+
+omit [MicaGS HasLC.hasLC Sig] in
 /-- The result binder is fresh, so adding it leaves the instance alone. -/
 private theorem instance_eval {Δ : Signature} {ρ ρ' : Env} {x : String} {ps : List Pattern}
     {φ ψ : Formula} (hwf : (Formula.forall_ x .value ps (.implies φ ψ)).wfIn Δ)

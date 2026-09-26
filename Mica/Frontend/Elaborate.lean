@@ -1120,7 +1120,7 @@ private def Decl.elaborate (env : ElabEnv) (decl : Decl)
         | .named x _ => .ok (some ⟨x, ghost, attrs.transparency⟩)
         | .none => err decl.loc (.unsupportedFeature "[@@fn] requires a named declaration")
     -- Only `[@@impl]` needs the argument by name, so the arity a spec-level
-    -- function is compiled at is checked here and again in `Verifier.Env.assemble`.
+    -- function is compiled at is checked here and again in `Verifier.Decl.declare`.
     let d ← match attrs.impl, relation, d.body with
       | true, some f, .fix _ [.named arg _] _ _ =>
         .ok { d with spec := some (← implSpec env decl.loc f.name arg), impl := true }

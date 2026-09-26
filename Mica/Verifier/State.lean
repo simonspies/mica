@@ -94,6 +94,13 @@ def TransState.sl [MicaGS HasLC.hasLC Sig] (W : TinyML.World)
     (st : TransState) (ρ : Env) :
     st.sl W ρ = SpatialContext.interp W ρ st.owns := rfl
 
+theorem TransState.sl_of_owns_nil [MicaGS HasLC.hasLC Sig] {W : TinyML.World} {st : TransState} {ρ : Env}
+    (hst : st.owns = []) : ⊢ □ st.sl W ρ := by
+  simp [TransState.sl, hst]
+  istart
+  imodintro
+  iempintro
+
 /-- Drop the non-persistent spatial part of the verifier state. -/
 def TransState.persist (st : TransState) : TransState :=
   { st with owns := [] }

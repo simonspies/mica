@@ -16,6 +16,7 @@ import Mica.Verifier.Context
 import Mica.Verifier.Compilation
 import Mica.Verifier.Ghost
 import Mica.Verifier.Expressions
+import Mica.Verifier.Declaration
 import Mica.Verifier.RelationalEncoding
 import Mica.Verifier.Specifications
 import Mica.Verifier.Programs

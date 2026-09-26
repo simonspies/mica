@@ -79,6 +79,48 @@ def GhostFns.remove (Gf : GhostFns) (x : TinyML.Var) : GhostFns :=
   Gf.filter fun p => p.1 != x
 
 omit [MicaGS HasLC.hasLC Sig] in
+theorem GhostFns.mem_of_lookup {l : GhostFns} {f : TinyML.Var}
+    {e : GhostFns.Entry} (h : l.lookup f = some e) : (f, e) ∈ l := by
+  induction l with
+  | nil => simp at h
+  | cons p l ih =>
+    obtain ⟨g, e'⟩ := p
+    by_cases hfg : f = g
+    · subst hfg
+      simp only [List.lookup, beq_self_eq_true, Option.some.injEq] at h
+      subst h
+      exact .head _
+    · have hne : (f == g) = false := by simpa using hfg
+      rw [List.lookup, hne] at h
+      exact .tail _ (ih h)
+
+omit [MicaGS HasLC.hasLC Sig] in
+theorem GhostFns.mem_remove {Gf : GhostFns} {x : TinyML.Var}
+    {p : TinyML.Var × GhostFns.Entry} (h : p ∈ Gf.remove x) : p ∈ Gf :=
+  (List.mem_filter.mp h).1
+
+/-- Every entry has no guard and a type well formed in `Δ` and `Θ`. Such
+    entries carry over to a larger world. -/
+def GhostFns.wfIn (Δ : Signature) (Θ : TinyML.TypeEnv) (Gf : GhostFns) : Prop :=
+  ∀ p ∈ Gf, p.2.guard = none ∧ TinyML.Typ.wfIn Δ Θ p.2.ty
+
+omit [MicaGS HasLC.hasLC Sig] in
+theorem GhostFns.wfIn_append {Δ : Signature} {Θ : TinyML.TypeEnv} {Gf Gf' : GhostFns}
+    (h : Gf.wfIn Δ Θ) (h' : Gf'.wfIn Δ Θ) : (Gf ++ Gf').wfIn Δ Θ :=
+  fun p hp => (List.mem_append.mp hp).elim (h p) (h' p)
+
+omit [MicaGS HasLC.hasLC Sig] in
+theorem GhostFns.wfIn_remove {Δ : Signature} {Θ : TinyML.TypeEnv} {Gf : GhostFns}
+    (h : Gf.wfIn Δ Θ) (x : TinyML.Var) : (Gf.remove x).wfIn Δ Θ :=
+  fun p hp => h p (GhostFns.mem_remove hp)
+
+omit [MicaGS HasLC.hasLC Sig] in
+theorem GhostFns.wfIn_mono {Δ Δ' : Signature} {Θ Θ' : TinyML.TypeEnv} {Gf : GhostFns}
+    (h : Gf.wfIn Δ Θ) (hΔ : Δ.Subset Δ') (hwf : Δ'.wf)
+    (hΘ : ∀ T d, Θ T = some d → Θ' T = some d) : Gf.wfIn Δ' Θ' :=
+  fun p hp => ⟨(h p hp).1, TinyML.Typ.wfIn_mono hΔ hwf hΘ (h p hp).2⟩
+
+omit [MicaGS HasLC.hasLC Sig] in
 @[simp] private theorem GhostFns.lookup_remove (Gf : GhostFns) (x y : TinyML.Var) :
     (Gf.remove x).lookup y = if y == x then none else Gf.lookup y := by
   induction Gf with
@@ -137,6 +179,29 @@ theorem GhostFns.wellTyped.eta {W : TinyML.World} {Δ : Signature} {ρ : Env}
     (h : GhostFns.wellTyped W Δ ρ Gf) :
     GhostFns.wellTyped { W with eta := η } Δ ρ Gf :=
   fun η' => h η'
+
+open TinyML in
+/-- Unguarded ghost functions whose types are well formed in the smaller of two
+    worlds meet their specs in the larger one when they do in the smaller one. -/
+theorem GhostFns.wellTyped_of_subset {W₀ W : World} (h : W₀.Subset W)
+    (hΘ : TypeEnv.wfIn W₀.Δ_spec W₀.Θ) {Gf : GhostFns} {Δ Δ' : Signature} {ρ ρ' : Env}
+    (hGf : Gf.wfIn W₀.Δ_spec W₀.Θ) (hwt : GhostFns.wellTyped W₀ Δ ρ Gf) :
+    GhostFns.wellTyped W Δ' ρ' Gf := by
+  intro η f argTys retTy s guard hl
+  obtain ⟨hguard, hT⟩ := hGf _ (GhostFns.mem_of_lookup hl)
+  cases hguard
+  have h₀ := World.subset_refl { W₀ with eta := η }
+  have h₁ := World.subset_withEta h η
+  have hag := ValHasType.agreeOn h₀ h₁ hΘ
+  have htr := ValueRelation.agreeOn_isGhostPrecondFor (V := ValHasType { W₀ with eta := η })
+    (V' := ValHasType { W with eta := η }) h₀ h₁ hT
+  show ⊢ Spec.isGhostPrecondFor { W with eta := η } (ValHasType { W with eta := η })
+    argTys retTy s
+  istart
+  iapply htr
+  · imodintro
+    iapply hag
+  · iapply hwt η f argTys retTy s none hl
 
 /-- A declaration that shadows a bound name without binding a value of its own
     must drop it, or the old constant would stand for the new value. -/
@@ -357,27 +422,133 @@ theorem Bindings.typedSubst_remove {B : Bindings} {Γ Γ' : TinyML.TyCtx}
     ispecialize Hts $$ %y %y' %t %hmem %hΓy
     iexact Hts
 
-/-- Typedness transports to every type assignment. This is what makes a
-declaration's verification parametric: the same bindings re-derive its typing at
-every `σ`, so its value can be installed at a scheme rather than at one type. -/
-theorem Bindings.typedSubst_afterInstantiating {B : Bindings} {Γ : TinyML.TyCtx}
-    {γ : Runtime.Subst} (W : TinyML.World) (σ : TinyML.TyVar → TinyML.Typ)
-    (hΓ : Γ.Closed) :
-    B.typedSubst W Γ γ ⊢ B.typedSubst (W.afterInstantiating σ) Γ γ := by
-  unfold Bindings.typedSubst
-  iintro #Hts
+/-! ### Values at their schemes
+
+Between declarations a value has its scheme parametrically (`ValHasScheme`),
+not just at every syntactic instantiation. Only the parametric reading
+carries over to a larger world: an instantiation may name a type the smaller
+world does not know. -/
+
+/-- Every name in `B` denotes a value that has the scheme `Γ` gives it. -/
+def Bindings.schemeSubst (W : TinyML.World) (B : Bindings) (Γ : TinyML.TyCtx)
+    (γ : Runtime.Subst) : iProp :=
+  iprop(□ ∀ x x' s, ⌜B.lookup x = some x'⌝ -∗ ⌜Γ x = some s⌝ -∗
+    ∃ v, ⌜γ x = some v⌝ ∗ TinyML.ValHasScheme W v s)
+
+instance Bindings.schemeSubst_persistent {B Γ γ} (W : TinyML.World) :
+    Persistent (Bindings.schemeSubst W B Γ γ) := by
+  unfold Bindings.schemeSubst
+  infer_instance
+
+theorem Bindings.schemeSubst_empty (W : TinyML.World) (Γ : TinyML.TyCtx) (γ : Runtime.Subst) :
+    ⊢ Bindings.schemeSubst W Bindings.empty Γ γ := by
+  unfold Bindings.schemeSubst
   imodintro
-  iintro %y %y' %s %hmem %hΓy
-  ispecialize Hts $$ %y %y' %s %hmem %hΓy
-  icases Hts with ⟨%w, %hw, Hw⟩
-  iexists w
+  iintro %x %x' %t %hlookup
+  simp at hlookup
+
+theorem Bindings.typedSubst_of_schemeSubst {W : TinyML.World} {B : Bindings}
+    {Γ : TinyML.TyCtx} {γ : Runtime.Subst} :
+    B.schemeSubst W Γ γ ⊢ B.typedSubst W Γ γ := by
+  unfold Bindings.schemeSubst Bindings.typedSubst
+  iintro #H
+  imodintro
+  iintro %x %x' %s %hl %hΓ
+  icases H $$ %x %x' %s %hl %hΓ with ⟨%v, %hv, #Hv⟩
+  iexists v
   isplitr
-  · ipureintro; exact hw
-  · iintro %σ'
-    iapply (TinyML.ValHasType.subst W σ w (s.instantiate σ')).2
-    rw [TinyML.Scheme.subst_instantiate (fun a ha => by simp [hΓ y s hΓy] at ha) σ']
-    ispecialize Hw $$ %(fun a => TinyML.Typ.subst σ (σ' a))
-    iexact Hw
+  · ipureintro; exact hv
+  · iintro %σ
+    iapply TinyML.ValHasScheme.instantiate
+    iexact Hv
+
+/-- Closed schemes do not read the assignment of the world. -/
+theorem Bindings.schemeSubst_eta {W : TinyML.World} {B : Bindings} {Γ : TinyML.TyCtx}
+    {γ : Runtime.Subst} (hΓ : Γ.Closed) (η : TinyML.SemTypeAssign) :
+    B.schemeSubst W Γ γ ⊢ B.schemeSubst { W with eta := η } Γ γ := by
+  unfold Bindings.schemeSubst
+  iintro #H
+  imodintro
+  iintro %x %x' %s %hl %hΓx
+  icases H $$ %x %x' %s %hl %hΓx with ⟨%v, %hv, #Hv⟩
+  iexists v
+  isplitr
+  · ipureintro; exact hv
+  · iapply (TinyML.ValHasScheme.eta_closed W v (hΓ x s hΓx) η).1
+    iexact Hv
+
+theorem Bindings.schemeSubst_of_subset {W₀ W : TinyML.World} (h : W₀.Subset W)
+    (hΘ : TinyML.TypeEnv.wfIn W₀.Δ_spec W₀.Θ) {B : Bindings} {Γ : TinyML.TyCtx}
+    {γ : Runtime.Subst} (hΓ : ∀ x s, Γ x = some s → TinyML.Typ.wfIn W₀.Δ_spec W₀.Θ s.ty) :
+    B.schemeSubst W₀ Γ γ ⊢ B.schemeSubst W Γ γ := by
+  unfold Bindings.schemeSubst
+  iintro #H
+  imodintro
+  iintro %x %x' %s %hl %hΓx
+  icases H $$ %x %x' %s %hl %hΓx with ⟨%v, %hv, #Hv⟩
+  iexists v
+  isplitr
+  · ipureintro; exact hv
+  · iapply (TinyML.ValHasScheme.of_subset h hΘ (hΓ x s hΓx) v)
+    iexact Hv
+
+theorem Bindings.schemeSubst_cons {W : TinyML.World} {B : Bindings} {Γ : TinyML.TyCtx}
+    {γ : Runtime.Subst} {x : TinyML.Var} {c : Decl.Const} {s : TinyML.Scheme}
+    {w : Runtime.Val} :
+    ⊢ B.schemeSubst W Γ γ -∗ TinyML.ValHasScheme W w s -∗
+      Bindings.schemeSubst W ((x, c) :: B) (Γ.extendScheme x s) (Runtime.Subst.update γ x w) := by
+  iintro #H #Hw
+  unfold Bindings.schemeSubst
+  imodintro
+  iintro %y %y' %t %hl %hΓ
+  by_cases hyx : y == x
+  · simp [List.lookup, hyx] at hl; subst hl
+    simp [TinyML.TyCtx.extendScheme, hyx] at hΓ; subst hΓ
+    iexists w
+    isplitr
+    · ipureintro
+      simp [Runtime.Subst.update, hyx]
+    · iexact Hw
+  · simp [List.lookup, hyx] at hl
+    have hΓ' : Γ y = some t := by simpa [TinyML.TyCtx.extendScheme, hyx] using hΓ
+    icases H $$ %y %y' %t %hl %hΓ' with ⟨%w', %hw', #Hw'⟩
+    iexists w'
+    isplitr
+    · ipureintro
+      simp [Runtime.Subst.update, hyx, hw']
+    · iexact Hw'
+
+theorem Bindings.schemeSubst_remove_update {W : TinyML.World} {B : Bindings}
+    {Γ : TinyML.TyCtx} {γ : Runtime.Subst} {x : TinyML.Var} {v : Runtime.Val} :
+    B.schemeSubst W Γ γ ⊢ (B.remove x).schemeSubst W Γ (Runtime.Subst.update γ x v) := by
+  unfold Bindings.schemeSubst
+  iintro #H
+  imodintro
+  iintro %y %y' %t %hl %hΓ
+  rw [Bindings.lookup_remove] at hl
+  by_cases hyx : y == x
+  · simp [hyx] at hl
+  · simp only [hyx, Bool.false_eq_true, if_false] at hl
+    icases H $$ %y %y' %t %hl %hΓ with ⟨%w, %hw, #Hw⟩
+    iexists w
+    isplitr
+    · ipureintro
+      simp [Runtime.Subst.update, hyx, hw]
+    · iexact Hw
+
+theorem Bindings.schemeSubst_remove {W : TinyML.World} {B : Bindings} {Γ : TinyML.TyCtx}
+    {γ : Runtime.Subst} {x : TinyML.Var} :
+    B.schemeSubst W Γ γ ⊢ (B.remove x).schemeSubst W Γ γ := by
+  unfold Bindings.schemeSubst
+  iintro #H
+  imodintro
+  iintro %y %y' %t %hl %hΓ
+  rw [Bindings.lookup_remove] at hl
+  by_cases hyx : y = x
+  · simp [hyx] at hl
+  · simp only [beq_iff_eq, hyx, if_false] at hl
+    ispecialize H $$ %y %y' %t %hl %hΓ
+    iexact H
 
 /-! ### The typing of a whole scope -/
 
