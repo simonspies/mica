@@ -5,6 +5,7 @@ import Mica.TinyML.OpSem
 import Mica.Verifier.Bindings
 import Mica.Verifier.Monad
 import Mica.Verifier.Assertions
+import Mica.Verifier.Context
 
 open Iris Iris.BI
 
@@ -110,34 +111,35 @@ theorem compileOp_eval {op : TinyML.BinOp} {sl sr : Term .value} {ρ : Env}
 
 /-! ### Compiler and Top-Level Verifier -/
 
-def compileProductBindersFrom (B : Bindings) (Γ : TinyML.TyCtx)
+/-- Bind the components of the tuple `se` to the named binders, from index `i`. -/
+def compileProductBindersFrom (mode : TinyML.Mode) (S : Verifier.Scope)
     (names : List Binder) (tys : List TinyML.Typ) (se : Term .value) (i : Nat) :
-    VerifM (Bindings × TinyML.TyCtx) := do
+    VerifM Verifier.Scope := do
   match names, tys with
-  | [], [] => pure (B, Γ)
+  | [], [] => pure S
   | b :: bs, ty :: tys => do
       VerifM.expectEq "letProd binder type mismatch" b.ty ty
       match b.name with
-      | none => compileProductBindersFrom B Γ bs tys se (i + 1)
+      | none => compileProductBindersFrom mode S bs tys se (i + 1)
       | some x =>
           let x' ← VerifM.define (some x) (se.proj i)
-          compileProductBindersFrom ((x, x') :: B) (Γ.extend x ty) bs tys se (i + 1)
+          compileProductBindersFrom mode (S.bind mode x x' ty) bs tys se (i + 1)
   | _, _ => VerifM.fatal "letProd arity mismatch"
 
-def compileProductBinders (B : Bindings) (Γ : TinyML.TyCtx)
+def compileProductBinders (mode : TinyML.Mode) (S : Verifier.Scope)
     (names : List Binder) (tys : List TinyML.Typ) (se : Term .value) :
-    VerifM (Bindings × TinyML.TyCtx) :=
-  compileProductBindersFrom B Γ names tys se 0
+    VerifM Verifier.Scope :=
+  compileProductBindersFrom mode S names tys se 0
 
 omit [MicaGS HasLC.hasLC Sig] in
-theorem compileProductBindersFrom_length {B : Bindings} {Γ : TinyML.TyCtx}
+theorem compileProductBindersFrom_length {mode : TinyML.Mode} {S : Verifier.Scope}
     {names : List Binder} {tys : List TinyML.Typ} {se : Term .value} {i : Nat}
     {st : TransState} {ρ : Env}
-    {Ψ : Bindings × TinyML.TyCtx → TransState → Env → Prop}
+    {Ψ : Verifier.Scope → TransState → Env → Prop}
     (hse_wf : se.wfIn st.decls)
-    (heval : VerifM.eval (compileProductBindersFrom B Γ names tys se i) st ρ Ψ) :
+    (heval : VerifM.eval (compileProductBindersFrom mode S names tys se i) st ρ Ψ) :
     names.length = tys.length := by
-  induction names generalizing B Γ tys i st ρ Ψ with
+  induction names generalizing S tys i st ρ Ψ with
   | nil =>
       cases tys with
       | nil => rfl
@@ -151,8 +153,7 @@ theorem compileProductBindersFrom_length {B : Bindings} {Γ : TinyML.TyCtx}
           exact (VerifM.eval_fatal heval).elim
       | cons ty tys =>
           simp only [compileProductBindersFrom] at heval
-          have hexpect := VerifM.eval_bind heval
-          obtain ⟨hbty, hcont⟩ := VerifM.eval_expectEq hexpect
+          obtain ⟨_, hcont⟩ := VerifM.eval_bind_expectEq heval
           cases hname : b.name with
           | none =>
               simp [hname] at hcont
@@ -166,8 +167,7 @@ theorem compileProductBindersFrom_length {B : Bindings} {Γ : TinyML.TyCtx}
               have hse_wf' : se.wfIn (st.decls.addConst (st.freshConst (some x) .value)) :=
                 Term.wfIn_mono se hse_wf (Signature.Subset.subset_addConst _ _)
                   (Signature.wf_addConst hstwf hfresh)
-              have hlen := ih hse_wf' hrec_eval
-              simp [hlen]
+              simp [ih hse_wf' hrec_eval]
 
 /-- Check that a function body's type is its declared return type. Unification
 solves the two against each other, so they are equal or the program was rejected
@@ -235,27 +235,19 @@ theorem injComponents?_eq {Θ : TinyML.TypeEnv} {ty : TinyML.Typ} {tag arity : N
 Both layers carry the same context — the spatial state, the typing of the scope,
 and a frame — and both need it rearranged at a bind. -/
 
-namespace Helpers
+namespace Verifier.Scope
 
-theorem ctx_dup (W : TinyML.World)
-    (G B : Bindings) (Γ : TinyML.TyCtx)
-    (st : TransState) (ρ : Env) (γg γ : Runtime.Subst) (R : iProp) :
-    st.sl W ρ ∗ (Bindings.typedScope W G B Γ γg γ ∗ R) ⊢
-      st.sl W ρ ∗
-        (Bindings.typedScope W G B Γ γg γ ∗
-          (Bindings.typedScope W G B Γ γg γ ∗ R)) := by
+theorem typed_dup (W : TinyML.World) (S : Scope) (st : TransState) (ρ : _root_.Env)
+    (γg γ : Runtime.Subst) (R : iProp) :
+    st.sl W ρ ∗ (S.typed W γg γ ∗ R) ⊢ st.sl W ρ ∗ (S.typed W γg γ ∗ (S.typed W γg γ ∗ R)) := by
   iintro ⟨Howns, #HT, HR⟩
   iframe # ∗
 
-theorem ctx_push (W : TinyML.World)
-    (G B : Bindings) (Γ : TinyML.TyCtx)
-    (st : TransState) (ρ : Env) (γg γ : Runtime.Subst) (R : iProp)
-    (v : Runtime.Val) (ty : TinyML.Typ) :
-    st.sl W ρ ∗ TinyML.ValHasType W v ty ∗ (Bindings.typedScope W G B Γ γg γ ∗ R) ⊢
-      st.sl W ρ ∗
-        (Bindings.typedScope W G B Γ γg γ ∗
-          (TinyML.ValHasType W v ty ∗ R)) := by
+theorem typed_push (W : TinyML.World) (S : Scope) (st : TransState) (ρ : _root_.Env)
+    (γg γ : Runtime.Subst) (R : iProp) (v : Runtime.Val) (ty : TinyML.Typ) :
+    st.sl W ρ ∗ TinyML.ValHasType W v ty ∗ (S.typed W γg γ ∗ R) ⊢
+      st.sl W ρ ∗ (S.typed W γg γ ∗ (TinyML.ValHasType W v ty ∗ R)) := by
   iintro ⟨Howns, Hv, #HT, HR⟩
   iframe # ∗
 
-end Helpers
+end Verifier.Scope

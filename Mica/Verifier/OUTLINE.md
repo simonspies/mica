@@ -5,6 +5,7 @@
 - `Bindings.lean` — Verifier variable-to-constant bindings, their semantic linkage to runtime substitutions, and typing/lookup lemmas.
 - `BoundedQuantifier.lean` — Lambda lifting of spec-level bounded quantifiers (Range.all/Range.exists) into axiomatized function symbols.
 - `Compilation.lean` — The pieces the run-time and ghost compilation layers share: individual TinyML constructs and the shape of their correctness statements.
+- `Context.lean` — The environment and the scope the compilers work in, with the invariants that tie them to a world and a verifier state.
 - `Expressions.lean` — Compilation of typed TinyML expressions into verifier terms, with weakest-precondition correctness proofs.
 - `Ghost.lean` — Compilation and verification of the ghost fragment: ghost expressions, ghost declarations with a termination measure, and the ghost entries a declaration contributes.
 - `Guard.lean` — The guard constant deactivating quantified axioms in low-effort checks, effort levels, and guarded axioms.

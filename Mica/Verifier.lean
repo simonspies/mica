@@ -11,6 +11,7 @@ import Mica.Verifier.Lemma
 import Mica.Verifier.Assertions
 import Mica.Verifier.Intrinsic
 import Mica.Verifier.BoundedQuantifier
+import Mica.Verifier.Context
 import Mica.Verifier.Compilation
 import Mica.Verifier.Ghost
 import Mica.Verifier.Expressions
