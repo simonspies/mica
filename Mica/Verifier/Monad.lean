@@ -135,6 +135,12 @@ def VerifM.assumeAll : List Formula → VerifM Unit
 def VerifM.assumeAxioms (axs : List Axiom) : VerifM Unit :=
   VerifM.assumeAll (Axiom.asserts axs)
 
+/-- Declare a fresh constant and assume that it equals `t`. -/
+def VerifM.define (hint : Option String) (t : Term τ) : VerifM Decl.Const := do
+  let c ← VerifM.decl hint τ
+  VerifM.assume (.pure (Formula.define ⟨c.name, τ⟩ t))
+  pure c
+
 def TransCont α := α → TransState → ScopedM (Except VerifError Unit)
 
 def VerifM.translateAll (items : List α) (st : TransState) (k : TransCont (Except VerifError α)) :
@@ -1085,6 +1091,19 @@ theorem VerifM.eval_assumeAll {φs : List Formula}
       (fun ψ hψ => heval ψ (List.mem_cons_of_mem _ hψ))
     refine ⟨st', by rw [hst'], by rw [howns], ?_, hp⟩
     rw [hass]; simp [List.reverse_cons, List.append_assoc]
+
+theorem VerifM.eval_define {hint : Option String} {τ : Srt} {t : Term τ}
+    {st : TransState} {ρ : Env} {Q : Decl.Const → TransState → Env → Prop}
+    (h : VerifM.eval (VerifM.define hint t) st ρ Q) (ht : t.wfIn st.decls) :
+    let c := st.freshConst hint τ
+    Q c { st with decls := st.decls.addConst c, asserts := Formula.define c t :: st.asserts }
+      (ρ.updateConst τ c.name (t.eval ρ)) := by
+  intro c
+  simp only [VerifM.define] at h
+  have hdecl := VerifM.eval_decl (VerifM.eval_bind h) (t.eval ρ)
+  have hfresh : c.name ∉ st.decls.allNames := st.freshConst_fresh hint τ
+  exact VerifM.eval_ret (VerifM.eval_assumePure (VerifM.eval_bind hdecl)
+    (Formula.define_wfIn h.1.namesDisjoint ht hfresh) (Formula.define_eval ht hfresh))
 
 theorem VerifM.eval_assumeAxioms {axs : List Axiom}
     {st : TransState} {ρ : Env} {P : Unit → TransState → Env → Prop}

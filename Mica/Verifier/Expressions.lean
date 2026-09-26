@@ -121,8 +121,7 @@ mutual
         match b.name with
         | none => compile reg Θ Δ_spec Γfn ls Gf G B Γ body
         | some x =>
-          let x' ← VerifM.decl (some x) .value
-          VerifM.assume (.pure (Formula.eq .value (.const (.uninterpreted x'.name .value)) se))
+          let x' ← VerifM.define (some x) se
           compile reg Θ Δ_spec Γfn ls Gf ((x, x') :: G) (B.remove x) (Γ.extend x e.ty) body
     | .letIn .runtime b e body => do
         let se ← compile reg Θ Δ_spec Γfn ls Gf G B Γ e
@@ -130,8 +129,7 @@ mutual
         match b.name with
         | none => compile reg Θ Δ_spec Γfn ls Gf G B Γ body
         | some x =>
-          let x' ← VerifM.decl (some x) .value
-          VerifM.assume (.pure (Formula.eq .value (.const (.uninterpreted x'.name .value)) se))
+          let x' ← VerifM.define (some x) se
           compile reg Θ Δ_spec Γfn ls (Gf.remove x) (G.remove x) ((x, x') :: B)
             (Γ.extend x e.ty) body
     | .letProd names e body => do
@@ -2554,24 +2552,16 @@ theorem compileLetInGhost_correct (reg : Verifier.Registry)
         Fresh.freshNumbers_not_mem x st₁.decls.allNames
       set st₂ : TransState :=
         { decls := st₁.decls.addConst x',
-          asserts := (Formula.eq .value (.const (.uninterpreted x'.name .value)) t) :: st₁.asserts,
+          asserts := Formula.define x' t :: st₁.asserts,
           owns := st₁.owns } with hst₂_def
       set ρ₂ := ρ₁.updateConst .value x'.name v with hρ₂_def
       have hagreeOn₂ : Env.agreeOn st₁.decls ρ₁ ρ₂ :=
         Env.agreeOn_update_fresh_const hfresh
       have hΨ_body : (compile reg W.Θ W.Δ_spec Γfn ls Gf ((x, x') :: G) (B.remove x)
           (Γ.extend x e.ty) body).eval st₂ ρ₂ Ψ := by
-        have hdecl := VerifM.eval_decl (VerifM.eval_bind hΨ)
-        have h := VerifM.eval_assumePure (VerifM.eval_bind (hdecl v))
-        apply h
-        · have hstwf : st₁.decls.wf := (VerifM.eval.wf hΨ).namesDisjoint
-          simpa [x'] using
-            (Formula.define_wfIn (Δ := st₁.decls) (c := x') hstwf ht_wf hfresh)
-        · simp only [Formula.eval, Term.eval, Const.denote]
-          have : v = Term.eval ρ₂ t := by
-            rw [Term.eval_agreeOn ht_wf (Env.agreeOn_symm hagreeOn₂)]
-            exact ht_eval.symm
-          simpa [ρ₂, Env.updateConst] using this
+        have h := VerifM.eval_define (VerifM.eval_bind hΨ) ht_wf
+        rw [ht_eval] at h
+        exact h
       have hρ₂_lookup : ρ₂.consts .value x'.name = v := by simp [ρ₂, Env.updateConst]
       have hρ_agree : Env.agreeOn (Signature.ofConsts (G.map Prod.snd)) ρ₂ ρ₁ := by
         refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
@@ -2683,7 +2673,7 @@ theorem compileLetIn_correct (reg : Verifier.Registry) (b : Binder) (e body : Ex
       Fresh.freshNumbers_not_mem base st₁.decls.allNames
     set st₂ : TransState :=
       { decls := st₁.decls.addConst v,
-        asserts := (Formula.eq .value (.const (.uninterpreted v.name .value)) se) :: st₁.asserts,
+        asserts := Formula.define v se :: st₁.asserts,
         owns := st₁.owns }
     set ρ_body := ρ_e.updateConst .value v.name v_e
     set γ_body : Runtime.Subst := Runtime.Subst.update γ x v_e
@@ -2710,20 +2700,9 @@ theorem compileLetIn_correct (reg : Verifier.Registry) (b : Binder) (e body : Ex
       Env.agreeOn_update_fresh_const hfresh
     have hΨ_body : (compile reg W.Θ W.Δ_spec Γfn ls (Gf.remove x) (G.remove x) ((x, v) :: B)
         (Γ.extend x e.ty) body).eval st₂ ρ_body Ψ := by
-      have hdecl_eval := VerifM.eval_bind hΨ_e
-      have hdecl := VerifM.eval_decl hdecl_eval
-      have h := hdecl v_e
-      obtain h := VerifM.eval_bind h
-      obtain h := VerifM.eval_assumePure h
-      apply h
-      · have hstwf : st₁.decls.wf := (VerifM.eval.wf hdecl_eval).namesDisjoint
-        simpa [v] using
-          (Formula.define_wfIn (Δ := st₁.decls) (c := v) hstwf hse_wf hfresh)
-      · simp only [Formula.eval, Term.eval, Const.denote]
-        have : v_e = Term.eval ρ_body se := by
-          rw [Term.eval_agreeOn hse_wf (Env.agreeOn_symm hagreeOn_body_e)]
-          exact heval_e.symm
-        simpa [ρ_body, Env.updateConst] using this
+      have h := VerifM.eval_define (VerifM.eval_bind hΨ_e) hse_wf
+      rw [heval_e] at h
+      exact h
     have hbwf₂ : Bindings.wfIn ((x, v) :: B) st₂.decls := Bindings.wfIn_cons hbwf_e
     have hgwf₂ : Bindings.wfIn (G.remove x) st₂.decls := fun p hp =>
       Signature.Subset.consts (Signature.Subset.subset_addConst st₁.decls v) _
@@ -2906,37 +2885,14 @@ theorem compileProductBindersFrom_correct (reg : Verifier.Registry) (body : Expr
                 using hrec
           | some x =>
               simp [hname] at hcont
-              have hdecl_eval := VerifM.eval_bind hcont
-              have hdecl := VerifM.eval_decl hdecl_eval
               set x' := st.freshConst (some x) .value
               set st₁ : TransState := { st with decls := st.decls.addConst x' }
               set ρ₁ := ρ.updateConst .value x'.name v
-              have hafter_decl : _ := hdecl v
-              have hassume_eval := VerifM.eval_bind hafter_decl
-              have hassume := VerifM.eval_assumePure hassume_eval
-              have hfresh : x'.name ∉ st.decls.allNames := by
-                simpa [x'] using TransState.freshConst_fresh st (some x) .value
-              have hformula_wf :
-                  (Formula.eq .value (.const (.uninterpreted x'.name .value))
-                    (se.proj i)).wfIn st₁.decls := by
-                have hstwf : st.decls.wf := (VerifM.eval.wf hdecl_eval).namesDisjoint
-                simpa [x', st₁] using
-                  (Formula.define_wfIn (Δ := st.decls) (c := x')
-                    hstwf hhead_wf hfresh)
-              have hformula_eval :
-                  (Formula.eq .value (.const (.uninterpreted x'.name .value))
-                    (se.proj i)).eval ρ₁ := by
-                have hagree_head : Env.agreeOn st.decls ρ ρ₁ :=
-                  Env.agreeOn_update_fresh_const hfresh
-                have hhead_same := Term.eval_agreeOn hhead_wf hagree_head
-                have hval_same : v = (se.proj i).eval ρ₁ := by
-                  exact hhead_eval.symm.trans hhead_same
-                simpa [Formula.eval, Term.eval, Const.denote, ρ₁, Env.updateConst,
-                  Env.updateConst] using hval_same
-              have hrec_eval := hassume hformula_wf hformula_eval
+              have hfresh : x'.name ∉ st.decls.allNames := st.freshConst_fresh (some x) .value
+              have hrec_eval := VerifM.eval_define (VerifM.eval_bind hcont) hhead_wf
+              rw [hhead_eval] at hrec_eval
               set st₂ : TransState := { st₁ with
-                asserts := (Formula.eq .value (.const (.uninterpreted x'.name .value))
-                  (se.proj i)) :: st₁.asserts }
+                asserts := Formula.define x' (se.proj i) :: st₁.asserts }
               have hagreeOn_body : Env.agreeOn st.decls ρ ρ₁ :=
                 Env.agreeOn_update_fresh_const hfresh
               have hρ_agree : Env.agreeOn (Signature.ofConsts (B.map Prod.snd)) ρ₁ ρ := by
@@ -2969,7 +2925,7 @@ theorem compileProductBindersFrom_correct (reg : Verifier.Registry) (body : Expr
                 (Signature.Subset.subset_addConst st.decls x') hagreeOn_body
               have hGf₁ := hGf.step
                 (Signature.Subset.subset_addConst st.decls x') hagreeOn_body
-                (Signature.wf_addConst (VerifM.eval.wf hdecl_eval).namesDisjoint hfresh)
+                (Signature.wf_addConst (VerifM.eval.wf hcont).namesDisjoint hfresh)
               have hrec := compileProductBindersFrom_correct (Gf := Gf.remove x)
                 reg body ihBody bs tys
                 se (i + 1) allVals vs W R (G.remove x) ((x, x') :: B)
@@ -2981,7 +2937,7 @@ theorem compileProductBindersFrom_correct (reg : Verifier.Registry) (body : Expr
                 (by
                   have hse_wf₁ := Term.wfIn_mono se hse_wf
                     (Signature.Subset.subset_addConst st.decls x')
-                    (Signature.wf_addConst (VerifM.eval.wf hdecl_eval).namesDisjoint hfresh)
+                    (Signature.wf_addConst (VerifM.eval.wf hcont).namesDisjoint hfresh)
                   simpa [st₂, st₁] using hse_wf₁)
                 (by
                   rw [Term.eval_agreeOn hse_wf (Env.agreeOn_symm hagreeOn_body)]
@@ -3001,7 +2957,7 @@ theorem compileProductBindersFrom_correct (reg : Verifier.Registry) (body : Expr
                 icases Hpair with ⟨Hv, Hvs⟩
                 have hinterp_eq : SpatialContext.interp W ρ st.owns ⊢
                     SpatialContext.interp W ρ₁ st.owns :=
-                  (SpatialContext.interp_agreeOn W (VerifM.eval.wf hdecl_eval).ownsWf
+                  (SpatialContext.interp_agreeOn W (VerifM.eval.wf hcont).ownsWf
                     (Env.agreeOn_update_fresh_const hfresh)).1
                 isplitl [Hsl]
                 · simp only [TransState.sl_eq]

@@ -268,10 +268,8 @@ def Assertion.assume (σ : FiniteSubst) : Assertion TinyML.Typ α → VerifM (Fi
     VerifM.assume (.pure (φ.subst σ.subst σ.range.allNames))
     Assertion.assume σ k
   | .let_ v t k => do
-    let v' ← VerifM.decl (some v.name) v.sort
-    let σ' := σ.rename v v'.name
-    VerifM.assume (.pure (.eq v.sort (.const (.uninterpreted v'.name v.sort)) (t.subst σ.subst)))
-    Assertion.assume σ' k
+    let v' ← VerifM.define (some v.name) (t.subst σ.subst)
+    Assertion.assume (σ.rename v v'.name) k
   | .pred v p k => do
     let v' ← VerifM.decl (some v.name) v.sort
     let σ' := σ.rename v v'.name
@@ -294,17 +292,13 @@ def Assertion.prove (σ : FiniteSubst) : Assertion TinyML.Typ α → VerifM (Fin
     VerifM.assert (φ.subst σ.subst σ.range.allNames)
     Assertion.prove σ k
   | .let_ v t k => do
-    let v' ← VerifM.decl (some v.name) v.sort
-    let σ' := σ.rename v v'.name
-    VerifM.assume (.pure (.eq v.sort (.const (.uninterpreted v'.name v.sort)) (t.subst σ.subst)))
-    Assertion.prove σ' k
+    let v' ← VerifM.define (some v.name) (t.subst σ.subst)
+    Assertion.prove (σ.rename v v'.name) k
   | .pred v p k => do
     match ← VerifM.resolve (p.subst σ.subst) with
     | some t =>
-      let v' ← VerifM.decl (some v.name) v.sort
-      let σ' := σ.rename v v'.name
-      VerifM.assume (.pure (.eq v.sort (.const (.uninterpreted v'.name v.sort)) t))
-      Assertion.prove σ' k
+      let v' ← VerifM.define (some v.name) t
+      Assertion.prove (σ.rename v v'.name) k
     | none => VerifM.fatal s!"could not resolve predicate `{p.toString}` for {v.name}"
   | .ite φ kt ke => do
     let branch ← VerifM.all [true, false]
@@ -350,18 +344,14 @@ theorem Assertion.assume_correct (W : TinyML.World) (m : Assertion TinyML.Typ α
   | let_ v t k ih =>
       obtain ⟨htwf, hkwf⟩ := hwf
       simp only [Assertion.assume] at heval
-      have hb := VerifM.eval_bind heval
-      have hdecl := VerifM.eval_decl hb
       simp only [Assertion.post]
       set v' := st.freshConst (some v.name) v.sort
       obtain ⟨hv'_fresh_decls, hv'_fresh_range, hrename⟩ :=
         FiniteSubst.rename_freshConst hσwf v
       set u := t.eval (σ.subst.eval ρ)
-      specialize hdecl u
-      have hb2 := VerifM.eval_bind hdecl
-      have hassume := VerifM.eval_assumePure hb2
-        (FiniteSubst.decl_eq_wfIn (c := v') hσwf htwf hv'_fresh_decls)
-        (FiniteSubst.decl_eq_eval (c := v') (ρ := ρ) hσwf htwf hv'_fresh_decls)
+      have hassume := VerifM.eval_define (VerifM.eval_bind heval)
+        (FiniteSubst.subst_wfIn_term hσwf htwf)
+      rw [FiniteSubst.eval_subst_term hσwf htwf] at hassume
       set σ' := σ.rename v v'.name
       have hσ'wf : σ'.wfIn Δ_base (st.decls.addConst v') := by
         simpa [σ'] using hrename
@@ -574,18 +564,14 @@ theorem Assertion.prove_correct (W : TinyML.World) (m : Assertion TinyML.Typ α)
   | let_ v t k ih =>
       obtain ⟨htwf, hkwf⟩ := hwf
       simp only [Assertion.prove] at heval
-      have hb := VerifM.eval_bind heval
-      have hdecl := VerifM.eval_decl hb
       simp only [Assertion.pre]
       set v' := st.freshConst (some v.name) v.sort
       obtain ⟨hv'_fresh_decls, hv'_fresh_range, hrename⟩ :=
         FiniteSubst.rename_freshConst hσwf v
       set u := t.eval (σ.subst.eval ρ)
-      specialize hdecl u
-      have hb2 := VerifM.eval_bind hdecl
-      have hassume := VerifM.eval_assumePure hb2
-        (FiniteSubst.decl_eq_wfIn (c := v') hσwf htwf hv'_fresh_decls)
-        (FiniteSubst.decl_eq_eval (c := v') (ρ := ρ) hσwf htwf hv'_fresh_decls)
+      have hassume := VerifM.eval_define (VerifM.eval_bind heval)
+        (FiniteSubst.subst_wfIn_term hσwf htwf)
+      rw [FiniteSubst.eval_subst_term hσwf htwf] at hassume
       set σ' := σ.rename v v'.name
       have hσ'wf : σ'.wfIn Δ_base (st.decls.addConst v') := by
         simpa [σ'] using hrename
@@ -638,16 +624,10 @@ theorem Assertion.prove_correct (W : TinyML.World) (m : Assertion TinyML.Typ α)
             iapply hpred_transport
             iapply hpred_subst
             iexact Hpred
-          · have hb2 := VerifM.eval_bind hq
-            have hdecl := VerifM.eval_decl hb2
-            set v' := st'.freshConst (some v.name) v.sort
+          · set v' := st'.freshConst (some v.name) v.sort
             obtain ⟨hv'_fresh_decls, hv'_fresh_range, hrename⟩ :=
               FiniteSubst.rename_freshConst hσwf_st' v
-            specialize hdecl (t.eval ρ')
-            have hb3 := VerifM.eval_bind hdecl
-            have hassume := VerifM.eval_assumePure hb3
-              (Formula.define_wfIn (c := v') hwfst' htwf hv'_fresh_decls)
-              (Formula.define_eval (c := v') (ρ := ρ') htwf hv'_fresh_decls)
+            have hassume := VerifM.eval_define (VerifM.eval_bind hq) htwf
             set σ' := σ.rename v v'.name
             have hσ'wf : σ'.wfIn Δ_base (st'.decls.addConst v') := by
               simpa [σ'] using hrename

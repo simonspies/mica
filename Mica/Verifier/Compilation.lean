@@ -120,8 +120,7 @@ def compileProductBindersFrom (B : Bindings) (Γ : TinyML.TyCtx)
       match b.name with
       | none => compileProductBindersFrom B Γ bs tys se (i + 1)
       | some x =>
-          let x' ← VerifM.decl (some x) .value
-          VerifM.assume (.pure (Formula.eq .value (.const (.uninterpreted x'.name .value)) (se.proj i)))
+          let x' ← VerifM.define (some x) (se.proj i)
           compileProductBindersFrom ((x, x') :: B) (Γ.extend x ty) bs tys se (i + 1)
   | _, _ => VerifM.fatal "letProd arity mismatch"
 
@@ -160,37 +159,14 @@ theorem compileProductBindersFrom_length {B : Bindings} {Γ : TinyML.TyCtx}
               simp [ih hse_wf hcont]
           | some x =>
               simp [hname] at hcont
-              have hdecl_eval := VerifM.eval_bind hcont
-              have hdecl := VerifM.eval_decl hdecl_eval
-              let x' := st.freshConst (some x) .value
-              have hafter_decl := hdecl ((se.proj i).eval ρ)
-              have hassume := VerifM.eval_assumePure (VerifM.eval_bind hafter_decl)
-              have hstwf : st.decls.wf := (VerifM.eval.wf hdecl_eval).namesDisjoint
-              have hfresh : x'.name ∉ st.decls.allNames := by
-                simpa [x'] using TransState.freshConst_fresh st (some x) .value
-              have hhead_wf := Term.proj_wfIn hse_wf i
-              have hwf :
-                  (Formula.eq .value (.const (.uninterpreted x'.name .value))
-                    (se.proj i)).wfIn { st with decls := st.decls.addConst x' }.decls := by
-                simpa [x'] using
-                  (Formula.define_wfIn (Δ := st.decls) (c := x')
-                    hstwf hhead_wf hfresh)
-              have hholds :
-                  (Formula.eq .value (.const (.uninterpreted x'.name .value))
-                    (se.proj i)).eval
-                      (ρ.updateConst .value x'.name ((se.proj i).eval ρ)) := by
-                have hagree_head : Env.agreeOn st.decls ρ
-                    (ρ.updateConst .value x'.name ((se.proj i).eval ρ)) :=
-                  Env.agreeOn_update_fresh_const hfresh
-                have hhead_same := Term.eval_agreeOn hhead_wf hagree_head
-                simpa [Formula.eval, Term.eval, Const.denote, Env.updateConst]
-                  using hhead_same
-              have hrec_eval := hassume hwf hholds
-              have hsub : st.decls.Subset (st.decls.addConst x') :=
-                Signature.Subset.subset_addConst st.decls x'
-              have hstwf' : (st.decls.addConst x').wf :=
-                Signature.wf_addConst hstwf hfresh
-              have hlen := ih (Term.wfIn_mono se hse_wf hsub hstwf') hrec_eval
+              have hstwf : st.decls.wf := (VerifM.eval.wf hcont).namesDisjoint
+              have hfresh := st.freshConst_fresh (some x) .value
+              have hrec_eval :=
+                VerifM.eval_define (VerifM.eval_bind hcont) (Term.proj_wfIn hse_wf i)
+              have hse_wf' : se.wfIn (st.decls.addConst (st.freshConst (some x) .value)) :=
+                Term.wfIn_mono se hse_wf (Signature.Subset.subset_addConst _ _)
+                  (Signature.wf_addConst hstwf hfresh)
+              have hlen := ih hse_wf' hrec_eval
               simp [hlen]
 
 /-- Check that a function body's type is its declared return type. Unification

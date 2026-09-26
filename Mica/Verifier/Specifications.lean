@@ -45,10 +45,8 @@ def declareArgs (σ : FiniteSubst) :
   | name :: names, ty :: tys, (targ, sarg) :: sargs => do
     if targ = ty then pure ()
     else VerifM.fatal s!"type mismatch in call to spec"
-    let argVar ← VerifM.decl (some name) .value
-    let σ' := σ.rename ⟨name, .value⟩ argVar.name
-    VerifM.assume (.pure (.eq .value (.const (.uninterpreted argVar.name .value)) sarg))
-    declareArgs σ' names tys sargs
+    let argVar ← VerifM.define (some name) sarg
+    declareArgs (σ.rename ⟨name, .value⟩ argVar.name) names tys sargs
   | _, _, _ => VerifM.fatal "wrong number of arguments"
 
 /-- Full call protocol for a spec: declare argument variables, assume they equal the
@@ -445,8 +443,6 @@ theorem declareArgs_correct :
       simp only [Spec.declareArgs] at heval
       by_cases hsub_ty : targ = ty
       · simp [hsub_ty] at heval
-        have hdecl := VerifM.eval_decl
-          (VerifM.eval_bind (VerifM.eval_ret (VerifM.eval_bind heval)))
         set argVar := st.freshConst (some name) .value
         set σ' := σ.rename ⟨name, .value⟩ argVar.name
         set ρ₁ := ρ.updateConst .value argVar.name (sarg.eval ρ)
@@ -456,16 +452,8 @@ theorem declareArgs_correct :
         have hσ'wf : σ'.wfIn Δ_base (st.decls.addConst argVar) := by
           simpa [σ', argVar] using hrename
         have hsarg_wf : sarg.wfIn st.decls := hsargs _ (List.mem_cons_self ..)
-        have hassume := VerifM.eval_assumePure
-          (VerifM.eval_bind (hdecl (sarg.eval ρ)))
-          (by
-            simpa [argVar] using
-              (Formula.define_wfIn
-                (Δ := st.decls) (c := argVar) hstwf hsarg_wf hfresh_decls))
-          (by
-            simpa [argVar] using
-              (Formula.define_eval
-                (Δ := st.decls) (ρ := ρ) (c := argVar) hsarg_wf hfresh_decls))
+        have hassume := VerifM.eval_define
+          (VerifM.eval_bind (VerifM.eval_ret (VerifM.eval_bind heval))) hsarg_wf
         have hstwf_add : (st.decls.addConst argVar).wf := Signature.wf_addConst hstwf hfresh_decls
         have hsargs_rest : ∀ p ∈ sargs_rest, (p : TinyML.Typ × Term .value).2.wfIn
             (st.decls.addConst argVar) := fun p hp =>

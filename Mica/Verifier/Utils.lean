@@ -294,29 +294,6 @@ theorem FiniteSubst.eval_subst_term {σ : FiniteSubst} {t : Term τ} {ρ : Env}
     Term.eval ρ (t.subst σ.subst) = Term.eval (σ.subst.eval ρ) t :=
   Term.eval_subst ht hσ.subst hσ.rangeWf
 
-/-! ### Declaring a source variable as a fresh use-site constant
-
-When an assertion's let-bound variable `v` is declared as a fresh verifier constant `c`,
-the verifier assumes the equation `c = t[σ]`. These two lemmas supply its well-formedness
-and its truth in the updated environment. -/
-
-theorem FiniteSubst.decl_eq_wfIn {σ : FiniteSubst} {Δ_base Δ_use : Signature}
-    {c : Decl.Const} {t : Term c.sort}
-    (hσ : σ.wfIn Δ_base Δ_use) (ht : t.wfIn (Δ_base.declVars σ.dom))
-    (hfresh : c.name ∉ Δ_use.allNames) :
-    (Formula.eq c.sort (.const (.uninterpreted c.name c.sort)) (t.subst σ.subst)).wfIn
-      (Δ_use.addConst c) :=
-  Formula.define_wfIn hσ.useWf (FiniteSubst.subst_wfIn_term hσ ht) hfresh
-
-theorem FiniteSubst.decl_eq_eval {σ : FiniteSubst} {Δ_base Δ_use : Signature} {ρ : Env}
-    {c : Decl.Const} {t : Term c.sort}
-    (hσ : σ.wfIn Δ_base Δ_use) (ht : t.wfIn (Δ_base.declVars σ.dom))
-    (hfresh : c.name ∉ Δ_use.allNames) :
-    (Formula.eq c.sort (.const (.uninterpreted c.name c.sort)) (t.subst σ.subst)).eval
-      (ρ.updateConst c.sort c.name (t.eval (σ.subst.eval ρ))) := by
-  rw [← FiniteSubst.eval_subst_term hσ ht]
-  exact Formula.define_eval (FiniteSubst.subst_wfIn_term hσ ht) hfresh
-
 /-- The core agreement transfer: environments agreeing on the substitution's range induce
     substituted environments agreeing on the source signature. Shared by `eval_agreeOn` and
     `eval_update_fresh`, which differ only in where the range agreement comes from. -/

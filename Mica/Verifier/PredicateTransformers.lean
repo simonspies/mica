@@ -64,10 +64,8 @@ def PredTrans.call (σ : FiniteSubst) (pt : PredTrans TinyML.Typ) : VerifM (Term
 def PredTrans.implement (σ : FiniteSubst) (pt : PredTrans TinyML.Typ) (body : VerifM (Term .value)) : VerifM Unit := do
   let (σ₁, ⟨postName, postBody⟩) ← Assertion.assume σ pt
   let result ← body
-  let resVar ← VerifM.decl (some postName) .value
-  let σ₂ := σ₁.rename ⟨postName, .value⟩ resVar.name
-  VerifM.assume (.pure (.eq .value (.const (.uninterpreted resVar.name .value)) result))
-  let (_, ()) ← Assertion.prove σ₂ postBody
+  let resVar ← VerifM.define (some postName) result
+  let (_, ()) ← Assertion.prove (σ₁.rename ⟨postName, .value⟩ resVar.name) postBody
   pure ()
 
 -- ---------------------------------------------------------------------------
@@ -237,18 +235,12 @@ theorem PredTrans.implement_correct (W : TinyML.World) (pt : PredTrans TinyML.Ty
       refine hbody st₁ ρ₁ _ hdsub_st hagree_st ?_
       refine (VerifM.eval.decls_grow ρ₁ hcont_body).mono ?_
       intro result st₂ ρ₂ ⟨hdsub_body, hagree_body, hrest⟩ S hwf_result
-      have hb2 := VerifM.eval_bind hrest
-      have hdecl := VerifM.eval_decl hb2
       set resVar := st₂.freshConst (some postName) .value
       have hwfst₂ : st₂.decls.wf := (VerifM.eval.wf hrest).namesDisjoint
       have hσ₁wf₂ : σ₁.wfIn Δ_base st₂.decls := hσ₁wf.mono hdsub_body hwfst₂
       obtain ⟨hfresh_decls, hfresh_range, hrename⟩ :=
         FiniteSubst.rename_freshConst hσ₁wf₂ ⟨postName, .value⟩
-      specialize hdecl (result.eval ρ₂)
-      have hb3 := VerifM.eval_bind hdecl
-      have hassume := VerifM.eval_assumePure hb3
-        (Formula.define_wfIn (c := resVar) hwfst₂ hwf_result hfresh_decls)
-        (Formula.define_eval (c := resVar) (ρ := ρ₂) hwf_result hfresh_decls)
+      have hassume := VerifM.eval_define (VerifM.eval_bind hrest) hwf_result
       set σ₂ := σ₁.rename ⟨postName, .value⟩ resVar.name
       have hσ₂wf : σ₂.wfIn Δ_base (st₂.decls.addConst resVar) := by
         simpa [σ₂] using hrename
