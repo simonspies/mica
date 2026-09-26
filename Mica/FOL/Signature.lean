@@ -1,5 +1,6 @@
 -- SUMMARY: Signatures: the variables and symbols in scope, with their sorts.
 import Mica.FOL.Sorts
+import Mathlib.Data.List.Nodup
 
 /-!
 # Signatures
@@ -513,43 +514,30 @@ theorem wf_declVars {Δ : Signature} {vs : List Var} (hΔ : Δ.wf) : (Δ.declVar
   | cons v vs ih =>
     simpa [declVars] using ih (wf_declVar (Δ := Δ) (v := v) hΔ)
 
-/-- In a list whose names have no duplicates, the name determines the element. -/
-private theorem eq_of_nodup_map {f : α → String} {l : List α} {a b : α}
-    (hnd : (l.map f).Nodup) (ha : a ∈ l) (hb : b ∈ l) (h : f a = f b) : a = b := by
-  induction l with
-  | nil => simp at ha
-  | cons c l ih =>
-    simp only [List.map_cons, List.nodup_cons, List.mem_map, not_exists, not_and] at hnd
-    rcases List.mem_cons.mp ha with rfl | ha' <;> rcases List.mem_cons.mp hb with rfl | hb'
-    · rfl
-    · exact absurd h.symm (hnd.1 b hb')
-    · exact absurd h (hnd.1 a ha')
-    · exact ih hnd.2 ha' hb'
-
 theorem wf_unique_var {Δ : Signature} {x : String} {τ τ' : Srt}
     (hΔ : Δ.wf) (hv : ⟨x, τ⟩ ∈ Δ.vars) (hv' : ⟨x, τ'⟩ ∈ Δ.vars) : τ' = τ := by
   have hnd : (Δ.vars.map Var.name).Nodup := hΔ.sublist (by grind [allNames])
-  cases eq_of_nodup_map hnd hv hv' rfl
+  cases List.inj_on_of_nodup_map hnd hv hv' rfl
   exact rfl
 
 theorem wf_unique_const {Δ : Signature} {x : String} {τ τ' : Srt}
     (hΔ : Δ.wf) (hc : ⟨x, τ⟩ ∈ Δ.consts) (hc' : ⟨x, τ'⟩ ∈ Δ.consts) : τ' = τ := by
   have hnd : (Δ.consts.map Decl.Const.name).Nodup := hΔ.sublist (by grind [allNames])
-  cases eq_of_nodup_map hnd hc hc' rfl
+  cases List.inj_on_of_nodup_map hnd hc hc' rfl
   exact rfl
 
 theorem wf_unique_unary {Δ : Signature} {x : String} {τ₁ τ₂ τ₁' τ₂' : Srt}
     (hΔ : Δ.wf) (hu : ⟨x, τ₁, τ₂⟩ ∈ Δ.unary) (hu' : ⟨x, τ₁', τ₂'⟩ ∈ Δ.unary) :
     τ₁' = τ₁ ∧ τ₂' = τ₂ := by
   have hnd : (Δ.unary.map Decl.Unary.name).Nodup := hΔ.sublist (by grind [allNames])
-  cases eq_of_nodup_map hnd hu hu' rfl
+  cases List.inj_on_of_nodup_map hnd hu hu' rfl
   exact ⟨rfl, rfl⟩
 
 theorem wf_unique_binary {Δ : Signature} {x : String} {τ₁ τ₂ τ₃ τ₁' τ₂' τ₃' : Srt}
     (hΔ : Δ.wf) (hb : ⟨x, τ₁, τ₂, τ₃⟩ ∈ Δ.binary) (hb' : ⟨x, τ₁', τ₂', τ₃'⟩ ∈ Δ.binary) :
     τ₁' = τ₁ ∧ τ₂' = τ₂ ∧ τ₃' = τ₃ := by
   have hnd : (Δ.binary.map Decl.Binary.name).Nodup := hΔ.sublist (by grind [allNames])
-  cases eq_of_nodup_map hnd hb hb' rfl
+  cases List.inj_on_of_nodup_map hnd hb hb' rfl
   exact ⟨rfl, rfl, rfl⟩
 
 theorem wf_unique_ternary {Δ : Signature} {x : String}
@@ -558,20 +546,20 @@ theorem wf_unique_ternary {Δ : Signature} {x : String}
     (ht' : ⟨x, τ₁', τ₂', τ₃', τ₄'⟩ ∈ Δ.ternary) :
     τ₁' = τ₁ ∧ τ₂' = τ₂ ∧ τ₃' = τ₃ ∧ τ₄' = τ₄ := by
   have hnd : (Δ.ternary.map Decl.Ternary.name).Nodup := hΔ.sublist (by grind [allNames])
-  cases eq_of_nodup_map hnd ht ht' rfl
+  cases List.inj_on_of_nodup_map hnd ht ht' rfl
   exact ⟨rfl, rfl, rfl, rfl⟩
 
 theorem wf_unique_unaryRel {Δ : Signature} {x : String} {τ τ' : Srt}
     (hΔ : Δ.wf) (hu : ⟨x, τ⟩ ∈ Δ.unaryRel) (hu' : ⟨x, τ'⟩ ∈ Δ.unaryRel) : τ' = τ := by
   have hnd : (Δ.unaryRel.map Decl.UnaryRel.name).Nodup := hΔ.sublist (by grind [allNames])
-  cases eq_of_nodup_map hnd hu hu' rfl
+  cases List.inj_on_of_nodup_map hnd hu hu' rfl
   exact rfl
 
 theorem wf_unique_binaryRel {Δ : Signature} {x : String} {τ₁ τ₂ τ₁' τ₂' : Srt}
     (hΔ : Δ.wf) (hb : ⟨x, τ₁, τ₂⟩ ∈ Δ.binaryRel) (hb' : ⟨x, τ₁', τ₂'⟩ ∈ Δ.binaryRel) :
     τ₁' = τ₁ ∧ τ₂' = τ₂ := by
   have hnd : (Δ.binaryRel.map Decl.BinaryRel.name).Nodup := hΔ.sublist (by grind [allNames])
-  cases eq_of_nodup_map hnd hb hb' rfl
+  cases List.inj_on_of_nodup_map hnd hb hb' rfl
   exact ⟨rfl, rfl⟩
 
 theorem wf_no_const_of_var {Δ : Signature} {x : String} {τ τ' : Srt}
