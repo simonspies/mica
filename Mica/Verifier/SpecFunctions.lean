@@ -9,6 +9,14 @@ open Iris Iris.BI
 open PureEncoding (FunCtx PrimEncodings encode)
 open PureEncoding.Skolemize (DefVal)
 
+/-!
+# Spec functions
+
+A spec function is declared to the solver as three symbols: a relation, a value
+function, and a definedness predicate. This file declares them for `[@@fn]`
+declarations and checks their `[@@decreases]` measures.
+-/
+
 /-! ## Declaring a spec-function symbol triple
 
 Shared by `[@@fn]` functions below and by the lifted bounded quantifiers in

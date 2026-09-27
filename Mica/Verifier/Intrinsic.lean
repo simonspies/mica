@@ -120,7 +120,6 @@ theorem IntrinsicFOL.term_wfIn {n : Arity} {Δ Δ' : Signature}
 
 /-! ## Extending signatures and environments with an FOL symbol -/
 
-/-- Extend a signature with the FOL symbol from `s` (if any). -/
 def Signature.extendWithSym : ∀ {n : Arity}, Signature → Option (FOL.Symbol n) → Signature
   | _,     Δ, none        => Δ
   | .zero, Δ, some s      => Δ.addConst ⟨s.name, .value⟩
@@ -128,7 +127,6 @@ def Signature.extendWithSym : ∀ {n : Arity}, Signature → Option (FOL.Symbol 
   | .two,  Δ, some s      => Δ.addBinary ⟨s.name, .value, .value, .value⟩
   | .three, Δ, some s      => Δ.addTernary ⟨s.name, .value, .value, .value, .value⟩
 
-/-- Extending a signature is a subset extension. -/
 theorem Signature.subset_extendWithSym {n : Arity} (Δ : Signature)
     (s : Option (FOL.Symbol n)) : Δ.Subset (Δ.extendWithSym s) := by
   cases s with
@@ -147,7 +145,6 @@ theorem Signature.subset_extendWithSym {n : Arity} (Δ : Signature)
   | some _ =>
     cases n <;> rfl
 
-/-- `extendWithSym` is monotone in the base signature. -/
 theorem Signature.extendWithSym_mono {n : Arity} {Δ Δ' : Signature}
     (h : Δ.Subset Δ') (s : Option (FOL.Symbol n)) :
     (Δ.extendWithSym s).Subset (Δ'.extendWithSym s) := by
@@ -306,7 +303,6 @@ theorem Intrinsic.primEncoding_lawful (i : Intrinsic) (hlaw : i.encodeLawful)
     exact { wfIn := fun hav hsub hΔ' hargs =>
       f.term_wfIn hsub hΔ' (hlaw f hencode) _ hav hargs }
 
-/-- A registry is a list of intrinsics. -/
 abbrev Registry := List Intrinsic
 
 /-- The primitive table that a registry gives to the encoder. An intrinsic
@@ -323,7 +319,6 @@ def Sem.pure {α : Type} (rel : α → Runtime.Val → Prop) :
 
 namespace Intrinsic
 
-/-- The intrinsic's full arrow (scheme) type. -/
 def type (i : Intrinsic) : TinyML.SchemaTyp :=
   .arrow i.argTys i.retTy none
 
@@ -552,7 +547,6 @@ theorem lookup?_name {R : Registry} {n : String} {i : Intrinsic}
 def sigs (R : Registry) : String → Option TinyML.SchemaTyp :=
   fun n => (R.lookup? n).map Intrinsic.type
 
-/-- Build the operational-semantics context from a registry. -/
 def primCtx (R : Registry) : TinyML.PrimCtx :=
   fun n vs μ v μ' =>
     match R.lookup? n with

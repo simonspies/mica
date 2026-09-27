@@ -7,6 +7,15 @@ open Iris Iris.BI
 
 variable [MicaGS HasLC.hasLC Sig]
 
+/-!
+# Ghost functions
+
+Ghost code can call the ghost functions in scope. `GhostFunctions.wellTyped`
+says each of them meets its specification. The declaration being checked may
+call itself, but only under a guard: the call must lower the rank the
+declaration's measure gives its own arguments.
+-/
+
 /-- The guard on the declaration being checked: the measure a recursive call
     must lower, and the rank standing for it at the declaration's own arguments. -/
 structure GhostFunctions.Guard where

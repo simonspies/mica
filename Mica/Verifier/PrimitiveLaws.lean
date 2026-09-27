@@ -1,16 +1,15 @@
--- SUMMARY: Spatially lifted weakest-precondition laws for TinyML primitive operations.
+-- SUMMARY: Weakest-precondition rules for TinyML constructs, in the shape the compiler proofs use.
 import Mica.Verifier.SpatialAtom
 
 open Iris Iris.BI
 
 variable [MicaGS HasLC.hasLC Sig]
 
-/-! # Primitive Laws with Spatial Contexts
+/-! # Primitive laws
 
-Lifted versions of the wp rules from `Wp.lean`, stated in terms of
-spatial contexts. Each rule has the form `ctx.interp ρ ⊢ wp pctx e Q` given
-appropriate premises, where the context may change between premise and
-conclusion for stateful operations. -/
+The rules of `Wp.lean` in the shape the compiler proofs use: a bind rule per
+construct, and head rules that conclude from a frame `R`. The rules for owned
+references and owned arrays consume a spatial atom and restore it. -/
 
 namespace PrimitiveLaws
 
@@ -44,7 +43,6 @@ private theorem wp_bind_tuple_aux {left : Runtime.Exprs} {es : Runtime.Exprs} {r
         exact hbind
       exact hmono.trans (by simpa [List.append_assoc] using ih (left := left ++ [e]))
 
-/-- Value: context unchanged. -/
 theorem wp_val {v : Runtime.Val} {Q : Runtime.Val → iProp}
     {R : iProp}
     (h : R ⊢ Q v) :
@@ -59,7 +57,6 @@ theorem wp_bind_unop {op : TinyML.UnOp} {e : Runtime.Expr} {Q : Runtime.Val → 
     R ⊢ wp pctx (.unop op e) Q :=
   h.trans (wp.bind (k := TinyML.K.unop op .hole))
 
-/-- Unary operation at values: context unchanged. -/
 theorem wp_unop {op : TinyML.UnOp} {v res : Runtime.Val} {Q : Runtime.Val → iProp}
     {R : iProp}
     (h : R ⊢ Q res) :
@@ -83,7 +80,6 @@ theorem wp_bind_binop {op : TinyML.BinOp} {l r : Runtime.Expr} {Q : Runtime.Val 
     exact wp.bind (k := TinyML.K.binopL op .hole vr)
   exact h.trans (hr.trans (wp.bind (k := TinyML.K.binopR op l .hole)))
 
-/-- Binary operation at values: context unchanged. -/
 theorem wp_binop {op : TinyML.BinOp} {vl vr res : Runtime.Val} {Q : Runtime.Val → iProp}
     {R : iProp}
     (h : R ⊢ Q res) :
@@ -107,7 +103,6 @@ theorem wp_bind_letProd {names : List Runtime.Binder} {bound body : Runtime.Expr
     R ⊢ wp pctx (.letProd names bound body) Q :=
   h.trans (wp.bind (k := TinyML.K.letProdK names .hole body))
 
-/-- Product destructuring at a tuple value: context unchanged. -/
 theorem wp_letProd_val {names : List Runtime.Binder} {vs : List Runtime.Val}
     {body : Runtime.Expr} {Q : Runtime.Val → iProp} {R : iProp}
     (hlen : names.length = vs.length)
@@ -115,14 +110,12 @@ theorem wp_letProd_val {names : List Runtime.Binder} {vs : List Runtime.Val}
     R ⊢ wp pctx (.letProd names (.val (.tuple vs)) body) Q :=
   h.trans (wp.letProd_val hlen)
 
-/-- Conditional on `true`: context unchanged. -/
 theorem wp_if_true {thn els : Runtime.Expr} {Q : Runtime.Val → iProp}
     {R : iProp}
     (h : R ⊢ wp pctx thn Q) :
     R ⊢ wp pctx (.ifThenElse (.val (.bool true)) thn els) Q :=
   h.trans wp.if_true
 
-/-- Conditional on `false`: context unchanged. -/
 theorem wp_if_false {thn els : Runtime.Expr} {Q : Runtime.Val → iProp}
     {R : iProp}
     (h : R ⊢ wp pctx els Q) :
@@ -306,8 +299,7 @@ theorem wp_bind_arrayLen {arr : Runtime.Expr} {Q : Runtime.Val → iProp}
     R ⊢ wp pctx (.arrayLen arr) Q :=
   h.trans (wp.bind (k := TinyML.K.arrayLen .hole))
 
-/-- Array length at values: context unchanged. The array shape needed by the
-    head rule is exposed as an explicit pure obligation. -/
+/-- The array shape the head rule needs is an explicit pure premise. -/
 theorem wp_arrayLen {v : Runtime.Val} {len : Nat} {l : Runtime.Location} {Q : Runtime.Val → iProp}
     {R : iProp}
     (hv : v = .array len l) (h : R ⊢ Q (.int len)) :
@@ -364,7 +356,6 @@ theorem wp_bind_arrayGet {arr idx : Runtime.Expr} {Q : Runtime.Val → iProp}
     apply wp.mono; intro vidx
     exact wp.bind (k := TinyML.K.arrayGetArr .hole vidx)
   exact h.trans (harr.trans (wp.bind (k := TinyML.K.arrayGetIdx arr .hole)))
-
 
 /-- `Array.get` at values under an array invariant: the spatial context is
     preserved, while the continuation receives the element typing fact. The
@@ -476,7 +467,6 @@ theorem wp_bind_arraySet {arr idx val : Runtime.Expr} {Q : Runtime.Val → iProp
     apply wp.mono; intro vval
     exact wp.bind (k := TinyML.K.arraySetIdx arr .hole vval)
   exact h.trans (harr.trans (hidx.trans (wp.bind (k := TinyML.K.arraySetVal arr idx .hole))))
-
 
 /-- `Array.set` at values under an array invariant: the spatial context is
     preserved, while the new element typing fact is used to restore the array
@@ -652,7 +642,6 @@ theorem wp_bind_assert {e : Runtime.Expr} {Q : Runtime.Val → iProp}
     R ⊢ wp pctx (.assert e) Q :=
   h.trans (wp.bind (k := TinyML.K.assert .hole))
 
-/-- Assert on `true`: context unchanged. -/
 theorem wp_assert {Q : Runtime.Val → iProp}
     {R : iProp}
     (h : R ⊢ Q .unit) :
@@ -667,7 +656,6 @@ theorem wp_bind_inj {tag arity : Nat} {payload : Runtime.Expr} {Q : Runtime.Val 
     R ⊢ wp pctx (.inj tag arity payload) Q :=
   h.trans (wp.bind (k := TinyML.K.injK tag arity .hole))
 
-/-- Injection at values: context unchanged. -/
 theorem wp_inj {tag arity : Nat} {payload : Runtime.Val} {Q : Runtime.Val → iProp}
     {R : iProp}
     (h : R ⊢ Q (.inj tag arity payload)) :
@@ -683,7 +671,6 @@ theorem wp_bind_tuple {es : Runtime.Exprs} {Q : Runtime.Val → iProp}
   apply h.trans
   simpa using (wp_bind_tuple_aux (left := []) (es := es) (right := []) (Q := Q))
 
-/-- Tuple at values: context unchanged. -/
 theorem wp_tuple {vs : Runtime.Vals} {Q : Runtime.Val → iProp}
     {R : iProp}
     (h : R ⊢ Q (.tuple vs)) :
@@ -698,7 +685,6 @@ theorem wp_bind_match {scrut : Runtime.Expr} {branches : Runtime.Exprs} {Q : Run
     R ⊢ wp pctx (.match_ scrut branches) Q :=
   h.trans (wp.bind (k := TinyML.K.matchK branches .hole))
 
-/-- Match on an injected value: context unchanged. -/
 theorem wp_match {tag arity : Nat} {payload : Runtime.Val} {branches : Runtime.Exprs}
     {branch : Runtime.Expr} {Q : Runtime.Val → iProp}
     {R : iProp}
@@ -709,7 +695,6 @@ theorem wp_match {tag arity : Nat} {payload : Runtime.Val} {branches : Runtime.E
   intro hbranch harity
   exact h.trans (wp.match_ hbranch harity)
 
-/-- Function values: context unchanged. -/
 theorem wp_func {f : Runtime.Binder} {args : List Runtime.Binder} {e : Runtime.Expr}
     {Q : Runtime.Val → iProp} {R : iProp}
     (h : R ⊢ Q (.fix f args e)) :
@@ -754,7 +739,6 @@ theorem wp_app_lambda_single {b : Runtime.Binder} {body : Runtime.Expr} {v : Run
     (h : R ⊢ wp pctx (body.subst (Runtime.Subst.id.updateBinder b v)) Φ) :
     R ⊢ wp pctx (.app (.fix .none [b] body) [.val v]) Φ :=
   h.trans wp.app_lambda_single
-
 
 /-- Ghost code moves ownership without taking a step, so a weakest precondition
     absorbs the update it leaves behind. -/

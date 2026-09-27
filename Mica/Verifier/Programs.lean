@@ -9,6 +9,14 @@ open Iris Iris.BI
 variable [MicaGS HasLC.hasLC Sig]
 open Verifier (Scope)
 
+/-!
+# Programs
+
+`Program.verify` declares the intrinsics, then declares and checks the
+declarations in order. `Program.verify_adequate` says that a program it accepts
+does not get stuck.
+-/
+
 /-- Declare and check the declarations in order, each in the environment and
 the scope the ones before it leave. -/
 def Program.declareAndCheck :
@@ -93,8 +101,7 @@ omit [MicaGS HasLC.hasLC Sig] in
 /-- End-to-end adequacy: a successful verifier run guarantees that executions
     of the program — folded into a single expression by `Runtime.Program.expr`,
     starting from the empty heap — never get stuck: every reachable expression
-    is a value or can step. Derived from `Program.verify_correct` through the
-    `pwp`-to-`wp` bridge and `Runtime.Program.adequacy`. -/
+    is a value or can step. -/
 theorem Program.verify_adequate (reg : Verifier.Registry)
     (hSound : Verifier.Registry.Sound reg) (p : Untyped.Program Untyped.SpecBody) :
     Smt.Strategy.checks (Program.verify reg p)

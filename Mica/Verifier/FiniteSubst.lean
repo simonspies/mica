@@ -11,6 +11,14 @@ import Mathlib.Data.Finmap
 
 open Verifier (State)
 
+/-!
+# Finite substitutions
+
+A specification speaks about its own variables. The verifier renames each one to
+a fresh constant when it declares it. A `FiniteSubst` records these renamings,
+together with the signature the renamed terms live in.
+-/
+
 structure FiniteSubst where
   subst : Subst
   dom   : List Var
@@ -54,14 +62,11 @@ namespace FiniteSubst.wfIn
 
 variable {σ : FiniteSubst} {Δ_base Δ_use : Signature}
 
-/-- The substitution maps the source variables into the range signature. -/
 theorem subst (h : σ.wfIn Δ_base Δ_use) :
     σ.subst.wfIn (Δ_base.declVars σ.dom).vars σ.range := h.1
 
-/-- Every non-variable symbol of the source signature is available in the range. -/
 private theorem symbolSubset (h : σ.wfIn Δ_base Δ_use) : Δ_base.SymbolSubset σ.range := h.2.1
 
-/-- The range signature is available at the use site. -/
 theorem rangeSubset (h : σ.wfIn Δ_base Δ_use) : σ.range.Subset Δ_use := h.2.2.1
 
 theorem srcWf (h : σ.wfIn Δ_base Δ_use) : (Δ_base.declVars σ.dom).wf := h.2.2.2.1
@@ -70,7 +75,6 @@ theorem rangeWf (h : σ.wfIn Δ_base Δ_use) : σ.range.wf := h.2.2.2.2.1
 
 theorem useWf (h : σ.wfIn Δ_base Δ_use) : Δ_use.wf := h.2.2.2.2.2.1
 
-/-- The source signature contributes no free variables of its own. -/
 private theorem baseVars (h : σ.wfIn Δ_base Δ_use) : Δ_base.vars = [] := h.2.2.2.2.2.2
 
 /-- The source signature's symbols are all available in the range: `declVars` only adds
@@ -79,7 +83,6 @@ theorem srcSymbolSubset (h : σ.wfIn Δ_base Δ_use) :
     (Δ_base.declVars σ.dom).SymbolSubset σ.range :=
   Signature.SymbolSubset.declVars h.symbolSubset σ.dom
 
-/-- A finite substitution well-formed at one use site is well-formed at any larger one. -/
 theorem mono (h : σ.wfIn Δ_base Δ_use) {Δ_use' : Signature}
     (hsub : Δ_use.Subset Δ_use') (hwf : Δ_use'.wf) : σ.wfIn Δ_base Δ_use' :=
   ⟨h.subst, h.symbolSubset, h.rangeSubset.trans hsub, h.srcWf, h.rangeWf, hwf, h.baseVars⟩
@@ -110,9 +113,6 @@ theorem FiniteSubst.rename_source_eq (σ : FiniteSubst) (Δ : Signature)
     Δ.declVars (σ.rename v name').dom = (Δ.declVars σ.dom).declVar v := by
   simpa [FiniteSubst.rename] using declVars_append_single Δ σ.dom v
 
-/-- Redeclaring `v` after all old source variables is contained in the source signature
-    induced by `σ.rename v name'`. This is the direction used to transport assertion
-    well-formedness after a verifier-side fresh declaration. -/
 theorem FiniteSubst.rename_source_subset (σ : FiniteSubst) (Δ : Signature)
     (v : Var) (name' : String) :
     ((Δ.declVars σ.dom).declVar v).Subset
@@ -120,8 +120,6 @@ theorem FiniteSubst.rename_source_subset (σ : FiniteSubst) (Δ : Signature)
   rw [FiniteSubst.rename_source_eq]
   exact Signature.Subset.refl _
 
-/-- Converse of `FiniteSubst.rename_source_subset`; useful for obligations that need
-    to interpret renamed source variables back in the pre-rename source signature. -/
 theorem FiniteSubst.rename_source_subset_rev (σ : FiniteSubst) (Δ : Signature)
     (v : Var) (name' : String) :
     (Δ.declVars (σ.rename v name').dom).Subset
@@ -129,9 +127,6 @@ theorem FiniteSubst.rename_source_subset_rev (σ : FiniteSubst) (Δ : Signature)
   rw [FiniteSubst.rename_source_eq]
   exact Signature.Subset.refl _
 
-/-- Renaming preserves well-formedness of the source signature. The proof uses that the
-    renamed source has the same names, up to permutation, as the old source with `v`
-    redeclared. -/
 theorem FiniteSubst.rename_source_wf {σ : FiniteSubst} {Δ : Signature}
     {v : Var} {name' : String}
     (h : (Δ.declVars σ.dom).wf) :
@@ -250,9 +245,8 @@ theorem FiniteSubst.eval_subst_term {σ : FiniteSubst} {t : Term τ} {ρ : Env}
     Term.eval ρ (t.subst σ.subst) = Term.eval (σ.subst.eval ρ) t :=
   Term.eval_subst ht hσ.subst hσ.rangeWf
 
-/-- The core agreement transfer: environments agreeing on the substitution's range induce
-    substituted environments agreeing on the source signature. Shared by `eval_agreeOn` and
-    `eval_update_fresh`, which differ only in where the range agreement comes from. -/
+/-- Environments that agree on the range give substituted environments that agree
+    on the source signature. -/
 private theorem FiniteSubst.eval_agreeOn_range {σ : FiniteSubst} {ρ ρ' : Env}
     {Δ_base Δ_use : Signature}
     (hσ : σ.wfIn Δ_base Δ_use)

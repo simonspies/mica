@@ -10,7 +10,16 @@ open Iris Iris.BI
 
 variable [MicaGS HasLC.hasLC Sig]
 
-/-! ### Bindings -/
+/-!
+# Bindings
+
+The verifier stands for each program variable by a constant of sort `.value`.
+`Bindings` records which constant. `agreeOnLinked` links the constants to the
+runtime substitution, and `typedSubst` and `schemeSubst` type the values the
+substitution gives the names.
+-/
+
+/-! ## Bindings -/
 
 abbrev Bindings := List (TinyML.Var × Decl.Const)
 
@@ -90,9 +99,7 @@ theorem Bindings.wfIn_empty (decls : Signature) : Bindings.empty.wfIn decls :=
   fun _ h => by simp [Bindings.empty] at h
 
 /-- The substitution `γ` maps every binding to a value well-typed by `Γ`, at
-every instantiation of the scheme the context binds it at. A binding that
-quantifies nothing has exactly one instantiation, so this says of it what it
-said before schemes existed. -/
+every instantiation of the scheme the context binds it at. -/
 def Bindings.typedSubst (W : TinyML.World) (B : Bindings) (Γ : TinyML.TyCtx) (γ : Runtime.Subst) : iProp :=
   iprop(□ ∀ x x' s, ⌜B.lookup x = some x'⌝ -∗ ⌜Γ x = some s⌝ -∗
     ∃ v, ⌜γ x = some v⌝ ∗ ∀ σ, TinyML.ValHasType W v (TinyML.Scheme.instantiate s σ))
@@ -125,16 +132,14 @@ theorem Bindings.typedSubst_cons_scheme {B : Bindings} {Γ : TinyML.TyCtx} {γ :
   iintro %hmem
   iintro %hΓ
   by_cases hyx : y == x
-  · -- head case: y = x
-    simp [List.lookup, hyx] at hmem; subst hmem
+  · simp [List.lookup, hyx] at hmem; subst hmem
     simp [TinyML.TyCtx.extendScheme, hyx] at hΓ; subst hΓ
     iexists w
     isplitr
     · ipureintro
       simp [Runtime.Subst.update, hyx]
     · iexact Hw
-  · -- tail case: y ≠ x
-    simp [List.lookup, hyx] at hmem
+  · simp [List.lookup, hyx] at hmem
     have hΓ' : Γ y = some t := by simp [TinyML.TyCtx.extendScheme, hyx] at hΓ; exact hΓ
     ispecialize Hts $$ %y %y' %t %hmem %hΓ'
     icases Hts with ⟨%w', %hw', Hw'⟩
@@ -174,7 +179,7 @@ theorem Bindings.typedSubst_remove {B : Bindings} {Γ Γ' : TinyML.TyCtx}
     ispecialize Hts $$ %y %y' %t %hmem %hΓy
     iexact Hts
 
-/-! ### Values at their schemes
+/-! ## Values at their schemes
 
 Between declarations a value has its scheme parametrically (`ValHasScheme`),
 not just at every syntactic instantiation. Only the parametric reading
@@ -302,7 +307,7 @@ theorem Bindings.schemeSubst_remove {W : TinyML.World} {B : Bindings} {Γ : Tiny
     ispecialize H $$ %y %y' %t %hl %hΓ
     iexact H
 
-/-! ### The typing of a whole scope -/
+/-! ## The typing of a whole scope -/
 
 /-- Every name in scope denotes a value of the type `Γ` assigns it. `G` and `B`
 are disjoint and `Γ` types their union, so one context serves both. Only a
@@ -394,7 +399,6 @@ theorem Bindings.valHasType_of_typedSubst {B : Bindings} {Γ : TinyML.TyCtx}
   rw [← hw]
   ispecialize Hw $$ %σ
   iexact Hw
-
 
 /-- Read one name's typing out of the scope, whichever half of it binds the
 name. -/

@@ -6,6 +6,16 @@ import Mica.Verifier.SpatialAtom
 
 open Iris Iris.BI
 
+/-!
+# Verifier state
+
+The verifier state is a signature, the formulas assumed so far, and the owned
+spatial atoms. `State.wf` says every part is well formed in the signature;
+`State.holdsFor ρ` says the environment `ρ` satisfies the assumptions.
+-/
+
+/-! ## Builtins -/
+
 /-- Builtin declarations the verifier requires in a signature; extend with a
 field per builtin. -/
 structure Builtins.wf (Δ : Signature) : Prop where
@@ -27,6 +37,9 @@ theorem Builtins.holdsFor.agree {Δ : Signature} {ρ ρ' : Env}
     (h : Builtins.holdsFor ρ) : Builtins.holdsFor ρ' :=
   ⟨h.guard.agree hΔ.guard hagree⟩
 
+/-! ## Context items -/
+
+/-- What the verifier can assume: a formula or an owned atom. -/
 inductive CtxItem where
   | pure : Formula → CtxItem
   | spatial : SpatialAtom → CtxItem
@@ -39,7 +52,6 @@ def wfIn : CtxItem → Signature → Prop
 
 end CtxItem
 
-/-- Semantic interpretation of a verifier context item. -/
 def CtxItem.interp [MicaGS HasLC.hasLC Sig] (W : TinyML.World)
     (ρ : Env) : CtxItem → iProp
   | .pure φ => ⌜φ.eval ρ⌝
@@ -55,14 +67,12 @@ def CtxItem.facts : CtxItem → List Formula
   | .pure _ => []
   | .spatial a => a.facts
 
-/-- The pure facts of a well-formed item are well-formed. -/
 theorem CtxItem.facts_wfIn {i : CtxItem} {Δ : Signature} (h : i.wfIn Δ) :
     ∀ φ ∈ i.facts, φ.wfIn Δ := by
   cases i with
   | pure φ => simp [facts]
   | spatial a => exact SpatialAtom.facts_wfIn h
 
-/-- An item's interpretation implies its pure facts. -/
 theorem CtxItem.interp_facts [MicaGS HasLC.hasLC Sig] (W : TinyML.World)
     (ρ : Env) (i : CtxItem) :
     i.interp W ρ ⊢ ⌜∀ φ ∈ i.facts, φ.eval ρ⌝ ∗ i.interp W ρ := by
@@ -76,6 +86,8 @@ theorem CtxItem.interp_facts [MicaGS HasLC.hasLC Sig] (W : TinyML.World)
     · iexact H
   | spatial a =>
     exact SpatialAtom.interp_facts W a
+
+/-! ## The state -/
 
 structure Verifier.State where
   decls   : Signature
@@ -220,7 +232,6 @@ theorem Verifier.State.wf_addBinaryRel (st : State) (b : Decl.BinaryRel) :
   · exact SpatialContext.wfIn_mono hwf.ownsWf (Signature.Subset.subset_addBinaryRel _ _) hwf'
   · exact hwf.builtins.mono (Signature.Subset.subset_addBinaryRel _ _)
 
-/-- The name produced by `freshConst` is not in the existing decls. -/
 theorem Verifier.State.freshConst_fresh (st : State) (hint : Option String) (τ : Srt) :
     (st.freshConst hint τ).name ∉ st.decls.allNames :=
   Fresh.freshNumbers_not_mem (hint.getD "_v") st.decls.allNames

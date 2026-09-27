@@ -22,13 +22,9 @@ with their correctness proofs. `Spec.isPrecondFor`, the semantics, lives in
 `Mica/SourceTinyML/Semantics.lean`.
 -/
 
--- ---------------------------------------------------------------------------
--- Spec
--- ---------------------------------------------------------------------------
-
 namespace Spec
 
-/-! ## Definitions -/
+/-! ## Call and implementation -/
 
 /-- Declare argument variables, check types, and assume equalities for a spec call.
     The argument names come from the spec and the argument types from the enclosing
@@ -79,7 +75,7 @@ def implement (Δ_base : Signature) (argTys : List TinyML.Typ) (s : Spec TinyML.
   let (σ', ghostVars) ← declareImplArgs σ (s.ghost.map Prod.fst) (s.ghost.map Prod.snd)
   PredTrans.implement σ' s.pred (body argVars ghostVars)
 
-/-! ## Precondition Proofs -/
+/-! ## Preconditions of recursive functions -/
 section Precondition
 
 /-- Löb-style rule for spec preconditions on `fix`: to prove
@@ -148,7 +144,7 @@ theorem isPrecondFor_fix {W : TinyML.World} {V : TinyML.ValueRelation}
       exact ⟨hagr, hglen⟩
 end Precondition
 
-/-! ## Argument Substitution -/
+/-! ## Argument substitution -/
 section ArgumentSubstitution
 
 /-- A `[@@decreases]` measure is written over the callee's parameter names — for
@@ -317,7 +313,7 @@ theorem eval_argSubst {Δ : Signature} {names : List String}
 
 end ArgumentSubstitution
 
-/-! ## Call Protocol Correctness -/
+/-! ## Correctness of the call -/
 section CallCorrectness
 
 omit [MicaGS HasLC.hasLC Sig] in
@@ -507,7 +503,7 @@ theorem call_correct (W : TinyML.World)
 
 end CallCorrectness
 
-/-! ## Implementation Protocol Correctness -/
+/-! ## Correctness of the implementation -/
 section ImplementCorrectness
 
 /-- Correctness payload for `declareImplArgs`. -/

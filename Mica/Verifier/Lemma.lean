@@ -9,6 +9,15 @@ open Iris Iris.BI
 
 variable [MicaGS HasLC.hasLC Sig]
 
+/-!
+# Withheld lemmas
+
+A `Lemma` is a quantified fact, proved where it is produced and kept out of the
+solver context. A check
+assumes an instance of it at a known argument, or a declaration publishes it as
+a ghost function that ghost code calls.
+-/
+
 /-- What a withheld fact says. A check selects by description, not by producer. -/
 inductive Lemma.Kind where
   | definingEquation (f : TinyML.Var)

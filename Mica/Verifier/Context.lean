@@ -6,6 +6,17 @@ open Verifier (State)
 
 open Iris Iris.BI
 
+/-!
+# Environment and scope
+
+The compilers work in an `Env` and a `Scope`. The environment holds what the
+declarations so far define: the intrinsics, the type declarations, the
+signature, the spec functions, and the withheld lemmas. The scope holds the
+names in scope and the constants that stand for them. `Env.wf` and
+`Scope.wfIn` tie both to a world and a verifier state. `Env.supportedBy` and
+`Scope.supportedBy` are the invariants between two declarations.
+-/
+
 namespace Verifier
 
 /-- One lifted occurrence of a bounded quantifier: the quantifier symbol's base

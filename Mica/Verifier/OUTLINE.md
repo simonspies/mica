@@ -16,7 +16,7 @@
 - `Monad.lean` — Verification monad with SMT operations, branching, and its operational and semantic correctness interfaces.
 - `Ownership.lean` — Finding, consuming, and acquiring ownership of spatial atoms in the verifier state.
 - `PredicateTransformers.lean` — Verifier operations on predicate transformers: the call and implementation protocols and their well-formedness.
-- `PrimitiveLaws.lean` — Spatially lifted weakest-precondition laws for TinyML primitive operations.
+- `PrimitiveLaws.lean` — Weakest-precondition rules for TinyML constructs, in the shape the compiler proofs use.
 - `Programs.lean` — Verification of whole programs, one declaration after the other, and program-level soundness.
 - `Seq.lean` — The sequential verification monad: declarations, assumptions, and bracketed checks, composed without branching so that a run returns a value.
 - `SpatialAtom.lean` — Spatial atoms and contexts of the verifier state: their well-formedness, basic operations, and Iris interpretation.

@@ -30,7 +30,6 @@ def allName : String := "range-all"
 /-- Internal primitive name for `Range.exists`. -/
 def existsName : String := "range-exists"
 
-/-- Whether `n` is one of the bounded-quantifier primitives. -/
 def isPrim (n : String) : Bool :=
   n = allName || n = existsName
 
@@ -64,7 +63,6 @@ def allIntrinsic : Verifier.Intrinsic := intrinsic allName "all"
 
 /-- Registry entry for `Range.exists`. -/
 def existsIntrinsic : Verifier.Intrinsic := intrinsic existsName "exists"
-
 
 /-- A forbidden intrinsic is sound: its specification and weakest precondition
 are both false, and it contributes no solver symbols or axioms. -/
