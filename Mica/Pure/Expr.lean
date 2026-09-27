@@ -5,7 +5,7 @@ import Mica.Base.Fixpoint
 import Mica.Base.Except
 import Mica.SourceTinyML.Typed
 import Mica.Base.Fresh
-import Mica.Verifier.RelationalEncoding.Variables
+import Mica.Pure.Variables
 
 /-!
 # The encoder intermediate language

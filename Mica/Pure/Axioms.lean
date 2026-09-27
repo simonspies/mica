@@ -1,6 +1,6 @@
 -- SUMMARY: Solver-facing axioms and validity theorems for the skolemized relational encoding.
-import Mica.Verifier.RelationalEncoding.Skolemize
-import Mica.Verifier.Guard
+import Mica.Pure.Skolemize
+import Mica.Pure.Guard
 
 
 /-!

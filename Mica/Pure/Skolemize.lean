@@ -1,5 +1,5 @@
 -- SUMMARY: Skolemization: the definedness/value encoding, what it denotes, and its equivalence with the relational encoding.
-import Mica.Verifier.RelationalEncoding.Relation
+import Mica.Pure.Relation
 import Mica.FirstOrderLogic.Subst
 
 namespace Verifier.RelationalEncoding

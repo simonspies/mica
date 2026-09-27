@@ -4,14 +4,12 @@ import Mica.Engine.SMTLIB
 import Mica.FirstOrderLogic.Subst
 import Mica.Verifier.SpatialAtom
 import Mica.Verifier.Ownership
-import Mica.Verifier.RelationalEncoding.Skolemize
 
 open Verifier (State)
 
 open Iris Iris.BI
 
 variable [MicaGS HasLC.hasLC Sig]
-open Verifier.RelationalEncoding
 
 /-!
 # Atoms

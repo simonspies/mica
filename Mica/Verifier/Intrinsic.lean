@@ -5,7 +5,7 @@ import Mica.SeparationLogic.Wp
 import Mica.Verifier.PredicateTransformers
 import Mica.Verifier.Specifications
 import Mica.FirstOrderLogic.Formulas
-import Mica.Verifier.RelationalEncoding.Expr
+import Mica.Pure.Expr
 import Mica.Verifier.Seq
 
 open Verifier (State)

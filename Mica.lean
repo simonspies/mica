@@ -3,6 +3,7 @@ import Mica.TinyML
 import Mica.FirstOrderLogic
 import Mica.SeparationLogic
 import Mica.SourceTinyML
+import Mica.Pure
 import Mica.Engine
 import Mica.Verifier
 import Mica.Frontend

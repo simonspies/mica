@@ -1,6 +1,6 @@
 -- SUMMARY: Verifier state and environments, together with their well-formedness conditions and fresh-name infrastructure.
 import Mica.Engine.Scoped
-import Mica.Verifier.Guard
+import Mica.Pure.Guard
 import Mica.Base.Fresh
 import Mica.Verifier.SpatialAtom
 

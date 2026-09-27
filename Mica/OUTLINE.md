@@ -4,6 +4,7 @@
 - `Engine.lean` — Bundle for `Engine/`, containing the SMT solver interaction protocol and its Z3 implementation.
 - `FirstOrderLogic.lean` — Bundle for `FirstOrderLogic/`, containing first-order logic with Tarski semantics, targeting SMT encoding.
 - `Frontend.lean` — Bundle for `Frontend/`, containing the lexer, parser, elaborator, and spec parser for the OCaml surface syntax.
+- `Pure.lean` — Bundle for `Pure/`, containing the translation of typed expressions into first-order terms, with its axioms and guards.
 - `SeparationLogic.lean` — Bundle for `SeparationLogic/`, containing the Iris program logic over the TinyML runtime: ghost state, weakest preconditions, and adequacy.
 - `SourceTinyML.lean` — Bundle for `SourceTinyML/`, containing the source language: types, the untyped and typed IRs, elaboration, specifications, and their interpretation.
 - `Stdlib.lean` — The concrete stdlib: the intrinsic registry, its soundness aggregate, and the prelude resolver.

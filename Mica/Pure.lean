@@ -1,7 +1,8 @@
--- SUMMARY: Bundle for RelationalEncoding/, the two-stage encoding and termination checks for specification functions.
-import Mica.Verifier.RelationalEncoding.Expr
-import Mica.Verifier.RelationalEncoding.Variables
-import Mica.Verifier.RelationalEncoding.Relation
-import Mica.Verifier.RelationalEncoding.Skolemize
-import Mica.Verifier.RelationalEncoding.Axioms
-import Mica.Verifier.RelationalEncoding.Termination
+-- SUMMARY: Bundle for `Pure/`, containing the translation of typed expressions into first-order terms, with its axioms and guards.
+import Mica.Pure.Guard
+import Mica.Pure.Expr
+import Mica.Pure.Variables
+import Mica.Pure.Relation
+import Mica.Pure.Skolemize
+import Mica.Pure.Axioms
+import Mica.Pure.Termination

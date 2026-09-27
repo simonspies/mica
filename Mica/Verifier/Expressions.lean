@@ -13,7 +13,6 @@ import Mica.Verifier.Ghost
 import Mica.Engine.Driver
 import Mica.Base.Fresh
 import Mica.Verifier.Intrinsic
-import Mica.Verifier.RelationalEncoding.Variables
 
 open Verifier (State)
 

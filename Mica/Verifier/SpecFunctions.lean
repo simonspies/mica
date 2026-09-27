@@ -1,6 +1,6 @@
 -- SUMMARY: Declaration of spec functions: the solver symbols of `[@@fn]` functions, their defining axioms, and the checks of their measures.
 import Mica.Verifier.Context
-import Mica.Verifier.RelationalEncoding
+import Mica.Pure
 
 open Verifier (State)
 
@@ -126,6 +126,50 @@ theorem declare_correct (L : SpecFn) (f : TinyML.Var) (axs : List Axiom)
     hagree4, hΓwf', hΓagree', hQ4⟩
 
 end SpecFn
+
+/-! ## Termination check -/
+
+namespace Verifier.RelationalEncoding.Termination
+
+/-- Prove total definedness from the body, without recursive definedness
+axioms. The quantified induction hypothesis belongs only to this query. The
+caller records the totality this establishes, outside the query's scope. -/
+def check (fn : SpecFn) (x : String) (m : Typed.Measure)
+    (body : Skolemize.DefVal) : VerifM Unit := do
+  let Δ ← VerifM.decls
+  let rank := Fresh.freshName (x :: Δ.allNames) "rank"
+  let φ := obligation fn x rank m body
+  match m.term.checkWf (Δ.declVar ⟨x, .value⟩),
+      body.defined.checkWf (Δ.declVar ⟨x, .value⟩), φ.checkWf Δ, (total fn x).checkWf Δ with
+  | .ok (), .ok (), .ok (), .ok () => do
+    if ← VerifM.check .high φ then pure ()
+    else VerifM.failed s!"termination check failed for {fn}"
+  | .error msg, _, _, _ | _, .error msg, _, _ | _, _, .error msg, _ | _, _, _, .error msg =>
+    VerifM.fatal msg
+
+theorem check_correct {fn : SpecFn} {x : String} {m : Typed.Measure}
+    {body : Skolemize.DefVal} {st : State} {ρ : _root_.Env}
+    {Q : Unit → State → _root_.Env → Prop}
+    (hclose : ∀ v, body.defined.eval (ρ.updateConst .value x v) →
+      (fn.isDefined (.var .value x)).eval (ρ.updateConst .value x v))
+    (h : VerifM.eval (check fn x m body) st ρ Q) :
+    (total fn x).wfIn st.decls ∧ (total fn x).eval ρ ∧ Q () st ρ := by
+  simp only [check] at h
+  have h := VerifM.eval_decls (VerifM.eval_bind h)
+  split at h
+  · rename_i hm hb hφ ht
+    obtain ⟨b, hb', h⟩ := VerifM.eval_check (VerifM.eval_bind h) (Formula.checkWf_ok hφ)
+    cases b with
+    | false => exact (VerifM.eval_failed h).elim
+    | true =>
+      have hfresh := Fresh.freshName_not_in_avoid (x :: st.decls.allNames) "rank"
+      simp only [List.mem_cons, not_or] at hfresh
+      have htotal := obligation_correct hfresh.2 hfresh.1 (Term.checkWf_ok hm)
+        (Formula.checkWf_ok hb) hclose (hb' rfl)
+      exact ⟨Formula.checkWf_ok ht, htotal, VerifM.eval_ret h⟩
+  all_goals exact (VerifM.eval_fatal h).elim
+
+end Verifier.RelationalEncoding.Termination
 
 /-! ## `[@@fn]` declarations -/
 

@@ -11,7 +11,6 @@
 - `FiniteSubst.lean` — Finite substitutions for the verifier, with their well-formedness and evaluation lemmas.
 - `Ghost.lean` — Compilation of ghost expressions into verifier terms, with entailment correctness proofs.
 - `GhostFunctions.lean` — The ghost functions in scope: their types, the guard on the declaration being checked, and the specs they meet.
-- `Guard.lean` — The guard constant deactivating quantified axioms in low-effort checks, effort levels, and guarded axioms.
 - `Intrinsic.lean` — Data model for verifier intrinsics, with generic theorems characterizing the effect of registry setup.
 - `Lemma.lean` — Facts kept out of the solver context, which a check takes into its query or publishes as a ghost function.
 - `Monad.lean` — Verification monad with SMT operations, branching, and its operational and semantic correctness interfaces.
@@ -19,7 +18,6 @@
 - `PredicateTransformers.lean` — Verifier operations on predicate transformers: the call and implementation protocols and their well-formedness.
 - `PrimitiveLaws.lean` — Spatially lifted weakest-precondition laws for TinyML primitive operations.
 - `Programs.lean` — Verification of whole programs, one declaration after the other, and program-level soundness.
-- `RelationalEncoding.lean` — Bundle for RelationalEncoding/, the two-stage encoding and termination checks for specification functions.
 - `Seq.lean` — The sequential verification monad: declarations, assumptions, and bracketed checks, composed without branching so that a run returns a value.
 - `SpatialAtom.lean` — Spatial atoms and contexts of the verifier state: their well-formedness, basic operations, and Iris interpretation.
 - `SpecFunctions.lean` — Declaration of spec functions: the solver symbols of `[@@fn]` functions, their defining axioms, and the checks of their measures.

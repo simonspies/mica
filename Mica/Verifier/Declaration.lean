@@ -2,7 +2,7 @@
 import Mica.SourceTinyML.Typing
 import Mica.SourceTinyML.Erasure
 import Mica.Verifier.PrimitiveLaws
-import Mica.Verifier.RelationalEncoding
+import Mica.Pure
 import Mica.Verifier.Intrinsic
 import Mica.Verifier.BoundedQuantifier
 import Mica.Verifier.Expressions
