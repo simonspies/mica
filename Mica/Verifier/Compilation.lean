@@ -230,6 +230,69 @@ theorem injComponents?_eq {Θ : TinyML.TypeEnv} {ty : TinyML.Typ} {tag arity : N
     · exact absurd h (by simp)
   · exact absurd h (by simp)
 
+/-! ### Arguments -/
+
+/-- Extract argument names from binders, checking against the spec's argument
+    names. Requires exact length match. -/
+def extractArgNames : List Typed.Binder → List String →
+    Except String (List String)
+  | [], [] => .ok []
+  | ⟨some x, _⟩ :: rest, _ :: specRest => do
+      let tail ← extractArgNames rest specRest
+      .ok (x :: tail)
+  | _, _ => .error "spec argument count does not match function arity"
+
+omit [MicaGS HasLC.hasLC Sig] in
+theorem extractArgNames_spec {argBinders : List Typed.Binder}
+    {specArgs : List String} {names : List String}
+    (h : extractArgNames argBinders specArgs = .ok names) :
+    names.length = specArgs.length ∧
+    argBinders.length = specArgs.length ∧
+    argBinders.map Typed.Binder.WithTypeVars.runtime = names.map Runtime.Binder.named := by
+  induction specArgs generalizing argBinders names with
+  | nil =>
+    cases argBinders with
+    | nil => simp [extractArgNames] at h; subst h; simp
+    | cons _ _ => simp [extractArgNames] at h
+  | cons sa sas ih =>
+    cases argBinders with
+    | nil => simp [extractArgNames] at h
+    | cons ab abs =>
+      cases ab with
+      | mk name ty =>
+        cases name with
+        | none =>
+          simp [extractArgNames] at h
+        | some x =>
+          simp [extractArgNames] at h
+          cases hrec : extractArgNames abs sas with
+          | error =>
+              simp [hrec] at h
+              cases h
+          | ok tail =>
+              simp [hrec] at h
+              cases h
+              obtain ⟨h1, h2, h3⟩ := ih hrec
+              exact ⟨by simp [h1], by simp [h2], by simp [Typed.Binder.WithTypeVars.runtime, h3]⟩
+
+omit [MicaGS HasLC.hasLC Sig] in
+/-- What the type/term pairs handed to `Spec.call` are made of: the first
+components are the argument types and the second are the compiled argument
+terms, which denote the argument values. -/
+theorem typedArgs_split {tys : List TinyML.Typ} {sargs : List (Term .value)}
+    {ρ : Env} {vs : List Runtime.Val}
+    (hlen : tys.length = sargs.length) (heval : Term.evalList ρ sargs vs) :
+    (tys.zip sargs).map Prod.fst = tys ∧
+      (tys.zip sargs).map (fun p => p.2.eval ρ) = vs := by
+  have hfst : (tys.zip sargs).map Prod.fst = tys := List.map_fst_zip (Nat.le_of_eq hlen)
+  have hsnd : (tys.zip sargs).map Prod.snd = sargs :=
+    List.map_snd_zip (Nat.le_of_eq hlen.symm)
+  refine ⟨hfst, ?_⟩
+  calc (tys.zip sargs).map (fun p => p.2.eval ρ)
+      = sargs.map (fun t => t.eval ρ) := by
+          simpa [List.map_map] using congrArg (List.map (fun t => t.eval ρ)) hsnd
+    _ = vs := Term.evalList.map_eval heval
+
 /-! ### Reshuffling the correctness statement
 
 Both layers carry the same context — the spatial state, the typing of the scope,

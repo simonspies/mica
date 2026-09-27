@@ -8,6 +8,7 @@
 - `Context.lean` — The environment and the scope the compilers work in, with the invariants that tie them to a world and a verifier state.
 - `Declaration.lean` — One declaration at a time: elaborate it, declare the spec functions it defines, check it, and bind what it defines for the declarations after it.
 - `Expressions.lean` — Compilation of typed TinyML expressions into verifier terms, with weakest-precondition correctness proofs.
+- `FiniteSubst.lean` — Finite substitutions for the verifier, with their well-formedness and evaluation lemmas.
 - `Ghost.lean` — Compilation and verification of the ghost fragment: ghost expressions, ghost declarations with a termination measure, and the ghost entries a declaration contributes.
 - `GhostFunctions.lean` — The ghost functions in scope: their types, the guard on the declaration being checked, and the specs they meet.
 - `Guard.lean` — The guard constant deactivating quantified axioms in low-effort checks, effort levels, and guarded axioms.
@@ -23,4 +24,3 @@
 - `SpatialAtom.lean` — Syntactic spatial atoms and contexts for verifier state, together with their well-formedness conditions and basic operations.
 - `Specifications.lean` — Verifier operations on function specifications: the call and implementation protocols and their correctness.
 - `State.lean` — Verifier state and environments, together with their well-formedness conditions and fresh-name infrastructure.
-- `Utils.lean` — Supporting infrastructure for verifier finite substitutions and argument-handling helpers.

@@ -7,7 +7,7 @@ import Mica.Verifier.Seq
 import Mica.Verifier.Ownership
 import Mica.Verifier.Bindings
 import Mica.Verifier.GhostFunctions
-import Mica.Verifier.Utils
+import Mica.Verifier.FiniteSubst
 import Mica.Verifier.Lemma
 import Mica.Verifier.Assertions
 import Mica.Verifier.Intrinsic

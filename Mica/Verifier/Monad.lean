@@ -2,7 +2,7 @@
 import Mica.Engine.Driver
 import Mica.Engine.Scoped
 import Mica.Verifier.State
-import Mica.Verifier.Utils
+import Mica.Verifier.FiniteSubst
 import Mica.Base.Fresh
 import Mica.Verifier.SpatialAtom
 

@@ -1,7 +1,7 @@
 -- SUMMARY: Verifier operations on assertions: assume and prove, well-formedness conditions, and correctness lemmas.
 import Mica.SourceTinyML.Typed
 import Mica.Verifier.SpatialAtom
-import Mica.Verifier.Utils
+import Mica.Verifier.FiniteSubst
 import Mica.Verifier.Monad
 import Mica.Verifier.Atoms
 import Mica.Base.Fresh

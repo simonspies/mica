@@ -3,7 +3,7 @@ import Mica.SourceTinyML.Typed
 import Mica.Verifier.Monad
 import Mica.Verifier.Atoms
 import Mica.Verifier.Assertions
-import Mica.Verifier.Utils
+import Mica.Verifier.FiniteSubst
 import Mica.Base.Fresh
 import Mathlib.Data.Finmap
 

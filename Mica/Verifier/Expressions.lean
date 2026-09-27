@@ -3,7 +3,7 @@ import Mica.SourceTinyML.Typed
 import Mica.SourceTinyML.Typing
 import Mica.TinyML.OpSem
 import Mica.Verifier.PrimitiveLaws
-import Mica.Verifier.Utils
+import Mica.Verifier.FiniteSubst
 import Mica.Verifier.Monad
 import Mica.Verifier.Assertions
 import Mica.Verifier.PredicateTransformers
