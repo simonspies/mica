@@ -9,7 +9,7 @@
 - `Declaration.lean` — One declaration at a time: elaborate it, declare the spec functions it defines, check it, and bind what it defines for the declarations after it.
 - `Expressions.lean` — Compilation of typed TinyML expressions into verifier terms, with weakest-precondition correctness proofs.
 - `FiniteSubst.lean` — Finite substitutions for the verifier, with their well-formedness and evaluation lemmas.
-- `Ghost.lean` — Compilation and verification of the ghost fragment: ghost expressions, ghost declarations with a termination measure, and the ghost entries a declaration contributes.
+- `Ghost.lean` — Compilation of ghost expressions into verifier terms, with entailment correctness proofs.
 - `GhostFunctions.lean` — The ghost functions in scope: their types, the guard on the declaration being checked, and the specs they meet.
 - `Guard.lean` — The guard constant deactivating quantified axioms in low-effort checks, effort levels, and guarded axioms.
 - `Intrinsic.lean` — Data model for verifier intrinsics, with generic theorems characterizing the effect of registry setup.
