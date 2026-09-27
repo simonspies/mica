@@ -7,6 +7,8 @@ import Mica.Verifier.Monad
 import Mica.Verifier.Assertions
 import Mica.Verifier.Context
 
+open Verifier (State)
+
 open Iris Iris.BI
 
 variable [MicaGS HasLC.hasLC Sig]
@@ -134,8 +136,8 @@ def compileProductBinders (mode : TinyML.Mode) (S : Verifier.Scope)
 omit [MicaGS HasLC.hasLC Sig] in
 theorem compileProductBindersFrom_length {mode : TinyML.Mode} {S : Verifier.Scope}
     {names : List Binder} {tys : List TinyML.Typ} {se : Term .value} {i : Nat}
-    {st : TransState} {ρ : Env}
-    {Ψ : Verifier.Scope → TransState → Env → Prop}
+    {st : State} {ρ : Env}
+    {Ψ : Verifier.Scope → State → Env → Prop}
     (hse_wf : se.wfIn st.decls)
     (heval : VerifM.eval (compileProductBindersFrom mode S names tys se i) st ρ Ψ) :
     names.length = tys.length := by

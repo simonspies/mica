@@ -9,6 +9,8 @@ import Mica.Verifier.Bindings
 import Mica.Verifier.State
 import Mathlib.Data.Finmap
 
+open Verifier (State)
+
 structure FiniteSubst where
   subst : Subst
   dom   : List Var
@@ -197,7 +199,7 @@ theorem FiniteSubst.rename_wfIn {σ : FiniteSubst} {Δ_base Δ_use : Signature}
     variable to it keeps the finite substitution well-formed at the extended
     signature. These three facts are always needed together. -/
 theorem FiniteSubst.rename_freshConst {σ : FiniteSubst} {Δ_base : Signature}
-    {st : TransState} (hσ : σ.wfIn Δ_base st.decls) (v : Var) :
+    {st : State} (hσ : σ.wfIn Δ_base st.decls) (v : Var) :
     (st.freshConst (some v.name) v.sort).name ∉ st.decls.allNames ∧
       (st.freshConst (some v.name) v.sort).name ∉ σ.range.allNames ∧
       (σ.rename v (st.freshConst (some v.name) v.sort).name).wfIn Δ_base

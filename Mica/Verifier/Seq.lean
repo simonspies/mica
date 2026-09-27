@@ -11,7 +11,7 @@ open Smt
 `SeqM` returns a value to its caller: a `VerifM` value would have to be chosen
 among the branches.
 
-`SeqM` threads the `TransState` that `VerifM` threads. Its semantics `SeqM.eval`
+`SeqM` threads the `Verifier.State` that `VerifM` threads. Its semantics `SeqM.eval`
 has the shape of `VerifM.eval`: a declaration holds for every interpretation of
 the new symbol, an assumption continues under the assumed formula, and a check
 gives the `VerifM.eval` of the bracketed run.
@@ -52,10 +52,10 @@ def assumeAxioms (axs : List Axiom) : SeqM Unit :=
 
 /-! ## Translation -/
 
-private def declared (name : String) : ScopedM (Except String (Unit × TransState)) :=
+private def declared (name : String) : ScopedM (Except String (Unit × Verifier.State)) :=
   .ret (.error s!"symbol {name} is declared twice")
 
-def translate : SeqM α → TransState → ScopedM (Except String (α × TransState))
+def translate : SeqM α → Verifier.State → ScopedM (Except String (α × Verifier.State))
   | .ret a, st => .ret (.ok (a, st))
   | .bind m f, st => ScopedM.bind (m.translate st) fun
       | .error e => .ret (.error e)
@@ -93,7 +93,7 @@ def translate : SeqM α → TransState → ScopedM (Except String (α × TransSt
   | .decls, st => .ret (.ok (st.decls, st))
 
 theorem translate_bind_ok {m : SeqM α} {f : α → SeqM β}
-    {st st' : TransState} {ctx ctx' : FlatCtx} {b : β}
+    {st st' : Verifier.State} {ctx ctx' : FlatCtx} {b : β}
     (h : ScopedM.eval ((m >>= f).translate st) ctx (.ok (b, st')) ctx') :
     ∃ a st₁ ctx₁, ScopedM.eval (m.translate st) ctx (.ok (a, st₁)) ctx₁ ∧
       ScopedM.eval ((f a).translate st₁) ctx₁ (.ok (b, st')) ctx' := by
@@ -106,7 +106,7 @@ theorem translate_bind_ok {m : SeqM α} {f : α → SeqM β}
 
 /-! ## Semantics -/
 
-private def eval_rec : SeqM α → TransState → Env → (α → TransState → Env → Prop) → Prop
+private def eval_rec : SeqM α → Verifier.State → Env → (α → Verifier.State → Env → Prop) → Prop
   | .ret a, st, ρ, P => P a st ρ
   | .bind m f, st, ρ, P => m.eval_rec st ρ fun a st' ρ' => (f a).eval_rec st' ρ' P
   | .declConst c, st, ρ, P => c.name ∉ st.decls.allNames ∧
@@ -130,8 +130,8 @@ private def eval_rec : SeqM α → TransState → Env → (α → TransState →
   | .fatal _, _, _, _ => False
   | .decls, st, ρ, P => P st.decls st ρ
 
-private theorem eval_rec_mono {m : SeqM α} {st : TransState} {ρ : Env}
-    {P Q : α → TransState → Env → Prop} (h : m.eval_rec st ρ P)
+private theorem eval_rec_mono {m : SeqM α} {st : Verifier.State} {ρ : Env}
+    {P Q : α → Verifier.State → Env → Prop} (h : m.eval_rec st ρ P)
     (hPQ : ∀ a st' ρ', P a st' ρ' → Q a st' ρ') : m.eval_rec st ρ Q := by
   induction m generalizing st ρ with
   | ret => exact hPQ _ _ _ h
@@ -143,13 +143,13 @@ private theorem eval_rec_mono {m : SeqM α} {st : TransState} {ρ : Env}
   | fatal => exact h.elim
   | decls => exact hPQ _ _ _ h
 
-private theorem holdsFor_of_agree {st : TransState} {Δ : Signature} {ρ ρ' : Env}
+private theorem holdsFor_of_agree {st : Verifier.State} {Δ : Signature} {ρ ρ' : Env}
     (g : st.holdsFor ρ) (hwf : st.wf) (hagree : Env.agreeOn st.decls ρ ρ') :
-    ({ st with decls := Δ } : TransState).holdsFor ρ' :=
+    ({ st with decls := Δ } : Verifier.State).holdsFor ρ' :=
   ⟨fun φ hφ => (Formula.eval_agreeOn (hwf.assertsWf φ hφ) hagree).mp (g.asserts φ hφ),
    g.builtins.agree hwf.builtins hagree⟩
 
-private theorem eval_rec_preserves_wf (m : SeqM α) (st : TransState) (ρ : Env)
+private theorem eval_rec_preserves_wf (m : SeqM α) (st : Verifier.State) (ρ : Env)
     (h : m.eval_rec st ρ P) (g : st.holdsFor ρ) (hwf : st.wf) :
     m.eval_rec st ρ (fun a st' ρ' => st'.holdsFor ρ' ∧ st'.wf ∧ P a st' ρ') := by
   induction m generalizing st ρ with
@@ -159,25 +159,25 @@ private theorem eval_rec_preserves_wf (m : SeqM α) (st : TransState) (ρ : Env)
     exact eval_rec_mono (ihm st ρ h g hwf) fun _ _ _ ⟨g', hwf', hr⟩ => ihf _ _ _ hr g' hwf'
   | declConst c =>
     exact ⟨h.1, fun u => ⟨holdsFor_of_agree g hwf (Env.agreeOn_update_fresh_const h.1),
-      TransState.wf_addConst st c hwf h.1, h.2 u⟩⟩
+      Verifier.State.wf_addConst st c hwf h.1, h.2 u⟩⟩
   | declUnary u =>
     exact ⟨h.1, fun f => ⟨holdsFor_of_agree g hwf (Env.agreeOn_update_fresh_unary h.1),
-      TransState.wf_addUnary st u hwf h.1, h.2 f⟩⟩
+      Verifier.State.wf_addUnary st u hwf h.1, h.2 f⟩⟩
   | declBinary b =>
     exact ⟨h.1, fun f => ⟨holdsFor_of_agree g hwf (Env.agreeOn_update_fresh_binary h.1),
-      TransState.wf_addBinary st b hwf h.1, h.2 f⟩⟩
+      Verifier.State.wf_addBinary st b hwf h.1, h.2 f⟩⟩
   | declTernary t =>
     exact ⟨h.1, fun f => ⟨holdsFor_of_agree g hwf (Env.agreeOn_update_fresh_ternary h.1),
-      TransState.wf_addTernary st t hwf h.1, h.2 f⟩⟩
+      Verifier.State.wf_addTernary st t hwf h.1, h.2 f⟩⟩
   | declUnaryRel u =>
     exact ⟨h.1, fun f => ⟨holdsFor_of_agree g hwf (Env.agreeOn_update_fresh_unaryRel h.1),
-      TransState.wf_addUnaryRel st u hwf h.1, h.2 f⟩⟩
+      Verifier.State.wf_addUnaryRel st u hwf h.1, h.2 f⟩⟩
   | declBinaryRel b =>
     exact ⟨h.1, fun f => ⟨holdsFor_of_agree g hwf (Env.agreeOn_update_fresh_binaryRel h.1),
-      TransState.wf_addBinaryRel st b hwf h.1, h.2 f⟩⟩
+      Verifier.State.wf_addBinaryRel st b hwf h.1, h.2 f⟩⟩
   | assume φ =>
     intro hφwf hφ
-    refine ⟨⟨fun ψ hψ => ?_, g.builtins⟩, TransState.wf_addAssert _ hwf hφwf, h hφwf hφ⟩
+    refine ⟨⟨fun ψ hψ => ?_, g.builtins⟩, Verifier.State.wf_addAssert _ hwf hφwf, h hφwf hφ⟩
     cases hψ with
     | head => exact hφ
     | tail _ hψ => exact g.asserts ψ hψ
@@ -187,98 +187,98 @@ private theorem eval_rec_preserves_wf (m : SeqM α) (st : TransState) (ρ : Env)
 
 /-- `m` runs from `st` and its assumptions hold under `ρ`: every outcome
     satisfies `Q`, and the verifier state stays well-formed and true. -/
-def eval (m : SeqM α) (st : TransState) (ρ : Env) (Q : α → TransState → Env → Prop) : Prop :=
+def eval (m : SeqM α) (st : Verifier.State) (ρ : Env) (Q : α → Verifier.State → Env → Prop) : Prop :=
   st.wf ∧ st.holdsFor ρ ∧ m.eval_rec st ρ fun a st' ρ' => st'.wf ∧ st'.holdsFor ρ' ∧ Q a st' ρ'
 
-theorem eval_wf {m : SeqM α} {st : TransState} {ρ : Env} {Q : α → TransState → Env → Prop}
+theorem eval_wf {m : SeqM α} {st : Verifier.State} {ρ : Env} {Q : α → Verifier.State → Env → Prop}
     (h : m.eval st ρ Q) : st.wf := h.1
 
-theorem eval_holdsFor {m : SeqM α} {st : TransState} {ρ : Env}
-    {Q : α → TransState → Env → Prop} (h : m.eval st ρ Q) : st.holdsFor ρ := h.2.1
+theorem eval_holdsFor {m : SeqM α} {st : Verifier.State} {ρ : Env}
+    {Q : α → Verifier.State → Env → Prop} (h : m.eval st ρ Q) : st.holdsFor ρ := h.2.1
 
-theorem eval_mono {m : SeqM α} {st : TransState} {ρ : Env}
-    {P Q : α → TransState → Env → Prop} (h : m.eval st ρ P)
+theorem eval_mono {m : SeqM α} {st : Verifier.State} {ρ : Env}
+    {P Q : α → Verifier.State → Env → Prop} (h : m.eval st ρ P)
     (hPQ : ∀ a st' ρ', P a st' ρ' → Q a st' ρ') : m.eval st ρ Q :=
   ⟨h.1, h.2.1, eval_rec_mono h.2.2 fun a st' ρ' ⟨hwf', g', hp⟩ => ⟨hwf', g', hPQ a st' ρ' hp⟩⟩
 
-theorem eval_ret {a : α} {st : TransState} {ρ : Env} {Q : α → TransState → Env → Prop}
+theorem eval_ret {a : α} {st : Verifier.State} {ρ : Env} {Q : α → Verifier.State → Env → Prop}
     (h : (SeqM.ret a).eval st ρ Q) : Q a st ρ :=
   h.2.2.2.2
 
-theorem eval_bind {m : SeqM α} {k : α → SeqM β} {st : TransState} {ρ : Env}
-    {Q : β → TransState → Env → Prop} (h : (m.bind k).eval st ρ Q) :
+theorem eval_bind {m : SeqM α} {k : α → SeqM β} {st : Verifier.State} {ρ : Env}
+    {Q : β → Verifier.State → Env → Prop} (h : (m.bind k).eval st ρ Q) :
     m.eval st ρ fun a st' ρ' => (k a).eval st' ρ' Q := by
   obtain ⟨hwf, g, h⟩ := h
   refine ⟨hwf, g, eval_rec_mono (eval_rec_preserves_wf m st ρ h g hwf) ?_⟩
   intro a st' ρ' ⟨g', hwf', hk⟩
   exact ⟨hwf', g', hwf', g', hk⟩
 
-theorem eval_fatal {st : TransState} {ρ : Env} {Q : α → TransState → Env → Prop}
+theorem eval_fatal {st : Verifier.State} {ρ : Env} {Q : α → Verifier.State → Env → Prop}
     (h : (SeqM.fatal msg : SeqM α).eval st ρ Q) : False :=
   h.2.2
 
-theorem eval_decls {st : TransState} {ρ : Env} {Q : Signature → TransState → Env → Prop}
+theorem eval_decls {st : Verifier.State} {ρ : Env} {Q : Signature → Verifier.State → Env → Prop}
     (h : SeqM.decls.eval st ρ Q) : Q st.decls st ρ :=
   h.2.2.2.2
 
-theorem eval_ofExcept {e : Except String α} {st : TransState} {ρ : Env}
-    {Q : α → TransState → Env → Prop} (h : (ofExcept e).eval st ρ Q) :
+theorem eval_ofExcept {e : Except String α} {st : Verifier.State} {ρ : Env}
+    {Q : α → Verifier.State → Env → Prop} (h : (ofExcept e).eval st ρ Q) :
     ∃ a, e = .ok a ∧ Q a st ρ := by
   cases e with
   | error => exact (eval_fatal h).elim
   | ok a => exact ⟨a, rfl, eval_ret h⟩
 
-theorem eval_declConst {c : Decl.Const} {st : TransState} {ρ : Env}
-    {Q : Unit → TransState → Env → Prop} (h : (SeqM.declConst c).eval st ρ Q) :
+theorem eval_declConst {c : Decl.Const} {st : Verifier.State} {ρ : Env}
+    {Q : Unit → Verifier.State → Env → Prop} (h : (SeqM.declConst c).eval st ρ Q) :
     c.name ∉ st.decls.allNames ∧
     ∀ u, Q () { st with decls := st.decls.addConst c } (ρ.updateConst c.sort c.name u) :=
   ⟨h.2.2.1, fun u => (h.2.2.2 u).2.2⟩
 
-theorem eval_declUnary {u : Decl.Unary} {st : TransState} {ρ : Env}
-    {Q : Unit → TransState → Env → Prop} (h : (SeqM.declUnary u).eval st ρ Q) :
+theorem eval_declUnary {u : Decl.Unary} {st : Verifier.State} {ρ : Env}
+    {Q : Unit → Verifier.State → Env → Prop} (h : (SeqM.declUnary u).eval st ρ Q) :
     u.name ∉ st.decls.allNames ∧
     ∀ f, Q () { st with decls := st.decls.addUnary u } (ρ.updateUnary u.arg u.ret u.name f) :=
   ⟨h.2.2.1, fun f => (h.2.2.2 f).2.2⟩
 
-theorem eval_declBinary {b : Decl.Binary} {st : TransState} {ρ : Env}
-    {Q : Unit → TransState → Env → Prop} (h : (SeqM.declBinary b).eval st ρ Q) :
+theorem eval_declBinary {b : Decl.Binary} {st : Verifier.State} {ρ : Env}
+    {Q : Unit → Verifier.State → Env → Prop} (h : (SeqM.declBinary b).eval st ρ Q) :
     b.name ∉ st.decls.allNames ∧
     ∀ f, Q () { st with decls := st.decls.addBinary b }
       (ρ.updateBinary b.arg1 b.arg2 b.ret b.name f) :=
   ⟨h.2.2.1, fun f => (h.2.2.2 f).2.2⟩
 
-theorem eval_declTernary {t : Decl.Ternary} {st : TransState} {ρ : Env}
-    {Q : Unit → TransState → Env → Prop} (h : (SeqM.declTernary t).eval st ρ Q) :
+theorem eval_declTernary {t : Decl.Ternary} {st : Verifier.State} {ρ : Env}
+    {Q : Unit → Verifier.State → Env → Prop} (h : (SeqM.declTernary t).eval st ρ Q) :
     t.name ∉ st.decls.allNames ∧
     ∀ f, Q () { st with decls := st.decls.addTernary t }
       (ρ.updateTernary t.arg1 t.arg2 t.arg3 t.ret t.name f) :=
   ⟨h.2.2.1, fun f => (h.2.2.2 f).2.2⟩
 
-theorem eval_declUnaryRel {u : Decl.UnaryRel} {st : TransState} {ρ : Env}
-    {Q : Unit → TransState → Env → Prop} (h : (SeqM.declUnaryRel u).eval st ρ Q) :
+theorem eval_declUnaryRel {u : Decl.UnaryRel} {st : Verifier.State} {ρ : Env}
+    {Q : Unit → Verifier.State → Env → Prop} (h : (SeqM.declUnaryRel u).eval st ρ Q) :
     u.name ∉ st.decls.allNames ∧
     ∀ f, Q () { st with decls := st.decls.addUnaryRel u } (ρ.updateUnaryRel u.arg u.name f) :=
   ⟨h.2.2.1, fun f => (h.2.2.2 f).2.2⟩
 
-theorem eval_declBinaryRel {b : Decl.BinaryRel} {st : TransState} {ρ : Env}
-    {Q : Unit → TransState → Env → Prop} (h : (SeqM.declBinaryRel b).eval st ρ Q) :
+theorem eval_declBinaryRel {b : Decl.BinaryRel} {st : Verifier.State} {ρ : Env}
+    {Q : Unit → Verifier.State → Env → Prop} (h : (SeqM.declBinaryRel b).eval st ρ Q) :
     b.name ∉ st.decls.allNames ∧
     ∀ f, Q () { st with decls := st.decls.addBinaryRel b }
       (ρ.updateBinaryRel b.arg1 b.arg2 b.name f) :=
   ⟨h.2.2.1, fun f => (h.2.2.2 f).2.2⟩
 
-theorem eval_assume {φ : Formula} {st : TransState} {ρ : Env}
-    {Q : Unit → TransState → Env → Prop} (h : (SeqM.assume φ).eval st ρ Q) :
+theorem eval_assume {φ : Formula} {st : Verifier.State} {ρ : Env}
+    {Q : Unit → Verifier.State → Env → Prop} (h : (SeqM.assume φ).eval st ρ Q) :
     φ.wfIn st.decls → φ.eval ρ → Q () { st with asserts := φ :: st.asserts } ρ :=
   fun hwf hφ => (h.2.2 hwf hφ).2.2
 
-theorem eval_check {m : VerifM Unit} {st : TransState} {ρ : Env}
-    {Q : Unit → TransState → Env → Prop} (h : (SeqM.check m).eval st ρ Q) :
+theorem eval_check {m : VerifM Unit} {st : Verifier.State} {ρ : Env}
+    {Q : Unit → Verifier.State → Env → Prop} (h : (SeqM.check m).eval st ρ Q) :
     VerifM.eval m st ρ (fun _ _ _ => True) ∧ Q () st ρ :=
   ⟨h.2.2.1, h.2.2.2.2.2⟩
 
-theorem eval_assumeAll {φs : List Formula} {st : TransState} {ρ : Env}
-    {Q : Unit → TransState → Env → Prop} (h : (assumeAll φs).eval st ρ Q) :
+theorem eval_assumeAll {φs : List Formula} {st : Verifier.State} {ρ : Env}
+    {Q : Unit → Verifier.State → Env → Prop} (h : (assumeAll φs).eval st ρ Q) :
     (∀ φ ∈ φs, φ.wfIn st.decls) → (∀ φ ∈ φs, φ.eval ρ) →
     ∃ st', st'.decls = st.decls ∧ st'.owns = st.owns ∧
       st'.asserts = φs.reverse ++ st.asserts ∧ Q () st' ρ := by
@@ -291,8 +291,8 @@ theorem eval_assumeAll {φs : List Formula} {st : TransState} {ρ : Env}
       (fun ψ hψ => hwf ψ (.tail _ hψ)) (fun ψ hψ => heval ψ (.tail _ hψ))
     exact ⟨st', hdecls, howns, by rw [hasserts]; simp, hq⟩
 
-theorem eval_assumeAxioms {axs : List Axiom} {st : TransState} {ρ : Env}
-    {Q : Unit → TransState → Env → Prop} (h : (assumeAxioms axs).eval st ρ Q) :
+theorem eval_assumeAxioms {axs : List Axiom} {st : Verifier.State} {ρ : Env}
+    {Q : Unit → Verifier.State → Env → Prop} (h : (assumeAxioms axs).eval st ρ Q) :
     (∀ a ∈ axs, a.formula.wfIn st.decls) → (∀ a ∈ axs, a.formula.eval ρ) →
     ∃ st', st'.decls = st.decls ∧ st'.owns = st.owns ∧
       st'.asserts = (Axiom.asserts axs).reverse ++ st.asserts ∧ Q () st' ρ := by
@@ -307,8 +307,8 @@ theorem eval_assumeAxioms {axs : List Axiom} {st : TransState} {ρ : Env}
 
 /-! ## From a run to the semantics -/
 
-private theorem translate_eval_rec (m : SeqM α) (st : TransState) (ρ : Env)
-    {a : α} {st' : TransState} {ctx' : FlatCtx}
+private theorem translate_eval_rec (m : SeqM α) (st : Verifier.State) (ρ : Env)
+    {a : α} {st' : Verifier.State} {ctx' : FlatCtx}
     (h : ScopedM.eval (m.translate st) st.toFlatCtx (.ok (a, st')) ctx')
     (g : st.holdsFor ρ) (hwf : st.wf) :
     m.eval_rec st ρ fun a' st'' _ => a' = a ∧ st'' = st' ∧ ctx' = st'.toFlatCtx := by
@@ -371,8 +371,8 @@ private theorem translate_eval_rec (m : SeqM α) (st : TransState) (ρ : Env)
 
 /-- A run of `m` that ends in `a` and `st'` gives the semantics of `m`, with
     that outcome as its only outcome. -/
-theorem eval_of_translate (m : SeqM α) (st : TransState) (ρ : Env)
-    {a : α} {st' : TransState} {ctx' : FlatCtx}
+theorem eval_of_translate (m : SeqM α) (st : Verifier.State) (ρ : Env)
+    {a : α} {st' : Verifier.State} {ctx' : FlatCtx}
     (h : ScopedM.eval (m.translate st) st.toFlatCtx (.ok (a, st')) ctx')
     (g : st.holdsFor ρ) (hwf : st.wf) :
     m.eval st ρ fun a' st'' _ => a' = a ∧ st'' = st' ∧ ctx' = st'.toFlatCtx :=
@@ -385,7 +385,7 @@ end SeqM
 def SeqM.strategy (m : SeqM α) : Strategy (Except String α) :=
   ScopedM.translate <|
     .declareConst guardConst.name guardConst.sort fun () =>
-      ScopedM.bind (m.translate TransState.init) fun
+      ScopedM.bind (m.translate Verifier.State.init) fun
         | .error e => .ret (.error e)
         | .ok (a, _) => .ret (.ok a)
 
@@ -393,8 +393,8 @@ def SeqM.strategy (m : SeqM α) : Strategy (Except String α) :=
     environment of the initial state, with the result of the run. -/
 theorem SeqM.strategy_correct {m : SeqM α} {a : α} {s : Smt.State}
     (h : m.strategy.eval Smt.State.initial (.ok a) s)
-    (ρ : Env) (hρ : TransState.init.holdsFor ρ) :
-    m.eval TransState.init ρ fun a' _ _ => a' = a := by
+    (ρ : Env) (hρ : Verifier.State.init.holdsFor ρ) :
+    m.eval Verifier.State.init ρ fun a' _ _ => a' = a := by
   obtain ⟨_, h1⟩ := ScopedM.eval_of_strategy h
   have h1 := ScopedM.eval_declareConst h1
   obtain ⟨r, _, hm, hcont⟩ := ScopedM.eval_bind h1
@@ -403,5 +403,5 @@ theorem SeqM.strategy_correct {m : SeqM α} {a : α} {s : Smt.State}
     cases hr
   obtain ⟨hr, _⟩ := ScopedM.eval_ret.mp hcont
   cases hr
-  exact SeqM.eval_mono (SeqM.eval_of_translate _ _ ρ hm hρ TransState.init_wf)
+  exact SeqM.eval_mono (SeqM.eval_of_translate _ _ ρ hm hρ Verifier.State.init_wf)
     fun _ _ _ ⟨ha, _⟩ => ha

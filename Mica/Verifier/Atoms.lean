@@ -6,6 +6,8 @@ import Mica.Verifier.SpatialAtom
 import Mica.Verifier.Ownership
 import Mica.Verifier.RelationalEncoding.Skolemize
 
+open Verifier (State)
+
 open Iris Iris.BI
 
 variable [MicaGS HasLC.hasLC Sig]
@@ -332,7 +334,7 @@ def VerifM.tryCandidates : List (Formula × Term τ) → VerifM (Option (Term τ
 
 private theorem VerifM.eval_tryCandidates (W : TinyML.World)
     {candidates : List (Formula × Term τ)} {a : Atom TinyML.Typ τ}
-    {st : TransState} {ρ : Env} {Q : Option (Term τ) → TransState → Env → Prop}
+    {st : State} {ρ : Env} {Q : Option (Term τ) → State → Env → Prop}
     (h : VerifM.eval (VerifM.tryCandidates candidates) st ρ Q)
     (hcands : ∀ p ∈ candidates, p ∈ a.candidates)
     (hpwf : a.wfIn st.decls) :
@@ -387,8 +389,8 @@ def VerifM.resolve : {τ : Srt} → Atom TinyML.Typ τ → VerifM (Option (Term 
       | none => VerifM.tryCandidates a.candidates
 
 /-- Helper: resolution of a pure atom via formula matching or SMT candidates. -/
-private theorem VerifM.eval_resolve_pure (W : TinyML.World) {pred : Atom TinyML.Typ τ} {st : TransState} {ρ : Env}
-    {Q : Option (Term τ) → TransState → Env → Prop}
+private theorem VerifM.eval_resolve_pure (W : TinyML.World) {pred : Atom TinyML.Typ τ} {st : State} {ρ : Env}
+    {Q : Option (Term τ) → State → Env → Prop}
     {R Φ : iProp}
     (h : VerifM.eval (do
       match ← VerifM.ctxPure (pred.resolve ·) with
@@ -430,7 +432,7 @@ private theorem VerifM.eval_resolve_pure (W : TinyML.World) {pred : Atom TinyML.
 
 private theorem VerifM.eval_resolve_spatial (W : TinyML.World) {k : SpatialAtom.Kind}
     {pred : Atom TinyML.Typ .value} {tq : Term .value} {ty : TinyML.Typ}
-    {st : TransState} {ρ : Env} {Q : Option (Term .value) → TransState → Env → Prop}
+    {st : State} {ρ : Env} {Q : Option (Term .value) → State → Env → Prop}
     {R Φ : iProp}
     (h : VerifM.eval (VerifM.findMatch k tq ty) st ρ Q)
     (hwf : tq.wfIn st.decls)
@@ -451,8 +453,8 @@ private theorem VerifM.eval_resolve_spatial (W : TinyML.World) {k : SpatialAtom.
   · intros hqnone
     exact hnone st ρ hqnone (Signature.Subset.refl _) Env.agreeOn_refl
 
-theorem VerifM.eval_resolve (W : TinyML.World) {pred : Atom TinyML.Typ τ} {st : TransState} {ρ : Env}
-    {Q : Option (Term τ) → TransState → Env → Prop}
+theorem VerifM.eval_resolve (W : TinyML.World) {pred : Atom TinyML.Typ τ} {st : State} {ρ : Env}
+    {Q : Option (Term τ) → State → Env → Prop}
     {R Φ : iProp}
     (h : VerifM.eval (VerifM.resolve pred) st ρ Q)
     (hwf : pred.wfIn st.decls)

@@ -6,6 +6,8 @@ import Mica.Verifier.Specifications
 import Mica.Verifier.Lemma
 import Mica.Verifier.Intrinsic
 
+open Verifier (State)
+
 open Iris Iris.BI
 
 variable [MicaGS HasLC.hasLC Sig]
@@ -51,8 +53,8 @@ omit [MicaGS HasLC.hasLC Sig] in
 /-- Successful guard checking establishes the instantiated termination
     obligation and leaves the verifier state unchanged. -/
 theorem GhostFunctions.Entry.check_correct {entry : GhostFunctions.Entry} {names : List String}
-    {terms : List (Term .value)} {st : TransState} {ρ : Env}
-    {Q : Unit → TransState → Env → Prop}
+    {terms : List (Term .value)} {st : State} {ρ : Env}
+    {Q : Unit → State → Env → Prop}
     (h : VerifM.eval (entry.check names terms) st ρ Q) :
     (∀ guard, entry.guard = some guard →
       terms.length = names.length ∧ (guard.condition st.decls names terms).eval ρ) ∧
@@ -321,8 +323,8 @@ has the type the expression carries.
 scope's typing from one element to the next, across the state each moved to. -/
 def correctGhostExpr (e : Expr) : Prop :=
   ∀ (env : Verifier.Env) (W : TinyML.World) (S : Verifier.Scope) (γg γ : Runtime.Subst)
-    {st : TransState} {ρ : Env}
-    {Ψ : Term .value → TransState → Env → Prop} {R : iProp} {Φ : Runtime.Val → iProp},
+    {st : State} {ρ : Env}
+    {Ψ : Term .value → State → Env → Prop} {R : iProp} {Φ : Runtime.Val → iProp},
   env.wf W →
   S.wfIn W st.decls ρ γg γ →
   VerifM.eval (compileGhostExpr env S e) st ρ Ψ →
@@ -336,8 +338,8 @@ payload is typed by the component type the branch binds. -/
 def correctGhostBranch (branch : Binder × Expr) : Prop :=
   ∀ (env : Verifier.Env) (W : TinyML.World) (S : Verifier.Scope) (γg γ : Runtime.Subst)
     (sc : Term .value) (n i : Nat) (ty_i : TinyML.Typ)
-    {st : TransState} {ρ : Env}
-    {Ψ : Term .value → TransState → Env → Prop} {R : iProp} {Φ : Runtime.Val → iProp},
+    {st : State} {ρ : Env}
+    {Ψ : Term .value → State → Env → Prop} {R : iProp} {Φ : Runtime.Val → iProp},
   env.wf W →
   S.wfIn W st.decls ρ γg γ →
   sc.wfIn st.decls →
@@ -353,8 +355,8 @@ split picked, counted from `idx`, and the postcondition types it. -/
 def correctGhostBranches (branches : List (Binder × Expr)) : Prop :=
   ∀ (env : Verifier.Env) (W : TinyML.World) (S : Verifier.Scope) (γg γ : Runtime.Subst)
     (sc : Term .value) (n : Nat) (ts : List TinyML.Typ) (idx : Nat)
-    {st : TransState} {ρ : Env}
-    {Ψ : Term .value → TransState → Env → Prop} {R : iProp} {Φ : Runtime.Val → iProp},
+    {st : State} {ρ : Env}
+    {Ψ : Term .value → State → Env → Prop} {R : iProp} {Φ : Runtime.Val → iProp},
   env.wf W →
   S.wfIn W st.decls ρ γg γ →
   sc.wfIn st.decls →
@@ -373,8 +375,8 @@ obligations of the elements are chained, and the update each leaves is absorbed
 by the next. -/
 def correctGhostExprs (es : List Expr) : Prop :=
   ∀ (env : Verifier.Env) (W : TinyML.World) (S : Verifier.Scope) (γg γ : Runtime.Subst)
-    {st : TransState} {ρ : Env}
-    {Ψ : List (Term .value) → TransState → Env → Prop} {R : iProp}
+    {st : State} {ρ : Env}
+    {Ψ : List (Term .value) → State → Env → Prop} {R : iProp}
     {Φ : List Runtime.Val → iProp},
   env.wf W →
   S.wfIn W st.decls ρ γg γ →
@@ -565,8 +567,8 @@ theorem compileGhostUnop_correct
 assertion. `folOp` is the operation the compiled term uses and `g` the integer
 operation it must denote. -/
 private theorem compileGhostIntBinop_correct (W : TinyML.World) {R : iProp}
-    {Φ : Runtime.Val → iProp} {Ψ : Term .value → TransState → Env → Prop}
-    {st : TransState} {ρ : Env} {sl sr : Term .value} {vl vr : Runtime.Val}
+    {Φ : Runtime.Val → iProp} {Ψ : Term .value → State → Env → Prop}
+    {st : State} {ρ : Env} {sl sr : Term .value} {vl vr : Runtime.Val}
     (folOp : BinOp .int .int .int) (g : Int → Int → Int)
     (hpost : ∀ v st' ρ' t, Ψ t st' ρ' → t.wfIn st'.decls → Term.eval ρ' t = v →
       st'.sl W ρ' ∗ TinyML.ValHasType W v .int ∗ R ⊢ Φ v)
@@ -833,7 +835,7 @@ theorem compileGhostDeref_correct (e : Expr) (ty : TinyML.Typ)
     have hret := VerifM.eval_ret (VerifM.eval_assumeSpatial (VerifM.eval_bind hQ) hatom_wf)
     have hstep := hpost (v.eval ρ_e) { st₂ with owns := .pointsTo se v ty' :: st₂.owns } ρ_e v
       hret (by show v.wfIn st₂.decls; rw [hdecls]; exact hv_wf) rfl
-    simp only [TransState.sl_eq, SpatialContext.interp_cons, SpatialAtom.Kind.atom,
+    simp only [State.sl_eq, SpatialContext.interp_cons, SpatialAtom.Kind.atom,
       SpatialAtom.interp] at hstep ⊢
     istart
     iintro ⟨⟨%loc, %hloc, Hpt, #Hty⟩, Howns, _Hown, HR⟩
@@ -989,7 +991,7 @@ theorem compileGhostLetIn_correct (mode : TinyML.Mode) (b : Binder) (e body : Ex
       henv hS₂ hbody hpost)
     iintro ⟨Howns, Hv, #HT, HR⟩
     isplitl [Howns]
-    · simp only [TransState.sl_eq]
+    · simp only [State.sl_eq]
       iapply (SpatialContext.interp_agreeOn W (VerifM.eval.wf hΨ).ownsWf hagreeOn₂).1
       iexact Howns
     · isplitl [Hv]
@@ -1003,8 +1005,8 @@ theorem compileGhostProductBindersFrom_correct (env : Verifier.Env) (W : TinyML.
     (body : Expr) (ihBody : correctGhostExpr body) :
     ∀ (names : List Binder) (tys : List TinyML.Typ) (se : Term .value) (i : Nat)
       (allVals vals : List Runtime.Val) (S : Verifier.Scope) (γg γ : Runtime.Subst)
-      (st : TransState) (ρ : Env)
-      (Ψ : Term .value → TransState → Env → Prop) (R : iProp) (Φ : Runtime.Val → iProp),
+      (st : State) (ρ : Env)
+      (Ψ : Term .value → State → Env → Prop) (R : iProp) (Φ : Runtime.Val → iProp),
       VerifM.eval (compileProductBindersFrom .ghost S names tys se i) st ρ
         (fun S' st' ρ' => (compileGhostExpr env S' body).eval st' ρ' Ψ) →
       env.wf W → S.wfIn W st.decls ρ γg γ →
@@ -1080,7 +1082,7 @@ theorem compileGhostProductBindersFrom_correct (env : Verifier.Env) (W : TinyML.
               ihave Hpair := (TinyML.ValsHaveTypes.cons W v vs ty tys).1 $$ Hvals
               icases Hpair with ⟨Hv, Hvs⟩
               isplitl [Hsl]
-              · simp only [TransState.sl_eq]
+              · simp only [State.sl_eq]
                 iapply (SpatialContext.interp_agreeOn W (VerifM.eval.wf hcont).ownsWf hagreeOn).1
                 iexact Hsl
               · isplitl [Hvs]
@@ -1150,8 +1152,8 @@ theorem compileGhostIfThenElse_correct
     exact hsc_wf
   have htrue_cont := VerifM.eval_assumePure (VerifM.eval_bind (hall true (by simp)))
   have hfalse_cont := VerifM.eval_assumePure (VerifM.eval_bind (hall false (by simp)))
-  let st_thn : TransState := { st₁ with asserts := sc.isFalse.not :: st₁.asserts }
-  let st_els : TransState := { st₁ with asserts := sc.isFalse :: st₁.asserts }
+  let st_thn : State := { st₁ with asserts := sc.isFalse.not :: st₁.asserts }
+  let st_els : State := { st₁ with asserts := sc.isFalse :: st₁.asserts }
   have hbool_cases :
       st₁.sl W ρ_c ∗ (TinyML.ValHasType W v_c cond.ty ∗ (S.typed W γg γ ∗ R)) ⊢
         st₁.sl W ρ_c ∗ iprop(⌜v_c = .bool false ∨ v_c = .bool true⌝) ∗
@@ -1183,7 +1185,7 @@ theorem compileGhostIfThenElse_correct
         (fun v st' ρ' t hΨ' hs hw => by simpa [hels_ty] using hpost v st' ρ' t hΨ'.2.2 hs hw)
     iapply ((show st₁.sl W ρ_c ∗ (S.typed W γg γ ∗ R) ⊢
         st_els.sl W ρ_c ∗ (S.typed W γg γ ∗ R) by
-      simp [st_els, TransState.sl]).trans hres)
+      simp [st_els, State.sl]).trans hres)
     isplitl [Howns]
     · iexact Howns
     · isplitl []
@@ -1201,7 +1203,7 @@ theorem compileGhostIfThenElse_correct
         (fun v st' ρ' t hΨ' hs hw => by simpa [hthn_ty] using hpost v st' ρ' t hΨ'.2.2 hs hw)
     iapply ((show st₁.sl W ρ_c ∗ (S.typed W γg γ ∗ R) ⊢
         st_thn.sl W ρ_c ∗ (S.typed W γg γ ∗ R) by
-      simp [st_thn, TransState.sl]).trans hres)
+      simp [st_thn, State.sl]).trans hres)
     isplitl [Howns]
     · iexact Howns
     · isplitl []
@@ -1577,10 +1579,10 @@ theorem compileGhostSingleBranch_correct
   obtain ⟨_hbty, hcont⟩ := VerifM.eval_expectEq (VerifM.eval_bind heval)
   have heval_decl := VerifM.eval_bind hcont
   have hdecl := VerifM.eval_decl heval_decl
-  set xv := TransState.freshConst binder.name .value st with hxv_def
-  set st₁ : TransState := { decls := st.decls.addConst xv, asserts := st.asserts, owns := st.owns }
+  set xv := State.freshConst binder.name .value st with hxv_def
+  set st₁ : State := { decls := st.decls.addConst xv, asserts := st.asserts, owns := st.owns }
   set ρ₁ := ρ.updateConst .value xv.name payload
-  have hxv_fresh : xv.name ∉ st.decls.allNames := TransState.freshConst_fresh st binder.name .value
+  have hxv_fresh : xv.name ∉ st.decls.allNames := State.freshConst_fresh st binder.name .value
   have hstwf : st.decls.wf := (VerifM.eval.wf heval_decl).namesDisjoint
   have hxv_wf : (Term.const (.uninterpreted xv.name .value)).wfIn st₁.decls := by
     simpa [st₁] using
@@ -1613,7 +1615,7 @@ theorem compileGhostSingleBranch_correct
     VerifM.eval_assumeAll (VerifM.eval_bind heval_assumeAll)
       (fun φ hφ => TinyML.typeConstraints_wfIn hxv_wf φ hφ) (fun φ hφ => Hcheck φ hφ)
   have hsl_trans : st.sl W ρ ⊢ st₂.sl W ρ₁ := by
-    simp only [TransState.sl_eq, hst₂_owns]
+    simp only [State.sl_eq, hst₂_owns]
     exact hinterp_eq
   have hS₁ := (Scope.wfIn_mono hS (hst₂_decls ▸ Signature.Subset.subset_addConst st.decls xv)
     hagreeOn_st (VerifM.eval.wf heval_body').namesDisjoint).bindGhostBinder (b := binder)

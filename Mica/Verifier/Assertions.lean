@@ -7,6 +7,8 @@ import Mica.Verifier.Atoms
 import Mica.Base.Fresh
 import Mica.Base.Except
 
+open Verifier (State)
+
 open Iris Iris.BI
 
 variable [MicaGS HasLC.hasLC Sig]
@@ -141,8 +143,8 @@ def Assertion.prove (σ : FiniteSubst) : Assertion TinyML.Typ α → VerifM (Fin
 
 theorem Assertion.assume_correct (W : TinyML.World) (m : Assertion TinyML.Typ α) (Δ_base : Signature) (σ : FiniteSubst)
     (retWf : α → Signature → Prop)
-    (st : TransState) (ρ : Env)
-    (Ψ : (FiniteSubst × α) → TransState → Env → Prop) (Φ : α → Env → iProp) (R : iProp)
+    (st : State) (ρ : Env)
+    (Ψ : (FiniteSubst × α) → State → Env → Prop) (Φ : α → Env → iProp) (R : iProp)
     (hΦ : ∀ a Δ ρ₁ ρ₂, retWf a Δ → Env.agreeOn Δ ρ₁ ρ₂ → Φ a ρ₁ ⊢ Φ a ρ₂) :
     σ.wfIn Δ_base st.decls →
     m.wfIn retWf (Δ_base.declVars σ.dom) →
@@ -165,7 +167,7 @@ theorem Assertion.assume_correct (W : TinyML.World) (m : Assertion TinyML.Typ α
         (FiniteSubst.subst_wfIn_formula hσwf hφwf)
         ((FiniteSubst.eval_subst_formula hσwf hφwf).mpr hφ)
       iapply (ih Δ_base σ { st with asserts := _ :: st.asserts } ρ Ψ hσwf hkwf hassume hpost)
-      simp [TransState.sl]
+      simp [State.sl]
   | let_ v t k ih =>
       obtain ⟨htwf, hkwf⟩ := hwf
       simp only [Assertion.assume] at heval
@@ -269,7 +271,7 @@ theorem Assertion.assume_correct (W : TinyML.World) (m : Assertion TinyML.Typ α
         have hframe :
             st.sl W ρ ∗ R ⊢
               st''.sl W (ρ.updateConst v.sort v'.name u) ∗ R := by
-          simp only [TransState.sl_eq, howns'', TransState.addItem]
+          simp only [State.sl_eq, howns'', State.addItem]
           exact sep_mono
             (SpatialContext.interp_agreeOn W (VerifM.eval.wf heval).ownsWf
               (Env.agreeOn_update_fresh_const (c := v') hv'_fresh_decls)).1
@@ -322,14 +324,14 @@ theorem Assertion.assume_correct (W : TinyML.World) (m : Assertion TinyML.Typ α
               (FiniteSubst.rename_agreeOn (σ := σ) (Δ_base := Δ_base) (Δ_use := st.decls)
                 (v := v) (name' := v'.name) (ρ := ρ) (u := u) hσwf hv'_fresh_range))
           hΦ)
-        simp only [TransState.sl_eq, howns'', TransState.addItem, SpatialContext.interp]
+        simp only [State.sl_eq, howns'', State.addItem, SpatialContext.interp]
         icases Howns with ⟨HS, HR⟩
         isplitr [HR]
         · isplitl [Ha]
           · iexact Ha
-          · simp only [← TransState.sl_eq]
+          · simp only [← State.sl_eq]
             iapply howns_agree
-            simp [TransState.sl]
+            simp [State.sl]
         · iexact HR
   | ite φ kt ke iht ihe =>
       obtain ⟨hφwf, hktwf, hkewf⟩ := hwf
@@ -345,7 +347,7 @@ theorem Assertion.assume_correct (W : TinyML.World) (m : Assertion TinyML.Typ α
           (FiniteSubst.subst_wfIn_formula hσwf hφwf)
           ((FiniteSubst.eval_subst_formula hσwf hφwf).mpr hφ)
         iapply (iht Δ_base σ { st with asserts := _ :: st.asserts } ρ Ψ hσwf hktwf hassume hpost)
-        simp [TransState.sl]
+        simp [State.sl]
       · iintro Howns %hnφ
         have hfalse := hall false (List.mem_cons.mpr (Or.inr (List.mem_cons_self ..)))
         simp at hfalse
@@ -353,12 +355,12 @@ theorem Assertion.assume_correct (W : TinyML.World) (m : Assertion TinyML.Typ α
           (FiniteSubst.subst_wfIn_formula hσwf hnot_wf)
           ((FiniteSubst.eval_subst_formula hσwf hnot_wf).mpr hnφ)
         iapply (ihe Δ_base σ { st with asserts := _ :: st.asserts } ρ Ψ hσwf hkewf hassume hpost)
-        simp [TransState.sl]
+        simp [State.sl]
 
 theorem Assertion.prove_correct (W : TinyML.World) (m : Assertion TinyML.Typ α) (Δ_base : Signature) (σ : FiniteSubst)
     (retWf : α → Signature → Prop)
-    (st : TransState) (ρ : Env)
-    (Ψ : (FiniteSubst × α) → TransState → Env → Prop) (Φ : α → Env → iProp) (R : iProp)
+    (st : State) (ρ : Env)
+    (Ψ : (FiniteSubst × α) → State → Env → Prop) (Φ : α → Env → iProp) (R : iProp)
     (hΦ : ∀ a Δ ρ₁ ρ₂, retWf a Δ → Env.agreeOn Δ ρ₁ ρ₂ → Φ a ρ₁ ⊢ Φ a ρ₂) :
     σ.wfIn Δ_base st.decls →
     m.wfIn retWf (Δ_base.declVars σ.dom) →
@@ -488,7 +490,7 @@ theorem Assertion.prove_correct (W : TinyML.World) (m : Assertion TinyML.Typ α)
                 simpa [σ', Env.agreeOn, Env.updateConst] using htrans)
               hΦ)
             isplitl [Howns]
-            · simp [TransState.sl]
+            · simp [State.sl]
             · iexact HR)
   | ite φ kt ke iht ihe =>
       obtain ⟨hφwf, hktwf, hkewf⟩ := hwf
@@ -507,7 +509,7 @@ theorem Assertion.prove_correct (W : TinyML.World) (m : Assertion TinyML.Typ α)
           (FiniteSubst.subst_wfIn_formula hσwf hφwf)
           ((FiniteSubst.eval_subst_formula hσwf hφwf).mpr hφ)
         iapply (iht Δ_base σ { st with asserts := _ :: st.asserts } ρ Ψ hσwf hktwf hassume hpost)
-        simp [TransState.sl]
+        simp [State.sl]
       · apply wand_intro
         iintro H
         icases H with ⟨Howns, %hnφ⟩
@@ -517,4 +519,4 @@ theorem Assertion.prove_correct (W : TinyML.World) (m : Assertion TinyML.Typ α)
           (FiniteSubst.subst_wfIn_formula hσwf hnot_wf)
           ((FiniteSubst.eval_subst_formula hσwf hnot_wf).mpr hnφ)
         iapply (ihe Δ_base σ { st with asserts := _ :: st.asserts } ρ Ψ hσwf hkewf hassume hpost)
-        simp [TransState.sl]
+        simp [State.sl]

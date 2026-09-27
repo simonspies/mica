@@ -3,6 +3,8 @@ import Mica.Verifier.GhostFunctions
 import Mica.Verifier.Guard
 import Mica.Verifier.Monad
 
+open Verifier (State)
+
 open Iris Iris.BI
 
 variable [MicaGS HasLC.hasLC Sig]
@@ -212,7 +214,7 @@ theorem ofDeclaration_sound {ls : Lemmas} {Δ : Signature} {ρ : Env} {l : Lemma
 omit [MicaGS HasLC.hasLC Sig] in
 theorem assumeInstance_correct {ls : Lemmas} {W : TinyML.World} (hW : W.wf)
     (hls : ls.Sound W.Δ_spec W.ρ_spec) {f : Option TinyML.Var} {argVars : List Decl.Const}
-    {st : TransState} {ρ : Env} {Q : Unit → TransState → Env → Prop}
+    {st : State} {ρ : Env} {Q : Unit → State → Env → Prop}
     (hag : W.agrees st.decls ρ)
     (hmem : ∀ v ∈ argVars, v ∈ st.decls.consts) (hsort : ∀ v ∈ argVars, v.sort = .value)
     (h : VerifM.eval (ls.assumeInstance f argVars) st ρ Q) :

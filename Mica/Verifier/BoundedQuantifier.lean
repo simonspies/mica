@@ -5,6 +5,8 @@ import Mica.Verifier.Guard
 import Mica.Verifier.SpecFunctions
 import Mica.Verifier.RelationalEncoding.Axioms
 
+open Verifier (State)
+
 open Iris Iris.BI
 
 /-!
@@ -663,7 +665,7 @@ spec-function declaration invariants: the generic triple declaration
 (`SpecFn.declare_correct`) instantiated with the canonical interpretations,
 whose graph shape holds by construction. -/
 theorem declare_correct (s : LiftedClosure) (body : Skolemize.DefVal) (Δ : Signature) (Γ : FunCtx)
-    (st : TransState) (ρ : _root_.Env) {Q : Unit → TransState → _root_.Env → Prop}
+    (st : State) (ρ : _root_.Env) {Q : Unit → State → _root_.Env → Prop}
     (hv : Valid s Δ)
     (hbody : body.wfIn (s.matrixScope Δ))
     (hdecls : st.decls = Δ) (howns : st.owns = []) (hvars : st.decls.vars = [])
@@ -758,8 +760,8 @@ def declareLiftings : Env → List Verifier.LiftedClosure → SeqM Env
 /-- Compiling and declaring one lifted bounded quantifier preserves `SpecInv`. -/
 private theorem declareLifting_correct {reg : Registry} {Θ : TinyML.TypeEnv}
     (hlaw : reg.primitives.Lawful) (s : Verifier.LiftedClosure)
-    (env : Env) (st : TransState) (ρ : _root_.Env)
-    {Q : Env → TransState → _root_.Env → Prop}
+    (env : Env) (st : State) (ρ : _root_.Env)
+    {Q : Env → State → _root_.Env → Prop}
     (hinv : SpecInv reg Θ env st ρ)
     (heval : SeqM.eval (declareLifting env s) st ρ Q) :
     ∃ env' st' ρ', SpecInv reg Θ env' st' ρ' ∧
@@ -794,8 +796,8 @@ private theorem declareLifting_correct {reg : Registry} {Θ : TinyML.TypeEnv}
 
 theorem declareLiftings_correct {reg : Registry} {Θ : TinyML.TypeEnv}
     (hlaw : reg.primitives.Lawful) (ss : List Verifier.LiftedClosure) :
-    ∀ (env : Env) (st : TransState) (ρ : _root_.Env)
-      {Q : Env → TransState → _root_.Env → Prop},
+    ∀ (env : Env) (st : State) (ρ : _root_.Env)
+      {Q : Env → State → _root_.Env → Prop},
       SpecInv reg Θ env st ρ →
       SeqM.eval (declareLiftings env ss) st ρ Q →
       ∃ result stRel ρRel, SpecInv reg Θ result stRel ρRel ∧

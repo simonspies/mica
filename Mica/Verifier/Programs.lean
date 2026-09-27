@@ -2,6 +2,8 @@
 import Mica.SeparationLogic.Adequacy
 import Mica.Verifier.Declaration
 
+open Verifier (State)
+
 open Iris Iris.BI
 
 variable [MicaGS HasLC.hasLC Sig]
@@ -27,8 +29,8 @@ def Program.verify (reg : Verifier.Registry) (prog : Untyped.Program Untyped.Spe
 /-! ## Correctness -/
 
 theorem Program.declareAndCheck_correct (prog : Untyped.Program Untyped.SpecBody) :
-    ∀ (env : Verifier.Env) (S : Scope) (st : TransState) (ρ : _root_.Env) (γ : Runtime.Subst)
-      {Q : Verifier.Env × Scope → TransState → _root_.Env → Prop},
+    ∀ (env : Verifier.Env) (S : Scope) (st : State) (ρ : _root_.Env) (γ : Runtime.Subst)
+      {Q : Verifier.Env × Scope → State → _root_.Env → Prop},
       env.supportedBy st ρ → S.supportedBy env st ρ γ → S.ghostBindings = [] →
       st.owns = [] → st.decls.vars = [] →
       SeqM.eval (Program.declareAndCheck env S prog) st ρ Q →
@@ -60,7 +62,7 @@ theorem Program.verify_correct (reg : Verifier.Registry)
     Smt.Strategy.checks (Program.verify reg p)
       (∀ [MicaGS HasLC.hasLC Sig], ⊢ pwp reg.primCtx (Untyped.Program.runtime p)) := by
   intro st' heval _inst
-  have hrun := SeqM.strategy_correct heval _root_.Env.init TransState.init_holdsFor
+  have hrun := SeqM.strategy_correct heval _root_.Env.init State.init_holdsFor
   obtain ⟨st, ρ, _, hdep, hvars, howns, _, hstable, _, hcont⟩ :=
     Verifier.Registry.eval_introduceRegistry reg hSound (SeqM.eval_bind hrun)
   have hprog := SeqM.eval_bind (SeqM.eval_decls (SeqM.eval_bind hcont))

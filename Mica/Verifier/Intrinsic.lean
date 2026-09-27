@@ -8,6 +8,8 @@ import Mica.FirstOrderLogic.Formulas
 import Mica.Verifier.RelationalEncoding.Expr
 import Mica.Verifier.Seq
 
+open Verifier (State)
+
 open Iris Iris.BI
 
 /-! # Intrinsic framework
@@ -1029,8 +1031,8 @@ intrinsic is named. -/
     respects `s`. The new environment agrees with the old one on the old
     signature. -/
 theorem eval_declSym {n : Arity} (sym : Option (FOL.Symbol n))
-    {st : TransState} {ρ : Env}
-    {Q : Unit → TransState → Env → Prop}
+    {st : State} {ρ : Env}
+    {Q : Unit → State → Env → Prop}
     (heval : SeqM.eval (declSym sym) st ρ Q) :
     ∃ ρ' : Env,
       Env.agreeOn st.decls ρ ρ' ∧
@@ -1102,8 +1104,8 @@ namespace Intrinsic
     leaves owns and asserts untouched, and produces a post-decl environment
     that respects `i.symbol` (when present), agreeing with the original on
     the original signature. -/
-theorem eval_declFOLSym (i : Intrinsic) {st : TransState} {ρ : Env}
-    {Q : Unit → TransState → Env → Prop}
+theorem eval_declFOLSym (i : Intrinsic) {st : State} {ρ : Env}
+    {Q : Unit → State → Env → Prop}
     (heval : SeqM.eval i.declFOLSym st ρ Q) :
     ∃ ρ' : Env,
       Env.agreeOn st.decls ρ ρ' ∧
@@ -1118,8 +1120,8 @@ namespace Registry
 /-- Effect of the declaration pass on a registry. It declares every registered
     FOL symbol before any intrinsic axiom is assumed. -/
 theorem eval_declFOLSyms (R : Registry)
-    {st : TransState} {ρ : Env}
-    {Q : Unit → TransState → Env → Prop}
+    {st : State} {ρ : Env}
+    {Q : Unit → State → Env → Prop}
     (heval : SeqM.eval (declFOLSyms R) st ρ Q) :
     ∃ st' ρ',
       st.decls.Subset st'.decls ∧
@@ -1143,7 +1145,7 @@ theorem eval_declFOLSyms (R : Registry)
     simp only [declFOLSyms] at heval
     have h1 := SeqM.eval_bind heval
     obtain ⟨ρ1, hag1, hiRespect, hcont⟩ := Intrinsic.eval_declFOLSym i h1
-    set st1 : TransState := { st with decls := st.decls.extendWithSym i.symbol }
+    set st1 : State := { st with decls := st.decls.extendWithSym i.symbol }
     obtain ⟨st', ρ', hsub2, hdep2, hvars2, howns2, hass2, hrestStable, hag2, hQ⟩ :=
       ih hcont
     have hsub1 : st.decls.Subset st1.decls := Signature.subset_extendWithSym _ _
@@ -1168,12 +1170,12 @@ theorem eval_declFOLSyms (R : Registry)
     full registry fragment, so axiom dependencies need not follow list order. -/
 theorem eval_assumeAxioms_in (full todo : Registry)
     (hSound : SoundIn full todo)
-    {st : TransState} {ρ : Env}
+    {st : State} {ρ : Env}
     (hSig : (Intrinsic.sigOf full).Subset st.decls)
     (hRespect :
       ∀ ρ' : Env, Env.agreeOn st.decls ρ ρ' →
         ∀ d ∈ full, ρ'.respects d.symbol)
-    {Q : Unit → TransState → Env → Prop}
+    {Q : Unit → State → Env → Prop}
     (heval : SeqM.eval (assumeAxioms todo) st ρ Q) :
     ∃ st',
       st'.decls = st.decls ∧
@@ -1213,8 +1215,8 @@ theorem eval_assumeAxioms_in (full todo : Registry)
     signature. -/
 theorem eval_introduceRegistry (R : Registry)
     (hSound : Sound R)
-    {st : TransState} {ρ : Env}
-    {Q : Unit → TransState → Env → Prop}
+    {st : State} {ρ : Env}
+    {Q : Unit → State → Env → Prop}
     (heval : SeqM.eval (introduceRegistry R) st ρ Q) :
     ∃ st' ρ',
       st.decls.Subset st'.decls ∧

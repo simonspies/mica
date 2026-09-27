@@ -2,6 +2,8 @@
 import Mica.Verifier.Context
 import Mica.Verifier.RelationalEncoding
 
+open Verifier (State)
+
 open Iris Iris.BI
 
 open Verifier.RelationalEncoding (FunCtx PrimEncodings encode)
@@ -34,8 +36,8 @@ theorem declare_correct (L : SpecFn) (f : TinyML.Var) (axs : List Axiom)
     (R : Srt.value.denote → Srt.value.denote → Prop)
     (F : Srt.value.denote → Srt.value.denote)
     (D : Srt.value.denote → Prop)
-    (Δ : Signature) (Γ : FunCtx) (st : TransState) (ρ : Env)
-    {Q : Unit → TransState → Env → Prop}
+    (Δ : Signature) (Γ : FunCtx) (st : State) (ρ : Env)
+    {Q : Unit → State → Env → Prop}
     (hrelFresh : relName L ∉ Δ.allNames)
     (hfuncFresh : funcName L ∉ Δ.allNames)
     (hdefFresh : defName L ∉ Δ.allNames)
@@ -62,7 +64,7 @@ theorem declare_correct (L : SpecFn) (f : TinyML.Var) (axs : List Axiom)
   have h4 := h3 D
   set Δext : Signature :=
     ((Δ.addBinaryRel (rel L)).addUnary (func L)).addUnaryRel (defined L)
-  set st3 : TransState :=
+  set st3 : State :=
     { st with decls := ((st.decls.addBinaryRel (rel L)).addUnary
         (func L)).addUnaryRel (defined L) }
   set ρ3 : Env :=
@@ -222,7 +224,7 @@ def declareAndAssume (env : Env) (d : Typed.ValDecl) : SeqM Env := do
 one, the state is spec-level (no owned locations, no variables), and the spec
 functions are well-formed and interpreted in agreement with their func-form
 reading. -/
-structure SpecInv (reg : Registry) (Θ : TinyML.TypeEnv) (env : Env) (st : TransState)
+structure SpecInv (reg : Registry) (Θ : TinyML.TypeEnv) (env : Env) (st : State)
     (ρ : _root_.Env) : Prop where
   registry : env.registry = reg
   types : env.typeDeclarations = Θ
@@ -238,8 +240,8 @@ structure SpecInv (reg : Registry) (Θ : TinyML.TypeEnv) (env : Env) (st : Trans
 only grows and the environment is only extended with fresh interpretations. -/
 theorem declareAndAssume_correct {reg : Registry} {Θ : TinyML.TypeEnv}
     (hlaw : reg.primitives.Lawful) (d : Typed.ValDecl)
-    (env : Env) (st : TransState) (ρ : _root_.Env)
-    {Q : Env → TransState → _root_.Env → Prop}
+    (env : Env) (st : State) (ρ : _root_.Env)
+    {Q : Env → State → _root_.Env → Prop}
     (hinv : SpecInv reg Θ env st ρ)
     (heval : SeqM.eval (declareAndAssume env d) st ρ Q) :
     ∃ env' st' ρ', SpecInv reg Θ env' st' ρ' ∧
@@ -327,7 +329,7 @@ theorem declareAndAssume_correct {reg : Registry} {Θ : TinyML.TypeEnv}
         exact Skolemize.encode_eval_updateBinaryRel hlawsd hinfoEq (hΓsd ▸ hΓagree)
           (hΓsd ▸ hΔsd ▸ hΓwf_acc) (hΔsd ▸ hΔwf_acc) hsdFresh R
       have hdecl (axs : List Axiom) (hsub : ∀ ax ∈ axs, ax ∈ info.axs)
-          {Q' : Unit → TransState → _root_.Env → Prop}
+          {Q' : Unit → State → _root_.Env → Prop}
           (h : SeqM.eval (SpecFn.declare info.sd.fn axs) st ρ Q') :=
         SpecFn.declare_correct rel.name info.sd.f axs R F D env.signature env.specFunctions st ρ
           hf.relFresh hf.funcFresh hf.defFresh hgraph hacc.symm howns hvars
@@ -339,7 +341,7 @@ theorem declareAndAssume_correct {reg : Registry} {Θ : TinyML.TypeEnv}
           (fun ax hax => haxeval ax (hsub ax hax)) (hfnsd ▸ h)
       -- Every encoded axiom holds once the three symbols are declared, whether
       -- or not it stays in the context.
-      have hcurrent {st' : TransState} {ρ' : _root_.Env}
+      have hcurrent {st' : State} {ρ' : _root_.Env}
           (hd : st'.decls = ((env.signature.addBinaryRel (SpecFn.rel rel.name)).addUnary
             (SpecFn.func rel.name)).addUnaryRel (SpecFn.defined rel.name))
           (hρ : ρ' = SpecFn.Env.both ρ rel.name R D F) :

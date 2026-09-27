@@ -77,125 +77,127 @@ theorem CtxItem.interp_facts [MicaGS HasLC.hasLC Sig] (W : TinyML.World)
   | spatial a =>
     exact SpatialAtom.interp_facts W a
 
-structure TransState where
+structure Verifier.State where
   decls   : Signature
   asserts : Context
   owns    : SpatialContext
 
-def TransState.sl [MicaGS HasLC.hasLC Sig] (W : TinyML.World)
-    (st : TransState) (ρ : Env) : iProp :=
+open Verifier (State)
+
+def Verifier.State.sl [MicaGS HasLC.hasLC Sig] (W : TinyML.World)
+    (st : State) (ρ : Env) : iProp :=
   SpatialContext.interp W ρ st.owns
 
-@[simp] theorem TransState.sl_eq [MicaGS HasLC.hasLC Sig] (W : TinyML.World)
-    (st : TransState) (ρ : Env) :
+@[simp] theorem Verifier.State.sl_eq [MicaGS HasLC.hasLC Sig] (W : TinyML.World)
+    (st : State) (ρ : Env) :
     st.sl W ρ = SpatialContext.interp W ρ st.owns := rfl
 
-theorem TransState.sl_of_owns_nil [MicaGS HasLC.hasLC Sig] {W : TinyML.World} {st : TransState} {ρ : Env}
+theorem Verifier.State.sl_of_owns_nil [MicaGS HasLC.hasLC Sig] {W : TinyML.World} {st : State} {ρ : Env}
     (hst : st.owns = []) : ⊢ □ st.sl W ρ := by
-  simp [TransState.sl, hst]
+  simp [State.sl, hst]
   istart
   imodintro
   iempintro
 
 /-- Drop the non-persistent spatial part of the verifier state. -/
-def TransState.persist (st : TransState) : TransState :=
+def Verifier.State.persist (st : State) : State :=
   { st with owns := [] }
 
 /-- Translation to `ScopedM`'s flat context. -/
-def TransState.toFlatCtx (st : TransState) : FlatCtx :=
+def Verifier.State.toFlatCtx (st : State) : FlatCtx :=
   ⟨st.decls, st.asserts⟩
 
-@[simp] theorem TransState.toFlatCtx_decls (st : TransState) :
+@[simp] theorem Verifier.State.toFlatCtx_decls (st : State) :
     st.toFlatCtx.decls = st.decls := rfl
 
-@[simp] theorem TransState.toFlatCtx_asserts (st : TransState) :
+@[simp] theorem Verifier.State.toFlatCtx_asserts (st : State) :
     st.toFlatCtx.asserts = st.asserts := rfl
 
-@[simp] theorem TransState.toFlatCtx_addConst (st : TransState) (c : Decl.Const) :
+@[simp] theorem Verifier.State.toFlatCtx_addConst (st : State) (c : Decl.Const) :
     { st with decls := st.decls.addConst c }.toFlatCtx = st.toFlatCtx.addConst c.name c.sort := by
   simp [toFlatCtx, FlatCtx.addConst]
 
-@[simp] theorem TransState.toFlatCtx_addUnary (st : TransState) (u : Decl.Unary) :
+@[simp] theorem Verifier.State.toFlatCtx_addUnary (st : State) (u : Decl.Unary) :
     { st with decls := st.decls.addUnary u }.toFlatCtx =
       st.toFlatCtx.addUnary u.name u.arg u.ret := by
   simp [toFlatCtx, FlatCtx.addUnary]
 
-@[simp] theorem TransState.toFlatCtx_addBinary (st : TransState) (b : Decl.Binary) :
+@[simp] theorem Verifier.State.toFlatCtx_addBinary (st : State) (b : Decl.Binary) :
     { st with decls := st.decls.addBinary b }.toFlatCtx =
       st.toFlatCtx.addBinary b.name b.arg1 b.arg2 b.ret := by
   simp [toFlatCtx, FlatCtx.addBinary]
 
-@[simp] theorem TransState.toFlatCtx_addTernary (st : TransState) (t : Decl.Ternary) :
+@[simp] theorem Verifier.State.toFlatCtx_addTernary (st : State) (t : Decl.Ternary) :
     { st with decls := st.decls.addTernary t }.toFlatCtx =
       st.toFlatCtx.addTernary t.name t.arg1 t.arg2 t.arg3 t.ret := by
   simp [toFlatCtx, FlatCtx.addTernary]
 
-@[simp] theorem TransState.toFlatCtx_addUnaryRel (st : TransState) (u : Decl.UnaryRel) :
+@[simp] theorem Verifier.State.toFlatCtx_addUnaryRel (st : State) (u : Decl.UnaryRel) :
     { st with decls := st.decls.addUnaryRel u }.toFlatCtx =
       st.toFlatCtx.addUnaryRel u.name u.arg := by
   simp [toFlatCtx, FlatCtx.addUnaryRel]
 
-@[simp] theorem TransState.toFlatCtx_addBinaryRel (st : TransState) (b : Decl.BinaryRel) :
+@[simp] theorem Verifier.State.toFlatCtx_addBinaryRel (st : State) (b : Decl.BinaryRel) :
     { st with decls := st.decls.addBinaryRel b }.toFlatCtx =
       st.toFlatCtx.addBinaryRel b.name b.arg1 b.arg2 := by
   simp [toFlatCtx, FlatCtx.addBinaryRel]
 
-@[simp] theorem TransState.toFlatCtx_addAssert (st : TransState) (φ : Formula) :
+@[simp] theorem Verifier.State.toFlatCtx_addAssert (st : State) (φ : Formula) :
     { st with asserts := φ :: st.asserts }.toFlatCtx = st.toFlatCtx.addAssert φ := by
   simp [toFlatCtx, FlatCtx.addAssert]
 
 /-- The initial verifier state: only the builtin guard constant is declared. -/
-def TransState.init : TransState := ⟨Signature.empty.addConst guardConst, [], []⟩
+def Verifier.State.init : State := ⟨Signature.empty.addConst guardConst, [], []⟩
 
-@[simp] theorem TransState.init_toFlatCtx :
-    TransState.init.toFlatCtx = FlatCtx.empty.addConst guardConst.name guardConst.sort := rfl
+@[simp] theorem Verifier.State.init_toFlatCtx :
+    State.init.toFlatCtx = FlatCtx.empty.addConst guardConst.name guardConst.sort := rfl
 
 /-- The environment satisfies the verifier state: every assertion holds and the
 builtin facts are in force. -/
-structure TransState.holdsFor (st : TransState) (ρ : Env) : Prop where
+structure Verifier.State.holdsFor (st : State) (ρ : Env) : Prop where
   asserts : ∀ φ ∈ st.asserts, φ.eval ρ
   builtins : Builtins.holdsFor ρ
 
-theorem TransState.holdsFor_mono {st st' : TransState} {ρ : Env}
+theorem Verifier.State.holdsFor_mono {st st' : State} {ρ : Env}
     (hsub : st.asserts ⊆ st'.asserts) (h : st'.holdsFor ρ) : st.holdsFor ρ :=
   ⟨fun φ hφ => h.asserts φ (hsub hφ), h.builtins⟩
 
-structure TransState.wf (st : TransState) : Prop where
+structure Verifier.State.wf (st : State) : Prop where
   assertsWf : st.asserts.wfIn st.decls
   namesDisjoint : st.decls.allNames.Nodup
   ownsWf : st.owns.wfIn st.decls
   builtins : Builtins.wf st.decls
 
-theorem TransState.init_wf : TransState.init.wf where
-  assertsWf := fun φ hφ => by simp [TransState.init] at hφ
+theorem Verifier.State.init_wf : State.init.wf where
+  assertsWf := fun φ hφ => by simp [State.init] at hφ
   namesDisjoint := by
-    simp [TransState.init, Signature.allNames, Signature.addConst, Signature.empty]
-  ownsWf := fun a ha => by simp [TransState.init] at ha
+    simp [State.init, Signature.allNames, Signature.addConst, Signature.empty]
+  ownsWf := fun a ha => by simp [State.init] at ha
   builtins := ⟨List.Mem.head _⟩
 
 /-- The canonical initial environment: the guard constant pinned to true. -/
 def Env.init : Env :=
   Env.empty.updateConst guardConst.sort guardConst.name true
 
-theorem TransState.init_holdsFor : TransState.init.holdsFor Env.init where
-  asserts := fun φ hφ => by simp [TransState.init] at hφ
+theorem Verifier.State.init_holdsFor : State.init.holdsFor Env.init where
+  asserts := fun φ hφ => by simp [State.init] at hφ
   builtins := ⟨by simpa [Env.init] using
     Env.supportsGuarding_updateConst Env.empty⟩
 
-def TransState.freshConst (hint : Option String) (t : Srt) (st : TransState) : Decl.Const :=
+def Verifier.State.freshConst (hint : Option String) (t : Srt) (st : State) : Decl.Const :=
   let base := hint.getD "_v"
   let x' := Fresh.freshNumbers base st.decls.allNames
   ⟨x', t⟩
 
-def TransState.addItem (st : TransState) (item : CtxItem) :=
+def Verifier.State.addItem (st : State) (item : CtxItem) :=
   match item with
   | .pure φ => { st with asserts := φ :: st.asserts }
   | .spatial p => { st with owns := p :: st.owns }
 
-theorem TransState.wf_addConst (st : TransState) (c : Decl.Const) :
-    TransState.wf st →
+theorem Verifier.State.wf_addConst (st : State) (c : Decl.Const) :
+    State.wf st →
     c.name ∉ st.decls.allNames →
-    TransState.wf { st with decls := st.decls.addConst c } := by
+    State.wf { st with decls := st.decls.addConst c } := by
   intro hwf hfresh
   have hwf' := Signature.wf_addConst hwf.namesDisjoint hfresh
   constructor
@@ -204,10 +206,10 @@ theorem TransState.wf_addConst (st : TransState) (c : Decl.Const) :
   · exact SpatialContext.wfIn_mono hwf.ownsWf (Signature.Subset.subset_addConst _ _) hwf'
   · exact hwf.builtins.mono (Signature.Subset.subset_addConst _ _)
 
-theorem TransState.wf_addUnary (st : TransState) (u : Decl.Unary) :
-    TransState.wf st →
+theorem Verifier.State.wf_addUnary (st : State) (u : Decl.Unary) :
+    State.wf st →
     u.name ∉ st.decls.allNames →
-    TransState.wf { st with decls := st.decls.addUnary u } := by
+    State.wf { st with decls := st.decls.addUnary u } := by
   intro hwf hfresh
   have hwf' := Signature.wf_addUnary hwf.namesDisjoint hfresh
   constructor
@@ -216,10 +218,10 @@ theorem TransState.wf_addUnary (st : TransState) (u : Decl.Unary) :
   · exact SpatialContext.wfIn_mono hwf.ownsWf (Signature.Subset.subset_addUnary _ _) hwf'
   · exact hwf.builtins.mono (Signature.Subset.subset_addUnary _ _)
 
-theorem TransState.wf_addBinary (st : TransState) (b : Decl.Binary) :
-    TransState.wf st →
+theorem Verifier.State.wf_addBinary (st : State) (b : Decl.Binary) :
+    State.wf st →
     b.name ∉ st.decls.allNames →
-    TransState.wf { st with decls := st.decls.addBinary b } := by
+    State.wf { st with decls := st.decls.addBinary b } := by
   intro hwf hfresh
   have hwf' := Signature.wf_addBinary hwf.namesDisjoint hfresh
   constructor
@@ -228,10 +230,10 @@ theorem TransState.wf_addBinary (st : TransState) (b : Decl.Binary) :
   · exact SpatialContext.wfIn_mono hwf.ownsWf (Signature.Subset.subset_addBinary _ _) hwf'
   · exact hwf.builtins.mono (Signature.Subset.subset_addBinary _ _)
 
-theorem TransState.wf_addTernary (st : TransState) (t : Decl.Ternary) :
-    TransState.wf st →
+theorem Verifier.State.wf_addTernary (st : State) (t : Decl.Ternary) :
+    State.wf st →
     t.name ∉ st.decls.allNames →
-    TransState.wf { st with decls := st.decls.addTernary t } := by
+    State.wf { st with decls := st.decls.addTernary t } := by
   intro hwf hfresh
   have hwf' := Signature.wf_addTernary hwf.namesDisjoint hfresh
   constructor
@@ -240,10 +242,10 @@ theorem TransState.wf_addTernary (st : TransState) (t : Decl.Ternary) :
   · exact SpatialContext.wfIn_mono hwf.ownsWf (Signature.Subset.subset_addTernary _ _) hwf'
   · exact hwf.builtins.mono (Signature.Subset.subset_addTernary _ _)
 
-theorem TransState.wf_addUnaryRel (st : TransState) (u : Decl.UnaryRel) :
-    TransState.wf st →
+theorem Verifier.State.wf_addUnaryRel (st : State) (u : Decl.UnaryRel) :
+    State.wf st →
     u.name ∉ st.decls.allNames →
-    TransState.wf { st with decls := st.decls.addUnaryRel u } := by
+    State.wf { st with decls := st.decls.addUnaryRel u } := by
   intro hwf hfresh
   have hwf' := Signature.wf_addUnaryRel hwf.namesDisjoint hfresh
   constructor
@@ -252,10 +254,10 @@ theorem TransState.wf_addUnaryRel (st : TransState) (u : Decl.UnaryRel) :
   · exact SpatialContext.wfIn_mono hwf.ownsWf (Signature.Subset.subset_addUnaryRel _ _) hwf'
   · exact hwf.builtins.mono (Signature.Subset.subset_addUnaryRel _ _)
 
-theorem TransState.wf_addBinaryRel (st : TransState) (b : Decl.BinaryRel) :
-    TransState.wf st →
+theorem Verifier.State.wf_addBinaryRel (st : State) (b : Decl.BinaryRel) :
+    State.wf st →
     b.name ∉ st.decls.allNames →
-    TransState.wf { st with decls := st.decls.addBinaryRel b } := by
+    State.wf { st with decls := st.decls.addBinaryRel b } := by
   intro hwf hfresh
   have hwf' := Signature.wf_addBinaryRel hwf.namesDisjoint hfresh
   constructor
@@ -265,14 +267,14 @@ theorem TransState.wf_addBinaryRel (st : TransState) (b : Decl.BinaryRel) :
   · exact hwf.builtins.mono (Signature.Subset.subset_addBinaryRel _ _)
 
 /-- The name produced by `freshConst` is not in the existing decls. -/
-theorem TransState.freshConst_fresh (st : TransState) (hint : Option String) (τ : Srt) :
+theorem Verifier.State.freshConst_fresh (st : State) (hint : Option String) (τ : Srt) :
     (st.freshConst hint τ).name ∉ st.decls.allNames :=
   Fresh.freshNumbers_not_mem (hint.getD "_v") st.decls.allNames
 
-theorem TransState.wf_addAssert (st : TransState) :
-    TransState.wf st →
+theorem Verifier.State.wf_addAssert (st : State) :
+    State.wf st →
     φ.wfIn st.decls →
-    TransState.wf { st with asserts := φ :: st.asserts } := by
+    State.wf { st with asserts := φ :: st.asserts } := by
   intro hwf hφ
   constructor
   · intro ψ hψ
@@ -284,10 +286,10 @@ theorem TransState.wf_addAssert (st : TransState) :
   · exact hwf.ownsWf
   · exact hwf.builtins
 
-theorem TransState.wf_addSpatial (st : TransState) :
-    TransState.wf st →
+theorem Verifier.State.wf_addSpatial (st : State) :
+    State.wf st →
     a.wfIn st.decls →
-    TransState.wf { st with owns := a :: st.owns } := by
+    State.wf { st with owns := a :: st.owns } := by
   intro hwf ha
   constructor
   · exact hwf.assertsWf
@@ -295,12 +297,12 @@ theorem TransState.wf_addSpatial (st : TransState) :
   · simpa [SpatialContext.wfIn_cons] using And.intro ha hwf.ownsWf
   · exact hwf.builtins
 
-theorem TransState.persist_wf (st : TransState) :
-    TransState.wf st →
-    TransState.wf st.persist := by
+theorem Verifier.State.persist_wf (st : State) :
+    State.wf st →
+    State.wf st.persist := by
   intro hwf
   constructor
   · exact hwf.assertsWf
   · exact hwf.namesDisjoint
-  · simp [TransState.persist]
+  · simp [State.persist]
   · exact hwf.builtins

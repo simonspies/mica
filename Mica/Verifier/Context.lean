@@ -2,6 +2,8 @@
 import Mica.Verifier.Lemma
 import Mica.Verifier.Intrinsic
 
+open Verifier (State)
+
 open Iris Iris.BI
 
 namespace Verifier
@@ -395,13 +397,13 @@ theorem typed_bindParameters {names : List TinyML.Var} {vars ghostVars : List De
     · iexact Hvs
   · iexact Hgs
 
-theorem typed_dup (W : TinyML.World) (S : Scope) (st : TransState) (ρ : _root_.Env)
+theorem typed_dup (W : TinyML.World) (S : Scope) (st : State) (ρ : _root_.Env)
     (γg γ : Runtime.Subst) (R : iProp) :
     st.sl W ρ ∗ (S.typed W γg γ ∗ R) ⊢ st.sl W ρ ∗ (S.typed W γg γ ∗ (S.typed W γg γ ∗ R)) := by
   iintro ⟨Howns, #HT, HR⟩
   iframe # ∗
 
-theorem typed_push (W : TinyML.World) (S : Scope) (st : TransState) (ρ : _root_.Env)
+theorem typed_push (W : TinyML.World) (S : Scope) (st : State) (ρ : _root_.Env)
     (γg γ : Runtime.Subst) (R : iProp) (v : Runtime.Val) (ty : TinyML.Typ) :
     st.sl W ρ ∗ TinyML.ValHasType W v ty ∗ (S.typed W γg γ ∗ R) ⊢
       st.sl W ρ ∗ (S.typed W γg γ ∗ (TinyML.ValHasType W v ty ∗ R)) := by
@@ -420,7 +422,7 @@ def Env.world (env : Env) (ρ : _root_.Env) : TinyML.World :=
     ρ_spec := ρ, eta := TinyML.SemTypeAssign.empty }
 
 /-- `env` describes the verifier state `st` under `ρ`. -/
-structure Env.supportedBy (env : Env) (st : TransState) (ρ : _root_.Env) : Prop where
+structure Env.supportedBy (env : Env) (st : State) (ρ : _root_.Env) : Prop where
   sound : env.registry.Sound
   signature : env.signature = st.decls
   specFunctionsWf : RelationalEncoding.FunCtx.wfIn env.specFunctions st.decls
@@ -432,7 +434,7 @@ structure Env.supportedBy (env : Env) (st : TransState) (ρ : _root_.Env) : Prop
 
 /-- `S` is a scope that carries over to a larger world: its types are closed and
 well formed, and its ghost functions have no guard. -/
-structure Scope.supportedBy (S : Scope) (env : Env) (st : TransState) (ρ : _root_.Env)
+structure Scope.supportedBy (S : Scope) (env : Env) (st : State) (ρ : _root_.Env)
     (γ : Runtime.Subst) : Prop where
   closed : S.typingContext.Closed
   types : ∀ x s, S.typingContext x = some s →
@@ -442,7 +444,7 @@ structure Scope.supportedBy (S : Scope) (env : Env) (st : TransState) (ρ : _roo
   runtimeLinked : S.runtimeBindings.agreeOnLinked ρ γ
   runtimeDeclared : S.runtimeBindings.wfIn st.decls
 
-variable {env env' : Env} {S : Scope} {st st' : TransState} {ρ ρ' : _root_.Env}
+variable {env env' : Env} {S : Scope} {st st' : State} {ρ ρ' : _root_.Env}
   {γ : Runtime.Subst}
 
 omit [MicaGS HasLC.hasLC Sig] in

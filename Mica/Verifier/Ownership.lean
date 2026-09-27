@@ -2,6 +2,8 @@
 import Mica.Verifier.SpatialAtom
 import Mica.Verifier.Monad
 
+open Verifier (State)
+
 open Iris Iris.BI
 
 variable [MicaGS HasLC.hasLC Sig]
@@ -42,8 +44,8 @@ omit [MicaGS HasLC.hasLC Sig] in
 /-- Correctness of `findMatchIn`: on a `some (n, v)` result, `remove ctx n`
     extracts an atom of kind `k` whose key the solver has proved equal to `tq`. -/
 theorem VerifM.eval_findMatchIn {k : SpatialAtom.Kind} {tq : Term .value} {ty : TinyML.Typ}
-    {ctx : SpatialContext} {st : TransState} {ρ : Env}
-    {Q : Option (Nat × Term .value) → TransState → Env → Prop}
+    {ctx : SpatialContext} {st : State} {ρ : Env}
+    {Q : Option (Nat × Term .value) → State → Env → Prop}
     (h : VerifM.eval (VerifM.findMatchIn k tq ty ctx) st ρ Q)
     (htq : tq.wfIn st.decls) (hctx : ctx.wfIn st.decls) :
     ∃ result,
@@ -117,8 +119,8 @@ theorem VerifM.eval_findMatchIn {k : SpatialAtom.Kind} {tq : Term .value} {ty : 
     caller receives its interpretation at key `tq` separately. -/
 theorem VerifM.eval_findMatch (W : TinyML.World) {k : SpatialAtom.Kind}
     {tq : Term .value} {ty : TinyML.Typ}
-    {st : TransState} {ρ : Env}
-    {Q : Option (Term .value) → TransState → Env → Prop}
+    {st : State} {ρ : Env}
+    {Q : Option (Term .value) → State → Env → Prop}
     {R Φ : iProp}
     (h : VerifM.eval (VerifM.findMatch k tq ty) st ρ Q)
     (htq : tq.wfIn st.decls)
@@ -130,7 +132,7 @@ theorem VerifM.eval_findMatch (W : TinyML.World) {k : SpatialAtom.Kind}
   unfold VerifM.findMatch at h
   have hb := VerifM.eval_bind h
   have ⟨hk, howns, _, _⟩ := VerifM.eval_ctx hb
-  have hst_eq : ({ st with owns := st.owns } : TransState) = st := rfl
+  have hst_eq : ({ st with owns := st.owns } : State) = st := rfl
   rw [hst_eq] at hk
   have hk' := hk howns
   have hb2 := VerifM.eval_bind hk'
@@ -175,8 +177,8 @@ def VerifM.findMatchForce (k : SpatialAtom.Kind) (tq : Term .value) (ty : TinyML
     required, since the `none` branch is discharged by the fatal error. -/
 theorem VerifM.eval_findMatchForce (W : TinyML.World) {k : SpatialAtom.Kind}
     {tq : Term .value} {ty : TinyML.Typ}
-    {st : TransState} {ρ : Env}
-    {Q : Term .value → TransState → Env → Prop}
+    {st : State} {ρ : Env}
+    {Q : Term .value → State → Env → Prop}
     {R Φ : iProp}
     (h : VerifM.eval (VerifM.findMatchForce k tq ty) st ρ Q)
     (htq : tq.wfIn st.decls)
@@ -208,8 +210,8 @@ def VerifM.acquire (item : CtxItem) : VerifM Unit := do
 omit [MicaGS HasLC.hasLC Sig] in
 /-- Correctness of `acquire`: the resulting state extends the input state by
     the item; its pure facts must hold in the current environment. -/
-theorem VerifM.eval_acquire {item : CtxItem} {st : TransState} {ρ : Env}
-    {Q : Unit → TransState → Env → Prop}
+theorem VerifM.eval_acquire {item : CtxItem} {st : State} {ρ : Env}
+    {Q : Unit → State → Env → Prop}
     (h : VerifM.eval (VerifM.acquire item) st ρ Q)
     (hwf : item.wfIn st.decls)
     (hpure : item.purePart ρ)
@@ -231,8 +233,8 @@ theorem VerifM.eval_acquire {item : CtxItem} {st : TransState} {ρ : Env}
     extended by the atom, whose pure facts are justified from its
     interpretation. -/
 theorem VerifM.eval_acquireSpatial (W : TinyML.World) {a : SpatialAtom}
-    {st : TransState} {ρ : Env}
-    {Q : Unit → TransState → Env → Prop} {R Φ : iProp}
+    {st : State} {ρ : Env}
+    {Q : Unit → State → Env → Prop} {R Φ : iProp}
     (h : VerifM.eval (VerifM.acquire (.spatial a)) st ρ Q)
     (hwf : a.wfIn st.decls)
     (hk : ∀ st', Q () st' ρ → st'.decls = st.decls → st'.owns = a :: st.owns →
@@ -245,6 +247,6 @@ theorem VerifM.eval_acquireSpatial (W : TinyML.World) {a : SpatialAtom}
   obtain ⟨st', hdecls, howns, hq⟩ := VerifM.eval_acquire h hwf trivial hfacts
   have howns' : st'.owns = a :: st.owns := howns
   iapply (hk st' hq hdecls howns')
-  simp only [TransState.sl_eq, howns', SpatialContext.interp]
+  simp only [State.sl_eq, howns', SpatialContext.interp]
   iframe
 

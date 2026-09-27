@@ -8,6 +8,8 @@ import Mica.Verifier.BoundedQuantifier
 import Mica.Verifier.Expressions
 import Mica.Verifier.Ghost
 
+open Verifier (State)
+
 /-!
 # Declarations
 
@@ -180,7 +182,7 @@ private theorem ValDecl.checkGhostBody_correct (env : Verifier.Env) (W : TinyML.
     (s : Spec TinyML.Typ) (argTys : List TinyML.Typ) (retTy : TinyML.Typ) (body : Expr)
     (argNames : List String) (vs gs : List Runtime.Val) (Φ : Runtime.Val → iProp)
     (f : Option TinyML.Var)
-    {argVars ghostVars : List Decl.Const} {st' : TransState} {ρ' : Env} {Q : iProp}
+    {argVars ghostVars : List Decl.Const} {st' : State} {ρ' : Env} {Q : iProp}
     (hag : W.agrees st'.decls ρ')
     (hGf : GhostFunctions.wellTyped W st'.decls ρ' Gf)
     (hlen_args : argNames.length = argTys.length)
@@ -206,7 +208,7 @@ private theorem ValDecl.checkGhostBody_correct (env : Verifier.Env) (W : TinyML.
   obtain ⟨φs, hbody_eval⟩ := Lemmas.assumeInstance_correct henv.world henv.lemmas hag
     hargVars_mem hargVars_sort (VerifM.eval_bind hbody_eval)
   -- `sl` does not use the assertions, so `st₀.sl` is `st'.sl`.
-  set st₀ : TransState := { st' with asserts := φs ++ st'.asserts }
+  set st₀ : State := { st' with asserts := φs ++ st'.asserts }
   have hcompile := VerifM.eval_bind hbody_eval
   iintro ⟨Howns, #Hvals, #Hgvals, HQ⟩
   ihave %hlen_vals := TinyML.ValsHaveTypes.length_eq $$ Hvals
@@ -292,7 +294,7 @@ private theorem ValDecl.checkGhostRank_correct (env : Verifier.Env) (W : TinyML.
     (bodyGf : List Decl.Const → List Decl.Const → VerifM GhostFunctions) (f : Option TinyML.Var)
     (hswf : s.wfIn W.Δ_spec) (hslen : s.args.length = argTys.length)
     (hlen_args : argNames.length = argTys.length)
-    {st : TransState} {ρ : Env} (hag : W.agrees st.decls ρ) (howns : st.owns = [])
+    {st : State} {ρ : Env} (hag : W.agrees st.decls ρ) (howns : st.owns = [])
     (himpl : VerifM.eval (Spec.implement W.Δ_spec argTys s (fun argVars ghostVars => do
           let Gf' ← bodyGf argVars ghostVars
           env.lemmas.assumeInstance f argVars
@@ -301,7 +303,7 @@ private theorem ValDecl.checkGhostRank_correct (env : Verifier.Env) (W : TinyML.
           checkRet retTy body.ty
           pure se)) st ρ (fun _ _ _ => True))
     (hbodyGf : ∀ (vs gs : List Runtime.Val) (argVars ghostVars : List Decl.Const)
-        (st' : TransState) (ρ' : Env) (Ψ : GhostFunctions → TransState → Env → Prop),
+        (st' : State) (ρ' : Env) (Ψ : GhostFunctions → State → Env → Prop),
       st.decls.Subset st'.decls → Env.agreeOn st.decls ρ ρ' →
       (∀ v ∈ argVars, v ∈ st'.decls.consts) → (∀ v ∈ argVars, v.sort = .value) →
       List.Forall₂ (fun av val => ρ'.consts .value av.name = val) argVars vs →
@@ -347,7 +349,7 @@ private theorem ValDecl.checkGhostRank_correct (env : Verifier.Env) (W : TinyML.
           · iexact Hgtyped
           · iexact HQ) $$ [Hpred]
   · isplitl []
-    · simp [TransState.sl, howns]
+    · simp [State.sl, howns]
       iempintro
     · isplitl []
       · iexact Hvals
@@ -373,9 +375,9 @@ theorem ValDecl.prove_correct (env : Verifier.Env) (W : TinyML.World) (henv : en
     (Gf : GhostFunctions) (f : TinyML.Var) (self : Binder) (args : List Binder)
     (retTy : TinyML.Typ) (body : Expr) (s : Spec TinyML.Typ)
     (decreases : Option Typed.Measure)
-    {st : TransState} {ρ : Env} (hag : W.agrees st.decls ρ)
+    {st : State} {ρ : Env} (hag : W.agrees st.decls ρ)
     (hGf : GhostFunctions.wellTyped W st.decls ρ Gf)
-    {Q : (TinyML.Var × GhostFunctions.Entry) → TransState → Env → Prop}
+    {Q : (TinyML.Var × GhostFunctions.Entry) → State → Env → Prop}
     (heval : SeqM.eval (ValDecl.prove env Gf f self args retTy body s decreases) st ρ Q) :
     ∃ entry, GhostFunctions.wfIn W.Δ_spec W.Θ [entry] ∧ GhostFunctions.wellTyped W st.decls ρ [entry] ∧
       Q entry st ρ := by
@@ -401,8 +403,8 @@ theorem ValDecl.prove_correct (env : Verifier.Env) (W : TinyML.World) (henv : en
       simpa using hargNames_len.trans hargs_len.symm
     obtain ⟨himpl_seq, hcont⟩ := SeqM.eval_check (SeqM.eval_bind heval)
     have himpl := VerifM.eval_persist (VerifM.eval_bind himpl_seq)
-    have hag' : W.agrees (TransState.persist st).decls ρ := hag
-    have hGf' : GhostFunctions.wellTyped W (TransState.persist st).decls ρ Gf := hGf
+    have hag' : W.agrees (State.persist st).decls ρ := hag
+    have hGf' : GhostFunctions.wellTyped W (State.persist st).decls ρ Gf := hGf
     refine ⟨(f, ⟨.arrow (args.map Binder.WithTypeVars.ty) retTy (some s), none⟩),
       fun p hp => by cases List.mem_singleton.mp hp; exact ⟨rfl, htywf⟩, ?_,
       SeqM.eval_ret hcont⟩
@@ -413,7 +415,7 @@ theorem ValDecl.prove_correct (env : Verifier.Env) (W : TinyML.World) (henv : en
         GhostFunctions.Entry.mk.injEq] at hlookup
       obtain ⟨hty, hguard⟩ := hlookup
       cases hty; cases hguard
-      have hpersist_owns : (TransState.persist st).owns = [] := rfl
+      have hpersist_owns : (State.persist st).owns = [] := rfl
       cases hself : self.name with
       | none =>
         refine Spec.isGhostPrecondFor.induction_eta (fun _ _ => 0) ?_ η
@@ -481,7 +483,7 @@ theorem ValDecl.prove_correct (env : Verifier.Env) (W : TinyML.World) (henv : en
           set rv := st₁.freshConst (some "rank") .int with hrv_def
           have hfresh : rv.name ∉ st₁.decls.allNames := st₁.freshConst_fresh (some "rank") .int
           have hev := VerifM.eval_define (VerifM.eval_bind hev) hm_wf
-          set st₂ : TransState := { st₁ with decls := st₁.decls.addConst rv } with hst₂_def
+          set st₂ : State := { st₁ with decls := st₁.decls.addConst rv } with hst₂_def
           set ρ₂ := ρ₁.updateConst .int rv.name (Term.eval ρ₁ m) with hρ₂_def
           have hsub₂ : st₁.decls.Subset st₂.decls := Signature.Subset.subset_addConst _ _
           have hagree₂ : Env.agreeOn st₁.decls ρ₁ ρ₂ := Env.agreeOn_update_fresh_const hfresh
@@ -519,9 +521,9 @@ theorem ValDecl.prove_correct (env : Verifier.Env) (W : TinyML.World) (henv : en
 
 theorem ValDecl.checkGhost_correct (env : Verifier.Env) (W : TinyML.World) (henv : env.wf W)
     (Gf : GhostFunctions) (d : Typed.ValDecl)
-    {st : TransState} {ρ : Env} (hag : W.agrees st.decls ρ)
+    {st : State} {ρ : Env} (hag : W.agrees st.decls ρ)
     (hGf : GhostFunctions.wellTyped W st.decls ρ Gf)
-    {Q : (TinyML.Var × GhostFunctions.Entry) → TransState → Env → Prop}
+    {Q : (TinyML.Var × GhostFunctions.Entry) → State → Env → Prop}
     (heval : SeqM.eval (ValDecl.checkGhost env Gf d) st ρ Q) :
     ∃ entry, GhostFunctions.wfIn W.Δ_spec W.Θ [entry] ∧ GhostFunctions.wellTyped W st.decls ρ [entry] ∧
       Q entry st ρ := by
@@ -533,9 +535,9 @@ theorem ValDecl.checkGhost_correct (env : Verifier.Env) (W : TinyML.World) (henv
 
 theorem ValDecl.checkGhostFn_correct (env : Verifier.Env) (W : TinyML.World) (henv : env.wf W)
     (Gf : GhostFunctions) (d : Typed.ValDecl)
-    {st : TransState} {ρ : Env} (hag : W.agrees st.decls ρ)
+    {st : State} {ρ : Env} (hag : W.agrees st.decls ρ)
     (hGf : GhostFunctions.wellTyped W st.decls ρ Gf)
-    {Q : GhostFunctions → TransState → Env → Prop}
+    {Q : GhostFunctions → State → Env → Prop}
     (heval : SeqM.eval (ValDecl.checkGhostFn env Gf d) st ρ Q) :
     ∃ fn, GhostFunctions.wfIn W.Δ_spec W.Θ fn ∧ GhostFunctions.wellTyped W st.decls ρ fn ∧ Q fn st ρ := by
   simp only [ValDecl.checkGhostFn] at heval
@@ -566,8 +568,8 @@ theorem ValDecl.checkGhostFn_correct (env : Verifier.Env) (W : TinyML.World) (he
         | _ => simp only [hname, hbody] at heval; exact (SeqM.eval_fatal heval).elim
 
 theorem ValDecl.publish_correct (env : Verifier.Env) (W : TinyML.World) (henv : env.wf W)
-    (d : Typed.ValDecl) {st : TransState} {ρ : Env}
-    {Q : GhostFunctions → TransState → Env → Prop}
+    (d : Typed.ValDecl) {st : State} {ρ : Env}
+    {Q : GhostFunctions → State → Env → Prop}
     (heval : SeqM.eval (ValDecl.publish env d) st ρ Q) :
     ∃ unf, GhostFunctions.wfIn W.Δ_spec W.Θ unf ∧ GhostFunctions.wellTyped W st.decls ρ unf ∧
       Q unf st ρ := by
@@ -601,9 +603,9 @@ theorem ValDecl.publish_correct (env : Verifier.Env) (W : TinyML.World) (henv : 
 
 theorem ValDecl.ghostEntries_correct (env : Verifier.Env) (W : TinyML.World) (henv : env.wf W)
     (Gf : GhostFunctions) (d : Typed.ValDecl)
-    {st : TransState} {ρ : Env} (hag : W.agrees st.decls ρ)
+    {st : State} {ρ : Env} (hag : W.agrees st.decls ρ)
     (hGf : GhostFunctions.wellTyped W st.decls ρ Gf)
-    {Q : GhostFunctions → TransState → Env → Prop}
+    {Q : GhostFunctions → State → Env → Prop}
     (heval : SeqM.eval (ValDecl.ghostEntries env Gf d) st ρ Q) :
     ∃ fn, GhostFunctions.wfIn W.Δ_spec W.Θ fn ∧ GhostFunctions.wellTyped W st.decls ρ fn ∧ Q fn st ρ := by
   simp only [ValDecl.ghostEntries] at heval
@@ -748,7 +750,7 @@ end Verifier
 
 namespace Verifier
 
-variable {env env' : Env} {S : Scope} {st st' : TransState} {ρ ρ' : _root_.Env}
+variable {env env' : Env} {S : Scope} {st st' : State} {ρ ρ' : _root_.Env}
   {γ : Runtime.Subst}
 
 /-! ## Declaring -/
@@ -762,7 +764,7 @@ private theorem checkTypeDeclaration_ok {Δ : Signature} {Θ : TinyML.TypeEnv}
   exact TinyML.Typ.checkWfList_ok _ h
 
 theorem Decl.declare_correct {d : Untyped.Decl Untyped.SpecBody}
-    {Q : Env × Option Typed.ValDecl → TransState → _root_.Env → Prop}
+    {Q : Env × Option Typed.ValDecl → State → _root_.Env → Prop}
     (henv : env.supportedBy st ρ) (hS : S.supportedBy env st ρ γ)
     (howns : st.owns = []) (hvars : st.decls.vars = [])
     (heval : SeqM.eval (Decl.declare env d) st ρ Q) :
@@ -840,9 +842,9 @@ theorem Decl.declare_correct {d : Untyped.Decl Untyped.SpecBody}
 /-- The body runs safely, and a frame `Φ` survives it. -/
 theorem ValDecl.checkBody_correct (env : Env) (W : TinyML.World) (henv : env.wf W)
     (Gf : GhostFunctions) (B : Bindings) (Γ : TinyML.TyCtx) (d : Typed.ValDecl) (γ : Runtime.Subst)
-    (st : TransState) (ρ : _root_.Env)
+    (st : State) (ρ : _root_.Env)
     (hS : (⟨Gf, Bindings.empty, B, Γ⟩ : Scope).wfIn W st.decls ρ Runtime.Subst.id γ)
-    {Q : Unit → TransState → _root_.Env → Prop}
+    {Q : Unit → State → _root_.Env → Prop}
     (heval : VerifM.eval (ValDecl.checkBody env ⟨Gf, Bindings.empty, B, Γ⟩ d) st ρ Q) (Φ : iProp) :
     □ st.sl W ρ ∗ Bindings.typedSubst W B Γ γ ∗ Φ ⊢
       wp W.pctx (d.body.runtime.subst γ) (fun _ => Φ) := by
@@ -874,9 +876,9 @@ theorem ValDecl.checkBody_typed (env : Env) (W : TinyML.World) (henv : env.wf W)
     (self : Typed.Binder) (args : List Typed.Binder) (retTy : TinyML.Typ)
     (s : Spec TinyML.Typ) (body : Typed.Expr)
     (hbody : d.body = .fix self args retTy (some s) body)
-    (st : TransState) (ρ : _root_.Env)
+    (st : State) (ρ : _root_.Env)
     (hS : (⟨Gf, Bindings.empty, B, Γ⟩ : Scope).wfIn W st.decls ρ Runtime.Subst.id γ)
-    {Q : Unit → TransState → _root_.Env → Prop}
+    {Q : Unit → State → _root_.Env → Prop}
     (heval : VerifM.eval (ValDecl.checkBody env ⟨Gf, Bindings.empty, B, Γ⟩ d) st ρ Q) :
     Bindings.typedSubst W B Γ γ ⊢
       TinyML.ValHasType W
@@ -893,7 +895,7 @@ theorem ValDecl.checkBody_typed (env : Env) (W : TinyML.World) (henv : env.wf W)
     (compileFix_typed env W henv _ Runtime.Subst.id γ self args retTy s body
       (compile_correct body) hS hc)
 
-theorem Decl.check_correct {d : Typed.ValDecl} {Q : Env × Scope → TransState → _root_.Env → Prop}
+theorem Decl.check_correct {d : Typed.ValDecl} {Q : Env × Scope → State → _root_.Env → Prop}
     (henv : env.supportedBy st ρ) (hS : S.supportedBy env st ρ γ) (hG : S.ghostBindings = [])
     (howns : st.owns = []) (hvars : st.decls.vars = [])
     (heval : SeqM.eval (Decl.check env S d) st ρ Q) (P : Runtime.Program)
@@ -916,7 +918,7 @@ theorem Decl.check_correct {d : Typed.ValDecl} {Q : Env × Scope → TransState 
     ValDecl.ghostEntries_correct env _ hW Gf d hag hS.ghostFns (SeqM.eval_bind heval)
   replace hfnwf : fn.wfIn st.decls env.typeDeclarations :=
     hsig ▸ (hfnwf : fn.wfIn env.signature env.typeDeclarations)
-  have hsl : ⊢ □ st.sl (env.world ρ) ρ := TransState.sl_of_owns_nil howns
+  have hsl : ⊢ □ st.sl (env.world ρ) ρ := State.sl_of_owns_nil howns
   cases hmode : d.mode with
   | ghost =>
     simp only [hmode] at heval
@@ -1030,7 +1032,7 @@ theorem Decl.check_correct {d : Typed.ValDecl} {Q : Env × Scope → TransState 
         set v := Runtime.Val.fix self.runtime (args.map (·.runtime))
           (body.runtime.subst ((γ.remove' self.runtime).removeAll' (args.map (·.runtime))))
         set ρ₁ := ρ.updateConst .value fv.name v
-        set st₁ : TransState := { st with decls := st.decls.addConst fv }
+        set st₁ : State := { st with decls := st.decls.addConst fv }
         set env₁ : Env := { env with signature := env.signature.addConst fv }
         have hwf₁ : st₁.decls.wf := Signature.wf_addConst hst.namesDisjoint hfresh
         have hsub₁ : st.decls.Subset st₁.decls := Signature.Subset.subset_addConst _ _
@@ -1098,7 +1100,7 @@ theorem Decl.check_correct {d : Typed.ValDecl} {Q : Env × Scope → TransState 
           iexact H
 
 theorem Decl.declareAndCheck_correct {d : Untyped.Decl Untyped.SpecBody}
-    {Q : Env × Scope → TransState → _root_.Env → Prop}
+    {Q : Env × Scope → State → _root_.Env → Prop}
     (henv : env.supportedBy st ρ) (hS : S.supportedBy env st ρ γ) (hG : S.ghostBindings = [])
     (howns : st.owns = []) (hvars : st.decls.vars = [])
     (heval : SeqM.eval (Decl.declareAndCheck env S d) st ρ Q) (P : Runtime.Program)

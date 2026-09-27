@@ -8,6 +8,8 @@ import Mica.Verifier.PredicateTransformers
 import Mica.Base.Fresh
 import Mathlib.Data.Finmap
 
+open Verifier (State)
+
 open Iris Iris.BI
 
 variable [MicaGS HasLC.hasLC Sig]
@@ -346,8 +348,8 @@ omit [MicaGS HasLC.hasLC Sig] in
 theorem declareArgs_correct :
     ∀ (argNames : List String) (argTys : List TinyML.Typ)
       (sargs : List (TinyML.Typ × Term .value))
-      (Δ_base : Signature) (σ : FiniteSubst) (st : TransState) (ρ : Env)
-      (Ψ : FiniteSubst → TransState → Env → Prop),
+      (Δ_base : Signature) (σ : FiniteSubst) (st : State) (ρ : Env)
+      (Ψ : FiniteSubst → State → Env → Prop),
     argNames.length = argTys.length →
     σ.wfIn Δ_base st.decls →
     (∀ p ∈ sargs, (p : TinyML.Typ × Term .value).2.wfIn st.decls) →
@@ -447,8 +449,8 @@ theorem declareArgs_correct :
 theorem call_correct (W : TinyML.World)
     (argTys : List TinyML.Typ) (retTy : TinyML.Typ) (s : Spec TinyML.Typ) (Δ_base : Signature)
     (σ : FiniteSubst) (sargs sgargs : List (TinyML.Typ × Term .value))
-    (st : TransState) (ρ : Env)
-    (Ψ : (TinyML.Typ × Term .value) → TransState → Env → Prop)
+    (st : State) (ρ : Env)
+    (Ψ : (TinyML.Typ × Term .value) → State → Env → Prop)
     (Φ : Runtime.Val → iProp) (R : iProp) :
     s.args.length = argTys.length →
     PredTrans.wfIn ((Δ_base.declVars σ.dom).declVars (Spec.argVars s.allArgs)) s.pred →
@@ -522,7 +524,7 @@ theorem call_correct (W : TinyML.World)
           (fun φ hφ => Hpure φ hφ)
       ihave Harg : (st₃.sl W ρ'' ∗ R ∗ TinyML.ValHasType W v retTy) $$ [HR Howns Hty]
       · iframe HR Hty
-        simp [TransState.sl, hst₃_owns]; iassumption
+        simp [State.sl, hst₃_owns]; iassumption
       iapply (hΨ v st₃ ρ'' t (VerifM.eval_ret hret) (hst₃_decls ▸ htwf) hteval) $$ Harg)
   exact (sep_mono_left (SpatialContext.interp_agreeOn W (VerifM.eval.wf heval).ownsWf hragree).1).trans <|
     (by simpa [howns] using hcall : st.sl W ρ' ∗ R ⊢ _).trans <|
@@ -535,8 +537,8 @@ section ImplementCorrectness
 
 /-- Correctness payload for `declareImplArgs`. -/
 def DeclareImplArgs.Result (argNames : List String) (vs : List Runtime.Val)
-    (Δ_base : Signature) (σ : FiniteSubst) (st : TransState) (ρ : Env)
-    (Ψ : (FiniteSubst × List Decl.Const) → TransState → Env → Prop) : Prop :=
+    (Δ_base : Signature) (σ : FiniteSubst) (st : State) (ρ : Env)
+    (Ψ : (FiniteSubst × List Decl.Const) → State → Env → Prop) : Prop :=
   ∃ σ' implVars st' ρ', Ψ (σ', implVars) st' ρ' ∧
     σ'.wfIn Δ_base st'.decls ∧
     st.decls.Subset st'.decls ∧
@@ -553,8 +555,8 @@ def DeclareImplArgs.Result (argNames : List String) (vs : List Runtime.Val)
 
 theorem declareImplArgs_correct (W : TinyML.World) :
     ∀ (argNames : List String) (argTys : List TinyML.Typ) (vs : List Runtime.Val)
-      (Δ_base : Signature) (σ : FiniteSubst) (st : TransState) (ρ : Env)
-      (Ψ : (FiniteSubst × List Decl.Const) → TransState → Env → Prop),
+      (Δ_base : Signature) (σ : FiniteSubst) (st : State) (ρ : Env)
+      (Ψ : (FiniteSubst × List Decl.Const) → State → Env → Prop),
     argNames.length = argTys.length →
     σ.wfIn Δ_base st.decls →
     VerifM.eval (Spec.declareImplArgs σ argNames argTys) st ρ Ψ →
@@ -673,7 +675,7 @@ theorem declareImplArgs_correct (W : TinyML.World) :
 theorem implement_correct (W : TinyML.World)
     (argTys : List TinyML.Typ) (retTy : TinyML.Typ) (s : Spec TinyML.Typ)
     (body : List Decl.Const → List Decl.Const → VerifM (Term .value))
-    (st : TransState) (ρ : Env) (vs gs : List Runtime.Val)
+    (st : State) (ρ : Env) (vs gs : List Runtime.Val)
     (Φ : Runtime.Val → iProp) (R : iProp) :
     s.args.length = argTys.length →
     s.ghost.length = gs.length →
@@ -681,7 +683,7 @@ theorem implement_correct (W : TinyML.World)
     W.wf →
     W.agrees st.decls ρ →
     VerifM.eval (Spec.implement W.Δ_spec argTys s body) st ρ (fun _ _ _ => True) →
-    (∀ (argVars ghostVars : List Decl.Const) (st' : TransState) (ρ' : Env) (Q : iProp),
+    (∀ (argVars ghostVars : List Decl.Const) (st' : State) (ρ' : Env) (Q : iProp),
       st.decls.Subset st'.decls →
       Env.agreeOn st.decls ρ ρ' →
       (∀ v ∈ argVars, v ∈ st'.decls.consts) →
@@ -798,9 +800,9 @@ theorem implement_correct (W : TinyML.World)
           exact Term.const_wfIn_of_mem hst'_wf (hmem_gdecls _ hgv)
         · exact hbody_eval))
   isplitr [Happ]
-  · iapply (show st.sl W ρ' ⊢ st'.sl W ρ' by simp [howns, TransState.sl])
+  · iapply (show st.sl W ρ' ⊢ st'.sl W ρ' by simp [howns, State.sl])
     iapply (show st.sl W ρ ⊢ st.sl W ρ' by
-      simpa [TransState.sl] using
+      simpa [State.sl] using
         (SpatialContext.interp_agreeOn W (VerifM.eval.wf heval).ownsWf hragree).1)
     iexact Howns
   · iapply (PredTrans.apply_agreeOn (TinyML.ValHasType W) hswf
