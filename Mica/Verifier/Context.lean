@@ -1,11 +1,21 @@
 -- SUMMARY: The environment and the scope the compilers work in, with the invariants that tie them to a world and a verifier state.
 import Mica.Verifier.Lemma
 import Mica.Verifier.Intrinsic
-import Mica.Verifier.BoundedQuantifier
 
 open Iris Iris.BI
 
 namespace Verifier
+
+/-- One lifted occurrence of a bounded quantifier: the quantifier symbol's base
+name, the quantifier kind, the captured spec variables (first-occurrence
+order), and the lifted closure's packed argument name and body. -/
+structure Lifting where
+  name : String
+  all : Bool
+  captured : List TinyML.Var
+  arg : String
+  body : Typed.Expr
+  deriving BEq
 
 /-! ## Environment -/
 
@@ -15,7 +25,7 @@ structure Env where
   signature        : Signature
   lemmas           : Lemmas
   specFunctions    : RelationalEncoding.FunCtx
-  liftings         : List BoundedQuantifier.Lifting
+  liftings         : List Lifting
   /-- The types elaboration gives the declared names. It also has the names
       that have no value in the verifier, unlike `Scope.typingContext`. -/
   globals          : TinyML.TyCtx

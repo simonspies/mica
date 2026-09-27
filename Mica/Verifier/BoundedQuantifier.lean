@@ -2,7 +2,7 @@
 import Mica.SourceTinyML.Typing
 import Mica.Verifier.RelationalEncoding.Variables
 import Mica.Verifier.Guard
-import Mica.Verifier.Intrinsic
+import Mica.Verifier.Context
 import Mica.Verifier.RelationalEncoding.Axioms
 
 open Iris Iris.BI
@@ -240,17 +240,6 @@ The rewrite itself is `partial` and unverified: no proof depends on its
 equations. Rewritten leaves are encoded from scratch, and name freshness is
 validated operationally when it is declared. -/
 
-/-- One lifted occurrence of a bounded quantifier: the quantifier symbol's base
-name, the quantifier kind, the captured spec variables (first-occurrence
-order), and the lifted closure's packed argument name and body. -/
-structure Lifting where
-  name : String
-  all : Bool
-  captured : List TinyML.Var
-  arg : String
-  body : Typed.Expr
-  deriving BEq
-
 /-- State of the leaf rewrite: the lifted symbols in dependency order (inner
 occurrences precede outer ones). -/
 structure LiftState where
@@ -386,6 +375,8 @@ outer ones that capture their calls. -/
 def rewriteLeaf (e : Typed.Expr) (st : LiftState) : Except String (Typed.Expr × LiftState) :=
   (rewrite e).run st
 
+end Verifier.BoundedQuantifier
+
 /-! ## Solver-facing symbols and defining axioms
 
 Each lifted occurrence contributes one `SpecFn`-shaped symbol triple for the
@@ -397,7 +388,9 @@ axioms' right-hand sides, so validity is by construction. -/
 
 open Verifier.RelationalEncoding
 
-namespace Lifting
+namespace Verifier.Lifting
+
+open BoundedQuantifier
 
 /-- Bound index variable of the defining axioms. -/
 def idx (s : Lifting) : String := s.name ++ "-i"
@@ -539,14 +532,14 @@ def declare (s : Lifting) (body : Skolemize.DefVal) : SeqM Unit :=
 
 /-- Canonical interpretation of the quantifier symbol's definedness predicate:
 the evaluation of the definedness axiom's right-hand side. -/
-noncomputable def definterp (s : Lifting) (body : Skolemize.DefVal) (ρ : Env) :
+noncomputable def definterp (s : Lifting) (body : Skolemize.DefVal) (ρ : _root_.Env) :
     Srt.value.denote → Prop :=
   fun v => (s.defMatrix body).eval (ρ.updateConst .value s.arg v)
 
 open Classical in
 /-- Canonical interpretation of the quantifier symbol's value function: the
 boolean truth value of the value axiom's matrix. -/
-noncomputable def funcinterp (s : Lifting) (body : Skolemize.DefVal) (ρ : Env) :
+noncomputable def funcinterp (s : Lifting) (body : Skolemize.DefVal) (ρ : _root_.Env) :
     Srt.value.denote → Srt.value.denote :=
   fun v =>
     if (s.matrix body).eval (ρ.updateConst .value s.arg v)
@@ -555,7 +548,7 @@ noncomputable def funcinterp (s : Lifting) (body : Skolemize.DefVal) (ρ : Env) 
 /-- Canonical interpretation of the quantifier symbol's relation: the graph of the
 value function on the definedness domain (single-valued, and in agreement
 with the func-form reading, by construction). -/
-noncomputable def relinterp (s : Lifting) (body : Skolemize.DefVal) (ρ : Env) :
+noncomputable def relinterp (s : Lifting) (body : Skolemize.DefVal) (ρ : _root_.Env) :
     Srt.value.denote → Srt.value.denote → Prop :=
   fun a b => s.definterp body ρ a ∧ s.funcinterp body ρ a = b
 
@@ -704,55 +697,55 @@ theorem axioms_wfIn (hΔ : Δ.wf)
 /-! ### Validity of the defining axioms under the canonical interpretations -/
 
 /-- The environment carrying the quantifier symbol's canonical interpretations. -/
-noncomputable def extend (s : Lifting) (body : Skolemize.DefVal) (ρ : Env) : Env :=
+noncomputable def extend (s : Lifting) (body : Skolemize.DefVal) (ρ : _root_.Env) : _root_.Env :=
   ((ρ.updateBinaryRel .value .value (SpecFn.relName s.name) (s.relinterp body ρ)).updateUnary
       .value .value (SpecFn.funcName s.name) (s.funcinterp body ρ)).updateUnaryRel
     .value (SpecFn.defName s.name) (s.definterp body ρ)
 
 /-- The extension only touches the quantifier symbol's three fresh names. -/
-theorem extend_agreeOn {ρ : Env}
+theorem extend_agreeOn {ρ : _root_.Env}
     (hrel : SpecFn.relName s.name ∉ Δ.allNames)
     (hfun : SpecFn.funcName s.name ∉ Δ.allNames)
     (hdef : SpecFn.defName s.name ∉ Δ.allNames) :
-    Env.agreeOn Δ ρ (s.extend body ρ) :=
-  Env.agreeOn_trans
-    (Env.agreeOn_update_fresh_binaryRel (b := SpecFn.rel s.name)
+    _root_.Env.agreeOn Δ ρ (s.extend body ρ) :=
+  _root_.Env.agreeOn_trans
+    (_root_.Env.agreeOn_update_fresh_binaryRel (b := SpecFn.rel s.name)
       (f := s.relinterp body ρ) hrel)
-    (Env.agreeOn_trans
-      (Env.agreeOn_update_fresh_unary (u := SpecFn.func s.name)
+    (_root_.Env.agreeOn_trans
+      (_root_.Env.agreeOn_update_fresh_unary (u := SpecFn.func s.name)
         (f := s.funcinterp body ρ) hfun)
-      (Env.agreeOn_update_fresh_unaryRel (u := SpecFn.defined s.name)
+      (_root_.Env.agreeOn_update_fresh_unaryRel (u := SpecFn.defined s.name)
         (f := s.definterp body ρ) hdef))
 
-@[simp] theorem extend_evalDefined (ρ : Env) (v : Srt.value.denote) :
+@[simp] theorem extend_evalDefined (ρ : _root_.Env) (v : Srt.value.denote) :
     SpecFn.evalDefined s.name (s.extend body ρ) v ↔ s.definterp body ρ v := by
   simp [extend, SpecFn.evalDefined, SpecFn.defined, SpecFn.defName,
-    Env.updateUnaryRel, Env.updateUnary, Env.updateBinaryRel]
+    _root_.Env.updateUnaryRel, _root_.Env.updateUnary, _root_.Env.updateBinaryRel]
 
-@[simp] theorem extend_evalCall (ρ : Env) (v : Srt.value.denote) :
+@[simp] theorem extend_evalCall (ρ : _root_.Env) (v : Srt.value.denote) :
     SpecFn.evalCall s.name (s.extend body ρ) v = s.funcinterp body ρ v := by
   simp [extend, SpecFn.evalCall, SpecFn.func, SpecFn.funcName,
-    Env.updateUnaryRel, Env.updateUnary, Env.updateBinaryRel]
+    _root_.Env.updateUnaryRel, _root_.Env.updateUnary, _root_.Env.updateBinaryRel]
 
-@[simp] theorem extend_evalRelates (ρ : Env) (a b : Srt.value.denote) :
+@[simp] theorem extend_evalRelates (ρ : _root_.Env) (a b : Srt.value.denote) :
     SpecFn.evalRelates s.name (s.extend body ρ) a b ↔ s.relinterp body ρ a b := by
   simp [extend, SpecFn.evalRelates, SpecFn.rel, SpecFn.relName,
-    Env.updateUnaryRel, Env.updateUnary, Env.updateBinaryRel]
+    _root_.Env.updateUnaryRel, _root_.Env.updateUnary, _root_.Env.updateBinaryRel]
 
 /-- The defining axioms hold in the extended environment. Matrix
 well-formedness lets their evaluation be transported past the extension. -/
-theorem axioms_eval {ρ : Env}
+theorem axioms_eval {ρ : _root_.Env}
     (hmat : (s.matrix body).wfIn (s.argScope Δ))
     (hdefmat : (s.defMatrix body).wfIn (s.argScope Δ))
     (hrel : SpecFn.relName s.name ∉ Δ.allNames)
     (hfun : SpecFn.funcName s.name ∉ Δ.allNames)
     (hdef : SpecFn.defName s.name ∉ Δ.allNames) :
     ∀ ax ∈ s.axioms body, ax.formula.eval (s.extend body ρ) := by
-  have hagree : Env.agreeOn Δ ρ (s.extend body ρ) := extend_agreeOn hrel hfun hdef
+  have hagree : _root_.Env.agreeOn Δ ρ (s.extend body ρ) := extend_agreeOn hrel hfun hdef
   have htrans : ∀ (φ : Formula), φ.wfIn (s.argScope Δ) →
       ∀ v, φ.eval ((s.extend body ρ).updateConst .value s.arg v) ↔
         φ.eval (ρ.updateConst .value s.arg v) :=
-    fun φ hwf v => (Formula.eval_agreeOn hwf (Env.agreeOn_declVar hagree)).symm
+    fun φ hwf v => (Formula.eval_agreeOn hwf (_root_.Env.agreeOn_declVar hagree)).symm
   intro ax hmem
   simp only [axioms, List.mem_cons, List.not_mem_nil, or_false] at hmem
   rcases hmem with rfl | rfl
@@ -788,7 +781,7 @@ spec-function declaration invariants: the generic triple declaration
 (`SpecFn.declare_correct`) instantiated with the canonical interpretations,
 whose graph shape holds by construction. -/
 theorem declare_correct (s : Lifting) (body : Skolemize.DefVal) (Δ : Signature) (Γ : FunCtx)
-    (st : TransState) (ρ : Env) {Q : Unit → TransState → Env → Prop}
+    (st : TransState) (ρ : _root_.Env) {Q : Unit → TransState → _root_.Env → Prop}
     (hv : Valid s Δ)
     (hbody : body.wfIn (s.matrixScope Δ))
     (hdecls : st.decls = Δ) (howns : st.owns = []) (hvars : st.decls.vars = [])
@@ -798,7 +791,7 @@ theorem declare_correct (s : Lifting) (body : Skolemize.DefVal) (Δ : Signature)
     ∃ st' ρ',
       st'.decls = s.extendSignature Δ ∧ st'.owns = [] ∧ st'.decls.vars = [] ∧
       st'.decls.wf ∧ st.decls.Subset st'.decls ∧
-      Env.agreeOn st.decls ρ ρ' ∧
+      _root_.Env.agreeOn st.decls ρ ρ' ∧
       FunCtx.wfIn (Γ ++ [(s.name, s.name)]) st'.decls ∧
       FunCtx.Agreement (Γ ++ [(s.name, s.name)]) ρ' ∧
       Q () st' ρ' := by
@@ -851,6 +844,4 @@ theorem declare_correct (s : Lifting) (body : Skolemize.DefVal) (Δ : Signature)
       hdecls howns hvars hwfext hΓwf hΓagree haxwf haxeval heval
   exact ⟨st', ρ', hrest⟩
 
-end Lifting
-
-end Verifier.BoundedQuantifier
+end Verifier.Lifting

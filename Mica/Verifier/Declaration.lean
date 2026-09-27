@@ -140,7 +140,7 @@ private def declareAndAssume (env : Env) (d : Typed.ValDecl) : SeqM Env := do
 /-- Declare a bounded quantifier's solver-facing triple and its defining
 axioms. All freshness and membership conditions needed by the soundness proof
 are checked operationally by `validate`. -/
-private def declareLifting (env : Env) (s : Verifier.BoundedQuantifier.Lifting) : SeqM Env :=
+private def declareLifting (env : Env) (s : Verifier.Lifting) : SeqM Env :=
   match s.validate env.signature with
   | .error msg => SeqM.fatal msg
   | .ok _ =>
@@ -154,7 +154,7 @@ private def declareLifting (env : Env) (s : Verifier.BoundedQuantifier.Lifting) 
 
 /-- Compile and declare the lifted bounded quantifiers in lift order. Earlier
 symbols are available while compiling later bodies, which supports nesting. -/
-private def declareLiftings : Env → List Verifier.BoundedQuantifier.Lifting → SeqM Env
+private def declareLiftings : Env → List Verifier.Lifting → SeqM Env
   | env, [] => pure env
   | env, s :: ss => do
       let env' ← declareLifting env s
@@ -349,7 +349,7 @@ private theorem declareAndAssume_correct {reg : Registry} {Θ : TinyML.TypeEnv}
 omit [MicaGS HasLC.hasLC Sig] in
 /-- Compiling and declaring one lifted bounded quantifier preserves `SpecInv`. -/
 private theorem declareLifting_correct {reg : Registry} {Θ : TinyML.TypeEnv}
-    (hlaw : reg.primitives.Lawful) (s : Verifier.BoundedQuantifier.Lifting)
+    (hlaw : reg.primitives.Lawful) (s : Verifier.Lifting)
     (env : Env) (st : TransState) (ρ : _root_.Env)
     {Q : Env → TransState → _root_.Env → Prop}
     (hinv : SpecInv reg Θ env st ρ)
@@ -371,11 +371,11 @@ private theorem declareLifting_correct {reg : Registry} {Θ : TinyML.TypeEnv}
       exact (SeqM.eval_fatal heval).elim
     | ok body =>
       simp only [hcompile] at heval
-      have hbody := Verifier.BoundedQuantifier.Lifting.compile_wfIn (hreg ▸ hlaw)
+      have hbody := Verifier.Lifting.compile_wfIn (hreg ▸ hlaw)
         v.down (hacc ▸ hwf) (hacc ▸ hΓwf) hcompile
       obtain ⟨st4, ρ4, hdelta, howns4, hvars4, hwf4, hsub4, hagree4,
         hΓwf4, hΓagree4, hcont⟩ :=
-        Verifier.BoundedQuantifier.Lifting.declare_correct s body env.signature
+        Verifier.Lifting.declare_correct s body env.signature
           env.specFunctions st ρ v.down hbody hacc.symm howns hvars
           (hacc ▸ hwf) (hacc ▸ hΓwf) hΓagree (SeqM.eval_bind heval)
       exact ⟨{ env with
@@ -386,7 +386,7 @@ private theorem declareLifting_correct {reg : Registry} {Θ : TinyML.TypeEnv}
 
 omit [MicaGS HasLC.hasLC Sig] in
 private theorem declareLiftings_correct {reg : Registry} {Θ : TinyML.TypeEnv}
-    (hlaw : reg.primitives.Lawful) (ss : List Verifier.BoundedQuantifier.Lifting) :
+    (hlaw : reg.primitives.Lawful) (ss : List Verifier.Lifting) :
     ∀ (env : Env) (st : TransState) (ρ : _root_.Env)
       {Q : Env → TransState → _root_.Env → Prop},
       SpecInv reg Θ env st ρ →
