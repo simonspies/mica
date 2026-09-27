@@ -13,6 +13,7 @@
 - `Intrinsic.lean` — Data model for verifier intrinsics, with generic theorems characterizing the effect of registry setup.
 - `Lemma.lean` — Facts kept out of the solver context, which a check takes into its query or publishes as a ghost function.
 - `Monad.lean` — Verification monad with SMT operations, branching, and its operational and semantic correctness interfaces.
+- `Ownership.lean` — Finding, consuming, and acquiring ownership of spatial atoms in the verifier state.
 - `PredicateTransformers.lean` — Verifier operations on predicate transformers: the call and implementation protocols and their well-formedness.
 - `PrimitiveLaws.lean` — Spatially lifted weakest-precondition laws for TinyML primitive operations.
 - `Programs.lean` — Verification of whole programs, one declaration after the other, and program-level soundness.

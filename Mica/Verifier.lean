@@ -4,6 +4,7 @@ import Mica.Verifier.SpatialAtom
 import Mica.Verifier.PrimitiveLaws
 import Mica.Verifier.Monad
 import Mica.Verifier.Seq
+import Mica.Verifier.Ownership
 import Mica.Verifier.Bindings
 import Mica.Verifier.Utils
 import Mica.Verifier.Lemma
