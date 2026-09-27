@@ -61,9 +61,9 @@ private def parseArgs : List String → Options → Options
     registry, discharging its obligations from `Stdlib.registry_sound`. -/
 theorem verify_adequate (p : Untyped.Program Untyped.SpecBody) :
     Smt.Strategy.checks (Program.verify Stdlib.registry p)
-      (∀ {e' : Runtime.Expr} {μ' : TinyML.Heap},
+      fun _ => ∀ {e' : Runtime.Expr} {μ' : TinyML.Heap},
         TinyML.Steps Stdlib.registry.primCtx (Untyped.Program.runtime p).expr ∅ e' μ' →
-        (∃ v, e' = .val v) ∨ ∃ e'' μ'', TinyML.Step Stdlib.registry.primCtx e' μ' e'' μ'') :=
+        (∃ v, e' = .val v) ∨ ∃ e'' μ'', TinyML.Step Stdlib.registry.primCtx e' μ' e'' μ'' :=
   Program.verify_adequate Stdlib.registry Stdlib.registry_sound p
 
 def main (args : List String) : IO Unit := do

@@ -110,17 +110,16 @@ theorem eval_exec {cmd : Command β} {k : β → Strategy α} {st : State} {ret 
   · rintro ⟨r, hobl, t, hgen, hsound, hst', hret⟩
     exact ⟨.step cmd r t, .exec hgen, hsound.step_cons hobl, hst', hret⟩
 
-/-! ## Strategy.Outcome and Strategy.checks -/
+/-! ## Strategy.checks -/
 
-def Outcome := Except String Unit
+/-- `s.checks φ` holds when every successful execution of `s` from
+    `State.initial` establishes `φ` of its result. -/
+def checks (s : Strategy (Except String α)) (φ : α → Prop) :=
+  ∀ st' a, eval s State.initial (.ok a) st' → φ a
 
-/-- `s.checks φ` holds when every successful execution of `s` from `State.initial` establishes `φ`. -/
-def checks (s : Strategy Outcome) (φ : Prop) :=
-  ∀ st', eval s State.initial (.ok ()) st' → φ
-
-theorem checks.imp {s : Strategy Outcome} {φ ψ : Prop} (h : s.checks φ) (himp : φ → ψ) :
-    s.checks ψ :=
-  fun st' he => himp (h st' he)
+theorem checks.imp {s : Strategy (Except String α)} {φ ψ : α → Prop} (h : s.checks φ)
+    (himp : ∀ a, φ a → ψ a) : s.checks ψ :=
+  fun st' a he => himp a (h st' a he)
 
 end Strategy
 

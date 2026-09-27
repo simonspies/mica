@@ -27,7 +27,7 @@ def Program.declareAndCheck :
     Program.declareAndCheck env' S' ds
 
 def Program.verify (reg : Verifier.Registry) (prog : Untyped.Program Untyped.SpecBody) :
-    Smt.Strategy Smt.Strategy.Outcome :=
+    Smt.Strategy (Except String Unit) :=
   SeqM.strategy do
     reg.introduceRegistry
     let Δ ← SeqM.decls
@@ -68,8 +68,8 @@ omit [MicaGS HasLC.hasLC Sig] in
 theorem Program.verify_correct (reg : Verifier.Registry)
     (hSound : Verifier.Registry.Sound reg) (p : Untyped.Program Untyped.SpecBody) :
     Smt.Strategy.checks (Program.verify reg p)
-      (∀ [MicaGS HasLC.hasLC Sig], ⊢ pwp reg.primCtx (Untyped.Program.runtime p)) := by
-  intro st' heval _inst
+      fun _ => ∀ [MicaGS HasLC.hasLC Sig], ⊢ pwp reg.primCtx (Untyped.Program.runtime p) := by
+  intro st' _ heval _inst
   have hrun := SeqM.strategy_correct heval _root_.Env.init State.init_holdsFor
   obtain ⟨st, ρ, _, hdep, hvars, howns, _, hstable, _, hcont⟩ :=
     Verifier.Registry.eval_introduceRegistry reg hSound (SeqM.eval_bind hrun)
@@ -105,9 +105,9 @@ omit [MicaGS HasLC.hasLC Sig] in
 theorem Program.verify_adequate (reg : Verifier.Registry)
     (hSound : Verifier.Registry.Sound reg) (p : Untyped.Program Untyped.SpecBody) :
     Smt.Strategy.checks (Program.verify reg p)
-      (∀ {e' : Runtime.Expr} {μ' : TinyML.Heap},
+      fun _ => ∀ {e' : Runtime.Expr} {μ' : TinyML.Heap},
         TinyML.Steps reg.primCtx (Untyped.Program.runtime p).expr ∅ e' μ' →
-        (∃ v, e' = .val v) ∨ ∃ e'' μ'', TinyML.Step reg.primCtx e' μ' e'' μ'') :=
-  (Program.verify_correct reg hSound p).imp fun Hpwp _ _ hsteps =>
+        (∃ v, e' = .val v) ∨ ∃ e'' μ'', TinyML.Step reg.primCtx e' μ' e'' μ'' :=
+  (Program.verify_correct reg hSound p).imp fun _ Hpwp _ _ hsteps =>
     (Runtime.Program.adequacy (φ := fun _ => True)
       (by intro inst; exact Hpwp.trans (pwp.wp_expr _)) hsteps).1
