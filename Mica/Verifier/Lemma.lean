@@ -1,5 +1,5 @@
 -- SUMMARY: Facts kept out of the solver context, which a check takes into its query or publishes as a ghost function.
-import Mica.Verifier.Bindings
+import Mica.Verifier.GhostFunctions
 import Mica.Verifier.Guard
 import Mica.Verifier.Monad
 
