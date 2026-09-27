@@ -26,7 +26,7 @@ structure Env where
   typeDeclarations : TinyML.TypeEnv
   signature        : Signature
   lemmas           : Lemmas
-  specFunctions    : RelationalEncoding.FunCtx
+  specFunctions    : PureEncoding.FunCtx
   liftings         : List LiftedClosure
   /-- The types elaboration gives the declared names. It also has the names
       that have no value in the verifier, unlike `Scope.typingContext`. -/
@@ -425,8 +425,8 @@ def Env.world (env : Env) (ρ : _root_.Env) : TinyML.World :=
 structure Env.supportedBy (env : Env) (st : State) (ρ : _root_.Env) : Prop where
   sound : env.registry.Sound
   signature : env.signature = st.decls
-  specFunctionsWf : RelationalEncoding.FunCtx.wfIn env.specFunctions st.decls
-  specFunctionsAgree : RelationalEncoding.FunCtx.Agreement env.specFunctions ρ
+  specFunctionsWf : PureEncoding.FunCtx.wfIn env.specFunctions st.decls
+  specFunctionsAgree : PureEncoding.FunCtx.Agreement env.specFunctions ρ
   lemmas : env.lemmas.Sound st.decls ρ
   symbols : env.registry.symSubset st.decls
   interpretations : env.registry.symAgree ρ

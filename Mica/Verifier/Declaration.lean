@@ -29,8 +29,8 @@ the world it was built in, so they mean the same in the larger one
 open Iris Iris.BI
 
 variable [MicaGS HasLC.hasLC Sig]
-open Verifier.RelationalEncoding (FunCtx PrimEncodings encode)
-open Verifier.RelationalEncoding.Skolemize (DefVal)
+open PureEncoding (FunCtx PrimEncodings encode)
+open PureEncoding.Skolemize (DefVal)
 
 /-! ## Ghost Declarations
 
@@ -626,7 +626,7 @@ private def translateLeaf (primitives : PrimEncodings) (Δ : Signature)
     (e : Typed.Expr) : Except String (Term .value × Formula) := do
   let c ← encode primitives Δ Γfn (names.map (fun n => (n, .var .value n))) e
     (Δ.allNames ++ names)
-  let dv := Verifier.RelationalEncoding.Expr.toDefVal .id c
+  let dv := PureEncoding.Expr.toDefVal .id c
   .ok (dv.value, dv.defined)
 
 /-- The environment elaboration resolves specifications against: the registry's

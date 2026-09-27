@@ -27,7 +27,7 @@ induction over `Typed.Expr` (`encode_wfIn`), and consumed by each encoding
 in three cases.
 -/
 
-namespace Verifier.RelationalEncoding
+namespace PureEncoding
 
 /-! ## Reading an encoding in an environment
 
@@ -726,4 +726,4 @@ theorem encode_wfIn {primitives : PrimEncodings} {Γ : FunCtx} {Δ Δ' : Signatu
     Expr.WfIn Γ avoid Δ' c :=
   encodeWith_wfIn hlaw e hsub hΔ' hδ hcov ret_wfCont henc
 
-end Verifier.RelationalEncoding
+end PureEncoding

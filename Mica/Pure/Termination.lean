@@ -31,7 +31,7 @@ self-call a rank constant to lower, because what it checks is a proof rather
 than a definition. Both read the same `[@@decreases]` measure.
 -/
 
-namespace Verifier.RelationalEncoding.Termination
+namespace PureEncoding.Termination
 
 /-- Negative ranks have no predecessors. Recursive calls must have a
 nonnegative rank strictly below the current rank. -/
@@ -97,4 +97,4 @@ theorem obligation_correct {fn : SpecFn} {x rank : String}
   · simpa only [Term.eval, Env.lookupConst_updateConst_ne' (Or.inl hne),
       Env.lookupConst_updateConst_same] using (hm' _ v).symm
 
-end Verifier.RelationalEncoding.Termination
+end PureEncoding.Termination

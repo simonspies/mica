@@ -6,8 +6,8 @@ open Verifier (State)
 
 open Iris Iris.BI
 
-open Verifier.RelationalEncoding (FunCtx PrimEncodings encode)
-open Verifier.RelationalEncoding.Skolemize (DefVal)
+open PureEncoding (FunCtx PrimEncodings encode)
+open PureEncoding.Skolemize (DefVal)
 
 /-! ## Declaring a spec-function symbol triple
 
@@ -18,7 +18,7 @@ and assuming its valid defining axioms, preserves the spec-function declaration
 invariants. -/
 
 namespace SpecFn
-open Verifier.RelationalEncoding
+open PureEncoding
 
 /-- Declare the solver-facing triple of `L` and assume its defining axioms. -/
 def declare (L : SpecFn) (axs : List Axiom) : SeqM Unit := do
@@ -129,7 +129,7 @@ end SpecFn
 
 /-! ## Termination check -/
 
-namespace Verifier.RelationalEncoding.Termination
+namespace PureEncoding.Termination
 
 /-- Prove total definedness from the body, without recursive definedness
 axioms. The quantified induction hypothesis belongs only to this query. The
@@ -148,8 +148,8 @@ def check (fn : SpecFn) (x : String) (m : Typed.Measure)
     VerifM.fatal msg
 
 theorem check_correct {fn : SpecFn} {x : String} {m : Typed.Measure}
-    {body : Skolemize.DefVal} {st : State} {ρ : _root_.Env}
-    {Q : Unit → State → _root_.Env → Prop}
+    {body : Skolemize.DefVal} {st : State} {ρ : Env}
+    {Q : Unit → State → Env → Prop}
     (hclose : ∀ v, body.defined.eval (ρ.updateConst .value x v) →
       (fn.isDefined (.var .value x)).eval (ρ.updateConst .value x v))
     (h : VerifM.eval (check fn x m body) st ρ Q) :
@@ -169,13 +169,13 @@ theorem check_correct {fn : SpecFn} {x : String} {m : Typed.Measure}
       exact ⟨Formula.checkWf_ok ht, htotal, VerifM.eval_ret h⟩
   all_goals exact (VerifM.eval_fatal h).elim
 
-end Verifier.RelationalEncoding.Termination
+end PureEncoding.Termination
 
 /-! ## `[@@fn]` declarations -/
 
 namespace Verifier.Env
 
-open Verifier.RelationalEncoding
+open PureEncoding
 
 /-- A specification on the literal is `[@@impl]`'s, which states the result
 against this very axiomatization; the frontend rejects every other pairing of

@@ -283,7 +283,7 @@ def Intrinsic.symbol (i : Intrinsic) : Option (FOL.Symbol i.arity) :=
     intrinsic without a FOL encoding gives no entry. This function keeps
     declarations and expression encodings apart. A `symbol` entry reads the
     signature. A `direct` entry only makes a term. -/
-def Intrinsic.primEncoding (i : Intrinsic) : Option RelationalEncoding.PrimEncoding :=
+def Intrinsic.primEncoding (i : Intrinsic) : Option PureEncoding.PrimEncoding :=
   i.encode.map fun f =>
     { name := i.name
       arity := i.arity
@@ -297,7 +297,7 @@ def Intrinsic.encodeLawful (i : Intrinsic) : Prop :=
 
 /-- Each entry that an intrinsic gives obeys the laws of the encoder. -/
 theorem Intrinsic.primEncoding_lawful (i : Intrinsic) (hlaw : i.encodeLawful)
-    {e : RelationalEncoding.PrimEncoding} (h : i.primEncoding = some e) : e.Lawful := by
+    {e : PureEncoding.PrimEncoding} (h : i.primEncoding = some e) : e.Lawful := by
   cases hencode : i.encode with
   | none => simp [Intrinsic.primEncoding, hencode] at h
   | some f =>
@@ -312,7 +312,7 @@ abbrev Registry := List Intrinsic
 /-- The primitive table that a registry gives to the encoder. An intrinsic
     without a FOL encoding gives no entry. Therefore `encodePrim` rejects
     that name as unknown. -/
-def Registry.primitives (R : Registry) : RelationalEncoding.PrimEncodings :=
+def Registry.primitives (R : Registry) : PureEncoding.PrimEncodings :=
   R.filterMap Intrinsic.primEncoding
 
 /-- Embed a pure (heap-independent, heap-preserving) relation as a heap-aware

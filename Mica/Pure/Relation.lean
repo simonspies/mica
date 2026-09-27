@@ -8,7 +8,7 @@ First stage of the encoding. A recursive definition `rec f x := e` becomes a
 binary FOL relation, interpreted as the least fixpoint of the encoded body
 operator. Diverging inputs are absent from the relation.
 -/
-namespace Verifier.RelationalEncoding
+namespace PureEncoding
 
 abbrev ValRel : Type := RelationFix.Rel Srt.value.denote Srt.value.denote
 
@@ -281,12 +281,12 @@ def encodeBody (sd : SpecDef) : Except String Expr :=
 def encodeFormula (sd : SpecDef) : Except String Formula :=
   Expr.toFormula sd.res <$> encodeBody sd
 
-end Verifier.RelationalEncoding
+end PureEncoding
 
 /-! ## What the relation symbol denotes -/
 
 namespace SpecFn.Semantics
-open Verifier.RelationalEncoding
+open PureEncoding
 
 /-- Least-fixpoint relational interpretation of one definition. A body that
 fails to encode denotes the empty relation. -/

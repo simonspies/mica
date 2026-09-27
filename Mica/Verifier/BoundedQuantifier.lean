@@ -270,7 +270,7 @@ matrix variables and inlined into `L`'s two defining axioms.
 The canonical interpretations of `L`'s symbols are the evaluations of the
 axioms' right-hand sides, so validity is by construction. -/
 
-open Verifier.RelationalEncoding
+open PureEncoding
 
 namespace Verifier.LiftedClosure
 
@@ -734,7 +734,7 @@ end Verifier.LiftedClosure
 
 namespace Verifier.Env
 
-open Verifier.RelationalEncoding
+open PureEncoding
 
 /-- Declare a bounded quantifier's solver-facing triple and its defining
 axioms. All freshness and membership conditions needed by the soundness proof

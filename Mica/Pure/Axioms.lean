@@ -53,7 +53,7 @@ exactly `fib_def(n)`, and that `fib_val(n)` equals the conditional value
 expression whenever `fib_def(n)` holds.
 -/
 
-namespace Verifier.RelationalEncoding
+namespace PureEncoding
 namespace Skolemize
 open Relation
 
@@ -426,4 +426,4 @@ theorem encode_eval_updateBinaryRel {sd : SpecDef} {ρ : Env} {bv : DefVal} {axs
   exact SpecFn.Axioms.all_eval_updateBinaryRel hlaw henc hΓ hΓwf hΔ hheadFresh R
 
 end Skolemize
-end Verifier.RelationalEncoding
+end PureEncoding

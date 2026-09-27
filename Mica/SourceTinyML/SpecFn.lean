@@ -9,7 +9,7 @@ solver-facing symbols: a binary relation, a value function, and a definedness
 predicate. This file fixes that vocabulary — the names, the symbols, the term
 and formula constructors, their evaluation, and their well-formedness — so that
 both the assertion semantics (`Mica/SourceTinyML/Semantics.lean`) and the
-relational encoding (`Mica/Verifier/RelationalEncoding/`) can use it.
+pure encoding (`Mica/Pure/`) can use it.
 -/
 
 /-- Frontend name of a specification-level function symbol. -/
