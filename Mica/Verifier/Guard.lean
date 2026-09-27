@@ -30,7 +30,7 @@ theorem Signature.supportsGuarding.mono {Δ Δ' : Signature} (hsub : Δ.Subset �
   hsub.consts _ h
 
 /-- The guard formula is well-formed in any signature declaring the guard. -/
-theorem guardFormula.wf {Δ : Signature} (hwf : Δ.wf) (h : Δ.supportsGuarding) :
+theorem guardFormula_wfIn {Δ : Signature} (hwf : Δ.wf) (h : Δ.supportsGuarding) :
     guardFormula.wfIn Δ :=
   ⟨Term.const_wfIn_of_mem hwf h, trivial⟩
 
@@ -100,12 +100,12 @@ theorem guarded_wfIn {φ : Formula} {Δ : Signature} (hwf : Δ.wf)
   | forall_ x τ ps φ ih =>
       simp only [guarded]
       split
-      · exact ⟨guardFormula.wf hwf hguard, h⟩
+      · exact ⟨guardFormula_wfIn hwf hguard, h⟩
       · exact ⟨h.1, ih (Signature.wf_declVar hwf)
           (supportsGuarding_declVar hguard ‹x ≠ guardConst.name›) h.2⟩
   | true_ | false_ | eq | unpred | binpred | not | and | or | implies | exists_ =>
       simp only [guarded, Formula.wfIn]
-      exact ⟨guardFormula.wf hwf hguard, h⟩
+      exact ⟨guardFormula_wfIn hwf hguard, h⟩
 
 end Formula
 
