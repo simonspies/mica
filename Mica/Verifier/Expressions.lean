@@ -2898,7 +2898,7 @@ theorem compileMatch_correct (scrut : Expr) (branches : List (Binder × Expr)) (
           simpa [if_pos hlen, if_neg htys] using hΨ_scrut
         exact (VerifM.eval_fatal hΨ_bad).elim
 
-theorem compileSingleBranch_correct (binder : Binder) (body : Expr)
+theorem compileBranch_correct (binder : Binder) (body : Expr)
     (ihBody : correctExpr body) :
     correctBranch (binder, body) := by
   intro env W S γg γ sc n i ty_i st ρ Ψ R Φ henv hS hsc_wf heval hpost payload hsc_eval
@@ -3143,17 +3143,13 @@ theorem compile_correct (e : Expr) : correctExpr e := by
     simpa using compileMatch_correct scrut branches ty
       (compile_correct scrut) (compileBranches_correct branches)
 
-theorem compileBranch_correct (branch : Binder × Expr) : correctBranch branch := by
-  obtain ⟨binder, body⟩ := branch
-  simpa using compileSingleBranch_correct binder body (compile_correct body)
-
 theorem compileBranches_correct (branches : List (Binder × Expr)) : correctBranches branches := by
   match branches with
   | [] =>
     exact compileBranchesNil_correct
-  | b :: bs =>
-    simpa using compileBranchesCons_correct b bs
-      (compileBranch_correct b) (compileBranches_correct bs)
+  | (binder, body) :: bs =>
+    simpa using compileBranchesCons_correct (binder, body) bs
+      (compileBranch_correct binder body (compile_correct body)) (compileBranches_correct bs)
 
 theorem compileExprs_correct (es : List Expr) : correctExprs es := by
   match es with

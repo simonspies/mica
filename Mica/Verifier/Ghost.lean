@@ -1569,7 +1569,7 @@ theorem compileGhostMatch_correct
           simpa [if_pos hlen, if_neg htys] using hΨ_scrut
         exact (VerifM.eval_fatal hΨ_bad).elim
 
-theorem compileGhostSingleBranch_correct
+theorem compileGhostBranch_correct
     (binder : Binder) (body : Expr) (ihBody : correctGhostExpr body) :
     correctGhostBranch (binder, body) := by
   intro env W S γg γ sc n i ty_i st ρ Ψ R Φ henv hS
@@ -1794,19 +1794,13 @@ theorem compileGhostExpr_correct
       (compileGhostExpr_correct scrut)
       (compileGhostBranches_correct branches)
 
-theorem compileGhostBranch_correct
-    (branch : Binder × Expr) : correctGhostBranch branch := by
-  obtain ⟨binder, body⟩ := branch
-  exact compileGhostSingleBranch_correct binder body
-    (compileGhostExpr_correct body)
-
 theorem compileGhostBranches_correct
     (branches : List (Binder × Expr)) : correctGhostBranches branches := by
   match branches with
   | [] => exact compileGhostBranchesNil_correct
-  | b :: bs =>
-    exact compileGhostBranchesCons_correct b bs
-      (compileGhostBranch_correct b)
+  | (binder, body) :: bs =>
+    exact compileGhostBranchesCons_correct (binder, body) bs
+      (compileGhostBranch_correct binder body (compileGhostExpr_correct body))
       (compileGhostBranches_correct bs)
 
 theorem compileGhostExprs_correct
