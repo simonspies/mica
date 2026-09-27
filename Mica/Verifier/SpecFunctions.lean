@@ -131,12 +131,6 @@ namespace Verifier.Env
 
 open Verifier.RelationalEncoding
 
-private structure RelationDecl where
-  env : Env
-  sd : SpecDef
-  axs : List Axiom
-  bv : Skolemize.DefVal
-
 /-- A specification on the literal is `[@@impl]`'s, which states the result
 against this very axiomatization; the frontend rejects every other pairing of
 `[@@fn]` with a specification. -/
@@ -153,72 +147,74 @@ private def validateDecl (d : Typed.ValDecl) :
   | .fix _ _ _ _ _ => .error s!"[@@fn] requires a unary function"
   | _ => .error s!"[@@fn] requires a function body"
 
-private def extend (env : Env) (d : Typed.ValDecl) : Except String RelationDecl := do
-  match d.relation with
-  | none => .error "internal error: expected relation declaration"
-  | some r => do
-      let rel := r.name
-      let (f, arg, body) ← validateDecl d
-      let relName := SpecFn.relName rel
-      let funName := SpecFn.funcName rel
-      let defName := SpecFn.defName rel
-      if relName ∈ env.signature.allNames then
-        .error s!"derived relation name '{relName}' for [@@fn] conflicts with an existing symbol"
-      else if funName ∈ env.signature.allNames then
-        .error s!"derived value-function name '{funName}' for [@@fn] conflicts with an existing symbol"
-      else if defName ∈ env.signature.allNames then
-        .error s!"derived definedness name '{defName}' for [@@fn] conflicts with an existing symbol"
-      else if arg ∈ env.signature.allNames then
-        .error s!"[@@fn] argument name '{arg}' conflicts with a global symbol"
-      else if arg = relName then
-        .error s!"[@@fn] argument name '{arg}' clashes with derived relation name"
-      else if arg = funName then
-        .error s!"[@@fn] argument name '{arg}' clashes with derived value-function name"
-      else if arg = defName then
-        .error s!"[@@fn] argument name '{arg}' clashes with derived definedness name"
-      else
-        let sd : SpecDef :=
-          { primitives := env.registry.primitives, Γ := env.specFunctions, Δ := env.signature,
-            f, fn := rel, x := arg, e := body }
-        let (bv, axs) ← Skolemize.encode sd
-        let lemmas := match r.transparency with
-          | .transparent => env.lemmas
-          | .opaque => env.lemmas ++
-              [{ kind := .definingEquation f,
-                 fact := Skolemize.SpecFn.Axioms.equation rel arg bv }]
-        let env' := { env with
-                       lemmas,
-                       specFunctions := env.specFunctions ++ [(f, rel)],
-                       signature := ((env.signature.addBinaryRel (SpecFn.rel rel)).addUnary
-                                      (SpecFn.func rel)).addUnaryRel (SpecFn.defined rel) }
-        .ok { env := env', sd, axs, bv }
+/-- The spec function `rel` that the `[@@fn]` declaration `d` defines. Its
+symbols and its argument must be fresh for the signature of `env`. -/
+private def specDef (env : Env) (d : Typed.ValDecl) (rel : SpecFn) : Except String SpecDef := do
+  let (f, arg, body) ← validateDecl d
+  let relName := SpecFn.relName rel
+  let funName := SpecFn.funcName rel
+  let defName := SpecFn.defName rel
+  if relName ∈ env.signature.allNames then
+    .error s!"derived relation name '{relName}' for [@@fn] conflicts with an existing symbol"
+  else if funName ∈ env.signature.allNames then
+    .error s!"derived value-function name '{funName}' for [@@fn] conflicts with an existing symbol"
+  else if defName ∈ env.signature.allNames then
+    .error s!"derived definedness name '{defName}' for [@@fn] conflicts with an existing symbol"
+  else if arg ∈ env.signature.allNames then
+    .error s!"[@@fn] argument name '{arg}' conflicts with a global symbol"
+  else if arg = relName then
+    .error s!"[@@fn] argument name '{arg}' clashes with derived relation name"
+  else if arg = funName then
+    .error s!"[@@fn] argument name '{arg}' clashes with derived value-function name"
+  else if arg = defName then
+    .error s!"[@@fn] argument name '{arg}' clashes with derived definedness name"
+  else
+    .ok { primitives := env.registry.primitives, Γ := env.specFunctions, Δ := env.signature,
+          f, fn := rel, x := arg, e := body }
+
+/-- An opaque spec function also records its defining equation as a lemma. -/
+private def extend (env : Env) (sd : SpecDef) (bv : Skolemize.DefVal)
+    (t : TinyML.Transparency) : Env :=
+  let lemmas := match t with
+    | .transparent => env.lemmas
+    | .opaque => env.lemmas ++
+        [{ kind := .definingEquation sd.f,
+           fact := Skolemize.SpecFn.Axioms.equation sd.fn sd.x bv }]
+  { env with
+    lemmas,
+    specFunctions := env.specFunctions ++ [(sd.f, sd.fn)],
+    signature := ((env.signature.addBinaryRel (SpecFn.rel sd.fn)).addUnary
+                   (SpecFn.func sd.fn)).addUnaryRel (SpecFn.defined sd.fn) }
 
 /-- With a measure the definedness axioms are replaced by a proof: the
 termination check establishes definedness at every input. The check is one of
 the declaration's own proofs, so it runs with the withheld fact. Only the
 totality survives the bracket. -/
-private def RelationDecl.declare (info : RelationDecl) (t : TinyML.Transparency) :
+private def declareRelation (sd : SpecDef) (bv : Skolemize.DefVal) (t : TinyML.Transparency) :
     Option Typed.Measure → SeqM Unit
   | none =>
-    SpecFn.declare info.sd.fn
-      (Skolemize.SpecFn.Axioms.persistent false t info.sd.fn info.sd.x info.bv)
+    SpecFn.declare sd.fn
+      (Skolemize.SpecFn.Axioms.persistent false t sd.fn sd.x bv)
   | some m => do
-    SpecFn.declare info.sd.fn
-      (Skolemize.SpecFn.Axioms.persistent true t info.sd.fn info.sd.x info.bv)
+    SpecFn.declare sd.fn
+      (Skolemize.SpecFn.Axioms.persistent true t sd.fn sd.x bv)
     SeqM.check do
-      VerifM.assumeAxioms (Skolemize.SpecFn.Axioms.withheld t info.sd.fn info.sd.x info.bv)
-      Termination.check info.sd.fn info.sd.x m info.bv
-    SeqM.assume (Termination.total info.sd.fn info.sd.x)
+      VerifM.assumeAxioms (Skolemize.SpecFn.Axioms.withheld t sd.fn sd.x bv)
+      Termination.check sd.fn sd.x m bv
+    SeqM.assume (Termination.total sd.fn sd.x)
 
 def declareAndAssume (env : Env) (d : Typed.ValDecl) : SeqM Env := do
   match d.relation with
   | none => pure env
   | some r =>
-      match extend env d with
+      match specDef env d r.name with
       | .error msg => SeqM.fatal msg
-      | .ok info => do
-          info.declare r.transparency d.decreases
-          pure info.env
+      | .ok sd =>
+          match Skolemize.encode sd with
+          | .error msg => SeqM.fatal msg
+          | .ok (bv, _) => do
+              declareRelation sd bv r.transparency d.decreases
+              pure (extend env sd bv r.transparency)
 
 /-- The invariant threaded through the declaration of spec functions: the signature mirrors the declared
 one, the state is spec-level (no owned locations, no variables), and the spec
@@ -256,86 +252,78 @@ theorem declareAndAssume_correct {reg : Registry} {Θ : TinyML.TypeEnv}
       Signature.Subset.refl _, Env.agreeOn_refl, SeqM.eval_ret heval⟩
   | some rel =>
     simp only [hrel] at heval
-    cases hext : extend env d with
-    | error msg => simp only [hext] at heval; exact (SeqM.eval_fatal heval).elim
-    | ok info =>
-      simp only [hext] at heval
-      -- Unfold `extend` once to expose its construction facts about `info`.
-      obtain ⟨hprimsd, hΓsd, hΔsd, hfnsd, hf, hspec_delta, hspec_fm, hspec_reg, hspec_types,
-          hspec_lemmas, hinfoEq⟩ :
-          info.sd.primitives = env.registry.primitives ∧
-          info.sd.Γ = env.specFunctions ∧ info.sd.Δ = env.signature ∧ info.sd.fn = rel.name ∧
-          SpecFnFresh env.signature rel.name info.sd.x ∧
-          info.env.signature = ((env.signature.addBinaryRel (SpecFn.rel rel.name)).addUnary
-              (SpecFn.func rel.name)).addUnaryRel (SpecFn.defined rel.name) ∧
-          info.env.specFunctions = env.specFunctions ++ [(info.sd.f, rel.name)] ∧
-          info.env.registry = env.registry ∧
-          info.env.typeDeclarations = env.typeDeclarations ∧
-          (∀ l ∈ info.env.lemmas, l ∈ env.lemmas ∨
-            l.fact = Skolemize.SpecFn.Axioms.equation info.sd.fn info.sd.x info.bv) ∧
-          Skolemize.encode info.sd = .ok (info.bv, info.axs) := by
-        unfold extend at hext
-        simp only [hrel, bind, Except.bind] at hext
-        split at hext
-        · cases hext
+    cases hsd : specDef env d rel.name with
+    | error msg => simp only [hsd] at heval; exact (SeqM.eval_fatal heval).elim
+    | ok sd =>
+      simp only [hsd] at heval
+      obtain ⟨⟨bv, axs₀⟩, henc⟩ : ∃ r, Skolemize.encode sd = .ok r := by
+        cases h : Skolemize.encode sd with
+        | error msg => simp only [h] at heval; exact (SeqM.eval_fatal heval).elim
+        | ok r => exact ⟨r, rfl⟩
+      simp only [henc] at heval
+      obtain ⟨hprimsd, hΓsd, hΔsd, hfnsd, hf⟩ :
+          sd.primitives = env.registry.primitives ∧
+          sd.Γ = env.specFunctions ∧ sd.Δ = env.signature ∧ sd.fn = rel.name ∧
+          SpecFnFresh env.signature rel.name sd.x := by
+        unfold specDef at hsd
+        simp only [bind, Except.bind] at hsd
+        split at hsd
+        · cases hsd
         rename_i validated _
         obtain ⟨f, arg, body⟩ := validated
-        split_ifs at hext with
+        split_ifs at hsd with
           hrel_in hfun_in hdef_in harg_in harg_eq_rel harg_eq_fun harg_eq_def
         case neg =>
-          split at hext
-          · cases hext
-          rename_i tup hinfoTuple
-          obtain ⟨bv, axs⟩ := tup
-          cases hext
-          refine ⟨rfl, rfl, rfl, rfl, { symFresh := ?_, argFresh := ?_ }, rfl, rfl, rfl, rfl, ?_,
-            hinfoTuple⟩
+          cases hsd
+          refine ⟨rfl, rfl, rfl, rfl, { symFresh := ?_, argFresh := ?_ }⟩
           · intro n hn
             simp only [SpecFn.names, List.mem_cons, List.not_mem_nil, or_false] at hn
             rcases hn with rfl | rfl | rfl
             exacts [hrel_in, hfun_in, hdef_in]
           · simp [SpecFn.names, harg_in, harg_eq_rel, harg_eq_fun, harg_eq_def]
-          · cases rel.transparency with
-            | transparent => exact fun l hl => Or.inl hl
-            | «opaque» =>
-              intro l hl
-              rcases List.mem_append.mp hl with hl | hl
-              · exact Or.inl hl
-              · simp only [List.mem_singleton] at hl
-                subst hl
-                exact Or.inr rfl
+      have hspec_lemmas : ∀ l ∈ (extend env sd bv rel.transparency).lemmas, l ∈ env.lemmas ∨
+          l.fact = Skolemize.SpecFn.Axioms.equation sd.fn sd.x bv := by
+        cases rel.transparency with
+        | transparent => exact fun l hl => Or.inl hl
+        | «opaque» =>
+          intro l hl
+          rcases List.mem_append.mp hl with hl | hl
+          · exact Or.inl hl
+          · simp only [List.mem_singleton] at hl
+            subst hl
+            exact Or.inr rfl
       have hΓwf_acc : FunCtx.wfIn env.specFunctions env.signature := hacc ▸ hΓwf
       have hΔwf_acc : env.signature.wf := hacc ▸ hwf
       -- The chosen interpretations: the ground-truth relation and its func-form reading.
-      set R : ValRel := SpecFn.Semantics.rel info.sd ρ
+      set R : ValRel := SpecFn.Semantics.rel sd ρ
       set F := ValRel.toFunc R
-      set D : Srt.value.denote → Prop := SpecFn.Semantics.defined info.sd ρ info.bv
-      have hsdFresh : info.sd.Fresh :=
+      set D : Srt.value.denote → Prop := SpecFn.Semantics.defined sd ρ bv
+      have hsdFresh : sd.Fresh :=
         SpecDef.fresh (hΔsd ▸ hfnsd ▸ hf)
       have hlaw' : env.registry.primitives.Lawful := hreg ▸ hlaw
-      have hlawsd : info.sd.primitives.Lawful := hprimsd ▸ hlaw'
+      have hlawsd : sd.primitives.Lawful := hprimsd ▸ hlaw'
       have hgraph : ∀ a b, R a b ↔ D a ∧ F a = b := fun a b =>
-        Skolemize.encode_agreement hlawsd hinfoEq (hΓsd ▸ hΓagree)
+        Skolemize.encode_agreement hlawsd henc (hΓsd ▸ hΓagree)
           (hΓsd ▸ hΔsd ▸ hΓwf_acc) (hΔsd ▸ hΔwf_acc) hsdFresh a b
       have henv : SpecFn.Env.both ρ rel.name R D F
-          = (SpecFn.Semantics.env info.sd ρ info.bv).updateBinaryRel
+          = (SpecFn.Semantics.env sd ρ bv).updateBinaryRel
             .value .value (SpecFn.relName rel.name) R := by
         simp only [SpecFn.Semantics.env, hfnsd]
         exact SpecFn.Env.both_updateBinaryRel.symm
-      have haxeval : ∀ ax ∈ info.axs,
+      have haxeval : ∀ ax ∈ axs₀,
           ax.formula.eval (SpecFn.Env.both ρ rel.name R D F) := by
         rw [henv]
         rw [← hfnsd]
-        exact Skolemize.encode_eval_updateBinaryRel hlawsd hinfoEq (hΓsd ▸ hΓagree)
+        exact Skolemize.encode_eval_updateBinaryRel hlawsd henc (hΓsd ▸ hΓagree)
           (hΓsd ▸ hΔsd ▸ hΓwf_acc) (hΔsd ▸ hΔwf_acc) hsdFresh R
-      have hdecl (axs : List Axiom) (hsub : ∀ ax ∈ axs, ax ∈ info.axs)
+      have hdecl (axs : List Axiom) (hsub : ∀ ax ∈ axs, ax ∈ axs₀)
           {Q' : Unit → State → _root_.Env → Prop}
-          (h : SeqM.eval (SpecFn.declare info.sd.fn axs) st ρ Q') :=
-        SpecFn.declare_correct rel.name info.sd.f axs R F D env.signature env.specFunctions st ρ
+          (h : SeqM.eval (SpecFn.declare sd.fn axs) st ρ Q') :=
+        SpecFn.declare_correct rel.name sd.f axs R F D env.signature env.specFunctions st ρ
           hf.relFresh hf.funcFresh hf.defFresh hgraph hacc.symm howns hvars
           (hf.sigBoth_wf hΔwf_acc) hΓwf_acc hΓagree
           (fun ax hax => by
-            have := Skolemize.encode_wfIn hlawsd hinfoEq (hΔsd ▸ hΔwf_acc)
+            have := Skolemize.encode_wfIn hlawsd henc (hΔsd ▸ hΔwf_acc)
               (hΓsd ▸ hΔsd ▸ hΓwf_acc) hsdFresh ax (hsub ax hax)
             rwa [hΔsd, hfnsd] at this)
           (fun ax hax => haxeval ax (hsub ax hax)) (hfnsd ▸ h)
@@ -345,64 +333,64 @@ theorem declareAndAssume_correct {reg : Registry} {Θ : TinyML.TypeEnv}
           (hd : st'.decls = ((env.signature.addBinaryRel (SpecFn.rel rel.name)).addUnary
             (SpecFn.func rel.name)).addUnaryRel (SpecFn.defined rel.name))
           (hρ : ρ' = SpecFn.Env.both ρ rel.name R D F) :
-          ∀ ax ∈ info.axs, ax.formula.wfIn st'.decls ∧ ax.formula.eval ρ' := by
+          ∀ ax ∈ axs₀, ax.formula.wfIn st'.decls ∧ ax.formula.eval ρ' := by
         intro ax hax
         refine ⟨?_, hρ ▸ haxeval ax hax⟩
         rw [hd, ← hΔsd, ← hfnsd]
-        exact Skolemize.encode_wfIn hlawsd hinfoEq (hΔsd ▸ hΔwf_acc)
+        exact Skolemize.encode_wfIn hlawsd henc (hΔsd ▸ hΔwf_acc)
           (hΓsd ▸ hΔsd ▸ hΓwf_acc) hsdFresh ax hax
       -- Either form declares a sublist of the encoded axioms. A measure then
       -- adds the totality assertion, which touches no field the invariant reads.
-      have hrun : ∃ axs, (∀ ax ∈ axs, ax ∈ info.axs) ∧
-          SeqM.eval (SpecFn.declare info.sd.fn axs) st ρ
+      have hrun : ∃ axs, (∀ ax ∈ axs, ax ∈ axs₀) ∧
+          SeqM.eval (SpecFn.declare sd.fn axs) st ρ
             (fun _ st' ρ' =>
               st'.decls = ((env.signature.addBinaryRel (SpecFn.rel rel.name)).addUnary
                 (SpecFn.func rel.name)).addUnaryRel (SpecFn.defined rel.name) →
               ρ' = SpecFn.Env.both ρ rel.name R D F →
               ∃ st'', st''.decls = st'.decls ∧ st''.owns = st'.owns ∧
-                Q info.env st'' ρ') := by
+                Q (extend env sd bv rel.transparency) st'' ρ') := by
         have h := SeqM.eval_bind heval
         cases hm : d.decreases with
         | none =>
-          simp only [RelationDecl.declare, hm] at h
-          exact ⟨_, Skolemize.encode_persistent hinfoEq,
+          simp only [declareRelation, hm] at h
+          exact ⟨_, Skolemize.encode_persistent henc,
             SeqM.eval_mono h fun _ st' _ hQ _ _ => ⟨st', rfl, rfl, SeqM.eval_ret hQ⟩⟩
         | some m =>
-          simp only [RelationDecl.declare, hm] at h
-          refine ⟨_, Skolemize.encode_persistent hinfoEq, SeqM.eval_mono (SeqM.eval_bind h) ?_⟩
+          simp only [declareRelation, hm] at h
+          refine ⟨_, Skolemize.encode_persistent henc, SeqM.eval_mono (SeqM.eval_bind h) ?_⟩
           intro _ st' ρ' hc hd' hρ'
-          have hclose : ∀ v, info.bv.defined.eval (ρ'.updateConst .value info.sd.x v) →
-              (info.sd.fn.isDefined (.var .value info.sd.x)).eval
-                (ρ'.updateConst .value info.sd.x v) := by
-            rw [hρ']; exact Skolemize.encode_closed hinfoEq haxeval
+          have hclose : ∀ v, bv.defined.eval (ρ'.updateConst .value sd.x v) →
+              (sd.fn.isDefined (.var .value sd.x)).eval
+                (ρ'.updateConst .value sd.x v) := by
+            rw [hρ']; exact Skolemize.encode_closed henc haxeval
           obtain ⟨hproof, hcont⟩ := SeqM.eval_check (SeqM.eval_bind hc)
           have hlocal := fun ax (hax : ax ∈ Skolemize.SpecFn.Axioms.withheld
-              rel.transparency info.sd.fn info.sd.x info.bv) =>
-            hcurrent hd' hρ' ax (Skolemize.encode_withheld hinfoEq ax hax)
+              rel.transparency sd.fn sd.x bv) =>
+            hcurrent hd' hρ' ax (Skolemize.encode_withheld henc ax hax)
           obtain ⟨st₀, hd₀, _, _, hcheck⟩ := VerifM.eval_assumeAxioms
             (VerifM.eval_bind hproof) (fun ax hax => (hlocal ax hax).1)
             (fun ax hax => (hlocal ax hax).2)
           obtain ⟨hwt, ht, _⟩ := Termination.check_correct hclose hcheck
-          exact ⟨{ st' with asserts := Termination.total info.sd.fn info.sd.x :: st'.asserts },
+          exact ⟨{ st' with asserts := Termination.total sd.fn sd.x :: st'.asserts },
             rfl, rfl, SeqM.eval_ret (SeqM.eval_assume hcont (hd₀ ▸ hwt) ht)⟩
       obtain ⟨axs, hsub, hrun⟩ := hrun
       obtain ⟨st4, ρ4, hρ4, hst4_decls, howns4, hvars4, hwf4, hsub4, hagree4,
         hΓwf4, hΓagree4, hcont⟩ := hdecl axs hsub hrun
       obtain ⟨st5, hst5_decls, howns5, hQ5⟩ := hcont hst4_decls hρ4
-      refine ⟨info.env, st5, ρ4, ⟨hspec_reg.trans hreg, hspec_types.trans htypes, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩, ?_, hagree4,
+      refine ⟨(extend env sd bv rel.transparency), st5, ρ4, ⟨hreg, htypes, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩, ?_, hagree4,
         hQ5⟩
-      · rw [hspec_delta, hst5_decls, hst4_decls]
+      · simp only [extend, hfnsd]; rw [hst5_decls, hst4_decls]
       · rw [howns5, howns4]
       · rw [hst5_decls]; exact hvars4
       · rw [hst5_decls]; exact hwf4
-      · rw [hspec_fm, hst5_decls]; exact hΓwf4
-      · rw [hspec_fm]; exact hΓagree4
+      · simp only [extend, hfnsd]; rw [hst5_decls]; exact hΓwf4
+      · simp only [extend, hfnsd]; exact hΓagree4
       · rw [hst5_decls]
         intro l hl
         rcases hspec_lemmas l hl with hl' | hfact
         · exact (hu l hl').mono hsub4 hagree4 hwf4
         · simp only [Lemma.Sound, hfact]
-          exact hcurrent hst4_decls hρ4 _ (Skolemize.encode_equation hinfoEq)
+          exact hcurrent hst4_decls hρ4 _ (Skolemize.encode_equation henc)
       · rw [hst5_decls]; exact hsub4
 
 end Verifier.Env
