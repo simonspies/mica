@@ -22,26 +22,26 @@ occurrence that survives the pass fails verification normally.
 
 /-! ## Declaring a spec-function symbol triple
 
-Generic infrastructure, shared with relation assembly in `Programs.lean`:
+Generic infrastructure, shared with the declaration of `[@@fn]` functions in `Declaration.lean`:
 declaring the three solver symbols of a spec function whose relation
 interpretation is the graph of its value function on its definedness domain,
-and assuming its valid defining axioms, preserves the relation-assembly
+and assuming its valid defining axioms, preserves the spec-function declaration
 invariants. -/
 
 namespace SpecFn
 open Verifier.RelationalEncoding
 
 /-- Declare the solver-facing triple of `L` and assume its defining axioms. -/
-def declare (L : SpecFn) (axs : List Axiom) : VerifM Unit := do
-  VerifM.declBinaryRelExact (SpecFn.rel L)
-  VerifM.declUnaryExact (SpecFn.func L)
-  VerifM.declUnaryRelExact (SpecFn.defined L)
-  VerifM.assumeAxioms axs
+def declare (L : SpecFn) (axs : List Axiom) : SeqM Unit := do
+  SeqM.declBinaryRel (SpecFn.rel L)
+  SeqM.declUnary (SpecFn.func L)
+  SeqM.declUnaryRel (SpecFn.defined L)
+  SeqM.assumeAxioms axs
 
 /-- Declaring the triple of a fresh symbol `L` — with interpretations whose
 relation is the graph of the value function on the definedness domain, and
 defining axioms that are well-formed and valid in the extended
-signature/environment — preserves the relation-assembly invariants and
+signature/environment — preserves the spec-function declaration invariants and
 extends the function context by `(f, L)`. -/
 theorem declare_correct (L : SpecFn) (f : TinyML.Var) (axs : List Axiom)
     (R : Srt.value.denote → Srt.value.denote → Prop)
@@ -60,7 +60,7 @@ theorem declare_correct (L : SpecFn) (f : TinyML.Var) (axs : List Axiom)
     (haxwf : ∀ ax ∈ axs, ax.formula.wfIn
       (((Δ.addBinaryRel (rel L)).addUnary (func L)).addUnaryRel (defined L)))
     (haxeval : ∀ ax ∈ axs, ax.formula.eval (SpecFn.Env.both ρ L R D F))
-    (heval : VerifM.eval (declare L axs) st ρ Q) :
+    (heval : SeqM.eval (declare L axs) st ρ Q) :
     ∃ st' ρ', ρ' = SpecFn.Env.both ρ L R D F ∧
       st'.decls = ((Δ.addBinaryRel (rel L)).addUnary (func L)).addUnaryRel (defined L) ∧
       st'.owns = [] ∧ st'.decls.vars = [] ∧ st'.decls.wf ∧
@@ -69,9 +69,9 @@ theorem declare_correct (L : SpecFn) (f : TinyML.Var) (axs : List Axiom)
       FunCtx.wfIn (Γ ++ [(f, L)]) st'.decls ∧
       FunCtx.Agreement (Γ ++ [(f, L)]) ρ' ∧ Q () st' ρ' := by
   simp only [declare] at heval
-  obtain ⟨_, h1⟩ := VerifM.eval_declBinaryRelExact (VerifM.eval_bind heval)
-  obtain ⟨_, h2⟩ := VerifM.eval_declUnaryExact (VerifM.eval_bind (h1 R))
-  obtain ⟨_, h3⟩ := VerifM.eval_declUnaryRelExact (VerifM.eval_bind (h2 F))
+  obtain ⟨_, h1⟩ := SeqM.eval_declBinaryRel (SeqM.eval_bind heval)
+  obtain ⟨_, h2⟩ := SeqM.eval_declUnary (SeqM.eval_bind (h1 R))
+  obtain ⟨_, h3⟩ := SeqM.eval_declUnaryRel (SeqM.eval_bind (h2 F))
   have h4 := h3 D
   set Δext : Signature :=
     ((Δ.addBinaryRel (rel L)).addUnary (func L)).addUnaryRel (defined L)
@@ -91,7 +91,7 @@ theorem declare_correct (L : SpecFn) (f : TinyML.Var) (axs : List Axiom)
       (Signature.Subset.subset_addUnary _ _)).trans
       (Signature.Subset.subset_addUnaryRel _ _)
   obtain ⟨st4, hst4, howns4, _, hQ4⟩ :=
-    VerifM.eval_assumeAxioms h4 (fun ax hax => hst3 ▸ haxwf ax hax)
+    SeqM.eval_assumeAxioms h4 (fun ax hax => hst3 ▸ haxwf ax hax)
       (fun ax hax => by simpa [SpecFn.Env.both] using haxeval ax hax)
   have howns4' : st4.owns = [] := by rw [howns4]; exact howns
   have hvars4 : st4.decls.vars = [] := by
@@ -232,13 +232,13 @@ accumulates its lifted symbols in the elaboration state. Each occurrence
 `Range.all lo hi (fun i -> body)` in a spec leaf is replaced by a plain call
 `L (lo, hi, x̄)` of a symbol `L = "range-<digest>"` named after the closure's
 content, over the packed bounds and captured variables `x̄`; the closure is recorded as a lifted
-function body `let (x̄, i) = arg in body` to be axiomatized during assembly.
+function body `let (x̄, i) = arg in body` to be axiomatized when it is declared.
 Only spec leaves change — declaration bodies, hence the program's runtime
 erasure, are never touched.
 
 The rewrite itself is `partial` and unverified: no proof depends on its
 equations. Rewritten leaves are encoded from scratch, and name freshness is
-validated operationally during assembly. -/
+validated operationally when it is declared. -/
 
 /-- One lifted occurrence of a bounded quantifier: the quantifier symbol's base
 name, the quantifier kind, the captured spec variables (first-occurrence
@@ -534,7 +534,7 @@ def extendSignature (s : Lifting) (Δ : Signature) : Signature :=
     (SpecFn.func s.name)).addUnaryRel (SpecFn.defined s.name)
 
 /-- Declare and axiomatize one validated quantifier symbol. -/
-def declare (s : Lifting) (body : Skolemize.DefVal) : VerifM Unit :=
+def declare (s : Lifting) (body : Skolemize.DefVal) : SeqM Unit :=
   SpecFn.declare s.name (s.axioms body)
 
 /-- Canonical interpretation of the quantifier symbol's definedness predicate:
@@ -662,7 +662,7 @@ theorem defMatrix_wfIn (hΔ : Δ.wf)
     hbody.2⟩
 
 /-- Well-formedness of the defining axioms. All hypotheses are discharged
-operationally by the assembly step (symbol declarations and name checks). -/
+operationally when it is declared (symbol declarations and name checks). -/
 theorem axioms_wfIn (hΔ : Δ.wf)
     (hbody : body.wfIn (s.matrixScope Δ))
     (hlfun : SpecFn.func s.name ∈ Δ.unary) (hldef : SpecFn.defined s.name ∈ Δ.unaryRel)
@@ -784,7 +784,7 @@ theorem axioms_eval {ρ : Env}
       simp [Term.eval]
 
 /-- Declaring a validated quantifier symbol preserves the global
-relation-assembly invariants: the generic triple declaration
+spec-function declaration invariants: the generic triple declaration
 (`SpecFn.declare_correct`) instantiated with the canonical interpretations,
 whose graph shape holds by construction. -/
 theorem declare_correct (s : Lifting) (body : Skolemize.DefVal) (Δ : Signature) (Γ : FunCtx)
@@ -794,7 +794,7 @@ theorem declare_correct (s : Lifting) (body : Skolemize.DefVal) (Δ : Signature)
     (hdecls : st.decls = Δ) (howns : st.owns = []) (hvars : st.decls.vars = [])
     (hwf : Δ.wf) (hΓwf : FunCtx.wfIn Γ Δ)
     (hΓagree : FunCtx.Agreement Γ ρ)
-    (heval : VerifM.eval (s.declare body) st ρ Q) :
+    (heval : SeqM.eval (s.declare body) st ρ Q) :
     ∃ st' ρ',
       st'.decls = s.extendSignature Δ ∧ st'.owns = [] ∧ st'.decls.vars = [] ∧
       st'.decls.wf ∧ st.decls.Subset st'.decls ∧

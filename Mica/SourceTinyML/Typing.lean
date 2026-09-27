@@ -522,7 +522,7 @@ spec's arguments taking the function's argument types, `bind` binders their
 annotated types, and the postcondition result the return type — and each typed
 leaf is handed straight to `env.translate`, so the walk produces a `Spec`
 directly rather than an intermediate typed spec body. This reuses the global
-context from `Program.elaborate`, so a spec may refer to earlier definitions. -/
+context from `Decl.elaborate`, so a spec may refer to earlier definitions. -/
 
 private def Measure.elaborate (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx)
     (names : List String) (m : Untyped.Expr) : TypeM σ Measure := do
@@ -650,24 +650,56 @@ private def ValDecl.extendUnfolding (Γ : TinyML.TyCtx) (d : Typed.ValDecl) :
       TypeM.error (.spec s!"the unfolding function '{n}' conflicts with an existing declaration")
     else pure (Γ.extendScheme n (Scheme.gen (.arrow [argTy] .unit none)))
 
-def Program.elaborate (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx) :
-    Untyped.Program Untyped.SpecBody → TypeM σ (TypeEnv × Typed.Program)
-  | [] => pure (Θ, [])
-  | d :: ds => do
-      match d with
-      | .type_ dty =>
-          let body ← DataDecl.elaborate { env with globals := Γ } Θ dty.body
-          let Θ' ← TypeM.ofExcept (extendTypeEnv Θ dty.name body)
-          Program.elaborate env Θ' Γ ds
-      | .val_ dval =>
-          let d' ← ValDecl.elaborate
-            { env with globals := Γ, tvars := dval.tvars } Θ Γ dval
-          let () ← ValDecl.checkGeneralizable d'
-          let Γ' := match d'.name.name with
-            | some x => Γ.extendScheme x (Scheme.gen d'.name.ty)
-            | none => Γ
-          let Γ'' ← ValDecl.extendUnfolding Γ' d'
-          let (Θ', ds') ← Program.elaborate env Θ Γ'' ds
-          pure (Θ', d' :: ds')
+/-- Elaborate one declaration after the declarations that `Θ` and `Γ` record,
+and extend both by it. A type declaration has no typed counterpart. -/
+def Decl.elaborate (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx) :
+    Untyped.Decl Untyped.SpecBody → TypeM σ (TypeEnv × TinyML.TyCtx × Option Typed.ValDecl)
+  | .type_ dty => do
+      let body ← DataDecl.elaborate { env with globals := Γ } Θ dty.body
+      let Θ' ← TypeM.ofExcept (extendTypeEnv Θ dty.name body)
+      pure (Θ', Γ, none)
+  | .val_ dval => do
+      let d' ← ValDecl.elaborate { env with globals := Γ, tvars := dval.tvars } Θ Γ dval
+      let () ← ValDecl.checkGeneralizable d'
+      let Γ' := match d'.name.name with
+        | some x => Γ.extendScheme x (Scheme.gen d'.name.ty)
+        | none => Γ
+      let Γ'' ← ValDecl.extendUnfolding Γ' d'
+      pure (Θ, Γ'', some d')
+
+/-- Elaboration only adds type declarations, and only the one a type declaration
+names. -/
+theorem Decl.elaborate_types {σ : Type} {spec : Typed.SpecEnv σ}
+    {Θ Θ' : TinyML.TypeEnv} {Γ Γ' : TinyML.TyCtx} {d : Untyped.Decl Untyped.SpecBody}
+    {d' : Option Typed.ValDecl} {s s' : σ}
+    (h : Decl.elaborate spec Θ Γ d s = .ok ((Θ', Γ', d'), s')) :
+    (∀ T dd, Θ T = some dd → Θ' T = some dd) ∧
+    (∀ T, (∀ dty, d = .type_ dty → T ≠ dty.name) → Θ' T = Θ T) := by
+  cases d with
+  | type_ dty =>
+    unfold Decl.elaborate at h
+    have ⟨body, s₀, _, hcont⟩ := StateT.bind_ok h
+    cases hext : extendTypeEnv Θ dty.name body with
+    | error err =>
+      simp [hext, TypeM.error, StateT.map, Functor.map, Except.map] at hcont
+    | ok Θ1 =>
+      simp [hext, StateT.map, Functor.map, Except.map] at hcont
+      rcases hcont with ⟨⟨rfl, rfl, rfl⟩, rfl⟩
+      unfold extendTypeEnv at hext
+      split at hext
+      · cases hext
+      · rename_i hnone
+        cases hext
+        refine ⟨fun T dd hT => ?_, fun T hT => ?_⟩
+        · have hne : T ≠ dty.name := fun h => by subst h; simp [hnone] at hT
+          simp [hne, hT]
+        · simp [hT dty rfl]
+  | val_ dval =>
+    unfold Decl.elaborate at h
+    have ⟨_, _, _, hcont⟩ := StateT.bind_ok h
+    have ⟨_, _, _, hcont⟩ := StateT.bind_ok hcont
+    have ⟨_, _, _, hcont⟩ := StateT.bind_ok hcont
+    rcases hcont with ⟨⟨rfl, rfl, rfl⟩, rfl⟩
+    exact ⟨fun _ _ h => h, fun _ _ => rfl⟩
 
 end Typed

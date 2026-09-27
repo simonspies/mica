@@ -743,7 +743,7 @@ theorem compileFix_typed (env : Verifier.Env) (W : TinyML.World) (henv : env.wf 
         (Runtime.Val.fix self.runtime (args.map (·.runtime))
           (body.runtime.subst ((γ.remove' self.runtime).removeAll' (args.map (·.runtime)))))
         (.arrow (args.map Binder.WithTypeVars.ty) retTy (some s)) := by
-  obtain ⟨reg, Θ, Δ, ls⟩ := env
+  obtain ⟨reg, Θ, Δ, ls, fns, lfs, gls⟩ := env
   obtain ⟨-, -, -, rfl, rfl, -, -, -⟩ := id henv
   simp only [compile] at heval
   cases hext : extractArgNames args s.args with
@@ -858,7 +858,7 @@ theorem compileFix_correct (self : Binder) (args : List Binder)
   | some s =>
   simp only [Expr.WithTypeVars.ty] at hpost
   have hval := compileFix_typed env W henv S γg γ self args retTy s body ih hS heval
-  obtain ⟨reg, Θ, Δ, ls⟩ := env
+  obtain ⟨reg, Θ, Δ, ls, fns, lfs, gls⟩ := env
   obtain ⟨-, -, -, rfl, rfl, -, -, -⟩ := id henv
   simp only [compile] at heval
   cases hext : extractArgNames args s.args with
@@ -927,7 +927,7 @@ theorem compileRefShared_correct (e : Expr)
   have hfresh : c.name ∉ st₁.decls.allNames :=
     TransState.freshConst_fresh st₁ none .value
   have hwf_addConst : TransState.wf { st₁ with decls := st₁.decls.addConst c } :=
-    TransState.wf_freshConst _ hwf_st₁
+    TransState.wf_addConst _ _ hwf_st₁ hfresh
   refine SpatialContext.wp_ref_inv W (ctx := st₁.owns) (ρ := ρ_e) (R := R) (ty := e.ty) ?_
   intro loc
   have hdecl_eval := VerifM.eval_bind hΨ_e
@@ -985,7 +985,7 @@ theorem compileRefOwned_correct (e : Expr)
           hwf_st₁.namesDisjoint hc_fresh)
     have hse_wf₂ : se.wfIn st₂.decls :=
       Term.wfIn_mono se hse_wf (Signature.Subset.subset_addConst _ _)
-        (TransState.wf_freshConst _ hwf_st₁).namesDisjoint
+        (TransState.wf_addConst _ _ hwf_st₁ hc_fresh).namesDisjoint
     have hatom_wf : (SpatialAtom.pointsTo sl se e.ty).wfIn st₂.decls := ⟨hsl_wf, hse_wf₂⟩
     have hassumed := VerifM.eval_assumeSpatial (VerifM.eval_bind hdecl_loc) hatom_wf
     have hsl_eval : sl.eval ρ₂ = .loc loc := by
@@ -2455,7 +2455,7 @@ theorem compileAppSpec_correct
       st'.sl W ρ' ∗ TinyML.ValHasType W v aty ∗ R ⊢ Φ v) :
     st.sl W ρ ∗ (S.typed W γg γ ∗ R) ⊢
       wp W.pctx (.app (fn.runtime.subst γ) (args.map (fun e => e.runtime.subst γ))) Φ := by
-  obtain ⟨reg, Θ, Δ, ls⟩ := env
+  obtain ⟨reg, Θ, Δ, ls, fns, lfs, gls⟩ := env
   obtain ⟨-, -, -, rfl, rfl, -, -, -⟩ := id henv
   obtain ⟨hret_eq, heval⟩ := VerifM.eval_bind_expectEq heval
   obtain ⟨hlen_e, heval⟩ := VerifM.eval_bind_expectEq heval
@@ -2670,7 +2670,7 @@ theorem compileApp_correct
   case _ =>
   cases fn with
   | prim n inst fty =>
-    obtain ⟨reg, Θ, Δ, ls⟩ := env
+    obtain ⟨reg, Θ, Δ, ls, fns, lfs, gls⟩ := env
     obtain ⟨-, -, -, rfl, rfl, -, -, -⟩ := id henv
     obtain ⟨i, hilookup, heval⟩ := VerifM.eval_bind_expectSome heval
     obtain ⟨u, hmode, heval⟩ := VerifM.eval_bind_expectSome heval

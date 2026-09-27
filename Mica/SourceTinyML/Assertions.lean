@@ -4,10 +4,11 @@ import Mica.FirstOrderLogic.Formulas
 /-!
 # Assertion data
 
-The syntax of verifier atoms, assertions, and completed specifications,
-separated from their semantics and from the verifier operations on them
-(`Mica/Verifier/Atoms.lean`, `Mica/Verifier/Assertions.lean`,
-`Mica/Verifier/Specifications.lean`).
+The syntax of verifier atoms, assertions, and completed specifications.
+Their well-formedness is in `WellFormedness.lean`, their semantics in
+`Semantics.lean`, and the verifier operations on them in
+`Mica/Verifier/Atoms.lean`, `Mica/Verifier/Assertions.lean` and
+`Mica/Verifier/Specifications.lean`.
 
 Everything here is parametric in the type language `T` that atoms mention;
 the verifier instantiates `T := TinyML.Typ`. The parameter exists because a
@@ -68,6 +69,25 @@ structure Spec (T : Type) where
 /-- The names a specification binds, run-time arguments first. -/
 def Spec.allArgs (s : Spec T) : List String :=
   s.args ++ s.ghost.map Prod.fst
+
+/-- The types an atom mentions. -/
+def Atom.types : Atom T τ → List T
+  | .own _ t => [t]
+  | .arr _ t => [t]
+  | .isint _ | .isbool _ | .isinj .. | .rel .. => []
+
+/-- The types an assertion mentions, with `ret` giving those of its result. -/
+def Assertion.types (ret : α → List T) : Assertion T α → List T
+  | .ret a => ret a
+  | .assert _ k => k.types ret
+  | .let_ _ _ k => k.types ret
+  | .pred _ p k => p.types ++ k.types ret
+  | .ite _ kt ke => kt.types ret ++ ke.types ret
+
+/-- The types a specification mentions: those of its ghost parameters and of
+    its atoms. -/
+def Spec.types (s : Spec T) : List T :=
+  s.ghost.map Prod.snd ++ s.pred.types fun post => post.body.types fun _ => []
 
 /-- Specifications print as a placeholder. -/
 instance : Repr (Spec T) := ⟨fun _ _ => "<spec>"⟩

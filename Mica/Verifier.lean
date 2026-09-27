@@ -5,6 +5,7 @@ import Mica.Verifier.Interpretations
 import Mica.Verifier.PrimitiveLaws
 import Mica.Verifier.Scoped
 import Mica.Verifier.Monad
+import Mica.Verifier.Seq
 import Mica.Verifier.Bindings
 import Mica.Verifier.Utils
 import Mica.Verifier.Lemma
@@ -15,6 +16,7 @@ import Mica.Verifier.Context
 import Mica.Verifier.Compilation
 import Mica.Verifier.Ghost
 import Mica.Verifier.Expressions
+import Mica.Verifier.Declaration
 import Mica.Verifier.RelationalEncoding
 import Mica.Verifier.Specifications
 import Mica.Verifier.Programs

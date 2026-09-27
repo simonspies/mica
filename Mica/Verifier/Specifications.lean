@@ -28,14 +28,6 @@ namespace Spec
 
 /-! ## Definitions -/
 
-/-- A spec is well-formed when its predicate transformer is well-formed in the
-    context extended with all argument variables. -/
-def wfIn (spec : Spec TinyML.Typ) (Δ : Signature) : Prop :=
-  PredTrans.wfIn (Δ.declVars (argVars spec.allArgs)) spec.pred
-
-def checkWf (spec : Spec TinyML.Typ) (Δ : Signature) : Except String Unit :=
-  PredTrans.checkWf (Δ.declVars (argVars spec.allArgs)) spec.pred
-
 /-- Declare argument variables, check types, and assume equalities for a spec call.
     The argument names come from the spec and the argument types from the enclosing
     arrow. Returns the updated substitution. -/
@@ -175,49 +167,6 @@ theorem isPrecondFor_fix {W : TinyML.World} {V : TinyML.ValueRelation}
       ipureintro
       exact ⟨hagr, hglen⟩
 end Precondition
-
-/-! ## Well-Formedness Proofs -/
-section WellFormedness
-
-omit [MicaGS HasLC.hasLC Sig] in
-theorem checkWf_ok {spec : Spec TinyML.Typ} {Δ : Signature}
-    (h : spec.checkWf Δ = .ok ()) : spec.wfIn Δ :=
-  PredTrans.checkWf_ok h
-
-omit [MicaGS HasLC.hasLC Sig] in
-theorem wfIn_mono {spec : Spec TinyML.Typ} {Δ Δ' : Signature}
-    (h : spec.wfIn Δ) (hsub : Δ.Subset Δ') (hwf : Δ'.wf) :
-    spec.wfIn Δ' :=
-  PredTrans.wfIn_mono h (Signature.Subset.declVars hsub (argVars spec.allArgs))
-    (Signature.wf_declVars hwf)
-
-end WellFormedness
-
-/-! ## Environment Agreement -/
-section EnvironmentAgreement
-
-omit [MicaGS HasLC.hasLC Sig] in
-/-- `argsEnv` preserves `agreeOn`: if two envs agree on `Δ`,
-    then after applying the same updates, they agree on `argVars args ++ Δ`. -/
-theorem argsEnv_agreeOn {Δ : Signature} {ρ₁ ρ₂ : Env}
-    (h : Env.agreeOn Δ ρ₁ ρ₂) :
-    ∀ (args : List String) (vals : List Runtime.Val),
-    args.length ≤ vals.length →
-    Env.agreeOn (Δ.declVars (argVars args))
-      (argsEnv ρ₁ args vals) (argsEnv ρ₂ args vals) := by
-  intro args
-  induction args generalizing Δ ρ₁ ρ₂ with
-  | nil => intro vals _; simp only [argVars, List.map, argsEnv, Signature.declVars]; exact h
-  | cons name rest ih =>
-    intro vals hlen
-    cases vals with
-    | nil => simp at hlen
-    | cons v vs =>
-      simp only [argsEnv, argVars, List.map]
-      simpa [Signature.declVars] using
-        ih (Env.agreeOn_declVar h) vs (by simp [List.length] at hlen ⊢; omega)
-
-end EnvironmentAgreement
 
 /-! ## Argument Substitution -/
 section ArgumentSubstitution

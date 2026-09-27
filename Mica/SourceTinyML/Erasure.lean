@@ -5,8 +5,8 @@ import Mica.SourceTinyML.Typing
 # Erasure
 
 Elaboration does not affect the runtime semantics of the program.
-`Program.elaborate_runtime` at the end is what the verifier uses to relate a
-source program to the runtime program it is verified against.
+`Decl.elaborate_runtime` at the end is what the verifier uses to relate a
+source declaration to the runtime declaration it is verified against.
 -/
 
 namespace Typed
@@ -698,45 +698,30 @@ theorem ValDecl.elaborate_runtime (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML
         Untyped.ValDecl.runtime, Binder.ofUntyped_runtime,
         Expr.elaborate_runtime env Θ Γ d.body _ hbody]
 
-theorem Program.elaborate_runtime (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx)
-    (prog : Untyped.Program Untyped.SpecBody) :
-    ∀ {s : σ} {Θ' : TypeEnv} {prog' : Typed.Program} {s' : σ},
-      Typed.Program.elaborate env Θ Γ prog s = .ok ((Θ', prog'), s') →
-      prog'.runtime = prog.runtime := by
-  induction prog generalizing Θ Γ with
-  | nil =>
-    intro s Θ' prog' s' h
-    simp [Typed.Program.elaborate] at h
-    rcases h with ⟨⟨rfl, rfl⟩, rfl⟩
-    simp [Typed.Program.runtime, Untyped.Program.runtime]
-  | cons d ds ih =>
-    intro s Θ' prog' s' h
-    cases d with
-    | type_ dty =>
-      unfold Typed.Program.elaborate at h
-      -- The payloads' own elaboration stays opaque; a type declaration
-      -- contributes nothing to the runtime program either way.
-      have ⟨body, s₀, _hbody, hcont⟩ := StateT.bind_ok h
-      cases hext : extendTypeEnv Θ dty.name body with
-      | error err =>
-        simp [hext] at hcont
-      | ok Θ1 =>
-        simp [hext] at hcont
-        exact ih Θ1 Γ hcont
-    | val_ dval =>
-      unfold Typed.Program.elaborate at h
-      have ⟨dval', s₀, hdecl, hcont⟩ := StateT.bind_ok h
-      have ⟨_, s₀', _, hcont⟩ := StateT.bind_ok hcont
-      have ⟨_, s₀'', _, hcont⟩ := StateT.bind_ok hcont
-      have ⟨tail, s₁, htail, hcont⟩ := StateT.bind_ok hcont
-      rcases tail with ⟨Θ'', ds'⟩
-      simp at hcont
-      rcases hcont with ⟨⟨rfl, rfl⟩, rfl⟩
-      have hdecl_rt : Typed.ValDecl.runtime? dval' = Untyped.Decl.runtime (.val_ dval) :=
-        ValDecl.elaborate_runtime _ Θ Γ dval hdecl
-      have htail_rt := ih Θ _ htail
-      simp only [Typed.Program.runtime, Untyped.Program.runtime, List.filterMap_cons, hdecl_rt]
-      cases Untyped.Decl.runtime (Untyped.Decl.val_ dval) <;>
-        simpa [Typed.Program.runtime, Untyped.Program.runtime] using htail_rt
+theorem Decl.elaborate_runtime (env : SpecEnv σ) (Θ : TypeEnv) (Γ : TinyML.TyCtx)
+    (d : Untyped.Decl Untyped.SpecBody) :
+    ∀ {s : σ} {Θ' : TypeEnv} {Γ' : TinyML.TyCtx} {d' : Option Typed.ValDecl} {s' : σ},
+      Typed.Decl.elaborate env Θ Γ d s = .ok ((Θ', Γ', d'), s') →
+      d'.bind Typed.ValDecl.runtime? = d.runtime := by
+  intro s Θ' Γ' d' s' h
+  cases d with
+  | type_ dty =>
+    unfold Typed.Decl.elaborate at h
+    -- A type declaration contributes nothing to the runtime program.
+    have ⟨body, s₀, _hbody, hcont⟩ := StateT.bind_ok h
+    cases hext : extendTypeEnv Θ dty.name body with
+    | error err =>
+      simp [hext, TypeM.error, StateT.map, Functor.map, Except.map] at hcont
+    | ok Θ1 =>
+      simp [hext, StateT.map, Functor.map, Except.map] at hcont
+      rcases hcont with ⟨⟨rfl, rfl, rfl⟩, rfl⟩
+      rfl
+  | val_ dval =>
+    unfold Typed.Decl.elaborate at h
+    have ⟨dval', s₀, hdecl, hcont⟩ := StateT.bind_ok h
+    have ⟨_, s₀', _, hcont⟩ := StateT.bind_ok hcont
+    have ⟨_, s₀'', _, hcont⟩ := StateT.bind_ok hcont
+    rcases hcont with ⟨⟨rfl, rfl, rfl⟩, rfl⟩
+    exact ValDecl.elaborate_runtime _ Θ Γ dval hdecl
 
 end Typed

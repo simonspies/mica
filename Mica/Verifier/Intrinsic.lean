@@ -6,6 +6,7 @@ import Mica.Verifier.PredicateTransformers
 import Mica.Verifier.Specifications
 import Mica.FirstOrderLogic.Formulas
 import Mica.Verifier.RelationalEncoding.Expr
+import Mica.Verifier.Seq
 
 open Iris Iris.BI
 
@@ -981,38 +982,38 @@ theorem IntrinsicSound.mono {deps deps' : Registry} {i : Intrinsic}
 
 /-- Declare the FOL symbol `s` in the verifier. Declare nothing for
     `none`. -/
-def declSym : ∀ {n : Arity}, Option (FOL.Symbol n) → VerifM Unit
+def declSym : ∀ {n : Arity}, Option (FOL.Symbol n) → SeqM Unit
   | _,     none   => pure ()
-  | .zero, some s => VerifM.declConstExact ⟨s.name, .value⟩
-  | .one,  some s => VerifM.declUnaryExact ⟨s.name, .value, .value⟩
-  | .two,  some s => VerifM.declBinaryExact ⟨s.name, .value, .value, .value⟩
-  | .three, some s => VerifM.declTernaryExact ⟨s.name, .value, .value, .value, .value⟩
+  | .zero, some s => SeqM.declConst ⟨s.name, .value⟩
+  | .one,  some s => SeqM.declUnary ⟨s.name, .value, .value⟩
+  | .two,  some s => SeqM.declBinary ⟨s.name, .value, .value, .value⟩
+  | .three, some s => SeqM.declTernary ⟨s.name, .value, .value, .value, .value⟩
 
 namespace Intrinsic
 
 /-- Declare the FOL symbol of this intrinsic in the verifier. A `direct`
     encoding declares no symbol. Therefore this function does nothing for
     such an intrinsic. -/
-def declFOLSym (i : Intrinsic) : VerifM Unit := declSym i.symbol
+def declFOLSym (i : Intrinsic) : SeqM Unit := declSym i.symbol
 
 end Intrinsic
 
 namespace Registry
 
 /-- Declare every registered intrinsic's FOL symbol. -/
-def declFOLSyms : Registry → VerifM Unit
+def declFOLSyms : Registry → SeqM Unit
   | []         => pure ()
   | i :: rest  => do i.declFOLSym; declFOLSyms rest
 
 /-- Assume every registered intrinsic axiom, weakening guarded axioms. -/
-def assumeAxioms : Registry → VerifM Unit
+def assumeAxioms : Registry → SeqM Unit
   | []         => pure ()
-  | i :: rest  => do VerifM.assumeAxioms i.axioms; assumeAxioms rest
+  | i :: rest  => do SeqM.assumeAxioms i.axioms; assumeAxioms rest
 
 /-- Declare all registered intrinsic FOL symbols first, then assume all
     intrinsic axioms. This keeps axiom validity independent of registry order:
     axioms may mention any symbol in the registry, not just earlier entries. -/
-def introduceRegistry (R : Registry) : VerifM Unit := do
+def introduceRegistry (R : Registry) : SeqM Unit := do
   declFOLSyms R
   assumeAxioms R
 
@@ -1030,7 +1031,7 @@ intrinsic is named. -/
 theorem eval_declSym {n : Arity} (sym : Option (FOL.Symbol n))
     {st : TransState} {ρ : Env}
     {Q : Unit → TransState → Env → Prop}
-    (heval : VerifM.eval (declSym sym) st ρ Q) :
+    (heval : SeqM.eval (declSym sym) st ρ Q) :
     ∃ ρ' : Env,
       Env.agreeOn st.decls ρ ρ' ∧
       ρ'.respects sym ∧
@@ -1041,10 +1042,10 @@ theorem eval_declSym {n : Arity} (sym : Option (FOL.Symbol n))
     | none =>
       simp only [declSym, Signature.extendWithSym] at heval ⊢
       refine ⟨ρ, Env.agreeOn_refl, by simp [Env.respects], ?_⟩
-      exact VerifM.eval_ret heval
+      exact SeqM.eval_ret heval
     | some s =>
       simp only [declSym, Signature.extendWithSym] at heval ⊢
-      obtain ⟨hfresh, hcont⟩ := VerifM.eval_declConstExact heval
+      obtain ⟨hfresh, hcont⟩ := SeqM.eval_declConst heval
       refine ⟨ρ.updateConst .value s.name (s.interp ()),
               Env.agreeOn_update_fresh_const (c := ⟨s.name, .value⟩) hfresh,
               ?_, ?_⟩
@@ -1055,10 +1056,10 @@ theorem eval_declSym {n : Arity} (sym : Option (FOL.Symbol n))
     | none =>
       simp only [declSym, Signature.extendWithSym] at heval ⊢
       refine ⟨ρ, Env.agreeOn_refl, by simp [Env.respects], ?_⟩
-      exact VerifM.eval_ret heval
+      exact SeqM.eval_ret heval
     | some s =>
       simp only [declSym, Signature.extendWithSym] at heval ⊢
-      obtain ⟨hfresh, hcont⟩ := VerifM.eval_declUnaryExact heval
+      obtain ⟨hfresh, hcont⟩ := SeqM.eval_declUnary heval
       refine ⟨ρ.updateUnary .value .value s.name s.interp,
               Env.agreeOn_update_fresh_unary (u := ⟨s.name, .value, .value⟩) hfresh,
               ?_, ?_⟩
@@ -1069,10 +1070,10 @@ theorem eval_declSym {n : Arity} (sym : Option (FOL.Symbol n))
     | none =>
       simp only [declSym, Signature.extendWithSym] at heval ⊢
       refine ⟨ρ, Env.agreeOn_refl, by simp [Env.respects], ?_⟩
-      exact VerifM.eval_ret heval
+      exact SeqM.eval_ret heval
     | some s =>
       simp only [declSym, Signature.extendWithSym] at heval ⊢
-      obtain ⟨hfresh, hcont⟩ := VerifM.eval_declBinaryExact heval
+      obtain ⟨hfresh, hcont⟩ := SeqM.eval_declBinary heval
       refine ⟨ρ.updateBinary .value .value .value s.name (fun a b => s.interp (a, b)),
               Env.agreeOn_update_fresh_binary (b := ⟨s.name, .value, .value, .value⟩) hfresh,
               ?_, ?_⟩
@@ -1083,10 +1084,10 @@ theorem eval_declSym {n : Arity} (sym : Option (FOL.Symbol n))
     | none =>
       simp only [declSym, Signature.extendWithSym] at heval ⊢
       refine ⟨ρ, Env.agreeOn_refl, by simp [Env.respects], ?_⟩
-      exact VerifM.eval_ret heval
+      exact SeqM.eval_ret heval
     | some s =>
       simp only [declSym, Signature.extendWithSym] at heval ⊢
-      obtain ⟨hfresh, hcont⟩ := VerifM.eval_declTernaryExact heval
+      obtain ⟨hfresh, hcont⟩ := SeqM.eval_declTernary heval
       refine ⟨ρ.updateTernary .value .value .value .value s.name
                 (fun a b c => s.interp (a, b, c)),
               Env.agreeOn_update_fresh_ternary
@@ -1103,7 +1104,7 @@ namespace Intrinsic
     the original signature. -/
 theorem eval_declFOLSym (i : Intrinsic) {st : TransState} {ρ : Env}
     {Q : Unit → TransState → Env → Prop}
-    (heval : VerifM.eval i.declFOLSym st ρ Q) :
+    (heval : SeqM.eval i.declFOLSym st ρ Q) :
     ∃ ρ' : Env,
       Env.agreeOn st.decls ρ ρ' ∧
       ρ'.respects i.symbol ∧
@@ -1119,7 +1120,7 @@ namespace Registry
 theorem eval_declFOLSyms (R : Registry)
     {st : TransState} {ρ : Env}
     {Q : Unit → TransState → Env → Prop}
-    (heval : VerifM.eval (declFOLSyms R) st ρ Q) :
+    (heval : SeqM.eval (declFOLSyms R) st ρ Q) :
     ∃ st' ρ',
       st.decls.Subset st'.decls ∧
       (Intrinsic.foldSig st.decls R).Subset st'.decls ∧
@@ -1134,13 +1135,13 @@ theorem eval_declFOLSyms (R : Registry)
   | nil =>
     simp only [declFOLSyms] at heval
     refine ⟨st, ρ, Signature.Subset.refl _, ?_, rfl, rfl, rfl, ?_,
-            Env.agreeOn_refl, VerifM.eval_ret heval⟩
+            Env.agreeOn_refl, SeqM.eval_ret heval⟩
     · exact Signature.Subset.refl _
     · intro _ _ d hd
       cases hd
   | cons i rest ih =>
     simp only [declFOLSyms] at heval
-    have h1 := VerifM.eval_bind heval
+    have h1 := SeqM.eval_bind heval
     obtain ⟨ρ1, hag1, hiRespect, hcont⟩ := Intrinsic.eval_declFOLSym i h1
     set st1 : TransState := { st with decls := st.decls.extendWithSym i.symbol }
     obtain ⟨st', ρ', hsub2, hdep2, hvars2, howns2, hass2, hrestStable, hag2, hQ⟩ :=
@@ -1173,7 +1174,7 @@ theorem eval_assumeAxioms_in (full todo : Registry)
       ∀ ρ' : Env, Env.agreeOn st.decls ρ ρ' →
         ∀ d ∈ full, ρ'.respects d.symbol)
     {Q : Unit → TransState → Env → Prop}
-    (heval : VerifM.eval (assumeAxioms todo) st ρ Q) :
+    (heval : SeqM.eval (assumeAxioms todo) st ρ Q) :
     ∃ st',
       st'.decls = st.decls ∧
       st'.owns = st.owns ∧
@@ -1182,17 +1183,17 @@ theorem eval_assumeAxioms_in (full todo : Registry)
   induction todo generalizing st Q with
   | nil =>
     simp only [assumeAxioms] at heval
-    refine ⟨st, rfl, rfl, ⟨[], by simp⟩, VerifM.eval_ret heval⟩
+    refine ⟨st, rfl, rfl, ⟨[], by simp⟩, SeqM.eval_ret heval⟩
   | cons i rest ih =>
     simp only [assumeAxioms] at heval
-    have h1 := VerifM.eval_bind heval
+    have h1 := SeqM.eval_bind heval
     rcases hSound with ⟨hiSound, hrestSound⟩
     have hwfAxioms : ∀ a ∈ i.axioms, a.formula.wfIn st.decls := fun a ha =>
-      hiSound.axioms_wf hSig (VerifM.eval.wf h1).namesDisjoint a ha
+      hiSound.axioms_wf hSig (SeqM.eval_wf h1).namesDisjoint a ha
     have hevalAxioms : ∀ a ∈ i.axioms, a.formula.eval ρ :=
       hiSound.axioms_sound ρ (fun d hd => hRespect ρ Env.agreeOn_refl d hd)
     obtain ⟨st1, hdecls1, howns1, hass1, hcont⟩ :=
-      VerifM.eval_assumeAxioms h1 hwfAxioms hevalAxioms
+      SeqM.eval_assumeAxioms h1 hwfAxioms hevalAxioms
     have hSig1 : (Intrinsic.sigOf full).Subset st1.decls := by
       rw [hdecls1]
       exact hSig
@@ -1214,7 +1215,7 @@ theorem eval_introduceRegistry (R : Registry)
     (hSound : Sound R)
     {st : TransState} {ρ : Env}
     {Q : Unit → TransState → Env → Prop}
-    (heval : VerifM.eval (introduceRegistry R) st ρ Q) :
+    (heval : SeqM.eval (introduceRegistry R) st ρ Q) :
     ∃ st' ρ',
       st.decls.Subset st'.decls ∧
       (Intrinsic.sigOf R).Subset st'.decls ∧
@@ -1226,7 +1227,7 @@ theorem eval_introduceRegistry (R : Registry)
       Env.agreeOn st.decls ρ ρ' ∧
       Q () st' ρ' := by
   unfold introduceRegistry at heval
-  have hdecls := VerifM.eval_bind heval
+  have hdecls := SeqM.eval_bind heval
   obtain ⟨st1, ρ1, hsub1, hfold1, hvars1, howns1, hass1, hstable, hag1, hcont⟩ :=
     eval_declFOLSyms R hdecls
   have hsig1 : (Intrinsic.sigOf R).Subset st1.decls := by
@@ -1244,6 +1245,14 @@ theorem eval_introduceRegistry (R : Registry)
     rw [hass2, hass1]
   · intro ρ'' hag d hd
     exact hstable ρ'' (by rwa [hdecls2] at hag) d hd
+
+theorem symAgree_agreeOn {reg : Registry} {Δ : Signature} (h : reg.symAgree ρ)
+    (hsub : reg.symSubset Δ) (hag : Env.agreeOn Δ ρ ρ') : reg.symAgree ρ' :=
+  fun i hi => Env.respects_of_agreeOn_extendWithSym (h i hi) (hsub i hi) hag
+
+theorem symSubset_mono {reg : Registry} {Δ Δ' : Signature} (h : reg.symSubset Δ)
+    (hsub : Δ.Subset Δ') : reg.symSubset Δ' :=
+  fun i hi => (h i hi).trans hsub
 
 end Registry
 

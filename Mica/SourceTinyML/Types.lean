@@ -11,14 +11,14 @@ program. Their identity is distinct from user-written type names. -/
 inductive Predef where
   | list
   | option
-  deriving Repr, Inhabited, DecidableEq, BEq
+  deriving Repr, Inhabited, DecidableEq, BEq, ReflBEq, LawfulBEq
 
 /-- The identity of a recursive named type. Predefined identities unfold to
 their canonical declarations independently of the user type environment. -/
 inductive TypeName where
   | user (name : String)
   | predef (type : Predef)
-  deriving Repr, Inhabited, DecidableEq, BEq
+  deriving Repr, Inhabited, DecidableEq, BEq, ReflBEq, LawfulBEq
 
 /-- The surface spelling of a named type. -/
 def TypeName.print : TypeName → String
@@ -1085,15 +1085,6 @@ def Scheme.instantiate (s : Scheme) (σ : TyVar → Typ) : Typ :=
     (Scheme.gen t).instantiate σ = Typ.subst σ t :=
   Typ.subst_congr _ _ t fun _ hv => by simp [Scheme.gen, List.mem_eraseDups.mpr hv]
 
-theorem Scheme.subst_instantiate {s : Scheme} {σ : TyVar → Typ}
-    (hσ : ∀ a ∈ s.free, σ a = .tvar a) (σ' : TyVar → Typ) :
-    Typ.subst σ (s.instantiate σ') = s.instantiate (fun a => Typ.subst σ (σ' a)) := by
-  simp only [Scheme.instantiate, Typ.subst_comp]
-  refine Typ.subst_congr _ _ s.ty fun v hv => ?_
-  by_cases h : v ∈ s.tparams
-  · simp [h]
-  · simp only [h, if_false, Typ.subst, hσ v (by simp [Scheme.free, hv, h])]
-
 /-- A data declaration: type parameters, and one payload type per constructor.
 The payloads are schema types, since they mention the declaration's own
 parameters. -/
@@ -1165,6 +1156,17 @@ def TypeName.unfold (Θ : TypeEnv) (T : TypeName) (args : List (Typ.WithTypeVars
     (args : List (Typ.WithTypeVars V)) :
     TypeName.unfold Θ (.predef p) args =
       if args.length = p.arity then some (p.decl.instantiate args) else none := rfl
+
+/-- More declarations unfold a named type as before, where it unfolds at all. -/
+theorem TypeName.unfold_mono {Θ Θ' : TypeEnv} (hΘ : ∀ T d, Θ T = some d → Θ' T = some d)
+    {T : TypeName} {args : List (Typ.WithTypeVars V)} (h : (TypeName.unfold Θ T args).isSome) :
+    TypeName.unfold Θ' T args = TypeName.unfold Θ T args := by
+  cases T with
+  | user n =>
+    simp only [TypeName.unfold, Option.isSome_map] at h ⊢
+    obtain ⟨d, hd⟩ := Option.isSome_iff_exists.mp h
+    rw [hd, hΘ _ d hd]
+  | predef p => rfl
 
 /-- Looking a parameter up among substituted arguments finds the substituted
 argument, since substitution touches neither the parameter names nor their

@@ -12,4 +12,5 @@
 - `Typing.lean` — Elaboration from the untyped IR to the typed IR, by unification.
 - `Unification.lean` — Unification variables, the state that solves them, the IR they annotate, and the monad elaboration runs in.
 - `Untyped.lean` — Untyped TinyML IR and specification syntax, with annotations carried where available.
+- `WellFormedness.lean` — Well-formedness of specifications and types in a signature and a type environment, with its checkers.
 - `World.lean` — The fixed meta-level world in which the logical relation interprets types, including its assignment of meanings to type variables.

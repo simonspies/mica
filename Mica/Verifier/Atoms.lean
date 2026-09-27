@@ -137,69 +137,6 @@ def Atom.toString : {τ : Srt} → Atom TinyML.Typ τ → String
   | _, .arr t ty => s!"arr {t.toSMTLIB} : {reprStr ty}"
   | _, .rel name t => s!"call {name} {t.toSMTLIB}"
 
--- ---------------------------------------------------------------------------
--- Well-formedness
--- ---------------------------------------------------------------------------
-
-/-- An atom is well-formed in a signature. -/
-def Atom.wfIn (Δ : Signature) : Atom TinyML.Typ τ → Prop
-  | .isint t  => t.wfIn Δ
-  | .isbool t => t.wfIn Δ
-  | .isinj _ _ t => t.wfIn Δ
-  | .own t _  => t.wfIn Δ
-  | .arr t _ => t.wfIn Δ
-  | .rel name t => (SpecFn.isDefined name t).wfIn Δ ∧ (SpecFn.call name t).wfIn Δ
-
-def Atom.checkWf (p : Atom TinyML.Typ τ) (Δ : Signature) : Except String Unit :=
-  match p with
-  | .isint t  => t.checkWf Δ
-  | .isbool t => t.checkWf Δ
-  | .isinj _ _ t => t.checkWf Δ
-  | .own t _  => t.checkWf Δ
-  | .arr t _ => t.checkWf Δ
-  | .rel name t => do
-      (SpecFn.isDefined name t).checkWf Δ
-      (SpecFn.call name t).checkWf Δ
-
-omit [MicaGS HasLC.hasLC Sig] in
-theorem Atom.checkWf_ok {p : Atom TinyML.Typ τ} {Δ : Signature} (h : p.checkWf Δ = .ok ()) : p.wfIn Δ := by
-  cases p with
-  | isint t  => exact Term.checkWf_ok h
-  | isbool t => exact Term.checkWf_ok h
-  | isinj tag arity t => exact Term.checkWf_ok h
-  | own t ty => exact Term.checkWf_ok h
-  | arr t ty => exact Term.checkWf_ok h
-  | rel name t =>
-    have ⟨w, hd, hv⟩ := Except.bind_ok h
-    exact ⟨Formula.checkWf_ok hd, Term.checkWf_ok hv⟩
-
-omit [MicaGS HasLC.hasLC Sig] in
-theorem Atom.wfIn_mono {p : Atom TinyML.Typ τ} {Δ Δ' : Signature}
-    (h : p.wfIn Δ) (hmono : Δ.Subset Δ') (hwf : Δ'.wf) : p.wfIn Δ' := by
-  cases p with
-  | isint t  => exact Term.wfIn_mono t h hmono hwf
-  | isbool t => exact Term.wfIn_mono t h hmono hwf
-  | isinj tag arity t => exact Term.wfIn_mono t h hmono hwf
-  | own t ty => exact Term.wfIn_mono t h hmono hwf
-  | arr t ty => exact Term.wfIn_mono t h hmono hwf
-  | rel name t =>
-    exact ⟨Formula.wfIn_mono _ h.1 hmono hwf, Term.wfIn_mono _ h.2 hmono hwf⟩
-
-theorem Atom.eval_agreeOn {V : TinyML.ValueRelation} {p : Atom TinyML.Typ τ}
-    {ρ ρ' : Env} {Δ : Signature} (v : τ.denote)
-    (hwf : p.wfIn Δ) (hagree : Env.agreeOn Δ ρ ρ') : p.eval V ρ v ⊣⊢ p.eval V ρ' v := by
-  cases p with
-  | isint t  => simp [Atom.eval, Term.eval_agreeOn hwf hagree]
-  | isbool t => simp [Atom.eval, Term.eval_agreeOn hwf hagree]
-  | isinj tag arity t => simp [Atom.eval, Term.eval_agreeOn hwf hagree]
-  | own l ty => simp [Atom.eval, Term.eval_agreeOn hwf hagree]
-  | arr a ty => simp [Atom.eval, Term.eval_agreeOn hwf hagree]
-  | rel name t =>
-    simp only [Atom.eval]
-    rw [(Formula.eval_agreeOn hwf.1 hagree),
-        Term.eval_agreeOn hwf.2 hagree]
-    exact .rfl
-
 omit [MicaGS HasLC.hasLC Sig] in
 theorem Atom.toItem_wfIn {p : Atom TinyML.Typ τ} {t : Term τ} {Δ : Signature}
     (hp : p.wfIn Δ) (ht : t.wfIn Δ) :
