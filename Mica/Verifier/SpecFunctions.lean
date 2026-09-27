@@ -11,8 +11,8 @@ open Verifier.RelationalEncoding.Skolemize (DefVal)
 
 /-! ## Declaring a spec-function symbol triple
 
-Generic infrastructure, shared with the declaration of `[@@fn]` functions in `Declaration.lean`:
-declaring the three solver symbols of a spec function whose relation
+Shared by `[@@fn]` functions below and by the lifted bounded quantifiers in
+`BoundedQuantifier.lean`: declaring the three solver symbols of a spec function whose relation
 interpretation is the graph of its value function on its definedness domain,
 and assuming its valid defining axioms, preserves the spec-function declaration
 invariants. -/
@@ -126,6 +126,8 @@ theorem declare_correct (L : SpecFn) (f : TinyML.Var) (axs : List Axiom)
     hagree4, hΓwf', hΓagree', hQ4⟩
 
 end SpecFn
+
+/-! ## `[@@fn]` declarations -/
 
 namespace Verifier.Env
 

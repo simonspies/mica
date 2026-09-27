@@ -1,4 +1,4 @@
--- SUMMARY: Syntactic spatial atoms and contexts for verifier state, together with their well-formedness conditions and basic operations.
+-- SUMMARY: Spatial atoms and contexts of the verifier state: their well-formedness, basic operations, and Iris interpretation.
 import Mica.FirstOrderLogic.Terms
 import Mica.SeparationLogic.Wp
 import Mica.SourceTinyML.LogicalRelation
@@ -6,12 +6,12 @@ import Mica.SourceTinyML.Types
 
 open Iris Iris.BI
 
-/-! # Spatial Atoms and Contexts (Syntactic)
+/-! # Spatial Atoms and Contexts
 
-A `SpatialAtom` is a syntactic ownership item stored in the verifier state.
-A `SpatialContext` is a list of such items. We define their well-formedness
-and basic operations (insert = cons, lookup+remove), plus interpretation of a
-single atom. -/
+A `SpatialAtom` is an ownership item stored in the verifier state. A
+`SpatialContext` is a list of such items. This file defines their
+well-formedness and basic operations (insert = cons, remove by index), and
+interprets both as Iris assertions. -/
 
 /-- A syntactic ownership item. -/
 inductive SpatialAtom where
@@ -209,6 +209,8 @@ theorem wfIn_remove {ctx : SpatialContext} {Δ : Signature} {n : Nat}
         exact ⟨ha, (wfIn_cons b rest' Δ).2 ⟨hhead, hrest⟩⟩
 
 end SpatialContext
+
+/-! ## Interpretation of contexts -/
 
 variable [MicaGS HasLC.hasLC Sig]
 

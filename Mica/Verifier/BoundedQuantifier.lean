@@ -730,6 +730,8 @@ theorem declare_correct (s : LiftedClosure) (body : Skolemize.DefVal) (Δ : Sign
 
 end Verifier.LiftedClosure
 
+/-! ## Declaring the lifted closures of a declaration -/
+
 namespace Verifier.Env
 
 open Verifier.RelationalEncoding
