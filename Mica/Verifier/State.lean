@@ -2,7 +2,7 @@
 import Mica.Engine.Scoped
 import Mica.Verifier.Guard
 import Mica.Base.Fresh
-import Mica.Verifier.Interpretations
+import Mica.Verifier.SpatialAtom
 
 open Iris Iris.BI
 

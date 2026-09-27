@@ -2,7 +2,7 @@
 import Mica.SourceTinyML.Semantics
 import Mica.Engine.SMTLIB
 import Mica.FirstOrderLogic.Subst
-import Mica.Verifier.Interpretations
+import Mica.Verifier.SpatialAtom
 import Mica.Verifier.Monad
 import Mica.Verifier.RelationalEncoding.Skolemize
 

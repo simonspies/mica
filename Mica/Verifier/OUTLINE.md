@@ -10,7 +10,6 @@
 - `Expressions.lean` — Compilation of typed TinyML expressions into verifier terms, with weakest-precondition correctness proofs.
 - `Ghost.lean` — Compilation and verification of the ghost fragment: ghost expressions, ghost declarations with a termination measure, and the ghost entries a declaration contributes.
 - `Guard.lean` — The guard constant deactivating quantified axioms in low-effort checks, effort levels, and guarded axioms.
-- `Interpretations.lean` — Iris interpretations of spatial atoms and contexts, with lemmas relating syntax to separation-logic assertions.
 - `Intrinsic.lean` — Data model for verifier intrinsics, with generic theorems characterizing the effect of registry setup.
 - `Lemma.lean` — Facts kept out of the solver context, which a check takes into its query or publishes as a ghost function.
 - `Monad.lean` — Verification monad with SMT operations, branching, and its operational and semantic correctness interfaces.

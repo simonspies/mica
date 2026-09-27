@@ -1,5 +1,5 @@
 -- SUMMARY: Spatially lifted weakest-precondition laws for TinyML primitive operations.
-import Mica.Verifier.Interpretations
+import Mica.Verifier.SpatialAtom
 
 open Iris Iris.BI
 
