@@ -310,7 +310,7 @@ mutual
                   env.lemmas.assumeInstance self.name argVars
                   let se ← compile env (fixScope S self fv (.arrow argTys retTy (some s))
                     argNames argVars argTys s.ghost ghostVars) body
-                  checkRet retTy body.ty
+                  VerifM.expectEq "fix: body type does not match the return type" body.ty retTy
                   pure se)
               (pure (.const (.uninterpreted fv.name .value)))
 
@@ -663,7 +663,7 @@ theorem compileFixBody_correct (env : Verifier.Env) (W : TinyML.World) (henv : e
           let se ← compile env (fixScope S self fv
             (.arrow (args.map Binder.WithTypeVars.ty) retTy (some s)) argNames argVars
             (args.map Binder.WithTypeVars.ty) s.ghost ghostVars) body
-          checkRet retTy body.ty
+          VerifM.expectEq "fix: body type does not match the return type" body.ty retTy
           pure se)
         st' ρ'
         (fun result st'' ρ'' => ∀ X, result.wfIn st''.decls →
@@ -697,14 +697,8 @@ theorem compileFixBody_correct (env : Verifier.Env) (W : TinyML.World) (henv : e
     (VerifM.eval.decls_grow ρ' hcompile) (by
       intro v ρ'' st'' se hΨ hse_wf heval_se
       obtain ⟨_, _, hΨ⟩ := hΨ
-      simp only [checkRet] at hΨ
-      by_cases hsub : body.ty = retTy
-      case neg =>
-        simp [hsub] at hΨ
-        exact (VerifM.eval_fatal (VerifM.eval_bind hΨ)).elim
-      simp [hsub] at hΨ
+      obtain ⟨hsub, hΨ⟩ := VerifM.eval_bind_expectEq hΨ
       have hΨ' := VerifM.eval_ret hΨ
-      dsimp only at hΨ'
       rw [← heval_se]
       refine (show st''.sl W ρ'' ∗ TinyML.ValHasType W (se.eval ρ'') body.ty ∗ Q ⊢
           st''.sl W ρ'' ∗ Q ∗

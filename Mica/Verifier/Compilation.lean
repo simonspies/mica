@@ -171,13 +171,6 @@ theorem compileProductBindersFrom_length {mode : TinyML.Mode} {S : Verifier.Scop
                   (Signature.wf_addConst hstwf hfresh)
               simp [ih hse_wf' hrec_eval]
 
-/-- Check that a function body's type is its declared return type. Unification
-solves the two against each other, so they are equal or the program was rejected
-before the verifier saw it. -/
-def checkRet (retTy bodyTy : TinyML.Typ) : VerifM Unit :=
-  if bodyTy = retTy then pure ()
-  else VerifM.fatal "fix: body type does not match the return type"
-
 /-- The components of the sum a type is, unfolding a name exactly once. An
 injection's annotation is the name it was declared under, so one step suffices. -/
 def sumComponents? (Θ : TinyML.TypeEnv) : TinyML.Typ → Option (List TinyML.Typ)

@@ -107,7 +107,7 @@ def ValDecl.prove (env : Verifier.Env) (Gf : GhostFunctions) (f : TinyML.Var) (s
         env.lemmas.assumeInstance self.name argVars
         let se ← compileGhostExpr env
           (ghostBodyScope Gf' argNames argVars argTys s.ghost ghostVars) body
-        checkRet retTy body.ty
+        VerifM.expectEq "fix: body type does not match the return type" body.ty retTy
         pure se
     pure (f, ⟨ty, none⟩)
 
@@ -197,7 +197,7 @@ private theorem ValDecl.checkGhostBody_correct (env : Verifier.Env) (W : TinyML.
           env.lemmas.assumeInstance f argVars
           let se ← compileGhostExpr env
             (ghostBodyScope Gf argNames argVars argTys s.ghost ghostVars) body
-          checkRet retTy body.ty
+          VerifM.expectEq "fix: body type does not match the return type" body.ty retTy
           pure se)
         st' ρ'
         (fun result st'' ρ'' => ∀ X, result.wfIn st''.decls →
@@ -224,14 +224,8 @@ private theorem ValDecl.checkGhostBody_correct (env : Verifier.Env) (W : TinyML.
     (VerifM.eval.decls_grow ρ' hcompile) (by
       intro v st'' ρ'' t hΨ ht_wf ht_eval
       obtain ⟨_, _, hΨ⟩ := hΨ
-      simp only [checkRet] at hΨ
-      by_cases hsub : body.ty = retTy
-      case neg =>
-        simp [hsub] at hΨ
-        exact (VerifM.eval_fatal (VerifM.eval_bind hΨ)).elim
-      simp [hsub] at hΨ
+      obtain ⟨hsub, hΨ⟩ := VerifM.eval_bind_expectEq hΨ
       have hΨ' := VerifM.eval_ret hΨ
-      dsimp only at hΨ'
       rw [← ht_eval]
       refine (show st''.sl W ρ'' ∗ TinyML.ValHasType W (t.eval ρ'') body.ty ∗ Q ⊢
           st''.sl W ρ'' ∗ Q ∗
@@ -300,7 +294,7 @@ private theorem ValDecl.checkGhostRank_correct (env : Verifier.Env) (W : TinyML.
           env.lemmas.assumeInstance f argVars
           let se ← compileGhostExpr env
             (ghostBodyScope Gf' argNames argVars argTys s.ghost ghostVars) body
-          checkRet retTy body.ty
+          VerifM.expectEq "fix: body type does not match the return type" body.ty retTy
           pure se)) st ρ (fun _ _ _ => True))
     (hbodyGf : ∀ (vs gs : List Runtime.Val) (argVars ghostVars : List Decl.Const)
         (st' : State) (ρ' : Env) (Ψ : GhostFunctions → State → Env → Prop),
