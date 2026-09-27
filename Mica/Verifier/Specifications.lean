@@ -376,7 +376,7 @@ theorem declareArgs_correct :
         set σ' := σ.rename ⟨name, .value⟩ argVar.name
         set ρ₁ := ρ.updateConst .value argVar.name (sarg.eval ρ)
         have hstwf : st.decls.wf := hσwf.useWf
-        obtain ⟨hfresh_decls, hfresh_range, hrename⟩ :=
+        obtain ⟨hfresh_decls, -, hrename⟩ :=
           FiniteSubst.rename_freshConst hσwf ⟨name, .value⟩
         have hσ'wf : σ'.wfIn Δ_base (st.decls.addConst argVar) := by
           simpa [σ', argVar] using hrename
@@ -403,10 +403,7 @@ theorem declareArgs_correct :
         · have hlen : rest.length ≤ sargs_rest.length := by
             have := congrArg List.length hsublist
             simp [List.length_map] at this; omega
-          have hag_rename := FiniteSubst.rename_agreeOn
-            (σ := σ) (Δ_base := Δ_base) (Δ_use := st.decls)
-            (v := ⟨name, .value⟩) (name' := argVar.name)
-            (ρ := ρ) (u := sarg.eval ρ) hσwf hfresh_range
+          have hag_rename := (FiniteSubst.rename_freshConst_agreeOn hσwf ⟨name, .value⟩ ρ (sarg.eval ρ)).2
           have hag_env := Spec.argsEnv_agreeOn
             (ρ₁ := (σ'.subst.eval ρ₁))
             (ρ₂ := ((σ.subst.eval ρ).updateConst .value name (sarg.eval ρ)))
@@ -582,7 +579,7 @@ theorem declareImplArgs_correct (W : TinyML.World) :
       set ρ₁ := ρ.updateConst .value argVar.name v
       specialize hdecl v
       have hstwf : st.decls.wf := hσwf.useWf
-      obtain ⟨hfresh_decls, hfresh_range, hrename⟩ :=
+      obtain ⟨hfresh_decls, -, hrename⟩ :=
         FiniteSubst.rename_freshConst hσwf ⟨name, .value⟩
       have hσ'wf : σ'.wfIn Δ_base (st.decls.addConst argVar) := by
         simpa [σ', argVar] using hrename
@@ -609,10 +606,7 @@ theorem declareImplArgs_correct (W : TinyML.World) :
       obtain ⟨σ'', argVars', st', ρ', hΨ, hσ''wf, hdsub', hragree',
         howns, hdom_sub, hagree, hmem_decls, hsorts, hlookups⟩ := hih
       ihave %hlen_rest := TinyML.ValsHaveTypes.length_eq $$ Hvs_rest
-      have hag_rename := FiniteSubst.rename_agreeOn
-        (σ := σ) (Δ_base := Δ_base) (Δ_use := st.decls)
-        (v := ⟨name, .value⟩) (name' := argVar.name)
-        (ρ := ρ) (u := v) hσwf hfresh_range
+      have hag_rename := (FiniteSubst.rename_freshConst_agreeOn hσwf ⟨name, .value⟩ ρ v).2
       have hag_env := Spec.argsEnv_agreeOn
         (ρ₁ := (σ'.subst.eval ρ₁))
         (ρ₂ := ((σ.subst.eval ρ).updateConst .value name v))

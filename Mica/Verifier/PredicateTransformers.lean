@@ -90,7 +90,7 @@ theorem PredTrans.call_correct (W : TinyML.World) (pt : PredTrans TinyML.Typ) (�
         have hb2 := VerifM.eval_bind hcont
         have hdecl := VerifM.eval_decl hb2
         set resVar := st₁.freshConst (some postName) .value
-        obtain ⟨hfresh_decls, hfresh_range, hrename⟩ :=
+        obtain ⟨hfresh_decls, -, hrename⟩ :=
           FiniteSubst.rename_freshConst hσ₁wf ⟨postName, .value⟩
         specialize hdecl v
         have hb3 := VerifM.eval_bind hdecl
@@ -124,11 +124,7 @@ theorem PredTrans.call_correct (W : TinyML.World) (pt : PredTrans TinyML.Typ) (�
           SpatialContext.interp_agreeOn W (VerifM.eval.wf hcont).ownsWf
             (Env.agreeOn_update_fresh_const (c := resVar) hfresh_decls)
         exact (sep_mono_left hinterp_bi.1).trans <| hassume.trans <| Assertion.post_agreeOn (TinyML.ValHasType W) hwf₁'
-          (by
-            simpa [σ₂, Env.agreeOn, Env.updateConst] using
-              (FiniteSubst.rename_agreeOn (σ := σ₁) (Δ_base := Δ_base) (Δ_use := st₁.decls)
-                (v := ⟨postName, .value⟩) (name' := resVar.name)
-                (ρ := ρ₁) (u := v) hσ₁wf hfresh_range))
+          (FiniteSubst.rename_freshConst_agreeOn hσ₁wf ⟨postName, .value⟩ ρ₁ v).2
           (fun _ _ _ _ _ _ => .rfl))
   simpa [PredTrans.apply, Φpost] using hpre
 
@@ -187,7 +183,7 @@ theorem PredTrans.implement_correct (W : TinyML.World) (pt : PredTrans TinyML.Ty
       set resVar := st₂.freshConst (some postName) .value
       have hwfst₂ : st₂.decls.wf := (VerifM.eval.wf hrest).namesDisjoint
       have hσ₁wf₂ : σ₁.wfIn Δ_base st₂.decls := hσ₁wf.mono hdsub_body hwfst₂
-      obtain ⟨hfresh_decls, hfresh_range, hrename⟩ :=
+      obtain ⟨hfresh_decls, -, hrename⟩ :=
         FiniteSubst.rename_freshConst hσ₁wf₂ ⟨postName, .value⟩
       have hassume := VerifM.eval_define (VerifM.eval_bind hrest) hwf_result
       set σ₂ := σ₁.rename ⟨postName, .value⟩ resVar.name
@@ -211,9 +207,7 @@ theorem PredTrans.implement_correct (W : TinyML.World) (pt : PredTrans TinyML.Ty
             (Φ (result.eval ρ₂) -∗ S)
           exact sep_elim_right)
       have hag_rename :=
-        FiniteSubst.rename_agreeOn (σ := σ₁) (Δ_base := Δ_base) (Δ_use := st₂.decls)
-          (v := ⟨postName, .value⟩) (name' := resVar.name)
-          (ρ := ρ₂) (u := result.eval ρ₂) hσ₁wf₂ hfresh_range
+        (FiniteSubst.rename_freshConst_agreeOn hσ₁wf₂ ⟨postName, .value⟩ ρ₂ (result.eval ρ₂)).2
       have hagree_st₁ : Env.agreeOn st₁.decls ρ₂ ρ₁ := by
         simpa [Env.agreeOn] using Env.agreeOn_symm hagree_body
       have hag_eval := FiniteSubst.eval_agreeOn hσ₁wf hagree_st₁

@@ -290,7 +290,7 @@ theorem FiniteSubst.eval_update_fresh {σ : FiniteSubst} {ρ : Env} {τ : Srt} {
 /-- After `rename`, evaluating the renamed substitution in an environment containing the
     fresh verifier constant agrees with evaluating the old substitution and updating the
     source-level variable. -/
-theorem FiniteSubst.rename_agreeOn {σ : FiniteSubst} {Δ_base Δ_use : Signature}
+private theorem FiniteSubst.rename_agreeOn {σ : FiniteSubst} {Δ_base Δ_use : Signature}
     {v : Var} {name' : String} {ρ : Env} {u : v.sort.denote}
     (hσ : σ.wfIn Δ_base Δ_use) (hfresh : name' ∉ σ.range.allNames) :
     Env.agreeOn (Δ_base.declVars (σ.rename v name').dom)
@@ -357,6 +357,20 @@ theorem FiniteSubst.rename_agreeOn {σ : FiniteSubst} {Δ_base Δ_use : Signatur
     · intro binaryRel hbinaryRel
       simp [Subst.eval, Env.updateConst]
   exact Env.agreeOn_mono (FiniteSubst.rename_source_subset_rev σ Δ_base v name') hlarge
+
+/-- Giving the constant of `rename_freshConst` the value `u` changes no symbol
+    of the state, and the renamed substitution then evaluates as the old one with
+    `v` bound to `u`. -/
+theorem FiniteSubst.rename_freshConst_agreeOn {σ : FiniteSubst} {Δ_base : Signature}
+    {st : State} (hσ : σ.wfIn Δ_base st.decls) (v : Var) (ρ : Env) (u : v.sort.denote) :
+    Env.agreeOn st.decls ρ (ρ.updateConst v.sort (st.freshConst (some v.name) v.sort).name u) ∧
+      Env.agreeOn (Δ_base.declVars (σ.rename v (st.freshConst (some v.name) v.sort).name).dom)
+        ((σ.rename v (st.freshConst (some v.name) v.sort).name).subst.eval
+          (ρ.updateConst v.sort (st.freshConst (some v.name) v.sort).name u))
+        ((σ.subst.eval ρ).updateConst v.sort v.name u) :=
+  let hdecls := st.freshConst_fresh (some v.name) v.sort
+  ⟨Env.agreeOn_update_fresh_const (c := st.freshConst (some v.name) v.sort) hdecls,
+   FiniteSubst.rename_agreeOn hσ (hσ.fresh_range hdecls)⟩
 
 theorem FiniteSubst.base_wfIn {Δ_base Δ_use : Signature}
     (hbase : Δ_base.Subset Δ_use) (hbasewf : Δ_base.wf) (husewf : Δ_use.wf)
