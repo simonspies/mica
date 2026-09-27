@@ -395,7 +395,7 @@ theorem SeqM.strategy_correct {m : SeqM α} {a : α} {s : Smt.State}
     (h : m.strategy.eval Smt.State.initial (.ok a) s)
     (ρ : Env) (hρ : TransState.init.holdsFor ρ) :
     m.eval TransState.init ρ fun a' _ _ => a' = a := by
-  obtain ⟨_, h1⟩ := ScopedM.strategy_eval_initial_implies_ScopedM_eval h
+  obtain ⟨_, h1⟩ := ScopedM.eval_of_strategy h
   have h1 := ScopedM.eval_declareConst h1
   obtain ⟨r, _, hm, hcont⟩ := ScopedM.eval_bind h1
   rcases r with e | ⟨a', st⟩

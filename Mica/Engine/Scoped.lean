@@ -355,7 +355,7 @@ def ScopedM.eval (m : ScopedM α) (ctx : FlatCtx) (ret : α) (ctx' : FlatCtx) : 
 
 /-! ## Correspondence -/
 
-theorem ScopedM.strategy_eval_initial_implies_ScopedM_eval {m : ScopedM α} {ret : α}
+theorem ScopedM.eval_of_strategy {m : ScopedM α} {ret : α}
     {st' : State} :
     Strategy.eval (translate m) State.initial ret st' →
     ∃ ctx', ScopedM.eval m .empty ret ctx' := by
