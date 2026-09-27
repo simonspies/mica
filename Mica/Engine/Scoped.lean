@@ -23,6 +23,21 @@ inductive ScopedM : Type → Type 1 where
   | getOption : Smt.Options.Gettable β → (β → ScopedM α) → ScopedM α
   | bracket : ScopedM β → (β → ScopedM α) → ScopedM α
 
+/-- Bind for ScopedM, derived from the continuation structure. -/
+def ScopedM.bind : ScopedM α → (α → ScopedM β) → ScopedM β
+  | .ret a, k => k a
+  | .declareConst n s cont, k => .declareConst n s (fun r => (cont r).bind k)
+  | .declareUnary n a r cont, k => .declareUnary n a r (fun resp => (cont resp).bind k)
+  | .declareBinary n a1 a2 r cont, k => .declareBinary n a1 a2 r (fun resp => (cont resp).bind k)
+  | .declareTernary n a1 a2 a3 r cont, k => .declareTernary n a1 a2 a3 r (fun resp => (cont resp).bind k)
+  | .declareUnaryRel n a cont, k => .declareUnaryRel n a (fun resp => (cont resp).bind k)
+  | .declareBinaryRel n a1 a2 cont, k => .declareBinaryRel n a1 a2 (fun resp => (cont resp).bind k)
+  | .assert e cont, k => .assert e (fun r => (cont r).bind k)
+  | .checkSat cont, k => .checkSat (fun r => (cont r).bind k)
+  | .setOption s cont, k => .setOption s (fun r => (cont r).bind k)
+  | .getOption g cont, k => .getOption g (fun r => (cont r).bind k)
+  | .bracket body cont, k => .bracket body (fun x => (cont x).bind k)
+
 /-! ## translate: ScopedM → Strategy -/
 
 def ScopedM.translate : ScopedM α → Strategy α
@@ -42,6 +57,39 @@ def ScopedM.translate : ScopedM α → Strategy α
       .exec .push (fun () =>
         (translate body).bind (fun x =>
           .exec .pop (fun () => translate (k x))))
+
+theorem ScopedM.translate_bind (m : ScopedM α) (k : α → ScopedM β) :
+    translate (m.bind k) = (translate m).bind (fun a => translate (k a)) := by
+  induction m with
+  | ret a => simp [ScopedM.bind, translate, Strategy.bind]
+  | declareConst n s cont ih =>
+    simp only [ScopedM.bind, translate, Strategy.bind]; congr 1; funext r; exact ih r k
+  | declareUnary n a r cont ih =>
+    simp only [ScopedM.bind, translate, Strategy.bind]; congr 1; funext resp; exact ih resp k
+  | declareBinary n a1 a2 r cont ih =>
+    simp only [ScopedM.bind, translate, Strategy.bind]; congr 1; funext resp; exact ih resp k
+  | declareTernary n a1 a2 a3 r cont ih =>
+    simp only [ScopedM.bind, translate, Strategy.bind]; congr 1; funext resp; exact ih resp k
+  | declareUnaryRel n a cont ih =>
+    simp only [ScopedM.bind, translate, Strategy.bind]; congr 1; funext resp; exact ih resp k
+  | declareBinaryRel n a1 a2 cont ih =>
+    simp only [ScopedM.bind, translate, Strategy.bind]; congr 1; funext resp; exact ih resp k
+  | assert e cont ih =>
+    simp only [ScopedM.bind, translate, Strategy.bind]; congr 1; funext r; exact ih r k
+  | checkSat cont ih =>
+    simp only [ScopedM.bind, translate, Strategy.bind]; congr 1; funext r; exact ih r k
+  | setOption s cont ih =>
+    simp only [ScopedM.bind, translate, Strategy.bind]; congr 1; funext r; exact ih r k
+  | getOption g cont ih =>
+    simp only [ScopedM.bind, translate, Strategy.bind]; congr 1; funext r; exact ih r k
+  | bracket body cont _ ih_cont =>
+    simp only [ScopedM.bind, translate, Strategy.bind]
+    congr 1; funext ⟨⟩
+    rw [Strategy.bind_assoc]
+    congr 1; funext x
+    simp only [Strategy.bind]
+    congr 1; funext ⟨⟩
+    exact ih_cont x k
 
 /-! ## Flat Context
 
@@ -476,56 +524,6 @@ theorem ScopedM.eval_bracket {body : ScopedM β} {k : β → ScopedM α}
       simp only [Trace.result] at hret
       rw [← hres_body] at hgen_k
       exact ⟨.frames top rest, st', hflat, hflat', tk_k, hgen_k, hsound_rest.2, hst', hret⟩
-
-/-! ## ScopedM.bind -/
-
-/-- Bind for ScopedM, derived from the continuation structure. -/
-def ScopedM.bind : ScopedM α → (α → ScopedM β) → ScopedM β
-  | .ret a, k => k a
-  | .declareConst n s cont, k => .declareConst n s (fun r => (cont r).bind k)
-  | .declareUnary n a r cont, k => .declareUnary n a r (fun resp => (cont resp).bind k)
-  | .declareBinary n a1 a2 r cont, k => .declareBinary n a1 a2 r (fun resp => (cont resp).bind k)
-  | .declareTernary n a1 a2 a3 r cont, k => .declareTernary n a1 a2 a3 r (fun resp => (cont resp).bind k)
-  | .declareUnaryRel n a cont, k => .declareUnaryRel n a (fun resp => (cont resp).bind k)
-  | .declareBinaryRel n a1 a2 cont, k => .declareBinaryRel n a1 a2 (fun resp => (cont resp).bind k)
-  | .assert e cont, k => .assert e (fun r => (cont r).bind k)
-  | .checkSat cont, k => .checkSat (fun r => (cont r).bind k)
-  | .setOption s cont, k => .setOption s (fun r => (cont r).bind k)
-  | .getOption g cont, k => .getOption g (fun r => (cont r).bind k)
-  | .bracket body cont, k => .bracket body (fun x => (cont x).bind k)
-
-theorem ScopedM.translate_bind (m : ScopedM α) (k : α → ScopedM β) :
-    translate (m.bind k) = (translate m).bind (fun a => translate (k a)) := by
-  induction m with
-  | ret a => simp [ScopedM.bind, translate, Strategy.bind]
-  | declareConst n s cont ih =>
-    simp only [ScopedM.bind, translate, Strategy.bind]; congr 1; funext r; exact ih r k
-  | declareUnary n a r cont ih =>
-    simp only [ScopedM.bind, translate, Strategy.bind]; congr 1; funext resp; exact ih resp k
-  | declareBinary n a1 a2 r cont ih =>
-    simp only [ScopedM.bind, translate, Strategy.bind]; congr 1; funext resp; exact ih resp k
-  | declareTernary n a1 a2 a3 r cont ih =>
-    simp only [ScopedM.bind, translate, Strategy.bind]; congr 1; funext resp; exact ih resp k
-  | declareUnaryRel n a cont ih =>
-    simp only [ScopedM.bind, translate, Strategy.bind]; congr 1; funext resp; exact ih resp k
-  | declareBinaryRel n a1 a2 cont ih =>
-    simp only [ScopedM.bind, translate, Strategy.bind]; congr 1; funext resp; exact ih resp k
-  | assert e cont ih =>
-    simp only [ScopedM.bind, translate, Strategy.bind]; congr 1; funext r; exact ih r k
-  | checkSat cont ih =>
-    simp only [ScopedM.bind, translate, Strategy.bind]; congr 1; funext r; exact ih r k
-  | setOption s cont ih =>
-    simp only [ScopedM.bind, translate, Strategy.bind]; congr 1; funext r; exact ih r k
-  | getOption g cont ih =>
-    simp only [ScopedM.bind, translate, Strategy.bind]; congr 1; funext r; exact ih r k
-  | bracket body cont _ ih_cont =>
-    simp only [ScopedM.bind, translate, Strategy.bind]
-    congr 1; funext ⟨⟩
-    rw [Strategy.bind_assoc]
-    congr 1; funext x
-    simp only [Strategy.bind]
-    congr 1; funext ⟨⟩
-    exact ih_cont x k
 
 /-- Bind decomposes into two sequential evaluations. -/
 theorem ScopedM.eval_bind {m : ScopedM α} {k : α → ScopedM β}
