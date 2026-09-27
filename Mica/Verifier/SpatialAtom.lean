@@ -241,9 +241,7 @@ theorem interp_pointsTo (W : TinyML.World) {ρ : Env} {lt vt : Term .value}
     iintro ⟨%loc', %Hloc', Hpt, Hty⟩
     have : loc' = loc := Runtime.Val.loc.inj (Hloc'.symm.trans hloc)
     subst this
-    isplitl [Hpt]
-    · iexact Hpt
-    · iexact Hty
+    iframe Hpt Hty
   · simp only [interp]
     istart
     iintro ⟨Hpt, Hty⟩
@@ -251,9 +249,7 @@ theorem interp_pointsTo (W : TinyML.World) {ρ : Env} {lt vt : Term .value}
     isplitr
     · ipureintro
       exact hloc
-    · isplitl [Hpt]
-      · iexact Hpt
-      · iexact Hty
+    · iframe Hpt Hty
 
 /-- If an owned-array atom's array and snapshot terms evaluate to the same
     runtime block, its interpretation exposes ownership of that whole block
@@ -273,9 +269,7 @@ theorem interp_arrayPointsTo (W : TinyML.World) {ρ : Env} {arrt vt : Term .valu
     have hvs : vs' = vs := Runtime.Val.vec.inj (Hvec'.symm.trans hvec)
     subst hloc
     subst hvs
-    isplitl [Hpt]
-    · iexact Hpt
-    · iexact Hty
+    iframe Hpt Hty
   · simp only [interp]
     istart
     iintro ⟨Hpt, Hty⟩
@@ -286,9 +280,7 @@ theorem interp_arrayPointsTo (W : TinyML.World) {ρ : Env} {arrt vt : Term .valu
     · isplitr
       · ipureintro
         exact hvec
-      · isplitl [Hpt]
-        · iexact Hpt
-        · iexact Hty
+      · iframe Hpt Hty
 
 /-- Destruct an owned-array atom at an in-bounds index: expose the underlying
 block, the integer index witness, and the persistent element typing of the
@@ -374,9 +366,7 @@ theorem interp_arrayPointsTo_elem (W : TinyML.World) {ρ : Env}
     · ipureintro; exact ha
     · isplitr
       · ipureintro; exact hv
-      · isplitl [Hpt]
-        · iexact Hpt
-        · iexact HvecTy
+      · iframe Hpt HvecTy
   · iexact Hty
 
 /-- An atom's interpretation implies its pure facts. -/
@@ -410,9 +400,7 @@ theorem interp_facts (W : TinyML.World) {ρ : Env} (a : SpatialAtom) :
       · isplitr
         · ipureintro
           exact hv
-        · isplitl [Hpt]
-          · iexact Hpt
-          · iexact Hty
+        · iframe Hpt Hty
 
 end SpatialAtom
 

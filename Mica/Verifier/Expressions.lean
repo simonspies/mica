@@ -812,37 +812,27 @@ theorem compileFix_typed (env : Verifier.Env) (W : TinyML.World) (henv : env.wf 
           exact hfv_val)
         hargVars_mem hargVars_sort hargVars_lookup
         hghostVars_mem hghostVars_sort hghostVars_lookup hbody_eval)
-      isplitl [Hsl]
-      · iexact Hsl
-      · isplitl [Htyped'']
-        · iexact Htyped''
-        · isplitl [Hgtyped'']
-          · iexact Hgtyped''
-          · iexact HQ) $$ [Htyped Hgtyped Hpred]
+      iframe Hsl Htyped'' Hgtyped''
+      iexact HQ) $$ [Htyped Hgtyped Hpred]
   · isplitl []
     · simp [State.sl, State.persist]
       iempintro
-    · isplitl [Htyped]
-      · iexact Htyped
-      · isplitl []
-        · iexact Hgtyped
-        · have hlen_call : s.allArgs.length ≤ (vs ++ gs).length := by
-            rw [hargTys_def] at hlen_typed; simp [Spec.allArgs] at hlen_typed ⊢
-            omega
-          iapply (PredTrans.apply_agreeOn (TinyML.ValHasType W)
-            (ρ := Spec.argsEnv ρ_call s.allArgs (vs ++ gs))
-            (ρ' := Spec.argsEnv W.ρ_spec s.allArgs (vs ++ gs)) hswf
-            (Spec.argsEnv_agreeOn (Δ := W.Δ_spec) (ρ₁ := ρ_call) (ρ₂ := W.ρ_spec)
-              (Env.agreeOn_symm hagree_call) s.allArgs (vs ++ gs) hlen_call))
-          iexact Hpred
+    · iframe Htyped Hgtyped
+      have hlen_call : s.allArgs.length ≤ (vs ++ gs).length := by
+        rw [hargTys_def] at hlen_typed; simp [Spec.allArgs] at hlen_typed ⊢
+        omega
+      iapply (PredTrans.apply_agreeOn (TinyML.ValHasType W)
+        (ρ := Spec.argsEnv ρ_call s.allArgs (vs ++ gs))
+        (ρ' := Spec.argsEnv W.ρ_spec s.allArgs (vs ++ gs)) hswf
+        (Spec.argsEnv_agreeOn (Δ := W.Δ_spec) (ρ₁ := ρ_call) (ρ₂ := W.ρ_spec)
+          (Env.agreeOn_symm hagree_call) s.allArgs (vs ++ gs) hlen_call))
+      iexact Hpred
   ispecialize Hwand $$ [Htyped]
   · iexact Htyped
   ispecialize Hwand $$ [Hgtyped]
   · iexact Hgtyped
   iapply Hwand
-  isplitl []
-  · iexact HT
-  · iexact Hrec
+  iframe HT Hrec
 
 theorem compileFix_correct (self : Binder) (args : List Binder)
     (retTy : TinyML.Typ) (spec : Option (Spec TinyML.Typ)) (body : Expr)
@@ -1071,9 +1061,7 @@ theorem compileDerefShared_correct (e : Expr) (ty : TinyML.Typ)
   isplitl [Howns]
   · iapply hsl_agree
     iexact Howns
-  · isplitl []
-    · iexact Hw
-    · iexact HR
+  · iframe Hw HR
 
 theorem compileDerefOwned_correct (e : Expr) (ty : TinyML.Typ)
     (howned : e.ty = .owned ty)
@@ -1437,14 +1425,10 @@ theorem compileArrayMake_correct (ownership : TinyML.Ownership) (len init : Expr
         SpatialContext.interp]
       isplitl [Hpt]
       · iapply (SpatialAtom.interp_arrayPointsTo W (by simpa using hsa_eval) hcontents_eval).2
-        isplitl [Hpt]
-        · iexact Hpt
-        · iexact HvecTy
+        iframe Hpt HvecTy
       · iapply hsl_agree
         iexact Howns
-    · isplitl [HarrTy]
-      · iexact HarrTy
-      · iexact HR
+    · iframe HarrTy HR
 
 theorem compileArrayLen_correct (arr : Expr)
     (ihArr : correctExpr arr) :
@@ -1604,9 +1588,7 @@ theorem compileArrayGet_correct (arr idx : Expr) (ty : TinyML.Typ)
             isplitl [Howns]
             · iapply hsl_agree'
               iexact Howns
-            · isplitl []
-              · iexact Hw
-              · iexact HR))
+            · iframe Hw HR))
     exact hwp
   | ownedArray elemTy =>
     intro env W S γg γ st ρ Ψ R Φ henv hS heval hpost
@@ -1666,9 +1648,7 @@ theorem compileArrayGet_correct (arr idx : Expr) (ty : TinyML.Typ)
           · isplitl [Howns]
             · simp only [State.sl_eq]
               iexact Howns
-            · isplitl [HresTy]
-              · iexact HresTy
-              · iexact HR))
+            · iframe HresTy HR))
   | prim _ | sum _ | arrow _ _ | ref _ | vec _ | owned _ | empty | value | tuple _ | tvar _
   | named _ _ =>
       intro env W S γg γ st ρ Ψ R Φ henv _hS heval _ _ _ _
@@ -1826,9 +1806,7 @@ theorem compileArraySet_correct (arr idx val : Expr)
           · isplitl [Howns]
             · simp only [State.sl_eq]
               iexact Howns
-            · isplitl [HunitTy]
-              · iexact HunitTy
-              · iexact HR))
+            · iframe HunitTy HR))
   | prim _ | sum _ | arrow _ _ | ref _ | vec _ | owned _ | empty | value | tuple _ | tvar _
   | named _ _ =>
       intro env W S γg γ st ρ Ψ R Φ henv _hS heval _ _ _ _
@@ -1869,11 +1847,7 @@ theorem compileUnop_correct (op : TinyML.UnOp) (e : Expr) (uty : TinyML.Typ)
       (R := st₁.sl W ρ_e ∗ TinyML.ValHasType W w ty ∗ R)
       (Q := Φ) (op := op) (v := v_e) (res := w) hq heval_op
   iapply hwp
-  isplitl [Howns]
-  · iexact Howns
-  · isplitl [Hwty]
-    · iexact Hwty
-    · iexact HR
+  iframe Howns Hwty HR
 
 /-- The `wp` step shared by the integer binary operations the compiler guards
 with an assertion. `folOp` is the operation the compiled term uses and `g` the
@@ -1915,9 +1889,7 @@ private theorem compileIntBinop_correct (W : TinyML.World) {R : iProp}
   subst hvl hvr
   iapply (PrimitiveLaws.wp_binop (vl := .int a) (vr := .int b) (res := .int (g a b)) hq)
   · exact hopab
-  · isplitl [Howns]
-    · iexact Howns
-    · iexact HR
+  · iframe Howns HR
 
 theorem compileBinop_correct (op : TinyML.BinOp) (l r : Expr) (bty : TinyML.Typ)
     (ihR : correctExpr r) (ihL : correctExpr l) :
@@ -1995,9 +1967,7 @@ theorem compileBinop_correct (op : TinyML.BinOp) (l r : Expr) (bty : TinyML.Typ)
       isplitl [Howns]
       · iexact Howns
       · isplitl [Hvl Hvr]
-        · isplitl [Hvl]
-          · iexact Hvl
-          · iexact Hvr
+        · iframe Hvl Hvr
         · iexact HR
     have htyped :
         st₂.sl W ρ_l ∗ (TinyML.ValHasType W vl l.ty ∗ (TinyML.ValHasType W vr r.ty ∗ R)) ⊢
@@ -2027,11 +1997,7 @@ theorem compileBinop_correct (op : TinyML.BinOp) (l r : Expr) (bty : TinyML.Typ)
         (R := st₂.sl W ρ_l ∗ TinyML.ValHasType W w ty ∗ R)
         (Q := Φ) (op := op) (vl := vl) (vr := vr) (res := w) hq heval_op
     iapply hwp
-    isplitl [Howns]
-    · iexact Howns
-    · isplitl [Hwty]
-      · iexact Hwty
-      · iexact HR
+    iframe Howns Hwty HR
 
 /-- A ghost binding is erased, so the run-time program is the body alone. The
     ghost expression's obligation is discharged in the scope it is written in
@@ -2326,9 +2292,7 @@ theorem compileIfThenElse_correct (cond thn els : Expr) (ty : TinyML.Typ)
     · iexact Howns
     · isplitl []
       · exact pure_intro (by subst hv; cases b <;> simp)
-      · isplitl []
-        · iexact HT
-        · iexact HR
+      · iframe HT HR
   have hbool_cases :
       st₁.sl W ρ_c ∗ (TinyML.ValHasType W v_c cond.ty ∗ (S.typed W γg γ ∗ R)) ⊢
         st₁.sl W ρ_c ∗ iprop(⌜v_c = .bool false ∨ v_c = .bool true⌝) ∗
@@ -2357,11 +2321,7 @@ theorem compileIfThenElse_correct (cond thn els : Expr) (ty : TinyML.Typ)
           st_els.sl W ρ_c ∗ (S.typed W γg γ ∗ R) := by
       simp [st_els, State.sl]
     iapply (hctx.trans hwp)
-    isplitl [Howns]
-    · iexact Howns
-    · isplitl []
-      · iexact HT
-      · iexact HR
+    iframe Howns HT HR
   · subst htrue_val
     have heval_ne : sc.eval ρ_c ≠ Runtime.Val.bool false := by
       rw [heval_c]
@@ -2383,11 +2343,7 @@ theorem compileIfThenElse_correct (cond thn els : Expr) (ty : TinyML.Typ)
           st_thn.sl W ρ_c ∗ (S.typed W γg γ ∗ R) := by
       simp [st_thn, State.sl]
     iapply (hctx.trans hwp)
-    isplitl [Howns]
-    · iexact Howns
-    · isplitl []
-      · iexact HT
-      · iexact HR
+    iframe Howns HT HR
 
 theorem compileTuple_correct (es : List Expr)
     (ihEs : correctExprs es) :
@@ -2464,13 +2420,7 @@ theorem compileAppSpec_correct
         (S.typed W γg γ ∗ R)) := by
     istart
     iintro ⟨Howns, #HT, HR⟩
-    isplitl [Howns]
-    · iexact Howns
-    · isplitl []
-      · iexact HT
-      · isplitl []
-        · iexact HT
-        · iexact HR
+    iframe Howns HT HR
   refine hctx.trans <|
     ihArgs _ W S γg γ (R := (S.typed W γg γ ∗ R)) henv hS (VerifM.eval.decls_grow ρ heval_args) ?_
   intro vs ρ_args st_args sargs hΨ_args hsargs_wf heval_sargs
@@ -2490,15 +2440,7 @@ theorem compileAppSpec_correct
           (TinyML.ValsHaveTypes W vs (args.map Expr.WithTypeVars.ty) ∗ R))) := by
     istart
     iintro ⟨Howns, #Hvals, #HT, HR⟩
-    isplitl [Howns]
-    · iexact Howns
-    · isplitl []
-      · iexact HT
-      · isplitl []
-        · iexact HT
-        · isplitl []
-          · iexact Hvals
-          · iexact HR
+    iframe Howns HT Hvals HR
   refine hctx'.trans <|
     ihFn _ W S γg γ (R := (S.typed W γg γ ∗
         (TinyML.ValsHaveTypes W vs (args.map Expr.WithTypeVars.ty) ∗ R))) henv hS_args (VerifM.eval.decls_grow ρ_args heval_fn) ?_
@@ -2518,15 +2460,7 @@ theorem compileAppSpec_correct
         henv hS_fn (VerifM.eval.decls_grow ρ_fn heval_gargs) ?_).trans
       (bupd_mono (exists_elim fun _ => .rfl))))
   · iintro ⟨Howns, #Hfval, #HT, #Hvals, HR⟩
-    isplitl [Howns]
-    · iexact Howns
-    · isplitl []
-      · iexact HT
-      · isplitl []
-        · iexact Hfval
-        · isplitl []
-          · iexact Hvals
-          · iexact HR
+    iframe Howns HT Hfval Hvals HR
   intro gs st_g ρ_g gterms hΨ_g hgterms_wf heval_gterms
   obtain ⟨hdecls_g, hagreeOn_g, hΨ_g⟩ := hΨ_g
   set typedArgs := (args.map Expr.WithTypeVars.ty).zip sargs with htypedArgs_def
@@ -2560,11 +2494,7 @@ theorem compileAppSpec_correct
       icases H with ⟨Howns', Hrest⟩
       icases Hrest with ⟨HR', Hty⟩
       iapply h
-      isplitl [Howns']
-      · iexact Howns'
-      · isplitl [Hty]
-        · iexact Hty
-        · iexact HR')
+      iframe Howns' Hty HR')
   obtain ⟨hsub_ty, hsub_gty, happly⟩ := hcall
   have hreorder : st_g.sl W ρ_g ∗ (TinyML.ValsHaveTypes W gs (gargs.map Expr.WithTypeVars.ty) ∗
       (TinyML.ValHasType W fval fn.ty ∗
@@ -2574,15 +2504,7 @@ theorem compileAppSpec_correct
           (TinyML.ValsHaveTypes W vs (args.map Expr.WithTypeVars.ty) ∗ R))) := by
     istart
     iintro ⟨Howns, #Hgvals, #Hfval, #Hvals, HR⟩
-    isplitl [Howns]
-    · iexact Howns
-    · isplitl []
-      · iexact Hfval
-      · isplitl []
-        · iexact Hgvals
-        · isplitl []
-          · iexact Hvals
-          · iexact HR
+    iframe Howns Hfval Hgvals Hvals HR
   refine hreorder.trans ?_
   rw [hfnty]
   refine (sep_mono_right (sep_mono_left
@@ -2640,9 +2562,7 @@ theorem compileAppSpec_correct
     iexact Hgvals
   · iapply later_intro
     iapply happly'
-    isplitl [Howns]
-    · iexact Howns
-    · iexact HR
+    iframe Howns HR
 
 theorem compileApp_correct
     (fn : Expr) (args gargs : List Expr) (aty : TinyML.Typ)
@@ -2719,11 +2639,7 @@ theorem compileApp_correct
         icases H with ⟨Howns', Hrest⟩
         icases Hrest with ⟨HR', Hty⟩
         iapply h
-        isplitl [Howns']
-        · iexact Howns'
-        · isplitl [Hty]
-          · iexact Hty
-          · iexact HR')
+        iframe Howns' Hty HR')
     obtain ⟨hsub_ty, hsub_gty, happly⟩ := hcall
     -- The call passes no ghost argument, so the intrinsic declares none.
     have hghost_nil : i.spec.ghost = [] := by simpa using hsub_gty.symm
@@ -2770,9 +2686,7 @@ theorem compileApp_correct
     · rw [← hsub_ty']
       iexact Hvals
     · iapply happly'
-      isplitl [Howns]
-      · iexact Howns
-      · iexact HR
+      iframe Howns HR
   | _ =>
     exact (VerifM.eval_fatal heval).elim
 
@@ -2863,9 +2777,7 @@ theorem compileMatch_correct (scrut : Expr) (branches : List (Binder × Expr)) (
             · isplitl [Hsum]
               · iapply (TinyML.ValSumRel.of_getElem? (W := W) hget)
                 iexact Hsum
-              · isplitl []
-                · iexact HT
-                · iexact HR
+              · iframe HT HR
           have hmatch_entail :
               st_scrut.sl W ρ_scrut ∗
                   TinyML.ValSumRel W tag v_payload ts ∗
@@ -2887,13 +2799,7 @@ theorem compileMatch_correct (scrut : Expr) (branches : List (Binder × Expr)) (
               (by simpa using hlen)
           rw [hval_eq]
           iapply hmatch_entail
-          isplitl [Hsl]
-          · iexact Hsl
-          · isplitl [Hsum]
-            · iexact Hsum
-            · isplitl []
-              · iexact HT
-              · iexact HR)
+          iframe Hsl Hsum HT HR)
       · have hΨ_bad : (VerifM.fatal "match branch type annotation mismatch").eval st_scrut ρ_scrut Ψ := by
           simpa [if_pos hlen, if_neg htys] using hΨ_scrut
         exact (VerifM.eval_fatal hΨ_bad).elim
@@ -3008,13 +2914,7 @@ theorem compileExprsCons_correct (e : Expr) (rest : List Expr)
   refine BIBase.Entails.trans ?_ <|
     ihRest env W S γg γ (R := (S.typed W γg γ ∗ (R))) henv hS (VerifM.eval.decls_grow ρ heval_rest) ?_
   · iintro ⟨Hsl, #HT, HR⟩
-    isplitl [Hsl]
-    · iexact Hsl
-    · isplitl []
-      · iexact HT
-      · isplitl []
-        · iexact HT
-        · iexact HR
+    iframe Hsl HT HR
   intro vs ρ_vs st_vs rest_terms hΨ_vs hwf_rest heval_rest
   obtain ⟨hdecls_vs, hagreeOn_vs, hΨ_vs⟩ := hΨ_vs
   have heval_e : (compile env S e).eval st_vs ρ_vs _ := VerifM.eval_bind hΨ_vs
@@ -3022,13 +2922,7 @@ theorem compileExprsCons_correct (e : Expr) (rest : List Expr)
   refine BIBase.Entails.trans ?_ <|
     ihE env W S γg γ (R := (TinyML.ValsHaveTypes W vs (rest.map Expr.WithTypeVars.ty) ∗ (R))) henv hS_vs (VerifM.eval.decls_grow ρ_vs heval_e) ?_
   · iintro ⟨Hsl, Hvs, #HT, HR⟩
-    isplitl [Hsl]
-    · iexact Hsl
-    · isplitl []
-      · iexact HT
-      · isplitl [Hvs]
-        · iexact Hvs
-        · iexact HR
+    iframe Hsl HT Hvs HR
   intro v ρ' st' se hΨ_e hse_wf heval_se
   obtain ⟨hdecls_e, hagreeOn_e, hΨ_e⟩ := hΨ_e
   have hwfst' : st'.decls.wf := (VerifM.eval.wf hΨ_e).namesDisjoint
@@ -3056,9 +2950,7 @@ theorem compileExprsCons_correct (e : Expr) (rest : List Expr)
             TinyML.ValsHaveTypes W (v :: vs) ((e :: rest).map Expr.WithTypeVars.ty) by
           simpa [List.map] using
             (TinyML.ValsHaveTypes.cons W v vs e.ty (rest.map Expr.WithTypeVars.ty)).2)
-        isplitl [Hv]
-        · iexact Hv
-        · iexact Hvs
+        iframe Hv Hvs
       · iexact HR)
 
 theorem compileBranchesNil_correct :

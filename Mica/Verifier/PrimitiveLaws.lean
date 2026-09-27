@@ -183,11 +183,7 @@ theorem wp_ref (W : TinyML.World) {v : Runtime.Val} {Q : Runtime.Val → iProp}
       istart
       iintro ⟨⟨Hctx, Hty, HR⟩, Hpt⟩
       isplitl [Hctx Hpt Hty]
-      · isplitl [Hctx]
-        · iexact Hctx
-        · isplitl [Hpt]
-          · iexact Hpt
-          · iexact Hty
+      · iframe Hctx Hpt Hty
       · iexact HR
     exact hrearrange.trans ((sep_mono_left hinsert).trans (by simpa [ρ', a, hnewctx] using h loc))
   exact hforall.trans wp.ref
@@ -264,13 +260,9 @@ theorem wp_deref_owned (W : TinyML.World) {Q : Runtime.Val → iProp}
         isplitr
         · ipureintro
           exact hlt_orig
-        · isplitl [Hpt]
-          · iexact Hpt
-          · iexact HstoredTy
+        · iframe Hpt HstoredTy
       · iexact Hrest
-    · isplitl [HstoredTy]
-      · iexact HstoredTy
-      · iexact HR
+    · iframe HstoredTy HR
 
 /-- Dereference at values, behind the location invariant: the spatial context is
 unchanged and the continuation receives the read value's typing. -/
@@ -289,11 +281,7 @@ theorem wp_deref_inv (W : TinyML.World) {vloc : Runtime.Val} {Q : Runtime.Val �
   · iexact Hinv
   · iintro %w #Hw
     iapply (h w)
-    isplitl [Howns]
-    · iexact Howns
-    · isplitl []
-      · iexact Hw
-      · iexact HR
+    iframe Howns Hw HR
 
 /-- Store under evaluation: first evaluate the value expression, then the
     location expression, then take the head store step. -/
@@ -412,11 +400,7 @@ theorem wp_arrayGet_inv (W : TinyML.World) {Q : Runtime.Val → iProp}
   · iexact Hinv
   · iintro %w #Hw
     iapply h
-    isplitl [Hctx]
-    · iexact Hctx
-    · isplitl []
-      · iexact Hw
-      · iexact HR
+    iframe Hctx Hw HR
 
 /-- `Array.get` through an owned-array atom: consume the atom, read the
 selected element, and restore the unchanged snapshot. -/
@@ -464,9 +448,7 @@ theorem wp_arrayGet_owned (W : TinyML.World) {Q : Runtime.Val → iProp}
     · simp only [SpatialContext.interp]
       isplitr [Hrest]
       · iapply (SpatialAtom.interp_arrayPointsTo W ha hv).2
-        isplitl [HptNew]
-        · iexact HptNew
-        · iexact HvecTy
+        iframe HptNew HvecTy
       · iexact Hrest
     · isplitl [Hty]
       · rw [hresult_eval]
@@ -579,9 +561,7 @@ theorem wp_arraySet_owned (W : TinyML.World) {Q : Runtime.Val → iProp}
     ihave HvecTyNew : iprop(TinyML.ValHasType W (.vec (vs.set i.toNat vval)) (.vec elemTy))
         $$ [Htys HvalTy]
     · iapply (TinyML.ValHasType.vec_set W hlookup)
-      isplitl [Htys]
-      · iexact Htys
-      · iexact HvalTy
+      iframe Htys HvalTy
     have hcontents'_eval : Term.eval ρ contents' = .vec (vs.set i.toNat vval) := by
       subst hcontents'
       simp [Term.eval, UnOp.eval, TerOp.eval, hv, hidx, hval, hi']
@@ -590,9 +570,7 @@ theorem wp_arraySet_owned (W : TinyML.World) {Q : Runtime.Val → iProp}
     · simp only [SpatialContext.interp]
       isplitr [Hrest]
       · iapply (SpatialAtom.interp_arrayPointsTo W (by simpa using ha) hcontents'_eval).2
-        isplitl [HptNew]
-        · iexact HptNew
-        · iexact HvecTyNew
+        iframe HptNew HvecTyNew
       · iexact Hrest
     · isplitl []
       · iapply TinyML.ValHasType.unit_intro
