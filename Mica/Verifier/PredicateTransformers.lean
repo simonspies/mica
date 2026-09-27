@@ -9,7 +9,6 @@ import Mathlib.Data.Finmap
 
 open Verifier (State)
 
-
 open Iris Iris.BI
 
 variable [MicaGS HasLC.hasLC Sig]
@@ -22,9 +21,7 @@ correctness proofs. `PredTrans.apply`, the semantics, lives in
 `Mica/SourceTinyML/Semantics.lean`.
 -/
 
--- ---------------------------------------------------------------------------
--- Verifier operations
--- ---------------------------------------------------------------------------
+/-! ## Call and implementation -/
 
 /-- The caller side of a predicate transformer: assert the precondition (prove the outer
     assertion) and assume the postcondition (assume the inner assertion). Returns a term
@@ -46,9 +43,7 @@ def PredTrans.implement (σ : FiniteSubst) (pt : PredTrans TinyML.Typ) (body : V
   let (_, ()) ← Assertion.prove (σ₁.rename ⟨postName, .value⟩ resVar.name) postBody
   pure ()
 
--- ---------------------------------------------------------------------------
--- Correctness
--- ---------------------------------------------------------------------------
+/-! ## Correctness -/
 
 theorem PredTrans.call_correct (W : TinyML.World) (pt : PredTrans TinyML.Typ) (Δ_base : Signature) (σ : FiniteSubst)
     (st : State) (ρ : Env)
@@ -127,7 +122,6 @@ theorem PredTrans.call_correct (W : TinyML.World) (pt : PredTrans TinyML.Typ) (�
           (FiniteSubst.rename_freshConst_agreeOn hσ₁wf ⟨postName, .value⟩ ρ₁ v).2
           (fun _ _ _ _ _ _ => .rfl))
   simpa [PredTrans.apply, Φpost] using hpre
-
 
 theorem PredTrans.implement_correct (W : TinyML.World) (pt : PredTrans TinyML.Typ) (Δ_base : Signature) (σ : FiniteSubst)
     (body : VerifM (Term .value))

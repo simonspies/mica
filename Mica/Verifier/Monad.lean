@@ -8,11 +8,16 @@ import Mica.Verifier.SpatialAtom
 
 open Verifier (State)
 
+/-!
+# The verification monad
 
-/-! ## Verification Monad
-
-A free monad over verification-relevant SMT operations,
-with branching (all/any) for exploring multiple verification paths. -/
+`VerifM` is a free monad over the solver operations the verifier needs, with
+branching: `all` explores every branch, `any` succeeds if one does.
+`VerifM.translate` runs it in `ScopedM`, which talks to the solver.
+`VerifM.eval` is its semantics: a postcondition over the results, the states,
+and the environments of every branch. `VerifM.translate_eval` says that a
+successful run establishes this semantics.
+-/
 
 inductive VerifError where
   /-- Recoverable failure: this verification path didn't work out.
@@ -33,9 +38,7 @@ inductive VerifM : Type → Type 1 where
       ¬ φ is unsat, `false` otherwise. Never fails. At `.low` effort guarded
       axioms are ignored; at `.high` effort they are enabled. -/
   | check : Effort → Formula → VerifM Bool
-  /-- Abort with a fatal error. -/
   | fatal : String → VerifM α
-  /-- Abort with a recoverable failure. -/
   | failed : String → VerifM α
   /-- Execute all branches; succeed only if every branch succeeds. -/
   | all : List α → VerifM α
@@ -51,6 +54,7 @@ instance : Monad VerifM where
   pure := VerifM.ret
   bind := VerifM.bind
 
+/-! ## Derived operations -/
 
 /-- Read the current pure assertion context, leaving the spatial context untouched. -/
 def VerifM.ctxPure (f : List Formula → α) : VerifM α :=
@@ -88,7 +92,6 @@ def VerifM.expectSome (msg : String) (x : Option α) : VerifM α := do
   | some x => pure x
   | none => VerifM.fatal msg
 
-/-- Assume all formulas in a list via `VerifM.assume`. -/
 def VerifM.assumeAll : List Formula → VerifM Unit
   | [] => pure ()
   | φ :: φs => do VerifM.assume (.pure φ); VerifM.assumeAll φs
@@ -102,6 +105,8 @@ def VerifM.define (hint : Option String) (t : Term τ) : VerifM Decl.Const := do
   let c ← VerifM.decl hint τ
   VerifM.assume (.pure (Formula.define ⟨c.name, τ⟩ t))
   pure c
+
+/-! ## Translation to `ScopedM` -/
 
 def TransCont α := α → State → ScopedM (Except VerifError Unit)
 
@@ -172,7 +177,7 @@ def VerifM.translate :
           | .ok () => m2.translate st k
           | .error e => k (.error e) st)
 
-/-! ### Eval_rec: postcondition-based semantics (raw) -/
+/-! ## Semantics without the invariant -/
 
 private def VerifM.eval_rec : VerifM α → State → Env → (α → State → Env → Prop) → Prop
   | .ret a, st, ρ, P => P a st ρ
@@ -246,8 +251,7 @@ private theorem VerifM.eval_rec.decls_grow {m : VerifM α} ρ (h : m.eval_rec st
     m.eval_rec st ρ (fun a st' ρ' => st.decls.Subset st'.decls ∧ Env.agreeOn st.decls ρ ρ' ∧ P a st' ρ') :=
   h.mono' ρ st fun _ _ _ hsub hag hp => ⟨hsub, hag, hp⟩
 
-/-! ### Adequacy: translate success implies eval -/
-
+/-! ## A successful run satisfies the semantics -/
 
 private theorem VerifM.eval_rec_preserves_wf (m : VerifM α) (st : State) (ρ: Env)
     (h : VerifM.eval_rec m st ρ P) (g : st.holdsFor ρ) (hwf : st.wf) :
@@ -467,9 +471,7 @@ private theorem VerifM.translate_eval_rec (m : VerifM α) (st : State) (ρ: Env)
     | .error e =>
       exact absurd ⟨_, hk⟩ (hf e st)
 
-
-
-/-! ### Eval: wf/holdsFor-aware postcondition semantics -/
+/-! ## Semantics -/
 
 /-- The main verification predicate. Requires `st` to be well-formed and satisfy `ρ`,
     and guarantees the same for every reachable `st'`. -/
@@ -477,7 +479,7 @@ def VerifM.eval (m : VerifM α) (st : State) (ρ : Env) (Q : α → State → En
   st.wf ∧ st.holdsFor ρ ∧
   m.eval_rec st ρ (fun a st' ρ' => st'.wf ∧ st'.holdsFor ρ' ∧ Q a st' ρ')
 
-/-! ### Structural properties -/
+/-! ## Structural properties -/
 
 theorem VerifM.eval.wf {m : VerifM α} {st : State} {ρ : Env} {Q : α → State → Env → Prop}
     (h : m.eval st ρ Q) : st.wf := h.1
@@ -500,7 +502,7 @@ theorem VerifM.eval.decls_grow {m : VerifM α} ρ (h : m.eval st ρ P) :
     m.eval st ρ (fun a st' ρ' => st.decls.Subset st'.decls ∧ Env.agreeOn st.decls ρ ρ' ∧ P a st' ρ') :=
   h.mono' ρ st fun _ _ _ hsub hag _ _ hp => ⟨hsub, hag, hp⟩
 
-/-! ### Inversion lemmas for VerifM.eval (forward direction) -/
+/-! ## Inversion lemmas -/
 
 theorem VerifM.eval_ret {a : α} {st : State} {ρ : Env} {Q : α → State → Env → Prop}
     (h : VerifM.eval (.ret a) st ρ Q) : Q a st ρ :=
@@ -517,8 +519,6 @@ theorem VerifM.eval_bind {m : VerifM α} {k : α → VerifM β} {st ρ} :
   apply (VerifM.eval_rec.mono (hev hholds hwf))
   intro a st' ρ' ⟨hholds', hwf', hev⟩
   exact ⟨hwf', hholds', hwf', hholds', hev⟩
-
-
 
 theorem VerifM.eval_failed {st : State} {ρ : Env} {Q : α → State → Env → Prop}
     (h : VerifM.eval (.failed msg) st ρ Q) : False :=
@@ -659,7 +659,6 @@ theorem VerifM.eval_any {items : List α} {st : State} {ρ : Env}
     ∃ a ∈ items, Q a st ρ :=
   let ⟨a, ha, _, _, hq⟩ := h.2.2; ⟨a, ha, hq⟩
 
-
 theorem VerifM.eval_ctx {f : State → α × SpatialContext}
     {st : State} {ρ : Env} {Q : α → State → Env → Prop}
     (h : VerifM.eval (.ctx f) st ρ Q) :
@@ -757,8 +756,7 @@ theorem VerifM.eval_assumeAxioms {axs : List Axiom}
     obtain ⟨a, ha, rfl⟩ := List.mem_map.mp hφ
     exact Axiom.assert_eval (heval a ha)
 
-
-/-! ### Top-level corollary -/
+/-! ## Ending a run -/
 
 def VerifM.topCont : TransCont (Except VerifError Unit) :=
   fun x _ => ScopedM.ret x
@@ -784,12 +782,3 @@ theorem VerifM.eval_of_translate (m : VerifM Unit) (st : State) (ρ : Env) (Δ :
     (g : st.holdsFor ρ) (hwf : st.wf) :
     VerifM.eval m st ρ (fun _ _ _ => True) :=
   (translate_eval m st ρ topCont topCont_error_propagates Δ h g hwf).mono fun _ _ _ _ => trivial
-
-def VerifM.strategy (m : VerifM Unit) :=
-  let verif := ScopedM.declareConst guardConst.name guardConst.sort fun () =>
-    VerifM.translate m State.init VerifM.topCont
-  let verif' := ScopedM.bind verif fun
-    | .ok () => ScopedM.ret (Except.ok ())
-    | .error (.failed msg) => ScopedM.ret (Except.error msg)
-    | .error (.fatal msg) => ScopedM.ret (Except.error msg)
-  ScopedM.translate verif'

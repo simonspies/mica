@@ -1,8 +1,8 @@
 -- SUMMARY: Skolemization: the definedness/value encoding, what it denotes, and its equivalence with the relational encoding.
-import Mica.Verifier.RelationalEncoding.Relation
+import Mica.Pure.Relation
 import Mica.FirstOrderLogic.Subst
 
-namespace Verifier.RelationalEncoding
+namespace PureEncoding
 open Relation
 
 namespace Skolemize
@@ -313,7 +313,7 @@ private theorem _root_.SpecFn.Env.graph_le {D D' : Srt.value.denote → Prop} (h
 
 /-- Extending a context in agreement with a fresh head preserves agreement: in
 `SpecFn.Env.graph` the head relation is a graph by construction. -/
-private theorem _root_.Verifier.RelationalEncoding.FunCtx.Agreement.cons
+private theorem _root_.PureEncoding.FunCtx.Agreement.cons
     (hΓ : FunCtx.Agreement Γ ρ) (hfresh : FunCtx.unused Γ fn) :
     FunCtx.Agreement ((f, fn) :: Γ) (SpecFn.Env.graph ρ fn D F) := by
   intro g fn' hmem a b
@@ -765,4 +765,4 @@ theorem _root_.SpecFn.Semantics.rel_complete
       (by simp [Skolemize.value, SpecFn.Env.graphArg, SpecFn.Semantics.env, hD])).symm
   simpa [Skolemize.value, SpecFn.Env.graphArg, SpecFn.Semantics.env] using hval.trans hS.2
 
-end Verifier.RelationalEncoding
+end PureEncoding

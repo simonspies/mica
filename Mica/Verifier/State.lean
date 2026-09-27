@@ -1,10 +1,20 @@
 -- SUMMARY: Verifier state and environments, together with their well-formedness conditions and fresh-name infrastructure.
 import Mica.Engine.Scoped
-import Mica.Verifier.Guard
+import Mica.Pure.Guard
 import Mica.Base.Fresh
 import Mica.Verifier.SpatialAtom
 
 open Iris Iris.BI
+
+/-!
+# Verifier state
+
+The verifier state is a signature, the formulas assumed so far, and the owned
+spatial atoms. `State.wf` says every part is well formed in the signature;
+`State.holdsFor ρ` says the environment `ρ` satisfies the assumptions.
+-/
+
+/-! ## Builtins -/
 
 /-- Builtin declarations the verifier requires in a signature; extend with a
 field per builtin. -/
@@ -27,6 +37,9 @@ theorem Builtins.holdsFor.agree {Δ : Signature} {ρ ρ' : Env}
     (h : Builtins.holdsFor ρ) : Builtins.holdsFor ρ' :=
   ⟨h.guard.agree hΔ.guard hagree⟩
 
+/-! ## Context items -/
+
+/-- What the verifier can assume: a formula or an owned atom. -/
 inductive CtxItem where
   | pure : Formula → CtxItem
   | spatial : SpatialAtom → CtxItem
@@ -39,7 +52,6 @@ def wfIn : CtxItem → Signature → Prop
 
 end CtxItem
 
-/-- Semantic interpretation of a verifier context item. -/
 def CtxItem.interp [MicaGS HasLC.hasLC Sig] (W : TinyML.World)
     (ρ : Env) : CtxItem → iProp
   | .pure φ => ⌜φ.eval ρ⌝
@@ -55,14 +67,12 @@ def CtxItem.facts : CtxItem → List Formula
   | .pure _ => []
   | .spatial a => a.facts
 
-/-- The pure facts of a well-formed item are well-formed. -/
 theorem CtxItem.facts_wfIn {i : CtxItem} {Δ : Signature} (h : i.wfIn Δ) :
     ∀ φ ∈ i.facts, φ.wfIn Δ := by
   cases i with
   | pure φ => simp [facts]
   | spatial a => exact SpatialAtom.facts_wfIn h
 
-/-- An item's interpretation implies its pure facts. -/
 theorem CtxItem.interp_facts [MicaGS HasLC.hasLC Sig] (W : TinyML.World)
     (ρ : Env) (i : CtxItem) :
     i.interp W ρ ⊢ ⌜∀ φ ∈ i.facts, φ.eval ρ⌝ ∗ i.interp W ρ := by
@@ -76,6 +86,8 @@ theorem CtxItem.interp_facts [MicaGS HasLC.hasLC Sig] (W : TinyML.World)
     · iexact H
   | spatial a =>
     exact SpatialAtom.interp_facts W a
+
+/-! ## The state -/
 
 structure Verifier.State where
   decls   : Signature
@@ -107,50 +119,8 @@ def Verifier.State.persist (st : State) : State :=
 def Verifier.State.toFlatCtx (st : State) : FlatCtx :=
   ⟨st.decls, st.asserts⟩
 
-@[simp] theorem Verifier.State.toFlatCtx_decls (st : State) :
-    st.toFlatCtx.decls = st.decls := rfl
-
-@[simp] theorem Verifier.State.toFlatCtx_asserts (st : State) :
-    st.toFlatCtx.asserts = st.asserts := rfl
-
-@[simp] theorem Verifier.State.toFlatCtx_addConst (st : State) (c : Decl.Const) :
-    { st with decls := st.decls.addConst c }.toFlatCtx = st.toFlatCtx.addConst c.name c.sort := by
-  simp [toFlatCtx, FlatCtx.addConst]
-
-@[simp] theorem Verifier.State.toFlatCtx_addUnary (st : State) (u : Decl.Unary) :
-    { st with decls := st.decls.addUnary u }.toFlatCtx =
-      st.toFlatCtx.addUnary u.name u.arg u.ret := by
-  simp [toFlatCtx, FlatCtx.addUnary]
-
-@[simp] theorem Verifier.State.toFlatCtx_addBinary (st : State) (b : Decl.Binary) :
-    { st with decls := st.decls.addBinary b }.toFlatCtx =
-      st.toFlatCtx.addBinary b.name b.arg1 b.arg2 b.ret := by
-  simp [toFlatCtx, FlatCtx.addBinary]
-
-@[simp] theorem Verifier.State.toFlatCtx_addTernary (st : State) (t : Decl.Ternary) :
-    { st with decls := st.decls.addTernary t }.toFlatCtx =
-      st.toFlatCtx.addTernary t.name t.arg1 t.arg2 t.arg3 t.ret := by
-  simp [toFlatCtx, FlatCtx.addTernary]
-
-@[simp] theorem Verifier.State.toFlatCtx_addUnaryRel (st : State) (u : Decl.UnaryRel) :
-    { st with decls := st.decls.addUnaryRel u }.toFlatCtx =
-      st.toFlatCtx.addUnaryRel u.name u.arg := by
-  simp [toFlatCtx, FlatCtx.addUnaryRel]
-
-@[simp] theorem Verifier.State.toFlatCtx_addBinaryRel (st : State) (b : Decl.BinaryRel) :
-    { st with decls := st.decls.addBinaryRel b }.toFlatCtx =
-      st.toFlatCtx.addBinaryRel b.name b.arg1 b.arg2 := by
-  simp [toFlatCtx, FlatCtx.addBinaryRel]
-
-@[simp] theorem Verifier.State.toFlatCtx_addAssert (st : State) (φ : Formula) :
-    { st with asserts := φ :: st.asserts }.toFlatCtx = st.toFlatCtx.addAssert φ := by
-  simp [toFlatCtx, FlatCtx.addAssert]
-
 /-- The initial verifier state: only the builtin guard constant is declared. -/
 def Verifier.State.init : State := ⟨Signature.empty.addConst guardConst, [], []⟩
-
-@[simp] theorem Verifier.State.init_toFlatCtx :
-    State.init.toFlatCtx = FlatCtx.empty.addConst guardConst.name guardConst.sort := rfl
 
 /-- The environment satisfies the verifier state: every assertion holds and the
 builtin facts are in force. -/
@@ -262,7 +232,6 @@ theorem Verifier.State.wf_addBinaryRel (st : State) (b : Decl.BinaryRel) :
   · exact SpatialContext.wfIn_mono hwf.ownsWf (Signature.Subset.subset_addBinaryRel _ _) hwf'
   · exact hwf.builtins.mono (Signature.Subset.subset_addBinaryRel _ _)
 
-/-- The name produced by `freshConst` is not in the existing decls. -/
 theorem Verifier.State.freshConst_fresh (st : State) (hint : Option String) (τ : Srt) :
     (st.freshConst hint τ).name ∉ st.decls.allNames :=
   Fresh.freshNumbers_not_mem (hint.getD "_v") st.decls.allNames

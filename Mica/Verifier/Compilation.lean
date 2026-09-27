@@ -14,17 +14,18 @@ open Iris Iris.BI
 variable [MicaGS HasLC.hasLC Sig]
 open Typed
 
-/-! ## Construct Compilation
+/-!
+# Compiling constructs
 
 The pieces every compilation layer needs, whichever judgement it targets:
 lifting an operator to a term, destructuring a product into fresh constants, and
 reading the components of a sum. None of them looks at the spatial state, which
 is what lets a layer targeting an entailment reuse them unchanged. -/
 
-/-! ### Operation semantics and SMT translation -/
+/-! ## Operators -/
 
-/-- Lift a `TinyML.BinOp` to operate on `Term .value`, using `toInt`/`toBool`/`ofInt`/`ofBool`.
-    Returns `none` for ops that are not (yet) supported. -/
+/-- The term for a binary operator applied to two value terms. Division and
+    modulo have none: `compile` guards them with a non-zero divisor assertion. -/
 def compileOp (op : TinyML.BinOp) (sl sr : Term .value) : Option (Term .value) :=
   let i t := Term.unop UnOp.toInt  t
   let b t := Term.unop UnOp.toBool t
@@ -32,8 +33,6 @@ def compileOp (op : TinyML.BinOp) (sl sr : Term .value) : Option (Term .value) :
   | .add  => some (Term.unop .ofInt  (Term.binop .add  (i sl) (i sr)))
   | .sub  => some (Term.unop .ofInt  (Term.binop .sub  (i sl) (i sr)))
   | .mul  => some (Term.unop .ofInt  (Term.binop .mul  (i sl) (i sr)))
-  -- Division and modulo are handled directly in `compile` with a non-zero divisor
-  -- assertion, so they do not go through `compileOp`.
   | .div  => none
   | .mod  => none
   | .eq   => some (Term.unop .ofBool (Term.binop .eq   (i sl) (i sr)))
@@ -87,9 +86,6 @@ theorem compileOp_wfIn {op : TinyML.BinOp} {sl sr : Term .value} {Δ : Signature
     tauto
 
 omit [MicaGS HasLC.hasLC Sig] in
-/-- If `evalBinOp op v1 v2 = some w` and the input terms evaluate to `v1`, `v2`,
-    then the compiled SMT term evaluates to `w`.
-    Pair/store return `none` from `compileOp` so those cases are vacuous via `hcomp`. -/
 theorem compileOp_eval {op : TinyML.BinOp} {sl sr : Term .value} {ρ : Env}
     {v1 v2 w : Runtime.Val} {t : Term .value}
     (hsl : sl.eval ρ = v1) (hsr : sr.eval ρ = v2)
@@ -110,8 +106,7 @@ theorem compileOp_eval {op : TinyML.BinOp} {sl sr : Term .value} {ρ : Env}
     subst hcomp
     simp_all [Term.eval, UnOp.eval, BinOp.eval, ge_iff_le, Bool.beq_eq_decide_eq]
 
-
-/-! ### Compiler and Top-Level Verifier -/
+/-! ## Products and sums -/
 
 /-- Bind the components of the tuple `se` to the named binders, from index `i`. -/
 def compileProductBindersFrom (mode : TinyML.Mode) (S : Verifier.Scope)
@@ -225,7 +220,7 @@ theorem injComponents?_eq {Θ : TinyML.TypeEnv} {ty : TinyML.Typ} {tag arity : N
     · exact absurd h (by simp)
   · exact absurd h (by simp)
 
-/-! ### Arguments -/
+/-! ## Arguments -/
 
 /-- Extract argument names from binders, checking against the spec's argument
     names. Requires exact length match. -/

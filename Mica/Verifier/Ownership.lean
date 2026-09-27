@@ -8,9 +8,15 @@ open Iris Iris.BI
 
 variable [MicaGS HasLC.hasLC Sig]
 
--- ---------------------------------------------------------------------------
--- Spatial resolution (linear search over st.owns)
--- ---------------------------------------------------------------------------
+/-!
+# Ownership
+
+The verifier state owns spatial atoms. `findMatch` looks for an atom whose key
+the solver proves equal to a given term, and consumes it. `acquire` adds an atom
+and assumes the pure facts its interpretation implies.
+-/
+
+/-! ## Finding and consuming an atom -/
 
 /-- Walk a spatial context and return the index and stored value term at the
     first atom of kind `k` and type `ty` whose key the SMT solver can prove
@@ -157,9 +163,6 @@ theorem VerifM.eval_findMatch (W : TinyML.World) {k : SpatialAtom.Kind}
     have hsplit := SpatialContext.interp_remove W ρ st.owns n _ _ hrem
     have hcong := SpatialAtom.congr W (k := k) (t := t) (t' := tq) (v := v) (v' := v)
       (ty := ty) heq.symm rfl
-    -- goal: st.owns.interp ρ ∗ R ⊢ Φ
-    -- st.owns.interp ρ ⊣⊢ (k.atom t v ty).interp ρ ∗ rest.interp ρ
-    --                ⊣⊢ (k.atom tq v ty).interp ρ ∗ rest.interp ρ
     refine (Iris.BI.sep_mono hsplit.1 BIBase.Entails.rfl).trans ?_
     refine (Iris.BI.sep_mono (Iris.BI.sep_mono hcong.1 BIBase.Entails.rfl) BIBase.Entails.rfl).trans ?_
     refine Iris.BI.sep_assoc.1.trans ?_
@@ -196,10 +199,7 @@ theorem VerifM.eval_findMatchForce (W : TinyML.World) {k : SpatialAtom.Kind}
     simp at hQ
     exact (VerifM.eval_fatal hQ).elim
 
-
--- ---------------------------------------------------------------------------
--- Acquisition (adding items to the context)
--- ---------------------------------------------------------------------------
+/-! ## Acquiring an item -/
 
 /-- Assume a context item together with the pure facts implied by its
     interpretation, making them available to the solver. -/

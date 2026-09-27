@@ -4,7 +4,7 @@ import Mica.Base.Fixpoint
 import Mica.SourceTinyML.Typed
 import Mica.Base.Fresh
 
-namespace Verifier.RelationalEncoding
+namespace PureEncoding
 
 /-! ## Fresh-name allocation
 
@@ -227,7 +227,7 @@ theorem ofSignature_wfIn {Δ : Signature} (hΔ : Δ.wf) :
 
 end VarEnv
 
-end Verifier.RelationalEncoding
+end PureEncoding
 
 /-! ## Head signature extensions
 
@@ -240,7 +240,7 @@ the suffix `Arg` adds the input variable and `Res` the pinned result variable.
 -/
 
 namespace SpecFn.Sig
-open Verifier.RelationalEncoding
+open PureEncoding
 
 def rel (Δ : Signature) (fn : SpecFn) : Signature :=
   Δ.addBinaryRel fn.rel
@@ -303,7 +303,7 @@ other needs.
 -/
 
 namespace SpecFn
-open Verifier.RelationalEncoding
+open PureEncoding
 
 /-- The names a body encoding must not bind: `fn`'s three symbols, the input
 variable, and the result variable. -/
@@ -358,7 +358,7 @@ theorem names_of_subset_bothArgRes {Δbase Δ' : Signature}
 
 end SpecFn
 
-namespace Verifier.RelationalEncoding
+namespace PureEncoding
 
 /-- The relational and the func-form body signature declare the same value
 variables, so they induce the same encoder environment. -/
@@ -542,4 +542,4 @@ theorem FunCtx.recursive_funcWfIn_funcArg {Γ : FunCtx} {f : TinyML.Var}
   FunCtx.recursive_funcWfIn_declVar hΓ h.subset_sigFuncArg h.argFresh_sigFunc
     (List.Mem.head _) (List.Mem.head _)
 
-end Verifier.RelationalEncoding
+end PureEncoding

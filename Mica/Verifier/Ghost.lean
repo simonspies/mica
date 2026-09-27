@@ -14,17 +14,18 @@ variable [MicaGS HasLC.hasLC Sig]
 open Typed
 open Verifier (Scope)
 
-/-! ## Ghost Compilation
+/-!
+# Compiling ghost expressions
 
 Ghost code is erased before the program runs, so it takes no step and its
 correctness is an entailment rather than a weakest precondition.
 
-That places this layer between the two others. A specification-level term is
-pure; a run-time expression is compiled against `wp` and may allocate. A ghost
-expression sits in the middle: it moves ownership, through the pre- and
-postcondition of every ghost function it calls, but nothing it does can step. -/
+A specification term is pure, and a run-time expression is compiled against
+`wp` and may allocate. A ghost expression is between the two: it moves
+ownership, through the pre- and postcondition of every ghost function it calls,
+but it cannot take a step. -/
 
-/-! ### Definitions -/
+/-! ## Definitions -/
 
 /-- Substitute the actual arguments in the measure, keeping the caller's rank
     fixed. Definedness is part of the obligation, including for `[@@fn]` calls. -/
@@ -283,7 +284,7 @@ mutual
       pure (se :: rest)
 end
 
-/-! ### Helper lemmas -/
+/-! ## Helper lemmas -/
 
 omit [MicaGS HasLC.hasLC Sig] in
 theorem compileGhostBranches_length_get (env : Verifier.Env) (S : Verifier.Scope)
@@ -310,10 +311,7 @@ theorem compileGhostBranches_length_get (env : Verifier.Env) (S : Verifier.Scope
         have : idx + 1 + k = idx + (k + 1) := by omega
         rw [ih_get k hk, this]
 
-
-/-! ### Correctness -/
-
-/-! #### Correctness Statements -/
+/-! ## Correctness statements -/
 
 /-- The entailment compiling a ghost expression establishes: it takes the state
 to an obligation held against the value the expression denotes, and that value
@@ -385,7 +383,7 @@ def correctGhostExprs (es : List Expr) : Prop :=
     st'.sl W ρ' ∗ TinyML.ValsHaveTypes W vs (es.map Expr.WithTypeVars.ty) ∗ R ⊢ Φ vs) →
   st.sl W ρ ∗ (S.typed W γg γ ∗ R) ⊢ |==> ∃ vs, Φ vs
 
-/-! #### Correctness Compatibility Lemmas -/
+/-! ## One lemma per construct -/
 
 omit [MicaGS HasLC.hasLC Sig] in
 /-- Discard the value a ghost step produces: what follows it is stated without
@@ -1180,7 +1178,6 @@ theorem compileGhostIfThenElse_correct
       simp [st_thn, State.sl]).trans hres)
     iframe Howns HT HR
 
-
 /-- A ghost call. Ghost code takes no step, so what the callee guarantees is
 `Spec.isGhostPrecondFor` and not `Spec.isPrecondFor`: instead of the weakest
 precondition of an application, a value of the result type exists at which the
@@ -1669,8 +1666,7 @@ theorem compileGhostExprsCons_correct
       iframe Hv Hvs
     · iexact HR
 
-
-/-! #### Correctness Theorem -/
+/-! ## Correctness -/
 
 mutual
 theorem compileGhostExpr_correct

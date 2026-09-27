@@ -5,7 +5,7 @@ import Mica.SeparationLogic.Wp
 import Mica.Verifier.PredicateTransformers
 import Mica.Verifier.Specifications
 import Mica.FirstOrderLogic.Formulas
-import Mica.Verifier.RelationalEncoding.Expr
+import Mica.Pure.Expr
 import Mica.Verifier.Seq
 
 open Verifier (State)
@@ -120,7 +120,6 @@ theorem IntrinsicFOL.term_wfIn {n : Arity} {Δ Δ' : Signature}
 
 /-! ## Extending signatures and environments with an FOL symbol -/
 
-/-- Extend a signature with the FOL symbol from `s` (if any). -/
 def Signature.extendWithSym : ∀ {n : Arity}, Signature → Option (FOL.Symbol n) → Signature
   | _,     Δ, none        => Δ
   | .zero, Δ, some s      => Δ.addConst ⟨s.name, .value⟩
@@ -128,7 +127,6 @@ def Signature.extendWithSym : ∀ {n : Arity}, Signature → Option (FOL.Symbol 
   | .two,  Δ, some s      => Δ.addBinary ⟨s.name, .value, .value, .value⟩
   | .three, Δ, some s      => Δ.addTernary ⟨s.name, .value, .value, .value, .value⟩
 
-/-- Extending a signature is a subset extension. -/
 theorem Signature.subset_extendWithSym {n : Arity} (Δ : Signature)
     (s : Option (FOL.Symbol n)) : Δ.Subset (Δ.extendWithSym s) := by
   cases s with
@@ -147,7 +145,6 @@ theorem Signature.subset_extendWithSym {n : Arity} (Δ : Signature)
   | some _ =>
     cases n <;> rfl
 
-/-- `extendWithSym` is monotone in the base signature. -/
 theorem Signature.extendWithSym_mono {n : Arity} {Δ Δ' : Signature}
     (h : Δ.Subset Δ') (s : Option (FOL.Symbol n)) :
     (Δ.extendWithSym s).Subset (Δ'.extendWithSym s) := by
@@ -283,7 +280,7 @@ def Intrinsic.symbol (i : Intrinsic) : Option (FOL.Symbol i.arity) :=
     intrinsic without a FOL encoding gives no entry. This function keeps
     declarations and expression encodings apart. A `symbol` entry reads the
     signature. A `direct` entry only makes a term. -/
-def Intrinsic.primEncoding (i : Intrinsic) : Option RelationalEncoding.PrimEncoding :=
+def Intrinsic.primEncoding (i : Intrinsic) : Option PureEncoding.PrimEncoding :=
   i.encode.map fun f =>
     { name := i.name
       arity := i.arity
@@ -297,7 +294,7 @@ def Intrinsic.encodeLawful (i : Intrinsic) : Prop :=
 
 /-- Each entry that an intrinsic gives obeys the laws of the encoder. -/
 theorem Intrinsic.primEncoding_lawful (i : Intrinsic) (hlaw : i.encodeLawful)
-    {e : RelationalEncoding.PrimEncoding} (h : i.primEncoding = some e) : e.Lawful := by
+    {e : PureEncoding.PrimEncoding} (h : i.primEncoding = some e) : e.Lawful := by
   cases hencode : i.encode with
   | none => simp [Intrinsic.primEncoding, hencode] at h
   | some f =>
@@ -306,13 +303,12 @@ theorem Intrinsic.primEncoding_lawful (i : Intrinsic) (hlaw : i.encodeLawful)
     exact { wfIn := fun hav hsub hΔ' hargs =>
       f.term_wfIn hsub hΔ' (hlaw f hencode) _ hav hargs }
 
-/-- A registry is a list of intrinsics. -/
 abbrev Registry := List Intrinsic
 
 /-- The primitive table that a registry gives to the encoder. An intrinsic
     without a FOL encoding gives no entry. Therefore `encodePrim` rejects
     that name as unknown. -/
-def Registry.primitives (R : Registry) : RelationalEncoding.PrimEncodings :=
+def Registry.primitives (R : Registry) : PureEncoding.PrimEncodings :=
   R.filterMap Intrinsic.primEncoding
 
 /-- Embed a pure (heap-independent, heap-preserving) relation as a heap-aware
@@ -323,7 +319,6 @@ def Sem.pure {α : Type} (rel : α → Runtime.Val → Prop) :
 
 namespace Intrinsic
 
-/-- The intrinsic's full arrow (scheme) type. -/
 def type (i : Intrinsic) : TinyML.SchemaTyp :=
   .arrow i.argTys i.retTy none
 
@@ -552,7 +547,6 @@ theorem lookup?_name {R : Registry} {n : String} {i : Intrinsic}
 def sigs (R : Registry) : String → Option TinyML.SchemaTyp :=
   fun n => (R.lookup? n).map Intrinsic.type
 
-/-- Build the operational-semantics context from a registry. -/
 def primCtx (R : Registry) : TinyML.PrimCtx :=
   fun n vs μ v μ' =>
     match R.lookup? n with
@@ -737,21 +731,12 @@ def declSym : ∀ {n : Arity}, Option (FOL.Symbol n) → SeqM Unit
   | .two,  some s => SeqM.declBinary ⟨s.name, .value, .value, .value⟩
   | .three, some s => SeqM.declTernary ⟨s.name, .value, .value, .value, .value⟩
 
-namespace Intrinsic
-
-/-- Declare the FOL symbol of this intrinsic in the verifier. A `direct`
-    encoding declares no symbol. Therefore this function does nothing for
-    such an intrinsic. -/
-def declFOLSym (i : Intrinsic) : SeqM Unit := declSym i.symbol
-
-end Intrinsic
-
 namespace Registry
 
 /-- Declare every registered intrinsic's FOL symbol. -/
 def declFOLSyms : Registry → SeqM Unit
   | []         => pure ()
-  | i :: rest  => do i.declFOLSym; declFOLSyms rest
+  | i :: rest  => do declSym i.symbol; declFOLSyms rest
 
 /-- Assume every registered intrinsic axiom, weakening guarded axioms. -/
 def assumeAxioms : Registry → SeqM Unit
@@ -825,23 +810,6 @@ theorem eval_declSym {n : Arity} (sym : Option (FOL.Symbol n))
       · simp [Env.respects, Env.updateTernary]
       · exact hcont (fun a b c => s.interp (a, b, c))
 
-namespace Intrinsic
-
-/-- Effect of `declFOLSym`: extends the signature with `i`'s FOL symbol,
-    leaves owns and asserts untouched, and produces a post-decl environment
-    that respects `i.symbol` (when present), agreeing with the original on
-    the original signature. -/
-theorem eval_declFOLSym (i : Intrinsic) {st : State} {ρ : Env}
-    {Q : Unit → State → Env → Prop}
-    (heval : SeqM.eval i.declFOLSym st ρ Q) :
-    ∃ ρ' : Env,
-      Env.agreeOn st.decls ρ ρ' ∧
-      ρ'.respects i.symbol ∧
-      Q () { st with decls := st.decls.extendWithSym i.symbol } ρ' :=
-  eval_declSym i.symbol heval
-
-end Intrinsic
-
 namespace Registry
 
 /-- Effect of the declaration pass on a registry. It declares every registered
@@ -871,7 +839,7 @@ theorem eval_declFOLSyms (R : Registry)
   | cons i rest ih =>
     simp only [declFOLSyms] at heval
     have h1 := SeqM.eval_bind heval
-    obtain ⟨ρ1, hag1, hiRespect, hcont⟩ := Intrinsic.eval_declFOLSym i h1
+    obtain ⟨ρ1, hag1, hiRespect, hcont⟩ := eval_declSym i.symbol h1
     set st1 : State := { st with decls := st.decls.extendWithSym i.symbol }
     obtain ⟨st', ρ', hsub2, hdep2, hvars2, howns2, hass2, hrestStable, hag2, hQ⟩ :=
       ih hcont

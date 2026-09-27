@@ -13,7 +13,6 @@ import Mica.Verifier.Ghost
 import Mica.Engine.Driver
 import Mica.Base.Fresh
 import Mica.Verifier.Intrinsic
-import Mica.Verifier.RelationalEncoding.Variables
 
 open Verifier (State)
 
@@ -23,11 +22,15 @@ variable [MicaGS HasLC.hasLC Sig]
 open Typed
 open Verifier (Scope)
 
-/-! ## Expression Compilation
+/-!
+# Compiling expressions
 
-Compiles TinyML expressions to SMT terms via `VerifM`, out of the pieces
-`Verifier/Compilation.lean` provides. Correctness is stated against the
-weakest-precondition calculus. -/
+`compile` turns a typed run-time expression into the term that stands for its
+value, out of the pieces `Verifier/Compilation.lean` provides. `compile_correct`
+says that a successful compilation gives the weakest precondition of the
+program the expression erases to. -/
+
+/-! ## Definitions -/
 
 /-- The scope a specified function literal's body is compiled in: the closure's
     own binding, then its parameters. -/
@@ -341,7 +344,7 @@ mutual
       pure (se :: rest)
 end
 
-/-! ### Helper lemmas -/
+/-! ## Helper lemmas -/
 
 omit [MicaGS HasLC.hasLC Sig] in
 theorem compileBranches_length_get (env : Verifier.Env) (S : Scope)
@@ -367,10 +370,7 @@ theorem compileBranches_length_get (env : Verifier.Env) (S : Scope)
         have : idx + 1 + k = idx + (k + 1) := by omega
         rw [ih_get k hk, this]
 
-
-/-! ### Correctness -/
-
-/-! #### Correctness Statements -/
+/-! ## Correctness statements -/
 
 /-- A successful compilation of `e` gives the weakest precondition of the
 run-time program `e` erases to, under the typing of everything in scope.
@@ -438,7 +438,7 @@ def correctExprs (es : List Expr) : Prop :=
        st'.sl W ρ' ∗ TinyML.ValsHaveTypes W vs (es.map Expr.WithTypeVars.ty) ∗ R ⊢ Φ vs) →
     st.sl W ρ ∗ (S.typed W γg γ ∗ R) ⊢ wps W.pctx (es.map (fun e => e.runtime.subst γ)) Φ
 
-/-! #### Correctness Compatibility Lemmas -/
+/-! ## One lemma per construct -/
 
 theorem compileConst_correct (c : TinyML.Const) :
     correctExpr (.const c) := by
@@ -2379,7 +2379,6 @@ theorem compileTuple_correct (es : List Expr)
     hpost (Runtime.Val.tuple vs) ρ' st' (Term.tuple terms)
       hΨ hwf_tuple heval_tuple
 
-
 /-- Application of a function expression whose type carries a specification: the
     arguments and then the function are evaluated, and the function value's own
     interpretation — which is exactly its specification — supplies the call. -/
@@ -2974,8 +2973,7 @@ theorem compileExprsNil_correct :
       iempintro
     · iexact HR
 
-
-/-! #### Correctness Theorem -/
+/-! ## Correctness -/
 
 mutual
 theorem compile_correct (e : Expr) : correctExpr e := by

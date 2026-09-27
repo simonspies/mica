@@ -8,12 +8,11 @@ open Iris Iris.BI
 
 /-! # Spatial Atoms and Contexts
 
-A `SpatialAtom` is an ownership item stored in the verifier state. A
-`SpatialContext` is a list of such items. This file defines their
-well-formedness and basic operations (insert = cons, remove by index), and
-interprets both as Iris assertions. -/
+A `SpatialAtom` is an ownership item stored in the verifier state: a points-to
+of a reference or an owned array. A `SpatialContext` is a list of them. Both are
+interpreted as Iris assertions, and a context as the separating conjunction of
+its atoms. -/
 
-/-- A syntactic ownership item. -/
 inductive SpatialAtom where
   /-- Field `0` of the block at location term `l` holds value term `v`, whose TinyML type is `ty`.
   The interpretation carries the value typing fact as part of the same spatial atom. -/
@@ -22,7 +21,6 @@ inductive SpatialAtom where
   | arrayPointsTo : Term .value → Term .value → TinyML.Typ → SpatialAtom
   deriving DecidableEq
 
-/-- The spatial part of the verifier state: a list of ownership items. -/
 abbrev SpatialContext := List SpatialAtom
 
 namespace SpatialAtom
@@ -40,12 +38,11 @@ def Kind.atom : Kind → Term .value → Term .value → TinyML.Typ → SpatialA
   | .ref => .pointsTo
   | .array => .arrayPointsTo
 
-/-- Human-readable name of an atom kind, for error messages. -/
+/-- For error messages. -/
 def Kind.print : Kind → String
   | .ref => "points-to"
   | .array => "owned array"
 
-/-- The kind of an atom. -/
 def kind : SpatialAtom → Kind
   | .pointsTo .. => .ref
   | .arrayPointsTo .. => .array
@@ -62,7 +59,6 @@ def val : SpatialAtom → Term .value
   | .pointsTo _ v _ => v
   | .arrayPointsTo _ v _ => v
 
-/-- The element type carried by an atom. -/
 def ty : SpatialAtom → TinyML.Typ
   | .pointsTo _ _ ty => ty
   | .arrayPointsTo _ _ ty => ty
@@ -70,7 +66,6 @@ def ty : SpatialAtom → TinyML.Typ
 @[simp] theorem eta (a : SpatialAtom) : a.kind.atom a.key a.val a.ty = a := by
   cases a <;> rfl
 
-/-- A spatial atom is well-formed in a signature when all terms it mentions are. -/
 def wfIn : SpatialAtom → Signature → Prop
   | .pointsTo l v _, Δ => l.wfIn Δ ∧ v.wfIn Δ
   | .arrayPointsTo a v _, Δ => a.wfIn Δ ∧ v.wfIn Δ
@@ -79,22 +74,18 @@ def wfIn : SpatialAtom → Signature → Prop
     (k.atom t v ty).wfIn Δ ↔ t.wfIn Δ ∧ v.wfIn Δ := by
   cases k <;> exact Iff.rfl
 
-/-- The key term of a well-formed atom is well-formed. -/
 theorem wfIn.key {a : SpatialAtom} {Δ : Signature} (h : a.wfIn Δ) : a.key.wfIn Δ := by
   cases a <;> exact h.1
 
-/-- The value term of a well-formed atom is well-formed. -/
 theorem wfIn.val {a : SpatialAtom} {Δ : Signature} (h : a.wfIn Δ) : a.val.wfIn Δ := by
   cases a <;> exact h.2
 
-/-- Well-formedness is stable under signature extension. -/
 theorem wfIn_mono {a : SpatialAtom} {Δ Δ' : Signature}
     (h : a.wfIn Δ) (hsub : Δ.Subset Δ') (hwf : Δ'.wf) : a.wfIn Δ' := by
   cases a with
   | pointsTo l v _ => exact ⟨Term.wfIn_mono l h.1 hsub hwf, Term.wfIn_mono v h.2 hsub hwf⟩
   | arrayPointsTo a v _ => exact ⟨Term.wfIn_mono a h.1 hsub hwf, Term.wfIn_mono v h.2 hsub hwf⟩
 
-/-- Iris interpretation of a single spatial atom. -/
 def interp [MicaGS HasLC.hasLC Sig] (W : TinyML.World) (ρ : Env) :
     SpatialAtom → iProp
   | .pointsTo l v ty => ∃ (loc : Runtime.Location),
@@ -122,7 +113,6 @@ def facts : SpatialAtom → List Formula
       .eq .int (.unop .vecLen (.unop .toVec v)) (.unop .arrayLen a) ::
         TinyML.elementConstraints ty v
 
-/-- The pure facts of a well-formed atom are well-formed. -/
 theorem facts_wfIn {a : SpatialAtom} {Δ : Signature} (h : a.wfIn Δ) :
     ∀ φ ∈ a.facts, φ.wfIn Δ := by
   cases a with
@@ -138,7 +128,6 @@ end SpatialAtom
 
 namespace SpatialContext
 
-/-- A spatial context is well-formed when each of its atoms is. -/
 def wfIn (ctx : SpatialContext) (Δ : Signature) : Prop :=
   ∀ a ∈ ctx, a.wfIn Δ
 
@@ -159,15 +148,13 @@ def wfIn (ctx : SpatialContext) (Δ : Signature) : Prop :=
     · exact h.1
     · exact h.2 b hb
 
-/-- Well-formedness is stable under signature extension. -/
 theorem wfIn_mono {ctx : SpatialContext} {Δ Δ' : Signature}
     (h : wfIn ctx Δ) (hsub : Δ.Subset Δ') (hwf : Δ'.wf) : wfIn ctx Δ' :=
   fun a ha => SpatialAtom.wfIn_mono (h a ha) hsub hwf
 
-/-- Insert an atom into the context (just cons). -/
 abbrev insert (a : SpatialAtom) (ctx : SpatialContext) : SpatialContext := a :: ctx
 
-/-- Remove the atom at index `n`, returning the atom and remaining context. -/
+/-- The atom at index `n`, and the context without it. -/
 def remove : List SpatialAtom → Nat → Option (SpatialAtom × List SpatialAtom)
   | [],     _     => none
   | a :: Γ, 0     => some (a, Γ)
@@ -182,8 +169,6 @@ def remove : List SpatialAtom → Nat → Option (SpatialAtom × List SpatialAto
 @[simp] theorem remove_cons_succ (a : SpatialAtom) (Γ : List SpatialAtom) (n : Nat) :
     remove (a :: Γ) (n + 1) = (remove Γ n).map fun (b, Γ') => (b, a :: Γ') := rfl
 
-/-- Removing an entry from a well-formed context preserves well-formedness of
-    both the removed atom and the remaining context. -/
 theorem wfIn_remove {ctx : SpatialContext} {Δ : Signature} {n : Nat}
     {a : SpatialAtom} {rest : SpatialContext}
     (hctx : wfIn ctx Δ) (hrem : remove ctx n = some (a, rest)) :
@@ -371,7 +356,6 @@ theorem interp_arrayPointsTo_elem (W : TinyML.World) {ρ : Env}
       · iframe Hpt HvecTy
   · iexact Hty
 
-/-- An atom's interpretation implies its pure facts. -/
 theorem interp_facts (W : TinyML.World) {ρ : Env} (a : SpatialAtom) :
     interp W ρ a ⊢ ⌜∀ φ ∈ a.facts, φ.eval ρ⌝ ∗ interp W ρ a := by
   cases a with
@@ -408,7 +392,6 @@ end SpatialAtom
 
 namespace SpatialContext
 
-/-- Iris interpretation of a spatial context: the separating conjunction of all items. -/
 def interp (W : TinyML.World) (ρ : Env) : SpatialContext → iProp
   | []     => emp
   | a :: Γ => a.interp W ρ ∗ interp W ρ Γ
@@ -440,7 +423,6 @@ private theorem sep_comm3 {A B C : iProp} : A ∗ (B ∗ C) ⊣⊢ B ∗ (A ∗ 
   ⟨sep_assoc.2 |>.trans (sep_mono_left sep_comm.1) |>.trans sep_assoc.1,
    sep_assoc.2 |>.trans (sep_mono_left sep_comm.2) |>.trans sep_assoc.1⟩
 
-/-- The interpretation of a context is equivalent to splitting off the atom at index `n`. -/
 theorem interp_remove (W : TinyML.World) (ρ : Env) (ctx : SpatialContext) (n : Nat)
     (a : SpatialAtom) (rest : SpatialContext)
     (h : remove ctx n = some (a, rest)) :
@@ -459,6 +441,5 @@ theorem interp_remove (W : TinyML.World) (ρ : Env) (ctx : SpatialContext) (n : 
         obtain ⟨rfl, rfl⟩ := h
         exact ⟨sep_mono_right (ih n b rest' hr).1 |>.trans sep_comm3.1,
                sep_comm3.2 |>.trans (sep_mono_right (ih n b rest' hr).2)⟩
-
 
 end SpatialContext

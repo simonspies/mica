@@ -22,9 +22,7 @@ syntax lives in `Mica/SourceTinyML/Assertions.lean` and the semantics
 (`Assertion.pre`/`Assertion.post`) in `Mica/SourceTinyML/Semantics.lean`.
 -/
 
-
-
-/-- Combining caller-side `pre` with verifier-side `post`. -/
+/-- A caller's `pre` and a callee's `post` of the same assertion meet at its return values. -/
 theorem Assertion.pre_post_combine (V : TinyML.ValueRelation) {α : Type}
     {m : Assertion TinyML.Typ α}
     {Φ : α → Env → iProp} {Ψ : α → Env → iProp}
@@ -83,9 +81,7 @@ theorem Assertion.pre_post_combine (V : TinyML.ValueRelation) {α : Type}
         ipureintro
         exact hφ
 
--- ---------------------------------------------------------------------------
--- VerifM helpers
--- ---------------------------------------------------------------------------
+/-! ## Assuming and proving -/
 
 /-- Introduce preconditions: assume formulas, declare and bind let-variables.
     Threads a `FiniteSubst` that maps assertion-level names to fresh SMT-level names. -/
@@ -136,10 +132,7 @@ def Assertion.prove (σ : FiniteSubst) : Assertion TinyML.Typ α → VerifM (Fin
       VerifM.assume (.pure (.not (φ.subst σ.subst σ.range.allNames)))
       Assertion.prove σ ke
 
-
--- ---------------------------------------------------------------------------
--- Correctness theorems
--- ---------------------------------------------------------------------------
+/-! ## Correctness -/
 
 theorem Assertion.assume_correct (W : TinyML.World) (m : Assertion TinyML.Typ α) (Δ_base : Signature) (σ : FiniteSubst)
     (retWf : α → Signature → Prop)

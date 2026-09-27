@@ -1,9 +1,9 @@
 -- SUMMARY: Lambda lifting of spec-level bounded quantifiers (Range.all/Range.exists) into axiomatized function symbols.
 import Mica.SourceTinyML.Typing
-import Mica.Verifier.RelationalEncoding.Variables
-import Mica.Verifier.Guard
+import Mica.Pure.Variables
+import Mica.Pure.Guard
 import Mica.Verifier.SpecFunctions
-import Mica.Verifier.RelationalEncoding.Axioms
+import Mica.Pure.Axioms
 
 open Verifier (State)
 
@@ -30,7 +30,6 @@ def allName : String := "range-all"
 /-- Internal primitive name for `Range.exists`. -/
 def existsName : String := "range-exists"
 
-/-- Whether `n` is one of the bounded-quantifier primitives. -/
 def isPrim (n : String) : Bool :=
   n = allName || n = existsName
 
@@ -64,11 +63,6 @@ def allIntrinsic : Verifier.Intrinsic := intrinsic allName "all"
 
 /-- Registry entry for `Range.exists`. -/
 def existsIntrinsic : Verifier.Intrinsic := intrinsic existsName "exists"
-
-@[simp] theorem allIntrinsic_arity : allIntrinsic.arity = .three := rfl
-@[simp] theorem existsIntrinsic_arity : existsIntrinsic.arity = .three := rfl
-@[simp] theorem allIntrinsic_symbol : allIntrinsic.symbol = none := rfl
-@[simp] theorem existsIntrinsic_symbol : existsIntrinsic.symbol = none := rfl
 
 /-- A forbidden intrinsic is sound: its specification and weakest precondition
 are both false, and it contributes no solver symbols or axioms. -/
@@ -270,7 +264,7 @@ matrix variables and inlined into `L`'s two defining axioms.
 The canonical interpretations of `L`'s symbols are the evaluations of the
 axioms' right-hand sides, so validity is by construction. -/
 
-open Verifier.RelationalEncoding
+open PureEncoding
 
 namespace Verifier.LiftedClosure
 
@@ -734,7 +728,7 @@ end Verifier.LiftedClosure
 
 namespace Verifier.Env
 
-open Verifier.RelationalEncoding
+open PureEncoding
 
 /-- Declare a bounded quantifier's solver-facing triple and its defining
 axioms. All freshness and membership conditions needed by the soundness proof

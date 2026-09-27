@@ -92,18 +92,6 @@ def translate : SeqM α → Verifier.State → ScopedM (Except String (α × Ver
   | .fatal msg, _ => .ret (.error msg)
   | .decls, st => .ret (.ok (st.decls, st))
 
-theorem translate_bind_ok {m : SeqM α} {f : α → SeqM β}
-    {st st' : Verifier.State} {ctx ctx' : FlatCtx} {b : β}
-    (h : ScopedM.eval ((m >>= f).translate st) ctx (.ok (b, st')) ctx') :
-    ∃ a st₁ ctx₁, ScopedM.eval (m.translate st) ctx (.ok (a, st₁)) ctx₁ ∧
-      ScopedM.eval ((f a).translate st₁) ctx₁ (.ok (b, st')) ctx' := by
-  change ScopedM.eval (SeqM.translate (.bind m f) st) ctx (.ok (b, st')) ctx' at h
-  simp only [SeqM.translate] at h
-  obtain ⟨r, ctx₁, hm, hf⟩ := ScopedM.eval_bind h
-  cases r with
-  | error e => have he := (ScopedM.eval_ret.mp hf).1; cases he
-  | ok r => exact ⟨r.1, r.2, ctx₁, hm, hf⟩
-
 /-! ## Semantics -/
 
 private def eval_rec : SeqM α → Verifier.State → Env → (α → Verifier.State → Env → Prop) → Prop
@@ -192,9 +180,6 @@ def eval (m : SeqM α) (st : Verifier.State) (ρ : Env) (Q : α → Verifier.Sta
 
 theorem eval_wf {m : SeqM α} {st : Verifier.State} {ρ : Env} {Q : α → Verifier.State → Env → Prop}
     (h : m.eval st ρ Q) : st.wf := h.1
-
-theorem eval_holdsFor {m : SeqM α} {st : Verifier.State} {ρ : Env}
-    {Q : α → Verifier.State → Env → Prop} (h : m.eval st ρ Q) : st.holdsFor ρ := h.2.1
 
 theorem eval_mono {m : SeqM α} {st : Verifier.State} {ρ : Env}
     {P Q : α → Verifier.State → Env → Prop} (h : m.eval st ρ P)

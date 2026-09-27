@@ -1,6 +1,5 @@
 -- SUMMARY: Bundle for `Verifier/`, containing the verifier itself, stratified into monadic layers with correctness proofs.
 
-import Mica.Verifier.Guard
 import Mica.Verifier.SpatialAtom
 import Mica.Verifier.State
 import Mica.Verifier.PrimitiveLaws
@@ -22,6 +21,5 @@ import Mica.Verifier.Compilation
 import Mica.Verifier.Ghost
 import Mica.Verifier.Expressions
 import Mica.Verifier.Declaration
-import Mica.Verifier.RelationalEncoding
 import Mica.Verifier.Specifications
 import Mica.Verifier.Programs
