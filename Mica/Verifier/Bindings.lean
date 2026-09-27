@@ -1,4 +1,5 @@
 -- SUMMARY: Verifier variable-to-constant bindings, their semantic linkage to runtime substitutions, and typing/lookup lemmas.
+import Mica.Base.AssocList
 import Mica.SourceTinyML.Typed
 import Mica.SourceTinyML.Typing
 import Mica.TinyML.OpSem
@@ -18,47 +19,7 @@ abbrev Bindings.empty : Bindings := []
 
 /-- A declaration that shadows a bound name without binding a value of its own
     must drop it, or the old constant would stand for the new value. -/
-def Bindings.remove : Bindings → TinyML.Var → Bindings
-  | [], _ => []
-  | (y, c) :: B, x => if y == x then Bindings.remove B x else (y, c) :: Bindings.remove B x
-
-omit [MicaGS HasLC.hasLC Sig] in
-@[simp] theorem Bindings.lookup_remove (B : Bindings) (x y : TinyML.Var) :
-    (B.remove x).lookup y = if y == x then none else B.lookup y := by
-  induction B with
-  | nil => simp [Bindings.remove]
-  | cons p B ih =>
-    obtain ⟨z, c⟩ := p
-    by_cases hzx : z = x
-    · subst hzx
-      simp only [Bindings.remove, beq_self_eq_true, if_true, ih]
-      by_cases hyz : y = z
-      · subst hyz; simp only [List.lookup, beq_self_eq_true, if_true]
-      · have hb : (y == z) = false := by simp [hyz]
-        simp only [List.lookup, hb, Bool.false_eq_true, if_false]
-    · have hzb : (z == x) = false := by simp [hzx]
-      simp only [Bindings.remove, hzb, Bool.false_eq_true, if_false]
-      by_cases hyz : y = z
-      · subst hyz
-        have hyx : (y == x) = false := by simp [hzx]
-        simp only [List.lookup, beq_self_eq_true, hyx, Bool.false_eq_true, if_false]
-      · have hb : (y == z) = false := by simp [hyz]
-        simp only [List.lookup, hb, ih]
-
-omit [MicaGS HasLC.hasLC Sig] in
-theorem Bindings.mem_of_mem_remove {B : Bindings} {x : TinyML.Var} {p : TinyML.Var × Decl.Const}
-    (h : p ∈ B.remove x) : p ∈ B := by
-  induction B with
-  | nil => simp [Bindings.remove] at h
-  | cons q B ih =>
-    obtain ⟨z, c⟩ := q
-    by_cases hzx : z = x
-    · simp [Bindings.remove, hzx] at h
-      exact List.mem_cons_of_mem _ (ih h)
-    · simp [Bindings.remove, hzx, List.mem_cons] at h ⊢
-      rcases h with rfl | h
-      · exact .inl rfl
-      · exact .inr (ih h)
+abbrev Bindings.remove (B : Bindings) (x : TinyML.Var) : Bindings := B.removeKey x
 
 /-- The runtime substitution reads each bound name as the value its verifier
     constant denotes. Bindings are always at sort `.value`. -/
@@ -95,7 +56,7 @@ theorem Bindings.wfIn_cons {B : Bindings} {decls : Signature} {x : TinyML.Var} {
 omit [MicaGS HasLC.hasLC Sig] in
 theorem Bindings.wfIn_remove {B : Bindings} {decls : Signature} (h : B.wfIn decls)
     (x : TinyML.Var) : (B.remove x).wfIn decls :=
-  fun _ hp => h _ (Bindings.mem_of_mem_remove hp)
+  fun _ hp => h _ (List.mem_of_mem_removeKey hp)
 
 omit [MicaGS HasLC.hasLC Sig] in
 /-- Dropping a name's binding survives that name being rebound at runtime: the
@@ -104,7 +65,7 @@ theorem Bindings.agreeOnLinked_remove_update {B : Bindings} {ρ : Env} {γ : Run
     (hagree : B.agreeOnLinked ρ γ) (x : TinyML.Var) (v : Runtime.Val) :
     (B.remove x).agreeOnLinked ρ (Runtime.Subst.update γ x v) := by
   intro y y' hmem
-  rw [Bindings.lookup_remove] at hmem
+  rw [List.lookup_removeKey] at hmem
   by_cases hyx : y == x
   · simp [hyx] at hmem
   · simp only [hyx, Bool.false_eq_true, if_false] at hmem
@@ -115,7 +76,7 @@ omit [MicaGS HasLC.hasLC Sig] in
 theorem Bindings.agreeOnLinked_remove {B : Bindings} {ρ : Env} {γ : Runtime.Subst}
     (hagree : B.agreeOnLinked ρ γ) (x : TinyML.Var) : (B.remove x).agreeOnLinked ρ γ := by
   intro y y' hmem
-  rw [Bindings.lookup_remove] at hmem
+  rw [List.lookup_removeKey] at hmem
   split at hmem
   · contradiction
   · exact hagree y y' hmem
@@ -206,7 +167,7 @@ theorem Bindings.typedSubst_remove_update {B : Bindings} {Γ : TinyML.TyCtx} {γ
   iintro #Hts
   imodintro
   iintro %y %y' %t %hmem %hΓ
-  rw [Bindings.lookup_remove] at hmem
+  rw [List.lookup_removeKey] at hmem
   by_cases hyx : y == x
   · simp [hyx] at hmem
   · simp only [hyx, Bool.false_eq_true, if_false] at hmem
@@ -227,7 +188,7 @@ theorem Bindings.typedSubst_remove {B : Bindings} {Γ Γ' : TinyML.TyCtx}
   iintro #Hts
   imodintro
   iintro %y %y' %t %hmem %hΓy
-  rw [Bindings.lookup_remove] at hmem
+  rw [List.lookup_removeKey] at hmem
   by_cases hyx : y = x
   · simp [hyx] at hmem
   · simp only [beq_iff_eq, hyx, if_false] at hmem
@@ -338,7 +299,7 @@ theorem Bindings.schemeSubst_remove_update {W : TinyML.World} {B : Bindings}
   iintro #H
   imodintro
   iintro %y %y' %t %hl %hΓ
-  rw [Bindings.lookup_remove] at hl
+  rw [List.lookup_removeKey] at hl
   by_cases hyx : y == x
   · simp [hyx] at hl
   · simp only [hyx, Bool.false_eq_true, if_false] at hl
@@ -356,7 +317,7 @@ theorem Bindings.schemeSubst_remove {W : TinyML.World} {B : Bindings} {Γ : Tiny
   iintro #H
   imodintro
   iintro %y %y' %t %hl %hΓ
-  rw [Bindings.lookup_remove] at hl
+  rw [List.lookup_removeKey] at hl
   by_cases hyx : y = x
   · simp [hyx] at hl
   · simp only [beq_iff_eq, hyx, if_false] at hl

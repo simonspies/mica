@@ -1,4 +1,5 @@
 -- SUMMARY: The ghost functions in scope: their types, the guard on the declaration being checked, and the specs they meet.
+import Mica.Base.AssocList
 import Mica.SourceTinyML.Typed
 import Mica.SourceTinyML.LogicalRelation
 
@@ -65,8 +66,8 @@ theorem GhostFunctions.wellTyped.append {W : TinyML.World} {Δ : Signature} {ρ 
   | none => rw [hf] at hlookup; exact h' η f argTys retTy s guard hlookup
 
 /-- A run-time declaration hides every earlier ghost declaration of its name. -/
-def GhostFunctions.remove (Gf : GhostFunctions) (x : TinyML.Var) : GhostFunctions :=
-  Gf.filter fun p => p.1 != x
+abbrev GhostFunctions.remove (Gf : GhostFunctions) (x : TinyML.Var) : GhostFunctions :=
+  Gf.removeKey x
 
 omit [MicaGS HasLC.hasLC Sig] in
 theorem GhostFunctions.mem_of_lookup {l : GhostFunctions} {f : TinyML.Var}
@@ -84,11 +85,6 @@ theorem GhostFunctions.mem_of_lookup {l : GhostFunctions} {f : TinyML.Var}
       rw [List.lookup, hne] at h
       exact .tail _ (ih h)
 
-omit [MicaGS HasLC.hasLC Sig] in
-theorem GhostFunctions.mem_remove {Gf : GhostFunctions} {x : TinyML.Var}
-    {p : TinyML.Var × GhostFunctions.Entry} (h : p ∈ Gf.remove x) : p ∈ Gf :=
-  (List.mem_filter.mp h).1
-
 /-- Every entry has no guard and a type well formed in `Δ` and `Θ`. Such
     entries carry over to a larger world. -/
 def GhostFunctions.wfIn (Δ : Signature) (Θ : TinyML.TypeEnv) (Gf : GhostFunctions) : Prop :=
@@ -102,7 +98,7 @@ theorem GhostFunctions.wfIn_append {Δ : Signature} {Θ : TinyML.TypeEnv} {Gf Gf
 omit [MicaGS HasLC.hasLC Sig] in
 theorem GhostFunctions.wfIn_remove {Δ : Signature} {Θ : TinyML.TypeEnv} {Gf : GhostFunctions}
     (h : Gf.wfIn Δ Θ) (x : TinyML.Var) : (Gf.remove x).wfIn Δ Θ :=
-  fun p hp => h p (GhostFunctions.mem_remove hp)
+  fun p hp => h p (List.mem_of_mem_removeKey hp)
 
 omit [MicaGS HasLC.hasLC Sig] in
 theorem GhostFunctions.wfIn_mono {Δ Δ' : Signature} {Θ Θ' : TinyML.TypeEnv} {Gf : GhostFunctions}
@@ -110,21 +106,11 @@ theorem GhostFunctions.wfIn_mono {Δ Δ' : Signature} {Θ Θ' : TinyML.TypeEnv} 
     (hΘ : ∀ T d, Θ T = some d → Θ' T = some d) : Gf.wfIn Δ' Θ' :=
   fun p hp => ⟨(h p hp).1, TinyML.Typ.wfIn_mono hΔ hwf hΘ (h p hp).2⟩
 
-omit [MicaGS HasLC.hasLC Sig] in
-@[simp] private theorem GhostFunctions.lookup_remove (Gf : GhostFunctions) (x y : TinyML.Var) :
-    (Gf.remove x).lookup y = if y == x then none else Gf.lookup y := by
-  induction Gf with
-  | nil => simp [GhostFunctions.remove]
-  | cons p Gf ih =>
-    obtain ⟨z, entry⟩ := p
-    by_cases hzx : z = x <;> by_cases hyz : y = z <;> by_cases hyx : y = x <;>
-      simp_all [GhostFunctions.remove, List.lookup_cons] <;> aesop
-
 theorem GhostFunctions.wellTyped.remove {W : TinyML.World} {Δ : Signature} {ρ : Env}
     {Gf : GhostFunctions} (h : GhostFunctions.wellTyped W Δ ρ Gf) (x : TinyML.Var) :
     GhostFunctions.wellTyped W Δ ρ (Gf.remove x) := by
   intro η f argTys retTy s guard hlookup
-  rw [GhostFunctions.lookup_remove] at hlookup
+  rw [List.lookup_removeKey] at hlookup
   split at hlookup
   · contradiction
   · exact h η f argTys retTy s guard hlookup

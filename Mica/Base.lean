@@ -1,6 +1,7 @@
 -- SUMMARY: Bundle for `Base/`, containing shared utilities.
 
 import Mica.Base.Arity
+import Mica.Base.AssocList
 import Mica.Base.Fresh
 import Mica.Base.Except
 import Mica.Base.Fixpoint
