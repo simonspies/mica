@@ -3,7 +3,6 @@
 import Mica.Verifier.SpatialAtom
 import Mica.Verifier.Interpretations
 import Mica.Verifier.PrimitiveLaws
-import Mica.Verifier.Scoped
 import Mica.Verifier.Monad
 import Mica.Verifier.Seq
 import Mica.Verifier.Bindings

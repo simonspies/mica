@@ -18,7 +18,6 @@
 - `PrimitiveLaws.lean` — Spatially lifted weakest-precondition laws for TinyML primitive operations.
 - `Programs.lean` — Verification of whole programs, one declaration after the other, and program-level soundness.
 - `RelationalEncoding.lean` — Bundle for RelationalEncoding/, the two-stage encoding and termination checks for specification functions.
-- `Scoped.lean` — Scoped SMT command language and its translation to solver strategies and flat contexts.
 - `Seq.lean` — The sequential verification monad: declarations, assumptions, and bracketed checks, composed without branching so that a run returns a value.
 - `SpatialAtom.lean` — Syntactic spatial atoms and contexts for verifier state, together with their well-formedness conditions and basic operations.
 - `Specifications.lean` — Verifier operations on function specifications: the call and implementation protocols and their correctness.

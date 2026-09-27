@@ -5,4 +5,5 @@ import Mica.Engine.SMTLIB
 import Mica.Engine.Command
 import Mica.Engine.Trace
 import Mica.Engine.Strategy
+import Mica.Engine.Scoped
 import Mica.Engine.Driver
