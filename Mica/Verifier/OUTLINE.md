@@ -22,5 +22,6 @@
 - `RelationalEncoding.lean` — Bundle for RelationalEncoding/, the two-stage encoding and termination checks for specification functions.
 - `Seq.lean` — The sequential verification monad: declarations, assumptions, and bracketed checks, composed without branching so that a run returns a value.
 - `SpatialAtom.lean` — Syntactic spatial atoms and contexts for verifier state, together with their well-formedness conditions and basic operations.
+- `SpecFunctions.lean` — Declaration of spec functions: the solver symbols of `[@@fn]` functions, their defining axioms, and the checks of their measures.
 - `Specifications.lean` — Verifier operations on function specifications: the call and implementation protocols and their correctness.
 - `State.lean` — Verifier state and environments, together with their well-formedness conditions and fresh-name infrastructure.

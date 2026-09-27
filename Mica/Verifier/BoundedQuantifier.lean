@@ -2,7 +2,7 @@
 import Mica.SourceTinyML.Typing
 import Mica.Verifier.RelationalEncoding.Variables
 import Mica.Verifier.Guard
-import Mica.Verifier.Context
+import Mica.Verifier.SpecFunctions
 import Mica.Verifier.RelationalEncoding.Axioms
 
 open Iris Iris.BI
@@ -19,124 +19,6 @@ specification semantics: a rewrite pass lambda-lifts every legitimate spec
 occurrence into calls to freshly axiomatized function symbols, while any
 occurrence that survives the pass fails verification normally.
 -/
-
-/-! ## Declaring a spec-function symbol triple
-
-Generic infrastructure, shared with the declaration of `[@@fn]` functions in `Declaration.lean`:
-declaring the three solver symbols of a spec function whose relation
-interpretation is the graph of its value function on its definedness domain,
-and assuming its valid defining axioms, preserves the spec-function declaration
-invariants. -/
-
-namespace SpecFn
-open Verifier.RelationalEncoding
-
-/-- Declare the solver-facing triple of `L` and assume its defining axioms. -/
-def declare (L : SpecFn) (axs : List Axiom) : SeqM Unit := do
-  SeqM.declBinaryRel (SpecFn.rel L)
-  SeqM.declUnary (SpecFn.func L)
-  SeqM.declUnaryRel (SpecFn.defined L)
-  SeqM.assumeAxioms axs
-
-/-- Declaring the triple of a fresh symbol `L` — with interpretations whose
-relation is the graph of the value function on the definedness domain, and
-defining axioms that are well-formed and valid in the extended
-signature/environment — preserves the spec-function declaration invariants and
-extends the function context by `(f, L)`. -/
-theorem declare_correct (L : SpecFn) (f : TinyML.Var) (axs : List Axiom)
-    (R : Srt.value.denote → Srt.value.denote → Prop)
-    (F : Srt.value.denote → Srt.value.denote)
-    (D : Srt.value.denote → Prop)
-    (Δ : Signature) (Γ : FunCtx) (st : TransState) (ρ : Env)
-    {Q : Unit → TransState → Env → Prop}
-    (hrelFresh : relName L ∉ Δ.allNames)
-    (hfuncFresh : funcName L ∉ Δ.allNames)
-    (hdefFresh : defName L ∉ Δ.allNames)
-    (hgraph : ∀ a b, R a b ↔ D a ∧ F a = b)
-    (hdecls : st.decls = Δ) (howns : st.owns = []) (hvars : st.decls.vars = [])
-    (hwfext : (((Δ.addBinaryRel (rel L)).addUnary (func L)).addUnaryRel (defined L)).wf)
-    (hΓwf : FunCtx.wfIn Γ Δ)
-    (hΓagree : FunCtx.Agreement Γ ρ)
-    (haxwf : ∀ ax ∈ axs, ax.formula.wfIn
-      (((Δ.addBinaryRel (rel L)).addUnary (func L)).addUnaryRel (defined L)))
-    (haxeval : ∀ ax ∈ axs, ax.formula.eval (SpecFn.Env.both ρ L R D F))
-    (heval : SeqM.eval (declare L axs) st ρ Q) :
-    ∃ st' ρ', ρ' = SpecFn.Env.both ρ L R D F ∧
-      st'.decls = ((Δ.addBinaryRel (rel L)).addUnary (func L)).addUnaryRel (defined L) ∧
-      st'.owns = [] ∧ st'.decls.vars = [] ∧ st'.decls.wf ∧
-      st.decls.Subset st'.decls ∧
-      Env.agreeOn st.decls ρ ρ' ∧
-      FunCtx.wfIn (Γ ++ [(f, L)]) st'.decls ∧
-      FunCtx.Agreement (Γ ++ [(f, L)]) ρ' ∧ Q () st' ρ' := by
-  simp only [declare] at heval
-  obtain ⟨_, h1⟩ := SeqM.eval_declBinaryRel (SeqM.eval_bind heval)
-  obtain ⟨_, h2⟩ := SeqM.eval_declUnary (SeqM.eval_bind (h1 R))
-  obtain ⟨_, h3⟩ := SeqM.eval_declUnaryRel (SeqM.eval_bind (h2 F))
-  have h4 := h3 D
-  set Δext : Signature :=
-    ((Δ.addBinaryRel (rel L)).addUnary (func L)).addUnaryRel (defined L)
-  set st3 : TransState :=
-    { st with decls := ((st.decls.addBinaryRel (rel L)).addUnary
-        (func L)).addUnaryRel (defined L) }
-  set ρ3 : Env :=
-    ((ρ.updateBinaryRel .value .value (relName L) R).updateUnary
-        .value .value (funcName L) F).updateUnaryRel
-      .value (defName L) D
-  have hst3 : st3.decls = Δext := by
-    simp only [st3, Δext, hdecls]
-  have hρ3 : ρ3 = SpecFn.Env.both ρ L R D F := by
-    rfl
-  have hsub : Δ.Subset Δext :=
-    ((Signature.Subset.subset_addBinaryRel _ _).trans
-      (Signature.Subset.subset_addUnary _ _)).trans
-      (Signature.Subset.subset_addUnaryRel _ _)
-  obtain ⟨st4, hst4, howns4, _, hQ4⟩ :=
-    SeqM.eval_assumeAxioms h4 (fun ax hax => hst3 ▸ haxwf ax hax)
-      (fun ax hax => by simpa [SpecFn.Env.both] using haxeval ax hax)
-  have howns4' : st4.owns = [] := by rw [howns4]; exact howns
-  have hvars4 : st4.decls.vars = [] := by
-    rw [hst4, hst3]
-    show Δ.vars = []
-    rw [← hdecls]
-    exact hvars
-  have hwf4 : st4.decls.wf := by rw [hst4, hst3]; exact hwfext
-  have hagree : Env.agreeOn Δ ρ ρ3 := by
-    rw [hρ3]
-    exact SpecFn.Env.both_agreeOn hrelFresh hfuncFresh hdefFresh
-  have hΓwf' : FunCtx.wfIn (Γ ++ [(f, L)]) st4.decls := by
-    rw [hst4, hst3]
-    refine ⟨?_, ?_⟩
-    · intro x rel hxr
-      rcases List.mem_append.mp hxr with hold | hnew
-      · exact hsub.binaryRel _ (hΓwf.rel x rel hold)
-      · simp at hnew; obtain ⟨_, rfl⟩ := hnew
-        exact List.Mem.head _
-    · intro x rel hxr
-      rcases List.mem_append.mp hxr with hold | hnew
-      · obtain ⟨hu, hr⟩ := hΓwf.func x rel hold
-        exact ⟨hsub.unary _ hu, hsub.unaryRel _ hr⟩
-      · simp at hnew; obtain ⟨_, rfl⟩ := hnew
-        exact ⟨List.Mem.head _, List.Mem.head _⟩
-  have hΓagree' : FunCtx.Agreement (Γ ++ [(f, L)]) ρ3 := by
-    intro g rel hgr x y
-    rcases List.mem_append.mp hgr with hold | hnew
-    · obtain ⟨hu, hr⟩ := hΓwf.func g rel hold
-      obtain ⟨her, hec, hed⟩ := SpecFn.eval_of_agreeOn hagree (hΓwf.rel g rel hold) hu hr
-      rw [← her, ← hec, ← hed]
-      exact hΓagree g rel hold x y
-    · simp at hnew; obtain ⟨_, rfl⟩ := hnew
-      rw [hρ3]
-      exact SpecFn.Env.both_agreement rel ρ hgraph x y
-  have hsub4 : st.decls.Subset st4.decls := by
-    rw [hst4, hst3, hdecls]
-    exact hsub
-  have hagree4 : Env.agreeOn st.decls ρ ρ3 := by
-    rw [hdecls]
-    exact hagree
-  exact ⟨st4, ρ3, hρ3, by rw [hst4, hst3], howns4', hvars4, hwf4, hsub4,
-    hagree4, hΓwf', hΓagree', hQ4⟩
-
-end SpecFn
 
 namespace Verifier.BoundedQuantifier
 
