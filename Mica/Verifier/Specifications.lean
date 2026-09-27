@@ -82,28 +82,6 @@ def implement (Δ_base : Signature) (argTys : List TinyML.Typ) (s : Spec TinyML.
 /-! ## Precondition Proofs -/
 section Precondition
 
-/-- Fold `wp_fix'`'s tupled recursive obligation into a spec precondition;
-    the two differ only by currying the typing hypothesis and the predicate transformer. -/
-theorem isPrecondFor_intro (W : TinyML.World) (V : TinyML.ValueRelation)
-    (argTys : List TinyML.Typ) (retTy : TinyML.Typ) (s : Spec TinyML.Typ)
-    (f : Runtime.Val) :
-    iprop(□ ∀ (ρ : Env) (vs gs : List Runtime.Val) (P : Runtime.Val → iProp),
-      (⌜Env.agreeOn W.Δ_spec W.ρ_spec ρ⌝ ∗ ⌜vs.length = argTys.length⌝ ∗
-        ⌜gs.length = s.ghost.length⌝ ∗
-        ▷ TinyML.ValsRel V vs argTys ∗
-        ▷ TinyML.ValsRel V gs (s.ghost.map Prod.snd) ∗
-        ▷ PredTrans.apply V (fun r => V r retTy -∗ P r) s.pred
-          (argsEnv ρ s.allArgs (vs ++ gs))) -∗
-        wp W.pctx (Runtime.Expr.app (.val f) (vs.map Runtime.Expr.val)) P) ⊢
-      s.isPrecondFor W V argTys retTy f := by
-  unfold isPrecondFor
-  iintro #H
-  imodintro
-  iintro %ρ %Φ %vs %gs Hagree Hlen Hglen Htyped Hgtyped Hpred
-  ispecialize H $$ %ρ %vs %gs %Φ
-  iapply H
-  iframe
-
 /-- Löb-style rule for spec preconditions on `fix`: to prove
     `s.isPrecondFor W (.fix f args e)`, assume it as the recursive hypothesis and
     prove the `wp` of the body (after the usual fix-substitution). -/

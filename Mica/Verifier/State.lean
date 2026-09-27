@@ -158,10 +158,6 @@ structure Verifier.State.holdsFor (st : State) (ρ : Env) : Prop where
   asserts : ∀ φ ∈ st.asserts, φ.eval ρ
   builtins : Builtins.holdsFor ρ
 
-theorem Verifier.State.holdsFor_mono {st st' : State} {ρ : Env}
-    (hsub : st.asserts ⊆ st'.asserts) (h : st'.holdsFor ρ) : st.holdsFor ρ :=
-  ⟨fun φ hφ => h.asserts φ (hsub hφ), h.builtins⟩
-
 structure Verifier.State.wf (st : State) : Prop where
   assertsWf : st.asserts.wfIn st.decls
   namesDisjoint : st.decls.allNames.Nodup
@@ -295,14 +291,4 @@ theorem Verifier.State.wf_addSpatial (st : State) :
   · exact hwf.assertsWf
   · exact hwf.namesDisjoint
   · simpa [SpatialContext.wfIn_cons] using And.intro ha hwf.ownsWf
-  · exact hwf.builtins
-
-theorem Verifier.State.persist_wf (st : State) :
-    State.wf st →
-    State.wf st.persist := by
-  intro hwf
-  constructor
-  · exact hwf.assertsWf
-  · exact hwf.namesDisjoint
-  · simp [State.persist]
   · exact hwf.builtins

@@ -139,14 +139,6 @@ theorem registry_sound : Registry.Sound registry := by
     · infer_instance
     · simp
 
-theorem registry_wf : Registry.Wf registry := by
-  -- The per-symbol freshness side conditions reduce to literal-name
-  -- disequalities; the `@[simp]` `*_symbol`/`*Sym_name` lemmas expose the
-  -- names, so this stays generic over the registry contents.
-  simp [registry, Registry.Wf, Registry.WfFrom, Signature.extendWithSym,
-    Signature.empty, Signature.addConst, Signature.addUnary, Signature.addBinary,
-    Signature.addTernary, Signature.allNames]
-
 private def resolverEntry (i : Intrinsic) :
     Option (Frontend.Path × Frontend.ResolvedValue) :=
   i.path.map (fun (head, tail) =>

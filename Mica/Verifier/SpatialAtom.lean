@@ -182,36 +182,6 @@ def remove : List SpatialAtom → Nat → Option (SpatialAtom × List SpatialAto
 @[simp] theorem remove_cons_succ (a : SpatialAtom) (Γ : List SpatialAtom) (n : Nat) :
     remove (a :: Γ) (n + 1) = (remove Γ n).map fun (b, Γ') => (b, a :: Γ') := rfl
 
-/-- Find the index of the first occurrence of `a` in the context. -/
-def find (a : SpatialAtom) : SpatialContext → Option Nat
-  | []     => none
-  | b :: Γ => if a == b then some 0 else (find a Γ).map (· + 1)
-
-@[simp] theorem find_nil (a : SpatialAtom) : find a [] = none := rfl
-
-theorem find_remove {a : SpatialAtom} {ctx : SpatialContext} {n : Nat}
-    (h : find a ctx = some n) :
-    ∃ rest, remove ctx n = some (a, rest) := by
-  induction ctx generalizing n with
-  | nil => simp at h
-  | cons b Γ ih =>
-    simp only [find] at h
-    split at h
-    · next heq =>
-      simp at h; subst h
-      simp [remove, beq_iff_eq.mp heq]
-    · next hne =>
-      match hm : find a Γ, h with
-      | some m, h =>
-        simp at h; subst h
-        obtain ⟨rest, hr⟩ := ih hm
-        exact ⟨b :: rest, by simp [remove, hr]⟩
-
-theorem find_remove_eq {a b : SpatialAtom} {ctx : SpatialContext} {n : Nat} {rest : SpatialContext}
-    (hf : find a ctx = some n) (hr : remove ctx n = some (b, rest)) : a = b := by
-  obtain ⟨rest', hr'⟩ := find_remove hf
-  simp [hr] at hr'; exact hr'.1.symm
-
 /-- Removing an entry from a well-formed context preserves well-formedness of
     both the removed atom and the remaining context. -/
 theorem wfIn_remove {ctx : SpatialContext} {Δ : Signature} {n : Nat}
@@ -237,13 +207,6 @@ theorem wfIn_remove {ctx : SpatialContext} {Δ : Signature} {n : Nat}
         obtain ⟨rfl, rfl⟩ := hrem
         obtain ⟨ha, hrest⟩ := ih htail hr
         exact ⟨ha, (wfIn_cons b rest' Δ).2 ⟨hhead, hrest⟩⟩
-
-/-- Looking up an atom in a well-formed context yields a well-formed atom. -/
-theorem wfIn_find {ctx : SpatialContext} {Δ : Signature} {a : SpatialAtom} {n : Nat}
-    (hctx : wfIn ctx Δ) (hfind : find a ctx = some n) : a.wfIn Δ := by
-  obtain ⟨rest, hrem⟩ := find_remove hfind
-  have := wfIn_remove hctx hrem
-  simpa [find_remove_eq hfind hrem] using this.1
 
 end SpatialContext
 
