@@ -725,17 +725,6 @@ theorem wp_bind_app {fn : Runtime.Expr} {args : Runtime.Exprs} {Q : Runtime.Val 
     R ⊢ wp pctx (.app fn args) Q :=
   h.trans wp.app
 
-/-- Fixpoint unfolding: spatially lifted version of `wp.fix`. -/
-theorem wp_fix {f : Runtime.Binder} {args : List Runtime.Binder} {e : Runtime.Expr}
-    {P : Runtime.Val → iProp}
-    R
-    (hlen : args.length = vs.length)
-    (h : R ⊢
-      (wp pctx (e.subst ((Runtime.Subst.id.updateBinder f (.fix f args e)).updateAllBinder args vs)) P)) :
-    R ⊢
-      (wp pctx (.app (.val (.fix f args e)) (vs.map Runtime.Expr.val)) P) :=
-  h.trans (wp.fix hlen)
-
 /-- Fixpoint unfolding with a guarded continuation-indexed invariant. -/
 theorem wp_fix' {f : Runtime.Binder} {args : List Runtime.Binder} {e : Runtime.Expr}
     {Φ : (Runtime.Val → iProp) → List Runtime.Val → iProp}

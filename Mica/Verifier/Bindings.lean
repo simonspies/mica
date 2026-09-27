@@ -157,28 +157,6 @@ theorem Bindings.typedSubst_cons {B : Bindings} {Γ : TinyML.TyCtx} {γ : Runtim
     simp only [TinyML.Scheme.instantiate_mono]
     iexact Hw
 
-/-- Typing survives dropping a name's binding and rebinding that name at
-    runtime: no claim is made about the dropped name, and every other binding
-    reads the same value. -/
-theorem Bindings.typedSubst_remove_update {B : Bindings} {Γ : TinyML.TyCtx} {γ : Runtime.Subst}
-    {x : TinyML.Var} {v : Runtime.Val} :
-    B.typedSubst W Γ γ ⊢ (B.remove x).typedSubst W Γ (Runtime.Subst.update γ x v) := by
-  unfold Bindings.typedSubst
-  iintro #Hts
-  imodintro
-  iintro %y %y' %t %hmem %hΓ
-  rw [List.lookup_removeKey] at hmem
-  by_cases hyx : y == x
-  · simp [hyx] at hmem
-  · simp only [hyx, Bool.false_eq_true, if_false] at hmem
-    ispecialize Hts $$ %y %y' %t %hmem %hΓ
-    icases Hts with ⟨%w, %hw, Hw⟩
-    iexists w
-    isplitr
-    · ipureintro
-      simp [Runtime.Subst.update, hyx, hw]
-    · iexact Hw
-
 /-- Carries the invariant across a binder of the other kind: the new context can
     differ from the old only at the removed name. -/
 theorem Bindings.typedSubst_remove {B : Bindings} {Γ Γ' : TinyML.TyCtx}

@@ -784,12 +784,3 @@ theorem VerifM.eval_of_translate (m : VerifM Unit) (st : State) (ρ : Env) (Δ :
     (g : st.holdsFor ρ) (hwf : st.wf) :
     VerifM.eval m st ρ (fun _ _ _ => True) :=
   (translate_eval m st ρ topCont topCont_error_propagates Δ h g hwf).mono fun _ _ _ _ => trivial
-
-def VerifM.strategy (m : VerifM Unit) :=
-  let verif := ScopedM.declareConst guardConst.name guardConst.sort fun () =>
-    VerifM.translate m State.init VerifM.topCont
-  let verif' := ScopedM.bind verif fun
-    | .ok () => ScopedM.ret (Except.ok ())
-    | .error (.failed msg) => ScopedM.ret (Except.error msg)
-    | .error (.fatal msg) => ScopedM.ret (Except.error msg)
-  ScopedM.translate verif'

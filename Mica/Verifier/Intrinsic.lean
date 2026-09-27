@@ -737,21 +737,12 @@ def declSym : ∀ {n : Arity}, Option (FOL.Symbol n) → SeqM Unit
   | .two,  some s => SeqM.declBinary ⟨s.name, .value, .value, .value⟩
   | .three, some s => SeqM.declTernary ⟨s.name, .value, .value, .value, .value⟩
 
-namespace Intrinsic
-
-/-- Declare the FOL symbol of this intrinsic in the verifier. A `direct`
-    encoding declares no symbol. Therefore this function does nothing for
-    such an intrinsic. -/
-def declFOLSym (i : Intrinsic) : SeqM Unit := declSym i.symbol
-
-end Intrinsic
-
 namespace Registry
 
 /-- Declare every registered intrinsic's FOL symbol. -/
 def declFOLSyms : Registry → SeqM Unit
   | []         => pure ()
-  | i :: rest  => do i.declFOLSym; declFOLSyms rest
+  | i :: rest  => do declSym i.symbol; declFOLSyms rest
 
 /-- Assume every registered intrinsic axiom, weakening guarded axioms. -/
 def assumeAxioms : Registry → SeqM Unit
@@ -825,23 +816,6 @@ theorem eval_declSym {n : Arity} (sym : Option (FOL.Symbol n))
       · simp [Env.respects, Env.updateTernary]
       · exact hcont (fun a b c => s.interp (a, b, c))
 
-namespace Intrinsic
-
-/-- Effect of `declFOLSym`: extends the signature with `i`'s FOL symbol,
-    leaves owns and asserts untouched, and produces a post-decl environment
-    that respects `i.symbol` (when present), agreeing with the original on
-    the original signature. -/
-theorem eval_declFOLSym (i : Intrinsic) {st : State} {ρ : Env}
-    {Q : Unit → State → Env → Prop}
-    (heval : SeqM.eval i.declFOLSym st ρ Q) :
-    ∃ ρ' : Env,
-      Env.agreeOn st.decls ρ ρ' ∧
-      ρ'.respects i.symbol ∧
-      Q () { st with decls := st.decls.extendWithSym i.symbol } ρ' :=
-  eval_declSym i.symbol heval
-
-end Intrinsic
-
 namespace Registry
 
 /-- Effect of the declaration pass on a registry. It declares every registered
@@ -871,7 +845,7 @@ theorem eval_declFOLSyms (R : Registry)
   | cons i rest ih =>
     simp only [declFOLSyms] at heval
     have h1 := SeqM.eval_bind heval
-    obtain ⟨ρ1, hag1, hiRespect, hcont⟩ := Intrinsic.eval_declFOLSym i h1
+    obtain ⟨ρ1, hag1, hiRespect, hcont⟩ := eval_declSym i.symbol h1
     set st1 : State := { st with decls := st.decls.extendWithSym i.symbol }
     obtain ⟨st', ρ', hsub2, hdep2, hvars2, howns2, hass2, hrestStable, hag2, hQ⟩ :=
       ih hcont

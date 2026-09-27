@@ -65,10 +65,6 @@ def allIntrinsic : Verifier.Intrinsic := intrinsic allName "all"
 /-- Registry entry for `Range.exists`. -/
 def existsIntrinsic : Verifier.Intrinsic := intrinsic existsName "exists"
 
-@[simp] theorem allIntrinsic_arity : allIntrinsic.arity = .three := rfl
-@[simp] theorem existsIntrinsic_arity : existsIntrinsic.arity = .three := rfl
-@[simp] theorem allIntrinsic_symbol : allIntrinsic.symbol = none := rfl
-@[simp] theorem existsIntrinsic_symbol : existsIntrinsic.symbol = none := rfl
 
 /-- A forbidden intrinsic is sound: its specification and weakest precondition
 are both false, and it contributes no solver symbols or axioms. -/

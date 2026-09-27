@@ -107,50 +107,8 @@ def Verifier.State.persist (st : State) : State :=
 def Verifier.State.toFlatCtx (st : State) : FlatCtx :=
   ⟨st.decls, st.asserts⟩
 
-@[simp] theorem Verifier.State.toFlatCtx_decls (st : State) :
-    st.toFlatCtx.decls = st.decls := rfl
-
-@[simp] theorem Verifier.State.toFlatCtx_asserts (st : State) :
-    st.toFlatCtx.asserts = st.asserts := rfl
-
-@[simp] theorem Verifier.State.toFlatCtx_addConst (st : State) (c : Decl.Const) :
-    { st with decls := st.decls.addConst c }.toFlatCtx = st.toFlatCtx.addConst c.name c.sort := by
-  simp [toFlatCtx, FlatCtx.addConst]
-
-@[simp] theorem Verifier.State.toFlatCtx_addUnary (st : State) (u : Decl.Unary) :
-    { st with decls := st.decls.addUnary u }.toFlatCtx =
-      st.toFlatCtx.addUnary u.name u.arg u.ret := by
-  simp [toFlatCtx, FlatCtx.addUnary]
-
-@[simp] theorem Verifier.State.toFlatCtx_addBinary (st : State) (b : Decl.Binary) :
-    { st with decls := st.decls.addBinary b }.toFlatCtx =
-      st.toFlatCtx.addBinary b.name b.arg1 b.arg2 b.ret := by
-  simp [toFlatCtx, FlatCtx.addBinary]
-
-@[simp] theorem Verifier.State.toFlatCtx_addTernary (st : State) (t : Decl.Ternary) :
-    { st with decls := st.decls.addTernary t }.toFlatCtx =
-      st.toFlatCtx.addTernary t.name t.arg1 t.arg2 t.arg3 t.ret := by
-  simp [toFlatCtx, FlatCtx.addTernary]
-
-@[simp] theorem Verifier.State.toFlatCtx_addUnaryRel (st : State) (u : Decl.UnaryRel) :
-    { st with decls := st.decls.addUnaryRel u }.toFlatCtx =
-      st.toFlatCtx.addUnaryRel u.name u.arg := by
-  simp [toFlatCtx, FlatCtx.addUnaryRel]
-
-@[simp] theorem Verifier.State.toFlatCtx_addBinaryRel (st : State) (b : Decl.BinaryRel) :
-    { st with decls := st.decls.addBinaryRel b }.toFlatCtx =
-      st.toFlatCtx.addBinaryRel b.name b.arg1 b.arg2 := by
-  simp [toFlatCtx, FlatCtx.addBinaryRel]
-
-@[simp] theorem Verifier.State.toFlatCtx_addAssert (st : State) (φ : Formula) :
-    { st with asserts := φ :: st.asserts }.toFlatCtx = st.toFlatCtx.addAssert φ := by
-  simp [toFlatCtx, FlatCtx.addAssert]
-
 /-- The initial verifier state: only the builtin guard constant is declared. -/
 def Verifier.State.init : State := ⟨Signature.empty.addConst guardConst, [], []⟩
-
-@[simp] theorem Verifier.State.init_toFlatCtx :
-    State.init.toFlatCtx = FlatCtx.empty.addConst guardConst.name guardConst.sort := rfl
 
 /-- The environment satisfies the verifier state: every assertion holds and the
 builtin facts are in force. -/
