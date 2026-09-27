@@ -62,25 +62,9 @@ theorem ScopedM.translate_bind (m : ScopedM α) (k : α → ScopedM β) :
     translate (m.bind k) = (translate m).bind (fun a => translate (k a)) := by
   induction m with
   | ret a => simp [ScopedM.bind, translate, Strategy.bind]
-  | declareConst n s cont ih =>
-    simp only [ScopedM.bind, translate, Strategy.bind]; congr 1; funext r; exact ih r k
-  | declareUnary n a r cont ih =>
-    simp only [ScopedM.bind, translate, Strategy.bind]; congr 1; funext resp; exact ih resp k
-  | declareBinary n a1 a2 r cont ih =>
-    simp only [ScopedM.bind, translate, Strategy.bind]; congr 1; funext resp; exact ih resp k
-  | declareTernary n a1 a2 a3 r cont ih =>
-    simp only [ScopedM.bind, translate, Strategy.bind]; congr 1; funext resp; exact ih resp k
-  | declareUnaryRel n a cont ih =>
-    simp only [ScopedM.bind, translate, Strategy.bind]; congr 1; funext resp; exact ih resp k
-  | declareBinaryRel n a1 a2 cont ih =>
-    simp only [ScopedM.bind, translate, Strategy.bind]; congr 1; funext resp; exact ih resp k
-  | assert e cont ih =>
-    simp only [ScopedM.bind, translate, Strategy.bind]; congr 1; funext r; exact ih r k
-  | checkSat cont ih =>
-    simp only [ScopedM.bind, translate, Strategy.bind]; congr 1; funext r; exact ih r k
-  | setOption s cont ih =>
-    simp only [ScopedM.bind, translate, Strategy.bind]; congr 1; funext r; exact ih r k
-  | getOption g cont ih =>
+  | declareConst _ _ _ ih | declareUnary _ _ _ _ ih | declareBinary _ _ _ _ _ ih
+  | declareTernary _ _ _ _ _ _ ih | declareUnaryRel _ _ _ ih | declareBinaryRel _ _ _ _ ih
+  | assert _ _ ih | checkSat _ ih | setOption _ _ ih | getOption _ _ ih =>
     simp only [ScopedM.bind, translate, Strategy.bind]; congr 1; funext r; exact ih r k
   | bracket body cont _ ih_cont =>
     simp only [ScopedM.bind, translate, Strategy.bind]
@@ -144,77 +128,44 @@ theorem flatten_of_valid {s : State} (hs : s.valid) : ∃ ctx, s.flatten = some 
   | frames top rest => exact ⟨_, rfl⟩
   | error => exact hs.elim
 
-theorem flatten_addConst (s : State) (c : Decl.Const) :
-    (s.addConst c).flatten = s.flatten.map (·.addConst c.name c.sort) := by
-  cases s with
+/-- Unfold the flattening of `s` after one declaration in its top frame. -/
+local macro "flatten_add " s:ident : tactic => `(tactic| (
+  cases $s:ident with
   | error => rfl
   | frames top rest =>
     cases top with
     | mk decls asserts =>
       cases decls
-      simp [State.flatten, Frame.allDecls, Frame.allAsserts,
-        State.modifyTop, State.modifyDecls, State.addConst, FlatCtx.addConst,
-        Signature.addConst, List.flatMap, List.cons_append]
+      simp [State.flatten, Frame.allDecls, Frame.allAsserts, State.modifyTop,
+        State.modifyDecls, State.addConst, State.addUnary, State.addBinary, State.addTernary,
+        State.addUnaryRel, State.addBinaryRel, FlatCtx.addConst, FlatCtx.addUnary,
+        FlatCtx.addBinary, FlatCtx.addTernary, FlatCtx.addUnaryRel, FlatCtx.addBinaryRel,
+        Signature.addConst, Signature.addUnary, Signature.addBinary, Signature.addTernary,
+        Signature.addUnaryRel, Signature.addBinaryRel, List.flatMap, List.cons_append]))
+
+theorem flatten_addConst (s : State) (c : Decl.Const) :
+    (s.addConst c).flatten = s.flatten.map (·.addConst c.name c.sort) := by
+  flatten_add s
 
 theorem flatten_addUnary (s : State) (u : Decl.Unary) :
     (s.addUnary u).flatten = s.flatten.map (·.addUnary u.name u.arg u.ret) := by
-  cases s with
-  | error => rfl
-  | frames top rest =>
-    cases top with
-    | mk decls asserts =>
-      cases decls
-      simp [State.flatten, Frame.allDecls, Frame.allAsserts,
-        State.modifyTop, State.modifyDecls, State.addUnary, FlatCtx.addUnary,
-        Signature.addUnary, List.flatMap, List.cons_append]
+  flatten_add s
 
 theorem flatten_addBinary (s : State) (b : Decl.Binary) :
     (s.addBinary b).flatten = s.flatten.map (·.addBinary b.name b.arg1 b.arg2 b.ret) := by
-  cases s with
-  | error => rfl
-  | frames top rest =>
-    cases top with
-    | mk decls asserts =>
-      cases decls
-      simp [State.flatten, Frame.allDecls, Frame.allAsserts,
-        State.modifyTop, State.modifyDecls, State.addBinary, FlatCtx.addBinary,
-        Signature.addBinary, List.flatMap, List.cons_append]
+  flatten_add s
 
 theorem flatten_addTernary (s : State) (t : Decl.Ternary) :
     (s.addTernary t).flatten = s.flatten.map (·.addTernary t.name t.arg1 t.arg2 t.arg3 t.ret) := by
-  cases s with
-  | error => rfl
-  | frames top rest =>
-    cases top with
-    | mk decls asserts =>
-      cases decls
-      simp [State.flatten, Frame.allDecls, Frame.allAsserts,
-        State.modifyTop, State.modifyDecls, State.addTernary, FlatCtx.addTernary,
-        Signature.addTernary, List.flatMap, List.cons_append]
+  flatten_add s
 
 theorem flatten_addUnaryRel (s : State) (u : Decl.UnaryRel) :
     (s.addUnaryRel u).flatten = s.flatten.map (·.addUnaryRel u.name u.arg) := by
-  cases s with
-  | error => rfl
-  | frames top rest =>
-    cases top with
-    | mk decls asserts =>
-      cases decls
-      simp [State.flatten, Frame.allDecls, Frame.allAsserts,
-        State.modifyTop, State.modifyDecls, State.addUnaryRel, FlatCtx.addUnaryRel,
-        Signature.addUnaryRel, List.flatMap, List.cons_append]
+  flatten_add s
 
 theorem flatten_addBinaryRel (s : State) (b : Decl.BinaryRel) :
     (s.addBinaryRel b).flatten = s.flatten.map (·.addBinaryRel b.name b.arg1 b.arg2) := by
-  cases s with
-  | error => rfl
-  | frames top rest =>
-    cases top with
-    | mk decls asserts =>
-      cases decls
-      simp [State.flatten, Frame.allDecls, Frame.allAsserts,
-        State.modifyTop, State.modifyDecls, State.addBinaryRel, FlatCtx.addBinaryRel,
-        Signature.addBinaryRel, List.flatMap, List.cons_append]
+  flatten_add s
 
 theorem flatten_addAssert (s : State) (φ : Formula) :
     (s.addAssert φ).flatten = s.flatten.map (·.addAssert φ) := by

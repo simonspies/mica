@@ -290,8 +290,7 @@ private theorem VerifM.eval_rec_preserves_wf (m : VerifM α) (st : State) (ρ: E
     intro hwf'
     obtain ⟨b, hb, hp⟩ := h hwf'
     exact ⟨b, hb, g, hwf, hp⟩
-  | fatal msg => exact h.elim
-  | failed msg => exact h.elim
+  | fatal _ | failed _ => exact h.elim
   | all items =>
     simp only [VerifM.eval_rec] at h ⊢
     intro a ha
