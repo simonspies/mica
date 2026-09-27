@@ -3089,58 +3089,58 @@ mutual
 theorem compile_correct (e : Expr) : correctExpr e := by
   cases e with
   | const c =>
-    simpa using compileConst_correct c
+    exact compileConst_correct c
   | var x inst vty =>
-    simpa using compileVar_correct x inst vty
+    exact compileVar_correct x inst vty
   | prim n inst ty =>
-    simpa using compilePrim_correct n inst ty
+    exact compilePrim_correct n inst ty
   | inj tag arity payload ty =>
-    simpa using compileInj_correct tag arity payload ty (compile_correct payload)
+    exact compileInj_correct tag arity payload ty (compile_correct payload)
   | assert e =>
-    simpa using compileAssert_correct e (compile_correct e)
+    exact compileAssert_correct e (compile_correct e)
   | fix self args retTy spec body =>
-    simpa using compileFix_correct self args retTy spec body (compile_correct body)
+    exact compileFix_correct self args retTy spec body (compile_correct body)
   | letProd names e body =>
-    simpa using compileLetProd_correct names e body
+    exact compileLetProd_correct names e body
       (compile_correct e) (compile_correct body)
   | ref ownership e =>
-    simpa using compileRef_correct ownership e (compile_correct e)
+    exact compileRef_correct ownership e (compile_correct e)
   | deref e ty =>
-    simpa using compileDeref_correct e ty (compile_correct e)
+    exact compileDeref_correct e ty (compile_correct e)
   | store loc val =>
-    simpa using compileStore_correct loc val (compile_correct val) (compile_correct loc)
+    exact compileStore_correct loc val (compile_correct val) (compile_correct loc)
   | arrayMake ownership len init =>
-    simpa using compileArrayMake_correct ownership len init
+    exact compileArrayMake_correct ownership len init
       (compile_correct len) (compile_correct init)
   | arrayLen arr =>
-    simpa using compileArrayLen_correct arr (compile_correct arr)
+    exact compileArrayLen_correct arr (compile_correct arr)
   | arrayGet arr idx ty =>
-    simpa using compileArrayGet_correct arr idx ty
+    exact compileArrayGet_correct arr idx ty
       (compile_correct arr) (compile_correct idx)
   | arraySet arr idx val =>
-    simpa using compileArraySet_correct arr idx val
+    exact compileArraySet_correct arr idx val
       (compile_correct arr) (compile_correct idx) (compile_correct val)
   | unop op e uty =>
-    simpa using compileUnop_correct op e uty (compile_correct e)
+    exact compileUnop_correct op e uty (compile_correct e)
   | binop op l r bty =>
-    simpa using compileBinop_correct op l r bty (compile_correct r) (compile_correct l)
+    exact compileBinop_correct op l r bty (compile_correct r) (compile_correct l)
   | letIn mode b e body =>
     cases mode with
     | ghost =>
-      simpa using compileLetInGhost_correct b e body (compile_correct body)
+      exact compileLetInGhost_correct b e body (compile_correct body)
     | runtime =>
-      simpa using compileLetIn_correct b e body
+      exact compileLetIn_correct b e body
         (compile_correct e) (compile_correct body)
   | ifThenElse cond thn els ty =>
-    simpa using compileIfThenElse_correct cond thn els ty
+    exact compileIfThenElse_correct cond thn els ty
       (compile_correct cond) (compile_correct thn) (compile_correct els)
   | app fn args gargs aty =>
-    simpa using compileApp_correct fn args gargs aty (compile_correct fn)
+    exact compileApp_correct fn args gargs aty (compile_correct fn)
       (compileExprs_correct args)
   | tuple es =>
-    simpa using compileTuple_correct es (compileExprs_correct es)
+    exact compileTuple_correct es (compileExprs_correct es)
   | match_ scrut branches ty =>
-    simpa using compileMatch_correct scrut branches ty
+    exact compileMatch_correct scrut branches ty
       (compile_correct scrut) (compileBranches_correct branches)
 
 theorem compileBranches_correct (branches : List (Binder × Expr)) : correctBranches branches := by
@@ -3148,7 +3148,7 @@ theorem compileBranches_correct (branches : List (Binder × Expr)) : correctBran
   | [] =>
     exact compileBranchesNil_correct
   | (binder, body) :: bs =>
-    simpa using compileBranchesCons_correct (binder, body) bs
+    exact compileBranchesCons_correct (binder, body) bs
       (compileBranch_correct binder body (compile_correct body)) (compileBranches_correct bs)
 
 theorem compileExprs_correct (es : List Expr) : correctExprs es := by
@@ -3156,6 +3156,6 @@ theorem compileExprs_correct (es : List Expr) : correctExprs es := by
   | [] =>
     exact compileExprsNil_correct
   | e :: rest =>
-    simpa using compileExprsCons_correct e rest
+    exact compileExprsCons_correct e rest
       (compile_correct e) (compileExprs_correct rest)
 end
