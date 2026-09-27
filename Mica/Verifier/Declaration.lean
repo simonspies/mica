@@ -30,113 +30,6 @@ variable [MicaGS HasLC.hasLC Sig]
 open Verifier.RelationalEncoding (FunCtx PrimEncodings encode)
 open Verifier.RelationalEncoding.Skolemize (DefVal)
 
-/-! ## Spec functions -/
-
-/-- Encode one typechecked specification leaf into its value term and definedness
-condition. The encoder environment is the identity over the spec-level names in
-scope: `δ` carries real terms only *inside* a leaf — for let-expressions and
-match payloads — so the names alone determine it. -/
-private def translateLeaf (primitives : PrimEncodings) (Δ : Signature)
-    (Γfn : FunCtx) (names : List String)
-    (e : Typed.Expr) : Except String (Term .value × Formula) := do
-  let c ← encode primitives Δ Γfn (names.map (fun n => (n, .var .value n))) e
-    (Δ.allNames ++ names)
-  let dv := Verifier.RelationalEncoding.Expr.toDefVal .id c
-  .ok (dv.value, dv.defined)
-
-namespace Verifier.Env
-
-open Verifier.RelationalEncoding
-
-/-- Declare a bounded quantifier's solver-facing triple and its defining
-axioms. All freshness and membership conditions needed by the soundness proof
-are checked operationally by `validate`. -/
-private def declareLifting (env : Env) (s : Verifier.Lifting) : SeqM Env :=
-  match s.validate env.signature with
-  | .error msg => SeqM.fatal msg
-  | .ok _ =>
-      match s.compile env.registry.primitives env.specFunctions env.signature with
-      | .error msg => SeqM.fatal msg
-      | .ok body => do
-          s.declare body
-          pure { env with
-                 specFunctions := env.specFunctions ++ [(s.name, s.name)],
-                 signature := s.extendSignature env.signature }
-
-/-- Compile and declare the lifted bounded quantifiers in lift order. Earlier
-symbols are available while compiling later bodies, which supports nesting. -/
-private def declareLiftings : Env → List Verifier.Lifting → SeqM Env
-  | env, [] => pure env
-  | env, s :: ss => do
-      let env' ← declareLifting env s
-      declareLiftings env' ss
-
-omit [MicaGS HasLC.hasLC Sig] in
-/-- Compiling and declaring one lifted bounded quantifier preserves `SpecInv`. -/
-private theorem declareLifting_correct {reg : Registry} {Θ : TinyML.TypeEnv}
-    (hlaw : reg.primitives.Lawful) (s : Verifier.Lifting)
-    (env : Env) (st : TransState) (ρ : _root_.Env)
-    {Q : Env → TransState → _root_.Env → Prop}
-    (hinv : SpecInv reg Θ env st ρ)
-    (heval : SeqM.eval (declareLifting env s) st ρ Q) :
-    ∃ env' st' ρ', SpecInv reg Θ env' st' ρ' ∧
-      st.decls.Subset st'.decls ∧ Env.agreeOn st.decls ρ ρ' ∧
-      Q env' st' ρ' := by
-  obtain ⟨hreg, htypes, hacc, howns, hvars, hwf, hΓwf, hΓagree, hu⟩ := hinv
-  simp only [declareLifting] at heval
-  cases hvalid : s.validate env.signature with
-  | error msg =>
-    simp only [hvalid] at heval
-    exact (SeqM.eval_fatal heval).elim
-  | ok v =>
-    simp only [hvalid] at heval
-    cases hcompile : s.compile env.registry.primitives env.specFunctions env.signature with
-    | error msg =>
-      simp only [hcompile] at heval
-      exact (SeqM.eval_fatal heval).elim
-    | ok body =>
-      simp only [hcompile] at heval
-      have hbody := Verifier.Lifting.compile_wfIn (hreg ▸ hlaw)
-        v.down (hacc ▸ hwf) (hacc ▸ hΓwf) hcompile
-      obtain ⟨st4, ρ4, hdelta, howns4, hvars4, hwf4, hsub4, hagree4,
-        hΓwf4, hΓagree4, hcont⟩ :=
-        Verifier.Lifting.declare_correct s body env.signature
-          env.specFunctions st ρ v.down hbody hacc.symm howns hvars
-          (hacc ▸ hwf) (hacc ▸ hΓwf) hΓagree (SeqM.eval_bind heval)
-      exact ⟨{ env with
-               specFunctions := env.specFunctions ++ [(s.name, s.name)],
-               signature := s.extendSignature env.signature }, st4, ρ4,
-        ⟨hreg, htypes, hdelta.symm, howns4, hvars4, hwf4, hΓwf4, hΓagree4, hu.mono hsub4 hagree4 hwf4⟩,
-        hsub4, hagree4, SeqM.eval_ret hcont⟩
-
-omit [MicaGS HasLC.hasLC Sig] in
-private theorem declareLiftings_correct {reg : Registry} {Θ : TinyML.TypeEnv}
-    (hlaw : reg.primitives.Lawful) (ss : List Verifier.Lifting) :
-    ∀ (env : Env) (st : TransState) (ρ : _root_.Env)
-      {Q : Env → TransState → _root_.Env → Prop},
-      SpecInv reg Θ env st ρ →
-      SeqM.eval (declareLiftings env ss) st ρ Q →
-      ∃ result stRel ρRel, SpecInv reg Θ result stRel ρRel ∧
-        st.decls.Subset stRel.decls ∧ Env.agreeOn st.decls ρ ρRel ∧
-        Q result stRel ρRel := by
-  induction ss with
-  | nil =>
-    intro env st ρ Q hinv heval
-    simp only [declareLiftings] at heval
-    exact ⟨env, st, ρ, hinv, Signature.Subset.refl _, Env.agreeOn_refl,
-      SeqM.eval_ret heval⟩
-  | cons s ss ih =>
-    intro env st ρ Q hinv heval
-    simp only [declareLiftings] at heval
-    obtain ⟨env1, st1, ρ1, hinv1, hsub1, hag1, hcont1⟩ :=
-      declareLifting_correct hlaw s env st ρ hinv (SeqM.eval_bind heval)
-    obtain ⟨result, stRel, ρRel, hinvRel, hsubRel, hagRel, hQ⟩ :=
-      ih env1 st1 ρ1 hinv1 hcont1
-    exact ⟨result, stRel, ρRel, hinvRel, hsub1.trans hsubRel,
-      Env.agreeOn_trans hag1 (Env.agreeOn_mono hsub1 hagRel), hQ⟩
-
-end Verifier.Env
-
 /-! ## Ghost Declarations
 
 A `[@@ghost]` declaration is a lemma. Its body sees only its own parameters, the
@@ -727,6 +620,18 @@ namespace Verifier
 open Typed (SpecEnv)
 
 /-! ## Elaboration -/
+
+/-- Encode one typechecked specification leaf into its value term and definedness
+condition. The encoder environment is the identity over the spec-level names in
+scope: `δ` carries real terms only *inside* a leaf — for let-expressions and
+match payloads — so the names alone determine it. -/
+private def translateLeaf (primitives : PrimEncodings) (Δ : Signature)
+    (Γfn : FunCtx) (names : List String)
+    (e : Typed.Expr) : Except String (Term .value × Formula) := do
+  let c ← encode primitives Δ Γfn (names.map (fun n => (n, .var .value n))) e
+    (Δ.allNames ++ names)
+  let dv := Verifier.RelationalEncoding.Expr.toDefVal .id c
+  .ok (dv.value, dv.defined)
 
 /-- The environment elaboration resolves specifications against: the registry's
 primitives, and leaf translation through bounded-quantifier lifting followed by
