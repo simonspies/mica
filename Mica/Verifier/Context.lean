@@ -385,6 +385,19 @@ theorem typed_bindParameters {names : List TinyML.Var} {vars ghostVars : List De
     · iexact Hvs
   · iexact Hgs
 
+theorem typed_dup (W : TinyML.World) (S : Scope) (st : TransState) (ρ : _root_.Env)
+    (γg γ : Runtime.Subst) (R : iProp) :
+    st.sl W ρ ∗ (S.typed W γg γ ∗ R) ⊢ st.sl W ρ ∗ (S.typed W γg γ ∗ (S.typed W γg γ ∗ R)) := by
+  iintro ⟨Howns, #HT, HR⟩
+  iframe # ∗
+
+theorem typed_push (W : TinyML.World) (S : Scope) (st : TransState) (ρ : _root_.Env)
+    (γg γ : Runtime.Subst) (R : iProp) (v : Runtime.Val) (ty : TinyML.Typ) :
+    st.sl W ρ ∗ TinyML.ValHasType W v ty ∗ (S.typed W γg γ ∗ R) ⊢
+      st.sl W ρ ∗ (S.typed W γg γ ∗ (TinyML.ValHasType W v ty ∗ R)) := by
+  iintro ⟨Howns, Hv, #HT, HR⟩
+  iframe # ∗
+
 end Scope
 
 /-! ## Between declarations -/

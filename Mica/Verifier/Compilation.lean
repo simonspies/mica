@@ -292,25 +292,3 @@ theorem typedArgs_split {tys : List TinyML.Typ} {sargs : List (Term .value)}
       = sargs.map (fun t => t.eval ρ) := by
           simpa [List.map_map] using congrArg (List.map (fun t => t.eval ρ)) hsnd
     _ = vs := Term.evalList.map_eval heval
-
-/-! ### Reshuffling the correctness statement
-
-Both layers carry the same context — the spatial state, the typing of the scope,
-and a frame — and both need it rearranged at a bind. -/
-
-namespace Verifier.Scope
-
-theorem typed_dup (W : TinyML.World) (S : Scope) (st : TransState) (ρ : _root_.Env)
-    (γg γ : Runtime.Subst) (R : iProp) :
-    st.sl W ρ ∗ (S.typed W γg γ ∗ R) ⊢ st.sl W ρ ∗ (S.typed W γg γ ∗ (S.typed W γg γ ∗ R)) := by
-  iintro ⟨Howns, #HT, HR⟩
-  iframe # ∗
-
-theorem typed_push (W : TinyML.World) (S : Scope) (st : TransState) (ρ : _root_.Env)
-    (γg γ : Runtime.Subst) (R : iProp) (v : Runtime.Val) (ty : TinyML.Typ) :
-    st.sl W ρ ∗ TinyML.ValHasType W v ty ∗ (S.typed W γg γ ∗ R) ⊢
-      st.sl W ρ ∗ (S.typed W γg γ ∗ (TinyML.ValHasType W v ty ∗ R)) := by
-  iintro ⟨Howns, Hv, #HT, HR⟩
-  iframe # ∗
-
-end Verifier.Scope
