@@ -154,47 +154,8 @@ theorem Signature.extendWithSym_mono {n : Arity} {Δ Δ' : Signature}
   cases s with
   | none => exact h
   | some s' =>
-    cases n with
-    | zero =>
-      refine ⟨fun _ hx => h.vars _ hx,
-              fun c hc => ?_,
-              fun _ hu => h.unary _ hu,
-              fun _ hb => h.binary _ hb,
-              fun _ ht => h.ternary _ ht,
-              fun _ hu => h.unaryRel _ hu,
-              fun _ hb => h.binaryRel _ hb⟩
-      simp only [Signature.extendWithSym, Signature.addConst, List.mem_cons] at hc ⊢
-      exact hc.imp_right (h.consts _)
-    | one =>
-      refine ⟨fun _ hx => h.vars _ hx,
-              fun _ hc => h.consts _ hc,
-              fun u hu => ?_,
-              fun _ hb => h.binary _ hb,
-              fun _ ht => h.ternary _ ht,
-              fun _ hu => h.unaryRel _ hu,
-              fun _ hb => h.binaryRel _ hb⟩
-      simp only [Signature.extendWithSym, Signature.addUnary, List.mem_cons] at hu ⊢
-      exact hu.imp_right (h.unary _)
-    | two =>
-      refine ⟨fun _ hx => h.vars _ hx,
-              fun _ hc => h.consts _ hc,
-              fun _ hu => h.unary _ hu,
-              fun b hb => ?_,
-              fun _ ht => h.ternary _ ht,
-              fun _ hu => h.unaryRel _ hu,
-              fun _ hb => h.binaryRel _ hb⟩
-      simp only [Signature.extendWithSym, Signature.addBinary, List.mem_cons] at hb ⊢
-      exact hb.imp_right (h.binary _)
-    | three =>
-      refine ⟨fun _ hx => h.vars _ hx,
-              fun _ hc => h.consts _ hc,
-              fun _ hu => h.unary _ hu,
-              fun _ hb => h.binary _ hb,
-              fun t ht => ?_,
-              fun _ hu => h.unaryRel _ hu,
-              fun _ hb => h.binaryRel _ hb⟩
-      simp only [Signature.extendWithSym, Signature.addTernary, List.mem_cons] at ht ⊢
-      exact ht.imp_right (h.ternary _)
+    cases n
+    exacts [h.addConst _, h.addUnary _, h.addBinary _, h.addTernary _]
 
 /-- If the base signature and the symbol being added are already contained in
     a target signature, extending the base with that symbol stays contained in
@@ -207,63 +168,15 @@ theorem Signature.extendWithSym_subset_of_subset_of_sym {n : Arity} {Δ Δ' : Si
   cases s with
   | none => exact hbase
   | some s' =>
-    cases n with
-    | zero =>
-      refine ⟨fun _ hx => hbase.vars _ hx,
-              fun c hc => ?_,
-              fun _ hu => hbase.unary _ hu,
-              fun _ hb => hbase.binary _ hb,
-              fun _ ht => hbase.ternary _ ht,
-              fun _ hu => hbase.unaryRel _ hu,
-              fun _ hb => hbase.binaryRel _ hb⟩
-      simp only [Signature.extendWithSym, Signature.addConst, List.mem_cons] at hc
-      cases hc with
-      | inl hc =>
-        subst hc
-        exact hsym.consts _ (by simp [Signature.extendWithSym, Signature.addConst])
-      | inr hc => exact hbase.consts _ hc
-    | one =>
-      refine ⟨fun _ hx => hbase.vars _ hx,
-              fun _ hc => hbase.consts _ hc,
-              fun u hu => ?_,
-              fun _ hb => hbase.binary _ hb,
-              fun _ ht => hbase.ternary _ ht,
-              fun _ hu => hbase.unaryRel _ hu,
-              fun _ hb => hbase.binaryRel _ hb⟩
-      simp only [Signature.extendWithSym, Signature.addUnary, List.mem_cons] at hu
-      cases hu with
-      | inl hu =>
-        subst hu
-        exact hsym.unary _ (by simp [Signature.extendWithSym, Signature.addUnary])
-      | inr hu => exact hbase.unary _ hu
-    | two =>
-      refine ⟨fun _ hx => hbase.vars _ hx,
-              fun _ hc => hbase.consts _ hc,
-              fun _ hu => hbase.unary _ hu,
-              fun b hb => ?_,
-              fun _ ht => hbase.ternary _ ht,
-              fun _ hu => hbase.unaryRel _ hu,
-              fun _ hb => hbase.binaryRel _ hb⟩
-      simp only [Signature.extendWithSym, Signature.addBinary, List.mem_cons] at hb
-      cases hb with
-      | inl hb =>
-        subst hb
-        exact hsym.binary _ (by simp [Signature.extendWithSym, Signature.addBinary])
-      | inr hb => exact hbase.binary _ hb
-    | three =>
-      refine ⟨fun _ hx => hbase.vars _ hx,
-              fun _ hc => hbase.consts _ hc,
-              fun _ hu => hbase.unary _ hu,
-              fun _ hb => hbase.binary _ hb,
-              fun t ht => ?_,
-              fun _ hu => hbase.unaryRel _ hu,
-              fun _ hb => hbase.binaryRel _ hb⟩
-      simp only [Signature.extendWithSym, Signature.addTernary, List.mem_cons] at ht
-      cases ht with
-      | inl ht =>
-        subst ht
-        exact hsym.ternary _ (by simp [Signature.extendWithSym, Signature.addTernary])
-      | inr ht => exact hbase.ternary _ ht
+    cases n
+    · exact { hbase with
+        consts := fun _ h => (List.mem_cons.mp h).elim (· ▸ hsym.consts _ (.head _)) (hbase.consts _) }
+    · exact { hbase with
+        unary := fun _ h => (List.mem_cons.mp h).elim (· ▸ hsym.unary _ (.head _)) (hbase.unary _) }
+    · exact { hbase with
+        binary := fun _ h => (List.mem_cons.mp h).elim (· ▸ hsym.binary _ (.head _)) (hbase.binary _) }
+    · exact { hbase with
+        ternary := fun _ h => (List.mem_cons.mp h).elim (· ▸ hsym.ternary _ (.head _)) (hbase.ternary _) }
 
 /-- `ρ.respects s` says `ρ`'s entry at the value-sort/arity slot of `s` is
     the standard interpretation of `s`. Vacuously true for `none`. -/
@@ -871,14 +784,13 @@ theorem eval_declSym {n : Arity} (sym : Option (FOL.Symbol n))
       Env.agreeOn st.decls ρ ρ' ∧
       ρ'.respects sym ∧
       Q () { st with decls := st.decls.extendWithSym sym } ρ' := by
-  cases n with
-  | zero =>
-    cases sym with
-    | none =>
-      simp only [declSym, Signature.extendWithSym] at heval ⊢
-      refine ⟨ρ, Env.agreeOn_refl, by simp [Env.respects], ?_⟩
-      exact SeqM.eval_ret heval
-    | some s =>
+  cases sym with
+  | none =>
+    simp only [declSym, Signature.extendWithSym] at heval ⊢
+    exact ⟨ρ, Env.agreeOn_refl, by simp [Env.respects], SeqM.eval_ret heval⟩
+  | some s =>
+    cases n with
+    | zero =>
       simp only [declSym, Signature.extendWithSym] at heval ⊢
       obtain ⟨hfresh, hcont⟩ := SeqM.eval_declConst heval
       refine ⟨ρ.updateConst .value s.name (s.interp ()),
@@ -886,13 +798,7 @@ theorem eval_declSym {n : Arity} (sym : Option (FOL.Symbol n))
               ?_, ?_⟩
       · simp [Env.respects, Env.updateConst, Env.lookupConst, Env.updateConst]
       · exact hcont (s.interp ())
-  | one =>
-    cases sym with
-    | none =>
-      simp only [declSym, Signature.extendWithSym] at heval ⊢
-      refine ⟨ρ, Env.agreeOn_refl, by simp [Env.respects], ?_⟩
-      exact SeqM.eval_ret heval
-    | some s =>
+    | one =>
       simp only [declSym, Signature.extendWithSym] at heval ⊢
       obtain ⟨hfresh, hcont⟩ := SeqM.eval_declUnary heval
       refine ⟨ρ.updateUnary .value .value s.name s.interp,
@@ -900,13 +806,7 @@ theorem eval_declSym {n : Arity} (sym : Option (FOL.Symbol n))
               ?_, ?_⟩
       · simp [Env.respects, Env.updateUnary]
       · exact hcont s.interp
-  | two =>
-    cases sym with
-    | none =>
-      simp only [declSym, Signature.extendWithSym] at heval ⊢
-      refine ⟨ρ, Env.agreeOn_refl, by simp [Env.respects], ?_⟩
-      exact SeqM.eval_ret heval
-    | some s =>
+    | two =>
       simp only [declSym, Signature.extendWithSym] at heval ⊢
       obtain ⟨hfresh, hcont⟩ := SeqM.eval_declBinary heval
       refine ⟨ρ.updateBinary .value .value .value s.name (fun a b => s.interp (a, b)),
@@ -914,13 +814,7 @@ theorem eval_declSym {n : Arity} (sym : Option (FOL.Symbol n))
               ?_, ?_⟩
       · simp [Env.respects, Env.updateBinary]
       · exact hcont (fun a b => s.interp (a, b))
-  | three =>
-    cases sym with
-    | none =>
-      simp only [declSym, Signature.extendWithSym] at heval ⊢
-      refine ⟨ρ, Env.agreeOn_refl, by simp [Env.respects], ?_⟩
-      exact SeqM.eval_ret heval
-    | some s =>
+    | three =>
       simp only [declSym, Signature.extendWithSym] at heval ⊢
       obtain ⟨hfresh, hcont⟩ := SeqM.eval_declTernary heval
       refine ⟨ρ.updateTernary .value .value .value .value s.name
