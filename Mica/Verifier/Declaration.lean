@@ -1000,13 +1000,13 @@ theorem Decl.check_correct {d : Typed.ValDecl} {Q : Env × Scope → TransState 
             rw [hbody]; conv_lhs => unfold Typed.Expr.WithTypeVars.runtime
             simp only [Runtime.Expr.subst_fix]
           rw [hbody_rt]
-          apply SpatialContext.wp_func
+          apply PrimitiveLaws.wp_func
           exact Bindings.schemeSubst_remove_update.trans
             (hk env ⟨fn ++ Gf.remove n, [], B.remove n, Γ⟩ st ρ _ henv (hS' _) rfl howns hvars rfl hQ)
         · rw [if_pos (by simpa using hf)] at heval
           obtain ⟨hchk, heval⟩ := SeqM.eval_check (SeqM.eval_bind heval)
           have hwp := ValDecl.checkBody_correct env _ hW Gf B Γ d γ st ρ hSwf hchk iprop(emp)
-          refine SpatialContext.wp_strengthen_persistent (P := fun _ => iprop(emp)) (hwp := ?_)
+          refine PrimitiveLaws.wp_strengthen_persistent (P := fun _ => iprop(emp)) (hwp := ?_)
             (hpost := fun v => ?_)
           · istart
             iintro #H
@@ -1086,7 +1086,7 @@ theorem Decl.check_correct {d : Typed.ValDecl} {Q : Env × Scope → TransState 
             (TinyML.World.subset_refl _) (TinyML.World.subset_withEta hW₁ η')
             (Env.typesWf_of_supportedBy henv)) (by simpa [Env.world, hsig] using hty) v).1
         rw [Typed.Expr.runtime_subst_of_fix hbody]
-        refine SpatialContext.wp_func ?_
+        refine PrimitiveLaws.wp_func ?_
         refine BIBase.Entails.trans ?_ hk'
         istart
         iintro #H

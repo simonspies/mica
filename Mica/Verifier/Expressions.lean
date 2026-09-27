@@ -449,7 +449,7 @@ theorem compileConst_correct (c : TinyML.Const) :
       Ψ t st ρ → t.wfIn st.decls → Term.eval ρ t = v → (⊢ TinyML.ValHasType W v ty) →
       st.sl W ρ ∗ (S.typed W γg γ ∗ R) ⊢ wp W.pctx (.val v) Φ := by
     intro ty v t hpost hΨ henv.world hev hval
-    refine SpatialContext.wp_val ?_
+    refine PrimitiveLaws.wp_val ?_
     istart
     iintro ⟨Howns, -, HR⟩
     iapply (hpost v ρ st t hΨ henv.world hev)
@@ -551,7 +551,7 @@ theorem compileVar_correct (x : String)
       simpa [hΓx] using
         (hpost (ρ.consts .value x'.name) ρ st (Term.const (.uninterpreted x'.name .value))
           hΨ hwfv (by simp [Term.eval, Const.eval]))
-    exact SpatialContext.wp_val <| hprep.trans <| hpost'
+    exact PrimitiveLaws.wp_val <| hprep.trans <| hpost'
   | some s =>
     have htv : s.instantiate (TinyML.Typ.ofInst inst) = vty := by simpa [hΓx] using hcheck
     have hprep :
@@ -565,7 +565,7 @@ theorem compileVar_correct (x : String)
           Φ (ρ.consts .value x'.name) :=
       hpost (ρ.consts .value x'.name) ρ st (Term.const (.uninterpreted x'.name .value))
         hΨ hwfv (by simp [Term.eval, Const.eval])
-    exact SpatialContext.wp_val <| hprep.trans <| hpost'
+    exact PrimitiveLaws.wp_val <| hprep.trans <| hpost'
 
 theorem compileInj_correct (tag arity : Nat) (payload : Expr)
     (ty : TinyML.Typ) (ihPayload : correctExpr payload) :
@@ -582,7 +582,7 @@ theorem compileInj_correct (tag arity : Nat) (payload : Expr)
     obtain ⟨hty, hlen_ts, hget_ts⟩ := injComponents?_eq hcomp
     simp only [hcomp] at heval
     have heval_p : (compile env S payload).eval st ρ _ := VerifM.eval_bind heval
-    refine SpatialContext.wp_bind_inj <| ihPayload env W S γg γ (R := R) henv hS (VerifM.eval.decls_grow ρ heval_p) ?_
+    refine PrimitiveLaws.wp_bind_inj <| ihPayload env W S γg γ (R := R) henv hS (VerifM.eval.decls_grow ρ heval_p) ?_
     intro v_p ρ_p st_p se_p hΨ_p hse_wf_p heval_se_p
     obtain ⟨_hdecls_p, _hagreeOn_p, hΨ_p⟩ := hΨ_p
     obtain hΨ_p := VerifM.eval_ret hΨ_p
@@ -603,7 +603,7 @@ theorem compileInj_correct (tag arity : Nat) (payload : Expr)
         (hpost (.inj tag arity v_p) ρ_p st_p _ hΨ_p
           (by simp only [Term.wfIn]; exact ⟨trivial, hse_wf_p⟩)
           (by simp [Term.eval, UnOp.eval, heval_se_p]))
-    exact SpatialContext.wp_inj <| hprep.trans hpost'
+    exact PrimitiveLaws.wp_inj <| hprep.trans hpost'
 
 theorem compileAssert_correct (e : Expr)
     (ih : correctExpr e) :
@@ -613,7 +613,7 @@ theorem compileAssert_correct (e : Expr)
   simp only [Runtime.Expr.subst]
   simp only [compile] at heval
   have heval_e : (compile env S e).eval st ρ _ := VerifM.eval_bind heval
-  refine SpatialContext.wp_bind_assert <| ih env W S γg γ (R := R) henv hS (VerifM.eval.decls_grow ρ heval_e) ?_
+  refine PrimitiveLaws.wp_bind_assert <| ih env W S γg γ (R := R) henv hS (VerifM.eval.decls_grow ρ heval_e) ?_
   intro v_e ρ_e st₁ se hΨ_e hse_wf heval_se
   obtain ⟨_, _, hΨ_e⟩ := hΨ_e
   let φ := Formula.eq .bool (Term.unop .toBool se) (Term.const (.b true))
@@ -632,7 +632,7 @@ theorem compileAssert_correct (e : Expr)
       st₁.sl W ρ_e ∗ TinyML.ValHasType W (.bool true) e.ty ∗ R ⊢
         st₁.sl W ρ_e ∗ TinyML.ValHasType W .unit .unit ∗ R :=
     sep_mono_right (sep_mono_left (true_intro.trans (TinyML.ValHasType.unit_intro W)))
-  exact SpatialContext.wp_assert <| hprep.trans <| hpost .unit ρ_e st₁ (Term.const .unit) hΨ_pure
+  exact PrimitiveLaws.wp_assert <| hprep.trans <| hpost .unit ρ_e st₁ (Term.const .unit) hΨ_pure
     trivial
     (by simp [Term.eval])
 
@@ -888,7 +888,7 @@ theorem compileFix_correct (self : Binder) (args : List Binder)
   -- The closure value itself: the fresh constant denotes it.
   unfold Expr.WithTypeVars.runtime
   simp only [Runtime.Expr.subst_fix]
-  apply SpatialContext.wp_func
+  apply PrimitiveLaws.wp_func
   refine BIBase.Entails.trans ?_
     (hpost fval ρ₁ st₁ _ (VerifM.eval_ret hcont) hsf_wf hsf_eval)
   have hsl : st.sl W ρ ⊢ st₁.sl W ρ₁ := by
@@ -919,7 +919,7 @@ theorem compileRefShared_correct (e : Expr)
   simp only [compile] at heval
   simp only [Expr.WithTypeVars.ty] at hpost
   have heval_e : (compile env S e).eval st ρ _ := VerifM.eval_bind heval
-  refine SpatialContext.wp_bind_ref <| ih env W S γg γ (R := R) henv hS (VerifM.eval.decls_grow ρ heval_e) ?_
+  refine PrimitiveLaws.wp_bind_ref <| ih env W S γg γ (R := R) henv hS (VerifM.eval.decls_grow ρ heval_e) ?_
   intro v_e ρ_e st₁ se hΨ_e hse_wf heval_se
   obtain ⟨_hdecls_e, _hagreeOn_e, hΨ_e⟩ := hΨ_e
   have hwf_st₁ := VerifM.eval.wf hΨ_e
@@ -928,7 +928,7 @@ theorem compileRefShared_correct (e : Expr)
     TransState.freshConst_fresh st₁ none .value
   have hwf_addConst : TransState.wf { st₁ with decls := st₁.decls.addConst c } :=
     TransState.wf_addConst _ _ hwf_st₁ hfresh
-  refine SpatialContext.wp_ref_inv W (ctx := st₁.owns) (ρ := ρ_e) (R := R) (ty := e.ty) ?_
+  refine PrimitiveLaws.wp_ref_inv W (ctx := st₁.owns) (ρ := ρ_e) (R := R) (ty := e.ty) ?_
   intro loc
   have hdecl_eval := VerifM.eval_bind hΨ_e
   have hret := VerifM.eval_ret (VerifM.eval_decl hdecl_eval (.loc loc))
@@ -958,7 +958,7 @@ theorem compileRefOwned_correct (e : Expr)
   simp only [compile] at heval
   simp only [Expr.WithTypeVars.ty] at hpost
   have heval_e : (compile env S e).eval st ρ _ := VerifM.eval_bind heval
-  refine SpatialContext.wp_bind_ref <| ih env W S γg γ (R := R) henv hS (VerifM.eval.decls_grow ρ heval_e) ?_
+  refine PrimitiveLaws.wp_bind_ref <| ih env W S γg γ (R := R) henv hS (VerifM.eval.decls_grow ρ heval_e) ?_
   intro v_e ρ_e st₁ se hΨ_e hse_wf heval_se
   obtain ⟨_hdecls_e, _hagreeOn_e, hΨ_e⟩ := hΨ_e
   have hdecl_eval := VerifM.eval_bind hΨ_e
@@ -970,7 +970,7 @@ theorem compileRefOwned_correct (e : Expr)
     TransState.freshConst_fresh st₁ none .value
   have hwp :
       st₁.sl W ρ_e ∗ TinyML.ValHasType W v_e e.ty ∗ R ⊢ wp W.pctx (.ref (.val v_e)) Φ := by
-    refine SpatialContext.wp_ref W
+    refine PrimitiveLaws.wp_ref W
       (ctx := st₁.owns) (ρ := ρ_e) (R := R) (Δ := st₁.decls)
       (vt := se) (ty := e.ty) (name := c.name)
       (newctx := SpatialContext.insert (.pointsTo sl se e.ty) st₁.owns)
@@ -1038,7 +1038,7 @@ theorem compileDerefShared_correct (e : Expr) (ty : TinyML.Typ)
   simp only [Expr.WithTypeVars.ty] at hpost
   obtain ⟨_, heval⟩ := VerifM.eval_bind_expectEq heval
   have heval_e : (compile env S e).eval st ρ _ := VerifM.eval_bind heval
-  refine SpatialContext.wp_bind_deref <| ih env W S γg γ (R := R) henv hS (VerifM.eval.decls_grow ρ heval_e) ?_
+  refine PrimitiveLaws.wp_bind_deref <| ih env W S γg γ (R := R) henv hS (VerifM.eval.decls_grow ρ heval_e) ?_
   intro v_e ρ_e st₁ se hΨ_e _hse_wf heval_se
   obtain ⟨_hdecls_e, _hagreeOn_e, hΨ_e⟩ := hΨ_e
   have hdecl_eval := VerifM.eval_bind hΨ_e
@@ -1053,7 +1053,7 @@ theorem compileDerefShared_correct (e : Expr) (ty : TinyML.Typ)
         (Term.const_wfIn_addConst_of_fresh (Δ := st₁.decls) (c := c)
           (VerifM.eval.wf hdecl_eval).namesDisjoint hc_fresh)
   rw [href]
-  refine SpatialContext.wp_deref_inv W (ctx := st₁.owns) (ρ := ρ_e) (R := R) (ty := ty) ?_
+  refine PrimitiveLaws.wp_deref_inv W (ctx := st₁.owns) (ρ := ρ_e) (R := R) (ty := ty) ?_
   intro w
   istart
   iintro ⟨Howns, #Hw, HR⟩
@@ -1090,7 +1090,7 @@ theorem compileDerefOwned_correct (e : Expr) (ty : TinyML.Typ)
   simp only [Expr.WithTypeVars.ty] at hpost
   obtain ⟨_, heval⟩ := VerifM.eval_bind_expectEq heval
   have heval_e : (compile env S e).eval st ρ _ := VerifM.eval_bind heval
-  refine SpatialContext.wp_bind_deref <| ih env W S γg γ (R := R) henv hS (VerifM.eval.decls_grow ρ heval_e) ?_
+  refine PrimitiveLaws.wp_bind_deref <| ih env W S γg γ (R := R) henv hS (VerifM.eval.decls_grow ρ heval_e) ?_
   intro v_e ρ_e st₁ se hΨ_e hse_wf heval_se
   obtain ⟨_hdecls_e, _hagreeOn_e, hΨ_e⟩ := hΨ_e
   have hfind_eval := VerifM.eval_bind hΨ_e
@@ -1109,7 +1109,7 @@ theorem compileDerefOwned_correct (e : Expr) (ty : TinyML.Typ)
     rw [hdecls]
     exact hv_wf
   simpa [TransState.sl_eq] using
-    (SpatialContext.wp_deref_owned W (rest := st₂.owns) (lt := se) (vt := v) (ty := ty)
+    (PrimitiveLaws.wp_deref_owned W (rest := st₂.owns) (lt := se) (vt := v) (ty := ty)
       (R := R) (Q := Φ) heval_se
       (by
         simpa [TransState.sl_eq] using
@@ -1153,7 +1153,7 @@ theorem compileStoreShared_correct (loc val : Expr)
   obtain ⟨_, heval⟩ := VerifM.eval_bind_expectEq heval
   have heval_v : (compile env S val).eval st ρ _ := VerifM.eval_bind heval
   have hstart := Scope.typed_dup W S st ρ γg γ R
-  refine SpatialContext.wp_bind_store <| (hstart.trans <|
+  refine PrimitiveLaws.wp_bind_store <| (hstart.trans <|
     ihVal env W S γg γ (R := (S.typed W γg γ ∗ (R))) henv hS (VerifM.eval.decls_grow ρ heval_v) ?_)
   intro v_v ρ_v st₁ sv hΨ_v hsv_wf heval_sv
   obtain ⟨hdecls_v, hagreeOn_v, hΨ_v⟩ := hΨ_v
@@ -1170,7 +1170,7 @@ theorem compileStoreShared_correct (loc val : Expr)
       st₂.sl W ρ_l ∗ TinyML.ValHasType W .unit .unit ∗ R ⊢ Φ .unit :=
     hpost .unit ρ_l st₂ _ hret hunit_wf (by simp [Term.eval])
   rw [href]
-  exact SpatialContext.wp_store_inv W (ctx := st₂.owns) (ρ := ρ_l) (R := R) (ty := val.ty)
+  exact PrimitiveLaws.wp_store_inv W (ctx := st₂.owns) (ρ := ρ_l) (R := R) (ty := val.ty)
     (by simpa [TransState.sl_eq] using hgoal)
 
 theorem compileStoreOwned_correct (loc val : Expr)
@@ -1185,7 +1185,7 @@ theorem compileStoreOwned_correct (loc val : Expr)
   obtain ⟨_, heval⟩ := VerifM.eval_bind_expectEq heval
   have heval_v : (compile env S val).eval st ρ _ := VerifM.eval_bind heval
   have hstart := Scope.typed_dup W S st ρ γg γ R
-  refine SpatialContext.wp_bind_store <| (hstart.trans <|
+  refine PrimitiveLaws.wp_bind_store <| (hstart.trans <|
     ihVal env W S γg γ (R := (S.typed W γg γ ∗ (R))) henv hS (VerifM.eval.decls_grow ρ heval_v) ?_)
   intro v_v ρ_v st₁ sv hΨ_v hsv_wf heval_sv
   obtain ⟨hdecls_v, hagreeOn_v, hΨ_v⟩ := hΨ_v
@@ -1215,7 +1215,7 @@ theorem compileStoreOwned_correct (loc val : Expr)
   have hunit_wf : (Term.const .unit).wfIn ({ st₃ with owns := .pointsTo sl sv val.ty :: st₃.owns }).decls := by
     simp [Term.wfIn, Const.wfIn]
   simpa [TransState.sl_eq] using
-    (SpatialContext.wp_store_owned W (rest := st₃.owns) (lt := sl) (vt_old := old)
+    (PrimitiveLaws.wp_store_owned W (rest := st₃.owns) (lt := sl) (vt_old := old)
       (vt_new := sv) (ty := val.ty) (R := R) (Q := Φ) heval_sl heval_sv_l
       (by
         simpa [TransState.sl_eq] using
@@ -1259,7 +1259,7 @@ theorem compileArrayMake_correct (ownership : TinyML.Ownership) (len init : Expr
   simp only [compile] at heval
   obtain ⟨hlenty, heval⟩ := VerifM.eval_bind_expectEq heval
   have heval_init : (compile env S init).eval st ρ _ := VerifM.eval_bind heval
-  refine SpatialContext.wp_bind_arrayMake <| ?_
+  refine PrimitiveLaws.wp_bind_arrayMake <| ?_
   -- Evaluate `init`.
   have hstart := Scope.typed_dup W S st ρ γg γ R
   refine hstart.trans <| ihInit env W S γg γ (R := (S.typed W γg γ ∗ (R))) henv hS (VerifM.eval.decls_grow ρ heval_init) ?_
@@ -1298,7 +1298,7 @@ theorem compileArrayMake_correct (ownership : TinyML.Ownership) (len init : Expr
   cases ownership with
   | shared =>
     simp only [Expr.WithTypeVars.ty] at hpost
-    iapply (SpatialContext.wp_arrayMake_inv (vlen := v_len) (init := v_init) (n := n)
+    iapply (PrimitiveLaws.wp_arrayMake_inv (vlen := v_len) (init := v_init) (n := n)
       (I := fun w => TinyML.ValHasType W w init.ty) (Q := Φ) hv_len hn)
     isplitl []
     · imodintro
@@ -1361,7 +1361,7 @@ theorem compileArrayMake_correct (ownership : TinyML.Ownership) (len init : Expr
         · iexact HR
   | owned =>
     simp only [Expr.WithTypeVars.ty] at hpost
-    iapply (SpatialContext.wp_arrayMake (vlen := v_len) (init := v_init) (n := n)
+    iapply (PrimitiveLaws.wp_arrayMake (vlen := v_len) (init := v_init) (n := n)
       (Q := Φ) hv_len hn)
     iintro %l Hpt
     have hbody := hdecl (.array n.toNat l)
@@ -1461,7 +1461,7 @@ theorem compileArrayLen_correct (arr : Expr)
       simp only [compile, hty] at heval
       have heval_arr : (compile env S arr).eval st ρ _ :=
         VerifM.eval_bind heval
-      refine SpatialContext.wp_bind_arrayLen <| ihArr env W S γg γ (R := R) henv hS (VerifM.eval.decls_grow ρ heval_arr) ?_
+      refine PrimitiveLaws.wp_bind_arrayLen <| ihArr env W S γg γ (R := R) henv hS (VerifM.eval.decls_grow ρ heval_arr) ?_
       intro v_arr ρ_arr st₁ sa hΨ_arr hsa_wf heval_sa
       obtain ⟨_, _, hΨ_arr⟩ := hΨ_arr
       obtain hret := VerifM.eval_ret hΨ_arr
@@ -1483,7 +1483,7 @@ theorem compileArrayLen_correct (arr : Expr)
               Φ (.int len) :=
           by
             simpa [Expr.WithTypeVars.ty] using hpost (.int len) ρ_arr st₁ t hret ht_wf ht_eval
-        iapply (SpatialContext.wp_arrayLen
+        iapply (PrimitiveLaws.wp_arrayLen
           (R := st₁.sl W ρ_arr ∗ TinyML.ValHasType W (.int len) TinyML.Typ.int ∗ R)
           (Q := Φ) (v := v_arr) (len := len) (l := loc) hv_arr hgoal)
         isplitl [Howns]
@@ -1499,7 +1499,7 @@ theorem compileArrayLen_correct (arr : Expr)
       simp only [compile, hty] at heval
       have heval_arr : (compile env S arr).eval st ρ _ :=
         VerifM.eval_bind heval
-      refine SpatialContext.wp_bind_arrayLen <| ihArr env W S γg γ (R := R) henv hS (VerifM.eval.decls_grow ρ heval_arr) ?_
+      refine PrimitiveLaws.wp_bind_arrayLen <| ihArr env W S γg γ (R := R) henv hS (VerifM.eval.decls_grow ρ heval_arr) ?_
       intro v_arr ρ_arr st₁ sa hΨ_arr hsa_wf heval_sa
       obtain ⟨_, _, hΨ_arr⟩ := hΨ_arr
       obtain hret := VerifM.eval_ret hΨ_arr
@@ -1516,7 +1516,7 @@ theorem compileArrayLen_correct (arr : Expr)
           st₁.sl W ρ_arr ∗ TinyML.ValHasType W (.int len) TinyML.Typ.int ∗ R ⊢
             Φ (.int len) := by
         simpa [Expr.WithTypeVars.ty] using hpost (.int len) ρ_arr st₁ t hret ht_wf ht_eval
-      iapply (SpatialContext.wp_arrayLen
+      iapply (PrimitiveLaws.wp_arrayLen
         (R := st₁.sl W ρ_arr ∗ TinyML.ValHasType W (.int len) TinyML.Typ.int ∗ R)
         (Q := Φ) (v := v_arr) (len := len) (l := loc) hv_arr hgoal)
       isplitl [Howns]
@@ -1545,7 +1545,7 @@ theorem compileArrayGet_correct (arr idx : Expr) (ty : TinyML.Typ)
     obtain ⟨hidxty, heval⟩ := VerifM.eval_bind_expectEq heval
     subst helem
     have heval_idx : (compile env S idx).eval st ρ _ := VerifM.eval_bind heval
-    refine SpatialContext.wp_bind_arrayGet <| ?_
+    refine PrimitiveLaws.wp_bind_arrayGet <| ?_
     have hstart := Scope.typed_dup W S st ρ γg γ R
     refine hstart.trans <| ihIdx env W S γg γ (R := (S.typed W γg γ ∗ (R))) henv hS (VerifM.eval.decls_grow ρ heval_idx) ?_
     intro v_idx ρ_idx st₁ si hΨ_idx hsi_wf heval_si
@@ -1577,7 +1577,7 @@ theorem compileArrayGet_correct (arr idx : Expr) (ty : TinyML.Typ)
           wp W.pctx (.arrayGet (.val v_arr) (.val v_idx)) Φ := by
       rw [hty, hidxty]
       simpa [TransState.sl_eq] using
-        (SpatialContext.wp_arrayGet_inv (W := W)
+        (PrimitiveLaws.wp_arrayGet_inv (W := W)
           (ctx := st₂.owns) (ρ := ρ_arr) (arr := sa) (idx := si)
           (elemTy := elemTy) (varr := v_arr) (vidx := v_idx) (Q := Φ) (R := R)
           heval_sa hsi_ρ_arr hi hlt (by
@@ -1623,7 +1623,7 @@ theorem compileArrayGet_correct (arr idx : Expr) (ty : TinyML.Typ)
     obtain ⟨hidxty, heval⟩ := VerifM.eval_bind_expectEq heval
     subst ty
     have heval_idx : (compile env S idx).eval st ρ _ := VerifM.eval_bind heval
-    refine SpatialContext.wp_bind_arrayGet <| ?_
+    refine PrimitiveLaws.wp_bind_arrayGet <| ?_
     have hstart := Scope.typed_dup W S st ρ γg γ R
     refine hstart.trans <| ihIdx env W S γg γ (R := (S.typed W γg γ ∗ (R))) henv hS (VerifM.eval.decls_grow ρ heval_idx) ?_
     intro v_idx ρ_idx st₁ si hΨ_idx hsi_wf heval_si
@@ -1648,7 +1648,7 @@ theorem compileArrayGet_correct (arr idx : Expr) (ty : TinyML.Typ)
       rw [hdecls]; exact ⟨hsa_wf, hcontents_wf⟩
     let result : Term .value := .binop .vecGet (.unop .toVec contents) (.unop .toInt si)
     simpa [TransState.sl_eq] using
-      (SpatialContext.wp_arrayGet_owned (W := W)
+      (PrimitiveLaws.wp_arrayGet_owned (W := W)
         (rest := st₃.owns) (arr := sa) (contents := contents) (idx := si)
         (result := result) (elemTy := elemTy) (varr := v_arr) (vidx := v_idx)
         (Q := Φ) (R := R) heval_sa hsi_eval hi hlt rfl (by
@@ -1693,7 +1693,7 @@ theorem compileArraySet_correct (arr idx val : Expr)
     obtain ⟨helemTy, heval⟩ := VerifM.eval_bind_expectEq heval
     obtain ⟨hidxty, heval⟩ := VerifM.eval_bind_expectEq heval
     have heval_val : (compile env S val).eval st ρ _ := VerifM.eval_bind heval
-    refine SpatialContext.wp_bind_arraySet <| ?_
+    refine PrimitiveLaws.wp_bind_arraySet <| ?_
     -- Evaluate `val`.
     have hstart := Scope.typed_dup W S st ρ γg γ R
     refine hstart.trans <| ihVal env W S γg γ (R := (S.typed W γg γ ∗ (R))) henv hS (VerifM.eval.decls_grow ρ heval_val) ?_
@@ -1734,7 +1734,7 @@ theorem compileArraySet_correct (arr idx val : Expr)
           wp W.pctx (.arraySet (.val v_arr) (.val v_idx) (.val v_val)) Φ := by
       rw [hty, hidxty, ← helemTy]
       simpa [TransState.sl_eq] using
-        (SpatialContext.wp_arraySet_inv (W := W)
+        (PrimitiveLaws.wp_arraySet_inv (W := W)
           (ctx := st₃.owns) (ρ := ρ_arr) (arr := sa) (idx := si)
           (elemTy := elemTy) (varr := v_arr) (vidx := v_idx) (val := v_val)
           (Q := Φ) (R := R) heval_sa hsi_ρ_arr hi hlt (by
@@ -1761,7 +1761,7 @@ theorem compileArraySet_correct (arr idx val : Expr)
     obtain ⟨helemTy, heval⟩ := VerifM.eval_bind_expectEq heval
     obtain ⟨hidxty, heval⟩ := VerifM.eval_bind_expectEq heval
     have heval_val : (compile env S val).eval st ρ _ := VerifM.eval_bind heval
-    refine SpatialContext.wp_bind_arraySet <| ?_
+    refine PrimitiveLaws.wp_bind_arraySet <| ?_
     have hstart := Scope.typed_dup W S st ρ γg γ R
     refine hstart.trans <| ihVal env W S γg γ (R := (S.typed W γg γ ∗ (R))) henv hS (VerifM.eval.decls_grow ρ heval_val) ?_
     intro v_val ρ_val st₁ sv hΨ_val hsv_wf heval_sv
@@ -1810,7 +1810,7 @@ theorem compileArraySet_correct (arr idx val : Expr)
       rw [hdecls]; exact ⟨hsa_wf, by simpa [hdecls] using hcontents'_wf⟩
     have hunit_wf : (Term.const .unit).wfIn st₄.decls := by simp [Term.wfIn, Const.wfIn]
     simpa [TransState.sl_eq] using
-      (SpatialContext.wp_arraySet_owned (W := W)
+      (PrimitiveLaws.wp_arraySet_owned (W := W)
         (rest := st₄.owns) (arr := sa) (contents := contents) (contents' := contents')
         (idx := si) (val := sv) (elemTy := elemTy) (varr := v_arr) (vidx := v_idx)
         (vval := v_val) (Q := Φ) (R := R) heval_sa hsi_eval hsv_eval hi hlt rfl (by
@@ -1847,7 +1847,7 @@ theorem compileUnop_correct (op : TinyML.UnOp) (e : Expr) (uty : TinyML.Typ)
   simp only [Runtime.Expr.subst]
   simp only [compile] at heval
   have heval_e : (compile env S e).eval st ρ _ := VerifM.eval_bind heval
-  refine SpatialContext.wp_bind_unop <| ih env W S γg γ (R := R) henv hS (VerifM.eval.decls_grow ρ heval_e) ?_
+  refine PrimitiveLaws.wp_bind_unop <| ih env W S γg γ (R := R) henv hS (VerifM.eval.decls_grow ρ heval_e) ?_
   intro v_e ρ_e st₁ se hΨ_e hse_wf heval_se
   obtain ⟨_, _, hΨ_e⟩ := hΨ_e
   obtain ⟨ty, htypeOf, hΨ_e⟩ := VerifM.eval_bind_expectSome hΨ_e
@@ -1869,7 +1869,7 @@ theorem compileUnop_correct (op : TinyML.UnOp) (e : Expr) (uty : TinyML.Typ)
     by simpa [hty_eq] using
       (hpost w ρ_e st₁ t hΨ_e (compileUnop_wfIn hse_wf hcompUnop) ht_eval)
   have hwp : st₁.sl W ρ_e ∗ TinyML.ValHasType W w ty ∗ R ⊢ wp W.pctx (.unop op (.val v_e)) Φ :=
-    SpatialContext.wp_unop
+    PrimitiveLaws.wp_unop
       (R := st₁.sl W ρ_e ∗ TinyML.ValHasType W w ty ∗ R)
       (Q := Φ) (op := op) (v := v_e) (res := w) hq heval_op
   iapply hwp
@@ -1917,7 +1917,7 @@ private theorem compileIntBinop_correct (W : TinyML.World) {R : iProp}
       · iexact HR
   have hopab := hop a b hvr
   subst hvl hvr
-  iapply (SpatialContext.wp_binop (vl := .int a) (vr := .int b) (res := .int (g a b)) hq)
+  iapply (PrimitiveLaws.wp_binop (vl := .int a) (vr := .int b) (res := .int (g a b)) hq)
   · exact hopab
   · isplitl [Howns]
     · iexact Howns
@@ -1932,7 +1932,7 @@ theorem compileBinop_correct (op : TinyML.BinOp) (l r : Expr) (bty : TinyML.Typ)
   simp only [compile] at heval
   have heval_r : (compile env S r).eval st ρ _ := VerifM.eval_bind heval
   have hstart := Scope.typed_dup W S st ρ γg γ R
-  refine SpatialContext.wp_bind_binop <| hstart.trans <|
+  refine PrimitiveLaws.wp_bind_binop <| hstart.trans <|
     ihR env W S γg γ (R := (S.typed W γg γ ∗ R)) henv hS (VerifM.eval.decls_grow ρ heval_r) ?_
   intro vr ρ_r st₁ sr hΨ_r hsr_wf heval_sr
   obtain ⟨hdecls_r, hagreeOn_r, hΨ_r⟩ := hΨ_r
@@ -2027,7 +2027,7 @@ theorem compileBinop_correct (op : TinyML.BinOp) (l r : Expr) (bty : TinyML.Typ)
       simpa [hty_eq] using
         (hpost w ρ_l st₂ t hΨ_ndiv (compileOp_wfIn hsl_wf hwf_sr_l hcompOp) ht_eval)
     have hwp : st₂.sl W ρ_l ∗ TinyML.ValHasType W w ty ∗ R ⊢ wp W.pctx (.binop op (.val vl) (.val vr)) Φ :=
-      SpatialContext.wp_binop
+      PrimitiveLaws.wp_binop
         (R := st₂.sl W ρ_l ∗ TinyML.ValHasType W w ty ∗ R)
         (Q := Φ) (op := op) (vl := vl) (vr := vr) (res := w) hq heval_op
     iapply hwp
@@ -2047,7 +2047,7 @@ theorem compileLetInGhost_correct (b : Binder) (e body : Expr)
   simp only [compile] at heval
   simp only [Expr.WithTypeVars.ty] at hpost
   unfold Expr.WithTypeVars.runtime
-  refine SpatialContext.wp_bupd (BIBase.Entails.trans (Scope.typed_dup W S st ρ γg γ R)
+  refine PrimitiveLaws.wp_bupd (BIBase.Entails.trans (Scope.typed_dup W S st ρ γg γ R)
     ((compileGhostExpr_correct e env W S γg γ (R := iprop(S.typed W γg γ ∗ R))
         (Φ := fun _ => wp W.pctx (body.runtime.subst γ) Φ) henv hS
         (VerifM.eval.decls_grow ρ (VerifM.eval_bind heval)) ?_).trans
@@ -2093,7 +2093,7 @@ theorem compileLetIn_correct (b : Binder) (e body : Expr)
   simp only [Expr.WithTypeVars.ty] at hpost
   unfold Expr.WithTypeVars.runtime
   simp only [Runtime.Expr.letIn_subst]
-  refine SpatialContext.wp_letIn ((Scope.typed_dup W S st ρ γg γ R).trans <|
+  refine PrimitiveLaws.wp_letIn ((Scope.typed_dup W S st ρ γg γ R).trans <|
     ihE env W S γg γ (R := S.typed W γg γ ∗ R) henv hS
       (VerifM.eval.decls_grow ρ (VerifM.eval_bind heval)) ?_)
   intro v_e ρ_e st₁ se hΨ_e hse_wf heval_e
@@ -2246,7 +2246,7 @@ theorem compileLetProd_correct (names : List Binder) (e body : Expr)
   have heval_e : (compile env S e).eval st ρ _ :=
     VerifM.eval_bind heval
   have hstart := Scope.typed_dup W S st ρ γg γ R
-  refine SpatialContext.wp_bind_letProd <| hstart.trans <|
+  refine PrimitiveLaws.wp_bind_letProd <| hstart.trans <|
     ihE env W S γg γ (R := (S.typed W γg γ ∗ R)) henv hS (VerifM.eval.decls_grow ρ heval_e) ?_
   intro v_e ρ_e st₁ se hΨ_e hse_wf heval_se
   obtain ⟨hdecls_e, hagreeOn_e, hΨ_e⟩ := hΨ_e
@@ -2271,7 +2271,7 @@ theorem compileLetProd_correct (names : List Binder) (e body : Expr)
         simp [hlen_compile, hlen_vals]
       have hbody_subst := Runtime.Expr.subst_removeAll'_updateAllBinder body.runtime γ
         (names.map Binder.WithTypeVars.runtime) vs hnames_len
-      iapply (SpatialContext.wp_letProd_val (pctx := W.pctx)
+      iapply (PrimitiveLaws.wp_letProd_val (pctx := W.pctx)
         (names := names.map Binder.WithTypeVars.runtime) (vs := vs)
         (body := Runtime.Expr.subst (γ.removeAll' (names.map Binder.WithTypeVars.runtime)) body.runtime)
         hnames_len BIBase.Entails.rfl)
@@ -2294,7 +2294,7 @@ theorem compileIfThenElse_correct (cond thn els : Expr) (ty : TinyML.Typ)
   simp only [compile] at heval
   have heval_cond : (compile env S cond).eval st ρ _ := VerifM.eval_bind heval
   have hstart := Scope.typed_dup W S st ρ γg γ R
-  refine SpatialContext.wp_bind_if <| hstart.trans <|
+  refine PrimitiveLaws.wp_bind_if <| hstart.trans <|
     ihCond env W S γg γ (R := (S.typed W γg γ ∗ R)) henv hS (VerifM.eval.decls_grow ρ heval_cond) ?_
   intro v_c ρ_c st₁ sc hΨ_c hsc_wf heval_c
   obtain ⟨hdecls_c, hagreeOn_c, hΨ_c⟩ := hΨ_c
@@ -2351,7 +2351,7 @@ theorem compileIfThenElse_correct (cond thn els : Expr) (ty : TinyML.Typ)
     have hwp :
         st_els.sl W ρ_c ∗ (S.typed W γg γ ∗ R) ⊢
           wp W.pctx (.ifThenElse (.val (.bool false)) (thn.runtime.subst γ) (els.runtime.subst γ)) Φ :=
-      SpatialContext.wp_if_false
+      PrimitiveLaws.wp_if_false
         (thn := thn.runtime.subst γ) (els := els.runtime.subst γ) <|
         ihEls env W S γg γ (Ψ := Ψ) (R := R) (Φ := Φ) henv hS_c heval_els
           (fun v ρ' st' se hΨ hs hw =>
@@ -2377,7 +2377,7 @@ theorem compileIfThenElse_correct (cond thn els : Expr) (ty : TinyML.Typ)
     have hwp :
         st_thn.sl W ρ_c ∗ (S.typed W γg γ ∗ R) ⊢
           wp W.pctx (.ifThenElse (.val (.bool true)) (thn.runtime.subst γ) (els.runtime.subst γ)) Φ :=
-      SpatialContext.wp_if_true
+      PrimitiveLaws.wp_if_true
         (thn := thn.runtime.subst γ) (els := els.runtime.subst γ) <|
         ihThn env W S γg γ (Ψ := Ψ) (R := R) (Φ := Φ) henv hS_c heval_thn
           (fun v ρ' st' se hΨ hs hw =>
@@ -2402,14 +2402,14 @@ theorem compileTuple_correct (es : List Expr)
   simp only [Runtime.Expr.subst, List.map_map]
   simp only [compile] at heval
   have heval_es : (compileExprs env S es).eval st ρ _ := VerifM.eval_bind heval
-  refine SpatialContext.wp_bind_tuple <| ihEs env W S γg γ (R := R) henv hS (VerifM.eval.decls_grow ρ heval_es) ?_
+  refine PrimitiveLaws.wp_bind_tuple <| ihEs env W S γg γ (R := R) henv hS (VerifM.eval.decls_grow ρ heval_es) ?_
   intro vs ρ' st' terms hΨ hwf_terms heval_terms
   obtain ⟨_, _, hΨ⟩ := hΨ
   obtain hΨ := VerifM.eval_ret hΨ
   have heval_tuple : (Term.tuple terms).eval ρ' = Runtime.Val.tuple vs :=
     Term.tuple_eval heval_terms
   have hwf_tuple : (Term.tuple terms).wfIn st'.decls := Term.tuple_wfIn hwf_terms
-  refine SpatialContext.wp_tuple ?_
+  refine PrimitiveLaws.wp_tuple ?_
   have hstep :
       st'.sl W ρ' ∗ TinyML.ValsHaveTypes W vs (es.map Expr.WithTypeVars.ty) ∗ (R) ⊢
         st'.sl W ρ' ∗ TinyML.ValHasType W (.tuple vs) (.tuple (es.map Expr.WithTypeVars.ty)) ∗ R := by
@@ -2461,7 +2461,7 @@ theorem compileAppSpec_correct
   obtain ⟨hlen_e, heval⟩ := VerifM.eval_bind_expectEq heval
   have heval_args : (compileExprs _ S args).eval st ρ _ :=
     VerifM.eval_bind heval
-  refine SpatialContext.wp_bind_app ?_
+  refine PrimitiveLaws.wp_bind_app ?_
   -- The typing context is persistent, so it can also travel in the frame.
   have hctx : st.sl W ρ ∗ (S.typed W γg γ ∗ R) ⊢
       st.sl W ρ ∗ (S.typed W γg γ ∗
@@ -2514,7 +2514,7 @@ theorem compileAppSpec_correct
   have heval_gargs := VerifM.eval_bind hΨ_fn
   -- The ghost arguments are ghost code: they take no step, and the update their
   -- obligation leaves is absorbed by the call's weakest precondition.
-  refine SpatialContext.wp_bupd (BIBase.Entails.trans ?_
+  refine PrimitiveLaws.wp_bupd (BIBase.Entails.trans ?_
     ((compileGhostExprs_correct gargs _ W S γg γ
         (R := iprop(TinyML.ValHasType W fval fn.ty ∗
           (TinyML.ValsHaveTypes W vs (args.map Expr.WithTypeVars.ty) ∗ R)))
@@ -2682,7 +2682,7 @@ theorem compileApp_correct
     have hi_mem : i ∈ reg := Verifier.Registry.mem_of_lookup? hilookup
     have hisound := Verifier.Registry.Sound.get henv.sound hi_mem
     simp only [Expr.WithTypeVars.runtime, Runtime.Expr.subst_val]
-    refine SpatialContext.wp_bind_app ?_
+    refine PrimitiveLaws.wp_bind_app ?_
     refine ihArgs _ W S γg γ (R := R) henv hS (VerifM.eval.decls_grow ρ heval_args) ?_
     intro vs ρ_args st_args sargs hΨ_args hsargs_wf heval_sargs
     obtain ⟨hdecls_args, hagreeOn_args, hΨ_args⟩ := hΨ_args
@@ -2732,7 +2732,7 @@ theorem compileApp_correct
     -- The call passes no ghost argument, so the intrinsic declares none.
     have hghost_nil : i.spec.ghost = [] := by simpa using hsub_gty.symm
     simp only [Spec.allArgs, hghost_nil, List.map_nil, List.append_nil] at happly
-    refine SpatialContext.wp_val ?_
+    refine PrimitiveLaws.wp_val ?_
     rw [henv.primitives]
     refine BIBase.Entails.trans ?_ (Verifier.Registry.wp_prim reg henv.sound
       (fun i' hi' => by
@@ -2789,7 +2789,7 @@ theorem compileMatch_correct (scrut : Expr) (branches : List (Binder × Expr)) (
   simp only [Expr.branchListRuntime_eq_map, Runtime.Expr.subst, List.map_map]
   simp only [compile] at heval
   have heval_scrut : (compile env S scrut).eval st ρ _ := VerifM.eval_bind heval
-  refine SpatialContext.wp_bind_match <| BIBase.Entails.trans ?_ <|
+  refine PrimitiveLaws.wp_bind_match <| BIBase.Entails.trans ?_ <|
     ihScrut env W S γg γ (R := (S.typed W γg γ ∗ R)) henv hS (VerifM.eval.decls_grow ρ heval_scrut) ?_
   · exact Scope.typed_dup W S st ρ γg γ R
   intro v_scrut ρ_scrut st_scrut se_scrut hΨ_scrut hse_wf heval_se
@@ -2879,7 +2879,7 @@ theorem compileMatch_correct (scrut : Expr) (branches : List (Binder × Expr)) (
                     (List.map (Runtime.Expr.subst γ ∘ fun p =>
                       Runtime.Expr.fix Runtime.Binder.none [p.1.runtime] p.2.runtime) branches))
                   Φ :=
-            SpatialContext.wp_match
+            PrimitiveLaws.wp_match
               (R := st_scrut.sl W ρ_scrut ∗
                   TinyML.ValSumRel W tag v_payload ts ∗
                     (S.typed W γg γ ∗ R))
@@ -2964,7 +2964,7 @@ theorem compileSingleBranch_correct (binder : Binder) (body : Expr)
       (ty := ty_i) (v := payload) (by rw [hst₂_decls]; exact List.Mem.head _) rfl
       (by simp [ρ₁, xv, hint, Env.updateConst])
     simp only [Runtime.Expr.subst_fix]
-    refine SpatialContext.wp_app_lambda_single ?_
+    refine PrimitiveLaws.wp_app_lambda_single ?_
     simp only [Runtime.Subst.removeAll'_cons, Runtime.Subst.removeAll'_nil,
       Runtime.Subst.remove'_none]
     rw [Runtime.Expr.subst_remove'_updateBinder]

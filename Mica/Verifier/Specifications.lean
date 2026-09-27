@@ -121,7 +121,7 @@ theorem isPrecondFor_fix {W : TinyML.World} {V : TinyML.ValueRelation}
               (argsEnv ρ s.allArgs (vs ++ gs)) -∗
           wp W.pctx (e.subst ((Runtime.Subst.id.updateBinder f (.fix f args e)).updateAllBinder args vs)) P)) :
     R ⊢ s.isPrecondFor W V argTys retTy (.fix f args e) := by
-  refine (SpatialContext.wp_fix' (pctx := W.pctx) (f := f) (args := args) (e := e) (Φ := fun P vs =>
+  refine (PrimitiveLaws.wp_fix' (pctx := W.pctx) (f := f) (args := args) (e := e) (Φ := fun P vs =>
       iprop(∃ (ρ : Env) (gs : List Runtime.Val),
         ⌜Env.agreeOn W.Δ_spec W.ρ_spec ρ⌝ ∗ ⌜gs.length = s.ghost.length⌝ ∗
           TinyML.ValsRel V vs argTys ∗

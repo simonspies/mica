@@ -12,7 +12,9 @@ spatial contexts. Each rule has the form `ctx.interp ρ ⊢ wp pctx e Q` given
 appropriate premises, where the context may change between premise and
 conclusion for stateful operations. -/
 
-namespace SpatialContext
+namespace PrimitiveLaws
+
+open SpatialContext
 
 variable {pctx : TinyML.PrimCtx}
 
@@ -144,7 +146,7 @@ theorem wp_ref (W : TinyML.World) {v : Runtime.Val} {Q : Runtime.Val → iProp}
     (hvt : vt.wfIn Δ)
     (hv : Term.eval ρ vt = v)
     (hfresh : name ∉ Δ.allNames)
-    (hnewctx : insert (.pointsTo (.const (.uninterpreted name .value)) vt ty) ctx = newctx)
+    (hnewctx : SpatialContext.insert (.pointsTo (.const (.uninterpreted name .value)) vt ty) ctx = newctx)
     (h : ∀ loc,
       newctx.interp W (ρ.updateConst .value name (.loc loc)) ∗ R ⊢
       Q (.loc loc)) :
@@ -169,7 +171,7 @@ theorem wp_ref (W : TinyML.World) {v : Runtime.Val} {Q : Runtime.Val → iProp}
       exact (SpatialAtom.interp_pointsTo W (ρ := ρ')
         (lt := .const (.uninterpreted name .value)) (vt := vt) (ty := ty) (loc := loc) hloc).2
     have hinsert : ctx.interp W ρ ∗ (loc ↦ [v] ∗ TinyML.ValHasType W v ty) ⊢
-        (insert a ctx).interp W ρ' := by
+        (SpatialContext.insert a ctx).interp W ρ' := by
       apply (sep_mono_left hctxeq).trans
       apply sep_comm.1.trans
       apply (sep_mono_left hptIntro).trans
@@ -237,7 +239,7 @@ theorem wp_deref_owned (W : TinyML.World) {Q : Runtime.Val → iProp}
     {lt vt : Term .value} {ty : TinyML.Typ}
     {rest : SpatialContext} {vloc : Runtime.Val}
     (hloc : Term.eval ρ lt = vloc)
-    (h : (insert (.pointsTo lt vt ty) rest).interp W ρ ∗
+    (h : (SpatialContext.insert (.pointsTo lt vt ty) rest).interp W ρ ∗
       TinyML.ValHasType W (Term.eval ρ vt) ty ∗ R ⊢ Q (Term.eval ρ vt)) :
     SpatialAtom.interp W ρ (.pointsTo lt vt ty) ∗ rest.interp W ρ ∗
       TinyML.ValHasType W vloc (.owned ty) ∗ R ⊢
@@ -426,7 +428,7 @@ theorem wp_arrayGet_owned (W : TinyML.World) {Q : Runtime.Val → iProp}
     (hi : 0 ≤ Term.eval ρ (.unop .toInt idx))
     (hlt : Term.eval ρ (.unop .toInt idx) < Term.eval ρ (.unop .arrayLen arr))
     (hresult : result = .binop .vecGet (.unop .toVec contents) (.unop .toInt idx))
-    (h : (insert (.arrayPointsTo arr contents elemTy) rest).interp W ρ ∗
+    (h : (SpatialContext.insert (.arrayPointsTo arr contents elemTy) rest).interp W ρ ∗
       TinyML.ValHasType W (Term.eval ρ result) elemTy ∗ R ⊢ Q (Term.eval ρ result)) :
     SpatialAtom.interp W ρ (.arrayPointsTo arr contents elemTy) ∗ rest.interp W ρ ∗
       TinyML.ValHasType W varr (.ownedArray elemTy) ∗
@@ -548,7 +550,7 @@ theorem wp_arraySet_owned (W : TinyML.World) {Q : Runtime.Val → iProp}
     (hlt : Term.eval ρ (.unop .toInt idx) < Term.eval ρ (.unop .arrayLen arr))
     (hcontents' : contents' = .unop .ofVec
       (.terop .vecSet (.unop .toVec contents) (.unop .toInt idx) val))
-    (h : (insert (.arrayPointsTo arr contents' elemTy) rest).interp W ρ ∗
+    (h : (SpatialContext.insert (.arrayPointsTo arr contents' elemTy) rest).interp W ρ ∗
       TinyML.ValHasType W .unit .unit ∗ R ⊢ Q .unit) :
     SpatialAtom.interp W ρ (.arrayPointsTo arr contents elemTy) ∗ rest.interp W ρ ∗
       TinyML.ValHasType W varr (.ownedArray elemTy) ∗
@@ -629,7 +631,7 @@ theorem wp_store_owned (W : TinyML.World) {Q : Runtime.Val → iProp}
     {lt vt_old vt_new : Term .value} {ty : TinyML.Typ} {rest : SpatialContext}
     {vloc vnew : Runtime.Val}
     (hloc : Term.eval ρ lt = vloc) (hnew : Term.eval ρ vt_new = vnew)
-    (h : (insert (.pointsTo lt vt_new ty) rest).interp W ρ ∗
+    (h : (SpatialContext.insert (.pointsTo lt vt_new ty) rest).interp W ρ ∗
       TinyML.ValHasType W .unit .unit ∗ R ⊢ Q .unit) :
     SpatialAtom.interp W ρ (.pointsTo lt vt_old ty) ∗ rest.interp W ρ ∗
       TinyML.ValHasType W vloc (.owned ty) ∗ TinyML.ValHasType W vnew ty ∗ R ⊢
@@ -813,4 +815,4 @@ theorem wp_strengthen_persistent
     iexact HR
   · iapply hwp; iexact HR
 
-end SpatialContext
+end PrimitiveLaws
