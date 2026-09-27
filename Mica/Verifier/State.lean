@@ -6,8 +6,6 @@ import Mica.Verifier.SpatialAtom
 
 open Iris Iris.BI
 
-namespace VerifM
-
 /-- Builtin declarations the verifier requires in a signature; extend with a
 field per builtin. -/
 structure Builtins.wf (Δ : Signature) : Prop where
@@ -28,8 +26,6 @@ theorem Builtins.holdsFor.agree {Δ : Signature} {ρ ρ' : Env}
     (hΔ : Builtins.wf Δ) (hagree : Env.agreeOn Δ ρ ρ')
     (h : Builtins.holdsFor ρ) : Builtins.holdsFor ρ' :=
   ⟨h.guard.agree hΔ.guard hagree⟩
-
-end VerifM
 
 inductive CtxItem where
   | pure : Formula → CtxItem
@@ -158,7 +154,7 @@ def TransState.init : TransState := ⟨Signature.empty.addConst guardConst, [], 
 builtin facts are in force. -/
 structure TransState.holdsFor (st : TransState) (ρ : Env) : Prop where
   asserts : ∀ φ ∈ st.asserts, φ.eval ρ
-  builtins : VerifM.Builtins.holdsFor ρ
+  builtins : Builtins.holdsFor ρ
 
 theorem TransState.holdsFor_mono {st st' : TransState} {ρ : Env}
     (hsub : st.asserts ⊆ st'.asserts) (h : st'.holdsFor ρ) : st.holdsFor ρ :=
@@ -168,7 +164,7 @@ structure TransState.wf (st : TransState) : Prop where
   assertsWf : st.asserts.wfIn st.decls
   namesDisjoint : st.decls.allNames.Nodup
   ownsWf : st.owns.wfIn st.decls
-  builtins : VerifM.Builtins.wf st.decls
+  builtins : Builtins.wf st.decls
 
 theorem TransState.init_wf : TransState.init.wf where
   assertsWf := fun φ hφ => by simp [TransState.init] at hφ
