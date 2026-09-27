@@ -9,7 +9,7 @@ namespace Verifier
 /-- One lifted occurrence of a bounded quantifier: the quantifier symbol's base
 name, the quantifier kind, the captured spec variables (first-occurrence
 order), and the lifted closure's packed argument name and body. -/
-structure Lifting where
+structure LiftedClosure where
   name : String
   all : Bool
   captured : List TinyML.Var
@@ -25,7 +25,7 @@ structure Env where
   signature        : Signature
   lemmas           : Lemmas
   specFunctions    : RelationalEncoding.FunCtx
-  liftings         : List Lifting
+  liftings         : List LiftedClosure
   /-- The types elaboration gives the declared names. It also has the names
       that have no value in the verifier, unlike `Scope.typingContext`. -/
   globals          : TinyML.TyCtx

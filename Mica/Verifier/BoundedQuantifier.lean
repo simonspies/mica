@@ -125,7 +125,7 @@ validated operationally when it is declared. -/
 /-- State of the leaf rewrite: the lifted symbols in dependency order (inner
 occurrences precede outer ones). -/
 structure LiftState where
-  syms : List Lifting := []
+  syms : List LiftedClosure := []
 
 abbrev LiftM := StateT LiftState (Except String)
 
@@ -185,7 +185,7 @@ occurrence — the quantifier symbol applied to the packed `(lo, hi, x̄)` tuple
 
 Since the symbol is keyed by the closure's content, re-lifting an identical
 occurrence reuses the symbol and records nothing new — which is what keeps
-`Lifting.validate`'s freshness precondition satisfiable. One name standing for
+`LiftedClosure.validate`'s freshness precondition satisfiable. One name standing for
 two *different* closures would axiomatize one of them as the other, so a digest
 collision is rejected rather than resolved. -/
 private def lift (all : Bool) (binder : Typed.Binder)
@@ -194,7 +194,7 @@ private def lift (all : Bool) (binder : Typed.Binder)
   let name := liftedName all binder captured body
   let gBody := Typed.Expr.letProd
     (captured.map (fun x => ⟨some x, .value⟩) ++ [binder]) (.var (name ++ "-x") [] .value) body
-  let entry : Lifting := { name, all, captured, arg := name ++ "-x", body := gBody }
+  let entry : LiftedClosure := { name, all, captured, arg := name ++ "-x", body := gBody }
   let st ← get
   match st.syms.find? (fun s => s.name == name) with
   | some existing =>
@@ -270,25 +270,25 @@ axioms' right-hand sides, so validity is by construction. -/
 
 open Verifier.RelationalEncoding
 
-namespace Verifier.Lifting
+namespace Verifier.LiftedClosure
 
 open BoundedQuantifier
 
 /-- Bound index variable of the defining axioms. -/
-def idx (s : Lifting) : String := s.name ++ "-i"
+def idx (s : LiftedClosure) : String := s.name ++ "-i"
 
 /-- `Δ` extended by the packed argument variable: the scope of the axiom
 matrices, which bind the index themselves. -/
-abbrev argScope (s : Lifting) (Δ : Signature) : Signature :=
+abbrev argScope (s : LiftedClosure) (Δ : Signature) : Signature :=
   Δ.declVar ⟨s.arg, .value⟩
 
 /-- `argScope` extended by the bound index: the scope of the compiled body. -/
-abbrev matrixScope (s : Lifting) (Δ : Signature) : Signature :=
+abbrev matrixScope (s : LiftedClosure) (Δ : Signature) : Signature :=
   (s.argScope Δ).declVar ⟨s.idx, .int⟩
 
 /-- Facts required to compile and declare a quantifier symbol: freshness of all
 derived names. Established operationally by `validate`. -/
-structure Valid (s : Lifting) (Δ : Signature) : Prop where
+structure Valid (s : LiftedClosure) (Δ : Signature) : Prop where
   relFresh : SpecFn.relName s.name ∉ Δ.allNames
   funcFresh : SpecFn.funcName s.name ∉ Δ.allNames
   defFresh : SpecFn.defName s.name ∉ Δ.allNames
@@ -309,7 +309,7 @@ private def check (p : Prop) [Decidable p] (msg : String) : Except String (PLift
 /-- Validate the fresh names required to compile and declare the solver-facing
 quantifier symbol over `Δ`. A successful run returns the `Valid` evidence
 directly. -/
-def validate (s : Lifting) (Δ : Signature) : Except String (PLift (Valid s Δ)) := do
+def validate (s : LiftedClosure) (Δ : Signature) : Except String (PLift (Valid s Δ)) := do
   let L := s.name
   let ⟨relFresh⟩ ← check (SpecFn.relName L ∉ Δ.allNames)
     s!"derived relation name '{SpecFn.relName L}' for a bounded quantifier conflicts with an existing symbol"
@@ -339,24 +339,24 @@ def validate (s : Lifting) (Δ : Signature) : Except String (PLift (Valid s Δ))
     argNeFunc, argNeDef, idxNeRel, idxNeFunc, idxNeDef⟩⟩
 
 /-- The packed axiom variable (also the lifted closure's argument name). -/
-private def pvar (s : Lifting) : Term .value := .var .value s.arg
+private def pvar (s : LiftedClosure) : Term .value := .var .value s.arg
 
-private def ivar (s : Lifting) : Term .int := .var .int s.idx
+private def ivar (s : LiftedClosure) : Term .int := .var .int s.idx
 
 /-- Lower bound: the packed tuple's first component. -/
-private def lo (s : Lifting) : Term .int := .unop .toInt (s.pvar.proj 0)
+private def lo (s : LiftedClosure) : Term .int := .unop .toInt (s.pvar.proj 0)
 
 /-- Upper bound: the packed tuple's second component. -/
-private def hi (s : Lifting) : Term .int := .unop .toInt (s.pvar.proj 1)
+private def hi (s : LiftedClosure) : Term .int := .unop .toInt (s.pvar.proj 1)
 
 /-- The bounds premise `lo ≤ i ∧ i < hi`. -/
-private def bounds (s : Lifting) : Formula :=
+private def bounds (s : LiftedClosure) : Formula :=
   .and (.binpred .le s.lo s.ivar) (.binpred .lt s.ivar s.hi)
 
 /-- The lifted closure's packed argument: the captured components of `p`
 (positions `2..`) followed by the index. Matches the destructuring order of
 the closure's `letProd`. -/
-private def gpack (s : Lifting) : Term .value :=
+private def gpack (s : LiftedClosure) : Term .value :=
   Term.tuple
     ((List.range s.captured.length).map (fun k => s.pvar.proj (k + 2))
       ++ [.unop .ofInt s.ivar])
@@ -364,7 +364,7 @@ private def gpack (s : Lifting) : Term .value :=
 /-- Compile the lifted closure body under the packed argument and index matrix
 variables. Binding the TinyML argument to `gpack` shadows the same-named FOL
 variable while retaining that variable inside the packed term. -/
-def compile (s : Lifting) (primitives : PrimEncodings) (Γ : FunCtx) (Δ : Signature) :
+def compile (s : LiftedClosure) (primitives : PrimEncodings) (Γ : FunCtx) (Δ : Signature) :
     Except String Skolemize.DefVal :=
   let Δpi := s.matrixScope Δ
   let env := (VarEnv.ofSignature Δpi).bind s.arg s.gpack
@@ -373,18 +373,18 @@ def compile (s : Lifting) (primitives : PrimEncodings) (Γ : FunCtx) (Δ : Signa
 
 /-- Matrix of the value axiom: the bounded quantifier over the lifted
 closure's truth. -/
-def matrix (s : Lifting) (body : Skolemize.DefVal) : Formula :=
+def matrix (s : LiftedClosure) (body : Skolemize.DefVal) : Formula :=
   if s.all then .forall_ s.idx .int [] (.implies s.bounds body.value.isTrue)
   else .exists_ s.idx .int (.and s.bounds body.value.isTrue)
 
 /-- Matrix of the definedness axiom: the lifted closure is defined on the
 whole range (vacuously on an empty range, giving the vacuity semantics). -/
-def defMatrix (s : Lifting) (body : Skolemize.DefVal) : Formula :=
+def defMatrix (s : LiftedClosure) (body : Skolemize.DefVal) : Formula :=
   .forall_ s.idx .int [] (.implies s.bounds body.defined)
 
 /-- Defining definedness axiom: `L-def(p)` iff the closure is defined on the
 whole range. Triggered only by the `L-def` application. -/
-def defAxiom (s : Lifting) (body : Skolemize.DefVal) : Formula :=
+def defAxiom (s : LiftedClosure) (body : Skolemize.DefVal) : Formula :=
   .forall_ s.arg .value
     [.unpred (.uninterpreted (SpecFn.defName s.name) .value) s.pvar]
     (.iff (SpecFn.isDefined s.name s.pvar) (s.defMatrix body))
@@ -392,36 +392,36 @@ def defAxiom (s : Lifting) (body : Skolemize.DefVal) : Formula :=
 /-- Defining value axiom: `L-func(p)` is the boolean truth value of the
 bounded quantifier. Stated as the two directions so the solver also learns
 booleanness of the result. Triggered only by the `L-func` application. -/
-def valAxiom (s : Lifting) (body : Skolemize.DefVal) : Formula :=
+def valAxiom (s : LiftedClosure) (body : Skolemize.DefVal) : Formula :=
   .forall_ s.arg .value
     [.term (SpecFn.call s.name s.pvar)]
     (.and (.implies (s.matrix body) (SpecFn.call s.name s.pvar).isTrue)
           (.implies (.not (s.matrix body)) (SpecFn.call s.name s.pvar).isFalse))
 
 /-- The axioms defining a quantifier symbol; both quantified, hence guarded. -/
-def axioms (s : Lifting) (body : Skolemize.DefVal) : List Axiom :=
+def axioms (s : LiftedClosure) (body : Skolemize.DefVal) : List Axiom :=
   [⟨s.defAxiom body, .high⟩, ⟨s.valAxiom body, .high⟩]
 
 /-- Signature after declaring the quantifier relation, value function, and
 definedness predicate. -/
-def extendSignature (s : Lifting) (Δ : Signature) : Signature :=
+def extendSignature (s : LiftedClosure) (Δ : Signature) : Signature :=
   ((Δ.addBinaryRel (SpecFn.rel s.name)).addUnary
     (SpecFn.func s.name)).addUnaryRel (SpecFn.defined s.name)
 
 /-- Declare and axiomatize one validated quantifier symbol. -/
-def declare (s : Lifting) (body : Skolemize.DefVal) : SeqM Unit :=
+def declare (s : LiftedClosure) (body : Skolemize.DefVal) : SeqM Unit :=
   SpecFn.declare s.name (s.axioms body)
 
 /-- Canonical interpretation of the quantifier symbol's definedness predicate:
 the evaluation of the definedness axiom's right-hand side. -/
-noncomputable def definterp (s : Lifting) (body : Skolemize.DefVal) (ρ : _root_.Env) :
+noncomputable def definterp (s : LiftedClosure) (body : Skolemize.DefVal) (ρ : _root_.Env) :
     Srt.value.denote → Prop :=
   fun v => (s.defMatrix body).eval (ρ.updateConst .value s.arg v)
 
 open Classical in
 /-- Canonical interpretation of the quantifier symbol's value function: the
 boolean truth value of the value axiom's matrix. -/
-noncomputable def funcinterp (s : Lifting) (body : Skolemize.DefVal) (ρ : _root_.Env) :
+noncomputable def funcinterp (s : LiftedClosure) (body : Skolemize.DefVal) (ρ : _root_.Env) :
     Srt.value.denote → Srt.value.denote :=
   fun v =>
     if (s.matrix body).eval (ρ.updateConst .value s.arg v)
@@ -430,7 +430,7 @@ noncomputable def funcinterp (s : Lifting) (body : Skolemize.DefVal) (ρ : _root
 /-- Canonical interpretation of the quantifier symbol's relation: the graph of the
 value function on the definedness domain (single-valued, and in agreement
 with the func-form reading, by construction). -/
-noncomputable def relinterp (s : Lifting) (body : Skolemize.DefVal) (ρ : _root_.Env) :
+noncomputable def relinterp (s : LiftedClosure) (body : Skolemize.DefVal) (ρ : _root_.Env) :
     Srt.value.denote → Srt.value.denote → Prop :=
   fun a b => s.definterp body ρ a ∧ s.funcinterp body ρ a = b
 
@@ -441,7 +441,7 @@ private theorem var_wfIn {Δ : Signature} {x : String} {τ : Srt}
   ⟨hmem, fun _ hc => Signature.wf_no_const_of_var hΔ hmem hc,
    fun _ hv => Signature.wf_unique_var hΔ hmem hv⟩
 
-variable {s : Lifting} {Δ : Signature} {body : Skolemize.DefVal}
+variable {s : LiftedClosure} {Δ : Signature} {body : Skolemize.DefVal}
 
 private theorem gpack_wfIn (hΔ : Δ.wf)
     (hp : (⟨s.arg, .value⟩ : Var) ∈ Δ.vars) (hi : (⟨s.idx, .int⟩ : Var) ∈ Δ.vars) :
@@ -579,7 +579,7 @@ theorem axioms_wfIn (hΔ : Δ.wf)
 /-! ### Validity of the defining axioms under the canonical interpretations -/
 
 /-- The environment carrying the quantifier symbol's canonical interpretations. -/
-noncomputable def extend (s : Lifting) (body : Skolemize.DefVal) (ρ : _root_.Env) : _root_.Env :=
+noncomputable def extend (s : LiftedClosure) (body : Skolemize.DefVal) (ρ : _root_.Env) : _root_.Env :=
   ((ρ.updateBinaryRel .value .value (SpecFn.relName s.name) (s.relinterp body ρ)).updateUnary
       .value .value (SpecFn.funcName s.name) (s.funcinterp body ρ)).updateUnaryRel
     .value (SpecFn.defName s.name) (s.definterp body ρ)
@@ -662,7 +662,7 @@ theorem axioms_eval {ρ : _root_.Env}
 spec-function declaration invariants: the generic triple declaration
 (`SpecFn.declare_correct`) instantiated with the canonical interpretations,
 whose graph shape holds by construction. -/
-theorem declare_correct (s : Lifting) (body : Skolemize.DefVal) (Δ : Signature) (Γ : FunCtx)
+theorem declare_correct (s : LiftedClosure) (body : Skolemize.DefVal) (Δ : Signature) (Γ : FunCtx)
     (st : TransState) (ρ : _root_.Env) {Q : Unit → TransState → _root_.Env → Prop}
     (hv : Valid s Δ)
     (hbody : body.wfIn (s.matrixScope Δ))
@@ -726,7 +726,7 @@ theorem declare_correct (s : Lifting) (body : Skolemize.DefVal) (Δ : Signature)
       hdecls howns hvars hwfext hΓwf hΓagree haxwf haxeval heval
   exact ⟨st', ρ', hrest⟩
 
-end Verifier.Lifting
+end Verifier.LiftedClosure
 
 namespace Verifier.Env
 
@@ -735,7 +735,7 @@ open Verifier.RelationalEncoding
 /-- Declare a bounded quantifier's solver-facing triple and its defining
 axioms. All freshness and membership conditions needed by the soundness proof
 are checked operationally by `validate`. -/
-private def declareLifting (env : Env) (s : Verifier.Lifting) : SeqM Env :=
+private def declareLifting (env : Env) (s : Verifier.LiftedClosure) : SeqM Env :=
   match s.validate env.signature with
   | .error msg => SeqM.fatal msg
   | .ok _ =>
@@ -749,7 +749,7 @@ private def declareLifting (env : Env) (s : Verifier.Lifting) : SeqM Env :=
 
 /-- Compile and declare the lifted bounded quantifiers in lift order. Earlier
 symbols are available while compiling later bodies, which supports nesting. -/
-def declareLiftings : Env → List Verifier.Lifting → SeqM Env
+def declareLiftings : Env → List Verifier.LiftedClosure → SeqM Env
   | env, [] => pure env
   | env, s :: ss => do
       let env' ← declareLifting env s
@@ -757,7 +757,7 @@ def declareLiftings : Env → List Verifier.Lifting → SeqM Env
 
 /-- Compiling and declaring one lifted bounded quantifier preserves `SpecInv`. -/
 private theorem declareLifting_correct {reg : Registry} {Θ : TinyML.TypeEnv}
-    (hlaw : reg.primitives.Lawful) (s : Verifier.Lifting)
+    (hlaw : reg.primitives.Lawful) (s : Verifier.LiftedClosure)
     (env : Env) (st : TransState) (ρ : _root_.Env)
     {Q : Env → TransState → _root_.Env → Prop}
     (hinv : SpecInv reg Θ env st ρ)
@@ -779,11 +779,11 @@ private theorem declareLifting_correct {reg : Registry} {Θ : TinyML.TypeEnv}
       exact (SeqM.eval_fatal heval).elim
     | ok body =>
       simp only [hcompile] at heval
-      have hbody := Verifier.Lifting.compile_wfIn (hreg ▸ hlaw)
+      have hbody := Verifier.LiftedClosure.compile_wfIn (hreg ▸ hlaw)
         v.down (hacc ▸ hwf) (hacc ▸ hΓwf) hcompile
       obtain ⟨st4, ρ4, hdelta, howns4, hvars4, hwf4, hsub4, hagree4,
         hΓwf4, hΓagree4, hcont⟩ :=
-        Verifier.Lifting.declare_correct s body env.signature
+        Verifier.LiftedClosure.declare_correct s body env.signature
           env.specFunctions st ρ v.down hbody hacc.symm howns hvars
           (hacc ▸ hwf) (hacc ▸ hΓwf) hΓagree (SeqM.eval_bind heval)
       exact ⟨{ env with
@@ -793,7 +793,7 @@ private theorem declareLifting_correct {reg : Registry} {Θ : TinyML.TypeEnv}
         hsub4, hagree4, SeqM.eval_ret hcont⟩
 
 theorem declareLiftings_correct {reg : Registry} {Θ : TinyML.TypeEnv}
-    (hlaw : reg.primitives.Lawful) (ss : List Verifier.Lifting) :
+    (hlaw : reg.primitives.Lawful) (ss : List Verifier.LiftedClosure) :
     ∀ (env : Env) (st : TransState) (ρ : _root_.Env)
       {Q : Env → TransState → _root_.Env → Prop},
       SpecInv reg Θ env st ρ →
