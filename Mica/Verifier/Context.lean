@@ -53,14 +53,14 @@ def Env.initial (reg : Registry) (Δ : Signature) : Env :=
 /-! ## Scope -/
 
 structure Scope where
-  ghostFns        : GhostFns
+  ghostFns        : GhostFunctions
   ghostBindings   : Bindings
   runtimeBindings : Bindings
   typingContext   : TinyML.TyCtx
 
 namespace Scope
 
-def empty : Scope := ⟨GhostFns.empty, Bindings.empty, Bindings.empty, TinyML.TyCtx.empty⟩
+def empty : Scope := ⟨GhostFunctions.empty, Bindings.empty, Bindings.empty, TinyML.TyCtx.empty⟩
 
 def bindRuntime (S : Scope) (x : TinyML.Var) (c : Decl.Const) (ty : TinyML.Typ) : Scope :=
   { ghostFns := S.ghostFns.remove x
@@ -132,7 +132,7 @@ theorem wfIn.eta (h : S.wfIn W Δ ρ γg γ) (η : TinyML.SemTypeAssign) :
     S.wfIn { W with eta := η } Δ ρ γg γ :=
   { h with agrees := h.agrees.eta η, ghostFns := h.ghostFns.eta }
 
-theorem wfIn_ghostFns {Gf : GhostFns} {Γ : TinyML.TyCtx} (hag : W.agrees Δ ρ)
+theorem wfIn_ghostFns {Gf : GhostFunctions} {Γ : TinyML.TyCtx} (hag : W.agrees Δ ρ)
     (hGf : Gf.wellTyped W Δ ρ) : (⟨Gf, [], [], Γ⟩ : Scope).wfIn W Δ ρ γg γ where
   agrees := hag
   ghostFns := hGf
@@ -259,11 +259,11 @@ instance typed_persistent (S : Scope) (W : TinyML.World) (γg γ : Runtime.Subst
     Persistent (S.typed W γg γ) := by
   unfold typed; infer_instance
 
-theorem typed_ghostFns {Gf : GhostFns} {Γ : TinyML.TyCtx} :
+theorem typed_ghostFns {Gf : GhostFunctions} {Γ : TinyML.TyCtx} :
     ⊢ (⟨Gf, [], [], Γ⟩ : Scope).typed W γg γ :=
   (Bindings.typedSubst_empty W Γ γ).trans (Bindings.typedScope_of_typedSubst W γg)
 
-theorem typed_runtimeBindings {Gf : GhostFns} {B : Bindings} {Γ : TinyML.TyCtx} :
+theorem typed_runtimeBindings {Gf : GhostFunctions} {B : Bindings} {Γ : TinyML.TyCtx} :
     B.typedSubst W Γ γ ⊢ (⟨Gf, [], B, Γ⟩ : Scope).typed W γg γ :=
   Bindings.typedScope_of_typedSubst W γg
 
@@ -485,8 +485,8 @@ theorem Scope.supportedBy_mono (h : S.supportedBy env st ρ γ) (henv : env.supp
     (hW : (env.world ρ).Subset (env'.world ρ')) : S.supportedBy env' st' ρ' γ where
   closed := h.closed
   types x s hx := TinyML.Typ.wfIn_mono hsub hwf hΘ (h.types x s hx)
-  ghostFnsWf := GhostFns.wfIn_mono h.ghostFnsWf hsub hwf hΘ
-  ghostFns := GhostFns.wellTyped_of_subset hW (Env.typesWf_of_supportedBy henv)
+  ghostFnsWf := GhostFunctions.wfIn_mono h.ghostFnsWf hsub hwf hΘ
+  ghostFns := GhostFunctions.wellTyped_of_subset hW (Env.typesWf_of_supportedBy henv)
     (by simpa [Env.world, henv.signature] using h.ghostFnsWf) h.ghostFns
   runtimeLinked := Bindings.agreeOnLinked_agreeOn h.runtimeLinked hag h.runtimeDeclared
   runtimeDeclared p hp := hsub.consts _ (h.runtimeDeclared p hp)

@@ -180,7 +180,7 @@ section ArgumentSubstitution
     argument. Later parameters of the same name shadow earlier ones, as
     `argsEnv` does.
 
-    Its consumer is `GhostFns.Guard.condition`, which builds the formula
+    Its consumer is `GhostFunctions.Guard.condition`, which builds the formula
     asserted at every recursive ghost call:
 
         measure.defined[σ] ∧ 0 ≤ measure.term[σ] ∧ measure.term[σ] < rank -/

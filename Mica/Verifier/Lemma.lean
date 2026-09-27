@@ -49,7 +49,7 @@ private def instance_ (x result : String) (φ ψ : Formula) : Spec TinyML.Typ :=
 /-- Offer the fact as a ghost function of one argument. Only a quantified
     implication can be published. -/
 def publish (l : Lemma) (Δ : Signature) (name : TinyML.Var) (ty : TinyML.Typ) :
-    Except String (TinyML.Var × GhostFns.Entry) :=
+    Except String (TinyML.Var × GhostFunctions.Entry) :=
   match l.fact.formula with
   | .forall_ x .value _ (.implies φ ψ) =>
       .ok (name, ⟨.arrow [ty] .unit (some (instance_ x (resultName Δ x) φ ψ)), none⟩)
@@ -57,7 +57,7 @@ def publish (l : Lemma) (Δ : Signature) (name : TinyML.Var) (ty : TinyML.Typ) :
 
 omit [MicaGS HasLC.hasLC Sig] in
 theorem publish_guard {l : Lemma} {Δ : Signature} {name : TinyML.Var} {ty : TinyML.Typ}
-    {entry : TinyML.Var × GhostFns.Entry} (h : l.publish Δ name ty = .ok entry) :
+    {entry : TinyML.Var × GhostFunctions.Entry} (h : l.publish Δ name ty = .ok entry) :
     entry.2.guard = none := by
   unfold publish at h
   split at h
@@ -82,9 +82,9 @@ private theorem instance_eval {Δ : Signature} {ρ ρ' : Env} {x : String} {ps :
 
 /-- A call proves the premise at its argument and gets the conclusion there. -/
 theorem publish_wellTyped (W : TinyML.World) (Δ : Signature) (ρ : Env) {l : Lemma}
-    {name : TinyML.Var} {ty : TinyML.Typ} {entry : TinyML.Var × GhostFns.Entry}
+    {name : TinyML.Var} {ty : TinyML.Typ} {entry : TinyML.Var × GhostFunctions.Entry}
     (h : l.Sound W.Δ_spec W.ρ_spec) (hp : l.publish W.Δ_spec name ty = .ok entry) :
-    GhostFns.wellTyped W Δ ρ [entry] := by
+    GhostFunctions.wellTyped W Δ ρ [entry] := by
   obtain ⟨hwf, hev⟩ := h
   unfold publish at hp
   split at hp
@@ -96,7 +96,7 @@ theorem publish_wellTyped (W : TinyML.World) (Δ : Signature) (ρ : Env) {l : Le
   by_cases hf : f = name
   · subst hf
     simp only [List.lookup, beq_self_eq_true, Option.some.injEq,
-      GhostFns.Entry.mk.injEq] at hlookup
+      GhostFunctions.Entry.mk.injEq] at hlookup
     obtain ⟨hty, hguard⟩ := hlookup
     cases hty; cases hguard
     unfold Spec.isGhostPrecondFor

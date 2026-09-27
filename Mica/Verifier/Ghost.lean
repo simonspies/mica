@@ -26,7 +26,7 @@ postcondition of every ghost function it calls, but nothing it does can step. -/
 
 /-- Substitute the actual arguments in the measure, keeping the caller's rank
     fixed. Definedness is part of the obligation, including for `[@@fn]` calls. -/
-def GhostFns.Guard.condition (guard : GhostFns.Guard) (Δ : Signature)
+def GhostFunctions.Guard.condition (guard : GhostFunctions.Guard) (Δ : Signature)
     (names : List String) (terms : List (Term .value)) : Formula :=
   let σ := Spec.argSubst Subst.id names terms
   let m := guard.measure.term.subst σ
@@ -35,7 +35,7 @@ def GhostFns.Guard.condition (guard : GhostFns.Guard) (Δ : Signature)
 
 /-- Check a recursive call before its specification can supply a result.
     Completed declarations have no guard. -/
-def GhostFns.Entry.check (entry : GhostFns.Entry) (names : List String)
+def GhostFunctions.Entry.check (entry : GhostFunctions.Entry) (names : List String)
     (terms : List (Term .value)) : VerifM Unit :=
   match entry.guard with
   | none => pure ()
@@ -50,14 +50,14 @@ def GhostFns.Entry.check (entry : GhostFns.Entry) (names : List String)
 omit [MicaGS HasLC.hasLC Sig] in
 /-- Successful guard checking establishes the instantiated termination
     obligation and leaves the verifier state unchanged. -/
-theorem GhostFns.Entry.check_correct {entry : GhostFns.Entry} {names : List String}
+theorem GhostFunctions.Entry.check_correct {entry : GhostFunctions.Entry} {names : List String}
     {terms : List (Term .value)} {st : TransState} {ρ : Env}
     {Q : Unit → TransState → Env → Prop}
     (h : VerifM.eval (entry.check names terms) st ρ Q) :
     (∀ guard, entry.guard = some guard →
       terms.length = names.length ∧ (guard.condition st.decls names terms).eval ρ) ∧
       Q () st ρ := by
-  simp only [GhostFns.Entry.check] at h
+  simp only [GhostFunctions.Entry.check] at h
   cases hg : entry.guard with
   | none =>
     simp only [hg] at h
@@ -171,7 +171,7 @@ mutual
           VerifM.expectEq "specification arity mismatch" s.args.length argTys.length
           let sterms ← compileGhostExprs env S args
           let gterms ← compileGhostExprs env S gargs
-          GhostFns.Entry.check ⟨.arrow argTys retTy (some s), guard⟩ s.allArgs (sterms ++ gterms)
+          GhostFunctions.Entry.check ⟨.arrow argTys retTy (some s), guard⟩ s.allArgs (sterms ++ gterms)
           let (_, result) ← Spec.call (FiniteSubst.base env.signature) argTys retTy s
             ((args.map Expr.WithTypeVars.ty).zip sterms)
             ((gargs.map Expr.WithTypeVars.ty).zip gterms)
@@ -1264,7 +1264,7 @@ theorem compileGhostApp_correct
             · iexact HR
       intro gs st_g ρ_g gterms hΨ_g hgterms_wf heval_gterms
       obtain ⟨hdecls_g, hagreeOn_g, hΨ_g⟩ := hΨ_g
-      have hguard := GhostFns.Entry.check_correct (VerifM.eval_bind hΨ_g)
+      have hguard := GhostFunctions.Entry.check_correct (VerifM.eval_bind hΨ_g)
       have hΨ_g := hguard.2
       set typedArgs := (args.map Expr.WithTypeVars.ty).zip sargs with htypedArgs_def
       set typedGArgs := (gargs.map Expr.WithTypeVars.ty).zip gterms with htypedGArgs_def
@@ -1371,7 +1371,7 @@ theorem compileGhostApp_correct
             simp only [Typed.Measure.denote]
             rw [Term.eval_agreeOn hmwf
               (Spec.argsEnv_agreeOn (Env.agreeOn_symm hagree_ρ_g) s.allArgs (vs ++ gs) hlenargs)]
-          simp only [GhostFns.Guard.condition, Formula.eval, Term.eval, BinPred.eval,
+          simp only [GhostFunctions.Guard.condition, Formula.eval, Term.eval, BinPred.eval,
             Const.eval] at hcond
           obtain ⟨-, hnonneg, hlt⟩ := hcond
           have hrank : g.measure.denote s W.ρ_spec vs gs < (Term.eval ρ_g g.rank).toNat := by

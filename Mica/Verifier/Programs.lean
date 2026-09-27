@@ -79,7 +79,7 @@ theorem Program.verify_correct (reg : Verifier.Registry)
     { closed := TinyML.TyCtx.empty_closed
       types := fun _ _ h => by simp [Scope.empty, TinyML.TyCtx.empty] at h
       ghostFnsWf := fun _ h => by simp [Scope.empty] at h
-      ghostFns := GhostFns.wellTyped.empty _ _ _
+      ghostFns := GhostFunctions.wellTyped.empty _ _ _
       runtimeLinked := by intro x x' h; simp [Scope.empty] at h
       runtimeDeclared := by intro p hp; simp [Scope.empty] at hp }
   have h := Program.declareAndCheck_correct p _ _ st ρ _ henv hS rfl howns
