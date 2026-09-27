@@ -8,6 +8,8 @@ import Mica.FirstOrderLogic.Formulas
 import Mica.Verifier.RelationalEncoding.Expr
 import Mica.Verifier.Seq
 
+open Verifier (State)
+
 open Iris Iris.BI
 
 /-! # Intrinsic framework
@@ -152,47 +154,8 @@ theorem Signature.extendWithSym_mono {n : Arity} {Δ Δ' : Signature}
   cases s with
   | none => exact h
   | some s' =>
-    cases n with
-    | zero =>
-      refine ⟨fun _ hx => h.vars _ hx,
-              fun c hc => ?_,
-              fun _ hu => h.unary _ hu,
-              fun _ hb => h.binary _ hb,
-              fun _ ht => h.ternary _ ht,
-              fun _ hu => h.unaryRel _ hu,
-              fun _ hb => h.binaryRel _ hb⟩
-      simp only [Signature.extendWithSym, Signature.addConst, List.mem_cons] at hc ⊢
-      exact hc.imp_right (h.consts _)
-    | one =>
-      refine ⟨fun _ hx => h.vars _ hx,
-              fun _ hc => h.consts _ hc,
-              fun u hu => ?_,
-              fun _ hb => h.binary _ hb,
-              fun _ ht => h.ternary _ ht,
-              fun _ hu => h.unaryRel _ hu,
-              fun _ hb => h.binaryRel _ hb⟩
-      simp only [Signature.extendWithSym, Signature.addUnary, List.mem_cons] at hu ⊢
-      exact hu.imp_right (h.unary _)
-    | two =>
-      refine ⟨fun _ hx => h.vars _ hx,
-              fun _ hc => h.consts _ hc,
-              fun _ hu => h.unary _ hu,
-              fun b hb => ?_,
-              fun _ ht => h.ternary _ ht,
-              fun _ hu => h.unaryRel _ hu,
-              fun _ hb => h.binaryRel _ hb⟩
-      simp only [Signature.extendWithSym, Signature.addBinary, List.mem_cons] at hb ⊢
-      exact hb.imp_right (h.binary _)
-    | three =>
-      refine ⟨fun _ hx => h.vars _ hx,
-              fun _ hc => h.consts _ hc,
-              fun _ hu => h.unary _ hu,
-              fun _ hb => h.binary _ hb,
-              fun t ht => ?_,
-              fun _ hu => h.unaryRel _ hu,
-              fun _ hb => h.binaryRel _ hb⟩
-      simp only [Signature.extendWithSym, Signature.addTernary, List.mem_cons] at ht ⊢
-      exact ht.imp_right (h.ternary _)
+    cases n
+    exacts [h.addConst _, h.addUnary _, h.addBinary _, h.addTernary _]
 
 /-- If the base signature and the symbol being added are already contained in
     a target signature, extending the base with that symbol stays contained in
@@ -205,111 +168,15 @@ theorem Signature.extendWithSym_subset_of_subset_of_sym {n : Arity} {Δ Δ' : Si
   cases s with
   | none => exact hbase
   | some s' =>
-    cases n with
-    | zero =>
-      refine ⟨fun _ hx => hbase.vars _ hx,
-              fun c hc => ?_,
-              fun _ hu => hbase.unary _ hu,
-              fun _ hb => hbase.binary _ hb,
-              fun _ ht => hbase.ternary _ ht,
-              fun _ hu => hbase.unaryRel _ hu,
-              fun _ hb => hbase.binaryRel _ hb⟩
-      simp only [Signature.extendWithSym, Signature.addConst, List.mem_cons] at hc
-      cases hc with
-      | inl hc =>
-        subst hc
-        exact hsym.consts _ (by simp [Signature.extendWithSym, Signature.addConst])
-      | inr hc => exact hbase.consts _ hc
-    | one =>
-      refine ⟨fun _ hx => hbase.vars _ hx,
-              fun _ hc => hbase.consts _ hc,
-              fun u hu => ?_,
-              fun _ hb => hbase.binary _ hb,
-              fun _ ht => hbase.ternary _ ht,
-              fun _ hu => hbase.unaryRel _ hu,
-              fun _ hb => hbase.binaryRel _ hb⟩
-      simp only [Signature.extendWithSym, Signature.addUnary, List.mem_cons] at hu
-      cases hu with
-      | inl hu =>
-        subst hu
-        exact hsym.unary _ (by simp [Signature.extendWithSym, Signature.addUnary])
-      | inr hu => exact hbase.unary _ hu
-    | two =>
-      refine ⟨fun _ hx => hbase.vars _ hx,
-              fun _ hc => hbase.consts _ hc,
-              fun _ hu => hbase.unary _ hu,
-              fun b hb => ?_,
-              fun _ ht => hbase.ternary _ ht,
-              fun _ hu => hbase.unaryRel _ hu,
-              fun _ hb => hbase.binaryRel _ hb⟩
-      simp only [Signature.extendWithSym, Signature.addBinary, List.mem_cons] at hb
-      cases hb with
-      | inl hb =>
-        subst hb
-        exact hsym.binary _ (by simp [Signature.extendWithSym, Signature.addBinary])
-      | inr hb => exact hbase.binary _ hb
-    | three =>
-      refine ⟨fun _ hx => hbase.vars _ hx,
-              fun _ hc => hbase.consts _ hc,
-              fun _ hu => hbase.unary _ hu,
-              fun _ hb => hbase.binary _ hb,
-              fun t ht => ?_,
-              fun _ hu => hbase.unaryRel _ hu,
-              fun _ hb => hbase.binaryRel _ hb⟩
-      simp only [Signature.extendWithSym, Signature.addTernary, List.mem_cons] at ht
-      cases ht with
-      | inl ht =>
-        subst ht
-        exact hsym.ternary _ (by simp [Signature.extendWithSym, Signature.addTernary])
-      | inr ht => exact hbase.ternary _ ht
-
-/-- Extend an environment with the standard interpretation of `s` (if any). -/
-def Env.extendWithSym : ∀ {n : Arity}, Env → Option (FOL.Symbol n) → Env
-  | _,     ρ, none        => ρ
-  | .zero, ρ, some s      => ρ.updateConst .value s.name (s.interp ())
-  | .one,  ρ, some s      => ρ.updateUnary .value .value s.name s.interp
-  | .two,  ρ, some s      => ρ.updateBinary .value .value .value s.name
-                                            (fun a b => s.interp (a, b))
-  | .three, ρ, some s      => ρ.updateTernary .value .value .value .value s.name
-                                            (fun a b c => s.interp (a, b, c))
-
-/-- Add a fresh FOL symbol to an environment. The new environment still
-    agrees with the old one on the earlier signature. -/
-theorem Env.agreeOn_extendWithSym_fresh {n : Arity} (s : Option (FOL.Symbol n))
-    {Δ : Signature} (ρ : Env)
-    (hfresh : match s with | none => True | some sym => sym.name ∉ Δ.allNames) :
-    Env.agreeOn Δ ρ (ρ.extendWithSym s) := by
-  cases n with
-  | zero =>
-    cases s with
-    | none => exact Env.agreeOn_refl
-    | some sym =>
-      simpa [Env.extendWithSym] using
-        (Env.agreeOn_update_fresh_const (ρ := ρ) (c := ⟨sym.name, .value⟩)
-          (u := sym.interp ()) (Δ := Δ) hfresh)
-  | one =>
-    cases s with
-    | none => exact Env.agreeOn_refl
-    | some sym =>
-      simpa [Env.extendWithSym] using
-        (Env.agreeOn_update_fresh_unary (ρ := ρ) (u := ⟨sym.name, .value, .value⟩)
-          (f := sym.interp) (Δ := Δ) hfresh)
-  | two =>
-    cases s with
-    | none => exact Env.agreeOn_refl
-    | some sym =>
-      simpa [Env.extendWithSym] using
-        (Env.agreeOn_update_fresh_binary (ρ := ρ)
-          (b := ⟨sym.name, .value, .value, .value⟩)
-          (f := fun a b => sym.interp (a, b)) (Δ := Δ) hfresh)
-  | three =>
-    cases s with
-    | none => exact Env.agreeOn_refl
-    | some sym =>
-      simpa [Env.extendWithSym] using
-        (Env.agreeOn_update_fresh_ternary (ρ := ρ)
-          (t := ⟨sym.name, .value, .value, .value, .value⟩)
-          (f := fun a b c => sym.interp (a, b, c)) (Δ := Δ) hfresh)
+    cases n
+    · exact { hbase with
+        consts := fun _ h => (List.mem_cons.mp h).elim (· ▸ hsym.consts _ (.head _)) (hbase.consts _) }
+    · exact { hbase with
+        unary := fun _ h => (List.mem_cons.mp h).elim (· ▸ hsym.unary _ (.head _)) (hbase.unary _) }
+    · exact { hbase with
+        binary := fun _ h => (List.mem_cons.mp h).elim (· ▸ hsym.binary _ (.head _)) (hbase.binary _) }
+    · exact { hbase with
+        ternary := fun _ h => (List.mem_cons.mp h).elim (· ▸ hsym.ternary _ (.head _)) (hbase.ternary _) }
 
 /-- `ρ.respects s` says `ρ`'s entry at the value-sort/arity slot of `s` is
     the standard interpretation of `s`. Vacuously true for `none`. -/
@@ -321,18 +188,6 @@ def Env.respects : ∀ {n : Arity}, Env → Option (FOL.Symbol n) → Prop
                                 = (fun a b => s.interp (a, b))
   | .three, ρ, some s      => ρ.ternary .value .value .value .value s.name
                                 = (fun a b c => s.interp (a, b, c))
-
-/-- The post-extension environment respects the symbol it was extended with. -/
-theorem Env.respects_extendWithSym {n : Arity} (ρ : Env) (s : Option (FOL.Symbol n)) :
-    (ρ.extendWithSym s).respects s := by
-  cases s with
-  | none => trivial
-  | some s' =>
-    cases n with
-    | zero => simp [Env.respects, Env.extendWithSym, Env.lookupConst, Env.updateConst]
-    | one  => simp [Env.respects, Env.extendWithSym, Env.updateUnary]
-    | two  => simp [Env.respects, Env.extendWithSym, Env.updateBinary]
-    | three => simp [Env.respects, Env.extendWithSym, Env.updateTernary]
 
 /-- Respect for a symbol is preserved by moving to an environment that agrees
     on a signature containing that symbol. -/
@@ -467,15 +322,6 @@ def Sem.pure {α : Type} (rel : α → Runtime.Val → Prop) :
   fun a μ v μ' => rel a v ∧ μ' = μ
 
 namespace Intrinsic
-
-/-- Extending an environment with an intrinsic's fresh FOL symbol preserves
-    agreement on the prefix signature. -/
-theorem agreeOn_extend_fresh (i : Intrinsic) {Δ : Signature} (ρ : Env)
-    (hfresh : match i.symbol with | none => True | some sym => sym.name ∉ Δ.allNames) :
-    Env.agreeOn Δ ρ (ρ.extendWithSym i.symbol) := by
-  refine Env.agreeOn_extendWithSym_fresh i.symbol ρ ?_
-  revert hfresh
-  cases i.symbol <;> exact id
 
 /-- The intrinsic's full arrow (scheme) type. -/
 def type (i : Intrinsic) : TinyML.SchemaTyp :=
@@ -721,15 +567,6 @@ def wpCtx (R : Registry) : WpCtx :=
     | some i => i.toPre vs Q
     | none   => iprop(False)
 
-/-- The aggregated FOL environment: each intrinsic's FOL symbol receives
-    its standard interpretation. -/
-def stdEnv (R : Registry) : Env :=
-  R.foldl (fun ρ i => ρ.extendWithSym i.symbol) Env.empty
-
-/-- Extend an arbitrary base environment with a registry. -/
-def foldEnv (ρ : Env) (R : Registry) : Env :=
-  R.foldl (fun ρ i => ρ.extendWithSym i.symbol) ρ
-
 /-- A target signature contains every FOL symbol contributed by a registry. -/
 def symSubset (R : Registry) (Δ : Signature) : Prop :=
   ∀ i ∈ R, (Signature.empty.extendWithSym i.symbol).Subset Δ
@@ -815,16 +652,6 @@ theorem sigOf_subset_of_subset {deps R : Registry} (hsub : deps ⊆ R) :
     · intro d hd
       exact hmem d (List.mem_cons_of_mem _ hd)
 
-/-- Registry well-formedness relative to an existing signature: each FOL
-    symbol is fresh for the prefix signature before it is added. -/
-def WfFrom : Signature → Registry → Prop
-  | _, [] => True
-  | Δ, i :: rest =>
-      (match i.symbol with | none => True | some sym => sym.name ∉ Δ.allNames) ∧
-      WfFrom (Δ.extendWithSym i.symbol) rest
-
-abbrev Wf (R : Registry) : Prop := WfFrom Signature.empty R
-
 /-- Every intrinsic in `todo` is sound against the full registry fragment `R`. -/
 def SoundIn (R : Registry) : Registry → Prop
   | [] => True
@@ -873,85 +700,6 @@ theorem wp_prim [MicaGS HasLC.hasLC Sig] (R : Registry) (hSound : R.Sound) {n : 
     refine (hSound.get (mem_of_lookup? h)).pre_wp (hmode i h) R.primCtx
       (fun vs μ v μ' => ?_) vs Q
     simp [primCtx, h]
-
-theorem stdEnv_eq_foldEnv (R : Registry) : stdEnv R = foldEnv Env.empty R := rfl
-
-/-- Folding a well-formed registry into an environment preserves agreement
-    on the starting signature. -/
-theorem foldEnv_agreeOn_base {Δ : Signature} {R : Registry} (ρ : Env)
-    (hWf : WfFrom Δ R) :
-    Env.agreeOn Δ ρ (foldEnv ρ R) := by
-  induction R generalizing Δ ρ with
-  | nil =>
-    exact Env.agreeOn_refl
-  | cons i rest ih =>
-    rcases hWf with ⟨hfresh, hrest⟩
-    simp only [foldEnv, List.foldl_cons]
-    have hstep : Env.agreeOn Δ ρ (ρ.extendWithSym i.symbol) :=
-      i.agreeOn_extend_fresh ρ hfresh
-    have htail : Env.agreeOn (Δ.extendWithSym i.symbol)
-        (ρ.extendWithSym i.symbol) (foldEnv (ρ.extendWithSym i.symbol) rest) :=
-      ih (ρ := ρ.extendWithSym i.symbol) hrest
-    exact Env.agreeOn_trans hstep
-      (Env.agreeOn_mono (Signature.subset_extendWithSym Δ i.symbol) htail)
-
-/-- Folding a well-formed registry makes the final environment respect every
-    symbol introduced by the registry. -/
-theorem foldEnv_respects {Δ : Signature} {R : Registry} (ρ : Env)
-    (hWf : WfFrom Δ R) :
-    ∀ i ∈ R, (foldEnv ρ R).respects i.symbol := by
-  induction R generalizing Δ ρ with
-  | nil =>
-    intro i hi; cases hi
-  | cons i rest ih =>
-    rcases hWf with ⟨hfresh, hrest⟩
-    intro j hj
-    simp only [foldEnv, List.foldl_cons]
-    cases hj with
-    | head =>
-      have hrespects : (ρ.extendWithSym i.symbol).respects i.symbol :=
-        Env.respects_extendWithSym ρ i.symbol
-      refine Env.respects_of_agreeOn_extendWithSym (Δ := Δ.extendWithSym i.symbol) hrespects ?_ ?_
-      · exact Signature.extendWithSym_mono (Signature.empty_subset _) _
-      · exact foldEnv_agreeOn_base (ρ.extendWithSym i.symbol) hrest
-    | tail _ hjrest =>
-      exact ih (ρ := ρ.extendWithSym i.symbol) hrest j hjrest
-
-theorem stdEnv_respects {R : Registry} (hWf : Wf R) :
-    ∀ i ∈ R, (stdEnv R).respects i.symbol := by
-  simpa [stdEnv_eq_foldEnv] using foldEnv_respects (Δ := Signature.empty) Env.empty hWf
-
-/-- Generic registry axiom satisfaction: if the registry is sound by subset,
-    and the chosen environment respects every registered symbol, then every
-    registered axiom evaluates to true in that environment. -/
-theorem satisfies_of_respects {R : Registry}
-    (hSound : Sound R)
-    (hRespect : ∀ i ∈ R, ρ.respects i.symbol) :
-    ∀ i ∈ R, ∀ a ∈ i.axioms, Formula.eval ρ a.formula := by
-  suffices h :
-      ∀ todo, SoundIn R todo →
-        ∀ i ∈ todo, ∀ a ∈ i.axioms, Formula.eval ρ a.formula by
-    exact h R hSound
-  intro todo
-  induction todo with
-  | nil =>
-    intro _ i hi
-    cases hi
-  | cons i rest ih =>
-    intro hSoundIn
-    rcases hSoundIn with ⟨hiSound, hrestSound⟩
-    intro j hj
-    cases hj with
-    | head =>
-      intro φ hφ
-      exact hiSound.axioms_sound ρ (fun d hd => hRespect d hd) φ hφ
-    | tail _ hjrest =>
-      intro φ hφ
-      exact ih hrestSound j hjrest φ hφ
-
-theorem stdEnv_satisfies {R : Registry} (hSound : Sound R) (hWf : Wf R) :
-    ∀ i ∈ R, ∀ a ∈ i.axioms, Formula.eval (stdEnv R) a.formula :=
-  satisfies_of_respects hSound (stdEnv_respects hWf)
 
 end Registry
 
@@ -1029,21 +777,20 @@ intrinsic is named. -/
     respects `s`. The new environment agrees with the old one on the old
     signature. -/
 theorem eval_declSym {n : Arity} (sym : Option (FOL.Symbol n))
-    {st : TransState} {ρ : Env}
-    {Q : Unit → TransState → Env → Prop}
+    {st : State} {ρ : Env}
+    {Q : Unit → State → Env → Prop}
     (heval : SeqM.eval (declSym sym) st ρ Q) :
     ∃ ρ' : Env,
       Env.agreeOn st.decls ρ ρ' ∧
       ρ'.respects sym ∧
       Q () { st with decls := st.decls.extendWithSym sym } ρ' := by
-  cases n with
-  | zero =>
-    cases sym with
-    | none =>
-      simp only [declSym, Signature.extendWithSym] at heval ⊢
-      refine ⟨ρ, Env.agreeOn_refl, by simp [Env.respects], ?_⟩
-      exact SeqM.eval_ret heval
-    | some s =>
+  cases sym with
+  | none =>
+    simp only [declSym, Signature.extendWithSym] at heval ⊢
+    exact ⟨ρ, Env.agreeOn_refl, by simp [Env.respects], SeqM.eval_ret heval⟩
+  | some s =>
+    cases n with
+    | zero =>
       simp only [declSym, Signature.extendWithSym] at heval ⊢
       obtain ⟨hfresh, hcont⟩ := SeqM.eval_declConst heval
       refine ⟨ρ.updateConst .value s.name (s.interp ()),
@@ -1051,13 +798,7 @@ theorem eval_declSym {n : Arity} (sym : Option (FOL.Symbol n))
               ?_, ?_⟩
       · simp [Env.respects, Env.updateConst, Env.lookupConst, Env.updateConst]
       · exact hcont (s.interp ())
-  | one =>
-    cases sym with
-    | none =>
-      simp only [declSym, Signature.extendWithSym] at heval ⊢
-      refine ⟨ρ, Env.agreeOn_refl, by simp [Env.respects], ?_⟩
-      exact SeqM.eval_ret heval
-    | some s =>
+    | one =>
       simp only [declSym, Signature.extendWithSym] at heval ⊢
       obtain ⟨hfresh, hcont⟩ := SeqM.eval_declUnary heval
       refine ⟨ρ.updateUnary .value .value s.name s.interp,
@@ -1065,13 +806,7 @@ theorem eval_declSym {n : Arity} (sym : Option (FOL.Symbol n))
               ?_, ?_⟩
       · simp [Env.respects, Env.updateUnary]
       · exact hcont s.interp
-  | two =>
-    cases sym with
-    | none =>
-      simp only [declSym, Signature.extendWithSym] at heval ⊢
-      refine ⟨ρ, Env.agreeOn_refl, by simp [Env.respects], ?_⟩
-      exact SeqM.eval_ret heval
-    | some s =>
+    | two =>
       simp only [declSym, Signature.extendWithSym] at heval ⊢
       obtain ⟨hfresh, hcont⟩ := SeqM.eval_declBinary heval
       refine ⟨ρ.updateBinary .value .value .value s.name (fun a b => s.interp (a, b)),
@@ -1079,13 +814,7 @@ theorem eval_declSym {n : Arity} (sym : Option (FOL.Symbol n))
               ?_, ?_⟩
       · simp [Env.respects, Env.updateBinary]
       · exact hcont (fun a b => s.interp (a, b))
-  | three =>
-    cases sym with
-    | none =>
-      simp only [declSym, Signature.extendWithSym] at heval ⊢
-      refine ⟨ρ, Env.agreeOn_refl, by simp [Env.respects], ?_⟩
-      exact SeqM.eval_ret heval
-    | some s =>
+    | three =>
       simp only [declSym, Signature.extendWithSym] at heval ⊢
       obtain ⟨hfresh, hcont⟩ := SeqM.eval_declTernary heval
       refine ⟨ρ.updateTernary .value .value .value .value s.name
@@ -1102,8 +831,8 @@ namespace Intrinsic
     leaves owns and asserts untouched, and produces a post-decl environment
     that respects `i.symbol` (when present), agreeing with the original on
     the original signature. -/
-theorem eval_declFOLSym (i : Intrinsic) {st : TransState} {ρ : Env}
-    {Q : Unit → TransState → Env → Prop}
+theorem eval_declFOLSym (i : Intrinsic) {st : State} {ρ : Env}
+    {Q : Unit → State → Env → Prop}
     (heval : SeqM.eval i.declFOLSym st ρ Q) :
     ∃ ρ' : Env,
       Env.agreeOn st.decls ρ ρ' ∧
@@ -1118,8 +847,8 @@ namespace Registry
 /-- Effect of the declaration pass on a registry. It declares every registered
     FOL symbol before any intrinsic axiom is assumed. -/
 theorem eval_declFOLSyms (R : Registry)
-    {st : TransState} {ρ : Env}
-    {Q : Unit → TransState → Env → Prop}
+    {st : State} {ρ : Env}
+    {Q : Unit → State → Env → Prop}
     (heval : SeqM.eval (declFOLSyms R) st ρ Q) :
     ∃ st' ρ',
       st.decls.Subset st'.decls ∧
@@ -1143,7 +872,7 @@ theorem eval_declFOLSyms (R : Registry)
     simp only [declFOLSyms] at heval
     have h1 := SeqM.eval_bind heval
     obtain ⟨ρ1, hag1, hiRespect, hcont⟩ := Intrinsic.eval_declFOLSym i h1
-    set st1 : TransState := { st with decls := st.decls.extendWithSym i.symbol }
+    set st1 : State := { st with decls := st.decls.extendWithSym i.symbol }
     obtain ⟨st', ρ', hsub2, hdep2, hvars2, howns2, hass2, hrestStable, hag2, hQ⟩ :=
       ih hcont
     have hsub1 : st.decls.Subset st1.decls := Signature.subset_extendWithSym _ _
@@ -1168,12 +897,12 @@ theorem eval_declFOLSyms (R : Registry)
     full registry fragment, so axiom dependencies need not follow list order. -/
 theorem eval_assumeAxioms_in (full todo : Registry)
     (hSound : SoundIn full todo)
-    {st : TransState} {ρ : Env}
+    {st : State} {ρ : Env}
     (hSig : (Intrinsic.sigOf full).Subset st.decls)
     (hRespect :
       ∀ ρ' : Env, Env.agreeOn st.decls ρ ρ' →
         ∀ d ∈ full, ρ'.respects d.symbol)
-    {Q : Unit → TransState → Env → Prop}
+    {Q : Unit → State → Env → Prop}
     (heval : SeqM.eval (assumeAxioms todo) st ρ Q) :
     ∃ st',
       st'.decls = st.decls ∧
@@ -1213,8 +942,8 @@ theorem eval_assumeAxioms_in (full todo : Registry)
     signature. -/
 theorem eval_introduceRegistry (R : Registry)
     (hSound : Sound R)
-    {st : TransState} {ρ : Env}
-    {Q : Unit → TransState → Env → Prop}
+    {st : State} {ρ : Env}
+    {Q : Unit → State → Env → Prop}
     (heval : SeqM.eval (introduceRegistry R) st ρ Q) :
     ∃ st' ρ',
       st.decls.Subset st'.decls ∧

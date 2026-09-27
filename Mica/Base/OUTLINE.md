@@ -1,6 +1,7 @@
 **Mica/Base**
 
 - `Arity.lean` — Intrinsic arities and the argument tuples indexed by them.
+- `AssocList.lean` — Removal of every entry under a key from an association list.
 - `Except.lean` — Auxiliary lemmas for reasoning about successful computations in the `Except` monad and in `StateT` over it.
 - `Fixpoint.lean` — Impredicative least fixpoints of monotone predicate and relation transformers.
 - `FloatBits.lean` — IEEE binary64 operations on the bit patterns of floats.

@@ -2,6 +2,8 @@
 import Mica.Verifier.RelationalEncoding.Axioms
 import Mica.Verifier.Monad
 
+open Verifier (State)
+
 /-!
 # Termination of a specification function
 
@@ -115,8 +117,8 @@ def check (fn : SpecFn) (x : String) (m : Typed.Measure)
     VerifM.fatal msg
 
 theorem check_correct {fn : SpecFn} {x : String} {m : Typed.Measure}
-    {body : Skolemize.DefVal} {st : TransState} {ρ : Env}
-    {Q : Unit → TransState → Env → Prop}
+    {body : Skolemize.DefVal} {st : State} {ρ : Env}
+    {Q : Unit → State → Env → Prop}
     (hclose : ∀ v, body.defined.eval (ρ.updateConst .value x v) →
       (fn.isDefined (.var .value x)).eval (ρ.updateConst .value x v))
     (h : VerifM.eval (check fn x m body) st ρ Q) :

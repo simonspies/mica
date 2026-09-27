@@ -3,9 +3,11 @@ import Mica.SourceTinyML.Typed
 import Mica.Verifier.Monad
 import Mica.Verifier.Atoms
 import Mica.Verifier.Assertions
-import Mica.Verifier.Utils
+import Mica.Verifier.FiniteSubst
 import Mica.Base.Fresh
 import Mathlib.Data.Finmap
+
+open Verifier (State)
 
 
 open Iris Iris.BI
@@ -49,8 +51,8 @@ def PredTrans.implement (σ : FiniteSubst) (pt : PredTrans TinyML.Typ) (body : V
 -- ---------------------------------------------------------------------------
 
 theorem PredTrans.call_correct (W : TinyML.World) (pt : PredTrans TinyML.Typ) (Δ_base : Signature) (σ : FiniteSubst)
-    (st : TransState) (ρ : Env)
-    (Ψ : Term .value → TransState → Env → Prop) (Φ : Runtime.Val → iProp) R :
+    (st : State) (ρ : Env)
+    (Ψ : Term .value → State → Env → Prop) (Φ : Runtime.Val → iProp) R :
     pt.wfIn (Δ_base.declVars σ.dom) →
     σ.wfIn Δ_base st.decls →
     VerifM.eval (PredTrans.call σ pt) st ρ Ψ →
@@ -66,7 +68,7 @@ theorem PredTrans.call_correct (W : TinyML.World) (pt : PredTrans TinyML.Typ) (�
     fun post ρ' =>
       BIBase.forall fun v : Runtime.Val =>
         Assertion.post (TinyML.ValHasType W) (fun () _ => Φ v) post.body (ρ'.updateConst .value post.name v)
-  let Ψcall : (FiniteSubst × Post TinyML.Typ) → TransState → Env → Prop :=
+  let Ψcall : (FiniteSubst × Post TinyML.Typ) → State → Env → Prop :=
     fun r st' ρ' =>
       match r with
       | (σ₁, ⟨postName, postBody⟩) => (do
@@ -88,7 +90,7 @@ theorem PredTrans.call_correct (W : TinyML.World) (pt : PredTrans TinyML.Typ) (�
         have hb2 := VerifM.eval_bind hcont
         have hdecl := VerifM.eval_decl hb2
         set resVar := st₁.freshConst (some postName) .value
-        obtain ⟨hfresh_decls, hfresh_range, hrename⟩ :=
+        obtain ⟨hfresh_decls, -, hrename⟩ :=
           FiniteSubst.rename_freshConst hσ₁wf ⟨postName, .value⟩
         specialize hdecl v
         have hb3 := VerifM.eval_bind hdecl
@@ -122,18 +124,14 @@ theorem PredTrans.call_correct (W : TinyML.World) (pt : PredTrans TinyML.Typ) (�
           SpatialContext.interp_agreeOn W (VerifM.eval.wf hcont).ownsWf
             (Env.agreeOn_update_fresh_const (c := resVar) hfresh_decls)
         exact (sep_mono_left hinterp_bi.1).trans <| hassume.trans <| Assertion.post_agreeOn (TinyML.ValHasType W) hwf₁'
-          (by
-            simpa [σ₂, Env.agreeOn, Env.updateConst] using
-              (FiniteSubst.rename_agreeOn (σ := σ₁) (Δ_base := Δ_base) (Δ_use := st₁.decls)
-                (v := ⟨postName, .value⟩) (name' := resVar.name)
-                (ρ := ρ₁) (u := v) hσ₁wf hfresh_range))
+          (FiniteSubst.rename_freshConst_agreeOn hσ₁wf ⟨postName, .value⟩ ρ₁ v).2
           (fun _ _ _ _ _ _ => .rfl))
   simpa [PredTrans.apply, Φpost] using hpre
 
 
 theorem PredTrans.implement_correct (W : TinyML.World) (pt : PredTrans TinyML.Typ) (Δ_base : Signature) (σ : FiniteSubst)
     (body : VerifM (Term .value))
-    (st : TransState) (ρ : Env) (Φ : Runtime.Val → iProp) (R : iProp) :
+    (st : State) (ρ : Env) (Φ : Runtime.Val → iProp) (R : iProp) :
     pt.wfIn (Δ_base.declVars σ.dom) →
     σ.wfIn Δ_base st.decls →
     VerifM.eval (PredTrans.implement σ pt body) st ρ (fun _ _ _ => True) →
@@ -185,7 +183,7 @@ theorem PredTrans.implement_correct (W : TinyML.World) (pt : PredTrans TinyML.Ty
       set resVar := st₂.freshConst (some postName) .value
       have hwfst₂ : st₂.decls.wf := (VerifM.eval.wf hrest).namesDisjoint
       have hσ₁wf₂ : σ₁.wfIn Δ_base st₂.decls := hσ₁wf.mono hdsub_body hwfst₂
-      obtain ⟨hfresh_decls, hfresh_range, hrename⟩ :=
+      obtain ⟨hfresh_decls, -, hrename⟩ :=
         FiniteSubst.rename_freshConst hσ₁wf₂ ⟨postName, .value⟩
       have hassume := VerifM.eval_define (VerifM.eval_bind hrest) hwf_result
       set σ₂ := σ₁.rename ⟨postName, .value⟩ resVar.name
@@ -194,7 +192,7 @@ theorem PredTrans.implement_correct (W : TinyML.World) (pt : PredTrans TinyML.Ty
       have hb4 := VerifM.eval_bind hassume
       have hwf_postBody' : Assertion.wfIn (fun _ _ => True) (Δ_base.declVars σ₂.dom) postBody := by
         simpa [σ₂, FiniteSubst.rename_source_eq] using hwf_postBody
-      let st₃ : TransState :=
+      let st₃ : State :=
         { st₂ with
           decls := st₂.decls.addConst resVar
           asserts := Formula.eq Srt.value (Term.const (.uninterpreted resVar.name .value)) result :: st₂.asserts }
@@ -209,9 +207,7 @@ theorem PredTrans.implement_correct (W : TinyML.World) (pt : PredTrans TinyML.Ty
             (Φ (result.eval ρ₂) -∗ S)
           exact sep_elim_right)
       have hag_rename :=
-        FiniteSubst.rename_agreeOn (σ := σ₁) (Δ_base := Δ_base) (Δ_use := st₂.decls)
-          (v := ⟨postName, .value⟩) (name' := resVar.name)
-          (ρ := ρ₂) (u := result.eval ρ₂) hσ₁wf₂ hfresh_range
+        (FiniteSubst.rename_freshConst_agreeOn hσ₁wf₂ ⟨postName, .value⟩ ρ₂ (result.eval ρ₂)).2
       have hagree_st₁ : Env.agreeOn st₁.decls ρ₂ ρ₁ := by
         simpa [Env.agreeOn] using Env.agreeOn_symm hagree_body
       have hag_eval := FiniteSubst.eval_agreeOn hσ₁wf hagree_st₁
@@ -247,7 +243,7 @@ theorem PredTrans.implement_correct (W : TinyML.World) (pt : PredTrans TinyML.Ty
           iintro ⟨Howns, Hwand⟩
           iframe Hwand
           iapply howns_agree
-          simp [st₃, TransState.sl]
+          simp [st₃, State.sl]
         exact hinput.trans hpre
       have hpost_final :
           OuterQ ⟨postName, postBody⟩ ((σ₁.subst.eval ρ₁)) ⊢

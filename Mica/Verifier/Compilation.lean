@@ -7,6 +7,8 @@ import Mica.Verifier.Monad
 import Mica.Verifier.Assertions
 import Mica.Verifier.Context
 
+open Verifier (State)
+
 open Iris Iris.BI
 
 variable [MicaGS HasLC.hasLC Sig]
@@ -134,8 +136,8 @@ def compileProductBinders (mode : TinyML.Mode) (S : Verifier.Scope)
 omit [MicaGS HasLC.hasLC Sig] in
 theorem compileProductBindersFrom_length {mode : TinyML.Mode} {S : Verifier.Scope}
     {names : List Binder} {tys : List TinyML.Typ} {se : Term .value} {i : Nat}
-    {st : TransState} {ρ : Env}
-    {Ψ : Verifier.Scope → TransState → Env → Prop}
+    {st : State} {ρ : Env}
+    {Ψ : Verifier.Scope → State → Env → Prop}
     (hse_wf : se.wfIn st.decls)
     (heval : VerifM.eval (compileProductBindersFrom mode S names tys se i) st ρ Ψ) :
     names.length = tys.length := by
@@ -168,13 +170,6 @@ theorem compileProductBindersFrom_length {mode : TinyML.Mode} {S : Verifier.Scop
                 Term.wfIn_mono se hse_wf (Signature.Subset.subset_addConst _ _)
                   (Signature.wf_addConst hstwf hfresh)
               simp [ih hse_wf' hrec_eval]
-
-/-- Check that a function body's type is its declared return type. Unification
-solves the two against each other, so they are equal or the program was rejected
-before the verifier saw it. -/
-def checkRet (retTy bodyTy : TinyML.Typ) : VerifM Unit :=
-  if bodyTy = retTy then pure ()
-  else VerifM.fatal "fix: body type does not match the return type"
 
 /-- The components of the sum a type is, unfolding a name exactly once. An
 injection's annotation is the name it was declared under, so one step suffices. -/
@@ -230,24 +225,65 @@ theorem injComponents?_eq {Θ : TinyML.TypeEnv} {ty : TinyML.Typ} {tag arity : N
     · exact absurd h (by simp)
   · exact absurd h (by simp)
 
-/-! ### Reshuffling the correctness statement
+/-! ### Arguments -/
 
-Both layers carry the same context — the spatial state, the typing of the scope,
-and a frame — and both need it rearranged at a bind. -/
+/-- Extract argument names from binders, checking against the spec's argument
+    names. Requires exact length match. -/
+def extractArgNames : List Typed.Binder → List String →
+    Except String (List String)
+  | [], [] => .ok []
+  | ⟨some x, _⟩ :: rest, _ :: specRest => do
+      let tail ← extractArgNames rest specRest
+      .ok (x :: tail)
+  | _, _ => .error "spec argument count does not match function arity"
 
-namespace Verifier.Scope
+omit [MicaGS HasLC.hasLC Sig] in
+theorem extractArgNames_spec {argBinders : List Typed.Binder}
+    {specArgs : List String} {names : List String}
+    (h : extractArgNames argBinders specArgs = .ok names) :
+    names.length = specArgs.length ∧
+    argBinders.length = specArgs.length ∧
+    argBinders.map Typed.Binder.WithTypeVars.runtime = names.map Runtime.Binder.named := by
+  induction specArgs generalizing argBinders names with
+  | nil =>
+    cases argBinders with
+    | nil => simp [extractArgNames] at h; subst h; simp
+    | cons _ _ => simp [extractArgNames] at h
+  | cons sa sas ih =>
+    cases argBinders with
+    | nil => simp [extractArgNames] at h
+    | cons ab abs =>
+      cases ab with
+      | mk name ty =>
+        cases name with
+        | none =>
+          simp [extractArgNames] at h
+        | some x =>
+          simp [extractArgNames] at h
+          cases hrec : extractArgNames abs sas with
+          | error =>
+              simp [hrec] at h
+              cases h
+          | ok tail =>
+              simp [hrec] at h
+              cases h
+              obtain ⟨h1, h2, h3⟩ := ih hrec
+              exact ⟨by simp [h1], by simp [h2], by simp [Typed.Binder.WithTypeVars.runtime, h3]⟩
 
-theorem typed_dup (W : TinyML.World) (S : Scope) (st : TransState) (ρ : _root_.Env)
-    (γg γ : Runtime.Subst) (R : iProp) :
-    st.sl W ρ ∗ (S.typed W γg γ ∗ R) ⊢ st.sl W ρ ∗ (S.typed W γg γ ∗ (S.typed W γg γ ∗ R)) := by
-  iintro ⟨Howns, #HT, HR⟩
-  iframe # ∗
-
-theorem typed_push (W : TinyML.World) (S : Scope) (st : TransState) (ρ : _root_.Env)
-    (γg γ : Runtime.Subst) (R : iProp) (v : Runtime.Val) (ty : TinyML.Typ) :
-    st.sl W ρ ∗ TinyML.ValHasType W v ty ∗ (S.typed W γg γ ∗ R) ⊢
-      st.sl W ρ ∗ (S.typed W γg γ ∗ (TinyML.ValHasType W v ty ∗ R)) := by
-  iintro ⟨Howns, Hv, #HT, HR⟩
-  iframe # ∗
-
-end Verifier.Scope
+omit [MicaGS HasLC.hasLC Sig] in
+/-- What the type/term pairs handed to `Spec.call` are made of: the first
+components are the argument types and the second are the compiled argument
+terms, which denote the argument values. -/
+theorem typedArgs_split {tys : List TinyML.Typ} {sargs : List (Term .value)}
+    {ρ : Env} {vs : List Runtime.Val}
+    (hlen : tys.length = sargs.length) (heval : Term.evalList ρ sargs vs) :
+    (tys.zip sargs).map Prod.fst = tys ∧
+      (tys.zip sargs).map (fun p => p.2.eval ρ) = vs := by
+  have hfst : (tys.zip sargs).map Prod.fst = tys := List.map_fst_zip (Nat.le_of_eq hlen)
+  have hsnd : (tys.zip sargs).map Prod.snd = sargs :=
+    List.map_snd_zip (Nat.le_of_eq hlen.symm)
+  refine ⟨hfst, ?_⟩
+  calc (tys.zip sargs).map (fun p => p.2.eval ρ)
+      = sargs.map (fun t => t.eval ρ) := by
+          simpa [List.map_map] using congrArg (List.map (fun t => t.eval ρ)) hsnd
+    _ = vs := Term.evalList.map_eval heval

@@ -1,4 +1,4 @@
--- SUMMARY: Supporting infrastructure for verifier finite substitutions and argument-handling helpers.
+-- SUMMARY: Finite substitutions for the verifier, with their well-formedness and evaluation lemmas.
 import Mica.SourceTinyML.Typed
 import Mica.TinyML.OpSem
 import Mica.FirstOrderLogic.Subst
@@ -9,51 +9,7 @@ import Mica.Verifier.Bindings
 import Mica.Verifier.State
 import Mathlib.Data.Finmap
 
-/-- Extract argument names from binders, checking against the spec's argument
-    names. Requires exact length match. -/
-def extractArgNames : List Typed.Binder → List String →
-    Except String (List String)
-  | [], [] => .ok []
-  | ⟨some x, _⟩ :: rest, _ :: specRest => do
-      let tail ← extractArgNames rest specRest
-      .ok (x :: tail)
-  | _, _ => .error "spec argument count does not match function arity"
-
-theorem extractArgNames_spec {argBinders : List Typed.Binder}
-    {specArgs : List String} {names : List String}
-    (h : extractArgNames argBinders specArgs = .ok names) :
-    names.length = specArgs.length ∧
-    argBinders.length = specArgs.length ∧
-    argBinders.map Typed.Binder.WithTypeVars.runtime = names.map Runtime.Binder.named := by
-  induction specArgs generalizing argBinders names with
-  | nil =>
-    cases argBinders with
-    | nil => simp [extractArgNames] at h; subst h; simp
-    | cons _ _ => simp [extractArgNames] at h
-  | cons sa sas ih =>
-    cases argBinders with
-    | nil => simp [extractArgNames] at h
-    | cons ab abs =>
-      cases ab with
-      | mk name ty =>
-        cases name with
-        | none =>
-          simp [extractArgNames] at h
-        | some x =>
-          simp [extractArgNames] at h
-          cases hrec : extractArgNames abs sas with
-          | error =>
-              simp [hrec] at h
-              cases h
-          | ok tail =>
-              simp [hrec] at h
-              cases h
-              obtain ⟨h1, h2, h3⟩ := ih hrec
-              exact ⟨by simp [h1], by simp [h2], by simp [Typed.Binder.WithTypeVars.runtime, h3]⟩
-
--- ---------------------------------------------------------------------------
--- FiniteSubst
--- ---------------------------------------------------------------------------
+open Verifier (State)
 
 structure FiniteSubst where
   subst : Subst
@@ -243,7 +199,7 @@ theorem FiniteSubst.rename_wfIn {σ : FiniteSubst} {Δ_base Δ_use : Signature}
     variable to it keeps the finite substitution well-formed at the extended
     signature. These three facts are always needed together. -/
 theorem FiniteSubst.rename_freshConst {σ : FiniteSubst} {Δ_base : Signature}
-    {st : TransState} (hσ : σ.wfIn Δ_base st.decls) (v : Var) :
+    {st : State} (hσ : σ.wfIn Δ_base st.decls) (v : Var) :
     (st.freshConst (some v.name) v.sort).name ∉ st.decls.allNames ∧
       (st.freshConst (some v.name) v.sort).name ∉ σ.range.allNames ∧
       (σ.rename v (st.freshConst (some v.name) v.sort).name).wfIn Δ_base
@@ -334,7 +290,7 @@ theorem FiniteSubst.eval_update_fresh {σ : FiniteSubst} {ρ : Env} {τ : Srt} {
 /-- After `rename`, evaluating the renamed substitution in an environment containing the
     fresh verifier constant agrees with evaluating the old substitution and updating the
     source-level variable. -/
-theorem FiniteSubst.rename_agreeOn {σ : FiniteSubst} {Δ_base Δ_use : Signature}
+private theorem FiniteSubst.rename_agreeOn {σ : FiniteSubst} {Δ_base Δ_use : Signature}
     {v : Var} {name' : String} {ρ : Env} {u : v.sort.denote}
     (hσ : σ.wfIn Δ_base Δ_use) (hfresh : name' ∉ σ.range.allNames) :
     Env.agreeOn (Δ_base.declVars (σ.rename v name').dom)
@@ -402,6 +358,20 @@ theorem FiniteSubst.rename_agreeOn {σ : FiniteSubst} {Δ_base Δ_use : Signatur
       simp [Subst.eval, Env.updateConst]
   exact Env.agreeOn_mono (FiniteSubst.rename_source_subset_rev σ Δ_base v name') hlarge
 
+/-- Giving the constant of `rename_freshConst` the value `u` changes no symbol
+    of the state, and the renamed substitution then evaluates as the old one with
+    `v` bound to `u`. -/
+theorem FiniteSubst.rename_freshConst_agreeOn {σ : FiniteSubst} {Δ_base : Signature}
+    {st : State} (hσ : σ.wfIn Δ_base st.decls) (v : Var) (ρ : Env) (u : v.sort.denote) :
+    Env.agreeOn st.decls ρ (ρ.updateConst v.sort (st.freshConst (some v.name) v.sort).name u) ∧
+      Env.agreeOn (Δ_base.declVars (σ.rename v (st.freshConst (some v.name) v.sort).name).dom)
+        ((σ.rename v (st.freshConst (some v.name) v.sort).name).subst.eval
+          (ρ.updateConst v.sort (st.freshConst (some v.name) v.sort).name u))
+        ((σ.subst.eval ρ).updateConst v.sort v.name u) :=
+  let hdecls := st.freshConst_fresh (some v.name) v.sort
+  ⟨Env.agreeOn_update_fresh_const (c := st.freshConst (some v.name) v.sort) hdecls,
+   FiniteSubst.rename_agreeOn hσ (hσ.fresh_range hdecls)⟩
+
 theorem FiniteSubst.base_wfIn {Δ_base Δ_use : Signature}
     (hbase : Δ_base.Subset Δ_use) (hbasewf : Δ_base.wf) (husewf : Δ_use.wf)
     (hvars : Δ_base.vars = []) :
@@ -412,20 +382,3 @@ theorem FiniteSubst.base_wfIn {Δ_base Δ_use : Signature}
       simp [FiniteSubst.base, Signature.declVars, hvars] at hv
     · exact hbasewf
   · simpa [FiniteSubst.base, Signature.declVars] using hbasewf
-
-/-- What the type/term pairs handed to `Spec.call` are made of: the first
-components are the argument types and the second are the compiled argument
-terms, which denote the argument values. -/
-theorem typedArgs_split {tys : List TinyML.Typ} {sargs : List (Term .value)}
-    {ρ : Env} {vs : List Runtime.Val}
-    (hlen : tys.length = sargs.length) (heval : Term.evalList ρ sargs vs) :
-    (tys.zip sargs).map Prod.fst = tys ∧
-      (tys.zip sargs).map (fun p => p.2.eval ρ) = vs := by
-  have hfst : (tys.zip sargs).map Prod.fst = tys := List.map_fst_zip (Nat.le_of_eq hlen)
-  have hsnd : (tys.zip sargs).map Prod.snd = sargs :=
-    List.map_snd_zip (Nat.le_of_eq hlen.symm)
-  refine ⟨hfst, ?_⟩
-  calc (tys.zip sargs).map (fun p => p.2.eval ρ)
-      = sargs.map (fun t => t.eval ρ) := by
-          simpa [List.map_map] using congrArg (List.map (fun t => t.eval ρ)) hsnd
-    _ = vs := Term.evalList.map_eval heval

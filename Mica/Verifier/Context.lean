@@ -1,11 +1,23 @@
 -- SUMMARY: The environment and the scope the compilers work in, with the invariants that tie them to a world and a verifier state.
 import Mica.Verifier.Lemma
 import Mica.Verifier.Intrinsic
-import Mica.Verifier.BoundedQuantifier
+
+open Verifier (State)
 
 open Iris Iris.BI
 
 namespace Verifier
+
+/-- One lifted occurrence of a bounded quantifier: the quantifier symbol's base
+name, the quantifier kind, the captured spec variables (first-occurrence
+order), and the lifted closure's packed argument name and body. -/
+structure LiftedClosure where
+  name : String
+  all : Bool
+  captured : List TinyML.Var
+  arg : String
+  body : Typed.Expr
+  deriving BEq
 
 /-! ## Environment -/
 
@@ -15,7 +27,7 @@ structure Env where
   signature        : Signature
   lemmas           : Lemmas
   specFunctions    : RelationalEncoding.FunCtx
-  liftings         : List BoundedQuantifier.Lifting
+  liftings         : List LiftedClosure
   /-- The types elaboration gives the declared names. It also has the names
       that have no value in the verifier, unlike `Scope.typingContext`. -/
   globals          : TinyML.TyCtx
@@ -43,14 +55,14 @@ def Env.initial (reg : Registry) (Δ : Signature) : Env :=
 /-! ## Scope -/
 
 structure Scope where
-  ghostFns        : GhostFns
+  ghostFns        : GhostFunctions
   ghostBindings   : Bindings
   runtimeBindings : Bindings
   typingContext   : TinyML.TyCtx
 
 namespace Scope
 
-def empty : Scope := ⟨GhostFns.empty, Bindings.empty, Bindings.empty, TinyML.TyCtx.empty⟩
+def empty : Scope := ⟨GhostFunctions.empty, Bindings.empty, Bindings.empty, TinyML.TyCtx.empty⟩
 
 def bindRuntime (S : Scope) (x : TinyML.Var) (c : Decl.Const) (ty : TinyML.Typ) : Scope :=
   { ghostFns := S.ghostFns.remove x
@@ -122,7 +134,7 @@ theorem wfIn.eta (h : S.wfIn W Δ ρ γg γ) (η : TinyML.SemTypeAssign) :
     S.wfIn { W with eta := η } Δ ρ γg γ :=
   { h with agrees := h.agrees.eta η, ghostFns := h.ghostFns.eta }
 
-theorem wfIn_ghostFns {Gf : GhostFns} {Γ : TinyML.TyCtx} (hag : W.agrees Δ ρ)
+theorem wfIn_ghostFns {Gf : GhostFunctions} {Γ : TinyML.TyCtx} (hag : W.agrees Δ ρ)
     (hGf : Gf.wellTyped W Δ ρ) : (⟨Gf, [], [], Γ⟩ : Scope).wfIn W Δ ρ γg γ where
   agrees := hag
   ghostFns := hGf
@@ -249,11 +261,11 @@ instance typed_persistent (S : Scope) (W : TinyML.World) (γg γ : Runtime.Subst
     Persistent (S.typed W γg γ) := by
   unfold typed; infer_instance
 
-theorem typed_ghostFns {Gf : GhostFns} {Γ : TinyML.TyCtx} :
+theorem typed_ghostFns {Gf : GhostFunctions} {Γ : TinyML.TyCtx} :
     ⊢ (⟨Gf, [], [], Γ⟩ : Scope).typed W γg γ :=
   (Bindings.typedSubst_empty W Γ γ).trans (Bindings.typedScope_of_typedSubst W γg)
 
-theorem typed_runtimeBindings {Gf : GhostFns} {B : Bindings} {Γ : TinyML.TyCtx} :
+theorem typed_runtimeBindings {Gf : GhostFunctions} {B : Bindings} {Γ : TinyML.TyCtx} :
     B.typedSubst W Γ γ ⊢ (⟨Gf, [], B, Γ⟩ : Scope).typed W γg γ :=
   Bindings.typedScope_of_typedSubst W γg
 
@@ -385,6 +397,19 @@ theorem typed_bindParameters {names : List TinyML.Var} {vars ghostVars : List De
     · iexact Hvs
   · iexact Hgs
 
+theorem typed_dup (W : TinyML.World) (S : Scope) (st : State) (ρ : _root_.Env)
+    (γg γ : Runtime.Subst) (R : iProp) :
+    st.sl W ρ ∗ (S.typed W γg γ ∗ R) ⊢ st.sl W ρ ∗ (S.typed W γg γ ∗ (S.typed W γg γ ∗ R)) := by
+  iintro ⟨Howns, #HT, HR⟩
+  iframe # ∗
+
+theorem typed_push (W : TinyML.World) (S : Scope) (st : State) (ρ : _root_.Env)
+    (γg γ : Runtime.Subst) (R : iProp) (v : Runtime.Val) (ty : TinyML.Typ) :
+    st.sl W ρ ∗ TinyML.ValHasType W v ty ∗ (S.typed W γg γ ∗ R) ⊢
+      st.sl W ρ ∗ (S.typed W γg γ ∗ (TinyML.ValHasType W v ty ∗ R)) := by
+  iintro ⟨Howns, Hv, #HT, HR⟩
+  iframe # ∗
+
 end Scope
 
 /-! ## Between declarations -/
@@ -397,7 +422,7 @@ def Env.world (env : Env) (ρ : _root_.Env) : TinyML.World :=
     ρ_spec := ρ, eta := TinyML.SemTypeAssign.empty }
 
 /-- `env` describes the verifier state `st` under `ρ`. -/
-structure Env.supportedBy (env : Env) (st : TransState) (ρ : _root_.Env) : Prop where
+structure Env.supportedBy (env : Env) (st : State) (ρ : _root_.Env) : Prop where
   sound : env.registry.Sound
   signature : env.signature = st.decls
   specFunctionsWf : RelationalEncoding.FunCtx.wfIn env.specFunctions st.decls
@@ -409,7 +434,7 @@ structure Env.supportedBy (env : Env) (st : TransState) (ρ : _root_.Env) : Prop
 
 /-- `S` is a scope that carries over to a larger world: its types are closed and
 well formed, and its ghost functions have no guard. -/
-structure Scope.supportedBy (S : Scope) (env : Env) (st : TransState) (ρ : _root_.Env)
+structure Scope.supportedBy (S : Scope) (env : Env) (st : State) (ρ : _root_.Env)
     (γ : Runtime.Subst) : Prop where
   closed : S.typingContext.Closed
   types : ∀ x s, S.typingContext x = some s →
@@ -419,7 +444,7 @@ structure Scope.supportedBy (S : Scope) (env : Env) (st : TransState) (ρ : _roo
   runtimeLinked : S.runtimeBindings.agreeOnLinked ρ γ
   runtimeDeclared : S.runtimeBindings.wfIn st.decls
 
-variable {env env' : Env} {S : Scope} {st st' : TransState} {ρ ρ' : _root_.Env}
+variable {env env' : Env} {S : Scope} {st st' : State} {ρ ρ' : _root_.Env}
   {γ : Runtime.Subst}
 
 omit [MicaGS HasLC.hasLC Sig] in
@@ -462,8 +487,8 @@ theorem Scope.supportedBy_mono (h : S.supportedBy env st ρ γ) (henv : env.supp
     (hW : (env.world ρ).Subset (env'.world ρ')) : S.supportedBy env' st' ρ' γ where
   closed := h.closed
   types x s hx := TinyML.Typ.wfIn_mono hsub hwf hΘ (h.types x s hx)
-  ghostFnsWf := GhostFns.wfIn_mono h.ghostFnsWf hsub hwf hΘ
-  ghostFns := GhostFns.wellTyped_of_subset hW (Env.typesWf_of_supportedBy henv)
+  ghostFnsWf := GhostFunctions.wfIn_mono h.ghostFnsWf hsub hwf hΘ
+  ghostFns := GhostFunctions.wellTyped_of_subset hW (Env.typesWf_of_supportedBy henv)
     (by simpa [Env.world, henv.signature] using h.ghostFnsWf) h.ghostFns
   runtimeLinked := Bindings.agreeOnLinked_agreeOn h.runtimeLinked hag h.runtimeDeclared
   runtimeDeclared p hp := hsub.consts _ (h.runtimeDeclared p hp)

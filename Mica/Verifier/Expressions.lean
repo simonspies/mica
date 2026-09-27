@@ -3,7 +3,7 @@ import Mica.SourceTinyML.Typed
 import Mica.SourceTinyML.Typing
 import Mica.TinyML.OpSem
 import Mica.Verifier.PrimitiveLaws
-import Mica.Verifier.Utils
+import Mica.Verifier.FiniteSubst
 import Mica.Verifier.Monad
 import Mica.Verifier.Assertions
 import Mica.Verifier.PredicateTransformers
@@ -14,6 +14,8 @@ import Mica.Engine.Driver
 import Mica.Base.Fresh
 import Mica.Verifier.Intrinsic
 import Mica.Verifier.RelationalEncoding.Variables
+
+open Verifier (State)
 
 open Iris Iris.BI
 
@@ -308,7 +310,7 @@ mutual
                   env.lemmas.assumeInstance self.name argVars
                   let se ← compile env (fixScope S self fv (.arrow argTys retTy (some s))
                     argNames argVars argTys s.ghost ghostVars) body
-                  checkRet retTy body.ty
+                  VerifM.expectEq "fix: body type does not match the return type" body.ty retTy
                   pure se)
               (pure (.const (.uninterpreted fv.name .value)))
 
@@ -379,7 +381,7 @@ makes the ghost half of the typing free of `ρ`, and therefore carried through
 every step of the compilation without transport. -/
 def correctExpr (e : Expr) : Prop :=
   ∀ (env : Verifier.Env) (W : TinyML.World) (S : Scope) (γg γ : Runtime.Subst)
-    {st : TransState} {ρ : Env} {Ψ : Term .value → TransState → Env → Prop} {R : iProp}
+    {st : State} {ρ : Env} {Ψ : Term .value → State → Env → Prop} {R : iProp}
     {Φ : Runtime.Val → iProp},
     env.wf W →
     S.wfIn W st.decls ρ γg γ →
@@ -391,7 +393,7 @@ def correctExpr (e : Expr) : Prop :=
 def correctBranch (branch : Binder × Expr) : Prop :=
   ∀ (env : Verifier.Env) (W : TinyML.World) (S : Scope) (γg γ : Runtime.Subst)
     (sc : Term .value) (n i : Nat) (ty_i : TinyML.Typ)
-    {st : TransState} {ρ : Env} {Ψ : Term .value → TransState → Env → Prop} {R : iProp}
+    {st : State} {ρ : Env} {Ψ : Term .value → State → Env → Prop} {R : iProp}
     {Φ : Runtime.Val → iProp},
     env.wf W →
     S.wfIn W st.decls ρ γg γ →
@@ -407,7 +409,7 @@ def correctBranch (branch : Binder × Expr) : Prop :=
 def correctBranches (branches : List (Binder × Expr)) : Prop :=
   ∀ (env : Verifier.Env) (W : TinyML.World) (S : Scope) (γg γ : Runtime.Subst)
     (sc : Term .value) (n : Nat) (ts : List TinyML.Typ) (idx : Nat)
-    {st : TransState} {ρ : Env} {Ψ : Term .value → TransState → Env → Prop} {R : iProp}
+    {st : State} {ρ : Env} {Ψ : Term .value → State → Env → Prop} {R : iProp}
     {Φ : Runtime.Val → iProp},
     env.wf W →
     S.wfIn W st.decls ρ γg γ →
@@ -425,7 +427,7 @@ def correctBranches (branches : List (Binder × Expr)) : Prop :=
 
 def correctExprs (es : List Expr) : Prop :=
   ∀ (env : Verifier.Env) (W : TinyML.World) (S : Scope) (γg γ : Runtime.Subst)
-    {st : TransState} {ρ : Env} {Ψ : List (Term .value) → TransState → Env → Prop} {R : iProp}
+    {st : State} {ρ : Env} {Ψ : List (Term .value) → State → Env → Prop} {R : iProp}
     {Φ : List Runtime.Val → iProp},
     env.wf W →
     S.wfIn W st.decls ρ γg γ →
@@ -449,7 +451,7 @@ theorem compileConst_correct (c : TinyML.Const) :
       Ψ t st ρ → t.wfIn st.decls → Term.eval ρ t = v → (⊢ TinyML.ValHasType W v ty) →
       st.sl W ρ ∗ (S.typed W γg γ ∗ R) ⊢ wp W.pctx (.val v) Φ := by
     intro ty v t hpost hΨ henv.world hev hval
-    refine SpatialContext.wp_val ?_
+    refine PrimitiveLaws.wp_val ?_
     istart
     iintro ⟨Howns, -, HR⟩
     iapply (hpost v ρ st t hΨ henv.world hev)
@@ -551,7 +553,7 @@ theorem compileVar_correct (x : String)
       simpa [hΓx] using
         (hpost (ρ.consts .value x'.name) ρ st (Term.const (.uninterpreted x'.name .value))
           hΨ hwfv (by simp [Term.eval, Const.eval]))
-    exact SpatialContext.wp_val <| hprep.trans <| hpost'
+    exact PrimitiveLaws.wp_val <| hprep.trans <| hpost'
   | some s =>
     have htv : s.instantiate (TinyML.Typ.ofInst inst) = vty := by simpa [hΓx] using hcheck
     have hprep :
@@ -565,7 +567,7 @@ theorem compileVar_correct (x : String)
           Φ (ρ.consts .value x'.name) :=
       hpost (ρ.consts .value x'.name) ρ st (Term.const (.uninterpreted x'.name .value))
         hΨ hwfv (by simp [Term.eval, Const.eval])
-    exact SpatialContext.wp_val <| hprep.trans <| hpost'
+    exact PrimitiveLaws.wp_val <| hprep.trans <| hpost'
 
 theorem compileInj_correct (tag arity : Nat) (payload : Expr)
     (ty : TinyML.Typ) (ihPayload : correctExpr payload) :
@@ -582,7 +584,7 @@ theorem compileInj_correct (tag arity : Nat) (payload : Expr)
     obtain ⟨hty, hlen_ts, hget_ts⟩ := injComponents?_eq hcomp
     simp only [hcomp] at heval
     have heval_p : (compile env S payload).eval st ρ _ := VerifM.eval_bind heval
-    refine SpatialContext.wp_bind_inj <| ihPayload env W S γg γ (R := R) henv hS (VerifM.eval.decls_grow ρ heval_p) ?_
+    refine PrimitiveLaws.wp_bind_inj <| ihPayload env W S γg γ (R := R) henv hS (VerifM.eval.decls_grow ρ heval_p) ?_
     intro v_p ρ_p st_p se_p hΨ_p hse_wf_p heval_se_p
     obtain ⟨_hdecls_p, _hagreeOn_p, hΨ_p⟩ := hΨ_p
     obtain hΨ_p := VerifM.eval_ret hΨ_p
@@ -603,7 +605,7 @@ theorem compileInj_correct (tag arity : Nat) (payload : Expr)
         (hpost (.inj tag arity v_p) ρ_p st_p _ hΨ_p
           (by simp only [Term.wfIn]; exact ⟨trivial, hse_wf_p⟩)
           (by simp [Term.eval, UnOp.eval, heval_se_p]))
-    exact SpatialContext.wp_inj <| hprep.trans hpost'
+    exact PrimitiveLaws.wp_inj <| hprep.trans hpost'
 
 theorem compileAssert_correct (e : Expr)
     (ih : correctExpr e) :
@@ -613,7 +615,7 @@ theorem compileAssert_correct (e : Expr)
   simp only [Runtime.Expr.subst]
   simp only [compile] at heval
   have heval_e : (compile env S e).eval st ρ _ := VerifM.eval_bind heval
-  refine SpatialContext.wp_bind_assert <| ih env W S γg γ (R := R) henv hS (VerifM.eval.decls_grow ρ heval_e) ?_
+  refine PrimitiveLaws.wp_bind_assert <| ih env W S γg γ (R := R) henv hS (VerifM.eval.decls_grow ρ heval_e) ?_
   intro v_e ρ_e st₁ se hΨ_e hse_wf heval_se
   obtain ⟨_, _, hΨ_e⟩ := hΨ_e
   let φ := Formula.eq .bool (Term.unop .toBool se) (Term.const (.b true))
@@ -632,7 +634,7 @@ theorem compileAssert_correct (e : Expr)
       st₁.sl W ρ_e ∗ TinyML.ValHasType W (.bool true) e.ty ∗ R ⊢
         st₁.sl W ρ_e ∗ TinyML.ValHasType W .unit .unit ∗ R :=
     sep_mono_right (sep_mono_left (true_intro.trans (TinyML.ValHasType.unit_intro W)))
-  exact SpatialContext.wp_assert <| hprep.trans <| hpost .unit ρ_e st₁ (Term.const .unit) hΨ_pure
+  exact PrimitiveLaws.wp_assert <| hprep.trans <| hpost .unit ρ_e st₁ (Term.const .unit) hΨ_pure
     trivial
     (by simp [Term.eval])
 
@@ -645,7 +647,7 @@ theorem compileFixBody_correct (env : Verifier.Env) (W : TinyML.World) (henv : e
     (body : Expr) (ih : correctExpr body)
     (argNames : List String) (hext : extractArgNames args s.args = Except.ok argNames)
     (fv : Decl.Const) (fval : Runtime.Val) (vs gs : List Runtime.Val) (P : Runtime.Val → iProp)
-    {argVars ghostVars : List Decl.Const} {st' : TransState} {ρ' : Env} {Q : iProp}
+    {argVars ghostVars : List Decl.Const} {st' : State} {ρ' : Env} {Q : iProp}
     (hS : S.wfIn W st'.decls ρ' γg γ)
     (hfv_mem : fv ∈ st'.decls.consts) (hfv_sort : fv.sort = .value)
     (hfv_val : ρ'.consts .value fv.name = fval)
@@ -661,7 +663,7 @@ theorem compileFixBody_correct (env : Verifier.Env) (W : TinyML.World) (henv : e
           let se ← compile env (fixScope S self fv
             (.arrow (args.map Binder.WithTypeVars.ty) retTy (some s)) argNames argVars
             (args.map Binder.WithTypeVars.ty) s.ghost ghostVars) body
-          checkRet retTy body.ty
+          VerifM.expectEq "fix: body type does not match the return type" body.ty retTy
           pure se)
         st' ρ'
         (fun result st'' ρ'' => ∀ X, result.wfIn st''.decls →
@@ -679,7 +681,7 @@ theorem compileFixBody_correct (env : Verifier.Env) (W : TinyML.World) (henv : e
   obtain ⟨φs, hbody_eval⟩ := Lemmas.assumeInstance_correct henv.world henv.lemmas hS.agrees
     hargVars_mem hargVars_sort (VerifM.eval_bind hbody_eval)
   -- `sl` does not use the assertions, so `st₀.sl` is `st'.sl`.
-  set st₀ : TransState := { st' with asserts := φs ++ st'.asserts }
+  set st₀ : State := { st' with asserts := φs ++ st'.asserts }
   have hcompile := VerifM.eval_bind hbody_eval
   iintro ⟨Howns, #Hvals, #Hgvals, HQ⟩
   ihave %hlen_vals := TinyML.ValsHaveTypes.length_eq $$ Hvals
@@ -695,14 +697,8 @@ theorem compileFixBody_correct (env : Verifier.Env) (W : TinyML.World) (henv : e
     (VerifM.eval.decls_grow ρ' hcompile) (by
       intro v ρ'' st'' se hΨ hse_wf heval_se
       obtain ⟨_, _, hΨ⟩ := hΨ
-      simp only [checkRet] at hΨ
-      by_cases hsub : body.ty = retTy
-      case neg =>
-        simp [hsub] at hΨ
-        exact (VerifM.eval_fatal (VerifM.eval_bind hΨ)).elim
-      simp [hsub] at hΨ
+      obtain ⟨hsub, hΨ⟩ := VerifM.eval_bind_expectEq hΨ
       have hΨ' := VerifM.eval_ret hΨ
-      dsimp only at hΨ'
       rw [← heval_se]
       refine (show st''.sl W ρ'' ∗ TinyML.ValHasType W (se.eval ρ'') body.ty ∗ Q ⊢
           st''.sl W ρ'' ∗ Q ∗
@@ -734,9 +730,9 @@ theorem compileFixBody_correct (env : Verifier.Env) (W : TinyML.World) (henv : e
 theorem compileFix_typed (env : Verifier.Env) (W : TinyML.World) (henv : env.wf W)
     (S : Scope) (γg γ : Runtime.Subst)
     (self : Binder) (args : List Binder) (retTy : TinyML.Typ) (s : Spec TinyML.Typ)
-    (body : Expr) (ih : correctExpr body) {st : TransState} {ρ : Env}
+    (body : Expr) (ih : correctExpr body) {st : State} {ρ : Env}
     (hS : S.wfIn W st.decls ρ γg γ)
-    {Ψ : Term .value → TransState → Env → Prop}
+    {Ψ : Term .value → State → Env → Prop}
     (heval : VerifM.eval (compile env S (.fix self args retTy (some s) body)) st ρ Ψ) :
     S.typed W γg γ ⊢
       TinyML.ValHasType W
@@ -764,12 +760,12 @@ theorem compileFix_typed (env : Verifier.Env) (W : TinyML.World) (henv : env.wf 
   -- The constant `compile` declares for the closure, and the environment
   -- interpreting it by the closure itself.
   set fv := st.freshConst self.name .value with hfv_def
-  set st₁ : TransState := { st with decls := st.decls.addConst fv } with hst₁_def
+  set st₁ : State := { st with decls := st.decls.addConst fv } with hst₁_def
   set ρ₁ := ρ.updateConst .value fv.name fval with hρ₁_def
   have hfresh : fv.name ∉ st.decls.allNames := st.freshConst_fresh self.name .value
   have hst_sub₁ : st.decls.Subset st₁.decls := Signature.Subset.subset_addConst _ _
   have hρ_st₁ : Env.agreeOn st.decls ρ ρ₁ := Env.agreeOn_update_fresh_const hfresh
-  have hS₁ : S.wfIn W (TransState.persist st₁).decls ρ₁ γg γ := Scope.wfIn_mono hS hst_sub₁
+  have hS₁ : S.wfIn W (State.persist st₁).decls ρ₁ γg γ := Scope.wfIn_mono hS hst_sub₁
     hρ_st₁ (Signature.wf_addConst (VerifM.eval.wf heval).namesDisjoint hfresh)
   have hfv_mem : fv ∈ st₁.decls.consts := List.mem_cons_self ..
   have hfv_sort : fv.sort = .value := rfl
@@ -792,7 +788,7 @@ theorem compileFix_typed (env : Verifier.Env) (W : TinyML.World) (henv : env.wf 
   have hsub := Runtime.Expr.subst_fix_comp body.runtime self.runtime bs γ fval vs hlen_vs
   simp only [] at hsub
   rw [hsub]
-  ihave Hwand := Spec.implement_correct W argTys retTy s _ (TransState.persist st₁) ρ₁ vs gs P
+  ihave Hwand := Spec.implement_correct W argTys retTy s _ (State.persist st₁) ρ₁ vs gs P
     (TinyML.ValsHaveTypes W vs argTys -∗
       TinyML.ValsHaveTypes W gs (s.ghost.map Prod.snd) -∗
       (S.typed W γg γ ∗
@@ -816,37 +812,27 @@ theorem compileFix_typed (env : Verifier.Env) (W : TinyML.World) (henv : env.wf 
           exact hfv_val)
         hargVars_mem hargVars_sort hargVars_lookup
         hghostVars_mem hghostVars_sort hghostVars_lookup hbody_eval)
-      isplitl [Hsl]
-      · iexact Hsl
-      · isplitl [Htyped'']
-        · iexact Htyped''
-        · isplitl [Hgtyped'']
-          · iexact Hgtyped''
-          · iexact HQ) $$ [Htyped Hgtyped Hpred]
+      iframe Hsl Htyped'' Hgtyped''
+      iexact HQ) $$ [Htyped Hgtyped Hpred]
   · isplitl []
-    · simp [TransState.sl, TransState.persist]
+    · simp [State.sl, State.persist]
       iempintro
-    · isplitl [Htyped]
-      · iexact Htyped
-      · isplitl []
-        · iexact Hgtyped
-        · have hlen_call : s.allArgs.length ≤ (vs ++ gs).length := by
-            rw [hargTys_def] at hlen_typed; simp [Spec.allArgs] at hlen_typed ⊢
-            omega
-          iapply (PredTrans.apply_agreeOn (TinyML.ValHasType W)
-            (ρ := Spec.argsEnv ρ_call s.allArgs (vs ++ gs))
-            (ρ' := Spec.argsEnv W.ρ_spec s.allArgs (vs ++ gs)) hswf
-            (Spec.argsEnv_agreeOn (Δ := W.Δ_spec) (ρ₁ := ρ_call) (ρ₂ := W.ρ_spec)
-              (Env.agreeOn_symm hagree_call) s.allArgs (vs ++ gs) hlen_call))
-          iexact Hpred
+    · iframe Htyped Hgtyped
+      have hlen_call : s.allArgs.length ≤ (vs ++ gs).length := by
+        rw [hargTys_def] at hlen_typed; simp [Spec.allArgs] at hlen_typed ⊢
+        omega
+      iapply (PredTrans.apply_agreeOn (TinyML.ValHasType W)
+        (ρ := Spec.argsEnv ρ_call s.allArgs (vs ++ gs))
+        (ρ' := Spec.argsEnv W.ρ_spec s.allArgs (vs ++ gs)) hswf
+        (Spec.argsEnv_agreeOn (Δ := W.Δ_spec) (ρ₁ := ρ_call) (ρ₂ := W.ρ_spec)
+          (Env.agreeOn_symm hagree_call) s.allArgs (vs ++ gs) hlen_call))
+      iexact Hpred
   ispecialize Hwand $$ [Htyped]
   · iexact Htyped
   ispecialize Hwand $$ [Hgtyped]
   · iexact Hgtyped
   iapply Hwand
-  isplitl []
-  · iexact HT
-  · iexact Hrec
+  iframe HT Hrec
 
 theorem compileFix_correct (self : Binder) (args : List Binder)
     (retTy : TinyML.Typ) (spec : Option (Spec TinyML.Typ)) (body : Expr)
@@ -871,7 +857,7 @@ theorem compileFix_correct (self : Binder) (args : List Binder)
   simp only [hext, hcheck] at heval
   set bs := args.map (·.runtime) with hbs_def
   set fv := st.freshConst self.name .value with hfv_def
-  set st₁ : TransState := { st with decls := st.decls.addConst fv } with hst₁_def
+  set st₁ : State := { st with decls := st.decls.addConst fv } with hst₁_def
   set γ' := (γ.remove' self.runtime).removeAll' bs with hγ'_def
   set fval := Runtime.Val.fix self.runtime bs (body.runtime.subst γ') with hfval_def
   set ρ₁ := ρ.updateConst .value fv.name fval with hρ₁_def
@@ -888,11 +874,11 @@ theorem compileFix_correct (self : Binder) (args : List Binder)
   -- The closure value itself: the fresh constant denotes it.
   unfold Expr.WithTypeVars.runtime
   simp only [Runtime.Expr.subst_fix]
-  apply SpatialContext.wp_func
+  apply PrimitiveLaws.wp_func
   refine BIBase.Entails.trans ?_
     (hpost fval ρ₁ st₁ _ (VerifM.eval_ret hcont) hsf_wf hsf_eval)
   have hsl : st.sl W ρ ⊢ st₁.sl W ρ₁ := by
-    simp only [TransState.sl_eq, hst₁_def]
+    simp only [State.sl_eq, hst₁_def]
     exact (SpatialContext.interp_agreeOn W (VerifM.eval.wf heval).ownsWf hρ_st₁).1
   istart
   iintro ⟨Howns, #HT, HR⟩
@@ -919,21 +905,21 @@ theorem compileRefShared_correct (e : Expr)
   simp only [compile] at heval
   simp only [Expr.WithTypeVars.ty] at hpost
   have heval_e : (compile env S e).eval st ρ _ := VerifM.eval_bind heval
-  refine SpatialContext.wp_bind_ref <| ih env W S γg γ (R := R) henv hS (VerifM.eval.decls_grow ρ heval_e) ?_
+  refine PrimitiveLaws.wp_bind_ref <| ih env W S γg γ (R := R) henv hS (VerifM.eval.decls_grow ρ heval_e) ?_
   intro v_e ρ_e st₁ se hΨ_e hse_wf heval_se
   obtain ⟨_hdecls_e, _hagreeOn_e, hΨ_e⟩ := hΨ_e
   have hwf_st₁ := VerifM.eval.wf hΨ_e
   set c : Decl.Const := st₁.freshConst none .value
   have hfresh : c.name ∉ st₁.decls.allNames :=
-    TransState.freshConst_fresh st₁ none .value
-  have hwf_addConst : TransState.wf { st₁ with decls := st₁.decls.addConst c } :=
-    TransState.wf_addConst _ _ hwf_st₁ hfresh
-  refine SpatialContext.wp_ref_inv W (ctx := st₁.owns) (ρ := ρ_e) (R := R) (ty := e.ty) ?_
+    State.freshConst_fresh st₁ none .value
+  have hwf_addConst : State.wf { st₁ with decls := st₁.decls.addConst c } :=
+    State.wf_addConst _ _ hwf_st₁ hfresh
+  refine PrimitiveLaws.wp_ref_inv W (ctx := st₁.owns) (ρ := ρ_e) (R := R) (ty := e.ty) ?_
   intro loc
   have hdecl_eval := VerifM.eval_bind hΨ_e
   have hret := VerifM.eval_ret (VerifM.eval_decl hdecl_eval (.loc loc))
   set ρ_e' : Env := ρ_e.updateConst .value c.name (.loc loc)
-  set st₂ : TransState :=
+  set st₂ : State :=
     { decls := st₁.decls.addConst c, asserts := st₁.asserts, owns := st₁.owns }
   have hc_wf : (Term.const (.uninterpreted c.name .value)).wfIn st₂.decls := by
     simpa [st₂] using
@@ -942,7 +928,7 @@ theorem compileRefShared_correct (e : Expr)
   have hval_eval : Term.eval ρ_e' (Term.const (.uninterpreted c.name .value)) = .loc loc := by
     simp [Term.eval, Const.eval, ρ_e', Env.updateConst]
   have hsl_agree : st₁.sl W ρ_e ⊢ st₂.sl W ρ_e' := by
-    simp only [TransState.sl_eq, st₂]
+    simp only [State.sl_eq, st₂]
     exact (SpatialContext.interp_agreeOn W hwf_st₁.ownsWf
       (Env.agreeOn_update_fresh_const (c := c) hfresh)).1
   exact (sep_mono_left hsl_agree).trans
@@ -958,7 +944,7 @@ theorem compileRefOwned_correct (e : Expr)
   simp only [compile] at heval
   simp only [Expr.WithTypeVars.ty] at hpost
   have heval_e : (compile env S e).eval st ρ _ := VerifM.eval_bind heval
-  refine SpatialContext.wp_bind_ref <| ih env W S γg γ (R := R) henv hS (VerifM.eval.decls_grow ρ heval_e) ?_
+  refine PrimitiveLaws.wp_bind_ref <| ih env W S γg γ (R := R) henv hS (VerifM.eval.decls_grow ρ heval_e) ?_
   intro v_e ρ_e st₁ se hΨ_e hse_wf heval_se
   obtain ⟨_hdecls_e, _hagreeOn_e, hΨ_e⟩ := hΨ_e
   have hdecl_eval := VerifM.eval_bind hΨ_e
@@ -967,17 +953,17 @@ theorem compileRefOwned_correct (e : Expr)
   have hdecl := VerifM.eval_decl hdecl_eval
   have hwf_st₁ := VerifM.eval.wf hΨ_e
   have hc_fresh : c.name ∉ st₁.decls.allNames :=
-    TransState.freshConst_fresh st₁ none .value
+    State.freshConst_fresh st₁ none .value
   have hwp :
       st₁.sl W ρ_e ∗ TinyML.ValHasType W v_e e.ty ∗ R ⊢ wp W.pctx (.ref (.val v_e)) Φ := by
-    refine SpatialContext.wp_ref W
+    refine PrimitiveLaws.wp_ref W
       (ctx := st₁.owns) (ρ := ρ_e) (R := R) (Δ := st₁.decls)
       (vt := se) (ty := e.ty) (name := c.name)
       (newctx := SpatialContext.insert (.pointsTo sl se e.ty) st₁.owns)
       hwf_st₁.ownsWf hse_wf heval_se hc_fresh rfl ?_
     intro loc
     set ρ₂ : Env := ρ_e.updateConst .value c.name (.loc loc)
-    set st₂ : TransState := { st₁ with decls := st₁.decls.addConst c }
+    set st₂ : State := { st₁ with decls := st₁.decls.addConst c }
     have hdecl_loc := hdecl (.loc loc)
     have hsl_wf : sl.wfIn st₂.decls := by
       simpa [sl, st₂] using
@@ -985,7 +971,7 @@ theorem compileRefOwned_correct (e : Expr)
           hwf_st₁.namesDisjoint hc_fresh)
     have hse_wf₂ : se.wfIn st₂.decls :=
       Term.wfIn_mono se hse_wf (Signature.Subset.subset_addConst _ _)
-        (TransState.wf_addConst _ _ hwf_st₁ hc_fresh).namesDisjoint
+        (State.wf_addConst _ _ hwf_st₁ hc_fresh).namesDisjoint
     have hatom_wf : (SpatialAtom.pointsTo sl se e.ty).wfIn st₂.decls := ⟨hsl_wf, hse_wf₂⟩
     have hassumed := VerifM.eval_assumeSpatial (VerifM.eval_bind hdecl_loc) hatom_wf
     have hsl_eval : sl.eval ρ₂ = .loc loc := by
@@ -1012,7 +998,7 @@ theorem compileRefOwned_correct (e : Expr)
     iintro ⟨Hsl, HR⟩
     iapply (hpost (.loc loc) ρ₂ st₃ sl hret hsl_wf₃ hsl_eval)
     isplitl [Hsl]
-    · simp [TransState.sl_eq, howns₃, SpatialContext.insert]
+    · simp [State.sl_eq, howns₃, SpatialContext.insert]
       rw [show ρ₂ = ρ_e.updateConst .value c.name (.loc loc) by rfl]
       iexact Hsl
     · isplitl []
@@ -1038,7 +1024,7 @@ theorem compileDerefShared_correct (e : Expr) (ty : TinyML.Typ)
   simp only [Expr.WithTypeVars.ty] at hpost
   obtain ⟨_, heval⟩ := VerifM.eval_bind_expectEq heval
   have heval_e : (compile env S e).eval st ρ _ := VerifM.eval_bind heval
-  refine SpatialContext.wp_bind_deref <| ih env W S γg γ (R := R) henv hS (VerifM.eval.decls_grow ρ heval_e) ?_
+  refine PrimitiveLaws.wp_bind_deref <| ih env W S γg γ (R := R) henv hS (VerifM.eval.decls_grow ρ heval_e) ?_
   intro v_e ρ_e st₁ se hΨ_e _hse_wf heval_se
   obtain ⟨_hdecls_e, _hagreeOn_e, hΨ_e⟩ := hΨ_e
   have hdecl_eval := VerifM.eval_bind hΨ_e
@@ -1046,14 +1032,14 @@ theorem compileDerefShared_correct (e : Expr) (ty : TinyML.Typ)
   set c : Decl.Const := st₁.freshConst none .value
   set sv : Term .value := .const (.uninterpreted c.name .value)
   have hc_fresh : c.name ∉ st₁.decls.allNames :=
-    TransState.freshConst_fresh st₁ none .value
+    State.freshConst_fresh st₁ none .value
   have hc_wf : sv.wfIn (st₁.decls.addConst c) :=
     by
       simpa [sv] using
         (Term.const_wfIn_addConst_of_fresh (Δ := st₁.decls) (c := c)
           (VerifM.eval.wf hdecl_eval).namesDisjoint hc_fresh)
   rw [href]
-  refine SpatialContext.wp_deref_inv W (ctx := st₁.owns) (ρ := ρ_e) (R := R) (ty := ty) ?_
+  refine PrimitiveLaws.wp_deref_inv W (ctx := st₁.owns) (ρ := ρ_e) (R := R) (ty := ty) ?_
   intro w
   istart
   iintro ⟨Howns, #Hw, HR⟩
@@ -1068,16 +1054,14 @@ theorem compileDerefShared_correct (e : Expr) (ty : TinyML.Typ)
     (fun φ hφ => TinyML.typeConstraints_wfIn hc_wf φ hφ)
     (fun φ hφ => Hcheck φ hφ)
   have hsl_agree : SpatialContext.interp W ρ_e st₁.owns ⊢ st₃.sl W ρ₂ := by
-    simp only [TransState.sl_eq, hst₃_owns]
+    simp only [State.sl_eq, hst₃_owns]
     exact (SpatialContext.interp_agreeOn W (VerifM.eval.wf hdecl_eval).ownsWf
       (Env.agreeOn_update_fresh_const (c := c) hc_fresh)).1
   iapply (hpost w ρ₂ st₃ sv (VerifM.eval_ret heval_ret) (hst₃_decls ▸ hc_wf) hsv_eval)
   isplitl [Howns]
   · iapply hsl_agree
     iexact Howns
-  · isplitl []
-    · iexact Hw
-    · iexact HR
+  · iframe Hw HR
 
 theorem compileDerefOwned_correct (e : Expr) (ty : TinyML.Typ)
     (howned : e.ty = .owned ty)
@@ -1090,7 +1074,7 @@ theorem compileDerefOwned_correct (e : Expr) (ty : TinyML.Typ)
   simp only [Expr.WithTypeVars.ty] at hpost
   obtain ⟨_, heval⟩ := VerifM.eval_bind_expectEq heval
   have heval_e : (compile env S e).eval st ρ _ := VerifM.eval_bind heval
-  refine SpatialContext.wp_bind_deref <| ih env W S γg γ (R := R) henv hS (VerifM.eval.decls_grow ρ heval_e) ?_
+  refine PrimitiveLaws.wp_bind_deref <| ih env W S γg γ (R := R) henv hS (VerifM.eval.decls_grow ρ heval_e) ?_
   intro v_e ρ_e st₁ se hΨ_e hse_wf heval_se
   obtain ⟨_hdecls_e, _hagreeOn_e, hΨ_e⟩ := hΨ_e
   have hfind_eval := VerifM.eval_bind hΨ_e
@@ -1108,11 +1092,11 @@ theorem compileDerefOwned_correct (e : Expr) (ty : TinyML.Typ)
   have hv_wf' : v.wfIn st₂.decls := by
     rw [hdecls]
     exact hv_wf
-  simpa [TransState.sl_eq] using
-    (SpatialContext.wp_deref_owned W (rest := st₂.owns) (lt := se) (vt := v) (ty := ty)
+  simpa [State.sl_eq] using
+    (PrimitiveLaws.wp_deref_owned W (rest := st₂.owns) (lt := se) (vt := v) (ty := ty)
       (R := R) (Q := Φ) heval_se
       (by
-        simpa [TransState.sl_eq] using
+        simpa [State.sl_eq] using
           hpost (v.eval ρ_e) ρ_e { st₂ with owns := .pointsTo se v ty :: st₂.owns }
             v hret hv_wf' rfl))
 
@@ -1153,7 +1137,7 @@ theorem compileStoreShared_correct (loc val : Expr)
   obtain ⟨_, heval⟩ := VerifM.eval_bind_expectEq heval
   have heval_v : (compile env S val).eval st ρ _ := VerifM.eval_bind heval
   have hstart := Scope.typed_dup W S st ρ γg γ R
-  refine SpatialContext.wp_bind_store <| (hstart.trans <|
+  refine PrimitiveLaws.wp_bind_store <| (hstart.trans <|
     ihVal env W S γg γ (R := (S.typed W γg γ ∗ (R))) henv hS (VerifM.eval.decls_grow ρ heval_v) ?_)
   intro v_v ρ_v st₁ sv hΨ_v hsv_wf heval_sv
   obtain ⟨hdecls_v, hagreeOn_v, hΨ_v⟩ := hΨ_v
@@ -1170,8 +1154,8 @@ theorem compileStoreShared_correct (loc val : Expr)
       st₂.sl W ρ_l ∗ TinyML.ValHasType W .unit .unit ∗ R ⊢ Φ .unit :=
     hpost .unit ρ_l st₂ _ hret hunit_wf (by simp [Term.eval])
   rw [href]
-  exact SpatialContext.wp_store_inv W (ctx := st₂.owns) (ρ := ρ_l) (R := R) (ty := val.ty)
-    (by simpa [TransState.sl_eq] using hgoal)
+  exact PrimitiveLaws.wp_store_inv W (ctx := st₂.owns) (ρ := ρ_l) (R := R) (ty := val.ty)
+    (by simpa [State.sl_eq] using hgoal)
 
 theorem compileStoreOwned_correct (loc val : Expr)
     (howned : loc.ty = .owned val.ty)
@@ -1185,7 +1169,7 @@ theorem compileStoreOwned_correct (loc val : Expr)
   obtain ⟨_, heval⟩ := VerifM.eval_bind_expectEq heval
   have heval_v : (compile env S val).eval st ρ _ := VerifM.eval_bind heval
   have hstart := Scope.typed_dup W S st ρ γg γ R
-  refine SpatialContext.wp_bind_store <| (hstart.trans <|
+  refine PrimitiveLaws.wp_bind_store <| (hstart.trans <|
     ihVal env W S γg γ (R := (S.typed W γg γ ∗ (R))) henv hS (VerifM.eval.decls_grow ρ heval_v) ?_)
   intro v_v ρ_v st₁ sv hΨ_v hsv_wf heval_sv
   obtain ⟨hdecls_v, hagreeOn_v, hΨ_v⟩ := hΨ_v
@@ -1214,11 +1198,11 @@ theorem compileStoreOwned_correct (loc val : Expr)
   have hret := VerifM.eval_ret hassume
   have hunit_wf : (Term.const .unit).wfIn ({ st₃ with owns := .pointsTo sl sv val.ty :: st₃.owns }).decls := by
     simp [Term.wfIn, Const.wfIn]
-  simpa [TransState.sl_eq] using
-    (SpatialContext.wp_store_owned W (rest := st₃.owns) (lt := sl) (vt_old := old)
+  simpa [State.sl_eq] using
+    (PrimitiveLaws.wp_store_owned W (rest := st₃.owns) (lt := sl) (vt_old := old)
       (vt_new := sv) (ty := val.ty) (R := R) (Q := Φ) heval_sl heval_sv_l
       (by
-        simpa [TransState.sl_eq] using
+        simpa [State.sl_eq] using
           hpost .unit ρ_l { st₃ with owns := .pointsTo sl sv val.ty :: st₃.owns }
             (Term.const .unit) hret hunit_wf (by simp [Term.eval])))
 
@@ -1259,7 +1243,7 @@ theorem compileArrayMake_correct (ownership : TinyML.Ownership) (len init : Expr
   simp only [compile] at heval
   obtain ⟨hlenty, heval⟩ := VerifM.eval_bind_expectEq heval
   have heval_init : (compile env S init).eval st ρ _ := VerifM.eval_bind heval
-  refine SpatialContext.wp_bind_arrayMake <| ?_
+  refine PrimitiveLaws.wp_bind_arrayMake <| ?_
   -- Evaluate `init`.
   have hstart := Scope.typed_dup W S st ρ γg γ R
   refine hstart.trans <| ihInit env W S γg γ (R := (S.typed W γg γ ∗ (R))) henv hS (VerifM.eval.decls_grow ρ heval_init) ?_
@@ -1283,7 +1267,7 @@ theorem compileArrayMake_correct (ownership : TinyML.Ownership) (len init : Expr
   have hst₂_wf : st₂.wf := VerifM.eval.wf hdecl_eval
   set c : Decl.Const := st₂.freshConst none .value
   set sa : Term .value := .const (.uninterpreted c.name .value)
-  have hc_fresh : c.name ∉ st₂.decls.allNames := TransState.freshConst_fresh st₂ none .value
+  have hc_fresh : c.name ∉ st₂.decls.allNames := State.freshConst_fresh st₂ none .value
   have hc_wf : sa.wfIn (st₂.decls.addConst c) := by
     simpa [sa] using Term.const_wfIn_addConst_of_fresh (Δ := st₂.decls) (c := c)
       hst₂_wf.namesDisjoint hc_fresh
@@ -1298,7 +1282,7 @@ theorem compileArrayMake_correct (ownership : TinyML.Ownership) (len init : Expr
   cases ownership with
   | shared =>
     simp only [Expr.WithTypeVars.ty] at hpost
-    iapply (SpatialContext.wp_arrayMake_inv (vlen := v_len) (init := v_init) (n := n)
+    iapply (PrimitiveLaws.wp_arrayMake_inv (vlen := v_len) (init := v_init) (n := n)
       (I := fun w => TinyML.ValHasType W w init.ty) (Q := Φ) hv_len hn)
     isplitl []
     · imodintro
@@ -1309,7 +1293,7 @@ theorem compileArrayMake_correct (ownership : TinyML.Ownership) (len init : Expr
       have hbody := hdecl (.array n.toNat l)
       have hassume_eval := VerifM.eval_bind hbody
       set ρ' : Env := ρ_len.updateConst .value c.name (.array n.toNat l)
-      set st_c : TransState := { st₂ with decls := st₂.decls.addConst c } with hst_c_def
+      set st_c : State := { st₂ with decls := st₂.decls.addConst c } with hst_c_def
       have hsa_eval : sa.eval ρ' = .array n.toNat l := by
         simp [sa, ρ', Term.eval, Const.eval, Env.updateConst]
       have hslen_eval' : slen.eval ρ' = .int n :=
@@ -1345,7 +1329,7 @@ theorem compileArrayMake_correct (ownership : TinyML.Ownership) (len init : Expr
       have hΨ_ret := VerifM.eval_ret heval_ret
       have hsa_wf : sa.wfIn st_final.decls := hst_final_decls ▸ hc_wf
       have hsl_agree : st₂.sl W ρ_len ⊢ st_final.sl W ρ' := by
-        simp only [TransState.sl_eq, hst_final_owns, TransState.addItem, hst_c_def]
+        simp only [State.sl_eq, hst_final_owns, State.addItem, hst_c_def]
         exact (SpatialContext.interp_agreeOn W hst₂_wf.ownsWf
           (Env.agreeOn_update_fresh_const (c := c) hc_fresh)).1
       iapply (hpost (.array n.toNat l) ρ' st_final sa hΨ_ret hsa_wf hsa_eval)
@@ -1361,12 +1345,12 @@ theorem compileArrayMake_correct (ownership : TinyML.Ownership) (len init : Expr
         · iexact HR
   | owned =>
     simp only [Expr.WithTypeVars.ty] at hpost
-    iapply (SpatialContext.wp_arrayMake (vlen := v_len) (init := v_init) (n := n)
+    iapply (PrimitiveLaws.wp_arrayMake (vlen := v_len) (init := v_init) (n := n)
       (Q := Φ) hv_len hn)
     iintro %l Hpt
     have hbody := hdecl (.array n.toNat l)
     set ρ' : Env := ρ_len.updateConst .value c.name (.array n.toNat l)
-    set st_c : TransState := { st₂ with decls := st₂.decls.addConst c }
+    set st_c : State := { st₂ with decls := st₂.decls.addConst c }
     have hsa_eval : sa.eval ρ' = .array n.toNat l := by
       simp [sa, ρ', Term.eval, Const.eval, Env.updateConst]
     have hslen_eval' : slen.eval ρ' = .int n :=
@@ -1437,18 +1421,14 @@ theorem compileArrayMake_correct (ownership : TinyML.Ownership) (len init : Expr
           (u := Runtime.Val.array n.toNat l) hc_fresh)).1
     iapply (hpost (.array n.toNat l) ρ' st_final sa hret hsa_wf_final hsa_eval)
     isplitl [Hpt Howns]
-    · simp only [TransState.sl_eq, howns_final, howns_a, TransState.addItem, st_c,
+    · simp only [State.sl_eq, howns_final, howns_a, State.addItem, st_c,
         SpatialContext.interp]
       isplitl [Hpt]
       · iapply (SpatialAtom.interp_arrayPointsTo W (by simpa using hsa_eval) hcontents_eval).2
-        isplitl [Hpt]
-        · iexact Hpt
-        · iexact HvecTy
+        iframe Hpt HvecTy
       · iapply hsl_agree
         iexact Howns
-    · isplitl [HarrTy]
-      · iexact HarrTy
-      · iexact HR
+    · iframe HarrTy HR
 
 theorem compileArrayLen_correct (arr : Expr)
     (ihArr : correctExpr arr) :
@@ -1461,7 +1441,7 @@ theorem compileArrayLen_correct (arr : Expr)
       simp only [compile, hty] at heval
       have heval_arr : (compile env S arr).eval st ρ _ :=
         VerifM.eval_bind heval
-      refine SpatialContext.wp_bind_arrayLen <| ihArr env W S γg γ (R := R) henv hS (VerifM.eval.decls_grow ρ heval_arr) ?_
+      refine PrimitiveLaws.wp_bind_arrayLen <| ihArr env W S γg γ (R := R) henv hS (VerifM.eval.decls_grow ρ heval_arr) ?_
       intro v_arr ρ_arr st₁ sa hΨ_arr hsa_wf heval_sa
       obtain ⟨_, _, hΨ_arr⟩ := hΨ_arr
       obtain hret := VerifM.eval_ret hΨ_arr
@@ -1483,7 +1463,7 @@ theorem compileArrayLen_correct (arr : Expr)
               Φ (.int len) :=
           by
             simpa [Expr.WithTypeVars.ty] using hpost (.int len) ρ_arr st₁ t hret ht_wf ht_eval
-        iapply (SpatialContext.wp_arrayLen
+        iapply (PrimitiveLaws.wp_arrayLen
           (R := st₁.sl W ρ_arr ∗ TinyML.ValHasType W (.int len) TinyML.Typ.int ∗ R)
           (Q := Φ) (v := v_arr) (len := len) (l := loc) hv_arr hgoal)
         isplitl [Howns]
@@ -1499,7 +1479,7 @@ theorem compileArrayLen_correct (arr : Expr)
       simp only [compile, hty] at heval
       have heval_arr : (compile env S arr).eval st ρ _ :=
         VerifM.eval_bind heval
-      refine SpatialContext.wp_bind_arrayLen <| ihArr env W S γg γ (R := R) henv hS (VerifM.eval.decls_grow ρ heval_arr) ?_
+      refine PrimitiveLaws.wp_bind_arrayLen <| ihArr env W S γg γ (R := R) henv hS (VerifM.eval.decls_grow ρ heval_arr) ?_
       intro v_arr ρ_arr st₁ sa hΨ_arr hsa_wf heval_sa
       obtain ⟨_, _, hΨ_arr⟩ := hΨ_arr
       obtain hret := VerifM.eval_ret hΨ_arr
@@ -1516,7 +1496,7 @@ theorem compileArrayLen_correct (arr : Expr)
           st₁.sl W ρ_arr ∗ TinyML.ValHasType W (.int len) TinyML.Typ.int ∗ R ⊢
             Φ (.int len) := by
         simpa [Expr.WithTypeVars.ty] using hpost (.int len) ρ_arr st₁ t hret ht_wf ht_eval
-      iapply (SpatialContext.wp_arrayLen
+      iapply (PrimitiveLaws.wp_arrayLen
         (R := st₁.sl W ρ_arr ∗ TinyML.ValHasType W (.int len) TinyML.Typ.int ∗ R)
         (Q := Φ) (v := v_arr) (len := len) (l := loc) hv_arr hgoal)
       isplitl [Howns]
@@ -1545,7 +1525,7 @@ theorem compileArrayGet_correct (arr idx : Expr) (ty : TinyML.Typ)
     obtain ⟨hidxty, heval⟩ := VerifM.eval_bind_expectEq heval
     subst helem
     have heval_idx : (compile env S idx).eval st ρ _ := VerifM.eval_bind heval
-    refine SpatialContext.wp_bind_arrayGet <| ?_
+    refine PrimitiveLaws.wp_bind_arrayGet <| ?_
     have hstart := Scope.typed_dup W S st ρ γg γ R
     refine hstart.trans <| ihIdx env W S γg γ (R := (S.typed W γg γ ∗ (R))) henv hS (VerifM.eval.decls_grow ρ heval_idx) ?_
     intro v_idx ρ_idx st₁ si hΨ_idx hsi_wf heval_si
@@ -1566,7 +1546,7 @@ theorem compileArrayGet_correct (arr idx : Expr) (ty : TinyML.Typ)
     have hdecl := VerifM.eval_decl hdecl_eval
     set c : Decl.Const := st₂.freshConst none .value
     set sv : Term .value := .const (.uninterpreted c.name .value)
-    have hc_fresh : c.name ∉ st₂.decls.allNames := TransState.freshConst_fresh st₂ none .value
+    have hc_fresh : c.name ∉ st₂.decls.allNames := State.freshConst_fresh st₂ none .value
     have hc_wf : sv.wfIn (st₂.decls.addConst c) := by
       simpa [sv] using
         (Term.const_wfIn_addConst_of_fresh (Δ := st₂.decls) (c := c)
@@ -1576,8 +1556,8 @@ theorem compileArrayGet_correct (arr idx : Expr) (ty : TinyML.Typ)
           (TinyML.ValHasType W v_idx idx.ty ∗ R) ⊢
           wp W.pctx (.arrayGet (.val v_arr) (.val v_idx)) Φ := by
       rw [hty, hidxty]
-      simpa [TransState.sl_eq] using
-        (SpatialContext.wp_arrayGet_inv (W := W)
+      simpa [State.sl_eq] using
+        (PrimitiveLaws.wp_arrayGet_inv (W := W)
           (ctx := st₂.owns) (ρ := ρ_arr) (arr := sa) (idx := si)
           (elemTy := elemTy) (varr := v_arr) (vidx := v_idx) (Q := Φ) (R := R)
           heval_sa hsi_ρ_arr hi hlt (by
@@ -1587,7 +1567,7 @@ theorem compileArrayGet_correct (arr idx : Expr) (ty : TinyML.Typ)
             have hdecl_w := hdecl w
             have hassume_eval := VerifM.eval_bind hdecl_w
             set ρ₂ : Env := ρ_arr.updateConst .value c.name w
-            set st_c : TransState := { st₂ with decls := st₂.decls.addConst c }
+            set st_c : State := { st₂ with decls := st₂.decls.addConst c }
             have hsv_eval : sv.eval ρ₂ = w := by
               simp [sv, ρ₂, Term.eval, Const.eval, Env.updateConst]
             ihave Hcheck := TinyML.typeConstraints_hold (ty := elemTy) (t := sv)
@@ -1599,18 +1579,16 @@ theorem compileArrayGet_correct (arr idx : Expr) (ty : TinyML.Typ)
             have hΨ_ret := VerifM.eval_ret heval_ret
             have hsv_wf : sv.wfIn st₃.decls := hst₃_decls ▸ hc_wf
             have hsl_agree : st₂.sl W ρ_arr ⊢ st₃.sl W ρ₂ := by
-              simp [TransState.sl_eq, st_c, hst₃_owns]
+              simp [State.sl_eq, st_c, hst₃_owns]
               exact (SpatialContext.interp_agreeOn W (VerifM.eval.wf hdecl_eval).ownsWf
                 (Env.agreeOn_update_fresh_const (c := c) hc_fresh)).1
             have hsl_agree' : SpatialContext.interp W ρ_arr st₂.owns ⊢ st₃.sl W ρ₂ := by
-              simpa [TransState.sl_eq] using hsl_agree
+              simpa [State.sl_eq] using hsl_agree
             iapply (hpost w ρ₂ st₃ sv hΨ_ret hsv_wf hsv_eval)
             isplitl [Howns]
             · iapply hsl_agree'
               iexact Howns
-            · isplitl []
-              · iexact Hw
-              · iexact HR))
+            · iframe Hw HR))
     exact hwp
   | ownedArray elemTy =>
     intro env W S γg γ st ρ Ψ R Φ henv hS heval hpost
@@ -1623,7 +1601,7 @@ theorem compileArrayGet_correct (arr idx : Expr) (ty : TinyML.Typ)
     obtain ⟨hidxty, heval⟩ := VerifM.eval_bind_expectEq heval
     subst ty
     have heval_idx : (compile env S idx).eval st ρ _ := VerifM.eval_bind heval
-    refine SpatialContext.wp_bind_arrayGet <| ?_
+    refine PrimitiveLaws.wp_bind_arrayGet <| ?_
     have hstart := Scope.typed_dup W S st ρ γg γ R
     refine hstart.trans <| ihIdx env W S γg γ (R := (S.typed W γg γ ∗ (R))) henv hS (VerifM.eval.decls_grow ρ heval_idx) ?_
     intro v_idx ρ_idx st₁ si hΨ_idx hsi_wf heval_si
@@ -1647,8 +1625,8 @@ theorem compileArrayGet_correct (arr idx : Expr) (ty : TinyML.Typ)
     have hatom_wf : (SpatialAtom.arrayPointsTo sa contents elemTy).wfIn st₃.decls := by
       rw [hdecls]; exact ⟨hsa_wf, hcontents_wf⟩
     let result : Term .value := .binop .vecGet (.unop .toVec contents) (.unop .toInt si)
-    simpa [TransState.sl_eq] using
-      (SpatialContext.wp_arrayGet_owned (W := W)
+    simpa [State.sl_eq] using
+      (PrimitiveLaws.wp_arrayGet_owned (W := W)
         (rest := st₃.owns) (arr := sa) (contents := contents) (idx := si)
         (result := result) (elemTy := elemTy) (varr := v_arr) (vidx := v_idx)
         (Q := Φ) (R := R) heval_sa hsi_eval hi hlt rfl (by
@@ -1668,11 +1646,9 @@ theorem compileArrayGet_correct (arr idx : Expr) (ty : TinyML.Typ)
           isplitl [Hatom]
           · iexact Hatom
           · isplitl [Howns]
-            · simp only [TransState.sl_eq]
+            · simp only [State.sl_eq]
               iexact Howns
-            · isplitl [HresTy]
-              · iexact HresTy
-              · iexact HR))
+            · iframe HresTy HR))
   | prim _ | sum _ | arrow _ _ | ref _ | vec _ | owned _ | empty | value | tuple _ | tvar _
   | named _ _ =>
       intro env W S γg γ st ρ Ψ R Φ henv _hS heval _ _ _ _
@@ -1693,7 +1669,7 @@ theorem compileArraySet_correct (arr idx val : Expr)
     obtain ⟨helemTy, heval⟩ := VerifM.eval_bind_expectEq heval
     obtain ⟨hidxty, heval⟩ := VerifM.eval_bind_expectEq heval
     have heval_val : (compile env S val).eval st ρ _ := VerifM.eval_bind heval
-    refine SpatialContext.wp_bind_arraySet <| ?_
+    refine PrimitiveLaws.wp_bind_arraySet <| ?_
     -- Evaluate `val`.
     have hstart := Scope.typed_dup W S st ρ γg γ R
     refine hstart.trans <| ihVal env W S γg γ (R := (S.typed W γg γ ∗ (R))) henv hS (VerifM.eval.decls_grow ρ heval_val) ?_
@@ -1733,15 +1709,15 @@ theorem compileArraySet_correct (arr idx val : Expr)
           (TinyML.ValHasType W v_idx idx.ty ∗ (TinyML.ValHasType W v_val val.ty ∗ R)) ⊢
           wp W.pctx (.arraySet (.val v_arr) (.val v_idx) (.val v_val)) Φ := by
       rw [hty, hidxty, ← helemTy]
-      simpa [TransState.sl_eq] using
-        (SpatialContext.wp_arraySet_inv (W := W)
+      simpa [State.sl_eq] using
+        (PrimitiveLaws.wp_arraySet_inv (W := W)
           (ctx := st₃.owns) (ρ := ρ_arr) (arr := sa) (idx := si)
           (elemTy := elemTy) (varr := v_arr) (vidx := v_idx) (val := v_val)
           (Q := Φ) (R := R) heval_sa hsi_ρ_arr hi hlt (by
             have hgoal' :
                 SpatialContext.interp W ρ_arr st₃.owns ∗
                   TinyML.ValHasType W .unit .unit ∗ R ⊢ Φ .unit := by
-              simpa [TransState.sl_eq] using hgoal
+              simpa [State.sl_eq] using hgoal
             istart
             iintro ⟨Howns, _, HR⟩
             iapply hgoal'
@@ -1761,7 +1737,7 @@ theorem compileArraySet_correct (arr idx val : Expr)
     obtain ⟨helemTy, heval⟩ := VerifM.eval_bind_expectEq heval
     obtain ⟨hidxty, heval⟩ := VerifM.eval_bind_expectEq heval
     have heval_val : (compile env S val).eval st ρ _ := VerifM.eval_bind heval
-    refine SpatialContext.wp_bind_arraySet <| ?_
+    refine PrimitiveLaws.wp_bind_arraySet <| ?_
     have hstart := Scope.typed_dup W S st ρ γg γ R
     refine hstart.trans <| ihVal env W S γg γ (R := (S.typed W γg γ ∗ (R))) henv hS (VerifM.eval.decls_grow ρ heval_val) ?_
     intro v_val ρ_val st₁ sv hΨ_val hsv_wf heval_sv
@@ -1809,8 +1785,8 @@ theorem compileArraySet_correct (arr idx val : Expr)
     have hatom_wf : (SpatialAtom.arrayPointsTo sa contents' elemTy).wfIn st₄.decls := by
       rw [hdecls]; exact ⟨hsa_wf, by simpa [hdecls] using hcontents'_wf⟩
     have hunit_wf : (Term.const .unit).wfIn st₄.decls := by simp [Term.wfIn, Const.wfIn]
-    simpa [TransState.sl_eq] using
-      (SpatialContext.wp_arraySet_owned (W := W)
+    simpa [State.sl_eq] using
+      (PrimitiveLaws.wp_arraySet_owned (W := W)
         (rest := st₄.owns) (arr := sa) (contents := contents) (contents' := contents')
         (idx := si) (val := sv) (elemTy := elemTy) (varr := v_arr) (vidx := v_idx)
         (vval := v_val) (Q := Φ) (R := R) heval_sa hsi_eval hsv_eval hi hlt rfl (by
@@ -1828,11 +1804,9 @@ theorem compileArraySet_correct (arr idx val : Expr)
           isplitl [Hatom]
           · iexact Hatom
           · isplitl [Howns]
-            · simp only [TransState.sl_eq]
+            · simp only [State.sl_eq]
               iexact Howns
-            · isplitl [HunitTy]
-              · iexact HunitTy
-              · iexact HR))
+            · iframe HunitTy HR))
   | prim _ | sum _ | arrow _ _ | ref _ | vec _ | owned _ | empty | value | tuple _ | tvar _
   | named _ _ =>
       intro env W S γg γ st ρ Ψ R Φ henv _hS heval _ _ _ _
@@ -1847,7 +1821,7 @@ theorem compileUnop_correct (op : TinyML.UnOp) (e : Expr) (uty : TinyML.Typ)
   simp only [Runtime.Expr.subst]
   simp only [compile] at heval
   have heval_e : (compile env S e).eval st ρ _ := VerifM.eval_bind heval
-  refine SpatialContext.wp_bind_unop <| ih env W S γg γ (R := R) henv hS (VerifM.eval.decls_grow ρ heval_e) ?_
+  refine PrimitiveLaws.wp_bind_unop <| ih env W S γg γ (R := R) henv hS (VerifM.eval.decls_grow ρ heval_e) ?_
   intro v_e ρ_e st₁ se hΨ_e hse_wf heval_se
   obtain ⟨_, _, hΨ_e⟩ := hΨ_e
   obtain ⟨ty, htypeOf, hΨ_e⟩ := VerifM.eval_bind_expectSome hΨ_e
@@ -1869,22 +1843,18 @@ theorem compileUnop_correct (op : TinyML.UnOp) (e : Expr) (uty : TinyML.Typ)
     by simpa [hty_eq] using
       (hpost w ρ_e st₁ t hΨ_e (compileUnop_wfIn hse_wf hcompUnop) ht_eval)
   have hwp : st₁.sl W ρ_e ∗ TinyML.ValHasType W w ty ∗ R ⊢ wp W.pctx (.unop op (.val v_e)) Φ :=
-    SpatialContext.wp_unop
+    PrimitiveLaws.wp_unop
       (R := st₁.sl W ρ_e ∗ TinyML.ValHasType W w ty ∗ R)
       (Q := Φ) (op := op) (v := v_e) (res := w) hq heval_op
   iapply hwp
-  isplitl [Howns]
-  · iexact Howns
-  · isplitl [Hwty]
-    · iexact Hwty
-    · iexact HR
+  iframe Howns Hwty HR
 
 /-- The `wp` step shared by the integer binary operations the compiler guards
 with an assertion. `folOp` is the operation the compiled term uses and `g` the
 integer operation it must denote. -/
 private theorem compileIntBinop_correct (W : TinyML.World) {R : iProp}
-    {Φ : Runtime.Val → iProp} {Ψ : Term .value → TransState → Env → Prop}
-    {st : TransState} {ρ : Env} {sl sr : Term .value} {vl vr : Runtime.Val}
+    {Φ : Runtime.Val → iProp} {Ψ : Term .value → State → Env → Prop}
+    {st : State} {ρ : Env} {sl sr : Term .value} {vl vr : Runtime.Val}
     {op : TinyML.BinOp} (folOp : BinOp .int .int .int) (g : Int → Int → Int)
     (hpost : ∀ v ρ' st' se, Ψ se st' ρ' → se.wfIn st'.decls → Term.eval ρ' se = v →
       st'.sl W ρ' ∗ TinyML.ValHasType W v .int ∗ R ⊢ Φ v)
@@ -1917,11 +1887,9 @@ private theorem compileIntBinop_correct (W : TinyML.World) {R : iProp}
       · iexact HR
   have hopab := hop a b hvr
   subst hvl hvr
-  iapply (SpatialContext.wp_binop (vl := .int a) (vr := .int b) (res := .int (g a b)) hq)
+  iapply (PrimitiveLaws.wp_binop (vl := .int a) (vr := .int b) (res := .int (g a b)) hq)
   · exact hopab
-  · isplitl [Howns]
-    · iexact Howns
-    · iexact HR
+  · iframe Howns HR
 
 theorem compileBinop_correct (op : TinyML.BinOp) (l r : Expr) (bty : TinyML.Typ)
     (ihR : correctExpr r) (ihL : correctExpr l) :
@@ -1932,7 +1900,7 @@ theorem compileBinop_correct (op : TinyML.BinOp) (l r : Expr) (bty : TinyML.Typ)
   simp only [compile] at heval
   have heval_r : (compile env S r).eval st ρ _ := VerifM.eval_bind heval
   have hstart := Scope.typed_dup W S st ρ γg γ R
-  refine SpatialContext.wp_bind_binop <| hstart.trans <|
+  refine PrimitiveLaws.wp_bind_binop <| hstart.trans <|
     ihR env W S γg γ (R := (S.typed W γg γ ∗ R)) henv hS (VerifM.eval.decls_grow ρ heval_r) ?_
   intro vr ρ_r st₁ sr hΨ_r hsr_wf heval_sr
   obtain ⟨hdecls_r, hagreeOn_r, hΨ_r⟩ := hΨ_r
@@ -1999,9 +1967,7 @@ theorem compileBinop_correct (op : TinyML.BinOp) (l r : Expr) (bty : TinyML.Typ)
       isplitl [Howns]
       · iexact Howns
       · isplitl [Hvl Hvr]
-        · isplitl [Hvl]
-          · iexact Hvl
-          · iexact Hvr
+        · iframe Hvl Hvr
         · iexact HR
     have htyped :
         st₂.sl W ρ_l ∗ (TinyML.ValHasType W vl l.ty ∗ (TinyML.ValHasType W vr r.ty ∗ R)) ⊢
@@ -2027,15 +1993,11 @@ theorem compileBinop_correct (op : TinyML.BinOp) (l r : Expr) (bty : TinyML.Typ)
       simpa [hty_eq] using
         (hpost w ρ_l st₂ t hΨ_ndiv (compileOp_wfIn hsl_wf hwf_sr_l hcompOp) ht_eval)
     have hwp : st₂.sl W ρ_l ∗ TinyML.ValHasType W w ty ∗ R ⊢ wp W.pctx (.binop op (.val vl) (.val vr)) Φ :=
-      SpatialContext.wp_binop
+      PrimitiveLaws.wp_binop
         (R := st₂.sl W ρ_l ∗ TinyML.ValHasType W w ty ∗ R)
         (Q := Φ) (op := op) (vl := vl) (vr := vr) (res := w) hq heval_op
     iapply hwp
-    isplitl [Howns]
-    · iexact Howns
-    · isplitl [Hwty]
-      · iexact Hwty
-      · iexact HR
+    iframe Howns Hwty HR
 
 /-- A ghost binding is erased, so the run-time program is the body alone. The
     ghost expression's obligation is discharged in the scope it is written in
@@ -2047,7 +2009,7 @@ theorem compileLetInGhost_correct (b : Binder) (e body : Expr)
   simp only [compile] at heval
   simp only [Expr.WithTypeVars.ty] at hpost
   unfold Expr.WithTypeVars.runtime
-  refine SpatialContext.wp_bupd (BIBase.Entails.trans (Scope.typed_dup W S st ρ γg γ R)
+  refine PrimitiveLaws.wp_bupd (BIBase.Entails.trans (Scope.typed_dup W S st ρ γg γ R)
     ((compileGhostExpr_correct e env W S γg γ (R := iprop(S.typed W γg γ ∗ R))
         (Φ := fun _ => wp W.pctx (body.runtime.subst γ) Φ) henv hS
         (VerifM.eval.decls_grow ρ (VerifM.eval_bind heval)) ?_).trans
@@ -2077,7 +2039,7 @@ theorem compileLetInGhost_correct (b : Binder) (e body : Expr)
       henv hS₂ hbody hpost)
     iintro ⟨Howns, Hv, #HT, HR⟩
     isplitl [Howns]
-    · simp only [TransState.sl_eq]
+    · simp only [State.sl_eq]
       iapply (SpatialContext.interp_agreeOn W (VerifM.eval.wf hΨ).ownsWf hagreeOn₂).1
       iexact Howns
     · isplitl [Hv]
@@ -2093,7 +2055,7 @@ theorem compileLetIn_correct (b : Binder) (e body : Expr)
   simp only [Expr.WithTypeVars.ty] at hpost
   unfold Expr.WithTypeVars.runtime
   simp only [Runtime.Expr.letIn_subst]
-  refine SpatialContext.wp_letIn ((Scope.typed_dup W S st ρ γg γ R).trans <|
+  refine PrimitiveLaws.wp_letIn ((Scope.typed_dup W S st ρ γg γ R).trans <|
     ihE env W S γg γ (R := S.typed W γg γ ∗ R) henv hS
       (VerifM.eval.decls_grow ρ (VerifM.eval_bind heval)) ?_)
   intro v_e ρ_e st₁ se hΨ_e hse_wf heval_e
@@ -2126,7 +2088,7 @@ theorem compileLetIn_correct (b : Binder) (e body : Expr)
       henv hS₂ hbody hpost)
     iintro ⟨Howns, Hv, #HT, HR⟩
     isplitl [Howns]
-    · simp only [TransState.sl_eq]
+    · simp only [State.sl_eq]
       iapply (SpatialContext.interp_agreeOn W (VerifM.eval.wf hΨ_e).ownsWf hagreeOn₂).1
       iexact Howns
     · isplitl [Hv]
@@ -2140,8 +2102,8 @@ theorem compileProductBindersFrom_correct (env : Verifier.Env) (W : TinyML.World
     (body : Expr) (ihBody : correctExpr body) :
     ∀ (names : List Binder) (tys : List TinyML.Typ) (se : Term .value) (i : Nat)
       (allVals vals : List Runtime.Val) (S : Scope) (γg γ : Runtime.Subst)
-      (st : TransState) (ρ : Env)
-      (Ψ : Term .value → TransState → Env → Prop) (R : iProp) (Φ : Runtime.Val → iProp),
+      (st : State) (ρ : Env)
+      (Ψ : Term .value → State → Env → Prop) (R : iProp) (Φ : Runtime.Val → iProp),
       VerifM.eval (compileProductBindersFrom .runtime S names tys se i) st ρ
         (fun S' st' ρ' => (compile env S' body).eval st' ρ' Ψ) →
       env.wf W → S.wfIn W st.decls ρ γg γ →
@@ -2225,7 +2187,7 @@ theorem compileProductBindersFrom_correct (env : Verifier.Env) (W : TinyML.World
               ihave Hpair := (TinyML.ValsHaveTypes.cons W v vs ty tys).1 $$ Hvals
               icases Hpair with ⟨Hv, Hvs⟩
               isplitl [Hsl]
-              · simp only [TransState.sl_eq]
+              · simp only [State.sl_eq]
                 iapply (SpatialContext.interp_agreeOn W (VerifM.eval.wf hcont).ownsWf hagreeOn).1
                 iexact Hsl
               · isplitl [Hvs]
@@ -2246,7 +2208,7 @@ theorem compileLetProd_correct (names : List Binder) (e body : Expr)
   have heval_e : (compile env S e).eval st ρ _ :=
     VerifM.eval_bind heval
   have hstart := Scope.typed_dup W S st ρ γg γ R
-  refine SpatialContext.wp_bind_letProd <| hstart.trans <|
+  refine PrimitiveLaws.wp_bind_letProd <| hstart.trans <|
     ihE env W S γg γ (R := (S.typed W γg γ ∗ R)) henv hS (VerifM.eval.decls_grow ρ heval_e) ?_
   intro v_e ρ_e st₁ se hΨ_e hse_wf heval_se
   obtain ⟨hdecls_e, hagreeOn_e, hΨ_e⟩ := hΨ_e
@@ -2271,7 +2233,7 @@ theorem compileLetProd_correct (names : List Binder) (e body : Expr)
         simp [hlen_compile, hlen_vals]
       have hbody_subst := Runtime.Expr.subst_removeAll'_updateAllBinder body.runtime γ
         (names.map Binder.WithTypeVars.runtime) vs hnames_len
-      iapply (SpatialContext.wp_letProd_val (pctx := W.pctx)
+      iapply (PrimitiveLaws.wp_letProd_val (pctx := W.pctx)
         (names := names.map Binder.WithTypeVars.runtime) (vs := vs)
         (body := Runtime.Expr.subst (γ.removeAll' (names.map Binder.WithTypeVars.runtime)) body.runtime)
         hnames_len BIBase.Entails.rfl)
@@ -2294,7 +2256,7 @@ theorem compileIfThenElse_correct (cond thn els : Expr) (ty : TinyML.Typ)
   simp only [compile] at heval
   have heval_cond : (compile env S cond).eval st ρ _ := VerifM.eval_bind heval
   have hstart := Scope.typed_dup W S st ρ γg γ R
-  refine SpatialContext.wp_bind_if <| hstart.trans <|
+  refine PrimitiveLaws.wp_bind_if <| hstart.trans <|
     ihCond env W S γg γ (R := (S.typed W γg γ ∗ R)) henv hS (VerifM.eval.decls_grow ρ heval_cond) ?_
   intro v_c ρ_c st₁ sc hΨ_c hsc_wf heval_c
   obtain ⟨hdecls_c, hagreeOn_c, hΨ_c⟩ := hΨ_c
@@ -2315,8 +2277,8 @@ theorem compileIfThenElse_correct (cond thn els : Expr) (ty : TinyML.Typ)
   have htrue_cont := VerifM.eval_assumePure (VerifM.eval_bind htrue)
   have hfalse_cont := VerifM.eval_assumePure (VerifM.eval_bind hfalse)
   let φ_eq : Formula := sc.isFalse
-  let st_thn : TransState := { st₁ with asserts := φ_eq.not :: st₁.asserts }
-  let st_els : TransState := { st₁ with asserts := φ_eq :: st₁.asserts }
+  let st_thn : State := { st₁ with asserts := φ_eq.not :: st₁.asserts }
+  let st_els : State := { st₁ with asserts := φ_eq :: st₁.asserts }
   have hbool_cases_bool :
       st₁.sl W ρ_c ∗
           (TinyML.ValHasType W v_c .bool ∗
@@ -2330,9 +2292,7 @@ theorem compileIfThenElse_correct (cond thn els : Expr) (ty : TinyML.Typ)
     · iexact Howns
     · isplitl []
       · exact pure_intro (by subst hv; cases b <;> simp)
-      · isplitl []
-        · iexact HT
-        · iexact HR
+      · iframe HT HR
   have hbool_cases :
       st₁.sl W ρ_c ∗ (TinyML.ValHasType W v_c cond.ty ∗ (S.typed W γg γ ∗ R)) ⊢
         st₁.sl W ρ_c ∗ iprop(⌜v_c = .bool false ∨ v_c = .bool true⌝) ∗
@@ -2351,7 +2311,7 @@ theorem compileIfThenElse_correct (cond thn els : Expr) (ty : TinyML.Typ)
     have hwp :
         st_els.sl W ρ_c ∗ (S.typed W γg γ ∗ R) ⊢
           wp W.pctx (.ifThenElse (.val (.bool false)) (thn.runtime.subst γ) (els.runtime.subst γ)) Φ :=
-      SpatialContext.wp_if_false
+      PrimitiveLaws.wp_if_false
         (thn := thn.runtime.subst γ) (els := els.runtime.subst γ) <|
         ihEls env W S γg γ (Ψ := Ψ) (R := R) (Φ := Φ) henv hS_c heval_els
           (fun v ρ' st' se hΨ hs hw =>
@@ -2359,13 +2319,9 @@ theorem compileIfThenElse_correct (cond thn els : Expr) (ty : TinyML.Typ)
     have hctx :
         st₁.sl W ρ_c ∗ (S.typed W γg γ ∗ R) ⊢
           st_els.sl W ρ_c ∗ (S.typed W γg γ ∗ R) := by
-      simp [st_els, TransState.sl]
+      simp [st_els, State.sl]
     iapply (hctx.trans hwp)
-    isplitl [Howns]
-    · iexact Howns
-    · isplitl []
-      · iexact HT
-      · iexact HR
+    iframe Howns HT HR
   · subst htrue_val
     have heval_ne : sc.eval ρ_c ≠ Runtime.Val.bool false := by
       rw [heval_c]
@@ -2377,7 +2333,7 @@ theorem compileIfThenElse_correct (cond thn els : Expr) (ty : TinyML.Typ)
     have hwp :
         st_thn.sl W ρ_c ∗ (S.typed W γg γ ∗ R) ⊢
           wp W.pctx (.ifThenElse (.val (.bool true)) (thn.runtime.subst γ) (els.runtime.subst γ)) Φ :=
-      SpatialContext.wp_if_true
+      PrimitiveLaws.wp_if_true
         (thn := thn.runtime.subst γ) (els := els.runtime.subst γ) <|
         ihThn env W S γg γ (Ψ := Ψ) (R := R) (Φ := Φ) henv hS_c heval_thn
           (fun v ρ' st' se hΨ hs hw =>
@@ -2385,13 +2341,9 @@ theorem compileIfThenElse_correct (cond thn els : Expr) (ty : TinyML.Typ)
     have hctx :
         st₁.sl W ρ_c ∗ (S.typed W γg γ ∗ R) ⊢
           st_thn.sl W ρ_c ∗ (S.typed W γg γ ∗ R) := by
-      simp [st_thn, TransState.sl]
+      simp [st_thn, State.sl]
     iapply (hctx.trans hwp)
-    isplitl [Howns]
-    · iexact Howns
-    · isplitl []
-      · iexact HT
-      · iexact HR
+    iframe Howns HT HR
 
 theorem compileTuple_correct (es : List Expr)
     (ihEs : correctExprs es) :
@@ -2402,14 +2354,14 @@ theorem compileTuple_correct (es : List Expr)
   simp only [Runtime.Expr.subst, List.map_map]
   simp only [compile] at heval
   have heval_es : (compileExprs env S es).eval st ρ _ := VerifM.eval_bind heval
-  refine SpatialContext.wp_bind_tuple <| ihEs env W S γg γ (R := R) henv hS (VerifM.eval.decls_grow ρ heval_es) ?_
+  refine PrimitiveLaws.wp_bind_tuple <| ihEs env W S γg γ (R := R) henv hS (VerifM.eval.decls_grow ρ heval_es) ?_
   intro vs ρ' st' terms hΨ hwf_terms heval_terms
   obtain ⟨_, _, hΨ⟩ := hΨ
   obtain hΨ := VerifM.eval_ret hΨ
   have heval_tuple : (Term.tuple terms).eval ρ' = Runtime.Val.tuple vs :=
     Term.tuple_eval heval_terms
   have hwf_tuple : (Term.tuple terms).wfIn st'.decls := Term.tuple_wfIn hwf_terms
-  refine SpatialContext.wp_tuple ?_
+  refine PrimitiveLaws.wp_tuple ?_
   have hstep :
       st'.sl W ρ' ∗ TinyML.ValsHaveTypes W vs (es.map Expr.WithTypeVars.ty) ∗ (R) ⊢
         st'.sl W ρ' ∗ TinyML.ValHasType W (.tuple vs) (.tuple (es.map Expr.WithTypeVars.ty)) ∗ R := by
@@ -2437,7 +2389,7 @@ theorem compileAppSpec_correct
     (hfnty : fn.ty = .arrow argTys retTy (some s))
     (ihFn : correctExpr fn) (ihArgs : correctExprs args)
     (env : Verifier.Env) (W : TinyML.World) (S : Scope) (γg γ : Runtime.Subst)
-    {st : TransState} {ρ : Env} {Ψ : Term .value → TransState → Env → Prop} {R : iProp}
+    {st : State} {ρ : Env} {Ψ : Term .value → State → Env → Prop} {R : iProp}
     {Φ : Runtime.Val → iProp} (henv : env.wf W) (hS : S.wfIn W st.decls ρ γg γ)
     (heval : VerifM.eval
       (do
@@ -2461,20 +2413,14 @@ theorem compileAppSpec_correct
   obtain ⟨hlen_e, heval⟩ := VerifM.eval_bind_expectEq heval
   have heval_args : (compileExprs _ S args).eval st ρ _ :=
     VerifM.eval_bind heval
-  refine SpatialContext.wp_bind_app ?_
+  refine PrimitiveLaws.wp_bind_app ?_
   -- The typing context is persistent, so it can also travel in the frame.
   have hctx : st.sl W ρ ∗ (S.typed W γg γ ∗ R) ⊢
       st.sl W ρ ∗ (S.typed W γg γ ∗
         (S.typed W γg γ ∗ R)) := by
     istart
     iintro ⟨Howns, #HT, HR⟩
-    isplitl [Howns]
-    · iexact Howns
-    · isplitl []
-      · iexact HT
-      · isplitl []
-        · iexact HT
-        · iexact HR
+    iframe Howns HT HR
   refine hctx.trans <|
     ihArgs _ W S γg γ (R := (S.typed W γg γ ∗ R)) henv hS (VerifM.eval.decls_grow ρ heval_args) ?_
   intro vs ρ_args st_args sargs hΨ_args hsargs_wf heval_sargs
@@ -2494,15 +2440,7 @@ theorem compileAppSpec_correct
           (TinyML.ValsHaveTypes W vs (args.map Expr.WithTypeVars.ty) ∗ R))) := by
     istart
     iintro ⟨Howns, #Hvals, #HT, HR⟩
-    isplitl [Howns]
-    · iexact Howns
-    · isplitl []
-      · iexact HT
-      · isplitl []
-        · iexact HT
-        · isplitl []
-          · iexact Hvals
-          · iexact HR
+    iframe Howns HT Hvals HR
   refine hctx'.trans <|
     ihFn _ W S γg γ (R := (S.typed W γg γ ∗
         (TinyML.ValsHaveTypes W vs (args.map Expr.WithTypeVars.ty) ∗ R))) henv hS_args (VerifM.eval.decls_grow ρ_args heval_fn) ?_
@@ -2514,7 +2452,7 @@ theorem compileAppSpec_correct
   have heval_gargs := VerifM.eval_bind hΨ_fn
   -- The ghost arguments are ghost code: they take no step, and the update their
   -- obligation leaves is absorbed by the call's weakest precondition.
-  refine SpatialContext.wp_bupd (BIBase.Entails.trans ?_
+  refine PrimitiveLaws.wp_bupd (BIBase.Entails.trans ?_
     ((compileGhostExprs_correct gargs _ W S γg γ
         (R := iprop(TinyML.ValHasType W fval fn.ty ∗
           (TinyML.ValsHaveTypes W vs (args.map Expr.WithTypeVars.ty) ∗ R)))
@@ -2522,15 +2460,7 @@ theorem compileAppSpec_correct
         henv hS_fn (VerifM.eval.decls_grow ρ_fn heval_gargs) ?_).trans
       (bupd_mono (exists_elim fun _ => .rfl))))
   · iintro ⟨Howns, #Hfval, #HT, #Hvals, HR⟩
-    isplitl [Howns]
-    · iexact Howns
-    · isplitl []
-      · iexact HT
-      · isplitl []
-        · iexact Hfval
-        · isplitl []
-          · iexact Hvals
-          · iexact HR
+    iframe Howns HT Hfval Hvals HR
   intro gs st_g ρ_g gterms hΨ_g hgterms_wf heval_gterms
   obtain ⟨hdecls_g, hagreeOn_g, hΨ_g⟩ := hΨ_g
   set typedArgs := (args.map Expr.WithTypeVars.ty).zip sargs with htypedArgs_def
@@ -2564,11 +2494,7 @@ theorem compileAppSpec_correct
       icases H with ⟨Howns', Hrest⟩
       icases Hrest with ⟨HR', Hty⟩
       iapply h
-      isplitl [Howns']
-      · iexact Howns'
-      · isplitl [Hty]
-        · iexact Hty
-        · iexact HR')
+      iframe Howns' Hty HR')
   obtain ⟨hsub_ty, hsub_gty, happly⟩ := hcall
   have hreorder : st_g.sl W ρ_g ∗ (TinyML.ValsHaveTypes W gs (gargs.map Expr.WithTypeVars.ty) ∗
       (TinyML.ValHasType W fval fn.ty ∗
@@ -2578,15 +2504,7 @@ theorem compileAppSpec_correct
           (TinyML.ValsHaveTypes W vs (args.map Expr.WithTypeVars.ty) ∗ R))) := by
     istart
     iintro ⟨Howns, #Hgvals, #Hfval, #Hvals, HR⟩
-    isplitl [Howns]
-    · iexact Howns
-    · isplitl []
-      · iexact Hfval
-      · isplitl []
-        · iexact Hgvals
-        · isplitl []
-          · iexact Hvals
-          · iexact HR
+    iframe Howns Hfval Hgvals Hvals HR
   refine hreorder.trans ?_
   rw [hfnty]
   refine (sep_mono_right (sep_mono_left
@@ -2644,9 +2562,7 @@ theorem compileAppSpec_correct
     iexact Hgvals
   · iapply later_intro
     iapply happly'
-    isplitl [Howns]
-    · iexact Howns
-    · iexact HR
+    iframe Howns HR
 
 theorem compileApp_correct
     (fn : Expr) (args gargs : List Expr) (aty : TinyML.Typ)
@@ -2682,7 +2598,7 @@ theorem compileApp_correct
     have hi_mem : i ∈ reg := Verifier.Registry.mem_of_lookup? hilookup
     have hisound := Verifier.Registry.Sound.get henv.sound hi_mem
     simp only [Expr.WithTypeVars.runtime, Runtime.Expr.subst_val]
-    refine SpatialContext.wp_bind_app ?_
+    refine PrimitiveLaws.wp_bind_app ?_
     refine ihArgs _ W S γg γ (R := R) henv hS (VerifM.eval.decls_grow ρ heval_args) ?_
     intro vs ρ_args st_args sargs hΨ_args hsargs_wf heval_sargs
     obtain ⟨hdecls_args, hagreeOn_args, hΨ_args⟩ := hΨ_args
@@ -2723,16 +2639,12 @@ theorem compileApp_correct
         icases H with ⟨Howns', Hrest⟩
         icases Hrest with ⟨HR', Hty⟩
         iapply h
-        isplitl [Howns']
-        · iexact Howns'
-        · isplitl [Hty]
-          · iexact Hty
-          · iexact HR')
+        iframe Howns' Hty HR')
     obtain ⟨hsub_ty, hsub_gty, happly⟩ := hcall
     -- The call passes no ghost argument, so the intrinsic declares none.
     have hghost_nil : i.spec.ghost = [] := by simpa using hsub_gty.symm
     simp only [Spec.allArgs, hghost_nil, List.map_nil, List.append_nil] at happly
-    refine SpatialContext.wp_val ?_
+    refine PrimitiveLaws.wp_val ?_
     rw [henv.primitives]
     refine BIBase.Entails.trans ?_ (Verifier.Registry.wp_prim reg henv.sound
       (fun i' hi' => by
@@ -2774,9 +2686,7 @@ theorem compileApp_correct
     · rw [← hsub_ty']
       iexact Hvals
     · iapply happly'
-      isplitl [Howns]
-      · iexact Howns
-      · iexact HR
+      iframe Howns HR
   | _ =>
     exact (VerifM.eval_fatal heval).elim
 
@@ -2789,7 +2699,7 @@ theorem compileMatch_correct (scrut : Expr) (branches : List (Binder × Expr)) (
   simp only [Expr.branchListRuntime_eq_map, Runtime.Expr.subst, List.map_map]
   simp only [compile] at heval
   have heval_scrut : (compile env S scrut).eval st ρ _ := VerifM.eval_bind heval
-  refine SpatialContext.wp_bind_match <| BIBase.Entails.trans ?_ <|
+  refine PrimitiveLaws.wp_bind_match <| BIBase.Entails.trans ?_ <|
     ihScrut env W S γg γ (R := (S.typed W γg γ ∗ R)) henv hS (VerifM.eval.decls_grow ρ heval_scrut) ?_
   · exact Scope.typed_dup W S st ρ γg γ R
   intro v_scrut ρ_scrut st_scrut se_scrut hΨ_scrut hse_wf heval_se
@@ -2862,14 +2772,12 @@ theorem compileMatch_correct (scrut : Expr) (branches : List (Binder × Expr)) (
             refine BIBase.Entails.trans ?_ (by simpa [Nat.zero_add] using hbranch_wp v_payload ((Nat.zero_add tag).symm ▸ hsc_eval))
             iintro ⟨Hsl, Hsum, #HT, HR⟩
             isplitl [Hsl]
-            · simp only [TransState.sl_eq]
+            · simp only [State.sl_eq]
               iexact Hsl
             · isplitl [Hsum]
               · iapply (TinyML.ValSumRel.of_getElem? (W := W) hget)
                 iexact Hsum
-              · isplitl []
-                · iexact HT
-                · iexact HR
+              · iframe HT HR
           have hmatch_entail :
               st_scrut.sl W ρ_scrut ∗
                   TinyML.ValSumRel W tag v_payload ts ∗
@@ -2879,7 +2787,7 @@ theorem compileMatch_correct (scrut : Expr) (branches : List (Binder × Expr)) (
                     (List.map (Runtime.Expr.subst γ ∘ fun p =>
                       Runtime.Expr.fix Runtime.Binder.none [p.1.runtime] p.2.runtime) branches))
                   Φ :=
-            SpatialContext.wp_match
+            PrimitiveLaws.wp_match
               (R := st_scrut.sl W ρ_scrut ∗
                   TinyML.ValSumRel W tag v_payload ts ∗
                     (S.typed W γg γ ∗ R))
@@ -2891,18 +2799,12 @@ theorem compileMatch_correct (scrut : Expr) (branches : List (Binder × Expr)) (
               (by simpa using hlen)
           rw [hval_eq]
           iapply hmatch_entail
-          isplitl [Hsl]
-          · iexact Hsl
-          · isplitl [Hsum]
-            · iexact Hsum
-            · isplitl []
-              · iexact HT
-              · iexact HR)
+          iframe Hsl Hsum HT HR)
       · have hΨ_bad : (VerifM.fatal "match branch type annotation mismatch").eval st_scrut ρ_scrut Ψ := by
           simpa [if_pos hlen, if_neg htys] using hΨ_scrut
         exact (VerifM.eval_fatal hΨ_bad).elim
 
-theorem compileSingleBranch_correct (binder : Binder) (body : Expr)
+theorem compileBranch_correct (binder : Binder) (body : Expr)
     (ihBody : correctExpr body) :
     correctBranch (binder, body) := by
   intro env W S γg γ sc n i ty_i st ρ Ψ R Φ henv hS hsc_wf heval hpost payload hsc_eval
@@ -2913,14 +2815,14 @@ theorem compileSingleBranch_correct (binder : Binder) (body : Expr)
     have heval_decl := VerifM.eval_bind hcont
     have hdecl := VerifM.eval_decl heval_decl
     let hint := binder.name
-    let xv := TransState.freshConst hint .value st
+    let xv := State.freshConst hint .value st
     have heval_inst := hdecl payload
     have heval_assume := VerifM.eval_bind heval_inst
     have hassume := VerifM.eval_assumePure heval_assume
-    let st₁ : TransState := { decls := st.decls.addConst xv, asserts := st.asserts, owns := st.owns }
+    let st₁ : State := { decls := st.decls.addConst xv, asserts := st.asserts, owns := st.owns }
     let ρ₁ := ρ.updateConst .value xv.name payload
     have hxv_fresh : xv.name ∉ st.decls.allNames :=
-      TransState.freshConst_fresh st hint .value
+      State.freshConst_fresh st hint .value
     have hstwf : st.decls.wf := (VerifM.eval.wf heval_decl).namesDisjoint
     have hxv_wf : (Term.const (.uninterpreted xv.name .value)).wfIn st₁.decls :=
       by
@@ -2964,7 +2866,7 @@ theorem compileSingleBranch_correct (binder : Binder) (body : Expr)
       (ty := ty_i) (v := payload) (by rw [hst₂_decls]; exact List.Mem.head _) rfl
       (by simp [ρ₁, xv, hint, Env.updateConst])
     simp only [Runtime.Expr.subst_fix]
-    refine SpatialContext.wp_app_lambda_single ?_
+    refine PrimitiveLaws.wp_app_lambda_single ?_
     simp only [Runtime.Subst.removeAll'_cons, Runtime.Subst.removeAll'_nil,
       Runtime.Subst.remove'_none]
     rw [Runtime.Expr.subst_remove'_updateBinder]
@@ -2973,7 +2875,7 @@ theorem compileSingleBranch_correct (binder : Binder) (body : Expr)
     iintro ⟨⟨⟨⟨Howns⟩, #HT⟩, HR⟩, #Hpay⟩
     isplitl [Howns]
     · iapply (show st.sl W ρ ⊢ st₂.sl W ρ₁ by
-        simp only [TransState.sl_eq, hst₂_owns_eq]; exact hinterp_eq)
+        simp only [State.sl_eq, hst₂_owns_eq]; exact hinterp_eq)
       iexact Howns
     · isplitl []
       · iapply Scope.typed_bindRuntimeBinder
@@ -3012,13 +2914,7 @@ theorem compileExprsCons_correct (e : Expr) (rest : List Expr)
   refine BIBase.Entails.trans ?_ <|
     ihRest env W S γg γ (R := (S.typed W γg γ ∗ (R))) henv hS (VerifM.eval.decls_grow ρ heval_rest) ?_
   · iintro ⟨Hsl, #HT, HR⟩
-    isplitl [Hsl]
-    · iexact Hsl
-    · isplitl []
-      · iexact HT
-      · isplitl []
-        · iexact HT
-        · iexact HR
+    iframe Hsl HT HR
   intro vs ρ_vs st_vs rest_terms hΨ_vs hwf_rest heval_rest
   obtain ⟨hdecls_vs, hagreeOn_vs, hΨ_vs⟩ := hΨ_vs
   have heval_e : (compile env S e).eval st_vs ρ_vs _ := VerifM.eval_bind hΨ_vs
@@ -3026,13 +2922,7 @@ theorem compileExprsCons_correct (e : Expr) (rest : List Expr)
   refine BIBase.Entails.trans ?_ <|
     ihE env W S γg γ (R := (TinyML.ValsHaveTypes W vs (rest.map Expr.WithTypeVars.ty) ∗ (R))) henv hS_vs (VerifM.eval.decls_grow ρ_vs heval_e) ?_
   · iintro ⟨Hsl, Hvs, #HT, HR⟩
-    isplitl [Hsl]
-    · iexact Hsl
-    · isplitl []
-      · iexact HT
-      · isplitl [Hvs]
-        · iexact Hvs
-        · iexact HR
+    iframe Hsl HT Hvs HR
   intro v ρ' st' se hΨ_e hse_wf heval_se
   obtain ⟨hdecls_e, hagreeOn_e, hΨ_e⟩ := hΨ_e
   have hwfst' : st'.decls.wf := (VerifM.eval.wf hΨ_e).namesDisjoint
@@ -3060,9 +2950,7 @@ theorem compileExprsCons_correct (e : Expr) (rest : List Expr)
             TinyML.ValsHaveTypes W (v :: vs) ((e :: rest).map Expr.WithTypeVars.ty) by
           simpa [List.map] using
             (TinyML.ValsHaveTypes.cons W v vs e.ty (rest.map Expr.WithTypeVars.ty)).2)
-        isplitl [Hv]
-        · iexact Hv
-        · iexact Hvs
+        iframe Hv Hvs
       · iexact HR)
 
 theorem compileBranchesNil_correct :
@@ -3093,77 +2981,73 @@ mutual
 theorem compile_correct (e : Expr) : correctExpr e := by
   cases e with
   | const c =>
-    simpa using compileConst_correct c
+    exact compileConst_correct c
   | var x inst vty =>
-    simpa using compileVar_correct x inst vty
+    exact compileVar_correct x inst vty
   | prim n inst ty =>
-    simpa using compilePrim_correct n inst ty
+    exact compilePrim_correct n inst ty
   | inj tag arity payload ty =>
-    simpa using compileInj_correct tag arity payload ty (compile_correct payload)
+    exact compileInj_correct tag arity payload ty (compile_correct payload)
   | assert e =>
-    simpa using compileAssert_correct e (compile_correct e)
+    exact compileAssert_correct e (compile_correct e)
   | fix self args retTy spec body =>
-    simpa using compileFix_correct self args retTy spec body (compile_correct body)
+    exact compileFix_correct self args retTy spec body (compile_correct body)
   | letProd names e body =>
-    simpa using compileLetProd_correct names e body
+    exact compileLetProd_correct names e body
       (compile_correct e) (compile_correct body)
   | ref ownership e =>
-    simpa using compileRef_correct ownership e (compile_correct e)
+    exact compileRef_correct ownership e (compile_correct e)
   | deref e ty =>
-    simpa using compileDeref_correct e ty (compile_correct e)
+    exact compileDeref_correct e ty (compile_correct e)
   | store loc val =>
-    simpa using compileStore_correct loc val (compile_correct val) (compile_correct loc)
+    exact compileStore_correct loc val (compile_correct val) (compile_correct loc)
   | arrayMake ownership len init =>
-    simpa using compileArrayMake_correct ownership len init
+    exact compileArrayMake_correct ownership len init
       (compile_correct len) (compile_correct init)
   | arrayLen arr =>
-    simpa using compileArrayLen_correct arr (compile_correct arr)
+    exact compileArrayLen_correct arr (compile_correct arr)
   | arrayGet arr idx ty =>
-    simpa using compileArrayGet_correct arr idx ty
+    exact compileArrayGet_correct arr idx ty
       (compile_correct arr) (compile_correct idx)
   | arraySet arr idx val =>
-    simpa using compileArraySet_correct arr idx val
+    exact compileArraySet_correct arr idx val
       (compile_correct arr) (compile_correct idx) (compile_correct val)
   | unop op e uty =>
-    simpa using compileUnop_correct op e uty (compile_correct e)
+    exact compileUnop_correct op e uty (compile_correct e)
   | binop op l r bty =>
-    simpa using compileBinop_correct op l r bty (compile_correct r) (compile_correct l)
+    exact compileBinop_correct op l r bty (compile_correct r) (compile_correct l)
   | letIn mode b e body =>
     cases mode with
     | ghost =>
-      simpa using compileLetInGhost_correct b e body (compile_correct body)
+      exact compileLetInGhost_correct b e body (compile_correct body)
     | runtime =>
-      simpa using compileLetIn_correct b e body
+      exact compileLetIn_correct b e body
         (compile_correct e) (compile_correct body)
   | ifThenElse cond thn els ty =>
-    simpa using compileIfThenElse_correct cond thn els ty
+    exact compileIfThenElse_correct cond thn els ty
       (compile_correct cond) (compile_correct thn) (compile_correct els)
   | app fn args gargs aty =>
-    simpa using compileApp_correct fn args gargs aty (compile_correct fn)
+    exact compileApp_correct fn args gargs aty (compile_correct fn)
       (compileExprs_correct args)
   | tuple es =>
-    simpa using compileTuple_correct es (compileExprs_correct es)
+    exact compileTuple_correct es (compileExprs_correct es)
   | match_ scrut branches ty =>
-    simpa using compileMatch_correct scrut branches ty
+    exact compileMatch_correct scrut branches ty
       (compile_correct scrut) (compileBranches_correct branches)
-
-theorem compileBranch_correct (branch : Binder × Expr) : correctBranch branch := by
-  obtain ⟨binder, body⟩ := branch
-  simpa using compileSingleBranch_correct binder body (compile_correct body)
 
 theorem compileBranches_correct (branches : List (Binder × Expr)) : correctBranches branches := by
   match branches with
   | [] =>
     exact compileBranchesNil_correct
-  | b :: bs =>
-    simpa using compileBranchesCons_correct b bs
-      (compileBranch_correct b) (compileBranches_correct bs)
+  | (binder, body) :: bs =>
+    exact compileBranchesCons_correct (binder, body) bs
+      (compileBranch_correct binder body (compile_correct body)) (compileBranches_correct bs)
 
 theorem compileExprs_correct (es : List Expr) : correctExprs es := by
   match es with
   | [] =>
     exact compileExprsNil_correct
   | e :: rest =>
-    simpa using compileExprsCons_correct e rest
+    exact compileExprsCons_correct e rest
       (compile_correct e) (compileExprs_correct rest)
 end

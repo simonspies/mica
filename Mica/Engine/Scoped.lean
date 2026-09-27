@@ -23,6 +23,21 @@ inductive ScopedM : Type → Type 1 where
   | getOption : Smt.Options.Gettable β → (β → ScopedM α) → ScopedM α
   | bracket : ScopedM β → (β → ScopedM α) → ScopedM α
 
+/-- Bind for ScopedM, derived from the continuation structure. -/
+def ScopedM.bind : ScopedM α → (α → ScopedM β) → ScopedM β
+  | .ret a, k => k a
+  | .declareConst n s cont, k => .declareConst n s (fun r => (cont r).bind k)
+  | .declareUnary n a r cont, k => .declareUnary n a r (fun resp => (cont resp).bind k)
+  | .declareBinary n a1 a2 r cont, k => .declareBinary n a1 a2 r (fun resp => (cont resp).bind k)
+  | .declareTernary n a1 a2 a3 r cont, k => .declareTernary n a1 a2 a3 r (fun resp => (cont resp).bind k)
+  | .declareUnaryRel n a cont, k => .declareUnaryRel n a (fun resp => (cont resp).bind k)
+  | .declareBinaryRel n a1 a2 cont, k => .declareBinaryRel n a1 a2 (fun resp => (cont resp).bind k)
+  | .assert e cont, k => .assert e (fun r => (cont r).bind k)
+  | .checkSat cont, k => .checkSat (fun r => (cont r).bind k)
+  | .setOption s cont, k => .setOption s (fun r => (cont r).bind k)
+  | .getOption g cont, k => .getOption g (fun r => (cont r).bind k)
+  | .bracket body cont, k => .bracket body (fun x => (cont x).bind k)
+
 /-! ## translate: ScopedM → Strategy -/
 
 def ScopedM.translate : ScopedM α → Strategy α
@@ -42,6 +57,23 @@ def ScopedM.translate : ScopedM α → Strategy α
       .exec .push (fun () =>
         (translate body).bind (fun x =>
           .exec .pop (fun () => translate (k x))))
+
+theorem ScopedM.translate_bind (m : ScopedM α) (k : α → ScopedM β) :
+    translate (m.bind k) = (translate m).bind (fun a => translate (k a)) := by
+  induction m with
+  | ret a => simp [ScopedM.bind, translate, Strategy.bind]
+  | declareConst _ _ _ ih | declareUnary _ _ _ _ ih | declareBinary _ _ _ _ _ ih
+  | declareTernary _ _ _ _ _ _ ih | declareUnaryRel _ _ _ ih | declareBinaryRel _ _ _ _ ih
+  | assert _ _ ih | checkSat _ ih | setOption _ _ ih | getOption _ _ ih =>
+    simp only [ScopedM.bind, translate, Strategy.bind]; congr 1; funext r; exact ih r k
+  | bracket body cont _ ih_cont =>
+    simp only [ScopedM.bind, translate, Strategy.bind]
+    congr 1; funext ⟨⟩
+    rw [Strategy.bind_assoc]
+    congr 1; funext x
+    simp only [Strategy.bind]
+    congr 1; funext ⟨⟩
+    exact ih_cont x k
 
 /-! ## Flat Context
 
@@ -96,77 +128,44 @@ theorem flatten_of_valid {s : State} (hs : s.valid) : ∃ ctx, s.flatten = some 
   | frames top rest => exact ⟨_, rfl⟩
   | error => exact hs.elim
 
-theorem flatten_addConst (s : State) (c : Decl.Const) :
-    (s.addConst c).flatten = s.flatten.map (·.addConst c.name c.sort) := by
-  cases s with
+/-- Unfold the flattening of `s` after one declaration in its top frame. -/
+local macro "flatten_add " s:ident : tactic => `(tactic| (
+  cases $s:ident with
   | error => rfl
   | frames top rest =>
     cases top with
     | mk decls asserts =>
       cases decls
-      simp [State.flatten, Frame.allDecls, Frame.allAsserts,
-        State.modifyTop, State.modifyDecls, State.addConst, FlatCtx.addConst,
-        Signature.addConst, List.flatMap, List.cons_append]
+      simp [State.flatten, Frame.allDecls, Frame.allAsserts, State.modifyTop,
+        State.modifyDecls, State.addConst, State.addUnary, State.addBinary, State.addTernary,
+        State.addUnaryRel, State.addBinaryRel, FlatCtx.addConst, FlatCtx.addUnary,
+        FlatCtx.addBinary, FlatCtx.addTernary, FlatCtx.addUnaryRel, FlatCtx.addBinaryRel,
+        Signature.addConst, Signature.addUnary, Signature.addBinary, Signature.addTernary,
+        Signature.addUnaryRel, Signature.addBinaryRel, List.flatMap, List.cons_append]))
+
+theorem flatten_addConst (s : State) (c : Decl.Const) :
+    (s.addConst c).flatten = s.flatten.map (·.addConst c.name c.sort) := by
+  flatten_add s
 
 theorem flatten_addUnary (s : State) (u : Decl.Unary) :
     (s.addUnary u).flatten = s.flatten.map (·.addUnary u.name u.arg u.ret) := by
-  cases s with
-  | error => rfl
-  | frames top rest =>
-    cases top with
-    | mk decls asserts =>
-      cases decls
-      simp [State.flatten, Frame.allDecls, Frame.allAsserts,
-        State.modifyTop, State.modifyDecls, State.addUnary, FlatCtx.addUnary,
-        Signature.addUnary, List.flatMap, List.cons_append]
+  flatten_add s
 
 theorem flatten_addBinary (s : State) (b : Decl.Binary) :
     (s.addBinary b).flatten = s.flatten.map (·.addBinary b.name b.arg1 b.arg2 b.ret) := by
-  cases s with
-  | error => rfl
-  | frames top rest =>
-    cases top with
-    | mk decls asserts =>
-      cases decls
-      simp [State.flatten, Frame.allDecls, Frame.allAsserts,
-        State.modifyTop, State.modifyDecls, State.addBinary, FlatCtx.addBinary,
-        Signature.addBinary, List.flatMap, List.cons_append]
+  flatten_add s
 
 theorem flatten_addTernary (s : State) (t : Decl.Ternary) :
     (s.addTernary t).flatten = s.flatten.map (·.addTernary t.name t.arg1 t.arg2 t.arg3 t.ret) := by
-  cases s with
-  | error => rfl
-  | frames top rest =>
-    cases top with
-    | mk decls asserts =>
-      cases decls
-      simp [State.flatten, Frame.allDecls, Frame.allAsserts,
-        State.modifyTop, State.modifyDecls, State.addTernary, FlatCtx.addTernary,
-        Signature.addTernary, List.flatMap, List.cons_append]
+  flatten_add s
 
 theorem flatten_addUnaryRel (s : State) (u : Decl.UnaryRel) :
     (s.addUnaryRel u).flatten = s.flatten.map (·.addUnaryRel u.name u.arg) := by
-  cases s with
-  | error => rfl
-  | frames top rest =>
-    cases top with
-    | mk decls asserts =>
-      cases decls
-      simp [State.flatten, Frame.allDecls, Frame.allAsserts,
-        State.modifyTop, State.modifyDecls, State.addUnaryRel, FlatCtx.addUnaryRel,
-        Signature.addUnaryRel, List.flatMap, List.cons_append]
+  flatten_add s
 
 theorem flatten_addBinaryRel (s : State) (b : Decl.BinaryRel) :
     (s.addBinaryRel b).flatten = s.flatten.map (·.addBinaryRel b.name b.arg1 b.arg2) := by
-  cases s with
-  | error => rfl
-  | frames top rest =>
-    cases top with
-    | mk decls asserts =>
-      cases decls
-      simp [State.flatten, Frame.allDecls, Frame.allAsserts,
-        State.modifyTop, State.modifyDecls, State.addBinaryRel, FlatCtx.addBinaryRel,
-        Signature.addBinaryRel, List.flatMap, List.cons_append]
+  flatten_add s
 
 theorem flatten_addAssert (s : State) (φ : Formula) :
     (s.addAssert φ).flatten = s.flatten.map (·.addAssert φ) := by
@@ -307,7 +306,7 @@ def ScopedM.eval (m : ScopedM α) (ctx : FlatCtx) (ret : α) (ctx' : FlatCtx) : 
 
 /-! ## Correspondence -/
 
-theorem ScopedM.strategy_eval_initial_implies_ScopedM_eval {m : ScopedM α} {ret : α}
+theorem ScopedM.eval_of_strategy {m : ScopedM α} {ret : α}
     {st' : State} :
     Strategy.eval (translate m) State.initial ret st' →
     ∃ ctx', ScopedM.eval m .empty ret ctx' := by
@@ -476,56 +475,6 @@ theorem ScopedM.eval_bracket {body : ScopedM β} {k : β → ScopedM α}
       simp only [Trace.result] at hret
       rw [← hres_body] at hgen_k
       exact ⟨.frames top rest, st', hflat, hflat', tk_k, hgen_k, hsound_rest.2, hst', hret⟩
-
-/-! ## ScopedM.bind -/
-
-/-- Bind for ScopedM, derived from the continuation structure. -/
-def ScopedM.bind : ScopedM α → (α → ScopedM β) → ScopedM β
-  | .ret a, k => k a
-  | .declareConst n s cont, k => .declareConst n s (fun r => (cont r).bind k)
-  | .declareUnary n a r cont, k => .declareUnary n a r (fun resp => (cont resp).bind k)
-  | .declareBinary n a1 a2 r cont, k => .declareBinary n a1 a2 r (fun resp => (cont resp).bind k)
-  | .declareTernary n a1 a2 a3 r cont, k => .declareTernary n a1 a2 a3 r (fun resp => (cont resp).bind k)
-  | .declareUnaryRel n a cont, k => .declareUnaryRel n a (fun resp => (cont resp).bind k)
-  | .declareBinaryRel n a1 a2 cont, k => .declareBinaryRel n a1 a2 (fun resp => (cont resp).bind k)
-  | .assert e cont, k => .assert e (fun r => (cont r).bind k)
-  | .checkSat cont, k => .checkSat (fun r => (cont r).bind k)
-  | .setOption s cont, k => .setOption s (fun r => (cont r).bind k)
-  | .getOption g cont, k => .getOption g (fun r => (cont r).bind k)
-  | .bracket body cont, k => .bracket body (fun x => (cont x).bind k)
-
-theorem ScopedM.translate_bind (m : ScopedM α) (k : α → ScopedM β) :
-    translate (m.bind k) = (translate m).bind (fun a => translate (k a)) := by
-  induction m with
-  | ret a => simp [ScopedM.bind, translate, Strategy.bind]
-  | declareConst n s cont ih =>
-    simp only [ScopedM.bind, translate, Strategy.bind]; congr 1; funext r; exact ih r k
-  | declareUnary n a r cont ih =>
-    simp only [ScopedM.bind, translate, Strategy.bind]; congr 1; funext resp; exact ih resp k
-  | declareBinary n a1 a2 r cont ih =>
-    simp only [ScopedM.bind, translate, Strategy.bind]; congr 1; funext resp; exact ih resp k
-  | declareTernary n a1 a2 a3 r cont ih =>
-    simp only [ScopedM.bind, translate, Strategy.bind]; congr 1; funext resp; exact ih resp k
-  | declareUnaryRel n a cont ih =>
-    simp only [ScopedM.bind, translate, Strategy.bind]; congr 1; funext resp; exact ih resp k
-  | declareBinaryRel n a1 a2 cont ih =>
-    simp only [ScopedM.bind, translate, Strategy.bind]; congr 1; funext resp; exact ih resp k
-  | assert e cont ih =>
-    simp only [ScopedM.bind, translate, Strategy.bind]; congr 1; funext r; exact ih r k
-  | checkSat cont ih =>
-    simp only [ScopedM.bind, translate, Strategy.bind]; congr 1; funext r; exact ih r k
-  | setOption s cont ih =>
-    simp only [ScopedM.bind, translate, Strategy.bind]; congr 1; funext r; exact ih r k
-  | getOption g cont ih =>
-    simp only [ScopedM.bind, translate, Strategy.bind]; congr 1; funext r; exact ih r k
-  | bracket body cont _ ih_cont =>
-    simp only [ScopedM.bind, translate, Strategy.bind]
-    congr 1; funext ⟨⟩
-    rw [Strategy.bind_assoc]
-    congr 1; funext x
-    simp only [Strategy.bind]
-    congr 1; funext ⟨⟩
-    exact ih_cont x k
 
 /-- Bind decomposes into two sequential evaluations. -/
 theorem ScopedM.eval_bind {m : ScopedM α} {k : α → ScopedM β}

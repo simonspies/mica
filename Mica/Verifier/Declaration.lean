@@ -8,6 +8,8 @@ import Mica.Verifier.BoundedQuantifier
 import Mica.Verifier.Expressions
 import Mica.Verifier.Ghost
 
+open Verifier (State)
+
 /-!
 # Declarations
 
@@ -30,7 +32,590 @@ variable [MicaGS HasLC.hasLC Sig]
 open Verifier.RelationalEncoding (FunCtx PrimEncodings encode)
 open Verifier.RelationalEncoding.Skolemize (DefVal)
 
-/-! ## Spec functions -/
+/-! ## Ghost Declarations
+
+A `[@@ghost]` declaration is a lemma. Its body sees only its own parameters, the
+specification functions, and the ghost functions already declared: a name the
+program binds is not in scope there. A recursive occurrence resolves under a
+rank, and a recursive call must lower it.
+-/
+
+section GhostDeclarations
+
+open Typed
+open Verifier (Scope)
+
+/-- The scope of a ghost declaration's body: the ghost functions, then the
+    parameters. A name the program binds is not in scope there. -/
+private def ghostBodyScope (Gf : GhostFunctions) (argNames : List String)
+    (argVars : List Decl.Const) (argTys : List TinyML.Typ)
+    (ghost : List (String × TinyML.Typ)) (ghostVars : List Decl.Const) : Scope :=
+  (⟨Gf, [], [], TinyML.TyCtx.empty⟩ : Scope).bindParameters argNames argVars argTys ghost ghostVars
+
+/-- The rank is a constant assumed equal to the measure at the declaration's own
+    arguments. The measure must be well-formed in the parameter scope, so that a
+    call can read it at its own arguments instead. -/
+private def GhostFunctions.Guard.declare (Δ_spec : Signature) (measure : Typed.Measure)
+    (names : List String) (terms : List (Term .value)) : VerifM GhostFunctions.Guard := do
+  match measure.term.checkWf (Δ_spec.declVars (Spec.argVars names)) with
+  | .error msg => VerifM.fatal msg
+  | .ok () => do
+    let m := measure.term.subst (Spec.argSubst Subst.id names terms)
+    let Δ ← VerifM.decls
+    match m.checkWf Δ with
+    | .error msg => VerifM.fatal msg
+    | .ok () => do
+      let rv ← VerifM.define (some "rank") m
+      pure ⟨measure, .const (.uninterpreted rv.name .int)⟩
+
+/-- A recursive declaration is callable from its own body, under the rank its
+    measure gives its own arguments. -/
+private def ValDecl.ghostSelf (Δ_spec : Signature) (Gf : GhostFunctions) (self : Binder)
+    (decreases : Option Typed.Measure) (ty : TinyML.Typ) (s : Spec TinyML.Typ)
+    (argVars ghostVars : List Decl.Const) : VerifM GhostFunctions :=
+  match self.name, decreases with
+  | none, _ => pure Gf
+  | some g, none =>
+    VerifM.fatal s!"a recursive ghost declaration needs a [@@decreases] measure: {g}"
+  | some g, some measure => do
+    let terms := (argVars ++ ghostVars).map fun c => Term.const (.uninterpreted c.name .value)
+    let guard ← GhostFunctions.Guard.declare Δ_spec measure s.allArgs terms
+    pure ((g, ⟨ty, some guard⟩) :: Gf)
+
+/-- Prove a specification by checking a function body as ghost code, and return
+    the entry that makes the function callable from ghost code.
+
+    A recursive declaration with no `[@@decreases]` measure is rejected: there is
+    no rank to lower, so its self entry would be inconsistent. The entry keeps
+    the arrow the body was checked at, so a call at a different instantiation of
+    a polymorphic declaration fails the call's type check. -/
+def ValDecl.prove (env : Verifier.Env) (Gf : GhostFunctions) (f : TinyML.Var) (self : Binder) (args : List Binder)
+    (retTy : TinyML.Typ) (body : Expr) (s : Spec TinyML.Typ)
+    (decreases : Option Typed.Measure) : SeqM (TinyML.Var × GhostFunctions.Entry) :=
+  match extractArgNames args s.args with
+  | .error msg => SeqM.fatal msg
+  | .ok argNames =>
+  let argTys := args.map Binder.WithTypeVars.ty
+  let ty : TinyML.Typ := .arrow argTys retTy (some s)
+  match TinyML.Typ.checkWf env.signature env.typeDeclarations ty with
+  | .error msg => SeqM.fatal msg
+  | .ok () => do
+    SeqM.check do
+      VerifM.persist
+      Spec.implement env.signature argTys s fun argVars ghostVars => do
+        let Gf' ← ValDecl.ghostSelf env.signature Gf self decreases ty s argVars ghostVars
+        env.lemmas.assumeInstance self.name argVars
+        let se ← compileGhostExpr env
+          (ghostBodyScope Gf' argNames argVars argTys s.ghost ghostVars) body
+        VerifM.expectEq "fix: body type does not match the return type" body.ty retTy
+        pure se
+    pure (f, ⟨ty, none⟩)
+
+/-- Check a ghost declaration against the specification it was written with. -/
+def ValDecl.checkGhost (env : Verifier.Env) (Gf : GhostFunctions) (d : Typed.ValDecl) :
+    SeqM (TinyML.Var × GhostFunctions.Entry) :=
+  match d.name.name, d.body with
+  | none, _ => SeqM.fatal "a ghost declaration must be named"
+  | some f, .fix self args retTy (some s) body =>
+      ValDecl.prove env Gf f self args retTy body s d.decreases
+  | some _, _ => SeqM.fatal "a ghost declaration must be a specified function"
+
+/-- `$` is not an identifier character, so no name in the source collides. -/
+private def fnResultName : String := "$result"
+
+/-- What the body of a `[@@fn ghost]` declaration must prove: the spec-level
+    function is defined at the argument, and its value is the one the body
+    returns. The precondition is empty, so a call proves nothing. -/
+def Spec.ofRelation (rel : SpecFn) (arg : String) : Spec TinyML.Typ :=
+  { args := [arg], ghost := [],
+    pred := .ret ⟨fnResultName,
+      .assert (SpecFn.isDefined rel (.var .value arg))
+        (.assert (.eq .value (.var .value fnResultName) (SpecFn.call rel (.var .value arg)))
+          (.ret ()))⟩ }
+
+/-- Make a spec-level function callable from ghost code, with its own body as
+    the proof. A declaration without the `ghost` payload gets no entry. -/
+def ValDecl.checkGhostFn (env : Verifier.Env) (Gf : GhostFunctions) (d : Typed.ValDecl) : SeqM GhostFunctions :=
+  match d.relation with
+  | some ⟨rel, true, _⟩ =>
+    match d.name.name, d.body with
+    | some f, .fix self [⟨some x, xty⟩] retTy _ body => do
+      let entry ← ValDecl.prove env Gf f self [⟨some x, xty⟩] retTy body
+        (Spec.ofRelation rel x) d.decreases
+      pure [entry]
+    | _, _ => SeqM.fatal
+        s!"[@@fn ghost] requires a named function of one named argument: {rel}"
+  | _ => pure []
+
+/-- The unfolding function an opaque declaration publishes: its withheld fact,
+    at its own argument type. -/
+def ValDecl.publish (env : Verifier.Env) (d : Typed.ValDecl) :
+    SeqM GhostFunctions :=
+  match d.relation with
+  | some r =>
+    match r.transparency with
+    | .transparent => pure []
+    | .opaque =>
+      match env.lemmas.ofDeclaration d.name.name, d.name.ty with
+      | some l, .arrow [ty] _ _ =>
+        match l.publish env.signature r.unfoldName ty with
+        | .ok entry => do
+          SeqM.ofExcept (TinyML.Typ.checkWf env.signature env.typeDeclarations entry.2.ty)
+          pure [entry]
+        | .error msg => SeqM.fatal msg
+      | _, _ => SeqM.fatal
+          s!"[@@opaque] requires a unary function that withholds its equation: {r.name}"
+  | none => pure []
+
+/-- The ghost entries a declaration contributes: the function `[@@fn ghost]`
+    makes callable, and the unfolding function `[@@opaque]` publishes. -/
+def ValDecl.ghostEntries (env : Verifier.Env) (Gf : GhostFunctions) (d : Typed.ValDecl) :
+    SeqM GhostFunctions := do
+  let fn ← ValDecl.checkGhostFn env Gf d
+  let unf ← ValDecl.publish env d
+  pure (fn ++ unf)
+
+/-- The body's scope holds its parameters and nothing else, so its typing
+    invariant comes entirely from the arguments the specification relates. -/
+private theorem ValDecl.checkGhostBody_correct (env : Verifier.Env) (W : TinyML.World)
+    (henv : env.wf W) (Gf : GhostFunctions)
+    (s : Spec TinyML.Typ) (argTys : List TinyML.Typ) (retTy : TinyML.Typ) (body : Expr)
+    (argNames : List String) (vs gs : List Runtime.Val) (Φ : Runtime.Val → iProp)
+    (f : Option TinyML.Var)
+    {argVars ghostVars : List Decl.Const} {st' : State} {ρ' : Env} {Q : iProp}
+    (hag : W.agrees st'.decls ρ')
+    (hGf : GhostFunctions.wellTyped W st'.decls ρ' Gf)
+    (hlen_args : argNames.length = argTys.length)
+    (hargVars_mem : ∀ v ∈ argVars, v ∈ st'.decls.consts)
+    (hargVars_sort : ∀ v ∈ argVars, v.sort = .value)
+    (hargVars_lookup : List.Forall₂ (fun av val => ρ'.consts .value av.name = val) argVars vs)
+    (hghostVars_mem : ∀ v ∈ ghostVars, v ∈ st'.decls.consts)
+    (hghostVars_sort : ∀ v ∈ ghostVars, v.sort = .value)
+    (hghostVars_lookup : List.Forall₂ (fun gv val => ρ'.consts .value gv.name = val) ghostVars gs)
+    (hbody_eval : VerifM.eval
+        (do
+          env.lemmas.assumeInstance f argVars
+          let se ← compileGhostExpr env
+            (ghostBodyScope Gf argNames argVars argTys s.ghost ghostVars) body
+          VerifM.expectEq "fix: body type does not match the return type" body.ty retTy
+          pure se)
+        st' ρ'
+        (fun result st'' ρ'' => ∀ X, result.wfIn st''.decls →
+          st''.sl W ρ'' ∗ Q ∗
+            ((TinyML.ValHasType W (result.eval ρ'') retTy -∗ Φ (result.eval ρ'')) -∗ X) ⊢ X)) :
+    st'.sl W ρ' ∗ TinyML.ValsHaveTypes W vs argTys ∗
+      TinyML.ValsHaveTypes W gs (s.ghost.map Prod.snd) ∗ Q ⊢ |==> ∃ v, Φ v := by
+  obtain ⟨φs, hbody_eval⟩ := Lemmas.assumeInstance_correct henv.world henv.lemmas hag
+    hargVars_mem hargVars_sort (VerifM.eval_bind hbody_eval)
+  -- `sl` does not use the assertions, so `st₀.sl` is `st'.sl`.
+  set st₀ : State := { st' with asserts := φs ++ st'.asserts }
+  have hcompile := VerifM.eval_bind hbody_eval
+  iintro ⟨Howns, #Hvals, #Hgvals, HQ⟩
+  ihave %hlen_vals := TinyML.ValsHaveTypes.length_eq $$ Hvals
+  ihave %hlen_gvals := TinyML.ValsHaveTypes.length_eq $$ Hgvals
+  have hlen_av := hargVars_lookup.length_eq
+  have hlen_gv := hghostVars_lookup.length_eq
+  simp only [List.length_map] at hlen_gvals
+  have hS := (Scope.wfIn_ghostFns (Γ := TinyML.TyCtx.empty) (γg := Runtime.Subst.id)
+    (γ := Runtime.Subst.id) hag hGf).bindParameters (names := argNames) (tys := argTys)
+    (ghost := s.ghost) (by omega) (by omega) (by omega) hargVars_mem
+    hargVars_sort hargVars_lookup hghostVars_mem hghostVars_sort hghostVars_lookup
+  have hbody := compileGhostExpr_correct body env W _ _ _ (st := st₀) (R := Q) (Φ := Φ) henv hS
+    (VerifM.eval.decls_grow ρ' hcompile) (by
+      intro v st'' ρ'' t hΨ ht_wf ht_eval
+      obtain ⟨_, _, hΨ⟩ := hΨ
+      obtain ⟨hsub, hΨ⟩ := VerifM.eval_bind_expectEq hΨ
+      have hΨ' := VerifM.eval_ret hΨ
+      rw [← ht_eval]
+      refine (show st''.sl W ρ'' ∗ TinyML.ValHasType W (t.eval ρ'') body.ty ∗ Q ⊢
+          st''.sl W ρ'' ∗ Q ∗
+            ((TinyML.ValHasType W (t.eval ρ'') retTy -∗ Φ (t.eval ρ'')) -∗
+              Φ (t.eval ρ'')) from ?_).trans (hΨ' _ ht_wf)
+      iintro ⟨Howns', Hty, HQ'⟩
+      iframe Howns' HQ'
+      iintro Hwand
+      iapply Hwand
+      rw [← hsub]
+      iexact Hty)
+  iapply hbody
+  isplitl [Howns]
+  · iapply (show st'.sl W ρ' ⊢ st₀.sl W ρ' from .rfl)
+    iexact Howns
+  isplitr [HQ]
+  · iapply (Scope.typed_bindParameters (by omega) hlen_av (by omega)
+      hlen_gv)
+    isplitl []
+    · iapply Scope.typed_ghostFns
+    · iframe # ∗
+  · iexact HQ
+
+omit [MicaGS HasLC.hasLC Sig] in
+private theorem constTerms_eval {ρ : Env} :
+    ∀ {vars : List Decl.Const} {vals : List Runtime.Val},
+      List.Forall₂ (fun av val => ρ.consts .value av.name = val) vars vals →
+      Term.evalList ρ (vars.map fun c => Term.const (.uninterpreted c.name .value)) vals
+  | [], _, h => by cases h; exact .nil
+  | a :: rest, _, h => by
+    cases h with
+    | cons hhead htail =>
+      exact .cons (by simpa [Term.eval, Const.eval] using hhead) (constTerms_eval htail)
+
+omit [MicaGS HasLC.hasLC Sig] in
+/-- Argument constants keep their values as the verifier state grows. -/
+private theorem constLookups_agreeOn {Δ : Signature} {ρ ρ' : Env}
+    (hagree : Env.agreeOn Δ ρ ρ') :
+    ∀ {vars : List Decl.Const} {vals : List Runtime.Val},
+      (∀ v ∈ vars, v ∈ Δ.consts) → (∀ v ∈ vars, v.sort = .value) →
+      List.Forall₂ (fun av val => ρ.consts .value av.name = val) vars vals →
+      List.Forall₂ (fun av val => ρ'.consts .value av.name = val) vars vals
+  | [], _, _, _, h => by cases h; exact .nil
+  | a :: rest, _, hmem, hsort, h => by
+    cases h with
+    | cons hhead htail =>
+      refine .cons ?_ (constLookups_agreeOn hagree
+        (fun c hc => hmem c (.tail _ hc)) (fun c hc => hsort c (.tail _ hc)) htail)
+      have hc := hagree.consts a (hmem a (.head _))
+      rw [hsort a (.head _)] at hc
+      rw [← hc]; exact hhead
+
+/-- One rank of a ghost declaration's guarantee. `bodyGf` installs the ghost
+    functions the body may call, which is where the recursive occurrence comes
+    from. -/
+private theorem ValDecl.checkGhostRank_correct (env : Verifier.Env) (W : TinyML.World)
+    (henv : env.wf W) (argTys : List TinyML.Typ) (retTy : TinyML.Typ) (s : Spec TinyML.Typ) (body : Expr)
+    (argNames : List String)
+    (μ : List Runtime.Val → List Runtime.Val → Nat) (k : Nat)
+    (bodyGf : List Decl.Const → List Decl.Const → VerifM GhostFunctions) (f : Option TinyML.Var)
+    (hswf : s.wfIn W.Δ_spec) (hslen : s.args.length = argTys.length)
+    (hlen_args : argNames.length = argTys.length)
+    {st : State} {ρ : Env} (hag : W.agrees st.decls ρ) (howns : st.owns = [])
+    (himpl : VerifM.eval (Spec.implement W.Δ_spec argTys s (fun argVars ghostVars => do
+          let Gf' ← bodyGf argVars ghostVars
+          env.lemmas.assumeInstance f argVars
+          let se ← compileGhostExpr env
+            (ghostBodyScope Gf' argNames argVars argTys s.ghost ghostVars) body
+          VerifM.expectEq "fix: body type does not match the return type" body.ty retTy
+          pure se)) st ρ (fun _ _ _ => True))
+    (hbodyGf : ∀ (vs gs : List Runtime.Val) (argVars ghostVars : List Decl.Const)
+        (st' : State) (ρ' : Env) (Ψ : GhostFunctions → State → Env → Prop),
+      st.decls.Subset st'.decls → Env.agreeOn st.decls ρ ρ' →
+      (∀ v ∈ argVars, v ∈ st'.decls.consts) → (∀ v ∈ argVars, v.sort = .value) →
+      List.Forall₂ (fun av val => ρ'.consts .value av.name = val) argVars vs →
+      (∀ v ∈ ghostVars, v ∈ st'.decls.consts) → (∀ v ∈ ghostVars, v.sort = .value) →
+      List.Forall₂ (fun gv val => ρ'.consts .value gv.name = val) ghostVars gs →
+      vs.length = argTys.length → gs.length = s.ghost.length → μ vs gs < k →
+      VerifM.eval (bodyGf argVars ghostVars) st' ρ' Ψ →
+      ∃ Gf' st'' ρ'', st'.decls.Subset st''.decls ∧ Env.agreeOn st'.decls ρ' ρ'' ∧
+        (st'.sl W ρ' ⊢ st''.sl W ρ'') ∧ GhostFunctions.wellTyped W st''.decls ρ'' Gf' ∧
+        Ψ Gf' st'' ρ'') :
+    ⊢ Spec.isGhostPrecondForAt W (TinyML.ValHasType W) argTys retTy s μ k := by
+  unfold Spec.isGhostPrecondForAt
+  istart
+  imodintro
+  iintro %ρ_call %Φ %vs %gs %hagree_call %hlen_vs %hlen_gs %hrank #Hvals #Hgvals Hpred
+  ihave Hwand := Spec.implement_correct W argTys retTy s _ st ρ vs gs Φ
+    iprop(TinyML.ValsHaveTypes W vs argTys -∗
+      TinyML.ValsHaveTypes W gs (s.ghost.map Prod.snd) -∗ |==> ∃ v, Φ v)
+    hslen (by omega) hswf henv.world hag himpl
+    (fun argVars ghostVars st' ρ' Q hst_sub hρ_agree hargVars_mem hargVars_sort hargVars_lookup
+        hghostVars_mem hghostVars_sort hghostVars_lookup hbody_eval => by
+      obtain ⟨Gf', st'', ρ'', hst_sub', hρ_agree', hsl_step, hGf', hrest⟩ :=
+        hbodyGf vs gs argVars ghostVars st' ρ' _ hst_sub hρ_agree
+          hargVars_mem hargVars_sort hargVars_lookup
+          hghostVars_mem hghostVars_sort hghostVars_lookup hlen_vs hlen_gs hrank
+          (VerifM.eval_bind hbody_eval)
+      iintro ⟨Hsl, HQ⟩ Htyped Hgtyped
+      iapply (ValDecl.checkGhostBody_correct env W henv Gf' s argTys retTy body argNames vs gs Φ
+        f (hag.step (hst_sub.trans hst_sub') (Env.agreeOn_trans hρ_agree
+          (Env.agreeOn_mono hst_sub hρ_agree')))
+        hGf' hlen_args
+        (fun v hv => hst_sub'.consts v (hargVars_mem v hv)) hargVars_sort
+        (constLookups_agreeOn hρ_agree' hargVars_mem hargVars_sort hargVars_lookup)
+        (fun v hv => hst_sub'.consts v (hghostVars_mem v hv)) hghostVars_sort
+        (constLookups_agreeOn hρ_agree' hghostVars_mem hghostVars_sort hghostVars_lookup)
+        hrest)
+      isplitl [Hsl]
+      · iapply hsl_step
+        iexact Hsl
+      · isplitl [Htyped]
+        · iexact Htyped
+        · isplitl [Hgtyped]
+          · iexact Hgtyped
+          · iexact HQ) $$ [Hpred]
+  · isplitl []
+    · simp [State.sl, howns]
+      iempintro
+    · isplitl []
+      · iexact Hvals
+      · isplitl []
+        · iexact Hgvals
+        · have hlen_call : s.allArgs.length ≤ (vs ++ gs).length := by
+            simp [Spec.allArgs]; omega
+          iapply (PredTrans.apply_agreeOn (TinyML.ValHasType W)
+            (ρ := Spec.argsEnv ρ_call s.allArgs (vs ++ gs))
+            (ρ' := Spec.argsEnv W.ρ_spec s.allArgs (vs ++ gs)) hswf
+            (Spec.argsEnv_agreeOn (Δ := W.Δ_spec) (ρ₁ := ρ_call) (ρ₂ := W.ρ_spec)
+              (Env.agreeOn_symm hagree_call) s.allArgs (vs ++ gs) hlen_call))
+          iexact Hpred
+  ispecialize Hwand $$ [Hvals]
+  · iexact Hvals
+  ispecialize Hwand $$ [Hgvals]
+  · iexact Hgvals
+  iexact Hwand
+
+/-- The recursion is justified by strong induction on the rank the declaration's
+    measure gives its arguments. -/
+theorem ValDecl.prove_correct (env : Verifier.Env) (W : TinyML.World) (henv : env.wf W)
+    (Gf : GhostFunctions) (f : TinyML.Var) (self : Binder) (args : List Binder)
+    (retTy : TinyML.Typ) (body : Expr) (s : Spec TinyML.Typ)
+    (decreases : Option Typed.Measure)
+    {st : State} {ρ : Env} (hag : W.agrees st.decls ρ)
+    (hGf : GhostFunctions.wellTyped W st.decls ρ Gf)
+    {Q : (TinyML.Var × GhostFunctions.Entry) → State → Env → Prop}
+    (heval : SeqM.eval (ValDecl.prove env Gf f self args retTy body s decreases) st ρ Q) :
+    ∃ entry, GhostFunctions.wfIn W.Δ_spec W.Θ [entry] ∧ GhostFunctions.wellTyped W st.decls ρ [entry] ∧
+      Q entry st ρ := by
+  obtain ⟨reg, Θ, Δ, ls, fns, lfs, gls⟩ := env
+  obtain ⟨-, -, -, rfl, rfl, -, -, -⟩ := id henv
+  simp only [ValDecl.prove] at heval
+  cases hext : extractArgNames args s.args with
+    | error msg => simp only [hext] at heval; exact (SeqM.eval_fatal heval).elim
+    | ok argNames =>
+    simp only [hext] at heval
+    cases hcheck : TinyML.Typ.checkWf W.Δ_spec W.Θ
+        (.arrow (args.map Binder.WithTypeVars.ty) retTy (some s)) with
+    | error msg => simp only [hcheck] at heval; exact (SeqM.eval_fatal heval).elim
+    | ok u =>
+    cases u
+    simp only [hcheck] at heval
+    obtain ⟨hargNames_len, hargs_len, _⟩ := extractArgNames_spec hext
+    have htywf := TinyML.Typ.checkWf_ok _ hcheck
+    have hswf : s.wfIn W.Δ_spec := by cases htywf; assumption
+    have hslen : s.args.length = (args.map Binder.WithTypeVars.ty).length := by
+      simpa using hargs_len.symm
+    have hlen_args : argNames.length = (args.map Binder.WithTypeVars.ty).length := by
+      simpa using hargNames_len.trans hargs_len.symm
+    obtain ⟨himpl_seq, hcont⟩ := SeqM.eval_check (SeqM.eval_bind heval)
+    have himpl := VerifM.eval_persist (VerifM.eval_bind himpl_seq)
+    have hag' : W.agrees (State.persist st).decls ρ := hag
+    have hGf' : GhostFunctions.wellTyped W (State.persist st).decls ρ Gf := hGf
+    refine ⟨(f, ⟨.arrow (args.map Binder.WithTypeVars.ty) retTy (some s), none⟩),
+      fun p hp => by cases List.mem_singleton.mp hp; exact ⟨rfl, htywf⟩, ?_,
+      SeqM.eval_ret hcont⟩
+    intro η f' argTys' retTy' s' guard' hlookup
+    by_cases hf : f' = f
+    · subst hf
+      simp only [List.lookup, beq_self_eq_true, Option.some.injEq,
+        GhostFunctions.Entry.mk.injEq] at hlookup
+      obtain ⟨hty, hguard⟩ := hlookup
+      cases hty; cases hguard
+      have hpersist_owns : (State.persist st).owns = [] := rfl
+      cases hself : self.name with
+      | none =>
+        refine Spec.isGhostPrecondFor.induction_eta (fun _ _ => 0) ?_ η
+        intro k η' _
+        refine ValDecl.checkGhostRank_correct _ { W with eta := η' } (henv.eta η') _ retTy s body
+          argNames _ k _ self.name hswf hslen hlen_args (hag'.eta η') hpersist_owns himpl ?_
+        intro vs gs argVars ghostVars st₁ ρ₁ Ψ hst_sub hρ_agree _ _ _ _ _ _ _ _ _ hev
+        simp only [ValDecl.ghostSelf, hself] at hev
+        exact ⟨_, st₁, ρ₁, Signature.Subset.refl _, Env.agreeOn_refl, .rfl,
+          GhostFunctions.wellTyped.eta (hGf'.step hst_sub hρ_agree (VerifM.eval.wf hev).namesDisjoint),
+          VerifM.eval_ret hev⟩
+      | some g =>
+        cases hdec : decreases with
+        | none =>
+          refine Spec.isGhostPrecondFor.induction_eta (fun _ _ => 0) ?_ η
+          intro k η' _
+          refine ValDecl.checkGhostRank_correct _ { W with eta := η' } (henv.eta η') _ retTy s body
+            argNames _ k _ self.name hswf hslen hlen_args (hag'.eta η') hpersist_owns himpl ?_
+          intro vs gs argVars ghostVars st₁ ρ₁ Ψ _ _ _ _ _ _ _ _ _ _ _ hev
+          simp only [ValDecl.ghostSelf, hself, hdec] at hev
+          exact (VerifM.eval_fatal hev).elim
+        | some measure =>
+          refine Spec.isGhostPrecondFor.induction_eta (measure.denote s W.ρ_spec) ?_ η
+          intro k η' ih
+          refine ValDecl.checkGhostRank_correct _ { W with eta := η' } (henv.eta η') _ retTy s body
+            argNames _ k _ self.name hswf hslen hlen_args (hag'.eta η') hpersist_owns himpl ?_
+          intro vs gs argVars ghostVars st₁ ρ₁ Ψ hst_sub hρ_agree hargVars_mem hargVars_sort
+            hargVars_lookup hghostVars_mem hghostVars_sort hghostVars_lookup hlen_vs hlen_gs
+            hrank hev
+          have hag₁ : W.agrees st₁.decls ρ₁ := hag'.step hst_sub hρ_agree
+          have hlen_call : s.allArgs.length ≤ (vs ++ gs).length := by
+            simp [Spec.allArgs]; omega
+          have hlen_terms : s.allArgs.length =
+              ((argVars ++ ghostVars).map fun c =>
+                (Term.const (.uninterpreted c.name .value) : Term .value)).length := by
+            have h₁ := hargVars_lookup.length_eq
+            have h₂ := hghostVars_lookup.length_eq
+            simp [Spec.allArgs]; omega
+          have hterms_eval : Term.evalList ρ₁
+              ((argVars ++ ghostVars).map fun c =>
+                (Term.const (.uninterpreted c.name .value) : Term .value)) (vs ++ gs) := by
+            rw [List.map_append]
+            exact List.rel_append (constTerms_eval hargVars_lookup)
+              (constTerms_eval hghostVars_lookup)
+          simp only [ValDecl.ghostSelf, hself, hdec, GhostFunctions.Guard.declare] at hev
+          cases hmwf : measure.term.checkWf (W.Δ_spec.declVars (Spec.argVars s.allArgs)) with
+          | error msg => rw [hmwf] at hev; exact (VerifM.eval_fatal hev).elim
+          | ok u =>
+          cases u
+          rw [hmwf] at hev
+          have hmeasure_wf : measure.term.wfIn (W.Δ_spec.declVars (Spec.argVars s.allArgs)) :=
+            Term.checkWf_ok hmwf
+          have hev := VerifM.eval_decls (VerifM.eval_bind hev)
+          set m := measure.term.subst (Spec.argSubst Subst.id s.allArgs
+            ((argVars ++ ghostVars).map fun c =>
+              (Term.const (.uninterpreted c.name .value) : Term .value))) with hm_def
+          cases hmwf₂ : m.checkWf st₁.decls with
+          | error msg => rw [hmwf₂] at hev; exact (VerifM.eval_fatal hev).elim
+          | ok u =>
+          cases u
+          rw [hmwf₂] at hev
+          have hm_wf : m.wfIn st₁.decls := Term.checkWf_ok hmwf₂
+          have hstwf : st₁.decls.wf := (VerifM.eval.wf hev).namesDisjoint
+          have hownsWf := (VerifM.eval.wf hev).ownsWf
+          set rv := st₁.freshConst (some "rank") .int with hrv_def
+          have hfresh : rv.name ∉ st₁.decls.allNames := st₁.freshConst_fresh (some "rank") .int
+          have hev := VerifM.eval_define (VerifM.eval_bind hev) hm_wf
+          set st₂ : State := { st₁ with decls := st₁.decls.addConst rv } with hst₂_def
+          set ρ₂ := ρ₁.updateConst .int rv.name (Term.eval ρ₁ m) with hρ₂_def
+          have hsub₂ : st₁.decls.Subset st₂.decls := Signature.Subset.subset_addConst _ _
+          have hagree₂ : Env.agreeOn st₁.decls ρ₁ ρ₂ := Env.agreeOn_update_fresh_const hfresh
+          have hr_wf : (Term.const (.uninterpreted rv.name .int) : Term .int).wfIn st₂.decls :=
+            Term.const_wfIn_addConst_of_fresh (Δ := st₁.decls) (c := rv) hstwf hfresh
+          have hrank_eq : (Term.eval ρ₂ (Term.const (.uninterpreted rv.name .int))).toNat =
+              measure.denote s W.ρ_spec vs gs := by
+            simp only [Term.eval_const_updateConst, hρ₂_def, Typed.Measure.denote]
+            rw [Spec.eval_argSubst (Δ := W.Δ_spec) hlen_terms hterms_eval measure.term hmeasure_wf,
+              Term.eval_agreeOn hmeasure_wf (Spec.argsEnv_agreeOn (Δ := W.Δ_spec)
+                (Env.agreeOn_symm hag₁.agree) s.allArgs (vs ++ gs) hlen_call)]
+          have hΨ := VerifM.eval_ret hev
+          refine ⟨_, _, ρ₂, ?_, hagree₂, ?_, ?_, hΨ⟩
+          · exact hsub₂
+          · exact (SpatialContext.interp_agreeOn _ hownsWf hagree₂).1
+          intro η'' f'' argTys'' retTy'' s'' guard'' hlookup''
+          by_cases hg : f'' = g
+          · subst hg
+            simp only [List.lookup, beq_self_eq_true, Option.some.injEq,
+              GhostFunctions.Entry.mk.injEq] at hlookup''
+            obtain ⟨hty'', hguard''⟩ := hlookup''
+            cases hty''; cases hguard''
+            refine ⟨hr_wf, hmeasure_wf, ?_⟩
+            rw [hrank_eq]
+            exact ih _ hrank η''
+          · have hne : (f'' == g) = false := by simpa using hg
+            rw [List.lookup, hne] at hlookup''
+            exact GhostFunctions.wellTyped.eta
+              (hGf'.step (hst_sub.trans hsub₂) (Env.agreeOn_trans hρ_agree
+                (Env.agreeOn_mono hst_sub hagree₂)) (Signature.wf_addConst hstwf hfresh))
+              η'' f'' argTys'' retTy'' s'' guard'' hlookup''
+    · have hne : (f' == f) = false := by simpa using hf
+      rw [List.lookup, hne] at hlookup
+      simp at hlookup
+
+theorem ValDecl.checkGhost_correct (env : Verifier.Env) (W : TinyML.World) (henv : env.wf W)
+    (Gf : GhostFunctions) (d : Typed.ValDecl)
+    {st : State} {ρ : Env} (hag : W.agrees st.decls ρ)
+    (hGf : GhostFunctions.wellTyped W st.decls ρ Gf)
+    {Q : (TinyML.Var × GhostFunctions.Entry) → State → Env → Prop}
+    (heval : SeqM.eval (ValDecl.checkGhost env Gf d) st ρ Q) :
+    ∃ entry, GhostFunctions.wfIn W.Δ_spec W.Θ [entry] ∧ GhostFunctions.wellTyped W st.decls ρ [entry] ∧
+      Q entry st ρ := by
+  simp only [ValDecl.checkGhost] at heval
+  split at heval
+  · exact (SeqM.eval_fatal heval).elim
+  · exact ValDecl.prove_correct env W henv Gf _ _ _ _ _ _ d.decreases hag hGf heval
+  · exact (SeqM.eval_fatal heval).elim
+
+theorem ValDecl.checkGhostFn_correct (env : Verifier.Env) (W : TinyML.World) (henv : env.wf W)
+    (Gf : GhostFunctions) (d : Typed.ValDecl)
+    {st : State} {ρ : Env} (hag : W.agrees st.decls ρ)
+    (hGf : GhostFunctions.wellTyped W st.decls ρ Gf)
+    {Q : GhostFunctions → State → Env → Prop}
+    (heval : SeqM.eval (ValDecl.checkGhostFn env Gf d) st ρ Q) :
+    ∃ fn, GhostFunctions.wfIn W.Δ_spec W.Θ fn ∧ GhostFunctions.wellTyped W st.decls ρ fn ∧ Q fn st ρ := by
+  simp only [ValDecl.checkGhostFn] at heval
+  cases hrel : d.relation with
+  | none => simp only [hrel] at heval; exact ⟨[], nofun, GhostFunctions.wellTyped.empty W _ ρ,
+      SeqM.eval_ret heval⟩
+  | some rel =>
+    obtain ⟨relName, ghost, _⟩ := rel
+    cases ghost with
+    | false =>
+      simp only [hrel] at heval
+      exact ⟨[], nofun, GhostFunctions.wellTyped.empty W _ ρ, SeqM.eval_ret heval⟩
+    | true =>
+      simp only [hrel] at heval
+      cases hname : d.name.name with
+      | none => simp only [hname] at heval; exact (SeqM.eval_fatal heval).elim
+      | some f =>
+        cases hbody : d.body with
+        | fix self args retTy spec body =>
+          match args, hbody with
+          | [⟨some x, xty⟩], hbody =>
+            simp only [hname, hbody] at heval
+            obtain ⟨entry, hwf, hentry, hQ⟩ := ValDecl.prove_correct env W henv Gf f self
+              [⟨some x, xty⟩] retTy body (Spec.ofRelation relName x) d.decreases hag hGf heval
+            exact ⟨[entry], hwf, hentry, hQ⟩
+          | [], hbody | ⟨none, _⟩ :: _, hbody | _ :: _ :: _, hbody =>
+            simp only [hname, hbody] at heval; exact (SeqM.eval_fatal heval).elim
+        | _ => simp only [hname, hbody] at heval; exact (SeqM.eval_fatal heval).elim
+
+theorem ValDecl.publish_correct (env : Verifier.Env) (W : TinyML.World) (henv : env.wf W)
+    (d : Typed.ValDecl) {st : State} {ρ : Env}
+    {Q : GhostFunctions → State → Env → Prop}
+    (heval : SeqM.eval (ValDecl.publish env d) st ρ Q) :
+    ∃ unf, GhostFunctions.wfIn W.Δ_spec W.Θ unf ∧ GhostFunctions.wellTyped W st.decls ρ unf ∧
+      Q unf st ρ := by
+  simp only [ValDecl.publish] at heval
+  cases hrel : d.relation with
+  | none => simp only [hrel] at heval
+            exact ⟨[], nofun, GhostFunctions.wellTyped.empty W _ ρ, SeqM.eval_ret heval⟩
+  | some r =>
+    simp only [hrel] at heval
+    cases ht : r.transparency with
+    | transparent => simp only [ht] at heval
+                     exact ⟨[], nofun, GhostFunctions.wellTyped.empty W _ ρ, SeqM.eval_ret heval⟩
+    | «opaque» =>
+      simp only [ht] at heval
+      split at heval
+      · rename_i l ty _ _ hl _
+        split at heval
+        · rename_i entry hp
+          obtain ⟨u, hok, heval⟩ := SeqM.eval_ofExcept (SeqM.eval_bind heval)
+          cases u
+          refine ⟨[entry], fun p hp' => ?_,
+            Lemma.publish_wellTyped W st.decls ρ (Lemmas.ofDeclaration_sound henv.lemmas hl)
+              (henv.signature ▸ hp),
+            SeqM.eval_ret heval⟩
+          cases List.mem_singleton.mp hp'
+          refine ⟨Lemma.publish_guard hp, ?_⟩
+          rw [henv.signature, henv.typeDeclarations]
+          exact TinyML.Typ.checkWf_ok _ hok
+        · exact (SeqM.eval_fatal heval).elim
+      · exact (SeqM.eval_fatal heval).elim
+
+theorem ValDecl.ghostEntries_correct (env : Verifier.Env) (W : TinyML.World) (henv : env.wf W)
+    (Gf : GhostFunctions) (d : Typed.ValDecl)
+    {st : State} {ρ : Env} (hag : W.agrees st.decls ρ)
+    (hGf : GhostFunctions.wellTyped W st.decls ρ Gf)
+    {Q : GhostFunctions → State → Env → Prop}
+    (heval : SeqM.eval (ValDecl.ghostEntries env Gf d) st ρ Q) :
+    ∃ fn, GhostFunctions.wfIn W.Δ_spec W.Θ fn ∧ GhostFunctions.wellTyped W st.decls ρ fn ∧ Q fn st ρ := by
+  simp only [ValDecl.ghostEntries] at heval
+  obtain ⟨fn, hfnwf, hfn, heval⟩ :=
+    ValDecl.checkGhostFn_correct env W henv Gf d hag hGf (SeqM.eval_bind heval)
+  obtain ⟨unf, hunfwf, hunf, heval⟩ :=
+    ValDecl.publish_correct env W henv d (SeqM.eval_bind heval)
+  exact ⟨fn ++ unf, GhostFunctions.wfIn_append hfnwf hunfwf, hfn.append hunf, SeqM.eval_ret heval⟩
+
+end GhostDeclarations
+
+namespace Verifier
+
+open Typed (SpecEnv)
+
+/-! ## Elaboration -/
 
 /-- Encode one typechecked specification leaf into its value term and definedness
 condition. The encoder environment is the identity over the spec-level names in
@@ -43,380 +628,6 @@ private def translateLeaf (primitives : PrimEncodings) (Δ : Signature)
     (Δ.allNames ++ names)
   let dv := Verifier.RelationalEncoding.Expr.toDefVal .id c
   .ok (dv.value, dv.defined)
-
-namespace Verifier.Env
-
-open Verifier.RelationalEncoding
-
-private structure RelationDecl where
-  env : Env
-  sd : SpecDef
-  axs : List Axiom
-  bv : Skolemize.DefVal
-
-/-- A specification on the literal is `[@@impl]`'s, which states the result
-against this very axiomatization; the frontend rejects every other pairing of
-`[@@fn]` with a specification. -/
-private def validateDecl (d : Typed.ValDecl) :
-    Except String (TinyML.Var × TinyML.Var × Typed.Expr) := do
-  let f ← match d.name.name with
-    | some f => .ok f
-    | none => .error s!"[@@fn] requires a named declaration"
-  match d.body with
-  | .fix _ [arg] _ _ body =>
-    match arg.name with
-    | some x => .ok (f, x, body)
-    | none => .error s!"[@@fn] requires a named unary argument"
-  | .fix _ _ _ _ _ => .error s!"[@@fn] requires a unary function"
-  | _ => .error s!"[@@fn] requires a function body"
-
-private def extend (env : Env) (d : Typed.ValDecl) : Except String RelationDecl := do
-  match d.relation with
-  | none => .error "internal error: expected relation declaration"
-  | some r => do
-      let rel := r.name
-      let (f, arg, body) ← validateDecl d
-      let relName := SpecFn.relName rel
-      let funName := SpecFn.funcName rel
-      let defName := SpecFn.defName rel
-      if relName ∈ env.signature.allNames then
-        .error s!"derived relation name '{relName}' for [@@fn] conflicts with an existing symbol"
-      else if funName ∈ env.signature.allNames then
-        .error s!"derived value-function name '{funName}' for [@@fn] conflicts with an existing symbol"
-      else if defName ∈ env.signature.allNames then
-        .error s!"derived definedness name '{defName}' for [@@fn] conflicts with an existing symbol"
-      else if arg ∈ env.signature.allNames then
-        .error s!"[@@fn] argument name '{arg}' conflicts with a global symbol"
-      else if arg = relName then
-        .error s!"[@@fn] argument name '{arg}' clashes with derived relation name"
-      else if arg = funName then
-        .error s!"[@@fn] argument name '{arg}' clashes with derived value-function name"
-      else if arg = defName then
-        .error s!"[@@fn] argument name '{arg}' clashes with derived definedness name"
-      else
-        let sd : SpecDef :=
-          { primitives := env.registry.primitives, Γ := env.specFunctions, Δ := env.signature,
-            f, fn := rel, x := arg, e := body }
-        let (bv, axs) ← Skolemize.encode sd
-        let lemmas := match r.transparency with
-          | .transparent => env.lemmas
-          | .opaque => env.lemmas ++
-              [{ kind := .definingEquation f,
-                 fact := Skolemize.SpecFn.Axioms.equation rel arg bv }]
-        let env' := { env with
-                       lemmas,
-                       specFunctions := env.specFunctions ++ [(f, rel)],
-                       signature := ((env.signature.addBinaryRel (SpecFn.rel rel)).addUnary
-                                      (SpecFn.func rel)).addUnaryRel (SpecFn.defined rel) }
-        .ok { env := env', sd, axs, bv }
-
-/-- With a measure the definedness axioms are replaced by a proof: the
-termination check establishes definedness at every input. The check is one of
-the declaration's own proofs, so it runs with the withheld fact. Only the
-totality survives the bracket. -/
-private def RelationDecl.declare (info : RelationDecl) (t : TinyML.Transparency) :
-    Option Typed.Measure → SeqM Unit
-  | none =>
-    SpecFn.declare info.sd.fn
-      (Skolemize.SpecFn.Axioms.persistent false t info.sd.fn info.sd.x info.bv)
-  | some m => do
-    SpecFn.declare info.sd.fn
-      (Skolemize.SpecFn.Axioms.persistent true t info.sd.fn info.sd.x info.bv)
-    SeqM.check do
-      VerifM.assumeAxioms (Skolemize.SpecFn.Axioms.withheld t info.sd.fn info.sd.x info.bv)
-      Termination.check info.sd.fn info.sd.x m info.bv
-    SeqM.assume (Termination.total info.sd.fn info.sd.x)
-
-private def declareAndAssume (env : Env) (d : Typed.ValDecl) : SeqM Env := do
-  match d.relation with
-  | none => pure env
-  | some r =>
-      match extend env d with
-      | .error msg => SeqM.fatal msg
-      | .ok info => do
-          info.declare r.transparency d.decreases
-          pure info.env
-
-/-- Declare a bounded quantifier's solver-facing triple and its defining
-axioms. All freshness and membership conditions needed by the soundness proof
-are checked operationally by `validate`. -/
-private def declareLifting (env : Env) (s : Verifier.BoundedQuantifier.Lifting) : SeqM Env :=
-  match s.validate env.signature with
-  | .error msg => SeqM.fatal msg
-  | .ok _ =>
-      match s.compile env.registry.primitives env.specFunctions env.signature with
-      | .error msg => SeqM.fatal msg
-      | .ok body => do
-          s.declare body
-          pure { env with
-                 specFunctions := env.specFunctions ++ [(s.name, s.name)],
-                 signature := s.extendSignature env.signature }
-
-/-- Compile and declare the lifted bounded quantifiers in lift order. Earlier
-symbols are available while compiling later bodies, which supports nesting. -/
-private def declareLiftings : Env → List Verifier.BoundedQuantifier.Lifting → SeqM Env
-  | env, [] => pure env
-  | env, s :: ss => do
-      let env' ← declareLifting env s
-      declareLiftings env' ss
-
-/-- The invariant threaded through the declaration of spec functions: the signature mirrors the declared
-one, the state is spec-level (no owned locations, no variables), and the spec
-functions are well-formed and interpreted in agreement with their func-form
-reading. -/
-private structure SpecInv (reg : Registry) (Θ : TinyML.TypeEnv) (env : Env) (st : TransState)
-    (ρ : _root_.Env) : Prop where
-  registry : env.registry = reg
-  types : env.typeDeclarations = Θ
-  signature : env.signature = st.decls
-  owns : st.owns = []
-  vars : st.decls.vars = []
-  wf : st.decls.wf
-  Γwf : FunCtx.wfIn env.specFunctions st.decls
-  Γagree : FunCtx.Agreement env.specFunctions ρ
-  lemmas : env.lemmas.Sound st.decls ρ
-
-omit [MicaGS HasLC.hasLC Sig] in
-/-- Declaring one relation-marked declaration preserves `SpecInv`; the signature
-only grows and the environment is only extended with fresh interpretations. -/
-private theorem declareAndAssume_correct {reg : Registry} {Θ : TinyML.TypeEnv}
-    (hlaw : reg.primitives.Lawful) (d : Typed.ValDecl)
-    (env : Env) (st : TransState) (ρ : _root_.Env)
-    {Q : Env → TransState → _root_.Env → Prop}
-    (hinv : SpecInv reg Θ env st ρ)
-    (heval : SeqM.eval (declareAndAssume env d) st ρ Q) :
-    ∃ env' st' ρ', SpecInv reg Θ env' st' ρ' ∧
-      st.decls.Subset st'.decls ∧ Env.agreeOn st.decls ρ ρ' ∧
-      Q env' st' ρ' := by
-  obtain ⟨hreg, htypes, hacc, howns, hvars, hwf, hΓwf, hΓagree, hu⟩ := hinv
-  simp only [declareAndAssume] at heval
-  cases hrel : d.relation with
-  | none =>
-    simp only [hrel] at heval
-    exact ⟨env, st, ρ, ⟨hreg, htypes, hacc, howns, hvars, hwf, hΓwf, hΓagree, hu⟩,
-      Signature.Subset.refl _, Env.agreeOn_refl, SeqM.eval_ret heval⟩
-  | some rel =>
-    simp only [hrel] at heval
-    cases hext : extend env d with
-    | error msg => simp only [hext] at heval; exact (SeqM.eval_fatal heval).elim
-    | ok info =>
-      simp only [hext] at heval
-      -- Unfold `extend` once to expose its construction facts about `info`.
-      obtain ⟨hprimsd, hΓsd, hΔsd, hfnsd, hf, hspec_delta, hspec_fm, hspec_reg, hspec_types,
-          hspec_lemmas, hinfoEq⟩ :
-          info.sd.primitives = env.registry.primitives ∧
-          info.sd.Γ = env.specFunctions ∧ info.sd.Δ = env.signature ∧ info.sd.fn = rel.name ∧
-          SpecFnFresh env.signature rel.name info.sd.x ∧
-          info.env.signature = ((env.signature.addBinaryRel (SpecFn.rel rel.name)).addUnary
-              (SpecFn.func rel.name)).addUnaryRel (SpecFn.defined rel.name) ∧
-          info.env.specFunctions = env.specFunctions ++ [(info.sd.f, rel.name)] ∧
-          info.env.registry = env.registry ∧
-          info.env.typeDeclarations = env.typeDeclarations ∧
-          (∀ l ∈ info.env.lemmas, l ∈ env.lemmas ∨
-            l.fact = Skolemize.SpecFn.Axioms.equation info.sd.fn info.sd.x info.bv) ∧
-          Skolemize.encode info.sd = .ok (info.bv, info.axs) := by
-        unfold extend at hext
-        simp only [hrel, bind, Except.bind] at hext
-        split at hext
-        · cases hext
-        rename_i validated _
-        obtain ⟨f, arg, body⟩ := validated
-        split_ifs at hext with
-          hrel_in hfun_in hdef_in harg_in harg_eq_rel harg_eq_fun harg_eq_def
-        case neg =>
-          split at hext
-          · cases hext
-          rename_i tup hinfoTuple
-          obtain ⟨bv, axs⟩ := tup
-          cases hext
-          refine ⟨rfl, rfl, rfl, rfl, { symFresh := ?_, argFresh := ?_ }, rfl, rfl, rfl, rfl, ?_,
-            hinfoTuple⟩
-          · intro n hn
-            simp only [SpecFn.names, List.mem_cons, List.not_mem_nil, or_false] at hn
-            rcases hn with rfl | rfl | rfl
-            exacts [hrel_in, hfun_in, hdef_in]
-          · simp [SpecFn.names, harg_in, harg_eq_rel, harg_eq_fun, harg_eq_def]
-          · cases rel.transparency with
-            | transparent => exact fun l hl => Or.inl hl
-            | «opaque» =>
-              intro l hl
-              rcases List.mem_append.mp hl with hl | hl
-              · exact Or.inl hl
-              · simp only [List.mem_singleton] at hl
-                subst hl
-                exact Or.inr rfl
-      have hΓwf_acc : FunCtx.wfIn env.specFunctions env.signature := hacc ▸ hΓwf
-      have hΔwf_acc : env.signature.wf := hacc ▸ hwf
-      -- The chosen interpretations: the ground-truth relation and its func-form reading.
-      set R : ValRel := SpecFn.Semantics.rel info.sd ρ
-      set F := ValRel.toFunc R
-      set D : Srt.value.denote → Prop := SpecFn.Semantics.defined info.sd ρ info.bv
-      have hsdFresh : info.sd.Fresh :=
-        SpecDef.fresh (hΔsd ▸ hfnsd ▸ hf)
-      have hlaw' : env.registry.primitives.Lawful := hreg ▸ hlaw
-      have hlawsd : info.sd.primitives.Lawful := hprimsd ▸ hlaw'
-      have hgraph : ∀ a b, R a b ↔ D a ∧ F a = b := fun a b =>
-        Skolemize.encode_agreement hlawsd hinfoEq (hΓsd ▸ hΓagree)
-          (hΓsd ▸ hΔsd ▸ hΓwf_acc) (hΔsd ▸ hΔwf_acc) hsdFresh a b
-      have henv : SpecFn.Env.both ρ rel.name R D F
-          = (SpecFn.Semantics.env info.sd ρ info.bv).updateBinaryRel
-            .value .value (SpecFn.relName rel.name) R := by
-        simp only [SpecFn.Semantics.env, hfnsd]
-        exact SpecFn.Env.both_updateBinaryRel.symm
-      have haxeval : ∀ ax ∈ info.axs,
-          ax.formula.eval (SpecFn.Env.both ρ rel.name R D F) := by
-        rw [henv]
-        rw [← hfnsd]
-        exact Skolemize.encode_eval_updateBinaryRel hlawsd hinfoEq (hΓsd ▸ hΓagree)
-          (hΓsd ▸ hΔsd ▸ hΓwf_acc) (hΔsd ▸ hΔwf_acc) hsdFresh R
-      have hdecl (axs : List Axiom) (hsub : ∀ ax ∈ axs, ax ∈ info.axs)
-          {Q' : Unit → TransState → _root_.Env → Prop}
-          (h : SeqM.eval (SpecFn.declare info.sd.fn axs) st ρ Q') :=
-        SpecFn.declare_correct rel.name info.sd.f axs R F D env.signature env.specFunctions st ρ
-          hf.relFresh hf.funcFresh hf.defFresh hgraph hacc.symm howns hvars
-          (hf.sigBoth_wf hΔwf_acc) hΓwf_acc hΓagree
-          (fun ax hax => by
-            have := Skolemize.encode_wfIn hlawsd hinfoEq (hΔsd ▸ hΔwf_acc)
-              (hΓsd ▸ hΔsd ▸ hΓwf_acc) hsdFresh ax (hsub ax hax)
-            rwa [hΔsd, hfnsd] at this)
-          (fun ax hax => haxeval ax (hsub ax hax)) (hfnsd ▸ h)
-      -- Every encoded axiom holds once the three symbols are declared, whether
-      -- or not it stays in the context.
-      have hcurrent {st' : TransState} {ρ' : _root_.Env}
-          (hd : st'.decls = ((env.signature.addBinaryRel (SpecFn.rel rel.name)).addUnary
-            (SpecFn.func rel.name)).addUnaryRel (SpecFn.defined rel.name))
-          (hρ : ρ' = SpecFn.Env.both ρ rel.name R D F) :
-          ∀ ax ∈ info.axs, ax.formula.wfIn st'.decls ∧ ax.formula.eval ρ' := by
-        intro ax hax
-        refine ⟨?_, hρ ▸ haxeval ax hax⟩
-        rw [hd, ← hΔsd, ← hfnsd]
-        exact Skolemize.encode_wfIn hlawsd hinfoEq (hΔsd ▸ hΔwf_acc)
-          (hΓsd ▸ hΔsd ▸ hΓwf_acc) hsdFresh ax hax
-      -- Either form declares a sublist of the encoded axioms. A measure then
-      -- adds the totality assertion, which touches no field the invariant reads.
-      have hrun : ∃ axs, (∀ ax ∈ axs, ax ∈ info.axs) ∧
-          SeqM.eval (SpecFn.declare info.sd.fn axs) st ρ
-            (fun _ st' ρ' =>
-              st'.decls = ((env.signature.addBinaryRel (SpecFn.rel rel.name)).addUnary
-                (SpecFn.func rel.name)).addUnaryRel (SpecFn.defined rel.name) →
-              ρ' = SpecFn.Env.both ρ rel.name R D F →
-              ∃ st'', st''.decls = st'.decls ∧ st''.owns = st'.owns ∧
-                Q info.env st'' ρ') := by
-        have h := SeqM.eval_bind heval
-        cases hm : d.decreases with
-        | none =>
-          simp only [RelationDecl.declare, hm] at h
-          exact ⟨_, Skolemize.encode_persistent hinfoEq,
-            SeqM.eval_mono h fun _ st' _ hQ _ _ => ⟨st', rfl, rfl, SeqM.eval_ret hQ⟩⟩
-        | some m =>
-          simp only [RelationDecl.declare, hm] at h
-          refine ⟨_, Skolemize.encode_persistent hinfoEq, SeqM.eval_mono (SeqM.eval_bind h) ?_⟩
-          intro _ st' ρ' hc hd' hρ'
-          have hclose : ∀ v, info.bv.defined.eval (ρ'.updateConst .value info.sd.x v) →
-              (info.sd.fn.isDefined (.var .value info.sd.x)).eval
-                (ρ'.updateConst .value info.sd.x v) := by
-            rw [hρ']; exact Skolemize.encode_closed hinfoEq haxeval
-          obtain ⟨hproof, hcont⟩ := SeqM.eval_check (SeqM.eval_bind hc)
-          have hlocal := fun ax (hax : ax ∈ Skolemize.SpecFn.Axioms.withheld
-              rel.transparency info.sd.fn info.sd.x info.bv) =>
-            hcurrent hd' hρ' ax (Skolemize.encode_withheld hinfoEq ax hax)
-          obtain ⟨st₀, hd₀, _, _, hcheck⟩ := VerifM.eval_assumeAxioms
-            (VerifM.eval_bind hproof) (fun ax hax => (hlocal ax hax).1)
-            (fun ax hax => (hlocal ax hax).2)
-          obtain ⟨hwt, ht, _⟩ := Termination.check_correct hclose hcheck
-          exact ⟨{ st' with asserts := Termination.total info.sd.fn info.sd.x :: st'.asserts },
-            rfl, rfl, SeqM.eval_ret (SeqM.eval_assume hcont (hd₀ ▸ hwt) ht)⟩
-      obtain ⟨axs, hsub, hrun⟩ := hrun
-      obtain ⟨st4, ρ4, hρ4, hst4_decls, howns4, hvars4, hwf4, hsub4, hagree4,
-        hΓwf4, hΓagree4, hcont⟩ := hdecl axs hsub hrun
-      obtain ⟨st5, hst5_decls, howns5, hQ5⟩ := hcont hst4_decls hρ4
-      refine ⟨info.env, st5, ρ4, ⟨hspec_reg.trans hreg, hspec_types.trans htypes, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩, ?_, hagree4,
-        hQ5⟩
-      · rw [hspec_delta, hst5_decls, hst4_decls]
-      · rw [howns5, howns4]
-      · rw [hst5_decls]; exact hvars4
-      · rw [hst5_decls]; exact hwf4
-      · rw [hspec_fm, hst5_decls]; exact hΓwf4
-      · rw [hspec_fm]; exact hΓagree4
-      · rw [hst5_decls]
-        intro l hl
-        rcases hspec_lemmas l hl with hl' | hfact
-        · exact (hu l hl').mono hsub4 hagree4 hwf4
-        · simp only [Lemma.Sound, hfact]
-          exact hcurrent hst4_decls hρ4 _ (Skolemize.encode_equation hinfoEq)
-      · rw [hst5_decls]; exact hsub4
-
-omit [MicaGS HasLC.hasLC Sig] in
-/-- Compiling and declaring one lifted bounded quantifier preserves `SpecInv`. -/
-private theorem declareLifting_correct {reg : Registry} {Θ : TinyML.TypeEnv}
-    (hlaw : reg.primitives.Lawful) (s : Verifier.BoundedQuantifier.Lifting)
-    (env : Env) (st : TransState) (ρ : _root_.Env)
-    {Q : Env → TransState → _root_.Env → Prop}
-    (hinv : SpecInv reg Θ env st ρ)
-    (heval : SeqM.eval (declareLifting env s) st ρ Q) :
-    ∃ env' st' ρ', SpecInv reg Θ env' st' ρ' ∧
-      st.decls.Subset st'.decls ∧ Env.agreeOn st.decls ρ ρ' ∧
-      Q env' st' ρ' := by
-  obtain ⟨hreg, htypes, hacc, howns, hvars, hwf, hΓwf, hΓagree, hu⟩ := hinv
-  simp only [declareLifting] at heval
-  cases hvalid : s.validate env.signature with
-  | error msg =>
-    simp only [hvalid] at heval
-    exact (SeqM.eval_fatal heval).elim
-  | ok v =>
-    simp only [hvalid] at heval
-    cases hcompile : s.compile env.registry.primitives env.specFunctions env.signature with
-    | error msg =>
-      simp only [hcompile] at heval
-      exact (SeqM.eval_fatal heval).elim
-    | ok body =>
-      simp only [hcompile] at heval
-      have hbody := Verifier.BoundedQuantifier.Lifting.compile_wfIn (hreg ▸ hlaw)
-        v.down (hacc ▸ hwf) (hacc ▸ hΓwf) hcompile
-      obtain ⟨st4, ρ4, hdelta, howns4, hvars4, hwf4, hsub4, hagree4,
-        hΓwf4, hΓagree4, hcont⟩ :=
-        Verifier.BoundedQuantifier.Lifting.declare_correct s body env.signature
-          env.specFunctions st ρ v.down hbody hacc.symm howns hvars
-          (hacc ▸ hwf) (hacc ▸ hΓwf) hΓagree (SeqM.eval_bind heval)
-      exact ⟨{ env with
-               specFunctions := env.specFunctions ++ [(s.name, s.name)],
-               signature := s.extendSignature env.signature }, st4, ρ4,
-        ⟨hreg, htypes, hdelta.symm, howns4, hvars4, hwf4, hΓwf4, hΓagree4, hu.mono hsub4 hagree4 hwf4⟩,
-        hsub4, hagree4, SeqM.eval_ret hcont⟩
-
-omit [MicaGS HasLC.hasLC Sig] in
-private theorem declareLiftings_correct {reg : Registry} {Θ : TinyML.TypeEnv}
-    (hlaw : reg.primitives.Lawful) (ss : List Verifier.BoundedQuantifier.Lifting) :
-    ∀ (env : Env) (st : TransState) (ρ : _root_.Env)
-      {Q : Env → TransState → _root_.Env → Prop},
-      SpecInv reg Θ env st ρ →
-      SeqM.eval (declareLiftings env ss) st ρ Q →
-      ∃ result stRel ρRel, SpecInv reg Θ result stRel ρRel ∧
-        st.decls.Subset stRel.decls ∧ Env.agreeOn st.decls ρ ρRel ∧
-        Q result stRel ρRel := by
-  induction ss with
-  | nil =>
-    intro env st ρ Q hinv heval
-    simp only [declareLiftings] at heval
-    exact ⟨env, st, ρ, hinv, Signature.Subset.refl _, Env.agreeOn_refl,
-      SeqM.eval_ret heval⟩
-  | cons s ss ih =>
-    intro env st ρ Q hinv heval
-    simp only [declareLiftings] at heval
-    obtain ⟨env1, st1, ρ1, hinv1, hsub1, hag1, hcont1⟩ :=
-      declareLifting_correct hlaw s env st ρ hinv (SeqM.eval_bind heval)
-    obtain ⟨result, stRel, ρRel, hinvRel, hsubRel, hagRel, hQ⟩ :=
-      ih env1 st1 ρ1 hinv1 hcont1
-    exact ⟨result, stRel, ρRel, hinvRel, hsub1.trans hsubRel,
-      Env.agreeOn_trans hag1 (Env.agreeOn_mono hsub1 hagRel), hQ⟩
-
-end Verifier.Env
-
-namespace Verifier
-
-open Typed (SpecEnv)
-
-/-! ## Elaboration -/
 
 /-- The environment elaboration resolves specifications against: the registry's
 primitives, and leaf translation through bounded-quantifier lifting followed by
@@ -533,7 +744,7 @@ end Verifier
 
 namespace Verifier
 
-variable {env env' : Env} {S : Scope} {st st' : TransState} {ρ ρ' : _root_.Env}
+variable {env env' : Env} {S : Scope} {st st' : State} {ρ ρ' : _root_.Env}
   {γ : Runtime.Subst}
 
 /-! ## Declaring -/
@@ -547,7 +758,7 @@ private theorem checkTypeDeclaration_ok {Δ : Signature} {Θ : TinyML.TypeEnv}
   exact TinyML.Typ.checkWfList_ok _ h
 
 theorem Decl.declare_correct {d : Untyped.Decl Untyped.SpecBody}
-    {Q : Env × Option Typed.ValDecl → TransState → _root_.Env → Prop}
+    {Q : Env × Option Typed.ValDecl → State → _root_.Env → Prop}
     (henv : env.supportedBy st ρ) (hS : S.supportedBy env st ρ γ)
     (howns : st.owns = []) (hvars : st.decls.vars = [])
     (heval : SeqM.eval (Decl.declare env d) st ρ Q) :
@@ -624,10 +835,10 @@ theorem Decl.declare_correct {d : Untyped.Decl Untyped.SpecBody}
 
 /-- The body runs safely, and a frame `Φ` survives it. -/
 theorem ValDecl.checkBody_correct (env : Env) (W : TinyML.World) (henv : env.wf W)
-    (Gf : GhostFns) (B : Bindings) (Γ : TinyML.TyCtx) (d : Typed.ValDecl) (γ : Runtime.Subst)
-    (st : TransState) (ρ : _root_.Env)
+    (Gf : GhostFunctions) (B : Bindings) (Γ : TinyML.TyCtx) (d : Typed.ValDecl) (γ : Runtime.Subst)
+    (st : State) (ρ : _root_.Env)
     (hS : (⟨Gf, Bindings.empty, B, Γ⟩ : Scope).wfIn W st.decls ρ Runtime.Subst.id γ)
-    {Q : Unit → TransState → _root_.Env → Prop}
+    {Q : Unit → State → _root_.Env → Prop}
     (heval : VerifM.eval (ValDecl.checkBody env ⟨Gf, Bindings.empty, B, Γ⟩ d) st ρ Q) (Φ : iProp) :
     □ st.sl W ρ ∗ Bindings.typedSubst W B Γ γ ∗ Φ ⊢
       wp W.pctx (d.body.runtime.subst γ) (fun _ => Φ) := by
@@ -655,13 +866,13 @@ theorem ValDecl.checkBody_correct (env : Env) (W : TinyML.World) (henv : env.wf 
     Stated without a `wp` for the same reason as `compileFix_typed`: the caller
     needs it once per assignment. -/
 theorem ValDecl.checkBody_typed (env : Env) (W : TinyML.World) (henv : env.wf W)
-    (Gf : GhostFns) (B : Bindings) (Γ : TinyML.TyCtx) (d : Typed.ValDecl) (γ : Runtime.Subst)
+    (Gf : GhostFunctions) (B : Bindings) (Γ : TinyML.TyCtx) (d : Typed.ValDecl) (γ : Runtime.Subst)
     (self : Typed.Binder) (args : List Typed.Binder) (retTy : TinyML.Typ)
     (s : Spec TinyML.Typ) (body : Typed.Expr)
     (hbody : d.body = .fix self args retTy (some s) body)
-    (st : TransState) (ρ : _root_.Env)
+    (st : State) (ρ : _root_.Env)
     (hS : (⟨Gf, Bindings.empty, B, Γ⟩ : Scope).wfIn W st.decls ρ Runtime.Subst.id γ)
-    {Q : Unit → TransState → _root_.Env → Prop}
+    {Q : Unit → State → _root_.Env → Prop}
     (heval : VerifM.eval (ValDecl.checkBody env ⟨Gf, Bindings.empty, B, Γ⟩ d) st ρ Q) :
     Bindings.typedSubst W B Γ γ ⊢
       TinyML.ValHasType W
@@ -678,7 +889,7 @@ theorem ValDecl.checkBody_typed (env : Env) (W : TinyML.World) (henv : env.wf W)
     (compileFix_typed env W henv _ Runtime.Subst.id γ self args retTy s body
       (compile_correct body) hS hc)
 
-theorem Decl.check_correct {d : Typed.ValDecl} {Q : Env × Scope → TransState → _root_.Env → Prop}
+theorem Decl.check_correct {d : Typed.ValDecl} {Q : Env × Scope → State → _root_.Env → Prop}
     (henv : env.supportedBy st ρ) (hS : S.supportedBy env st ρ γ) (hG : S.ghostBindings = [])
     (howns : st.owns = []) (hvars : st.decls.vars = [])
     (heval : SeqM.eval (Decl.check env S d) st ρ Q) (P : Runtime.Program)
@@ -701,18 +912,18 @@ theorem Decl.check_correct {d : Typed.ValDecl} {Q : Env × Scope → TransState 
     ValDecl.ghostEntries_correct env _ hW Gf d hag hS.ghostFns (SeqM.eval_bind heval)
   replace hfnwf : fn.wfIn st.decls env.typeDeclarations :=
     hsig ▸ (hfnwf : fn.wfIn env.signature env.typeDeclarations)
-  have hsl : ⊢ □ st.sl (env.world ρ) ρ := TransState.sl_of_owns_nil howns
+  have hsl : ⊢ □ st.sl (env.world ρ) ρ := State.sl_of_owns_nil howns
   cases hmode : d.mode with
   | ghost =>
     simp only [hmode] at heval
     obtain ⟨entry, hentrywf, hentry, heval⟩ :=
       ValDecl.checkGhost_correct env _ hW Gf d hag hS.ghostFns (SeqM.eval_bind heval)
-    replace hentrywf : GhostFns.wfIn st.decls env.typeDeclarations [entry] :=
-      hsig ▸ (hentrywf : GhostFns.wfIn env.signature env.typeDeclarations [entry])
+    replace hentrywf : GhostFunctions.wfIn st.decls env.typeDeclarations [entry] :=
+      hsig ▸ (hentrywf : GhostFunctions.wfIn env.signature env.typeDeclarations [entry])
     have hk' := hk env ⟨fn ++ entry :: Gf, [], B.remove entry.1, Γ⟩ st ρ γ henv
       { closed := hS.closed
         types := hS.types
-        ghostFnsWf := GhostFns.wfIn_append hfnwf (GhostFns.wfIn_append hentrywf hS.ghostFnsWf)
+        ghostFnsWf := GhostFunctions.wfIn_append hfnwf (GhostFunctions.wfIn_append hentrywf hS.ghostFnsWf)
         ghostFns := hfn.append (hentry.append hS.ghostFns)
         runtimeLinked := Bindings.agreeOnLinked_remove hS.runtimeLinked entry.1
         runtimeDeclared := Bindings.wfIn_remove hS.runtimeDeclared entry.1 }
@@ -740,7 +951,7 @@ theorem Decl.check_correct {d : Typed.ValDecl} {Q : Env × Scope → TransState 
       have hk' := hk env ⟨fn ++ Gf, [], B, Γ⟩ st ρ γ henv
         { closed := hS.closed
           types := hS.types
-          ghostFnsWf := GhostFns.wfIn_append hfnwf hS.ghostFnsWf
+          ghostFnsWf := GhostFunctions.wfIn_append hfnwf hS.ghostFnsWf
           ghostFns := hfn.append hS.ghostFns
           runtimeLinked := hS.runtimeLinked
           runtimeDeclared := hS.runtimeDeclared }
@@ -770,7 +981,7 @@ theorem Decl.check_correct {d : Typed.ValDecl} {Q : Env × Scope → TransState 
             env st ρ (γ.update n v) := fun v =>
           { closed := hS.closed
             types := hS.types
-            ghostFnsWf := GhostFns.wfIn_append hfnwf (GhostFns.wfIn_remove hS.ghostFnsWf n)
+            ghostFnsWf := GhostFunctions.wfIn_append hfnwf (GhostFunctions.wfIn_remove hS.ghostFnsWf n)
             ghostFns := hfn.append (hS.ghostFns.remove n)
             runtimeLinked := Bindings.agreeOnLinked_remove_update hS.runtimeLinked n v
             runtimeDeclared := Bindings.wfIn_remove hS.runtimeDeclared n }
@@ -785,13 +996,13 @@ theorem Decl.check_correct {d : Typed.ValDecl} {Q : Env × Scope → TransState 
             rw [hbody]; conv_lhs => unfold Typed.Expr.WithTypeVars.runtime
             simp only [Runtime.Expr.subst_fix]
           rw [hbody_rt]
-          apply SpatialContext.wp_func
+          apply PrimitiveLaws.wp_func
           exact Bindings.schemeSubst_remove_update.trans
             (hk env ⟨fn ++ Gf.remove n, [], B.remove n, Γ⟩ st ρ _ henv (hS' _) rfl howns hvars rfl hQ)
         · rw [if_pos (by simpa using hf)] at heval
           obtain ⟨hchk, heval⟩ := SeqM.eval_check (SeqM.eval_bind heval)
           have hwp := ValDecl.checkBody_correct env _ hW Gf B Γ d γ st ρ hSwf hchk iprop(emp)
-          refine SpatialContext.wp_strengthen_persistent (P := fun _ => iprop(emp)) (hwp := ?_)
+          refine PrimitiveLaws.wp_strengthen_persistent (P := fun _ => iprop(emp)) (hwp := ?_)
             (hpost := fun v => ?_)
           · istart
             iintro #H
@@ -815,7 +1026,7 @@ theorem Decl.check_correct {d : Typed.ValDecl} {Q : Env × Scope → TransState 
         set v := Runtime.Val.fix self.runtime (args.map (·.runtime))
           (body.runtime.subst ((γ.remove' self.runtime).removeAll' (args.map (·.runtime))))
         set ρ₁ := ρ.updateConst .value fv.name v
-        set st₁ : TransState := { st with decls := st.decls.addConst fv }
+        set st₁ : State := { st with decls := st.decls.addConst fv }
         set env₁ : Env := { env with signature := env.signature.addConst fv }
         have hwf₁ : st₁.decls.wf := Signature.wf_addConst hst.namesDisjoint hfresh
         have hsub₁ : st.decls.Subset st₁.decls := Signature.Subset.subset_addConst _ _
@@ -835,7 +1046,7 @@ theorem Decl.check_correct {d : Typed.ValDecl} {Q : Env × Scope → TransState 
             interpretations := Registry.symAgree_agreeOn henv.interpretations henv.symbols hag₁
             types := fun T dd hT p hp =>
               TinyML.Typ.wfIn_mono hsub₁ hwf₁ (fun _ _ h => h) (henv.types T dd hT p hp) }
-        have hfnwf' := GhostFns.wfIn_append hfnwf (GhostFns.wfIn_remove hS.ghostFnsWf n)
+        have hfnwf' := GhostFunctions.wfIn_append hfnwf (GhostFunctions.wfIn_remove hS.ghostFnsWf n)
         have hS₁ : Scope.supportedBy ⟨fn ++ Gf.remove n, [], (n, fv) :: B,
             Γ.extendScheme n (TinyML.Scheme.gen d.body.ty)⟩ env₁ st₁ ρ₁ (γ.update n v) :=
           { closed := hS.closed.extendScheme n (TinyML.Scheme.gen_free _)
@@ -848,8 +1059,8 @@ theorem Decl.check_correct {d : Typed.ValDecl} {Q : Env × Scope → TransState 
               · have hx' : Γ x = some s := by
                   simpa [TinyML.TyCtx.extendScheme, hxn] using hx
                 exact TinyML.Typ.wfIn_mono hsub₁ hwf₁ (fun _ _ h => h) (hS.types x s hx')
-            ghostFnsWf := GhostFns.wfIn_mono hfnwf' hsub₁ hwf₁ fun _ _ h => h
-            ghostFns := GhostFns.wellTyped_of_subset hW₁ (Env.typesWf_of_supportedBy henv)
+            ghostFnsWf := GhostFunctions.wfIn_mono hfnwf' hsub₁ hwf₁ fun _ _ h => h
+            ghostFns := GhostFunctions.wellTyped_of_subset hW₁ (Env.typesWf_of_supportedBy henv)
               (by simpa [Env.world, hsig] using hfnwf') (hfn.append (hS.ghostFns.remove n))
             runtimeLinked := Bindings.agreeOnLinked_cons_update
               (Bindings.agreeOnLinked_agreeOn hS.runtimeLinked hag₁ hS.runtimeDeclared) rfl
@@ -871,7 +1082,7 @@ theorem Decl.check_correct {d : Typed.ValDecl} {Q : Env × Scope → TransState 
             (TinyML.World.subset_refl _) (TinyML.World.subset_withEta hW₁ η')
             (Env.typesWf_of_supportedBy henv)) (by simpa [Env.world, hsig] using hty) v).1
         rw [Typed.Expr.runtime_subst_of_fix hbody]
-        refine SpatialContext.wp_func ?_
+        refine PrimitiveLaws.wp_func ?_
         refine BIBase.Entails.trans ?_ hk'
         istart
         iintro #H
@@ -883,7 +1094,7 @@ theorem Decl.check_correct {d : Typed.ValDecl} {Q : Env × Scope → TransState 
           iexact H
 
 theorem Decl.declareAndCheck_correct {d : Untyped.Decl Untyped.SpecBody}
-    {Q : Env × Scope → TransState → _root_.Env → Prop}
+    {Q : Env × Scope → State → _root_.Env → Prop}
     (henv : env.supportedBy st ρ) (hS : S.supportedBy env st ρ γ) (hG : S.ghostBindings = [])
     (howns : st.owns = []) (hvars : st.decls.vars = [])
     (heval : SeqM.eval (Decl.declareAndCheck env S d) st ρ Q) (P : Runtime.Program)

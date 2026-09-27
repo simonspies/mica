@@ -8,19 +8,20 @@
 - `Context.lean` — The environment and the scope the compilers work in, with the invariants that tie them to a world and a verifier state.
 - `Declaration.lean` — One declaration at a time: elaborate it, declare the spec functions it defines, check it, and bind what it defines for the declarations after it.
 - `Expressions.lean` — Compilation of typed TinyML expressions into verifier terms, with weakest-precondition correctness proofs.
-- `Ghost.lean` — Compilation and verification of the ghost fragment: ghost expressions, ghost declarations with a termination measure, and the ghost entries a declaration contributes.
+- `FiniteSubst.lean` — Finite substitutions for the verifier, with their well-formedness and evaluation lemmas.
+- `Ghost.lean` — Compilation of ghost expressions into verifier terms, with entailment correctness proofs.
+- `GhostFunctions.lean` — The ghost functions in scope: their types, the guard on the declaration being checked, and the specs they meet.
 - `Guard.lean` — The guard constant deactivating quantified axioms in low-effort checks, effort levels, and guarded axioms.
-- `Interpretations.lean` — Iris interpretations of spatial atoms and contexts, with lemmas relating syntax to separation-logic assertions.
 - `Intrinsic.lean` — Data model for verifier intrinsics, with generic theorems characterizing the effect of registry setup.
 - `Lemma.lean` — Facts kept out of the solver context, which a check takes into its query or publishes as a ghost function.
 - `Monad.lean` — Verification monad with SMT operations, branching, and its operational and semantic correctness interfaces.
+- `Ownership.lean` — Finding, consuming, and acquiring ownership of spatial atoms in the verifier state.
 - `PredicateTransformers.lean` — Verifier operations on predicate transformers: the call and implementation protocols and their well-formedness.
 - `PrimitiveLaws.lean` — Spatially lifted weakest-precondition laws for TinyML primitive operations.
 - `Programs.lean` — Verification of whole programs, one declaration after the other, and program-level soundness.
 - `RelationalEncoding.lean` — Bundle for RelationalEncoding/, the two-stage encoding and termination checks for specification functions.
-- `Scoped.lean` — Scoped SMT command language and its translation to solver strategies and flat contexts.
 - `Seq.lean` — The sequential verification monad: declarations, assumptions, and bracketed checks, composed without branching so that a run returns a value.
-- `SpatialAtom.lean` — Syntactic spatial atoms and contexts for verifier state, together with their well-formedness conditions and basic operations.
+- `SpatialAtom.lean` — Spatial atoms and contexts of the verifier state: their well-formedness, basic operations, and Iris interpretation.
+- `SpecFunctions.lean` — Declaration of spec functions: the solver symbols of `[@@fn]` functions, their defining axioms, and the checks of their measures.
 - `Specifications.lean` — Verifier operations on function specifications: the call and implementation protocols and their correctness.
 - `State.lean` — Verifier state and environments, together with their well-formedness conditions and fresh-name infrastructure.
-- `Utils.lean` — Supporting infrastructure for verifier finite substitutions and argument-handling helpers.
