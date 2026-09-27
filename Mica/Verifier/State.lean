@@ -6,23 +6,6 @@ import Mica.Verifier.SpatialAtom
 
 open Iris Iris.BI
 
-structure TransState where
-  decls   : Signature
-  asserts : Context
-  owns    : SpatialContext
-
-inductive CtxItem where
-  | pure : Formula → CtxItem
-  | spatial : SpatialAtom → CtxItem
-
-namespace CtxItem
-
-def wfIn : CtxItem → Signature → Prop
-  | .pure φ, Δ => φ.wfIn Δ
-  | .spatial a, Δ => a.wfIn Δ
-
-end CtxItem
-
 namespace VerifM
 
 /-- Builtin declarations the verifier requires in a signature; extend with a
@@ -47,6 +30,18 @@ theorem Builtins.holdsFor.agree {Δ : Signature} {ρ ρ' : Env}
   ⟨h.guard.agree hΔ.guard hagree⟩
 
 end VerifM
+
+inductive CtxItem where
+  | pure : Formula → CtxItem
+  | spatial : SpatialAtom → CtxItem
+
+namespace CtxItem
+
+def wfIn : CtxItem → Signature → Prop
+  | .pure φ, Δ => φ.wfIn Δ
+  | .spatial a, Δ => a.wfIn Δ
+
+end CtxItem
 
 /-- Semantic interpretation of a verifier context item. -/
 def CtxItem.interp [MicaGS HasLC.hasLC Sig] (W : TinyML.World)
@@ -85,6 +80,11 @@ theorem CtxItem.interp_facts [MicaGS HasLC.hasLC Sig] (W : TinyML.World)
     · iexact H
   | spatial a =>
     exact SpatialAtom.interp_facts W a
+
+structure TransState where
+  decls   : Signature
+  asserts : Context
+  owns    : SpatialContext
 
 def TransState.sl [MicaGS HasLC.hasLC Sig] (W : TinyML.World)
     (st : TransState) (ρ : Env) : iProp :=
